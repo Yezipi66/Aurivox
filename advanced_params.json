@@ -1,0 +1,10 @@
+{
+  "temperature": 0.8,
+  "top_k": 20,
+  "top_p": 1,
+  "repetition_penalty": 1.35,
+  "text_split_method": "cut5",
+  "speed_factor": 1,
+  "seed": -1,
+  "updated_at": "2026-06-26T08:01:13.093Z"
+}

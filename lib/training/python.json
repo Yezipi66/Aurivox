@@ -1,0 +1,4 @@
+{
+  "python": "./venv/Scripts/python.exe",
+  "description": "项目 Python 环境 (Python 3.11, torch 2.2.0+cu121)"
+}

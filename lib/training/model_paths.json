@@ -1,0 +1,24 @@
+{
+  "gsv_tools_dir": "./lib/training/gsv-tools",
+  "models": {
+    "s1": "./lib/training/gsv-tools/pretrained/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+    "s2G_v2pro": "./lib/training/gsv-tools/pretrained/v2Pro/s2Gv2Pro.pth",
+    "s2G_v2pro_plus": "./lib/training/gsv-tools/pretrained/v2Pro/s2Gv2ProPlus.pth",
+    "s2D_v2pro": "./lib/training/gsv-tools/pretrained/v2Pro/s2Dv2Pro.pth",
+    "s2D_v2pro_plus": "./lib/training/gsv-tools/pretrained/v2Pro/s2Dv2ProPlus.pth",
+    "cnhubert_base": "./lib/training/gsv-tools/pretrained/chinese-hubert-base",
+    "bert": "./lib/training/gsv-tools/pretrained/chinese-roberta-wwm-ext-large",
+    "bigvgan": "./lib/training/gsv-tools/pretrained/bigvgan/bigvgan_generator.pt",
+    "fast_langdetect": "./lib/training/gsv-tools/pretrained/fast_langdetect/lid.176.bin",
+    "uvr5_weights": "./lib/training/gsv-tools/uvr5/uvr5_weights",
+    "s1_train": "./lib/training/gsv-tools/s1_train.py",
+    "s2_train": "./lib/training/gsv-tools/s2_train.py",
+    "slicer2": "./lib/training/gsv-tools/slicer2.py",
+    "asr_funasr": "./lib/training/gsv-tools/asr/funasr_asr.py",
+    "asr_fasterwhisper": "./lib/training/gsv-tools/asr/fasterwhisper_asr.py",
+    "asr_model": "./lib/training/gsv-tools/asr/faster-whisper-large-v3-turbo",
+    "funasr_zh": "./lib/training/gsv-tools/asr/models/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+    "funasr_vad": "./lib/training/gsv-tools/asr/models/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+    "funasr_punc": "./lib/training/gsv-tools/asr/models/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+  }
+}

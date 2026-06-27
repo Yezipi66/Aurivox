@@ -1,0 +1,20 @@
+{
+  "LaPlama": {
+    "display_name": "LaPlama",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Shamare_ja": {
+    "display_name": "Shamare_ja",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Raiden_en": {
+    "display_name": "Raiden_en",
+    "language": "en",
+    "prompt_lang": "en",
+    "text_lang": "en"
+  }
+}

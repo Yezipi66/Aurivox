@@ -1,0 +1,50 @@
+{
+  "Leizi": {
+    "display_name": "Leizi",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Platinum": {
+    "display_name": "Platinum",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Raiden_中文": {
+    "display_name": "Raiden_中文",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Raiden_日文": {
+    "display_name": "Raiden_日文",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Texas": {
+    "display_name": "Texas",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Raiden_en": {
+    "display_name": "Raiden_en",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "test_voice": {
+    "display_name": "test_voice",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "LaPlama": {
+    "display_name": "LaPlama",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  }
+}

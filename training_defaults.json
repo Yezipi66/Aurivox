@@ -1,0 +1,78 @@
+{
+  "version": "1.0",
+  "description": "TTS Training Pipeline \u9ed8\u8ba4\u53c2\u6570\u914d\u7f6e\u3002\u6b64\u6587\u4ef6\u627f\u62c5\u914d\u7f6e\u5b58\u50a8\u89d2\u8272\uff0c\u4fee\u6539\u540e\u9700\u91cd\u542f backend \u751f\u6548\u3002",
+  "steps": {
+    "denoise": {
+      "enabled_by_default": false,
+      "label": "\u53bb\u4eba\u58f0",
+      "description": "\u4ece\u539f\u59cb\u97f3\u9891\u4e2d\u5206\u79bb\u4eba\u58f0\uff0c\u53bb\u9664\u80cc\u666f\u97f3\u4e50\u548c\u566a\u97f3\u3002\u539f\u59cb\u97f3\u9891\u5df2\u7ecf\u662f\u7eaf\u4eba\u58f0\u65f6\u53ef\u5173\u95ed\u3002",
+      "params": {
+        "model": "mdx-net",
+        "threshold": 0.5
+      }
+    },
+    "slice": {
+      "enabled_by_default": false,
+      "label": "\u8bed\u97f3\u5207\u7247",
+      "description": "\u5c06\u957f\u97f3\u9891\u6309\u9759\u97f3\u5207\u5206\u6210\u77ed\u7247\u6bb5\uff083-15\u79d2\uff09\u3002\u539f\u59cb\u97f3\u9891\u5df2\u7ecf\u662f\u77ed\u7247\u6bb5\u65f6\u53ef\u5173\u95ed\u3002",
+      "params": {
+        "min_duration_sec": 3,
+        "max_duration_sec": 15,
+        "silence_threshold_db": -40,
+        "min_silence_sec": 0.5
+      }
+    },
+    "asr": {
+      "enabled_by_default": false,
+      "label": "\u8bed\u97f3\u8bc6\u522b",
+      "description": "\u81ea\u52a8\u8bc6\u522b\u97f3\u9891\u4e2d\u7684\u6587\u672c\uff0c\u751f\u6210\u53c2\u8003\u6587\u672c\u3002\u5982\u679c\u5df2\u6709\u6587\u672c\u53ef\u5173\u95ed\u3002",
+      "params": {
+        "engine": "auto",
+        "engines": {
+          "zh": {
+            "engine": "funasr",
+            "label": "\u8fbe\u6469 ASR",
+            "description": "\u4e2d\u6587/\u7ca4\u8bed\u4e13\u7528\uff0c\u7cbe\u5ea6\u9ad8",
+            "model": "speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+          },
+          "yue": {
+            "engine": "funasr",
+            "label": "\u8fbe\u6469 ASR (\u7ca4\u8bed)",
+            "description": "\u7ca4\u8bed\u4e13\u7528\u6a21\u578b",
+            "model": "speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online"
+          },
+          "ja": {
+            "engine": "faster-whisper",
+            "label": "Faster Whisper",
+            "description": "\u65e5\u8bed/\u901a\u7528\u591a\u8bed\u79cd",
+            "model": "large-v3"
+          },
+          "en": {
+            "engine": "faster-whisper",
+            "label": "Faster Whisper",
+            "description": "\u82f1\u8bed/\u901a\u7528\u591a\u8bed\u79cd",
+            "model": "large-v3"
+          },
+          "ko": {
+            "engine": "faster-whisper",
+            "label": "Faster Whisper",
+            "description": "\u97e9\u8bed/\u901a\u7528\u591a\u8bed\u79cd",
+            "model": "large-v3"
+          },
+          "default": {
+            "engine": "faster-whisper",
+            "label": "Faster Whisper",
+            "description": "\u9ed8\u8ba4\u591a\u8bed\u79cd",
+            "model": "large-v3"
+          }
+        }
+      }
+    }
+  },
+  "training": {
+    "gpt_epochs": 3,
+    "sovits_epochs": 3,
+    "batch_size": "auto",
+    "learning_rate": "default"
+  }
+}

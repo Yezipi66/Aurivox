@@ -1,0 +1,157 @@
+import subprocess, os, sys
+
+PYTHON = "D:/Project/tts_broker_openai_compat/venv/Scripts/python.exe"
+GSV_CODE = "D:/Project/tts_broker_openai_compat/lib/training/gsv-code"
+GSV_TOOLS = "D:/Project/tts_broker_openai_compat/lib/training/gsv-tools"
+PROJECT = "D:/Project/tts_broker_openai_compat"
+
+work_dir = "D:/Project/tts_broker_openai_compat/test_raiden/日文"
+name2text = os.path.join(work_dir, "2-name2text.txt")
+
+MODELS = {
+    "bert": os.path.join(GSV_TOOLS, "pretrained", "chinese-roberta-wwm-ext-large"),
+    "cnhubert": os.path.join(GSV_TOOLS, "pretrained", "chinese-hubert-base"),
+    "s2G": os.path.join(GSV_TOOLS, "pretrained", "v2Pro", "s2Gv2Pro.pth"),
+    "s1": os.path.join(GSV_TOOLS, "pretrained", "gsv-v2final", "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"),
+}
+
+# Build env with PYTHONPATH set correctly
+def make_env(extra):
+    env = {k: v for k, v in os.environ.items() if k != 'PYTHONPATH'}
+    env['PYTHONPATH'] = PROJECT + os.pathsep + GSV_CODE
+    env['PYTHONUNBUFFERED'] = '1'
+    env.update(extra)
+    return env
+
+def run_step(desc, script, env_extra, timeout=600):
+    print(f"\n=== {desc} ===")
+    env = make_env(env_extra)
+    r = subprocess.run([PYTHON, script], capture_output=True, text=True, timeout=timeout, env=env)
+    print(f"  Exit: {r.returncode}")
+    if r.stdout: print(f"  stdout: {r.stdout[-500:]}")
+    if r.stderr: print(f"  stderr: {r.stderr[-500:]}")
+    if r.returncode != 0:
+        raise RuntimeError(f"Step failed: {desc}")
+    return r
+
+# Step 1: 1-get-text
+run_step("Step 1: BERT text features",
+    os.path.join(GSV_CODE, "prepare_datasets", "1-get-text.py"),
+    {"inp_text": name2text, "inp_wav_dir": "", "exp_name": "Raiden_JA",
+     "i_part": "0", "all_parts": "1", "opt_dir": work_dir,
+     "bert_pretrained_dir": MODELS["bert"], "is_half": "True",
+     "_CUDA_VISIBLE_DEVICES": "0"})
+
+n2t_path = os.path.join(work_dir, "2-name2text-0.txt")
+bert_dir = os.path.join(work_dir, "3-bert")
+print(f"  3-bert/: {len(os.listdir(bert_dir)) if os.path.exists(bert_dir) else 0} files")
+
+# Step 2: 2-get-hubert-wav32k
+n2t = n2t_path if os.path.exists(n2t_path) else name2text
+run_step("Step 2: CNHubert + wav32k",
+    os.path.join(GSV_CODE, "prepare_datasets", "2-get-hubert-wav32k.py"),
+    {"inp_text": n2t, "inp_wav_dir": os.path.join(work_dir, "wav"),
+     "exp_name": "Raiden_JA", "i_part": "0", "all_parts": "1",
+     "opt_dir": work_dir, "cnhubert_base_dir": MODELS["cnhubert"],
+     "is_half": "True", "_CUDA_VISIBLE_DEVICES": "0"})
+
+hubert_dir = os.path.join(work_dir, "4-cnhubert")
+wav32k_dir = os.path.join(work_dir, "5-wav32k")
+print(f"  4-cnhubert/: {len(os.listdir(hubert_dir)) if os.path.exists(hubert_dir) else 0} files")
+print(f"  5-wav32k/: {len(os.listdir(wav32k_dir)) if os.path.exists(wav32k_dir) else 0} files")
+
+# Step 3: 3-get-semantic
+run_step("Step 3: Semantic features",
+    os.path.join(GSV_CODE, "prepare_datasets", "3-get-semantic.py"),
+    {"inp_text": n2t, "exp_name": "Raiden_JA", "i_part": "0", "all_parts": "1",
+     "opt_dir": work_dir, "pretrained_s2G": MODELS["s2G"],
+     "s2config_path": os.path.join(GSV_CODE, "configs", "s2.json"),
+     "is_half": "True", "_CUDA_VISIBLE_DEVICES": "0"})
+
+semantic_path = os.path.join(work_dir, "6-name2semantic.tsv")
+print(f"  6-name2semantic.tsv: {os.path.exists(semantic_path)}")
+if os.path.exists(semantic_path):
+    with open(semantic_path, 'r', encoding='utf-8') as f:
+        print(f"  Lines: {len(f.readlines())}")
+
+# Step 4: S1 Training
+print(f"\n=== Step 4: S1 Training ===")
+s1_output = os.path.join(work_dir, "logs_s1", "Raiden_JA")
+os.makedirs(s1_output, exist_ok=True)
+
+import yaml as yaml_mod
+s1_config = {
+    "train": {
+        "seed": 1234, "epochs": 20, "batch_size": 8,
+        "save_every_n_epoch": 1, "precision": "16-mixed", "gradient_clip": 1.0,
+        "optimizer": {"lr": 0.01, "lr_init": 0.00001, "lr_end": 0.0001, "warmup_steps": 2000, "decay_steps": 40000},
+        "data": {"max_eval_sample": 8, "max_sec": 54, "num_workers": 4, "pad_val": 1024},
+        "model": {"vocab_size": 1025, "phoneme_vocab_size": 512, "embedding_dim": 512,
+                  "hidden_dim": 512, "head": 16, "linear_units": 2048, "n_layer": 24,
+                  "dropout": 0, "EOS": 1024, "random_bert": 0},
+        "inference": {"top_k": 5},
+    },
+    "output_dir": s1_output,
+    "pretrained_s1": MODELS["s1"],
+    "train_semantic_path": semantic_path,
+    "train_phoneme_path": n2t,
+}
+s1_config_path = os.path.join(work_dir, "s1_train_config.yaml")
+with open(s1_config_path, 'w', encoding='utf-8') as f:
+    yaml_mod.dump(s1_config, f)
+
+run_step("Step 4: S1 Training (20 epochs)",
+    os.path.join(GSV_CODE, "s1_train.py"),
+    {"CUDA_VISIBLE_DEVICES": "0"},
+    timeout=86400)
+
+# Step 5: S2 Training
+print(f"\n=== Step 5: S2 Training ===")
+s2_output = os.path.join(work_dir, "logs_s2", "Raiden_JA")
+exp_dir = os.path.join(s2_output, "44k")
+os.makedirs(exp_dir, exist_ok=True)
+
+# Copy data to exp dir
+for src_name in ["2-name2text.txt"]:
+    src = os.path.join(work_dir, src_name)
+    dst = os.path.join(exp_dir, src_name)
+    if os.path.exists(src) and not os.path.exists(dst):
+        shutil.copy2(src, dst)
+
+for src_name in ["4-cnhubert", "5-wav32k"]:
+    src = os.path.join(work_dir, src_name)
+    dst = os.path.join(exp_dir, src_name)
+    if os.path.exists(src) and not os.path.exists(dst):
+        shutil.copytree(src, dst)
+
+# Prepare s2 config
+s2_config_path = os.path.join(GSV_CODE, "configs", "s2.json")
+s2_config_backup = s2_config_path + ".bak"
+with open(s2_config_path, 'r', encoding='utf-8') as f:
+    s2_config = json.load(f)
+s2_config["s2_ckpt_dir"] = s2_output
+s2_config["train"]["epochs"] = 100
+s2_config["train"]["batch_size"] = 32
+s2_config["train"]["fp16_run"] = True
+if not os.path.exists(s2_config_backup):
+    shutil.copy2(s2_config_path, s2_config_backup)
+with open(s2_config_path, 'w', encoding='utf-8') as f:
+    json.dump(s2_config, f, indent=2)
+
+# Run s2 from GSV_CODE dir
+print(f"  cwd: {GSV_CODE}")
+env5 = make_env({"CUDA_VISIBLE_DEVICES": "0"})
+r5 = subprocess.run([PYTHON, "s2_train.py"], capture_output=True, text=True, timeout=86400, env=env5, cwd=GSV_CODE)
+
+# Restore config
+if os.path.exists(s2_config_backup):
+    shutil.copy2(s2_config_backup, s2_config_path)
+
+print(f"  S2 exit: {r5.returncode}")
+if r5.stdout: print(f"  stdout: {r5.stdout[-500:]}")
+if r5.stderr: print(f"  stderr: {r5.stderr[-500:]}")
+
+print(f"\n{'='*60}")
+print("  Pipeline complete!")
+print(f"  S1: {s1_output}")
+print(f"  S2: {s2_output}")
