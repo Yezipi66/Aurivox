@@ -9,8 +9,11 @@ const multer = require("multer");
 const { ASSETS_ROOT } = require('./lib/paths');
 
 const app = express();
-const PORT = 9886;
-const HOST = "127.0.0.1";
+// Environment-driven config with backward-compatible defaults
+const PORT = parseInt(process.env.BROKER_PORT || process.env.PORT || "9886", 10);
+const HOST = process.env.BROKER_HOST || process.env.HOST || "127.0.0.1";
+const API_KEY = process.env.API_KEY || process.env.BROKER_API_KEY || "";
+const GPT_SOVITS_BASE_URL = process.env.GPT_SOVITS_BASE_URL || "http://127.0.0.1:9880";
 
 const APP_DIR = __dirname;
 const VOICES_JSON = path.join(APP_DIR, "voices.json");
@@ -49,23 +52,40 @@ const upload = multer({
 });
 
 const crypto = require("crypto");
-const API_KEY = process.env.API_KEY || "";
 
 function isLoopback(req) {
   const ip = req.ip || req.connection?.remoteAddress || "";
   return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 }
 
+function validateHost(req, res, next) {
+  const host = req.headers.host || "";
+  const hostname = host.split(":")[0];
+  if (hostname !== "localhost" && hostname !== "127.0.0.1" && !isLoopback(req)) {
+    return res.status(403).json({ error: "Forbidden: Invalid Host header" });
+  }
+  next();
+}
+
+const REQUIRE_KEY_FOR_DESTRUCTIVE = process.env.REQUIRE_KEY_FOR_DESTRUCTIVE === "1";
+
 function requireApiKey(req, res, next) {
   // Local workstation (training/inference/asset management) — always allow loopback, never need key.
   // Only external (distribution) calls require key.
-  if (isLoopback(req)) {
+  if (isLoopback(req) && !REQUIRE_KEY_FOR_DESTRUCTIVE) {
     return next();
   }
   if (!API_KEY) {
     return res.status(401).json({ error: "API_KEY not configured for remote access." });
   }
-  const key = req.headers["x-api-key"] || "";
+  
+  // Support both 'x-api-key' and 'Authorization: Bearer ***'
+  let key = req.headers["x-api-key"] || "";
+  const authHeader = req.headers["authorization"] || "";
+  if (!key && authHeader.startsWith("Bearer ")) {
+    key = authHeader.slice(7).trim();
+  }
+
   // Timing-safe comparison to prevent side-channel attacks
   const a = Buffer.from(key);
   const b = Buffer.from(API_KEY);
@@ -109,6 +129,8 @@ function pickBestCkpt(list) {
 
 app.use(cors({ origin: "http://127.0.0.1:5173" }));
 app.use(express.json({ limit: "10mb" }));
+app.use(validateHost);
+
 
 // ---- Static: assets/ for audio playback ----
 app.use("/assets", (req, res, next) => {
@@ -220,9 +242,9 @@ function gsvRequest(method, pathStr, payload, reqTimeout = 300000) {
       for (const [k, v] of Object.entries(payload)) {
         if (v !== undefined && v !== null) params.set(k, String(v));
       }
-      url = new URL(`http://127.0.0.1:9880${pathStr}?${params.toString()}`);
+      url = new URL(`${GPT_SOVITS_BASE_URL}${pathStr}?${params.toString()}`);
     } else {
-      url = new URL(`http://127.0.0.1:9880${pathStr}`);
+      url = new URL(`${GPT_SOVITS_BASE_URL}${pathStr}`);
       if (payload) {
         body = JSON.stringify(payload);
         headers["Content-Type"] = "application/json";
