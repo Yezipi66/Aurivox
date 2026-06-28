@@ -178,23 +178,31 @@ async function withVoicesLock(fn) {
 
 const MAX_BACKUPS = 20;
 
-async function backupVoices() {
+/**
+ * Internal backup logic. 
+ * ASSUMPTION: Caller already holds withVoicesLock.
+ */
+async function _backupVoicesUnlocked() {
   if (!fs.existsSync(VOICES_JSON)) return null;
+  const ts = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
+  const name = `voices.${ts}.json`;
+  const dest = path.join(BACKUP_DIR, name);
+  fs.copyFileSync(VOICES_JSON, dest);
+  try {
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.match(/^voices\.\d{15}\.json$/))
+      .sort();
+    while (files.length > MAX_BACKUPS) {
+      const old = files.shift();
+      fs.unlinkSync(path.join(BACKUP_DIR, old));
+    }
+  } catch {}
+  return name;
+}
+
+async function backupVoices() {
   return withVoicesLock(async () => {
-    const ts = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
-    const name = `voices.${ts}.json`;
-    const dest = path.join(BACKUP_DIR, name);
-    fs.copyFileSync(VOICES_JSON, dest);
-    try {
-      const files = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.match(/^voices\.\d{15}\.json$/))
-        .sort();
-      while (files.length > MAX_BACKUPS) {
-        const old = files.shift();
-        fs.unlinkSync(path.join(BACKUP_DIR, old));
-      }
-    } catch {}
-    return name;
+    return await _backupVoicesUnlocked();
   });
 }
 
@@ -906,10 +914,16 @@ app.post("/api/voices", requireApiKey, async (req, res) => {
   const id = (entry.id || "").trim();
   if (!id) return res.status(400).json({ error: "Missing 'id' field" });
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id: only letters, numbers, underscore, hyphen allowed" });
+
+  let result, errStatus, errBody;
   await withVoicesLock(async () => {
     const voices = loadVoices();
-    if (voices[id]) return res.status(409).json({ error: `Voice '${id}' already exists` });
-    await backupVoices();
+    if (voices[id]) {
+      errStatus = 409;
+      errBody = { error: `Voice '${id}' already exists` };
+      return;
+    }
+    await _backupVoicesUnlocked();
     voices[id] = {
       display_name: entry.display_name || id, language: entry.language || "ja",
       prompt_lang: entry.prompt_lang || entry.language || "ja",
@@ -921,17 +935,26 @@ app.post("/api/voices", requireApiKey, async (req, res) => {
       repetition_penalty: entry.repetition_penalty || 1.35,
     };
     saveVoices(voices);
+    result = voices[id];
   });
-  res.json({ ok: true, id, voice: loadVoices()[id] });
+
+  if (errStatus) return res.status(errStatus).json(errBody);
+  res.json({ ok: true, id, voice: result });
 });
 
 app.put("/api/voices/:id", requireApiKey, async (req, res) => {
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+
+  let result, errStatus, errBody;
   await withVoicesLock(async () => {
     const voices = loadVoices();
-    if (!voices[id]) return res.status(404).json({ error: `Voice '${id}' not found` });
-    await backupVoices();
+    if (!voices[id]) {
+      errStatus = 404;
+      errBody = { error: `Voice '${id}' not found` };
+      return;
+    }
+    await _backupVoicesUnlocked();
     const existing = voices[id];
     const e = req.body || {};
     voices[id] = {
@@ -952,20 +975,31 @@ app.put("/api/voices/:id", requireApiKey, async (req, res) => {
       if (existing[key] !== undefined && e[key] === undefined) voices[id][key] = existing[key];
     }
     saveVoices(voices);
+    result = voices[id];
   });
-  res.json({ ok: true, id, voice: loadVoices()[id] });
+
+  if (errStatus) return res.status(errStatus).json(errBody);
+  res.json({ ok: true, id, voice: result });
 });
 
 app.delete("/api/voices/:id", requireApiKey, async (req, res) => {
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+
+  let errStatus, errBody;
   await withVoicesLock(async () => {
     const voices = loadVoices();
-    if (!voices[id]) return res.status(404).json({ error: `Voice '${id}' not found` });
-    await backupVoices();
+    if (!voices[id]) {
+      errStatus = 404;
+      errBody = { error: `Voice '${id}' not found` };
+      return;
+    }
+    await _backupVoicesUnlocked();
     delete voices[id];
     saveVoices(voices);
   });
+
+  if (errStatus) return res.status(errStatus).json(errBody);
   res.json({ ok: true, id });
 });
 
@@ -973,15 +1007,24 @@ app.post("/api/voices/:id/reference-audio", requireApiKey, upload.single("audio"
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   if (!req.file) return res.status(400).json({ error: "No audio file uploaded" });
+
+  let result, errStatus, errBody;
   await withVoicesLock(async () => {
     const voices = loadVoices();
-    if (!voices[id]) return res.status(404).json({ error: `Voice '${id}' not found` });
-    await backupVoices();
-    const filePath = path.join(VOICES_DIR, req.file.filename).replace(/\\/g, "/");
+    if (!voices[id]) {
+      errStatus = 404;
+      errBody = { error: `Voice '${id}' not found` };
+      return;
+    }
+    await _backupVoicesUnlocked();
+    const filePath = path.join(VOICES_DIR, req.file.filename).replace(/\\\\/g, "/");
     voices[id].reference_audio = filePath;
     saveVoices(voices);
-    res.json({ ok: true, id, reference_audio: filePath });
+    result = filePath;
   });
+
+  if (errStatus) return res.status(errStatus).json(errBody);
+  res.json({ ok: true, id, reference_audio: result });
 });
 
 // POST /api/voices/:id/aux-ref-audio — upload auxiliary reference audio
@@ -989,35 +1032,59 @@ app.post("/api/voices/:id/aux-ref-audio", requireApiKey, upload.array("audio", 1
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   if (!req.files || req.files.length === 0) return res.status(400).json({ error: "No audio files uploaded" });
+
+  let result, errStatus, errBody;
   await withVoicesLock(async () => {
     const voices = loadVoices();
-    if (!voices[id]) return res.status(404).json({ error: `Voice '${id}' not found` });
-    await backupVoices();
+    if (!voices[id]) {
+      errStatus = 404;
+      errBody = { error: `Voice '${id}' not found` };
+      return;
+    }
+    await _backupVoicesUnlocked();
     const auxPaths = voices[id].aux_ref_audio_paths || [];
     for (const file of req.files) {
-      const filePath = path.join(VOICES_DIR, file.filename).replace(/\\/g, "/");
+      const filePath = path.join(VOICES_DIR, file.filename).replace(/\\\\/g, "/");
       auxPaths.push(filePath);
     }
     voices[id].aux_ref_audio_paths = auxPaths;
     saveVoices(voices);
-    res.json({ ok: true, id, aux_ref_audio_paths: auxPaths });
+    result = auxPaths;
   });
+
+  if (errStatus) return res.status(errStatus).json(errBody);
+  res.json({ ok: true, id, aux_ref_audio_paths: result });
 });
 
 // DELETE /api/voices/:id/aux-ref-audio/:index — remove an auxiliary reference
-app.delete("/api/voices/:id/aux-ref-audio/:index", requireApiKey, (req, res) => {
+app.delete("/api/voices/:id/aux-ref-audio/:index", requireApiKey, async (req, res) => {
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const idx = parseInt(req.params.index, 10);
-  const voices = loadVoices();
-  if (!voices[id]) return res.status(404).json({ error: `Voice '${id}' not found` });
-  const auxPaths = voices[id].aux_ref_audio_paths || [];
-  if (idx < 0 || idx >= auxPaths.length) return res.status(400).json({ error: "Invalid index" });
-  backupVoices();
-  const removed = auxPaths.splice(idx, 1);
-  voices[id].aux_ref_audio_paths = auxPaths;
-  saveVoices(voices);
-  res.json({ ok: true, id, removed: removed[0], aux_ref_audio_paths: auxPaths });
+
+  let result, errStatus, errBody;
+  await withVoicesLock(async () => {
+    const voices = loadVoices();
+    if (!voices[id]) {
+      errStatus = 404;
+      errBody = { error: `Voice '${id}' not found` };
+      return;
+    }
+    const auxPaths = voices[id].aux_ref_audio_paths || [];
+    if (idx < 0 || idx >= auxPaths.length) {
+      errStatus = 400;
+      errBody = { error: "Invalid index" };
+      return;
+    }
+    await _backupVoicesUnlocked();
+    const removed = auxPaths.splice(idx, 1);
+    voices[id].aux_ref_audio_paths = auxPaths;
+    saveVoices(voices);
+    result = { removed: removed[0], aux_ref_audio_paths: auxPaths };
+  });
+
+  if (errStatus) return res.status(errStatus).json(errBody);
+  res.json({ ok: true, id, ...result });
 });
 
 // GET /api/audio-files — list available audio files for reference selection
