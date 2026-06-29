@@ -97,21 +97,17 @@ function requireApiKey(req, res, next) {
 
 /**
  * Sanitize error for client response.
- * Returns a generic message; logs the full error server-side.
+ * Logs the full error server-side; returns a safe generic message to the client.
+ * @param {Error|string} err - The error object or message
+ * @param {string} [fallback] - Optional context about what failed (e.g. "voices.json error")
  */
 function clientError(err, fallback) {
   if (fallback === undefined) fallback = "Internal server error";
-  var msg = (err && err.message) || (err && err.toString()) || fallback;
-  // Strip anything that looks like an absolute path
-  // Windows: drive letter + colon + backslash + path (e.g. D:\AI\...)
-  var winDrive = new RegExp("[A-Za-z]:\\\\[^\\s]+", "g");
-  // Unix: /Users/... /home/... etc.
-  var unixPath = new RegExp("/(?:Users|home|tmp|var|etc)/[^\\s]{3,}", "gi");
-  var sanitized = msg.replace(winDrive, "[redacted]").replace(unixPath, "[redacted]");
-  if (!sanitized || sanitized.length > 200 || sanitized !== msg) {
-    return fallback;
-  }
-  return sanitized;
+  // Always log full error server-side
+  const errMsg = (err && err.message) || (err && err.toString()) || String(err);
+  console.error("[clientError]", errMsg, err && err.stack ? "\n" + err.stack : "");
+  // Return only the generic fallback to the client — never raw error details
+  return fallback;
 }
 
 // 从 checkpoint 列表里挑"训练量最大"的那个（避免字母序选到 e5/e4 这种最弱模型）
@@ -193,6 +189,17 @@ async function withVoicesLock(fn) {
   const prev = _voicesLock;
   let resolve;
   _voicesLock = new Promise(r => { resolve = r; });
+  await prev;
+  try { return await fn(); }
+  finally { resolve(); }
+}
+
+// Simple mutex to prevent concurrent generation requests
+let _generationLock = Promise.resolve();
+async function withGenerationLock(fn) {
+  const prev = _generationLock;
+  let resolve;
+  _generationLock = new Promise(r => { resolve = r; });
   await prev;
   try { return await fn(); }
   finally { resolve(); }
@@ -480,14 +487,15 @@ function concatWithFfmpeg(inputPaths, outputPath, silenceMs) {
     const concatList = path.join(OUTPUT_DIR, `_concat_${Date.now()}.txt`);
     const files = [];
     for (let i = 0; i < inputPaths.length; i++) {
-      files.push(`file '${inputPaths[i]}'`);
+      const escaped = inputPaths[i].replace(/'/g, "'\\''");
+      files.push(`file '${escaped}'`);
       if (silenceMs > 0 && i < inputPaths.length - 1) {
-        files.push(`file '${silencePath}'`);
+        const silenceEscaped = silencePath.replace(/'/g, "'\\''");
+        files.push(`file '${silenceEscaped}'`);
       }
     }
     fs.writeFileSync(concatList, files.join("\n"));
 
-    const { spawn } = require("child_process");
     const child = spawn("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", concatList, "-c", "copy", outputPath], { stdio: "pipe" });
     let stderr = "";
     child.stderr.on("data", d => { stderr += d; });
@@ -514,6 +522,24 @@ function concatWithFfmpeg(inputPaths, outputPath, silenceMs) {
   });
 }
 
+/**
+ * Find the "data" chunk in a WAV buffer using proper RIFF chunk traversal.
+ * Returns { offset, size } or null if not found.
+ */
+function findWavDataChunk(buf) {
+  let offset = 12; // Skip RIFF header (12 bytes)
+  while (offset + 8 <= buf.length) {
+    const chunkId = buf.slice(offset, offset + 4).toString();
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    if (chunkId === "data") {
+      return { offset: offset + 8, size: chunkSize };
+    }
+    // Move to next chunk (pad to even boundary per RIFF spec)
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  return null;
+}
+
 function concatWavPureNode(inputPaths, outputPath) {
   return new Promise((resolve, reject) => {
     try {
@@ -528,6 +554,7 @@ function concatWavPureNode(inputPaths, outputPath) {
         if (buf.slice(0, 4).toString() !== "RIFF" || buf.slice(8, 12).toString() !== "WAVE") {
           throw new Error(`Not a valid WAV file: ${p}`);
         }
+        // Read required format fields
         const sr = buf.readUInt32LE(24);
         const ch = buf.readUInt16LE(22);
         const bps = buf.readUInt16LE(34);
@@ -537,12 +564,11 @@ function concatWavPureNode(inputPaths, outputPath) {
             `WAV format mismatch: ${p} has ${sr}Hz/${ch}ch/${bps}bit, expected ${sampleRate}Hz/${channels}ch/${bitsPerSample}bit`
           );
         }
-        const dataOffset = buf.indexOf(Buffer.from("data"));
-        if (dataOffset === -1) throw new Error(`No data chunk found in: ${p}`);
-        const dataSize = buf.readUInt32LE(dataOffset + 4);
-        const data = buf.slice(dataOffset + 8, dataOffset + 8 + dataSize);
+        const dc = findWavDataChunk(buf);
+        if (!dc) throw new Error(`No data chunk found in: ${p}`);
+        const data = buf.slice(dc.offset, dc.offset + dc.size);
         chunks.push(data);
-        totalData += dataSize;
+        totalData += dc.size;
       }
 
       const outBuf = Buffer.alloc(44 + totalData);
@@ -840,82 +866,85 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
   // Engine only returns WAV; format param is accepted for API compatibility but always produces wav
   const mediaType = "wav";
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
+  const rand = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
   const safeVoice = voice.replace(/[^a-zA-Z0-9_-]/g, "_");
 
   try {
-    await switchModels(cfg);
+    await withGenerationLock(async () => {
+      await switchModels(cfg);
 
-    // Short text or split disabled: single generation
-    if (!shouldSplit || text.length <= softLimit) {
-      const audioBytes = await generateOneSegment(text, cfg);
-      const filename = `${safeVoice}_${ts}.${mediaType}`;
-      fs.writeFileSync(path.join(OUTPUT_DIR, filename), audioBytes);
-      console.log(`[OK] Generated: ${filename} (${audioBytes.length} bytes)`);
-      return res.json({ ok: true, voice, split: false, concat: false, audio_url: `/outputs/${filename}` });
-    }
+      // Short text or split disabled: single generation
+      if (!shouldSplit || text.length <= softLimit) {
+        const audioBytes = await generateOneSegment(text, cfg);
+        const filename = `${safeVoice}_${ts}_${rand}.${mediaType}`;
+        fs.writeFileSync(path.join(OUTPUT_DIR, filename), audioBytes);
+        console.log(`[OK] Generated: ${filename} (${audioBytes.length} bytes)`);
+        return res.json({ ok: true, voice, split: false, concat: false, audio_url: `/outputs/${filename}` });
+      }
 
-    // Split + generate
-    const segments = splitJapaneseText(text, { softLimit, hardLimit: softLimit * 2 });
-    console.log(`[SPLIT] ${text.length} chars -> ${segments.length} segments`);
+      // Split + generate
+      const segments = splitJapaneseText(text, { softLimit, hardLimit: softLimit * 2 });
+      console.log(`[SPLIT] ${text.length} chars -> ${segments.length} segments`);
 
-    const segFiles = [];
-    const segResults = [];
+      const segFiles = [];
+      const segResults = [];
 
-    for (let i = 0; i < segments.length; i++) {
-      const segText = segments[i];
-      console.log(`[SEG ${i}/${segments.length - 1}] "${segText.slice(0, 30)}..." (${segText.length} chars)`);
-      try {
-        const audioBytes = await generateOneSegment(segText, cfg);
-        const segFilename = `${safeVoice}_${ts}_seg${String(i).padStart(3, "0")}.${mediaType}`;
-        const segPath = path.join(OUTPUT_DIR, segFilename);
-        fs.writeFileSync(segPath, audioBytes);
-        segFiles.push(segPath);
-        segResults.push({ index: i, text: segText, audio_url: `/outputs/${segFilename}` });
-        console.log(`[OK] Segment ${i}: ${segFilename} (${audioBytes.length} bytes)`);
-      } catch (err) {
-        console.error(`[FAIL] Segment ${i} failed: ${err.message}`);
-        return res.status(502).json({
-          ok: false, error: clientError(err, `Segment ${i} failed`),
+      for (let i = 0; i < segments.length; i++) {
+        const segText = segments[i];
+        console.log(`[SEG ${i}/${segments.length - 1}] "${segText.slice(0, 30)}..." (${segText.length} chars)`);
+        try {
+          const audioBytes = await generateOneSegment(segText, cfg);
+          const segFilename = `${safeVoice}_${ts}_${rand}_seg${String(i).padStart(3, "0")}.${mediaType}`;
+          const segPath = path.join(OUTPUT_DIR, segFilename);
+          fs.writeFileSync(segPath, audioBytes);
+          segFiles.push(segPath);
+          segResults.push({ index: i, text: segText, audio_url: `/outputs/${segFilename}` });
+          console.log(`[OK] Segment ${i}: ${segFilename} (${audioBytes.length} bytes)`);
+        } catch (err) {
+          console.error(`[FAIL] Segment ${i} failed: ${err.message}`);
+          return res.status(502).json({
+            ok: false, error: clientError(err, `Segment ${i} failed`),
+            segments: segResults,
+          });
+        }
+      }
+
+      if (!shouldConcat || segFiles.length === 1) {
+        // No concatenation requested or only one segment
+        const first = segResults[0];
+        return res.json({
+          ok: true, voice, split: true, concat: false,
+          audio_url: first.audio_url,
           segments: segResults,
+          warning: segFiles.length === 1 ? "Text fit in one segment; no concatenation needed" : undefined,
         });
       }
-    }
 
-    if (!shouldConcat || segFiles.length === 1) {
-      // No concatenation requested or only one segment
-      const first = segResults[0];
-      return res.json({
-        ok: true, voice, split: true, concat: false,
-        audio_url: first.audio_url,
-        segments: segResults,
-        warning: segFiles.length === 1 ? "Text fit in one segment; no concatenation needed" : undefined,
-      });
-    }
+      // Concatenate
+      const combinedFilename = `${safeVoice}_${ts}_${rand}_combined.${mediaType}`;
+      const combinedPath = path.join(OUTPUT_DIR, combinedFilename);
 
-    // Concatenate
-    const combinedFilename = `${safeVoice}_${ts}_combined.${mediaType}`;
-    const combinedPath = path.join(OUTPUT_DIR, combinedFilename);
+      try {
+        const concatResult = await concatWavFiles(segFiles, combinedPath, silenceMs);
+        const combinedSize = fs.statSync(combinedPath).size;
+        console.log(`[OK] Combined: ${combinedFilename} (${combinedSize} bytes, method: ${concatResult.method})`);
 
-    try {
-      const concatResult = await concatWavFiles(segFiles, combinedPath, silenceMs);
-      const combinedSize = fs.statSync(combinedPath).size;
-      console.log(`[OK] Combined: ${combinedFilename} (${combinedSize} bytes, method: ${concatResult.method})`);
-
-      return res.json({
-        ok: true, voice, split: true, concat: true,
-        audio_url: `/outputs/${combinedFilename}`,
-        silence_ms: silenceMs,
-        concat_method: concatResult.method,
-        segments: segResults,
-      });
-    } catch (err) {
-      console.error(`[FAIL] Concatenation failed: ${err.message}`);
-      return res.json({
-        ok: false, error: clientError(err, "Audio concatenation failed"),
-        segments: segResults,
-        warning: "Segment files are still available for manual playback.",
-      });
-    }
+        return res.json({
+          ok: true, voice, split: true, concat: true,
+          audio_url: `/outputs/${combinedFilename}`,
+          silence_ms: silenceMs,
+          concat_method: concatResult.method,
+          segments: segResults,
+        });
+      } catch (err) {
+        console.error(`[FAIL] Concatenation failed: ${err.message}`);
+        return res.json({
+          ok: false, error: clientError(err, "Audio concatenation failed"),
+          segments: segResults,
+          warning: "Segment files are still available for manual playback.",
+        });
+      }
+    });
   } catch (err) {
     console.error("[ERROR] Generate failed:", err.message);
     res.status(500).json({ error: clientError(err) });
@@ -1039,7 +1068,7 @@ app.post("/api/voices/:id/reference-audio", requireApiKey, upload.single("audio"
       return;
     }
     await _backupVoicesUnlocked();
-    const filePath = path.join(VOICES_DIR, req.file.filename).replace(/\\\\/g, "/");
+    const filePath = path.join(VOICES_DIR, req.file.filename).replace(/\\/g, "/");
     voices[id].reference_audio = filePath;
     saveVoices(voices);
     result = filePath;
@@ -1066,7 +1095,7 @@ app.post("/api/voices/:id/aux-ref-audio", requireApiKey, upload.array("audio", 1
     await _backupVoicesUnlocked();
     const auxPaths = voices[id].aux_ref_audio_paths || [];
     for (const file of req.files) {
-      const filePath = path.join(VOICES_DIR, file.filename).replace(/\\\\/g, "/");
+      const filePath = path.join(VOICES_DIR, file.filename).replace(/\\/g, "/");
       auxPaths.push(filePath);
     }
     voices[id].aux_ref_audio_paths = auxPaths;
@@ -1191,7 +1220,6 @@ app.post("/api/assets/:id/open", requireApiKey, (req, res) => {
   const voiceDir = path.join(ASSETS_DIR, id);
   if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
   try {
-    const { spawn } = require("child_process");
     if (process.platform === "win32") {
       spawn("explorer", [voiceDir], { stdio: "ignore" });
     } else if (process.platform === "darwin") {
@@ -1396,62 +1424,65 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
   const advParams = loadAdvancedParams();
 
   try {
-    const voiceDir = path.join(ASSETS_DIR, voice);
-    const metaPath = path.join(voiceDir, "meta.json");
-    let gptModel = "";
-    let sovitsModel = "";
-    if (fs.existsSync(metaPath)) {
-      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-      const ckpts = meta?.assets?.checkpoints || {};
-      const gptList = ckpts.gpt || [];
-      const sovitsList = ckpts.sovits || [];
-      if (gptList.length > 0) gptModel = (pickBestCkpt(gptList) || {}).path || "";
-      if (sovitsList.length > 0) sovitsModel = (pickBestCkpt(sovitsList) || {}).path || "";
-    }
-
-    const cfg = {
-      gpt_model: gptModel,
-      sovits_model: sovitsModel,
-      reference_audio: refAudio,
-      reference_text: refText,
-      text_lang: voiceReg.text_lang || voiceReg.language || "ja",
-      prompt_lang: voiceReg.prompt_lang || voiceReg.language || "ja",
-      temperature: advParams.temperature,
-      top_k: advParams.top_k,
-      top_p: advParams.top_p,
-      repetition_penalty: advParams.repetition_penalty,
-      text_split_method: advParams.text_split_method,
-      speed_factor: speed || 1.0,
-      seed: advParams.seed,
-    };
-
-    await switchModels(cfg);
-    // Engine only returns WAV; response_format accepted for API compatibility
-    const fmt = "wav";
-    const mediaType = "audio/wav";
-
-    const payload = buildTtsPayload(input, cfg);
-    for (const key of ["sample_steps", "if_sr", "aux_ref_audio_paths"]) {
-      if (cfg[key] !== undefined) payload[key] = cfg[key];
-    }
-    payload.speed_factor = speed || 1.0;
-    payload.media_type = fmt;
-
-    const ttsRes = await gsvPost("/tts", payload);
-    if (ttsRes.statusCode >= 400) return res.status(502).json({ error: `GPT-SoVITS /tts failed (${ttsRes.statusCode}): ${ttsRes.body.toString()}` });
-
-    const audioBytes = ttsRes.body;
-    if (!audioBytes || audioBytes.length === 0) return res.status(502).json({ error: "GPT-SoVITS returned empty audio" });
-
-    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
-    const safeVoice = voice.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filename = `${safeVoice}_${ts}.${fmt}`;
-    try { fs.writeFileSync(path.join(OUTPUT_DIR, filename), audioBytes); } catch {}
-
-    res.set("Content-Type", mediaType);
-    res.set("Content-Disposition", `attachment; filename="${filename}"`);
-    res.set("X-Voice-Id", voice);
-    res.send(audioBytes);
+    await withGenerationLock(async () => {
+        const voiceDir = path.join(ASSETS_DIR, voice);
+        const metaPath = path.join(voiceDir, "meta.json");
+        let gptModel = "";
+        let sovitsModel = "";
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+          const ckpts = meta?.assets?.checkpoints || {};
+          const gptList = ckpts.gpt || [];
+          const sovitsList = ckpts.sovits || [];
+          if (gptList.length > 0) gptModel = (pickBestCkpt(gptList) || {}).path || "";
+          if (sovitsList.length > 0) sovitsModel = (pickBestCkpt(sovitsList) || {}).path || "";
+        }
+    
+        const cfg = {
+          gpt_model: gptModel,
+          sovits_model: sovitsModel,
+          reference_audio: refAudio,
+          reference_text: refText,
+          text_lang: voiceReg.text_lang || voiceReg.language || "ja",
+          prompt_lang: voiceReg.prompt_lang || voiceReg.language || "ja",
+          temperature: advParams.temperature,
+          top_k: advParams.top_k,
+          top_p: advParams.top_p,
+          repetition_penalty: advParams.repetition_penalty,
+          text_split_method: advParams.text_split_method,
+          speed_factor: speed || 1.0,
+          seed: advParams.seed,
+        };
+    
+        await switchModels(cfg);
+        // Engine only returns WAV; response_format accepted for API compatibility
+        const fmt = "wav";
+        const mediaType = "audio/wav";
+    
+        const payload = buildTtsPayload(input, cfg);
+        for (const key of ["sample_steps", "if_sr", "aux_ref_audio_paths"]) {
+          if (cfg[key] !== undefined) payload[key] = cfg[key];
+        }
+        payload.speed_factor = speed || 1.0;
+        payload.media_type = fmt;
+    
+        const ttsRes = await gsvPost("/tts", payload);
+        if (ttsRes.statusCode >= 400) return res.status(502).json({ error: `GPT-SoVITS /tts failed (${ttsRes.statusCode}): ${ttsRes.body.toString()}` });
+    
+        const audioBytes = ttsRes.body;
+        if (!audioBytes || audioBytes.length === 0) return res.status(502).json({ error: "GPT-SoVITS returned empty audio" });
+    
+        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
+        const rand = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+        const safeVoice = voice.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const filename = `${safeVoice}_${ts}_${rand}.${fmt}`;
+        try { fs.writeFileSync(path.join(OUTPUT_DIR, filename), audioBytes); } catch {}
+    
+        res.set("Content-Type", mediaType);
+        res.set("Content-Disposition", `attachment; filename="${filename}"`);
+        res.set("X-Voice-Id", voice);
+        res.send(audioBytes);
+    });
   } catch (err) {
     console.error("[ERROR] /v1/audio/speech failed:", err.message);
     res.status(500).json({ error: clientError(err) });

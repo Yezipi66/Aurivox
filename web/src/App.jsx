@@ -1,5 +1,3 @@
-// REBUILD_MARKER_1781781690
-// REBUILD_MARKER_1781781644
 import { useState, useEffect, useCallback, useRef } from 'react'
 import './styles.css'
 import { usePersistentState } from './usePersistentState'
@@ -694,6 +692,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
   const [overlapLength, setOverlapLength] = useState(2);
   const [minChunkLength, setMinChunkLength] = useState(16);
   const pollRef = useRef(null);
+  const failCountRef = useRef(0);
 
   // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
   const taskId = activeTaskId || localTaskId;
@@ -708,10 +707,12 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
   useEffect(() => {
     if (!taskId) return;
     let dead = false; // 标记任务已彻底消失，停止轮询
+    const MAX_FAIL = 3;
     const poll = () => {
       if (dead) return;
       api(`/api/train/status/${taskId}`).then(r => {
         if (r.ok) {
+          failCountRef.current = 0;
           setStatus(r.data);
           if (['completed', 'failed', 'cancelled', 'interrupted'].includes(r.data.status)) {
             if (r.data.status === 'completed') loadVoices();
@@ -719,12 +720,35 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
         } else if (r.status === 404) {
           // 任务已被清理（磁盘 journal 也删了），自愈回到表单
           dead = true;
+          failCountRef.current = 0;
+          setActiveTaskId(null);
+          setLocalTaskId(null);
+          setStatus(null);
+          setLogs([]);
+        } else {
+          // 其他错误（5xx 等）计入失败计数
+          failCountRef.current++;
+          if (failCountRef.current >= MAX_FAIL) {
+            dead = true;
+            failCountRef.current = 0;
+            setActiveTaskId(null);
+            setLocalTaskId(null);
+            setStatus(null);
+            setLogs([]);
+          }
+        }
+      }).catch(() => {
+        // 网络错误也计入失败计数
+        failCountRef.current++;
+        if (failCountRef.current >= MAX_FAIL) {
+          dead = true;
+          failCountRef.current = 0;
           setActiveTaskId(null);
           setLocalTaskId(null);
           setStatus(null);
           setLogs([]);
         }
-      }).catch(() => {});
+      });
       api(`/api/train/logs/${taskId}`).then(r => {
         if (r.ok) setLogs(r.data.logs || []);
       }).catch(() => {});
@@ -733,6 +757,25 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
     pollRef.current = setInterval(poll, 2000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [taskId]);
+
+  // "Restoring training state…" 超时兜底：10s 后仍无 status 则回退表单
+  const restoreTimeoutRef = useRef(null);
+  useEffect(() => {
+    if (taskId && !status) {
+      restoreTimeoutRef.current = setTimeout(() => {
+        setActiveTaskId(null);
+        setLocalTaskId(null);
+        setStatus(null);
+        setLogs([]);
+      }, 10000);
+    }
+    return () => {
+      if (restoreTimeoutRef.current) {
+        clearTimeout(restoreTimeoutRef.current);
+        restoreTimeoutRef.current = null;
+      }
+    };
+  }, [taskId, status]);
 
   const handleStart = async () => {
     if (!form.inputDir.trim()) { setError('Please select an audio folder'); return }
