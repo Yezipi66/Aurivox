@@ -804,7 +804,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
               learning_rate: form.learningRate === 'default' ? 'default' : (Number(form.learningRate) || 'default'),
               // S1 advanced
               seed: form.s1Seed ?? 1234,
-              save_every_n_epoch: form.s1SaveEvery ?? 1,
+              save_every_n_epoch: form.s1SaveEvery ?? 4,
               precision: form.s1Precision || '16-mixed',
               gradient_clip: form.s1GradClip ?? 1.0,
               lr: form.s1Lr ?? 0.01,
@@ -978,7 +978,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
                   <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>S1 (GPT) Training</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
                     <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
-                    <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 1} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
+                    <NumField label="Save Every N Epochs (S1+S2)" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
                     <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
                     <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
                     <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />

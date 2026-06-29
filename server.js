@@ -832,6 +832,8 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
 
   // Build config from frontend-passed values (not from voices.json)
   const cfg = {
+    id: voice,
+    voiceId: voice,
     gpt_model: gpt_model || "",
     sovits_model: sovits_model || "",
     reference_audio: ref_audio || "",
