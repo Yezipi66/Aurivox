@@ -1,0 +1,359 @@
+"""
+本地自包含推理 HTTP 服务 (infer_server.py)
+
+由 GPT-SoVITS 的 api_v2.py 本地化移植而来,使本项目不再依赖外部
+D:\\AI\\GPT-SoVITS-v2pro-20250604 引擎即可完成推理。
+
+启动:
+    <venv>\\python.exe lib\\inference\\infer_server.py -a 127.0.0.1 -p 9880 -c lib\\inference\\tts_infer.yaml
+
+接口 (与 server.js 调用 1:1 兼容):
+    GET  /                       健康检查 (返回 200)
+    POST /tts                    文本转语音, 返回 audio/wav 字节流
+    GET  /tts                    同上 (query 参数)
+    GET  /set_gpt_weights?weights_path=     热加载 GPT 权重
+    GET  /set_sovits_weights?weights_path=  热加载 SoVITS 权重
+    GET  /control?command=restart|exit      进程控制
+"""
+
+import os
+import sys
+import traceback
+from typing import Generator, Union
+
+# ============================================================
+# 路径与环境初始化 (必须在 import TTS / librosa 之前)
+# ============================================================
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))      # .../lib/inference
+LIB_DIR = os.path.dirname(THIS_DIR)                         # .../lib
+PROJECT_ROOT = os.path.dirname(LIB_DIR)                     # 项目根
+
+# gsv_code 作为包导入需要 lib/training 在 path 上; TTS/sv/BigVGAN/sr/TTS_infer_pack 需要 lib/inference 在 path 上
+sys.path.insert(0, os.path.join(LIB_DIR, "training"))
+sys.path.insert(0, THIS_DIR)
+
+# 让 yaml 里的相对底模路径 (./lib/training/...) 始终相对项目根解析
+os.chdir(PROJECT_ROOT)
+
+# numba (librosa 依赖) 缓存目录: 指向项目内可写目录, 避免 site-packages 只读导致的 PermissionError
+os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(PROJECT_ROOT, ".numba_cache"))
+os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
+
+# Windows 上 numpy/soundfile/sklearn 等各自捆绑 OpenMP/MKL 运行时, 若在 torch 之前加载,
+# 会与 torch 的 OpenMP 产生重复运行时冲突, 导致首次 torch 重运算 (加载/构建模型) 时
+# 静默访问冲突崩溃 (无 Python traceback)。两个措施规避:
+#   1) 允许重复 OpenMP 运行时共存 (官方推荐的兜底开关)
+#   2) 抢先 import torch, 让 torch 的 MKL/OpenMP DLL 先于其它库加载
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+import torch  # noqa: F401  # 必须在 numpy/soundfile/fastapi 之前, 以固定 DLL 加载顺序
+
+import argparse
+import signal
+import wave
+import subprocess
+import numpy as np
+import soundfile as sf
+from io import BytesIO
+import threading
+
+from fastapi import FastAPI, Response
+from fastapi.responses import StreamingResponse, JSONResponse
+import uvicorn
+from pydantic import BaseModel
+
+from gsv_code.tools.i18n.i18n import I18nAuto
+from TTS import TTS, TTS_Config
+from TTS_infer_pack.text_segmentation_method import get_method_names as get_cut_method_names
+
+i18n = I18nAuto()
+cut_method_names = get_cut_method_names()
+
+parser = argparse.ArgumentParser(description="TTS Broker self-contained inference api")
+parser.add_argument("-c", "--tts_config", type=str,
+                    default=os.path.join(THIS_DIR, "tts_infer.yaml"), help="tts_infer.yaml 路径")
+parser.add_argument("-a", "--bind_addr", type=str, default="127.0.0.1", help="default: 127.0.0.1")
+parser.add_argument("-p", "--port", type=int, default=9880, help="default: 9880")
+args = parser.parse_args()
+
+config_path = args.tts_config
+port = args.port
+host = args.bind_addr
+argv = sys.argv
+
+if config_path in [None, ""]:
+    config_path = os.path.join(THIS_DIR, "tts_infer.yaml")
+
+tts_config = TTS_Config(config_path)
+print(tts_config)
+tts_pipeline = TTS(tts_config)
+
+APP = FastAPI()
+
+
+class TTS_Request(BaseModel):
+    text: str = None
+    text_lang: str = None
+    ref_audio_path: str = None
+    aux_ref_audio_paths: list = None
+    prompt_lang: str = None
+    prompt_text: str = ""
+    top_k: int = 15
+    top_p: float = 1
+    temperature: float = 1
+    text_split_method: str = "cut5"
+    batch_size: int = 1
+    batch_threshold: float = 0.75
+    split_bucket: bool = True
+    speed_factor: float = 1.0
+    fragment_interval: float = 0.3
+    seed: int = -1
+    media_type: str = "wav"
+    streaming_mode: Union[bool, int] = False
+    parallel_infer: bool = True
+    repetition_penalty: float = 1.35
+    sample_steps: int = 32
+    super_sampling: bool = False
+    overlap_length: int = 2
+    min_chunk_length: int = 16
+
+
+def pack_ogg(io_buffer: BytesIO, data: np.ndarray, rate: int):
+    def handle_pack_ogg():
+        with sf.SoundFile(io_buffer, mode="w", samplerate=rate, channels=1, format="ogg") as audio_file:
+            audio_file.write(data)
+
+    stack_size = 4096 * 4096
+    try:
+        threading.stack_size(stack_size)
+        t = threading.Thread(target=handle_pack_ogg)
+        t.start()
+        t.join()
+    except RuntimeError as e:
+        print("RuntimeError: {}".format(e))
+    except ValueError as e:
+        print("ValueError: {}".format(e))
+    return io_buffer
+
+
+def pack_raw(io_buffer: BytesIO, data: np.ndarray, rate: int):
+    io_buffer.write(data.tobytes())
+    return io_buffer
+
+
+def pack_wav(io_buffer: BytesIO, data: np.ndarray, rate: int):
+    io_buffer = BytesIO()
+    sf.write(io_buffer, data, rate, format="wav")
+    return io_buffer
+
+
+def pack_aac(io_buffer: BytesIO, data: np.ndarray, rate: int):
+    # 注意: aac 依赖系统 ffmpeg 二进制。本项目已解耦 ffmpeg, 故 aac 默认不可用。
+    # server.js 默认 media_type=wav, 不会走到这里。如需 aac 请自行安装 ffmpeg。
+    process = subprocess.Popen(
+        ["ffmpeg", "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "pipe:0",
+         "-c:a", "aac", "-b:a", "192k", "-vn", "-f", "adts", "pipe:1"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    out, _ = process.communicate(input=data.tobytes())
+    io_buffer.write(out)
+    return io_buffer
+
+
+def pack_audio(io_buffer: BytesIO, data: np.ndarray, rate: int, media_type: str):
+    if media_type == "ogg":
+        io_buffer = pack_ogg(io_buffer, data, rate)
+    elif media_type == "aac":
+        io_buffer = pack_aac(io_buffer, data, rate)
+    elif media_type == "wav":
+        io_buffer = pack_wav(io_buffer, data, rate)
+    else:
+        io_buffer = pack_raw(io_buffer, data, rate)
+    io_buffer.seek(0)
+    return io_buffer
+
+
+def wave_header_chunk(frame_input=b"", channels=1, sample_width=2, sample_rate=32000):
+    wav_buf = BytesIO()
+    with wave.open(wav_buf, "wb") as vfout:
+        vfout.setnchannels(channels)
+        vfout.setsampwidth(sample_width)
+        vfout.setframerate(sample_rate)
+        vfout.writeframes(frame_input)
+    wav_buf.seek(0)
+    return wav_buf.read()
+
+
+def handle_control(command: str):
+    if command == "restart":
+        os.execl(sys.executable, sys.executable, *argv)
+    elif command == "exit":
+        os.kill(os.getpid(), signal.SIGTERM)
+        exit(0)
+
+
+def check_params(req: dict):
+    text: str = req.get("text", "")
+    text_lang: str = req.get("text_lang", "")
+    ref_audio_path: str = req.get("ref_audio_path", "")
+    media_type: str = req.get("media_type", "wav")
+    prompt_lang: str = req.get("prompt_lang", "")
+    text_split_method: str = req.get("text_split_method", "cut5")
+
+    if ref_audio_path in [None, ""]:
+        return JSONResponse(status_code=400, content={"message": "ref_audio_path is required"})
+    if text in [None, ""]:
+        return JSONResponse(status_code=400, content={"message": "text is required"})
+    if text_lang in [None, ""]:
+        return JSONResponse(status_code=400, content={"message": "text_lang is required"})
+    elif text_lang.lower() not in tts_config.languages:
+        return JSONResponse(status_code=400,
+            content={"message": f"text_lang: {text_lang} is not supported in version {tts_config.version}"})
+    if prompt_lang in [None, ""]:
+        return JSONResponse(status_code=400, content={"message": "prompt_lang is required"})
+    elif prompt_lang.lower() not in tts_config.languages:
+        return JSONResponse(status_code=400,
+            content={"message": f"prompt_lang: {prompt_lang} is not supported in version {tts_config.version}"})
+    if media_type not in ["wav", "raw", "ogg", "aac"]:
+        return JSONResponse(status_code=400, content={"message": f"media_type: {media_type} is not supported"})
+    if text_split_method not in cut_method_names:
+        return JSONResponse(status_code=400, content={"message": f"text_split_method:{text_split_method} is not supported"})
+    return None
+
+
+async def tts_handle(req: dict):
+    streaming_mode = req.get("streaming_mode", False)
+    return_fragment = req.get("return_fragment", False)
+    media_type = req.get("media_type", "wav")
+
+    check_res = check_params(req)
+    if check_res is not None:
+        return check_res
+
+    if streaming_mode == 0:
+        streaming_mode = False; return_fragment = False; fixed_length_chunk = False
+    elif streaming_mode == 1:
+        streaming_mode = False; return_fragment = True; fixed_length_chunk = False
+    elif streaming_mode == 2:
+        streaming_mode = True; return_fragment = False; fixed_length_chunk = False
+    elif streaming_mode == 3:
+        streaming_mode = True; return_fragment = False; fixed_length_chunk = True
+    else:
+        return JSONResponse(status_code=400,
+            content={"message": "the value of streaming_mode must be 0, 1, 2, 3(int) or true/false(bool)"})
+
+    req["streaming_mode"] = streaming_mode
+    req["return_fragment"] = return_fragment
+    req["fixed_length_chunk"] = fixed_length_chunk
+
+    streaming_mode = streaming_mode or return_fragment
+
+    try:
+        tts_generator = tts_pipeline.run(req)
+        if streaming_mode:
+            def streaming_generator(tts_generator: Generator, media_type: str):
+                if_frist_chunk = True
+                for sr, chunk in tts_generator:
+                    if if_frist_chunk and media_type == "wav":
+                        yield wave_header_chunk(sample_rate=sr)
+                        media_type = "raw"
+                        if_frist_chunk = False
+                    yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
+
+            return StreamingResponse(
+                streaming_generator(tts_generator, media_type),
+                media_type=f"audio/{media_type}",
+            )
+        else:
+            sr, audio_data = next(tts_generator)
+            audio_data = pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
+            return Response(audio_data, media_type=f"audio/{media_type}")
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"message": "tts failed", "Exception": str(e)})
+
+
+@APP.get("/")
+async def health():
+    # server.js (line 722) 用 GET / 做健康检查, 返回 200 即视为 online
+    return JSONResponse(status_code=200, content={"message": "infer_server online", "version": tts_config.version})
+
+
+@APP.get("/control")
+async def control(command: str = None):
+    if command is None:
+        return JSONResponse(status_code=400, content={"message": "command is required"})
+    handle_control(command)
+
+
+@APP.get("/tts")
+async def tts_get_endpoint(
+    text: str = None, text_lang: str = None, ref_audio_path: str = None,
+    aux_ref_audio_paths: list = None, prompt_lang: str = None, prompt_text: str = "",
+    top_k: int = 15, top_p: float = 1, temperature: float = 1,
+    text_split_method: str = "cut5", batch_size: int = 1, batch_threshold: float = 0.75,
+    split_bucket: bool = True, speed_factor: float = 1.0, fragment_interval: float = 0.3,
+    seed: int = -1, media_type: str = "wav", parallel_infer: bool = True,
+    repetition_penalty: float = 1.35, sample_steps: int = 32, super_sampling: bool = False,
+    streaming_mode: Union[bool, int] = False, overlap_length: int = 2, min_chunk_length: int = 16,
+):
+    req = {
+        "text": text, "text_lang": text_lang.lower() if text_lang else text_lang,
+        "ref_audio_path": ref_audio_path, "aux_ref_audio_paths": aux_ref_audio_paths,
+        "prompt_text": prompt_text, "prompt_lang": prompt_lang.lower() if prompt_lang else prompt_lang,
+        "top_k": top_k, "top_p": top_p, "temperature": temperature,
+        "text_split_method": text_split_method, "batch_size": int(batch_size),
+        "batch_threshold": float(batch_threshold), "speed_factor": float(speed_factor),
+        "split_bucket": split_bucket, "fragment_interval": fragment_interval, "seed": seed,
+        "media_type": media_type, "streaming_mode": streaming_mode, "parallel_infer": parallel_infer,
+        "repetition_penalty": float(repetition_penalty), "sample_steps": int(sample_steps),
+        "super_sampling": super_sampling, "overlap_length": int(overlap_length),
+        "min_chunk_length": int(min_chunk_length),
+    }
+    return await tts_handle(req)
+
+
+@APP.post("/tts")
+async def tts_post_endpoint(request: TTS_Request):
+    req = request.dict()
+    return await tts_handle(req)
+
+
+@APP.get("/set_refer_audio")
+async def set_refer_audio(refer_audio_path: str = None):
+    try:
+        tts_pipeline.set_ref_audio(refer_audio_path)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"message": "set refer audio failed", "Exception": str(e)})
+    return JSONResponse(status_code=200, content={"message": "success"})
+
+
+@APP.get("/set_gpt_weights")
+async def set_gpt_weights(weights_path: str = None):
+    try:
+        if weights_path in ["", None]:
+            return JSONResponse(status_code=400, content={"message": "gpt weight path is required"})
+        tts_pipeline.init_t2s_weights(weights_path)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"message": "change gpt weight failed", "Exception": str(e)})
+    return JSONResponse(status_code=200, content={"message": "success"})
+
+
+@APP.get("/set_sovits_weights")
+async def set_sovits_weights(weights_path: str = None):
+    try:
+        if weights_path in ["", None]:
+            return JSONResponse(status_code=400, content={"message": "sovits weight path is required"})
+        tts_pipeline.init_vits_weights(weights_path)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"message": "change sovits weight failed", "Exception": str(e)})
+    return JSONResponse(status_code=200, content={"message": "success"})
+
+
+if __name__ == "__main__":
+    try:
+        if host == "None":
+            host = None
+        uvicorn.run(app=APP, host=host, port=port, workers=1)
+    except Exception:
+        traceback.print_exc()
+        os.kill(os.getpid(), signal.SIGTERM)
+        exit(0)
