@@ -1,9 +1,10 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $BASE_DIR    = $PSScriptRoot
-$ENGINE_DIR  = "D:\AI\GPT-SoVITS-v2pro-20250604"
-$ENGINE_PY   = Join-Path $ENGINE_DIR "runtime\python.exe"
-$ENGINE_CFG  = "GPT_SoVITS/configs/tts_infer.yaml"
+# 自包含推理服务 (本项目 lib\inference\infer_server.py), 不再依赖外部 D:\AI\GPT-SoVITS-v2pro-20250604
+$ENGINE_PY     = Join-Path $BASE_DIR "venv\Scripts\python.exe"
+$ENGINE_SCRIPT = Join-Path $BASE_DIR "lib\inference\infer_server.py"
+$ENGINE_CFG    = Join-Path $BASE_DIR "lib\inference\tts_infer.yaml"
 $ENGINE_HOST = "127.0.0.1"
 $ENGINE_PORT = 9880
 $BACKEND_PORT  = 9886
@@ -25,28 +26,27 @@ try {
     }
   }
 
-  # 1/3 Engine
-  Write-Host "[1/3] GPT-SoVITS Engine (:$ENGINE_PORT) ..." -ForegroundColor Green
+  # 1/3 Inference server (self-contained)
+  Write-Host "[1/3] Self-contained Inference Server (:$ENGINE_PORT) ..." -ForegroundColor Green
   if (Test-Port $ENGINE_PORT) {
-    Write-Host "      Port already in use, assuming engine is running, skip." -ForegroundColor Yellow
+    Write-Host "      Port already in use, assuming server is running, skip." -ForegroundColor Yellow
   } else {
     $ok = $true
-    if (-not (Test-Path $ENGINE_DIR)) { Write-Host "[ERROR] Engine dir missing: $ENGINE_DIR" -ForegroundColor Red; $ok=$false }
-    elseif (-not (Test-Path $ENGINE_PY)) { Write-Host "[ERROR] Engine Python missing: $ENGINE_PY" -ForegroundColor Red; $ok=$false }
-    elseif (-not (Test-Path (Join-Path $ENGINE_DIR "api_v2.py"))) { Write-Host "[ERROR] api_v2.py not found" -ForegroundColor Red; $ok=$false }
-    elseif (-not (Test-Path (Join-Path $ENGINE_DIR $ENGINE_CFG))) { Write-Host "[ERROR] Config missing: $ENGINE_CFG" -ForegroundColor Red; $ok=$false }
+    if (-not (Test-Path $ENGINE_PY)) { Write-Host "[ERROR] venv Python missing: $ENGINE_PY (run venv setup first)" -ForegroundColor Red; $ok=$false }
+    elseif (-not (Test-Path $ENGINE_SCRIPT)) { Write-Host "[ERROR] infer_server.py not found: $ENGINE_SCRIPT" -ForegroundColor Red; $ok=$false }
+    elseif (-not (Test-Path $ENGINE_CFG)) { Write-Host "[ERROR] Config missing: $ENGINE_CFG" -ForegroundColor Red; $ok=$false }
     if (-not $ok) { Read-Host "Press Enter to exit"; return }
 
-    Start-Process powershell -ArgumentList @("-NoExit","-Command","cd '$ENGINE_DIR'; & '$ENGINE_PY' api_v2.py -a $ENGINE_HOST -p $ENGINE_PORT -c '$ENGINE_CFG'") | Out-Null
-    Write-Host "      Waiting for engine ready (max ${ENGINE_WAIT_SECONDS}s) ..." -ForegroundColor Gray
+    Start-Process powershell -ArgumentList @("-NoExit","-Command","cd '$BASE_DIR'; & '$ENGINE_PY' '$ENGINE_SCRIPT' -a $ENGINE_HOST -p $ENGINE_PORT -c '$ENGINE_CFG'") | Out-Null
+    Write-Host "      Waiting for inference server ready (max ${ENGINE_WAIT_SECONDS}s) ..." -ForegroundColor Gray
     $ready = $false
     for ($i=0; $i -lt $ENGINE_WAIT_SECONDS; $i++) {
       Start-Sleep -Seconds 1
       if (Test-EngineReady) { $ready=$true; break }
       if (($i+1)%10 -eq 0) { Write-Host "      ... waited $($i+1)s" -ForegroundColor DarkGray }
     }
-    if ($ready) { Write-Host "      Engine is ready [OK]" -ForegroundColor Green }
-    else { Write-Host "[WARN] engine did not respond in time, check engine window for errors." -ForegroundColor Yellow }
+    if ($ready) { Write-Host "      Inference server is ready [OK]" -ForegroundColor Green }
+    else { Write-Host "[WARN] inference server did not respond in time, check its window for errors." -ForegroundColor Yellow }
   }
 
   # 2/3 Backend
@@ -54,16 +54,41 @@ try {
   if (Test-Port $BACKEND_PORT) { Write-Host "      Port already in use, skip." -ForegroundColor Yellow }
   else { Start-Process powershell -ArgumentList @("-NoExit","-Command","cd '$BASE_DIR'; node server.js") | Out-Null; Start-Sleep -Seconds 3 }
 
-  # 3/3 Frontend
-  Write-Host "[3/3] Frontend Vite (:$FRONTEND_PORT) ..." -ForegroundColor Green
-  if (Test-Port $FRONTEND_PORT) { Write-Host "      Port already in use, skip." -ForegroundColor Yellow }
-  else { Start-Process powershell -ArgumentList @("-NoExit","-Command","cd '$BASE_DIR\web'; npm run dev") | Out-Null }
+  # 3/3 Frontend —— 生产构建由后端 (:$BACKEND_PORT) 静态托管, 无需启动 Vite 开发服务器。
+  #     仅在 dist 缺失或 src 比 dist 更新时构建一次, 之后启动秒开 (不再每次冷启动 Vite)。
+  Write-Host "[3/3] Frontend (production build served by backend :$BACKEND_PORT) ..." -ForegroundColor Green
+  $webDir   = Join-Path $BASE_DIR "web"
+  $distIdx  = Join-Path $webDir "dist\index.html"
+  $distAssets = Join-Path $webDir "dist\assets"
+  $needBuild = (-not (Test-Path $distIdx)) -or (-not (Test-Path $distAssets))
+  if (-not $needBuild) {
+    $srcDir = Join-Path $webDir "src"
+    if (Test-Path $srcDir) {
+      $newestSrc = (Get-ChildItem $srcDir -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+      $distTime  = (Get-Item $distIdx).LastWriteTime
+      if ($newestSrc -and $newestSrc -gt $distTime) { $needBuild = $true }
+    }
+  }
+  if ($needBuild) {
+    Write-Host "      Building frontend (one-time, ~1 min) ..." -ForegroundColor Gray
+    Push-Location $webDir
+    if (-not (Test-Path (Join-Path $webDir "node_modules"))) {
+      Write-Host "      Installing dependencies (npm install) ..." -ForegroundColor Gray
+      npm install
+    }
+    npm run build
+    Pop-Location
+    if (Test-Path $distAssets) { Write-Host "      Build complete [OK]" -ForegroundColor Green }
+    else { Write-Host "[WARN] frontend build may have failed, check output above." -ForegroundColor Yellow }
+  } else {
+    Write-Host "      Using existing build (up to date), no rebuild needed." -ForegroundColor Green
+  }
 
   Write-Host ""
   Write-Host "========================================" -ForegroundColor Cyan
-  Write-Host "  Engine:   http://127.0.0.1:$ENGINE_PORT"
-  Write-Host "  Backend:  http://127.0.0.1:$BACKEND_PORT"
-  Write-Host "  Frontend: http://127.0.0.1:$FRONTEND_PORT"
+  Write-Host "  Inference: http://127.0.0.1:$ENGINE_PORT"
+  Write-Host "  Backend:   http://127.0.0.1:$BACKEND_PORT"
+  Write-Host "  Open UI:   http://127.0.0.1:$BACKEND_PORT" -ForegroundColor Yellow
   Write-Host "========================================" -ForegroundColor Cyan
 }
 catch {

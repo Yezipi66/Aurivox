@@ -73,6 +73,20 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [speedFactor, setSpeedFactor] = useState(1.0)
   const [seed, setSeed] = useState(-1)
 
+  // Advanced TTS inference params (used by advanced settings panel + /tts payload)
+  const [advTier, setAdvTier] = useState('common')
+  const [batchSize, setBatchSize] = useState(1)
+  const [batchThreshold, setBatchThreshold] = useState(0.75)
+  const [splitBucket, setSplitBucket] = useState(true)
+  const [fragmentInterval, setFragmentInterval] = useState(0.3)
+  const [parallelInfer, setParallelInfer] = useState(true)
+  const [sampleSteps, setSampleSteps] = useState(32)
+  const [superSampling, setSuperSampling] = useState(false)
+  const [mediaType, setMediaType] = useState('wav')
+  const [streamingMode, setStreamingMode] = useState(false)
+  const [overlapLength, setOverlapLength] = useState(2)
+  const [minChunkLength, setMinChunkLength] = useState(16)
+
   // Load advanced params from backend on mount
   useEffect(() => {
     api('/api/advanced-params').then(r => {

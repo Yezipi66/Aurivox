@@ -583,6 +583,16 @@ class TTS:
         self.configs.save_configs()
         self.configs.hz = 50
         dict_s1 = torch.load(weights_path, map_location=self.configs.device, weights_only=False)
+        if not (isinstance(dict_s1, dict) and "config" in dict_s1 and "weight" in dict_s1):
+            top = list(dict_s1.keys()) if isinstance(dict_s1, dict) else type(dict_s1).__name__
+            raise ValueError(
+                "GPT 权重格式不正确, 缺少 'config'/'weight' 字段: %s\n"
+                "顶层键: %s\n"
+                "这通常是 PyTorch-Lightning 训练原生 ckpt (含 state_dict/optimizer_states), "
+                "而非可推理的 GPT-SoVITS 权重。请使用 finalize 流程发布的 -e<N>.ckpt "
+                "(应含 {weight, config, info}), 或重新训练该音色后再加载。"
+                % (weights_path, top)
+            )
         config = dict_s1["config"]
         self.configs.max_sec = config["data"]["max_sec"]
         t2s_model = Text2SemanticLightningModule(config, "****", is_train=False)
