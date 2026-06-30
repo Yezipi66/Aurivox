@@ -417,7 +417,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                         </select>
                       </div>
                     </div>
-                    <p style={{ fontSize: 10, color: 'var(--warning)', marginTop: 6 }}>
+                    <p style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>
                       Changing these requires restarting the GPT-SoVITS engine (port 9880) to take effect.
                     </p>
                   </details>
@@ -431,7 +431,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   <div style={{ marginTop: 10 }}>
                     <label className="field-label">
                       Auxiliary References
-                      <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--muted)', marginLeft: 6 }}>(optional, multi-select)</span>
+                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(optional, multi-select)</span>
                     </label>
                     <button
                       className="btn btn-sm"
@@ -477,9 +477,9 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                                 readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11 }}/>
                               <span style={{ flex: 1 }}>
                                 {seg.scene} #{seg.index}
-                                {isMain && <span style={{ color: 'var(--muted)', fontSize: 10, marginLeft: 4 }}>(main)</span>}
+                                {isMain && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 4 }}>(main)</span>}
                               </span>
-                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
+                              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
                             </div>
                           )
                         })}
@@ -522,7 +522,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
           <div className="section">
             <div className="section-hdr">
               <span>{result.split ? (result.concat ? `Combined (${result.segments?.length} segments)` : `Segments (${result.segments?.length})`) : 'Result'}</span>
-              {result.silence_ms !== undefined && <span style={{ fontSize: 10, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
+              {result.silence_ms !== undefined && <span style={{ fontSize: 11, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
             </div>
             <div className="section-body">
               <audio controls src={`${API_BASE}${result.audio_url}`} style={{ width: '100%' }} />
@@ -621,7 +621,7 @@ function AudioPlayer({ src }) {
           background: 'var(--accent)', borderRadius: 2,
         }}/>
       </div>
-      <span style={{ fontSize: 10, color: 'var(--muted)', width: 28, textAlign: 'right', flexShrink: 0 }}>
+      <span style={{ fontSize: 11, color: 'var(--muted)', width: 28, textAlign: 'right', flexShrink: 0 }}>
         {durStr}
       </span>
       <audio
@@ -1026,7 +1026,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
                     </div>
                   </div>
 
-                  <p style={{ fontSize: 10, color: 'var(--warning)', marginTop: 6 }}>
+                  <p style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>
                     Changing these may affect training stability. Use with caution.
                   </p>
                 </details>
@@ -1143,7 +1143,7 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
 
   return (
     <div className="section">
-      <div className="section-hdr"><span>{voice.display_name}</span><span style={{ fontSize: 10, color: 'var(--muted)' }}>{voice.id}</span></div>
+      <div className="section-hdr"><span>{voice.display_name}</span><span style={{ fontSize: 11, color: 'var(--muted)' }}>{voice.id}</span></div>
       <div className="section-body">
         <div className="field">
           <label className="field-label">Language</label>
@@ -1604,7 +1604,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       <div className="field">
         <label className="field-label">
           Auxiliary References
-          <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--muted)', marginLeft: 6 }}>(optional, multi-select from segments)</span>
+          <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(optional, multi-select from segments)</span>
         </label>
         {segments.length > 0 && (
           <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', marginTop: 4 }}>
@@ -1634,7 +1634,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   <span style={{ flex: 1 }}>
                     {seg.scene} #{seg.index} — "{seg.text.slice(0, 20)}{seg.text.length > 20 ? '...' : ''}"
                   </span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
                 </div>
               )
             })}
@@ -1662,7 +1662,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       <div className="field">
         <label className="field-label">
           Text
-          <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--muted)', marginLeft: 6 }}>(leave empty for default)</span>
+          <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(leave empty for default)</span>
         </label>
         <input
           className="control"
@@ -1675,8 +1675,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* Advanced Settings */}
       <div className="collapsible" style={{ margin: '6px 0' }}>
         <div className="collapsible-hdr" onClick={() => setShowAdvanced(!showAdvanced)}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
-          <span style={{ color: 'var(--muted)', fontSize: 11 }}>{showAdvanced ? '▲' : '▼'}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAdvanced ? '▲' : '▼'}</span>
         </div>
         {showAdvanced && (
           <div className="collapsible-body">
@@ -2047,7 +2047,7 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <IconTrash size={20} color="var(--danger)" />
-              <span style={{ fontWeight: 600, fontSize: 15 }}>Delete Asset</span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Delete Asset</span>
             </div>
             <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
               Are you sure you want to delete <strong>{deleteConfirm.displayName}</strong>?
@@ -2138,8 +2138,8 @@ export default function App() {
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
         <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Train</button>
         <div style={{ flex: 1 }} />
-        {health?.ffmpeg_available && <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
-        <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 8, background: health?.ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.ok ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.ok ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
+        {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
+        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: health?.ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.ok ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.ok ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
           {health === null ? '...' : health.ok ? 'GPT-SoVITS Connected' : 'GPT-SoVITS Unreachable'}
         </span>
       </nav>

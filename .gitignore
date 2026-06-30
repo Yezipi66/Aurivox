@@ -1,4 +1,5 @@
-﻿lib/inference/tts_infer.yaml
+﻿logs/
+lib/inference/tts_infer.yaml
 node_modules/
 web/node_modules/
 venv/

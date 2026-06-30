@@ -217,6 +217,23 @@ select.control {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.section-hdr .btn {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.section-hdr h2 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  line-height: inherit;
 }
 .section-body {
   padding: 12px;
