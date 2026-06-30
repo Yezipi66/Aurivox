@@ -36,8 +36,9 @@ function api(path, opts = {}) {
   })
 }
 
-function checkIcon(v) {
-  return v ? <span style={{ color: 'var(--success)', fontWeight: 700 }}>✓</span> : <span style={{ color: 'var(--danger)', fontWeight: 700 }}>✗</span>
+// Status badge for a boolean backend check (e.g. /api/voices/:id/validate)
+function statusBadge(ok, okLabel = 'Selected', missLabel = 'Missing') {
+  return <span className={`badge ${ok ? 'badge-ok' : 'badge-danger'}`}>{ok ? okLabel : missLabel}</span>
 }
 
 function basename(p) {
@@ -720,6 +721,49 @@ const LANGUAGES = [
   { code: 'ko', label: 'Korean' },
 ]
 
+// Training presets — frontend-only convenience. Selecting one writes a bundle of
+// training-form fields; "custom" leaves whatever the user has set. No backend change:
+// handleStart already serialises these same form.* fields into customParams.training.
+const TRAIN_PRESETS = [
+  { key: 'smoke',    label: 'Quick Smoke Test',     hint: 'Tiny run to verify the pipeline end-to-end (~2 epochs).',
+    fields: { gptEpochs: 2,  sovitsEpochs: 2,  batchSize: 'auto', s1SaveEvery: 1, s2GradCkpt: false, s2Fp16: true } },
+  { key: 'balanced', label: 'Balanced (Recommended)', hint: 'Sensible defaults for most voices.',
+    fields: { gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', s1SaveEvery: 4, s2GradCkpt: false, s2Fp16: true } },
+  { key: 'quality',  label: 'Higher Quality',       hint: 'More epochs for a sharper model. Slower.',
+    fields: { gptEpochs: 30, sovitsEpochs: 30, batchSize: 'auto', s1SaveEvery: 4, s2GradCkpt: false, s2Fp16: true } },
+  { key: 'lowvram',  label: 'Low VRAM Safe',         hint: 'Batch size 1 + gradient checkpoint for 8GB GPUs.',
+    fields: { gptEpochs: 20, sovitsEpochs: 20, batchSize: 1,      s1SaveEvery: 4, s2GradCkpt: true,  s2Fp16: true } },
+  { key: 'custom',   label: 'Custom',               hint: 'Your own values — edit anything in the pipeline steps below.',
+    fields: null },
+]
+
+// Slicing preset field values, shared by the Slicing-step preset dropdown and the
+// Input Type convenience mapping.
+const SLICE_PRESET_VALUES = {
+  default:    { sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5 },
+  aggressive: { sliceMinSec: 2, sliceMaxSec: 10, sliceSilenceDb: -34, sliceMinSilenceSec: 0.3 },
+  longer:     { sliceMinSec: 5, sliceMaxSec: 25, sliceSilenceDb: -45, sliceMinSilenceSec: 0.8 },
+}
+
+// Input types — frontend-only convenience. Maps the source-audio character to the
+// preprocessing toggles (denoise / slice). All map to form.* fields that already exist.
+//
+// BACKEND-PENDING (Phase 4): this is a preset mapping, NOT content-aware detection.
+// "Standard" applies the default preprocessing; it does not inspect the audio. True
+// automatic input detection (and per-input-type dedicated algorithms beyond the single
+// UVR5 denoise + single slicer2 the backend ships today) require a backend preflight
+// scan. Tracked in PHASE2_REPORT.md → "Phase 4 backend dependencies".
+const INPUT_TYPES = [
+  { key: 'auto',  label: 'Standard (default)',  hint: 'Default preprocessing: slice + transcribe.',
+    fields: { denoise: false, slice: true, asr: true } },
+  { key: 'clean', label: 'Clean voice clips',  hint: 'Already-clean recordings; no denoise.',
+    fields: { denoise: false, slice: true, asr: true } },
+  { key: 'long',  label: 'Long raw recording', hint: 'One long take; slice into clips before training.',
+    fields: { denoise: false, slice: true, asr: true }, slicePreset: 'aggressive' },
+  { key: 'noisy', label: 'Noisy / mixed audio', hint: 'Has music/noise; run vocal removal first.',
+    fields: { denoise: true, slice: true, asr: true } },
+]
+
 // Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS
 // are a single backend step ('train'); 'promote' publishes the asset.
 const TRAIN_STEPS = [
@@ -806,9 +850,10 @@ function LiveLogs({ logs }) {
   )
 }
 
-function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
+function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill }) {
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'ja', voiceName: '',
+    preset: 'balanced', inputType: 'auto', expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
     // Advanced params
     gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', learningRate: 'default',
@@ -853,20 +898,47 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
   const isFinished = status && ['completed', 'failed', 'cancelled', 'interrupted'].includes(status.status);
   const isInterrupted = status?.status === 'interrupted';
 
+  // Fields owned by a training preset — editing any of them by hand means the
+  // current values no longer match the named preset, so flip the label to "Custom".
+  const PRESET_KEYS = ['gptEpochs', 'sovitsEpochs', 'batchSize', 's1SaveEvery', 's2GradCkpt', 's2Fp16'];
+
   // 便捷 form setter
-  const setField = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
+  const setField = (key, val) => setForm(prev => {
+    const next = { ...prev, [key]: val };
+    if (PRESET_KEYS.includes(key) && prev.preset && prev.preset !== 'custom') {
+      next.preset = 'custom';
+    }
+    return next;
+  });
+
+  // Consume a one-shot prefill handed over from the Assets "Rebuild" action:
+  // fill in the input folder + voice name, then clear the signal so it fires once.
+  useEffect(() => {
+    if (!trainPrefill) return;
+    setForm(prev => ({ ...prev, ...trainPrefill }));
+    if (setTrainPrefill) setTrainPrefill(null);
+  }, [trainPrefill]);
 
   // Slicing presets: convenience that fills the four slice fields (or disables slicing)
   const applySlicePreset = (name) => {
     if (name === 'none') { setField('slice', false); return; }
-    setField('slice', true);
-    const presets = {
-      default:    { sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5 },
-      aggressive: { sliceMinSec: 2, sliceMaxSec: 10, sliceSilenceDb: -34, sliceMinSilenceSec: 0.3 },
-      longer:     { sliceMinSec: 5, sliceMaxSec: 25, sliceSilenceDb: -45, sliceMinSilenceSec: 0.8 },
-    };
-    const p = presets[name];
+    const p = SLICE_PRESET_VALUES[name];
     if (p) setForm(prev => ({ ...prev, slice: true, ...p }));
+  };
+
+  // Training preset (default-view convenience): overwrite the training fields in one go.
+  const applyPreset = (name) => {
+    const p = TRAIN_PRESETS.find(x => x.key === name);
+    if (!p) return;
+    setForm(prev => ({ ...prev, preset: name, ...(p.fields || {}) }));
+  };
+
+  // Input type (default-view convenience): maps source-audio character to preprocessing toggles.
+  const applyInputType = (name) => {
+    const t = INPUT_TYPES.find(x => x.key === name);
+    if (!t) return;
+    const sliceVals = t.slicePreset ? SLICE_PRESET_VALUES[t.slicePreset] : null;
+    setForm(prev => ({ ...prev, inputType: name, ...(t.fields || {}), ...(sliceVals || {}) }));
   };
 
   // 轮询训练状态 —— 有 taskId 就轮询，不依赖本地 training 布尔
@@ -1030,6 +1102,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
   const editable = !taskId; // inputs are editable only before a task starts
 
   const sanitizedVoice = form.voiceName ? form.voiceName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : '';
+  const voiceExists = !!sanitizedVoice && voices.some(v => v.id === sanitizedVoice);
+  const saveEvery = form.s1SaveEvery ?? 4;
   const enabledSteps = [
     form.denoise && 'Vocal removal',
     'Copy to raw', form.slice && 'Slice', form.asr && 'ASR',
@@ -1138,8 +1212,11 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
         </>
       );
     } else if (selectedNode === 'train') {
+      const expertLocked = !form.expertUnlocked;
       body = (
         <>
+          {/* Advanced Options — understandable knobs, always editable */}
+          <div className="layer-label">Advanced Options</div>
           <div className="node-cols">
             <div>
               <div className="node-col-title">S1 · GPT</div>
@@ -1149,22 +1226,6 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
                 <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
                 <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
               </div>
-              <details style={{ marginTop: 8 }}>
-                <summary style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer' }}>▸ Expert (GPT internals)</summary>
-                <p className="msg msg-warning" style={{ marginTop: 6 }}>Changing these can make training unstable or produce worse models. Most users should not change them.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
-                  <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
-                  <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
-                  <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
-                  <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
-                  <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
-                  <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
-                  <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
-                  <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
-                  <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
-                </div>
-              </details>
             </div>
             <div>
               <div className="node-col-title">S2 · SoVITS</div>
@@ -1176,25 +1237,56 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
                   <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
                 </label>
               </div>
-              <details style={{ marginTop: 8 }}>
-                <summary style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer' }}>▸ Expert (SoVITS internals)</summary>
-                <p className="msg msg-warning" style={{ marginTop: 6 }}>Changing these can make training unstable or produce worse models. Most users should not change them.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
-                  <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
-                  <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
-                  <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
-                  <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
-                  <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
-                  <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
-                  <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
-                    <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
-                  </label>
-                </div>
-              </details>
             </div>
           </div>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>8GB VRAM (RTX 3070): keep batch size ≤ 4, or use &quot;auto&quot;. S1 and S2 run back-to-back as one training step.</p>
+
+          {/* Expert Parameters — low-level GPT-SoVITS internals, gated behind explicit unlock */}
+          <details className="expert-block" style={{ marginTop: 14 }}>
+            <summary className="expert-summary">Expert Parameters — GPT-SoVITS internals</summary>
+            <div className="msg msg-danger expert-warning">
+              <strong>⚠ Expert Parameters.</strong> Changing these can make training unstable, waste hours of GPU time,
+              or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.
+            </div>
+            <label className="toggle-row expert-unlock">
+              <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
+              I understand the risks — let me edit expert parameters
+            </label>
+            <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
+              <div className="node-cols">
+                <div>
+                  <div className="node-col-title">S1 · GPT</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
+                    <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
+                    <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
+                    <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
+                    <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
+                    <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
+                    <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
+                    <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
+                    <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
+                    <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
+                  </div>
+                </div>
+                <div>
+                  <div className="node-col-title">S2 · SoVITS</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
+                    <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
+                    <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
+                    <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
+                    <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
+                    <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
+                    <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
+                    <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+                      <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </fieldset>
+          </details>
         </>
       );
     } else if (selectedNode === 'preprocess') {
@@ -1243,6 +1335,26 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
                 <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder="e.g. D:\raw_audio\MyVoice" />
               </div>
             </div>
+
+            {/* Preset + Input Type — high-level, user-friendly defaults (Part 2).
+                Both are frontend-only: they just fill existing form.* fields. */}
+            <div className="preset-grid">
+              <div className="field">
+                <label className="field-label">Training Preset</label>
+                <select className="control" value={form.preset || 'balanced'} onChange={e => applyPreset(e.target.value)}>
+                  {TRAIN_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+                <p className="field-hint">{(TRAIN_PRESETS.find(p => p.key === (form.preset || 'balanced')) || {}).hint}</p>
+              </div>
+              <div className="field">
+                <label className="field-label">Input Type</label>
+                <select className="control" value={form.inputType || 'auto'} onChange={e => applyInputType(e.target.value)}>
+                  {INPUT_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                </select>
+                <p className="field-hint">{(INPUT_TYPES.find(t => t.key === (form.inputType || 'auto')) || {}).hint}</p>
+                <p className="field-note">ⓘ Preset mapping, not content detection — automatic input detection arrives with backend support.</p>
+              </div>
+            </div>
           </fieldset>
 
           {/* Pipeline map — click a step to configure it (or inspect its status during a run) */}
@@ -1257,9 +1369,31 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
           </div>
           {renderNodeDetail()}
 
-          <div className="plan-line">
-            Output: <strong>{sanitizedVoice ? `assets/${sanitizedVoice}/` : 'assets/<voice>/'}</strong>
-            {'  ·  '}Steps: {enabledSteps.join(' → ')}
+          {/* Pre-flight summary — reflects live form.* values (advanced params edits flow
+              through here too). Shows what is NOT already visible in the dropdowns / map. */}
+          <div className="preflight">
+            <div className="pf-row">
+              <span className="pf-key">Output</span>
+              <span className="pf-val pf-path">{sanitizedVoice ? `assets/${sanitizedVoice}/` : 'assets/<voice>/'}</span>
+              {voiceExists && <span className="pf-warn">⚠ overwrites existing &ldquo;{sanitizedVoice}&rdquo;</span>}
+            </div>
+            <div className="pf-row">
+              <span className="pf-key">Training</span>
+              <span className="pf-val">
+                GPT {form.gptEpochs ?? 20} + SoVITS {form.sovitsEpochs ?? 20} epochs
+                {'  ·  '}batch {form.batchSize || 'auto'}
+                {'  ·  '}save every {saveEvery} {saveEvery === 1 ? 'epoch' : 'epochs'}
+              </span>
+            </div>
+            <div className="pf-row">
+              <span className="pf-key">Preprocess</span>
+              <span className="pf-chips">
+                {form.denoise && <span className="pf-chip">Denoise</span>}
+                {form.slice && <span className="pf-chip">Slice</span>}
+                {form.asr && <span className="pf-chip">ASR</span>}
+                {!form.denoise && !form.slice && !form.asr && <span className="pf-chip pf-chip-off">none</span>}
+              </span>
+            </div>
           </div>
 
           {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
@@ -1408,12 +1542,14 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
           </div>
         )}
         {validation && (
-          <table className="table" style={{ marginTop: 8 }}>
-            <tbody>
-              <tr><td>GPT Model</td><td>{checkIcon(validation.gpt_model_exists)}</td></tr>
-              <tr><td>SoVITS Model</td><td>{checkIcon(validation.sovits_model_exists)}</td></tr>
-            </tbody>
-          </table>
+          <div className="field" style={{ marginTop: 8 }}>
+            <label className="field-label">Model Validity</label>
+            <div className="validity-list">
+              <div className="validity-row"><span>GPT Model</span>{statusBadge(validation.gpt_model_exists)}</div>
+              <div className="validity-row"><span>SoVITS Model</span>{statusBadge(validation.sovits_model_exists)}</div>
+              <div className="validity-row"><span>Reference Audio</span>{statusBadge(validation.reference_audio_exists)}</div>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -2028,7 +2164,7 @@ function IconTrash({ size = 16, color = 'currentColor' }) {
 // ============================
 //  ASSETS TAB
 // ============================
-function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
+function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPrefill }) {
   const [assets, setAssets] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState(null)
@@ -2037,6 +2173,8 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
   const [segmentsLoading, setSegmentsLoading] = useState({})
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { id, displayName }
   const [deleting, setDeleting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('All')
 
   const loadAssets = useCallback(() => {
     api('/api/assets').then(r => {
@@ -2081,6 +2219,17 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
     } finally {
       setTimeout(() => setScanMsg(null), 4000)
     }
+  }
+
+  // Rebuild = hand off to the Train tab with the input folder + voice name
+  // prefilled (raw preferred, else the slices folder). Pure front-end: the user
+  // confirms and starts training. Re-slicing / model rebuild happen in the
+  // existing pipeline; no new backend endpoint is used.
+  const handleRebuild = (id, asset) => {
+    const a = asset.assets || {}
+    const inputDir = a.raw?.dir || a.slices?.dir || ''
+    if (setTrainPrefill) setTrainPrefill({ inputDir, voiceName: id })
+    setPage('train')
   }
 
   const handleOpenExplorer = async (id) => {
@@ -2175,19 +2324,50 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
     return acc
   }, { voices: 0, raw: 0, rawDur: 0, slices: 0, gpt: 0, sovits: 0, segments: 0 })
 
-  // Derive a coarse health badge for a voice from its available assets
+  // Derive a health badge for a voice from its available assets.
+  // Color-blind friendly: every state carries a distinct shape glyph (sym),
+  // so states stay distinguishable without relying on color alone.
   const voiceHealth = (asset) => {
     const a = asset.assets || {}
     const hasGpt = (a.checkpoints?.gpt || []).length > 0
     const hasSovits = (a.checkpoints?.sovits || []).length > 0
+    const hasRaw = (a.raw?.file_count || 0) > 0
     const hasSlices = (a.slices?.file_count || 0) > 0
     const hasSegs = (asset.segment_total || 0) > 0
-    if (hasGpt && hasSovits && hasSegs) return { label: 'Ready', cls: 'badge-ok' }
-    if (!hasGpt && !hasSovits && !hasSlices) return { label: 'Needs Scan', cls: 'badge-warn' }
-    if (!hasGpt) return { label: 'Missing GPT', cls: 'badge-danger' }
-    if (!hasSovits) return { label: 'Missing SoVITS', cls: 'badge-danger' }
-    return { label: 'Incomplete', cls: 'badge-warn' }
+    const scanned = hasGpt || hasSovits || hasRaw || hasSlices || hasSegs
+    if (!scanned) return { key: 'needscan', label: 'Needs Scan', cls: 'badge-muted', sym: '○' }
+    if (!hasGpt || !hasSovits) {
+      const which = (!hasGpt && !hasSovits) ? 'Models' : (!hasGpt ? 'GPT' : 'SoVITS')
+      return { key: 'nomodel', label: `Missing ${which}`, cls: 'badge-danger', sym: '✕' }
+    }
+    if (!hasSegs) {
+      if (!hasRaw && !hasSlices) {
+        return { key: 'norefs', label: 'No Refs', cls: 'badge-danger2', sym: '■',
+                 note: 'No raw / slices / segments — re-import audio to rebuild.' }
+      }
+      return { key: 'noseg', label: 'No Segments', cls: 'badge-seg', sym: '▲',
+               note: 'Inference can fall back to raw — backend-pending.' }
+    }
+    if (!hasRaw) return { key: 'ready', label: 'Ready', cls: 'badge-ok2', sym: '◐',
+                          note: 'Models + segments present; raw removed (still usable).' }
+    return { key: 'complete', label: 'Complete', cls: 'badge-ok', sym: '●' }
   }
+
+  // Search + filter (Part 6) — all derived from existing /api/assets data
+  const healthCounts = assetEntries.reduce((acc, [, asset]) => {
+    const l = voiceHealth(asset).label
+    acc[l] = (acc[l] || 0) + 1
+    return acc
+  }, {})
+  // Keep a stable filter order; only show chips for states that actually occur
+  const FILTER_ORDER = ['Complete', 'Ready', 'No Segments', 'Missing Models', 'Missing GPT', 'Missing SoVITS', 'No Refs', 'Needs Scan']
+  const filterChips = ['All', ...FILTER_ORDER.filter(l => healthCounts[l])]
+  const q = search.trim().toLowerCase()
+  const filteredEntries = assetEntries.filter(([id, asset]) => {
+    if (filter !== 'All' && voiceHealth(asset).label !== filter) return false
+    if (q && !((asset.display_name || id).toLowerCase().includes(q) || id.toLowerCase().includes(q))) return false
+    return true
+  })
 
   return (
     <div className="section">
@@ -2213,6 +2393,34 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
             <span className="stat-pill"><span className="sp-v">{totals.segments}</span><span className="sp-k">segments</span></span>
           </div>
         )}
+        {assetEntries.length > 0 && (
+          <div className="assets-toolbar">
+            <input
+              className="control assets-search"
+              type="text"
+              placeholder="Search by voice name…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <div className="filter-chips">
+              {filterChips.map(f => (
+                <button
+                  key={f}
+                  className={`chip ${filter === f ? 'chip-on' : ''}`}
+                  onClick={() => setFilter(f)}
+                >
+                  {f}{f !== 'All' && healthCounts[f] ? ` (${healthCounts[f]})` : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {assetEntries.length > 0 && filteredEntries.length === 0 && (
+          <div className="msg" style={{ marginBottom: 10 }}>
+            No voices match {q ? `“${search.trim()}”` : 'this filter'}.
+            <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => { setSearch(''); setFilter('All') }}>Clear</button>
+          </div>
+        )}
         {assetEntries.length === 0 && (
           <div className="empty-state">
             <div className="es-title">No voice assets yet</div>
@@ -2223,7 +2431,7 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
             </div>
           </div>
         )}
-        {assetEntries.map(([id, asset]) => {
+        {filteredEntries.map(([id, asset]) => {
           const a = asset.assets || {}
           const raw = a.raw || {}
           const slices = a.slices || {}
@@ -2231,6 +2439,13 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
           const gptCount = (ckpts.gpt || []).length
           const sovitsCount = (ckpts.sovits || []).length
           const segCount = asset.segment_total || 0
+          const h = voiceHealth(asset)
+          const canRebuild = (raw.file_count || 0) > 0 || (slices.file_count || 0) > 0
+          // Rebuild = full re-train (the backend pipeline always runs train). Only
+          // offer it where retraining is actually the fix: missing models, or the
+          // dead-end No Refs (then disabled). No Segments is fixed by Scan alone
+          // (regenerates segments.json from existing slices — no training).
+          const showRebuild = h.key === 'nomodel' || h.key === 'norefs'
           const isExpanded = expandedId === id
           const segData = segments[id]
           const isLoadingSegs = segmentsLoading[id]
@@ -2241,35 +2456,63 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                     {asset.display_name || id}
-                    {(() => { const h = voiceHealth(asset); return <span className={`badge ${h.cls}`}>{h.label}</span> })()}
+                    <span className={`badge ${h.cls}`} title={h.note || ''}>
+                      <span className="badge-sym">{h.sym}</span>{h.label}
+                    </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                     Mode: {asset.mode || 'N/A'} &middot; ID: {id}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <button className="btn btn-sm" onClick={() => handleOpenExplorer(id)} title="Open in Explorer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}>
-                    <IconFolderSearch size={14} color="var(--muted)" />
-                  </button>
-                  <button className="btn btn-sm" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}>
+                <div className="asset-actions">
+                  {/* Secondary actions */}
+                  <div className="aa-group">
+                    <button className="btn btn-sm btn-ghost" onClick={() => handleBrowse(id)}>
+                      {isExpanded ? 'Collapse' : 'Browse'}
+                    </button>
+                    <button
+                      className={`btn btn-sm ${h.key === 'noseg' ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => handleScanOne(id)}
+                      disabled={scanning}
+                      title={h.key === 'noseg'
+                        ? 'Rebuild segments.json from existing slices — no re-training'
+                        : 'Re-scan this voice and refresh its assets'}
+                    >
+                      {h.key === 'noseg' ? 'Rebuild Segments' : 'Scan'}
+                    </button>
+                    {showRebuild && (
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => canRebuild && handleRebuild(id, asset)}
+                        disabled={!canRebuild}
+                        title={canRebuild
+                          ? 'Re-train from existing raw / slices (opens Train with values prefilled)'
+                          : 'No raw or slices to rebuild from — re-import audio first'}
+                      >
+                        Rebuild
+                      </button>
+                    )}
+                    <button className="btn btn-sm btn-ghost" onClick={() => handleOpenExplorer(id)} title="Open in Explorer" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
+                      <IconFolderSearch size={14} color="var(--muted)" />
+                    </button>
+                  </div>
+                  {/* Danger action */}
+                  <button className="btn btn-sm btn-ghost aa-danger" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
                     <IconTrash size={14} color="var(--danger)" />
                   </button>
-                  <button className="btn btn-sm" onClick={() => handleBrowse(id)}>
-                    {isExpanded ? 'Collapse' : 'Browse'}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => handleScanOne(id)} disabled={scanning}>
-                    Scan
-                  </button>
+                  {/* Primary action */}
                   <button className="btn btn-sm btn-primary" onClick={() => handleSetAsVoice(id)}>
                     Set as Voice
                   </button>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 12, color: 'var(--text)' }}>
-                <span>Raw: {raw.file_count || 0} files ({(raw.total_duration || 0).toFixed(1)}s)</span>
-                <span>Slices: {slices.file_count || 0}</span>
-                <span>Checkpoints: GPT {gptCount} / SoVITS {sovitsCount}</span>
-                <span>Segments: {segCount}</span>
+              <div className="asset-stats">
+                <span className="stat-pill"><span className="sp-v">{raw.file_count || 0}</span><span className="sp-k">raw</span></span>
+                <span className="stat-pill"><span className="sp-v">{(raw.total_duration || 0).toFixed(1)}s</span><span className="sp-k">dur</span></span>
+                <span className="stat-pill"><span className="sp-v">{slices.file_count || 0}</span><span className="sp-k">slices</span></span>
+                <span className="stat-pill"><span className="sp-v">{gptCount}</span><span className="sp-k">GPT</span></span>
+                <span className="stat-pill"><span className="sp-v">{sovitsCount}</span><span className="sp-k">SoVITS</span></span>
+                <span className="stat-pill"><span className="sp-v">{segCount}</span><span className="sp-k">segments</span></span>
               </div>
 
               {isExpanded && (
@@ -2444,6 +2687,8 @@ export default function App() {
   const [selectedRefText, setSelectedRefText] = useState('')
   const [health, setHealth] = useState(null)
   const [activeTaskId, setActiveTaskId] = usePersistentState('train.activeTaskId', null)
+  // One-shot handoff from Assets "Rebuild" → Train tab (input folder + voice name).
+  const [trainPrefill, setTrainPrefill] = useState(null)
 
   const loadVoices = useCallback(() => {
     api('/api/assets').then(r => {
@@ -2529,11 +2774,12 @@ export default function App() {
             <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} onBack={() => setPage('generate')} />
           )}
           {page === 'assets' && (
-            <AssetsTab voices={voices} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} />
+            <AssetsTab voices={voices} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill} />
           )}
           {page === 'train' && (
             <TrainingTab voices={voices} loadVoices={loadVoices}
-              activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId} />
+              activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
+              trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} />
           )}
         </div>
       </main>
