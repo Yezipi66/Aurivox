@@ -1189,26 +1189,47 @@ app.get("/api/assets", (req, res) => {
   }
 });
 
+// ---- 共享:全量资产扫描 + 同步 voices.json ----
+async function runFullAssetScan() {
+  const results = assetScanner.fullScan();
+  await withVoicesLock(async () => {
+    const voices = loadVoices();
+    const scannedIds = new Set(Object.keys(results));
+    for (const oldId of Object.keys(voices)) {
+      if (!scannedIds.has(oldId)) delete voices[oldId];
+    }
+    for (const [id, meta] of Object.entries(results)) {
+      voices[id] = {
+        display_name: meta?.display_name || id,
+        language: meta?.language || "ja",
+        prompt_lang: meta?.prompt_lang || meta?.language || "ja",
+        text_lang: meta?.text_lang || meta?.language || "ja",
+      };
+    }
+    saveVoices(voices);
+  });
+  return results;
+}
+
+// 是否存在任何声音目录缺少 meta.json / segments.json(需要扫描)
+function assetsNeedScan() {
+  try {
+    if (!fs.existsSync(ASSETS_DIR)) return false;
+    const entries = fs.readdirSync(ASSETS_DIR, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const metaPath = path.join(ASSETS_DIR, e.name, "meta.json");
+      const segPath = path.join(ASSETS_DIR, e.name, "segments.json");
+      if (!fs.existsSync(metaPath) || !fs.existsSync(segPath)) return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
 // POST /api/assets/scan — trigger full directory scan
 app.post("/api/assets/scan", requireApiKey, async (req, res) => {
   try {
-    const results = assetScanner.fullScan();
-    await withVoicesLock(async () => {
-      const voices = loadVoices();
-      const scannedIds = new Set(Object.keys(results));
-      for (const oldId of Object.keys(voices)) {
-        if (!scannedIds.has(oldId)) delete voices[oldId];
-      }
-      for (const [id, meta] of Object.entries(results)) {
-        voices[id] = {
-          display_name: meta?.display_name || id,
-          language: meta?.language || "ja",
-          prompt_lang: meta?.prompt_lang || meta?.language || "ja",
-          text_lang: meta?.text_lang || meta?.language || "ja",
-        };
-      }
-      saveVoices(voices);
-    });
+    const results = await runFullAssetScan();
     res.json({ ok: true, scanned: Object.keys(results).length, assets: results });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
@@ -1701,4 +1722,20 @@ app.listen(PORT, HOST, () => {
 
   // 扫描暂存目录中的未完成任务（断电恢复）
   scanStagingTasks();
+
+  // 自动扫描资产:首次启动/缺少 meta.json 时生成元数据,
+  // 避免侧边栏 GPT/SoVITS 红叉与 "voice not found"(无需手动 scan all)。
+  (async () => {
+    try {
+      if (assetsNeedScan()) {
+        console.log("[ASSETS] 检测到声音缺少 meta.json/segments.json,启动时自动扫描...");
+        const results = await runFullAssetScan();
+        console.log(`[ASSETS] 自动扫描完成:${Object.keys(results).length} 个声音已就绪`);
+      } else {
+        console.log("[ASSETS] 资产元数据已就绪,跳过自动扫描");
+      }
+    } catch (e) {
+      console.error("[ASSETS] 启动自动扫描失败:", e.message);
+    }
+  })();
 });

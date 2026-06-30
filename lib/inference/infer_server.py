@@ -83,6 +83,16 @@ argv = sys.argv
 if config_path in [None, ""]:
     config_path = os.path.join(THIS_DIR, "tts_infer.yaml")
 
+# 活动配置缺失时从模板复制(活动 yaml 会被运行时热加载回写, 故不入库)
+if not os.path.exists(config_path):
+    _example = config_path + ".example"
+    if os.path.exists(_example):
+        import shutil
+        shutil.copyfile(_example, config_path)
+        print(f"[config] {config_path} 不存在, 已从模板复制: {_example}")
+    else:
+        print(f"[config] 警告: {config_path} 与模板 {_example} 均不存在")
+
 tts_config = TTS_Config(config_path)
 print(tts_config)
 tts_pipeline = TTS(tts_config)
