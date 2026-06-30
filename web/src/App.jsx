@@ -50,16 +50,21 @@ function basename(p) {
 //  GENERATE TAB
 // ===========================
 function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef }) {
-  const [text, setText] = useState('')
+  const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [result, setResult] = useState(null)
+  // result + recent are persisted: audio is referenced by a server URL (audio_url),
+  // not a blob, so the players keep working after a reload.
+  const [result, setResult] = usePersistentState('generate.result', null)
   const [validation, setValidation] = useState(null)
+  const [recent, setRecent] = usePersistentState('generate.recent', [], {
+    rehydrate: r => (Array.isArray(r) ? r.slice(0, 20) : []),
+  })  // Recent Generations (Part 4) — now persistent across reloads
 
-  const [splitEnabled, setSplitEnabled] = useState(true)
-  const [maxChars, setMaxChars] = useState(30)
-  const [concatEnabled, setConcatEnabled] = useState(true)
-  const [silenceMs, setSilenceMs] = useState(300)
+  const [splitEnabled, setSplitEnabled] = usePersistentState('generate.splitEnabled', true)
+  const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
+  const [concatEnabled, setConcatEnabled] = usePersistentState('generate.concatEnabled', true)
+  const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
 
   const selected = voices.find(v => v.id === selectedVoice)
 
@@ -178,6 +183,19 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
       setResult(r.data)
+      if (r.data.audio_url) {
+        setRecent(prev => [{
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          text: text.trim(),
+          voice: selected?.display_name || selectedVoice,
+          lang,
+          gpt: basename(selGpt) || '—',
+          sovits: basename(selSovits) || '—',
+          audio_url: r.data.audio_url,
+          segments: r.data.segments?.length || 1,
+          createdAt: Date.now(),
+        }, ...prev].slice(0, 20))
+      }
       // Auto-save advanced params after successful generation
       api('/api/advanced-params', {
         method: 'POST',
@@ -243,8 +261,12 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 className="control" rows={5} placeholder="Enter text to synthesize..."
                 value={text} onChange={e => { setText(e.target.value); }}
               />
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                Language: <span style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{lang}</span>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <span>Characters: <span style={{ color: 'var(--text)' }}>{text.trim().length}</span></span>
+                {splitEnabled && (
+                  <span>Estimated chunks: <span style={{ color: 'var(--text)' }}>{Math.max(1, Math.ceil(text.trim().length / Math.max(1, maxChars)))}</span></span>
+                )}
+                <span>Language: <span style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{lang}</span></span>
               </div>
             </div>
 
@@ -538,6 +560,38 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         {result && result.segments && result.segments.length > 1 && (
           <CollapsibleSegments segments={result.segments} />
         )}
+
+        {/* Recent Generations (Part 4) — session-level; persistent history needs backend support */}
+        <div className="section">
+          <div className="section-hdr">
+            <span>Recent Generations</span>
+            {recent.length > 0 && <button className="btn btn-sm" onClick={() => setRecent([])}>Clear</button>}
+          </div>
+          <div className="section-body">
+            {recent.length === 0 ? (
+              <div className="empty-state" style={{ padding: 16 }}>
+                <div className="es-sub" style={{ marginBottom: 0 }}>Generated audio will appear here.</div>
+              </div>
+            ) : (
+              recent.map(item => (
+                <div key={item.id} className="recent-row">
+                  <div className="rr-main">
+                    <div className="rr-text" title={item.text}>{item.text || '(empty)'}</div>
+                    <div className="rr-meta">
+                      {item.voice} · <span style={{ textTransform: 'uppercase' }}>{item.lang}</span> · GPT {item.gpt} / SoVITS {item.sovits}
+                      {item.segments > 1 ? ` · ${item.segments} seg` : ''} · {new Date(item.createdAt).toLocaleTimeString()}
+                    </div>
+                    <audio controls src={`${API_BASE}${item.audio_url}`} style={{ width: '100%', height: 30, marginTop: 6 }} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <a className="btn btn-sm" href={`${API_BASE}${item.audio_url}`} download>Download</a>
+                    <button className="btn btn-sm" onClick={() => setText(item.text)} title="Load this text back into the editor">Rerun</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Right sidebar: voice info */}
@@ -666,6 +720,92 @@ const LANGUAGES = [
   { code: 'ko', label: 'Korean' },
 ]
 
+// Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS
+// are a single backend step ('train'); 'promote' publishes the asset.
+const TRAIN_STEPS = [
+  { key: 'denoise',    label: 'Vocal Removal / Denoise' },
+  { key: 'slice',      label: 'Slicing' },
+  { key: 'asr',        label: 'ASR' },
+  { key: 'preprocess', label: 'Preprocess' },
+  { key: 'train',      label: 'S1 GPT + S2 SoVITS' },
+  { key: 'finalize',   label: 'Finalize' },
+  { key: 'promote',    label: 'Publish' },
+]
+
+// Clickable pipeline map — doubles as navigation (click a node to configure it)
+// and as live status (during a run the node reflects /api/train/status state).
+function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect }) {
+  return (
+    <div className="pipe-map" role="list">
+      {TRAIN_STEPS.map((s, i) => {
+        let st
+        const off = enabledMap && enabledMap[s.key] === false
+        if (statusSteps && statusSteps[s.key]) st = statusSteps[s.key].status || 'pending'
+        else st = off ? 'skipped' : 'pending'
+        const glyph = st === 'completed' ? '\u2713' : st === 'running' ? '\u25CF' : st === 'failed' ? '\u2717' : st === 'skipped' ? '\u2013' : i + 1
+        const isSel = selectedNode === s.key
+        // The connector segment to the LEFT of this node turns green once the
+        // previous step has completed, so the rail reads as a progress bar.
+        const prevDone = i > 0 && statusSteps && statusSteps[TRAIN_STEPS[i - 1].key] &&
+          statusSteps[TRAIN_STEPS[i - 1].key].status === 'completed'
+        return (
+          <button
+            type="button"
+            role="listitem"
+            className={`pipe-step ${isSel ? 'selected' : ''} ${off ? 'disabled-step' : ''}`}
+            key={s.key}
+            onClick={() => onSelect(isSel ? null : s.key)}
+            title="Click to configure this step"
+          >
+            {i > 0 && <span className={`pipe-seg ${prevDone ? 'done' : ''}`} aria-hidden="true" />}
+            <span className={`pipe-dot ${st}`}>{glyph}</span>
+            <span className={`pipe-label ${st === 'running' ? 'running' : ''}`}>{s.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Live logs viewer with auto-scroll / pause / copy / clear (Part 2)
+function LiveLogs({ logs }) {
+  const [autoScroll, setAutoScroll] = useState(true)
+  const boxRef = useRef(null)
+  useEffect(() => {
+    if (autoScroll && boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight
+  }, [logs, autoScroll])
+  const copy = () => {
+    const txt = (logs || []).map(l => `[${new Date(l.time).toLocaleTimeString()}] ${l.message}`).join('\n')
+    try { navigator.clipboard?.writeText(txt) } catch { /* ignore */ }
+  }
+  return (
+    <div className="section">
+      <div className="section-hdr">
+        <span>Live Logs</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn btn-sm" onClick={() => setAutoScroll(v => !v)}>{autoScroll ? 'Pause auto-scroll' : 'Resume auto-scroll'}</button>
+          <button className="btn btn-sm" onClick={copy} disabled={!logs || logs.length === 0}>Copy</button>
+        </div>
+      </div>
+      <div className="section-body">
+        {(!logs || logs.length === 0) ? (
+          <div className="empty-state" style={{ padding: 16 }}>
+            <div className="es-sub" style={{ marginBottom: 0 }}>Logs will appear here after training starts.</div>
+          </div>
+        ) : (
+          <div className="log-view" ref={boxRef}>
+            {logs.map((log, i) => (
+              <div key={i} className={`log-line ${log.level || ''}`}>
+                <span className="log-ts">[{new Date(log.time).toLocaleTimeString()}]</span>{log.message}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'ja', voiceName: '',
@@ -689,8 +829,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
   const [status, setStatus] = useState(null);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [advTier, setAdvTier] = useState('common'); // 'common' | 'advanced'
+  const [selectedNode, setSelectedNode] = useState(null); // pipeline-map node being configured/inspected
   // Advanced - Common
   // (existing: temperature, topK, topP, repPenalty, splitMethod, speedFactor, seed)
   // Advanced - Advanced
@@ -716,6 +855,19 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
 
   // 便捷 form setter
   const setField = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
+
+  // Slicing presets: convenience that fills the four slice fields (or disables slicing)
+  const applySlicePreset = (name) => {
+    if (name === 'none') { setField('slice', false); return; }
+    setField('slice', true);
+    const presets = {
+      default:    { sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5 },
+      aggressive: { sliceMinSec: 2, sliceMaxSec: 10, sliceSilenceDb: -34, sliceMinSilenceSec: 0.3 },
+      longer:     { sliceMinSec: 5, sliceMaxSec: 25, sliceSilenceDb: -45, sliceMinSilenceSec: 0.8 },
+    };
+    const p = presets[name];
+    if (p) setForm(prev => ({ ...prev, slice: true, ...p }));
+  };
 
   // 轮询训练状态 —— 有 taskId 就轮询，不依赖本地 training 布尔
   useEffect(() => {
@@ -875,176 +1027,252 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
     setError(null);
   };
 
-  const stepDefs = [
-    { key: 'denoise', label: 'Vocal Removal', checked: form.denoise, set: (v) => setField('denoise', v) },
-    { key: 'slice', label: 'Slicing', checked: form.slice, set: (v) => setField('slice', v) },
-    { key: 'asr', label: 'Transcription (ASR)', checked: form.asr, set: (v) => setField('asr', v) },
-    { key: 'copyRaw', label: 'Copy source to raw/', checked: form.copyRaw, set: (v) => setField('copyRaw', v) },
-  ];
+  const editable = !taskId; // inputs are editable only before a task starts
 
-  return (
-    <div className="section">
-      <div className="section-hdr"><h2>Train New Voice</h2></div>
-      <div className="section-body">
-        {!taskId && (
-          <>
+  const sanitizedVoice = form.voiceName ? form.voiceName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : '';
+  const enabledSteps = [
+    form.denoise && 'Vocal removal',
+    'Copy to raw', form.slice && 'Slice', form.asr && 'ASR',
+    'Preprocess', 'Train', 'Finalize', 'Publish',
+  ].filter(Boolean);
+
+  const NODE_LABELS = {
+    denoise: 'Vocal Removal / Denoise', slice: 'Slicing', asr: 'ASR Transcription',
+    preprocess: 'Preprocess', train: 'Model Training (S1 GPT + S2 SoVITS)',
+    finalize: 'Finalize', promote: 'Publish',
+  };
+
+  const renderNodeDetail = () => {
+    if (!selectedNode) return null;
+    const stepSt = status?.steps?.[selectedNode]?.status;
+    const stBadge = stepSt && (
+      <span className={`badge ${stepSt === 'completed' ? 'badge-ok' : stepSt === 'running' ? 'badge-accent' : stepSt === 'failed' ? 'badge-danger' : 'badge-neutral'}`}>{stepSt}</span>
+    );
+    let body = null;
+    if (selectedNode === 'denoise') {
+      body = (
+        <>
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
+            Enable vocal removal / denoise
+          </label>
+          {form.denoise && (
             <div className="field">
-              <label className="field-label">Voice Name *</label>
-              <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="e.g. MyVoice" />
-            </div>
-            <div className="field">
-              <label className="field-label">Audio Folder Path *</label>
-              <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder="e.g. D:\raw_audio\MyVoice" />
-            </div>
-            <div className="field">
-              <label className="field-label">Language *</label>
-              <select className="control" value={form.language} onChange={e => setField('language', e.target.value)}>
-                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+              <label className="field-label">Model</label>
+              <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
+                <option value="mdx-net">MDX-Net</option>
               </select>
             </div>
-
-            {/* Advanced Settings toggle */}
-            <div className="field">
-              <button type="button" className="btn btn-sm" onClick={() => setShowAdvanced(v => !v)} style={{ marginTop: 4 }}>
-                {showAdvanced ? '\u25BE Advanced Settings' : '\u25B8 Advanced Settings'}
-              </button>
+          )}
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Removes background music / noise before slicing. Off by default — only needed for noisy or mixed audio.</p>
+        </>
+      );
+    } else if (selectedNode === 'slice') {
+      body = (
+        <>
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.slice} onChange={e => setField('slice', e.target.checked)} />
+            Enable slicing
+          </label>
+          <div className="field">
+            <label className="field-label">Slicing preset</label>
+            <select className="control" onChange={e => applySlicePreset(e.target.value)} defaultValue="">
+              <option value="" disabled>Choose a preset…</option>
+              <option value="default">Default</option>
+              <option value="aggressive">More aggressive split</option>
+              <option value="longer">Fewer, longer clips</option>
+              <option value="none">Already sliced (no slicing)</option>
+            </select>
+          </div>
+          {form.slice && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
+              <NumField label="Min Duration (s)" value={form.sliceMinSec} onChange={v => setField('sliceMinSec', v)} min={1} max={30} />
+              <NumField label="Max Duration (s)" value={form.sliceMaxSec} onChange={v => setField('sliceMaxSec', v)} min={1} max={60} />
+              <NumField label="Silence Threshold (dB)" value={form.sliceSilenceDb} onChange={v => setField('sliceSilenceDb', v)} min={-60} max={0} />
+              <NumField label="Min Silence (s)" value={form.sliceMinSilenceSec} onChange={v => setField('sliceMinSilenceSec', v)} step={0.1} min={0.1} max={5} />
             </div>
-
-            {showAdvanced && (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 12, marginTop: 4 }}>
-                <div className="field">
-                  <label className="field-label">Preprocessing Steps</label>
-                  {stepDefs.map(s => (
-                    <label key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 4, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={s.checked} onChange={e => s.set(e.target.checked)} />
-                      {s.label}
-                    </label>
-                  ))}
-                </div>
-
-                <div className="field">
-                  <label className="field-label">Training</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <NumField label="GPT Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
-                    <NumField label="SoVITS Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
-                    <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
-                    <TextField label="Learning Rate (SoVITS, default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
-                  </div>
-                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                    8GB VRAM (RTX 3070): keep batch size &le; 4, or use &quot;auto&quot;.
-                  </p>
-                </div>
-
-                {form.slice && (
-                  <div className="field">
-                    <label className="field-label">Slicing</label>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <NumField label="Min Duration (s)" value={form.sliceMinSec} onChange={v => setField('sliceMinSec', v)} min={1} max={30} />
-                      <NumField label="Max Duration (s)" value={form.sliceMaxSec} onChange={v => setField('sliceMaxSec', v)} min={1} max={60} />
-                      <NumField label="Silence Threshold (dB)" value={form.sliceSilenceDb} onChange={v => setField('sliceSilenceDb', v)} min={-60} max={0} />
-                      <NumField label="Min Silence (s)" value={form.sliceMinSilenceSec} onChange={v => setField('sliceMinSilenceSec', v)} step={0.1} min={0.1} max={5} />
-                    </div>
-                  </div>
-                )}
-
-                {form.asr && (
-                  <div className="field">
-                    <label className="field-label">ASR Engine</label>
-                    <select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
-                      <option value="auto">Auto (by language)</option>
-                      <option value="faster-whisper">Faster Whisper</option>
-                      <option value="funasr">FunASR (zh/yue)</option>
-                    </select>
-                  </div>
-                )}
-                {form.asr && form.asrEngine !== 'funasr' && (
-                  <div className="field">
-                    <label className="field-label">ASR Model Size</label>
-                    <select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
-                      <option value="large-v3-turbo">large-v3-turbo (fast, recommended)</option>
-                      <option value="large-v3">large-v3 (best quality)</option>
-                      <option value="large">large</option>
-                      <option value="medium">medium</option>
-                      <option value="small">small</option>
-                      <option value="tiny">tiny</option>
-                      <option value="distil-large-v3">distil-large-v3 (fast)</option>
-                    </select>
-                  </div>
-                )}
-                {form.asr && form.asrEngine !== 'funasr' && (
-                  <div className="field">
-                    <label className="field-label">ASR Precision</label>
-                    <select className="control" value={form.asrPrecision || 'float16'} onChange={e => setField('asrPrecision', e.target.value)}>
-                      <option value="float16">float16 (fast, recommended)</option>
-                      <option value="float32">float32 (best quality, slow)</option>
-                      <option value="int8">int8 (lowest VRAM)</option>
-                    </select>
-                  </div>
-                )}
-
-                {/* Advanced Training Settings - S1/S2 */}
-                <details style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                  <summary style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', cursor: 'pointer' }}>
-                    Advanced Training Settings (S1/S2)
-                  </summary>
-
-                  {/* S1 Advanced */}
-                  <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>S1 (GPT) Training</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
-                    <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
-                    <NumField label="Save Every N Epochs (S1+S2)" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
-                    <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
-                    <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
-                    <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
-                    <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
-                    <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
-                    <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
-                    <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
-                    <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
-                    <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
-                    <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
-                  </div>
-
-                  {/* S2 Advanced */}
-                  <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>S2 (SoVITS) Training</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
-                    <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
-                    <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
-                    <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
-                    <div>
-                      <label style={{ fontSize: 12, color: 'var(--muted)' }}>FP16 Training</label>
-                      <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} />
-                    </div>
-                    <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
-                    <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
-                    <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
-                    <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
-                    <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
-                    <div>
-                      <label style={{ fontSize: 12, color: 'var(--muted)' }}>Gradient Checkpoint (save VRAM)</label>
-                      <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} />
-                    </div>
-                  </div>
-
-                  <p style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>
-                    Changing these may affect training stability. Use with caution.
-                  </p>
-                </details>
+          )}
+        </>
+      );
+    } else if (selectedNode === 'asr') {
+      body = (
+        <>
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.asr} onChange={e => setField('asr', e.target.checked)} />
+            Enable transcription (ASR)
+          </label>
+          {form.asr && (
+            <div className="field">
+              <label className="field-label">ASR Engine</label>
+              <select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
+                <option value="auto">Auto (by language)</option>
+                <option value="faster-whisper">Faster Whisper</option>
+                <option value="funasr">FunASR (zh/yue)</option>
+              </select>
+            </div>
+          )}
+          {form.asr && form.asrEngine !== 'funasr' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div className="field">
+                <label className="field-label">Model Size</label>
+                <select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
+                  <option value="large-v3-turbo">large-v3-turbo (fast)</option>
+                  <option value="large-v3">large-v3 (best)</option>
+                  <option value="large">large</option>
+                  <option value="medium">medium</option>
+                  <option value="small">small</option>
+                  <option value="tiny">tiny</option>
+                  <option value="distil-large-v3">distil-large-v3</option>
+                </select>
               </div>
-            )}
+              <div className="field">
+                <label className="field-label">Precision</label>
+                <select className="control" value={form.asrPrecision || 'float16'} onChange={e => setField('asrPrecision', e.target.value)}>
+                  <option value="float16">float16 (fast)</option>
+                  <option value="float32">float32 (best)</option>
+                  <option value="int8">int8 (low VRAM)</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </>
+      );
+    } else if (selectedNode === 'train') {
+      body = (
+        <>
+          <div className="node-cols">
+            <div>
+              <div className="node-col-title">S1 · GPT</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <NumField label="Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
+                <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
+                <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
+                <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
+              </div>
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer' }}>▸ Expert (GPT internals)</summary>
+                <p className="msg msg-warning" style={{ marginTop: 6 }}>Changing these can make training unstable or produce worse models. Most users should not change them.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
+                  <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
+                  <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
+                  <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
+                  <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
+                  <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
+                  <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
+                  <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
+                  <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
+                  <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
+                </div>
+              </details>
+            </div>
+            <div>
+              <div className="node-col-title">S2 · SoVITS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
+                <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
+                <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
+                <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+                  <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
+                </label>
+              </div>
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer' }}>▸ Expert (SoVITS internals)</summary>
+                <p className="msg msg-warning" style={{ marginTop: 6 }}>Changing these can make training unstable or produce worse models. Most users should not change them.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
+                  <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
+                  <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
+                  <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
+                  <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
+                  <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
+                  <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
+                  <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+                    <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
+                  </label>
+                </div>
+              </details>
+            </div>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>8GB VRAM (RTX 3070): keep batch size ≤ 4, or use &quot;auto&quot;. S1 and S2 run back-to-back as one training step.</p>
+        </>
+      );
+    } else if (selectedNode === 'preprocess') {
+      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training. No configuration needed.</p>;
+    } else if (selectedNode === 'finalize') {
+      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.</p>;
+    } else if (selectedNode === 'promote') {
+      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page. No configuration needed.</p>;
+    }
+    return (
+      <div className="node-detail">
+        <div className="node-detail-hdr">
+          <span className="node-detail-title">{NODE_LABELS[selectedNode]}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {stBadge}
+            <button className="btn btn-sm" onClick={() => setSelectedNode(null)}>Close</button>
+          </div>
+        </div>
+        <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
+          {body}
+        </fieldset>
+      </div>
+    );
+  };
 
-            {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="section">
+        <div className="section-hdr"><h2>Train New Voice</h2></div>
+        <div className="section-body">
+          {/* Essentials — one horizontal row so the page reads wide, not narrow */}
+          <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
+            <div className="essentials-grid">
+              <div className="field">
+                <label className="field-label">Voice Name *</label>
+                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="e.g. MyVoice" />
+              </div>
+              <div className="field">
+                <label className="field-label">Language *</label>
+                <select className="control" value={form.language} onChange={e => setField('language', e.target.value)}>
+                  {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label className="field-label">Audio Folder Path *</label>
+                <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder="e.g. D:\raw_audio\MyVoice" />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Pipeline map — click a step to configure it (or inspect its status during a run) */}
+          <div className="field" style={{ marginTop: 10 }}>
+            <label className="field-label">Pipeline — click any step to configure</label>
+            <PipelineMap
+              statusSteps={status?.steps}
+              enabledMap={{ denoise: form.denoise, slice: form.slice, asr: form.asr }}
+              selectedNode={selectedNode}
+              onSelect={setSelectedNode}
+            />
+          </div>
+          {renderNodeDetail()}
+
+          <div className="plan-line">
+            Output: <strong>{sanitizedVoice ? `assets/${sanitizedVoice}/` : 'assets/<voice>/'}</strong>
+            {'  ·  '}Steps: {enabledSteps.join(' → ')}
+          </div>
+
+          {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
+
+          {!taskId && (
             <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={handleStart}>Start Training</button>
-          </>
-        )}
+          )}
 
-        {/* 训练进度 */}
-        {taskId && !status && (
-          <div className="msg" style={{ marginBottom: 8 }}>Restoring training state…</div>
-        )}
-        {taskId && status && (
-          <>
-            <div style={{ marginBottom: 12 }}>
+          {taskId && !status && (
+            <div className="msg" style={{ marginTop: 10 }}>Restoring training state…</div>
+          )}
+          {taskId && status && (
+            <div style={{ marginTop: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>
                   {status.status === 'completed' ? 'Completed'
@@ -1062,49 +1290,16 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId }) {
                   Training was interrupted. Intermediate results are available; resume-from-checkpoint is on the roadmap.
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                {['denoise', 'slice', 'asr', 'preprocess', 'train'].map((stepKey, i) => {
-                  const step = status.steps?.[stepKey];
-                  const st = step?.status || 'pending';
-                  const color = st === 'completed' ? 'var(--success)' : st === 'running' ? 'var(--accent)' : st === 'failed' ? 'var(--danger)' : 'var(--border)';
-                  const icons = { denoise: 'Denoise', slice: 'Slice', asr: 'ASR', preprocess: 'Preprocess', train: 'Train' };
-                  return (
-                    <div key={stepKey} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: color, color: '#fff', fontSize: 11, fontWeight: 700,
-                      }}>
-                        {st === 'completed' ? '✓' : st === 'running' ? '●' : st === 'failed' ? '✗' : i + 1}
-                      </div>
-                      <span style={{ fontSize: 11, color: st === 'running' ? 'var(--accent)' : 'var(--muted)' }}>{icons[stepKey]}</span>
-                      {i < 4 && <span style={{ color: 'var(--muted)', fontSize: 11 }}>→</span>}
-                    </div>
-                  );
-                })}
-              </div>
+              {isFinished && (
+                <button className="btn btn-sm btn-primary" style={{ marginTop: 4 }} onClick={handleReset}>Back</button>
+              )}
             </div>
-            {/* 日志面板 */}
-            {logs.length > 0 && (
-              <div style={{
-                background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6,
-                padding: 8, maxHeight: 240, overflowY: 'auto', fontSize: 12, fontFamily: 'monospace',
-              }}>
-                {logs.map((log, i) => (
-                  <div key={i} style={{ color: log.level === 'error' ? 'var(--danger)' : log.level === 'success' ? 'var(--success)' : 'var(--text)' }}>
-                    [{new Date(log.time).toLocaleTimeString()}] {log.message}
-                  </div>
-                ))}
-              </div>
-            )}
-            {/* 训练结束后返回 */}
-            {isFinished && (
-              <button className="btn btn-sm btn-primary" style={{ marginTop: 12 }} onClick={handleReset}>
-                Back
-              </button>
-            )}
-          </>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Logs only appear once a task is running/finished — keeps the idle page clean */}
+      {taskId && <LiveLogs logs={logs} />}
     </div>
   )
 }
@@ -1253,17 +1448,27 @@ function CollapsibleSegments({ segments }) {
 //  REFERENCE COMPARE TAB
 // ===========================
 function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
-  const [rows, setRows] = useState([])  // [{ id, refAudio, auxRefPaths, text, temperature, top_k, top_p, repetition_penalty, text_split_method, speed_factor, seed, loading, result, error }]
+  // Persisted: a Compare Refs workspace must survive reloads / app restarts.
+  // Generated audio is referenced by a server URL (result.audio_url) — not a blob —
+  // so persisting results keeps the players working after a reload as long as the
+  // backend keeps the output file. Transient flags are reset on rehydrate, and the
+  // list is capped to avoid blowing the localStorage quota.
+  const [rows, setRows] = usePersistentState('compare.rows', [], {
+    rehydrate: r => Array.isArray(r)
+      ? r.map(x => ({ ...x, loading: false, error: null })).slice(0, 24)
+      : [],
+  })  // [{ id, refAudio, auxRefPaths, text, ...params, loading, result, error }]
   const [allAudioFiles, setAllAudioFiles] = useState([])
   const [voiceFiles, setVoiceFiles] = useState([])
-  const [defaultText, setDefaultText] = useState('こんにちは。これはローカルTTSテストです。今日は少し長い文章を読み上げてもらいます。途中で不自然に詰まらないか確認したいです。')
+  const [defaultText, setDefaultText] = usePersistentState('compare.defaultText', 'こんにちは。これはローカルTTSテストです。今日は少し長い文章を読み上げてもらいます。途中で不自然に詰まらないか確認したいです。')
   const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
-  const [rowModels, setRowModels] = useState({})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
+  const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
   const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
   const [segmentsCache, setSegmentsCache] = useState({})  // { voiceId: segments[] }
 
   const selected = voices.find(v => v.id === selectedVoice)
-  const nextId = useRef(1)
+  // Seed the row-id counter past any persisted rows so reloaded rows never collide.
+  const nextId = useRef(rows.reduce((m, r) => Math.max(m, r.id || 0), 0) + 1)
 
   // Load default advanced params from backend
   useEffect(() => {
@@ -1314,15 +1519,15 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
     }).catch(() => {})
   }, [])
 
-  const addRow = () => {
+  const addRow = (opts = {}) => {
     const rowId = nextId.current++
     // Default model: first available model for the selected voice, or first overall
     const defaultModel = availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
     const modelForRow = defaultModel ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel } : { voiceId: '', gptCheckpoint: '', sovitsModel: '' }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
-    // Use first matched segment from selected voice as default ref
+    // Use first matched segment from selected voice as default ref (unless an empty row was requested)
     const firstSeg = segmentsCache[selectedVoice]?.find(s => s.matched && (s.audio || s.audio_path || s.audio_filename))
-    const defaultRef = firstSeg ? (() => {
+    const defaultRef = (!opts.empty && firstSeg) ? (() => {
       const raw = firstSeg.audio || firstSeg.audio_path || firstSeg.audio_filename
       const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
       return fn ? `assets/${selectedVoice}/slicer_opt/${fn}` : ''
@@ -1470,8 +1675,34 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       ))}
 
       {rows.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', color: 'var(--muted)', padding: 30 }}>
-          No rows yet. Click <strong>+ Add Row</strong> to start comparing.
+        <div className="section">
+          <div className="section-hdr"><span>Get Started</span></div>
+          <div className="section-body">
+            <div className="starter-grid">
+              <div className="starter-card">
+                <div className="sc-title">Use Current Reference</div>
+                <div className="sc-desc">Create a row from <strong>{selected?.display_name || selectedVoice || 'the selected voice'}</strong>'s default reference audio.</div>
+                <button className="btn btn-sm btn-primary" onClick={() => addRow()} disabled={!selectedVoice}>Use Current Reference</button>
+              </div>
+              <div className="starter-card">
+                <div className="sc-title">Add Empty Row</div>
+                <div className="sc-desc">Manually configure reference audio and prompt text from scratch.</div>
+                <button className="btn btn-sm" onClick={() => addRow({ empty: true })}>Add Empty Row</button>
+              </div>
+              <div className="starter-card">
+                <div className="sc-title">Load From Assets</div>
+                <div className="sc-desc">Add a row, then pick existing slices / reference samples from voice assets in the row's picker.</div>
+                <button className="btn btn-sm" onClick={() => addRow()} disabled={!selectedVoice}>Load From Assets</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comparison results area (Part 5) */}
+      {rows.length > 0 && !rows.some(r => r.result) && (
+        <div className="empty-state" style={{ marginTop: 4, padding: 16 }}>
+          <div className="es-sub" style={{ marginBottom: 0 }}>Generated comparison results will appear here.</div>
         </div>
       )}
     </div>
@@ -1931,6 +2162,33 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
 
   const assetEntries = Object.entries(assets).sort((a, b) => (a[1].display_name || a[0]).localeCompare(b[1].display_name || b[0]))
 
+  // Summary totals (Phase 1, Part 6) — derived entirely from existing /api/assets data
+  const totals = assetEntries.reduce((acc, [, asset]) => {
+    const a = asset.assets || {}
+    acc.voices += 1
+    acc.raw += (a.raw?.file_count || 0)
+    acc.rawDur += (a.raw?.total_duration || 0)
+    acc.slices += (a.slices?.file_count || 0)
+    acc.gpt += (a.checkpoints?.gpt || []).length
+    acc.sovits += (a.checkpoints?.sovits || []).length
+    acc.segments += (asset.segment_total || 0)
+    return acc
+  }, { voices: 0, raw: 0, rawDur: 0, slices: 0, gpt: 0, sovits: 0, segments: 0 })
+
+  // Derive a coarse health badge for a voice from its available assets
+  const voiceHealth = (asset) => {
+    const a = asset.assets || {}
+    const hasGpt = (a.checkpoints?.gpt || []).length > 0
+    const hasSovits = (a.checkpoints?.sovits || []).length > 0
+    const hasSlices = (a.slices?.file_count || 0) > 0
+    const hasSegs = (asset.segment_total || 0) > 0
+    if (hasGpt && hasSovits && hasSegs) return { label: 'Ready', cls: 'badge-ok' }
+    if (!hasGpt && !hasSovits && !hasSlices) return { label: 'Needs Scan', cls: 'badge-warn' }
+    if (!hasGpt) return { label: 'Missing GPT', cls: 'badge-danger' }
+    if (!hasSovits) return { label: 'Missing SoVITS', cls: 'badge-danger' }
+    return { label: 'Incomplete', cls: 'badge-warn' }
+  }
+
   return (
     <div className="section">
       <div className="section-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1944,7 +2202,27 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
       </div>
       <div className="section-body">
         {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{scanMsg.text}</div>}
-        {assetEntries.length === 0 && <div className="msg">No voice assets found. Click "Scan All" to scan.</div>}
+        {assetEntries.length > 0 && (
+          <div className="summary-bar">
+            <span className="stat-pill"><span className="sp-v">{totals.voices}</span><span className="sp-k">voices</span></span>
+            <span className="stat-pill"><span className="sp-v">{totals.raw}</span><span className="sp-k">raw files</span></span>
+            <span className="stat-pill"><span className="sp-v">{totals.rawDur.toFixed(1)}s</span><span className="sp-k">raw dur</span></span>
+            <span className="stat-pill"><span className="sp-v">{totals.slices}</span><span className="sp-k">slices</span></span>
+            <span className="stat-pill"><span className="sp-v">{totals.gpt}</span><span className="sp-k">GPT ckpts</span></span>
+            <span className="stat-pill"><span className="sp-v">{totals.sovits}</span><span className="sp-k">SoVITS ckpts</span></span>
+            <span className="stat-pill"><span className="sp-v">{totals.segments}</span><span className="sp-k">segments</span></span>
+          </div>
+        )}
+        {assetEntries.length === 0 && (
+          <div className="empty-state">
+            <div className="es-title">No voice assets yet</div>
+            <div className="es-sub">Scan your assets directory to detect voices, or train a new voice to get started.</div>
+            <div className="empty-actions">
+              <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan Dataset'}</button>
+              <button className="btn btn-sm" onClick={() => setPage('train')}>Start Training</button>
+            </div>
+          </div>
+        )}
         {assetEntries.map(([id, asset]) => {
           const a = asset.assets || {}
           const raw = a.raw || {}
@@ -1961,7 +2239,10 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
             <div key={id} className="card" style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{asset.display_name || id}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {asset.display_name || id}
+                    {(() => { const h = voiceHealth(asset); return <span className={`badge ${h.cls}`}>{h.label}</span> })()}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                     Mode: {asset.mode || 'N/A'} &middot; ID: {id}
                   </div>
@@ -2070,6 +2351,91 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices }) {
 }
 
 // ============================
+// Compact workbench context / status row (Phase 1, Part 1.1)
+// Frontend-only: derives from existing /api/assets, /api/health and the
+// active training task. Missing data degrades to graceful placeholders.
+function ContextRow({ voices, selectedVoice, health, activeTaskId }) {
+  const [meta, setMeta] = useState(null)
+  const [taskStatus, setTaskStatus] = useState(null)
+
+  const voice = voices.find(v => v.id === selectedVoice)
+
+  useEffect(() => {
+    setMeta(null)
+    if (!selectedVoice) return
+    let dead = false
+    api(`/api/assets/${selectedVoice}`).then(r => {
+      if (!dead && r.ok && r.data.ok) setMeta(r.data.meta || null)
+    }).catch(() => {})
+    return () => { dead = true }
+  }, [selectedVoice])
+
+  useEffect(() => {
+    setTaskStatus(null)
+    if (!activeTaskId) return
+    let dead = false
+    const poll = () => {
+      api(`/api/train/status/${activeTaskId}`).then(r => {
+        if (!dead && r.ok) setTaskStatus(r.data)
+      }).catch(() => {})
+    }
+    poll()
+    const t = setInterval(poll, 3000)
+    return () => { dead = true; clearInterval(t) }
+  }, [activeTaskId])
+
+  // Pick the "latest" checkpoint (highest step for GPT, last for SoVITS) as
+  // the model that Generate would auto-select for this voice.
+  const ckpts = meta?.assets?.checkpoints || {}
+  const gptList = ckpts.gpt || []
+  const sovitsList = ckpts.sovits || []
+  const latestGpt = gptList.length
+    ? [...gptList].sort((a, b) => (Number(b.steps) || 0) - (Number(a.steps) || 0))[0]
+    : null
+  const latestSovits = sovitsList.length ? sovitsList[sovitsList.length - 1] : null
+
+  const item = (k, v, placeholder) => (
+    <span className="ctx-item">
+      <span className="ctx-k">{k}</span>
+      <span className={`ctx-v${placeholder ? ' placeholder' : ''}`}>{v}</span>
+    </span>
+  )
+
+  let taskLabel = 'None', taskPlaceholder = true
+  if (activeTaskId) {
+    const s = taskStatus?.status
+    if (s === 'running') { taskLabel = `Training · ${taskStatus?.currentStep || '…'}`; taskPlaceholder = false }
+    else if (s === 'completed') { taskLabel = 'Completed'; taskPlaceholder = false }
+    else if (s === 'failed') { taskLabel = 'Failed'; taskPlaceholder = false }
+    else if (s === 'interrupted') { taskLabel = 'Interrupted'; taskPlaceholder = false }
+    else if (s === 'cancelled') { taskLabel = 'Cancelled'; taskPlaceholder = false }
+    else { taskLabel = 'Restoring…'; taskPlaceholder = false }
+  }
+
+  return (
+    <div className="ctx-row">
+      {item('Voice', voice ? (voice.display_name || voice.id) : 'none selected', !voice)}
+      <span className="ctx-sep" />
+      {item('Lang', voice ? String(voice.language || '—').toUpperCase() : '—', !voice)}
+      <span className="ctx-sep" />
+      {item('GPT', latestGpt ? latestGpt.name : 'not selected', !latestGpt)}
+      <span className="ctx-sep" />
+      {item('SoVITS', latestSovits ? latestSovits.name : 'not selected', !latestSovits)}
+      <span className="ctx-sep" />
+      <span className="ctx-item">
+        <span className={`badge ${health === null ? 'badge-neutral' : health?.ok ? 'badge-ok' : 'badge-danger'}`}>
+          {health === null ? '…' : health?.ok ? 'Connected' : 'Unreachable'}
+        </span>
+      </span>
+      <span className="ctx-sep" />
+      <span className="ctx-item">
+        <span className="ctx-k">Task</span>
+        <span className={`badge ${taskPlaceholder ? 'badge-neutral' : taskStatus?.status === 'failed' ? 'badge-danger' : taskStatus?.status === 'running' ? 'badge-accent' : 'badge-info'}`}>{taskLabel}</span>
+      </span>
+    </div>
+  )
+}
+
 export default function App() {
   const [page, setPage] = usePersistentState('ui.page', 'generate')
   const [voices, setVoices] = useState([])
@@ -2143,6 +2509,10 @@ export default function App() {
           {health === null ? '...' : health.ok ? 'GPT-SoVITS Connected' : 'GPT-SoVITS Unreachable'}
         </span>
       </nav>
+
+      {(page === 'generate' || page === 'compare') && (
+        <ContextRow voices={voices} selectedVoice={selectedVoice} health={health} activeTaskId={activeTaskId} />
+      )}
 
       <main style={{ flex: 1 }}>
         <div className="workspace-container">
