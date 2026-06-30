@@ -16,5 +16,17 @@
     "language": "en",
     "prompt_lang": "en",
     "text_lang": "en"
+  },
+  "Raiden": {
+    "display_name": "Raiden",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Platinum": {
+    "display_name": "Platinum",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
   }
 }

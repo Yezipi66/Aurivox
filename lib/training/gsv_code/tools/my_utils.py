@@ -1,5 +1,5 @@
 import os
-import librosa
+import soundfile as sf
 import numpy as np
 
 def clean_path(path_str):
@@ -9,25 +9,13 @@ def clean_path(path_str):
 
 def load_audio(file, sr):
     file = clean_path(file)
-    # libsndfile (librosa/soundfile) detects WAV by file header, not extension,
-    # so this also handles the extension-less files written to 5-wav32k.
     try:
-        audio, _ = librosa.load(file, sr=sr)
+        audio, orig_sr = sf.read(file, dtype="float32")
+        if orig_sr != sr:
+            from scipy.signal import resample
+            num_samples = int(len(audio) * sr / orig_sr)
+            audio = resample(audio, num_samples)
         return audio
-    except Exception as e_lib:
-        # Fallback to ffmpeg only for containers libsndfile can't decode.
-        try:
-            import subprocess
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp_path = tmp.name
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", file, "-ar", str(sr), "-ac", "1", tmp_path],
-                capture_output=True,
-            )
-            audio, _ = librosa.load(tmp_path, sr=sr)
-            os.remove(tmp_path)
-            return audio
-        except Exception as e_ff:
-            print(f"Error loading {file}: librosa={e_lib}; ffmpeg={e_ff}")
-            return None
+    except Exception as e:
+        print(f"Error loading {file}: {e}")
+        return None

@@ -158,17 +158,19 @@ class EuclideanCodebook(nn.Module):
         if self.inited:
             return
 
-        if dist.is_available() and dist.is_initialized():
+        _distributed = dist.is_available() and dist.is_initialized()
+        if _distributed:
             # [B * T * world_size, D]
             data = SyncFunction.apply(data)
 
-        if dist.get_rank() == 0:
+        if not _distributed or dist.get_rank() == 0:
             embed, cluster_size = kmeans(data, self.codebook_size, self.kmeans_iters)
         else:
             embed = torch.empty_like(self.embed)
             cluster_size = torch.empty_like(self.cluster_size)
-        dist.broadcast(embed, src=0)
-        dist.broadcast(cluster_size, src=0)
+        if _distributed:
+            dist.broadcast(embed, src=0)
+            dist.broadcast(cluster_size, src=0)
 
         self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed.clone())
@@ -193,11 +195,12 @@ class EuclideanCodebook(nn.Module):
             # [B * T * world_size, D]
             batch_samples = SyncFunction.apply(batch_samples)
 
-        if dist.get_rank() == 0:
+        if not is_distributed() or dist.get_rank() == 0:
             new_embeds = sample_vectors(batch_samples, expired_codes.sum())
         else:
             new_embeds = torch.zeros(expired_codes.sum(), self.embed.size(1), device=self.embed.device)
-        dist.broadcast(new_embeds, src=0)
+        if is_distributed():
+            dist.broadcast(new_embeds, src=0)
         self.embed.data[expired_codes] = new_embeds
         broadcast_tensors(self.buffers())
 

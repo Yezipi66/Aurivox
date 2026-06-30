@@ -4,7 +4,21 @@
   "top_p": 1,
   "repetition_penalty": 1.35,
   "text_split_method": "cut5",
-  "speed_factor": 1,
+  "speed_factor": 0.8,
   "seed": -1,
-  "updated_at": "2026-06-26T08:01:13.093Z"
+  "batch_size": 1,
+  "batch_threshold": 0.75,
+  "split_bucket": true,
+  "fragment_interval": 0.3,
+  "parallel_infer": true,
+  "sample_steps": 32,
+  "if_sr": false,
+  "media_type": "wav",
+  "streaming_mode": false,
+  "overlap_length": 2,
+  "min_chunk_length": 16,
+  "version": "v2Pro",
+  "is_half": true,
+  "device": "cuda",
+  "updated_at": "2026-06-30T07:30:47.830Z"
 }

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import traceback
 
-import librosa
+import soundfile as sf
 import numpy as np
 import torch
 
@@ -176,7 +176,7 @@ def plot_alignment_to_numpy(alignment, info=None):
 
 
 def load_wav_to_torch(full_path):
-    data, sampling_rate = librosa.load(full_path, sr=None)
+    data, sampling_rate = sf.read(full_path, dtype="float32")
     return torch.FloatTensor(data), sampling_rate
 
 
