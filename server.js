@@ -30,6 +30,13 @@ for (const d of [OUTPUT_DIR, VOICES_DIR, BACKUP_DIR, ASSETS_DIR]) {
 
 // Asset scanner
 const assetScanner = require("./lib/assetScanner");
+// In-place ASR kernel (shared with the training pipeline) + training defaults, used
+// by the lightweight Assets "generate reference text" recovery (does NOT promote).
+const { runAsr } = require("./lib/training/steps/asr");
+const { loadTrainingConfig } = require("./lib/training/config");
+// voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
+// in-place transcribe jobs. In-memory only (best-effort progress, like training).
+const transcribeJobs = new Map();
 
 // ---- Multer ----
 const ALLOWED_EXT = new Set([".wav", ".mp3", ".flac", ".m4a", ".ogg", ".webm"]);
@@ -1861,6 +1868,130 @@ app.post("/api/assets/:id/generate-segments", requireApiKey, (req, res) => {
   }
 });
 
+// POST /api/assets/:id/transcribe — lightweight IN-PLACE ASR recovery.
+// One-click "generate reference text": runs the shared ASR kernel over the asset's
+// own raw/ and/or slicer_opt/ audio, writing asr_opt/<kind>.list + regenerating
+// segments.json + rescanning meta. It does NOT go through the training pipeline or
+// promote — the asset is edited in place. Reference TEXT is advisory (inference
+// works without it); this just makes recovery a single button.
+//   body.source: 'raw' | 'slices' | 'both' | 'missing'(default, fills absent lists)
+app.post("/api/assets/:id/transcribe", requireApiKey, async (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const voiceDir = path.join(ASSETS_DIR, id);
+  if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
+
+  const existing = transcribeJobs.get(id);
+  if (existing && existing.status === "running") {
+    const { _child, _cancelled, ...pub } = existing;
+    return res.status(409).json({ error: "A transcription job is already running.", job: pub });
+  }
+
+  // Resolve language from voices.json, then meta.json, else default.
+  let language = "ja";
+  try { const vs = loadVoices(); if (vs[id] && vs[id].language) language = vs[id].language; } catch (_) {}
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(voiceDir, "meta.json"), "utf-8"));
+    if ((!language || language === "ja") && m.language) language = m.language;
+  } catch (_) {}
+
+  const AUDIO = /\.(wav|mp3|flac|m4a|ogg)$/i;
+  const hasAudio = (sub) => {
+    const d = path.join(voiceDir, sub);
+    try { return fs.existsSync(d) && fs.readdirSync(d).some(f => AUDIO.test(f)); } catch { return false; }
+  };
+  const hasList = (name) => fs.existsSync(path.join(voiceDir, "asr_opt", name));
+  const hasRaw = hasAudio("raw");
+  const hasSlices = hasAudio("slicer_opt");
+
+  const sel = (req.body && req.body.source) || "missing";
+  const sources = [];
+  const add = (kind, sub) => { if (!sources.find(s => s.kind === kind)) sources.push({ kind, sub }); };
+  if (sel === "raw") { if (hasRaw) add("raw", "raw"); }
+  else if (sel === "slices") { if (hasSlices) add("slicer_opt", "slicer_opt"); }
+  else if (sel === "both") { if (hasRaw) add("raw", "raw"); if (hasSlices) add("slicer_opt", "slicer_opt"); }
+  else { // 'missing': only transcribe available audio whose list is absent
+    if (hasRaw && !hasList("raw_opt.list")) add("raw", "raw");
+    if (hasSlices && !hasList("slicer_opt.list")) add("slicer_opt", "slicer_opt");
+  }
+  if (sources.length === 0) {
+    return res.status(400).json({
+      error: "No audio to transcribe (the selected source has no audio, or in “Fill missing” mode a transcript already exists).",
+      hasRaw, hasSlices,
+    });
+  }
+
+  const config = loadTrainingConfig();
+  const outDir = path.join(voiceDir, "asr_opt");
+  const job = {
+    status: "running", startedAt: Date.now(), finishedAt: null,
+    sources: sources.map(s => s.kind), done: [], error: null, logs: [],
+    _child: null, _cancelled: false,
+  };
+  transcribeJobs.set(id, job);
+  const log = (m) => {
+    job.logs.push(`[${new Date().toISOString()}] ${m}`);
+    if (job.logs.length > 500) job.logs.shift();
+    console.log(`[TRANSCRIBE ${id}] ${m}`);
+  };
+
+  // Respond immediately; ASR runs in the background and is polled via -status.
+  res.json({ ok: true, started: true, sources: job.sources, language });
+
+  (async () => {
+    try {
+      for (const s of sources) {
+        if (job._cancelled) throw new Error("cancelled");
+        log(`ASR start: ${s.kind}`);
+        await runAsr({
+          srcDir: path.join(voiceDir, s.sub), sourceKind: s.kind, language,
+          voiceId: id, outDir, config,
+          setChild: (child) => { job._child = child; },
+        }, log);
+        job.done.push(s.kind);
+      }
+      // In-place: regenerate segments.json + rescan meta. No promote.
+      try { assetScanner.generateSegments(id); } catch (e) { log(`segments rebuild warning: ${e.message}`); }
+      try {
+        const m = assetScanner.scanVoiceDir(id, voiceDir);
+        fs.writeFileSync(path.join(voiceDir, "meta.json"), JSON.stringify(m, null, 2));
+      } catch (e) { log(`meta rescan warning: ${e.message}`); }
+      job.status = "done"; job.finishedAt = Date.now(); log("done");
+    } catch (err) {
+      const wasCancelled = job._cancelled || /cancel|killed/i.test(err.message || "");
+      job.status = wasCancelled ? "cancelled" : "error";
+      job.error = wasCancelled ? null : clientError(err);
+      job.finishedAt = Date.now();
+      log(wasCancelled ? "cancelled" : `failed: ${err.message}`);
+    } finally {
+      job._child = null;
+    }
+  })();
+});
+
+// GET /api/assets/:id/transcribe-status — poll the in-place transcribe job.
+// requireApiKey for consistency with the rest of the asset API; strip internal
+// child/cancel bookkeeping from the response.
+app.get("/api/assets/:id/transcribe-status", requireApiKey, (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const job = transcribeJobs.get(id);
+  if (!job) return res.json({ ok: true, status: "idle" });
+  const { _child, _cancelled, ...pub } = job;
+  res.json({ ok: true, ...pub });
+});
+
+// DELETE /api/assets/:id/transcribe — cancel a running in-place transcribe job.
+app.delete("/api/assets/:id/transcribe", requireApiKey, (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const job = transcribeJobs.get(id);
+  if (!job || job.status !== "running") return res.json({ ok: true, status: job ? job.status : "idle" });
+  job._cancelled = true;
+  try { if (job._child) job._child.kill("SIGTERM"); } catch (_) {}
+  res.json({ ok: true, status: "cancelling" });
+});
+
 // POST /api/assets/:id/rebuild — dependency-driven asset repair.
 // Computes the SHORTEST set of stages to fill missing artifacts (reusing what
 // exists). By default it only returns the PLAN (execute=false). With
@@ -2252,6 +2383,19 @@ app.post("/api/train/start", requireApiKey, (req, res) => {
           existingDisplay,
         });
       }
+    }
+
+    // Invariant #5: an asset MUST end up with at least one kind of reference audio.
+    // If the user neither slices (→ slicer_opt/) nor copies raw into the asset
+    // (→ raw/), the published asset would have ZERO reference audio — a project-level
+    // accident. Reject the impossible quadrant up front. copyRaw defaults to true.
+    const willSlice = stepOptions?.slice !== false;
+    const willCopyRaw = (stepOptions?.copyRaw ?? true) !== false;
+    if (!willSlice && !willCopyRaw) {
+      return res.status(400).json({
+        error: "At least one kind of reference audio is required: enable Slicing, or turn on “Copy raw into the asset”. Disabling both would publish an asset with no reference audio at all.",
+        code: "NO_REFERENCE_AUDIO",
+      });
     }
 
     // 白名单校验 customParams

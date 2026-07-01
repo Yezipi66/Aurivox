@@ -1385,7 +1385,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const saveEvery = form.s1SaveEvery ?? 4;
   const enabledSteps = [
     form.denoise && 'Vocal extraction',
-    'Copy to raw', form.slice && 'Slice', form.asr && 'ASR',
+    form.copyRaw && 'Copy to raw', form.slice && 'Slice', form.asr && 'ASR',
     'Preprocess', 'S1 (GPT)', 'S2 (SoVITS)', 'Finalize', 'Publish',
   ].filter(Boolean);
 
@@ -1421,12 +1421,30 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         </>
       );
     } else if (selectedNode === 'slice') {
+      // Invariant #5: an asset must end up with at least one kind of reference audio.
+      // slice → slicer_opt/ ; copyRaw → raw/. Both off would publish an empty asset,
+      // so unchecking one auto-forces the other on.
+      const toggleSlice = (checked) => {
+        setForm(f => ({ ...f, slice: checked, copyRaw: checked ? f.copyRaw : true }));
+      };
+      const toggleCopyRaw = (checked) => {
+        setForm(f => ({ ...f, copyRaw: checked, slice: checked ? f.slice : true }));
+      };
       body = (
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
-            <input type="checkbox" checked={form.slice} onChange={e => setField('slice', e.target.checked)} />
+            <input type="checkbox" checked={form.slice} onChange={e => toggleSlice(e.target.checked)} />
             Enable slicing
           </label>
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.copyRaw} onChange={e => toggleCopyRaw(e.target.checked)} />
+            Copy raw audio into the asset (keep originals as reference)
+          </label>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: -2, marginBottom: 8 }}>
+            At least one kind of reference audio is required: slicing or copied raw.
+            Turning off “Copy raw” forces slicing on, and vice versa (otherwise the asset
+            would have no reference audio). When slicing is off, ASR writes <code>raw_opt.list</code>.
+          </p>
           <div className="field">
             <label className="field-label">Slicing preset</label>
             <select className="control" onChange={e => applySlicePreset(e.target.value)} defaultValue="">
@@ -2418,7 +2436,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState(null)
   // User intent (drives the planner)
-  const [sliceChoice, setSliceChoice] = useState('passthrough') // 'passthrough' | 'real'
+  const [sliceChoice, setSliceChoice] = useState('noslice') // 'noslice' (raw is the source) | 'real' (re-slice)
   const [doAsr, setDoAsr] = useState(true)
   // S1 (GPT) and S2 (SoVITS) are independent — the user can retrain either, both, or
   // neither. Seeded from which weights are actually missing (state.Mg / state.Ms).
@@ -2477,7 +2495,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         // Seed choices once from the backend's default shortest path.
         if (!seeded.current && data.state) {
           seeded.current = true
-          if (!data.state.S) setSliceChoice(data.slice_mode === 'slice' ? 'real' : 'passthrough')
+          if (!data.state.S) setSliceChoice(data.slice_mode === 'slice' ? 'real' : 'noslice')
           // Missing weights → arm retrain of ONLY the missing model(s) so the plan
           // shows the shortest path (reuse existing slices/ASR, train what's absent).
           if (data.state.Mg === false) setTrainS1(true)
@@ -2550,8 +2568,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
           <div className="restore-group">
             <div className="restore-group-title">Slicing</div>
             <label className="radio-row">
-              <input type="radio" name="slice" checked={sliceChoice === 'passthrough'} onChange={() => setSliceChoice('passthrough')} />
-              <span>Use raw as reference clips <span className="hint">— fastest, no slicing</span></span>
+              <input type="radio" name="slice" checked={sliceChoice === 'noslice'} onChange={() => setSliceChoice('noslice')} />
+              <span>Use raw as reference audio <span className="hint">— fastest, no slicing; ASR writes raw_opt.list</span></span>
             </label>
             <label className="radio-row">
               <input type="radio" name="slice" checked={sliceChoice === 'real'} onChange={() => setSliceChoice('real')} />
@@ -2687,6 +2705,13 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
   // user can see which step (preprocess → S1/S2 → finalize → publish) is running
   // and read a clear error if one fails — instead of just listening to the fan.
   const [rebuildJob, setRebuildJob] = useState(null) // { id, phase, currentStep, steps, error, failedStep, stages }
+  // In-place ASR ("generate reference text") jobs, keyed by asset id. Advisory-only
+  // recovery: transcribes the asset's own raw/ and/or slicer_opt/ in place (no promote).
+  const [transcribeJobs, setTranscribeJobs] = useState({}) // id -> { status, sources, done, error }
+  const [txSource, setTxSource] = useState({}) // id -> 'missing'|'raw'|'slices'|'both'
+  const [txOpen, setTxOpen] = useState({}) // id -> bool: show the compact transcribe controls
+  const transcribePollRef = useRef({})
+  useEffect(() => () => { Object.values(transcribePollRef.current).forEach(t => clearTimeout(t)) }, [])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
   // Inline rename — renames display name AND id/folder together (kept in sync to
@@ -2897,6 +2922,66 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
     } finally {
       setTimeout(() => setScanMsg(null), 4000)
     }
+  }
+
+  // In-place "generate reference text": run the shared ASR kernel over the asset's
+  // own audio (raw and/or slices) and rescan — no promote, no training. Polls the
+  // -status endpoint until done, then refreshes the asset so segments/text appear.
+  const pollTranscribe = (id) => {
+    const tick = async () => {
+      try {
+        const r = await api(`/api/assets/${id}/transcribe-status`)
+        const job = r.data || {}
+        setTranscribeJobs(prev => ({ ...prev, [id]: job }))
+        if (job.status === 'running') {
+          transcribePollRef.current[id] = setTimeout(tick, 2000)
+        } else {
+          delete transcribePollRef.current[id]
+          if (job.status === 'done') {
+            setScanMsg({ type: 'success', text: `Reference text generated for ${id} (${(job.done || []).join(', ')})` })
+            loadAssets()
+            // Invalidate the cached segments so a re-expand refetches the new text.
+            setSegments(s => { const n = { ...s }; delete n[id]; return n })
+            if (expandedId === id) {
+              try {
+                const sr = await api(`/api/assets/${id}/segments`)
+                if (sr.ok) setSegments(s => ({ ...s, [id]: sr.data.segments }))
+              } catch (_) {}
+            }
+          } else if (job.status === 'cancelled') {
+            setScanMsg({ type: 'info', text: `Transcription cancelled for ${id}` })
+          } else if (job.status === 'error') {
+            setScanMsg({ type: 'error', text: `Transcription failed: ${job.error || 'unknown error'}` })
+          }
+          setTimeout(() => setScanMsg(null), 5000)
+        }
+      } catch (e) {
+        delete transcribePollRef.current[id]
+        setScanMsg({ type: 'error', text: e.message })
+      }
+    }
+    transcribePollRef.current[id] = setTimeout(tick, 1000)
+  }
+
+  const handleTranscribe = async (id, source) => {
+    setScanMsg(null)
+    try {
+      const r = await api(`/api/assets/${id}/transcribe`, { method: 'POST', body: { source } })
+      if (r.ok && r.data?.started) {
+        setTranscribeJobs(prev => ({ ...prev, [id]: { status: 'running', sources: r.data.sources || [], done: [] } }))
+        setScanMsg({ type: 'info', text: `Transcribing ${id} (${(r.data.sources || []).join(', ')})…` })
+        pollTranscribe(id)
+      } else {
+        setScanMsg({ type: 'error', text: r.data?.error || 'Could not start transcription' })
+        setTimeout(() => setScanMsg(null), 5000)
+      }
+    } catch (e) {
+      setScanMsg({ type: 'error', text: e.message })
+    }
+  }
+
+  const handleCancelTranscribe = async (id) => {
+    try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (_) {}
   }
 
   // Rebuild = hand off to the Train tab with the input folder + voice name
@@ -3123,12 +3208,23 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
     acc[l] = (acc[l] || 0) + 1
     return acc
   }, {})
+  // Text Issues is an orthogonal axis (reference-text health, not model/segment health):
+  // an asset that can be transcribed but has no usable text (none) or stale/broken
+  // paths (invalid). Surfaced as its own chip so warnings live in the filter row
+  // instead of a resident per-card banner.
+  const hasTextIssue = (asset) => {
+    const canTx = (asset.raw?.file_count || 0) > 0 || (asset.slices?.file_count || 0) > 0
+    const st = asset.reference_text?.state
+    return canTx && (st === 'none' || st === 'invalid')
+  }
+  const textIssueCount = assetEntries.reduce((n, [, a]) => n + (hasTextIssue(a) ? 1 : 0), 0)
   // Keep a stable filter order; only show chips for states that actually occur
   const FILTER_ORDER = ['Complete', 'Ready', 'Raw Refs', 'No Segments', 'Missing Models', 'Missing GPT', 'Missing SoVITS', 'No Refs', 'Needs Scan']
-  const filterChips = ['All', ...FILTER_ORDER.filter(l => healthCounts[l])]
+  const filterChips = ['All', ...FILTER_ORDER.filter(l => healthCounts[l]), ...(textIssueCount ? ['Text Issues'] : [])]
   const q = search.trim().toLowerCase()
   const filteredEntries = assetEntries.filter(([id, asset]) => {
-    if (filter !== 'All' && voiceHealth(asset).label !== filter) return false
+    if (filter === 'Text Issues') { if (!hasTextIssue(asset)) return false }
+    else if (filter !== 'All' && voiceHealth(asset).label !== filter) return false
     if (q && !((asset.display_name || id).toLowerCase().includes(q) || id.toLowerCase().includes(q))) return false
     return true
   })
@@ -3212,15 +3308,19 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
               onChange={e => setSearch(e.target.value)}
             />
             <div className="filter-chips">
-              {filterChips.map(f => (
-                <button
-                  key={f}
-                  className={`chip ${filter === f ? 'chip-on' : ''}`}
-                  onClick={() => setFilter(f)}
-                >
-                  {f}{f !== 'All' && healthCounts[f] ? ` (${healthCounts[f]})` : ''}
-                </button>
-              ))}
+              {filterChips.map(f => {
+                const count = f === 'Text Issues' ? textIssueCount : healthCounts[f]
+                const warn = f === 'Text Issues'
+                return (
+                  <button
+                    key={f}
+                    className={`chip ${warn ? 'chip-warn' : ''} ${filter === f ? 'chip-on' : ''}`}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f}{f !== 'All' && count ? ` (${count})` : ''}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
@@ -3357,14 +3457,96 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
                   </button>
                 </div>
               </div>
-              <div className="asset-stats">
-                <span className="stat-pill"><span className="sp-v">{raw.file_count || 0}</span><span className="sp-k">raw</span></span>
-                <span className="stat-pill"><span className="sp-v">{(raw.total_duration || 0).toFixed(1)}s</span><span className="sp-k">dur</span></span>
-                <span className="stat-pill"><span className="sp-v">{slices.file_count || 0}</span><span className="sp-k">slices</span></span>
-                <span className="stat-pill"><span className="sp-v">{gptCount}</span><span className="sp-k">GPT</span></span>
-                <span className="stat-pill"><span className="sp-v">{sovitsCount}</span><span className="sp-k">SoVITS</span></span>
-                <span className="stat-pill"><span className="sp-v">{segCount}</span><span className="sp-k">segments</span></span>
-              </div>
+              {(() => {
+                // Reference-text status as a COMPACT pill in the stats row (no extra
+                // full-width row → cards stay short). Clicking it reveals the in-place
+                // transcribe controls on demand. Advisory-only: inference works without
+                // text; a real content check (not mere file existence) drives the state.
+                const rt = asset.reference_text || {}
+                const hasRawAudio = (raw.file_count || 0) > 0
+                const hasSliceAudio = (slices.file_count || 0) > 0
+                const canTranscribe = hasRawAudio || hasSliceAudio
+                const TEXT_STATE = {
+                  both:    { label: 'OK',      cls: 'tp-ok',   sym: '✓' },
+                  slices:  { label: 'Slices',  cls: 'tp-warn', sym: '◑' },
+                  raw:     { label: 'Raw',     cls: 'tp-warn', sym: '◑' },
+                  none:    { label: 'None',    cls: 'tp-none', sym: '–' },
+                  invalid: { label: 'Invalid', cls: 'tp-bad',  sym: '!' },
+                }
+                const ts = TEXT_STATE[rt.state] || TEXT_STATE.none
+                // State-derived advisory so the tooltip never lies (backend may omit it).
+                const TEXT_ADVICE = {
+                  both:    'Reference text present for raw and slices.',
+                  slices:  'Reference text present for slices only — raw has none.',
+                  raw:     'Reference text present for raw only — slices have none.',
+                  none:    'No reference text yet (optional — inference works without it).',
+                  invalid: 'Reference list paths are stale/broken. Re-run ASR to overwrite.',
+                }
+                const advice = rt.advisory || TEXT_ADVICE[rt.state] || TEXT_ADVICE.none
+                const tx = transcribeJobs[id]
+                const running = tx && tx.status === 'running'
+                const open = !!txOpen[id]
+                const sel = txSource[id] || 'missing'
+                return (
+                  <>
+                    <div className="asset-stats">
+                      <span className="stat-pill"><span className="sp-v">{raw.file_count || 0}</span><span className="sp-k">raw</span></span>
+                      <span className="stat-pill"><span className="sp-v">{(raw.total_duration || 0).toFixed(1)}s</span><span className="sp-k">dur</span></span>
+                      <span className="stat-pill"><span className="sp-v">{slices.file_count || 0}</span><span className="sp-k">slices</span></span>
+                      <span className="stat-pill"><span className="sp-v">{gptCount}</span><span className="sp-k">GPT</span></span>
+                      <span className="stat-pill"><span className="sp-v">{sovitsCount}</span><span className="sp-k">SoVITS</span></span>
+                      <span className="stat-pill"><span className="sp-v">{segCount}</span><span className="sp-k">segments</span></span>
+                      {canTranscribe && (
+                        <button
+                          type="button"
+                          className={`stat-pill text-pill ${ts.cls} ${open ? 'is-open' : ''}`}
+                          onClick={() => setTxOpen(s => ({ ...s, [id]: !s[id] }))}
+                          title={advice}
+                        >
+                          <span className="tp-sym">{running ? '…' : ts.sym}</span>
+                          <span className="sp-k">text</span>
+                          <span className="sp-v">{running ? '…' : ts.label}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {canTranscribe && open && (
+                      <div className="reftext-controls">
+                        {rt.state === 'invalid'
+                          ? <span className="rtc-msg rtc-warn">⚠ {advice}</span>
+                          : <span className="rtc-msg" />}
+                        <div className="rtc-actions">
+                          <select
+                            className="control control-sm"
+                            value={sel}
+                            disabled={running}
+                            onChange={e => setTxSource(s => ({ ...s, [id]: e.target.value }))}
+                            title="Choose which audio to transcribe"
+                          >
+                            <option value="missing">Fill missing</option>
+                            {hasRawAudio && <option value="raw">Raw</option>}
+                            {hasSliceAudio && <option value="slices">Slices</option>}
+                            {hasRawAudio && hasSliceAudio && <option value="both">Both</option>}
+                          </select>
+                          {running ? (
+                            <button className="btn btn-sm btn-ghost" onClick={() => handleCancelTranscribe(id)}>
+                              Cancel{(tx.done || []).length ? ` (${tx.done.join(', ')} done)` : ''}
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => handleTranscribe(id, sel)}
+                              title="Run ASR over this asset's own audio in place (no publish, no training)"
+                            >
+                              Generate reference text
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
 
               {isExpanded && (
                 <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
