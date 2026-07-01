@@ -1282,9 +1282,18 @@ app.post("/api/assets/:id/scan", requireApiKey, async (req, res) => {
   if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
   try {
     const meta = assetScanner.scanVoiceDir(id, voiceDir);
-    assetScanner.generateSegments(id);
+    // Persist the freshly-scanned meta first so the refreshed assets inventory
+    // is not lost, then regenerate segments and backfill the counts (Bug A).
     const metaPath = path.join(voiceDir, "meta.json");
-    const updatedMeta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf-8")) : meta;
+    const segResult = assetScanner.generateSegments(id);
+    if (segResult && typeof segResult.matched === "number") {
+      meta.segment_total = segResult.matched;
+      meta.segment_matched = segResult.matched;
+    }
+    try { fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2)); } catch (_) {}
+    const updatedMeta = meta;
+    // Surface a warning when slices are missing so the client can prompt re-slice (Bug C).
+    const segWarning = segResult && segResult.ok === false ? segResult.error : null;
     await withVoicesLock(async () => {
       const voices2 = loadVoices();
       voices2[id] = {
@@ -1295,7 +1304,7 @@ app.post("/api/assets/:id/scan", requireApiKey, async (req, res) => {
       };
       saveVoices(voices2);
     });
-    res.json({ ok: true, meta: updatedMeta });
+    res.json({ ok: true, meta: updatedMeta, warning: segWarning });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
   }
@@ -1350,8 +1359,105 @@ app.post("/api/assets/:id/generate-segments", requireApiKey, (req, res) => {
   if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
   try {
     const data = assetScanner.generateSegments(id);
-    if (!data) return res.status(400).json({ error: "No 2-name2text.txt found" });
-    res.json({ ok: true, total: data.total, matched: data.matched });
+    if (!data) return res.status(400).json({ error: "No slicer_opt.list found" });
+    if (data.ok === false) return res.status(400).json({ error: data.error });
+    res.json({ ok: true, total: data.total, matched: data.matched, missing: data.missing || 0 });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
+// POST /api/assets/:id/rebuild — dependency-driven asset repair.
+// Computes the SHORTEST set of stages to fill missing artifacts (reusing what
+// exists). By default it only returns the PLAN (execute=false). With
+// execute=true it performs the repair: lightweight cases (only segments) run
+// inline; cases needing training are handed to the existing training pipeline
+// with inputDir pointed at the published asset dir and the computed stepOptions.
+app.post("/api/assets/:id/rebuild", requireApiKey, async (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const voiceDir = path.join(ASSETS_DIR, id);
+  if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
+
+  const mode = (req.body && req.body.mode) || "safe";
+  const reslice = !!(req.body && req.body.reslice);
+  const skipAsr = !!(req.body && req.body.skipAsr);
+  const execute = !!(req.body && req.body.execute);
+  // Optional per-run overrides for slice / asr / training parameters, shaped like
+  // the training pipeline's customParams: { training, steps: { slice|asr: { params } } }.
+  // Run through the SAME whitelist + clamp as /api/train/start so the rebuild path
+  // (a lighter pipeline that skips already-satisfied steps) shares one safety gate.
+  const params = sanitizeCustomParams(req.body && req.body.params);
+
+  try {
+    const state = assetScanner.detectAssetState(id);
+    const plan = assetScanner.planRebuild(state, { mode, reslice, skipAsr });
+
+    // Hard errors / nothing to do → report the plan as-is.
+    if (plan.error) return res.status(400).json({ ok: false, state, ...plan });
+    if (plan.noop) return res.json({ ok: true, state, ...plan });
+
+    // Plan-only (default): caller confirms before any heavy work runs.
+    if (!execute) {
+      return res.json({ ok: true, state, executed: false, ...plan });
+    }
+
+    // No executable stages (e.g. safe mode deferred missing models): there is
+    // nothing to run — surface the suggested follow-up instead of training.
+    if (!plan.stages || plan.stages.length === 0) {
+      return res.json({ ok: true, state, executed: false, ...plan });
+    }
+
+    // use_pretrained_base is not yet supported by the backend (Phase 4 backlog).
+    if (plan.uses_pretrained_base) {
+      return res.status(501).json({
+        ok: false, state, ...plan,
+        error: "Pretrained-base rebuild (emergency mode) is not implemented yet (backend-pending).",
+      });
+    }
+
+    // Step 1: if the plan includes a standalone segments rebuild, run it inline
+    // first. planRebuild only schedules this when slices+list already exist, so
+    // it is always safe; it also provides segments.json as input for a following
+    // preprocess/train stage (which reads it from the asset dir).
+    let segResult = null;
+    if (plan.needs_segments) {
+      const seg = assetScanner.generateSegments(id);
+      if (!seg || seg.ok === false) {
+        return res.status(400).json({ ok: false, state, ...plan, error: (seg && seg.error) || "Failed to rebuild segments" });
+      }
+      const meta = assetScanner.scanVoiceDir(id, voiceDir);
+      meta.segment_total = seg.matched; meta.segment_matched = seg.matched;
+      try { fs.writeFileSync(path.join(voiceDir, "meta.json"), JSON.stringify(meta, null, 2)); } catch (_) {}
+      segResult = { total: seg.total, matched: seg.matched, missing: seg.missing };
+    }
+
+    // Step 2: if there are no pipeline stages, the segments rebuild was the whole
+    // job — return now (lightweight, no training touched).
+    if (!plan.stepOptions) {
+      return res.json({ ok: true, state, executed: true, action: "generateSegments", ...segResult, ...plan });
+    }
+
+    // Step 3: hand off to the training pipeline. inputDir depends on whether we
+    // are re-deriving slices from raw (needs the flat raw folder) or reusing the
+    // existing slices/segments under the asset root. finalize carries forward any
+    // core asset not regenerated this run, so existing models survive promote.
+    const voices = loadVoices();
+    const language = (voices[id] && voices[id].language) || "ja";
+    const rawDir = path.join(voiceDir, "raw");
+    const inputDir = plan.stepOptions.slice ? rawDir : voiceDir;
+    if (plan.stepOptions.slice && !fs.existsSync(rawDir)) {
+      return res.status(400).json({ ok: false, state, ...plan, error: "Re-slice requested but raw/ folder is missing." });
+    }
+    const pipeline = trainingPipeline.createPipeline({
+      voiceId: id,
+      language,
+      inputDir,
+      stepOptions: plan.stepOptions,
+      customParams: params,
+    });
+    pipeline.start().catch(err => console.error("[REBUILD] Pipeline error:", err));
+    return res.json({ ok: true, state, executed: true, action: "pipeline", taskId: pipeline.id, segments: segResult, ...plan });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
   }
@@ -1520,62 +1626,86 @@ const trainingPipeline = require("./lib/training/pipeline");
 
 const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko"]);
 
-// 白名单校验 + clamp customParams，防止脏参数进训练
+// 白名单校验 + clamp customParams，防止脏参数进训练。
+// Train 页(/api/train/start)和资产重建(/api/assets/:id/rebuild)共用此函数，
+// 因为两者最终都走同一条 createPipeline；重建只是按依赖图跑更少的步骤(轻量
+// pipeline)，但参数安检必须完全一致。白名单覆盖前端暴露的全部参数(Advanced +
+// Expert + Slice + ASR)；任何不在白名单内、超范围或类型错误的字段一律丢弃。
 function sanitizeCustomParams(custom) {
   if (!custom || typeof custom !== 'object') return {};
   const safe = {};
+
+  // helpers — only assign when the value passes validation, otherwise drop it.
+  const num = (dst, key, v, min, max) => {
+    if (v == null) return;
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= min && n <= max) dst[key] = n;
+  };
+  const intNum = (dst, key, v, min, max) => {
+    if (v == null) return;
+    const n = Math.round(Number(v));
+    if (Number.isFinite(n) && n >= min && n <= max) dst[key] = n;
+  };
+  const bool = (dst, key, v) => { if (typeof v === 'boolean') dst[key] = v; };
+  const oneOf = (dst, key, v, allowed) => { if (allowed.includes(v)) dst[key] = v; };
+  // 'auto'/'default'-or-number fields (batch_size / learning_rate).
+  const word = (dst, key, v, keyword, min, max) => {
+    if (v == null) return;
+    if (v === keyword) { dst[key] = keyword; return; }
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= min && n <= max) dst[key] = n;
+  };
+
   if (custom.training) {
-    safe.training = {};
     const t = custom.training;
-    if (t.gpt_epochs != null) {
-      const n = Number(t.gpt_epochs);
-      if (Number.isFinite(n) && n >= 1 && n <= 100) safe.training.gpt_epochs = n;
-    }
-    if (t.sovits_epochs != null) {
-      const n = Number(t.sovits_epochs);
-      if (Number.isFinite(n) && n >= 1 && n <= 100) safe.training.sovits_epochs = n;
-    }
-    if (t.batch_size != null) {
-      if (t.batch_size === 'auto') safe.training.batch_size = 'auto';
-      else {
-        const n = Number(t.batch_size);
-        if (Number.isFinite(n) && n >= 1 && n <= 16) safe.training.batch_size = n;
-      }
-    }
-    if (t.learning_rate != null) {
-      if (t.learning_rate === 'default') safe.training.learning_rate = 'default';
-      else {
-        const n = Number(t.learning_rate);
-        if (Number.isFinite(n) && n > 0 && n <= 1) safe.training.learning_rate = n;
-      }
-    }
+    const s = (safe.training = {});
+    // common
+    intNum(s, 'gpt_epochs', t.gpt_epochs, 1, 100);
+    intNum(s, 'sovits_epochs', t.sovits_epochs, 1, 100);
+    word(s, 'batch_size', t.batch_size, 'auto', 1, 16);
+    word(s, 'learning_rate', t.learning_rate, 'default', 1e-7, 1);
+    // S1 advanced / expert
+    intNum(s, 'seed', t.seed, 0, 999999);
+    intNum(s, 'save_every_n_epoch', t.save_every_n_epoch, 1, 50);
+    oneOf(s, 'precision', t.precision, ['16-mixed', '16-true', 'bf16-mixed', 'bf16-true', '32-true', '32']);
+    num(s, 'gradient_clip', t.gradient_clip, 0.1, 10);
+    num(s, 'lr', t.lr, 1e-7, 1);
+    num(s, 'lr_init', t.lr_init, 1e-7, 0.1);
+    num(s, 'lr_end', t.lr_end, 1e-7, 0.1);
+    intNum(s, 'warmup_steps', t.warmup_steps, 0, 100000);
+    intNum(s, 'decay_steps', t.decay_steps, 1, 200000);
+    num(s, 'max_sec', t.max_sec, 1, 300);
+    intNum(s, 'num_workers', t.num_workers, 0, 16);
+    intNum(s, 'max_eval_sample', t.max_eval_sample, 1, 100);
+    // S2 advanced / expert
+    intNum(s, 's2_seed', t.s2_seed, 0, 999999);
+    intNum(s, 'log_interval', t.log_interval, 1, 10000);
+    intNum(s, 'eval_interval', t.eval_interval, 1, 10000);
+    bool(s, 'fp16_run', t.fp16_run);
+    num(s, 'lr_decay', t.lr_decay, 0.9, 1);
+    intNum(s, 'segment_size', t.segment_size, 1024, 65536);
+    num(s, 'c_mel', t.c_mel, 1, 100);
+    num(s, 'c_kl', t.c_kl, 0.1, 10);
+    num(s, 'text_low_lr_rate', t.text_low_lr_rate, 0.01, 1);
+    bool(s, 'grad_ckpt', t.grad_ckpt);
   }
   if (custom.steps) {
     safe.steps = {};
     if (custom.steps.slice && custom.steps.slice.params) {
-      safe.steps.slice = { params: {} };
       const p = custom.steps.slice.params;
-      if (p.min_duration_sec != null) {
-        const n = Number(p.min_duration_sec);
-        if (Number.isFinite(n) && n >= 1 && n <= 30) safe.steps.slice.params.min_duration_sec = n;
-      }
-      if (p.max_duration_sec != null) {
-        const n = Number(p.max_duration_sec);
-        if (Number.isFinite(n) && n >= 1 && n <= 60) safe.steps.slice.params.max_duration_sec = n;
-      }
-      if (p.silence_threshold_db != null) {
-        const n = Number(p.silence_threshold_db);
-        if (Number.isFinite(n) && n >= -60 && n <= 0) safe.steps.slice.params.silence_threshold_db = n;
-      }
-      if (p.min_silence_sec != null) {
-        const n = Number(p.min_silence_sec);
-        if (Number.isFinite(n) && n >= 0.1 && n <= 5) safe.steps.slice.params.min_silence_sec = n;
-      }
+      const sp = (safe.steps.slice = { params: {} }).params;
+      num(sp, 'min_duration_sec', p.min_duration_sec, 1, 30);
+      num(sp, 'max_duration_sec', p.max_duration_sec, 1, 60);
+      num(sp, 'silence_threshold_db', p.silence_threshold_db, -60, 0);
+      num(sp, 'min_silence_sec', p.min_silence_sec, 0.1, 5);
     }
     if (custom.steps.asr && custom.steps.asr.params) {
-      safe.steps.asr = { params: {} };
-      const e = custom.steps.asr.params.engine;
-      if (e === 'funasr' || e === 'faster-whisper') safe.steps.asr.params.engine = e;
+      const p = custom.steps.asr.params;
+      const ap = (safe.steps.asr = { params: {} }).params;
+      oneOf(ap, 'engine', p.engine, ['auto', 'funasr', 'faster-whisper']);
+      oneOf(ap, 'model_size', p.model_size,
+        ['large-v3-turbo', 'large-v3', 'large', 'medium', 'small', 'tiny', 'distil-large-v3']);
+      oneOf(ap, 'precision', p.precision, ['float16', 'float32', 'int8']);
     }
     if (custom.steps.denoise && custom.steps.denoise.params) {
       safe.steps.denoise = { params: {} };

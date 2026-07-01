@@ -713,6 +713,208 @@ function TextField({ label, value, onChange }) {
   );
 }
 
+// ===========================================================================
+//  Shared training-parameter source of truth
+//  Both the Training page and the Restore/Rebuild modal render the *same*
+//  parameter panels and serialise through the *same* builders, so whatever the
+//  formal training flow exposes, the rebuild flow exposes identically.
+// ===========================================================================
+
+// Default values for every editable training/slice/asr field. The Training page
+// keeps its own persistent form; the Restore modal seeds a fresh copy of these.
+const REBUILD_PARAM_DEFAULTS = {
+  expertUnlocked: false,
+  // training (common)
+  gptEpochs: 8, sovitsEpochs: 8, batchSize: 'auto', learningRate: 'default',
+  // slice
+  sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
+  // asr
+  asrEngine: 'auto', asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
+  // S1 advanced/expert
+  s1Seed: 1234, s1SaveEvery: 4, s1Precision: '16-mixed', s1GradClip: 1.0,
+  s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
+  s1MaxSec: 54, s1NumWorkers: 4, s1MaxEval: 8,
+  // S2 advanced/expert
+  s2Seed: 1234, s2LogInterval: 100, s2EvalInterval: 500, s2Fp16: true,
+  s2LrDecay: 0.999875, s2SegmentSize: 20480, s2CMel: 45, s2CKl: 1.0,
+  s2TextLowLr: 0.4, s2GradCkpt: false,
+}
+
+const ASR_MODEL_SIZES = [
+  ['large-v3-turbo', 'large-v3-turbo (fast)'], ['large-v3', 'large-v3 (best)'],
+  ['large', 'large'], ['medium', 'medium'], ['small', 'small'],
+  ['tiny', 'tiny'], ['distil-large-v3', 'distil-large-v3'],
+]
+const ASR_PRECISIONS = [
+  ['float16', 'float16 (fast)'], ['float32', 'float32 (best)'], ['int8', 'int8 (low VRAM)'],
+]
+
+// --- serialisers (single source of truth for the customParams shape) ---
+function buildTrainingParams(form) {
+  return {
+    gpt_epochs: Number(form.gptEpochs) || 20,
+    sovits_epochs: Number(form.sovitsEpochs) || 20,
+    batch_size: form.batchSize === 'auto' ? 'auto' : (Number(form.batchSize) || 'auto'),
+    learning_rate: form.learningRate === 'default' ? 'default' : (Number(form.learningRate) || 'default'),
+    // S1 advanced
+    seed: form.s1Seed ?? 1234,
+    save_every_n_epoch: form.s1SaveEvery ?? 4,
+    precision: form.s1Precision || '16-mixed',
+    gradient_clip: form.s1GradClip ?? 1.0,
+    lr: form.s1Lr ?? 0.01,
+    lr_init: form.s1LrInit ?? 0.00001,
+    lr_end: form.s1LrEnd ?? 0.0001,
+    warmup_steps: form.s1Warmup ?? 2000,
+    decay_steps: form.s1Decay ?? 40000,
+    max_sec: form.s1MaxSec ?? 54,
+    num_workers: form.s1NumWorkers ?? 4,
+    max_eval_sample: form.s1MaxEval ?? 8,
+    // S2 advanced
+    s2_seed: form.s2Seed ?? 1234,
+    log_interval: form.s2LogInterval ?? 100,
+    eval_interval: form.s2EvalInterval ?? 500,
+    fp16_run: form.s2Fp16 !== false,
+    lr_decay: form.s2LrDecay ?? 0.999875,
+    segment_size: form.s2SegmentSize ?? 20480,
+    c_mel: form.s2CMel ?? 45,
+    c_kl: form.s2CKl ?? 1.0,
+    text_low_lr_rate: form.s2TextLowLr ?? 0.4,
+    grad_ckpt: !!form.s2GradCkpt,
+  }
+}
+function buildSliceParams(form) {
+  return {
+    min_duration_sec: Number(form.sliceMinSec) || 3,
+    max_duration_sec: Number(form.sliceMaxSec) || 15,
+    silence_threshold_db: Number(form.sliceSilenceDb) || -40,
+    min_silence_sec: Number(form.sliceMinSilenceSec) || 0.5,
+  }
+}
+function buildAsrParams(form) {
+  return { engine: form.asrEngine, model_size: form.asrModelSize, precision: form.asrPrecision }
+}
+
+// --- shared field panels (rendered identically on both pages) ---
+function SliceParamFields({ form, setField }) {
+  return (
+    <div className="param-grid">
+      <NumField label="Min Duration (s)" value={form.sliceMinSec} onChange={v => setField('sliceMinSec', v)} min={1} max={30} />
+      <NumField label="Max Duration (s)" value={form.sliceMaxSec} onChange={v => setField('sliceMaxSec', v)} min={1} max={60} />
+      <NumField label="Silence Threshold (dB)" value={form.sliceSilenceDb} onChange={v => setField('sliceSilenceDb', v)} min={-60} max={0} />
+      <NumField label="Min Silence (s)" value={form.sliceMinSilenceSec} onChange={v => setField('sliceMinSilenceSec', v)} step={0.1} min={0.1} max={5} />
+    </div>
+  )
+}
+
+function AsrParamFields({ form, setField }) {
+  return (
+    <>
+      <div className="field">
+        <label className="field-label">ASR Engine</label>
+        <select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
+          <option value="auto">Auto (by language)</option>
+          <option value="faster-whisper">Faster Whisper</option>
+          <option value="funasr">FunASR (zh/yue)</option>
+        </select>
+      </div>
+      {form.asrEngine !== 'funasr' && (
+        <div className="param-grid" style={{ marginTop: 8 }}>
+          <div className="field">
+            <label className="field-label">Model Size</label>
+            <select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
+              {ASR_MODEL_SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label className="field-label">Precision</label>
+            <select className="control" value={form.asrPrecision || 'float16'} onChange={e => setField('asrPrecision', e.target.value)}>
+              {ASR_PRECISIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function TrainParamFields({ form, setField }) {
+  const expertLocked = !form.expertUnlocked
+  return (
+    <>
+      <div className="layer-label">Advanced Options</div>
+      <div className="node-cols">
+        <div>
+          <div className="node-col-title">S1 · GPT</div>
+          <div className="param-grid">
+            <NumField label="Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
+            <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
+            <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
+            <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
+          </div>
+        </div>
+        <div>
+          <div className="node-col-title">S2 · SoVITS</div>
+          <div className="param-grid">
+            <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
+            <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
+            <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
+            <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+              <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
+            </label>
+          </div>
+        </div>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>8GB VRAM (RTX 3070): keep batch size &le; 4, or use &quot;auto&quot;. Save-Every is auto-clamped to the epoch count so a checkpoint is always produced. S1 and S2 run back-to-back as one training step.</p>
+
+      <details className="expert-block" style={{ marginTop: 14 }}>
+        <summary className="expert-summary">Expert Parameters — GPT-SoVITS internals</summary>
+        <div className="msg msg-danger expert-warning">
+          <strong>⚠ Expert Parameters.</strong> Changing these can make training unstable, waste hours of GPU time,
+          or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.
+        </div>
+        <label className="toggle-row expert-unlock">
+          <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
+          I understand the risks — let me edit expert parameters
+        </label>
+        <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
+          <div className="node-cols">
+            <div>
+              <div className="node-col-title">S1 · GPT</div>
+              <div className="param-grid">
+                <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
+                <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
+                <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
+                <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
+                <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
+                <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
+                <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
+                <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
+                <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
+                <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
+              </div>
+            </div>
+            <div>
+              <div className="node-col-title">S2 · SoVITS</div>
+              <div className="param-grid">
+                <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
+                <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
+                <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
+                <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
+                <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
+                <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
+                <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
+                <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+                  <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
+                </label>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+      </details>
+    </>
+  )
+}
+
 const LANGUAGES = [
   { code: 'ja', label: 'Japanese' },
   { code: 'zh', label: 'Chinese (Mandarin)' },
@@ -1035,44 +1237,10 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           inputDir: cleanDir,
           steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw },
           customParams: {
-            training: {
-              gpt_epochs: Number(form.gptEpochs) || 20,
-              sovits_epochs: Number(form.sovitsEpochs) || 20,
-              batch_size: form.batchSize === 'auto' ? 'auto' : (Number(form.batchSize) || 'auto'),
-              learning_rate: form.learningRate === 'default' ? 'default' : (Number(form.learningRate) || 'default'),
-              // S1 advanced
-              seed: form.s1Seed ?? 1234,
-              save_every_n_epoch: form.s1SaveEvery ?? 4,
-              precision: form.s1Precision || '16-mixed',
-              gradient_clip: form.s1GradClip ?? 1.0,
-              lr: form.s1Lr ?? 0.01,
-              lr_init: form.s1LrInit ?? 0.00001,
-              lr_end: form.s1LrEnd ?? 0.0001,
-              warmup_steps: form.s1Warmup ?? 2000,
-              decay_steps: form.s1Decay ?? 40000,
-              max_sec: form.s1MaxSec ?? 54,
-              num_workers: form.s1NumWorkers ?? 4,
-              max_eval_sample: form.s1MaxEval ?? 8,
-              // S2 advanced
-              s2_seed: form.s2Seed ?? 1234,
-              log_interval: form.s2LogInterval ?? 100,
-              eval_interval: form.s2EvalInterval ?? 500,
-              fp16_run: form.s2Fp16 !== false,
-              lr_decay: form.s2LrDecay ?? 0.999875,
-              segment_size: form.s2SegmentSize ?? 20480,
-              c_mel: form.s2CMel ?? 45,
-              c_kl: form.s2CKl ?? 1.0,
-              text_low_lr_rate: form.s2TextLowLr ?? 0.4,
-              grad_ckpt: !!form.s2GradCkpt,
-            },
+            training: buildTrainingParams(form),
             steps: {
-              slice: { params: {
-                min_duration_sec: Number(form.sliceMinSec) || 3,
-                max_duration_sec: Number(form.sliceMaxSec) || 15,
-                silence_threshold_db: Number(form.sliceSilenceDb) || -40,
-                min_silence_sec: Number(form.sliceMinSilenceSec) || 0.5,
-              }},
-              asr: { params: { engine: form.asrEngine, model_size: form.asrModelSize, precision: form.asrPrecision } },
+              slice: { params: buildSliceParams(form) },
+              asr: { params: buildAsrParams(form) },
               denoise: { params: { model: form.denoiseModel } },
             },
           },
@@ -1159,11 +1327,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             </select>
           </div>
           {form.slice && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
-              <NumField label="Min Duration (s)" value={form.sliceMinSec} onChange={v => setField('sliceMinSec', v)} min={1} max={30} />
-              <NumField label="Max Duration (s)" value={form.sliceMaxSec} onChange={v => setField('sliceMaxSec', v)} min={1} max={60} />
-              <NumField label="Silence Threshold (dB)" value={form.sliceSilenceDb} onChange={v => setField('sliceSilenceDb', v)} min={-60} max={0} />
-              <NumField label="Min Silence (s)" value={form.sliceMinSilenceSec} onChange={v => setField('sliceMinSilenceSec', v)} step={0.1} min={0.1} max={5} />
+            <div style={{ marginTop: 4 }}>
+              <SliceParamFields form={form} setField={setField} />
             </div>
           )}
         </>
@@ -1175,120 +1340,11 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <input type="checkbox" checked={form.asr} onChange={e => setField('asr', e.target.checked)} />
             Enable transcription (ASR)
           </label>
-          {form.asr && (
-            <div className="field">
-              <label className="field-label">ASR Engine</label>
-              <select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
-                <option value="auto">Auto (by language)</option>
-                <option value="faster-whisper">Faster Whisper</option>
-                <option value="funasr">FunASR (zh/yue)</option>
-              </select>
-            </div>
-          )}
-          {form.asr && form.asrEngine !== 'funasr' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div className="field">
-                <label className="field-label">Model Size</label>
-                <select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
-                  <option value="large-v3-turbo">large-v3-turbo (fast)</option>
-                  <option value="large-v3">large-v3 (best)</option>
-                  <option value="large">large</option>
-                  <option value="medium">medium</option>
-                  <option value="small">small</option>
-                  <option value="tiny">tiny</option>
-                  <option value="distil-large-v3">distil-large-v3</option>
-                </select>
-              </div>
-              <div className="field">
-                <label className="field-label">Precision</label>
-                <select className="control" value={form.asrPrecision || 'float16'} onChange={e => setField('asrPrecision', e.target.value)}>
-                  <option value="float16">float16 (fast)</option>
-                  <option value="float32">float32 (best)</option>
-                  <option value="int8">int8 (low VRAM)</option>
-                </select>
-              </div>
-            </div>
-          )}
+          {form.asr && <AsrParamFields form={form} setField={setField} />}
         </>
       );
     } else if (selectedNode === 'train') {
-      const expertLocked = !form.expertUnlocked;
-      body = (
-        <>
-          {/* Advanced Options — understandable knobs, always editable */}
-          <div className="layer-label">Advanced Options</div>
-          <div className="node-cols">
-            <div>
-              <div className="node-col-title">S1 · GPT</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <NumField label="Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
-                <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
-                <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
-                <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
-              </div>
-            </div>
-            <div>
-              <div className="node-col-title">S2 · SoVITS</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
-                <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
-                <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
-                <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
-                  <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
-                </label>
-              </div>
-            </div>
-          </div>
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>8GB VRAM (RTX 3070): keep batch size ≤ 4, or use &quot;auto&quot;. S1 and S2 run back-to-back as one training step.</p>
-
-          {/* Expert Parameters — low-level GPT-SoVITS internals, gated behind explicit unlock */}
-          <details className="expert-block" style={{ marginTop: 14 }}>
-            <summary className="expert-summary">Expert Parameters — GPT-SoVITS internals</summary>
-            <div className="msg msg-danger expert-warning">
-              <strong>⚠ Expert Parameters.</strong> Changing these can make training unstable, waste hours of GPU time,
-              or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.
-            </div>
-            <label className="toggle-row expert-unlock">
-              <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
-              I understand the risks — let me edit expert parameters
-            </label>
-            <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
-              <div className="node-cols">
-                <div>
-                  <div className="node-col-title">S1 · GPT</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
-                    <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
-                    <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
-                    <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
-                    <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
-                    <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
-                    <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
-                    <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
-                    <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
-                    <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
-                  </div>
-                </div>
-                <div>
-                  <div className="node-col-title">S2 · SoVITS</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
-                    <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
-                    <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
-                    <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
-                    <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
-                    <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
-                    <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
-                    <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
-                      <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </fieldset>
-          </details>
-        </>
-      );
+      body = <TrainParamFields form={form} setField={setField} />;
     } else if (selectedNode === 'preprocess') {
       body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training. No configuration needed.</p>;
     } else if (selectedNode === 'finalize') {
@@ -2162,6 +2218,246 @@ function IconTrash({ size = 16, color = 'currentColor' }) {
 }
 
 // ============================
+//  RESTORE ASSET MODAL
+// ============================
+// Secondary menu for dependency-driven asset repair. Instead of silently
+// executing the backend's shortest path, this lets the user choose HOW to
+// restore (re-slice vs. use raw as-is, transcribe or not, retrain or not) and
+// tune the slice / training parameters that the chosen path will use. The
+// backend planner stays authoritative: it re-plans on every option change
+// (execute:false) so the live "Plan" preview always reflects what will run.
+function RestoreModal({ id, displayName, onClose, onStarted }) {
+  const [state, setState] = useState(null)        // { R, S, L, Seg, M }
+  const [plan, setPlan] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [err, setErr] = useState(null)
+  // User intent (drives the planner)
+  const [sliceChoice, setSliceChoice] = useState('passthrough') // 'passthrough' | 'real'
+  const [doAsr, setDoAsr] = useState(true)
+  const [doRetrain, setDoRetrain] = useState(false)
+  const seeded = useRef(false)
+  // Parameter overrides — share the exact same field set & panels as the Training
+  // page, so the rebuild flow exposes every parameter the formal flow does.
+  const [showSliceParams, setShowSliceParams] = useState(false)
+  const [showAsrParams, setShowAsrParams] = useState(false)
+  const [showTrainParams, setShowTrainParams] = useState(false)
+  const [form, setForm] = useState({ ...REBUILD_PARAM_DEFAULTS })
+  const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
+
+  const buildOpts = () => ({
+    reslice: sliceChoice === 'real',
+    skipAsr: !doAsr,
+    mode: doRetrain ? 'full' : 'safe',
+  })
+
+  // Assemble customParams shaped for the training pipeline. Only include the
+  // sections whose stage actually runs, so we never override unrelated defaults.
+  const buildParams = (stages) => {
+    const params = {}
+    const steps = {}
+    if (stages.includes('slice') && sliceChoice === 'real') {
+      steps.slice = { params: buildSliceParams(form) }
+    }
+    if (stages.includes('asr')) {
+      steps.asr = { params: buildAsrParams(form) }
+    }
+    if (Object.keys(steps).length) params.steps = steps
+    if (stages.includes('train')) {
+      params.training = buildTrainingParams(form)
+    }
+    return params
+  }
+
+  // Re-plan (dry run) whenever the intent options change so the preview stays truthful.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true); setErr(null)
+    api(`/api/assets/${id}/rebuild`, { method: 'POST', body: { execute: false, ...buildOpts() } })
+      .then(r => {
+        if (cancelled) return
+        const data = r.data || {}
+        setState(data.state || null)
+        setPlan(data)
+        if (!r.ok) setErr(data.error || 'Failed to plan rebuild')
+        // Seed choices once from the backend's default shortest path.
+        if (!seeded.current && data.state) {
+          seeded.current = true
+          if (!data.state.S) setSliceChoice(data.slice_mode === 'slice' ? 'real' : 'passthrough')
+          // Missing models → arm retrain so the plan immediately shows the shortest
+          // training path (preprocess+train, reusing existing slices/ASR).
+          if (!data.state.M) setDoRetrain(true)
+        }
+      })
+      .catch(e => { if (!cancelled) setErr(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, sliceChoice, doAsr, doRetrain])
+
+  const submit = async () => {
+    setSubmitting(true); setErr(null)
+    try {
+      const params = buildParams(plan?.stages || [])
+      const r = await api(`/api/assets/${id}/rebuild`, {
+        method: 'POST',
+        body: { execute: true, ...buildOpts(), params },
+      })
+      if (r.ok) { onStarted(id, r.data); onClose() }
+      else setErr(r.data?.error || 'Rebuild failed')
+    } catch (e) { setErr(e.message) }
+    finally { setSubmitting(false) }
+  }
+
+  const stages = plan?.stages || []
+  const asrInPlan = stages.includes('asr')
+  const asrForced = asrInPlan && !doAsr // backend forced it despite the toggle (e.g. retrain)
+  const trainInPlan = stages.includes('train')
+  const realSliceInPlan = stages.includes('slice') && sliceChoice === 'real'
+  const hasWork = stages.length > 0 || plan?.needs_segments
+  const isNoop = !!plan?.noop
+
+  const planLabel = loading ? 'Computing…'
+    : isNoop ? 'Already complete — nothing to rebuild.'
+    : stages.length ? stages.join('  →  ')
+    : plan?.needs_segments ? 'generateSegments'
+    : 'No steps for the selected options.'
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card restore-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-hdr">
+          <div>
+            <div className="modal-title">Restore Asset</div>
+            <div className="modal-subtitle">{displayName || id}</div>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={onClose} disabled={submitting}>✕</button>
+        </div>
+
+        <p className="modal-desc">
+          Choose how to rebuild the missing artifacts. The shortest safe path is preselected;
+          existing models are always kept unless you opt into retraining.
+        </p>
+
+        {/* Current asset state */}
+        {state && (
+          <div className="asset-state-row">
+            {[['R', 'Raw'], ['S', 'Slices'], ['L', 'Transcript'], ['Seg', 'Segments'], ['M', 'Models']].map(([k, label]) => (
+              <span key={k} className={`state-pip ${state[k] ? 'on' : 'off'}`}>
+                <span className="state-pip-sym">{state[k] ? '✓' : '–'}</span>{label}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Slicing choice — only meaningful when slices are missing */}
+        {state && !state.S && state.R && (
+          <div className="restore-group">
+            <div className="restore-group-title">Slicing</div>
+            <label className="radio-row">
+              <input type="radio" name="slice" checked={sliceChoice === 'passthrough'} onChange={() => setSliceChoice('passthrough')} />
+              <span>Use raw as reference clips <span className="hint">— fastest, no slicing</span></span>
+            </label>
+            <label className="radio-row">
+              <input type="radio" name="slice" checked={sliceChoice === 'real'} onChange={() => setSliceChoice('real')} />
+              <span>Re-slice raw into clips <span className="hint">— cleaner cuts, slower; forces re-transcribe</span></span>
+            </label>
+
+            {/* Slice parameters — only when real slicing is selected */}
+            {realSliceInPlan && (
+              <div className="collapsible" style={{ marginTop: 10 }}>
+                <div className="collapsible-hdr" onClick={() => setShowSliceParams(v => !v)}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Slice Parameters</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSliceParams ? '▲' : '▼'}</span>
+                </div>
+                {showSliceParams && (
+                  <div className="collapsible-body" style={{ padding: 12 }}>
+                    <SliceParamFields form={form} setField={setField} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ASR choice */}
+        {state && (!state.L || !state.S) && (
+          <div className="restore-group">
+            <div className="restore-group-title">Transcribe (ASR)</div>
+            <label className="toggle-row">
+              <input type="checkbox" checked={doAsr || asrForced} disabled={asrForced} onChange={e => setDoAsr(e.target.checked)} />
+              <span>
+                Run ASR to (re)generate the transcript &amp; segments
+                {asrForced && <span className="hint"> — required for the selected options</span>}
+                {!doAsr && !asrForced && <span className="hint-warn"> — skipped: reference-text-free</span>}
+              </span>
+            </label>
+
+            {/* ASR parameters — only when ASR actually runs */}
+            {asrInPlan && (
+              <div className="collapsible" style={{ marginTop: 10 }}>
+                <div className="collapsible-hdr" onClick={() => setShowAsrParams(v => !v)}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>ASR Parameters</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAsrParams ? '▲' : '▼'}</span>
+                </div>
+                {showAsrParams && (
+                  <div className="collapsible-body" style={{ padding: 12 }}>
+                    <AsrParamFields form={form} setField={setField} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Retrain choice + training parameters — only when models are missing */}
+        {state && !state.M && (
+          <div className="restore-group">
+            <div className="restore-group-title">Models</div>
+            <label className="toggle-row">
+              <input type="checkbox" checked={doRetrain} onChange={e => setDoRetrain(e.target.checked)} />
+              <span>Re-train models <span className="hint">— slow; only if no models exist</span></span>
+            </label>
+
+            {trainInPlan && (
+              <div className="collapsible" style={{ marginTop: 10 }}>
+                <div className="collapsible-hdr" onClick={() => setShowTrainParams(v => !v)}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Training Parameters</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showTrainParams ? '▲' : '▼'}</span>
+                </div>
+                {showTrainParams && (
+                  <div className="collapsible-body" style={{ padding: 12 }}>
+                    <TrainParamFields form={form} setField={setField} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Plan preview */}
+        <div className="plan-preview">
+          <div className="plan-preview-label">PLAN</div>
+          <div className={`plan-preview-body ${loading ? 'muted' : ''}`}>{planLabel}</div>
+          {(plan?.warnings || []).map((w, i) => (
+            <div key={i} className="plan-warn">⚠ {w}</div>
+          ))}
+        </div>
+
+        {err && <div className="msg msg-error" style={{ marginBottom: 10 }}>{err}</div>}
+
+        <div className="modal-actions">
+          <button className="btn btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn btn-sm btn-primary" onClick={submit} disabled={submitting || loading || !hasWork || isNoop}>
+            {submitting ? 'Starting…' : (trainInPlan ? 'Rebuild & Train' : 'Restore')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================
 //  ASSETS TAB
 // ============================
 function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPrefill }) {
@@ -2173,6 +2469,8 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
   const [segmentsLoading, setSegmentsLoading] = useState({})
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { id, displayName }
   const [deleting, setDeleting] = useState(false)
+  const [restoreTarget, setRestoreTarget] = useState(null) // { id, displayName }
+  const rebuildPollRef = useRef(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
 
@@ -2230,6 +2528,52 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
     const inputDir = a.raw?.dir || a.slices?.dir || ''
     if (setTrainPrefill) setTrainPrefill({ inputDir, voiceName: id })
     setPage('train')
+  }
+
+  // Poll a rebuild pipeline task to completion, then auto-rescan ALL assets so
+  // the restored voice becomes usable without a manual "Scan All". The rebuild
+  // pipeline (slice/asr/finalize/promote) runs server-side; we watch its status.
+  const pollRebuild = (id, taskId) => {
+    if (rebuildPollRef.current) { clearTimeout(rebuildPollRef.current); rebuildPollRef.current = null }
+    let tries = 0
+    const tick = async () => {
+      tries += 1
+      try {
+        const r = await api(`/api/train/status/${taskId}`)
+        if (r.ok && r.data) {
+          const st = r.data.status
+          if (st === 'completed') {
+            setScanMsg({ type: 'info', text: `Rebuild finished for ${id} — scanning…` })
+            await handleScan() // full re-scan so the asset is immediately usable
+            setScanMsg({ type: 'success', text: `Restored ${id}.` })
+            setTimeout(() => setScanMsg(null), 4000)
+            return
+          }
+          if (['failed', 'cancelled', 'interrupted'].includes(st)) {
+            setScanMsg({ type: 'error', text: `Rebuild ${st} for ${id}.` })
+            setTimeout(() => setScanMsg(null), 6000)
+            return
+          }
+          setScanMsg({ type: 'info', text: `Rebuilding ${id}… (${r.data.currentStep || st})` })
+        }
+      } catch (_) { /* transient — keep polling */ }
+      if (tries < 1800) rebuildPollRef.current = setTimeout(tick, 2000)
+    }
+    rebuildPollRef.current = setTimeout(tick, 1200)
+  }
+
+  useEffect(() => () => { if (rebuildPollRef.current) clearTimeout(rebuildPollRef.current) }, [])
+
+  // Called when the Restore modal kicks off a rebuild. A pipeline-backed rebuild
+  // returns a taskId (poll it); a lightweight segments-only rebuild is synchronous.
+  const handleRebuildStarted = (id, data) => {
+    if (data && data.taskId) {
+      setScanMsg({ type: 'info', text: `Rebuilding ${id}… ${(data.stages || []).join(' → ')}` })
+      pollRebuild(id, data.taskId)
+    } else {
+      setScanMsg({ type: 'info', text: `Restored ${id} — scanning…` })
+      handleScan()
+    }
   }
 
   const handleOpenExplorer = async (id) => {
@@ -2345,8 +2689,15 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
         return { key: 'norefs', label: 'No Refs', cls: 'badge-danger2', sym: '■',
                  note: 'No raw / slices / segments — re-import audio to rebuild.' }
       }
-      return { key: 'noseg', label: 'No Segments', cls: 'badge-seg', sym: '▲',
-               note: 'Inference can fall back to raw — backend-pending.' }
+      if (hasSlices) {
+        // Slices still present → segments can be regenerated cheaply (no re-slice).
+        return { key: 'noseg', label: 'No Segments', cls: 'badge-seg', sym: '▲',
+                 note: 'Slices present — rebuild segments.json from them (no re-slicing, no training).' }
+      }
+      // Models present (passed the model check above) + raw, but slices/segments gone.
+      // Still usable: raw works as reference audio. Restore text refs via ASR (no retrain).
+      return { key: 'rawrefs', label: 'Raw Refs', cls: 'badge-ok2', sym: '◑',
+               note: 'Usable now — raw serves as reference audio. Run ASR to restore text refs (no re-slicing, no retraining).' }
     }
     if (!hasRaw) return { key: 'ready', label: 'Ready', cls: 'badge-ok2', sym: '◐',
                           note: 'Models + segments present; raw removed (still usable).' }
@@ -2360,7 +2711,7 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
     return acc
   }, {})
   // Keep a stable filter order; only show chips for states that actually occur
-  const FILTER_ORDER = ['Complete', 'Ready', 'No Segments', 'Missing Models', 'Missing GPT', 'Missing SoVITS', 'No Refs', 'Needs Scan']
+  const FILTER_ORDER = ['Complete', 'Ready', 'Raw Refs', 'No Segments', 'Missing Models', 'Missing GPT', 'Missing SoVITS', 'No Refs', 'Needs Scan']
   const filterChips = ['All', ...FILTER_ORDER.filter(l => healthCounts[l])]
   const q = search.trim().toLowerCase()
   const filteredEntries = assetEntries.filter(([id, asset]) => {
@@ -2441,11 +2792,14 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
           const segCount = asset.segment_total || 0
           const h = voiceHealth(asset)
           const canRebuild = (raw.file_count || 0) > 0 || (slices.file_count || 0) > 0
-          // Rebuild = full re-train (the backend pipeline always runs train). Only
-          // offer it where retraining is actually the fix: missing models, or the
-          // dead-end No Refs (then disabled). No Segments is fixed by Scan alone
-          // (regenerates segments.json from existing slices — no training).
-          const showRebuild = h.key === 'nomodel' || h.key === 'norefs'
+          // Restore via the dependency planner (shortest path). Both "Raw Refs" and
+          // "Missing Models" open the same modal: the planner reuses existing slices
+          // and ASR, so e.g. a missing-model voice that still has slices+list only
+          // runs preprocess+train — it never re-slices or re-transcribes.
+          const showRestore = h.key === 'rawrefs' || h.key === 'nomodel'
+          // No Refs is a dead end (no raw/slices); keep the Train-tab fallback so the
+          // user can re-import. No Segments is fixed by Scan alone (no training).
+          const showRebuild = h.key === 'norefs'
           const isExpanded = expandedId === id
           const segData = segments[id]
           const isLoadingSegs = segmentsLoading[id]
@@ -2470,16 +2824,29 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
                     <button className="btn btn-sm btn-ghost" onClick={() => handleBrowse(id)}>
                       {isExpanded ? 'Collapse' : 'Browse'}
                     </button>
-                    <button
-                      className={`btn btn-sm ${h.key === 'noseg' ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={() => handleScanOne(id)}
-                      disabled={scanning}
-                      title={h.key === 'noseg'
-                        ? 'Rebuild segments.json from existing slices — no re-training'
-                        : 'Re-scan this voice and refresh its assets'}
-                    >
-                      {h.key === 'noseg' ? 'Rebuild Segments' : 'Scan'}
-                    </button>
+                    {showRestore ? (
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => setRestoreTarget({ id, displayName: asset.display_name || id })}
+                        disabled={scanning}
+                        title={h.key === 'nomodel'
+                          ? 'Rebuild the missing model. Existing slices and transcripts are reused — only preprocess+train run (no re-slicing, no re-ASR).'
+                          : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
+                      >
+                        {h.key === 'nomodel' ? 'Rebuild…' : 'Restore…'}
+                      </button>
+                    ) : (
+                      <button
+                        className={`btn btn-sm ${h.key === 'noseg' ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => handleScanOne(id)}
+                        disabled={scanning}
+                        title={h.key === 'noseg'
+                          ? 'Rebuild segments.json from existing slices — no re-training'
+                          : 'Re-scan this voice and refresh its assets'}
+                      >
+                        {h.key === 'noseg' ? 'Rebuild Segments' : 'Scan'}
+                      </button>
+                    )}
                     {showRebuild && (
                       <button
                         className="btn btn-sm btn-ghost"
@@ -2588,6 +2955,16 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
             </div>
           </div>
         </div>
+      )}
+
+      {/* Restore Asset Modal (dependency-driven repair with user-chosen options) */}
+      {restoreTarget && (
+        <RestoreModal
+          id={restoreTarget.id}
+          displayName={restoreTarget.displayName}
+          onClose={() => setRestoreTarget(null)}
+          onStarted={handleRebuildStarted}
+        />
       )}
     </div>
   )

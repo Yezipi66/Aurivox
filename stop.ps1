@@ -9,8 +9,8 @@
 # ============================================================
 
 $Ports = @(
-  @{ Name = "后端 server.js"; Port = 9886 },
-  @{ Name = "推理 infer_server"; Port = 9880 }
+  @{ Name = "backend server.js"; Port = 9886 },
+  @{ Name = "inference infer_server"; Port = 9880 }
 )
 
 function Get-ListeningPids($port) {

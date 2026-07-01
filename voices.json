@@ -1,10 +1,4 @@
 {
-  "LaPlama": {
-    "display_name": "LaPlama",
-    "language": "ja",
-    "prompt_lang": "ja",
-    "text_lang": "ja"
-  },
   "Shamare_ja": {
     "display_name": "Shamare_ja",
     "language": "ja",
@@ -19,6 +13,18 @@
   },
   "Raiden": {
     "display_name": "Raiden",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "Leizi": {
+    "display_name": "Leizi",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja"
+  },
+  "LaPlama": {
+    "display_name": "LaPlama",
     "language": "ja",
     "prompt_lang": "ja",
     "text_lang": "ja"
