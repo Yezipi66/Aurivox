@@ -37,7 +37,7 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
   const p = plan(S(1,1,0,0,1));
   assert.deepStrictEqual(p.stages, ['asr'], 'list missing → just ASR (asr makes segments)');
   assert.strictEqual(p.needs_segments, false, 'asr produces segments, no standalone step');
-  assert.deepStrictEqual(p.stepOptions, { denoise:false, slice:false, slicePassthrough:false, asr:true, preprocess:false, train:false, finalize:true, promote:true });
+  assert.deepStrictEqual(p.stepOptions, { denoise:false, slice:false, slicePassthrough:false, asr:true, preprocess:false, train_s1:false, train_s2:false, finalize:true, promote:true });
 }
 // Missing models, safe mode → NOT scheduled, surfaced as Missing Models (not Complete)
 {
@@ -52,9 +52,10 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
 // Missing models, full mode, slices present → train WITHOUT re-slicing.
 {
   const p = plan(S(1,1,1,1,0), 'full');
-  assert.deepStrictEqual(p.stages, ['preprocess','train'], 'have slices → no re-slice; finalize/promote are forced via stepOptions');
+  assert.deepStrictEqual(p.stages, ['preprocess','train_s1','train_s2'], 'have slices → no re-slice; both models retrained; finalize/promote forced via stepOptions');
   assert.ok(p.requires_confirmation, 'train requires confirmation');
-  assert.strictEqual(p.stepOptions.train, true);
+  assert.strictEqual(p.stepOptions.train_s1, true);
+  assert.strictEqual(p.stepOptions.train_s2, true);
   assert.strictEqual(p.stepOptions.slice, false, 'never re-slice when slices exist');
   assert.strictEqual(p.stepOptions.finalize, true);
   assert.strictEqual(p.stepOptions.promote, true);
@@ -62,14 +63,14 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
 // Missing models + missing segments, full → segments before train (cost order)
 {
   const p = plan(S(1,1,1,0,0), 'full');
-  assert.deepStrictEqual(p.stages, ['generateSegments','preprocess','train']);
-  assert.strictEqual(p.stages.indexOf('generateSegments') < p.stages.indexOf('train'), true, 'segments before train');
+  assert.deepStrictEqual(p.stages, ['generateSegments','preprocess','train_s1','train_s2']);
+  assert.strictEqual(p.stages.indexOf('generateSegments') < p.stages.indexOf('train_s1'), true, 'segments before train');
   assert.strictEqual(p.needs_segments, true, 'segments generated inline as train input');
 }
 // Only raw, full → real slice (training wants clean clips) + asr + train. No standalone segments.
 {
   const p = plan(S(1,0,0,0,0), 'full');
-  assert.deepStrictEqual(p.stages, ['slice','asr','preprocess','train']);
+  assert.deepStrictEqual(p.stages, ['slice','asr','preprocess','train_s1','train_s2']);
   assert.strictEqual(p.slice_mode, 'slice', 'training path uses REAL slicing');
   assert.strictEqual(p.stepOptions.slicePassthrough, false);
 }
@@ -92,7 +93,8 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
   assert.deepStrictEqual(p.stages, ['slice','asr'], 'R·M → passthrough slice + asr, no train');
   assert.strictEqual(p.slice_mode, 'passthrough', 'default does NOT re-slice; raw used as refs');
   assert.strictEqual(p.stepOptions.slicePassthrough, true);
-  assert.strictEqual(p.stepOptions.train, false, 'models exist → never retrain');
+  assert.strictEqual(p.stepOptions.train_s1, false, 'models exist → never retrain S1');
+  assert.strictEqual(p.stepOptions.train_s2, false, 'models exist → never retrain S2');
   assert.strictEqual(p.requires_confirmation, false, 'no training → no confirmation');
   assert.ok(p.warnings.some(w => /verbatim/i.test(w)), 'warns raw used verbatim');
 }
@@ -104,7 +106,8 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
   const pr = scanner.planRebuild(S(1,0,0,0,1), { mode: 'safe', reslice: true });
   assert.strictEqual(pr.slice_mode, 'slice', 'reslice opt → real slicing');
   assert.strictEqual(pr.stepOptions.slicePassthrough, false);
-  assert.strictEqual(pr.stepOptions.train, false, 'reslice does not imply retrain');
+  assert.strictEqual(pr.stepOptions.train_s1, false, 'reslice does not imply retrain');
+  assert.strictEqual(pr.stepOptions.train_s2, false, 'reslice does not imply retrain');
 }
 // Slices deleted but stale list survived (models present): re-slicing forces re-ASR
 // so the new clips and list stay consistent — never reuse a stale list.
@@ -128,7 +131,8 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
   const p = scanner.planRebuild(S(1,0,0,0,0), { mode: 'full', skipAsr: true });
   assert.ok(p.stages.includes('asr'), 'training forces ASR even with skipAsr');
   assert.strictEqual(p.stepOptions.asr, true);
-  assert.strictEqual(p.stepOptions.train, true);
+  assert.strictEqual(p.stepOptions.train_s1, true);
+  assert.strictEqual(p.stepOptions.train_s2, true);
 }
 // reslice + skipAsr → real slice, no asr (user wants clips without text).
 {
@@ -137,6 +141,38 @@ assert.ok(plan(S(0,1,1,1,1)).noop, 'Ready(no raw) should be noop');
   assert.strictEqual(p.slice_mode, 'slice');
   assert.strictEqual(p.stepOptions.asr, false);
 }
+// ---- NEW: independent S1/S2 retrain (Mg/Ms split) ----
+// state with explicit per-model flags: SM(R,S,L,Seg,Mg,Ms)
+const SM = (R, S_, L, Seg, Mg, Ms) => ({ R, S: S_, L, Seg, M: Mg && Ms, Mg, Ms });
+// Only GPT (S1) missing → auto retrain S1 only, reuse existing slices/ASR.
+{
+  const p = scanner.planRebuild(SM(1,1,1,1,0,1), { mode: 'full' });
+  assert.deepStrictEqual(p.stages, ['preprocess','train_s1'], 'missing GPT → S1 only');
+  assert.strictEqual(p.stepOptions.train_s1, true);
+  assert.strictEqual(p.stepOptions.train_s2, false, 'existing SoVITS not retrained');
+}
+// Only SoVITS (S2) missing → auto retrain S2 only.
+{
+  const p = scanner.planRebuild(SM(1,1,1,1,1,0), { mode: 'full' });
+  assert.deepStrictEqual(p.stages, ['preprocess','train_s2'], 'missing SoVITS → S2 only');
+  assert.strictEqual(p.stepOptions.train_s1, false, 'existing GPT not retrained');
+  assert.strictEqual(p.stepOptions.train_s2, true);
+}
+// Explicit override: both models present, caller forces S1 retrain only.
+{
+  const p = scanner.planRebuild(SM(1,1,1,1,1,1), { trainS1: true, trainS2: false });
+  assert.deepStrictEqual(p.stages, ['preprocess','train_s1'], 'explicit S1 retrain over existing');
+  assert.strictEqual(p.stepOptions.train_s2, false);
+  assert.ok(p.requires_confirmation, 'training requires confirmation');
+}
+// Explicit: models missing but user deselects both → warns, no training scheduled.
+{
+  const p = scanner.planRebuild(SM(1,1,1,1,0,0), { trainS1: false, trainS2: false });
+  assert.ok(!p.stages || (!p.stages.includes('train_s1') && !p.stages.includes('train_s2')), 'no training stages');
+  assert.ok(p.warnings.some(w => /still missing|incomplete/i.test(w)), 'warns models still missing');
+}
+console.log('PASS: independent S1/S2 retrain');
+
 console.log('PASS: planRebuild truth table');
 
 // ---------- 2) generateSegments missing-slice detection (Bug C) ----------
@@ -206,6 +242,8 @@ console.log('PASS: generateSegments missing-slice detection');
   assert.strictEqual(st.L, true, 'voiceA has list');
   assert.strictEqual(st.Seg, true, 'voiceA has matched segments');
   assert.strictEqual(st.M, false, 'voiceA has no models');
+  assert.strictEqual(st.Mg, false, 'voiceA has no GPT weights');
+  assert.strictEqual(st.Ms, false, 'voiceA has no SoVITS weights');
 }
 console.log('PASS: detectAssetState');
 

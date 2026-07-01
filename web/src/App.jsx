@@ -837,34 +837,93 @@ function AsrParamFields({ form, setField }) {
   )
 }
 
-function TrainParamFields({ form, setField }) {
+// --- per-model training columns (single source of truth for S1 / S2 params) ---
+function S1BasicCol({ form, setField }) {
+  return (
+    <div>
+      <div className="node-col-title">S1 · GPT</div>
+      <div className="param-grid">
+        <NumField label="Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
+        <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
+        <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
+        <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
+      </div>
+    </div>
+  )
+}
+function S2BasicCol({ form, setField }) {
+  return (
+    <div>
+      <div className="node-col-title">S2 · SoVITS</div>
+      <div className="param-grid">
+        <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
+        <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
+        <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
+        <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+          <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
+        </label>
+      </div>
+    </div>
+  )
+}
+function S1ExpertCol({ form, setField }) {
+  return (
+    <div>
+      <div className="node-col-title">S1 · GPT</div>
+      <div className="param-grid">
+        <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
+        <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
+        <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
+        <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
+        <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
+        <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
+        <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
+        <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
+        <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
+        <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
+      </div>
+    </div>
+  )
+}
+function S2ExpertCol({ form, setField }) {
+  return (
+    <div>
+      <div className="node-col-title">S2 · SoVITS</div>
+      <div className="param-grid">
+        <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
+        <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
+        <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
+        <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
+        <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
+        <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
+        <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
+        <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+          <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// part: 's1' | 's2' | 'both'. Renders the same fields whether shown on the unified
+// Training page (both) or on a single-model node/restore panel (s1 / s2).
+function TrainParamFields({ form, setField, part = 'both' }) {
   const expertLocked = !form.expertUnlocked
+  const showS1 = part === 's1' || part === 'both'
+  const showS2 = part === 's2' || part === 'both'
+  const hint = part === 's1'
+    ? '8GB VRAM (RTX 3070): keep batch size ≤ 4, or use "auto". Save-Every is auto-clamped to the epoch count so a checkpoint is always produced.'
+    : part === 's2'
+      ? 'S2 (SoVITS) trains independently of S1 — it does not need the GPT checkpoint.'
+      : '8GB VRAM (RTX 3070): keep batch size ≤ 4, or use "auto". Save-Every is auto-clamped to the epoch count so a checkpoint is always produced. S1 and S2 are independent steps.'
   return (
     <>
       <div className="layer-label">Advanced Options</div>
       <div className="node-cols">
-        <div>
-          <div className="node-col-title">S1 · GPT</div>
-          <div className="param-grid">
-            <NumField label="Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
-            <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
-            <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
-            <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
-          </div>
-        </div>
-        <div>
-          <div className="node-col-title">S2 · SoVITS</div>
-          <div className="param-grid">
-            <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
-            <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
-            <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
-            <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
-              <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
-            </label>
-          </div>
-        </div>
+        {showS1 && <S1BasicCol form={form} setField={setField} />}
+        {showS2 && <S2BasicCol form={form} setField={setField} />}
       </div>
-      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>8GB VRAM (RTX 3070): keep batch size &le; 4, or use &quot;auto&quot;. Save-Every is auto-clamped to the epoch count so a checkpoint is always produced. S1 and S2 run back-to-back as one training step.</p>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>{hint}</p>
 
       <details className="expert-block" style={{ marginTop: 14 }}>
         <summary className="expert-summary">Expert Parameters — GPT-SoVITS internals</summary>
@@ -878,36 +937,8 @@ function TrainParamFields({ form, setField }) {
         </label>
         <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
           <div className="node-cols">
-            <div>
-              <div className="node-col-title">S1 · GPT</div>
-              <div className="param-grid">
-                <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
-                <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
-                <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
-                <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
-                <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
-                <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
-                <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
-                <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
-                <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
-                <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
-              </div>
-            </div>
-            <div>
-              <div className="node-col-title">S2 · SoVITS</div>
-              <div className="param-grid">
-                <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
-                <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
-                <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
-                <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
-                <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
-                <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
-                <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
-                <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
-                  <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
-                </label>
-              </div>
-            </div>
+            {showS1 && <S1ExpertCol form={form} setField={setField} />}
+            {showS2 && <S2ExpertCol form={form} setField={setField} />}
           </div>
         </fieldset>
       </details>
@@ -962,27 +993,28 @@ const INPUT_TYPES = [
     fields: { denoise: false, slice: true, asr: true } },
   { key: 'long',  label: 'Long raw recording', hint: 'One long take; slice into clips before training.',
     fields: { denoise: false, slice: true, asr: true }, slicePreset: 'aggressive' },
-  { key: 'noisy', label: 'Noisy / mixed audio', hint: 'Has music/noise; run vocal removal first.',
+  { key: 'noisy', label: 'Noisy / mixed audio', hint: 'Has music/noise; extract vocals first.',
     fields: { denoise: true, slice: true, asr: true } },
 ]
 
-// Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS
-// are a single backend step ('train'); 'promote' publishes the asset.
+// Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS are
+// now independent steps (train_s1 / train_s2); 'promote' publishes the asset.
 const TRAIN_STEPS = [
-  { key: 'denoise',    label: 'Vocal Removal / Denoise' },
+  { key: 'denoise',    label: 'Vocal Extraction' },
   { key: 'slice',      label: 'Slicing' },
   { key: 'asr',        label: 'ASR' },
   { key: 'preprocess', label: 'Preprocess' },
-  { key: 'train',      label: 'S1 GPT + S2 SoVITS' },
+  { key: 'train_s1',   label: 'S1 (GPT)' },
+  { key: 'train_s2',   label: 'S2 (SoVITS)' },
   { key: 'finalize',   label: 'Finalize' },
   { key: 'promote',    label: 'Publish' },
 ]
 
 // Clickable pipeline map — doubles as navigation (click a node to configure it)
 // and as live status (during a run the node reflects /api/train/status state).
-function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect }) {
+function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect, readOnly }) {
   return (
-    <div className="pipe-map" role="list">
+    <div className={`pipe-map ${readOnly ? 'readonly' : ''}`} role="list">
       {TRAIN_STEPS.map((s, i) => {
         let st
         const off = enabledMap && enabledMap[s.key] === false
@@ -998,10 +1030,10 @@ function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect }) {
           <button
             type="button"
             role="listitem"
-            className={`pipe-step ${isSel ? 'selected' : ''} ${off ? 'disabled-step' : ''}`}
+            className={`pipe-step ${isSel ? 'selected' : ''} ${off ? 'disabled-step' : ''} ${readOnly ? 'readonly' : ''}`}
             key={s.key}
-            onClick={() => onSelect(isSel ? null : s.key)}
-            title="Click to configure this step"
+            onClick={readOnly ? undefined : () => onSelect(isSel ? null : s.key)}
+            title={readOnly ? s.label : 'Click to configure this step'}
           >
             {i > 0 && <span className={`pipe-seg ${prevDone ? 'done' : ''}`} aria-hidden="true" />}
             <span className={`pipe-dot ${st}`}>{glyph}</span>
@@ -1009,6 +1041,40 @@ function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect }) {
           </button>
         )
       })}
+    </div>
+  )
+}
+
+// Live lightweight-pipeline panel for an in-flight Rebuild/Restore on the Assets
+// page. Reuses the same PipelineMap (read-only) so the repair flow reads exactly
+// like the formal training flow — irrelevant steps show greyed/skipped, the
+// active step pulses, and a failure surfaces the exact step + error message.
+function RebuildProgress({ job, onDismiss }) {
+  if (!job) return null
+  const stepLabel = (k) => (TRAIN_STEPS.find(s => s.key === k) || {}).label || k
+  const failed = job.phase === 'failed'
+  const done = job.phase === 'done'
+  const scanning = job.phase === 'scanning'
+  let statusText, statusCls
+  if (failed) { statusText = `Failed at ${stepLabel(job.failedStep)}`; statusCls = 'error' }
+  else if (done) { statusText = 'Rebuild complete — assets rescanned.'; statusCls = 'success' }
+  else if (scanning) { statusText = 'Rebuild finished — rescanning assets…'; statusCls = 'info' }
+  else { statusText = job.currentStep ? `Running: ${stepLabel(job.currentStep)}…` : 'Starting…'; statusCls = 'info' }
+  return (
+    <div className={`rebuild-progress ${failed ? 'is-failed' : ''}`}>
+      <div className="rp-hdr">
+        <span className="rp-title">
+          {failed ? '\u2717' : done ? '\u2713' : '\u25CF'} {failed ? 'Rebuild failed' : done ? 'Rebuild done' : 'Rebuilding'} · {job.id}
+        </span>
+        {(failed || done) && (
+          <button className="btn btn-sm btn-ghost" onClick={onDismiss}>Dismiss</button>
+        )}
+      </div>
+      <PipelineMap statusSteps={job.steps} readOnly />
+      <div className={`rp-status msg-${statusCls}`}>{statusText}</div>
+      {failed && job.error && (
+        <pre className="rp-error">{job.error}</pre>
+      )}
     </div>
   )
 }
@@ -1267,20 +1333,40 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setError(null);
   };
 
+  const [clearMsg, setClearMsg] = useState(null);
+  const [clearing, setClearing] = useState(false);
+  const handleClearStaging = async () => {
+    if (clearing) return;
+    if (!window.confirm('Clear all finished task workspaces from the training cache (.staging)? Running tasks are never deleted.')) return;
+    setClearing(true);
+    setClearMsg(null);
+    try {
+      const r = await api('/api/train/clear-staging', { method: 'POST' });
+      if (!r.ok) throw new Error(r.data?.error || 'Failed to clear cache');
+      const mb = (r.data.bytes / (1024 * 1024)).toFixed(1);
+      const skipped = r.data.skipped ? `, ${r.data.skipped} running task(s) kept` : '';
+      setClearMsg(`Cleared ${r.data.removed} cache folder(s), freed ${mb} MB${skipped}`);
+    } catch (err) {
+      setClearMsg(`Clear failed: ${err.message}`);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const editable = !taskId; // inputs are editable only before a task starts
 
   const sanitizedVoice = form.voiceName ? form.voiceName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : '';
   const voiceExists = !!sanitizedVoice && voices.some(v => v.id === sanitizedVoice);
   const saveEvery = form.s1SaveEvery ?? 4;
   const enabledSteps = [
-    form.denoise && 'Vocal removal',
+    form.denoise && 'Vocal extraction',
     'Copy to raw', form.slice && 'Slice', form.asr && 'ASR',
-    'Preprocess', 'Train', 'Finalize', 'Publish',
+    'Preprocess', 'S1 (GPT)', 'S2 (SoVITS)', 'Finalize', 'Publish',
   ].filter(Boolean);
 
   const NODE_LABELS = {
-    denoise: 'Vocal Removal / Denoise', slice: 'Slicing', asr: 'ASR Transcription',
-    preprocess: 'Preprocess', train: 'Model Training (S1 GPT + S2 SoVITS)',
+    denoise: 'Vocal Extraction', slice: 'Slicing', asr: 'ASR Transcription',
+    preprocess: 'Preprocess', train_s1: 'S1 Training (GPT)', train_s2: 'S2 Training (SoVITS)',
     finalize: 'Finalize', promote: 'Publish',
   };
 
@@ -1296,7 +1382,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
-            Enable vocal removal / denoise
+            Enable vocal extraction
           </label>
           {form.denoise && (
             <div className="field">
@@ -1306,7 +1392,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               </select>
             </div>
           )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Removes background music / noise before slicing. Off by default — only needed for noisy or mixed audio.</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing. Off by default — only needed for noisy or mixed audio.</p>
         </>
       );
     } else if (selectedNode === 'slice') {
@@ -1343,8 +1429,10 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           {form.asr && <AsrParamFields form={form} setField={setField} />}
         </>
       );
-    } else if (selectedNode === 'train') {
-      body = <TrainParamFields form={form} setField={setField} />;
+    } else if (selectedNode === 'train_s1') {
+      body = <TrainParamFields form={form} setField={setField} part="s1" />;
+    } else if (selectedNode === 'train_s2') {
+      body = <TrainParamFields form={form} setField={setField} part="s2" />;
     } else if (selectedNode === 'preprocess') {
       body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training. No configuration needed.</p>;
     } else if (selectedNode === 'finalize') {
@@ -1444,7 +1532,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="pf-row">
               <span className="pf-key">Preprocess</span>
               <span className="pf-chips">
-                {form.denoise && <span className="pf-chip">Denoise</span>}
+                {form.denoise && <span className="pf-chip">Vocal Extract</span>}
                 {form.slice && <span className="pf-chip">Slice</span>}
                 {form.asr && <span className="pf-chip">ASR</span>}
                 {!form.denoise && !form.slice && !form.asr && <span className="pf-chip pf-chip-off">none</span>}
@@ -1455,7 +1543,14 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
 
           {!taskId && (
-            <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={handleStart}>Start Training</button>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={handleStart}>Start Training</button>
+              <button className="btn btn-ghost" onClick={handleClearStaging} disabled={clearing}
+                title="Delete finished task workspaces from the .staging cache (running tasks are never touched)">
+                {clearing ? 'Clearing…' : 'Clear Cache'}
+              </button>
+              {clearMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{clearMsg}</span>}
+            </div>
           )}
 
           {taskId && !status && (
@@ -2235,7 +2330,10 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
   // User intent (drives the planner)
   const [sliceChoice, setSliceChoice] = useState('passthrough') // 'passthrough' | 'real'
   const [doAsr, setDoAsr] = useState(true)
-  const [doRetrain, setDoRetrain] = useState(false)
+  // S1 (GPT) and S2 (SoVITS) are independent — the user can retrain either, both, or
+  // neither. Seeded from which weights are actually missing (state.Mg / state.Ms).
+  const [trainS1, setTrainS1] = useState(false)
+  const [trainS2, setTrainS2] = useState(false)
   const seeded = useRef(false)
   // Parameter overrides — share the exact same field set & panels as the Training
   // page, so the rebuild flow exposes every parameter the formal flow does.
@@ -2245,11 +2343,17 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
   const [form, setForm] = useState({ ...REBUILD_PARAM_DEFAULTS })
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
 
-  const buildOpts = () => ({
-    reslice: sliceChoice === 'real',
-    skipAsr: !doAsr,
-    mode: doRetrain ? 'full' : 'safe',
-  })
+  const buildOpts = () => {
+    const o = {
+      reslice: sliceChoice === 'real',
+      skipAsr: !doAsr,
+      mode: (trainS1 || trainS2) ? 'full' : 'safe',
+    }
+    // Only send explicit per-model flags once we know a model is missing, so the
+    // safe-mode deferral path (no modal) keeps its "confirm before training" behavior.
+    if (state && !state.M) { o.trainS1 = trainS1; o.trainS2 = trainS2 }
+    return o
+  }
 
   // Assemble customParams shaped for the training pipeline. Only include the
   // sections whose stage actually runs, so we never override unrelated defaults.
@@ -2263,7 +2367,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
       steps.asr = { params: buildAsrParams(form) }
     }
     if (Object.keys(steps).length) params.steps = steps
-    if (stages.includes('train')) {
+    if (stages.includes('train_s1') || stages.includes('train_s2')) {
       params.training = buildTrainingParams(form)
     }
     return params
@@ -2284,16 +2388,17 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         if (!seeded.current && data.state) {
           seeded.current = true
           if (!data.state.S) setSliceChoice(data.slice_mode === 'slice' ? 'real' : 'passthrough')
-          // Missing models → arm retrain so the plan immediately shows the shortest
-          // training path (preprocess+train, reusing existing slices/ASR).
-          if (!data.state.M) setDoRetrain(true)
+          // Missing weights → arm retrain of ONLY the missing model(s) so the plan
+          // shows the shortest path (reuse existing slices/ASR, train what's absent).
+          if (data.state.Mg === false) setTrainS1(true)
+          if (data.state.Ms === false) setTrainS2(true)
         }
       })
       .catch(e => { if (!cancelled) setErr(e.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, sliceChoice, doAsr, doRetrain])
+  }, [id, sliceChoice, doAsr, trainS1, trainS2])
 
   const submit = async () => {
     setSubmitting(true); setErr(null)
@@ -2312,7 +2417,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
   const stages = plan?.stages || []
   const asrInPlan = stages.includes('asr')
   const asrForced = asrInPlan && !doAsr // backend forced it despite the toggle (e.g. retrain)
-  const trainInPlan = stages.includes('train')
+  const trainInPlan = stages.includes('train_s1') || stages.includes('train_s2')
   const realSliceInPlan = stages.includes('slice') && sliceChoice === 'real'
   const hasWork = stages.length > 0 || plan?.needs_segments
   const isNoop = !!plan?.noop
@@ -2342,7 +2447,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         {/* Current asset state */}
         {state && (
           <div className="asset-state-row">
-            {[['R', 'Raw'], ['S', 'Slices'], ['L', 'Transcript'], ['Seg', 'Segments'], ['M', 'Models']].map(([k, label]) => (
+            {[['R', 'Raw'], ['S', 'Slices'], ['L', 'Transcript'], ['Seg', 'Segments'], ['Mg', 'GPT'], ['Ms', 'SoVITS']].map(([k, label]) => (
               <span key={k} className={`state-pip ${state[k] ? 'on' : 'off'}`}>
                 <span className="state-pip-sym">{state[k] ? '✓' : '–'}</span>{label}
               </span>
@@ -2410,13 +2515,29 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
           </div>
         )}
 
-        {/* Retrain choice + training parameters — only when models are missing */}
+        {/* Retrain choice + training parameters — only when a weight is missing.
+            S1 (GPT) and S2 (SoVITS) are independent steps, so each can be retrained
+            on its own; the missing one is preselected. */}
         {state && !state.M && (
           <div className="restore-group">
             <div className="restore-group-title">Models</div>
             <label className="toggle-row">
-              <input type="checkbox" checked={doRetrain} onChange={e => setDoRetrain(e.target.checked)} />
-              <span>Re-train models <span className="hint">— slow; only if no models exist</span></span>
+              <input type="checkbox" checked={trainS1} onChange={e => setTrainS1(e.target.checked)} />
+              <span>
+                Train S1 (GPT)
+                {state.Mg === false
+                  ? <span className="hint-warn"> — missing</span>
+                  : <span className="hint"> — already present, retrain to overwrite</span>}
+              </span>
+            </label>
+            <label className="toggle-row">
+              <input type="checkbox" checked={trainS2} onChange={e => setTrainS2(e.target.checked)} />
+              <span>
+                Train S2 (SoVITS)
+                {state.Ms === false
+                  ? <span className="hint-warn"> — missing</span>
+                  : <span className="hint"> — already present, retrain to overwrite</span>}
+              </span>
             </label>
 
             {trainInPlan && (
@@ -2427,7 +2548,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
                 </div>
                 {showTrainParams && (
                   <div className="collapsible-body" style={{ padding: 12 }}>
-                    <TrainParamFields form={form} setField={setField} />
+                    <TrainParamFields form={form} setField={setField}
+                      part={trainS1 && trainS2 ? 'both' : trainS1 ? 's1' : 's2'} />
                   </div>
                 )}
               </div>
@@ -2460,7 +2582,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
 // ============================
 //  ASSETS TAB
 // ============================
-function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPrefill }) {
+function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPrefill, rebuildTask, setRebuildTask }) {
   const [assets, setAssets] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState(null)
@@ -2471,6 +2593,10 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
   const [deleting, setDeleting] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState(null) // { id, displayName }
   const rebuildPollRef = useRef(null)
+  // Live lightweight-pipeline progress for an in-flight Rebuild/Restore, so the
+  // user can see which step (preprocess → S1/S2 → finalize → publish) is running
+  // and read a clear error if one fails — instead of just listening to the fan.
+  const [rebuildJob, setRebuildJob] = useState(null) // { id, phase, currentStep, steps, error, failedStep, stages }
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
 
@@ -2533,7 +2659,7 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
   // Poll a rebuild pipeline task to completion, then auto-rescan ALL assets so
   // the restored voice becomes usable without a manual "Scan All". The rebuild
   // pipeline (slice/asr/finalize/promote) runs server-side; we watch its status.
-  const pollRebuild = (id, taskId) => {
+  const pollRebuild = (id, taskId, stages) => {
     if (rebuildPollRef.current) { clearTimeout(rebuildPollRef.current); rebuildPollRef.current = null }
     let tries = 0
     const tick = async () => {
@@ -2542,19 +2668,37 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
         const r = await api(`/api/train/status/${taskId}`)
         if (r.ok && r.data) {
           const st = r.data.status
+          const steps = r.data.steps || {}
+          setRebuildJob(prev => ({
+            ...(prev || {}), id, taskId, stages,
+            phase: 'running', status: st, currentStep: r.data.currentStep, steps,
+          }))
           if (st === 'completed') {
-            setScanMsg({ type: 'info', text: `Rebuild finished for ${id} — scanning…` })
-            await handleScan() // full re-scan so the asset is immediately usable
-            setScanMsg({ type: 'success', text: `Restored ${id}.` })
-            setTimeout(() => setScanMsg(null), 4000)
+            setRebuildJob(prev => ({ ...(prev || {}), id, steps, phase: 'scanning', status: st }))
+            await handleScan() // full re-scan (Scan All) so the asset is immediately usable
+            setRebuildJob(prev => ({ ...(prev || {}), id, steps, phase: 'done', status: st }))
+            if (setRebuildTask) setRebuildTask(null) // finished — stop persisting/resuming
+            setTimeout(() => setRebuildJob(cur => (cur && cur.id === id && cur.phase === 'done') ? null : cur), 6000)
             return
           }
           if (['failed', 'cancelled', 'interrupted'].includes(st)) {
-            setScanMsg({ type: 'error', text: `Rebuild ${st} for ${id}.` })
-            setTimeout(() => setScanMsg(null), 6000)
+            // Surface the exact failing step + its error so the user knows what broke.
+            let failedStep = r.data.currentStep, error = ''
+            for (const [k, v] of Object.entries(steps)) {
+              if (v && v.status === 'failed') { failedStep = k; error = v.error || ''; break }
+            }
+            setRebuildJob(prev => ({
+              ...(prev || {}), id, taskId, stages, steps, phase: 'failed', status: st, failedStep,
+              error: error || `Rebuild ${st} (no error detail reported).`,
+            }))
+            // Keep the failure visible AND persisted across navigation until the
+            // user dismisses it (so they don't miss a failed repair).
             return
           }
-          setScanMsg({ type: 'info', text: `Rebuilding ${id}… (${r.data.currentStep || st})` })
+        } else if (!r.ok && (r.status === 404 || r.status === 400)) {
+          // Task no longer known to the server (e.g. process restarted) — stop.
+          setRebuildJob(prev => (prev && prev.id === id) ? { ...prev, phase: 'failed', error: 'Rebuild task is no longer available on the server (it may have been restarted). Re-run the rebuild.', failedStep: prev.currentStep } : prev)
+          return
         }
       } catch (_) { /* transient — keep polling */ }
       if (tries < 1800) rebuildPollRef.current = setTimeout(tick, 2000)
@@ -2564,13 +2708,28 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
 
   useEffect(() => () => { if (rebuildPollRef.current) clearTimeout(rebuildPollRef.current) }, [])
 
+  // Resume an in-flight rebuild after navigating back to Assets (or a reload):
+  // the pipeline keeps running server-side; we just re-attach the progress panel.
+  useEffect(() => {
+    if (rebuildTask && rebuildTask.taskId && !rebuildPollRef.current) {
+      setRebuildJob({ id: rebuildTask.id, taskId: rebuildTask.taskId, stages: rebuildTask.stages || [], phase: 'running', status: 'pending', currentStep: null, steps: {}, error: null })
+      pollRebuild(rebuildTask.id, rebuildTask.taskId, rebuildTask.stages || [])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Dismiss a finished/failed rebuild panel and stop persisting it.
+  const dismissRebuild = () => { setRebuildJob(null); if (setRebuildTask) setRebuildTask(null) }
+
   // Called when the Restore modal kicks off a rebuild. A pipeline-backed rebuild
   // returns a taskId (poll it); a lightweight segments-only rebuild is synchronous.
   const handleRebuildStarted = (id, data) => {
     if (data && data.taskId) {
-      setScanMsg({ type: 'info', text: `Rebuilding ${id}… ${(data.stages || []).join(' → ')}` })
-      pollRebuild(id, data.taskId)
+      if (setRebuildTask) setRebuildTask({ id, taskId: data.taskId, stages: data.stages || [] }) // persist for resume
+      setRebuildJob({ id, taskId: data.taskId, stages: data.stages || [], phase: 'running', status: 'pending', currentStep: null, steps: {}, error: null })
+      pollRebuild(id, data.taskId, data.stages || [])
     } else {
+      // Lightweight (segments-only) rebuild is synchronous server-side — just rescan.
       setScanMsg({ type: 'info', text: `Restored ${id} — scanning…` })
       handleScan()
     }
@@ -2733,6 +2892,7 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
       </div>
       <div className="section-body">
         {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{scanMsg.text}</div>}
+        <RebuildProgress job={rebuildJob} onDismiss={dismissRebuild} />
         {assetEntries.length > 0 && (
           <div className="summary-bar">
             <span className="stat-pill"><span className="sp-v">{totals.voices}</span><span className="sp-k">voices</span></span>
@@ -3064,6 +3224,9 @@ export default function App() {
   const [selectedRefText, setSelectedRefText] = useState('')
   const [health, setHealth] = useState(null)
   const [activeTaskId, setActiveTaskId] = usePersistentState('train.activeTaskId', null)
+  // Persisted in-flight Rebuild/Restore so its lightweight pipeline survives page
+  // navigation and reloads: { id, taskId, stages }. AssetsTab resumes polling from it.
+  const [rebuildTask, setRebuildTask] = usePersistentState('assets.rebuildTask', null)
   // One-shot handoff from Assets "Rebuild" → Train tab (input folder + voice name).
   const [trainPrefill, setTrainPrefill] = useState(null)
 
@@ -3151,7 +3314,8 @@ export default function App() {
             <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} onBack={() => setPage('generate')} />
           )}
           {page === 'assets' && (
-            <AssetsTab voices={voices} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill} />
+            <AssetsTab voices={voices} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
+              rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
           {page === 'train' && (
             <TrainingTab voices={voices} loadVoices={loadVoices}

@@ -1383,6 +1383,12 @@ app.post("/api/assets/:id/rebuild", requireApiKey, async (req, res) => {
   const reslice = !!(req.body && req.body.reslice);
   const skipAsr = !!(req.body && req.body.skipAsr);
   const execute = !!(req.body && req.body.execute);
+  // Optional per-model retrain overrides from the restore modal. undefined = auto
+  // (retrain only whichever model is missing); true/false = explicit force/skip.
+  const bodyTrainS1 = req.body && req.body.trainS1;
+  const bodyTrainS2 = req.body && req.body.trainS2;
+  const trainS1 = bodyTrainS1 === undefined ? undefined : !!bodyTrainS1;
+  const trainS2 = bodyTrainS2 === undefined ? undefined : !!bodyTrainS2;
   // Optional per-run overrides for slice / asr / training parameters, shaped like
   // the training pipeline's customParams: { training, steps: { slice|asr: { params } } }.
   // Run through the SAME whitelist + clamp as /api/train/start so the rebuild path
@@ -1391,7 +1397,7 @@ app.post("/api/assets/:id/rebuild", requireApiKey, async (req, res) => {
 
   try {
     const state = assetScanner.detectAssetState(id);
-    const plan = assetScanner.planRebuild(state, { mode, reslice, skipAsr });
+    const plan = assetScanner.planRebuild(state, { mode, reslice, skipAsr, trainS1, trainS2 });
 
     // Hard errors / nothing to do → report the plan as-is.
     if (plan.error) return res.status(400).json({ ok: false, state, ...plan });
@@ -1792,6 +1798,70 @@ app.get("/api/train/logs/:id", (req, res) => {
 
 app.get("/api/train/tasks", (req, res) => {
   res.json({ tasks: trainingPipeline.getAllTasks() });
+});
+
+// POST /api/train/clear-staging — 清除训练暂存目录 (.staging) 中已结束的任务工作区。
+// 只删除非运行中的任务：内存里活跃的任务 + task.json 标记为 running/pending 的都会被保护。
+app.post("/api/train/clear-staging", requireApiKey, (req, res) => {
+  try {
+    const STAGING_ROOT = trainingPipeline.STAGING_ROOT;
+    if (!STAGING_ROOT || !fs.existsSync(STAGING_ROOT)) {
+      return res.json({ ok: true, removed: 0, bytes: 0, skipped: 0 });
+    }
+
+    // 收集受保护的任务 id：内存中处于 running/pending 状态的任务。
+    const protectedIds = new Set();
+    for (const t of trainingPipeline.getAllTasks()) {
+      if (t && (t.status === 'running' || t.status === 'pending')) protectedIds.add(t.id);
+    }
+
+    const dirSize = (dir) => {
+      let total = 0;
+      const stack = [dir];
+      while (stack.length) {
+        const cur = stack.pop();
+        let entries;
+        try { entries = fs.readdirSync(cur, { withFileTypes: true }); } catch { continue; }
+        for (const e of entries) {
+          const p = path.join(cur, e.name);
+          if (e.isDirectory()) stack.push(p);
+          else { try { total += fs.statSync(p).size; } catch (_) {} }
+        }
+      }
+      return total;
+    };
+
+    let removed = 0, bytes = 0, skipped = 0;
+    for (const entry of fs.readdirSync(STAGING_ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = path.join(STAGING_ROOT, entry.name);
+      if (protectedIds.has(entry.name)) { skipped++; continue; }
+
+      // 二级保护：task.json 标记为运行中/待处理的目录不删。
+      const taskJson = path.join(dir, 'task.json');
+      if (fs.existsSync(taskJson)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(taskJson, 'utf-8'));
+          if (data.status === 'running' || data.status === 'pending') { skipped++; continue; }
+        } catch (_) { /* 损坏的 task.json 视为可清理 */ }
+      }
+
+      try {
+        bytes += dirSize(dir);
+        fs.rmSync(dir, { recursive: true, force: true });
+        removed++;
+      } catch (e) {
+        skipped++;
+        console.error(`[CLEAR-STAGING] 删除失败 ${dir}:`, e.message);
+      }
+    }
+
+    console.log(`[CLEAR-STAGING] 清除 ${removed} 个暂存目录, 释放 ${bytes} 字节, 跳过 ${skipped}`);
+    res.json({ ok: true, removed, bytes, skipped });
+  } catch (err) {
+    console.error("[CLEAR-STAGING] Error:", err);
+    res.status(500).json({ error: clientError(err) });
+  }
 });
 
 // ===========================

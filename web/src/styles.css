@@ -709,7 +709,10 @@ select.control {
 /* ===== pipeline stepper (clickable nodes + continuous progress rail) ===== */
 .pipe-map {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* auto-flow column so any number of steps (7, 8, …) always stays on ONE row,
+     each column sharing the width equally. */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   align-items: start;
   width: 100%;
   padding: 8px 2px 4px;
@@ -733,6 +736,45 @@ select.control {
 .pipe-step:hover { background: var(--panel); }
 .pipe-step.selected { background: var(--accent-soft); }
 .pipe-step.disabled-step { opacity: 0.45; }
+.pipe-step.readonly { cursor: default; }
+.pipe-step.readonly:hover { background: none; }
+
+/* Live Rebuild/Restore progress panel (Assets page) */
+.rebuild-progress {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2, var(--panel));
+  padding: 10px 12px 12px;
+  margin-bottom: 12px;
+}
+.rebuild-progress.is-failed { border-color: var(--danger, #e5484d); }
+.rp-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rp-title { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.rebuild-progress.is-failed .rp-title { color: var(--danger, #e5484d); }
+.rp-status {
+  margin-top: 4px;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+.rp-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: rgba(229, 72, 77, 0.08);
+  border: 1px solid rgba(229, 72, 77, 0.35);
+  border-radius: var(--radius-sm);
+  color: var(--danger, #e5484d);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}
 .pipe-step:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 /* connector: runs from the centre of the previous dot to this dot, behind both */
 .pipe-seg {
@@ -751,8 +793,10 @@ select.control {
 }
 .pipe-step .pipe-label {
   text-align: center;
-  line-height: 1.25;
+  line-height: 1.2;
   max-width: 100%;
+  font-size: 10.5px;
+  word-break: break-word;
 }
 
 .node-detail {
@@ -913,7 +957,10 @@ select.control {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
-.param-grid label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; }
+/* Reserve two lines for every field label so a wrapping label (e.g. "Learning Rate
+   (default / number)") does not push its input out of alignment with its row peers. */
+.param-grid label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; line-height: 1.35; min-height: calc(2 * 1.35em); }
+.param-grid { align-items: end; }
 
 .plan-preview {
   margin: 16px 0;
