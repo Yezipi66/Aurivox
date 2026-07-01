@@ -1,12 +1,13 @@
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
+const fsp = require("fs").promises;
 const path = require("path");
 const http = require("http");
 const { execSync, spawn } = require("child_process");
 const multer = require("multer");
 
-const { ASSETS_ROOT } = require('./lib/paths');
+const { ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig } = require('./lib/paths');
 
 const app = express();
 // Environment-driven config with backward-compatible defaults
@@ -108,6 +109,45 @@ function clientError(err, fallback) {
   console.error("[clientError]", errMsg, err && err.stack ? "\n" + err.stack : "");
   // Return only the generic fallback to the client — never raw error details
   return fallback;
+}
+
+// Like clientError but RETURNS THE REAL MESSAGE to the client. Use only for
+// local-workbench management endpoints (loopback-only: rename, config, fs browse)
+// where a meaningful message ("folder locked by X", "path not writable") is
+// essential for the user to act — the generic mask makes those unusable.
+function localError(err) {
+  const errMsg = (err && err.message) || (err && err.toString()) || String(err);
+  console.error("[localError]", errMsg, err && err.stack ? "\n" + err.stack : "");
+  return errMsg;
+}
+
+// In-memory store of background assets-directory copy/move jobs, keyed by jobId.
+// Ephemeral by design: a server restart drops them (the UI degrades to a "job no
+// longer available" message), which is fine for a local single-user tool.
+const migrationJobs = new Map();
+
+// Recursively verify that every file under `src` exists under `dst` with an
+// identical byte size (integrity check for the copy→verify→delete move flow).
+// Returns the first relative path that is missing or size-mismatched, or null
+// when the trees match. Size comparison avoids hashing huge model files while
+// still catching truncated/incomplete copies.
+async function firstMismatch(src, dst, rel = "") {
+  let sStat;
+  try { sStat = await fsp.lstat(src); } catch (e) { return rel || src; }
+  let dStat;
+  try { dStat = await fsp.lstat(dst); } catch (e) { return rel || path.basename(src); }
+  if (sStat.isDirectory()) {
+    if (!dStat.isDirectory()) return rel || path.basename(src);
+    const entries = await fsp.readdir(src);
+    for (const name of entries) {
+      const bad = await firstMismatch(path.join(src, name), path.join(dst, name), rel ? `${rel}/${name}` : name);
+      if (bad) return bad;
+    }
+    return null;
+  }
+  // regular file (or symlink): sizes must match
+  if (sStat.size !== dStat.size) return rel || path.basename(src);
+  return null;
 }
 
 // 从 checkpoint 列表里挑"训练量最大"的那个（避免字母序选到 e5/e4 这种最弱模型）
@@ -1256,6 +1296,427 @@ app.post("/api/assets/:id/open", requireApiKey, (req, res) => {
   }
 });
 
+// Windows file locks (model loaded in the inference server, an open Explorer
+// window from the Browse button, file watcher, AV, indexer) make a directory
+// rename fail with these transient codes. Retry a few times with backoff.
+const RENAME_LOCK_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY", "EACCES"]);
+function sleepSyncMs(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (_) {}
+}
+function renameDirWithRetry(src, dst, attempts = 5) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try { fs.renameSync(src, dst); return; }
+    catch (e) {
+      lastErr = e;
+      if (!RENAME_LOCK_CODES.has(e.code)) throw e; // EXDEV / ENOENT / etc — fail fast
+      sleepSyncMs(200 * Math.pow(2, i));           // 200/400/800/1600/3200ms
+    }
+  }
+  throw lastErr;
+}
+
+// Robust voice-folder rename. Fast path is an atomic whole-directory rename.
+// If that is blocked by a lock on the CONTAINER directory (common on Windows
+// when an Explorer window is open on the folder itself), fall back to creating
+// the new folder and MOVING each entry individually — a viewer looking at the
+// PARENT usually does not lock individual child files, so per-file moves still
+// succeed. Returns { mode, locked } where locked lists any files that could not
+// be moved (so the caller can report exactly what to close).
+function renameVoiceFolder(oldDir, newDir) {
+  try {
+    renameDirWithRetry(oldDir, newDir);
+    return { mode: "atomic", locked: [] };
+  } catch (e) {
+    if (e.code === "EXDEV") throw e;                 // caller handles cross-device
+    if (!RENAME_LOCK_CODES.has(e.code)) throw e;     // genuine error — propagate
+  }
+  // --- per-file fallback ---
+  fs.mkdirSync(newDir, { recursive: true });
+  const locked = [];
+  const moveEntry = (name) => {
+    const from = path.join(oldDir, name);
+    const to = path.join(newDir, name);
+    for (let i = 0; i < 4; i++) {
+      try { fs.renameSync(from, to); return true; }
+      catch (err) {
+        if (!RENAME_LOCK_CODES.has(err.code)) throw err;
+        sleepSyncMs(150 * Math.pow(2, i));
+      }
+    }
+    // Last resort: copy then best-effort delete (leaves original if still locked).
+    try {
+      fs.cpSync(from, to, { recursive: true, force: true });
+      try { fs.rmSync(from, { recursive: true, force: true }); } catch (_) {}
+      return true;
+    } catch (_) { locked.push(name); return false; }
+  };
+  for (const entry of fs.readdirSync(oldDir)) moveEntry(entry);
+  // Try to remove the now-(hopefully)-empty old container.
+  try { fs.rmdirSync(oldDir); } catch (_) { /* left behind if still locked/nonempty */ }
+  return { mode: "per-file", locked };
+}
+
+// PATCH /api/assets/:id/rename — rename a voice's DISPLAY NAME **and** its
+// internal id / on-disk folder together, so display and id never diverge.
+//
+// Why rename the id too (not display only): training publishes into
+// ASSETS_ROOT/<id> and overwrites unconditionally. If display could drift from
+// id (e.g. show "A_en" while the folder is still "A"), a later "train A" would
+// silently clobber the hidden asset. Keeping id == sanitize(display) removes
+// that trap entirely. Because meta.json is regenerated on scan, the folder can
+// be renamed safely and stays self-consistent after a re-scan.
+//
+// Guards (defense in depth):
+//  - target id must be a valid safeId and must NOT already exist (409)
+//  - new display name must be unique (case-insensitive) vs every OTHER voice
+//  - NO active/interrupted training or rebuild task may touch the old or new id
+//  - folder rename uses EPERM/EBUSY retry+backoff; on persistent lock we ABORT
+//    cleanly (no half-rename) and tell the user to stop training / close players
+app.patch("/api/assets/:id/rename", requireApiKey, async (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const newName = ((req.body && req.body.display_name) || "").trim();
+  if (!newName) return res.status(400).json({ error: "display_name is required" });
+  if (newName.length > 80) return res.status(400).json({ error: "display_name too long (max 80)" });
+
+  // Derive the new id the same way training does, so what you see is what
+  // training would target.
+  const newId = newName.replace(/[^a-zA-Z0-9_\-]/g, "_");
+  if (!safeId(newId)) {
+    return res.status(400).json({ error: "Name must contain at least one letter, number, underscore or hyphen." });
+  }
+
+  const oldDir = path.join(ASSETS_DIR, id);
+  const oldMetaPath = path.join(oldDir, "meta.json");
+  if (!fs.existsSync(oldMetaPath)) return res.status(404).json({ error: `Voice '${id}' not found` });
+
+  const idChanged = newId !== id;
+  const newDir = path.join(ASSETS_DIR, newId);
+
+  try {
+    // --- Guard: no active/interrupted task on the old or new id -------------
+    const activeStates = new Set(["pending", "running", "interrupted"]);
+    let tasks = [];
+    try { tasks = trainingPipeline.getAllTasks() || []; } catch (_) {}
+    const blocking = tasks.find(t => activeStates.has(t.status) && (t.voiceId === id || t.voiceId === newId));
+    if (blocking) {
+      return res.status(409).json({ error: `Cannot rename while a training/rebuild task (${blocking.status}) is using this voice. Wait for it to finish or clear it first.` });
+    }
+
+    // --- Guard: new display name unique vs OTHER voices --------------------
+    const taken = new Set();
+    const addName = (s) => { if (s) taken.add(String(s).trim().toLowerCase()); };
+    try {
+      for (const e of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
+        if (!e.isDirectory() || e.name === id) continue;
+        addName(e.name);
+        try {
+          const m = JSON.parse(fs.readFileSync(path.join(ASSETS_DIR, e.name, "meta.json"), "utf-8"));
+          addName(m.display_name);
+        } catch (_) { /* no/invalid meta — id already added */ }
+      }
+    } catch (_) { /* assets dir unreadable — fall through to voices.json */ }
+    const allVoices = loadVoices();
+    for (const [vid, v] of Object.entries(allVoices)) {
+      if (vid === id) continue;
+      addName(vid);
+      addName(v && v.display_name);
+    }
+    if (taken.has(newName.toLowerCase())) {
+      return res.status(409).json({ error: `The name "${newName}" is already used by another voice. Pick a different name.` });
+    }
+
+    // --- Guard: target folder / id must not already exist ------------------
+    if (idChanged && (fs.existsSync(newDir) || allVoices[newId])) {
+      return res.status(409).json({ error: `A voice with id "${newId}" already exists. Renaming would overwrite it — pick a different name.` });
+    }
+
+    // --- Rename the folder (robust), then meta.json + voices.json ----------
+    await withVoicesLock(async () => {
+      if (idChanged) {
+        let result;
+        try {
+          result = renameVoiceFolder(oldDir, newDir);
+        } catch (e) {
+          if (e.code === "EXDEV") {
+            throw Object.assign(new Error("Rename crossed a device boundary; aborted to avoid corruption."), { httpStatus: 500 });
+          }
+          throw Object.assign(new Error(`Could not rename the asset folder (${e.code || "error"}): ${e.message}`), { httpStatus: 423 });
+        }
+        if (result.locked.length) {
+          // Some files could not be moved → roll back what we did move so we
+          // never leave a split asset, then tell the user exactly what to close.
+          try {
+            for (const f of fs.readdirSync(newDir)) {
+              try { fs.renameSync(path.join(newDir, f), path.join(oldDir, f)); } catch (_) {}
+            }
+            fs.rmdirSync(newDir);
+          } catch (_) {}
+          throw Object.assign(
+            new Error(`These files are locked and could not be moved: ${result.locked.join(", ")}. They are likely held by a loaded model (stop generation) or an open Explorer/audio player window on this voice. Close them and retry.`),
+            { httpStatus: 423 }
+          );
+        }
+      }
+
+      const targetDir = idChanged ? newDir : oldDir;
+      const targetMetaPath = path.join(targetDir, "meta.json");
+      try {
+        // First set the new display_name/id, then regenerate the asset inventory
+        // via scanVoiceDir so all checkpoint/reference `path`s (which embed the
+        // folder path) are rewritten for the new id. This is exactly why meta is
+        // scan-generated: renaming stays self-consistent.
+        const meta0 = JSON.parse(fs.readFileSync(targetMetaPath, "utf-8"));
+        meta0.display_name = newName;
+        meta0.id = newId;
+        fs.writeFileSync(targetMetaPath, JSON.stringify(meta0, null, 2));
+        const fresh = assetScanner.scanVoiceDir(newId, targetDir);
+        fresh.display_name = newName; // scanVoiceDir inherits from prev, keep explicit
+        fresh.id = newId;
+        fs.writeFileSync(targetMetaPath, JSON.stringify(fresh, null, 2));
+      } catch (metaErr) {
+        // meta rewrite failed AFTER folder move — roll the folder back so we
+        // don't leave a mismatched id/folder.
+        if (idChanged) { try { renameDirWithRetry(newDir, oldDir); } catch (_) {} }
+        throw metaErr;
+      }
+
+      const voices2 = loadVoices();
+      const prev = voices2[id] || {};
+      delete voices2[id];
+      voices2[newId] = { ...prev, display_name: newName };
+      saveVoices(voices2);
+    });
+
+    res.json({ ok: true, id: newId, previousId: id, idChanged, display_name: newName });
+  } catch (err) {
+    const status = err && err.httpStatus ? err.httpStatus : 500;
+    res.status(status).json({ error: localError(err) });
+  }
+});
+
+// GET /api/config — current app config surfaced to the UI (assets directory etc).
+app.get("/api/config", (req, res) => {
+  res.json({
+    ok: true,
+    assetsRoot: ASSETS_ROOT,
+    assetsRootSource: ASSETS_ROOT_SOURCE, // 'env' | 'config' | 'default'
+    configFile: CONFIG_FILE,
+    envOverride: ASSETS_ROOT_SOURCE === "env",
+    platform: process.platform,
+  });
+});
+
+// POST /api/config/assets-root { path, migration } — persist a new assets
+// directory to app-config.json. `migration` decides what happens to data that
+// already lives in the CURRENT assets directory:
+//   'switch' — just point at the new dir, leave old data where it is (default)
+//   'copy'   — copy existing voices into the new dir, keep the originals
+//   'move'   — copy existing voices into the new dir, then delete the originals
+// The new root takes effect after a server restart (paths.js resolves once at
+// startup); the migration itself is done here so the data is already in place.
+app.post("/api/config/assets-root", requireApiKey, async (req, res) => {
+  const p = ((req.body && req.body.path) || "").trim();
+  const migration = ((req.body && req.body.migration) || "switch").toLowerCase();
+  if (!p) return res.status(400).json({ error: "path is required" });
+  if (!path.isAbsolute(p)) return res.status(400).json({ error: "path must be absolute" });
+  if (!["switch", "copy", "move"].includes(migration)) {
+    return res.status(400).json({ error: "invalid migration mode" });
+  }
+  const target = path.resolve(p);
+  if (target === path.resolve(ASSETS_DIR)) {
+    return res.status(400).json({ error: "That is already the current assets directory." });
+  }
+  // Refuse copy/move into a directory nested under the current one (would recurse).
+  const rel = path.relative(ASSETS_DIR, target);
+  const targetInsideSource = rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  if (targetInsideSource && migration !== "switch") {
+    return res.status(400).json({ error: "Target is inside the current assets directory; choose a separate location." });
+  }
+  try {
+    await fsp.mkdir(target, { recursive: true });
+    await fsp.access(target, fs.constants.W_OK);
+  } catch (err) {
+    return res.status(400).json({ error: `Directory is not writable: ${localError(err)}` });
+  }
+
+  const verb = migration === "copy" ? "copied" : migration === "move" ? "moved" : "switched";
+  const envOverride = ASSETS_ROOT_SOURCE === "env";
+  const doneNote = envOverride
+    ? `Data ${verb}, but the ASSETS_ROOT environment variable overrides the saved path. Unset it for the new directory to take effect.`
+    : `Data ${verb}. Restart the server for the new assets directory to take effect.`;
+
+  // "switch" is instant (no data movement) → stay synchronous.
+  if (migration === "switch") {
+    try {
+      writeConfig({ assetsRoot: target });
+      return res.json({ ok: true, assetsRoot: target, migration, needsRestart: true, envOverride, note: doneNote });
+    } catch (err) {
+      return res.status(500).json({ error: localError(err) });
+    }
+  }
+
+  // copy/move can be slow and may stall on locked files → run as a background job
+  // and expose a simple copy → verify → delete pipeline the UI can poll.
+  let entries;
+  try {
+    entries = (await fsp.readdir(ASSETS_DIR, { withFileTypes: true }))
+      .filter(e => e.name !== ".staging"); // never migrate transient staging
+  } catch (err) {
+    return res.status(500).json({ error: localError(err) });
+  }
+
+  const jobId = crypto.randomBytes(6).toString("hex");
+  const job = {
+    id: jobId, migration, target, phase: "copying",
+    total: entries.length, current: 0, currentName: "",
+    steps: { copy: "running", verify: migration === "move" ? "pending" : "skipped", delete: migration === "move" ? "pending" : "skipped" },
+    error: null, done: false, assetsRoot: target, envOverride, note: null,
+    startedAt: Date.now(),
+  };
+  migrationJobs.set(jobId, job);
+  runMigrationJob(job, entries, doneNote); // fire-and-forget; polled via status endpoint
+
+  res.json({ ok: true, async: true, jobId, migration, total: entries.length });
+});
+
+// Background copy/move runner. Updates the in-memory job so the UI pipeline can
+// show progress. Order is strictly copy → verify → delete; the config is only
+// written after data movement fully succeeds, so any failure leaves the source
+// and the active assets directory untouched.
+async function runMigrationJob(job, entries, doneNote) {
+  const sameName = (n) => n; // readability alias for entry name
+  try {
+    // Step 1: copy
+    for (const e of entries) {
+      job.currentName = sameName(e.name);
+      await fsp.cp(path.join(ASSETS_DIR, e.name), path.join(job.target, e.name), { recursive: true, force: true });
+      job.current += 1;
+    }
+    job.steps.copy = "done";
+
+    if (job.migration === "move") {
+      // Step 2: verify integrity before deleting anything
+      job.phase = "verifying"; job.steps.verify = "running"; job.current = 0; job.currentName = "";
+      for (const e of entries) {
+        job.currentName = e.name;
+        const bad = await firstMismatch(path.join(ASSETS_DIR, e.name), path.join(job.target, e.name));
+        if (bad) throw new Error(`integrity check failed for "${bad}" — source left intact, nothing deleted`);
+        job.current += 1;
+      }
+      job.steps.verify = "done";
+
+      // Step 3: delete sources (only now that the copy is verified complete)
+      job.phase = "deleting"; job.steps.delete = "running"; job.current = 0; job.currentName = "";
+      for (const e of entries) {
+        job.currentName = e.name;
+        await fsp.rm(path.join(ASSETS_DIR, e.name), { recursive: true, force: true });
+        job.current += 1;
+      }
+      job.steps.delete = "done";
+    }
+
+    writeConfig({ assetsRoot: job.target });
+    job.phase = "done"; job.done = true; job.note = doneNote; job.finishedAt = Date.now();
+  } catch (err) {
+    job.phase = "error"; job.done = true; job.error = localError(err); job.finishedAt = Date.now();
+    if (job.steps.copy === "running") job.steps.copy = "failed";
+    else if (job.steps.verify === "running") job.steps.verify = "failed";
+    else if (job.steps.delete === "running") job.steps.delete = "failed";
+  }
+}
+
+// GET /api/config/migrate-status/:id — poll a copy/move migration job.
+app.get("/api/config/migrate-status/:id", requireApiKey, (req, res) => {
+  const job = migrationJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Migration job not found (server may have restarted)." });
+  res.json({ ok: true, ...job });
+  // Reap finished jobs a little after they complete so status is still pollable.
+  if (job.done && job.finishedAt && Date.now() - job.finishedAt > 60000) migrationJobs.delete(job.id);
+});
+
+// GET /api/fs/browse?path=<abs> — server-side directory listing that powers an
+// IN-APP folder browser. Spawning a native OS dialog from this (headless, non-
+// interactive) server process is unreliable — it opens behind the browser or
+// not at all — so instead we list directories over HTTP and let the frontend
+// render a reliable, cross-platform, testable picker.
+//   - empty/absent path on Windows → returns the drive list (C:\, D:\, …)
+//   - otherwise → returns { path, parent, dirs:[{name, path}] }
+// Only directories are listed; unreadable entries are skipped.
+app.get("/api/fs/browse", requireApiKey, async (req, res) => {
+  try {
+    let target = (req.query.path || "").toString().trim();
+    const isWin = process.platform === "win32";
+
+    // Windows with no path → enumerate drive letters (async access probes so a
+    // slow/absent removable drive can't block the event loop).
+    if (!target && isWin) {
+      const letters = [];
+      for (let c = 67; c <= 90; c++) letters.push(String.fromCharCode(c) + ":\\"); // C..Z
+      const probes = await Promise.all(letters.map(root =>
+        fsp.access(root).then(() => root).catch(() => null)
+      ));
+      const drives = probes.filter(Boolean).map(root => ({ name: root, path: root }));
+      return res.json({ ok: true, path: "", parent: null, isDriveList: true, drives, dirs: [] });
+    }
+    if (!target) target = "/"; // POSIX root
+
+    target = path.resolve(target);
+    let stat;
+    try { stat = await fsp.stat(target); } catch (e) {
+      return res.status(400).json({ error: `Cannot open "${target}": ${localError(e)}` });
+    }
+    if (!stat.isDirectory()) {
+      return res.status(400).json({ error: `Not a directory: ${target}` });
+    }
+
+    // Fully async + parallel so the event loop stays responsive. On Windows the
+    // user profile is full of junctions (reparse points) whose per-entry stat can
+    // throw EPERM; doing those in parallel (and only when the dirent type is
+    // unknown/symlink) avoids the serial-exception stall that made this lag.
+    const entries = await fsp.readdir(target, { withFileTypes: true });
+    const resolved = await Promise.all(entries.map(async (entry) => {
+      const full = path.join(target, entry.name);
+      if (entry.isDirectory()) return { name: entry.name, path: full };
+      // A symlink/junction may point at a directory — resolve it, but never pay
+      // for an extra stat on plain files (the common case, always skipped).
+      if (entry.isSymbolicLink()) {
+        try { if ((await fsp.stat(full)).isDirectory()) return { name: entry.name, path: full }; } catch (_) {}
+      }
+      return null;
+    }));
+    const dirs = resolved.filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+    // parent: null when at a drive root (Windows) or filesystem root (POSIX),
+    // in which case the frontend offers "up to drives" on Windows.
+    const parentDir = path.dirname(target);
+    const atRoot = parentDir === target;
+    const parent = atRoot ? (isWin ? "" : null) : parentDir;
+
+    res.json({ ok: true, path: target, parent, isDriveList: false, drives: [], dirs });
+  } catch (err) {
+    res.status(500).json({ error: localError(err) });
+  }
+});
+
+// POST /api/fs/mkdir { path } — create a directory (recursively) so the in-app
+// folder browser can make a new destination on the fly. Returns the resolved
+// absolute path; the frontend then navigates into it.
+app.post("/api/fs/mkdir", requireApiKey, async (req, res) => {
+  try {
+    const raw = ((req.body && req.body.path) || "").toString().trim();
+    if (!raw) return res.status(400).json({ error: "path is required" });
+    if (!path.isAbsolute(raw)) return res.status(400).json({ error: "path must be absolute" });
+    const target = path.resolve(raw);
+    await fsp.mkdir(target, { recursive: true });
+    res.json({ ok: true, path: target });
+  } catch (err) {
+    res.status(500).json({ error: localError(err) });
+  }
+});
+
 // DELETE /api/assets/:id — delete an asset directory and its voice config
 app.delete("/api/assets/:id", requireApiKey, async (req, res) => {
   const id = req.params.id;
@@ -1345,7 +1806,40 @@ app.get("/api/assets/:id/segments", (req, res) => {
   if (!fs.existsSync(segPath)) return res.status(404).json({ error: `No segments.json for '${id}'` });
   try {
     const data = JSON.parse(fs.readFileSync(segPath, "utf-8"));
+    // Privacy / correctness: segments.json is a snapshot from scan time. The user
+    // may have since deleted slice .wav files (e.g. to keep only models). Re-check
+    // each slice's real existence on disk NOW and expose `exists` so the client
+    // never lists / offers a reference audio that cannot actually be played or used.
+    const slicesDir = path.join(ASSETS_DIR, id, "slicer_opt");
+    if (data && Array.isArray(data.segments)) {
+      let liveMatched = 0;
+      for (const seg of data.segments) {
+        const fname = seg.audio_filename || (seg.audio_path ? String(seg.audio_path).replace(/\\/g, "/").split("/").pop() : "");
+        const exists = !!(fname && fs.existsSync(path.join(slicesDir, fname)));
+        seg.exists = exists;
+        if (exists) liveMatched += 1;
+      }
+      data.live_matched = liveMatched;
+    }
     res.json({ ok: true, segments: data });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
+// GET /api/assets/:id/raw-list — live listing of raw/ audio files (for the
+// non-sliced reference-audio column). Reads the directory NOW (not meta.json)
+// so deleted files never appear.
+app.get("/api/assets/:id/raw-list", (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const rawDir = path.join(ASSETS_DIR, id, "raw");
+  if (!fs.existsSync(rawDir)) return res.json({ ok: true, raw: [] });
+  try {
+    const files = fs.readdirSync(rawDir)
+      .filter(f => /\.(wav|mp3|flac|m4a|ogg)$/i.test(f))
+      .map(f => ({ filename: f, url: `/assets/${id}/raw/${encodeURIComponent(f)}` }));
+    res.json({ ok: true, raw: files });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
   }
@@ -1728,10 +2222,37 @@ const TRAIN_DATA_ROOT = process.env.TRAIN_DATA_ROOT || "";
 
 app.post("/api/train/start", requireApiKey, (req, res) => {
   try {
-    const { voiceId: rawVoiceId, language, inputDir, steps: stepOptions, customParams } = req.body || {};
+    const { voiceId: rawVoiceId, language, inputDir, steps: stepOptions, customParams, overwrite } = req.body || {};
     if (!rawVoiceId) return res.status(400).json({ error: "Missing 'voiceId'" });
     if (!language) return res.status(400).json({ error: "Missing 'language'" });
     if (!inputDir) return res.status(400).json({ error: "Missing 'inputDir'" });
+
+    // Overwrite guard: publishing goes to ASSETS_ROOT/<sanitized id> and clobbers
+    // whatever is there. If that id already belongs to an existing voice and the
+    // caller did not explicitly confirm, refuse — surfacing the DISPLAY NAME so
+    // the user recognises what they'd be destroying (e.g. hidden "A_en" behind id
+    // "A"). This is the second safety layer behind id-syncing rename.
+    const publishId = rawVoiceId.trim().replace(/[^a-zA-Z0-9_\-]/g, "_");
+    if (!overwrite) {
+      let existingDisplay = null;
+      const existDir = path.join(ASSETS_DIR, publishId);
+      if (fs.existsSync(existDir)) {
+        try {
+          const m = JSON.parse(fs.readFileSync(path.join(existDir, "meta.json"), "utf-8"));
+          existingDisplay = m.display_name || publishId;
+        } catch (_) { existingDisplay = publishId; }
+      } else {
+        try { const vs = loadVoices(); if (vs[publishId]) existingDisplay = vs[publishId].display_name || publishId; } catch (_) {}
+      }
+      if (existingDisplay) {
+        return res.status(409).json({
+          error: `Voice id "${publishId}" already belongs to "${existingDisplay}". Training will overwrite it.`,
+          code: "VOICE_EXISTS",
+          existingId: publishId,
+          existingDisplay,
+        });
+      }
+    }
 
     // 白名单校验 customParams
     const safeCustom = sanitizeCustomParams(customParams);

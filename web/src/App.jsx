@@ -148,9 +148,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     }).catch(() => setValidation(null))
   }, [selectedVoice, voices])
 
-  // Use user-selected ref (from VoiceSidebar) or fallback to first matched segment
+  // Use user-selected ref (from VoiceSidebar) or fallback to first slice that
+  // still exists on disk (server's live `exists` check — never a deleted slice).
   const defaultRef = segments.length > 0
-    ? (segments.find(s => s.matched && (s.audio || s.audio_path || s.audio_filename)) || segments[0])
+    ? (segments.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) || null)
     : null
   const currentRefAudio = selectedRefAudio || (defaultRef ? (defaultRef.audio || defaultRef.audio_path || defaultRef.audio_filename) : '')
   const currentRefText = selectedRefText || (defaultRef ? (defaultRef.text || '') : '')
@@ -459,7 +460,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     <button
                       className="btn btn-sm"
                       onClick={() => {
-                        const allPaths = (segments || []).filter(s => s.matched).map(seg => {
+                        const allPaths = (segments || []).filter(s => s.exists !== false && s.matched).map(seg => {
                           const raw = seg.audio || seg.audio_path || seg.audio_filename
                           const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
                           return `assets/${selectedVoice}/slicer_opt/${fn}`
@@ -472,7 +473,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     </button>
                     {(segments || []).length > 0 && (
                       <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', marginTop: 4 }}>
-                        {(segments || []).filter(s => s.matched).map((seg, i) => {
+                        {(segments || []).filter(s => s.exists !== false && s.matched).map((seg, i) => {
                           const raw = seg.audio || seg.audio_path || seg.audio_filename
                           const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
                           const fullPath = `assets/${selectedVoice}/slicer_opt/${fn}`
@@ -1159,6 +1160,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const [minChunkLength, setMinChunkLength] = useState(16);
   const pollRef = useRef(null);
   const failCountRef = useRef(0);
+  // Overwrite confirmation when the target voice id already exists (409 guard).
+  const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { existingId, existingDisplay }
 
   // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
   const taskId = activeTaskId || localTaskId;
@@ -1283,6 +1286,41 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     };
   }, [taskId, status]);
 
+  const submitTraining = async (overwrite) => {
+    let cleanDir = form.inputDir.trim();
+    if ((cleanDir.startsWith('"') && cleanDir.endsWith('"')) ||
+        (cleanDir.startsWith("'") && cleanDir.endsWith("'"))) {
+      cleanDir = cleanDir.slice(1, -1);
+    }
+    const r = await api('/api/train/start', {
+      method: 'POST',
+      body: {
+        voiceId: form.voiceName.trim(),
+        language: form.language,
+        inputDir: cleanDir,
+        overwrite: !!overwrite,
+        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw },
+        customParams: {
+          training: buildTrainingParams(form),
+          steps: {
+            slice: { params: buildSliceParams(form) },
+            asr: { params: buildAsrParams(form) },
+            denoise: { params: { model: form.denoiseModel } },
+          },
+        },
+      },
+    });
+    // Existing-voice guard: server refuses without explicit overwrite. Surface a
+    // confirm showing the DISPLAY NAME the id currently belongs to.
+    if (!r.ok && r.status === 409 && r.data?.code === 'VOICE_EXISTS') {
+      setOverwriteConfirm({ existingId: r.data.existingId, existingDisplay: r.data.existingDisplay });
+      return;
+    }
+    if (!r.ok) throw new Error(r.data?.error || 'Failed to start training');
+    setLocalTaskId(r.data.taskId);
+    setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
+  };
+
   const handleStart = async () => {
     if (!form.inputDir.trim()) { setError('Please select an audio folder'); return }
     if (!form.voiceName.trim()) { setError('Please enter a voice name'); return }
@@ -1290,31 +1328,17 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setStatus(null);
     setLogs([]);
     try {
-      let cleanDir = form.inputDir.trim();
-      if ((cleanDir.startsWith('"') && cleanDir.endsWith('"')) ||
-          (cleanDir.startsWith("'") && cleanDir.endsWith("'"))) {
-        cleanDir = cleanDir.slice(1, -1);
-      }
-      const r = await api('/api/train/start', {
-        method: 'POST',
-        body: {
-          voiceId: form.voiceName.trim(),
-          language: form.language,
-          inputDir: cleanDir,
-          steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw },
-          customParams: {
-            training: buildTrainingParams(form),
-            steps: {
-              slice: { params: buildSliceParams(form) },
-              asr: { params: buildAsrParams(form) },
-              denoise: { params: { model: form.denoiseModel } },
-            },
-          },
-        },
-      });
-      if (!r.ok) throw new Error(r.data?.error || 'Failed to start training');
-      setLocalTaskId(r.data.taskId);
-      setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
+      await submitTraining(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const confirmOverwriteTrain = async () => {
+    setOverwriteConfirm(null);
+    setError(null);
+    try {
+      await submitTraining(true);
     } catch (err) {
       setError(err.message);
     }
@@ -1356,7 +1380,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const editable = !taskId; // inputs are editable only before a task starts
 
   const sanitizedVoice = form.voiceName ? form.voiceName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : '';
-  const voiceExists = !!sanitizedVoice && voices.some(v => v.id === sanitizedVoice);
+  const existingVoice = sanitizedVoice ? voices.find(v => v.id === sanitizedVoice) : null;
+  const voiceExists = !!existingVoice;
   const saveEvery = form.s1SaveEvery ?? 4;
   const enabledSteps = [
     form.denoise && 'Vocal extraction',
@@ -1519,7 +1544,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="pf-row">
               <span className="pf-key">Output</span>
               <span className="pf-val pf-path">{sanitizedVoice ? `assets/${sanitizedVoice}/` : 'assets/<voice>/'}</span>
-              {voiceExists && <span className="pf-warn">⚠ overwrites existing &ldquo;{sanitizedVoice}&rdquo;</span>}
+              {voiceExists && <span className="pf-warn">⚠ will overwrite existing &ldquo;{existingVoice.display_name || sanitizedVoice}&rdquo; (id: {sanitizedVoice})</span>}
             </div>
             <div className="pf-row">
               <span className="pf-key">Training</span>
@@ -1585,41 +1610,84 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
       {/* Logs only appear once a task is running/finished — keeps the idle page clean */}
       {taskId && <LiveLogs logs={logs} />}
+
+      {/* Overwrite confirmation: target voice id already exists on disk. */}
+      {overwriteConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setOverwriteConfirm(null)}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 360, maxWidth: 460,
+            boxShadow: 'var(--shadow-soft)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Overwrite Existing Voice?</span>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+              The id <strong>{overwriteConfirm.existingId}</strong> already belongs to{' '}
+              <strong>&ldquo;{overwriteConfirm.existingDisplay}&rdquo;</strong>.
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+              Training will publish into <code>assets/{overwriteConfirm.existingId}/</code> and
+              permanently replace the models and references of that voice. This cannot be undone.
+              If you meant to keep both, cancel and give this one a different name.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-sm" onClick={() => setOverwriteConfirm(null)}>Cancel</button>
+              <button className="btn btn-sm btn-danger" onClick={confirmOverwriteTrain}>Overwrite &amp; Train</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef }) {
   const [segments, setSegments] = useState(null)
+  const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
+  const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
 
   useEffect(() => {
     if (!voice.id) return
     setSegLoading(true)
-    api(`/api/assets/${voice.id}/segments`).then(r => {
-      if (r.ok && r.data.segments) setSegments(r.data.segments.segments || [])
-    }).catch(() => setSegments(null))
-      .finally(() => setSegLoading(false))
+    Promise.all([
+      api(`/api/assets/${voice.id}/segments`).then(r => {
+        setSegments(r.ok && r.data.segments ? (r.data.segments.segments || []) : [])
+      }).catch(() => setSegments([])),
+      api(`/api/assets/${voice.id}/raw-list`).then(r => {
+        setRawRefs(r.ok && r.data.raw ? r.data.raw : [])
+      }).catch(() => setRawRefs([])),
+    ]).finally(() => setSegLoading(false))
   }, [voice.id])
 
-  const handlePickRef = (seg) => {
+  const pickSlice = (seg) => {
     const audioPath = seg.audio || seg.audio_path || seg.audio_filename
     if (!audioPath) return
     const filename = audioPath.replace(/\\/g, '/').split('/').pop()
-    const fullPath = `assets/${voice.id}/slicer_opt/${filename}`
-    onSelectRef(fullPath, seg.text || '')
+    onSelectRef(`assets/${voice.id}/slicer_opt/${filename}`, seg.text || '')
+  }
+  const pickRaw = (rf) => {
+    // Raw audio has no aligned reference text yet (planned) — select audio only.
+    onSelectRef(`assets/${voice.id}/raw/${rf.filename}`, '')
   }
 
-  // Build list of available reference audios from segments
+  // Privacy: only offer slices whose .wav still exists on disk right now
+  // (server sets `exists` via a live re-check; deleted slices are excluded).
   const availableRefs = segments && Array.isArray(segments)
-    ? segments.filter(s => s.matched && (s.audio || s.audio_path || s.audio_filename))
+    ? segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     : []
+  const availableRaw = Array.isArray(rawRefs) ? rawRefs : []
 
-  // Active ref: user selection (from App) > auto-first-segment
+  // Active ref: user selection (from App) > auto-first-slice
   const firstRef = availableRefs[0]
   const activeRef = selectedRefAudio || (firstRef ? (firstRef.audio || firstRef.audio_path || firstRef.audio_filename) : '')
   const activeRefText = selectedRefText || (firstRef?.text || '')
-  void selectedRefText; // keep prop reference for esbuild
+  const activeFilename = activeRef ? activeRef.replace(/\\/g, '/').split('/').pop() : ''
 
   return (
     <div className="section">
@@ -1630,55 +1698,67 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
           <div style={{ fontSize: 13 }}>{voice.language || '?'}</div>
         </div>
 
-        {/* Reference Audio selector */}
+        {/* Reference Audio selector — Slices (default) / Raw as tabs to avoid crowding */}
         <div className="field">
-          <label className="field-label">Reference Audio</label>
+          <div className="ref-hdr">
+            <label className="field-label" style={{ margin: 0 }}>Reference Audio</label>
+            <div className="ref-tabs">
+              <button
+                className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
+                onClick={() => setRefTab('slices')}
+              >Slices <span className="ref-tab-count">{availableRefs.length}</span></button>
+              <button
+                className={`ref-tab ${refTab === 'raw' ? 'active' : ''}`}
+                onClick={() => setRefTab('raw')}
+              >Raw <span className="ref-tab-count">{availableRaw.length}</span></button>
+            </div>
+          </div>
           {activeRef && (
-            <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: activeRefText ? 2 : 6 }}>
               {basename(activeRef)}
             </div>
           )}
           {activeRefText && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', padding: '4px 8px', borderRadius: 4, marginBottom: 6, fontStyle: 'italic' }}>
-              "{activeRefText.length > 60 ? activeRefText.slice(0, 60) + '...' : activeRefText}"
+            <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', padding: '4px 8px', borderRadius: 4, marginBottom: 6, fontStyle: 'italic', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              "{activeRefText}"
             </div>
           )}
-          {segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading segments...</div>}
-          {!segLoading && availableRefs.length === 0 && (
+          {segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading reference audio…</div>}
+          {!segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>No reference audio available</div>
           )}
-          {!segLoading && availableRefs.length > 0 && (
-            <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+          {!segLoading && refTab === 'slices' && (
+            <div className="ref-list">
+              {availableRefs.length === 0 && <div className="ref-col-empty">No slices available</div>}
               {availableRefs.map((seg, i) => {
                 const rawPath = seg.audio || seg.audio_path || seg.audio_filename
                 const segFilename = rawPath ? rawPath.replace(/\\/g, '/').split('/').pop() : ''
-                const curFilename = activeRef ? activeRef.replace(/\\/g, '/').split('/').pop() : ''
-                const isActive = curFilename === segFilename && !!activeRef
-                const audioSrc = `/assets/${voice.id}/slicer_opt/${segFilename}`
+                const isActive = activeFilename === segFilename && !!activeRef
                 return (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '6px 8px', fontSize: 12, cursor: 'pointer',
-                      background: isActive ? 'var(--accent-soft)' : 'transparent',
-                      borderBottom: '1px solid var(--border)',
-                    }}
-                    title={seg.text || ''}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {seg.scene} #{seg.index}
-                      </span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', marginLeft: 4 }}>
-                        {(seg.duration || 0).toFixed(1)}s
-                      </span>
-                      <span style={{ marginLeft: 4, fontSize: 11, color: isActive ? 'var(--accent)' : 'var(--muted)', whiteSpace: 'nowrap' }}
-                        onClick={(e) => { e.stopPropagation(); handlePickRef(seg) }}
-                      >
-                        {isActive ? '✓' : '→'}
-                      </span>
+                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={seg.text || ''} onClick={() => pickSlice(seg)}>
+                    <div className="ref-item-row">
+                      <span className="ref-item-name">{seg.scene} #{seg.index}</span>
+                      <span className="ref-item-dur">{(seg.duration || 0).toFixed(1)}s</span>
+                      <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
                     </div>
-                    <AudioPlayer src={audioSrc} />
+                    <AudioPlayer src={`/assets/${voice.id}/slicer_opt/${segFilename}`} />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {!segLoading && refTab === 'raw' && (
+            <div className="ref-list">
+              {availableRaw.length === 0 && <div className="ref-col-empty">No raw audio available</div>}
+              {availableRaw.map((rf, i) => {
+                const isActive = activeFilename === rf.filename && !!activeRef
+                return (
+                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={rf.filename} onClick={() => pickRaw(rf)}>
+                    <div className="ref-item-row">
+                      <span className="ref-item-name">{rf.filename}</span>
+                      <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
+                    </div>
+                    <AudioPlayer src={rf.url} />
                   </div>
                 )
               })}
@@ -1686,12 +1766,6 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
           )}
         </div>
 
-        {activeRefText && (
-          <div className="field">
-            <label className="field-label">Reference Text</label>
-            <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--bg)', padding: 8, borderRadius: 4, maxHeight: 80, overflow: 'auto' }}>{activeRefText}</div>
-          </div>
-        )}
         {validation && (
           <div className="field" style={{ marginTop: 8 }}>
             <label className="field-label">Model Validity</label>
@@ -1813,7 +1887,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
     const modelForRow = defaultModel ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel } : { voiceId: '', gptCheckpoint: '', sovitsModel: '' }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
     // Use first matched segment from selected voice as default ref (unless an empty row was requested)
-    const firstSeg = segmentsCache[selectedVoice]?.find(s => s.matched && (s.audio || s.audio_path || s.audio_filename))
+    const firstSeg = segmentsCache[selectedVoice]?.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     const defaultRef = (!opts.empty && firstSeg) ? (() => {
       const raw = firstSeg.audio || firstSeg.audio_path || firstSeg.audio_filename
       const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
@@ -2017,7 +2091,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   useEffect(() => {
     if (segments.length === 0) return
     if (row.refAudio) return  // already set
-    const first = segments.find(s => s.matched && (s.audio || s.audio_path || s.audio_filename))
+    const first = segments.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     if (first) {
       const raw = first.audio || first.audio_path || first.audio_filename
       if (!raw) return
@@ -2104,13 +2178,12 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             onChange={e => onUpdate(row.id, 'refAudio', e.target.value)}
           >
             <option value="">— none —</option>
-            {segments.map((seg, i) => {
+            {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
               const raw = seg.audio || seg.audio_path || seg.audio_filename
-              const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
               const path = raw || ''
               return (
                 <option key={i} value={path}>
-                  {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s{seg.matched ? '' : ', no audio'})
+                  {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s)
                 </option>
               )
             })}
@@ -2126,7 +2199,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         </label>
         {segments.length > 0 && (
           <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', marginTop: 4 }}>
-            {segments.filter(s => s.matched && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
+            {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
               const raw = seg.audio || seg.audio_path || seg.audio_filename
               const path = raw || ''
               const isSelected = row.auxRefPaths.includes(path)
@@ -2308,6 +2381,23 @@ function IconTrash({ size = 16, color = 'currentColor' }) {
       <path d="M10 11v6" />
       <path d="M14 11v6" />
       <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  )
+}
+
+function IconPencil({ size = 16, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  )
+}
+
+function IconFolder({ size = 16, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
     </svg>
   )
 }
@@ -2582,7 +2672,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
 // ============================
 //  ASSETS TAB
 // ============================
-function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPrefill, rebuildTask, setRebuildTask }) {
+function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, rebuildTask, setRebuildTask }) {
   const [assets, setAssets] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState(null)
@@ -2599,6 +2689,27 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
   const [rebuildJob, setRebuildJob] = useState(null) // { id, phase, currentStep, steps, error, failedStep, stages }
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
+  // Inline rename — renames display name AND id/folder together (kept in sync to
+  // prevent the display≠id overwrite trap). Guarded server-side.
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameBusy, setRenameBusy] = useState(false)
+  // Rename now changes id + folder too; sync selectedVoice if it was renamed.
+  // Assets-directory config (decoupling): current path + picker/migration state.
+  const [assetsConfig, setAssetsConfig] = useState(null) // { assetsRoot, assetsRootSource, envOverride, platform }
+  const [configBusy, setConfigBusy] = useState(false)
+  const [dirInput, setDirInput] = useState('')          // editable path (manual entry)
+  const [migrateTarget, setMigrateTarget] = useState(null) // path pending copy/move/switch choice
+  // In-app folder browser (reliable cross-platform replacement for a native dialog,
+  // which cannot be launched reliably from the headless server process).
+  const [browseOpen, setBrowseOpen] = useState(false)
+  const [browseData, setBrowseData] = useState(null)    // { path, parent, isDriveList, drives, dirs }
+  const [browseBusy, setBrowseBusy] = useState(false)
+  const [browseError, setBrowseError] = useState(null)
+  // Background copy/move progress (copy → verify → delete pipeline).
+  const [migrateJob, setMigrateJob] = useState(null)
+  const migratePollRef = useRef(null)
+  useEffect(() => () => { if (migratePollRef.current) clearInterval(migratePollRef.current) }, [])
 
   const loadAssets = useCallback(() => {
     api('/api/assets').then(r => {
@@ -2607,6 +2718,149 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
   }, [])
 
   useEffect(() => { loadAssets() }, [loadAssets])
+  useEffect(() => {
+    api('/api/config').then(r => { if (r.ok) { setAssetsConfig(r.data); setDirInput(r.data.assetsRoot || '') } }).catch(() => {})
+  }, [])
+
+  const startRename = (id, current) => { setRenamingId(id); setRenameValue(current || id) }
+  const cancelRename = () => { setRenamingId(null); setRenameValue('') }
+  const commitRename = async (id) => {
+    const name = renameValue.trim()
+    if (!name) { cancelRename(); return }
+    setRenameBusy(true); setScanMsg(null)
+    try {
+      const r = await api(`/api/assets/${id}/rename`, { method: 'PATCH', body: { display_name: name } })
+      if (r.ok) {
+        // id/folder may have changed — reload the full list rather than patching.
+        loadAssets()
+        if (loadVoices) loadVoices()
+        if (r.data.idChanged && setSelectedVoice && selectedVoice === id) setSelectedVoice(r.data.id)
+        setScanMsg({ type: 'success', text: r.data.idChanged ? `Renamed to "${name}" (id: ${r.data.id}).` : `Renamed to "${name}".` })
+        setTimeout(() => setScanMsg(null), 4000)
+        cancelRename()
+      } else {
+        setScanMsg({ type: 'error', text: r.data?.error || 'Rename failed' })
+      }
+    } catch (e) {
+      setScanMsg({ type: 'error', text: e.message })
+    } finally { setRenameBusy(false) }
+  }
+
+  // A candidate directory was chosen (via picker or manual entry). Decide whether
+  // we need to ask about migrating existing data, or can switch directly.
+  const requestChangeDir = (p) => {
+    const next = (p || '').trim()
+    if (!next) return
+    if (assetsConfig && next === assetsConfig.assetsRoot) {
+      setScanMsg({ type: 'info', text: 'That is already the current assets directory.' }); return
+    }
+    if (Object.keys(assets).length > 0) {
+      setMigrateTarget(next) // non-empty → ask copy/move/switch/cancel
+    } else {
+      applyAssetsDir(next, 'switch')
+    }
+  }
+
+  // Load a directory listing into the in-app browser. path==='' asks the server
+  // for the drive list (Windows) or filesystem root (POSIX).
+  const browseTo = async (p) => {
+    setBrowseBusy(true); setBrowseError(null)
+    try {
+      const r = await api(`/api/fs/browse?path=${encodeURIComponent(p || '')}`)
+      if (r.ok) setBrowseData(r.data)
+      else setBrowseError(r.data?.error || 'Could not open that folder')
+    } catch (e) {
+      setBrowseError(e.message)
+    } finally { setBrowseBusy(false) }
+  }
+
+  const pickAssetsDir = () => {
+    setBrowseOpen(true)
+    setBrowseError(null)
+    browseTo(dirInput || assetsConfig?.assetsRoot || '')
+  }
+
+  const chooseBrowsedFolder = () => {
+    const chosen = browseData?.path
+    if (!chosen) return
+    setBrowseOpen(false)
+    setDirInput(chosen)
+    requestChangeDir(chosen)
+  }
+
+  const mkdirThenOpen = async (targetPath) => {
+    setBrowseBusy(true); setBrowseError(null)
+    try {
+      const r = await api('/api/fs/mkdir', { method: 'POST', body: { path: targetPath } })
+      if (r.ok) { await browseTo(r.data.path) }
+      else { setBrowseError(r.data?.error || 'Could not create folder'); setBrowseBusy(false) }
+    } catch (e) {
+      setBrowseError(e.message); setBrowseBusy(false)
+    }
+  }
+
+  // Prompt for a name and create a sub-folder under the currently listed directory.
+  const createSubfolder = () => {
+    const cur = browseData?.path || ''
+    if (!cur) { setBrowseError('Open a drive or folder first.'); return }
+    const name = (typeof window !== 'undefined' ? window.prompt('New folder name:', 'assets') : '')
+    const clean = (name || '').trim()
+    if (!clean) return
+    const sep = /\\/.test(cur) ? '\\' : '/'
+    mkdirThenOpen(cur.replace(/[\\/]+$/, '') + sep + clean)
+  }
+
+  const applyAssetsDir = async (p, migration) => {
+    setConfigBusy(true); setScanMsg(null)
+    try {
+      const r = await api('/api/config/assets-root', { method: 'POST', body: { path: p, migration } })
+      if (!r.ok) {
+        setScanMsg({ type: 'error', text: r.data?.error || 'Failed to save assets directory' })
+        setConfigBusy(false); setMigrateTarget(null); return
+      }
+      if (r.data.async && r.data.jobId) {
+        // copy/move runs in the background → show the progress pipeline and poll.
+        setMigrateTarget(null)
+        setMigrateJob({ jobId: r.data.jobId, migration: r.data.migration, total: r.data.total || 0,
+          phase: 'copying', current: 0, currentName: '', steps: { copy: 'running', verify: 'pending', delete: 'pending' }, done: false, error: null })
+        pollMigration(r.data.jobId)
+      } else {
+        // instant switch
+        setAssetsConfig(cfg => ({ ...(cfg || {}), assetsRoot: r.data.assetsRoot, pendingRestart: true }))
+        setDirInput(r.data.assetsRoot)
+        setScanMsg({ type: r.data.envOverride ? 'warning' : 'success', text: r.data.note || 'Saved. Restart to apply.' })
+        setMigrateTarget(null)
+      }
+    } catch (e) {
+      setScanMsg({ type: 'error', text: e.message }); setMigrateTarget(null)
+    } finally { setConfigBusy(false) }
+  }
+
+  const pollMigration = (jobId) => {
+    if (migratePollRef.current) clearInterval(migratePollRef.current)
+    migratePollRef.current = setInterval(async () => {
+      try {
+        const r = await api(`/api/config/migrate-status/${jobId}`)
+        if (!r.ok) {
+          clearInterval(migratePollRef.current); migratePollRef.current = null
+          setMigrateJob(j => j ? { ...j, done: true, error: r.data?.error || 'Migration job is no longer available (server may have restarted).', phase: 'error' } : j)
+          return
+        }
+        setMigrateJob(r.data)
+        if (r.data.done) {
+          clearInterval(migratePollRef.current); migratePollRef.current = null
+          if (!r.data.error) {
+            setAssetsConfig(cfg => ({ ...(cfg || {}), assetsRoot: r.data.assetsRoot, pendingRestart: true }))
+            setDirInput(r.data.assetsRoot)
+            setScanMsg({ type: r.data.envOverride ? 'warning' : 'success', text: r.data.note || 'Saved. Restart to apply.' })
+          }
+        }
+      } catch (e) {
+        clearInterval(migratePollRef.current); migratePollRef.current = null
+        setMigrateJob(j => j ? { ...j, done: true, error: e.message, phase: 'error' } : j)
+      }
+    }, 700)
+  }
 
   const handleScan = async () => {
     setScanning(true); setScanMsg(null)
@@ -2884,6 +3138,33 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
       <div className="section-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Voice Assets</h2>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {assetsConfig && (
+            <div className="assets-dir" title={`Assets directory (${assetsConfig.assetsRootSource})${assetsConfig.envOverride ? ' — set by ASSETS_ROOT env var' : ''}`}>
+              <input
+                className="assets-dir-input"
+                value={dirInput}
+                placeholder="Assets directory path…"
+                disabled={configBusy || assetsConfig.envOverride}
+                onChange={e => setDirInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') requestChangeDir(dirInput) }}
+                title={assetsConfig.envOverride ? 'Locked by ASSETS_ROOT env var' : 'Type or paste an absolute path, then Enter / Change'}
+              />
+              <button
+                className="btn-icon assets-dir-pick"
+                title="Browse for an assets directory…"
+                disabled={configBusy || assetsConfig.envOverride}
+                onClick={pickAssetsDir}
+              >
+                <IconFolder size={15} color="var(--muted)" />
+              </button>
+              <button
+                className="btn btn-sm"
+                disabled={configBusy || assetsConfig.envOverride || !dirInput.trim() || dirInput.trim() === assetsConfig.assetsRoot}
+                onClick={() => requestChangeDir(dirInput)}
+              >{configBusy ? '…' : 'Change'}</button>
+              {assetsConfig.pendingRestart && <span className="assets-dir-flag" title="Restart the server to apply">restart</span>}
+            </div>
+          )}
           <button className="btn btn-sm" onClick={loadAssets} disabled={scanning}>Refresh</button>
           <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>
             {scanning ? 'Scanning...' : 'Scan All'}
@@ -2892,6 +3173,23 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
       </div>
       <div className="section-body">
         {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{scanMsg.text}</div>}
+        <details className="naming-note">
+          <summary>Model naming &amp; metadata rebuild — read before renaming</summary>
+          <div className="naming-note-body">
+            <p>Trained models are published with the language baked into the filename:</p>
+            <ul>
+              <li><code>&lt;id&gt;_&lt;lang&gt;-e&lt;epoch&gt;.ckpt</code> (GPT)</li>
+              <li><code>&lt;id&gt;_&lt;lang&gt;_e&lt;epoch&gt;_s&lt;step&gt;.pth</code> (SoVITS)</li>
+            </ul>
+            <p>
+              If a voice's <code>meta.json</code> is ever deleted or a field is missing, the language is
+              rebuilt from these filenames. Existing metadata is always first-truth — a present
+              language is never overwritten. <strong>Rename carefully:</strong> hand-editing model
+              filenames can break language recovery, and reusing an id can collide with another
+              voice. Renaming here safely updates the id, folder and metadata together.
+            </p>
+          </div>
+        </details>
         <RebuildProgress job={rebuildJob} onDismiss={dismissRebuild} />
         {assetEntries.length > 0 && (
           <div className="summary-bar">
@@ -2969,10 +3267,36 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {asset.display_name || id}
-                    <span className={`badge ${h.cls}`} title={h.note || ''}>
-                      <span className="badge-sym">{h.sym}</span>{h.label}
-                    </span>
+                    {renamingId === id ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          className="control"
+                          style={{ fontSize: 13, padding: '3px 8px', width: 200 }}
+                          value={renameValue}
+                          autoFocus
+                          disabled={renameBusy}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitRename(id); if (e.key === 'Escape') cancelRename() }}
+                        />
+                        <button className="btn btn-sm btn-primary" disabled={renameBusy} onClick={() => commitRename(id)}>{renameBusy ? '…' : 'Save'}</button>
+                        <button className="btn btn-sm btn-ghost" disabled={renameBusy} onClick={cancelRename}>Cancel</button>
+                      </span>
+                    ) : (
+                      <>
+                        {asset.display_name || id}
+                        <button
+                          className="btn-icon"
+                          title="Rename (updates display name and id/folder)"
+                          onClick={() => startRename(id, asset.display_name || id)}
+                          style={{ display: 'inline-flex', alignItems: 'center' }}
+                        >
+                          <IconPencil size={13} color="var(--muted)" />
+                        </button>
+                        <span className={`badge ${h.cls}`} title={h.note || ''}>
+                          <span className="badge-sym">{h.sym}</span>{h.label}
+                        </span>
+                      </>
+                    )}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                     Mode: {asset.mode || 'N/A'} &middot; ID: {id}
@@ -3125,6 +3449,188 @@ function AssetsTab({ voices, setSelectedVoice, setPage, loadVoices, setTrainPref
           onClose={() => setRestoreTarget(null)}
           onStarted={handleRebuildStarted}
         />
+      )}
+
+      {/* Assets-directory migration: current dir is non-empty, ask what to do. */}
+      {migrateTarget && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => { if (!configBusy) setMigrateTarget(null) }}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 380, maxWidth: 520,
+            boxShadow: 'var(--shadow-soft)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <IconFolder size={20} color="var(--accent)" />
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Change Assets Directory</span>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+              New directory:
+            </p>
+            <div style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: 14 }}>
+              {migrateTarget}
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              The current assets directory contains <strong>{Object.keys(assets).length}</strong> voice{Object.keys(assets).length === 1 ? '' : 's'}.
+              What should happen to that data? Changes take effect after a server restart.
+            </p>
+            <div className="migrate-advisory">
+              <strong>Recommended:</strong> choose <em>Switch only</em>, then copy the data yourself
+              in your file manager and restart. The built-in copy can stall or fail on files that are
+              in use (a loaded model, an open Explorer/audio window), and such locks are hard to
+              recover from. Use Copy/Move only when you're sure nothing here is open.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button className="btn btn-primary" disabled={configBusy} onClick={() => applyAssetsDir(migrateTarget, 'switch')}
+                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
+                ➡️ Switch only (recommended) — point at the new directory, migrate the data yourself
+              </button>
+              <button className="btn" disabled={configBusy} onClick={() => applyAssetsDir(migrateTarget, 'copy')}
+                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
+                📋 Copy — duplicate existing voices into the new directory (keep originals)
+              </button>
+              <button className="btn" disabled={configBusy} onClick={() => applyAssetsDir(migrateTarget, 'move')}
+                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
+                ✂️ Move — copy, verify, then delete originals (skips locked files check → may fail)
+              </button>
+              <button className="btn btn-ghost" disabled={configBusy} onClick={() => setMigrateTarget(null)}
+                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
+                ✕ Cancel
+              </button>
+            </div>
+            {configBusy && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>Starting…</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Background copy/move progress — simple copy → verify → delete pipeline. */}
+      {migrateJob && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => { if (migrateJob.done) setMigrateJob(null) }}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 420, maxWidth: 560,
+            boxShadow: 'var(--shadow-soft)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <IconFolder size={20} color="var(--accent)" />
+              <span style={{ fontWeight: 600, fontSize: 14 }}>
+                {migrateJob.migration === 'move' ? 'Moving' : 'Copying'} assets
+              </span>
+            </div>
+            <div className="migrate-steps">
+              {['copy', ...(migrateJob.migration === 'move' ? ['verify', 'delete'] : [])].map(k => {
+                const label = k === 'copy' ? 'Copy' : k === 'verify' ? 'Verify integrity' : 'Delete originals'
+                const st = migrateJob.steps?.[k] || 'pending'
+                const mark = st === 'done' ? '✓' : st === 'running' ? '⋯' : st === 'failed' ? '✕' : '○'
+                return (
+                  <div key={k} className={`migrate-step migrate-step-${st}`}>
+                    <span className="migrate-step-mark">{mark}</span>
+                    <span className="migrate-step-label">{label}</span>
+                    {st === 'running' && migrateJob.total > 0 && (
+                      <span className="migrate-step-count">{migrateJob.current}/{migrateJob.total}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {!migrateJob.done && migrateJob.currentName && (
+              <div className="migrate-current" title={migrateJob.currentName}>
+                {migrateJob.phase}: {migrateJob.currentName}
+              </div>
+            )}
+            {migrateJob.done && migrateJob.error && (
+              <div className="msg msg-error" style={{ marginTop: 12 }}>
+                {migrateJob.error}
+                <div style={{ marginTop: 6, fontSize: 12 }}>
+                  Nothing was deleted from your current directory. Close anything using these files
+                  (loaded models, open Explorer/audio windows) and retry, or use Switch only and copy manually.
+                </div>
+              </div>
+            )}
+            {migrateJob.done && !migrateJob.error && (
+              <div className="msg msg-success" style={{ marginTop: 12 }}>{migrateJob.note || 'Done. Restart to apply.'}</div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-sm" disabled={!migrateJob.done} onClick={() => setMigrateJob(null)}>
+                {migrateJob.done ? 'Close' : 'Working…'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-app folder browser — pick an assets directory reliably on any OS. */}
+      {browseOpen && (
+        <div className="fs-browser-overlay" onClick={() => setBrowseOpen(false)}>
+          <div className="fs-browser" onClick={e => e.stopPropagation()}>
+            <div className="fs-browser-hdr">
+              <IconFolder size={18} color="var(--accent)" />
+              <span className="fs-browser-title">Choose assets directory</span>
+              <button className="btn-icon" title="Close" onClick={() => setBrowseOpen(false)}>✕</button>
+            </div>
+            <div className="fs-browser-path">
+              <button className="btn btn-sm"
+                title={browseData?.parent === '' ? 'Back to drive list' : 'Up one level'}
+                disabled={browseBusy || browseData?.isDriveList || browseData?.parent == null}
+                onClick={() => browseTo(browseData?.parent ?? '')}>
+                {browseData?.parent === '' ? '↑ Drives' : '↑ Up'}
+              </button>
+              <input className="assets-dir-input" style={{ flex: 1 }}
+                value={browseData?.isDriveList ? '' : (browseData?.path || '')}
+                placeholder={browseData?.isDriveList ? 'Select a drive…' : 'Path…'}
+                onChange={e => setBrowseData(d => ({ ...(d || {}), path: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') browseTo(e.target.value) }}
+                title="Type a path and press Enter, or double-click a folder below" />
+              <button className="btn btn-sm" disabled={browseBusy}
+                onClick={() => browseTo(browseData?.path || '')}>Go</button>
+              <button className="btn btn-sm" title="Create a new sub-folder here"
+                disabled={browseBusy || browseData?.isDriveList || !browseData?.path}
+                onClick={createSubfolder}>+ New</button>
+            </div>
+            <div className="fs-browser-list">
+              {browseBusy && <div className="fs-browser-empty">Loading…</div>}
+              {!browseBusy && browseError && (
+                <div className="fs-browser-error">
+                  <div>{browseError}</div>
+                  {browseData?.path && !browseData?.isDriveList && (
+                    <button className="btn btn-sm" style={{ marginTop: 8 }}
+                      onClick={() => mkdirThenOpen(browseData.path)}>
+                      Create “{browseData.path}”
+                    </button>
+                  )}
+                </div>
+              )}
+              {!browseBusy && !browseError && browseData?.isDriveList && browseData.drives.map(d => (
+                <div key={d.path} className="fs-browser-item" onClick={() => browseTo(d.path)}>
+                  <IconFolder size={14} color="var(--muted)" /> <span>{d.name}</span>
+                </div>
+              ))}
+              {!browseBusy && !browseError && !browseData?.isDriveList && (browseData?.dirs?.length
+                ? browseData.dirs.map(d => (
+                    <div key={d.path} className="fs-browser-item" onClick={() => browseTo(d.path)}>
+                      <IconFolder size={14} color="var(--muted)" /> <span>{d.name}</span>
+                    </div>
+                  ))
+                : <div className="fs-browser-empty">No sub-folders here.</div>)}
+            </div>
+            <div className="fs-browser-ftr">
+              <span className="fs-browser-current" title={browseData?.path || ''}>
+                {browseData?.isDriveList ? 'Pick a drive to open' : (browseData?.path || '')}
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setBrowseOpen(false)}>Cancel</button>
+                <button className="btn btn-primary btn-sm"
+                  disabled={browseBusy || browseData?.isDriveList || !browseData?.path}
+                  onClick={chooseBrowsedFolder}>Use this folder</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -3314,7 +3820,7 @@ export default function App() {
             <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} onBack={() => setPage('generate')} />
           )}
           {page === 'assets' && (
-            <AssetsTab voices={voices} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
+            <AssetsTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
           {page === 'train' && (

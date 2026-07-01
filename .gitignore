@@ -32,3 +32,6 @@ lib/training/gsv_code/text/ja_userdic/
 .DS_Store
 Thumbs.db
 nul
+app-config.json
+voices.json
+lib/voices.json
