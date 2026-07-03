@@ -131,6 +131,41 @@ def run(rank, n_gpus, hps):
     #                              batch_size=1, pin_memory=True,
     #                              drop_last=False, collate_fn=collate_fn)
 
+    # task3.2: 训练前按底模内嵌 config 对齐模型维度。
+    # v2ProPlus 底模比 v2Pro 更大，若沏用 s2.json 的 v2 尺寸构建模型，
+    # 不匹配的层会被 shape-safe 加载静默跳过=随机初始化 → 推理电流声。
+    # 此处从底模 config 读真实维度（与推理 init_vits_weights 一致），保证
+    # 训练与推理构建同一尺寸。version / semantic_frame_rate 保留为训练目标值。
+    try:
+        _base_g = getattr(hps.train, "pretrained_s2G", None)
+        if _base_g and os.path.exists(_base_g):
+            _bck = torch.load(_base_g, map_location="cpu", weights_only=False)
+            _bcfg = _bck.get("config") if isinstance(_bck, dict) else None
+            _bmodel = None
+            if isinstance(_bcfg, dict):
+                _bmodel = _bcfg.get("model")
+            elif _bcfg is not None:
+                _bmodel = getattr(_bcfg, "model", None)
+            if _bmodel is not None:
+                _items = _bmodel.items() if hasattr(_bmodel, "items") else vars(_bmodel).items()
+                _keep = {"version", "semantic_frame_rate"}
+                _changed = []
+                for _k, _v in _items:
+                    if _k in _keep:
+                        continue
+                    _cur = getattr(hps.model, _k, None)
+                    if _cur != _v:
+                        setattr(hps.model, _k, _v)
+                        _changed.append("%s:%s->%s" % (_k, _cur, _v))
+                if _changed:
+                    print("[dims] aligned model dims to base model (%d item(s)): %s" % (len(_changed), ", ".join(_changed)))
+                else:
+                    print("[dims] model dims already match base model; no alignment needed")
+            else:
+                print("[dims] base model has no embedded model config; skipping dim alignment (using s2.json)")
+    except Exception as _e:
+        print("[dims] dim alignment failed; skipping (using s2.json): %s" % _e)
+
     net_g = (
         SynthesizerTrn(
             hps.data.filter_length // 2 + 1,
@@ -224,6 +259,45 @@ def run(rank, n_gpus, hps):
         # traceback.print_exc()
         epoch_str = 1
         global_step = 0
+        # fail-loud：配了底模路径却找不到文件，直接报错，避免静默从零训练出电流声
+        for _name, _path in (
+            ("pretrained_s2G", hps.train.pretrained_s2G),
+            ("pretrained_s2D", hps.train.pretrained_s2D),
+        ):
+            if _path and not os.path.exists(_path):
+                raise FileNotFoundError(
+                    "配置了 %s 但底模文件不存在，训练会退化为电流声，已中止：%s" % (_name, _path)
+                )
+        def _shape_safe_load(_module, _ckpt_path, _tag):
+            # 加载名字+形状都一致的权重。底模多出的键（_absent）无害；
+            # 但「层存在且形状不匹配」（_mismatch）意味着该层只能随机初始化→
+            # 微调后必出电流声，此时直接门禁拦截，不发布注定坏的模型。
+            # 配合 task3.2 的维度对齐，正常情况下 _mismatch 应为 0。
+            _target = _module.module if hasattr(_module, "module") else _module
+            _saved = torch.load(_ckpt_path, map_location="cpu", weights_only=False)["weight"]
+            _model_sd = _target.state_dict()
+            _filtered, _absent, _mismatch = {}, [], []
+            for _k, _v in _saved.items():
+                if _k not in _model_sd:
+                    _absent.append(_k)
+                elif tuple(_model_sd[_k].shape) == tuple(_v.shape):
+                    _filtered[_k] = _v
+                else:
+                    _mismatch.append("%s(base%s!=model%s)" % (_k, tuple(_v.shape), tuple(_model_sd[_k].shape)))
+            if _mismatch:
+                raise RuntimeError(
+                    "Base model and model dims do not match; training would degrade to electrical noise, aborted (gate).\n"
+                    "  tag=%s  base=%s\n"
+                    "  mismatched layers=%d, e.g.: %s\n"
+                    "  Ensure the training version matches the base model, or that the base model is downloaded correctly (v2ProPlus needs s2Gv2ProPlus.pth)."
+                    % (_tag, _ckpt_path, len(_mismatch), ", ".join(_mismatch[:6]) + (" ..." if len(_mismatch) > 6 else ""))
+                )
+            _target.load_state_dict(_filtered, strict=False)
+            print("shape-safe loaded %s: %d/%d tensors from %s (absent %d: %s)" % (
+                _tag, len(_filtered), len(_saved), _ckpt_path, len(_absent),
+                ", ".join(_absent[:6]) + (" ..." if len(_absent) > 6 else ""),
+            ))
+            return len(_filtered)
         if (
             hps.train.pretrained_s2G != ""
             and hps.train.pretrained_s2G != None
@@ -231,18 +305,7 @@ def run(rank, n_gpus, hps):
         ):
             if rank == 0:
                 logger.info("loaded pretrained %s" % hps.train.pretrained_s2G)
-            print(
-                "loaded pretrained %s" % hps.train.pretrained_s2G,
-                net_g.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
-                    strict=False,
-                )
-                if torch.cuda.is_available()
-                else net_g.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
-                    strict=False,
-                ),
-            )  ##测试不加载优化器
+            _shape_safe_load(net_g, hps.train.pretrained_s2G, "s2G")  ##测试不加载优化器
         if (
             hps.train.pretrained_s2D != ""
             and hps.train.pretrained_s2D != None
@@ -250,16 +313,7 @@ def run(rank, n_gpus, hps):
         ):
             if rank == 0:
                 logger.info("loaded pretrained %s" % hps.train.pretrained_s2D)
-            print(
-                "loaded pretrained %s" % hps.train.pretrained_s2D,
-                net_d.load_state_dict(
-                    torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"], strict=False
-                )
-                if torch.cuda.is_available()
-                else net_d.load_state_dict(
-                    torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"],
-                ),
-            )
+            _shape_safe_load(net_d, hps.train.pretrained_s2D, "s2D")
 
     # scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
     # scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)

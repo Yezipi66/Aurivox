@@ -4,6 +4,16 @@ import { usePersistentState } from './usePersistentState'
 
 const API_BASE = ''
 
+// GPT-SoVITS engine hard constraint: reference audio must be 3~10s, else /tts 400.
+const REF_MIN_SEC = 3
+const REF_MAX_SEC = 10
+const refInRange = (dur) => typeof dur === 'number' && dur >= REF_MIN_SEC && dur <= REF_MAX_SEC
+// Prefer an in-range slice as the auto-default so generation doesn't fail on a too-short first slice.
+const pickDefaultRef = (segs) => {
+  const usable = (segs || []).filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
+  return usable.find(s => refInRange(s.duration)) || usable[0] || null
+}
+
 // ---- Language detection ----
 function detectLang(text) {
   const s = text.replace(/\s/g, '')
@@ -50,7 +60,7 @@ function basename(p) {
 // ===========================
 //  GENERATE TAB
 // ===========================
-function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef }) {
+function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef, onActivity }) {
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -123,9 +133,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     api(`/api/assets/${selectedVoice}`).then(r => {
       if (r.ok && r.data.ok && r.data.meta?.assets?.checkpoints) {
         const c = r.data.meta.assets.checkpoints
-        setCheckpoints({ gpt: c.gpt || [], sovits: c.sovits || [] })
-        if (!selGpt) setSelGpt(r.data.meta.assets.checkpoints.gpt?.[0]?.path || '')
-        if (!selSovits) setSelSovits(r.data.meta.assets.checkpoints.sovits?.[0]?.path || '')
+        const gptList = c.gpt || []
+        const sovitsList = c.sovits || []
+        setCheckpoints({ gpt: gptList, sovits: sovitsList })
+        // checkpoint 归属校验（patch8：切换音色后重置失效的选择）——旧音色的路径若不在
+        // 新音色的列表里，必须重置，否则会把上一个音色的 .pth 提交给推理后端（音色串档）。
+        setSelGpt(prev => gptList.some(x => x.path === prev) ? prev : (gptList[0]?.path || ''))
+        setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev : (sovitsList[0]?.path || ''))
       }
     }).catch(() => {})
     api(`/api/assets/${selectedVoice}/segments`).then(r => {
@@ -141,6 +155,23 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
 
   // Advanced params are global (from /api/advanced-params), not per-voice — no sync needed on voice change
 
+  // Base-model availability for the selected SoVITS model's version — warns about
+  // electrical-noise risk when that version's base/SV models are missing on disk.
+  const [genBaseWarn, setGenBaseWarn] = useState(null);
+  useEffect(() => {
+    const sel = (checkpoints.sovits || []).find(c => c.path === selSovits);
+    const ver = sel && sel.version;
+    if (!ver || ver === 'v1') { setGenBaseWarn(null); return; }
+    let cancelled = false;
+    api(`/api/models/status?version=${encodeURIComponent(ver)}`)
+      .then(r => { if (!cancelled) setGenBaseWarn(r.ok && r.data && !r.data.ok ? r.data : null); })
+      .catch(() => { if (!cancelled) setGenBaseWarn(null); });
+    return () => { cancelled = true; };
+  }, [selSovits, checkpoints]);
+
+  // Clear any live activity indicator when leaving the Generate tab.
+  useEffect(() => () => onActivity?.(null), [])
+
   useEffect(() => {
     if (!selectedVoice) return
     api(`/api/voices/${selectedVoice}/validate`).then(r => {
@@ -148,18 +179,24 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     }).catch(() => setValidation(null))
   }, [selectedVoice, voices])
 
-  // Use user-selected ref (from VoiceSidebar) or fallback to first slice that
-  // still exists on disk (server's live `exists` check — never a deleted slice).
-  const defaultRef = segments.length > 0
-    ? (segments.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) || null)
-    : null
+  // Use user-selected ref (from VoiceSidebar) or fall back to an auto-picked slice
+  // that still exists on disk (server's live `exists` check) and preferably sits in
+  // the engine's 3~10s window, so default generation doesn't 400 on a too-short slice.
+  const defaultRef = segments.length > 0 ? pickDefaultRef(segments) : null
   const currentRefAudio = selectedRefAudio || (defaultRef ? (defaultRef.audio || defaultRef.audio_path || defaultRef.audio_filename) : '')
-  const currentRefText = selectedRefText || (defaultRef ? (defaultRef.text || '') : '')
+  // Once the user explicitly picks a ref, honour its text verbatim — including the
+  // empty string for a raw clip (which has no aligned transcript). Only fall back to
+  // the auto-picked slice's text when nothing has been selected yet, otherwise a raw
+  // pick would silently keep sending the stale slice transcript.
+  const currentRefText = selectedRefAudio ? selectedRefText : (defaultRef ? (defaultRef.text || '') : '')
 
   const handleGenerate = async () => {
     if (!selectedVoice) { setError('Select a voice first'); return }
     if (!text.trim()) { setError('Enter text to synthesize'); return }
     setLoading(true); setError(null); setResult(null)
+    const willSplit = splitEnabled && text.trim().length > maxChars
+    const estChunks = Math.max(1, Math.ceil(text.trim().length / Math.max(1, maxChars)))
+    onActivity?.({ label: willSplit ? `Generating · ${estChunks} chunks` : 'Generating' })
     try {
       const r = await api('/api/generate', {
         method: 'POST',
@@ -214,7 +251,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         },
       }).catch(() => {})
     } catch (err) { setError(err.message) }
-    finally { setLoading(false) }
+    finally { setLoading(false); onActivity?.(null) }
   }
 
   return (
@@ -251,7 +288,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 <label className="field-label">SoVITS Model</label>
                 <select className="control" value={selSovits} onChange={e => setSelSovits(e.target.value)}>
                   {checkpoints.sovits.map(c => (
-                    <option key={c.path} value={c.path}>{c.name}</option>
+                    <option key={c.path} value={c.path}>{c.name}{c.version ? ` · ${c.version}` : ''}</option>
                   ))}
                 </select>
               </div>
@@ -533,6 +570,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
               )}
             </div>
 
+            {genBaseWarn && (
+              <div className="msg msg-warn" style={{ marginBottom: 8 }}>
+                ⚠ This voice uses a <strong>{genBaseWarn.version}</strong> model, but its base/SV models are
+                missing on disk. Synthesis may produce electrical noise or low quality.
+                {' '}Run: <code>python download_models.py --set {String(genBaseWarn.version).toLowerCase()}</code>
+              </div>
+            )}
             <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
               {loading ? 'Generating...' : 'Generate'}
             </button>
@@ -549,7 +593,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
               {result.silence_ms !== undefined && <span style={{ fontSize: 11, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
             </div>
             <div className="section-body">
-              <audio controls src={`${API_BASE}${result.audio_url}`} style={{ width: '100%' }} />
+              <Player src={`${API_BASE}${result.audio_url}`} />
               <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
                 <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 13 }}>Download WAV</a>
               </div>
@@ -583,7 +627,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       {item.voice} · <span style={{ textTransform: 'uppercase' }}>{item.lang}</span> · GPT {item.gpt} / SoVITS {item.sovits}
                       {item.segments > 1 ? ` · ${item.segments} seg` : ''} · {new Date(item.createdAt).toLocaleTimeString()}
                     </div>
-                    <audio controls src={`${API_BASE}${item.audio_url}`} style={{ width: '100%', height: 30, marginTop: 6 }} />
+                    <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" /></div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <a className="btn btn-sm" href={`${API_BASE}${item.audio_url}`} download>Download</a>
@@ -604,7 +648,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   )
 }
 
-function AudioPlayer({ src }) {
+function AudioPlayer({ src, onDuration }) {
   const [playing, setPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const audioRef = useRef(null)
@@ -633,7 +677,13 @@ function AudioPlayer({ src }) {
   }
 
   const onLoaded = () => {
-    if (audioRef.current) setDuration(audioRef.current.duration)
+    if (audioRef.current) {
+      const d = audioRef.current.duration
+      setDuration(d)
+      // Report the decoded duration up so callers can range-check any format
+      // (WAV header parsing on the server can't measure mp3/flac/etc).
+      if (onDuration && isFinite(d) && d > 0) onDuration(d)
+    }
   }
 
   const onEnded = () => {
@@ -691,6 +741,179 @@ function AudioPlayer({ src }) {
   )
 }
 
+// Full dark-themed, seekable audio player that matches the app UI.
+// Replaces the native <audio controls> chrome (which renders as a light
+// pill that clashes with the dark/purple theme).
+function Player({ src, size = 'md' }) {
+  const audioRef = useRef(null)
+  const trackRef = useRef(null)
+  const rafRef = useRef(0)
+  const [playing, setPlaying] = useState(false)
+  const [cur, setCur] = useState(0)
+  const [dur, setDur] = useState(0)
+  const [muted, setMuted] = useState(false)
+
+  const fmt = (t) => {
+    if (!isFinite(t) || t < 0) return '0:00'
+    const m = Math.floor(t / 60)
+    const s = Math.floor(t % 60)
+    return `${m}:${s < 10 ? '0' : ''}${s}`
+  }
+
+  const tick = () => {
+    const a = audioRef.current
+    if (a) setCur(a.currentTime)
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  const toggle = () => {
+    const a = audioRef.current
+    if (!a) return
+    if (a.paused) a.play().catch(() => {})
+    else a.pause()
+  }
+
+  const onPlay = () => { setPlaying(true); cancelAnimationFrame(rafRef.current); tick() }
+  const onPause = () => { setPlaying(false); cancelAnimationFrame(rafRef.current) }
+  const onEnded = () => { setPlaying(false); cancelAnimationFrame(rafRef.current); setCur(0) }
+  const onLoaded = () => { const a = audioRef.current; if (a) setDur(a.duration || 0) }
+
+  const seekTo = (clientX) => {
+    const a = audioRef.current
+    const el = trackRef.current
+    if (!a || !el || !isFinite(a.duration) || !a.duration) return
+    const r = el.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
+    a.currentTime = ratio * a.duration
+    setCur(a.currentTime)
+  }
+
+  const onTrackDown = (e) => {
+    seekTo(e.clientX)
+    const move = (ev) => seekTo(ev.clientX)
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
+  const toggleMute = () => {
+    const a = audioRef.current
+    if (!a) return
+    a.muted = !a.muted
+    setMuted(a.muted)
+  }
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
+  useEffect(() => { setPlaying(false); setCur(0); setDur(0) }, [src])
+
+  const pct = dur ? (cur / dur * 100) : 0
+
+  return (
+    <div className={`aplayer aplayer-${size}`}>
+      <button className="ap-btn ap-play" onClick={toggle} title={playing ? 'Pause' : 'Play'} type="button">
+        {playing ? (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="5" width="4" height="14" rx="1" />
+            <rect x="14" y="5" width="4" height="14" rx="1" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+      </button>
+      <span className="ap-time">{fmt(cur)}</span>
+      <div className="ap-track" ref={trackRef} onMouseDown={onTrackDown} role="slider" aria-label="Seek">
+        <div className="ap-fill" style={{ width: pct + '%' }}>
+          <span className="ap-thumb" />
+        </div>
+      </div>
+      <span className="ap-time ap-dur">{fmt(dur)}</span>
+      <button className="ap-btn ap-vol" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} type="button">
+        {muted ? (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M4 9v6h4l5 5V4L8 9H4z" />
+            <path d="M16 8l5 8M21 8l-5 8" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M4 9v6h4l5 5V4L8 9H4z" />
+            <path d="M16 8.5a4 4 0 010 7" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" />
+          </svg>
+        )}
+      </button>
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onLoadedMetadata={onLoaded}
+        onPlay={onPlay}
+        onPause={onPause}
+        onEnded={onEnded}
+      />
+    </div>
+  )
+}
+
+// Acknowledge-able naming/metadata notice for the Assets tab.
+//
+// Split into two pieces so the collapsed hint lives OUTSIDE the content flow
+// (in the summary-bar's free space, right of the stat pills) and takes zero
+// density from the asset list:
+//   - <NamingNotePill/>  the one-line pill (shown when acked & collapsed)
+//   - <NamingNoteCard/>  the full card (first visit, or re-opened)
+// Ack/open state is lifted into AssetsTab so both pieces stay in sync.
+
+function NamingNotePill({ onOpen, className = '' }) {
+  return (
+    <button
+      type="button"
+      className={`naming-note-pill ${className}`}
+      onClick={onOpen}
+      title="Show model naming & metadata notes"
+    >
+      <span className="nn-i">i</span>
+      Model naming &amp; metadata — how renaming works
+    </button>
+  )
+}
+
+function NamingNoteCard({ acked, onAck, onCollapse }) {
+  return (
+    <div className="naming-note-card">
+      <div className="naming-note-hd">
+        <span>Model naming &amp; metadata rebuild — read before renaming</span>
+        {acked && (
+          <button type="button" className="nn-x" title="Collapse" onClick={onCollapse}>×</button>
+        )}
+      </div>
+      <div className="naming-note-body">
+        <p>Trained models are published with the language baked into the filename:</p>
+        <ul>
+          <li><code>&lt;id&gt;_&lt;lang&gt;-e&lt;epoch&gt;.ckpt</code> (GPT)</li>
+          <li><code>&lt;id&gt;_&lt;lang&gt;_&lt;version&gt;_e&lt;epoch&gt;_s&lt;step&gt;.pth</code> (SoVITS, e.g. <code>_v2Pro_</code>)</li>
+        </ul>
+        <p>
+          The SoVITS filename also carries the base-model version (v2 / v2Pro / v2ProPlus). Version is
+          recovered in this order: <strong>meta.json (first-truth) → filename token → weight header</strong>.
+          Present metadata is never overwritten.
+        </p>
+        <p>
+          If a voice's <code>meta.json</code> is ever deleted or a field is missing, the language is
+          rebuilt from these filenames. Existing metadata is always first-truth — a present
+          language is never overwritten. <strong>Rename carefully:</strong> hand-editing model
+          filenames can break language recovery, and reusing an id can collide with another
+          voice. Renaming here safely updates the id, folder and metadata together.
+        </p>
+      </div>
+      <div className="naming-note-ft">
+        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>Got it</button>
+        {acked && <span className="nn-hint">Acknowledged — kept collapsed from now on.</span>}
+      </div>
+    </div>
+  )
+}
+
 // ===========================
 //  TRAINING TAB
 // ===========================
@@ -726,6 +949,7 @@ function TextField({ label, value, onChange }) {
 const REBUILD_PARAM_DEFAULTS = {
   expertUnlocked: false,
   // training (common)
+  modelVersion: 'v2Pro',
   gptEpochs: 8, sovitsEpochs: 8, batchSize: 'auto', learningRate: 'default',
   // slice
   sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
@@ -752,7 +976,11 @@ const ASR_PRECISIONS = [
 
 // --- serialisers (single source of truth for the customParams shape) ---
 function buildTrainingParams(form) {
+  const _vers = (Array.isArray(form.modelVersions) && form.modelVersions.length)
+    ? form.modelVersions : [form.modelVersion || 'v2'];
   return {
+    version: _vers[0] || 'v2',
+    versions: _vers,
     gpt_epochs: Number(form.gptEpochs) || 20,
     sovits_epochs: Number(form.sovitsEpochs) || 20,
     batch_size: form.batchSize === 'auto' ? 'auto' : (Number(form.batchSize) || 'auto'),
@@ -908,7 +1136,7 @@ function S2ExpertCol({ form, setField }) {
 
 // part: 's1' | 's2' | 'both'. Renders the same fields whether shown on the unified
 // Training page (both) or on a single-model node/restore panel (s1 / s2).
-function TrainParamFields({ form, setField, part = 'both' }) {
+function TrainParamFields({ form, setField, part = 'both', versionMode = 'single' }) {
   const expertLocked = !form.expertUnlocked
   const showS1 = part === 's1' || part === 'both'
   const showS2 = part === 's2' || part === 'both'
@@ -920,6 +1148,55 @@ function TrainParamFields({ form, setField, part = 'both' }) {
   return (
     <>
       <div className="layer-label">Advanced Options</div>
+      {/* Base model version(s). Only shown for the SoVITS (S2) stage — GPT is version-agnostic.
+          versionMode='multi' (S2 pipeline node) → checkbox group → form.modelVersions[] (read B:
+          one SoVITS trained per checked version). Otherwise a single select (asset rebuild). */}
+      {showS2 && (versionMode === 'multi' ? (
+        <div className="train-version-row" style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>SoVITS Version(s) — one model trained per checked version</label>
+          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+            {[
+              { v: 'v2', label: 'v2' },
+              { v: 'v2Pro', label: 'v2Pro · recommended' },
+              { v: 'v2ProPlus', label: 'v2ProPlus · best' },
+            ].map(({ v, label }) => {
+              const cur = (Array.isArray(form.modelVersions) && form.modelVersions.length)
+                ? form.modelVersions : (form.modelVersion ? [form.modelVersion] : ['v2Pro']);
+              const checked = cur.includes(v);
+              const toggle = (on) => {
+                const order = ['v2', 'v2Pro', 'v2ProPlus'];
+                let next = on ? [...cur, v] : cur.filter(x => x !== v);
+                next = order.filter(o => next.includes(o)); // 去重 + 规范排序
+                if (!next.length) next = [v]; // 至少保留一个版本，禁止清空
+                setField('modelVersions', next);
+              };
+              return (
+                <label key={v} className="toggle-row" style={{ margin: 0, whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={checked} onChange={e => toggle(e.target.checked)} />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own
+            base + SV models (download_models.py); missing ones are reported below the pipeline before you start.
+          </p>
+        </div>
+      ) : (
+        <div className="train-version-row" style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>Base Model Version</label>
+          <select className="control" value={form.modelVersion || 'v2'} onChange={e => setField('modelVersion', e.target.value)}>
+            <option value="v2">v2 — general base (s2G2333k)</option>
+            <option value="v2Pro">v2Pro — recommended · needs v2Pro base + SV model</option>
+            <option value="v2ProPlus">v2ProPlus — best quality · needs v2ProPlus base + SV model</option>
+          </select>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are
+            reported below the pipeline before you start.
+          </p>
+        </div>
+      ))}
       <div className="node-cols">
         {showS1 && <S1BasicCol form={form} setField={setField} />}
         {showS2 && <S2BasicCol form={form} setField={setField} />}
@@ -1124,12 +1401,13 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     inputDir: '', language: 'ja', voiceName: '',
     preset: 'balanced', inputType: 'auto', expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
+    trainS1: true, trainS2: true,
     // Advanced params
     gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
     asrEngine: 'auto', denoiseModel: 'mdx-net',
     asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
-    modelVersion: 'v2Pro', isHalf: true, inferDevice: 'cuda',
+    modelVersion: 'v2Pro', modelVersions: ['v2Pro'], isHalf: true, inferDevice: 'cuda',
     // S1 advanced
     s1Seed: 1234, s1SaveEvery: 1, s1Precision: '16-mixed', s1GradClip: 1.0,
     s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
@@ -1141,6 +1419,18 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   });
   const [localTaskId, setLocalTaskId] = useState(null);
   const [status, setStatus] = useState(null);
+  // Base-model availability for the selected training version (drives the gate warning).
+  const [baseModelStatus, setBaseModelStatus] = useState(null);
+  const _selVersions = (Array.isArray(form.modelVersions) && form.modelVersions.length)
+    ? form.modelVersions : [form.modelVersion || 'v2'];
+  const _selVersionsKey = _selVersions.join(',');
+  useEffect(() => {
+    let cancelled = false;
+    api(`/api/models/status?versions=${encodeURIComponent(_selVersionsKey)}`)
+      .then(r => { if (!cancelled && r.ok) setBaseModelStatus(r.data); })
+      .catch(() => { if (!cancelled) setBaseModelStatus(null); });
+    return () => { cancelled = true; };
+  }, [_selVersionsKey]);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null); // pipeline-map node being configured/inspected
@@ -1299,7 +1589,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         language: form.language,
         inputDir: cleanDir,
         overwrite: !!overwrite,
-        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw },
+        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false },
         customParams: {
           training: buildTrainingParams(form),
           steps: {
@@ -1473,9 +1763,29 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         </>
       );
     } else if (selectedNode === 'train_s1') {
-      body = <TrainParamFields form={form} setField={setField} part="s1" />;
+      body = (
+        <>
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.trainS1 !== false} onChange={e => setField('trainS1', e.target.checked)} />
+            Enable S1 (GPT) fine-tuning
+          </label>
+          {form.trainS1 !== false
+            ? <TrainParamFields form={form} setField={setField} part="s1" />
+            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>S1 (GPT) fine-tuning is turned off — this step will be skipped.</p>}
+        </>
+      );
     } else if (selectedNode === 'train_s2') {
-      body = <TrainParamFields form={form} setField={setField} part="s2" />;
+      body = (
+        <>
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.trainS2 !== false} onChange={e => setField('trainS2', e.target.checked)} />
+            Enable S2 (SoVITS) fine-tuning
+          </label>
+          {form.trainS2 !== false
+            ? <TrainParamFields form={form} setField={setField} part="s2" versionMode="multi" />
+            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>S2 (SoVITS) fine-tuning is turned off — this step will be skipped.</p>}
+        </>
+      );
     } else if (selectedNode === 'preprocess') {
       body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training. No configuration needed.</p>;
     } else if (selectedNode === 'finalize') {
@@ -1549,7 +1859,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <label className="field-label">Pipeline — click any step to configure</label>
             <PipelineMap
               statusSteps={status?.steps}
-              enabledMap={{ denoise: form.denoise, slice: form.slice, asr: form.asr }}
+              enabledMap={{ denoise: form.denoise, slice: form.slice, asr: form.asr, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false }}
               selectedNode={selectedNode}
               onSelect={setSelectedNode}
             />
@@ -1565,11 +1875,20 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               {voiceExists && <span className="pf-warn">⚠ will overwrite existing &ldquo;{existingVoice.display_name || sanitizedVoice}&rdquo; (id: {sanitizedVoice})</span>}
             </div>
             <div className="pf-row">
-              <span className="pf-key">Training</span>
-              <span className="pf-val">
-                GPT {form.gptEpochs ?? 20} + SoVITS {form.sovitsEpochs ?? 20} epochs
-                {'  ·  '}batch {form.batchSize || 'auto'}
-                {'  ·  '}save every {saveEvery} {saveEvery === 1 ? 'epoch' : 'epochs'}
+              <span className="pf-key">Fine-tune</span>
+              <span className="pf-chips">
+                {form.trainS1 !== false && (
+                  <span className="pf-chip">GPT (S1) · {form.gptEpochs ?? 20}ep</span>
+                )}
+                {form.trainS2 !== false && _selVersions.map(v => (
+                  <span key={v} className="pf-chip">SoVITS {v} · {form.sovitsEpochs ?? 20}ep</span>
+                ))}
+                {form.trainS1 === false && form.trainS2 === false && (
+                  <span className="pf-chip pf-chip-off">none (safe pass)</span>
+                )}
+                {(form.trainS1 !== false || form.trainS2 !== false) && (
+                  <span className="pf-chip pf-chip-meta">batch {form.batchSize || 'auto'} · save every {saveEvery} {saveEvery === 1 ? 'epoch' : 'epochs'}</span>
+                )}
               </span>
             </div>
             <div className="pf-row">
@@ -1583,11 +1902,36 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             </div>
           </div>
 
+          {/* Base-model gate feedback — reports EVERY selected SoVITS version (only when S2 will run).
+              S1(GPT)/S2(SoVITS) enable toggles now live inside their pipeline nodes (like slice/ASR). */}
+          {form.trainS2 !== false && baseModelStatus && Array.isArray(baseModelStatus.versions) &&
+            baseModelStatus.versions.filter(v => !v.ok).map(v => (
+              v.blocking
+                ? <div key={v.version} className="msg msg-error" style={{ marginTop: 10 }}>
+                    ⚠ Base models for <strong>{v.version}</strong> are missing ({(v.criticalMissing || []).join(' + ')}) — this
+                    version is blocked (it would only produce electrical noise). Run:{' '}
+                    <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
+                  </div>
+                : <div key={v.version} className="msg msg-warn" style={{ marginTop: 10 }}>
+                    ⚠ <strong>{v.version}</strong>: {(v.missing || []).includes('sv')
+                      ? 'speaker-vector (SV) model missing — training will run but without SV enhancement'
+                      : 'a preferred base model is missing; training will fall back to a lower-quality base'}. Run:{' '}
+                    <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
+                  </div>
+            ))}
+          {form.trainS1 === false && form.trainS2 === false && (
+            <p className="field-hint" style={{ marginTop: 10 }}>Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.</p>
+          )}
+
           {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
 
           {!taskId && (
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary" onClick={handleStart}>Start Training</button>
+              <button className="btn btn-primary" onClick={handleStart}
+                disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
+                title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
+                  ? 'Some selected SoVITS versions are missing base models — run download_models.py for them first'
+                  : ''}>Start Training</button>
               <button className="btn btn-ghost" onClick={handleClearStaging} disabled={clearing}
                 title="Delete finished task workspaces from the .staging cache (running tasks are never touched)">
                 {clearing ? 'Clearing…' : 'Clear Cache'}
@@ -1669,10 +2013,15 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
   const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
+  // Client-measured raw durations (filename -> seconds). Raw clips are often mp3,
+  // whose length the server can't read from a WAV header, so the <audio> element
+  // reports it on loadedmetadata — used for the same 3–10s guard as slices.
+  const [rawDurations, setRawDurations] = useState({})
 
   useEffect(() => {
     if (!voice.id) return
     setSegLoading(true)
+    setRawDurations({})
     Promise.all([
       api(`/api/assets/${voice.id}/segments`).then(r => {
         setSegments(r.ok && r.data.segments ? (r.data.segments.segments || []) : [])
@@ -1690,9 +2039,12 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
     onSelectRef(`assets/${voice.id}/slicer_opt/${filename}`, seg.text || '')
   }
   const pickRaw = (rf) => {
-    // Raw audio has no aligned reference text yet (planned) — select audio only.
-    onSelectRef(`assets/${voice.id}/raw/${rf.filename}`, '')
+    // Reference text comes from asr_opt/raw_opt.list (server-enriched rf.text);
+    // may be empty if the raw list hasn't been transcribed yet.
+    onSelectRef(`assets/${voice.id}/raw/${rf.filename}`, rf.text || '')
   }
+  // Effective duration for a raw clip: server WAV-header value, else client-measured.
+  const rawDur = (rf) => (rf.duration && rf.duration > 0 ? rf.duration : rawDurations[rf.filename])
 
   // Privacy: only offer slices whose .wav still exists on disk right now
   // (server sets `exists` via a live re-check; deleted slices are excluded).
@@ -1701,11 +2053,14 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
     : []
   const availableRaw = Array.isArray(rawRefs) ? rawRefs : []
 
-  // Active ref: user selection (from App) > auto-first-slice
-  const firstRef = availableRefs[0]
+  // Active ref: user selection (from App) > auto-picked in-range slice
+  const firstRef = pickDefaultRef(availableRefs)
   const activeRef = selectedRefAudio || (firstRef ? (firstRef.audio || firstRef.audio_path || firstRef.audio_filename) : '')
-  const activeRefText = selectedRefText || (firstRef?.text || '')
+  // Explicit selection wins verbatim (empty for raw); only auto-fill from the picked
+  // slice when the user hasn't chosen anything, so raw picks clear the transcript.
+  const activeRefText = selectedRefAudio ? selectedRefText : (firstRef?.text || '')
   const activeFilename = activeRef ? activeRef.replace(/\\/g, '/').split('/').pop() : ''
+  const activeIsRaw = /\/raw\//.test(activeRef)
 
   return (
     <div className="section">
@@ -1736,11 +2091,38 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
               {basename(activeRef)}
             </div>
           )}
-          {activeRefText && (
+          {(() => {
+            // Out-of-range warning for the ACTIVE ref — works for both a slice and
+            // a raw clip (raw duration may be client-measured, so only warn once known).
+            let dur = null
+            if (activeIsRaw) {
+              const rf = availableRaw.find(r => r.filename === activeFilename)
+              if (rf) dur = rawDur(rf)
+            } else {
+              const activeSeg = availableRefs.find(s => {
+                const p = s.audio || s.audio_path || s.audio_filename
+                return p && p.replace(/\\/g, '/').split('/').pop() === activeFilename
+              })
+              if (activeSeg) dur = activeSeg.duration
+            }
+            if (typeof dur === 'number' && dur > 0 && !refInRange(dur)) {
+              return (
+                <div className="ref-range-warn">
+                  ⚠ Reference is {dur.toFixed(1)}s — the engine requires {REF_MIN_SEC}–{REF_MAX_SEC}s. Pick another {activeIsRaw ? 'clip' : 'slice'} or generation will fail.
+                </div>
+              )
+            }
+            return null
+          })()}
+          {activeRefText ? (
             <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', padding: '4px 8px', borderRadius: 4, marginBottom: 6, fontStyle: 'italic', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               "{activeRefText}"
             </div>
-          )}
+          ) : activeRef && activeIsRaw ? (
+            <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', padding: '4px 8px', borderRadius: 4, marginBottom: 6 }}>
+              Raw audio has no aligned reference text — the engine will use the audio only.
+            </div>
+          ) : null}
           {segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading reference audio…</div>}
           {!segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>No reference audio available</div>
@@ -1752,11 +2134,12 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
                 const rawPath = seg.audio || seg.audio_path || seg.audio_filename
                 const segFilename = rawPath ? rawPath.replace(/\\/g, '/').split('/').pop() : ''
                 const isActive = activeFilename === segFilename && !!activeRef
+                const outOfRange = !refInRange(seg.duration)
                 return (
-                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={seg.text || ''} onClick={() => pickSlice(seg)}>
+                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={outOfRange ? `${seg.text || ''}\n⚠ ${(seg.duration || 0).toFixed(1)}s is outside the engine's ${REF_MIN_SEC}–${REF_MAX_SEC}s reference window` : (seg.text || '')} onClick={() => pickSlice(seg)}>
                     <div className="ref-item-row">
                       <span className="ref-item-name">{seg.scene} #{seg.index}</span>
-                      <span className="ref-item-dur">{(seg.duration || 0).toFixed(1)}s</span>
+                      <span className={`ref-item-dur ${outOfRange ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s{outOfRange ? ' ⚠' : ''}</span>
                       <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
                     </div>
                     <AudioPlayer src={`/assets/${voice.id}/slicer_opt/${segFilename}`} />
@@ -1770,13 +2153,25 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
               {availableRaw.length === 0 && <div className="ref-col-empty">No raw audio available</div>}
               {availableRaw.map((rf, i) => {
                 const isActive = activeFilename === rf.filename && !!activeRef
+                const dur = rawDur(rf)
+                const known = typeof dur === 'number' && dur > 0
+                const outOfRange = known && !refInRange(dur)
+                const durTitle = known
+                  ? (outOfRange ? `\n⚠ ${dur.toFixed(1)}s is outside the engine's ${REF_MIN_SEC}–${REF_MAX_SEC}s reference window` : '')
+                  : ''
                 return (
-                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={rf.filename} onClick={() => pickRaw(rf)}>
+                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={`${rf.text || rf.filename}${durTitle}`} onClick={() => pickRaw(rf)}>
                     <div className="ref-item-row">
                       <span className="ref-item-name">{rf.filename}</span>
+                      {known && (
+                        <span className={`ref-item-dur ${outOfRange ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s{outOfRange ? ' ⚠' : ''}</span>
+                      )}
                       <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
                     </div>
-                    <AudioPlayer src={rf.url} />
+                    <AudioPlayer
+                      src={rf.url}
+                      onDuration={d => setRawDurations(prev => (prev[rf.filename] ? prev : { ...prev, [rf.filename]: d }))}
+                    />
                   </div>
                 )
               })}
@@ -1813,7 +2208,7 @@ function CollapsibleSegments({ segments }) {
             <div key={seg.index} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>Segment {seg.index}</div>
               <div style={{ fontSize: 13, marginBottom: 6 }}>{seg.text}</div>
-              <audio controls src={`${API_BASE}${seg.audio_url}`} style={{ width: '100%' }} />
+              <Player src={`${API_BASE}${seg.audio_url}`} size="sm" />
               <a href={`${API_BASE}${seg.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12, display: 'inline-block', marginTop: 4 }}>Download</a>
             </div>
           ))}
@@ -2363,7 +2758,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* Result */}
       {row.result && row.result.audio_url && (
         <div style={{ marginTop: 8, background: 'var(--bg)', borderRadius: 'var(--radius-sm)', padding: 8 }}>
-          <audio controls src={`${API_BASE}${row.result.audio_url}`} style={{ width: '100%' }} />
+          <Player src={`${API_BASE}${row.result.audio_url}`} size="sm" />
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12 }}>Download</a>
             {row.result.segments && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{row.result.segments.length} segments</span>}
@@ -2714,6 +3109,10 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
   useEffect(() => () => { Object.values(transcribePollRef.current).forEach(t => clearTimeout(t)) }, [])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
+  // Naming-note notice: ack persists; `noteOpen` re-expands the collapsed pill.
+  const [noteAcked, setNoteAcked] = usePersistentState('assets.namingNoteAck', false)
+  const [noteOpen, setNoteOpen] = useState(false)
+  const noteExpanded = !noteAcked || noteOpen
   // Inline rename — renames display name AND id/folder together (kept in sync to
   // prevent the display≠id overwrite trap). Guarded server-side.
   const [renamingId, setRenamingId] = useState(null)
@@ -3094,6 +3493,9 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
     setDeleteConfirm(null)
     try {
       await api(`/api/assets/${id}`, { method: 'DELETE' })
+      // Refresh the global voice registry immediately so the Generate page
+      // dropdown drops the deleted voice without waiting for the re-scan.
+      if (loadVoices) loadVoices()
       setScanMsg({ type: 'success', text: `Deleted ${id}. Re-scanning...` })
       // Auto re-scan after delete
       setTimeout(async () => {
@@ -3101,6 +3503,7 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
           const r = await api('/api/assets/scan', { method: 'POST' })
           if (r.ok) {
             setAssets(r.data.assets || {})
+            if (loadVoices) loadVoices()
             setScanMsg({ type: 'success', text: `Deleted ${id}. Scan complete - ${r.data.scanned || 0} voice(s) found` })
           }
         } catch (_) {}
@@ -3269,23 +3672,17 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
       </div>
       <div className="section-body">
         {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{scanMsg.text}</div>}
-        <details className="naming-note">
-          <summary>Model naming &amp; metadata rebuild — read before renaming</summary>
-          <div className="naming-note-body">
-            <p>Trained models are published with the language baked into the filename:</p>
-            <ul>
-              <li><code>&lt;id&gt;_&lt;lang&gt;-e&lt;epoch&gt;.ckpt</code> (GPT)</li>
-              <li><code>&lt;id&gt;_&lt;lang&gt;_e&lt;epoch&gt;_s&lt;step&gt;.pth</code> (SoVITS)</li>
-            </ul>
-            <p>
-              If a voice's <code>meta.json</code> is ever deleted or a field is missing, the language is
-              rebuilt from these filenames. Existing metadata is always first-truth — a present
-              language is never overwritten. <strong>Rename carefully:</strong> hand-editing model
-              filenames can break language recovery, and reusing an id can collide with another
-              voice. Renaming here safely updates the id, folder and metadata together.
-            </p>
-          </div>
-        </details>
+        {noteExpanded && (
+          <NamingNoteCard
+            acked={noteAcked}
+            onAck={() => { setNoteAcked(true); setNoteOpen(false) }}
+            onCollapse={() => setNoteOpen(false)}
+          />
+        )}
+        {/* Collapsed pill with no summary bar to tuck into (empty asset list) */}
+        {!noteExpanded && assetEntries.length === 0 && (
+          <NamingNotePill onOpen={() => setNoteOpen(true)} />
+        )}
         <RebuildProgress job={rebuildJob} onDismiss={dismissRebuild} />
         {assetEntries.length > 0 && (
           <div className="summary-bar">
@@ -3296,6 +3693,8 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
             <span className="stat-pill"><span className="sp-v">{totals.gpt}</span><span className="sp-k">GPT ckpts</span></span>
             <span className="stat-pill"><span className="sp-v">{totals.sovits}</span><span className="sp-k">SoVITS ckpts</span></span>
             <span className="stat-pill"><span className="sp-v">{totals.segments}</span><span className="sp-k">segments</span></span>
+            {/* Collapsed hint floats to the free space right of the stat pills */}
+            {!noteExpanded && <NamingNotePill className="nn-in-bar" onOpen={() => setNoteOpen(true)} />}
           </div>
         )}
         {assetEntries.length > 0 && (
@@ -3822,7 +4221,7 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
 // Compact workbench context / status row (Phase 1, Part 1.1)
 // Frontend-only: derives from existing /api/assets, /api/health and the
 // active training task. Missing data degrades to graceful placeholders.
-function ContextRow({ voices, selectedVoice, health, activeTaskId }) {
+function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
   const [meta, setMeta] = useState(null)
   const [taskStatus, setTaskStatus] = useState(null)
 
@@ -3869,11 +4268,17 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId }) {
     </span>
   )
 
-  let taskLabel = 'None', taskPlaceholder = true
-  if (activeTaskId) {
+  // Task slot reflects, in priority order: a running training task > a live inference
+  // (generation) activity > the last known training result > idle.
+  let taskLabel = 'None', taskPlaceholder = true, taskBusy = false
+  const trainRunning = activeTaskId && taskStatus?.status === 'running'
+  if (trainRunning) {
+    taskLabel = `Training · ${taskStatus?.currentStep || '…'}`; taskPlaceholder = false; taskBusy = true
+  } else if (activity) {
+    taskLabel = activity.label || 'Generating'; taskPlaceholder = false; taskBusy = true
+  } else if (activeTaskId) {
     const s = taskStatus?.status
-    if (s === 'running') { taskLabel = `Training · ${taskStatus?.currentStep || '…'}`; taskPlaceholder = false }
-    else if (s === 'completed') { taskLabel = 'Completed'; taskPlaceholder = false }
+    if (s === 'completed') { taskLabel = 'Completed'; taskPlaceholder = false }
     else if (s === 'failed') { taskLabel = 'Failed'; taskPlaceholder = false }
     else if (s === 'interrupted') { taskLabel = 'Interrupted'; taskPlaceholder = false }
     else if (s === 'cancelled') { taskLabel = 'Cancelled'; taskPlaceholder = false }
@@ -3891,14 +4296,14 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId }) {
       {item('SoVITS', latestSovits ? latestSovits.name : 'not selected', !latestSovits)}
       <span className="ctx-sep" />
       <span className="ctx-item">
-        <span className={`badge ${health === null ? 'badge-neutral' : health?.ok ? 'badge-ok' : 'badge-danger'}`}>
-          {health === null ? '…' : health?.ok ? 'Connected' : 'Unreachable'}
+        <span className={`badge ${health === null ? 'badge-neutral' : health?.engine_online ? 'badge-ok' : 'badge-danger'}`}>
+          {health === null ? '…' : health?.engine_online ? 'Connected' : 'Unreachable'}
         </span>
       </span>
       <span className="ctx-sep" />
       <span className="ctx-item">
         <span className="ctx-k">Task</span>
-        <span className={`badge ${taskPlaceholder ? 'badge-neutral' : taskStatus?.status === 'failed' ? 'badge-danger' : taskStatus?.status === 'running' ? 'badge-accent' : 'badge-info'}`}>{taskLabel}</span>
+        <span className={`badge ${taskPlaceholder ? 'badge-neutral' : taskStatus?.status === 'failed' ? 'badge-danger' : taskBusy ? 'badge-accent' : 'badge-info'}`}>{taskLabel}</span>
       </span>
     </div>
   )
@@ -3911,6 +4316,7 @@ export default function App() {
   const [selectedRefAudio, setSelectedRefAudio] = useState('')
   const [selectedRefText, setSelectedRefText] = useState('')
   const [health, setHealth] = useState(null)
+  const [genActivity, setGenActivity] = useState(null) // null | { label } — live inference activity for the context row
   const [activeTaskId, setActiveTaskId] = usePersistentState('train.activeTaskId', null)
   // Persisted in-flight Rebuild/Restore so its lightweight pipeline survives page
   // navigation and reloads: { id, taskId, stages }. AssetsTab resumes polling from it.
@@ -3941,10 +4347,19 @@ export default function App() {
     setSelectedRefText(text || '')
   }, [])
 
+  // Poll engine health so the badge reflects the GPT-SoVITS engine (port 9880) in
+  // real time. A one-shot check would go stale if the engine dies mid-session.
   useEffect(() => {
-    api('/api/health').then(r => setHealth(r.data)).catch(() => setHealth({ ok: false }))
-    loadVoices()
+    let dead = false
+    const check = () => api('/api/health')
+      .then(r => { if (!dead) setHealth(r.data || { ok: false, engine_online: false }) })
+      .catch(() => { if (!dead) setHealth({ ok: false, engine_online: false }) })
+    check()
+    const t = setInterval(check, 8000)
+    return () => { dead = true; clearInterval(t) }
   }, [])
+
+  useEffect(() => { loadVoices() }, [])
 
   // 自动重连：刷新/关页后恢复正在运行/中断的任务
   useEffect(() => {
@@ -3975,16 +4390,16 @@ export default function App() {
         <button className={`nav-btn ${page === 'generate' ? 'active' : ''}`} onClick={() => setPage('generate')}>Generate</button>
         <button className={`nav-btn ${page === 'compare' ? 'active' : ''}`} onClick={() => setPage('compare')}>Compare Refs</button>
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
-        <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Train</button>
+        <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Fine-tune</button>
         <div style={{ flex: 1 }} />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
-        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: health?.ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.ok ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.ok ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
-          {health === null ? '...' : health.ok ? 'GPT-SoVITS Connected' : 'GPT-SoVITS Unreachable'}
+        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: health?.engine_online ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.engine_online ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.engine_online ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
+          {health === null ? '...' : health.engine_online ? 'GPT-SoVITS Connected' : 'GPT-SoVITS Unreachable'}
         </span>
       </nav>
 
       {(page === 'generate' || page === 'compare') && (
-        <ContextRow voices={voices} selectedVoice={selectedVoice} health={health} activeTaskId={activeTaskId} />
+        <ContextRow voices={voices} selectedVoice={selectedVoice} health={health} activeTaskId={activeTaskId} activity={genActivity} />
       )}
 
       <main style={{ flex: 1 }}>
@@ -3996,7 +4411,8 @@ export default function App() {
               onVoiceUpdate={loadVoices}
               selectedRefAudio={selectedRefAudio}
               selectedRefText={selectedRefText}
-              onSelectRef={handleSelectRef} />
+              onSelectRef={handleSelectRef}
+              onActivity={setGenActivity} />
           )}
           {page === 'compare' && (
             <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} onBack={() => setPage('generate')} />

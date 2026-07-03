@@ -2,7 +2,7 @@ custom:
   bert_base_path: ./lib/training/gsv-tools/pretrained/chinese-roberta-wwm-ext-large
   cnhuhbert_base_path: ./lib/training/gsv-tools/pretrained/chinese-hubert-base
   device: cuda
-  is_half: true
+  is_half: false
   t2s_weights_path: ./lib/training/gsv-tools/pretrained/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
   version: v2Pro
   vits_weights_path: ./lib/training/gsv-tools/pretrained/v2Pro/s2Gv2Pro.pth

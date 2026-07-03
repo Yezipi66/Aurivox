@@ -4,7 +4,7 @@
   "top_p": 1,
   "repetition_penalty": 1.35,
   "text_split_method": "cut5",
-  "speed_factor": 0.8,
+  "speed_factor": 1,
   "seed": -1,
   "batch_size": 1,
   "batch_threshold": 0.75,
@@ -17,8 +17,8 @@
   "streaming_mode": false,
   "overlap_length": 2,
   "min_chunk_length": 16,
-  "version": "v2Pro",
-  "is_half": true,
+  "version": "v2",
+  "is_half": false,
   "device": "cuda",
-  "updated_at": "2026-06-30T07:30:47.830Z"
+  "updated_at": "2026-07-03T18:52:29.969Z"
 }

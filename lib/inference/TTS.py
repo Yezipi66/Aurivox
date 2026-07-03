@@ -573,6 +573,16 @@ class TTS:
         if self.configs.is_half and str(self.configs.device) != "cpu":
             self.vits_model = self.vits_model.half()
 
+        try:
+            _pdtype = next(self.vits_model.parameters()).dtype
+        except StopIteration:
+            _pdtype = "unknown"
+        print(
+            f"[vits-load] model_version={model_version} is_v2pro={self.is_v2pro} "
+            f"is_half={self.configs.is_half} device={self.configs.device} param_dtype={_pdtype} "
+            f"src={weights_path}"
+        )
+
         self.configs.save_configs()
 
 
@@ -1564,6 +1574,25 @@ class TTS:
             audio = sum(audio, [])
 
         audio = torch.cat(audio, dim=0)
+
+        try:
+            _amax = float(torch.abs(audio).max())
+            _has_nan = bool(torch.isnan(audio).any())
+            _rms = float(torch.sqrt(torch.mean(audio.float() ** 2)))
+            _crest = _rms / _amax if _amax > 1e-9 else 0.0
+            print(
+                f"[audio-check] version={self.configs.version} is_v2pro={self.is_v2pro} "
+                f"is_half={self.configs.is_half} dtype={audio.dtype} "
+                f"max={_amax:.4f} rms={_rms:.5f} rms/peak={_crest:.3f} nan={_has_nan}"
+            )
+            if _has_nan or _amax < 1e-3 or _crest > 0.5:
+                print(
+                    "[audio-check][WARN] Output looks like electrical noise / silence (abnormal amplitude or waveform). "
+                    "Common causes: (1) fp16 numerical instability with is_half=true -> set is_half: false in the custom section of tts_infer.yaml; "
+                    "(2) SoVITS/GPT weights do not match the base-model version."
+                )
+        except Exception as _e:
+            print(f"[audio-check] skipped: {_e}")
 
         if super_sampling:
             print(f"############ {i18n('音频超采样')} ############")

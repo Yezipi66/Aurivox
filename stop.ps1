@@ -1,16 +1,17 @@
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # ============================================================
-#  TTS Broker 停止脚本
-#  按端口定位 LISTENING 进程的 PID 并结束:
-#    - 后端 server.js : 9886
-#    - 推理 infer     : 9880
-#  仅杀 LISTENING(服务端)进程, 不误伤普通连接。
+#  TTS Broker stop script
+#  Locate LISTENING processes by port and terminate:
+#    - backend server.js : 9886
+#    - engine infer      : 9880
+#  Only kills LISTENING (server-side) processes —
+#  won't touch ordinary connections.
 # ============================================================
 
 $Ports = @(
   @{ Name = "backend server.js"; Port = 9886 },
-  @{ Name = "inference infer_server"; Port = 9880 }
+  @{ Name = "engine infer_server"; Port = 9880 }
 )
 
 function Get-ListeningPids($port) {
@@ -18,8 +19,7 @@ function Get-ListeningPids($port) {
   $lines = netstat -ano | Select-String "LISTENING"
   foreach ($ln in $lines) {
     $text = $ln.ToString()
-    # 只匹配本地地址以 :port 结尾的行(避免远端端口巧合)
-    if ($text -match "[:\.]$port\s") {
+    if ($text -match "[:\\.]$port\s") {
       $parts = ($text -split "\s+") | Where-Object { $_ -ne "" }
       $procId = $parts[$parts.Count - 1]
       if ($procId -match "^\d+$") { $found += [int]$procId }
@@ -36,22 +36,22 @@ foreach ($item in $Ports) {
   $name = $item.Name
   $pids = Get-ListeningPids $port
   if (-not $pids -or $pids.Count -eq 0) {
-    Write-Host ("  :{0,-5} {1,-20} 无监听进程(未运行)" -f $port, $name) -ForegroundColor DarkGray
+    Write-Host ("  :{0,-5} {1,-20} no listening process (not running)" -f $port, $name) -ForegroundColor DarkGray
     continue
   }
   foreach ($procId in $pids) {
     try {
       $proc = Get-Process -Id $procId -ErrorAction Stop
       Stop-Process -Id $procId -Force -ErrorAction Stop
-      Write-Host ("  :{0,-5} {1,-20} 已停止 PID={2} ({3})" -f $port, $name, $procId, $proc.ProcessName) -ForegroundColor Green
+      Write-Host ("  :{0,-5} {1,-20} stopped PID={2} ({3})" -f $port, $name, $procId, $proc.ProcessName) -ForegroundColor Green
       $killedAny = $true
     } catch {
-      Write-Host ("  :{0,-5} {1,-20} 停止 PID={2} 失败: {3}" -f $port, $name, $procId, $_.Exception.Message) -ForegroundColor Red
+      Write-Host ("  :{0,-5} {1,-20} failed to stop PID={2}: {3}" -f $port, $name, $procId, $_.Exception.Message) -ForegroundColor Red
     }
   }
 }
 
 if (-not $killedAny) {
-  Write-Host "  (没有正在运行的服务)" -ForegroundColor Yellow
+  Write-Host "  (no services were running)" -ForegroundColor Yellow
 }
-Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host "=========================================================" -ForegroundColor Cyan

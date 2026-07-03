@@ -225,6 +225,33 @@ def run(rank, n_gpus, hps):
         # traceback.print_exc()
         epoch_str = 1
         global_step = 0
+        # fail-loud：配了底模路径却找不到文件，直接报错，避免静默从零训练出电流声
+        for _name, _path in (
+            ("pretrained_s2G", hps.train.pretrained_s2G),
+            ("pretrained_s2D", hps.train.pretrained_s2D),
+        ):
+            if _path and not os.path.exists(_path):
+                raise FileNotFoundError(
+                    "配置了 %s 但底模文件不存在，训练会退化为电流声，已中止：%s" % (_name, _path)
+                )
+        def _shape_safe_load(_module, _ckpt_path, _tag):
+            # 只加载名字与形状都一致的权重，跳过版本相关（如 v1/v2 的 emb_text、ref_enc）
+            # 的层，避免 size mismatch 崩溃，同时最大化复用底模（解码器/vocoder 等通用层）。
+            _target = _module.module if hasattr(_module, "module") else _module
+            _saved = torch.load(_ckpt_path, map_location="cpu", weights_only=False)["weight"]
+            _model_sd = _target.state_dict()
+            _filtered, _skipped = {}, []
+            for _k, _v in _saved.items():
+                if _k in _model_sd and tuple(_model_sd[_k].shape) == tuple(_v.shape):
+                    _filtered[_k] = _v
+                else:
+                    _skipped.append(_k)
+            _target.load_state_dict(_filtered, strict=False)
+            print("shape-safe loaded %s: %d/%d tensors from %s (skipped %d: %s)" % (
+                _tag, len(_filtered), len(_saved), _ckpt_path, len(_skipped),
+                ", ".join(_skipped[:6]) + (" ..." if len(_skipped) > 6 else ""),
+            ))
+            return len(_filtered)
         if (
             hps.train.pretrained_s2G != ""
             and hps.train.pretrained_s2G != None
@@ -232,18 +259,7 @@ def run(rank, n_gpus, hps):
         ):
             if rank == 0:
                 logger.info("loaded pretrained %s" % hps.train.pretrained_s2G)
-            print(
-                "loaded pretrained %s" % hps.train.pretrained_s2G,
-                net_g.module.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
-                    strict=False,
-                )
-                if torch.cuda.is_available()
-                else net_g.load_state_dict(
-                    torch.load(hps.train.pretrained_s2G, map_location="cpu", weights_only=False)["weight"],
-                    strict=False,
-                ),
-            )  ##测试不加载优化器
+            _shape_safe_load(net_g, hps.train.pretrained_s2G, "s2G")  ##测试不加载优化器
         if (
             hps.train.pretrained_s2D != ""
             and hps.train.pretrained_s2D != None
@@ -251,16 +267,7 @@ def run(rank, n_gpus, hps):
         ):
             if rank == 0:
                 logger.info("loaded pretrained %s" % hps.train.pretrained_s2D)
-            print(
-                "loaded pretrained %s" % hps.train.pretrained_s2D,
-                net_d.module.load_state_dict(
-                    torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"], strict=False
-                )
-                if torch.cuda.is_available()
-                else net_d.load_state_dict(
-                    torch.load(hps.train.pretrained_s2D, map_location="cpu", weights_only=False)["weight"],
-                ),
-            )
+            _shape_safe_load(net_d, hps.train.pretrained_s2D, "s2D")
 
     # scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
     # scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)

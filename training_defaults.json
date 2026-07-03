@@ -70,6 +70,7 @@
     }
   },
   "training": {
+    "version": "v2",
     "gpt_epochs": 3,
     "sovits_epochs": 3,
     "batch_size": "auto",

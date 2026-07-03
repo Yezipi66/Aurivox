@@ -31,6 +31,13 @@ PROJECT_ROOT = os.path.dirname(LIB_DIR)                     # 项目根
 # gsv_code 作为包导入需要 lib/training 在 path 上; TTS/sv/BigVGAN/sr/TTS_infer_pack 需要 lib/inference 在 path 上
 sys.path.insert(0, os.path.join(LIB_DIR, "training"))
 sys.path.insert(0, THIS_DIR)
+# 训练脚本以裸名 `import utils` 引用 gsv_code/utils.py, 训练出的 SoVITS 权重把 hps
+# (utils.HParams 对象) pickle 进 checkpoint["config"], 其模块引用记为裸名 `utils`。
+# 反序列化 (load_sovits_new -> torch.load) 需要裸 `import utils` 能解析, 否则报
+# "No module named 'utils'" 导致 set_sovits_weights 400、训练模型无法加载。
+# 用 append 放在 path 末尾: 既能解析裸 utils, 又不遮蔽推理端/训练包已有的
+# 同名顶层模块 (gsv_code 下有 text/tools/module/configs), 保持既有导入顺序不变。
+sys.path.append(os.path.join(LIB_DIR, "training", "gsv_code"))
 
 # 让 yaml 里的相对底模路径 (./lib/training/...) 始终相对项目根解析
 os.chdir(PROJECT_ROOT)
@@ -89,9 +96,9 @@ if not os.path.exists(config_path):
     if os.path.exists(_example):
         import shutil
         shutil.copyfile(_example, config_path)
-        print(f"[config] {config_path} 不存在, 已从模板复制: {_example}")
+        print(f"[config] {config_path} not found, copied from template: {_example}")
     else:
-        print(f"[config] 警告: {config_path} 与模板 {_example} 均不存在")
+        print(f"[config] warning: neither {config_path} nor template {_example} exists")
 
 tts_config = TTS_Config(config_path)
 print(tts_config)

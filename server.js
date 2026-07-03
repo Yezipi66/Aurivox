@@ -1836,16 +1836,39 @@ app.get("/api/assets/:id/segments", (req, res) => {
 
 // GET /api/assets/:id/raw-list — live listing of raw/ audio files (for the
 // non-sliced reference-audio column). Reads the directory NOW (not meta.json)
-// so deleted files never appear.
+// so deleted files never appear. Each entry is enriched with:
+//   - text:     aligned reference transcript from asr_opt/raw_opt.list (by basename)
+//   - duration: WAV header duration in seconds (0 when unknown, e.g. mp3 — the
+//               client then measures it via the <audio> element for the 3–10s guard)
 app.get("/api/assets/:id/raw-list", (req, res) => {
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const rawDir = path.join(ASSETS_DIR, id, "raw");
   if (!fs.existsSync(rawDir)) return res.json({ ok: true, raw: [] });
   try {
+    // Build basename -> reference text map from raw_opt.list (if present).
+    const textByName = {};
+    const listFile = path.join(ASSETS_DIR, id, "asr_opt", "raw_opt.list");
+    if (fs.existsSync(listFile)) {
+      try {
+        for (const entry of assetScanner.parseSlicerOptList(fs.readFileSync(listFile, "utf-8"))) {
+          if (entry.origName && entry.text) textByName[entry.origName] = entry.text;
+        }
+      } catch { /* unreadable list → no texts, non-fatal */ }
+    }
     const files = fs.readdirSync(rawDir)
       .filter(f => /\.(wav|mp3|flac|m4a|ogg)$/i.test(f))
-      .map(f => ({ filename: f, url: `/assets/${id}/raw/${encodeURIComponent(f)}` }));
+      .map(f => {
+        const dur = /\.wav$/i.test(f)
+          ? Math.round(assetScanner.getWavDuration(path.join(rawDir, f)) * 100) / 100
+          : 0;
+        return {
+          filename: f,
+          url: `/assets/${id}/raw/${encodeURIComponent(f)}`,
+          text: textByName[f] || "",
+          duration: dur,
+        };
+      });
     res.json({ ok: true, raw: files });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
@@ -2295,6 +2318,15 @@ function sanitizeCustomParams(custom) {
     intNum(s, 'sovits_epochs', t.sovits_epochs, 1, 100);
     word(s, 'batch_size', t.batch_size, 'auto', 1, 16);
     word(s, 'learning_rate', t.learning_rate, 'default', 1e-7, 1);
+    // 训练目标版本（v2 / v2Pro / v2ProPlus）——前端可在 customParams.training.version 覆盖
+    oneOf(s, 'version', t.version, ['v2', 'v2Pro', 'v2ProPlus']);
+    // 多版本并行训练（读法 B）：versions[] 白名单，每项 ∈ v2/v2Pro/v2ProPlus，去重保序。
+    if (Array.isArray(t.versions)) {
+      const _allowedV = ['v2', 'v2Pro', 'v2ProPlus'];
+      const _vs = [];
+      for (const v of t.versions) if (_allowedV.includes(v) && !_vs.includes(v)) _vs.push(v);
+      if (_vs.length) s.versions = _vs;
+    }
     // S1 advanced / expert
     intNum(s, 'seed', t.seed, 0, 999999);
     intNum(s, 'save_every_n_epoch', t.save_every_n_epoch, 1, 50);
@@ -2351,6 +2383,64 @@ function sanitizeCustomParams(custom) {
 // Must be configured in production — requests without it are rejected
 const TRAIN_DATA_ROOT = process.env.TRAIN_DATA_ROOT || "";
 
+// ===== task3 底模门禁：基础模型体检（与 download_models.py 布局对齐） =====
+const GSV_PRETRAINED_DIR = path.join(__dirname, 'lib', 'training', 'gsv-tools', 'pretrained');
+function _mvFirstExisting(cands) {
+  for (const rel of cands) { const fp = path.join(GSV_PRETRAINED_DIR, rel); try { if (fs.existsSync(fp)) return fp; } catch (_) {} }
+  return null;
+}
+function normModelVersion(v) {
+  const s = String(v || '').toLowerCase().replace(/[\s_-]/g, '');
+  if (s === 'v2proplus') return 'v2ProPlus';
+  if (s === 'v2pro') return 'v2Pro';
+  return 'v2';
+}
+const _MV_BASE_REQ = {
+  v2: [
+    { label: 's2G', cands: ['gsv-v2final/s2G2333k.pth', 'gsv-v2final-pretrained/s2G2333k.pth', 's2G2333k.pth', 'v2Pro/s2G488k.pth', 's2G488k.pth', 'gsv-v2final/s2G488k.pth'] },
+    { label: 's2D', cands: ['gsv-v2final/s2D2333k.pth', 'gsv-v2final-pretrained/s2D2333k.pth', 's2D2333k.pth', 'v2Pro/s2D488k.pth', 's2D488k.pth', 'gsv-v2final/s2D488k.pth'] },
+  ],
+  v2Pro: [
+    { label: 's2G', cands: ['v2Pro/s2Gv2Pro.pth'] },
+    { label: 's2D', cands: ['v2Pro/s2Dv2Pro.pth'] },
+    { label: 'sv', cands: ['sv/pretrained_eres2netv2w24s4ep4.ckpt'] },
+  ],
+  v2ProPlus: [
+    { label: 's2G', cands: ['v2Pro/s2Gv2ProPlus.pth'] },
+    { label: 's2D', cands: ['v2Pro/s2Dv2ProPlus.pth'] },
+    { label: 'sv', cands: ['sv/pretrained_eres2netv2w24s4ep4.ckpt'] },
+  ],
+};
+// hard 版本(v2Pro/v2ProPlus)缺关键底模(s2G/s2D) → 训练必产电流声，属产品事故，必须拦。
+// v2 可回退(shape-safe)，永不拦，仅前端警告。sv 缺失仅退化(零向量)，警告不拦。
+const _MV_HARD = new Set(['v2Pro', 'v2ProPlus']);
+function checkBaseModelsForVersion(v) {
+  const version = normModelVersion(v);
+  const reqs = _MV_BASE_REQ[version] || _MV_BASE_REQ.v2;
+  const present = [], missing = [];
+  for (const r of reqs) { (_mvFirstExisting(r.cands) ? present : missing).push(r.label); }
+  const criticalMissing = missing.filter((m) => m === 's2G' || m === 's2D');
+  const hard = _MV_HARD.has(version);
+  const blocking = hard && criticalMissing.length > 0;
+  const degraded = !blocking && missing.includes('sv');
+  return { version, hard, ok: missing.length === 0, missing, present, criticalMissing, blocking, degraded };
+}
+// 前端管线在开训前调用它显示底模体检 / 警告（?version=v2Pro 或 ?versions=v2,v2Pro,v2ProPlus）。
+app.get("/api/models/status", (req, res) => {
+  const raw = req.query.versions != null ? String(req.query.versions)
+            : (req.query.version != null ? String(req.query.version) : 'v2');
+  const seen = new Set(); const versions = [];
+  for (const tok of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+    const nv = normModelVersion(tok);
+    if (!seen.has(nv)) { seen.add(nv); versions.push(checkBaseModelsForVersion(nv)); }
+  }
+  if (!versions.length) versions.push(checkBaseModelsForVersion('v2'));
+  const anyBlocking = versions.some((v) => v.blocking);
+  const anyDegraded = versions.some((v) => v.degraded);
+  // 顶层铺开首个版本字段，兼容旧前端单版本读法。
+  res.json({ versions, anyBlocking, anyDegraded, ...versions[0] });
+});
+
 app.post("/api/train/start", requireApiKey, (req, res) => {
   try {
     const { voiceId: rawVoiceId, language, inputDir, steps: stepOptions, customParams, overwrite } = req.body || {};
@@ -2400,6 +2490,26 @@ app.post("/api/train/start", requireApiKey, (req, res) => {
 
     // 白名单校验 customParams
     const safeCustom = sanitizeCustomParams(customParams);
+
+    // 底模门禁：若将训练 S2(SoVITS)，逐一体检所有目标版本；任一 hard 版本(v2Pro/
+    // v2ProPlus)关键底模缺失 → 拒绝(否则产出电流声，属产品事故)。v2 可回退，仅警告。
+    {
+      const s2Enabled = ((stepOptions?.train_s2 ?? stepOptions?.train ?? true) !== false);
+      if (s2Enabled) {
+        const tv = safeCustom.training || {};
+        const selVersions = (Array.isArray(tv.versions) && tv.versions.length) ? tv.versions
+                          : (tv.version ? [tv.version] : ['v2']);
+        const blocked = selVersions.map(checkBaseModelsForVersion).filter((r) => r.blocking);
+        if (blocked.length) {
+          return res.status(412).json({
+            error: `Base models missing for: ${blocked.map((b) => `${b.version} (${b.criticalMissing.join('+')})`).join(', ')}. `
+                 + `Download them with download_models.py before training these versions.`,
+            code: "BASE_MODELS_MISSING",
+            versions: blocked,
+          });
+        }
+      }
+    }
 
     // Validate language
     if (!ALLOWED_LANGUAGES.has(language)) {
