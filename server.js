@@ -19,12 +19,15 @@ const GPT_SOVITS_BASE_URL = process.env.GPT_SOVITS_BASE_URL || "http://127.0.0.1
 const APP_DIR = __dirname;
 const VOICES_JSON = path.join(APP_DIR, "voices.json");
 const OUTPUT_DIR = path.join(APP_DIR, "outputs");
+// Per-source output roots. Only "generate" is written this round; the
+// compare/broker folders are reserved for later assetization work.
+const GENERATE_DIR = path.join(OUTPUT_DIR, "generate");
 const VOICES_DIR = path.join(APP_DIR, "voices");
 const BACKUP_DIR = path.join(APP_DIR, "backups");
 const WEB_DIST = path.join(APP_DIR, "web", "dist");
 const ASSETS_DIR = ASSETS_ROOT;
 
-for (const d of [OUTPUT_DIR, VOICES_DIR, BACKUP_DIR, ASSETS_DIR]) {
+for (const d of [OUTPUT_DIR, GENERATE_DIR, VOICES_DIR, BACKUP_DIR, ASSETS_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -662,6 +665,7 @@ const TTS_PASS_THROUGH_KEYS = [
   "sample_steps", "if_sr", "super_sampling",
   "media_type", "streaming_mode",
   "overlap_length", "min_chunk_length",
+  "pron_overrides",
 ];
 
 function buildTtsPayload(text, cfg) {
@@ -841,6 +845,95 @@ app.post("/api/advanced-params", requireApiKey, (req, res) => {
   }
 });
 
+// ============================================================
+// 读音校对 / Pronunciation proofing (task6)
+// 词典 = 用户运行时资产，不入 git（见 .gitignore: data/pron_lexicon/）
+// ============================================================
+const PRON_LEXICON_DIR = path.join(APP_DIR, "data", "pron_lexicon");
+
+function pronLexiconPath(lang) {
+  const safe = String(lang || "zh").toLowerCase().replace(/[^a-z_]/g, "") || "zh";
+  return path.join(PRON_LEXICON_DIR, safe + ".json");
+}
+
+function loadPronLexicon(lang) {
+  try {
+    const p = pronLexiconPath(lang);
+    if (!fs.existsSync(p)) return {};
+    const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+    return (data && typeof data === "object" && !Array.isArray(data)) ? data : {};
+  } catch (e) {
+    console.error("[pron] load lexicon failed:", e.message);
+    return {};
+  }
+}
+
+function savePronLexicon(lang, data) {
+  fs.mkdirSync(PRON_LEXICON_DIR, { recursive: true });
+  const p = pronLexiconPath(lang);
+  const tmp = p + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, p);
+  return data;
+}
+
+// 预览：文本 -> 逐词逐字读音 + 候选（代理到引擎 /pron/preview，复用已加载 g2pW）
+app.post("/api/pron/preview", async (req, res) => {
+  const body = req.body || {};
+  const text = (body.text || "").toString();
+  const lang = (body.lang || "zh").toString();
+  if (!text) return res.json({ lang, norm_text: "", tokens: [] });
+  try {
+    const r = await gsvPost("/pron/preview", { text, lang });
+    let payload;
+    try { payload = JSON.parse(r.body.toString("utf-8")); }
+    catch (e) { payload = { message: "bad preview response" }; }
+    return res.status(r.statusCode || 200).json(payload);
+  } catch (e) {
+    return res.status(502).json({ error: clientError(e, "pron preview failed (engine offline?)") });
+  }
+});
+
+// 读词典
+app.get("/api/pron/lexicon", (req, res) => {
+  const lang = (req.query.lang || "zh").toString();
+  return res.json({ lang, entries: loadPronLexicon(lang) });
+});
+
+// 写/更新一条词典项 {lang, word, pinyins:[...]}
+app.post("/api/pron/lexicon", requireApiKey, (req, res) => {
+  const body = req.body || {};
+  const lang = (body.lang || "zh").toString();
+  const word = (body.word || "").toString().trim();
+  const pinyins = Array.isArray(body.pinyins) ? body.pinyins.map(String) : null;
+  if (!word) return res.status(400).json({ error: "Missing 'word'" });
+  if (!pinyins || !pinyins.length) return res.status(400).json({ error: "Missing 'pinyins'" });
+  try {
+    const data = loadPronLexicon(lang);
+    data[word] = pinyins;
+    savePronLexicon(lang, data);
+    return res.json({ ok: true, lang, word, pinyins, entries: data });
+  } catch (e) {
+    return res.status(500).json({ error: clientError(e, "save lexicon failed") });
+  }
+});
+
+// 删除一条词典项（word/lang 支持 query 或 body）
+app.delete("/api/pron/lexicon", requireApiKey, (req, res) => {
+  const body = req.body || {};
+  const lang = ((req.query.lang || body.lang) || "zh").toString();
+  const word = ((req.query.word || body.word) || "").toString().trim();
+  if (!word) return res.status(400).json({ error: "Missing 'word'" });
+  try {
+    const data = loadPronLexicon(lang);
+    delete data[word];
+    savePronLexicon(lang, data);
+    return res.json({ ok: true, lang, word, entries: data });
+  } catch (e) {
+    return res.status(500).json({ error: clientError(e, "delete lexicon failed") });
+  }
+});
+
 app.get("/api/voices", (req, res) => {
   try {
     const data = loadVoices();
@@ -866,6 +959,8 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     sample_steps, if_sr, super_sampling,
     media_type, streaming_mode,
     overlap_length, min_chunk_length,
+    source, voice_label,
+    pron_overrides,
   } = req.body || {};
   if (!voice) return res.status(400).json({ error: "Missing 'voice' field" });
   if (!text) return res.status(400).json({ error: "Missing 'text' field" });
@@ -906,6 +1001,8 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     streaming_mode: streaming_mode !== undefined ? !!streaming_mode : undefined,
     overlap_length: overlap_length !== undefined ? parseInt(overlap_length, 10) : undefined,
     min_chunk_length: min_chunk_length !== undefined ? parseInt(min_chunk_length, 10) : undefined,
+    // 读音校对（task6）：本次合成的词粒度读音覆盖，仅在非空对象时透传给引擎
+    pron_overrides: (pron_overrides && typeof pron_overrides === "object" && !Array.isArray(pron_overrides) && Object.keys(pron_overrides).length) ? pron_overrides : undefined,
   };
 
   const shouldSplit = split !== false;
@@ -914,9 +1011,20 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
   const silenceMs = Math.min(2000, Math.max(0, parseInt(silence_ms, 10) || 300));
   // Engine only returns WAV; format param is accepted for API compatibility but always produces wav
   const mediaType = "wav";
-  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
-  const rand = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-  const safeVoice = voice.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const genId = newGenId();
+  const genDir = genAssetDir(genId);
+  fs.mkdirSync(genDir, { recursive: true });
+  const genUrlBase = `/outputs/generate/${genId}`;
+  const genSource = source || "generate";
+  // Shared audit fields; each branch adds split/concat/segments/audio_url/files.
+  const metaBase = {
+    id: genId, source: genSource, createdAt: Date.now(),
+    voice, voiceLabel: voice_label || voice, text, lang: cfg.text_lang,
+    gpt: genBaseName(cfg.gpt_model) || "—", sovits: genBaseName(cfg.sovits_model) || "—",
+    gpt_model: cfg.gpt_model, sovits_model: cfg.sovits_model,
+    ref_audio: cfg.reference_audio, ref_text: cfg.reference_text,
+    recipe: req.body || {}, status: "ok",
+  };
 
   try {
     await withGenerationLock(async () => {
@@ -925,10 +1033,13 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
       // Short text or split disabled: single generation
       if (!shouldSplit || text.length <= softLimit) {
         const audioBytes = await generateOneSegment(text, cfg);
-        const filename = `${safeVoice}_${ts}_${rand}.${mediaType}`;
-        fs.writeFileSync(path.join(OUTPUT_DIR, filename), audioBytes);
-        console.log(`[OK] Generated: ${filename} (${audioBytes.length} bytes)`);
-        return res.json({ ok: true, voice, split: false, concat: false, audio_url: `/outputs/${filename}` });
+        fs.writeFileSync(path.join(genDir, "audio.wav"), audioBytes);
+        const audioUrl = `${genUrlBase}/audio.wav`;
+        writeGenMeta(genId, { ...metaBase, split: false, concat: false, segments: 1,
+          audio_url: audioUrl,
+          files: [{ role: "single", name: "audio.wav", url: audioUrl }] });
+        console.log(`[OK] Generated: ${genId}/audio.wav (${audioBytes.length} bytes)`);
+        return res.json({ ok: true, id: genId, voice, split: false, concat: false, audio_url: audioUrl });
       }
 
       // Split + generate
@@ -943,12 +1054,12 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
         console.log(`[SEG ${i}/${segments.length - 1}] "${segText.slice(0, 30)}..." (${segText.length} chars)`);
         try {
           const audioBytes = await generateOneSegment(segText, cfg);
-          const segFilename = `${safeVoice}_${ts}_${rand}_seg${String(i).padStart(3, "0")}.${mediaType}`;
-          const segPath = path.join(OUTPUT_DIR, segFilename);
+          const segName = `seg${String(i).padStart(3, "0")}.${mediaType}`;
+          const segPath = path.join(genDir, segName);
           fs.writeFileSync(segPath, audioBytes);
           segFiles.push(segPath);
-          segResults.push({ index: i, text: segText, audio_url: `/outputs/${segFilename}` });
-          console.log(`[OK] Segment ${i}: ${segFilename} (${audioBytes.length} bytes)`);
+          segResults.push({ index: i, text: segText, audio_url: `${genUrlBase}/${segName}` });
+          console.log(`[OK] Segment ${i}: ${genId}/${segName} (${audioBytes.length} bytes)`);
         } catch (err) {
           console.error(`[FAIL] Segment ${i} failed: ${err.message}`);
           return res.status(502).json({
@@ -961,8 +1072,11 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
       if (!shouldConcat || segFiles.length === 1) {
         // No concatenation requested or only one segment
         const first = segResults[0];
+        writeGenMeta(genId, { ...metaBase, split: true, concat: false, segments: segResults.length,
+          audio_url: first.audio_url,
+          files: segResults.map(s => ({ role: "segment", index: s.index, name: genBaseName(s.audio_url), url: s.audio_url })) });
         return res.json({
-          ok: true, voice, split: true, concat: false,
+          ok: true, id: genId, voice, split: true, concat: false,
           audio_url: first.audio_url,
           segments: segResults,
           warning: segFiles.length === 1 ? "Text fit in one segment; no concatenation needed" : undefined,
@@ -970,17 +1084,23 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
       }
 
       // Concatenate
-      const combinedFilename = `${safeVoice}_${ts}_${rand}_combined.${mediaType}`;
-      const combinedPath = path.join(OUTPUT_DIR, combinedFilename);
+      const combinedName = `combined.${mediaType}`;
+      const combinedPath = path.join(genDir, combinedName);
 
       try {
         const concatResult = await concatWavFiles(segFiles, combinedPath, silenceMs);
         const combinedSize = fs.statSync(combinedPath).size;
-        console.log(`[OK] Combined: ${combinedFilename} (${combinedSize} bytes, method: ${concatResult.method})`);
+        console.log(`[OK] Combined: ${genId}/${combinedName} (${combinedSize} bytes, method: ${concatResult.method})`);
+
+        const combinedUrl = `${genUrlBase}/${combinedName}`;
+        writeGenMeta(genId, { ...metaBase, split: true, concat: true, segments: segResults.length,
+          audio_url: combinedUrl,
+          files: [{ role: "combined", name: combinedName, url: combinedUrl },
+            ...segResults.map(s => ({ role: "segment", index: s.index, name: genBaseName(s.audio_url), url: s.audio_url }))] });
 
         return res.json({
-          ok: true, voice, split: true, concat: true,
-          audio_url: `/outputs/${combinedFilename}`,
+          ok: true, id: genId, voice, split: true, concat: true,
+          audio_url: combinedUrl,
           silence_ms: silenceMs,
           concat_method: concatResult.method,
           segments: segResults,
@@ -1304,34 +1424,102 @@ app.post("/api/assets/:id/open", requireApiKey, (req, res) => {
 });
 
 // ===========================
-//  OUTPUTS — Recent Generations file management
+//  GENERATION ASSETS — folder + meta.json per generation (Generate page)
 // ===========================
-// Resolve a client-supplied output name/URL to a real file inside OUTPUT_DIR.
-// path.basename collapses any traversal ('../x' -> 'x'); we then re-check
-// containment defensively before touching the filesystem.
-function resolveOutputFile(nameOrUrl) {
-  if (typeof nameOrUrl !== "string" || !nameOrUrl.trim()) return null;
-  const base = path.basename(nameOrUrl.split("?")[0].replace(/\\/g, "/"));
-  if (!base || base === "." || base === "..") return null;
-  const full = path.join(OUTPUT_DIR, base);
-  if (full !== OUTPUT_DIR && !full.startsWith(OUTPUT_DIR + path.sep)) return null;
-  return { base, full };
+// One /api/generate call = one folder outputs/generate/<genId>/ holding audio +
+// meta.json (audit + recipe for Rerun + source). Management operates by id, so
+// Delete removes the whole folder (all segments), not just the combined file.
+function genAssetDir(genId) { return path.join(GENERATE_DIR, genId); }
+
+function newGenId() {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
+  const rand = Math.random().toString(36).slice(2, 7);
+  return `${ts}_${rand}`;
 }
 
-// POST /api/outputs/reveal — highlight a generated file in the OS file manager.
-app.post("/api/outputs/reveal", requireApiKey, (req, res) => {
-  const f = resolveOutputFile(req.body && (req.body.name || req.body.url));
-  if (!f) return res.status(400).json({ error: "Invalid output name" });
-  if (!fs.existsSync(f.full)) {
-    return res.status(404).json({ error: "Output file not found (it may have been cleaned)" });
+function genBaseName(p) {
+  if (!p || typeof p !== "string") return "";
+  return p.replace(/\\/g, "/").split("/").pop();
+}
+
+function writeGenMeta(genId, meta) {
+  const dir = genAssetDir(genId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2));
+}
+
+// Resolve a client-supplied generation id to its asset folder, defending against
+// traversal (basename collapse + containment re-check).
+function resolveGenDir(id) {
+  if (typeof id !== "string" || !id.trim()) return null;
+  const base = path.basename(id.replace(/\\/g, "/"));
+  if (!base || base === "." || base === "..") return null;
+  const full = genAssetDir(base);
+  if (!full.startsWith(GENERATE_DIR + path.sep)) return null;
+  return { id: base, full };
+}
+
+// Shape a stored meta.json into the client-facing Recent Generations item.
+function genItemFromMeta(meta) {
+  return {
+    id: meta.id,
+    source: meta.source || "generate",
+    text: meta.text || "",
+    voice: meta.voiceLabel || meta.voice || "",
+    lang: meta.lang || "",
+    gpt: meta.gpt || "\u2014",
+    sovits: meta.sovits || "\u2014",
+    segments: meta.segments || 1,
+    createdAt: meta.createdAt || 0,
+    audio_url: meta.audio_url || "",
+    params: meta.recipe || null,
+  };
+}
+
+// GET /api/outputs — list every generation (newest first), read from meta.json.
+app.get("/api/outputs", requireApiKey, (req, res) => {
+  try {
+    let dirs = [];
+    try { dirs = fs.readdirSync(GENERATE_DIR, { withFileTypes: true }); } catch (_) {}
+    const items = [];
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      const metaPath = path.join(GENERATE_DIR, d.name, "meta.json");
+      if (!fs.existsSync(metaPath)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+        items.push(genItemFromMeta(meta));
+      } catch (e) {
+        console.error(`[OUTPUTS] bad meta ${d.name}: ${e.message}`);
+      }
+    }
+    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    res.json({ ok: true, items });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
   }
+});
+
+// POST /api/outputs/reveal — highlight the generation folder (or its primary file).
+app.post("/api/outputs/reveal", requireApiKey, (req, res) => {
+  const g = resolveGenDir(req.body && (req.body.id || req.body.name));
+  if (!g) return res.status(400).json({ error: "Invalid generation id" });
+  if (!fs.existsSync(g.full)) {
+    return res.status(404).json({ error: "Generation not found (it may have been cleaned)" });
+  }
+  let target = g.full;
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(g.full, "meta.json"), "utf-8"));
+    const primary = genBaseName(meta.audio_url || "");
+    if (primary && fs.existsSync(path.join(g.full, primary))) target = path.join(g.full, primary);
+  } catch (_) {}
   try {
     if (process.platform === "win32") {
-      spawn("explorer", [`/select,${f.full}`], { stdio: "ignore" });
+      spawn("explorer", [`/select,${target}`], { stdio: "ignore" });
     } else if (process.platform === "darwin") {
-      spawn("open", ["-R", f.full], { stdio: "ignore" });
+      spawn("open", ["-R", target], { stdio: "ignore" });
     } else {
-      spawn("xdg-open", [OUTPUT_DIR], { stdio: "ignore" });
+      spawn("xdg-open", [g.full], { stdio: "ignore" });
     }
     res.json({ ok: true });
   } catch (err) {
@@ -1339,36 +1527,38 @@ app.post("/api/outputs/reveal", requireApiKey, (req, res) => {
   }
 });
 
-// DELETE /api/outputs/:name — permanently delete one generated file.
-app.delete("/api/outputs/:name", requireApiKey, (req, res) => {
-  const f = resolveOutputFile(req.params.name);
-  if (!f) return res.status(400).json({ error: "Invalid output name" });
+// DELETE /api/outputs/:id — permanently delete the WHOLE generation folder.
+app.delete("/api/outputs/:id", requireApiKey, (req, res) => {
+  const g = resolveGenDir(req.params.id);
+  if (!g) return res.status(400).json({ error: "Invalid generation id" });
   try {
-    if (fs.existsSync(f.full)) fs.rmSync(f.full, { force: true });
-    res.json({ ok: true, name: f.base });
+    if (fs.existsSync(g.full)) fs.rmSync(g.full, { recursive: true, force: true });
+    res.json({ ok: true, id: g.id });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
   }
 });
 
-// POST /api/outputs/clear-all — delete every real file under outputs/.
+// POST /api/outputs/clear-all — delete every generation folder under generate/.
 app.post("/api/outputs/clear-all", requireApiKey, (req, res) => {
   try {
     let removed = 0, bytes = 0;
     let entries = [];
-    try { entries = fs.readdirSync(OUTPUT_DIR, { withFileTypes: true }); } catch (_) {}
+    try { entries = fs.readdirSync(GENERATE_DIR, { withFileTypes: true }); } catch (_) {}
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const p = path.join(OUTPUT_DIR, entry.name);
+      if (!entry.isDirectory()) continue;
+      const p = path.join(GENERATE_DIR, entry.name);
       try {
-        bytes += fs.statSync(p).size;
-        fs.rmSync(p, { force: true });
+        for (const f of fs.readdirSync(p)) {
+          try { bytes += fs.statSync(path.join(p, f)).size; } catch (_) {}
+        }
+        fs.rmSync(p, { recursive: true, force: true });
         removed++;
       } catch (e) {
         console.error(`[OUTPUTS] delete failed ${p}: ${e.message}`);
       }
     }
-    console.log(`[OUTPUTS] clear-all removed ${removed} file(s), freed ${bytes} bytes`);
+    console.log(`[OUTPUTS] clear-all removed ${removed} generation(s), freed ${bytes} bytes`);
     res.json({ ok: true, removed, bytes });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });

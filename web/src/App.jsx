@@ -70,6 +70,143 @@ function basename(p) {
 // ===========================
 //  GENERATE TAB
 // ===========================
+// 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
+// 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
+function PronPanel({ text, setText, lang, overrides, setOverrides }) {
+  const [preview, setPreview] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [lexicon, setLexicon] = useState({})
+  const supported = lang === 'zh' || lang === 'yue'
+
+  const loadLexicon = useCallback(() => {
+    if (!supported) return
+    api(`/api/pron/lexicon?lang=${encodeURIComponent(lang)}`).then(r => {
+      if (r.ok && r.data?.entries) setLexicon(r.data.entries)
+    }).catch(() => {})
+  }, [lang, supported])
+
+  useEffect(() => { loadLexicon() }, [loadLexicon])
+
+  const doPreview = async () => {
+    setError(null); setPreview(null)
+    if (!text.trim()) { setError('Enter text above first.'); return }
+    if (!supported) { setError('Pronunciation proofing currently supports Chinese (zh) only.'); return }
+    setLoading(true)
+    try {
+      const r = await api('/api/pron/preview', { method: 'POST', body: { text, lang } })
+      if (!r.ok) throw new Error(r.data?.error || `Preview failed (${r.status})`)
+      setPreview(r.data)
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  // Change a single character's reading -> record a word-level override.
+  const changeReading = (word, charIndex, newReading) => {
+    const token = (preview?.tokens || []).find(t => t.word === word)
+    if (!token) return
+    const readings = token.chars.map((c, i) => i === charIndex ? newReading : (overrides[word]?.[i] ?? c.reading))
+    setOverrides({ ...overrides, [word]: readings })
+    setPreview(pv => ({ ...pv, tokens: pv.tokens.map(t => t.word === word
+      ? { ...t, chars: t.chars.map((c, i) => i === charIndex ? { ...c, reading: newReading, source: 'override' } : c) }
+      : t) }))
+  }
+
+  const saveToLexicon = async (word) => {
+    const readings = overrides[word] || (preview?.tokens.find(t => t.word === word)?.chars.map(c => c.reading))
+    if (!readings) return
+    const r = await api('/api/pron/lexicon', { method: 'POST', body: { lang, word, pinyins: readings } })
+    if (r.ok) { setLexicon(r.data.entries || {}) }
+    else setError(r.data?.error || 'Failed to save to lexicon')
+  }
+
+  const deleteFromLexicon = async (word) => {
+    const r = await api(`/api/pron/lexicon?lang=${encodeURIComponent(lang)}&word=${encodeURIComponent(word)}`, { method: 'DELETE' })
+    if (r.ok) setLexicon(r.data.entries || {})
+  }
+
+  const clearOverrides = () => { setOverrides({}); if (preview) doPreview() }
+
+  return (
+    <div className="section" style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 600 }}>Reading proofing</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {supported ? 'Edit text, preview readings, fix polyphonic characters.' : `Language "${lang}" is contract-only for now.`}
+        </span>
+      </div>
+
+      <textarea
+        className="control" rows={3} placeholder="Edit the text to synthesize here..."
+        value={text} onChange={e => setText(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="btn btn-sm" onClick={doPreview} disabled={loading || !supported}>
+          {loading ? 'Previewing...' : 'Preview readings'}
+        </button>
+        {Object.keys(overrides).length > 0 && (
+          <>
+            <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(overrides).length} override(s) active this run</span>
+            <button className="btn btn-sm btn-ghost" onClick={clearOverrides}>Clear overrides</button>
+          </>
+        )}
+      </div>
+
+      {error && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
+
+      {preview && supported && (
+        <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {(preview.tokens || []).map((tok, ti) => (
+            <div key={ti} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', background: 'var(--surface)' }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {tok.chars.map((c, ci) => (
+                  <div key={ci} style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 15, color: c.polyphonic ? 'var(--warning)' : 'var(--text)' }}>{c.char}</div>
+                    {c.polyphonic && c.candidates.length > 1 ? (
+                      <select
+                        className="control" style={{ height: 22, fontSize: 11, padding: '0 2px', minWidth: 54 }}
+                        value={c.reading}
+                        onChange={e => changeReading(tok.word, ci, e.target.value)}
+                      >
+                        {(c.candidates.includes(c.reading) ? c.candidates : [c.reading, ...c.candidates]).map(cand => (
+                          <option key={cand} value={cand}>{cand}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.reading}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {overrides[tok.word] && (
+                <button className="btn btn-sm btn-ghost" style={{ marginTop: 4, fontSize: 10 }} onClick={() => saveToLexicon(tok.word)}>
+                  Save to lexicon
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {supported && Object.keys(lexicon).length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Saved lexicon ({lang}):</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {Object.entries(lexicon).map(([w, pys]) => (
+              <span key={w} style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 12, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {w}: {pys.join(' ')}
+                <button className="btn btn-sm btn-ghost" style={{ padding: 0, fontSize: 12, lineHeight: 1 }} onClick={() => deleteFromLexicon(w)}>x</button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef, onActivity }) {
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
@@ -78,9 +215,15 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // not a blob, so the players keep working after a reload.
   const [result, setResult] = usePersistentState('generate.result', null)
   const [validation, setValidation] = useState(null)
-  const [recent, setRecent] = usePersistentState('generate.recent', [], {
-    rehydrate: r => (Array.isArray(r) ? r.slice(0, 20) : []),
-  })  // Recent Generations (Part 4) — now persistent across reloads
+  // Recent Generations — server-authoritative (GET /api/outputs). Each entry is
+  // a real asset folder (outputs/generate/<id>/ with meta.json), so Rerun / Show
+  // in Explorer / Delete all act on the backend by id. "Clear History" only hides
+  // entries locally (dismissed ids); the audio files stay on disk.
+  const [recentAll, setRecentAll] = useState([])
+  const [dismissed, setDismissed] = usePersistentState('generate.dismissed', [], {
+    rehydrate: r => (Array.isArray(r) ? r : []),
+  })
+  const recent = recentAll.filter(x => !dismissed.includes(x.id))
   const [genConfirm, setGenConfirm] = useState(null)      // secondary-confirm modal payload
   const [genConfirmBusy, setGenConfirmBusy] = useState(false)
 
@@ -88,6 +231,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
   const [concatEnabled, setConcatEnabled] = usePersistentState('generate.concatEnabled', true)
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
+
+  // 读音校对（task6）：勾选开关持久化；本次覆盖仅内存态
+  const [pronEnabled, setPronEnabled] = usePersistentState('generate.pronEnabled', false)
+  const [pronOverrides, setPronOverrides] = useState({})
 
   const selected = voices.find(v => v.id === selectedVoice)
 
@@ -202,6 +349,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // pick would silently keep sending the stale slice transcript.
   const currentRefText = selectedRefAudio ? selectedRefText : (defaultRef ? (defaultRef.text || '') : '')
 
+  // Load the server-authoritative Recent Generations list.
+  const loadRecent = async () => {
+    const r = await api('/api/outputs')
+    if (r.ok && r.data && Array.isArray(r.data.items)) setRecentAll(r.data.items)
+  }
+  useEffect(() => { loadRecent() }, [])
+
   // Core generation runner shared by the Generate button and Recent → Rerun.
   // The exact request body is captured into each recent item so Rerun can
   // reproduce the audio with identical settings (not just reload the text).
@@ -215,21 +369,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
       setResult(r.data)
-      if (r.data.audio_url) {
-        setRecent(prev => [{
-          id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          text: body.text,
-          voice: meta?.voiceLabel || body.voice,
-          lang: body.text_lang || body.prompt_lang,
-          gpt: basename(body.gpt_model) || '—',
-          sovits: basename(body.sovits_model) || '—',
-          audio_url: r.data.audio_url,
-          name: basename(r.data.audio_url),
-          segments: r.data.segments?.length || 1,
-          createdAt: Date.now(),
-          params: body,
-        }, ...prev].slice(0, 20))
-      }
+      if (r.data.audio_url) { loadRecent() }
       return r.data
     } catch (err) { setError(err.message); return null }
     finally { setLoading(false); onActivity?.(null) }
@@ -256,6 +396,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       gpt_model: selGpt, sovits_model: selSovits,
       text_lang: lang, prompt_lang: lang,
       aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
+      pron_overrides: (pronEnabled && Object.keys(pronOverrides).length > 0) ? pronOverrides : undefined,
+      source: 'generate', voice_label: selected?.display_name || selectedVoice,
     }
     const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
     if (data) {
@@ -294,8 +436,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   }
 
   const revealItem = async (item) => {
-    const name = item.name || basename(item.audio_url || '')
-    const r = await api('/api/outputs/reveal', { method: 'POST', body: { name } })
+    const r = await api('/api/outputs/reveal', { method: 'POST', body: { id: item.id } })
     if (!r.ok) setError(outputsError(r, 'Could not open the file location'))
   }
 
@@ -305,7 +446,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     confirmLabel: 'Clear history',
     danger: false,
     icon: <IconRerun size={18} color="var(--accent)" />,
-    onConfirm: () => { setRecent([]); setGenConfirm(null) },
+    onConfirm: () => { setDismissed(prev => Array.from(new Set([...prev, ...recentAll.map(x => x.id)]))); setGenConfirm(null) },
   })
 
   const askCleanAll = () => setGenConfirm({
@@ -319,7 +460,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       const r = await api('/api/outputs/clear-all', { method: 'POST' })
       setGenConfirmBusy(false)
       if (!r.ok) { setError(outputsError(r, 'Failed to clean output files')); setGenConfirm(null); return }
-      setRecent([]); setResult(null); setGenConfirm(null)
+      setDismissed([]); setResult(null); setGenConfirm(null); loadRecent()
     },
   })
 
@@ -331,11 +472,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     icon: <IconTrash size={18} color="var(--danger)" />,
     onConfirm: async () => {
       setGenConfirmBusy(true)
-      const name = item.name || basename(item.audio_url || '')
-      const r = await api(`/api/outputs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      const r = await api(`/api/outputs/${encodeURIComponent(item.id)}`, { method: 'DELETE' })
       setGenConfirmBusy(false)
       if (!r.ok) { setError(outputsError(r, 'Failed to delete audio')); setGenConfirm(null); return }
-      setRecent(prev => prev.filter(x => x.id !== item.id)); setGenConfirm(null)
+      setGenConfirm(null); loadRecent()
     },
   })
 
@@ -392,6 +532,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 )}
                 <span>Language: <span style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{lang}</span></span>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
+                <input type="checkbox" checked={pronEnabled} onChange={e => setPronEnabled(e.target.checked)} />
+                Reading proofing (fix polyphonic characters before synthesis)
+              </label>
+              {pronEnabled && (
+                <PronPanel text={text} setText={setText} lang={lang} overrides={pronOverrides} setOverrides={setPronOverrides} />
+              )}
             </div>
 
             <div className="section" style={{ margin: '6px 0' }}>
@@ -2034,7 +2181,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
                 title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
                   ? 'Some selected SoVITS versions are missing base models — run download_models.py for them first'
-                  : ''}>Start Training</button>
+                  : ''}>Start Tuning</button>
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
                 title="Delete finished task workspaces from the .staging cache (running tasks are never touched)">
                 {clearing ? 'Cleaning…' : 'Clean Cache'}
@@ -2066,7 +2213,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                    : status.status === 'failed' ? 'Failed'
                    : status.status === 'cancelled' ? 'Cancelled'
                    : status.status === 'interrupted' ? 'Interrupted'
-                   : 'Training…'}
+                   : 'Tuning…'}
                 </span>
                 {isRunning && (
                   <button className="btn btn-sm btn-danger" onClick={handleCancel}>Cancel</button>
@@ -2074,7 +2221,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               </div>
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>
-                  Training was interrupted. Intermediate results are available; resume-from-checkpoint is on the roadmap.
+                  Tuning was interrupted. Intermediate results are available; resume-from-checkpoint is on the roadmap.
                 </div>
               )}
               {isFinished && (
@@ -3881,10 +4028,10 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
         {assetEntries.length === 0 && (
           <div className="empty-state">
             <div className="es-title">No voice assets yet</div>
-            <div className="es-sub">Scan your assets directory to detect voices, or train a new voice to get started.</div>
+            <div className="es-sub">Scan your assets directory to detect voices, or fine-tune a new voice to get started.</div>
             <div className="empty-actions">
               <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan Dataset'}</button>
-              <button className="btn btn-sm" onClick={() => setPage('train')}>Start Training</button>
+              <button className="btn btn-sm" onClick={() => setPage('train')}>Start Tuning</button>
             </div>
           </div>
         )}
@@ -4422,7 +4569,7 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
   let taskLabel = 'None', taskPlaceholder = true, taskBusy = false
   const trainRunning = activeTaskId && taskStatus?.status === 'running'
   if (trainRunning) {
-    taskLabel = `Training · ${taskStatus?.currentStep || '…'}`; taskPlaceholder = false; taskBusy = true
+    taskLabel = `Tuning · ${taskStatus?.currentStep || '…'}`; taskPlaceholder = false; taskBusy = true
   } else if (activity) {
     taskLabel = activity.label || 'Generating'; taskPlaceholder = false; taskBusy = true
   } else if (activeTaskId) {

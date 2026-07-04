@@ -132,6 +132,18 @@ class TTS_Request(BaseModel):
     super_sampling: bool = False
     overlap_length: int = 2
     min_chunk_length: int = 16
+    # 读音校对（task6）：本次合成的词粒度读音覆盖，形如 {"乐句": ["yue4","ju4"]}
+    pron_overrides: dict = None
+
+
+class PronPreviewRequest(BaseModel):
+    text: str = None
+    lang: str = "zh"
+
+
+def _normalize_pron_lang(lang):
+    lang = (lang or "zh").lower().replace("all_", "").replace("auto_", "").replace("auto", "zh")
+    return lang or "zh"
 
 
 def pack_ogg(io_buffer: BytesIO, data: np.ndarray, rate: int):
@@ -264,17 +276,41 @@ async def tts_handle(req: dict):
 
     streaming_mode = streaming_mode or return_fragment
 
+    # 读音校对（task6）：设置本次合成的词粒度读音覆盖上下文；缺模块时静默降级。
+    pron_overrides = req.pop("pron_overrides", None)
+    _pron_active = False
+    if pron_overrides:
+        try:
+            from gsv_code.text import pron_correction
+            _pron_lang = _normalize_pron_lang(req.get("text_lang"))
+            print(f"[infer_server] pron_overrides received (lang={_pron_lang}): {pron_overrides}", flush=True)
+            pron_correction.set_context(pron_overrides, _pron_lang)
+            _pron_active = True
+        except Exception as _e:
+            print(f"[infer_server] pron override set failed: {_e!r}")
+
+    def _clear_pron():
+        if _pron_active:
+            try:
+                from gsv_code.text import pron_correction
+                pron_correction.clear_context()
+            except Exception:
+                pass
+
     try:
         tts_generator = tts_pipeline.run(req)
         if streaming_mode:
             def streaming_generator(tts_generator: Generator, media_type: str):
-                if_frist_chunk = True
-                for sr, chunk in tts_generator:
-                    if if_frist_chunk and media_type == "wav":
-                        yield wave_header_chunk(sample_rate=sr)
-                        media_type = "raw"
-                        if_frist_chunk = False
-                    yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
+                try:
+                    if_frist_chunk = True
+                    for sr, chunk in tts_generator:
+                        if if_frist_chunk and media_type == "wav":
+                            yield wave_header_chunk(sample_rate=sr)
+                            media_type = "raw"
+                            if_frist_chunk = False
+                        yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
+                finally:
+                    _clear_pron()
 
             return StreamingResponse(
                 streaming_generator(tts_generator, media_type),
@@ -283,8 +319,10 @@ async def tts_handle(req: dict):
         else:
             sr, audio_data = next(tts_generator)
             audio_data = pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
+            _clear_pron()
             return Response(audio_data, media_type=f"audio/{media_type}")
     except Exception as e:
+        _clear_pron()
         return JSONResponse(status_code=400, content={"message": "tts failed", "Exception": str(e)})
 
 
@@ -332,6 +370,18 @@ async def tts_get_endpoint(
 async def tts_post_endpoint(request: TTS_Request):
     req = request.dict()
     return await tts_handle(req)
+
+
+@APP.post("/pron/preview")
+async def pron_preview(request: PronPreviewRequest):
+    # 读音校对（task6）：文本 -> 逐词逐字读音 + 候选 + 多音标记。
+    # 复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。
+    try:
+        from gsv_code.text import pron_correction
+        data = pron_correction.preview(request.text or "", _normalize_pron_lang(request.lang))
+        return JSONResponse(status_code=200, content=data)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"message": "pron preview failed", "Exception": str(e)})
 
 
 @APP.get("/set_refer_audio")

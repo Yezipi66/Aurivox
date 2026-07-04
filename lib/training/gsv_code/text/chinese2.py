@@ -98,6 +98,13 @@ rep_map = {
 
 tone_modifier = ToneSandhi()
 
+# 读音校对层（task6）：词粒度多音字修正；模块缺失或异常时降级为 no-op，保证零回归。
+try:
+    from gsv_code.text import pron_correction as _pron
+except Exception as _pron_err:  # pragma: no cover
+    print(f"[chinese2] pron_correction unavailable ({_pron_err!r}); pronunciation override disabled.")
+    _pron = None
+
 
 def replace_punctuation(text):
     text = text.replace("嗯", "恩").replace("呣", "母")
@@ -115,6 +122,48 @@ def g2p(text):
     sentences = [i for i in re.split(pattern, text) if i.strip() != ""]
     phones, word2ph = _g2p(sentences)
     return phones, word2ph
+
+
+def get_word_pinyins(text):
+    """预览/校对用：返回 (norm_text, [(word, [pinyin,...]), ...])。
+
+    复刻 _g2p 的逐词拼音推导（g2pW 整句推理 + correct_pronunciation + 读音覆盖层），
+    停在 opencpop 符号映射之前，保证「预览读音 == 实际合成读音」。
+    非 g2pw 回退时用 pypinyin TONE3。标点/英文段不计入 token。
+    """
+    norm_text = text_normalize(text)
+    pattern = r"(?<=[{0}])\s*".format("".join(punctuation))
+    segments = [i for i in re.split(pattern, norm_text) if i.strip() != ""]
+    processed = [re.sub("[a-zA-Z]+", "", seg) for seg in segments]
+
+    g2pw_batch = []
+    cursor = 0
+    if is_g2pw:
+        batch_inputs = [seg for seg in processed if seg]
+        g2pw_batch = g2pw._g2pw(batch_inputs) if batch_inputs else []
+
+    out = []
+    for seg in processed:
+        seg_cut = tone_modifier.pre_merge_for_modify(psg.lcut(seg))
+        pinyins = []
+        if is_g2pw and seg:
+            pinyins = g2pw_batch[cursor]
+            cursor += 1
+        pre_word_length = 0
+        for word, pos in seg_cut:
+            now_word_length = pre_word_length + len(word)
+            if pos == "eng":
+                pre_word_length = now_word_length
+                continue
+            if is_g2pw:
+                word_pinyins = correct_pronunciation(word, pinyins[pre_word_length:now_word_length])
+            else:
+                word_pinyins = lazy_pinyin(word, neutral_tone_with_five=True, style=Style.TONE3)
+            if _pron is not None:
+                word_pinyins = _pron.apply(word, word_pinyins)
+            out.append((word, list(word_pinyins)))
+            pre_word_length = now_word_length
+    return norm_text, out
 
 
 def _get_initials_finals(word):
@@ -239,6 +288,26 @@ def _g2p(segments):
                 if pos == "eng":
                     continue
                 sub_initials, sub_finals = _get_initials_finals(word)
+                # 读音校对层（pypinyin 回退分支）：g2pW 不可用时仍让词粒度读音覆盖生效。
+                if _pron is not None:
+                    _base_py = lazy_pinyin(word, neutral_tone_with_five=True, style=Style.TONE3)
+                    _ov_py = _pron.apply(word, _base_py)
+                    if list(_ov_py) != list(_base_py):
+                        if os.environ.get("PRON_DEBUG"):
+                            print(f"[pron] apply(pypinyin) word={word!r} in={list(_base_py)} -> {list(_ov_py)}", flush=True)
+                        if len(_ov_py) == len(sub_finals):
+                            _ni, _nf, _ok = [], [], True
+                            for _py in _ov_py:
+                                if _py and _py[0].isalpha():
+                                    _ni.append(to_initials(_py))
+                                    _nf.append(to_finals_tone3(_py, neutral_tone_with_five=True))
+                                else:
+                                    _ok = False
+                                    break
+                            if _ok:
+                                sub_initials, sub_finals = _ni, _nf
+                        elif os.environ.get("PRON_DEBUG"):
+                            print(f"[pron] apply(pypinyin) length mismatch word={word!r} ov={len(_ov_py)} finals={len(sub_finals)}; kept base", flush=True)
                 sub_finals = tone_modifier.modified_tone(word, pos, sub_finals)
                 # 儿化
                 sub_initials, sub_finals = _merge_erhua(sub_initials, sub_finals, word, pos)
@@ -268,6 +337,10 @@ def _g2p(segments):
 
                 # 多音字消歧
                 word_pinyins = correct_pronunciation(word, word_pinyins)
+
+                # 读音校对层：词粒度覆盖（单次 overrides > 全局词典 > g2p）；无覆盖时原样返回
+                if _pron is not None:
+                    word_pinyins = _pron.apply(word, word_pinyins)
 
                 for pinyin in word_pinyins:
                     if pinyin[0].isalpha():

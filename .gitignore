@@ -44,3 +44,6 @@ $null
 base_test.wav
 test_base.py
 requirements.lock.current.txt
+data/pron_lexicon/*.json
+!data/pron_lexicon/.gitkeep
+!data/pron_lexicon/README.md
