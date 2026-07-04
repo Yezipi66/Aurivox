@@ -26,10 +26,21 @@ import jieba_fast.posseg as psg
 # is_g2pw_str = os.environ.get("is_g2pw", "True")##默认开启
 # is_g2pw = False#True if is_g2pw_str.lower() == 'true' else False
 is_g2pw = True  # True if is_g2pw_str.lower() == 'true' else False
+# g2pW (ONNX polyphone disambiguation) is OPTIONAL and is frequently absent on
+# Windows installs: the g2pw folder ships only an (empty) G2PWModel/ placeholder,
+# so `from gsv_code.text.g2pw import G2PWPinyin` fails ("cannot import name
+# G2PWPinyin ... unknown location"). That import failure made EVERY Chinese line
+# fail phoneme conversion, leaving the training set empty ("phoneme has 0 rows").
+# Do the real import defensively and degrade to the pypinyin path (already
+# implemented below) so Chinese fine-tune still works without g2pW.
+if is_g2pw:
+    try:
+        from gsv_code.text.g2pw import G2PWPinyin, correct_pronunciation
+    except Exception as _g2pw_err:
+        print(f"[chinese2] g2pW unavailable ({_g2pw_err!r}); using pypinyin fallback for Chinese.")
+        is_g2pw = False
 if is_g2pw:
     # print("当前使用g2pw进行拼音推理")
-    from gsv_code.text.g2pw import G2PWPinyin, correct_pronunciation
-
     parent_directory = os.path.dirname(current_file_path)
     # 优先从环境变量 bert_path 读取，其次用项目内的默认路径
     # current_file_path = lib/training/gsv_code/text/chinese2.py
@@ -56,12 +67,16 @@ if is_g2pw:
         return self_contained
 
     g2pw_model_dir = _resolve_g2pw_dir()
-    g2pw = G2PWPinyin(
-        model_dir=g2pw_model_dir,
-        model_source=bert_path,
-        v_to_u=False,
-        neutral_tone_with_five=True,
-    )
+    try:
+        g2pw = G2PWPinyin(
+            model_dir=g2pw_model_dir,
+            model_source=bert_path,
+            v_to_u=False,
+            neutral_tone_with_five=True,
+        )
+    except Exception as _g2pw_err:
+        print(f"[chinese2] g2pW model load failed ({_g2pw_err!r}); using pypinyin fallback for Chinese.")
+        is_g2pw = False
 
 rep_map = {
     "：": ",",
@@ -232,7 +247,7 @@ def _g2p(segments):
                 # assert len(sub_initials) == len(sub_finals) == len(word)
             initials = sum(initials, [])
             finals = sum(finals, [])
-            print("pypinyin结果", initials, finals)
+            # print("pypinyin结果", initials, finals)
         else:
             # g2pw采用整句推理（批量推理，逐句取结果）
             if seg:

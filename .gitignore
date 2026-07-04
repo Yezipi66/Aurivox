@@ -36,3 +36,11 @@ app-config.json
 voices.json
 lib/voices.json
 cr-sandbox/
+*.bak
+*.bak2
+*.bak[0-9]*
+*.bak.*
+$null
+base_test.wav
+test_base.py
+requirements.lock.current.txt

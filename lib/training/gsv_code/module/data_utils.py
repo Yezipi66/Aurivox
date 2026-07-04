@@ -48,11 +48,27 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
                 continue
             self.phoneme_data[tmp[0]] = [tmp[1]]
         if self.is_v2Pro:
-            self.audiopaths_sid_text = list(set(self.phoneme_data) & names4 & names5 & names6)
+            base = set(self.phoneme_data) & names4 & names5
+            if names6:
+                self.audiopaths_sid_text = list(base & names6)
+            else:
+                # 7-sv_cn (speaker-verification features) is empty/missing: the SV
+                # model was not available at preprocess time (2-get-sv.py skipped).
+                # Do NOT let that wipe out the whole training set -- fall back to the
+                # zero SV embeddings already produced per-item in
+                # get_audio_text_speaker_pair(). Training proceeds without SV gain.
+                print("[data_utils] 7-sv_cn empty/missing; training v2Pro/v2ProPlus with zero SV embeddings (download the SV model for full quality).")
+                self.audiopaths_sid_text = list(base)
         else:
             self.audiopaths_sid_text = list(set(self.phoneme_data) & names4 & names5)
         tmp = self.audiopaths_sid_text
         leng = len(tmp)
+        if leng == 0:
+            raise RuntimeError(
+                "Training set is empty: no filenames match across 2-name2text, "
+                "4-cnhubert and 5-wav32k. Preprocess likely produced mismatched names; "
+                "re-run preprocessing for this voice."
+            )
         min_num = 100
         if leng < min_num:
             self.audiopaths_sid_text = []

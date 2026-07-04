@@ -23,12 +23,10 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from asr.asr_utils import load_cudnn, get_asr_models
 
-# 尝试导入 FunASR 中文后处理（可选）
-try:
-    from funasr import AutoModel
-    HAS_FUNASR = True
-except ImportError:
-    HAS_FUNASR = False
+# FunASR / DAMO Chinese post-processing is intentionally disabled: on Windows
+# it repeatedly hangs/crashes for zh/yue, which was the sole reason Chinese ASR
+# failed while ja/en worked. All languages now use faster-whisper only.
+HAS_FUNASR = False
 
 # fmt: off
 language_code_list = [
@@ -151,14 +149,9 @@ def execute_asr(input_folder, output_folder, model_path, language, precision,
                     vad_filter=False, language=language,
                 )
             text = ""
-
-            if info.language in ["zh", "yue"] and HAS_FUNASR:
-                print(f"  [CN detected] {file_name} -> FunASR", flush=True)
-                text = _funasr_only_asr(file_path, info.language.lower())
-
-            if text == "":
-                for segment in segments:
-                    text += segment.text
+            # Pure faster-whisper for every language (zh/yue included).
+            for segment in segments:
+                text += segment.text
             output.append(f"{file_path}|{output_file_name}|{info.language.upper()}|{text}")
         except Exception as e:
             print(f"  Error: {file_name}: {e}", flush=True)

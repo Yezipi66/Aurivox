@@ -46,6 +46,16 @@ function api(path, opts = {}) {
   })
 }
 
+// Build a helpful error for /api/outputs/* calls. A 404 here almost always means
+// the backend is running an older build without these routes; surface the HTTP
+// status so the fix (apply the server patch, then restart the backend) is obvious.
+function outputsError(r, fallback) {
+  if (r && r.data && typeof r.data === 'object' && r.data.error) return r.data.error
+  const status = r ? r.status : 0
+  if (status === 404) return 'HTTP 404 - the /api/outputs endpoints are missing. The backend is running an older build; restart it after applying the server patch.'
+  return `${fallback} (HTTP ${status || '?'})`
+}
+
 // Status badge for a boolean backend check (e.g. /api/voices/:id/validate)
 function statusBadge(ok, okLabel = 'Selected', missLabel = 'Missing') {
   return <span className={`badge ${ok ? 'badge-ok' : 'badge-danger'}`}>{ok ? okLabel : missLabel}</span>
@@ -71,6 +81,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [recent, setRecent] = usePersistentState('generate.recent', [], {
     rehydrate: r => (Array.isArray(r) ? r.slice(0, 20) : []),
   })  // Recent Generations (Part 4) — now persistent across reloads
+  const [genConfirm, setGenConfirm] = useState(null)      // secondary-confirm modal payload
+  const [genConfirmBusy, setGenConfirmBusy] = useState(false)
 
   const [splitEnabled, setSplitEnabled] = usePersistentState('generate.splitEnabled', true)
   const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
@@ -190,52 +202,64 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // pick would silently keep sending the stale slice transcript.
   const currentRefText = selectedRefAudio ? selectedRefText : (defaultRef ? (defaultRef.text || '') : '')
 
-  const handleGenerate = async () => {
-    if (!selectedVoice) { setError('Select a voice first'); return }
-    if (!text.trim()) { setError('Enter text to synthesize'); return }
+  // Core generation runner shared by the Generate button and Recent → Rerun.
+  // The exact request body is captured into each recent item so Rerun can
+  // reproduce the audio with identical settings (not just reload the text).
+  const runGenerate = async (body, meta) => {
     setLoading(true); setError(null); setResult(null)
-    const willSplit = splitEnabled && text.trim().length > maxChars
-    const estChunks = Math.max(1, Math.ceil(text.trim().length / Math.max(1, maxChars)))
+    const t = (body.text || '').trim()
+    const willSplit = !!body.split && t.length > (body.max_chars || 30)
+    const estChunks = Math.max(1, Math.ceil(t.length / Math.max(1, body.max_chars || 30)))
     onActivity?.({ label: willSplit ? `Generating · ${estChunks} chunks` : 'Generating' })
     try {
-      const r = await api('/api/generate', {
-        method: 'POST',
-        body: {
-          voice: selectedVoice, text: text.trim(), format: 'wav',
-          ref_audio: currentRefAudio || undefined,
-          reference_text: currentRefText || undefined,
-          split: splitEnabled, max_chars: maxChars,
-          concat: concatEnabled, silence_ms: silenceMs,
-          temperature, top_k: topK, top_p: topP,
-          repetition_penalty: repPenalty, text_split_method: splitMethod,
-          speed_factor: speedFactor, seed,
-          batch_size: batchSize, batch_threshold: batchThreshold,
-          split_bucket: splitBucket, fragment_interval: fragmentInterval,
-          parallel_infer: parallelInfer,
-          sample_steps: sampleSteps, if_sr: superSampling,
-          media_type: mediaType, streaming_mode: streamingMode,
-          overlap_length: overlapLength, min_chunk_length: minChunkLength,
-          gpt_model: selGpt, sovits_model: selSovits,
-          text_lang: lang, prompt_lang: lang,
-          aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
-        }
-      })
+      const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
       setResult(r.data)
       if (r.data.audio_url) {
         setRecent(prev => [{
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          text: text.trim(),
-          voice: selected?.display_name || selectedVoice,
-          lang,
-          gpt: basename(selGpt) || '—',
-          sovits: basename(selSovits) || '—',
+          text: body.text,
+          voice: meta?.voiceLabel || body.voice,
+          lang: body.text_lang || body.prompt_lang,
+          gpt: basename(body.gpt_model) || '—',
+          sovits: basename(body.sovits_model) || '—',
           audio_url: r.data.audio_url,
+          name: basename(r.data.audio_url),
           segments: r.data.segments?.length || 1,
           createdAt: Date.now(),
+          params: body,
         }, ...prev].slice(0, 20))
       }
-      // Auto-save advanced params after successful generation
+      return r.data
+    } catch (err) { setError(err.message); return null }
+    finally { setLoading(false); onActivity?.(null) }
+  }
+
+  const handleGenerate = async () => {
+    if (!selectedVoice) { setError('Select a voice first'); return }
+    if (!text.trim()) { setError('Enter text to synthesize'); return }
+    const body = {
+      voice: selectedVoice, text: text.trim(), format: 'wav',
+      ref_audio: currentRefAudio || undefined,
+      reference_text: currentRefText || undefined,
+      split: splitEnabled, max_chars: maxChars,
+      concat: concatEnabled, silence_ms: silenceMs,
+      temperature, top_k: topK, top_p: topP,
+      repetition_penalty: repPenalty, text_split_method: splitMethod,
+      speed_factor: speedFactor, seed,
+      batch_size: batchSize, batch_threshold: batchThreshold,
+      split_bucket: splitBucket, fragment_interval: fragmentInterval,
+      parallel_infer: parallelInfer,
+      sample_steps: sampleSteps, if_sr: superSampling,
+      media_type: mediaType, streaming_mode: streamingMode,
+      overlap_length: overlapLength, min_chunk_length: minChunkLength,
+      gpt_model: selGpt, sovits_model: selSovits,
+      text_lang: lang, prompt_lang: lang,
+      aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
+    }
+    const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
+    if (data) {
+      // Auto-save advanced params after a successful UI-driven generation.
       api('/api/advanced-params', {
         method: 'POST',
         body: {
@@ -250,9 +274,70 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
           overlap_length: overlapLength, min_chunk_length: minChunkLength,
         },
       }).catch(() => {})
-    } catch (err) { setError(err.message) }
-    finally { setLoading(false); onActivity?.(null) }
+    }
   }
+
+  // Recent Generations — real management (rerun / reveal / delete + bulk).
+  const handleRerun = async (item) => {
+    if (loading) return
+    if (!item) return
+    if (!item.params) {
+      // Legacy history entry saved before generation settings were captured: we
+      // can only reload its text. The user then presses Generate to synthesize it
+      // with the currently selected voice and settings.
+      setText(item.text || '')
+      setError('This entry was saved before settings capture, so only its text was loaded into the editor above. Press Generate to synthesize it with the current voice and settings. Newly generated items rerun automatically with their exact original settings.')
+      return
+    }
+    setError(null)
+    await runGenerate(item.params, { voiceLabel: item.voice })
+  }
+
+  const revealItem = async (item) => {
+    const name = item.name || basename(item.audio_url || '')
+    const r = await api('/api/outputs/reveal', { method: 'POST', body: { name } })
+    if (!r.ok) setError(outputsError(r, 'Could not open the file location'))
+  }
+
+  const askClearHistory = () => setGenConfirm({
+    title: 'Clear history',
+    message: 'Remove all entries from this list? Your generated audio files stay on disk — only the history shown here is cleared.',
+    confirmLabel: 'Clear history',
+    danger: false,
+    icon: <IconRerun size={18} color="var(--accent)" />,
+    onConfirm: () => { setRecent([]); setGenConfirm(null) },
+  })
+
+  const askCleanAll = () => setGenConfirm({
+    title: 'Clean all audio',
+    message: 'Permanently delete EVERY generated audio file in the outputs folder and clear this list. This cannot be undone.',
+    confirmLabel: 'Delete files',
+    danger: true,
+    icon: <IconTrash size={18} color="var(--danger)" />,
+    onConfirm: async () => {
+      setGenConfirmBusy(true)
+      const r = await api('/api/outputs/clear-all', { method: 'POST' })
+      setGenConfirmBusy(false)
+      if (!r.ok) { setError(outputsError(r, 'Failed to clean output files')); setGenConfirm(null); return }
+      setRecent([]); setResult(null); setGenConfirm(null)
+    },
+  })
+
+  const askDeleteItem = (item) => setGenConfirm({
+    title: 'Delete this audio',
+    message: 'Permanently delete this generated audio file from disk and remove it from the list. This cannot be undone.',
+    confirmLabel: 'Delete',
+    danger: true,
+    icon: <IconTrash size={18} color="var(--danger)" />,
+    onConfirm: async () => {
+      setGenConfirmBusy(true)
+      const name = item.name || basename(item.audio_url || '')
+      const r = await api(`/api/outputs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      setGenConfirmBusy(false)
+      if (!r.ok) { setError(outputsError(r, 'Failed to delete audio')); setGenConfirm(null); return }
+      setRecent(prev => prev.filter(x => x.id !== item.id)); setGenConfirm(null)
+    },
+  })
 
   return (
     <div className="workspace-grid">
@@ -607,11 +692,16 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
           <CollapsibleSegments segments={result.segments} />
         )}
 
-        {/* Recent Generations (Part 4) — session-level; persistent history needs backend support */}
+        {/* Recent Generations — persistent list with real file management */}
         <div className="section">
           <div className="section-hdr">
             <span>Recent Generations</span>
-            {recent.length > 0 && <button className="btn btn-sm" onClick={() => setRecent([])}>Clear</button>}
+            {recent.length > 0 && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm btn-ghost" onClick={askClearHistory}>Clear History</button>
+                <button className="btn btn-sm btn-danger" onClick={askCleanAll}>Clean All</button>
+              </div>
+            )}
           </div>
           <div className="section-body">
             {recent.length === 0 ? (
@@ -629,15 +719,28 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     </div>
                     <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" /></div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <a className="btn btn-sm" href={`${API_BASE}${item.audio_url}`} download>Download</a>
-                    <button className="btn btn-sm" onClick={() => setText(item.text)} title="Load this text back into the editor">Rerun</button>
+                  <div className="rr-actions">
+                    <button className="icon-btn" title="Show in file explorer" onClick={() => revealItem(item)}><IconFolder size={15} /></button>
+                    <button className="icon-btn" title="Rerun with the same settings" onClick={() => handleRerun(item)} disabled={loading}><IconRerun size={15} /></button>
+                    <button className="icon-btn icon-btn-danger" title="Delete this audio" onClick={() => askDeleteItem(item)}><IconTrash size={15} /></button>
                   </div>
                 </div>
               ))
             )}
           </div>
         </div>
+
+        <ConfirmDialog
+          open={!!genConfirm}
+          title={genConfirm?.title}
+          message={genConfirm?.message}
+          confirmLabel={genConfirm?.confirmLabel}
+          danger={genConfirm?.danger}
+          icon={genConfirm?.icon}
+          busy={genConfirmBusy}
+          onConfirm={genConfirm?.onConfirm}
+          onCancel={() => { if (!genConfirmBusy) setGenConfirm(null) }}
+        />
       </div>
 
       {/* Right sidebar: voice info */}
@@ -1043,7 +1146,6 @@ function AsrParamFields({ form, setField }) {
         <select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
           <option value="auto">Auto (by language)</option>
           <option value="faster-whisper">Faster Whisper</option>
-          <option value="funasr">FunASR (zh/yue)</option>
         </select>
       </div>
       {form.asrEngine !== 'funasr' && (
@@ -1649,19 +1751,20 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
   const [clearMsg, setClearMsg] = useState(null);
   const [clearing, setClearing] = useState(false);
+  const [cacheConfirm, setCacheConfirm] = useState(false);
   const handleClearStaging = async () => {
     if (clearing) return;
-    if (!window.confirm('Clear all finished task workspaces from the training cache (.staging)? Running tasks are never deleted.')) return;
+    setCacheConfirm(false);
     setClearing(true);
     setClearMsg(null);
     try {
       const r = await api('/api/train/clear-staging', { method: 'POST' });
-      if (!r.ok) throw new Error(r.data?.error || 'Failed to clear cache');
+      if (!r.ok) throw new Error(r.data?.error || 'Failed to clean cache');
       const mb = (r.data.bytes / (1024 * 1024)).toFixed(1);
       const skipped = r.data.skipped ? `, ${r.data.skipped} running task(s) kept` : '';
-      setClearMsg(`Cleared ${r.data.removed} cache folder(s), freed ${mb} MB${skipped}`);
+      setClearMsg(`Cleaned ${r.data.removed} cache folder(s), freed ${mb} MB${skipped}`);
     } catch (err) {
-      setClearMsg(`Clear failed: ${err.message}`);
+      setClearMsg(`Clean failed: ${err.message}`);
     } finally {
       setClearing(false);
     }
@@ -1932,13 +2035,25 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
                   ? 'Some selected SoVITS versions are missing base models — run download_models.py for them first'
                   : ''}>Start Training</button>
-              <button className="btn btn-ghost" onClick={handleClearStaging} disabled={clearing}
+              <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
                 title="Delete finished task workspaces from the .staging cache (running tasks are never touched)">
-                {clearing ? 'Clearing…' : 'Clear Cache'}
+                {clearing ? 'Cleaning…' : 'Clean Cache'}
               </button>
               {clearMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{clearMsg}</span>}
             </div>
           )}
+
+          <ConfirmDialog
+            open={cacheConfirm}
+            title="Clean training cache"
+            message="Delete all finished task workspaces from the training cache (.staging)? Running tasks are never deleted. Your published models and assets are not affected."
+            confirmLabel="Clean cache"
+            danger
+            busy={clearing}
+            icon={<IconTrash size={18} color="var(--danger)" />}
+            onConfirm={handleClearStaging}
+            onCancel={() => setCacheConfirm(false)}
+          />
 
           {taskId && !status && (
             <div className="msg" style={{ marginTop: 10 }}>Restoring training state…</div>
@@ -2812,6 +2927,40 @@ function IconFolder({ size = 16, color = 'currentColor' }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
     </svg>
+  )
+}
+
+// External-link / reveal-in-explorer glyph (arrow leaving a frame).
+// Circular refresh / replay glyph for Rerun.
+function IconRerun({ size = 16, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2v6h-6" />
+      <path d="M21 13a9 9 0 1 1-3-7.7L21 8" />
+    </svg>
+  )
+}
+
+// Reusable secondary-confirmation modal (replaces the browser's native
+// window.confirm, which is unstyled/ugly). Reuses .modal-overlay/.modal-card.
+function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', danger = false, busy = false, icon = null, onConfirm, onCancel }) {
+  if (!open) return null
+  return (
+    <div className="modal-overlay" onClick={busy ? undefined : onCancel}>
+      <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
+        <div className="confirm-hdr">
+          {icon}
+          <span>{title}</span>
+        </div>
+        <div className="confirm-body">{message}</div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button className={'btn btn-sm ' + (danger ? 'btn-danger' : 'btn-primary')} onClick={onConfirm} disabled={busy}>
+            {busy ? '…' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

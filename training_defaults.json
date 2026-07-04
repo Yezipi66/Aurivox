@@ -30,13 +30,13 @@
         "engine": "auto",
         "engines": {
           "zh": {
-            "engine": "funasr",
+            "engine": "faster-whisper",
             "label": "\u8fbe\u6469 ASR",
             "description": "\u4e2d\u6587/\u7ca4\u8bed\u4e13\u7528\uff0c\u7cbe\u5ea6\u9ad8",
             "model": "speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
           },
           "yue": {
-            "engine": "funasr",
+            "engine": "faster-whisper",
             "label": "\u8fbe\u6469 ASR (\u7ca4\u8bed)",
             "description": "\u7ca4\u8bed\u4e13\u7528\u6a21\u578b",
             "model": "speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online"

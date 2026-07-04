@@ -1303,6 +1303,78 @@ app.post("/api/assets/:id/open", requireApiKey, (req, res) => {
   }
 });
 
+// ===========================
+//  OUTPUTS — Recent Generations file management
+// ===========================
+// Resolve a client-supplied output name/URL to a real file inside OUTPUT_DIR.
+// path.basename collapses any traversal ('../x' -> 'x'); we then re-check
+// containment defensively before touching the filesystem.
+function resolveOutputFile(nameOrUrl) {
+  if (typeof nameOrUrl !== "string" || !nameOrUrl.trim()) return null;
+  const base = path.basename(nameOrUrl.split("?")[0].replace(/\\/g, "/"));
+  if (!base || base === "." || base === "..") return null;
+  const full = path.join(OUTPUT_DIR, base);
+  if (full !== OUTPUT_DIR && !full.startsWith(OUTPUT_DIR + path.sep)) return null;
+  return { base, full };
+}
+
+// POST /api/outputs/reveal — highlight a generated file in the OS file manager.
+app.post("/api/outputs/reveal", requireApiKey, (req, res) => {
+  const f = resolveOutputFile(req.body && (req.body.name || req.body.url));
+  if (!f) return res.status(400).json({ error: "Invalid output name" });
+  if (!fs.existsSync(f.full)) {
+    return res.status(404).json({ error: "Output file not found (it may have been cleaned)" });
+  }
+  try {
+    if (process.platform === "win32") {
+      spawn("explorer", [`/select,${f.full}`], { stdio: "ignore" });
+    } else if (process.platform === "darwin") {
+      spawn("open", ["-R", f.full], { stdio: "ignore" });
+    } else {
+      spawn("xdg-open", [OUTPUT_DIR], { stdio: "ignore" });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
+// DELETE /api/outputs/:name — permanently delete one generated file.
+app.delete("/api/outputs/:name", requireApiKey, (req, res) => {
+  const f = resolveOutputFile(req.params.name);
+  if (!f) return res.status(400).json({ error: "Invalid output name" });
+  try {
+    if (fs.existsSync(f.full)) fs.rmSync(f.full, { force: true });
+    res.json({ ok: true, name: f.base });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
+// POST /api/outputs/clear-all — delete every real file under outputs/.
+app.post("/api/outputs/clear-all", requireApiKey, (req, res) => {
+  try {
+    let removed = 0, bytes = 0;
+    let entries = [];
+    try { entries = fs.readdirSync(OUTPUT_DIR, { withFileTypes: true }); } catch (_) {}
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const p = path.join(OUTPUT_DIR, entry.name);
+      try {
+        bytes += fs.statSync(p).size;
+        fs.rmSync(p, { force: true });
+        removed++;
+      } catch (e) {
+        console.error(`[OUTPUTS] delete failed ${p}: ${e.message}`);
+      }
+    }
+    console.log(`[OUTPUTS] clear-all removed ${removed} file(s), freed ${bytes} bytes`);
+    res.json({ ok: true, removed, bytes });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
 // Windows file locks (model loaded in the inference server, an open Explorer
 // window from the Browse button, file watcher, AV, indexer) make a directory
 // rename fail with these transient codes. Retry a few times with backoff.

@@ -758,6 +758,22 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .recent-row .rr-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
+.recent-row .rr-actions { display: flex; gap: 4px; align-items: center; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--muted); cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--accent); background: var(--panel); }
+.icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+.icon-btn-danger:hover { color: var(--danger); border-color: var(--danger); }
+.confirm-card { width: 380px; max-width: 100%; padding: 20px 22px; }
+.confirm-hdr { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; margin-bottom: 12px; }
+.confirm-body { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 18px; }
+.confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 /* Plan card key/value */
 .plan-kv { display: grid; grid-template-columns: 120px 1fr; gap: 4px 10px; font-size: 12px; }
 .plan-kv .pk { color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; font-weight: 700; padding-top: 1px; }
