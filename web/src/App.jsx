@@ -77,7 +77,12 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [lexicon, setLexicon] = useState({})
-  const supported = lang === 'zh' || lang === 'yue'
+  // 逐词编辑缓冲（ja 假名 / en ARPABET）：保留用户正在输入的原始字符串，避免受控输入吞空格。
+  const [wordEdits, setWordEdits] = useState({})
+  // zh/yue：逐字选候选；ja：逐词改假名；en：逐词改音标；其它语言契约占位。
+  const supported = lang === 'zh' || lang === 'yue' || lang === 'ja' || lang === 'en'
+  const isCharUnit = lang === 'zh' || lang === 'yue'
+  const readingLabel = lang === 'ja' ? 'kana' : lang === 'en' ? 'ARPABET (space-separated)' : 'reading'
 
   const loadLexicon = useCallback(() => {
     if (!supported) return
@@ -89,9 +94,9 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
   useEffect(() => { loadLexicon() }, [loadLexicon])
 
   const doPreview = async () => {
-    setError(null); setPreview(null)
+    setError(null); setPreview(null); setWordEdits({})
     if (!text.trim()) { setError('Enter text above first.'); return }
-    if (!supported) { setError('Pronunciation proofing currently supports Chinese (zh) only.'); return }
+    if (!supported) { setError(`Reading proofing does not support "${lang}" yet.`); return }
     setLoading(true)
     try {
       const r = await api('/api/pron/preview', { method: 'POST', body: { text, lang } })
@@ -112,8 +117,30 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
       : t) }))
   }
 
+  // Word-level edit (ja kana / en ARPABET). Stores a word-level override.
+  const changeWordReading = (word, str) => {
+    setWordEdits(e => ({ ...e, [word]: str }))
+    const arr = lang === 'en'
+      ? str.trim().split(/\s+/).filter(Boolean)
+      : (str.trim() ? [str.trim()] : [])
+    const next = { ...overrides }
+    if (arr.length) next[word] = arr; else delete next[word]
+    setOverrides(next)
+    setPreview(pv => ({ ...pv, tokens: pv.tokens.map(t => t.word === word
+      ? (lang === 'en' ? { ...t, readings: arr, source: arr.length ? 'override' : 'g2p' }
+                       : { ...t, reading: arr[0] || '', source: arr.length ? 'override' : 'g2p' })
+      : t) }))
+  }
+
   const saveToLexicon = async (word) => {
-    const readings = overrides[word] || (preview?.tokens.find(t => t.word === word)?.chars.map(c => c.reading))
+    let readings = overrides[word]
+    if (!readings) {
+      const tok = preview?.tokens.find(t => t.word === word)
+      if (!tok) return
+      if (tok.unit === 'char') readings = tok.chars.map(c => c.reading)
+      else if (lang === 'en') readings = tok.readings
+      else readings = [tok.reading]
+    }
     if (!readings) return
     const r = await api('/api/pron/lexicon', { method: 'POST', body: { lang, word, pinyins: readings } })
     if (r.ok) { setLexicon(r.data.entries || {}) }
@@ -132,7 +159,10 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600 }}>Reading proofing</span>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-          {supported ? 'Edit text, preview readings, fix polyphonic characters.' : `Language "${lang}" is contract-only for now.`}
+          {!supported ? `Language "${lang}" is contract-only for now.`
+            : isCharUnit ? 'Edit text, preview readings, fix polyphonic characters.'
+            : lang === 'ja' ? 'Edit text, preview readings, fix a word\u2019s kana reading.'
+            : 'Edit text, preview readings, fix a word\u2019s ARPABET phonemes.'}
         </span>
       </div>
 
@@ -160,26 +190,46 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
         <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {(preview.tokens || []).map((tok, ti) => (
             <div key={ti} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', background: 'var(--surface)' }}>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {tok.chars.map((c, ci) => (
-                  <div key={ci} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 15, color: c.polyphonic ? 'var(--warning)' : 'var(--text)' }}>{c.char}</div>
-                    {c.polyphonic && c.candidates.length > 1 ? (
-                      <select
-                        className="control" style={{ height: 22, fontSize: 11, padding: '0 2px', minWidth: 54 }}
-                        value={c.reading}
-                        onChange={e => changeReading(tok.word, ci, e.target.value)}
-                      >
-                        {(c.candidates.includes(c.reading) ? c.candidates : [c.reading, ...c.candidates]).map(cand => (
-                          <option key={cand} value={cand}>{cand}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.reading}</div>
+              {(tok.unit === 'char' || tok.chars) ? (
+                // zh / yue：逐字，多音字给候选下拉
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {tok.chars.map((c, ci) => (
+                    <div key={ci} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 15, color: c.polyphonic ? 'var(--warning)' : 'var(--text)' }}>{c.char}</div>
+                      {c.polyphonic && c.candidates.length > 1 ? (
+                        <select
+                          className="control" style={{ height: 22, fontSize: 11, padding: '0 2px', minWidth: 54 }}
+                          value={c.reading}
+                          onChange={e => changeReading(tok.word, ci, e.target.value)}
+                        >
+                          {(c.candidates.includes(c.reading) ? c.candidates : [c.reading, ...c.candidates]).map(cand => (
+                            <option key={cand} value={cand}>{cand}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.reading}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // ja / en：逐词，直接改写读音（假名 / ARPABET），无候选下拉，输入框做宽
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 15, color: tok.source === 'g2p' ? 'var(--text)' : 'var(--accent)' }}>{tok.word}</div>
+                  <input
+                    className="control"
+                    style={{ height: 24, fontSize: 12, padding: '0 6px', minWidth: lang === 'en' ? 180 : 120 }}
+                    value={wordEdits[tok.word] ?? (
+                      overrides[tok.word]
+                        ? overrides[tok.word].join(' ')
+                        : (lang === 'en' ? (tok.readings || []).join(' ') : (tok.reading || ''))
                     )}
-                  </div>
-                ))}
-              </div>
+                    placeholder={readingLabel}
+                    spellCheck={false}
+                    onChange={e => changeWordReading(tok.word, e.target.value)}
+                  />
+                </div>
+              )}
               {overrides[tok.word] && (
                 <button className="btn btn-sm btn-ghost" style={{ marginTop: 4, fontSize: 10 }} onClick={() => saveToLexicon(tok.word)}>
                   Save to lexicon
@@ -207,7 +257,31 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
   )
 }
 
-function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef, onActivity }) {
+// 目标语言（text_lang）：解除「合成语言 == 微调语言」的硬绑定。任一微调音色可合成
+// 五种支持语言（zh/ja/en/yue/ko）或 auto 混排。prompt_lang（参考音频文本语言）仍跟随音色。
+const TARGET_LANG_OPTIONS = [
+  { value: 'auto', label: 'Auto \u2014 detect per segment' },
+  { value: 'all_zh', label: 'Chinese (\u4e2d\u6587)' },
+  { value: 'all_ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
+  { value: 'en', label: 'English' },
+  { value: 'all_yue', label: 'Cantonese (\u7ca4\u8bed)' },
+  { value: 'all_ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
+]
+const VOICE_TO_TARGET = { zh: 'all_zh', ja: 'all_ja', en: 'en', yue: 'all_yue', ko: 'all_ko' }
+
+// 把音色语言（裸码）映射到默认 text_lang 选项（== 微调源语言，保证零回归）。
+function defaultTargetLang(voiceLang) {
+  const base = String(voiceLang || '').replace(/^all_/, '').replace(/^auto.*/, '')
+  return VOICE_TO_TARGET[base] || 'auto'
+}
+
+// 归一 text_lang 到语言族（all_zh -> zh；auto -> null 不判定失配）。
+function normalizeLangFamily(textLang) {
+  if (!textLang || String(textLang).startsWith('auto')) return null
+  return String(textLang).replace(/^all_/, '')
+}
+
+function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, onActivity }) {
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -283,6 +357,12 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [selGpt, setSelGpt] = useState('')
   const [selSovits, setSelSovits] = useState('')
   const [lang, setLang] = useState(selected?.language || 'ja')
+  // 目标合成语言（text_lang），独立于 prompt_lang；默认 = 微调源语言，切换音色时重置。
+  const [textLang, setTextLang] = useState(() => defaultTargetLang(selected?.language || 'ja'))
+  const _baseLangFam = String(lang || '').replace(/^all_/, '')
+  const _targetFam = normalizeLangFamily(textLang)
+  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // 目标语言与微调语言不符
+  const panelLang = _targetFam || _baseLangFam                        // 读音校对面板跟随目标语言
   const [auxRefs, setAuxRefs] = useState([])  // selected aux reference audio paths
   const [segments, setSegments] = useState([])  // loaded from API for aux ref picker
 
@@ -309,7 +389,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // Set language from voice config
   useEffect(() => {
     const v = voices.find(x => x.id === selectedVoice)
-    if (v?.language) setLang(v.language)
+    if (v?.language) { setLang(v.language); setTextLang(defaultTargetLang(v.language)) }
   }, [selectedVoice, voices])
 
   // Advanced params are global (from /api/advanced-params), not per-voice — no sync needed on voice change
@@ -394,7 +474,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       media_type: mediaType, streaming_mode: streamingMode,
       overlap_length: overlapLength, min_chunk_length: minChunkLength,
       gpt_model: selGpt, sovits_model: selSovits,
-      text_lang: lang, prompt_lang: lang,
+      text_lang: textLang, prompt_lang: selectedPromptLang || lang,
       aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
       pron_overrides: (pronEnabled && Object.keys(pronOverrides).length > 0) ? pronOverrides : undefined,
       source: 'generate', voice_label: selected?.display_name || selectedVoice,
@@ -530,14 +610,27 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 {splitEnabled && (
                   <span>Estimated chunks: <span style={{ color: 'var(--text)' }}>{Math.max(1, Math.ceil(text.trim().length / Math.max(1, maxChars)))}</span></span>
                 )}
-                <span>Language: <span style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{lang}</span></span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Target language:
+                  <select
+                    className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
+                    value={textLang} onChange={e => setTextLang(e.target.value)}
+                  >
+                    {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </span>
               </div>
+              {langMismatch && (
+                <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
+                  Target language differs from the fine-tuned language ({String(lang || '').toUpperCase()}). Inference quality may be affected.
+                </div>
+              )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
                 <input type="checkbox" checked={pronEnabled} onChange={e => setPronEnabled(e.target.checked)} />
                 Reading proofing (fix polyphonic characters before synthesis)
               </label>
               {pronEnabled && (
-                <PronPanel text={text} setText={setText} lang={lang} overrides={pronOverrides} setOverrides={setPronOverrides} />
+                <PronPanel text={text} setText={setText} lang={panelLang} overrides={pronOverrides} setOverrides={setPronOverrides} />
               )}
             </div>
 
@@ -892,7 +985,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
 
       {/* Right sidebar: voice info */}
       <div className="workspace-right">
-        {selected && <VoiceSidebar voice={selected} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} onSelectRef={onSelectRef} />}
+        {selected && <VoiceSidebar voice={selected} voices={voices} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} selectedPromptLang={selectedPromptLang} onSelectRef={onSelectRef} />}
       </div>
     </div>
   )
@@ -2270,7 +2363,166 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   )
 }
 
-function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, onSelectRef }) {
+// prompt_lang（参考音频语言）选项，裸码，与音色 language 字段一致。
+const REF_PROMPT_LANG_OPTIONS = [
+  { value: 'ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
+  { value: 'zh', label: 'Chinese (\u4e2d\u6587)' },
+  { value: 'en', label: 'English' },
+  { value: 'yue', label: 'Cantonese (\u7ca4\u8bed)' },
+  { value: 'ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
+]
+
+// 跨资产参考音频选择器：列出「其他音色」并读取其全部 slices/raw，点选即用。
+// 复用现有 /api/assets/<id>/segments + /raw-list。onPick(path, text)。
+// 独立组件，便于后续 Compare Refs 页复用（预留接口）。
+function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
+  const others = (voices || []).filter(v => v.id !== currentVoiceId)
+  const [vid, setVid] = useState(others[0]?.id || '')
+  const [segs, setSegs] = useState(null)
+  const [raws, setRaws] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [rawDur, setRawDur] = useState({})
+
+  useEffect(() => {
+    if (others.length && !others.find(o => o.id === vid)) setVid(others[0].id)
+  }, [currentVoiceId])   // eslint-disable-line
+
+  useEffect(() => {
+    if (!vid) { setSegs([]); setRaws([]); return }
+    setLoading(true); setRawDur({})
+    Promise.all([
+      api(`/api/assets/${vid}/segments`)
+        .then(r => setSegs(r.ok && r.data.segments ? (r.data.segments.segments || []) : []))
+        .catch(() => setSegs([])),
+      api(`/api/assets/${vid}/raw-list`)
+        .then(r => setRaws(r.ok && r.data.raw ? r.data.raw : []))
+        .catch(() => setRaws([])),
+    ]).finally(() => setLoading(false))
+  }, [vid])
+
+  if (others.length === 0) return <div className="field-hint">No other voices available.</div>
+
+  const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
+  const availRaw = Array.isArray(raws) ? raws : []
+  const pickSlice = (seg) => {
+    const p = seg.audio || seg.audio_path || seg.audio_filename
+    const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
+    if (fn) onPick(`assets/${vid}/slicer_opt/${fn}`, seg.text || '')
+  }
+  const pickRaw = (rf) => onPick(`assets/${vid}/raw/${rf.filename}`, rf.text || '')
+
+  return (
+    <div>
+      <select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 6 }}>
+        {others.map(o => <option key={o.id} value={o.id}>{o.display_name} ({o.language || '?'})</option>)}
+      </select>
+      <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
+        Cross-voice reference &mdash; timbre and quality may differ from this model.
+      </div>
+      {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
+      {!loading && (
+        <div className="ref-list">
+          {availSlices.length === 0 && availRaw.length === 0 && <div className="ref-col-empty">No reference audio in this voice</div>}
+          {availSlices.map((seg, i) => {
+            const p = seg.audio || seg.audio_path || seg.audio_filename
+            const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
+            const rpath = `assets/${vid}/slicer_opt/${fn}`
+            const isActive = activeRef === rpath
+            const oor = !refInRange(seg.duration)
+            return (
+              <div key={`s${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => pickSlice(seg)} title={seg.text || ''}>
+                <div className="ref-item-row">
+                  <span className="ref-item-name">{seg.scene} #{seg.index}</span>
+                  <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s{oor ? ' \u26a0' : ''}</span>
+                  <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '\u2713' : '\u2192'}</span>
+                </div>
+                <AudioPlayer src={`/assets/${vid}/slicer_opt/${fn}`} />
+              </div>
+            )
+          })}
+          {availRaw.map((rf, i) => {
+            const rpath = `assets/${vid}/raw/${rf.filename}`
+            const isActive = activeRef === rpath
+            const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[rf.filename]
+            const known = typeof dur === 'number' && dur > 0
+            const oor = known && !refInRange(dur)
+            return (
+              <div key={`r${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => pickRaw(rf)} title={rf.text || rf.filename}>
+                <div className="ref-item-row">
+                  <span className="ref-item-name">{rf.filename}</span>
+                  {known && <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s{oor ? ' \u26a0' : ''}</span>}
+                  <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '\u2713' : '\u2192'}</span>
+                </div>
+                <AudioPlayer src={rf.url} onDuration={d => setRawDur(prev => (prev[rf.filename] ? prev : { ...prev, [rf.filename]: d }))} />
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 完全自选参考音频：浏览器文件选择（跨平台，非原生对话框），上传到
+// voices/custom_refs 后作为任意音色的 ref_audio。可选手填参考文本 + prompt_lang。
+// onPick(path, text, promptLang, customObj)；独立组件，Compare 页可复用（预留接口）。
+function CustomRefPicker({ custom, onPick, onClear }) {
+  const fileRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [err, setErr] = useState(null)
+  const [text, setText] = useState('')
+  const [plang, setPlang] = useState('')
+  const [dur, setDur] = useState(null)
+
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0]
+    e.target.value = ''
+    if (!f) return
+    setErr(null); setUploading(true)
+    try {
+      const fd = new FormData(); fd.append('audio', f)
+      const r = await api('/api/custom-ref-audio', { method: 'POST', body: fd, contentType: 'multipart' })
+      if (!r.ok) throw new Error(r.data?.error || `Upload failed (${r.status})`)
+      setText(''); setPlang(''); setDur(null)
+      onPick(r.data.path, '', '', { path: r.data.path, url: r.data.url, name: r.data.name })
+    } catch (e2) { setErr(e2.message) }
+    finally { setUploading(false) }
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
+      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title="Pick any audio file from your computer">
+        {'\uD83D\uDCC1'} {uploading ? 'Uploading\u2026' : 'Custom file\u2026'}
+      </button>
+      {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
+      {custom && (
+        <div style={{ marginTop: 6 }}>
+          <div className="field-hint" style={{ color: 'var(--warning)' }}>
+            Custom reference &mdash; no aligned transcript. Add one below (optional).
+          </div>
+          <div style={{ fontSize: 12, wordBreak: 'break-all', margin: '4px 0' }}>{custom.name}</div>
+          <AudioPlayer src={custom.url} onDuration={d => setDur(d)} />
+          {typeof dur === 'number' && dur > 0 && !refInRange(dur) && (
+            <div className="ref-range-warn">{'\u26a0'} {dur.toFixed(1)}s &mdash; the engine requires {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s.</div>
+          )}
+          <input className="control" placeholder="Reference transcript (optional)" value={text}
+            onChange={e => { setText(e.target.value); onPick(custom.path, e.target.value, plang, custom) }}
+            style={{ marginTop: 6 }} />
+          <label className="field-hint" style={{ display: 'block', marginTop: 4 }}>Reference language (prompt_lang)</label>
+          <select className="control" value={plang}
+            onChange={e => { setPlang(e.target.value); onPick(custom.path, text, e.target.value, custom) }}>
+            <option value="">Follow current voice</option>
+            {REF_PROMPT_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <div><button className="btn btn-sm" style={{ marginTop: 6 }} onClick={onClear}>Remove custom reference</button></div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef }) {
   const [segments, setSegments] = useState(null)
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
@@ -2279,11 +2531,16 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
   // whose length the server can't read from a WAV header, so the <audio> element
   // reports it on loadedmetadata — used for the same 3–10s guard as slices.
   const [rawDurations, setRawDurations] = useState({})
+  // 跨选/自选参考音频（本次会话内有效，切换音色时重置；不写入音色配置）。
+  const [crossMode, setCrossMode] = useState(false)
+  const [customRef, setCustomRef] = useState(null) // { path, url, name } | null
 
   useEffect(() => {
     if (!voice.id) return
     setSegLoading(true)
     setRawDurations({})
+    setCrossMode(false)
+    setCustomRef(null)
     Promise.all([
       api(`/api/assets/${voice.id}/segments`).then(r => {
         setSegments(r.ok && r.data.segments ? (r.data.segments.segments || []) : [])
@@ -2305,6 +2562,11 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
     // may be empty if the raw list hasn't been transcribed yet.
     onSelectRef(`assets/${voice.id}/raw/${rf.filename}`, rf.text || '')
   }
+  // Cross-voice pick: prompt_lang stays = current voice language (decision: do NOT
+  // switch it), just warn. Custom pick: carries an optional prompt_lang override.
+  const handleCrossPick = (path, text) => onSelectRef(path, text)
+  const handleCustomPick = (path, text, plang, obj) => { if (obj) setCustomRef(obj); onSelectRef(path, text, plang) }
+  const handleCustomClear = () => { setCustomRef(null); onSelectRef('', '', '') }
   // Effective duration for a raw clip: server WAV-header value, else client-measured.
   const rawDur = (rf) => (rf.duration && rf.duration > 0 ? rf.duration : rawDurations[rf.filename])
 
@@ -2337,17 +2599,23 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
         <div className="field">
           <div className="ref-hdr">
             <label className="field-label" style={{ margin: 0 }}>Reference Audio</label>
-            <div className="ref-tabs">
-              <button
-                className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
-                onClick={() => setRefTab('slices')}
-              >Slices <span className="ref-tab-count">{availableRefs.length}</span></button>
-              <button
-                className={`ref-tab ${refTab === 'raw' ? 'active' : ''}`}
-                onClick={() => setRefTab('raw')}
-              >Raw <span className="ref-tab-count">{availableRaw.length}</span></button>
-            </div>
+            {!crossMode && (
+              <div className="ref-tabs">
+                <button
+                  className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
+                  onClick={() => setRefTab('slices')}
+                >Slices <span className="ref-tab-count">{availableRefs.length}</span></button>
+                <button
+                  className={`ref-tab ${refTab === 'raw' ? 'active' : ''}`}
+                  onClick={() => setRefTab('raw')}
+                >Raw <span className="ref-tab-count">{availableRaw.length}</span></button>
+              </div>
+            )}
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, margin: '4px 0 6px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={crossMode} onChange={e => setCrossMode(e.target.checked)} />
+            Use reference from another voice
+          </label>
           {activeRef && (
             <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: activeRefText ? 2 : 6 }}>
               {basename(activeRef)}
@@ -2385,11 +2653,11 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
               Raw audio has no aligned reference text — the engine will use the audio only.
             </div>
           ) : null}
-          {segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading reference audio…</div>}
-          {!segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
+          {!crossMode && segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading reference audio…</div>}
+          {!crossMode && !segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>No reference audio available</div>
           )}
-          {!segLoading && refTab === 'slices' && (
+          {!crossMode && !segLoading && refTab === 'slices' && (
             <div className="ref-list">
               {availableRefs.length === 0 && <div className="ref-col-empty">No slices available</div>}
               {availableRefs.map((seg, i) => {
@@ -2410,7 +2678,7 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
               })}
             </div>
           )}
-          {!segLoading && refTab === 'raw' && (
+          {!crossMode && !segLoading && refTab === 'raw' && (
             <div className="ref-list">
               {availableRaw.length === 0 && <div className="ref-col-empty">No raw audio available</div>}
               {availableRaw.map((rf, i) => {
@@ -2439,6 +2707,10 @@ function VoiceSidebar({ voice, validation, onVoiceUpdate, selectedRefAudio, sele
               })}
             </div>
           )}
+          {crossMode && (
+            <CrossRefPicker voices={voices} currentVoiceId={voice.id} onPick={handleCrossPick} activeRef={selectedRefAudio} />
+          )}
+          <CustomRefPicker custom={customRef} onPick={handleCustomPick} onClear={handleCustomClear} />
         </div>
 
         {validation && (
@@ -2634,8 +2906,13 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       }
       if (rowModel.gptCheckpoint) body.gpt_model = rowModel.gptCheckpoint
       if (rowModel.sovitsModel) body.sovits_model = rowModel.sovitsModel
-      body.text_lang = selected?.language || 'ja'
-      body.prompt_lang = selected?.language || 'ja'
+      // Reserved override hooks (per-row) so the Generate-tab features — target
+      // text_lang unlock and cross/custom reference prompt_lang/transcript — can be
+      // wired into Compare rows later without touching this call site. Absent =
+      // current behaviour (follow the selected voice's language).
+      body.text_lang = row.textLang || selected?.language || 'ja'
+      body.prompt_lang = row.promptLang || selected?.language || 'ja'
+      if (row.promptText) body.reference_text = row.promptText
       const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
       setRows(prev => prev.map(row2 => row2.id === row.id ? { ...row2, loading: false, result: r.data } : row2))
@@ -4611,6 +4888,9 @@ export default function App() {
   const [selectedVoice, setSelectedVoice] = usePersistentState('ui.selectedVoice', '')
   const [selectedRefAudio, setSelectedRefAudio] = useState('')
   const [selectedRefText, setSelectedRefText] = useState('')
+  // Optional prompt_lang override carried by a cross-voice / custom reference pick.
+  // Empty string = follow the current voice's language (default, zero regression).
+  const [selectedPromptLang, setSelectedPromptLang] = useState('')
   const [health, setHealth] = useState(null)
   const [genActivity, setGenActivity] = useState(null) // null | { label } — live inference activity for the context row
   const [activeTaskId, setActiveTaskId] = usePersistentState('train.activeTaskId', null)
@@ -4636,11 +4916,12 @@ export default function App() {
   }, [selectedVoice])
 
   // Clear ref selection when voice changes
-  useEffect(() => { setSelectedRefAudio(''); setSelectedRefText('') }, [selectedVoice])
+  useEffect(() => { setSelectedRefAudio(''); setSelectedRefText(''); setSelectedPromptLang('') }, [selectedVoice])
 
-  const handleSelectRef = useCallback((audio, text) => {
+  const handleSelectRef = useCallback((audio, text, promptLang) => {
     setSelectedRefAudio(audio || '')
     setSelectedRefText(text || '')
+    setSelectedPromptLang(promptLang || '')
   }, [])
 
   // Poll engine health so the badge reflects the GPT-SoVITS engine (port 9880) in
@@ -4707,6 +4988,7 @@ export default function App() {
               onVoiceUpdate={loadVoices}
               selectedRefAudio={selectedRefAudio}
               selectedRefText={selectedRefText}
+              selectedPromptLang={selectedPromptLang}
               onSelectRef={handleSelectRef}
               onActivity={setGenActivity} />
           )}

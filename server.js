@@ -62,6 +62,31 @@ const upload = multer({
   },
 });
 
+// Cross-platform "custom reference audio" picker: an arbitrary clip uploaded from
+// the browser (no native OS dialog needed) and stored under voices/custom_refs so
+// it can serve as ref_audio for ANY voice. Kept separate from `storage` because
+// that names files by req.params.id, which custom refs don't have.
+const CUSTOM_REF_DIR = path.join(VOICES_DIR, "custom_refs");
+try { fs.mkdirSync(CUSTOM_REF_DIR, { recursive: true }); } catch (_) {}
+const customRefStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, CUSTOM_REF_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const base = path.basename(file.originalname, path.extname(file.originalname))
+      .replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40) || "ref";
+    cb(null, `${Date.now()}_${base}${ext}`);
+  },
+});
+const customRefUpload = multer({
+  storage: customRefStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_EXT.has(ext)) return cb(null, true);
+    cb(new Error(`Unsupported file type: ${ext}`));
+  },
+});
+
 const crypto = require("crypto");
 
 function isLoopback(req) {
@@ -186,6 +211,16 @@ app.use("/assets", (req, res, next) => {
     return res.status(404).end();
   }
   express.static(ASSETS_DIR)(req, res, next);
+});
+
+// ---- Static: voices/ for reference-audio playback (uploaded + custom refs) ----
+app.use("/voices", (req, res, next) => {
+  const rel = decodeURIComponent(req.path).replace(/^[\/]+/, "").replace(/\.\.[\\/]/g, "");
+  const decoded = path.join(VOICES_DIR, rel);
+  if (!decoded.startsWith(VOICES_DIR + path.sep) && decoded !== VOICES_DIR) {
+    return res.status(404).end();
+  }
+  express.static(VOICES_DIR)(req, res, next);
 });
 
 // ---- Static: outputs/ with Range support ----
@@ -1245,6 +1280,23 @@ app.post("/api/voices/:id/reference-audio", requireApiKey, upload.single("audio"
 
   if (errStatus) return res.status(errStatus).json(errBody);
   res.json({ ok: true, id, reference_audio: result });
+});
+
+// POST /api/custom-ref-audio — upload an arbitrary reference clip (cross-platform
+// custom picker). Not tied to a voice; stored under voices/custom_refs and usable
+// as ref_audio for any voice. Returns an engine-resolvable path + a playback URL.
+app.post("/api/custom-ref-audio", requireApiKey, (req, res) => {
+  customRefUpload.single("audio")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: clientError(err, "Upload failed") });
+    if (!req.file) return res.status(400).json({ error: "No audio file uploaded" });
+    res.json({
+      ok: true,
+      path: `voices/custom_refs/${req.file.filename}`,
+      url: `/voices/custom_refs/${encodeURIComponent(req.file.filename)}`,
+      name: req.file.originalname,
+      size: req.file.size,
+    });
+  });
 });
 
 // POST /api/voices/:id/aux-ref-audio — upload auxiliary reference audio
