@@ -106,6 +106,28 @@ def clear_context():
         _global_overrides = None
 
 
+def current_overrides(lang):
+    """公共封装：返回当前生效的单次覆盖桶 {word: readings}（无则 {}）。"""
+    return _current_overrides(lang)
+
+
+def overrides_view(lang):
+    """匹配器视图：全局词典被单次覆盖叠加后的合并结果 {word: readings}。
+
+    供逐词匹配器（如日语 NJD 覆盖 / 预览）使用：单次 overrides > 全局词典。
+    与 apply() 的优先级保持一致，任何异常回落为词典本体。
+    """
+    try:
+        merged = dict(load_lexicon(lang))
+    except Exception:
+        merged = {}
+    try:
+        merged.update(_current_overrides(lang) or {})
+    except Exception:
+        pass
+    return merged
+
+
 def _current_overrides(lang):
     data = _ctx_overrides.get()
     if data is None:
@@ -194,34 +216,40 @@ def delete_lexicon_entry(lang, word):
 # ---------------------------------------------------------------------------
 # 核心：读音覆盖应用（注入点在 chinese2._g2p 的 correct_pronunciation 之后）
 # ---------------------------------------------------------------------------
-def apply(word, pinyins, lang="zh"):
+def apply(word, readings, lang="zh"):
     """
-    对一个 jieba 词的逐字拼音应用覆盖。优先级：单次 overrides > 全局词典 > 原值。
-    仅当覆盖项与原拼音**长度一致**时才替换（保证 word2ph 对齐不被破坏）；
-    任何异常一律原样返回。无覆盖时零回归。
+    对一个词的读音串应用覆盖。优先级：单次 overrides > 全局词典 > 原值。
+    语言无关：readings 是一个字符串列表（zh=逐字带调拼音；ja=[整词假名]；en=ARPABET 音素）。
+
+    * zh/yue：逐字拼音，仅当覆盖项与原拼音**长度一致**时才替换
+      （保证 word2ph 对齐不被破坏）。
+    * ja/en：读音单元非「逐字」（ja 整词一串假名；en 一词多音素），不做长度约束，
+      直接以覆盖项替换（无 word2ph 对齐依赖）。
+
+    任何异常 / 形状不匹配一律原样返回。无覆盖时零回归。
     """
     try:
-        if not word or not pinyins:
-            return pinyins
+        if not word or not readings:
+            return readings
         source = "override"
         override = _current_overrides(lang).get(word)
         if override is None:
             override = load_lexicon(lang).get(word)
             source = "lexicon"
         if override is None:
-            _dbg("apply word=%r in=%s -> no-override" % (word, list(pinyins)))
-            return pinyins
-        if len(override) != len(pinyins):
-            # 长度不一致（分词边界差异等）——跳过以免破坏对齐
+            _dbg("apply word=%r in=%s -> no-override" % (word, list(readings)))
+            return readings
+        if lang in ("zh", "yue") and len(override) != len(readings):
+            # zh/yue 逐字对齐：长度不一致（分词边界差异等）——跳过以免破坏 word2ph
             _dbg("apply word=%r in=%s override=%s SKIPPED (length %d!=%d)" % (
-                word, list(pinyins), list(override), len(pinyins), len(override)))
-            return pinyins
+                word, list(readings), list(override), len(readings), len(override)))
+            return readings
         out = [str(p) for p in override]
-        _dbg("apply word=%r in=%s -> %s (%s)" % (word, list(pinyins), out, source))
+        _dbg("apply word=%r in=%s -> %s (%s)" % (word, list(readings), out, source))
         return out
     except Exception as _e:
         _dbg("apply word=%r EXC %r" % (word, _e))
-        return pinyins
+        return readings
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +314,53 @@ def is_polyphonic(char, lang="zh"):
 # ---------------------------------------------------------------------------
 def preview(text, lang="zh"):
     """
-    返回 {"lang", "norm_text", "tokens":[{"word","chars":[{"char","reading",
-    "candidates","polyphonic","source"}]}]}。
-    中文复用 chinese2 的真实 g2p 路径（含 g2pW + correct_pronunciation + 本模块 apply），
-    保证预览读音 == 实际合成读音。其它语言留接口（返回逐字空读音）。
+    文本 -> 逐单元读音（供前端校对面板渲染），并保证「预览读音 == 实际合成读音」。
+
+    返回 {"lang", "norm_text", "tokens":[...]}，token 依语言带 "unit" 标记：
+      * zh/yue  unit="char"：{"word","unit","chars":[{char,reading,candidates,polyphonic,source}]}
+                （逐字，可从候选下拉选读音）。
+      * ja      unit="word"：{"word","unit","reading"(假名),"editable":true,"source"}
+                （逐词，直接改写正确假名；无候选下拉）。
+      * en      unit="word"：{"word","unit","readings"(ARPABET 列表),"editable":true,"source"}
+                （逐词，直接改写音标）。
+      * ko/其它 占位（unsupported=true）。
     """
     result = {"lang": lang, "norm_text": "", "tokens": []}
     if not text:
+        return result
+    if lang == "ja":
+        try:
+            from gsv_code.text import japanese
+            norm_text, yomi = japanese.get_word_yomi(text)
+        except Exception as e:
+            result["error"] = "preview failed: {!r}".format(e)
+            return result
+        result["norm_text"] = norm_text
+        for t in yomi:
+            result["tokens"].append({
+                "word": t.get("word", ""),
+                "unit": "word",
+                "reading": t.get("reading", ""),
+                "editable": True,
+                "source": t.get("source", "g2p"),
+            })
+        return result
+    if lang == "en":
+        try:
+            from gsv_code.text import english
+            norm_text, arpa = english.get_word_arpa(text)
+        except Exception as e:
+            result["error"] = "preview failed: {!r}".format(e)
+            return result
+        result["norm_text"] = norm_text
+        for t in arpa:
+            result["tokens"].append({
+                "word": t.get("word", ""),
+                "unit": "word",
+                "readings": list(t.get("readings", [])),
+                "editable": True,
+                "source": t.get("source", "g2p"),
+            })
         return result
     if lang in ("zh", "yue"):
         try:
@@ -321,7 +389,7 @@ def preview(text, lang="zh"):
                     "polyphonic": len(cands) > 1,
                     "source": src,
                 })
-            result["tokens"].append({"word": word, "chars": chars})
+            result["tokens"].append({"word": word, "unit": "char", "chars": chars})
         return result
     # 其它语言：占位（Phase 3/4 逐语言补全；ko 标 untested）
     result["norm_text"] = text

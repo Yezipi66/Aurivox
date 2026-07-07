@@ -1517,3 +1517,188 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 12px; font-size: 12px; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ============================================================
+   Compare Refs — polished row cards, status pills, toolbar (P2)
+   Pure presentation; no markup-required logic. Uses existing tokens.
+   ============================================================ */
+.cmp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cmp-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Each comparison row is a card with a status-colored left rail so a
+   stack of rows is scannable at a glance (idle / running / done / error). */
+.cmp-row {
+  margin-bottom: 10px;
+  border-left: 3px solid var(--border);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.cmp-row.cmp-running { border-left-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+.cmp-row.cmp-done    { border-left-color: var(--success); }
+.cmp-row.cmp-error   { border-left-color: var(--danger); }
+
+.cmp-row-hdr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cmp-badge {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cmp-summary-ref {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-summary-model {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.cmp-status-running { color: var(--accent);  border-color: var(--accent);              background: var(--accent-soft); }
+.cmp-status-done    { color: var(--success); border-color: rgba(76, 175, 80, .5);      background: rgba(76, 175, 80, .12); }
+.cmp-status-error   { color: var(--danger);  border-color: rgba(207, 102, 121, .5);    background: rgba(207, 102, 121, .12); }
+.cmp-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+
+.cmp-result {
+  margin-top: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+.cmp-result-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--success);
+  margin-bottom: 6px;
+}
+.cmp-result-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+/* ===========================
+   Recipe + Broker (P1 / P4)
+   =========================== */
+
+/* Alias classes for inline warning/success messages (also styles pre-existing
+   msg-warn usages that had no rule). */
+.msg-warn { background: rgba(255,183,77,0.1); color: var(--warning); border: 1px solid var(--warning); }
+.msg-ok   { background: rgba(76,175,80,0.1);  color: var(--success); border: 1px solid var(--success); }
+
+/* Save-as-recipe modal (shared by Generate + Compare). */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  width: 100%; max-width: 460px; max-height: 90vh; overflow: auto;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.modal-hdr { padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
+.modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.modal-ftr { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+.recipe-preview {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+}
+.recipe-preview > div { display: flex; gap: 10px; align-items: baseline; }
+.rp-k { color: var(--muted); min-width: 92px; flex: 0 0 auto; }
+.rp-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-code { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+/* Broker page. */
+.broker-endpoint { display: flex; align-items: center; gap: 10px; }
+.be-k { color: var(--muted); font-size: 12px; }
+.be-url {
+  color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px;
+}
+.recipe-list { display: flex; flex-direction: column; gap: 10px; }
+.recipe-card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.rc-hdr { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.rc-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.rc-display { font-weight: 600; font-size: 13px; }
+.rc-id { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.rc-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.rc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; font-size: 12px; }
+.rc-grid > div { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.rc-k { color: var(--muted); min-width: 70px; flex: 0 0 auto; }
+.rc-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-cmd { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.rc-cmd-hdr { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--panel); font-size: 11px; color: var(--muted); }
+.rc-cmd-body { margin: 0; padding: 10px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text); white-space: pre-wrap; word-break: break-all; }
+.rebind { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.rebind .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
+
+/* P6: ASR manual proofreading panel. */
+.asr-review { border: 1px solid var(--warning); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+.asr-review-hdr { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,183,77,0.1); font-size: 13px; font-weight: 600; }
+.asr-review-hdr .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
+.asr-review-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; }
+.asr-review-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); }
+.arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 6px; }
+.arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: 12px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+.asr-review-ftr { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }

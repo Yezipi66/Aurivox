@@ -79,6 +79,146 @@ except Exception:
 
 from gsv_code.text.symbols import punctuation
 
+# ---------------------------------------------------------------------------
+# 读音校对覆盖层（task7 日语接入）
+#   * 覆盖单元 = 表层词组 -> 假名读音串（音読み/訓読み 由词决定，不逐字选候选）。
+#   * 注入点 = pyopenjtalk.run_frontend() 得到逐词素 NJD 特征后、make_label() 转音素前，
+#     改写命中词条的假名读音（read/pron），再交给 make_label —— 与中文「逐词读音推导后、
+#     转音素前 apply」一一对应。
+#   * accent（音高核）本版不做（task7 已对齐）：改读音后将 acc 归 0（平板）以避免
+#     accent 位越界，mora_size 重算。任何异常一律回落原 NJD，保证零回归。
+# ---------------------------------------------------------------------------
+try:
+    from gsv_code.text import pron_correction as _pron
+except Exception as _pron_err:  # pragma: no cover
+    print(f"[japanese] pron_correction unavailable ({_pron_err!r}); reading override disabled.")
+    _pron = None
+
+# 小书きかな（拗音/小母音）不独立成拍；ッ/ン/ー 各成一拍。
+_JA_SMALL_KANA = set("ァィゥェォャュョヮ")
+
+
+def _to_katakana(s):
+    """把用户输入的假名统一成片假名（pyopenjtalk 的 pron 原生即片假名）。"""
+    try:
+        import jaconv
+        return jaconv.hira2kata(s)
+    except Exception:
+        return s
+
+
+def _count_mora(kana):
+    """按拍数统计片假名 mora（小书きかな不计拍）。至少 1，供 NJD mora_size 用。"""
+    n = 0
+    for ch in kana or "":
+        if ch in _JA_SMALL_KANA:
+            continue
+        n += 1
+    return max(n, 1)
+
+
+def _feat_surface(f):
+    return f.get("string") or f.get("orig") or ""
+
+
+def _feat_reading(f):
+    # pron = 実際の発音（アクセント抜きの片假名）, read = 読み。優先 pron。
+    return f.get("pron") or f.get("read") or ""
+
+
+def _apply_yomi_override_njd(njd):
+    """Route C：按表层词组覆盖 NJD 假名读音（单词素精确 + 相邻词素贪婪合并）。
+
+    命中词条时，把该跨度合并为一个词素：string/orig=词组、read/pron=覆盖假名、
+    mora_size 重算、acc 归 0（本版不控 accent）。任何异常回落原 njd。
+    """
+    if _pron is None or not njd:
+        return njd
+    try:
+        view = _pron.overrides_view("ja") or {}
+    except Exception:
+        view = {}
+    if not view:
+        return njd
+    try:
+        surfaces = [_feat_surface(f) for f in njd]
+        n = len(njd)
+        out = []
+        i = 0
+        max_span = 8
+        while i < n:
+            matched = False
+            for span in range(min(max_span, n - i), 0, -1):
+                key = "".join(surfaces[i:i + span])
+                if key and key in view:
+                    vals = view[key]
+                    kana_raw = None
+                    if isinstance(vals, (list, tuple)) and vals:
+                        kana_raw = vals[0]
+                    elif isinstance(vals, str):
+                        kana_raw = vals
+                    if kana_raw:
+                        kana = _to_katakana(str(kana_raw))
+                        base = dict(njd[i])
+                        base["string"] = key
+                        base["orig"] = key
+                        base["read"] = kana
+                        base["pron"] = kana
+                        base["mora_size"] = _count_mora(kana)
+                        base["acc"] = 0
+                        base["chain_flag"] = -1
+                        out.append(base)
+                        i += span
+                        matched = True
+                        break
+            if not matched:
+                out.append(njd[i])
+                i += 1
+        return out
+    except Exception as _e:
+        print(f"[japanese] yomi override skipped ({_e!r}).")
+        return njd
+
+
+def get_word_yomi(text):
+    """预览：文本 -> [(word, reading, source)]，读音已应用覆盖（预览 == 合成）。
+
+    对等中文 chinese2.get_word_pinyins，返回 (norm_text, tokens)。
+    """
+    norm = text_normalize(text)
+    try:
+        njd = pyopenjtalk.run_frontend(norm)
+    except Exception:
+        njd = []
+    try:
+        njd2 = _apply_yomi_override_njd(njd)
+    except Exception:
+        njd2 = njd
+    ov = {}
+    lex = {}
+    if _pron is not None:
+        try:
+            ov = _pron.current_overrides("ja") or {}
+        except Exception:
+            ov = {}
+        try:
+            lex = _pron.load_lexicon("ja") or {}
+        except Exception:
+            lex = {}
+    tokens = []
+    for f in (njd2 or []):
+        w = _feat_surface(f)
+        r = _feat_reading(f)
+        if w in ov:
+            src = "override"
+        elif w in lex:
+            src = "lexicon"
+        else:
+            src = "g2p"
+        tokens.append({"word": w, "reading": r, "source": src})
+    return norm, tokens
+
+
 # Regular expression matching Japanese without punctuation marks:
 _japanese_characters = re.compile(
     r"[A-Za-z\d\u3005\u3040-\u30ff\u4e00-\u9fff\uff11-\uff19\uff21-\uff3a\uff41-\uff5a\uff66-\uff9d]"
@@ -202,7 +342,12 @@ def pyopenjtalk_g2p_prosody(text, drop_unvoiced_vowels=True):
         modeling for neural TTS`: https://doi.org/10.1587/transinf.2020EDP7104
 
     """
-    labels = pyopenjtalk.make_label(pyopenjtalk.run_frontend(text))
+    _njd = pyopenjtalk.run_frontend(text)
+    try:
+        _njd = _apply_yomi_override_njd(_njd)
+    except Exception:
+        pass
+    labels = pyopenjtalk.make_label(_njd)
     N = len(labels)
 
     phones = []

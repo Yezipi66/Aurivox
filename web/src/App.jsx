@@ -68,6 +68,116 @@ function basename(p) {
 }
 
 // ===========================
+//  SAVE AS RECIPE (P1)
+// ===========================
+// A recipe is a role-scoped, reusable inference preset (D1/D2). This modal is
+// shared by the Generate and Compare pages: it collects a name (emotion/label)
+// + notes and POSTs the current reference + params + pinned models to
+// /api/recipes. A 409 (already exists) raises an inline overwrite confirm that
+// re-POSTs with { force:true }.
+
+// Client-side mirror of the server name rule: Unicode letters allowed, only
+// filesystem-dangerous symbols blacklisted (locked 2026-07-07).
+const RECIPE_NAME_BLACKLIST = /[\/\\:*?"<>|]/
+function recipeNameError(name) {
+  const t = (name || '').trim()
+  if (!t) return 'Name is required'
+  if (t.length > 64) return 'Name too long (max 64)'
+  if (RECIPE_NAME_BLACKLIST.test(t)) return 'Name must not contain / \\ : * ? " < > |'
+  if (t.startsWith('.')) return "Name must not start with '.'"
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(t)) return 'Name contains control characters'
+  return null
+}
+
+function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
+  const [name, setName] = useState('')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false)
+
+  useEffect(() => { if (open) { setName(''); setNotes(''); setError(null); setBusy(false); setConfirmOverwrite(false) } }, [open])
+  if (!open) return null
+
+  const nameErr = name ? recipeNameError(name) : null
+  const d = defaults || {}
+  const previewId = role && name.trim() ? `${role}/${name.trim()}` : '—'
+
+  const doSave = async (force) => {
+    const err = recipeNameError(name)
+    if (err) { setError(err); return }
+    if (!role) { setError('No voice selected'); return }
+    if (!d.reference_audio) { setError('No reference audio to save'); return }
+    setBusy(true); setError(null)
+    const payload = {
+      role, name: name.trim(),
+      reference_audio: d.reference_audio,
+      reference_text: d.reference_text || '',
+      language: d.language || 'ja',
+      params: d.params || {},
+      gpt_ckpt: d.gpt_ckpt || '',
+      sovits_pth: d.sovits_pth || '',
+      meta: { source: source || 'generate', notes: notes.trim() },
+      force: !!force,
+    }
+    try {
+      const r = await api('/api/recipes', { method: 'POST', body: payload })
+      if (r.status === 409 && !force) { setConfirmOverwrite(true); setBusy(false); return }
+      if (!r.ok) throw new Error((r.data && r.data.error) || `Server error ${r.status}`)
+      setBusy(false)
+      onSaved && onSaved(r.data.recipe)
+      onClose && onClose()
+    } catch (e) { setError(e.message); setBusy(false) }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={() => !busy && onClose && onClose()}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-hdr">Save as recipe</div>
+        <div className="modal-body">
+          <div className="field">
+            <label className="field-label">Name (emotion / identifier)</label>
+            <input className="control" value={name} autoFocus placeholder="e.g. calm, angry, 平静"
+              onChange={e => setName(e.target.value)} />
+            {nameErr && <div className="field-hint" style={{ color: 'var(--danger)' }}>{nameErr}</div>}
+          </div>
+          <div className="recipe-preview">
+            <div><span className="rp-k">Voice</span><span className="rp-v">{role || '—'}</span></div>
+            <div><span className="rp-k">OpenAI voice</span><code className="rp-code">{previewId}</code></div>
+            <div><span className="rp-k">Reference</span><span className="rp-v" title={d.reference_audio}>{basename(d.reference_audio)}</span></div>
+            <div><span className="rp-k">GPT</span><span className="rp-v" title={d.gpt_ckpt}>{d.gpt_ckpt ? basename(d.gpt_ckpt) : '(none)'}</span></div>
+            <div><span className="rp-k">SoVITS</span><span className="rp-v" title={d.sovits_pth}>{d.sovits_pth ? basename(d.sovits_pth) : '(none)'}</span></div>
+          </div>
+          <div className="field">
+            <label className="field-label">Notes (optional)</label>
+            <input className="control" value={notes} onChange={e => setNotes(e.target.value)} placeholder="free text" />
+          </div>
+          {error && <div className="msg msg-error">{error}</div>}
+          {confirmOverwrite && (
+            <div className="msg msg-warn">
+              A recipe named <strong>{previewId}</strong> already exists. Overwrite it?
+              <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => doSave(true)}>Overwrite</button>
+                <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmOverwrite(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="modal-ftr">
+          <button className="btn btn-sm" disabled={busy} onClick={() => onClose && onClose()}>Cancel</button>
+          {!confirmOverwrite && (
+            <button className="btn btn-sm btn-primary" disabled={busy || !!nameErr || !name.trim()} onClick={() => doSave(false)}>
+              {busy ? 'Saving…' : 'Save recipe'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ===========================
 //  GENERATE TAB
 // ===========================
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
@@ -300,6 +410,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const recent = recentAll.filter(x => !dismissed.includes(x.id))
   const [genConfirm, setGenConfirm] = useState(null)      // secondary-confirm modal payload
   const [genConfirmBusy, setGenConfirmBusy] = useState(false)
+  const [showSaveRecipe, setShowSaveRecipe] = useState(false)  // P1: Save as recipe modal
 
   const [splitEnabled, setSplitEnabled] = usePersistentState('generate.splitEnabled', true)
   const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
@@ -902,9 +1013,32 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 {' '}Run: <code>python download_models.py --set {String(genBaseWarn.version).toLowerCase()}</code>
               </div>
             )}
-            <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
-              {loading ? 'Generating...' : 'Generate'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
+                {loading ? 'Generating...' : 'Generate'}
+              </button>
+              <button className="btn btn-ghost" disabled={!selectedVoice || !currentRefAudio}
+                title={!currentRefAudio ? 'Pick a reference audio first' : 'Save this reference + parameters as a reusable recipe'}
+                onClick={() => setShowSaveRecipe(true)}>
+                Save as recipe
+              </button>
+            </div>
+
+            <SaveRecipeModal
+              open={showSaveRecipe}
+              onClose={() => setShowSaveRecipe(false)}
+              source="generate"
+              role={selectedVoice}
+              defaults={{
+                reference_audio: currentRefAudio,
+                reference_text: currentRefText,
+                language: textLang || lang,
+                params: { top_k: topK, top_p: topP, temperature, speed: speedFactor },
+                gpt_ckpt: selGpt,
+                sovits_pth: selSovits,
+              }}
+              onSaved={(rec) => setError(null)}
+            />
 
             {error && <div className="msg msg-error"><strong>Error:</strong> {error}</div>}
           </div>
@@ -1738,12 +1872,86 @@ function LiveLogs({ logs }) {
   )
 }
 
+// P6: manual proofreading panel shown while the pipeline is paused after ASR.
+// Loads the recognised .list, lets the user correct text/pronunciation per line,
+// then saves + resumes (or resumes without changes).
+function AsrReviewPanel({ taskId, onResumed }) {
+  const [rows, setRows] = useState(null);
+  const [listName, setListName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    let dead = false;
+    setLoading(true);
+    api(`/api/train/review/${taskId}`).then(r => {
+      if (dead) return;
+      if (r.ok) { setRows(r.data.rows || []); setListName(r.data.listName || ''); }
+      else setErr(r.data?.error || 'Failed to load review list');
+      setLoading(false);
+    }).catch(e => { if (!dead) { setErr(String(e)); setLoading(false); } });
+    return () => { dead = true; };
+  }, [taskId]);
+
+  const setText = (idx, val) => setRows(rs => rs.map(r => r.index === idx ? { ...r, text: val } : r));
+
+  const save = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    const r = await api(`/api/train/review/${taskId}`, { method: 'POST', body: { rows } });
+    setBusy(false);
+    if (r.ok) setMsg(`Saved ${r.data.saved} line(s).`);
+    else setErr(r.data?.error || 'Save failed');
+  };
+
+  const resume = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    const r = await api(`/api/train/resume/${taskId}`, { method: 'POST', body: { rows } });
+    setBusy(false);
+    if (r.ok) { setMsg('Resumed.'); if (onResumed) onResumed(); }
+    else setErr(r.data?.error || 'Resume failed');
+  };
+
+  return (
+    <div className="asr-review">
+      <div className="asr-review-hdr">
+        <span>Proofread transcription{listName ? ` · ${listName}` : ''}</span>
+        <span className="muted">{rows ? `${rows.length} lines` : ''}</span>
+      </div>
+      {loading && <div className="msg">Loading transcript…</div>}
+      {err && <div className="msg msg-error">{err}</div>}
+      {msg && <div className="msg msg-ok">{msg}</div>}
+      {rows && rows.length > 0 && (
+        <div className="asr-review-list">
+          {rows.map(r => (
+            <div className="asr-review-row" key={r.index}>
+              <div className="arr-path" title={r.audio_path}>{basename(r.audio_path) || r.audio_path}</div>
+              <textarea className="arr-text" rows={1} value={r.text}
+                        disabled={busy}
+                        onChange={e => setText(r.index, e.target.value)} />
+            </div>
+          ))}
+        </div>
+      )}
+      {rows && rows.length === 0 && <div className="msg msg-warn">The transcript is empty.</div>}
+      <div className="asr-review-ftr">
+        <button className="btn btn-sm" disabled={busy || loading} onClick={save}>Save corrections</button>
+        <button className="btn btn-sm btn-primary" disabled={busy || loading} onClick={resume}>
+          {busy ? 'Working…' : 'Save & resume pipeline'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill }) {
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'ja', voiceName: '',
     preset: 'balanced', inputType: 'auto', expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
     trainS1: true, trainS2: true,
+    preprocessReview: false,
     // Advanced params
     gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
@@ -1797,6 +2005,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
   // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
   const taskId = activeTaskId || localTaskId;
+  const isAwaitingReview = status?.status === 'awaiting_review';
   const isRunning = status?.status === 'running';
   const isFinished = status && ['completed', 'failed', 'cancelled', 'interrupted'].includes(status.status);
   const isInterrupted = status?.status === 'interrupted';
@@ -1931,7 +2140,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         language: form.language,
         inputDir: cleanDir,
         overwrite: !!overwrite,
-        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false },
+        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false, pauseAfterAsr: !!form.preprocessReview },
         customParams: {
           training: buildTrainingParams(form),
           steps: {
@@ -2130,7 +2339,20 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         </>
       );
     } else if (selectedNode === 'preprocess') {
-      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training. No configuration needed.</p>;
+      body = (
+        <>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training.</p>
+          <label className="toggle-row" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={form.preprocessReview !== false && form.preprocessReview}
+                   onChange={e => setField('preprocessReview', e.target.checked)} />
+            Pause after ASR for manual proofreading
+          </label>
+          <p className="field-hint" style={{ marginTop: 4 }}>
+            When enabled the pipeline stops right after transcription so you can correct the
+            recognised text and pronunciation before preprocessing/training continue.
+          </p>
+        </>
+      );
     } else if (selectedNode === 'finalize') {
       body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.</p>;
     } else if (selectedNode === 'promote') {
@@ -2306,12 +2528,16 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                    : status.status === 'failed' ? 'Failed'
                    : status.status === 'cancelled' ? 'Cancelled'
                    : status.status === 'interrupted' ? 'Interrupted'
+                   : status.status === 'awaiting_review' ? 'Awaiting proofreading'
                    : 'Tuning…'}
                 </span>
-                {isRunning && (
+                {(isRunning || isAwaitingReview) && (
                   <button className="btn btn-sm btn-danger" onClick={handleCancel}>Cancel</button>
                 )}
               </div>
+              {isAwaitingReview && (
+                <AsrReviewPanel taskId={taskId} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
+              )}
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>
                   Tuning was interrupted. Intermediate results are available; resume-from-checkpoint is on the roadmap.
@@ -2778,6 +3004,34 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   // Seed the row-id counter past any persisted rows so reloaded rows never collide.
   const nextId = useRef(rows.reduce((m, r) => Math.max(m, r.id || 0), 0) + 1)
 
+  // P1: Save-as-recipe from a compare row. Builds the recipe defaults from the
+  // row's reference + params + its per-row model pick.
+  const [saveRecipeDefaults, setSaveRecipeDefaults] = useState(null)
+  const openSaveRecipe = (row) => {
+    const rm = rowModels[row.id] || {}
+    setSaveRecipeDefaults({
+      reference_audio: row.refAudio || '',
+      reference_text: row.promptText || '',
+      language: row.textLang || defaultTextLang || selected?.language || 'ja',
+      params: { top_k: row.top_k, top_p: row.top_p, temperature: row.temperature, speed: row.speed_factor },
+      gpt_ckpt: rm.gptCheckpoint || '',
+      sovits_pth: rm.sovitsModel || '',
+    })
+  }
+
+  // Shared default target language (text_lang) + reading proofing for empty/uncustomized
+  // rows — mirrors the Generate tab. Each row may still override its own target language.
+  const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', defaultTargetLang(selected?.language || 'ja'))
+  const [pronEnabled, setPronEnabled] = usePersistentState('compare.pronEnabled', false)
+  const [pronOverrides, setPronOverrides] = usePersistentState('compare.pronOverrides', {})
+  const voiceLang = selected?.language || 'ja'
+  const _cmpBaseFam = String(voiceLang || '').replace(/^all_/, '')
+  const _cmpTargetFam = normalizeLangFamily(defaultTextLang)
+  const defaultLangMismatch = !!_cmpTargetFam && _cmpTargetFam !== _cmpBaseFam
+  const pronPanelLang = _cmpTargetFam || _cmpBaseFam
+  // Reset the default target language when the active voice changes.
+  useEffect(() => { setDefaultTextLang(defaultTargetLang(selected?.language || 'ja')) }, [selectedVoice])   // eslint-disable-line
+
   // Load default advanced params from backend
   useEffect(() => {
     api('/api/advanced-params').then(r => {
@@ -2892,6 +3146,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
         voice: selectedVoice,
         text: row.text.trim() || defaultText,
         format: 'wav',
+        source: 'comparerefs',
         split: true,
         concat: true,
         ref_audio: row.refAudio || undefined,
@@ -2906,13 +3161,13 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       }
       if (rowModel.gptCheckpoint) body.gpt_model = rowModel.gptCheckpoint
       if (rowModel.sovitsModel) body.sovits_model = rowModel.sovitsModel
-      // Reserved override hooks (per-row) so the Generate-tab features — target
-      // text_lang unlock and cross/custom reference prompt_lang/transcript — can be
-      // wired into Compare rows later without touching this call site. Absent =
-      // current behaviour (follow the selected voice's language).
-      body.text_lang = row.textLang || selected?.language || 'ja'
+      // Per-row target text_lang (falls back to the shared default, then voice lang);
+      // prompt_lang / reference transcript come from a cross/custom reference pick.
+      body.text_lang = row.textLang || defaultTextLang || selected?.language || 'ja'
       body.prompt_lang = row.promptLang || selected?.language || 'ja'
       if (row.promptText) body.reference_text = row.promptText
+      // Shared reading proofing applies to every row (overrides are language-keyed).
+      if (pronEnabled && Object.keys(pronOverrides).length > 0) body.pron_overrides = pronOverrides
       const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
       setRows(prev => prev.map(row2 => row2.id === row.id ? { ...row2, loading: false, result: r.data } : row2))
@@ -2942,18 +3197,43 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
           </p>
 
           <div className="field">
-            <label className="field-label">Voice</label>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{selected?.display_name || '—'} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>({selectedVoice || 'none'})</span></div>
-          </div>
-
-          <div className="field">
             <label className="field-label">Default Test Text (applied to empty rows)</label>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)} />
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                Default target language:
+                <select
+                  className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
+                  value={defaultTextLang} onChange={e => setDefaultTextLang(e.target.value)}
+                >
+                  {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </span>
+            </div>
+            {defaultLangMismatch && (
+              <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
+                Default target language differs from the fine-tuned language ({String(voiceLang || '').toUpperCase()}). Inference quality may be affected.
+              </div>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
+              <input type="checkbox" checked={pronEnabled} onChange={e => setPronEnabled(e.target.checked)} />
+              Reading proofing (applies to all rows)
+            </label>
+            {pronEnabled && (
+              <PronPanel text={defaultText} setText={setDefaultText} lang={pronPanelLang} overrides={pronOverrides} setOverrides={setPronOverrides} />
+            )}
           </div>
 
-          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          <div className="cmp-toolbar">
             <button className="btn btn-sm btn-primary" onClick={addRow}>+ Add Row</button>
-            <button className="btn btn-sm" onClick={generateAll} disabled={rows.length === 0}>Generate All ({rows.length})</button>
+            <button className="btn btn-sm" onClick={generateAll} disabled={rows.length === 0 || rows.some(r => r.loading)}>
+              {rows.some(r => r.loading)
+                ? `Generating… (${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length})`
+                : `Generate All (${rows.length})`}
+            </button>
+            {rows.length > 0 && (
+              <span className="cmp-count">{rows.filter(r => r.result && r.result.audio_url).length}/{rows.length} ready</span>
+            )}
           </div>
         </div>
       </div>
@@ -2971,6 +3251,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
           onRemoveAux={removeAuxFromRow}
           onGenerate={generateRow}
           onRemove={removeRow}
+          onSaveRecipe={openSaveRecipe}
           availableModels={availableModels}
           rowModel={rowModels[row.id] || { voiceId: '', gptCheckpoint: '', sovitsModel: '' }}
           onModelChange={(model) => setRowModels(prev => ({ ...prev, [row.id]: model }))}
@@ -2984,6 +3265,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
             seed: -1,
           }}
           selectedVoice={selectedVoice}
+          voices={voices}
+          voiceLang={voiceLang}
+          defaultTextLang={defaultTextLang}
         />
       ))}
 
@@ -3018,11 +3302,20 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
           <div className="es-sub" style={{ marginBottom: 0 }}>Generated comparison results will appear here.</div>
         </div>
       )}
+
+      <SaveRecipeModal
+        open={!!saveRecipeDefaults}
+        onClose={() => setSaveRecipeDefaults(null)}
+        source="compare"
+        role={selectedVoice}
+        defaults={saveRecipeDefaults || {}}
+        onSaved={() => setSaveRecipeDefaults(null)}
+      />
     </div>
   )
 }
 
-function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, availableModels, rowModel, onModelChange, defaultParams, selectedVoice }) {
+function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang }) {
   const [showPicker, setShowPicker] = useState(false)
   const [pickerTarget, setPickerTarget] = useState('main') // 'main' or 'aux'
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -3030,6 +3323,15 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
   // Determine which voice this row uses
   const voiceId = rowModel.voiceId || selectedVoice
+
+  // Per-row target language: overrides the shared default; empty = follow default.
+  const effTextLang = row.textLang || defaultTextLang || voiceLang || 'ja'
+  const _rowTargetFam = normalizeLangFamily(effTextLang)
+  const _rowBaseFam = String(voiceLang || '').replace(/^all_/, '')
+  const rowLangMismatch = !!_rowTargetFam && _rowTargetFam !== _rowBaseFam
+  // Reference source: 'slices' (this voice, default) | 'cross' | 'custom'.
+  const refSource = row.refSource || 'slices'
+  const setRefSource = (v) => onUpdate(row.id, 'refSource', v)
 
   // Load segments when voice changes
   useEffect(() => {
@@ -3042,6 +3344,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // Auto-select first matched segment as default ref when segments load
   useEffect(() => {
     if (segments.length === 0) return
+    if ((row.refSource || 'slices') !== 'slices') return  // don't clobber cross/custom picks
     if (row.refAudio) return  // already set
     const first = segments.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     if (first) {
@@ -3072,6 +3375,13 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
   const allFiles = [...allAudioFiles, ...voiceFiles]
 
+  // Derived row status + at-a-glance summary for the polished header (P2).
+  // Pure-derived from existing row state — no new state, no logic change.
+  const cmpStatus = row.loading ? 'running' : row.error ? 'error' : (row.result && row.result.audio_url) ? 'done' : 'idle'
+  const cmpStatusLabel = cmpStatus === 'running' ? 'Generating…' : cmpStatus === 'done' ? 'Ready' : cmpStatus === 'error' ? 'Failed' : 'Not run'
+  const cmpRefName = row.refAudio ? basename(row.refAudio) : null
+  const cmpModelLabel = (availableModels.find(m => m.voiceId === rowModel.voiceId && m.gptCheckpoint === rowModel.gptCheckpoint && m.sovitsModel === rowModel.sovitsModel) || {}).label || null
+
   const pickFile = (filePath) => {
     if (pickerTarget === 'main') {
       onUpdate(row.id, 'refAudio', filePath)
@@ -3082,15 +3392,29 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   }
 
   return (
-    <div className="card" style={{ marginBottom: 8, position: 'relative' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Row #{index + 1}</span>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-sm" onClick={() => onGenerate(row)} disabled={row.loading}>
-            {row.loading ? '...' : 'Generate'}
+    <div className={`card cmp-row cmp-${cmpStatus}`} style={{ position: 'relative' }}>
+      {/* Header — index badge + at-a-glance ref/model summary + status pill */}
+      <div className="cmp-row-hdr">
+        <span className="cmp-badge">{index + 1}</span>
+        <div className="cmp-summary">
+          <span className="cmp-summary-ref" title={row.refAudio || ''}>
+            {cmpRefName || 'No reference selected'}
+          </span>
+          {cmpModelLabel && (
+            <span className="cmp-summary-model" title={cmpModelLabel}>{cmpModelLabel}</span>
+          )}
+        </div>
+        <span className={`cmp-status cmp-status-${cmpStatus}`}>{cmpStatusLabel}</span>
+        <div className="cmp-row-actions">
+          <button className="btn btn-sm btn-primary" onClick={() => onGenerate(row)} disabled={row.loading}>
+            {row.loading ? '…' : (cmpStatus === 'done' ? 'Regenerate' : 'Generate')}
           </button>
-          <button className="btn btn-sm btn-danger" onClick={() => onRemove(row.id)}>×</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => onSaveRecipe && onSaveRecipe(row)}
+            disabled={!selectedVoice || !row.refAudio}
+            title={!row.refAudio ? 'Pick a reference audio first' : 'Save this row as a reusable recipe'}>
+            Save as recipe
+          </button>
+          <button className="btn btn-sm btn-danger" onClick={() => onRemove(row.id)} title="Remove row">×</button>
         </div>
       </div>
 
@@ -3118,28 +3442,86 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         </div>
       )}
 
-      {/* Main reference audio — from segments.json */}
+      {/* Per-row target language (defaults to the shared default) */}
+      <div className="field">
+        <label className="field-label">Target Language</label>
+        <select
+          className="control"
+          value={row.textLang || ''}
+          onChange={e => onUpdate(row.id, 'textLang', e.target.value)}
+        >
+          <option value="">Use default ({defaultTextLang})</option>
+          {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {rowLangMismatch && (
+          <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
+            Target ({String(effTextLang).toUpperCase()}) differs from the fine-tuned language ({String(voiceLang || '').toUpperCase()}).
+          </div>
+        )}
+      </div>
+
+      {/* Main reference audio — source selector: this voice / cross-voice / custom file */}
       <div className="field">
         <label className="field-label">Main Reference Audio</label>
-        {segments.length === 0 ? (
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>No segments available for this voice</div>
-        ) : (
-          <select
-            className="control"
-            value={row.refAudio}
-            onChange={e => onUpdate(row.id, 'refAudio', e.target.value)}
-          >
-            <option value="">— none —</option>
-            {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
-              const raw = seg.audio || seg.audio_path || seg.audio_filename
-              const path = raw || ''
-              return (
-                <option key={i} value={path}>
-                  {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s)
-                </option>
-              )
-            })}
-          </select>
+        <select
+          className="control"
+          value={refSource}
+          onChange={e => {
+            const v = e.target.value
+            setRefSource(v)
+            // Switching source clears the current pick to avoid a stale cross/custom path.
+            onUpdate(row.id, 'refAudio', '')
+            onUpdate(row.id, 'promptText', '')
+            onUpdate(row.id, 'promptLang', '')
+            if (v !== 'custom') onUpdate(row.id, 'customRef', null)
+          }}
+          style={{ marginBottom: 6 }}
+        >
+          <option value="slices">This voice's slices</option>
+          <option value="cross">Another voice's reference</option>
+          <option value="custom">Custom file…</option>
+        </select>
+        {refSource === 'slices' && (
+          segments.length === 0 ? (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No segments available for this voice</div>
+          ) : (
+            <select
+              className="control"
+              value={row.refAudio}
+              onChange={e => onUpdate(row.id, 'refAudio', e.target.value)}
+            >
+              <option value="">— none —</option>
+              {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
+                const raw = seg.audio || seg.audio_path || seg.audio_filename
+                const path = raw || ''
+                return (
+                  <option key={i} value={path}>
+                    {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s)
+                  </option>
+                )
+              })}
+            </select>
+          )
+        )}
+        {refSource === 'cross' && (
+          <CrossRefPicker
+            voices={voices}
+            currentVoiceId={voiceId}
+            activeRef={row.refAudio}
+            onPick={(path, text) => { onUpdate(row.id, 'refAudio', path); onUpdate(row.id, 'promptText', text || '') }}
+          />
+        )}
+        {refSource === 'custom' && (
+          <CustomRefPicker
+            custom={row.customRef || null}
+            onPick={(path, text, plang, obj) => {
+              if (obj) onUpdate(row.id, 'customRef', obj)
+              onUpdate(row.id, 'refAudio', path)
+              onUpdate(row.id, 'promptText', text || '')
+              onUpdate(row.id, 'promptLang', plang || '')
+            }}
+            onClear={() => { onUpdate(row.id, 'customRef', null); onUpdate(row.id, 'refAudio', ''); onUpdate(row.id, 'promptText', ''); onUpdate(row.id, 'promptLang', '') }}
+          />
         )}
       </div>
 
@@ -3296,9 +3678,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
       {/* Result */}
       {row.result && row.result.audio_url && (
-        <div style={{ marginTop: 8, background: 'var(--bg)', borderRadius: 'var(--radius-sm)', padding: 8 }}>
+        <div className="cmp-result">
+          <div className="cmp-result-label">Result</div>
           <Player src={`${API_BASE}${row.result.audio_url}`} size="sm" />
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <div className="cmp-result-meta">
             <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12 }}>Download</a>
             {row.result.segments && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{row.result.segments.length} segments</span>}
           </div>
@@ -4790,6 +5173,209 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
   )
 }
 
+// ===========================
+//  BROKER TAB (P4 — MVP)
+// ===========================
+// The distribution surface: recipes grouped by voice, the OpenAI-compatible
+// endpoint + a copyable example curl (voice = role/name), recipe deletion, and
+// model re-bind (two avenues: project-query dropdowns backed by
+// /api/recipes-models/:role, and a manual project-relative path field — the
+// folder-icon fallback; a native file browser is a later polish).
+
+function RecipeModelRebind({ recipe, onSaved }) {
+  const [open, setOpen] = useState(false)
+  const [models, setModels] = useState(null)   // { gpt:[], sovits:[] }
+  const [gpt, setGpt] = useState(recipe.gpt_ckpt || '')
+  const [sovits, setSovits] = useState(recipe.sovits_pth || '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  const load = () => {
+    if (models) return
+    api(`/api/recipes-models/${encodeURIComponent(recipe.role)}`).then(r => {
+      if (r.ok) setModels({ gpt: r.data.gpt || [], sovits: r.data.sovits || [] })
+      else setModels({ gpt: [], sovits: [] })
+    }).catch(() => setModels({ gpt: [], sovits: [] }))
+  }
+
+  const save = async () => {
+    setBusy(true); setError(null); setMsg(null)
+    try {
+      const r = await api(`/api/recipes/${encodeURIComponent(recipe.role)}/${encodeURIComponent(recipe.name)}`, {
+        method: 'PUT', body: { gpt_ckpt: gpt, sovits_pth: sovits },
+      })
+      if (!r.ok) throw new Error((r.data && r.data.error) || `Server error ${r.status}`)
+      setMsg('Models updated'); onSaved && onSaved(r.data.recipe)
+    } catch (e) { setError(e.message) }
+    finally { setBusy(false) }
+  }
+
+  if (!open) {
+    return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>Change models</button>
+  }
+  return (
+    <div className="rebind">
+      <div className="field">
+        <label className="field-label">GPT checkpoint <span className="muted">(project query)</span></label>
+        <select className="control" value={models && models.gpt.some(m => m.path === gpt) ? gpt : '__custom__'}
+          onChange={e => e.target.value !== '__custom__' && setGpt(e.target.value)}>
+          {models && models.gpt.map(m => <option key={m.path} value={m.path}>{m.name}{m.steps ? ` (${m.steps})` : ''}</option>)}
+          <option value="__custom__">— custom path below —</option>
+        </select>
+        <input className="control" style={{ marginTop: 4 }} value={gpt} onChange={e => setGpt(e.target.value)}
+          placeholder="assets/<voice>/gpt_checkpoints/....ckpt (folder-icon fallback)" />
+      </div>
+      <div className="field">
+        <label className="field-label">SoVITS model <span className="muted">(project query)</span></label>
+        <select className="control" value={models && models.sovits.some(m => m.path === sovits) ? sovits : '__custom__'}
+          onChange={e => e.target.value !== '__custom__' && setSovits(e.target.value)}>
+          {models && models.sovits.map(m => <option key={m.path} value={m.path}>{m.name}{m.version ? ` [${m.version}]` : ''}</option>)}
+          <option value="__custom__">— custom path below —</option>
+        </select>
+        <input className="control" style={{ marginTop: 4 }} value={sovits} onChange={e => setSovits(e.target.value)}
+          placeholder="assets/<voice>/sovits_models/....pth (folder-icon fallback)" />
+      </div>
+      {error && <div className="msg msg-error">{error}</div>}
+      {msg && <div className="msg msg-ok">{msg}</div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-sm btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save models'}</button>
+        <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>Close</button>
+      </div>
+    </div>
+  )
+}
+
+function RecipeCard({ recipe, endpoint, onChanged }) {
+  const [copied, setCopied] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const cmd = `curl -X POST ${endpoint} \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -d '{"model":"tts-1","voice":"${recipe.id}","input":"こんにちは"}' \\
+  --output out.wav`
+
+  const copy = () => {
+    try { navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch (_) {}
+  }
+  const del = async () => {
+    setBusy(true)
+    try {
+      const r = await api(`/api/recipes/${encodeURIComponent(recipe.role)}/${encodeURIComponent(recipe.name)}`, { method: 'DELETE' })
+      if (r.ok) onChanged && onChanged()
+    } finally { setBusy(false); setConfirmDel(false) }
+  }
+
+  return (
+    <div className="recipe-card">
+      <div className="rc-hdr">
+        <div className="rc-title">
+          <span className="rc-display">{recipe.display_name}</span>
+          <code className="rc-id">{recipe.id}</code>
+        </div>
+        <div className="rc-actions">
+          <button className="btn btn-sm btn-danger" onClick={() => setConfirmDel(true)} disabled={busy}>Delete</button>
+        </div>
+      </div>
+      <div className="rc-body">
+        <div className="rc-grid">
+          <div><span className="rc-k">Reference</span><span className="rc-v" title={recipe.reference_audio}>{basename(recipe.reference_audio)}</span></div>
+          <div><span className="rc-k">Language</span><span className="rc-v">{recipe.language}</span></div>
+          <div><span className="rc-k">GPT</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : '(none)'}</span></div>
+          <div><span className="rc-k">SoVITS</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : '(none)'}</span></div>
+          <div><span className="rc-k">Params</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
+          <div><span className="rc-k">Source</span><span className="rc-v">{recipe.meta?.source || '—'}{recipe.meta?.notes ? ` · ${recipe.meta.notes}` : ''}</span></div>
+        </div>
+        <div className="rc-cmd">
+          <div className="rc-cmd-hdr">
+            <span>Example call (OpenAI-compatible)</span>
+            <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
+          </div>
+          <pre className="rc-cmd-body">{cmd}</pre>
+        </div>
+        <RecipeModelRebind recipe={recipe} onSaved={() => onChanged && onChanged()} />
+        {confirmDel && (
+          <div className="msg msg-warn">
+            Delete recipe <strong>{recipe.id}</strong>? This cannot be undone.
+            <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+              <button className="btn btn-sm btn-danger" disabled={busy} onClick={del}>Delete</button>
+              <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmDel(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BrokerTab() {
+  const [recipes, setRecipes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const endpoint = (typeof window !== 'undefined' ? window.location.origin : '') + '/v1/audio/speech'
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api('/api/recipes').then(r => {
+      if (r.ok && Array.isArray(r.data.recipes)) { setRecipes(r.data.recipes); setError(null) }
+      else setError((r.data && r.data.error) || `Server error ${r.status}`)
+    }).catch(e => setError(e.message)).finally(() => setLoading(false))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  // Group recipes by role for display.
+  const groups = {}
+  for (const rec of recipes) { (groups[rec.role] = groups[rec.role] || []).push(rec) }
+  const roleKeys = Object.keys(groups).sort()
+
+  return (
+    <div>
+      <div className="section" style={{ marginBottom: 12 }}>
+        <div className="section-hdr"><span>Broker — Distribution</span>
+          <button className="btn btn-sm" onClick={load}>Refresh</button>
+        </div>
+        <div className="section-body">
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+            Recipes are exposed through the OpenAI-compatible speech endpoint. Set the
+            request's <code>voice</code> field to a recipe id (<code>role/name</code>) to synthesize with that
+            recipe's pinned models, reference and parameters. Standard OpenAI clients work unchanged.
+          </p>
+          <div className="broker-endpoint">
+            <span className="be-k">Endpoint</span>
+            <code className="be-url">POST {endpoint}</code>
+          </div>
+        </div>
+      </div>
+
+      {loading && <div className="empty-state" style={{ padding: 16 }}><div className="es-sub">Loading recipes…</div></div>}
+      {error && <div className="msg msg-error">{error}</div>}
+
+      {!loading && !error && recipes.length === 0 && (
+        <div className="empty-state" style={{ padding: 20 }}>
+          <div className="es-title">No recipes yet</div>
+          <div className="es-sub">Create one with <strong>Save as recipe</strong> on the Generate or Compare Refs page.</div>
+        </div>
+      )}
+
+      {roleKeys.map(role => (
+        <div className="section" key={role} style={{ marginBottom: 12 }}>
+          <div className="section-hdr"><span>{role.toUpperCase()}</span>
+            <span className="cmp-count">{groups[role].length} recipe{groups[role].length > 1 ? 's' : ''}</span>
+          </div>
+          <div className="section-body">
+            <div className="recipe-list">
+              {groups[role].map(rec => (
+                <RecipeCard key={rec.id} recipe={rec} endpoint={endpoint} onChanged={load} />
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ============================
 // Compact workbench context / status row (Phase 1, Part 1.1)
 // Frontend-only: derives from existing /api/assets, /api/health and the
@@ -4968,6 +5554,7 @@ export default function App() {
         <button className={`nav-btn ${page === 'compare' ? 'active' : ''}`} onClick={() => setPage('compare')}>Compare Refs</button>
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
         <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Fine-tune</button>
+        <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
         <div style={{ flex: 1 }} />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
         <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: health?.engine_online ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.engine_online ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.engine_online ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
@@ -5003,6 +5590,9 @@ export default function App() {
             <TrainingTab voices={voices} loadVoices={loadVoices}
               activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
               trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} />
+          )}
+          {page === 'broker' && (
+            <BrokerTab />
           )}
         </div>
       </main>

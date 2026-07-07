@@ -22,14 +22,24 @@ const OUTPUT_DIR = path.join(APP_DIR, "outputs");
 // Per-source output roots. Only "generate" is written this round; the
 // compare/broker folders are reserved for later assetization work.
 const GENERATE_DIR = path.join(OUTPUT_DIR, "generate");
+// Per-source output roots are physically separated so generate / compare-refs /
+// broker histories never mix (locked 2026-07-07).
+const COMPARE_DIR = path.join(OUTPUT_DIR, "comparerefs");
+const BROKER_DIR = path.join(OUTPUT_DIR, "broker");
 const VOICES_DIR = path.join(APP_DIR, "voices");
 const BACKUP_DIR = path.join(APP_DIR, "backups");
+// Recipes are first-class reusable presets stored in one flat folder as
+// recipe_{voiceId}_{name}.json (source of truth = JSON content).
+const RECIPES_DIR = path.join(APP_DIR, "recipes");
 const WEB_DIST = path.join(APP_DIR, "web", "dist");
 const ASSETS_DIR = ASSETS_ROOT;
 
-for (const d of [OUTPUT_DIR, GENERATE_DIR, VOICES_DIR, BACKUP_DIR, ASSETS_DIR]) {
+for (const d of [OUTPUT_DIR, GENERATE_DIR, COMPARE_DIR, BROKER_DIR, VOICES_DIR, BACKUP_DIR, RECIPES_DIR, ASSETS_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
+
+const { createRecipeStore } = require("./lib/recipeStore");
+const recipeStore = createRecipeStore(RECIPES_DIR);
 
 // Asset scanner
 const assetScanner = require("./lib/assetScanner");
@@ -1047,10 +1057,14 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
   // Engine only returns WAV; format param is accepted for API compatibility but always produces wav
   const mediaType = "wav";
   const genId = newGenId();
-  const genDir = genAssetDir(genId);
+  const genSource = normSource(source);
+  const genDir = genAssetDir(genId, genSource);
   fs.mkdirSync(genDir, { recursive: true });
-  const genUrlBase = `/outputs/generate/${genId}`;
-  const genSource = source || "generate";
+  const genUrlBase = `/outputs/${genSource}/${genId}`;
+  // Optional association back to a saved recipe (P3): the OpenAI endpoint and any
+  // recipe-driven generation stamp `recipe_id` so the Broker page + history can
+  // link an output to the recipe that produced it.
+  const genRecipeId = (req.body && typeof req.body.recipe_id === "string") ? req.body.recipe_id : null;
   // Shared audit fields; each branch adds split/concat/segments/audio_url/files.
   const metaBase = {
     id: genId, source: genSource, createdAt: Date.now(),
@@ -1058,6 +1072,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     gpt: genBaseName(cfg.gpt_model) || "—", sovits: genBaseName(cfg.sovits_model) || "—",
     gpt_model: cfg.gpt_model, sovits_model: cfg.sovits_model,
     ref_audio: cfg.reference_audio, ref_text: cfg.reference_text,
+    recipe_id: genRecipeId,
     recipe: req.body || {}, status: "ok",
   };
 
@@ -1478,10 +1493,23 @@ app.post("/api/assets/:id/open", requireApiKey, (req, res) => {
 // ===========================
 //  GENERATION ASSETS — folder + meta.json per generation (Generate page)
 // ===========================
-// One /api/generate call = one folder outputs/generate/<genId>/ holding audio +
+// One /api/generate call = one folder outputs/<source>/<genId>/ holding audio +
 // meta.json (audit + recipe for Rerun + source). Management operates by id, so
 // Delete removes the whole folder (all segments), not just the combined file.
-function genAssetDir(genId) { return path.join(GENERATE_DIR, genId); }
+//
+// Outputs are physically separated by source so generate / compare-refs / broker
+// histories never mix (locked 2026-07-07). `normSource` maps client-supplied
+// source labels to a canonical folder key; unknown values fall back to generate.
+const OUTPUT_ROOTS = { generate: GENERATE_DIR, comparerefs: COMPARE_DIR, broker: BROKER_DIR };
+function normSource(source) {
+  const s = String(source || "generate").toLowerCase();
+  if (s === "compare" || s === "comparerefs" || s === "compare_refs") return "comparerefs";
+  if (s === "broker" || s === "openai" || s === "speech") return "broker";
+  return "generate";
+}
+function outputRoot(source) { return OUTPUT_ROOTS[normSource(source)]; }
+
+function genAssetDir(genId, source) { return path.join(outputRoot(source), genId); }
 
 function newGenId() {
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
@@ -1494,21 +1522,23 @@ function genBaseName(p) {
   return p.replace(/\\/g, "/").split("/").pop();
 }
 
-function writeGenMeta(genId, meta) {
-  const dir = genAssetDir(genId);
+function writeGenMeta(genId, meta, source) {
+  const dir = genAssetDir(genId, source || (meta && meta.source));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2));
 }
 
-// Resolve a client-supplied generation id to its asset folder, defending against
-// traversal (basename collapse + containment re-check).
-function resolveGenDir(id) {
+// Resolve a client-supplied generation id to its asset folder within the given
+// source root, defending against traversal (basename collapse + containment
+// re-check). `source` defaults to generate for backward compatibility.
+function resolveGenDir(id, source) {
   if (typeof id !== "string" || !id.trim()) return null;
   const base = path.basename(id.replace(/\\/g, "/"));
   if (!base || base === "." || base === "..") return null;
-  const full = genAssetDir(base);
-  if (!full.startsWith(GENERATE_DIR + path.sep)) return null;
-  return { id: base, full };
+  const root = outputRoot(source);
+  const full = path.join(root, base);
+  if (!full.startsWith(root + path.sep)) return null;
+  return { id: base, full, source: normSource(source) };
 }
 
 // Shape a stored meta.json into the client-facing Recent Generations item.
@@ -1524,19 +1554,24 @@ function genItemFromMeta(meta) {
     segments: meta.segments || 1,
     createdAt: meta.createdAt || 0,
     audio_url: meta.audio_url || "",
+    recipe_id: meta.recipe_id || null,
     params: meta.recipe || null,
   };
 }
 
 // GET /api/outputs — list every generation (newest first), read from meta.json.
+// `?source=` scopes to generate | comparerefs | broker (default generate, so the
+// existing Generate page Recent list is unchanged).
 app.get("/api/outputs", requireApiKey, (req, res) => {
   try {
+    const src = normSource(req.query.source);
+    const root = OUTPUT_ROOTS[src];
     let dirs = [];
-    try { dirs = fs.readdirSync(GENERATE_DIR, { withFileTypes: true }); } catch (_) {}
+    try { dirs = fs.readdirSync(root, { withFileTypes: true }); } catch (_) {}
     const items = [];
     for (const d of dirs) {
       if (!d.isDirectory()) continue;
-      const metaPath = path.join(GENERATE_DIR, d.name, "meta.json");
+      const metaPath = path.join(root, d.name, "meta.json");
       if (!fs.existsSync(metaPath)) continue;
       try {
         const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
@@ -1554,7 +1589,7 @@ app.get("/api/outputs", requireApiKey, (req, res) => {
 
 // POST /api/outputs/reveal — highlight the generation folder (or its primary file).
 app.post("/api/outputs/reveal", requireApiKey, (req, res) => {
-  const g = resolveGenDir(req.body && (req.body.id || req.body.name));
+  const g = resolveGenDir(req.body && (req.body.id || req.body.name), req.body && req.body.source);
   if (!g) return res.status(400).json({ error: "Invalid generation id" });
   if (!fs.existsSync(g.full)) {
     return res.status(404).json({ error: "Generation not found (it may have been cleaned)" });
@@ -1580,8 +1615,9 @@ app.post("/api/outputs/reveal", requireApiKey, (req, res) => {
 });
 
 // DELETE /api/outputs/:id — permanently delete the WHOLE generation folder.
+// `?source=` scopes to the right root (default generate).
 app.delete("/api/outputs/:id", requireApiKey, (req, res) => {
-  const g = resolveGenDir(req.params.id);
+  const g = resolveGenDir(req.params.id, req.query.source);
   if (!g) return res.status(400).json({ error: "Invalid generation id" });
   try {
     if (fs.existsSync(g.full)) fs.rmSync(g.full, { recursive: true, force: true });
@@ -1591,15 +1627,17 @@ app.delete("/api/outputs/:id", requireApiKey, (req, res) => {
   }
 });
 
-// POST /api/outputs/clear-all — delete every generation folder under generate/.
+// POST /api/outputs/clear-all — delete every generation folder under a source
+// root (default generate). Body/query `source` scopes it.
 app.post("/api/outputs/clear-all", requireApiKey, (req, res) => {
   try {
     let removed = 0, bytes = 0;
+    const root = outputRoot((req.body && req.body.source) || req.query.source);
     let entries = [];
-    try { entries = fs.readdirSync(GENERATE_DIR, { withFileTypes: true }); } catch (_) {}
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch (_) {}
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const p = path.join(GENERATE_DIR, entry.name);
+      const p = path.join(root, entry.name);
       try {
         for (const f of fs.readdirSync(p)) {
           try { bytes += fs.statSync(path.join(p, f)).size; } catch (_) {}
@@ -2494,90 +2532,147 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
   let voices;
   try { voices = loadVoices(); } catch (err) { return res.status(500).json({ error: clientError(err, "voices.json error") }); }
 
-  const voiceReg = voices[voice];
-  if (!voiceReg) return res.status(404).json({ error: `Unknown voice: ${voice}` });
+  const advParams = loadAdvancedParams();
 
-  // Load reference from segments.json (first matched segment)
-  const segPath = path.join(ASSETS_DIR, voice, "segments.json");
-  if (!fs.existsSync(segPath)) return res.status(400).json({ error: `Voice '${voice}' has no segments.json. Scan assets first.` });
-
+  // Resolve the `voice` field into a concrete inference config. Two paths:
+  //   1. `voice` = "role/name"  → recipe (P5). Uses the recipe's pinned models,
+  //      reference audio/text and params. Distribution-stable and reproducible.
+  //   2. `voice` = "role"       → whole-voice (legacy). Auto-picks the best
+  //      checkpoint + first matched segment. Standard OpenAI clients keep working.
+  let role = voice;
   let refAudio = "";
   let refText = "";
-  try {
-    const segData = JSON.parse(fs.readFileSync(segPath, "utf-8"));
-    const first = (segData.segments || []).find(s => s.matched && (s.audio || s.audio_path || s.audio_filename));
-    if (first) {
-      const raw = first.audio || first.audio_path || first.audio_filename;
-      refAudio = resolveRefPath(raw);
-      refText = first.text || "";
+  let gptModel = "";
+  let sovitsModel = "";
+  let recipeId = null;
+  let textLang = "";
+  let promptLang = "";
+  let recParams = null;
+
+  if (typeof voice === "string" && voice.includes("/")) {
+    // --- Recipe path ---
+    const recipe = recipeStore.resolveVoice(voice);
+    if (!recipe) return res.status(404).json({ error: `Unknown recipe voice: ${voice}` });
+    role = recipe.role;
+    recipeId = recipe.id;
+    const voiceReg = voices[role];
+    if (!voiceReg) return res.status(404).json({ error: `Recipe '${voice}' references unknown voice '${role}'` });
+
+    refAudio = resolveRefPath(recipe.reference_audio);
+    refText = recipe.reference_text || "";
+    if (!refAudio || !fs.existsSync(refAudio)) {
+      return res.status(400).json({ error: `Recipe '${voice}' reference_audio not found: ${recipe.reference_audio}` });
     }
-  } catch (e) { return res.status(500).json({ error: `Failed to read segments.json: ${e.message}` }); }
+    if (!refText) return res.status(400).json({ error: `Recipe '${voice}' has no reference_text` });
 
-  if (!refAudio) return res.status(400).json({ error: `Voice '${voice}' has no matched reference audio in segments.json` });
-  if (!fs.existsSync(refAudio)) return res.status(400).json({ error: `reference_audio file not found: ${refAudio}` });
-  if (!refText) return res.status(400).json({ error: `Voice '${voice}' has no reference_text in segments.json` });
+    // Pinned models (recipe stores project-relative paths). A missing pinned file
+    // means the voice was retrained/pruned — the Broker page re-binds it.
+    gptModel = recipe.gpt_ckpt ? resolveRefPath(recipe.gpt_ckpt) : "";
+    sovitsModel = recipe.sovits_pth ? resolveRefPath(recipe.sovits_pth) : "";
+    for (const [label, p] of [["gpt_ckpt", gptModel], ["sovits_pth", sovitsModel]]) {
+      if (p && !fs.existsSync(p)) {
+        return res.status(400).json({ error: `Recipe '${voice}' pinned ${label} is missing (re-bind it in the Broker page): ${p}` });
+      }
+    }
+    textLang = recipe.language || voiceReg.text_lang || voiceReg.language || "ja";
+    promptLang = recipe.language || voiceReg.prompt_lang || voiceReg.language || "ja";
+    recParams = recipe.params || {};
+  } else {
+    // --- Whole-voice path (legacy, unchanged behavior) ---
+    const voiceReg = voices[voice];
+    if (!voiceReg) return res.status(404).json({ error: `Unknown voice: ${voice}` });
 
-  // Load advanced params for generation settings
-  const advParams = loadAdvancedParams();
+    const segPath = path.join(ASSETS_DIR, voice, "segments.json");
+    if (!fs.existsSync(segPath)) return res.status(400).json({ error: `Voice '${voice}' has no segments.json. Scan assets first.` });
+    try {
+      const segData = JSON.parse(fs.readFileSync(segPath, "utf-8"));
+      const first = (segData.segments || []).find(s => s.matched && (s.audio || s.audio_path || s.audio_filename));
+      if (first) {
+        const raw = first.audio || first.audio_path || first.audio_filename;
+        refAudio = resolveRefPath(raw);
+        refText = first.text || "";
+      }
+    } catch (e) { return res.status(500).json({ error: `Failed to read segments.json: ${e.message}` }); }
+
+    if (!refAudio) return res.status(400).json({ error: `Voice '${voice}' has no matched reference audio in segments.json` });
+    if (!fs.existsSync(refAudio)) return res.status(400).json({ error: `reference_audio file not found: ${refAudio}` });
+    if (!refText) return res.status(400).json({ error: `Voice '${voice}' has no reference_text in segments.json` });
+
+    const metaPath = path.join(ASSETS_DIR, voice, "meta.json");
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      const ckpts = meta?.assets?.checkpoints || {};
+      if ((ckpts.gpt || []).length > 0) gptModel = (pickBestCkpt(ckpts.gpt) || {}).path || "";
+      if ((ckpts.sovits || []).length > 0) sovitsModel = (pickBestCkpt(ckpts.sovits) || {}).path || "";
+    }
+    textLang = voiceReg.text_lang || voiceReg.language || "ja";
+    promptLang = voiceReg.prompt_lang || voiceReg.language || "ja";
+  }
 
   try {
     await withGenerationLock(async () => {
-        const voiceDir = path.join(ASSETS_DIR, voice);
-        const metaPath = path.join(voiceDir, "meta.json");
-        let gptModel = "";
-        let sovitsModel = "";
-        if (fs.existsSync(metaPath)) {
-          const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-          const ckpts = meta?.assets?.checkpoints || {};
-          const gptList = ckpts.gpt || [];
-          const sovitsList = ckpts.sovits || [];
-          if (gptList.length > 0) gptModel = (pickBestCkpt(gptList) || {}).path || "";
-          if (sovitsList.length > 0) sovitsModel = (pickBestCkpt(sovitsList) || {}).path || "";
-        }
-    
         const cfg = {
           gpt_model: gptModel,
           sovits_model: sovitsModel,
           reference_audio: refAudio,
           reference_text: refText,
-          text_lang: voiceReg.text_lang || voiceReg.language || "ja",
-          prompt_lang: voiceReg.prompt_lang || voiceReg.language || "ja",
-          temperature: advParams.temperature,
-          top_k: advParams.top_k,
-          top_p: advParams.top_p,
+          text_lang: textLang,
+          prompt_lang: promptLang,
+          temperature: recParams && recParams.temperature != null ? recParams.temperature : advParams.temperature,
+          top_k: recParams && recParams.top_k != null ? recParams.top_k : advParams.top_k,
+          top_p: recParams && recParams.top_p != null ? recParams.top_p : advParams.top_p,
           repetition_penalty: advParams.repetition_penalty,
           text_split_method: advParams.text_split_method,
-          speed_factor: speed || 1.0,
+          speed_factor: (recParams && recParams.speed != null ? recParams.speed : (speed || 1.0)),
           seed: advParams.seed,
         };
-    
+
         await switchModels(cfg);
-        // Engine only returns WAV; response_format accepted for API compatibility
+        // Engine only returns WAV this round; response_format is accepted for
+        // OpenAI compatibility (mp3/flac land with the ffmpeg follow-up).
         const fmt = "wav";
         const mediaType = "audio/wav";
-    
+
         const payload = buildTtsPayload(input, cfg);
         for (const key of ["sample_steps", "if_sr", "aux_ref_audio_paths"]) {
           if (cfg[key] !== undefined) payload[key] = cfg[key];
         }
-        payload.speed_factor = speed || 1.0;
+        payload.speed_factor = cfg.speed_factor;
         payload.media_type = fmt;
-    
+
         const ttsRes = await gsvPost("/tts", payload);
         if (ttsRes.statusCode >= 400) return res.status(502).json({ error: `GPT-SoVITS /tts failed (${ttsRes.statusCode}): ${ttsRes.body.toString()}` });
-    
+
         const audioBytes = ttsRes.body;
         if (!audioBytes || audioBytes.length === 0) return res.status(502).json({ error: "GPT-SoVITS returned empty audio" });
-    
-        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
-        const rand = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-        const safeVoice = voice.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const filename = `${safeVoice}_${ts}_${rand}.${fmt}`;
-        try { fs.writeFileSync(path.join(OUTPUT_DIR, filename), audioBytes); } catch {}
-    
+
+        // Persist to the broker output root (P3): every distributed call is
+        // archived as a genId folder with meta.json (source=broker, recipe_id).
+        const genId = newGenId();
+        const audioName = `audio.${fmt}`;
+        const audioUrl = `/outputs/broker/${genId}/${audioName}`;
+        try {
+          const dir = genAssetDir(genId, "broker");
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, audioName), audioBytes);
+          writeGenMeta(genId, {
+            id: genId, source: "broker", createdAt: Date.now(),
+            voice: role, voiceLabel: recipeId || voice, text: input, lang: cfg.text_lang,
+            gpt: genBaseName(cfg.gpt_model) || "\u2014", sovits: genBaseName(cfg.sovits_model) || "\u2014",
+            gpt_model: cfg.gpt_model, sovits_model: cfg.sovits_model,
+            ref_audio: cfg.reference_audio, ref_text: cfg.reference_text,
+            recipe_id: recipeId, model: model || null,
+            segments: 1, audio_url: audioUrl,
+            files: [{ role: "single", name: audioName, url: audioUrl }],
+            status: "ok",
+          }, "broker");
+        } catch (e) { console.error("[broker] failed to archive output:", e.message); }
+
+        const filename = `${(recipeId || role).replace(/[^a-zA-Z0-9_-]/g, "_")}_${genId}.${fmt}`;
         res.set("Content-Type", mediaType);
         res.set("Content-Disposition", `attachment; filename="${filename}"`);
-        res.set("X-Voice-Id", voice);
+        res.set("X-Voice-Id", role);
+        if (recipeId) res.set("X-Recipe-Id", recipeId);
         res.send(audioBytes);
     });
   } catch (err) {
@@ -2879,6 +2974,46 @@ app.post("/api/train/cancel/:id", requireApiKey, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── P6: 人工校对（ASR 后暂停）───────────────────────────────────────────────
+// GET  读取当前可校对的 .list（awaiting_review 时有效，其它状态也可只读预览）
+app.get("/api/train/review/:id", (req, res) => {
+  const task = trainingPipeline.getTask(req.params.id);
+  if (!task || typeof task.getReviewList !== "function") return res.status(404).json({ error: "Task not found" });
+  const data = task.getReviewList();
+  if (!data) return res.status(404).json({ error: "No review list available (ASR not produced yet)" });
+  res.json(data);
+});
+
+// POST 保存用户校对后的文本（写回 .list + segments.json）。可在 awaiting_review 期间反复保存。
+app.post("/api/train/review/:id", requireApiKey, (req, res) => {
+  const task = trainingPipeline.getTask(req.params.id);
+  if (!task || typeof task.saveReviewList !== "function") return res.status(404).json({ error: "Task not found" });
+  try {
+    const rows = (req.body && req.body.rows) || [];
+    const result = task.saveReviewList(rows);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: clientError(err) });
+  }
+});
+
+// POST 结束校对，放行管线继续（preprocess→train→…）。
+app.post("/api/train/resume/:id", requireApiKey, (req, res) => {
+  const task = trainingPipeline.getTask(req.params.id);
+  if (!task || typeof task.resume !== "function") return res.status(404).json({ error: "Task not found" });
+  // 若同时带了 rows，则先保存再放行，省一次往返。
+  try {
+    if (req.body && Array.isArray(req.body.rows) && typeof task.saveReviewList === "function") {
+      task.saveReviewList(req.body.rows);
+    }
+  } catch (err) {
+    return res.status(400).json({ error: clientError(err) });
+  }
+  const ok = task.resume();
+  if (!ok) return res.status(409).json({ error: "Task is not awaiting review" });
+  res.json({ ok: true });
+});
+
 app.get("/api/train/logs/:id", (req, res) => {
   const logs = trainingPipeline.getLogsById(req.params.id);
   if (logs === null) return res.status(404).json({ error: "Task not found" });
@@ -2951,6 +3086,102 @@ app.post("/api/train/clear-staging", requireApiKey, (req, res) => {
     console.error("[CLEAR-STAGING] Error:", err);
     res.status(500).json({ error: clientError(err) });
   }
+});
+
+// ===========================
+//  RECIPES API (P0 keystone)
+// ===========================
+//
+// Recipes are role-scoped, reusable inference presets. CRUD operates by
+// (role, name); the OpenAI /v1/audio/speech endpoint resolves them via the
+// `voice` field ("role/name"). Storage + validation live in lib/recipeStore.js.
+
+// Reject a recipe whose role is not a known voice — keeps recipes anchored to
+// real assets and blocks typos from creating orphan presets.
+function knownVoice(role) {
+  try { return Object.prototype.hasOwnProperty.call(loadVoices(), role); }
+  catch (_) { return false; }
+}
+
+// GET /api/recipes — list all, or ?role= to scope to one voice.
+app.get("/api/recipes", requireApiKey, (req, res) => {
+  try {
+    const role = req.query.role ? String(req.query.role) : null;
+    res.json({ recipes: recipeStore.list(role ? { role } : undefined) });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err, "failed to list recipes") });
+  }
+});
+
+// GET /api/recipes/:role/:name — fetch one.
+app.get("/api/recipes/:role/:name", requireApiKey, (req, res) => {
+  const rec = recipeStore.get(req.params.role, req.params.name);
+  if (!rec) return res.status(404).json({ error: "recipe not found" });
+  res.json({ recipe: rec });
+});
+
+// POST /api/recipes — create. Body carries the full recipe payload. Duplicate
+// (role,name) is rejected with 409 unless { force:true } (overwrite, keeps
+// created_at). The frontend uses 409 to raise the "already exists, overwrite?"
+// confirmation.
+app.post("/api/recipes", requireApiKey, (req, res) => {
+  const body = req.body || {};
+  const role = body.role != null ? body.role : body.voiceId;
+  if (!knownVoice(role)) {
+    return res.status(400).json({ error: `unknown voice: ${role}` });
+  }
+  const force = !!body.force;
+  const r = recipeStore.create(body, { force });
+  if (!r.ok) {
+    if (r.code === "exists") return res.status(409).json({ error: r.error, code: "exists" });
+    return res.status(400).json({ error: r.error });
+  }
+  res.status(201).json({ recipe: r.recipe });
+});
+
+// PUT /api/recipes/:role/:name — merge-update (Broker model re-bind + edits).
+app.put("/api/recipes/:role/:name", requireApiKey, (req, res) => {
+  const r = recipeStore.update(req.params.role, req.params.name, req.body || {});
+  if (!r.ok) {
+    if (r.code === "not_found") return res.status(404).json({ error: r.error });
+    return res.status(400).json({ error: r.error });
+  }
+  res.json({ recipe: r.recipe });
+});
+
+// DELETE /api/recipes/:role/:name — remove one.
+app.delete("/api/recipes/:role/:name", requireApiKey, (req, res) => {
+  const ok = recipeStore.remove(req.params.role, req.params.name);
+  if (!ok) return res.status(404).json({ error: "recipe not found" });
+  res.json({ ok: true });
+});
+
+// GET /api/recipes-models/:role — list a voice's available GPT/SoVITS
+// checkpoints (from meta.json) for the Broker page "project query" model
+// re-bind path. Returns project-relative paths so recipes stay portable.
+app.get("/api/recipes-models/:role", requireApiKey, (req, res) => {
+  const role = req.params.role;
+  if (!knownVoice(role)) return res.status(404).json({ error: `unknown voice: ${role}` });
+  const metaPath = path.join(ASSETS_DIR, role, "meta.json");
+  const toRel = (p) => {
+    if (!p) return "";
+    const norm = String(p).replace(/\\/g, "/");
+    const marker = `/assets/${role}/`;
+    const i = norm.indexOf(marker);
+    return i >= 0 ? norm.slice(i + 1) : norm; // strip up to "assets/<role>/..."
+  };
+  let gpt = [], sovits = [];
+  try {
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      const ck = (meta && meta.assets && meta.assets.checkpoints) || {};
+      gpt = (ck.gpt || []).map(x => ({ name: x.name, path: toRel(x.path), steps: x.steps }));
+      sovits = (ck.sovits || []).map(x => ({ name: x.name, path: toRel(x.path), version: x.version }));
+    }
+  } catch (err) {
+    return res.status(500).json({ error: clientError(err, "failed to read checkpoints") });
+  }
+  res.json({ role, gpt, sovits });
 });
 
 // ===========================

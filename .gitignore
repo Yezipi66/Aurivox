@@ -47,3 +47,4 @@ requirements.lock.current.txt
 data/pron_lexicon/*.json
 !data/pron_lexicon/.gitkeep
 !data/pron_lexicon/README.md
+recipes/ 

@@ -8,6 +8,15 @@ from gsv_code.text.symbols import punctuation
 
 from gsv_code.text.symbols2 import symbols
 
+# 读音校对覆盖层（task7 英语接入）：读音单元 = 词 -> ARPABET 音素列表。
+# 注入点 = en_G2p 逐词求出音素后、拼接前；覆盖项直接替换（en 无 word2ph 对齐约束，
+# 允许音素数变化）。任何异常/缺失一律原样返回，保证零回归。
+try:
+    from gsv_code.text import pron_correction as _pron
+except Exception as _pron_err:  # pragma: no cover
+    print(f"[english] pron_correction unavailable ({_pron_err!r}); reading override disabled.")
+    _pron = None
+
 from builtins import str as unicode
 from gsv_code.text.en_normalization.expend import normalize
 from nltk.tokenize import TweetTokenizer
@@ -267,6 +276,34 @@ class en_G2p(G2p):
             "JJ",
         )
 
+    def _base_pron(self, o_word, pos):
+        """单词 -> ARPABET 音素列表（覆盖层注入前的原始读音）。"""
+        # 还原 g2p_en 小写操作逻辑
+        word = o_word.lower()
+
+        if re.search("[a-z]", word) is None:
+            return [word]
+        # 先把单字母推出去
+        elif len(word) == 1:
+            # 单读 A 发音修正, 这里需要原格式 o_word 判断大写
+            if o_word == "A":
+                return ["EY1"]
+            else:
+                return self.cmu[word][0]
+        # g2p_en 原版多音字处理
+        elif word in self.homograph2features:  # Check homograph
+            pron1, pron2, pos1 = self.homograph2features[word]
+            if pos.startswith(pos1):
+                return pron1
+            # pos1比pos长仅出现在read
+            elif len(pos) < len(pos1) and pos == pos1[: len(pos)]:
+                return pron1
+            else:
+                return pron2
+        else:
+            # 递归查找预测
+            return self.qryword(o_word)
+
     def __call__(self, text):
         # tokenization
         words = word_tokenize(text)
@@ -275,31 +312,10 @@ class en_G2p(G2p):
         # steps
         prons = []
         for o_word, pos in tokens:
-            # 还原 g2p_en 小写操作逻辑
-            word = o_word.lower()
-
-            if re.search("[a-z]", word) is None:
-                pron = [word]
-            # 先把单字母推出去
-            elif len(word) == 1:
-                # 单读 A 发音修正, 这里需要原格式 o_word 判断大写
-                if o_word == "A":
-                    pron = ["EY1"]
-                else:
-                    pron = self.cmu[word][0]
-            # g2p_en 原版多音字处理
-            elif word in self.homograph2features:  # Check homograph
-                pron1, pron2, pos1 = self.homograph2features[word]
-                if pos.startswith(pos1):
-                    pron = pron1
-                # pos1比pos长仅出现在read
-                elif len(pos) < len(pos1) and pos == pos1[: len(pos)]:
-                    pron = pron1
-                else:
-                    pron = pron2
-            else:
-                # 递归查找预测
-                pron = self.qryword(o_word)
+            pron = self._base_pron(o_word, pos)
+            # 读音校对覆盖层（task7）：命中词典/单次覆盖则替换，无则原样返回。
+            if _pron is not None:
+                pron = _pron.apply(o_word, pron, lang="en")
 
             prons.extend(pron)
             prons.extend([" "])
@@ -366,6 +382,45 @@ def g2p(text):
     phones = [ph if ph != "<unk>" else "UNK" for ph in phone_list if ph not in [" ", "<pad>", "UW", "</s>", "<s>"]]
 
     return replace_phs(phones)
+
+
+def get_word_arpa(text):
+    """预览：文本 -> [(word, readings(ARPABET), source)]，读音已应用覆盖（预览 == 合成）。
+
+    对等中文 chinese2.get_word_pinyins / 日语 japanese.get_word_yomi，返回 (norm_text, tokens)。
+    逐词读音推导复用 en_G2p._base_pron，保证与实际合成同源。
+    """
+    norm = text_normalize(text)
+    ov = {}
+    lex = {}
+    if _pron is not None:
+        try:
+            ov = _pron.current_overrides("en") or {}
+        except Exception:
+            ov = {}
+        try:
+            lex = _pron.load_lexicon("en") or {}
+        except Exception:
+            lex = {}
+    words = word_tokenize(norm)
+    tagged = pos_tag(words)
+    tokens = []
+    for o_word, pos in tagged:
+        try:
+            base = _g2p._base_pron(o_word, pos)
+        except Exception:
+            base = [o_word]
+        readings = base
+        if _pron is not None:
+            readings = _pron.apply(o_word, base, lang="en")
+        if o_word in ov:
+            src = "override"
+        elif o_word in lex:
+            src = "lexicon"
+        else:
+            src = "g2p"
+        tokens.append({"word": o_word, "readings": list(readings), "source": src})
+    return norm, tokens
 
 
 if __name__ == "__main__":
