@@ -48,3 +48,6 @@ data/pron_lexicon/*.json
 !data/pron_lexicon/.gitkeep
 !data/pron_lexicon/README.md
 recipes/ 
+
+# Project-local ffmpeg binaries (provisioned by download_ffmpeg.py)
+vendor/ffmpeg/
