@@ -1689,6 +1689,9 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .rc-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-cmd { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .rc-cmd-hdr { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--panel); font-size: 11px; color: var(--muted); }
+.rc-cmd-toggle { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer; }
+.rc-cmd-toggle:hover { color: var(--text); }
+.rc-cmd-caret { display: inline-block; width: 10px; font-size: 10px; }
 .rc-cmd-body { margin: 0; padding: 10px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text); white-space: pre-wrap; word-break: break-all; }
 .rebind { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 .rebind .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
@@ -1702,3 +1705,22 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 6px; }
 .arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: 12px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .asr-review-ftr { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
+
+/* ── T1: Fine-tune ASR reading-proofing wide layout ─────────────────────────
+   The proofing panel is the 3rd child of the 2-col .asr-review-row grid, so it
+   wraps under the 160px path column. Break it out to full width, then lay the
+   PronPanel editor (left) and readings/lexicon output (right) side-by-side to
+   use the reclaimed horizontal space. The .pron-grid / .pron-edit / .pron-out
+   wrappers collapse via `display: contents` in the default (Generate-page)
+   layout, so that view is byte-for-byte unchanged. */
+.asr-review-row .arr-proof { grid-column: 1 / -1; min-width: 0; }
+.pron-grid, .pron-edit, .pron-out { display: contents; }
+.pron-panel-wide .pron-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.pron-panel-wide .pron-edit,
+.pron-panel-wide .pron-out { display: block; min-width: 0; }
+.pron-panel-wide .pron-edit textarea { min-height: 120px; }

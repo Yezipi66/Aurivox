@@ -2266,8 +2266,13 @@ app.post("/api/assets/import", requireApiKey, async (req, res) => {
 });
 
 // GET /api/assets/:id — get meta.json for a voice
-app.get("/api/assets/:id", (req, res) => {
+app.get("/api/assets/:id", (req, res, next) => {
   const id = req.params.id;
+  // F2: `voices-with-models` is a dedicated collection endpoint registered later
+  // (the first-level Broker model picker). Express matches routes top-down, so
+  // this `:id` param route would otherwise capture it as id="voices-with-models"
+  // and 404 on a missing meta.json. Fall through to the real handler.
+  if (id === "voices-with-models") return next();
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const metaPath = path.join(ASSETS_DIR, id, "meta.json");
   if (!fs.existsSync(metaPath)) return res.status(404).json({ error: `No meta.json for '${id}'` });

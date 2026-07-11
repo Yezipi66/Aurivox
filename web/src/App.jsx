@@ -182,7 +182,12 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 // ===========================
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-function PronPanel({ text, setText, lang, overrides, setOverrides }) {
+function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
+  // T1: "wide" layout used by the Fine-tune ASR proofreading panel — arranges the
+  // editor (left) and readings/lexicon output (right) side-by-side to use the full
+  // available width. On the Generate page (default layout) the .pron-grid/.pron-edit/
+  // .pron-out wrappers collapse via `display:contents`, so that layout is unchanged.
+  const wide = layout === 'wide'
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -265,7 +270,9 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
   const clearOverrides = () => { setOverrides({}); if (preview) doPreview() }
 
   return (
-    <div className="section" style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+    <div className={`section pron-panel${wide ? ' pron-panel-wide' : ''}`} style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+      <div className="pron-grid">
+      <div className="pron-edit">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600 }}>Reading proofing</span>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -295,7 +302,9 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
       </div>
 
       {error && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
+      </div>{/* .pron-edit */}
 
+      <div className="pron-out">
       {preview && supported && (
         <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {(preview.tokens || []).map((tok, ti) => (
@@ -363,6 +372,8 @@ function PronPanel({ text, setText, lang, overrides, setOverrides }) {
           </div>
         </div>
       )}
+      </div>{/* .pron-out */}
+      </div>{/* .pron-grid */}
     </div>
   )
 }
@@ -1984,7 +1995,7 @@ function AsrRowProof({ text, lang, onChange, disabled }) {
         {open ? 'Hide reading proofing' : 'Proof reading'}
       </button>
       {open && (
-        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} />
+        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} layout="wide" />
       )}
     </div>
   )
@@ -2069,6 +2080,9 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     denoise: false, slice: true, asr: true, copyRaw: true,
     trainS1: true, trainS2: true,
     preprocessReview: false,
+    // T5: default off = auto-clean the .staging/{taskId} workspace after a
+    // successful publish (existing behavior). On = keep it for debugging.
+    keepStaging: false,
     // Advanced params
     gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
@@ -2257,7 +2271,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         language: form.language,
         inputDir: cleanDir,
         overwrite: !!overwrite,
-        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false, pauseAfterAsr: !!form.preprocessReview },
+        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false, pauseAfterAsr: !!form.preprocessReview, keepStaging: !!form.keepStaging },
         customParams: {
           training: buildTrainingParams(form),
           steps: {
@@ -2473,7 +2487,23 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     } else if (selectedNode === 'finalize') {
       body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.</p>;
     } else if (selectedNode === 'promote') {
-      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page. No configuration needed.</p>;
+      body = (
+        <>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page.</p>
+          <label className="toggle-row" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={!!form.keepStaging}
+                   onChange={e => setField('keepStaging', e.target.checked)} />
+            Keep task workspace after publish
+          </label>
+          <p className="field-hint" style={{ marginTop: 4 }}>
+            By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
+            intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
+            the voice is published, since the finished asset no longer needs it. Enable this only when you
+            need to inspect or re-run the intermediate artifacts for debugging; the retained workspace is
+            never reused automatically and must be cleaned up manually.
+          </p>
+        </>
+      );
     }
     return (
       <div className="node-detail">
@@ -2725,6 +2755,10 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const [raws, setRaws] = useState(null)
   const [loading, setLoading] = useState(false)
   const [rawDur, setRawDur] = useState({})
+  // T2: Slices / Raw tabs (mirrors the own-voice Reference Audio picker) so
+  // cross-voice raw takes are selectable, not buried below the slices list.
+  // Reset to 'slices' whenever the source voice changes.
+  const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
 
   useEffect(() => {
     if (others.length && !others.find(o => o.id === vid)) setVid(others[0].id)
@@ -2732,6 +2766,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 
   useEffect(() => {
     if (!vid) { setSegs([]); setRaws([]); return }
+    setRefTab('slices')
     setLoading(true); setRawDur({})
     Promise.all([
       api(`/api/assets/${vid}/segments`)
@@ -2762,11 +2797,24 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
       <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
         Cross-voice reference &mdash; timbre and quality may differ from this model.
       </div>
+      <div className="ref-tabs" style={{ marginBottom: 6 }}>
+        <button
+          type="button"
+          className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
+          onClick={() => setRefTab('slices')}
+        >Slices <span className="ref-tab-count">{availSlices.length}</span></button>
+        <button
+          type="button"
+          className={`ref-tab ${refTab === 'raw' ? 'active' : ''}`}
+          onClick={() => setRefTab('raw')}
+        >Raw <span className="ref-tab-count">{availRaw.length}</span></button>
+      </div>
       {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
       {!loading && (
         <div className="ref-list">
-          {availSlices.length === 0 && availRaw.length === 0 && <div className="ref-col-empty">No reference audio in this voice</div>}
-          {availSlices.map((seg, i) => {
+          {refTab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">No slices in this voice</div>}
+          {refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No raw audio in this voice</div>}
+          {refTab === 'slices' && availSlices.map((seg, i) => {
             const p = seg.audio || seg.audio_path || seg.audio_filename
             const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
             const rpath = `assets/${vid}/slicer_opt/${fn}`
@@ -2783,7 +2831,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
               </div>
             )
           })}
-          {availRaw.map((rf, i) => {
+          {refTab === 'raw' && availRaw.map((rf, i) => {
             const rpath = `assets/${vid}/raw/${rf.filename}`
             const isActive = activeRef === rpath
             const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[rf.filename]
@@ -5674,6 +5722,9 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
   const [copied, setCopied] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [busy, setBusy] = useState(false)
+  // UI: the example curl call is collapsed by default to keep recipe cards compact;
+  // click the header to expand it.
+  const [cmdOpen, setCmdOpen] = useState(false)
   const cmd = `curl -X POST ${endpoint} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $API_KEY" \\
@@ -5711,12 +5762,17 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
           <div><span className="rc-k">Params</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
           <div><span className="rc-k">Source</span><span className="rc-v">{recipe.meta?.source || '—'}{recipe.meta?.notes ? ` · ${recipe.meta.notes}` : ''}</span></div>
         </div>
-        <div className="rc-cmd">
+        <div className={`rc-cmd${cmdOpen ? ' open' : ''}`}>
           <div className="rc-cmd-hdr">
-            <span>Example call (OpenAI-compatible)</span>
-            <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
+            <button type="button" className="rc-cmd-toggle" aria-expanded={cmdOpen} onClick={() => setCmdOpen(o => !o)}>
+              <span className="rc-cmd-caret">{cmdOpen ? '▾' : '▸'}</span>
+              <span>Example call (OpenAI-compatible)</span>
+            </button>
+            {cmdOpen && (
+              <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
+            )}
           </div>
-          <pre className="rc-cmd-body">{cmd}</pre>
+          {cmdOpen && <pre className="rc-cmd-body">{cmd}</pre>}
         </div>
         <RecipeModelRebind recipe={recipe} onSaved={() => onChanged && onChanged()} />
         {confirmDel && (
