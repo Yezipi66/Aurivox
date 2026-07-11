@@ -4,7 +4,8 @@ const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 const http = require("http");
-const { execSync, spawn } = require("child_process");
+const { execSync, spawn, execFileSync } = require("child_process");
+const os = require("os");
 const multer = require("multer");
 
 const { ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig } = require('./lib/paths');
@@ -375,8 +376,50 @@ function gsvGet(pathStr, params) { return gsvRequest("GET", pathStr, params); }
 
 function resolveRefPath(raw) {
   if (!raw) return "";
-  if (raw.includes(":\\") || raw.startsWith("/")) return raw;
+  // Absolute paths (POSIX "/…", Windows "X:\…" or forward-slashed "X:/…") are
+  // returned as-is; only project-relative paths are joined to APP_DIR.
+  if (raw.startsWith("/") || raw.includes(":\\") || /^[a-zA-Z]:\//.test(raw)) return raw;
   return path.join(APP_DIR, raw).replace(/\\/g, "/");
+}
+
+// Inverse of resolveRefPath: turn an absolute (browsed) path into a project-
+// relative, forward-slash path. Returns null when the path escapes the project
+// root (APP_DIR) so the Broker page can reject non-portable model picks (PC-3).
+function toProjectRelative(abs) {
+  if (!abs) return null;
+  let rel = path.relative(APP_DIR, path.resolve(abs));
+  rel = rel.replace(/\\/g, "/");
+  if (rel === "" || rel.startsWith("../") || rel === ".." || path.isAbsolute(rel)) return null;
+  return rel;
+}
+
+// Normalize a model path picked for a recipe (gpt_ckpt / sovits_pth). Already-
+// relative paths are kept; absolute paths INSIDE the project are converted to a
+// project-relative form (portable). Absolute paths OUTSIDE the project are only
+// allowed when the caller explicitly confirms (PC-3, allowExternal): they are
+// stored verbatim as an absolute path, which pins the recipe to this machine —
+// the original file must not be moved and the recipe is no longer self-portable
+// (the user must ship those model files alongside the recipe).
+function normalizeModelPath(raw, opts) {
+  if (!raw) return { ok: true, value: "", external: false };
+  const allowExternal = !!(opts && opts.allowExternal);
+  const s = String(raw).replace(/\\/g, "/");
+  const isAbs = s.startsWith("/") || /^[a-zA-Z]:\//.test(s) || raw.includes(":\\");
+  if (!isAbs) {
+    if (s.includes("..")) return { ok: false, code: "invalid", error: "model path must not contain '..'" };
+    return { ok: true, value: s, external: false };
+  }
+  const rel = toProjectRelative(raw);
+  if (rel) return { ok: true, value: rel, external: false };
+  // Outside the project.
+  if (!allowExternal) {
+    return {
+      ok: false,
+      code: "external",
+      error: "model file is outside the project — it will be pinned as an absolute path (not portable). Confirm to proceed, or copy it under assets/ first.",
+    };
+  }
+  return { ok: true, value: s, external: true };
 }
 
 function safeId(id) { return /^[a-zA-Z0-9_-]+$/.test(id); }
@@ -516,17 +559,82 @@ function forceSplitLong(text, softLimit, hardLimit) {
 
 let _ffmpegChecked = false;
 let _ffmpegAvailable = false;
+let _ffmpegPath = "ffmpeg";
+
+// Resolve the ffmpeg executable, preferring a project-local static build
+// provisioned by download_ffmpeg.py (vendor/ffmpeg/<platform>/ffmpeg[.exe]).
+// This keeps ffmpeg self-contained per project — no PATH / global install
+// required. Falls back to a system ffmpeg on PATH when no vendored copy exists.
+function vendoredFfmpegPath() {
+  const isWin = process.platform === "win32";
+  const arch = process.arch; // "x64" | "arm64" | ...
+  const bin = isWin ? "ffmpeg.exe" : "ffmpeg";
+  const keys = [];
+  if (isWin) {
+    keys.push("windows-x86_64");
+  } else if (process.platform === "linux") {
+    keys.push(arch === "arm64" ? "linux-aarch64" : "linux-x86_64");
+  } else if (process.platform === "darwin") {
+    keys.push(arch === "arm64" ? "darwin-arm64" : "darwin-x86_64");
+  }
+  for (const k of keys) {
+    const p = path.join(APP_DIR, "vendor", "ffmpeg", k, bin);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+// The absolute (or PATH) command used to invoke ffmpeg. Callers should use this
+// instead of a hardcoded "ffmpeg" so the vendored binary is honored.
+function ffmpegCmd() {
+  checkFfmpeg();
+  return _ffmpegPath;
+}
 
 function checkFfmpeg() {
   if (_ffmpegChecked) return _ffmpegAvailable;
   _ffmpegChecked = true;
+  const vendored = vendoredFfmpegPath();
+  const candidate = vendored || "ffmpeg";
   try {
-    execSync("ffmpeg -version", { stdio: "ignore", timeout: 5000 });
+    execFileSync(candidate, ["-version"], { stdio: "ignore", timeout: 5000 });
     _ffmpegAvailable = true;
+    _ffmpegPath = candidate;
+    if (vendored) console.log(`[ffmpeg] using project-local build: ${vendored}`);
   } catch {
     _ffmpegAvailable = false;
   }
   return _ffmpegAvailable;
+}
+
+// PH: OpenAI /v1/audio/speech response formats. WAV is the lossless default and
+// needs no ffmpeg (the engine already emits WAV). The others are produced by
+// transcoding the engine's WAV bytes through the system ffmpeg; when ffmpeg is
+// absent we transparently fall back to WAV and flag it via a response header.
+const AUDIO_FORMATS = {
+  wav:  { ext: "wav",  mime: "audio/wav",  ffmpeg: null },
+  mp3:  { ext: "mp3",  mime: "audio/mpeg", ffmpeg: ["-c:a", "libmp3lame", "-q:a", "2", "-f", "mp3"] },
+  opus: { ext: "opus", mime: "audio/opus", ffmpeg: ["-c:a", "libopus", "-b:a", "64k", "-f", "opus"] },
+  aac:  { ext: "aac",  mime: "audio/aac",  ffmpeg: ["-c:a", "aac", "-b:a", "192k", "-f", "adts"] },
+  flac: { ext: "flac", mime: "audio/flac", ffmpeg: ["-c:a", "flac", "-f", "flac"] },
+};
+
+// Transcode WAV bytes to a target format via system ffmpeg. Returns the encoded
+// Buffer. Uses a temp working directory (some ffmpeg muxers can't stream to a
+// pipe). Throws on failure so callers can decide how to degrade.
+function transcodeAudio(wavBuffer, targetFmt) {
+  const spec = AUDIO_FORMATS[targetFmt];
+  if (!spec || !spec.ffmpeg) return wavBuffer; // wav or unknown → passthrough
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tts-xcode-"));
+  const inPath = path.join(tmpDir, "in.wav");
+  const outPath = path.join(tmpDir, `out.${spec.ext}`);
+  try {
+    fs.writeFileSync(inPath, wavBuffer);
+    execFileSync(ffmpegCmd(), ["-hide_banner", "-loglevel", "error", "-y", "-i", inPath, ...spec.ffmpeg, outPath], { timeout: 30000 });
+    return fs.readFileSync(outPath);
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+  }
 }
 
 // ===========================
@@ -591,7 +699,7 @@ function concatWithFfmpeg(inputPaths, outputPath, silenceMs) {
     }
     fs.writeFileSync(concatList, files.join("\n"));
 
-    const child = spawn("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", concatList, "-c", "copy", outputPath], { stdio: "pipe" });
+    const child = spawn(ffmpegCmd(), ["-y", "-f", "concat", "-safe", "0", "-i", concatList, "-c", "copy", outputPath], { stdio: "pipe" });
     let stderr = "";
     child.stderr.on("data", d => { stderr += d; });
 
@@ -2021,6 +2129,13 @@ app.get("/api/fs/browse", requireApiKey, async (req, res) => {
     }
     if (!target) target = "/"; // POSIX root
 
+    // Optional file-picking mode (PC): `?files=.ckpt,.pth` also lists files whose
+    // extension matches, so the Broker page can pick a model file (not just a
+    // folder). Absent → folder-only (unchanged, backward compatible).
+    const fileExts = (req.query.files || "").toString().trim()
+      .split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
+      .map(e => (e.startsWith(".") ? e : "." + e));
+
     target = path.resolve(target);
     let stat;
     try { stat = await fsp.stat(target); } catch (e) {
@@ -2035,6 +2150,7 @@ app.get("/api/fs/browse", requireApiKey, async (req, res) => {
     // throw EPERM; doing those in parallel (and only when the dirent type is
     // unknown/symlink) avoids the serial-exception stall that made this lag.
     const entries = await fsp.readdir(target, { withFileTypes: true });
+    const files = [];
     const resolved = await Promise.all(entries.map(async (entry) => {
       const full = path.join(target, entry.name);
       if (entry.isDirectory()) return { name: entry.name, path: full };
@@ -2043,10 +2159,16 @@ app.get("/api/fs/browse", requireApiKey, async (req, res) => {
       if (entry.isSymbolicLink()) {
         try { if ((await fsp.stat(full)).isDirectory()) return { name: entry.name, path: full }; } catch (_) {}
       }
+      // File-picking mode: collect files matching the requested extensions.
+      if (fileExts.length > 0 && (entry.isFile() || entry.isSymbolicLink())) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (fileExts.includes(ext)) files.push({ name: entry.name, path: full.replace(/\\/g, "/") });
+      }
       return null;
     }));
     const dirs = resolved.filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
     // parent: null when at a drive root (Windows) or filesystem root (POSIX),
     // in which case the frontend offers "up to drives" on Windows.
@@ -2054,7 +2176,7 @@ app.get("/api/fs/browse", requireApiKey, async (req, res) => {
     const atRoot = parentDir === target;
     const parent = atRoot ? (isWin ? "" : null) : parentDir;
 
-    res.json({ ok: true, path: target, parent, isDriveList: false, drives: [], dirs });
+    res.json({ ok: true, path: target, parent, isDriveList: false, drives: [], dirs, files });
   } catch (err) {
     res.status(500).json({ error: localError(err) });
   }
@@ -2611,6 +2733,20 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
 
   try {
     await withGenerationLock(async () => {
+        // Recipe params take precedence over the global advanced-params defaults;
+        // missing fields (older v1 recipes) fall back to advParams (PA-3).
+        const rp = recParams || {};
+        const pick = (k, adv) => (rp[k] != null ? rp[k] : adv);
+
+        // Auxiliary references (PA): recipe stores project-relative paths; resolve
+        // each and keep only the ones that still exist on this machine.
+        let auxResolved = [];
+        if (Array.isArray(rp.aux_ref_audio_paths)) {
+          auxResolved = rp.aux_ref_audio_paths
+            .map((p) => resolveRefPath(p))
+            .filter((p) => p && fs.existsSync(p));
+        }
+
         const cfg = {
           gpt_model: gptModel,
           sovits_model: sovitsModel,
@@ -2618,38 +2754,79 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
           reference_text: refText,
           text_lang: textLang,
           prompt_lang: promptLang,
-          temperature: recParams && recParams.temperature != null ? recParams.temperature : advParams.temperature,
-          top_k: recParams && recParams.top_k != null ? recParams.top_k : advParams.top_k,
-          top_p: recParams && recParams.top_p != null ? recParams.top_p : advParams.top_p,
-          repetition_penalty: advParams.repetition_penalty,
-          text_split_method: advParams.text_split_method,
-          speed_factor: (recParams && recParams.speed != null ? recParams.speed : (speed || 1.0)),
-          seed: advParams.seed,
+          temperature: pick("temperature", advParams.temperature),
+          top_k: pick("top_k", advParams.top_k),
+          top_p: pick("top_p", advParams.top_p),
+          repetition_penalty: pick("repetition_penalty", advParams.repetition_penalty),
+          text_split_method: rp.text_split_method || advParams.text_split_method,
+          speed_factor: (rp.speed != null ? rp.speed : (speed || 1.0)),
+          seed: pick("seed", advParams.seed),
+          // Advanced group — pinned by the recipe when present (PA).
+          sample_steps: pick("sample_steps", advParams.sample_steps),
+          if_sr: rp.if_sr != null ? rp.if_sr : advParams.if_sr,
+          batch_size: pick("batch_size", advParams.batch_size),
+          batch_threshold: pick("batch_threshold", advParams.batch_threshold),
+          split_bucket: rp.split_bucket != null ? rp.split_bucket : advParams.split_bucket,
+          fragment_interval: pick("fragment_interval", advParams.fragment_interval),
+          parallel_infer: rp.parallel_infer != null ? rp.parallel_infer : advParams.parallel_infer,
         };
+        if (auxResolved.length > 0) cfg.aux_ref_audio_paths = auxResolved;
+        // Pinned pronunciation overrides ride along verbatim (PA-1).
+        if (rp.pron_overrides && typeof rp.pron_overrides === "object" &&
+            Object.keys(rp.pron_overrides).length > 0) {
+          cfg.pron_overrides = rp.pron_overrides;
+        }
 
         await switchModels(cfg);
-        // Engine only returns WAV this round; response_format is accepted for
-        // OpenAI compatibility (mp3/flac land with the ffmpeg follow-up).
-        const fmt = "wav";
-        const mediaType = "audio/wav";
+        // PH: resolve the requested response_format. The engine always renders
+        // WAV; non-wav formats are transcoded below via ffmpeg. Unknown formats
+        // are rejected (OpenAI does the same).
+        const reqFmt = (typeof response_format === "string" ? response_format.toLowerCase().trim() : "") || "wav";
+        if (!AUDIO_FORMATS[reqFmt]) {
+          return res.status(400).json({ error: `Unsupported response_format '${response_format}'. Supported: ${Object.keys(AUDIO_FORMATS).join(", ")}.` });
+        }
+        let fmt = reqFmt;
+        let formatNotice = null;
+        // Degrade gracefully to WAV when a lossy/compressed format is requested
+        // but ffmpeg isn't installed, rather than failing the whole request.
+        if (fmt !== "wav" && !checkFfmpeg()) {
+          formatNotice = `ffmpeg not available on the server; '${reqFmt}' was delivered as WAV instead.`;
+          fmt = "wav";
+        }
 
         const payload = buildTtsPayload(input, cfg);
         for (const key of ["sample_steps", "if_sr", "aux_ref_audio_paths"]) {
           if (cfg[key] !== undefined) payload[key] = cfg[key];
         }
         payload.speed_factor = cfg.speed_factor;
-        payload.media_type = fmt;
+        // The engine only speaks WAV; transcoding happens broker-side.
+        payload.media_type = "wav";
 
         const ttsRes = await gsvPost("/tts", payload);
         if (ttsRes.statusCode >= 400) return res.status(502).json({ error: `GPT-SoVITS /tts failed (${ttsRes.statusCode}): ${ttsRes.body.toString()}` });
 
-        const audioBytes = ttsRes.body;
-        if (!audioBytes || audioBytes.length === 0) return res.status(502).json({ error: "GPT-SoVITS returned empty audio" });
+        const wavBytes = ttsRes.body;
+        if (!wavBytes || wavBytes.length === 0) return res.status(502).json({ error: "GPT-SoVITS returned empty audio" });
+
+        // Transcode WAV → requested format when needed (ffmpeg confirmed above).
+        let audioBytes = wavBytes;
+        if (fmt !== "wav") {
+          try {
+            audioBytes = transcodeAudio(wavBytes, fmt);
+          } catch (e) {
+            console.error(`[broker] transcode to ${fmt} failed, falling back to wav:`, e.message);
+            formatNotice = `Transcoding to '${fmt}' failed on the server; delivered as WAV instead.`;
+            fmt = "wav";
+            audioBytes = wavBytes;
+          }
+        }
+        const mediaType = AUDIO_FORMATS[fmt].mime;
 
         // Persist to the broker output root (P3): every distributed call is
         // archived as a genId folder with meta.json (source=broker, recipe_id).
         const genId = newGenId();
-        const audioName = `audio.${fmt}`;
+        const ext = AUDIO_FORMATS[fmt].ext;
+        const audioName = `audio.${ext}`;
         const audioUrl = `/outputs/broker/${genId}/${audioName}`;
         try {
           const dir = genAssetDir(genId, "broker");
@@ -2668,10 +2845,13 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
           }, "broker");
         } catch (e) { console.error("[broker] failed to archive output:", e.message); }
 
-        const filename = `${(recipeId || role).replace(/[^a-zA-Z0-9_-]/g, "_")}_${genId}.${fmt}`;
+        const filename = `${(recipeId || role).replace(/[^a-zA-Z0-9_-]/g, "_")}_${genId}.${ext}`;
         res.set("Content-Type", mediaType);
         res.set("Content-Disposition", `attachment; filename="${filename}"`);
         res.set("X-Voice-Id", role);
+        res.set("X-Audio-Format", fmt);
+        // Surface any silent WAV fallback so callers can detect the degrade.
+        if (formatNotice) res.set("X-Audio-Format-Notice", formatNotice);
         if (recipeId) res.set("X-Recipe-Id", recipeId);
         res.send(audioBytes);
     });
@@ -3076,11 +3256,11 @@ app.post("/api/train/clear-staging", requireApiKey, (req, res) => {
         removed++;
       } catch (e) {
         skipped++;
-        console.error(`[CLEAR-STAGING] 删除失败 ${dir}:`, e.message);
+        console.error(`[CLEAR-STAGING] failed to remove ${dir}:`, e.message);
       }
     }
 
-    console.log(`[CLEAR-STAGING] 清除 ${removed} 个暂存目录, 释放 ${bytes} 字节, 跳过 ${skipped}`);
+    console.log(`[CLEAR-STAGING] removed ${removed} staging dir(s), freed ${bytes} byte(s), skipped ${skipped}`);
     res.json({ ok: true, removed, bytes, skipped });
   } catch (err) {
     console.error("[CLEAR-STAGING] Error:", err);
@@ -3130,6 +3310,17 @@ app.post("/api/recipes", requireApiKey, (req, res) => {
   if (!knownVoice(role)) {
     return res.status(400).json({ error: `unknown voice: ${role}` });
   }
+  // PC-3: pin model paths as project-relative when possible. Files outside the
+  // project are rejected unless the client explicitly confirms (allow_external_models),
+  // in which case they are stored as a non-portable absolute path.
+  const allowExternal = !!body.allow_external_models;
+  for (const key of ["gpt_ckpt", "sovits_pth"]) {
+    if (body[key] != null && body[key] !== "") {
+      const n = normalizeModelPath(body[key], { allowExternal });
+      if (!n.ok) return res.status(400).json({ error: `${key}: ${n.error}`, code: n.code, field: key });
+      body[key] = n.value;
+    }
+  }
   const force = !!body.force;
   const r = recipeStore.create(body, { force });
   if (!r.ok) {
@@ -3141,7 +3332,18 @@ app.post("/api/recipes", requireApiKey, (req, res) => {
 
 // PUT /api/recipes/:role/:name — merge-update (Broker model re-bind + edits).
 app.put("/api/recipes/:role/:name", requireApiKey, (req, res) => {
-  const r = recipeStore.update(req.params.role, req.params.name, req.body || {});
+  const body = req.body || {};
+  // PC-3: same portability guard on the Broker re-bind path. External absolute
+  // paths require an explicit allow_external_models confirmation.
+  const allowExternal = !!body.allow_external_models;
+  for (const key of ["gpt_ckpt", "sovits_pth"]) {
+    if (body[key] != null && body[key] !== "") {
+      const n = normalizeModelPath(body[key], { allowExternal });
+      if (!n.ok) return res.status(400).json({ error: `${key}: ${n.error}`, code: n.code, field: key });
+      body[key] = n.value;
+    }
+  }
+  const r = recipeStore.update(req.params.role, req.params.name, body);
   if (!r.ok) {
     if (r.code === "not_found") return res.status(404).json({ error: r.error });
     return res.status(400).json({ error: r.error });
@@ -3154,6 +3356,38 @@ app.delete("/api/recipes/:role/:name", requireApiKey, (req, res) => {
   const ok = recipeStore.remove(req.params.role, req.params.name);
   if (!ok) return res.status(404).json({ error: "recipe not found" });
   res.json({ ok: true });
+});
+
+// GET /api/assets/voices-with-models — the first-level picker for the Broker
+// re-bind (PC). Lists every voice that owns at least one GPT ckpt or SoVITS pth,
+// with per-type flags so the GPT box only offers voices that have GPT models and
+// the SoVITS box only those with SoVITS models (PC-1).
+app.get("/api/assets/voices-with-models", requireApiKey, (req, res) => {
+  let voices;
+  try { voices = loadVoices(); } catch (err) { return res.status(500).json({ error: clientError(err, "voices.json error") }); }
+  const out = [];
+  for (const [voiceId, reg] of Object.entries(voices)) {
+    const metaPath = path.join(ASSETS_DIR, voiceId, "meta.json");
+    let gptCount = 0, sovitsCount = 0;
+    try {
+      if (fs.existsSync(metaPath)) {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+        const ck = (meta && meta.assets && meta.assets.checkpoints) || {};
+        gptCount = (ck.gpt || []).length;
+        sovitsCount = (ck.sovits || []).length;
+      }
+    } catch (_) { /* skip unreadable meta */ }
+    if (gptCount === 0 && sovitsCount === 0) continue;
+    out.push({
+      voiceId,
+      displayName: (reg && (reg.display_name || reg.name)) || voiceId,
+      hasGpt: gptCount > 0,
+      hasSovits: sovitsCount > 0,
+      gptCount, sovitsCount,
+    });
+  }
+  out.sort((a, b) => a.voiceId.localeCompare(b.voiceId));
+  res.json({ voices: out });
 });
 
 // GET /api/recipes-models/:role — list a voice's available GPT/SoVITS
@@ -3217,14 +3451,14 @@ function scanStagingTasks() {
           data.status = 'interrupted';
           data.finishedAt = new Date().toISOString();
           fs.writeFileSync(taskJson, JSON.stringify(data, null, 2), 'utf-8');
-          console.log(`[RECOVERY] 任务 ${data.id} (${data.voiceId}) 标记为 interrupted`);
+          console.log(`[RECOVERY] task ${data.id} (${data.voiceId}) marked as interrupted`);
         }
       } catch (e) {
-        // 忽略损坏的 task.json
+        // ignore corrupt task.json
       }
     }
   } catch (e) {
-    console.error('[RECOVERY] 扫描暂存目录失败:', e.message);
+    console.error('[RECOVERY] failed to scan staging directory:', e.message);
   }
 }
 
@@ -3248,14 +3482,14 @@ app.listen(PORT, HOST, () => {
   (async () => {
     try {
       if (assetsNeedScan()) {
-        console.log("[ASSETS] 检测到声音缺少 meta.json/segments.json,启动时自动扫描...");
+        console.log("[ASSETS] some voices are missing meta.json/segments.json; auto-scanning at startup...");
         const results = await runFullAssetScan();
-        console.log(`[ASSETS] 自动扫描完成:${Object.keys(results).length} 个声音已就绪`);
+        console.log(`[ASSETS] auto-scan complete: ${Object.keys(results).length} voice(s) ready`);
       } else {
-        console.log("[ASSETS] 资产元数据已就绪,跳过自动扫描");
+        console.log("[ASSETS] asset metadata is ready; skipping auto-scan");
       }
     } catch (e) {
-      console.error("[ASSETS] 启动自动扫描失败:", e.message);
+      console.error("[ASSETS] startup auto-scan failed:", e.message);
     }
   })();
 });

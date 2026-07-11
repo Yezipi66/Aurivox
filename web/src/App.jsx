@@ -386,6 +386,23 @@ function defaultTargetLang(voiceLang) {
 }
 
 // 归一 text_lang 到语言族（all_zh -> zh；auto -> null 不判定失配）。
+// PD: Recent items show a full local timestamp (YYYY-MM-DD HH:MM:SS) rather than
+// time-only, so entries generated on different days stay distinguishable.
+function fmtRecentTime(value) {
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ''
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+// PD: reference-audio basename for the Recent meta line.
+function refBasename(item) {
+  const raw = item?.ref_audio || item?.params?.ref_audio || ''
+  if (!raw) return ''
+  const parts = String(raw).split(/[\\/]/)
+  return parts[parts.length - 1] || ''
+}
+
 function normalizeLangFamily(textLang) {
   if (!textLang || String(textLang).startsWith('auto')) return null
   return String(textLang).replace(/^all_/, '')
@@ -624,6 +641,65 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     }
     setError(null)
     await runGenerate(item.params, { voiceLabel: item.voice })
+  }
+
+  // PD: Reload recipe — overwrite ALL editor inputs from a recent item's captured
+  // request body (voice / model / language / reference / aux / text / every param /
+  // pron overrides) WITHOUT synthesizing. The user reviews/tweaks then presses
+  // Generate. Voice-dependent fields (model, language, reference) are applied on the
+  // next tick so they win over the voice-change effects that reset them.
+  const handleReload = (item) => {
+    if (!item) return
+    if (!item.params) {
+      // PD-2: legacy history entry saved before settings capture — only the text
+      // is available. Reload it and tell the user the rest can't be restored.
+      setText(item.text || '')
+      setError('This is an older history entry saved before full settings capture, so only its text was reloaded into the editor. Choose a voice and adjust settings, then press Generate.')
+      return
+    }
+    const p = item.params
+    setError(null)
+    // Fields with no voice-dependent reset effect can be applied immediately.
+    if (p.text !== undefined) setText(p.text)
+    if (p.split !== undefined) setSplitEnabled(!!p.split)
+    if (p.max_chars !== undefined) setMaxChars(p.max_chars)
+    if (p.concat !== undefined) setConcatEnabled(!!p.concat)
+    if (p.silence_ms !== undefined) setSilenceMs(p.silence_ms)
+    if (p.temperature !== undefined) setTemperature(p.temperature)
+    if (p.top_k !== undefined) setTopK(p.top_k)
+    if (p.top_p !== undefined) setTopP(p.top_p)
+    if (p.repetition_penalty !== undefined) setRepPenalty(p.repetition_penalty)
+    if (p.text_split_method !== undefined) setSplitMethod(p.text_split_method)
+    if (p.speed_factor !== undefined) setSpeedFactor(p.speed_factor)
+    if (p.seed !== undefined) setSeed(p.seed)
+    if (p.batch_size !== undefined) setBatchSize(p.batch_size)
+    if (p.batch_threshold !== undefined) setBatchThreshold(p.batch_threshold)
+    if (p.split_bucket !== undefined) setSplitBucket(!!p.split_bucket)
+    if (p.fragment_interval !== undefined) setFragmentInterval(p.fragment_interval)
+    if (p.parallel_infer !== undefined) setParallelInfer(!!p.parallel_infer)
+    if (p.sample_steps !== undefined) setSampleSteps(p.sample_steps)
+    if (p.if_sr !== undefined) setSuperSampling(!!p.if_sr)
+    if (p.media_type !== undefined) setMediaType(p.media_type)
+    if (p.streaming_mode !== undefined) setStreamingMode(!!p.streaming_mode)
+    if (p.overlap_length !== undefined) setOverlapLength(p.overlap_length)
+    if (p.min_chunk_length !== undefined) setMinChunkLength(p.min_chunk_length)
+    if (Array.isArray(p.aux_ref_audio_paths)) setAuxRefs(p.aux_ref_audio_paths)
+    else setAuxRefs([])
+    if (p.pron_overrides && Object.keys(p.pron_overrides).length > 0) {
+      setPronOverrides(p.pron_overrides); setPronEnabled(true)
+    } else {
+      setPronOverrides({})
+    }
+    // Switch voice first if needed; the voice-change effects will reset model /
+    // language / reference, so re-apply those (below) on the next tick.
+    if (p.voice && p.voice !== selectedVoice) setSelectedVoice(p.voice)
+    setTimeout(() => {
+      if (p.gpt_model !== undefined) setSelGpt(p.gpt_model)
+      if (p.sovits_model !== undefined) setSelSovits(p.sovits_model)
+      if (p.prompt_lang !== undefined) setLang(p.prompt_lang)
+      if (p.text_lang !== undefined) setTextLang(p.text_lang)
+      onSelectRef?.(p.ref_audio || '', p.reference_text || '', p.prompt_lang || '')
+    }, 0)
   }
 
   const revealItem = async (item) => {
@@ -1033,7 +1109,23 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 reference_audio: currentRefAudio,
                 reference_text: currentRefText,
                 language: textLang || lang,
-                params: { top_k: topK, top_p: topP, temperature, speed: speedFactor },
+                params: {
+                  top_k: topK, top_p: topP, temperature, speed: speedFactor,
+                  // PA: pin the full inference contract so the recipe reproduces
+                  // the exact audition when distributed via /v1/audio/speech.
+                  text_split_method: splitMethod,
+                  repetition_penalty: repPenalty,
+                  sample_steps: sampleSteps,
+                  if_sr: superSampling,
+                  batch_size: batchSize,
+                  batch_threshold: batchThreshold,
+                  split_bucket: splitBucket,
+                  fragment_interval: fragmentInterval,
+                  parallel_infer: parallelInfer,
+                  seed,
+                  aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : [],
+                  pron_overrides: (pronEnabled && Object.keys(pronOverrides).length > 0) ? pronOverrides : {},
+                },
                 gpt_ckpt: selGpt,
                 sovits_pth: selSovits,
               }}
@@ -1089,13 +1181,15 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     <div className="rr-text" title={item.text}>{item.text || '(empty)'}</div>
                     <div className="rr-meta">
                       {item.voice} · <span style={{ textTransform: 'uppercase' }}>{item.lang}</span> · GPT {item.gpt} / SoVITS {item.sovits}
-                      {item.segments > 1 ? ` · ${item.segments} seg` : ''} · {new Date(item.createdAt).toLocaleTimeString()}
+                      {item.segments > 1 ? ` · ${item.segments} seg` : ''}
+                      {refBasename(item) ? ` · ref ${refBasename(item)}` : ''} · {fmtRecentTime(item.createdAt)}
                     </div>
                     <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" /></div>
                   </div>
                   <div className="rr-actions">
                     <button className="icon-btn" title="Show in file explorer" onClick={() => revealItem(item)}><IconFolder size={15} /></button>
-                    <button className="icon-btn" title="Rerun with the same settings" onClick={() => handleRerun(item)} disabled={loading}><IconRerun size={15} /></button>
+                    <button className="icon-btn" title="Reload these settings into the editor (voice, model, language, reference, text and all parameters) without generating" onClick={() => handleReload(item)} disabled={loading}><IconRerun size={15} /></button>
+                    <button className="icon-btn" title="Rerun now with the original settings" onClick={() => handleRerun(item)} disabled={loading}><IconPlay size={14} /></button>
                     <button className="icon-btn icon-btn-danger" title="Delete this audio" onClick={() => askDeleteItem(item)}><IconTrash size={15} /></button>
                   </div>
                 </div>
@@ -1875,7 +1969,28 @@ function LiveLogs({ logs }) {
 // P6: manual proofreading panel shown while the pipeline is paused after ASR.
 // Loads the recognised .list, lets the user correct text/pronunciation per line,
 // then saves + resumes (or resumes without changes).
-function AsrReviewPanel({ taskId, onResumed }) {
+// PG: per-line reading proofing inside the ASR review. Reuses the shared PronPanel
+// so the user can, right after ASR, both fix the transcript text AND correct
+// polyphonic/kana/phoneme readings — saving them to the personal lexicon
+// (data/pron_lexicon/{lang}.json), which the g2p layer applies on the next
+// training/inference run. Overrides are per-line and transient; only the lexicon
+// save persists (that's the closed loop; see PG-1a).
+function AsrRowProof({ text, lang, onChange, disabled }) {
+  const [open, setOpen] = useState(false)
+  const [overrides, setOverrides] = useState({})
+  return (
+    <div className="arr-proof">
+      <button type="button" className="btn btn-sm btn-ghost" disabled={disabled} onClick={() => setOpen(o => !o)}>
+        {open ? 'Hide reading proofing' : 'Proof reading'}
+      </button>
+      {open && (
+        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} />
+      )}
+    </div>
+  )
+}
+
+function AsrReviewPanel({ taskId, onResumed, lang }) {
   const [rows, setRows] = useState(null);
   const [listName, setListName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1930,6 +2045,8 @@ function AsrReviewPanel({ taskId, onResumed }) {
               <textarea className="arr-text" rows={1} value={r.text}
                         disabled={busy}
                         onChange={e => setText(r.index, e.target.value)} />
+              <AsrRowProof text={r.text} lang={lang || 'ja'} disabled={busy}
+                           onChange={val => setText(r.index, val)} />
             </div>
           ))}
         </div>
@@ -2536,7 +2653,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 )}
               </div>
               {isAwaitingReview && (
-                <AsrReviewPanel taskId={taskId} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
+                <AsrReviewPanel taskId={taskId} lang={form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
               )}
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>
@@ -2839,7 +2956,13 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
             )}
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, margin: '4px 0 6px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={crossMode} onChange={e => setCrossMode(e.target.checked)} />
+            <input type="checkbox" checked={crossMode} onChange={e => {
+              const on = e.target.checked
+              setCrossMode(on)
+              // PE-1: leaving cross-voice mode drops any cross/custom selection so the
+              // reference falls back to this voice's own slices, avoiding a stale ref.
+              if (!on) { setCustomRef(null); onSelectRef('', '', '') }
+            }} />
             Use reference from another voice
           </label>
           {activeRef && (
@@ -2936,7 +3059,12 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
           {crossMode && (
             <CrossRefPicker voices={voices} currentVoiceId={voice.id} onPick={handleCrossPick} activeRef={selectedRefAudio} />
           )}
-          <CustomRefPicker custom={customRef} onPick={handleCustomPick} onClear={handleCustomClear} />
+          {/* PE: the custom-file picker only makes sense as a cross-voice/external
+              reference, so it is shown only while "Use reference from another voice"
+              is checked. Unchecking clears any custom pick (see checkbox handler). */}
+          {crossMode && (
+            <CustomRefPicker custom={customRef} onPick={handleCustomPick} onClear={handleCustomClear} />
+          )}
         </div>
 
         {validation && (
@@ -2994,7 +3122,10 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   })  // [{ id, refAudio, auxRefPaths, text, ...params, loading, result, error }]
   const [allAudioFiles, setAllAudioFiles] = useState([])
   const [voiceFiles, setVoiceFiles] = useState([])
-  const [defaultText, setDefaultText] = usePersistentState('compare.defaultText', 'こんにちは。これはローカルTTSテストです。今日は少し長い文章を読み上げてもらいます。途中で不自然に詰まらないか確認したいです。')
+  // PF-a: Compare's shared default text starts empty. An empty per-row Text means
+  // "use this voice's own default text" on the backend, so the comparison isolates
+  // the reference audio unless the user deliberately types a script.
+  const [defaultText, setDefaultText] = usePersistentState('compare.defaultText', '')
   const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
   const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
   const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
@@ -3009,11 +3140,30 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   const [saveRecipeDefaults, setSaveRecipeDefaults] = useState(null)
   const openSaveRecipe = (row) => {
     const rm = rowModels[row.id] || {}
+    const dp = defaultParams || {}
     setSaveRecipeDefaults({
       reference_audio: row.refAudio || '',
       reference_text: row.promptText || '',
       language: row.textLang || defaultTextLang || selected?.language || 'ja',
-      params: { top_k: row.top_k, top_p: row.top_p, temperature: row.temperature, speed: row.speed_factor },
+      params: {
+        top_k: row.top_k, top_p: row.top_p, temperature: row.temperature, speed: row.speed_factor,
+        // PA: pin the full contract. Fields Compare does not expose per-row
+        // (advanced group) fall back to the shared defaults so the recipe still
+        // reproduces the audition.
+        text_split_method: row.text_split_method,
+        repetition_penalty: row.repetition_penalty,
+        seed: row.seed,
+        sample_steps: dp.sample_steps,
+        if_sr: dp.if_sr,
+        batch_size: dp.batch_size,
+        batch_threshold: dp.batch_threshold,
+        split_bucket: dp.split_bucket,
+        fragment_interval: dp.fragment_interval,
+        parallel_infer: dp.parallel_infer,
+        aux_ref_audio_paths: (row.auxRefPaths && row.auxRefPaths.length > 0) ? row.auxRefPaths : [],
+        // P1-1: pin this row's own reading overrides (not a shared, cross-row set).
+        pron_overrides: (row.pronEnabled && row.pronOverrides && Object.keys(row.pronOverrides).length > 0) ? row.pronOverrides : {},
+      },
       gpt_ckpt: rm.gptCheckpoint || '',
       sovits_pth: rm.sovitsModel || '',
     })
@@ -3022,13 +3172,10 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   // Shared default target language (text_lang) + reading proofing for empty/uncustomized
   // rows — mirrors the Generate tab. Each row may still override its own target language.
   const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', defaultTargetLang(selected?.language || 'ja'))
-  const [pronEnabled, setPronEnabled] = usePersistentState('compare.pronEnabled', false)
-  const [pronOverrides, setPronOverrides] = usePersistentState('compare.pronOverrides', {})
   const voiceLang = selected?.language || 'ja'
   const _cmpBaseFam = String(voiceLang || '').replace(/^all_/, '')
   const _cmpTargetFam = normalizeLangFamily(defaultTextLang)
   const defaultLangMismatch = !!_cmpTargetFam && _cmpTargetFam !== _cmpBaseFam
-  const pronPanelLang = _cmpTargetFam || _cmpBaseFam
   // Reset the default target language when the active voice changes.
   useEffect(() => { setDefaultTextLang(defaultTargetLang(selected?.language || 'ja')) }, [selectedVoice])   // eslint-disable-line
 
@@ -3107,6 +3254,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       text_split_method: dp.text_split_method ?? 'cut5',
       speed_factor: dp.speed_factor ?? 1.0,
       seed: dp.seed ?? -1,
+      // P1-1: per-row reading proofing state (isolated from other rows).
+      pronEnabled: false,
+      pronOverrides: {},
       loading: false,
       result: null,
       error: null,
@@ -3166,8 +3316,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       body.text_lang = row.textLang || defaultTextLang || selected?.language || 'ja'
       body.prompt_lang = row.promptLang || selected?.language || 'ja'
       if (row.promptText) body.reference_text = row.promptText
-      // Shared reading proofing applies to every row (overrides are language-keyed).
-      if (pronEnabled && Object.keys(pronOverrides).length > 0) body.pron_overrides = pronOverrides
+      // P1-1: reading proofing is per-row — each row carries its own overrides so
+      // corrections never leak between rows with different reference text.
+      if (row.pronEnabled && row.pronOverrides && Object.keys(row.pronOverrides).length > 0) {
+        body.pron_overrides = row.pronOverrides
+      }
       const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
       setRows(prev => prev.map(row2 => row2.id === row.id ? { ...row2, loading: false, result: r.data } : row2))
@@ -3215,13 +3368,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
                 Default target language differs from the fine-tuned language ({String(voiceLang || '').toUpperCase()}). Inference quality may be affected.
               </div>
             )}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
-              <input type="checkbox" checked={pronEnabled} onChange={e => setPronEnabled(e.target.checked)} />
-              Reading proofing (applies to all rows)
-            </label>
-            {pronEnabled && (
-              <PronPanel text={defaultText} setText={setDefaultText} lang={pronPanelLang} overrides={pronOverrides} setOverrides={setPronOverrides} />
-            )}
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+              Reading proofing is now per-row — expand the Text section of any row to proof and pin its own pronunciation.
+            </div>
           </div>
 
           <div className="cmp-toolbar">
@@ -3320,6 +3469,15 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [pickerTarget, setPickerTarget] = useState('main') // 'main' or 'aux'
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [segments, setSegments] = useState([])  // loaded from segments.json for current voice
+  // PF-a: Auxiliary References and Text default to collapsed, auto-expanding only
+  // when the row already carries a value so nothing is silently hidden.
+  const [showAux, setShowAux] = useState(() => (row.auxRefPaths || []).length > 0)
+  const [showText, setShowText] = useState(() => !!(row.text && row.text.trim()))
+  // PF-b: this voice's slices get an auditable (collapsible, default-collapsed) list.
+  const [showSlicePreview, setShowSlicePreview] = useState(false)
+  // PF-c: auxiliary references can also come from another voice or a custom upload.
+  const [auxSource, setAuxSource] = useState('this') // 'this' | 'cross' | 'custom'
+  const [auxCustom, setAuxCustom] = useState(null)
 
   // Determine which voice this row uses
   const voiceId = rowModel.voiceId || selectedVoice
@@ -3329,6 +3487,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const _rowTargetFam = normalizeLangFamily(effTextLang)
   const _rowBaseFam = String(voiceLang || '').replace(/^all_/, '')
   const rowLangMismatch = !!_rowTargetFam && _rowTargetFam !== _rowBaseFam
+  // Language family used by this row's reading-proofing panel (P1-1).
+  const rowPronLang = _rowTargetFam || _rowBaseFam
   // Reference source: 'slices' (this voice, default) | 'cross' | 'custom'.
   const refSource = row.refSource || 'slices'
   const setRefSource = (v) => onUpdate(row.id, 'refSource', v)
@@ -3485,22 +3645,52 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           segments.length === 0 ? (
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>No segments available for this voice</div>
           ) : (
-            <select
-              className="control"
-              value={row.refAudio}
-              onChange={e => onUpdate(row.id, 'refAudio', e.target.value)}
-            >
-              <option value="">— none —</option>
-              {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
-                const raw = seg.audio || seg.audio_path || seg.audio_filename
-                const path = raw || ''
-                return (
-                  <option key={i} value={path}>
-                    {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s)
-                  </option>
-                )
-              })}
-            </select>
+            <>
+              <select
+                className="control"
+                value={row.refAudio}
+                onChange={e => onUpdate(row.id, 'refAudio', e.target.value)}
+              >
+                <option value="">— none —</option>
+                {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
+                  const raw = seg.audio || seg.audio_path || seg.audio_filename
+                  const path = raw || ''
+                  return (
+                    <option key={i} value={path}>
+                      {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s)
+                    </option>
+                  )
+                })}
+              </select>
+              {/* PF-b: audition this voice's own slices (parity with the cross-voice
+                  picker, which already plays audio). Collapsed by default. */}
+              <div className="collapsible" style={{ marginTop: 6 }}>
+                <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Audition slices</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSlicePreview ? '▲' : '▼'}</span>
+                </div>
+                {showSlicePreview && (
+                  <div className="collapsible-body" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                    {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
+                      const raw = seg.audio || seg.audio_path || seg.audio_filename
+                      const filename = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
+                      const path = `assets/${voiceId}/slicer_opt/${filename}`
+                      const isActive = row.refAudio === path
+                      return (
+                        <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={seg.text || ''} onClick={() => onUpdate(row.id, 'refAudio', path)}>
+                          <div className="ref-item-row">
+                            <span className="ref-item-name">{seg.scene} #{seg.index}</span>
+                            <span className="ref-item-dur">{(seg.duration || 0).toFixed(1)}s</span>
+                            <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
+                          </div>
+                          <AudioPlayer src={`/assets/${voiceId}/slicer_opt/${filename}`} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
           )
         )}
         {refSource === 'cross' && (
@@ -3525,76 +3715,139 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         )}
       </div>
 
-      {/* Aux reference audio — multi-select from segments */}
+      {/* Aux reference audio — collapsible (PF-a); sources: this voice / another
+          voice / custom upload (PF-c). Selected aux entries have no preview. */}
       <div className="field">
-        <label className="field-label">
-          Auxiliary References
-          <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(optional, multi-select from segments)</span>
-        </label>
-        {segments.length > 0 && (
-          <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', marginTop: 4 }}>
-            {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
-              const raw = seg.audio || seg.audio_path || seg.audio_filename
-              const path = raw || ''
-              const isSelected = row.auxRefPaths.includes(path)
-              return (
-                <div
-                  key={i}
-                  onClick={() => {
-                    if (isSelected) {
-                      const idx = row.auxRefPaths.indexOf(path)
-                      if (idx >= 0) onRemoveAux(row.id, idx)
-                    } else {
-                      onAddAux(row.id, path)
-                    }
-                  }}
-                  style={{
-                    padding: '3px 8px', fontSize: 11, cursor: 'pointer',
-                    background: isSelected ? 'var(--accent-soft)' : 'transparent',
-                    borderBottom: '1px solid var(--border)',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                >
-                  <input type="checkbox" checked={isSelected} readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11 }} />
-                  <span style={{ flex: 1 }}>
-                    {seg.scene} #{seg.index} — "{seg.text.slice(0, 20)}{seg.text.length > 20 ? '...' : ''}"
-                  </span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
+        <div className="collapsible-hdr" style={{ padding: 0 }} onClick={() => setShowAux(v => !v)}>
+          <label className="field-label" style={{ margin: 0, cursor: 'pointer' }}>
+            Auxiliary References
+            <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+              (optional{row.auxRefPaths.length > 0 ? ` · ${row.auxRefPaths.length} selected` : ''})
+            </span>
+          </label>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAux ? '▲' : '▼'}</span>
+        </div>
+        {showAux && (
+          <div style={{ marginTop: 4 }}>
+            <select className="control" value={auxSource} onChange={e => setAuxSource(e.target.value)} style={{ marginBottom: 6 }}>
+              <option value="this">This voice's segments</option>
+              <option value="cross">Another voice's segments</option>
+              <option value="custom">Custom file…</option>
+            </select>
+            {auxSource === 'this' && (
+              segments.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>No segments available for this voice</div>
+              ) : (
+                <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                  {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
+                    const raw = seg.audio || seg.audio_path || seg.audio_filename
+                    const filename = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
+                    const path = `assets/${voiceId}/slicer_opt/${filename}`
+                    const isSelected = row.auxRefPaths.includes(path)
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => {
+                          if (isSelected) {
+                            const idx = row.auxRefPaths.indexOf(path)
+                            if (idx >= 0) onRemoveAux(row.id, idx)
+                          } else {
+                            onAddAux(row.id, path)
+                          }
+                        }}
+                        style={{
+                          padding: '3px 8px', fontSize: 11, cursor: 'pointer',
+                          background: isSelected ? 'var(--accent-soft)' : 'transparent',
+                          borderBottom: '1px solid var(--border)',
+                          display: 'flex', alignItems: 'center', gap: 6,
+                        }}
+                      >
+                        <input type="checkbox" checked={isSelected} readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11 }} />
+                        <span style={{ flex: 1 }}>
+                          {seg.scene} #{seg.index} — "{seg.text.slice(0, 20)}{seg.text.length > 20 ? '...' : ''}"
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )
-            })}
-          </div>
-        )}
-        {row.auxRefPaths.length > 0 && (
-          <div style={{ marginTop: 4 }}>
-            {row.auxRefPaths.map((p, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, marginBottom: 2 }}>
-                <span style={{ color: 'var(--muted)', minWidth: 14 }}>{i+1}.</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {basename(p)}
-                </span>
-                <button
-                  onClick={() => onRemoveAux(row.id, i)}
-                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
-                >×</button>
+            )}
+            {auxSource === 'cross' && (
+              <CrossRefPicker
+                voices={voices}
+                currentVoiceId={voiceId}
+                activeRef={''}
+                onPick={(path) => { if (path && !row.auxRefPaths.includes(path)) onAddAux(row.id, path) }}
+              />
+            )}
+            {auxSource === 'custom' && (
+              <CustomRefPicker
+                custom={auxCustom}
+                onPick={(path, _text, _plang, obj) => {
+                  if (obj) setAuxCustom(obj)
+                  if (path && !row.auxRefPaths.includes(path)) onAddAux(row.id, path)
+                }}
+                onClear={() => setAuxCustom(null)}
+              />
+            )}
+            {row.auxRefPaths.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                {row.auxRefPaths.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, marginBottom: 2 }}>
+                    <span style={{ color: 'var(--muted)', minWidth: 14 }}>{i+1}.</span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {basename(p)}
+                    </span>
+                    <button
+                      onClick={() => onRemoveAux(row.id, i)}
+                      style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+                    >×</button>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
 
-      {/* Per-row text override */}
+      {/* Per-row text override — collapsible (PF-a), empty by default. */}
       <div className="field">
-        <label className="field-label">
-          Text
-          <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(leave empty for default)</span>
-        </label>
-        <input
-          className="control"
-          value={row.text}
-          onChange={e => onUpdate(row.id, 'text', e.target.value)}
-          placeholder="Enter test text..."
-        />
+        <div className="collapsible-hdr" style={{ padding: 0 }} onClick={() => setShowText(v => !v)}>
+          <label className="field-label" style={{ margin: 0, cursor: 'pointer' }}>
+            Text
+            <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+              {row.text && row.text.trim() ? '(custom)' : '(leave empty for default)'}
+            </span>
+          </label>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showText ? '▲' : '▼'}</span>
+        </div>
+        {showText && (
+          <>
+            <input
+              className="control"
+              style={{ marginTop: 4 }}
+              value={row.text}
+              onChange={e => onUpdate(row.id, 'text', e.target.value)}
+              placeholder="Enter test text (empty = this voice's default)…"
+            />
+            {/* P1-1: per-row reading proofing — this row's overrides are isolated
+                from other rows and pinned when the row is saved as a recipe. */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
+              <input type="checkbox" checked={!!row.pronEnabled} onChange={e => onUpdate(row.id, 'pronEnabled', e.target.checked)} />
+              Reading proofing (this row)
+            </label>
+            {row.pronEnabled && (
+              <PronPanel
+                text={row.text}
+                setText={v => onUpdate(row.id, 'text', v)}
+                lang={rowPronLang}
+                overrides={row.pronOverrides || {}}
+                setOverrides={o => onUpdate(row.id, 'pronOverrides', o)}
+              />
+            )}
+          </>
+        )}
       </div>
 
       {/* Advanced Settings */}
@@ -3744,6 +3997,14 @@ function IconRerun({ size = 16, color = 'currentColor' }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 2v6h-6" />
       <path d="M21 13a9 9 0 1 1-3-7.7L21 8" />
+    </svg>
+  )
+}
+
+function IconPlay({ size = 16, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+      <path d="M8 5v14l11-7z" />
     </svg>
   )
 }
@@ -5182,30 +5443,144 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
 // /api/recipes-models/:role, and a manual project-relative path field — the
 // folder-icon fallback; a native file browser is a later polish).
 
+// Reusable in-app file picker (PC). Reuses the cross-platform /api/fs/browse
+// endpoint in file mode (?files=.ckpt,.pth) so a model file can be chosen from
+// anywhere, then handed back as an absolute path (the server converts it to a
+// project-relative path on save, or rejects it if outside the project).
+function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
+  const [data, setData] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const extsParam = (exts || []).join(',')
+
+  const go = async (p) => {
+    setBusy(true); setError(null)
+    try {
+      const r = await api(`/api/fs/browse?path=${encodeURIComponent(p || '')}&files=${encodeURIComponent(extsParam)}`)
+      if (r.ok) setData(r.data)
+      else setError((r.data && r.data.error) || 'Could not open that folder')
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+  useEffect(() => { if (open) { setData(null); go(startPath || '') } }, [open]) // eslint-disable-line
+  if (!open) return null
+
+  const rowStyle = { padding: '4px 10px', fontSize: 12, cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-hdr">{title || 'Select a file'}</div>
+        <div className="modal-body">
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+            <button className="btn btn-sm" disabled={busy || data?.isDriveList || data?.parent == null}
+              onClick={() => go(data?.parent || '')}>↑ Up</button>
+            <input className="control" readOnly
+              value={data?.isDriveList ? 'Select a drive…' : (data?.path || '')} />
+          </div>
+          {error && <div className="msg msg-error">{error}</div>}
+          <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+            {busy && <div style={{ padding: 8, color: 'var(--muted)' }}>Loading…</div>}
+            {!busy && data?.isDriveList && (data.drives || []).map(d => (
+              <div key={d.path} style={rowStyle} onClick={() => go(d.path)}>💽 {d.name}</div>
+            ))}
+            {!busy && !data?.isDriveList && (data?.dirs || []).map(d => (
+              <div key={d.path} style={rowStyle} onClick={() => go(d.path)}>📁 {d.name}</div>
+            ))}
+            {!busy && !data?.isDriveList && (data?.files || []).map(f => (
+              <div key={f.path} style={{ ...rowStyle, color: 'var(--accent)' }}
+                onClick={() => { onPick(f.path); onClose() }}>📄 {f.name}</div>
+            ))}
+            {!busy && !data?.isDriveList && (data?.dirs || []).length === 0 && (data?.files || []).length === 0 && (
+              <div style={{ padding: 8, color: 'var(--muted)' }}>No sub-folders or matching files here.</div>
+            )}
+          </div>
+          <div className="field-hint" style={{ marginTop: 6 }}>Showing folders and <code>{extsParam}</code> files.</div>
+        </div>
+        <div className="modal-ftr">
+          <button className="btn btn-sm" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// PC — Broker model re-bind with a two-level selector:
+//   1. primary  = every voice that owns a model of this type (voices-with-models)
+//   2. secondary = that voice's GPT ckpts / SoVITS pths (recipes-models/:voiceId)
+// plus a "— custom path below —" escape hatch that opens the file picker.
 function RecipeModelRebind({ recipe, onSaved }) {
   const [open, setOpen] = useState(false)
-  const [models, setModels] = useState(null)   // { gpt:[], sovits:[] }
+  const [voicesList, setVoicesList] = useState(null)   // [{voiceId, displayName, hasGpt, hasSovits}]
   const [gpt, setGpt] = useState(recipe.gpt_ckpt || '')
   const [sovits, setSovits] = useState(recipe.sovits_pth || '')
+  const [gptVoice, setGptVoice] = useState(recipe.role || '')
+  const [sovitsVoice, setSovitsVoice] = useState(recipe.role || '')
+  const [gptModels, setGptModels] = useState([])
+  const [sovitsModels, setSovitsModels] = useState([])
+  const [gptCustom, setGptCustom] = useState(false)
+  const [sovitsCustom, setSovitsCustom] = useState(false)
+  const [pickGpt, setPickGpt] = useState(false)
+  const [pickSovits, setPickSovits] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [msg, setMsg] = useState(null)
+  const modelCache = useRef({})
 
-  const load = () => {
-    if (models) return
-    api(`/api/recipes-models/${encodeURIComponent(recipe.role)}`).then(r => {
-      if (r.ok) setModels({ gpt: r.data.gpt || [], sovits: r.data.sovits || [] })
-      else setModels({ gpt: [], sovits: [] })
-    }).catch(() => setModels({ gpt: [], sovits: [] }))
+  const loadVoiceModels = async (voiceId) => {
+    if (!voiceId) return { gpt: [], sovits: [] }
+    if (modelCache.current[voiceId]) return modelCache.current[voiceId]
+    const r = await api(`/api/recipes-models/${encodeURIComponent(voiceId)}`)
+    const m = r.ok ? { gpt: r.data.gpt || [], sovits: r.data.sovits || [] } : { gpt: [], sovits: [] }
+    modelCache.current[voiceId] = m
+    return m
   }
 
-  const save = async () => {
+  const load = async () => {
+    if (voicesList) return
+    const r = await api('/api/assets/voices-with-models')
+    setVoicesList(r.ok ? (r.data.voices || []) : [])
+    // Seed both slots from the recipe's own voice; if the pinned file isn't one
+    // of that voice's known models, start in custom mode.
+    const m = await loadVoiceModels(recipe.role)
+    setGptModels(m.gpt); setSovitsModels(m.sovits)
+    setGptCustom(!(recipe.gpt_ckpt && m.gpt.some(x => x.path === recipe.gpt_ckpt)))
+    setSovitsCustom(!(recipe.sovits_pth && m.sovits.some(x => x.path === recipe.sovits_pth)))
+  }
+
+  const onGptVoiceChange = async (v) => {
+    if (v === '__custom__') { setGptCustom(true); return }
+    setGptCustom(false); setGptVoice(v)
+    const m = await loadVoiceModels(v); setGptModels(m.gpt)
+    if (m.gpt.length > 0) setGpt(m.gpt[0].path)
+  }
+  const onSovitsVoiceChange = async (v) => {
+    if (v === '__custom__') { setSovitsCustom(true); return }
+    setSovitsCustom(false); setSovitsVoice(v)
+    const m = await loadVoiceModels(v); setSovitsModels(m.sovits)
+    if (m.sovits.length > 0) setSovits(m.sovits[0].path)
+  }
+
+  // PC-3: when a picked model lives outside the project the server refuses with
+  // code:"external". We surface a strong warning and require a second, explicit
+  // confirmation before re-sending with allow_external_models:true.
+  const [extConfirm, setExtConfirm] = useState(null) // { field } | null
+
+  const save = async (allowExternal) => {
     setBusy(true); setError(null); setMsg(null)
     try {
+      const body = { gpt_ckpt: gpt, sovits_pth: sovits }
+      if (allowExternal) body.allow_external_models = true
       const r = await api(`/api/recipes/${encodeURIComponent(recipe.role)}/${encodeURIComponent(recipe.name)}`, {
-        method: 'PUT', body: { gpt_ckpt: gpt, sovits_pth: sovits },
+        method: 'PUT', body,
       })
-      if (!r.ok) throw new Error((r.data && r.data.error) || `Server error ${r.status}`)
+      if (!r.ok) {
+        if (r.data && r.data.code === 'external') {
+          // Pause and ask for an explicit confirmation instead of failing.
+          setExtConfirm({ field: r.data.field || 'model' })
+          return
+        }
+        throw new Error((r.data && r.data.error) || `Server error ${r.status}`)
+      }
+      setExtConfirm(null)
       setMsg('Models updated'); onSaved && onSaved(r.data.recipe)
     } catch (e) { setError(e.message) }
     finally { setBusy(false) }
@@ -5214,34 +5589,83 @@ function RecipeModelRebind({ recipe, onSaved }) {
   if (!open) {
     return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>Change models</button>
   }
+
+  const gptVoices = (voicesList || []).filter(v => v.hasGpt)
+  const sovitsVoices = (voicesList || []).filter(v => v.hasSovits)
+
   return (
     <div className="rebind">
       <div className="field">
-        <label className="field-label">GPT checkpoint <span className="muted">(project query)</span></label>
-        <select className="control" value={models && models.gpt.some(m => m.path === gpt) ? gpt : '__custom__'}
-          onChange={e => e.target.value !== '__custom__' && setGpt(e.target.value)}>
-          {models && models.gpt.map(m => <option key={m.path} value={m.path}>{m.name}{m.steps ? ` (${m.steps})` : ''}</option>)}
+        <label className="field-label">GPT checkpoint <span className="muted">(pick a voice, then a model)</span></label>
+        <select className="control" value={gptCustom ? '__custom__' : gptVoice} onChange={e => onGptVoiceChange(e.target.value)}>
+          {gptVoices.map(v => <option key={v.voiceId} value={v.voiceId}>{v.displayName} ({v.gptCount})</option>)}
           <option value="__custom__">— custom path below —</option>
         </select>
-        <input className="control" style={{ marginTop: 4 }} value={gpt} onChange={e => setGpt(e.target.value)}
-          placeholder="assets/<voice>/gpt_checkpoints/....ckpt (folder-icon fallback)" />
+        {!gptCustom ? (
+          <select className="control" style={{ marginTop: 4 }}
+            value={gptModels.some(m => m.path === gpt) ? gpt : ''}
+            onChange={e => setGpt(e.target.value)}>
+            {!gptModels.some(m => m.path === gpt) && <option value="">— select a checkpoint —</option>}
+            {gptModels.map(m => <option key={m.path} value={m.path}>{m.name}{m.steps ? ` (${m.steps})` : ''}</option>)}
+          </select>
+        ) : (
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
+              placeholder="assets/<voice>/gpt_checkpoints/....ckpt" />
+            <button className="btn btn-sm" title="Browse for a .ckpt file" onClick={() => setPickGpt(true)}>📁</button>
+          </div>
+        )}
       </div>
       <div className="field">
-        <label className="field-label">SoVITS model <span className="muted">(project query)</span></label>
-        <select className="control" value={models && models.sovits.some(m => m.path === sovits) ? sovits : '__custom__'}
-          onChange={e => e.target.value !== '__custom__' && setSovits(e.target.value)}>
-          {models && models.sovits.map(m => <option key={m.path} value={m.path}>{m.name}{m.version ? ` [${m.version}]` : ''}</option>)}
+        <label className="field-label">SoVITS model <span className="muted">(pick a voice, then a model)</span></label>
+        <select className="control" value={sovitsCustom ? '__custom__' : sovitsVoice} onChange={e => onSovitsVoiceChange(e.target.value)}>
+          {sovitsVoices.map(v => <option key={v.voiceId} value={v.voiceId}>{v.displayName} ({v.sovitsCount})</option>)}
           <option value="__custom__">— custom path below —</option>
         </select>
-        <input className="control" style={{ marginTop: 4 }} value={sovits} onChange={e => setSovits(e.target.value)}
-          placeholder="assets/<voice>/sovits_models/....pth (folder-icon fallback)" />
+        {!sovitsCustom ? (
+          <select className="control" style={{ marginTop: 4 }}
+            value={sovitsModels.some(m => m.path === sovits) ? sovits : ''}
+            onChange={e => setSovits(e.target.value)}>
+            {!sovitsModels.some(m => m.path === sovits) && <option value="">— select a model —</option>}
+            {sovitsModels.map(m => <option key={m.path} value={m.path}>{m.name}{m.version ? ` [${m.version}]` : ''}</option>)}
+          </select>
+        ) : (
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
+              placeholder="assets/<voice>/sovits_models/....pth" />
+            <button className="btn btn-sm" title="Browse for a .pth file" onClick={() => setPickSovits(true)}>📁</button>
+          </div>
+        )}
       </div>
       {error && <div className="msg msg-error">{error}</div>}
       {msg && <div className="msg msg-ok">{msg}</div>}
+      {extConfirm && (
+        <div className="msg msg-warn">
+          <strong>⚠️ This model file is outside the project (not under assets/).</strong>
+          <div style={{ marginTop: 6 }}>
+            It will be pinned as an <strong>absolute path</strong>. Consequences:
+            <ul style={{ margin: '4px 0 0 18px' }}>
+              <li>The original file <strong>must not be moved or renamed</strong> — otherwise every request using this recipe will fail.</li>
+              <li>The path is tied to <strong>this machine</strong>; the recipe is no longer self-contained.</li>
+              <li>To distribute it you must ship these model files to the other machine as well (just like the voice assets).</li>
+            </ul>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => save(true)}>
+              {busy ? 'Saving…' : 'I understand — pin absolute path'}
+            </button>
+            <button className="btn btn-sm" disabled={busy} onClick={() => setExtConfirm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-sm btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save models'}</button>
+        <button className="btn btn-sm btn-primary" disabled={busy || !!extConfirm} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save models'}</button>
         <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>Close</button>
       </div>
+      <FsFilePicker open={pickGpt} exts={['.ckpt', '.pt']} title="Select a GPT checkpoint (.ckpt)"
+        onPick={(p) => setGpt(p)} onClose={() => setPickGpt(false)} />
+      <FsFilePicker open={pickSovits} exts={['.pth', '.pt']} title="Select a SoVITS model (.pth)"
+        onPick={(p) => setSovits(p)} onClose={() => setPickSovits(false)} />
     </div>
   )
 }
