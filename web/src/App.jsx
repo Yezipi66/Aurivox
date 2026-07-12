@@ -182,12 +182,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 // ===========================
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
-  // T1: "wide" layout used by the Fine-tune ASR proofreading panel — arranges the
-  // editor (left) and readings/lexicon output (right) side-by-side to use the full
-  // available width. On the Generate page (default layout) the .pron-grid/.pron-edit/
-  // .pron-out wrappers collapse via `display:contents`, so that layout is unchanged.
-  const wide = layout === 'wide'
+function PronPanel({ text, setText, lang, overrides, setOverrides }) {
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -270,9 +265,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
   const clearOverrides = () => { setOverrides({}); if (preview) doPreview() }
 
   return (
-    <div className={`section pron-panel${wide ? ' pron-panel-wide' : ''}`} style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
-      <div className="pron-grid">
-      <div className="pron-edit">
+    <div className="section" style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600 }}>Reading proofing</span>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -302,9 +295,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
       </div>
 
       {error && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
-      </div>{/* .pron-edit */}
 
-      <div className="pron-out">
       {preview && supported && (
         <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {(preview.tokens || []).map((tok, ti) => (
@@ -372,8 +363,6 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
           </div>
         </div>
       )}
-      </div>{/* .pron-out */}
-      </div>{/* .pron-grid */}
     </div>
   )
 }
@@ -1605,6 +1594,85 @@ function buildAsrParams(form) {
   return { engine: form.asrEngine, model_size: form.asrModelSize, precision: form.asrPrecision }
 }
 
+// Pipeline step order shared by the failure-resume UI (mirrors backend STEP_ORDER).
+const FSTEP_ORDER = ['denoise', 'slice', 'asr', 'preprocess', 'train_s1', 'train_s2', 'finalize', 'promote'];
+const FSTEP_LABELS = {
+  denoise: 'Vocal extraction', slice: 'Slicing', asr: 'ASR', preprocess: 'Preprocess',
+  train_s1: 'S1 (GPT)', train_s2: 'S2 (SoVITS)', finalize: 'Finalize', promote: 'Publish',
+};
+
+// Reverse of buildTrainingParams/buildSliceParams/buildAsrParams: turn an archived
+// task's saved params back into form.* fields so a resumed run shows the ORIGINAL
+// settings, ready to tweak. Best-effort — unknown fields fall back to form defaults.
+function archiveToForm(archive) {
+  const out = {};
+  const cp = archive.customParams || {};
+  const so = archive.stepOptions || {};
+  const t = cp.training || {};
+  const sp = (cp.steps && cp.steps.slice && cp.steps.slice.params) || {};
+  const ap = (cp.steps && cp.steps.asr && cp.steps.asr.params) || {};
+  const dp = (cp.steps && cp.steps.denoise && cp.steps.denoise.params) || {};
+
+  if (archive.voiceId) out.voiceName = archive.voiceId;
+  if (archive.language) out.language = archive.language;
+  if (archive.inputDir) out.inputDir = archive.inputDir;
+
+  // step toggles
+  if (so.denoise != null) out.denoise = so.denoise;
+  if (so.slice != null) out.slice = so.slice;
+  if (so.asr != null) out.asr = so.asr;
+  if (so.copyRaw != null) out.copyRaw = so.copyRaw;
+  if (so.train_s1 != null || so.train != null) out.trainS1 = (so.train_s1 ?? so.train) !== false;
+  if (so.train_s2 != null || so.train != null) out.trainS2 = (so.train_s2 ?? so.train) !== false;
+  if (so.pauseAfterAsr != null) out.preprocessReview = !!so.pauseAfterAsr;
+
+  // training params
+  if (Array.isArray(t.versions) && t.versions.length) { out.modelVersions = t.versions; out.modelVersion = t.versions[0]; }
+  else if (t.version) { out.modelVersion = t.version; out.modelVersions = [t.version]; }
+  if (t.gpt_epochs != null) out.gptEpochs = t.gpt_epochs;
+  if (t.sovits_epochs != null) out.sovitsEpochs = t.sovits_epochs;
+  if (t.batch_size != null) out.batchSize = t.batch_size;
+  if (t.learning_rate != null) out.learningRate = t.learning_rate;
+  if (t.seed != null) out.s1Seed = t.seed;
+  if (t.save_every_n_epoch != null) out.s1SaveEvery = t.save_every_n_epoch;
+  if (t.precision != null) out.s1Precision = t.precision;
+  if (t.gradient_clip != null) out.s1GradClip = t.gradient_clip;
+  if (t.lr != null) out.s1Lr = t.lr;
+  if (t.lr_init != null) out.s1LrInit = t.lr_init;
+  if (t.lr_end != null) out.s1LrEnd = t.lr_end;
+  if (t.warmup_steps != null) out.s1Warmup = t.warmup_steps;
+  if (t.decay_steps != null) out.s1Decay = t.decay_steps;
+  if (t.max_sec != null) out.s1MaxSec = t.max_sec;
+  if (t.num_workers != null) out.s1NumWorkers = t.num_workers;
+  if (t.max_eval_sample != null) out.s1MaxEval = t.max_eval_sample;
+  if (t.s2_seed != null) out.s2Seed = t.s2_seed;
+  if (t.log_interval != null) out.s2LogInterval = t.log_interval;
+  if (t.eval_interval != null) out.s2EvalInterval = t.eval_interval;
+  if (t.fp16_run != null) out.s2Fp16 = t.fp16_run !== false;
+  if (t.lr_decay != null) out.s2LrDecay = t.lr_decay;
+  if (t.segment_size != null) out.s2SegmentSize = t.segment_size;
+  if (t.c_mel != null) out.s2CMel = t.c_mel;
+  if (t.c_kl != null) out.s2CKl = t.c_kl;
+  if (t.text_low_lr_rate != null) out.s2TextLowLr = t.text_low_lr_rate;
+  if (t.grad_ckpt != null) out.s2GradCkpt = !!t.grad_ckpt;
+
+  // slice params
+  if (sp.min_duration_sec != null) out.sliceMinSec = sp.min_duration_sec;
+  if (sp.max_duration_sec != null) out.sliceMaxSec = sp.max_duration_sec;
+  if (sp.silence_threshold_db != null) out.sliceSilenceDb = sp.silence_threshold_db;
+  if (sp.min_silence_sec != null) out.sliceMinSilenceSec = sp.min_silence_sec;
+
+  // asr params
+  if (ap.engine != null) out.asrEngine = ap.engine;
+  if (ap.model_size != null) out.asrModelSize = ap.model_size;
+  if (ap.precision != null) out.asrPrecision = ap.precision;
+
+  // denoise params
+  if (dp.model != null) out.denoiseModel = dp.model;
+
+  return out;
+}
+
 // --- shared field panels (rendered identically on both pages) ---
 function SliceParamFields({ form, setField }) {
   return (
@@ -1995,7 +2063,7 @@ function AsrRowProof({ text, lang, onChange, disabled }) {
         {open ? 'Hide reading proofing' : 'Proof reading'}
       </button>
       {open && (
-        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} layout="wide" />
+        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} />
       )}
     </div>
   )
@@ -2080,9 +2148,6 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     denoise: false, slice: true, asr: true, copyRaw: true,
     trainS1: true, trainS2: true,
     preprocessReview: false,
-    // T5: default off = auto-clean the .staging/{taskId} workspace after a
-    // successful publish (existing behavior). On = keep it for debugging.
-    keepStaging: false,
     // Advanced params
     gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
@@ -2133,6 +2198,26 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const failCountRef = useRef(0);
   // Overwrite confirmation when the target voice id already exists (409 guard).
   const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { existingId, existingDisplay }
+
+  // ── Failure-resume (哪里跌倒哪里爬起来) ──────────────────────────────────────
+  // Cached failed/interrupted tasks the user can resume. Default-collapsed panel.
+  const [recoverList, setRecoverList] = useState([]);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  const [recoverLoading, setRecoverLoading] = useState(false);
+  // Active recovery context once the user clicks "Resume".
+  //   { sourceTaskId, failedStep, resumeStep, steps, hasInputDir }
+  const [recovery, setRecovery] = useState(null);
+  const [restartFailedStep, setRestartFailedStep] = useState(false);
+
+  const loadRecoverable = () => {
+    setRecoverLoading(true);
+    api('/api/train/recoverable')
+      .then(r => { if (r.ok) setRecoverList(r.data.tasks || []); })
+      .catch(() => {})
+      .finally(() => setRecoverLoading(false));
+  };
+  // Load the list whenever the page is idle (no active task) so it stays fresh.
+  useEffect(() => { if (!activeTaskId && !localTaskId) loadRecoverable(); }, [activeTaskId, localTaskId]);
 
   // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
   const taskId = activeTaskId || localTaskId;
@@ -2264,6 +2349,14 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         (cleanDir.startsWith("'") && cleanDir.endsWith("'"))) {
       cleanDir = cleanDir.slice(1, -1);
     }
+    const steps = recovery
+      ? buildRecoverySteps()
+      : { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false, pauseAfterAsr: !!form.preprocessReview };
+    const recoveryFields = recovery
+      ? (recoveryMode === 'modify'
+          ? { forkFromTaskId: recovery.sourceTaskId }
+          : { resumeTaskId: recovery.sourceTaskId, restartFailedStep: !!restartFailedStep })
+      : {};
     const r = await api('/api/train/start', {
       method: 'POST',
       body: {
@@ -2271,7 +2364,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         language: form.language,
         inputDir: cleanDir,
         overwrite: !!overwrite,
-        steps: { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false, pauseAfterAsr: !!form.preprocessReview, keepStaging: !!form.keepStaging },
+        ...recoveryFields,
+        steps,
         customParams: {
           training: buildTrainingParams(form),
           steps: {
@@ -2289,12 +2383,22 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       return;
     }
     if (!r.ok) throw new Error(r.data?.error || 'Failed to start training');
+    setRecovery(null);
+    setRestartFailedStep(false);
     setLocalTaskId(r.data.taskId);
     setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
   };
 
   const handleStart = async () => {
-    if (!form.inputDir.trim()) { setError('Please select an audio folder'); return }
+    // In recovery mode the original audio folder is only needed when the rerun
+    // starts at denoise/slice; later steps resume from cached products.
+    const needsInput = !recovery || rerunStart === 'denoise' || rerunStart === 'slice';
+    if (needsInput && !form.inputDir.trim()) {
+      setError(recovery
+        ? 'This resume restarts from denoise/slice, which needs the original audio folder. Please re-select it.'
+        : 'Please select an audio folder');
+      return;
+    }
     if (!form.voiceName.trim()) { setError('Please enter a voice name'); return }
     setError(null);
     setStatus(null);
@@ -2327,6 +2431,65 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setStatus(null);
     setLogs([]);
     setError(null);
+  };
+
+  // Enter recovery mode for a cached failed/interrupted task: prefill the form with
+  // the original params and pin the rerun start to the failed step (Continue mode).
+  const beginResume = (task) => {
+    const patch = archiveToForm(task);
+    setForm(prev => ({ ...prev, ...patch }));
+    setRecovery({
+      sourceTaskId: task.id,
+      failedStep: task.resumeStep || (task.failedAt && task.failedAt.step) || 'preprocess',
+      resumeStep: task.resumeStep || (task.failedAt && task.failedAt.step) || 'preprocess',
+      steps: task.steps || {},
+      hasInputDir: !!task.inputDir,
+      failedAt: task.failedAt || null,
+    });
+    setRestartFailedStep(false);
+    setError(null);
+    setRecoverOpen(false);
+    setSelectedNode(null);
+  };
+
+  const cancelRecovery = () => {
+    setRecovery(null);
+    setRestartFailedStep(false);
+    setError(null);
+  };
+
+  // Which upstream steps can be chosen as the rerun start: completed steps up to and
+  // including the failed step. Moving earlier than the failed step ⇒ Modify/fork.
+  const failedIdx = recovery ? FSTEP_ORDER.indexOf(recovery.failedStep) : -1;
+  const resumeStepOptions = recovery
+    ? FSTEP_ORDER.filter((s, i) => i <= failedIdx &&
+        (s === recovery.failedStep || (recovery.steps[s] && recovery.steps[s].status === 'completed')))
+    : [];
+  const rerunStart = recovery ? recovery.resumeStep : null;
+  const rerunIdx = recovery ? FSTEP_ORDER.indexOf(rerunStart) : -1;
+  // Continue = restart exactly at the failed step (in place, same task). Modify =
+  // restart at an earlier completed step (fork → new task, extra disk for a full copy).
+  const recoveryMode = recovery ? (rerunIdx < failedIdx ? 'modify' : 'continue') : null;
+  const failedIsTrain = recovery && (recovery.failedStep === 'train_s1' || recovery.failedStep === 'train_s2');
+
+  // Compute the step-enable overrides sent on a recovery run: upstream (< rerunStart)
+  // is reused (enabled=false → backend marks completed & skips); rerunStart..end run,
+  // respecting the user's own enable toggles for optional steps.
+  const buildRecoverySteps = () => {
+    const idx = FSTEP_ORDER.indexOf(rerunStart);
+    const on = (k, formVal) => (FSTEP_ORDER.indexOf(k) >= idx) ? formVal : false;
+    return {
+      denoise: on('denoise', !!form.denoise),
+      slice: on('slice', !!form.slice),
+      asr: on('asr', !!form.asr),
+      copyRaw: form.copyRaw,
+      preprocess: on('preprocess', true),
+      train_s1: on('train_s1', form.trainS1 !== false),
+      train_s2: on('train_s2', form.trainS2 !== false),
+      finalize: on('finalize', true),
+      promote: on('promote', true),
+      pauseAfterAsr: !!form.preprocessReview,
+    };
   };
 
   const [clearMsg, setClearMsg] = useState(null);
@@ -2487,23 +2650,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     } else if (selectedNode === 'finalize') {
       body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.</p>;
     } else if (selectedNode === 'promote') {
-      body = (
-        <>
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page.</p>
-          <label className="toggle-row" style={{ marginTop: 8 }}>
-            <input type="checkbox" checked={!!form.keepStaging}
-                   onChange={e => setField('keepStaging', e.target.checked)} />
-            Keep task workspace after publish
-          </label>
-          <p className="field-hint" style={{ marginTop: 4 }}>
-            By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
-            intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
-            the voice is published, since the finished asset no longer needs it. Enable this only when you
-            need to inspect or re-run the intermediate artifacts for debugging; the retained workspace is
-            never reused automatically and must be cleaned up manually.
-          </p>
-        </>
-      );
+      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page. No configuration needed.</p>;
     }
     return (
       <div className="node-detail">
@@ -2526,6 +2673,57 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       <div className="section">
         <div className="section-hdr"><h2>Train New Voice</h2></div>
         <div className="section-body">
+          {/* Recover a failed run — default-collapsed list of cached failed/interrupted
+              tasks. "Resume" restores the pipeline and continues from the failure point. */}
+          {!taskId && (
+            <div className="recover-panel">
+              <button type="button" className="recover-toggle" onClick={() => { const n = !recoverOpen; setRecoverOpen(n); if (n) loadRecoverable(); }}>
+                <span className="recover-caret">{recoverOpen ? '▾' : '▸'}</span>
+                Recover a failed run
+                {recoverList.length > 0 && <span className="recover-count">{recoverList.length}</span>}
+              </button>
+              {recoverOpen && (
+                <div className="recover-body">
+                  {recoverLoading && <p className="field-hint">Loading…</p>}
+                  {!recoverLoading && recoverList.length === 0 && (
+                    <p className="field-hint">No failed or interrupted tasks in the cache. Everything is clean.</p>
+                  )}
+                  {!recoverLoading && recoverList.length > 0 && (
+                    <table className="recover-table">
+                      <thead>
+                        <tr><th>Voice</th><th>Lang</th><th>Failed at</th><th>Reason</th><th>When</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {recoverList.map(t => (
+                          <tr key={t.id} className={recovery && recovery.sourceTaskId === t.id ? 'recover-row-active' : ''}>
+                            <td>{t.voiceId || <span className="field-hint">—</span>}</td>
+                            <td>{t.language || '—'}</td>
+                            <td>
+                              <span className="badge badge-danger">{FSTEP_LABELS[t.resumeStep] || t.resumeStep || t.status}</span>
+                            </td>
+                            <td className="recover-reason" title={t.failedAt && t.failedAt.reason || ''}>
+                              {(t.failedAt && t.failedAt.reason) || (t.status === 'interrupted' ? 'Interrupted' : 'Unknown')}
+                            </td>
+                            <td className="recover-when">{t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—'}</td>
+                            <td>
+                              <button className="btn btn-sm btn-primary" onClick={() => beginResume(t)}
+                                disabled={recovery && recovery.sourceTaskId === t.id}>
+                                {recovery && recovery.sourceTaskId === t.id ? 'Selected' : 'Resume'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  <p className="field-hint" style={{ marginTop: 6 }}>
+                    Only failed / interrupted tasks appear here. Successful runs are cleaned up automatically after publishing.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Essentials — one horizontal row so the page reads wide, not narrow */}
           <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             <div className="essentials-grid">
@@ -2566,12 +2764,51 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             </div>
           </fieldset>
 
+          {/* Recovery banner — Continue (in place) vs Modify (fork → new task) */}
+          {recovery && (
+            <div className={`resume-banner ${recoveryMode === 'modify' ? 'resume-banner-fork' : 'resume-banner-continue'}`}>
+              <div className="resume-banner-hdr">
+                <span className="resume-banner-title">
+                  {recoveryMode === 'modify' ? '↳ Resume as a NEW task (fork)' : '↻ Resume in place'}
+                </span>
+                <button className="btn btn-sm btn-ghost" onClick={cancelRecovery}>Exit resume</button>
+              </div>
+              <p className="resume-banner-body">
+                {recoveryMode === 'modify'
+                  ? <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
+                     Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).
+                     The whole cache folder is copied first — make sure you have enough <strong>disk space</strong>.
+                     The original failed task is kept untouched, and even if this fork succeeds it will publish as a NEW task, not a recovery of the old one.</>
+                  : <>Continuing failed task <code>{recovery.sourceTaskId}</code> from the <strong>{FSTEP_LABELS[recovery.failedStep]}</strong> step,
+                     reusing everything before it. Same task, same workspace.
+                     {recovery.failedAt && recovery.failedAt.reason && <><br/><span className="resume-reason">Why it failed: {recovery.failedAt.reason}</span></>}</>}
+              </p>
+              <div className="resume-controls">
+                <label className="field-label" style={{ margin: 0 }}>Restart from</label>
+                <select className="control control-inline" value={rerunStart}
+                        onChange={e => setRecovery(r => ({ ...r, resumeStep: e.target.value }))}>
+                  {resumeStepOptions.map(s => (
+                    <option key={s} value={s}>{FSTEP_LABELS[s]}{s === recovery.failedStep ? ' (failed step)' : ' (redo completed step)'}</option>
+                  ))}
+                </select>
+                {recoveryMode === 'continue' && failedIsTrain && (
+                  <label className="toggle-row" style={{ margin: 0 }}>
+                    <input type="checkbox" checked={restartFailedStep} onChange={e => setRestartFailedStep(e.target.checked)} />
+                    Restart this training from scratch (ignore saved checkpoint)
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Pipeline map — click a step to configure it (or inspect its status during a run) */}
           <div className="field" style={{ marginTop: 10 }}>
             <label className="field-label">Pipeline — click any step to configure</label>
             <PipelineMap
-              statusSteps={status?.steps}
-              enabledMap={{ denoise: form.denoise, slice: form.slice, asr: form.asr, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false }}
+              statusSteps={status?.steps || (recovery ? recovery.steps : null)}
+              enabledMap={recovery
+                ? { denoise: rerunIdx <= 0 && form.denoise, slice: FSTEP_ORDER.indexOf('slice') >= rerunIdx && form.slice, asr: FSTEP_ORDER.indexOf('asr') >= rerunIdx && form.asr, train_s1: FSTEP_ORDER.indexOf('train_s1') >= rerunIdx && form.trainS1 !== false, train_s2: FSTEP_ORDER.indexOf('train_s2') >= rerunIdx && form.trainS2 !== false }
+                : { denoise: form.denoise, slice: form.slice, asr: form.asr, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false }}
               selectedNode={selectedNode}
               onSelect={setSelectedNode}
             />
@@ -2643,7 +2880,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
                 title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
                   ? 'Some selected SoVITS versions are missing base models — run download_models.py for them first'
-                  : ''}>Start Tuning</button>
+                  : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
                 title="Delete finished task workspaces from the .staging cache (running tasks are never touched)">
                 {clearing ? 'Cleaning…' : 'Clean Cache'}
@@ -2687,7 +2924,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               )}
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>
-                  Tuning was interrupted. Intermediate results are available; resume-from-checkpoint is on the roadmap.
+                  Tuning was interrupted. Go Back, then use “Recover a failed run” to resume it from where it stopped.
                 </div>
               )}
               {isFinished && (
@@ -2755,10 +2992,6 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const [raws, setRaws] = useState(null)
   const [loading, setLoading] = useState(false)
   const [rawDur, setRawDur] = useState({})
-  // T2: Slices / Raw tabs (mirrors the own-voice Reference Audio picker) so
-  // cross-voice raw takes are selectable, not buried below the slices list.
-  // Reset to 'slices' whenever the source voice changes.
-  const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
 
   useEffect(() => {
     if (others.length && !others.find(o => o.id === vid)) setVid(others[0].id)
@@ -2766,7 +2999,6 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 
   useEffect(() => {
     if (!vid) { setSegs([]); setRaws([]); return }
-    setRefTab('slices')
     setLoading(true); setRawDur({})
     Promise.all([
       api(`/api/assets/${vid}/segments`)
@@ -2797,24 +3029,11 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
       <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
         Cross-voice reference &mdash; timbre and quality may differ from this model.
       </div>
-      <div className="ref-tabs" style={{ marginBottom: 6 }}>
-        <button
-          type="button"
-          className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
-          onClick={() => setRefTab('slices')}
-        >Slices <span className="ref-tab-count">{availSlices.length}</span></button>
-        <button
-          type="button"
-          className={`ref-tab ${refTab === 'raw' ? 'active' : ''}`}
-          onClick={() => setRefTab('raw')}
-        >Raw <span className="ref-tab-count">{availRaw.length}</span></button>
-      </div>
       {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
       {!loading && (
         <div className="ref-list">
-          {refTab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">No slices in this voice</div>}
-          {refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No raw audio in this voice</div>}
-          {refTab === 'slices' && availSlices.map((seg, i) => {
+          {availSlices.length === 0 && availRaw.length === 0 && <div className="ref-col-empty">No reference audio in this voice</div>}
+          {availSlices.map((seg, i) => {
             const p = seg.audio || seg.audio_path || seg.audio_filename
             const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
             const rpath = `assets/${vid}/slicer_opt/${fn}`
@@ -2831,7 +3050,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
               </div>
             )
           })}
-          {refTab === 'raw' && availRaw.map((rf, i) => {
+          {availRaw.map((rf, i) => {
             const rpath = `assets/${vid}/raw/${rf.filename}`
             const isActive = activeRef === rpath
             const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[rf.filename]
@@ -5722,9 +5941,6 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
   const [copied, setCopied] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [busy, setBusy] = useState(false)
-  // UI: the example curl call is collapsed by default to keep recipe cards compact;
-  // click the header to expand it.
-  const [cmdOpen, setCmdOpen] = useState(false)
   const cmd = `curl -X POST ${endpoint} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $API_KEY" \\
@@ -5762,17 +5978,12 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
           <div><span className="rc-k">Params</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
           <div><span className="rc-k">Source</span><span className="rc-v">{recipe.meta?.source || '—'}{recipe.meta?.notes ? ` · ${recipe.meta.notes}` : ''}</span></div>
         </div>
-        <div className={`rc-cmd${cmdOpen ? ' open' : ''}`}>
+        <div className="rc-cmd">
           <div className="rc-cmd-hdr">
-            <button type="button" className="rc-cmd-toggle" aria-expanded={cmdOpen} onClick={() => setCmdOpen(o => !o)}>
-              <span className="rc-cmd-caret">{cmdOpen ? '▾' : '▸'}</span>
-              <span>Example call (OpenAI-compatible)</span>
-            </button>
-            {cmdOpen && (
-              <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
-            )}
+            <span>Example call (OpenAI-compatible)</span>
+            <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
           </div>
-          {cmdOpen && <pre className="rc-cmd-body">{cmd}</pre>}
+          <pre className="rc-cmd-body">{cmd}</pre>
         </div>
         <RecipeModelRebind recipe={recipe} onSaved={() => onChanged && onChanged()} />
         {confirmDel && (

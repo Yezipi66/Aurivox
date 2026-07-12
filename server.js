@@ -2266,13 +2266,8 @@ app.post("/api/assets/import", requireApiKey, async (req, res) => {
 });
 
 // GET /api/assets/:id — get meta.json for a voice
-app.get("/api/assets/:id", (req, res, next) => {
+app.get("/api/assets/:id", (req, res) => {
   const id = req.params.id;
-  // F2: `voices-with-models` is a dedicated collection endpoint registered later
-  // (the first-level Broker model picker). Express matches routes top-down, so
-  // this `:id` param route would otherwise capture it as id="voices-with-models"
-  // and 404 on a missing meta.json. Fall through to the real handler.
-  if (id === "voices-with-models") return next();
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const metaPath = path.join(ASSETS_DIR, id, "meta.json");
   if (!fs.existsSync(metaPath)) return res.status(404).json({ error: `No meta.json for '${id}'` });
@@ -3037,10 +3032,33 @@ app.get("/api/models/status", (req, res) => {
 
 app.post("/api/train/start", requireApiKey, (req, res) => {
   try {
-    const { voiceId: rawVoiceId, language, inputDir, steps: stepOptions, customParams, overwrite } = req.body || {};
+    const { voiceId: rawVoiceId, language, inputDir, steps: stepOptions, customParams, overwrite,
+            resumeTaskId, forkFromTaskId, restartFailedStep } = req.body || {};
     if (!rawVoiceId) return res.status(400).json({ error: "Missing 'voiceId'" });
     if (!language) return res.status(400).json({ error: "Missing 'language'" });
-    if (!inputDir) return res.status(400).json({ error: "Missing 'inputDir'" });
+
+    // Resume/断点恢复：续跑(resumeTaskId) 复用同 taskId+workDir，改参(forkFromTaskId)
+    // 分叉出新任务复用上游产物。恢复模式下若不从 denoise/slice 起跑，原始 inputDir
+    // 可能已不存在，允许其缺省；真正需要 inputDir 的早期步由下方门控拦截。
+    const isRecovery = !!(resumeTaskId || forkFromTaskId);
+    // 计算重跑起点：STEP_ORDER 中第一个 enabled 的步骤。
+    const RESUME_STEP_ORDER = ['denoise', 'slice', 'asr', 'preprocess', 'train_s1', 'train_s2', 'finalize', 'promote'];
+    const stepEnabled = (k) => {
+      const so = stepOptions || {};
+      const dflt = { denoise: false, slice: true, asr: true, preprocess: true, train_s1: true, train_s2: true, finalize: true, promote: true };
+      if (k === 'train_s1' || k === 'train_s2') return (so[k] ?? so.train ?? dflt[k]) !== false;
+      return (so[k] ?? dflt[k]) !== false;
+    };
+    const rerunStart = RESUME_STEP_ORDER.find(stepEnabled) || null;
+    const needsInputDir = !isRecovery || rerunStart === 'denoise' || rerunStart === 'slice';
+    if (!inputDir && needsInputDir) {
+      return res.status(400).json({
+        error: isRecovery
+          ? "Input folder is required to resume from denoise/slice. Please re-select the original audio folder."
+          : "Missing 'inputDir'",
+        code: isRecovery ? "INPUT_DIR_REQUIRED" : undefined,
+      });
+    }
 
     // Overwrite guard: publishing goes to ASSETS_ROOT/<sanitized id> and clobbers
     // whatever is there. If that id already belongs to an existing voice and the
@@ -3113,15 +3131,25 @@ app.post("/api/train/start", requireApiKey, (req, res) => {
     // Validate inputDir. If TRAIN_DATA_ROOT is configured (distribution/hardened
     // mode) the directory must live under it; otherwise (local workbench) any
     // existing directory is allowed.
-    const resolved = path.resolve(inputDir);
-    if (TRAIN_DATA_ROOT) {
-      const root = path.resolve(TRAIN_DATA_ROOT);
-      if (!resolved.startsWith(root + path.sep) && resolved !== root) {
-        return res.status(400).json({ error: "inputDir must be under TRAIN_DATA_ROOT" });
+    if (inputDir) {
+      const resolved = path.resolve(inputDir);
+      if (TRAIN_DATA_ROOT) {
+        const root = path.resolve(TRAIN_DATA_ROOT);
+        if (!resolved.startsWith(root + path.sep) && resolved !== root) {
+          return res.status(400).json({ error: "inputDir must be under TRAIN_DATA_ROOT" });
+        }
       }
-    }
-    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-      return res.status(400).json({ error: "inputDir does not exist or is not a directory" });
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+        // 恢复时若从需要 inputDir 的早期步起跑，缺失即拦下（英文门控）。
+        if (needsInputDir) {
+          return res.status(400).json({
+            error: isRecovery
+              ? "The original audio folder no longer exists. Resuming from denoise/slice needs it — please re-select the source folder."
+              : "inputDir does not exist or is not a directory",
+            code: isRecovery ? "INPUT_DIR_MISSING" : undefined,
+          });
+        }
+      }
     }
 
     console.log(`[TRAIN] Creating pipeline: voiceId=${rawVoiceId}, lang=${language}`);
@@ -3131,8 +3159,11 @@ app.post("/api/train/start", requireApiKey, (req, res) => {
       inputDir,
       stepOptions: stepOptions || {},
       customParams: safeCustom,
+      resumeTaskId: resumeTaskId || null,
+      forkFromTaskId: forkFromTaskId || null,
+      restartFailedStep: !!restartFailedStep,
     });
-    console.log(`[TRAIN] Pipeline created: ${pipeline.id}`);
+    console.log(`[TRAIN] Pipeline created: ${pipeline.id}${isRecovery ? ` (recovery of ${resumeTaskId || forkFromTaskId})` : ''}`);
 
     // 异步启动，不等待完成
     pipeline.start().catch(err => console.error("[TRAINING] Pipeline error:", err));
@@ -3207,6 +3238,18 @@ app.get("/api/train/logs/:id", (req, res) => {
 
 app.get("/api/train/tasks", (req, res) => {
   res.json({ tasks: trainingPipeline.getAllTasks() });
+});
+
+// GET /api/train/recoverable — 缓存里所有可恢复(failed + interrupted)的微调任务，
+// 含失败步、英文原因、原始参数，供"恢复训练"面板列出并回填。
+app.get("/api/train/recoverable", (req, res) => {
+  try {
+    const list = typeof trainingPipeline.listRecoverable === "function"
+      ? trainingPipeline.listRecoverable() : [];
+    res.json({ tasks: list });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
 });
 
 // POST /api/train/clear-staging — 清除训练暂存目录 (.staging) 中已结束的任务工作区。

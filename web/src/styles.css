@@ -1689,9 +1689,6 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .rc-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-cmd { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .rc-cmd-hdr { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--panel); font-size: 11px; color: var(--muted); }
-.rc-cmd-toggle { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer; }
-.rc-cmd-toggle:hover { color: var(--text); }
-.rc-cmd-caret { display: inline-block; width: 10px; font-size: 10px; }
 .rc-cmd-body { margin: 0; padding: 10px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text); white-space: pre-wrap; word-break: break-all; }
 .rebind { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 .rebind .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
@@ -1706,21 +1703,50 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: 12px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .asr-review-ftr { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
 
-/* ── T1: Fine-tune ASR reading-proofing wide layout ─────────────────────────
-   The proofing panel is the 3rd child of the 2-col .asr-review-row grid, so it
-   wraps under the 160px path column. Break it out to full width, then lay the
-   PronPanel editor (left) and readings/lexicon output (right) side-by-side to
-   use the reclaimed horizontal space. The .pron-grid / .pron-edit / .pron-out
-   wrappers collapse via `display: contents` in the default (Generate-page)
-   layout, so that view is byte-for-byte unchanged. */
-.asr-review-row .arr-proof { grid-column: 1 / -1; min-width: 0; }
-.pron-grid, .pron-edit, .pron-out { display: contents; }
-.pron-panel-wide .pron-grid {
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
-  gap: 14px;
-  align-items: start;
+/* ── Failure-resume panel & banner (哪里跌倒哪里爬起来) ───────────────────── */
+.recover-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(255,255,255,0.02);
+  margin-bottom: 10px;
 }
-.pron-panel-wide .pron-edit,
-.pron-panel-wide .pron-out { display: block; min-width: 0; }
-.pron-panel-wide .pron-edit textarea { min-height: 120px; }
+.recover-toggle {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px;
+  background: none; border: 0; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--text); text-align: left;
+}
+.recover-toggle:hover { color: var(--accent); }
+.recover-caret { display: inline-block; width: 12px; color: var(--muted); font-size: 11px; }
+.recover-count {
+  margin-left: auto;
+  background: rgba(207,102,121,0.15); color: var(--danger);
+  border: 1px solid rgba(207,102,121,0.35); border-radius: 999px;
+  font-size: 11px; padding: 0 8px; line-height: 18px; min-width: 18px; text-align: center;
+}
+.recover-body { padding: 4px 12px 10px; border-top: 1px solid var(--border); }
+.recover-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.recover-table th {
+  text-align: left; color: var(--muted); font-weight: 600;
+  padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.recover-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+.recover-table tr:last-child td { border-bottom: 0; }
+.recover-row-active { background: var(--accent-soft); }
+.recover-reason { max-width: 320px; color: var(--muted); }
+.recover-when { color: var(--muted); white-space: nowrap; }
+
+.resume-banner {
+  border: 1px solid var(--border); border-left-width: 3px;
+  border-radius: var(--radius-sm, 6px);
+  padding: 10px 12px; margin-top: 10px;
+  background: rgba(255,255,255,0.02);
+}
+.resume-banner-continue { border-left-color: var(--accent); }
+.resume-banner-fork { border-left-color: var(--warning); }
+.resume-banner-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.resume-banner-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.resume-banner-body { font-size: 12px; color: var(--muted); margin: 6px 0 0; line-height: 1.5; }
+.resume-reason { color: var(--warning); }
+.resume-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.control-inline { width: auto; min-width: 180px; display: inline-block; }
