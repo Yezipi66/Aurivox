@@ -138,7 +138,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
         <div className="modal-body">
           <div className="field">
             <label className="field-label">Name (emotion / identifier)</label>
-            <input className="control" value={name} autoFocus placeholder="e.g. calm, angry, 平静"
+            <input className="control" value={name} autoFocus placeholder="e.g. calm, angry, cheerful"
               onChange={e => setName(e.target.value)} />
             {nameErr && <div className="field-hint" style={{ color: 'var(--danger)' }}>{nameErr}</div>}
           </div>
@@ -180,17 +180,17 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 // ===========================
 //  GENERATE TAB
 // ===========================
-// 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
-// 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
+// Pronunciation-proofing panel (task6): a secondary panel expanded on toggle; doubles as a text editor + per-character reading proofing.
+// Chinese (zh) / Cantonese (yue) use real g2pW preview; other languages are contract placeholders (ko untested).
 function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
   const wide = layout === 'wide'
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [lexicon, setLexicon] = useState({})
-  // 逐词编辑缓冲（ja 假名 / en ARPABET）：保留用户正在输入的原始字符串，避免受控输入吞空格。
+  // Per-word edit buffer (ja kana / en ARPABET): keeps the raw string the user is typing so a controlled input does not swallow spaces.
   const [wordEdits, setWordEdits] = useState({})
-  // zh/yue：逐字选候选；ja：逐词改假名；en：逐词改音标；其它语言契约占位。
+  // zh/yue: per-character candidate selection; ja: per-word kana editing; en: per-word phoneme editing; other languages are contract placeholders.
   const supported = lang === 'zh' || lang === 'yue' || lang === 'ja' || lang === 'en'
   const isCharUnit = lang === 'zh' || lang === 'yue'
   const readingLabel = lang === 'ja' ? 'kana' : lang === 'en' ? 'ARPABET (space-separated)' : 'reading'
@@ -305,7 +305,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
           {(preview.tokens || []).map((tok, ti) => (
             <div key={ti} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', background: 'var(--surface)' }}>
               {(tok.unit === 'char' || tok.chars) ? (
-                // zh / yue：逐字，多音字给候选下拉
+                // zh / yue: per-character; polyphonic chars get a candidate dropdown
                 <div style={{ display: 'flex', gap: 4 }}>
                   {tok.chars.map((c, ci) => (
                     <div key={ci} style={{ textAlign: 'center' }}>
@@ -327,7 +327,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
                   ))}
                 </div>
               ) : (
-                // ja / en：逐词，直接改写读音（假名 / ARPABET），无候选下拉，输入框做宽
+                // ja / en: per-word; directly rewrite the reading (kana / ARPABET), no candidate dropdown, wider input
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 15, color: tok.source === 'g2p' ? 'var(--text)' : 'var(--accent)' }}>{tok.word}</div>
                   <input
@@ -373,8 +373,8 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
   )
 }
 
-// 目标语言（text_lang）：解除「合成语言 == 微调语言」的硬绑定。任一微调音色可合成
-// 五种支持语言（zh/ja/en/yue/ko）或 auto 混排。prompt_lang（参考音频文本语言）仍跟随音色。
+// Target language (text_lang): removes the hard "synthesis language == fine-tuning language" binding. Any fine-tuned voice can synthesize
+// any of the five supported languages (zh/ja/en/yue/ko) or auto-mixed. prompt_lang (reference-audio text language) still follows the voice.
 const TARGET_LANG_OPTIONS = [
   { value: 'auto', label: 'Auto \u2014 detect per segment' },
   { value: 'all_zh', label: 'Chinese (\u4e2d\u6587)' },
@@ -385,13 +385,13 @@ const TARGET_LANG_OPTIONS = [
 ]
 const VOICE_TO_TARGET = { zh: 'all_zh', ja: 'all_ja', en: 'en', yue: 'all_yue', ko: 'all_ko' }
 
-// 把音色语言（裸码）映射到默认 text_lang 选项（== 微调源语言，保证零回归）。
+// Map the voice language (bare code) to the default text_lang option (== fine-tuning source language, ensuring zero regression).
 function defaultTargetLang(voiceLang) {
   const base = String(voiceLang || '').replace(/^all_/, '').replace(/^auto.*/, '')
   return VOICE_TO_TARGET[base] || 'auto'
 }
 
-// 归一 text_lang 到语言族（all_zh -> zh；auto -> null 不判定失配）。
+// Normalize text_lang to a language family (all_zh -> zh; auto -> null, no mismatch check).
 // PD: Recent items show a full local timestamp (YYYY-MM-DD HH:MM:SS) rather than
 // time-only, so entries generated on different days stay distinguishable.
 function fmtRecentTime(value) {
@@ -440,7 +440,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [concatEnabled, setConcatEnabled] = usePersistentState('generate.concatEnabled', true)
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
 
-  // 读音校对（task6）：勾选开关持久化；本次覆盖仅内存态
+  // Pronunciation proofing (task6): the toggle is persisted; per-session overrides are in-memory only.
   const [pronEnabled, setPronEnabled] = usePersistentState('generate.pronEnabled', false)
   const [pronOverrides, setPronOverrides] = useState({})
 
@@ -491,12 +491,12 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [selGpt, setSelGpt] = useState('')
   const [selSovits, setSelSovits] = useState('')
   const [lang, setLang] = useState(selected?.language || 'ja')
-  // 目标合成语言（text_lang），独立于 prompt_lang；默认 = 微调源语言，切换音色时重置。
+  // Target synthesis language (text_lang), independent of prompt_lang; default = fine-tuning source language, reset on voice switch.
   const [textLang, setTextLang] = useState(() => defaultTargetLang(selected?.language || 'ja'))
   const _baseLangFam = String(lang || '').replace(/^all_/, '')
   const _targetFam = normalizeLangFamily(textLang)
-  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // 目标语言与微调语言不符
-  const panelLang = _targetFam || _baseLangFam                        // 读音校对面板跟随目标语言
+  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // target language differs from the fine-tuning language
+  const panelLang = _targetFam || _baseLangFam                        // proofing panel follows the target language
   const [auxRefs, setAuxRefs] = useState([])  // selected aux reference audio paths
   const [segments, setSegments] = useState([])  // loaded from API for aux ref picker
 
@@ -509,8 +509,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         const gptList = c.gpt || []
         const sovitsList = c.sovits || []
         setCheckpoints({ gpt: gptList, sovits: sovitsList })
-        // checkpoint 归属校验（patch8：切换音色后重置失效的选择）——旧音色的路径若不在
-        // 新音色的列表里，必须重置，否则会把上一个音色的 .pth 提交给推理后端（音色串档）。
+        // checkpoint ownership check (patch8: reset a stale selection after switching voices) — if the old voice path is not in
+        // the new voice list, it must be reset, otherwise the previous voice .pth would be submitted to the inference backend (voice mix-up).
         setSelGpt(prev => gptList.some(x => x.path === prev) ? prev : (gptList[0]?.path || ''))
         setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev : (sovitsList[0]?.path || ''))
       }
@@ -1821,8 +1821,8 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
               const toggle = (on) => {
                 const order = ['v2', 'v2Pro', 'v2ProPlus'];
                 let next = on ? [...cur, v] : cur.filter(x => x !== v);
-                next = order.filter(o => next.includes(o)); // 去重 + 规范排序
-                if (!next.length) next = [v]; // 至少保留一个版本，禁止清空
+                next = order.filter(o => next.includes(o)); // dedupe + canonical ordering
+                if (!next.length) next = [v]; // keep at least one version, never empty
                 setField('modelVersions', next);
               };
               return (
@@ -2075,6 +2075,44 @@ function AsrRowProof({ text, lang, onChange, disabled }) {
   )
 }
 
+// PG+: on-demand per-row audio preview for the ASR proofreading list. With up to a
+// few hundred rows we must NOT mount a preloading <audio> per line, so the element
+// is created lazily on first click (preload="none", autoPlay) and reused after.
+function AsrRowAudio({ src }) {
+  const [armed, setArmed] = useState(false)   // has playback ever been requested?
+  const [playing, setPlaying] = useState(false)
+  const audioRef = useRef(null)
+
+  const toggle = () => {
+    if (!armed) { setArmed(true); setPlaying(true); return }  // first click: mount + autoplay
+    const a = audioRef.current
+    if (!a) return
+    if (a.paused) { a.play().catch(() => {}); setPlaying(true) }
+    else { a.pause(); setPlaying(false) }
+  }
+
+  return (
+    <>
+      <button type="button" className="arr-play" onClick={toggle}
+              title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'}>
+        {playing ? (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>
+          </svg>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        )}
+      </button>
+      {armed && (
+        <audio ref={audioRef} src={src} autoPlay preload="none"
+               onPlay={() => setPlaying(true)}
+               onPause={() => setPlaying(false)}
+               onEnded={() => setPlaying(false)} />
+      )}
+    </>
+  )
+}
+
 function AsrReviewPanel({ taskId, onResumed, lang }) {
   const [rows, setRows] = useState(null);
   const [listName, setListName] = useState('');
@@ -2126,7 +2164,10 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
         <div className="asr-review-list">
           {rows.map(r => (
             <div className="asr-review-row" key={r.index}>
-              <div className="arr-path" title={r.audio_path}>{basename(r.audio_path) || r.audio_path}</div>
+              <div className="arr-path" title={r.audio_path}>
+                <AsrRowAudio src={`${API_BASE}/api/train/review/${taskId}/audio?path=${encodeURIComponent(r.audio_path)}`} />
+                <span className="arr-path-name">{basename(r.audio_path) || r.audio_path}</span>
+              </div>
               <textarea className="arr-text" rows={1} value={r.text}
                         disabled={busy}
                         onChange={e => setText(r.index, e.target.value)} />
@@ -2206,7 +2247,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // Overwrite confirmation when the target voice id already exists (409 guard).
   const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { existingId, existingDisplay }
 
-  // ── Failure-resume (哪里跌倒哪里爬起来) ──────────────────────────────────────
+  // ── Failure-resume (get back up where you fell) ─────────────────────────────
   // Cached failed/interrupted tasks the user can resume. Default-collapsed panel.
   const [recoverList, setRecoverList] = useState([]);
   const [recoverOpen, setRecoverOpen] = useState(false);
@@ -2226,7 +2267,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // Load the list whenever the page is idle (no active task) so it stays fresh.
   useEffect(() => { if (!activeTaskId && !localTaskId) loadRecoverable(); }, [activeTaskId, localTaskId]);
 
-  // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
+  // Use activeTaskId from props, but also keep a local copy written after handleStart (used at launch).
   const taskId = activeTaskId || localTaskId;
   const isAwaitingReview = status?.status === 'awaiting_review';
   const isRunning = status?.status === 'running';
@@ -2237,7 +2278,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // current values no longer match the named preset, so flip the label to "Custom".
   const PRESET_KEYS = ['gptEpochs', 'sovitsEpochs', 'batchSize', 's1SaveEvery', 's2GradCkpt', 's2Fp16'];
 
-  // 便捷 form setter
+  // Convenience form setter
   const setField = (key, val) => setForm(prev => {
     const next = { ...prev, [key]: val };
     if (PRESET_KEYS.includes(key) && prev.preset && prev.preset !== 'custom') {
@@ -2276,10 +2317,10 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setForm(prev => ({ ...prev, inputType: name, ...(t.fields || {}), ...(sliceVals || {}) }));
   };
 
-  // 轮询训练状态 —— 有 taskId 就轮询，不依赖本地 training 布尔
+  // Poll fine-tuning status — poll whenever there is a taskId, independent of the local training boolean.
   useEffect(() => {
     if (!taskId) return;
-    let dead = false; // 标记任务已彻底消失，停止轮询
+    let dead = false; // marks the task as gone for good, stop polling
     const MAX_FAIL = 3;
     const poll = () => {
       if (dead) return;
@@ -2291,7 +2332,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             if (r.data.status === 'completed') loadVoices();
           }
         } else if (r.status === 404) {
-          // 任务已被清理（磁盘 journal 也删了），自愈回到表单
+          // task has been cleaned up (disk journal deleted too); self-heal back to the form
           dead = true;
           failCountRef.current = 0;
           setActiveTaskId(null);
@@ -2299,7 +2340,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           setStatus(null);
           setLogs([]);
         } else {
-          // 其他错误（5xx 等）计入失败计数
+          // other errors (5xx, etc.) count toward the failure counter
           failCountRef.current++;
           if (failCountRef.current >= MAX_FAIL) {
             dead = true;
@@ -2311,7 +2352,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           }
         }
       }).catch(() => {
-        // 网络错误也计入失败计数
+        // network errors also count toward the failure counter
         failCountRef.current++;
         if (failCountRef.current >= MAX_FAIL) {
           dead = true;
@@ -2331,7 +2372,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [taskId]);
 
-  // "Restoring training state…" 超时兜底：10s 后仍无 status 则回退表单
+  // "Restoring training state…" timeout fallback: if there is still no status after 10s, fall back to the form.
   const restoreTimeoutRef = useRef(null);
   useEffect(() => {
     if (taskId && !status) {
@@ -2393,7 +2434,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setRecovery(null);
     setRestartFailedStep(false);
     setLocalTaskId(r.data.taskId);
-    setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
+    setActiveTaskId(r.data.taskId); // persist + trigger App-level reconnect
   };
 
   const handleStart = async () => {
@@ -2553,14 +2594,22 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             Enable vocal extraction
           </label>
           {form.denoise && (
-            <div className="field">
-              <label className="field-label">Model</label>
-              <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
-                <option value="mdx-net">MDX-Net</option>
-              </select>
-            </div>
+            <>
+              <div className="field">
+                <label className="field-label">Model</label>
+                <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
+                  <option value="mdx-net">MDX-Net</option>
+                </select>
+              </div>
+              <div className="msg msg-warn" style={{ marginTop: 6 }}>
+                ⚠ Vocal extraction is enabled. If your audio is already <b>clean native speech</b> (studio / game
+                voice with no background music), <b>you should turn this step off</b>: there is no instrumental to
+                separate, so it just runs for nothing and a few files may even be skipped due to numerical issues.
+                Only enable it when the source has background music or noticeable noise.
+              </div>
+            </>
           )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing. Off by default — only needed for noisy or mixed audio.</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing. Off by default — only needed for noisy or mixed audio. Not needed for clean native speech.</p>
         </>
       );
     } else if (selectedNode === 'slice') {
@@ -3000,7 +3049,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   )
 }
 
-// prompt_lang（参考音频语言）选项，裸码，与音色 language 字段一致。
+// prompt_lang (reference-audio language) options, bare codes, matching the voice language field.
 const REF_PROMPT_LANG_OPTIONS = [
   { value: 'ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
   { value: 'zh', label: 'Chinese (\u4e2d\u6587)' },
@@ -3009,9 +3058,9 @@ const REF_PROMPT_LANG_OPTIONS = [
   { value: 'ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
 ]
 
-// 跨资产参考音频选择器：列出「其他音色」并读取其全部 slices/raw，点选即用。
-// 复用现有 /api/assets/<id>/segments + /raw-list。onPick(path, text)。
-// 独立组件，便于后续 Compare Refs 页复用（预留接口）。
+// Cross-asset reference-audio picker: lists other voices and loads all their slices/raw; click to use.
+// Reuses the existing /api/assets/<id>/segments + /raw-list. onPick(path, text).
+// Standalone component, easy to reuse later on a Compare Refs page (reserved interface).
 function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const others = (voices || []).filter(v => v.id !== currentVoiceId)
   const [vid, setVid] = useState(others[0]?.id || '')
@@ -3115,9 +3164,9 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   )
 }
 
-// 完全自选参考音频：浏览器文件选择（跨平台，非原生对话框），上传到
-// voices/custom_refs 后作为任意音色的 ref_audio。可选手填参考文本 + prompt_lang。
-// onPick(path, text, promptLang, customObj)；独立组件，Compare 页可复用（预留接口）。
+// Fully custom reference audio: browser file selection (cross-platform, not a native dialog), uploaded to
+// voices/custom_refs, then used as ref_audio for any voice. Optional manual reference text + prompt_lang.
+// onPick(path, text, promptLang, customObj); standalone component, reusable on a Compare page (reserved interface).
 function CustomRefPicker({ custom, onPick, onClear }) {
   const fileRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -3183,7 +3232,7 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
   // whose length the server can't read from a WAV header, so the <audio> element
   // reports it on loadedmetadata — used for the same 3–10s guard as slices.
   const [rawDurations, setRawDurations] = useState({})
-  // 跨选/自选参考音频（本次会话内有效，切换音色时重置；不写入音色配置）。
+  // Cross-selected / custom reference audio (valid within this session, reset on voice switch; not written to the voice config).
   const [crossMode, setCrossMode] = useState(false)
   const [customRef, setCustomRef] = useState(null) // { path, url, name } | null
 
@@ -4553,26 +4602,26 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             <label className="toggle-row">
               <input type="checkbox" checked={trainS1} onChange={e => setTrainS1(e.target.checked)} />
               <span>
-                Train S1 (GPT)
+                Fine-tune S1 (GPT)
                 {state.Mg === false
                   ? <span className="hint-warn"> — missing</span>
-                  : <span className="hint"> — already present, retrain to overwrite</span>}
+                  : <span className="hint"> — already present, re-tune to overwrite</span>}
               </span>
             </label>
             <label className="toggle-row">
               <input type="checkbox" checked={trainS2} onChange={e => setTrainS2(e.target.checked)} />
               <span>
-                Train S2 (SoVITS)
+                Fine-tune S2 (SoVITS)
                 {state.Ms === false
                   ? <span className="hint-warn"> — missing</span>
-                  : <span className="hint"> — already present, retrain to overwrite</span>}
+                  : <span className="hint"> — already present, re-tune to overwrite</span>}
               </span>
             </label>
 
             {trainInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowTrainParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Training Parameters</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Fine-tuning Parameters</span>
                   <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showTrainParams ? '▲' : '▼'}</span>
                 </div>
                 {showTrainParams && (
@@ -4600,7 +4649,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         <div className="modal-actions">
           <button className="btn btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="btn btn-sm btn-primary" onClick={submit} disabled={submitting || loading || !hasWork || isNoop}>
-            {submitting ? 'Starting…' : (trainInPlan ? 'Rebuild & Train' : 'Restore')}
+            {submitting ? 'Starting…' : (trainInPlan ? 'Rebuild & Fine-tune' : 'Restore')}
           </button>
         </div>
       </div>
@@ -6257,18 +6306,18 @@ export default function App() {
 
   useEffect(() => { loadVoices() }, [])
 
-  // 自动重连：刷新/关页后恢复正在运行/中断的任务
+  // Auto-reconnect: after a refresh/close, resume a running/interrupted task.
   useEffect(() => {
     api('/api/train/tasks').then(r => {
       if (!r.ok) return;
       const tasks = r.data.tasks || [];
-      // 1) 持久化里有 activeTaskId：校验它是否仍存在于后端，不存在则清掉，避免卡空白
+      // 1) activeTaskId in persistence: verify it still exists on the backend; if not, clear it to avoid a blank hang.
       if (activeTaskId) {
         const stillThere = tasks.find(t => t.id === activeTaskId);
         if (!stillThere) setActiveTaskId(null);
         return;
       }
-      // 2) 没有 activeTaskId：优先接管运行中的，其次接管中断的
+      // 2) no activeTaskId: adopt a running task first, then an interrupted one.
       const pick = tasks.find(t => t.status === 'running')
                 || tasks.find(t => t.status === 'interrupted');
       if (pick) setActiveTaskId(pick.id);

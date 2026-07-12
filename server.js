@@ -3200,6 +3200,26 @@ app.get("/api/train/review/:id", (req, res) => {
   res.json(data);
 });
 
+// GET  试听校对行对应的切片音频（awaiting_review 期间音频在 .staging 工作区里，
+//      前端 static /assets 还看不到它）。path 为校对行的 audio_path（资产内相对路径）。
+const REVIEW_AUDIO_MIME = {
+  ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac",
+  ".m4a": "audio/mp4", ".ogg": "audio/ogg",
+};
+app.get("/api/train/review/:id/audio", (req, res) => {
+  const task = trainingPipeline.getTask(req.params.id);
+  if (!task || typeof task.resolveReviewAudioPath !== "function") {
+    return res.status(404).json({ error: "Task not found" });
+  }
+  const abs = task.resolveReviewAudioPath(String(req.query.path || ""));
+  if (!abs) return res.status(404).json({ error: "Audio not found" });
+  res.setHeader("Content-Type", REVIEW_AUDIO_MIME[path.extname(abs).toLowerCase()] || "application/octet-stream");
+  res.setHeader("Cache-Control", "no-store");
+  fs.createReadStream(abs)
+    .on("error", () => { if (!res.headersSent) res.status(500).end(); })
+    .pipe(res);
+});
+
 // POST 保存用户校对后的文本（写回 .list + segments.json）。可在 awaiting_review 期间反复保存。
 app.post("/api/train/review/:id", requireApiKey, (req, res) => {
   const task = trainingPipeline.getTask(req.params.id);
