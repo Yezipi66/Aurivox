@@ -1177,6 +1177,9 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   gap: 8px;
   margin-bottom: 6px;
 }
+.pron-panel-wide .pron-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pron-panel-wide .pron-grid > div { min-width: 0; }
+
 .ref-tabs {
   display: inline-flex;
   gap: 4px;
