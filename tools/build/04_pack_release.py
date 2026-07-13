@@ -42,6 +42,8 @@ TOP_EXCLUDE = {
     "cr-sandbox", "voices", "data", "dist",  # top-level dist = our own output
     # leftover folders from extracting an older distribution-kit patch in place
     "distribution-kit-patch", "root",
+    # dev-only training recipes / experiment configs — not needed at runtime
+    "recipes",
 }
 
 # Dev/VCS/cache junk safe to drop at ANY depth.
@@ -75,7 +77,6 @@ EXCLUDE_EXT = {
     ".mp4", ".mkv", ".avi", ".mov", ".webm",
     ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".zst",
     ".pdb",  # debug symbols (embedded python ships ~50MB of these; unused at runtime)
-    ".bak", ".bak2", ".bak3",  # patch backup files
 }
 # never drop these even if large (runtime + wheels + ffmpeg live here)
 KEEP_EXT = {".exe", ".dll", ".whl", ".node", ".pyd", ".so", ".lib"}
@@ -85,12 +86,19 @@ KEEP_EXT = {".exe", ".dll", ".whl", ".node", ".pyd", ".so", ".lib"}
 # them by exact name keeps the release clean without an allowlist, so newly
 # added source files ship automatically (developer-friendly).
 EXCLUDE_FILES = {
-    # stray reports / caches
-    "tree_report.txt", "dump_tree.ps1", "pack_sources.cpython-312.pyc",
+    # stray reports / caches (junk at any depth)
+    "tree_report.txt", "pack_sources.cpython-312.pyc",
     "requirements.lock.current.txt",
+}
+# Old junk that lived AT THE PROJECT ROOT. Matched ONLY at top level so we don't
+# accidentally drop legit same-named files that now live deeper, e.g. the real
+# launchers tools\scripts\start.ps1 / stop.ps1 and the dev tool
+# tools\scripts\dump_tree.ps1 must still ship.
+ROOT_EXCLUDE_FILES = {
+    "dump_tree.ps1",
     # superseded packer / one-off surgery & patch scripts
     "pack_sources.py", "apply_gsv_patch3.py", "surgery.py", "test_phase4.js",
-    # old launchers, replaced by 启动.bat / 停止.bat + tools\scripts\*.ps1
+    # old root launchers, replaced by 启动.bat / 停止.bat + tools\scripts\*.ps1
     "start.ps1", "start.vbs", "stop.ps1", "stop.bat",
     "restart.bat", "run_start.bat",
     # superseded by download_models.py wizard
@@ -172,6 +180,8 @@ def main():
                 continue
             if fn in EXCLUDE_FILES or fn.startswith(EXCLUDE_PREFIX):
                 continue
+            if rel_dir == "" and fn in ROOT_EXCLUDE_FILES:
+                continue
             ext = os.path.splitext(fn)[1].lower()
             if ext in EXCLUDE_EXT and ext not in KEEP_EXT:
                 continue
@@ -218,9 +228,27 @@ def main():
         return 0
 
     print("\nwriting zip ...")
+    _UTF8_BOM = b"\xef\xbb\xbf"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for rel, full, _ in included:
-            z.write(full, arcname=norm(os.path.join(top, rel)))
+            arc = norm(os.path.join(top, rel))
+            # Force a UTF-8 BOM onto every .ps1. Windows PowerShell 5.1 parses a
+            # BOM-less script using the system ANSI codepage (GBK on zh-CN), which
+            # mangles our non-ASCII (Chinese) strings and can even break syntax
+            # (a mis-decoded byte lands on a quote, unterminating a string ->
+            # "Missing '}'" parse errors). A BOM makes it decode as UTF-8 correctly.
+            # Enforcing it here means the release is safe even if an editor/git
+            # stripped the BOM from the source file.
+            if full.lower().endswith(".ps1"):
+                with open(full, "rb") as fh:
+                    data = fh.read()
+                if not data.startswith(_UTF8_BOM):
+                    data = _UTF8_BOM + data
+                zi = zipfile.ZipInfo(arc, date_time=time.localtime(os.path.getmtime(full))[:6])
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                z.writestr(zi, data)
+            else:
+                z.write(full, arcname=arc)
     zsize = os.path.getsize(out)
     print("=" * 64)
     print(f"OK  {out}")

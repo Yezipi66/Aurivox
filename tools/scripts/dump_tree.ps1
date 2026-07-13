@@ -1,4 +1,4 @@
-# dump_tree.ps1 — 导出 TTS Broker 项目结构给分发规划用 (开发者工具)
+﻿# dump_tree.ps1 — 导出 TTS Broker 项目结构给分发规划用 (开发者工具)
 # 位置: tools\scripts\dump_tree.ps1 —— 项目根自动识别为本脚本上溯两级。
 # 用法: 右键“使用 PowerShell 运行”，或:
 #       powershell -ExecutionPolicy Bypass -File tools\scripts\dump_tree.ps1

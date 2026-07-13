@@ -17,6 +17,10 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
     python download_models.py --set all          # 全部
     python download_models.py --set asr,uvr5     # 多选(逗号分隔)
     python download_models.py --set all --mirror # 走 hf-mirror.com 加速(国内)
+    python download_models.py --set all --jobs 8 # 8 路并行下载(默认 4, 1=串行)
+
+加速: 若 venv 里装了 hf_transfer, 单文件走 rust 并行分块下载(自动启用);
+      --jobs N 控制同一组内多个文件的并行数。二者叠加显著缩短下载时间。
 
 可下载组: core  asr  uvr5  g2pw  langdetect  all
 
@@ -24,34 +28,48 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
   * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta / uvr5
   * nvidia/bigvgan_v2_24khz_100band_256x  —— bigvgan 声码器
   * Systran/faster-whisper-large-v3       —— ASR
-  * fasttext lid.176 / G2PWModel          —— 直链(见下方 URL, 若失效请更新)
+  * fasttext lid.176                      —— 语言检测直链
+  * XXXXRT/GPT-SoVITS-Pretrained          —— G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
+
+注: SR 音频超分(24k->48k, AP-BWE)仅 SoVITS v3 使用, 本项目不支持 v3, 已移除。
 """
 
 import argparse
+import concurrent.futures
 import os
 import shutil
 import sys
+import tempfile
 import urllib.request
+import zipfile
+
+# 若装了 hf_transfer(HF 官方 rust 并行分块下载), 自动启用, 单文件下载显著提速。
+try:
+    import hf_transfer  # noqa: F401
+    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+except Exception:
+    pass
 
 HF_REPO_GSV = "lj1995/GPT-SoVITS"
+# UVR5 去人声权重不在 GPT-SoVITS 仓库, 而在原 RVC 仓库 lj1995/VoiceConversionWebUI
+# 的 uvr5_weights/ 下(GPT-SoVITS 官方 README 亦指向此处)。用错仓库会 404。
+HF_REPO_UVR5 = "lj1995/VoiceConversionWebUI"
 HF_REPO_BIGVGAN = "nvidia/bigvgan_v2_24khz_100band_256x"
 HF_REPO_ASR = "Systran/faster-whisper-large-v3"
-# SR (24k->48k audio super-resolution, AP-BWE) — optional post-processing model.
-# Official source is a Google Drive folder (not scriptable); this HF mirror hosts
-# the same tools/AP_BWE_main/24kto48k/{g_24kto48k.zip,config.json}. Verify with --check.
-HF_REPO_SR = "kevinwang676/GPT-SoVITS-v4-new"
 MIRROR = "https://hf-mirror.com"
 
 # 直链(如失效, 更新为你的可用源)
 URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
-# G2PW: 官方以 zip 分发, 这里给出 onnx 直链占位, 需你确认/替换为可用源
-URL_G2PW_ONNX = "https://huggingface.co/lj1995/GPT-SoVITS/resolve/main/G2PWModel/g2pW.onnx"
+# G2PW: 官方以整包 zip 分发(含 g2pW.onnx + 配套字典/字表)。发行包已内置配套文件,
+# 只缺权重 g2pW.onnx, 故这里下载官方 zip 后仅抽出 g2pW.onnx 写入既有 G2PWModel/ 目录。
+URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve/main/G2PWModel.zip"
+
+# 注: SR(24k->48k 音频超分, AP-BWE)仅 SoVITS v3 使用, 本项目不支持 v3, 故不下载、不管理。
 
 # 相对项目根的目录
 PRE = os.path.join("lib", "training", "gsv-tools", "pretrained")
 ASR = os.path.join("lib", "training", "gsv-tools", "asr", "models", "faster-whisper-large-v3")
 UVR = os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights")
-SR = os.path.join("lib", "inference", "sr", "AP_BWE_main", "24kto48k")
 
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
 #   backend = "hf"  -> source=(repo, path_in_repo)
@@ -106,13 +124,14 @@ MANIFEST = {
         ("hf", (HF_REPO_ASR, "model.bin"), os.path.join(ASR, "model.bin"), 2_500_000_000),
     ],
     "uvr5": [
-        ("hf", (HF_REPO_GSV, "uvr5_weights/HP2_all_vocals.pth"),
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/HP2_all_vocals.pth"),
          os.path.join(UVR, "HP2_all_vocals.pth"), 50_000_000),
     ],
     "g2pw": [
-        # 下载一次 g2pW.onnx, 同时写入两个副本(gsv-tools 与 gsv_code 都需要)
-        ("url", URL_G2PW_ONNX,
-         os.path.join("GPT_SoVITS", "text", "G2PWModel", "g2pW.onnx"), 500_000_000,
+        # 下载官方 G2PWModel.zip, 仅抽出 g2pW.onnx, 同时写入两个副本
+        # (GPT_SoVITS/text 与 gsv_code/text 的既有 G2PWModel/ 目录都需要该权重)。
+        ("g2pzip", URL_G2PWMODEL_ZIP,
+         os.path.join("GPT_SoVITS", "text", "G2PWModel", "g2pW.onnx"), 50_000_000,
          [os.path.join("lib", "training", "gsv_code", "text", "G2PWModel", "g2pW.onnx")]),
     ],
     "langdetect": [
@@ -120,16 +139,8 @@ MANIFEST = {
          os.path.join(PRE, "fast_langdetect", "lid.176.bin"), 100_000_000,
          [os.path.join("lib", "training", "gsv_code", "pretrained_models", "fast_langdetect", "lid.176.bin")]),
     ],
-    # SR is OPTIONAL (audio super-resolution 24k->48k, improves muffled output).
-    # Keep g_24kto48k.zip as-is (do NOT unzip); config.json must sit beside it.
-    "sr": [
-        ("hf", (HF_REPO_SR, "tools/AP_BWE_main/24kto48k/g_24kto48k.zip"),
-         os.path.join(SR, "g_24kto48k.zip"), 100_000_000),
-        ("hf", (HF_REPO_SR, "tools/AP_BWE_main/24kto48k/config.json"),
-         os.path.join(SR, "config.json"), 200),
-    ],
 }
-GROUPS = ["core", "asr", "uvr5", "g2pw", "langdetect", "sr"]
+GROUPS = ["core", "asr", "uvr5", "g2pw", "langdetect"]
 
 
 def root_dir():
@@ -176,10 +187,11 @@ def hf_url(repo, path, mirror):
     return f"{base}/{repo}/resolve/main/{path}"
 
 
-def download_url(url, dest, minb, mirror):
+def download_url(url, dest, minb, mirror, quiet=False):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest + ".part"
-    log(f"  下载: {url}")
+    if not quiet:
+        log(f"  下载: {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "tts-broker/models"})
     with urllib.request.urlopen(req, timeout=180) as r, open(tmp, "wb") as fh:
         total = int(r.headers.get("Content-Length") or 0)
@@ -190,10 +202,11 @@ def download_url(url, dest, minb, mirror):
                 break
             fh.write(buf)
             done += len(buf)
-            if total:
+            if total and not quiet:
                 pct = done * 100.0 / total
                 print(f"\r    {human(done)}/{human(total)} {pct:5.1f}%", end="", file=sys.stderr)
-    print("", file=sys.stderr)
+    if not quiet:
+        print("", file=sys.stderr)
     size = os.path.getsize(tmp)
     if size < minb:
         os.remove(tmp)
@@ -202,7 +215,40 @@ def download_url(url, dest, minb, mirror):
     return size
 
 
-def try_hf_download(repo, path, dest, mirror):
+def apply_mirror(url, mirror):
+    """镜像开启时把 huggingface.co 换成 hf-mirror.com。"""
+    if mirror and "huggingface.co" in url:
+        return url.replace("https://huggingface.co", MIRROR)
+    return url
+
+
+def fetch_g2pw_zip(zip_url, dest_onnx, minb, mirror, quiet=False):
+    """下载 G2PWModel.zip, 仅抽出 g2pW.onnx 写到 dest_onnx。"""
+    url = apply_mirror(zip_url, mirror)
+    with tempfile.TemporaryDirectory() as td:
+        zpath = os.path.join(td, "G2PWModel.zip")
+        # zip 本身较大, 用 1 作下限(真正的大小校验落在抽出的 onnx 上)
+        download_url(url, zpath, 1, mirror, quiet)
+        with zipfile.ZipFile(zpath) as zf:
+            member = None
+            for n in zf.namelist():
+                if os.path.basename(n).lower() == "g2pw.onnx":
+                    member = n
+                    break
+            if member is None:
+                raise RuntimeError("zip 内未找到 g2pW.onnx, 源结构可能已变。")
+            os.makedirs(os.path.dirname(dest_onnx), exist_ok=True)
+            with zf.open(member) as src, open(dest_onnx + ".part", "wb") as fh:
+                shutil.copyfileobj(src, fh)
+    size = os.path.getsize(dest_onnx + ".part")
+    if size < minb:
+        os.remove(dest_onnx + ".part")
+        raise RuntimeError(f"抽出的 g2pW.onnx 过小 ({human(size)} < {human(minb)}), 源可能不对。")
+    os.replace(dest_onnx + ".part", dest_onnx)
+    return size
+
+
+def try_hf_download(repo, path, dest, mirror, quiet=False):
     """优先 huggingface_hub, 缺失则回退纯 HTTP。"""
     try:
         from huggingface_hub import hf_hub_download
@@ -214,39 +260,57 @@ def try_hf_download(repo, path, dest, mirror):
         shutil.rmtree(os.path.dirname(dest) + "__hf", ignore_errors=True)
         return os.path.getsize(dest)
     except Exception:
-        return download_url(hf_url(repo, path, mirror), dest, 1, mirror)
+        return download_url(hf_url(repo, path, mirror), dest, 1, mirror, quiet)
 
 
-def fetch_group(root, group, mirror, force):
-    entries = MANIFEST[group]
-    log(f"\n==== 组: {group}  ({len(entries)} 文件) ====")
-    for entry in entries:
-        backend, source, local, minb, copies = _entry_parts(entry)
-        dest = os.path.join(root, local)
-        if not force and ok_local(root, local, minb):
-            log(f"  已存在, 跳过: {local}")
-        else:
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
+def _fetch_one(root, entry, mirror, force, quiet):
+    """下载单条 + 写副本。返回日志行列表(并行时统一收集后打印, 避免交错)。"""
+    backend, source, local, minb, copies = _entry_parts(entry)
+    dest = os.path.join(root, local)
+    lines = []
+    if not force and ok_local(root, local, minb):
+        lines.append(f"  已存在, 跳过: {local}")
+    else:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        try:
+            if backend == "hf":
+                repo, path = source
+                size = try_hf_download(repo, path, dest, mirror, quiet)
+            elif backend == "g2pzip":
+                size = fetch_g2pw_zip(source, dest, minb, mirror, quiet)
+            else:
+                size = download_url(apply_mirror(source, mirror), dest, minb, mirror, quiet)
+            lines.append(f"  OK ({human(size)}): {local}")
+        except Exception as e:
+            lines.append(f"  [失败] {local}: {e}")
+            return lines
+    for c in copies:
+        cp = os.path.join(root, c)
+        if force or not ok_local(root, c, minb):
+            os.makedirs(os.path.dirname(cp), exist_ok=True)
             try:
-                if backend == "hf":
-                    repo, path = source
-                    size = try_hf_download(repo, path, dest, mirror)
-                else:
-                    size = download_url(source, dest, minb, mirror)
-                log(f"  OK ({human(size)}): {local}")
+                shutil.copy2(dest, cp)
+                lines.append(f"  副本: {c}")
             except Exception as e:
-                log(f"  [失败] {local}: {e}")
-                continue
-        # 写副本
-        for c in copies:
-            cp = os.path.join(root, c)
-            if force or not ok_local(root, c, minb):
-                os.makedirs(os.path.dirname(cp), exist_ok=True)
-                try:
-                    shutil.copy2(dest, cp)
-                    log(f"  副本: {c}")
-                except Exception as e:
-                    log(f"  [副本失败] {c}: {e}")
+                lines.append(f"  [副本失败] {c}: {e}")
+    return lines
+
+
+def fetch_group(root, group, mirror, force, jobs=4):
+    entries = MANIFEST[group]
+    workers = max(1, min(jobs, len(entries)))
+    log(f"\n==== 组: {group}  ({len(entries)} 文件, 并行 {workers}) ====")
+    if workers <= 1:
+        for entry in entries:
+            for ln in _fetch_one(root, entry, mirror, force, quiet=False):
+                log(ln)
+        return
+    # 并行下载: 各线程静默进度, 完成后统一打印该文件的结果
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(_fetch_one, root, e, mirror, force, True) for e in entries]
+        for fut in concurrent.futures.as_completed(futs):
+            for ln in fut.result():
+                log(ln)
 
 
 def check(root):
@@ -269,24 +333,24 @@ def check(root):
     return 0 if all_ok else 1
 
 
-def wizard(root, mirror):
+def wizard(root, mirror, jobs):
     while True:
         print("\n============================================================")
         print("            TTS Broker 模型下载向导")
         print("============================================================")
-        print("  1) 全部 (core + asr + uvr5 + g2pw + langdetect + sr)  ~9GB")
+        print("  1) 全部 (core + asr + uvr5 + g2pw + langdetect)  ~9GB")
         print("  2) 仅核心底模 core")
         print("  3) 仅 ASR (faster-whisper-large-v3)  ~3GB")
         print("  4) 仅 UVR5 去人声 (HP2)")
         print("  5) 仅 G2PW 多音字")
         print("  6) 仅 语言检测 lid.176")
-        print("  7) 仅 SR 音频超分 24k->48k (可选)")
-        print("  8) 自定义 (逗号分隔: core,asr,uvr5,g2pw,langdetect,sr)")
+        print("  7) 自定义 (逗号分隔: core,asr,uvr5,g2pw,langdetect)")
         print("  9) 体检 (只检查, 不下载)")
         print(f"  m) 切换镜像 (当前: {'hf-mirror' if mirror else 'huggingface.com'})")
+        print(f"  j) 设置并行数 (当前: {jobs})")
         print("  0) 退出")
         print("------------------------------------------------------------")
-        c = input("请选择 [0-9/m]: ").strip().lower()
+        c = input("请选择 [0-9/m/j]: ").strip().lower()
         if c == "0":
             return 0
         elif c == "1":
@@ -302,8 +366,6 @@ def wizard(root, mirror):
         elif c == "6":
             sets = ["langdetect"]
         elif c == "7":
-            sets = ["sr"]
-        elif c == "8":
             raw = input("输入组(逗号分隔): ").strip()
             sets = [s.strip() for s in raw.split(",") if s.strip() in MANIFEST]
         elif c == "9":
@@ -312,11 +374,16 @@ def wizard(root, mirror):
         elif c == "m":
             mirror = not mirror
             continue
+        elif c == "j":
+            raw = input("并行下载数 [1-16]: ").strip()
+            if raw.isdigit():
+                jobs = max(1, min(16, int(raw)))
+            continue
         else:
             print("无效选择。")
             continue
         for g in sets:
-            fetch_group(root, g, mirror, force=False)
+            fetch_group(root, g, mirror, force=False, jobs=jobs)
         print("\n本轮完成。")
 
 
@@ -327,15 +394,17 @@ def main():
     ap.add_argument("--check", action="store_true", help="只体检")
     ap.add_argument("--mirror", action="store_true", help="走 hf-mirror.com")
     ap.add_argument("--force", action="store_true", help="已存在也重下")
+    ap.add_argument("--jobs", type=int, default=4, help="并行下载数 (默认 4, 1=串行)")
     ap.add_argument("--dest", default=None, help="项目根(默认脚本所在目录)")
     args = ap.parse_args()
 
     root = os.path.abspath(args.dest) if args.dest else root_dir()
+    jobs = max(1, min(16, args.jobs))
 
     if args.check:
         return check(root)
     if args.wizard or (not args.set):
-        return wizard(root, args.mirror)
+        return wizard(root, args.mirror, jobs)
 
     sets = GROUPS if args.set.strip().lower() == "all" else \
         [s.strip() for s in args.set.split(",") if s.strip()]
@@ -344,7 +413,7 @@ def main():
         log(f"[错误] 未知组: {bad}  可用: {GROUPS + ['all']}")
         return 2
     for g in sets:
-        fetch_group(root, g, args.mirror, args.force)
+        fetch_group(root, g, args.mirror, args.force, jobs)
     log("\n完成。运行 --check 可校验。")
     return 0
 
