@@ -196,7 +196,7 @@ python scripts/pipeline/infer_s2.py \
 | `pretrained/v2Pro/s2Gv2Pro.pth` | ~680MB | S2 Generator 预训练 |
 | `pretrained/v2Pro/s2Dv2Pro.pth` | ~550MB | S2 Discriminator 预训练 |
 | `pretrained/cnhubert/` | ~300MB | Hubert 特征提取 |
-| `asr/models/faster-whisper-large-v3/` | ~2.9GB | ASR 模型 |
+| `asr/models/faster-whisper-large-v3-turbo/` | ~1.6GB | ASR 模型 |
 
 ## 已知限制
 
