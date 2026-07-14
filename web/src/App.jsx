@@ -180,17 +180,18 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 // ===========================
 //  GENERATE TAB
 // ===========================
-// Pronunciation-proofing panel (task6): a secondary panel expanded on toggle; doubles as a text editor + per-character reading proofing.
-// Chinese (zh) / Cantonese (yue) use real g2pW preview; other languages are contract placeholders (ko untested).
-function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
+// 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
+// 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
+function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedChars, mutedLangLabel }) {
   const wide = layout === 'wide'
+  const muteSet = mutedChars instanceof Set ? mutedChars : new Set(mutedChars || [])
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [lexicon, setLexicon] = useState({})
-  // Per-word edit buffer (ja kana / en ARPABET): keeps the raw string the user is typing so a controlled input does not swallow spaces.
+  // 逐词编辑缓冲（ja 假名 / en ARPABET）：保留用户正在输入的原始字符串，避免受控输入吞空格。
   const [wordEdits, setWordEdits] = useState({})
-  // zh/yue: per-character candidate selection; ja: per-word kana editing; en: per-word phoneme editing; other languages are contract placeholders.
+  // zh/yue：逐字选候选；ja：逐词改假名；en：逐词改音标；其它语言契约占位。
   const supported = lang === 'zh' || lang === 'yue' || lang === 'ja' || lang === 'en'
   const isCharUnit = lang === 'zh' || lang === 'yue'
   const readingLabel = lang === 'ja' ? 'kana' : lang === 'en' ? 'ARPABET (space-separated)' : 'reading'
@@ -305,12 +306,18 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
           {(preview.tokens || []).map((tok, ti) => (
             <div key={ti} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', background: 'var(--surface)' }}>
               {(tok.unit === 'char' || tok.chars) ? (
-                // zh / yue: per-character; polyphonic chars get a candidate dropdown
+                // zh / yue：逐字，多音字给候选下拉
                 <div style={{ display: 'flex', gap: 4 }}>
-                  {tok.chars.map((c, ci) => (
-                    <div key={ci} style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 15, color: c.polyphonic ? 'var(--warning)' : 'var(--text)' }}>{c.char}</div>
-                      {c.polyphonic && c.candidates.length > 1 ? (
+                  {tok.chars.map((c, ci) => {
+                    const muted = muteSet.has(c.char)
+                    return (
+                    <div key={ci} style={{ textAlign: 'center', opacity: muted ? 0.45 : 1 }}>
+                      <div style={{ fontSize: 15, color: muted ? 'var(--muted)' : (c.polyphonic ? 'var(--warning)' : 'var(--text)') }}>{c.char}</div>
+                      {muted ? (
+                        <div style={{ fontSize: 10, color: 'var(--muted)' }} title="This character is set to read in another language; correct its reading in the Han character language section.">
+                          {'\u2192'} {mutedLangLabel || 'other'}
+                        </div>
+                      ) : c.polyphonic && c.candidates.length > 1 ? (
                         <select
                           className="control" style={{ height: 22, fontSize: 11, padding: '0 2px', minWidth: 54 }}
                           value={c.reading}
@@ -324,10 +331,11 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.reading}</div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
-                // ja / en: per-word; directly rewrite the reading (kana / ARPABET), no candidate dropdown, wider input
+                // ja / en：逐词，直接改写读音（假名 / ARPABET），无候选下拉，输入框做宽
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 15, color: tok.source === 'g2p' ? 'var(--text)' : 'var(--accent)' }}>{tok.word}</div>
                   <input
@@ -373,10 +381,284 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout }) {
   )
 }
 
-// Target language (text_lang): removes the hard "synthesis language == fine-tuning language" binding. Any fine-tuned voice can synthesize
-// any of the five supported languages (zh/ja/en/yue/ko) or auto-mixed. prompt_lang (reference-audio text language) still follows the voice.
+// --- Per-character Han-character language override (task #4) ------------------
+// Only Han characters are ambiguous between Chinese/Cantonese and Japanese; every
+// other script (Hangul, Latin, kana) is unambiguous and auto-detected. So the
+// override toggle appears ONLY on Han characters, and its direction is always the
+// reverse of the dominant language (auto-decided — the user never picks zh vs ja).
+const HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/
+const LANG_LABEL = { zh: 'Chinese', yue: 'Cantonese', ja: 'Japanese' }
+// Reading unit + placeholder for a forced character's reverse-language reading.
+// ja carries kun/on kana; zh/yue carry a single tone-numbered pinyin syllable.
+const READING_UNIT = {
+  ja: { label: 'kana', placeholder: 'e.g. \u304b\u306a' },
+  zh: { label: 'pinyin', placeholder: 'e.g. hao3' },
+  yue: { label: 'jyutping/pinyin', placeholder: 'e.g. hou2' },
+}
+
+function distinctHanChars(text) {
+  const seen = new Set(); const out = []
+  for (const ch of String(text || '')) {
+    if (HAN_RE.test(ch) && !seen.has(ch)) { seen.add(ch); out.push(ch) }
+  }
+  return out
+}
+
+// Reverse-language routing direction for shared Han characters. Returns null when
+// the current target language has no zh/ja ambiguity (en / ko / plain auto).
+function hanOverrideDirection(textLang, voiceLang) {
+  const v = String(voiceLang || '').replace(/^all_/, '').replace(/^auto.*/, '')
+  let base
+  if (textLang === 'all_zh') base = 'zh'
+  else if (textLang === 'all_yue') base = 'yue'
+  else if (textLang === 'all_ja') base = 'ja'
+  else if (textLang === 'auto_zh_ja') base = v === 'ja' ? 'ja' : (v === 'yue' ? 'yue' : 'zh')
+  else return null
+  return { base, reverse: base === 'ja' ? 'zh' : 'ja' }
+}
+
+// Build the {char -> reverseLang} payload sent to the engine as lang_overrides.
+function buildLangOverrides(direction, forced) {
+  if (!direction || !forced || !forced.length) return undefined
+  const out = {}
+  for (const ch of forced) out[ch] = direction.reverse
+  return Object.keys(out).length ? out : undefined
+}
+
+// Merge base-language reading proofing with the reverse-language readings of the
+// forced Han characters into the engine's pron_overrides payload.
+//   * No forced readings -> return the flat base overrides unchanged (zero regression).
+//   * With forced readings -> nested {lang: {word: [readings]}} form, which the
+//     backend already understands (base bucket + reverse bucket per forced char).
+function buildPronPayload(pronOverrides, baseLang, direction, forced, readings) {
+  const base = pronOverrides && Object.keys(pronOverrides).length > 0 ? pronOverrides : null
+  const reverseBucket = {}
+  if (direction && forced && forced.length && readings) {
+    const forcedSet = new Set(forced)
+    for (const ch of Object.keys(readings)) {
+      const r = String(readings[ch] || '').trim()
+      if (r && forcedSet.has(ch)) reverseBucket[ch] = [r]
+    }
+  }
+  const hasReverse = Object.keys(reverseBucket).length > 0
+  if (!hasReverse) return base || undefined
+  const out = {}
+  if (base) out[baseLang] = base
+  out[direction.reverse] = { ...(out[direction.reverse] || {}), ...reverseBucket }
+  return out
+}
+
+function HanLangPicker({ text, direction, forced, setForced, readings, setReadings }) {
+  const chars = distinctHanChars(text)
+  // Hooks must run unconditionally (before the early returns below).
+  const forcedSet = new Set(forced || [])
+  const forcedChars = chars.filter(ch => forcedSet.has(ch))   // forced chars in text order
+  const reverse = direction ? direction.reverse : null
+  // Engine default readings for each forced char in the reverse language, so the
+  // editor never shows an empty box with no reference. { char -> reading } plus
+  // { char -> [candidates] } for the polyphonic zh/yue case.
+  const [defaults, setDefaults] = useState({})
+  const [defCands, setDefCands] = useState({})
+  const [defLoading, setDefLoading] = useState(false)
+  const forcedKey = forcedChars.join('')
+  useEffect(() => {
+    if (!reverse || forcedChars.length === 0) { setDefaults({}); setDefCands({}); return }
+    let cancelled = false
+    setDefLoading(true)
+    // Preview each forced char in isolation in the reverse language to read its
+    // default reading (ja -> kana word token; zh/yue -> char token + candidates).
+    Promise.all(forcedChars.map(ch =>
+      api('/api/pron/preview', { method: 'POST', body: { text: ch, lang: reverse } })
+        .then(r => ({ ch, r })).catch(() => ({ ch, r: null }))
+    )).then(results => {
+      if (cancelled) return
+      const nd = {}, nc = {}
+      for (const { ch, r } of results) {
+        if (!r || !r.ok || !r.data) continue
+        const toks = r.data.tokens || []
+        if (reverse === 'ja') {
+          const reading = toks.map(t => t.reading || '').join('')
+          if (reading) nd[ch] = reading
+        } else {
+          for (const t of toks) for (const c of (t.chars || [])) {
+            if (c.char !== ch) continue
+            if (c.reading) nd[ch] = c.reading
+            if (Array.isArray(c.candidates) && c.candidates.length) nc[ch] = c.candidates
+          }
+        }
+      }
+      setDefaults(nd); setDefCands(nc)
+    }).finally(() => { if (!cancelled) setDefLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forcedKey, reverse])
+  if (!direction) {
+    return <div className="field-hint" style={{ color: 'var(--muted)' }}>
+      Per-character language override applies to Chinese / Cantonese / Japanese targets only.
+    </div>
+  }
+  if (chars.length === 0) {
+    return <div className="field-hint" style={{ color: 'var(--muted)' }}>No Han characters in the text yet.</div>
+  }
+  const rd = readings || {}
+  const unit = READING_UNIT[direction.reverse] || { label: 'reading', placeholder: '' }
+  const toggle = (ch) => {
+    const next = new Set(forcedSet)
+    if (next.has(ch)) next.delete(ch); else next.add(ch)
+    setForced([...next])
+  }
+  const setReading = (ch, val) => {
+    const next = { ...rd }
+    if (val && val.trim()) next[ch] = val; else delete next[ch]
+    setReadings && setReadings(next)
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+        Han characters read as <strong>{LANG_LABEL[direction.base]}</strong> by default. Click a character to force it to read as <strong>{LANG_LABEL[direction.reverse]}</strong>.
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {chars.map(ch => {
+          const on = forcedSet.has(ch)
+          return (
+            <button
+              key={ch} type="button" onClick={() => toggle(ch)} className="btn btn-sm"
+              title={on ? `Reads as ${LANG_LABEL[direction.reverse]}` : `Reads as ${LANG_LABEL[direction.base]}`}
+              style={{
+                minWidth: 34, fontSize: 16, padding: '4px 8px',
+                background: on ? 'var(--accent)' : 'var(--surface)',
+                color: on ? '#fff' : 'var(--text)',
+                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+              }}
+            >{ch}</button>
+          )
+        })}
+      </div>
+      {forcedChars.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+            {LANG_LABEL[direction.reverse]} reading ({unit.label}) for each forced character.
+            The engine default is shown in grey{defLoading ? ' (loading\u2026)' : ''} \u2014 keep it as-is,
+            pick another reading, or type your own. Han characters have multiple readings
+            (e.g. Japanese kun\u2019yomi / on\u2019yomi).
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {forcedChars.map(ch => {
+              const overridden = rd[ch] !== undefined
+              const def = defaults[ch] || ''
+              const shown = overridden ? rd[ch] : def
+              const cands = defCands[ch] || []
+              // Candidate pool for the dropdown: default + engine candidates + any custom value.
+              const pool = []
+              for (const v of [def, ...cands, shown]) {
+                if (v && !pool.includes(v)) pool.push(v)
+              }
+              return (
+                <div key={ch} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 15 }}>{ch}</span>
+                    <input
+                      className="control" spellCheck={false}
+                      title={overridden ? 'Custom reading (overrides the engine default)'
+                                        : (def ? 'Engine default reading' : '')}
+                      style={{
+                        height: 24, fontSize: 12, padding: '0 6px',
+                        width: direction.reverse === 'ja' ? 96 : 84,
+                        fontStyle: overridden ? 'normal' : 'italic',
+                        color: overridden ? 'var(--text)' : 'var(--muted)',
+                      }}
+                      value={shown}
+                      placeholder={def || unit.placeholder}
+                      onChange={e => setReading(ch, e.target.value)}
+                    />
+                    {pool.length > 1 && (
+                      <select
+                        className="control" title="Pick a reading"
+                        style={{ height: 24, fontSize: 12, maxWidth: 96 }}
+                        value={pool.includes(shown) ? shown : ''}
+                        onChange={e => setReading(ch, e.target.value)}
+                      >
+                        {pool.map(cd => (
+                          <option key={cd} value={cd}>{cd === def ? `${cd} (default)` : cd}</option>
+                        ))}
+                      </select>
+                    )}
+                    {overridden && (
+                      <button
+                        type="button" className="btn btn-sm btn-ghost"
+                        title="Reset to the engine default reading"
+                        style={{ padding: '0 6px', height: 24 }}
+                        onClick={() => setReading(ch, '')}
+                      >{'\u21ba'}</button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', paddingLeft: 20 }}>
+                    {def
+                      ? <>default: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>{def}</span></>
+                      : defLoading ? 'loading default\u2026' : 'no default reading available'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {forcedSet.size > 0 && (
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>{forcedSet.size} character(s) forced to {LANG_LABEL[direction.reverse]}</span>
+          <button className="btn btn-sm btn-ghost" onClick={() => { setForced([]); setReadings && setReadings({}) }}>Clear</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// One modal that houses BOTH the per-character language picker and reading
+// proofing, so the page keeps only a compact trigger button (no tall panels).
+function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPronOverrides, hanDirection, hanForced, setHanForced, hanReadings, setHanReadings }) {
+  // Characters forced to the reverse language are read in that language, so the
+  // Chinese/Cantonese reading proofing below does not apply to them (they are
+  // muted there). Their reading is set in the Han character language section.
+  const forcedInText = (hanDirection && hanForced && hanForced.length)
+    ? distinctHanChars(text).filter(ch => hanForced.includes(ch))
+    : []
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, width: '92%' }}>
+        <div className="modal-hdr">Text preparation</div>
+        <div className="modal-body">
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Han character language</div>
+            <HanLangPicker text={text} direction={hanDirection} forced={hanForced} setForced={setHanForced} readings={hanReadings} setReadings={setHanReadings} />
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Reading proofing</div>
+            {forcedInText.length > 0 && (
+              <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 8 }}>
+                {forcedInText.join(' ')} {forcedInText.length > 1 ? 'are' : 'is'} set to read as {LANG_LABEL[hanDirection.reverse]}; the {LANG_LABEL[panelLang] || panelLang} reading below does not apply to {forcedInText.length > 1 ? 'them' : 'it'}. Set {forcedInText.length > 1 ? 'their' : 'its'} reading in the Han character language section above.
+              </div>
+            )}
+            <PronPanel
+              text={text} setText={setText} lang={panelLang}
+              overrides={pronOverrides} setOverrides={setPronOverrides} layout="wide"
+              mutedChars={forcedInText}
+              mutedLangLabel={hanDirection ? LANG_LABEL[hanDirection.reverse] : null}
+            />
+          </div>
+        </div>
+        <div className="modal-ftr">
+          <button className="btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// 目标语言（text_lang）：解除「合成语言 == 微调语言」的硬绑定。任一微调音色可合成
+// 五种支持语言（zh/ja/en/yue/ko）或 auto 混排。prompt_lang（参考音频文本语言）仍跟随音色。
 const TARGET_LANG_OPTIONS = [
   { value: 'auto', label: 'Auto \u2014 detect per segment' },
+  { value: 'auto_zh_ja', label: 'Auto (Multilingual) \u2014 zh + ja shared Han characters' },
   { value: 'all_zh', label: 'Chinese (\u4e2d\u6587)' },
   { value: 'all_ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
   { value: 'en', label: 'English' },
@@ -385,13 +667,13 @@ const TARGET_LANG_OPTIONS = [
 ]
 const VOICE_TO_TARGET = { zh: 'all_zh', ja: 'all_ja', en: 'en', yue: 'all_yue', ko: 'all_ko' }
 
-// Map the voice language (bare code) to the default text_lang option (== fine-tuning source language, ensuring zero regression).
+// 把音色语言（裸码）映射到默认 text_lang 选项（== 微调源语言，保证零回归）。
 function defaultTargetLang(voiceLang) {
   const base = String(voiceLang || '').replace(/^all_/, '').replace(/^auto.*/, '')
   return VOICE_TO_TARGET[base] || 'auto'
 }
 
-// Normalize text_lang to a language family (all_zh -> zh; auto -> null, no mismatch check).
+// 归一 text_lang 到语言族（all_zh -> zh；auto -> null 不判定失配）。
 // PD: Recent items show a full local timestamp (YYYY-MM-DD HH:MM:SS) rather than
 // time-only, so entries generated on different days stay distinguishable.
 function fmtRecentTime(value) {
@@ -440,9 +722,16 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [concatEnabled, setConcatEnabled] = usePersistentState('generate.concatEnabled', true)
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
 
-  // Pronunciation proofing (task6): the toggle is persisted; per-session overrides are in-memory only.
-  const [pronEnabled, setPronEnabled] = usePersistentState('generate.pronEnabled', false)
+  // 读音校对（task6）：本次覆盖仅内存态。#4 起改用 Proof & language 弹窗，无需
+  // 单独的启用开关（弹窗内无条件渲染校对面板，overrides 直接进 payload）。
   const [pronOverrides, setPronOverrides] = useState({})
+  // #4: per-character Han-character language overrides (list of chars forced to the
+  // reverse language). Persisted; converted to {char->lang} at request build time.
+  const [hanForced, setHanForced] = usePersistentState('generate.hanForced', [])
+  // #4: reverse-language readings (kana / pinyin) for the forced characters, keyed
+  // by character. Merged into pron_overrides at request build time.
+  const [hanReadings, setHanReadings] = usePersistentState('generate.hanReadings', {})
+  const [showTextPrep, setShowTextPrep] = useState(false)
 
   const selected = voices.find(v => v.id === selectedVoice)
 
@@ -491,12 +780,15 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [selGpt, setSelGpt] = useState('')
   const [selSovits, setSelSovits] = useState('')
   const [lang, setLang] = useState(selected?.language || 'ja')
-  // Target synthesis language (text_lang), independent of prompt_lang; default = fine-tuning source language, reset on voice switch.
+  // 目标合成语言（text_lang），独立于 prompt_lang；默认 = 微调源语言，切换音色时重置。
   const [textLang, setTextLang] = useState(() => defaultTargetLang(selected?.language || 'ja'))
   const _baseLangFam = String(lang || '').replace(/^all_/, '')
   const _targetFam = normalizeLangFamily(textLang)
-  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // target language differs from the fine-tuning language
-  const panelLang = _targetFam || _baseLangFam                        // proofing panel follows the target language
+  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // 目标语言与微调语言不符
+  const panelLang = _targetFam || _baseLangFam                        // 读音校对面板跟随目标语言
+  const hanDir = hanOverrideDirection(textLang, lang)                 // #4: reverse-lang direction (or null)
+  const langOverrides = buildLangOverrides(hanDir, hanForced)         // #4: {char->lang} payload
+  const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForced, hanReadings) // #4: base + reverse readings
   const [auxRefs, setAuxRefs] = useState([])  // selected aux reference audio paths
   const [segments, setSegments] = useState([])  // loaded from API for aux ref picker
 
@@ -509,8 +801,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         const gptList = c.gpt || []
         const sovitsList = c.sovits || []
         setCheckpoints({ gpt: gptList, sovits: sovitsList })
-        // checkpoint ownership check (patch8: reset a stale selection after switching voices) — if the old voice path is not in
-        // the new voice list, it must be reset, otherwise the previous voice .pth would be submitted to the inference backend (voice mix-up).
+        // checkpoint 归属校验（patch8：切换音色后重置失效的选择）——旧音色的路径若不在
+        // 新音色的列表里，必须重置，否则会把上一个音色的 .pth 提交给推理后端（音色串档）。
         setSelGpt(prev => gptList.some(x => x.path === prev) ? prev : (gptList[0]?.path || ''))
         setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev : (sovitsList[0]?.path || ''))
       }
@@ -609,8 +901,11 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       overlap_length: overlapLength, min_chunk_length: minChunkLength,
       gpt_model: selGpt, sovits_model: selSovits,
       text_lang: textLang, prompt_lang: selectedPromptLang || lang,
+      // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
+      auto_base_lang: textLang === 'auto_zh_ja' ? (selected?.language || lang || undefined) : undefined,
       aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
-      pron_overrides: (pronEnabled && Object.keys(pronOverrides).length > 0) ? pronOverrides : undefined,
+      pron_overrides: pronPayload,
+      lang_overrides: langOverrides,
       source: 'generate', voice_label: selected?.display_name || selectedVoice,
     }
     const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
@@ -692,9 +987,22 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     if (Array.isArray(p.aux_ref_audio_paths)) setAuxRefs(p.aux_ref_audio_paths)
     else setAuxRefs([])
     if (p.pron_overrides && Object.keys(p.pron_overrides).length > 0) {
-      setPronOverrides(p.pron_overrides); setPronEnabled(true)
+      setPronOverrides(p.pron_overrides)
     } else {
       setPronOverrides({})
+    }
+    // #4: restore per-character Han-character language overrides (chars only; the
+    // reverse language is re-derived from the applied text_lang / voice).
+    if (p.lang_overrides && typeof p.lang_overrides === 'object' && !Array.isArray(p.lang_overrides)) {
+      setHanForced(Object.keys(p.lang_overrides))
+    } else {
+      setHanForced([])
+    }
+    // #4: restore the forced characters' reverse-language readings (kana / pinyin).
+    if (p.han_readings && typeof p.han_readings === 'object' && !Array.isArray(p.han_readings)) {
+      setHanReadings(p.han_readings)
+    } else {
+      setHanReadings({})
     }
     // Switch voice first if needed; the voice-change effects will reset model /
     // language / reference, so re-apply those (below) on the next tick.
@@ -818,12 +1126,25 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   Target language differs from the fine-tuned language ({String(lang || '').toUpperCase()}). Inference quality may be affected.
                 </div>
               )}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
-                <input type="checkbox" checked={pronEnabled} onChange={e => setPronEnabled(e.target.checked)} />
-                Reading proofing (fix polyphonic characters before synthesis)
-              </label>
-              {pronEnabled && (
-                <PronPanel text={text} setText={setText} lang={panelLang} overrides={pronOverrides} setOverrides={setPronOverrides} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-sm" onClick={() => setShowTextPrep(true)}>
+                  Proof &amp; language{'\u2026'}
+                </button>
+                {hanDir && hanForced.length > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForced.length} forced {LANG_LABEL[hanDir.reverse]}</span>
+                )}
+                {Object.keys(pronOverrides).length > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(pronOverrides).length} reading override(s)</span>
+                )}
+              </div>
+              {showTextPrep && (
+                <TextPrepModal
+                  onClose={() => setShowTextPrep(false)}
+                  text={text} setText={setText} panelLang={panelLang}
+                  pronOverrides={pronOverrides} setPronOverrides={setPronOverrides}
+                  hanDirection={hanDir} hanForced={hanForced} setHanForced={setHanForced}
+                  hanReadings={hanReadings} setHanReadings={setHanReadings}
+                />
               )}
             </div>
 
@@ -1130,7 +1451,12 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   parallel_infer: parallelInfer,
                   seed,
                   aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : [],
-                  pron_overrides: (pronEnabled && Object.keys(pronOverrides).length > 0) ? pronOverrides : {},
+                  pron_overrides: (Object.keys(pronOverrides).length > 0) ? pronOverrides : {},
+                  lang_overrides: langOverrides || {},
+                  han_readings: (hanDir && Object.keys(hanReadings).length > 0)
+                    ? Object.fromEntries(Object.entries(hanReadings).filter(([ch]) => hanForced.includes(ch)))
+                    : {},
+                  auto_base_lang: textLang === 'auto_zh_ja' ? (selected?.language || lang) : undefined,
                 },
                 gpt_ckpt: selGpt,
                 sovits_pth: selSovits,
@@ -1821,8 +2147,8 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
               const toggle = (on) => {
                 const order = ['v2', 'v2Pro', 'v2ProPlus'];
                 let next = on ? [...cur, v] : cur.filter(x => x !== v);
-                next = order.filter(o => next.includes(o)); // dedupe + canonical ordering
-                if (!next.length) next = [v]; // keep at least one version, never empty
+                next = order.filter(o => next.includes(o)); // 去重 + 规范排序
+                if (!next.length) next = [v]; // 至少保留一个版本，禁止清空
                 setField('modelVersions', next);
               };
               return (
@@ -2075,44 +2401,6 @@ function AsrRowProof({ text, lang, onChange, disabled }) {
   )
 }
 
-// PG+: on-demand per-row audio preview for the ASR proofreading list. With up to a
-// few hundred rows we must NOT mount a preloading <audio> per line, so the element
-// is created lazily on first click (preload="none", autoPlay) and reused after.
-function AsrRowAudio({ src }) {
-  const [armed, setArmed] = useState(false)   // has playback ever been requested?
-  const [playing, setPlaying] = useState(false)
-  const audioRef = useRef(null)
-
-  const toggle = () => {
-    if (!armed) { setArmed(true); setPlaying(true); return }  // first click: mount + autoplay
-    const a = audioRef.current
-    if (!a) return
-    if (a.paused) { a.play().catch(() => {}); setPlaying(true) }
-    else { a.pause(); setPlaying(false) }
-  }
-
-  return (
-    <>
-      <button type="button" className="arr-play" onClick={toggle}
-              title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'}>
-        {playing ? (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>
-          </svg>
-        ) : (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        )}
-      </button>
-      {armed && (
-        <audio ref={audioRef} src={src} autoPlay preload="none"
-               onPlay={() => setPlaying(true)}
-               onPause={() => setPlaying(false)}
-               onEnded={() => setPlaying(false)} />
-      )}
-    </>
-  )
-}
-
 function AsrReviewPanel({ taskId, onResumed, lang }) {
   const [rows, setRows] = useState(null);
   const [listName, setListName] = useState('');
@@ -2164,10 +2452,7 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
         <div className="asr-review-list">
           {rows.map(r => (
             <div className="asr-review-row" key={r.index}>
-              <div className="arr-path" title={r.audio_path}>
-                <AsrRowAudio src={`${API_BASE}/api/train/review/${taskId}/audio?path=${encodeURIComponent(r.audio_path)}`} />
-                <span className="arr-path-name">{basename(r.audio_path) || r.audio_path}</span>
-              </div>
+              <div className="arr-path" title={r.audio_path}>{basename(r.audio_path) || r.audio_path}</div>
               <textarea className="arr-text" rows={1} value={r.text}
                         disabled={busy}
                         onChange={e => setText(r.index, e.target.value)} />
@@ -2247,7 +2532,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // Overwrite confirmation when the target voice id already exists (409 guard).
   const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { existingId, existingDisplay }
 
-  // ── Failure-resume (get back up where you fell) ─────────────────────────────
+  // ── Failure-resume (哪里跌倒哪里爬起来) ──────────────────────────────────────
   // Cached failed/interrupted tasks the user can resume. Default-collapsed panel.
   const [recoverList, setRecoverList] = useState([]);
   const [recoverOpen, setRecoverOpen] = useState(false);
@@ -2267,7 +2552,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // Load the list whenever the page is idle (no active task) so it stays fresh.
   useEffect(() => { if (!activeTaskId && !localTaskId) loadRecoverable(); }, [activeTaskId, localTaskId]);
 
-  // Use activeTaskId from props, but also keep a local copy written after handleStart (used at launch).
+  // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
   const taskId = activeTaskId || localTaskId;
   const isAwaitingReview = status?.status === 'awaiting_review';
   const isRunning = status?.status === 'running';
@@ -2278,7 +2563,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // current values no longer match the named preset, so flip the label to "Custom".
   const PRESET_KEYS = ['gptEpochs', 'sovitsEpochs', 'batchSize', 's1SaveEvery', 's2GradCkpt', 's2Fp16'];
 
-  // Convenience form setter
+  // 便捷 form setter
   const setField = (key, val) => setForm(prev => {
     const next = { ...prev, [key]: val };
     if (PRESET_KEYS.includes(key) && prev.preset && prev.preset !== 'custom') {
@@ -2317,10 +2602,10 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setForm(prev => ({ ...prev, inputType: name, ...(t.fields || {}), ...(sliceVals || {}) }));
   };
 
-  // Poll fine-tuning status — poll whenever there is a taskId, independent of the local training boolean.
+  // 轮询训练状态 —— 有 taskId 就轮询，不依赖本地 training 布尔
   useEffect(() => {
     if (!taskId) return;
-    let dead = false; // marks the task as gone for good, stop polling
+    let dead = false; // 标记任务已彻底消失，停止轮询
     const MAX_FAIL = 3;
     const poll = () => {
       if (dead) return;
@@ -2332,7 +2617,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             if (r.data.status === 'completed') loadVoices();
           }
         } else if (r.status === 404) {
-          // task has been cleaned up (disk journal deleted too); self-heal back to the form
+          // 任务已被清理（磁盘 journal 也删了），自愈回到表单
           dead = true;
           failCountRef.current = 0;
           setActiveTaskId(null);
@@ -2340,7 +2625,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           setStatus(null);
           setLogs([]);
         } else {
-          // other errors (5xx, etc.) count toward the failure counter
+          // 其他错误（5xx 等）计入失败计数
           failCountRef.current++;
           if (failCountRef.current >= MAX_FAIL) {
             dead = true;
@@ -2352,7 +2637,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           }
         }
       }).catch(() => {
-        // network errors also count toward the failure counter
+        // 网络错误也计入失败计数
         failCountRef.current++;
         if (failCountRef.current >= MAX_FAIL) {
           dead = true;
@@ -2372,7 +2657,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [taskId]);
 
-  // "Restoring training state…" timeout fallback: if there is still no status after 10s, fall back to the form.
+  // "Restoring training state…" 超时兜底：10s 后仍无 status 则回退表单
   const restoreTimeoutRef = useRef(null);
   useEffect(() => {
     if (taskId && !status) {
@@ -2434,7 +2719,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setRecovery(null);
     setRestartFailedStep(false);
     setLocalTaskId(r.data.taskId);
-    setActiveTaskId(r.data.taskId); // persist + trigger App-level reconnect
+    setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
   };
 
   const handleStart = async () => {
@@ -2594,22 +2879,14 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             Enable vocal extraction
           </label>
           {form.denoise && (
-            <>
-              <div className="field">
-                <label className="field-label">Model</label>
-                <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
-                  <option value="mdx-net">MDX-Net</option>
-                </select>
-              </div>
-              <div className="msg msg-warn" style={{ marginTop: 6 }}>
-                ⚠ Vocal extraction is enabled. If your audio is already <b>clean native speech</b> (studio / game
-                voice with no background music), <b>you should turn this step off</b>: there is no instrumental to
-                separate, so it just runs for nothing and a few files may even be skipped due to numerical issues.
-                Only enable it when the source has background music or noticeable noise.
-              </div>
-            </>
+            <div className="field">
+              <label className="field-label">Model</label>
+              <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
+                <option value="mdx-net">MDX-Net</option>
+              </select>
+            </div>
           )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing. Off by default — only needed for noisy or mixed audio. Not needed for clean native speech.</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing. Off by default — only needed for noisy or mixed audio.</p>
         </>
       );
     } else if (selectedNode === 'slice') {
@@ -3049,7 +3326,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   )
 }
 
-// prompt_lang (reference-audio language) options, bare codes, matching the voice language field.
+// prompt_lang（参考音频语言）选项，裸码，与音色 language 字段一致。
 const REF_PROMPT_LANG_OPTIONS = [
   { value: 'ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
   { value: 'zh', label: 'Chinese (\u4e2d\u6587)' },
@@ -3058,9 +3335,9 @@ const REF_PROMPT_LANG_OPTIONS = [
   { value: 'ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
 ]
 
-// Cross-asset reference-audio picker: lists other voices and loads all their slices/raw; click to use.
-// Reuses the existing /api/assets/<id>/segments + /raw-list. onPick(path, text).
-// Standalone component, easy to reuse later on a Compare Refs page (reserved interface).
+// 跨资产参考音频选择器：列出「其他音色」并读取其全部 slices/raw，点选即用。
+// 复用现有 /api/assets/<id>/segments + /raw-list。onPick(path, text)。
+// 独立组件，便于后续 Compare Refs 页复用（预留接口）。
 function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const others = (voices || []).filter(v => v.id !== currentVoiceId)
   const [vid, setVid] = useState(others[0]?.id || '')
@@ -3164,9 +3441,89 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   )
 }
 
-// Fully custom reference audio: browser file selection (cross-platform, not a native dialog), uploaded to
-// voices/custom_refs, then used as ref_audio for any voice. Optional manual reference text + prompt_lang.
-// onPick(path, text, promptLang, customObj); standalone component, reusable on a Compare page (reserved interface).
+// Single-voice reference picker: Slices / Raw tabs (reused by Compare's "this voice" main
+// reference). Same inner list as CrossRefPicker but without the voice dropdown. onPick(path, text).
+function RefAudioTabs({ voiceId, activeRef, onPick }) {
+  const [segs, setSegs] = useState(null)
+  const [raws, setRaws] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [rawDur, setRawDur] = useState({})
+  const [tab, setTab] = useState('slices')
+
+  useEffect(() => {
+    if (!voiceId) { setSegs([]); setRaws([]); return }
+    setLoading(true); setRawDur({}); setTab('slices')
+    Promise.all([
+      api(`/api/assets/${voiceId}/segments`)
+        .then(r => setSegs(r.ok && r.data.segments ? (r.data.segments.segments || []) : []))
+        .catch(() => setSegs([])),
+      api(`/api/assets/${voiceId}/raw-list`)
+        .then(r => setRaws(r.ok && r.data.raw ? r.data.raw : []))
+        .catch(() => setRaws([])),
+    ]).finally(() => setLoading(false))
+  }, [voiceId])
+
+  const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
+  const availRaw = Array.isArray(raws) ? raws : []
+
+  return (
+    <div>
+      <div className="ref-tabs">
+        <span className={`ref-tab ${tab === 'slices' ? 'active' : ''}`} onClick={() => setTab('slices')}>
+          Slices {availSlices.length > 0 && <span className="ref-tab-count">{availSlices.length}</span>}
+        </span>
+        <span className={`ref-tab ${tab === 'raw' ? 'active' : ''}`} onClick={() => setTab('raw')}>
+          Raw {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
+        </span>
+      </div>
+      {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
+      {!loading && (
+        <div className="ref-list" style={{ maxHeight: 260, overflowY: 'auto' }}>
+          {tab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">No slices in this voice</div>}
+          {tab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No raw audio in this voice</div>}
+          {tab === 'slices' && availSlices.map((seg, i) => {
+            const p = seg.audio || seg.audio_path || seg.audio_filename
+            const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
+            const rpath = `assets/${voiceId}/slicer_opt/${fn}`
+            const isActive = activeRef === rpath
+            const oor = !refInRange(seg.duration)
+            return (
+              <div key={`s${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => onPick(rpath, seg.text || '')} title={seg.text || ''}>
+                <div className="ref-item-row">
+                  <span className="ref-item-name">{seg.scene} #{seg.index}{oor && <span title={`Outside the ${REF_MIN_SEC}\u2013${REF_MAX_SEC}s range`} style={{ color: 'var(--warning)', marginLeft: 4 }}>{'\u26a0'}</span>}</span>
+                  <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s</span>
+                  <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '\u2713' : '\u2192'}</span>
+                </div>
+                <AudioPlayer src={`/assets/${voiceId}/slicer_opt/${fn}`} />
+              </div>
+            )
+          })}
+          {tab === 'raw' && availRaw.map((rf, i) => {
+            const rpath = `assets/${voiceId}/raw/${rf.filename}`
+            const isActive = activeRef === rpath
+            const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[rf.filename]
+            const known = typeof dur === 'number' && dur > 0
+            const oor = known && !refInRange(dur)
+            return (
+              <div key={`r${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => onPick(rpath, rf.text || '')} title={rf.text || rf.filename}>
+                <div className="ref-item-row">
+                  <span className="ref-item-name">{rf.filename}</span>
+                  {known && <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s</span>}
+                  <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '\u2713' : '\u2192'}</span>
+                </div>
+                <AudioPlayer src={rf.url} onDuration={d => setRawDur(prev => (prev[rf.filename] ? prev : { ...prev, [rf.filename]: d }))} />
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 完全自选参考音频：浏览器文件选择（跨平台，非原生对话框），上传到
+// voices/custom_refs 后作为任意音色的 ref_audio。可选手填参考文本 + prompt_lang。
+// onPick(path, text, promptLang, customObj)；独立组件，Compare 页可复用（预留接口）。
 function CustomRefPicker({ custom, onPick, onClear }) {
   const fileRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -3232,7 +3589,7 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
   // whose length the server can't read from a WAV header, so the <audio> element
   // reports it on loadedmetadata — used for the same 3–10s guard as slices.
   const [rawDurations, setRawDurations] = useState({})
-  // Cross-selected / custom reference audio (valid within this session, reset on voice switch; not written to the voice config).
+  // 跨选/自选参考音频（本次会话内有效，切换音色时重置；不写入音色配置）。
   const [crossMode, setCrossMode] = useState(false)
   const [customRef, setCustomRef] = useState(null) // { path, url, name } | null
 
@@ -3484,6 +3841,16 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   // "use this voice's own default text" on the backend, so the comparison isolates
   // the reference audio unless the user deliberately types a script.
   const [defaultText, setDefaultText] = usePersistentState('compare.defaultText', '')
+  // Extra patch: the shared comparison text also supports reading proofing, applied to every row that doesn't override its own text.
+  // #4: shared comparison-text reading proofing overrides (base bucket). Applied via
+  // the Proof & language modal; no separate enable flag (removed with v5 cleanup).
+  const [defaultPronOverrides, setDefaultPronOverrides] = usePersistentState('compare.defaultPronOverrides', {})
+  // #4: per-character Han-character language overrides + reverse-language readings for
+  // the shared comparison text (mirrors the Generate tab). Applied to every row that
+  // doesn't override its own text.
+  const [defaultHanForced, setDefaultHanForced] = usePersistentState('compare.defaultHanForced', [])
+  const [defaultHanReadings, setDefaultHanReadings] = usePersistentState('compare.defaultHanReadings', {})
+  const [showDefaultTextPrep, setShowDefaultTextPrep] = useState(false)
   const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
   const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
   const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
@@ -3499,6 +3866,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   const openSaveRecipe = (row) => {
     const rm = rowModels[row.id] || {}
     const dp = defaultParams || {}
+    // #4: pin this row's reading proofing exactly like the Generate recipe schema —
+    // flat base overrides + lang_overrides + han_readings (server.js merges them).
+    const rEff = row.textLang || defaultTextLang || selected?.language || 'ja'
+    const rDir = hanOverrideDirection(rEff, selected?.language || 'ja')
+    const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [])
     setSaveRecipeDefaults({
       reference_audio: row.refAudio || '',
       reference_text: row.promptText || '',
@@ -3519,8 +3891,12 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
         fragment_interval: dp.fragment_interval,
         parallel_infer: dp.parallel_infer,
         aux_ref_audio_paths: (row.auxRefPaths && row.auxRefPaths.length > 0) ? row.auxRefPaths : [],
-        // P1-1: pin this row's own reading overrides (not a shared, cross-row set).
-        pron_overrides: (row.pronEnabled && row.pronOverrides && Object.keys(row.pronOverrides).length > 0) ? row.pronOverrides : {},
+        // P1-1 / #4: pin this row's own reading overrides (not a shared, cross-row set).
+        pron_overrides: (row.pronOverrides && Object.keys(row.pronOverrides).length > 0) ? row.pronOverrides : {},
+        lang_overrides: rLangOverrides || {},
+        han_readings: (rDir && row.hanReadings && Object.keys(row.hanReadings).length > 0)
+          ? Object.fromEntries(Object.entries(row.hanReadings).filter(([ch]) => (row.hanForced || []).includes(ch)))
+          : {},
       },
       gpt_ckpt: rm.gptCheckpoint || '',
       sovits_pth: rm.sovitsModel || '',
@@ -3534,6 +3910,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
   const _cmpBaseFam = String(voiceLang || '').replace(/^all_/, '')
   const _cmpTargetFam = normalizeLangFamily(defaultTextLang)
   const defaultLangMismatch = !!_cmpTargetFam && _cmpTargetFam !== _cmpBaseFam
+  // #4: shared comparison-text reading proofing + Han-character language payloads.
+  const defaultPanelLang = _cmpTargetFam || _cmpBaseFam || 'ja'
+  const defaultHanDir = hanOverrideDirection(defaultTextLang, voiceLang)
+  const defaultLangOverrides = buildLangOverrides(defaultHanDir, defaultHanForced)
+  const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
   // Reset the default target language when the active voice changes.
   useEffect(() => { setDefaultTextLang(defaultTargetLang(selected?.language || 'ja')) }, [selectedVoice])   // eslint-disable-line
 
@@ -3573,8 +3954,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
                   voiceName: meta.display_name || vid,
                   gptCheckpoint: gpt.path,
                   sovitsModel: sovits.path,
+                  gptName: gpt.name || gpt.path,
+                  sovitsName: sovits.name || sovits.path,
                   gptSteps: gpt.steps || '',
                   sovitsSteps: sovits.steps || '',
+                  sovitsVersion: sovits.version || '',
                   label: `${meta.display_name || vid} / ${gpt.name}${gpt.steps ? ` (${gpt.steps})` : ''} / ${sovits.name}${sovits.steps ? ` (${sovits.steps})` : ''}`,
                 })
               })
@@ -3612,9 +3996,10 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       text_split_method: dp.text_split_method ?? 'cut5',
       speed_factor: dp.speed_factor ?? 1.0,
       seed: dp.seed ?? -1,
-      // P1-1: per-row reading proofing state (isolated from other rows).
-      pronEnabled: false,
+      // P1-1 / #4: per-row reading proofing state (isolated from other rows).
       pronOverrides: {},
+      hanForced: [],
+      hanReadings: {},
       loading: false,
       result: null,
       error: null,
@@ -3673,11 +4058,26 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       // prompt_lang / reference transcript come from a cross/custom reference pick.
       body.text_lang = row.textLang || defaultTextLang || selected?.language || 'ja'
       body.prompt_lang = row.promptLang || selected?.language || 'ja'
+      // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
+      if (body.text_lang === 'auto_zh_ja') body.auto_base_lang = selected?.language || 'zh'
       if (row.promptText) body.reference_text = row.promptText
-      // P1-1: reading proofing is per-row — each row carries its own overrides so
-      // corrections never leak between rows with different reference text.
-      if (row.pronEnabled && row.pronOverrides && Object.keys(row.pronOverrides).length > 0) {
-        body.pron_overrides = row.pronOverrides
+      // P1-1 / #4: reading proofing is per-row — each row carries its own base
+      // overrides + Han-character language forcing + reverse readings, so corrections
+      // never leak between rows. A row that keeps the shared comparison text (empty
+      // Text) and has no proofing of its own falls back to the shared comparison-text
+      // overrides. Row-level always wins.
+      const usingDefaultText = !(row.text && row.text.trim())
+      const rEff = body.text_lang
+      const rDir = hanOverrideDirection(rEff, selected?.language || 'ja')
+      const rPanel = normalizeLangFamily(rEff) || String(voiceLang || '').replace(/^all_/, '') || 'ja'
+      const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [])
+      const rPronPayload = buildPronPayload(row.pronOverrides || {}, rPanel, rDir, row.hanForced || [], row.hanReadings || {})
+      if (rPronPayload || rLangOverrides) {
+        if (rPronPayload) body.pron_overrides = rPronPayload
+        if (rLangOverrides) body.lang_overrides = rLangOverrides
+      } else if (usingDefaultText) {
+        if (defaultPronPayload) body.pron_overrides = defaultPronPayload
+        if (defaultLangOverrides) body.lang_overrides = defaultLangOverrides
       }
       const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
@@ -3708,8 +4108,14 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
           </p>
 
           <div className="field">
-            <label className="field-label">Default Test Text (applied to empty rows)</label>
-            <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)} />
+            {/* Extra patch: this is the "comparison text" — every row uses it by default so
+                only the reference / model differs; a row can override it via its Text section. */}
+            <label className="field-label">Comparison Text</label>
+            <div className="field-hint" style={{ marginBottom: 4 }}>
+              Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.
+            </div>
+            <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}
+              placeholder="Enter the text used across all rows for comparison…" />
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 Default target language:
@@ -3726,8 +4132,32 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
                 Default target language differs from the fine-tuned language ({String(voiceLang || '').toUpperCase()}). Inference quality may be affected.
               </div>
             )}
+            {/* #4: reading proofing + per-character Han language for the comparison text —
+                applied to every row that doesn't override its own text. A row's own
+                proofing takes precedence. Opens in the shared Text preparation modal. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-sm" onClick={() => setShowDefaultTextPrep(true)}>
+                Proof &amp; language{'\u2026'}
+              </button>
+              {defaultHanDir && defaultHanForced.length > 0 && (
+                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{defaultHanForced.length} forced {LANG_LABEL[defaultHanDir.reverse]}</span>
+              )}
+              {Object.keys(defaultPronOverrides || {}).length > 0 && (
+                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(defaultPronOverrides).length} reading override(s)</span>
+              )}
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>applies to every row that doesn&apos;t override its own text</span>
+            </div>
+            {showDefaultTextPrep && (
+              <TextPrepModal
+                onClose={() => setShowDefaultTextPrep(false)}
+                text={defaultText} setText={setDefaultText} panelLang={defaultPanelLang}
+                pronOverrides={defaultPronOverrides || {}} setPronOverrides={setDefaultPronOverrides}
+                hanDirection={defaultHanDir} hanForced={defaultHanForced} setHanForced={setDefaultHanForced}
+                hanReadings={defaultHanReadings} setHanReadings={setDefaultHanReadings}
+              />
+            )}
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-              Reading proofing is now per-row — expand the Text section of any row to proof and pin its own pronunciation.
+              You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.
             </div>
           </div>
 
@@ -3831,11 +4261,15 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // when the row already carries a value so nothing is silently hidden.
   const [showAux, setShowAux] = useState(() => (row.auxRefPaths || []).length > 0)
   const [showText, setShowText] = useState(() => !!(row.text && row.text.trim()))
-  // PF-b: this voice's slices get an auditable (collapsible, default-collapsed) list.
-  const [showSlicePreview, setShowSlicePreview] = useState(false)
+  // PF-b / D1: this voice's slices get an auditable list. After the redundant slice
+  // <select> was removed (6.1), this audition list is the SOLE slice picker, so it
+  // defaults to EXPANDED.
+  const [showSlicePreview, setShowSlicePreview] = useState(true)
   // PF-c: auxiliary references can also come from another voice or a custom upload.
   const [auxSource, setAuxSource] = useState('this') // 'this' | 'cross' | 'custom'
   const [auxCustom, setAuxCustom] = useState(null)
+  // 6.5: inline confirm for deleting a Compare result's audio from disk.
+  const [cmpDelConfirm, setCmpDelConfirm] = useState(false)
 
   // Determine which voice this row uses
   const voiceId = rowModel.voiceId || selectedVoice
@@ -3847,6 +4281,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const rowLangMismatch = !!_rowTargetFam && _rowTargetFam !== _rowBaseFam
   // Language family used by this row's reading-proofing panel (P1-1).
   const rowPronLang = _rowTargetFam || _rowBaseFam
+  // #4: this row's per-character Han-character language direction (or null).
+  const rowHanDir = hanOverrideDirection(effTextLang, voiceLang)
+  const rowHanForced = row.hanForced || []
+  const [showRowTextPrep, setShowRowTextPrep] = useState(false)
   // Reference source: 'slices' (this voice, default) | 'cross' | 'custom'.
   const refSource = row.refSource || 'slices'
   const setRefSource = (v) => onUpdate(row.id, 'refSource', v)
@@ -3899,6 +4337,31 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const cmpStatusLabel = cmpStatus === 'running' ? 'Generating…' : cmpStatus === 'done' ? 'Ready' : cmpStatus === 'error' ? 'Failed' : 'Not run'
   const cmpRefName = row.refAudio ? basename(row.refAudio) : null
   const cmpModelLabel = (availableModels.find(m => m.voiceId === rowModel.voiceId && m.gptCheckpoint === rowModel.gptCheckpoint && m.sovitsModel === rowModel.sovitsModel) || {}).label || null
+  // 6.3: reference-character name — see at a glance whose reference audio a row uses. Derive the
+  // real source from row.refAudio's assets/<voiceId>/ path (works for this-voice and cross-voice).
+  // Custom uploads live outside assets/ → labelled Custom; no reference → fall back to model voice.
+  const _refAssetVid = (() => {
+    const s = String(row.refAudio || '').replace(/\\/g, '/')
+    const m = s.match(/(?:^|\/)assets\/([^/]+)\//)
+    return m ? m[1] : null
+  })()
+  const nameForVoiceId = (vid) => vid
+    ? ((availableModels.find(m => m.voiceId === vid) || {}).voiceName
+       || (voices || []).find(v => (v.id || v.voiceId) === vid)?.display_name
+       || (voices || []).find(v => (v.id || v.voiceId) === vid)?.displayName
+       || vid)
+    : null
+  const refVoiceName = _refAssetVid
+    ? nameForVoiceId(_refAssetVid)
+    : (row.refAudio ? 'Custom' : nameForVoiceId(rowModel.voiceId || selectedVoice))
+  // 6.4: after generating, the editor collapses to audio-only for easy side-by-side comparison. Click the ▼ title to re-expand.
+  const [editorOpen, setEditorOpen] = useState(() => !(row.result && row.result.audio_url))
+  const lastResultUrlRef = useRef(row.result && row.result.audio_url)
+  useEffect(() => {
+    const url = row.result && row.result.audio_url
+    if (url && url !== lastResultUrlRef.current) { setEditorOpen(false) }
+    lastResultUrlRef.current = url
+  }, [row.result && row.result.audio_url])
 
   const pickFile = (filePath) => {
     if (pickerTarget === 'main') {
@@ -3918,12 +4381,22 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           <span className="cmp-summary-ref" title={row.refAudio || ''}>
             {cmpRefName || 'No reference selected'}
           </span>
+          {/* 6.3: reference-character annotation */}
+          {refVoiceName && (
+            <span className="cmp-summary-voice" title={`Reference character: ${refVoiceName}`}
+              style={{ fontSize: 11, color: 'var(--muted)' }}>🎭 {refVoiceName}</span>
+          )}
           {cmpModelLabel && (
             <span className="cmp-summary-model" title={cmpModelLabel}>{cmpModelLabel}</span>
           )}
         </div>
         <span className={`cmp-status cmp-status-${cmpStatus}`}>{cmpStatusLabel}</span>
         <div className="cmp-row-actions">
+          {/* 6.4: collapse / expand the editor */}
+          <button className="btn btn-sm btn-ghost" onClick={() => setEditorOpen(o => !o)}
+            title={editorOpen ? 'Collapse editor (keep audio only)' : 'Expand editor'}>
+            {editorOpen ? '▲ Edit' : '▼ Edit'}
+          </button>
           <button className="btn btn-sm btn-primary" onClick={() => onGenerate(row)} disabled={row.loading}>
             {row.loading ? '…' : (cmpStatus === 'done' ? 'Regenerate' : 'Generate')}
           </button>
@@ -3936,32 +4409,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         </div>
       </div>
 
-      {/* Model selector */}
-      {availableModels.length > 0 && (
-        <div className="field">
-          <label className="field-label">Model</label>
-          <select
-            className="control"
-            value={rowModel.gptCheckpoint ? `${rowModel.voiceId}::${rowModel.gptCheckpoint}::${rowModel.sovitsModel}` : ''}
-            onChange={e => {
-              const val = e.target.value
-              if (!val) { onModelChange({ voiceId: '', gptCheckpoint: '', sovitsModel: '' }); return }
-              const [vid, gpt, sov] = val.split('::')
-              onModelChange({ voiceId: vid, gptCheckpoint: gpt, sovitsModel: sov })
-            }}
-          >
-            <option value="">— default —</option>
-            {availableModels.map((m, i) => (
-              <option key={i} value={`${m.voiceId}::${m.gptCheckpoint}::${m.sovitsModel}`}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Per-row target language (defaults to the shared default) */}
-      <div className="field">
+      {/* 6.4: editor (language / model / reference / advanced) — collapsed by default after generating. */}
+      {editorOpen && (<>
+      {/* D3: Target Language moved to the top of the item as a narrow single-row dropdown to save vertical space. */}
+      <div className="field cmp-target-lang" style={{ maxWidth: 240, marginBottom: 8 }}>
         <label className="field-label">Target Language</label>
         <select
           className="control"
@@ -3977,6 +4428,59 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           </div>
         )}
       </div>
+
+      {/* 6.6/6.1: Model split into three cascading dropdowns [Voice ID][GPT][SoVITS]. Voice ID
+          drives both the GPT/SoVITS candidate lists and the slice source below (natural linkage). */}
+      {availableModels.length > 0 && (() => {
+        const voiceOpts = []
+        const seenV = new Set()
+        availableModels.forEach(m => { if (!seenV.has(m.voiceId)) { seenV.add(m.voiceId); voiceOpts.push({ voiceId: m.voiceId, voiceName: m.voiceName }) } })
+        const gptOpts = []
+        const seenG = new Set()
+        availableModels.filter(m => m.voiceId === rowModel.voiceId).forEach(m => {
+          if (!seenG.has(m.gptCheckpoint)) { seenG.add(m.gptCheckpoint); gptOpts.push({ path: m.gptCheckpoint, name: m.gptName, steps: m.gptSteps }) }
+        })
+        const sovOpts = []
+        const seenS = new Set()
+        availableModels.filter(m => m.voiceId === rowModel.voiceId).forEach(m => {
+          if (!seenS.has(m.sovitsModel)) { seenS.add(m.sovitsModel); sovOpts.push({ path: m.sovitsModel, name: m.sovitsName, steps: m.sovitsSteps, version: m.sovitsVersion }) }
+        })
+        const pickVoice = (vid) => {
+          if (!vid) { onModelChange({ voiceId: '', gptCheckpoint: '', sovitsModel: '' }); return }
+          const first = availableModels.find(m => m.voiceId === vid)
+          onModelChange({ voiceId: vid, gptCheckpoint: first ? first.gptCheckpoint : '', sovitsModel: first ? first.sovitsModel : '' })
+        }
+        return (
+          <div className="cmp-model-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="field" style={{ flex: '0 1 170px', minWidth: 130, marginBottom: 0 }}>
+              <label className="field-label">Voice ID</label>
+              <select className="control" value={rowModel.voiceId || ''} onChange={e => pickVoice(e.target.value)}
+                title={rowModel.voiceId || ''}>
+                <option value="">— default —</option>
+                {voiceOpts.map(v => <option key={v.voiceId} value={v.voiceId}>{v.voiceName}</option>)}
+              </select>
+            </div>
+            <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
+              <label className="field-label">GPT</label>
+              <select className="control" value={rowModel.gptCheckpoint || ''} disabled={!rowModel.voiceId}
+                title={rowModel.gptCheckpoint || ''}
+                onChange={e => onModelChange({ voiceId: rowModel.voiceId, gptCheckpoint: e.target.value, sovitsModel: rowModel.sovitsModel })}>
+                {gptOpts.length === 0 && <option value="">—</option>}
+                {gptOpts.map(g => <option key={g.path} value={g.path}>{g.name}{g.steps ? ` (${g.steps})` : ''}</option>)}
+              </select>
+            </div>
+            <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
+              <label className="field-label">SoVITS</label>
+              <select className="control" value={rowModel.sovitsModel || ''} disabled={!rowModel.voiceId}
+                title={rowModel.sovitsModel || ''}
+                onChange={e => onModelChange({ voiceId: rowModel.voiceId, gptCheckpoint: rowModel.gptCheckpoint, sovitsModel: e.target.value })}>
+                {sovOpts.length === 0 && <option value="">—</option>}
+                {sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>)}
+              </select>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Main reference audio — source selector: this voice / cross-voice / custom file */}
       <div className="field">
@@ -4000,56 +4504,42 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           <option value="custom">Custom file…</option>
         </select>
         {refSource === 'slices' && (
-          segments.length === 0 ? (
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No segments available for this voice</div>
-          ) : (
-            <>
-              <select
-                className="control"
-                value={row.refAudio}
-                onChange={e => onUpdate(row.id, 'refAudio', e.target.value)}
-              >
-                <option value="">— none —</option>
-                {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
-                  const raw = seg.audio || seg.audio_path || seg.audio_filename
-                  const path = raw || ''
-                  return (
-                    <option key={i} value={path}>
-                      {seg.scene} #{seg.index} — "{seg.text.slice(0, 30)}{seg.text.length > 30 ? '...' : ''}" ({(seg.duration || 0).toFixed(1)}s)
-                    </option>
-                  )
-                })}
-              </select>
-              {/* PF-b: audition this voice's own slices (parity with the cross-voice
-                  picker, which already plays audio). Collapsed by default. */}
-              <div className="collapsible" style={{ marginTop: 6 }}>
-                <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Audition slices</span>
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSlicePreview ? '▲' : '▼'}</span>
-                </div>
-                {showSlicePreview && (
-                  <div className="collapsible-body" style={{ maxHeight: 220, overflowY: 'auto' }}>
-                    {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
-                      const raw = seg.audio || seg.audio_path || seg.audio_filename
-                      const filename = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
-                      const path = `assets/${voiceId}/slicer_opt/${filename}`
-                      const isActive = row.refAudio === path
-                      return (
-                        <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={seg.text || ''} onClick={() => onUpdate(row.id, 'refAudio', path)}>
-                          <div className="ref-item-row">
-                            <span className="ref-item-name">{seg.scene} #{seg.index}</span>
-                            <span className="ref-item-dur">{(seg.duration || 0).toFixed(1)}s</span>
-                            <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
-                          </div>
-                          <AudioPlayer src={`/assets/${voiceId}/slicer_opt/${filename}`} />
-                        </div>
-                      )
-                    })}
+          <>
+            {/* 6.1: the redundant slice dropdown was removed. The Audition list below is the sole
+                reference picker (audition + click), expanded by default (D1). It also offers Raw audio. */}
+            {/* 6.2: main-reference 3–10s hard-limit hint. Show a yellow ⚠ when the selected clip is out of range.
+                (banner only for clips with a known duration; each item is also flagged inline) */}
+            {(() => {
+              const cur = segments.find(s => {
+                const raw = s.audio || s.audio_path || s.audio_filename
+                const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
+                return row.refAudio === `assets/${voiceId}/slicer_opt/${fn}`
+              })
+              if (cur && !refInRange(cur.duration)) {
+                return (
+                  <div className="ref-range-warn" style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 6 }}>
+                    {'\u26a0'} The selected reference is {(cur.duration || 0).toFixed(1)}s, outside the {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s range. Generation may fail (engine hard limit) &mdash; pick a clip with a suitable length.
                   </div>
-                )}
+                )
+              }
+              return null
+            })()}
+            <div className="collapsible" style={{ marginTop: 6 }}>
+              <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Audition reference &mdash; Slices / Raw (click one to set it as the main reference)</span>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSlicePreview ? '\u25b2' : '\u25bc'}</span>
               </div>
-            </>
-          )
+              {showSlicePreview && (
+                <div className="collapsible-body">
+                  <RefAudioTabs
+                    voiceId={voiceId}
+                    activeRef={row.refAudio}
+                    onPick={(path, text) => { onUpdate(row.id, 'refAudio', path); onUpdate(row.id, 'promptText', text || '') }}
+                  />
+                </div>
+              )}
+            </div>
+          </>
         )}
         {refSource === 'cross' && (
           <CrossRefPicker
@@ -4189,19 +4679,28 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               onChange={e => onUpdate(row.id, 'text', e.target.value)}
               placeholder="Enter test text (empty = this voice's default)…"
             />
-            {/* P1-1: per-row reading proofing — this row's overrides are isolated
-                from other rows and pinned when the row is saved as a recipe. */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginTop: 8 }}>
-              <input type="checkbox" checked={!!row.pronEnabled} onChange={e => onUpdate(row.id, 'pronEnabled', e.target.checked)} />
-              Reading proofing (this row)
-            </label>
-            {row.pronEnabled && (
-              <PronPanel
-                text={row.text}
-                setText={v => onUpdate(row.id, 'text', v)}
-                lang={rowPronLang}
-                overrides={row.pronOverrides || {}}
-                setOverrides={o => onUpdate(row.id, 'pronOverrides', o)}
+            {/* P1-1 / #4: per-row reading proofing + Han-character language — this row's
+                overrides are isolated from other rows and pinned when saved as a recipe.
+                Opens in the shared Text preparation modal. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-sm" onClick={() => setShowRowTextPrep(true)}>
+                Proof &amp; language{'\u2026'}
+              </button>
+              {rowHanDir && rowHanForced.length > 0 && (
+                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{rowHanForced.length} forced {LANG_LABEL[rowHanDir.reverse]}</span>
+              )}
+              {Object.keys(row.pronOverrides || {}).length > 0 && (
+                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(row.pronOverrides).length} reading override(s)</span>
+              )}
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>this row only</span>
+            </div>
+            {showRowTextPrep && (
+              <TextPrepModal
+                onClose={() => setShowRowTextPrep(false)}
+                text={row.text} setText={v => onUpdate(row.id, 'text', v)} panelLang={rowPronLang}
+                pronOverrides={row.pronOverrides || {}} setPronOverrides={o => onUpdate(row.id, 'pronOverrides', o)}
+                hanDirection={rowHanDir} hanForced={rowHanForced} setHanForced={f => onUpdate(row.id, 'hanForced', f)}
+                hanReadings={row.hanReadings || {}} setHanReadings={r => onUpdate(row.id, 'hanReadings', r)}
               />
             )}
           </>
@@ -4257,6 +4756,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         )}
       </div>
 
+      </>)}
+
       {/* File picker dropdown */}
       {showPicker && (
         <div style={{
@@ -4287,10 +4788,38 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         </div>
       )}
 
-      {/* Result */}
+      {/* Result — 6.5: output management buttons (parity with the Generate page).
+          /api/generate returns a real outputs/generate/<id>/, so reveal / delete can be reused.
+          Rerun = regenerate with this row's current settings (same as the header's Regenerate). */}
       {row.result && row.result.audio_url && (
         <div className="cmp-result">
-          <div className="cmp-result-label">Result</div>
+          <div className="cmp-result-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Result{refVoiceName ? ` · 🎭 ${refVoiceName}` : ''}</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {row.result.id && (
+                <button className="icon-btn" title="Show in file explorer"
+                  onClick={async () => { const r = await api('/api/outputs/reveal', { method: 'POST', body: { id: row.result.id } }); if (!r.ok) onUpdate(row.id, 'error', (r.data && r.data.error) || 'Could not open the file location') }}>
+                  <IconFolder size={15} /></button>
+              )}
+              <button className="icon-btn" title="Rerun with this row's current settings"
+                disabled={row.loading} onClick={() => onGenerate(row)}>
+                <IconRerun size={15} /></button>
+              {row.result.id && (
+                cmpDelConfirm
+                  ? (
+                    <>
+                      <button className="icon-btn icon-btn-danger" title="Confirm delete"
+                        onClick={async () => { const r = await api(`/api/outputs/${encodeURIComponent(row.result.id)}`, { method: 'DELETE' }); setCmpDelConfirm(false); if (!r.ok) { onUpdate(row.id, 'error', (r.data && r.data.error) || 'Failed to delete audio'); return } onUpdate(row.id, 'result', null) }}>✓</button>
+                      <button className="icon-btn" title="Cancel" onClick={() => setCmpDelConfirm(false)}>✕</button>
+                    </>
+                  )
+                  : (
+                    <button className="icon-btn icon-btn-danger" title="Delete this audio from disk"
+                      onClick={() => setCmpDelConfirm(true)}><IconTrash size={15} /></button>
+                  )
+              )}
+            </div>
+          </div>
           <Player src={`${API_BASE}${row.result.audio_url}`} size="sm" />
           <div className="cmp-result-meta">
             <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12 }}>Download</a>
@@ -4602,26 +5131,26 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             <label className="toggle-row">
               <input type="checkbox" checked={trainS1} onChange={e => setTrainS1(e.target.checked)} />
               <span>
-                Fine-tune S1 (GPT)
+                Train S1 (GPT)
                 {state.Mg === false
                   ? <span className="hint-warn"> — missing</span>
-                  : <span className="hint"> — already present, re-tune to overwrite</span>}
+                  : <span className="hint"> — already present, retrain to overwrite</span>}
               </span>
             </label>
             <label className="toggle-row">
               <input type="checkbox" checked={trainS2} onChange={e => setTrainS2(e.target.checked)} />
               <span>
-                Fine-tune S2 (SoVITS)
+                Train S2 (SoVITS)
                 {state.Ms === false
                   ? <span className="hint-warn"> — missing</span>
-                  : <span className="hint"> — already present, re-tune to overwrite</span>}
+                  : <span className="hint"> — already present, retrain to overwrite</span>}
               </span>
             </label>
 
             {trainInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowTrainParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Fine-tuning Parameters</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Training Parameters</span>
                   <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showTrainParams ? '▲' : '▼'}</span>
                 </div>
                 {showTrainParams && (
@@ -4649,7 +5178,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         <div className="modal-actions">
           <button className="btn btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="btn btn-sm btn-primary" onClick={submit} disabled={submitting || loading || !hasWork || isNoop}>
-            {submitting ? 'Starting…' : (trainInPlan ? 'Rebuild & Fine-tune' : 'Restore')}
+            {submitting ? 'Starting…' : (trainInPlan ? 'Rebuild & Train' : 'Restore')}
           </button>
         </div>
       </div>
@@ -4958,6 +5487,32 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
     try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (_) {}
   }
 
+  // Re-hydrate in-place transcribe jobs on mount. AssetsTab fully unmounts on page
+  // switch, so a transcription started before navigating away would otherwise vanish
+  // from the UI (status pill resets to "none", progress banner disappears) even though
+  // the backend keeps running it. Pull the live jobs, seed state, resume polling for
+  // any still running, and restore the banner — backend is the source of truth, so
+  // this also survives a full page reload. Runs once per mount.
+  useEffect(() => {
+    let cancelled = false
+    api('/api/transcribe-jobs').then(r => {
+      if (cancelled || !r.ok) return
+      const jobs = r.data?.jobs || {}
+      const ids = Object.keys(jobs)
+      if (ids.length === 0) return
+      setTranscribeJobs(prev => ({ ...prev, ...jobs }))
+      const runningIds = ids.filter(id => jobs[id].status === 'running')
+      for (const id of runningIds) {
+        if (!transcribePollRef.current[id]) pollTranscribe(id)
+      }
+      if (runningIds.length) {
+        const first = runningIds[0]
+        setScanMsg({ type: 'info', text: `Transcribing ${first} (${(jobs[first].sources || []).join(', ')})…` })
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Rebuild = hand off to the Train tab with the input folder + voice name
   // prefilled (raw preferred, else the slices folder). Pure front-end: the user
   // confirms and starts training. Re-slicing / model rebuild happen in the
@@ -5175,8 +5730,19 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
       return { key: 'rawrefs', label: 'Raw Refs', cls: 'badge-ok2', sym: '◑',
                note: 'Usable now — raw serves as reference audio. Run ASR to restore text refs (no re-slicing, no retraining).' }
     }
-    if (!hasRaw) return { key: 'ready', label: 'Ready', cls: 'badge-ok2', sym: '◐',
-                          note: 'Models + segments present; raw removed (still usable).' }
+    // "Complete" (green ●) is FULL health: models + segments + BOTH raw and slices.
+    // If either raw or slices is missing (but models + segments remain), the asset is
+    // still usable but not fully healthy → "Ready" (blue half ◐), with a source-aware
+    // note. This keeps the badge honest: a normally-imported asset that later had its
+    // slices removed no longer masquerades as green "Complete".
+    if (!hasRaw || !hasSlices) {
+      const note = !hasRaw && !hasSlices
+        ? 'Models + segments present; raw and slices removed (still usable).'
+        : !hasSlices
+          ? 'Slices removed; raw + segments present (still usable). Re-slice to restore full health.'
+          : 'Raw removed; slices + segments present (still usable).'
+      return { key: 'ready', label: 'Ready', cls: 'badge-ok2', sym: '◐', note }
+    }
     return { key: 'complete', label: 'Complete', cls: 'badge-ok', sym: '●' }
   }
 
@@ -5328,7 +5894,10 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
           // "Missing Models" open the same modal: the planner reuses existing slices
           // and ASR, so e.g. a missing-model voice that still has slices+list only
           // runs preprocess+train — it never re-slices or re-transcribes.
-          const showRestore = h.key === 'rawrefs' || h.key === 'nomodel'
+          // Also offered for a "Ready" asset whose slices were removed but raw remains:
+          // the same modal can re-slice from raw (sliceChoice='real') to restore full health.
+          const canReslice = (raw.file_count || 0) > 0 && (slices.file_count || 0) === 0
+          const showRestore = h.key === 'rawrefs' || h.key === 'nomodel' || (h.key === 'ready' && canReslice)
           // No Refs is a dead end (no raw/slices); keep the Train-tab fallback so the
           // user can re-import. No Segments is fixed by Scan alone (no training).
           const showRebuild = h.key === 'norefs'
@@ -5389,9 +5958,11 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
                         disabled={scanning}
                         title={h.key === 'nomodel'
                           ? 'Rebuild the missing model. Existing slices and transcripts are reused — only preprocess+train run (no re-slicing, no re-ASR).'
-                          : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
+                          : h.key === 'ready'
+                            ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless you opt into retraining.'
+                            : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
                       >
-                        {h.key === 'nomodel' ? 'Rebuild…' : 'Restore…'}
+                        {h.key === 'nomodel' ? 'Rebuild…' : h.key === 'ready' ? 'Rebuild slices…' : 'Restore…'}
                       </button>
                     ) : (
                       <button
@@ -5870,8 +6441,9 @@ function RecipeModelRebind({ recipe, onSaved }) {
   const [voicesList, setVoicesList] = useState(null)   // [{voiceId, displayName, hasGpt, hasSovits}]
   const [gpt, setGpt] = useState(recipe.gpt_ckpt || '')
   const [sovits, setSovits] = useState(recipe.sovits_pth || '')
-  const [gptVoice, setGptVoice] = useState(recipe.role || '')
-  const [sovitsVoice, setSovitsVoice] = useState(recipe.role || '')
+  // 7.1: a single shared Voice ID drives both the GPT and SoVITS model lists (one row, three dropdowns).
+  // Cross-voice mixing is still possible via each model slot's "custom path" escape hatch (D2).
+  const [voice, setVoice] = useState(recipe.role || '')
   const [gptModels, setGptModels] = useState([])
   const [sovitsModels, setSovitsModels] = useState([])
   const [gptCustom, setGptCustom] = useState(false)
@@ -5904,17 +6476,15 @@ function RecipeModelRebind({ recipe, onSaved }) {
     setSovitsCustom(!(recipe.sovits_pth && m.sovits.some(x => x.path === recipe.sovits_pth)))
   }
 
-  const onGptVoiceChange = async (v) => {
-    if (v === '__custom__') { setGptCustom(true); return }
-    setGptCustom(false); setGptVoice(v)
-    const m = await loadVoiceModels(v); setGptModels(m.gpt)
-    if (m.gpt.length > 0) setGpt(m.gpt[0].path)
-  }
-  const onSovitsVoiceChange = async (v) => {
-    if (v === '__custom__') { setSovitsCustom(true); return }
-    setSovitsCustom(false); setSovitsVoice(v)
-    const m = await loadVoiceModels(v); setSovitsModels(m.sovits)
-    if (m.sovits.length > 0) setSovits(m.sovits[0].path)
+  // Selecting a Voice ID refreshes both the GPT and SoVITS lists, each defaulting to its first entry
+  // (kept if the current path still belongs to this voice). Leaves custom mode.
+  const onVoiceChange = async (v) => {
+    setVoice(v)
+    const m = await loadVoiceModels(v)
+    setGptModels(m.gpt); setSovitsModels(m.sovits)
+    setGptCustom(false); setSovitsCustom(false)
+    if (m.gpt.length > 0 && !m.gpt.some(x => x.path === gpt)) setGpt(m.gpt[0].path)
+    if (m.sovits.length > 0 && !m.sovits.some(x => x.path === sovits)) setSovits(m.sovits[0].path)
   }
 
   // PC-3: when a picked model lives outside the project the server refuses with
@@ -5948,52 +6518,56 @@ function RecipeModelRebind({ recipe, onSaved }) {
     return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>Change models</button>
   }
 
-  const gptVoices = (voicesList || []).filter(v => v.hasGpt)
-  const sovitsVoices = (voicesList || []).filter(v => v.hasSovits)
+  const modelVoices = (voicesList || []).filter(v => v.hasGpt || v.hasSovits)
 
   return (
     <div className="rebind">
-      <div className="field">
-        <label className="field-label">GPT checkpoint <span className="muted">(pick a voice, then a model)</span></label>
-        <select className="control" value={gptCustom ? '__custom__' : gptVoice} onChange={e => onGptVoiceChange(e.target.value)}>
-          {gptVoices.map(v => <option key={v.voiceId} value={v.voiceId}>{v.displayName} ({v.gptCount})</option>)}
-          <option value="__custom__">— custom path below —</option>
-        </select>
-        {!gptCustom ? (
-          <select className="control" style={{ marginTop: 4 }}
-            value={gptModels.some(m => m.path === gpt) ? gpt : ''}
-            onChange={e => setGpt(e.target.value)}>
-            {!gptModels.some(m => m.path === gpt) && <option value="">— select a checkpoint —</option>}
+      {/* 7.1: one row, three dropdowns — Voice ID (shared) · GPT checkpoint · SoVITS model.
+          Each model slot keeps a "custom path…" escape hatch (cross-voice / outside the project) (D2/D4). */}
+      <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div className="field" style={{ flex: '0 1 170px', minWidth: 130 }}>
+          <label className="field-label">Voice ID</label>
+          <select className="control" value={voice} onChange={e => onVoiceChange(e.target.value)}>
+            {!modelVoices.some(v => v.voiceId === voice) && <option value={voice}>{voice || '— select —'}</option>}
+            {modelVoices.map(v => <option key={v.voiceId} value={v.voiceId}>{v.displayName}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
+          <label className="field-label">GPT checkpoint</label>
+          <select className="control"
+            value={gptCustom ? '__custom__' : (gptModels.some(m => m.path === gpt) ? gpt : '')}
+            title={gptCustom ? gpt : ''}
+            onChange={e => { const v = e.target.value; if (v === '__custom__') { setGptCustom(true) } else { setGptCustom(false); setGpt(v) } }}>
+            {!gptCustom && !gptModels.some(m => m.path === gpt) && <option value="">— select a checkpoint —</option>}
             {gptModels.map(m => <option key={m.path} value={m.path}>{m.name}{m.steps ? ` (${m.steps})` : ''}</option>)}
+            <option value="__custom__">— custom path… —</option>
           </select>
-        ) : (
-          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-            <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
-              placeholder="assets/<voice>/gpt_checkpoints/....ckpt" />
-            <button className="btn btn-sm" title="Browse for a .ckpt file" onClick={() => setPickGpt(true)}>📁</button>
-          </div>
-        )}
-      </div>
-      <div className="field">
-        <label className="field-label">SoVITS model <span className="muted">(pick a voice, then a model)</span></label>
-        <select className="control" value={sovitsCustom ? '__custom__' : sovitsVoice} onChange={e => onSovitsVoiceChange(e.target.value)}>
-          {sovitsVoices.map(v => <option key={v.voiceId} value={v.voiceId}>{v.displayName} ({v.sovitsCount})</option>)}
-          <option value="__custom__">— custom path below —</option>
-        </select>
-        {!sovitsCustom ? (
-          <select className="control" style={{ marginTop: 4 }}
-            value={sovitsModels.some(m => m.path === sovits) ? sovits : ''}
-            onChange={e => setSovits(e.target.value)}>
-            {!sovitsModels.some(m => m.path === sovits) && <option value="">— select a model —</option>}
+          {gptCustom && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
+                placeholder="assets/<voice>/gpt_checkpoints/....ckpt" />
+              <button className="btn btn-sm" title="Browse for a .ckpt file" onClick={() => setPickGpt(true)}>📁</button>
+            </div>
+          )}
+        </div>
+        <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
+          <label className="field-label">SoVITS model</label>
+          <select className="control"
+            value={sovitsCustom ? '__custom__' : (sovitsModels.some(m => m.path === sovits) ? sovits : '')}
+            title={sovitsCustom ? sovits : ''}
+            onChange={e => { const v = e.target.value; if (v === '__custom__') { setSovitsCustom(true) } else { setSovitsCustom(false); setSovits(v) } }}>
+            {!sovitsCustom && !sovitsModels.some(m => m.path === sovits) && <option value="">— select a model —</option>}
             {sovitsModels.map(m => <option key={m.path} value={m.path}>{m.name}{m.version ? ` [${m.version}]` : ''}</option>)}
+            <option value="__custom__">— custom path… —</option>
           </select>
-        ) : (
-          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-            <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
-              placeholder="assets/<voice>/sovits_models/....pth" />
-            <button className="btn btn-sm" title="Browse for a .pth file" onClick={() => setPickSovits(true)}>📁</button>
-          </div>
-        )}
+          {sovitsCustom && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
+                placeholder="assets/<voice>/sovits_models/....pth" />
+              <button className="btn btn-sm" title="Browse for a .pth file" onClick={() => setPickSovits(true)}>📁</button>
+            </div>
+          )}
+        </div>
       </div>
       {error && <div className="msg msg-error">{error}</div>}
       {msg && <div className="msg msg-ok">{msg}</div>}
@@ -6032,14 +6606,19 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
   const [copied, setCopied] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [busy, setBusy] = useState(false)
+  // 7.3: Example call is collapsed and single-line by default. Windows PS/CMD handle `\` line
+  // continuations poorly, so a single line (no continuations) is easiest to copy; expand for full multi-line.
+  const [cmdOpen, setCmdOpen] = useState(false)
   const cmd = `curl -X POST ${endpoint} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $API_KEY" \\
   -d '{"model":"tts-1","voice":"${recipe.id}","input":"こんにちは"}' \\
   --output out.wav`
+  const cmdOneLine = cmd.replace(/\\\s*\n\s*/g, ' ')
 
   const copy = () => {
-    try { navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch (_) {}
+    // Copy the currently displayed form: single line when collapsed (Windows-friendly), full multi-line when expanded.
+    try { navigator.clipboard.writeText(cmdOpen ? cmd : cmdOneLine); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch (_) {}
   }
   const del = async () => {
     setBusy(true)
@@ -6071,10 +6650,16 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
         </div>
         <div className="rc-cmd">
           <div className="rc-cmd-hdr">
-            <span>Example call (OpenAI-compatible)</span>
+            <span onClick={() => setCmdOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
+              title={cmdOpen ? 'Collapse' : 'Expand full multi-line command'}>
+              <span style={{ marginRight: 6, fontSize: 11, color: 'var(--muted)' }}>{cmdOpen ? '▼' : '▶'}</span>
+              Example call (OpenAI-compatible)
+            </span>
             <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
           </div>
-          <pre className="rc-cmd-body">{cmd}</pre>
+          {cmdOpen
+            ? <pre className="rc-cmd-body">{cmd}</pre>
+            : <pre className="rc-cmd-body" title="Click the title to expand" style={{ whiteSpace: 'pre', overflowX: 'auto' }}>{cmdOneLine}</pre>}
         </div>
         <RecipeModelRebind recipe={recipe} onSaved={() => onChanged && onChanged()} />
         {confirmDel && (
@@ -6165,8 +6750,40 @@ function BrokerTab() {
 function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
   const [meta, setMeta] = useState(null)
   const [taskStatus, setTaskStatus] = useState(null)
+  // Any in-place "Generate reference text" (Fill missing) job, from anywhere. These
+  // run server-side independently of the Assets page, so the global Task slot must
+  // reflect them too — not only training/inference. Backend is the source of truth
+  // (GET /api/transcribe-jobs), so this lights up regardless of the current page.
+  const [restoring, setRestoring] = useState(null) // null | { id }
+  // Any running training-pipeline task, from anywhere — NOT only the formal Training
+  // tab's task (activeTaskId). A dependency-driven Rebuild/Restore (slice/asr/preprocess/
+  // train/finalize/publish) creates its own pipeline task whose id lives outside
+  // activeTaskId, so without this the global Task slot would stay "None" while a rebuild
+  // is clearly running on the Assets page. Backend /api/train/tasks lists them all.
+  const [runningTask, setRunningTask] = useState(null) // null | { id, voiceId, currentStep }
 
   const voice = voices.find(v => v.id === selectedVoice)
+
+  useEffect(() => {
+    let dead = false
+    const poll = () => {
+      api('/api/transcribe-jobs').then(r => {
+        if (dead || !r.ok) return
+        const jobs = r.data?.jobs || {}
+        const runningId = Object.keys(jobs).find(id => jobs[id].status === 'running')
+        setRestoring(runningId ? { id: runningId } : null)
+      }).catch(() => {})
+      api('/api/train/tasks').then(r => {
+        if (dead || !r.ok) return
+        const tasks = r.data?.tasks || []
+        const run = tasks.find(t => t && t.status === 'running')
+        setRunningTask(run ? { id: run.id, voiceId: run.voiceId, currentStep: run.currentStep } : null)
+      }).catch(() => {})
+    }
+    poll()
+    const t = setInterval(poll, 3000)
+    return () => { dead = true; clearInterval(t) }
+  }, [])
 
   useEffect(() => {
     setMeta(null)
@@ -6209,12 +6826,22 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
     </span>
   )
 
-  // Task slot reflects, in priority order: a running training task > a live inference
-  // (generation) activity > the last known training result > idle.
+  // Task slot reflects, in priority order: the formal Training-tab task while running >
+  // any OTHER running pipeline task (a dependency-driven Rebuild/Restore) > an in-place
+  // reference-text restore (Fill missing / Generate reference text) > a live inference
+  // (generation) activity > the last known training result > idle. Anything that
+  // actually runs the training pipeline or an in-place ASR now lights this slot,
+  // regardless of which page it was launched from.
   let taskLabel = 'None', taskPlaceholder = true, taskBusy = false
   const trainRunning = activeTaskId && taskStatus?.status === 'running'
+  // A running pipeline task that is NOT the formal Training-tab task → a rebuild/repair.
+  const rebuildRunning = runningTask && runningTask.id !== activeTaskId
   if (trainRunning) {
     taskLabel = `Tuning · ${taskStatus?.currentStep || '…'}`; taskPlaceholder = false; taskBusy = true
+  } else if (rebuildRunning) {
+    taskLabel = `Rebuilding · ${runningTask.voiceId || runningTask.currentStep || '…'}`; taskPlaceholder = false; taskBusy = true
+  } else if (restoring) {
+    taskLabel = `Restoring · ${restoring.id}`; taskPlaceholder = false; taskBusy = true
   } else if (activity) {
     taskLabel = activity.label || 'Generating'; taskPlaceholder = false; taskBusy = true
   } else if (activeTaskId) {
@@ -6306,18 +6933,18 @@ export default function App() {
 
   useEffect(() => { loadVoices() }, [])
 
-  // Auto-reconnect: after a refresh/close, resume a running/interrupted task.
+  // 自动重连：刷新/关页后恢复正在运行/中断的任务
   useEffect(() => {
     api('/api/train/tasks').then(r => {
       if (!r.ok) return;
       const tasks = r.data.tasks || [];
-      // 1) activeTaskId in persistence: verify it still exists on the backend; if not, clear it to avoid a blank hang.
+      // 1) 持久化里有 activeTaskId：校验它是否仍存在于后端，不存在则清掉，避免卡空白
       if (activeTaskId) {
         const stillThere = tasks.find(t => t.id === activeTaskId);
         if (!stillThere) setActiveTaskId(null);
         return;
       }
-      // 2) no activeTaskId: adopt a running task first, then an interrupted one.
+      // 2) 没有 activeTaskId：优先接管运行中的，其次接管中断的
       const pick = tasks.find(t => t.status === 'running')
                 || tasks.find(t => t.status === 'interrupted');
       if (pick) setActiveTaskId(pick.id);

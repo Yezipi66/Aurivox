@@ -64,6 +64,7 @@ import librosa  # noqa: F401  # 必须在 torch 之前, 规避 torch-then-libros
 import torch  # noqa: F401
 
 import argparse
+import asyncio
 import signal
 import wave
 import subprocess
@@ -113,6 +114,13 @@ tts_config = TTS_Config(config_path)
 print(tts_config)
 tts_pipeline = TTS(tts_config)
 
+# tts_pipeline 是模块级全局单例, 被所有请求共享。切换 GPT/SoVITS 权重
+# (init_t2s_weights / init_vits_weights) 与推理 (run) 会并发访问同一对象:
+# 若一次推理进行中另一请求切了权重, 推理会读到半加载状态而抛异常 (/tts 返回 400
+# -> server.js 返回 500), 刷新后 (权重已切完) 又正常 —— 典型竞态。
+# 用一把互斥锁把"切权重"与"推理"串行化: 切模型时新推理排队等待, 反之亦然。
+_model_lock = asyncio.Lock()
+
 APP = FastAPI()
 
 
@@ -143,6 +151,10 @@ class TTS_Request(BaseModel):
     min_chunk_length: int = 16
     # 读音校对（task6）：本次合成的词粒度读音覆盖，形如 {"乐句": ["yue4","ju4"]}
     pron_overrides: dict = None
+    # Auto (Multilingual)：kana-free CJK 片段的兜底语言（取自音色元数据语言）
+    auto_base_lang: str = None
+    # 逐字语言覆盖：{子串 -> 强制语言}，把共享汉字强制读成反向语言（zh/yue/ja）
+    lang_overrides: dict = None
 
 
 class PronPreviewRequest(BaseModel):
@@ -306,6 +318,30 @@ async def tts_handle(req: dict):
             except Exception:
                 pass
 
+    # 与切权重互斥: 整个推理期间持锁, 防止 run() 读到半加载权重。
+    # 非流式路径全程在事件循环线程上 (next() 同步阻塞), 直接 release 即可;
+    # 流式路径下生成器在 starlette 线程池里迭代, 故用 call_soon_threadsafe
+    # 把 release 调度回事件循环线程, 避免跨线程操作 asyncio.Lock。
+    _loop = asyncio.get_running_loop()
+    await _model_lock.acquire()
+    _lock_state = {"released": False}
+
+    def _release_lock_threadsafe():
+        if _lock_state["released"]:
+            return
+        _lock_state["released"] = True
+        try:
+            _loop.call_soon_threadsafe(_model_lock.release)
+        except RuntimeError:
+            # 兜底: 事件循环已关闭/停止时 call_soon_threadsafe 会抛 RuntimeError
+            # (例如进程正在退出、请求被中断)。此时无法再调度回事件循环线程,
+            # 只能就地直接 release, 确保锁不会因崩溃路径而永久泄漏, 阻塞后续请求。
+            try:
+                _model_lock.release()
+            except Exception:
+                pass
+
+    _handed_to_stream = False
     try:
         tts_generator = tts_pipeline.run(req)
         if streaming_mode:
@@ -320,11 +356,14 @@ async def tts_handle(req: dict):
                         yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
                 finally:
                     _clear_pron()
+                    _release_lock_threadsafe()
 
-            return StreamingResponse(
+            resp = StreamingResponse(
                 streaming_generator(tts_generator, media_type),
                 media_type=f"audio/{media_type}",
             )
+            _handed_to_stream = True  # 锁的释放交给流式生成器的 finally
+            return resp
         else:
             sr, audio_data = next(tts_generator)
             audio_data = pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
@@ -333,6 +372,10 @@ async def tts_handle(req: dict):
     except Exception as e:
         _clear_pron()
         return JSONResponse(status_code=400, content={"message": "tts failed", "Exception": str(e)})
+    finally:
+        if not _handed_to_stream and not _lock_state["released"]:
+            _lock_state["released"] = True
+            _model_lock.release()
 
 
 @APP.get("/")
@@ -396,7 +439,8 @@ async def pron_preview(request: PronPreviewRequest):
 @APP.get("/set_refer_audio")
 async def set_refer_audio(refer_audio_path: str = None):
     try:
-        tts_pipeline.set_ref_audio(refer_audio_path)
+        async with _model_lock:
+            tts_pipeline.set_ref_audio(refer_audio_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": "set refer audio failed", "Exception": str(e)})
     return JSONResponse(status_code=200, content={"message": "success"})
@@ -407,7 +451,8 @@ async def set_gpt_weights(weights_path: str = None):
     try:
         if weights_path in ["", None]:
             return JSONResponse(status_code=400, content={"message": "gpt weight path is required"})
-        tts_pipeline.init_t2s_weights(weights_path)
+        async with _model_lock:
+            tts_pipeline.init_t2s_weights(weights_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": "change gpt weight failed", "Exception": str(e)})
     return JSONResponse(status_code=200, content={"message": "success"})
@@ -418,7 +463,8 @@ async def set_sovits_weights(weights_path: str = None):
     try:
         if weights_path in ["", None]:
             return JSONResponse(status_code=400, content={"message": "sovits weight path is required"})
-        tts_pipeline.init_vits_weights(weights_path)
+        async with _model_lock:
+            tts_pipeline.init_vits_weights(weights_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": "change sovits weight failed", "Exception": str(e)})
     return JSONResponse(status_code=200, content={"message": "success"})

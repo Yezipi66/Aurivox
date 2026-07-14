@@ -267,7 +267,7 @@ class TTS_Config:
     }
     configs: dict = None
     v1_languages: list = ["auto", "en", "zh", "ja", "all_zh", "all_ja"]
-    v2_languages: list = ["auto", "auto_yue", "en", "zh", "ja", "yue", "ko", "all_zh", "all_ja", "all_yue", "all_ko"]
+    v2_languages: list = ["auto", "auto_yue", "auto_zh_ja", "en", "zh", "ja", "yue", "ko", "all_zh", "all_ja", "all_yue", "all_ko"]
     languages: list = v2_languages
     mute_tokens: dict = {
         "v1" : 486,
@@ -1049,6 +1049,12 @@ class TTS:
         self.stop_flag: bool = False
         text: str = inputs.get("text", "")
         text_lang: str = inputs.get("text_lang", "")
+        # Base language for Auto (Multilingual) mode: kana-free CJK falls back to
+        # this (the voice's metadata language); ignored by all other modes.
+        auto_base_lang: str = inputs.get("auto_base_lang", "") or "zh"
+        # Per-character language overrides: {substring -> forced lang} for shared
+        # Han characters; active in all_zh/all_yue/all_ja/auto_zh_ja/auto.
+        lang_overrides: dict = inputs.get("lang_overrides", None)
         ref_audio_path: str = inputs.get("ref_audio_path", "")
         aux_ref_audio_paths: list = inputs.get("aux_ref_audio_paths", [])
         prompt_text: str = inputs.get("prompt_text", "")
@@ -1183,7 +1189,7 @@ class TTS:
         t1 = time.perf_counter()
         data: list = None
         if not (return_fragment or streaming_mode):
-            data = self.text_preprocessor.preprocess(text, text_lang, text_split_method, self.configs.version)
+            data = self.text_preprocessor.preprocess(text, text_lang, text_split_method, self.configs.version, auto_base_lang, lang_overrides)
             if len(data) == 0:
                 yield 16000, np.zeros(int(16000), dtype=np.int16)
                 return
@@ -1212,7 +1218,7 @@ class TTS:
                 print(f"############ {i18n('提取文本Bert特征')} ############")
                 for text in tqdm(batch_texts):
                     phones, bert_features, norm_text = self.text_preprocessor.segment_and_extract_feature_for_text(
-                        text, text_lang, self.configs.version
+                        text, text_lang, self.configs.version, auto_base_lang, lang_overrides
                     )
                     if phones is None:
                         continue

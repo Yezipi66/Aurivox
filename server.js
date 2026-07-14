@@ -819,6 +819,8 @@ const TTS_PASS_THROUGH_KEYS = [
   "media_type", "streaming_mode",
   "overlap_length", "min_chunk_length",
   "pron_overrides",
+  "auto_base_lang",
+  "lang_overrides",
 ];
 
 function buildTtsPayload(text, cfg) {
@@ -888,13 +890,22 @@ function buildTtsPayload(text, cfg) {
 // ===========================
 
 async function switchModels(cfg) {
+  // 切权重必须成功后才推理: 失败则抛错, 避免静默地用旧/半加载模型合成 (错声音/异常)。
   if (cfg.gpt_model) {
     const r = await gsvGet("/set_gpt_weights", { weights_path: cfg.gpt_model });
-    if (r.statusCode >= 400) console.error("set_gpt_weights failed:", r.body.toString());
+    if (r.statusCode >= 400) {
+      const msg = r.body ? r.body.toString() : "";
+      console.error("set_gpt_weights failed:", msg);
+      throw new Error(`set_gpt_weights failed (${r.statusCode}): ${msg}`);
+    }
   }
   if (cfg.sovits_model) {
     const r = await gsvGet("/set_sovits_weights", { weights_path: cfg.sovits_model });
-    if (r.statusCode >= 400) console.error("set_sovits_weights failed:", r.body.toString());
+    if (r.statusCode >= 400) {
+      const msg = r.body ? r.body.toString() : "";
+      console.error("set_sovits_weights failed:", msg);
+      throw new Error(`set_sovits_weights failed (${r.statusCode}): ${msg}`);
+    }
   }
 }
 
@@ -1113,7 +1124,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     media_type, streaming_mode,
     overlap_length, min_chunk_length,
     source, voice_label,
-    pron_overrides,
+    pron_overrides, auto_base_lang, lang_overrides,
   } = req.body || {};
   if (!voice) return res.status(400).json({ error: "Missing 'voice' field" });
   if (!text) return res.status(400).json({ error: "Missing 'text' field" });
@@ -1156,6 +1167,10 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     min_chunk_length: min_chunk_length !== undefined ? parseInt(min_chunk_length, 10) : undefined,
     // 读音校对（task6）：本次合成的词粒度读音覆盖，仅在非空对象时透传给引擎
     pron_overrides: (pron_overrides && typeof pron_overrides === "object" && !Array.isArray(pron_overrides) && Object.keys(pron_overrides).length) ? pron_overrides : undefined,
+    // Auto (Multilingual): kana-free CJK fallback language (voice metadata language).
+    auto_base_lang: auto_base_lang || undefined,
+    // Per-character language overrides for shared Han characters ({substring -> lang}).
+    lang_overrides: (lang_overrides && typeof lang_overrides === "object" && !Array.isArray(lang_overrides) && Object.keys(lang_overrides).length) ? lang_overrides : undefined,
   };
 
   const shouldSplit = split !== false;
@@ -2478,6 +2493,21 @@ app.get("/api/assets/:id/transcribe-status", requireApiKey, (req, res) => {
   res.json({ ok: true, ...pub });
 });
 
+// GET /api/transcribe-jobs — list ALL non-idle in-place transcribe jobs so the
+// Assets UI can re-hydrate after navigating away and back (the AssetsTab component
+// unmounts on page switch, losing its local job state, while these jobs keep running
+// server-side). Distinct top-level path on purpose: anything under /api/assets/<x>
+// is captured by the GET /api/assets/:id route above. Strip internal bookkeeping.
+app.get("/api/transcribe-jobs", requireApiKey, (req, res) => {
+  const jobs = {};
+  for (const [id, job] of transcribeJobs.entries()) {
+    if (!job || job.status === "idle") continue;
+    const { _child, _cancelled, logs, ...pub } = job;
+    jobs[id] = pub;
+  }
+  res.json({ ok: true, jobs });
+});
+
 // DELETE /api/assets/:id/transcribe — cancel a running in-place transcribe job.
 app.delete("/api/assets/:id/transcribe", requireApiKey, (req, res) => {
   const id = req.params.id;
@@ -2771,10 +2801,42 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
           parallel_infer: rp.parallel_infer != null ? rp.parallel_infer : advParams.parallel_infer,
         };
         if (auxResolved.length > 0) cfg.aux_ref_audio_paths = auxResolved;
-        // Pinned pronunciation overrides ride along verbatim (PA-1).
-        if (rp.pron_overrides && typeof rp.pron_overrides === "object" &&
-            Object.keys(rp.pron_overrides).length > 0) {
-          cfg.pron_overrides = rp.pron_overrides;
+        // Auto (Multilingual): kana-free CJK fallback = voice metadata language.
+        if (cfg.text_lang === "auto_zh_ja") {
+          cfg.auto_base_lang = rp.auto_base_lang || voiceReg.language || voiceReg.text_lang || "zh";
+        }
+        // Pinned pronunciation overrides ride along (PA-1). When the recipe also
+        // pins reverse-language readings for forced Han characters (#4), merge them
+        // into the nested {lang:{word:[readings]}} form the engine understands.
+        {
+          const base = (rp.pron_overrides && typeof rp.pron_overrides === "object" &&
+            !Array.isArray(rp.pron_overrides) && Object.keys(rp.pron_overrides).length > 0)
+            ? rp.pron_overrides : null;
+          const langOv = (rp.lang_overrides && typeof rp.lang_overrides === "object") ? rp.lang_overrides : {};
+          const readings = (rp.han_readings && typeof rp.han_readings === "object") ? rp.han_readings : {};
+          const reverse = {};
+          for (const ch of Object.keys(readings)) {
+            const r = String(readings[ch] == null ? "" : readings[ch]).trim();
+            const lng = langOv[ch];
+            if (r && lng) { (reverse[lng] = reverse[lng] || {})[ch] = [r]; }
+          }
+          const hasReverse = Object.keys(reverse).length > 0;
+          if (hasReverse) {
+            const baseLang = String(cfg.text_lang === "auto_zh_ja"
+              ? (cfg.auto_base_lang || "zh")
+              : (cfg.text_lang || "zh")).toLowerCase()
+              .replace("all_", "").replace("auto_", "").replace("auto", "zh") || "zh";
+            const merged = { ...reverse };
+            if (base) merged[baseLang] = { ...(merged[baseLang] || {}), ...base };
+            cfg.pron_overrides = merged;
+          } else if (base) {
+            cfg.pron_overrides = base;
+          }
+        }
+        // Per-character language overrides ride along verbatim when pinned.
+        if (rp.lang_overrides && typeof rp.lang_overrides === "object" &&
+            Object.keys(rp.lang_overrides).length > 0) {
+          cfg.lang_overrides = rp.lang_overrides;
         }
 
         await switchModels(cfg);
@@ -3198,26 +3260,6 @@ app.get("/api/train/review/:id", (req, res) => {
   const data = task.getReviewList();
   if (!data) return res.status(404).json({ error: "No review list available (ASR not produced yet)" });
   res.json(data);
-});
-
-// GET  试听校对行对应的切片音频（awaiting_review 期间音频在 .staging 工作区里，
-//      前端 static /assets 还看不到它）。path 为校对行的 audio_path（资产内相对路径）。
-const REVIEW_AUDIO_MIME = {
-  ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac",
-  ".m4a": "audio/mp4", ".ogg": "audio/ogg",
-};
-app.get("/api/train/review/:id/audio", (req, res) => {
-  const task = trainingPipeline.getTask(req.params.id);
-  if (!task || typeof task.resolveReviewAudioPath !== "function") {
-    return res.status(404).json({ error: "Task not found" });
-  }
-  const abs = task.resolveReviewAudioPath(String(req.query.path || ""));
-  if (!abs) return res.status(404).json({ error: "Audio not found" });
-  res.setHeader("Content-Type", REVIEW_AUDIO_MIME[path.extname(abs).toLowerCase()] || "application/octet-stream");
-  res.setHeader("Cache-Control", "no-store");
-  fs.createReadStream(abs)
-    .on("error", () => { if (!res.headersSent) res.status(500).end(); })
-    .pipe(res);
 });
 
 // POST 保存用户校对后的文本（写回 .list + segments.json）。可在 awaiting_review 期间反复保存。

@@ -24,6 +24,121 @@ language = sys.argv[-1] if sys.argv[-1] in scan_language_list() else language
 i18n = I18nAuto(language=language)
 punctuation = set(["!", "?", "…", ",", ".", "-"])
 
+# --- Auto (Multilingual): zh/ja shared Han-character disambiguation ----------
+# Kana (hiragana/katakana, incl. half-width) is the only unambiguous Japanese
+# signal; shared Han characters are ambiguous. We split text into clauses
+# bounded by sentence terminators and paired quotes, then let the presence of
+# kana in a clause decide whether that clause's Han characters are read as
+# Japanese or Chinese.
+_KANA_RE = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\uFF66-\uFF9F]")
+_QUOTE_PAIRS = {
+    "\u300c": "\u300d",  # 「 」
+    "\u300e": "\u300f",  # 『 』
+    "\u201c": "\u201d",  # “ ”
+    "\u2018": "\u2019",  # ‘ ’
+    "\uff08": "\uff09",  # （ ）
+    "(": ")",
+    "\u3008": "\u3009",  # 〈 〉
+    "\u300a": "\u300b",  # 《 》
+    "\u3010": "\u3011",  # 【 】
+}
+_SENT_END = set("\u3002\uff01\uff1f!?\u2026\n")  # 。！？ ! ? … newline
+
+
+_ML_BASE_LANGS = ("zh", "ja", "yue", "ko", "en")
+
+
+def _norm_base_lang(lang) -> str:
+    """Normalize a voice metadata language to a concrete base lang for the
+    Auto (Multilingual) fallback (the reading used for kana-free CJK clauses)."""
+    s = str(lang or "").lower().replace("all_", "").replace("auto_", "").strip()
+    return s if s in _ML_BASE_LANGS else "zh"
+
+
+def _has_kana(s: str) -> bool:
+    return bool(_KANA_RE.search(s))
+
+
+# Per-character language override: force specific Han-character substrings to a
+# language that differs from the dominant one (e.g. read 大丈夫 as Japanese inside
+# a Chinese passage, or vice versa). Only zh/yue/ja are meaningful targets.
+_ML_OVERRIDE_LANGS = ("zh", "yue", "ja")
+
+
+def _apply_lang_overrides(langlist, textlist, overrides):
+    """Split each (lang, text) segment at override substrings and reassign their
+    language. Substring-based -> applies to every occurrence (same character =
+    same reading intent). No-op when overrides is empty -> zero regression.
+    """
+    clean = {}
+    for k, v in (overrides or {}).items():
+        if not k:
+            continue
+        lv = _norm_base_lang(v)
+        if lv in _ML_OVERRIDE_LANGS:
+            clean[k] = lv
+    keys = sorted(clean.keys(), key=len, reverse=True)  # longest match first
+    if not keys:
+        return langlist, textlist
+
+    out_lang, out_text = [], []
+
+    def emit(lang, txt):
+        if not txt:
+            return
+        if out_lang and out_lang[-1] == lang:
+            out_text[-1] += txt
+        else:
+            out_lang.append(lang)
+            out_text.append(txt)
+
+    for seg_lang, seg_text in zip(langlist, textlist):
+        i, n = 0, len(seg_text)
+        while i < n:
+            matched = next((k for k in keys if seg_text.startswith(k, i)), None)
+            if matched is not None:
+                emit(clean[matched], matched)
+                i += len(matched)
+            else:
+                j = i + 1
+                while j < n and not any(seg_text.startswith(k, j) for k in keys):
+                    j += 1
+                emit(seg_lang, seg_text[i:j])
+                i = j
+    return out_lang, out_text
+
+
+def _split_clauses(text: str) -> List[str]:
+    """Split into clauses bounded by sentence terminators and paired quotes.
+
+    Quoted spans become their own clause so a Japanese quote embedded in a
+    Chinese sentence does not turn the surrounding Chinese Japanese (and vice
+    versa). Kana "contagion" is therefore confined to a single clause.
+    """
+    clauses = []
+    buf = ""
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        close = _QUOTE_PAIRS.get(ch)
+        if close is not None:
+            j = text.find(close, i + 1)
+            if j != -1:
+                if buf:
+                    clauses.append(buf)
+                    buf = ""
+                clauses.append(text[i:j + 1])
+                i = j + 1
+                continue
+        buf += ch
+        if ch in _SENT_END:
+            clauses.append(buf)
+            buf = ""
+        i += 1
+    if buf:
+        clauses.append(buf)
+    return [c for c in clauses if c]
+
 
 def get_first(text: str) -> str:
     pattern = "[" + "".join(re.escape(sep) for sep in splits) + "]"
@@ -56,14 +171,14 @@ class TextPreprocessor:
         self.device = device
         self.bert_lock = threading.RLock()
 
-    def preprocess(self, text: str, lang: str, text_split_method: str, version: str = "v2") -> List[Dict]:
+    def preprocess(self, text: str, lang: str, text_split_method: str, version: str = "v2", auto_base_lang: str = "zh", lang_overrides: dict = None) -> List[Dict]:
         print(f"############ {i18n('切分文本')} ############")
         text = self.replace_consecutive_punctuation(text)
         texts = self.pre_seg_text(text, lang, text_split_method)
         result = []
         print(f"############ {i18n('提取文本Bert特征')} ############")
         for text in tqdm(texts):
-            phones, bert_features, norm_text = self.segment_and_extract_feature_for_text(text, lang, version)
+            phones, bert_features, norm_text = self.segment_and_extract_feature_for_text(text, lang, version, auto_base_lang, lang_overrides)
             if phones is None or norm_text == "":
                 continue
             res = {
@@ -115,11 +230,11 @@ class TextPreprocessor:
         return texts
 
     def segment_and_extract_feature_for_text(
-        self, text: str, language: str, version: str = "v1"
+        self, text: str, language: str, version: str = "v1", auto_base_lang: str = "zh", lang_overrides: dict = None
     ) -> Tuple[list, torch.Tensor, str]:
-        return self.get_phones_and_bert(text, language, version)
+        return self.get_phones_and_bert(text, language, version, auto_base_lang=auto_base_lang, lang_overrides=lang_overrides)
 
-    def get_phones_and_bert(self, text: str, language: str, version: str, final: bool = False):
+    def get_phones_and_bert(self, text: str, language: str, version: str, final: bool = False, auto_base_lang: str = "zh", lang_overrides: dict = None):
         with self.bert_lock:
             text = re.sub(r' {2,}', ' ', text)
             textlist = []
@@ -155,6 +270,24 @@ class TextPreprocessor:
                         tmp["lang"] = "yue"
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
+            elif language == "auto_zh_ja":
+                # Auto (Multilingual): kana-free CJK defaults to the voice's base
+                # language (from asset metadata), but any clause that CONTAINS kana
+                # is treated as Japanese so its shared Han characters are read as Japanese too.
+                # Ambiguous CJK segments (zh / zh-tw"x") follow the clause default;
+                # en/ja/ko keep their detected language.
+                base_lang = _norm_base_lang(auto_base_lang)
+                for clause in _split_clauses(text):
+                    cjk_default = "ja" if _has_kana(clause) else base_lang
+                    for tmp in LangSegmenter.getTexts(clause):
+                        seg_lang = tmp["lang"]
+                        if seg_lang in ("zh", "x"):
+                            seg_lang = cjk_default
+                        if langlist and seg_lang == langlist[-1]:
+                            textlist[-1] += tmp["text"]
+                        else:
+                            langlist.append(seg_lang)
+                            textlist.append(tmp["text"])
             else:
                 for tmp in LangSegmenter.getTexts(text):
                     if langlist:
@@ -167,6 +300,10 @@ class TextPreprocessor:
                         # 因无法区别中日韩文汉字,以用户输入为准
                         langlist.append(language)
                     textlist.append(tmp["text"])
+            # Per-character language override (Auto Multilingual + strict CJK modes):
+            # force user-selected Han-character runs to their reverse language.
+            if lang_overrides and language in ("all_zh", "all_yue", "all_ja", "auto_zh_ja", "auto"):
+                langlist, textlist = _apply_lang_overrides(langlist, textlist, lang_overrides)
             # print(textlist)
             # print(langlist)
             phones_list = []
@@ -184,7 +321,7 @@ class TextPreprocessor:
             norm_text = "".join(norm_text_list)
 
             if not final and len(phones) < 6:
-                return self.get_phones_and_bert("." + text, language, version, final=True)
+                return self.get_phones_and_bert("." + text, language, version, final=True, auto_base_lang=auto_base_lang, lang_overrides=lang_overrides)
 
             return phones, bert, norm_text
 
