@@ -13,6 +13,15 @@ i_part = os.environ.get("i_part")
 all_parts = os.environ.get("all_parts")
 if "_CUDA_VISIBLE_DEVICES" in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["_CUDA_VISIBLE_DEVICES"]
+
+# IMPORTANT: import librosa BEFORE torch.
+# On some Windows machines, importing librosa AFTER torch triggers a native
+# access-violation (process exits with 3221225477 / 0xC0000005 and an EMPTY
+# log). `from gsv_code.feature_extractor import cnhubert` below pulls in torch
+# transitively (cnhubert.py imports torch), and `import torch` follows, so
+# librosa must be imported here first. Harmless on machines that don't crash.
+import librosa  # noqa: F401
+
 from gsv_code.feature_extractor import cnhubert
 
 opt_dir = os.environ.get("opt_dir")

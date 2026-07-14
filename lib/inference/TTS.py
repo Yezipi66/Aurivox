@@ -7,6 +7,14 @@ import time
 import traceback
 from copy import deepcopy
 
+# IMPORTANT: import librosa BEFORE torch/torchaudio.
+# On some Windows machines, importing librosa AFTER torch triggers a native
+# access-violation (process exits with 3221225477 / 0xC0000005 and an EMPTY
+# log). torchaudio below pulls in torch, so librosa must precede it. The main
+# entry (infer_server.py) already pre-imports librosa, but this keeps TTS.py
+# self-safe if imported directly. Harmless on machines that don't crash.
+import librosa  # noqa: F401
+
 import torchaudio
 from tqdm import tqdm
 

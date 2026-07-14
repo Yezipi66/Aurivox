@@ -25,6 +25,30 @@ $SCRIPT_DIR = $PSScriptRoot
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
 $ROOT = Split-Path (Split-Path $SCRIPT_DIR -Parent) -Parent
 
+# --- 0a. GUARD: refuse a non-ASCII (e.g. Chinese) install path ------------
+# A path containing non-ASCII characters (e.g. D:\<chinese>\) is destroyed to
+# D:\??\ the moment a child process (python/ffmpeg/uv) is launched through the
+# Windows GBK/ANSI console codepage, so those tools can no longer be found
+# ("No Python at 'D:\??\...\python.exe'", slice/ASR/train all fail). We must
+# validate $ROOT here -- it is the REAL Unicode path from $PSScriptRoot; a path
+# read back from the console is already mangled to '?' (0x3F, ASCII) and would
+# falsely pass. Message kept ASCII-only so it renders in any console/encoding;
+# the Chinese explanation is printed by the .bat wrapper on exit code 7.
+$__badChars = @()
+foreach ($c in $ROOT.ToCharArray()) { if ([int][char]$c -gt 127) { $__badChars += $c } }
+if ($__badChars.Count -gt 0) {
+  Write-Host ''
+  Write-Host '============================================================' -ForegroundColor Red
+  Write-Host '[deploy][FATAL] Install path contains non-ASCII characters.' -ForegroundColor Red
+  Write-Host ('  path : {0}' -f $ROOT) -ForegroundColor Red
+  Write-Host ('  bad  : {0}' -f ($__badChars -join ' ')) -ForegroundColor Red
+  Write-Host '  A non-English path (Chinese etc.) breaks Python/ffmpeg' -ForegroundColor Red
+  Write-Host '  process launching on Windows. Move the WHOLE folder to a' -ForegroundColor Red
+  Write-Host '  pure-English path such as  D:\TTS-Broker  then re-run.' -ForegroundColor Red
+  Write-Host '============================================================' -ForegroundColor Red
+  exit 7
+}
+
 $TORCH_VER      = 'torch==2.2.0'
 $TORCHAUDIO_VER = 'torchaudio==2.2.0'
 $TORCHVISION_VER = 'torchvision==0.17.0'
@@ -81,12 +105,31 @@ if ($pyver -notmatch '3\.11\.') { Warn ('expected Python 3.11.x, got: {0} — co
 # --- 2. create venv ---
 $VENV = Join-Path $ROOT 'venv'
 $VENV_PY = Join-Path $VENV 'Scripts\python.exe'
+# A venv is NOT relocatable: pyvenv.cfg bakes the ABSOLUTE path of the base
+# interpreter used to create it. If the project folder was moved/renamed (or was
+# first deployed under a non-English path), the existing venv's python is a
+# trampoline still pointing at the OLD base path and every call dies with
+# "No Python at '...\python.exe'". So we don't blindly trust an existing venv:
+# we health-check it, and if it is broken we rebuild it against the CURRENT
+# embedded runtime. This is what lets the whole project be moved freely.
+$venvOk = $false
 if (Test-Path $VENV_PY) {
-  Ok ('venv already exists: {0}' -f $VENV)
+  & $VENV_PY -c "import sys" 2>$null
+  if ($LASTEXITCODE -eq 0) { $venvOk = $true }
+}
+if ($venvOk) {
+  Ok ('venv already exists and works: {0}' -f $VENV)
 } else {
+  if (Test-Path $VENV) {
+    Warn ('existing venv is broken or was moved from another path; rebuilding it: {0}' -f $VENV)
+    Remove-Item -Recurse -Force $VENV -ErrorAction SilentlyContinue
+  }
   Info 'creating venv ...'
   & $EMB_PY -m venv "$VENV"
   if (-not (Test-Path $VENV_PY)) { Die 'venv creation failed.' }
+  # sanity: the freshly created venv must actually run
+  & $VENV_PY -c "import sys" 2>$null
+  if ($LASTEXITCODE -ne 0) { Die 'venv was created but its python cannot run. Check the embedded runtime.' }
   Ok 'venv created.'
 }
 

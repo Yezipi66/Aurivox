@@ -8,7 +8,16 @@ from gsv_code.module import commons
 from gsv_code.module import modules
 from gsv_code.module import attentions_onnx as attentions
 
-from f5_tts.model import DiT
+try:
+    from f5_tts.model import DiT
+except Exception as _f5_import_err:  # f5_tts DiT is only used by v3/v4; v2/v2Pro don't need it
+    class _DiTUnavailable:
+        def __init__(self, *args, **kwargs):
+            raise ImportError(
+                "f5_tts (DiT) is required only for SynthesizerTrnV3/V4 but could not be "
+                "imported: %s. v2/v2Pro models do not use it." % (_f5_import_err,)
+            )
+    DiT = _DiTUnavailable
 
 from torch.nn import Conv1d, ConvTranspose1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm

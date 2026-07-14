@@ -49,5 +49,16 @@ data/pron_lexicon/*.json
 !data/pron_lexicon/README.md
 recipes/ 
 
-# Project-local ffmpeg binaries (provisioned by download_ffmpeg.py)
-vendor/ffmpeg/
+# Project-local vendored binaries (ffmpeg 等，由 download_ffmpeg.py 提供，勿入库)
+vendor/
+
+# ASR 模型目录（HF faster-whisper，~2.9GB，部署时下载，勿入库）
+lib/training/gsv-tools/asr/faster-whisper-large-v3/
+lib/training/gsv-tools/asr/faster-whisper-*/
+lib/training/gsv-tools/asr/whisper-*/
+
+# 本地实验/一次性脚本（IndexTTS2 等；如需入库，删掉对应行）
+try_indextts2*.ps1
+setup_indextts*.bat
+setup_indextts*.ps1
+fetch_michele_voices.py

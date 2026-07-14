@@ -49,10 +49,19 @@ os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
 # Windows 上 numpy/soundfile/sklearn 等各自捆绑 OpenMP/MKL 运行时, 若在 torch 之前加载,
 # 会与 torch 的 OpenMP 产生重复运行时冲突, 导致首次 torch 重运算 (加载/构建模型) 时
 # 静默访问冲突崩溃 (无 Python traceback)。两个措施规避:
-#   1) 允许重复 OpenMP 运行时共存 (官方推荐的兜底开关)
-#   2) 抢先 import torch, 让 torch 的 MKL/OpenMP DLL 先于其它库加载
+#   1) 允许重复 OpenMP 运行时共存 (官方推荐的兜底开关, 这一条已足以规避 OpenMP 冲突)
+#   2) 固定 native 库加载顺序: 先 librosa, 再 torch
+#
+# 注意 (2) 的方向: 早期版本是"抢先 import torch"。但在部分 Windows 机器上,
+# 若 torch 先于 librosa 加载, librosa 的 import 会触发 native 访问冲突
+# (进程以 3221225477 / 0xC0000005 退出, 且无任何 Python traceback / 空日志),
+# 经逐库 bisect 确认崩溃点正是 "torch-then-librosa" 这个顺序。librosa 会连带
+# 加载 numpy/soundfile/numba 等; 有了上面的 KMP_DUPLICATE_LIB_OK 兜底,
+# 让 librosa 先加载不会重新引入当初的 OpenMP 重复运行时崩溃, 反而能同时避开
+# torch-then-librosa 崩溃。因此这里改为先 import librosa, 再 import torch。
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-import torch  # noqa: F401  # 必须在 numpy/soundfile/fastapi 之前, 以固定 DLL 加载顺序
+import librosa  # noqa: F401  # 必须在 torch 之前, 规避 torch-then-librosa native 崩溃
+import torch  # noqa: F401
 
 import argparse
 import signal

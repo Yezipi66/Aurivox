@@ -61,7 +61,12 @@ PATH_EXCLUDE = {
     os.path.join("vendor", "ffmpeg"),
     # pure model dirs (no needed code lives here):
     os.path.join("lib", "training", "gsv-tools", "pretrained"),
-    os.path.join("lib", "training", "gsv-tools", "asr"),
+    # NOTE: do NOT exclude the whole gsv-tools/asr dir -- it holds required
+    # scripts (fasterwhisper_asr.py, asr_utils.py, funasr_asr.py, config.py).
+    # Exclude only the downloaded ASR model subdirs; the code ships, the huge
+    # weights are dropped here (and .bin is also caught by EXCLUDE_EXT).
+    os.path.join("lib", "training", "gsv-tools", "asr", "faster-whisper-large-v3-turbo"),
+    os.path.join("lib", "training", "gsv-tools", "asr", "models"),
     os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights"),
     os.path.join("lib", "training", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
@@ -89,6 +94,14 @@ EXCLUDE_FILES = {
     # stray reports / caches (junk at any depth)
     "tree_report.txt", "pack_sources.cpython-312.pyc",
     "requirements.lock.current.txt",
+    # per-machine user state written by the running app (paths.js). It pins an
+    # ABSOLUTE assetsRoot from whatever machine last ran; shipping it forces
+    # every tester's assets/.staging onto the dev machine's D:\ path. Must NOT
+    # ship -- paths.js then correctly defaults to <install-root>\assets.
+    "app-config.json",
+    # dev machine's voice roster (server.js loadVoices() returns {} if absent).
+    # Shipping it makes every tester see phantom voices that don't exist locally.
+    "voices.json",
 }
 # Old junk that lived AT THE PROJECT ROOT. Matched ONLY at top level so we don't
 # accidentally drop legit same-named files that now live deeper, e.g. the real

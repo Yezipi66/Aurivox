@@ -14,6 +14,28 @@ if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
 # tools\scripts -> tools -> <root>
 $BASE_DIR = Split-Path (Split-Path $SCRIPT_DIR -Parent) -Parent
 
+# --- GUARD: refuse a non-ASCII (e.g. Chinese) install path ----------------
+# Same failure mode as deploy: a non-English path is mangled to D:\??\ when
+# child processes (python/ffmpeg) are launched via the GBK console, so the
+# engine/backend cannot find Python and training/inference break. Validate
+# $BASE_DIR (real Unicode from $PSScriptRoot) BEFORE launching anything. A
+# path read back through the console is already '?'-mangled (0x3F, ASCII) and
+# would falsely pass. ASCII-only message; .bat wrapper prints Chinese on code 7.
+$__badChars = @()
+foreach ($c in $BASE_DIR.ToCharArray()) { if ([int][char]$c -gt 127) { $__badChars += $c } }
+if ($__badChars.Count -gt 0) {
+  Write-Host ''
+  Write-Host '============================================================' -ForegroundColor Red
+  Write-Host '[start][FATAL] Install path contains non-ASCII characters.' -ForegroundColor Red
+  Write-Host ('  path : {0}' -f $BASE_DIR) -ForegroundColor Red
+  Write-Host ('  bad  : {0}' -f ($__badChars -join ' ')) -ForegroundColor Red
+  Write-Host '  A non-English path (Chinese etc.) breaks Python/ffmpeg' -ForegroundColor Red
+  Write-Host '  process launching on Windows. Move the WHOLE folder to a' -ForegroundColor Red
+  Write-Host '  pure-English path such as  D:\TTS-Broker  then re-run.' -ForegroundColor Red
+  Write-Host '============================================================' -ForegroundColor Red
+  exit 7
+}
+
 $ENGINE_PY     = Join-Path $BASE_DIR 'venv\Scripts\python.exe'
 $ENGINE_SCRIPT = Join-Path $BASE_DIR 'lib\inference\infer_server.py'
 $ENGINE_CFG    = Join-Path $BASE_DIR 'lib\inference\tts_infer.yaml'

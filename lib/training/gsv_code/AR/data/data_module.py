@@ -1,8 +1,32 @@
 # modified from https://github.com/yangdongchao/SoundStorm/blob/master/soundstorm/s1/AR/data/data_module.py
 # reference: https://github.com/lifeiteng/vall-e
+import sys
+
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 import torch
+
+# On Windows, tearing down persistent DataLoader worker processes at the end of
+# trainer.fit() frequently crashes the interpreter with an access violation
+# (exit code 0xC0000005) AFTER training + checkpointing have already succeeded.
+# The Node pipeline then treats the non-zero exit as a training failure and
+# discards a model that was in fact trained and saved. The datasets here are
+# tiny (a few hundred lines), so worker processes buy nothing. Force in-process
+# loading on Windows to make teardown deterministic and crash-free.
+_IS_WINDOWS = sys.platform == "win32"
+
+
+def _loader_mp_kwargs(requested_workers):
+    """Return DataLoader multiprocessing kwargs that are safe on the current OS."""
+    if _IS_WINDOWS or requested_workers <= 0:
+        # num_workers=0 => single process; persistent_workers/prefetch_factor are
+        # invalid with 0 workers and must be omitted.
+        return {"num_workers": 0}
+    return {
+        "num_workers": requested_workers,
+        "persistent_workers": True,
+        "prefetch_factor": 16,
+    }
 
 from gsv_code.AR.data.bucket_sampler import DistributedBucketSampler
 from gsv_code.AR.data.dataset import Text2SemanticDataset
@@ -58,9 +82,7 @@ class Text2SemanticDataModule(LightningDataModule):
         return DataLoader(
             self._train_dataset,
             collate_fn=self._train_dataset.collate,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            prefetch_factor=16,
+            **_loader_mp_kwargs(self.num_workers),
             **dl_kwargs
         )
 
@@ -70,9 +92,7 @@ class Text2SemanticDataModule(LightningDataModule):
             batch_size=1,
             shuffle=False,
             collate_fn=self._train_dataset.collate,
-            num_workers=max(self.num_workers, 12),
-            persistent_workers=True,
-            prefetch_factor=16,
+            **_loader_mp_kwargs(max(self.num_workers, 12)),
         )
 
     # 这个会使用到嘛？

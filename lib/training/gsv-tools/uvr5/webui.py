@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 import sys
 
 import ffmpeg
+
+# IMPORTANT: import librosa BEFORE torch.
+# On some Windows machines, importing librosa AFTER torch triggers a native
+# access-violation (process exits with 3221225477 / 0xC0000005 and an EMPTY
+# log). torch is imported below and again transitively via bsroformer (which
+# imports librosa), so librosa must be imported here first. Harmless otherwise.
+import librosa  # noqa: F401
 import torch
 from bsroformer import Roformer_Loader
 from mdxnet import MDXNetDereverb

@@ -1,6 +1,17 @@
 import warnings
 
 warnings.filterwarnings("ignore")
+
+# IMPORTANT: import librosa BEFORE torch.
+# On some Windows machines, importing librosa AFTER torch triggers a native
+# access-violation (process exits with 3221225477 / 0xC0000005 and an EMPTY
+# log) that kills S2 at startup, while S1 (which never imports librosa) is
+# fine. Per-library bisection confirmed the crash is specifically the
+# torch-then-librosa order; importing librosa first avoids it and is otherwise
+# harmless. torch is first pulled in transitively by `import utils` below, so
+# librosa must precede that import.
+import librosa  # noqa: F401
+
 import os
 
 import utils

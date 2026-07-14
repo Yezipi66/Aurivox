@@ -4,8 +4,8 @@
 download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
 
 模型不随发行包分发(约 9GB),由本脚本引导下载到项目内的真实路径:
-    lib/training/gsv-tools/pretrained/          底模 (gsv / v2Pro / sv / hubert / roberta / bigvgan)
-    lib/training/gsv-tools/asr/models/          ASR (faster-whisper-large-v3)
+    lib/training/gsv-tools/pretrained/          底模 (gsv / v2Pro / sv / hubert / roberta)
+    lib/training/gsv-tools/asr/faster-whisper-large-v3-turbo/  ASR (faster-whisper large-v3-turbo)
     lib/training/gsv-tools/uvr5/uvr5_weights/   UVR5 去人声 (HP2)
     GPT_SoVITS/text/G2PWModel/                  G2PW 多音字 (g2pW.onnx)  ← 同时写入 gsv_code 副本
     lib/training/gsv-tools/pretrained/fast_langdetect/  语言检测 (lid.176.bin) ← 同时写副本
@@ -26,8 +26,7 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
 
 来源(标准 HuggingFace,如与你的实际源不同,改 MANIFEST 里的 repo/url 即可):
   * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta / uvr5
-  * nvidia/bigvgan_v2_24khz_100band_256x  —— bigvgan 声码器
-  * Systran/faster-whisper-large-v3       —— ASR
+  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  —— ASR (turbo, ~1.6GB)
   * fasttext lid.176                      —— 语言检测直链
   * XXXXRT/GPT-SoVITS-Pretrained          —— G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
 
@@ -54,8 +53,10 @@ HF_REPO_GSV = "lj1995/GPT-SoVITS"
 # UVR5 去人声权重不在 GPT-SoVITS 仓库, 而在原 RVC 仓库 lj1995/VoiceConversionWebUI
 # 的 uvr5_weights/ 下(GPT-SoVITS 官方 README 亦指向此处)。用错仓库会 404。
 HF_REPO_UVR5 = "lj1995/VoiceConversionWebUI"
-HF_REPO_BIGVGAN = "nvidia/bigvgan_v2_24khz_100band_256x"
-HF_REPO_ASR = "Systran/faster-whisper-large-v3"
+# ASR 运行时(asr.js -> fasterwhisper_asr.py, --model_dir=asr, -s large-v3-turbo)
+# 期望模型位于 asr/faster-whisper-large-v3-turbo/。turbo 权重在 mobiuslabsgmbh 仓库,
+# 非 Systran 的 large-v3。用错仓库/路径会导致运行时 "Unable to open file 'model.bin'"。
+HF_REPO_ASR = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
 MIRROR = "https://hf-mirror.com"
 
 # 直链(如失效, 更新为你的可用源)
@@ -68,7 +69,7 @@ URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve
 
 # 相对项目根的目录
 PRE = os.path.join("lib", "training", "gsv-tools", "pretrained")
-ASR = os.path.join("lib", "training", "gsv-tools", "asr", "models", "faster-whisper-large-v3")
+ASR = os.path.join("lib", "training", "gsv-tools", "asr", "faster-whisper-large-v3-turbo")
 UVR = os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights")
 
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
@@ -110,18 +111,16 @@ MANIFEST = {
          os.path.join(PRE, "chinese-roberta-wwm-ext-large", "tokenizer.json"), 100_000),
         ("hf", (HF_REPO_GSV, "chinese-roberta-wwm-ext-large/pytorch_model.bin"),
          os.path.join(PRE, "chinese-roberta-wwm-ext-large", "pytorch_model.bin"), 600_000_000),
-        # --- bigvgan ---
-        ("hf", (HF_REPO_BIGVGAN, "bigvgan_generator.pt"),
-         os.path.join(PRE, "bigvgan", "bigvgan_generator.pt"), 100_000_000),
-        ("hf", (HF_REPO_BIGVGAN, "config.json"),
-         os.path.join(PRE, "bigvgan", "config.json"), 500),
+        # 注: BigVGAN 声码器仅 SoVITS v3 推理使用(TTS.py init_vocoder version=='v3'),
+        # 本项目不支持 v3(与 SR 同理),故不下载。若将来启用 v3, 需同时把权重放到
+        # 推理端期望路径 GPT_SoVITS/pretrained_models/models--nvidia--bigvgan_v2_24khz_100band_256x/。
     ],
     "asr": [
         ("hf", (HF_REPO_ASR, "config.json"), os.path.join(ASR, "config.json"), 500),
         ("hf", (HF_REPO_ASR, "preprocessor_config.json"), os.path.join(ASR, "preprocessor_config.json"), 100),
         ("hf", (HF_REPO_ASR, "tokenizer.json"), os.path.join(ASR, "tokenizer.json"), 1_000_000),
         ("hf", (HF_REPO_ASR, "vocabulary.json"), os.path.join(ASR, "vocabulary.json"), 500_000),
-        ("hf", (HF_REPO_ASR, "model.bin"), os.path.join(ASR, "model.bin"), 2_500_000_000),
+        ("hf", (HF_REPO_ASR, "model.bin"), os.path.join(ASR, "model.bin"), 1_500_000_000),
     ],
     "uvr5": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP2_all_vocals.pth"),
@@ -340,7 +339,7 @@ def wizard(root, mirror, jobs):
         print("============================================================")
         print("  1) 全部 (core + asr + uvr5 + g2pw + langdetect)  ~9GB")
         print("  2) 仅核心底模 core")
-        print("  3) 仅 ASR (faster-whisper-large-v3)  ~3GB")
+        print("  3) 仅 ASR (faster-whisper large-v3-turbo)  ~1.6GB")
         print("  4) 仅 UVR5 去人声 (HP2)")
         print("  5) 仅 G2PW 多音字")
         print("  6) 仅 语言检测 lid.176")

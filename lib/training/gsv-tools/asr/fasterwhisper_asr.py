@@ -4,6 +4,7 @@ Faster Whisper ASR — 从 GPT-SoVITS 项目解耦
 """
 import argparse
 import os
+import shutil
 import sys
 import traceback
 
@@ -79,12 +80,31 @@ def _download_model(model_size: str, model_dir: str):
     else:
         repo_id = "XXXXRT/faster-whisper"
         files = [f"faster-whisper-{model_size}/{f}" for f in
-                 ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"]]
-        print(f"Downloading from ModelScope: {repo_id} -> {model_dir}")
+                 ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt", "vocabulary.json",
+                  "preprocessor_config.json"]]
+        # ModelScope 仓库把权重放在 faster-whisper-<size>/ 前缀下。若直接 local_dir=model_dir,
+        # 会落成 model_dir/faster-whisper-<size>/...(双层嵌套, ASR 找不到 model.bin)。
+        # 故下载到 model_dir 的父目录, 让该前缀正好落成 model_dir 本身。
+        parent = os.path.dirname(os.path.abspath(model_dir)) or "."
+        print(f"Downloading from ModelScope: {repo_id} -> {parent}")
         snapshot_download_ms(
-            repo_id, local_dir=model_dir,
+            repo_id, local_dir=parent,
             allow_patterns=files,
         )
+
+    # 安全兜底: 无论何种来源, 若权重意外落到 model_dir/faster-whisper-<size>/ 里,
+    # 把该嵌套目录内容上移一层, 保证 model.bin 直接位于 model_dir 根下。
+    nested = os.path.join(model_dir, f"faster-whisper-{model_size}")
+    if os.path.isdir(nested) and os.path.exists(os.path.join(nested, "model.bin")):
+        for fn in os.listdir(nested):
+            src = os.path.join(nested, fn)
+            dst = os.path.join(model_dir, fn)
+            if not os.path.exists(dst):
+                shutil.move(src, dst)
+        try:
+            shutil.rmtree(nested)
+        except OSError:
+            pass
 
 
 def _get_model_path(model_size: str, asr_models_dir: str) -> str:
@@ -189,6 +209,13 @@ if __name__ == "__main__":
     # 模型路径
     if cmd.model_dir:
         model_path = os.path.join(cmd.model_dir, f"faster-whisper-{model_size}")
+        # 自愈: 若显式目录里缺权重(model.bin 不存在), 自动下载到该目录,
+        # 避免直接抛 "Unable to open file 'model.bin'"。覆盖了部署下载器
+        # 未把模型放到运行时期望路径 / 路径不一致的情况。
+        if not os.path.exists(os.path.join(model_path, "model.bin")):
+            print(f"model.bin missing under {model_path}; auto-downloading {model_size} ...", flush=True)
+            os.makedirs(model_path, exist_ok=True)
+            _download_model(model_size, model_path)
     else:
         asr_models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "asr", "models")
         model_path = _get_model_path(model_size, asr_models_dir)
