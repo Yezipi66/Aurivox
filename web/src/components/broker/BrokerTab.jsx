@@ -162,6 +162,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
           </div>
         </div>
       )}
+      <p className="field-hint">ⓘ Saving rebinds this recipe's model. Every future API call to voice "{recipe.id}" on this endpoint will use the new checkpoint/model; requests already in flight are unaffected.</p>
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-sm btn-primary" disabled={busy || !!extConfirm} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save models'}</button>
         <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>Close</button>

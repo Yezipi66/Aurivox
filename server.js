@@ -823,6 +823,17 @@ const TTS_PASS_THROUGH_KEYS = [
   "lang_overrides",
 ];
 
+// Reproducibility: turn a random-seed request (-1 / empty / null / invalid) into a
+// CONCRETE seed in the engine's range [0, 2^32-1]. Resolving here — before the engine
+// call AND before writing meta.json — means the exact seed used is recorded, so a later
+// Rerun replays the identical value and reproduces the same audio. A valid non-negative
+// integer is passed through unchanged. Mirrors the engine's set_seed(-1) randomisation
+// range, so behaviour is unchanged except the value is now captured instead of lost.
+function resolveSeed(seed) {
+  const n = typeof seed === "number" ? seed : parseInt(seed, 10);
+  return (Number.isInteger(n) && n >= 0) ? n : Math.floor(Math.random() * 0x100000000);
+}
+
 function buildTtsPayload(text, cfg) {
   let refAudio = cfg.reference_audio || "";
   let refText = cfg.reference_text || "";
@@ -1153,7 +1164,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     repetition_penalty: repetition_penalty !== undefined ? parseFloat(repetition_penalty) : 1.35,
     text_split_method: text_split_method || "cut5",
     speed_factor: speed_factor !== undefined ? parseFloat(speed_factor) : 1.0,
-    seed: seed !== undefined ? parseInt(seed, 10) : -1,
+    seed: resolveSeed(seed),
     batch_size: batch_size !== undefined ? parseInt(batch_size, 10) : undefined,
     batch_threshold: batch_threshold !== undefined ? parseFloat(batch_threshold) : undefined,
     split_bucket: split_bucket !== undefined ? !!split_bucket : undefined,
@@ -1196,7 +1207,11 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     gpt_model: cfg.gpt_model, sovits_model: cfg.sovits_model,
     ref_audio: cfg.reference_audio, ref_text: cfg.reference_text,
     recipe_id: genRecipeId,
-    recipe: req.body || {}, status: "ok",
+    // Reproducibility: stamp the RESOLVED seed (never -1) into both the top-level audit
+    // field and the captured recipe, so Rerun (which replays meta.recipe) reproduces the
+    // exact audio instead of re-randomising.
+    seed: cfg.seed,
+    recipe: { ...(req.body || {}), seed: cfg.seed }, status: "ok",
   };
 
   try {
@@ -2790,7 +2805,9 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
           repetition_penalty: pick("repetition_penalty", advParams.repetition_penalty),
           text_split_method: rp.text_split_method || advParams.text_split_method,
           speed_factor: (rp.speed != null ? rp.speed : (speed || 1.0)),
-          seed: pick("seed", advParams.seed),
+          // Reproducibility: resolve -1/random into a concrete seed so the engine uses a
+          // known value and the archived meta records it (audit + reproducibility).
+          seed: resolveSeed(pick("seed", advParams.seed)),
           // Advanced group — pinned by the recipe when present (PA).
           sample_steps: pick("sample_steps", advParams.sample_steps),
           if_sr: rp.if_sr != null ? rp.if_sr : advParams.if_sr,
@@ -2901,6 +2918,7 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
             gpt_model: cfg.gpt_model, sovits_model: cfg.sovits_model,
             ref_audio: cfg.reference_audio, ref_text: cfg.reference_text,
             recipe_id: recipeId, model: model || null,
+            seed: cfg.seed,
             segments: 1, audio_url: audioUrl,
             files: [{ role: "single", name: audioName, url: audioUrl }],
             status: "ok",

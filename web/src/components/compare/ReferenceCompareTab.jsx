@@ -92,7 +92,7 @@ function RefAudioTabs({ voiceId, activeRef, onPick }) {
 // ===========================
 //  REFERENCE COMPARE TAB
 // ===========================
-function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
+function ReferenceCompareTab({ voices, selectedVoice }) {
   // Persisted: a Compare Refs workspace must survive reloads / app restarts.
   // Generated audio is referenced by a server URL (result.audio_url) — not a blob —
   // so persisting results keeps the players working after a reload as long as the
@@ -366,7 +366,6 @@ function ReferenceCompareTab({ voices, selectedVoice, onBack }) {
       <div className="section" style={{ marginBottom: 12 }}>
         <div className="section-hdr">
           <span>Reference Audio Comparison</span>
-          <button className="btn btn-sm" onClick={onBack}>← Back</button>
         </div>
         <div className="section-body">
           <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
@@ -673,7 +672,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             title={!row.refAudio ? 'Pick a reference audio first' : 'Save this row as a reusable recipe'}>
             Save as recipe
           </button>
-          <button className="btn btn-sm btn-danger" onClick={() => onRemove(row.id)} title="Remove row">×</button>
+          <button className="btn btn-sm btn-danger" onClick={() => onRemove(row.id)} title="Remove from comparison">×</button>
         </div>
       </div>
 

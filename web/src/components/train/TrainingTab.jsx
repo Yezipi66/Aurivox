@@ -90,6 +90,42 @@ function buildAsrParams(form) {
   return { engine: form.asrEngine, model_size: form.asrModelSize, precision: form.asrPrecision }
 }
 
+// Which buildTrainingParams() keys belong to S1 (GPT) vs S2 (SoVITS). Shared keys
+// (version/versions/batch_size/learning_rate) affect both, so they are attributed to
+// the EARLIER step (train_s1) — changing them re-runs from S1, which also re-runs S2.
+const S1_PARAM_KEYS = ['version', 'versions', 'batch_size', 'learning_rate',
+  'gpt_epochs', 'seed', 'save_every_n_epoch', 'precision', 'gradient_clip',
+  'lr', 'lr_init', 'lr_end', 'warmup_steps', 'decay_steps', 'max_sec', 'num_workers', 'max_eval_sample'];
+const S2_PARAM_KEYS = ['sovits_epochs', 's2_seed', 'log_interval', 'eval_interval', 'fp16_run',
+  'lr_decay', 'segment_size', 'c_mel', 'c_kl', 'text_low_lr_rate', 'grad_ckpt'];
+
+function _pick(obj, keys) { const o = {}; for (const k of keys) o[k] = obj[k]; return o; }
+
+// Canonical per-step parameter snapshot used to detect what the user changed after
+// entering resume. Keys mirror the pipeline steps; comparison is a plain JSON diff.
+// A change to a step's group means that step (and everything downstream) must re-run.
+function buildStepParams(form) {
+  const t = buildTrainingParams(form);
+  return {
+    denoise: { model: form.denoiseModel ?? null, on: !!form.denoise },
+    slice: { ...buildSliceParams(form), on: form.slice !== false },
+    asr: { ...buildAsrParams(form), on: form.asr !== false },
+    train_s1: { ..._pick(t, S1_PARAM_KEYS), on: form.trainS1 !== false },
+    train_s2: { ..._pick(t, S2_PARAM_KEYS), on: form.trainS2 !== false },
+  };
+}
+
+// Diff a live step-params object against the snapshot taken when resume started.
+// Returns the set of step keys whose params changed.
+function changedStepSet(live, snap) {
+  const s = new Set();
+  if (!live || !snap) return s;
+  for (const k of Object.keys(live)) {
+    if (JSON.stringify(live[k]) !== JSON.stringify(snap[k])) s.add(k);
+  }
+  return s;
+}
+
 // Pipeline step order shared by the failure-resume UI (mirrors backend STEP_ORDER).
 const FSTEP_ORDER = ['denoise', 'slice', 'asr', 'preprocess', 'train_s1', 'train_s2', 'finalize', 'promote'];
 
@@ -708,6 +744,9 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // Active recovery context once the user clicks "Resume".
   //   { sourceTaskId, failedStep, resumeStep, steps, hasInputDir }
   const [recovery, setRecovery] = useState(null);
+  // Baseline step-params captured when resume begins; live form is diffed against it
+  // so an upstream param change can auto-pull the restart point back (→ fork).
+  const paramSnapshotRef = useRef(null);
   const [restartFailedStep, setRestartFailedStep] = useState(false);
 
   const loadRecoverable = () => {
@@ -885,6 +924,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     }
     if (!r.ok) throw new Error(r.data?.error || 'Failed to start training');
     setRecovery(null);
+    paramSnapshotRef.current = null;
     setRestartFailedStep(false);
     setLocalTaskId(r.data.taskId);
     setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
@@ -938,7 +978,12 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   // the original params and pin the rerun start to the failed step (Continue mode).
   const beginResume = (task) => {
     const patch = archiveToForm(task);
-    setForm(prev => ({ ...prev, ...patch }));
+    setForm(prev => {
+      const next = { ...prev, ...patch };
+      // Snapshot the loaded params as the baseline for change detection.
+      paramSnapshotRef.current = buildStepParams(next);
+      return next;
+    });
     setRecovery({
       sourceTaskId: task.id,
       failedStep: task.resumeStep || (task.failedAt && task.failedAt.step) || 'preprocess',
@@ -955,6 +1000,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
   const cancelRecovery = () => {
     setRecovery(null);
+    paramSnapshotRef.current = null;
     setRestartFailedStep(false);
     setError(null);
   };
@@ -966,10 +1012,27 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     ? FSTEP_ORDER.filter((s, i) => i <= failedIdx &&
         (s === recovery.failedStep || (recovery.steps[s] && recovery.steps[s].status === 'completed')))
     : [];
-  const rerunStart = recovery ? recovery.resumeStep : null;
+  // Detect which steps' params the user changed since resume began. A change to an
+  // UPSTREAM step (before the failure point, and selectable/completed) can't be applied
+  // by an in-place resume — its cached output would be reused, silently ignoring the
+  // edit. So we auto-pull the restart point back to the earliest changed upstream step,
+  // which turns the run into a fork (new task) and re-runs from there.
+  const changedSteps = recovery ? changedStepSet(buildStepParams(form), paramSnapshotRef.current) : new Set();
+  const earliestChangedStep = recovery
+    ? (FSTEP_ORDER.find(s => changedSteps.has(s) && resumeStepOptions.includes(s)) || null)
+    : null;
+  const userResumeStep = recovery ? recovery.resumeStep : null;
+  // Effective restart = the earlier of the user's chosen step and the earliest changed step.
+  const rerunStart = recovery
+    ? ((earliestChangedStep && FSTEP_ORDER.indexOf(earliestChangedStep) < FSTEP_ORDER.indexOf(userResumeStep))
+        ? earliestChangedStep : userResumeStep)
+    : null;
   const rerunIdx = recovery ? FSTEP_ORDER.indexOf(rerunStart) : -1;
+  // A param change forced the fork (vs the user manually dragging the restart earlier).
+  const forkByParamChange = !!(recovery && earliestChangedStep && FSTEP_ORDER.indexOf(earliestChangedStep) < failedIdx
+    && FSTEP_ORDER.indexOf(earliestChangedStep) <= rerunIdx);
   // Continue = restart exactly at the failed step (in place, same task). Modify =
-  // restart at an earlier completed step (fork → new task, extra disk for a full copy).
+  // restart at an earlier completed step (fork → new task; only upstream products copied).
   const recoveryMode = recovery ? (rerunIdx < failedIdx ? 'modify' : 'continue') : null;
   const failedIsTrain = recovery && (recovery.failedStep === 'train_s1' || recovery.failedStep === 'train_s2');
 
@@ -1006,7 +1069,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       if (!r.ok) throw new Error(r.data?.error || 'Failed to clean cache');
       const mb = (r.data.bytes / (1024 * 1024)).toFixed(1);
       const skipped = r.data.skipped ? `, ${r.data.skipped} running task(s) kept` : '';
-      setClearMsg(`Cleaned ${r.data.removed} cache folder(s), freed ${mb} MB${skipped}`);
+      setClearMsg(`Cleaned ${r.data.removed} task workspace(s), freed ${mb} MB${skipped}. Published models and assets are untouched.`);
     } catch (err) {
       setClearMsg(`Clean failed: ${err.message}`);
     } finally {
@@ -1261,6 +1324,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               <div className="field">
                 <label className="field-label">Audio Folder Path *</label>
                 <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder="e.g. D:\raw_audio\MyVoice" />
+                <p className="field-hint">ⓘ Folder path only — point to a folder of audio files. If you have a single audio file, put it inside a folder first, then select that folder.</p>
               </div>
             </div>
 
@@ -1296,9 +1360,13 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               </div>
               <p className="resume-banner-body">
                 {recoveryMode === 'modify'
-                  ? <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
-                     Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).
-                     The whole cache folder is copied first — make sure you have enough <strong>disk space</strong>.
+                  ? <>{forkByParamChange
+                        ? <>You changed <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> settings. That step runs <strong>before</strong> the failure point,
+                           so its output must be regenerated — an in-place resume would reuse the old cache and silently ignore your change.
+                           This therefore launches a <strong>brand-new task</strong> (fork) and re-runs from <strong>{FSTEP_LABELS[rerunStart]}</strong>.</>
+                        : <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
+                           Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).</>}
+                     {' '}Only the products of steps <strong>before {FSTEP_LABELS[rerunStart]}</strong> are copied to the new task — so make sure you have enough <strong>disk space</strong> for them.
                      The original failed task is kept untouched, and even if this fork succeeds it will publish as a NEW task, not a recovery of the old one.</>
                   : <>Continuing failed task <code>{recovery.sourceTaskId}</code> from the <strong>{FSTEP_LABELS[recovery.failedStep]}</strong> step,
                      reusing everything before it. Same task, same workspace.

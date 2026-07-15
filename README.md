@@ -8,76 +8,19 @@
 - **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`），完整 S1+S2 串联。
 - **分发**：`deploy.bat`（首次部署向导）+ `start.ps1`（启动），无需手工配环境。
 
-## 项目结构
+## 顶层目录导览
 
-```
-tts_broker_openai_compat/
-├── server.js              # Express 后端 (端口 9886)
-├── start.bat              # 一键启动（后端 + 前端）
-├── requirements.txt       # Python 依赖
-├── package.json           # Node.js 依赖
-├── .env.example           # 环境变量模板
-├── .gitignore
-│
-├── web/                   # 前端 (Vite + React, 端口 5173)
-│
-├── lib/training/          # 训练核心代码
-│   ├── gsv_code/          # 从 GPT-SoVITS 解耦的训练代码
-│   │   ├── s1_train.py    # S1 (GPT) 训练入口
-│   │   ├── s2_train.py    # S2 (SoVITS) 训练入口
-│   │   ├── configs/       # 训练配置模板
-│   │   │   ├── s1longer.yaml
-│   │   │   └── s2.json
-│   │   ├── module/        # S2 模型定义
-│   │   ├── AR/            # S1 模型定义
-│   │   ├── text/          # 文本处理 / phoneme
-│   │   └── utils.py       # 工具函数
-│   │
-│   ├── gsv-tools/         # 预训练模型 & 工具
-│   │   ├── pretrained/    # 预训练权重
-│   │   │   ├── gsv-v2final/       # S1 预训练
-│   │   │   ├── v2Pro/             # S2 预训练 (G + D)
-│   │   │   ├── cnhubert/          # Hubert 特征提取
-│   │   │   ├── chinese-roberta-wwm-ext-large/  # BERT
-│   │   │   └── bigvgan/           # 声码器
-│   │   └── asr/           # ASR 模型
-│   │       └── models/faster-whisper-large-v3/
-│   │
-│   ├── steps/             # Pipeline 步骤脚本 (Node.js)
-│   │   ├── train.js        # S1 + S2 训练编排
-│   │   ├── train_s1.js     # S1 训练封装
-│   │   ├── train_s2.js     # S2 训练封装
-│   │   ├── preprocess.js   # 预处理
-│   │   ├── asr.js          # 语音识别
-│   │   ├── slice.js        # 语音切片
-│   │   └── denoise.js      # 去人声
-│   │
-│   ├── pipeline.js         # Pipeline 编排器（状态机）
-│   ├── config.js           # 训练配置加载
-│   └── python_helper.js    # Python 路径解析
-│
-├── assets/                # 角色资产
-│   └── {voiceId}/         # 每个角色一个目录
-│       ├── meta.json      # 角色元数据
-│       ├── segments.json  # ASR 结果
-│       ├── 4-cnhubert/    # Hubert 特征 (.pt)
-│       ├── 5-wav32k/      # 32kHz 音频
-│       ├── 6-name2semantic.tsv  # Semantic tokens
-│       ├── logs_s1/       # S1 训练输出
-│       └── logs_s2/       # S2 训练输出
-│
-├── docs/                  # 文档
-│   ├── TRAINING_PIPELINE.md
-│   └── reports/
-│
-├── scripts/               # 归档的开发脚本（不参与运行）
-│   ├── dev/               # 调试脚本
-│   ├── test/              # 测试脚本
-│   └── pipeline/          # Pipeline 运行脚本
-│
-├── logs/                  # 归档日志
-└── output/                # 归档输出
-```
+> 仅列稳定的顶层职责，避免随业务频繁变动而过时；细节以代码为准。
+
+| 路径 | 职责 |
+| --- | --- |
+| `server.js` | Express 后端主入口（REST + 推理编排 + 资产/训练接口） |
+| `web/` | 前端（Vite + React；`src/` 已模块化为 `lib/` + `components/{generate,train,compare,assets,broker}`） |
+| `lib/training/` | 训练管线：`pipeline.js` 状态机 + `steps/`（denoise/slice/asr/preprocess/train_s1/train_s2）+ 解耦的 `gsv_code/` + `gsv-tools/`（预训练权重与 ASR 模型） |
+| `lib/inference/` | 自包含推理服务（`infer_server.py` OpenAI 兼容 + `TTS.py` 引擎） |
+| `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
+| `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |
+| `docs/` · `scripts/` · `logs/` · `output/` | 文档 / 归档开发脚本（不参与运行）/ 归档日志与输出 |
 
 ## 环境要求
 
@@ -207,6 +150,46 @@ python scripts/pipeline/infer_s2.py \
    （0xC0000005 / 退出码 3221225477，日志为空）；已在所有入口强制 librosa 先行修复
 
 ## 更新日志
+
+### 2026-07-16 —— 多语种混合 + UX 整改 + 全量模块化 + 可复现性
+- ✅ **多语种混合输入（#4）**：假名消歧（有假名判日、无假名 CJK 回退角色元数据语言）、逐字汉字语言
+  覆盖（`lang_overrides`，共享汉字按需强制中/日）、校对面板与逐字语言互斥、Compare Refs 同步支持。
+- ✅ **推理间歇性 500 修复（#5）**：`infer_server.py` 改用 `asyncio.Lock` + `call_soon_threadsafe`
+  跨线程加/解锁，消除并发请求下的竞态 500。
+- ✅ **Compare Refs P0 整改（#6，6 项）**：🎭 参考角色动态标注、参考音频 3–10s 黄色警告、编辑区
+  生成后默认折叠、Model 三级级联下拉、Items 三级联、结果卡管理按钮（Reveal / Rerun / Delete）。
+- ✅ **Broker 页面改进（#7）**：GPT/SoVITS 一行三下拉、Example call 默认折叠为单行、
+  「Save models」手点才落盘（明确对未来 API 调用的影响）。
+- ✅ **资产健康状态全面修复（#8，A~F 六子项）**：健康来源优先聚合、Complete 与 Ready 严格区分、
+  转写状态持久化、Rebuild / Restore TASK 通用化（`lib/assetScanner.js`）。
+- ✅ **恢复 / 分叉正确性回归（#3 v2）**：进入 Resume 快照各步参数并实时 diff；改动映射到步骤后
+  **自动前移重启点**触发 fork（新任务），banner 明确提示"将创建新任务、只复制上游产物、预留磁盘"；
+  后端新增 `copyWorkDirUpstream` 只复制上游产物（不再整目录翻倍复制），`clearFromStep` 防御性保留。
+- ✅ **推理可复现性（seed）**：`server.js` 上移 `resolveSeed` helper，在调用引擎前把 `seed=-1/空`
+  解析成 `[0, 2^32-1]` 的具体值，写入 `meta.recipe` 与顶层审计字段 → Recent 的 Rerun 现可逐字节
+  复现（seed + `pron_overrides` 读音 + `lang_overrides` 逐字语言 + 全部采样参数）；默认随机行为不变。
+- ✅ **UX 文案微调（5 项）**：删除 Compare Refs 冗余 Back；红色 × 明确为 "Remove from comparison"
+  tooltip；发布后清理说明"仅清理任务 workspace，不删除已发布模型资产"；Broker「Change models」
+  说明对未来 API 调用的影响；训练音频目录提示"仅支持文件夹，单文件请先放入文件夹"。
+- ✅ **全量模块化**：`App.jsx` 6520 → 141 行，拆分为 `lib/api.js` + `pron` + `common` +
+  `generate` / `train` / `compare` / `assets` / `broker` 模块树。
+- ✅ **ASR 切换** `faster-whisper-large-v3-turbo`（1.6GB）。
+- ✅ **中文注释全面英文化**（代码库注释统一英文）。
+
+### 2026-07-14 —— UI 大改版 & 资产健康修复（patch #6 / #7 / #8）
+- ✅ **Compare Refs 页面重构（#6）**：Model 输入拆分为三级级联下拉 [Voice ID][GPT][SoVITS]；
+  Target Language 上移为顶部窄下拉节省空间；主参考音频支持在大框内直接框选（本角色 slices / raw 双标签页，
+  可选其他角色）；参考角色 🎭 标注随所选参考音频动态解析；参考音频不符合 3–10s 时黄色警告；
+  生成后编辑区收起为纯音频；结果卡新增 Show in Explorer / Rerun / Delete。
+- ✅ **Broker 页面重构（#7）**：GPT/SoVITS 权重选择拆为 [Voice ID][GPT][SoVITS] 三级联动（保留自选 ckpt/pth 逃生通道）；
+  「Save models」时才落盘；Example call 折叠为单行可展开。
+- ✅ **共享对比文案 & 读音校对**：「Default Test Text」更名「Comparison Text」，附共享 Reading proofing
+  （逐词读音覆盖，应用到留空行）。
+- ✅ **资产健康指示灯修复（#8）**：去掉 slice 步骤后残留的空 `slicer_opt.list` 不再把 text 健康灯误判为红色
+  `invalid`；空/无文本列表现按 `none` 处理，`invalid` 仅保留给「有文本但路径失效」的列表，
+  使 text 灯与整体健康灯一致（`lib/assetScanner.js`）。
+- ✅ **顺手修复（drive-by）**：推理服务锁释放 `RuntimeError` 兜底路径补注释（`infer_server.py`）；
+  recipe 命名占位符英文化；全部新增 UI 文案统一英文。
 
 ### 2026-07-14 —— 分发化大更新
 - ✅ 完整 S1+S2 推理链路上线（自包含 `infer_server.py`，OpenAI 兼容，端口 9880）
