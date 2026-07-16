@@ -44,6 +44,13 @@ const recipeStore = createRecipeStore(RECIPES_DIR);
 
 // Asset scanner
 const assetScanner = require("./lib/assetScanner");
+// Canonical voice-id generation/reservation (Option A: display/id decoupling)
+// and version-aware managed-path resolver (recipe schema v3 portability).
+const assetId = require("./lib/assetId");
+const pathResolver = require("./lib/pathResolver");
+// Explicit, assisted v2→v3 recipe path migration (never runs at startup/scan).
+const { createMigrator } = require("./lib/recipeMigration");
+const recipeMigrator = createMigrator({ recipesDir: RECIPES_DIR, appDir: APP_DIR, assetsRoot: ASSETS_ROOT });
 // In-place ASR kernel (shared with the training pipeline) + training defaults, used
 // by the lightweight Assets "generate reference text" recovery (does NOT promote).
 const { runAsr } = require("./lib/training/steps/asr");
@@ -422,6 +429,50 @@ function normalizeModelPath(raw, opts) {
   return { ok: true, value: s, external: true };
 }
 
+// v3 recipe path classification. Rewrites the four managed fields on a recipe
+// create/update body into structured { base, path } objects with field-aware
+// external permissions (models honour allow_external_models; reference/aux audio
+// honour a SEPARATE allow_external_audio, default OFF — models never authorize
+// external audio). Legacy (v2) targets keep string paths so a v2 recipe is never
+// silently migrated to v3 on a plain edit/rebind. `targetV3` decides which.
+function classifyRecipeManagedFields(body, { targetV3, allowExternalModels, allowExternalAudio }) {
+  if (!targetV3) {
+    // Legacy string handling (unchanged): only models are normalized; audio
+    // strings are left for recipeStore's project-relative guard.
+    for (const key of ["gpt_ckpt", "sovits_pth"]) {
+      if (body[key] != null && body[key] !== "") {
+        const n = normalizeModelPath(body[key], { allowExternal: allowExternalModels });
+        if (!n.ok) return { ok: false, error: `${key}: ${n.error}`, code: n.code, field: key };
+        body[key] = n.value;
+      }
+    }
+    return { ok: true };
+  }
+  const model = { field: "model", allowExternalModels, allowExternalAudio };
+  const audio = { field: "audio", allowExternalModels, allowExternalAudio };
+  for (const [key, opts] of [["gpt_ckpt", model], ["sovits_pth", model], ["reference_audio", audio]]) {
+    if (body[key] != null && body[key] !== "") {
+      const c = pathResolver.classifyManagedPath(body[key], opts);
+      if (!c.ok) return { ok: false, error: `${key}: ${c.error}`, code: c.code, field: key };
+      body[key] = c.value;
+    }
+  }
+  // Auxiliary reference audio array (lives under params).
+  const aux = body.params && Array.isArray(body.params.aux_ref_audio_paths)
+    ? body.params.aux_ref_audio_paths : null;
+  if (aux) {
+    const out = [];
+    for (const p of aux) {
+      if (p == null || p === "") continue;
+      const c = pathResolver.classifyManagedPath(p, audio);
+      if (!c.ok) return { ok: false, error: `aux_ref_audio_paths: ${c.error}`, code: c.code, field: "aux_ref_audio_paths" };
+      out.push(c.value);
+    }
+    body.params.aux_ref_audio_paths = out;
+  }
+  return { ok: true };
+}
+
 function safeId(id) { return /^[a-zA-Z0-9_-]+$/.test(id); }
 
 function isPlaceholder(text) {
@@ -741,6 +792,44 @@ function findWavDataChunk(buf) {
     offset += 8 + chunkSize + (chunkSize % 2);
   }
   return null;
+}
+
+// Duration (seconds) of a WAV file from its header — used to place segment-boundary
+// markers on the waveform preview. Reads only the header region (data chunk size),
+// falling back to (fileSize - 44) if the declared size is unavailable.
+function wavDurationSec(filePath) {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const head = Buffer.alloc(4096);
+    fs.readSync(fd, head, 0, 4096, 0);
+    fs.closeSync(fd);
+    if (head.slice(0, 4).toString() !== "RIFF" || head.slice(8, 12).toString() !== "WAVE") return 0;
+    const sr = head.readUInt32LE(24);
+    const ch = head.readUInt16LE(22);
+    const bps = head.readUInt16LE(34);
+    const dc = findWavDataChunk(head);
+    const dataSize = dc ? dc.size : Math.max(0, fs.statSync(filePath).size - 44);
+    const bytesPerFrame = (bps >> 3) * ch;
+    if (!sr || !bytesPerFrame) return 0;
+    return dataSize / (sr * bytesPerFrame);
+  } catch { return 0; }
+}
+
+// Per-segment [start,end] offsets (seconds) within the concatenated timeline, given
+// the ordered segment WAVs and the silence gap inserted between them. Lets the UI draw
+// segment dividers + shade the inter-segment silence on the combined waveform.
+function computeSegmentBounds(segFiles, silenceMs) {
+  const silenceSec = Math.max(0, silenceMs || 0) / 1000;
+  const bounds = [];
+  let pos = 0;
+  for (let i = 0; i < segFiles.length; i++) {
+    const d = wavDurationSec(segFiles[i]);
+    const start = pos;
+    const end = pos + d;
+    bounds.push({ index: i, start: +start.toFixed(3), end: +end.toFixed(3) });
+    pos = end + (i < segFiles.length - 1 ? silenceSec : 0);
+  }
+  return { bounds, duration: +pos.toFixed(3) };
 }
 
 function concatWavPureNode(inputPaths, outputPath) {
@@ -1199,6 +1288,24 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
   // recipe-driven generation stamp `recipe_id` so the Broker page + history can
   // link an output to the recipe that produced it.
   const genRecipeId = (req.body && typeof req.body.recipe_id === "string") ? req.body.recipe_id : null;
+  // Batch grouping: Compare Refs (and any future multi-output run) tags every
+  // member generation with a shared batch id, so a single "Generate All" is
+  // recorded as ONE comparison batch — you can see how many audios it produced
+  // and which reference each used, instead of a flat pile indistinguishable from
+  // one-off inference. Batches are reconstructed by grouping member meta.json
+  // (see GET /api/outputs/batches); no separate manifest file to drift out of sync.
+  const genBatch = (() => {
+    const b = req.body || {};
+    const id = (typeof b.batch_id === "string" && b.batch_id.trim()) ? b.batch_id.trim().slice(0, 80) : null;
+    if (!id) return null;
+    const toInt = (v) => (Number.isInteger(v) ? v : (parseInt(v, 10) || 0));
+    return { id, seq: toInt(b.batch_seq), total: toInt(b.batch_total),
+      label: (typeof b.batch_label === "string") ? b.batch_label.slice(0, 200) : "" };
+  })();
+  // The captured recipe (for Rerun) must NOT carry batch fields, or a rerun would
+  // silently re-join a stale batch. Strip them; batch lives only under meta.batch.
+  const { batch_id: _bid, batch_seq: _bseq, batch_total: _btot, batch_label: _blbl,
+    ...recipeBody } = (req.body || {});
   // Shared audit fields; each branch adds split/concat/segments/audio_url/files.
   const metaBase = {
     id: genId, source: genSource, createdAt: Date.now(),
@@ -1207,11 +1314,13 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
     gpt_model: cfg.gpt_model, sovits_model: cfg.sovits_model,
     ref_audio: cfg.reference_audio, ref_text: cfg.reference_text,
     recipe_id: genRecipeId,
+    // Batch membership (null for ordinary one-off generations).
+    batch: genBatch,
     // Reproducibility: stamp the RESOLVED seed (never -1) into both the top-level audit
     // field and the captured recipe, so Rerun (which replays meta.recipe) reproduces the
     // exact audio instead of re-randomising.
     seed: cfg.seed,
-    recipe: { ...(req.body || {}), seed: cfg.seed }, status: "ok",
+    recipe: { ...recipeBody, seed: cfg.seed }, status: "ok",
   };
 
   try {
@@ -1227,7 +1336,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
           audio_url: audioUrl,
           files: [{ role: "single", name: "audio.wav", url: audioUrl }] });
         console.log(`[OK] Generated: ${genId}/audio.wav (${audioBytes.length} bytes)`);
-        return res.json({ ok: true, id: genId, voice, split: false, concat: false, audio_url: audioUrl });
+        return res.json({ ok: true, id: genId, voice, split: false, concat: false, audio_url: audioUrl, seed: cfg.seed });
       }
 
       // Split + generate
@@ -1266,6 +1375,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
         return res.json({
           ok: true, id: genId, voice, split: true, concat: false,
           audio_url: first.audio_url,
+          seed: cfg.seed,
           segments: segResults,
           warning: segFiles.length === 1 ? "Text fit in one segment; no concatenation needed" : undefined,
         });
@@ -1281,17 +1391,23 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
         console.log(`[OK] Combined: ${genId}/${combinedName} (${combinedSize} bytes, method: ${concatResult.method})`);
 
         const combinedUrl = `${genUrlBase}/${combinedName}`;
+        // Segment-boundary offsets for the waveform preview's dividers.
+        const { bounds: segBounds, duration: segDuration } = computeSegmentBounds(segFiles, silenceMs);
+        const segResultsBounded = segResults.map((s, i) => ({ ...s, start: segBounds[i]?.start, end: segBounds[i]?.end }));
         writeGenMeta(genId, { ...metaBase, split: true, concat: true, segments: segResults.length,
-          audio_url: combinedUrl,
+          audio_url: combinedUrl, duration: segDuration, segment_bounds: segBounds,
           files: [{ role: "combined", name: combinedName, url: combinedUrl },
             ...segResults.map(s => ({ role: "segment", index: s.index, name: genBaseName(s.audio_url), url: s.audio_url }))] });
 
         return res.json({
           ok: true, id: genId, voice, split: true, concat: true,
           audio_url: combinedUrl,
+          seed: cfg.seed,
           silence_ms: silenceMs,
           concat_method: concatResult.method,
-          segments: segResults,
+          duration: segDuration,
+          segment_bounds: segBounds,
+          segments: segResultsBounded,
         });
       } catch (err) {
         console.error(`[FAIL] Concatenation failed: ${err.message}`);
@@ -1693,6 +1809,18 @@ function genItemFromMeta(meta) {
     createdAt: meta.createdAt || 0,
     audio_url: meta.audio_url || "",
     recipe_id: meta.recipe_id || null,
+    // Batch membership (Compare Refs "Generate All"); null for one-off runs.
+    batch: meta.batch || null,
+    ref_audio: meta.ref_audio || "",
+    // Waveform preview: combined duration + per-segment [start,end] boundary offsets
+    // (seconds) so history/reloaded items can also render segment dividers. Null for
+    // single-segment or non-concatenated generations.
+    duration: (typeof meta.duration === "number") ? meta.duration : null,
+    segment_bounds: Array.isArray(meta.segment_bounds) ? meta.segment_bounds : null,
+    // Resolved (never -1) seed used for this generation, surfaced so the UI can
+    // display and copy it for reproduction. Falls back to the captured recipe.
+    seed: (typeof meta.seed === "number") ? meta.seed
+        : (meta.recipe && typeof meta.recipe.seed === "number" ? meta.recipe.seed : null),
     params: meta.recipe || null,
   };
 }
@@ -1720,6 +1848,55 @@ app.get("/api/outputs", requireApiKey, (req, res) => {
     }
     items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     res.json({ ok: true, items });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
+// GET /api/outputs/batches — group generations into the batches they were
+// produced in. One "Generate All" in Compare Refs = one batch, so this answers
+// "how many audios did this comparison produce, and which reference did each
+// use". Reconstructed live from member meta.json (meta.batch), so it stays
+// correct as members are added or deleted — no manifest to keep in sync.
+// One-off generations (no meta.batch) are ignored. `?source=` scopes the root.
+app.get("/api/outputs/batches", requireApiKey, (req, res) => {
+  try {
+    const src = normSource(req.query.source);
+    const root = OUTPUT_ROOTS[src];
+    let dirs = [];
+    try { dirs = fs.readdirSync(root, { withFileTypes: true }); } catch (_) {}
+    const byId = new Map();
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      const metaPath = path.join(root, d.name, "meta.json");
+      if (!fs.existsSync(metaPath)) continue;
+      let meta;
+      try { meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")); } catch (_) { continue; }
+      if (!meta.batch || !meta.batch.id) continue;
+      const bid = meta.batch.id;
+      if (!byId.has(bid)) {
+        byId.set(bid, {
+          batch_id: bid, source: meta.source || src,
+          label: meta.batch.label || "",
+          total: meta.batch.total || 0,   // intended size (rows submitted)
+          createdAt: meta.createdAt || 0,
+          members: [],
+        });
+      }
+      const grp = byId.get(bid);
+      // Batch label/total taken from the freshest member that carries them.
+      if (meta.batch.label && !grp.label) grp.label = meta.batch.label;
+      if ((meta.batch.total || 0) > grp.total) grp.total = meta.batch.total;
+      if ((meta.createdAt || 0) && (!grp.createdAt || meta.createdAt < grp.createdAt)) grp.createdAt = meta.createdAt;
+      grp.members.push({ ...genItemFromMeta(meta), batch_seq: (meta.batch.seq ?? null) });
+    }
+    const batches = Array.from(byId.values()).map(b => {
+      b.members.sort((x, y) => (x.batch_seq ?? 0) - (y.batch_seq ?? 0));
+      b.count = b.members.length;   // actually-present members (may be < total after deletes)
+      return b;
+    });
+    batches.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    res.json({ ok: true, batches });
   } catch (err) {
     res.status(500).json({ error: clientError(err) });
   }
@@ -1854,22 +2031,17 @@ function renameVoiceFolder(oldDir, newDir) {
   return { mode: "per-file", locked };
 }
 
-// PATCH /api/assets/:id/rename — rename a voice's DISPLAY NAME **and** its
-// internal id / on-disk folder together, so display and id never diverge.
+// PATCH /api/assets/:id/rename — DISPLAY-ONLY rename (Option A).
 //
-// Why rename the id too (not display only): training publishes into
-// ASSETS_ROOT/<id> and overwrites unconditionally. If display could drift from
-// id (e.g. show "A_en" while the folder is still "A"), a later "train A" would
-// silently clobber the hidden asset. Keeping id == sanitize(display) removes
-// that trap entirely. Because meta.json is regenerated on scan, the folder can
-// be renamed safely and stays self-consistent after a re-scan.
+// The canonical id (= folder name) is IMMUTABLE. Rename updates display_name
+// only; it never moves the folder, never re-derives the id, and never enforces
+// display-name uniqueness (duplicate display names are allowed because ids stay
+// unique). Training/publish/rebuild/delete/recipe-binding/Broker resolution all
+// key off the immutable folder id, so a display rename is inert to identity.
 //
-// Guards (defense in depth):
-//  - target id must be a valid safeId and must NOT already exist (409)
-//  - new display name must be unique (case-insensitive) vs every OTHER voice
-//  - NO active/interrupted training or rebuild task may touch the old or new id
-//  - folder rename uses EPERM/EBUSY retry+backoff; on persistent lock we ABORT
-//    cleanly (no half-rename) and tell the user to stop training / close players
+// This removes the old "display must equal sanitize(id)" clobber trap entirely:
+// with ids allocated once at creation (assetId.allocateVoiceId) and never
+// re-derived from display, drift is impossible.
 app.patch("/api/assets/:id/rename", requireApiKey, async (req, res) => {
   const id = req.params.id;
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
@@ -1877,116 +2049,41 @@ app.patch("/api/assets/:id/rename", requireApiKey, async (req, res) => {
   if (!newName) return res.status(400).json({ error: "display_name is required" });
   if (newName.length > 80) return res.status(400).json({ error: "display_name too long (max 80)" });
 
-  // Derive the new id the same way training does, so what you see is what
-  // training would target.
-  const newId = newName.replace(/[^a-zA-Z0-9_\-]/g, "_");
-  if (!safeId(newId)) {
-    return res.status(400).json({ error: "Name must contain at least one letter, number, underscore or hyphen." });
-  }
-
-  const oldDir = path.join(ASSETS_DIR, id);
-  const oldMetaPath = path.join(oldDir, "meta.json");
-  if (!fs.existsSync(oldMetaPath)) return res.status(404).json({ error: `Voice '${id}' not found` });
-
-  const idChanged = newId !== id;
-  const newDir = path.join(ASSETS_DIR, newId);
+  const dir = path.join(ASSETS_DIR, id);
+  const metaPath = path.join(dir, "meta.json");
+  if (!fs.existsSync(metaPath)) return res.status(404).json({ error: `Voice '${id}' not found` });
 
   try {
-    // --- Guard: no active/interrupted task on the old or new id -------------
-    const activeStates = new Set(["pending", "running", "interrupted"]);
-    let tasks = [];
-    try { tasks = trainingPipeline.getAllTasks() || []; } catch (_) {}
-    const blocking = tasks.find(t => activeStates.has(t.status) && (t.voiceId === id || t.voiceId === newId));
-    if (blocking) {
-      return res.status(409).json({ error: `Cannot rename while a training/rebuild task (${blocking.status}) is using this voice. Wait for it to finish or clear it first.` });
-    }
-
-    // --- Guard: new display name unique vs OTHER voices --------------------
-    const taken = new Set();
-    const addName = (s) => { if (s) taken.add(String(s).trim().toLowerCase()); };
+    // Non-blocking duplicate-name advisory (NOT an identity constraint): report
+    // any OTHER voice already showing this display name so the UI can surface the
+    // internal id for disambiguation. Never rejects.
+    const duplicates = [];
+    const lname = newName.toLowerCase();
     try {
       for (const e of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
         if (!e.isDirectory() || e.name === id) continue;
-        addName(e.name);
         try {
           const m = JSON.parse(fs.readFileSync(path.join(ASSETS_DIR, e.name, "meta.json"), "utf-8"));
-          addName(m.display_name);
-        } catch (_) { /* no/invalid meta — id already added */ }
+          if (m && String(m.display_name || "").trim().toLowerCase() === lname) duplicates.push(e.name);
+        } catch (_) { /* ignore unreadable meta */ }
       }
-    } catch (_) { /* assets dir unreadable — fall through to voices.json */ }
-    const allVoices = loadVoices();
-    for (const [vid, v] of Object.entries(allVoices)) {
-      if (vid === id) continue;
-      addName(vid);
-      addName(v && v.display_name);
-    }
-    if (taken.has(newName.toLowerCase())) {
-      return res.status(409).json({ error: `The name "${newName}" is already used by another voice. Pick a different name.` });
-    }
+    } catch (_) { /* assets dir unreadable */ }
 
-    // --- Guard: target folder / id must not already exist ------------------
-    if (idChanged && (fs.existsSync(newDir) || allVoices[newId])) {
-      return res.status(409).json({ error: `A voice with id "${newId}" already exists. Renaming would overwrite it — pick a different name.` });
-    }
-
-    // --- Rename the folder (robust), then meta.json + voices.json ----------
     await withVoicesLock(async () => {
-      if (idChanged) {
-        let result;
-        try {
-          result = renameVoiceFolder(oldDir, newDir);
-        } catch (e) {
-          if (e.code === "EXDEV") {
-            throw Object.assign(new Error("Rename crossed a device boundary; aborted to avoid corruption."), { httpStatus: 500 });
-          }
-          throw Object.assign(new Error(`Could not rename the asset folder (${e.code || "error"}): ${e.message}`), { httpStatus: 423 });
-        }
-        if (result.locked.length) {
-          // Some files could not be moved → roll back what we did move so we
-          // never leave a split asset, then tell the user exactly what to close.
-          try {
-            for (const f of fs.readdirSync(newDir)) {
-              try { fs.renameSync(path.join(newDir, f), path.join(oldDir, f)); } catch (_) {}
-            }
-            fs.rmdirSync(newDir);
-          } catch (_) {}
-          throw Object.assign(
-            new Error(`These files are locked and could not be moved: ${result.locked.join(", ")}. They are likely held by a loaded model (stop generation) or an open Explorer/audio player window on this voice. Close them and retry.`),
-            { httpStatus: 423 }
-          );
-        }
-      }
-
-      const targetDir = idChanged ? newDir : oldDir;
-      const targetMetaPath = path.join(targetDir, "meta.json");
-      try {
-        // First set the new display_name/id, then regenerate the asset inventory
-        // via scanVoiceDir so all checkpoint/reference `path`s (which embed the
-        // folder path) are rewritten for the new id. This is exactly why meta is
-        // scan-generated: renaming stays self-consistent.
-        const meta0 = JSON.parse(fs.readFileSync(targetMetaPath, "utf-8"));
-        meta0.display_name = newName;
-        meta0.id = newId;
-        fs.writeFileSync(targetMetaPath, JSON.stringify(meta0, null, 2));
-        const fresh = assetScanner.scanVoiceDir(newId, targetDir);
-        fresh.display_name = newName; // scanVoiceDir inherits from prev, keep explicit
-        fresh.id = newId;
-        fs.writeFileSync(targetMetaPath, JSON.stringify(fresh, null, 2));
-      } catch (metaErr) {
-        // meta rewrite failed AFTER folder move — roll the folder back so we
-        // don't leave a mismatched id/folder.
-        if (idChanged) { try { renameDirWithRetry(newDir, oldDir); } catch (_) {} }
-        throw metaErr;
-      }
+      // meta.json is authoritative for display_name; folder name stays the id.
+      const meta0 = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      meta0.display_name = newName;
+      meta0.id = id; // mirror only
+      fs.writeFileSync(metaPath, JSON.stringify(meta0, null, 2));
 
       const voices2 = loadVoices();
-      const prev = voices2[id] || {};
-      delete voices2[id];
-      voices2[newId] = { ...prev, display_name: newName };
-      saveVoices(voices2);
+      if (voices2[id]) {
+        voices2[id] = { ...voices2[id], display_name: newName };
+        saveVoices(voices2);
+      }
     });
 
-    res.json({ ok: true, id: newId, previousId: id, idChanged, display_name: newName });
+    res.json({ ok: true, id, previousId: id, idChanged: false, display_name: newName, duplicates });
   } catch (err) {
     const status = err && err.httpStatus ? err.httpStatus : 500;
     res.status(status).json({ error: localError(err) });
@@ -2725,21 +2822,31 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
     const voiceReg = voices[role];
     if (!voiceReg) return res.status(404).json({ error: `Recipe '${voice}' references unknown voice '${role}'` });
 
-    refAudio = resolveRefPath(recipe.reference_audio);
+    // v3 version-aware resolution. Legacy (v<=2) string paths resolve against
+    // APP_DIR exactly as before; v3 { base, path } objects resolve asset-relative
+    // (ASSETS_ROOT, containment-checked) or as an explicit external absolute path.
+    // A managed-path escape (traversal / symlink) is a hard 400, not a not-found.
+    const schemaVersion = recipe.schema_version || 1;
+    const rref = pathResolver.resolveManagedRef(recipe.reference_audio, { schemaVersion });
+    if (!rref.ok) return res.status(400).json({ error: `Recipe '${voice}' reference_audio rejected: ${rref.error}`, code: rref.code });
+    refAudio = rref.path;
     refText = recipe.reference_text || "";
     if (!refAudio || !fs.existsSync(refAudio)) {
-      return res.status(400).json({ error: `Recipe '${voice}' reference_audio not found: ${recipe.reference_audio}` });
+      return res.status(400).json({ error: `Recipe '${voice}' reference_audio not found: ${JSON.stringify(recipe.reference_audio)}` });
     }
     if (!refText) return res.status(400).json({ error: `Recipe '${voice}' has no reference_text` });
 
-    // Pinned models (recipe stores project-relative paths). A missing pinned file
-    // means the voice was retrained/pruned — the Broker page re-binds it.
-    gptModel = recipe.gpt_ckpt ? resolveRefPath(recipe.gpt_ckpt) : "";
-    sovitsModel = recipe.sovits_pth ? resolveRefPath(recipe.sovits_pth) : "";
-    for (const [label, p] of [["gpt_ckpt", gptModel], ["sovits_pth", sovitsModel]]) {
-      if (p && !fs.existsSync(p)) {
-        return res.status(400).json({ error: `Recipe '${voice}' pinned ${label} is missing (re-bind it in the Broker page): ${p}` });
+    // Pinned models. A missing pinned file means the voice was retrained/pruned —
+    // the Broker page re-binds it.
+    for (const [label, field] of [["gpt_ckpt", "gpt_ckpt"], ["sovits_pth", "sovits_pth"]]) {
+      const val = recipe[field];
+      if (!val) continue;
+      const rm = pathResolver.resolveManagedRef(val, { schemaVersion });
+      if (!rm.ok) return res.status(400).json({ error: `Recipe '${voice}' ${label} rejected: ${rm.error}`, code: rm.code });
+      if (rm.path && !fs.existsSync(rm.path)) {
+        return res.status(400).json({ error: `Recipe '${voice}' pinned ${label} is missing (re-bind it in the Broker page): ${rm.path}` });
       }
+      if (label === "gpt_ckpt") gptModel = rm.path; else sovitsModel = rm.path;
     }
     textLang = recipe.language || voiceReg.text_lang || voiceReg.language || "ja";
     promptLang = recipe.language || voiceReg.prompt_lang || voiceReg.language || "ja";
@@ -3110,11 +3217,56 @@ app.get("/api/models/status", (req, res) => {
   res.json({ versions, anyBlocking, anyDegraded, ...versions[0] });
 });
 
-app.post("/api/train/start", requireApiKey, (req, res) => {
+// Collect every id that must be considered "taken" when allocating a new
+// canonical voice id: asset folders ∪ voices.json ∪ retained tasks ∪ pending
+// reservations. Also opportunistically prunes reservations already backed by a
+// folder/task so the registry can't grow unbounded.
+function collectTakenVoiceIds() {
+  const taken = new Set();
+  const backed = new Set();
   try {
-    const { voiceId: rawVoiceId, language, inputDir, steps: stepOptions, customParams, overwrite,
+    for (const e of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
+      if (e.isDirectory()) { taken.add(e.name); backed.add(e.name); }
+    }
+  } catch (_) {}
+  try { for (const k of Object.keys(loadVoices())) { taken.add(k); backed.add(k); } } catch (_) {}
+  try {
+    for (const t of (trainingPipeline.getAllTasks() || [])) {
+      if (t && t.voiceId) { taken.add(t.voiceId); backed.add(t.voiceId); }
+    }
+  } catch (_) {}
+  try { for (const id of assetId.listReservations()) taken.add(id); } catch (_) {}
+  try { assetId.prune(backed); } catch (_) {}
+  return taken;
+}
+
+// POST /api/assets/derive-id — return a PROPOSED (non-reserved) canonical id for
+// a display name, for live preview in the create form. NOT authoritative: the
+// final id is allocated atomically at task creation and may differ. The UI must
+// label this as "proposed".
+app.post("/api/assets/derive-id", requireApiKey, (req, res) => {
+  const displayName = String((req.body && req.body.display_name) || "").trim();
+  if (!displayName) return res.status(400).json({ error: "display_name is required" });
+  const { base, proposed } = assetId.proposeVoiceId(displayName);
+  // Surface whether the illustrative proposal currently collides so the UI can
+  // hint that the final id will differ.
+  let collides = false;
+  try { collides = collectTakenVoiceIds().has(proposed); } catch (_) {}
+  res.json({ proposed_id: proposed, base, reserved: false, collides });
+});
+
+app.post("/api/train/start", requireApiKey, async (req, res) => {
+  try {
+    const { voiceId: rawVoiceId, displayName: rawDisplayName, targetVoiceId,
+            language, inputDir, steps: stepOptions, customParams, overwrite,
             resumeTaskId, forkFromTaskId, restartFailedStep } = req.body || {};
-    if (!rawVoiceId) return res.status(400).json({ error: "Missing 'voiceId'" });
+    // Option A: the create form now sends a human-facing display name. Legacy
+    // clients that still send `voiceId` as free text are tolerated — it is
+    // treated as the display name for id derivation (never as the id itself).
+    const displayName = String((rawDisplayName != null ? rawDisplayName : rawVoiceId) || "").trim();
+    if (!displayName && !(resumeTaskId || forkFromTaskId) && !targetVoiceId) {
+      return res.status(400).json({ error: "Missing 'displayName'" });
+    }
     if (!language) return res.status(400).json({ error: "Missing 'language'" });
 
     // Resume/断点恢复：续跑(resumeTaskId) 复用同 taskId+workDir，改参(forkFromTaskId)
@@ -3140,31 +3292,63 @@ app.post("/api/train/start", requireApiKey, (req, res) => {
       });
     }
 
-    // Overwrite guard: publishing goes to ASSETS_ROOT/<sanitized id> and clobbers
-    // whatever is there. If that id already belongs to an existing voice and the
-    // caller did not explicitly confirm, refuse — surfacing the DISPLAY NAME so
-    // the user recognises what they'd be destroying (e.g. hidden "A_en" behind id
-    // "A"). This is the second safety layer behind id-syncing rename.
-    const publishId = rawVoiceId.trim().replace(/[^a-zA-Z0-9_\-]/g, "_");
-    if (!overwrite) {
-      let existingDisplay = null;
-      const existDir = path.join(ASSETS_DIR, publishId);
-      if (fs.existsSync(existDir)) {
-        try {
-          const m = JSON.parse(fs.readFileSync(path.join(existDir, "meta.json"), "utf-8"));
-          existingDisplay = m.display_name || publishId;
-        } catch (_) { existingDisplay = publishId; }
-      } else {
-        try { const vs = loadVoices(); if (vs[publishId]) existingDisplay = vs[publishId].display_name || publishId; } catch (_) {}
+    // ── Canonical voice-id lifecycle (Option A) ───────────────────────────────
+    // The id is IMMUTABLE and resolved exactly once here, atomically:
+    //   * resume/fork  → reuse the source task's stored voiceId (never re-derived).
+    //   * targetVoiceId→ explicit retrain/overwrite of an EXISTING voice (separate,
+    //                    deliberate op; requires overwrite:true confirmation).
+    //   * otherwise     → a BRAND-NEW voice: allocate a fresh ASCII id from the
+    //                    display name under a critical section + reserve it.
+    // A slug collision or a matching display name NEVER implies overwrite.
+    let publishId = null;              // final canonical id
+    let publishDisplayName = displayName || null;
+    let reservedThisRequest = false;
+
+    if (resumeTaskId || forkFromTaskId) {
+      const srcId = resumeTaskId || forkFromTaskId;
+      let j = null;
+      try { j = trainingPipeline.readTaskJournal(srcId); } catch (_) {}
+      if (!j || !j.voiceId) {
+        return res.status(400).json({
+          error: `Cannot resume: source task '${srcId}' has no stored voice id.`,
+          code: "RESUME_NO_VOICEID",
+        });
       }
-      if (existingDisplay) {
+      publishId = j.voiceId;
+      publishDisplayName = publishDisplayName || j.displayName || publishId;
+    } else if (targetVoiceId) {
+      if (!safeId(targetVoiceId)) return res.status(400).json({ error: "Invalid targetVoiceId" });
+      const existDir = path.join(ASSETS_DIR, targetVoiceId);
+      let existingDisplay = null;
+      if (fs.existsSync(path.join(existDir, "meta.json"))) {
+        try { existingDisplay = JSON.parse(fs.readFileSync(path.join(existDir, "meta.json"), "utf-8")).display_name || targetVoiceId; }
+        catch (_) { existingDisplay = targetVoiceId; }
+      } else {
+        try { const vs = loadVoices(); if (vs[targetVoiceId]) existingDisplay = vs[targetVoiceId].display_name || targetVoiceId; } catch (_) {}
+      }
+      if (!existingDisplay) {
+        return res.status(404).json({ error: `Target voice '${targetVoiceId}' does not exist.`, code: "TARGET_NOT_FOUND" });
+      }
+      if (!overwrite) {
         return res.status(409).json({
-          error: `Voice id "${publishId}" already belongs to "${existingDisplay}". Training will overwrite it.`,
+          error: `Retraining will overwrite the existing voice "${existingDisplay}" (id: ${targetVoiceId}). Confirm to proceed.`,
           code: "VOICE_EXISTS",
-          existingId: publishId,
+          existingId: targetVoiceId,
           existingDisplay,
         });
       }
+      publishId = targetVoiceId;
+      publishDisplayName = publishDisplayName || existingDisplay;
+    } else {
+      // Brand-new voice: allocate + reserve atomically so two concurrent creations
+      // can never receive the same id.
+      publishId = await withVoicesLock(async () => {
+        const taken = collectTakenVoiceIds();
+        const id = assetId.allocateVoiceId(displayName, taken);
+        assetId.reserve(id);
+        return id;
+      });
+      reservedThisRequest = true;
     }
 
     // Invariant #5: an asset MUST end up with at least one kind of reference audio.
@@ -3232,24 +3416,41 @@ app.post("/api/train/start", requireApiKey, (req, res) => {
       }
     }
 
-    console.log(`[TRAIN] Creating pipeline: voiceId=${rawVoiceId}, lang=${language}`);
-    const pipeline = trainingPipeline.createPipeline({
-      voiceId: rawVoiceId.trim().replace(/[^a-zA-Z0-9_\-]/g, '_'),
-      language,
-      inputDir,
-      stepOptions: stepOptions || {},
-      customParams: safeCustom,
-      resumeTaskId: resumeTaskId || null,
-      forkFromTaskId: forkFromTaskId || null,
-      restartFailedStep: !!restartFailedStep,
-    });
+    console.log(`[TRAIN] Creating pipeline: voiceId=${publishId}, display=${publishDisplayName}, lang=${language}`);
+    let pipeline;
+    try {
+      pipeline = trainingPipeline.createPipeline({
+        voiceId: publishId,
+        displayName: publishDisplayName,
+        language,
+        inputDir,
+        stepOptions: stepOptions || {},
+        customParams: safeCustom,
+        resumeTaskId: resumeTaskId || null,
+        forkFromTaskId: forkFromTaskId || null,
+        restartFailedStep: !!restartFailedStep,
+      });
+    } catch (createErr) {
+      // Allocation succeeded but pipeline creation failed → release the reservation
+      // so the id isn't leaked (it isn't yet backed by a task/folder).
+      if (reservedThisRequest) { try { assetId.release(publishId); } catch (_) {} }
+      throw createErr;
+    }
     console.log(`[TRAIN] Pipeline created: ${pipeline.id}${isRecovery ? ` (recovery of ${resumeTaskId || forkFromTaskId})` : ''}`);
 
     // 异步启动，不等待完成
     pipeline.start().catch(err => console.error("[TRAINING] Pipeline error:", err));
     console.log(`[TRAIN] Pipeline started, sending response`);
 
-    res.json({ ok: true, taskId: pipeline.id });
+    // NOTE (reservation lifetime): we intentionally do NOT release the reservation
+    // here. The id must remain reserved for the full lifetime of the resumable
+    // task. The reservation is now redundant with the task journal (getAllTasks
+    // covers it), so collectTakenVoiceIds().prune() will lazily drop the
+    // placeholder the next time an id is allocated — but only because the task
+    // then backs the id. It is truly freed only on explicit delete / publish
+    // (folder owns it) / loss of recovery eligibility.
+
+    res.json({ ok: true, taskId: pipeline.id, voiceId: publishId, displayName: publishDisplayName });
     console.log(`[TRAIN] Response sent`);
   } catch (err) {
     console.error("[TRAIN] Error:", err);
@@ -3438,17 +3639,21 @@ app.post("/api/recipes", requireApiKey, (req, res) => {
   if (!knownVoice(role)) {
     return res.status(400).json({ error: `unknown voice: ${role}` });
   }
-  // PC-3: pin model paths as project-relative when possible. Files outside the
-  // project are rejected unless the client explicitly confirms (allow_external_models),
-  // in which case they are stored as a non-portable absolute path.
-  const allowExternal = !!body.allow_external_models;
-  for (const key of ["gpt_ckpt", "sovits_pth"]) {
-    if (body[key] != null && body[key] !== "") {
-      const n = normalizeModelPath(body[key], { allowExternal });
-      if (!n.ok) return res.status(400).json({ error: `${key}: ${n.error}`, code: n.code, field: key });
-      body[key] = n.value;
-    }
-  }
+  // v3: pin managed paths as ASSETS_ROOT-relative { base, path } objects. Files
+  // outside ASSETS_ROOT are external/non-portable: models require
+  // allow_external_models, reference/aux audio require the SEPARATE
+  // allow_external_audio (default OFF — model permission never authorizes audio).
+  // A force-overwrite of a legacy v2 recipe keeps v2 string semantics (no silent
+  // migration); only a genuinely new recipe mints v3.
+  const nameV = recipeStore.validateName(body.name);
+  const existingRec = nameV.ok ? recipeStore.get(role, nameV.value) : null;
+  const targetV3 = !(existingRec && (existingRec.schema_version || 1) < 3);
+  const cls = classifyRecipeManagedFields(body, {
+    targetV3,
+    allowExternalModels: !!body.allow_external_models,
+    allowExternalAudio: !!body.allow_external_audio,
+  });
+  if (!cls.ok) return res.status(400).json({ error: cls.error, code: cls.code, field: cls.field });
   const force = !!body.force;
   const r = recipeStore.create(body, { force });
   if (!r.ok) {
@@ -3461,16 +3666,17 @@ app.post("/api/recipes", requireApiKey, (req, res) => {
 // PUT /api/recipes/:role/:name — merge-update (Broker model re-bind + edits).
 app.put("/api/recipes/:role/:name", requireApiKey, (req, res) => {
   const body = req.body || {};
-  // PC-3: same portability guard on the Broker re-bind path. External absolute
-  // paths require an explicit allow_external_models confirmation.
-  const allowExternal = !!body.allow_external_models;
-  for (const key of ["gpt_ckpt", "sovits_pth"]) {
-    if (body[key] != null && body[key] !== "") {
-      const n = normalizeModelPath(body[key], { allowExternal });
-      if (!n.ok) return res.status(400).json({ error: `${key}: ${n.error}`, code: n.code, field: key });
-      body[key] = n.value;
-    }
-  }
+  // Same field-aware guard on the Broker re-bind path. Schema is PRESERVED: a v2
+  // recipe keeps v2 string model paths (no silent migration to v3); a v3 recipe
+  // gets v3 { base, path } objects. Migration to v3 is a separate explicit flow.
+  const existingRec = recipeStore.get(req.params.role, req.params.name);
+  const targetV3 = !!(existingRec && (existingRec.schema_version || 1) >= 3);
+  const cls = classifyRecipeManagedFields(body, {
+    targetV3,
+    allowExternalModels: !!body.allow_external_models,
+    allowExternalAudio: !!body.allow_external_audio,
+  });
+  if (!cls.ok) return res.status(400).json({ error: cls.error, code: cls.code, field: cls.field });
   const r = recipeStore.update(req.params.role, req.params.name, body);
   if (!r.ok) {
     if (r.code === "not_found") return res.status(404).json({ error: r.error });
@@ -3484,6 +3690,51 @@ app.delete("/api/recipes/:role/:name", requireApiKey, (req, res) => {
   const ok = recipeStore.remove(req.params.role, req.params.name);
   if (!ok) return res.status(404).json({ error: "recipe not found" });
   res.json({ ok: true });
+});
+
+// ── Recipe v2→v3 path migration (explicit, assisted; never auto/startup) ──────
+// GET preview — READ-ONLY. Classifies every v<3 recipe's managed paths into
+// convertible/external/missing/ambiguous. Writes nothing.
+app.get("/api/recipes/migration/preview", requireApiKey, (req, res) => {
+  try {
+    res.json({ assets_root: ASSETS_ROOT, app_dir: APP_DIR, recipes: recipeMigrator.preview() });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err, "migration preview failed") });
+  }
+});
+
+// POST apply — backs up then rewrites ONE recipe to v3. Refuses when any field is
+// ambiguous/missing unless the body supplies explicit `resolutions`
+// (field → { base, path }). Ambiguous/missing are NEVER auto-selected.
+app.post("/api/recipes/migration/apply", requireApiKey, (req, res) => {
+  const body = req.body || {};
+  const file = String(body.file || "");
+  if (!file || !/^recipe_.+\.json$/.test(file) || file.includes("/") || file.includes("\\")) {
+    return res.status(400).json({ error: "invalid recipe file name" });
+  }
+  try {
+    const r = recipeMigrator.apply(file, { resolutions: body.resolutions || {} });
+    if (!r.ok) return res.status(409).json({ error: r.error, field: r.field, status: r.status });
+    res.json({ ok: true, backup: r.backup, recipe: r.recipe });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err, "migration apply failed") });
+  }
+});
+
+// POST revert — restore a recipe from its most recent (or named) backup.
+app.post("/api/recipes/migration/revert", requireApiKey, (req, res) => {
+  const body = req.body || {};
+  const file = String(body.file || "");
+  if (!file || !/^recipe_.+\.json$/.test(file) || file.includes("/") || file.includes("\\")) {
+    return res.status(400).json({ error: "invalid recipe file name" });
+  }
+  try {
+    const r = recipeMigrator.revert(file, { backup: body.backup });
+    if (!r.ok) return res.status(404).json({ error: r.error });
+    res.json({ ok: true, restored_from: r.restored_from });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err, "migration revert failed") });
+  }
 });
 
 // GET /api/assets/voices-with-models — the first-level picker for the Broker

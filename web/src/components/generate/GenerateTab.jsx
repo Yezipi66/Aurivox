@@ -9,6 +9,46 @@ import { AudioPlayer, Player } from '../common/Player'
 import { CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, statusBadge } from '../../lib/format'
 
+// Reproducibility: a small inline badge that displays the RESOLVED seed (the
+// concrete value the engine actually used, never -1) with one-click copy.
+// Renders nothing for a missing/random seed.
+function SeedBadge({ seed }) {
+  const [copied, setCopied] = useState(false)
+  if (seed === undefined || seed === null || seed === -1) return null
+  const copy = () => {
+    try {
+      navigator.clipboard?.writeText(String(seed))
+      setCopied(true); setTimeout(() => setCopied(false), 1200)
+    } catch { /* ignore */ }
+  }
+  return (
+    <span className="seed-badge" title="Resolved seed used for this generation — click to copy">
+      <span className="seed-badge-label">seed</span>
+      <button type="button" className="seed-badge-val" onClick={copy}
+        title="Click to copy this seed">{seed}{copied ? ' ✓' : ''}</button>
+    </span>
+  )
+}
+
+// Compact inline seed for dense meta lines: bold, hover-highlighted, click-to-copy.
+function SeedInline({ seed }) {
+  const [copied, setCopied] = useState(false)
+  if (seed === undefined || seed === null || seed === -1) return null
+  const copy = (e) => {
+    e.stopPropagation()
+    try {
+      navigator.clipboard?.writeText(String(seed))
+      setCopied(true); setTimeout(() => setCopied(false), 1200)
+    } catch { /* ignore */ }
+  }
+  return (
+    <button type="button" className="seed-inline" onClick={copy}
+      title="Resolved seed for this generation — click to copy">
+      seed <strong>{seed}</strong>{copied ? ' ✓' : ''}
+    </button>
+  )
+}
+
 function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, onActivity }) {
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
@@ -786,10 +826,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
           <div className="section">
             <div className="section-hdr">
               <span>{result.split ? (result.concat ? `Combined (${result.segments?.length} segments)` : `Segments (${result.segments?.length})`) : 'Result'}</span>
-              {result.silence_ms !== undefined && <span style={{ fontSize: 11, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
+              <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {result.silence_ms !== undefined && <span style={{ fontSize: 11, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
+                <SeedBadge seed={result.seed} />
+              </span>
             </div>
             <div className="section-body">
-              <Player src={`${API_BASE}${result.audio_url}`} />
+              <Player src={`${API_BASE}${result.audio_url}`} bounds={result.segment_bounds} duration={result.duration} />
               <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
                 <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 13 }}>Download WAV</a>
               </div>
@@ -828,8 +871,11 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       {item.voice} · <span style={{ textTransform: 'uppercase' }}>{item.lang}</span> · GPT {item.gpt} / SoVITS {item.sovits}
                       {item.segments > 1 ? ` · ${item.segments} seg` : ''}
                       {refBasename(item) ? ` · ref ${refBasename(item)}` : ''} · {fmtRecentTime(item.createdAt)}
+                      {(item.seed ?? item.params?.seed) !== undefined && (item.seed ?? item.params?.seed) !== null && (item.seed ?? item.params?.seed) !== -1 && (
+                        <> · <SeedInline seed={item.seed ?? item.params?.seed} /></>
+                      )}
                     </div>
-                    <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" /></div>
+                    <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" bounds={item.segment_bounds} duration={item.duration} /></div>
                   </div>
                   <div className="rr-actions">
                     <button className="icon-btn" title="Show in file explorer" onClick={() => revealItem(item)}><IconFolder size={15} /></button>

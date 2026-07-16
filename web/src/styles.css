@@ -31,7 +31,7 @@ html, body, #root {
 
 body {
   /* Explicit CJK sans faces (PingFang / YaHei / Noto) BEFORE the generic fallback so
-     that on Chinese Windows the generic `sans-serif` never resolves to SimSun (
+     that on Chinese Windows the generic `sans-serif` never resolves to SimSun (宋体,
      a serif) for any stray CJK glyph or ellipsis. Latin stays on Segoe UI / system. */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
     'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', Arial, sans-serif;
@@ -514,6 +514,30 @@ select.control {
 }
 .ctx-item .ctx-v.placeholder { color: var(--muted); font-weight: 500; font-style: italic; }
 .ctx-sep { width: 1px; height: 12px; background: var(--border); }
+.ctx-pvmode {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.ctx-pvmode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.ctx-pvmode-btn + .ctx-pvmode-btn { border-left: 1px solid var(--border); }
+.ctx-pvmode-btn:hover { color: var(--text); background: var(--hover, rgba(127,127,127,0.1)); }
+.ctx-pvmode-btn.active { color: #fff; background: var(--accent); }
 
 /* ===== Badge ===== */
 .badge {
@@ -1259,7 +1283,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Assets-page model-naming notice (collapsible) */
 /* Assets naming/metadata notice — acknowledge-able.
-   Explicit sans font stack (never inherit a stray SimSun serif on
+   Explicit sans font stack (never inherit a stray SimSun/宋体 serif on
    Chinese Windows) applied to the whole note and its children. */
 .naming-note-card,
 .naming-note-pill {
@@ -1441,6 +1465,33 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .aplayer:hover .ap-thumb,
 .aplayer .ap-track:hover .ap-thumb { opacity: 1; }
+.aplayer .ap-seg-div {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* Waveform preview surface (replaces the bar track when previewMode = waveform) */
+.aplayer .ap-wave {
+  flex: 1;
+  height: 34px;
+  position: relative;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.aplayer .ap-wave-sm { height: 26px; }
+.aplayer .ap-wave-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 
 /* In-app folder browser modal */
 .fs-browser-overlay {
@@ -1702,18 +1753,11 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .asr-review-hdr .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
 .asr-review-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; }
 .asr-review-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); }
-.arr-path { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; padding-top: 4px; }
-.arr-path-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.arr-play { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer; }
-.arr-play:hover { color: var(--accent); border-color: var(--accent); }
+.arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 6px; }
 .arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: 12px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
-/* .arr-proof is the 3rd child of the 2-col grid; without this it auto-places into
-   the narrow 160px first column and gets cramped. Span the full row width. */
-.arr-proof { grid-column: 1 / -1; min-width: 0; margin-top: 2px; }
-.arr-proof .pron-panel { margin-top: 6px; }
 .asr-review-ftr { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
 
-/* ── Failure-resume panel & banner (get back up where you fell) ─────────────── */
+/* ── Failure-resume panel & banner (哪里跌倒哪里爬起来) ───────────────────── */
 .recover-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
@@ -1760,3 +1804,62 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .resume-reason { color: var(--warning); }
 .resume-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .control-inline { width: auto; min-width: 180px; display: inline-block; }
+
+/* Seed badge — reproducibility affordance (Generate result header).
+   Shows the RESOLVED seed with click-to-copy. */
+.seed-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.seed-badge-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+.seed-badge-val {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid transparent; border-radius: 4px;
+  padding: 1px 6px; cursor: pointer; font-size: 11px; line-height: 1.4;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.seed-badge-val:hover { border-color: var(--accent); }
+
+/* Inline seed — dense meta lines (Recent rows). Bold, hover-highlight, click-to-copy. */
+.seed-inline {
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  font: inherit; color: inherit; letter-spacing: inherit;
+  border-radius: 3px; transition: color 0.12s ease, background 0.12s ease;
+}
+.seed-inline strong {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-weight: 700; color: var(--text);
+}
+.seed-inline:hover { color: var(--accent); }
+.seed-inline:hover strong { color: var(--accent); background: var(--accent-soft); }
+
+/* Comparison batch history — each "Generate All" recorded as one batch. */
+.cmp-batch { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+.cmp-batch-hdr {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  cursor: pointer; user-select: none; background: var(--panel);
+}
+.cmp-batch-hdr:hover { background: var(--accent-soft); }
+.cmp-batch-caret { color: var(--muted); font-size: 11px; width: 10px; }
+.cmp-batch-count {
+  font-size: 12px; font-weight: 600; color: var(--accent);
+  background: var(--accent-soft); border-radius: 10px; padding: 1px 8px; white-space: nowrap;
+}
+.cmp-batch-label { flex: 1; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-batch-partial {
+  font-size: 10px; color: var(--warning); border: 1px solid var(--warning);
+  border-radius: 4px; padding: 0 5px; white-space: nowrap;
+}
+.cmp-batch-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cmp-batch-body { padding: 6px 12px 10px; }
+.cmp-batch-member { padding: 6px 0; border-top: 1px solid var(--border); }
+.cmp-batch-member:first-child { border-top: none; }
+.cmp-batch-member-main { display: flex; align-items: center; gap: 8px; }
+.cmp-batch-idx { font-size: 11px; color: var(--muted); font-weight: 600; min-width: 26px; }
+.cmp-batch-ref {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 11px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.cmp-batch-seed {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px; color: var(--accent); background: var(--accent-soft);
+  border-radius: 4px; padding: 0 5px; white-space: nowrap;
+}

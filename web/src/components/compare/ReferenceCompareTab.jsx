@@ -7,7 +7,12 @@ import { SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, normalizeLangFamily, refInRange } from '../../lib/format'
+import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, normalizeLangFamily, refInRange } from '../../lib/format'
+
+// Compare Refs target-language options: the plain per-segment "auto" is dropped
+// here (this page is decoupled from the Generate voice — no per-voice auto-detect),
+// but the multilingual "auto_zh_ja" is kept for zh+ja shared-Han comparison.
+const CMP_LANG_OPTIONS = TARGET_LANG_OPTIONS.filter(o => o.value !== 'auto')
 
 // Single-voice reference picker: Slices / Raw tabs (reused by Compare's "this voice" main
 // reference). Same inner list as CrossRefPicker but without the voice dropdown. onPick(path, text).
@@ -92,15 +97,16 @@ function RefAudioTabs({ voiceId, activeRef, onPick }) {
 // ===========================
 //  REFERENCE COMPARE TAB
 // ===========================
-function ReferenceCompareTab({ voices, selectedVoice }) {
+function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
   // Persisted: a Compare Refs workspace must survive reloads / app restarts.
   // Generated audio is referenced by a server URL (result.audio_url) — not a blob —
   // so persisting results keeps the players working after a reload as long as the
   // backend keeps the output file. Transient flags are reset on rehydrate, and the
   // list is capped to avoid blowing the localStorage quota.
   const [rows, setRows] = usePersistentState('compare.rows', [], {
+    // Legacy per-row target 'auto' (option removed) falls back to "use default".
     rehydrate: r => Array.isArray(r)
-      ? r.map(x => ({ ...x, loading: false, error: null })).slice(0, 24)
+      ? r.map(x => ({ ...x, loading: false, error: null, textLang: x.textLang === 'auto' ? '' : x.textLang })).slice(0, 24)
       : [],
   })  // [{ id, refAudio, auxRefPaths, text, ...params, loading, result, error }]
   const [allAudioFiles, setAllAudioFiles] = useState([])
@@ -123,6 +129,17 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
   const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
   const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
   const [segmentsCache, setSegmentsCache] = useState({})  // { voiceId: segments[] }
+  // Batch history — server-authoritative record of every "Generate All" run,
+  // reconstructed from member meta.json (GET /api/outputs/batches). Shows how many
+  // audios each comparison produced and which reference each member used.
+  const [batches, setBatches] = useState([])
+  const loadBatches = async () => {
+    const r = await api('/api/outputs/batches?source=comparerefs')
+    if (r.ok && r.data && Array.isArray(r.data.batches)) setBatches(r.data.batches)
+  }
+  useEffect(() => { loadBatches() }, [])
+  // Clear the status-bar activity indicator when leaving the Compare tab.
+  useEffect(() => () => onActivity?.(null), [])
 
   const selected = voices.find(v => v.id === selectedVoice)
   // Seed the row-id counter past any persisted rows so reloaded rows never collide.
@@ -134,15 +151,19 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
   const openSaveRecipe = (row) => {
     const rm = rowModels[row.id] || {}
     const dp = defaultParams || {}
+    // Row's own model language (decoupled from the shared selectedVoice).
+    const rmVoiceId = rm.voiceId || selectedVoice
+    const rmVoiceLang = availableModels.find(m => m.voiceId === rmVoiceId)?.language
+      || voices.find(v => (v.id || v.voiceId) === rmVoiceId)?.language || 'ja'
     // #4: pin this row's reading proofing exactly like the Generate recipe schema —
     // flat base overrides + lang_overrides + han_readings (server.js merges them).
-    const rEff = row.textLang || defaultTextLang || selected?.language || 'ja'
-    const rDir = hanOverrideDirection(rEff, selected?.language || 'ja')
+    const rEff = row.textLang || defaultTextLang || rmVoiceLang || 'ja'
+    const rDir = hanOverrideDirection(rEff, rmVoiceLang)
     const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [])
     setSaveRecipeDefaults({
       reference_audio: row.refAudio || '',
       reference_text: row.promptText || '',
-      language: row.textLang || defaultTextLang || selected?.language || 'ja',
+      language: row.textLang || defaultTextLang || rmVoiceLang || 'ja',
       params: {
         top_k: row.top_k, top_p: row.top_p, temperature: row.temperature, speed: row.speed_factor,
         // PA: pin the full contract. Fields Compare does not expose per-row
@@ -173,18 +194,21 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
 
   // Shared default target language (text_lang) + reading proofing for empty/uncustomized
   // rows — mirrors the Generate tab. Each row may still override its own target language.
-  const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', defaultTargetLang(selected?.language || 'ja'))
+  // Decoupled from the Generate voice: the comparison text's target language is a
+  // free choice (default = multilingual auto), NOT auto-derived from the selected
+  // voice, and it never auto-switches when the voice changes. Legacy persisted
+  // 'auto' (removed here) migrates to the multilingual 'auto_zh_ja'.
+  const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', 'auto_zh_ja', {
+    rehydrate: v => (v === 'auto' || !v) ? 'auto_zh_ja' : v,
+  })
   const voiceLang = selected?.language || 'ja'
   const _cmpBaseFam = String(voiceLang || '').replace(/^all_/, '')
   const _cmpTargetFam = normalizeLangFamily(defaultTextLang)
-  const defaultLangMismatch = !!_cmpTargetFam && _cmpTargetFam !== _cmpBaseFam
   // #4: shared comparison-text reading proofing + Han-character language payloads.
   const defaultPanelLang = _cmpTargetFam || _cmpBaseFam || 'ja'
   const defaultHanDir = hanOverrideDirection(defaultTextLang, voiceLang)
   const defaultLangOverrides = buildLangOverrides(defaultHanDir, defaultHanForced)
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
-  // Reset the default target language when the active voice changes.
-  useEffect(() => { setDefaultTextLang(defaultTargetLang(selected?.language || 'ja')) }, [selectedVoice])   // eslint-disable-line
 
   // Load default advanced params from backend
   useEffect(() => {
@@ -220,6 +244,7 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
                 models.push({
                   voiceId: vid,
                   voiceName: meta.display_name || vid,
+                  language: meta.language || '',
                   gptCheckpoint: gpt.path,
                   sovitsModel: sovits.path,
                   gptName: gpt.name || gpt.path,
@@ -299,12 +324,24 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
     }))
   }
 
-  const generateRow = async (row) => {
+  const generateRow = async (row, batch) => {
     setRows(prev => prev.map(r => r.id === row.id ? { ...r, loading: true, result: null, error: null } : r))
+    // Live status-bar activity (ContextRow). A batch run drives its own progress
+    // label ("Comparing · k/N") from generateAll; a lone Regenerate/Rerun shows a
+    // plain "Generating" (parity with the Generate page) and clears when it ends.
+    if (!batch) onActivity?.({ label: 'Generating' })
     const rowModel = rowModels[row.id] || {}
+    // Decoupled from the Generate page's shared selectedVoice: this row's voice,
+    // reference and every language default derive from THIS row's own model. Using
+    // the shared voice here was the root of the "Chinese model auto-routes to
+    // Chinese" bug (a JA reference was sent with prompt_lang=zh, mis-tokenising the
+    // prompt and producing garbled / truncated audio).
+    const rowVoiceId = rowModel.voiceId || selectedVoice
+    const rowVoiceLang = availableModels.find(m => m.voiceId === rowVoiceId)?.language
+      || voices.find(v => (v.id || v.voiceId) === rowVoiceId)?.language || 'ja'
     try {
       const body = {
-        voice: selectedVoice,
+        voice: rowVoiceId,
         text: row.text.trim() || defaultText,
         format: 'wav',
         source: 'comparerefs',
@@ -320,14 +357,23 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
         speed_factor: row.speed_factor,
         seed: row.seed,
       }
+      // Batch tagging: when this row is part of a "Generate All", stamp the shared
+      // batch id so the backend records all members as one comparison batch. A
+      // lone per-row Generate carries no batch (it's a standalone run).
+      if (batch && batch.id) {
+        body.batch_id = batch.id
+        body.batch_seq = batch.seq
+        body.batch_total = batch.total
+        body.batch_label = batch.label
+      }
       if (rowModel.gptCheckpoint) body.gpt_model = rowModel.gptCheckpoint
       if (rowModel.sovitsModel) body.sovits_model = rowModel.sovitsModel
       // Per-row target text_lang (falls back to the shared default, then voice lang);
       // prompt_lang / reference transcript come from a cross/custom reference pick.
-      body.text_lang = row.textLang || defaultTextLang || selected?.language || 'ja'
-      body.prompt_lang = row.promptLang || selected?.language || 'ja'
-      // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
-      if (body.text_lang === 'auto_zh_ja') body.auto_base_lang = selected?.language || 'zh'
+      body.text_lang = row.textLang || defaultTextLang || rowVoiceLang || 'ja'
+      body.prompt_lang = row.promptLang || rowVoiceLang || 'ja'
+      // Auto (Multilingual): kana-free CJK falls back to this row's model language.
+      if (body.text_lang === 'auto_zh_ja') body.auto_base_lang = rowVoiceLang || 'zh'
       if (row.promptText) body.reference_text = row.promptText
       // P1-1 / #4: reading proofing is per-row — each row carries its own base
       // overrides + Han-character language forcing + reverse readings, so corrections
@@ -336,8 +382,8 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
       // overrides. Row-level always wins.
       const usingDefaultText = !(row.text && row.text.trim())
       const rEff = body.text_lang
-      const rDir = hanOverrideDirection(rEff, selected?.language || 'ja')
-      const rPanel = normalizeLangFamily(rEff) || String(voiceLang || '').replace(/^all_/, '') || 'ja'
+      const rDir = hanOverrideDirection(rEff, rowVoiceLang)
+      const rPanel = normalizeLangFamily(rEff) || String(rowVoiceLang || '').replace(/^all_/, '') || 'ja'
       const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [])
       const rPronPayload = buildPronPayload(row.pronOverrides || {}, rPanel, rDir, row.hanForced || [], row.hanReadings || {})
       if (rPronPayload || rLangOverrides) {
@@ -352,13 +398,32 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
       setRows(prev => prev.map(row2 => row2.id === row.id ? { ...row2, loading: false, result: r.data } : row2))
     } catch (err) {
       setRows(prev => prev.map(row2 => row2.id === row.id ? { ...row2, loading: false, error: err.message } : row2))
+    } finally {
+      // Batch runs are cleared by generateAll after the whole sequence.
+      if (!batch) onActivity?.(null)
     }
   }
 
   const generateAll = async () => {
-    for (const row of rows) {
-      if (!row.loading) await generateRow(row)
+    // One "Generate All" = one recorded comparison batch. Mint a shared id up
+    // front so every member lands under the same batch, then run rows in order.
+    const runnable = rows.filter(r => !r.loading)
+    if (runnable.length === 0) return
+    const batchId = `cmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const label = (defaultText || '').trim().slice(0, 80)
+    const batch = { id: batchId, total: runnable.length, label }
+    let seq = 0
+    try {
+      for (const row of runnable) {
+        // Progress in the status bar: "Comparing · k/N" advances as each member runs.
+        onActivity?.({ label: `Comparing · ${seq + 1}/${runnable.length}` })
+        await generateRow(row, { ...batch, seq })
+        seq++
+      }
+    } finally {
+      onActivity?.(null)
     }
+    loadBatches()
   }
 
   return (
@@ -390,15 +455,10 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
                   className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
                   value={defaultTextLang} onChange={e => setDefaultTextLang(e.target.value)}
                 >
-                  {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  {CMP_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </span>
             </div>
-            {defaultLangMismatch && (
-              <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
-                Default target language differs from the fine-tuned language ({String(voiceLang || '').toUpperCase()}). Inference quality may be affected.
-              </div>
-            )}
             {/* #4: reading proofing + per-character Han language for the comparison text —
                 applied to every row that doesn't override its own text. A row's own
                 proofing takes precedence. Opens in the shared Text preparation modal. */}
@@ -507,6 +567,24 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
         </div>
       )}
 
+      {/* Batch history — every "Generate All" recorded as one comparison batch. */}
+      {batches.length > 0 && (
+        <div className="section" style={{ marginTop: 16 }}>
+          <div className="section-hdr">
+            <span>Comparison Batches</span>
+            <span className="cmp-count">{batches.length} recorded</span>
+          </div>
+          <div className="section-body">
+            {batches.map(b => (
+              <CompareBatchCard key={b.batch_id} batch={b}
+                onDeleted={loadBatches} onReveal={async (id) => {
+                  await api('/api/outputs/reveal', { method: 'POST', body: { id, source: 'comparerefs' } })
+                }} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <SaveRecipeModal
         open={!!saveRecipeDefaults}
         onClose={() => setSaveRecipeDefaults(null)}
@@ -515,6 +593,52 @@ function ReferenceCompareTab({ voices, selectedVoice }) {
         defaults={saveRecipeDefaults || {}}
         onSaved={() => setSaveRecipeDefaults(null)}
       />
+    </div>
+  )
+}
+
+// One recorded comparison batch (a single "Generate All"). Collapsible; shows
+// each member's reference + seed + inline player, so you can tell exactly which
+// audios were compared together and how many the batch produced.
+function CompareBatchCard({ batch, onDeleted, onReveal }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const complete = batch.count >= (batch.total || batch.count)
+  const deleteBatch = async () => {
+    setBusy(true)
+    for (const m of batch.members) {
+      await api(`/api/outputs/${encodeURIComponent(m.id)}?source=comparerefs`, { method: 'DELETE' })
+    }
+    setBusy(false)
+    onDeleted?.()
+  }
+  return (
+    <div className="cmp-batch">
+      <div className="cmp-batch-hdr" onClick={() => setOpen(o => !o)}>
+        <span className="cmp-batch-caret">{open ? '▾' : '▸'}</span>
+        <span className="cmp-batch-count">{batch.count}{batch.total && batch.total !== batch.count ? ` / ${batch.total}` : ''} audio{batch.count === 1 ? '' : 's'}</span>
+        <span className="cmp-batch-label" title={batch.label}>{batch.label || '(voice default text)'}</span>
+        {!complete && <span className="cmp-batch-partial" title="Some members were deleted or failed">partial</span>}
+        <span className="cmp-batch-time">{fmtRecentTime(batch.createdAt)}</span>
+        <button className="icon-btn icon-btn-danger" title="Delete every audio in this batch"
+          onClick={(e) => { e.stopPropagation(); deleteBatch() }} disabled={busy}><IconTrash size={14} /></button>
+      </div>
+      {open && (
+        <div className="cmp-batch-body">
+          {batch.members.map((m, i) => (
+            <div key={m.id} className="cmp-batch-member">
+              <div className="cmp-batch-member-main">
+                <span className="cmp-batch-idx">#{(m.batch_seq ?? i) + 1}</span>
+                <span className="cmp-batch-ref" title={m.ref_audio || 'auto reference'}>{m.ref_audio ? basename(m.ref_audio) : 'auto ref'}</span>
+                {(m.seed !== undefined && m.seed !== null && m.seed !== -1) && <span className="cmp-batch-seed">seed {m.seed}</span>}
+                <button className="icon-btn" title="Show in file explorer"
+                  onClick={() => onReveal?.(m.id)}><IconFolder size={13} /></button>
+              </div>
+              {m.audio_url && <div style={{ marginTop: 4 }}><Player src={`${API_BASE}${m.audio_url}`} size="sm" bounds={m.segment_bounds} duration={m.duration} /></div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -540,21 +664,57 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
   // Determine which voice this row uses
   const voiceId = rowModel.voiceId || selectedVoice
+  // This row's own model language — the reading-proofing panel is keyed off THIS
+  // row's model, not the Generate page's shared voice, so its Han-direction and
+  // default readings match exactly what generateRow sends to the engine.
+  const rowVoiceLang = availableModels.find(m => m.voiceId === voiceId)?.language
+    || voices.find(v => (v.id || v.voiceId) === voiceId)?.language || voiceLang || 'ja'
 
   // Per-row target language: overrides the shared default; empty = follow default.
-  const effTextLang = row.textLang || defaultTextLang || voiceLang || 'ja'
+  const effTextLang = row.textLang || defaultTextLang || rowVoiceLang || 'ja'
   const _rowTargetFam = normalizeLangFamily(effTextLang)
-  const _rowBaseFam = String(voiceLang || '').replace(/^all_/, '')
-  const rowLangMismatch = !!_rowTargetFam && _rowTargetFam !== _rowBaseFam
+  const _rowBaseFam = String(rowVoiceLang || '').replace(/^all_/, '')
   // Language family used by this row's reading-proofing panel (P1-1).
   const rowPronLang = _rowTargetFam || _rowBaseFam
   // #4: this row's per-character Han-character language direction (or null).
-  const rowHanDir = hanOverrideDirection(effTextLang, voiceLang)
+  const rowHanDir = hanOverrideDirection(effTextLang, rowVoiceLang)
   const rowHanForced = row.hanForced || []
   const [showRowTextPrep, setShowRowTextPrep] = useState(false)
   // Reference source: 'slices' (this voice, default) | 'cross' | 'custom'.
   const refSource = row.refSource || 'slices'
   const setRefSource = (v) => onUpdate(row.id, 'refSource', v)
+
+  // Duration of the currently selected main reference, resolved across every
+  // source (this-voice slice / cross-voice slice / raw / custom upload) so the
+  // row can warn up-front when the clip is outside the engine's 3–10s hard limit.
+  const [refDur, setRefDur] = useState(null)
+  useEffect(() => {
+    const ref = row.refAudio || ''
+    setRefDur(null)
+    if (!ref) return
+    // Fast path: a this-voice slice already carries a server-measured duration.
+    const slice = segments.find(s => {
+      const raw = s.audio || s.audio_path || s.audio_filename
+      const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
+      return ref === `assets/${voiceId}/slicer_opt/${fn}`
+    })
+    if (slice && typeof slice.duration === 'number' && slice.duration > 0) { setRefDur(slice.duration); return }
+    // Otherwise measure any servable asset / custom-upload URL via a detached
+    // <audio> element. Unknown sources (e.g. an absolute custom path with no
+    // playable URL) stay null so we never raise a false warning.
+    let url = null
+    if (/^assets\//.test(ref)) url = `/${ref}`
+    else if (row.customRef && row.customRef.url) url = row.customRef.url
+    if (!url) return
+    let cancelled = false
+    const a = new Audio()
+    a.preload = 'metadata'
+    const onMeta = () => { if (!cancelled && isFinite(a.duration) && a.duration > 0) setRefDur(a.duration) }
+    a.addEventListener('loadedmetadata', onMeta)
+    a.src = url
+    return () => { cancelled = true; a.removeEventListener('loadedmetadata', onMeta); a.src = '' }
+  }, [row.refAudio, segments, voiceId, row.customRef])
+  const refOutOfRange = refDur != null && !refInRange(refDur)
 
   // Load segments when voice changes
   useEffect(() => {
@@ -676,6 +836,16 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         </div>
       </div>
 
+      {/* Always-visible reference-duration guard: the engine hard-limits reference
+          audio to 3–10s, so an out-of-range clip almost certainly errors on run.
+          Shown here (outside the collapsible editor) so it's visible even when a
+          generated row is collapsed to audio-only. */}
+      {refOutOfRange && (
+        <div className="cmp-ref-range-warn" style={{ fontSize: 11, color: 'var(--warning)', margin: '0 0 8px' }}>
+          {'\u26a0'} Reference audio is {refDur.toFixed(1)}s &mdash; outside the {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s range. This row will likely error (engine hard limit); pick a {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s clip.
+        </div>
+      )}
+
       {/* 6.4: editor (language / model / reference / advanced) — collapsed by default after generating. */}
       {editorOpen && (<>
       {/* D3: Target Language moved to the top of the item as a narrow single-row dropdown to save vertical space. */}
@@ -687,13 +857,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           onChange={e => onUpdate(row.id, 'textLang', e.target.value)}
         >
           <option value="">Use default ({defaultTextLang})</option>
-          {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {CMP_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        {rowLangMismatch && (
-          <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
-            Target ({String(effTextLang).toUpperCase()}) differs from the fine-tuned language ({String(voiceLang || '').toUpperCase()}).
-          </div>
-        )}
       </div>
 
       {/* 6.6/6.1: Model split into three cascading dropdowns [Voice ID][GPT][SoVITS]. Voice ID
@@ -773,24 +938,9 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         {refSource === 'slices' && (
           <>
             {/* 6.1: the redundant slice dropdown was removed. The Audition list below is the sole
-                reference picker (audition + click), expanded by default (D1). It also offers Raw audio. */}
-            {/* 6.2: main-reference 3–10s hard-limit hint. Show a yellow ⚠ when the selected clip is out of range.
-                (banner only for clips with a known duration; each item is also flagged inline) */}
-            {(() => {
-              const cur = segments.find(s => {
-                const raw = s.audio || s.audio_path || s.audio_filename
-                const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
-                return row.refAudio === `assets/${voiceId}/slicer_opt/${fn}`
-              })
-              if (cur && !refInRange(cur.duration)) {
-                return (
-                  <div className="ref-range-warn" style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 6 }}>
-                    {'\u26a0'} The selected reference is {(cur.duration || 0).toFixed(1)}s, outside the {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s range. Generation may fail (engine hard limit) &mdash; pick a clip with a suitable length.
-                  </div>
-                )
-              }
-              return null
-            })()}
+                reference picker (audition + click), expanded by default (D1). It also offers Raw audio.
+                The 3–10s out-of-range hint now lives in the always-visible row header (covers every
+                reference source); each audition item still carries its own inline ⚠ flag. */}
             <div className="collapsible" style={{ marginTop: 6 }}>
               <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Audition reference &mdash; Slices / Raw (click one to set it as the main reference)</span>
@@ -1065,7 +1215,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             <div style={{ display: 'flex', gap: 4 }}>
               {row.result.id && (
                 <button className="icon-btn" title="Show in file explorer"
-                  onClick={async () => { const r = await api('/api/outputs/reveal', { method: 'POST', body: { id: row.result.id } }); if (!r.ok) onUpdate(row.id, 'error', (r.data && r.data.error) || 'Could not open the file location') }}>
+                  onClick={async () => { const r = await api('/api/outputs/reveal', { method: 'POST', body: { id: row.result.id, source: 'comparerefs' } }); if (!r.ok) onUpdate(row.id, 'error', (r.data && r.data.error) || 'Could not open the file location') }}>
                   <IconFolder size={15} /></button>
               )}
               <button className="icon-btn" title="Rerun with this row's current settings"
@@ -1076,7 +1226,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   ? (
                     <>
                       <button className="icon-btn icon-btn-danger" title="Confirm delete"
-                        onClick={async () => { const r = await api(`/api/outputs/${encodeURIComponent(row.result.id)}`, { method: 'DELETE' }); setCmpDelConfirm(false); if (!r.ok) { onUpdate(row.id, 'error', (r.data && r.data.error) || 'Failed to delete audio'); return } onUpdate(row.id, 'result', null) }}>✓</button>
+                        onClick={async () => { const r = await api(`/api/outputs/${encodeURIComponent(row.result.id)}?source=comparerefs`, { method: 'DELETE' }); setCmpDelConfirm(false); if (!r.ok) { onUpdate(row.id, 'error', (r.data && r.data.error) || 'Failed to delete audio'); return } onUpdate(row.id, 'result', null) }}>✓</button>
                       <button className="icon-btn" title="Cancel" onClick={() => setCmpDelConfirm(false)}>✕</button>
                     </>
                   )
@@ -1087,7 +1237,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               )}
             </div>
           </div>
-          <Player src={`${API_BASE}${row.result.audio_url}`} size="sm" />
+          <Player src={`${API_BASE}${row.result.audio_url}`} size="sm" bounds={row.result.segment_bounds} duration={row.result.duration} />
           <div className="cmp-result-meta">
             <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12 }}>Download</a>
             {row.result.segments && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{row.result.segments.length} segments</span>}

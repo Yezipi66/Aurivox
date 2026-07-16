@@ -900,7 +900,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     const r = await api('/api/train/start', {
       method: 'POST',
       body: {
-        voiceId: form.voiceName.trim(),
+        displayName: form.voiceName.trim(),
         language: form.language,
         inputDir: cleanDir,
         overwrite: !!overwrite,
@@ -1079,9 +1079,26 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
   const editable = !taskId; // inputs are editable only before a task starts
 
-  const sanitizedVoice = form.voiceName ? form.voiceName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : '';
-  const existingVoice = sanitizedVoice ? voices.find(v => v.id === sanitizedVoice) : null;
-  const voiceExists = !!existingVoice;
+  // Option A: the input is a DISPLAY NAME (Chinese/Unicode allowed). The canonical
+  // ASCII id is decoupled and allocated by the server, once, atomically at task
+  // creation. We fetch a PROPOSED preview id here purely for display — it is
+  // explicitly non-reserved and the final id may differ. A slug/display-name
+  // collision NEVER implies overwrite; every new voice gets a distinct id.
+  const displayName = (form.voiceName || '').trim();
+  const [proposedId, setProposedId] = useState('');
+  useEffect(() => {
+    if (!displayName) { setProposedId(''); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const r = await api('/api/assets/derive-id', { method: 'POST', body: { display_name: displayName } });
+      if (!cancelled && r.ok && r.data) setProposedId(r.data.proposed_id || '');
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [displayName]);
+  // Non-blocking notice: other voices already using this exact display name.
+  const dupDisplay = displayName
+    ? voices.filter(v => (v.display_name || v.id) === displayName)
+    : [];
   const saveEvery = form.s1SaveEvery ?? 4;
   const enabledSteps = [
     form.denoise && 'Vocal extraction',
@@ -1312,8 +1329,17 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             <div className="essentials-grid">
               <div className="field">
-                <label className="field-label">Voice Name *</label>
-                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="e.g. MyVoice" />
+                <label className="field-label">Display Name *</label>
+                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="例如：雷子 / MyVoice" />
+                {displayName && (
+                  <p className="field-hint">
+                    Proposed ID: <code>{proposedId || '…'}</code>
+                    <span className="field-note"> (finalized at creation — may differ)</span>
+                    {dupDisplay.length > 0 && (
+                      <><br/><span className="pf-warn">ⓘ {dupDisplay.length} existing voice{dupDisplay.length > 1 ? 's' : ''} already use this display name (id{dupDisplay.length > 1 ? 's' : ''}: {dupDisplay.map(v => v.id).join(', ')}). A new distinct voice will be created.</span></>
+                    )}
+                  </p>
+                )}
               </div>
               <div className="field">
                 <label className="field-label">Language *</label>
@@ -1409,8 +1435,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           <div className="preflight">
             <div className="pf-row">
               <span className="pf-key">Output</span>
-              <span className="pf-val pf-path">{sanitizedVoice ? `assets/${sanitizedVoice}/` : 'assets/<voice>/'}</span>
-              {voiceExists && <span className="pf-warn">⚠ will overwrite existing &ldquo;{existingVoice.display_name || sanitizedVoice}&rdquo; (id: {sanitizedVoice})</span>}
+              <span className="pf-val pf-path">{proposedId ? `assets/${proposedId}/` : 'assets/<auto-id>/'}</span>
+              <span className="field-note">ⓘ ID allocated by the server at creation</span>
             </div>
             <div className="pf-row">
               <span className="pf-key">Fine-tune</span>

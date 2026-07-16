@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { FsFilePicker } from '../common/Dialogs'
 import { basename } from '../../lib/format'
+import { usePreviewMode } from '../../lib/previewMode'
 
 // PC — Broker model re-bind with a two-level selector:
 //   1. primary  = every voice that owns a model of this type (voices-with-models)
@@ -321,6 +322,7 @@ function BrokerTab() {
 // Frontend-only: derives from existing /api/assets, /api/health and the
 // active training task. Missing data degrades to graceful placeholders.
 function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
+  const [previewMode, setPreviewMode] = usePreviewMode()
   const [meta, setMeta] = useState(null)
   const [taskStatus, setTaskStatus] = useState(null)
   // Any in-place "Generate reference text" (Fill missing) job, from anywhere. These
@@ -445,6 +447,28 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
       <span className="ctx-item">
         <span className="ctx-k">Task</span>
         <span className={`badge ${taskPlaceholder ? 'badge-neutral' : taskStatus?.status === 'failed' ? 'badge-danger' : taskBusy ? 'badge-accent' : 'badge-info'}`}>{taskLabel}</span>
+      </span>
+      {/* Global audio-preview mode — applies to every result player app-wide. */}
+      <span className="ctx-pvmode" title="Audio preview style for generated results">
+        <button type="button"
+          className={`ctx-pvmode-btn ${previewMode === 'bar' ? 'active' : ''}`}
+          onClick={() => setPreviewMode('bar')} title="Compact bar (fastest)" aria-label="Compact bar preview">
+          <svg width="15" height="12" viewBox="0 0 15 12" fill="none" aria-hidden="true">
+            <rect x="1" y="5" width="13" height="2" rx="1" fill="currentColor" />
+            <circle cx="5" cy="6" r="2" fill="currentColor" />
+          </svg>
+        </button>
+        <button type="button"
+          className={`ctx-pvmode-btn ${previewMode === 'waveform' ? 'active' : ''}`}
+          onClick={() => setPreviewMode('waveform')} title="Waveform + segment dividers" aria-label="Waveform preview">
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor" aria-hidden="true">
+            <rect x="1" y="4" width="1.6" height="4" rx="0.8" />
+            <rect x="4" y="2" width="1.6" height="8" rx="0.8" />
+            <rect x="7" y="0.5" width="1.6" height="11" rx="0.8" />
+            <rect x="10" y="3" width="1.6" height="6" rx="0.8" />
+            <rect x="13" y="4.5" width="1.6" height="3" rx="0.8" />
+          </svg>
+        </button>
       </span>
     </div>
   )

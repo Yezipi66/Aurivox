@@ -120,7 +120,7 @@ export default function App() {
               onActivity={setGenActivity} />
           )}
           {page === 'compare' && (
-            <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} />
+            <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} onActivity={setGenActivity} />
           )}
           {page === 'assets' && (
             <AssetsTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
