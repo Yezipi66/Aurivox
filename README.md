@@ -25,10 +25,10 @@
 ## 环境要求
 
 - **OS**: Windows 10/11
-- **GPU**: NVIDIA RTX 3070 (8GB VRAM) 或更高
 - **Python**: 3.11 (uv 管理)
 - **Node.js**: 18+
 - **CUDA**: 12.1+
+- **GPU**: 支持 CUDA 的 NVIDIA 显卡即可（RTX 3050 / 3060 / 3070 均实测可部署，显存越大可用的 batch_size 越高）
 
 ## 快速开始
 
@@ -72,17 +72,21 @@ start.bat
 
 ### 目录约定
 
-每个角色在 `assets/{voiceId}/` 下有以下结构：
+发布（入库）后每个角色在 `assets/{voiceId}/` 下有以下结构：
 
-| 文件/目录 | 说明 | 来源 |
-|-----------|------|------|
-| `segments.json` | ASR 结果 | step3 asr.js |
-| `2-name2text.txt` | 音素序列 | step4 preprocess.js |
-| `4-cnhubert/` | Hubert 特征 (.pt) | step4 preprocess.js |
-| `5-wav32k/` | 32kHz 音频 | step4 preprocess.js |
-| `6-name2semantic.tsv` | Semantic tokens | step4 preprocess.js |
-| `logs_s1/{voiceId}/` | S1 训练输出 | step5 train.js |
-| `logs_s2/{voiceId}/` | S2 训练输出 | step5 train.js |
+| 文件/目录 | 说明 |
+|-----------|------|
+| `meta.json` | 资产元数据（`display_name` / 不可变 id / 语言 / assets 索引）|
+| `segments.json` | 参考片段索引 |
+| `raw/` | 原始音频 |
+| `slicer_opt/` | 切片音频 |
+| `asr_opt/` | ASR 结果 |
+| `gpt_checkpoints/` | GPT (S1) 模型 |
+| `sovits_models/` | SoVITS (S2) 模型 |
+| `references/` | 参考音频 |
+
+> 注：`2-name2text.txt`、`4-cnhubert/`、`5-wav32k/`、`6-name2semantic.tsv`、`logs_s1/`、`logs_s2/`
+> 等是**训练过程中的中间产物**，位于训练工作区（staging），发布后即被清理，不属于入库约定。
 
 ### 训练配置
 
@@ -143,13 +147,26 @@ python scripts/pipeline/infer_s2.py \
 
 ## 已知限制
 
-1. **GPU 内存**: RTX 3070 8GB 下 S2 batch_size 最大为 4
-2. **S2 训练数据格式**: 需要 `2-name2text-0.txt`（tab 分隔 4 列）
-3. **安装路径**: 必须解压到纯英文、无空格路径；中文/特殊字符路径会导致嵌入式 Python 无法定位
-4. **原生库加载顺序**: 部分 Windows 机器上 `torch` 先于 `librosa` 导入会触发原生崩溃
+1. **S2 训练数据格式**: 需要 `2-name2text-0.txt`（tab 分隔 4 列）
+2. **安装路径**: 必须解压到纯英文、无空格路径；中文/特殊字符路径会导致嵌入式 Python 无法定位
+3. **原生库加载顺序**: 部分 Windows 机器上 `torch` 先于 `librosa` 导入会触发原生崩溃
    （0xC0000005 / 退出码 3221225477，日志为空）；已在所有入口强制 librosa 先行修复
 
 ## 更新日志
+
+### 2026-07-16 —— 中文资产命名（身份/显示解耦）+ Recipe v3 路径可移植性
+- ✅ **中文资产命名（Option A）**：`display_name`（允许中文/任意 Unicode、允许重名）与不可变 ASCII
+  canonical id 解耦。文件夹名为权威 id，`meta.id` 仅镜像；id 由服务器在建任务时**原子分配一次**
+  （`lib/assetId.js`：`slugify` / `allocateVoiceId` 碰撞检查 / `proposeVoiceId` 预览 / 保留占位跨重启持久化），
+  永不再从显示名派生。**改名 = 仅改 `display_name`**（不移动文件夹、不改 id、不拒重名，UI 显示非阻塞重名提示）。
+- ✅ **Recipe v3 路径可移植性 + 安全**：managed 路径（`reference_audio` / `aux_ref_audio_paths` /
+  `gpt_ckpt` / `sovits_pth`）改结构化 `{ base: "asset"|"external", path }`；asset→`ASSETS_ROOT` 相对（可移植），
+  external→绝对（不可移植）。**版本感知解析**（legacy v≤2 字符串仍按 APP_DIR，v3 对象按 ASSETS_ROOT，无静默回退）；
+  **字段级外部权限**（GPT/SoVITS 需 `allow_external_models`，参考音频另需 `allow_external_audio`，模型权限绝不授权音频）；
+  **双层 containment**（词法 + realpath 挡 symlink/junction 逃逸）。`lib/pathResolver.js`。
+- ✅ **Legacy 迁移 API（显式/辅助）**：`lib/recipeMigration.js` + 3 端点（preview 只读分类 /
+  apply 先备份再改写 v3 / revert 逐字节还原），保守 `ambiguous` 分类须用户裁决，**绝无启动/扫描时静默改写**。
+- ✅ 测试：`pathResolver.assetId.test.js` 24/24 + `recipeV3Migration.test.js` 12/12。
 
 ### 2026-07-16 —— 多语种混合 + UX 整改 + 全量模块化 + 可复现性
 - ✅ **多语种混合输入（#4）**：假名消歧（有假名判日、无假名 CJK 回退角色元数据语言）、逐字汉字语言
