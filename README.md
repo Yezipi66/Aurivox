@@ -90,15 +90,20 @@ start.bat
 
 ### 训练配置
 
-训练参数在 `training_defaults.json` 中配置：
+新建任务的内置默认值在 `lib/training/config.js`（**非对称**：S1 早停防过拟合、S2 更久收敛）：
 
 ```json
 {
-  "gpt_epochs": 10,
-  "sovits_epochs": 10,
+  "gpt_epochs": 8,
+  "sovits_epochs": 25,
+  "s1_save_every_n_epoch": 4,
+  "s2_save_every_n_epoch": 5,
   "batch_size": 4
 }
 ```
+
+> 保存间隔取 S1=4 / S2=5，保证最终 epoch（8%4=0、25%5=0）必落 checkpoint。
+> 若存在外部 `training_defaults.json`，其值覆盖内置默认；仅影响变更后新建的任务，已有 recipe/历史任务不追溯改写。
 
 ### API 接口
 
@@ -153,6 +158,23 @@ python scripts/pipeline/infer_s2.py \
    （0xC0000005 / 退出码 3221225477，日志为空）；已在所有入口强制 librosa 先行修复
 
 ## 更新日志
+
+### 2026-07-17 —— 训练默认非对称（#10）+ S2 声学精炼派生资产（#12）+ 参考文本手动校对（#13）
+- ✅ **训练默认非对称（#10）**：废弃对称 20/20，新建任务内置 **S1(GPT)=8 / S2(SoVITS)=25**（S1 重文本-语音
+  对齐、易过拟合；S2 重音质、需更久收敛；佐证 RVC-Boss issue #176 "overtraining GPT can cause missing text"）。
+  保存间隔 `s1_save_every_n_epoch=4` / `s2_save_every_n_epoch=5`，保证最终 epoch（8%4=0、25%5=0）必落
+  checkpoint；legacy 回退 `?? save_every_n_epoch ?? 4`。仅影响变更后新任务，已有 recipe 不受影响
+  （`lib/training/config.js` + `steps/train.js`）。
+- ✅ **S2 声学精炼（#12）**：从已训练资产的 S2 checkpoint 低学习率续训、复用父 S1，**派生为全新 Voice**
+  （`allocateVoiceId()` + `reserve()`，父资产绝不被修改/覆盖）；仅重训 S2（`train_s1:false, train_s2:true`）。
+  血统元数据 `parent_voice_id` / `root_voice_id` / `generation` / `base_s1_checkpoint` / `base_s2_checkpoint` /
+  `additional_epochs` / `learning_rate`；训练数据冻结快照 `transcript.content_hash` + `frozen_at`；失败回滚
+  `release(id)` + 删新目录。默认命名 `"<parent> · S2 Refined <n>"`（无 v2 后缀）。支持链式精炼。
+- ✅ **参考文本手动校对（#13）**：资产页 `Proofread Reference Transcript` 入口，默认只编辑现有 transcript、
+  **绝不默认重跑 ASR**（`GET/POST /api/assets/:id/transcript` 读写 `.list` + 重建 `segments.json`）；
+  `Re-run ASR` 为独立次级操作（`POST /api/assets/:id/transcribe`），执行前把旧文本备份为 `*.bak.<ts>`。
+  新增 transcript 来源/验证 provenance：`machine_generated` / `human_edited` / `human_verified`；不触碰已训练 checkpoint。
+- ✅ CR：PATCH 可合并（#10 数学正确、#12 血统+回滚+命名无歧义、#13 读写分离+备份安全+provenance 完整）。
 
 ### 2026-07-16 —— 中文资产命名（身份/显示解耦）+ Recipe v3 路径可移植性
 - ✅ **中文资产命名（Option A）**：`display_name`（允许中文/任意 Unicode、允许重名）与不可变 ASCII

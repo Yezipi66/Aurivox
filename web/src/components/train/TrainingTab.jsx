@@ -46,13 +46,18 @@ function buildTrainingParams(form) {
   return {
     version: _vers[0] || 'v2',
     versions: _vers,
-    gpt_epochs: Number(form.gptEpochs) || 20,
-    sovits_epochs: Number(form.sovitsEpochs) || 20,
+    gpt_epochs: Number(form.gptEpochs) || 8,
+    sovits_epochs: Number(form.sovitsEpochs) || 25,
     batch_size: form.batchSize === 'auto' ? 'auto' : (Number(form.batchSize) || 'auto'),
     learning_rate: form.learningRate === 'default' ? 'default' : (Number(form.learningRate) || 'default'),
     // S1 advanced
     seed: form.s1Seed ?? 1234,
+    // Patch #10: S1 saves every 4 epochs (8 % 4 == 0), S2 every 5 (25 % 5 == 0),
+    // so the final scheduled epoch always lands on a checkpoint. `save_every_n_epoch`
+    // is kept for backward compatibility with older recipes / the diff logic.
     save_every_n_epoch: form.s1SaveEvery ?? 4,
+    s1_save_every_n_epoch: form.s1SaveEvery ?? 4,
+    s2_save_every_n_epoch: form.s2SaveEvery ?? 5,
     precision: form.s1Precision || '16-mixed',
     gradient_clip: form.s1GradClip ?? 1.0,
     lr: form.s1Lr ?? 0.01,
@@ -94,9 +99,9 @@ function buildAsrParams(form) {
 // (version/versions/batch_size/learning_rate) affect both, so they are attributed to
 // the EARLIER step (train_s1) — changing them re-runs from S1, which also re-runs S2.
 const S1_PARAM_KEYS = ['version', 'versions', 'batch_size', 'learning_rate',
-  'gpt_epochs', 'seed', 'save_every_n_epoch', 'precision', 'gradient_clip',
+  'gpt_epochs', 'seed', 'save_every_n_epoch', 's1_save_every_n_epoch', 'precision', 'gradient_clip',
   'lr', 'lr_init', 'lr_end', 'warmup_steps', 'decay_steps', 'max_sec', 'num_workers', 'max_eval_sample'];
-const S2_PARAM_KEYS = ['sovits_epochs', 's2_seed', 'log_interval', 'eval_interval', 'fp16_run',
+const S2_PARAM_KEYS = ['sovits_epochs', 's2_save_every_n_epoch', 's2_seed', 'log_interval', 'eval_interval', 'fp16_run',
   'lr_decay', 'segment_size', 'c_mel', 'c_kl', 'text_low_lr_rate', 'grad_ckpt'];
 
 function _pick(obj, keys) { const o = {}; for (const k of keys) o[k] = obj[k]; return o; }
@@ -167,7 +172,9 @@ function archiveToForm(archive) {
   if (t.batch_size != null) out.batchSize = t.batch_size;
   if (t.learning_rate != null) out.learningRate = t.learning_rate;
   if (t.seed != null) out.s1Seed = t.seed;
-  if (t.save_every_n_epoch != null) out.s1SaveEvery = t.save_every_n_epoch;
+  if (t.s1_save_every_n_epoch != null) out.s1SaveEvery = t.s1_save_every_n_epoch;
+  else if (t.save_every_n_epoch != null) out.s1SaveEvery = t.save_every_n_epoch;
+  if (t.s2_save_every_n_epoch != null) out.s2SaveEvery = t.s2_save_every_n_epoch;
   if (t.precision != null) out.s1Precision = t.precision;
   if (t.gradient_clip != null) out.s1GradClip = t.gradient_clip;
   if (t.lr != null) out.s1Lr = t.lr;
@@ -269,6 +276,7 @@ function S2BasicCol({ form, setField }) {
       <div className="node-col-title">S2 · SoVITS</div>
       <div className="param-grid">
         <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
+        <NumField label="Save Every N Epochs" value={form.s2SaveEvery ?? 5} onChange={v => setField('s2SaveEvery', v)} min={1} max={50} />
         <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
         <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
         <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
@@ -422,13 +430,11 @@ const LANGUAGES = [
 // handleStart already serialises these same form.* fields into customParams.training.
 const TRAIN_PRESETS = [
   { key: 'smoke',    label: 'Quick Smoke Test',     hint: 'Tiny run to verify the pipeline end-to-end (~2 epochs).',
-    fields: { gptEpochs: 2,  sovitsEpochs: 2,  batchSize: 'auto', s1SaveEvery: 1, s2GradCkpt: false, s2Fp16: true } },
-  { key: 'balanced', label: 'Balanced (Recommended)', hint: 'Sensible defaults for most voices.',
-    fields: { gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', s1SaveEvery: 4, s2GradCkpt: false, s2Fp16: true } },
-  { key: 'quality',  label: 'Higher Quality',       hint: 'More epochs for a sharper model. Slower.',
-    fields: { gptEpochs: 30, sovitsEpochs: 30, batchSize: 'auto', s1SaveEvery: 4, s2GradCkpt: false, s2Fp16: true } },
-  { key: 'lowvram',  label: 'Low VRAM Safe',         hint: 'Batch size 1 + gradient checkpoint for 8GB GPUs.',
-    fields: { gptEpochs: 20, sovitsEpochs: 20, batchSize: 1,      s1SaveEvery: 4, s2GradCkpt: true,  s2Fp16: true } },
+    fields: { gptEpochs: 2,  sovitsEpochs: 2,  batchSize: 'auto', s1SaveEvery: 1, s2SaveEvery: 1, s2GradCkpt: false, s2Fp16: true } },
+  { key: 'default',  label: 'Default (S1 8 / S2 25)', hint: 'S1 trains fewer epochs to limit prosody overfitting; S2 trains more epochs for acoustic and timbre adaptation.',
+    fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 'auto', s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: false, s2Fp16: true } },
+  { key: 'lowvram',  label: 'Low VRAM Safe',         hint: 'Batch size 1 + gradient checkpoint for 8GB GPUs. Same S1 8 / S2 25 epoch split.',
+    fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 1,      s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: true,  s2Fp16: true } },
   { key: 'custom',   label: 'Custom',               hint: 'Your own values — edit anything in the pipeline steps below.',
     fields: null },
 ]
@@ -680,19 +686,19 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
 function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill }) {
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'ja', voiceName: '',
-    preset: 'balanced', inputType: 'auto', expertUnlocked: false,
+    preset: 'default', inputType: 'auto', expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
     trainS1: true, trainS2: true,
     preprocessReview: false,
     keepStaging: false,
     // Advanced params
-    gptEpochs: 20, sovitsEpochs: 20, batchSize: 'auto', learningRate: 'default',
+    gptEpochs: 8, sovitsEpochs: 25, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
     asrEngine: 'auto', denoiseModel: 'mdx-net',
     asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
     modelVersion: 'v2Pro', modelVersions: ['v2Pro'], isHalf: true, inferDevice: 'cuda',
     // S1 advanced
-    s1Seed: 1234, s1SaveEvery: 1, s1Precision: '16-mixed', s1GradClip: 1.0,
+    s1Seed: 1234, s1SaveEvery: 4, s2SaveEvery: 5, s1Precision: '16-mixed', s1GradClip: 1.0,
     s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
     s1MaxSec: 54, s1NumWorkers: 4, s1MaxEval: 8,
     // S2 advanced
@@ -768,7 +774,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
   // Fields owned by a training preset — editing any of them by hand means the
   // current values no longer match the named preset, so flip the label to "Custom".
-  const PRESET_KEYS = ['gptEpochs', 'sovitsEpochs', 'batchSize', 's1SaveEvery', 's2GradCkpt', 's2Fp16'];
+  const PRESET_KEYS = ['gptEpochs', 'sovitsEpochs', 'batchSize', 's1SaveEvery', 's2SaveEvery', 's2GradCkpt', 's2Fp16'];
 
   // 便捷 form setter
   const setField = (key, val) => setForm(prev => {
@@ -1099,7 +1105,6 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const dupDisplay = displayName
     ? voices.filter(v => (v.display_name || v.id) === displayName)
     : [];
-  const saveEvery = form.s1SaveEvery ?? 4;
   const enabledSteps = [
     form.denoise && 'Vocal extraction',
     form.copyRaw && 'Copy to raw', form.slice && 'Slice', form.asr && 'ASR',
@@ -1359,10 +1364,12 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="preset-grid">
               <div className="field">
                 <label className="field-label">Training Preset</label>
-                <select className="control" value={form.preset || 'balanced'} onChange={e => applyPreset(e.target.value)}>
+                <select className="control" value={form.preset || 'default'} onChange={e => applyPreset(e.target.value)}>
                   {TRAIN_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
                 </select>
-                <p className="field-hint">{(TRAIN_PRESETS.find(p => p.key === (form.preset || 'balanced')) || {}).hint}</p>
+                <p className="field-hint">{(TRAIN_PRESETS.find(p => p.key === (form.preset || 'default')) || {}).hint}</p>
+                <p className="field-note">S1 adapts semantic rhythm and prosody and may overfit earlier on small datasets. S2 receives more training epochs for acoustic and timbre adaptation.</p>
+                <p className="field-note">More training does not always produce better results. Keep earlier checkpoints and compare them before choosing a model.</p>
               </div>
               <div className="field">
                 <label className="field-label">Input Type</label>
@@ -1442,16 +1449,16 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               <span className="pf-key">Fine-tune</span>
               <span className="pf-chips">
                 {form.trainS1 !== false && (
-                  <span className="pf-chip">GPT (S1) · {form.gptEpochs ?? 20}ep</span>
+                  <span className="pf-chip">GPT (S1) · {form.gptEpochs ?? 8}ep · save every {form.s1SaveEvery ?? 4}ep</span>
                 )}
                 {form.trainS2 !== false && _selVersions.map(v => (
-                  <span key={v} className="pf-chip">SoVITS {v} · {form.sovitsEpochs ?? 20}ep</span>
+                  <span key={v} className="pf-chip">SoVITS {v} · {form.sovitsEpochs ?? 25}ep · save every {form.s2SaveEvery ?? 5}ep</span>
                 ))}
                 {form.trainS1 === false && form.trainS2 === false && (
                   <span className="pf-chip pf-chip-off">none (safe pass)</span>
                 )}
                 {(form.trainS1 !== false || form.trainS2 !== false) && (
-                  <span className="pf-chip pf-chip-meta">batch {form.batchSize || 'auto'} · save every {saveEvery} {saveEvery === 1 ? 'epoch' : 'epochs'}</span>
+                  <span className="pf-chip pf-chip-meta">batch {form.batchSize || 'auto'}</span>
                 )}
               </span>
             </div>
@@ -1859,4 +1866,9 @@ export {
   RebuildProgress,
   TrainingTab,
   RestoreModal,
+  // Patch #12 — reused by the Refinement modal so it exposes the exact same training
+  // parameter fields / serialiser / defaults as the Training and Restore flows.
+  TrainParamFields,
+  buildTrainingParams,
+  REBUILD_PARAM_DEFAULTS,
 }

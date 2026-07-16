@@ -70,7 +70,11 @@ function Log {
 
 function Test-Port {
   param([int]$port)
-  $result = netstat -ano | Select-String (':{0}\s' -f $port)
+  # Only treat a port as "in use" when a process is actually LISTENING on it.
+  # netstat rows in TIME_WAIT/CLOSE_WAIT/ESTABLISHED linger for tens of seconds
+  # after Stop kills the listener; matching them would make start falsely skip
+  # relaunch (the "click Stop, then Start twice" bug). Match stop.ps1's rule.
+  $result = netstat -ano | Select-String 'LISTENING' | Select-String ('[:\.]{0}\s' -f $port)
   return ($null -ne $result)
 }
 

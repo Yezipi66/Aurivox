@@ -2492,6 +2492,140 @@ app.post("/api/assets/:id/generate-segments", requireApiKey, (req, res) => {
   }
 });
 
+// ── Patch #13: reference-transcript proofing (edit existing text, no ASR) ─────
+// The asset's reference transcript lives in asr_opt/<kind>.list as lines shaped
+// "<kind>/<file>|<speaker>|<LANG>|<text>". These endpoints let the Assets page
+// read and hand-edit that TEXT in place, reusing the existing Proofing UI. They
+// deliberately DO NOT run ASR, touch checkpoints, or start a pipeline.
+//
+// Pronunciation-level proofing is intentionally out of scope here: the .list can
+// only carry text, and pronunciation corrections persist in the global personal
+// lexicon (see /api/pron/lexicon), applied at inference time — not per-asset.
+const TRANSCRIPT_KINDS = [
+  { kind: "slicer_opt", listName: "slicer_opt.list", audioSub: "slicer_opt" },
+  { kind: "raw", listName: "raw_opt.list", audioSub: "raw" },
+];
+
+// Parse a .list file into editable rows, preserving every column so a later save
+// can round-trip path/speaker/lang untouched and only rewrite text.
+function readTranscriptListRows(listPath) {
+  const rows = [];
+  let content = "";
+  try { content = fs.readFileSync(listPath, "utf-8"); } catch { return rows; }
+  content.split("\n").forEach((line, i) => {
+    const t = line.replace(/\r$/, "");
+    if (!t.trim()) return;
+    const parts = t.split("|");
+    if (parts.length < 4) return;
+    rows.push({
+      index: i,
+      audio_path: parts[0] || "",
+      audio_filename: String(parts[0] || "").replace(/\\/g, "/").split("/").pop(),
+      speaker: parts[1] || "",
+      lang: parts[2] || "",
+      text: parts.slice(3).join("|"),
+    });
+  });
+  return rows;
+}
+
+// GET /api/assets/:id/transcript — return the asset's existing reference transcript
+// (one bucket per present .list) plus its provenance. No ASR, purely a read.
+app.get("/api/assets/:id/transcript", requireApiKey, (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const voiceDir = path.join(ASSETS_DIR, id);
+  if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
+  try {
+    const buckets = [];
+    for (const k of TRANSCRIPT_KINDS) {
+      const listPath = path.join(voiceDir, "asr_opt", k.listName);
+      if (!fs.existsSync(listPath)) continue;
+      const audioDir = path.join(voiceDir, k.audioSub);
+      const rows = readTranscriptListRows(listPath).map((r) => ({
+        ...r,
+        exists: !!(r.audio_filename && fs.existsSync(path.join(audioDir, r.audio_filename))),
+        url: r.audio_filename ? `/assets/${id}/${k.audioSub}/${encodeURIComponent(r.audio_filename)}` : null,
+      }));
+      buckets.push({ kind: k.kind, listName: k.listName, rows });
+    }
+    // Language + provenance from meta (transcript source/verification, if any).
+    let language = "ja";
+    let transcript = null;
+    try {
+      const m = JSON.parse(fs.readFileSync(path.join(voiceDir, "meta.json"), "utf-8"));
+      if (m.language) language = m.language;
+      if (m.transcript && typeof m.transcript === "object") transcript = m.transcript;
+    } catch (_) {}
+    res.json({ ok: true, buckets, language, transcript, hasTranscript: buckets.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
+// POST /api/assets/:id/transcript — persist hand-edited reference TEXT back to the
+// asset's .list, resync segments.json, and mark provenance as human-edited. Does
+// NOT run ASR or training. body: { kind, rows:[{audio_filename|audio_path, text}], verified? }
+app.post("/api/assets/:id/transcript", requireApiKey, (req, res) => {
+  const id = req.params.id;
+  if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
+  const voiceDir = path.join(ASSETS_DIR, id);
+  if (!fs.existsSync(voiceDir)) return res.status(404).json({ error: `Voice '${id}' not found` });
+
+  const kind = (req.body && req.body.kind) || "slicer_opt";
+  const kindDef = TRANSCRIPT_KINDS.find((k) => k.kind === kind);
+  if (!kindDef) return res.status(400).json({ error: `Invalid transcript kind '${kind}'` });
+  const rows = req.body && req.body.rows;
+  if (!Array.isArray(rows)) return res.status(400).json({ error: "rows must be an array" });
+
+  const listPath = path.join(voiceDir, "asr_opt", kindDef.listName);
+  if (!fs.existsSync(listPath)) {
+    return res.status(404).json({ error: `No ${kindDef.listName} for '${id}'. Run ASR to create one first.` });
+  }
+
+  try {
+    // Merge edited text onto the existing list by audio filename (basename), so
+    // path/speaker/lang columns round-trip exactly and unknown rows are untouched.
+    const existing = readTranscriptListRows(listPath);
+    const textByName = {};
+    for (const r of rows) {
+      const fname = String(r.audio_filename || r.audio_path || "").replace(/\\/g, "/").split("/").pop();
+      if (fname) textByName[fname] = r.text == null ? "" : String(r.text);
+    }
+    let changed = 0;
+    const lines = existing.map((r) => {
+      const fname = r.audio_filename;
+      const text = (fname in textByName) ? textByName[fname] : r.text;
+      if (fname in textByName && textByName[fname] !== r.text) changed += 1;
+      return `${r.audio_path}|${r.speaker}|${r.lang}|${text}`;
+    });
+    const tmp = listPath + ".tmp." + process.pid + "." + Date.now();
+    fs.writeFileSync(tmp, lines.join("\n") + "\n", "utf-8");
+    fs.renameSync(tmp, listPath);
+
+    // Rebuild segments.json from the updated list (its text is what inference reads).
+    try { assetScanner.generateSegments(id); } catch (e) { console.error(`[TRANSCRIPT ${id}] segments rebuild warning:`, e.message); }
+
+    // Provenance: mark human-edited (or human-verified when the user confirms).
+    try {
+      const metaPath = path.join(voiceDir, "meta.json");
+      const m = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf-8")) : {};
+      const verified = !!(req.body && req.body.verified);
+      m.transcript = {
+        ...(m.transcript || {}),
+        source: verified ? "human_verified" : "human_edited",
+        revised_at: new Date().toISOString(),
+        revision: (Number((m.transcript && m.transcript.revision) || 0) || 0) + 1,
+      };
+      fs.writeFileSync(metaPath, JSON.stringify(m, null, 2));
+    } catch (e) { console.error(`[TRANSCRIPT ${id}] meta update warning:`, e.message); }
+
+    res.json({ ok: true, kind, changed, total: lines.length });
+  } catch (err) {
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
 // POST /api/assets/:id/transcribe — lightweight IN-PLACE ASR recovery.
 // One-click "generate reference text": runs the shared ASR kernel over the asset's
 // own raw/ and/or slicer_opt/ audio, writing asr_opt/<kind>.list + regenerating
@@ -2563,9 +2697,20 @@ app.post("/api/assets/:id/transcribe", requireApiKey, async (req, res) => {
   res.json({ ok: true, started: true, sources: job.sources, language });
 
   (async () => {
+    const backups = [];
     try {
       for (const s of sources) {
         if (job._cancelled) throw new Error("cancelled");
+        // Patch #13: back up any existing transcript before ASR replaces it, so a
+        // hand-edited/verified list is never silently destroyed by re-running ASR.
+        const listName = s.kind === "raw" ? "raw_opt.list" : "slicer_opt.list";
+        const existingList = path.join(outDir, listName);
+        if (fs.existsSync(existingList)) {
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const bak = path.join(outDir, `${listName}.bak.${stamp}`);
+          try { fs.copyFileSync(existingList, bak); backups.push(path.basename(bak)); log(`backed up ${listName} → ${path.basename(bak)}`); }
+          catch (e) { log(`backup warning for ${listName}: ${e.message}`); }
+        }
         log(`ASR start: ${s.kind}`);
         await runAsr({
           srcDir: path.join(voiceDir, s.sub), sourceKind: s.kind, language,
@@ -2578,9 +2723,16 @@ app.post("/api/assets/:id/transcribe", requireApiKey, async (req, res) => {
       try { assetScanner.generateSegments(id); } catch (e) { log(`segments rebuild warning: ${e.message}`); }
       try {
         const m = assetScanner.scanVoiceDir(id, voiceDir);
+        // The transcript is now machine-generated; record provenance + backups.
+        m.transcript = {
+          source: "machine_generated",
+          revised_at: new Date().toISOString(),
+          revision: (Number((m.transcript && m.transcript.revision) || 0) || 0) + 1,
+          backups: backups.length ? backups : undefined,
+        };
         fs.writeFileSync(path.join(voiceDir, "meta.json"), JSON.stringify(m, null, 2));
       } catch (e) { log(`meta rescan warning: ${e.message}`); }
-      job.status = "done"; job.finishedAt = Date.now(); log("done");
+      job.status = "done"; job.finishedAt = Date.now(); job.backups = backups; log("done");
     } catch (err) {
       const wasCancelled = job._cancelled || /cancel|killed/i.test(err.message || "");
       job.status = wasCancelled ? "cancelled" : "error";
@@ -3106,6 +3258,11 @@ function sanitizeCustomParams(custom) {
     // S1 advanced / expert
     intNum(s, 'seed', t.seed, 0, 999999);
     intNum(s, 'save_every_n_epoch', t.save_every_n_epoch, 1, 50);
+    // Patch #10: split S1/S2 checkpoint save intervals (legacy save_every_n_epoch
+    // still honoured as a fallback in train.js). S1 default 4 (epoch 8 lands on a
+    // save), S2 default 5 (epoch 25 lands on a save).
+    intNum(s, 's1_save_every_n_epoch', t.s1_save_every_n_epoch, 1, 50);
+    intNum(s, 's2_save_every_n_epoch', t.s2_save_every_n_epoch, 1, 50);
     oneOf(s, 'precision', t.precision, ['16-mixed', '16-true', 'bf16-mixed', 'bf16-true', '32-true', '32']);
     num(s, 'gradient_clip', t.gradient_clip, 0.1, 10);
     num(s, 'lr', t.lr, 1e-7, 1);
@@ -3458,6 +3615,272 @@ app.post("/api/train/start", requireApiKey, async (req, res) => {
   }
 });
 
+// ── Patch #12: Voice Refinement — derive a NEW voice from a parent ───────────
+// Continues training from an existing asset's checkpoints and publishes the result
+// as a brand-new derived Voice. The parent is NEVER modified or overwritten.
+//   * S1 (GPT) and S2 (SoVITS) are independent — refine s1 | s2 | s1+s2.
+//   * The refined step warm-starts from the parent's published checkpoint; the
+//     un-refined step is reused verbatim (seeded under the new id + carried forward).
+//   * A new canonical id is allocated via allocateVoiceId() (never the parent id).
+//   * Pipeline: preprocess → [train_s1] → [train_s2] → finalize → promote.
+const { versionFromName, normalizeVersion } = require("./lib/training/version");
+
+function pickLatestByEpoch(files, re) {
+  let best = null, bestE = -1;
+  for (const f of files) {
+    const m = f.match(re);
+    if (!m) continue;
+    const e = parseInt(m[1], 10);
+    if (e > bestE) { bestE = e; best = f; }
+  }
+  return best ? { file: best, epoch: bestE } : null;
+}
+
+app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
+  const parentId = req.params.id;
+  if (!safeId(parentId)) return res.status(400).json({ error: "Invalid id" });
+  const parentDir = path.join(ASSETS_DIR, parentId);
+  if (!fs.existsSync(parentDir)) return res.status(404).json({ error: `Voice '${parentId}' not found` });
+
+  try {
+    // Refinement mode. S1 (GPT) and S2 (SoVITS) are independent steps, so the user can
+    // refine either or both — exactly like the Restore flow's independent train toggles.
+    // Canonical types: 's1' | 's2' | 's1+s2'. The refined step continues training from
+    // the parent's published checkpoint; the un-refined step is reused verbatim.
+    const rawType = String((req.body && req.body.refinement_type) || "s2").toLowerCase().replace(/\s+/g, "");
+    const wantS1 = rawType === "both" || rawType.includes("s1");
+    const wantS2 = rawType === "both" || rawType.includes("s2");
+    if (!wantS1 && !wantS2) {
+      return res.status(400).json({
+        error: "Select at least one model to refine (S1, S2, or both).",
+        code: "REFINE_TYPE_EMPTY",
+      });
+    }
+    const refinementType = wantS1 && wantS2 ? "s1+s2" : wantS1 ? "s1" : "s2";
+
+    // Parent metadata: display name, language, version, lineage, transcript source.
+    let pMeta = {};
+    try { pMeta = JSON.parse(fs.readFileSync(path.join(parentDir, "meta.json"), "utf-8")); } catch (_) {}
+    const parentDisplay = pMeta.display_name || parentId;
+    const language = pMeta.language || "ja";
+    const parentVersion = normalizeVersion(pMeta.base_version || "v2");
+
+    // Locate the parent's published checkpoints. Both are required for S2 refinement:
+    // the S1 checkpoint is reused verbatim, the S2 checkpoint is the warm-start point.
+    const gptDir = path.join(parentDir, "gpt_checkpoints");
+    const sovDir = path.join(parentDir, "sovits_models");
+    const gptFiles = fs.existsSync(gptDir) ? fs.readdirSync(gptDir).filter(f => f.endsWith(".ckpt")) : [];
+    const sovFiles = fs.existsSync(sovDir) ? fs.readdirSync(sovDir).filter(f => f.endsWith(".pth")) : [];
+    if (gptFiles.length === 0 || sovFiles.length === 0) {
+      return res.status(400).json({
+        error: "The selected Voice has no published S1/S2 checkpoints to refine from.",
+        code: "NO_CHECKPOINTS",
+      });
+    }
+    const s1Pick = pickLatestByEpoch(gptFiles, /-e(\d+)\.ckpt$/i);
+    // Prefer an S2 model matching the parent version so the warm-start shape matches.
+    const sovSameVersion = sovFiles.filter(f => normalizeVersion(versionFromName(f) || "") === parentVersion);
+    const s2Pool = sovSameVersion.length ? sovSameVersion : sovFiles;
+    const s2Pick = pickLatestByEpoch(s2Pool, /_e(\d+)_s\d+\.pth$/i) || { file: s2Pool[0], epoch: null };
+    if (!s1Pick || !s2Pick || !s2Pick.file) {
+      return res.status(400).json({ error: "Could not resolve parent S1/S2 checkpoint filenames.", code: "CKPT_RESOLVE_FAILED" });
+    }
+    const baseS1Abs = path.join(gptDir, s1Pick.file);
+    const baseS2Abs = path.join(sovDir, s2Pick.file);
+
+    // Hyper-parameters (validated). Accept the shared training-form shape (params.training,
+    // produced by buildTrainingParams) so the refine flow exposes the same fields as the
+    // Training/Restore panels; fall back to the legacy flat additional_epochs/learning_rate.
+    const bodyParams = (req.body && req.body.params && typeof req.body.params === "object") ? req.body.params : {};
+    const bt = (bodyParams.training && typeof bodyParams.training === "object") ? bodyParams.training : {};
+    // Clamp to [1,100] to match sanitizeCustomParams' epoch bounds, so the recorded
+    // refinement.additional_*_epochs never diverges from what actually gets trained.
+    const clampEpochs = (v, dflt) => {
+      const e = Math.round(Number(v));
+      return (Number.isFinite(e) && e >= 1 && e <= 100) ? e : dflt;
+    };
+    // "Additional epochs" per step == the epochs to run this warm-started session.
+    const s1Epochs = clampEpochs(bt.gpt_epochs, 8);
+    const s2Epochs = clampEpochs(bt.sovits_epochs != null ? bt.sovits_epochs : (req.body && req.body.additional_epochs), 8);
+    let learningRate = Number(
+      (bt.learning_rate != null && bt.learning_rate !== "default") ? bt.learning_rate
+        : (req.body && req.body.learning_rate)
+    );
+    if (!Number.isFinite(learningRate) || learningRate <= 0 || learningRate > 1) learningRate = 0.0001;
+    // The value surfaced as the singular refinement.additional_epochs (back-compat):
+    // the primary refined step's epoch count.
+    const additionalEpochs = wantS2 ? s2Epochs : s1Epochs;
+
+    // Lineage: original voice = generation 0 (no refinement field); each refinement
+    // increments generation and preserves the ORIGINAL root across chains.
+    const parentGen = Number(pMeta.refinement && pMeta.refinement.generation) || 0;
+    const generation = parentGen + 1;
+    const rootVoiceId = (pMeta.refinement && pMeta.refinement.root_voice_id) || parentId;
+
+    // Default derived display name: "<parent> · <S1|S2|S1+S2> Refined <n>" (NEVER a
+    // "v2" suffix, which collides with GPT-SoVITS model versions). <n> counts existing
+    // children of THIS parent that share the same refinement_type.
+    const typeLabel = refinementType === "s1+s2" ? "S1+S2" : refinementType === "s1" ? "S1" : "S2";
+    let n = 1;
+    try {
+      for (const e of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue;
+        try {
+          const m = JSON.parse(fs.readFileSync(path.join(ASSETS_DIR, e.name, "meta.json"), "utf-8"));
+          if (m.refinement && m.refinement.parent_voice_id === parentId && m.refinement.refinement_type === refinementType) n += 1;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    const defaultName = `${parentDisplay} · ${typeLabel} Refined ${n}`;
+    const displayName = String((req.body && req.body.display_name) || "").trim() || defaultName;
+
+    // Freeze the training-data source (transcript provenance) at creation time so a
+    // later edit to the parent's transcript can't retroactively change this run.
+    let transcriptSnapshot = null;
+    try {
+      const listPath = path.join(parentDir, "asr_opt", "slicer_opt.list");
+      const rawListPath = path.join(parentDir, "asr_opt", "raw_opt.list");
+      const usedList = fs.existsSync(listPath) ? listPath : (fs.existsSync(rawListPath) ? rawListPath : null);
+      const prov = (pMeta.transcript && typeof pMeta.transcript === "object") ? pMeta.transcript : {};
+      let contentHash = null;
+      if (usedList) {
+        contentHash = crypto.createHash("sha256").update(fs.readFileSync(usedList)).digest("hex").slice(0, 16);
+      }
+      transcriptSnapshot = {
+        source: prov.source || (usedList ? "machine_generated" : "unknown"),
+        revision: prov.revision != null ? prov.revision : null,
+        revised_at: prov.revised_at || null,
+        content_hash: contentHash,
+        list: usedList ? path.basename(usedList) : null,
+        frozen_at: new Date().toISOString(),
+      };
+    } catch (_) {}
+
+    // Allocate + reserve a fresh id atomically, then seed the new asset directory.
+    const newId = await withVoicesLock(async () => {
+      const taken = collectTakenVoiceIds();
+      const id = assetId.allocateVoiceId(displayName, taken);
+      assetId.reserve(id);
+      return id;
+    });
+
+    const newDir = path.join(ASSETS_DIR, newId);
+    const newStem = new RegExp(`_${language}$`, "i").test(newId) ? newId : `${newId}_${language}`;
+    try {
+      // Seed reference material from the parent so preprocess (audio) + finalize
+      // (carry-forward) can build the derived asset without re-slicing/re-ASR.
+      fs.mkdirSync(newDir, { recursive: true });
+      const copyDir = (sub) => {
+        const src = path.join(parentDir, sub);
+        if (fs.existsSync(src)) fs.cpSync(src, path.join(newDir, sub), { recursive: true });
+      };
+      copyDir("slicer_opt");
+      copyDir("raw");
+      copyDir("asr_opt");
+      const segSrc = path.join(parentDir, "segments.json");
+      if (fs.existsSync(segSrc)) fs.copyFileSync(segSrc, path.join(newDir, "segments.json"));
+
+      // Seed REUSED checkpoints under the NEW id stem (metadata rebuild is filename
+      // driven — the derived asset's model files MUST carry the new id, not the parent).
+      // finalize's carry-forward will publish whichever step is NOT retrained this run.
+      // A refined step is intentionally NOT seeded — it produces a fresh checkpoint.
+      if (!wantS1) {
+        // S2-only mode: reuse the parent S1 verbatim.
+        const s1EpochTok = (s1Pick.file.match(/-e(\d+)\.ckpt$/i) || [null, s1Pick.epoch])[1];
+        const newGptDir = path.join(newDir, "gpt_checkpoints");
+        fs.mkdirSync(newGptDir, { recursive: true });
+        fs.copyFileSync(baseS1Abs, path.join(newGptDir, `${newStem}-e${s1EpochTok}.ckpt`));
+      }
+      if (!wantS2) {
+        // S1-only mode: reuse the parent S2 verbatim. Rebuild the filename under the
+        // new stem so it matches finalize's mkSovitsName (<stem>_<ver>_e<n>_s<k>.pth).
+        const sm = s2Pick.file.match(/_e(\d+)_s(\d+)\.pth$/i);
+        const verTag = normalizeVersion(versionFromName(s2Pick.file) || parentVersion) || parentVersion;
+        const newSov = sm
+          ? `${newStem}${verTag ? "_" + verTag : ""}_e${sm[1]}_s${sm[2]}.pth`
+          : `${newStem}${verTag ? "_" + verTag : ""}.pth`;
+        const newSovDir = path.join(newDir, "sovits_models");
+        fs.mkdirSync(newSovDir, { recursive: true });
+        fs.copyFileSync(baseS2Abs, path.join(newSovDir, newSov));
+      }
+    } catch (seedErr) {
+      try { assetId.release(newId); } catch (_) {}
+      try { fs.rmSync(newDir, { recursive: true, force: true }); } catch (_) {}
+      throw seedErr;
+    }
+
+    // base_s1/base_s2 are ABSOLUTE paths so the warm-start loader (train.js) can read
+    // them directly; they also record the exact lineage on the derived asset's meta.
+    const refinement = {
+      refinement_type: refinementType,
+      parent_voice_id: parentId,
+      root_voice_id: rootVoiceId,
+      generation,
+      base_s1_checkpoint: baseS1Abs,
+      base_s2_checkpoint: baseS2Abs,
+      additional_epochs: additionalEpochs,
+      additional_s1_epochs: wantS1 ? s1Epochs : null,
+      additional_s2_epochs: wantS2 ? s2Epochs : null,
+      learning_rate: learningRate,
+      created_at: new Date().toISOString(),
+      transcript_source: transcriptSnapshot ? transcriptSnapshot.source : null,
+      transcript: transcriptSnapshot,
+    };
+
+    // Force the version to the parent's so warm-start checkpoint shapes match. All other
+    // training fields flow through from the shared form (params.training).
+    const safeCustom = sanitizeCustomParams({
+      training: {
+        ...bt,
+        version: parentVersion,
+        versions: [parentVersion],
+        gpt_epochs: s1Epochs,
+        sovits_epochs: s2Epochs,
+        learning_rate: learningRate,
+      },
+    });
+
+    // preprocess → [train_s1] → [train_s2] → finalize → promote. Slice/ASR are always
+    // reused from the seeded parent data; only the selected model step(s) run.
+    const stepOptions = {
+      denoise: false, slice: false, asr: false, preprocess: true,
+      train_s1: wantS1, train_s2: wantS2, finalize: true, promote: true,
+      copyRaw: false,
+    };
+
+    let pipeline;
+    try {
+      pipeline = trainingPipeline.createPipeline({
+        voiceId: newId,
+        displayName,
+        language,
+        inputDir: parentDir,
+        stepOptions,
+        customParams: safeCustom,
+        refinement,
+      });
+    } catch (createErr) {
+      try { assetId.release(newId); } catch (_) {}
+      try { fs.rmSync(newDir, { recursive: true, force: true }); } catch (_) {}
+      throw createErr;
+    }
+
+    pipeline.start().catch(err => console.error("[REFINE] Pipeline error:", err));
+    console.log(`[REFINE] ${parentId} → ${newId} (${refinementType}${wantS1 ? " S1+" + s1Epochs + "ep" : ""}${wantS2 ? " S2+" + s2Epochs + "ep" : ""} lr=${learningRate}, gen ${generation})`);
+    res.json({
+      ok: true, taskId: pipeline.id, voiceId: newId, displayName,
+      refinementType, parentVoiceId: parentId, rootVoiceId, generation,
+      additionalS1Epochs: wantS1 ? s1Epochs : null,
+      additionalS2Epochs: wantS2 ? s2Epochs : null,
+      learningRate,
+      baseS1Checkpoint: s1Pick.file, baseS2Checkpoint: s2Pick.file,
+    });
+  } catch (err) {
+    console.error("[REFINE] Error:", err);
+    res.status(500).json({ error: clientError(err) });
+  }
+});
+
 app.get("/api/train/status/:id", (req, res) => {
   const st = trainingPipeline.getStatusById(req.params.id);
   if (!st) return res.status(404).json({ error: "Task not found" });
@@ -3805,6 +4228,15 @@ app.use(express.static(WEB_DIST));
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/outputs/") || req.path.startsWith("/v1/")) {
     return res.status(404).json({ error: "Not found" });
+  }
+  // A request that looks like a static file (has a real extension, e.g. .js/.css/
+  // .map/.png) but reached this catch-all means express.static did NOT find it.
+  // Returning index.html (text/html) here makes browsers reject module scripts
+  // with a MIME error and shows a blank page. Return a clean 404 instead so a
+  // stale/mismatched web/dist surfaces as an obvious missing asset rather than a
+  // white screen. Only genuine SPA client routes (no file extension) get index.html.
+  if (/\.[a-zA-Z0-9]+$/.test(req.path)) {
+    return res.status(404).send("Not found: " + req.path);
   }
   const indexHtml = path.join(WEB_DIST, "index.html");
   if (fs.existsSync(indexHtml)) {
