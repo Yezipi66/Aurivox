@@ -1,4 +1,4 @@
-# TTS Broker
+# Aurivox
 
 基于 GPT-SoVITS (v2 / v2Pro / v2ProPlus) 的 TTS 训练与推理一体化工作流，解耦自 GPT-SoVITS 项目，
 自包含、可独立部署。面向内部使用者提供「解压即用」的分发包：内嵌可重定位 Python，
