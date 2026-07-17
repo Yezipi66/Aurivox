@@ -1,0 +1,140 @@
+Aurivox
+Copyright (c) 2026 Aurivox authors
+
+Licensed under the MIT License. See the LICENSE file for the full text.
+
+Nothing in this NOTICE modifies, restricts, or adds conditions to the rights
+granted under the MIT License.
+
+================================================================================
+项目开放性声明 / Statement of Openness
+================================================================================
+
+本项目不仅开放源码，也开放构建、打包和分发工具，以便社区能够独立研究、修改、重建和
+延续项目。这种开放来自对社区的善意与信任。
+
+MIT 许可证所要求的版权声明和许可文本必须依法保留。除此之外，基于社区诚信与善意署名，
+我们诚挚请求衍生发行明确说明 Aurivox 是其上游来源，并清楚区分衍生版本与 Aurivox 官方
+发行版本。
+
+我们不支持隐瞒项目来源、将衍生版本冒充完全独立原创，或暗示衍生版本获得 Aurivox 官方
+背书的行为。本声明表达项目的社区规范与期望，不限制、修改或取代 MIT 许可证授予的权利。
+
+This project opens not only its source code, but also its build, packaging,
+and distribution tooling, so that the community can independently study,
+modify, rebuild, preserve, and carry the project forward. This openness is
+extended in good faith and trust.
+
+Copyright and license notices must be preserved as required by the MIT License.
+Beyond those legal requirements, and as a matter of community trust and
+good-faith attribution, we ask derivative distributions to identify Aurivox
+as their upstream source and distinguish themselves from official Aurivox
+releases.
+
+We do not support concealing the project's origin, passing off a derivative
+version as wholly independent original work, or implying official endorsement
+by the Aurivox project. This statement describes the project's community
+conventions and expectations; it does not limit, modify, or replace the rights
+granted under the MIT License.
+
+================================================================================
+上游与第三方组件 / Upstream & Third-Party Components
+================================================================================
+
+Aurivox is a local-first TTS workbench that integrates, adapts, or contains
+components derived from upstream and third-party projects. Their respective
+licenses and notices apply to their code, model weights, and other materials
+as applicable.
+
+- GPT-SoVITS
+  https://github.com/RVC-Boss/GPT-SoVITS
+
+  Licensed under the MIT License. Portions of Aurivox's training pipeline and
+  inference engine are adapted from or derived from GPT-SoVITS
+  (v2 / v2Pro / v2ProPlus).
+
+- Third-party model weights
+
+  Third-party model weights (including GPT-SoVITS pretrained models,
+  speech-recognition models, and vocal-separation models) are not bundled with
+  the standard Aurivox distribution. If a separate distribution includes any
+  such weights, that distribution must identify them explicitly and comply with
+  their applicable licenses.
+
+  The deployment wizard may help users obtain selected components from the
+  upstream or distribution sources identified in the model manifest
+  (THIRD_PARTY_LICENSES/models/MODEL_SOURCES.json). Those components remain governed by their respective
+  licenses.
+
+  Aurivox does not grant rights on behalf of third-party copyright holders.
+  The deployment wizard does not determine whether a third-party component is
+  suitable for commercial use or any other particular use.
+  Anyone who downloads, bundles, uses, modifies, or redistributes a third-party
+  component is responsible for reviewing and complying with the license
+  applicable to that component.
+
+- Bundled runtimes
+
+  * CPython / python-build-standalone
+    Governed by the PSF License and the licenses applicable to bundled runtime
+    components (which may include OpenSSL, SQLite, libffi, and others). Refer to
+    the license materials supplied with the selected python-build-standalone
+    distribution.
+
+  * Node.js
+    Governed by the MIT License and the licenses applicable to its bundled
+    third-party components.
+
+- Bundled Python wheels
+
+  Aurivox's Python runtime dependencies are installed at deploy time with
+  pip / uv from a package index; they are NOT redistributed inside the Aurivox
+  distribution. The complete frozen dependency set is recorded for
+  reproducibility in the project's requirements file (requirements.txt), but
+  those packages are fetched by the end user's own installer, not shipped by us.
+
+  The distribution package bundles only the following prebuilt Python wheels,
+  which are shipped because prebuilt binaries for the target platform are not
+  reliably available from the index:
+
+  * jieba_fast (jieba_fast-0.53-cp311-cp311-win_amd64.whl)
+    Licensed under the MIT License.
+
+  * pyopenjtalk (pyopenjtalk-0.4.1-cp311-cp311-win_amd64.whl)
+    The Python wrapper is licensed under the MIT License. The wheel also bundles
+    the modified OpenJTalk and hts_engine_API, which are governed by their own
+    (modified BSD-style) licenses; those texts travel with the wheel.
+
+  Their license texts are preserved under THIRD_PARTY_LICENSES/. Each remains
+  the property of its respective authors; Aurivox does not relicense them and
+  does not grant any rights on behalf of their copyright holders.
+
+  All other Python dependencies (including PyTorch, which is installed
+  separately from a CUDA-specific package index) are obtained by the installer
+  from their respective sources and remain governed by their own licenses.
+  The full inventory is recorded in THIRD_PARTY_LICENSES/runtime/python_packages.json.
+
+- Media tools obtained separately (not bundled)
+
+  * FFmpeg (ffmpeg, ffprobe)
+    Aurivox does NOT redistribute FFmpeg. A provisioning script
+    (tools/deploy/download_ffmpeg.py) fetches the static ffmpeg/ffprobe binaries
+    at deploy time from their upstream distributor (BtbN win64-gpl build; Aurivox
+    is Windows-only) into a project-local vendor directory. That build is
+    GPL-licensed (GPL-3.0-or-later; it does not use --enable-nonfree), and the
+    GPL license text and corresponding-source obligations travel with the
+    upstream download and rest with that distributor, not with Aurivox.
+    Aurivox invokes FFmpeg as a separate process (not by linking), so FFmpeg's
+    license does not affect Aurivox's own MIT license. The source/license
+    inventory is recorded in THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json.
+
+Corresponding third-party license texts and notices are preserved under
+THIRD_PARTY_LICENSES/ in the distribution where required. Exact model sources,
+revisions, and license references are recorded separately in the project model
+manifest (THIRD_PARTY_LICENSES/models/MODEL_SOURCES.json).
+
+If you redistribute Aurivox, preserve the copyright notice and MIT License as
+required by the LICENSE file. We also ask modified or derivative distributions
+to preserve relevant upstream notices, identify Aurivox as an upstream source,
+describe material changes, and distinguish themselves from official Aurivox
+releases.

@@ -168,7 +168,17 @@ python scripts/pipeline/infer_s2.py \
 
 ## 更新日志
 
-### 2026-07-17 —— 原生底模零样本推理 + Compare Refs 可选底模 + 参考文本本次编辑
+### 2026-07-17 —— 发布打包修复/分发瘦身 + MDX-Net→HP2 显示名 + 原生底模零样本推理 + Compare Refs 可选底模 + 参考文本本次编辑 + 训练默认非对称（#10）/ S2 声学精炼（#12）/ 参考文本手动校对（#13）
+- ✅ **发布打包修复 + 分发瘦身**：修复 `04_pack_release.py` 因文件时间戳早于 1980 触发
+  `ValueError: ZIP does not support timestamps before 1980` 导致写 zip 崩溃 —— 现自动把这类
+  mtime 钳制到 1980-01-01，打包不再中断。发布包不再打进两套深度学习运行时（`venv_idx*` 引擎虚拟环境
+  + `vendor/micromamba` 的 CUDA torch 栈，约 14GB）与全部**应用** `node_modules`（后端 + web），
+  改由部署时 `npm ci` 从随包 `package-lock.json` 还原（`bootstrap.ps1` 新增步骤）；**保留** node
+  运行时自带的 npm（`tools/runtime/node/node_modules`）。顺带排除杂物 `nul` / `try_indextts2*.ps1` /
+  `setup_indextts_env_v2.bat` / `server.js.txt`。发布体积从 14.1GB 降到 ~300MB。这样既缩小分发包，
+  也避免物理再分发第三方 npm 包（对齐 models/torch/ffmpeg 的「部署时按需获取」模型）。
+- ✅ **MDX-Net → HP2 显示名**：UVR5 人声分离模型的显示名由 `MDX-Net` 统一改为 `HP2`（仅显示层改名，
+  权重文件与后端标识不变）。
 - ✅ **原生底模（`__base__`）零样本推理**：开放预训练底模直接推理，免走一遍微调。引入内存态
   虚拟音色 `Base model`（不落 `voices.json`、无资产目录）——**只进 Generate 的 Voice 下拉且默认
   选中，不进 Assets 管理页**。GPT = `Base model_s1`；SoVITS = `Base model_v2 / _v2Pro(默认) /
@@ -187,8 +197,6 @@ python scripts/pipeline/infer_s2.py \
   载荷 `reference_text` 用编辑后的值，切换音色 / 换参考音频自动复位；**全程不写 `.list` / `segments.json`**，
   仅本次推理生效，附带 raw 无对齐文本时可临时补一段引导。后端 `/api/generate` 早已接收
   `reference_text` → 零后端改动。
-
-### 2026-07-17 —— 训练默认非对称（#10）+ S2 声学精炼派生资产（#12）+ 参考文本手动校对（#13）
 - ✅ **训练默认非对称（#10）**：废弃对称 20/20，新建任务内置 **S1(GPT)=8 / S2(SoVITS)=25**（S1 重文本-语音
   对齐、易过拟合；S2 重音质、需更久收敛；佐证 RVC-Boss issue #176 "overtraining GPT can cause missing text"）。
   保存间隔 `s1_save_every_n_epoch=4` / `s2_save_every_n_epoch=5`，保证最终 epoch（8%4=0、25%5=0）必落

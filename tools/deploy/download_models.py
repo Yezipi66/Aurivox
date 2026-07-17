@@ -11,26 +11,35 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
     lib/training/gsv-tools/pretrained/fast_langdetect/  语言检测 (lid.176.bin) ← 同时写副本
 
 用法:
-    python download_models.py --wizard          # 交互式菜单(推荐)
+    python download_models.py --wizard          # 交互式菜单
     python download_models.py --check           # 只体检本地是否齐全, 不下载
-    python download_models.py --set core         # 只下核心底模
-    python download_models.py --set all          # 全部
-    python download_models.py --set asr,uvr5     # 多选(逗号分隔)
+    python download_models.py --set default      # 默认集(core+g2pw+langdetect+asr, 基座 v2Pro)
+    python download_models.py --set core         # 只下核心底模(含 v2Pro 默认基座)
+    python download_models.py --set all          # 全部(含 alt 基座 + uvr5)
+    python download_models.py --set core,asr,uvr5  # 多选(逗号分隔)
     python download_models.py --set all --mirror # 走 hf-mirror.com 加速(国内)
     python download_models.py --set all --jobs 8 # 8 路并行下载(默认 4, 1=串行)
 
 加速: 若 venv 里装了 hf_transfer, 单文件走 rust 并行分块下载(自动启用);
       --jobs N 控制同一组内多个文件的并行数。二者叠加显著缩短下载时间。
 
-可下载组: core  asr  uvr5  g2pw  langdetect  all
+可下载组(与 THIRD_PARTY_LICENSES/models/MODEL_SOURCES.json 的 download_group 对齐):
+    core          核心底模 + 默认基座 v2Pro (sv / hubert / roberta 等)  [默认]
+    asr           ASR faster-whisper large-v3-turbo (~1.6GB, 训练用)     [默认]
+    g2pw          G2PW 多音字 (g2pW.onnx)                                 [默认]
+    langdetect    语言检测 lid.176                                        [默认]
+    alt_v2        备用基座 v2 (G+D)                                       [按需]
+    alt_v2proplus 备用基座 v2ProPlus (G+D)                                [按需]
+    uvr5          UVR5 去人声 HP2 (可选)                                   [按需]
 
 来源(标准 HuggingFace,如与你的实际源不同,改 MANIFEST 里的 repo/url 即可):
-  * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta / uvr5
+  * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta
+  * lj1995/VoiceConversionWebUI           —— uvr5 HP2 去人声权重
   * mobiuslabsgmbh/faster-whisper-large-v3-turbo  —— ASR (turbo, ~1.6GB)
   * fasttext lid.176                      —— 语言检测直链
   * XXXXRT/GPT-SoVITS-Pretrained          —— G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
 
-注: SR 音频超分(24k->48k, AP-BWE)仅 SoVITS v3 使用, 本项目不支持 v3, 已移除。
+注: SR 音频超分(24k->48k, AP-BWE)与 BigVGAN 声码器仅 SoVITS v3 使用, 本项目不支持 v3, 已移除。
 """
 
 import argparse
@@ -65,8 +74,6 @@ URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.
 # 只缺权重 g2pW.onnx, 故这里下载官方 zip 后仅抽出 g2pW.onnx 写入既有 G2PWModel/ 目录。
 URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve/main/G2PWModel.zip"
 
-# 注: SR(24k->48k 音频超分, AP-BWE)仅 SoVITS v3 使用, 本项目不支持 v3, 故不下载、不管理。
-
 # 相对项目根的目录
 PRE = os.path.join("lib", "training", "gsv-tools", "pretrained")
 ASR = os.path.join("lib", "training", "gsv-tools", "asr", "faster-whisper-large-v3-turbo")
@@ -75,45 +82,51 @@ UVR = os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights")
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
 #   backend = "hf"  -> source=(repo, path_in_repo)
 #   backend = "url" -> source=direct_url
+#
+# 分组按 MODEL_SOURCES.json 的 download_group 对齐, 以支持"默认 v2Pro + 备用基座按需"。
 MANIFEST = {
+    # ---- 核心底模 + 默认基座 v2Pro (必需) ----
     "core": [
-        # --- gsv v2 底模 ---
-        ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2G2333k.pth"),
-         os.path.join(PRE, "gsv-v2final", "s2G2333k.pth"), 80_000_000),
-        ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2D2333k.pth"),
-         os.path.join(PRE, "gsv-v2final", "s2D2333k.pth"), 80_000_000),
+        # S1 GPT (AR) —— 每个版本都需要
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"),
          os.path.join(PRE, "gsv-v2final", "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"), 120_000_000),
         ("hf", (HF_REPO_GSV, "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"),
          os.path.join(PRE, "gsv-v2final", "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"), 120_000_000),
-        # --- v1/v2 base 488k ---
+        # v1/v2 base 488k (推理回退基座, 保留)
         ("hf", (HF_REPO_GSV, "s2G488k.pth"), os.path.join(PRE, "v2Pro", "s2G488k.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "s2D488k.pth"), os.path.join(PRE, "v2Pro", "s2D488k.pth"), 80_000_000),
-        # --- v2Pro / v2ProPlus ---
+        # v2Pro (默认基座)
         ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2Pro.pth"), os.path.join(PRE, "v2Pro", "s2Gv2Pro.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2Pro.pth"), os.path.join(PRE, "v2Pro", "s2Dv2Pro.pth"), 80_000_000),
-        ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2ProPlus.pth"), os.path.join(PRE, "v2Pro", "s2Gv2ProPlus.pth"), 80_000_000),
-        ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2ProPlus.pth"), os.path.join(PRE, "v2Pro", "s2Dv2ProPlus.pth"), 80_000_000),
-        # --- SV ---
+        # SV (说话人验证)
         ("hf", (HF_REPO_GSV, "sv/pretrained_eres2netv2w24s4ep4.ckpt"),
          os.path.join(PRE, "sv", "pretrained_eres2netv2w24s4ep4.ckpt"), 20_000_000),
-        # --- cnhubert ---
+        # cnhubert
         ("hf", (HF_REPO_GSV, "chinese-hubert-base/config.json"),
          os.path.join(PRE, "chinese-hubert-base", "config.json"), 500),
         ("hf", (HF_REPO_GSV, "chinese-hubert-base/preprocessor_config.json"),
          os.path.join(PRE, "chinese-hubert-base", "preprocessor_config.json"), 100),
         ("hf", (HF_REPO_GSV, "chinese-hubert-base/pytorch_model.bin"),
          os.path.join(PRE, "chinese-hubert-base", "pytorch_model.bin"), 150_000_000),
-        # --- roberta ---
+        # roberta
         ("hf", (HF_REPO_GSV, "chinese-roberta-wwm-ext-large/config.json"),
          os.path.join(PRE, "chinese-roberta-wwm-ext-large", "config.json"), 500),
         ("hf", (HF_REPO_GSV, "chinese-roberta-wwm-ext-large/tokenizer.json"),
          os.path.join(PRE, "chinese-roberta-wwm-ext-large", "tokenizer.json"), 100_000),
         ("hf", (HF_REPO_GSV, "chinese-roberta-wwm-ext-large/pytorch_model.bin"),
          os.path.join(PRE, "chinese-roberta-wwm-ext-large", "pytorch_model.bin"), 600_000_000),
-        # 注: BigVGAN 声码器仅 SoVITS v3 推理使用(TTS.py init_vocoder version=='v3'),
-        # 本项目不支持 v3(与 SR 同理),故不下载。若将来启用 v3, 需同时把权重放到
-        # 推理端期望路径 GPT_SoVITS/pretrained_models/models--nvidia--bigvgan_v2_24khz_100band_256x/。
+    ],
+    # ---- 备用基座 v2 (G+D) 按需 ----
+    "alt_v2": [
+        ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2G2333k.pth"),
+         os.path.join(PRE, "gsv-v2final", "s2G2333k.pth"), 80_000_000),
+        ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2D2333k.pth"),
+         os.path.join(PRE, "gsv-v2final", "s2D2333k.pth"), 80_000_000),
+    ],
+    # ---- 备用基座 v2ProPlus (G+D) 按需 ----
+    "alt_v2proplus": [
+        ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2ProPlus.pth"), os.path.join(PRE, "v2Pro", "s2Gv2ProPlus.pth"), 80_000_000),
+        ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2ProPlus.pth"), os.path.join(PRE, "v2Pro", "s2Dv2ProPlus.pth"), 80_000_000),
     ],
     "asr": [
         ("hf", (HF_REPO_ASR, "config.json"), os.path.join(ASR, "config.json"), 500),
@@ -139,7 +152,10 @@ MANIFEST = {
          [os.path.join("lib", "training", "gsv_code", "pretrained_models", "fast_langdetect", "lid.176.bin")]),
     ],
 }
-GROUPS = ["core", "asr", "uvr5", "g2pw", "langdetect"]
+GROUPS = ["core", "alt_v2", "alt_v2proplus", "asr", "uvr5", "g2pw", "langdetect"]
+# 默认集: 与 MODEL_SOURCES.json 中 default_selected=true 的 download_group 一致
+# (核心底模 + 默认基座 v2Pro + g2pw + langdetect + asr)。备用基座与 uvr5 需显式选择。
+DEFAULT_SET = ["core", "g2pw", "langdetect", "asr"]
 
 
 def root_dir():
@@ -312,10 +328,10 @@ def fetch_group(root, group, mirror, force, jobs=4):
                 log(ln)
 
 
-def check(root):
+def check(root, groups=None):
     log("==================== 模型体检 ====================")
     all_ok = True
-    for g in GROUPS:
+    for g in (groups or GROUPS):
         miss = []
         for entry in MANIFEST[g]:
             _, _, local, minb, copies = _entry_parts(entry)
@@ -323,7 +339,7 @@ def check(root):
                 if not ok_local(root, path, minb):
                     miss.append(path)
         status = "齐全" if not miss else f"缺 {len(miss)} 项"
-        log(f"  {g:<11} {status}")
+        log(f"  {g:<14} {status}")
         for m in miss:
             log(f"       - {m}")
         all_ok = all_ok and not miss
@@ -332,42 +348,58 @@ def check(root):
     return 0 if all_ok else 1
 
 
+def _expand_sets(raw):
+    """把 --set 的值展开为合法组列表。支持 all / default / 逗号分隔。"""
+    v = raw.strip().lower()
+    if v == "all":
+        return list(GROUPS)
+    if v == "default":
+        return list(DEFAULT_SET)
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
 def wizard(root, mirror, jobs):
     while True:
         print("\n============================================================")
         print("            TTS Broker 模型下载向导")
         print("============================================================")
-        print("  1) 全部 (core + asr + uvr5 + g2pw + langdetect)  ~9GB")
-        print("  2) 仅核心底模 core")
-        print("  3) 仅 ASR (faster-whisper large-v3-turbo)  ~1.6GB")
-        print("  4) 仅 UVR5 去人声 (HP2)")
-        print("  5) 仅 G2PW 多音字")
-        print("  6) 仅 语言检测 lid.176")
-        print("  7) 自定义 (逗号分隔: core,asr,uvr5,g2pw,langdetect)")
-        print("  9) 体检 (只检查, 不下载)")
+        print("  1) 默认集 (core + asr + g2pw + langdetect, 基座 v2Pro)  [推荐]")
+        print("  2) 全部 (默认集 + 备用基座 v2/v2ProPlus + uvr5)  ~9GB")
+        print("  3) 仅核心底模 core (含 v2Pro 默认基座)")
+        print("  4) 仅 ASR (faster-whisper large-v3-turbo)  ~1.6GB")
+        print("  5) 仅 UVR5 去人声 (HP2)")
+        print("  6) 仅 G2PW 多音字")
+        print("  7) 仅 语言检测 lid.176")
+        print("  8) 备用基座 (alt_v2 + alt_v2proplus)")
+        print("  9) 自定义 (逗号分隔: %s)" % ",".join(GROUPS))
+        print("  c) 体检 (只检查, 不下载)")
         print(f"  m) 切换镜像 (当前: {'hf-mirror' if mirror else 'huggingface.com'})")
         print(f"  j) 设置并行数 (当前: {jobs})")
         print("  0) 退出")
         print("------------------------------------------------------------")
-        c = input("请选择 [0-9/m/j]: ").strip().lower()
+        c = input("请选择 [0-9/c/m/j]: ").strip().lower()
         if c == "0":
             return 0
         elif c == "1":
-            sets = GROUPS
+            sets = list(DEFAULT_SET)
         elif c == "2":
-            sets = ["core"]
+            sets = list(GROUPS)
         elif c == "3":
-            sets = ["asr"]
+            sets = ["core"]
         elif c == "4":
-            sets = ["uvr5"]
+            sets = ["asr"]
         elif c == "5":
-            sets = ["g2pw"]
+            sets = ["uvr5"]
         elif c == "6":
-            sets = ["langdetect"]
+            sets = ["g2pw"]
         elif c == "7":
+            sets = ["langdetect"]
+        elif c == "8":
+            sets = ["alt_v2", "alt_v2proplus"]
+        elif c == "9":
             raw = input("输入组(逗号分隔): ").strip()
             sets = [s.strip() for s in raw.split(",") if s.strip() in MANIFEST]
-        elif c == "9":
+        elif c == "c":
             check(root)
             continue
         elif c == "m":
@@ -388,7 +420,8 @@ def wizard(root, mirror, jobs):
 
 def main():
     ap = argparse.ArgumentParser(description="下载/校验 TTS Broker 模型。")
-    ap.add_argument("--set", default=None, help="组: core,asr,uvr5,g2pw,langdetect,all")
+    ap.add_argument("--set", default=None,
+                    help="组: default,all,core,alt_v2,alt_v2proplus,asr,uvr5,g2pw,langdetect")
     ap.add_argument("--wizard", action="store_true", help="交互式菜单")
     ap.add_argument("--check", action="store_true", help="只体检")
     ap.add_argument("--mirror", action="store_true", help="走 hf-mirror.com")
@@ -405,11 +438,10 @@ def main():
     if args.wizard or (not args.set):
         return wizard(root, args.mirror, jobs)
 
-    sets = GROUPS if args.set.strip().lower() == "all" else \
-        [s.strip() for s in args.set.split(",") if s.strip()]
+    sets = _expand_sets(args.set)
     bad = [s for s in sets if s not in MANIFEST]
     if bad:
-        log(f"[错误] 未知组: {bad}  可用: {GROUPS + ['all']}")
+        log(f"[错误] 未知组: {bad}  可用: {GROUPS + ['all', 'default']}")
         return 2
     for g in sets:
         fetch_group(root, g, args.mirror, args.force, jobs)

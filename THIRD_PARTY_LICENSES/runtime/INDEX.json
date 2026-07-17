@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "runtime_bundled_components",
+  "note": "Machine-readable index of the third-party CODE / RUNTIME components that ship INSIDE the distribution and whose verbatim license text travels under THIRD_PARTY_LICENSES/runtime/. The deploy wizard reads this to group and display licenses. Python dependency closure (installed at deploy time, not bundled) is inventoried separately in python_packages.json.",
+  "components": [
+    {
+      "component": "GPT-SoVITS",
+      "license": "MIT",
+      "license_file": "GPT-SoVITS.LICENSE.txt",
+      "bundled": true,
+      "description": "Derived training pipeline / inference engine code (v2 / v2Pro / v2ProPlus)."
+    },
+    {
+      "component": "CPython / python-build-standalone",
+      "license": "PSF",
+      "license_file": "CPython.LICENSE.txt",
+      "bundled": true,
+      "description": "Embedded relocatable CPython runtime (+ bundled runtime components: OpenSSL/SQLite/libffi/... under their own licenses)."
+    },
+    {
+      "component": "Node.js",
+      "license": "MIT",
+      "license_file": "Node.js.LICENSE.txt",
+      "bundled": true,
+      "description": "Backend Node.js runtime (+ bundled components: V8/libuv/OpenSSL/npm/... under their own licenses)."
+    },
+    {
+      "component": "jieba_fast",
+      "license": "MIT",
+      "license_file": "jieba_fast.LICENSE.txt",
+      "bundled": true,
+      "description": "Prebuilt cp311/win_amd64 wheel shipped in the distribution."
+    },
+    {
+      "component": "pyopenjtalk",
+      "license": "MIT",
+      "license_file": "pyopenjtalk.LICENSE.txt",
+      "bundled": true,
+      "description": "Prebuilt cp311/win_amd64 wheel (wrapper MIT; bundles modified OpenJTalk / hts_engine_API under their own BSD-style licenses)."
+    }
+  ]
+}

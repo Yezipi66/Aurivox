@@ -1135,11 +1135,11 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="field">
               <label className="field-label">Model</label>
               <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
-                <option value="mdx-net">MDX-Net</option>
+                <option value="mdx-net">HP2 (Vocal Remover)</option>
               </select>
             </div>
           )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing. Off by default — only needed for noisy or mixed audio.</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing, using the UVR5 HP2 model (VR architecture). Off by default — only needed for noisy or mixed audio.</p>
         </>
       );
     } else if (selectedNode === 'slice') {

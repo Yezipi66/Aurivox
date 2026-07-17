@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "product": "Aurivox",
+  "updated_at": "2026-07-17T13:24:00Z",
+  "note": "Machine-readable inventory of third-party command-line TOOLS that Aurivox uses but does NOT bundle. Like MODEL_SOURCES.json (bundled=false), these are fetched at deploy time by a provisioning script from the upstream distributors below; each remains governed by its own license, and the redistribution obligations (shipping the verbatim license text, and, for GPL builds, providing complete corresponding source) rest with those upstream distributors, not with Aurivox. Aurivox invokes these tools as separate processes (subprocess), not by linking, so their license does not affect Aurivox's own MIT-licensed code.",
+  "tools": [
+    {
+      "tool_id": "ffmpeg",
+      "description": "ffmpeg + ffprobe command-line binaries. The broker transcodes engine WAV output to mp3/opus/aac/flac; the UVR5 training step probes/reformats inputs. Provisioned into vendor/ffmpeg/<platform>/ by tools/deploy/download_ffmpeg.py; server.js prefers this project-local binary, falls back to a system ffmpeg on PATH, then degrades to WAV.",
+      "bundled": false,
+      "invocation": "separate process (subprocess); not linked into Aurivox",
+      "provisioning_script": "tools/deploy/download_ffmpeg.py",
+      "install_target": "vendor/ffmpeg/<platform>/{ffmpeg,ffprobe}[.exe]",
+      "license": "GPL-3.0-or-later",
+      "platforms_supported": ["windows-x86_64"],
+      "license_note": "Aurivox is a Windows-only distribution; only the Windows x86_64 FFmpeg build is fetched. The provisioning script pulls the BtbN 'gpl' static build (win64-gpl); it enables GPL-covered components (e.g. x264/x265) and uses --enable-version3, so it is GPL-3.0-or-later. It does NOT use --enable-nonfree (fdk-aac is disabled), so it remains redistributable BY THE UPSTREAM DISTRIBUTOR (BtbN). Because Aurivox does not redistribute the binaries, the GPL COPYING text and corresponding-source obligations travel with the upstream download, not with Aurivox. Verified against the shipped build via `ffmpeg -version` / `ffprobe -version` (see observed_build).",
+      "verification_status": "verified",
+      "observed_build": {
+        "platform": "windows-x86_64",
+        "version": "N-125519-g300cac3078-20260711",
+        "git_commit": "300cac3078",
+        "build_date": "20260711",
+        "distributor": "BtbN/FFmpeg-Builds (win64-gpl, static, gcc 15.2.0)",
+        "verified_via": "ffmpeg -version / ffprobe -version",
+        "license_determined": "GPL-3.0-or-later",
+        "gpl_flags": ["--enable-gpl", "--enable-version3"],
+        "nonfree": false,
+        "nonfree_evidence": "--disable-libfdk-aac present; no --enable-nonfree in configuration",
+        "gpl_components_present": ["libx264", "libx265", "libxvid", "libxavs2", "libdavs2", "frei0r", "libvidstab", "librubberband", "libzvbi"]
+      },
+      "distribution_sources": {
+        "windows-x86_64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+      },
+      "upstream": "https://ffmpeg.org/  (https://github.com/FFmpeg/FFmpeg)",
+      "license_url": "https://www.ffmpeg.org/legal.html"
+    }
+  ]
+}

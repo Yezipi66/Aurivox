@@ -1,0 +1,1705 @@
+{
+  "schema": 1,
+  "kind": "python_packages",
+  "generated": "2026-07-17",
+  "source_requirements": "requirements.txt",
+  "python": "3.11",
+  "cuda": "12.1",
+  "note": "Frozen pip/uv closure of Aurivox Python dependencies, recorded from requirements.txt for reproducibility. These are installed by the end user's installer from a package index and are NOT redistributed inside the Aurivox distribution [bundled=false], EXCEPT two prebuilt win_amd64 wheels that ARE shipped [bundled=true]: jieba_fast and pyopenjtalk, both MIT. license fields for non-bundled packages are informational; only shipped wheels must carry their license text under THIRD_PARTY_LICENSES/.",
+  "count": 209,
+  "packages": [
+    {
+      "name": "absl-py",
+      "version": "2.4.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "accelerate",
+      "version": "1.14.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "aiofiles",
+      "version": "23.2.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "aiohappyeyeballs",
+      "version": "2.6.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "aiohttp",
+      "version": "3.14.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "aiosignal",
+      "version": "1.4.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "aliyun-python-sdk-core",
+      "version": "2.16.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "aliyun-python-sdk-kms",
+      "version": "2.16.5",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "annotated-doc",
+      "version": "0.0.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "annotated-types",
+      "version": "0.7.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "antlr4-python3-runtime",
+      "version": "4.9.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "anyio",
+      "version": "4.14.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "audioread",
+      "version": "3.1.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "av",
+      "version": "14.2.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "bitsandbytes",
+      "version": "0.49.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "boto3",
+      "version": "1.43.33",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "botocore",
+      "version": "1.43.33",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "budoux",
+      "version": "0.8.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "cached_path",
+      "version": "1.8.10",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "certifi",
+      "version": "2026.6.17",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "cffi",
+      "version": "2.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "chardet",
+      "version": "5.2.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "charset-normalizer",
+      "version": "3.4.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "click",
+      "version": "8.4.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "cn2an",
+      "version": "0.5.22",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "colorama",
+      "version": "0.4.6",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "colorlog",
+      "version": "6.10.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "contourpy",
+      "version": "1.3.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "crcmod",
+      "version": "1.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "cryptography",
+      "version": "49.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ctranslate2",
+      "version": "4.8.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "cycler",
+      "version": "0.12.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "datasets",
+      "version": "2.16.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "decorator",
+      "version": "5.3.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "dill",
+      "version": "0.3.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "Distance",
+      "version": "0.1.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "edge-tts",
+      "version": "6.1.5",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "editdistance",
+      "version": "0.8.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "einops",
+      "version": "0.8.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "einx",
+      "version": "0.4.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ema-pytorch",
+      "version": "0.7.9",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "encodec",
+      "version": "0.1.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "f5-tts",
+      "version": "0.3.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "fast-langdetect",
+      "version": "0.3.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "fastapi",
+      "version": "0.137.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "faster-whisper",
+      "version": "1.1.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "fasttext-predict",
+      "version": "0.9.2.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ffmpy",
+      "version": "1.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "filelock",
+      "version": "3.29.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "flatbuffers",
+      "version": "25.12.19",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "fonttools",
+      "version": "4.63.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "frozendict",
+      "version": "2.4.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "frozenlist",
+      "version": "1.8.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "fsspec",
+      "version": "2026.4.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ftfy",
+      "version": "6.3.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "funasr",
+      "version": "1.0.27",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "g2p-en",
+      "version": "2.1.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "g2pk2",
+      "version": "0.0.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "gitdb",
+      "version": "4.0.12",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "GitPython",
+      "version": "3.1.50",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "google-api-core",
+      "version": "2.31.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "google-auth",
+      "version": "2.55.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "google-cloud-core",
+      "version": "2.6.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "google-cloud-storage",
+      "version": "3.12.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "google-crc32c",
+      "version": "1.8.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "google-resumable-media",
+      "version": "2.10.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "googleapis-common-protos",
+      "version": "1.75.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "gradio",
+      "version": "4.44.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "gradio_client",
+      "version": "1.3.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "grpcio",
+      "version": "1.81.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "hf_transfer",
+      "version": "0.1.9",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "huggingface-hub",
+      "version": "0.29.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "hydra-core",
+      "version": "1.3.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "idna",
+      "version": "3.18",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "importlib_resources",
+      "version": "6.5.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "inflect",
+      "version": "7.5.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ipadic",
+      "version": "1.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "jaconv",
+      "version": "0.5.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "jamo",
+      "version": "0.4.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "jieba",
+      "version": "0.42.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "jieba_fast",
+      "version": "0.53",
+      "license": "MIT",
+      "license_url": null,
+      "verification_status": "verified",
+      "bundled": true,
+      "wheel": "jieba_fast-0.53-cp311-cp311-win_amd64.whl"
+    },
+    {
+      "name": "Jinja2",
+      "version": "3.1.6",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "jmespath",
+      "version": "0.10.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "joblib",
+      "version": "1.5.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "kaldiio",
+      "version": "2.18.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "kiwisolver",
+      "version": "1.5.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ko-pron",
+      "version": "1.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "langcodes",
+      "version": "3.5.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "librosa",
+      "version": "0.9.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "lightning-utilities",
+      "version": "0.15.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "llvmlite",
+      "version": "0.47.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "locate",
+      "version": "1.1.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "loguru",
+      "version": "0.7.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "Markdown",
+      "version": "3.10.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "markdown-it-py",
+      "version": "4.2.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "MarkupSafe",
+      "version": "3.0.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "matplotlib",
+      "version": "3.10.9",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "mdurl",
+      "version": "0.1.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "mecab-ko-dic",
+      "version": "1.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "mecab-python3",
+      "version": "1.0.12",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "modelscope",
+      "version": "1.32.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "more-itertools",
+      "version": "11.1.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "mpmath",
+      "version": "1.3.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "msgpack",
+      "version": "1.2.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "multidict",
+      "version": "6.7.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "multiprocess",
+      "version": "0.70.15",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "networkx",
+      "version": "3.6.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "nltk",
+      "version": "3.9.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "numba",
+      "version": "0.65.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "numpy",
+      "version": "1.23.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "omegaconf",
+      "version": "2.3.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.27.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "onnxruntime-gpu",
+      "version": "1.27.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "openai-whisper",
+      "version": "20250625",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "OpenCC",
+      "version": "1.1.8",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "orjson",
+      "version": "3.11.9",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "oss2",
+      "version": "2.19.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pandas",
+      "version": "2.3.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "peft",
+      "version": "0.14.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pillow",
+      "version": "10.4.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "platformdirs",
+      "version": "4.10.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pooch",
+      "version": "1.9.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "proces",
+      "version": "0.1.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "propcache",
+      "version": "0.5.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "proto-plus",
+      "version": "1.28.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "protobuf",
+      "version": "7.35.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "psutil",
+      "version": "5.9.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pyarrow",
+      "version": "24.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pyarrow-hotfix",
+      "version": "0.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pyasn1",
+      "version": "0.6.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pyasn1_modules",
+      "version": "0.4.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pycryptodome",
+      "version": "3.23.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pydantic_core",
+      "version": "2.46.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pydub",
+      "version": "0.25.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "Pygments",
+      "version": "2.20.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pynndescent",
+      "version": "0.6.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pyopenjtalk",
+      "version": "0.4.1",
+      "license": "MIT",
+      "license_url": null,
+      "verification_status": "verified",
+      "bundled": true,
+      "wheel": "pyopenjtalk-0.4.1-cp311-cp311-win_amd64.whl"
+    },
+    {
+      "name": "pyparsing",
+      "version": "3.3.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pypinyin",
+      "version": "0.50.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "python-dateutil",
+      "version": "2.9.0.post0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "python-multipart",
+      "version": "0.0.32",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pytorch-lightning",
+      "version": "2.1.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pytorch-wpe",
+      "version": "0.0.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "pytz",
+      "version": "2026.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "regex",
+      "version": "2026.5.9",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "requests",
+      "version": "2.34.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "resampy",
+      "version": "0.4.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "rich",
+      "version": "13.9.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "robust-downloader",
+      "version": "0.0.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "rotary-embedding-torch",
+      "version": "0.6.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ruff",
+      "version": "0.15.18",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "s3transfer",
+      "version": "0.19.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "safetensors",
+      "version": "0.8.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "scikit-learn",
+      "version": "1.7.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "scipy",
+      "version": "1.9.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "semantic-version",
+      "version": "2.10.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "sentencepiece",
+      "version": "0.1.99",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "sentry-sdk",
+      "version": "2.63.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "shellingham",
+      "version": "1.5.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "six",
+      "version": "1.17.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "smmap",
+      "version": "5.0.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "soundfile",
+      "version": "0.12.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "split-lang",
+      "version": "2.0.6",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "starlette",
+      "version": "1.3.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "sympy",
+      "version": "1.14.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tensorboard",
+      "version": "2.20.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tensorboard-data-server",
+      "version": "0.7.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tensorboardX",
+      "version": "2.6.5",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "threadpoolctl",
+      "version": "3.6.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tiktoken",
+      "version": "0.13.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ToJyutping",
+      "version": "3.2.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tokenizers",
+      "version": "0.19.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tomli",
+      "version": "2.4.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tomlkit",
+      "version": "0.12.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "torch-complex",
+      "version": "0.4.4",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "torchdiffeq",
+      "version": "0.2.5",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "torchmetrics",
+      "version": "1.2.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tqdm",
+      "version": "4.68.3",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "transformers",
+      "version": "4.43.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "transformers-stream-generator",
+      "version": "0.0.5",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "typeguard",
+      "version": "4.5.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "typer",
+      "version": "0.26.7",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.15.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "tzdata",
+      "version": "2026.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "umap-learn",
+      "version": "0.5.12",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "urllib3",
+      "version": "2.7.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.49.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "vocos",
+      "version": "0.1.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "wandb",
+      "version": "0.27.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "wcwidth",
+      "version": "0.8.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "websockets",
+      "version": "12.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "Werkzeug",
+      "version": "3.1.8",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "win32_setctime",
+      "version": "1.2.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "wordfreq",
+      "version": "3.1.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "wordsegment",
+      "version": "1.3.1",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "x-transformers",
+      "version": "2.0.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "xxhash",
+      "version": "3.7.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "yarl",
+      "version": "1.24.2",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "ffmpeg-python",
+      "version": "0.2.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "future",
+      "version": "1.0.0",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false
+    },
+    {
+      "name": "torch",
+      "version": "2.2.0+cu121",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false,
+      "note": "installed separately from CUDA-specific index by install_torch.ps1"
+    },
+    {
+      "name": "torchaudio",
+      "version": "2.2.0+cu121",
+      "license": null,
+      "license_url": null,
+      "verification_status": "unverified",
+      "bundled": false,
+      "note": "installed separately from CUDA-specific index by install_torch.ps1"
+    }
+  ],
+  "bundled_count": 2
+}

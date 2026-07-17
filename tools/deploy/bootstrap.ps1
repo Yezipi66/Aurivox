@@ -8,6 +8,7 @@
 #    2. create venv\ at project root
 #    3. install deps: local wheels (tools\wheels) + PyPI, EXCLUDING torch
 #    4. install torch/torchaudio (CUDA 12.1)
+#    4c. restore backend node deps (npm ci) — node_modules is NOT bundled
 #    5. self-check imports
 #    6. guide model download (download_models.py)
 # ============================================================
@@ -24,6 +25,21 @@ $ErrorActionPreference = 'Continue'
 $SCRIPT_DIR = $PSScriptRoot
 if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
 $ROOT = Split-Path (Split-Path $SCRIPT_DIR -Parent) -Parent
+
+# --- 0z. deploy_wizard.py selection (written by the console wizard) --------
+# deploy.bat runs deploy_wizard.py FIRST (license review + model selection); the
+# wizard drops two sidecar files next to THIS script:
+#   .deploy_models.txt  -> comma list of model groups (e.g. "core,g2pw,asr"), or empty
+#   .deploy_ffmpeg.txt  -> "1" download ffmpeg, "0" skip
+# When present we honor them NON-interactively (env is fixed; only the downloads
+# were the user's choice). When ABSENT (bootstrap run standalone / legacy) we keep
+# the original interactive behavior below. $null = "no file -> interactive".
+$SEL_MODELS = $null
+$SEL_FFMPEG = $null
+$__selM = Join-Path $SCRIPT_DIR '.deploy_models.txt'
+$__selF = Join-Path $SCRIPT_DIR '.deploy_ffmpeg.txt'
+if (Test-Path $__selM) { $c = Get-Content $__selM -Raw; $SEL_MODELS = if ($c) { $c.Trim() } else { '' } }
+if (Test-Path $__selF) { $c = Get-Content $__selF -Raw; $SEL_FFMPEG = if ($c) { $c.Trim() } else { '' } }
 
 # --- 0a. GUARD: refuse a non-ASCII (e.g. Chinese) install path ------------
 # A path containing non-ASCII characters (e.g. D:\<chinese>\) is destroyed to
@@ -280,7 +296,10 @@ else { Warn 'PyTorch is NOT importable — it did not install correctly.' }
 # separation won't work without it, so we surface the status in the final summary.
 $FFMPEG_OK = $false
 $ffScript = Join-Path $SCRIPT_DIR 'download_ffmpeg.py'
-if (Test-Path $ffScript) {
+if ($SEL_FFMPEG -eq '0') {
+  # the wizard's user explicitly opted OUT of the ffmpeg download.
+  Info 'ffmpeg/ffprobe download skipped (not selected in the deploy wizard).'
+} elseif (Test-Path $ffScript) {
   Info 'provisioning ffmpeg + ffprobe (project-local) ...'
   $null = Invoke-Native $VENV_PY @("$ffScript")
   & $VENV_PY "$ffScript" --check
@@ -288,6 +307,75 @@ if (Test-Path $ffScript) {
   else { Warn 'ffmpeg/ffprobe NOT available — UVR5 vocal separation will fail until installed.' }
 } else {
   Warn ('download_ffmpeg.py not found: {0}' -f $ffScript)
+}
+
+# --- 4c. backend node dependencies (npm ci) -------------------------------
+# node_modules is NOT bundled in the release (kept out by 04_pack_release.py to
+# shrink the zip AND avoid physically redistributing third-party npm packages).
+# We restore the backend/root production deps here from the shipped
+# package-lock.json. The web frontend ships PRE-BUILT (web\dist), so its own
+# node_modules is not needed at runtime — only the root deps that server.js uses.
+$NODE_OK = $false
+$NODE_DIR      = Join-Path $ROOT 'tools\runtime\node'
+$NODE_EXE      = Join-Path $NODE_DIR 'node.exe'
+$NPM_CMD       = Join-Path $NODE_DIR 'npm.cmd'
+$PKG_JSON      = Join-Path $ROOT 'package.json'
+$PKG_LOCK      = Join-Path $ROOT 'package-lock.json'
+$NODE_MODULES  = Join-Path $ROOT 'node_modules'
+
+if (-not (Test-Path $PKG_JSON)) {
+  Warn ('package.json not found at project root: {0} — skipping node deps.' -f $PKG_JSON)
+} else {
+  # Locate npm: prefer the bundled node runtime (self-contained: npm.cmd next to
+  # it resolves its own node.exe), else a system npm on PATH.
+  $npmExe = $null
+  if (Test-Path $NPM_CMD) {
+    $npmExe = $NPM_CMD
+    if (Test-Path $NODE_EXE) { $env:PATH = $NODE_DIR + ';' + $env:PATH }  # belt-and-suspenders
+    Info ('using bundled npm: {0}' -f $NPM_CMD)
+  } else {
+    $sysNpm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if (-not $sysNpm) { $sysNpm = Get-Command npm -ErrorAction SilentlyContinue }
+    if ($sysNpm) { $npmExe = $sysNpm.Source; Warn 'bundled npm not found — using system npm on PATH.' }
+  }
+
+  if (-not $npmExe) {
+    Warn 'npm not found (neither tools\runtime\node\npm.cmd nor a system npm on PATH).'
+    Warn 'Backend node deps cannot be restored -> the server will not start.'
+    Warn 'Fix: ship npm alongside the node runtime (tools\build\03_fetch_runtimes.py'
+    Warn '     must fetch the FULL node zip, not just node.exe) or install Node.js.'
+  } else {
+    # Fast path: skip when node_modules is already restored (npm writes the marker
+    # node_modules\.package-lock.json on a successful install). Keeps re-deploys
+    # quick — npm ci would otherwise wipe + reinstall every run.
+    $nmMarker = Join-Path $NODE_MODULES '.package-lock.json'
+    if ((Test-Path $NODE_MODULES) -and (Test-Path $nmMarker)) {
+      Ok 'backend node deps already present — skipping npm install (delete node_modules\ to force).'
+      $NODE_OK = $true
+    } else {
+      # npm ci is reproducible + honors the lockfile exactly, but REQUIRES it.
+      # Fall back to `npm install` only if the lockfile is missing (should not
+      # happen — the packer ships it and warns if absent).
+      Push-Location $ROOT   # npm must run in the dir holding package.json
+      try {
+        # Plain `npm ci` (NOT --omit=dev): the backend deps (express, cors,
+        # multer, js-yaml, argparse + their transitive deps) are all tiny
+        # runtime packages — there is no dev-only bloat to skip here, and
+        # dropping --omit=dev removes any risk of missing a runtime package
+        # that happens to sit under devDependencies. npm ci installs exactly
+        # what package-lock.json pins.
+        if (Test-Path $PKG_LOCK) {
+          Info 'restoring backend node deps: npm ci ...'
+          $nRC = Invoke-Native $npmExe @('ci','--no-audit','--no-fund')
+        } else {
+          Warn 'package-lock.json missing — falling back to `npm install` (NOT reproducible).'
+          $nRC = Invoke-Native $npmExe @('install','--no-audit','--no-fund')
+        }
+      } finally { Pop-Location }
+      if ($nRC -eq 0 -and (Test-Path $NODE_MODULES)) { $NODE_OK = $true; Ok 'backend node deps installed.' }
+      else { Warn 'npm install FAILED — the backend server will not start until deps are restored.' }
+    }
+  }
 }
 
 # --- 5. self-check ---
@@ -337,21 +425,35 @@ if ($hfRC -ne 0) { Warn 'hf_transfer install failed (non-fatal — downloads jus
 
 # --- 6. models ---
 Write-Host ''
-Info '========================================================'
-Info ' Dependencies done. Models are NOT bundled (~9GB).'
-Info ' Launch the model download wizard now? It downloads to'
-Info '   lib\training\gsv-tools\pretrained | asr | uvr5_weights'
-Info '========================================================'
-$ans = Read-Host 'Download models now? [Y/n]'
-if ($ans -notmatch '^[Nn]') {
-  $dl = Join-Path $SCRIPT_DIR 'download_models.py'
-  if (Test-Path $dl) {
-    & $VENV_PY $dl --wizard
+$dl = Join-Path $SCRIPT_DIR 'download_models.py'
+if (-not (Test-Path $dl)) {
+  Warn ('download_models.py not found: {0}' -f $dl)
+} elseif ($SEL_MODELS -ne $null) {
+  # Non-interactive: the console deploy wizard already collected the model choice
+  # (per-license-group review + selection). We just honor it here.
+  if ($SEL_MODELS -eq '') {
+    Info 'No model groups were selected in the deploy wizard — skipping model download.'
+    Info 'Run  venv\Scripts\python.exe tools\deploy\download_models.py --wizard  later to fetch them.'
   } else {
-    Warn ('download_models.py not found: {0}' -f $dl)
+    Info '========================================================'
+    Info (' Downloading selected model groups: {0}' -f $SEL_MODELS)
+    Info '   -> lib\training\gsv-tools\pretrained | asr | uvr5_weights'
+    Info '========================================================'
+    & $VENV_PY $dl --set $SEL_MODELS
   }
 } else {
-  Info 'Skipped. Run  venv\Scripts\python.exe tools\deploy\download_models.py --wizard  later.'
+  # Standalone bootstrap (no wizard sidecar): keep the original interactive prompt.
+  Info '========================================================'
+  Info ' Dependencies done. Models are NOT bundled (~9GB).'
+  Info ' Launch the model download wizard now? It downloads to'
+  Info '   lib\training\gsv-tools\pretrained | asr | uvr5_weights'
+  Info '========================================================'
+  $ans = Read-Host 'Download models now? [Y/n]'
+  if ($ans -notmatch '^[Nn]') {
+    & $VENV_PY $dl --wizard
+  } else {
+    Info 'Skipped. Run  venv\Scripts\python.exe tools\deploy\download_models.py --wizard  later.'
+  }
 }
 
 Write-Host ''
@@ -373,10 +475,25 @@ if ($FFMPEG_OK) {
   Write-Host '  ffmpeg/ffprobe      : MISSING  <== 人声分离(UVR5)需要它!' -ForegroundColor Red
   Write-Host '     修复: venv\Scripts\python.exe tools\deploy\download_ffmpeg.py' -ForegroundColor Yellow
 }
+if ($NODE_OK) {
+  Ok  '  后端 node 依赖        : OK (npm ci)'
+} else {
+  Write-Host '  后端 node 依赖        : MISSING / FAILED  <== 后端服务无法启动!' -ForegroundColor Red
+  Write-Host '     修复: 在项目根目录运行  tools\runtime\node\npm.cmd ci' -ForegroundColor Yellow
+  Write-Host '           (需要 package-lock.json 与 node 运行时;详见部署日志)' -ForegroundColor Yellow
+}
 Write-Host '============================================================' -ForegroundColor White
 Write-Host ''
-if ($TORCH_OK) { Ok 'Bootstrap finished. You can now run 启动.bat' }
-else           { Warn 'Bootstrap finished, but PyTorch is missing — install it before running 启动.bat.' }
+# The server needs BOTH torch (inference) and node deps (the broker process).
+if ($TORCH_OK -and $NODE_OK) {
+  Ok 'Bootstrap finished. You can now run 启动.bat'
+} elseif (-not $TORCH_OK -and -not $NODE_OK) {
+  Warn 'Bootstrap finished, but PyTorch AND backend node deps are missing — fix both before 启动.bat.'
+} elseif (-not $TORCH_OK) {
+  Warn 'Bootstrap finished, but PyTorch is missing — install it before running 启动.bat.'
+} else {
+  Warn 'Bootstrap finished, but backend node deps are missing — restore them before running 启动.bat.'
+}
 exit 0
 
 }

@@ -129,4 +129,5 @@ lib/training/gsv_code/text/ja_userdic/
 *.bak[0-9]
 *.bak[0-9].*
 *.bak.*
-nul
+nultry_indextts2*.ps1
+setup_indextts_env_v2.bat

@@ -1,0 +1,311 @@
+{
+  "schema": 2,
+  "product": "Aurivox",
+  "updated_at": "2026-07-17",
+  "default_base_version": "v2Pro",
+  "note": "Machine-readable inventory of third-party model weights Aurivox uses but does NOT bundle. The deployment wizard obtains these from the sources below; each remains governed by its own license. TIERS: 'core' = auto-selected set that runs the default V2Pro pipeline end-to-end (vocal-extract optional aside) — preprocess/ASR/text-frontend/feature-extraction/fine-tune/inference/publish; 'alt_base' = other GPT-SoVITS base versions (v2, v2ProPlus) offered as opt-in downloads; 'optional' = opt-in enhancements such as vocal separation. STAGE marks whether a component is needed at fine-tune, inference, or both. verification_status: 'verified' = source repo + license confirmed by maintainers; 'unverified' = source and/or weight license not yet independently confirmed and MUST be reviewed. Update THIS file (not NOTICE) when sources change. Excluded on purpose (not offered for download, hence no license obligation here): BigVGAN (v3/v4 vocoder, unused on the v2 line) and FunASR paraformer/vad/punc (retired, all ASR routed to faster-whisper).",
+  "tiers": {
+    "core": "Default V2Pro pipeline — auto-selected.",
+    "alt_base": "Other GPT-SoVITS base versions — opt-in.",
+    "optional": "Opt-in enhancements (e.g. vocal separation)."
+  },
+  "excluded": [
+    {
+      "name": "BigVGAN",
+      "reason": "v3/v4 vocoder; not used on the v2/v2Pro/v2ProPlus line",
+      "source_repo": "https://github.com/NVIDIA/BigVGAN"
+    },
+    {
+      "name": "FunASR (paraformer/vad/punc)",
+      "reason": "retired; all ASR routed to faster-whisper",
+      "source_repo": "https://github.com/modelscope/FunASR"
+    }
+  ],
+  "components": [
+    {
+      "component_id": "gsv_s1_gpt",
+      "description": "GPT-SoVITS S1 (GPT/AR) pretrained weights — required by every version",
+      "tier": "core",
+      "download_group": "core",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "gsv_s2g_v2pro",
+      "description": "GPT-SoVITS S2 (SoVITS) v2Pro generator — default base model",
+      "tier": "core",
+      "download_group": "core",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/v2Pro/s2Gv2Pro.pth",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "gsv_s2d_v2pro",
+      "description": "GPT-SoVITS S2 (SoVITS) v2Pro discriminator — required for fine-tuning v2Pro (hard gate)",
+      "tier": "core",
+      "download_group": "core",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": true,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/v2Pro/s2Dv2Pro.pth",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "sv_eres2netv2",
+      "description": "ERes2NetV2 speaker-verification embedding, used by v2Pro/v2ProPlus timbre conditioning",
+      "tier": "core",
+      "download_group": "core",
+      "pipeline_role": "speaker_verification",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://huggingface.co/lj1995/GPT-SoVITS",
+      "distribution_source": "https://huggingface.co/lj1995/GPT-SoVITS/blob/main/sv/pretrained_eres2netv2w24s4ep4.ckpt",
+      "original_upstream": "https://www.modelscope.cn/models/iic/speech_eres2netv2_sv_zh-cn_16k-common",
+      "revision": "unknown",
+      "artifact": "pretrained/sv/pretrained_eres2netv2w24s4ep4.ckpt",
+      "license": "Apache-2.0",
+      "license_note": "Downloaded from the GPT-SoVITS official model repo (lj1995/GPT-SoVITS), which is labelled MIT. The original weights (ModelScope iic/speech_eres2netv2_sv_zh-cn_16k-common) are Apache-2.0; the more specific upstream license (Apache-2.0) is recorded here.",
+      "license_url": "https://www.modelscope.cn/models/iic/speech_eres2netv2_sv_zh-cn_16k-common/summary",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "cnhubert_base",
+      "description": "Chinese HuBERT base — acoustic feature extractor for the SoVITS stage",
+      "tier": "core",
+      "download_group": "core",
+      "pipeline_role": "feature_extractor",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://huggingface.co/TencentGameMate/chinese-hubert-base",
+      "revision": "unknown",
+      "artifact": "pretrained/chinese-hubert-base/",
+      "license": "MIT",
+      "license_url": "https://huggingface.co/TencentGameMate/chinese-hubert-base",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "bert_roberta_wwm_large",
+      "description": "Chinese RoBERTa-wwm-ext-large — text/BERT feature extractor for the GPT stage",
+      "tier": "core",
+      "download_group": "core",
+      "pipeline_role": "feature_extractor",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://huggingface.co/hfl/chinese-roberta-wwm-ext-large",
+      "revision": "unknown",
+      "artifact": "pretrained/chinese-roberta-wwm-ext-large/",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/hfl/chinese-roberta-wwm-ext-large",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "asr_faster_whisper_large_v3_turbo",
+      "description": "faster-whisper large-v3-turbo — transcribes reference audio during fine-tuning",
+      "tier": "core",
+      "download_group": "asr",
+      "pipeline_role": "asr",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": true,
+      "source_repo": "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2",
+      "revision": "unknown",
+      "artifact": "asr/faster-whisper-large-v3-turbo/",
+      "license": "MIT",
+      "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "g2pw",
+      "description": "G2PW ONNX polyphone disambiguation for Mandarin g2p (recommended; pipeline falls back if absent)",
+      "tier": "core",
+      "download_group": "g2pw",
+      "pipeline_role": "text_frontend",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://github.com/GitYCC/g2pW",
+      "distribution_source": "https://huggingface.co/alextomcat/G2PWModel",
+      "revision": "unknown",
+      "artifact": "pretrained/G2PWModel/g2pW.onnx",
+      "license": "Apache-2.0",
+      "license_note": "GitYCC/g2pW code is Apache-2.0 (repo LICENCE file). The G2PWModel ONNX weight is redistributed via the GPT-SoVITS package; the HF mirror alextomcat/G2PWModel is labelled apache-2.0.",
+      "license_url": "https://github.com/GitYCC/g2pW/blob/master/LICENCE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "fast_langdetect_lid176",
+      "description": "fastText lid.176 language identification (language routing in the text frontend)",
+      "tier": "core",
+      "download_group": "langdetect",
+      "pipeline_role": "text_frontend",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": true,
+      "source_repo": "https://github.com/facebookresearch/fastText",
+      "distribution_source": "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin",
+      "revision": "unknown",
+      "artifact": "pretrained/fast_langdetect/lid.176.bin",
+      "license": "CC-BY-SA-3.0",
+      "license_note": "The fastText library CODE is MIT, but the pretrained lid.176 MODEL is distributed by fastText under CC-BY-SA-3.0 (trained on Wikipedia/Tatoeba/SETimes data under CC-BY-SA). The CC-BY-SA-3.0 license is the one that governs lid.176.bin itself.",
+      "license_url": "https://fasttext.cc/docs/en/language-identification.html",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "gsv_s2g_v2",
+      "description": "GPT-SoVITS S2 v2 generator (alternative base version)",
+      "tier": "alt_base",
+      "download_group": "alt_v2",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": false,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/gsv-v2final/s2G2333k.pth",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "gsv_s2d_v2",
+      "description": "GPT-SoVITS S2 v2 discriminator (alternative base version, fine-tune only)",
+      "tier": "alt_base",
+      "download_group": "alt_v2",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/gsv-v2final/s2D2333k.pth",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "gsv_s2g_v2proplus",
+      "description": "GPT-SoVITS S2 v2ProPlus generator (alternative base version; also needs sv_eres2netv2)",
+      "tier": "alt_base",
+      "download_group": "alt_v2proplus",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune",
+        "infer"
+      ],
+      "default_selected": false,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/v2Pro/s2Gv2ProPlus.pth",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "gsv_s2d_v2proplus",
+      "description": "GPT-SoVITS S2 v2ProPlus discriminator (alternative base version, fine-tune only)",
+      "tier": "alt_base",
+      "download_group": "alt_v2proplus",
+      "pipeline_role": "gpt_sovits_base",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "revision": "unknown",
+      "artifact": "pretrained/v2Pro/s2Dv2ProPlus.pth",
+      "license": "MIT",
+      "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    },
+    {
+      "component_id": "uvr5_hp2",
+      "description": "Vocal extraction weights for the optional pre-processing denoise step. NOTE: the UI option historically labelled 'MDX-Net' actually loads this HP2 file via the VR (Vocal Remover) architecture; MDX-Net itself is NOT used.",
+      "tier": "optional",
+      "download_group": "uvr5",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/HP2_all_vocals.pth",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/HP2_all_vocals.pth",
+      "artifact_sha256": "39796caa5db18d7f9382d8ac997ac967bfd85f7761014bb807d2543cc844ef05",
+      "license": "MIT",
+      "license_note": "HP2 weight distributed by lj1995/VoiceConversionWebUI (the RVC model repo, HF-labelled MIT); an identical copy (same SHA256) is mirrored in fumiama/RVC-Pretrained-Models. The architecture is the tsurumeso vocal-remover (VR), MIT. The UI label 'MDX-Net' is a misnomer — MDX-Net is not used.",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "verification_status": "verified",
+      "bundled": false
+    }
+  ]
+}
