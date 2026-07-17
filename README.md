@@ -128,6 +128,15 @@ start.bat
 由 `start.ps1` 随主服务一起拉起；前端「Generate」/「Compare Refs」页直接调用。
 支持切换 GPT / SoVITS 权重、参考音频、逐词读音校准（`pron_overrides`）。
 
+### 原生底模零样本推理（免微调）
+
+无需先微调即可直接用预训练底模推理。项目内置一个**保留的虚拟音色 `Base model`**
+（id `__base__`，内存态、不落 `voices.json`、无资产目录）：**出现在 Generate 的 Voice
+下拉里并默认选中，但不出现在 Assets 管理页**。GPT 固定 `Base model_s1`，SoVITS 三选
+`Base model_v2 / _v2Pro(默认) / _v2ProPlus`（磁盘缺失的版本自动从下拉剔除）。语言为
+Auto（自动多语言）。底模自身无参考音频，勾选「Use reference from another voice」即可
+借用其它资产的切片 / raw 作参考。**Compare Refs** 每行的 VOICE ID 下拉也可选 `Base model`。
+
 ### S2 独立推理（调试用）
 
 用预处理好的数据做 S2 独立推理：
@@ -158,6 +167,26 @@ python scripts/pipeline/infer_s2.py \
    （0xC0000005 / 退出码 3221225477，日志为空）；已在所有入口强制 librosa 先行修复
 
 ## 更新日志
+
+### 2026-07-17 —— 原生底模零样本推理 + Compare Refs 可选底模 + 参考文本本次编辑
+- ✅ **原生底模（`__base__`）零样本推理**：开放预训练底模直接推理，免走一遍微调。引入内存态
+  虚拟音色 `Base model`（不落 `voices.json`、无资产目录）——**只进 Generate 的 Voice 下拉且默认
+  选中，不进 Assets 管理页**。GPT = `Base model_s1`；SoVITS = `Base model_v2 / _v2Pro(默认) /
+  _v2ProPlus`（从 `pretrained/` 解析，缺失版本自动剔除）；命名沿用 `<id>_<lang>_<version>` 风格、
+  去掉 epoch/step 尾巴。语言 Auto（自动多语言）。底模自身无参考，借「Use reference from another
+  voice」用其它资产的切片 / raw 作参考——零新增借用逻辑。后端新增自包含 BASE MODEL 块
+  （`baseCheckpoints()` / `baseVoiceMeta()` / `baseVoiceReg()` + 6 处 `isBaseVoice` 特判：
+  `/api/generate` voiceReg 回退、`/api/voices` 置顶、`GET /api/assets/:id` 合成 meta、
+  `/segments`·`/raw-list` 空、`/api/voices/:id/validate` 模型存在/参考缺失）；删除·扫描·重建·精炼·
+  转写等 mutation 接口本就有 `fs.existsSync` / `voices[id]` 前置判断，无目录/未注册的 `__base__`
+  自然 404，无需额外护栏。
+- ✅ **Compare Refs 可选底模**：每行 VOICE ID 下拉注入底模（前端把 `GET /api/assets/__base__` 的
+  gpt×sovits 组合置顶），选中自动落到 `Base model_s1` / `Base model_v2Pro` 并把参考源切到 cross
+  （借用其它音色），因底模自身无切片。
+- ✅ **参考文本本次编辑（不改文件）**：Generate 侧栏参考文本块改为可编辑 textarea，
+  载荷 `reference_text` 用编辑后的值，切换音色 / 换参考音频自动复位；**全程不写 `.list` / `segments.json`**，
+  仅本次推理生效，附带 raw 无对齐文本时可临时补一段引导。后端 `/api/generate` 早已接收
+  `reference_text` → 零后端改动。
 
 ### 2026-07-17 —— 训练默认非对称（#10）+ S2 声学精炼派生资产（#12）+ 参考文本手动校对（#13）
 - ✅ **训练默认非对称（#10）**：废弃对称 20/20，新建任务内置 **S1(GPT)=8 / S2(SoVITS)=25**（S1 重文本-语音

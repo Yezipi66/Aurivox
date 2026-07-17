@@ -6,8 +6,8 @@ import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOve
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
-import { CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, statusBadge } from '../../lib/format'
+import { AuxReferencePicker, CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
+import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 
 // Reproducibility: a small inline badge that displays the RESOLVED seed (the
 // concrete value the engine actually used, never -1) with one-click copy.
@@ -156,8 +156,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         setCheckpoints({ gpt: gptList, sovits: sovitsList })
         // checkpoint 归属校验（patch8：切换音色后重置失效的选择）——旧音色的路径若不在
         // 新音色的列表里，必须重置，否则会把上一个音色的 .pth 提交给推理后端（音色串档）。
-        setSelGpt(prev => gptList.some(x => x.path === prev) ? prev : (gptList[0]?.path || ''))
-        setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev : (sovitsList[0]?.path || ''))
+        // Prefer a checkpoint flagged `default` (e.g. Base model → v2Pro), else the
+        // first entry. Zero regression for fine-tuned voices (no default flag → [0]).
+        setSelGpt(prev => gptList.some(x => x.path === prev) ? prev : ((gptList.find(x => x.default) || gptList[0])?.path || ''))
+        setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev : ((sovitsList.find(x => x.default) || sovitsList[0])?.path || ''))
       }
     }).catch(() => {})
     api(`/api/assets/${selectedVoice}/segments`).then(r => {
@@ -208,6 +210,16 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // pick would silently keep sending the stale slice transcript.
   const currentRefText = selectedRefAudio ? selectedRefText : (defaultRef ? (defaultRef.text || '') : '')
 
+  // Reference-text override (THIS RUN ONLY). Lets the user tweak or add the prompt
+  // transcript sent to the engine without touching any file — raw_opt.list /
+  // segments.json stay intact (no save endpoint is ever called). null = follow the
+  // active reference's own text; a string (incl. '') = use it verbatim this session.
+  const [refTextOverride, setRefTextOverride] = useState(null)
+  // Drop the override whenever the active reference or the voice changes, so an edit
+  // made for one reference never silently leaks onto a different one.
+  useEffect(() => { setRefTextOverride(null) }, [selectedVoice, selectedRefAudio])
+  const effectiveRefText = refTextOverride != null ? refTextOverride : currentRefText
+
   // Load the server-authoritative Recent Generations list.
   const loadRecent = async () => {
     const r = await api('/api/outputs')
@@ -240,7 +252,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     const body = {
       voice: selectedVoice, text: text.trim(), format: 'wav',
       ref_audio: currentRefAudio || undefined,
-      reference_text: currentRefText || undefined,
+      reference_text: effectiveRefText || undefined,
       split: splitEnabled, max_chars: maxChars,
       concat: concatEnabled, silence_ms: silenceMs,
       temperature, top_k: topK, top_p: topP,
@@ -423,10 +435,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
               <label className="field-label">Voice</label>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <select className="control" style={{ flex: 1 }} value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}>
-                  {voices.map(v => <option key={v.id} value={v.id}>{v.display_name} ({v.id}) [{v.language}]</option>)}
+                  {voices.map(v => <option key={v.id} value={v.id}>{v.builtin ? v.display_name : `${v.display_name} (${v.id}) [${v.language}]`}</option>)}
                   {voices.length === 0 && <option value="">No voices available</option>}
                 </select>
-                {selected && <button className="btn btn-sm" onClick={() => onEditVoice(selected.id)}>Edit</button>}
+                {selected && !selected.builtin && <button className="btn btn-sm" onClick={() => onEditVoice(selected.id)}>Edit</button>}
                 <button className="btn btn-sm" onClick={onSwitchToCompare}>Compare Refs</button>
               </div>
             </div>
@@ -437,7 +449,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 <label className="field-label">GPT Model</label>
                 <select className="control" value={selGpt} onChange={e => setSelGpt(e.target.value)}>
                   {checkpoints.gpt.map(c => (
-                    <option key={c.path} value={c.path}>{c.name} (step {c.steps})</option>
+                    <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}</option>
                   ))}
                 </select>
               </div>
@@ -680,83 +692,24 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     These parameters are sent to GPT-SoVITS for this generation only. They do not change the voice config.
                   </div>
 
-                  {/* Auxiliary Reference Audio */}
+                  {/* Auxiliary Reference Audio — shared AuxReferencePicker (Patch #11):
+                      This voice (Slices/Raw) · Another voice · Custom files, multi-select
+                      + audio preview. Identical interaction to Compare Refs. */}
                   <div style={{ marginTop: 10 }}>
                     <label className="field-label">
                       Auxiliary References
-                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(optional, multi-select)</span>
+                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                        (optional, multi-select{auxRefs.length > 0 ? ` · ${auxRefs.length} selected` : ''})
+                      </span>
                     </label>
-                    <button
-                      className="btn btn-sm"
-                      onClick={() => {
-                        const allPaths = (segments || []).filter(s => s.exists !== false && s.matched).map(seg => {
-                          const raw = seg.audio || seg.audio_path || seg.audio_filename
-                          const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
-                          return `assets/${selectedVoice}/slicer_opt/${fn}`
-                        }).filter(p => p !== currentRefAudio)
-                        const allSelected = allPaths.every(p => auxRefs.includes(p))
-                        setAuxRefs(allSelected ? [] : allPaths)
-                      }}
-                    >
-                      {auxRefs.length > 0 ? 'Clear All' : 'Select All'}
-                    </button>
-                    {(segments || []).length > 0 && (
-                      <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', marginTop: 4 }}>
-                        {(segments || []).filter(s => s.exists !== false && s.matched).map((seg, i) => {
-                          const raw = seg.audio || seg.audio_path || seg.audio_filename
-                          const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
-                          const fullPath = `assets/${selectedVoice}/slicer_opt/${fn}`
-                          const refPath = currentRefAudio || ''
-                          const isMain = refPath ? refPath.replace(/\\/g, '/').split('/').pop() === fn : false
-                          const isSelected = auxRefs.includes(fullPath)
-                          return (
-                            <div
-                              key={i}
-                              onClick={() => {
-                                if (isMain) return
-                                setAuxRefs(prev =>
-                                  isSelected ? prev.filter(p => p !== fullPath) : [...prev, fullPath]
-                                )
-                              }}
-                              style={{
-                                padding: '3px 8px', fontSize: 11, cursor: isMain ? 'default' : 'pointer',
-                                background: isSelected ? 'var(--accent-soft)' : 'transparent',
-                                borderBottom: '1px solid var(--border)',
-                                display: 'flex', alignItems: 'center', gap: 6,
-                                opacity: isMain ? 0.4 : 1,
-                              }}
-                            >
-                              <input type="checkbox" checked={isSelected} disabled={isMain}
-                                readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11 }}/>
-                              <span style={{ flex: 1 }}>
-                                {seg.scene} #{seg.index}
-                                {isMain && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 4 }}>(main)</span>}
-                              </span>
-                              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {auxRefs.length > 0 && (
-                      <div style={{ marginTop: 4 }}>
-                        {auxRefs.map((p, i) => (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, marginBottom: 2 }}>
-                            <span style={{ color: 'var(--muted)', minWidth: 14 }}>{i+1}.</span>
-                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {p.split('/').pop()}
-                            </span>
-                            <button
-                              onClick={() => setAuxRefs(prev => prev.filter(x => x !== p))}
-                              style={{
-                                background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer',
-                                fontSize: 14, padding: '0 2px', lineHeight: 1,
-                              }}
-                            >×</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <AuxReferencePicker
+                      voiceId={selectedVoice}
+                      voices={voices}
+                      value={auxRefs}
+                      mainRef={currentRefAudio}
+                      onAdd={(p) => setAuxRefs(prev => prev.some(x => sameRefPath(x, p)) ? prev : [...prev, p])}
+                      onRemove={(i) => setAuxRefs(prev => prev.filter((_, idx) => idx !== i))}
+                    />
                   </div>
                 </div>
               )}
@@ -904,13 +857,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
 
       {/* Right sidebar: voice info */}
       <div className="workspace-right">
-        {selected && <VoiceSidebar voice={selected} voices={voices} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} selectedPromptLang={selectedPromptLang} onSelectRef={onSelectRef} />}
+        {selected && <VoiceSidebar voice={selected} voices={voices} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} selectedPromptLang={selectedPromptLang} onSelectRef={onSelectRef} refTextOverride={refTextOverride} onRefTextOverride={setRefTextOverride} />}
       </div>
     </div>
   )
 }
 
-function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef }) {
+function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, refTextOverride, onRefTextOverride }) {
   const [segments, setSegments] = useState(null)
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
@@ -1038,13 +991,32 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
             }
             return null
           })()}
-          {activeRefText ? (
-            <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', padding: '4px 8px', borderRadius: 4, marginBottom: 6, fontStyle: 'italic', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              "{activeRefText}"
-            </div>
-          ) : activeRef && activeIsRaw ? (
-            <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', padding: '4px 8px', borderRadius: 4, marginBottom: 6 }}>
-              Raw audio has no aligned reference text — the engine will use the audio only.
+          {activeRef ? (
+            // Editable reference transcript (THIS RUN ONLY): edits change the prompt
+            // text sent to the engine but never modify the source file. Seeded with the
+            // active ref's own text; the override lives in the parent (effectiveRefText).
+            <div style={{ marginBottom: 6 }}>
+              <textarea
+                className="control"
+                rows={2}
+                style={{ fontSize: 11, width: '100%', fontStyle: refTextOverride != null ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}
+                value={refTextOverride != null ? refTextOverride : activeRefText}
+                onChange={e => onRefTextOverride?.(e.target.value)}
+                placeholder={activeIsRaw ? 'No aligned transcript — type a reference text for this run (optional)…' : 'Reference text…'}
+              />
+              <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
+                <span>
+                  {refTextOverride != null
+                    ? '✎ Edited for this run only — the source file is unchanged.'
+                    : (activeIsRaw && !activeRefText
+                        ? 'Raw audio has no aligned reference text — type one to guide this run (optional).'
+                        : 'Reference transcript — edits here affect only this run, not the file.')}
+                </span>
+                {refTextOverride != null && (
+                  <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 10, flex: '0 0 auto' }}
+                    onClick={() => onRefTextOverride?.(null)}>Reset</button>
+                )}
+              </div>
             </div>
           ) : null}
           {!crossMode && segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading reference audio…</div>}

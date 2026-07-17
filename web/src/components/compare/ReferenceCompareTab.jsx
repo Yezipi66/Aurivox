@@ -6,93 +6,20 @@ import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOve
 import { SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
-import { CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, normalizeLangFamily, refInRange } from '../../lib/format'
+import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
+import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
 
 // Compare Refs target-language options: the plain per-segment "auto" is dropped
 // here (this page is decoupled from the Generate voice — no per-voice auto-detect),
 // but the multilingual "auto_zh_ja" is kept for zh+ja shared-Han comparison.
 const CMP_LANG_OPTIONS = TARGET_LANG_OPTIONS.filter(o => o.value !== 'auto')
 
-// Single-voice reference picker: Slices / Raw tabs (reused by Compare's "this voice" main
-// reference). Same inner list as CrossRefPicker but without the voice dropdown. onPick(path, text).
-function RefAudioTabs({ voiceId, activeRef, onPick }) {
-  const [segs, setSegs] = useState(null)
-  const [raws, setRaws] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [rawDur, setRawDur] = useState({})
-  const [tab, setTab] = useState('slices')
+// Reserved id of the built-in Base model (zero-shot pretrained-weights voice).
+const BASE_VOICE_ID = '__base__'
 
-  useEffect(() => {
-    if (!voiceId) { setSegs([]); setRaws([]); return }
-    setLoading(true); setRawDur({}); setTab('slices')
-    Promise.all([
-      api(`/api/assets/${voiceId}/segments`)
-        .then(r => setSegs(r.ok && r.data.segments ? (r.data.segments.segments || []) : []))
-        .catch(() => setSegs([])),
-      api(`/api/assets/${voiceId}/raw-list`)
-        .then(r => setRaws(r.ok && r.data.raw ? r.data.raw : []))
-        .catch(() => setRaws([])),
-    ]).finally(() => setLoading(false))
-  }, [voiceId])
-
-  const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
-  const availRaw = Array.isArray(raws) ? raws : []
-
-  return (
-    <div>
-      <div className="ref-tabs">
-        <span className={`ref-tab ${tab === 'slices' ? 'active' : ''}`} onClick={() => setTab('slices')}>
-          Slices {availSlices.length > 0 && <span className="ref-tab-count">{availSlices.length}</span>}
-        </span>
-        <span className={`ref-tab ${tab === 'raw' ? 'active' : ''}`} onClick={() => setTab('raw')}>
-          Raw {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
-        </span>
-      </div>
-      {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
-      {!loading && (
-        <div className="ref-list" style={{ maxHeight: 260, overflowY: 'auto' }}>
-          {tab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">No slices in this voice</div>}
-          {tab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No raw audio in this voice</div>}
-          {tab === 'slices' && availSlices.map((seg, i) => {
-            const p = seg.audio || seg.audio_path || seg.audio_filename
-            const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
-            const rpath = `assets/${voiceId}/slicer_opt/${fn}`
-            const isActive = activeRef === rpath
-            const oor = !refInRange(seg.duration)
-            return (
-              <div key={`s${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => onPick(rpath, seg.text || '')} title={seg.text || ''}>
-                <div className="ref-item-row">
-                  <span className="ref-item-name">{seg.scene} #{seg.index}{oor && <span title={`Outside the ${REF_MIN_SEC}\u2013${REF_MAX_SEC}s range`} style={{ color: 'var(--warning)', marginLeft: 4 }}>{'\u26a0'}</span>}</span>
-                  <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s</span>
-                  <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '\u2713' : '\u2192'}</span>
-                </div>
-                <AudioPlayer src={`/assets/${voiceId}/slicer_opt/${fn}`} />
-              </div>
-            )
-          })}
-          {tab === 'raw' && availRaw.map((rf, i) => {
-            const rpath = `assets/${voiceId}/raw/${rf.filename}`
-            const isActive = activeRef === rpath
-            const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[rf.filename]
-            const known = typeof dur === 'number' && dur > 0
-            const oor = known && !refInRange(dur)
-            return (
-              <div key={`r${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => onPick(rpath, rf.text || '')} title={rf.text || rf.filename}>
-                <div className="ref-item-row">
-                  <span className="ref-item-name">{rf.filename}</span>
-                  {known && <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s</span>}
-                  <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '\u2713' : '\u2192'}</span>
-                </div>
-                <AudioPlayer src={rf.url} onDuration={d => setRawDur(prev => (prev[rf.filename] ? prev : { ...prev, [rf.filename]: d }))} />
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
+// RefAudioTabs was hoisted to common/RefPickers.jsx as the shared RefAudioList
+// (Patch #11). Compare's main reference now uses RefAudioList(single); auxiliary
+// references use the shared AuxReferencePicker.
 
 // ===========================
 //  REFERENCE COMPARE TAB
@@ -230,43 +157,54 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
   useEffect(() => {
     api('/api/audio-files?dir=no_slice').then(r => { if (r.ok) setAllAudioFiles(r.data.files) })
     api('/api/audio-files?dir=voices').then(r => { if (r.ok) setVoiceFiles(r.data.files) })
-    // Load models from assets/ meta.json (source of truth) instead of voices.json
-    api('/api/assets').then(r => {
-      if (r.ok) {
-        const models = []
-        Object.entries(r.data.assets || {}).forEach(([vid, meta]) => {
-          const ckpts = meta?.assets?.checkpoints || {}
-          const gptList = ckpts.gpt || []
-          const sovitsList = ckpts.sovits || []
-          if (gptList.length > 0 && sovitsList.length > 0) {
-            gptList.forEach(gpt => {
-              sovitsList.forEach(sovits => {
-                models.push({
-                  voiceId: vid,
-                  voiceName: meta.display_name || vid,
-                  language: meta.language || '',
-                  gptCheckpoint: gpt.path,
-                  sovitsModel: sovits.path,
-                  gptName: gpt.name || gpt.path,
-                  sovitsName: sovits.name || sovits.path,
-                  gptSteps: gpt.steps || '',
-                  sovitsSteps: sovits.steps || '',
-                  sovitsVersion: sovits.version || '',
-                  label: `${meta.display_name || vid} / ${gpt.name}${gpt.steps ? ` (${gpt.steps})` : ''} / ${sovits.name}${sovits.steps ? ` (${sovits.steps})` : ''}`,
-                })
-              })
-            })
-          }
+    // Load models from assets/ meta.json (source of truth) instead of voices.json.
+    // Also pull the built-in Base model (GET /api/assets/__base__) so its pretrained
+    // weights are selectable here for zero-shot reference comparison — it isn't in the
+    // /api/assets roster (no folder on disk), so it must be fetched explicitly.
+    const buildModels = (vid, meta, out) => {
+      const ckpts = meta?.assets?.checkpoints || {}
+      const gptList = ckpts.gpt || []
+      const sovitsList = ckpts.sovits || []
+      if (gptList.length === 0 || sovitsList.length === 0) return
+      gptList.forEach(gpt => {
+        sovitsList.forEach(sovits => {
+          out.push({
+            voiceId: vid,
+            voiceName: meta.display_name || vid,
+            language: meta.language || '',
+            gptCheckpoint: gpt.path,
+            sovitsModel: sovits.path,
+            gptName: gpt.name || gpt.path,
+            sovitsName: sovits.name || sovits.path,
+            gptSteps: gpt.steps || '',
+            sovitsSteps: sovits.steps || '',
+            sovitsVersion: sovits.version || '',
+            // Mark the recommended default combo (Base model → s1 + v2Pro) so the
+            // Voice-ID switch pre-selects it. Fine-tuned voices carry no flag → falsy.
+            default: !!(gpt.default && sovits.default),
+            builtin: !!meta.builtin,
+            label: `${meta.display_name || vid} / ${gpt.name}${gpt.steps ? ` (${gpt.steps})` : ''} / ${sovits.name}${sovits.version ? ` [${sovits.version}]` : ''}${sovits.steps ? ` (${sovits.steps})` : ''}`,
+          })
         })
-        setAvailableModels(models)
-      }
+      })
+    }
+    Promise.all([
+      api('/api/assets').catch(() => ({ ok: false })),
+      api('/api/assets/__base__').catch(() => ({ ok: false })),
+    ]).then(([r, rb]) => {
+      const models = []
+      // Base model first so it sits at the top of the Voice-ID dropdown.
+      if (rb.ok && rb.data && rb.data.ok && rb.data.meta) buildModels(BASE_VOICE_ID, rb.data.meta, models)
+      if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
+      setAvailableModels(models)
     }).catch(() => {})
   }, [])
 
   const addRow = (opts = {}) => {
     const rowId = nextId.current++
     // Default model: first available model for the selected voice, or first overall
-    const defaultModel = availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
+    const defaultModel = availableModels.find(m => m.voiceId === selectedVoice && m.default)
+      || availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
     const modelForRow = defaultModel ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel } : { voiceId: '', gptCheckpoint: '', sovitsModel: '' }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
     // Use first matched segment from selected voice as default ref (unless an empty row was requested)
@@ -276,10 +214,14 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
       return fn ? `assets/${selectedVoice}/slicer_opt/${fn}` : ''
     })() : ''
+    // The built-in Base model has no slices of its own — start such a row on the
+    // cross-voice reference picker so the user can immediately borrow a reference.
+    const startSource = (defaultModel && defaultModel.voiceId === BASE_VOICE_ID) ? 'cross' : undefined
     const dp = defaultParams || {}
     setRows(prev => [...prev, {
       id: rowId,
       refAudio: defaultRef,
+      ...(startSource ? { refSource: startSource } : {}),
       auxRefPaths: [],
       text: defaultText,
       temperature: dp.temperature ?? 1.0,
@@ -656,9 +598,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // <select> was removed (6.1), this audition list is the SOLE slice picker, so it
   // defaults to EXPANDED.
   const [showSlicePreview, setShowSlicePreview] = useState(true)
-  // PF-c: auxiliary references can also come from another voice or a custom upload.
-  const [auxSource, setAuxSource] = useState('this') // 'this' | 'cross' | 'custom'
-  const [auxCustom, setAuxCustom] = useState(null)
+  // PF-c: auxiliary reference source/custom state now lives inside the shared
+  // AuxReferencePicker (Patch #11), so CompareRow no longer tracks it locally.
   // 6.5: inline confirm for deleting a Compare result's audio from disk.
   const [cmpDelConfirm, setCmpDelConfirm] = useState(false)
 
@@ -879,8 +820,14 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         })
         const pickVoice = (vid) => {
           if (!vid) { onModelChange({ voiceId: '', gptCheckpoint: '', sovitsModel: '' }); return }
-          const first = availableModels.find(m => m.voiceId === vid)
+          // Prefer the voice's recommended default combo (Base model → s1 + v2Pro);
+          // fine-tuned voices carry no default flag → fall back to the first combo.
+          const first = availableModels.find(m => m.voiceId === vid && m.default)
+            || availableModels.find(m => m.voiceId === vid)
           onModelChange({ voiceId: vid, gptCheckpoint: first ? first.gptCheckpoint : '', sovitsModel: first ? first.sovitsModel : '' })
+          // Base model has no slices of its own — jump straight to the cross-voice
+          // reference picker so the user can borrow a reference immediately.
+          if (vid === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
         }
         return (
           <div className="cmp-model-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -948,8 +895,9 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               </div>
               {showSlicePreview && (
                 <div className="collapsible-body">
-                  <RefAudioTabs
+                  <RefAudioList
                     voiceId={voiceId}
+                    selectMode="single"
                     activeRef={row.refAudio}
                     onPick={(path, text) => { onUpdate(row.id, 'refAudio', path); onUpdate(row.id, 'promptText', text || '') }}
                   />
@@ -993,86 +941,14 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAux ? '▲' : '▼'}</span>
         </div>
         {showAux && (
-          <div style={{ marginTop: 4 }}>
-            <select className="control" value={auxSource} onChange={e => setAuxSource(e.target.value)} style={{ marginBottom: 6 }}>
-              <option value="this">This voice's segments</option>
-              <option value="cross">Another voice's segments</option>
-              <option value="custom">Custom file…</option>
-            </select>
-            {auxSource === 'this' && (
-              segments.length === 0 ? (
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>No segments available for this voice</div>
-              ) : (
-                <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
-                  {segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)).map((seg, i) => {
-                    const raw = seg.audio || seg.audio_path || seg.audio_filename
-                    const filename = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
-                    const path = `assets/${voiceId}/slicer_opt/${filename}`
-                    const isSelected = row.auxRefPaths.includes(path)
-                    return (
-                      <div
-                        key={i}
-                        onClick={() => {
-                          if (isSelected) {
-                            const idx = row.auxRefPaths.indexOf(path)
-                            if (idx >= 0) onRemoveAux(row.id, idx)
-                          } else {
-                            onAddAux(row.id, path)
-                          }
-                        }}
-                        style={{
-                          padding: '3px 8px', fontSize: 11, cursor: 'pointer',
-                          background: isSelected ? 'var(--accent-soft)' : 'transparent',
-                          borderBottom: '1px solid var(--border)',
-                          display: 'flex', alignItems: 'center', gap: 6,
-                        }}
-                      >
-                        <input type="checkbox" checked={isSelected} readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11 }} />
-                        <span style={{ flex: 1 }}>
-                          {seg.scene} #{seg.index} — "{seg.text.slice(0, 20)}{seg.text.length > 20 ? '...' : ''}"
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(seg.duration || 0).toFixed(1)}s</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            )}
-            {auxSource === 'cross' && (
-              <CrossRefPicker
-                voices={voices}
-                currentVoiceId={voiceId}
-                activeRef={''}
-                onPick={(path) => { if (path && !row.auxRefPaths.includes(path)) onAddAux(row.id, path) }}
-              />
-            )}
-            {auxSource === 'custom' && (
-              <CustomRefPicker
-                custom={auxCustom}
-                onPick={(path, _text, _plang, obj) => {
-                  if (obj) setAuxCustom(obj)
-                  if (path && !row.auxRefPaths.includes(path)) onAddAux(row.id, path)
-                }}
-                onClear={() => setAuxCustom(null)}
-              />
-            )}
-            {row.auxRefPaths.length > 0 && (
-              <div style={{ marginTop: 6 }}>
-                {row.auxRefPaths.map((p, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, marginBottom: 2 }}>
-                    <span style={{ color: 'var(--muted)', minWidth: 14 }}>{i+1}.</span>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {basename(p)}
-                    </span>
-                    <button
-                      onClick={() => onRemoveAux(row.id, i)}
-                      style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
-                    >×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <AuxReferencePicker
+            voiceId={voiceId}
+            voices={voices}
+            value={row.auxRefPaths}
+            mainRef={row.refAudio}
+            onAdd={(path) => onAddAux(row.id, path)}
+            onRemove={(idx) => onRemoveAux(row.id, idx)}
+          />
         )}
       </div>
 

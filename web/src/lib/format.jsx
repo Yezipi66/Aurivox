@@ -113,6 +113,28 @@ function normalizeLangFamily(textLang) {
   return String(textLang).replace(/^all_/, '')
 }
 
+// Reference-path identity (Patch #11). A managed reference is identified by its
+// FULL normalized path — never by basename alone — so `assets/A/raw/x.wav` and
+// `assets/B/raw/x.wav` are distinct references even though they share a filename.
+// Backslashes are normalized, a leading "./" or "/" and a legacy "assets/" prefix
+// are stripped so the string / v3-object / project-relative forms compare equal.
+function normRefPath(p) {
+  if (p == null) return ''
+  // Accept a v3 managed-reference object { base, path } as well as a plain string.
+  const raw = (typeof p === 'object') ? (p.path || '') : p
+  return String(raw)
+    .replace(/\\/g, '/')
+    .replace(/^\.?\//, '')
+    .replace(/^assets\//, '')
+}
+
+// True when two references point at the same file (base + normalized path).
+function sameRefPath(a, b) {
+  const na = normRefPath(a), nb = normRefPath(b)
+  if (!na || !nb) return false
+  return na === nb
+}
+
 export {
   REF_MIN_SEC,
   REF_MAX_SEC,
@@ -127,4 +149,6 @@ export {
   fmtRecentTime,
   refBasename,
   normalizeLangFamily,
+  normRefPath,
+  sameRefPath,
 }

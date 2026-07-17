@@ -429,13 +429,49 @@ function normalizeModelPath(raw, opts) {
   return { ok: true, value: s, external: true };
 }
 
+// Patch #11 (R3): a "custom" reference upload lands in APP_DIR/voices/custom_refs
+// (a temp area OUTSIDE ASSETS_ROOT). Persisting that raw path into a v3 recipe
+// would be mislabeled as an ASSETS_ROOT asset (classifyManagedPath treats a bare
+// relative path as asset-relative) → the recipe resolves to a non-existent file
+// and is non-portable. When saving a v3 recipe we therefore IMPORT the temp file
+// into the voice's managed assets (ASSETS_ROOT/<role>/custom_refs/<fn>) and
+// return an assets-relative path, so it becomes a genuine { base:'asset' } ref.
+// Non-custom paths (this-voice slices/raw, cross-voice, already-imported, v3
+// objects) pass through unchanged.
+function importCustomRefToAsset(rawPath, role) {
+  if (rawPath == null || typeof rawPath !== "string" || rawPath === "" || !role) return rawPath;
+  const norm = rawPath.replace(/\\/g, "/").replace(/^\.?\//, "");
+  let abs = null;
+  if (/^voices\/custom_refs\//.test(norm)) {
+    abs = path.join(APP_DIR, norm);
+  } else if (rawPath.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(rawPath)) {
+    const resolved = path.resolve(rawPath);
+    const rel = path.relative(CUSTOM_REF_DIR, resolved).replace(/\\/g, "/");
+    if (rel && !rel.startsWith("../") && rel !== ".." && !path.isAbsolute(rel)) abs = resolved;
+  }
+  if (!abs || !fs.existsSync(abs)) return rawPath; // not a temp custom ref (or gone) — leave as-is
+  const fn = path.basename(abs);
+  const destDir = path.join(ASSETS_ROOT, role, "custom_refs");
+  fs.mkdirSync(destDir, { recursive: true });
+  let destName = fn;
+  let dest = path.join(destDir, destName);
+  // Collision-safe: reuse an identical existing import; otherwise disambiguate.
+  if (fs.existsSync(dest) && fs.statSync(dest).size !== fs.statSync(abs).size) {
+    const ext = path.extname(fn);
+    destName = `${path.basename(fn, ext)}_${Date.now().toString(36)}${ext}`;
+    dest = path.join(destDir, destName);
+  }
+  if (!fs.existsSync(dest)) fs.copyFileSync(abs, dest);
+  return `${role}/custom_refs/${destName}`; // assets-root-relative → classified as {base:'asset'}
+}
+
 // v3 recipe path classification. Rewrites the four managed fields on a recipe
 // create/update body into structured { base, path } objects with field-aware
 // external permissions (models honour allow_external_models; reference/aux audio
 // honour a SEPARATE allow_external_audio, default OFF — models never authorize
 // external audio). Legacy (v2) targets keep string paths so a v2 recipe is never
 // silently migrated to v3 on a plain edit/rebind. `targetV3` decides which.
-function classifyRecipeManagedFields(body, { targetV3, allowExternalModels, allowExternalAudio }) {
+function classifyRecipeManagedFields(body, { targetV3, allowExternalModels, allowExternalAudio, role }) {
   if (!targetV3) {
     // Legacy string handling (unchanged): only models are normalized; audio
     // strings are left for recipeStore's project-relative guard.
@@ -450,6 +486,18 @@ function classifyRecipeManagedFields(body, { targetV3, allowExternalModels, allo
   }
   const model = { field: "model", allowExternalModels, allowExternalAudio };
   const audio = { field: "audio", allowExternalModels, allowExternalAudio };
+  // R3: import any temp custom-ref uploads into the voice's managed assets before
+  // classifying, so they persist as portable { base:'asset' } references rather
+  // than mislabeled non-portable paths. Applies to the main reference and aux.
+  if (role) {
+    if (typeof body.reference_audio === "string") {
+      body.reference_audio = importCustomRefToAsset(body.reference_audio, role);
+    }
+    if (body.params && Array.isArray(body.params.aux_ref_audio_paths)) {
+      body.params.aux_ref_audio_paths = body.params.aux_ref_audio_paths
+        .map((p) => (typeof p === "string" ? importCustomRefToAsset(p, role) : p));
+    }
+  }
   for (const [key, opts] of [["gpt_ckpt", model], ["sovits_pth", model], ["reference_audio", audio]]) {
     if (body[key] != null && body[key] !== "") {
       const c = pathResolver.classifyManagedPath(body[key], opts);
@@ -982,6 +1030,23 @@ function buildTtsPayload(text, cfg) {
   if (payload.repetition_penalty === undefined) payload.repetition_penalty = 1.35;
   if (payload.seed === undefined) payload.seed = -1;
 
+  // Auxiliary references → absolute paths (Patch #11): resolve each aux entry the
+  // SAME way as the main reference so live generate no longer relies on the
+  // engine's cwd coinciding with APP_DIR. Accepts legacy strings and v3
+  // { base, path } objects; drops anything missing on this machine.
+  if (Array.isArray(payload.aux_ref_audio_paths) && payload.aux_ref_audio_paths.length) {
+    payload.aux_ref_audio_paths = payload.aux_ref_audio_paths
+      .map((p) => {
+        if (p && typeof p === "object") {
+          const r = pathResolver.resolveManagedRef(p, {});
+          return r.ok ? r.path : "";
+        }
+        return resolveRefPath(p);
+      })
+      .filter((p) => p && fs.existsSync(p));
+    if (payload.aux_ref_audio_paths.length === 0) delete payload.aux_ref_audio_paths;
+  }
+
   return payload;
 }
 
@@ -1011,7 +1076,10 @@ async function switchModels(cfg) {
 
 async function generateOneSegment(segmentText, cfg) {
   const payload = buildTtsPayload(segmentText, cfg);
-  for (const key of ["sample_steps", "if_sr", "aux_ref_audio_paths"]) {
+  // aux_ref_audio_paths is resolved (to absolute, existence-filtered) inside
+  // buildTtsPayload (Patch #11); do NOT re-inject the raw cfg value here or the
+  // resolved paths would be clobbered back to project-relative on live generate.
+  for (const key of ["sample_steps", "if_sr"]) {
     if (cfg[key] !== undefined) payload[key] = cfg[key];
   }
   const ttsRes = await gsvPost("/tts", payload);
@@ -1205,6 +1273,8 @@ app.get("/api/voices", (req, res) => {
       id, display_name: cfg.display_name || id,
       language: cfg.language || cfg.text_lang || "unknown",
     }));
+    // Surface the built-in Base model voice (default) alongside the disk roster.
+    voices.unshift({ id: BASE_VOICE_ID, display_name: BASE_VOICE_DISPLAY, language: "auto", builtin: true });
     res.json({ voices });
   } catch (err) {
     res.status(500).json({ error: clientError(err, "Failed to read voices.json") });
@@ -1233,7 +1303,9 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
   // Validate voice exists (registration check only)
   let voices;
   try { voices = loadVoices(); } catch (err) { return res.status(500).json({ error: clientError(err, "voices.json error") }); }
-  const voiceReg = voices[voice];
+  // The built-in Base model voice is not in voices.json; resolve it in-memory so
+  // zero-shot inference on the pretrained weights works without a fine-tuned asset.
+  const voiceReg = voices[voice] || (isBaseVoice(voice) ? baseVoiceReg() : null);
   if (!voiceReg) return res.status(404).json({ error: `Unknown voice: ${voice}` });
 
   // Build config from frontend-passed values (not from voices.json)
@@ -2395,6 +2467,9 @@ app.post("/api/assets/import", requireApiKey, async (req, res) => {
 // GET /api/assets/:id — get meta.json for a voice
 app.get("/api/assets/:id", (req, res) => {
   const id = req.params.id;
+  // Built-in Base model: synthesize meta (checkpoints + empty roster) — it has no
+  // folder on disk, so populate the Generate dropdowns from the pretrained weights.
+  if (isBaseVoice(id)) return res.json({ ok: true, meta: baseVoiceMeta() });
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const metaPath = path.join(ASSETS_DIR, id, "meta.json");
   if (!fs.existsSync(metaPath)) return res.status(404).json({ error: `No meta.json for '${id}'` });
@@ -2409,6 +2484,8 @@ app.get("/api/assets/:id", (req, res) => {
 // GET /api/assets/:id/segments — get segments.json for a voice
 app.get("/api/assets/:id/segments", (req, res) => {
   const id = req.params.id;
+  // Base model has no slices — return an empty segment set (Slices count = 0).
+  if (isBaseVoice(id)) return res.json({ ok: true, segments: { segments: [], live_matched: 0 } });
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const segPath = path.join(ASSETS_DIR, id, "segments.json");
   if (!fs.existsSync(segPath)) return res.status(404).json({ error: `No segments.json for '${id}'` });
@@ -2443,6 +2520,8 @@ app.get("/api/assets/:id/segments", (req, res) => {
 //               client then measures it via the <audio> element for the 3–10s guard)
 app.get("/api/assets/:id/raw-list", (req, res) => {
   const id = req.params.id;
+  // Base model has no raw audio — return an empty list (Raw count = 0).
+  if (isBaseVoice(id)) return res.json({ ok: true, raw: [] });
   if (!safeId(id)) return res.status(400).json({ error: "Invalid id" });
   const rawDir = path.join(ASSETS_DIR, id, "raw");
   if (!fs.existsSync(rawDir)) return res.json({ ok: true, raw: [] });
@@ -2887,6 +2966,21 @@ app.post("/api/assets/:id/rebuild", requireApiKey, async (req, res) => {
 
 app.get("/api/voices/:id/validate", (req, res) => {
   const id = req.params.id;
+  // Base model: models exist on disk (base weights); reference is always "borrow"
+  // (missing until the user picks one from another voice).
+  if (isBaseVoice(id)) {
+    const cks = baseCheckpoints();
+    return res.json({
+      ok: true, voice: id,
+      checks: {
+        gpt_model_exists: cks.gpt.length > 0,
+        sovits_model_exists: cks.sovits.length > 0,
+        reference_audio_exists: false,
+        reference_text_present: false,
+        reference_text_placeholder: false,
+      },
+    });
+  }
   const voices = loadVoices();
   const cfg = voices[id];
   if (!cfg) return res.status(404).json({ error: `Voice '${id}' not found` });
@@ -2964,6 +3058,7 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
   let textLang = "";
   let promptLang = "";
   let recParams = null;
+  let recipeSchemaVersion = 1; // set on the recipe path; aux paths resolve with it.
 
   if (typeof voice === "string" && voice.includes("/")) {
     // --- Recipe path ---
@@ -2979,6 +3074,7 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
     // (ASSETS_ROOT, containment-checked) or as an explicit external absolute path.
     // A managed-path escape (traversal / symlink) is a hard 400, not a not-found.
     const schemaVersion = recipe.schema_version || 1;
+    recipeSchemaVersion = schemaVersion;
     const rref = pathResolver.resolveManagedRef(recipe.reference_audio, { schemaVersion });
     if (!rref.ok) return res.status(400).json({ error: `Recipe '${voice}' reference_audio rejected: ${rref.error}`, code: rref.code });
     refAudio = rref.path;
@@ -3042,12 +3138,19 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
         const rp = recParams || {};
         const pick = (k, adv) => (rp[k] != null ? rp[k] : adv);
 
-        // Auxiliary references (PA): recipe stores project-relative paths; resolve
-        // each and keep only the ones that still exist on this machine.
+        // Auxiliary references (PA): use the SAME schema-aware managed-path
+        // resolver as the main reference (Patch #11 R1/R2 fix). A recipe's aux
+        // entries may be legacy strings OR v3 { base, path } objects; the old
+        // resolveRefPath() only handled strings and threw on objects, so a v3
+        // recipe carrying aux refs would 500 at distribution. Resolve each and
+        // keep only the ones that still exist on this machine.
         let auxResolved = [];
         if (Array.isArray(rp.aux_ref_audio_paths)) {
           auxResolved = rp.aux_ref_audio_paths
-            .map((p) => resolveRefPath(p))
+            .map((p) => {
+              const r = pathResolver.resolveManagedRef(p, { schemaVersion: recipeSchemaVersion });
+              return r.ok ? r.path : "";
+            })
             .filter((p) => p && fs.existsSync(p));
         }
 
@@ -3133,7 +3236,8 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
         }
 
         const payload = buildTtsPayload(input, cfg);
-        for (const key of ["sample_steps", "if_sr", "aux_ref_audio_paths"]) {
+        // aux resolved inside buildTtsPayload (Patch #11) — not re-injected here.
+        for (const key of ["sample_steps", "if_sr"]) {
           if (cfg[key] !== undefined) payload[key] = cfg[key];
         }
         payload.speed_factor = cfg.speed_factor;
@@ -3374,6 +3478,70 @@ app.get("/api/models/status", (req, res) => {
   res.json({ versions, anyBlocking, anyDegraded, ...versions[0] });
 });
 
+// ===========================
+//  BASE MODEL (底模) — virtual builtin voice for zero-shot inference
+// ===========================
+// A single reserved, in-memory "voice" that lets users synthesize directly on the
+// pretrained base weights WITHOUT fine-tuning first. Key properties:
+//   • NEVER written to voices.json and has NO asset dir on disk → it shows in the
+//     Generate voice dropdown (default) but NOT in the Assets management page
+//     (which only scans real folders under ASSETS_DIR).
+//   • GPT column: 1 entry (shared s1 base). SoVITS column: v2 / v2Pro (default) /
+//     v2ProPlus, each resolved from GSV_PRETRAINED_DIR — a version missing on disk
+//     is simply omitted so the dropdown only offers usable weights.
+//   • Reference audio: NONE. Users borrow one via the existing "Use reference from
+//     another voice" flow (base's own Slices/Raw are 0).
+// All mutation endpoints (delete/scan/rebuild/refine/transcribe/…) already gate on
+// fs.existsSync(voiceDir) or voices[id], so the dir-less base id is rejected there
+// automatically — no extra guards needed.
+const BASE_VOICE_ID = "__base__";
+const BASE_VOICE_DISPLAY = "Base model";
+function isBaseVoice(id) { return id === BASE_VOICE_ID; }
+
+// Absolute s1 (GPT) base checkpoint, or null when absent.
+function _baseS1Path() {
+  return _mvFirstExisting([
+    "gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+    "gsv-v2final/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+    "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+  ]);
+}
+// SoVITS base weights per version. Order = dropdown order; `default` = pre-selected.
+const _BASE_SOVITS_DEFS = [
+  { version: "v2",        cands: ["gsv-v2final/s2G2333k.pth", "gsv-v2final/s2G488k.pth", "s2G2333k.pth"] },
+  { version: "v2Pro",     cands: ["v2Pro/s2Gv2Pro.pth"], default: true },
+  { version: "v2ProPlus", cands: ["v2Pro/s2Gv2ProPlus.pth"] },
+];
+// Build the { gpt:[], sovits:[] } checkpoint inventory the Generate dropdowns read.
+function baseCheckpoints() {
+  const s1 = _baseS1Path();
+  const gpt = s1
+    ? [{ name: `${BASE_VOICE_DISPLAY}_s1`, path: s1.replace(/\\/g, "/"), steps: null, builtin: true, default: true }]
+    : [];
+  const sovits = [];
+  for (const d of _BASE_SOVITS_DEFS) {
+    const fp = _mvFirstExisting(d.cands);
+    if (fp) sovits.push({ name: `${BASE_VOICE_DISPLAY}_${d.version}`, path: fp.replace(/\\/g, "/"), version: d.version, builtin: true, default: !!d.default });
+  }
+  return { gpt, sovits };
+}
+// Synthetic asset meta for the base voice: empty roster (0 slices / 0 raw / no
+// reference) + injected checkpoints so GET /api/assets/:id populates the dropdowns.
+function baseVoiceMeta() {
+  return {
+    id: BASE_VOICE_ID,
+    display_name: BASE_VOICE_DISPLAY,
+    language: "auto", text_lang: "auto", prompt_lang: "auto",
+    builtin: true,
+    assets: { checkpoints: baseCheckpoints(), references: [] },
+    segment_total: 0, segment_matched: 0,
+  };
+}
+// voices.json-shaped registration record for voiceReg lookups (generate/validate).
+function baseVoiceReg() {
+  return { display_name: BASE_VOICE_DISPLAY, language: "auto", prompt_lang: "auto", text_lang: "auto", builtin: true };
+}
+
 // Collect every id that must be considered "taken" when allocating a new
 // canonical voice id: asset folders ∪ voices.json ∪ retained tasks ∪ pending
 // reservations. Also opportunistically prunes reservations already backed by a
@@ -3381,6 +3549,8 @@ app.get("/api/models/status", (req, res) => {
 function collectTakenVoiceIds() {
   const taken = new Set();
   const backed = new Set();
+  // Reserve the built-in Base model id so no fine-tuned voice can ever collide with it.
+  taken.add(BASE_VOICE_ID);
   try {
     for (const e of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
       if (e.isDirectory()) { taken.add(e.name); backed.add(e.name); }
@@ -4075,6 +4245,7 @@ app.post("/api/recipes", requireApiKey, (req, res) => {
     targetV3,
     allowExternalModels: !!body.allow_external_models,
     allowExternalAudio: !!body.allow_external_audio,
+    role,
   });
   if (!cls.ok) return res.status(400).json({ error: cls.error, code: cls.code, field: cls.field });
   const force = !!body.force;
@@ -4098,6 +4269,7 @@ app.put("/api/recipes/:role/:name", requireApiKey, (req, res) => {
     targetV3,
     allowExternalModels: !!body.allow_external_models,
     allowExternalAudio: !!body.allow_external_audio,
+    role: req.params.role,
   });
   if (!cls.ok) return res.status(400).json({ error: cls.error, code: cls.code, field: cls.field });
   const r = recipeStore.update(req.params.role, req.params.name, body);

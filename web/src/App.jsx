@@ -29,11 +29,17 @@ export default function App() {
   const loadVoices = useCallback(() => {
     api('/api/assets').then(r => {
       if (r.ok) {
-        const list = Object.entries(r.data.assets || {}).map(([id, meta]) => ({
+        const diskList = Object.entries(r.data.assets || {}).map(([id, meta]) => ({
           id,
           display_name: meta?.display_name || id,
           language: meta?.language || meta?.text_lang || 'ja',
         }))
+        // Built-in Base model voice (zero-shot inference on the pretrained weights):
+        // prepended so it appears first / default in the Generate voice dropdown. It
+        // has no folder on disk, so it never shows in the Assets management page
+        // (which reads /api/assets directly). Checkpoints load lazily via
+        // GET /api/assets/__base__.
+        const list = [{ id: '__base__', display_name: 'Base model', language: 'auto', builtin: true }, ...diskList]
         setVoices(list)
         if (!selectedVoice && list.length > 0) setSelectedVoice(list[0].id)
         if (selectedVoice && !list.find(v => v.id === selectedVoice)) setSelectedVoice(list[0]?.id || '')
