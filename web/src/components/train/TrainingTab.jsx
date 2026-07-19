@@ -632,6 +632,93 @@ function LiveLogs({ logs }) {
   )
 }
 
+// 极简播放/暂停（无进度条）——校对每行试听 ASR 切片。src 指向后端 Range 路由，
+// preload="none" 惰性加载，一次只播一行。
+function ReviewRowAudio({ taskId, relPath }) {
+  const ref = useRef(null)
+  const [playing, setPlaying] = useState(false)
+  if (!relPath) return null
+  const src = `/api/train/review/${taskId}/audio?path=${encodeURIComponent(relPath)}`
+  const toggle = () => {
+    const el = ref.current
+    if (!el) return
+    if (el.paused) { el.play().catch(() => {}) } else { el.pause() }
+  }
+  return (
+    <span className="arr-audio">
+      <button type="button" className="btn btn-sm btn-ghost" onClick={toggle}
+              title={playing ? 'Pause' : 'Play'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '1px 8px', height: 22 }}>
+        <span style={{ fontSize: 10, lineHeight: 1 }}>{playing ? '❚❚' : '▶'}</span>
+        <span style={{ fontSize: 10 }}>{playing ? 'Pause' : 'Play'}</span>
+      </button>
+      <audio ref={ref} src={src} preload="none"
+             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+             onEnded={() => setPlaying(false)} style={{ display: 'none' }} />
+    </span>
+  )
+}
+
+// Patch #23 — ASR 置信度着色。faster-whisper 的 word/segment 概率折算成 [0,1]，
+// 映射到 绿(有把握)/黄(可疑)/红(存疑) 三档，辅助人工校对。
+const CONF_HI = 0.85
+const CONF_MID = 0.6
+function confTier(c) {
+  if (typeof c !== 'number') return null
+  if (c >= CONF_HI) return 'hi'
+  if (c >= CONF_MID) return 'mid'
+  return 'lo'
+}
+// 色盲友好（A+C）：颜色仅作辅助，另用【符号】做冗余编码——不依赖红绿分辨也能读。
+// hi=✓（较为可信）/ mid=~（可疑）/ lo=!（存疑）。词级另叠加下划线（见 CSS .arr-w-*）。
+const CONF_COLORS = {
+  hi: { fg: '#2ecc71', bg: 'rgba(46,204,113,0.16)', sym: '✓' },
+  mid: { fg: '#f1c40f', bg: 'rgba(241,196,15,0.18)', sym: '~' },
+  lo: { fg: '#e74c3c', bg: 'rgba(231,76,60,0.18)', sym: '!' },
+}
+// 三档标签（i18n）：调用处传入 tr。
+function confTierLabel(tier, tr) {
+  if (tier === 'hi') return tr('Confident', '较为可信')
+  if (tier === 'mid') return tr('Uncertain', '可疑')
+  if (tier === 'lo') return tr('Doubtful', '存疑')
+  return ''
+}
+
+// 行级置信度徽标：符号 + 色点 + 百分比（符号为色盲冗余编码）。
+function ConfBadge({ conf, tr }) {
+  const tier = confTier(conf)
+  if (!tier) return null
+  const c = CONF_COLORS[tier]
+  const pct = (conf * 100).toFixed(0)
+  return (
+    <span className="arr-conf" title={`${tr('Confidence', '置信度')} ${pct}% · ${confTierLabel(tier, tr)}`}>
+      <span aria-hidden="true" style={{ fontSize: 10, fontWeight: 700, color: c.fg, lineHeight: 1 }}>{c.sym}</span>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.fg, display: 'inline-block' }} />
+      <span style={{ fontSize: 10, color: c.fg }}>{pct}%</span>
+    </span>
+  )
+}
+
+// 词级置信度预览：逐词按概率着色 + 下划线冗余编码（只读，textarea 无法富文本，故独立成一条预览）。
+function WordConf({ words, tr }) {
+  if (!Array.isArray(words) || words.length === 0) return null
+  return (
+    <div className="arr-words" title={tr('Per-word confidence (color + underline); for proofreading reference only',
+                                        '逐词置信度（颜色+下划线冗余编码），仅供校对参考')}>
+      {words.map((w, j) => {
+        const tier = confTier(w && typeof w.p === 'number' ? w.p : null)
+        const c = tier ? CONF_COLORS[tier] : null
+        return (
+          <span key={j} className={tier ? `arr-w arr-w-${tier}` : 'arr-w'}
+                style={{ color: c ? c.fg : 'var(--muted)', background: c ? c.bg : 'transparent' }}>
+            {(w && w.w != null ? String(w.w) : '').trim() || '␠'}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 // P6: manual proofreading panel shown while the pipeline is paused after ASR.
 // Loads the recognised .list, lets the user correct text/pronunciation per line,
 // then saves + resumes (or resumes without changes).
@@ -657,6 +744,7 @@ function AsrRowProof({ text, lang, onChange, disabled }) {
 }
 
 function AsrReviewPanel({ taskId, onResumed, lang }) {
+  const { t: tr } = useT();
   const [rows, setRows] = useState(null);
   const [listName, setListName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -698,7 +786,20 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
     <div className="asr-review">
       <div className="asr-review-hdr">
         <span>Proofread transcription{listName ? ` · ${listName}` : ''}</span>
-        <span className="muted">{rows ? `${rows.length} lines` : ''}</span>
+        <span className="arr-hdr-right">
+          {rows && rows.some(r => typeof r.confidence === 'number') && (
+            <span className="arr-legend">
+              {tr('Confidence', '置信度')}:
+              {['hi', 'mid', 'lo'].map(tier => (
+                <span key={tier} style={{ color: CONF_COLORS[tier].fg }}>
+                  <span aria-hidden="true" style={{ fontWeight: 700 }}>{CONF_COLORS[tier].sym}</span>
+                  {' '}{confTierLabel(tier, tr)}
+                </span>
+              ))}
+            </span>
+          )}
+          <span className="muted">{rows ? `${rows.length} lines` : ''}</span>
+        </span>
       </div>
       {loading && <div className="msg">Loading transcript…</div>}
       {err && <div className="msg msg-error">{err}</div>}
@@ -707,12 +808,19 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
         <div className="asr-review-list">
           {rows.map(r => (
             <div className="asr-review-row" key={r.index}>
-              <div className="arr-path" title={r.audio_path}>{basename(r.audio_path) || r.audio_path}</div>
-              <textarea className="arr-text" rows={1} value={r.text}
-                        disabled={busy}
-                        onChange={e => setText(r.index, e.target.value)} />
-              <AsrRowProof text={r.text} lang={lang || 'ja'} disabled={busy}
-                           onChange={val => setText(r.index, val)} />
+              <div className="arr-meta">
+                <div className="arr-path" title={r.audio_path}>{basename(r.audio_path) || r.audio_path}</div>
+                <ReviewRowAudio taskId={taskId} relPath={r.audio_path} />
+                <ConfBadge conf={r.confidence} tr={tr} />
+              </div>
+              <div className="arr-main">
+                <textarea className="arr-text" rows={1} value={r.text}
+                          disabled={busy}
+                          onChange={e => setText(r.index, e.target.value)} />
+                <WordConf words={r.words} tr={tr} />
+                <AsrRowProof text={r.text} lang={lang || 'ja'} disabled={busy}
+                             onChange={val => setText(r.index, val)} />
+              </div>
             </div>
           ))}
         </div>

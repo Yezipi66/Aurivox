@@ -1863,9 +1863,21 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .asr-review { border: 1px solid var(--warning); border-radius: 8px; margin: 8px 0; overflow: hidden; }
 .asr-review-hdr { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(255,183,77,0.1); font-size: 13px; font-weight: 600; }
 .asr-review-hdr .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
+.arr-hdr-right { display: inline-flex; align-items: center; gap: 12px; }
+.arr-legend { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; font-size: 11px; color: var(--muted); }
 .asr-review-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; }
 .asr-review-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); }
-.arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 6px; }
+.arr-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.arr-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.arr-audio { display: inline-flex; }
+.arr-conf { display: inline-flex; align-items: center; gap: 4px; }
+.arr-words { display: flex; flex-wrap: wrap; gap: 2px 3px; line-height: 1.7; }
+/* 色盲友好（C）：低/中置信词叠加下划线冗余编码，不靠颜色也能定位可疑词。 */
+.arr-w { font-size: 12px; padding: 0 2px; border-radius: 3px; text-underline-offset: 3px; }
+.arr-w-lo { text-decoration: underline wavy; text-decoration-thickness: 1.5px; }
+.arr-w-mid { text-decoration: underline dashed; }
+.arr-w-hi { text-decoration: none; }
+.arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: 12px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .asr-review-ftr { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
 

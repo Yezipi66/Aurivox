@@ -3,6 +3,8 @@ Faster Whisper ASR — 从 GPT-SoVITS 项目解耦
 移除 tools.* 依赖，改为使用项目内的 asr_utils
 """
 import argparse
+import json
+import math
 import os
 import shutil
 import sys
@@ -47,6 +49,75 @@ language_code_list = [
 
 # FunASR 中文模型缓存
 _funasr_models = {}
+
+# ── Patch #22：繁→简（简体中文强制）─────────────────────────────────────
+# 本产品只面向简体中文，从不支持繁体。faster-whisper 对 zh/yue 可能混吐简/繁，
+# 这里在 ASR 源头统一转简体，使下游（.list / segments / 推理 / 前端）全链路一致。
+# 转换器优先级：OpenCC(t2s) → zhconv(zh-hans) → 原样透传并告警（绝不因此让 ASR 崩溃）。
+_t2s_fn = None
+_t2s_ready = False
+
+
+def _get_t2s():
+    """惰性构建繁→简转换器，失败则返回 None（透传）。"""
+    global _t2s_fn, _t2s_ready
+    if _t2s_ready:
+        return _t2s_fn
+    _t2s_ready = True
+    try:
+        import opencc  # type: ignore
+        _conv = opencc.OpenCC("t2s")
+        _t2s_fn = lambda s: _conv.convert(s)
+        print("[zh] simplified conversion via OpenCC (t2s)", flush=True)
+        return _t2s_fn
+    except Exception as e:
+        print(f"[zh] OpenCC unavailable ({e}); trying zhconv", flush=True)
+    try:
+        from zhconv import convert as _zhconvert  # type: ignore
+        _t2s_fn = lambda s: _zhconvert(s, "zh-hans")
+        print("[zh] simplified conversion via zhconv (zh-hans)", flush=True)
+        return _t2s_fn
+    except Exception as e:
+        print(f"[zh] zhconv unavailable ({e}); simplified conversion DISABLED (passthrough)", flush=True)
+    _t2s_fn = None
+    return None
+
+
+def _to_simplified(text):
+    """繁→简；转换器缺失或异常时原样返回。"""
+    if not text:
+        return text
+    fn = _get_t2s()
+    if fn is None:
+        return text
+    try:
+        return fn(text)
+    except Exception:
+        return text
+
+
+# 仅对中文族语言做繁→简（日文汉字简化规则不同，绝不动 ja）。
+_SIMPLIFY_LANGS = {"zh", "yue"}
+
+
+# ── Patch #23：ASR 置信度 ────────────────────────────────────────────────
+def _segment_confidence(avg_logprob, no_speech_prob, word_probs):
+    """把 whisper 的对数概率折算成 [0,1] 置信度。
+    优先用 word-level 概率均值；否则用 exp(avg_logprob)；再按 no_speech_prob 惩罚。"""
+    base = None
+    if word_probs:
+        base = sum(word_probs) / len(word_probs)
+    elif avg_logprob is not None:
+        try:
+            base = math.exp(avg_logprob)  # logprob<=0 → (0,1]
+        except Exception:
+            base = None
+    if base is None:
+        return None
+    nsp = no_speech_prob if isinstance(no_speech_prob, (int, float)) else 0.0
+    nsp = min(max(nsp, 0.0), 1.0)
+    conf = base * (1.0 - nsp)
+    return round(max(0.0, min(1.0, conf)), 4)
 
 
 def _download_model(model_size: str, model_dir: str):
@@ -136,7 +207,7 @@ def _funasr_only_asr(input_file: str, language: str) -> str:
 
 
 def execute_asr(input_folder, output_folder, model_path, language, precision,
-                batch_size=8, beam_size=1):
+                batch_size=8, beam_size=1, force_simplified=True):
     if language == "auto":
         language = None
     print(f"Loading model: {model_path}", flush=True)
@@ -148,30 +219,80 @@ def execute_asr(input_folder, output_folder, model_path, language, precision,
     asr_engine = BatchedInferencePipeline(model=model) if use_batched else model
     if use_batched:
         print(f"Using BatchedInferencePipeline, batch_size={batch_size}", flush=True)
+    if force_simplified:
+        _get_t2s()  # 预热转换器并在日志中暴露可用性
 
     input_file_names = sorted(os.listdir(input_folder))
     output = []
     output_file_name = os.path.basename(input_folder)
+    # Patch #23：置信度旁车（sidecar），键为片段文件名（basename），绝不写入 .list 第 5 列。
+    conf_map = {}
+
+    def _transcribe(fp, want_words):
+        # 片段已是 VAD 切好的短音频：关闭冗余 vad_filter；beam_size=1 贪心。
+        kw = dict(audio=fp, beam_size=beam_size, vad_filter=False, language=language)
+        if use_batched:
+            kw["batch_size"] = batch_size
+        if want_words:
+            kw["word_timestamps"] = True
+        return asr_engine.transcribe(**kw)
+
+    # 部分 BatchedInferencePipeline 版本不支持 word_timestamps；探测一次后决定，
+    # 失败则整轮降级为 segment-level 置信度（绝不因可选特性丢文本）。
+    want_words = True
 
     for file_name in tqdm(input_file_names):
         try:
             file_path = os.path.join(input_folder, file_name)
-            # 片段已是 VAD 切好的短音频：关闭冗余 vad_filter；beam_size=1 贪心
-            if use_batched:
-                segments, info = asr_engine.transcribe(
-                    audio=file_path, beam_size=beam_size,
-                    vad_filter=False, language=language,
-                    batch_size=batch_size,
-                )
-            else:
-                segments, info = asr_engine.transcribe(
-                    audio=file_path, beam_size=beam_size,
-                    vad_filter=False, language=language,
-                )
+            # word_timestamps=True 以拿到 word-level 概率（置信度着色用）。
+            try:
+                segments, info = _transcribe(file_path, want_words)
+            except TypeError as te:
+                if want_words:
+                    print(f"  word_timestamps unsupported ({te}); falling back to segment-level confidence", flush=True)
+                    want_words = False
+                    segments, info = _transcribe(file_path, False)
+                else:
+                    raise
             text = ""
+            words = []
+            word_probs = []
+            logprob_sum = 0.0
+            logprob_n = 0
+            no_speech_min = None
             # Pure faster-whisper for every language (zh/yue included).
             for segment in segments:
                 text += segment.text
+                alp = getattr(segment, "avg_logprob", None)
+                if isinstance(alp, (int, float)):
+                    logprob_sum += alp
+                    logprob_n += 1
+                nsp = getattr(segment, "no_speech_prob", None)
+                if isinstance(nsp, (int, float)):
+                    no_speech_min = nsp if no_speech_min is None else min(no_speech_min, nsp)
+                seg_words = getattr(segment, "words", None) or []
+                for w in seg_words:
+                    wt = getattr(w, "word", "")
+                    wp = getattr(w, "probability", None)
+                    if wp is None:
+                        continue
+                    words.append({"w": wt, "p": round(float(wp), 4)})
+                    word_probs.append(float(wp))
+
+            lang = (info.language or "").lower()
+            if force_simplified and lang in _SIMPLIFY_LANGS:
+                text = _to_simplified(text)
+                for wd in words:
+                    wd["w"] = _to_simplified(wd["w"])
+
+            avg_logprob = (logprob_sum / logprob_n) if logprob_n else None
+            confidence = _segment_confidence(avg_logprob, no_speech_min, word_probs)
+            conf_map[file_name] = {
+                "confidence": confidence,
+                "no_speech_prob": round(no_speech_min, 4) if isinstance(no_speech_min, (int, float)) else None,
+                "words": words,
+            }
+
             output.append(f"{file_path}|{output_file_name}|{info.language.upper()}|{text}")
         except Exception as e:
             print(f"  Error: {file_name}: {e}", flush=True)
@@ -180,6 +301,14 @@ def execute_asr(input_folder, output_folder, model_path, language, precision,
     output_file_path = os.path.join(output_folder, f"{output_file_name}.list")
     with open(output_file_path, "w", encoding="utf-8") as f:
         f.write("\n".join(output))
+    # 置信度旁车：<name>.conf.json，与 .list 同目录、同名不同扩展。
+    try:
+        conf_path = os.path.join(output_folder, f"{output_file_name}.conf.json")
+        with open(conf_path, "w", encoding="utf-8") as cf:
+            json.dump(conf_map, cf, ensure_ascii=False)
+        print(f"ASR confidence -> {conf_path}", flush=True)
+    except Exception as e:
+        print(f"  Warn: failed to write confidence sidecar: {e}", flush=True)
     print(f"ASR done -> {output_file_path}", flush=True)
     return output_file_path
 
@@ -200,6 +329,13 @@ if __name__ == "__main__":
                         help="Models directory (default: gsv-tools/asr/models)")
     parser.add_argument("-b", "--batch_size", type=int, default=8)
     parser.add_argument("--beam_size", type=int, default=1)
+    # Patch #22：强制简体中文（默认开）。--no-force-simplified 可关闭。
+    parser.add_argument("--force-simplified", dest="force_simplified",
+                        action="store_true", default=True,
+                        help="Convert zh/yue output to Simplified Chinese (default on)")
+    parser.add_argument("--no-force-simplified", dest="force_simplified",
+                        action="store_false",
+                        help="Keep faster-whisper's raw zh output (may mix traditional)")
 
     cmd = parser.parse_args()
     model_size = cmd.model_size
@@ -228,4 +364,5 @@ if __name__ == "__main__":
         precision=cmd.precision,
         batch_size=cmd.batch_size,
         beam_size=cmd.beam_size,
+        force_simplified=cmd.force_simplified,
     )

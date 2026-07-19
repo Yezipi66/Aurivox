@@ -4206,6 +4206,39 @@ app.get("/api/train/review/:id", (req, res) => {
   res.json(data);
 });
 
+// GET 试听校对片段音频（Range 支持，供校对面板的播放/暂停按钮用）。
+// path 为 .list 里的资产内相对路径；解析与目录穿越防护由 task.resolveReviewAudioPath 负责。
+app.get("/api/train/review/:id/audio", (req, res) => {
+  const task = trainingPipeline.getTask(req.params.id);
+  if (!task || typeof task.resolveReviewAudioPath !== "function") return res.status(404).end();
+  const rel = typeof req.query.path === "string" ? req.query.path : "";
+  const filePath = task.resolveReviewAudioPath(rel);
+  if (!filePath) return res.status(404).end();
+  let stat;
+  try { stat = fs.statSync(filePath); } catch { return res.status(404).end(); }
+  const ext = path.extname(filePath).toLowerCase();
+  const mime = { ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".ogg": "audio/ogg" }[ext] || "application/octet-stream";
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    if (isNaN(start) || start >= stat.size || end >= stat.size) {
+      return res.status(416).set("Content-Range", `bytes */${stat.size}`).end();
+    }
+    res.writeHead(206, {
+      "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": end - start + 1,
+      "Content-Type": mime,
+    });
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, { "Content-Length": stat.size, "Accept-Ranges": "bytes", "Content-Type": mime });
+    fs.createReadStream(filePath).pipe(res);
+  }
+});
+
 // POST 保存用户校对后的文本（写回 .list + segments.json）。可在 awaiting_review 期间反复保存。
 app.post("/api/train/review/:id", requireApiKey, (req, res) => {
   const task = trainingPipeline.getTask(req.params.id);
