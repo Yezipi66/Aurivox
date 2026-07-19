@@ -7,8 +7,17 @@ import { BrokerTab, ContextRow } from './components/broker/BrokerTab'
 import { ReferenceCompareTab } from './components/compare/ReferenceCompareTab'
 import { GenerateTab } from './components/generate/GenerateTab'
 import { TrainingTab } from './components/train/TrainingTab'
+import { LangProvider, LangToggle } from './lib/i18n'
 
 export default function App() {
+  return (
+    <LangProvider>
+      <AppShell />
+    </LangProvider>
+  )
+}
+
+function AppShell() {
   const [page, setPage] = usePersistentState('ui.page', 'generate')
   const [voices, setVoices] = useState([])
   const [selectedVoice, setSelectedVoice] = usePersistentState('ui.selectedVoice', '')
@@ -102,7 +111,24 @@ export default function App() {
         <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Fine-tune</button>
         <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
         <div style={{ flex: 1 }} />
+        <LangToggle />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
+        {health && (() => {
+          const c = health.cuda;
+          // Three states: probing (neutral) → CUDA ready (green) / CPU (red).
+          const probing = !c || c.ready === false;
+          const ok = !!c?.available;
+          const bg = probing ? 'rgba(158,158,158,0.15)' : ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)';
+          const fg = probing ? 'var(--muted)' : ok ? 'var(--success)' : 'var(--danger)';
+          const bd = probing ? 'rgba(158,158,158,0.3)' : ok ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)';
+          const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'CPU only';
+          const title = probing ? 'Detecting CUDA…'
+            : ok ? `CUDA ready — ${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
+            : 'No NVIDIA GPU detected. Inference runs on CPU (slower); fine-tuning is not recommended.';
+          return (
+            <span title={title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, alignSelf: 'center' }}>{label}</span>
+          );
+        })()}
         <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: health?.engine_online ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.engine_online ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.engine_online ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
           {health === null ? '...' : health.engine_online ? 'GPT-SoVITS Connected' : 'GPT-SoVITS Unreachable'}
         </span>
@@ -135,7 +161,7 @@ export default function App() {
           {page === 'train' && (
             <TrainingTab voices={voices} loadVoices={loadVoices}
               activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
-              trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} />
+              trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} health={health} />
           )}
           {page === 'broker' && (
             <BrokerTab />

@@ -96,6 +96,7 @@ def set_context(overrides, lang="zh"):
     global _global_overrides
     with _global_lock:
         _global_overrides = norm
+    reset_occ()
     _dbg("set_context lang=%s -> %s" % (lang, norm))
 
 
@@ -104,6 +105,45 @@ def clear_context():
     global _global_overrides
     with _global_lock:
         _global_overrides = None
+    reset_occ()
+
+
+# ---------------------------------------------------------------------------
+# 逐次出现计数（item 19-C）：同一个词在文本中多次出现时，按「出现序号」区分覆盖。
+# 计数在实际合成的 g2p chokepoint（english.en_G2p.__call__）里逐词自增，
+# 于每次合成开始（set_context / clear_context）归零。预览侧不走此计数——预览不
+# set_context，故 resolve() 在预览期读到空覆盖、返回 g2p 原值，前端叠加自己的编辑。
+# 推理单 worker 串行 + 训练单进程，故用受锁保护的全局字典（与 _global_overrides 同理）。
+# ---------------------------------------------------------------------------
+_occ_lock = threading.RLock()
+_global_occ = {}          # {(lang, word): 已出现次数}
+
+
+def reset_occ():
+    global _global_occ
+    with _occ_lock:
+        _global_occ = {}
+
+
+def next_occ(lang, word):
+    """返回该 (lang, word) 到目前为止的出现序号（从 0 起），并自增。"""
+    with _occ_lock:
+        key = (lang, word)
+        n = _global_occ.get(key, 0)
+        _global_occ[key] = n + 1
+        return n
+
+
+def snapshot_occ():
+    with _occ_lock:
+        return dict(_global_occ)
+
+
+def restore_occ(snap):
+    """把计数器回滚到某个快照（供 TextPreprocessor 在 <6 音素重试前撤销失败那趟的计数）。"""
+    global _global_occ
+    with _occ_lock:
+        _global_occ = dict(snap or {})
 
 
 def current_overrides(lang):
@@ -216,40 +256,68 @@ def delete_lexicon_entry(lang, word):
 # ---------------------------------------------------------------------------
 # 核心：读音覆盖应用（注入点在 chinese2._g2p 的 correct_pronunciation 之后）
 # ---------------------------------------------------------------------------
-def apply(word, readings, lang="zh"):
+def _pick_reading(override, occ):
+    """从一个覆盖项里挑出适用于第 occ 次出现的读音列表；挑不到返回 None。
+
+    覆盖项两种形态：
+      * list/tuple            —— 词级：所有出现共用同一读音（历史形态，零回归）。
+      * dict {"0":[..],"*":[..]} —— 逐次（item 19-C）：按出现序号取；缺则回落 "*"（词级默认）。
+    """
+    if override is None:
+        return None
+    if isinstance(override, dict):
+        if occ is not None:
+            v = override.get(str(occ))
+            if v is not None:
+                return list(v)
+        star = override.get("*")
+        return list(star) if star is not None else None
+    if isinstance(override, (list, tuple)):
+        return list(override)
+    return None
+
+
+def resolve(word, readings, lang="zh", occ=None):
     """
     对一个词的读音串应用覆盖。优先级：单次 overrides > 全局词典 > 原值。
-    语言无关：readings 是一个字符串列表（zh=逐字带调拼音；ja=[整词假名]；en=ARPABET 音素）。
+    语言无关：readings 是字符串列表（zh=逐字带调拼音；ja=[整词假名]；en=ARPABET 音素）。
 
-    * zh/yue：逐字拼音，仅当覆盖项与原拼音**长度一致**时才替换
-      （保证 word2ph 对齐不被破坏）。
-    * ja/en：读音单元非「逐字」（ja 整词一串假名；en 一词多音素），不做长度约束，
-      直接以覆盖项替换（无 word2ph 对齐依赖）。
+    occ：该词在本次合成里的出现序号（0 起）。None=词级解析（训练/中文/占位）。
+    覆盖项可为 list（词级，全部出现）或 dict（逐次；item 19-C 英文用）。单次上下文
+    与全局词典分别尝试，使「只设了第 0 次」的英文词，其它次数仍回落词典/原值。
+
+    * zh/yue：逐字拼音，仅当覆盖项与原拼音**长度一致**时才替换（保证 word2ph 对齐）。
+    * ja/en：读音单元非逐字，不做长度约束，直接替换。
 
     任何异常 / 形状不匹配一律原样返回。无覆盖时零回归。
     """
     try:
         if not word or not readings:
             return readings
+        ctx_ov = _current_overrides(lang).get(word)
+        picked = _pick_reading(ctx_ov, occ)
         source = "override"
-        override = _current_overrides(lang).get(word)
-        if override is None:
-            override = load_lexicon(lang).get(word)
+        if picked is None:
+            picked = _pick_reading(load_lexicon(lang).get(word), occ)
             source = "lexicon"
-        if override is None:
-            _dbg("apply word=%r in=%s -> no-override" % (word, list(readings)))
+        if picked is None:
+            _dbg("resolve word=%r occ=%r -> no-override" % (word, occ))
             return readings
-        if lang in ("zh", "yue") and len(override) != len(readings):
-            # zh/yue 逐字对齐：长度不一致（分词边界差异等）——跳过以免破坏 word2ph
-            _dbg("apply word=%r in=%s override=%s SKIPPED (length %d!=%d)" % (
-                word, list(readings), list(override), len(readings), len(override)))
+        if lang in ("zh", "yue") and len(picked) != len(readings):
+            _dbg("resolve word=%r override=%s SKIPPED (length %d!=%d)" % (
+                word, picked, len(readings), len(picked)))
             return readings
-        out = [str(p) for p in override]
-        _dbg("apply word=%r in=%s -> %s (%s)" % (word, list(readings), out, source))
+        out = [str(p) for p in picked]
+        _dbg("resolve word=%r occ=%r -> %s (%s)" % (word, occ, out, source))
         return out
     except Exception as _e:
-        _dbg("apply word=%r EXC %r" % (word, _e))
+        _dbg("resolve word=%r EXC %r" % (word, _e))
         return readings
+
+
+def apply(word, readings, lang="zh"):
+    """词级读音覆盖（历史入口，等价 resolve(occ=None)）。中文/日语/训练侧沿用。"""
+    return resolve(word, readings, lang, occ=None)
 
 
 # ---------------------------------------------------------------------------
@@ -312,89 +380,163 @@ def is_polyphonic(char, lang="zh"):
 # ---------------------------------------------------------------------------
 # 预览：文本 -> 逐词逐字读音 + 候选 + 多音标记（供前端校对面板渲染）
 # ---------------------------------------------------------------------------
+# --- 单语言子预览（供分句多语预览复用；每个返回 (norm_text, tokens)）--------------
+def _preview_ja(text):
+    from gsv_code.text import japanese
+    norm_text, yomi = japanese.get_word_yomi(text)
+    toks = []
+    for t in yomi:
+        toks.append({
+            "word": t.get("word", ""),
+            "unit": "word",
+            "reading": t.get("reading", ""),
+            "editable": True,
+            "source": t.get("source", "g2p"),
+        })
+    return norm_text, toks
+
+
+def _preview_en(text):
+    from gsv_code.text import english
+    norm_text, arpa = english.get_word_arpa(text)
+    toks = []
+    for t in arpa:
+        toks.append({
+            "word": t.get("word", ""),
+            "unit": "word",
+            "readings": list(t.get("readings", [])),
+            "candidates": list(t.get("candidates", [])),
+            "editable": True,
+            "source": t.get("source", "g2p"),
+        })
+    return norm_text, toks
+
+
+def _preview_zh(text, lang):
+    from gsv_code.text import chinese2
+    norm_text, word_pinyins = chinese2.get_word_pinyins(text)
+    lex = load_lexicon(lang)
+    ov = _current_overrides(lang)
+    toks = []
+    for word, pys in word_pinyins:
+        chars = []
+        for i, ch in enumerate(word):
+            reading = pys[i] if i < len(pys) else ""
+            cands = get_candidates(ch, lang)
+            src = "g2p"
+            if word in ov:
+                src = "override"
+            elif word in lex:
+                src = "lexicon"
+            chars.append({
+                "char": ch,
+                "reading": reading,
+                "candidates": cands,
+                "polyphonic": len(cands) > 1,
+                "source": src,
+            })
+        toks.append({"word": word, "unit": "char", "chars": chars})
+    return norm_text, toks
+
+
+def _preview_placeholder(text):
+    toks = [{"word": ch, "unit": "char", "chars": [{
+        "char": ch, "reading": "", "candidates": [], "polyphonic": False, "source": "g2p",
+    }]} for ch in text]
+    return text, toks
+
+
+def _segment_text(text, base):
+    """把混合文本切成 (segLang, segText) 序列（与合成 auto 模式同源的 LangSegmenter）。
+
+    英文/日文/韩文各自成段，其余 CJK 段归入面板基础语系 base（zh/yue/ja），
+    从而把嵌在中/日文里的英文单词也暴露成可校对的 token（item 19-A）。
+    失败时回退为整段单语。
+    """
+    try:
+        from gsv_code.text.LangSegmenter import LangSegmenter
+        segs = LangSegmenter.getTexts(text)  # default_lang="" -> 自动判定 zh/ja/en/ko
+    except Exception:
+        segs = None
+    if not segs:
+        return [(base, text)]
+    out = []
+    for seg in segs:
+        try:
+            slang = seg.get("lang") or base
+            stext = seg.get("text") or ""
+        except AttributeError:
+            slang, stext = base, str(seg)
+        if slang == "en":
+            tgt = "en"
+        elif slang == "ja":
+            tgt = "ja"
+        elif slang == "ko":
+            tgt = "ko"
+        else:
+            tgt = base
+        out.append((tgt, stext))
+    return out or [(base, text)]
+
+
 def preview(text, lang="zh"):
     """
     文本 -> 逐单元读音（供前端校对面板渲染），并保证「预览读音 == 实际合成读音」。
 
-    返回 {"lang", "norm_text", "tokens":[...]}，token 依语言带 "unit" 标记：
-      * zh/yue  unit="char"：{"word","unit","chars":[{char,reading,candidates,polyphonic,source}]}
-                （逐字，可从候选下拉选读音）。
-      * ja      unit="word"：{"word","unit","reading"(假名),"editable":true,"source"}
-                （逐词，直接改写正确假名；无候选下拉）。
-      * en      unit="word"：{"word","unit","readings"(ARPABET 列表),"editable":true,"source"}
-                （逐词，直接改写音标）。
-      * ko/其它 占位（unsupported=true）。
+    item 19-A：始终按语言分句，混合文本里的英文/日文单词也会作为可校对 token 出现。
+    每个 token 带 "segLang"（该 token 实际所属语言），前端据此按语言分桶存储覆盖。
+
+    返回 {"lang", "norm_text", "tokens":[...], "langs":[...], "multilingual":bool}，
+    token 依语言带 "unit" 标记：
+      * zh/yue  unit="char"：{"word","unit","chars":[{char,reading,candidates,polyphonic,source}],"segLang"}
+      * ja      unit="word"：{"word","unit","reading"(假名),"editable":true,"source","segLang"}
+      * en      unit="word"：{"word","unit","readings"(ARPABET),"candidates":[...],"editable":true,"source","segLang"}
+      * ko/其它 占位（unsupported token）。
     """
-    result = {"lang": lang, "norm_text": "", "tokens": []}
+    result = {"lang": lang, "norm_text": "", "tokens": [], "langs": [], "multilingual": False}
     if not text:
         return result
-    if lang == "ja":
+    base = lang if lang in ("zh", "yue", "ja") else "zh"
+    norm_parts = []
+    tokens = []
+    used = []
+    for seg_lang, seg_text in _segment_text(text, base):
+        if not seg_text:
+            continue
+        if not seg_text.strip():
+            norm_parts.append(seg_text)   # 保留段间空白/标点
+            continue
         try:
-            from gsv_code.text import japanese
-            norm_text, yomi = japanese.get_word_yomi(text)
+            if seg_lang == "en":
+                nt, tk = _preview_en(seg_text)
+            elif seg_lang == "ja":
+                nt, tk = _preview_ja(seg_text)
+            elif seg_lang in ("zh", "yue"):
+                nt, tk = _preview_zh(seg_text, seg_lang)
+            else:
+                nt, tk = _preview_placeholder(seg_text)
         except Exception as e:
-            result["error"] = "preview failed: {!r}".format(e)
-            return result
-        result["norm_text"] = norm_text
-        for t in yomi:
-            result["tokens"].append({
-                "word": t.get("word", ""),
-                "unit": "word",
-                "reading": t.get("reading", ""),
-                "editable": True,
-                "source": t.get("source", "g2p"),
-            })
-        return result
-    if lang == "en":
-        try:
-            from gsv_code.text import english
-            norm_text, arpa = english.get_word_arpa(text)
-        except Exception as e:
-            result["error"] = "preview failed: {!r}".format(e)
-            return result
-        result["norm_text"] = norm_text
-        for t in arpa:
-            result["tokens"].append({
-                "word": t.get("word", ""),
-                "unit": "word",
-                "readings": list(t.get("readings", [])),
-                "editable": True,
-                "source": t.get("source", "g2p"),
-            })
-        return result
-    if lang in ("zh", "yue"):
-        try:
-            from gsv_code.text import chinese2
-            norm_text, word_pinyins = chinese2.get_word_pinyins(text)
-        except Exception as e:
-            result["error"] = "preview failed: {!r}".format(e)
-            return result
-        result["norm_text"] = norm_text
-        lex = load_lexicon(lang)
-        ov = _current_overrides(lang)
-        for word, pys in word_pinyins:
-            chars = []
-            for i, ch in enumerate(word):
-                reading = pys[i] if i < len(pys) else ""
-                cands = get_candidates(ch, lang)
-                src = "g2p"
-                if word in ov:
-                    src = "override"
-                elif word in lex:
-                    src = "lexicon"
-                chars.append({
-                    "char": ch,
-                    "reading": reading,
-                    "candidates": cands,
-                    "polyphonic": len(cands) > 1,
-                    "source": src,
-                })
-            result["tokens"].append({"word": word, "unit": "char", "chars": chars})
-        return result
-    # 其它语言：占位（Phase 3/4 逐语言补全；ko 标 untested）
-    result["norm_text"] = text
-    result["tokens"] = [{"word": ch, "chars": [{
-        "char": ch, "reading": "", "candidates": [], "polyphonic": False, "source": "g2p",
-    }]} for ch in text]
-    result["unsupported"] = True
+            _dbg("preview seg failed ({}): {!r}".format(seg_lang, e))
+            nt, tk = _preview_placeholder(seg_text)
+        for t in tk:
+            t["segLang"] = seg_lang
+        tokens.extend(tk)
+        norm_parts.append(nt)
+        if seg_lang not in used:
+            used.append(seg_lang)
+    # 逐次出现编号（item 19-C）：跨所有英文段全局重排，使 occ 与合成期的
+    # english.en_G2p 全局计数一致，前端据此为「第 N 次出现」单独设置读音。
+    occ_seen = {}
+    for t in tokens:
+        if t.get("segLang") == "en" and (t.get("unit") == "word"):
+            key = t.get("word", "")
+            n = occ_seen.get(key, 0)
+            occ_seen[key] = n + 1
+            t["occ"] = n
+    result["norm_text"] = "".join(norm_parts)
+    result["tokens"] = tokens
+    result["langs"] = used
+    result["multilingual"] = len(used) > 1
+    if not any(sl in ("zh", "yue", "ja", "en") for sl in used):
+        result["unsupported"] = True
     return result

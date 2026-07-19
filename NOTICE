@@ -83,7 +83,10 @@ as applicable.
 
   * Node.js
     Governed by the MIT License and the licenses applicable to its bundled
-    third-party components.
+    third-party components. The bundled runtime includes npm, which is used at
+    deploy time to restore Aurivox's backend dependencies (see "Node.js backend
+    dependencies obtained separately" below); npm itself is governed by the
+    Artistic License 2.0 together with the licenses of its own components.
 
 - Bundled Python wheels
 
@@ -113,6 +116,18 @@ as applicable.
   separately from a CUDA-specific package index) are obtained by the installer
   from their respective sources and remain governed by their own licenses.
   The full inventory is recorded in THIRD_PARTY_LICENSES/runtime/python_packages.json.
+
+- Node.js backend dependencies obtained separately (not bundled)
+
+  Aurivox's Node.js backend dependencies (express, cors, multer, js-yaml,
+  argparse, and their transitive dependencies) are NOT redistributed inside the
+  Aurivox distribution. They are restored on the end user's machine at deploy
+  time by running `npm ci` against the shipped lockfile (package-lock.json),
+  using the bundled Node.js runtime's own npm. Each package is fetched from the
+  npm registry by the end user's own installer and remains governed by its
+  respective license (predominantly MIT and ISC). Exact versions are pinned in
+  package-lock.json for reproducibility; Aurivox neither relicenses these
+  packages nor grants any rights on behalf of their copyright holders.
 
 - Media tools obtained separately (not bundled)
 

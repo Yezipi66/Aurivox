@@ -1,15 +1,18 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { FsFilePicker } from '../common/Dialogs'
 import { basename } from '../../lib/format'
 import { usePreviewMode } from '../../lib/previewMode'
+import { useT } from '../../lib/i18n'
 
 // PC — Broker model re-bind with a two-level selector:
 //   1. primary  = every voice that owns a model of this type (voices-with-models)
 //   2. secondary = that voice's GPT ckpts / SoVITS pths (recipes-models/:voiceId)
 // plus a "— custom path below —" escape hatch that opens the file picker.
 function RecipeModelRebind({ recipe, onSaved }) {
+  const { t } = useT()
   const [open, setOpen] = useState(false)
   const [voicesList, setVoicesList] = useState(null)   // [{voiceId, displayName, hasGpt, hasSovits}]
   const [gpt, setGpt] = useState(recipe.gpt_ckpt || '')
@@ -88,7 +91,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
   }
 
   if (!open) {
-    return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>Change models</button>
+    return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>{t('Change models', '更换模型')}</button>
   }
 
   const modelVoices = (voicesList || []).filter(v => v.hasGpt || v.hasSovits)
@@ -100,21 +103,21 @@ function RecipeModelRebind({ recipe, onSaved }) {
       <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div className="field" style={{ flex: '0 1 170px', minWidth: 130 }}>
           <label className="field-label">Voice ID</label>
-          <select className="control" value={voice} onChange={e => onVoiceChange(e.target.value)}>
+          <Select className="control" value={voice} onChange={e => onVoiceChange(e.target.value)}>
             {!modelVoices.some(v => v.voiceId === voice) && <option value={voice}>{voice || '— select —'}</option>}
             {modelVoices.map(v => <option key={v.voiceId} value={v.voiceId}>{v.displayName}</option>)}
-          </select>
+          </Select>
         </div>
         <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
           <label className="field-label">GPT checkpoint</label>
-          <select className="control"
+          <Select className="control"
             value={gptCustom ? '__custom__' : (gptModels.some(m => m.path === gpt) ? gpt : '')}
             title={gptCustom ? gpt : ''}
             onChange={e => { const v = e.target.value; if (v === '__custom__') { setGptCustom(true) } else { setGptCustom(false); setGpt(v) } }}>
             {!gptCustom && !gptModels.some(m => m.path === gpt) && <option value="">— select a checkpoint —</option>}
             {gptModels.map(m => <option key={m.path} value={m.path}>{m.name}{m.steps ? ` (${m.steps})` : ''}</option>)}
             <option value="__custom__">— custom path… —</option>
-          </select>
+          </Select>
           {gptCustom && (
             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
@@ -125,14 +128,14 @@ function RecipeModelRebind({ recipe, onSaved }) {
         </div>
         <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
           <label className="field-label">SoVITS model</label>
-          <select className="control"
+          <Select className="control"
             value={sovitsCustom ? '__custom__' : (sovitsModels.some(m => m.path === sovits) ? sovits : '')}
             title={sovitsCustom ? sovits : ''}
             onChange={e => { const v = e.target.value; if (v === '__custom__') { setSovitsCustom(true) } else { setSovitsCustom(false); setSovits(v) } }}>
             {!sovitsCustom && !sovitsModels.some(m => m.path === sovits) && <option value="">— select a model —</option>}
             {sovitsModels.map(m => <option key={m.path} value={m.path}>{m.name}{m.version ? ` [${m.version}]` : ''}</option>)}
             <option value="__custom__">— custom path… —</option>
-          </select>
+          </Select>
           {sovitsCustom && (
             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
@@ -146,27 +149,33 @@ function RecipeModelRebind({ recipe, onSaved }) {
       {msg && <div className="msg msg-ok">{msg}</div>}
       {extConfirm && (
         <div className="msg msg-warn">
-          <strong>⚠️ This model file is outside the project (not under assets/).</strong>
+          <strong>⚠️ {t('This model file is outside the project (not under assets/).', '该模型文件不在项目内（不在 assets/ 目录下）。')}</strong>
           <div style={{ marginTop: 6 }}>
-            It will be pinned as an <strong>absolute path</strong>. Consequences:
+            {t(<>It will be pinned as an <strong>absolute path</strong>. Consequences:</>,
+               <>它将以<strong>绝对路径</strong>方式固定。这会带来以下后果：</>)}
             <ul style={{ margin: '4px 0 0 18px' }}>
-              <li>The original file <strong>must not be moved or renamed</strong> — otherwise every request using this recipe will fail.</li>
-              <li>The path is tied to <strong>this machine</strong>; the recipe is no longer self-contained.</li>
-              <li>To distribute it you must ship these model files to the other machine as well (just like the voice assets).</li>
+              <li>{t(<>The original file <strong>must not be moved or renamed</strong> — otherwise every request using this recipe will fail.</>,
+                     <>原始文件<strong>不能被移动或重命名</strong>——否则每个使用该 recipe 的请求都会失败。</>)}</li>
+              <li>{t(<>The path is tied to <strong>this machine</strong>; the recipe is no longer self-contained.</>,
+                     <>该路径与<strong>本机</strong>绑定；此 recipe 不再是自包含的。</>)}</li>
+              <li>{t('To distribute it you must ship these model files to the other machine as well (just like the voice assets).',
+                     '若要分发，必须把这些模型文件一并拷贝到目标机器（与音色资源一样）。')}</li>
             </ul>
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
             <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => save(true)}>
-              {busy ? 'Saving…' : 'I understand — pin absolute path'}
+              {busy ? t('Saving…', '保存中…') : t('I understand — pin absolute path', '我已了解——固定为绝对路径')}
             </button>
-            <button className="btn btn-sm" disabled={busy} onClick={() => setExtConfirm(null)}>Cancel</button>
+            <button className="btn btn-sm" disabled={busy} onClick={() => setExtConfirm(null)}>{t('Cancel', '取消')}</button>
           </div>
         </div>
       )}
-      <p className="field-hint">ⓘ Saving rebinds this recipe's model. Every future API call to voice "{recipe.id}" on this endpoint will use the new checkpoint/model; requests already in flight are unaffected.</p>
+      <p className="field-hint">{t(
+        <>ⓘ Saving rebinds this recipe's model. Every future API call to voice "{recipe.id}" on this endpoint will use the new checkpoint/model; requests already in flight are unaffected.</>,
+        <>ⓘ 保存后将重新绑定该 recipe 的模型。此后对该 endpoint 上音色 “{recipe.id}” 的每次 API 调用都会使用新的 checkpoint/模型；已在处理中的请求不受影响。</>)}</p>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-sm btn-primary" disabled={busy || !!extConfirm} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save models'}</button>
-        <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>Close</button>
+        <button className="btn btn-sm btn-primary" disabled={busy || !!extConfirm} onClick={() => save(false)}>{busy ? t('Saving…', '保存中…') : t('Save models', '保存模型')}</button>
+        <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>{t('Close', '关闭')}</button>
       </div>
       <FsFilePicker open={pickGpt} exts={['.ckpt', '.pt']} title="Select a GPT checkpoint (.ckpt)"
         onPick={(p) => setGpt(p)} onClose={() => setPickGpt(false)} />
@@ -177,6 +186,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
 }
 
 function RecipeCard({ recipe, endpoint, onChanged }) {
+  const { t } = useT()
   const [copied, setCopied] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -215,21 +225,21 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
       </div>
       <div className="rc-body">
         <div className="rc-grid">
-          <div><span className="rc-k">Reference</span><span className="rc-v" title={recipe.reference_audio}>{basename(recipe.reference_audio)}</span></div>
-          <div><span className="rc-k">Language</span><span className="rc-v">{recipe.language}</span></div>
-          <div><span className="rc-k">GPT</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : '(none)'}</span></div>
-          <div><span className="rc-k">SoVITS</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : '(none)'}</span></div>
-          <div><span className="rc-k">Params</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
-          <div><span className="rc-k">Source</span><span className="rc-v">{recipe.meta?.source || '—'}{recipe.meta?.notes ? ` · ${recipe.meta.notes}` : ''}</span></div>
+          <div><span className="rc-k">{t('Reference', '参考音频')}</span><span className="rc-v" title={recipe.reference_audio}>{basename(recipe.reference_audio)}</span></div>
+          <div><span className="rc-k">{t('Language', '语言')}</span><span className="rc-v">{recipe.language}</span></div>
+          <div><span className="rc-k">GPT</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
+          <div><span className="rc-k">SoVITS</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : t('(none)', '（无）')}</span></div>
+          <div><span className="rc-k">{t('Params', '参数')}</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
+          <div><span className="rc-k">{t('Source', '来源')}</span><span className="rc-v">{recipe.meta?.source || '—'}{recipe.meta?.notes ? ` · ${recipe.meta.notes}` : ''}</span></div>
         </div>
         <div className="rc-cmd">
           <div className="rc-cmd-hdr">
             <span onClick={() => setCmdOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
-              title={cmdOpen ? 'Collapse' : 'Expand full multi-line command'}>
+              title={cmdOpen ? t('Collapse', '收起') : t('Expand full multi-line command', '展开完整的多行命令')}>
               <span style={{ marginRight: 6, fontSize: 11, color: 'var(--muted)' }}>{cmdOpen ? '▼' : '▶'}</span>
-              Example call (OpenAI-compatible)
+              {t('Example call (OpenAI-compatible)', '调用示例（兼容 OpenAI）')}
             </span>
-            <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button>
+            <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? t('Copied', '已复制') : t('Copy command', '复制命令')}</button>
           </div>
           {cmdOpen
             ? <pre className="rc-cmd-body">{cmd}</pre>
@@ -238,10 +248,11 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
         <RecipeModelRebind recipe={recipe} onSaved={() => onChanged && onChanged()} />
         {confirmDel && (
           <div className="msg msg-warn">
-            Delete recipe <strong>{recipe.id}</strong>? This cannot be undone.
+            {t(<>Delete recipe <strong>{recipe.id}</strong>? This cannot be undone.</>,
+               <>确定删除 recipe <strong>{recipe.id}</strong>？此操作无法撤销。</>)}
             <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-              <button className="btn btn-sm btn-danger" disabled={busy} onClick={del}>Delete</button>
-              <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmDel(false)}>Cancel</button>
+              <button className="btn btn-sm btn-danger" disabled={busy} onClick={del}>{t('Delete', '删除')}</button>
+              <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmDel(false)}>{t('Cancel', '取消')}</button>
             </div>
           </div>
         )}
@@ -251,6 +262,7 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
 }
 
 function BrokerTab() {
+  const { t, lang } = useT()
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -274,13 +286,15 @@ function BrokerTab() {
     <div>
       <div className="section" style={{ marginBottom: 12 }}>
         <div className="section-hdr"><span>Broker — Distribution</span>
-          <button className="btn btn-sm" onClick={load}>Refresh</button>
+          <button className="btn btn-sm" onClick={load}>{t('Refresh', '刷新')}</button>
         </div>
         <div className="section-body">
           <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-            Recipes are exposed through the OpenAI-compatible speech endpoint. Set the
-            request's <code>voice</code> field to a recipe id (<code>role/name</code>) to synthesize with that
-            recipe's pinned models, reference and parameters. Standard OpenAI clients work unchanged.
+            {t(
+              <>Recipes are exposed through the OpenAI-compatible speech endpoint. Set the
+              request's <code>voice</code> field to a recipe id (<code>role/name</code>) to synthesize with that
+              recipe's pinned models, reference and parameters. Standard OpenAI clients work unchanged.</>,
+              <>Recipe 通过兼容 OpenAI 的语音 endpoint 对外暴露。将请求的 <code>voice</code> 字段设为某个 recipe id（<code>role/name</code>），即可使用该 recipe 固定的模型、参考音频与参数进行合成。标准 OpenAI 客户端无需改动即可使用。</>)}
           </p>
           <div className="broker-endpoint">
             <span className="be-k">Endpoint</span>
@@ -289,20 +303,21 @@ function BrokerTab() {
         </div>
       </div>
 
-      {loading && <div className="empty-state" style={{ padding: 16 }}><div className="es-sub">Loading recipes…</div></div>}
+      {loading && <div className="empty-state" style={{ padding: 16 }}><div className="es-sub">{t('Loading recipes…', '正在加载 recipe…')}</div></div>}
       {error && <div className="msg msg-error">{error}</div>}
 
       {!loading && !error && recipes.length === 0 && (
         <div className="empty-state" style={{ padding: 20 }}>
-          <div className="es-title">No recipes yet</div>
-          <div className="es-sub">Create one with <strong>Save as recipe</strong> on the Generate or Compare Refs page.</div>
+          <div className="es-title">{t('No recipes yet', '暂无 recipe')}</div>
+          <div className="es-sub">{t(<>Create one with <strong>Save as recipe</strong> on the Generate or Compare Refs page.</>,
+                                     <>可在 Generate 或 Compare Refs 页面点击 <strong>Save as recipe</strong> 创建。</>)}</div>
         </div>
       )}
 
       {roleKeys.map(role => (
         <div className="section" key={role} style={{ marginBottom: 12 }}>
           <div className="section-hdr"><span>{role.toUpperCase()}</span>
-            <span className="cmp-count">{groups[role].length} recipe{groups[role].length > 1 ? 's' : ''}</span>
+            <span className="cmp-count">{groups[role].length} recipe{lang === 'zh' ? '' : (groups[role].length > 1 ? 's' : '')}</span>
           </div>
           <div className="section-body">
             <div className="recipe-list">

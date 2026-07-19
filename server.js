@@ -9,6 +9,7 @@ const os = require("os");
 const multer = require("multer");
 
 const { ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig } = require('./lib/paths');
+const { getPythonPath, getCleanEnv } = require('./lib/training/python_helper');
 
 const app = express();
 // Environment-driven config with backward-compatible defaults
@@ -706,10 +707,85 @@ function checkFfmpeg() {
   return _ffmpegAvailable;
 }
 
+// ===========================
+//  CUDA / GPU DETECTION
+// ===========================
+// Probes the project venv's torch ONCE (asynchronously) for CUDA availability +
+// device info and caches the result. Powers the right-hand-corner status light
+// and the training pre-flight warnings (no-GPU block / low-VRAM notice). We do
+// NOT auto-tune any training params from this — it is advisory only.
+//
+// The probe runs via async spawn (never execFileSync) so importing torch — which
+// can take several seconds — does not block Node's event loop / other requests.
+// `ready:false` until the probe resolves; callers should treat "not ready" as
+// "unknown" (don't gate on it). Any failure (no venv yet, torch missing, timeout)
+// degrades to "CUDA unavailable" so /api/health always answers.
+let _cudaProbeStarted = false;
+let _cudaInfo = { ready: false, available: false, device_name: null, vram_gb: null };
+
+function startCudaProbe() {
+  if (_cudaProbeStarted) return;
+  _cudaProbeStarted = true;
+  let py;
+  try { py = getPythonPath(); } catch { py = "python"; }
+  // Emit a single JSON line so parsing is unaffected by any torch warnings.
+  const probe = [
+    "import json",
+    "o={'available':False,'device_name':None,'vram_gb':None}",
+    "try:",
+    "    import torch",
+    "    if torch.cuda.is_available():",
+    "        p=torch.cuda.get_device_properties(0)",
+    "        o['available']=True",
+    "        o['device_name']=p.name",
+    "        o['vram_gb']=round(p.total_memory/(1024**3),1)",
+    "except Exception:",
+    "    pass",
+    "print('CUDA_PROBE='+json.dumps(o))",
+  ].join("\n");
+
+  let child;
+  try {
+    child = spawn(py, ["-c", probe], { env: getCleanEnv() });
+  } catch {
+    _cudaInfo = { ready: true, available: false, device_name: null, vram_gb: null };
+    return;
+  }
+  let buf = "";
+  const finish = (info) => {
+    _cudaInfo = { ready: true, ...info };
+    if (_cudaInfo.available) {
+      console.log(`[cuda] ${_cudaInfo.device_name} (${_cudaInfo.vram_gb}GB)`);
+    } else {
+      console.log("[cuda] not available — inference will run on CPU; fine-tuning is not recommended");
+    }
+  };
+  const kill = setTimeout(() => { try { child.kill(); } catch {} }, 30000);
+  child.stdout.on("data", (d) => { buf += d.toString(); });
+  child.on("error", () => { clearTimeout(kill); finish({ available: false, device_name: null, vram_gb: null }); });
+  child.on("close", () => {
+    clearTimeout(kill);
+    try {
+      const m = /CUDA_PROBE=(\{.*\})/.exec(buf);
+      if (m) {
+        const p = JSON.parse(m[1]);
+        return finish({ available: !!p.available, device_name: p.device_name || null, vram_gb: p.vram_gb ?? null });
+      }
+    } catch {}
+    finish({ available: false, device_name: null, vram_gb: null });
+  });
+}
+
+function detectCuda() {
+  startCudaProbe();
+  return _cudaInfo;
+}
+
 // PH: OpenAI /v1/audio/speech response formats. WAV is the lossless default and
 // needs no ffmpeg (the engine already emits WAV). The others are produced by
 // transcoding the engine's WAV bytes through the system ffmpeg; when ffmpeg is
-// absent we transparently fall back to WAV and flag it via a response header.
+// absent the broker strictly rejects non-WAV requests (see /v1/audio/speech)
+// rather than silently shipping WAV under a mismatched Content-Type.
 const AUDIO_FORMATS = {
   wav:  { ext: "wav",  mime: "audio/wav",  ffmpeg: null },
   mp3:  { ext: "mp3",  mime: "audio/mpeg", ffmpeg: ["-c:a", "libmp3lame", "-q:a", "2", "-f", "mp3"] },
@@ -1111,6 +1187,7 @@ app.get("/api/health", async (req, res) => {
     engine_online,
     gpt_sovits_url: "http://127.0.0.1:9880",
     ffmpeg_available: checkFfmpeg(),
+    cuda: detectCuda(),
   });
 });
 
@@ -2621,11 +2698,25 @@ app.get("/api/assets/:id/transcript", requireApiKey, (req, res) => {
       const listPath = path.join(voiceDir, "asr_opt", k.listName);
       if (!fs.existsSync(listPath)) continue;
       const audioDir = path.join(voiceDir, k.audioSub);
-      const rows = readTranscriptListRows(listPath).map((r) => ({
-        ...r,
-        exists: !!(r.audio_filename && fs.existsSync(path.join(audioDir, r.audio_filename))),
-        url: r.audio_filename ? `/assets/${id}/${k.audioSub}/${encodeURIComponent(r.audio_filename)}` : null,
-      }));
+      // Patch #23：置信度旁车 <kind>.conf.json（键为片段文件名），有则逐行附带。
+      let confMap = {};
+      try {
+        const confPath = path.join(voiceDir, "asr_opt", k.listName.replace(/\.list$/i, ".conf.json"));
+        if (fs.existsSync(confPath)) {
+          const parsed = JSON.parse(fs.readFileSync(confPath, "utf-8"));
+          if (parsed && typeof parsed === "object") confMap = parsed;
+        }
+      } catch (_) {}
+      const rows = readTranscriptListRows(listPath).map((r) => {
+        const c = confMap[r.audio_filename] || null;
+        return {
+          ...r,
+          exists: !!(r.audio_filename && fs.existsSync(path.join(audioDir, r.audio_filename))),
+          url: r.audio_filename ? `/assets/${id}/${k.audioSub}/${encodeURIComponent(r.audio_filename)}` : null,
+          confidence: c && typeof c.confidence === "number" ? c.confidence : null,
+          words: c && Array.isArray(c.words) ? c.words : null,
+        };
+      });
       buckets.push({ kind: k.kind, listName: k.listName, rows });
     }
     // Language + provenance from meta (transcript source/verification, if any).
@@ -2672,15 +2763,31 @@ app.post("/api/assets/:id/transcript", requireApiKey, (req, res) => {
       if (fname) textByName[fname] = r.text == null ? "" : String(r.text);
     }
     let changed = 0;
+    const changedNames = [];
     const lines = existing.map((r) => {
       const fname = r.audio_filename;
       const text = (fname in textByName) ? textByName[fname] : r.text;
-      if (fname in textByName && textByName[fname] !== r.text) changed += 1;
+      if (fname in textByName && textByName[fname] !== r.text) { changed += 1; changedNames.push(fname); }
       return `${r.audio_path}|${r.speaker}|${r.lang}|${text}`;
     });
     const tmp = listPath + ".tmp." + process.pid + "." + Date.now();
     fs.writeFileSync(tmp, lines.join("\n") + "\n", "utf-8");
     fs.renameSync(tmp, listPath);
+
+    // Patch #23：人工改过的行，其机器置信度已失真，从旁车剔除避免误导着色。
+    if (changedNames.length) {
+      try {
+        const confPath = path.join(voiceDir, "asr_opt", kindDef.listName.replace(/\.list$/i, ".conf.json"));
+        if (fs.existsSync(confPath)) {
+          const cm = JSON.parse(fs.readFileSync(confPath, "utf-8"));
+          if (cm && typeof cm === "object") {
+            let dirty = false;
+            for (const n of changedNames) { if (n in cm) { delete cm[n]; dirty = true; } }
+            if (dirty) fs.writeFileSync(confPath, JSON.stringify(cm), "utf-8");
+          }
+        }
+      } catch (e) { console.error(`[TRANSCRIPT ${id}] conf prune warning:`, e.message); }
+    }
 
     // Rebuild segments.json from the updated list (its text is what inference reads).
     try { assetScanner.generateSegments(id); } catch (e) { console.error(`[TRANSCRIPT ${id}] segments rebuild warning:`, e.message); }
@@ -3228,11 +3335,24 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
         }
         let fmt = reqFmt;
         let formatNotice = null;
-        // Degrade gracefully to WAV when a lossy/compressed format is requested
-        // but ffmpeg isn't installed, rather than failing the whole request.
+        // Strictly honor the caller's format contract. A non-WAV format requires
+        // transcoding the engine's WAV through ffmpeg; if ffmpeg isn't installed
+        // we must NOT silently ship WAV under a different Content-Type — that
+        // breaks the contract the upstream explicitly requested. Reject instead,
+        // and point the caller at the bundled ffmpeg provisioner.
         if (fmt !== "wav" && !checkFfmpeg()) {
-          formatNotice = `ffmpeg not available on the server; '${reqFmt}' was delivered as WAV instead.`;
-          fmt = "wav";
+          return res.status(400).json({
+            error: {
+              message: `This broker cannot deliver '${reqFmt}' audio: ffmpeg is not installed on the server, and '${reqFmt}' requires transcoding from WAV. ` +
+                `Provision the bundled ffmpeg by running tools/deploy/download_ffmpeg.py (installs vendor/ffmpeg/<platform>/), then restart the broker. ` +
+                `Otherwise request response_format="wav", which needs no ffmpeg.`,
+              type: "invalid_request_error",
+              code: "ffmpeg_unavailable",
+              param: "response_format",
+              requested_format: reqFmt,
+              supported_without_ffmpeg: ["wav"],
+            },
+          });
         }
 
         const payload = buildTtsPayload(input, cfg);
@@ -3251,15 +3371,25 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
         if (!wavBytes || wavBytes.length === 0) return res.status(502).json({ error: "GPT-SoVITS returned empty audio" });
 
         // Transcode WAV → requested format when needed (ffmpeg confirmed above).
+        // If transcoding fails we do NOT silently downgrade to WAV — that would
+        // violate the format contract the caller requested. Surface the failure.
         let audioBytes = wavBytes;
         if (fmt !== "wav") {
           try {
             audioBytes = transcodeAudio(wavBytes, fmt);
           } catch (e) {
-            console.error(`[broker] transcode to ${fmt} failed, falling back to wav:`, e.message);
-            formatNotice = `Transcoding to '${fmt}' failed on the server; delivered as WAV instead.`;
-            fmt = "wav";
-            audioBytes = wavBytes;
+            console.error(`[broker] transcode to ${fmt} failed:`, e.message);
+            return res.status(500).json({
+              error: {
+                message: `Failed to transcode the generated audio to '${fmt}' via ffmpeg: ${e.message}. ` +
+                  `Verify the bundled ffmpeg build supports the '${fmt}' encoder (reinstall via tools/deploy/download_ffmpeg.py), ` +
+                  `or request response_format="wav".`,
+                type: "server_error",
+                code: "transcode_failed",
+                param: "response_format",
+                requested_format: fmt,
+              },
+            });
           }
         }
         const mediaType = AUDIO_FORMATS[fmt].mime;
@@ -3293,7 +3423,8 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
         res.set("Content-Disposition", `attachment; filename="${filename}"`);
         res.set("X-Voice-Id", role);
         res.set("X-Audio-Format", fmt);
-        // Surface any silent WAV fallback so callers can detect the degrade.
+        // (Retained for forward-compat; the broker no longer degrades formats,
+        // so formatNotice is normally null and no notice header is emitted.)
         if (formatNotice) res.set("X-Audio-Format-Notice", formatNotice);
         if (recipeId) res.set("X-Recipe-Id", recipeId);
         res.send(audioBytes);
@@ -3406,6 +3537,7 @@ function sanitizeCustomParams(custom) {
       oneOf(ap, 'model_size', p.model_size,
         ['large-v3-turbo', 'large-v3', 'large', 'medium', 'small', 'tiny', 'distil-large-v3']);
       oneOf(ap, 'precision', p.precision, ['float16', 'float32', 'int8']);
+      bool(ap, 'force_simplified_chinese', p.force_simplified_chinese);
     }
     if (custom.steps.denoise && custom.steps.denoise.params) {
       safe.steps.denoise = { params: {} };
@@ -4451,6 +4583,8 @@ app.listen(PORT, HOST, () => {
   console.log(`  TTS Voice Asset Manager`);
   console.log(`  http://${HOST}:${PORT}`);
   console.log(`  ffmpeg: ${checkFfmpeg() ? "available" : "not found (using pure-Node concat)"}`);
+  // Warm the CUDA probe in the background so /api/health has a ready answer.
+  startCudaProbe();
   if (!API_KEY) {
     console.log(`\n  ⚠️  WARNING: API_KEY not configured. All write/delete/execute endpoints are BLOCKED.`);
     console.log(`  Set environment variable API_KEY to enable write operations.`);

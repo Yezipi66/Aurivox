@@ -7,14 +7,27 @@
 #  This standalone script installs it separately and can be re-run any time
 #  (e.g. to switch CUDA build, or after a failed / offline first attempt).
 #
+#  CPU FALLBACK: with NO -Cpu / -Gpu / -Cuda argument, this script probes for a
+#  usable NVIDIA GPU (nvidia-smi, then WMI video-controller fallback). If one is
+#  found it installs the CUDA build; otherwise it FALLS BACK to the CPU-only build
+#  so a machine without an NVIDIA GPU still runs out-of-the-box (bootstrap.ps1
+#  calls this with no args). CPU is a *fallback* path meant for INFERENCE only —
+#  fine-tuning / training on CPU is 10-100x slower and generally impractical.
+#
 #  Usage (from anywhere):
 #     powershell -ExecutionPolicy Bypass -File tools\deploy\install_torch.ps1
-#     ... -Cuda cu118            # pick a different CUDA build (default cu121)
-#     ... -Cpu                   # CPU-only build (no NVIDIA GPU)
+#                                 # auto: NVIDIA GPU present ? cu121 : cpu
+#     ... -Gpu                    # force CUDA build (default cu121)
+#     ... -Cuda cu118             # force a specific CUDA build
+#     ... -Cpu                    # force CPU-only build (no NVIDIA GPU)
 #     ... -Torch 2.2.0 -Audio 2.2.0
 #
+#  Env overrides (used only when no -Cpu/-Gpu/-Cuda arg is given):
+#     TTS_TORCH_CPU=1            # force CPU build
+#     TTS_TORCH_CUDA=cu121       # force that CUDA build
+#
 #  Parameters (defaults): -Cuda cu121  -Torch 2.2.0  -Audio 2.2.0  -Vision 0.17.0
-#                         -Cpu  installs the CPU-only build instead.
+#                         -Cpu  forces the CPU-only build; -Gpu forces CUDA.
 # ============================================================
 
 # IMPORTANT: param() MUST be the very first statement in the script (only comments
@@ -25,6 +38,7 @@
 param(
   [string]$Cuda   = 'cu121',
   [switch]$Cpu,
+  [switch]$Gpu,
   [string]$Torch  = '2.2.0',
   [string]$Audio  = '2.2.0',
   [string]$Vision = '0.17.0',
@@ -65,9 +79,74 @@ if (-not (Test-Path $VENV_PY)) {
   Die ("venv not found: {0}`n        Run 首次部署.bat first (it creates the venv), then re-run this." -f $VENV_PY)
 }
 
+# ------------------------------------------------------------------
+#  CPU FALLBACK AUTO-DETECT
+# ------------------------------------------------------------------
+# On a machine with no usable NVIDIA GPU the CUDA wheel is a ~2.5GB download that
+# can never use a GPU (and needs an NVIDIA driver present just to import cleanly on
+# some setups). So unless the caller is EXPLICIT, probe for an NVIDIA GPU and, when
+# none is found, FALL BACK to the CPU-only wheel automatically. The CPU build is a
+# fallback for INFERENCE — it is NOT positioned as first-class non-NVIDIA support,
+# and training on it is impractically slow. Selection:
+#   * -Cpu                    -> force CPU build   (explicit, always wins)
+#   * -Gpu / -Cuda cuXXX      -> force CUDA build  (explicit, always wins)
+#   * env TTS_TORCH_CPU=1     -> force CPU build
+#   * env TTS_TORCH_CUDA=cuXXX-> force that CUDA build
+#   * (nothing)               -> auto: NVIDIA GPU present ? cu121 : cpu
+# Detection is best-effort and NON-fatal: nvidia-smi (installed with the driver)
+# is the primary signal; a WMI/CIM video-controller name match is the fallback.
+# If we cannot tell, we assume CPU (the safe, universally-importable choice) and
+# say so — the user can always re-run with -Gpu / -Cuda cu121.
+$cudaExplicit = $PSBoundParameters.ContainsKey('Cuda') -or $Gpu
+if (-not $Cpu -and -not $cudaExplicit) {
+  if ($env:TTS_TORCH_CPU -eq '1') {
+    $Cpu = $true
+    Info 'TTS_TORCH_CPU=1 -> forcing CPU-only PyTorch.'
+  } elseif ($env:TTS_TORCH_CUDA) {
+    $Cuda = $env:TTS_TORCH_CUDA
+    Info ('TTS_TORCH_CUDA={0} -> forcing CUDA PyTorch.' -f $Cuda)
+  } else {
+    $hasNvidia = $false
+    try {
+      $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+      if (-not $smi -and (Test-Path "$env:SystemRoot\System32\nvidia-smi.exe")) {
+        $smi = "$env:SystemRoot\System32\nvidia-smi.exe"
+      }
+      if ($smi) {
+        $exe = if ($smi -is [string]) { $smi } else { $smi.Source }
+        & $exe -L 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $hasNvidia = $true }
+      }
+    } catch { }
+    if (-not $hasNvidia) {
+      # Fallback: any video controller whose name looks like an NVIDIA GPU.
+      try {
+        $vc = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match 'NVIDIA' -or $_.AdapterCompatibility -match 'NVIDIA' }
+        if ($vc) { $hasNvidia = $true }
+      } catch { }
+    }
+    if ($hasNvidia) {
+      Info ('NVIDIA GPU detected -> installing CUDA build ({0}). Override with -Cpu if undesired.' -f $Cuda)
+    } else {
+      $Cpu = $true
+      Warn 'No NVIDIA GPU detected -> falling back to CPU-only PyTorch (smaller, universally importable).'
+      Warn 'If this box DOES have an NVIDIA GPU + driver, re-run with:  -Gpu   (or  -Cuda cu121).'
+    }
+  }
+}
+
 if ($Cpu) {
   $index = 'https://download.pytorch.org/whl/cpu'
   Info ('installing CPU-only PyTorch: torch=={0} torchaudio=={1} torchvision=={2}' -f $Torch, $Audio, $Vision)
+  # CPU FALLBACK notice (subitem 2). Shown for BOTH auto-detected and explicit -Cpu.
+  # This is a fallback for INFERENCE; training on CPU is impractically slow.
+  Warn 'CPU FALLBACK: PyTorch will run on CPU only (no NVIDIA GPU / CUDA in use).'
+  Warn '  * Inference (voice generation) works fine on CPU, just slower than a GPU.'
+  Warn '  * Fine-tuning / training on CPU is 10-100x slower and generally impractical.'
+  Warn '  CPU 回退模式：PyTorch 将仅在 CPU 上运行（未使用 NVIDIA GPU / CUDA）。'
+  Warn '  * 推理（语音生成）在 CPU 上可用，只是比 GPU 慢。'
+  Warn '  * 在 CPU 上微调 / 训练会慢 10-100 倍，基本不可行，请使用 NVIDIA GPU 训练。'
 } else {
   $index = 'https://download.pytorch.org/whl/{0}' -f $Cuda
   Info ('installing PyTorch ({0}): torch=={1} torchaudio=={2} torchvision=={3}' -f $Cuda, $Torch, $Audio, $Vision)
@@ -143,3 +222,24 @@ if ($probeRC -ne 0) {
     Warn 'this on a bare venv. Run 首次部署.bat first, or re-run with -WithDeps.'
   }
 } else { Ok 'PyTorch ready.' }
+
+# --- CPU FALLBACK reminder box (subitem 2) ------------------------------------
+# Repeat the fallback status at the very end so it is the last thing the deployer
+# sees, regardless of how much install/verify output scrolled past above.
+if ($Cpu) {
+  $box = @(
+    '====================================================================',
+    '  CPU FALLBACK ACTIVE  --  no NVIDIA GPU / CUDA in use',
+    '  当前为 CPU 回退模式  --  未使用 NVIDIA GPU / CUDA',
+    '',
+    '    Inference / 推理生成      : OK (slower than GPU / 比 GPU 慢)',
+    '    Fine-tune / 训练微调      : 10-100x slower, impractical / 慢 10-100 倍，不建议',
+    '',
+    '  Got an NVIDIA GPU + driver? Re-run to install the CUDA build:',
+    '  装有 NVIDIA GPU 与驱动？重新运行以安装 CUDA 版本：',
+    '      powershell -ExecutionPolicy Bypass -File tools\deploy\install_torch.ps1 -Gpu',
+    '===================================================================='
+  )
+  Write-Host ''
+  foreach ($line in $box) { Write-Host ('[torch] {0}' -f $line) -ForegroundColor Yellow }
+}

@@ -36,6 +36,14 @@ if ($__badChars.Count -gt 0) {
   exit 7
 }
 
+# Force UTF-8 for every child process (backend server.js, the Python inference
+# engine, and anything they spawn). Prevents the Chinese-Windows GBK console
+# from throwing UnicodeEncodeError when the engine logs non-GBK characters
+# (e.g. U+FFFD), which otherwise crashes /v1/audio/speech with a 502.
+$env:PYTHONUTF8        = '1'
+$env:PYTHONIOENCODING  = 'utf-8'
+$env:PYTHONUNBUFFERED  = '1'
+
 $ENGINE_PY     = Join-Path $BASE_DIR 'venv\Scripts\python.exe'
 $ENGINE_SCRIPT = Join-Path $BASE_DIR 'lib\inference\infer_server.py'
 $ENGINE_CFG    = Join-Path $BASE_DIR 'lib\inference\tts_infer.yaml'

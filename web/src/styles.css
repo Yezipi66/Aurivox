@@ -17,6 +17,11 @@
   --radius-lg: 16px;
   --shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.4);
   --control-height: 34px;
+  /* Stacking for the custom dropdown menu (Select.jsx). Above app modals
+     (1000/1100) so an in-modal dropdown opens over the modal, yet still plain
+     page DOM — i.e. always below browser chrome. Change here to retune all
+     dropdowns at once. */
+  --z-dropdown: 1200;
 }
 
 *, *::before, *::after {
@@ -133,6 +138,73 @@ textarea.control {
 }
 select.control {
   cursor: pointer;
+}
+
+/* ===========================================================================
+   Custom dropdown — unified styles for ALL app dropdowns (Select.jsx).
+   Replaces the native <select> popup (an OS top-most window) with in-page DOM
+   so: (a) it matches the dark theme, (b) the app controls its stacking, and
+   (c) it correctly renders BELOW browser chrome (e.g. Edge vertical-tab
+   flyout). The trigger reuses `.control` so it looks identical to before.
+   =========================================================================== */
+button.ui-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.ui-select:disabled { cursor: not-allowed; }
+button.ui-select[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.ui-select-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-select-arrow {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180deg); }
+
+.ui-select-menu {
+  z-index: var(--z-dropdown, 1200);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  padding: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: 13px;
+  color: var(--text);
+}
+.ui-select-option {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+.ui-select-option.is-active { background: var(--accent-soft); }
+.ui-select-option.is-selected { color: var(--accent); }
+.ui-select-option.is-disabled {
+  color: var(--muted);
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* ===== Buttons ===== */
@@ -307,6 +379,30 @@ select.control {
   color: #000;
   border-color: var(--accent);
 }
+
+/* Item 17: compact EN / 中文 interface-language switch (nav bar). */
+.lang-toggle {
+  display: inline-flex;
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-right: 8px;
+}
+.lang-opt {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  transition: background 0.15s, color 0.15s;
+}
+.lang-opt:hover { background: var(--surface); color: var(--text); }
+.lang-opt.active { background: var(--accent); color: #000; }
+.lang-opt + .lang-opt { border-left: 1px solid var(--border); }
 
 /* ===== Section ===== */
 .section {
@@ -1108,9 +1204,25 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .param-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Default (two-stage S1|S2 side-by-side): each stage owns half the width, so
+     2 fields per row keeps them readable. A single-stage panel (.node-cols-solo)
+     overrides this to a full 4-up row below. */
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
+/* Single-stage panel: the one visible stage spans the full modal width, so lay
+   out exactly four parameters per row (drops to 2 on narrow screens). */
+.node-cols-solo { grid-template-columns: 1fr; }
+.node-cols-solo .param-grid { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) {
+  .node-cols-solo .param-grid { grid-template-columns: repeat(2, 1fr); }
+}
+/* Category sub-heading inside an expert column (e.g. "LR Scheduler"). */
+.param-subgroup-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--muted); margin: 14px 0 6px;
+}
+.param-subgroup-title:first-of-type { margin-top: 4px; }
 /* Reserve two lines for every field label so a wrapping label (e.g. "Learning Rate
    (default / number)") does not push its input out of alignment with its row peers. */
 .param-grid label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; line-height: 1.35; min-height: calc(2 * 1.35em); }
@@ -1804,6 +1916,39 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .resume-reason { color: var(--warning); }
 .resume-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .control-inline { width: auto; min-width: 180px; display: inline-block; }
+
+/* Item 14: one-line active-model summary under the Generate voice select.
+   Mirrors the Compare Refs row header — "voice / gpt.ckpt (steps) / sovits.pth
+   [version]". Single line, truncated with ellipsis (full text in the title). */
+/* Item 14: Voice / GPT / SoVITS on one compact row. Columns wrap on narrow panels. */
+.gen-model-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.gen-model-col {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gen-model-col .field-label {
+  margin-bottom: 4px;
+}
+.gen-model-col .control {
+  width: 100%;
+}
+
+.gen-model-summary {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Seed badge — reproducibility affordance (Generate result header).
    Shows the RESOLVED seed with click-to-copy. */

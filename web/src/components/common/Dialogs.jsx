@@ -2,8 +2,10 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { basename, recipeNameError } from '../../lib/format'
+import { useT } from '../../lib/i18n'
 
 function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
+  const { t } = useT()
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
@@ -20,8 +22,8 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
   const doSave = async (force) => {
     const err = recipeNameError(name)
     if (err) { setError(err); return }
-    if (!role) { setError('No voice selected'); return }
-    if (!d.reference_audio) { setError('No reference audio to save'); return }
+    if (!role) { setError(t('No voice selected', '未选择 Voice')); return }
+    if (!d.reference_audio) { setError(t('No reference audio to save', '没有可保存的参考音频')); return }
     setBusy(true); setError(null)
     const payload = {
       role, name: name.trim(),
@@ -37,7 +39,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
     try {
       const r = await api('/api/recipes', { method: 'POST', body: payload })
       if (r.status === 409 && !force) { setConfirmOverwrite(true); setBusy(false); return }
-      if (!r.ok) throw new Error((r.data && r.data.error) || `Server error ${r.status}`)
+      if (!r.ok) throw new Error((r.data && r.data.error) || t(`Server error ${r.status}`, `服务器错误 ${r.status}`))
       setBusy(false)
       onSaved && onSaved(r.data.recipe)
       onClose && onClose()
@@ -47,11 +49,11 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
   return (
     <div className="modal-backdrop" onClick={() => !busy && onClose && onClose()}>
       <div className="modal-card" onClick={e => e.stopPropagation()}>
-        <div className="modal-hdr">Save as recipe</div>
+        <div className="modal-hdr">{t('Save as recipe', '保存为 recipe')}</div>
         <div className="modal-body">
           <div className="field">
-            <label className="field-label">Name (emotion / identifier)</label>
-            <input className="control" value={name} autoFocus placeholder="e.g. calm, angry, cheerful"
+            <label className="field-label">{t('Name (emotion / identifier)', '名称（emotion / 标识符）')}</label>
+            <input className="control" value={name} autoFocus placeholder={t('e.g. calm, angry, cheerful', '例如 calm、angry、cheerful')}
               onChange={e => setName(e.target.value)} />
             {nameErr && <div className="field-hint" style={{ color: 'var(--danger)' }}>{nameErr}</div>}
           </div>
@@ -63,25 +65,26 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <div><span className="rp-k">SoVITS</span><span className="rp-v" title={d.sovits_pth}>{d.sovits_pth ? basename(d.sovits_pth) : '(none)'}</span></div>
           </div>
           <div className="field">
-            <label className="field-label">Notes (optional)</label>
-            <input className="control" value={notes} onChange={e => setNotes(e.target.value)} placeholder="free text" />
+            <label className="field-label">{t('Notes (optional)', '备注（可选）')}</label>
+            <input className="control" value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('free text', '自由文本')} />
           </div>
           {error && <div className="msg msg-error">{error}</div>}
           {confirmOverwrite && (
             <div className="msg msg-warn">
-              A recipe named <strong>{previewId}</strong> already exists. Overwrite it?
+              {t(<>A recipe named <strong>{previewId}</strong> already exists. Overwrite it?</>,
+                 <>已存在名为 <strong>{previewId}</strong> 的 recipe。是否覆盖？</>)}
               <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-                <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => doSave(true)}>Overwrite</button>
-                <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmOverwrite(false)}>Cancel</button>
+                <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => doSave(true)}>{t('Overwrite', '覆盖')}</button>
+                <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmOverwrite(false)}>{t('Cancel', '取消')}</button>
               </div>
             </div>
           )}
         </div>
         <div className="modal-ftr">
-          <button className="btn btn-sm" disabled={busy} onClick={() => onClose && onClose()}>Cancel</button>
+          <button className="btn btn-sm" disabled={busy} onClick={() => onClose && onClose()}>{t('Cancel', '取消')}</button>
           {!confirmOverwrite && (
             <button className="btn btn-sm btn-primary" disabled={busy || !!nameErr || !name.trim()} onClick={() => doSave(false)}>
-              {busy ? 'Saving…' : 'Save recipe'}
+              {busy ? t('Saving…', '保存中…') : t('Save recipe', '保存 recipe')}
             </button>
           )}
         </div>
@@ -96,7 +99,8 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 
 // Reusable secondary-confirmation modal (replaces the browser's native
 // window.confirm, which is unstyled/ugly). Reuses .modal-overlay/.modal-card.
-function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', danger = false, busy = false, icon = null, onConfirm, onCancel }) {
+function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel, danger = false, busy = false, icon = null, onConfirm, onCancel }) {
+  const { t } = useT()
   if (!open) return null
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onCancel}>
@@ -107,9 +111,9 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', danger 
         </div>
         <div className="confirm-body">{message}</div>
         <div className="confirm-actions">
-          <button className="btn btn-sm" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button className="btn btn-sm" onClick={onCancel} disabled={busy}>{cancelLabel || t('Cancel', '取消')}</button>
           <button className={'btn btn-sm ' + (danger ? 'btn-danger' : 'btn-primary')} onClick={onConfirm} disabled={busy}>
-            {busy ? '…' : confirmLabel}
+            {busy ? '…' : (confirmLabel || t('Confirm', '确认'))}
           </button>
         </div>
       </div>
@@ -122,6 +126,7 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', danger 
 // anywhere, then handed back as an absolute path (the server converts it to a
 // project-relative path on save, or rejects it if outside the project).
 function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
+  const { t } = useT()
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -132,7 +137,7 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
     try {
       const r = await api(`/api/fs/browse?path=${encodeURIComponent(p || '')}&files=${encodeURIComponent(extsParam)}`)
       if (r.ok) setData(r.data)
-      else setError((r.data && r.data.error) || 'Could not open that folder')
+      else setError((r.data && r.data.error) || t('Could not open that folder', '无法打开该文件夹'))
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
   useEffect(() => { if (open) { setData(null); go(startPath || '') } }, [open]) // eslint-disable-line
@@ -142,17 +147,17 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
-        <div className="modal-hdr">{title || 'Select a file'}</div>
+        <div className="modal-hdr">{title || t('Select a file', '选择文件')}</div>
         <div className="modal-body">
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
             <button className="btn btn-sm" disabled={busy || data?.isDriveList || data?.parent == null}
-              onClick={() => go(data?.parent || '')}>↑ Up</button>
+              onClick={() => go(data?.parent || '')}>↑ {t('Up', '上一级')}</button>
             <input className="control" readOnly
-              value={data?.isDriveList ? 'Select a drive…' : (data?.path || '')} />
+              value={data?.isDriveList ? t('Select a drive…', '选择驱动器…') : (data?.path || '')} />
           </div>
           {error && <div className="msg msg-error">{error}</div>}
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
-            {busy && <div style={{ padding: 8, color: 'var(--muted)' }}>Loading…</div>}
+            {busy && <div style={{ padding: 8, color: 'var(--muted)' }}>{t('Loading…', '加载中…')}</div>}
             {!busy && data?.isDriveList && (data.drives || []).map(d => (
               <div key={d.path} style={rowStyle} onClick={() => go(d.path)}>💽 {d.name}</div>
             ))}
@@ -164,13 +169,13 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
                 onClick={() => { onPick(f.path); onClose() }}>📄 {f.name}</div>
             ))}
             {!busy && !data?.isDriveList && (data?.dirs || []).length === 0 && (data?.files || []).length === 0 && (
-              <div style={{ padding: 8, color: 'var(--muted)' }}>No sub-folders or matching files here.</div>
+              <div style={{ padding: 8, color: 'var(--muted)' }}>{t('No sub-folders or matching files here.', '此处没有子文件夹或匹配的文件。')}</div>
             )}
           </div>
-          <div className="field-hint" style={{ marginTop: 6 }}>Showing folders and <code>{extsParam}</code> files.</div>
+          <div className="field-hint" style={{ marginTop: 6 }}>{t(<>Showing folders and <code>{extsParam}</code> files.</>, <>显示文件夹与 <code>{extsParam}</code> 文件。</>)}</div>
         </div>
         <div className="modal-ftr">
-          <button className="btn btn-sm" onClick={onClose}>Cancel</button>
+          <button className="btn btn-sm" onClick={onClose}>{t('Cancel', '取消')}</button>
         </div>
       </div>
     </div>

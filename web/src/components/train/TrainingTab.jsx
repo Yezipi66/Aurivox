@@ -1,12 +1,14 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect, useRef } from 'react'
+import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
 import { PronPanel } from '../pron/PronProofing'
 import { ConfirmDialog } from '../common/Dialogs'
-import { NumField, TextField } from '../common/Fields'
+import { NumField, TextField, SelectField } from '../common/Fields'
 import { IconTrash } from '../common/Icons'
 import { basename } from '../../lib/format'
+import { useT } from '../../lib/i18n'
 
 // Default values for every editable training/slice/asr field. The Training page
 // keeps its own persistent form; the Restore modal seeds a fresh copy of these.
@@ -37,6 +39,22 @@ const ASR_MODEL_SIZES = [
 
 const ASR_PRECISIONS = [
   ['float16', 'float16 (fast)'], ['float32', 'float32 (best)'], ['int8', 'int8 (low VRAM)'],
+]
+
+// S1 (GPT / Lightning) trainer precision. Values MUST match the server-side
+// whitelist (server.js validatePayload `precision` oneOf) or they are dropped.
+const S1_PRECISIONS = [
+  ['16-mixed', '16-mixed (recommended)'], ['bf16-mixed', 'bf16-mixed'],
+  ['16-true', '16-true'], ['bf16-true', 'bf16-true'],
+  ['32-true', '32-true (most stable / slowest)'],
+]
+
+// S2 (SoVITS) uses manual AMP (GradScaler + autocast) driven by a single
+// `fp16_run` boolean — there is no bf16 code path in s2_train.py. So the S2
+// precision selector is intentionally just two options mapped to that bool:
+//   'fp16' -> fp16_run=true   'fp32' -> fp16_run=false
+const S2_PRECISIONS = [
+  ['fp16', 'fp16 (fast, default)'], ['fp32', 'fp32 (stable, slow)'],
 ]
 
 // --- serialisers (single source of truth for the customParams shape) ---
@@ -215,39 +233,41 @@ function archiveToForm(archive) {
 
 // --- shared field panels (rendered identically on both pages) ---
 function SliceParamFields({ form, setField }) {
+  const { t } = useT()
   return (
     <div className="param-grid">
-      <NumField label="Min Duration (s)" value={form.sliceMinSec} onChange={v => setField('sliceMinSec', v)} min={1} max={30} />
-      <NumField label="Max Duration (s)" value={form.sliceMaxSec} onChange={v => setField('sliceMaxSec', v)} min={1} max={60} />
-      <NumField label="Silence Threshold (dB)" value={form.sliceSilenceDb} onChange={v => setField('sliceSilenceDb', v)} min={-60} max={0} />
-      <NumField label="Min Silence (s)" value={form.sliceMinSilenceSec} onChange={v => setField('sliceMinSilenceSec', v)} step={0.1} min={0.1} max={5} />
+      <NumField label={t('Min Duration (s)', '最短时长 (秒)')} value={form.sliceMinSec} onChange={v => setField('sliceMinSec', v)} min={1} max={30} />
+      <NumField label={t('Max Duration (s)', '最长时长 (秒)')} value={form.sliceMaxSec} onChange={v => setField('sliceMaxSec', v)} min={1} max={60} />
+      <NumField label={t('Silence Threshold (dB)', '静音阈值 (dB)')} value={form.sliceSilenceDb} onChange={v => setField('sliceSilenceDb', v)} min={-60} max={0} />
+      <NumField label={t('Min Silence (s)', '最短静音 (秒)')} value={form.sliceMinSilenceSec} onChange={v => setField('sliceMinSilenceSec', v)} step={0.1} min={0.1} max={5} />
     </div>
   )
 }
 
 function AsrParamFields({ form, setField }) {
+  const { t } = useT()
   return (
     <>
       <div className="field">
-        <label className="field-label">ASR Engine</label>
-        <select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
-          <option value="auto">Auto (by language)</option>
+        <label className="field-label">{t('ASR Engine', 'ASR 引擎')}</label>
+        <Select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
+          <option value="auto">{t('Auto (by language)', '自动 (按语言)')}</option>
           <option value="faster-whisper">Faster Whisper</option>
-        </select>
+        </Select>
       </div>
       {form.asrEngine !== 'funasr' && (
         <div className="param-grid" style={{ marginTop: 8 }}>
           <div className="field">
-            <label className="field-label">Model Size</label>
-            <select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
+            <label className="field-label">{t('Model Size', '模型大小')}</label>
+            <Select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
               {ASR_MODEL_SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            </Select>
           </div>
           <div className="field">
-            <label className="field-label">Precision</label>
-            <select className="control" value={form.asrPrecision || 'float16'} onChange={e => setField('asrPrecision', e.target.value)}>
+            <label className="field-label">{t('Precision', '精度')}</label>
+            <Select className="control" value={form.asrPrecision || 'float16'} onChange={e => setField('asrPrecision', e.target.value)}>
               {ASR_PRECISIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            </Select>
           </div>
         </div>
       )}
@@ -257,31 +277,30 @@ function AsrParamFields({ form, setField }) {
 
 // --- per-model training columns (single source of truth for S1 / S2 params) ---
 function S1BasicCol({ form, setField }) {
+  const { t } = useT()
   return (
     <div>
       <div className="node-col-title">S1 · GPT</div>
       <div className="param-grid">
-        <NumField label="Epochs" value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
-        <TextField label="Batch Size (auto / number)" value={form.batchSize} onChange={v => setField('batchSize', v)} />
-        <NumField label="Save Every N Epochs" value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
-        <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
+        <NumField label={t('Epochs', '训练轮数 (epoch)')} value={form.gptEpochs} onChange={v => setField('gptEpochs', v)} min={1} max={100} />
+        <TextField label={t('Batch Size (auto / number)', '批大小 (auto / 数字)')} value={form.batchSize} onChange={v => setField('batchSize', v)} />
+        <NumField label={t('Save Every N Epochs', '每 N 轮保存一次')} value={form.s1SaveEvery ?? 4} onChange={v => setField('s1SaveEvery', v)} min={1} max={50} />
       </div>
     </div>
   )
 }
 
 function S2BasicCol({ form, setField }) {
+  const { t } = useT()
   return (
     <div>
       <div className="node-col-title">S2 · SoVITS</div>
       <div className="param-grid">
-        <NumField label="Epochs" value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
-        <NumField label="Save Every N Epochs" value={form.s2SaveEvery ?? 5} onChange={v => setField('s2SaveEvery', v)} min={1} max={50} />
-        <TextField label="Learning Rate (default / number)" value={form.learningRate} onChange={v => setField('learningRate', v)} />
-        <NumField label="Eval Interval" value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
-        <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
-          <input type="checkbox" checked={form.s2Fp16 !== false} onChange={e => setField('s2Fp16', e.target.checked)} /> FP16
-        </label>
+        <NumField label={t('Epochs', '训练轮数 (epoch)')} value={form.sovitsEpochs} onChange={v => setField('sovitsEpochs', v)} min={1} max={100} />
+        <NumField label={t('Save Every N Epochs', '每 N 轮保存一次')} value={form.s2SaveEvery ?? 5} onChange={v => setField('s2SaveEvery', v)} min={1} max={50} />
+        <TextField label={t('Learning Rate (default / number)', '学习率 (default / 数字)')} value={form.learningRate} onChange={v => setField('learningRate', v)} />
+        <NumField label={t('Eval Interval', '评估间隔')} value={form.s2EvalInterval ?? 500} onChange={v => setField('s2EvalInterval', v)} min={10} max={10000} />
+        <SelectField label={t('Precision', '精度')} value={form.s2Fp16 === false ? 'fp32' : 'fp16'} onChange={v => setField('s2Fp16', v !== 'fp32')} options={S2_PRECISIONS} />
       </div>
     </div>
   )
@@ -291,16 +310,24 @@ function S1ExpertCol({ form, setField }) {
   return (
     <div>
       <div className="node-col-title">S1 · GPT</div>
+      <div className="param-subgroup-title">General</div>
       <div className="param-grid">
         <NumField label="Seed" value={form.s1Seed ?? 1234} onChange={v => setField('s1Seed', v)} min={0} max={999999} />
-        <TextField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} />
+        <SelectField label="Precision" value={form.s1Precision || '16-mixed'} onChange={v => setField('s1Precision', v)} options={S1_PRECISIONS} />
         <NumField label="Gradient Clip" value={form.s1GradClip ?? 1.0} onChange={v => setField('s1GradClip', v)} min={0.1} max={10} step={0.1} />
+        <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
+      </div>
+      <div className="param-subgroup-title">LR Scheduler</div>
+      <div className="param-grid">
+        <NumField label="Peak LR" value={form.s1Lr ?? 0.01} onChange={v => setField('s1Lr', v)} min={0.0001} max={1} step={0.001} />
         <NumField label="LR Init" value={form.s1LrInit ?? 0.00001} onChange={v => setField('s1LrInit', v)} min={0.0000001} max={0.1} step={0.00001} />
         <NumField label="LR End" value={form.s1LrEnd ?? 0.0001} onChange={v => setField('s1LrEnd', v)} min={0.0000001} max={0.1} step={0.00001} />
         <NumField label="Warmup Steps" value={form.s1Warmup ?? 2000} onChange={v => setField('s1Warmup', v)} min={0} max={100000} />
         <NumField label="Decay Steps" value={form.s1Decay ?? 40000} onChange={v => setField('s1Decay', v)} min={1000} max={200000} />
+      </div>
+      <div className="param-subgroup-title">Data &amp; Eval</div>
+      <div className="param-grid">
         <NumField label="Max Audio Sec" value={form.s1MaxSec ?? 54} onChange={v => setField('s1MaxSec', v)} min={1} max={300} />
-        <NumField label="Num Workers" value={form.s1NumWorkers ?? 4} onChange={v => setField('s1NumWorkers', v)} min={1} max={16} />
         <NumField label="Max Eval Sample" value={form.s1MaxEval ?? 8} onChange={v => setField('s1MaxEval', v)} min={1} max={100} />
       </div>
     </div>
@@ -311,17 +338,24 @@ function S2ExpertCol({ form, setField }) {
   return (
     <div>
       <div className="node-col-title">S2 · SoVITS</div>
+      <div className="param-subgroup-title">General</div>
       <div className="param-grid">
         <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
         <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
-        <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
         <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
-        <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
-        <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
-        <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
         <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
           <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
         </label>
+      </div>
+      <div className="param-subgroup-title">Learning Rate</div>
+      <div className="param-grid">
+        <NumField label="LR Decay" value={form.s2LrDecay ?? 0.999875} onChange={v => setField('s2LrDecay', v)} min={0.9} max={1} step={0.0001} />
+        <NumField label="Text Low LR Rate" value={form.s2TextLowLr ?? 0.4} onChange={v => setField('s2TextLowLr', v)} min={0.01} max={1} step={0.01} />
+      </div>
+      <div className="param-subgroup-title">Loss Weights</div>
+      <div className="param-grid">
+        <NumField label="C Mel Loss" value={form.s2CMel ?? 45} onChange={v => setField('s2CMel', v)} min={1} max={100} />
+        <NumField label="C KL Loss" value={form.s2CKl ?? 1.0} onChange={v => setField('s2CKl', v)} min={0.1} max={10} step={0.1} />
       </div>
     </div>
   )
@@ -330,28 +364,32 @@ function S2ExpertCol({ form, setField }) {
 // part: 's1' | 's2' | 'both'. Renders the same fields whether shown on the unified
 // Training page (both) or on a single-model node/restore panel (s1 / s2).
 function TrainParamFields({ form, setField, part = 'both', versionMode = 'single' }) {
+  const { t } = useT()
   const expertLocked = !form.expertUnlocked
   const showS1 = part === 's1' || part === 'both'
   const showS2 = part === 's2' || part === 'both'
   const hint = part === 's1'
-    ? '8GB VRAM (RTX 3070): keep batch size ≤ 4, or use "auto". Save-Every is auto-clamped to the epoch count so a checkpoint is always produced.'
+    ? ''
     : part === 's2'
-      ? 'S2 (SoVITS) trains independently of S1 — it does not need the GPT checkpoint.'
-      : '8GB VRAM (RTX 3070): keep batch size ≤ 4, or use "auto". Save-Every is auto-clamped to the epoch count so a checkpoint is always produced. S1 and S2 are independent steps.'
+      ? t('S2 (SoVITS) trains independently of S1 — it does not need the GPT checkpoint.',
+          'S2 (SoVITS) 独立于 S1 训练，不需要 GPT checkpoint。')
+      : t('S1 and S2 are independent steps.', 'S1 与 S2 是相互独立的步骤。')
+  // When only one stage is shown it spans the full modal width → lay params out 4-up.
+  const colsClass = part === 'both' ? 'node-cols' : 'node-cols node-cols-solo'
   return (
     <>
-      <div className="layer-label">Advanced Options</div>
+      <div className="layer-label">{t('Advanced Options', '高级选项')}</div>
       {/* Base model version(s). Only shown for the SoVITS (S2) stage — GPT is version-agnostic.
           versionMode='multi' (S2 pipeline node) → checkbox group → form.modelVersions[] (read B:
           one SoVITS trained per checked version). Otherwise a single select (asset rebuild). */}
       {showS2 && (versionMode === 'multi' ? (
         <div className="train-version-row" style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>SoVITS Version(s) — one model trained per checked version</label>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('SoVITS Version(s) — one model trained per checked version', 'SoVITS 版本 — 每勾选一个版本训练一个模型')}</label>
           <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
             {[
               { v: 'v2', label: 'v2' },
-              { v: 'v2Pro', label: 'v2Pro · recommended' },
-              { v: 'v2ProPlus', label: 'v2ProPlus · best' },
+              { v: 'v2Pro', label: 'v2Pro' },
+              { v: 'v2ProPlus', label: 'v2ProPlus' },
             ].map(({ v, label }) => {
               const cur = (Array.isArray(form.modelVersions) && form.modelVersions.length)
                 ? form.modelVersions : (form.modelVersion ? [form.modelVersion] : ['v2Pro']);
@@ -372,42 +410,42 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
             })}
           </div>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-            Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own
-            base + SV models (download_models.py); missing ones are reported below the pipeline before you start.
+            {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before you start.',
+               '每个勾选的版本会在一次运行中训练各自的 SoVITS 模型。v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)；缺失的模型会在开始前于流程下方列出。')}
           </p>
         </div>
       ) : (
         <div className="train-version-row" style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>Base Model Version</label>
-          <select className="control" value={form.modelVersion || 'v2'} onChange={e => setField('modelVersion', e.target.value)}>
-            <option value="v2">v2 — general base (s2G2333k)</option>
-            <option value="v2Pro">v2Pro — recommended · needs v2Pro base + SV model</option>
-            <option value="v2ProPlus">v2ProPlus — best quality · needs v2ProPlus base + SV model</option>
-          </select>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('Base Model Version', 'Base 模型版本')}</label>
+          <Select className="control" value={form.modelVersion || 'v2'} onChange={e => setField('modelVersion', e.target.value)}>
+            <option value="v2">{t('v2 — general base (s2G2333k)', 'v2 — 通用 base (s2G2333k)')}</option>
+            <option value="v2Pro">{t('v2Pro — needs v2Pro base + SV model', 'v2Pro — 需要 v2Pro base + SV 模型')}</option>
+            <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus — 需要 v2ProPlus base + SV 模型')}</option>
+          </Select>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-            v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are
-            reported below the pipeline before you start.
+            {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before you start.',
+               'v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)。缺失的 base 模型会在开始前于流程下方列出。')}
           </p>
         </div>
       ))}
-      <div className="node-cols">
+      <div className={colsClass}>
         {showS1 && <S1BasicCol form={form} setField={setField} />}
         {showS2 && <S2BasicCol form={form} setField={setField} />}
       </div>
-      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>{hint}</p>
+      {hint && <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>{hint}</p>}
 
       <details className="expert-block" style={{ marginTop: 14 }}>
-        <summary className="expert-summary">Expert Parameters — GPT-SoVITS internals</summary>
+        <summary className="expert-summary">{t('Expert Parameters — GPT-SoVITS internals', '专家参数 — GPT-SoVITS 内部设置')}</summary>
         <div className="msg msg-danger expert-warning">
-          <strong>⚠ Expert Parameters.</strong> Changing these can make training unstable, waste hours of GPU time,
-          or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.
+          <strong>{t('⚠ Expert Parameters.', '⚠ 专家参数。')}</strong> {t('Changing these can make training unstable, waste hours of GPU time, or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.',
+            '修改这些参数可能导致训练不稳定、浪费数小时 GPU 时间，或训练出更差的模型。大多数用户不应改动它们。默认值针对 8GB 显存 GPU 调优。')}
         </div>
         <label className="toggle-row expert-unlock">
           <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
-          I understand the risks — let me edit expert parameters
+          {t('I understand the risks — let me edit expert parameters', '我了解风险 — 允许我编辑专家参数')}
         </label>
         <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
-          <div className="node-cols">
+          <div className={colsClass}>
             {showS1 && <S1ExpertCol form={form} setField={setField} />}
             {showS2 && <S2ExpertCol form={form} setField={setField} />}
           </div>
@@ -420,9 +458,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
 const LANGUAGES = [
   { code: 'ja', label: 'Japanese' },
   { code: 'zh', label: 'Chinese (Mandarin)' },
-  { code: 'yue', label: 'Cantonese' },
   { code: 'en', label: 'English' },
-  { code: 'ko', label: 'Korean' },
 ]
 
 // Training presets — frontend-only convenience. Selecting one writes a bundle of
@@ -430,12 +466,16 @@ const LANGUAGES = [
 // handleStart already serialises these same form.* fields into customParams.training.
 const TRAIN_PRESETS = [
   { key: 'smoke',    label: 'Quick Smoke Test',     hint: 'Tiny run to verify the pipeline end-to-end (~2 epochs).',
+    hintZh: '极小规模的试跑，用于端到端验证整条流程（约 2 个 epoch）。',
     fields: { gptEpochs: 2,  sovitsEpochs: 2,  batchSize: 'auto', s1SaveEvery: 1, s2SaveEvery: 1, s2GradCkpt: false, s2Fp16: true } },
   { key: 'default',  label: 'Default (S1 8 / S2 25)', hint: 'S1 trains fewer epochs to limit prosody overfitting; S2 trains more epochs for acoustic and timbre adaptation.',
+    hintZh: 'S1 训练较少的 epoch 以限制韵律过拟合；S2 训练更多 epoch 以适配音质与音色。',
     fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 'auto', s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: false, s2Fp16: true } },
   { key: 'lowvram',  label: 'Low VRAM Safe',         hint: 'Batch size 1 + gradient checkpoint for 8GB GPUs. Same S1 8 / S2 25 epoch split.',
+    hintZh: 'batch size 1 + gradient checkpoint，适合 8GB 显存的 GPU。epoch 划分同样为 S1 8 / S2 25。',
     fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 1,      s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: true,  s2Fp16: true } },
   { key: 'custom',   label: 'Custom',               hint: 'Your own values — edit anything in the pipeline steps below.',
+    hintZh: '使用你自己的参数——可在下方各流程步骤中任意修改。',
     fields: null },
 ]
 
@@ -457,31 +497,36 @@ const SLICE_PRESET_VALUES = {
 // scan. Tracked in PHASE2_REPORT.md → "Phase 4 backend dependencies".
 const INPUT_TYPES = [
   { key: 'auto',  label: 'Standard (default)',  hint: 'Default preprocessing: slice + transcribe.',
+    hintZh: '默认预处理：切片 + 转写。',
     fields: { denoise: false, slice: true, asr: true } },
   { key: 'clean', label: 'Clean voice clips',  hint: 'Already-clean recordings; no denoise.',
+    hintZh: '已经干净的录音；不做降噪。',
     fields: { denoise: false, slice: true, asr: true } },
   { key: 'long',  label: 'Long raw recording', hint: 'One long take; slice into clips before training.',
+    hintZh: '单条长录音；训练前先切成小片段。',
     fields: { denoise: false, slice: true, asr: true }, slicePreset: 'aggressive' },
   { key: 'noisy', label: 'Noisy / mixed audio', hint: 'Has music/noise; extract vocals first.',
+    hintZh: '含音乐/噪声；先提取人声。',
     fields: { denoise: true, slice: true, asr: true } },
 ]
 
 // Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS are
 // now independent steps (train_s1 / train_s2); 'promote' publishes the asset.
 const TRAIN_STEPS = [
-  { key: 'denoise',    label: 'Vocal Extraction' },
-  { key: 'slice',      label: 'Slicing' },
-  { key: 'asr',        label: 'ASR' },
-  { key: 'preprocess', label: 'Preprocess' },
-  { key: 'train_s1',   label: 'S1 (GPT)' },
-  { key: 'train_s2',   label: 'S2 (SoVITS)' },
-  { key: 'finalize',   label: 'Finalize' },
-  { key: 'promote',    label: 'Publish' },
+  { key: 'denoise',    label: 'Vocal Extraction', labelZh: '人声提取' },
+  { key: 'slice',      label: 'Slicing',          labelZh: '切片' },
+  { key: 'asr',        label: 'ASR',              labelZh: 'ASR' },
+  { key: 'preprocess', label: 'Preprocess',       labelZh: '预处理' },
+  { key: 'train_s1',   label: 'S1 (GPT)',         labelZh: 'S1 (GPT)' },
+  { key: 'train_s2',   label: 'S2 (SoVITS)',      labelZh: 'S2 (SoVITS)' },
+  { key: 'finalize',   label: 'Finalize',         labelZh: '打包完成' },
+  { key: 'promote',    label: 'Publish',          labelZh: '发布' },
 ]
 
 // Clickable pipeline map — doubles as navigation (click a node to configure it)
 // and as live status (during a run the node reflects /api/train/status state).
 function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect, readOnly }) {
+  const { t, lang } = useT()
   return (
     <div className={`pipe-map ${readOnly ? 'readonly' : ''}`} role="list">
       {TRAIN_STEPS.map((s, i) => {
@@ -502,11 +547,11 @@ function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect, readOnly
             className={`pipe-step ${isSel ? 'selected' : ''} ${off ? 'disabled-step' : ''} ${readOnly ? 'readonly' : ''}`}
             key={s.key}
             onClick={readOnly ? undefined : () => onSelect(isSel ? null : s.key)}
-            title={readOnly ? s.label : 'Click to configure this step'}
+            title={readOnly ? (lang === 'zh' ? s.labelZh : s.label) : t('Click to configure this step', '点击以配置此步骤')}
           >
             {i > 0 && <span className={`pipe-seg ${prevDone ? 'done' : ''}`} aria-hidden="true" />}
             <span className={`pipe-dot ${st}`}>{glyph}</span>
-            <span className={`pipe-label ${st === 'running' ? 'running' : ''}`}>{s.label}</span>
+            <span className={`pipe-label ${st === 'running' ? 'running' : ''}`}>{lang === 'zh' ? s.labelZh : s.label}</span>
           </button>
         )
       })}
@@ -683,7 +728,8 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
   );
 }
 
-function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill }) {
+function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill, health }) {
+  const { t: tr } = useT()
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'ja', voiceName: '',
     preset: 'default', inputType: 'auto', expertUnlocked: false,
@@ -741,6 +787,23 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const failCountRef = useRef(0);
   // Overwrite confirmation when the target voice id already exists (409 guard).
   const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { existingId, existingDisplay }
+
+  // ── GPU pre-flight (advisory only — we never auto-tune params) ──────────────
+  // No NVIDIA GPU → block the start behind an explicit acknowledgement (CPU
+  // fine-tuning is punishingly slow and UVR5 is unavailable). Low-VRAM (≤4GB)
+  // GPUs still work but risk OOM, so we warn ONCE (persisted) rather than nag.
+  const cuda = health?.cuda; // { available, device_name, vram_gb } | undefined until health loads
+  const [noGpuConfirm, setNoGpuConfirm] = useState(false);
+  const [noGpuAck, setNoGpuAck] = useState(false);
+  const [lowVramWarned, setLowVramWarned] = usePersistentState('train.lowVramWarned', false);
+  const [showLowVram, setShowLowVram] = useState(false);
+  useEffect(() => {
+    // Fire the one-time low-VRAM notice only for a real ≤4GB CUDA device.
+    if (cuda?.ready && cuda.available && typeof cuda.vram_gb === 'number' && cuda.vram_gb <= 4 && !lowVramWarned) {
+      setShowLowVram(true);
+    }
+  }, [cuda?.available, cuda?.vram_gb, lowVramWarned]);
+  const dismissLowVram = () => { setShowLowVram(false); setLowVramWarned(true); };
 
   // ── Failure-resume (哪里跌倒哪里爬起来) ──────────────────────────────────────
   // Cached failed/interrupted tasks the user can resume. Default-collapsed panel.
@@ -947,6 +1010,28 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       return;
     }
     if (!form.voiceName.trim()) { setError('Please enter a voice name'); return }
+    // GPU pre-flight: when health has loaded and reports no CUDA device, block
+    // behind an explicit acknowledgement instead of silently starting a CPU run.
+    // (We only block on a definitive false; while health is still loading we let
+    // it proceed rather than gate on unknown state.)
+    if (cuda && cuda.ready && cuda.available === false) {
+      setNoGpuAck(false);
+      setNoGpuConfirm(true);
+      return;
+    }
+    setError(null);
+    setStatus(null);
+    setLogs([]);
+    try {
+      await submitTraining(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // Continue a fine-tune after the user acknowledged the no-GPU warning.
+  const proceedWithoutGpu = async () => {
+    setNoGpuConfirm(false);
     setError(null);
     setStatus(null);
     setLogs([]);
@@ -1112,9 +1197,9 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   ].filter(Boolean);
 
   const NODE_LABELS = {
-    denoise: 'Vocal Extraction', slice: 'Slicing', asr: 'ASR Transcription',
-    preprocess: 'Preprocess', train_s1: 'S1 Training (GPT)', train_s2: 'S2 Training (SoVITS)',
-    finalize: 'Finalize', promote: 'Publish',
+    denoise: tr('Vocal Extraction', '人声提取'), slice: tr('Slicing', '切片'), asr: tr('ASR Transcription', 'ASR 转写'),
+    preprocess: tr('Preprocess', '预处理'), train_s1: tr('S1 Training (GPT)', 'S1 训练 (GPT)'), train_s2: tr('S2 Training (SoVITS)', 'S2 训练 (SoVITS)'),
+    finalize: tr('Finalize', '打包完成'), promote: tr('Publish', '发布'),
   };
 
   const renderNodeDetail = () => {
@@ -1129,17 +1214,18 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
-            Enable vocal extraction
+            {tr('Enable vocal extraction', '启用人声提取')}
           </label>
           {form.denoise && (
             <div className="field">
-              <label className="field-label">Model</label>
-              <select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
+              <label className="field-label">{tr('Model', '模型')}</label>
+              <Select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
                 <option value="mdx-net">HP2 (Vocal Remover)</option>
-              </select>
+              </Select>
             </div>
           )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Extracts the vocal track (removes background music / instrumental) before slicing, using the UVR5 HP2 model (VR architecture). Off by default — only needed for noisy or mixed audio.</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{tr('Extracts the vocal track (removes background music / instrumental) before slicing, using the UVR5 HP2 model (VR architecture). Off by default — only needed for noisy or mixed audio.',
+            '在切片前使用 UVR5 HP2 模型（VR 架构）提取人声轨道（去除背景音乐 / 伴奏）。默认关闭——仅在音频含噪声或混音时才需要。')}</p>
         </>
       );
     } else if (selectedNode === 'slice') {
@@ -1156,26 +1242,29 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.slice} onChange={e => toggleSlice(e.target.checked)} />
-            Enable slicing
+            {tr('Enable slicing', '启用切片')}
           </label>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.copyRaw} onChange={e => toggleCopyRaw(e.target.checked)} />
-            Copy raw audio into the asset (keep originals as reference)
+            {tr('Copy raw audio into the asset (keep originals as reference)', '将原始音频复制进资源（保留原始文件作为参考）')}
           </label>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: -2, marginBottom: 8 }}>
-            At least one kind of reference audio is required: slicing or copied raw.
-            Turning off “Copy raw” forces slicing on, and vice versa (otherwise the asset
-            would have no reference audio). When slicing is off, ASR writes <code>raw_opt.list</code>.
+            {tr(
+              <>At least one kind of reference audio is required: slicing or copied raw.
+              Turning off “Copy raw” forces slicing on, and vice versa (otherwise the asset
+              would have no reference audio). When slicing is off, ASR writes <code>raw_opt.list</code>.</>,
+              <>至少需要一种参考音频：切片或复制的原始音频。关闭“复制原始音频”会强制开启切片，反之亦然
+              （否则资源将没有参考音频）。切片关闭时，ASR 会写入 <code>raw_opt.list</code>。</>)}
           </p>
           <div className="field">
-            <label className="field-label">Slicing preset</label>
-            <select className="control" onChange={e => applySlicePreset(e.target.value)} defaultValue="">
-              <option value="" disabled>Choose a preset…</option>
-              <option value="default">Default</option>
-              <option value="aggressive">More aggressive split</option>
-              <option value="longer">Fewer, longer clips</option>
-              <option value="none">Already sliced (no slicing)</option>
-            </select>
+            <label className="field-label">{tr('Slicing preset', '切片预设')}</label>
+            <Select className="control" onChange={e => applySlicePreset(e.target.value)} defaultValue="">
+              <option value="" disabled>{tr('Choose a preset…', '选择一个预设…')}</option>
+              <option value="default">{tr('Default', '默认')}</option>
+              <option value="aggressive">{tr('More aggressive split', '更激进的切分')}</option>
+              <option value="longer">{tr('Fewer, longer clips', '更少、更长的片段')}</option>
+              <option value="none">{tr('Already sliced (no slicing)', '已切片（不再切片）')}</option>
+            </Select>
           </div>
           {form.slice && (
             <div style={{ marginTop: 4 }}>
@@ -1189,7 +1278,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.asr} onChange={e => setField('asr', e.target.checked)} />
-            Enable transcription (ASR)
+            {tr('Enable transcription (ASR)', '启用转写 (ASR)')}
           </label>
           {form.asr && <AsrParamFields form={form} setField={setField} />}
         </>
@@ -1199,11 +1288,11 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.trainS1 !== false} onChange={e => setField('trainS1', e.target.checked)} />
-            Enable S1 (GPT) fine-tuning
+            {tr('Enable S1 (GPT) fine-tuning', '启用 S1 (GPT) 微调')}
           </label>
           {form.trainS1 !== false
             ? <TrainParamFields form={form} setField={setField} part="s1" />
-            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>S1 (GPT) fine-tuning is turned off — this step will be skipped.</p>}
+            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S1 (GPT) fine-tuning is turned off — this step will be skipped.', 'S1 (GPT) 微调已关闭——此步骤将被跳过。')}</p>}
         </>
       );
     } else if (selectedNode === 'train_s2') {
@@ -1211,49 +1300,57 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         <>
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.trainS2 !== false} onChange={e => setField('trainS2', e.target.checked)} />
-            Enable S2 (SoVITS) fine-tuning
+            {tr('Enable S2 (SoVITS) fine-tuning', '启用 S2 (SoVITS) 微调')}
           </label>
           {form.trainS2 !== false
             ? <TrainParamFields form={form} setField={setField} part="s2" versionMode="multi" />
-            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>S2 (SoVITS) fine-tuning is turned off — this step will be skipped.</p>}
+            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S2 (SoVITS) fine-tuning is turned off — this step will be skipped.', 'S2 (SoVITS) 微调已关闭——此步骤将被跳过。')}</p>}
         </>
       );
     } else if (selectedNode === 'preprocess') {
       body = (
         <>
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>Extracts text tokens and audio features required for training.</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('Extracts text tokens and audio features required for training.', '提取训练所需的文本 token 与音频特征。')}</p>
           <label className="toggle-row" style={{ marginTop: 8 }}>
             <input type="checkbox" checked={form.preprocessReview !== false && form.preprocessReview}
                    onChange={e => setField('preprocessReview', e.target.checked)} />
-            Pause after ASR for manual proofreading
+            {tr('Pause after ASR for manual proofreading', 'ASR 之后暂停以进行人工校对')}
           </label>
           <p className="field-hint" style={{ marginTop: 4 }}>
-            When enabled the pipeline stops right after transcription so you can correct the
-            recognised text and pronunciation before preprocessing/training continue.
+            {tr('When enabled the pipeline stops right after transcription so you can correct the recognised text and pronunciation before preprocessing/training continue.',
+                '启用后，流程会在转写完成后立即停止，让你在继续预处理 / 训练之前修正识别出的文本和读音。')}
           </p>
         </>
       );
     } else if (selectedNode === 'finalize') {
-      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.</p>;
+      body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.', '将训练好的 checkpoint 与参考音频打包成一个音色资源。无需配置。')}</p>;
     } else if (selectedNode === 'promote') {
       body = (
         <>
-          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page.</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{tr(
+            <>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page.</>,
+            <>将完成的音色发布到 <code>assets/</code>，使其可在 Generate 页面中选择。</>)}</p>
           <label className="toggle-row">
             <input type="checkbox" checked={!!form.keepStaging}
                    onChange={e => setField('keepStaging', e.target.checked)} />
-            Keep task workspace after publish
+            {tr('Keep task workspace after publish', '发布后保留任务工作区')}
           </label>
           <p className="field-hint" style={{ marginTop: 4, color: 'var(--warning)' }}>
-            By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
-            intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
-            the voice is published, since the finished asset no longer needs it. Enable this only when you
-            want to <strong>keep</strong> those intermediates for inspection or debugging. It will
-            count against your disk space.
+            {tr(
+              <>By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
+              intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
+              the voice is published, since the finished asset no longer needs it. Enable this only when you
+              want to <strong>keep</strong> those intermediates for inspection or debugging. It will
+              count against your disk space.</>,
+              <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>——中间预处理特征与 checkpoint）
+              会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有当你想<strong>保留</strong>
+              这些中间产物用于检查或调试时才开启。它会占用你的磁盘空间。</>)}
           </p>
           <p className="field-hint">
-            The retained workspace is <strong>never</strong> reused by later tasks — it lives only so you
-            can inspect it. Delete it later from the Train page&rsquo;s cache manager when you no longer need it.
+            {tr(
+              <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so you
+              can inspect it. Delete it later from the Train page&rsquo;s cache manager when you no longer need it.</>,
+              <>保留的工作区<strong>绝不会</strong>被后续任务复用——它仅供你检查之用。不再需要时，可在 Train 页面的缓存管理器中删除它。</>)}
           </p>
         </>
       );
@@ -1264,7 +1361,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           <span className="node-detail-title">{NODE_LABELS[selectedNode]}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {stBadge}
-            <button className="btn btn-sm" onClick={() => setSelectedNode(null)}>Close</button>
+            <button className="btn btn-sm" onClick={() => setSelectedNode(null)}>{tr('Close', '关闭')}</button>
           </div>
         </div>
         <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
@@ -1285,19 +1382,19 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="recover-panel">
               <button type="button" className="recover-toggle" onClick={() => { const n = !recoverOpen; setRecoverOpen(n); if (n) loadRecoverable(); }}>
                 <span className="recover-caret">{recoverOpen ? '▾' : '▸'}</span>
-                Recover a failed run
+                {tr('Recover a failed run', '恢复失败的任务')}
                 {recoverList.length > 0 && <span className="recover-count">{recoverList.length}</span>}
               </button>
               {recoverOpen && (
                 <div className="recover-body">
-                  {recoverLoading && <p className="field-hint">Loading…</p>}
+                  {recoverLoading && <p className="field-hint">{tr('Loading…', '加载中…')}</p>}
                   {!recoverLoading && recoverList.length === 0 && (
-                    <p className="field-hint">No failed or interrupted tasks in the cache. Everything is clean.</p>
+                    <p className="field-hint">{tr('No failed or interrupted tasks in the cache. Everything is clean.', '缓存中没有失败或中断的任务。一切正常。')}</p>
                   )}
                   {!recoverLoading && recoverList.length > 0 && (
                     <table className="recover-table">
                       <thead>
-                        <tr><th>Voice</th><th>Lang</th><th>Failed at</th><th>Reason</th><th>When</th><th></th></tr>
+                        <tr><th>{tr('Voice', '音色')}</th><th>{tr('Lang', '语言')}</th><th>{tr('Failed at', '失败于')}</th><th>{tr('Reason', '原因')}</th><th>{tr('When', '时间')}</th><th></th></tr>
                       </thead>
                       <tbody>
                         {recoverList.map(t => (
@@ -1308,13 +1405,13 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                               <span className="badge badge-danger">{FSTEP_LABELS[t.resumeStep] || t.resumeStep || t.status}</span>
                             </td>
                             <td className="recover-reason" title={t.failedAt && t.failedAt.reason || ''}>
-                              {(t.failedAt && t.failedAt.reason) || (t.status === 'interrupted' ? 'Interrupted' : 'Unknown')}
+                              {(t.failedAt && t.failedAt.reason) || (t.status === 'interrupted' ? tr('Interrupted', '已中断') : tr('Unknown', '未知'))}
                             </td>
                             <td className="recover-when">{t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—'}</td>
                             <td>
                               <button className="btn btn-sm btn-primary" onClick={() => beginResume(t)}
                                 disabled={recovery && recovery.sourceTaskId === t.id}>
-                                {recovery && recovery.sourceTaskId === t.id ? 'Selected' : 'Resume'}
+                                {recovery && recovery.sourceTaskId === t.id ? tr('Selected', '已选择') : tr('Resume', '恢复')}
                               </button>
                             </td>
                           </tr>
@@ -1323,7 +1420,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                     </table>
                   )}
                   <p className="field-hint" style={{ marginTop: 6 }}>
-                    Only failed / interrupted tasks appear here. Successful runs are cleaned up automatically after publishing.
+                    {tr('Only failed / interrupted tasks appear here. Successful runs are cleaned up automatically after publishing.',
+                        '这里只显示失败 / 中断的任务。成功的运行在发布后会被自动清理。')}
                   </p>
                 </div>
               )}
@@ -1334,28 +1432,31 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             <div className="essentials-grid">
               <div className="field">
-                <label className="field-label">Display Name *</label>
+                <label className="field-label">{tr('Display Name', '显示名称')} *</label>
                 <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="例如：雷子 / MyVoice" />
                 {displayName && (
                   <p className="field-hint">
-                    Proposed ID: <code>{proposedId || '…'}</code>
-                    <span className="field-note"> (finalized at creation — may differ)</span>
+                    {tr('Proposed ID:', '建议 ID：')} <code>{proposedId || '…'}</code>
+                    <span className="field-note"> {tr('(finalized at creation — may differ)', '（在创建时最终确定——可能与此不同）')}</span>
                     {dupDisplay.length > 0 && (
-                      <><br/><span className="pf-warn">ⓘ {dupDisplay.length} existing voice{dupDisplay.length > 1 ? 's' : ''} already use this display name (id{dupDisplay.length > 1 ? 's' : ''}: {dupDisplay.map(v => v.id).join(', ')}). A new distinct voice will be created.</span></>
+                      <><br/><span className="pf-warn">{tr(
+                        `ⓘ ${dupDisplay.length} existing voice${dupDisplay.length > 1 ? 's' : ''} already use this display name (id${dupDisplay.length > 1 ? 's' : ''}: ${dupDisplay.map(v => v.id).join(', ')}). A new distinct voice will be created.`,
+                        `ⓘ 已有 ${dupDisplay.length} 个音色在使用该显示名称（id：${dupDisplay.map(v => v.id).join(', ')}）。将创建一个新的、独立的音色。`)}</span></>
                     )}
                   </p>
                 )}
               </div>
               <div className="field">
-                <label className="field-label">Language *</label>
-                <select className="control" value={form.language} onChange={e => setField('language', e.target.value)}>
+                <label className="field-label">{tr('Language', '语言')} *</label>
+                <Select className="control" value={form.language} onChange={e => setField('language', e.target.value)}>
                   {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-                </select>
+                </Select>
               </div>
               <div className="field">
-                <label className="field-label">Audio Folder Path *</label>
+                <label className="field-label">{tr('Audio Folder Path', '音频文件夹路径')} *</label>
                 <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder="e.g. D:\raw_audio\MyVoice" />
-                <p className="field-hint">ⓘ Folder path only — point to a folder of audio files. If you have a single audio file, put it inside a folder first, then select that folder.</p>
+                <p className="field-hint">{tr('ⓘ Folder path only — point to a folder of audio files. If you have a single audio file, put it inside a folder first, then select that folder.',
+                  'ⓘ 仅填文件夹路径——指向一个存放音频文件的文件夹。如果只有单个音频文件，请先把它放进一个文件夹，再选择该文件夹。')}</p>
               </div>
             </div>
 
@@ -1363,21 +1464,24 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 Both are frontend-only: they just fill existing form.* fields. */}
             <div className="preset-grid">
               <div className="field">
-                <label className="field-label">Training Preset</label>
-                <select className="control" value={form.preset || 'default'} onChange={e => applyPreset(e.target.value)}>
+                <label className="field-label">{tr('Training Preset', '训练预设')}</label>
+                <Select className="control" value={form.preset || 'default'} onChange={e => applyPreset(e.target.value)}>
                   {TRAIN_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                </select>
-                <p className="field-hint">{(TRAIN_PRESETS.find(p => p.key === (form.preset || 'default')) || {}).hint}</p>
-                <p className="field-note">S1 adapts semantic rhythm and prosody and may overfit earlier on small datasets. S2 receives more training epochs for acoustic and timbre adaptation.</p>
-                <p className="field-note">More training does not always produce better results. Keep earlier checkpoints and compare them before choosing a model.</p>
+                </Select>
+                <p className="field-hint">{(() => { const p = TRAIN_PRESETS.find(p => p.key === (form.preset || 'default')) || {}; return tr(p.hint, p.hintZh) })()}</p>
+                <p className="field-note">{tr('S1 adapts semantic rhythm and prosody and may overfit earlier on small datasets. S2 receives more training epochs for acoustic and timbre adaptation.',
+                  'S1 学习语义层面的节奏与韵律，在小数据集上更容易过拟合。S2 使用更多训练 epoch 来适配音质与音色。')}</p>
+                <p className="field-note">{tr('More training does not always produce better results. Keep earlier checkpoints and compare them before choosing a model.',
+                  '训练更久不一定效果更好。请保留较早的 checkpoint，先对比再决定用哪个模型。')}</p>
               </div>
               <div className="field">
-                <label className="field-label">Input Type</label>
-                <select className="control" value={form.inputType || 'auto'} onChange={e => applyInputType(e.target.value)}>
+                <label className="field-label">{tr('Input Type', '输入类型')}</label>
+                <Select className="control" value={form.inputType || 'auto'} onChange={e => applyInputType(e.target.value)}>
                   {INPUT_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-                </select>
-                <p className="field-hint">{(INPUT_TYPES.find(t => t.key === (form.inputType || 'auto')) || {}).hint}</p>
-                <p className="field-note">ⓘ Preset mapping, not content detection — automatic input detection arrives with backend support.</p>
+                </Select>
+                <p className="field-hint">{(() => { const it = INPUT_TYPES.find(x => x.key === (form.inputType || 'auto')) || {}; return tr(it.hint, it.hintZh) })()}</p>
+                <p className="field-note">{tr('ⓘ Preset mapping, not content detection — automatic input detection arrives with backend support.',
+                  'ⓘ 这是预设映射，并非内容检测——自动输入检测将在后端支持后提供。')}</p>
               </div>
             </div>
           </fieldset>
@@ -1387,36 +1491,50 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className={`resume-banner ${recoveryMode === 'modify' ? 'resume-banner-fork' : 'resume-banner-continue'}`}>
               <div className="resume-banner-hdr">
                 <span className="resume-banner-title">
-                  {recoveryMode === 'modify' ? '↳ Resume as a NEW task (fork)' : '↻ Resume in place'}
+                  {recoveryMode === 'modify' ? tr('↳ Resume as a NEW task (fork)', '↳ 作为新任务恢复（分叉）') : tr('↻ Resume in place', '↻ 原地恢复')}
                 </span>
-                <button className="btn btn-sm btn-ghost" onClick={cancelRecovery}>Exit resume</button>
+                <button className="btn btn-sm btn-ghost" onClick={cancelRecovery}>{tr('Exit resume', '退出恢复')}</button>
               </div>
               <p className="resume-banner-body">
                 {recoveryMode === 'modify'
                   ? <>{forkByParamChange
-                        ? <>You changed <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> settings. That step runs <strong>before</strong> the failure point,
+                        ? tr(
+                          <>You changed <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> settings. That step runs <strong>before</strong> the failure point,
                            so its output must be regenerated — an in-place resume would reuse the old cache and silently ignore your change.
-                           This therefore launches a <strong>brand-new task</strong> (fork) and re-runs from <strong>{FSTEP_LABELS[rerunStart]}</strong>.</>
-                        : <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
-                           Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).</>}
-                     {' '}Only the products of steps <strong>before {FSTEP_LABELS[rerunStart]}</strong> are copied to the new task — so make sure you have enough <strong>disk space</strong> for them.
-                     The original failed task is kept untouched, and even if this fork succeeds it will publish as a NEW task, not a recovery of the old one.</>
-                  : <>Continuing failed task <code>{recovery.sourceTaskId}</code> from the <strong>{FSTEP_LABELS[recovery.failedStep]}</strong> step,
+                           This therefore launches a <strong>brand-new task</strong> (fork) and re-runs from <strong>{FSTEP_LABELS[rerunStart]}</strong>.</>,
+                          <>你修改了 <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> 的设置。该步骤在失败点<strong>之前</strong>运行，
+                           因此它的输出必须重新生成——原地恢复会复用旧缓存并悄悄忽略你的修改。
+                           所以这里会启动一个<strong>全新任务</strong>（分叉），并从 <strong>{FSTEP_LABELS[rerunStart]}</strong> 重新运行。</>)
+                        : tr(
+                          <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
+                           Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).</>,
+                          <>你把重启点移到了一个更早、已完成的步骤（<strong>{FSTEP_LABELS[rerunStart]}</strong>）。
+                           修改已完成的步骤意味着必须重新运行，因此这里会启动一个<strong>全新任务</strong>（分叉）。</>)}
+                     {' '}{tr(
+                       <>Only the products of steps <strong>before {FSTEP_LABELS[rerunStart]}</strong> are copied to the new task — so make sure you have enough <strong>disk space</strong> for them.
+                       The original failed task is kept untouched, and even if this fork succeeds it will publish as a NEW task, not a recovery of the old one.</>,
+                       <>只有 <strong>{FSTEP_LABELS[rerunStart]} 之前</strong>步骤的产物会被复制到新任务——所以请确保有足够的<strong>磁盘空间</strong>。
+                       原来的失败任务保持不变，即使这个分叉成功，它也会作为一个新任务发布，而不是对旧任务的恢复。</>)}</>
+                  : tr(
+                    <>Continuing failed task <code>{recovery.sourceTaskId}</code> from the <strong>{FSTEP_LABELS[recovery.failedStep]}</strong> step,
                      reusing everything before it. Same task, same workspace.
-                     {recovery.failedAt && recovery.failedAt.reason && <><br/><span className="resume-reason">Why it failed: {recovery.failedAt.reason}</span></>}</>}
+                     {recovery.failedAt && recovery.failedAt.reason && <><br/><span className="resume-reason">Why it failed: {recovery.failedAt.reason}</span></>}</>,
+                    <>从 <strong>{FSTEP_LABELS[recovery.failedStep]}</strong> 步骤继续失败任务 <code>{recovery.sourceTaskId}</code>，
+                     复用它之前的所有产物。同一任务，同一工作区。
+                     {recovery.failedAt && recovery.failedAt.reason && <><br/><span className="resume-reason">失败原因：{recovery.failedAt.reason}</span></>}</>)}
               </p>
               <div className="resume-controls">
-                <label className="field-label" style={{ margin: 0 }}>Restart from</label>
-                <select className="control control-inline" value={rerunStart}
+                <label className="field-label" style={{ margin: 0 }}>{tr('Restart from', '从此处重启')}</label>
+                <Select className="control control-inline" value={rerunStart}
                         onChange={e => setRecovery(r => ({ ...r, resumeStep: e.target.value }))}>
                   {resumeStepOptions.map(s => (
-                    <option key={s} value={s}>{FSTEP_LABELS[s]}{s === recovery.failedStep ? ' (failed step)' : ' (redo completed step)'}</option>
+                    <option key={s} value={s}>{FSTEP_LABELS[s]}{s === recovery.failedStep ? tr(' (failed step)', '（失败的步骤）') : tr(' (redo completed step)', '（重做已完成的步骤）')}</option>
                   ))}
-                </select>
+                </Select>
                 {recoveryMode === 'continue' && failedIsTrain && (
                   <label className="toggle-row" style={{ margin: 0 }}>
                     <input type="checkbox" checked={restartFailedStep} onChange={e => setRestartFailedStep(e.target.checked)} />
-                    Restart this training from scratch (ignore saved checkpoint)
+                    {tr('Restart this training from scratch (ignore saved checkpoint)', '从零重新开始本次训练（忽略已保存的 checkpoint）')}
                   </label>
                 )}
               </div>
@@ -1425,7 +1543,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
           {/* Pipeline map — click a step to configure it (or inspect its status during a run) */}
           <div className="field" style={{ marginTop: 10 }}>
-            <label className="field-label">Pipeline — click any step to configure</label>
+            <label className="field-label">{tr('Pipeline — click any step to configure', '流程 — 点击任意步骤进行配置')}</label>
             <PipelineMap
               statusSteps={status?.steps || (recovery ? recovery.steps : null)}
               enabledMap={recovery
@@ -1441,12 +1559,12 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               through here too). Shows what is NOT already visible in the dropdowns / map. */}
           <div className="preflight">
             <div className="pf-row">
-              <span className="pf-key">Output</span>
+              <span className="pf-key">{tr('Output', '输出')}</span>
               <span className="pf-val pf-path">{proposedId ? `assets/${proposedId}/` : 'assets/<auto-id>/'}</span>
-              <span className="field-note">ⓘ ID allocated by the server at creation</span>
+              <span className="field-note">{tr('ⓘ ID allocated by the server at creation', 'ⓘ ID 由服务器在创建时分配')}</span>
             </div>
             <div className="pf-row">
-              <span className="pf-key">Fine-tune</span>
+              <span className="pf-key">{tr('Fine-tune', '微调')}</span>
               <span className="pf-chips">
                 {form.trainS1 !== false && (
                   <span className="pf-chip">GPT (S1) · {form.gptEpochs ?? 8}ep · save every {form.s1SaveEvery ?? 4}ep</span>
@@ -1455,7 +1573,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                   <span key={v} className="pf-chip">SoVITS {v} · {form.sovitsEpochs ?? 25}ep · save every {form.s2SaveEvery ?? 5}ep</span>
                 ))}
                 {form.trainS1 === false && form.trainS2 === false && (
-                  <span className="pf-chip pf-chip-off">none (safe pass)</span>
+                  <span className="pf-chip pf-chip-off">{tr('none (safe pass)', '无（安全跳过）')}</span>
                 )}
                 {(form.trainS1 !== false || form.trainS2 !== false) && (
                   <span className="pf-chip pf-chip-meta">batch {form.batchSize || 'auto'}</span>
@@ -1463,12 +1581,12 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               </span>
             </div>
             <div className="pf-row">
-              <span className="pf-key">Preprocess</span>
+              <span className="pf-key">{tr('Preprocess', '预处理')}</span>
               <span className="pf-chips">
                 {form.denoise && <span className="pf-chip">Vocal Extract</span>}
                 {form.slice && <span className="pf-chip">Slice</span>}
                 {form.asr && <span className="pf-chip">ASR</span>}
-                {!form.denoise && !form.slice && !form.asr && <span className="pf-chip pf-chip-off">none</span>}
+                {!form.denoise && !form.slice && !form.asr && <span className="pf-chip pf-chip-off">{tr('none', '无')}</span>}
               </span>
             </div>
           </div>
@@ -1479,19 +1597,36 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             baseModelStatus.versions.filter(v => !v.ok).map(v => (
               v.blocking
                 ? <div key={v.version} className="msg msg-error" style={{ marginTop: 10 }}>
-                    ⚠ Base models for <strong>{v.version}</strong> are missing ({(v.criticalMissing || []).join(' + ')}) — this
-                    version is blocked (it would only produce electrical noise). Run:{' '}
+                    {tr(
+                      <>⚠ Base models for <strong>{v.version}</strong> are missing ({(v.criticalMissing || []).join(' + ')}) — this
+                      version is blocked (it would only produce electrical noise). Run:{' '}</>,
+                      <>⚠ <strong>{v.version}</strong> 的底模缺失（{(v.criticalMissing || []).join(' + ')}）——该版本已被阻止
+                      （否则只会产生电流噪声）。请运行：{' '}</>)}
                     <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
                   </div>
                 : <div key={v.version} className="msg msg-warn" style={{ marginTop: 10 }}>
                     ⚠ <strong>{v.version}</strong>: {(v.missing || []).includes('sv')
-                      ? 'speaker-vector (SV) model missing — training will run but without SV enhancement'
-                      : 'a preferred base model is missing; training will fall back to a lower-quality base'}. Run:{' '}
+                      ? tr('speaker-vector (SV) model missing — training will run but without SV enhancement', 'speaker-vector（SV）模型缺失——训练仍会进行，但没有 SV 增强')
+                      : tr('a preferred base model is missing; training will fall back to a lower-quality base', '缺少一个更优的底模；训练将回退到质量较低的底模')}. {tr('Run:', '请运行：')}{' '}
                     <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
                   </div>
             ))}
           {form.trainS1 === false && form.trainS2 === false && (
-            <p className="field-hint" style={{ marginTop: 10 }}>Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.</p>
+            <p className="field-hint" style={{ marginTop: 10 }}>{tr('Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.',
+              'S1 和 S2 都未启用（两个流程步骤均已关闭）——本次运行只会做预处理（切片 / ASR）并发布参考音频。')}</p>
+          )}
+
+          {/* One-time low-VRAM (≤4GB) advisory. We never auto-shrink batch_size —
+              the user decides; this only points them at the control. */}
+          {showLowVram && (
+            <div className="msg" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.35)' }}>
+              <span style={{ fontSize: 16, lineHeight: 1.2 }}>⚠️</span>
+              <div style={{ flex: 1, fontSize: 12.5 }}>
+                检测到显存较小的 GPU（{cuda?.device_name || 'GPU'} · {cuda?.vram_gb}GB）。微调可能因显存不足（OOM）而失败，
+                建议<strong>手动把 Batch Size 调小</strong>（如 1–2）后再开始。该提醒只显示一次。
+              </div>
+              <button className="btn btn-sm" onClick={dismissLowVram}>知道了</button>
+            </div>
           )}
 
           {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
@@ -1501,11 +1636,11 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               <button className="btn btn-primary" onClick={handleStart}
                 disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
                 title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
-                  ? 'Some selected SoVITS versions are missing base models — run download_models.py for them first'
+                  ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模——请先为它们运行 download_models.py')
                   : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
-                title="Delete finished task workspaces from the .staging cache (running tasks are never touched)">
-                {clearing ? 'Cleaning…' : 'Clean Cache'}
+                title={tr('Delete finished task workspaces from the .staging cache (running tasks are never touched)', '从 .staging 缓存中删除已完成的任务工作区（运行中的任务永远不会被动到）')}>
+                {clearing ? tr('Cleaning…', '清理中…') : 'Clean Cache'}
               </button>
               {clearMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{clearMsg}</span>}
             </div>
@@ -1513,9 +1648,10 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
           <ConfirmDialog
             open={cacheConfirm}
-            title="Clean training cache"
-            message="Delete all finished task workspaces from the training cache (.staging)? Running tasks are never deleted. Your published models and assets are not affected."
-            confirmLabel="Clean cache"
+            title={tr('Clean training cache', '清理训练缓存')}
+            message={tr('Delete all finished task workspaces from the training cache (.staging)? Running tasks are never deleted. Your published models and assets are not affected.',
+              '要从训练缓存（.staging）中删除所有已完成的任务工作区吗？运行中的任务永远不会被删除。你已发布的模型和资源不受影响。')}
+            confirmLabel={tr('Clean cache', '清理缓存')}
             danger
             busy={clearing}
             icon={<IconTrash size={18} color="var(--danger)" />}
@@ -1524,18 +1660,18 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           />
 
           {taskId && !status && (
-            <div className="msg" style={{ marginTop: 10 }}>Restoring training state…</div>
+            <div className="msg" style={{ marginTop: 10 }}>{tr('Restoring training state…', '正在恢复训练状态…')}</div>
           )}
           {taskId && status && (
             <div style={{ marginTop: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>
-                  {status.status === 'completed' ? 'Completed'
-                   : status.status === 'failed' ? 'Failed'
-                   : status.status === 'cancelled' ? 'Cancelled'
-                   : status.status === 'interrupted' ? 'Interrupted'
-                   : status.status === 'awaiting_review' ? 'Awaiting proofreading'
-                   : 'Tuning…'}
+                  {status.status === 'completed' ? tr('Completed', '已完成')
+                   : status.status === 'failed' ? tr('Failed', '失败')
+                   : status.status === 'cancelled' ? tr('Cancelled', '已取消')
+                   : status.status === 'interrupted' ? tr('Interrupted', '已中断')
+                   : status.status === 'awaiting_review' ? tr('Awaiting proofreading', '等待校对')
+                   : tr('Tuning…', '微调中…')}
                 </span>
                 {(isRunning || isAwaitingReview) && (
                   <button className="btn btn-sm btn-danger" onClick={handleCancel}>Cancel</button>
@@ -1546,11 +1682,12 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               )}
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>
-                  Tuning was interrupted. Go Back, then use “Recover a failed run” to resume it from where it stopped.
+                  {tr('Tuning was interrupted. Go Back, then use “Recover a failed run” to resume it from where it stopped.',
+                      '微调被中断。请点击“返回”，然后用“恢复失败的任务”从中断处继续。')}
                 </div>
               )}
               {isFinished && (
-                <button className="btn btn-sm btn-primary" style={{ marginTop: 4 }} onClick={handleReset}>Back</button>
+                <button className="btn btn-sm btn-primary" style={{ marginTop: 4 }} onClick={handleReset}>{tr('Back', '返回')}</button>
               )}
             </div>
           )}
@@ -1591,6 +1728,40 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           </div>
         </div>
       )}
+
+      {/* No-GPU pre-flight: CPU fine-tuning is allowed but must be acknowledged. */}
+      {noGpuConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setNoGpuConfirm(false)}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 380, maxWidth: 480,
+            boxShadow: 'var(--shadow-soft)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 20 }}>🐢</span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>未检测到 NVIDIA GPU</span>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+              当前设备没有可用的 CUDA GPU。微调将在 <strong>CPU</strong> 上运行，
+              可能<strong>耗时数小时甚至数十倍</strong>，且<strong>人声分离（UVR5）不可用</strong>。
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              推理不受影响，可正常在 CPU 上使用。若只是想生成语音，无需在此训练。
+            </p>
+            <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 16 }}>
+              <input type="checkbox" checked={noGpuAck} onChange={e => setNoGpuAck(e.target.checked)} />
+              我知道 CPU 微调会非常慢，仍要继续
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-sm" onClick={() => setNoGpuConfirm(false)}>取消</button>
+              <button className="btn btn-sm btn-primary" disabled={!noGpuAck} onClick={proceedWithoutGpu}>仍要开始</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1605,6 +1776,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 // backend planner stays authoritative: it re-plans on every option change
 // (execute:false) so the live "Plan" preview always reflects what will run.
 function RestoreModal({ id, displayName, onClose, onStarted }) {
+  const { t: tr } = useT()
   const [state, setState] = useState(null)        // { R, S, L, Seg, M }
   const [plan, setPlan] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -1705,32 +1877,32 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
   const hasWork = stages.length > 0 || plan?.needs_segments
   const isNoop = !!plan?.noop
 
-  const planLabel = loading ? 'Computing…'
-    : isNoop ? 'Already complete — nothing to rebuild.'
+  const planLabel = loading ? tr('Computing…', '计算中…')
+    : isNoop ? tr('Already complete — nothing to rebuild.', '已完整——无需重建。')
     : stages.length ? stages.join('  →  ')
     : plan?.needs_segments ? 'generateSegments'
-    : 'No steps for the selected options.'
+    : tr('No steps for the selected options.', '当前所选选项没有需要执行的步骤。')
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card restore-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-hdr">
           <div>
-            <div className="modal-title">Restore Asset</div>
+            <div className="modal-title">{tr('Restore Asset', '恢复资源')}</div>
             <div className="modal-subtitle">{displayName || id}</div>
           </div>
           <button className="btn btn-sm btn-ghost" onClick={onClose} disabled={submitting}>✕</button>
         </div>
 
         <p className="modal-desc">
-          Choose how to rebuild the missing artifacts. The shortest safe path is preselected;
-          existing models are always kept unless you opt into retraining.
+          {tr('Choose how to rebuild the missing artifacts. The shortest safe path is preselected; existing models are always kept unless you opt into retraining.',
+              '选择如何重建缺失的产物。已默认选中最短的安全路径；除非你主动选择重新训练，否则始终保留现有模型。')}
         </p>
 
         {/* Current asset state */}
         {state && (
           <div className="asset-state-row">
-            {[['R', 'Raw'], ['S', 'Slices'], ['L', 'Transcript'], ['Seg', 'Segments'], ['Mg', 'GPT'], ['Ms', 'SoVITS']].map(([k, label]) => (
+            {[['R', tr('Raw', '原始')], ['S', tr('Slices', '切片')], ['L', tr('Transcript', '转写文本')], ['Seg', tr('Segments', '分段')], ['Mg', 'GPT'], ['Ms', 'SoVITS']].map(([k, label]) => (
               <span key={k} className={`state-pip ${state[k] ? 'on' : 'off'}`}>
                 <span className="state-pip-sym">{state[k] ? '✓' : '–'}</span>{label}
               </span>
@@ -1741,21 +1913,21 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         {/* Slicing choice — only meaningful when slices are missing */}
         {state && !state.S && state.R && (
           <div className="restore-group">
-            <div className="restore-group-title">Slicing</div>
+            <div className="restore-group-title">{tr('Slicing', '切片')}</div>
             <label className="radio-row">
               <input type="radio" name="slice" checked={sliceChoice === 'noslice'} onChange={() => setSliceChoice('noslice')} />
-              <span>Use raw as reference audio <span className="hint">— fastest, no slicing; ASR writes raw_opt.list</span></span>
+              <span>{tr('Use raw as reference audio', '使用原始音频作为参考音频')} <span className="hint">{tr('— fastest, no slicing; ASR writes raw_opt.list', '——最快，不切片；ASR 写入 raw_opt.list')}</span></span>
             </label>
             <label className="radio-row">
               <input type="radio" name="slice" checked={sliceChoice === 'real'} onChange={() => setSliceChoice('real')} />
-              <span>Re-slice raw into clips <span className="hint">— cleaner cuts, slower; forces re-transcribe</span></span>
+              <span>{tr('Re-slice raw into clips', '将原始音频重新切成片段')} <span className="hint">{tr('— cleaner cuts, slower; forces re-transcribe', '——切分更干净，但更慢；会强制重新转写')}</span></span>
             </label>
 
             {/* Slice parameters — only when real slicing is selected */}
             {realSliceInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowSliceParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Slice Parameters</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{tr('Slice Parameters', '切片参数')}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSliceParams ? '▲' : '▼'}</span>
                 </div>
                 {showSliceParams && (
@@ -1771,13 +1943,13 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         {/* ASR choice */}
         {state && (!state.L || !state.S) && (
           <div className="restore-group">
-            <div className="restore-group-title">Transcribe (ASR)</div>
+            <div className="restore-group-title">{tr('Transcribe (ASR)', '转写 (ASR)')}</div>
             <label className="toggle-row">
               <input type="checkbox" checked={doAsr || asrForced} disabled={asrForced} onChange={e => setDoAsr(e.target.checked)} />
               <span>
-                Run ASR to (re)generate the transcript &amp; segments
-                {asrForced && <span className="hint"> — required for the selected options</span>}
-                {!doAsr && !asrForced && <span className="hint-warn"> — skipped: reference-text-free</span>}
+                {tr('Run ASR to (re)generate the transcript & segments', '运行 ASR 以（重新）生成转写文本与分段')}
+                {asrForced && <span className="hint"> {tr('— required for the selected options', '——所选选项需要此步骤')}</span>}
+                {!doAsr && !asrForced && <span className="hint-warn"> {tr('— skipped: reference-text-free', '——已跳过：不使用参考文本')}</span>}
               </span>
             </label>
 
@@ -1785,7 +1957,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             {asrInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowAsrParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>ASR Parameters</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{tr('ASR Parameters', 'ASR 参数')}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAsrParams ? '▲' : '▼'}</span>
                 </div>
                 {showAsrParams && (
@@ -1803,14 +1975,14 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             on its own; the missing one is preselected. */}
         {state && !state.M && (
           <div className="restore-group">
-            <div className="restore-group-title">Models</div>
+            <div className="restore-group-title">{tr('Models', '模型')}</div>
             <label className="toggle-row">
               <input type="checkbox" checked={trainS1} onChange={e => setTrainS1(e.target.checked)} />
               <span>
                 Train S1 (GPT)
                 {state.Mg === false
-                  ? <span className="hint-warn"> — missing</span>
-                  : <span className="hint"> — already present, retrain to overwrite</span>}
+                  ? <span className="hint-warn"> {tr('— missing', '——缺失')}</span>
+                  : <span className="hint"> {tr('— already present, retrain to overwrite', '——已存在，重新训练将覆盖')}</span>}
               </span>
             </label>
             <label className="toggle-row">
@@ -1818,15 +1990,15 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
               <span>
                 Train S2 (SoVITS)
                 {state.Ms === false
-                  ? <span className="hint-warn"> — missing</span>
-                  : <span className="hint"> — already present, retrain to overwrite</span>}
+                  ? <span className="hint-warn"> {tr('— missing', '——缺失')}</span>
+                  : <span className="hint"> {tr('— already present, retrain to overwrite', '——已存在，重新训练将覆盖')}</span>}
               </span>
             </label>
 
             {trainInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowTrainParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Training Parameters</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{tr('Training Parameters', '训练参数')}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showTrainParams ? '▲' : '▼'}</span>
                 </div>
                 {showTrainParams && (
@@ -1854,7 +2026,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         <div className="modal-actions">
           <button className="btn btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="btn btn-sm btn-primary" onClick={submit} disabled={submitting || loading || !hasWork || isNoop}>
-            {submitting ? 'Starting…' : (trainInPlan ? 'Rebuild & Train' : 'Restore')}
+            {submitting ? tr('Starting…', '启动中…') : (trainInPlan ? 'Rebuild & Train' : 'Restore')}
           </button>
         </div>
       </div>

@@ -21,6 +21,22 @@ import sys
 import traceback
 from typing import Generator, Union
 
+# ------------------------------------------------------------------
+# Force UTF-8 I/O. On a Chinese Windows console the default stdout/stderr
+# encoding is GBK (cp936); when the engine logs text containing characters GBK
+# cannot represent (e.g. the U+FFFD replacement char), Python raises
+# UnicodeEncodeError inside the request path and the whole /v1/audio/speech call
+# fails with a 502. Reconfiguring to UTF-8 with errors="replace" makes logging
+# lossless-enough and never crash, regardless of how the process is launched
+# (start.ps1 launches this directly, bypassing server.js's clean env).
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # ============================================================
 # 路径与环境初始化 (必须在 import TTS / librosa 之前)
 # ============================================================

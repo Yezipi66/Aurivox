@@ -1,5 +1,6 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect, useRef } from 'react'
+import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
 import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection } from '../pron/PronProofing'
@@ -8,6 +9,7 @@ import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
+import { useT } from '../../lib/i18n'
 
 // Compare Refs target-language options: the plain per-segment "auto" is dropped
 // here (this page is decoupled from the Generate voice — no per-voice auto-detect),
@@ -25,6 +27,7 @@ const BASE_VOICE_ID = '__base__'
 //  REFERENCE COMPARE TAB
 // ===========================
 function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
+  const { t } = useT()
   // Persisted: a Compare Refs workspace must survive reloads / app restarts.
   // Generated audio is referenced by a server URL (result.audio_url) — not a blob —
   // so persisting results keeps the players working after a reload as long as the
@@ -376,29 +379,33 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
         </div>
         <div className="section-body">
           <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-            Add as many rows as you like. Each row = a different reference audio configuration.
-            Click <strong>Generate All</strong> to hear every combination side by side.
-            The best one can be saved as the voice config.
+            {t(
+              <>Add as many rows as you like. Each row = a different reference audio configuration.
+              Click <strong>Generate All</strong> to hear every combination side by side.
+              The best one can be saved as the voice config.</>,
+              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，最满意的一个可保存为该音色的配置。</>)}
           </p>
 
           <div className="field">
             {/* Extra patch: this is the "comparison text" — every row uses it by default so
                 only the reference / model differs; a row can override it via its Text section. */}
-            <label className="field-label">Comparison Text</label>
+            <label className="field-label">{t('Comparison Text', '对比文本')}</label>
             <div className="field-hint" style={{ marginBottom: 4 }}>
-              Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.
+              {t(
+                <>Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
+                <>默认所有行都使用这段文本，这样你就能在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
             </div>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}
               placeholder="Enter the text used across all rows for comparison…" />
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                Default target language:
-                <select
+                {t('Default target language:', '默认目标语言：')}
+                <Select
                   className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
                   value={defaultTextLang} onChange={e => setDefaultTextLang(e.target.value)}
                 >
                   {CMP_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                </Select>
               </span>
             </div>
             {/* #4: reading proofing + per-character Han language for the comparison text —
@@ -409,12 +416,12 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
                 Proof &amp; language{'\u2026'}
               </button>
               {defaultHanDir && defaultHanForced.length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{defaultHanForced.length} forced {LANG_LABEL[defaultHanDir.reverse]}</span>
+                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{t(`${defaultHanForced.length} forced ${LANG_LABEL[defaultHanDir.reverse]}`, `已强制 ${defaultHanForced.length} 个字为 ${LANG_LABEL[defaultHanDir.reverse]}`)}</span>
               )}
               {Object.keys(defaultPronOverrides || {}).length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(defaultPronOverrides).length} reading override(s)</span>
+                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{t(`${Object.keys(defaultPronOverrides).length} reading override(s)`, `${Object.keys(defaultPronOverrides).length} 处读音覆盖`)}</span>
               )}
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>applies to every row that doesn&apos;t override its own text</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{t('applies to every row that doesn\u2019t override its own text', '对所有未使用自有文本的行生效')}</span>
             </div>
             {showDefaultTextPrep && (
               <TextPrepModal
@@ -426,7 +433,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
               />
             )}
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-              You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.
+              {t(
+                <>You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
+                <>你也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
             </div>
           </div>
 
@@ -434,11 +443,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
             <button className="btn btn-sm btn-primary" onClick={addRow}>+ Add Row</button>
             <button className="btn btn-sm" onClick={generateAll} disabled={rows.length === 0 || rows.some(r => r.loading)}>
               {rows.some(r => r.loading)
-                ? `Generating… (${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length})`
+                ? t(`Generating… (${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length})`, `生成中… (${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length})`)
                 : `Generate All (${rows.length})`}
             </button>
             {rows.length > 0 && (
-              <span className="cmp-count">{rows.filter(r => r.result && r.result.audio_url).length}/{rows.length} ready</span>
+              <span className="cmp-count">{t(`${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length} ready`, `${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length} 就绪`)}</span>
             )}
           </div>
         </div>
@@ -479,23 +488,25 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
 
       {rows.length === 0 && (
         <div className="section">
-          <div className="section-hdr"><span>Get Started</span></div>
+          <div className="section-hdr"><span>{t('Get Started', '开始使用')}</span></div>
           <div className="section-body">
             <div className="starter-grid">
               <div className="starter-card">
-                <div className="sc-title">Use Current Reference</div>
-                <div className="sc-desc">Create a row from <strong>{selected?.display_name || selectedVoice || 'the selected voice'}</strong>'s default reference audio.</div>
-                <button className="btn btn-sm btn-primary" onClick={() => addRow()} disabled={!selectedVoice}>Use Current Reference</button>
+                <div className="sc-title">{t('Use Current Reference', '使用当前参考音频')}</div>
+                <div className="sc-desc">{t(
+                  <>Create a row from <strong>{selected?.display_name || selectedVoice || 'the selected voice'}</strong>'s default reference audio.</>,
+                  <>使用 <strong>{selected?.display_name || selectedVoice || '所选音色'}</strong> 的默认参考音频创建一行。</>)}</div>
+                <button className="btn btn-sm btn-primary" onClick={() => addRow()} disabled={!selectedVoice}>{t('Use Current Reference', '使用当前参考音频')}</button>
               </div>
               <div className="starter-card">
-                <div className="sc-title">Add Empty Row</div>
-                <div className="sc-desc">Manually configure reference audio and prompt text from scratch.</div>
-                <button className="btn btn-sm" onClick={() => addRow({ empty: true })}>Add Empty Row</button>
+                <div className="sc-title">{t('Add Empty Row', '添加空行')}</div>
+                <div className="sc-desc">{t('Manually configure reference audio and prompt text from scratch.', '从零开始手动配置参考音频和提示文本。')}</div>
+                <button className="btn btn-sm" onClick={() => addRow({ empty: true })}>{t('Add Empty Row', '添加空行')}</button>
               </div>
               <div className="starter-card">
-                <div className="sc-title">Load From Assets</div>
-                <div className="sc-desc">Add a row, then pick existing slices / reference samples from voice assets in the row's picker.</div>
-                <button className="btn btn-sm" onClick={() => addRow()} disabled={!selectedVoice}>Load From Assets</button>
+                <div className="sc-title">{t('Load From Assets', '从资源加载')}</div>
+                <div className="sc-desc">{t("Add a row, then pick existing slices / reference samples from voice assets in the row's picker.", '先添加一行，然后在该行的选择器中从音色资源里挑选已有的切片 / 参考样本。')}</div>
+                <button className="btn btn-sm" onClick={() => addRow()} disabled={!selectedVoice}>{t('Load From Assets', '从资源加载')}</button>
               </div>
             </div>
           </div>
@@ -505,7 +516,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       {/* Comparison results area (Part 5) */}
       {rows.length > 0 && !rows.some(r => r.result) && (
         <div className="empty-state" style={{ marginTop: 4, padding: 16 }}>
-          <div className="es-sub" style={{ marginBottom: 0 }}>Generated comparison results will appear here.</div>
+          <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated comparison results will appear here.', '生成的对比结果会显示在这里。')}</div>
         </div>
       )}
 
@@ -513,8 +524,8 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       {batches.length > 0 && (
         <div className="section" style={{ marginTop: 16 }}>
           <div className="section-hdr">
-            <span>Comparison Batches</span>
-            <span className="cmp-count">{batches.length} recorded</span>
+            <span>{t('Comparison Batches', '对比批次')}</span>
+            <span className="cmp-count">{t(`${batches.length} recorded`, `已记录 ${batches.length} 次`)}</span>
           </div>
           <div className="section-body">
             {batches.map(b => (
@@ -543,6 +554,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
 // each member's reference + seed + inline player, so you can tell exactly which
 // audios were compared together and how many the batch produced.
 function CompareBatchCard({ batch, onDeleted, onReveal }) {
+  const { t } = useT()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const complete = batch.count >= (batch.total || batch.count)
@@ -558,11 +570,11 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
     <div className="cmp-batch">
       <div className="cmp-batch-hdr" onClick={() => setOpen(o => !o)}>
         <span className="cmp-batch-caret">{open ? '▾' : '▸'}</span>
-        <span className="cmp-batch-count">{batch.count}{batch.total && batch.total !== batch.count ? ` / ${batch.total}` : ''} audio{batch.count === 1 ? '' : 's'}</span>
-        <span className="cmp-batch-label" title={batch.label}>{batch.label || '(voice default text)'}</span>
-        {!complete && <span className="cmp-batch-partial" title="Some members were deleted or failed">partial</span>}
+        <span className="cmp-batch-count">{batch.count}{batch.total && batch.total !== batch.count ? ` / ${batch.total}` : ''} {t(`audio${batch.count === 1 ? '' : 's'}`, '个音频')}</span>
+        <span className="cmp-batch-label" title={batch.label}>{batch.label || t('(voice default text)', '（音色默认文本）')}</span>
+        {!complete && <span className="cmp-batch-partial" title={t('Some members were deleted or failed', '部分成员已被删除或生成失败')}>{t('partial', '不完整')}</span>}
         <span className="cmp-batch-time">{fmtRecentTime(batch.createdAt)}</span>
-        <button className="icon-btn icon-btn-danger" title="Delete every audio in this batch"
+        <button className="icon-btn icon-btn-danger" title={t('Delete every audio in this batch', '删除该批次中的所有音频')}
           onClick={(e) => { e.stopPropagation(); deleteBatch() }} disabled={busy}><IconTrash size={14} /></button>
       </div>
       {open && (
@@ -571,9 +583,9 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
             <div key={m.id} className="cmp-batch-member">
               <div className="cmp-batch-member-main">
                 <span className="cmp-batch-idx">#{(m.batch_seq ?? i) + 1}</span>
-                <span className="cmp-batch-ref" title={m.ref_audio || 'auto reference'}>{m.ref_audio ? basename(m.ref_audio) : 'auto ref'}</span>
+                <span className="cmp-batch-ref" title={m.ref_audio || t('auto reference', '自动参考')}>{m.ref_audio ? basename(m.ref_audio) : t('auto ref', '自动参考')}</span>
                 {(m.seed !== undefined && m.seed !== null && m.seed !== -1) && <span className="cmp-batch-seed">seed {m.seed}</span>}
-                <button className="icon-btn" title="Show in file explorer"
+                <button className="icon-btn" title={t('Show in file explorer', '在文件资源管理器中显示')}
                   onClick={() => onReveal?.(m.id)}><IconFolder size={13} /></button>
               </div>
               {m.audio_url && <div style={{ marginTop: 4 }}><Player src={`${API_BASE}${m.audio_url}`} size="sm" bounds={m.segment_bounds} duration={m.duration} /></div>}
@@ -595,7 +607,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [showAux, setShowAux] = useState(() => (row.auxRefPaths || []).length > 0)
   const [showText, setShowText] = useState(() => !!(row.text && row.text.trim()))
   // PF-b / D1: this voice's slices get an auditable list. After the redundant slice
-  // <select> was removed (6.1), this audition list is the SOLE slice picker, so it
+  // <Select> was removed (6.1), this audition list is the SOLE slice picker, so it
   // defaults to EXPANDED.
   const [showSlicePreview, setShowSlicePreview] = useState(true)
   // PF-c: auxiliary reference source/custom state now lives inside the shared
@@ -792,14 +804,14 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* D3: Target Language moved to the top of the item as a narrow single-row dropdown to save vertical space. */}
       <div className="field cmp-target-lang" style={{ maxWidth: 240, marginBottom: 8 }}>
         <label className="field-label">Target Language</label>
-        <select
+        <Select
           className="control"
           value={row.textLang || ''}
           onChange={e => onUpdate(row.id, 'textLang', e.target.value)}
         >
           <option value="">Use default ({defaultTextLang})</option>
           {CMP_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        </Select>
       </div>
 
       {/* 6.6/6.1: Model split into three cascading dropdowns [Voice ID][GPT][SoVITS]. Voice ID
@@ -833,29 +845,29 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           <div className="cmp-model-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="field" style={{ flex: '0 1 170px', minWidth: 130, marginBottom: 0 }}>
               <label className="field-label">Voice ID</label>
-              <select className="control" value={rowModel.voiceId || ''} onChange={e => pickVoice(e.target.value)}
+              <Select className="control" value={rowModel.voiceId || ''} onChange={e => pickVoice(e.target.value)}
                 title={rowModel.voiceId || ''}>
                 <option value="">— default —</option>
                 {voiceOpts.map(v => <option key={v.voiceId} value={v.voiceId}>{v.voiceName}</option>)}
-              </select>
+              </Select>
             </div>
             <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
               <label className="field-label">GPT</label>
-              <select className="control" value={rowModel.gptCheckpoint || ''} disabled={!rowModel.voiceId}
+              <Select className="control" value={rowModel.gptCheckpoint || ''} disabled={!rowModel.voiceId}
                 title={rowModel.gptCheckpoint || ''}
                 onChange={e => onModelChange({ voiceId: rowModel.voiceId, gptCheckpoint: e.target.value, sovitsModel: rowModel.sovitsModel })}>
                 {gptOpts.length === 0 && <option value="">—</option>}
                 {gptOpts.map(g => <option key={g.path} value={g.path}>{g.name}{g.steps ? ` (${g.steps})` : ''}</option>)}
-              </select>
+              </Select>
             </div>
             <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
               <label className="field-label">SoVITS</label>
-              <select className="control" value={rowModel.sovitsModel || ''} disabled={!rowModel.voiceId}
+              <Select className="control" value={rowModel.sovitsModel || ''} disabled={!rowModel.voiceId}
                 title={rowModel.sovitsModel || ''}
                 onChange={e => onModelChange({ voiceId: rowModel.voiceId, gptCheckpoint: rowModel.gptCheckpoint, sovitsModel: e.target.value })}>
                 {sovOpts.length === 0 && <option value="">—</option>}
                 {sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>)}
-              </select>
+              </Select>
             </div>
           </div>
         )
@@ -864,7 +876,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* Main reference audio — source selector: this voice / cross-voice / custom file */}
       <div className="field">
         <label className="field-label">Main Reference Audio</label>
-        <select
+        <Select
           className="control"
           value={refSource}
           onChange={e => {
@@ -881,7 +893,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           <option value="slices">This voice's slices</option>
           <option value="cross">Another voice's reference</option>
           <option value="custom">Custom file…</option>
-        </select>
+        </Select>
         {refSource === 'slices' && (
           <>
             {/* 6.1: the redundant slice dropdown was removed. The Audition list below is the sole
@@ -1027,14 +1039,14 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               </div>
               <div>
                 <label className="field-label">Split Method</label>
-                <select className="control" value={splitMethod} onChange={e => setSplitMethod(e.target.value)}>
+                <Select className="control" value={splitMethod} onChange={e => setSplitMethod(e.target.value)}>
                   <option value="cut0">cut0 (no split)</option>
                   <option value="cut1">cut1 (punctuation)</option>
                   <option value="cut2">cut2 (sentence)</option>
                   <option value="cut3">cut3 (paragraph)</option>
                   <option value="cut4">cut4 (length)</option>
                   <option value="cut5">cut5 (default)</option>
-                </select>
+                </Select>
               </div>
               <div>
                 <label className="field-label">Speed Factor</label>

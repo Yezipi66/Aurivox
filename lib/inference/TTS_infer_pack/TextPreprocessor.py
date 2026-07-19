@@ -236,6 +236,15 @@ class TextPreprocessor:
 
     def get_phones_and_bert(self, text: str, language: str, version: str, final: bool = False, auto_base_lang: str = "zh", lang_overrides: dict = None):
         with self.bert_lock:
+            # item 19-C: snapshot the per-occurrence counter so the <6-phone retry
+            # below (which re-runs g2p on the same text) doesn't double-count word
+            # occurrences and desync position-level English overrides.
+            try:
+                from gsv_code.text import pron_correction as _pron_occ
+                _occ_snap = _pron_occ.snapshot_occ()
+            except Exception:
+                _pron_occ = None
+                _occ_snap = None
             text = re.sub(r' {2,}', ' ', text)
             textlist = []
             langlist = []
@@ -321,6 +330,8 @@ class TextPreprocessor:
             norm_text = "".join(norm_text_list)
 
             if not final and len(phones) < 6:
+                if _pron_occ is not None and _occ_snap is not None:
+                    _pron_occ.restore_occ(_occ_snap)
                 return self.get_phones_and_bert("." + text, language, version, final=True, auto_base_lang=auto_base_lang, lang_overrides=lang_overrides)
 
             return phones, bert, norm_text

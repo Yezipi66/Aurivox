@@ -313,9 +313,11 @@ class en_G2p(G2p):
         prons = []
         for o_word, pos in tokens:
             pron = self._base_pron(o_word, pos)
-            # 读音校对覆盖层（task7）：命中词典/单次覆盖则替换，无则原样返回。
+            # 读音校对覆盖层（task7 + item 19-C）：按「该词在本次合成里的出现序号」解析，
+            # 支持逐次不同读音；next_occ 对每个词无条件自增以保证与预览的出现编号对齐。
             if _pron is not None:
-                pron = _pron.apply(o_word, pron, lang="en")
+                occ = _pron.next_occ("en", o_word)
+                pron = _pron.resolve(o_word, pron, lang="en", occ=occ)
 
             prons.extend(pron)
             prons.extend([" "])
@@ -384,6 +386,39 @@ def g2p(text):
     return replace_phs(phones)
 
 
+def get_word_candidates(o_word):
+    """预览：某英文词的候选 ARPABET 读音（每个候选为空格分隔的音素串）。
+
+    来源：多音字 homograph、CMU 词典的多条读音、姓名词典。供前端下拉选择（item 19-B）。
+    无候选/异常时返回 []。
+    """
+    try:
+        word = (o_word or "").lower()
+        out = []
+
+        def _add(pron):
+            try:
+                s = " ".join(pron).strip()
+            except Exception:
+                return
+            if s and s not in out:
+                out.append(s)
+
+        if word in _g2p.homograph2features:
+            pron1, pron2, _ = _g2p.homograph2features[word]
+            _add(pron1)
+            _add(pron2)
+        if len(word) > 1 and word in _g2p.cmu:
+            for pron in _g2p.cmu[word]:
+                _add(pron)
+        if o_word and o_word.istitle() and word in _g2p.namedict:
+            for pron in _g2p.namedict[word]:
+                _add(pron)
+        return out
+    except Exception:
+        return []
+
+
 def get_word_arpa(text):
     """预览：文本 -> [(word, readings(ARPABET), source)]，读音已应用覆盖（预览 == 合成）。
 
@@ -405,11 +440,16 @@ def get_word_arpa(text):
     words = word_tokenize(norm)
     tagged = pos_tag(words)
     tokens = []
+    occ_seen = {}
     for o_word, pos in tagged:
+        occ = occ_seen.get(o_word, 0)
+        occ_seen[o_word] = occ + 1
         try:
             base = _g2p._base_pron(o_word, pos)
         except Exception:
             base = [o_word]
+        # 预览侧不 set_context，故这里显示 g2p 原值（词级 apply 命中已保存词典时替换）；
+        # 用户在前端逐次编辑的读音由前端 state 叠加。occ 供前端定位每一次出现。
         readings = base
         if _pron is not None:
             readings = _pron.apply(o_word, base, lang="en")
@@ -419,7 +459,13 @@ def get_word_arpa(text):
             src = "lexicon"
         else:
             src = "g2p"
-        tokens.append({"word": o_word, "readings": list(readings), "source": src})
+        tokens.append({
+            "word": o_word,
+            "occ": occ,
+            "readings": list(readings),
+            "candidates": get_word_candidates(o_word),
+            "source": src,
+        })
     return norm, tokens
 
 

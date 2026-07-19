@@ -1,13 +1,27 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect } from 'react'
+import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
-import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection } from '../pron/PronProofing'
+import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides } from '../pron/PronProofing'
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
+import { useT } from '../../lib/i18n'
+
+// Voice dropdown label. Builtin voices show only their display name. For a
+// fine-tuned voice we append the id ONLY when it differs from the display name —
+// otherwise the option reads redundantly as "Akafuyu (Akafuyu) [zh]" (item 14).
+function voiceOptionLabel(v) {
+  if (!v) return ''
+  if (v.builtin) return v.display_name
+  const name = v.display_name || v.id
+  const idPart = (v.id && v.id !== name) ? ` (${v.id})` : ''
+  const langPart = v.language ? ` [${v.language}]` : ''
+  return `${name}${idPart}${langPart}`
+}
 
 // Reproducibility: a small inline badge that displays the RESOLVED seed (the
 // concrete value the engine actually used, never -1) with one-click copy.
@@ -50,6 +64,7 @@ function SeedInline({ seed }) {
 }
 
 function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, onActivity }) {
+  const { t } = useT()
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -132,6 +147,15 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [checkpoints, setCheckpoints] = useState({ gpt: [], sovits: [] })
   const [selGpt, setSelGpt] = useState('')
   const [selSovits, setSelSovits] = useState('')
+  // Item 14: one-line summary of the active voice/model stack (mirrors the Compare
+  // Refs row header) — "voice / gpt.ckpt (steps) / sovits.pth [version]".
+  const _selGptC = (checkpoints.gpt || []).find(c => c.path === selGpt)
+  const _selSovitsC = (checkpoints.sovits || []).find(c => c.path === selSovits)
+  const modelSummary = selected ? [
+    selected.display_name || selected.id,
+    _selGptC ? `${_selGptC.name}${_selGptC.steps != null ? ` (${_selGptC.steps})` : ''}` : null,
+    _selSovitsC ? `${_selSovitsC.name}${_selSovitsC.version ? ` [${_selSovitsC.version}]` : ''}` : null,
+  ].filter(Boolean).join('  /  ') : ''
   const [lang, setLang] = useState(selected?.language || 'ja')
   // 目标合成语言（text_lang），独立于 prompt_lang；默认 = 微调源语言，切换音色时重置。
   const [textLang, setTextLang] = useState(() => defaultTargetLang(selected?.language || 'ja'))
@@ -431,44 +455,47 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         <div className="section">
           <div className="section-hdr"><span>Generate</span></div>
           <div className="section-body">
+            {/* Item 14: Voice / GPT / SoVITS on a single compact row (Edit + Compare Refs
+                buttons removed); the model-stack summary stays on the line below. */}
             <div className="field">
-              <label className="field-label">Voice</label>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <select className="control" style={{ flex: 1 }} value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}>
-                  {voices.map(v => <option key={v.id} value={v.id}>{v.builtin ? v.display_name : `${v.display_name} (${v.id}) [${v.language}]`}</option>)}
-                  {voices.length === 0 && <option value="">No voices available</option>}
-                </select>
-                {selected && !selected.builtin && <button className="btn btn-sm" onClick={() => onEditVoice(selected.id)}>Edit</button>}
-                <button className="btn btn-sm" onClick={onSwitchToCompare}>Compare Refs</button>
+              <div className="gen-model-row">
+                <div className="gen-model-col">
+                  <label className="field-label">Voice</label>
+                  <Select className="control" value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}>
+                    {voices.map(v => <option key={v.id} value={v.id}>{voiceOptionLabel(v)}</option>)}
+                    {voices.length === 0 && <option value="">{t('No voices available', '没有可用的音色')}</option>}
+                  </Select>
+                </div>
+                {checkpoints.gpt.length > 0 && (
+                  <div className="gen-model-col">
+                    <label className="field-label">GPT Model</label>
+                    <Select className="control" value={selGpt} onChange={e => setSelGpt(e.target.value)}>
+                      {checkpoints.gpt.map(c => (
+                        <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}</option>
+                      ))}
+                    </Select>
+                  </div>
+                )}
+                {checkpoints.sovits.length > 0 && (
+                  <div className="gen-model-col">
+                    <label className="field-label">SoVITS Model</label>
+                    <Select className="control" value={selSovits} onChange={e => setSelSovits(e.target.value)}>
+                      {checkpoints.sovits.map(c => (
+                        <option key={c.path} value={c.path}>{c.name}{c.version ? ` · ${c.version}` : ''}</option>
+                      ))}
+                    </Select>
+                  </div>
+                )}
               </div>
+              {modelSummary && (
+                <div className="gen-model-summary" title={modelSummary}>{modelSummary}</div>
+              )}
             </div>
-
-            {/* Model selection row */}
-            {checkpoints.gpt.length > 0 && (
-              <div className="field">
-                <label className="field-label">GPT Model</label>
-                <select className="control" value={selGpt} onChange={e => setSelGpt(e.target.value)}>
-                  {checkpoints.gpt.map(c => (
-                    <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {checkpoints.sovits.length > 0 && (
-              <div className="field">
-                <label className="field-label">SoVITS Model</label>
-                <select className="control" value={selSovits} onChange={e => setSelSovits(e.target.value)}>
-                  {checkpoints.sovits.map(c => (
-                    <option key={c.path} value={c.path}>{c.name}{c.version ? ` · ${c.version}` : ''}</option>
-                  ))}
-                </select>
-              </div>
-            )}
 
             <div className="field">
               <label className="field-label">Text</label>
               <textarea
-                className="control" rows={5} placeholder="Enter text to synthesize..."
+                className="control" rows={5} placeholder={t('Enter text to synthesize...', '输入要合成的文本…')}
                 value={text} onChange={e => { setText(e.target.value); }}
               />
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -478,12 +505,12 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 )}
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   Target language:
-                  <select
+                  <Select
                     className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
                     value={textLang} onChange={e => setTextLang(e.target.value)}
                   >
                     {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                  </Select>
                 </span>
               </div>
               {langMismatch && (
@@ -498,8 +525,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 {hanDir && hanForced.length > 0 && (
                   <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForced.length} forced {LANG_LABEL[hanDir.reverse]}</span>
                 )}
-                {Object.keys(pronOverrides).length > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(pronOverrides).length} reading override(s)</span>
+                {countOverrides(pronOverrides) > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{countOverrides(pronOverrides)} reading override(s)</span>
                 )}
               </div>
               {showTextPrep && (
@@ -536,7 +563,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 </div>
                 {splitEnabled && text.length > maxChars && (
                   <div className="field-hint" style={{ marginTop: 6, color: 'var(--warning)' }}>
-                    Text ({text.length} chars) will be split into segments of ~{maxChars} chars each.
+                    {t(`Text (${text.length} chars) will be split into segments of ~${maxChars} chars each.`,
+                       `文本（${text.length} 字符）将被拆分为每段约 ${maxChars} 字符的片段。`)}
                   </div>
                 )}
               </div>
@@ -576,14 +604,14 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       </div>
                       <div>
                         <label className="field-label">Split Method</label>
-                        <select className="control" value={splitMethod} onChange={e => setSplitMethod(e.target.value)}>
+                        <Select className="control" value={splitMethod} onChange={e => setSplitMethod(e.target.value)}>
                           <option value="cut0">cut0 (no split)</option>
                           <option value="cut1">cut1 (punctuation)</option>
                           <option value="cut2">cut2 (sentence)</option>
                           <option value="cut3">cut3 (paragraph)</option>
                           <option value="cut4">cut4 (length)</option>
                           <option value="cut5">cut5 (default)</option>
-                        </select>
+                        </Select>
                       </div>
                       <div>
                         <label className="field-label">Speed Factor</label>
@@ -628,19 +656,19 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       </div>
                       <div>
                         <label className="field-label">Media Type</label>
-                        <select className="control" value={mediaType} onChange={e => setMediaType(e.target.value)}>
+                        <Select className="control" value={mediaType} onChange={e => setMediaType(e.target.value)}>
                           <option value="wav">WAV</option>
                           <option value="ogg">OGG</option>
                           <option value="aac">AAC</option>
                           <option value="raw">RAW</option>
-                        </select>
+                        </Select>
                       </div>
                       <div>
                         <label className="field-label">Streaming Mode</label>
-                        <select className="control" value={streamingMode ? 1 : 0} onChange={e => setStreamingMode(!!parseInt(e.target.value))}>
+                        <Select className="control" value={streamingMode ? 1 : 0} onChange={e => setStreamingMode(!!parseInt(e.target.value))}>
                           <option value={0}>Disabled</option>
                           <option value={1}>Enabled (best quality)</option>
-                        </select>
+                        </Select>
                       </div>
                       <div>
                         <label className="field-label">Overlap Length</label>
@@ -662,13 +690,13 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     <div className="form-grid" style={{ marginTop: 6 }}>
                       <div>
                         <label className="field-label">Model Version</label>
-                        <select className="control" value={modelVersion || 'v2Pro'} onChange={e => setModelVersion(e.target.value)}>
+                        <Select className="control" value={modelVersion || 'v2Pro'} onChange={e => setModelVersion(e.target.value)}>
                           <option value="v2Pro">v2Pro (recommended)</option>
                           <option value="v2ProPlus">v2ProPlus</option>
                           <option value="v2">v2</option>
                           <option value="v3">v3</option>
                           <option value="v4">v4</option>
-                        </select>
+                        </Select>
                       </div>
                       <div>
                         <label className="field-label">Half Precision</label>
@@ -676,10 +704,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       </div>
                       <div>
                         <label className="field-label">Device</label>
-                        <select className="control" value={inferDevice || 'cuda'} onChange={e => setInferDevice(e.target.value)}>
+                        <Select className="control" value={inferDevice || 'cuda'} onChange={e => setInferDevice(e.target.value)}>
                           <option value="cuda">CUDA (GPU)</option>
                           <option value="cpu">CPU</option>
-                        </select>
+                        </Select>
                       </div>
                     </div>
                     <p style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>
@@ -689,7 +717,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   */}
 
                   <div className="field-hint" style={{ marginTop: 6 }}>
-                    These parameters are sent to GPT-SoVITS for this generation only. They do not change the voice config.
+                    {t('These parameters are sent to GPT-SoVITS for this generation only. They do not change the voice config.',
+                       '这些参数仅用于本次生成并发送给 GPT-SoVITS，不会更改语音配置。')}
                   </div>
 
                   {/* Auxiliary Reference Audio — shared AuxReferencePicker (Patch #11):
@@ -699,7 +728,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     <label className="field-label">
                       Auxiliary References
                       <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
-                        (optional, multi-select{auxRefs.length > 0 ? ` · ${auxRefs.length} selected` : ''})
+                        {t(`(optional, multi-select${auxRefs.length > 0 ? ` · ${auxRefs.length} selected` : ''})`,
+                           `（可选，多选${auxRefs.length > 0 ? ` · 已选 ${auxRefs.length} 项` : ''}）`)}
                       </span>
                     </label>
                     <AuxReferencePicker
@@ -813,7 +843,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
           <div className="section-body">
             {recent.length === 0 ? (
               <div className="empty-state" style={{ padding: 16 }}>
-                <div className="es-sub" style={{ marginBottom: 0 }}>Generated audio will appear here.</div>
+                <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated audio will appear here.', '生成的音频将显示在这里。')}</div>
               </div>
             ) : (
               recent.map(item => (
@@ -831,10 +861,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" bounds={item.segment_bounds} duration={item.duration} /></div>
                   </div>
                   <div className="rr-actions">
-                    <button className="icon-btn" title="Show in file explorer" onClick={() => revealItem(item)}><IconFolder size={15} /></button>
-                    <button className="icon-btn" title="Reload these settings into the editor (voice, model, language, reference, text and all parameters) without generating" onClick={() => handleReload(item)} disabled={loading}><IconRerun size={15} /></button>
-                    <button className="icon-btn" title="Rerun now with the original settings" onClick={() => handleRerun(item)} disabled={loading}><IconPlay size={14} /></button>
-                    <button className="icon-btn icon-btn-danger" title="Delete this audio" onClick={() => askDeleteItem(item)}><IconTrash size={15} /></button>
+                    <button className="icon-btn" title={t('Show in file explorer', '在文件资源管理器中显示')} onClick={() => revealItem(item)}><IconFolder size={15} /></button>
+                    <button className="icon-btn" title={t('Reload these settings into the editor (voice, model, language, reference, text and all parameters) without generating', '将这些设置重新载入编辑器（音色、模型、语言、参考、文本及所有参数），但不生成')} onClick={() => handleReload(item)} disabled={loading}><IconRerun size={15} /></button>
+                    <button className="icon-btn" title={t('Rerun now with the original settings', '使用原始设置立即重新生成')} onClick={() => handleRerun(item)} disabled={loading}><IconPlay size={14} /></button>
+                    <button className="icon-btn icon-btn-danger" title={t('Delete this audio', '删除此音频')} onClick={() => askDeleteItem(item)}><IconTrash size={15} /></button>
                   </div>
                 </div>
               ))
@@ -864,6 +894,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
 }
 
 function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, refTextOverride, onRefTextOverride }) {
+  const { t } = useT()
   const [segments, setSegments] = useState(null)
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
@@ -985,7 +1016,8 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
             if (typeof dur === 'number' && dur > 0 && !refInRange(dur)) {
               return (
                 <div className="ref-range-warn">
-                  ⚠ Reference is {dur.toFixed(1)}s — the engine requires {REF_MIN_SEC}–{REF_MAX_SEC}s. Pick another {activeIsRaw ? 'clip' : 'slice'} or generation will fail.
+                  {t(`⚠ Reference is ${dur.toFixed(1)}s — the engine requires ${REF_MIN_SEC}–${REF_MAX_SEC}s. Pick another ${activeIsRaw ? 'clip' : 'slice'} or generation will fail.`,
+                     `⚠ 参考音频为 ${dur.toFixed(1)} 秒 —— 引擎要求 ${REF_MIN_SEC}–${REF_MAX_SEC} 秒。请另选一个${activeIsRaw ? '片段' : '切片'}，否则生成将失败。`)}
                 </div>
               )
             }
@@ -1002,15 +1034,15 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
                 style={{ fontSize: 11, width: '100%', fontStyle: refTextOverride != null ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}
                 value={refTextOverride != null ? refTextOverride : activeRefText}
                 onChange={e => onRefTextOverride?.(e.target.value)}
-                placeholder={activeIsRaw ? 'No aligned transcript — type a reference text for this run (optional)…' : 'Reference text…'}
+                placeholder={activeIsRaw ? t('No aligned transcript — type a reference text for this run (optional)…', '没有对齐的转写文本 —— 可为本次生成输入一段参考文本（可选）…') : t('Reference text…', '参考文本…')}
               />
               <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
                 <span>
                   {refTextOverride != null
-                    ? '✎ Edited for this run only — the source file is unchanged.'
+                    ? t('✎ Edited for this run only — the source file is unchanged.', '✎ 仅对本次生成有效 —— 源文件不会被修改。')
                     : (activeIsRaw && !activeRefText
-                        ? 'Raw audio has no aligned reference text — type one to guide this run (optional).'
-                        : 'Reference transcript — edits here affect only this run, not the file.')}
+                        ? t('Raw audio has no aligned reference text — type one to guide this run (optional).', '原始音频没有对齐的参考文本 —— 可输入一段以引导本次生成（可选）。')
+                        : t('Reference transcript — edits here affect only this run, not the file.', '参考转写文本 —— 此处的修改仅影响本次生成，不会改动文件。'))}
                 </span>
                 {refTextOverride != null && (
                   <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 10, flex: '0 0 auto' }}
@@ -1019,13 +1051,13 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
               </div>
             </div>
           ) : null}
-          {!crossMode && segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Loading reference audio…</div>}
+          {!crossMode && segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('Loading reference audio…', '正在加载参考音频…')}</div>}
           {!crossMode && !segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>No reference audio available</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('No reference audio available', '没有可用的参考音频')}</div>
           )}
           {!crossMode && !segLoading && refTab === 'slices' && (
             <div className="ref-list">
-              {availableRefs.length === 0 && <div className="ref-col-empty">No slices available</div>}
+              {availableRefs.length === 0 && <div className="ref-col-empty">{t('No slices available', '没有可用的切片')}</div>}
               {availableRefs.map((seg, i) => {
                 const rawPath = seg.audio || seg.audio_path || seg.audio_filename
                 const segFilename = rawPath ? rawPath.replace(/\\/g, '/').split('/').pop() : ''
@@ -1046,7 +1078,7 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
           )}
           {!crossMode && !segLoading && refTab === 'raw' && (
             <div className="ref-list">
-              {availableRaw.length === 0 && <div className="ref-col-empty">No raw audio available</div>}
+              {availableRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio available', '没有可用的原始音频')}</div>}
               {availableRaw.map((rf, i) => {
                 const isActive = activeFilename === rf.filename && !!activeRef
                 const dur = rawDur(rf)

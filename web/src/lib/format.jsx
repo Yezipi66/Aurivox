@@ -71,18 +71,19 @@ function recipeNameError(name) {
 }
 
 // 目标语言（text_lang）：解除「合成语言 == 微调语言」的硬绑定。任一微调音色可合成
-// 五种支持语言（zh/ja/en/yue/ko）或 auto 混排。prompt_lang（参考音频文本语言）仍跟随音色。
+// 目标语言（zh/ja/en）或 auto 混排。粤语(yue)、韩语(ko)已下线。prompt_lang（参考音频文本语言）仍跟随音色。
 const TARGET_LANG_OPTIONS = [
   { value: 'auto', label: 'Auto \u2014 detect per segment' },
   { value: 'auto_zh_ja', label: 'Auto (Multilingual) \u2014 zh + ja shared Han characters' },
   { value: 'all_zh', label: 'Chinese (\u4e2d\u6587)' },
   { value: 'all_ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
   { value: 'en', label: 'English' },
-  { value: 'all_yue', label: 'Cantonese (\u7ca4\u8bed)' },
-  { value: 'all_ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
 ]
 
-const VOICE_TO_TARGET = { zh: 'all_zh', ja: 'all_ja', en: 'en', yue: 'all_yue', ko: 'all_ko' }
+// Cantonese (yue) and Korean (ko) are intentionally omitted from the selectable
+// targets (no yue/ko assets maintained). A legacy yue/ko voice degrades to
+// 'auto' rather than a missing option.
+const VOICE_TO_TARGET = { zh: 'all_zh', ja: 'all_ja', en: 'en' }
 
 // 把音色语言（裸码）映射到默认 text_lang 选项（== 微调源语言，保证零回归）。
 function defaultTargetLang(voiceLang) {

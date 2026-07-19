@@ -1,8 +1,10 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect, useRef } from 'react'
+import { Select } from './Select'
 import { api } from '../../lib/api'
 import { AudioPlayer } from './Player'
 import { REF_MAX_SEC, REF_MIN_SEC, basename, refInRange, sameRefPath } from '../../lib/format'
+import { useT } from '../../lib/i18n'
 
 // Build a static playback URL from a stored managed-reference path
 // ("assets/<voice>/…" or "voices/custom_refs/…"). The server serves both roots
@@ -26,6 +28,7 @@ const REF_PROMPT_LANG_OPTIONS = [
 // 复用现有 /api/assets/<id>/segments + /raw-list。onPick(path, text)。
 // 独立组件，便于后续 Compare Refs 页复用（预留接口）。
 function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
+  const { t } = useT()
   const others = (voices || []).filter(v => v.id !== currentVoiceId)
   const [vid, setVid] = useState(others[0]?.id || '')
   const [segs, setSegs] = useState(null)
@@ -66,28 +69,29 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 
   return (
     <div>
-      <select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 6 }}>
+      <Select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 6 }}>
         {others.map(o => <option key={o.id} value={o.id}>{o.display_name} ({o.language || '?'})</option>)}
-      </select>
+      </Select>
       <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
-        Cross-voice reference &mdash; timbre and quality may differ from this model.
+        {t('Cross-voice reference — timbre and quality may differ from this model.',
+           '跨音色参考 — 音色和质量可能与本模型不同。')}
       </div>
       <div className="ref-tabs">
         <span className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
               onClick={() => setRefTab('slices')}>
-          Slices {availSlices.length > 0 && <span className="ref-tab-count">{availSlices.length}</span>}
+          {t('Slices', '切片')} {availSlices.length > 0 && <span className="ref-tab-count">{availSlices.length}</span>}
         </span>
         <span className={`ref-tab ${refTab === 'raw' ? 'active' : ''}`}
               onClick={() => setRefTab('raw')}>
-          Raw {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
+          {t('Raw', '原始')} {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
         </span>
       </div>
-      {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
+      {loading && <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>}
       {!loading && (
         <div className="ref-list">
-          {refTab === 'slices' && availSlices.length === 0 && refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No reference audio in this voice</div>}
-          {refTab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">No slices in this voice</div>}
-          {refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No raw audio in this voice</div>}
+          {refTab === 'slices' && availSlices.length === 0 && refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">{t('No reference audio in this voice', '该音色没有参考音频')}</div>}
+          {refTab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">{t('No slices in this voice', '该音色没有切片')}</div>}
+          {refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio in this voice', '该音色没有原始音频')}</div>}
           {refTab === 'slices' && availSlices.map((seg, i) => {
             const p = seg.audio || seg.audio_path || seg.audio_filename
             const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
@@ -132,6 +136,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 // voices/custom_refs 后作为任意音色的 ref_audio。可选手填参考文本 + prompt_lang。
 // onPick(path, text, promptLang, customObj)；独立组件，Compare 页可复用（预留接口）。
 function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
+  const { t } = useT()
   const fileRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [err, setErr] = useState(null)
@@ -164,11 +169,12 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     return (
       <div style={{ marginTop: 8 }}>
         <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
-        <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title="Pick one or more audio files from your computer">
-          {'\uD83D\uDCC1'} {uploading ? 'Uploading\u2026' : 'Custom files\u2026'}
+        <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick one or more audio files from your computer', '从你的电脑选择一个或多个音频文件')}>
+          {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom files\u2026', '自定义文件\u2026')}
         </button>
         <div className="field-hint" style={{ marginTop: 4 }}>
-          Custom files are imported into this voice's managed assets when you save a recipe.
+          {t("Custom files are imported into this voice's managed assets when you save a recipe.",
+             '保存配方时，自定义文件会被导入到该音色的托管资产中。')}
         </div>
         {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
       </div>
@@ -178,30 +184,31 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
   return (
     <div style={{ marginTop: 8 }}>
       <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
-      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title="Pick any audio file from your computer">
-        {'\uD83D\uDCC1'} {uploading ? 'Uploading\u2026' : 'Custom file\u2026'}
+      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from your computer', '从你的电脑选择任意音频文件')}>
+        {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom file\u2026', '自定义文件\u2026')}
       </button>
       {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
       {custom && (
         <div style={{ marginTop: 6 }}>
           <div className="field-hint" style={{ color: 'var(--warning)' }}>
-            Custom reference &mdash; no aligned transcript. Add one below (optional).
+            {t('Custom reference — no aligned transcript. Add one below (optional).',
+               '自定义参考 — 没有对齐的文本。可在下方添加（可选）。')}
           </div>
           <div style={{ fontSize: 12, wordBreak: 'break-all', margin: '4px 0' }}>{custom.name}</div>
           <AudioPlayer src={custom.url} onDuration={d => setDur(d)} />
           {typeof dur === 'number' && dur > 0 && !refInRange(dur) && (
-            <div className="ref-range-warn">{'\u26a0'} {dur.toFixed(1)}s &mdash; the engine requires {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s.</div>
+            <div className="ref-range-warn">{'\u26a0'} {dur.toFixed(1)}s &mdash; {t(`the engine requires ${REF_MIN_SEC}–${REF_MAX_SEC}s.`, `引擎要求 ${REF_MIN_SEC}–${REF_MAX_SEC} 秒。`)}</div>
           )}
-          <input className="control" placeholder="Reference transcript (optional)" value={text}
+          <input className="control" placeholder={t('Reference transcript (optional)', '参考文本（可选）')} value={text}
             onChange={e => { setText(e.target.value); onPick(custom.path, e.target.value, plang, custom) }}
             style={{ marginTop: 6 }} />
-          <label className="field-hint" style={{ display: 'block', marginTop: 4 }}>Reference language (prompt_lang)</label>
-          <select className="control" value={plang}
+          <label className="field-hint" style={{ display: 'block', marginTop: 4 }}>{t('Reference language (prompt_lang)', '参考语言 (prompt_lang)')}</label>
+          <Select className="control" value={plang}
             onChange={e => { setPlang(e.target.value); onPick(custom.path, text, e.target.value, custom) }}>
-            <option value="">Follow current voice</option>
+            <option value="">{t('Follow current voice', '跟随当前音色')}</option>
             {REF_PROMPT_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <div><button className="btn btn-sm" style={{ marginTop: 6 }} onClick={onClear}>Remove custom reference</button></div>
+          </Select>
+          <div><button className="btn btn-sm" style={{ marginTop: 6 }} onClick={onClear}>{t('Remove custom reference', '移除自定义参考')}</button></div>
         </div>
       )}
     </div>
@@ -216,6 +223,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
 // highlighted state; `mainRef` (multi) disables the row already used as the main
 // reference. Identity is base+normalized-path (sameRefPath), never basename.
 function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths = [], mainRef, onPick, onToggle, maxHeight = 260 }) {
+  const { t } = useT()
   const [segs, setSegs] = useState(null)
   const [raws, setRaws] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -278,17 +286,17 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
     <div>
       <div className="ref-tabs">
         <span className={`ref-tab ${tab === 'slices' ? 'active' : ''}`} onClick={() => setTab('slices')}>
-          Slices {availSlices.length > 0 && <span className="ref-tab-count">{availSlices.length}</span>}
+          {t('Slices', '切片')} {availSlices.length > 0 && <span className="ref-tab-count">{availSlices.length}</span>}
         </span>
         <span className={`ref-tab ${tab === 'raw' ? 'active' : ''}`} onClick={() => setTab('raw')}>
-          Raw {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
+          {t('Raw', '原始')} {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
         </span>
       </div>
-      {loading && <div className="field-hint">Loading reference audio&hellip;</div>}
+      {loading && <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>}
       {!loading && (
         <div className="ref-list" style={{ maxHeight, overflowY: 'auto' }}>
-          {tab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">No slices in this voice</div>}
-          {tab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">No raw audio in this voice</div>}
+          {tab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">{t('No slices in this voice', '该音色没有切片')}</div>}
+          {tab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio in this voice', '该音色没有原始音频')}</div>}
           {tab === 'slices' && availSlices.map((seg, i) => {
             const p = seg.audio || seg.audio_path || seg.audio_filename
             const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
@@ -317,17 +325,18 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
 // Props: voiceId, voices, value(array of stored paths), onAdd(path),
 //        onRemove(index), mainRef(optional, excluded from selection).
 function AuxReferencePicker({ voiceId, voices, value = [], onAdd, onRemove, mainRef }) {
+  const { t } = useT()
   const [source, setSource] = useState('this') // 'this' | 'cross' | 'custom'
   const has = (p) => value.some(v => sameRefPath(v, p))
   const add = (p) => { if (p && !has(p) && !(mainRef && sameRefPath(mainRef, p))) onAdd && onAdd(p) }
 
   return (
     <div style={{ marginTop: 4 }}>
-      <select className="control" value={source} onChange={e => setSource(e.target.value)} style={{ marginBottom: 6 }}>
-        <option value="this">This voice's segments</option>
-        <option value="cross">Another voice's segments</option>
-        <option value="custom">Custom files&hellip;</option>
-      </select>
+      <Select className="control" value={source} onChange={e => setSource(e.target.value)} style={{ marginBottom: 6 }}>
+        <option value="this">{t("This voice's segments", '当前音色的片段')}</option>
+        <option value="cross">{t("Another voice's segments", '其他音色的片段')}</option>
+        <option value="custom">{t('Custom files…', '自定义文件…')}</option>
+      </Select>
       {source === 'this' && (
         <RefAudioList
           voiceId={voiceId}
@@ -363,7 +372,7 @@ function AuxReferencePicker({ voiceId, voices, value = [], onAdd, onRemove, main
                 <button
                   onClick={() => onRemove && onRemove(i)}
                   style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
-                  title="Remove">{'\u00d7'}</button>
+                  title={t('Remove', '移除')}>{'\u00d7'}</button>
               </div>
               <AudioPlayer src={refPlaybackUrl(p)} />
             </div>
