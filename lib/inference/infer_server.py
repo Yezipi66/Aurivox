@@ -94,6 +94,86 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 from pydantic import BaseModel
 
+# ------------------------------------------------------------------
+# English g2p (g2p_en) depends on two NLTK data packages —
+# `averaged_perceptron_tagger` (POS tagging) and `cmudict` (pronunciations).
+# They are downloaded to the user's nltk_data dir on first use, NOT shipped in
+# the release. If they are missing — or worse, half-downloaded/corrupt (a common
+# outcome when a download manager like IDM sniffs and truncates the .zip) —
+# English synthesis fails deep inside g2p_en with the cryptic
+# `BadZipFile: File is not a zip file`, while Chinese/Japanese (which never touch
+# NLTK) keep working. That is exactly what surfaces to the user as
+# "any English text -> Internal Server Error".
+#
+# Self-heal at startup: for each required package, actually exercise it; on ANY
+# failure (missing OR corrupt) re-download it, print a clear message, and never
+# crash the engine. Must run BEFORE importing TTS (which imports english.py and
+# constructs g2p_en at module load).
+def _ensure_nltk_data():
+    try:
+        import nltk
+    except Exception as e:  # nltk itself unavailable — nothing we can do here
+        print(f"[nltk] WARNING: nltk import failed ({e!r}); English TTS unavailable.")
+        return
+
+    def _redownload(*pkgs):
+        for pkg in pkgs:
+            try:
+                print(f"[nltk] (re)downloading '{pkg}' ...")
+                nltk.download(pkg, quiet=True)
+            except Exception as e:
+                print(f"[nltk] WARNING: download '{pkg}' failed ({e!r}); "
+                      f"English TTS may error until this data is present.")
+
+    def _probe(label, fn):
+        try:
+            fn()
+            return True
+        except Exception as e:
+            print(f"[nltk] {label} missing/corrupt ({e!r}).")
+            return False
+
+    def _pos_tag_probe():
+        from nltk import pos_tag
+        pos_tag(["ok"])
+
+    def _cmudict_probe():
+        from nltk.corpus import cmudict
+        cmudict.dict()
+
+    # POS tagger — verify by actually tagging. nltk>=3.9 renamed the default tagger
+    # package to `averaged_perceptron_tagger_eng` (confirmed: on nltk 3.9.x English
+    # fails until `_eng` is present); g2p_en 2.1.0 references the classic name. Some
+    # setups also need `punkt`/`punkt_tab`. Download the full set the working config
+    # required, then RE-PROBE to confirm the heal actually took.
+    if not _probe("averaged_perceptron_tagger", _pos_tag_probe):
+        _redownload(
+            "averaged_perceptron_tagger_eng",
+            "averaged_perceptron_tagger",
+            "punkt_tab",
+            "punkt",
+        )
+        if _probe("averaged_perceptron_tagger (after download)", _pos_tag_probe):
+            print("[nltk] POS tagger healed OK.")
+        else:
+            print("[nltk] WARNING: POS tagger still unavailable after download — "
+                  "English TTS will error. Check network / disable download managers "
+                  "(e.g. IDM) that truncate localhost downloads, then restart the engine.")
+
+    # CMU pronouncing dictionary — force a real load so a truncated zip is caught.
+    if not _probe("cmudict", _cmudict_probe):
+        _redownload("cmudict")
+        if _probe("cmudict (after download)", _cmudict_probe):
+            print("[nltk] cmudict healed OK.")
+        else:
+            print("[nltk] WARNING: cmudict still unavailable after download — "
+                  "English TTS will error. See note above.")
+
+    print("[nltk] English g2p data check complete.")
+
+
+_ensure_nltk_data()
+
 from gsv_code.tools.i18n.i18n import I18nAuto
 from TTS import TTS, TTS_Config
 from TTS_infer_pack.text_segmentation_method import get_method_names as get_cut_method_names

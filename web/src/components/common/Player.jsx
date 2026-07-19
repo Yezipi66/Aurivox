@@ -1,6 +1,7 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect, useRef } from 'react'
 import { usePreviewMode } from '../../lib/previewMode'
+import { useT } from '../../lib/i18n'
 
 // ---- Waveform decode + peaks cache (shared across every Player) ----
 // Decoding is done once per src and memoised, so flipping preview mode or
@@ -228,8 +229,14 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
   const [dur, setDur] = useState(0)
   const [muted, setMuted] = useState(false)
   const [peaks, setPeaks] = useState(null)
+  const [waveErr, setWaveErr] = useState(false)
   const [previewMode] = usePreviewMode()
+  const { t } = useT()
   const waveform = previewMode === 'waveform'
+  // Some engine-direct WAVs (e.g. 32-bit float / WAVE_FORMAT_EXTENSIBLE, produced
+  // when ffmpeg is unavailable) can't be decoded by the browser's decodeAudioData.
+  // In that case fall back to the bar track instead of rendering a blank canvas.
+  const showWave = waveform && !waveErr
 
   const fmt = (t) => {
     if (!isFinite(t) || t < 0) return '0:00'
@@ -282,13 +289,13 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
   }
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
-  useEffect(() => { setPlaying(false); setCur(0); setDur(0); setPeaks(null) }, [src])
+  useEffect(() => { setPlaying(false); setCur(0); setDur(0); setPeaks(null); setWaveErr(false) }, [src])
 
   // Lazy decode: only when the waveform mode is active and we don't have peaks yet.
   useEffect(() => {
     if (!waveform || !src || peaks) return
     let cancelled = false
-    decodePeaks(src).then(p => { if (!cancelled) setPeaks(p) }).catch(() => {})
+    decodePeaks(src).then(p => { if (!cancelled) setPeaks(p) }).catch(() => { if (!cancelled) setWaveErr(true) })
     return () => { cancelled = true }
   }, [waveform, src, peaks])
 
@@ -313,7 +320,7 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
 
   // Segment-boundary dividers for the compact bar track (mid-gap of each inter-
   // segment silence), mirroring the waveform-mode dividers.
-  const barDividers = (!waveform && Array.isArray(bounds) && bounds.length > 1 && effDur > 0)
+  const barDividers = (!showWave && Array.isArray(bounds) && bounds.length > 1 && effDur > 0)
     ? bounds.slice(1).map((b, i) => {
         const mid = (bounds[i].end + b.start) / 2
         return Math.min(100, Math.max(0, (mid / effDur) * 100))
@@ -335,12 +342,19 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
         )}
       </button>
       <span className="ap-time">{fmt(cur)}</span>
-      {waveform ? (
+      {showWave ? (
         <div className={`ap-wave ap-wave-${size}`} ref={trackRef} onMouseDown={onTrackDown} role="slider" aria-label="Seek">
           <canvas className="ap-wave-canvas" ref={canvasRef} />
         </div>
       ) : (
-        <div className="ap-track" ref={trackRef} onMouseDown={onTrackDown} role="slider" aria-label="Seek">
+        <div
+          className={`ap-track${waveErr ? ' ap-track-nowave' : ''}`}
+          ref={trackRef}
+          onMouseDown={onTrackDown}
+          role="slider"
+          aria-label="Seek"
+          title={waveErr ? t('This audio format can\u2019t be rendered as a waveform; showing the progress bar instead.', '此音频格式无法生成波形，已回退为进度条') : undefined}
+        >
           <div className="ap-fill" style={{ width: pct + '%' }}>
             <span className="ap-thumb" />
           </div>

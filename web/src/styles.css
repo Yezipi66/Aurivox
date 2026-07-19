@@ -1547,6 +1547,14 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   position: relative;
   cursor: pointer;
 }
+.aplayer .ap-track-nowave {
+  /* waveform decode unavailable for this clip -> subtle striped cue */
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--border) 0, var(--border) 4px,
+    transparent 4px, transparent 8px
+  ), var(--border);
+}
 .aplayer .ap-track::before {
   /* enlarge hit area vertically without changing visual height */
   content: '';

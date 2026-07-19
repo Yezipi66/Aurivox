@@ -918,6 +918,87 @@ function findWavDataChunk(buf) {
   return null;
 }
 
+// Normalize an engine-produced WAV buffer to canonical 16-bit PCM so browsers
+// (AudioContext.decodeAudioData) can always render it. The inference engine may
+// emit 32-bit float or WAVE_FORMAT_EXTENSIBLE WAV, which several browsers refuse
+// to decode — that shows up as a blank waveform on single-segment generations
+// (multi-segment output already gets rewritten during concatenation). Returns the
+// original buffer unchanged if it is already 16-bit PCM or if parsing fails (the
+// player UI still falls back to the bar track in that case).
+function toPcm16Wav(buf) {
+  try {
+    if (!Buffer.isBuffer(buf) || buf.length < 44) return buf;
+    if (buf.slice(0, 4).toString() !== "RIFF" || buf.slice(8, 12).toString() !== "WAVE") return buf;
+    // Locate the fmt + data chunks via proper RIFF traversal.
+    let off = 12, fmt = null, data = null;
+    while (off + 8 <= buf.length) {
+      const id = buf.slice(off, off + 4).toString();
+      const size = buf.readUInt32LE(off + 4);
+      const body = off + 8;
+      if (id === "fmt ") fmt = { off: body, size };
+      else if (id === "data") data = { off: body, size: Math.min(size, buf.length - body) };
+      off = body + size + (size % 2);
+    }
+    if (!fmt || !data) return buf;
+    let audioFormat = buf.readUInt16LE(fmt.off + 0);
+    const channels = buf.readUInt16LE(fmt.off + 2) || 1;
+    const sampleRate = buf.readUInt32LE(fmt.off + 4);
+    const bits = buf.readUInt16LE(fmt.off + 14);
+    // WAVE_FORMAT_EXTENSIBLE: the real format tag lives in the SubFormat GUID.
+    if (audioFormat === 0xFFFE && fmt.size >= 40) audioFormat = buf.readUInt16LE(fmt.off + 24);
+    if (audioFormat === 1 && bits === 16) return buf; // already canonical
+
+    const raw = buf.slice(data.off, data.off + data.size);
+    let samples = null; // per-sample floats in [-1, 1], interleaved
+    if (audioFormat === 3 && bits === 32) {
+      const n = Math.floor(raw.length / 4);
+      samples = new Float64Array(n);
+      for (let i = 0; i < n; i++) samples[i] = raw.readFloatLE(i * 4);
+    } else if (audioFormat === 1 && bits === 32) {
+      const n = Math.floor(raw.length / 4);
+      samples = new Float64Array(n);
+      for (let i = 0; i < n; i++) samples[i] = raw.readInt32LE(i * 4) / 2147483648;
+    } else if (audioFormat === 1 && bits === 24) {
+      const n = Math.floor(raw.length / 3);
+      samples = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        let v = raw[i * 3] | (raw[i * 3 + 1] << 8) | (raw[i * 3 + 2] << 16);
+        if (v & 0x800000) v -= 0x1000000;
+        samples[i] = v / 8388608;
+      }
+    } else if (audioFormat === 1 && bits === 8) {
+      const n = raw.length;
+      samples = new Float64Array(n);
+      for (let i = 0; i < n; i++) samples[i] = (raw[i] - 128) / 128;
+    } else {
+      return buf; // unknown subtype — leave as-is (UI fallback covers it)
+    }
+
+    const outData = Buffer.alloc(samples.length * 2);
+    for (let i = 0; i < samples.length; i++) {
+      let s = Math.max(-1, Math.min(1, samples[i]));
+      s = s < 0 ? s * 0x8000 : s * 0x7fff;
+      outData.writeInt16LE(Math.round(s), i * 2);
+    }
+    const out = Buffer.alloc(44 + outData.length);
+    out.write("RIFF", 0);
+    out.writeUInt32LE(36 + outData.length, 4);
+    out.write("WAVE", 8);
+    out.write("fmt ", 12);
+    out.writeUInt32LE(16, 16);
+    out.writeUInt16LE(1, 20);                              // PCM
+    out.writeUInt16LE(channels, 22);
+    out.writeUInt32LE(sampleRate, 24);
+    out.writeUInt32LE(sampleRate * channels * 2, 28);      // byte rate
+    out.writeUInt16LE(channels * 2, 32);                   // block align
+    out.writeUInt16LE(16, 34);                             // bits per sample
+    out.write("data", 36);
+    out.writeUInt32LE(outData.length, 40);
+    outData.copy(out, 44);
+    return out;
+  } catch { return buf; }
+}
+
 // Duration (seconds) of a WAV file from its header — used to place segment-boundary
 // markers on the waveform preview. Reads only the header region (data chunk size),
 // falling back to (fileSize - 44) if the declared size is unavailable.
@@ -1478,7 +1559,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
 
       // Short text or split disabled: single generation
       if (!shouldSplit || text.length <= softLimit) {
-        const audioBytes = await generateOneSegment(text, cfg);
+        const audioBytes = toPcm16Wav(await generateOneSegment(text, cfg));
         fs.writeFileSync(path.join(genDir, "audio.wav"), audioBytes);
         const audioUrl = `${genUrlBase}/audio.wav`;
         writeGenMeta(genId, { ...metaBase, split: false, concat: false, segments: 1,
@@ -1499,7 +1580,7 @@ app.post("/api/generate", requireApiKey, async (req, res) => {
         const segText = segments[i];
         console.log(`[SEG ${i}/${segments.length - 1}] "${segText.slice(0, 30)}..." (${segText.length} chars)`);
         try {
-          const audioBytes = await generateOneSegment(segText, cfg);
+          const audioBytes = toPcm16Wav(await generateOneSegment(segText, cfg));
           const segName = `seg${String(i).padStart(3, "0")}.${mediaType}`;
           const segPath = path.join(genDir, segName);
           fs.writeFileSync(segPath, audioBytes);
@@ -2084,10 +2165,22 @@ app.delete("/api/outputs/:id", requireApiKey, (req, res) => {
   const g = resolveGenDir(req.params.id, req.query.source);
   if (!g) return res.status(400).json({ error: "Invalid generation id" });
   try {
-    if (fs.existsSync(g.full)) fs.rmSync(g.full, { recursive: true, force: true });
+    // Windows frequently holds a transient lock (EPERM/EBUSY) on a just-generated
+    // or currently-loaded audio file (browser range stream, AV scanner, indexer),
+    // which made a plain rmSync fail with a generic 500. Let rmSync retry, and on a
+    // real failure log the errno + return an actionable message instead of masking it.
+    if (fs.existsSync(g.full)) {
+      fs.rmSync(g.full, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });
+    }
     res.json({ ok: true, id: g.id });
   } catch (err) {
-    res.status(500).json({ error: clientError(err) });
+    console.error(`[OUTPUTS] delete failed ${g.full}: ${err.code || ""} ${err.message}`);
+    const locked = err && (err.code === "EPERM" || err.code === "EBUSY" || err.code === "ENOTEMPTY");
+    res.status(500).json({
+      error: locked
+        ? `Failed to delete audio (${err.code}) — the file is in use (likely still playing, or held by antivirus/Explorer). Stop playback and try again.`
+        : `Failed to delete audio (${err.code || "error"})`,
+    });
   }
 });
 
@@ -3441,7 +3534,7 @@ app.post("/v1/audio/speech", requireApiKey, async (req, res) => {
 
 const trainingPipeline = require("./lib/training/pipeline");
 
-const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko"]);
+const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko", "auto"]);
 
 // 白名单校验 + clamp customParams，防止脏参数进训练。
 // Train 页(/api/train/start)和资产重建(/api/assets/:id/rebuild)共用此函数，

@@ -1,5 +1,5 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
@@ -122,7 +122,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [parallelInfer, setParallelInfer] = useState(true)
   const [sampleSteps, setSampleSteps] = useState(32)
   const [superSampling, setSuperSampling] = useState(false)
-  const [mediaType, setMediaType] = useState('wav')
+  const [mediaType, setMediaType] = usePersistentState('generate.mediaType', 'wav')
   const [streamingMode, setStreamingMode] = useState(false)
   const [overlapLength, setOverlapLength] = useState(2)
   const [minChunkLength, setMinChunkLength] = useState(16)
@@ -147,6 +147,11 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [checkpoints, setCheckpoints] = useState({ gpt: [], sovits: [] })
   const [selGpt, setSelGpt] = useState('')
   const [selSovits, setSelSovits] = useState('')
+  // 持久化「模型选择」：每个音色各自记住上次选的 GPT / SoVITS checkpoint，
+  // 刷新后恢复(仍存在于该音色列表时)，避免每次都被重置回默认档。
+  const [modelChoice, setModelChoice] = usePersistentState('generate.modelChoice', {})
+  const modelChoiceRef = useRef(modelChoice)
+  modelChoiceRef.current = modelChoice
   // Item 14: one-line summary of the active voice/model stack (mirrors the Compare
   // Refs row header) — "voice / gpt.ckpt (steps) / sovits.pth [version]".
   const _selGptC = (checkpoints.gpt || []).find(c => c.path === selGpt)
@@ -182,14 +187,35 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
         // 新音色的列表里，必须重置，否则会把上一个音色的 .pth 提交给推理后端（音色串档）。
         // Prefer a checkpoint flagged `default` (e.g. Base model → v2Pro), else the
         // first entry. Zero regression for fine-tuned voices (no default flag → [0]).
-        setSelGpt(prev => gptList.some(x => x.path === prev) ? prev : ((gptList.find(x => x.default) || gptList[0])?.path || ''))
-        setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev : ((sovitsList.find(x => x.default) || sovitsList[0])?.path || ''))
+        // 恢复顺序：持久化选择(仍有效) → 之前的选择(仍有效) → default 档 → 第 0 个。
+        const saved = modelChoiceRef.current[selectedVoice] || {}
+        setSelGpt(prev => (saved.gpt && gptList.some(x => x.path === saved.gpt)) ? saved.gpt
+          : (gptList.some(x => x.path === prev) ? prev : ((gptList.find(x => x.default) || gptList[0])?.path || '')))
+        setSelSovits(prev => (saved.sovits && sovitsList.some(x => x.path === saved.sovits)) ? saved.sovits
+          : (sovitsList.some(x => x.path === prev) ? prev : ((sovitsList.find(x => x.default) || sovitsList[0])?.path || '')))
       }
     }).catch(() => {})
     api(`/api/assets/${selectedVoice}/segments`).then(r => {
       if (r.ok && r.data.segments) setSegments(r.data.segments.segments || [])
     }).catch(() => setSegments([]))
   }, [selectedVoice])
+
+  // 记住当前音色的 checkpoint 选择。仅在选择与该音色已加载的 checkpoints 匹配时
+  // 才写入，避免切换音色时把上一个音色的路径短暂落到新音色名下。
+  useEffect(() => {
+    if (!selectedVoice) return
+    // 关键：只持久化「已解析且有效」的选择。重新挂载/切换音色瞬间 selGpt 会是 ''，
+    // 此时若写回会用空值覆盖掉已保存的真实选择(切回页面模型被刷掉的根因)。
+    if (!selGpt) return
+    const gptOk = (checkpoints.gpt || []).some(x => x.path === selGpt)
+    const sovitsOk = !selSovits || (checkpoints.sovits || []).some(x => x.path === selSovits)
+    if (!gptOk || !sovitsOk) return
+    setModelChoice(prev => {
+      const cur = prev[selectedVoice] || {}
+      if (cur.gpt === selGpt && cur.sovits === selSovits) return prev
+      return { ...prev, [selectedVoice]: { gpt: selGpt, sovits: selSovits } }
+    })
+  }, [selectedVoice, selGpt, selSovits, checkpoints])
 
   // Set language from voice config
   useEffect(() => {
@@ -442,7 +468,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     icon: <IconTrash size={18} color="var(--danger)" />,
     onConfirm: async () => {
       setGenConfirmBusy(true)
-      const r = await api(`/api/outputs/${encodeURIComponent(item.id)}`, { method: 'DELETE' })
+      const r = await api(`/api/outputs/${encodeURIComponent(item.id)}?source=${encodeURIComponent(item.source || 'generate')}`, { method: 'DELETE' })
       setGenConfirmBusy(false)
       if (!r.ok) { setError(outputsError(r, 'Failed to delete audio')); setGenConfirm(null); return }
       setGenConfirm(null); loadRecent()

@@ -456,6 +456,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
 }
 
 const LANGUAGES = [
+  { code: 'auto', label: 'Auto-detect' },
   { code: 'ja', label: 'Japanese' },
   { code: 'zh', label: 'Chinese (Mandarin)' },
   { code: 'en', label: 'English' },
@@ -818,7 +819,8 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
                           disabled={busy}
                           onChange={e => setText(r.index, e.target.value)} />
                 <WordConf words={r.words} tr={tr} />
-                <AsrRowProof text={r.text} lang={lang || 'ja'} disabled={busy}
+                <AsrRowProof text={r.text} disabled={busy}
+                             lang={(r.lang || (lang === 'auto' ? '' : lang) || 'ja').toLowerCase()}
                              onChange={val => setText(r.index, val)} />
               </div>
             </div>
@@ -839,7 +841,7 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
 function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill, health }) {
   const { t: tr } = useT()
   const [form, setForm] = usePersistentState('train.form', {
-    inputDir: '', language: 'ja', voiceName: '',
+    inputDir: '', language: 'auto', voiceName: '',
     preset: 'default', inputType: 'auto', expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
     trainS1: true, trainS2: true,
