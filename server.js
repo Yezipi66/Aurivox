@@ -4053,11 +4053,48 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
     }
     const refinementType = wantS1 && wantS2 ? "s1+s2" : wantS1 ? "s1" : "s2";
 
+    // Two-mode refine:
+    //   reuse (default) — continue from the parent's frozen dataset (slice/ASR reused).
+    //   own  — user brings a NEW audio folder; run the FULL pipeline on it, still
+    //          warm-starting from the parent's checkpoints. New data only; no merge.
+    const useOwnData = !!(req.body && req.body.use_own_data);
+    const rawInputDir = String((req.body && req.body.input_dir) || "").trim().replace(/^["']|["']$/g, "");
+    // Explicit warm-start checkpoint filenames (optional; default = latest by epoch).
+    const reqS1File = String((req.body && req.body.base_s1_file) || "").trim();
+    const reqS2File = String((req.body && req.body.base_s2_file) || "").trim();
+
+    // Own-data mode: validate the new audio folder up front (same rules as train/start).
+    if (useOwnData) {
+      if (!rawInputDir) {
+        return res.status(400).json({ error: "input_dir is required when use_own_data is set.", code: "INPUT_DIR_REQUIRED" });
+      }
+      const resolved = path.resolve(rawInputDir);
+      if (TRAIN_DATA_ROOT) {
+        const root = path.resolve(TRAIN_DATA_ROOT);
+        if (!resolved.startsWith(root + path.sep) && resolved !== root) {
+          return res.status(400).json({ error: "input_dir must be under TRAIN_DATA_ROOT" });
+        }
+      }
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+        return res.status(400).json({ error: "input_dir does not exist or is not a directory", code: "INPUT_DIR_MISSING" });
+      }
+    }
+
     // Parent metadata: display name, language, version, lineage, transcript source.
     let pMeta = {};
     try { pMeta = JSON.parse(fs.readFileSync(path.join(parentDir, "meta.json"), "utf-8")); } catch (_) {}
     const parentDisplay = pMeta.display_name || parentId;
-    const language = pMeta.language || "ja";
+    // Language resolution (lineage-as-derivation model): the derived Voice inherits the
+    // parent's language by default. Own-data refinement may explicitly declare a DIFFERENT
+    // language for the new corpus (e.g. annealing a Japanese model on Chinese data → a
+    // Chinese derivative) — that is just another branch in the refinement tree, so we
+    // honour the client's language when provided. "auto" stays "auto" (never silently
+    // coerced to a concrete language). No hard "ja" fallback anywhere.
+    const VALID_LANGS = new Set(["auto", "ja", "zh", "en"]);
+    const reqLang = String((req.body && req.body.language) || "").trim().toLowerCase();
+    const language = (useOwnData && VALID_LANGS.has(reqLang))
+      ? reqLang
+      : (pMeta.language || "auto");
     const parentVersion = normalizeVersion(pMeta.base_version || "v2");
 
     // Locate the parent's published checkpoints. Both are required for S2 refinement:
@@ -4072,11 +4109,28 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
         code: "NO_CHECKPOINTS",
       });
     }
-    const s1Pick = pickLatestByEpoch(gptFiles, /-e(\d+)\.ckpt$/i);
+    // Warm-start selection. Honor an explicit filename when the user picked one in the
+    // modal (must exist in the parent's checkpoint dir); otherwise default to latest epoch.
+    let s1Pick;
+    if (reqS1File && gptFiles.includes(reqS1File)) {
+      s1Pick = { file: reqS1File, epoch: Number((reqS1File.match(/-e(\d+)\.ckpt$/i) || [])[1]) || null };
+    } else if (reqS1File) {
+      return res.status(400).json({ error: `S1 checkpoint not found: ${reqS1File}`, code: "CKPT_NOT_FOUND" });
+    } else {
+      s1Pick = pickLatestByEpoch(gptFiles, /-e(\d+)\.ckpt$/i);
+    }
     // Prefer an S2 model matching the parent version so the warm-start shape matches.
     const sovSameVersion = sovFiles.filter(f => normalizeVersion(versionFromName(f) || "") === parentVersion);
     const s2Pool = sovSameVersion.length ? sovSameVersion : sovFiles;
-    const s2Pick = pickLatestByEpoch(s2Pool, /_e(\d+)_s\d+\.pth$/i) || { file: s2Pool[0], epoch: null };
+    let s2Pick;
+    if (reqS2File && sovFiles.includes(reqS2File)) {
+      const sm = reqS2File.match(/_e(\d+)_s\d+\.pth$/i);
+      s2Pick = { file: reqS2File, epoch: sm ? Number(sm[1]) : null };
+    } else if (reqS2File) {
+      return res.status(400).json({ error: `S2 checkpoint not found: ${reqS2File}`, code: "CKPT_NOT_FOUND" });
+    } else {
+      s2Pick = pickLatestByEpoch(s2Pool, /_e(\d+)_s\d+\.pth$/i) || { file: s2Pool[0], epoch: null };
+    }
     if (!s1Pick || !s2Pick || !s2Pick.file) {
       return res.status(400).json({ error: "Could not resolve parent S1/S2 checkpoint filenames.", code: "CKPT_RESOLVE_FAILED" });
     }
@@ -4160,7 +4214,10 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
     });
 
     const newDir = path.join(ASSETS_DIR, newId);
-    const newStem = new RegExp(`_${language}$`, "i").test(newId) ? newId : `${newId}_${language}`;
+    // Only tag the checkpoint stem with a CONCRETE language ("auto" is not a real
+    // language and must not leak into filenames).
+    const stemLang = language && language !== "auto" ? language : "";
+    const newStem = (!stemLang || new RegExp(`_${stemLang}$`, "i").test(newId)) ? newId : `${newId}_${stemLang}`;
     try {
       // Seed reference material from the parent so preprocess (audio) + finalize
       // (carry-forward) can build the derived asset without re-slicing/re-ASR.
@@ -4169,11 +4226,15 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
         const src = path.join(parentDir, sub);
         if (fs.existsSync(src)) fs.cpSync(src, path.join(newDir, sub), { recursive: true });
       };
-      copyDir("slicer_opt");
-      copyDir("raw");
-      copyDir("asr_opt");
-      const segSrc = path.join(parentDir, "segments.json");
-      if (fs.existsSync(segSrc)) fs.copyFileSync(segSrc, path.join(newDir, "segments.json"));
+      // Reuse mode only: seed the parent's frozen dataset so preprocess can run without
+      // re-slicing/re-ASR. Own-data mode brings a NEW folder → full pipeline builds these.
+      if (!useOwnData) {
+        copyDir("slicer_opt");
+        copyDir("raw");
+        copyDir("asr_opt");
+        const segSrc = path.join(parentDir, "segments.json");
+        if (fs.existsSync(segSrc)) fs.copyFileSync(segSrc, path.join(newDir, "segments.json"));
+      }
 
       // Seed REUSED checkpoints under the NEW id stem (metadata rebuild is filename
       // driven — the derived asset's model files MUST carry the new id, not the parent).
@@ -4218,10 +4279,17 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
       additional_s2_epochs: wantS2 ? s2Epochs : null,
       learning_rate: learningRate,
       created_at: new Date().toISOString(),
-      transcript_source: transcriptSnapshot ? transcriptSnapshot.source : null,
-      transcript: transcriptSnapshot,
+      // reuse = continue from parent's frozen dataset; own = user's new audio folder.
+      data_mode: useOwnData ? "own" : "reuse",
+      input_dir: useOwnData ? path.resolve(rawInputDir) : null,
+      base_s1_file: s1Pick.file,
+      base_s2_file: s2Pick.file,
+      transcript_source: useOwnData ? "own_data" : (transcriptSnapshot ? transcriptSnapshot.source : null),
+      transcript: useOwnData ? null : transcriptSnapshot,
     };
 
+    // Own-data mode may carry slice/asr/denoise params (params.steps.{slice|asr|denoise}.params).
+    const bodySteps = (bodyParams.steps && typeof bodyParams.steps === "object") ? bodyParams.steps : {};
     // Force the version to the parent's so warm-start checkpoint shapes match. All other
     // training fields flow through from the shared form (params.training).
     const safeCustom = sanitizeCustomParams({
@@ -4233,15 +4301,30 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
         sovits_epochs: s2Epochs,
         learning_rate: learningRate,
       },
+      ...(useOwnData ? { steps: bodySteps } : {}),
     });
 
-    // preprocess → [train_s1] → [train_s2] → finalize → promote. Slice/ASR are always
-    // reused from the seeded parent data; only the selected model step(s) run.
-    const stepOptions = {
-      denoise: false, slice: false, asr: false, preprocess: true,
-      train_s1: wantS1, train_s2: wantS2, finalize: true, promote: true,
-      copyRaw: false,
-    };
+    // Step plan:
+    //   reuse → preprocess → [train] → finalize → promote (slice/ASR reused from parent).
+    //   own   → (denoise) → slice → ASR → preprocess → [train] → finalize → promote,
+    //           warm-started from the parent checkpoints. New data only, no merge.
+    const rt = (req.body && req.body.steps && typeof req.body.steps === "object") ? req.body.steps : {};
+    const stepOptions = useOwnData
+      ? {
+          denoise: !!rt.denoise,
+          slice: rt.slice !== false,
+          asr: rt.asr !== false,
+          preprocess: true,
+          train_s1: wantS1, train_s2: wantS2, finalize: true, promote: true,
+          copyRaw: rt.copyRaw !== false,
+          pauseAfterAsr: !!rt.pauseAfterAsr,
+          ...(rt.asrGraceSec != null ? { asrGraceSec: rt.asrGraceSec } : {}),
+        }
+      : {
+          denoise: false, slice: false, asr: false, preprocess: true,
+          train_s1: wantS1, train_s2: wantS2, finalize: true, promote: true,
+          copyRaw: false,
+        };
 
     let pipeline;
     try {
@@ -4249,7 +4332,7 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
         voiceId: newId,
         displayName,
         language,
-        inputDir: parentDir,
+        inputDir: useOwnData ? path.resolve(rawInputDir) : parentDir,
         stepOptions,
         customParams: safeCustom,
         refinement,
@@ -4269,6 +4352,7 @@ app.post("/api/assets/:id/refine", requireApiKey, async (req, res) => {
       additionalS2Epochs: wantS2 ? s2Epochs : null,
       learningRate,
       baseS1Checkpoint: s1Pick.file, baseS2Checkpoint: s2Pick.file,
+      dataMode: useOwnData ? "own" : "reuse",
     });
   } catch (err) {
     console.error("[REFINE] Error:", err);

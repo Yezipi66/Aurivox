@@ -90,8 +90,11 @@ function AppShell() {
         if (!stillThere) setActiveTaskId(null);
         return;
       }
-      // 2) 没有 activeTaskId：优先接管运行中的，其次接管中断的
+      // 2) 没有 activeTaskId：优先接管运行中的，其次等待人工校对的，最后中断的。
+      // awaiting_review 必须被接管，否则 Refine 里勾了「ASR 后暂停」的任务会卡在后端
+      // 无处校对（校对面板只在 Train 页对 activeTaskId 渲染）。
       const pick = tasks.find(t => t.status === 'running')
+                || tasks.find(t => t.status === 'awaiting_review')
                 || tasks.find(t => t.status === 'interrupted');
       if (pick) setActiveTaskId(pick.id);
     }).catch(() => {});
@@ -156,6 +159,7 @@ function AppShell() {
           )}
           {page === 'assets' && (
             <AssetsTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
+              setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
           {page === 'train' && (

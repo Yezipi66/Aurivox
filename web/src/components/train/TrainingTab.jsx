@@ -820,7 +820,7 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
                           onChange={e => setText(r.index, e.target.value)} />
                 <WordConf words={r.words} tr={tr} />
                 <AsrRowProof text={r.text} disabled={busy}
-                             lang={(r.lang || (lang === 'auto' ? '' : lang) || 'ja').toLowerCase()}
+                             lang={(r.lang || (lang === 'auto' ? '' : lang) || '').toLowerCase()}
                              onChange={val => setText(r.index, val)} />
               </div>
             </div>
@@ -905,6 +905,14 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const cuda = health?.cuda; // { available, device_name, vram_gb } | undefined until health loads
   const [noGpuConfirm, setNoGpuConfirm] = useState(false);
   const [noGpuAck, setNoGpuAck] = useState(false);
+  // ── 管线门控 (G1/G2) ────────────────────────────────────────────────────────
+  // G1: 未开启 S1/S2 → 只跑切片/ASR，preprocess 三步无意义，确认后跳过 preprocess。
+  // G2: 开启训练却未勾 ASR → 无转写会报错，但用户可能自备 .list：强提醒不阻断，
+  //     并给一段 preprocess 前宽限期（默认 30s）让用户投放 .list / segments.json。
+  const [gate, setGate] = useState(null);  // null | { type:'g1'|'g2' }
+  const [gateGraceSec, setGateGraceSec] = useState(30);
+  // 门控放行标记 + 本次放行携带的覆盖项（preprocess 关 / 宽限期秒数）。
+  const gateAckRef = useRef({ g1: false, g2: false, preprocessOff: false, graceSec: 30 });
   const [lowVramWarned, setLowVramWarned] = usePersistentState('train.lowVramWarned', false);
   const [showLowVram, setShowLowVram] = useState(false);
   useEffect(() => {
@@ -1068,9 +1076,17 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
         (cleanDir.startsWith("'") && cleanDir.endsWith("'"))) {
       cleanDir = cleanDir.slice(1, -1);
     }
+    const gAck = gateAckRef.current;
     const steps = recovery
       ? buildRecoverySteps()
-      : { denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw, train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false, pauseAfterAsr: !!form.preprocessReview, keepStaging: !!form.keepStaging };
+      : {
+          denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw,
+          train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false,
+          pauseAfterAsr: !!form.preprocessReview, keepStaging: !!form.keepStaging,
+          // G1：无训练时跳过 preprocess 三步。G2：透传宽限期给后端。
+          ...(gAck.preprocessOff ? { preprocess: false } : {}),
+          ...(gAck.g2 ? { asrGraceSec: gAck.graceSec } : {}),
+        };
     const recoveryFields = recovery
       ? (recoveryMode === 'modify'
           ? { forkFromTaskId: recovery.sourceTaskId }
@@ -1107,6 +1123,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     setRestartFailedStep(false);
     setLocalTaskId(r.data.taskId);
     setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
+    gateAckRef.current = { g1: false, g2: false, preprocessOff: false, graceSec: 30 }; // 重置门控，下次启动重新评估
   };
 
   const handleStart = async () => {
@@ -1120,6 +1137,14 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       return;
     }
     if (!form.voiceName.trim()) { setError('Please enter a voice name'); return }
+    // 管线门控（仅新训练，非恢复流）。命中则弹二级菜单，确认后回到本函数继续。
+    if (!recovery) {
+      const trainOn = form.trainS1 !== false || form.trainS2 !== false;
+      const asrOn = form.asr !== false;
+      const ack = gateAckRef.current;
+      if (!trainOn && !ack.g1) { setError(null); setGate({ type: 'g1' }); return; }
+      if (trainOn && !asrOn && !ack.g2) { setError(null); setGateGraceSec(30); setGate({ type: 'g2' }); return; }
+    }
     // GPU pre-flight: when health has loaded and reports no CUDA device, block
     // behind an explicit acknowledgement instead of silently starting a CPU run.
     // (We only block on a definitive false; while health is still loading we let
@@ -1151,6 +1176,20 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       setError(err.message);
     }
   }
+
+  // 门控确认：记下放行标记 + 覆盖项，关闭菜单，回到 handleStart 继续（GPU 检查 → 提交）。
+  const confirmGate = async () => {
+    const type = gate?.type;
+    if (type === 'g1') {
+      gateAckRef.current = { ...gateAckRef.current, g1: true, preprocessOff: true };
+    } else if (type === 'g2') {
+      const g = Math.max(0, Math.min(600, Math.round(Number(gateGraceSec) || 0)));
+      gateAckRef.current = { ...gateAckRef.current, g2: true, graceSec: g };
+    }
+    setGate(null);
+    await handleStart();
+  };
+  const cancelGate = () => { setGate(null); gateAckRef.current = { g1: false, g2: false, preprocessOff: false, graceSec: 30 }; };
 
   const confirmOverwriteTrain = async () => {
     setOverwriteConfirm(null);
@@ -1788,7 +1827,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 )}
               </div>
               {isAwaitingReview && (
-                <AsrReviewPanel taskId={taskId} lang={form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
+                <AsrReviewPanel taskId={taskId} lang={status?.language || form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
               )}
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>
@@ -1840,6 +1879,59 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       )}
 
       {/* No-GPU pre-flight: CPU fine-tuning is allowed but must be acknowledged. */}
+      {/* 门控 G1：未开启 S1/S2 —— 只跑切片/ASR，跳过 preprocess。 */}
+      <ConfirmDialog
+        open={gate?.type === 'g1'}
+        icon={<span style={{ fontSize: 18 }}>ⓘ</span>}
+        title={tr('No fine-tuning steps selected', '未选择微调步骤')}
+        confirmLabel={tr('Continue (skip preprocess)', '继续（跳过预处理）')}
+        onConfirm={confirmGate}
+        onCancel={cancelGate}
+        message={
+          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            {tr(
+              'Neither S1 (GPT) nor S2 (SoVITS) training is enabled. This run will only slice / transcribe (with optional proofreading); the three preprocess steps will be skipped since there is nothing to train.',
+              '未启用 S1 (GPT) 或 S2 (SoVITS) 训练。本次将只执行切片 / 转写（含可选人工校对），由于没有要训练的模型，将跳过 preprocess 三步。')}
+          </div>
+        }
+      />
+
+      {/* 门控 G2/G3：训练开启但未勾 ASR —— 强提醒不阻断 + 宽限期投放自备 .list。 */}
+      <ConfirmDialog
+        open={gate?.type === 'g2'}
+        danger
+        icon={<span style={{ fontSize: 18 }}>⚠️</span>}
+        title={tr('ASR is not enabled', '未启用 ASR')}
+        confirmLabel={tr('Continue anyway', '仍然继续')}
+        onConfirm={confirmGate}
+        onCancel={cancelGate}
+        message={
+          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            <p style={{ marginTop: 0 }}>
+              {tr(
+                'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
+                '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非你自备转写。')}
+            </p>
+            <p>
+              {tr(
+                'Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
+                '在预处理前，系统会等待下面设定的秒数，让你把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
+            </p>
+            <p style={{ color: 'var(--muted)', fontSize: 12 }}>
+              {tr(
+                'Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
+                '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
+            </p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <span>{tr('Grace period (seconds)', '宽限期（秒）')}</span>
+              <input type="number" className="control" min={0} max={600} value={gateGraceSec}
+                     onChange={e => setGateGraceSec(e.target.value)}
+                     style={{ width: 90 }} />
+            </label>
+          </div>
+        }
+      />
+
       {noGpuConfirm && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 1000,
@@ -2153,4 +2245,5 @@ export {
   TrainParamFields,
   buildTrainingParams,
   REBUILD_PARAM_DEFAULTS,
+  LANGUAGES,
 }
