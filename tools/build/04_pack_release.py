@@ -117,6 +117,8 @@ EXCLUDE_EXT = {
     ".mp4", ".mkv", ".avi", ".mov", ".webm",
     ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".zst",
     ".pdb",  # debug symbols (embedded python ships ~50MB of these; unused at runtime)
+    ".pyc", ".pyo",  # compiled bytecode; a loose *.pyc beside a *.py is NOT caught
+                     # by the __pycache__ dir rule and would otherwise ship
 }
 # never drop these even if large (runtime + wheels + ffmpeg live here)
 KEEP_EXT = {".exe", ".dll", ".whl", ".node", ".pyd", ".so", ".lib"}
@@ -147,7 +149,7 @@ def _compress_type_for(name):
 # added source files ship automatically (developer-friendly).
 EXCLUDE_FILES = {
     # stray reports / caches (junk at any depth)
-    "tree_report.txt", "pack_sources.cpython-312.pyc",
+    "tree_report.txt",  # loose *.pyc now dropped generically via EXCLUDE_EXT
     "requirements.lock.current.txt",
     # per-machine user state written by the running app (paths.js). It pins an
     # ABSOLUTE assetsRoot from whatever machine last ran; shipping it forces
@@ -197,8 +199,16 @@ ROOT_EXCLUDE_FILES = {
     "setup_indextts_env_v2.bat",
     # stray backup copy of server.js (a .txt duplicate) — not real source.
     "server.js.txt",
+    # packer-generated release metadata. version.json / manifest-*.json are
+    # injected fresh into the zip root from the `included` list on every pack.
+    # A stale copy left in the source root would (1) self-reference into the new
+    # manifest and (2) be written a SECOND time at the same arcname (duplicate
+    # zip entry). Drop any on-disk residue so the generated ones always win.
+    # (manifest-<ver>.json is handled via EXCLUDE_PREFIX below.)
+    "version.json",
 }
-EXCLUDE_PREFIX = ("sources_",)  # sources_YYYYMMDD.zip snapshots
+EXCLUDE_PREFIX = ("sources_", "manifest-")  # sources_YYYYMMDD.zip snapshots;
+# manifest-<ver>.json is generated fresh into the zip and never shipped from disk
 
 
 def root_dir():
