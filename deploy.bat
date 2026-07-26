@@ -21,12 +21,10 @@ echo         downloads models and restores node deps via npm ci.
 echo ============================================================
 echo.
 
-REM --- fail fast on non-ASCII (e.g. Chinese) install path -------------------
-REM On Windows a non-ASCII path is mangled to D:\??\... when launching python
-REM or ffmpeg, breaking slice / ASR / training. bootstrap.ps1 enforces this too
-REM (exit 7); this is a best-effort early check for a nicer message.
-echo %CD%| findstr /R /C:"[^ -~]" >nul
-if not errorlevel 1 goto guard7
+REM --- non-ASCII install path check REMOVED ---------------------------------
+REM Path restriction lifted per user request (non-ASCII paths tested OK).
+REM (bootstrap.ps1 may still enforce its own exit 7 -- see the note below and
+REM  remove that check there too if you want the restriction fully gone.)
 
 REM --- embedded python must exist to run the wizard -------------------------
 if not exist "%PYEMB%" (
@@ -64,7 +62,10 @@ echo.
 echo [deploy] initializing environment ^(venv + uv pip install + npm ci^) + provisioning ...
 powershell -ExecutionPolicy Bypass -NoProfile -File "%DEPLOY%\bootstrap.ps1"
 set "RC=%ERRORLEVEL%"
-if "%RC%"=="7" goto guard7
+REM Exit 7 now means: bootstrap detected a non-ASCII (e.g. Chinese) path and the
+REM USER chose NOT to continue at the confirmation prompt. That is a clean
+REM cancellation, not a failure -- show a neutral message rather than "failed".
+if "%RC%"=="7" goto pathcancel
 if not "%RC%"=="0" goto envpartial
 
 echo.
@@ -73,22 +74,20 @@ echo   [DONE] Deployment finished. You can now run the launcher.
 echo ============================================================
 goto end
 
-:guard7
+REM (the old :guard7 "[DEPLOY REFUSED]" auto-refusal was removed. A non-ASCII
+REM  path no longer blocks deployment; bootstrap.ps1 only WARNS and asks the
+REM  user to confirm. If the user declines, we land on :pathcancel below.)
+
+:pathcancel
 echo.
 echo ============================================================
-echo   [DEPLOY REFUSED] Install path contains non-English chars.
-echo   On Windows a non-ASCII path such as Chinese is mangled to
-echo   D:\??\... when launching python or ffmpeg, so Python cannot
-echo   be found, and slice / ASR / training all fail.
-echo.
-echo   Fix: move the WHOLE folder to a pure-English path, e.g.
-echo       D:\Aurivox
-echo   then double-click this script again.
+echo   [CANCELLED] You chose not to install under a non-English
+echo   (e.g. Chinese) path. Nothing was installed.
+echo   Move the WHOLE folder to a pure-English path, e.g. D:\Aurivox
+echo   then double-click this script again. (Or re-run and answer Y
+echo   at the prompt to install here anyway.)
 echo ============================================================
-echo.
-pause
-endlocal
-exit /b 7
+goto end
 
 :aborted
 echo.

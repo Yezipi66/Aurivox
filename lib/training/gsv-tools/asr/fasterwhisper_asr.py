@@ -320,7 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input_folder", type=str, required=True)
     parser.add_argument("-o", "--output_folder", type=str, required=True)
     parser.add_argument("-s", "--model_size", type=str, default="large-v3",
-                        choices=get_asr_models())
+                        choices=get_asr_models() + ["large"])  # "large" 兼容别名 -> 下方归一化为 large-v3
     parser.add_argument("-l", "--language", type=str, default="ja",
                         choices=language_code_list)
     parser.add_argument("-p", "--precision", type=str, default="float16",

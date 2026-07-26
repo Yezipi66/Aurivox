@@ -1582,7 +1582,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="essentials-grid">
               <div className="field">
                 <label className="field-label">{tr('Display Name', '显示名称')} *</label>
-                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="例如：雷子 / MyVoice" />
+                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="例如：MyVoice" />
                 {displayName && (
                   <p className="field-hint">
                     {tr('Proposed ID:', '建议 ID：')} <code>{proposedId || '…'}</code>

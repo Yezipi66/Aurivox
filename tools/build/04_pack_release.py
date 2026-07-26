@@ -121,6 +121,26 @@ EXCLUDE_EXT = {
 # never drop these even if large (runtime + wheels + ffmpeg live here)
 KEEP_EXT = {".exe", ".dll", ".whl", ".node", ".pyd", ".so", ".lib"}
 
+# Extensions whose bytes are ALREADY compressed. Re-running DEFLATE over them
+# burns CPU for ~0% size gain (a .whl is itself a zip; PNG/woff2/gz are packed),
+# so we store them uncompressed (ZIP_STORED). The archived size is unchanged vs
+# deflating (both ~= the file's own size), but we skip the compressor entirely,
+# which is a large chunk of pack time. Note: .dll/.exe/.pyd are deliberately NOT
+# here — they DO compress meaningfully, so they keep DEFLATE to respect the size
+# budget.
+STORED_EXT = {
+    ".whl", ".zip", ".7z", ".gz", ".bz2", ".xz", ".zst", ".rar",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".woff", ".woff2",
+}
+
+
+def _compress_type_for(name):
+    """ZIP_STORED for already-compressed payloads, else ZIP_DEFLATED."""
+    return (zipfile.ZIP_STORED
+            if os.path.splitext(name)[1].lower() in STORED_EXT
+            else zipfile.ZIP_DEFLATED)
+
 # Specific files to drop (BLACKLIST). These are old temp/dev scripts, build
 # by-products and stray reports that used to litter the project root. Excluding
 # them by exact name keeps the release clean without an allowlist, so newly
@@ -140,6 +160,13 @@ EXCLUDE_FILES = {
     # deploy-time state written by deploy_wizard.py (per-machine selection); must
     # not ship in a source release.
     ".deploy_selection.json", ".deploy_models.txt", ".deploy_ffmpeg.txt",
+    # PER-MACHINE runtime state (lib\inference\tts_infer.yaml). It pins THIS
+    # box's ABSOLUTE model paths + device + the last-selected GPT/SoVITS weights
+    # and is hot-rewritten by the running engine. Shipping it forces every
+    # tester onto the dev machine's D:\ paths, so the engine fails to load after
+    # extract. The release carries tts_infer.yaml.example instead (different
+    # basename, kept) and start.ps1 regenerates the live file on first run.
+    "tts_infer.yaml",
     # "nul" is a RESERVED Windows device name, not a real file. It gets created
     # accidentally by a shell redirect bug (e.g. `... >nul` run in a context that
     # writes a literal file). It cannot be extracted on Windows (the OS rejects
@@ -367,6 +394,17 @@ def main():
     if leaked_nm:
         print("  [WARN] %d node_modules file(s) leaked into the release (should be 0; deploy runs `npm ci`). e.g. %s"
               % (len(leaked_nm), norm(leaked_nm[0])))
+    # tts_infer.yaml is PER-MACHINE runtime state (this box's absolute model
+    # paths + last-selected weights, hot-rewritten by the engine). It must NEVER
+    # ship: the release carries tts_infer.yaml.example and start.ps1 regenerates
+    # the live file on first run. Flag either a leaked live yaml (blacklist miss)
+    # or a missing template so a broken release is caught at pack time.
+    leaked_cfg = [r for r, _, _ in included if os.path.basename(norm(r)) == "tts_infer.yaml"]
+    if leaked_cfg:
+        print("  [WARN] tts_infer.yaml (per-machine runtime config) leaked into the release "
+              "(should be 0; ship only tts_infer.yaml.example). e.g. %s" % norm(leaked_cfg[0]))
+    if not any(os.path.basename(norm(r)) == "tts_infer.yaml.example" for r, _, _ in included):
+        print("  [WARN] missing tts_infer.yaml.example -> engine/start.ps1 cannot regenerate its config on first run")
 
     # ---- version.json + manifest (P0: single source of truth for updates) ----
     # Built from the exact `included` list so the manifest can never disagree
@@ -431,14 +469,15 @@ def main():
                     raw_year = time.localtime(os.path.getmtime(full))[0]
                 except OSError:
                     raw_year = 0
+                ct = _compress_type_for(full)
                 if raw_year < 1980:
                     clamped.append(rel)
                     zi = zipfile.ZipInfo(arc, date_time=_ZIP_MIN_DATE)
-                    zi.compress_type = zipfile.ZIP_DEFLATED
+                    zi.compress_type = ct
                     with open(full, "rb") as fh:
                         z.writestr(zi, fh.read())
                 else:
-                    z.write(full, arcname=arc)
+                    z.write(full, arcname=arc, compress_type=ct)
     zsize = os.path.getsize(out)
     if clamped:
         print("  [note] clamped pre-1980 mtime -> 1980-01-01 on %d file(s) "

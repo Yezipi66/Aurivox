@@ -85,6 +85,7 @@ export function Select({
     if (!el) return
     const r = el.getBoundingClientRect()
     const vh = window.innerHeight
+    const vw = window.innerWidth
     const spaceBelow = vh - r.bottom
     const spaceAbove = r.top
     const desired = 300
@@ -98,7 +99,8 @@ export function Select({
       left: Math.round(r.left),
       top: placement === 'down' ? Math.round(r.bottom + 4) : undefined,
       bottom: placement === 'up' ? Math.round(vh - r.top + 4) : undefined,
-      width: Math.round(r.width),
+      minWidth: Math.round(r.width),
+      maxWidth: Math.max(Math.round(r.width), Math.round(vw - r.left - 8)),
       maxHeight: Math.max(120, Math.round(maxHeight)),
       placement,
     })
@@ -208,7 +210,9 @@ export function Select({
       style={{
         position: 'fixed',
         left: pos.left,
-        width: pos.width,
+        minWidth: pos.minWidth,
+        maxWidth: pos.maxWidth,
+        width: 'max-content',
         maxHeight: pos.maxHeight,
         ...(pos.placement === 'down' ? { top: pos.top } : { bottom: pos.bottom }),
       }}

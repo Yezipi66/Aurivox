@@ -1,4 +1,4 @@
-$acl = Get-Acl 'D:\Project\tts_broker_openai_compat\venv'
+﻿$acl = Get-Acl 'D:\Project\tts_broker_openai_compat\venv'
 $rule = New-Object System.Security.AccessControl.FileSystemAccessRule('BUILTIN\Administrators','FullControl','ContainerInherit,ObjectInherit','None','Allow')
 $acl.SetAccessRule($rule)
 $rule2 = New-Object System.Security.AccessControl.FileSystemAccessRule('BUILTIN\Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')

@@ -41,28 +41,36 @@ $__selF = Join-Path $SCRIPT_DIR '.deploy_ffmpeg.txt'
 if (Test-Path $__selM) { $c = Get-Content $__selM -Raw; $SEL_MODELS = if ($c) { $c.Trim() } else { '' } }
 if (Test-Path $__selF) { $c = Get-Content $__selF -Raw; $SEL_FFMPEG = if ($c) { $c.Trim() } else { '' } }
 
-# --- 0a. GUARD: refuse a non-ASCII (e.g. Chinese) install path ------------
-# A path containing non-ASCII characters (e.g. D:\<chinese>\) is destroyed to
-# D:\??\ the moment a child process (python/ffmpeg/uv) is launched through the
-# Windows GBK/ANSI console codepage, so those tools can no longer be found
-# ("No Python at 'D:\??\...\python.exe'", slice/ASR/train all fail). We must
-# validate $ROOT here -- it is the REAL Unicode path from $PSScriptRoot; a path
-# read back from the console is already mangled to '?' (0x3F, ASCII) and would
-# falsely pass. Message kept ASCII-only so it renders in any console/encoding;
-# the Chinese explanation is printed by the .bat wrapper on exit code 7.
+# --- 0a. CONFIRM: non-ASCII (e.g. Chinese) install path -------------------
+# The hard refusal (exit 7) was removed per user request. Instead of blocking,
+# we WARN and ask the user to confirm they really want to install under a
+# non-ASCII path, because on some Windows consoles such a path can be mangled
+# to D:\??\ when launching a child process (python/ffmpeg/uv), which can break
+# slice/ASR/train. Default is No: pressing Enter cancels. Only an explicit
+# y / yes proceeds. If the user cancels we exit 7 (the .bat shows a clean
+# "cancelled" message).  NOTE: Warn()/Info() are defined further below, so we
+# use Write-Host here.
 $__badChars = @()
 foreach ($c in $ROOT.ToCharArray()) { if ([int][char]$c -gt 127) { $__badChars += $c } }
 if ($__badChars.Count -gt 0) {
   Write-Host ''
-  Write-Host '============================================================' -ForegroundColor Red
-  Write-Host '[deploy][FATAL] Install path contains non-ASCII characters.' -ForegroundColor Red
-  Write-Host ('  path : {0}' -f $ROOT) -ForegroundColor Red
-  Write-Host ('  bad  : {0}' -f ($__badChars -join ' ')) -ForegroundColor Red
-  Write-Host '  A non-English path (Chinese etc.) breaks Python/ffmpeg' -ForegroundColor Red
-  Write-Host '  process launching on Windows. Move the WHOLE folder to a' -ForegroundColor Red
-  Write-Host '  pure-English path such as  D:\TTS-Broker  then re-run.' -ForegroundColor Red
-  Write-Host '============================================================' -ForegroundColor Red
-  exit 7
+  Write-Host '============================================================' -ForegroundColor Yellow
+  Write-Host '[deploy][WARNING] Install path contains non-ASCII characters.' -ForegroundColor Yellow
+  Write-Host ('  path  : {0}' -f $ROOT) -ForegroundColor Yellow
+  Write-Host ('  chars : {0}' -f (($__badChars | Select-Object -Unique) -join ' ')) -ForegroundColor Yellow
+  Write-Host '  A non-English (Chinese etc.) path MAY be mangled to D:\??\... when' -ForegroundColor Yellow
+  Write-Host '  launching python/ffmpeg, which can break slice / ASR / training.' -ForegroundColor Yellow
+  Write-Host '  Recommended: use a pure-English path such as  D:\TTS-Broker' -ForegroundColor Yellow
+  Write-Host '  [zh] 检测到中文/非英文安装路径,可能导致 python/ffmpeg 找不到而出错。' -ForegroundColor Yellow
+  Write-Host '       建议改用纯英文路径(如 D:\TTS-Broker)。' -ForegroundColor Yellow
+  Write-Host '============================================================' -ForegroundColor Yellow
+  $__ans = Read-Host '  Continue installing here anyway? / 仍要在此目录继续安装吗? (y/N)'
+  if ($__ans -notmatch '^(y|yes)$') {
+    Write-Host ''
+    Write-Host '[deploy] Cancelled. / 已取消。请把整个文件夹移到纯英文路径后重试。' -ForegroundColor Red
+    exit 7
+  }
+  Write-Host '[deploy] User confirmed non-ASCII path -- continuing. / 已确认,继续安装。' -ForegroundColor Yellow
 }
 
 $TORCH_VER      = 'torch==2.2.0'

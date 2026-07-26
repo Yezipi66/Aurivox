@@ -1018,7 +1018,7 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
               // reference falls back to this voice's own slices, avoiding a stale ref.
               if (!on) { setCustomRef(null); onSelectRef('', '', '') }
             }} />
-            Use reference from another voice
+            {t('Use reference from another voice', '使用其他音色的参考音频')}
           </label>
           {activeRef && (
             <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: activeRefText ? 2 : 6 }}>

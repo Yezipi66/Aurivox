@@ -14,26 +14,27 @@ if (-not $SCRIPT_DIR) { $SCRIPT_DIR = (Get-Location).Path }
 # tools\scripts -> tools -> <root>
 $BASE_DIR = Split-Path (Split-Path $SCRIPT_DIR -Parent) -Parent
 
-# --- GUARD: refuse a non-ASCII (e.g. Chinese) install path ----------------
-# Same failure mode as deploy: a non-English path is mangled to D:\??\ when
-# child processes (python/ffmpeg) are launched via the GBK console, so the
-# engine/backend cannot find Python and training/inference break. Validate
-# $BASE_DIR (real Unicode from $PSScriptRoot) BEFORE launching anything. A
-# path read back through the console is already '?'-mangled (0x3F, ASCII) and
-# would falsely pass. ASCII-only message; .bat wrapper prints Chinese on code 7.
+# --- CHECK: warn (do NOT refuse) on a non-ASCII (e.g. Chinese) install path -
+# A non-English path CAN mangle to D:\??\ when child processes (python/ffmpeg)
+# are launched via a legacy GBK console, which may break the engine/backend.
+# We force PYTHONUTF8/UTF-8 for children below, and modern Windows generally
+# handles Unicode paths, so this is now a non-fatal warning instead of a hard
+# refusal: startup continues and the user decides. Validate $BASE_DIR (real
+# Unicode from $PSScriptRoot) which is not '?'-mangled like a console readback.
 $__badChars = @()
 foreach ($c in $BASE_DIR.ToCharArray()) { if ([int][char]$c -gt 127) { $__badChars += $c } }
 if ($__badChars.Count -gt 0) {
   Write-Host ''
-  Write-Host '============================================================' -ForegroundColor Red
-  Write-Host '[start][FATAL] Install path contains non-ASCII characters.' -ForegroundColor Red
-  Write-Host ('  path : {0}' -f $BASE_DIR) -ForegroundColor Red
-  Write-Host ('  bad  : {0}' -f ($__badChars -join ' ')) -ForegroundColor Red
-  Write-Host '  A non-English path (Chinese etc.) breaks Python/ffmpeg' -ForegroundColor Red
-  Write-Host '  process launching on Windows. Move the WHOLE folder to a' -ForegroundColor Red
-  Write-Host '  pure-English path such as  D:\TTS-Broker  then re-run.' -ForegroundColor Red
-  Write-Host '============================================================' -ForegroundColor Red
-  exit 7
+  Write-Host '============================================================' -ForegroundColor Yellow
+  Write-Host '[start][WARN] Install path contains non-ASCII characters.' -ForegroundColor Yellow
+  Write-Host ('  path : {0}' -f $BASE_DIR) -ForegroundColor Yellow
+  Write-Host ('  bad  : {0}' -f ($__badChars -join ' ')) -ForegroundColor Yellow
+  Write-Host '  A non-English path (Chinese etc.) MAY break Python/ffmpeg' -ForegroundColor Yellow
+  Write-Host '  process launching on some Windows setups. If the backend or' -ForegroundColor Yellow
+  Write-Host '  inference engine fails to start, move the WHOLE folder to a' -ForegroundColor Yellow
+  Write-Host '  pure-English path such as  D:\TTS-Broker  and re-run.' -ForegroundColor Yellow
+  Write-Host '  Continuing startup ...' -ForegroundColor Yellow
+  Write-Host '============================================================' -ForegroundColor Yellow
 }
 
 # Force UTF-8 for every child process (backend server.js, the Python inference
@@ -149,6 +150,69 @@ for ($i = 0; $i -lt $BACKEND_WAIT; $i++) {
 if ($ready) { Log '      Backend ready [OK]. Opening browser.' 'Green' }
 else { Log ('      [WARN] Backend not ready in {0}s. Opening browser anyway. See logs\backend*.log.' -f $BACKEND_WAIT) 'Yellow' }
 Start-Process $backendUrl | Out-Null
+
+# 1.5 Validate / repair the machine-local engine config (tts_infer.yaml).
+# tts_infer.yaml is PER-MACHINE runtime state: it holds this box's absolute
+# model paths + the last-selected GPT/SoVITS weights and is hot-rewritten by
+# the engine at runtime. It must NOT be shipped in a release (the packager
+# excludes it and ships tts_infer.yaml.example instead). When the install is
+# copied/moved to another machine or path (e.g. D:\TTS工作台\), a stale yaml
+# left from the old location keeps dead absolute paths and the engine fails to
+# load with no obvious error. Repair it from the shipped template here.
+function Repair-EngineConfig {
+  param([string]$LiveCfg, [string]$ExampleCfg)
+
+  if (-not (Test-Path $ExampleCfg)) {
+    Log ('[cfg][WARN] Template missing: {0}. Skipping tts_infer.yaml validation.' -f $ExampleCfg) 'Yellow'
+    return
+  }
+
+  $needsRegen = $false
+  $reason = ''
+
+  if (-not (Test-Path $LiveCfg)) {
+    $needsRegen = $true; $reason = 'missing'
+  } else {
+    $content = $null
+    try { $content = Get-Content -LiteralPath $LiveCfg -Raw -ErrorAction Stop } catch { }
+    if ([string]::IsNullOrWhiteSpace($content)) {
+      $needsRegen = $true; $reason = 'empty or unreadable'
+    } else {
+      foreach ($line in ($content -split "`r?`n")) {
+        if ($line -match '^\s*#') { continue }
+        if ($line -match '^\s*[A-Za-z0-9_]+\s*:\s*(.+?)\s*$') {
+          $val = $Matches[1].Trim().Trim('"').Trim("'")
+          # Only inspect values that look like an absolute Windows path.
+          if ($val -match '^[A-Za-z]:[\\/]') {
+            # Mangled non-ASCII path: the GBK console replaced Chinese chars
+            # with '?' (0x3F) when the yaml was last written on a bad path.
+            if ($val -match '\?') { $needsRegen = $true; $reason = ('mangled path: {0}' -f $val); break }
+            # Stale path from another machine/location -> does not exist here.
+            if (-not (Test-Path -LiteralPath $val)) { $needsRegen = $true; $reason = ('stale path: {0}' -f $val); break }
+          }
+        }
+      }
+    }
+  }
+
+  if ($needsRegen) {
+    if (Test-Path $LiveCfg) {
+      $bak = '{0}.bak-{1}' -f $LiveCfg, (Get-Date -Format 'yyyyMMdd-HHmmss')
+      try { Copy-Item -LiteralPath $LiveCfg -Destination $bak -Force; Log ('[cfg] Backed up bad config -> {0}' -f (Split-Path $bak -Leaf)) 'DarkGray' } catch { }
+    }
+    try {
+      Copy-Item -LiteralPath $ExampleCfg -Destination $LiveCfg -Force
+      Log ('[cfg] Regenerated tts_infer.yaml from template (reason: {0}).' -f $reason) 'Yellow'
+      Log '      Re-select your GPT/SoVITS model in the UI if needed.' 'DarkGray'
+    } catch {
+      Log ('[cfg][ERROR] Could not write {0}: {1}' -f $LiveCfg, $_.Exception.Message) 'Red'
+    }
+  } else {
+    Log '[cfg] tts_infer.yaml present and valid.' 'Green'
+  }
+}
+
+Repair-EngineConfig -LiveCfg $ENGINE_CFG -ExampleCfg ($ENGINE_CFG + '.example')
 
 # 2. Inference engine
 Log ('[2/2] Inference service on port {0} ...' -f $ENGINE_PORT) 'Green'

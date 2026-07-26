@@ -5,22 +5,22 @@
 # ─────────────────────────────────────────────────────────────
 
 # Runtime generation output (Generate / Compare Refs / Broker)
-outputs/
-output/
+/outputs/
+/output/
 _silence_*.wav
 _concat_*.txt
 
 # Logs & temp
-logs/
-log/
-tmp/
-temp/
+/logs/
+/log/
+/tmp/
+/temp/
 *.log
 
 # Node
 node_modules/
 dist/
-build/
+/build/ 
 
 # Python
 __pycache__/
@@ -112,9 +112,9 @@ chinese-roberta-wwm-ext-large/
 *.dylib
 
 # runtime data & user assets
-assets/
-data/
-recipes/
+/assets/
+/data/
+/recipes/
 app-config.json
 voices.json
 lib/voices.json
@@ -122,7 +122,8 @@ lib/voices.json
 GPT_SoVITS/
 vendor/
 tools/runtime/
-lib/training/gsv-tools/asr/
+lib/training/gsv-tools/asr/models/
+lib/training/gsv-tools/asr/faster-whisper-*/
 lib/training/gsv_code/text/ja_userdic/
 # backups & junk
 *.bak
@@ -131,3 +132,14 @@ lib/training/gsv_code/text/ja_userdic/
 *.bak.*
 nultry_indextts2*.ps1
 setup_indextts_env_v2.bat
+
+# generated release artifacts (gen_version.py / gen_manifest.py)
+/version.json
+/manifest-*.json
+
+# runtime inference config (keep the .example template tracked)
+lib/inference/tts_infer.yaml
+
+# ASR outputs
+*.list
+*.conf.json
