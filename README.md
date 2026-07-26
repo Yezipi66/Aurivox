@@ -29,6 +29,7 @@
 - **Node.js**: 18+
 - **CUDA**: 12.1+
 - **GPU**: 支持 CUDA 的 NVIDIA 显卡即可（RTX 3050 / 3060 / 3070 均实测可部署，显存越大可用的 batch_size 越高）
+- **ffmpeg**（可选，推荐）: 训练/推理默认用 soundfile 读音频（覆盖 wav/flac/ogg 等）；装了 ffmpeg 后作为兜底可解码 mp3/m4a/aac 等 soundfile 读不了的格式，能 best-effort 吃下更多素材。不装也能跑，只是这类格式会被跳过并计入统计。
 
 ## 快速开始
 
@@ -165,8 +166,24 @@ python scripts/pipeline/infer_s2.py \
 2. **安装路径**: 必须解压到纯英文、无空格路径；中文/特殊字符路径会导致嵌入式 Python 无法定位
 3. **原生库加载顺序**: 部分 Windows 机器上 `torch` 先于 `librosa` 导入会触发原生崩溃
    （0xC0000005 / 退出码 3221225477，日志为空）；已在所有入口强制 librosa 先行修复
+4. **音频格式与声道**: 训练素材优先用 **wav（单声道最佳）**。加载层已统一把多声道自动下混为单声道，
+   避免立体声导致 HuBERT 特征提取崩溃；无法读取的格式（视 libsndfile 版本，如部分 mp3/m4a/aac）会被跳过。
+   每次预处理结束会打印一行 `[load_audio] total=.. loaded=.. (downmixed=.. resampled=.. via_ffmpeg=..) failed=..`
+   统计，便于核对有效条数。装 ffmpeg 可兜底更多格式（见「环境要求」）。
 
 ## 更新日志
+
+### 2026-07-26 —— 统一音频加载兼容层（单声道下混 + 可选 ffmpeg 兜底 + 加载统计）
+- ✅ **修复立体声导致 HuBERT 崩溃**：`2-get-hubert-wav32k.py` 内联的 `load_audio` 用
+  `torchaudio.load().squeeze(0)`，对立体声 `[2, N]` 压不掉声道维，二维数组直接喂进 conv1d 触发
+  `RuntimeError: Expected 2D/3D input to conv1d, but got input of size [1,1,2,N]`。虽被外层
+  try/except 跳过、训练不中断，但该条素材会被**静默丢弃**。现统一改为 soundfile 读取并强制
+  `mean(axis=1)` 下混单声道。
+- ✅ **兼容层双后端**：默认走 **soundfile**（无需 ffmpeg，覆盖 wav/flac/ogg 等）；读不了的格式在
+  **检测到 ffmpeg 时**用官方原版方式（`ffmpeg -ac 1 -ar sr` 强制单声道）兜底，**不强制安装 ffmpeg**。
+- ✅ **加载统计**：每次运行统计 `total/loaded/downmixed/resampled/via_ffmpeg/failed`，预处理结束打印
+  一行汇总，便于核对「几条有效、几条被跳过」。`lib/training/gsv_code/tools/my_utils.py` 同步升级为
+  规范实现（soundfile 优先 + 可选 ffmpeg + 统计），与 hubert 内联版保持一致。
 
 ### 2026-07-17 —— 发布打包修复/分发瘦身 + MDX-Net→HP2 显示名 + 原生底模零样本推理 + Compare Refs 可选底模 + 参考文本本次编辑 + 训练默认非对称（#10）/ S2 声学精炼（#12）/ 参考文本手动校对（#13）
 - ✅ **发布打包修复 + 分发瘦身**：修复 `04_pack_release.py` 因文件时间戳早于 1980 触发
