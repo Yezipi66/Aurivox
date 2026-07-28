@@ -47,7 +47,7 @@ from gsv_code.module.models import (
     MultiPeriodDiscriminator,
     SynthesizerTrn,
 )
-from gsv_code.process_ckpt import savee
+from gsv_code.process_ckpt import savee, load_sovits_new
 
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = False
@@ -150,7 +150,11 @@ def run(rank, n_gpus, hps):
     try:
         _base_g = getattr(hps.train, "pretrained_s2G", None)
         if _base_g and os.path.exists(_base_g):
-            _bck = torch.load(_base_g, map_location="cpu", weights_only=False)
+            # Header-aware load: models published by savee()/my_save2 (v3/v4/v2Pro/
+            # v2ProPlus/lora) prepend a 2-byte version tag that overwrites the torch
+            # ZIP 'PK' magic, so a raw torch.load() dies with "unpickling stack
+            # underflow". load_sovits_new() restores 'PK' first (same as inference).
+            _bck = load_sovits_new(_base_g)
             _bcfg = _bck.get("config") if isinstance(_bck, dict) else None
             _bmodel = None
             if isinstance(_bcfg, dict):
@@ -285,7 +289,10 @@ def run(rank, n_gpus, hps):
             # 微调后必出电流声，此时直接门禁拦截，不发布注定坏的模型。
             # 配合 task3.2 的维度对齐，正常情况下 _mismatch 应为 0。
             _target = _module.module if hasattr(_module, "module") else _module
-            _saved = torch.load(_ckpt_path, map_location="cpu", weights_only=False)["weight"]
+            # Header-aware load (see the pretrained_s2G note above): a parent asset's
+            # published .pth may carry a 2-byte version header instead of the 'PK'
+            # magic; load_sovits_new() reconstructs it so warm-start refinement works.
+            _saved = load_sovits_new(_ckpt_path)["weight"]
             _model_sd = _target.state_dict()
             _filtered, _absent, _mismatch = {}, [], []
             for _k, _v in _saved.items():

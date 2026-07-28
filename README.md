@@ -173,6 +173,13 @@ python scripts/pipeline/infer_s2.py \
 
 ## 更新日志
 
+### 2026-07-28 —— v1.0.1：发行合并 + 跨资产混搭纳入底模 + refine 复用修复 + Compare Refs 白屏修复 + 训练日志英文化
+- ✅ **发行合并（v1.0.0 → v1.0.1）**：两份源码快照已分叉（非线性新旧），做三方合并 —— 以较新前端/路由的基线为主，仅挑拣另一份**确为超集**的 3 个训练-python 文件（`pipeline.js`、`gsv_code/tools/my_utils.py`、`gsv_code/prepare_datasets/2-get-hubert-wav32k.py`）叠加，任一方向直接覆盖都会丢功能。`package.json` / `web/package.json` 版本 `1.0.0 → 1.0.1`。
+- ✅ **跨资产混搭纳入底模（虚拟资产）**：「Mix models across assets」原先只列已微调资产，漏了内置 `Base model` —— 因混搭列表接口只枚举 `voices.json` + 磁盘目录，而底模两者皆无。现 `GET /api/assets/voices-with-models` 置顶注入合成的 `__base__` 条目（取自 `baseVoiceMeta()` 的 checkpoints，与 Generate 下拉同源），底模 GPT / SoVITS 可与任意资产独立混搭；前端 `assetIdFromCkptPath()` 也能把底模的预训练权重路径（`gsv-v2final/*`、`v2Pro/*`、`s1bert25hz-*`、`s2G{2333k,488k,v2Pro,v2ProPlus}`）识别为 `__base__`，使「底模 + 资产」正确判定为跨资产（⚠混搭提示）、reload / rerun 时自动恢复混搭态。
+- ✅ **修复 refine「复用」误等缺转写**：复用模式的 S2 精炼会把父资产冻结的 `segments.json` 播种进派生资产目录（`inputDir`），`preprocess.js` 也会从 `workDir` 或 `inputDir` 两处读取；但预处理前的宽限门原先只查 `workDir/segments.json`，导致每次复用 refine 都白等 `asrGraceSec` 并打印误导性的「将报缺转写错误」。宽限门现同时识别 `inputDir/segments.json`，复用 refine 直接进入预处理；真正无转写（两处皆无）仍保留宽限/投放窗口。
+- ✅ **修复 Compare Refs 编辑区白屏**：`CompareRow` 子组件渲染跨资产混搭开关时用了 `t(...)` 却未绑定翻译器，展开某行的模型/编辑区即抛 `ReferenceError: t is not defined` 并整页白屏。已在 `CompareRow` 顶部补 `const { t } = useT()`（同文件的 `ReferenceCompareTab` / `CompareBatchCard` 早已具备）。**注意：前端改动需 `npm run build` 重建 `web/dist/` 后方生效。**
+- ✅ **训练日志英文化**：此前 pipeline 引入了中英双语日志，冗余；现训练日志输出统一为**英文**，插值内容（含中文文件名/路径）原样透传，代码注释保持不动（非用户可见输出）。范围：`pipeline.js`、`steps/{asr,denoise,slice}.js`、两个 `load_audio` 的 Python `print`。后端 `stepDefs` 标签仅用于日志，Web UI 用自己的 `TRAIN_STEPS` + `t()`，故不影响界面。
+
 ### 2026-07-26 —— 统一音频加载兼容层（单声道下混 + 可选 ffmpeg 兜底 + 加载统计）
 - ✅ **修复立体声导致 HuBERT 崩溃**：`2-get-hubert-wav32k.py` 内联的 `load_audio` 用
   `torchaudio.load().squeeze(0)`，对立体声 `[2, N]` 压不掉声道维，二维数组直接喂进 conv1d 触发

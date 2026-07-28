@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
+import { useT } from '../../lib/i18n'
 import { NamingNoteCard, NamingNotePill } from '../common/Fields'
 import { IconFolder, IconFolderSearch, IconPencil, IconTrash } from '../common/Icons'
 import { RebuildProgress, RestoreModal } from '../train/TrainingTab'
@@ -13,6 +14,7 @@ import RefineModal from './RefineModal'
 //  ASSETS TAB
 // ============================
 function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
+  const { t } = useT()
   const [assets, setAssets] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState(null)
@@ -835,7 +837,7 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
                       <button
                         className="btn btn-sm btn-ghost"
                         onClick={() => setRefineTarget({ id, displayName: asset.display_name || id, baseVersion: asset.base_version, parentLanguage: asset.language || asset.text_lang || 'auto' })}
-                        title="Refinement: continue S1 and/or S2 training from this Voice into a new derived Voice (the original is preserved)"
+                        title={t('Refinement: continue S1 and/or S2 training from this Voice into a new derived Voice (the original is preserved)', '精修：从该音色继续 S1 和/或 S2 训练，派生为一个新音色（原音色会被保留）')}
                       >
                         Refine
                       </button>

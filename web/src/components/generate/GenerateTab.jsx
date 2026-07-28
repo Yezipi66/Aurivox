@@ -1,5 +1,5 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
@@ -8,6 +8,7 @@ import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
+import { assetIdFromCkptPath, useAssetsWithModels, gptGroups, sovitsGroups } from '../../lib/models'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 
@@ -23,6 +24,9 @@ function voiceOptionLabel(v) {
   return `${name}${idPart}${langPart}`
 }
 
+// Cross-asset model source picker (issue #3). A compact secondary dropdown under a
+// GPT / SoVITS selector that lets the checkpoint be sourced from ANY asset that has
+// that model kind, enabling mixes like "A's GPT + B's SoVITS". '' = this voice.
 // Reproducibility: a small inline badge that displays the RESOLVED seed (the
 // concrete value the engine actually used, never -1) with one-click copy.
 // Renders nothing for a missing/random seed.
@@ -152,10 +156,50 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [modelChoice, setModelChoice] = usePersistentState('generate.modelChoice', {})
   const modelChoiceRef = useRef(modelChoice)
   modelChoiceRef.current = modelChoice
+
+  // Cross-asset model mixing (issue #3): a single "Mix models across assets" toggle.
+  // When ON, the GPT and SoVITS dropdowns list EVERY model of EVERY asset that owns
+  // that kind (grouped by asset), so the user can freely pair A's GPT with B's SoVITS.
+  // When OFF, each dropdown shows only the selected voice's own checkpoints.
+  const assetsWithModels = useAssetsWithModels()
+  const [mixMode, setMixMode] = usePersistentState('generate.mixMode', false)
+  // Grouped option sources for the mix-mode dropdowns. Safety net: if the assets
+  // list hasn't loaded yet (or the endpoint returned nothing) fall back to a single
+  // group built from the selected voice's own checkpoints, so enabling mix mode can
+  // never make the GPT/SoVITS dropdowns disappear.
+  const gptGroupList = useMemo(() => {
+    const g = gptGroups(assetsWithModels)
+    if (g.length) return g
+    return (checkpoints.gpt || []).length
+      ? [{ voiceId: selectedVoice, displayName: (selected?.display_name || selectedVoice), items: checkpoints.gpt }]
+      : []
+  }, [assetsWithModels, checkpoints, selectedVoice, selected])
+  const sovitsGroupList = useMemo(() => {
+    const g = sovitsGroups(assetsWithModels)
+    if (g.length) return g
+    return (checkpoints.sovits || []).length
+      ? [{ voiceId: selectedVoice, displayName: (selected?.display_name || selectedVoice), items: checkpoints.sovits }]
+      : []
+  }, [assetsWithModels, checkpoints, selectedVoice, selected])
+  // Effective flat checkpoint lists (used for reconcile validity + selected-meta lookup).
+  // In mix mode these are the union across all assets; otherwise the selected voice's own.
+  const gptList = mixMode ? gptGroupList.flatMap(g => g.items) : (checkpoints.gpt || [])
+  const sovitsList = mixMode ? sovitsGroupList.flatMap(g => g.items) : (checkpoints.sovits || [])
+  // The owning asset of each selected checkpoint (derived from its path). In mix mode
+  // this is how we know whether the stack is cross-asset and where the timbre comes from.
+  const gptSrcVoice = mixMode ? assetIdFromCkptPath(selGpt) : ''
+  const sovitsSrcVoice = mixMode ? assetIdFromCkptPath(selSovits) : ''
+  // Is the current stack mixed across assets? (the two models come from different voices)
+  const _gptOwner = gptSrcVoice || selectedVoice
+  const _sovitsOwner = sovitsSrcVoice || selectedVoice
+  const modelsMixed = mixMode && !!gptSrcVoice && !!sovitsSrcVoice && _gptOwner !== _sovitsOwner
+  // Timbre follows the SoVITS side (C3): the reference browser + prompt_lang default
+  // track the SoVITS model's owning asset when it differs from the primary voice.
+  const refVoiceId = (sovitsSrcVoice && sovitsSrcVoice !== selectedVoice) ? sovitsSrcVoice : selectedVoice
   // Item 14: one-line summary of the active voice/model stack (mirrors the Compare
   // Refs row header) — "voice / gpt.ckpt (steps) / sovits.pth [version]".
-  const _selGptC = (checkpoints.gpt || []).find(c => c.path === selGpt)
-  const _selSovitsC = (checkpoints.sovits || []).find(c => c.path === selSovits)
+  const _selGptC = gptList.find(c => c.path === selGpt)
+  const _selSovitsC = sovitsList.find(c => c.path === selSovits)
   const modelSummary = selected ? [
     selected.display_name || selected.id,
     _selGptC ? `${_selGptC.name}${_selGptC.steps != null ? ` (${_selGptC.steps})` : ''}` : null,
@@ -174,54 +218,84 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [auxRefs, setAuxRefs] = useState([])  // selected aux reference audio paths
   const [segments, setSegments] = useState([])  // loaded from API for aux ref picker
 
-  // Load checkpoints + segments when voice changes
+  // Load checkpoints + segments when voice changes. Also restore any persisted
+  // cross-asset selection (issue #3) so a mixed A-GPT + B-SoVITS stack survives a
+  // reload; if a saved checkpoint belongs to another asset, re-enable mix mode so
+  // the grouped dropdowns keep that selection valid. selGpt/selSovits are reconciled
+  // against the effective (union) lists by the effect below.
   useEffect(() => {
     if (!selectedVoice) return
+    const saved = modelChoiceRef.current[selectedVoice] || {}
+    const crossGpt = saved.gptVoice && saved.gptVoice !== selectedVoice
+    const crossSovits = saved.sovitsVoice && saved.sovitsVoice !== selectedVoice
+    if (crossGpt || crossSovits) setMixMode(true)
+    // Seed selections from persistence (may point at cross-asset paths; validated later).
+    if (saved.gpt) setSelGpt(saved.gpt)
+    if (saved.sovits) setSelSovits(saved.sovits)
     api(`/api/assets/${selectedVoice}`).then(r => {
       if (r.ok && r.data.ok && r.data.meta?.assets?.checkpoints) {
         const c = r.data.meta.assets.checkpoints
-        const gptList = c.gpt || []
-        const sovitsList = c.sovits || []
-        setCheckpoints({ gpt: gptList, sovits: sovitsList })
-        // checkpoint 归属校验（patch8：切换音色后重置失效的选择）——旧音色的路径若不在
-        // 新音色的列表里，必须重置，否则会把上一个音色的 .pth 提交给推理后端（音色串档）。
-        // Prefer a checkpoint flagged `default` (e.g. Base model → v2Pro), else the
-        // first entry. Zero regression for fine-tuned voices (no default flag → [0]).
-        // 恢复顺序：持久化选择(仍有效) → 之前的选择(仍有效) → default 档 → 第 0 个。
-        const saved = modelChoiceRef.current[selectedVoice] || {}
-        setSelGpt(prev => (saved.gpt && gptList.some(x => x.path === saved.gpt)) ? saved.gpt
-          : (gptList.some(x => x.path === prev) ? prev : ((gptList.find(x => x.default) || gptList[0])?.path || '')))
-        setSelSovits(prev => (saved.sovits && sovitsList.some(x => x.path === saved.sovits)) ? saved.sovits
-          : (sovitsList.some(x => x.path === prev) ? prev : ((sovitsList.find(x => x.default) || sovitsList[0])?.path || '')))
+        setCheckpoints({ gpt: c.gpt || [], sovits: c.sovits || [] })
       }
     }).catch(() => {})
-    api(`/api/assets/${selectedVoice}/segments`).then(r => {
-      if (r.ok && r.data.segments) setSegments(r.data.segments.segments || [])
-    }).catch(() => setSegments([]))
   }, [selectedVoice])
 
-  // 记住当前音色的 checkpoint 选择。仅在选择与该音色已加载的 checkpoints 匹配时
+  // Reference segments follow the timbre (SoVITS) voice (C3): when SoVITS is sourced
+  // from another asset, the default/auxiliary reference clips come from THAT asset,
+  // not the primary voice — otherwise a mixed stack would pair B's SoVITS with A's
+  // reference audio (a timbre mismatch).
+  useEffect(() => {
+    if (!refVoiceId) { setSegments([]); return }
+    api(`/api/assets/${refVoiceId}/segments`).then(r => {
+      if (r.ok && r.data.segments) setSegments(r.data.segments.segments || [])
+      else setSegments([])
+    }).catch(() => setSegments([]))
+  }, [refVoiceId])
+
+  // Reconcile the GPT selection against the effective list (selected voice OR an
+  // overridden cross-asset source). Keep a still-valid selection (so a restored
+  // cross-asset path survives once its source finishes loading), else fall back to
+  // the list's default / first. Guarded on a non-empty list so the async load gap
+  // of an overridden source never clobbers a valid restored selection.
+  useEffect(() => {
+    if (!gptList.length) return
+    setSelGpt(prev => gptList.some(x => x.path === prev) ? prev
+      : ((gptList.find(x => x.default) || gptList[0])?.path || ''))
+  }, [gptList])
+  useEffect(() => {
+    if (!sovitsList.length) return
+    setSelSovits(prev => sovitsList.some(x => x.path === prev) ? prev
+      : ((sovitsList.find(x => x.default) || sovitsList[0])?.path || ''))
+  }, [sovitsList])
+
+  // 记住当前音色的 checkpoint 选择 + 跨资产来源。仅在选择与其【有效来源】列表匹配时
   // 才写入，避免切换音色时把上一个音色的路径短暂落到新音色名下。
   useEffect(() => {
     if (!selectedVoice) return
-    // 关键：只持久化「已解析且有效」的选择。重新挂载/切换音色瞬间 selGpt 会是 ''，
-    // 此时若写回会用空值覆盖掉已保存的真实选择(切回页面模型被刷掉的根因)。
     if (!selGpt) return
-    const gptOk = (checkpoints.gpt || []).some(x => x.path === selGpt)
-    const sovitsOk = !selSovits || (checkpoints.sovits || []).some(x => x.path === selSovits)
+    const gptOk = gptList.some(x => x.path === selGpt)
+    const sovitsOk = !selSovits || sovitsList.some(x => x.path === selSovits)
     if (!gptOk || !sovitsOk) return
     setModelChoice(prev => {
       const cur = prev[selectedVoice] || {}
-      if (cur.gpt === selGpt && cur.sovits === selSovits) return prev
-      return { ...prev, [selectedVoice]: { gpt: selGpt, sovits: selSovits } }
+      const next = { gpt: selGpt, sovits: selSovits, gptVoice: gptSrcVoice || '', sovitsVoice: sovitsSrcVoice || '' }
+      if (cur.gpt === next.gpt && cur.sovits === next.sovits && (cur.gptVoice || '') === next.gptVoice && (cur.sovitsVoice || '') === next.sovitsVoice) return prev
+      return { ...prev, [selectedVoice]: next }
     })
-  }, [selectedVoice, selGpt, selSovits, checkpoints])
+  }, [selectedVoice, selGpt, selSovits, gptSrcVoice, sovitsSrcVoice, gptList, sovitsList])
 
-  // Set language from voice config
+  // Set language from voice config. Target language (text_lang) follows the primary
+  // voice; prompt_lang (the reference audio's language) follows the timbre voice.
   useEffect(() => {
     const v = voices.find(x => x.id === selectedVoice)
     if (v?.language) { setLang(v.language); setTextLang(defaultTargetLang(v.language)) }
   }, [selectedVoice, voices])
+  // prompt_lang follows the SoVITS (timbre) voice when models are mixed across assets.
+  useEffect(() => {
+    if (refVoiceId === selectedVoice) return
+    const rv = voices.find(x => x.id === refVoiceId)
+    if (rv?.language) setLang(rv.language)
+  }, [refVoiceId, voices])
 
   // Advanced params are global (from /api/advanced-params), not per-voice — no sync needed on voice change
 
@@ -229,7 +303,9 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // electrical-noise risk when that version's base/SV models are missing on disk.
   const [genBaseWarn, setGenBaseWarn] = useState(null);
   useEffect(() => {
-    const sel = (checkpoints.sovits || []).find(c => c.path === selSovits);
+    // Version availability is keyed on the SoVITS side (C3): the vocoder / base+SV
+    // requirement comes from the SoVITS model, not the GPT model.
+    const sel = sovitsList.find(c => c.path === selSovits);
     const ver = sel && sel.version;
     if (!ver || ver === 'v1') { setGenBaseWarn(null); return; }
     let cancelled = false;
@@ -237,7 +313,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       .then(r => { if (!cancelled) setGenBaseWarn(r.ok && r.data && !r.data.ok ? r.data : null); })
       .catch(() => { if (!cancelled) setGenBaseWarn(null); });
     return () => { cancelled = true; };
-  }, [selSovits, checkpoints]);
+  }, [selSovits, sovitsList]);
 
   // Clear any live activity indicator when leaving the Generate tab.
   useEffect(() => () => onActivity?.(null), [])
@@ -422,7 +498,18 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     // Switch voice first if needed; the voice-change effects will reset model /
     // language / reference, so re-apply those (below) on the next tick.
     if (p.voice && p.voice !== selectedVoice) setSelectedVoice(p.voice)
+    // Restore a cross-asset stack (issue #3) from the checkpoint paths so a mixed
+    // A-GPT + B-SoVITS stack is reproduced exactly on Rerun, not collapsed back onto
+    // the primary voice. The absolute paths remain the source of truth for the engine;
+    // when either model belongs to another asset we re-enable mix mode so the grouped
+    // dropdowns keep both selections valid.
+    const gptOwner = assetIdFromCkptPath(p.gpt_model)
+    const sovitsOwner = assetIdFromCkptPath(p.sovits_model)
+    const primary = p.voice || selectedVoice
+    const wasMixed = (gptOwner && gptOwner !== primary) || (sovitsOwner && sovitsOwner !== primary)
+      || (gptOwner && sovitsOwner && gptOwner !== sovitsOwner)
     setTimeout(() => {
+      if (wasMixed) setMixMode(true)
       if (p.gpt_model !== undefined) setSelGpt(p.gpt_model)
       if (p.sovits_model !== undefined) setSelSovits(p.sovits_model)
       if (p.prompt_lang !== undefined) setLang(p.prompt_lang)
@@ -492,29 +579,57 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                     {voices.length === 0 && <option value="">{t('No voices available', '没有可用的音色')}</option>}
                   </Select>
                 </div>
-                {checkpoints.gpt.length > 0 && (
+                {gptList.length > 0 && (
                   <div className="gen-model-col">
-                    <label className="field-label">GPT Model</label>
+                    <label className="field-label">GPT Model{gptSrcVoice && gptSrcVoice !== selectedVoice ? ' *' : ''}</label>
                     <Select className="control" value={selGpt} onChange={e => setSelGpt(e.target.value)}>
-                      {checkpoints.gpt.map(c => (
-                        <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}</option>
-                      ))}
+                      {mixMode
+                        ? gptGroupList.map(g => (
+                            <optgroup key={g.voiceId} label={g.displayName}>
+                              {g.items.map(c => (
+                                <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}</option>
+                              ))}
+                            </optgroup>
+                          ))
+                        : gptList.map(c => (
+                            <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}</option>
+                          ))}
                     </Select>
                   </div>
                 )}
-                {checkpoints.sovits.length > 0 && (
+                {sovitsList.length > 0 && (
                   <div className="gen-model-col">
-                    <label className="field-label">SoVITS Model</label>
+                    <label className="field-label">SoVITS Model{sovitsSrcVoice && sovitsSrcVoice !== selectedVoice ? ' *' : ''}</label>
                     <Select className="control" value={selSovits} onChange={e => setSelSovits(e.target.value)}>
-                      {checkpoints.sovits.map(c => (
-                        <option key={c.path} value={c.path}>{c.name}{c.version ? ` · ${c.version}` : ''}</option>
-                      ))}
+                      {mixMode
+                        ? sovitsGroupList.map(g => (
+                            <optgroup key={g.voiceId} label={g.displayName}>
+                              {g.items.map(c => (
+                                <option key={c.path} value={c.path}>{c.name}{c.version ? ` · ${c.version}` : ''}</option>
+                              ))}
+                            </optgroup>
+                          ))
+                        : sovitsList.map(c => (
+                            <option key={c.path} value={c.path}>{c.name}{c.version ? ` · ${c.version}` : ''}</option>
+                          ))}
                     </Select>
                   </div>
                 )}
               </div>
+              <label className="gen-mix-toggle" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, cursor: 'pointer' }}
+                title={t('Mix models across assets — pick the GPT and SoVITS models from any voice independently (e.g. A’s GPT + B’s SoVITS).',
+                         '跨资产混搭模型 —— GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
+                <input type="checkbox" checked={mixMode} onChange={e => setMixMode(e.target.checked)} />
+                <span>{t('Mix models across assets', '跨资产混搭模型')}</span>
+              </label>
               {modelSummary && (
                 <div className="gen-model-summary" title={modelSummary}>{modelSummary}</div>
+              )}
+              {modelsMixed && (
+                <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
+                  {t('⚠ Cross-asset model mix — GPT and SoVITS come from different voices. Timbre follows the SoVITS side; results may vary. Reference audio defaults to the SoVITS voice.',
+                     '⚠ 跨资产模型混搭 —— GPT 与 SoVITS 来自不同音色。音色以 SoVITS 侧为准，效果可能有差异。参考音频默认取 SoVITS 侧音色。')}
+                </div>
               )}
             </div>
 
@@ -759,7 +874,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       </span>
                     </label>
                     <AuxReferencePicker
-                      voiceId={selectedVoice}
+                      voiceId={refVoiceId}
                       voices={voices}
                       value={auxRefs}
                       mainRef={currentRefAudio}
@@ -913,14 +1028,19 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
 
       {/* Right sidebar: voice info */}
       <div className="workspace-right">
-        {selected && <VoiceSidebar voice={selected} voices={voices} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} selectedPromptLang={selectedPromptLang} onSelectRef={onSelectRef} refTextOverride={refTextOverride} onRefTextOverride={setRefTextOverride} />}
+        {selected && <VoiceSidebar voice={selected} refVoiceId={refVoiceId} voices={voices} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} selectedPromptLang={selectedPromptLang} onSelectRef={onSelectRef} refTextOverride={refTextOverride} onRefTextOverride={setRefTextOverride} />}
       </div>
     </div>
   )
 }
 
-function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, refTextOverride, onRefTextOverride }) {
+function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, refTextOverride, onRefTextOverride }) {
   const { t } = useT()
+  // Reference clips are loaded from the timbre (SoVITS) voice (C3); it equals the
+  // primary voice unless the SoVITS model was sourced from another asset.
+  const rvid = refVoiceId || voice.id
+  const refVoice = voices.find(v => v.id === rvid)
+  const mixedRef = rvid !== voice.id
   const [segments, setSegments] = useState(null)
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
@@ -934,31 +1054,31 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
   const [customRef, setCustomRef] = useState(null) // { path, url, name } | null
 
   useEffect(() => {
-    if (!voice.id) return
+    if (!rvid) return
     setSegLoading(true)
     setRawDurations({})
     setCrossMode(false)
     setCustomRef(null)
     Promise.all([
-      api(`/api/assets/${voice.id}/segments`).then(r => {
+      api(`/api/assets/${rvid}/segments`).then(r => {
         setSegments(r.ok && r.data.segments ? (r.data.segments.segments || []) : [])
       }).catch(() => setSegments([])),
-      api(`/api/assets/${voice.id}/raw-list`).then(r => {
+      api(`/api/assets/${rvid}/raw-list`).then(r => {
         setRawRefs(r.ok && r.data.raw ? r.data.raw : [])
       }).catch(() => setRawRefs([])),
     ]).finally(() => setSegLoading(false))
-  }, [voice.id])
+  }, [rvid])
 
   const pickSlice = (seg) => {
     const audioPath = seg.audio || seg.audio_path || seg.audio_filename
     if (!audioPath) return
     const filename = audioPath.replace(/\\/g, '/').split('/').pop()
-    onSelectRef(`assets/${voice.id}/slicer_opt/${filename}`, seg.text || '')
+    onSelectRef(`assets/${rvid}/slicer_opt/${filename}`, seg.text || '')
   }
   const pickRaw = (rf) => {
     // Reference text comes from asr_opt/raw_opt.list (server-enriched rf.text);
     // may be empty if the raw list hasn't been transcribed yet.
-    onSelectRef(`assets/${voice.id}/raw/${rf.filename}`, rf.text || '')
+    onSelectRef(`assets/${rvid}/raw/${rf.filename}`, rf.text || '')
   }
   // Cross-voice pick: prompt_lang stays = current voice language (decision: do NOT
   // switch it), just warn. Custom pick: carries an optional prompt_lang override.
@@ -992,6 +1112,13 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
           <label className="field-label">Language</label>
           <div style={{ fontSize: 13 }}>{voice.language || '?'}</div>
         </div>
+
+        {mixedRef && (
+          <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
+            {t(`Reference audio is sourced from the SoVITS voice “${refVoice?.display_name || rvid}” (timbre side).`,
+               `参考音频取自 SoVITS 音色「${refVoice?.display_name || rvid}」（音色侧）。`)}
+          </div>
+        )}
 
         {/* Reference Audio selector — Slices (default) / Raw as tabs to avoid crowding */}
         <div className="field">
@@ -1096,7 +1223,7 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
                       <span className={`ref-item-dur ${outOfRange ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s{outOfRange ? ' ⚠' : ''}</span>
                       <span className="ref-item-mark" style={{ color: isActive ? 'var(--accent)' : 'var(--muted)' }}>{isActive ? '✓' : '→'}</span>
                     </div>
-                    <AudioPlayer src={`/assets/${voice.id}/slicer_opt/${segFilename}`} />
+                    <AudioPlayer src={`/assets/${rvid}/slicer_opt/${segFilename}`} />
                   </div>
                 )
               })}
@@ -1132,7 +1259,7 @@ function VoiceSidebar({ voice, voices, validation, onVoiceUpdate, selectedRefAud
             </div>
           )}
           {crossMode && (
-            <CrossRefPicker voices={voices} currentVoiceId={voice.id} onPick={handleCrossPick} activeRef={selectedRefAudio} />
+            <CrossRefPicker voices={voices} currentVoiceId={rvid} onPick={handleCrossPick} activeRef={selectedRefAudio} />
           )}
           {/* PE: the custom-file picker only makes sense as a cross-voice/external
               reference, so it is shown only while "Use reference from another voice"

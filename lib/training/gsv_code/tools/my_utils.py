@@ -104,8 +104,8 @@ def load_audio(file, sr):
             AUDIO_STATS["via_ffmpeg"] += 1
             return audio
         except Exception as e_ff:
-            print("[load_audio] ffmpeg 兜底失败 %s: %s" % (file, e_ff))
+            print("[load_audio] ffmpeg fallback failed %s: %s" % (file, e_ff))
     else:
-        print("[load_audio] soundfile 读取失败且未检测到 ffmpeg，跳过 %s: %s" % (file, sf_err))
+        print("[load_audio] soundfile read failed and no ffmpeg detected; skipping %s: %s" % (file, sf_err))
     AUDIO_STATS["failed"] += 1
     return None

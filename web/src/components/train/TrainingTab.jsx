@@ -1582,7 +1582,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
             <div className="essentials-grid">
               <div className="field">
                 <label className="field-label">{tr('Display Name', '显示名称')} *</label>
-                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder="例如：MyVoice" />
+                <input className="control" value={form.voiceName} onChange={e => setField('voiceName', e.target.value)} placeholder={tr('e.g. MyVoice', '例如：MyVoice')} />
                 {displayName && (
                   <p className="field-hint">
                     {tr('Proposed ID:', '建议 ID：')} <code>{proposedId || '…'}</code>
@@ -1603,7 +1603,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               </div>
               <div className="field">
                 <label className="field-label">{tr('Audio Folder Path', '音频文件夹路径')} *</label>
-                <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder="e.g. D:\raw_audio\MyVoice" />
+                <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder={tr('e.g. D:\\raw_audio\\MyVoice', '例如：D:\\raw_audio\\MyVoice')} />
                 <p className="field-hint">{tr('ⓘ Folder path only — point to a folder of audio files. If you have a single audio file, put it inside a folder first, then select that folder.',
                   'ⓘ 仅填文件夹路径——指向一个存放音频文件的文件夹。如果只有单个音频文件，请先把它放进一个文件夹，再选择该文件夹。')}</p>
               </div>
@@ -1713,7 +1713,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               <span className="field-note">{tr('ⓘ ID allocated by the server at creation', 'ⓘ ID 由服务器在创建时分配')}</span>
             </div>
             <div className="pf-row">
-              <span className="pf-key">{tr('Fine-tune', '微调')}</span>
+              <span className="pf-key">{tr('Tune', '微调')}</span>
               <span className="pf-chips">
                 {form.trainS1 !== false && (
                   <span className="pf-chip">GPT (S1) · {form.gptEpochs ?? 8}ep · save every {form.s1SaveEvery ?? 4}ep</span>

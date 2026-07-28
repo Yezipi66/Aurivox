@@ -3,9 +3,9 @@ custom:
   cnhuhbert_base_path: ./lib/training/gsv-tools/pretrained/chinese-hubert-base
   device: cuda
   is_half: false
-  t2s_weights_path: D:/Project/tts_broker_openai_compat/lib/training/gsv-tools/pretrained/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
-  version: v2Pro
-  vits_weights_path: D:/Project/tts_broker_openai_compat/lib/training/gsv-tools/pretrained/v2Pro/s2Gv2Pro.pth
+  t2s_weights_path: D:/Project/tts_broker_openai_compat/assets/akafuyu_s1_s2_refined_1_f824ea/gpt_checkpoints/akafuyu_s1_s2_refined_1_f824ea_zh-e2.ckpt
+  version: v2ProPlus
+  vits_weights_path: D:/Project/tts_broker_openai_compat/assets/Akafuyu/sovits_models/Akafuyu_zh_v2ProPlus_e20_s980.pth
 v1:
   bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
   cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base

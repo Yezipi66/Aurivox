@@ -82,7 +82,8 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
     const rm = rowModels[row.id] || {}
     const dp = defaultParams || {}
     // Row's own model language (decoupled from the shared selectedVoice).
-    const rmVoiceId = rm.voiceId || selectedVoice
+    // Reference + language follow the SoVITS (timbre) side when models are mixed (C3).
+    const rmVoiceId = rm.sovitsVoiceId || rm.voiceId || selectedVoice
     const rmVoiceLang = availableModels.find(m => m.voiceId === rmVoiceId)?.language
       || voices.find(v => (v.id || v.voiceId) === rmVoiceId)?.language || 'ja'
     // #4: pin this row's reading proofing exactly like the Generate recipe schema —
@@ -208,7 +209,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
     // Default model: first available model for the selected voice, or first overall
     const defaultModel = availableModels.find(m => m.voiceId === selectedVoice && m.default)
       || availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
-    const modelForRow = defaultModel ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel } : { voiceId: '', gptCheckpoint: '', sovitsModel: '' }
+    const modelForRow = defaultModel
+      ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel, gptVoiceId: '', sovitsVoiceId: '' }
+      : { voiceId: '', gptCheckpoint: '', sovitsModel: '', gptVoiceId: '', sovitsVoiceId: '' }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
     // Use first matched segment from selected voice as default ref (unless an empty row was requested)
     const firstSeg = segmentsCache[selectedVoice]?.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
@@ -281,7 +284,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
     // the shared voice here was the root of the "Chinese model auto-routes to
     // Chinese" bug (a JA reference was sent with prompt_lang=zh, mis-tokenising the
     // prompt and producing garbled / truncated audio).
-    const rowVoiceId = rowModel.voiceId || selectedVoice
+    // Reference + language follow the SoVITS (timbre) side when models are mixed (C3);
+    // the GPT may be sourced from a different asset without moving the reference.
+    const rowVoiceId = rowModel.sovitsVoiceId || rowModel.voiceId || selectedVoice
     const rowVoiceLang = availableModels.find(m => m.voiceId === rowVoiceId)?.language
       || voices.find(v => (v.id || v.voiceId) === rowVoiceId)?.language || 'ja'
     try {
@@ -598,6 +603,7 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
 }
 
 function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang }) {
+  const { t } = useT()
   const [showPicker, setShowPicker] = useState(false)
   const [pickerTarget, setPickerTarget] = useState('main') // 'main' or 'aux'
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -615,8 +621,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // 6.5: inline confirm for deleting a Compare result's audio from disk.
   const [cmpDelConfirm, setCmpDelConfirm] = useState(false)
 
-  // Determine which voice this row uses
-  const voiceId = rowModel.voiceId || selectedVoice
+  // Determine which voice this row uses. Reference audio, slices and language all
+  // follow the SoVITS (timbre) source (C3), so a mixed A-GPT + B-SoVITS row browses
+  // B's slices for its reference. The GPT source only affects the GPT checkpoint list.
+  const voiceId = rowModel.sovitsVoiceId || rowModel.voiceId || selectedVoice
   // This row's own model language — the reading-proofing panel is keyed off THIS
   // row's model, not the Generate page's shared voice, so its Han-direction and
   // default readings match exactly what generateRow sends to the engine.
@@ -716,7 +724,16 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const cmpStatus = row.loading ? 'running' : row.error ? 'error' : (row.result && row.result.audio_url) ? 'done' : 'idle'
   const cmpStatusLabel = cmpStatus === 'running' ? 'Generating…' : cmpStatus === 'done' ? 'Ready' : cmpStatus === 'error' ? 'Failed' : 'Not run'
   const cmpRefName = row.refAudio ? basename(row.refAudio) : null
-  const cmpModelLabel = (availableModels.find(m => m.voiceId === rowModel.voiceId && m.gptCheckpoint === rowModel.gptCheckpoint && m.sovitsModel === rowModel.sovitsModel) || {}).label || null
+  // For a same-asset stack use the pre-built combo label; for a cross-asset mix
+  // (issue #3) compose the label from the GPT and SoVITS entries independently so
+  // the header still reads e.g. "A / gpt.ckpt  ×  B / sovits.pth".
+  const _gptEntry = availableModels.find(m => m.gptCheckpoint === rowModel.gptCheckpoint)
+  const _sovEntry = availableModels.find(m => m.sovitsModel === rowModel.sovitsModel)
+  const cmpModelLabel = (availableModels.find(m => m.voiceId === rowModel.voiceId && m.gptCheckpoint === rowModel.gptCheckpoint && m.sovitsModel === rowModel.sovitsModel) || {}).label
+    || ([
+        _gptEntry ? `${_gptEntry.voiceName} / ${_gptEntry.gptName}${_gptEntry.gptSteps ? ` (${_gptEntry.gptSteps})` : ''}` : null,
+        _sovEntry ? `${_sovEntry.voiceName} / ${_sovEntry.sovitsName}${_sovEntry.sovitsVersion ? ` [${_sovEntry.sovitsVersion}]` : ''}` : null,
+       ].filter(Boolean).join('  ×  ') || null)
   // 6.3: reference-character name — see at a glance whose reference audio a row uses. Derive the
   // real source from row.refAudio's assets/<voiceId>/ path (works for this-voice and cross-voice).
   // Custom uploads live outside assets/ → labelled Custom; no reference → fall back to model voice.
@@ -820,6 +837,17 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         const voiceOpts = []
         const seenV = new Set()
         availableModels.forEach(m => { if (!seenV.has(m.voiceId)) { seenV.add(m.voiceId); voiceOpts.push({ voiceId: m.voiceId, voiceName: m.voiceName }) } })
+        // Cross-asset mixing (issue #3): a "Mix models across assets" toggle. When ON,
+        // the GPT and SoVITS dropdowns list EVERY model of EVERY asset (grouped by
+        // voice), so the user can freely pair A's GPT with B's SoVITS. When OFF, both
+        // dropdowns show only the primary Voice ID's own checkpoints.
+        // Reference audio + language follow the SoVITS (timbre) side (C3).
+        // Auto-enter mix mode for a stack that is already cross-asset (e.g. a recipe or
+        // a persisted row from before the toggle existed) so its selections stay valid.
+        const mix = !!rowModel.mix
+          || (rowModel.gptVoiceId && rowModel.gptVoiceId !== rowModel.voiceId)
+          || (rowModel.sovitsVoiceId && rowModel.sovitsVoiceId !== rowModel.voiceId)
+        // Per-voice lists for non-mix mode (the primary Voice ID's own models).
         const gptOpts = []
         const seenG = new Set()
         availableModels.filter(m => m.voiceId === rowModel.voiceId).forEach(m => {
@@ -830,16 +858,56 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         availableModels.filter(m => m.voiceId === rowModel.voiceId).forEach(m => {
           if (!seenS.has(m.sovitsModel)) { seenS.add(m.sovitsModel); sovOpts.push({ path: m.sovitsModel, name: m.sovitsName, steps: m.sovitsSteps, version: m.sovitsVersion }) }
         })
+        // Grouped lists for mix mode — one <optgroup> per voice, all its checkpoints.
+        const gptGroupsC = voiceOpts.map(v => {
+          const seen = new Set(); const items = []
+          availableModels.filter(m => m.voiceId === v.voiceId).forEach(m => {
+            if (!seen.has(m.gptCheckpoint)) { seen.add(m.gptCheckpoint); items.push({ path: m.gptCheckpoint, name: m.gptName, steps: m.gptSteps }) }
+          })
+          return { voiceId: v.voiceId, voiceName: v.voiceName, items }
+        }).filter(g => g.items.length)
+        const sovGroupsC = voiceOpts.map(v => {
+          const seen = new Set(); const items = []
+          availableModels.filter(m => m.voiceId === v.voiceId).forEach(m => {
+            if (!seen.has(m.sovitsModel)) { seen.add(m.sovitsModel); items.push({ path: m.sovitsModel, name: m.sovitsName, steps: m.sovitsSteps, version: m.sovitsVersion }) }
+          })
+          return { voiceId: v.voiceId, voiceName: v.voiceName, items }
+        }).filter(g => g.items.length)
+        const ownerOfGpt = (p) => (availableModels.find(m => m.gptCheckpoint === p) || {}).voiceId || ''
+        const ownerOfSov = (p) => (availableModels.find(m => m.sovitsModel === p) || {}).voiceId || ''
+        const modelsMixed = (rowModel.gptVoiceId && rowModel.gptVoiceId !== rowModel.voiceId)
+          || (rowModel.sovitsVoiceId && rowModel.sovitsVoiceId !== rowModel.voiceId)
+        const firstGptOf = (vid) => (availableModels.find(m => m.voiceId === vid && m.default) || availableModels.find(m => m.voiceId === vid) || {}).gptCheckpoint || ''
+        const firstSovOf = (vid) => (availableModels.find(m => m.voiceId === vid && m.default) || availableModels.find(m => m.voiceId === vid) || {}).sovitsModel || ''
         const pickVoice = (vid) => {
-          if (!vid) { onModelChange({ voiceId: '', gptCheckpoint: '', sovitsModel: '' }); return }
+          if (!vid) { onModelChange({ voiceId: '', gptCheckpoint: '', sovitsModel: '', gptVoiceId: '', sovitsVoiceId: '', mix }); return }
           // Prefer the voice's recommended default combo (Base model → s1 + v2Pro);
           // fine-tuned voices carry no default flag → fall back to the first combo.
+          // Switching the primary voice resets any cross-asset overrides.
           const first = availableModels.find(m => m.voiceId === vid && m.default)
             || availableModels.find(m => m.voiceId === vid)
-          onModelChange({ voiceId: vid, gptCheckpoint: first ? first.gptCheckpoint : '', sovitsModel: first ? first.sovitsModel : '' })
+          onModelChange({ voiceId: vid, gptCheckpoint: first ? first.gptCheckpoint : '', sovitsModel: first ? first.sovitsModel : '', gptVoiceId: '', sovitsVoiceId: '', mix })
           // Base model has no slices of its own — jump straight to the cross-voice
           // reference picker so the user can borrow a reference immediately.
           if (vid === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
+        }
+        // Mix mode: pick a GPT checkpoint from ANY asset; derive its owning voice so
+        // the mixed-stack marker + reference-following logic stay correct.
+        const pickGptModel = (p) => {
+          const owner = ownerOfGpt(p)
+          onModelChange({ ...rowModel, gptCheckpoint: p, gptVoiceId: owner && owner !== rowModel.voiceId ? owner : '' })
+        }
+        // Mix mode: pick a SoVITS checkpoint from ANY asset. Reference + language
+        // follow this (timbre) side (C3), so the picker below re-homes onto its owner.
+        const pickSovModel = (p) => {
+          const owner = ownerOfSov(p)
+          onModelChange({ ...rowModel, sovitsModel: p, sovitsVoiceId: owner && owner !== rowModel.voiceId ? owner : '' })
+          if (owner === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
+        }
+        const toggleMix = (on) => {
+          if (on) { onModelChange({ ...rowModel, mix: true }); return }
+          // Leaving mix mode collapses the stack back onto the primary Voice ID.
+          onModelChange({ ...rowModel, mix: false, gptVoiceId: '', sovitsVoiceId: '', gptCheckpoint: firstGptOf(rowModel.voiceId), sovitsModel: firstSovOf(rowModel.voiceId) })
         }
         return (
           <div className="cmp-model-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -852,23 +920,49 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               </Select>
             </div>
             <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
-              <label className="field-label">GPT</label>
-              <Select className="control" value={rowModel.gptCheckpoint || ''} disabled={!rowModel.voiceId}
+              <label className="field-label">GPT{rowModel.gptVoiceId && rowModel.gptVoiceId !== rowModel.voiceId ? ' *' : ''}</label>
+              <Select className="control" value={rowModel.gptCheckpoint || ''} disabled={!mix && !rowModel.voiceId}
                 title={rowModel.gptCheckpoint || ''}
-                onChange={e => onModelChange({ voiceId: rowModel.voiceId, gptCheckpoint: e.target.value, sovitsModel: rowModel.sovitsModel })}>
-                {gptOpts.length === 0 && <option value="">—</option>}
-                {gptOpts.map(g => <option key={g.path} value={g.path}>{g.name}{g.steps ? ` (${g.steps})` : ''}</option>)}
+                onChange={e => (mix ? pickGptModel(e.target.value) : onModelChange({ ...rowModel, gptCheckpoint: e.target.value }))}>
+                {mix
+                  ? gptGroupsC.map(g => (
+                      <optgroup key={g.voiceId} label={g.voiceName}>
+                        {g.items.map(c => <option key={c.path} value={c.path}>{c.name}{c.steps ? ` (${c.steps})` : ''}</option>)}
+                      </optgroup>
+                    ))
+                  : (gptOpts.length === 0
+                      ? <option value="">—</option>
+                      : gptOpts.map(g => <option key={g.path} value={g.path}>{g.name}{g.steps ? ` (${g.steps})` : ''}</option>))}
               </Select>
             </div>
             <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
-              <label className="field-label">SoVITS</label>
-              <Select className="control" value={rowModel.sovitsModel || ''} disabled={!rowModel.voiceId}
+              <label className="field-label">SoVITS{rowModel.sovitsVoiceId && rowModel.sovitsVoiceId !== rowModel.voiceId ? ' *' : ''}</label>
+              <Select className="control" value={rowModel.sovitsModel || ''} disabled={!mix && !rowModel.voiceId}
                 title={rowModel.sovitsModel || ''}
-                onChange={e => onModelChange({ voiceId: rowModel.voiceId, gptCheckpoint: rowModel.gptCheckpoint, sovitsModel: e.target.value })}>
-                {sovOpts.length === 0 && <option value="">—</option>}
-                {sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>)}
+                onChange={e => (mix ? pickSovModel(e.target.value) : onModelChange({ ...rowModel, sovitsModel: e.target.value }))}>
+                {mix
+                  ? sovGroupsC.map(g => (
+                      <optgroup key={g.voiceId} label={g.voiceName}>
+                        {g.items.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>)}
+                      </optgroup>
+                    ))
+                  : (sovOpts.length === 0
+                      ? <option value="">—</option>
+                      : sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>))}
               </Select>
             </div>
+            <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 0, cursor: 'pointer' }}
+              title={t('Mix models across assets — pick the GPT and SoVITS models from any voice independently (e.g. A’s GPT + B’s SoVITS).',
+                       '跨资产混搭模型 —— GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
+              <input type="checkbox" checked={mix} onChange={e => toggleMix(e.target.checked)} />
+              <span>{t('Mix models across assets', '跨资产混搭模型')}</span>
+            </label>
+            {modelsMixed && (
+              <div className="field-hint" style={{ flexBasis: '100%', color: 'var(--warning)', marginBottom: 0 }}>
+                {t('Mixed stack across assets — reference audio & language follow the SoVITS (timbre) side.',
+                   '跨资产混搭 —— 参考音频与语言跟随 SoVITS（音色）侧。')}
+              </div>
+            )}
           </div>
         )
       })()}

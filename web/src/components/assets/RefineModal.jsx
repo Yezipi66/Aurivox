@@ -95,6 +95,21 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
   const selS1Obj = ckpts.gpt.find(c => c.path === selS1)
   const selS2Obj = ckpts.sovits.find(c => c.path === selS2)
 
+  // Reuse-refine health gate. The reuse path continues training on the parent's
+  // FROZEN dataset, so it needs that dataset present: both models, reference audio
+  // (raw OR slices) and reference text (prebuilt segments OR a transcript .list the
+  // backend can build segments from). "raw + reference text" is enough — it refines
+  // exactly like "raw + slices", no ASR. We gate ONLY the reuse path; "Bring my own
+  // new audio" ships a fresh corpus and stays allowed. `state` is null while the
+  // dry-run rebuild loads, so we never gate until it resolves (avoids a false block).
+  const reuseMissing = state ? [
+    (!state.Mg || !state.Ms) && t('models', '模型'),
+    (!state.S && !state.R) && t('reference audio', '参考音频'),
+    (!state.Seg && !state.L) && t('reference text / segments', '参考文本 / 分段'),
+  ].filter(Boolean) : []
+  const reuseReady = !state || reuseMissing.length === 0
+  const reuseBlocked = !useOwnData && !reuseReady
+
   const doStart = async (graceOverride) => {
     if (!refinementType) return
     setBusy(true); setError(null)
@@ -130,6 +145,13 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
 
   const start = () => {
     if (!refinementType) return
+    // Reuse-path health gate: block when the parent's frozen dataset is incomplete.
+    if (reuseBlocked) {
+      setError(t(
+        `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” above.`,
+        `无法在该音色的现有数据上精修 —— 缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入我自己的新音频」。`))
+      return
+    }
     if (useOwnData && !inputDir.trim()) { setError(t('Please provide the source audio folder for own-data refinement.', '请填写自备数据精修的源音频文件夹。')); return }
     // G2 gate: own-data pipeline with ASR off → warn + grace (user may supply own .list).
     if (useOwnData && !ownSteps.asr) { setGate('g2'); return }
@@ -193,6 +215,13 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
               <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '——关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹跑切片/ASR/预处理；仅用新数据，不做合并。')}</span>
             </span>
           </label>
+          {reuseBlocked && (
+            <div className="hint-warn" style={{ marginTop: 8, color: 'var(--warning)' }}>
+              {t(
+                `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” to train from a fresh corpus.`,
+                `⚠ 该音色尚不足以在现有数据上精修 —— 缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入我自己的新音频」以用全新语料训练。`)}
+            </div>
+          )}
           {useOwnData && (
             <div style={{ marginTop: 8 }}>
               <input
@@ -253,7 +282,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <label className="toggle-row">
             <input type="checkbox" checked={refineS1} onChange={e => setRefineS1(e.target.checked)} />
             <span>
-              Refine S1 (GPT)
+              {t('Refine S1 (GPT)', '精修 S1 (GPT)')}
               <span className="hint"> {t('— continues from the parent S1 checkpoint; adapts semantic rhythm & prosody', '——从父级 S1 checkpoint 继续训练；适配语义层面的节奏与韵律')}</span>
             </span>
           </label>
@@ -270,7 +299,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <label className="toggle-row">
             <input type="checkbox" checked={refineS2} onChange={e => setRefineS2(e.target.checked)} />
             <span>
-              Refine S2 (SoVITS)
+              {t('Refine S2 (SoVITS)', '精修 S2 (SoVITS)')}
               <span className="hint"> {t('— continues from the parent S2 checkpoint; adapts timbre & acoustics', '——从父级 S2 checkpoint 继续训练；适配音色与音质')}</span>
             </span>
           </label>
@@ -347,8 +376,8 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
         {error && <div className="msg msg-error" style={{ marginBottom: 10 }}>{error}</div>}
 
         <div className="modal-actions">
-          <button className="btn btn-sm" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn btn-sm btn-primary" onClick={start} disabled={busy || !refinementType}>
+          <button className="btn btn-sm" onClick={onClose} disabled={busy}>{t('Cancel', '取消')}</button>
+          <button className="btn btn-sm btn-primary" onClick={start} disabled={busy || !refinementType || reuseBlocked}>
             {busy ? t('Starting…', '启动中…') : t('Create Derived Voice', '创建派生音色')}
           </button>
         </div>
