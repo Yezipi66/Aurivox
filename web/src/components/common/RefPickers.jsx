@@ -15,6 +15,17 @@ function refPlaybackUrl(p) {
   return '/' + s.split('/').map(encodeURIComponent).join('/')
 }
 
+// Shared reference-audio search matcher (Patch: ref search box).
+// Case-insensitive substring match against BOTH the display name (slice
+// "<scene> #<index>" or raw filename) AND the aligned transcript text.
+// Empty / whitespace-only query matches everything (behaviour unchanged).
+function refMatches(query, name, text) {
+  const s = String(query == null ? '' : query).trim().toLowerCase()
+  if (!s) return true
+  return String(name || '').toLowerCase().includes(s) ||
+         String(text || '').toLowerCase().includes(s)
+}
+
 // prompt_lang（参考音频语言）选项，裸码，与音色 language 字段一致。
 const REF_PROMPT_LANG_OPTIONS = [
   { value: 'ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
@@ -35,6 +46,8 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const [raws, setRaws] = useState(null)
   const [loading, setLoading] = useState(false)
   const [rawDur, setRawDur] = useState({})
+  const [vq, setVq] = useState('')   // voice-dropdown filter
+  const [q, setQ] = useState('')     // reference-list search
 
   useEffect(() => {
     if (others.length && !others.find(o => o.id === vid)) setVid(others[0].id)
@@ -42,7 +55,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 
   useEffect(() => {
     if (!vid) { setSegs([]); setRaws([]); return }
-    setLoading(true); setRawDur({})
+    setLoading(true); setRawDur({}); setQ('')
     Promise.all([
       api(`/api/assets/${vid}/segments`)
         .then(r => setSegs(r.ok && r.data.segments ? (r.data.segments.segments || []) : []))
@@ -60,6 +73,16 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 
   const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
   const availRaw = Array.isArray(raws) ? raws : []
+  const shownSlices = availSlices.filter(s => refMatches(q, `${s.scene} #${s.index}`, s.text))
+  const shownRaw = availRaw.filter(rf => refMatches(q, rf.filename, rf.text))
+  // Voice-dropdown filter: match display name, id, or language.
+  const shownOthers = others.filter(o => {
+    const s = vq.trim().toLowerCase()
+    if (!s) return true
+    return String(o.display_name || '').toLowerCase().includes(s) ||
+           String(o.id || '').toLowerCase().includes(s) ||
+           String(o.language || '').toLowerCase().includes(s)
+  })
   const pickSlice = (seg) => {
     const p = seg.audio || seg.audio_path || seg.audio_filename
     const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
@@ -69,8 +92,19 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
 
   return (
     <div>
+      {others.length > 1 && (
+        <input
+          className="control"
+          value={vq}
+          onChange={e => setVq(e.target.value)}
+          placeholder={t('Search voices (name, id, language)…', '搜索音色（名称、ID、语言）…')}
+          style={{ marginBottom: 6, fontSize: 12 }}
+        />
+      )}
       <Select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 6 }}>
-        {others.map(o => <option key={o.id} value={o.id}>{o.display_name} ({o.language || '?'})</option>)}
+        {shownOthers.length === 0
+          ? <option value={vid} disabled>{t('No voices match your search', '没有匹配搜索的音色')}</option>
+          : shownOthers.map(o => <option key={o.id} value={o.id}>{o.display_name} ({o.language || '?'})</option>)}
       </Select>
       <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
         {t('Cross-voice reference — timbre and quality may differ from this model.',
@@ -86,20 +120,31 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
           {t('Raw', '原始')} {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
         </span>
       </div>
+      {!loading && (availSlices.length > 0 || availRaw.length > 0) && (
+        <input
+          className="control"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder={t('Search reference audio (name or transcript)…', '搜索参考音频（文件名或文本）…')}
+          style={{ margin: '6px 0', fontSize: 12 }}
+        />
+      )}
       {loading && <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>}
       {!loading && (
         <div className="ref-list">
           {refTab === 'slices' && availSlices.length === 0 && refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">{t('No reference audio in this voice', '该音色没有参考音频')}</div>}
           {refTab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">{t('No slices in this voice', '该音色没有切片')}</div>}
           {refTab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio in this voice', '该音色没有原始音频')}</div>}
-          {refTab === 'slices' && availSlices.map((seg, i) => {
+          {refTab === 'slices' && availSlices.length > 0 && shownSlices.length === 0 && <div className="ref-col-empty">{t('No slices match your search', '没有匹配搜索的切片')}</div>}
+          {refTab === 'raw' && availRaw.length > 0 && shownRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio matches your search', '没有匹配搜索的原始音频')}</div>}
+          {refTab === 'slices' && shownSlices.map((seg, i) => {
             const p = seg.audio || seg.audio_path || seg.audio_filename
             const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
             const rpath = `assets/${vid}/slicer_opt/${fn}`
             const isActive = activeRef === rpath
             const oor = !refInRange(seg.duration)
             return (
-              <div key={`s${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => pickSlice(seg)} title={seg.text || ''}>
+              <div key={`s-${fn || i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => pickSlice(seg)} title={seg.text || ''}>
                 <div className="ref-item-row">
                   <span className="ref-item-name">{seg.scene} #{seg.index}</span>
                   <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s{oor ? ' \u26a0' : ''}</span>
@@ -109,14 +154,14 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
               </div>
             )
           })}
-          {refTab === 'raw' && availRaw.map((rf, i) => {
+          {refTab === 'raw' && shownRaw.map((rf, i) => {
             const rpath = `assets/${vid}/raw/${rf.filename}`
             const isActive = activeRef === rpath
             const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[rf.filename]
             const known = typeof dur === 'number' && dur > 0
             const oor = known && !refInRange(dur)
             return (
-              <div key={`r${i}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => pickRaw(rf)} title={rf.text || rf.filename}>
+              <div key={`r-${rf.filename}`} className={`ref-item ${isActive ? 'active' : ''}`} onClick={() => pickRaw(rf)} title={rf.text || rf.filename}>
                 <div className="ref-item-row">
                   <span className="ref-item-name">{rf.filename}</span>
                   {known && <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s{oor ? ' \u26a0' : ''}</span>}
@@ -229,10 +274,11 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
   const [loading, setLoading] = useState(false)
   const [rawDur, setRawDur] = useState({})
   const [tab, setTab] = useState('slices')
+  const [q, setQ] = useState('')
 
   useEffect(() => {
     if (!voiceId) { setSegs([]); setRaws([]); return }
-    setLoading(true); setRawDur({}); setTab('slices')
+    setLoading(true); setRawDur({}); setTab('slices'); setQ('')
     Promise.all([
       api(`/api/assets/${voiceId}/segments`)
         .then(r => setSegs(r.ok && r.data.segments ? (r.data.segments.segments || []) : []))
@@ -246,6 +292,9 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
   const multi = selectMode === 'multi'
   const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
   const availRaw = Array.isArray(raws) ? raws : []
+  // Filtered views driven by the search box (name + transcript match).
+  const shownSlices = availSlices.filter(s => refMatches(q, `${s.scene} #${s.index}`, s.text))
+  const shownRaw = availRaw.filter(rf => refMatches(q, rf.filename, rf.text))
 
   const isSelected = (rpath) => multi
     ? selectedPaths.some(sp => sameRefPath(sp, rpath))
@@ -292,21 +341,32 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
           {t('Raw', '原始')} {availRaw.length > 0 && <span className="ref-tab-count">{availRaw.length}</span>}
         </span>
       </div>
+      {!loading && (availSlices.length > 0 || availRaw.length > 0) && (
+        <input
+          className="control"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder={t('Search reference audio (name or transcript)…', '搜索参考音频（文件名或文本）…')}
+          style={{ margin: '6px 0', fontSize: 12 }}
+        />
+      )}
       {loading && <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>}
       {!loading && (
         <div className="ref-list" style={{ maxHeight, overflowY: 'auto' }}>
           {tab === 'slices' && availSlices.length === 0 && <div className="ref-col-empty">{t('No slices in this voice', '该音色没有切片')}</div>}
           {tab === 'raw' && availRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio in this voice', '该音色没有原始音频')}</div>}
-          {tab === 'slices' && availSlices.map((seg, i) => {
+          {tab === 'slices' && availSlices.length > 0 && shownSlices.length === 0 && <div className="ref-col-empty">{t('No slices match your search', '没有匹配搜索的切片')}</div>}
+          {tab === 'raw' && availRaw.length > 0 && shownRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio matches your search', '没有匹配搜索的原始音频')}</div>}
+          {tab === 'slices' && shownSlices.map((seg, i) => {
             const p = seg.audio || seg.audio_path || seg.audio_filename
             const fn = p ? p.replace(/\\/g, '/').split('/').pop() : ''
             const rpath = `assets/${voiceId}/slicer_opt/${fn}`
             const dur = seg.duration || 0
-            return renderItem(`s${i}`, rpath, `/assets/${voiceId}/slicer_opt/${fn}`, `${seg.scene} #${seg.index}`, dur, typeof seg.duration === 'number', seg.text || '')
+            return renderItem(`s-${fn || i}`, rpath, `/assets/${voiceId}/slicer_opt/${fn}`, `${seg.scene} #${seg.index}`, dur, typeof seg.duration === 'number', seg.text || '')
           })}
-          {tab === 'raw' && availRaw.map((rf, i) => {
+          {tab === 'raw' && shownRaw.map((rf, i) => {
             const rpath = `assets/${voiceId}/raw/${rf.filename}`
-            const key = `r${i}`
+            const key = `r-${rf.filename}`
             const dur = (rf.duration && rf.duration > 0) ? rf.duration : rawDur[key]
             const known = typeof dur === 'number' && dur > 0
             return renderItem(key, rpath, rf.url, rf.filename, dur, known, rf.text || '')
@@ -388,4 +448,5 @@ export {
   CustomRefPicker,
   RefAudioList,
   AuxReferencePicker,
+  refMatches,
 }

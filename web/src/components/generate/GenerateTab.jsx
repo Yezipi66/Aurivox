@@ -7,7 +7,7 @@ import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOve
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
-import { AuxReferencePicker, CrossRefPicker, CustomRefPicker } from '../common/RefPickers'
+import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, refMatches } from '../common/RefPickers'
 import { assetIdFromCkptPath, useAssetsWithModels, gptGroups, sovitsGroups } from '../../lib/models'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
@@ -1045,6 +1045,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
   const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
+  const [refSearch, setRefSearch] = useState('') // main reference search box
   // Client-measured raw durations (filename -> seconds). Raw clips are often mp3,
   // whose length the server can't read from a WAV header, so the <audio> element
   // reports it on loadedmetadata — used for the same 3–10s guard as slices.
@@ -1059,6 +1060,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
     setRawDurations({})
     setCrossMode(false)
     setCustomRef(null)
+    setRefSearch('')
     Promise.all([
       api(`/api/assets/${rvid}/segments`).then(r => {
         setSegments(r.ok && r.data.segments ? (r.data.segments.segments || []) : [])
@@ -1094,6 +1096,9 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
     ? segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     : []
   const availableRaw = Array.isArray(rawRefs) ? rawRefs : []
+  // Search-filtered views (name + transcript). Empty query => unchanged lists.
+  const shownRefs = availableRefs.filter(s => refMatches(refSearch, `${s.scene} #${s.index}`, s.text))
+  const shownRaw = availableRaw.filter(rf => refMatches(refSearch, rf.filename, rf.text))
 
   // Active ref: user selection (from App) > auto-picked in-range slice
   const firstRef = pickDefaultRef(availableRefs)
@@ -1208,16 +1213,26 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           {!crossMode && !segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('No reference audio available', '没有可用的参考音频')}</div>
           )}
+          {!crossMode && !segLoading && (availableRefs.length > 0 || availableRaw.length > 0) && (
+            <input
+              className="control"
+              value={refSearch}
+              onChange={e => setRefSearch(e.target.value)}
+              placeholder={t('Search reference audio (name or transcript)…', '搜索参考音频（文件名或文本）…')}
+              style={{ margin: '4px 0 6px', fontSize: 12 }}
+            />
+          )}
           {!crossMode && !segLoading && refTab === 'slices' && (
             <div className="ref-list">
               {availableRefs.length === 0 && <div className="ref-col-empty">{t('No slices available', '没有可用的切片')}</div>}
-              {availableRefs.map((seg, i) => {
+              {availableRefs.length > 0 && shownRefs.length === 0 && <div className="ref-col-empty">{t('No slices match your search', '没有匹配搜索的切片')}</div>}
+              {shownRefs.map((seg, i) => {
                 const rawPath = seg.audio || seg.audio_path || seg.audio_filename
                 const segFilename = rawPath ? rawPath.replace(/\\/g, '/').split('/').pop() : ''
                 const isActive = activeFilename === segFilename && !!activeRef
                 const outOfRange = !refInRange(seg.duration)
                 return (
-                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={outOfRange ? `${seg.text || ''}\n⚠ ${(seg.duration || 0).toFixed(1)}s is outside the engine's ${REF_MIN_SEC}–${REF_MAX_SEC}s reference window` : (seg.text || '')} onClick={() => pickSlice(seg)}>
+                  <div key={segFilename || i} className={`ref-item ${isActive ? 'active' : ''}`} title={outOfRange ? `${seg.text || ''}\n⚠ ${(seg.duration || 0).toFixed(1)}s is outside the engine's ${REF_MIN_SEC}–${REF_MAX_SEC}s reference window` : (seg.text || '')} onClick={() => pickSlice(seg)}>
                     <div className="ref-item-row">
                       <span className="ref-item-name">{seg.scene} #{seg.index}</span>
                       <span className={`ref-item-dur ${outOfRange ? 'ref-dur-warn' : ''}`}>{(seg.duration || 0).toFixed(1)}s{outOfRange ? ' ⚠' : ''}</span>
@@ -1232,7 +1247,8 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           {!crossMode && !segLoading && refTab === 'raw' && (
             <div className="ref-list">
               {availableRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio available', '没有可用的原始音频')}</div>}
-              {availableRaw.map((rf, i) => {
+              {availableRaw.length > 0 && shownRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio matches your search', '没有匹配搜索的原始音频')}</div>}
+              {shownRaw.map((rf, i) => {
                 const isActive = activeFilename === rf.filename && !!activeRef
                 const dur = rawDur(rf)
                 const known = typeof dur === 'number' && dur > 0
@@ -1241,7 +1257,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
                   ? (outOfRange ? `\n⚠ ${dur.toFixed(1)}s is outside the engine's ${REF_MIN_SEC}–${REF_MAX_SEC}s reference window` : '')
                   : ''
                 return (
-                  <div key={i} className={`ref-item ${isActive ? 'active' : ''}`} title={`${rf.text || rf.filename}${durTitle}`} onClick={() => pickRaw(rf)}>
+                  <div key={rf.filename || i} className={`ref-item ${isActive ? 'active' : ''}`} title={`${rf.text || rf.filename}${durTitle}`} onClick={() => pickRaw(rf)}>
                     <div className="ref-item-row">
                       <span className="ref-item-name">{rf.filename}</span>
                       {known && (

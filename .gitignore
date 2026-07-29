@@ -9,6 +9,8 @@
 /output/
 _silence_*.wav
 _concat_*.txt
+lib/inference/tts_infer.yaml
+lib/inference/tts_infer.yaml.bak-*
 
 # Logs & temp
 /logs/
