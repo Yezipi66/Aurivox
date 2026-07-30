@@ -1,6 +1,6 @@
 {
   "name": "tts-broker-local-ui",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Minimal React + Node local UI for GPT-SoVITS TTS",
   "main": "server.js",
   "scripts": {

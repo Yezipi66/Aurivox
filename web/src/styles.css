@@ -1488,6 +1488,24 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
+/* Multi-line command blocks inside the notice (Broker API note). */
+.naming-note-body pre.nn-pre {
+  margin: 0 0 8px;
+  padding: 9px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  overflow-x: auto;
+}
+.naming-note-body pre.nn-pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--text);
+}
 .naming-note-ft {
   display: flex;
   align-items: center;

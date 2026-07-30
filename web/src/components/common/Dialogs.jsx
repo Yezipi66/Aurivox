@@ -1,22 +1,41 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
-import { basename, recipeNameError } from '../../lib/format'
+import { basename, recipeNameError, TARGET_LANG_OPTIONS, defaultTargetLang } from '../../lib/format'
 import { useT } from '../../lib/i18n'
+
+// A recipe's pinned language must be an explicit, conscious choice: the reading
+// of shared Han characters (中日) depends entirely on it. `null` if the value is
+// not one of the offered options.
+const _canonicalLang = (v) => (TARGET_LANG_OPTIONS.some(o => o.value === v) ? v : null)
+// A concrete (non-auto) asset language means we can preselect confidently and
+// skip the warning; anything else (auto / auto_zh_ja / blank / unknown) means the
+// asset carries no definite language, so we default to auto AND warn.
+const _isConcreteLang = (v) =>
+  ['all_zh', 'all_ja', 'en', 'all_ko', 'all_yue', 'zh', 'ja', 'ko', 'yue'].includes(String(v || ''))
 
 function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
   const { t } = useT()
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
+  const [language, setLanguage] = useState('auto')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [confirmOverwrite, setConfirmOverwrite] = useState(false)
 
-  useEffect(() => { if (open) { setName(''); setNotes(''); setError(null); setBusy(false); setConfirmOverwrite(false) } }, [open])
+  const d = defaults || {}
+  // Preselect the asset's current language; if it can't be determined, fall back
+  // to 'auto' and surface a strong warning (below) so the user picks knowingly.
+  const _assetLang = d.language
+  const _initLang = _canonicalLang(_assetLang) || defaultTargetLang(_assetLang)
+  const langIsFallback = !_isConcreteLang(_assetLang)
+
+  useEffect(() => {
+    if (open) { setName(''); setNotes(''); setLanguage(_initLang || 'auto'); setError(null); setBusy(false); setConfirmOverwrite(false) }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!open) return null
 
   const nameErr = name ? recipeNameError(name) : null
-  const d = defaults || {}
   const previewId = role && name.trim() ? `${role}/${name.trim()}` : '—'
 
   const doSave = async (force) => {
@@ -24,12 +43,13 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
     if (err) { setError(err); return }
     if (!role) { setError(t('No voice selected', '未选择 Voice')); return }
     if (!d.reference_audio) { setError(t('No reference audio to save', '没有可保存的参考音频')); return }
+    if (!language) { setError(t('Please choose a language', '请选择语言')); return }
     setBusy(true); setError(null)
     const payload = {
       role, name: name.trim(),
       reference_audio: d.reference_audio,
       reference_text: d.reference_text || '',
-      language: d.language || 'ja',
+      language,
       params: d.params || {},
       gpt_ckpt: d.gpt_ckpt || '',
       sovits_pth: d.sovits_pth || '',
@@ -65,6 +85,22 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <div><span className="rp-k">SoVITS</span><span className="rp-v" title={d.sovits_pth}>{d.sovits_pth ? basename(d.sovits_pth) : '(none)'}</span></div>
           </div>
           <div className="field">
+            <label className="field-label">{t('Language (required)', '语言（必选）')}</label>
+            <select className="control" value={language} onChange={e => setLanguage(e.target.value)}>
+              {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <div className="field-hint">
+              {t('Pinned as the recipe\u2019s target-text language. It decides how shared Han characters (\u4e2d\u65e5) are read.',
+                 '固定为该 recipe 的目标文本语言，决定共享汉字（中日）如何朗读。')}
+            </div>
+            {langIsFallback && (
+              <div className="msg msg-warn" style={{ marginTop: 6 }}>
+                {t('\u26a0 This asset has no definite language, so the default is \u201cAuto\u201d. Auto guesses per segment and may mis-read pure-Han text. Please pick the correct language deliberately.',
+                   '\u26a0 该资产没有明确语言，已默认置为「自动」。自动模式按分段猜测，纯汉字文本可能读错，请谨慎手动选择正确的语言。')}
+              </div>
+            )}
+          </div>
+          <div className="field">
             <label className="field-label">{t('Notes (optional)', '备注（可选）')}</label>
             <input className="control" value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('free text', '自由文本')} />
           </div>
@@ -83,7 +119,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
         <div className="modal-ftr">
           <button className="btn btn-sm" disabled={busy} onClick={() => onClose && onClose()}>{t('Cancel', '取消')}</button>
           {!confirmOverwrite && (
-            <button className="btn btn-sm btn-primary" disabled={busy || !!nameErr || !name.trim()} onClick={() => doSave(false)}>
+            <button className="btn btn-sm btn-primary" disabled={busy || !!nameErr || !name.trim() || !language} onClick={() => doSave(false)}>
               {busy ? t('Saving…', '保存中…') : t('Save recipe', '保存 recipe')}
             </button>
           )}

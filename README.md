@@ -174,6 +174,23 @@ python scripts/pipeline/infer_s2.py \
 
 ## 更新日志
 
+### 2026-07-30 —— v1.0.3：语言解析防线栈（去写死 ja / prompt_lang 解耦 / 母模可入 recipe / auto 兜底）+ Broker OpenAI 接口说明窗口
+
+> 起因：Broker 曾把合成语言按音色**写死**（默认 `ja`）。当上游把**纯汉字**文本发给一个日语音色时，引擎的 `get_phones_and_bert()` 会把汉字当日语（音读）念出来。根因是「无法区分中日韩汉字，以传入 language 为准」的兜底分支 + Broker 侧对 `text_lang` 的硬编码。本次建立**多层语言解析防线栈**，并把 OpenAI 兼容接口的「特殊之处」在前端讲清楚。**引擎 Python 完全未动**，**未 bump recipe `schema_version`**（免迁移，老资产零回归）。
+
+- ✅ **语言解析防线栈（优先级从高到低）**：① 请求 `text_lang`（下游显式） → ② `recipe.language`（导出时用户选，可留空） → ③ 资产 `meta.language`（微调管线已必填、默认 `auto`） → ④ 兜底 `auto`（**不再假装 `ja`**） → ⑤ `auto` 档内交由引擎逐段判定（现有假名/标点规则） → ⑥ 最末兜底 `auto`。落到 `auto` 时后端 `console.warn` 并在响应头回传 `X-Language-Warning`，绝不静默多语种朗读（`lib/routes/synthesis.js`）。
+- ✅ **`prompt_lang` 与 `text_lang` 解耦**：参考音频的语言是资产的**第一真相**（微调结束即确定），只影响参考文本切词，与目标文本的语言模式无关；不再被 `recipe.language` 牵连（`lib/routes/synthesis.js`）。
+- ✅ **母模（`__base__`，language=auto）可入 recipe 并被下游正常调用**：修复 recipe 路径未注入 `baseVoiceReg()` 导致母模 recipe 下游 404 的问题（镜像整声路径的内存态解析）（`lib/routes/synthesis.js`）。
+- ✅ **诚实默认 `auto`**：`DEFAULT_LANGUAGE` `"ja"`→`"auto"`（`lib/assetScanner.js`）；promote 兜底 `ja`→`auto`（`lib/training/steps/promote.js`）；手动注册 voice 的三处 `"ja"`→`"auto"`（`lib/routes/voices.js`）。`meta.language` 仍是第一真相，现有 `voices.json`（8 个音色均显式 `ja`）**不受影响**，仅将来无 meta 的资产会落到 `auto`。
+- ✅ **`auto_zh_ja` 的 `auto_base_lang` 强制归一**到具体语种（`zh`/`ja`/`yue`/`ko`/`en`，缺省 `zh`），防止资产语言的 `"auto"` 泄漏成非法 base_lang（`lib/routes/synthesis.js`）。
+- ✅ **`recipe.language` 放开**：留空=**跟随资产**（不写死值）、更新时保留 existing、接受 `auto` 档；不再默认 mint `"ja"`（`lib/recipeStore.js`）。
+- ✅ **Save-as-recipe 强制选语言**：新增**必选**语言下拉，默认预选资产当前语言；取不到（非本管线入库）则留 `auto` 并给出**强提醒**（i18n 中/英）；未选禁止保存（`web/src/components/common/Dialogs.jsx`）。
+- ✅ **Broker recipe 卡片语言可编辑**：由只读改为可编辑下拉（含「留空=跟随资产→auto」档），即时 `PUT` 保存（`web/src/components/broker/BrokerTab.jsx`）。
+- ✅ **Broker OpenAI 接口说明窗口（i18n、确认一次）**：复刻 Assets「模型命名与元数据重建」那种**确认过一次**的折叠说明卡片，讲清兼容 OpenAI 的 `POST /v1/audio/speech` **请求格式与每个字段**及 Aurivox 特有的「特殊之处」——`voice`（必填，是 **recipe id `role/name`**，非 `alloy`/`nova`；也可只填 `role`）、`input`（必填，≤5000 字符）、`model`（接受但**忽略**，权重由 recipe 固定）、`response_format`（默认 `wav`；`mp3`/`opus`/`aac`/`flac` 需服务器 `ffmpeg`）、`speed`，以及**语言不是请求字段**（服务端防线栈解析，经 `X-Text-Lang`/`X-Language-Warning` 回传）；附常见 `curl` / OpenAI Python SDK 命令。持久化 ack key `broker.apiNoteAck`（`web/src/components/common/Fields.jsx` 新增 `BrokerApiNotePill`/`BrokerApiNoteCard` + `web/src/components/broker/BrokerTab.jsx` + `web/src/styles.css`）。
+- ✅ **示例命令 `input` 随界面语言联动**：中 `你好，这是一段示例文本。` / 英 `Hello! This is a sample line.`（`curl` 与 Python 示例共用）。
+- ✅ **版本号** `package.json` / `web/package.json` `1.0.2 → 1.0.3`。前端改动需 `npm run build` 重建 `web/dist/` 后生效。
+
+
 ### 2026-07-30 —— v1.0.2：Broker 示例调用 i18n + recipe 卡片默认折叠 + Reading proofing 可视化重整（等宽网格 / 加宽 / 谐音互斥）
 - ✅ **Broker 示例调用去日文硬编码**：Example call 的 curl `input` 原为写死的 `こんにちは`，改为随界面语言联动的中立示例句 `t('Hello! This is a sample line.', '你好，这是一段示例文本。')`；复制命令（单行 / 多行）同步取该值，行为不变（`web/src/components/broker/BrokerTab.jsx`）。
 - ✅ **Broker recipe 卡片默认折叠**：整张 recipe 卡片默认收起，仅显示卡头（显示名 + `role/name` + Delete），点击卡头 ▶/▼ 展开详情 / 示例 / Change models；折叠态点 Delete 会先自动展开再弹二次确认（确认框在卡体内），避免误删无提示。原「Example call」内层折叠保留。

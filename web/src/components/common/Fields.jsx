@@ -78,6 +78,108 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+//  Broker: OpenAI-compatible speech API notice (acknowledge-able, i18n).
+//  Mirrors the Assets naming-note pattern. Explains that the endpoint follows
+//  OpenAI's POST /v1/audio/speech shape but with a few Aurivox specifics
+//  (voice = recipe id, model ignored, server-side language resolution, etc.)
+//  and shows a couple of ready-to-run commands. Product terms stay English.
+// ---------------------------------------------------------------------------
+
+function BrokerApiNotePill({ onOpen, className = '' }) {
+  const { t } = useT()
+  return (
+    <button
+      type="button"
+      className={`naming-note-pill ${className}`}
+      onClick={onOpen}
+      title={t('Show the request format & fields', '查看请求格式与字段')}
+    >
+      <span className="nn-i">i</span>
+      {t('OpenAI-compatible speech API — request format & fields', '兼容 OpenAI 的语音 API — 请求格式与字段')}
+    </button>
+  )
+}
+
+function BrokerApiNoteCard({ endpoint, acked, onAck, onCollapse }) {
+  const { lang, t } = useT()
+  const base = String(endpoint || '').replace(/\/v1\/audio\/speech$/, '') || '/…'
+  const sampleInput = lang === 'zh' ? '你好，这是一段示例文本。' : 'Hello! This is a sample line.'
+  const curl = `curl -X POST ${endpoint || '<host>/v1/audio/speech'} \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"tts-1","voice":"narrator/warm","input":"${sampleInput}","response_format":"wav"}' \\
+  --output out.wav`
+  const py = `from openai import OpenAI
+client = OpenAI(base_url="${base}/v1", api_key="unused")
+client.audio.speech.create(
+    model="tts-1", voice="narrator/warm", input="${sampleInput}",
+).stream_to_file("out.wav")`
+  return (
+    <div className="naming-note-card">
+      <div className="naming-note-hd">
+        <span>{t('OpenAI-compatible speech API — read before integrating', '兼容 OpenAI 的语音 API — 接入前请阅读')}</span>
+        {acked && (
+          <button type="button" className="nn-x" title={t('Collapse', '折叠')} onClick={onCollapse}>×</button>
+        )}
+      </div>
+      <div className="naming-note-body">
+        {lang === 'zh' ? (
+          <>
+            <p>
+              本接口遵循 OpenAI 的 <code>POST /v1/audio/speech</code> 请求结构，标准 OpenAI 客户端可直接使用，
+              但有几处 Aurivox 特有的差异，接入前请留意：
+            </p>
+            <ul>
+              <li><code>voice</code>（<strong>必填</strong>）：最大的差异 —— 它<strong>不是</strong> <code>alloy</code>/<code>nova</code> 这类名字，而是一个 <strong>recipe id</strong> <code>role/name</code>（走 recipe：固定的模型 / 参考音频 / 参数，可复现）；也可只填 <code>role</code>（整声路径，自动挑选最佳 checkpoint）。</li>
+              <li><code>input</code>（<strong>必填</strong>）：待合成文本，最长 5000 字符。</li>
+              <li><code>model</code>（可选）：仅为兼容 OpenAI 客户端而接受，<strong>会被忽略</strong> —— 实际的 GPT / SoVITS 权重由 recipe 固定。随便填（如 <code>tts-1</code>）即可。</li>
+              <li><code>response_format</code>（可选）：默认 <code>wav</code>（无外部依赖）。<code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> 需要服务器安装 <code>ffmpeg</code>。</li>
+              <li><code>speed</code>（可选）：语速倍率。</li>
+            </ul>
+            <p>
+              <strong>语言不是请求字段</strong>（OpenAI 本身也没有）。语言由服务端“防线栈”解析：
+              <strong>recipe.language → 资产语言 → auto</strong>。响应头返回 <code>X-Text-Lang</code>（最终解析结果）；
+              若是兜底落到 <code>auto</code>，还会带上 <code>X-Language-Warning</code>。想要确定性输出，
+              请在 recipe 上显式设置语言（Save as recipe 时选择，或在本页编辑）。
+            </p>
+            <p>常见命令：</p>
+            <pre className="nn-pre"><code>{curl}</code></pre>
+            <pre className="nn-pre"><code>{py}</code></pre>
+          </>
+        ) : (
+          <>
+            <p>
+              This endpoint follows OpenAI's <code>POST /v1/audio/speech</code> shape and works with
+              standard OpenAI clients, but with a few Aurivox-specific specifics — read before integrating:
+            </p>
+            <ul>
+              <li><code>voice</code> (<strong>required</strong>): the biggest difference — it is <strong>not</strong> a name like <code>alloy</code>/<code>nova</code>, but a <strong>recipe id</strong> <code>role/name</code> (recipe path: pinned models / reference / params, reproducible). A bare <code>role</code> also works (whole-voice path, auto-picks the best checkpoint).</li>
+              <li><code>input</code> (<strong>required</strong>): the text to synthesize, up to 5000 characters.</li>
+              <li><code>model</code> (optional): accepted for OpenAI-client compatibility but <strong>ignored</strong> — the actual GPT / SoVITS weights are pinned by the recipe. Send any value (e.g. <code>tts-1</code>).</li>
+              <li><code>response_format</code> (optional): defaults to <code>wav</code> (no external deps). <code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> require <code>ffmpeg</code> on the server.</li>
+              <li><code>speed</code> (optional): playback speed multiplier.</li>
+            </ul>
+            <p>
+              <strong>Language is not a request field</strong> (OpenAI has none either). It is resolved
+              server-side by the defense stack: <strong>recipe.language → asset language → auto</strong>.
+              The response returns <code>X-Text-Lang</code> (the resolved mode); when it falls back to
+              <code>auto</code> it also sets <code>X-Language-Warning</code>. For deterministic output, set the
+              language explicitly on the recipe (choose it in Save-as-recipe, or edit it on this page).
+            </p>
+            <p>Common commands:</p>
+            <pre className="nn-pre"><code>{curl}</code></pre>
+            <pre className="nn-pre"><code>{py}</code></pre>
+          </>
+        )}
+      </div>
+      <div className="naming-note-ft">
+        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '知道了')}</button>
+        {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认 —— 之后将保持折叠。')}</span>}
+      </div>
+    </div>
+  )
+}
+
 // ===========================
 //  TRAINING TAB
 // ===========================
@@ -125,6 +227,8 @@ function SelectField({ label, value, onChange, options = [] }) {
 export {
   NamingNotePill,
   NamingNoteCard,
+  BrokerApiNotePill,
+  BrokerApiNoteCard,
   NumField,
   TextField,
   SelectField,

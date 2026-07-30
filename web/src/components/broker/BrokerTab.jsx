@@ -3,9 +3,11 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { FsFilePicker } from '../common/Dialogs'
-import { basename } from '../../lib/format'
+import { basename, TARGET_LANG_OPTIONS } from '../../lib/format'
 import { usePreviewMode } from '../../lib/previewMode'
 import { useT } from '../../lib/i18n'
+import { usePersistentState } from '../../usePersistentState'
+import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
 
 // PC — Broker model re-bind with a two-level selector:
 //   1. primary  = every voice that owns a model of this type (voices-with-models)
@@ -216,6 +218,22 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
     } finally { setBusy(false); setConfirmDel(false) }
   }
 
+  // Inline edit of the recipe's pinned target-text language (decides how shared
+  // Han characters are read). Blank = "follow the asset" (then auto at replay).
+  const [langBusy, setLangBusy] = useState(false)
+  const [langMsg, setLangMsg] = useState(null)
+  const saveLang = async (v) => {
+    setLangBusy(true); setLangMsg(null)
+    try {
+      const r = await api(`/api/recipes/${encodeURIComponent(recipe.role)}/${encodeURIComponent(recipe.name)}`,
+        { method: 'PUT', body: { language: v } })
+      if (r.ok) { setLangMsg(t('Saved', '已保存')); onChanged && onChanged() }
+      else setLangMsg((r.data && r.data.error) || t('Save failed', '保存失败'))
+    } catch (e) { setLangMsg(e.message) } finally {
+      setLangBusy(false); setTimeout(() => setLangMsg(null), 1500)
+    }
+  }
+
   return (
     <div className="recipe-card">
       <div className="rc-hdr">
@@ -234,7 +252,18 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
       <div className="rc-body">
         <div className="rc-grid">
           <div><span className="rc-k">{t('Reference', '参考音频')}</span><span className="rc-v" title={recipe.reference_audio}>{basename(recipe.reference_audio)}</span></div>
-          <div><span className="rc-k">{t('Language', '语言')}</span><span className="rc-v">{recipe.language}</span></div>
+          <div>
+            <span className="rc-k">{t('Language', '语言')}</span>
+            <span className="rc-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <select className="control" style={{ height: 24, fontSize: 12, padding: '0 4px', width: 'auto' }}
+                value={recipe.language || ''} disabled={langBusy}
+                onChange={e => saveLang(e.target.value)}>
+                <option value="">{t('(follow asset \u2192 auto)', '（跟随资产 \u2192 自动）')}</option>
+                {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {langMsg && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{langMsg}</span>}
+            </span>
+          </div>
           <div><span className="rc-k">GPT</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
           <div><span className="rc-k">SoVITS</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : t('(none)', '（无）')}</span></div>
           <div><span className="rc-k">{t('Params', '参数')}</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
@@ -275,7 +304,10 @@ function BrokerTab() {
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [apiNoteAcked, setApiNoteAcked] = usePersistentState('broker.apiNoteAck', false)
+  const [apiNoteOpen, setApiNoteOpen] = useState(false)
   const endpoint = (typeof window !== 'undefined' ? window.location.origin : '') + '/v1/audio/speech'
+  const apiNoteExpanded = !apiNoteAcked || apiNoteOpen
 
   const load = useCallback(() => {
     setLoading(true)
@@ -308,7 +340,18 @@ function BrokerTab() {
           <div className="broker-endpoint">
             <span className="be-k">Endpoint</span>
             <code className="be-url">POST {endpoint}</code>
+            {!apiNoteExpanded && <BrokerApiNotePill className="nn-in-bar" onOpen={() => setApiNoteOpen(true)} />}
           </div>
+          {apiNoteExpanded && (
+            <div style={{ marginTop: 10 }}>
+              <BrokerApiNoteCard
+                endpoint={endpoint}
+                acked={apiNoteAcked}
+                onAck={() => { setApiNoteAcked(true); setApiNoteOpen(false) }}
+                onCollapse={() => setApiNoteOpen(false)}
+              />
+            </div>
+          )}
         </div>
       </div>
 
