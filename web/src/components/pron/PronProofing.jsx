@@ -13,6 +13,23 @@ function langName(t, code) {
   )
 }
 
+// --- Token visual helpers (reading-proofing grid) ---------------------------
+// Punctuation tokens carry no editable reading; they are rendered as a faint
+// inline glyph (not a card) so the grid stays clean while keeping reading order.
+const PUNCT_RE = /^[\s\p{P}\p{S}]+$/u
+// Small per-language accent (colored dot + short code) replaces the repeated
+// uppercase language label so mixed-language rows read at a glance.
+const SEG_COLORS = { zh: '#3fb98f', yue: '#3fb98f', ja: '#e0a26a', en: '#6fa8dc', ko: '#c08bd6' }
+const SEG_SHORT = { zh: 'ZH', yue: 'YUE', ja: 'JA', en: 'EN', ko: 'KO' }
+function tokIsPunct(tok) {
+  if (!tok) return false
+  if (tok.unit === 'char' || tok.chars) {
+    const cs = tok.chars || []
+    return cs.length > 0 && cs.every(c => PUNCT_RE.test(c.char || ''))
+  }
+  return PUNCT_RE.test(tok.word || '')
+}
+
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
 function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedChars, mutedLangLabel }) {
@@ -28,6 +45,8 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   const [wordEdits, setWordEdits] = useState({})
   // en「谐音改写」输入缓冲：{word -> 另一个英文词}。
   const [respellEdits, setRespellEdits] = useState({})
+  // en 每个 token 的「候选 / 谐音」详情默认收起，键为 token 索引，避免纵向拥挤。
+  const [openDetail, setOpenDetail] = useState({})
   // item 19-A：覆盖始终按语言分桶；旧的扁平形态自动归入面板基础语系。
   const nested = nestedOverrides(overrides, lang)
   // zh/yue：逐字选候选；ja：逐词改假名；en：逐词改音标；其它语言契约占位。
@@ -45,7 +64,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   useEffect(() => { if (supported) loadLexicon(lang) }, [lang, supported, loadLexicon])
 
   const doPreview = async () => {
-    setError(null); setPreview(null); setWordEdits({}); setRespellEdits({})
+    setError(null); setPreview(null); setWordEdits({}); setRespellEdits({}); setOpenDetail({})
     if (!text.trim()) { setError(t('Enter text above first.', '请先在上方输入文本。')); return }
     if (!supported) { setError(t(`Reading proofing does not support "${lang}" yet.`, `读音校对暂不支持 “${lang}”。`)); return }
     setLoading(true)
@@ -220,7 +239,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
       </div>{/* .pron-edit */}
       <div className="pron-out">
       {preview && supported && (
-        <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="pron-tokens" style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 8, alignItems: 'start' }}>
           {(preview.tokens || []).map((tok, ti) => {
             const seg = tok.segLang || lang
             const bucket = nested[seg] || {}
@@ -230,14 +249,33 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             const repeated = isEn && (enWordCounts[tok.word] || 0) > 1
             const enVal = isEn ? enReadingFor(bucket[tok.word], occ, tok.readings).join(' ') : ''
             const overridden = isEn ? enHasOverride(bucket[tok.word], occ) : !!bucket[tok.word]
+            // 「谐音改写」一旦填入内容，本词读音即以该谐音为准；此时上方音标框（含候选下拉）
+            // 置灰并禁用，hover 给出书面说明，清空谐音后方可手动编辑音标。
+            const enHasRespell = isEn && String(respellEdits[editKey('en', tok.word, occ)] || '').trim().length > 0
+            const respellTip = enHasRespell
+              ? t('This phoneme input is currently inactive. The reading of this word is determined by the “sounds like” homophone entered below; clear that field to resume manual editing of the phonemes.',
+                  '此音标输入当前不生效。该词读音以下方“谐音”单词为准；清空该谐音后即可恢复手动编辑音标。')
+              : undefined
+
+            // 标点不做成卡片：以淡色字形内联占位，保留朗读顺序但去噪。
+            if (tokIsPunct(tok)) {
+              const glyph = isChar ? tok.chars.map(c => c.char).join('') : (tok.word || '')
+              return (
+                <div key={ti} className="pron-punct" style={{ alignSelf: 'center', textAlign: 'center', fontSize: 15, color: 'var(--muted)', opacity: 0.5 }}>{glyph}</div>
+              )
+            }
+
             return (
-            <div key={ti} style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', background: 'var(--surface)' }}>
+            <div key={ti} className="pron-tok" style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${overridden ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, padding: '4px 6px', background: 'var(--surface)', minWidth: 0 }}>
               {multiLang && (
-                <div style={{ fontSize: 9, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>{langName(t, seg)}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }} title={langName(t, seg)}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: SEG_COLORS[seg] || 'var(--muted)', flex: '0 0 auto' }} />
+                  <span style={{ fontSize: 9, color: 'var(--muted)', letterSpacing: 0.4 }}>{SEG_SHORT[seg] || String(seg).toUpperCase()}</span>
+                </div>
               )}
               {isChar ? (
                 // zh / yue：逐字，多音字给候选下拉
-                <div style={{ display: 'flex', gap: 4 }}>
+                <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
                   {tok.chars.map((c, ci) => {
                     const muted = muteSet.has(c.char)
                     return (
@@ -265,29 +303,27 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                   })}
                 </div>
               ) : (
-                // ja / en：逐词，直接改写读音（假名 / ARPABET）；en 额外给候选下拉 + 谐音改写，
-                // 且 en 逐次出现独立可改（item 19-C：同一词第 1/2/3 次出现互不影响）。
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 15, color: (isEn ? !overridden : tok.source === 'g2p') ? 'var(--text)' : 'var(--accent)' }}>
-                    {tok.word}
-                    {repeated && <sup style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 2 }} title={t('occurrence number', '第几次出现')}>#{occ + 1}</sup>}
+                // ja / en：逐词，直接改写读音（假名 / ARPABET）。en 的候选下拉 + 谐音改写默认收起，
+                // 由 ✎ 展开，避免纵向拥挤；en 逐次出现独立可改（item 19-C：同一词第 1/2/3 次互不影响）。
+                <div style={{ textAlign: 'center', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 15, color: (isEn ? !overridden : tok.source === 'g2p') ? 'var(--text)' : 'var(--accent)' }}>
+                    <span style={{ overflowWrap: 'anywhere' }}>{tok.word}
+                      {repeated && <sup style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 2 }} title={t('occurrence number', '第几次出现')}>#{occ + 1}</sup>}
+                    </span>
+                    {isEn && (
+                      <button type="button" className="btn btn-sm btn-ghost"
+                        style={{ padding: '0 4px', height: 18, fontSize: 11, lineHeight: 1, color: openDetail[ti] ? 'var(--accent)' : 'var(--muted)' }}
+                        title={t('More reading options (dictionary candidates / sounds-like)', '更多读音选项（词典候选 / 谐音改写）')}
+                        onClick={() => setOpenDetail(d => ({ ...d, [ti]: !d[ti] }))}
+                      >{'\u270e'}</button>
+                    )}
                   </div>
-                  {isEn && (tok.candidates || []).length > 0 && (
-                    <Select
-                      className="control" style={{ height: 22, fontSize: 11, padding: '0 2px', minWidth: 180, marginBottom: 3 }}
-                      value={enVal}
-                      onChange={e => changeWordReading('en', tok.word, occ, e.target.value)}
-                      title={t('Pick a dictionary pronunciation', '选择词典读音')}
-                    >
-                      {(() => {
-                        const opts = tok.candidates.includes(enVal) || !enVal ? tok.candidates : [enVal, ...tok.candidates]
-                        return opts.map(cand => <option key={cand} value={cand}>{cand}</option>)
-                      })()}
-                    </Select>
-                  )}
                   <input
                     className="control"
-                    style={{ height: 24, fontSize: 12, padding: '0 6px', minWidth: isEn ? 180 : 120 }}
+                    disabled={enHasRespell}
+                    title={respellTip}
+                    style={{ height: 24, fontSize: 12, padding: '0 6px', width: '100%', boxSizing: 'border-box', marginTop: 3,
+                      ...(enHasRespell ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.55 } : {}) }}
                     value={isEn
                       ? (wordEdits[editKey('en', tok.word, occ)] ?? enVal)
                       : (wordEdits[editKey(seg, tok.word)] ?? (bucket[tok.word] ? bucket[tok.word].join(' ') : (tok.reading || '')))}
@@ -295,17 +331,34 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                     spellCheck={false}
                     onChange={e => changeWordReading(seg, tok.word, occ, e.target.value)}
                   />
-                  {isEn && (
-                    <input
-                      className="control"
-                      style={{ height: 22, fontSize: 11, padding: '0 6px', minWidth: 180, marginTop: 3 }}
-                      value={respellEdits[editKey('en', tok.word, occ)] ?? ''}
-                      placeholder={t('sounds like (English word)…', '谐音（英文单词）…')}
-                      spellCheck={false}
-                      onChange={e => setRespellEdits(r => ({ ...r, [editKey('en', tok.word, occ)]: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); respellEn(tok.word, occ) } }}
-                      onBlur={() => respellEn(tok.word, occ)}
-                    />
+                  {isEn && openDetail[ti] && (
+                    <>
+                      {(tok.candidates || []).length > 0 && (
+                        <Select
+                          className="control" disabled={enHasRespell}
+                          style={{ height: 22, fontSize: 11, padding: '0 2px', width: '100%', boxSizing: 'border-box', marginTop: 3,
+                            ...(enHasRespell ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.55 } : {}) }}
+                          value={enVal}
+                          onChange={e => changeWordReading('en', tok.word, occ, e.target.value)}
+                          title={respellTip || t('Pick a dictionary pronunciation', '选择词典读音')}
+                        >
+                          {(() => {
+                            const opts = tok.candidates.includes(enVal) || !enVal ? tok.candidates : [enVal, ...tok.candidates]
+                            return opts.map(cand => <option key={cand} value={cand}>{cand}</option>)
+                          })()}
+                        </Select>
+                      )}
+                      <input
+                        className="control"
+                        style={{ height: 22, fontSize: 11, padding: '0 6px', width: '100%', boxSizing: 'border-box', marginTop: 3 }}
+                        value={respellEdits[editKey('en', tok.word, occ)] ?? ''}
+                        placeholder={t('sounds like (English word)…', '谐音（英文单词）…')}
+                        spellCheck={false}
+                        onChange={e => setRespellEdits(r => ({ ...r, [editKey('en', tok.word, occ)]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); respellEn(tok.word, occ) } }}
+                        onBlur={() => respellEn(tok.word, occ)}
+                      />
+                    </>
                   )}
                 </div>
               )}
@@ -610,7 +663,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
     : []
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, width: '92%' }}>
+      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 1180, width: '94%' }}>
         <div className="modal-hdr">{t('Text preparation', '文本预处理')}</div>
         <div className="modal-body">
           <div>

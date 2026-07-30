@@ -193,10 +193,14 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
   // 7.3: Example call is collapsed and single-line by default. Windows PS/CMD handle `\` line
   // continuations poorly, so a single line (no continuations) is easiest to copy; expand for full multi-line.
   const [cmdOpen, setCmdOpen] = useState(false)
+  // Whole recipe card is collapsed by default; header toggles it open.
+  const [open, setOpen] = useState(false)
+  // i18n-neutral sample line (follows the UI language) instead of a hardcoded Japanese greeting.
+  const sampleInput = t('Hello! This is a sample line.', '你好，这是一段示例文本。')
   const cmd = `curl -X POST ${endpoint} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $API_KEY" \\
-  -d '{"model":"tts-1","voice":"${recipe.id}","input":"こんにちは"}' \\
+  -d '{"model":"tts-1","voice":"${recipe.id}","input":"${sampleInput}"}' \\
   --output out.wav`
   const cmdOneLine = cmd.replace(/\\\s*\n\s*/g, ' ')
 
@@ -215,14 +219,18 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
   return (
     <div className="recipe-card">
       <div className="rc-hdr">
-        <div className="rc-title">
+        <div className="rc-title" onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
+          title={open ? t('Collapse', '收起') : t('Expand', '展开')}>
+          <span style={{ marginRight: 6, fontSize: 11, color: 'var(--muted)' }}>{open ? '▼' : '▶'}</span>
           <span className="rc-display">{recipe.display_name}</span>
           <code className="rc-id">{recipe.id}</code>
         </div>
         <div className="rc-actions">
-          <button className="btn btn-sm btn-danger" onClick={() => setConfirmDel(true)} disabled={busy}>Delete</button>
+          {/* Deleting from a collapsed card opens it so the confirm prompt (inside the body) is visible. */}
+          <button className="btn btn-sm btn-danger" onClick={() => { setOpen(true); setConfirmDel(true) }} disabled={busy}>Delete</button>
         </div>
       </div>
+      {open && (
       <div className="rc-body">
         <div className="rc-grid">
           <div><span className="rc-k">{t('Reference', '参考音频')}</span><span className="rc-v" title={recipe.reference_audio}>{basename(recipe.reference_audio)}</span></div>
@@ -257,6 +265,7 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

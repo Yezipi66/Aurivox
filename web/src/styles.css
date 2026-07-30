@@ -1316,8 +1316,13 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   gap: 8px;
   margin-bottom: 6px;
 }
-.pron-panel-wide .pron-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Reading-proofing wide layout: a compact fixed editor column on the left, the rest
+   goes to the token/reading area on the right so ~5 reading cards fit per row. */
+.pron-panel-wide .pron-grid { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 12px; }
 .pron-panel-wide .pron-grid > div { min-width: 0; }
+@media (max-width: 720px) {
+  .pron-panel-wide .pron-grid { grid-template-columns: 1fr; }
+}
 
 .ref-tabs {
   display: inline-flex;

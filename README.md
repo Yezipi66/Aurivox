@@ -1,7 +1,8 @@
 # Aurivox
 
-基于 GPT-SoVITS (v2 / v2Pro / v2ProPlus) 的 TTS 训练与推理一体化工作流，解耦自 GPT-SoVITS 项目，
-自包含、可独立部署。面向内部使用者提供「解压即用」的分发包：内嵌可重定位 Python，
+基于开源项目 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)（RVC-Boss，v2 / v2Pro / v2ProPlus）
+打造的 TTS 训练与推理一体化工作流：在其之上做工程化封装，自包含、可独立部署。
+面向内部使用者提供「解压即用」的分发包：内嵌可重定位 Python，
 一键部署脚本自动建 venv、装依赖、下载模型并自检。
 
 - **训练**：去人声 → 切片 → ASR → 预处理 → S1(GPT) → S2(SoVITS) 全链路管线，带失败恢复。
@@ -172,6 +173,15 @@ python scripts/pipeline/infer_s2.py \
    统计，便于核对有效条数。装 ffmpeg 可兜底更多格式（见「环境要求」）。
 
 ## 更新日志
+
+### 2026-07-30 —— v1.0.2：Broker 示例调用 i18n + recipe 卡片默认折叠 + Reading proofing 可视化重整（等宽网格 / 加宽 / 谐音互斥）
+- ✅ **Broker 示例调用去日文硬编码**：Example call 的 curl `input` 原为写死的 `こんにちは`，改为随界面语言联动的中立示例句 `t('Hello! This is a sample line.', '你好，这是一段示例文本。')`；复制命令（单行 / 多行）同步取该值，行为不变（`web/src/components/broker/BrokerTab.jsx`）。
+- ✅ **Broker recipe 卡片默认折叠**：整张 recipe 卡片默认收起，仅显示卡头（显示名 + `role/name` + Delete），点击卡头 ▶/▼ 展开详情 / 示例 / Change models；折叠态点 Delete 会先自动展开再弹二次确认（确认框在卡体内），避免误删无提示。原「Example call」内层折叠保留。
+- ✅ **Reading proofing 可视化重整**：读音校对面板（`web/src/components/pron/PronProofing.jsx`）由 `flex-wrap` 改为 **CSS Grid 等宽对齐**（`repeat(auto-fill, minmax(132px,1fr))`），混合语言整齐成行；纯标点 token（`^[\s\p{P}\p{S}]+$`）不再各自成卡，改为淡色内联字形去噪；每卡的大写语言标签（`JAPANESE`/`ENGLISH`）改为**彩色小圆点 + 短码**（JA/EN/ZH…，仅多语混合时显示，hover 显示全称）；已覆盖读音的卡片以 `--accent` 边框强调。
+- ✅ **英文读音详情默认收起**：英文 token 的「词典候选下拉 + 谐音改写」默认隐藏，标题旁 `✎` 开关按需展开，读音输入框常显，消除纵向拥挤。
+- ✅ **sounds-like 与音标框互斥（消歧）**：一旦「谐音改写（sounds like）」输入框有内容，本词读音即以该谐音为准 —— 上方 ARPABET 音标输入框 + 候选下拉**置灰并禁用**，hover 给出书面提示（i18n：中「此音标输入当前不生效。该词读音以下方"谐音"单词为准；清空该谐音后即可恢复手动编辑音标。」）。消费逻辑不变：谐音在回车 / 失焦时经 `/api/pron/preview` 反查 ARPABET 写入同一 override 桶，推理引擎始终只收到单一 ARPABET 数组，二者不会同时送达。
+- ✅ **Reading proofing 页面加宽**：`Text preparation` 弹窗 `max-width` 780→**1180**（`width` 94%）；`.pron-panel-wide .pron-grid` 列由 `1fr 1fr` 改为 **`minmax(280px,340px) 1fr`**（左侧编辑区定宽、右侧读音区吃满剩余宽度），一行约可放 5 个读音卡；新增 `@media(max-width:720px)` 单列回退（`web/src/styles.css`）。
+- ✅ **版本号** `package.json` / `web/package.json` `1.0.1 → 1.0.2`。前端改动需 `npm run build` 重建 `web/dist/` 后生效。
 
 ### 2026-07-28 —— v1.0.1：发行合并 + 跨资产混搭纳入底模 + refine 复用修复 + Compare Refs 白屏修复 + 训练日志英文化
 - ✅ **发行合并（v1.0.0 → v1.0.1）**：两份源码快照已分叉（非线性新旧），做三方合并 —— 以较新前端/路由的基线为主，仅挑拣另一份**确为超集**的 3 个训练-python 文件（`pipeline.js`、`gsv_code/tools/my_utils.py`、`gsv_code/prepare_datasets/2-get-hubert-wav32k.py`）叠加，任一方向直接覆盖都会丢功能。`package.json` / `web/package.json` 版本 `1.0.0 → 1.0.1`。
