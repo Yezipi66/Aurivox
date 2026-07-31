@@ -174,6 +174,17 @@ python scripts/pipeline/infer_s2.py \
 
 ## 更新日志
 
+### 2026-07-31 —— v1.0.4：端口占用保护（自己人残留 vs 陌生占用 / 探测下一个空闲端口 / 全链路对齐）+ 同模型请求合并（省冗余权重重载）
+
+> 起因：`start.ps1` 直接抢占固定端口（推理 `9880` / 后端 `9886`），一旦被别的程序占用就启动失败；且即便换端口，后端与健康检查里仍有写死的 `9880`，换了也对不上。同时每次合成前无条件调 `/set_gpt_weights` + `/set_sovits_weights`，对**连续同音色**的批量/多段/重复请求是纯浪费——引擎会白白重载同一套权重。本次加**端口预检与顺延 + 全链路环境变量对齐**，并做**同模型请求合并**。**引擎 Python 完全未动**，合成结果与既有行为等价（同权重驻留）。
+
+- ✅ **端口占用保护（区分自己人 vs 陌生程序）**：`start.ps1` 启动前对推理端口 `9880` / 后端端口 `9886` 做预检——若占用者是**本项目自己的残留进程**则复用/接管；若是**陌生程序**则**探测下一个空闲端口顺延**（`9880→9881…`、`9886→9887…`），不再直接失败（`tools/scripts/start.ps1` 新增 `Get-ListenerPid`/`Get-ProcInfoById`/`Test-IsOwnProcess`/`Get-FreePort`/`Resolve-Port`）。
+- ✅ **顺延后的全链路对齐**：解析出的端口经环境变量注入下游——`start.ps1` 设 `$env:GPT_SOVITS_BASE_URL`（推理实际地址）与 `$env:BROKER_PORT`（后端实际端口）；后端 `server.js` 已读这两个变量，**不再写死**。前端**同源**（`API_BASE=''` 相对请求，随后端端口走），无需注入端口，浏览器直接开解析后的后端地址即可。
+- ✅ **健康聚合去写死**：`/api/health` 的「引擎在线」判定改读 `ctx.GPT_SOVITS_BASE_URL`，移除两处硬编码 `http://127.0.0.1:9880`；避免端口顺延后健康检查**永远误报**引擎离线（`lib/routes/system.js`）。
+- ✅ **同模型请求合并（same-model coalescing）**：新增 `lib/gsv/modelState.js`（`ModelSwitcher`），记住**上次成功加载**的 GPT/SoVITS 权重路径；当下一次请求要的是**已驻留的同一套权重**时，跳过 `/set_gpt_weights` + `/set_sovits_weights` 的冗余 HTTP 往返（常见场景：一个音色的批量/多段/重复调用）。合成全程在单一全局生成锁（`withGenerationLock`）下**串行**，缓存镜像引擎驻留状态、串行安全；切换**失败即清对应槽**（绝不在失败后误跳过），`reset()` 供引擎重启后整体失效。`server.js` 的 `switchModels` 委托给它，正确性不变、仅省去冗余重载。
+- ✅ **并发策略（本轮）**：以「同模型请求合并」处理连续同音色请求；真正的多模型并行推理需引擎侧改造，暂缓。
+- ✅ **版本号** `package.json` / `web/package.json` `1.0.3 → 1.0.4`。前端无改动，本次无需重建 `web/dist/`。
+
 ### 2026-07-30 —— v1.0.3：语言解析防线栈（去写死 ja / prompt_lang 解耦 / 母模可入 recipe / auto 兜底）+ Broker OpenAI 接口说明窗口
 
 > 起因：Broker 曾把合成语言按音色**写死**（默认 `ja`）。当上游把**纯汉字**文本发给一个日语音色时，引擎的 `get_phones_and_bert()` 会把汉字当日语（音读）念出来。根因是「无法区分中日韩汉字，以传入 language 为准」的兜底分支 + Broker 侧对 `text_lang` 的硬编码。本次建立**多层语言解析防线栈**，并把 OpenAI 兼容接口的「特殊之处」在前端讲清楚。**引擎 Python 完全未动**，**未 bump recipe `schema_version`**（免迁移，老资产零回归）。

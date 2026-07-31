@@ -1,13 +1,14 @@
 {
   "name": "tts-broker-local-ui",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Minimal React + Node local UI for GPT-SoVITS TTS",
   "main": "server.js",
   "scripts": {
     "dev": "node server.js",
     "web": "cd web && npm run dev",
     "build": "cd web && npm run build",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test \"lib/**/*.node.test.js\""
   },
   "dependencies": {
     "cors": "^2.8.5",

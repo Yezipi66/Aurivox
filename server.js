@@ -304,6 +304,12 @@ app.use("/outputs", (req, res, next) => {
 const MAX_BACKUPS = 20;
 const voicesStore = new VoicesStore({ voicesJson: VOICES_JSON, backupDir: BACKUP_DIR, maxBackups: MAX_BACKUPS });
 const _generationMutex = new Mutex();
+// Same-model request coalescing (point 4): remembers the engine's currently
+// resident GPT/SoVITS weights and skips the redundant /set_*_weights reload
+// when the next request wants the same pair. Safe because every switchModels
+// call runs under _generationMutex (serialised) — see lib/gsv/modelState.js.
+const { ModelSwitcher } = require("./lib/gsv/modelState");
+const _modelSwitcher = new ModelSwitcher(gsvGet);
 
 function loadVoices() { return voicesStore.load(); }
 function saveVoices(data) { return voicesStore.save(data); }
@@ -713,22 +719,12 @@ function buildTtsPayload(text, cfg) {
 
 async function switchModels(cfg) {
   // 切权重必须成功后才推理: 失败则抛错, 避免静默地用旧/半加载模型合成 (错声音/异常)。
-  if (cfg.gpt_model) {
-    const r = await gsvGet("/set_gpt_weights", { weights_path: cfg.gpt_model });
-    if (r.statusCode >= 400) {
-      const msg = r.body ? r.body.toString() : "";
-      console.error("set_gpt_weights failed:", msg);
-      throw new Error(`set_gpt_weights failed (${r.statusCode}): ${msg}`);
-    }
-  }
-  if (cfg.sovits_model) {
-    const r = await gsvGet("/set_sovits_weights", { weights_path: cfg.sovits_model });
-    if (r.statusCode >= 400) {
-      const msg = r.body ? r.body.toString() : "";
-      console.error("set_sovits_weights failed:", msg);
-      throw new Error(`set_sovits_weights failed (${r.statusCode}): ${msg}`);
-    }
-  }
+  // Point 4 — same-model coalescing: delegate to the shared ModelSwitcher, which
+  // skips the /set_*_weights round-trip when the requested weights are already
+  // resident. Behaviour on a first/changed request or on failure is identical
+  // to the previous inline implementation (same thrown Error messages). Safe
+  // because switchModels is only ever called under withGenerationLock.
+  return _modelSwitcher.ensure(cfg);
 }
 
 async function generateOneSegment(segmentText, cfg) {
