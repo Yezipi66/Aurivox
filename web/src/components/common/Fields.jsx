@@ -107,12 +107,13 @@ function BrokerApiNoteCard({ endpoint, acked, onAck, onCollapse }) {
   const sampleInput = lang === 'zh' ? '你好，这是一段示例文本。' : 'Hello! This is a sample line.'
   const curl = `curl -X POST ${endpoint || '<host>/v1/audio/speech'} \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"tts-1","voice":"narrator/warm","input":"${sampleInput}","response_format":"wav"}' \\
+  -d '{"model":"tts-1","voice":"narrator/warm","input":"${sampleInput}","response_format":"wav","language":"ja"}' \\
   --output out.wav`
   const py = `from openai import OpenAI
 client = OpenAI(base_url="${base}/v1", api_key="unused")
 client.audio.speech.create(
     model="tts-1", voice="narrator/warm", input="${sampleInput}",
+    extra_body={"language": "ja"},   # optional Aurivox extension; omit to use the recipe's language
 ).stream_to_file("out.wav")`
   return (
     <div className="naming-note-card">
@@ -135,12 +136,14 @@ client.audio.speech.create(
               <li><code>model</code>（可选）：仅为兼容 OpenAI 客户端而接受，<strong>会被忽略</strong> —— 实际的 GPT / SoVITS 权重由 recipe 固定。随便填（如 <code>tts-1</code>）即可。</li>
               <li><code>response_format</code>（可选）：默认 <code>wav</code>（无外部依赖）。<code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> 需要服务器安装 <code>ffmpeg</code>。</li>
               <li><code>speed</code>（可选）：语速倍率。</li>
+              <li><code>language</code>（<strong>可选，Aurivox 扩展</strong>）：单次请求指定朗读语言，<strong>优先级最高</strong>。支持 <code>zh</code> / <code>ja</code> / <code>en</code> / <code>auto</code>（裸码 <code>zh</code>/<code>ja</code> 会归一为引擎模式 <code>all_zh</code>/<code>all_ja</code>；也可直接传规范值 <code>all_zh</code>/<code>all_ja</code>/<code>auto_zh_ja</code>，与 recipe 存储一致）；其它值（含暂未维护的 <code>yue</code>/<code>ko</code>）<strong>不报错</strong>，会回落到 <code>auto</code> 并带 <code>X-Language-Warning</code> 提示不支持。OpenAI 官方 SDK 通过 <code>extra_body</code> 传（见下方 Python 示例）。</li>
             </ul>
             <p>
-              <strong>语言不是请求字段</strong>（OpenAI 本身也没有）。语言由服务端“防线栈”解析：
-              <strong>recipe.language → 资产语言 → auto</strong>。响应头返回 <code>X-Text-Lang</code>（最终解析结果）；
-              若是兜底落到 <code>auto</code>，还会带上 <code>X-Language-Warning</code>。想要确定性输出，
-              请在 recipe 上显式设置语言（Save as recipe 时选择，或在本页编辑）。
+              <strong>语言优先级：请求 <code>language</code> → recipe.language → 资产语言 → auto。</strong>
+              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展——<strong>不传则行为与以前完全一致</strong>。
+              响应头始终返回 <code>X-Text-Lang</code>（最终解析结果）；仅当<strong>既没传 <code>language</code>、
+              recipe 也没钉语言</strong>而兜底到 <code>auto</code> 时（或请求了不支持的语言），才带 <code>X-Language-Warning</code>。
+              想要确定性输出，请求里显式带 <code>language</code>，或在 recipe 上设置语言。
             </p>
             <p>常见命令：</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
@@ -158,13 +161,15 @@ client.audio.speech.create(
               <li><code>model</code> (optional): accepted for OpenAI-client compatibility but <strong>ignored</strong> — the actual GPT / SoVITS weights are pinned by the recipe. Send any value (e.g. <code>tts-1</code>).</li>
               <li><code>response_format</code> (optional): defaults to <code>wav</code> (no external deps). <code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> require <code>ffmpeg</code> on the server.</li>
               <li><code>speed</code> (optional): playback speed multiplier.</li>
+              <li><code>language</code> (<strong>optional, Aurivox extension</strong>): pins the reading language for this request at the <strong>highest priority</strong>. Supported: <code>zh</code> / <code>ja</code> / <code>en</code> / <code>auto</code> (bare <code>zh</code>/<code>ja</code> normalise to the engine modes <code>all_zh</code>/<code>all_ja</code>; the canonical <code>all_zh</code>/<code>all_ja</code>/<code>auto_zh_ja</code> forms are accepted too, matching what recipes store); any other value (including the currently-unmaintained <code>yue</code>/<code>ko</code>) is <strong>not an error</strong> — it falls back to <code>auto</code> and sets an <code>X-Language-Warning</code> saying it isn't supported. Pass it via <code>extra_body</code> with the official OpenAI SDK (see the Python sample).</li>
             </ul>
             <p>
-              <strong>Language is not a request field</strong> (OpenAI has none either). It is resolved
-              server-side by the defense stack: <strong>recipe.language → asset language → auto</strong>.
-              The response returns <code>X-Text-Lang</code> (the resolved mode); when it falls back to
-              <code>auto</code> it also sets <code>X-Language-Warning</code>. For deterministic output, set the
-              language explicitly on the recipe (choose it in Save-as-recipe, or edit it on this page).
+              <strong>Language priority: request <code>language</code> → recipe.language → asset language → auto.</strong>
+              OpenAI has no language field, so this is an optional Aurivox extension — <strong>omit it and behaviour is
+              exactly as before</strong>. The response always returns <code>X-Text-Lang</code> (the resolved mode); an
+              <code>X-Language-Warning</code> is set only when it bottoms out to <code>auto</code> with <strong>no request
+              <code>language</code> and no recipe/asset language</strong> (or when an unsupported language was requested).
+              For deterministic output, send <code>language</code> on the request, or set it on the recipe.
             </p>
             <p>Common commands:</p>
             <pre className="nn-pre"><code>{curl}</code></pre>

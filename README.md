@@ -181,9 +181,11 @@ python scripts/pipeline/infer_s2.py \
 - ✅ **端口占用保护（区分自己人 vs 陌生程序）**：`start.ps1` 启动前对推理端口 `9880` / 后端端口 `9886` 做预检——若占用者是**本项目自己的残留进程**则复用/接管；若是**陌生程序**则**探测下一个空闲端口顺延**（`9880→9881…`、`9886→9887…`），不再直接失败（`tools/scripts/start.ps1` 新增 `Get-ListenerPid`/`Get-ProcInfoById`/`Test-IsOwnProcess`/`Get-FreePort`/`Resolve-Port`）。
 - ✅ **顺延后的全链路对齐**：解析出的端口经环境变量注入下游——`start.ps1` 设 `$env:GPT_SOVITS_BASE_URL`（推理实际地址）与 `$env:BROKER_PORT`（后端实际端口）；后端 `server.js` 已读这两个变量，**不再写死**。前端**同源**（`API_BASE=''` 相对请求，随后端端口走），无需注入端口，浏览器直接开解析后的后端地址即可。
 - ✅ **健康聚合去写死**：`/api/health` 的「引擎在线」判定改读 `ctx.GPT_SOVITS_BASE_URL`，移除两处硬编码 `http://127.0.0.1:9880`；避免端口顺延后健康检查**永远误报**引擎离线（`lib/routes/system.js`）。
-- ✅ **同模型请求合并（same-model coalescing）**：新增 `lib/gsv/modelState.js`（`ModelSwitcher`），记住**上次成功加载**的 GPT/SoVITS 权重路径；当下一次请求要的是**已驻留的同一套权重**时，跳过 `/set_gpt_weights` + `/set_sovits_weights` 的冗余 HTTP 往返（常见场景：一个音色的批量/多段/重复调用）。合成全程在单一全局生成锁（`withGenerationLock`）下**串行**，缓存镜像引擎驻留状态、串行安全；切换**失败即清对应槽**（绝不在失败后误跳过），`reset()` 供引擎重启后整体失效。`server.js` 的 `switchModels` 委托给它，正确性不变、仅省去冗余重载。
+- ✅ **同模型请求合并（same-model coalescing）**：新增 `lib/gsv/modelState.js`（`ModelSwitcher`），记住**上次成功加载**的 GPT/SoVITS 权重路径；当下一次请求要的是**已驻留的同一套权重**时，跳过 `/set_gpt_weights` + `/set_sovits_weights` 的冗余 HTTP 往返（常见场景：一个音色的批量/多段/重复调用）。合成全程在单一全局生成锁（`withGenerationLock`）下**串行**，缓存镜像引擎驻留状态、串行安全；切换**失败即清对应槽**（绝不在失败后误跳过）。`server.js` 的 `switchModels` 委托给它，正确性不变、仅省去冗余重载。
+- ✅ **引擎重启后缓存自动失效（搬家防呆闭环）**：`/api/health` 探测把引擎在线状态喂给 `ModelSwitcher.noteEngineHealth()`；一旦检测到**离线→在线**翻转（引擎重启，驻留权重已丢），自动 `reset()` 整体失效缓存，下次合成强制重切，避免误跳过导致用错/无模型。此前 `reset()` 已存在却无人调用——本次接线补齐。典型触发：**项目被移动到别的机器/路径**时 `start.ps1` 的 `Repair-EngineConfig` 会把 `tts_infer.yaml` 打回底模并重启引擎，缓存现在能随之自动作废。
 - ✅ **并发策略（本轮）**：以「同模型请求合并」处理连续同音色请求；真正的多模型并行推理需引擎侧改造，暂缓。
-- ✅ **版本号** `package.json` / `web/package.json` `1.0.3 → 1.0.4`。前端无改动，本次无需重建 `web/dist/`。
+- ✅ **`/v1/audio/speech` 新增可选 `language` 字段（Aurivox 扩展）**：允许单次请求指定朗读语言，优先级最高——`请求 language → recipe.language → 资产语言 → auto`。纯**可选、向后兼容**：OpenAI 客户端不传时行为与旧版完全一致（官方 SDK 经 `extra_body` 传）。接受裸码 `zh/ja/en/auto` 与规范引擎模式 `all_zh/all_ja/auto_zh_ja/en/auto` 两种写法并归一（`zh→all_zh`、`ja→all_ja`，与 UI/`recipe.language` 存储一致，故 recipe 卡片 curl 可干净往返）；其它值（含暂未维护的 `yue/ko`）不报错，回落 `auto` 并带 `X-Language-Warning`。显式合法语言时不再发兜底警告。`prompt_lang`（参考音频语种）保持解耦。改动在 `lib/routes/synthesis.js` + Broker 页 API 指南卡（`web/src/components/common/Fields.jsx`）+ 每个 recipe 卡片的「调用示例」curl（`web/src/components/broker/BrokerTab.jsx`，示例中显式带上该 recipe 自己的语言，便于复现）。
+- ✅ **版本号** `package.json` / `web/package.json` `1.0.3 → 1.0.4`。**本次改了前端指南卡（`Fields.jsx`），需 `npm run build` 重建 `web/dist/`。**
 
 ### 2026-07-30 —— v1.0.3：语言解析防线栈（去写死 ja / prompt_lang 解耦 / 母模可入 recipe / auto 兜底）+ Broker OpenAI 接口说明窗口
 

@@ -199,10 +199,15 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
   const [open, setOpen] = useState(false)
   // i18n-neutral sample line (follows the UI language) instead of a hardcoded Japanese greeting.
   const sampleInput = t('Hello! This is a sample line.', '你好，这是一段示例文本。')
+  // Optional `language` (Aurivox extension) shown reflecting THIS recipe's own
+  // pinned language (or "auto" when it pins none) so the copied command is
+  // explicit and reproducible. It's optional — drop it to let the server resolve
+  // from the recipe. Priority: request language > recipe.language > asset > auto.
+  const reqLang = recipe.language || 'auto'
   const cmd = `curl -X POST ${endpoint} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $API_KEY" \\
-  -d '{"model":"tts-1","voice":"${recipe.id}","input":"${sampleInput}"}' \\
+  -d '{"model":"tts-1","voice":"${recipe.id}","input":"${sampleInput}","language":"${reqLang}"}' \\
   --output out.wav`
   const cmdOneLine = cmd.replace(/\\\s*\n\s*/g, ' ')
 
