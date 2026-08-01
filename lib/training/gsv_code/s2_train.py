@@ -27,7 +27,18 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.nn import functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception:  # tensorboard intentionally NOT installed (dropped to shed the google-auth/grpcio closure)
+    class SummaryWriter:  # no-op stand-in; utils.summarize() only calls add_scalar/histogram/image/audio
+        def __init__(self, *a, **k): pass
+        def add_scalar(self, *a, **k): pass
+        def add_histogram(self, *a, **k): pass
+        def add_image(self, *a, **k): pass
+        def add_audio(self, *a, **k): pass
+        def add_figure(self, *a, **k): pass
+        def flush(self): pass
+        def close(self): pass
 from tqdm import tqdm
 
 logging.getLogger("matplotlib").setLevel(logging.INFO)

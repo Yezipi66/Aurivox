@@ -15,8 +15,8 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
     python download_models.py --check           # 只体检本地是否齐全, 不下载
     python download_models.py --set default      # 默认集(core+g2pw+langdetect+asr, 基座 v2Pro)
     python download_models.py --set core         # 只下核心底模(含 v2Pro 默认基座)
-    python download_models.py --set all          # 全部(含 alt 基座 + uvr5)
-    python download_models.py --set core,asr,uvr5  # 多选(逗号分隔)
+    python download_models.py --set all          # 全部(含 alt 基座 + funasr + uvr5 全子组)
+    python download_models.py --set core,asr,funasr,uvr5_roformer  # 多选(逗号分隔)
     python download_models.py --set all --mirror # 走 hf-mirror.com 加速(国内)
     python download_models.py --set all --jobs 8 # 8 路并行下载(默认 4, 1=串行)
 
@@ -26,16 +26,23 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
 可下载组(与 THIRD_PARTY_LICENSES/models/MODEL_SOURCES.json 的 download_group 对齐):
     core          核心底模 + 默认基座 v2Pro (sv / hubert / roberta 等)  [默认]
     asr           ASR faster-whisper large-v3-turbo (~1.6GB, 训练用)     [默认]
+    funasr        FunASR 中文/粤语 ASR (Paraformer+VAD+标点, ~2.4GB, 可选)  [按需]
     g2pw          G2PW 多音字 (g2pW.onnx)                                 [默认]
     langdetect    语言检测 lid.176                                        [默认]
     alt_v2        备用基座 v2 (G+D)                                       [按需]
     alt_v2proplus 备用基座 v2ProPlus (G+D)                                [按需]
-    uvr5          UVR5 去人声 HP2 (可选)                                   [按需]
+    uvr5_hp       UVR5 去伴奏 HP (HP2/HP3/HP5, ~0.35GB)                    [按需]
+    uvr5_deecho   UVR5 去混响/去回声 DeEcho ×3 (~0.2GB)                     [按需]
+    uvr5_mdx      UVR5 MDX 去混响 (FoxJoy onnx, ~0.06GB)                   [按需]
+    uvr5_roformer UVR5 Roformer 高质量分离 (BS + Mel-Band, ~1.6GB)          [按需]
+    (旧名 uvr5 = 上面 4 个子组的全集, --set uvr5 仍可用)
 
-来源(标准 HuggingFace,如与你的实际源不同,改 MANIFEST 里的 repo/url 即可):
+来源(HF 首选;FunASR 用 ModelScope。如与你的实际源不同,改 MANIFEST 里的 repo/id 即可):
   * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta
-  * lj1995/VoiceConversionWebUI           —— uvr5 HP2 去人声权重
+  * lj1995/VoiceConversionWebUI           —— uvr5 去人声/去混响权重 (HP/DeEcho/MDX)
+  * Eddycrack864/... , KimberleyJSN/...   —— BS-Roformer / Mel-Band Roformer
   * mobiuslabsgmbh/faster-whisper-large-v3-turbo  —— ASR (turbo, ~1.6GB)
+  * ModelScope iic/ (paraformer/vad/punc/UniASR) —— FunASR 中文/粤语 (ms 后端整目录)
   * fasttext lid.176                      —— 语言检测直链
   * XXXXRT/GPT-SoVITS-Pretrained          —— G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
 
@@ -62,11 +69,33 @@ HF_REPO_GSV = "lj1995/GPT-SoVITS"
 # UVR5 去人声权重不在 GPT-SoVITS 仓库, 而在原 RVC 仓库 lj1995/VoiceConversionWebUI
 # 的 uvr5_weights/ 下(GPT-SoVITS 官方 README 亦指向此处)。用错仓库会 404。
 HF_REPO_UVR5 = "lj1995/VoiceConversionWebUI"
+# Mel-Band Roformer 权重的官方 HF 仓库(HF 标注 MIT)。文件名即 MelBandRoformer.ckpt;
+# 分离器按文件名自动识别架构并用内置默认配置, 故无需下载配套 yaml。
+HF_REPO_MELBAND = "KimberleyJSN/melbandroformer"
+# BS-Roformer ep_317 权重: MSST(Music-Source-Separation-Training) 模型库 HF 镜像
+# (HF 标注 MIT)。同样无需 yaml(分离器内置该 checkpoint 的默认配置)。
+HF_REPO_BSROFORMER = "Eddycrack864/Music-Source-Separation-Training"
 # ASR 运行时(asr.js -> fasterwhisper_asr.py, --model_dir=asr, -s large-v3-turbo)
 # 期望模型位于 asr/faster-whisper-large-v3-turbo/。turbo 权重在 mobiuslabsgmbh 仓库,
 # 非 Systran 的 large-v3。用错仓库/路径会导致运行时 "Unable to open file 'model.bin'"。
 HF_REPO_ASR = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
 MIRROR = "https://hf-mirror.com"
+
+# FunASR (前端可选的中文/粤语 ASR 引擎; asr.js -> funasr_asr.py) 的模型来自 ModelScope
+# 的 iic/。运行时首次使用会经 modelscope.snapshot_download 懒下载到
+# gsv-tools/asr/models/<name>/。这里把它们纳入"部署期可选下载", 让前端暴露的 FunASR
+# 引擎有对应的离线下载路径 (否则首次训练必须联网、且许可从未在部署同意里披露)。
+# 每条: (modelscope_model_id, 本地目录名)。
+MS_FUNASR = [
+    ("iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+     "speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"),
+    ("iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+     "speech_fsmn_vad_zh-cn-16k-common-pytorch"),
+    ("iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+     "punc_ct-transformer_zh-cn-common-vocab272727-pytorch"),
+    ("iic/speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online",
+     "speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online"),
+]
 
 # 直链(如失效, 更新为你的可用源)
 URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
@@ -78,6 +107,8 @@ URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve
 PRE = os.path.join("lib", "training", "gsv-tools", "pretrained")
 ASR = os.path.join("lib", "training", "gsv-tools", "asr", "faster-whisper-large-v3-turbo")
 UVR = os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights")
+# FunASR 模型的落地目录 (与 funasr_asr.py 的 MODELS_DIR 一致)。
+FUNASR_DIR = os.path.join("lib", "training", "gsv-tools", "asr", "models")
 
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
 #   backend = "hf"  -> source=(repo, path_in_repo)
@@ -135,9 +166,50 @@ MANIFEST = {
         ("hf", (HF_REPO_ASR, "vocabulary.json"), os.path.join(ASR, "vocabulary.json"), 500_000),
         ("hf", (HF_REPO_ASR, "model.bin"), os.path.join(ASR, "model.bin"), 1_500_000_000),
     ],
-    "uvr5": [
+    # FunASR 中文/粤语 ASR 引擎 (前端可选, 中文更准 + 自带标点)。模型在 ModelScope
+    # 的 iic/, 用 "ms" 后端整目录下载到 gsv-tools/asr/models/<name>/, 与 funasr_asr.py
+    # 运行时懒下载的落地路径一致 —— 预下载后离线首训即可用。
+    "funasr": [
+        ("ms", mid, os.path.join(FUNASR_DIR, name), 5_000_000)
+        for mid, name in MS_FUNASR
+    ],
+    # UVR5 人声分离全套 (与 lib/.../uvr5/uvr5_models.js 目录一致)。VR 家族 (HP/DeEcho)
+    # 与 onnx_dereverb 都在 lj1995/VoiceConversionWebUI; Mel-Band 在 KimberleyJSN;
+    # BS-Roformer 的 ep_317 权重在 MSST 模型库 HF 镜像 (Eddycrack864/..., MIT);
+    # Mel-Band 在 KimberleyJSN。二者均无需 yaml (分离器内置默认配置)。
+    # 去伴奏 HP 家族 (VR)
+    "uvr5_hp": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP2_all_vocals.pth"),
          os.path.join(UVR, "HP2_all_vocals.pth"), 50_000_000),
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/HP3_all_vocals.pth"),
+         os.path.join(UVR, "HP3_all_vocals.pth"), 50_000_000),
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/HP5_only_main_vocal.pth"),
+         os.path.join(UVR, "HP5_only_main_vocal.pth"), 50_000_000),
+    ],
+    # 去混响/去回声 DeEcho ×3 (VR)
+    "uvr5_deecho": [
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoNormal.pth"),
+         os.path.join(UVR, "VR-DeEchoNormal.pth"), 30_000_000),
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoAggressive.pth"),
+         os.path.join(UVR, "VR-DeEchoAggressive.pth"), 30_000_000),
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoDeReverb.pth"),
+         os.path.join(UVR, "VR-DeEchoDeReverb.pth"), 30_000_000),
+    ],
+    # MDX 去混响 (FoxJoy onnx, 2 文件)
+    "uvr5_mdx": [
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/onnx_dereverb_By_FoxJoy/vocals.onnx"),
+         os.path.join(UVR, "onnx_dereverb_By_FoxJoy", "vocals.onnx"), 20_000_000),
+        ("hf", (HF_REPO_UVR5, "uvr5_weights/onnx_dereverb_By_FoxJoy/other.onnx"),
+         os.path.join(UVR, "onnx_dereverb_By_FoxJoy", "other.onnx"), 20_000_000),
+    ],
+    # Roformer 高质量分离 (体积大头): BS-Roformer + Mel-Band, 均无需 yaml (内置默认配置)。
+    "uvr5_roformer": [
+        # BS-Roformer (MSST zoo mirror, MIT).
+        ("hf", (HF_REPO_BSROFORMER, "model_bs_roformer_ep_317_sdr_12.9755.ckpt"),
+         os.path.join(UVR, "model_bs_roformer_ep_317_sdr_12.9755.ckpt"), 200_000_000),
+        # Mel-Band Roformer (KimberleyJSN, MIT).
+        ("hf", (HF_REPO_MELBAND, "MelBandRoformer.ckpt"),
+         os.path.join(UVR, "MelBandRoformer.ckpt"), 200_000_000),
     ],
     "g2pw": [
         # 下载官方 G2PWModel.zip, 仅抽出 g2pW.onnx, 同时写入两个副本
@@ -152,7 +224,10 @@ MANIFEST = {
          [os.path.join("lib", "training", "gsv_code", "pretrained_models", "fast_langdetect", "lid.176.bin")]),
     ],
 }
-GROUPS = ["core", "alt_v2", "alt_v2proplus", "asr", "uvr5", "g2pw", "langdetect"]
+GROUPS = ["core", "alt_v2", "alt_v2proplus", "asr", "funasr",
+          "uvr5_hp", "uvr5_deecho", "uvr5_mdx", "uvr5_roformer", "g2pw", "langdetect"]
+# UVR5 全套 = 4 个子组 (供 "仅 UVR5" 快捷项与 all 集展开)。
+UVR5_ALL = ["uvr5_hp", "uvr5_deecho", "uvr5_mdx", "uvr5_roformer"]
 # 默认集: 与 MODEL_SOURCES.json 中 default_selected=true 的 download_group 一致
 # (核心底模 + 默认基座 v2Pro + g2pw + langdetect + asr)。备用基座与 uvr5 需显式选择。
 DEFAULT_SET = ["core", "g2pw", "langdetect", "asr"]
@@ -195,6 +270,31 @@ def _entry_parts(entry):
 def ok_local(root, local, minb):
     p = os.path.join(root, local)
     return os.path.isfile(p) and os.path.getsize(p) >= minb
+
+
+def dir_size(d):
+    total = 0
+    for dp, _dn, fs in os.walk(d):
+        for f in fs:
+            try:
+                total += os.path.getsize(os.path.join(dp, f))
+            except OSError:
+                pass
+    return total
+
+
+def dir_ok(root, local, minb):
+    """ModelScope 整目录下载的存在性判断: 目录存在且累计体积达标。"""
+    p = os.path.join(root, local)
+    return os.path.isdir(p) and dir_size(p) >= minb
+
+
+def ok_entry(root, entry):
+    """按 backend 分派: ms=目录级校验, 其余=单文件校验。"""
+    backend, _source, local, minb, _copies = _entry_parts(entry)
+    if backend == "ms":
+        return dir_ok(root, local, minb)
+    return ok_local(root, local, minb)
 
 
 def hf_url(repo, path, mirror):
@@ -278,22 +378,37 @@ def try_hf_download(repo, path, dest, mirror, quiet=False):
         return download_url(hf_url(repo, path, mirror), dest, 1, mirror, quiet)
 
 
+def try_ms_download(model_id, dest_dir, quiet=False):
+    """ModelScope 整目录快照下载 (FunASR 模型)。与 funasr_asr.py 运行时一致。"""
+    from modelscope import snapshot_download
+    os.makedirs(dest_dir, exist_ok=True)
+    if not quiet:
+        log(f"  下载(ModelScope): {model_id}")
+    snapshot_download(model_id, local_dir=dest_dir)
+    return dir_size(dest_dir)
+
+
 def _fetch_one(root, entry, mirror, force, quiet):
     """下载单条 + 写副本。返回日志行列表(并行时统一收集后打印, 避免交错)。"""
     backend, source, local, minb, copies = _entry_parts(entry)
     dest = os.path.join(root, local)
     lines = []
-    if not force and ok_local(root, local, minb):
+    if not force and ok_entry(root, entry):
         lines.append(f"  已存在, 跳过: {local}")
     else:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
         try:
-            if backend == "hf":
+            if backend == "ms":
+                # source = ModelScope model id; dest = 整个模型目录
+                size = try_ms_download(source, dest, quiet)
+            elif backend == "hf":
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
                 repo, path = source
                 size = try_hf_download(repo, path, dest, mirror, quiet)
             elif backend == "g2pzip":
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
                 size = fetch_g2pw_zip(source, dest, minb, mirror, quiet)
             else:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
                 size = download_url(apply_mirror(source, mirror), dest, minb, mirror, quiet)
             lines.append(f"  OK ({human(size)}): {local}")
         except Exception as e:
@@ -334,8 +449,10 @@ def check(root, groups=None):
     for g in (groups or GROUPS):
         miss = []
         for entry in MANIFEST[g]:
-            _, _, local, minb, copies = _entry_parts(entry)
-            for path in [local] + copies:
+            backend, _s, local, minb, copies = _entry_parts(entry)
+            if not ok_entry(root, entry):
+                miss.append(local)
+            for path in copies:  # 副本一律单文件校验 (ms 无副本)
                 if not ok_local(root, path, minb):
                     miss.append(path)
         status = "齐全" if not miss else f"缺 {len(miss)} 项"
@@ -349,13 +466,23 @@ def check(root, groups=None):
 
 
 def _expand_sets(raw):
-    """把 --set 的值展开为合法组列表。支持 all / default / 逗号分隔。"""
+    """把 --set 的值展开为合法组列表。支持 all / default / 逗号分隔。
+    兼容旧名 'uvr5' -> 展开为 4 个 UVR5 子组。"""
     v = raw.strip().lower()
     if v == "all":
         return list(GROUPS)
     if v == "default":
         return list(DEFAULT_SET)
-    return [s.strip() for s in raw.split(",") if s.strip()]
+    out = []
+    for s in raw.split(","):
+        s = s.strip()
+        if not s:
+            continue
+        if s.lower() == "uvr5":  # 旧名兼容
+            out.extend(UVR5_ALL)
+        else:
+            out.append(s)
+    return out
 
 
 def wizard(root, mirror, jobs):
@@ -364,20 +491,21 @@ def wizard(root, mirror, jobs):
         print("            TTS Broker 模型下载向导")
         print("============================================================")
         print("  1) 默认集 (core + asr + g2pw + langdetect, 基座 v2Pro)  [推荐]")
-        print("  2) 全部 (默认集 + 备用基座 v2/v2ProPlus + uvr5)  ~9GB")
+        print("  2) 全部 (默认集 + 备用基座 v2/v2ProPlus + funasr + uvr5)  ~13GB")
         print("  3) 仅核心底模 core (含 v2Pro 默认基座)")
         print("  4) 仅 ASR (faster-whisper large-v3-turbo)  ~1.6GB")
-        print("  5) 仅 UVR5 去人声 (HP2)")
+        print("  5) 仅 UVR5 人声分离全套 (HP+DeEcho+MDX+Roformer 4 子组, ~2.5GB)")
         print("  6) 仅 G2PW 多音字")
         print("  7) 仅 语言检测 lid.176")
         print("  8) 备用基座 (alt_v2 + alt_v2proplus)")
+        print("  f) 仅 FunASR 中文/粤语 ASR (Paraformer+VAD+标点, ModelScope, ~2.4GB)")
         print("  9) 自定义 (逗号分隔: %s)" % ",".join(GROUPS))
         print("  c) 体检 (只检查, 不下载)")
         print(f"  m) 切换镜像 (当前: {'hf-mirror' if mirror else 'huggingface.com'})")
         print(f"  j) 设置并行数 (当前: {jobs})")
         print("  0) 退出")
         print("------------------------------------------------------------")
-        c = input("请选择 [0-9/c/m/j]: ").strip().lower()
+        c = input("请选择 [0-9/f/c/m/j]: ").strip().lower()
         if c == "0":
             return 0
         elif c == "1":
@@ -389,13 +517,15 @@ def wizard(root, mirror, jobs):
         elif c == "4":
             sets = ["asr"]
         elif c == "5":
-            sets = ["uvr5"]
+            sets = list(UVR5_ALL)
         elif c == "6":
             sets = ["g2pw"]
         elif c == "7":
             sets = ["langdetect"]
         elif c == "8":
             sets = ["alt_v2", "alt_v2proplus"]
+        elif c == "f":
+            sets = ["funasr"]
         elif c == "9":
             raw = input("输入组(逗号分隔): ").strip()
             sets = [s.strip() for s in raw.split(",") if s.strip() in MANIFEST]
@@ -421,7 +551,8 @@ def wizard(root, mirror, jobs):
 def main():
     ap = argparse.ArgumentParser(description="下载/校验 TTS Broker 模型。")
     ap.add_argument("--set", default=None,
-                    help="组: default,all,core,alt_v2,alt_v2proplus,asr,uvr5,g2pw,langdetect")
+                    help="组: default,all,core,alt_v2,alt_v2proplus,asr,funasr,"
+                         "uvr5_hp,uvr5_deecho,uvr5_mdx,uvr5_roformer,g2pw,langdetect (uvr5=全4子组)")
     ap.add_argument("--wizard", action="store_true", help="交互式菜单")
     ap.add_argument("--check", action="store_true", help="只体检")
     ap.add_argument("--mirror", action="store_true", help="走 hf-mirror.com")

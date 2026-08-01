@@ -60,7 +60,7 @@ const { loadTrainingConfig } = require("./lib/training/config");
 // WAV/ffmpeg audio utilities, audio concatenation, and the CUDA probe were
 // moved out of this file verbatim. They are re-imported here so every existing
 // call site in server.js keeps working unchanged.
-const { gsvRequest, gsvPost, gsvGet } = require("./lib/gsv/client");
+const { gsvRequest, gsvPost, gsvGet, gsvStream } = require("./lib/gsv/client");
 const {
   generateSilenceWav, findWavDataChunk, toPcm16Wav,
   wavDurationSec, computeSegmentBounds, concatWavPureNode,
@@ -1248,6 +1248,7 @@ function readTranscriptListRows(listPath) {
 // ===========================
 
 const trainingPipeline = require("./lib/training/pipeline");
+const _uvr5Models = require("./lib/training/gsv-tools/uvr5/uvr5_models");
 
 const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko", "auto"]);
 
@@ -1348,9 +1349,16 @@ function sanitizeCustomParams(custom) {
       bool(ap, 'force_simplified_chinese', p.force_simplified_chinese);
     }
     if (custom.steps.denoise && custom.steps.denoise.params) {
+      // Vocal-extraction pipeline: normalise to a validated [{model,agg?}] array via
+      // the shared registry (drops unknown models, clamps agg, coerces the legacy
+      // {model:string} shape). Storing the canonical pipeline is what makes the step
+      // fingerprint diff correctly, so a changed chain always re-runs.
       safe.steps.denoise = { params: {} };
-      const m = custom.steps.denoise.params.model;
-      if (typeof m === 'string' && m.length < 50) safe.steps.denoise.params.model = m;
+      const dp = custom.steps.denoise.params;
+      const pipeline = _uvr5Models.normalizePipeline(
+        Array.isArray(dp.pipeline) ? dp.pipeline : dp
+      );
+      if (pipeline.length) safe.steps.denoise.params.pipeline = pipeline;
     }
   }
   return safe;
@@ -1621,7 +1629,7 @@ function scanStagingTasks() {
 // factories. They receive shared server-scope symbols via `ctx` and are
 // mounted here (paths unchanged). The static frontend + SPA catch-all are
 // registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, TTS_PASS_THROUGH_KEYS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, TTS_PASS_THROUGH_KEYS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
 app.use(require("./lib/routes/voices")(ctx));
@@ -1630,6 +1638,7 @@ app.use(require("./lib/routes/outputs")(ctx));
 app.use(require("./lib/routes/assets")(ctx));
 app.use(require("./lib/routes/config")(ctx));
 app.use(require("./lib/routes/training")(ctx));
+app.use(require("./lib/routes/uvr5")(ctx));
 app.use(require("./lib/routes/recipes")(ctx));
 
 // ---- Serve React frontend (must stay after API routers) ----

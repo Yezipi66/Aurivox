@@ -920,6 +920,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 10px;
   align-items: start;
 }
+.preset-grid-single { grid-template-columns: 1fr; }
 @media (max-width: 760px) {
   .preset-grid { grid-template-columns: 1fr; }
 }
@@ -1899,6 +1900,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .asr-review-hdr .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
 .arr-hdr-right { display: inline-flex; align-items: center; gap: 12px; }
 .arr-legend { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; font-size: 11px; color: var(--muted); }
+.asr-review-note { margin: 8px 12px 0; padding: 7px 10px; font-size: 12px; line-height: 1.5; color: var(--muted); background: var(--surface-2, rgba(127,127,127,0.08)); border: 1px dashed var(--border); border-radius: 6px; }
 .asr-review-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; }
 .asr-review-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); }
 .arr-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -1914,6 +1916,27 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: 12px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .asr-review-ftr { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
+
+/* ── Vocal-extraction audition gate (GIGO 门 1) ─────────────────────────────
+   Mirrors the ASR review panel's layout but uses the accent theme (not the
+   orange --warning of proofreading) so the two GIGO gates read as distinct.
+   Fully theme-driven via CSS vars — no inline colors in the component. */
+.denoise-review { border: 1px solid var(--accent); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+.denoise-review-hdr { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--accent-soft); font-size: 13px; font-weight: 600; color: var(--text); }
+.denoise-review-hdr .muted { color: var(--muted); font-weight: 400; font-size: 11px; }
+.denoise-review-hdr-right { display: inline-flex; align-items: center; gap: 10px; }
+/* Inline bar/waveform toggle for the audition players (mirrors .ctx-pvmode). */
+.pvmode-toggle { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.pvmode-toggle-btn { display: inline-flex; align-items: center; justify-content: center; padding: 2px 8px; font-size: 11px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.pvmode-toggle-btn + .pvmode-toggle-btn { border-left: 1px solid var(--border); }
+.pvmode-toggle-btn:hover { color: var(--text); background: var(--hover, rgba(127,127,127,0.1)); }
+.pvmode-toggle-btn.active { color: #fff; background: var(--accent); }
+.denoise-review-hint { font-size: 11px; color: var(--muted); padding: 6px 12px 0; margin: 0; }
+.denoise-review-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; }
+.denoise-review-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-top: 1px solid var(--border); }
+.denoise-review-row .arr-path { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.denoise-review-row .aplayer { width: 100%; }
+.denoise-review-ftr { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
 
 /* ── Failure-resume panel & banner (哪里跌倒哪里爬起来) ───────────────────── */
 .recover-panel {

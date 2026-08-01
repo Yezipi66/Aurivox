@@ -43,7 +43,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
   // language — even if it equals the parent, even if it is "auto" — is just a normal
   // branch in the refinement tree.
   const [language, setLanguage] = useState('')
-  const [ownSteps, setOwnSteps] = useState({ denoise: false, slice: true, asr: true, pauseAfterAsr: false })
+  const [ownSteps, setOwnSteps] = useState({ denoise: false, slice: true, asr: true, pauseAfterAsr: false, pauseAfterDenoise: true })
   const setOwnStep = (k, v) => setOwnSteps(prev => ({ ...prev, [k]: v }))
 
   // Warm-start checkpoint selection (default = latest / flagged default).
@@ -134,6 +134,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           slice: ownSteps.slice,
           asr: ownSteps.asr,
           pauseAfterAsr: ownSteps.pauseAfterAsr,
+          pauseAfterDenoise: ownSteps.denoise && ownSteps.pauseAfterDenoise,
           ...(graceOverride != null ? { asrGraceSec: Number(graceOverride) } : {}),
         }
       }
@@ -254,6 +255,10 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                 <label className="toggle-row" style={{ margin: 0 }}>
                   <input type="checkbox" checked={ownSteps.denoise} onChange={e => setOwnStep('denoise', e.target.checked)} />
                   <span>{t('Denoise', '降噪')}</span>
+                </label>
+                <label className="toggle-row" style={{ margin: 0 }}>
+                  <input type="checkbox" checked={ownSteps.pauseAfterDenoise} onChange={e => setOwnStep('pauseAfterDenoise', e.target.checked)} disabled={!ownSteps.denoise} />
+                  <span>{t('Pause after denoise (preview)', '降噪后暂停（试听）')}</span>
                 </label>
                 <label className="toggle-row" style={{ margin: 0 }}>
                   <input type="checkbox" checked={ownSteps.slice} onChange={e => setOwnStep('slice', e.target.checked)} />

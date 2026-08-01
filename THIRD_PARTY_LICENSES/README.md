@@ -11,7 +11,9 @@ THIRD_PARTY_LICENSES/
 ├── models/
 │   └── MODEL_SOURCES.json     ← machine-readable model source/license manifest
 └── runtime/
-    ├── python_packages.json   ← frozen Python dependency closure (inventory)
+    ├── INDEX.json              ← machine-readable index of bundled code/runtime
+    ├── python_packages.json    ← frozen Python dependency closure (inventory)
+    ├── node_packages.json      ← backend Node production closure (GENERATED after npm ci)
     ├── GPT-SoVITS.LICENSE.txt  (MIT)  — derived training/inference code
     ├── CPython.LICENSE.txt     (PSF)  — python-build-standalone runtime
     ├── Node.js.LICENSE.txt     (MIT + bundled) — backend runtime
@@ -23,35 +25,67 @@ THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json   ← fetched-on-demand tools (FFmpeg),
 
 ## models/ — model source & license manifest
 
-`models/MODEL_SOURCES.json` (schema 2) records where each third-party model
-comes from and under which license, with an honest `verification_status`.
-Models are **not bundled** — the deploy wizard fetches each one (and, where
-provided, its license) from the source identified here at deploy time, so their
-license *texts* are obtained together with the model, not stored in this folder.
+`models/MODEL_SOURCES.json` (schema 3) records, for each third-party model, its
+**download group**, **source repository**, and best-effort license metadata.
+Models are **not bundled** — the deploy wizard fetches each one from the source
+repo identified here at deploy time, so a model's license *text* travels with the
+download, not with this folder.
 
-Current state: **14 / 14 components verified**, default base `v2Pro`.
+Because we do **not** redistribute these weights (GPT-SoVITS *code* aside), the
+deploy wizard does not assert or "verify" any model license. Its third-layer view
+simply **lists the models to be downloaded and their source repositories** and
+asks the operator to read each repo's own license and confirm with `READ` (or
+`NO` to skip that group; the platform still deploys). The manifest therefore no
+longer carries a `verification_status` field — the authoritative license is
+always whatever the upstream repo states.
 
-| tier | components | licenses |
-|------|-----------|----------|
-| core (9) | GPT-SoVITS s1/s2G/s2D v2Pro, eres2netv2, cn-hubert, roberta-wwm, whisper-v3-turbo, g2pw, lid.176 | MIT / Apache-2.0 / CC-BY-SA-3.0 |
-| alt_base (4) | v2 (G+D), v2ProPlus (G+D) | MIT |
-| optional (1) | uvr5_hp2 (vocal separation; UI labels "MDX-Net", actually HP2/VR) | MIT |
-| excluded | BigVGAN, FunASR | not downloaded → no license obligation |
+Current state: **26 components across 11 download groups**, default base `v2Pro`
+(default-selected groups: `core`, `asr`, `g2pw`, `langdetect`).
 
-> `lid.176.bin`: the fastText **code** is MIT, but the **model weights** are
-> **CC-BY-SA-3.0** (Wikipedia/Tatoeba/SETimes training data); recorded with a
-> `license_note` in the manifest.
+| download group | components | role |
+|----------------|-----------|------|
+| `core` (6) | gsv s1/s2G/s2D v2Pro, sv_eres2netv2, cn-hubert, roberta-wwm | required base for every version (default) |
+| `asr` (1) | faster-whisper large-v3-turbo | training-time ASR (default) |
+| `funasr` (4) | Paraformer-zh, FSMN-VAD, CT-punc, UniASR-yue | optional zh/yue ASR engine (ModelScope) |
+| `g2pw` (1) | g2pW.onnx | Chinese polyphone disambiguation (default) |
+| `langdetect` (1) | fastText lid.176 | language identification (default) |
+| `alt_v2` (2) | v2 G+D | alternative base version |
+| `alt_v2proplus` (2) | v2ProPlus G+D | alternative base version |
+| `uvr5_hp` (3) | HP2 / HP3 / HP5 | UVR5 vocal/instrument separation (VR) |
+| `uvr5_deecho` (3) | DeEcho Normal / Aggressive / DeReverb | UVR5 reverb/echo removal (VR) |
+| `uvr5_mdx` (1) | onnx_dereverb (FoxJoy) | UVR5 MDX-Net de-reverb |
+| `uvr5_roformer` (2) | BS-Roformer + Mel-Band Roformer | UVR5 high-quality separation |
+
+> `lid.176.bin`: the fastText **code** is MIT, but the **model weights** carry
+> **CC-BY-SA-3.0** (Wikipedia/Tatoeba/SETimes training data) per its source repo.
+> `funasr_*`: the FunASR *framework* on GitHub is MIT, but the individual weight
+> pages on ModelScope state **Apache-2.0** — read each model page for the
+> authoritative terms. We only download these; we do not redistribute them.
 
 ## runtime/ — bundled code & runtime license texts (verbatim)
 
 Verbatim license texts of third-party code and runtimes that ship **inside** a
 distribution and whose licenses require the text to travel with the software.
 
+`runtime/INDEX.json` is the machine-readable index of these bundled code/runtime
+components; the deploy wizard reads it to group and display the second license
+layer.
+
 Only two Python packages are actually shipped (prebuilt `cp311/win_amd64`
 wheels, both MIT): `jieba_fast` and `pyopenjtalk`. All other Python deps are
 installed at deploy time from a package index (`bundled: false`), inventoried in
 `runtime/python_packages.json`; `torch`/`torchaudio` come from a CUDA-specific
 index.
+
+The backend **Node** production dependency closure is likewise **not bundled** —
+`node_modules` is restored on the target by `npm ci` (bootstrap.ps1) from the
+shipped `package-lock.json`. Its per-package licenses are inventoried in
+`runtime/node_packages.json`, which is **generated** (not hand-maintained) by
+`tools/build/gen_node_licenses.py` reading each installed
+`node_modules/<pkg>/package.json` — so no Node license is ever hand-asserted.
+bootstrap.ps1 regenerates it right after `npm ci`; the file may be absent on a
+first, pre-`npm ci` wizard run, in which case the wizard points to `package.json`
+and the installed `node_modules` instead.
 
 For `Node.js.LICENSE.txt` and `CPython.LICENSE.txt`, the core MIT/PSF text here
 does **not** replace the bundled-component notices (V8/OpenSSL/SQLite/… ) that
@@ -89,5 +123,9 @@ This mirrors how models are handled in `models/MODEL_SOURCES.json`
 
 ## Not here (by design)
 
-- **MDX-Net / HP2 weights** — a *model*, tracked in `models/MODEL_SOURCES.json`
-  (`uvr5_hp2`, not bundled), so its license does not live under `runtime/`.
+- **All model weights** — including the full UVR5 vocal-separation pipeline
+  (`uvr5_hp` / `uvr5_deecho` / `uvr5_mdx` / `uvr5_roformer`), the FunASR ASR
+  models, faster-whisper, g2pW and lid.176 — are *models*, tracked in
+  `models/MODEL_SOURCES.json` (all `bundled: false`). They are downloaded at
+  deploy time from their source repos, so their license texts do not live under
+  `runtime/`; read them at the upstream repositories listed in the manifest.

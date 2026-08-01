@@ -1,5 +1,5 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
@@ -7,8 +7,10 @@ import { PronPanel } from '../pron/PronProofing'
 import { ConfirmDialog } from '../common/Dialogs'
 import { NumField, TextField, SelectField } from '../common/Fields'
 import { IconTrash } from '../common/Icons'
+import { Player } from '../common/Player'
 import { basename } from '../../lib/format'
 import { useT } from '../../lib/i18n'
+import { usePreviewMode } from '../../lib/previewMode'
 
 // Default values for every editable training/slice/asr field. The Training page
 // keeps its own persistent form; the Restore modal seeds a fresh copy of these.
@@ -21,6 +23,8 @@ const REBUILD_PARAM_DEFAULTS = {
   sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
   // asr
   asrEngine: 'auto', asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
+  // vocal extraction (denoise)
+  denoisePreset: 'bgm', denoisePipeline: [], denoisePresetParams: {}, denoiseAdvUnlocked: false, denoiseSavedPresets: [],
   // S1 advanced/expert
   s1Seed: 1234, s1SaveEvery: 4, s1Precision: '16-mixed', s1GradClip: 1.0,
   s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
@@ -40,6 +44,109 @@ const ASR_MODEL_SIZES = [
 const ASR_PRECISIONS = [
   ['float16', 'float16 (fast)'], ['float32', 'float32 (best)'], ['int8', 'int8 (low VRAM)'],
 ]
+
+// --- Vocal extraction presets (encode the official UVR5 domain knowledge) ------
+// Each preset maps a human intent ("what is my material like?") to a concrete
+// separation pipeline [{model, agg?}]. `agg` (0-20) only applies to VR models and
+// is user-tunable in Expert mode. ids MUST match lib/training/gsv-tools/uvr5/
+// uvr5_models.js (and the backend validator). `custom` opens the second-level
+// chain editor. The authoritative labels/availability come from GET /api/uvr5/models.
+const AGG_DEFAULT = 10
+const VOCAL_PRESETS = [
+  { id: 'bgm', label: ['Remove background music (HP2)', '去背景乐（HP2）'],
+    hint: ['Most common. For material WITHOUT harmony — best main-vocal preservation.',
+           '最常用。不带和声的素材，主人声保留最好。'],
+    pipeline: [{ model: 'HP2', agg: AGG_DEFAULT }] },
+  { id: 'main_vocal', label: ['Only main vocal (HP5)', '仅保留主人声（HP5）'],
+    hint: ['For material WITH harmony; may slightly weaken the main vocal.',
+           '带和声的素材；对主人声可能有轻微削弱。'],
+    pipeline: [{ model: 'HP5', agg: AGG_DEFAULT }] },
+  { id: 'dereverb', label: ['De-reverb (MDX-Net)', '去混响（MDX-Net）'],
+    hint: ['Best for stereo reverb; cannot remove mono reverb.',
+           '对双声道混响最佳；不能去单声道混响。'],
+    pipeline: [{ model: 'MDX-Net' }] },
+  { id: 'deep', label: ['Deep clean: MDX-Net → DeEcho-Aggressive  ★', '深度清洗：MDX-Net → DeEcho-Aggressive  ★'],
+    hint: ['Official cleanest configuration. Two-stage chain — slower.',
+           '官方推荐最干净配置。两级串联，耗时较长。'],
+    pipeline: [{ model: 'MDX-Net' }, { model: 'DeEcho-Aggressive', agg: AGG_DEFAULT }] },
+  { id: 'melband', label: ['Mel-Band Roformer', 'Mel-Band Roformer'],
+    hint: ['Roformer-based vocal isolation. Large model (~700MB) — needs download.',
+           '基于 Roformer 的人声分离。大模型（约 700MB），需下载。'],
+    pipeline: [{ model: 'Mel-Band-Roformer' }] },
+  { id: 'custom', label: ['Custom…', '自定义…'],
+    hint: ['Build your own separation chain (advanced).', '自建分离链（高级）。'],
+    pipeline: null },
+]
+const VOCAL_PRESET_BY_ID = Object.fromEntries(VOCAL_PRESETS.map(p => [p.id, p]))
+
+// --- Expert parameters (mirror lib/training/gsv-tools/uvr5 EXPERT_PARAMS) -------
+// Source-verified knobs, tiered per architecture. `agg` is the only NORMAL knob
+// (VR); everything below is EXPERT. The authoritative applicability comes from
+// GET /api/uvr5/models (model.expertParams); this table only supplies labels/UI.
+const EXPERT_META = {
+  precision: { archs: ['vr', 'mdx', 'roformer'], type: 'enum', options: ['fp32', 'fp16'], default: 'fp32',
+    label: ['Precision', '精度'],
+    hint: ['fp32 is safest. fp16 is faster but makes HP models emit NaN on many GPUs.',
+           'fp32 最稳；fp16 更快，但 HP 系列在很多显卡上会出 NaN。'] },
+  tta: { archs: ['vr'], type: 'bool', default: false,
+    label: ['TTA (test-time augmentation)', 'TTA 测试时增强'],
+    hint: ['Cleaner separation, ~2× time.', '分离更干净，耗时约 2 倍。'] },
+  postprocess: { archs: ['vr'], type: 'bool', default: false,
+    label: ['Mask post-process', '掩码后处理'],
+    hint: ['Extra refinement of the separation mask.', '对分离掩码做额外精修。'] },
+  highEnd: { archs: ['vr'], type: 'enum', options: ['mirroring', 'bypass', 'none'], default: 'mirroring',
+    label: ['High-frequency reconstruction', '高频重建'],
+    hint: ['How lost high frequencies are rebuilt.', '如何重建丢失的高频。'] },
+  chunks: { archs: ['mdx'], type: 'int', min: 5, max: 40, default: 8,
+    label: ['Segment length (s)', '分段长度（秒）'],
+    hint: ['MDX-Net is prone to running out of GPU memory (OOM). The default (8 s) targets a 4 GB GPU; on cards with more VRAM, raise it for more context and speed.',
+           'MDX-Net 极易爆显存（OOM）。默认值（8 秒）以 4 GB 显存为基准；显存更大的显卡可自行调高，以获得更多上下文与更快速度。'] },
+  overlap: { archs: ['roformer'], type: 'int', min: 1, max: 8, default: 2,
+    label: ['Chunk overlap', '分块重叠'],
+    hint: ['Higher = better quality, slower.', '越大质量越好、越慢。'] },
+  batchSize: { archs: ['roformer'], type: 'int', min: 1, max: 16, default: 2,
+    label: ['Batch size', '批大小'],
+    hint: ['Higher = faster on big GPUs, more VRAM.', '越大在大显存上越快、更吃显存。'] },
+}
+const EXPERT_KEYS = Object.keys(EXPERT_META)
+const expertKeysForArch = (arch) => EXPERT_KEYS.filter(k => EXPERT_META[k].archs.includes(arch))
+
+// Resolve the concrete pipeline the backend should run, from the current form.
+// Presets clone their template (so per-preset param edits persist on the form);
+// `custom` uses the user-built chain. Returns [] when off/empty.
+function resolveVocalPipeline(form) {
+  if (!form.denoise) return []
+  const preset = form.denoisePreset || 'bgm'
+  // Custom AND saved presets both edit the same working buffer (denoisePipeline);
+  // selecting a saved preset seeds the buffer from it, and "Update preset" writes it
+  // back — so what runs is always the (possibly edited) buffer. Fall back to the
+  // stored preset only if the buffer is somehow empty (e.g. restored config).
+  if (preset === 'custom' || preset.startsWith('saved:')) {
+    const buf = Array.isArray(form.denoisePipeline) ? form.denoisePipeline : []
+    if (buf.length) return buf
+    if (preset.startsWith('saved:')) {
+      const name = preset.slice(6)
+      const saved = (form.denoiseSavedPresets || []).find(s => s.name === name)
+      return saved && Array.isArray(saved.pipeline) ? saved.pipeline : []
+    }
+    return buf
+  }
+  const p = VOCAL_PRESET_BY_ID[preset]
+  if (!p || !p.pipeline) return []
+  // Overlay user-tuned params stored per preset stage on form.denoisePresetParams.
+  // A stage override is an object {agg?, tta?, ...}; a legacy number means {agg}.
+  const overrides = (form.denoisePresetParams && form.denoisePresetParams[preset]) || {}
+  return p.pipeline.map((stage, i) => {
+    const out = { ...stage }
+    let ov = overrides[i]
+    if (typeof ov === 'number') ov = { agg: ov }
+    if (ov && typeof ov === 'object') {
+      if (ov.agg != null && 'agg' in out) out.agg = ov.agg
+      for (const k of EXPERT_KEYS) if (ov[k] != null) out[k] = ov[k]
+    }
+    return out
+  })
+}
 
 // S1 (GPT / Lightning) trainer precision. Values MUST match the server-side
 // whitelist (server.js validatePayload `precision` oneOf) or they are dropped.
@@ -130,7 +237,7 @@ function _pick(obj, keys) { const o = {}; for (const k of keys) o[k] = obj[k]; r
 function buildStepParams(form) {
   const t = buildTrainingParams(form);
   return {
-    denoise: { model: form.denoiseModel ?? null, on: !!form.denoise },
+    denoise: { pipeline: resolveVocalPipeline(form), on: !!form.denoise },
     slice: { ...buildSliceParams(form), on: form.slice !== false },
     asr: { ...buildAsrParams(form), on: form.asr !== false },
     train_s1: { ..._pick(t, S1_PARAM_KEYS), on: form.trainS1 !== false },
@@ -181,6 +288,7 @@ function archiveToForm(archive) {
   if (so.train_s1 != null || so.train != null) out.trainS1 = (so.train_s1 ?? so.train) !== false;
   if (so.train_s2 != null || so.train != null) out.trainS2 = (so.train_s2 ?? so.train) !== false;
   if (so.pauseAfterAsr != null) out.preprocessReview = !!so.pauseAfterAsr;
+  if (so.pauseAfterDenoise != null) out.pauseAfterDenoise = !!so.pauseAfterDenoise;
 
   // training params
   if (Array.isArray(t.versions) && t.versions.length) { out.modelVersions = t.versions; out.modelVersion = t.versions[0]; }
@@ -225,8 +333,20 @@ function archiveToForm(archive) {
   if (ap.model_size != null) out.asrModelSize = ap.model_size;
   if (ap.precision != null) out.asrPrecision = ap.precision;
 
-  // denoise params
-  if (dp.model != null) out.denoiseModel = dp.model;
+  // denoise params — restore the pipeline (or coerce a legacy {model} string) and
+  // reflect it back into the form as the "custom" chain so a resumed run shows the
+  // ORIGINAL separation exactly, editable.
+  if (Array.isArray(dp.pipeline) && dp.pipeline.length) {
+    out.denoisePipeline = dp.pipeline;
+    out.denoisePreset = 'custom';
+    out.denoiseAdvUnlocked = true;
+  } else if (dp.model != null) {
+    const legacy = String(dp.model) === 'mdx-net' ? 'HP2' : dp.model;
+    out.denoisePipeline = [{ model: legacy, agg: AGG_DEFAULT }];
+    out.denoisePreset = 'custom';
+    out.denoiseAdvUnlocked = true;
+    out.denoiseModel = dp.model;
+  }
 
   return out;
 }
@@ -251,9 +371,16 @@ function AsrParamFields({ form, setField }) {
       <div className="field">
         <label className="field-label">{t('ASR Engine', 'ASR 引擎')}</label>
         <Select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
-          <option value="auto">{t('Auto (by language)', '自动 (按语言)')}</option>
+          <option value="auto">{t('Auto (Faster Whisper)', '自动 (Faster Whisper)')}</option>
           <option value="faster-whisper">Faster Whisper</option>
+          <option value="funasr">{t('FunASR (zh/yue — better Chinese)', 'FunASR (中文/粤语，中文更准)')}</option>
         </Select>
+        {form.asrEngine === 'funasr' && (
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+            {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
+              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效——其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
+          </p>
+        )}
       </div>
       {form.asrEngine !== 'funasr' && (
         <div className="param-grid" style={{ marginTop: 8 }}>
@@ -480,36 +607,30 @@ const TRAIN_PRESETS = [
     fields: null },
 ]
 
-// Slicing preset field values, shared by the Slicing-step preset dropdown and the
-// Input Type convenience mapping.
+// The training-form fields a saved Training Preset captures/restores. A saved preset
+// is a named snapshot of these; selecting it loads them, "Update" re-snapshots the
+// current form back into it, "Delete" removes it. Kept in sync with the values the
+// built-in TRAIN_PRESETS and the S1/S2 advanced-parameter steps can set.
+const TRAIN_PRESET_FIELDS = [
+  'gptEpochs', 'sovitsEpochs', 'batchSize', 'learningRate',
+  's1SaveEvery', 's2SaveEvery', 's2GradCkpt', 's2Fp16',
+  's1Seed', 's1Precision', 's1GradClip', 's1Lr', 's1LrInit', 's1LrEnd',
+  's1Warmup', 's1Decay', 's1MaxSec', 's1NumWorkers', 's1MaxEval',
+  's2Seed', 's2LogInterval', 's2EvalInterval', 's2LrDecay', 's2SegmentSize',
+  's2CMel', 's2CKl', 's2TextLowLr',
+]
+const pickTrainFields = (src) => {
+  const out = {}
+  for (const k of TRAIN_PRESET_FIELDS) if (src[k] !== undefined) out[k] = src[k]
+  return out
+}
+
+// Slicing preset field values, used by the Slicing-step preset dropdown.
 const SLICE_PRESET_VALUES = {
   default:    { sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5 },
   aggressive: { sliceMinSec: 2, sliceMaxSec: 10, sliceSilenceDb: -34, sliceMinSilenceSec: 0.3 },
   longer:     { sliceMinSec: 5, sliceMaxSec: 25, sliceSilenceDb: -45, sliceMinSilenceSec: 0.8 },
 }
-
-// Input types — frontend-only convenience. Maps the source-audio character to the
-// preprocessing toggles (denoise / slice). All map to form.* fields that already exist.
-//
-// BACKEND-PENDING (Phase 4): this is a preset mapping, NOT content-aware detection.
-// "Standard" applies the default preprocessing; it does not inspect the audio. True
-// automatic input detection (and per-input-type dedicated algorithms beyond the single
-// UVR5 denoise + single slicer2 the backend ships today) require a backend preflight
-// scan. Tracked in PHASE2_REPORT.md → "Phase 4 backend dependencies".
-const INPUT_TYPES = [
-  { key: 'auto',  label: 'Standard (default)',  hint: 'Default preprocessing: slice + transcribe.',
-    hintZh: '默认预处理：切片 + 转写。',
-    fields: { denoise: false, slice: true, asr: true } },
-  { key: 'clean', label: 'Clean voice clips',  hint: 'Already-clean recordings; no denoise.',
-    hintZh: '已经干净的录音；不做降噪。',
-    fields: { denoise: false, slice: true, asr: true } },
-  { key: 'long',  label: 'Long raw recording', hint: 'One long take; slice into clips before training.',
-    hintZh: '单条长录音；训练前先切成小片段。',
-    fields: { denoise: false, slice: true, asr: true }, slicePreset: 'aggressive' },
-  { key: 'noisy', label: 'Noisy / mixed audio', hint: 'Has music/noise; extract vocals first.',
-    hintZh: '含音乐/噪声；先提取人声。',
-    fields: { denoise: true, slice: true, asr: true } },
-]
 
 // Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS are
 // now independent steps (train_s1 / train_s2); 'promote' publishes the asset.
@@ -720,6 +841,92 @@ function WordConf({ words, tr }) {
   )
 }
 
+// GIGO 门 1：人声提取试听面板。管线在分离完成后暂停时显示。加载分离产物音频，
+// Vocal-extraction audition gate (GIGO gate 1). Auditions each separated stem
+// with the shared dark-theme <Player> (seek bar + waveform, same as Generate):
+// continue if clean, cancel the whole run if not. Sits alongside the ASR proofing
+// panel as the two make-or-break review gates.
+function DenoiseReviewPanel({ taskId, onResumed, onCancel }) {
+  const { t: tr } = useT();
+  const [files, setFiles] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  // Audition players inherit the app-wide preview mode (bar vs. waveform). Expose a
+  // small inline toggle here too so you can flip it right where you're listening,
+  // without hunting for the global switch in the status bar.
+  const [previewMode, setPreviewMode] = usePreviewMode();
+
+  useEffect(() => {
+    let dead = false;
+    setLoading(true);
+    api(`/api/train/review/${taskId}`).then(r => {
+      if (dead) return;
+      if (r.ok) setFiles(r.data.files || []);
+      else setErr(r.data?.error || 'Failed to load extracted vocals');
+      setLoading(false);
+    }).catch(e => { if (!dead) { setErr(String(e)); setLoading(false); } });
+    return () => { dead = true; };
+  }, [taskId]);
+
+  const resume = async () => {
+    setBusy(true); setErr(null);
+    const r = await api(`/api/train/resume/${taskId}`, { method: 'POST', body: {} });
+    setBusy(false);
+    if (r.ok) { if (onResumed) onResumed(); }
+    else setErr(r.data?.error || 'Resume failed');
+  };
+
+  return (
+    <div className="denoise-review">
+      <div className="denoise-review-hdr">
+        <span>{tr('Audition extracted vocals', '试听提取的人声')}</span>
+        <span className="denoise-review-hdr-right">
+          <span className="pvmode-toggle" role="group" aria-label={tr('Preview style', '预览样式')}>
+            <button type="button" className={`pvmode-toggle-btn ${previewMode === 'bar' ? 'active' : ''}`}
+                    onClick={() => setPreviewMode('bar')} title={tr('Seek bar', '进度条')}>
+              {tr('Bar', '进度条')}
+            </button>
+            <button type="button" className={`pvmode-toggle-btn ${previewMode === 'waveform' ? 'active' : ''}`}
+                    onClick={() => setPreviewMode('waveform')} title={tr('Waveform', '波形')}>
+              {tr('Waveform', '波形')}
+            </button>
+          </span>
+          <span className="muted">{files ? `${files.length} ${tr('file(s)', '个文件')}` : ''}</span>
+        </span>
+      </div>
+      <p className="denoise-review-hint">
+        {tr('Listen to the separated vocals. Continue if they sound clean; cancel if the quality is poor — garbled, muffled, or with obvious background music left in.',
+            '试听分离出来的人声：听着干净就继续；如果质量不好（发糊、发闷，或还留着明显的伴奏），就取消。')}
+      </p>
+      {loading && <div className="msg">{tr('Loading audio…', '加载音频…')}</div>}
+      {err && <div className="msg msg-error">{err}</div>}
+      {files && files.length > 0 && (
+        <div className="denoise-review-list">
+          {files.map(f => (
+            <div className="denoise-review-row" key={f.path}>
+              <div className="arr-path" title={f.path}>{f.name}</div>
+              <Player size="sm"
+                      src={`/api/train/review/${taskId}/audio?path=${encodeURIComponent(f.path)}`} />
+            </div>
+          ))}
+        </div>
+      )}
+      {files && files.length === 0 && (
+        <div className="msg msg-warn">{tr('No separated audio was produced.', '没有生成分离后的音频。')}</div>
+      )}
+      <div className="denoise-review-ftr">
+        <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => onCancel && onCancel()}>
+          {tr('Cancel', '取消')}
+        </button>
+        <button className="btn btn-sm btn-primary" disabled={busy || loading} onClick={resume}>
+          {busy ? tr('Working…', '处理中…') : tr('Continue', '继续')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // P6: manual proofreading panel shown while the pipeline is paused after ASR.
 // Loads the recognised .list, lets the user correct text/pronunciation per line,
 // then saves + resumes (or resumes without changes).
@@ -802,6 +1009,15 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
           <span className="muted">{rows ? `${rows.length} lines` : ''}</span>
         </span>
       </div>
+      {/* Option A: when the engine returns no usable confidence (FunASR/Paraformer is
+          non-autoregressive and doesn't expose per-token posteriors), the badges are
+          blank — say so explicitly so a blank column doesn't read as "broken". */}
+      {rows && rows.length > 0 && !rows.some(r => typeof r.confidence === 'number') && (
+        <div className="asr-review-note">
+          {tr('The current ASR engine (FunASR) does not provide confidence scores, so lines are not color-coded this run. Switch to Faster Whisper if you want confidence highlighting.',
+              '当前 ASR 引擎（FunASR）不提供置信度，本次不做颜色标注。若需要置信度着色，请改用 Faster Whisper。')}
+        </div>
+      )}
       {loading && <div className="msg">Loading transcript…</div>}
       {err && <div className="msg msg-error">{err}</div>}
       {msg && <div className="msg msg-ok">{msg}</div>}
@@ -838,19 +1054,81 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
   );
 }
 
+// Styled in-app prompt for naming a saved UVR5 preset — replaces window.prompt()
+// (whose native chrome looks like a browser error). Reuses .modal-overlay/.confirm-card.
+function PresetNameModal({ open, existingNames = [], onSave, onClose, example = 'my-preset' }) {
+  const { t: tr } = useT()
+  const [name, setName] = useState('')
+  useEffect(() => { if (open) setName('') }, [open])
+  if (!open) return null
+  const trimmed = name.trim()
+  const exists = existingNames.includes(trimmed)
+  const submit = () => { if (trimmed) onSave(trimmed) }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
+        <div className="confirm-hdr"><span>{tr('Save as preset', '保存为预设')}</span></div>
+        <div className="confirm-body">
+          <div className="field">
+            <label className="field-label">{tr('Preset name', '预设名称')}</label>
+            <input className="control" value={name} autoFocus
+                   placeholder={tr(`e.g. ${example}`, `例如 ${example}`)}
+                   onChange={e => setName(e.target.value)}
+                   onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose() }} />
+            {exists && (
+              <div className="field-hint" style={{ color: 'var(--warning, var(--accent))' }}>
+                {tr('A preset with this name exists and will be overwritten.', '已存在同名预设，将被覆盖。')}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" onClick={onClose}>{tr('Cancel', '取消')}</button>
+          <button className="btn btn-sm btn-primary" disabled={!trimmed} onClick={submit}>
+            {exists ? tr('Overwrite', '覆盖') : tr('Save', '保存')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Second-level confirm for irreversible actions (preset delete, etc.). A preset is
+// a small user asset — an accidental click should not silently destroy it.
+function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onClose }) {
+  const { t: tr } = useT()
+  if (!open) return null
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
+        <div className="confirm-hdr"><span>{title}</span></div>
+        <div className="confirm-body">
+          <p style={{ fontSize: 13, margin: 0 }}>{message}</p>
+        </div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" onClick={onClose}>{tr('Cancel', '取消')}</button>
+          <button className="btn btn-sm btn-danger" onClick={onConfirm}>{confirmLabel || tr('Delete', '删除')}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill, health }) {
   const { t: tr } = useT()
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'auto', voiceName: '',
-    preset: 'default', inputType: 'auto', expertUnlocked: false,
+    preset: 'default', trainSavedPresets: [], expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
     trainS1: true, trainS2: true,
     preprocessReview: false,
+    pauseAfterDenoise: true,
     keepStaging: false,
     // Advanced params
     gptEpochs: 8, sovitsEpochs: 25, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
     asrEngine: 'auto', denoiseModel: 'mdx-net',
+    denoisePreset: 'bgm', denoisePipeline: [], denoisePresetParams: {}, denoiseAdvUnlocked: false, denoiseSavedPresets: [],
     asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
     modelVersion: 'v2Pro', modelVersions: ['v2Pro'], isHalf: true, inferDevice: 'cuda',
     // S1 advanced
@@ -876,6 +1154,55 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       .catch(() => { if (!cancelled) setBaseModelStatus(null); });
     return () => { cancelled = true; };
   }, [_selVersionsKey]);
+
+  // UVR5 model availability (labels + installed flags) for the Vocal Extraction panel.
+  const [uvr5Models, setUvr5Models] = useState(null);   // [{id,label,category,arch,aggApplicable,installed,...}]
+  const uvr5ById = useMemo(
+    () => Object.fromEntries((uvr5Models || []).map(m => [m.id, m])), [uvr5Models]);
+  const loadUvr5Models = useCallback(() => {
+    api('/api/uvr5/models')
+      .then(r => { if (r.ok && r.data) setUvr5Models(r.data.models || []); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { loadUvr5Models(); }, [loadUvr5Models]);
+
+  // Download job state for on-demand weight provisioning.
+  const [uvr5Download, setUvr5Download] = useState(null); // {jobId,status,models,...}
+  const startUvr5Download = useCallback((ids) => {
+    const models = [...new Set(ids)].filter(Boolean);
+    if (!models.length) return;
+    setUvr5Download({ status: 'running', models: Object.fromEntries(models.map(m => [m, { status: 'pending', pct: 0 }])) });
+    api('/api/uvr5/download', { method: 'POST', body: { models, source: 'auto' } })
+      .then(r => {
+        if (!r.ok || !r.data?.jobId) { setUvr5Download({ status: 'failed', error: r.data?.error || 'failed to start' }); return; }
+        setUvr5Download(d => ({ ...(d || {}), jobId: r.data.jobId, status: 'running' }));
+      })
+      .catch(e => setUvr5Download({ status: 'failed', error: String(e) }));
+  }, []);
+  useEffect(() => {
+    const jobId = uvr5Download?.jobId;
+    if (!jobId || (uvr5Download.status !== 'running')) return;
+    let stop = false;
+    const tick = () => {
+      api(`/api/uvr5/download/${jobId}`).then(r => {
+        if (stop || !r.ok) return;
+        setUvr5Download(d => ({ ...(d || {}), ...r.data }));
+        if (r.data.status === 'completed' || r.data.status === 'failed') {
+          loadUvr5Models(); // refresh installed flags
+        }
+      }).catch(() => {});
+    };
+    const iv = setInterval(tick, 1200); tick();
+    return () => { stop = true; clearInterval(iv); };
+  }, [uvr5Download?.jobId, uvr5Download?.status, loadUvr5Models]);
+
+  // Which models the CURRENT vocal pipeline needs, and which are missing.
+  const vocalPipelineNow = form.denoise ? resolveVocalPipeline(form) : [];
+  const vocalNeededIds = [...new Set(vocalPipelineNow.map(s => s.model))];
+  const vocalMissingIds = uvr5Models
+    ? vocalNeededIds.filter(id => { const m = uvr5ById[id]; return m && !m.installed; })
+    : [];
+
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null); // pipeline-map node being configured/inspected
@@ -913,6 +1240,9 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   const [gateGraceSec, setGateGraceSec] = useState(30);
   // 门控放行标记 + 本次放行携带的覆盖项（preprocess 关 / 宽限期秒数）。
   const gateAckRef = useRef({ g1: false, g2: false, preprocessOff: false, graceSec: 30 });
+  // FunASR 语言告知门：仅当选了 FunASR 但语言非中文/粤语时提醒（只告知，不阻断）。
+  const [asrLangGate, setAsrLangGate] = useState(null);  // null | { lang }
+  const asrLangAckRef = useRef(false);
   const [lowVramWarned, setLowVramWarned] = usePersistentState('train.lowVramWarned', false);
   const [showLowVram, setShowLowVram] = useState(false);
   useEffect(() => {
@@ -982,18 +1312,63 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
   };
 
   // Training preset (default-view convenience): overwrite the training fields in one go.
+  // Handles built-in presets and user-saved snapshots ("saved:<name>").
   const applyPreset = (name) => {
+    if (typeof name === 'string' && name.startsWith('saved:')) {
+      const sname = name.slice(6);
+      const saved = (form.trainSavedPresets || []).find(s => s.name === sname);
+      if (!saved) return;
+      setForm(prev => ({ ...prev, preset: name, ...(saved.fields || {}) }));
+      return;
+    }
     const p = TRAIN_PRESETS.find(x => x.key === name);
     if (!p) return;
     setForm(prev => ({ ...prev, preset: name, ...(p.fields || {}) }));
   };
 
-  // Input type (default-view convenience): maps source-audio character to preprocessing toggles.
-  const applyInputType = (name) => {
-    const t = INPUT_TYPES.find(x => x.key === name);
-    if (!t) return;
-    const sliceVals = t.slicePreset ? SLICE_PRESET_VALUES[t.slicePreset] : null;
-    setForm(prev => ({ ...prev, inputType: name, ...(t.fields || {}), ...(sliceVals || {}) }));
+  // Second-level confirm for irreversible preset deletes. Holds the pending action.
+  const [confirmState, setConfirmState] = useState(null);
+  const askConfirm = (opts) => setConfirmState(opts);
+  const closeConfirm = () => setConfirmState(null);
+
+  // Saved Training Preset management (parallel to the vocal-chain presets).
+  const [trainPresetNameOpen, setTrainPresetNameOpen] = useState(false);
+  const commitTrainPreset = (rawName) => {
+    const name = (rawName || '').trim();
+    if (!name) return;
+    setForm(f => {
+      const rest = (f.trainSavedPresets || []).filter(s => s.name !== name);
+      return { ...f, trainSavedPresets: [...rest, { name, fields: pickTrainFields(f) }], preset: `saved:${name}` };
+    });
+    setTrainPresetNameOpen(false);
+  };
+  const updateTrainPreset = () => {
+    const cur = form.preset || 'default';
+    if (!cur.startsWith('saved:')) return;
+    const sname = cur.slice(6);
+    setForm(f => ({
+      ...f,
+      trainSavedPresets: (f.trainSavedPresets || []).map(s => s.name === sname ? { name: sname, fields: pickTrainFields(f) } : s),
+    }));
+  };
+  const deleteTrainPreset = () => {
+    const cur = form.preset || 'default';
+    if (!cur.startsWith('saved:')) return;
+    const sname = cur.slice(6);
+    askConfirm({
+      title: tr('Delete training preset', '删除训练预设'),
+      message: tr(`Delete the saved training preset “${sname}”? This can't be undone.`,
+                  `确定删除已保存的训练预设“${sname}”吗？此操作不可撤销。`),
+      confirmLabel: tr('Delete', '删除'),
+      onConfirm: () => {
+        setForm(f => ({
+          ...f,
+          trainSavedPresets: (f.trainSavedPresets || []).filter(s => s.name !== sname),
+          preset: 'custom',
+        }));
+        closeConfirm();
+      },
+    });
   };
 
   // 轮询训练状态 —— 有 taskId 就轮询，不依赖本地 training 布尔
@@ -1082,7 +1457,8 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       : {
           denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw,
           train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false,
-          pauseAfterAsr: !!form.preprocessReview, keepStaging: !!form.keepStaging,
+          pauseAfterAsr: !!form.preprocessReview, pauseAfterDenoise: form.pauseAfterDenoise !== false,
+          keepStaging: !!form.keepStaging,
           // G1：无训练时跳过 preprocess 三步。G2：透传宽限期给后端。
           ...(gAck.preprocessOff ? { preprocess: false } : {}),
           ...(gAck.g2 ? { asrGraceSec: gAck.graceSec } : {}),
@@ -1106,7 +1482,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           steps: {
             slice: { params: buildSliceParams(form) },
             asr: { params: buildAsrParams(form) },
-            denoise: { params: { model: form.denoiseModel } },
+            denoise: { params: { pipeline: resolveVocalPipeline(form) } },
           },
         },
       },
@@ -1144,6 +1520,18 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       const ack = gateAckRef.current;
       if (!trainOn && !ack.g1) { setError(null); setGate({ type: 'g1' }); return; }
       if (trainOn && !asrOn && !ack.g2) { setError(null); setGateGraceSec(30); setGate({ type: 'g2' }); return; }
+    }
+    // FunASR 语言告知门：FunASR 只支持中文/粤语。选了 FunASR 却是其他语言时，
+    // 只做告知（继续 / 切换到 Whisper / 取消），不阻断——按用户意愿放行。
+    {
+      const asrOn = form.asr !== false;
+      const lang = String(form.language || 'auto').toLowerCase();
+      const funasrLangOk = lang === 'zh' || lang === 'yue' || lang === 'auto';
+      if (asrOn && form.asrEngine === 'funasr' && !funasrLangOk && !asrLangAckRef.current) {
+        setError(null);
+        setAsrLangGate({ lang });
+        return;
+      }
     }
     // GPU pre-flight: when health has loaded and reports no CUDA device, block
     // behind an explicit acknowledgement instead of silently starting a CPU run.
@@ -1190,6 +1578,23 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     await handleStart();
   };
   const cancelGate = () => { setGate(null); gateAckRef.current = { g1: false, g2: false, preprocessOff: false, graceSec: 30 }; };
+
+  // FunASR 语言告知门 —— 三选项（只告知，不阻断）。
+  // 继续：坚持用 FunASR（后端仍会在失败时自动回退 Whisper 兜底）。
+  const asrLangContinue = async () => {
+    asrLangAckRef.current = true;
+    setAsrLangGate(null);
+    await handleStart();
+  };
+  // 切换到 Whisper：把引擎改成 faster-whisper 再继续（最稳）。
+  const asrLangSwitchWhisper = async () => {
+    asrLangAckRef.current = true;
+    setAsrLangGate(null);
+    setField('asrEngine', 'faster-whisper');
+    // setField 是异步的；下一轮 handleStart 时 form 已更新，届时不再命中此门。
+    setTimeout(() => { handleStart(); }, 0);
+  };
+  const asrLangCancel = () => { setAsrLangGate(null); asrLangAckRef.current = false; };
 
   const confirmOverwriteTrain = async () => {
     setOverwriteConfirm(null);
@@ -1293,6 +1698,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       finalize: on('finalize', true),
       promote: on('promote', true),
       pauseAfterAsr: !!form.preprocessReview,
+      pauseAfterDenoise: form.pauseAfterDenoise !== false,
     };
   };
 
@@ -1351,6 +1757,421 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     finalize: tr('Finalize', '打包完成'), promote: tr('Publish', '发布'),
   };
 
+  // ── Vocal Extraction panel ────────────────────────────────────────────────
+  // Preset-first (encodes official domain knowledge), with an Expert reveal that
+  // exposes per-stage params, and a Custom second-level chain editor (mirrors the
+  // official UVR5 UI) that can be saved back as a preset. Availability + on-demand
+  // download are surfaced inline so a missing weight never fails mid-run.
+  const modelLabel = (id) => {
+    const m = uvr5ById[id];
+    if (m) return tr(m.label.en, m.label.zh);
+    return id;
+  };
+  const modelInstalled = (id) => { const m = uvr5ById[id]; return !uvr5Models || (m && m.installed); };
+  const modelAggApplicable = (id) => { const m = uvr5ById[id]; return m ? m.aggApplicable : true; };
+  // arch drives which expert params apply. Fall back to registry-derived arch when
+  // the catalogue hasn't loaded, so the panel still renders offline.
+  const modelArch = (id) => {
+    const m = uvr5ById[id];
+    if (m && m.arch) return m.arch;
+    if (id === 'MDX-Net') return 'mdx';
+    if (id === 'BS-Roformer') return 'roformer';
+    return 'vr';
+  };
+
+  // Reusable expert-control block for ONE stage. `stage` supplies current values,
+  // `applyPatch({key:val})` persists a change. Renders only the knobs applicable
+  // to the stage model's architecture (source-verified per arch).
+  const renderStageExpert = (stage, applyPatch) => {
+    const keys = expertKeysForArch(modelArch(stage.model));
+    if (!keys.length) return null;
+    return (
+      <div style={{ marginTop: 6, paddingLeft: 10, borderLeft: '2px solid var(--border)' }}>
+        {keys.map(k => {
+          const meta = EXPERT_META[k];
+          const cur = stage[k] != null ? stage[k] : meta.default;
+          const id = `exp-${stage.model}-${k}`;
+          return (
+            <div key={k} style={{ marginBottom: 6 }}>
+              {meta.type === 'bool' ? (
+                <label className="toggle-row" style={{ fontSize: 12 }}>
+                  <input type="checkbox" checked={!!cur} onChange={e => applyPatch({ [k]: e.target.checked })} />
+                  {tr(meta.label[0], meta.label[1])}
+                </label>
+              ) : (
+                <>
+                  <label className="field-label" htmlFor={id} style={{ fontSize: 12 }}>{tr(meta.label[0], meta.label[1])}</label>
+                  {meta.type === 'enum' ? (
+                    <Select id={id} className="control" value={cur} onChange={e => applyPatch({ [k]: e.target.value })}>
+                      {meta.options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </Select>
+                  ) : (
+                    <input id={id} type="number" className="control" min={meta.min} max={meta.max} value={cur}
+                      onChange={e => {
+                        let v = parseInt(e.target.value, 10);
+                        if (!Number.isFinite(v)) v = meta.default;
+                        v = Math.min(meta.max, Math.max(meta.min, v));
+                        applyPatch({ [k]: v });
+                      }} />
+                  )}
+                </>
+              )}
+              <p style={{ fontSize: 10.5, color: 'var(--muted)', margin: '2px 0 0' }}>{tr(meta.hint[0], meta.hint[1])}</p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Grouped <option> list for a stage's model picker (installed status annotated).
+  const renderModelOptions = () => {
+    if (!uvr5Models) return <option value="">{tr('loading…', '加载中…')}</option>;
+    const cats = [
+      ['keep_vocals', tr('Keep vocals', '保留人声')],
+      ['main_vocal', tr('Only main vocal', '仅保留主人声')],
+      ['dereverb', tr('De-reverb / de-echo', '去混响 / 去延迟')],
+    ];
+    return cats.map(([cat, label]) => {
+      const items = uvr5Models.filter(m => m.category === cat);
+      if (!items.length) return null;
+      return (
+        <optgroup key={cat} label={label}>
+          {items.map(m => (
+            <option key={m.id} value={m.id}>
+              {tr(m.label.en, m.label.zh)}{m.installed ? '' : tr(' — not installed', ' — 未安装')}
+            </option>
+          ))}
+        </optgroup>
+      );
+    });
+  };
+
+  const presetOptions = () => {
+    const opts = VOCAL_PRESETS.map(p => {
+      const ids = p.pipeline ? p.pipeline.map(s => s.model) : [];
+      const missing = uvr5Models ? ids.filter(id => uvr5ById[id] && !uvr5ById[id].installed) : [];
+      const suffix = missing.length ? tr(' — needs download', ' — 需下载') : '';
+      return <option key={p.id} value={p.id}>{tr(p.label[0], p.label[1])}{suffix}</option>;
+    });
+    const saved = (form.denoiseSavedPresets || []).map(s => (
+      <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已存')}: {s.name}</option>
+    ));
+    return saved.length ? [...opts.slice(0, -1), <optgroup key="saved" label={tr('Saved presets', '已保存预设')}>{saved}</optgroup>, opts[opts.length - 1]] : opts;
+  };
+
+  // ---- Selected cleanup preset + the editable-chain abstraction -------------
+  // Both "custom" and a "saved:<name>" preset edit the SAME working buffer,
+  // form.denoisePipeline. Selecting a saved preset seeds the buffer from it; edits
+  // are a draft and DON'T touch the stored preset until you press "Update preset"
+  // (mirrors the Training Preset UX). "Save as new preset" branches a fresh copy;
+  // "Delete preset" removes it (with confirm).
+  const curPreset = form.denoisePreset || 'bgm';
+  const curPresetDef = VOCAL_PRESET_BY_ID[curPreset];
+  const isCustom = curPreset === 'custom';
+  const savedList = Array.isArray(form.denoiseSavedPresets) ? form.denoiseSavedPresets : [];
+  const isSaved = typeof curPreset === 'string' && curPreset.startsWith('saved:');
+  const savedName = isSaved ? curPreset.slice(6) : null;
+  const savedIdx = isSaved ? savedList.findIndex(s => s.name === savedName) : -1;
+  const savedPreset = savedIdx >= 0 ? savedList[savedIdx] : null;
+  // Whether the second-level chain editor is active (custom OR a saved preset).
+  const chainEditable = isCustom || (isSaved && !!savedPreset);
+
+  // Chain mutators always operate on the working buffer (form.denoisePipeline).
+  const chain = Array.isArray(form.denoisePipeline) ? form.denoisePipeline : [];
+  const setChain = (next) => setField('denoisePipeline', next);
+  // Does the draft differ from the stored saved preset? Drives the Update button.
+  const savedDirty = isSaved && savedPreset
+    ? JSON.stringify(savedPreset.pipeline || []) !== JSON.stringify(chain)
+    : false;
+  const addStage = () => {
+    if (chain.length >= 3) return;
+    const firstInstalled = (uvr5Models || []).find(m => m.installed) || (uvr5Models || [])[0];
+    const id = firstInstalled ? firstInstalled.id : 'HP2';
+    setChain([...chain, modelAggApplicable(id) ? { model: id, agg: AGG_DEFAULT } : { model: id }]);
+  };
+  const removeStage = (i) => setChain(chain.filter((_, k) => k !== i));
+  const updateStage = (i, patch) => setChain(chain.map((s, k) => {
+    if (k !== i) return s;
+    const next = { ...s, ...patch };
+    if (patch.model != null) {
+      if (modelAggApplicable(patch.model)) { if (next.agg == null) next.agg = AGG_DEFAULT; }
+      else { delete next.agg; }
+      // Drop expert knobs that don't apply to the new architecture.
+      const keep = new Set(expertKeysForArch(modelArch(patch.model)));
+      for (const ek of EXPERT_KEYS) if (!keep.has(ek)) delete next[ek];
+    }
+    return next;
+  }));
+  // Cleanup-preset dropdown handler. Selecting a saved preset seeds the working
+  // buffer with a fresh COPY of its stored pipeline (so edits are a draft, not a
+  // live mutation). Selecting custom keeps whatever's in the buffer; a system
+  // preset leaves the buffer untouched (it runs from its template instead).
+  const applyDenoisePreset = (value) => {
+    if (typeof value === 'string' && value.startsWith('saved:')) {
+      const name = value.slice(6);
+      const saved = (form.denoiseSavedPresets || []).find(s => s.name === name);
+      const copy = saved && Array.isArray(saved.pipeline) ? saved.pipeline.map(s => ({ ...s })) : [];
+      setForm(f => ({ ...f, denoisePreset: value, denoisePipeline: copy }));
+    } else {
+      setField('denoisePreset', value);
+    }
+  };
+  const [presetNameOpen, setPresetNameOpen] = useState(false);
+  const saveChainAsPreset = () => setPresetNameOpen(true);
+  const commitChainPreset = (rawName) => {
+    const name = (rawName || '').trim();
+    if (!name) return;
+    const rest = (form.denoiseSavedPresets || []).filter(s => s.name !== name);
+    setForm(f => ({ ...f, denoiseSavedPresets: [...rest, { name, pipeline: chain }], denoisePreset: `saved:${name}` }));
+    setPresetNameOpen(false);
+  };
+  // Explicit "Update preset": write the current draft buffer back to the selected
+  // saved preset. Edits are NOT persisted until this is pressed (parity with the
+  // Training Preset's Update action).
+  const updateSavedPreset = () => {
+    if (!isSaved || !savedName) return;
+    setForm(f => ({
+      ...f,
+      denoiseSavedPresets: (f.denoiseSavedPresets || []).map(
+        s => s.name === savedName ? { ...s, name: savedName, pipeline: chain } : s),
+    }));
+  };
+  // Delete the currently-selected saved preset (with confirm) and fall back to Custom.
+  const deleteSavedPreset = () => {
+    if (!isSaved || !savedName) return;
+    askConfirm({
+      title: tr('Delete vocal-extraction preset', '删除人声提取预设'),
+      message: tr(`Delete the saved preset “${savedName}”? This can't be undone.`,
+                  `确定删除已保存的预设“${savedName}”吗？此操作不可撤销。`),
+      confirmLabel: tr('Delete', '删除'),
+      onConfirm: () => {
+        setForm(f => ({
+          ...f,
+          denoiseSavedPresets: (f.denoiseSavedPresets || []).filter(s => s.name !== savedName),
+          denoisePreset: 'custom',
+        }));
+        closeConfirm();
+      },
+    });
+  };
+
+  const dlModels = uvr5Download?.models || {};
+
+  // Per-preset stage overrides live on form.denoisePresetParams[preset][stageIdx]
+  // as an object {agg?, tta?, ...} (page-persistent only). Merge in a patch.
+  const presetStageOverride = (i) => {
+    const raw = ((form.denoisePresetParams || {})[curPreset] || {})[i];
+    return typeof raw === 'number' ? { agg: raw } : (raw || {});
+  };
+  const patchPresetStage = (i, patch) => setForm(f => {
+    const all = { ...(f.denoisePresetParams || {}) };
+    const forPreset = { ...(all[curPreset] || {}) };
+    const prev = typeof forPreset[i] === 'number' ? { agg: forPreset[i] } : (forPreset[i] || {});
+    forPreset[i] = { ...prev, ...patch };
+    all[curPreset] = forPreset;
+    return { ...f, denoisePresetParams: all };
+  });
+
+  // The stages whose ADVANCED knobs the gated block should edit, with a per-stage
+  // apply(patch). Custom → the user chain (patched via updateStage); a preset →
+  // its template stages (patched as page-persistent overrides). Only stages that
+  // actually expose advanced knobs (per arch) are included.
+  const advStages = (() => {
+    let src;
+    if (chainEditable) {
+      src = chain.map((stage, i) => ({ stage, i, apply: (patch) => updateStage(i, patch) }));
+    } else if (curPresetDef && curPresetDef.pipeline) {
+      src = curPresetDef.pipeline.map((stage, i) => ({
+        stage: { ...stage, ...presetStageOverride(i) }, i,
+        apply: (patch) => patchPresetStage(i, patch),
+      }));
+    } else {
+      src = [];
+    }
+    return src.filter(({ stage }) => expertKeysForArch(modelArch(stage.model)).length > 0);
+  })();
+
+  const renderVocalExtraction = () => (
+    <>
+      <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
+        {tr('Enable vocal extraction', '启用人声提取')}
+      </label>
+
+      {form.denoise && (
+        <>
+          {/* GIGO 门 1：人声提取后暂停试听。与 ASR 校对门并列，默认开启——分离质量
+              是决定训练成败的第一道关口，值得停下来听一耳朵（不满意可直接取消管线）。
+              放在“启用人声提取”正下方，与该步骤的开关相邻，而非埋在高级参数里。 */}
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.pauseAfterDenoise !== false}
+                   onChange={e => setField('pauseAfterDenoise', e.target.checked)} />
+            {tr('Pause after vocal extraction to audition', '人声提取后暂停以试听校对')}
+          </label>
+          <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
+            {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
+                '启用后，流程会在分离完成后立即停止，让你试听提取出的人声。听着干净就继续，质量差就取消本次任务——这是决定成败的第一道 GIGO 门。')}
+          </p>
+
+          <div className="field">
+            <label className="field-label">{tr('Cleanup preset', '清洗方式')}</label>
+            <Select className="control" value={curPreset} onChange={e => applyDenoisePreset(e.target.value)}>
+              {presetOptions()}
+            </Select>
+            {curPresetDef && (
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{tr(curPresetDef.hint[0], curPresetDef.hint[1])}</p>
+            )}
+          </div>
+
+          {/* NORMAL params (low-impact, routinely adjusted) — shown directly, like
+              S1's Epochs/Batch. For presets this is the per-VR-stage aggressiveness. */}
+          {!isCustom && curPresetDef && curPresetDef.pipeline &&
+            curPresetDef.pipeline.some(s => modelAggApplicable(s.model) && 'agg' in s) && (
+            <div className="field" style={{ marginBottom: 8 }}>
+              {curPresetDef.pipeline.map((stage, i) => {
+                if (!(modelAggApplicable(stage.model) && 'agg' in stage)) return null;
+                const merged = { ...stage, ...presetStageOverride(i) };
+                return (
+                  <div key={i} style={{ marginBottom: 6 }}>
+                    <label className="field-label" style={{ fontSize: 12 }}>
+                      {curPresetDef.pipeline.length > 1 ? `${i + 1}. ${modelLabel(stage.model)} — ` : ''}
+                      {tr('Aggressiveness', '激进度')} ({merged.agg})
+                    </label>
+                    <input type="range" min={0} max={20} step={1} value={merged.agg} style={{ width: '100%' }}
+                      onChange={e => patchPresetStage(i, { agg: parseInt(e.target.value, 10) })} />
+                  </div>
+                );
+              })}
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                {tr('Settings are kept on this page only (not saved permanently to the recipe).',
+                  '参数仅保存在本页面，不会永久写入配方。')}
+              </p>
+            </div>
+          )}
+
+          {/* Second-level chain editor (mirrors the official UVR5 UI). Used for
+              Custom AND for a saved preset — a saved preset is edited in place with
+              the same controls, plus Update/Delete management. Model + aggressiveness
+              (normal) stay inline; advanced knobs move into the gated 高级参数 block. */}
+          {chainEditable && (
+            <div className="field" style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                {isSaved
+                  ? tr(`Editing saved preset “${savedName}”${savedDirty ? ' (unsaved changes)' : ''} — runs top to bottom (each stage feeds the next).`,
+                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}——从上到下逐级串联（上一级输出喂给下一级）。`)
+                  : tr('Custom separation chain — runs top to bottom (each stage feeds the next).',
+                      '自定义分离链——从上到下逐级串联（上一级输出喂给下一级）。')}
+              </div>
+              {chain.length === 0 && (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '还没有分级，请在下方添加。')}</p>
+              )}
+              {chain.map((stage, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{i + 1}</span>
+                  <Select className="control" style={{ flex: '1 1 200px' }} value={stage.model} onChange={e => updateStage(i, { model: e.target.value })}>
+                    {renderModelOptions()}
+                  </Select>
+                  {modelAggApplicable(stage.model) && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      {tr('agg', '激进度')}
+                      <input type="range" min={0} max={20} step={1} value={stage.agg != null ? stage.agg : AGG_DEFAULT}
+                        onChange={e => updateStage(i, { agg: parseInt(e.target.value, 10) })} />
+                      <span style={{ width: 18, textAlign: 'right' }}>{stage.agg != null ? stage.agg : AGG_DEFAULT}</span>
+                    </span>
+                  )}
+                  <button className="btn btn-sm btn-ghost" onClick={() => removeStage(i)} title={tr('Remove', '删除')}><IconTrash /></button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                <button className="btn btn-sm" onClick={addStage} disabled={chain.length >= 3}>{tr('+ Add stage', '+ 添加一级')}</button>
+                {isSaved && (
+                  <button className="btn btn-sm btn-primary" onClick={updateSavedPreset} disabled={!savedDirty}>
+                    {tr('Update preset', '更新预设')}
+                  </button>
+                )}
+                <button className="btn btn-sm" onClick={saveChainAsPreset} disabled={chain.length === 0}>
+                  {isSaved ? tr('Save as new preset', '另存为新预设') : tr('Save as preset', '保存为预设')}
+                </button>
+                {isSaved && (
+                  <button className="btn btn-sm btn-danger" onClick={deleteSavedPreset}>{tr('Delete preset', '删除预设')}</button>
+                )}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                {isSaved
+                  ? tr('Up to 3 stages. Edits are a draft — press “Update preset” to save them back, “Save as new preset” to branch a copy, or “Delete preset” to remove it.',
+                      '最多 3 级。改动仅为草稿——点“更新预设”才会写回，点“另存为新预设”另存副本，点“删除预设”移除。')
+                  : tr('Up to 3 stages. Saved presets are kept on this page only.', '最多 3 级。已保存预设仅保留在本页面。')}
+              </p>
+            </div>
+          )}
+
+          {/* ADVANCED params (high-impact / fragile) — collapsible + gated, mirrors
+              the S1 "Advanced Parameters" pattern. Named 高级参数 (not 专家). */}
+          {advStages.length > 0 && (
+            <details className="expert-block" style={{ marginTop: 4, marginBottom: 8 }}>
+              <summary className="expert-summary">{tr('Advanced Parameters — separator internals', '高级参数 — 分离器内部设置')}</summary>
+              <div className="msg msg-danger expert-warning">
+                <strong>{tr('⚠ Advanced.', '⚠ 高级参数。')}</strong>{' '}
+                {tr('These change speed/precision. fp16 makes HP models emit NaN on many GPUs; TTA roughly doubles time. Most users should leave the defaults.',
+                  '这些会影响速度/精度。fp16 会让 HP 系列在很多显卡上出 NaN；TTA 大致会让耗时翻倍。多数用户保持默认即可。')}
+              </div>
+              <label className="toggle-row expert-unlock">
+                <input type="checkbox" checked={!!form.denoiseAdvUnlocked} onChange={e => setField('denoiseAdvUnlocked', e.target.checked)} />
+                {tr('I understand — let me edit advanced parameters', '我了解 — 允许我编辑高级参数')}
+              </label>
+              <fieldset disabled={!form.denoiseAdvUnlocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
+                {advStages.map(({ stage, apply, i }) => {
+                  const body = renderStageExpert(stage, apply);
+                  if (!body) return null;
+                  return (
+                    <div key={i} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{i + 1}. {modelLabel(stage.model)}</div>
+                      {body}
+                    </div>
+                  );
+                })}
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  {tr('Settings are kept on this page only (not saved permanently to the recipe).',
+                    '参数仅保存在本页面，不会永久写入配方。')}
+                </p>
+              </fieldset>
+            </details>
+          )}
+
+          {/* Availability + on-demand download. */}
+          {vocalMissingIds.length > 0 && (
+            <div className="msg" style={{ background: 'rgba(255,180,0,0.12)', padding: 10, borderRadius: 6, marginBottom: 8 }}>
+              <div style={{ fontSize: 12.5, marginBottom: 6 }}>
+                {tr('These models are not installed: ', '以下模型未安装：')}
+                <strong>{vocalMissingIds.map(modelLabel).join(', ')}</strong>
+              </div>
+              {uvr5Download && uvr5Download.status === 'running' ? (
+                <div style={{ fontSize: 12 }}>
+                  {tr('Downloading…', '下载中…')}{' '}
+                  {Object.entries(dlModels).map(([id, s]) => `${id} ${s.pct || 0}%`).join(' · ')}
+                </div>
+              ) : (
+                <button className="btn btn-sm btn-primary" onClick={() => startUvr5Download(vocalMissingIds)}>
+                  {tr('Download model', '下载模型')}
+                </button>
+              )}
+              {uvr5Download && uvr5Download.status === 'failed' && (
+                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>
+                  {tr('Download failed: ', '下载失败：')}{uvr5Download.error || ''}
+                </div>
+              )}
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                {tr('Downloaded from Hugging Face (ModelScope fallback) into uvr5_weights/.',
+                  '从 Hugging Face 下载（ModelScope 备用）到 uvr5_weights/。')}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+
   const renderNodeDetail = () => {
     if (!selectedNode) return null;
     const stepSt = status?.steps?.[selectedNode]?.status;
@@ -1359,24 +2180,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     );
     let body = null;
     if (selectedNode === 'denoise') {
-      body = (
-        <>
-          <label className="toggle-row" style={{ marginBottom: 8 }}>
-            <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
-            {tr('Enable vocal extraction', '启用人声提取')}
-          </label>
-          {form.denoise && (
-            <div className="field">
-              <label className="field-label">{tr('Model', '模型')}</label>
-              <Select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
-                <option value="mdx-net">HP2 (Vocal Remover)</option>
-              </Select>
-            </div>
-          )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{tr('Extracts the vocal track (removes background music / instrumental) before slicing, using the UVR5 HP2 model (VR architecture). Off by default — only needed for noisy or mixed audio.',
-            '在切片前使用 UVR5 HP2 模型（VR 架构）提取人声轨道（去除背景音乐 / 伴奏）。默认关闭——仅在音频含噪声或混音时才需要。')}</p>
-        </>
-      );
+      body = renderVocalExtraction();
     } else if (selectedNode === 'slice') {
       // Invariant #5: an asset must end up with at least one kind of reference audio.
       // slice → slicer_opt/ ; copyRaw → raw/. Both off would publish an empty asset,
@@ -1609,28 +2413,53 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
               </div>
             </div>
 
-            {/* Preset + Input Type — high-level, user-friendly defaults (Part 2).
-                Both are frontend-only: they just fill existing form.* fields. */}
-            <div className="preset-grid">
+            {/* Training Preset — built-in presets + your own saved snapshots. Custom
+                lets you edit any parameter in the pipeline steps below; "Save as preset"
+                snapshots the current values into a named, reusable preset you can then
+                update or delete. Frontend-only: presets just fill existing form.* fields. */}
+            <div className="preset-grid preset-grid-single">
               <div className="field">
                 <label className="field-label">{tr('Training Preset', '训练预设')}</label>
-                <Select className="control" value={form.preset || 'default'} onChange={e => applyPreset(e.target.value)}>
-                  {TRAIN_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                </Select>
-                <p className="field-hint">{(() => { const p = TRAIN_PRESETS.find(p => p.key === (form.preset || 'default')) || {}; return tr(p.hint, p.hintZh) })()}</p>
+                {(() => {
+                  const curTP = form.preset || 'default';
+                  const isSavedTP = curTP.startsWith('saved:');
+                  const savedTPName = isSavedTP ? curTP.slice(6) : null;
+                  const savedTP = (form.trainSavedPresets || []);
+                  const canSnapshot = curTP === 'custom' || isSavedTP;
+                  return (<>
+                    <Select className="control" value={curTP} onChange={e => applyPreset(e.target.value)}>
+                      {TRAIN_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                      {savedTP.length > 0 && (
+                        <optgroup label={tr('Saved presets', '已保存预设')}>
+                          {savedTP.map(s => <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已存')}: {s.name}</option>)}
+                        </optgroup>
+                      )}
+                    </Select>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      {canSnapshot && (
+                        <button type="button" className="btn btn-sm" onClick={() => setTrainPresetNameOpen(true)}>
+                          {isSavedTP ? tr('Save as new preset', '另存为新预设') : tr('Save as preset', '保存为预设')}
+                        </button>
+                      )}
+                      {isSavedTP && (
+                        <button type="button" className="btn btn-sm btn-primary" onClick={updateTrainPreset}>{tr('Update preset', '更新预设')}</button>
+                      )}
+                      {isSavedTP && (
+                        <button type="button" className="btn btn-sm btn-danger" onClick={deleteTrainPreset}>{tr('Delete preset', '删除预设')}</button>
+                      )}
+                    </div>
+                    <p className="field-hint">{(() => {
+                      if (isSavedTP) return tr(`Saved preset “${savedTPName}”. Edit any parameter below, then Update to save your changes back to it.`,
+                        `已保存预设“${savedTPName}”。可在下方修改任意参数，然后点“更新预设”把改动写回该预设。`);
+                      const p = TRAIN_PRESETS.find(p => p.key === curTP) || {};
+                      return tr(p.hint, p.hintZh);
+                    })()}</p>
+                  </>);
+                })()}
                 <p className="field-note">{tr('S1 adapts semantic rhythm and prosody and may overfit earlier on small datasets. S2 receives more training epochs for acoustic and timbre adaptation.',
                   'S1 学习语义层面的节奏与韵律，在小数据集上更容易过拟合。S2 使用更多训练 epoch 来适配音质与音色。')}</p>
                 <p className="field-note">{tr('More training does not always produce better results. Keep earlier checkpoints and compare them before choosing a model.',
                   '训练更久不一定效果更好。请保留较早的 checkpoint，先对比再决定用哪个模型。')}</p>
-              </div>
-              <div className="field">
-                <label className="field-label">{tr('Input Type', '输入类型')}</label>
-                <Select className="control" value={form.inputType || 'auto'} onChange={e => applyInputType(e.target.value)}>
-                  {INPUT_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-                </Select>
-                <p className="field-hint">{(() => { const it = INPUT_TYPES.find(x => x.key === (form.inputType || 'auto')) || {}; return tr(it.hint, it.hintZh) })()}</p>
-                <p className="field-note">{tr('ⓘ Preset mapping, not content detection — automatic input detection arrives with backend support.',
-                  'ⓘ 这是预设映射，并非内容检测——自动输入检测将在后端支持后提供。')}</p>
               </div>
             </div>
           </fieldset>
@@ -1782,11 +2611,25 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
           {!taskId && (
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary" onClick={handleStart}
-                disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
-                title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
-                  ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模——请先为它们运行 download_models.py')
-                  : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
+              {form.denoise && vocalMissingIds.length > 0 ? (
+                // The enabled vocal pipeline needs weights that are not installed. The
+                // primary action becomes "Download model" until they are provisioned.
+                <button className="btn btn-primary"
+                  onClick={() => startUvr5Download(vocalMissingIds)}
+                  disabled={uvr5Download && uvr5Download.status === 'running'}
+                  title={tr('The selected vocal-extraction models are not installed. Download them before tuning.',
+                    '所选的人声提取模型未安装，请先下载再开始微调。')}>
+                  {uvr5Download && uvr5Download.status === 'running'
+                    ? tr('Downloading…', '下载中…')
+                    : tr('Download Model', '下载模型')}
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={handleStart}
+                  disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
+                  title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
+                    ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模——请先为它们运行 download_models.py')
+                    : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
+              )}
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
                 title={tr('Delete finished task workspaces from the .staging cache (running tasks are never touched)', '从 .staging 缓存中删除已完成的任务工作区（运行中的任务永远不会被动到）')}>
                 {clearing ? tr('Cleaning…', '清理中…') : 'Clean Cache'}
@@ -1819,14 +2662,25 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                    : status.status === 'failed' ? tr('Failed', '失败')
                    : status.status === 'cancelled' ? tr('Cancelled', '已取消')
                    : status.status === 'interrupted' ? tr('Interrupted', '已中断')
-                   : status.status === 'awaiting_review' ? tr('Awaiting proofreading', '等待校对')
+                   : status.status === 'awaiting_review' ? (status.reviewStage === 'denoise' ? tr('Awaiting audition', '等待试听') : tr('Awaiting proofreading', '等待校对'))
                    : tr('Tuning…', '微调中…')}
                 </span>
                 {(isRunning || isAwaitingReview) && (
                   <button className="btn btn-sm btn-danger" onClick={handleCancel}>Cancel</button>
                 )}
               </div>
-              {isAwaitingReview && (
+              {isAwaitingReview && status?.reviewStage === 'denoise' && (
+                <DenoiseReviewPanel taskId={taskId}
+                  onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)}
+                  onCancel={handleCancel} />
+              )}
+              {isAwaitingReview && status?.reviewStage !== 'denoise' && status?.reviewStage !== 'asr' && (
+                <div className="msg msg-warn" style={{ margin: '8px 0' }}>
+                  {tr('Paused for review. If this looks stuck, your web build is stale — rebuild the frontend (npm run build) so the audition/proofreading panel loads.',
+                      '已暂停等待校对。若卡住无法继续，说明前端构建是旧的——请重新构建前端（npm run build）以加载试听/校对面板。')}
+                </div>
+              )}
+              {isAwaitingReview && status?.reviewStage === 'asr' && (
                 <AsrReviewPanel taskId={taskId} lang={status?.language || form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
               )}
               {isInterrupted && (
@@ -1964,6 +2818,55 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           </div>
         </div>
       )}
+
+      {asrLangGate && (() => {
+        const LANG_LABEL = {
+          auto: tr('Auto-detect', '自动检测'), ja: tr('Japanese', '日语'),
+          zh: tr('Chinese', '中文'), en: tr('English', '英语'), ko: tr('Korean', '韩语'),
+        };
+        const langName = LANG_LABEL[asrLangGate.lang] || asrLangGate.lang;
+        return (
+          <div className="modal-overlay" onClick={asrLangCancel}>
+            <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
+              <div className="confirm-hdr"><span>{tr('ASR engine / language mismatch', 'ASR 引擎与语言不匹配')}</span></div>
+              <div className="confirm-body">
+                <p style={{ fontSize: 13, margin: 0 }}>
+                  {tr(`FunASR only supports Chinese / Cantonese. The current language is ${langName}; continuing may produce errors.`,
+                      `FunASR 仅支持中文/粤语，当前语言是${langName}，继续运行可能出错。`)}
+                </p>
+              </div>
+              <div className="confirm-actions">
+                <button className="btn btn-sm" onClick={asrLangCancel}>{tr('Cancel', '取消')}</button>
+                <button className="btn btn-sm" onClick={asrLangSwitchWhisper}>{tr('Switch to Whisper', '切换到 Whisper')}</button>
+                <button className="btn btn-sm btn-primary" onClick={asrLangContinue}>{tr('Continue', '继续')}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      <PresetNameModal
+        open={presetNameOpen}
+        existingNames={(form.denoiseSavedPresets || []).map(s => s.name)}
+        onSave={commitChainPreset}
+        onClose={() => setPresetNameOpen(false)}
+        example="my-vocal-chain"
+      />
+      <PresetNameModal
+        open={trainPresetNameOpen}
+        existingNames={(form.trainSavedPresets || []).map(s => s.name)}
+        onSave={commitTrainPreset}
+        onClose={() => setTrainPresetNameOpen(false)}
+        example="my-tune-pipeline"
+      />
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message}
+        confirmLabel={confirmState?.confirmLabel}
+        onConfirm={confirmState?.onConfirm}
+        onClose={closeConfirm}
+      />
     </div>
   )
 }

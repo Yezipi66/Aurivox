@@ -2,7 +2,6 @@ torch
 numpy
 librosa>=0.8.1
 scipy
-tensorboard
 soundfile
 matplotlib
 pesq
@@ -11,3 +10,9 @@ tqdm
 nnAudio
 ninja
 huggingface_hub>=0.23.4
+# onnxruntime: required by g2pW (中文多音字消歧) and UVR5 MDX-Net (onnx_dereverb).
+# x86_64/AMD64 (Windows + NVIDIA) uses the GPU build; aarch64/arm64 uses CPU.
+# GPU build pinned to 1.18.0: it targets CUDA 12 + cuDNN 8, matching the bundled
+# torch cu121; 1.19+ switched to cuDNN 9 and silently disables the CUDA provider.
+onnxruntime; platform_machine == "aarch64" or platform_machine == "arm64"
+onnxruntime-gpu==1.18.0; platform_machine == "x86_64" or platform_machine == "AMD64"

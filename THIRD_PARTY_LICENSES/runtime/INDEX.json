@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "kind": "runtime_bundled_components",
-  "note": "Machine-readable index of the third-party CODE / RUNTIME components that ship INSIDE the distribution and whose verbatim license text travels under THIRD_PARTY_LICENSES/runtime/. The deploy wizard reads this to group and display licenses. Python dependency closure (installed at deploy time, not bundled) is inventoried separately in python_packages.json.",
+  "note": "Machine-readable index of the third-party CODE / RUNTIME components that ship INSIDE the distribution and whose verbatim license text travels under THIRD_PARTY_LICENSES/runtime/. The deploy wizard reads this to group and display licenses. Dependency closures installed at deploy time (NOT bundled) are inventoried separately: the Python/PyPI closure in python_packages.json, and the backend Node production closure in node_packages.json (the latter is GENERATED after `npm ci` by tools/build/gen_node_licenses.py from the installed node_modules metadata).",
   "components": [
     {
       "component": "GPT-SoVITS",

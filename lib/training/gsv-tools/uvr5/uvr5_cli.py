@@ -136,27 +136,57 @@ def _resolve_device(device):
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _build_separator(model_path, model_name, device, is_half, agg):
-    """Instantiate the right separator, mirroring webui.uvr()'s selection."""
+def _build_separator(model_path, model_name, device, is_half, agg, expert=None):
+    """Instantiate the right separator, mirroring webui.uvr()'s selection.
+
+    `expert` carries source-verified, architecture-specific knobs (see
+    uvr5_models.js EXPERT_PARAMS): vr -> tta/postprocess/high_end; mdx -> chunks;
+    roformer -> overlap/batch_size. Unknown/None values fall back to vendor
+    defaults so behaviour is unchanged when nothing is passed.
+    """
+    expert = expert or {}
     weights_dir = os.path.dirname(model_path)
     if model_name == "onnx_dereverb_By_FoxJoy":
         from mdxnet import MDXNetDereverb
-        return MDXNetDereverb(15)
+        chunks = expert.get("chunks")
+        # Default segment length is 4 GB-GPU-friendly; MDX-Net is OOM-prone (see mdxnet.py).
+        return MDXNetDereverb(int(chunks) if chunks else 8)
     if "roformer" in model_name.lower():
         from bsroformer import Roformer_Loader
         config_path = os.path.join(weights_dir, model_name + ".yaml")
         if not os.path.exists(config_path):
             log(f"[uvr5] WARNING: roformer config not found: {config_path}; "
                 f"the loader will fall back to its default config.")
-        return Roformer_Loader(
+        loader = Roformer_Loader(
             model_path=os.path.join(weights_dir, model_name + ".ckpt"),
             config_path=config_path,
             device=device,
             is_half=is_half,
         )
+        # num_overlap / batch_size are read from config at demix time, so we can
+        # safely override them post-construction.
+        try:
+            if expert.get("overlap") is not None:
+                loader.config["inference"]["num_overlap"] = int(expert["overlap"])
+            if expert.get("batch_size") is not None:
+                loader.config["inference"]["batch_size"] = int(expert["batch_size"])
+        except Exception as e:  # pragma: no cover - defensive
+            log(f"[uvr5] WARNING: could not apply roformer expert params: {e}")
+        return loader
     from vr import AudioPre, AudioPreDeEcho
     func = AudioPre if "DeEcho" not in model_name else AudioPreDeEcho
-    return func(agg=int(agg), model_path=model_path, device=device, is_half=is_half)
+    tta = bool(expert.get("tta"))
+    pre = func(agg=int(agg), model_path=model_path, device=device, is_half=is_half, tta=tta)
+    # postprocess / high_end_process live in the separator's `data` dict.
+    try:
+        if expert.get("postprocess") is not None:
+            pre.data["postprocess"] = bool(expert["postprocess"])
+        high_end = expert.get("high_end")
+        if high_end:
+            pre.data["high_end_process"] = high_end
+    except Exception as e:  # pragma: no cover - defensive
+        log(f"[uvr5] WARNING: could not apply VR expert params: {e}")
+    return pre
 
 
 def _needs_reformat(inp_path):
@@ -224,6 +254,24 @@ def main():
     ap.add_argument("--agg", type=int, default=10, help="Vocal extraction aggressiveness 0-20 (default: 10).")
     ap.add_argument("--format", default="wav", choices=["wav", "flac", "mp3", "m4a"],
                     help="Output audio format (default: wav).")
+    # ---- Expert (architecture-specific) knobs, source-verified. All optional;
+    #      when omitted the vendor defaults are used (behaviour unchanged). ----
+    # VR (AudioPre / AudioPreDeEcho):
+    ap.add_argument("--tta", default=None,
+                    help="VR only: true/false test-time augmentation (~2x time, cleaner).")
+    ap.add_argument("--postprocess", default=None,
+                    help="VR only: true/false mask post-processing.")
+    ap.add_argument("--high-end", dest="high_end", default=None,
+                    choices=["mirroring", "bypass", "none"],
+                    help="VR only: high-frequency reconstruction mode (default: mirroring).")
+    # MDX (onnx_dereverb):
+    ap.add_argument("--chunks", type=int, default=None,
+                    help="MDX only: segment length in seconds (default: 15).")
+    # Roformer:
+    ap.add_argument("--overlap", type=int, default=None,
+                    help="Roformer only: num_overlap between chunks (quality vs speed).")
+    ap.add_argument("--batch-size", dest="batch_size", type=int, default=None,
+                    help="Roformer only: inference batch size.")
     ap.add_argument("--max-fail-ratio", dest="max_fail_ratio", type=float, default=0.2,
                     help="Failure tolerance (default: 0.2 = 20%%). If the fraction of "
                          "files that fail is <= this AND at least one succeeded, the run "
@@ -246,9 +294,15 @@ def main():
     _disable_tqdm()
     _install_nan_guard()
 
-    if not os.path.isfile(args.model):
-        log(f"[uvr5] ERROR: model file not found: {args.model}")
-        return _finish(1, ["model file not found: %s" % args.model])
+    # Most models are a single weight FILE (.pth/.ckpt). The MDX-Net dereverb model
+    # (onnx_dereverb_By_FoxJoy) is a FOLDER: MDXNetDereverb hardcodes vocals.onnx
+    # inside it and only uses `--model`'s basename for separator selection. So a
+    # directory whose basename is that model name is valid too — accept both.
+    _model_base = os.path.basename(os.path.normpath(args.model))
+    _is_onnx_dir = os.path.isdir(args.model) and _model_base == "onnx_dereverb_By_FoxJoy"
+    if not (os.path.isfile(args.model) or _is_onnx_dir):
+        log(f"[uvr5] ERROR: model not found: {args.model}")
+        return _finish(1, ["model not found: %s" % args.model])
     if not os.path.isdir(args.input):
         log(f"[uvr5] ERROR: input directory not found: {args.input}")
         return _finish(1, ["input directory not found: %s" % args.input])
@@ -262,7 +316,7 @@ def main():
     # --is_half, so this makes the whole pipeline fp32.
     is_half = _str2bool(args.is_half) if args.is_half is not None else False
 
-    model_name = os.path.basename(args.model)
+    model_name = os.path.basename(os.path.normpath(args.model))
     for ext in (".pth", ".ckpt"):
         if model_name.endswith(ext):
             model_name = model_name[: -len(ext)]
@@ -276,11 +330,22 @@ def main():
         log(f"[uvr5] ERROR: no audio files in {args.input}")
         return _finish(1, ["no audio files in %s" % args.input])
 
+    expert = {
+        "tta": _str2bool(args.tta) if args.tta is not None else None,
+        "postprocess": _str2bool(args.postprocess) if args.postprocess is not None else None,
+        "high_end": args.high_end,
+        "chunks": args.chunks,
+        "overlap": args.overlap,
+        "batch_size": args.batch_size,
+    }
+    _expert_active = {k: v for k, v in expert.items() if v is not None}
+
     log(f"[uvr5] model={model_name} device={device} is_half={is_half} "
-        f"agg={args.agg} format={args.format} files={len(files)}")
+        f"agg={args.agg} format={args.format} files={len(files)} "
+        f"expert={_expert_active or '-'}")
 
     try:
-        pre_fun = _build_separator(args.model, model_name, device, is_half, args.agg)
+        pre_fun = _build_separator(args.model, model_name, device, is_half, args.agg, expert)
     except Exception as e:
         log("[uvr5] ERROR: failed to load model:")
         log(traceback.format_exc())

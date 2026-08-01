@@ -145,3 +145,6 @@ lib/inference/tts_infer.yaml
 # ASR outputs
 *.list
 *.conf.json
+
+tools/deploy/.deploy_*.txt
+tools/deploy/.deploy_selection.json

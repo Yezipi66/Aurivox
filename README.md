@@ -9,6 +9,10 @@
 - **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`），完整 S1+S2 串联。
 - **分发**：`deploy.bat`（首次部署向导）+ `start.ps1`（启动），无需手工配环境。
 
+> 📖 **最终用户请先读 [`GUIDANCE.md`](./GUIDANCE.md)**（部署 / 启动 / 停止 + 常见问题 FAQ）。
+> 本 README 面向开发与二次开发，收录目录导览、管线细节、API 与更新日志；
+> 使用类疑问（ffmpeg、onnxruntime、CUDA 状态、FunASR 置信度、MDX-Net 爆显存、人声分离预设等）统一整理在 GUIDANCE 的 FAQ。
+
 ## 顶层目录导览
 
 > 仅列稳定的顶层职责，避免随业务频繁变动而过时；细节以代码为准。
@@ -31,6 +35,8 @@
 - **CUDA**: 12.1+
 - **GPU**: 支持 CUDA 的 NVIDIA 显卡即可（RTX 3050 / 3060 / 3070 均实测可部署，显存越大可用的 batch_size 越高）
 - **ffmpeg**（可选，推荐）: 训练/推理默认用 soundfile 读音频（覆盖 wav/flac/ogg 等）；装了 ffmpeg 后作为兜底可解码 mp3/m4a/aac 等 soundfile 读不了的格式，能 best-effort 吃下更多素材。不装也能跑，只是这类格式会被跳过并计入统计。
+- **onnxruntime**（随 `requirements.txt` 自动安装）: **g2pW**（中文多音字消歧）与 **UVR5 MDX-Net**（`onnx_dereverb`）依赖它。x86_64/AMD64（Windows + NVIDIA）装 `onnxruntime-gpu`，aarch64/arm64 装 CPU 版 `onnxruntime`。缺失时 MDX-Net 段会因 `No module named 'onnxruntime'` 直接失败，g2pW 则回退 pypinyin。
+  > ⚠️ **版本必须与 torch 的 CUDA/cuDNN 对齐**：GPU 版**锁定 `onnxruntime-gpu==1.18.0`**（CUDA 12 + cuDNN 8，匹配随包 torch cu121）。`1.19+` 改用 cuDNN 9，会让 `CUDAExecutionProvider` **静默失效**、MDX-Net 悄悄退回 CPU（不报错、只是极慢）。因 `mdxnet.py` 先 `import torch` 再 `import onnxruntime`，torch 会把自带 cuDNN 8 目录注册进 DLL 搜索路径，onnxruntime 得以复用——无需额外配置 CUDA。验证：`python -c "import torch; import onnxruntime as ort; print(ort.get_available_providers())"` 应包含 `CUDAExecutionProvider`。
 
 ## 快速开始
 
@@ -48,8 +54,10 @@
 ### B. 开发模式
 
 ```bash
-# Python 依赖（推荐 uv，回退 pip）
-uv pip install -r requirements.txt
+# Python 依赖：开发时从「意图」文件带 resolver 装一遍（torch 见 install_torch.ps1）
+uv pip install -r requirements.in
+# 改完依赖后重新生成冻结锁（提交 requirements.txt）：
+#   python tools/deploy/lock_requirements.py
 
 # Node.js 依赖
 npm install
@@ -63,6 +71,28 @@ start.bat
 
 后端运行在 `http://127.0.0.1:9886`，前端 `http://127.0.0.1:5173`，
 推理服务 `http://127.0.0.1:9880`（由 `start.ps1` 拉起，日志见 `logs/inference.log`）。
+
+## 依赖锁定（完全可复现环境）
+
+Python 依赖走 **`.in`（意图）+ `.txt`（冻结锁）双文件** 模型，保证每台机器装出**完全一致**的环境：
+
+| 文件 | 角色 | 谁读 |
+| --- | --- | --- |
+| `requirements.in` | **人工维护**的声明式意图：允许版本范围、平台 marker、pip 选项、注释 | 人 |
+| `requirements.txt` | **自动生成**的完整 `pip freeze` 快照：逐包精确 `==` pin（含全部传递依赖） | 部署脚本 |
+
+- **安装**：`deploy.bat` / `bootstrap.ps1` 用 `uv pip install --no-deps -r requirements.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装，避免复现时被解析器悄悄升/降级。`torch/torchaudio/torchvision` 体积大且 CUDA 专属，由 `install_torch.ps1` 单独 `--no-deps` 安装，不进锁。
+- **改依赖**：编辑 `requirements.in` → 在**参考机器**上把 venv 装成可用状态 → 生成锁：
+
+  ```bat
+  venv\Scripts\python.exe tools\deploy\lock_requirements.py
+  ```
+
+  脚本冻结当前 venv，排除 torch 三件套与构建工具（pip/setuptools/wheel/uv），并保留 `.in` 里带平台 marker 的行（onnxruntime 的 cuDNN-8 锁、arm 上的 CPU 回退、`--no-binary=opencc`），覆盖写出 `requirements.txt`。**提交这份 `requirements.txt`**。
+  - freeze 忠实反映当前 venv：传递依赖一个不少（否则 `--no-deps` 安装会缺包）。不做「闭包剔除」——例如 `google-auth`/`google-cloud-storage` 一族其实是 `f5-tts → cached_path` 的真实依赖链（非 tensorboard 孤儿），保留。
+- **校验**：`lock_requirements.py --check` 判断 `requirements.txt` 是否已是完全冻结；`bootstrap.ps1` 部署时若发现 `requirements.txt` 仍是松散（含范围/无 pin）会**告警提示去跑 lock**（不阻断，best-effort 继续）。
+
+> ⚠️ 因为安装用 `--no-deps`，`requirements.txt` **必须**是完整 freeze——否则传递依赖会缺失。别手改 `requirements.txt`，改 `requirements.in` 后重生成。
 
 ## 训练 Pipeline
 
@@ -89,6 +119,11 @@ start.bat
 
 > 注：`2-name2text.txt`、`4-cnhubert/`、`5-wav32k/`、`6-name2semantic.tsv`、`logs_s1/`、`logs_s2/`
 > 等是**训练过程中的中间产物**，位于训练工作区（staging），发布后即被清理，不属于入库约定。
+
+> 🎙️ **人声提取的 raw 语义**：启用人声分离后，**分离出的人声**（`.staging/{taskId}/denoise/`）才是喂给
+> 切片 → ASR → 训练的「训练用 raw」。为便于审计/重构，denoise 运行前会把**原始混音**快照到
+> `.staging/{taskId}/raw_b4_extraction/`，使工作区自包含（原始输入 + 分离结果都在）。设 `UVR5_KEEP_RAW=0`
+> 可跳过快照以省磁盘；改人声参数重跑时该目录随 `denoise/` 一并清理并重新快照。未启用人声分离时不产生此目录。
 
 ### 训练配置
 
@@ -171,8 +206,72 @@ python scripts/pipeline/infer_s2.py \
    避免立体声导致 HuBERT 特征提取崩溃；无法读取的格式（视 libsndfile 版本，如部分 mp3/m4a/aac）会被跳过。
    每次预处理结束会打印一行 `[load_audio] total=.. loaded=.. (downmixed=.. resampled=.. via_ffmpeg=..) failed=..`
    统计，便于核对有效条数。装 ffmpeg 可兜底更多格式（见「环境要求」）。
+5. **UVR5 MDX-Net 显存**: MDX-Net 是 UVR5 里最吃显存的模型，长音频 + 大 batch 极易 OOM
+   （`cudaErrorMemoryAllocation`）。**默认参数按 4 GB 小显存设计（逐窗 batch=1）**；大显存显卡可自行调大分段/批。
+   仍 OOM 时把 MDX 段切到 CPU（`UVR5_MDX_DEVICE=cpu`）。详见 [`GUIDANCE.md` Q10](./GUIDANCE.md)。
+6. **Roformer 权重与配置配套**: Mel-Band / BS-Roformer 需 `.ckpt` 与其**配套 `.yaml`** 同名成对放入
+   `uvr5_weights\`；缺配置时 loader 退回默认配置，会因结构不符报「missing params」而加载失败。见 [`GUIDANCE.md` Q11](./GUIDANCE.md)。
+7. **FunASR 无置信度**: FunASR/Paraformer 为非自回归结构，默认不输出逐词后验，校对页置信度**如实留空、不着色**
+   （非错误）；需置信度高亮请用 Faster Whisper。见 [`GUIDANCE.md` Q8](./GUIDANCE.md)。
 
 ## 更新日志
+
+### 2026-08-01 —— 修正 onnxruntime-gpu 锁版 1.18.1→1.18.0
+- ✅ **onnxruntime-gpu 版本更正**：全项目（`requirements.in/.txt`、`lib/inference/requirements.txt`、`mdxnet.py`
+  报错提示、README、GUIDANCE）统一由 `==1.18.1` 更正为 **`==1.18.0`**（匹配随包 torch cu121 的 cuDNN 8）。
+- 📝 **依赖闭包排查结论**：`google-auth`/`google-cloud-storage`/`googleapis-common-protos`/`proto-plus` 一族并非
+  tensorboard 孤儿，而是 **`f5-tts → cached_path → google-cloud-storage`** 的真实依赖链（`tensorboardX` 由
+  `funasr`/`modelscope` 引入）。故 lock 工具**不做**闭包剔除，freeze 忠实保留全部传递依赖。是否精简取决于后续
+  是否保留 f5-tts（待评估其词组/语言支持是否与本项目对齐）。
+
+### 2026-08-01 —— 人声提取保留原始混音（raw_b4_extraction）：工作区自包含、便于重构
+- ✅ **快照原始输入**：denoise 运行前把**原始混音**从外部 `inputDir` 拷入 `.staging/{taskId}/raw_b4_extraction/`。
+  语义上分离出的人声（`denoise/`）才是喂给切片/ASR/训练的「训练用 raw」；原始此前只在用户目录（可能被改/删），
+  工作区并不自包含。现在两者都在，便于审计/重构。
+- ✅ **幂等 + 可关**：resume/fork 已存在则跳过重拷；`raw_b4_extraction` 登记进 denoise 步产物清单，改人声参数重跑时
+  随 `denoise/` 一并清理并重新快照。设 `UVR5_KEEP_RAW=0` 可跳过快照以省磁盘。未启用人声分离时不产生此目录。
+
+### 2026-08-01 —— 依赖锁定：requirements.in（意图）+ requirements.txt（冻结锁）双文件 + lock 生成器
+- ✅ **`.in` / `.txt` 双文件**：`requirements.in` 为人工维护的声明式意图（范围/marker/pip 选项/注释）；
+  `requirements.txt` 改为**完整 `pip freeze` 冻结锁**（逐包 `==`，含全部传递依赖），由部署脚本 `--no-deps` 精确复现。
+- ✅ **锁生成器 `tools/deploy/lock_requirements.py`**：冻结当前可用 venv → 排除 torch 三件套与构建工具、
+  保留 `.in` 里带平台 marker 的行（onnxruntime cuDNN-8 锁 / arm CPU 回退 / `--no-binary=opencc`）→ 覆盖写 `requirements.txt`；
+  `--check` 可校验是否已完全冻结。
+- ✅ **bootstrap 软校验**：`bootstrap.ps1` 部署时若发现 `requirements.txt` 仍是松散（含范围/无 pin）会告警提示跑 lock（不阻断）。
+  安装侧本就是 `uv pip install --no-deps`（失败回退 `pip --no-deps`），torch 由 `install_torch.ps1` 单独 `--no-deps` 装。
+- ✅ **文档**：README 新增「依赖锁定（完全可复现环境）」小节，开发模式改为从 `requirements.in` 安装。
+
+### 2026-08-01 —— 人声分离/训练预设管理 + 试听闸门 + FunASR 置信度诚实化 + 语言告知门（UI/UX 打磨）
+- ✅ **人声分离预设 = 可管理的微资产**：自定义人声分离链条支持「另存为预设 / 选中后继续调参 / 显式 **Update preset** 写回 /
+  删除」，采用**草稿缓冲**模型——改动不再每次自动保存，必须点更新才落库；删除走**二级确认**防手抖误删。
+- ✅ **训练预设合并 + 同样可管理**：Tune 页去掉「Input Type」，把自定义训练参数并入「Training Preset」，同样支持
+  保存/更新/删除（保存示例名 `my-tune-pipeline`）；删除同样二级确认。
+- ✅ **试听闸门体验**：「人声分离后暂停试听」页文案去机翻（取消 / 继续），并新增**波形 ↔ 电平条**预览样式微开关。
+- ✅ **FunASR 置信度诚实化**：`funasr_asr.py` 现产出与 Whisper 同架构的 `<name>.conf.json` 侧车文件，且**只做防御式提取、
+  绝不伪造**——Paraformer 拿不到可用后验时置信度即为空。校对页在**整份无置信度**时显示一行说明（引擎不提供置信度、
+  本次不着色，需着色请改用 Faster Whisper），避免空列被误读为故障。
+- ✅ **FunASR 语言告知门**：选 FunASR 却把语言设为非中文/粤语（且非 auto）时，开始训练前弹**告知**对话框（仅提醒不阻断）：
+  继续 / 切换到 Whisper / 取消；坚持继续时后端仍会在失败时自动兜底回退 Whisper。
+- ✅ **文档**：`GUIDANCE.md` FAQ 增补 Q8–Q12（FunASR 置信度、语言不匹配、MDX-Net OOM、Roformer 配置配套、人声/训练预设管理与试听）；
+  README 顶部显式引导最终用户先读 GUIDANCE，「已知限制」补充 MDX 显存 / Roformer 配套 / FunASR 无置信度三条并互链。
+
+### 2026-08-01 —— UVR5 人声分离全套 + FunASR ASR + 流式合成 + 部署向导许可 UX + 去 tensorboard/谷歌 OAuth 依赖
+- ✅ **UVR5 人声分离全套接入**：把上游整套 UVR5 模型（HP / DeEcho / MDX-Net / BS-Roformer / Mel-Band Roformer）
+  接为可选的训练预处理去伴奏/去混响/去回声步骤，支持多段链式（如 `MDX-Net → DeEcho`）与逐模型专家参数。
+- ✅ **FunASR 中文/粤语 ASR**：在 faster-whisper 之外新增可选的 FunASR 引擎（Paraformer + FSMN-VAD + CT-Punc + UniASR），
+  中文更准且自带标点。
+- ✅ **流式合成**：流式响应默认不落盘，可在请求体按需开启落盘持久化。
+- ✅ **部署向导许可 UX 重构**：三层结构（本软件许可 / 随包与部署时获取的运行时依赖 / 下游模型权重按下载组列出）；
+  下游权重不再由我们断言许可，仅列出各自仓库供用户自行阅读后输入 `READ`；新增 `tools/build/gen_node_licenses.py`
+  在 `npm ci` 后生成 `node_packages.json`；`start.bat` / `deploy.bat` 更名对齐。
+- ✅ **onnxruntime 依赖显式化 + 版本锁定**：g2pW 与 UVR5 MDX-Net 依赖 onnxruntime，`requirements.txt` 显式声明
+  （x86_64 用 `onnxruntime-gpu`，arm 用 CPU 版），避免 MDX-Net 段因缺包直接失败。**GPU 版锁定 `==1.18.0`**：
+  它用 cuDNN 8、匹配随包 torch cu121；`1.19+` 改用 cuDNN 9 会让 CUDA ExecutionProvider 静默失效、MDX 退回 CPU。
+  无需改动任何 import 顺序——全项目仅 `mdxnet.py` 直接 import onnxruntime，且其本就先 import torch。
+- ✅ **移除 tensorboard / 谷歌 OAuth 依赖闭包**：`tensorboard` 是 `google-auth`/`google-auth-oauthlib`/`grpcio` 等
+  整族依赖的唯一来源。S1 训练 `TensorBoardLogger → CSVLogger`（指标仍写 `metrics.csv`）、S2 训练把 `SummaryWriter`
+  导入改为 no-op 空实现守卫，并从 `requirements.txt` 删除 `tensorboard`。训练进度本就由后端解析 stdout，无功能损失。
+  （注：`protobuf` 可能仍由 `onnxruntime` 合法引入，属正常序列化库。）
 
 ### 2026-07-31 —— v1.0.4：端口占用保护（自己人残留 vs 陌生占用 / 探测下一个空闲端口 / 全链路对齐）+ 同模型请求合并（省冗余权重重载）
 

@@ -9,7 +9,7 @@ What goes IN:
     via `npm ci`, NOT shipped (see BLACKLIST). Ship the lockfile so the restore
     is reproducible.
   * tools/ (build + deploy + scripts + wheels + runtime[python+node])
-  * root entries: 首次部署.bat 启动.bat stop.bat, README_用户版.txt,
+  * root entries: deploy.bat start.bat stop.bat, README_用户版.txt,
     requirements.txt, package*.json, business configs (server.js, *.json)
   * tools\deploy\: bootstrap.ps1, install_torch.ps1, download_models.py,
     download_ffmpeg.py (deploy/ops scripts live here, not at the root)
@@ -183,7 +183,7 @@ ROOT_EXCLUDE_FILES = {
     "dump_tree.ps1",
     # superseded packer / one-off surgery & patch scripts
     "pack_sources.py", "apply_gsv_patch3.py", "surgery.py", "test_phase4.js",
-    # old root launchers, replaced by 启动.bat + tools\scripts\*.ps1. NOTE: the
+    # old root launchers, replaced by start.bat + tools\scripts\*.ps1. NOTE: the
     # CURRENT user-facing stop launcher IS the root stop.bat (it calls
     # tools\scripts\stop.ps1) and MUST ship — do not blacklist it here. Only the
     # truly obsolete root scripts below are dropped.

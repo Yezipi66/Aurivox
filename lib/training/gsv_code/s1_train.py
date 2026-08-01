@@ -14,7 +14,7 @@ from gsv_code.AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from gsv_code.AR.utils.io import load_yaml_config
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger  # WandbLogger
+from pytorch_lightning.loggers import CSVLogger  # was TensorBoardLogger; CSVLogger drops the tensorboard dep (and its google-auth/grpcio closure). Metrics still land in metrics.csv; training progress is parsed from stdout by the backend.
 from pytorch_lightning.strategies import DDPStrategy
 
 logging.getLogger("numba").setLevel(logging.WARNING)
@@ -105,7 +105,7 @@ def main(args):
         every_n_epochs=config["train"]["save_every_n_epoch"],
         dirpath=ckpt_dir,
     )
-    logger = TensorBoardLogger(name=output_dir.stem, save_dir=output_dir)
+    logger = CSVLogger(name=output_dir.stem, save_dir=output_dir)
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "29500"
     os.environ["USE_LIBUV"] = "0"

@@ -182,7 +182,7 @@ $UV_OK = $false
 # if uv appears to die/vanish mid-install on a specific machine (some antivirus /
 # EDR products kill the freshly-downloaded uv.exe or its child process tree while
 # it writes into site-packages). pip is pure-python and far less likely to trip
-# that. Slower, but rock-solid.  cmd:  set TTS_NO_UV=1  &  首次部署.bat
+# that. Slower, but rock-solid.  cmd:  set TTS_NO_UV=1  &  deploy.bat
 if ($env:TTS_NO_UV -eq '1') {
   Warn 'TTS_NO_UV=1 set — skipping uv, installing with pip only.'
 } else {
@@ -199,6 +199,26 @@ if ($env:TTS_NO_UV -eq '1') {
 $REQ    = Join-Path $ROOT 'requirements.txt'
 $WHEELS = Join-Path $ROOT 'tools\wheels'
 if (-not (Test-Path $REQ)) { Die ('requirements.txt not found: {0}' -f $REQ) }
+
+# requirements.txt MUST be a fully-pinned freeze (we install it with --no-deps, which
+# does NOT pull transitive deps). If it still looks like the loose declarative source
+# (requirements.in) — a line with no version or a >=/< range, ignoring markered lines —
+# warn loudly: the env won't be reproducible. Generate the lock on a reference machine:
+#   venv\Scripts\python.exe tools\deploy\lock_requirements.py
+$reqPinned = 0; $reqRanged = 0
+foreach ($ln in (Get-Content -LiteralPath $REQ)) {
+  $s = $ln.Trim()
+  if (-not $s -or $s.StartsWith('#') -or $s.StartsWith('-') -or $s.Contains(';')) { continue }
+  if ($s -match '[<>](?!=)|>=|<=|~=|,') { $reqRanged++ }
+  elseif ($s.Contains('==')) { $reqPinned++ }
+  else { $reqRanged++ }  # bare name, no version = not frozen
+}
+if ($reqRanged -gt 0 -or $reqPinned -eq 0) {
+  Warn 'requirements.txt does NOT look like a fully-pinned freeze (found unpinned/ranged specs).'
+  Warn 'With --no-deps this may leave transitive deps MISSING and is NOT reproducible.'
+  Warn 'On a reference machine run:  venv\Scripts\python.exe tools\deploy\lock_requirements.py'
+  Warn 'then commit the regenerated requirements.txt. Continuing best-effort ...'
+}
 
 $findLinks = @()
 if (Test-Path $WHEELS) {
@@ -255,7 +275,7 @@ if ($LASTEXITCODE -ne 0) {
   Warn 'pip check reported issues above. If they are only "has requirement X, but'
   Warn 'you have Y" warnings for packages that still import fine (common with a'
   Warn 'frozen env), you can ignore them. If a package is MISSING, add it to'
-  Warn 'requirements.txt and re-run 首次部署.bat.'
+  Warn 'requirements.txt and re-run deploy.bat.'
 }
 
 # --- 4. torch (CUDA 12.1) — delegated to the standalone install_torch.ps1 ---
@@ -386,6 +406,23 @@ if (-not (Test-Path $PKG_JSON)) {
   }
 }
 
+# --- 4d. inventory backend node licenses (node_packages.json) --------------
+# node_modules is not bundled, so its per-package licenses can only be read once
+# npm ci has restored them here. Regenerate THIRD_PARTY_LICENSES/runtime/
+# node_packages.json from the AUTHORITATIVE installed metadata so the license
+# hub (and the deploy wizard's second layer) reflects exactly what got installed.
+# Best-effort: a failure here never blocks deployment.
+if ($NODE_OK) {
+  $genNode = Join-Path $ROOT 'tools\build\gen_node_licenses.py'
+  if (Test-Path $genNode) {
+    try {
+      $gRC = Invoke-Native $EMB_PY @("$genNode", '--root', "$ROOT")
+      if ($gRC -eq 0) { Ok 'node license inventory refreshed (THIRD_PARTY_LICENSES\runtime\node_packages.json).' }
+      else { Warn 'gen_node_licenses.py returned non-zero — node_packages.json not refreshed (non-fatal).' }
+    } catch { Warn ('gen_node_licenses.py failed (non-fatal): {0}' -f $_.Exception.Message) }
+  }
+}
+
 # --- 5. self-check ---
 Info 'self-check: importing core packages ...'
 $check = @'
@@ -494,13 +531,13 @@ Write-Host '============================================================' -Foreg
 Write-Host ''
 # The server needs BOTH torch (inference) and node deps (the broker process).
 if ($TORCH_OK -and $NODE_OK) {
-  Ok 'Bootstrap finished. You can now run 启动.bat'
+  Ok 'Bootstrap finished. You can now run start.bat'
 } elseif (-not $TORCH_OK -and -not $NODE_OK) {
-  Warn 'Bootstrap finished, but PyTorch AND backend node deps are missing — fix both before 启动.bat.'
+  Warn 'Bootstrap finished, but PyTorch AND backend node deps are missing — fix both before start.bat.'
 } elseif (-not $TORCH_OK) {
-  Warn 'Bootstrap finished, but PyTorch is missing — install it before running 启动.bat.'
+  Warn 'Bootstrap finished, but PyTorch is missing — install it before running start.bat.'
 } else {
-  Warn 'Bootstrap finished, but backend node deps are missing — restore them before running 启动.bat.'
+  Warn 'Bootstrap finished, but backend node deps are missing — restore them before running start.bat.'
 }
 exit 0
 
