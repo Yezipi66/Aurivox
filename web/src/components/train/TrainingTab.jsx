@@ -1,5 +1,5 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
@@ -21,6 +21,8 @@ const REBUILD_PARAM_DEFAULTS = {
   sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
   // asr
   asrEngine: 'auto', asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
+  // vocal extraction (denoise)
+  denoisePreset: 'bgm', denoisePipeline: [], denoisePresetParams: {}, denoiseAdvUnlocked: false, denoiseSavedPresets: [],
   // S1 advanced/expert
   s1Seed: 1234, s1SaveEvery: 4, s1Precision: '16-mixed', s1GradClip: 1.0,
   s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
@@ -40,6 +42,100 @@ const ASR_MODEL_SIZES = [
 const ASR_PRECISIONS = [
   ['float16', 'float16 (fast)'], ['float32', 'float32 (best)'], ['int8', 'int8 (low VRAM)'],
 ]
+
+// --- Vocal extraction presets (encode the official UVR5 domain knowledge) ------
+// Each preset maps a human intent ("what is my material like?") to a concrete
+// separation pipeline [{model, agg?}]. `agg` (0-20) only applies to VR models and
+// is user-tunable in Expert mode. ids MUST match lib/training/gsv-tools/uvr5/
+// uvr5_models.js (and the backend validator). `custom` opens the second-level
+// chain editor. The authoritative labels/availability come from GET /api/uvr5/models.
+const AGG_DEFAULT = 10
+const VOCAL_PRESETS = [
+  { id: 'bgm', label: ['Remove background music (HP2)', '去背景乐（HP2）'],
+    hint: ['Most common. For material WITHOUT harmony — best main-vocal preservation.',
+           '最常用。不带和声的素材，主人声保留最好。'],
+    pipeline: [{ model: 'HP2', agg: AGG_DEFAULT }] },
+  { id: 'main_vocal', label: ['Only main vocal (HP5)', '仅保留主人声（HP5）'],
+    hint: ['For material WITH harmony; may slightly weaken the main vocal.',
+           '带和声的素材；对主人声可能有轻微削弱。'],
+    pipeline: [{ model: 'HP5', agg: AGG_DEFAULT }] },
+  { id: 'dereverb', label: ['De-reverb (MDX-Net)', '去混响（MDX-Net）'],
+    hint: ['Best for stereo reverb; cannot remove mono reverb.',
+           '对双声道混响最佳；不能去单声道混响。'],
+    pipeline: [{ model: 'MDX-Net' }] },
+  { id: 'deep', label: ['Deep clean: MDX-Net → DeEcho-Aggressive  ★', '深度清洗：MDX-Net → DeEcho-Aggressive  ★'],
+    hint: ['Official cleanest configuration. Two-stage chain — slower.',
+           '官方推荐最干净配置。两级串联，耗时较长。'],
+    pipeline: [{ model: 'MDX-Net' }, { model: 'DeEcho-Aggressive', agg: AGG_DEFAULT }] },
+  { id: 'melband', label: ['Mel-Band Roformer', 'Mel-Band Roformer'],
+    hint: ['Roformer-based vocal isolation. Large model (~700MB) — needs download.',
+           '基于 Roformer 的人声分离。大模型（约 700MB），需下载。'],
+    pipeline: [{ model: 'Mel-Band-Roformer' }] },
+  { id: 'custom', label: ['Custom…', '自定义…'],
+    hint: ['Build your own separation chain (advanced).', '自建分离链（高级）。'],
+    pipeline: null },
+]
+const VOCAL_PRESET_BY_ID = Object.fromEntries(VOCAL_PRESETS.map(p => [p.id, p]))
+
+// --- Expert parameters (mirror lib/training/gsv-tools/uvr5 EXPERT_PARAMS) -------
+// Source-verified knobs, tiered per architecture. `agg` is the only NORMAL knob
+// (VR); everything below is EXPERT. The authoritative applicability comes from
+// GET /api/uvr5/models (model.expertParams); this table only supplies labels/UI.
+const EXPERT_META = {
+  precision: { archs: ['vr', 'mdx', 'roformer'], type: 'enum', options: ['fp32', 'fp16'], default: 'fp32',
+    label: ['Precision', '精度'],
+    hint: ['fp32 is safest. fp16 is faster but makes HP models emit NaN on many GPUs.',
+           'fp32 最稳；fp16 更快，但 HP 系列在很多显卡上会出 NaN。'] },
+  tta: { archs: ['vr'], type: 'bool', default: false,
+    label: ['TTA (test-time augmentation)', 'TTA 测试时增强'],
+    hint: ['Cleaner separation, ~2× time.', '分离更干净，耗时约 2 倍。'] },
+  postprocess: { archs: ['vr'], type: 'bool', default: false,
+    label: ['Mask post-process', '掩码后处理'],
+    hint: ['Extra refinement of the separation mask.', '对分离掩码做额外精修。'] },
+  highEnd: { archs: ['vr'], type: 'enum', options: ['mirroring', 'bypass', 'none'], default: 'mirroring',
+    label: ['High-frequency reconstruction', '高频重建'],
+    hint: ['How lost high frequencies are rebuilt.', '如何重建丢失的高频。'] },
+  chunks: { archs: ['mdx'], type: 'int', min: 5, max: 40, default: 15,
+    label: ['Segment length (s)', '分段长度（秒）'],
+    hint: ['Longer = more context, more memory.', '越长上下文越多，占用更高。'] },
+  overlap: { archs: ['roformer'], type: 'int', min: 1, max: 8, default: 2,
+    label: ['Chunk overlap', '分块重叠'],
+    hint: ['Higher = better quality, slower.', '越大质量越好、越慢。'] },
+  batchSize: { archs: ['roformer'], type: 'int', min: 1, max: 16, default: 2,
+    label: ['Batch size', '批大小'],
+    hint: ['Higher = faster on big GPUs, more VRAM.', '越大在大显存上越快、更吃显存。'] },
+}
+const EXPERT_KEYS = Object.keys(EXPERT_META)
+const expertKeysForArch = (arch) => EXPERT_KEYS.filter(k => EXPERT_META[k].archs.includes(arch))
+
+// Resolve the concrete pipeline the backend should run, from the current form.
+// Presets clone their template (so per-preset param edits persist on the form);
+// `custom` uses the user-built chain. Returns [] when off/empty.
+function resolveVocalPipeline(form) {
+  if (!form.denoise) return []
+  const preset = form.denoisePreset || 'bgm'
+  if (preset === 'custom') return Array.isArray(form.denoisePipeline) ? form.denoisePipeline : []
+  if (preset.startsWith('saved:')) {
+    const name = preset.slice(6)
+    const saved = (form.denoiseSavedPresets || []).find(s => s.name === name)
+    return saved && Array.isArray(saved.pipeline) ? saved.pipeline : []
+  }
+  const p = VOCAL_PRESET_BY_ID[preset]
+  if (!p || !p.pipeline) return []
+  // Overlay user-tuned params stored per preset stage on form.denoisePresetParams.
+  // A stage override is an object {agg?, tta?, ...}; a legacy number means {agg}.
+  const overrides = (form.denoisePresetParams && form.denoisePresetParams[preset]) || {}
+  return p.pipeline.map((stage, i) => {
+    const out = { ...stage }
+    let ov = overrides[i]
+    if (typeof ov === 'number') ov = { agg: ov }
+    if (ov && typeof ov === 'object') {
+      if (ov.agg != null && 'agg' in out) out.agg = ov.agg
+      for (const k of EXPERT_KEYS) if (ov[k] != null) out[k] = ov[k]
+    }
+    return out
+  })
+}
 
 // S1 (GPT / Lightning) trainer precision. Values MUST match the server-side
 // whitelist (server.js validatePayload `precision` oneOf) or they are dropped.
@@ -130,7 +226,7 @@ function _pick(obj, keys) { const o = {}; for (const k of keys) o[k] = obj[k]; r
 function buildStepParams(form) {
   const t = buildTrainingParams(form);
   return {
-    denoise: { model: form.denoiseModel ?? null, on: !!form.denoise },
+    denoise: { pipeline: resolveVocalPipeline(form), on: !!form.denoise },
     slice: { ...buildSliceParams(form), on: form.slice !== false },
     asr: { ...buildAsrParams(form), on: form.asr !== false },
     train_s1: { ..._pick(t, S1_PARAM_KEYS), on: form.trainS1 !== false },
@@ -225,8 +321,20 @@ function archiveToForm(archive) {
   if (ap.model_size != null) out.asrModelSize = ap.model_size;
   if (ap.precision != null) out.asrPrecision = ap.precision;
 
-  // denoise params
-  if (dp.model != null) out.denoiseModel = dp.model;
+  // denoise params — restore the pipeline (or coerce a legacy {model} string) and
+  // reflect it back into the form as the "custom" chain so a resumed run shows the
+  // ORIGINAL separation exactly, editable.
+  if (Array.isArray(dp.pipeline) && dp.pipeline.length) {
+    out.denoisePipeline = dp.pipeline;
+    out.denoisePreset = 'custom';
+    out.denoiseAdvUnlocked = true;
+  } else if (dp.model != null) {
+    const legacy = String(dp.model) === 'mdx-net' ? 'HP2' : dp.model;
+    out.denoisePipeline = [{ model: legacy, agg: AGG_DEFAULT }];
+    out.denoisePreset = 'custom';
+    out.denoiseAdvUnlocked = true;
+    out.denoiseModel = dp.model;
+  }
 
   return out;
 }
@@ -251,9 +359,16 @@ function AsrParamFields({ form, setField }) {
       <div className="field">
         <label className="field-label">{t('ASR Engine', 'ASR 引擎')}</label>
         <Select className="control" value={form.asrEngine} onChange={e => setField('asrEngine', e.target.value)}>
-          <option value="auto">{t('Auto (by language)', '自动 (按语言)')}</option>
+          <option value="auto">{t('Auto (Faster Whisper)', '自动 (Faster Whisper)')}</option>
           <option value="faster-whisper">Faster Whisper</option>
+          <option value="funasr">{t('FunASR (zh/yue — better Chinese)', 'FunASR (中文/粤语，中文更准)')}</option>
         </Select>
+        {form.asrEngine === 'funasr' && (
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+            {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
+              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效——其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
+          </p>
+        )}
       </div>
       {form.asrEngine !== 'funasr' && (
         <div className="param-grid" style={{ marginTop: 8 }}>
@@ -851,6 +966,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     gptEpochs: 8, sovitsEpochs: 25, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
     asrEngine: 'auto', denoiseModel: 'mdx-net',
+    denoisePreset: 'bgm', denoisePipeline: [], denoisePresetParams: {}, denoiseAdvUnlocked: false, denoiseSavedPresets: [],
     asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
     modelVersion: 'v2Pro', modelVersions: ['v2Pro'], isHalf: true, inferDevice: 'cuda',
     // S1 advanced
@@ -876,6 +992,55 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       .catch(() => { if (!cancelled) setBaseModelStatus(null); });
     return () => { cancelled = true; };
   }, [_selVersionsKey]);
+
+  // UVR5 model availability (labels + installed flags) for the Vocal Extraction panel.
+  const [uvr5Models, setUvr5Models] = useState(null);   // [{id,label,category,arch,aggApplicable,installed,...}]
+  const uvr5ById = useMemo(
+    () => Object.fromEntries((uvr5Models || []).map(m => [m.id, m])), [uvr5Models]);
+  const loadUvr5Models = useCallback(() => {
+    api('/api/uvr5/models')
+      .then(r => { if (r.ok && r.data) setUvr5Models(r.data.models || []); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { loadUvr5Models(); }, [loadUvr5Models]);
+
+  // Download job state for on-demand weight provisioning.
+  const [uvr5Download, setUvr5Download] = useState(null); // {jobId,status,models,...}
+  const startUvr5Download = useCallback((ids) => {
+    const models = [...new Set(ids)].filter(Boolean);
+    if (!models.length) return;
+    setUvr5Download({ status: 'running', models: Object.fromEntries(models.map(m => [m, { status: 'pending', pct: 0 }])) });
+    api('/api/uvr5/download', { method: 'POST', body: { models, source: 'auto' } })
+      .then(r => {
+        if (!r.ok || !r.data?.jobId) { setUvr5Download({ status: 'failed', error: r.data?.error || 'failed to start' }); return; }
+        setUvr5Download(d => ({ ...(d || {}), jobId: r.data.jobId, status: 'running' }));
+      })
+      .catch(e => setUvr5Download({ status: 'failed', error: String(e) }));
+  }, []);
+  useEffect(() => {
+    const jobId = uvr5Download?.jobId;
+    if (!jobId || (uvr5Download.status !== 'running')) return;
+    let stop = false;
+    const tick = () => {
+      api(`/api/uvr5/download/${jobId}`).then(r => {
+        if (stop || !r.ok) return;
+        setUvr5Download(d => ({ ...(d || {}), ...r.data }));
+        if (r.data.status === 'completed' || r.data.status === 'failed') {
+          loadUvr5Models(); // refresh installed flags
+        }
+      }).catch(() => {});
+    };
+    const iv = setInterval(tick, 1200); tick();
+    return () => { stop = true; clearInterval(iv); };
+  }, [uvr5Download?.jobId, uvr5Download?.status, loadUvr5Models]);
+
+  // Which models the CURRENT vocal pipeline needs, and which are missing.
+  const vocalPipelineNow = form.denoise ? resolveVocalPipeline(form) : [];
+  const vocalNeededIds = [...new Set(vocalPipelineNow.map(s => s.model))];
+  const vocalMissingIds = uvr5Models
+    ? vocalNeededIds.filter(id => { const m = uvr5ById[id]; return m && !m.installed; })
+    : [];
+
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null); // pipeline-map node being configured/inspected
@@ -1106,7 +1271,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           steps: {
             slice: { params: buildSliceParams(form) },
             asr: { params: buildAsrParams(form) },
-            denoise: { params: { model: form.denoiseModel } },
+            denoise: { params: { pipeline: resolveVocalPipeline(form) } },
           },
         },
       },
@@ -1351,6 +1516,327 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     finalize: tr('Finalize', '打包完成'), promote: tr('Publish', '发布'),
   };
 
+  // ── Vocal Extraction panel ────────────────────────────────────────────────
+  // Preset-first (encodes official domain knowledge), with an Expert reveal that
+  // exposes per-stage params, and a Custom second-level chain editor (mirrors the
+  // official UVR5 UI) that can be saved back as a preset. Availability + on-demand
+  // download are surfaced inline so a missing weight never fails mid-run.
+  const modelLabel = (id) => {
+    const m = uvr5ById[id];
+    if (m) return tr(m.label.en, m.label.zh);
+    return id;
+  };
+  const modelInstalled = (id) => { const m = uvr5ById[id]; return !uvr5Models || (m && m.installed); };
+  const modelAggApplicable = (id) => { const m = uvr5ById[id]; return m ? m.aggApplicable : true; };
+  // arch drives which expert params apply. Fall back to registry-derived arch when
+  // the catalogue hasn't loaded, so the panel still renders offline.
+  const modelArch = (id) => {
+    const m = uvr5ById[id];
+    if (m && m.arch) return m.arch;
+    if (id === 'MDX-Net') return 'mdx';
+    if (id === 'BS-Roformer') return 'roformer';
+    return 'vr';
+  };
+
+  // Reusable expert-control block for ONE stage. `stage` supplies current values,
+  // `applyPatch({key:val})` persists a change. Renders only the knobs applicable
+  // to the stage model's architecture (source-verified per arch).
+  const renderStageExpert = (stage, applyPatch) => {
+    const keys = expertKeysForArch(modelArch(stage.model));
+    if (!keys.length) return null;
+    return (
+      <div style={{ marginTop: 6, paddingLeft: 10, borderLeft: '2px solid var(--border)' }}>
+        {keys.map(k => {
+          const meta = EXPERT_META[k];
+          const cur = stage[k] != null ? stage[k] : meta.default;
+          const id = `exp-${stage.model}-${k}`;
+          return (
+            <div key={k} style={{ marginBottom: 6 }}>
+              {meta.type === 'bool' ? (
+                <label className="toggle-row" style={{ fontSize: 12 }}>
+                  <input type="checkbox" checked={!!cur} onChange={e => applyPatch({ [k]: e.target.checked })} />
+                  {tr(meta.label[0], meta.label[1])}
+                </label>
+              ) : (
+                <>
+                  <label className="field-label" htmlFor={id} style={{ fontSize: 12 }}>{tr(meta.label[0], meta.label[1])}</label>
+                  {meta.type === 'enum' ? (
+                    <Select id={id} className="control" value={cur} onChange={e => applyPatch({ [k]: e.target.value })}>
+                      {meta.options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </Select>
+                  ) : (
+                    <input id={id} type="number" className="control" min={meta.min} max={meta.max} value={cur}
+                      onChange={e => {
+                        let v = parseInt(e.target.value, 10);
+                        if (!Number.isFinite(v)) v = meta.default;
+                        v = Math.min(meta.max, Math.max(meta.min, v));
+                        applyPatch({ [k]: v });
+                      }} />
+                  )}
+                </>
+              )}
+              <p style={{ fontSize: 10.5, color: 'var(--muted)', margin: '2px 0 0' }}>{tr(meta.hint[0], meta.hint[1])}</p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Grouped <option> list for a stage's model picker (installed status annotated).
+  const renderModelOptions = () => {
+    if (!uvr5Models) return <option value="">{tr('loading…', '加载中…')}</option>;
+    const cats = [
+      ['keep_vocals', tr('Keep vocals', '保留人声')],
+      ['main_vocal', tr('Only main vocal', '仅保留主人声')],
+      ['dereverb', tr('De-reverb / de-echo', '去混响 / 去延迟')],
+    ];
+    return cats.map(([cat, label]) => {
+      const items = uvr5Models.filter(m => m.category === cat);
+      if (!items.length) return null;
+      return (
+        <optgroup key={cat} label={label}>
+          {items.map(m => (
+            <option key={m.id} value={m.id}>
+              {tr(m.label.en, m.label.zh)}{m.installed ? '' : tr(' — not installed', ' — 未安装')}
+            </option>
+          ))}
+        </optgroup>
+      );
+    });
+  };
+
+  const presetOptions = () => {
+    const opts = VOCAL_PRESETS.map(p => {
+      const ids = p.pipeline ? p.pipeline.map(s => s.model) : [];
+      const missing = uvr5Models ? ids.filter(id => uvr5ById[id] && !uvr5ById[id].installed) : [];
+      const suffix = missing.length ? tr(' — needs download', ' — 需下载') : '';
+      return <option key={p.id} value={p.id}>{tr(p.label[0], p.label[1])}{suffix}</option>;
+    });
+    const saved = (form.denoiseSavedPresets || []).map(s => (
+      <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已存')}: {s.name}</option>
+    ));
+    return saved.length ? [...opts.slice(0, -1), <optgroup key="saved" label={tr('Saved presets', '已保存预设')}>{saved}</optgroup>, opts[opts.length - 1]] : opts;
+  };
+
+  // Custom chain mutators (operate on form.denoisePipeline).
+  const chain = Array.isArray(form.denoisePipeline) ? form.denoisePipeline : [];
+  const setChain = (next) => setField('denoisePipeline', next);
+  const addStage = () => {
+    if (chain.length >= 3) return;
+    const firstInstalled = (uvr5Models || []).find(m => m.installed) || (uvr5Models || [])[0];
+    const id = firstInstalled ? firstInstalled.id : 'HP2';
+    setChain([...chain, modelAggApplicable(id) ? { model: id, agg: AGG_DEFAULT } : { model: id }]);
+  };
+  const removeStage = (i) => setChain(chain.filter((_, k) => k !== i));
+  const updateStage = (i, patch) => setChain(chain.map((s, k) => {
+    if (k !== i) return s;
+    const next = { ...s, ...patch };
+    if (patch.model != null) {
+      if (modelAggApplicable(patch.model)) { if (next.agg == null) next.agg = AGG_DEFAULT; }
+      else { delete next.agg; }
+      // Drop expert knobs that don't apply to the new architecture.
+      const keep = new Set(expertKeysForArch(modelArch(patch.model)));
+      for (const ek of EXPERT_KEYS) if (!keep.has(ek)) delete next[ek];
+    }
+    return next;
+  }));
+  const saveChainAsPreset = () => {
+    const name = (window.prompt(tr('Preset name', '预设名称'), '') || '').trim();
+    if (!name) return;
+    const rest = (form.denoiseSavedPresets || []).filter(s => s.name !== name);
+    setForm(f => ({ ...f, denoiseSavedPresets: [...rest, { name, pipeline: chain }], denoisePreset: `saved:${name}` }));
+  };
+
+  const curPreset = form.denoisePreset || 'bgm';
+  const curPresetDef = VOCAL_PRESET_BY_ID[curPreset];
+  const isCustom = curPreset === 'custom';
+  const dlModels = uvr5Download?.models || {};
+
+  // Per-preset stage overrides live on form.denoisePresetParams[preset][stageIdx]
+  // as an object {agg?, tta?, ...} (page-persistent only). Merge in a patch.
+  const presetStageOverride = (i) => {
+    const raw = ((form.denoisePresetParams || {})[curPreset] || {})[i];
+    return typeof raw === 'number' ? { agg: raw } : (raw || {});
+  };
+  const patchPresetStage = (i, patch) => setForm(f => {
+    const all = { ...(f.denoisePresetParams || {}) };
+    const forPreset = { ...(all[curPreset] || {}) };
+    const prev = typeof forPreset[i] === 'number' ? { agg: forPreset[i] } : (forPreset[i] || {});
+    forPreset[i] = { ...prev, ...patch };
+    all[curPreset] = forPreset;
+    return { ...f, denoisePresetParams: all };
+  });
+
+  // The stages whose ADVANCED knobs the gated block should edit, with a per-stage
+  // apply(patch). Custom → the user chain (patched via updateStage); a preset →
+  // its template stages (patched as page-persistent overrides). Only stages that
+  // actually expose advanced knobs (per arch) are included.
+  const advStages = (() => {
+    let src;
+    if (isCustom) {
+      src = chain.map((stage, i) => ({ stage, i, apply: (patch) => updateStage(i, patch) }));
+    } else if (curPresetDef && curPresetDef.pipeline) {
+      src = curPresetDef.pipeline.map((stage, i) => ({
+        stage: { ...stage, ...presetStageOverride(i) }, i,
+        apply: (patch) => patchPresetStage(i, patch),
+      }));
+    } else {
+      src = [];
+    }
+    return src.filter(({ stage }) => expertKeysForArch(modelArch(stage.model)).length > 0);
+  })();
+
+  const renderVocalExtraction = () => (
+    <>
+      <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
+        {tr('Enable vocal extraction', '启用人声提取')}
+      </label>
+
+      {form.denoise && (
+        <>
+          <div className="field">
+            <label className="field-label">{tr('Cleanup preset', '清洗方式')}</label>
+            <Select className="control" value={curPreset} onChange={e => setField('denoisePreset', e.target.value)}>
+              {presetOptions()}
+            </Select>
+            {curPresetDef && (
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{tr(curPresetDef.hint[0], curPresetDef.hint[1])}</p>
+            )}
+          </div>
+
+          {/* NORMAL params (low-impact, routinely adjusted) — shown directly, like
+              S1's Epochs/Batch. For presets this is the per-VR-stage aggressiveness. */}
+          {!isCustom && curPresetDef && curPresetDef.pipeline &&
+            curPresetDef.pipeline.some(s => modelAggApplicable(s.model) && 'agg' in s) && (
+            <div className="field" style={{ marginBottom: 8 }}>
+              {curPresetDef.pipeline.map((stage, i) => {
+                if (!(modelAggApplicable(stage.model) && 'agg' in stage)) return null;
+                const merged = { ...stage, ...presetStageOverride(i) };
+                return (
+                  <div key={i} style={{ marginBottom: 6 }}>
+                    <label className="field-label" style={{ fontSize: 12 }}>
+                      {curPresetDef.pipeline.length > 1 ? `${i + 1}. ${modelLabel(stage.model)} — ` : ''}
+                      {tr('Aggressiveness', '激进度')} ({merged.agg})
+                    </label>
+                    <input type="range" min={0} max={20} step={1} value={merged.agg} style={{ width: '100%' }}
+                      onChange={e => patchPresetStage(i, { agg: parseInt(e.target.value, 10) })} />
+                  </div>
+                );
+              })}
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                {tr('Settings are kept on this page only (not saved permanently to the recipe).',
+                  '参数仅保存在本页面，不会永久写入配方。')}
+              </p>
+            </div>
+          )}
+
+          {/* Custom = second-level chain editor (mirrors the official UVR5 UI).
+              Model + aggressiveness (normal) stay inline; advanced knobs move into
+              the gated 高级参数 block below. */}
+          {isCustom && (
+            <div className="field" style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                {tr('Custom separation chain — runs top to bottom (each stage feeds the next).',
+                  '自定义分离链——从上到下逐级串联（上一级输出喂给下一级）。')}
+              </div>
+              {chain.length === 0 && (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '还没有分级，请在下方添加。')}</p>
+              )}
+              {chain.map((stage, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{i + 1}</span>
+                  <Select className="control" style={{ flex: '1 1 200px' }} value={stage.model} onChange={e => updateStage(i, { model: e.target.value })}>
+                    {renderModelOptions()}
+                  </Select>
+                  {modelAggApplicable(stage.model) && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      {tr('agg', '激进度')}
+                      <input type="range" min={0} max={20} step={1} value={stage.agg != null ? stage.agg : AGG_DEFAULT}
+                        onChange={e => updateStage(i, { agg: parseInt(e.target.value, 10) })} />
+                      <span style={{ width: 18, textAlign: 'right' }}>{stage.agg != null ? stage.agg : AGG_DEFAULT}</span>
+                    </span>
+                  )}
+                  <button className="btn btn-sm btn-ghost" onClick={() => removeStage(i)} title={tr('Remove', '删除')}><IconTrash /></button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button className="btn btn-sm" onClick={addStage} disabled={chain.length >= 3}>{tr('+ Add stage', '+ 添加一级')}</button>
+                <button className="btn btn-sm" onClick={saveChainAsPreset} disabled={chain.length === 0}>{tr('Save as preset', '保存为预设')}</button>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                {tr('Up to 3 stages. Saved presets are kept on this page only.', '最多 3 级。已保存预设仅保留在本页面。')}
+              </p>
+            </div>
+          )}
+
+          {/* ADVANCED params (high-impact / fragile) — collapsible + gated, mirrors
+              the S1 "Advanced Parameters" pattern. Named 高级参数 (not 专家). */}
+          {advStages.length > 0 && (
+            <details className="expert-block" style={{ marginTop: 4, marginBottom: 8 }}>
+              <summary className="expert-summary">{tr('Advanced Parameters — separator internals', '高级参数 — 分离器内部设置')}</summary>
+              <div className="msg msg-danger expert-warning">
+                <strong>{tr('⚠ Advanced.', '⚠ 高级参数。')}</strong>{' '}
+                {tr('These change speed/precision. fp16 makes HP models emit NaN on many GPUs; TTA roughly doubles time. Most users should leave the defaults.',
+                  '这些会影响速度/精度。fp16 会让 HP 系列在很多显卡上出 NaN；TTA 大致会让耗时翻倍。多数用户保持默认即可。')}
+              </div>
+              <label className="toggle-row expert-unlock">
+                <input type="checkbox" checked={!!form.denoiseAdvUnlocked} onChange={e => setField('denoiseAdvUnlocked', e.target.checked)} />
+                {tr('I understand — let me edit advanced parameters', '我了解 — 允许我编辑高级参数')}
+              </label>
+              <fieldset disabled={!form.denoiseAdvUnlocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
+                {advStages.map(({ stage, apply, i }) => {
+                  const body = renderStageExpert(stage, apply);
+                  if (!body) return null;
+                  return (
+                    <div key={i} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{i + 1}. {modelLabel(stage.model)}</div>
+                      {body}
+                    </div>
+                  );
+                })}
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  {tr('Settings are kept on this page only (not saved permanently to the recipe).',
+                    '参数仅保存在本页面，不会永久写入配方。')}
+                </p>
+              </fieldset>
+            </details>
+          )}
+
+          {/* Availability + on-demand download. */}
+          {vocalMissingIds.length > 0 && (
+            <div className="msg" style={{ background: 'rgba(255,180,0,0.12)', padding: 10, borderRadius: 6, marginBottom: 8 }}>
+              <div style={{ fontSize: 12.5, marginBottom: 6 }}>
+                {tr('These models are not installed: ', '以下模型未安装：')}
+                <strong>{vocalMissingIds.map(modelLabel).join(', ')}</strong>
+              </div>
+              {uvr5Download && uvr5Download.status === 'running' ? (
+                <div style={{ fontSize: 12 }}>
+                  {tr('Downloading…', '下载中…')}{' '}
+                  {Object.entries(dlModels).map(([id, s]) => `${id} ${s.pct || 0}%`).join(' · ')}
+                </div>
+              ) : (
+                <button className="btn btn-sm btn-primary" onClick={() => startUvr5Download(vocalMissingIds)}>
+                  {tr('Download model', '下载模型')}
+                </button>
+              )}
+              {uvr5Download && uvr5Download.status === 'failed' && (
+                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>
+                  {tr('Download failed: ', '下载失败：')}{uvr5Download.error || ''}
+                </div>
+              )}
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                {tr('Downloaded from Hugging Face (ModelScope fallback) into uvr5_weights/.',
+                  '从 Hugging Face 下载（ModelScope 备用）到 uvr5_weights/。')}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+
   const renderNodeDetail = () => {
     if (!selectedNode) return null;
     const stepSt = status?.steps?.[selectedNode]?.status;
@@ -1359,24 +1845,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     );
     let body = null;
     if (selectedNode === 'denoise') {
-      body = (
-        <>
-          <label className="toggle-row" style={{ marginBottom: 8 }}>
-            <input type="checkbox" checked={form.denoise} onChange={e => setField('denoise', e.target.checked)} />
-            {tr('Enable vocal extraction', '启用人声提取')}
-          </label>
-          {form.denoise && (
-            <div className="field">
-              <label className="field-label">{tr('Model', '模型')}</label>
-              <Select className="control" value={form.denoiseModel} onChange={e => setField('denoiseModel', e.target.value)}>
-                <option value="mdx-net">HP2 (Vocal Remover)</option>
-              </Select>
-            </div>
-          )}
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{tr('Extracts the vocal track (removes background music / instrumental) before slicing, using the UVR5 HP2 model (VR architecture). Off by default — only needed for noisy or mixed audio.',
-            '在切片前使用 UVR5 HP2 模型（VR 架构）提取人声轨道（去除背景音乐 / 伴奏）。默认关闭——仅在音频含噪声或混音时才需要。')}</p>
-        </>
-      );
+      body = renderVocalExtraction();
     } else if (selectedNode === 'slice') {
       // Invariant #5: an asset must end up with at least one kind of reference audio.
       // slice → slicer_opt/ ; copyRaw → raw/. Both off would publish an empty asset,
@@ -1782,11 +2251,25 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
 
           {!taskId && (
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary" onClick={handleStart}
-                disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
-                title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
-                  ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模——请先为它们运行 download_models.py')
-                  : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
+              {form.denoise && vocalMissingIds.length > 0 ? (
+                // The enabled vocal pipeline needs weights that are not installed. The
+                // primary action becomes "Download model" until they are provisioned.
+                <button className="btn btn-primary"
+                  onClick={() => startUvr5Download(vocalMissingIds)}
+                  disabled={uvr5Download && uvr5Download.status === 'running'}
+                  title={tr('The selected vocal-extraction models are not installed. Download them before tuning.',
+                    '所选的人声提取模型未安装，请先下载再开始微调。')}>
+                  {uvr5Download && uvr5Download.status === 'running'
+                    ? tr('Downloading…', '下载中…')
+                    : tr('Download Model', '下载模型')}
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={handleStart}
+                  disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
+                  title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
+                    ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模——请先为它们运行 download_models.py')
+                    : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
+              )}
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
                 title={tr('Delete finished task workspaces from the .staging cache (running tasks are never touched)', '从 .staging 缓存中删除已完成的任务工作区（运行中的任务永远不会被动到）')}>
                 {clearing ? tr('Cleaning…', '清理中…') : 'Clean Cache'}

@@ -73,10 +73,10 @@ function Invoke-Native {
   return $p.ExitCode
 }
 
-# --- locate venv python (created by 首次部署.bat / bootstrap.ps1) ---
+# --- locate venv python (created by deploy.bat / bootstrap.ps1) ---
 $VENV_PY = Join-Path $ROOT 'venv\Scripts\python.exe'
 if (-not (Test-Path $VENV_PY)) {
-  Die ("venv not found: {0}`n        Run 首次部署.bat first (it creates the venv), then re-run this." -f $VENV_PY)
+  Die ("venv not found: {0}`n        Run deploy.bat first (it creates the venv), then re-run this." -f $VENV_PY)
 }
 
 # ------------------------------------------------------------------
@@ -164,7 +164,7 @@ $pkgs = @(("torch=={0}" -f $Torch), ("torchaudio=={0}" -f $Audio), ("torchvision
 # frozen environment. Since deps are present, --no-deps installs torch cleanly and
 # leaves every locked version untouched.
 # Escape hatch: pass -WithDeps when installing torch onto a BARE venv (no prior
-# `首次部署.bat` run), where torch's runtime deps aren't present yet.
+# `deploy.bat` run), where torch's runtime deps aren't present yet.
 $depFlag = @('--no-deps')
 if ($WithDeps) {
   Warn '-WithDeps set — installing torch WITH its dependencies (may change locked versions).'
@@ -219,7 +219,7 @@ if ($probeRC -ne 0) {
   Warn 'torch installed but import/verify failed. See output above.'
   if (-not $WithDeps) {
     Warn 'If the error is a missing module (e.g. sympy/networkx/fsspec), you likely ran'
-    Warn 'this on a bare venv. Run 首次部署.bat first, or re-run with -WithDeps.'
+    Warn 'this on a bare venv. Run deploy.bat first, or re-run with -WithDeps.'
   }
 } else { Ok 'PyTorch ready.' }
 

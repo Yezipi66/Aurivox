@@ -7,7 +7,7 @@ cd /d "%~dp0"
 
 echo ============================================================
 echo   单独安装 PyTorch (CUDA 12.1)
-echo   * 需先运行过 "首次部署.bat" (已创建 venv)
+echo   * 需先运行过 "deploy.bat" (已创建 venv)
 echo   * 默认 CUDA 12.1 版本; 如需其它版本请用命令行参数, 例如:
 echo       powershell -ExecutionPolicy Bypass -File install_torch.ps1 -Cuda cu118
 echo       powershell -ExecutionPolicy Bypass -File install_torch.ps1 -Cpu

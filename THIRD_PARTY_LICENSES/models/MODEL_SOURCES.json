@@ -1,9 +1,9 @@
 {
-  "schema": 2,
+  "schema": 3,
   "product": "Aurivox",
-  "updated_at": "2026-07-17",
+  "updated_at": "2026-08-01",
   "default_base_version": "v2Pro",
-  "note": "Machine-readable inventory of third-party model weights Aurivox uses but does NOT bundle. The deployment wizard obtains these from the sources below; each remains governed by its own license. TIERS: 'core' = auto-selected set that runs the default V2Pro pipeline end-to-end (vocal-extract optional aside) — preprocess/ASR/text-frontend/feature-extraction/fine-tune/inference/publish; 'alt_base' = other GPT-SoVITS base versions (v2, v2ProPlus) offered as opt-in downloads; 'optional' = opt-in enhancements such as vocal separation. STAGE marks whether a component is needed at fine-tune, inference, or both. verification_status: 'verified' = source repo + license confirmed by maintainers; 'unverified' = source and/or weight license not yet independently confirmed and MUST be reviewed. Update THIS file (not NOTICE) when sources change. Excluded on purpose (not offered for download, hence no license obligation here): BigVGAN (v3/v4 vocoder, unused on the v2 line) and FunASR paraformer/vad/punc (retired, all ASR routed to faster-whisper).",
+  "note": "Machine-readable inventory of third-party model weights Aurivox uses but does NOT bundle. The deployment wizard obtains these from the sources below; each remains governed by its own license. TIERS: 'core' = auto-selected set that runs the default V2Pro pipeline end-to-end (vocal-extract optional aside) — preprocess/ASR/text-frontend/feature-extraction/fine-tune/inference/publish; 'alt_base' = other GPT-SoVITS base versions (v2, v2ProPlus) offered as opt-in downloads; 'optional' = opt-in enhancements such as vocal separation. STAGE marks whether a component is needed at fine-tune, inference, or both. verification_status: 'verified' = source repo + license confirmed by maintainers; 'unverified' = source and/or weight license not yet independently confirmed and MUST be reviewed. Update THIS file (not NOTICE) when sources change. Excluded on purpose (not offered for download, hence no license obligation here): BigVGAN (v3/v4 vocoder, unused on the v2 line) and FunASR paraformer/vad/punc (retired, all ASR routed to faster-whisper). ACCEPTANCE: per component, 'inform' = permissive license (MIT/Apache/CC etc.), the deploy wizard only asks the user to confirm they have READ it before downloading; 'required' = a license that mandates explicit acceptance to download (e.g. OpenRAIL / community / gated), the wizard forces an explicit 'I ACCEPT' and, if declined, simply skips that model (platform still deploys). All currently-offered weights are permissive => 'inform'.",
   "tiers": {
     "core": "Default V2Pro pipeline — auto-selected.",
     "alt_base": "Other GPT-SoVITS base versions — opt-in.",
@@ -39,8 +39,8 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "gsv_s2g_v2pro",
@@ -59,8 +59,8 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "gsv_s2d_v2pro",
@@ -78,8 +78,8 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "sv_eres2netv2",
@@ -101,8 +101,8 @@
       "license_note": "Downloaded from the GPT-SoVITS official model repo (lj1995/GPT-SoVITS), which is labelled MIT. The original weights (ModelScope iic/speech_eres2netv2_sv_zh-cn_16k-common) are Apache-2.0; the more specific upstream license (Apache-2.0) is recorded here.",
       "license_url": "https://www.modelscope.cn/models/iic/speech_eres2netv2_sv_zh-cn_16k-common/summary",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "cnhubert_base",
@@ -121,8 +121,8 @@
       "license": "MIT",
       "license_url": "https://huggingface.co/TencentGameMate/chinese-hubert-base",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "bert_roberta_wwm_large",
@@ -141,8 +141,8 @@
       "license": "Apache-2.0",
       "license_url": "https://huggingface.co/hfl/chinese-roberta-wwm-ext-large",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "asr_faster_whisper_large_v3_turbo",
@@ -160,8 +160,96 @@
       "license": "MIT",
       "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "funasr_paraformer_zh",
+      "description": "FunASR Paraformer-large zh ASR (中文识别主模型) — used by the FunASR engine for zh.",
+      "tier": "optional",
+      "download_group": "funasr",
+      "pipeline_role": "asr",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://www.modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+      "distribution_source": "https://www.modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+      "revision": "unknown",
+      "artifact": "asr/models/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/",
+      "artifact_sha256": null,
+      "license": "Apache-2.0",
+      "license_note": "FunASR (阿里达摩院/iic) 模型经 ModelScope 分发, 其模型页标注开源协议为 Apache-2.0 (用户实地核对确认)。注意: FunASR 框架代码仓库 github.com/modelscope/FunASR 为 MIT, 但权重本身以模型页的 Apache-2.0 为准。运行时由 funasr_asr.py 从 ModelScope 懒下载。",
+      "license_url": "https://www.modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "funasr_fsmn_vad",
+      "description": "FunASR FSMN-VAD voice-activity detector — segments audio for the zh FunASR pipeline.",
+      "tier": "optional",
+      "download_group": "funasr",
+      "pipeline_role": "asr",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://www.modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "distribution_source": "https://www.modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "revision": "unknown",
+      "artifact": "asr/models/speech_fsmn_vad_zh-cn-16k-common-pytorch/",
+      "artifact_sha256": null,
+      "license": "Apache-2.0",
+      "license_note": "FunASR (阿里达摩院/iic) 模型经 ModelScope 分发, 其模型页标注开源协议为 Apache-2.0 (用户实地核对确认)。注意: FunASR 框架代码仓库 github.com/modelscope/FunASR 为 MIT, 但权重本身以模型页的 Apache-2.0 为准。运行时由 funasr_asr.py 从 ModelScope 懒下载。",
+      "license_url": "https://www.modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "funasr_ct_punc",
+      "description": "FunASR CT-Transformer punctuation restorer — adds punctuation to zh transcripts.",
+      "tier": "optional",
+      "download_group": "funasr",
+      "pipeline_role": "asr",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://www.modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+      "distribution_source": "https://www.modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+      "revision": "unknown",
+      "artifact": "asr/models/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/",
+      "artifact_sha256": null,
+      "license": "Apache-2.0",
+      "license_note": "FunASR (阿里达摩院/iic) 模型经 ModelScope 分发, 其模型页标注开源协议为 Apache-2.0 (用户实地核对确认)。注意: FunASR 框架代码仓库 github.com/modelscope/FunASR 为 MIT, 但权重本身以模型页的 Apache-2.0 为准。运行时由 funasr_asr.py 从 ModelScope 懒下载。",
+      "license_url": "https://www.modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "funasr_uniasr_yue",
+      "description": "FunASR UniASR Cantonese (粤语) 2-pass ASR — used by the FunASR engine for yue.",
+      "tier": "optional",
+      "download_group": "funasr",
+      "pipeline_role": "asr",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://www.modelscope.cn/models/iic/speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online",
+      "distribution_source": "https://www.modelscope.cn/models/iic/speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online",
+      "revision": "unknown",
+      "artifact": "asr/models/speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online/",
+      "artifact_sha256": null,
+      "license": "Apache-2.0",
+      "license_note": "FunASR (阿里达摩院/iic) 模型经 ModelScope 分发, 其模型页标注开源协议为 Apache-2.0 (用户实地核对确认)。注意: FunASR 框架代码仓库 github.com/modelscope/FunASR 为 MIT, 但权重本身以模型页的 Apache-2.0 为准。运行时由 funasr_asr.py 从 ModelScope 懒下载。 (粤语 UniASR 的许可尚未逐一独立核实, 部署前请到其模型页复核。)",
+      "license_url": "https://www.modelscope.cn/models/iic/speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "g2pw",
@@ -182,8 +270,8 @@
       "license_note": "GitYCC/g2pW code is Apache-2.0 (repo LICENCE file). The G2PWModel ONNX weight is redistributed via the GPT-SoVITS package; the HF mirror alextomcat/G2PWModel is labelled apache-2.0.",
       "license_url": "https://github.com/GitYCC/g2pW/blob/master/LICENCE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "fast_langdetect_lid176",
@@ -204,8 +292,8 @@
       "license_note": "The fastText library CODE is MIT, but the pretrained lid.176 MODEL is distributed by fastText under CC-BY-SA-3.0 (trained on Wikipedia/Tatoeba/SETimes data under CC-BY-SA). The CC-BY-SA-3.0 license is the one that governs lid.176.bin itself.",
       "license_url": "https://fasttext.cc/docs/en/language-identification.html",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "gsv_s2g_v2",
@@ -224,8 +312,8 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "gsv_s2d_v2",
@@ -243,8 +331,8 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "gsv_s2g_v2proplus",
@@ -263,8 +351,8 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "gsv_s2d_v2proplus",
@@ -282,14 +370,14 @@
       "license": "MIT",
       "license_url": "https://github.com/RVC-Boss/GPT-SoVITS/blob/main/LICENSE",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
     },
     {
       "component_id": "uvr5_hp2",
       "description": "Vocal extraction weights for the optional pre-processing denoise step. NOTE: the UI option historically labelled 'MDX-Net' actually loads this HP2 file via the VR (Vocal Remover) architecture; MDX-Net itself is NOT used.",
       "tier": "optional",
-      "download_group": "uvr5",
+      "download_group": "uvr5_hp",
       "pipeline_role": "vocal_separation",
       "stage": [
         "finetune"
@@ -304,8 +392,184 @@
       "license_note": "HP2 weight distributed by lj1995/VoiceConversionWebUI (the RVC model repo, HF-labelled MIT); an identical copy (same SHA256) is mirrored in fumiama/RVC-Pretrained-Models. The architecture is the tsurumeso vocal-remover (VR), MIT. The UI label 'MDX-Net' is a misnomer — MDX-Net is not used.",
       "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
       "license_hash": null,
-      "verification_status": "verified",
-      "bundled": false
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_hp3",
+      "description": "VR-arch vocal-remover HP3 weight (alt aggressiveness).",
+      "tier": "optional",
+      "download_group": "uvr5_hp",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/HP3_all_vocals.pth",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/HP3_all_vocals.pth",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "Same repo/architecture/license as HP2 (VR, tsurumeso vocal-remover, MIT).",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_hp5",
+      "description": "VR-arch main-vocal HP5 weight (keeps lead vocal).",
+      "tier": "optional",
+      "download_group": "uvr5_hp",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/HP5_only_main_vocal.pth",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/HP5_only_main_vocal.pth",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "Same repo/architecture/license as HP2 (VR, MIT).",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_deecho_normal",
+      "description": "VR DeEcho (normal) reverb/echo removal weight.",
+      "tier": "optional",
+      "download_group": "uvr5_deecho",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/VR-DeEchoNormal.pth",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/VR-DeEchoNormal.pth",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "VR DeEcho family, distributed by lj1995/VoiceConversionWebUI (MIT).",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_deecho_aggressive",
+      "description": "VR DeEcho (aggressive) reverb/echo removal weight.",
+      "tier": "optional",
+      "download_group": "uvr5_deecho",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/VR-DeEchoAggressive.pth",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/VR-DeEchoAggressive.pth",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "VR DeEcho family, distributed by lj1995/VoiceConversionWebUI (MIT).",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_deecho_dereverb",
+      "description": "VR DeEcho-DeReverb reverb removal weight.",
+      "tier": "optional",
+      "download_group": "uvr5_deecho",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/VR-DeEchoDeReverb.pth",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/VR-DeEchoDeReverb.pth",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "VR DeEcho family, distributed by lj1995/VoiceConversionWebUI (MIT).",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_mdx_dereverb",
+      "description": "MDX-Net onnx de-reverb (FoxJoy) — vocals+other onnx pair.",
+      "tier": "optional",
+      "download_group": "uvr5_mdx",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "distribution_source": "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/uvr5_weights/onnx_dereverb_By_FoxJoy/vocals.onnx",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/onnx_dereverb_By_FoxJoy/vocals.onnx",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "onnx_dereverb_By_FoxJoy, distributed in lj1995/VoiceConversionWebUI uvr5_weights (MIT). Needs the paired other.onnx as well.",
+      "license_url": "https://huggingface.co/lj1995/VoiceConversionWebUI",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_bs_roformer",
+      "description": "BS-Roformer vocal separation checkpoint (model_bs_roformer_ep_317_sdr_12.9755).",
+      "tier": "optional",
+      "download_group": "uvr5_roformer",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/Eddycrack864/Music-Source-Separation-Training",
+      "distribution_source": "https://huggingface.co/Eddycrack864/Music-Source-Separation-Training/blob/main/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "BS-Roformer ep_317 checkpoint distributed via the MSST (Music-Source-Separation-Training) model-zoo mirror Eddycrack864/Music-Source-Separation-Training, HF-labelled MIT (user-confirmed). bsroformer.py uses a built-in default config for this checkpoint, so no yaml is fetched.",
+      "license_url": "https://huggingface.co/Eddycrack864/Music-Source-Separation-Training",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
+    },
+    {
+      "component_id": "uvr5_mel_band_roformer",
+      "description": "Mel-Band Roformer vocal separation checkpoint (SOTA-class main-vocal isolation).",
+      "tier": "optional",
+      "download_group": "uvr5_roformer",
+      "pipeline_role": "vocal_separation",
+      "stage": [
+        "finetune"
+      ],
+      "default_selected": false,
+      "source_repo": "https://huggingface.co/KimberleyJSN/melbandroformer",
+      "distribution_source": "https://huggingface.co/KimberleyJSN/melbandroformer/blob/main/MelBandRoformer.ckpt",
+      "revision": "unknown",
+      "artifact": "uvr5/uvr5_weights/MelBandRoformer.ckpt",
+      "artifact_sha256": null,
+      "license": "MIT",
+      "license_note": "Weight distributed by KimberleyJSN/melbandroformer, HF-labelled MIT (user-confirmed). bsroformer.py detects the arch from the filename and uses a built-in default config, so no yaml is fetched.",
+      "license_url": "https://huggingface.co/KimberleyJSN/melbandroformer",
+      "license_hash": null,
+      "bundled": false,
+      "acceptance": "inform"
     }
   ]
 }
