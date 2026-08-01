@@ -200,6 +200,26 @@ $REQ    = Join-Path $ROOT 'requirements.txt'
 $WHEELS = Join-Path $ROOT 'tools\wheels'
 if (-not (Test-Path $REQ)) { Die ('requirements.txt not found: {0}' -f $REQ) }
 
+# requirements.txt MUST be a fully-pinned freeze (we install it with --no-deps, which
+# does NOT pull transitive deps). If it still looks like the loose declarative source
+# (requirements.in) — a line with no version or a >=/< range, ignoring markered lines —
+# warn loudly: the env won't be reproducible. Generate the lock on a reference machine:
+#   venv\Scripts\python.exe tools\deploy\lock_requirements.py
+$reqPinned = 0; $reqRanged = 0
+foreach ($ln in (Get-Content -LiteralPath $REQ)) {
+  $s = $ln.Trim()
+  if (-not $s -or $s.StartsWith('#') -or $s.StartsWith('-') -or $s.Contains(';')) { continue }
+  if ($s -match '[<>](?!=)|>=|<=|~=|,') { $reqRanged++ }
+  elseif ($s.Contains('==')) { $reqPinned++ }
+  else { $reqRanged++ }  # bare name, no version = not frozen
+}
+if ($reqRanged -gt 0 -or $reqPinned -eq 0) {
+  Warn 'requirements.txt does NOT look like a fully-pinned freeze (found unpinned/ranged specs).'
+  Warn 'With --no-deps this may leave transitive deps MISSING and is NOT reproducible.'
+  Warn 'On a reference machine run:  venv\Scripts\python.exe tools\deploy\lock_requirements.py'
+  Warn 'then commit the regenerated requirements.txt. Continuing best-effort ...'
+}
+
 $findLinks = @()
 if (Test-Path $WHEELS) {
   $whlCount = (Get-ChildItem $WHEELS -Filter *.whl -ErrorAction SilentlyContinue | Measure-Object).Count

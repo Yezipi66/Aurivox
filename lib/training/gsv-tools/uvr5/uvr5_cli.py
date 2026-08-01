@@ -149,7 +149,8 @@ def _build_separator(model_path, model_name, device, is_half, agg, expert=None):
     if model_name == "onnx_dereverb_By_FoxJoy":
         from mdxnet import MDXNetDereverb
         chunks = expert.get("chunks")
-        return MDXNetDereverb(int(chunks) if chunks else 15)
+        # Default segment length is 4 GB-GPU-friendly; MDX-Net is OOM-prone (see mdxnet.py).
+        return MDXNetDereverb(int(chunks) if chunks else 8)
     if "roformer" in model_name.lower():
         from bsroformer import Roformer_Loader
         config_path = os.path.join(weights_dir, model_name + ".yaml")

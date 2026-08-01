@@ -7,7 +7,9 @@ pytorch-lightning>=2.4
 gradio<5
 ffmpeg-python
 onnxruntime; platform_machine == "aarch64" or platform_machine == "arm64"
-onnxruntime-gpu; platform_machine == "x86_64" or platform_machine == "AMD64"
+# onnxruntime-gpu 必须匹配随包 torch(cu121)自带的 cuDNN 8;1.19+ 改用 cuDNN 9,会导致
+# CUDA ExecutionProvider 静默失效、MDX-Net 退回 CPU。故锁定到 cuDNN-8 时代的 1.18.0。
+onnxruntime-gpu==1.18.0; platform_machine == "x86_64" or platform_machine == "AMD64"
 tqdm
 funasr==1.0.27
 cn2an

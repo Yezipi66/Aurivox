@@ -9,6 +9,22 @@ import soundfile as sf
 import torch
 from tqdm import tqdm
 
+# Windows / Python 3.8+: dependent DLLs of extension modules are NO LONGER resolved
+# via %PATH% — only via directories registered with os.add_dll_directory(). Register
+# torch's bundled CUDA/cuDNN DLL dir (cudart/cublas/cudnn…) BEFORE onnxruntime is
+# imported so its CUDAExecutionProvider can load. torch is imported above, so those
+# DLLs are also already mapped into the process. Without this, onnxruntime silently
+# falls back to CPU inside the pipeline's clean-env subprocess (even when a manual
+# `import torch, onnxruntime` in an interactive shell happens to work). No-op on
+# non-Windows and when the dir is absent.
+if os.name == "nt":
+    try:
+        _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.isdir(_torch_lib):
+            os.add_dll_directory(_torch_lib)
+    except Exception:
+        pass
+
 cpu = torch.device("cpu")
 
 
@@ -78,15 +94,89 @@ class Predictor:
         logger.info(ort.get_available_providers())
         self.args = args
         self.model_ = get_models(device=cpu, dim_f=args.dim_f, dim_t=args.dim_t, n_fft=args.n_fft)
-        self.model = ort.InferenceSession(
-            os.path.join(args.onnx, self.model_.target_name + ".onnx"),
-            providers=[
-                "CUDAExecutionProvider",
-                "DmlExecutionProvider",
-                "CPUExecutionProvider",
-            ],
-        )
-        logger.info("ONNX load done")
+        self._ort = ort
+        self._onnx_path = os.path.join(args.onnx, self.model_.target_name + ".onnx")
+        self._cpu_sess = None      # lazily built CPU session for OOM fallback
+        self._force_cpu = False    # flips true after the first CUDA OOM
+
+        # The FoxJoy dereverb ONNX is VRAM-hungry: it pushes [N,4,3072,512] float32
+        # tensors through convolutions, and with torch already resident on the GPU a
+        # full-batch run easily exhausts VRAM (cudaErrorMemoryAllocation), which then
+        # corrupts the cuDNN handle and takes the whole process down (Windows exit
+        # code 0xC0000409). We (a) cap the arena so it never over-grabs, (b) force the
+        # HEURISTIC conv-algo search so cuDNN doesn't reserve a huge workspace, and
+        # (c) run one window at a time (see _ort_run), falling back to CPU on OOM.
+        cuda_opts = {
+            "arena_extend_strategy": "kSameAsRequested",
+            "cudnn_conv_algo_search": "HEURISTIC",
+            "do_copy_in_default_stream": True,
+        }
+        # Escape hatch: UVR5_MDX_DEVICE=cpu forces MDX onto CPU (slow but crash-proof).
+        force_cpu_env = os.environ.get("UVR5_MDX_DEVICE", "").strip().lower() == "cpu"
+        if force_cpu_env:
+            providers = ["CPUExecutionProvider"]
+            print("[mdxnet] UVR5_MDX_DEVICE=cpu — forcing MDX-Net onto CPU.", flush=True)
+        else:
+            providers = [("CUDAExecutionProvider", cuda_opts), "CPUExecutionProvider"]
+
+        self.model = ort.InferenceSession(self._onnx_path, providers=providers)
+        self._input_name = self.model.get_inputs()[0].name
+        # Log the ACTUAL providers bound to the session (not the compiled list from
+        # get_available_providers(), which on onnxruntime<1.19 always lists CUDA even
+        # when its DLLs failed to load). This is the only reliable signal for whether
+        # MDX is really on GPU; printed (flush) so it lands in uvr5_cli.log too.
+        active = self.model.get_providers()
+        logger.info("ONNX load done; active providers=%s" % (active,))
+        print("[mdxnet] onnxruntime active providers: %s" % (active,), flush=True)
+        if "CUDAExecutionProvider" in set(active):
+            print(
+                "[mdxnet] note: MDX-Net is memory-hungry and OOM-prone on GPU. Running one "
+                "window per pass with a capped memory arena; the segment length (chunks=%s s) "
+                "defaults to a 4 GB GPU and can be raised on larger cards. On CUDA OOM this "
+                "falls back to CPU automatically." % getattr(args, "chunks", "?"),
+                flush=True,
+            )
+        if not force_cpu_env and "CUDAExecutionProvider" not in set(active):
+            print(
+                "[mdxnet] WARNING: no CUDA provider active — MDX-Net is running on CPU "
+                "and will be VERY slow (a 3-min song can take many minutes). Likely cause: "
+                "onnxruntime-gpu build vs CUDA/cuDNN mismatch. Fix: pin onnxruntime-gpu==1.18.0 "
+                "(matches torch cu121's cuDNN 8) and make sure the CUDA runtime DLLs are on PATH.",
+                flush=True,
+            )
+
+    def _cpu_session(self):
+        if self._cpu_sess is None:
+            self._cpu_sess = self._ort.InferenceSession(
+                self._onnx_path, providers=["CPUExecutionProvider"]
+            )
+        return self._cpu_sess
+
+    def _run_one(self, chunk):
+        # chunk: numpy [1,4,3072,512]. Try GPU; on CUDA OOM permanently fall back to
+        # CPU for the rest of the job (so the run COMPLETES instead of crashing).
+        if self._force_cpu:
+            return self._cpu_session().run(None, {self._input_name: chunk})[0]
+        try:
+            return self.model.run(None, {self._input_name: chunk})[0]
+        except Exception as e:  # noqa: BLE001 — onnxruntime raises a bare Fail
+            msg = str(e).lower()
+            if "out of memory" in msg or "cudaerrormemoryallocation" in msg or "cudnn" in msg:
+                print(
+                    "[mdxnet] CUDA out-of-memory during inference — falling back to CPU "
+                    "for MDX-Net (much slower, but avoids the crash). To always use CPU, "
+                    "set UVR5_MDX_DEVICE=cpu; or use a torch-native model (Mel-Band / "
+                    "BS-Roformer / HP / DeEcho) which is lighter on VRAM.",
+                    flush=True,
+                )
+                self._force_cpu = True
+                return self._cpu_session().run(None, {self._input_name: chunk})[0]
+            raise
+
+    def _ort_run(self, arr):
+        # Run [N,4,3072,512] one window at a time to cap peak VRAM, then concat.
+        outs = [self._run_one(arr[k : k + 1]) for k in range(arr.shape[0])]
+        return np.concatenate(outs, axis=0)
 
     def demix(self, mix):
         samples = mix.shape[-1]
@@ -143,16 +233,15 @@ class Predictor:
                 i += gen_size
             mix_waves = torch.tensor(mix_waves, dtype=torch.float32).to(cpu)
             with torch.no_grad():
-                _ort = self.model
                 spek = model.stft(mix_waves)
                 if self.args.denoise:
                     spec_pred = (
-                        -_ort.run(None, {"input": -spek.cpu().numpy()})[0] * 0.5
-                        + _ort.run(None, {"input": spek.cpu().numpy()})[0] * 0.5
+                        -self._ort_run(-spek.cpu().numpy()) * 0.5
+                        + self._ort_run(spek.cpu().numpy()) * 0.5
                     )
                     tar_waves = model.istft(torch.tensor(spec_pred))
                 else:
-                    tar_waves = model.istft(torch.tensor(_ort.run(None, {"input": spek.cpu().numpy()})[0]))
+                    tar_waves = model.istft(torch.tensor(self._ort_run(spek.cpu().numpy())))
                 tar_signal = tar_waves[:, :, trim:-trim].transpose(0, 1).reshape(2, -1).numpy()[:, :-pad]
 
                 start = 0 if mix == 0 else margin_size
