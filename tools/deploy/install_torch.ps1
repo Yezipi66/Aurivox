@@ -7,6 +7,12 @@
 #  This standalone script installs it separately and can be re-run any time
 #  (e.g. to switch CUDA build, or after a failed / offline first attempt).
 #
+#  onnxruntime is handled here TOO, for the same reason: the GPU package
+#  (onnxruntime-gpu) is dead weight on a machine without an NVIDIA GPU. We only
+#  support NVIDIA acceleration (no AMD / DirectML), so it is a binary choice tied
+#  to the SAME GPU probe as torch:  NVIDIA GPU ? onnxruntime-gpu : onnxruntime.
+#  It is therefore also kept OUT of requirements.txt (commented there).
+#
 #  CPU FALLBACK: with NO -Cpu / -Gpu / -Cuda argument, this script probes for a
 #  usable NVIDIA GPU (nvidia-smi, then WMI video-controller fallback). If one is
 #  found it installs the CUDA build; otherwise it FALLS BACK to the CPU-only build
@@ -42,6 +48,7 @@ param(
   [string]$Torch  = '2.2.0',
   [string]$Audio  = '2.2.0',
   [string]$Vision = '0.17.0',
+  [string]$Ort    = '1.18.0',
   [switch]$WithDeps
 )
 
@@ -222,6 +229,71 @@ if ($probeRC -ne 0) {
     Warn 'this on a bare venv. Run deploy.bat first, or re-run with -WithDeps.'
   }
 } else { Ok 'PyTorch ready.' }
+
+# ==============================================================================
+#  onnxruntime — same GPU/CPU split as torch (reuses the $Cpu decision above)
+# ==============================================================================
+# onnxruntime is kept OUT of requirements.txt for the same reason as torch: the
+# GPU package (onnxruntime-gpu) is useless on a box without an NVIDIA GPU — it
+# would just fall back to the CPU EP anyway, while emitting cuDNN-DLL warnings and
+# wasting space. We support ONLY NVIDIA acceleration (no AMD / DirectML), so the
+# choice is binary and follows the SAME probe as torch:
+#   * NVIDIA GPU present -> onnxruntime-gpu==<ver>  (CUDA EP; cuDNN 8, matches torch cu121)
+#   * otherwise          -> onnxruntime==<ver>      (CPU build)
+# Version pinned to 1.18.0 on purpose: 1.19+ moves to cuDNN 9 and SILENTLY
+# disables the CUDA ExecutionProvider (MDX-Net would quietly fall back to CPU).
+# Installed with the same --no-deps flag to protect the locked numpy/protobuf/etc.
+if ($Cpu) {
+  $ortPkg = 'onnxruntime=={0}' -f $Ort
+  Info ('installing CPU onnxruntime: {0}' -f $ortPkg)
+} else {
+  $ortPkg = 'onnxruntime-gpu=={0}' -f $Ort
+  Info ('installing GPU onnxruntime (CUDA ExecutionProvider): {0}' -f $ortPkg)
+}
+
+# onnxruntime and onnxruntime-gpu both provide the SAME `onnxruntime` import and
+# clash if co-installed. Remove BOTH first so re-runs (e.g. after moving the venv
+# to a different machine, or switching CPU<->GPU) end up with exactly one variant.
+Info 'ensuring a single onnxruntime variant (removing any conflicting install) ...'
+& $VENV_PY -m pip uninstall -y onnxruntime onnxruntime-gpu 2>$null | Out-Null
+
+# onnxruntime ships on PyPI (default index) — no --extra-index-url needed here.
+if ($UV_OK) {
+  Info 'using uv for onnxruntime download ...'
+  $uvArgs = @('-m','uv','pip','install','--python', "$VENV_PY") + $depFlag + @($ortPkg)
+  $rc = Invoke-Native $VENV_PY $uvArgs
+  if ($rc -ne 0) { Warn 'uv onnxruntime install failed; falling back to pip ...'; $UV_OK = $false }
+}
+if (-not $UV_OK) {
+  Info 'installing onnxruntime with pip ...'
+  $pipArgs = @('-m','pip','install') + $depFlag + @($ortPkg)
+  $rc = Invoke-Native $VENV_PY $pipArgs
+  if ($rc -ne 0) {
+    Die 'onnxruntime install failed. Check your network, then re-run this script.'
+  }
+}
+
+# --- verify onnxruntime (and, on GPU, that the CUDA EP actually loaded) ---
+$ortProbe = @'
+import onnxruntime as ort
+provs = ort.get_available_providers()
+print("  onnxruntime", ort.__version__, "providers =", provs)
+'@
+$ortTmp = Join-Path $env:TEMP ('ttsbroker_ortprobe_{0}.py' -f ([guid]::NewGuid().ToString('N')))
+Set-Content -Path $ortTmp -Value $ortProbe -Encoding UTF8
+$ortOut = & $VENV_PY -u $ortTmp 2>&1
+$ortRC = $LASTEXITCODE
+Remove-Item $ortTmp -ErrorAction SilentlyContinue
+$ortOut | ForEach-Object { Write-Host $_ }
+if ($ortRC -ne 0) {
+  Warn 'onnxruntime installed but import/verify failed. See output above.'
+} elseif (-not $Cpu -and -not ($ortOut -match 'CUDAExecutionProvider')) {
+  Warn 'onnxruntime-gpu is installed but CUDAExecutionProvider is NOT available —'
+  Warn 'it will run on CPU. Usually means the NVIDIA driver / CUDA runtime is missing,'
+  Warn 'or torch (which registers the cuDNN 8 DLLs) failed to import. Fix torch first.'
+} else {
+  Ok 'onnxruntime ready.'
+}
 
 # --- CPU FALLBACK reminder box (subitem 2) ------------------------------------
 # Repeat the fallback status at the very end so it is the last thing the deployer

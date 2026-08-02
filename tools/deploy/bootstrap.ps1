@@ -77,6 +77,7 @@ $TORCH_VER      = 'torch==2.2.0'
 $TORCHAUDIO_VER = 'torchaudio==2.2.0'
 $TORCHVISION_VER = 'torchvision==0.17.0'
 $CUDA_INDEX     = 'https://download.pytorch.org/whl/cu121'
+$ORT_GPU_VER    = 'onnxruntime-gpu==1.18.0'   # only used by the inline fallback below
 
 function Info($m){ Write-Host ('[deploy] {0}' -f $m) -ForegroundColor Cyan }
 function Ok($m){ Write-Host ('[deploy] {0}' -f $m) -ForegroundColor Green }
@@ -200,25 +201,23 @@ $REQ    = Join-Path $ROOT 'requirements.txt'
 $WHEELS = Join-Path $ROOT 'tools\wheels'
 if (-not (Test-Path $REQ)) { Die ('requirements.txt not found: {0}' -f $REQ) }
 
-# requirements.txt MUST be a fully-pinned freeze (we install it with --no-deps, which
-# does NOT pull transitive deps). If it still looks like the loose declarative source
-# (requirements.in) — a line with no version or a >=/< range, ignoring markered lines —
-# warn loudly: the env won't be reproducible. Generate the lock on a reference machine:
-#   venv\Scripts\python.exe tools\deploy\lock_requirements.py
-$reqPinned = 0; $reqRanged = 0
-foreach ($ln in (Get-Content -LiteralPath $REQ)) {
-  $s = $ln.Trim()
-  if (-not $s -or $s.StartsWith('#') -or $s.StartsWith('-') -or $s.Contains(';')) { continue }
-  if ($s -match '[<>](?!=)|>=|<=|~=|,') { $reqRanged++ }
-  elseif ($s.Contains('==')) { $reqPinned++ }
-  else { $reqRanged++ }  # bare name, no version = not frozen
-}
-if ($reqRanged -gt 0 -or $reqPinned -eq 0) {
-  Warn 'requirements.txt does NOT look like a fully-pinned freeze (found unpinned/ranged specs).'
-  Warn 'With --no-deps this may leave transitive deps MISSING and is NOT reproducible.'
-  Warn 'On a reference machine run:  venv\Scripts\python.exe tools\deploy\lock_requirements.py'
-  Warn 'then commit the regenerated requirements.txt. Continuing best-effort ...'
-}
+# requirements.txt is a hand-maintained, fully-pinned `pip freeze` snapshot. It is
+# installed with --no-deps (below), so EVERY transitive dependency must be listed and
+# EVERY version must be exact. "The freeze IS the lock" — there is no separate
+# requirements.in / lock generator anymore (that pip-tools-style automation was
+# retired: it copied upstream's `--no-binary=opencc` in and forced a source build
+# that fails on clean machines without a compiler).
+#
+# To regenerate: on the reference/dev machine that already has a WORKING venv, run
+#     venv\Scripts\python.exe -m pip freeze > requirements.txt
+# then hand-fix the two things freeze gets "wrong" for our delivery:
+#   1) re-comment the torch / torchaudio / torchvision lines freeze pulls in — torch
+#      is installed separately by install_torch.ps1 (step 4), which auto-detects the
+#      GPU and picks cu121 vs a CPU-only build. Hard-pinning +cu121 in the lock would
+#      bypass that and force cu121 onto GPU-less machines. (No --extra-index-url is
+#      needed here either — that was only for torch, which now lives outside the lock.)
+#   2) keep/add a short comment pinning onnxruntime-gpu to 1.18.0 (cuDNN 8; do NOT let
+#      it drift to 1.19+, which moves to cuDNN 9 and silently disables the CUDA EP).
 
 $findLinks = @()
 if (Test-Path $WHEELS) {
@@ -259,10 +258,21 @@ if (-not $UV_OK) {
   $pipArgs = @('-m','pip','install','--no-deps') + $findLinks + @('-r', "$REQ")
   $pRC = Invoke-Native $VENV_PY $pipArgs
   if ($pRC -ne 0) {
-    Warn 'no-deps install failed; retrying WITH the resolver (may hit version conflicts)...'
-    $pipArgs2 = @('-m','pip','install') + $findLinks + @('-r', "$REQ")
-    $pRC2 = Invoke-Native $VENV_PY $pipArgs2
-    if ($pRC2 -ne 0) { Die 'dependency install failed. See the output above.' }
+    # DO NOT retry with the dependency resolver. requirements.txt is a frozen
+    # snapshot meant for --no-deps; re-running WITH the resolver only surfaces
+    # paper-only conflicts (e.g. accelerate 1.14 wants torch>2.2 vs the pinned
+    # torch==2.2.0+cu121) that never affect the frozen runtime — a red herring
+    # that wastes hours. A --no-deps failure means ONE package could not be
+    # FETCHED or BUILT: read the LAST error above.
+    Warn 'pip --no-deps install FAILED.'
+    Warn 'This is a frozen lock installed with --no-deps; we do NOT fall back to the'
+    Warn 'resolver on purpose (it would report fake accelerate/torch conflicts).'
+    Warn 'One package could not be fetched or built — look at the LAST error above.'
+    Warn 'Most common cause: a compile-needing wheel (jieba_fast / pyopenjtalk, etc.)'
+    Warn 'with no prebuilt .whl on a machine that lacks a C/C++ toolchain. Fix by'
+    Warn 'dropping a prebuilt .whl into tools\wheels, OR install VS Build Tools +'
+    Warn 'Windows SDK on this machine, then re-run deploy.bat.'
+    Die 'dependency install failed (see the specific package error above).'
   }
 }
 Ok 'project dependencies installed.'
@@ -278,11 +288,12 @@ if ($LASTEXITCODE -ne 0) {
   Warn 'requirements.txt and re-run deploy.bat.'
 }
 
-# --- 4. torch (CUDA 12.1) — delegated to the standalone install_torch.ps1 ---
-# torch is kept out of requirements.txt (huge, CUDA-specific, dedicated index),
-# so it is installed by its own re-runnable script. This keeps concerns separate
-# and lets users re-install / switch CUDA build without re-running the whole
-# bootstrap: tools\deploy\install_torch.ps1  (or 安装PyTorch.bat).
+# --- 4. torch (CUDA 12.1) + onnxruntime — delegated to install_torch.ps1 ---
+# torch AND onnxruntime are kept out of requirements.txt (huge / CUDA-specific /
+# dedicated index / GPU-conditional), so they are installed by their own re-runnable
+# script, which probes for an NVIDIA GPU and picks the CUDA vs CPU build for BOTH.
+# This keeps concerns separate and lets users re-install / switch CUDA build without
+# re-running the whole bootstrap: tools\deploy\install_torch.ps1 (or 安装PyTorch.bat).
 $TORCH_OK = $false
 $torchScript = Join-Path $SCRIPT_DIR 'install_torch.ps1'
 if (Test-Path $torchScript) {
@@ -294,8 +305,14 @@ if (Test-Path $torchScript) {
   Warn 'Falling back to inline torch install.'
   # --no-deps: deps are already installed from the frozen requirements.txt above;
   # letting pip pull torch's deps would re-resolve and change our locked versions.
+  # NOTE: this inline path is a last resort (install_torch.ps1 missing). It CANNOT
+  # do GPU detection, so it assumes the dev-default CUDA build for BOTH torch and
+  # onnxruntime. A GPU-less machine should keep install_torch.ps1 present.
   $tArgs = @('-m','pip','install','--no-deps',$TORCH_VER,$TORCHAUDIO_VER,$TORCHVISION_VER,'--extra-index-url',$CUDA_INDEX)
   $null = Invoke-Native $VENV_PY $tArgs
+  # onnxruntime is also out of the lock now — install the GPU build here to match.
+  & $VENV_PY -m pip uninstall -y onnxruntime onnxruntime-gpu 2>$null | Out-Null
+  $null = Invoke-Native $VENV_PY @('-m','pip','install','--no-deps',$ORT_GPU_VER)
 }
 # Verify torch by ACTUALLY importing it — the only trustworthy signal. A killed
 # uv/pip (McAfee etc.) or a network error can leave torch missing while the step

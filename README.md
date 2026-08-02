@@ -35,7 +35,7 @@
 - **CUDA**: 12.1+
 - **GPU**: 支持 CUDA 的 NVIDIA 显卡即可（RTX 3050 / 3060 / 3070 均实测可部署，显存越大可用的 batch_size 越高）
 - **ffmpeg**（可选，推荐）: 训练/推理默认用 soundfile 读音频（覆盖 wav/flac/ogg 等）；装了 ffmpeg 后作为兜底可解码 mp3/m4a/aac 等 soundfile 读不了的格式，能 best-effort 吃下更多素材。不装也能跑，只是这类格式会被跳过并计入统计。
-- **onnxruntime**（随 `requirements.txt` 自动安装）: **g2pW**（中文多音字消歧）与 **UVR5 MDX-Net**（`onnx_dereverb`）依赖它。x86_64/AMD64（Windows + NVIDIA）装 `onnxruntime-gpu`，aarch64/arm64 装 CPU 版 `onnxruntime`。缺失时 MDX-Net 段会因 `No module named 'onnxruntime'` 直接失败，g2pW 则回退 pypinyin。
+- **onnxruntime**（由 `install_torch.ps1` 随 torch 一并安装）: **g2pW**（中文多音字消歧）与 **UVR5 MDX-Net**（`onnx_dereverb`）依赖它。安装脚本按**同一套 NVIDIA GPU 探测**选择:有 N 卡装 `onnxruntime-gpu`（CUDA EP），无 N 卡装 CPU 版 `onnxruntime`（只支持 N 卡,不支持 AMD/DirectML）。缺失时 MDX-Net 段会因 `No module named 'onnxruntime'` 直接失败，g2pW 则回退 pypinyin。
   > ⚠️ **版本必须与 torch 的 CUDA/cuDNN 对齐**：GPU 版**锁定 `onnxruntime-gpu==1.18.0`**（CUDA 12 + cuDNN 8，匹配随包 torch cu121）。`1.19+` 改用 cuDNN 9，会让 `CUDAExecutionProvider` **静默失效**、MDX-Net 悄悄退回 CPU（不报错、只是极慢）。因 `mdxnet.py` 先 `import torch` 再 `import onnxruntime`，torch 会把自带 cuDNN 8 目录注册进 DLL 搜索路径，onnxruntime 得以复用——无需额外配置 CUDA。验证：`python -c "import torch; import onnxruntime as ort; print(ort.get_available_providers())"` 应包含 `CUDAExecutionProvider`。
 
 ## 快速开始
@@ -54,10 +54,12 @@
 ### B. 开发模式
 
 ```bash
-# Python 依赖：开发时从「意图」文件带 resolver 装一遍（torch 见 install_torch.ps1）
-uv pip install -r requirements.in
-# 改完依赖后重新生成冻结锁（提交 requirements.txt）：
-#   python tools/deploy/lock_requirements.py
+# Python 依赖：直接按冻结锁精确复现（torch + onnxruntime 见 install_torch.ps1）
+pip install --no-deps -r requirements.txt
+# 改完依赖后，在这台开发机重新冻结并提交 requirements.txt：
+#   pip freeze > requirements.txt
+#   然后把 freeze 出来的 torch / torchaudio / torchvision 与 onnxruntime-gpu 这几行重新注释掉
+#   （由 install_torch.ps1 单独装，会自动判断有无 NVIDIA GPU：有→cu121+onnxruntime-gpu，无→CPU 版+onnxruntime）
 
 # Node.js 依赖
 npm install
@@ -74,25 +76,24 @@ start.bat
 
 ## 依赖锁定（完全可复现环境）
 
-Python 依赖走 **`.in`（意图）+ `.txt`（冻结锁）双文件** 模型，保证每台机器装出**完全一致**的环境：
+Python 依赖只有**一个** `requirements.txt` —— 一份**逐包精确 `==` pin 的完整 `pip freeze` 快照**（含全部传递依赖）。交付即开发机环境：在开发机上把 venv 调到能跑，`pip freeze` 出来什么，所有机器就用 `--no-deps` 装出**完全一致**的什么。**freeze 就是锁,没有第二个文件、没有生成器。**
 
-| 文件 | 角色 | 谁读 |
-| --- | --- | --- |
-| `requirements.in` | **人工维护**的声明式意图：允许版本范围、平台 marker、pip 选项、注释 | 人 |
-| `requirements.txt` | **自动生成**的完整 `pip freeze` 快照：逐包精确 `==` pin（含全部传递依赖） | 部署脚本 |
+> 注：早前那套 `requirements.in`（意图）+ `lock_requirements.py`（生成器）的 pip-tools 风格双文件已**退役**。它把上游官方 repo 的 `--no-binary=opencc` 抄了进来，强制 OpenCC 源码编译，在没有 C/C++ 工具链的纯净交付机上直接失败（我们交付给最终小白用户，环境必须写死、零编译）。
 
-- **安装**：`deploy.bat` / `bootstrap.ps1` 用 `uv pip install --no-deps -r requirements.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装，避免复现时被解析器悄悄升/降级。`torch/torchaudio/torchvision` 体积大且 CUDA 专属，由 `install_torch.ps1` 单独 `--no-deps` 安装，不进锁。
-- **改依赖**：编辑 `requirements.in` → 在**参考机器**上把 venv 装成可用状态 → 生成锁：
+- **安装**：`deploy.bat` / `bootstrap.ps1` 用 `uv pip install --no-deps -r requirements.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装,避免复现时被解析器悄悄升/降级,也避免纸面假冲突（如 `accelerate 1.14` 声明要 `torch>2.2` vs 锁死的 `torch==2.2.0+cu121`）。`torch/torchaudio/torchvision` **与 `onnxruntime`** 体积大且 GPU 专属，一并由 `install_torch.ps1` 单独 `--no-deps` 安装（同一套 NVIDIA 探测:有 N 卡→cu121+`onnxruntime-gpu`,无→CPU 版+`onnxruntime`;只支持 N 卡，不支持 AMD/DirectML）。
+- **改依赖**：在**开发机**上直接 `pip install ...` 把 venv 调到能跑 → 重新冻结覆盖：
 
   ```bat
-  venv\Scripts\python.exe tools\deploy\lock_requirements.py
+  venv\Scripts\python.exe -m pip freeze > requirements.txt
   ```
 
-  脚本冻结当前 venv，排除 torch 三件套与构建工具（pip/setuptools/wheel/uv），并保留 `.in` 里带平台 marker 的行（onnxruntime 的 cuDNN-8 锁、arm 上的 CPU 回退、`--no-binary=opencc`），覆盖写出 `requirements.txt`。**提交这份 `requirements.txt`**。
-  - freeze 忠实反映当前 venv：传递依赖一个不少（否则 `--no-deps` 安装会缺包）。不做「闭包剔除」——例如 `google-auth`/`google-cloud-storage` 一族其实是 `f5-tts → cached_path` 的真实依赖链（非 tensorboard 孤儿），保留。
-- **校验**：`lock_requirements.py --check` 判断 `requirements.txt` 是否已是完全冻结；`bootstrap.ps1` 部署时若发现 `requirements.txt` 仍是松散（含范围/无 pin）会**告警提示去跑 lock**（不阻断，best-effort 继续）。
+  然后**手动处理 `pip freeze` 会顺手带进来、但不该进锁的东西**：
+  1. 把 freeze 出来的 `torch` / `torchaudio` / `torchvision` **与 `onnxruntime-gpu`** 这几行**重新注释掉**——它们体积大、GPU 专属，由 `install_torch.ps1` 单独 `--no-deps` 安装（同一套 NVIDIA 探测:有 N 卡→cu121+`onnxruntime-gpu`,无→CPU 版+`onnxruntime`）。写死进锁会架空这个判断,把没显卡的机器硬塞进 GPU 包。因此锁里也**不需要** `--extra-index-url .../cu121`（那是 torch 唯一的用途，已随 torch 一起移出）；
+  2. `onnxruntime` 的版本 pin（`==1.18.0`,cuDNN 8;别漂到 1.19+，那会改用 cuDNN 9 并静默关掉 CUDA ExecutionProvider）现由 `install_torch.ps1` 的 `-Ort` 参数默认值持有；requirements.txt 顶部保留一条注释说明即可。
+  - freeze 忠实反映当前 venv:传递依赖一个不少（否则 `--no-deps` 安装会缺包）。**提交这份 `requirements.txt`**。
 
-> ⚠️ 因为安装用 `--no-deps`，`requirements.txt` **必须**是完整 freeze——否则传递依赖会缺失。别手改 `requirements.txt`，改 `requirements.in` 后重生成。
+> ⚠️ 因为安装用 `--no-deps`，`requirements.txt` **必须**是完整 freeze——否则传递依赖会缺失。改依赖 = 在开发机装好后 `pip freeze` 重新覆盖，**不要手工逐行编辑** pin。
+> ⚠️ 别再往 `requirements.txt` 里加 `--no-binary=...` 这类会触发源码编译的选项。需要编译的包（`jieba_fast` / `pyopenjtalk` 等）一律预编译成 wheel 放 `tools\wheels`,让交付机零编译器也能装。
 
 ## 训练 Pipeline
 
@@ -217,6 +218,24 @@ python scripts/pipeline/infer_s2.py \
    （非错误）；需置信度高亮请用 Faster Whisper。见 [`GUIDANCE.md` Q8](./GUIDANCE.md)。
 
 ## 更新日志
+
+### 2026-08-02 —— 依赖工作流回归纯 freeze：退役 requirements.in + lock_requirements.py，移除 --no-binary=opencc
+- 🐞 **根因**：交付机（纯净嵌入式 Python，无 VS Build Tools / Windows SDK）部署失败——`requirements.txt` 顶部的
+  `--no-binary=opencc` 强制 OpenCC 源码编译，CMake 找不到 `rc.exe`（`RC: 0`）→ Configure failed。该行原本不在项目最初的
+  纯 `pip freeze` 锁里,是后来引入 `requirements.in` 时**照抄上游官方 GPT-SoVITS repo** 带进来的（上游在有 gcc 的 Linux 上无害）。
+- ✅ **退役自动化**：删除 `tools/deploy/lock_requirements.py` 与 `requirements.in`。Python 依赖回归**单一 `requirements.txt` = `pip freeze` 快照**，
+  「开发机装好 → freeze → 所有机 `--no-deps` 精确复现」。交付最终小白用户,环境**写死、零编译**。
+- ✅ **移除 `--no-binary=opencc`**：OpenCC 恢复走 PyPI 预编译 wheel,交付机不再需要 C/C++ 工具链。需编译的 `jieba_fast`/`pyopenjtalk`
+  仍走 `tools\wheels` 预编译 wheel。
+- ✅ **bootstrap.ps1**：移除「检测松散→提示跑 lock」软校验(不再引用已删的生成器)；移除 `--no-deps` 失败后**带 resolver 重试**那段
+  （它只会暴露 `accelerate 1.14` 要 `torch>2.2` vs 锁死 `torch==2.2.0+cu121` 之类的纸面假冲突,误导排查）——改为直接报错并指向
+  「最后失败的那个包」（多半是缺预编译 wheel）。
+- 📝 **torch 三件套移出锁**：`torch` / `torchaudio` / `torchvision` 在 `requirements.txt` 里保持**注释**状态,由 `install_torch.ps1` 单独安装
+  ——它会自动探测有无 NVIDIA GPU（`nvidia-smi` → WMI），有则装 cu121、无则回退 CPU 版。写死进锁会架空判断,把无显卡机器硬塞 cu121。
+  故锁里也移除了 `--extra-index-url .../cu121`（torch 唯一用途）。
+- 📝 **onnxruntime 也移出锁（同理）**：`onnxruntime-gpu==1.18.0` 之前按 CPU 架构（x86_64）无条件安装,导致**没有 N 卡 / 用 AMD 卡**的 x86 机器
+  也被装上 GPU 版(白占体积、跑起来悄悄退回 CPU 且报 cuDNN DLL 警告)。现改为由 `install_torch.ps1` 用**同一套 GPU 探测**选择:有 N 卡→`onnxruntime-gpu==1.18.0`(CUDA EP,cuDNN 8),无→`onnxruntime==1.18.0`(CPU)。安装前先卸掉两个变体保证只留一个(两者提供同一 `onnxruntime` import,共存会冲突)。只支持 N 卡,**不支持 AMD/DirectML**。版本 pin 由脚本 `-Ort` 参数默认值(`1.18.0`)持有。
+- 📌 freeze 后需重新注释掉的行:`torch` / `torchaudio` / `torchvision` / `onnxruntime-gpu`（共 4 行,均由 install_torch.ps1 装）。
 
 ### 2026-08-01 —— 修正 onnxruntime-gpu 锁版 1.18.1→1.18.0
 - ✅ **onnxruntime-gpu 版本更正**：全项目（`requirements.in/.txt`、`lib/inference/requirements.txt`、`mdxnet.py`
