@@ -110,7 +110,8 @@ Python 依赖走 **`.in`（意图）+ `.txt`（冻结锁）双文件** 模型，
 |-----------|------|
 | `meta.json` | 资产元数据（`display_name` / 不可变 id / 语言 / assets 索引）|
 | `segments.json` | 参考片段索引 |
-| `raw/` | 原始音频 |
+| `raw/` | 训练用 raw 音频（启用人声提取时=**分离后的人声**；否则=原始输入）|
+| `raw_b4_extraction/` | 提取前的原始混音（仅启用人声提取且保留原始时生成，供审计/重构）|
 | `slicer_opt/` | 切片音频 |
 | `asr_opt/` | ASR 结果 |
 | `gpt_checkpoints/` | GPT (S1) 模型 |
@@ -120,10 +121,11 @@ Python 依赖走 **`.in`（意图）+ `.txt`（冻结锁）双文件** 模型，
 > 注：`2-name2text.txt`、`4-cnhubert/`、`5-wav32k/`、`6-name2semantic.tsv`、`logs_s1/`、`logs_s2/`
 > 等是**训练过程中的中间产物**，位于训练工作区（staging），发布后即被清理，不属于入库约定。
 
-> 🎙️ **人声提取的 raw 语义**：启用人声分离后，**分离出的人声**（`.staging/{taskId}/denoise/`）才是喂给
-> 切片 → ASR → 训练的「训练用 raw」。为便于审计/重构，denoise 运行前会把**原始混音**快照到
-> `.staging/{taskId}/raw_b4_extraction/`，使工作区自包含（原始输入 + 分离结果都在）。设 `UVR5_KEEP_RAW=0`
-> 可跳过快照以省磁盘；改人声参数重跑时该目录随 `denoise/` 一并清理并重新快照。未启用人声分离时不产生此目录。
+> 🎙️ **人声提取的 raw 语义**：启用人声分离后，**分离出的人声**才是喂给切片 → ASR → 训练的「训练用 raw」，
+> 因此发布到资产时 **`raw/` = 分离后的人声**，而**提取前的原始混音**归档到 **`raw_b4_extraction/`**（便于审计/
+> 重构/换参重跑）。未启用人声分离时 `raw/` 仍是原始输入（行为不变）。提取前原始的保留由「人声提取」面板的
+> **「保留提取前的原始音频」**复选框控制（默认开），命令行也可用 `UVR5_KEEP_RAW=0` 跳过。工作区侧先在
+> `.staging/{taskId}/raw_b4_extraction/` 快照，收尾时随 `raw/` 转入资产；改人声参数重跑该快照随 `denoise/` 一并重建。
 
 ### 训练配置
 
@@ -223,6 +225,14 @@ python scripts/pipeline/infer_s2.py \
   tensorboard 孤儿，而是 **`f5-tts → cached_path → google-cloud-storage`** 的真实依赖链（`tensorboardX` 由
   `funasr`/`modelscope` 引入）。故 lock 工具**不做**闭包剔除，freeze 忠实保留全部传递依赖。是否精简取决于后续
   是否保留 f5-tts（待评估其词组/语言支持是否与本项目对齐）。
+
+### 2026-08-02 —— 修正资产 raw 语义：提取后人声=raw，提取前原始→raw_b4_extraction（含 UI 开关）
+- 🐞 **修复**：此前 `finalize` 无条件把**外部原始输入**拷成资产 `raw/`，即便跑过人声提取——与「分离后人声才是训练 raw」
+  的约定相悖。现在 `finalize` 判断是否跑过提取（`workDir/denoise` 有音频）：**跑过→`raw/`=分离后人声**，并把提取前原始
+  混音归档到资产 **`raw_b4_extraction/`**；未跑过→`raw/`=原始输入（行为不变）。
+- ✅ **UI 开关**：「人声提取」面板新增 **「保留提取前的原始音频（raw_b4_extraction/）」** 复选框（默认开），贯通
+  `stepOptions.keepRawB4Extraction` → `denoise`（是否快照）+ `finalize`（是否发布）。取消勾选可省磁盘；`UVR5_KEEP_RAW=0` 仍生效。
+- ✅ **重跑安全**：`raw_b4_extraction` 加入 finalize 的 carry-forward 继承清单，局部重建/换参重跑时不会误删旧资产里的该目录。
 
 ### 2026-08-01 —— 人声提取保留原始混音（raw_b4_extraction）：工作区自包含、便于重构
 - ✅ **快照原始输入**：denoise 运行前把**原始混音**从外部 `inputDir` 拷入 `.staging/{taskId}/raw_b4_extraction/`。

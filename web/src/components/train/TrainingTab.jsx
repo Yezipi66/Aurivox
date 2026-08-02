@@ -285,6 +285,7 @@ function archiveToForm(archive) {
   if (so.slice != null) out.slice = so.slice;
   if (so.asr != null) out.asr = so.asr;
   if (so.copyRaw != null) out.copyRaw = so.copyRaw;
+  if (so.keepRawB4Extraction != null) out.keepRawB4Extraction = !!so.keepRawB4Extraction;
   if (so.train_s1 != null || so.train != null) out.trainS1 = (so.train_s1 ?? so.train) !== false;
   if (so.train_s2 != null || so.train != null) out.trainS2 = (so.train_s2 ?? so.train) !== false;
   if (so.pauseAfterAsr != null) out.preprocessReview = !!so.pauseAfterAsr;
@@ -1120,6 +1121,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
     inputDir: '', language: 'auto', voiceName: '',
     preset: 'default', trainSavedPresets: [], expertUnlocked: false,
     denoise: false, slice: true, asr: true, copyRaw: true,
+    keepRawB4Extraction: true,
     trainS1: true, trainS2: true,
     preprocessReview: false,
     pauseAfterDenoise: true,
@@ -1456,6 +1458,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       ? buildRecoverySteps()
       : {
           denoise: form.denoise, slice: form.slice, asr: form.asr, copyRaw: form.copyRaw,
+          keepRawB4Extraction: form.keepRawB4Extraction !== false,
           train_s1: form.trainS1 !== false, train_s2: form.trainS2 !== false,
           pauseAfterAsr: !!form.preprocessReview, pauseAfterDenoise: form.pauseAfterDenoise !== false,
           keepStaging: !!form.keepStaging,
@@ -1692,6 +1695,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
       slice: on('slice', !!form.slice),
       asr: on('asr', !!form.asr),
       copyRaw: form.copyRaw,
+      keepRawB4Extraction: form.keepRawB4Extraction !== false,
       preprocess: on('preprocess', true),
       train_s1: on('train_s1', form.trainS1 !== false),
       train_s2: on('train_s2', form.trainS2 !== false),
@@ -2012,6 +2016,19 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
             {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
                 '启用后，流程会在分离完成后立即停止，让你试听提取出的人声。听着干净就继续，质量差就取消本次任务——这是决定成败的第一道 GIGO 门。')}
+          </p>
+
+          {/* 提取后，分离出的人声才是真正的“raw”（切片/ASR/训练都用它）。提取前的
+              原始混音默认归档到资产的 raw_b4_extraction/，便于日后重构或换参重跑。
+              个别只想留最终人声、想省磁盘的用户可以关掉。 */}
+          <label className="toggle-row" style={{ marginBottom: 8 }}>
+            <input type="checkbox" checked={form.keepRawB4Extraction !== false}
+                   onChange={e => setField('keepRawB4Extraction', e.target.checked)} />
+            {tr('Keep pre-extraction originals (raw_b4_extraction/)', '保留提取前的原始音频（raw_b4_extraction/）')}
+          </label>
+          <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
+            {tr('After extraction the separated vocals become the asset\u2019s raw/ (they are what slicing, ASR and training use). The original pre-extraction mixdown is archived to raw_b4_extraction/ so the voice folder stays self-contained and can be reconstructed. Turn this off to save disk if you only need the final vocals.',
+                '提取完成后，分离出的人声会成为资产的 raw/（切片、ASR、训练都用它）。提取前的原始混音则归档到 raw_b4_extraction/，让音色目录自包含、可随时重构或换参重跑。若只需最终人声、想省磁盘，可关闭此项。')}
           </p>
 
           <div className="field">
