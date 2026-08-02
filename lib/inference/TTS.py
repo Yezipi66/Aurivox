@@ -32,7 +32,7 @@ from gsv_code.AR.models.t2s_lightning_module import Text2SemanticLightningModule
 from BigVGAN.bigvgan import BigVGAN
 from gsv_code.feature_extractor.cnhubert import CNHubert
 from gsv_code.module.mel_processing import mel_spectrogram_torch, spectrogram_torch
-from gsv_code.module.models import SynthesizerTrn, SynthesizerTrnV3, Generator
+from gsv_code.module.models import SynthesizerTrn, Generator
 from peft import LoraConfig, get_peft_model
 from gsv_code.process_ckpt import get_sovits_version_from_path_fast, load_sovits_new
 from transformers import AutoModelForMaskedLM, AutoTokenizer
@@ -420,7 +420,7 @@ class TTS:
             self.configs: TTS_Config = TTS_Config(configs)
 
         self.t2s_model: Text2SemanticLightningModule = None
-        self.vits_model: Union[SynthesizerTrn, SynthesizerTrnV3] = None
+        self.vits_model: SynthesizerTrn = None
         self.bert_tokenizer: AutoTokenizer = None
         self.bert_model: AutoModelForMaskedLM = None
         self.cnhuhbert_model: CNHubert = None
@@ -538,17 +538,10 @@ class TTS:
             )
             self.configs.use_vocoder = False
         else:
-            kwargs["version"] = model_version
-            vits_model = SynthesizerTrnV3(
-                self.configs.filter_length // 2 + 1,
-                self.configs.segment_size // self.configs.hop_length,
-                n_speakers=self.configs.n_speakers,
-                **kwargs,
+            raise RuntimeError(
+                f"SoVITS v3/v4 are no longer supported (model_version={model_version}). "
+                "This build ships v1/v2/v2Pro/v2ProPlus only; f5-tts/DiT was removed."
             )
-            self.configs.use_vocoder = True
-            self.init_vocoder(model_version)
-            if "pretrained" not in weights_path and hasattr(vits_model, "enc_q"):
-                del vits_model.enc_q
 
         self.is_v2pro = model_version in {"v2Pro", "v2ProPlus"}
 

@@ -37,10 +37,7 @@ sys.path.append(now_dir)
 import logging
 from gsv_code import utils
 
-if version != "v3":
-    from gsv_code.module.models import SynthesizerTrn
-else:
-    from gsv_code.module.models import SynthesizerTrnV3 as SynthesizerTrn
+from gsv_code.module.models import SynthesizerTrn
 # clean_path inlined (removed tools dependency)
 def clean_path(path_str):
     if path_str.endswith(("/", "\\")):
