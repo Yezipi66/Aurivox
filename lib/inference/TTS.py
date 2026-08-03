@@ -5,6 +5,7 @@ import random
 import sys
 import time
 import traceback
+from collections import OrderedDict
 from copy import deepcopy
 
 # IMPORTANT: import librosa BEFORE torch/torchaudio.
@@ -455,6 +456,28 @@ class TTS:
             "aux_ref_audio_paths": [],
         }
 
+        # --- Reference-audio prompt LRU (model residency) ---------------------
+        # Extracting a primary reference's prompt_semantic (cnhubert ->
+        # vits.extract_latent) and refer_spec (spectrogram) is the per-ref cost
+        # paid whenever the primary reference changes. The single prompt_cache
+        # slot only remembers the LAST reference, so alternating references
+        # (the norm for a multi-recipe broker) re-extracts on every switch.
+        #
+        # This LRU keeps the last N references' extracted tensors resident, so a
+        # repeat reference is restored instantly with NO weight reload and NO
+        # re-extraction. Each entry is stamped with the SoVITS weights path it
+        # was computed under and its v2pro-ness, because prompt_semantic comes
+        # from vits_model.extract_latent and is only valid for that exact SoVITS
+        # model; stamping (rather than clearing on every switch) lets references
+        # belonging to DIFFERENT resident voices coexist in the cache, which is
+        # exactly what a recipe-driven broker cycling through many voices wants.
+        # Cap is env-tunable (AURIVOX_REF_CACHE, default 8; 0 disables).
+        try:
+            self._ref_cache_cap = max(0, int(os.environ.get("AURIVOX_REF_CACHE", "8")))
+        except Exception:
+            self._ref_cache_cap = 8
+        self._ref_lru = OrderedDict()
+
         self.stop_flag: bool = False
         self.precision: torch.dtype = torch.float16 if self.configs.is_half else torch.float32
 
@@ -583,6 +606,17 @@ class TTS:
             f"is_half={self.configs.is_half} device={self.configs.device} param_dtype={_pdtype} "
             f"src={weights_path}"
         )
+
+        # The resident SoVITS just changed, so the currently-loaded primary
+        # reference's prompt_semantic (from the previous extract_latent) is now
+        # stale. Invalidate the live primary slot so the next run() re-extracts
+        # even if it reuses the SAME ref_audio_path. The LRU itself is NOT
+        # cleared — its entries are stamped with the weights they were built
+        # under, so references for other resident voices stay valid and hot.
+        # Guarded because _init_models() calls this during __init__ before
+        # prompt_cache / _ref_lru exist.
+        if hasattr(self, "prompt_cache"):
+            self.prompt_cache["ref_audio_path"] = None
 
         self.configs.save_configs()
 
@@ -762,9 +796,65 @@ class TTS:
         Args:
             ref_audio_path: str, the path of the reference audio.
         """
+        # Fast path: restore a previously-extracted reference from the LRU
+        # (correct only when the resident SoVITS weights / v2pro-ness still
+        # match what it was computed under — see _ref_lru_restore). On a hit we
+        # skip cnhubert + extract_latent + spectrogram entirely.
+        if self._ref_lru_restore(ref_audio_path):
+            return
         self._set_prompt_semantic(ref_audio_path)
         self._set_ref_spec(ref_audio_path)
         self._set_ref_audio_path(ref_audio_path)
+        self._ref_lru_store(ref_audio_path)
+
+    def _ref_lru_restore(self, ref_audio_path):
+        """Restore a cached primary reference into prompt_cache without
+        recomputation. Returns True on a valid hit, False on miss/stale."""
+        if self._ref_cache_cap <= 0:
+            return False
+        entry = self._ref_lru.get(ref_audio_path)
+        if entry is None:
+            return False
+        # prompt_semantic depends on the SoVITS codebook (extract_latent); the
+        # refer_spec tuple layout depends on v2pro. If either changed since the
+        # entry was built it is stale — drop it and force a fresh extraction.
+        cur_vits = getattr(self.configs, "vits_weights_path", None)
+        if entry.get("vits_weights_path") != cur_vits or entry.get("is_v2pro") != self.is_v2pro:
+            try:
+                del self._ref_lru[ref_audio_path]
+            except KeyError:
+                pass
+            return False
+        self.prompt_cache["prompt_semantic"] = entry["prompt_semantic"]
+        if self.prompt_cache["refer_spec"] in [[], None]:
+            self.prompt_cache["refer_spec"] = [entry["refer_spec0"]]
+        else:
+            self.prompt_cache["refer_spec"][0] = entry["refer_spec0"]
+        self.prompt_cache["raw_audio"] = entry["raw_audio"]
+        self.prompt_cache["raw_sr"] = entry["raw_sr"]
+        self.prompt_cache["ref_audio_path"] = ref_audio_path
+        self._ref_lru.move_to_end(ref_audio_path)
+        return True
+
+    def _ref_lru_store(self, ref_audio_path):
+        """Snapshot the just-extracted primary reference into the LRU."""
+        if self._ref_cache_cap <= 0:
+            return
+        try:
+            spec0 = self.prompt_cache["refer_spec"][0]
+        except (IndexError, TypeError, KeyError):
+            return
+        self._ref_lru[ref_audio_path] = {
+            "prompt_semantic": self.prompt_cache.get("prompt_semantic"),
+            "refer_spec0": spec0,
+            "raw_audio": self.prompt_cache.get("raw_audio"),
+            "raw_sr": self.prompt_cache.get("raw_sr"),
+            "vits_weights_path": getattr(self.configs, "vits_weights_path", None),
+            "is_v2pro": self.is_v2pro,
+        }
+        self._ref_lru.move_to_end(ref_audio_path)
+        while len(self._ref_lru) > self._ref_cache_cap:
+            self._ref_lru.popitem(last=False)
 
     def _set_ref_audio_path(self, ref_audio_path):
         self.prompt_cache["ref_audio_path"] = ref_audio_path

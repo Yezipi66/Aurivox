@@ -148,3 +148,4 @@ lib/inference/tts_infer.yaml
 
 tools/deploy/.deploy_*.txt
 tools/deploy/.deploy_selection.json
+.patch-backup/

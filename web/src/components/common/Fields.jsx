@@ -109,6 +109,11 @@ function BrokerApiNoteCard({ endpoint, acked, onAck, onCollapse }) {
   -H "Content-Type: application/json" \\
   -d '{"model":"tts-1","voice":"narrator/warm","input":"${sampleInput}","response_format":"wav","language":"ja"}' \\
   --output out.wav`
+  const streamCurl = `# streaming: chunked, first-byte-fast; nothing saved on server unless persist:true
+curl -N -X POST ${endpoint || '<host>/v1/audio/speech'} \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"tts-1","voice":"narrator/warm","input":"${sampleInput}","response_format":"wav","stream":true}' \\
+  --output out.wav`
   const py = `from openai import OpenAI
 client = OpenAI(base_url="${base}/v1", api_key="unused")
 client.audio.speech.create(
@@ -135,6 +140,7 @@ client.audio.speech.create(
               <li><code>input</code>（<strong>必填</strong>）：待合成文本，最长 5000 字符。</li>
               <li><code>model</code>（可选）：仅为兼容 OpenAI 客户端而接受，<strong>会被忽略</strong> —— 实际的 GPT / SoVITS 权重由 recipe 固定。随便填（如 <code>tts-1</code>）即可。</li>
               <li><code>response_format</code>（可选）：默认 <code>wav</code>（无外部依赖）。<code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> 需要服务器安装 <code>ffmpeg</code>。</li>
+              <li><code>stream</code>（<strong>可选，Aurivox 扩展</strong>）：设 <code>true</code> 分块边合边回、首字节更快；<strong>默认不在服务器落盘</strong>，需归档时再加 <code>persist:true</code>（一边回流一边存档）。<strong>流式仅支持 <code>wav</code> / <code>ogg</code></strong>（<code>mp3</code> 等需整段转码，不走流式）。客户端断开连接即中止本次合成。</li>
               <li><code>speed</code>（可选）：语速倍率。</li>
               <li><code>language</code>（<strong>可选，Aurivox 扩展</strong>）：单次请求指定朗读语言，<strong>优先级最高</strong>。支持 <code>zh</code> / <code>ja</code> / <code>en</code> / <code>auto</code>（裸码 <code>zh</code>/<code>ja</code> 会归一为引擎模式 <code>all_zh</code>/<code>all_ja</code>；也可直接传规范值 <code>all_zh</code>/<code>all_ja</code>/<code>auto_zh_ja</code>，与 recipe 存储一致）；其它值（含暂未维护的 <code>yue</code>/<code>ko</code>）<strong>不报错</strong>，会回落到 <code>auto</code> 并带 <code>X-Language-Warning</code> 提示不支持。OpenAI 官方 SDK 通过 <code>extra_body</code> 传（见下方 Python 示例）。</li>
             </ul>
@@ -145,9 +151,17 @@ client.audio.speech.create(
               recipe 也没钉语言</strong>而兜底到 <code>auto</code> 时（或请求了不支持的语言），才带 <code>X-Language-Warning</code>。
               想要确定性输出，请求里显式带 <code>language</code>，或在 recipe 上设置语言。
             </p>
+            <p>
+              <strong>性能与并发（v1.0.6）：</strong>
+              ① <strong>请求内并行</strong> —— 单条较长请求会被切分并行合成以压低时延，默认 <code>batch_size=4</code>；显存吃紧或长文本 OOM 时把服务器环境变量 <code>AURIVOX_TTS_BATCH_SIZE</code> 设为 <code>1</code>（或在 recipe 高级参数里下调），显存富裕可上调（1–16）。
+              ② <strong>模型留驻</strong> —— 同一音色连续合成不重载权重；<strong>换参考音频</strong>也走缓存（最近用过的免重抽），多音色 recipe 轮转各自保持热，容量由 <code>AURIVOX_REF_CACHE</code> 控制（默认 8）。
+              ③ <strong>过载保护</strong> —— 推理为单卡串行，请求排队积压超上限时立即返回 <code>503</code>（<code>code: generation_queue_full</code>）并带 <code>Retry-After</code> 头，请客户端据此重试；上限 <code>AURIVOX_MAX_QUEUE</code>（默认 32，0=不限）、<code>AURIVOX_RETRY_AFTER</code>（默认 3 秒）。
+            </p>
             <p>常见命令：</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
             <pre className="nn-pre"><code>{py}</code></pre>
+            <p style={{ marginTop: 8 }}>{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
+            <pre className="nn-pre"><code>{streamCurl}</code></pre>
           </>
         ) : (
           <>
@@ -160,6 +174,7 @@ client.audio.speech.create(
               <li><code>input</code> (<strong>required</strong>): the text to synthesize, up to 5000 characters.</li>
               <li><code>model</code> (optional): accepted for OpenAI-client compatibility but <strong>ignored</strong> — the actual GPT / SoVITS weights are pinned by the recipe. Send any value (e.g. <code>tts-1</code>).</li>
               <li><code>response_format</code> (optional): defaults to <code>wav</code> (no external deps). <code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> require <code>ffmpeg</code> on the server.</li>
+              <li><code>stream</code> (<strong>optional, Aurivox extension</strong>): set <code>true</code> to stream audio in chunks (faster first byte); <strong>nothing is written on the server by default</strong> — add <code>persist:true</code> to also archive it while streaming. <strong>Streaming supports <code>wav</code> / <code>ogg</code> only</strong> (<code>mp3</code> etc. need whole-clip transcoding). Disconnecting the client aborts the synthesis.</li>
               <li><code>speed</code> (optional): playback speed multiplier.</li>
               <li><code>language</code> (<strong>optional, Aurivox extension</strong>): pins the reading language for this request at the <strong>highest priority</strong>. Supported: <code>zh</code> / <code>ja</code> / <code>en</code> / <code>auto</code> (bare <code>zh</code>/<code>ja</code> normalise to the engine modes <code>all_zh</code>/<code>all_ja</code>; the canonical <code>all_zh</code>/<code>all_ja</code>/<code>auto_zh_ja</code> forms are accepted too, matching what recipes store); any other value (including the currently-unmaintained <code>yue</code>/<code>ko</code>) is <strong>not an error</strong> — it falls back to <code>auto</code> and sets an <code>X-Language-Warning</code> saying it isn't supported. Pass it via <code>extra_body</code> with the official OpenAI SDK (see the Python sample).</li>
             </ul>
@@ -171,9 +186,17 @@ client.audio.speech.create(
               <code>language</code> and no recipe/asset language</strong> (or when an unsupported language was requested).
               For deterministic output, send <code>language</code> on the request, or set it on the recipe.
             </p>
+            <p>
+              <strong>Performance &amp; concurrency (v1.0.6):</strong>
+              (1) <strong>Within-request parallelism</strong> — a single long request is split and synthesized in parallel to cut latency; default <code>batch_size=4</code>. On low VRAM or long-text OOM, set the server env var <code>AURIVOX_TTS_BATCH_SIZE</code> to <code>1</code> (or lower it in the recipe's advanced params); raise it (1–16) if you have headroom.
+              (2) <strong>Model residency</strong> — consecutive calls to the same voice don't reload weights, and <strong>switching reference audio</strong> is cached too (recently-used refs skip re-extraction), so multi-voice recipe rotation stays warm. Capacity via <code>AURIVOX_REF_CACHE</code> (default 8).
+              (3) <strong>Overload protection</strong> — inference is single-GPU serial; when the queue backs up past the limit the server returns <code>503</code> (<code>code: generation_queue_full</code>) with a <code>Retry-After</code> header for the client to honor. Limits: <code>AURIVOX_MAX_QUEUE</code> (default 32, 0 = unbounded), <code>AURIVOX_RETRY_AFTER</code> (default 3s).
+            </p>
             <p>Common commands:</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
             <pre className="nn-pre"><code>{py}</code></pre>
+            <p style={{ marginTop: 8 }}>{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
+            <pre className="nn-pre"><code>{streamCurl}</code></pre>
           </>
         )}
       </div>

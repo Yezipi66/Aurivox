@@ -75,6 +75,7 @@ const { startCudaProbe, detectCuda } = require("./lib/system/cuda");
 // `let` locks below with encapsulated instances; same-named wrappers keep all
 // existing call sites unchanged.
 const { Mutex } = require("./lib/util/mutex");
+const { HttpError } = require("./lib/http/http");
 const { VoicesStore } = require("./lib/voices/store");
 // voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
 // in-place transcribe jobs. In-memory only (best-effort progress, like training).
@@ -303,7 +304,19 @@ app.use("/outputs", (req, res, next) => {
 // same-named wrappers below preserve every existing call site verbatim.
 const MAX_BACKUPS = 20;
 const voicesStore = new VoicesStore({ voicesJson: VOICES_JSON, backupDir: BACKUP_DIR, maxBackups: MAX_BACKUPS });
-const _generationMutex = new Mutex();
+// A-2 (bounded admission): cap how many synthesis requests may QUEUE behind the
+// single-GPU engine. Beyond this, requests are rejected fast with 503 +
+// Retry-After instead of piling up unbounded latency. 0 = unbounded (legacy).
+// Tune via AURIVOX_MAX_QUEUE; Retry-After seconds via AURIVOX_RETRY_AFTER.
+const _GEN_MAX_QUEUE = (() => {
+  const n = parseInt(process.env.AURIVOX_MAX_QUEUE, 10);
+  return (Number.isInteger(n) && n >= 0) ? n : 32;
+})();
+const _GEN_RETRY_AFTER = (() => {
+  const n = parseInt(process.env.AURIVOX_RETRY_AFTER, 10);
+  return (Number.isInteger(n) && n >= 1) ? n : 3;
+})();
+const _generationMutex = new Mutex({ maxPending: _GEN_MAX_QUEUE });
 // Same-model request coalescing (point 4): remembers the engine's currently
 // resident GPT/SoVITS weights and skips the redundant /set_*_weights reload
 // when the next request wants the same pair. Safe because every switchModels
@@ -317,7 +330,24 @@ function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(onlin
 function loadVoices() { return voicesStore.load(); }
 function saveVoices(data) { return voicesStore.save(data); }
 function withVoicesLock(fn) { return voicesStore.withLock(fn); }
-function withGenerationLock(fn) { return _generationMutex.runExclusive(fn); }
+// Translate a full-queue rejection (A-2) into an HTTP 503 the route layer
+// already serialises (asyncHandler applies err.headers, so Retry-After reaches
+// the client). Non-overflow errors propagate verbatim.
+async function withGenerationLock(fn) {
+  try {
+    return await _generationMutex.runExclusive(fn);
+  } catch (err) {
+    if (err && err.code === "GENERATION_QUEUE_FULL") {
+      throw new HttpError(
+        503,
+        { message: "Server is busy: too many synthesis requests are already queued. Retry shortly.", type: "server_overloaded", code: "generation_queue_full" },
+        { pending: err.pending, max_pending: err.maxPending, retry_after: _GEN_RETRY_AFTER },
+        { "Retry-After": String(_GEN_RETRY_AFTER) },
+      );
+    }
+    throw err;
+  }
+}
 function _backupVoicesUnlocked() { return voicesStore._backupUnlocked(); }
 function backupVoices() { return voicesStore.backup(); }
 
@@ -637,6 +667,16 @@ function resolveSeed(seed) {
   return (Number.isInteger(n) && n >= 0) ? n : Math.floor(Math.random() * 0x100000000);
 }
 
+// A-1 (within-request parallelism): batch_size groups the segments one input is
+// split into; with parallel_infer they run together, cutting the wall-clock time
+// of ONE multi-sentence request. Default raised 1 -> 4. This is the
+// throughput/VRAM knob: on a low-VRAM GPU that OOMs on long inputs, set
+// AURIVOX_TTS_BATCH_SIZE=1. Recipes / advanced params still override per call.
+const _DEFAULT_TTS_BATCH_SIZE = (() => {
+  const n = parseInt(process.env.AURIVOX_TTS_BATCH_SIZE, 10);
+  return (Number.isInteger(n) && n >= 1 && n <= 16) ? n : 4;
+})();
+
 function buildTtsPayload(text, cfg) {
   let refAudio = cfg.reference_audio || "";
   let refText = cfg.reference_text || "";
@@ -685,7 +725,7 @@ function buildTtsPayload(text, cfg) {
   if (payload.top_p === undefined) payload.top_p = 1.0;
   if (payload.temperature === undefined) payload.temperature = 1.0;
   if (payload.text_split_method === undefined) payload.text_split_method = "cut5";
-  if (payload.batch_size === undefined) payload.batch_size = 1;
+  if (payload.batch_size === undefined) payload.batch_size = _DEFAULT_TTS_BATCH_SIZE;
   if (payload.batch_threshold === undefined) payload.batch_threshold = 0.75;
   if (payload.split_bucket === undefined) payload.split_bucket = true;
   if (payload.speed_factor === undefined) payload.speed_factor = 1.0;
@@ -769,7 +809,7 @@ const DEFAULT_ADVANCED_PARAMS = {
   speed_factor: 1.0,
   seed: -1,
   // Advanced inference
-  batch_size: 1,
+  batch_size: _DEFAULT_TTS_BATCH_SIZE,
   batch_threshold: 0.75,
   split_bucket: true,
   fragment_interval: 0.3,

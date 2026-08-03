@@ -130,6 +130,11 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [streamingMode, setStreamingMode] = useState(false)
   const [overlapLength, setOverlapLength] = useState(2)
   const [minChunkLength, setMinChunkLength] = useState(16)
+  // A-1 engine-batch mode (1.0.6): hand the whole text to the engine in one call
+  // so it splits + batches in parallel (batch_size), instead of the broker
+  // synthesising each split segment sequentially. Produces a single audio (no
+  // per-segment files). Off by default to preserve the current segmented output.
+  const [engineBatch, setEngineBatch] = useState(false)
 
   // Load advanced params from backend on mount
   useEffect(() => {
@@ -386,7 +391,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       speed_factor: speedFactor, seed,
       batch_size: batchSize, batch_threshold: batchThreshold,
       split_bucket: splitBucket, fragment_interval: fragmentInterval,
-      parallel_infer: parallelInfer,
+      parallel_infer: parallelInfer, engine_batch: engineBatch,
       sample_steps: sampleSteps, if_sr: superSampling,
       media_type: mediaType, streaming_mode: streamingMode,
       overlap_length: overlapLength, min_chunk_length: minChunkLength,
@@ -410,7 +415,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
           speed_factor: speedFactor, seed,
           batch_size: batchSize, batch_threshold: batchThreshold,
           split_bucket: splitBucket, fragment_interval: fragmentInterval,
-          parallel_infer: parallelInfer,
+          parallel_infer: parallelInfer, engine_batch: engineBatch,
           sample_steps: sampleSteps, if_sr: superSampling,
           media_type: mediaType, streaming_mode: streamingMode,
           overlap_length: overlapLength, min_chunk_length: minChunkLength,
@@ -475,6 +480,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     if (p.streaming_mode !== undefined) setStreamingMode(!!p.streaming_mode)
     if (p.overlap_length !== undefined) setOverlapLength(p.overlap_length)
     if (p.min_chunk_length !== undefined) setMinChunkLength(p.min_chunk_length)
+    if (p.engine_batch !== undefined) setEngineBatch(!!p.engine_batch)
     if (Array.isArray(p.aux_ref_audio_paths)) setAuxRefs(p.aux_ref_audio_paths)
     else setAuxRefs([])
     if (p.pron_overrides && Object.keys(p.pron_overrides).length > 0) {
@@ -786,6 +792,10 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       <div>
                         <label className="field-label">Parallel Infer</label>
                         <input type="checkbox" checked={parallelInfer} onChange={e => setParallelInfer(e.target.checked)} />
+                      </div>
+                      <div title={t('Engine batch: send the whole text to the engine in ONE call so it splits and runs chunks through the model in parallel (batch_size). Faster for long text; produces a single audio file with no per-segment files.', '引擎批量：整段文本一次性交给引擎，由引擎切分并按 batch_size 并行推理。长文本更快；输出为单个音频、无分段文件。')}>
+                        <label className="field-label">{t('Engine Batch (parallel)', '引擎批量并行')}</label>
+                        <input type="checkbox" checked={engineBatch} onChange={e => setEngineBatch(e.target.checked)} />
                       </div>
                       <div>
                         <label className="field-label">Sample Steps (v3)</label>

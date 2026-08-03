@@ -58,6 +58,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
   const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
   const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
   const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
+  // A-1 engine-batch MASTER switch (1.0.6). Each row's own three-state control
+  // (inherit / on / off) resolves against this. Inherit => follow this master.
+  const [cmpEngineBatch, setCmpEngineBatch] = usePersistentState('compare.engineBatch', false)
   const [segmentsCache, setSegmentsCache] = useState({})  // { voiceId: segments[] }
   // Batch history — server-authoritative record of every "Generate All" run,
   // reconstructed from member meta.json (GET /api/outputs/batches). Shows how many
@@ -237,6 +240,8 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       text_split_method: dp.text_split_method ?? 'cut5',
       speed_factor: dp.speed_factor ?? 1.0,
       seed: dp.seed ?? -1,
+      // A-1 engine-batch three-state: 'inherit' (follow master) | 'on' | 'off'.
+      engine_batch: 'inherit',
       // P1-1 / #4: per-row reading proofing state (isolated from other rows).
       pronOverrides: {},
       hanForced: [],
@@ -306,6 +311,10 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
         text_split_method: row.text_split_method,
         speed_factor: row.speed_factor,
         seed: row.seed,
+        // A-1: resolve this row's three-state engine-batch against the master.
+        engine_batch: (row.engine_batch === 'on') ? true
+          : (row.engine_batch === 'off') ? false
+          : !!cmpEngineBatch,
       }
       // Batch tagging: when this row is part of a "Generate All", stamp the shared
       // batch id so the backend records all members as one comparison batch. A
@@ -444,6 +453,12 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
             </div>
           </div>
 
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, cursor: 'pointer' }}
+            title={t('Master switch: send each row\u2019s whole text to the engine in ONE call so it splits and batches chunks in parallel (batch_size). Faster; single audio per row, no per-segment files. Each row can override this (Advanced Settings \u2192 Engine Batch).', '总开关：把每一行的整段文本一次性交给引擎，由引擎切分并按 batch_size 并行推理。更快；每行输出单个音频、无分段文件。各行可在「Advanced Settings → Engine Batch」单独覆盖。')}>
+            <input type="checkbox" checked={cmpEngineBatch} onChange={e => setCmpEngineBatch(e.target.checked)} />
+            <span>{t('Engine Batch (parallel) \u2014 all rows', '引擎批量并行 \u2014 全部行（总开关）')}</span>
+          </label>
+
           <div className="cmp-toolbar">
             <button className="btn btn-sm btn-primary" onClick={addRow}>+ Add Row</button>
             <button className="btn btn-sm" onClick={generateAll} disabled={rows.length === 0 || rows.some(r => r.loading)}>
@@ -488,6 +503,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
           voices={voices}
           voiceLang={voiceLang}
           defaultTextLang={defaultTextLang}
+          masterEngineBatch={cmpEngineBatch}
         />
       ))}
 
@@ -602,7 +618,7 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
   )
 }
 
-function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang }) {
+function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch }) {
   const { t } = useT()
   const [showPicker, setShowPicker] = useState(false)
   const [pickerTarget, setPickerTarget] = useState('main') // 'main' or 'aux'
@@ -1149,6 +1165,14 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               <div>
                 <label className="field-label">Seed (-1 = random)</label>
                 <input type="number" className="control" value={seed} onChange={e => setSeed(parseInt(e.target.value) || -1)} />
+              </div>
+              <div title={t('Engine batch for THIS row. Inherit = follow the master switch above. On = whole text in one parallel-batched engine call (single audio, no per-segment files). Off = keep the sequential per-segment path.', '本行的引擎批量。继承=跟随上方总开关；开=整段一次性并行批量合成（单个音频、无分段文件）；关=保持逐段串行。')}>
+                <label className="field-label">{t('Engine Batch (parallel)', '引擎批量并行')}</label>
+                <Select className="control" value={row.engine_batch || 'inherit'} onChange={e => onUpdate(row.id, 'engine_batch', e.target.value)}>
+                  <option value="inherit">{t(`Inherit (${masterEngineBatch ? 'On' : 'Off'})`, `继承（${masterEngineBatch ? '开' : '关'}）`)}</option>
+                  <option value="on">{t('On', '开')}</option>
+                  <option value="off">{t('Off', '关')}</option>
+                </Select>
               </div>
             </div>
           </div>
