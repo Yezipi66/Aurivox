@@ -11,6 +11,44 @@ const multer = require("multer");
 const { ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig } = require('./lib/paths');
 const { getPythonPath, getCleanEnv } = require('./lib/training/python_helper');
 
+// ── File logging (1.0.7) ──────────────────────────────────────────
+// Tee console.log/info/warn/error to a daily-rotating file under logs/ (or
+// AURIVOX_LOG_DIR) so a distributed/headless run leaves an audit trail without
+// touching any existing console call site. Disable with AURIVOX_LOG_FILE=0.
+(function setupFileLogging() {
+  if (process.env.AURIVOX_LOG_FILE === "0") return;
+  try {
+    const logDir = process.env.AURIVOX_LOG_DIR || path.join(__dirname, "logs");
+    fs.mkdirSync(logDir, { recursive: true });
+    let day = ""; let stream = null;
+    const openFor = (d) => {
+      if (stream && day === d) return stream;
+      if (stream) { try { stream.end(); } catch (_) {} }
+      day = d;
+      stream = fs.createWriteStream(path.join(logDir, `aurivox-${d}.log`), { flags: "a" });
+      stream.on("error", () => {}); // a log write must never crash the server
+      return stream;
+    };
+    const fmt = (a) => (typeof a === "string" ? a
+      : (a instanceof Error ? (a.stack || a.message)
+      : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })()));
+    const write = (level, args) => {
+      try {
+        const now = new Date();
+        const line = `[${now.toISOString()}] [${level}] ` + args.map(fmt).join(" ") + "\n";
+        openFor(now.toISOString().slice(0, 10)).write(line);
+      } catch (_) { /* logging must never throw */ }
+    };
+    for (const level of ["log", "info", "warn", "error"]) {
+      const orig = console[level].bind(console);
+      console[level] = (...args) => { orig(...args); write(level.toUpperCase(), args); };
+    }
+    console.log(`[LOG] file logging -> ${logDir} (disable with AURIVOX_LOG_FILE=0)`);
+  } catch (e) {
+    try { console.error("[LOG] file logging disabled:", e.message); } catch (_) {}
+  }
+})();
+
 const app = express();
 // Environment-driven config with backward-compatible defaults
 const PORT = parseInt(process.env.BROKER_PORT || process.env.PORT || "9886", 10);
@@ -80,6 +118,21 @@ const { VoicesStore } = require("./lib/voices/store");
 // voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
 // in-place transcribe jobs. In-memory only (best-effort progress, like training).
 const transcribeJobs = new Map();
+
+// ── Graceful-shutdown coordinator (1.0.7) ─────────────────────────
+// On SIGINT/SIGTERM we stop accepting NEW connections and, by default, WAIT for
+// in-flight synthesis to finish before exiting (no truncated audio). A request
+// may OPT IN to being aborted on shutdown by sending `interrupted:true` in its
+// body: those are cancelled immediately (client socket closed -> upstream engine
+// stream aborted) instead of holding the drain. A second signal, or exceeding
+// AURIVOX_SHUTDOWN_GRACE_MS (default 120000), forces exit.
+const _inflight = new Set(); // { interruptible:boolean, abort():void } per active request
+let _shuttingDown = false;
+const shutdownState = {
+  get active() { return _inflight.size; },
+  get shuttingDown() { return _shuttingDown; },
+  register(entry) { _inflight.add(entry); return () => _inflight.delete(entry); },
+};
 
 // ---- Multer ----
 const ALLOWED_EXT = new Set([".wav", ".mp3", ".flac", ".m4a", ".ogg", ".webm"]);
@@ -238,7 +291,15 @@ function pickBestCkpt(list) {
   return list.slice().sort((a, b) => score(a) - score(b)).pop();
 }
 
-app.use(cors({ origin: "http://127.0.0.1:5173" }));
+// CORS (1.0.7): the browser origin(s) allowed to call this broker cross-origin.
+// Default is the Vite dev server (http://127.0.0.1:5173), used ONLY during
+// frontend development — in production the UI is served same-origin from
+// web/dist and needs no CORS at all. Set AURIVOX_CORS_ORIGIN to a comma-separated
+// allow-list (or "*" for any) to let an external OpenAI-compatible client call
+// /v1 from a web page.
+const CORS_ORIGIN = (process.env.AURIVOX_CORS_ORIGIN || "http://127.0.0.1:5173").trim();
+app.use(cors({ origin: CORS_ORIGIN === "*" ? true
+  : CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean) }));
 app.use(express.json({ limit: "10mb" }));
 app.use(validateHost);
 
@@ -1669,7 +1730,7 @@ function scanStagingTasks() {
 // factories. They receive shared server-scope symbols via `ctx` and are
 // mounted here (paths unchanged). The static frontend + SPA catch-all are
 // registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, TTS_PASS_THROUGH_KEYS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, TTS_PASS_THROUGH_KEYS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
 app.use(require("./lib/routes/voices")(ctx));
@@ -1704,8 +1765,30 @@ app.get("*", (req, res) => {
   }
 });
 
+// ── Global JSON error handler (1.0.7) ───────────────────────────
+// Any error handed to next(err) — most importantly multer upload failures (file
+// too large / unsupported type) and body-parser JSON syntax errors — would
+// otherwise reach Express's default handler and return an HTML stack page.
+// Normalise them to a JSON body so API / OpenAI clients always get a
+// machine-readable error. MUST stay LAST, after all routes.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const MULTER_STATUS = { LIMIT_FILE_SIZE: 413, LIMIT_UNEXPECTED_FILE: 400,
+    LIMIT_PART_COUNT: 400, LIMIT_FILE_COUNT: 400, LIMIT_FIELD_KEY: 400,
+    LIMIT_FIELD_VALUE: 400, LIMIT_FIELD_COUNT: 400 };
+  let status = (err && Number.isInteger(err.status)) ? err.status : 500;
+  if (err && err.name === "MulterError") status = MULTER_STATUS[err.code] || 400;
+  else if (err && err.type === "entity.too.large") status = 413;
+  else if (err && (err.type === "entity.parse.failed" || err instanceof SyntaxError)) status = 400;
+  else if (err && /Unsupported file type/i.test(err.message || "")) status = 400;
+  const msg = status >= 500
+    ? clientError(err, "Internal server error")
+    : ((err && err.message) ? err.message : "Bad request");
+  res.status(status).json({ error: msg });
+});
+
 // ---- Start ----
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`\n========================================`);
   console.log(`  TTS Voice Asset Manager`);
   console.log(`  http://${HOST}:${PORT}`);
@@ -1737,3 +1820,40 @@ app.listen(PORT, HOST, () => {
     }
   })();
 });
+
+// ── Graceful shutdown (1.0.7) ────────────────────────────────────
+// Default: stop taking new requests, let in-flight synthesis finish, then exit.
+// interrupted:true requests are aborted at once; a 2nd signal / grace timeout
+// forces exit.
+function shutdown(signal) {
+  if (_shuttingDown) {
+    console.warn(`[shutdown] second ${signal} — forcing exit now.`);
+    return process.exit(1);
+  }
+  _shuttingDown = true;
+  const graceMs = Math.max(0, parseInt(process.env.AURIVOX_SHUTDOWN_GRACE_MS, 10) || 120000);
+  console.log(`[shutdown] ${signal} received — refusing new requests; ` +
+    `${_inflight.size} in-flight (grace ${graceMs}ms).`);
+  try { server.close(() => console.log("[shutdown] HTTP server closed to new connections.")); } catch (_) {}
+  // Abort only the requests that explicitly opted in via interrupted:true.
+  for (const entry of _inflight) {
+    if (entry && entry.interruptible && typeof entry.abort === "function") {
+      try { entry.abort(); } catch (_) {}
+    }
+  }
+  const started = Date.now();
+  const timer = setInterval(() => {
+    if (_inflight.size === 0) {
+      clearInterval(timer);
+      console.log("[shutdown] all in-flight work finished — exiting cleanly.");
+      process.exit(0);
+    } else if (Date.now() - started > graceMs) {
+      clearInterval(timer);
+      console.warn(`[shutdown] grace elapsed with ${_inflight.size} still running — forcing exit.`);
+      process.exit(0);
+    }
+  }, 250);
+  if (typeof timer.unref === "function") timer.unref();
+}
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

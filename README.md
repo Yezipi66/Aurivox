@@ -5,7 +5,7 @@
 面向内部使用者提供「解压即用」的分发包：内嵌可重定位 Python，
 一键部署脚本自动建 venv、装依赖、下载模型并自检。
 
-- **训练**：去人声 → 切片 → ASR → 预处理 → S1(GPT) → S2(SoVITS) 全链路管线，带失败恢复。
+- **训练**：人声提取 → 切片 → ASR → 预处理 → S1(GPT) → S2(SoVITS) 全链路管线，带失败恢复。
 - **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`），完整 S1+S2 串联。
 - **分发**：`deploy.bat`（首次部署向导）+ `start.ps1`（启动），无需手工配环境。
 
@@ -34,7 +34,11 @@
 - **Node.js**: 18+
 - **CUDA**: 12.1+
 - **GPU**: 支持 CUDA 的 NVIDIA 显卡即可（RTX 3050 / 3060 / 3070 均实测可部署，显存越大可用的 batch_size 越高）
-- **ffmpeg**（可选，推荐）: 训练/推理默认用 soundfile 读音频（覆盖 wav/flac/ogg 等）；装了 ffmpeg 后作为兜底可解码 mp3/m4a/aac 等 soundfile 读不了的格式，能 best-effort 吃下更多素材。不装也能跑，只是这类格式会被跳过并计入统计。
+- **ffmpeg**（分发包**自带**，无需另装）: 分发包内置 `vendor/ffmpeg/<平台>/ffmpeg[.exe]`（如 `windows-x86_64`）。
+  - **单声道下混不依赖 ffmpeg**：训练/预处理默认用 **soundfile** 读 wav/flac/ogg，并在 Python 里 `mean(axis=1)` 下混单声道 + `scipy` 重采样——WAV 全程不经过 ffmpeg。
+  - **ffmpeg 只在两处用到**：① soundfile 读不了的压缩格式（mp3/m4a/aac）的**解码兜底**（`ffmpeg -ac 1 -ar sr`）；② torchaudio/FunASR 的音频后端探测。
+  - **v1.0.7 起**：`getCleanEnv()` 会把 `vendor/ffmpeg/<平台>/` **前置进所有 Python 子进程的 PATH**（ASR / UVR5 人声提取 / 切片 / 预处理 / 训练），因此不会再出现 `[asr] Notice: ffmpeg is not installed` 且非 WAV 素材可被解码。此前只有「人声提取」步自带注入、其余步骤看不到自带 ffmpeg（见更新日志 v1.0.7）。
+  - 若 `vendor/ffmpeg` 缺失则回退系统 ffmpeg / soundfile，行为不变；这类格式仍会被跳过并计入统计。
 - **onnxruntime**（由 `install_torch.ps1` 随 torch 一并安装）: **g2pW**（中文多音字消歧）与 **UVR5 MDX-Net**（`onnx_dereverb`）依赖它。安装脚本按**同一套 NVIDIA GPU 探测**选择:有 N 卡装 `onnxruntime-gpu`（CUDA EP），无 N 卡装 CPU 版 `onnxruntime`（只支持 N 卡,不支持 AMD/DirectML）。缺失时 MDX-Net 段会因 `No module named 'onnxruntime'` 直接失败，g2pW 则回退 pypinyin。
   > ⚠️ **版本必须与 torch 的 CUDA/cuDNN 对齐**：GPU 版**锁定 `onnxruntime-gpu==1.18.0`**（CUDA 12 + cuDNN 8，匹配随包 torch cu121）。`1.19+` 改用 cuDNN 9，会让 `CUDAExecutionProvider` **静默失效**、MDX-Net 悄悄退回 CPU（不报错、只是极慢）。因 `mdxnet.py` 先 `import torch` 再 `import onnxruntime`，torch 会把自带 cuDNN 8 目录注册进 DLL 搜索路径，onnxruntime 得以复用——无需额外配置 CUDA。验证：`python -c "import torch; import onnxruntime as ort; print(ort.get_available_providers())"` 应包含 `CUDAExecutionProvider`。
 
@@ -100,7 +104,7 @@ Python 依赖只有**一个** `requirements.txt` —— 一份**逐包精确 `==
 ### 数据流
 
 ```
-原始音频 → [去人声] → [切片] → [ASR] → [预处理] → [S1训练] → [S2训练] → 模型
+原始音频 → [人声提取] → [切片] → [ASR] → [预处理] → [S1训练] → [S2训练] → 模型
 ```
 
 ### 目录约定
@@ -138,12 +142,18 @@ Python 依赖只有**一个** `requirements.txt` —— 一份**逐包精确 `==
   "sovits_epochs": 25,
   "s1_save_every_n_epoch": 4,
   "s2_save_every_n_epoch": 5,
-  "batch_size": 4
+  "batch_size": "auto",
+  "learning_rate": "default"
 }
 ```
 
 > 保存间隔取 S1=4 / S2=5，保证最终 epoch（8%4=0、25%5=0）必落 checkpoint。
+> `batch_size:"auto"` 按显存自适应、`learning_rate:"default"` 用引擎内置 LR；二者与其余 `training.*`/`steps.*.params` 键均可经 `customParams` 逐次覆盖（透传给 `s1_train.py` yaml / `s2_train.py` json）。
 > 若存在外部 `training_defaults.json`，其值覆盖内置默认；仅影响变更后新建的任务，已有 recipe/历史任务不追溯改写。
+
+> **可调参数面（与官方 WebUI 对比）**：可透传的旋钮 **≥ 官方**——S1 侧 `gpt_epochs / batch_size / s1_save_every_n_epoch / precision / gradient_clip / seed / lr / lr_init / lr_end / warmup_steps / decay_steps / max_eval_sample / max_sec / num_workers`，S2 侧 `sovits_epochs / s2_save_every_n_epoch / batch_size / versions[]`（一次多版本），另有官方裸 UI 没有的**编排级**能力：UVR5 多级链（每级 `model/agg/tta/postprocess/precision`）、按语种 ASR 引擎路由、从第 X 步续跑 / 断点续训。默认对外只暴露上面的简化子集，高级项走 `customParams` 透传。
+
+> **v1.0.7 变更**：`pauseAfterDenoise`（人声提取后暂停试听闸门）后端默认由 `true` 改为 **`false`**——仅影响**直接调 API/CLI 且不带该字段**的调用方；Web UI 始终显式带值（勾选框默认仍开），行为不变。
 
 ### API 接口
 
@@ -236,6 +246,20 @@ python scripts/pipeline/infer_s2.py \
 > 环境变量小抄：`AURIVOX_TTS_BATCH_SIZE=4` · `AURIVOX_MAX_QUEUE=32` · `AURIVOX_RETRY_AFTER=3` · `AURIVOX_REF_CACHE=8`。
 > 详见 `BROKER_streaming_and_residency.md` 与最终用户向的 [`GUIDANCE.md` Q14](./GUIDANCE.md)。
 
+### Broker 对外部署加固（v1.0.7）
+
+面向对外/无人值守部署的一组**加性、向后兼容**的 broker 能力（引擎 Python 未动，Web UI 行为不变）：
+
+- **OpenAI 兼容模型列表**：`GET /v1/models`（列出所有 recipe + `__base__`）与 `GET /v1/models/<id>`（单个，未知 → 404）。列出的 `id` 现可**直接**当作 `POST /v1/audio/speech` 的 `model` 字段用（`model` 缺省回退到 broker 原有的 `voice`，两者同时给时 `voice` 优先）。
+- **优雅停机**：`SIGINT`/`SIGTERM` 停止收新请求、等 in-flight 生成结束再退出；上限 `AURIVOX_SHUTDOWN_GRACE_MS`（默认 120000）。请求体带 `interrupted:true` 时主动**中止正在进行的引擎请求**（非流式经 `AbortController` 取消上游、流式经 socket 断开），不再干等上游结束。
+- **可配置 CORS**：`AURIVOX_CORS_ORIGIN`（默认 `http://127.0.0.1:5173`；逗号分隔多域，或 `*`）。
+- **`/api/health` 版本字段**：新增 `version`（取自 `package.json`，如 `"1.0.7"`）。
+- **全局 JSON 错误中间件**：坏 JSON / 未捕获错误统一返回 `application/json` 错误体，不再吐 HTML 错误页。
+- **文件日志**：`console.*` 同时 tee 到 `logs/aurivox-<日期>.log`（按天滚动）。`AURIVOX_LOG_DIR`（默认 `logs/`）、`AURIVOX_LOG_FILE=0` 关闭。
+
+> 环境变量小抄（v1.0.7 新增）：`AURIVOX_CORS_ORIGIN=http://127.0.0.1:5173` · `AURIVOX_SHUTDOWN_GRACE_MS=120000` · `AURIVOX_LOG_DIR=logs` · `AURIVOX_LOG_FILE=1`。
+> 详见 `CHANGES-1.0.7.md` 与最终用户向的 [`GUIDANCE.md` Q15](./GUIDANCE.md)。
+
 ## 模型文件
 
 | 文件 | 大小 | 说明 |
@@ -252,10 +276,12 @@ python scripts/pipeline/infer_s2.py \
 2. **安装路径**: 必须解压到纯英文、无空格路径；中文/特殊字符路径会导致嵌入式 Python 无法定位
 3. **原生库加载顺序**: 部分 Windows 机器上 `torch` 先于 `librosa` 导入会触发原生崩溃
    （0xC0000005 / 退出码 3221225477，日志为空）；已在所有入口强制 librosa 先行修复
-4. **音频格式与声道**: 训练素材优先用 **wav（单声道最佳）**。加载层已统一把多声道自动下混为单声道，
-   避免立体声导致 HuBERT 特征提取崩溃；无法读取的格式（视 libsndfile 版本，如部分 mp3/m4a/aac）会被跳过。
-   每次预处理结束会打印一行 `[load_audio] total=.. loaded=.. (downmixed=.. resampled=.. via_ffmpeg=..) failed=..`
-   统计，便于核对有效条数。装 ffmpeg 可兜底更多格式（见「环境要求」）。
+4. **音频格式与声道**: 训练素材优先用 **wav（单声道最佳）**。加载层已统一把多声道自动下混为单声道（Python
+   `soundfile` + `mean(axis=1)`，**不依赖 ffmpeg**），避免立体声导致 HuBERT 特征提取崩溃；无法读取的压缩格式
+   （mp3/m4a/aac）由 ffmpeg 兜底解码。每次预处理结束会打印一行
+   `[load_audio] total=.. loaded=.. (downmixed=.. resampled=.. via_ffmpeg=..) failed=..` 统计，便于核对有效条数。
+   分发包自带 `vendor/ffmpeg`，**v1.0.7 起**已对所有 Python 子进程可见（见「环境要求」与更新日志 v1.0.7）；仅当自带
+   与系统 ffmpeg 均缺失时，这类格式才会被跳过并计入 `failed`。
 5. **UVR5 MDX-Net 显存**: MDX-Net 是 UVR5 里最吃显存的模型，长音频 + 大 batch 极易 OOM
    （`cudaErrorMemoryAllocation`）。**默认参数按 4 GB 小显存设计（逐窗 batch=1）**；大显存显卡可自行调大分段/批。
    仍 OOM 时把 MDX 段切到 CPU（`UVR5_MDX_DEVICE=cpu`）。详见 [`GUIDANCE.md` Q10](./GUIDANCE.md)。
@@ -265,6 +291,20 @@ python scripts/pipeline/infer_s2.py \
    （非错误）；需置信度高亮请用 Faster Whisper。见 [`GUIDANCE.md` Q8](./GUIDANCE.md)。
 
 ## 更新日志
+
+### 2026-08-04 —— v1.0.7：Broker 对外部署加固（模型列表 / 优雅停机 / CORS / health 版本 / JSON 错误 / 文件日志）+ 自带 ffmpeg 对 Python 子进程可见 + 训练管线修复
+> 以**补丁式（unified diff / `git apply`）**交付，见 `CHANGES-1.0.7.md`、`apply_patch.ps1` / `rollback_patch.ps1`（双击 `.bat` 可跑）。**单一合并补丁**共改 **8 文件**，`package.json 1.0.6→1.0.7`；备份落 `backups\aurivox-update-<时间戳>\`。**纯后端改动，无需重建前端。** 附 `TEST-CHECKLIST-1.0.7.md` 供本地验收。
+
+- ✅ **`GET /v1/models` + `GET /v1/models/<id>`（OpenAI 兼容模型列表）**：列出全部 recipe + 保留底模 `__base__`；未知 id → 404。**闭环补齐**：`POST /v1/audio/speech` 现接受 `model` 字段并可直接用列表里的 id——`model` 缺省回退到 broker 原有的 `voice`，两者同时给时 `voice` 优先（`lib/routes/synthesis.js`）。
+- ✅ **优雅停机（SIGINT/SIGTERM）**：停止收新请求 → 等 in-flight 生成结束再退出，上限 `AURIVOX_SHUTDOWN_GRACE_MS`（默认 120000）。请求体带 `interrupted:true` 时**主动中止**正在进行的引擎请求：非流式经 `AbortController` 把 `signal` 一路穿到 `gsvPost`/`gsvRequest` 取消上游 socket，流式沿用 `res.on("close") → stream.destroy()`（`server.js` + `lib/routes/synthesis.js` + `lib/gsv/client.js`）。
+- ✅ **可配置 CORS**：`AURIVOX_CORS_ORIGIN`（默认 `http://127.0.0.1:5173`；逗号分隔多域，或 `*`），预检返回 204（`server.js`）。
+- ✅ **`/api/health` 版本字段**：新增 `version`（取自 `package.json`），便于对外探活核对版本（`lib/routes/system.js`）。
+- ✅ **全局 JSON 错误中间件**：坏 JSON / 未捕获错误统一返回 `application/json` 错误体（含 400），不再吐 HTML 错误页（`server.js`）。
+- ✅ **文件日志**：`console.log/info/warn/error` 同时 tee 到 `logs/aurivox-<日期>.log`（按天滚动、写失败绝不拖垮进程）。`AURIVOX_LOG_DIR`（默认 `logs/`）、`AURIVOX_LOG_FILE=0` 关闭（`server.js`）。
+- ✅ **自带 ffmpeg 对 Python 子进程可见（修 `[asr] Notice: ffmpeg is not installed`）**：此前只有「人声提取」步自带把 `vendor/ffmpeg` 注入 PATH，而 ASR/切片/预处理/训练走 `getCleanEnv()` 只前置 venv、看不到自带 ffmpeg → torchaudio/FunASR 报缺 ffmpeg 并退回内置加载器、非 WAV 素材被跳过。现 `getCleanEnv()` 解析 `vendor/ffmpeg/<平台>/`（与 `lib/audio/ffmpeg.js::vendoredFfmpegPath()` 同源）并**前置进所有 Python 子进程 PATH**，一处修全部生效；缺失则回退系统 ffmpeg/soundfile（`lib/training/python_helper.js`）。**注意：WAV 的单声道下混本就在 Python 里做、与 ffmpeg 无关**——此修主要惠及非 WAV 解码与消除该 Notice。
+- ✅ **训练管线修复（顺带并入）**：① `pauseAfterDenoise`（人声提取后试听闸门）后端默认 `true→false`，仅影响不带该字段的直接 API/CLI 调用方，Web UI 显式带值故不变；② 复活死路由 `GET /api/train/preview/:id/denoise`——它调用的 `getDenoisePreview()` 曾在重构中被改名删除导致恒 404，现恢复为共享 helper（`getReviewList()` 的 denoise 分支复用）；③ 对齐两处过时单测（`reviewKind→reviewStage`、文件字段 `rel→path`）。结果 `npm test` 从 4 失败 → **0 失败**（`lib/training/pipeline.js` + `lib/training/pipeline_review.node.test.js`）。
+- 📝 **术语澄清**：内部旧代号 `denoise` = 用户可见的「**人声提取 / Vocal Extraction**（UVR5）」步；因其为 on-disk 目录名 / 状态字段 / API 路径 / 文档所依赖（load-bearing），**未重命名**，属独立的更高风险重构。
+- 📝 **文档**：README 本节；`GUIDANCE.md` 增补 **Q15**（v1.0.7 对外部署选项 + 环境变量小抄）；「环境要求」ffmpeg 条与「已知限制 #4」按「WAV 单声道走 Python、ffmpeg 仅非 WAV 兜底 + 自带 ffmpeg 现对 Python 可见」重写。
 
 ### 2026-08-03 —— v1.0.6：Broker 请求内并行（A-1）+ 有界排队过载保护（A-2）+ 参考音频留驻 LRU +（前端）引擎批量并行开关
 > 以**补丁式（unified diff / `git apply`）**交付，见 `CHANGES-1.0.6.md`、`apply_patch.ps1` / `rollback_patch.ps1`（双击 `.bat` 可跑）。**单一合并补丁**共改 11 文件 +349/−14，`package.json 1.0.5→1.0.6`。**含 `web/` 前端改动，应用后必须重建前端**（`npm run build` 或 `tools\build\01_build_frontend`）再重启 `server.js` 与 infer_server。真正的多引擎并行（方案 B）**不做**——终端用户硬件不一、双份显存不现实。

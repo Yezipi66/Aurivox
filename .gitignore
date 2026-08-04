@@ -132,15 +132,13 @@ lib/training/gsv_code/text/ja_userdic/
 *.bak[0-9]
 *.bak[0-9].*
 *.bak.*
-nultry_indextts2*.ps1
+nul
+try_indextts2*.ps1
 setup_indextts_env_v2.bat
 
 # generated release artifacts (gen_version.py / gen_manifest.py)
 /version.json
 /manifest-*.json
-
-# runtime inference config (keep the .example template tracked)
-lib/inference/tts_infer.yaml
 
 # ASR outputs
 *.list
@@ -149,3 +147,5 @@ lib/inference/tts_infer.yaml
 tools/deploy/.deploy_*.txt
 tools/deploy/.deploy_selection.json
 .patch-backup/
+aurivox-*-update
+backups/
