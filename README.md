@@ -571,3 +571,12 @@ python scripts/pipeline/infer_s2.py \
 - ✅ S2 推理跑通（生成 5.12s 音频）
 - ✅ 修复 train.js S2 配置缺失字段
 - ✅ 整理根目录临时文件（141 个文件归档）
+
+#### 2026-08-06 · v1.0.8: Multilingual Reading Proofing and recipe round-trip
+
+- The original Reading Proofing UI and mature per-language editors are retained. The Han-character buttons now support click-and-drag batch selection and a Mandarin/Cantonese/Japanese language selector.
+- Fixed-language assets exclude their own default language from the override selector; Auto assets expose all three Han languages.
+- Cantonese uses real per-character Jyutping preview and the `yue` pronunciation lexicon. English ARPABET, candidates, per-occurrence editing, sounds-like conversion, and the existing mutual-exclusion behavior are unchanged.
+- Final Preview appears after Reading Proofing with direct ZH/YUE/JA underline examples.
+- Target Language includes Cantonese (`all_yue`) and Korean (`all_ko`); Auto uses conservative Cantonese markers and never treats Traditional Chinese alone as Cantonese.
+- ASR review rows can choose `zh`, `yue`, `ja`, `en`, or `ko`, synchronized to `.list` and `segments.json.lang`. Recipes can be loaded back into Generate or an individual Compare Refs row without automatic synthesis.

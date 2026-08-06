@@ -587,7 +587,9 @@ const LANGUAGES = [
   { code: 'auto', label: 'Auto-detect' },
   { code: 'ja', label: 'Japanese' },
   { code: 'zh', label: 'Chinese (Mandarin)' },
+  { code: 'yue', label: 'Cantonese' },
   { code: 'en', label: 'English' },
+  { code: 'ko', label: 'Korean' },
 ]
 
 // Training presets — frontend-only convenience. Selecting one writes a bundle of
@@ -974,6 +976,7 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
   }, [taskId]);
 
   const setText = (idx, val) => setRows(rs => rs.map(r => r.index === idx ? { ...r, text: val } : r));
+  const setLang = (idx, val) => setRows(rs => rs.map(r => r.index === idx ? { ...r, lang: val } : r));
 
   const save = async () => {
     setBusy(true); setErr(null); setMsg(null);
@@ -1032,9 +1035,14 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
                 <ConfBadge conf={r.confidence} tr={tr} />
               </div>
               <div className="arr-main">
+                <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 10 }}>
+                  <Select className="control" value={(r.lang || (lang === 'auto' ? '' : lang) || 'zh').toLowerCase()} disabled={busy} onChange={e => setLang(r.index, e.target.value)}>
+                    <option value="zh">Mandarin</option><option value="yue">Cantonese</option><option value="ja">Japanese</option><option value="en">English</option><option value="ko">Korean</option>
+                  </Select>
                 <textarea className="arr-text" rows={1} value={r.text}
                           disabled={busy}
                           onChange={e => setText(r.index, e.target.value)} />
+                </div>
                 <WordConf words={r.words} tr={tr} />
                 <AsrRowProof text={r.text} disabled={busy}
                              lang={(r.lang || (lang === 'auto' ? '' : lang) || '').toLowerCase()}

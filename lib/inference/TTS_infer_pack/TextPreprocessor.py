@@ -59,6 +59,13 @@ def _has_kana(s: str) -> bool:
     return bool(_KANA_RE.search(s))
 
 
+_YUE_STRONG_RE = re.compile(r'[喺嘅佢哋咩冇唔啲嚟咗噉俾畀]​*')
+
+def _has_strong_yue_marker(s: str) -> bool:
+    # Deliberately conservative: Traditional Chinese alone is not Cantonese.
+    return bool(_YUE_STRONG_RE.search(str(s or '')))
+
+
 # Per-character language override: force specific Han-character substrings to a
 # language that differs from the dominant one (e.g. read 大丈夫 as Japanese inside
 # a Chinese passage, or vice versa). Only zh/yue/ja are meaningful targets.
@@ -287,7 +294,7 @@ class TextPreprocessor:
                 # en/ja/ko keep their detected language.
                 base_lang = _norm_base_lang(auto_base_lang)
                 for clause in _split_clauses(text):
-                    cjk_default = "ja" if _has_kana(clause) else base_lang
+                    cjk_default = "ja" if _has_kana(clause) else ("yue" if _has_strong_yue_marker(clause) else base_lang)
                     for tmp in LangSegmenter.getTexts(clause):
                         seg_lang = tmp["lang"]
                         if seg_lang in ("zh", "x"):

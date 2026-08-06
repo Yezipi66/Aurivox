@@ -189,9 +189,34 @@ def get_jyutping(text):
             # match multple jyutping eg: liu4 ge3, or single jyutping eg: liu4
             if not re.search(r"^([a-z]+[1-6]+[ ]?)+$", syllable):
                 raise ValueError(f"Failed to convert {word} to jyutping: {syllable}")
+            # Single-run correction > yue personal lexicon > engine default.
+            try:
+                from gsv_code.text import pron_correction
+                readings = re.findall(r"[a-z]+[1-6]", syllable)
+                if len(readings) == len(word):
+                    syllable = " ".join(pron_correction.apply(word, readings, "yue"))
+            except Exception:
+                pass
             jyutping_array.append(syllable)
 
     return jyutping_array
+
+
+def get_word_jyutpings(text):
+    """Return word-level, per-character Jyutping for Reading Proofing."""
+    out = []
+    for word, syllable in ToJyutping.get_jyutping_list(text):
+        readings = re.findall(r"[a-z]+[1-6]", syllable or "")
+        if readings and len(readings) == len(word):
+            try:
+                from gsv_code.text import pron_correction
+                readings = pron_correction.apply(word, readings, "yue")
+            except Exception:
+                pass
+            out.append((word, readings))
+        else:
+            out.append((word, [ch if ch in punctuation else "" for ch in word]))
+    return text, out
 
 
 def get_bert_feature(text, word2ph):

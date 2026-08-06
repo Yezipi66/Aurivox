@@ -413,8 +413,12 @@ def _preview_en(text):
 
 
 def _preview_zh(text, lang):
-    from gsv_code.text import chinese2
-    norm_text, word_pinyins = chinese2.get_word_pinyins(text)
+    if lang == 'yue':
+        from gsv_code.text import cantonese
+        norm_text, word_pinyins = cantonese.get_word_jyutpings(text)
+    else:
+        from gsv_code.text import chinese2
+        norm_text, word_pinyins = chinese2.get_word_pinyins(text)
     lex = load_lexicon(lang)
     ov = _current_overrides(lang)
     toks = []

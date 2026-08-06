@@ -10,6 +10,7 @@ import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
 import { useT } from '../../lib/i18n'
+import { recipePath } from '../../lib/recipes'
 
 // Compare Refs target-language options: the plain per-segment "auto" is dropped
 // here (this page is decoupled from the Generate voice — no per-voice auto-detect),
@@ -71,6 +72,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
     if (r.ok && r.data && Array.isArray(r.data.batches)) setBatches(r.data.batches)
   }
   useEffect(() => { loadBatches() }, [])
+  useEffect(() => { api('/api/recipes').then(r => { if (r.ok) setRecipes(r.data?.recipes || []) }).catch(() => {}) }, [])
   // Clear the status-bar activity indicator when leaving the Compare tab.
   useEffect(() => () => onActivity?.(null), [])
 
@@ -81,6 +83,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
   // P1: Save-as-recipe from a compare row. Builds the recipe defaults from the
   // row's reference + params + its per-row model pick.
   const [saveRecipeDefaults, setSaveRecipeDefaults] = useState(null)
+  const [recipes, setRecipes] = useState([])
   const openSaveRecipe = (row) => {
     const rm = rowModels[row.id] || {}
     const dp = defaultParams || {}
@@ -275,6 +278,12 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       aux.splice(idx, 1)
       return { ...r, auxRefPaths: aux }
     }))
+  }
+
+  const loadRecipeIntoRow = (row, recipeId) => {
+    const rec=recipes.find(r=>r.id===recipeId); if(!rec)return; const p=rec.params||{}
+    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',temperature:p.temperature??r.temperature,top_k:p.top_k??r.top_k,top_p:p.top_p??r.top_p,repetition_penalty:p.repetition_penalty??r.repetition_penalty,text_split_method:p.text_split_method||r.text_split_method,speed_factor:p.speed??r.speed_factor,seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:Object.entries(p.lang_overrides||{}).map(([char,lang])=>({char,lang})),hanReadings:p.han_readings||{},result:null,error:null}:r))
+    setRowModels(prev=>({...prev,[row.id]:{voiceId:rec.role||selectedVoice,gptCheckpoint:recipePath(rec.gpt_ckpt),sovitsModel:recipePath(rec.sovits_pth)}}))
   }
 
   const generateRow = async (row, batch) => {
@@ -487,6 +496,8 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
           onGenerate={generateRow}
           onRemove={removeRow}
           onSaveRecipe={openSaveRecipe}
+          recipes={recipes}
+          onLoadRecipe={loadRecipeIntoRow}
           availableModels={availableModels}
           rowModel={rowModels[row.id] || { voiceId: '', gptCheckpoint: '', sovitsModel: '' }}
           onModelChange={(model) => setRowModels(prev => ({ ...prev, [row.id]: model }))}
@@ -618,9 +629,10 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
   )
 }
 
-function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch }) {
+function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch }) {
   const { t } = useT()
   const [showPicker, setShowPicker] = useState(false)
+  const [recipeId, setRecipeId] = useState('')
   const [pickerTarget, setPickerTarget] = useState('main') // 'main' or 'aux'
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [segments, setSegments] = useState([])  // loaded from segments.json for current voice
@@ -818,6 +830,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             title={!row.refAudio ? 'Pick a reference audio first' : 'Save this row as a reusable recipe'}>
             Save as recipe
           </button>
+          <Select className="control" value={recipeId} onChange={e=>setRecipeId(e.target.value)} style={{width:155,height:30}}><option value="">Load recipe…</option>{(recipes||[]).map(r=><option key={r.id} value={r.id}>{r.display_name||r.id}</option>)}</Select>
+          <button className="btn btn-sm btn-ghost" disabled={!recipeId} onClick={()=>onLoadRecipe?.(row,recipeId)}>Load</button>
           <button className="btn btn-sm btn-danger" onClick={() => onRemove(row.id)} title="Remove from comparison">×</button>
         </div>
       </div>

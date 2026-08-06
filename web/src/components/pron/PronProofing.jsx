@@ -1,5 +1,5 @@
 // Reading-proofing / multilingual module. Extracted verbatim from App.jsx (no logic change).
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { useT } from '../../lib/i18n'
@@ -397,258 +397,200 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
 }
 
 // --- Per-character Han-character language override (task #4) ------------------
-// Only Han characters are ambiguous between Chinese/Cantonese and Japanese; every
-// other script (Hangul, Latin, kana) is unambiguous and auto-detected. So the
-// override toggle appears ONLY on Han characters, and its direction is always the
-// reverse of the dominant language (auto-decided — the user never picks zh vs ja).
+// Shared Han-character language override. Keep the original compact per-character
+// buttons and per-character reading editor; add drag selection and a selectable
+// Mandarin/Cantonese/Japanese override language without replacing PronPanel.
 const HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/
-const LANG_LABEL = { zh: 'Chinese', yue: 'Cantonese', ja: 'Japanese' }
-// Reading unit + placeholder for a forced character's reverse-language reading.
-// ja carries kun/on kana; zh/yue carry a single tone-numbered pinyin syllable.
+const LANG_LABEL = { zh: 'Mandarin', yue: 'Cantonese', ja: 'Japanese' }
+const HAN_LANGS = ['zh', 'yue', 'ja']
 const READING_UNIT = {
-  ja: { label: 'kana', placeholder: 'e.g. \u304b\u306a' },
+  ja: { label: 'kana', placeholder: 'e.g. かな' },
   zh: { label: 'pinyin', placeholder: 'e.g. hao3' },
-  yue: { label: 'jyutping/pinyin', placeholder: 'e.g. hou2' },
+  yue: { label: 'Jyutping', placeholder: 'e.g. hou2' },
 }
-
+const HAN_VISUAL = {
+  zh: { background: '#26735f', borderColor: '#62d4b2', borderRadius: 10, color: '#fff' },
+  yue: { background: '#8a5b16', borderColor: '#f0b85a', borderRadius: 3, color: '#fff', clipPath: 'polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)' },
+  ja: { background: '#365f9f', borderColor: '#8db8ff', borderRadius: 10, color: '#fff', boxShadow: 'inset 0 -3px 0 #b9d3ff' },
+}
+const PENDING_VISUAL = { background: '#8d55c7', borderColor: '#d0a7ff', borderStyle: 'dashed', borderRadius: 10, color: '#fff' }
 function distinctHanChars(text) {
   const seen = new Set(); const out = []
-  for (const ch of String(text || '')) {
-    if (HAN_RE.test(ch) && !seen.has(ch)) { seen.add(ch); out.push(ch) }
+  for (const ch of String(text || '')) if (HAN_RE.test(ch) && !seen.has(ch)) { seen.add(ch); out.push(ch) }
+  return out
+}
+function normalizeAssignments(forced, direction) {
+  const fallback = direction?.choices?.[0] || (direction?.base === 'ja' ? 'zh' : 'ja')
+  const out = {}
+  for (const item of (forced || [])) {
+    if (typeof item === 'string') out[item] = fallback
+    else if (item?.char && HAN_LANGS.includes(item.lang) && item.lang !== direction?.base) out[item.char] = item.lang
   }
   return out
 }
-
-// Reverse-language routing direction for shared Han characters. Returns null when
-// the current target language has no zh/ja ambiguity (en / ko / plain auto).
+function assignmentList(map) { return Object.entries(map).map(([char, lang]) => ({ char, lang })) }
 function hanOverrideDirection(textLang, voiceLang) {
-  const v = String(voiceLang || '').replace(/^all_/, '').replace(/^auto.*/, '')
+  const rawVoice = String(voiceLang || '').toLowerCase()
+  const v = rawVoice.replace(/^all_/, '').replace(/^auto.*/, '')
   let base
   if (textLang === 'all_zh') base = 'zh'
   else if (textLang === 'all_yue') base = 'yue'
   else if (textLang === 'all_ja') base = 'ja'
-  else if (textLang === 'auto_zh_ja') base = v === 'ja' ? 'ja' : (v === 'yue' ? 'yue' : 'zh')
+  else if (textLang === 'auto_zh_ja' || textLang === 'auto') base = HAN_LANGS.includes(v) ? v : 'zh'
   else return null
-  return { base, reverse: base === 'ja' ? 'zh' : 'ja' }
+  const assetIsAuto = !v || rawVoice.startsWith('auto')
+  return { base, choices: assetIsAuto ? HAN_LANGS : HAN_LANGS.filter(l => l !== base), assetIsAuto }
 }
-
-// Build the {char -> reverseLang} payload sent to the engine as lang_overrides.
 function buildLangOverrides(direction, forced) {
-  if (!direction || !forced || !forced.length) return undefined
-  const out = {}
-  for (const ch of forced) out[ch] = direction.reverse
+  if (!direction) return undefined
+  const out = normalizeAssignments(forced, direction)
   return Object.keys(out).length ? out : undefined
 }
-
-// --- Nested per-language override helpers (item 19-A) ------------------------
-// Reading-proofing overrides are stored per language: {lang: {word: [readings]}}.
-// A legacy flat {word: [readings]} (older recipes / prior state) is auto-wrapped
-// under fallbackLang for backward compatibility (zero regression).
 function isNestedOverrides(o) {
   const vals = Object.values(o || {})
   return vals.length > 0 && vals.every(v => v && typeof v === 'object' && !Array.isArray(v))
 }
 function nestedOverrides(o, fallbackLang) {
   if (!o || Object.keys(o).length === 0) return {}
-  if (isNestedOverrides(o)) return o
-  return { [fallbackLang || 'zh']: o }
+  return isNestedOverrides(o) ? o : { [fallbackLang || 'zh']: o }
 }
 function countOverrides(o) {
-  const n = nestedOverrides(o, 'zh')
-  let c = 0
+  const n = nestedOverrides(o, 'zh'); let c = 0
   for (const k of Object.keys(n)) c += Object.keys(n[k] || {}).length
   return c
 }
-
-// Merge the per-language reading proofing with the reverse-language readings of
-// the forced Han characters into the engine's pron_overrides payload.
-// Always returns nested {lang: {word: [readings]}} (the backend understands both,
-// and mixed-language runs require the nested, per-language form).
 function buildPronPayload(pronOverrides, baseLang, direction, forced, readings) {
-  const nested = nestedOverrides(pronOverrides, baseLang)
-  const out = {}
-  for (const [lg, words] of Object.entries(nested)) {
-    if (words && Object.keys(words).length) out[lg] = { ...words }
-  }
-  if (direction && forced && forced.length && readings) {
-    const forcedSet = new Set(forced)
-    const reverseBucket = {}
-    for (const ch of Object.keys(readings)) {
-      const r = String(readings[ch] || '').trim()
-      if (r && forcedSet.has(ch)) reverseBucket[ch] = [r]
-    }
-    if (Object.keys(reverseBucket).length) {
-      out[direction.reverse] = { ...(out[direction.reverse] || {}), ...reverseBucket }
-    }
+  const nested = nestedOverrides(pronOverrides, baseLang), out = {}
+  for (const [lg, words] of Object.entries(nested)) if (words && Object.keys(words).length) out[lg] = { ...words }
+  const assignments = normalizeAssignments(forced, direction)
+  for (const [ch, lang] of Object.entries(assignments)) {
+    const r = String((readings || {})[ch] || '').trim()
+    if (r) out[lang] = { ...(out[lang] || {}), [ch]: [r] }
   }
   return Object.keys(out).length ? out : undefined
 }
-
 function HanLangPicker({ text, direction, forced, setForced, readings, setReadings }) {
   const { t } = useT()
   const chars = distinctHanChars(text)
-  // Hooks must run unconditionally (before the early returns below).
-  const forcedSet = new Set(forced || [])
-  const forcedChars = chars.filter(ch => forcedSet.has(ch))   // forced chars in text order
-  const reverse = direction ? direction.reverse : null
-  // Engine default readings for each forced char in the reverse language, so the
-  // editor never shows an empty box with no reference. { char -> reading } plus
-  // { char -> [candidates] } for the polyphonic zh/yue case.
-  const [defaults, setDefaults] = useState({})
-  const [defCands, setDefCands] = useState({})
-  const [defLoading, setDefLoading] = useState(false)
-  const forcedKey = forcedChars.join('')
+  const assignments = normalizeAssignments(forced, direction)
+  const [targetLang, setTargetLang] = useState(direction?.choices?.[0] || 'zh')
+  const [dragging, setDragging] = useState(false)
+  const [dragChars, setDragChars] = useState([])
+  const dragRef = useRef([])
+  const draggingRef = useRef(false)
   useEffect(() => {
-    if (!reverse || forcedChars.length === 0) { setDefaults({}); setDefCands({}); return }
-    let cancelled = false
-    setDefLoading(true)
-    // Preview each forced char in isolation in the reverse language to read its
-    // default reading (ja -> kana word token; zh/yue -> char token + candidates).
-    Promise.all(forcedChars.map(ch =>
-      api('/api/pron/preview', { method: 'POST', body: { text: ch, lang: reverse } })
-        .then(r => ({ ch, r })).catch(() => ({ ch, r: null }))
-    )).then(results => {
-      if (cancelled) return
-      const nd = {}, nc = {}
-      for (const { ch, r } of results) {
-        if (!r || !r.ok || !r.data) continue
-        const toks = r.data.tokens || []
-        if (reverse === 'ja') {
-          const reading = toks.map(t => t.reading || '').join('')
-          if (reading) nd[ch] = reading
-        } else {
-          for (const t of toks) for (const c of (t.chars || [])) {
-            if (c.char !== ch) continue
-            if (c.reading) nd[ch] = c.reading
-            if (Array.isArray(c.candidates) && c.candidates.length) nc[ch] = c.candidates
-          }
-        }
+    if (direction && !direction.choices.includes(targetLang)) setTargetLang(direction.choices[0] || 'zh')
+  }, [direction?.base, direction?.assetIsAuto]) // eslint-disable-line react-hooks/exhaustive-deps
+  const applyChars = (picked) => {
+    if (!direction || !picked.length) return
+    const next = { ...assignments }
+    const toggleSingle = picked.length === 1 && targetLang !== '__default__' && next[picked[0]] === targetLang
+    for (const ch of picked) {
+      if (targetLang === '__default__' || targetLang === direction.base || toggleSingle) {
+        delete next[ch]
+      } else {
+        next[ch] = targetLang
       }
-      setDefaults(nd); setDefCands(nc)
-    }).finally(() => { if (!cancelled) setDefLoading(false) })
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forcedKey, reverse])
-  if (!direction) {
-    return <div className="field-hint" style={{ color: 'var(--muted)' }}>
-      {t('Per-character language override applies to Chinese / Cantonese / Japanese targets only.', '逐字语言覆盖仅适用于 Chinese / Cantonese / Japanese 目标。')}
+    }
+    if (targetLang === '__default__' || toggleSingle) {
+      const nextReadings = { ...(readings || {}) }
+      for (const ch of picked) delete nextReadings[ch]
+      setReadings?.(nextReadings)
+    }
+    setForced(assignmentList(next))
+  }
+  const begin = (ch, e) => {
+    e.preventDefault()
+    draggingRef.current = true
+    dragRef.current = [ch]
+    setDragging(true)
+    setDragChars([ch])
+  }
+  const enter = (ch) => {
+    if (!draggingRef.current || dragRef.current.includes(ch)) return
+    dragRef.current = [...dragRef.current, ch]
+    setDragChars(dragRef.current)
+  }
+  const end = useCallback(() => {
+    if (!draggingRef.current) return
+    const picked = [...dragRef.current]
+    draggingRef.current = false
+    dragRef.current = []
+    setDragging(false)
+    setDragChars([])
+    applyChars(picked)
+  }, [assignments, direction, targetLang]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
+    return () => { window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end) }
+  }, [end])
+  const assignedChars = chars.filter(ch => assignments[ch])
+  const assignedKey = assignedChars.map(ch => `${ch}:${assignments[ch]}`).join('|')
+  const [defaults, setDefaults] = useState({}), [defCands, setDefCands] = useState({}), [defLoading, setDefLoading] = useState(false)
+  useEffect(() => {
+    if (!assignedChars.length) { setDefaults({}); setDefCands({}); return }
+    let cancelled = false; setDefLoading(true)
+    Promise.all(assignedChars.map(ch => api('/api/pron/preview', { method:'POST', body:{ text:ch, lang:assignments[ch] } }).then(r => ({ch,lang:assignments[ch],r})).catch(() => ({ch,r:null}))))
+      .then(results => {
+        if (cancelled) return
+        const nd={}, nc={}
+        for (const {ch,lang,r} of results) {
+          if (!r?.ok || !r.data) continue
+          const toks=r.data.tokens||[]
+          if (lang==='ja') { const reading=toks.map(t=>t.reading||'').join(''); if(reading) nd[ch]=reading }
+          else for(const tok of toks) for(const c of (tok.chars||[])) if(c.char===ch){if(c.reading)nd[ch]=c.reading;if(c.candidates?.length)nc[ch]=c.candidates}
+        }
+        setDefaults(nd); setDefCands(nc)
+      }).finally(()=>{if(!cancelled)setDefLoading(false)})
+    return()=>{cancelled=true}
+  }, [assignedKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!direction) return <div className="field-hint">{t('Han-language override applies to Mandarin, Cantonese, Japanese, and Auto targets.', '汉字语言覆盖适用于普通话、粤语、日语与 Auto 目标。')}</div>
+  if (!chars.length) return <div className="field-hint">{t('No Han characters in the text yet.', '文本中暂无汉字。')}</div>
+  const rd=readings||{}
+  const setReading=(ch,val)=>{const next={...rd};if(val.trim())next[ch]=val;else delete next[ch];setReadings?.(next)}
+  return <div>
+    <div style={{fontSize:12,color:'var(--muted)',marginBottom:8,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span>{t(<>Han characters read as <strong>{LANG_LABEL[direction.base]}</strong> by default. Click or drag across characters to read them as:</>, <>汉字默认按 <strong>{langName(t,direction.base)}</strong> 朗读。点击或按住拖选字符，将其设为：</>)}</span>
+      <Select className="control" value={targetLang} onChange={e=>setTargetLang(e.target.value)} style={{height:28,width:180}}>
+        <option value="__default__">{t('Default / remove override', '默认 / 取消覆盖')}</option>
+        {direction.choices.map(lg=><option key={lg} value={lg}>{langName(t,lg)}</option>)}
+      </Select>
     </div>
-  }
-  if (chars.length === 0) {
-    return <div className="field-hint" style={{ color: 'var(--muted)' }}>{t('No Han characters in the text yet.', '文本中暂无汉字。')}</div>
-  }
-  const rd = readings || {}
-  const unit = READING_UNIT[direction.reverse] || { label: 'reading', placeholder: '' }
-  const toggle = (ch) => {
-    const next = new Set(forcedSet)
-    if (next.has(ch)) next.delete(ch); else next.add(ch)
-    setForced([...next])
-  }
-  const setReading = (ch, val) => {
-    const next = { ...rd }
-    if (val && val.trim()) next[ch] = val; else delete next[ch]
-    setReadings && setReadings(next)
-  }
-  return (
-    <div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-        {t(<>Han characters read as <strong>{LANG_LABEL[direction.base]}</strong> by default. Click a character to force it to read as <strong>{LANG_LABEL[direction.reverse]}</strong>.</>,
-           <>汉字默认按 <strong>{langName(t, direction.base)}</strong> 朗读。点击某个字可强制它按 <strong>{langName(t, direction.reverse)}</strong> 朗读。</>)}
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {chars.map(ch => {
-          const on = forcedSet.has(ch)
-          return (
-            <button
-              key={ch} type="button" onClick={() => toggle(ch)} className="btn btn-sm"
-              title={on ? t(`Reads as ${LANG_LABEL[direction.reverse]}`, `按 ${langName(t, direction.reverse)} 朗读`) : t(`Reads as ${LANG_LABEL[direction.base]}`, `按 ${langName(t, direction.base)} 朗读`)}
-              style={{
-                minWidth: 34, fontSize: 16, padding: '4px 8px',
-                background: on ? 'var(--accent)' : 'var(--surface)',
-                color: on ? '#fff' : 'var(--text)',
-                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
-              }}
-            >{ch}</button>
-          )
-        })}
-      </div>
-      {forcedChars.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-            {t(
-              `${LANG_LABEL[direction.reverse]} reading (${unit.label}) for each forced character. The engine default is shown in grey${defLoading ? ' (loading\u2026)' : ''} \u2014 keep it as-is, pick another reading, or type your own. Han characters have multiple readings (e.g. Japanese kun\u2019yomi / on\u2019yomi).`,
-              `为每个强制字设置 ${langName(t, direction.reverse)} 读音（${unit.label}）。灰色显示的是引擎默认读音${defLoading ? '（加载中…）' : ''}——可保持不变、选择其它读音，或自行输入。汉字常有多种读音（如日语 kun\u2019yomi / on\u2019yomi）。`,
-            )}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {forcedChars.map(ch => {
-              const overridden = rd[ch] !== undefined
-              const def = defaults[ch] || ''
-              const shown = overridden ? rd[ch] : def
-              const cands = defCands[ch] || []
-              // Candidate pool for the dropdown: default + engine candidates + any custom value.
-              const pool = []
-              for (const v of [def, ...cands, shown]) {
-                if (v && !pool.includes(v)) pool.push(v)
-              }
-              return (
-                <div key={ch} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ fontSize: 15 }}>{ch}</span>
-                    <input
-                      className="control" spellCheck={false}
-                      title={overridden ? t('Custom reading (overrides the engine default)', '自定义读音（覆盖引擎默认）')
-                                        : (def ? t('Engine default reading', '引擎默认读音') : '')}
-                      style={{
-                        height: 24, fontSize: 12, padding: '0 6px',
-                        width: direction.reverse === 'ja' ? 96 : 84,
-                        fontStyle: overridden ? 'normal' : 'italic',
-                        color: overridden ? 'var(--text)' : 'var(--muted)',
-                      }}
-                      value={shown}
-                      placeholder={def || unit.placeholder}
-                      onChange={e => setReading(ch, e.target.value)}
-                    />
-                    {pool.length > 1 && (
-                      <Select
-                        className="control" title="Pick a reading"
-                        style={{ height: 24, fontSize: 12, maxWidth: 96 }}
-                        value={pool.includes(shown) ? shown : ''}
-                        onChange={e => setReading(ch, e.target.value)}
-                      >
-                        {pool.map(cd => (
-                          <option key={cd} value={cd}>{cd === def ? t(`${cd} (default)`, `${cd}（默认）`) : cd}</option>
-                        ))}
-                      </Select>
-                    )}
-                    {overridden && (
-                      <button
-                        type="button" className="btn btn-sm btn-ghost"
-                        title={t('Reset to the engine default reading', '重置为引擎默认读音')}
-                        style={{ padding: '0 6px', height: 24 }}
-                        onClick={() => setReading(ch, '')}
-                      >{'\u21ba'}</button>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', paddingLeft: 20 }}>
-                    {def
-                      ? <>{t('default:', '默认：')} <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>{def}</span></>
-                      : defLoading ? t('loading default\u2026', '加载默认读音…') : t('no default reading available', '无可用默认读音')}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-      {forcedSet.size > 0 && (
-        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>{t(`${forcedSet.size} character(s) forced to ${LANG_LABEL[direction.reverse]}`, `已强制 ${forcedSet.size} 个字按 ${langName(t, direction.reverse)} 朗读`)}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => { setForced([]); setReadings && setReadings({}) }}>{t('Clear', '清除')}</button>
-        </div>
-      )}
+    <div style={{display:'flex',flexWrap:'wrap',gap:6,userSelect:'none',touchAction:'none'}}>
+      {chars.map(ch=>{const lang=assignments[ch];const pending=dragChars.includes(ch);const visual=pending?PENDING_VISUAL:(lang?HAN_VISUAL[lang]:null);return <button key={ch} type="button" className="btn btn-sm"
+        onPointerDown={e=>begin(ch,e)} onPointerEnter={()=>enter(ch)}
+        title={lang?t(`Reads as ${LANG_LABEL[lang]}; click with the same language or choose Default to remove.`,`按 ${langName(t,lang)} 朗读；使用相同语言单击或选择“默认”可取消。`):t(`Reads as ${LANG_LABEL[direction.base]}`,`按 ${langName(t,direction.base)} 朗读`)}
+        style={{minWidth:34,fontSize:16,padding:'4px 8px',background:visual?.background||'var(--surface)',color:visual?.color||'var(--text)',border:`2px ${visual?.borderStyle||'solid'} ${visual?.borderColor||'var(--border)'}`,borderRadius:visual?.borderRadius,clipPath:visual?.clipPath,boxShadow:visual?.boxShadow}}><span style={{fontSize:9,marginRight:3,opacity:lang?1:0.45}}>{lang?lang.toUpperCase():'·'}</span>{ch}</button>})}
     </div>
-  )
+    {assignedChars.length>0&&<div style={{marginTop:10}}>
+      <div style={{fontSize:11,color:'var(--muted)',marginBottom:6}}>{t('Set the reading for each overridden character. Grey text is the engine default; keep it, choose a candidate, or type your own.', '为每个覆盖字符设置读音。灰色为引擎默认读音，可保持不变、选择候选或自行输入。')}</div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:10}}>{assignedChars.map(ch=>{const lang=assignments[ch], unit=READING_UNIT[lang], overridden=rd[ch]!==undefined, def=defaults[ch]||'', shown=overridden?rd[ch]:def, pool=[];for(const v of [def,...(defCands[ch]||[]),shown])if(v&&!pool.includes(v))pool.push(v);return <div key={ch} style={{display:'flex',flexDirection:'column',gap:2}}><div style={{display:'flex',alignItems:'center',gap:4}}><span style={{fontSize:15}}>{ch}</span><span style={{fontSize:10,color:'var(--muted)'}}>{lang.toUpperCase()}</span><input className="control" spellCheck={false} style={{height:24,fontSize:12,padding:'0 6px',width:lang==='ja'?96:84,fontStyle:overridden?'normal':'italic',color:overridden?'var(--text)':'var(--muted)'}} value={shown} placeholder={def||unit.placeholder} onChange={e=>setReading(ch,e.target.value)}/>{pool.length>1&&<Select className="control" style={{height:24,fontSize:12,maxWidth:96}} value={pool.includes(shown)?shown:''} onChange={e=>setReading(ch,e.target.value)}>{pool.map(v=><option key={v} value={v}>{v===def?`${v} (default)`:v}</option>)}</Select>}{overridden&&<button type="button" className="btn btn-sm btn-ghost" style={{padding:'0 6px',height:24}} onClick={()=>setReading(ch,'')}>↺</button>}</div><div style={{fontSize:10,color:'var(--muted)',paddingLeft:20}}>{def?<>default: <span style={{fontFamily:'monospace'}}>{def}</span></>:defLoading?'loading default…':'no default reading available'}</div></div>})}</div>
+      <div style={{marginTop:8,fontSize:11,color:'var(--accent)',display:'flex',gap:8,alignItems:'center'}}><span>{t(`${assignedChars.length} character(s) overridden`, `已覆盖 ${assignedChars.length} 个字符`)}</span><button className="btn btn-sm btn-ghost" onClick={()=>{setForced([]);setReadings?.({})}}>{t('Clear','清除')}</button></div>
+    </div>}
+  </div>
+}
+
+function HanFinalPreview({ text, direction, forced }) {
+  const { t } = useT()
+  if (!direction) return null
+  const assignments = normalizeAssignments(forced, direction)
+  const groups = []
+  for (const ch of String(text || '')) {
+    const lang = assignments[ch] || direction.base
+    const last = groups[groups.length - 1]
+    if (last && last.lang === lang) last.text += ch
+    else groups.push({ lang, text: ch })
+  }
+  return <div style={{borderTop:'1px solid var(--border)',paddingTop:12}}>
+    <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>{t('Final preview','最终预览')}</div>
+    <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'flex-start'}}>
+      {groups.map((group,index)=><fieldset key={index} style={{margin:0,minWidth:80,maxWidth:'100%',padding:'8px 12px 10px',border:`2px solid ${HAN_VISUAL[group.lang]?.borderColor||'var(--border)'}`,borderRadius:10,background:'var(--surface)'}}>
+        <legend style={{padding:'0 6px',fontSize:11,fontWeight:700,color:HAN_VISUAL[group.lang]?.borderColor||'var(--text)'}}>{group.lang.toUpperCase()}</legend>
+        <span style={{whiteSpace:'pre-wrap',lineHeight:1.7}}>{group.text}</span>
+      </fieldset>)}
+    </div>
+  </div>
 }
 
 // One modal that houses BOTH the per-character language picker and reading
@@ -659,7 +601,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
   // Chinese/Cantonese reading proofing below does not apply to them (they are
   // muted there). Their reading is set in the Han character language section.
   const forcedInText = (hanDirection && hanForced && hanForced.length)
-    ? distinctHanChars(text).filter(ch => hanForced.includes(ch))
+    ? distinctHanChars(text).filter(ch => normalizeAssignments(hanForced, hanDirection)[ch])
     : []
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -675,8 +617,8 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
             {forcedInText.length > 0 && (
               <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 8 }}>
                 {t(
-                  `${forcedInText.join(' ')} ${forcedInText.length > 1 ? 'are' : 'is'} set to read as ${LANG_LABEL[hanDirection.reverse]}; the ${LANG_LABEL[panelLang] || panelLang} reading below does not apply to ${forcedInText.length > 1 ? 'them' : 'it'}. Set ${forcedInText.length > 1 ? 'their' : 'its'} reading in the Han character language section above.`,
-                  `${forcedInText.join(' ')} 已设为按 ${langName(t, hanDirection.reverse)} 朗读；下方的 ${langName(t, panelLang)} 读音对${forcedInText.length > 1 ? '它们' : '它'}不生效。请在上方“汉字语言”区设置${forcedInText.length > 1 ? '它们' : '它'}的读音。`,
+                  `${forcedInText.join(' ')} ${forcedInText.length > 1 ? 'are' : 'is'} assigned to another Han language; the ${LANG_LABEL[panelLang] || panelLang} reading below does not apply. Set the reading in the Han character language section above.`,
+                  `${forcedInText.join(' ')} 已分配给另一种汉字语言；下方的 ${langName(t, panelLang)} 读音不生效。请在上方“汉字语言”区设置读音。`,
                 )}
               </div>
             )}
@@ -684,9 +626,10 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
               text={text} setText={setText} lang={panelLang}
               overrides={pronOverrides} setOverrides={setPronOverrides} layout="wide"
               mutedChars={forcedInText}
-              mutedLangLabel={hanDirection ? LANG_LABEL[hanDirection.reverse] : null}
+              mutedLangLabel={hanDirection ? t('another Han language', '另一种汉字语言') : null}
             />
           </div>
+          <HanFinalPreview text={text} direction={hanDirection} forced={hanForced} />
         </div>
         <div className="modal-ftr">
           <button className="btn" onClick={onClose}>{t('Done', '完成')}</button>

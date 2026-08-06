@@ -787,7 +787,7 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
                     )}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    Mode: {asset.mode || 'N/A'} &middot; ID: {id}
+                    Mode: {asset.mode || 'N/A'} &middot; ID: {id} &middot; Language: {String(asset.language || asset.text_lang || asset.lang || 'unknown').replace(/^all_/, '')}
                   </div>
                 </div>
                 <div className="asset-actions">

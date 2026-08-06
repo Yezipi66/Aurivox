@@ -11,6 +11,7 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, refMatches } from 
 import { assetIdFromCkptPath, useAssetsWithModels, gptGroups, sovitsGroups } from '../../lib/models'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
+import { recipeToGenerateParams } from '../../lib/recipes'
 
 // Voice dropdown label. Builtin voices show only their display name. For a
 // fine-tuned voice we append the id ONLY when it differs from the display name —
@@ -72,6 +73,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
   // result + recent are persisted: audio is referenced by a server URL (audio_url),
   // not a blob, so the players keep working after a reload.
   const [result, setResult] = usePersistentState('generate.result', null)
@@ -88,6 +90,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [genConfirm, setGenConfirm] = useState(null)      // secondary-confirm modal payload
   const [genConfirmBusy, setGenConfirmBusy] = useState(false)
   const [showSaveRecipe, setShowSaveRecipe] = useState(false)  // P1: Save as recipe modal
+  const [recipes, setRecipes] = useState([])
+  const [loadRecipeId, setLoadRecipeId] = useState('')
 
   const [splitEnabled, setSplitEnabled] = usePersistentState('generate.splitEnabled', true)
   const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
@@ -135,6 +139,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   // synthesising each split segment sequentially. Produces a single audio (no
   // per-segment files). Off by default to preserve the current segmented output.
   const [engineBatch, setEngineBatch] = useState(false)
+
+  useEffect(() => { api('/api/recipes').then(r => { if (r.ok) setRecipes(r.data?.recipes || []) }).catch(() => {}) }, [])
 
   // Load advanced params from backend on mount
   useEffect(() => {
@@ -491,7 +497,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     // #4: restore per-character Han-character language overrides (chars only; the
     // reverse language is re-derived from the applied text_lang / voice).
     if (p.lang_overrides && typeof p.lang_overrides === 'object' && !Array.isArray(p.lang_overrides)) {
-      setHanForced(Object.keys(p.lang_overrides))
+      setHanForced(Object.entries(p.lang_overrides).map(([char, lang]) => ({ char, lang })))
     } else {
       setHanForced([])
     }
@@ -522,6 +528,14 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       if (p.text_lang !== undefined) setTextLang(p.text_lang)
       onSelectRef?.(p.ref_audio || '', p.reference_text || '', p.prompt_lang || '')
     }, 0)
+  }
+
+  const loadRecipeIntoGenerate = () => {
+    const recipe = recipes.find(r => r.id === loadRecipeId)
+    if (!recipe) return
+    setError(null)
+    handleReload({ params: recipeToGenerateParams(recipe, text) })
+    setNotice(`Loaded recipe ${recipe.id}. Review the editor, then press Generate.`)
   }
 
   const revealItem = async (item) => {
@@ -670,7 +684,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   Proof &amp; language{'\u2026'}
                 </button>
                 {hanDir && hanForced.length > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForced.length} forced {LANG_LABEL[hanDir.reverse]}</span>
+                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForced.length} Han override(s)</span>
                 )}
                 {countOverrides(pronOverrides) > 0 && (
                   <span style={{ fontSize: 11, color: 'var(--accent)' }}>{countOverrides(pronOverrides)} reading override(s)</span>
@@ -912,6 +926,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 onClick={() => setShowSaveRecipe(true)}>
                 Save as recipe
               </button>
+              <Select className="control" value={loadRecipeId} onChange={e=>setLoadRecipeId(e.target.value)} style={{width:220}}><option value="">Load recipe…</option>{recipes.map(r=><option key={r.id} value={r.id}>{r.display_name||r.id}</option>)}</Select>
+              <button className="btn btn-ghost" disabled={!loadRecipeId} onClick={loadRecipeIntoGenerate}>Load</button>
             </div>
 
             <SaveRecipeModal
@@ -941,7 +957,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   pron_overrides: (Object.keys(pronOverrides).length > 0) ? pronOverrides : {},
                   lang_overrides: langOverrides || {},
                   han_readings: (hanDir && Object.keys(hanReadings).length > 0)
-                    ? Object.fromEntries(Object.entries(hanReadings).filter(([ch]) => hanForced.includes(ch)))
+                    ? Object.fromEntries(Object.entries(hanReadings).filter(([ch]) => hanForced.some(x => (typeof x === 'string' ? x : x.char) === ch)))
                     : {},
                   auto_base_lang: textLang === 'auto_zh_ja' ? (selected?.language || lang) : undefined,
                 },
@@ -951,6 +967,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
               onSaved={(rec) => setError(null)}
             />
 
+            {notice && <div className="msg msg-ok">{notice}</div>}
             {error && <div className="msg msg-error"><strong>Error:</strong> {error}</div>}
           </div>
         </div>

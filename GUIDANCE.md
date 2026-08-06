@@ -257,3 +257,14 @@ set AURIVOX_RETRY_AFTER=3    rem 返回 503 时告诉客户端几秒后重试
 
 > 环境变量小抄：`AURIVOX_TTS_BATCH_SIZE=4` · `AURIVOX_REF_CACHE=8` · `AURIVOX_MAX_QUEUE=32` · `AURIVOX_RETRY_AFTER=3`。
 > 全部有安全默认，不设也能正常跑；只有遇到显存不足或想调并发行为时才需要改。
+
+
+#### Q15. How do the Han-language controls work? / 汉字语言控制如何使用？
+
+The compact character-button layout is retained. Click one character, or hold and drag across several character buttons, then choose Mandarin, Cantonese, or Japanese. A fixed-language asset offers the other two languages; an Auto asset offers all three. Each character has one final explicit override, so a later selection replaces an earlier language for that character. / 页面保留紧凑的逐字按钮。可以单击一个字，也可以按住并拖过多个字符按钮，然后选择普通话、粤语或日语。固定语言资产只显示另外两种语言，Auto 资产显示三种。同一字符只保留一种最终显式覆盖，因此后设置的语言会替换此前设置。
+
+The per-character reading editor directly below the buttons uses pinyin, real Jyutping, or kana according to the selected override language. The original Reading Proofing panel below remains unchanged, including English ARPABET, dictionary candidates, per-occurrence editing, sounds-like conversion, and the rule that an active sounds-like value disables and dims manual ARPABET and candidate selection. / 按钮下方的逐字读音区会根据覆盖语言使用拼音、真实粤拼或 kana。下方原 Reading Proofing 面板保持原能力，包括英语 ARPABET、词典候选、逐次出现编辑、sounds-like 转换，以及 sounds-like 生效时禁用并灰显手动 ARPABET 和候选选择。
+
+#### Q16. Can recipes be loaded back? / Recipe 能否回载？
+
+Yes. Generate keeps the current target text while restoring the recipe settings. Each Compare Refs row can load a recipe independently. Loading does not start synthesis automatically. / 可以。Generate 会保留当前目标文本并恢复 Recipe 设置；Compare Refs 每一行可以独立载入 Recipe。载入后不会自动开始合成。

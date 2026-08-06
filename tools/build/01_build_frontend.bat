@@ -1,38 +1,93 @@
 @echo off
 chcp 65001 >nul
-title TTS Broker · Build frontend + root node deps
+title TTS Broker - Build frontend + root node deps
 setlocal
 
 rem tools\build -> tools -> <root>
 set "BUILD_DIR=%~dp0"
 for %%I in ("%BUILD_DIR%..\..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
-
-rem ---- pick Node: prefer bundled portable node ----
-set "NPM=npm"
-set "NODE=node"
-if exist "%ROOT%\tools\runtime\node\npm.cmd" (
-  set "NPM=%ROOT%\tools\runtime\node\npm.cmd"
-  set "NODE=%ROOT%\tools\runtime\node\node.exe"
-  set "PATH=%ROOT%\tools\runtime\node;%PATH%"
+if errorlevel 1 (
+  echo [ERROR] Could not enter the project root:
+  echo         %ROOT%
+  pause
+  exit /b 1
 )
-echo [build] node: %NODE%
-"%NODE%" --version 2>nul || (echo [ERROR] Node not found. Run 03_fetch_runtimes.py first. & pause & exit /b 1)
+
+rem ---- use bundled portable Node and npm directly ----
+set "NODE=%ROOT%\tools\runtime\node\node.exe"
+set "NPM_CLI=%ROOT%\tools\runtime\node\node_modules\npm\bin\npm-cli.js"
+set "PATH=%ROOT%\tools\runtime\node;%PATH%"
+
+if not exist "%NODE%" (
+  echo [ERROR] Bundled Node was not found:
+  echo         %NODE%
+  echo [ERROR] Run 03_fetch_runtimes.py first.
+  pause
+  exit /b 1
+)
+
+if not exist "%NPM_CLI%" (
+  echo [ERROR] Bundled npm was not found:
+  echo         %NPM_CLI%
+  echo [ERROR] Run 03_fetch_runtimes.py again to restore the complete Node runtime.
+  pause
+  exit /b 1
+)
+
+echo [build] node:
+"%NODE%" --version
+if errorlevel 1 (
+  echo [ERROR] Bundled Node could not start.
+  pause
+  exit /b 1
+)
+
+echo [build] npm:
+"%NODE%" "%NPM_CLI%" --version
+if errorlevel 1 (
+  echo [ERROR] Bundled npm could not start.
+  pause
+  exit /b 1
+)
 
 rem ---- 1. root backend deps (server.js: express/cors/multer/js-yaml), prod only ----
 echo.
 echo [build] installing root Node deps (production) ...
-call "%NPM%" install --omit=dev --no-audit --no-fund
-if errorlevel 1 ( echo [ERROR] root npm install failed. & pause & exit /b 1 )
+"%NODE%" "%NPM_CLI%" install --omit=dev --no-audit --no-fund
+if errorlevel 1 (
+  echo [ERROR] root npm install failed.
+  pause
+  exit /b 1
+)
 
 rem ---- 2. frontend build -> web\dist ----
 echo.
 echo [build] installing web deps + building web\dist ...
 pushd "%ROOT%\web"
-call "%NPM%" install --no-audit --no-fund
-if errorlevel 1 ( echo [ERROR] web npm install failed. & popd & pause & exit /b 1 )
-call "%NPM%" run build
-if errorlevel 1 ( echo [ERROR] web build failed. & popd & pause & exit /b 1 )
+if errorlevel 1 (
+  echo [ERROR] Could not enter the web directory:
+  echo         %ROOT%\web
+  pause
+  exit /b 1
+)
+
+"%NODE%" "%NPM_CLI%" install --no-audit --no-fund
+if errorlevel 1 (
+  echo [ERROR] web npm install failed.
+  popd
+  pause
+  exit /b 1
+)
+
+"%NODE%" "%NPM_CLI%" run build
+if errorlevel 1 (
+  echo [ERROR] web build failed.
+  popd
+  pause
+  exit /b 1
+)
+
 popd
 
 rem NOTE: on some Windows setups esbuild prints a harmless "Access is denied."
@@ -46,6 +101,7 @@ if exist "%ROOT%\web\dist\index.html" (
   endlocal
   exit /b 0
 )
+
 echo [ERROR] web\dist\index.html missing after build.
 pause
 endlocal

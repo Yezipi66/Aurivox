@@ -260,12 +260,12 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
           <div>
             <span className="rc-k">{t('Language', '语言')}</span>
             <span className="rc-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <select className="control" style={{ height: 24, fontSize: 12, padding: '0 4px', width: 'auto' }}
+              <Select className="control" style={{ height: 30, fontSize: 12, minWidth: 220 }}
                 value={recipe.language || ''} disabled={langBusy}
                 onChange={e => saveLang(e.target.value)}>
                 <option value="">{t('(follow asset \u2192 auto)', '（跟随资产 \u2192 自动）')}</option>
                 {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              </Select>
               {langMsg && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{langMsg}</span>}
             </span>
           </div>
