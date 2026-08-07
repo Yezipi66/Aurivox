@@ -8,7 +8,7 @@
     "web": "cd web && npm run dev",
     "build": "cd web && npm run build",
     "start": "node server.js",
-    "test": "node --test \"lib/**/*.node.test.js\""
+    "test": "node scripts/run_tests.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
