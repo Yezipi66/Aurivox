@@ -73,13 +73,40 @@ function recipeNameError(name) {
 // 目标语言（text_lang）：解除「合成语言 == 微调语言」的硬绑定。任一微调音色可合成
 // 目标语言（zh/ja/en）或 auto 混排。粤语(yue)、韩语(ko)已下线。prompt_lang（参考音频文本语言）仍跟随音色。
 const TARGET_LANG_OPTIONS = [
-  { value: 'auto_zh_ja', label: 'Auto - shared Han characters' },
+  { value: 'auto_zh_ja_yue', label: 'Auto' },
   { value: 'all_zh', label: 'Mandarin (\u666e\u901a\u8bdd)' },
   { value: 'all_yue', label: 'Cantonese (\u7cb5\u8bed)' },
   { value: 'all_ja', label: 'Japanese (\u65e5\u672c\u8a9e)' },
   { value: 'en', label: 'English' },
   { value: 'all_ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
 ]
+
+// Human-readable labels for every text_lang value shown in Recent Generations etc.
+const LANG_LABEL_MAP = {
+  auto_zh_ja_yue: 'Auto',
+  auto_zh_ja: 'Auto',
+  auto: 'Auto',
+  all_zh: 'Mandarin',
+  all_yue: 'Cantonese',
+  all_ja: 'Japanese',
+  en: 'English',
+  all_ko: 'Korean',
+}
+
+function langLabel(code) {
+  return LANG_LABEL_MAP[code] || String(code || '').toUpperCase()
+}
+
+// Voice-level bare language codes → human-readable label.
+const VOICE_LANG_LABEL = { zh: 'Mandarin', yue: 'Cantonese', ja: 'Japanese', en: 'English', ko: 'Korean' }
+
+// Compute the effective kana-free CJK fallback language (zh/ja/yue/ko/en).
+// Mirrors synthesis.js generateService/speechService + engine _norm_base_lang:
+// "auto" / blank / anything non-concrete → "zh".
+function effectiveBaseLang(voiceLanguage) {
+  const raw = String(voiceLanguage || '').toLowerCase().replace(/^all_/, '').replace(/^auto.*/, '')
+  return (['zh', 'ja', 'yue', 'ko', 'en'].includes(raw)) ? raw : 'zh'
+}
 
 // Cantonese (yue) and Korean (ko) are intentionally omitted from the selectable
 // targets (no yue/ko assets maintained). A legacy yue/ko voice degrades to
@@ -90,11 +117,16 @@ const VOICE_TO_TARGET = { zh: 'all_zh', yue: 'all_yue', ja: 'all_ja', en: 'en', 
 function defaultTargetLang(voiceLang) {
   const raw = String(voiceLang || '')
   const base = raw.replace(/^all_/, '').replace(/^auto.*/, '')
-  if (!base || raw.startsWith('auto')) return 'auto_zh_ja'
-  return VOICE_TO_TARGET[base] || 'auto_zh_ja'
+  if (!base || raw.startsWith('auto')) return 'auto_zh_ja_yue'
+  return VOICE_TO_TARGET[base] || 'auto_zh_ja_yue'
 }
 
 // 归一 text_lang 到语言族（all_zh -> zh；auto -> null 不判定失配）。
+function normalizeLangFamily(textLang) {
+  if (!textLang || String(textLang).startsWith('auto')) return null
+  return String(textLang).replace(/^all_/, '')
+}
+
 // PD: Recent items show a full local timestamp (YYYY-MM-DD HH:MM:SS) rather than
 // time-only, so entries generated on different days stay distinguishable.
 function fmtRecentTime(value) {
@@ -110,11 +142,6 @@ function refBasename(item) {
   if (!raw) return ''
   const parts = String(raw).split(/[\\/]/)
   return parts[parts.length - 1] || ''
-}
-
-function normalizeLangFamily(textLang) {
-  if (!textLang || String(textLang).startsWith('auto')) return null
-  return String(textLang).replace(/^all_/, '')
 }
 
 // Reference-path identity (Patch #11). A managed reference is identified by its
@@ -149,6 +176,10 @@ export {
   basename,
   recipeNameError,
   TARGET_LANG_OPTIONS,
+  LANG_LABEL_MAP,
+  langLabel,
+  VOICE_LANG_LABEL,
+  effectiveBaseLang,
   defaultTargetLang,
   fmtRecentTime,
   refBasename,

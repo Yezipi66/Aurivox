@@ -957,7 +957,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   pron_overrides: (Object.keys(pronOverrides).length > 0) ? pronOverrides : {},
                   lang_overrides: langOverrides || {},
                   han_readings: (hanDir && Object.keys(hanReadings).length > 0)
-                    ? Object.fromEntries(Object.entries(hanReadings).filter(([ch]) => hanForced.some(x => (typeof x === 'string' ? x : x.char) === ch)))
+                    ? Object.fromEntries(Object.entries(hanReadings).filter(([key]) => hanForced.some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
                     : {},
                   auto_base_lang: textLang === 'auto_zh_ja' ? (selected?.language || lang) : undefined,
                 },

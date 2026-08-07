@@ -1035,7 +1035,7 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
                 <ConfBadge conf={r.confidence} tr={tr} />
               </div>
               <div className="arr-main">
-                <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 10 }}>
+                <div className="arr-input-grid">
                   <Select className="control" value={(r.lang || (lang === 'auto' ? '' : lang) || 'zh').toLowerCase()} disabled={busy} onChange={e => setLang(r.index, e.target.value)}>
                     <option value="zh">Mandarin</option><option value="yue">Cantonese</option><option value="ja">Japanese</option><option value="en">English</option><option value="ko">Korean</option>
                   </Select>

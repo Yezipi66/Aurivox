@@ -1325,6 +1325,32 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   .pron-panel-wide .pron-grid { grid-template-columns: 1fr; }
 }
 
+/* Korean reading proofing: preserve the original token order while using a
+   compact flex flow. Cards take roughly one fifth of a row; punctuation is an
+   inline-sized separator and therefore cannot create a phantom card column.
+   Normal Korean words remain visible but dimmed until Show all is enabled. */
+.pron-tokens-ko { display: flex !important; flex-wrap: wrap !important; }
+.pron-tokens-ko > .pron-tok,
+.pron-tokens-ko > .pron-tok-ko { flex: 0 0 calc(20% - 7px); max-width: calc(20% - 7px); min-width: 0; min-height: 112px; box-sizing: border-box; }
+.pron-tokens-ko > .pron-punct { flex: 0 0 auto; align-self: center; min-width: 12px; }
+.pron-tokens-ko .ko-reading-grid { display: flex !important; flex-direction: column; align-items: stretch; gap: 4px; }
+@media (max-width: 1120px) {
+  .pron-tokens-ko > .pron-tok,
+  .pron-tokens-ko > .pron-tok-ko { flex-basis: calc(25% - 6px); max-width: calc(25% - 6px); }
+}
+@media (max-width: 900px) {
+  .pron-tokens-ko > .pron-tok,
+  .pron-tokens-ko > .pron-tok-ko { flex-basis: calc(33.333% - 6px); max-width: calc(33.333% - 6px); }
+}
+@media (max-width: 640px) {
+  .pron-tokens-ko > .pron-tok,
+  .pron-tokens-ko > .pron-tok-ko { flex-basis: calc(50% - 4px); max-width: calc(50% - 4px); }
+}
+@media (max-width: 420px) {
+  .pron-tokens-ko > .pron-tok,
+  .pron-tokens-ko > .pron-tok-ko { flex-basis: 100%; max-width: 100%; }
+}
+
 .ref-tabs {
   display: inline-flex;
   gap: 4px;
@@ -1905,7 +1931,12 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .asr-review-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: start; padding: 6px 12px; border-top: 1px solid var(--border); }
 .arr-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .arr-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.arr-input-grid { display: grid; grid-template-columns: minmax(180px, 210px) minmax(0, 1fr); gap: 10px; align-items: start; }
 .arr-audio { display: inline-flex; }
+@media (max-width: 720px) {
+  .asr-review-row { grid-template-columns: 1fr; }
+  .arr-input-grid { grid-template-columns: 1fr; }
+}
 .arr-conf { display: inline-flex; align-items: center; gap: 4px; }
 .arr-words { display: flex; flex-wrap: wrap; gap: 2px 3px; line-height: 1.7; }
 /* 色盲友好（C）：低/中置信词叠加下划线冗余编码，不靠颜色也能定位可疑词。 */

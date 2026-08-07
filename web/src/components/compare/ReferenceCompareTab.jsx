@@ -8,7 +8,7 @@ import { SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
+import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, langLabel, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipePath } from '../../lib/recipes'
 
@@ -121,7 +121,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
         pron_overrides: (row.pronOverrides && Object.keys(row.pronOverrides).length > 0) ? row.pronOverrides : {},
         lang_overrides: rLangOverrides || {},
         han_readings: (rDir && row.hanReadings && Object.keys(row.hanReadings).length > 0)
-          ? Object.fromEntries(Object.entries(row.hanReadings).filter(([ch]) => (row.hanForced || []).includes(ch)))
+          ? Object.fromEntries(Object.entries(row.hanReadings).filter(([key]) => (row.hanForced || []).some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
           : {},
       },
       gpt_ckpt: rm.gptCheckpoint || '',
@@ -856,7 +856,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           value={row.textLang || ''}
           onChange={e => onUpdate(row.id, 'textLang', e.target.value)}
         >
-          <option value="">Use default ({defaultTextLang})</option>
+          <option value="">Use default ({langLabel(defaultTextLang)})</option>
           {CMP_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
       </div>
