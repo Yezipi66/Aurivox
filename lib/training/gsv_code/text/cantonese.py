@@ -178,8 +178,11 @@ def get_jyutping(text):
     punct_pattern = re.compile(r"^[{}]+$".format(re.escape("".join(punctuation))))
 
     syllables = ToJyutping.get_jyutping_list(text)
+    word_position = 0
 
     for word, syllable in syllables:
+        current_word_position = word_position
+        word_position += len(word)
         if punct_pattern.match(word):
             puncts = re.split(r"([{}])".format(re.escape("".join(punctuation))), word)
             for punct in puncts:
@@ -194,7 +197,7 @@ def get_jyutping(text):
                 from gsv_code.text import pron_correction
                 readings = re.findall(r"[a-z]+[1-6]", syllable)
                 if len(readings) == len(word):
-                    syllable = " ".join(pron_correction.apply(word, readings, "yue"))
+                    syllable = " ".join(pron_correction.apply(word, readings, "yue", position=current_word_position))
             except Exception:
                 pass
             jyutping_array.append(syllable)

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import threading
 
@@ -42,7 +42,10 @@ _QUOTE_PAIRS = {
     "\u300a": "\u300b",  # 《 》
     "\u3010": "\u3011",  # 【 】
 }
-_SENT_END = set("\u3002\uff01\uff1f!?\u2026\n")  # 。！？ ! ? … newline
+# Clause boundaries: sentence terminators + paired quotes + comma-family.
+# The comma (，、,) is included so a kana/yue-marker signal is confined to a
+# short clause instead of leaking across an entire sentence.
+_SENT_END = set("\u3002\uff01\uff1f!?\u2026\n\uff0c\u3001,;:")  # 。！？ ! ? … \n ，、 , ; :
 
 
 _ML_BASE_LANGS = ("zh", "ja", "yue", "ko", "en")
@@ -59,59 +62,106 @@ def _has_kana(s: str) -> bool:
     return bool(_KANA_RE.search(s))
 
 
-_YUE_STRONG_RE = re.compile(r'[喺嘅佢哋咩冇唔啲嚟咗噉俾畀]​*')
+# Cantonese detection (auto_zh_ja): conservative, weighted, character-based.
+# Strong markers are Cantonese function words/particles that are almost never
+# used in Mandarin; weak markers are common in Cantonese writing but can also
+# appear in general Chinese text. English/Korean are excluded here — they go
+# through their own g2p pipeline and are never counted.
+_YUE_STRONG_RE = re.compile(r'[喺嘅佢哋咩冇唔啲嚟咗噉俾畀]')
+_YUE_WEAK_RE = re.compile(r'[嘢啱係既咁啦喇咪嘥攞揾餸攰瞓]')
+_HAN_RE = re.compile(r'[\u3400-\u4DBF\u4E00-\u9FFF]')
+_YUE_STRONG_SCORE = 2.0
+_YUE_WEAK_SCORE = 1.0
+_YUE_GENERAL_HAN_PENALTY = 0.05
+_YUE_THRESHOLD = 1.5
 
 def _has_strong_yue_marker(s: str) -> bool:
     # Deliberately conservative: Traditional Chinese alone is not Cantonese.
     return bool(_YUE_STRONG_RE.search(str(s or '')))
 
 
-# Per-character language override: force specific Han-character substrings to a
+def _yue_score(s: str) -> float:
+    """Weighted Cantonese likelihood score for a clause.
+
+    strong marker +2 each, weak marker +1 each, general Han char -0.05 each,
+    English/Korean ignored. A clause with total score > _YUE_THRESHOLD (1.5) is
+    treated as Cantonese. This replaces the old single-strong-marker rule so a
+    clause full of weak markers (or one strong marker diluted by many general
+    Han chars) is classified correctly.
+    """
+    if not s:
+        return 0.0
+    strong = len(_YUE_STRONG_RE.findall(s))
+    weak = len(_YUE_WEAK_RE.findall(s))
+    han = len(_HAN_RE.findall(s))
+    return strong * _YUE_STRONG_SCORE + weak * _YUE_WEAK_SCORE - han * _YUE_GENERAL_HAN_PENALTY
+
+
+def _is_yue_clause(s: str) -> bool:
+    """True if a clause's weighted Cantonese score exceeds the threshold."""
+    return _yue_score(s) > _YUE_THRESHOLD
+
+
+# Per-character language override: force specific Han-character positions to a
 # language that differs from the dominant one (e.g. read 大丈夫 as Japanese inside
-# a Chinese passage, or vice versa). Only zh/yue/ja are meaningful targets.
+# a Chinese passage, or vice versa). The payload uses @absoluteIndex keys; only
+# zh/yue/ja are meaningful targets.
 _ML_OVERRIDE_LANGS = ("zh", "yue", "ja")
 
 
-def _apply_lang_overrides(langlist, textlist, overrides):
-    """Split each (lang, text) segment at override substrings and reassign their
-    language. Substring-based -> applies to every occurrence (same character =
-    same reading intent). No-op when overrides is empty -> zero regression.
+def _apply_lang_overrides(langlist, textlist, overrides, with_positions=False, absolute_start=0):
+    """Apply absolute-position (@N) Han overrides after segmentation.
+
+    Returns the original two-tuple by default for compatibility. When
+    ``with_positions`` is true, a third list contains the original absolute
+    character positions for each emitted segment; the cleaner uses those bases
+    to apply the matching ``@N:char`` pronunciation overrides.
     """
-    clean = {}
+    position = {}
     for k, v in (overrides or {}).items():
-        if not k:
-            continue
         lv = _norm_base_lang(v)
-        if lv in _ML_OVERRIDE_LANGS:
-            clean[k] = lv
-    keys = sorted(clean.keys(), key=len, reverse=True)  # longest match first
-    if not keys:
-        return langlist, textlist
+        if lv not in _ML_OVERRIDE_LANGS:
+            continue
+        if isinstance(k, str) and k.startswith("@") and k[1:].isdigit():
+            position[int(k[1:])] = lv
+        # Character-global legacy keys are intentionally ignored. They would
+        # affect every occurrence of a repeated character and violate the
+        # position-specific picker contract.
 
-    out_lang, out_text = [], []
+    out_lang, out_text, out_positions = [], [], []
 
-    def emit(lang, txt):
+    def emit(lang, txt, positions):
         if not txt:
             return
-        if out_lang and out_lang[-1] == lang:
+        if (
+            out_lang
+            and out_lang[-1] == lang
+            and out_positions[-1]
+            and positions
+            and out_positions[-1][-1] + 1 == positions[0]
+        ):
             out_text[-1] += txt
+            out_positions[-1].extend(positions)
         else:
             out_lang.append(lang)
             out_text.append(txt)
+            out_positions.append(list(positions))
 
+    absolute = int(absolute_start or 0)
     for seg_lang, seg_text in zip(langlist, textlist):
-        i, n = 0, len(seg_text)
-        while i < n:
-            matched = next((k for k in keys if seg_text.startswith(k, i)), None)
-            if matched is not None:
-                emit(clean[matched], matched)
-                i += len(matched)
+        i = 0
+        while i < len(seg_text):
+            original_position = absolute + i
+            forced_lang = position.get(original_position)
+            if forced_lang:
+                emit(forced_lang, seg_text[i], [original_position])
             else:
-                j = i + 1
-                while j < n and not any(seg_text.startswith(k, j) for k in keys):
-                    j += 1
-                emit(seg_lang, seg_text[i:j])
-                i = j
+                emit(seg_lang, seg_text[i], [original_position])
+            i += 1
+        absolute += len(seg_text)
+
+    if with_positions:
+        return out_lang, out_text, out_positions
     return out_lang, out_text
 
 
@@ -178,14 +228,41 @@ class TextPreprocessor:
         self.device = device
         self.bert_lock = threading.RLock()
 
+    @staticmethod
+    def segment_offsets(source_text: str, segments: list) -> list:
+        """Return absolute Unicode code-point offsets for derived text segments.
+
+        Python's len/index semantics are code-point based, matching the @N
+        coordinates emitted by the web UI. The text splitter may append a final
+        punctuation mark or merge short lines; when an exact search is not
+        possible, the best safe fallback is the current cursor rather than
+        reusing offset zero for every segment.
+        """
+        source = str(source_text or "")
+        offsets = []
+        cursor_code_unit = 0
+        for segment in segments or []:
+            value = str(segment or "")
+            at = source.find(value, cursor_code_unit)
+            if at < 0:
+                offsets.append(len(source[:cursor_code_unit]))
+                continue
+            offsets.append(len(source[:at]))
+            cursor_code_unit = at + len(value)
+        return offsets
+
     def preprocess(self, text: str, lang: str, text_split_method: str, version: str = "v2", auto_base_lang: str = "zh", lang_overrides: dict = None) -> List[Dict]:
         print(f"############ {i18n('切分文本')} ############")
         text = self.replace_consecutive_punctuation(text)
         texts = self.pre_seg_text(text, lang, text_split_method)
+        offsets = self.segment_offsets(text, texts)
         result = []
         print(f"############ {i18n('提取文本Bert特征')} ############")
-        for text in tqdm(texts):
-            phones, bert_features, norm_text = self.segment_and_extract_feature_for_text(text, lang, version, auto_base_lang, lang_overrides)
+        for index, segment in enumerate(tqdm(texts)):
+            position_offset = offsets[index] if index < len(offsets) else 0
+            phones, bert_features, norm_text = self.segment_and_extract_feature_for_text(
+                segment, lang, version, auto_base_lang, lang_overrides, position_offset=position_offset
+            )
             if phones is None or norm_text == "":
                 continue
             res = {
@@ -237,12 +314,31 @@ class TextPreprocessor:
         return texts
 
     def segment_and_extract_feature_for_text(
-        self, text: str, language: str, version: str = "v1", auto_base_lang: str = "zh", lang_overrides: dict = None
+        self, text: str, language: str, version: str = "v1", auto_base_lang: str = "zh", lang_overrides: dict = None, position_offset: int = 0
     ) -> Tuple[list, torch.Tensor, str]:
-        return self.get_phones_and_bert(text, language, version, auto_base_lang=auto_base_lang, lang_overrides=lang_overrides)
+        return self.get_phones_and_bert(
+            text, language, version, auto_base_lang=auto_base_lang,
+            lang_overrides=lang_overrides, position_offset=position_offset,
+        )
 
-    def get_phones_and_bert(self, text: str, language: str, version: str, final: bool = False, auto_base_lang: str = "zh", lang_overrides: dict = None):
+    def get_phones_and_bert(self, text: str, language: str, version: str, final: bool = False, auto_base_lang: str = "zh", lang_overrides: dict = None, position_offset: int = 0):
         with self.bert_lock:
+            # Korean proofing overrides are human-readable Hangul replacements.
+            # Apply per occurrence before Korean g2p; Latin and Han remain in their own pipelines.
+            try:
+                from gsv_code.text import pron_correction as _pc
+                _ko = _pc.current_overrides("ko") or {}
+                for _word, _entry in _ko.items():
+                    if not isinstance(_word, str) or not _word:
+                        continue
+                    _n = {"v": 0}
+                    def _ko_repl(_m, _e=_entry, _n=_n):
+                        _i = _n["v"]; _n["v"] += 1
+                        _chosen = _pc._pick_reading(_e, _i)
+                        return (_chosen[0] if _chosen else _m.group(0))
+                    text = re.sub(re.escape(_word), _ko_repl, text)
+            except Exception:
+                pass
             # item 19-C: snapshot the per-occurrence counter so the <6-phone retry
             # below (which re-runs g2p on the same text) doesn't double-count word
             # occurrences and desync position-level English overrides.
@@ -270,9 +366,17 @@ class TextPreprocessor:
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
             elif language == "all_ko":
-                for tmp in LangSegmenter.getTexts(text,"ko"):
-                    langlist.append(tmp["lang"])
-                    textlist.append(tmp["text"])
+                for tmp in LangSegmenter.getTexts(text):
+                    seg_lang = tmp["lang"]
+                    if seg_lang in ("zh", "x"):
+                        seg_lang = "zh"
+                    elif seg_lang == "ja" and not _has_kana(tmp["text"]):
+                        seg_lang = "zh"
+                    if langlist and seg_lang == langlist[-1]:
+                        textlist[-1] += tmp["text"]
+                    else:
+                        langlist.append(seg_lang)
+                        textlist.append(tmp["text"])
             elif language == "en":
                 langlist.append("en")
                 textlist.append(text)
@@ -286,15 +390,16 @@ class TextPreprocessor:
                         tmp["lang"] = "yue"
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
-            elif language == "auto_zh_ja":
+            elif language == "auto_zh_ja_yue" or language == "auto_zh_ja":
                 # Auto (Multilingual): kana-free CJK defaults to the voice's base
                 # language (from asset metadata), but any clause that CONTAINS kana
                 # is treated as Japanese so its shared Han characters are read as Japanese too.
+                # Cantonese (yue) clauses are detected via weighted character scoring.
                 # Ambiguous CJK segments (zh / zh-tw"x") follow the clause default;
                 # en/ja/ko keep their detected language.
                 base_lang = _norm_base_lang(auto_base_lang)
                 for clause in _split_clauses(text):
-                    cjk_default = "ja" if _has_kana(clause) else ("yue" if _has_strong_yue_marker(clause) else base_lang)
+                    cjk_default = "ja" if _has_kana(clause) else ("yue" if _is_yue_clause(clause) else base_lang)
                     for tmp in LangSegmenter.getTexts(clause):
                         seg_lang = tmp["lang"]
                         if seg_lang in ("zh", "x"):
@@ -318,8 +423,17 @@ class TextPreprocessor:
                     textlist.append(tmp["text"])
             # Per-character language override (Auto Multilingual + strict CJK modes):
             # force user-selected Han-character runs to their reverse language.
-            if lang_overrides and language in ("all_zh", "all_yue", "all_ja", "auto_zh_ja", "auto"):
-                langlist, textlist = _apply_lang_overrides(langlist, textlist, lang_overrides)
+            position_bases = []
+            if lang_overrides and language in ("all_zh", "all_yue", "all_ja", "auto_zh_ja_yue", "auto_zh_ja", "auto"):
+                langlist, textlist, segment_positions = _apply_lang_overrides(
+                    langlist, textlist, lang_overrides, with_positions=True, absolute_start=position_offset
+                )
+                position_bases = [positions[0] if positions else 0 for positions in segment_positions]
+            else:
+                cursor = position_offset
+                for segment in textlist:
+                    position_bases.append(cursor)
+                    cursor += len(segment)
             # print(textlist)
             # print(langlist)
             phones_list = []
@@ -327,7 +441,9 @@ class TextPreprocessor:
             norm_text_list = []
             for i in range(len(textlist)):
                 lang = langlist[i]
-                phones, word2ph, norm_text = self.clean_text_inf(textlist[i], lang, version)
+                phones, word2ph, norm_text = self.clean_text_inf(
+                    textlist[i], lang, version, position_base=position_bases[i] if i < len(position_bases) else 0
+                )
                 bert = self.get_bert_inf(phones, word2ph, norm_text, lang)
                 phones_list.append(phones)
                 norm_text_list.append(norm_text)
@@ -339,7 +455,7 @@ class TextPreprocessor:
             if not final and len(phones) < 6:
                 if _pron_occ is not None and _occ_snap is not None:
                     _pron_occ.restore_occ(_occ_snap)
-                return self.get_phones_and_bert("." + text, language, version, final=True, auto_base_lang=auto_base_lang, lang_overrides=lang_overrides)
+                return self.get_phones_and_bert("." + text, language, version, final=True, auto_base_lang=auto_base_lang, lang_overrides=lang_overrides, position_offset=position_offset - 1)
 
             return phones, bert, norm_text
 
@@ -358,11 +474,26 @@ class TextPreprocessor:
         phone_level_feature = torch.cat(phone_level_feature, dim=0)
         return phone_level_feature.T
 
-    def clean_text_inf(self, text: str, language: str, version: str = "v2"):
+    def clean_text_inf(self, text: str, language: str, version: str = "v2", position_base: int = 0):
         language = language.replace("all_", "")
-        phones, word2ph, norm_text = clean_text(text, language, version)
-        phones = cleaned_text_to_sequence(phones, version)
-        return phones, word2ph, norm_text
+        # The language-specific cleaners call the shared pronunciation layer
+        # internally. Set the original-text base while they run so @N:char
+        # readings can be applied to the correct occurrence.
+        try:
+            from gsv_code.text import pron_correction
+            pron_correction.set_segment_base(position_base)
+        except Exception:
+            pron_correction = None
+        try:
+            phones, word2ph, norm_text = clean_text(text, language, version)
+            phones = cleaned_text_to_sequence(phones, version)
+            return phones, word2ph, norm_text
+        finally:
+            if pron_correction is not None:
+                try:
+                    pron_correction.clear_segment_base()
+                except Exception:
+                    pass
 
     def get_bert_inf(self, phones: list, word2ph: list, norm_text: str, language: str):
         language = language.replace("all_", "")

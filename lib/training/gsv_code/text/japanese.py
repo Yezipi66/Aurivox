@@ -126,53 +126,88 @@ def _feat_reading(f):
     return f.get("pron") or f.get("read") or ""
 
 
-def _apply_yomi_override_njd(njd):
-    """Route C：按表层词组覆盖 NJD 假名读音（单词素精确 + 相邻词素贪婪合并）。
+def _apply_yomi_override_njd(njd, position_base=None):
+    """Apply word-level and absolute-position kana overrides to NJD features.
 
-    命中词条时，把该跨度合并为一个词素：string/orig=词组、read/pron=覆盖假名、
-    mora_size 重算、acc 归 0（本版不控 accent）。任何异常回落原 njd。
+    The Han-language UI stores a selected character as ``@N:char``. A plain
+    character key cannot be used here because the same Han character may occur
+    several times with different readings. When every surface character in an
+    adjacent NJD span has a position override, their kana are joined into one
+    feature so pyopenjtalk receives the corrected reading for that span.
     """
     if _pron is None or not njd:
         return njd
     try:
         view = _pron.overrides_view("ja") or {}
+        if position_base is None:
+            position_base = _pron.current_segment_base()
+        position_base = max(0, int(position_base or 0))
     except Exception:
         view = {}
+        position_base = 0
     if not view:
         return njd
+
+    def first_value(value):
+        if isinstance(value, (list, tuple)) and value:
+            return value[0]
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, dict):
+            values = value.get("*") or value.get("0")
+            if isinstance(values, (list, tuple)) and values:
+                return values[0]
+            if isinstance(values, str) and values:
+                return values
+        return None
+
     try:
         surfaces = [_feat_surface(f) for f in njd]
         n = len(njd)
         out = []
         i = 0
+        surface_offset = 0
         max_span = 8
         while i < n:
             matched = False
             for span in range(min(max_span, n - i), 0, -1):
                 key = "".join(surfaces[i:i + span])
-                if key and key in view:
-                    vals = view[key]
-                    kana_raw = None
-                    if isinstance(vals, (list, tuple)) and vals:
-                        kana_raw = vals[0]
-                    elif isinstance(vals, str):
-                        kana_raw = vals
-                    if kana_raw:
-                        kana = _to_katakana(str(kana_raw))
-                        base = dict(njd[i])
-                        base["string"] = key
-                        base["orig"] = key
-                        base["read"] = kana
-                        base["pron"] = kana
-                        base["mora_size"] = _count_mora(kana)
-                        base["acc"] = 0
-                        base["chain_flag"] = -1
-                        out.append(base)
-                        i += span
-                        matched = True
-                        break
+                if not key:
+                    continue
+
+                kana_raw = first_value(view.get(key))
+                # Position-specific overrides take precedence over a normal word
+                # override when all characters in this candidate span are covered.
+                if kana_raw is None:
+                    positional = []
+                    complete = True
+                    for ci, char in enumerate(key):
+                        value = first_value(view.get(f"@{position_base + surface_offset + ci}:{char}"))
+                        if value is None:
+                            complete = False
+                            break
+                        positional.append(value)
+                    if complete and positional:
+                        kana_raw = "".join(positional)
+
+                if kana_raw:
+                    kana = _to_katakana(str(kana_raw))
+                    base = dict(njd[i])
+                    base["string"] = key
+                    base["orig"] = key
+                    base["read"] = kana
+                    base["pron"] = kana
+                    base["mora_size"] = _count_mora(kana)
+                    base["acc"] = 0
+                    base["chain_flag"] = -1
+                    out.append(base)
+                    i += span
+                    surface_offset += len(key)
+                    matched = True
+                    break
             if not matched:
                 out.append(njd[i])
+                surface_offset += len(surfaces[i])
                 i += 1
         return out
     except Exception as _e:
@@ -180,7 +215,7 @@ def _apply_yomi_override_njd(njd):
         return njd
 
 
-def get_word_yomi(text):
+def get_word_yomi(text, position_base=None):
     """预览：文本 -> [(word, reading, source)]，读音已应用覆盖（预览 == 合成）。
 
     对等中文 chinese2.get_word_pinyins，返回 (norm_text, tokens)。
@@ -191,7 +226,7 @@ def get_word_yomi(text):
     except Exception:
         njd = []
     try:
-        njd2 = _apply_yomi_override_njd(njd)
+        njd2 = _apply_yomi_override_njd(njd, position_base=position_base)
     except Exception:
         njd2 = njd
     ov = {}

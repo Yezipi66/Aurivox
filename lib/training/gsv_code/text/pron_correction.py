@@ -76,6 +76,66 @@ _ctx_overrides = contextvars.ContextVar("pron_overrides", default=None)
 _global_overrides = None
 _global_lock = threading.RLock()
 
+# Position-aware Han readings are applied after language routing. The frontend
+# sends keys such as {"@3:这": ["コレ"]}; the segment base lets the ordinary
+# Chinese/Cantonese/Japanese cleaners resolve those absolute positions without
+# changing their public APIs. Inference is single-model/locked, so the global
+# fallback also covers worker-thread execution just like _global_overrides.
+_segment_base_ctx = contextvars.ContextVar("pron_segment_base", default=None)
+_global_segment_base = 0
+_segment_base_lock = threading.RLock()
+
+
+def set_segment_base(base):
+    global _global_segment_base
+    try:
+        value = int(base or 0)
+    except Exception:
+        value = 0
+    _segment_base_ctx.set(value)
+    with _segment_base_lock:
+        _global_segment_base = value
+
+
+def clear_segment_base():
+    _segment_base_ctx.set(None)
+    global _global_segment_base
+    with _segment_base_lock:
+        _global_segment_base = 0
+
+
+def current_segment_base():
+    value = _segment_base_ctx.get()
+    if value is not None:
+        return value
+    with _segment_base_lock:
+        return _global_segment_base
+
+
+def _position_reading(lang, absolute_index, char):
+    """Return a position-specific reading, if one exists for this character."""
+    try:
+        if absolute_index is None or not char:
+            return None
+        # Position keys are language-scoped. Do not use _current_overrides()
+        # here because its legacy single-bucket fallback intentionally merges a
+        # flat/foreign bucket for old word-level recipes; that would let a JA
+        # position reading leak into a ZH cleaner at the same absolute index.
+        data = _ctx_overrides.get()
+        if data is None:
+            with _global_lock:
+                data = _global_overrides
+        if not data:
+            return None
+        if all(isinstance(value, dict) for value in data.values()):
+            view = data.get(lang, {}) or {}
+        else:
+            view = data
+        entry = view.get("@{}:{}".format(int(absolute_index), char))
+        return _pick_reading(entry, None) if entry is not None else None
+    except Exception:
+        return None
+
 
 def _normalize_overrides(overrides, lang):
     if not overrides:
@@ -97,6 +157,7 @@ def set_context(overrides, lang="zh"):
     with _global_lock:
         _global_overrides = norm
     reset_occ()
+    clear_segment_base()
     _dbg("set_context lang=%s -> %s" % (lang, norm))
 
 
@@ -106,6 +167,7 @@ def clear_context():
     with _global_lock:
         _global_overrides = None
     reset_occ()
+    clear_segment_base()
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +339,7 @@ def _pick_reading(override, occ):
     return None
 
 
-def resolve(word, readings, lang="zh", occ=None):
+def resolve(word, readings, lang="zh", occ=None, position=None):
     """
     对一个词的读音串应用覆盖。优先级：单次 overrides > 全局词典 > 原值。
     语言无关：readings 是字符串列表（zh=逐字带调拼音；ja=[整词假名]；en=ARPABET 音素）。
@@ -300,14 +362,35 @@ def resolve(word, readings, lang="zh", occ=None):
         if picked is None:
             picked = _pick_reading(load_lexicon(lang).get(word), occ)
             source = "lexicon"
-        if picked is None:
+
+        # Start from the ordinary/lexicon result, then overlay any explicit
+        # absolute-position readings. Position entries are intentionally applied
+        # per character so repeated Han characters remain independent.
+        out = list(readings)
+        word_applied = False
+        if picked is not None:
+            if lang in ("zh", "yue") and len(picked) != len(readings):
+                _dbg("resolve word=%r override=%s SKIPPED (length %d!=%d)" % (
+                    word, picked, len(picked), len(readings)))
+            else:
+                out = [str(p) for p in picked]
+                word_applied = True
+
+        if lang in ("zh", "yue"):
+            base = current_segment_base()
+            word_start = 0 if position is None else max(0, int(position))
+            for i, char in enumerate(word):
+                if i >= len(out):
+                    break
+                positional = _position_reading(lang, base + word_start + i, char)
+                if positional and len(positional) == 1:
+                    out[i] = str(positional[0])
+                    word_applied = True
+                    source = "position"
+
+        if not word_applied:
             _dbg("resolve word=%r occ=%r -> no-override" % (word, occ))
             return readings
-        if lang in ("zh", "yue") and len(picked) != len(readings):
-            _dbg("resolve word=%r override=%s SKIPPED (length %d!=%d)" % (
-                word, picked, len(readings), len(picked)))
-            return readings
-        out = [str(p) for p in picked]
         _dbg("resolve word=%r occ=%r -> %s (%s)" % (word, occ, out, source))
         return out
     except Exception as _e:
@@ -315,9 +398,9 @@ def resolve(word, readings, lang="zh", occ=None):
         return readings
 
 
-def apply(word, readings, lang="zh"):
-    """词级读音覆盖（历史入口，等价 resolve(occ=None)）。中文/日语/训练侧沿用。"""
-    return resolve(word, readings, lang, occ=None)
+def apply(word, readings, lang="zh", position=None):
+    """词级读音覆盖；position 是该词在当前文本段中的字符偏移。"""
+    return resolve(word, readings, lang, occ=None, position=position)
 
 
 # ---------------------------------------------------------------------------

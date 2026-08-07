@@ -160,7 +160,7 @@ def get_word_pinyins(text):
             else:
                 word_pinyins = lazy_pinyin(word, neutral_tone_with_five=True, style=Style.TONE3)
             if _pron is not None:
-                word_pinyins = _pron.apply(word, word_pinyins)
+                word_pinyins = _pron.apply(word, word_pinyins, position=pre_word_length)
             out.append((word, list(word_pinyins)))
             pre_word_length = now_word_length
     return norm_text, out
@@ -284,14 +284,17 @@ def _g2p(segments):
         finals = []
 
         if not is_g2pw:
+            word_position = 0
             for word, pos in seg_cut:
+                current_word_position = word_position
+                word_position += len(word)
                 if pos == "eng":
                     continue
                 sub_initials, sub_finals = _get_initials_finals(word)
                 # 读音校对层（pypinyin 回退分支）：g2pW 不可用时仍让词粒度读音覆盖生效。
                 if _pron is not None:
                     _base_py = lazy_pinyin(word, neutral_tone_with_five=True, style=Style.TONE3)
-                    _ov_py = _pron.apply(word, _base_py)
+                    _ov_py = _pron.apply(word, _base_py, position=current_word_position)
                     if list(_ov_py) != list(_base_py):
                         if os.environ.get("PRON_DEBUG"):
                             print(f"[pron] apply(pypinyin) word={word!r} in={list(_base_py)} -> {list(_ov_py)}", flush=True)
@@ -340,7 +343,7 @@ def _g2p(segments):
 
                 # 读音校对层：词粒度覆盖（单次 overrides > 全局词典 > g2p）；无覆盖时原样返回
                 if _pron is not None:
-                    word_pinyins = _pron.apply(word, word_pinyins)
+                    word_pinyins = _pron.apply(word, word_pinyins, position=pre_word_length)
 
                 for pinyin in word_pinyins:
                     if pinyin[0].isalpha():

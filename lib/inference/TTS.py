@@ -1290,18 +1290,24 @@ class TTS:
         else:
             print(f"############ {i18n('切分文本')} ############")
             texts = self.text_preprocessor.pre_seg_text(text, text_lang, text_split_method)
+            offsets = self.text_preprocessor.segment_offsets(text, texts)
             data = []
             for i in range(len(texts)):
                 if i % batch_size == 0:
                     data.append([])
-                data[-1].append(texts[i])
+                data[-1].append((texts[i], offsets[i] if i < len(offsets) else 0))
 
             def make_batch(batch_texts):
                 batch_data = []
                 print(f"############ {i18n('提取文本Bert特征')} ############")
-                for text in tqdm(batch_texts):
+                for item in tqdm(batch_texts):
+                    if isinstance(item, (tuple, list)) and len(item) == 2:
+                        text, position_offset = item
+                    else:
+                        text, position_offset = item, 0
                     phones, bert_features, norm_text = self.text_preprocessor.segment_and_extract_feature_for_text(
-                        text, text_lang, self.configs.version, auto_base_lang, lang_overrides
+                        text, text_lang, self.configs.version, auto_base_lang, lang_overrides,
+                        position_offset=position_offset,
                     )
                     if phones is None:
                         continue
