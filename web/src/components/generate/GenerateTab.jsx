@@ -3,13 +3,13 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
-import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides } from '../pron/PronProofing'
+import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides, parseLangOverrides } from '../pron/PronProofing'
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, refMatches } from '../common/RefPickers'
 import { assetIdFromCkptPath, useAssetsWithModels, gptGroups, sovitsGroups } from '../../lib/models'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, defaultTargetLang, fmtRecentTime, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
+import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, VOICE_LANG_LABEL, basename, defaultTargetLang, effectiveBaseLang, fmtRecentTime, langLabel, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams } from '../../lib/recipes'
 
@@ -404,7 +404,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       gpt_model: selGpt, sovits_model: selSovits,
       text_lang: textLang, prompt_lang: selectedPromptLang || lang,
       // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
-      auto_base_lang: textLang === 'auto_zh_ja' ? (selected?.language || lang || undefined) : undefined,
+      auto_base_lang: textLang === 'auto_zh_ja_yue' ? (selected?.language || lang || undefined) : undefined,
       aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
       pron_overrides: pronPayload,
       lang_overrides: langOverrides,
@@ -497,7 +497,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     // #4: restore per-character Han-character language overrides (chars only; the
     // reverse language is re-derived from the applied text_lang / voice).
     if (p.lang_overrides && typeof p.lang_overrides === 'object' && !Array.isArray(p.lang_overrides)) {
-      setHanForced(Object.entries(p.lang_overrides).map(([char, lang]) => ({ char, lang })))
+      setHanForced(parseLangOverrides(p.lang_overrides))
     } else {
       setHanForced([])
     }
@@ -959,7 +959,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   han_readings: (hanDir && Object.keys(hanReadings).length > 0)
                     ? Object.fromEntries(Object.entries(hanReadings).filter(([key]) => hanForced.some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
                     : {},
-                  auto_base_lang: textLang === 'auto_zh_ja' ? (selected?.language || lang) : undefined,
+                  auto_base_lang: textLang === 'auto_zh_ja_yue' ? (selected?.language || lang) : undefined,
                 },
                 gpt_ckpt: selGpt,
                 sovits_pth: selSovits,
@@ -1019,7 +1019,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   <div className="rr-main">
                     <div className="rr-text" title={item.text}>{item.text || '(empty)'}</div>
                     <div className="rr-meta">
-                      {item.voice} · <span style={{ textTransform: 'uppercase' }}>{item.lang}</span> · GPT {item.gpt} / SoVITS {item.sovits}
+                      {item.voice} · {langLabel(item.lang)} · GPT {item.gpt} / SoVITS {item.sovits}
                       {item.segments > 1 ? ` · ${item.segments} seg` : ''}
                       {refBasename(item) ? ` · ref ${refBasename(item)}` : ''} · {fmtRecentTime(item.createdAt)}
                       {(item.seed ?? item.params?.seed) !== undefined && (item.seed ?? item.params?.seed) !== null && (item.seed ?? item.params?.seed) !== -1 && (

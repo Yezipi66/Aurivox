@@ -321,6 +321,13 @@ def post_replace_ph(ph):
     return ph
 
 
+def korean_pronunciation(text):
+    """Return human-readable post-rule Hangul used before jamo decomposition."""
+    text = latin_to_hangul(text)
+    text = _g2p(text)
+    return fix_g2pk2_error(text)
+
+
 def g2p(text):
     text = latin_to_hangul(text)
     text = _g2p(text)

@@ -1,4 +1,4 @@
-﻿import gc
+import gc
 import math
 import os
 import random
@@ -268,7 +268,7 @@ class TTS_Config:
     }
     configs: dict = None
     v1_languages: list = ["auto", "en", "zh", "ja", "all_zh", "all_ja"]
-    v2_languages: list = ["auto", "auto_yue", "auto_zh_ja", "en", "zh", "ja", "yue", "ko", "all_zh", "all_ja", "all_yue", "all_ko"]
+    v2_languages: list = ["auto", "auto_yue", "auto_zh_ja_yue", "auto_zh_ja", "en", "zh", "ja", "yue", "ko", "all_zh", "all_ja", "all_yue", "all_ko"]
     languages: list = v2_languages
     mute_tokens: dict = {
         "v1" : 486,

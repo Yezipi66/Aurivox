@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
-import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection } from '../pron/PronProofing'
+import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, parseLangOverrides } from '../pron/PronProofing'
 import { SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
@@ -14,7 +14,7 @@ import { recipePath } from '../../lib/recipes'
 
 // Compare Refs target-language options: the plain per-segment "auto" is dropped
 // here (this page is decoupled from the Generate voice — no per-voice auto-detect),
-// but the multilingual "auto_zh_ja" is kept for zh+ja shared-Han comparison.
+// but the multilingual "auto_zh_ja_yue" is kept for zh+ja shared-Han comparison.
 const CMP_LANG_OPTIONS = TARGET_LANG_OPTIONS.filter(o => o.value !== 'auto')
 
 // Reserved id of the built-in Base model (zero-shot pretrained-weights voice).
@@ -134,9 +134,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
   // Decoupled from the Generate voice: the comparison text's target language is a
   // free choice (default = multilingual auto), NOT auto-derived from the selected
   // voice, and it never auto-switches when the voice changes. Legacy persisted
-  // 'auto' (removed here) migrates to the multilingual 'auto_zh_ja'.
-  const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', 'auto_zh_ja', {
-    rehydrate: v => (v === 'auto' || !v) ? 'auto_zh_ja' : v,
+  // 'auto' (removed here) migrates to the multilingual 'auto_zh_ja_yue'.
+  const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', 'auto_zh_ja_yue', {
+    rehydrate: v => (v === 'auto' || !v) ? 'auto_zh_ja_yue' : v,
   })
   const voiceLang = selected?.language || 'ja'
   const _cmpBaseFam = String(voiceLang || '').replace(/^all_/, '')
@@ -282,7 +282,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
 
   const loadRecipeIntoRow = (row, recipeId) => {
     const rec=recipes.find(r=>r.id===recipeId); if(!rec)return; const p=rec.params||{}
-    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',temperature:p.temperature??r.temperature,top_k:p.top_k??r.top_k,top_p:p.top_p??r.top_p,repetition_penalty:p.repetition_penalty??r.repetition_penalty,text_split_method:p.text_split_method||r.text_split_method,speed_factor:p.speed??r.speed_factor,seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:Object.entries(p.lang_overrides||{}).map(([char,lang])=>({char,lang})),hanReadings:p.han_readings||{},result:null,error:null}:r))
+    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',temperature:p.temperature??r.temperature,top_k:p.top_k??r.top_k,top_p:p.top_p??r.top_p,repetition_penalty:p.repetition_penalty??r.repetition_penalty,text_split_method:p.text_split_method||r.text_split_method,speed_factor:p.speed??r.speed_factor,seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:parseLangOverrides(p.lang_overrides),hanReadings:p.han_readings||{},result:null,error:null}:r))
     setRowModels(prev=>({...prev,[row.id]:{voiceId:rec.role||selectedVoice,gptCheckpoint:recipePath(rec.gpt_ckpt),sovitsModel:recipePath(rec.sovits_pth)}}))
   }
 
@@ -341,7 +341,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       body.text_lang = row.textLang || defaultTextLang || rowVoiceLang || 'ja'
       body.prompt_lang = row.promptLang || rowVoiceLang || 'ja'
       // Auto (Multilingual): kana-free CJK falls back to this row's model language.
-      if (body.text_lang === 'auto_zh_ja') body.auto_base_lang = rowVoiceLang || 'zh'
+      if (body.text_lang === 'auto_zh_ja_yue') body.auto_base_lang = rowVoiceLang || 'zh'
       if (row.promptText) body.reference_text = row.promptText
       // P1-1 / #4: reading proofing is per-row — each row carries its own base
       // overrides + Han-character language forcing + reverse readings, so corrections

@@ -526,6 +526,30 @@ def _preview_zh(text, lang):
     return norm_text, toks
 
 
+
+def _preview_ko(text):
+    """Korean word preview using the same g2pk2 normalizer as synthesis."""
+    import re
+    from gsv_code.text import korean
+    toks = []
+    for m in re.finditer(r"[\uac00-\ud7a3]+|[^\uac00-\ud7a3]+", text):
+        word = m.group(0)
+        if not re.search(r"[\uac00-\ud7a3]", word):
+            toks.append({"word": word, "unit": "word", "reading": word, "editable": False, "source": "g2p", "start": m.start(), "end": m.end()})
+            continue
+        try:
+            reading = korean.korean_pronunciation(word)
+            unresolved = not bool(reading)
+        except Exception:
+            reading, unresolved = "", True
+        written = list(word)
+        spoken = list(reading or "")
+        syllables = []
+        for i in range(max(len(written), len(spoken))):
+            syllables.append({"written": written[i] if i < len(written) else "", "spoken": spoken[i] if i < len(spoken) else "", "changed": i >= len(written) or i >= len(spoken) or written[i] != spoken[i]})
+        toks.append({"word": word, "unit": "word", "reading": reading, "editable": True, "source": "g2p", "start": m.start(), "end": m.end(), "syllables": syllables, "needsReview": unresolved or word != reading, "unresolved": unresolved})
+    return text, toks
+
 def _preview_placeholder(text):
     toks = [{"word": ch, "unit": "char", "chars": [{
         "char": ch, "reading": "", "candidates": [], "polyphonic": False, "source": "g2p",
@@ -578,7 +602,7 @@ def preview(text, lang="zh"):
       * zh/yue  unit="char"：{"word","unit","chars":[{char,reading,candidates,polyphonic,source}],"segLang"}
       * ja      unit="word"：{"word","unit","reading"(假名),"editable":true,"source","segLang"}
       * en      unit="word"：{"word","unit","readings"(ARPABET),"candidates":[...],"editable":true,"source","segLang"}
-      * ko/其它 占位（unsupported token）。
+      * ko      unit="word"：韩文书写、实际读音、音节差异与可编辑覆盖。
     """
     result = {"lang": lang, "norm_text": "", "tokens": [], "langs": [], "multilingual": False}
     if not text:
@@ -600,6 +624,8 @@ def preview(text, lang="zh"):
                 nt, tk = _preview_ja(seg_text)
             elif seg_lang in ("zh", "yue"):
                 nt, tk = _preview_zh(seg_text, seg_lang)
+            elif seg_lang == "ko":
+                nt, tk = _preview_ko(seg_text)
             else:
                 nt, tk = _preview_placeholder(seg_text)
         except Exception as e:
@@ -615,8 +641,8 @@ def preview(text, lang="zh"):
     # english.en_G2p 全局计数一致，前端据此为「第 N 次出现」单独设置读音。
     occ_seen = {}
     for t in tokens:
-        if t.get("segLang") == "en" and (t.get("unit") == "word"):
-            key = t.get("word", "")
+        if t.get("segLang") in ("en", "ko") and (t.get("unit") == "word"):
+            key = (t.get("segLang"), t.get("word", ""))
             n = occ_seen.get(key, 0)
             occ_seen[key] = n + 1
             t["occ"] = n
@@ -624,6 +650,6 @@ def preview(text, lang="zh"):
     result["tokens"] = tokens
     result["langs"] = used
     result["multilingual"] = len(used) > 1
-    if not any(sl in ("zh", "yue", "ja", "en") for sl in used):
+    if not any(sl in ("zh", "yue", "ja", "en", "ko") for sl in used):
         result["unsupported"] = True
     return result

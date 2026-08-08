@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 title TTS Broker · Pack source zip / 打包源码 (开发者工具)
 rem tools\Build\pack-src.bat —— 双击或命令行运行即可。

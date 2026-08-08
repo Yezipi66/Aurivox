@@ -304,29 +304,39 @@ app.use(express.json({ limit: "10mb" }));
 app.use(validateHost);
 
 // ---- Static: assets/ for audio playback ----
-app.use("/assets", (req, res, next) => {
-  const rel = decodeURIComponent(req.path).replace(/^[\/]+/, "").replace(/\.\.[\\/]/g, "");
-  const decoded = path.join(ASSETS_DIR, rel);
-  if (!decoded.startsWith(ASSETS_DIR + path.sep) && decoded !== ASSETS_DIR) {
-    return res.status(404).end();
-  }
-  express.static(ASSETS_DIR)(req, res, next);
-});
+function safeStaticRoot(rootDir) {
+  const root = path.resolve(rootDir);
+  return (req, res, next) => {
+    let rel;
+    try {
+      // decodeURIComponent can throw on malformed percent sequences; reject them.
+      rel = decodeURIComponent(req.path);
+    } catch (_) {
+      return res.status(400).end();
+    }
+    // Strip leading separators after URL decoding. Reject NUL bytes and
+    // absolute / drive paths before path.join() can interpret them.
+    rel = rel.replace(/^[\\/]+/, "");
+    if (rel.includes("\0") || path.isAbsolute(rel) || /^[a-zA-Z]:[\\/]/.test(rel)) {
+      return res.status(404).end();
+    }
+    const resolved = path.resolve(root, rel);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      return res.status(404).end();
+    }
+    next();
+  };
+}
+
+app.use("/assets", safeStaticRoot(ASSETS_DIR), express.static(ASSETS_DIR));
 
 // ---- Static: voices/ for reference-audio playback (uploaded + custom refs) ----
-app.use("/voices", (req, res, next) => {
-  const rel = decodeURIComponent(req.path).replace(/^[\/]+/, "").replace(/\.\.[\\/]/g, "");
-  const decoded = path.join(VOICES_DIR, rel);
-  if (!decoded.startsWith(VOICES_DIR + path.sep) && decoded !== VOICES_DIR) {
-    return res.status(404).end();
-  }
-  express.static(VOICES_DIR)(req, res, next);
-});
+app.use("/voices", safeStaticRoot(VOICES_DIR), express.static(VOICES_DIR));
 
 // ---- Static: outputs/ with Range support ----
-app.use("/outputs", (req, res, next) => {
-  const rel = decodeURIComponent(req.path).replace(/^[\/]+/, "").replace(/\.\.[\\/]/g, "");
-  const filePath = path.join(OUTPUT_DIR, rel);
+app.use("/outputs", safeStaticRoot(OUTPUT_DIR), (req, res, next) => {
+  const rel = decodeURIComponent(req.path).replace(/^[\\/]+/, "");
+  const filePath = path.resolve(OUTPUT_DIR, rel);
   if (!filePath.startsWith(OUTPUT_DIR + path.sep) && filePath !== OUTPUT_DIR) {
     return res.status(404).end();
   }

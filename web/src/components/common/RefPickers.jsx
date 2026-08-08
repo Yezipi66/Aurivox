@@ -48,6 +48,15 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const [rawDur, setRawDur] = useState({})
   const [vq, setVq] = useState('')   // voice-dropdown filter
   const [q, setQ] = useState('')     // reference-list search
+  // Slices / Raw tab for the cross-voice reference list. Declared with the other
+  // hooks ABOVE the early return below. It used to be declared AFTER
+  // `if (others.length === 0) return`, so the number of hooks this component
+  // called changed when the async `voices` list populated (others went from []
+  // to non-empty). React detected the count mismatch and crashed the whole tree
+  // with #310 "Rendered more hooks than during the previous render" -> white
+  // screen. Hooks must never be called conditionally; move them above the return.
+  const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
+  useEffect(() => { setRefTab('slices') }, [vid])
 
   useEffect(() => {
     if (others.length && !others.find(o => o.id === vid)) setVid(others[0].id)
@@ -67,9 +76,6 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   }, [vid])
 
   if (others.length === 0) return <div className="field-hint">No other voices available.</div>
-
-  const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
-  useEffect(() => { setRefTab('slices') }, [vid])
 
   const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
   const availRaw = Array.isArray(raws) ? raws : []

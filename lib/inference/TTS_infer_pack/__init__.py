@@ -1,1 +1,1 @@
-﻿# TTS_infer_pack package
+# TTS_infer_pack package
