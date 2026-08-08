@@ -4,6 +4,7 @@ import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { useT } from '../../lib/i18n'
 import { inferAutoHanLanguages } from '../../lib/autoLanguage'
+import { mutedTokenPositions, previewTokenStarts, previewTokenText } from '../../lib/pronTokenPositions'
 import {
   HAN_RE,
   HAN_LANGS,
@@ -256,13 +257,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   // Preview payloads from older engines do not contain offsets. Resolve each
   // token monotonically against the exact editor text so muting remains POSITION
   // based, including repeated Han characters (never a global character set).
-  let previewCursor = 0
-  const tokenStarts = (preview?.tokens || []).map(tok => {
-    const word = String(tok.word || (tok.chars || []).map(c => c.char).join(''))
-    const start = word ? String(text || '').indexOf(word, previewCursor) : -1
-    if (start >= 0) previewCursor = start + Array.from(word).length
-    return start
-  })
+  const tokenStarts = previewTokenStarts(text, preview?.tokens || [])
 
   return (
     <div className={`section pron-panel${wide ? ' pron-panel-wide' : ''}`} style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
@@ -313,6 +308,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
         <div className={`pron-tokens${preview?.langs?.includes('ko') ? ' pron-tokens-ko' : ''}`} style={{ marginTop: 10, display: preview?.langs?.includes('ko') ? 'flex' : 'grid', flexWrap: preview?.langs?.includes('ko') ? 'wrap' : undefined, gridTemplateColumns: preview?.langs?.includes('ko') ? undefined : 'repeat(auto-fill, minmax(132px, 1fr))', gap: 8, alignItems: 'flex-start' }}>
           {(preview.tokens || []).map((tok, ti) => {
             const tokenStart = tokenStarts[ti]
+            const tokenText = previewTokenText(tok)
             const seg = tok.segLang || lang
             const bucket = nested[seg] || {}
             const isChar = tok.unit === 'char' || tok.chars
@@ -321,6 +317,22 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             const occurrenceBased = isEn || isKo
             const occ = occurrenceBased ? tok.occ : undefined
             const koDimmed = isKo && tok.editable && !showAllKo && !tok.needsReview && !enHasOverride(bucket[tok.word], occ)
+            // A word token can contain Han characters even when the preview
+            // segmenter classified the whole word as Japanese (for example
+            // 今日 -> JA). Use source positions, not the preview language, to
+            // determine whether the Han-language picker has taken ownership.
+            const mutedPositionsForToken = mutedTokenPositions(tokenStart, tokenText, mutePositionSet)
+            const tokenMuted = mutedPositionsForToken.length > 0
+            const mutedLangs = [...new Set(mutedPositionsForToken.map(position => mutedLangByPosition?.[position]).filter(Boolean))]
+            const mutedLanguageLabel = mutedLangs.length
+              ? mutedLangs.map(code => langName(t, code)).join(' / ')
+              : (mutedLangLabel || t('another Han language', '另一种汉字语言'))
+            const tokenMutedTip = tokenMuted
+              ? t(
+                  `This token is assigned to ${mutedLanguageLabel} above. Its ${langName(t, seg)} reading here is inactive; adjust the reading in the Han character language section above.`,
+                  `此片段已在上方指定为${mutedLanguageLabel}；下方的${langName(t, seg)}读音不生效，请在上方“已选汉字读音校对”中调整。`,
+                )
+              : undefined
             const repeated = (isEn && (enWordCounts[tok.word] || 0) > 1) || (isKo && (koWordCounts[tok.word] || 0) > 1)
             const enVal = isEn ? enReadingFor(bucket[tok.word], occ, tok.readings).join(' ') : ''
             const koVal = isKo ? enReadingFor(bucket[tok.word], occ, tok.reading ? [tok.reading] : []).join('') : ''
@@ -328,10 +340,11 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             // 「谐音改写」一旦填入内容，本词读音即以该谐音为准；此时上方音标框（含候选下拉）
             // 置灰并禁用，hover 给出书面说明，清空谐音后方可手动编辑音标。
             const enHasRespell = isEn && String(respellEdits[editKey('en', tok.word, occ)] || '').trim().length > 0
+            const tokenInactive = tokenMuted || koDimmed
             const respellTip = enHasRespell
               ? t('This phoneme input is currently inactive. The reading of this word is determined by the “sounds like” homophone entered below; clear that field to resume manual editing of the phonemes.',
                   '此音标输入当前不生效。该词读音以下方“谐音”单词为准；清空该谐音后即可恢复手动编辑音标。')
-              : undefined
+              : tokenMuted ? tokenMutedTip : undefined
 
             // 标点不做成卡片：以淡色字形内联占位，保留朗读顺序但去噪。
             if (tokIsPunct(tok)) {
@@ -342,11 +355,16 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             }
 
             return (
-            <div key={ti} className={`pron-tok${isKo ? ' pron-tok-ko' : ''}`} title={koDimmed ? t('This Korean word has no detected pronunciation issue. Turn on “Show all Korean words” above to inspect or edit it.', '当前韩语词语未检测到需要复核的读音。开启上方“显示全部韩语词”后，可以查看或编辑它。') : undefined} style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${overridden ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, padding: '6px 8px', background: 'var(--surface)', minWidth: 0, ...(koDimmed ? { opacity: 0.48, filter: 'grayscale(0.35)' } : {}) }}>
+            <div key={ti} className={`pron-tok${isKo ? ' pron-tok-ko' : ''}`} title={tokenMuted ? tokenMutedTip : koDimmed ? t('This Korean word has no detected pronunciation issue. Turn on “Show all Korean words” above to inspect or edit it.', '当前韩语词语未检测到需要复核的读音。开启上方“显示全部韩语词”后，可以查看或编辑它。') : undefined} style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${tokenMuted ? 'var(--muted)' : overridden ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, padding: '6px 8px', background: tokenMuted ? 'var(--bg)' : 'var(--surface)', minWidth: 0, ...(tokenMuted ? { opacity: 0.48, filter: 'grayscale(0.7)' } : {}), ...(koDimmed ? { opacity: 0.48, filter: 'grayscale(0.35)' } : {}) }}>
               {multiLang && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }} title={langName(t, seg)}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: SEG_COLORS[seg] || 'var(--muted)', flex: '0 0 auto' }} />
                   <span style={{ fontSize: 9, color: 'var(--muted)', letterSpacing: 0.4 }}>{SEG_SHORT[seg] || String(seg).toUpperCase()}</span>
+                </div>
+              )}
+              {tokenMuted && !isChar && (
+                <div className="pron-muted-hint" title={tokenMutedTip}>
+                  ↑ {t('Adjust this reading above', '请在上方调整读音')}
                 </div>
               )}
               {isChar ? (
@@ -389,19 +407,19 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                       {repeated && <sup style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 2 }} title={t('occurrence number', '第几次出现')}>#{occ + 1}</sup>}
                     </span>
                     {isEn && (
-                      <button type="button" className="btn btn-sm btn-ghost"
+                      <button type="button" className="btn btn-sm btn-ghost" disabled={tokenMuted}
                         style={{ padding: '0 4px', height: 18, fontSize: 11, lineHeight: 1, color: openDetail[ti] ? 'var(--accent)' : 'var(--muted)' }}
-                        title={t('More reading options (dictionary candidates / sounds-like)', '更多读音选项（词典候选 / 谐音改写）')}
+                        title={tokenMuted ? tokenMutedTip : t('More reading options (dictionary candidates / sounds-like)', '更多读音选项（词典候选 / 谐音改写）')}
                         onClick={() => setOpenDetail(d => ({ ...d, [ti]: !d[ti] }))}
                       >{'\u270e'}</button>
                     )}
                   </div>
                   <input
                     className="control"
-                    disabled={enHasRespell || koDimmed}
-                    title={respellTip || (koDimmed ? t('Turn on “Show all Korean words” above to edit this reading.', '请先开启上方“显示全部韩语词”再编辑这个读音。') : undefined)}
+                    disabled={enHasRespell || tokenInactive}
+                    title={tokenMuted ? tokenMutedTip : respellTip || (koDimmed ? t('Turn on “Show all Korean words” above to edit this reading.', '请先开启“显示全部韩语词”再编辑这个读音。') : undefined)}
                     style={{ height: 24, fontSize: 12, padding: '0 6px', width: '100%', boxSizing: 'border-box', marginTop: 3,
-                      ...(enHasRespell || koDimmed ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.7 } : {}) }}
+                      ...(enHasRespell || tokenInactive ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.7 } : {}) }}
                     value={isEn
                       ? (wordEdits[editKey('en', tok.word, occ)] ?? enVal)
                       : isKo ? (wordEdits[editKey('ko', tok.word, occ)] ?? koVal)
@@ -410,17 +428,17 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                     spellCheck={false}
                     onChange={e => changeWordReading(seg, tok.word, occ, e.target.value)}
                   />
-                  {isKo && tok.editable && <div style={{marginTop:4}}><button type="button" className="btn btn-sm btn-ghost" disabled={koDimmed} title={koDimmed ? t('Turn on “Show all Korean words” above to inspect this word.', '请先开启上方“显示全部韩语词”再查看这个词。') : undefined} onClick={()=>setExpandedKo(x=>({...x,[ti]:!x[ti]}))}>{expandedKo[ti]?t('Hide syllables','收起音节'):t('Expand syllables','展开音节')}</button>{tok.unresolved&&<span style={{fontSize:10,color:'var(--danger)',marginLeft:6}}>{t('Unresolved','未解析')}</span>}{expandedKo[ti]&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:5}}>{(tok.syllables||[]).map((sy,i)=><div key={i} style={{border:`1px solid ${sy.changed?'var(--warning)':'var(--border)'}`,borderRadius:4,padding:'3px 6px',textAlign:'center'}}><div>{sy.written||'·'}</div><div style={{fontSize:10,color:sy.changed?'var(--warning)':'var(--muted)'}}>{sy.spoken||'?'}</div></div>)}</div>}</div>}
+                  {isKo && tok.editable && <div style={{marginTop:4}}><button type="button" className="btn btn-sm btn-ghost" disabled={tokenInactive} title={tokenMuted ? tokenMutedTip : koDimmed ? t('Turn on “Show all Korean words” above to inspect this word.', '请先开启上方“显示全部韩语词”再查看这个词。') : undefined} onClick={()=>setExpandedKo(x=>({...x,[ti]:!x[ti]}))}>{expandedKo[ti]?t('Hide syllables','收起音节'):t('Expand syllables','展开音节')}</button>{tok.unresolved&&<span style={{fontSize:10,color:'var(--danger)',marginLeft:6}}>{t('Unresolved','未解析')}</span>}{expandedKo[ti]&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:5}}>{(tok.syllables||[]).map((sy,i)=><div key={i} style={{border:`1px solid ${sy.changed?'var(--warning)':'var(--border)'}`,borderRadius:4,padding:'3px 6px',textAlign:'center'}}><div>{sy.written||'·'}</div><div style={{fontSize:10,color:sy.changed?'var(--warning)':'var(--muted)'}}>{sy.spoken||'?'}</div></div>)}</div>}</div>}
                   {isEn && openDetail[ti] && (
                     <>
                       {(tok.candidates || []).length > 0 && (
                         <Select
-                          className="control" disabled={enHasRespell}
+                          className="control" disabled={enHasRespell || tokenMuted}
                           style={{ height: 22, fontSize: 11, padding: '0 2px', width: '100%', boxSizing: 'border-box', marginTop: 3,
-                            ...(enHasRespell ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.55 } : {}) }}
+                            ...(enHasRespell || tokenMuted ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.55 } : {}) }}
                           value={enVal}
                           onChange={e => changeWordReading('en', tok.word, occ, e.target.value)}
-                          title={respellTip || t('Pick a dictionary pronunciation', '选择词典读音')}
+                          title={tokenMuted ? tokenMutedTip : respellTip || t('Pick a dictionary pronunciation', '选择词典读音')}
                         >
                           {(() => {
                             const opts = tok.candidates.includes(enVal) || !enVal ? tok.candidates : [enVal, ...tok.candidates]
@@ -430,7 +448,10 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                       )}
                       <input
                         className="control"
-                        style={{ height: 22, fontSize: 11, padding: '0 6px', width: '100%', boxSizing: 'border-box', marginTop: 3 }}
+                        disabled={tokenMuted}
+                        title={tokenMuted ? tokenMutedTip : undefined}
+                        style={{ height: 22, fontSize: 11, padding: '0 6px', width: '100%', boxSizing: 'border-box', marginTop: 3,
+                          ...(tokenMuted ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.7 } : {}) }}
                         value={respellEdits[editKey('en', tok.word, occ)] ?? ''}
                         placeholder={t('sounds like (English word)…', '谐音（英文单词）…')}
                         spellCheck={false}
@@ -442,7 +463,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                   )}
                 </div>
               )}
-              {overridden && (
+              {overridden && !tokenMuted && (
                 <button className="btn btn-sm btn-ghost" style={{ marginTop: 4, fontSize: 10 }} onClick={() => saveToLexicon(seg, tok.word, occ)}>
                   {t('Save to lexicon', '保存到词典')}
                 </button>

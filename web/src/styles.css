@@ -1325,6 +1325,18 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   .pron-panel-wide .pron-grid { grid-template-columns: 1fr; }
 }
 
+/* A preview token whose Han characters are explicitly routed by the picker
+   above is informational only: its automatic preview reading must not look
+   editable or compete with the selected-language reading. */
+.pron-muted-hint {
+  margin: -2px 0 3px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+  text-align: center;
+  font-style: italic;
+}
+
 /* Korean reading proofing: preserve the original token order while using a
    compact flex flow. Cards take roughly one fifth of a row; punctuation is an
    inline-sized separator and therefore cannot create a phantom card column.

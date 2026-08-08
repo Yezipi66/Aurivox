@@ -62,6 +62,21 @@ def _has_kana(s: str) -> bool:
     return bool(_KANA_RE.search(s))
 
 
+def _resolve_auto_segment_language(seg_lang: str, seg_text: str, cjk_default: str) -> str:
+    """Resolve detector output inside auto_zh_ja_yue.
+
+    A kana-free Han fragment may be labelled ``ja`` by LangSegmenter because
+    Chinese/Japanese Han cannot be distinguished from script alone. In Auto
+    mode actual kana is the stronger Japanese signal; otherwise shared Han
+    follows the clause's Cantonese/base fallback.
+    """
+    if seg_lang in ("zh", "x"):
+        return cjk_default
+    if seg_lang == "ja" and not _has_kana(seg_text):
+        return cjk_default
+    return seg_lang
+
+
 # Cantonese detection (auto_zh_ja): conservative, weighted, character-based.
 # Strong markers are Cantonese function words/particles that are almost never
 # used in Mandarin; weak markers are common in Cantonese writing but can also
@@ -401,9 +416,9 @@ class TextPreprocessor:
                 for clause in _split_clauses(text):
                     cjk_default = "ja" if _has_kana(clause) else ("yue" if _is_yue_clause(clause) else base_lang)
                     for tmp in LangSegmenter.getTexts(clause):
-                        seg_lang = tmp["lang"]
-                        if seg_lang in ("zh", "x"):
-                            seg_lang = cjk_default
+                        seg_lang = _resolve_auto_segment_language(
+                            tmp["lang"], tmp["text"], cjk_default
+                        )
                         if langlist and seg_lang == langlist[-1]:
                             textlist[-1] += tmp["text"]
                         else:
