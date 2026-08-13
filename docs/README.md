@@ -9,6 +9,7 @@
 - [`FLOW-CORE-003-LEGACY-SYNTHESIS-ADAPTER.md`](./FLOW-CORE-003-LEGACY-SYNTHESIS-ADAPTER.md)：Legacy synthesis 适配边界
 - [`FLOW-CORE-003B-SYNTHESIS-SERVICE-EXTRACTION.md`](./FLOW-CORE-003B-SYNTHESIS-SERVICE-EXTRACTION.md)：Synthesis service 抽取边界
 - [`FLOW-CORE-003B-DEBT-CONVERGENCE.md`](./FLOW-CORE-003B-DEBT-CONVERGENCE.md)：Executor 取消 / 重试副作用 / 运行时输入生命周期收敛（FLOW-D06 / D07 / D21）
+- [`FLOW-CORE-004-LIVE-WIRING.md`](./FLOW-CORE-004-LIVE-WIRING.md)：Flow 内核首次接入运行进程 + **真实运行偏差清单**（含新债 FLOW-D27）
 - [`FLOW-D10-INPUT-REBIND-CONTRACT.md`](./FLOW-D10-INPUT-REBIND-CONTRACT.md)：inputResolver 恢复对账契约（R1 冻结，§2 已实现 / §3 待 Artifact Store）
 - [`FLOW-D10B-ARTIFACT-STORE-CONTRACT.md`](./FLOW-D10B-ARTIFACT-STORE-CONTRACT.md)：Artifact Store 只读取回契约（R1 冻结，只读切片已实现）
 - [`FLOW-D26-LOCAL-AI-PATCH-REVIEW-2026-08-13.md`](./FLOW-D26-LOCAL-AI-PATCH-REVIEW-2026-08-13.md)：本地 AI D26 补丁审阅与修正（legacy artifact fingerprint / 身份）

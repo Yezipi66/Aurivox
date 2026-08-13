@@ -126,7 +126,29 @@ P1-P3
 | FLOW-D10a | fixed | 0 | no |
 | FLOW-D10b | fixed（只读切片；完整 Store 另立条目，见 §4.2） | 0 | no |
 | FLOW-D26 | fixed | 0 | no |
+| **FLOW-D27** | **open — 待裁决（本轮实测新发现）** | 0 | no |
 | FLOW-D22 / D23 / D24 / D25 | deferred（明确记录，不伪装支持） | — | no |
+
+### FLOW-D27｜输出原文经由 Journal 持久化
+
+**发现方式**：FLOW-CORE-004 首次真实端到端运行实测（**不是审阅推断**）。
+
+**事实**：D10a 保证的输入快照脱敏成立——`RUN_CREATED` 事件只含
+`{kind, artifact_id, type, fingerprint}`。但**节点输出是逐字持久化的**，
+而 legacy adapter 会把请求文本回填进 `InferenceResult.metadata.request.text`，
+因此用户输入的原文最终仍落进 append-only 的 Journal 文件。
+
+**为什么不顺手修**：
+
+1. 属**契约冲突**而非实现瑕疵——Journal 存输出是可重放性的基础，删掉会削弱 replay；
+2. 改动 `metadata` 会连带改变 D26 的 descriptor fingerprint 输入面，
+   属于「契约先冻结再实现」明确禁止的动作。
+
+**已采取的措施**：在 `lib/flow.integration.node.test.js` 中**显式钉住当前行为**，
+并在注释中标明这是 **gap 而非保证**。任何修复都会让该测试变红，
+**强制其成为一次决策而不是副作用**。
+
+**裁决问题**：Journal 是否应持久化节点输出的原文？若否，replay 如何重建输出？
 
 **关于 FLOW-D10 的拆分与重新计数**：原 FLOW-D10 在上一轮记为 open / 连续 1 轮。经 2026-08-13 评审（[`FLOW-D10-INPUT-REBIND-CONTRACT.md`](./FLOW-D10-INPUT-REBIND-CONTRACT.md) §6 Q1）拆为两条独立债务，理由是二者阻塞原因不同：D10a 的对账材料已全在 Journal 中、不依赖任何未落地组件，且是一条能静默产出错误产物的路径；D10b 客观阻塞于尚不存在的 Artifact Store。
 

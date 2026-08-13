@@ -1752,6 +1752,25 @@ app.use(require("./lib/routes/training")(ctx));
 app.use(require("./lib/routes/uvr5")(ctx));
 app.use(require("./lib/routes/recipes")(ctx));
 
+// ---- Aurivox Flow (FLOW-CORE-004 live wiring) ----
+// Opt-in ONLY. With FLOW_ENABLED unset the Flow kernel is never constructed and
+// never mounted, so the default server behaviour is unchanged from before the
+// wiring existed. The Flow routes are additive (/api/flow/*) and touch none of
+// the Workbench paths above.
+if (String(process.env.FLOW_ENABLED || "").trim() && process.env.FLOW_ENABLED !== "0") {
+  try {
+    const { createFlowRuntime } = require("./lib/workflow/runtime");
+    const { generateService } = require("./lib/services/synthesisService")(ctx);
+    ctx.flowRuntime = createFlowRuntime(ctx, { generateService });
+    app.use(require("./lib/routes/flow")(ctx));
+    console.log(`[flow] Aurivox Flow enabled — journal dir: ${ctx.flowRuntime.journalDir}`);
+  } catch (err) {
+    // Fail loudly but do not take the Workbench down with it: Flow is opt-in
+    // and experimental, the legacy surface must keep serving.
+    console.error(`[flow] FAILED to enable Aurivox Flow: ${err && err.message}`);
+  }
+}
+
 // ---- Serve React frontend (must stay after API routers) ----
 app.use(express.static(WEB_DIST));
 app.get("*", (req, res) => {

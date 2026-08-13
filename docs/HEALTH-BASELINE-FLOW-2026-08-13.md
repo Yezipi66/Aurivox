@@ -27,7 +27,13 @@ lib/services/synthesisService.js   与 Workbench 共用的合成 service
 | 图校验 | DAG 环检测、端口类型匹配、单入端口不接双边、必需输入缺失即拒 | `validator.node.test.js` |
 | Run Plan | fingerprint 忽略 UI-only 的 label/position；revision 必须显式；Run Plan 深度不可变 | `validator.node.test.js` |
 | Journal | append-only NDJSON；尾部半行截断到最后完整 event；**中间损坏 fail-closed**；重复 event id / 序列跳号拒绝 | `executor.node.test.js`、`runLifecycle.node.test.js` |
-| 输入隐私 | Journal 不落原始 workflow inputs，只落 ArtifactRef 身份 / 长度 + digest / opaque digest | `executor.node.test.js` |
+| 输入隐私 | Journal 不落原始 workflow **inputs**，只落 ArtifactRef 身份 / 长度 + digest / opaque digest | `executor.node.test.js` |
+
+> **2026-08-13 更新（FLOW-CORE-004 实测修正）**：上行「输入隐私」的保证**仅覆盖输入快照**。
+> 首次真实端到端运行实测发现：**节点输出是逐字持久化的**，而 legacy adapter 会把请求文本
+> 回填进 `InferenceResult.metadata.request.text`，因此用户原文仍会经由**输出**落进 Journal。
+> 已单列为 **FLOW-D27**（待裁决，见 [`FLOW-CORE-004-LIVE-WIRING.md`](./FLOW-CORE-004-LIVE-WIRING.md) §3 D-6）。
+> 此处不修改上行原文，因为它在其声明的范围内**是准确的**——扩大解读才是错误来源。
 | 人工门 | approve / submit_revision / reject / cancel 四决策；`gate_revision` 挡重复与陈旧提交；等待中不跑下游 | `runLifecycle.node.test.js` |
 | 恢复 | Run Plan identity mismatch 拒恢复；跨进程缺输入时 `WORKFLOW_INPUT_REBIND_REQUIRED` 且发生在 Gate resolve 之前 | `executor.node.test.js` |
 | **输入重绑定** | **`inputResolver` 返回值必须与 `workflow_input_snapshot` 逐 kind 对账；键集合双向检查；不符即 `WORKFLOW_INPUT_REBIND_MISMATCH` fail-closed；失败不写 Journal；诊断带 digest/length 不带原文** | `executor.node.test.js`（FLOW-D10a） |
@@ -64,7 +70,20 @@ D26 新增 5 条后：把补丁 overlay 到**依赖完整的本地 AI 仓库快�
 
 D10b 新增 22 条后，在同一依赖完整快照上复验：**`182 / 182 / 0 / 0`**（证据来源：测试直接证明）。即 21 个 skipped 确系后端 Node 依赖缺失导致，与用例本身无关。
 
+**FLOW-CORE-004（接线）新增 20 条后：`202 tests / 202 pass / 0 fail / 0 skipped`**。
+本轮 skipped 归零，因为审阅环境首次装上了后端依赖，broker 集成套件真实跑起来了
+——这也让 8 条新增的 Flow 集成测试**在真实进程上**取得证据，而非跳过。
+
 按 1.0.8 稳定化纪律，任何引用本基线的报告都必须同时写明环境与 skipped 原因，不得把单一数字当成通用结论。
+
+> ### 验收纪律：「全绿」不足以验收
+>
+> 一天之内出现过两次同形状事故：本地 AI 报 `155/155` 全绿，但那 155 条对其改动**零覆盖**，
+> 掩盖了 fingerprint 恒为常量的致命缺陷；用户机器报 `177/177/0/0` 看似完美，实则**少了 5 条
+> D26 测试**（补丁未落全）。
+>
+> 因此：**交付必须明写期望的测试总数；总数不符先查补丁完整性，再谈通过。**
+> 本基线当前的期望总数是 **202**。
 
 ## 4. 基线时的已知空缺（不是缺陷）
 
@@ -73,7 +92,6 @@ D10b 新增 22 条后，在同一依赖完整快照上复验：**`182 / 182 / 0 
 ```text
 Artifact Store（真实产物落库与 GC）
 ResourceManager / GPU 独占锁的真实调度
-Executor live wiring（synthesisService 尚未注入 Executor）
 真实模型端到端推理 / 训练
 timeout cancellation（超时自动取消）
 多进程 / 多机 Journal 一致性（明确 local single-process）
@@ -102,7 +120,19 @@ Artifact 内容读取（openContent 的真实实现，即 L2 字节级验证）
 | FLOW-D10a（rebind 对账） | fixed | 0 |
 | FLOW-D10b（Artifact Store 只读取回） | fixed（只读切片，完整 Store 另立条目） | 0 |
 | FLOW-D26（legacy artifact 身份） | fixed | 0 |
+| **FLOW-D27（输出原文经 Journal 持久化）** | **open — 待裁决** | 0（本轮实测发现） |
 | FLOW-D22 / D23 / D24 / D25 | deferred / observe | — |
+
+**FLOW-CORE-004 接线已完成**：上表「Executor live wiring」一项已从空缺清单移除。
+Flow 内核现在可从运行进程到达，一条 text→tts→gate→output 管线已用**真实合成服务与真实落盘产物**
+端到端跑通（8 条集成测试）。默认由 `FLOW_ENABLED` 关闭；未设标志时 Flow 表面完全不存在。
+**接线 ≠ 产品可用**：跨进程 resume、产物管理、11 个节点、画布均未实现，
+确切边界见 [`FLOW-CORE-004-LIVE-WIRING.md`](./FLOW-CORE-004-LIVE-WIRING.md) §2 与 §7。
+
+**FLOW-D27（新，open）**：节点输出逐字进入 Journal，legacy adapter 把请求文本回填进
+`InferenceResult.metadata.request.text`，导致用户原文落盘。已在集成测试中**显式钉住当前行为**，
+任何修复都会让该测试变红，强制其成为一次决策而非副作用。需先裁决
+「Journal 是否应持久化输出原文」（牵动可重放性与隐私），属契约问题。
 
 FLOW-D10 已按冻结契约拆为 D10a / D10b，拆分理由与「不得用于规避门槛」的判据见债务矩阵 §4.1。D10b 记 fixed 的**确切范围与未实现清单**见矩阵 §4.2 —— 它不表示 Artifact Store 已经建成。
 
@@ -119,10 +149,24 @@ FLOW-D10 已按冻结契约拆为 D10a / D10b，拆分理由与「不得用于�
 ## 7. 复核这条基线的命令
 
 ```powershell
-node scripts/run_tests.cjs
+node scripts/run_tests.cjs          # 期望 202 tests / 202 pass / 0 fail / 0 skipped
 node --test lib/workflow/executor.node.test.js
+node --test lib/workflow/runtime.node.test.js
+node --test lib/flow.integration.node.test.js
 node --test lib/workflow/runLifecycle.node.test.js
 node --test lib/workflow/validator.node.test.js
 node --check lib/workflow/executor.js
+node --check lib/workflow/runtime.js
+node --check lib/routes/flow.js
 node --check lib/workflow/validator.js
 ```
+
+手动跑一次真实 Flow（需要真实或桩引擎）：
+
+```powershell
+$env:FLOW_ENABLED=1; node server.js
+# 另开一个终端：
+curl http://127.0.0.1:8000/api/flow/status
+```
+
+`/api/flow/status` 返回 404 即表示 Flow 未启用（这是默认且正确的状态）。
