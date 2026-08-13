@@ -1,6 +1,10 @@
 # Workflow Contract v1
 
 > 工作流文档是可保存、可回载、可执行的 JSON。它描述意图和节点关系，不直接保存运行时进程状态。
+>
+> 产品形态：`Aurivox Workbench`（当前固定流程 UI）与 `Aurivox Flow`（专业节点工作流）共享本契约。详细架构决策见 [`FLOW-ARCH-001-DECISION.md`](./FLOW-ARCH-001-DECISION.md)。
+>
+> 本契约是架构设计，不代表当前已经有可用画布或执行器实现。
 
 ## 1. 顶层结构
 
@@ -107,7 +111,7 @@
       "label": "Source audio"
     },
     "voice_name": {
-      "type": "string",
+      "type": "String",
       "required": true,
       "label": "Voice name"
     }
@@ -129,9 +133,11 @@ ModelCheckpoint
 ModelPair
 Recipe
 QualityReport
-ReviewDecision
 InferenceResult
 TrainingAsset
+GateDecision
+ReviewRecord
+ArtifactRef
 Scalar
 Boolean
 String
@@ -139,36 +145,107 @@ String
 
 端口类型不匹配时，Workflow 在执行前失败，而不是执行到一半才失败。
 
-## 6. 控制节点
+## 6. Node input bindings
 
-第一期控制节点：
+Source nodes may bind a value to a Workflow input:
+
+```json
+{
+  "id": "text",
+  "type": "io.text_input",
+  "type_version": 1,
+  "params": {
+    "workflow_input": "text"
+  }
+}
+```
+
+A non-source node may bind an unconnected input port to a declared Workflow input:
+
+```json
+{
+  "id": "output",
+  "type": "io.audio_output",
+  "type_version": 1,
+  "bindings": {
+    "audio": {
+      "workflow_input": "audio"
+    }
+  }
+}
+```
+
+An input port is satisfied by exactly one of:
+
+```text
+incoming Edge
+node binding
+literal source-node parameter
+```
+
+A required port with none of these is a validation error. Bindings are declarations only; they do not execute code or read arbitrary paths.
+
+## 7. 控制节点与人工等待
+
+第一期允许的控制语义：
 
 ```text
 control.if
 control.and
 control.or
 control.not
-control.pause
 control.retry
 control.merge
 control.fail
+review.human_gate
 ```
 
-### Pause
+`control.pause` 不是用户层面的人工审核节点。暂停是 Executor 的运行状态；需要用户查看产物并作出决定时，必须使用一等节点 `review.human_gate`。
+
+### Human Gate
 
 ```json
 {
-  "type": "control.pause",
+  "type": "review.human_gate",
+  "type_version": 1,
   "params": {
-    "reason": "Review extracted vocals",
-    "required_decision": "approve|reject|edit"
+    "review_schema": "pronunciation.v1",
+    "decisions": [
+      "approve",
+      "submit_revision",
+      "reject",
+      "cancel"
+    ]
   }
 }
 ```
 
-Pause 状态必须写入 Run Journal，重启后仍然处于可恢复状态。
+Human Gate 输入一个或多个 `ArtifactRef`，进入 `awaiting_human_review` 后停止下游节点。Executor 必须持久化 Gate instance、输入 Artifact、预览信息和当前 Run，释放可释放资源；用户决策后从该 Gate 恢复。
 
-## 7. 典型节点类型
+Human Gate 必须声明显式输出端口：
+
+```text
+decision
+review_record
+approved
+revised
+rejected
+```
+
+`submit_revision` 表示用户已经提交编辑后的 payload，必须产生新的 Artifact 或 Revision，并把父产物写入 lineage。`reject` 不是系统故障；没有显式 `rejected` 出口时，Run 进入 `rejected` 终态并记录 `HUMAN_REVIEW_REJECTED`。
+
+Human Gate 的具体呈现由 `review_schema` 决定，例如：
+
+```text
+pronunciation.v1
+transcript.v1
+audio_audition.v1
+quality_report.v1
+```
+
+Human Gate 的详细输入、输出和状态语义见 [`NODE_AND_GATE_CONTRACT.md`](./NODE_AND_GATE_CONTRACT.md)。
+
+## 8. 典型节点类型
 
 ```text
 io.audio_input
@@ -187,13 +264,13 @@ evaluation.generate_matrix
 evaluation.compare
 quality.audio_basic
 quality.asr_confidence
-quality.human_review
+review.human_gate
 legacy.training_pipeline.v1
 ```
 
 节点类型可以增加，但已发布 Workflow 的节点类型和版本必须可迁移或明确标记为 unavailable。
 
-## 8. 执行规则
+## 9. 执行规则
 
 执行器必须：
 
@@ -208,9 +285,51 @@ legacy.training_pipeline.v1
 9. 执行节点；
 10. 原子保存输出 Artifact；
 11. 更新 Run Journal；
-12. 执行后继节点或进入 pause/gate 状态。
+12. 执行后继节点或进入 `awaiting_human_review` / gate 状态。
 
-## 9. 版本和迁移
+## 10. Immutable Run Plan
+
+创建 Run 前，Validator 根据 Workflow Revision 生成不可变 Run Plan：
+
+```json
+{
+  "schema": "aurivox.run_plan",
+  "schema_version": 1,
+  "workflow_id": "tts_demo",
+  "workflow_revision_id": "workflow_revision_003",
+  "workflow_fingerprint": "sha256:...",
+  "run_plan_fingerprint": "sha256:...",
+  "node_order": ["text", "route", "review", "tts"],
+  "nodes": [],
+  "edges": []
+}
+```
+
+Run Plan 必须固定：
+
+```text
+节点 type / type_version
+节点 params / bindings
+端口连接
+资源声明
+Workflow input declarations
+DAG 执行顺序
+```
+
+以下 UI 属性不影响 execution fingerprint：
+
+```text
+node.position
+node.label
+workflow.description
+workflow.created_at / updated_at
+```
+
+Run 创建后绑定 `workflow_revision_id`、`workflow_fingerprint` 和 `run_plan_fingerprint`。用户之后编辑 Flow，不改变已经创建或等待中的 Run。
+
+Run Plan 是内存和持久化层面的只读快照。任何修改都必须创建新的 Workflow Revision 和新的 Run Plan。
+
+## 11. 版本和迁移
 
 - `schema_version` 只描述 Workflow Contract；
 - `type_version` 描述单个 Node Contract；

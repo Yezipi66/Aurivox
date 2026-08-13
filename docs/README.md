@@ -2,6 +2,8 @@
 
 这里存放当前版本稳定化和未来 Workflow/Flow 方向的内部设计文档。
 
+- [`FLOW-ARCH-001-DECISION.md`](./FLOW-ARCH-001-DECISION.md)：Workbench / Flow 产品边界与人工等待架构决策
+- [`FLOW-ARCH-002-HUMAN-GATE-DECISION.md`](./FLOW-ARCH-002-HUMAN-GATE-DECISION.md)：Human Gate、Artifact Revision 与 Run Resume 契约
 - [`WORKFLOW_ARCHITECTURE.md`](./WORKFLOW_ARCHITECTURE.md)：整体架构与产品形态
 - [`WORKFLOW_CONTRACT.md`](./WORKFLOW_CONTRACT.md)：Workflow JSON 契约
 - [`ARTIFACT_AND_RUN_CONTRACT.md`](./ARTIFACT_AND_RUN_CONTRACT.md)：产物、运行和恢复契约

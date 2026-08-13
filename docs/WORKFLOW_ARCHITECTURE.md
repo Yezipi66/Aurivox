@@ -1,22 +1,23 @@
 # Aurivox Workflow Architecture
 
-> Task 1：定义 WebUI 与未来 Flow 共用的工作流基础，不实现画布，不替换当前 WebUI。
+> Task 1：定义 Aurivox Workbench 与未来 Aurivox Flow 共用的工作流基础，不实现画布，不替换当前 Workbench。
 >
-> 状态：Draft / internal design
+> 状态：Architecture decision accepted / internal design
 > 版本：Workflow Contract v1
+> 关联决策：[`FLOW-ARCH-001-DECISION.md`](./FLOW-ARCH-001-DECISION.md)
 
 ## 1. 产品形态
 
-Aurivox 维护两种前端形态：
+Aurivox 维护两种前端产品形态：
 
 ```text
-Aurivox WebUI
-  面向初学者和日常个人工作流
-  使用固定、强引导的页面流程
+Aurivox Workbench
+  当前 WebUI 的产品名称
+  面向固定工作流、快速操作和明确的任务页面
 
 Aurivox Flow
   面向专业用户和实验工作流
-  使用节点、分支、质量门、暂停和批量对比
+  使用节点、分支、质量门、人工等待和批量对比
 
 两者共享 Aurivox Core
   Artifact Store
@@ -24,11 +25,12 @@ Aurivox Flow
   Workflow Executor
   Inference Service
   Training Service
+  Human Review / Quality Gate
   Resource Manager
   Run Journal
 ```
 
-Flow 是第二种产品形态，不是当前 WebUI 的替代品。WebUI 的页面可以被视为一组经过设计的预设工作流。
+`WebUI` 继续作为实现层称呼，但产品层使用 `Aurivox Workbench`。Flow 是另一种专业产品形态，不是 Workbench 的替代品；Workbench 也不需要暴露完整的节点图。
 
 ## 2. 核心架构
 
@@ -77,7 +79,36 @@ Input → Transform → Gate → Train/Infer → Publish
 
 控制节点可以产生条件分支，但第一期不支持任意回边。Retry、Pause、Resume 由执行器实现，不通过让图产生无限环路实现。
 
-## 5. 当前线性管线的兼容方式
+## 5. 人工等待节点
+
+人工审核是 Executor 的一等运行语义，不是前端按钮，也不是普通 `if` 节点。
+
+规范节点名：
+
+```text
+review.human_gate
+```
+
+典型运行状态：
+
+```text
+running → awaiting_human_review → resuming → succeeded|failed|cancelled
+```
+
+进入等待时，Executor 必须持久化 Run、Gate instance、输入 Artifact 和预览信息，写入 Run Journal，并释放 GPU / 模型锁等可释放资源。用户批准、拒绝、修改后重试或取消后，Run 从该 Gate 恢复，不能通过创建一条无关的新任务来假装恢复。
+
+具体审核界面由 `review_schema` 决定，例如：
+
+```text
+pronunciation.v1
+transcript.v1
+audio_audition.v1
+quality_report.v1
+```
+
+Artifact 不原地修改。用户修改后生成新 Artifact 或新 Revision，并保留父产物关系。
+
+## 6. 当前线性管线的兼容方式
 
 当前训练管线先作为一个 Legacy Adapter：
 
@@ -102,7 +133,7 @@ Audio Input
   → Promote Asset
 ```
 
-## 6. 核心设计原则
+## 7. 核心设计原则
 
 ### 6.1 产物不可变
 
@@ -148,7 +179,7 @@ logs
 suggested_action
 ```
 
-## 7. 第一阶段交付物
+## 8. 第一阶段交付物
 
 - 本文件；
 - `WORKFLOW_CONTRACT.md`；
