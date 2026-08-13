@@ -74,6 +74,12 @@ D10b 新增 22 条后，在同一依赖完整快照上复验：**`182 / 182 / 0 
 本轮 skipped 归零，因为审阅环境首次装上了后端依赖，broker 集成套件真实跑起来了
 ——这也让 8 条新增的 Flow 集成测试**在真实进程上**取得证据，而非跳过。
 
+**FLOW-D28 修复（阶段 1）新增 2 条回归守卫后：期望总数 `202 + 2 = 204`。**
+两条守卫都是**读源码**的结构性断言，不是行为用例 —— 因为「缺依赖时套件仍能加载」
+这一性质在依赖完整的机器上不可观测（详见债务矩阵 §4.1 D28）。
+在**移除 `node_modules`** 的环境（D28 的目标环境）实跑：
+`191 / 161 / 1 / 29` → **`204 / 175 / 0 / 29`**。
+
 按 1.0.8 稳定化纪律，任何引用本基线的报告都必须同时写明环境与 skipped 原因，不得把单一数字当成通用结论。
 
 > ### 验收纪律：「全绿」不足以验收
@@ -83,7 +89,11 @@ D10b 新增 22 条后，在同一依赖完整快照上复验：**`182 / 182 / 0 
 > D26 测试**（补丁未落全）。
 >
 > 因此：**交付必须明写期望的测试总数；总数不符先查补丁完整性，再谈通过。**
-> 本基线当前的期望总数是 **202**。
+> 本基线当前的期望总数是 **204**（202 + FLOW-D28 的 2 条回归守卫）。
+>
+> FLOW-D28 本身就是这条纪律的第三个实例，且形状不同：它**不是颜色先报警，
+> 而是总数变小先报警**（191 而非 202 —— 套件加载即失败时，它的 12 条根本不被计数，
+> 只贡献 1 条 failure）。只看「有几条红」会把 12 条消失的覆盖读成 1 个小故障。
 
 ## 4. 基线时的已知空缺（不是缺陷）
 
@@ -120,8 +130,13 @@ Artifact 内容读取（openContent 的真实实现，即 L2 字节级验证）
 | FLOW-D10a（rebind 对账） | fixed | 0 |
 | FLOW-D10b（Artifact Store 只读取回） | fixed（只读切片，完整 Store 另立条目） | 0 |
 | FLOW-D26（legacy artifact 身份） | fixed | 0 |
-| **FLOW-D27（输出原文经 Journal 持久化）** | **open — 待裁决** | 0（本轮实测发现） |
+| **FLOW-D27（输出原文经 Flow 持久层留存）** | **open — 契约 R1 已冻结，阶段 0 完成（零代码）** | **1** |
+| **FLOW-D28（缺依赖时 runtime 单测红灯而非 skip）** | **fixed（阶段 1，根治 + 2 条经反例验证的守卫）** | 0 |
+| **FLOW-D29（客户端留存原文）** | **open — 新增，低优先级，未排期** | 0 |
 | FLOW-D22 / D23 / D24 / D25 | deferred / observe | — |
+
+> **open 合计 2 条**（D27 D29），均由 2026-08-13 实测挖出，非历史积压。
+> 分类计数见债务矩阵 §0（编号 D16–D20 从未使用）。
 
 **FLOW-CORE-004 接线已完成**：上表「Executor live wiring」一项已从空缺清单移除。
 Flow 内核现在可从运行进程到达，一条 text→tts→gate→output 管线已用**真实合成服务与真实落盘产物**
@@ -129,10 +144,54 @@ Flow 内核现在可从运行进程到达，一条 text→tts→gate→output �
 **接线 ≠ 产品可用**：跨进程 resume、产物管理、11 个节点、画布均未实现，
 确切边界见 [`FLOW-CORE-004-LIVE-WIRING.md`](./FLOW-CORE-004-LIVE-WIRING.md) §2 与 §7。
 
-**FLOW-D27（新，open）**：节点输出逐字进入 Journal，legacy adapter 把请求文本回填进
-`InferenceResult.metadata.request.text`，导致用户原文落盘。已在集成测试中**显式钉住当前行为**，
-任何修复都会让该测试变红，强制其成为一次决策而非副作用。需先裁决
-「Journal 是否应持久化输出原文」（牵动可重放性与隐私），属契约问题。
+**FLOW-D27（open，草案 R0 已出）**：节点输出逐字进入 Journal，导致用户原文落盘。
+已在集成测试中**显式钉住当前行为**，任何修复都会让该测试变红，强制其成为一次决策而非副作用。
+
+**2026-08-13 实测修正**：上一轮记载的「legacy adapter 把请求文本回填进
+`InferenceResult.metadata.request.text`」**不是全部，也不是源头**。实测四条通道：
+① `NODE_SUCCEEDED(io.text_input).outputs.text.value`（**源头，且承重**）；
+② `tts.generate` 输出的 metadata，split 时含 `AudioArtifact.metadata.segments[].text`
+（**在 D26 指纹输入面内**，实测脱敏会改 fingerprint）；
+③ `GATE_CREATED.gate.input_artifacts`；
+④ Flow 之外：`writeGenMeta()` 早已把原文写进 `outputs/generate/<id>/meta.json`。
+**只改 adapter 不解决 D27**；**只抹 Journal 得到的是看起来脱敏的系统**。
+完整暴露面、方案对比与七问见 [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md)。
+
+#### 2026-08-13 阶段 0：R1 契约已冻结
+
+**唯一实现依据**为 [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)；
+上面的 R0 草案**不再是实现依据**。本地完整环境审计追加了两条实测事实：
+
+```text
+通道 ④ 实测承重：清空 meta.json 的 text 与 recipe.text 后，
+                 Recent Generations 的 Rerun 与 Reload 双双失能
+                 （编辑器为空 → Generate 报 Enter text to synthesize）
+通道 ⑤ 新增并缩小：localStorage 的 tf.v1.generate.text 跨会话留存编辑器内容；
+                 generate.result 经实物确认【不含】原文 —— 此前的代码路径推断被证伪
+                 → 单列为 FLOW-D29，不并入 D27
+```
+
+范围裁决：**仅 Flow 持久层**。Flow **不做出比 legacy 持久层更强的隐私承诺** ——
+「Flow 不落用户原文」是虚假承诺，见 R1 §1.1。
+
+**FLOW-D28（fixed，阶段 1）**：`lib/workflow/runtime.node.test.js` 顶层 require 链上曾有
+express，缺依赖环境下**红灯而非 skip**，与集成套件不一致。实测该环境下总数是
+**191 而不是 202**（套件加载即失败，其 12 条未被计数）—— 又一次是**总数**而不是
+颜色先暴露问题。已按裁决**根治**：纯函数 `statusFor()` 与 `STATUS_BY_CODE` 迁入
+零依赖模块 `lib/workflow/errorStatus.js`，测试直接 require 它，
+且 `lib/routes/flow.js` 的 re-export **已删除**（留着就等于债还在，只是看不见）。
+
+在移除 `node_modules` 的环境实测：`191/161/1/29` → **`204/175/0/29`**。
+两条守卫均经反例验证（追加 `require("path")` / 改回原 require，各自变红）。
+**fixed 的确切范围**：修好的是「测试可加载性」这一条 ——
+不表示错误映射更完备，也不表示其他套件的 require 链被检查过（只看了这一条）。
+详见矩阵 §4.1。
+
+**2026-08-13 本地审计（完整依赖，Windows）**：`npm ci` 后实跑
+**`202 tests / 202 pass / 0 fail / 0 skipped`**，与本基线期望总数一致。
+补丁完整性 `VERIFIED 6/6`。两个 D27 探针在「Linux 无依赖」与「Windows 完整依赖」
+两套环境下输出**逐字节一致**（含两个 fingerprint 值）。
+**未做**：真实 GPT-SoVITS 引擎下的 split 分支（本地缺 torch，未排期）。
 
 FLOW-D10 已按冻结契约拆为 D10a / D10b，拆分理由与「不得用于规避门槛」的判据见债务矩阵 §4.1。D10b 记 fixed 的**确切范围与未实现清单**见矩阵 §4.2 —— 它不表示 Artifact Store 已经建成。
 
@@ -149,7 +208,12 @@ FLOW-D10 已按冻结契约拆为 D10a / D10b，拆分理由与「不得用于�
 ## 7. 复核这条基线的命令
 
 ```powershell
-node scripts/run_tests.cjs          # 期望 202 tests / 202 pass / 0 fail / 0 skipped
+node scripts/run_tests.cjs          # 期望 204 tests / 204 pass / 0 fail / 0 skipped
+                                    # （202 + FLOW-D28 的 2 条回归守卫）
+                                    # 依赖不完整的环境应得 204/175/0/29 —— FLOW-D28 修复后
+                                    # 总数不再随依赖缺失而缩水，只有 skipped 会变；
+                                    # 若得到 191/161/1/29，说明本轮补丁未落全（D28 回归）
+                                    # 总数不是 204 即先查依赖与补丁完整性，再谈通过
 node --test lib/workflow/executor.node.test.js
 node --test lib/workflow/runtime.node.test.js
 node --test lib/flow.integration.node.test.js

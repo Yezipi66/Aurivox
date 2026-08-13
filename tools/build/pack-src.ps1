@@ -35,10 +35,10 @@ try {
   $stage = Join-Path $env:TEMP ('ttsb_src_' + [guid]::NewGuid().ToString('N').Substring(0,8))
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 
-  $srcDirs  = 'lib', 'web\src', 'tools\scripts', 'tools\Build'
-  $excludeD = 'node_modules dist __pycache__ .git pretrained runtime models venv logs .cache'.Split(' ')
-  $excludeF = '*.pth *.ckpt *.safetensors *.bin *.pt *.onnx *.wav *.mp3 *.flac *.opus *.npy *.zip *.7z *.exe *.dll *.mp4'.Split(' ')
-  $topFiles = 'server.js', 'package.json', 'web\index.html', 'web\package.json', 'web\vite.config.js'
+  $srcDirs  = 'lib', 'web', 'scripts', 'docs', 'tools\build', 'tools\scripts', 'tools\tests'
+  $excludeD = 'node_modules dist build __pycache__ .git pretrained runtime models venv .venv .staging assets logs output outputs backups tmp temp voices data .cache'.Split(' ')
+  $excludeF = '*.pth *.ckpt *.safetensors *.bin *.pt *.onnx *.wav *.mp3 *.flac *.m4a *.ogg *.opus *.npy *.npz *.zip *.7z *.exe *.dll *.pdb *.mp4 *.mov *.avi *.mkv'.Split(' ')
+  $topFiles = 'README.md', 'GUIDANCE.md', 'CHANGELOG.md', 'INTERNAL-1.0.8-STABILIZATION.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_LICENSES', '.env.example', 'advanced_params.json', 'training_defaults.json', 'requirements.txt', 'package.json', 'package-lock.json', 'deploy.bat', 'start.bat', 'stop.bat', 'server.js'
 
   Write-Host "==> 源码目录:" -ForegroundColor Cyan
   foreach ($d in $srcDirs) {

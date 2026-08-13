@@ -5,7 +5,7 @@
   "repetition_penalty": 1.35,
   "text_split_method": "cut5",
   "speed_factor": 1,
-  "seed": -1,
+  "seed": 2769901998,
   "batch_size": 1,
   "batch_threshold": 0.75,
   "split_bucket": true,
@@ -20,5 +20,6 @@
   "version": "v2",
   "is_half": false,
   "device": "cuda",
-  "updated_at": "2026-07-28T17:22:22.575Z"
+  "updated_at": "2026-08-13T11:40:23.839Z",
+  "engine_batch": false
 }

@@ -4,6 +4,27 @@
 >
 > 重要区分：`Fail-closed / Warn-override / Observe` 描述运行时遇到问题时的处理动作；`P0 / P1 / P2 / P3` 描述开发迭代是否需要暂停。两套维度不能混为一谈。
 
+## 0. 摘要（先看这张表，避免把「编号总数」误读为「欠债总数」）
+
+> 更新于 2026-08-13（阶段 1 / D28 已修复）。**编号 D16–D20 从未使用**，是留白不是漏记。
+
+| 分类 | 条目 | 数量 | 含义 |
+|---|---|---|---|
+| 已覆盖（设计之初即实现且有测试） | D01 D02 D03 D04 D05 D08 D09 | 7 | 从未欠过 |
+| fixed（欠过、已还、有回归覆盖） | D06 D07 D10a D10b D21 D26 **D28** | **7** | 连续未修复轮数均为 0 |
+| warn-override **策略项**（§3） | D11 D12 D13 D14 D15 | 5 | **不是债** —— 是「该警告而非拒绝」的设计规范 |
+| deferred（显式记录、不伪装支持） | D22 D23 D24 D25 | 4 | 边界已写死 |
+| **open** | **D27 D29** | **2** | 均为 2026-08-13 实测新发现 |
+
+```text
+open = 2（D28 已于阶段 1 修复并有两条回归守卫）
+两条全部由 2026-08-13 实测挖出，不是历史积压
+无一条阻断发布：Flow 由 FLOW_ENABLED 保护且默认关闭
+```
+
+**读法提醒**：本矩阵把「已还的」与「欠的」放在同一张表里，滚动阅读容易高估欠债量。
+判断实际负债请只看本节的 `open` 行与 §4.1 的「累计连续未修复轮数」列。
+
 ## 1. 开发迭代规则
 
 ```text
@@ -126,7 +147,9 @@ P1-P3
 | FLOW-D10a | fixed | 0 | no |
 | FLOW-D10b | fixed（只读切片；完整 Store 另立条目，见 §4.2） | 0 | no |
 | FLOW-D26 | fixed | 0 | no |
-| **FLOW-D27** | **open — 待裁决（本轮实测新发现）** | 0 | no |
+| **FLOW-D27** | **open — 契约 R1 已冻结，实现分阶段（阶段 0 完成，零代码）** | **1** | no |
+| **FLOW-D28** | **fixed（阶段 1，根治 + 2 条回归守卫，见下）** | 0 | yes |
+| **FLOW-D29** | **open — 新增（客户端原文留存），低优先级，未排期** | 0 | no |
 | FLOW-D22 / D23 / D24 / D25 | deferred（明确记录，不伪装支持） | — | no |
 
 ### FLOW-D27｜输出原文经由 Journal 持久化
@@ -149,6 +172,163 @@ P1-P3
 **强制其成为一次决策而不是副作用**。
 
 **裁决问题**：Journal 是否应持久化节点输出的原文？若否，replay 如何重建输出？
+
+#### 2026-08-13 更新（草案 R0）：上面这段「事实」已被实测证明**不完整**
+
+完整暴露面见 [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md) §1。
+三点修正，每点都会改变修复方案：
+
+1. **原文的源头不是 adapter**，而是 `NODE_SUCCEEDED(io.text_input)` 的
+   `outputs.text.value`。**只改 adapter 的 metadata 不解决 D27**，只会让它看起来被解决。
+2. split 路径上逐段原文还会进入 **`AudioArtifact.metadata.segments[].text`**，
+   而 `segments` 在 D26 的 audio descriptor 内 —— 实测脱敏前后 fingerprint 不同。
+   现有那条钉住 D27 的集成断言跑的是**非 split** 路径，**没有覆盖这条通道**。
+3. `GATE_CREATED.payload.gate.input_artifacts` 是第三条独立通道（`clone()` 而非引用摘要）。
+
+另有第四条通道在 Flow 之外：`server.js` 的 `writeGenMeta()` 早已把 `text` /
+`recipe.text` / `ref_text` 写进 `outputs/generate/<id>/meta.json`，且是 Workbench
+历史与 Rerun 的依赖。**因此「只抹 Journal」得到的是看起来脱敏的系统**，
+范围问题必须先裁决（草案 Q1）。
+
+**承重性修正**：只有通道 ① 承重（跨进程 resume 时下游节点从
+`projection.node_runs[].outputs` 取输入）。通道 ②③ 当前**无任何 handler 读取**，
+是纯审计负载。所以「隐私 vs 可重放性」的两难比原记载小得多，代价主要是
+**审计信息量与 D26 指纹稳定性**。
+
+**倾向方案（待裁决）**：现在只冻结契约与声明，行为改动并入 D10b 写入侧那一轮；
+通道 ②③ 的脱敏必须与 `fingerprint_version` 同一次提交，否则是一次静默的产物身份变更。
+
+#### 2026-08-13 裁决（R1 冻结）—— 以上各段仅为发现过程记录
+
+**唯一实现依据**：[`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)（R1）。
+本节上方的「事实」「裁决问题」「倾向方案」等表述**不再作为实现依据**。
+
+裁决要点：
+
+```text
+范围   仅 Flow 持久层（Run Journal）。通道 ④（meta.json）与 ⑤（客户端）
+       明知含原文、明确不在范围内 —— ④ 已实测承重（抹除后 Rerun/Reload 失能）
+方案   E：现在 A（声明）/ 目标 D（值经 Store）/ 过渡 C（显式开关）；B 明确否决
+前置   fingerprint_version 为硬性前置 —— 实测「指纹变、artifact_id 不变」，
+       该组合在 artifactStore.js:111-116 下与「产物被篡改」不可区分
+阶段   0 冻结（本轮，零代码）→ 1 修 D28 → 2 通道①→ 3 通道②③（允许永不做）
+```
+
+**通道 ④ 与 ⑤ 的声明**：Flow 持久层**不做出比 legacy 持久层更强的隐私承诺**。
+任何「Flow 不落用户原文」的表述均为虚假承诺，见 R1 §1.1 的「不成立说法」清单。
+
+### FLOW-D28｜缺依赖环境下 runtime 单测红灯而非 skip
+
+**发现方式**：本轮在无 `node_modules` 的环境实跑 `scripts/run_tests.cjs`。
+
+**事实**：`lib/workflow/runtime.node.test.js` 顶层 require `../routes/flow`，
+后者顶层 require `express`，于是缺依赖时**整套件加载失败红灯**
+（`MODULE_NOT_FOUND`），而 `lib/flow.integration.node.test.js` 在同样环境下带原因 skip。
+这与 FLOW-CORE-004 自己写下的「缺依赖时 skip 而非红灯」纪律不一致。
+
+```text
+无 node_modules 实跑：191 tests / 161 pass / 1 fail / 29 skipped
+                      191 + 12 − 1 = 202（套件加载即失败时，它的 12 条根本没被计数）
+```
+
+> 这同时是「只核对全绿不足以验收、必须核对总数」的又一个实例 ——
+> 这里是**总数变小**先暴露了问题。
+
+**根因**：纯函数 `statusFor()`（错误码→HTTP 映射）住在一个必须 require express 的模块里。
+
+**本轮不修**（属实现改动，且需先决定 `statusFor` 该住哪）。候选：移到不依赖
+express 的模块；或让测试按 `runtimeSkipReason()` 守卫。
+
+#### 2026-08-13 裁决：根治（抽出零依赖模块），列为实施阶段 1
+
+本地审计确认（`lib/routes/flow.js:42-48`）：`statusFor()` 只读 `err.status`、
+`err.code` 与 `Object.freeze` 常量 `STATUS_BY_CODE`，不触碰 `req` / `res` /
+模块级可变状态 / I/O / 时钟 / 随机 —— **是纯函数**。运行时依赖方只有
+`server.js:1762-1765`，而它依赖的是 router factory，**不引用 `statusFor`**；
+直接引用 `statusFor` 的只有 `lib/workflow/runtime.node.test.js:22`。
+
+```text
+新建 lib/workflow/errorStatus.js            零依赖，statusFor + STATUS_BY_CODE
+改   lib/routes/flow.js                     从新模块引入
+改   lib/workflow/runtime.node.test.js:22   必须直接 require 新模块
+```
+
+> ⚠️ **「在 flow.js 保留 re-export、测试不改」不算修复。**
+> 测试若仍 `require('../routes/flow')`，依旧会触发顶层 `require('express')`，
+> 缺依赖时依旧整套件红灯、12 条依旧不计数 —— 改了却没修，与 D26
+> 「文档宣称 fixed 但保护未生效」同形。
+>
+> **验收条件**：在**移除 `node_modules`** 的环境下确认该套件不再整套件失败。
+> 仅凭完整环境「全绿」不构成验收。
+
+#### 2026-08-13 阶段 1：已修复（fixed）
+
+实际改动就是上面裁决的三条，**没有多做一行**：
+
+```text
+新建 lib/workflow/errorStatus.js          零依赖（连 node 内建模块也不 require）
+改   lib/routes/flow.js                   从新模块引入；删除末尾两行 re-export
+改   lib/workflow/runtime.node.test.js    require('./errorStatus') + 2 条回归守卫
+```
+
+**搬移逐条核对**：11 个映射项与 `statusFor()` 函数体与原 `lib/routes/flow.js:25-48`
+**完全一致**，本轮没有顺手改任何一个状态码。
+
+**re-export 已删除**，不留兼容层。理由写在 `flow.js` 末尾的注释里：留着它，
+任何人都能继续从 route 模块 import 而把 express 拖回来，债就会以「看起来已修」
+的形式复活。仓库内没有任何其他消费者（`server.js:1762-1765` 只要 router factory）。
+
+**验收（在移除 `node_modules` 的环境实跑，即 D28 的目标环境）**：
+
+```text
+修复前：191 tests / 161 pass / 1 fail / 29 skipped   ← 套件加载失败，12 条不计数
+修复后：204 tests / 175 pass / 0 fail / 29 skipped   ← 套件正常加载并全部通过
+        202 + 2（新增守卫）= 204
+```
+
+**两条守卫为什么必须是「读源码」而不是「跑用例」**：修好的性质是
+「**缺依赖时**这套件仍能加载」，这在依赖完整的机器上**结构上不可观测** ——
+跑一万次绿灯也证明不了它。所以只能靠读源码钉死：
+
+| 守卫 | 钉住什么 | 反例验证结果 |
+|---|---|---|
+| `errorStatus.js` 零依赖 | 该文件不得出现任何 `require(` | 追加 `require("path")` → **红** |
+| 本套件不经 route 模块 | 不得 `require('../routes/flow')` | 改回原写法 → **红** |
+
+反例验证是必须的：**没被反例验证过的守卫，和没有守卫是一回事**（D26 教训）。
+第一条反例同时复现了 D28 本身 —— 改回原 require 后，无依赖环境立刻退回
+`191 / 161 / 1 / 29`，逐位等于修复前。
+
+**行为未变**（有 express 时实测）：router factory 仍可构造；
+`400/409/503/501/404/500` 六类映射与「显式 `err.status` 优先」均不变；
+`STATUS_BY_CODE` 仍 frozen；`flow.js` 上的 `statusFor` / `STATUS_BY_CODE` 已为 `undefined`。
+
+**本条 fixed 的确切含义**：修好的是「测试可加载性」这一条，**不多不少**。
+它不表示 Flow 的错误映射变得更完备，也不表示其他套件的依赖健壮性被检查过 ——
+本轮只看了 `runtime.node.test.js` 这一条 require 链。
+
+### FLOW-D29｜客户端（浏览器）留存用户原文
+
+**发现方式**：D27 本地审计的副产物 —— 为验证通道 ④ 而检查 `localStorage` 实物。
+
+**事实（已实测）**：`web/src/usePersistentState.js` 以命名空间 `tf.v1.` 把若干编辑器
+状态明文写入 `localStorage`，其中 `tf.v1.generate.text` 保存当前编辑框内容并**跨会话留存**
+（仅在修改 `NS` 前缀时整体失效）。
+
+**同轮被证伪的推断**：曾据代码路径推断 `tf.v1.generate.result` 也含原文。
+localStorage 实物证明**不含** —— `/api/generate` 的响应本身只回传
+`{ok,id,voice,split,concat,engine_batch,audio_url,seed}`。
+
+```text
+教训：客户端侧结论必须以实际存储内容为准，不得从代码路径推断。
+      本轮该推断连续两次过强，均由实物纠正。
+```
+
+**待确认（不作断言）**：`generate.hanReadings` / `generate.hanForced` 按汉字与位置
+索引保存读音覆盖，是否间接暴露原文字符集与结构，**未实测**。
+
+**定性**：低优先级。桌面单机应用，与 D27 属不同存储介质、不同生命周期、不同责任方，
+**明确不并入 D27**。未排期。
 
 **关于 FLOW-D10 的拆分与重新计数**：原 FLOW-D10 在上一轮记为 open / 连续 1 轮。经 2026-08-13 评审（[`FLOW-D10-INPUT-REBIND-CONTRACT.md`](./FLOW-D10-INPUT-REBIND-CONTRACT.md) §6 Q1）拆为两条独立债务，理由是二者阻塞原因不同：D10a 的对账材料已全在 Journal 中、不依赖任何未落地组件，且是一条能静默产出错误产物的路径；D10b 客观阻塞于尚不存在的 Artifact Store。
 
