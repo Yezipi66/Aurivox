@@ -100,7 +100,49 @@ lib/workflow/runJournal.js
 lib/workflow/runLifecycle.node.test.js
 ```
 
-### T1.5 最小 Workflow model
+### T1.5 FLOW-CORE-002B：Journal Store / Executor Skeleton
+
+- [x] Windows 友好的 FileRunJournalStore
+- [x] per-run single-writer Mutex 边界
+- [x] Plan identity 校验
+- [x] injected node handler 执行接口
+- [x] Human Gate wait / resume 骨架
+- [x] Node failure → Run failed 映射
+- [x] Run Plan mismatch 拒绝恢复
+- [x] retryable error 的最小 retry / backoff
+- [x] blocked scheduler diagnostics
+- [x] workflow input snapshot 不落原始文本
+- [ ] 真正 ResourceManager
+- [ ] Artifact Store / GC
+- [ ] API route / server integration
+- [ ] Legacy Synthesis Adapter live wiring
+
+实现文件：
+
+```text
+lib/workflow/fileJournalStore.js
+lib/workflow/executor.js
+lib/workflow/executor.node.test.js
+```
+
+> 当前 Executor 只是受控的调度骨架：handler 必须显式注入，不执行未知节点代码，不调用真实 GPT-SoVITS。
+
+### T1.5A FLOW-CORE-002C：Persistence / Retry Hardening
+
+- [x] append-only NDJSON Journal
+- [x] file handle sync after append
+- [x] torn tail detection and repair
+- [x] retryable error + bounded backoff
+- [x] blocked node diagnostics
+- [x] workflow input snapshot / no raw input payload in Journal
+- [x] restart without input rebind returns explicit error
+- [ ] durable ArtifactRef input resolver
+- [ ] multi-process storage guarantee
+- [ ] timeout cancellation policy
+
+> 这是对本地 AI 指出的 P1 / P2 风险的针对性修复。完成后仍不等于生产级 Executor，但已解除进入 Legacy Adapter 纯映射审阅的主要阻塞。
+
+### T1.6 最小 Workflow model
 
 - [ ] `WorkflowDocument`
 - [ ] `NodeDefinition`
@@ -109,14 +151,31 @@ lib/workflow/runLifecycle.node.test.js
 - [ ] `RunState`
 - [ ] `NodeRunState`
 
-### T1.6 Legacy adapter
+### T1.7 FLOW-CORE-003：Legacy Synthesis Adapter
 
-- [ ] 将现有线性训练 pipeline 描述为固定 Workflow
-- [ ] 不改变现有 `trainingPipeline` 行为
-- [ ] 能从 Workflow 执行入口调用 legacy pipeline
-- [ ] 失败状态映射回 Run Journal
+- [x] Typed TextArtifact / VoiceRef → legacy request body
+- [x] PronunciationRecipe / LanguageAssignment allowlist mapping
+- [x] Legacy response → AudioArtifact / InferenceResult
+- [x] Injected service handler
+- [x] 从 `synthesis.js` 抽出不依赖 Express 的 `synthesisService`
+- [x] Route 保持薄 HTTP adapter，现有 API 路径不变
+- [ ] Live wiring 到 Executor
+- [ ] 真实模型 E2E 音频验证
+- [ ] 训练 pipeline legacy adapter
 
-### T1.7 测试
+实现文件：
+
+```text
+lib/workflow/adapters/legacySynthesis.js
+lib/workflow/legacySynthesis.node.test.js
+lib/services/synthesisService.js
+lib/services/synthesisService.node.test.js
+lib/routes/synthesis.js
+docs/FLOW-CORE-003-LEGACY-SYNTHESIS-ADAPTER.md
+docs/FLOW-CORE-003B-SYNTHESIS-SERVICE-EXTRACTION.md
+```
+
+### T1.8 测试
 
 - [x] 合法 Workflow 通过
 - [x] 缺字段 / required input 失败
@@ -124,9 +183,15 @@ lib/workflow/runLifecycle.node.test.js
 - [x] DAG 环失败
 - [x] Human Gate decision vocabulary 失败/通过
 - [x] Run Plan fingerprint 和深度不可变
+- [x] FileRunJournalStore round-trip
+- [x] Executor Human Gate wait / resume
+- [x] Executor handler failure mapping
+- [x] Run Plan mismatch protection
+- [x] Legacy synthesis request / response mapping
 - [ ] disabled node 执行语义
-- [ ] pause/resume 状态执行
-- [ ] legacy adapter 的输入输出
+- [ ] ResourceManager / resource release
+- [ ] Legacy synthesis live integration
+- [ ] legacy training adapter
 
 ## 完成标准
 
