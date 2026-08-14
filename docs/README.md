@@ -13,7 +13,7 @@
 - [`FLOW-D10-INPUT-REBIND-CONTRACT.md`](./FLOW-D10-INPUT-REBIND-CONTRACT.md)：inputResolver 恢复对账契约（R1 冻结，§2 已实现 / §3 待 Artifact Store）
 - [`FLOW-D10B-ARTIFACT-STORE-CONTRACT.md`](./FLOW-D10B-ARTIFACT-STORE-CONTRACT.md)：Artifact Store 只读取回契约（R1 冻结，只读切片已实现）
 - [`FLOW-D26-LOCAL-AI-PATCH-REVIEW-2026-08-13.md`](./FLOW-D26-LOCAL-AI-PATCH-REVIEW-2026-08-13.md)：本地 AI D26 补丁审阅与修正（legacy artifact fingerprint / 身份）
-- [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)：**用户原文在 Flow 持久层中的留存（R1 冻结，唯一实现依据；五通道 / 七问已裁决 / 分阶段实施）**
+- [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)：**用户原文在 Flow 持久层中的留存（R3 冻结，唯一实现依据；五通道 / 七问已裁决 / 分阶段实施；R2 以探针实测推翻阶段 2 一条前提改为「值保真」，R3 以【实现实测】再推翻两条 —— resume 拆为三种能力、形状 B 一并移除通道 ② 持久化）**
 - [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md)：D27 的 R0 草案与实测记录（**已被 R1 取代，不再是实现依据**）
 - [`HEALTH-BASELINE-FLOW-2026-08-13.md`](./HEALTH-BASELINE-FLOW-2026-08-13.md)：Aurivox Flow 内核健康基线
 - [`FLOW-TECH-DEBT-MATRIX-2026-08-13.md`](./FLOW-TECH-DEBT-MATRIX-2026-08-13.md)：技术债处理矩阵（fail-closed / warn-override / observe）

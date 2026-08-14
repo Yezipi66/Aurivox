@@ -80,6 +80,16 @@ D10b 新增 22 条后，在同一依赖完整快照上复验：**`182 / 182 / 0 
 在**移除 `node_modules`** 的环境（D28 的目标环境）实跑：
 `191 / 161 / 1 / 29` → **`204 / 175 / 0 / 29`**。
 
+> **证据分级（不得混淆）**：
+>
+> ```text
+> 已观测   无依赖环境   204 / 175 / 0 / 29     （实跑）
+> 验收目标 完整依赖环境 204 / 204 / 0 / 0      （尚未实跑，不得登记为已观测）
+> ```
+>
+> 在完整依赖环境**真正跑出**该结果之前，**不得**由无依赖结果推断它成立；
+> 若尚未执行，如实报告「未执行」，而不是报告推断值。
+
 按 1.0.8 稳定化纪律，任何引用本基线的报告都必须同时写明环境与 skipped 原因，不得把单一数字当成通用结论。
 
 > ### 验收纪律：「全绿」不足以验收
@@ -130,7 +140,7 @@ Artifact 内容读取（openContent 的真实实现，即 L2 字节级验证）
 | FLOW-D10a（rebind 对账） | fixed | 0 |
 | FLOW-D10b（Artifact Store 只读取回） | fixed（只读切片，完整 Store 另立条目） | 0 |
 | FLOW-D26（legacy artifact 身份） | fixed | 0 |
-| **FLOW-D27（输出原文经 Flow 持久层留存）** | **open — 契约 R1 已冻结，阶段 0 完成（零代码）** | **1** |
+| **FLOW-D27（输出原文经 Flow 持久层留存）** | **open — 契约 R3 已冻结（阶段 2 实现实测后二次修订）；阶段 0/1 完成，阶段 2 已实现待审阅** | **1** |
 | **FLOW-D28（缺依赖时 runtime 单测红灯而非 skip）** | **fixed（阶段 1，根治 + 2 条经反例验证的守卫）** | 0 |
 | **FLOW-D29（客户端留存原文）** | **open — 新增，低优先级，未排期** | 0 |
 | FLOW-D22 / D23 / D24 / D25 | deferred / observe | — |
@@ -159,7 +169,7 @@ Flow 内核现在可从运行进程到达，一条 text→tts→gate→output �
 
 #### 2026-08-13 阶段 0：R1 契约已冻结
 
-**唯一实现依据**为 [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)；
+**唯一实现依据**为 [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)（**现为 R3**）；
 上面的 R0 草案**不再是实现依据**。本地完整环境审计追加了两条实测事实：
 
 ```text
@@ -172,7 +182,111 @@ Flow 内核现在可从运行进程到达，一条 text→tts→gate→output �
 ```
 
 范围裁决：**仅 Flow 持久层**。Flow **不做出比 legacy 持久层更强的隐私承诺** ——
-「Flow 不落用户原文」是虚假承诺，见 R1 §1.1。
+「Flow 不落用户原文」是虚假承诺，见契约 §1.1。
+
+#### 2026-08-13 R2：阶段 2 前提实测，一条前提被推翻（**零代码**）
+
+阶段 2 动手前按契约要求实测三条前提，结果修订契约至 **R2**：
+
+```text
+P0   图的有效性：gate 未解决时下游 tts2 未执行            PASS
+P1a  同进程 approve→resume 基线，下游收到原文             PASS
+P1b  通道 ① 脱敏后下游仍收到原文                          【FAIL】
+     status=succeeded、零异常、WAV 正常落盘，
+     但下游节点实收 "[[REDACTED]]" —— 静默语义损坏
+P2   跨进程 resume fail-closed                            PASS
+     executor 层实抛 WORKFLOW_INPUT_REBIND_REQUIRED
+P3   通道 ① 脱敏后 replay 状态机形状不变                  PASS
+```
+
+三处更正：①R1 前提 1「resume 仍然通过」是**假绿判据**，改为**值保真**（下游收到的值
+必须与原值逐字符相等）；②R1「零功能损失」仅对**跨进程** resume 成立 ——
+通道 ① 在**同进程 Gate resume**（现有受支持能力）上就已承重；
+③R1 前提 2 的 `FLOW_RUN_PLAN_UNAVAILABLE` 是 runtime/HTTP 层的码，
+executor 层为 `WORKFLOW_INPUT_REBIND_REQUIRED`，两层已拆分。
+
+**假 PASS 更正**：第一版探针沿用 FLOW-CORE-004 标准图曾报 P1b **PASS**，该结果**无效** ——
+该图 Gate 之后无任何节点回读 `text.text`，**结构上不可能观测到承重性**。
+承重图重做后立即转 FAIL。**先问「这个实验有没有可能失败」，再问「它是否通过」。**
+
+输出值 sidecar 因此升为**承重件**，并冻结生命周期与「缺值 fail-closed、
+禁止拿占位符当真值」两条。
+
+审阅追加三个阻断项，同样在 R2 冻结（否则会被实现者自行发明）：
+
+```text
+身份键   run_id + node_id + node_attempt + output_port
+         —— D06 retry 会让同一 node_id 有多个 attempt，
+            只按 run_id+node_id 存会让新 attempt 静默读到旧 attempt 的值
+一致性   executor.js:328 _append() 只是直接委托 append()，当前无事务边界。
+         冻结失败语义而非实现顺序；最危险的是「先 append 后写 sidecar 失败」
+         = 制造阶段 2 之前不存在的新状态「Journal 成功、真实输出丢失」
+错误码   NODE_OUTPUT_VALUE_UNAVAILABLE（executor 层，retryable=false，
+         HTTP 落默认 500；已比对现有 20 个码无冲突）
+```
+
+**`outputSnapshot()` 字段形状裁决（用户，2026-08-13）：形状 B**（契约 §4.8）——
+保留 `artifact_id/type/uri/fingerprint/fingerprint_kind`，其余摘要，并保留端口键集合。
+约束是「功能不得变化、不得影响 WebUI」。**实测支撑**（非推断）：
+
+```text
+web/ 引用 api/flow 或 node_runs 的文件数           0
+lib/ 内 projection.node_runs[].outputs 的消费者    无（runJournal.js:157 仅写入）
+Flow 挂载                                          server.js:1760，FLOW_ENABLED 默认关
+```
+
+形状 A 会丢 `uri` 与 `fingerprint_kind`，破坏 `flow.integration.node.test.js:134-140`
+的既有断言 —— 那是**对外投影形状变更**，不是单纯的数据保护；形状 C 是黑名单，
+新增内容字段会默认泄漏。两者均否决，理由已写入契约以防日后重提。
+
+#### 2026-08-13 R3：阶段 2 **实现**实测，再推翻两条前提（**仍零代码**）
+
+阶段 2 的实现（`lib/workflow/executor.js`，**1 个仓库文件**）写完并实跑后，
+实测**又推翻了 R2 的两条事实陈述**。裁决 **A2 + B1**。契约修订至 **R3**。
+
+```text
+实测 1  executor 层的【新实例 resume】是真实存在且有 5 条测试覆盖的能力
+        （executor.node.test.js :203/:332/:352/:481/:576，全断言 succeeded）
+        FLOW_RUN_PLAN_UNAVAILABLE 只是 runtime/HTTP 层的限制，不是 executor 层的。
+        照 §4.8 字面实现的第一版把它掐断：204 / 170 / 【5】/ 29
+        → R3 §3.2 把 resume 拆成三种能力；§4.8.1 冻结 journal-safe 直通规则
+          （仅含允许清单字段的值，其快照【就等于原值】，可逐字留 Journal）
+        → 第二版：204 / 174 / 【1】/ 29
+        → 剩余 1 条（:481，裸字符串）不可修：它今天能过的唯一原因
+          就是那段原文在 Journal 里 =【保护本身】
+
+实测 2  形状 B 一并移除了【通道 ②】的 Journal 持久化
+        通道 ② 原文在 outputs.result.metadata.request.text，也在 outputs 里，
+        metadata 不在允许清单 ⇒ 被摘要。
+        §4.9 预测「剩 1 处」，实测【剩 0 处】—— 该量化产自形状 B 冻结前的旧探针。
+        → flow.integration.node.test.js:265 会变红（用真实 adapter 复刻实测），
+          按 B1 改为反向断言。该守卫【按设计工作了】。
+```
+
+**阶段 2 实测数据（沙箱 Linux 无依赖，node v24.18.1）**：
+
+```text
+基线（R2 已应用）            204 / 175 / 0 / 29
+阶段 2 第一版（§4.8 字面）    204 / 170 / 5 / 29
+阶段 2 第二版（journal-safe） 204 / 174 / 1 / 29
+
+承重探针（通道 ① 值保真 P1b）        FAIL → 【PASS】，整体 5 PASS / 0 FAIL
+flow.integration :132-141（形状 B 目标断言 5 条）   全 PASS
+flow.integration :265                              会变红（按 B1 演进）
+通道 ③（Gate 直连 text 的图）                      仍 1 处原文，未触碰
+```
+
+> ⚠️ 本沙箱中 `flow.integration.node.test.js` 属那 29 条 skipped，
+> **:265 变红只会在完整依赖环境显形**。上述由复刻真实图形的探针取得，
+> **不得**登记为完整依赖环境的实跑结果。
+> 阶段 2 目标 **211 / 211 / 0 / 0**（+7 条 T1–T7）**尚未执行**，不得当作已观测。
+
+**WebUI 影响面为零，且是结构性的（R3 实测复核）**：`web/src` 对 Flow 内核引用 **0**；
+`lib/workflow/executor` 仅经 `lib/workflow/runtime.js:39` 被 `server.js:1762` 引用，
+而该处位于 `FLOW_ENABLED` 保护块内、**默认关闭**。
+
+**D27 仍为 `open`；R2 与 R3 均零行为改动，无「已修复」可声称。**
+阶段 2 落地后**不得**声称「通道 ② 已修复」或「零功能损失」。
 
 **FLOW-D28（fixed，阶段 1）**：`lib/workflow/runtime.node.test.js` 顶层 require 链上曾有
 express，缺依赖环境下**红灯而非 skip**，与集成套件不一致。实测该环境下总数是
@@ -208,12 +322,15 @@ FLOW-D10 已按冻结契约拆为 D10a / D10b，拆分理由与「不得用于�
 ## 7. 复核这条基线的命令
 
 ```powershell
-node scripts/run_tests.cjs          # 期望 204 tests / 204 pass / 0 fail / 0 skipped
-                                    # （202 + FLOW-D28 的 2 条回归守卫）
-                                    # 依赖不完整的环境应得 204/175/0/29 —— FLOW-D28 修复后
-                                    # 总数不再随依赖缺失而缩水，只有 skipped 会变；
-                                    # 若得到 191/161/1/29，说明本轮补丁未落全（D28 回归）
-                                    # 总数不是 204 即先查依赖与补丁完整性，再谈通过
+node scripts/run_tests.cjs          # 期望 211 tests / 211 pass / 0 fail / 0 skipped
+                                    # （202 + FLOW-D28 的 2 条 = 204，
+                                    #   + FLOW-D27 阶段 2 的 T1–T7 七条 = 211）
+                                    # 依赖不完整的环境应得 211/182/0/29 —— 已实跑确认
+                                    # 若得到 204/…，说明阶段 2 的 7 条没落进来；
+                                    # 若得到 191/161/1/29，说明 D28 也没落进来
+                                    # 总数不是 211 即先查依赖与补丁完整性，再谈通过
+                                    # A2 与 B1 是【修改】既有测试，不改变总数 —— 它们
+                                    # 落没落进来必须看测试【正文】，总数看不出来
 node --test lib/workflow/executor.node.test.js
 node --test lib/workflow/runtime.node.test.js
 node --test lib/flow.integration.node.test.js

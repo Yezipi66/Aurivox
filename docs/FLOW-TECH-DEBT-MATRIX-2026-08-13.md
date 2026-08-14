@@ -6,7 +6,9 @@
 
 ## 0. 摘要（先看这张表，避免把「编号总数」误读为「欠债总数」）
 
-> 更新于 2026-08-13（阶段 1 / D28 已修复）。**编号 D16–D20 从未使用**，是留白不是漏记。
+> 更新于 2026-08-13（D27 契约修订至 **R3**；阶段 1 / D28 已修复）。
+> **编号 D16–D20 从未使用**，是留白不是漏记。
+> **R2 / R3 均为纯文档修订，债务计数不变**（fixed 7 / open 2）。
 
 | 分类 | 条目 | 数量 | 含义 |
 |---|---|---|---|
@@ -147,7 +149,7 @@ P1-P3
 | FLOW-D10a | fixed | 0 | no |
 | FLOW-D10b | fixed（只读切片；完整 Store 另立条目，见 §4.2） | 0 | no |
 | FLOW-D26 | fixed | 0 | no |
-| **FLOW-D27** | **open — 契约 R1 已冻结，实现分阶段（阶段 0 完成，零代码）** | **1** | no |
+| **FLOW-D27** | **open — 契约 R3 已冻结（阶段 2 实现实测后二次修订）；阶段 0/1 完成，阶段 2 已实现待审阅** | **1** | no |
 | **FLOW-D28** | **fixed（阶段 1，根治 + 2 条回归守卫，见下）** | 0 | yes |
 | **FLOW-D29** | **open — 新增（客户端原文留存），低优先级，未排期** | 0 | no |
 | FLOW-D22 / D23 / D24 / D25 | deferred（明确记录，不伪装支持） | — | no |
@@ -200,7 +202,7 @@ P1-P3
 
 #### 2026-08-13 裁决（R1 冻结）—— 以上各段仅为发现过程记录
 
-**唯一实现依据**：[`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)（R1）。
+**唯一实现依据**：[`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)（**现为 R3**）。
 本节上方的「事实」「裁决问题」「倾向方案」等表述**不再作为实现依据**。
 
 裁决要点：
@@ -215,7 +217,136 @@ P1-P3
 ```
 
 **通道 ④ 与 ⑤ 的声明**：Flow 持久层**不做出比 legacy 持久层更强的隐私承诺**。
-任何「Flow 不落用户原文」的表述均为虚假承诺，见 R1 §1.1 的「不成立说法」清单。
+任何「Flow 不落用户原文」的表述均为虚假承诺，见契约 §1.1 的「不成立说法」清单。
+
+#### 2026-08-13 修订（R2 冻结）—— 阶段 2 前提实测后的更正
+
+R1 的阶段 2 三条前提属代码阅读结论。实测（承重图）**推翻其中一条**：
+
+```text
+被推翻  R1 前提 1「同进程 Gate approve → resume 仍然通过」是【假绿判据】
+        实测：通道 ① 脱敏后 status=succeeded、零异常、WAV 正常落盘，
+        但 Gate 之后的下游节点实收 "[[REDACTED]]" —— 静默语义损坏。
+        R2 改为【值保真】：下游收到的值必须与原值逐字符相等。
+被限缩  R1「通道 ① 只承载不支持的跨进程 resume → 零功能损失」
+        仅对跨进程成立；通道 ① 在【同进程 Gate resume】（现有受支持能力）上就已承重。
+被更正  R1 前提 2 的 FLOW_RUN_PLAN_UNAVAILABLE 是 runtime/HTTP 层的码；
+        executor 层实为 WORKFLOW_INPUT_REBIND_REQUIRED。两层已拆分。
+被升级  输出值 sidecar：从「实现方式」升为【承重件】，
+        并冻结生命周期与「缺值 fail-closed、禁止拿占位符当真值」两条。
+```
+
+**审阅追加的三个阻断项**（均已在 R2 冻结，实现前不得留白）：
+
+```text
+身份键   run_id + node_id + node_attempt + output_port（四元组）
+         「同进程+同 run」不足以定位一个值 —— D06 的 retry 会让同一 node_id
+         产生多个 attempt，仅按 run_id+node_id 存会让新 attempt 静默读到旧值。
+         取值必须以 replay projection 认定的成功 attempt 为准，
+         sidecar 里存在其他 attempt 的值【不构成】可接受 fallback。
+一致性   executor.js:328 的 _append() 只是直接委托 journalStore.append()，
+         【当前无任何事务边界】。契约不规定实现顺序，但冻结失败语义：
+         只有已提交的 NODE_SUCCEEDED 才可被消费；append 失败不得留下
+         可寻址的 sidecar 输出；已提交但值不可用必须 fail-closed。
+         最危险的是「先 append 后写 sidecar 失败」——它制造一个阶段 2 之前
+         【不存在】的新状态：Journal 成功、真实输出丢失。
+错误码   NODE_OUTPUT_VALUE_UNAVAILABLE（executor 层，retryable=false，
+         携带四元组字段，HTTP 落 statusFor() 默认 500）。
+         已比对现有 20 个 executorError 码，无冲突。
+         不映射为 409 —— 那会错误暗示「重试或重新绑定即可解决」。
+```
+
+**`outputSnapshot()` 字段形状裁决（2026-08-13，用户）：形状 B**，见契约 §4.8。
+
+```text
+形状 B  artifact 输出逐字保留 artifact_id/type/uri/fingerprint/fingerprint_kind，
+        其余字段（含 TextArtifact.value = 通道 ①）一律摘要；
+        且必须保留端口键集合，以区分「本无输出」与「值不可用」。
+理由    功能不得变化、不得影响 WebUI。
+        形状 A（照搬 inputSnapshot）会丢 uri 与 fingerprint_kind，
+        那是一次【对外投影形状变更】而非数据保护，回归面远大于所修问题；
+        形状 C 是黑名单，新增内容字段会默认泄漏。
+实测    web/ 对 api/flow 与 node_runs 的引用数 = 0；
+        lib/ 内 projection.node_runs[].outputs 无其他消费者；
+        Flow 默认关（server.js:1760）。→ 结构上不可能影响 WebUI。
+```
+
+**阶段取舍方案 B（只做通道 ②③、把 ① 记为 deferred）已否决** —— 会保留主要原文来源。
+（注意与上面的「形状 B」区分：两者是不同维度的选项，不要混读。）
+**阶段 3 未获授权**，须在阶段 2 独立审阅后单独裁决。
+
+#### 2026-08-13 修订（R3 冻结）—— 阶段 2 **实现**实测后的第二次更正
+
+阶段 2 的实现写完并跑起来之后，实测**又推翻了 R2 的两条事实陈述**。
+裁决 **A2 + B1**（用户 + 独立审阅）。**R3 仍为纯文档修订，零代码、零测试改动。**
+
+```text
+更正 1  「零功能损失」在【executor 层】同样不成立
+        R2 保留了「跨进程 resume 反正不支持」这半句。实测：
+        FLOW_RUN_PLAN_UNAVAILABLE 只是 runtime/HTTP 层限制；executor 层
+        调用方自带 Plan + 注入 inputResolver 时，新实例 resume【今天就能跑通】，
+        D10a/D10b 专门建过它并有 5 条测试断言 succeeded ——
+        而它们能过的原因，正是节点输出逐字躺在 Journal 里。
+        照 §4.8 字面实现的第一版：204 / 170 / 【5】/ 29。
+        → R3 §3.2 把 resume 拆成三种能力分别定性；
+          R3 §4.8.1 冻结 journal-safe 直通规则，红灯 5 → 1，
+          能力损失面与数据保护面【严格同延】。
+
+更正 2  形状 B 同时移除了【通道 ②】的 Journal 持久化
+        通道 ② 原文位于 outputs.result.metadata.request.text ——【也在 outputs 里】，
+        metadata 不在允许清单 ⇒ 一并被摘要。
+        §4.9 预测「阶段 2 后剩 1 处」，实测【剩 0 处】。
+        该量化产自形状 B 冻结【之前】的旧探针：方案换了、数字没重算。
+        → R3 §4.9 按实测重写；裁决 B1：接受，
+          【不得】为迁就写错的预测而把 metadata 加回允许清单。
+```
+
+R3 同时冻结了两条既有测试的演进方式（§4.10），**但 R3 不改动它们**：
+
+```text
+A2  executor.node.test.js:481       终态期望改为 NODE_OUTPUT_VALUE_UNAVAILABLE
+                                    + retryable === false；保留裸字符串 fixture；
+                                    原主张 deepEqual(asked,['voice_1']) 必须保留
+B1  flow.integration.node.test.js:265  改为反向断言；记录该守卫按设计工作，
+                                    成功地把一次副作用强制变成一次显式裁决
+```
+
+**方法教训（R3 §0.2，与「校验脚本给陈旧内容签名」同型）**：
+
+```text
+1  「实测」不是一个等级而是一串等级：代码阅读 < 探针 < 实现 < 完整依赖环境。
+   探针只跑了契约关心的路径，没跑【契约会打断的其它既有路径】。
+2  「对称于既有函数」是职责对称，不是形状照搬 ——
+   第一版照抄 inputSnapshot() 的 kind 包装，正是它破坏了值保真。
+3  冻结契约里的每一个数字，必须与当前冻结的方案同步重算。
+```
+
+**D27 状态不变：`open`。** R2 / R3 均为纯文档修订，零运行时行为改动，
+**没有任何「已修复」可供声称**。
+阶段 2 落地后可声称**通道 ①② 的 Journal 持久化已消除**，
+但**不得**声称「通道 ② 已修复」（adapter 仍在内存中生成）、
+**不得**声称「零功能损失」、**通道 ③ 未触碰、D27 仍 open**。
+
+#### 阶段 2 收尾（已实现，实测记录见契约 §6.1）
+
+```text
+产品代码改动面   lib/workflow/executor.js  【1 个文件】
+测试改动         executor.node.test.js（A2 + T1–T7）、flow.integration.node.test.js（B1）
+无依赖环境实跑   211 / 182 / 0 / 29     （204 + 7，总数核对相符）
+完整依赖目标     211 / 211 / 0 / 0      【尚未跑出，不得当作已观测】
+
+验收依据不是"全绿"，而是【变异测试】：把 executor.js 换回 R2 原版后，
+T1–T7 与 A2 这 8 条必须全红。第一次变异运行只红了 7 条 ——
+T1 因探针文本含 \u0000 被 JSON 转义而【假 PASS】，修正后 8/8 全红。
+这是 D27 内第三次同型的"证据在场但测的不是那个东西"。
+
+阶段 2 之后 D27 【仍然 open】：通道 ③（GATE_CREATED）一行未动，
+Journal 原文出现次数 2 → 1，不是 → 0。要清零必须再走阶段 3。
+```
+
+**能力缩减登记（不是回归，是知情放弃）**：Executor 新实例 resume 对**含内容输出**
+的 run 不再可用，实抛 `NODE_OUTPUT_VALUE_UNAVAILABLE`（`retryable=false`）。
+身份型输出不受影响，仍可 resume。详见契约 §3.2 能力 ②。
 
 ### FLOW-D28｜缺依赖环境下 runtime 单测红灯而非 skip
 
