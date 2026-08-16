@@ -7,7 +7,7 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
     vendor/gsv-tools/pretrained/          底模 (gsv / v2Pro / sv / hubert / roberta)
     vendor/gsv-tools/asr/faster-whisper-large-v3-turbo/  ASR (faster-whisper large-v3-turbo)
     vendor/gsv-tools/uvr5/uvr5_weights/   UVR5 去人声 (HP2)
-    GPT_SoVITS/text/G2PWModel/                  G2PW 多音字 (g2pW.onnx)  ← 同时写入 gsv_code 副本
+    GPT_SoVITS/text/G2PWModel/                  G2PW 多音字 (g2pW.onnx)  ← 同时写入 vendor/gsv_code 副本
     vendor/gsv-tools/pretrained/fast_langdetect/  语言检测 (lid.176.bin) ← 同时写副本
 
 用法:
@@ -213,15 +213,15 @@ MANIFEST = {
     ],
     "g2pw": [
         # 下载官方 G2PWModel.zip, 仅抽出 g2pW.onnx, 同时写入两个副本
-        # (GPT_SoVITS/text 与 gsv_code/text 的既有 G2PWModel/ 目录都需要该权重)。
+        # (GPT_SoVITS/text 与 vendor/gsv_code/text 的既有 G2PWModel/ 目录都需要该权重)。
         ("g2pzip", URL_G2PWMODEL_ZIP,
          os.path.join("GPT_SoVITS", "text", "G2PWModel", "g2pW.onnx"), 50_000_000,
-         [os.path.join("lib", "training", "gsv_code", "text", "G2PWModel", "g2pW.onnx")]),
+         [os.path.join("vendor", "gsv_code", "text", "G2PWModel", "g2pW.onnx")]),
     ],
     "langdetect": [
         ("url", URL_LID176,
          os.path.join(PRE, "fast_langdetect", "lid.176.bin"), 100_000_000,
-         [os.path.join("lib", "training", "gsv_code", "pretrained_models", "fast_langdetect", "lid.176.bin")]),
+         [os.path.join("vendor", "gsv_code", "pretrained_models", "fast_langdetect", "lid.176.bin")]),
     ],
 }
 GROUPS = ["core", "alt_v2", "alt_v2proplus", "asr", "funasr",

@@ -115,7 +115,7 @@ PATH_EXCLUDE = {
     os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3-turbo"),
     os.path.join("vendor", "gsv-tools", "asr", "models"),
     os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
-    os.path.join("lib", "training", "gsv_code", "pretrained_models"),
+    os.path.join("vendor", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
     os.path.join("lib", "inference", "sr", "AP_BWE_main", "24kto48k"),
 }

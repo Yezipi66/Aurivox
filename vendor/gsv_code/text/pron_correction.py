@@ -37,10 +37,28 @@ def _dbg(msg):
 # ---------------------------------------------------------------------------
 # 路径解析（与 chinese2.py 保持一致的推导方式，且允许环境变量覆盖）
 # ---------------------------------------------------------------------------
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))          # .../lib/training/gsv_code/text
-# 上溯 4 层到项目根（text->gsv_code->training->lib->root），与 chinese2.py 的 project_root 一致，
-# 使词典默认路径 == server.js 的 APP_DIR/data/pron_lexicon。
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR))))
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))          # .../vendor/gsv_code/text
+
+
+def _find_project_root(start):
+    """自 start 向上寻找含 server.js 的目录，即项目根。
+
+    与 chinese2.py、lib/paths.js 的 detectAppDir 保持同一判定依据，使词典
+    默认路径 == server.js 的 APP_DIR/data/pron_lexicon。不数目录层数：本目录
+    若再次搬迁，数层数会静默指向错误位置，表现为词典整体失效而不报错。
+    """
+    d = os.path.abspath(start)
+    for _ in range(8):
+        if os.path.exists(os.path.join(d, "server.js")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(start))))
+
+
+_PROJECT_ROOT = _find_project_root(_THIS_DIR)
 
 
 def _resolve_g2pw_dir():

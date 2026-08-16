@@ -135,10 +135,11 @@ GPT_SoVITS/
 # new binary payload cannot slip in unnoticed.
 /vendor/*
 !/vendor/gsv-tools/
+!/vendor/gsv_code/
 tools/runtime/
 vendor/gsv-tools/asr/models/
 vendor/gsv-tools/asr/faster-whisper-*/
-lib/training/gsv_code/text/ja_userdic/
+vendor/gsv_code/text/ja_userdic/
 # backups & junk
 *.bak
 *.bak[0-9]

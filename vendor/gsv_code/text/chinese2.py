@@ -12,6 +12,23 @@ from gsv_code.text.zh_normalization.text_normlization import TextNormalizer
 normalizer = lambda x: cn2an.transform(x, "an2cn")
 
 current_file_path = os.path.dirname(__file__)
+
+
+def _find_project_root(start):
+    """自 start 向上寻找含 server.js 的目录，即项目根。
+
+    与 lib/paths.js 的 detectAppDir 保持同一判定依据。找不到时退回按目录
+    层数推导（vendor/gsv_code/text → 上溯 3 层）。
+    """
+    d = os.path.abspath(start)
+    for _ in range(8):
+        if os.path.exists(os.path.join(d, "server.js")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(start))))
 pinyin_to_symbol_map = {
     line.split("\t")[0]: line.strip().split("\t")[1]
     for line in open(os.path.join(current_file_path, "opencpop-strict.txt")).readlines()
@@ -42,12 +59,10 @@ if is_g2pw:
 if is_g2pw:
     # print("当前使用g2pw进行拼音推理")
     parent_directory = os.path.dirname(current_file_path)
-    # 优先从环境变量 bert_path 读取，其次用项目内的默认路径
-    # current_file_path = lib/training/gsv_code/text/chinese2.py
-    # dirname 3 = lib/training/ → 需要回到项目根再找 GPT_SoVITS 或 gsv-tools
-    # 实际模型在 vendor/gsv-tools/pretrained/ → dirname 后 + "training/gsv-tools/pretrained/..."
-    # 或者用绝对路径推导：从 text/ 上溯到项目根（4层）
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
+    # 优先从环境变量 bert_path 读取，其次用项目内的默认路径。
+    # 项目根 = 自本目录向上第一个含 server.js 的目录，与 lib/paths.js 的判定一致。
+    # 不数目录层数：本目录若再次搬迁，数层数会静默指向错误位置而不报错。
+    project_root = _find_project_root(current_file_path)
     bert_path = os.environ.get("bert_path") or os.path.join(
         project_root, "vendor", "gsv-tools", "pretrained", "chinese-roberta-wwm-ext-large"
     )

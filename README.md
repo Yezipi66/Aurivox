@@ -37,8 +37,9 @@
 | --- | --- |
 | `server.js` | Express 后端主入口（REST + 推理编排 + 资产/训练接口） |
 | `web/` | 前端（Vite + React；`src/` 已模块化为 `lib/` + `components/{generate,train,compare,assets,broker}`） |
-| `lib/training/` | 训练管线：`pipeline.js` 状态机 + `steps/`（denoise/slice/asr/preprocess/train_s1/train_s2）+ 解耦的 `gsv_code/` + `gsv-tools/`（预训练权重与 ASR 模型） |
+| `lib/training/` | 训练管线：`pipeline.js` 状态机 + `steps/`（denoise/slice/asr/preprocess/train_s1/train_s2）；第三方代码与权重不在此处 |
 | `lib/inference/` | 自包含推理服务（`infer_server.py` OpenAI 兼容 + `TTS.py` 引擎） |
+| `vendor/` | 第三方代码及其随附权重：`gsv_code/`（上游 GPT-SoVITS 源码）、`gsv-tools/`（训练工具、预训练权重与 ASR 模型）。请勿在此处改动 |
 | `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
 | `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |
 | `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`checks/`（环境体检）、`scripts/`（启停与打包 PowerShell）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试） |

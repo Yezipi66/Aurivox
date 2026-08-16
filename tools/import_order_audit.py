@@ -8,23 +8,24 @@ all in that process, the entry is FLAGGED as at-risk for the 0xC0000005 crash.
 """
 import os, re
 
-# ROOT points at <project>/lib/training. Order of resolution:
+# ROOT points at the project root (the directory holding server.js).
+# Order of resolution:
 #   1) env var  IMPORT_AUDIT_ROOT
-#   2) auto-detect relative to this script (packaged at <project>/tools/...)
-#   3) fall back to the dev sandbox path
+#   2) walk up from this script until server.js is found
+#   3) fall back to the parent of tools/
 def _detect_root():
     env = os.environ.get("IMPORT_AUDIT_ROOT")
     if env and os.path.isdir(env):
         return env
-    here = os.path.dirname(os.path.abspath(__file__))
-    for cand in (
-        os.path.join(here, "..", "lib", "training"),   # tools/ next to lib/
-        os.path.join(here, "lib", "training"),          # run from project root
-    ):
-        cand = os.path.normpath(cand)
-        if os.path.isdir(cand):
-            return cand
-    return "/app/workspace/sources/lib/training"
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(8):
+        if os.path.exists(os.path.join(d, "server.js")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 ROOT = _detect_root()
 
@@ -84,19 +85,21 @@ def analyze(entry, search_dirs):
     walk(entry, search_dirs)
     return events
 
+# Paths below are relative to ROOT (the project root).
 ENTRIES = [
-    ("gsv_code/s2_train.py", ["gsv_code"]),
-    ("gsv_code/s1_train.py", ["gsv_code"]),
-    ("gsv_code/prepare_datasets/1-get-text.py", ["gsv_code"]),
-    ("gsv_code/prepare_datasets/2-get-hubert-wav32k.py", ["gsv_code"]),
-    ("gsv_code/prepare_datasets/3-get-semantic.py", ["gsv_code"]),
-    ("gsv_code/prepare_datasets/2-get-sv.py", ["gsv_code"]),
-    ("gsv-tools/slicer2.py", ["gsv-tools"]),
-    ("gsv-tools/uvr5/webui.py", ["gsv-tools", "gsv-tools/uvr5"]),
-    ("gsv-tools/asr/funasr_asr.py", ["gsv-tools", "gsv-tools/asr"]),
-    ("gsv-tools/asr/fasterwhisper_asr.py", ["gsv-tools", "gsv-tools/asr"]),
+    ("vendor/gsv_code/s2_train.py", ["vendor/gsv_code"]),
+    ("vendor/gsv_code/s1_train.py", ["vendor/gsv_code"]),
+    ("vendor/gsv_code/prepare_datasets/1-get-text.py", ["vendor/gsv_code"]),
+    ("vendor/gsv_code/prepare_datasets/2-get-hubert-wav32k.py", ["vendor/gsv_code"]),
+    ("vendor/gsv_code/prepare_datasets/3-get-semantic.py", ["vendor/gsv_code"]),
+    ("vendor/gsv_code/prepare_datasets/2-get-sv.py", ["vendor/gsv_code"]),
+    ("vendor/gsv-tools/slicer2.py", ["vendor/gsv-tools"]),
+    ("vendor/gsv-tools/uvr5/webui.py", ["vendor/gsv-tools", "vendor/gsv-tools/uvr5"]),
+    ("vendor/gsv-tools/asr/funasr_asr.py", ["vendor/gsv-tools", "vendor/gsv-tools/asr"]),
+    ("vendor/gsv-tools/asr/fasterwhisper_asr.py",
+     ["vendor/gsv-tools", "vendor/gsv-tools/asr"]),
     # inference server (launched by start.ps1) + its search roots
-    ("../inference/infer_server.py", ["../inference"]),
+    ("lib/inference/infer_server.py", ["lib/inference"]),
 ]
 
 def firstidx(events, kind):
