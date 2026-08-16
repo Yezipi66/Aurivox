@@ -293,7 +293,7 @@ if ($LASTEXITCODE -ne 0) {
 # dedicated index / GPU-conditional), so they are installed by their own re-runnable
 # script, which probes for an NVIDIA GPU and picks the CUDA vs CPU build for BOTH.
 # This keeps concerns separate and lets users re-install / switch CUDA build without
-# re-running the whole bootstrap: tools\deploy\install_torch.ps1 (or 安装PyTorch.bat).
+# re-running the whole bootstrap: tools\deploy\install_torch.ps1 (or install_pytorch.bat).
 $TORCH_OK = $false
 $torchScript = Join-Path $SCRIPT_DIR 'install_torch.ps1'
 if (Test-Path $torchScript) {
@@ -527,7 +527,7 @@ if ($TORCH_OK) {
   Ok  '  PyTorch             : OK (import verified)'
 } else {
   Write-Host '  PyTorch             : MISSING / FAILED  <== 需要手动补装!' -ForegroundColor Red
-  Write-Host '     修复: 双击 tools\deploy\安装PyTorch.bat  (或运行' -ForegroundColor Yellow
+  Write-Host '     修复: 双击 tools\deploy\install_pytorch.bat  (或运行' -ForegroundColor Yellow
   Write-Host '           tools\deploy\install_torch.ps1)。若被杀毒(如迈克菲)拦截,' -ForegroundColor Yellow
   Write-Host '           先把本目录加入杀软白名单, 或先执行  set TTS_NO_UV=1  再重试。' -ForegroundColor Yellow
 }
