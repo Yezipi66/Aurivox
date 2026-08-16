@@ -499,7 +499,7 @@ if (-not (Test-Path $dl)) {
   } else {
     Info '========================================================'
     Info (' Downloading selected model groups: {0}' -f $SEL_MODELS)
-    Info '   -> lib\training\gsv-tools\pretrained | asr | uvr5_weights'
+    Info '   -> vendor\gsv-tools\pretrained | asr | uvr5_weights'
     Info '========================================================'
     & $VENV_PY $dl --set $SEL_MODELS
   }
@@ -508,7 +508,7 @@ if (-not (Test-Path $dl)) {
   Info '========================================================'
   Info ' Dependencies done. Models are NOT bundled (~9GB).'
   Info ' Launch the model download wizard now? It downloads to'
-  Info '   lib\training\gsv-tools\pretrained | asr | uvr5_weights'
+  Info '   vendor\gsv-tools\pretrained | asr | uvr5_weights'
   Info '========================================================'
   $ans = Read-Host 'Download models now? [Y/n]'
   if ($ans -notmatch '^[Nn]') {

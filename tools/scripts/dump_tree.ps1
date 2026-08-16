@@ -63,7 +63,7 @@ function Dump-Tree($base, $label){
   }
   W ""
 }
-Dump-Tree (Join-Path $root 'lib\training\gsv-tools') 'lib\training\gsv-tools (models/asr/uvr5 weights)'
+Dump-Tree (Join-Path $root 'vendor\gsv-tools') 'vendor\gsv-tools (models/asr/uvr5 weights)'
 Dump-Tree (Join-Path $root 'vendor') 'vendor (ffmpeg etc.)'
 Dump-Tree (Join-Path $root 'wheels') 'wheels (if any)'
 Dump-Tree (Join-Path $root 'tools')  'tools (if any)'

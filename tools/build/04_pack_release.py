@@ -107,14 +107,14 @@ PATH_EXCLUDE = {
     # they simply never get walked into the release zip.
     os.path.join("vendor", "micromamba"),
     # pure model dirs (no needed code lives here):
-    os.path.join("lib", "training", "gsv-tools", "pretrained"),
+    os.path.join("vendor", "gsv-tools", "pretrained"),
     # NOTE: do NOT exclude the whole gsv-tools/asr dir -- it holds required
     # scripts (fasterwhisper_asr.py, asr_utils.py, funasr_asr.py, config.py).
     # Exclude only the downloaded ASR model subdirs; the code ships, the huge
     # weights are dropped here (and .bin is also caught by EXCLUDE_EXT).
-    os.path.join("lib", "training", "gsv-tools", "asr", "faster-whisper-large-v3-turbo"),
-    os.path.join("lib", "training", "gsv-tools", "asr", "models"),
-    os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights"),
+    os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3-turbo"),
+    os.path.join("vendor", "gsv-tools", "asr", "models"),
+    os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
     os.path.join("lib", "training", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
     os.path.join("lib", "inference", "sr", "AP_BWE_main", "24kto48k"),

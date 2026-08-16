@@ -45,11 +45,11 @@ if is_g2pw:
     # 优先从环境变量 bert_path 读取，其次用项目内的默认路径
     # current_file_path = lib/training/gsv_code/text/chinese2.py
     # dirname 3 = lib/training/ → 需要回到项目根再找 GPT_SoVITS 或 gsv-tools
-    # 实际模型在 lib/training/gsv-tools/pretrained/ → dirname 后 + "training/gsv-tools/pretrained/..."
+    # 实际模型在 vendor/gsv-tools/pretrained/ → dirname 后 + "training/gsv-tools/pretrained/..."
     # 或者用绝对路径推导：从 text/ 上溯到项目根（4层）
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))))
     bert_path = os.environ.get("bert_path") or os.path.join(
-        project_root, "lib", "training", "gsv-tools", "pretrained", "chinese-roberta-wwm-ext-large"
+        project_root, "vendor", "gsv-tools", "pretrained", "chinese-roberta-wwm-ext-large"
     )
     # G2PWModel 目录：单一事实来源 + 兜底。优先自包含目录，回退外部 GPT_SoVITS，
     # 选取真正含 g2pW.onnx 的目录，避免两处重复维护。

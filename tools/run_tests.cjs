@@ -8,16 +8,30 @@ const { spawnSync } = require('node:child_process')
 const root = path.resolve(__dirname, '..')
 const testFiles = []
 
+// Weight and dependency directories hold thousands of files and never
+// contain tests. Walking them costs seconds on every run.
+const SKIP_DIRS = new Set([
+  'node_modules', '__pycache__', '.git',
+  'pretrained', 'pretrained_models', 'uvr5_weights', 'models', 'ja_userdic',
+])
+
 function collect(dir) {
   if (!fs.existsSync(dir)) return
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) collect(full)
-    else if (entry.isFile() && entry.name.endsWith('.node.test.js')) testFiles.push(full)
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue
+      if (entry.name.startsWith('faster-whisper-')) continue
+      collect(full)
+    } else if (entry.isFile() && entry.name.endsWith('.node.test.js')) {
+      testFiles.push(full)
+    }
   }
 }
 
 collect(path.join(root, 'lib'))
+// Third-party trees carry our own tests for the wrappers we call into.
+collect(path.join(root, 'vendor'))
 collect(path.join(root, 'web', 'src'))
 testFiles.sort()
 

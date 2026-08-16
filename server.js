@@ -1353,7 +1353,7 @@ function readTranscriptListRows(listPath) {
 // ===========================
 
 const trainingPipeline = require("./lib/training/pipeline");
-const _uvr5Models = require("./lib/training/gsv-tools/uvr5/uvr5_models");
+const _uvr5Models = require("./vendor/gsv-tools/uvr5/uvr5_models");
 
 const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko", "auto"]);
 

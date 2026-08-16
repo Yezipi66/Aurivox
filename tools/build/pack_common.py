@@ -43,9 +43,9 @@ _LAYER_PREFIX = (
 
 # model subtrees (should never ship, but classify defensively for standalone scans)
 _MODEL_PREFIX = (
-    "lib/training/gsv-tools/pretrained/",
-    "lib/training/gsv-tools/asr/",
-    "lib/training/gsv-tools/uvr5/uvr5_weights/",
+    "vendor/gsv-tools/pretrained/",
+    "vendor/gsv-tools/asr/",
+    "vendor/gsv-tools/uvr5/uvr5_weights/",
     "lib/training/gsv_code/pretrained_models/",
     "lib/inference/sr/AP_BWE_main/24kto48k/",
 )

@@ -1,5 +1,5 @@
 // Unit tests for the UVR5 model registry (Node built-in runner, no jest):
-//     node --test lib/training/gsv-tools/uvr5/
+//     node --test vendor/gsv-tools/uvr5/
 //
 // Contract under test (uvr5_models.js):
 //   * normalizePipeline coerces legacy shapes, drops unknowns, clamps agg,

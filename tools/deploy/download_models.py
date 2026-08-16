@@ -4,11 +4,11 @@
 download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
 
 模型不随发行包分发(约 9GB),由本脚本引导下载到项目内的真实路径:
-    lib/training/gsv-tools/pretrained/          底模 (gsv / v2Pro / sv / hubert / roberta)
-    lib/training/gsv-tools/asr/faster-whisper-large-v3-turbo/  ASR (faster-whisper large-v3-turbo)
-    lib/training/gsv-tools/uvr5/uvr5_weights/   UVR5 去人声 (HP2)
+    vendor/gsv-tools/pretrained/          底模 (gsv / v2Pro / sv / hubert / roberta)
+    vendor/gsv-tools/asr/faster-whisper-large-v3-turbo/  ASR (faster-whisper large-v3-turbo)
+    vendor/gsv-tools/uvr5/uvr5_weights/   UVR5 去人声 (HP2)
     GPT_SoVITS/text/G2PWModel/                  G2PW 多音字 (g2pW.onnx)  ← 同时写入 gsv_code 副本
-    lib/training/gsv-tools/pretrained/fast_langdetect/  语言检测 (lid.176.bin) ← 同时写副本
+    vendor/gsv-tools/pretrained/fast_langdetect/  语言检测 (lid.176.bin) ← 同时写副本
 
 用法:
     python download_models.py --wizard          # 交互式菜单
@@ -104,11 +104,11 @@ URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.
 URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve/main/G2PWModel.zip"
 
 # 相对项目根的目录
-PRE = os.path.join("lib", "training", "gsv-tools", "pretrained")
-ASR = os.path.join("lib", "training", "gsv-tools", "asr", "faster-whisper-large-v3-turbo")
-UVR = os.path.join("lib", "training", "gsv-tools", "uvr5", "uvr5_weights")
+PRE = os.path.join("vendor", "gsv-tools", "pretrained")
+ASR = os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3-turbo")
+UVR = os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights")
 # FunASR 模型的落地目录 (与 funasr_asr.py 的 MODELS_DIR 一致)。
-FUNASR_DIR = os.path.join("lib", "training", "gsv-tools", "asr", "models")
+FUNASR_DIR = os.path.join("vendor", "gsv-tools", "asr", "models")
 
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
 #   backend = "hf"  -> source=(repo, path_in_repo)

@@ -130,10 +130,14 @@ voices.json
 lib/voices.json
 # vendored runtime / models / third-party
 GPT_SoVITS/
-vendor/
+# vendor/ holds third-party SOURCE, which is tracked. Ignore everything
+# under it by default and re-admit the trees we vendor deliberately, so a
+# new binary payload cannot slip in unnoticed.
+/vendor/*
+!/vendor/gsv-tools/
 tools/runtime/
-lib/training/gsv-tools/asr/models/
-lib/training/gsv-tools/asr/faster-whisper-*/
+vendor/gsv-tools/asr/models/
+vendor/gsv-tools/asr/faster-whisper-*/
 lib/training/gsv_code/text/ja_userdic/
 # backups & junk
 *.bak
