@@ -115,7 +115,13 @@ chinese-roberta-wwm-ext-large/
 
 # runtime data & user assets
 /assets/
-/data/
+# Use /data/* (not /data/) so the negations below can take effect.
+# A directory-form rule stops git from descending into the directory,
+# and then no negation inside it can ever work.
+/data/*
+# These two are configuration, not regenerable cache: keep them tracked.
+!/data/advanced_params.json
+!/data/training_defaults.json
 /recipes/
 app-config.json
 voices.json

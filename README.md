@@ -41,7 +41,14 @@
 | `lib/inference/` | 自包含推理服务（`infer_server.py` OpenAI 兼容 + `TTS.py` 引擎） |
 | `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
 | `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |
-| `docs/` · `scripts/` · `logs/` · `output/` | 文档 / 归档开发脚本（不参与运行）/ 归档日志与输出 |
+| `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`checks/`（环境体检）、`scripts/`（启停与打包 PowerShell）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试） |
+| `docs/` | 项目文档；`docs/internal/` 存放内部阶段性记录 |
+| `data/` | 运行期数据，全部集中于此：音色注册表 `voices.json` 及其轮转备份 `backups/`、配方 `recipes/`、画布的图与运行状态 `flowgraph/`、参考音频导入暂存区 `voices/`、读音词典 `pron_lexicon/`、本地配置 `app-config.json`，以及可被覆盖的默认值 `advanced_params.json` / `training_defaults.json`。该目录不进版本库 |
+| `outputs/` | 推理产物，按来源分为 `generate/` · `comparerefs/` · `broker/` · `flowgraph/`，互不混淆 |
+
+> **路径权威**：上述所有目录与运行期文件的位置，统一定义在 `lib/paths.js`，其它模块
+> 一律从该文件取常量，不得自行拼接目录名。要调整某个目录的位置，只需改动该文件；
+> 守卫测试 `lib/paths.node.test.js` 会拦截绕过该约定的写法。
 
 ## 快速开始
 
@@ -194,7 +201,7 @@ Python 依赖只有**一个** `requirements.txt` —— 一份**逐包精确 `==
 
 > 保存间隔取 S1=4 / S2=5，保证最终 epoch（8%4=0、25%5=0）必落 checkpoint。
 > `batch_size:"auto"` 按显存自适应、`learning_rate:"default"` 用引擎内置 LR；二者与其余 `training.*`/`steps.*.params` 键均可经 `customParams` 逐次覆盖（透传给 `s1_train.py` yaml / `s2_train.py` json）。
-> 若存在外部 `training_defaults.json`，其值覆盖内置默认；仅影响变更后新建的任务，已有 recipe/历史任务不追溯改写。
+> 若存在外部 `data/training_defaults.json`，其值覆盖内置默认；仅影响变更后新建的任务，已有 recipe/历史任务不追溯改写。
 
 > **可调参数面**：S1 侧 `gpt_epochs / batch_size / s1_save_every_n_epoch / precision / gradient_clip / seed / lr / lr_init / lr_end / warmup_steps / decay_steps / max_eval_sample / max_sec / num_workers`，S2 侧 `sovits_epochs / s2_save_every_n_epoch / batch_size / versions[]`（一次多版本），另有**编排级**能力：UVR5 多级链（每级 `model/agg/tta/postprocess/precision`）、按语种 ASR 引擎路由、从第 X 步续跑 / 断点续训。默认对外只暴露上面的简化子集，高级项走 `customParams` 透传。
 
@@ -231,18 +238,6 @@ Python 依赖只有**一个** `requirements.txt` —— 一份**逐包精确 `==
 `Base model_v2 / _v2Pro(默认) / _v2ProPlus`（磁盘缺失的版本自动从下拉剔除）。语言为
 Auto（自动多语言）。底模自身无参考音频，勾选「Use reference from another voice」即可
 借用其它资产的切片 / raw 作参考。**Compare Refs** 每行的 VOICE ID 下拉也可选 `Base model`。
-
-### S2 独立推理（调试用）
-
-用预处理好的数据做 S2 独立推理：
-
-```bash
-python scripts/pipeline/infer_s2.py \
-  --s2_ckpt assets/{voiceId}/logs_s2/{voiceId}/44k/logs_s2_v3/G_*.pth \
-  --work_dir assets/{voiceId}/ \
-  --output output.wav \
-  --idx 0
-```
 
 ### Broker 并发 / 流式 / 模型留驻（v1.0.6）
 

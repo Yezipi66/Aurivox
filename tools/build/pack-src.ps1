@@ -35,16 +35,32 @@ try {
   $stage = Join-Path $env:TEMP ('ttsb_src_' + [guid]::NewGuid().ToString('N').Substring(0,8))
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 
-  $srcDirs  = 'lib', 'web', 'scripts', 'docs', 'tools\build', 'tools\scripts', 'tools\tests'
+  # scripts\ 已并入 tools\（第 0.5 步），CHANGELOG 与内部文档已移入 docs\（同上），
+  # 运行期数据已并入 data\（第 2 步）——三处都随之更新，否则打出来的包会缺件。
+  $srcDirs  = 'lib', 'web', 'docs', 'tools\build', 'tools\checks', 'tools\scripts', 'tools\tests'
   $excludeD = 'node_modules dist build __pycache__ .git pretrained runtime models venv .venv .staging assets logs output outputs backups tmp temp voices data .cache'.Split(' ')
   $excludeF = '*.pth *.ckpt *.safetensors *.bin *.pt *.onnx *.wav *.mp3 *.flac *.m4a *.ogg *.opus *.npy *.npz *.zip *.7z *.exe *.dll *.pdb *.mp4 *.mov *.avi *.mkv'.Split(' ')
-  $topFiles = 'README.md', 'GUIDANCE.md', 'CHANGELOG.md', 'INTERNAL-1.0.8-STABILIZATION.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_LICENSES', '.env.example', 'advanced_params.json', 'training_defaults.json', 'requirements.txt', 'package.json', 'package-lock.json', 'deploy.bat', 'start.bat', 'stop.bat', 'server.js'
+  $topFiles = 'README.md', 'GUIDANCE.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_LICENSES', '.env.example', 'requirements.txt', 'package.json', 'package-lock.json', 'deploy.bat', 'start.bat', 'stop.bat', 'server.js', 'tools\run_tests.cjs'
+  # data\ 整体属于每台机器自己的运行期状态，只有随包分发的默认值文件例外。
+  $dataFiles = 'data\advanced_params.json', 'data\training_defaults.json'
 
   Write-Host "==> 源码目录:" -ForegroundColor Cyan
   foreach ($d in $srcDirs) {
     if (Test-Path $d) {
       Write-Host "    + $d"
       robocopy $d (Join-Path $stage $d) /E /XD $excludeD /XF $excludeF /NFL /NDL /NJH /NJS /NP | Out-Null
+    }
+  }
+
+  Write-Host "==> 随包分发的默认值:" -ForegroundColor Cyan
+  foreach ($f in $dataFiles) {
+    if (Test-Path $f) {
+      Write-Host "    + $f"
+      $dest = Join-Path $stage $f
+      New-Item (Split-Path $dest) -ItemType Directory -Force | Out-Null
+      Copy-Item $f $dest -Force
+    } else {
+      Write-Host "    [警告] 缺少 $f" -ForegroundColor Yellow
     }
   }
 

@@ -53,7 +53,7 @@ MAX_COMPRESSED_MB = 200
 TOP_EXCLUDE = {
     "venv", ".venv", "venv_idx241", "assets", ".staging",
     "logs", "log", "outputs", "output", "backups", "tmp", "temp",
-    "cr-sandbox", "voices", "data", "dist",  # top-level dist = our own output
+    "cr-sandbox", "voices", "dist",  # top-level dist = our own output
     # leftover folders from extracting an older distribution-kit patch in place
     "distribution-kit-patch", "root",
     # dev-only training recipes / experiment configs — not needed at runtime
@@ -67,6 +67,18 @@ TOP_EXCLUDE = {
 # time, so it must never land in the extract-and-run zip. Anchored to the top
 # level so a legit deep "venv_*" inside a dependency is never touched.
 TOP_EXCLUDE_PREFIX = ("venv_", "venv-", ".venv_")
+
+# Top-level "data/" holds ALL runtime data since the step-2 move (it used to be
+# scattered across the repo root). It can no longer be dropped wholesale: the
+# two shipped default files live there now and used to ship from the root. So
+# data/ is pruned by an ALLOWLIST instead — anything not named here (the voice
+# registry, its backups, recipes, canvas graphs and run state, the per-machine
+# app-config.json) is per-installation state and must never ship.
+DATA_KEEP = {
+    "advanced_params.json",   # shipped defaults, overridable by the user
+    "training_defaults.json",  # ditto
+    "pron_lexicon",            # shipped pronunciation dictionaries
+}
 
 # Dev/VCS/cache junk safe to drop at ANY depth.
 NAME_EXCLUDE = {
@@ -251,6 +263,12 @@ def in_excluded_tree(rel):
     # `tools\runtime\node\npm.cmd ci` actually works on the target machine.
     if "node_modules" in r.split("/"):
         return not r.startswith(NODE_RUNTIME_PREFIX)
+    # top-level data/ — allowlist, see DATA_KEEP
+    if top_seg == "data":
+        rest = r.split("/", 2)
+        if len(rest) == 1:
+            return False           # the directory itself
+        return rest[1] not in DATA_KEEP
     # top-level anchored names (e.g. "dist", but NOT "web/dist")
     for t in TOP_EXCLUDE:
         if r == t or r.startswith(t + "/"):
@@ -389,10 +407,20 @@ def main():
         ("THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json", "ffmpeg external-tool license inventory"),
         ("tools/deploy/deploy_wizard.py", "deploy wizard (license/select/confirm TUI)"),
         ("deploy.bat", "deploy launcher"),
+        ("data/advanced_params.json", "shipped defaults moved from the repo root into data/"),
+        ("data/training_defaults.json", "shipped defaults moved from the repo root into data/"),
         ("stop.bat", "root stop launcher (calls tools\\scripts\\stop.ps1)"),
     ]:
         if not any(norm(r) == norm(need) or norm(r).startswith(norm(need)) for r, _, _ in included):
             print(f"  [WARN] missing {need}  -> {hint}")
+    # data/ is per-installation state apart from the DATA_KEEP allowlist. A leak
+    # here ships the dev box's voice roster / canvas graphs to every tester.
+    leaked_data = [r for r, _, _ in included
+                   if norm(r).startswith("data/")
+                   and norm(r).split("/")[1] not in DATA_KEEP]
+    if leaked_data:
+        print("  [WARN] %d per-installation file(s) under data/ leaked into the release. e.g. %s"
+              % (len(leaked_data), norm(leaked_data[0])))
     whl = [r for r, _, _ in included if norm(r).startswith("tools/wheels/") and r.endswith(".whl")]
     if not whl:
         print("  [WARN] no wheels in tools/wheels -> run 02_make_wheelhouse.bat (jieba_fast/pyopenjtalk)")

@@ -1,14 +1,14 @@
 {
-  "name": "tts-broker-local-ui",
+  "name": "aurivox",
   "version": "1.0.8",
-  "description": "Minimal React + Node local UI for GPT-SoVITS TTS",
+  "description": "Aurivox — 本地语音合成工作台：音色资产管理、微调训练与 OpenAI 兼容推理服务",
   "main": "server.js",
   "scripts": {
     "dev": "node server.js",
     "web": "cd web && npm run dev",
     "build": "cd web && npm run build",
     "start": "node server.js",
-    "test": "node scripts/run_tests.cjs"
+    "test": "node tools/run_tests.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

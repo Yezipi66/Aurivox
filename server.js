@@ -8,7 +8,17 @@ const { execSync, spawn, execFileSync } = require("child_process");
 const os = require("os");
 const multer = require("multer");
 
-const { ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig } = require('./lib/paths');
+// 路径权威：所有业务目录/文件位置一律取自 lib/paths.js，本文件不再自行拼接目录名。
+const PATHS = require('./lib/paths');
+const {
+  ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig,
+  APP_DIR, DATA_DIR,
+  VOICES_JSON, VOICES_DIR, CUSTOM_REF_DIR, CUSTOM_REFS_DIRNAME,
+  BACKUP_DIR, RECIPES_DIR, PRON_LEXICON_DIR, FLOWGRAPH_DIR,
+  ADVANCED_PARAMS_FILE,
+  OUTPUT_DIR, GENERATE_DIR, COMPARE_DIR, BROKER_DIR, OUTPUT_ROOTS,
+  WEB_DIST, GSV_PRETRAINED_DIR,
+} = PATHS;
 const { getPythonPath, getCleanEnv } = require('./lib/training/python_helper');
 
 // ── File logging (1.0.7) ──────────────────────────────────────────
@@ -56,27 +66,11 @@ const HOST = process.env.BROKER_HOST || process.env.HOST || "127.0.0.1";
 const API_KEY = process.env.API_KEY || process.env.BROKER_API_KEY || "";
 const GPT_SOVITS_BASE_URL = process.env.GPT_SOVITS_BASE_URL || "http://127.0.0.1:9880";
 
-const APP_DIR = __dirname;
-const VOICES_JSON = path.join(APP_DIR, "voices.json");
-const OUTPUT_DIR = path.join(APP_DIR, "outputs");
-// Per-source output roots. Only "generate" is written this round; the
-// compare/broker folders are reserved for later assetization work.
-const GENERATE_DIR = path.join(OUTPUT_DIR, "generate");
-// Per-source output roots are physically separated so generate / compare-refs /
-// broker histories never mix (locked 2026-07-07).
-const COMPARE_DIR = path.join(OUTPUT_DIR, "comparerefs");
-const BROKER_DIR = path.join(OUTPUT_DIR, "broker");
-const VOICES_DIR = path.join(APP_DIR, "voices");
-const BACKUP_DIR = path.join(APP_DIR, "backups");
-// Recipes are first-class reusable presets stored in one flat folder as
-// recipe_{voiceId}_{name}.json (source of truth = JSON content).
-const RECIPES_DIR = path.join(APP_DIR, "recipes");
-const WEB_DIST = path.join(APP_DIR, "web", "dist");
+// 上述路径常量已全部迁至 lib/paths.js（见本文件顶部的解构导入）。
+// 此处仅保留一个语义别名，以及启动时的建目录动作。
 const ASSETS_DIR = ASSETS_ROOT;
 
-for (const d of [OUTPUT_DIR, GENERATE_DIR, COMPARE_DIR, BROKER_DIR, VOICES_DIR, BACKUP_DIR, RECIPES_DIR, ASSETS_DIR]) {
-  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-}
+PATHS.ensureRuntimeDirs();
 
 const { createRecipeStore } = require("./lib/recipeStore");
 const recipeStore = createRecipeStore(RECIPES_DIR);
@@ -159,7 +153,7 @@ const upload = multer({
 // the browser (no native OS dialog needed) and stored under voices/custom_refs so
 // it can serve as ref_audio for ANY voice. Kept separate from `storage` because
 // that names files by req.params.id, which custom refs don't have.
-const CUSTOM_REF_DIR = path.join(VOICES_DIR, "custom_refs");
+// CUSTOM_REF_DIR 取自 lib/paths.js。
 try { fs.mkdirSync(CUSTOM_REF_DIR, { recursive: true }); } catch (_) {}
 const customRefStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, CUSTOM_REF_DIR),
@@ -497,7 +491,7 @@ function importCustomRefToAsset(rawPath, role) {
   }
   if (!abs || !fs.existsSync(abs)) return rawPath; // not a temp custom ref (or gone) — leave as-is
   const fn = path.basename(abs);
-  const destDir = path.join(ASSETS_ROOT, role, "custom_refs");
+  const destDir = path.join(ASSETS_ROOT, role, CUSTOM_REFS_DIRNAME);
   fs.mkdirSync(destDir, { recursive: true });
   let destName = fn;
   let dest = path.join(destDir, destName);
@@ -868,7 +862,7 @@ async function generateOneSegment(segmentText, cfg) {
 //  ADVANCED PARAMS (advanced_params.json)
 // ===========================
 
-const ADVANCED_PARAMS_FILE = path.join(APP_DIR, "advanced_params.json");
+// ADVANCED_PARAMS_FILE 取自 lib/paths.js（data/ 优先，回退项目根）。
 
 const DEFAULT_ADVANCED_PARAMS = {
   // Common
@@ -918,7 +912,7 @@ function saveAdvancedParams(params) {
 // 读音校对 / Pronunciation proofing (task6)
 // 词典 = 用户运行时资产，不入 git（见 .gitignore: data/pron_lexicon/）
 // ============================================================
-const PRON_LEXICON_DIR = path.join(APP_DIR, "data", "pron_lexicon");
+// PRON_LEXICON_DIR 取自 lib/paths.js。
 
 function pronLexiconPath(lang) {
   const safe = String(lang || "zh").toLowerCase().replace(/[^a-z_]/g, "") || "zh";
@@ -1025,7 +1019,7 @@ function assetsNeedScan() {
 // Outputs are physically separated by source so generate / compare-refs / broker
 // histories never mix (locked 2026-07-07). `normSource` maps client-supplied
 // source labels to a canonical folder key; unknown values fall back to generate.
-const OUTPUT_ROOTS = { generate: GENERATE_DIR, comparerefs: COMPARE_DIR, broker: BROKER_DIR };
+// OUTPUT_ROOTS 取自 lib/paths.js，新增产物来源只需在该文件加一行。
 function normSource(source) {
   const s = String(source || "generate").toLowerCase();
   if (s === "compare" || s === "comparerefs" || s === "compare_refs") return "comparerefs";
@@ -1480,7 +1474,7 @@ function sanitizeCustomParams(custom) {
 const TRAIN_DATA_ROOT = process.env.TRAIN_DATA_ROOT || "";
 
 // ===== task3 底模门禁：基础模型体检（与 download_models.py 布局对齐） =====
-const GSV_PRETRAINED_DIR = path.join(__dirname, 'lib', 'training', 'gsv-tools', 'pretrained');
+// GSV_PRETRAINED_DIR 取自 lib/paths.js。
 function _mvFirstExisting(cands) {
   for (const rel of cands) { const fp = path.join(GSV_PRETRAINED_DIR, rel); try { if (fs.existsSync(fp)) return fp; } catch (_) {} }
   return null;
@@ -1780,7 +1774,10 @@ if (String(process.env.FLOWGRAPH_ENABLED || "").trim() && process.env.FLOWGRAPH_
   try {
     const { createFlowgraphService } = require("./lib/flowgraph/service");
     const { generateService } = require("./lib/services/synthesisService")(ctx);
-    ctx.flowgraphService = createFlowgraphService(ctx, { generateService, concatWavFiles });
+    // rootDir 显式取自 lib/paths.js，不再依赖 ctx 中是否存在 DATA_DIR 这一隐式条件。
+    ctx.flowgraphService = createFlowgraphService(ctx, {
+      generateService, concatWavFiles, rootDir: FLOWGRAPH_DIR,
+    });
     app.use(require("./lib/routes/flowgraph")(ctx));
     console.log(`[flowgraph] 画布已开启 — ${ctx.flowgraphService.nodeCatalogue().count} 个节点，输出目录: ${ctx.flowgraphService.outputDir}`);
   } catch (err) {
