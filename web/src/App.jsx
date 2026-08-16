@@ -7,6 +7,7 @@ import { BrokerTab, ContextRow } from './components/broker/BrokerTab'
 import { ReferenceCompareTab } from './components/compare/ReferenceCompareTab'
 import { GenerateTab } from './components/generate/GenerateTab'
 import { TrainingTab } from './components/train/TrainingTab'
+import { FlowCanvasTab } from './components/flowgraph/FlowCanvasTab'
 import { LangProvider, LangToggle } from './lib/i18n'
 
 export default function App() {
@@ -27,6 +28,10 @@ function AppShell() {
   // Empty string = follow the current voice's language (default, zero regression).
   const [selectedPromptLang, setSelectedPromptLang] = useState('')
   const [health, setHealth] = useState(null)
+  // The canvas is an opt-in extra (FLOWGRAPH_ENABLED on the server). Asking once
+  // whether it is there keeps a dead tab off the nav bar on installs that never
+  // switched it on, instead of offering a button that can only disappoint.
+  const [flowReady, setFlowReady] = useState(false)
   const [genActivity, setGenActivity] = useState(null) // null | { label } — live inference activity for the context row
   const [activeTaskId, setActiveTaskId] = usePersistentState('train.activeTaskId', null)
   // Persisted in-flight Rebuild/Restore so its lightweight pipeline survives page
@@ -77,6 +82,12 @@ function AppShell() {
     return () => { dead = true; clearInterval(t) }
   }, [])
 
+  useEffect(() => {
+    api('/api/flowgraph/status')
+      .then(r => setFlowReady(!!(r.ok && r.data && r.data.ok)))
+      .catch(() => setFlowReady(false))
+  }, [])
+
   useEffect(() => { loadVoices() }, [])
 
   // 自动重连：刷新/关页后恢复正在运行/中断的任务
@@ -113,6 +124,9 @@ function AppShell() {
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
         <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
         <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
+        {flowReady && (
+          <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
+        )}
         <div style={{ flex: 1 }} />
         <LangToggle />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
@@ -142,7 +156,9 @@ function AppShell() {
       )}
 
       <main style={{ flex: 1 }}>
-        <div className="workspace-container">
+        {/* The canvas is a workbench, not a document: it gets the whole window
+            instead of the centred 1400px column the reading pages use. */}
+        <div className={page === 'flow' ? 'workspace-container workspace-container--full' : 'workspace-container'}>
           {page === 'generate' && (
             <GenerateTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice}
               onEditVoice={() => {}}
@@ -169,6 +185,14 @@ function AppShell() {
           )}
           {page === 'broker' && (
             <BrokerTab />
+          )}
+          {page === 'flow' && (flowReady
+            ? <FlowCanvasTab />
+            // A stored page choice can outlive the switch being turned off, so
+            // say why the canvas is missing instead of showing a blank pane.
+            : <div style={{ padding: 24, color: 'var(--muted)' }}>
+                这台服务器上没有开画布。启动时加上 FLOWGRAPH_ENABLED=1 再刷新这一页。
+              </div>
           )}
         </div>
       </main>

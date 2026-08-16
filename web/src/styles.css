@@ -538,6 +538,14 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   max-width: 1400px;
   margin: 0 auto;
 }
+/* Full-bleed variant for the canvas: no centred column, no side gutters. On a
+   wide screen the 1400px cap was throwing away several hundred pixels on each
+   side of the one page that needs them most. */
+.workspace-container--full {
+  max-width: none;
+  margin: 0;
+  padding: 6px 8px 8px;
+}
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;

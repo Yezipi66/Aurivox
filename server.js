@@ -1771,6 +1771,25 @@ if (String(process.env.FLOW_ENABLED || "").trim() && process.env.FLOW_ENABLED !=
   }
 }
 
+// ---- Aurivox 节点画布 (flowgraph) ----
+// Opt-in ONLY, and additive: every path is under /api/flowgraph/*, the generate
+// page is untouched, and with the switch off nothing here is even constructed.
+// The canvas borrows the SAME generate service the page calls, so the two can
+// not drift into producing different audio from the same settings.
+if (String(process.env.FLOWGRAPH_ENABLED || "").trim() && process.env.FLOWGRAPH_ENABLED !== "0") {
+  try {
+    const { createFlowgraphService } = require("./lib/flowgraph/service");
+    const { generateService } = require("./lib/services/synthesisService")(ctx);
+    ctx.flowgraphService = createFlowgraphService(ctx, { generateService, concatWavFiles });
+    app.use(require("./lib/routes/flowgraph")(ctx));
+    console.log(`[flowgraph] 画布已开启 — ${ctx.flowgraphService.nodeCatalogue().count} 个节点，输出目录: ${ctx.flowgraphService.outputDir}`);
+  } catch (err) {
+    // Loud, but never fatal: the canvas is experimental and the Workbench must
+    // keep serving even if it fails to come up.
+    console.error(`[flowgraph] 画布启动失败: ${err && err.message}`);
+  }
+}
+
 // ---- Serve React frontend (must stay after API routers) ----
 app.use(express.static(WEB_DIST));
 app.get("*", (req, res) => {
@@ -1825,8 +1844,13 @@ const server = app.listen(PORT, HOST, () => {
   // Warm the CUDA probe in the background so /api/health has a ready answer.
   startCudaProbe();
   if (!API_KEY) {
-    console.log(`\n  ⚠️  WARNING: API_KEY not configured. All write/delete/execute endpoints are BLOCKED.`);
-    console.log(`  Set environment variable API_KEY to enable write operations.`);
+    // This used to say "All write/delete/execute endpoints are BLOCKED", which
+    // is not true: requireApiKey lets every loopback request straight through
+    // (see the isLoopback branch above). On a local workstation nothing is
+    // blocked, and the old wording sent people hunting for a key they never
+    // needed. Say what is actually the case instead.
+    console.log(`\n  note: no API_KEY set — local use (127.0.0.1) is unrestricted.`);
+    console.log(`  A key is only needed for calls coming from another machine.`);
   }
   console.log(`========================================\n`);
 
