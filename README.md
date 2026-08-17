@@ -25,7 +25,7 @@
 一键部署脚本自动建 venv、装依赖、下载模型并自检。
 
 - **训练**：人声提取 → 切片 → ASR → 预处理 → S1(GPT) → S2(SoVITS) 全链路管线，带失败恢复。
-- **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`），完整 S1+S2 串联。
+- **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`，引擎本体在 `vendor/gsv-infer/`），完整 S1+S2 串联。
 - **分发**：`deploy.bat`（首次部署向导）+ `start.ps1`（启动），无需手工配环境。
 
 
@@ -38,8 +38,8 @@
 | `server.js` | Express 后端主入口（REST + 推理编排 + 资产/训练接口） |
 | `web/` | 前端（Vite + React；`src/` 已模块化为 `lib/` + `components/{generate,train,compare,assets,broker}`） |
 | `lib/training/` | 训练管线：`pipeline.js` 状态机 + `steps/`（denoise/slice/asr/preprocess/train_s1/train_s2）；第三方代码与权重不在此处 |
-| `lib/inference/` | 自包含推理服务（`infer_server.py` OpenAI 兼容 + `TTS.py` 引擎） |
-| `vendor/` | 第三方代码及其随附权重：`gsv_code/`（上游 GPT-SoVITS 源码）、`gsv-tools/`（训练工具、预训练权重与 ASR 模型）。请勿在此处改动 |
+| `lib/inference/` | 自包含推理服务的进程入口（`infer_server.py`，OpenAI 兼容）；推理运行时本体在 `vendor/gsv-infer/` |
+| `vendor/` | 第三方代码及其随附权重：`gsv_code/`（上游 GPT-SoVITS 源码）、`gsv-tools/`（训练工具、预训练权重与 ASR 模型）、`gsv-infer/`（推理运行时：`TTS.py` 引擎、`TTS_infer_pack/`、`BigVGAN/`、`sr/`）。本项目对 `gsv-infer/` 的改动记于 `vendor/gsv-infer/LOCAL-CHANGES.md`，升级上游时须逐条比对 |
 | `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
 | `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |
 | `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`checks/`（环境体检）、`scripts/`（启停与打包 PowerShell）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试） |

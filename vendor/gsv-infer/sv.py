@@ -19,7 +19,7 @@ _DEFAULT_SV_PATH = os.path.normpath(
 )
 sv_path = os.environ.get("SV_CKPT_PATH", _DEFAULT_SV_PATH)
 
-# ERes2NetV2 / kaldi are vendored flat in lib/inference (already on sys.path)
+# ERes2NetV2 / kaldi are vendored flat in vendor/gsv-infer (already on sys.path)
 from ERes2NetV2 import ERes2NetV2
 import kaldi as Kaldi
 

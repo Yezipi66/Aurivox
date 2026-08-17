@@ -47,7 +47,7 @@ _MODEL_PREFIX = (
     "vendor/gsv-tools/asr/",
     "vendor/gsv-tools/uvr5/uvr5_weights/",
     "vendor/gsv_code/pretrained_models/",
-    "lib/inference/sr/AP_BWE_main/24kto48k/",
+    "vendor/gsv-infer/sr/AP_BWE_main/24kto48k/",
 )
 _MODEL_EXT = {
     ".pth", ".ckpt", ".pt", ".onnx", ".bin", ".safetensors", ".h5", ".pb",

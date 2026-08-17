@@ -92,14 +92,17 @@ ENTRIES = [
     ("vendor/gsv_code/prepare_datasets/1-get-text.py", ["vendor/gsv_code"]),
     ("vendor/gsv_code/prepare_datasets/2-get-hubert-wav32k.py", ["vendor/gsv_code"]),
     ("vendor/gsv_code/prepare_datasets/3-get-semantic.py", ["vendor/gsv_code"]),
-    ("vendor/gsv_code/prepare_datasets/2-get-sv.py", ["vendor/gsv_code"]),
+    # 2-get-sv.py also imports ERes2NetV2 / kaldi from the inference runtime;
+    # this list mirrors the PYTHONPATH set in lib/training/steps/preprocess.js.
+    ("vendor/gsv_code/prepare_datasets/2-get-sv.py",
+     ["vendor/gsv_code", "vendor/gsv-infer"]),
     ("vendor/gsv-tools/slicer2.py", ["vendor/gsv-tools"]),
     ("vendor/gsv-tools/uvr5/webui.py", ["vendor/gsv-tools", "vendor/gsv-tools/uvr5"]),
     ("vendor/gsv-tools/asr/funasr_asr.py", ["vendor/gsv-tools", "vendor/gsv-tools/asr"]),
     ("vendor/gsv-tools/asr/fasterwhisper_asr.py",
      ["vendor/gsv-tools", "vendor/gsv-tools/asr"]),
     # inference server (launched by start.ps1) + its search roots
-    ("lib/inference/infer_server.py", ["lib/inference"]),
+    ("lib/inference/infer_server.py", ["vendor/gsv-infer"]),
 ]
 
 def firstidx(events, kind):

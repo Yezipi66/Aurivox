@@ -136,6 +136,7 @@ GPT_SoVITS/
 /vendor/*
 !/vendor/gsv-tools/
 !/vendor/gsv_code/
+!/vendor/gsv-infer/
 tools/runtime/
 vendor/gsv-tools/asr/models/
 vendor/gsv-tools/asr/faster-whisper-*/

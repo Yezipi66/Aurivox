@@ -117,7 +117,7 @@ PATH_EXCLUDE = {
     os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
     os.path.join("vendor", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
-    os.path.join("lib", "inference", "sr", "AP_BWE_main", "24kto48k"),
+    os.path.join("vendor", "gsv-infer", "sr", "AP_BWE_main", "24kto48k"),
 }
 
 # stray model/media files anywhere (keeps sibling json/py/txt that code needs,

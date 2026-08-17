@@ -44,9 +44,11 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))      # .../lib/inference
 LIB_DIR = os.path.dirname(THIS_DIR)                         # .../lib
 PROJECT_ROOT = os.path.dirname(LIB_DIR)                     # 项目根
 
-# gsv_code 作为包导入需要 vendor 在 path 上; TTS/sv/BigVGAN/sr/TTS_infer_pack 需要 lib/inference 在 path 上
+# 推理运行时 (TTS/sv/BigVGAN/sr/TTS_infer_pack) 属第三方代码, 已迁入 vendor/gsv-infer;
+# gsv_code 作为包导入需要 vendor 本身在 path 上。
+GSV_INFER_DIR = os.environ.get("GSV_INFER_DIR") or os.path.join(PROJECT_ROOT, "vendor", "gsv-infer")
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "vendor"))
-sys.path.insert(0, THIS_DIR)
+sys.path.insert(0, GSV_INFER_DIR)
 # 训练脚本以裸名 `import utils` 引用 gsv_code/utils.py, 训练出的 SoVITS 权重把 hps
 # (utils.HParams 对象) pickle 进 checkpoint["config"], 其模块引用记为裸名 `utils`。
 # 反序列化 (load_sovits_new -> torch.load) 需要裸 `import utils` 能解析, 否则报

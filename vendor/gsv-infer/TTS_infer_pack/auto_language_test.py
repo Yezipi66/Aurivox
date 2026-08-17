@@ -3,7 +3,7 @@
 The full TextPreprocessor imports torch and model packages. This focused test
 extracts only the two pure routing functions so it can run before the model
 runtime is installed:
-    python lib/inference/TTS_infer_pack/auto_language_test.py
+    python vendor/gsv-infer/TTS_infer_pack/auto_language_test.py
 """
 import ast
 import re
