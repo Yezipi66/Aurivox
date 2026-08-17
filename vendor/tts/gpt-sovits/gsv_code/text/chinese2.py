@@ -64,25 +64,29 @@ if is_g2pw:
     # 项目根 = 自本目录向上第一个含 server.js 的目录，与 lib/paths.js 的判定一致。
     # 不数目录层数：本目录若再次搬迁，数层数会静默指向错误位置而不报错。
     project_root = _find_project_root(current_file_path)
-    bert_path = os.environ.get("bert_path") or os.path.join(
-        project_root, "vendor", "gsv-tools", "pretrained", "chinese-roberta-wwm-ext-large"
-    )
-    # G2PWModel 目录：单一事实来源 + 兜底。优先自包含目录，回退外部 GPT_SoVITS，
-    # 选取真正含 g2pW.onnx 的目录，避免两处重复维护。
-    def _resolve_g2pw_dir():
-        env_dir = os.environ.get("g2pw_model_dir")
-        if env_dir:
-            return env_dir
-        self_contained = os.path.join(current_file_path, "G2PWModel")
-        legacy = os.path.join(project_root, "GPT_SoVITS", "text", "G2PWModel")
-        has_onnx = lambda d: os.path.exists(os.path.join(d, "g2pW.onnx")) or os.path.exists(
-            os.path.join(d, "g2pw.onnx")
-        )
-        if not has_onnx(self_contained) and has_onnx(legacy):
-            return legacy
-        return self_contained
 
-    g2pw_model_dir = _resolve_g2pw_dir()
+    # 权重统一存放在项目根的 models/ 下。环境变量由 lib/training/python_helper.js
+    # 的 getCleanEnv() 注入；直接手工运行本脚本时，用下面的默认路径。
+    def _models_dir(*parts):
+        return os.path.join(project_root, "models", "tts", "gpt-sovits", *parts)
+
+    # bert_path 是上游约定的环境变量名，保持原样以免破坏既有用法。
+    bert_path = (
+        os.environ.get("bert_path")
+        or os.environ.get("GSV_BERT_DIR")
+        or _models_dir("chinese-roberta-wwm-ext-large")
+    )
+
+    # G2PWModel 目录。原先会在"自包含目录"与项目根 GPT_SoVITS/text/ 之间挑一个
+    # 含 g2pW.onnx 的，那是历史上同一份 600 MB 权重被放两处的产物；两处都已并入
+    # models/，兜底分支随之删除 —— 留着它只会在权重缺失时悄悄指向一个已被删掉的
+    # 目录，然后退化成 pypinyin，读音变差而不报错。
+    g2pw_model_dir = (
+        os.environ.get("g2pw_model_dir")
+        or os.environ.get("G2PW_DIR")
+        or _models_dir("G2PWModel")
+    )
+
     try:
         g2pw = G2PWPinyin(
             model_dir=g2pw_model_dir,
@@ -91,7 +95,15 @@ if is_g2pw:
             neutral_tone_with_five=True,
         )
     except Exception as _g2pw_err:
-        print(f"[chinese2] g2pW model load failed ({_g2pw_err!r}); using pypinyin fallback for Chinese.")
+        # 不抛出：中文仍能用 pypinyin 念出来，只是多音字准确率下降。但必须把
+        # 查找过的两个绝对路径打出来，否则"读音变差"这种症状无从追查。
+        print(
+            f"[chinese2] g2pW model load failed ({_g2pw_err!r}); "
+            f"falling back to pypinyin, polyphone accuracy will drop.\n"
+            f"[chinese2]   g2pw model dir : {g2pw_model_dir}\n"
+            f"[chinese2]   bert model dir : {bert_path}\n"
+            f"[chinese2]   override with env g2pw_model_dir / bert_path"
+        )
         is_g2pw = False
 
 rep_map = {

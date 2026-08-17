@@ -131,10 +131,10 @@ const MODELS = [
     // built-in default config for exactly this ep_317 checkpoint, so no yaml.
     files: ['model_bs_roformer_ep_317_sdr_12.9755.ckpt'],
     weightArg: 'model_bs_roformer_ep_317_sdr_12.9755.ckpt',
-    heavy: true, // ~1GB weight; UI may warn.
+    heavy: true, // 304.9 MB weight; UI may warn.
     note: {
-      en: 'Roformer-based separation. Large (~1GB) weight; config auto (built-in default).',
-      zh: '基于 Roformer 的分离。权重较大（约 1GB）；配置自动（内置默认）。',
+      en: 'Roformer-based separation. Weight is about 305 MB; config auto (built-in default).',
+      zh: '基于 Roformer 的分离。权重约 305 MB；配置自动选用内置默认值。',
     },
   },
   {
@@ -149,10 +149,10 @@ const MODELS = [
     aggApplicable: false,
     files: ['MelBandRoformer.ckpt'],
     weightArg: 'MelBandRoformer.ckpt',
-    heavy: true, // ~700MB weight; UI may warn.
+    heavy: true, // 870.8 MB weight; UI may warn.
     note: {
-      en: 'Roformer-based main-vocal isolation. Large (~700MB) weight; config auto (built-in default).',
-      zh: '基于 Roformer 的主人声分离。权重较大（约 700MB）；配置自动（内置默认）。',
+      en: 'Roformer-based main-vocal isolation. Weight is about 871 MB; config auto (built-in default).',
+      zh: '基于 Roformer 的主人声分离。权重约 871 MB；配置自动选用内置默认值。',
     },
   },
 ];
@@ -185,25 +185,47 @@ function normalizeModelId(ref) {
   return LEGACY_MODEL_ALIASES[ref] || null;
 }
 
+// Weights live under <weightsDir>/<arch>/ so that the three architectures are
+// not piled into one flat directory. The sub-directory is DERIVED from the
+// model's own `arch` field -- it is never written into `files` / `weightArg`,
+// because repeating the same fact in ten places guarantees the eleventh entry
+// gets it wrong. Add a model, and it lands in the right place by construction.
+//
+// Note the directory names are vr / roformer / mdx and nothing else: the
+// python loaders match substrings against the path they are handed, so a
+// directory called bs_roformer/ would make every Roformer weight underneath it
+// load as BS-Roformer -- silently, and with a forgiving state_dict loader, so
+// the result is audible garbage rather than an error.
+function archDir(weightsDir, m) {
+  return path.join(weightsDir, m.arch);
+}
+
+// Every declared file, relative to weightsDir, WITH the architecture directory
+// in front. This is the one place that knows the layout: installation checks,
+// error messages and test fixtures all read it, so they cannot drift apart.
+function modelFiles(id) {
+  const m = getModel(id);
+  if (!m) return [];
+  return m.files.map((f) => path.join(m.arch, f));
+}
+
 // Absolute path of the primary weight arg passed to uvr5_cli --model.
 function resolveWeightArg(weightsDir, id) {
   const m = getModel(id);
   if (!m) return null;
-  return path.join(weightsDir, m.weightArg);
+  return path.join(archDir(weightsDir, m), m.weightArg);
 }
 
 // A model is installed iff every declared file exists under weightsDir.
 function isInstalled(weightsDir, id) {
-  const m = getModel(id);
-  if (!m) return false;
-  return m.files.every((f) => fs.existsSync(path.join(weightsDir, f)));
+  if (!getModel(id)) return false;
+  return modelFiles(id).every((f) => fs.existsSync(path.join(weightsDir, f)));
 }
 
-// Which declared files are missing (relative paths), for actionable errors.
+// Which declared files are missing, relative to weightsDir and including the
+// architecture directory, so the message can be followed literally.
 function missingFiles(weightsDir, id) {
-  const m = getModel(id);
-  if (!m) return [];
-  return m.files.filter((f) => !fs.existsSync(path.join(weightsDir, f)));
+  return modelFiles(id).filter((f) => !fs.existsSync(path.join(weightsDir, f)));
 }
 
 // Serialisable catalogue for the API (labels + availability), P3-Roformer included.
@@ -331,6 +353,7 @@ module.exports = {
   getModel,
   normalizeModelId,
   resolveWeightArg,
+  modelFiles,
   isInstalled,
   missingFiles,
   catalogue,

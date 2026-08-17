@@ -295,8 +295,21 @@ class Predictor:
 
 
 class MDXNetDereverb:
-    def __init__(self, chunks):
-        self.onnx = "%s/uvr5_weights/onnx_dereverb_By_FoxJoy" % os.path.dirname(os.path.abspath(__file__))
+    # onnx_dir: absolute path of the onnx_dereverb_By_FoxJoy FOLDER (it contains
+    # vocals.onnx). It used to be derived from this file's own location, which
+    # meant the caller could validate a weight path, hand it over, and have it
+    # silently ignored -- the weights have never actually lived next to this
+    # file, so MDX-Net was resolving to a directory that does not exist.
+    # The caller knows where the weights are; it must say so.
+    def __init__(self, chunks, onnx_dir=None):
+        if not onnx_dir:
+            raise ValueError(
+                "MDXNetDereverb requires onnx_dir (the onnx_dereverb_By_FoxJoy "
+                "folder). Pass the path resolved from the model registry."
+            )
+        if not os.path.isdir(onnx_dir):
+            raise FileNotFoundError("MDX-Net weight folder not found: %s" % onnx_dir)
+        self.onnx = onnx_dir
         self.shifts = 10  # 'Predict with randomised equivariant stabilisation'
         self.mixing = "min_mag"  # ['default','min_mag','max_mag']
         self.chunks = chunks

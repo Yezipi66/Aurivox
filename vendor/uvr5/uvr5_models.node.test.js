@@ -128,17 +128,28 @@ test("normalizePipeline: {pipeline:[...]} wrapper is unwrapped", () => {
 test("installed/missing reflect on-disk files; catalogue annotates", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uvr5-weights-"));
   try {
+    // Weights sit under their architecture directory, and the paths reported
+    // as missing are exactly the paths that have to be created to fix it.
     assert.equal(uvr5.isInstalled(dir, "HP2"), false);
-    assert.deepEqual(uvr5.missingFiles(dir, "HP2"), ["HP2_all_vocals.pth"]);
+    assert.deepEqual(uvr5.missingFiles(dir, "HP2"),
+      [path.join("vr", "HP2_all_vocals.pth")]);
 
-    fs.writeFileSync(path.join(dir, "HP2_all_vocals.pth"), "x");
+    // Follow the message literally -- that alone must make it installed.
+    for (const rel of uvr5.missingFiles(dir, "HP2")) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), "x");
+    }
     assert.equal(uvr5.isInstalled(dir, "HP2"), true);
     assert.deepEqual(uvr5.missingFiles(dir, "HP2"), []);
 
-    // MDX-Net is a folder model (onnx_dereverb_By_FoxJoy/vocals.onnx).
+    // A weight dropped in the old flat location does NOT count as installed.
+    fs.writeFileSync(path.join(dir, "HP3_all_vocals.pth"), "x");
+    assert.equal(uvr5.isInstalled(dir, "HP3"), false);
+
+    // MDX-Net is a folder model (mdx/onnx_dereverb_By_FoxJoy/vocals.onnx).
     assert.equal(uvr5.isInstalled(dir, "MDX-Net"), false);
-    fs.mkdirSync(path.join(dir, "onnx_dereverb_By_FoxJoy"), { recursive: true });
-    fs.writeFileSync(path.join(dir, "onnx_dereverb_By_FoxJoy", "vocals.onnx"), "x");
+    fs.mkdirSync(path.join(dir, "mdx", "onnx_dereverb_By_FoxJoy"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "mdx", "onnx_dereverb_By_FoxJoy", "vocals.onnx"), "x");
     assert.equal(uvr5.isInstalled(dir, "MDX-Net"), true);
 
     const cat = uvr5.catalogue(dir);
@@ -156,7 +167,26 @@ test("installed/missing reflect on-disk files; catalogue annotates", () => {
 test("resolveWeightArg: MDX points at the onnx FOLDER, VR at the .pth", () => {
   const dir = "/weights";
   assert.equal(uvr5.resolveWeightArg(dir, "MDX-Net"),
-    path.join(dir, "onnx_dereverb_By_FoxJoy"));
+    path.join(dir, "mdx", "onnx_dereverb_By_FoxJoy"));
   assert.equal(uvr5.resolveWeightArg(dir, "HP2"),
-    path.join(dir, "HP2_all_vocals.pth"));
+    path.join(dir, "vr", "HP2_all_vocals.pth"));
+});
+
+// The python loaders match architecture names as substrings against the whole
+// path they are handed, and they load state dicts forgivingly -- a wrong match
+// produces audible garbage instead of an error. So the directory names are
+// load-bearing, and every model must sit under one of exactly three of them.
+test("every model resolves under vr/ roformer/ mdx/ and nowhere else", () => {
+  const allowed = new Set(["vr", "roformer", "mdx"]);
+  const trap = /bs_roformer|mel_band|melband|dereverb/i;
+  for (const m of uvr5.MODELS) {
+    assert.ok(allowed.has(m.arch), `${m.id}: unknown arch "${m.arch}"`);
+    assert.ok(!trap.test(m.arch),
+      `${m.id}: arch directory "${m.arch}" contains a string the python ` +
+      `loaders match on, which would silently select the wrong architecture`);
+    for (const rel of uvr5.modelFiles(m.id)) {
+      assert.equal(rel.split(path.sep)[0], m.arch,
+        `${m.id}: ${rel} is not under its own architecture directory`);
+    }
+  }
 });

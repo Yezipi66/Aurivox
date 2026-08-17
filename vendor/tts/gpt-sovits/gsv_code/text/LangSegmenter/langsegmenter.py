@@ -5,10 +5,32 @@ import re
 import jieba
 jieba.setLogLevel(logging.CRITICAL)
 
-# 更改fast_langdetect大模型位置
+# 语种识别权重的位置。
+# 首选 LANGDETECT_DIR（由 lib/paths.js 经 getCleanEnv 下发），
+# 兜底一路上溯找 package.json 定位项目根 —— 绝不数目录层数，
+# 因为代码一旦搬家，层数就悄悄失准而不报错（引擎契约 C7）。
+import os
 from pathlib import Path
+
+
+def _project_root() -> Path:
+    d = Path(__file__).resolve().parent
+    while True:
+        if (d / "package.json").is_file():
+            return d
+        if d.parent == d:
+            raise RuntimeError("project root (package.json) not found above " + __file__)
+        d = d.parent
+
+
+_langdetect_dir = os.environ.get("LANGDETECT_DIR") or str(
+    _project_root() / "models" / "lang" / "fast_langdetect"
+)
+
 import fast_langdetect
-fast_langdetect.infer._default_detector = fast_langdetect.infer.LangDetector(fast_langdetect.infer.LangDetectConfig(cache_dir=Path(__file__).parent.parent.parent / "pretrained_models" / "fast_langdetect"))
+fast_langdetect.infer._default_detector = fast_langdetect.infer.LangDetector(
+    fast_langdetect.infer.LangDetectConfig(cache_dir=_langdetect_dir)
+)
 
 
 from split_lang import LangSplitter

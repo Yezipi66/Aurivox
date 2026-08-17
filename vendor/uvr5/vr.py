@@ -201,7 +201,8 @@ class AudioPreDeEcho:
             "high_end_process": "mirroring",
         }
         mp = ModelParameters("%s/lib/lib_v5/modelparams/4band_v3.json" % parent_directory)
-        nout = 64 if "DeReverb" in model_path else 48
+        # 同上：只看文件名，避免父目录名改变通道数（引擎契约 C8.1）。
+        nout = 64 if "DeReverb" in os.path.basename(model_path) else 48
         model = CascadedNet(mp.param["bins"] * 2, nout)
         cpk = torch.load(model_path, map_location="cpu")
         model.load_state_dict(cpk)

@@ -5,19 +5,28 @@ import torch
 # Resolve SV pretrained checkpoint robustly:
 # 1) honor SV_CKPT_PATH env override if set
 # 2) otherwise locate it relative to this file inside the project tree
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_SV_PATH = os.path.normpath(
-    os.path.join(
-        _THIS_DIR,
-        "..",
-        "training",
-        "gsv-tools",
-        "pretrained",
-        "sv",
-        "pretrained_eres2netv2w24s4ep4.ckpt",
-    )
+# 兜底一路上溯找 package.json 定位项目根，不数目录层数（引擎契约 C7）。
+# 迁此之前这里写的是 ../training/gsv-tools/...，自 r9 起即为死路径，
+# 而 SV_CKPT_PATH 从未有人设置，因此 v2Pro 的说话人向量一直取不到。
+def _project_root():
+    d = os.path.dirname(os.path.abspath(__file__))
+    while not os.path.isfile(os.path.join(d, "package.json")):
+        parent = os.path.dirname(d)
+        if parent == d:
+            raise RuntimeError("project root (package.json) not found above " + __file__)
+        d = parent
+    return d
+
+
+_DEFAULT_SV_PATH = os.path.join(
+    _project_root(), "models", "tts", "gpt-sovits", "sv",
+    "pretrained_eres2netv2w24s4ep4.ckpt",
 )
 sv_path = os.environ.get("SV_CKPT_PATH", _DEFAULT_SV_PATH)
+if not os.path.exists(sv_path):
+    raise FileNotFoundError(
+        "speaker-verification weight not found: %s (set SV_CKPT_PATH to override)" % sv_path
+    )
 
 # ERes2NetV2 / kaldi are vendored flat in vendor/tts/gpt-sovits/infer (already on sys.path)
 from ERes2NetV2 import ERes2NetV2

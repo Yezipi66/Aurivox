@@ -27,8 +27,22 @@ from funasr import AutoModel
 from modelscope import snapshot_download
 from tqdm import tqdm
 
-# 项目内的模型目录：与脚本同级的 models/ → gsv-tools/asr/models
-MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+# FunASR 权重目录。首选 FUNASR_MODELS_DIR（由 lib/paths.js 经 getCleanEnv
+# 下发）；兜底一路上溯找 package.json，绝不数目录层数（引擎契约 C7）。
+def _funasr_models_dir() -> str:
+    d = os.environ.get("FUNASR_MODELS_DIR")
+    if d:
+        return d
+    d = os.path.dirname(os.path.abspath(__file__))
+    while not os.path.isfile(os.path.join(d, "package.json")):
+        parent = os.path.dirname(d)
+        if parent == d:
+            raise RuntimeError("project root (package.json) not found above " + __file__)
+        d = parent
+    return os.path.join(d, "models", "asr", "funasr")
+
+
+MODELS_DIR = _funasr_models_dir()
 
 # 模型缓存
 _funasr_models = {}
@@ -38,8 +52,15 @@ def _download_model(model_id: str, local_name: str) -> str:
     """下载模型到项目内的 models/ 目录"""
     local_path = os.path.join(MODELS_DIR, local_name)
     if not os.path.exists(local_path):
+        # 权重不在预期位置时，此处会从 ModelScope 重新下载约 1.5 GB。
+        # 迁此之前路径一旦算错就会静默触发，用户只觉得「这次特别慢」，
+        # 事后硬盘上多出一整份。所以先把期望路径喊出来再下。
+        print(
+            f"[FunASR] weights not found at {local_path}; downloading {model_id} "
+            f"(this can take a while). Set FUNASR_MODELS_DIR if they live elsewhere.",
+            flush=True,
+        )
         os.makedirs(MODELS_DIR, exist_ok=True)
-        print(f"Downloading: {model_id} -> {local_path}")
         snapshot_download(model_id, local_dir=local_path)
     return local_path
 

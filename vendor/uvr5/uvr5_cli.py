@@ -150,7 +150,8 @@ def _build_separator(model_path, model_name, device, is_half, agg, expert=None):
         from mdxnet import MDXNetDereverb
         chunks = expert.get("chunks")
         # Default segment length is 4 GB-GPU-friendly; MDX-Net is OOM-prone (see mdxnet.py).
-        return MDXNetDereverb(int(chunks) if chunks else 8)
+        # model_path IS the onnx_dereverb_By_FoxJoy folder (see the note in main()).
+        return MDXNetDereverb(int(chunks) if chunks else 8, onnx_dir=model_path)
     if "roformer" in model_name.lower():
         from bsroformer import Roformer_Loader
         config_path = os.path.join(weights_dir, model_name + ".yaml")
@@ -295,9 +296,9 @@ def main():
     _install_nan_guard()
 
     # Most models are a single weight FILE (.pth/.ckpt). The MDX-Net dereverb model
-    # (onnx_dereverb_By_FoxJoy) is a FOLDER: MDXNetDereverb hardcodes vocals.onnx
-    # inside it and only uses `--model`'s basename for separator selection. So a
-    # directory whose basename is that model name is valid too — accept both.
+    # (onnx_dereverb_By_FoxJoy) is a FOLDER containing vocals.onnx, so a directory
+    # whose basename is that model name is valid too — accept both. The folder is
+    # passed through to MDXNetDereverb; it is NOT merely used for its basename.
     _model_base = os.path.basename(os.path.normpath(args.model))
     _is_onnx_dir = os.path.isdir(args.model) and _model_base == "onnx_dereverb_By_FoxJoy"
     if not (os.path.isfile(args.model) or _is_onnx_dir):

@@ -1,56 +1,61 @@
+# Template for lib/inference/tts_infer.yaml (the live file is per-machine and
+# is NOT in git: the engine rewrites it when a model is hot-swapped).
+#
+# Paths are relative to the PROJECT ROOT, not to this file -- infer_server.py
+# does os.chdir(PROJECT_ROOT) before the engine reads them.
+#
+# Only sections whose weights are actually on disk are listed here.
+#
+# v3 / v4 were removed: their weights were never downloaded, and every path in
+# those sections pointed at a GPT_SoVITS/pretrained_models/ directory that does
+# not exist in this project. A config entry that could not load is not a
+# fallback, it is a trap for the next person reading this file.
+#
+# v1 is kept. Training can only ever produce v2 / v2Pro / v2ProPlus (see
+# lib/training/version.js), but assetScanner.js recognises an imported v1 model
+# from its header byte "00", so a v1 model can legitimately arrive from outside
+# -- and both of its weights are present.
+#
+# Beware where those v1 weights live: the GPT half sits in gsv-v2final/ and the
+# SoVITS half sits in v2Pro/. Neither directory name tells you that. Read the
+# paths below; do not infer them from the folder they are in.
+v1:
+  bert_base_path: ./models/tts/gpt-sovits/chinese-roberta-wwm-ext-large
+  cnhuhbert_base_path: ./models/tts/gpt-sovits/chinese-hubert-base
+  device: cpu
+  is_half: false
+  t2s_weights_path: ./models/tts/gpt-sovits/gsv-v2final/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt
+  version: v1
+  vits_weights_path: ./models/tts/gpt-sovits/v2Pro/s2G488k.pth
 custom:
-  bert_base_path: ./vendor/gsv-tools/pretrained/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: ./vendor/gsv-tools/pretrained/chinese-hubert-base
+  bert_base_path: ./models/tts/gpt-sovits/chinese-roberta-wwm-ext-large
+  cnhuhbert_base_path: ./models/tts/gpt-sovits/chinese-hubert-base
   device: cuda
   is_half: false
-  t2s_weights_path: ./vendor/gsv-tools/pretrained/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
+  t2s_weights_path: ./models/tts/gpt-sovits/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
   version: v2Pro
-  vits_weights_path: ./vendor/gsv-tools/pretrained/v2Pro/s2Gv2Pro.pth
-v1:
-  bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base
-  device: cpu
-  is_half: false
-  t2s_weights_path: GPT_SoVITS/pretrained_models/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt
-  version: v1
-  vits_weights_path: GPT_SoVITS/pretrained_models/s2G488k.pth
+  vits_weights_path: ./models/tts/gpt-sovits/v2Pro/s2Gv2Pro.pth
 v2:
-  bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base
+  bert_base_path: ./models/tts/gpt-sovits/chinese-roberta-wwm-ext-large
+  cnhuhbert_base_path: ./models/tts/gpt-sovits/chinese-hubert-base
   device: cpu
   is_half: false
-  t2s_weights_path: GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
+  t2s_weights_path: ./models/tts/gpt-sovits/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
   version: v2
-  vits_weights_path: GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth
+  vits_weights_path: ./models/tts/gpt-sovits/gsv-v2final/s2G2333k.pth
 v2Pro:
-  bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base
+  bert_base_path: ./models/tts/gpt-sovits/chinese-roberta-wwm-ext-large
+  cnhuhbert_base_path: ./models/tts/gpt-sovits/chinese-hubert-base
   device: cpu
   is_half: false
-  t2s_weights_path: GPT_SoVITS/pretrained_models/s1v3.ckpt
+  t2s_weights_path: ./models/tts/gpt-sovits/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
   version: v2Pro
-  vits_weights_path: GPT_SoVITS/pretrained_models/v2Pro/s2Gv2Pro.pth
+  vits_weights_path: ./models/tts/gpt-sovits/v2Pro/s2Gv2Pro.pth
 v2ProPlus:
-  bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base
+  bert_base_path: ./models/tts/gpt-sovits/chinese-roberta-wwm-ext-large
+  cnhuhbert_base_path: ./models/tts/gpt-sovits/chinese-hubert-base
   device: cpu
   is_half: false
-  t2s_weights_path: GPT_SoVITS/pretrained_models/s1v3.ckpt
+  t2s_weights_path: ./models/tts/gpt-sovits/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
   version: v2ProPlus
-  vits_weights_path: GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth
-v3:
-  bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base
-  device: cpu
-  is_half: false
-  t2s_weights_path: GPT_SoVITS/pretrained_models/s1v3.ckpt
-  version: v3
-  vits_weights_path: GPT_SoVITS/pretrained_models/s2Gv3.pth
-v4:
-  bert_base_path: GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large
-  cnhuhbert_base_path: GPT_SoVITS/pretrained_models/chinese-hubert-base
-  device: cpu
-  is_half: false
-  t2s_weights_path: GPT_SoVITS/pretrained_models/s1v3.ckpt
-  version: v4
-  vits_weights_path: GPT_SoVITS/pretrained_models/gsv-v4-pretrained/s2Gv4.pth
+  vits_weights_path: ./models/tts/gpt-sovits/v2Pro/s2Gv2ProPlus.pth

@@ -16,9 +16,23 @@ from models.model import APNet_BWE_Model
 class AP_BWE:
     def __init__(self, device, DictToAttrRecursive, checkpoint_file=None):
         if checkpoint_file == None:
-            checkpoint_file = "%s/24kto48k/g_24kto48k.zip" % (AP_BWE_main_dir_path)
+            # 权重已迁至 models/sr/ap-bwe/24kto48k/，不再与代码同放。
+            # SR_CKPT_DIR 由 lib/paths.js 下发；兜底上溯找 package.json。
+            _sr_dir = os.environ.get("SR_CKPT_DIR")
+            if not _sr_dir:
+                _d = os.path.dirname(os.path.abspath(__file__))
+                while not os.path.isfile(os.path.join(_d, "package.json")):
+                    _parent = os.path.dirname(_d)
+                    if _parent == _d:
+                        raise RuntimeError("project root (package.json) not found")
+                    _d = _parent
+                _sr_dir = os.path.join(_d, "models", "sr", "ap-bwe", "24kto48k")
+            checkpoint_file = os.path.join(_sr_dir, "g_24kto48k.zip")
             if os.path.exists(checkpoint_file) == False:
-                raise FileNotFoundError
+                raise FileNotFoundError(
+                    "audio super-resolution weight not found: %s "
+                    "(set SR_CKPT_DIR to override)" % checkpoint_file
+                )
         config_file = os.path.join(os.path.split(checkpoint_file)[0], "config.json")
         with open(config_file) as f:
             data = f.read()

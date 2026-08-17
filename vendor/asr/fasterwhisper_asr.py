@@ -120,6 +120,25 @@ def _segment_confidence(avg_logprob, no_speech_prob, word_probs):
     return round(max(0.0, min(1.0, conf)), 4)
 
 
+def _faster_whisper_dir() -> str:
+    """faster-whisper 权重目录。
+
+    首选 FASTER_WHISPER_DIR（由 lib/paths.js 经 getCleanEnv 下发）；
+    兜底一路上溯找 package.json 定位项目根，绝不数目录层数 —— 迁此之前
+    这里按 __file__ 数了两级，代码一搬层数就失准，且不报错（引擎契约 C7）。
+    """
+    d = os.environ.get("FASTER_WHISPER_DIR")
+    if d:
+        return d
+    d = os.path.dirname(os.path.abspath(__file__))
+    while not os.path.isfile(os.path.join(d, "package.json")):
+        parent = os.path.dirname(d)
+        if parent == d:
+            raise RuntimeError("project root (package.json) not found above " + __file__)
+        d = parent
+    return os.path.join(d, "models", "asr", "faster-whisper")
+
+
 def _download_model(model_size: str, model_dir: str):
     """下载模型到指定目录"""
     url = "https://huggingface.co/api/models/gpt2"
@@ -179,9 +198,20 @@ def _download_model(model_size: str, model_dir: str):
 
 
 def _get_model_path(model_size: str, asr_models_dir: str) -> str:
-    """获取模型路径，如果不存在则下载"""
-    model_dir = os.path.join(asr_models_dir, f"faster-whisper-{model_size}")
-    if not os.path.exists(model_dir):
+    """权重目录 = <权重根>/<model_size>。这是全脚本唯一一处计算它的地方。
+
+    以 model.bin 是否存在为准，而不是目录是否存在：一次被中断的下载会留下一个
+    有目录、没权重的空壳，那时"目录存在"是真的，"权重可用"是假的。
+    """
+    model_dir = os.path.join(asr_models_dir, model_size)
+    if not os.path.exists(os.path.join(model_dir, "model.bin")):
+        # 静默重下是本项目已发生过两次的事故：路径一错就悄悄再拉几个 GB，
+        # 不报错、不提示，只是很慢，硬盘上多出一份。此处必须先喊出来。
+        print(
+            f"[faster-whisper] weights not found at {model_dir}; downloading {model_size}. "
+            f"Set FASTER_WHISPER_DIR if they live elsewhere.",
+            flush=True,
+        )
         os.makedirs(asr_models_dir, exist_ok=True)
         _download_model(model_size, model_dir)
     return model_dir
@@ -326,7 +356,9 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--precision", type=str, default="float16",
                         choices=["float16", "float32", "int8"])
     parser.add_argument("--model_dir", type=str, default=None,
-                        help="Models directory (default: gsv-tools/asr/models)")
+                        help="faster-whisper weights root; weights are read from "
+                             "<dir>/<model_size>. Default: models/asr/faster-whisper "
+                             "(override with FASTER_WHISPER_DIR).")
     parser.add_argument("-b", "--batch_size", type=int, default=8)
     parser.add_argument("--beam_size", type=int, default=1)
     # Patch #22：强制简体中文（默认开）。--no-force-simplified 可关闭。
@@ -342,19 +374,15 @@ if __name__ == "__main__":
     if model_size == "large":
         model_size = "large-v3"
 
-    # 模型路径
-    if cmd.model_dir:
-        model_path = os.path.join(cmd.model_dir, f"faster-whisper-{model_size}")
-        # 自愈: 若显式目录里缺权重(model.bin 不存在), 自动下载到该目录,
-        # 避免直接抛 "Unable to open file 'model.bin'"。覆盖了部署下载器
-        # 未把模型放到运行时期望路径 / 路径不一致的情况。
-        if not os.path.exists(os.path.join(model_path, "model.bin")):
-            print(f"model.bin missing under {model_path}; auto-downloading {model_size} ...", flush=True)
-            os.makedirs(model_path, exist_ok=True)
-            _download_model(model_size, model_path)
-    else:
-        asr_models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "asr", "models")
-        model_path = _get_model_path(model_size, asr_models_dir)
+    # 模型路径。只有一条计算方式，见 _get_model_path()。
+    #
+    # 这里原本自己拼 "faster-whisper-<size>"，而 _get_model_path() 拼的是
+    # "<size>" —— 同一个脚本里两套算法，取决于有没有传 --model_dir。调用方传了
+    # 目录，脚本却在它下面找一个多带前缀的子目录，找不到就静默重下，于是硬盘上
+    # 出现了两份 large-v3，各 2.9 GB。这个失败模式在本项目已经发生三次
+    # （large-v3、FunASR、以及此处），成因每次都一样：同一个事实有两处实现。
+    asr_models_dir = cmd.model_dir or _faster_whisper_dir()
+    model_path = _get_model_path(model_size, asr_models_dir)
 
     execute_asr(
         input_folder=cmd.input_folder,

@@ -366,10 +366,13 @@ class Roformer_Loader:
         self.model_type = None
         self.config = None
 
-        # get model_type, first try:
-        if "bs_roformer" in model_path.lower() or "bsroformer" in model_path.lower():
+        # 架构判定只看文件名，绝不看完整路径 —— 否则任何一级父目录叫
+        # bs_roformer/ 都会把 Mel-Band 权重误判成 BS-Roformer，而加载器是
+        # 宽容加载：不报错、能出声、声音是坏的（引擎契约 C8.1）。
+        _name = os.path.basename(model_path).lower()
+        if "bs_roformer" in _name or "bsroformer" in _name:
             self.model_type = "bs_roformer"
-        elif "mel_band_roformer" in model_path.lower() or "melbandroformer" in model_path.lower():
+        elif "mel_band_roformer" in _name or "melbandroformer" in _name:
             self.model_type = "mel_band_roformer"
 
         used_default_config = False
