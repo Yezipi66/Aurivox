@@ -48,7 +48,7 @@ const ASR_PRECISIONS = [
 // --- Vocal extraction presets (encode the official UVR5 domain knowledge) ------
 // Each preset maps a human intent ("what is my material like?") to a concrete
 // separation pipeline [{model, agg?}]. `agg` (0-20) only applies to VR models and
-// is user-tunable in Expert mode. ids MUST match vendor/gsv-tools/uvr5/
+// is user-tunable in Expert mode. ids MUST match vendor/uvr5/
 // uvr5_models.js (and the backend validator). `custom` opens the second-level
 // chain editor. The authoritative labels/availability come from GET /api/uvr5/models.
 const AGG_DEFAULT = 10
@@ -79,7 +79,7 @@ const VOCAL_PRESETS = [
 ]
 const VOCAL_PRESET_BY_ID = Object.fromEntries(VOCAL_PRESETS.map(p => [p.id, p]))
 
-// --- Expert parameters (mirror vendor/gsv-tools/uvr5 EXPERT_PARAMS) -------
+// --- Expert parameters (mirror vendor/uvr5 EXPERT_PARAMS) ----------------
 // Source-verified knobs, tiered per architecture. `agg` is the only NORMAL knob
 // (VR); everything below is EXPERT. The authoritative applicability comes from
 // GET /api/uvr5/models (model.expertParams); this table only supplies labels/UI.

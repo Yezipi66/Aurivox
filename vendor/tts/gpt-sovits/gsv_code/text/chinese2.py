@@ -17,18 +17,19 @@ current_file_path = os.path.dirname(__file__)
 def _find_project_root(start):
     """自 start 向上寻找含 server.js 的目录，即项目根。
 
-    与 lib/paths.js 的 detectAppDir 保持同一判定依据。找不到时退回按目录
-    层数推导（vendor/gsv_code/text → 上溯 3 层）。
+    与 lib/paths.js 的 detectAppDir 保持同一判定依据。上溯到文件系统根仍未
+    找到时才退回本目录自身，此时调用方会得到一个不存在的权重路径并显式报错，
+    好过按目录层数推导——本文件已随目录调整搬过一次，写死的层数会在搬迁后
+    静默指向错误位置。
     """
     d = os.path.abspath(start)
-    for _ in range(8):
+    while True:
         if os.path.exists(os.path.join(d, "server.js")):
             return d
         parent = os.path.dirname(d)
         if parent == d:
-            break
+            return os.path.abspath(start)
         d = parent
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(start))))
 pinyin_to_symbol_map = {
     line.split("\t")[0]: line.strip().split("\t")[1]
     for line in open(os.path.join(current_file_path, "opencpop-strict.txt")).readlines()

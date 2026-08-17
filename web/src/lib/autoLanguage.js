@@ -1,4 +1,4 @@
-// Mirrors vendor/gsv-infer/TTS_infer_pack/TextPreprocessor.py for
+// Mirrors vendor/tts/gpt-sovits/infer/TTS_infer_pack/TextPreprocessor.py for
 // auto_zh_ja_yue. Keep this module dependency-free so the UI preview describes
 // the same language routing that is sent to GPT-SoVITS.
 export const HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/u

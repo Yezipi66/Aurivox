@@ -15,7 +15,7 @@
 | 改动 | 位置线索 | 说明 |
 |---|---|---|
 | 参考音频缓存 | `_ref_cache_cap` | 缓存已编码的参考音频，避免同一音色连续合成时重复编码。上限由环境变量 `AURIVOX_REF_CACHE` 控制，默认 8，设为 0 关闭 |
-| 包名改为 `gsv_code` | 文件头部 import 段 | 上游的 `GPT_SoVITS.*` 在本项目里是 `gsv_code.*`（见 `vendor/gsv_code/`） |
+| 包名改为 `gsv_code` | 文件头部 import 段 | 上游的 `GPT_SoVITS.*` 在本项目里是 `gsv_code.*`（见 `vendor/tts/gpt-sovits/gsv_code/`） |
 | import 顺序保护 | 文件头部注释 | 与 `lib/inference/infer_server.py` 中的 librosa/torch 顺序约束配套，详见该文件注释 |
 | 失败诊断提示 | 异常分支中的长字符串 | 例如 fp16 数值不稳定时提示改 `tts_infer.yaml` 的 `is_half`，替代上游的裸异常 |
 

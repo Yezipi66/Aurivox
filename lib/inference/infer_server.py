@@ -44,10 +44,11 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))      # .../lib/inference
 LIB_DIR = os.path.dirname(THIS_DIR)                         # .../lib
 PROJECT_ROOT = os.path.dirname(LIB_DIR)                     # 项目根
 
-# 推理运行时 (TTS/sv/BigVGAN/sr/TTS_infer_pack) 属第三方代码, 已迁入 vendor/gsv-infer;
-# gsv_code 作为包导入需要 vendor 本身在 path 上。
-GSV_INFER_DIR = os.environ.get("GSV_INFER_DIR") or os.path.join(PROJECT_ROOT, "vendor", "gsv-infer")
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "vendor"))
+# 推理运行时 (TTS/sv/BigVGAN/sr/TTS_infer_pack) 属第三方代码, 位于
+# vendor/tts/gpt-sovits/infer; gsv_code 作为包导入需要它的上级目录在 path 上。
+GSV_DIR = os.environ.get("GSV_DIR") or os.path.join(PROJECT_ROOT, "vendor", "tts", "gpt-sovits")
+GSV_INFER_DIR = os.environ.get("GSV_INFER_DIR") or os.path.join(GSV_DIR, "infer")
+sys.path.insert(0, GSV_DIR)
 sys.path.insert(0, GSV_INFER_DIR)
 # 训练脚本以裸名 `import utils` 引用 gsv_code/utils.py, 训练出的 SoVITS 权重把 hps
 # (utils.HParams 对象) pickle 进 checkpoint["config"], 其模块引用记为裸名 `utils`。
@@ -55,7 +56,7 @@ sys.path.insert(0, GSV_INFER_DIR)
 # "No module named 'utils'" 导致 set_sovits_weights 400、训练模型无法加载。
 # 用 append 放在 path 末尾: 既能解析裸 utils, 又不遮蔽推理端/训练包已有的
 # 同名顶层模块 (gsv_code 下有 text/tools/module/configs), 保持既有导入顺序不变。
-sys.path.append(os.path.join(PROJECT_ROOT, "vendor", "gsv_code"))
+sys.path.append(os.path.join(GSV_DIR, "gsv_code"))
 
 # 让 yaml 里的相对底模路径 (./vendor/...) 始终相对项目根解析
 os.chdir(PROJECT_ROOT)

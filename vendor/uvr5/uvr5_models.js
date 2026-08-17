@@ -225,8 +225,10 @@ function catalogue(weightsDir, { includeHeavy = true } = {}) {
 }
 
 // Default weights dir shipped with the training tools.
+// 权重位置由 lib/paths.js 统一裁定，不再按本文件自身位置推断：代码已迁到
+// vendor/uvr5/ 而权重仍在旧处，「权重就在我旁边」这个假设不再成立。
 function defaultWeightsDir() {
-  return path.join(__dirname, 'uvr5_weights');
+  return require('../../lib/paths').UVR5_WEIGHTS_DIR;
 }
 
 const MAX_PIPELINE_STAGES = 3;

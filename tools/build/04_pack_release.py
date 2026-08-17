@@ -108,16 +108,16 @@ PATH_EXCLUDE = {
     os.path.join("vendor", "micromamba"),
     # pure model dirs (no needed code lives here):
     os.path.join("vendor", "gsv-tools", "pretrained"),
-    # NOTE: do NOT exclude the whole gsv-tools/asr dir -- it holds required
+    # NOTE: do NOT exclude the whole gsv-tools/asr dir -- it holds the
     # scripts (fasterwhisper_asr.py, asr_utils.py, funasr_asr.py, config.py).
     # Exclude only the downloaded ASR model subdirs; the code ships, the huge
     # weights are dropped here (and .bin is also caught by EXCLUDE_EXT).
     os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3-turbo"),
     os.path.join("vendor", "gsv-tools", "asr", "models"),
     os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
-    os.path.join("vendor", "gsv_code", "pretrained_models"),
+    os.path.join("vendor", "tts", "gpt-sovits", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
-    os.path.join("vendor", "gsv-infer", "sr", "AP_BWE_main", "24kto48k"),
+    os.path.join("vendor", "tts", "gpt-sovits", "infer", "sr", "AP_BWE_main", "24kto48k"),
 }
 
 # stray model/media files anywhere (keeps sibling json/py/txt that code needs,

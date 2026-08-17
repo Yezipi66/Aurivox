@@ -134,13 +134,19 @@ GPT_SoVITS/
 # under it by default and re-admit the trees we vendor deliberately, so a
 # new binary payload cannot slip in unnoticed.
 /vendor/*
+!/vendor/uvr5/
+!/vendor/asr/
+!/vendor/slicer/
+!/vendor/tts/
 !/vendor/gsv-tools/
-!/vendor/gsv_code/
-!/vendor/gsv-infer/
 tools/runtime/
+# Weights that stay put in this round. gsv-tools/ now holds nothing but
+# these; r12b moves them to models/ and the directory disappears.
 vendor/gsv-tools/asr/models/
 vendor/gsv-tools/asr/faster-whisper-*/
-vendor/gsv_code/text/ja_userdic/
+vendor/gsv-tools/uvr5/uvr5_weights/
+vendor/uvr5/uvr5_weights/
+vendor/tts/gpt-sovits/gsv_code/text/ja_userdic/
 # backups & junk
 *.bak
 *.bak[0-9]

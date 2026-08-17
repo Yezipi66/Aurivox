@@ -1,6 +1,14 @@
 {
-  "gsv_tools_dir": "./vendor/gsv-tools",
-  "models": {
+  "_note": "scripts = third-party code under vendor/, weights = model files. Keep the two tables apart; mixing them is what let this file rot. Nothing reads it yet -- see loadModelPaths() in lib/training/config.js.",
+  "scripts": {
+    "s1_train": "./vendor/tts/gpt-sovits/train/s1_train.py",
+    "s2_train": "./vendor/tts/gpt-sovits/train/s2_train.py",
+    "slicer2": "./vendor/slicer/slicer2.py",
+    "asr_funasr": "./vendor/asr/funasr_asr.py",
+    "asr_fasterwhisper": "./vendor/asr/fasterwhisper_asr.py",
+    "uvr5_cli": "./vendor/uvr5/uvr5_cli.py"
+  },
+  "weights": {
     "s1": "./vendor/gsv-tools/pretrained/gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
     "s2G_v2pro": "./vendor/gsv-tools/pretrained/v2Pro/s2Gv2Pro.pth",
     "s2G_v2pro_plus": "./vendor/gsv-tools/pretrained/v2Pro/s2Gv2ProPlus.pth",
@@ -11,11 +19,6 @@
     "bigvgan": "./vendor/gsv-tools/pretrained/bigvgan/bigvgan_generator.pt",
     "fast_langdetect": "./vendor/gsv-tools/pretrained/fast_langdetect/lid.176.bin",
     "uvr5_weights": "./vendor/gsv-tools/uvr5/uvr5_weights",
-    "s1_train": "./vendor/gsv-tools/s1_train.py",
-    "s2_train": "./vendor/gsv-tools/s2_train.py",
-    "slicer2": "./vendor/gsv-tools/slicer2.py",
-    "asr_funasr": "./vendor/gsv-tools/asr/funasr_asr.py",
-    "asr_fasterwhisper": "./vendor/gsv-tools/asr/fasterwhisper_asr.py",
     "asr_model": "./vendor/gsv-tools/asr/faster-whisper-large-v3-turbo",
     "funasr_zh": "./vendor/gsv-tools/asr/models/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
     "funasr_vad": "./vendor/gsv-tools/asr/models/speech_fsmn_vad_zh-cn-16k-common-pytorch",

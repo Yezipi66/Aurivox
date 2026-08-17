@@ -37,7 +37,7 @@ def _dbg(msg):
 # ---------------------------------------------------------------------------
 # 路径解析（与 chinese2.py 保持一致的推导方式，且允许环境变量覆盖）
 # ---------------------------------------------------------------------------
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))          # .../vendor/gsv_code/text
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))          # .../vendor/tts/gpt-sovits/gsv_code/text
 
 
 def _find_project_root(start):
