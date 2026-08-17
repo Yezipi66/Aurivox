@@ -13,6 +13,47 @@ const os = require("node:os");
 const path = require("node:path");
 const uvr5 = require("./uvr5_models");
 
+// Downloading and reading are two halves of one fact: where the weights live.
+// They have been maintained separately before, and drifted — the panel offered
+// a download button that wrote several GB into a directory the separator never
+// looks at, reporting success while the model stayed "not installed".
+const downloaderSource = fs.readFileSync(
+  path.join(__dirname, "download_uvr5.py"), "utf8");
+
+test("下载器的架构表必须与注册表逐条一致", () => {
+  const block = downloaderSource.match(/^ARCH = \{([\s\S]*?)^\}/m);
+  assert.ok(block, "download_uvr5.py 里找不到 ARCH 表");
+  const declared = {};
+  for (const line of block[1].split(/\r?\n/)) {
+    const m = line.match(/^\s*"([^"]+)":\s*"([^"]+)"/);
+    if (m) declared[m[1]] = m[2];
+  }
+
+  const ids = uvr5.MODELS.map((m) => m.id).sort();
+  assert.deepEqual(Object.keys(declared).sort(), ids,
+    "下载器与注册表的模型清单对不上");
+  for (const m of uvr5.MODELS) {
+    assert.equal(declared[m.id], m.arch,
+      `${m.id} 的架构目录：注册表说 ${m.arch}，下载器说 ${declared[m.id]}`);
+  }
+});
+
+test("下载器不得自己拼一个旁边的权重目录", () => {
+  assert.ok(!/_HERE\s*,\s*"uvr5_weights"/.test(downloaderSource),
+    "下载器又把权重写到自己旁边的 uvr5_weights/ 了；那里没有人读");
+  assert.ok(/models", "separation", "uvr5"/.test(downloaderSource),
+    "下载器的默认目标必须是 models/separation/uvr5");
+  assert.ok(/os\.path\.join\(dest, ARCH\[model\]\)/.test(downloaderSource),
+    "下载的文件必须落进架构子目录，不能摊平放在权重根下");
+});
+
+test("下载路由必须把权重目录显式传给下载器", () => {
+  const routeSource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "lib", "routes", "uvr5.js"), "utf8");
+  assert.ok(/"--dest",\s*weightsDir/.test(routeSource),
+    "路由起下载时没传 --dest；下载器只能去猜，猜错就是白下几个 GB");
+});
+
 // Canonical stages now carry architecture-specific expert defaults. Most legacy
 // tests only care about {model, agg}, so project stages down to those keys.
 const core = (stages) => stages.map((s) => {

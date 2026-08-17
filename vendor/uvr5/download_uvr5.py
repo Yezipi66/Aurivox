@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-download_uvr5.py — fetch UVR5 vocal-separation weights into uvr5_weights/.
+download_uvr5.py — fetch UVR5 vocal-separation weights into models/separation/uvr5/.
 
 Why
 ---
@@ -27,7 +27,7 @@ Usage
     python download_uvr5.py --all                       # every non-heavy model
     python download_uvr5.py --all --include-heavy       # + BS-Roformer (~1GB)
     python download_uvr5.py --model MDX-Net --source modelscope
-    python download_uvr5.py --model HP2 --dest /path/to/uvr5_weights --force
+    python download_uvr5.py --model HP2 --dest /path/to/models/separation/uvr5 --force
 
 Progress lines are printed as `PROGRESS <model> <file> <pct>` so a Node parent can
 surface a live bar; final status per model is `DONE <model>` or `FAIL <model> ...`.
@@ -40,8 +40,32 @@ import tempfile
 import urllib.request
 import urllib.error
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_DEST = os.path.join(_HERE, "uvr5_weights")
+def _project_root():
+    """Walk up to the directory holding package.json.
+
+    Never count directory levels with dirname(dirname(...)): that silently
+    produces a wrong-but-plausible path the moment a file is moved, which is
+    exactly how this project ended up downloading several GB into directories
+    nobody reads. Walking to a landmark either finds the real root or fails
+    loudly.
+    """
+    d = os.path.dirname(os.path.abspath(__file__))
+    while True:
+        if os.path.isfile(os.path.join(d, "package.json")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            raise RuntimeError(
+                "cannot locate the project root (no package.json above %s); "
+                "pass --dest explicitly" % os.path.abspath(__file__))
+        d = parent
+
+
+# The weights root. This MUST be the same directory the separator reads from
+# (uvr5_models.js: defaultWeightsDir), otherwise a download appears to succeed
+# and the panel still reports the model as missing.
+_DEFAULT_DEST = os.path.join(
+    _project_root(), "models", "separation", "uvr5")
 
 # DEFAULT source = the canonical UVR5 weights repo. The classic VR / HP / DeEcho
 # / MDX weights live in lj1995/VoiceConversionWebUI (the original RVC repo) under
@@ -94,6 +118,28 @@ MODELS = {
     "Mel-Band-Roformer": [_MELBAND],
 }
 HEAVY = {"BS-Roformer", "Mel-Band-Roformer"}
+
+# Architecture subdirectory per model id. This MUST agree with uvr5_models.js,
+# which is the single source of truth; a test compares the two tables.
+#
+# The weights are NOT stored flat: the separator picks its architecture by
+# substring-matching the full checkpoint path, so a checkpoint sitting in the
+# wrong folder gets loaded by the wrong architecture. That failure is silent —
+# the run finishes and produces audible but garbled audio.
+ARCH = {
+    "HP2": "vr",
+    "HP3": "vr",
+    "HP5": "vr",
+    "DeEcho-Normal": "vr",
+    "DeEcho-Aggressive": "vr",
+    "DeEcho-DeReverb": "vr",
+    "BS-Roformer": "roformer",
+    "Mel-Band-Roformer": "roformer",
+    "MDX-Net": "mdx",
+}
+_missing_arch = sorted(set(MODELS) - set(ARCH))
+if _missing_arch:
+    raise RuntimeError("no architecture declared for: %s" % ", ".join(_missing_arch))
 # Files whose download failure is tolerated (best-effort companions), keyed by
 # model id -> set of LOCAL rel paths. Missing ones fall back to code defaults.
 OPTIONAL_FILES = {}
@@ -199,11 +245,15 @@ def download_model(model, dest, source, force):
         return False
     _fetch_file.model = model
     optional = OPTIONAL_FILES.get(model, set())
+    # Every model lands under its architecture subdirectory, never in the root.
+    model_dest = os.path.join(dest, ARCH[model])
+    os.makedirs(model_dest, exist_ok=True)
+    print("[uvr5-dl] %s -> %s" % (model, model_dest), flush=True)
     try:
         for spec in MODELS[model]:
             rel = _spec_local(spec)
             try:
-                _fetch_file(spec, dest, source, force)
+                _fetch_file(spec, model_dest, source, force)
             except Exception as e:  # noqa: BLE001
                 if rel in optional:
                     print("[uvr5-dl] optional file skipped (using code default): "
@@ -225,7 +275,10 @@ def main():
     ap.add_argument("--include-heavy", action="store_true",
                     help="Include heavy models (BS-Roformer ~1GB, Mel-Band Roformer "
                          "~700MB) when using --all.")
-    ap.add_argument("--dest", default=_DEFAULT_DEST, help="uvr5_weights dir.")
+    ap.add_argument("--dest", default=_DEFAULT_DEST,
+                    help="Weights root; each model is written to "
+                         "<dest>/<architecture>/. Must match the directory the "
+                         "separator reads (default: %(default)s).")
     ap.add_argument("--source", default="auto", choices=["auto", "hf", "modelscope"],
                     help="auto = HF then ModelScope (default); or force one.")
     ap.add_argument("--force", action="store_true", help="Re-download existing files.")
