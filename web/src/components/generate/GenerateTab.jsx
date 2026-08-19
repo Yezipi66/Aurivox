@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'
-import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides, parseLangOverrides } from '../pron/PronProofing'
+import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides, parseLangOverrides, pruneForced } from '../pron/PronProofing'
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
@@ -224,8 +224,16 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // 目标语言与微调语言不符
   const panelLang = _targetFam || _baseLangFam                        // 读音校对面板跟随目标语言
   const hanDir = hanOverrideDirection(textLang, lang)                 // #4: reverse-lang direction (or null)
-  const langOverrides = buildLangOverrides(hanDir, hanForced)         // #4: {char->lang} payload
-  const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForced, hanReadings) // #4: base + reverse readings
+  // The overrides are persisted but stored as absolute character indices, so
+  // editing the text strands them: index 0 may now hold a kana. Prune on read
+  // (below) AND heal the stored copy (effect), so the badge, the picker and the
+  // request payload can never disagree about how many are in force.
+  const hanForcedLive = useMemo(() => pruneForced(hanForced, text), [hanForced, text])
+  useEffect(() => {
+    if (hanForcedLive.length !== (hanForced || []).length) setHanForced(hanForcedLive)
+  }, [hanForcedLive, hanForced, setHanForced])
+  const langOverrides = buildLangOverrides(hanDir, hanForcedLive, text)   // #4: {char->lang} payload, pruned against the live text
+  const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForcedLive, hanReadings) // #4: base + reverse readings
   const [auxRefs, setAuxRefs] = useState([])  // selected aux reference audio paths
   const [segments, setSegments] = useState([])  // loaded from API for aux ref picker
 
@@ -683,8 +691,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                 <button type="button" className="btn btn-sm" onClick={() => setShowTextPrep(true)}>
                   Proof &amp; language{'\u2026'}
                 </button>
-                {hanDir && hanForced.length > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForced.length} Han override(s)</span>
+                {hanDir && hanForcedLive.length > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForcedLive.length} Han override(s)</span>
                 )}
                 {countOverrides(pronOverrides) > 0 && (
                   <span style={{ fontSize: 11, color: 'var(--accent)' }}>{countOverrides(pronOverrides)} reading override(s)</span>
@@ -695,7 +703,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   onClose={() => setShowTextPrep(false)}
                   text={text} setText={setText} panelLang={panelLang}
                   pronOverrides={pronOverrides} setPronOverrides={setPronOverrides}
-                  hanDirection={hanDir} hanForced={hanForced} setHanForced={setHanForced}
+                  hanDirection={hanDir} hanForced={hanForcedLive} setHanForced={setHanForced}
                   hanReadings={hanReadings} setHanReadings={setHanReadings}
                 />
               )}
@@ -957,7 +965,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                   pron_overrides: (Object.keys(pronOverrides).length > 0) ? pronOverrides : {},
                   lang_overrides: langOverrides || {},
                   han_readings: (hanDir && Object.keys(hanReadings).length > 0)
-                    ? Object.fromEntries(Object.entries(hanReadings).filter(([key]) => hanForced.some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
+                    ? Object.fromEntries(Object.entries(hanReadings).filter(([key]) => hanForcedLive.some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
                     : {},
                   auto_base_lang: textLang === 'auto_zh_ja_yue' ? (selected?.language || lang) : undefined,
                 },

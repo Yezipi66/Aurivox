@@ -257,16 +257,32 @@ if ($Cpu) {
 Info 'ensuring a single onnxruntime variant (removing any conflicting install) ...'
 & $VENV_PY -m pip uninstall -y onnxruntime onnxruntime-gpu 2>$null | Out-Null
 
-# onnxruntime ships on PyPI (default index) — no --extra-index-url needed here.
+# The GPU wheel must NOT come from PyPI. onnxruntime-gpu on PyPI was built
+# against CUDA 11.8 until 1.19.0, so `pip install onnxruntime-gpu==1.18.0` --
+# the obvious command, and what this script used to run -- installs a provider
+# DLL that imports cudart64_110 / cublas64_11 / cufft64_10. torch cu121 ships
+# cudart64_12 / cublas64_12 / cufft64_11. Windows then fails the load with
+# "error 126", onnxruntime drops the CUDA ExecutionProvider WITHOUT raising,
+# and MDX-Net and g2pW run on the CPU forever with nothing in any log.
+# The version pin alone was never enough: the index is part of the pin.
+# CUDA 12 builds of <=1.18.x live only on the ONNX Runtime Azure DevOps feed.
+$ortIndex = 'https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/'
+if ($Cpu) {
+  $ortIndexArgs = @()
+} else {
+  $ortIndexArgs = @('--index-url', $ortIndex)
+  Info ('onnxruntime GPU wheel source: {0}' -f $ortIndex)
+}
+
 if ($UV_OK) {
   Info 'using uv for onnxruntime download ...'
-  $uvArgs = @('-m','uv','pip','install','--python', "$VENV_PY") + $depFlag + @($ortPkg)
+  $uvArgs = @('-m','uv','pip','install','--python', "$VENV_PY") + $depFlag + $ortIndexArgs + @($ortPkg)
   $rc = Invoke-Native $VENV_PY $uvArgs
   if ($rc -ne 0) { Warn 'uv onnxruntime install failed; falling back to pip ...'; $UV_OK = $false }
 }
 if (-not $UV_OK) {
   Info 'installing onnxruntime with pip ...'
-  $pipArgs = @('-m','pip','install') + $depFlag + @($ortPkg)
+  $pipArgs = @('-m','pip','install') + $depFlag + $ortIndexArgs + @($ortPkg)
   $rc = Invoke-Native $VENV_PY $pipArgs
   if ($rc -ne 0) {
     Die 'onnxruntime install failed. Check your network, then re-run this script.'
@@ -274,10 +290,46 @@ if (-not $UV_OK) {
 }
 
 # --- verify onnxruntime (and, on GPU, that the CUDA EP actually loaded) ---
+# get_available_providers() is NOT a check. On onnxruntime<1.19 it lists
+# CUDAExecutionProvider from the build configuration, whether or not the DLLs
+# can be loaded, so the previous version of this probe reported success on a
+# machine where the CUDA EP had never once initialised. Load the provider DLL
+# for real instead: that is the exact operation that fails with error 126, and
+# it needs no .onnx file to be present at install time.
 $ortProbe = @'
+import ctypes
+import os
+
+# The CUDA/cuDNN DLLs ship inside torch and Python 3.8+ on Windows resolves
+# them only through add_dll_directory, never through %PATH%.
+try:
+    import torch
+    _lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+    if os.path.isdir(_lib):
+        os.add_dll_directory(_lib)
+except Exception as ex:
+    print("  torch not importable (%r) -- GPU check will be inconclusive" % (ex,))
+
 import onnxruntime as ort
-provs = ort.get_available_providers()
-print("  onnxruntime", ort.__version__, "providers =", provs)
+
+print("  onnxruntime", ort.__version__)
+capi = os.path.join(os.path.dirname(ort.__file__), "capi")
+if os.path.isdir(capi):
+    try:
+        os.add_dll_directory(capi)
+    except Exception:
+        pass
+dll = os.path.join(capi, "onnxruntime_providers_cuda.dll")
+if not os.path.isfile(dll):
+    print("  CUDA_EP: ABSENT (this is the CPU-only wheel)")
+else:
+    try:
+        ctypes.WinDLL(dll)
+        print("  CUDA_EP: OK")
+    except OSError as ex:
+        print("  CUDA_EP: FAILED %s" % (ex,))
+        print("  CUDA_EP: a missing DEPENDENCY, not this file. Run probe_ort_cuda.py")
+        print("  CUDA_EP: to see which DLL cannot be resolved.")
 '@
 $ortTmp = Join-Path $env:TEMP ('ttsbroker_ortprobe_{0}.py' -f ([guid]::NewGuid().ToString('N')))
 Set-Content -Path $ortTmp -Value $ortProbe -Encoding UTF8
@@ -287,10 +339,13 @@ Remove-Item $ortTmp -ErrorAction SilentlyContinue
 $ortOut | ForEach-Object { Write-Host $_ }
 if ($ortRC -ne 0) {
   Warn 'onnxruntime installed but import/verify failed. See output above.'
-} elseif (-not $Cpu -and -not ($ortOut -match 'CUDAExecutionProvider')) {
-  Warn 'onnxruntime-gpu is installed but CUDAExecutionProvider is NOT available —'
-  Warn 'it will run on CPU. Usually means the NVIDIA driver / CUDA runtime is missing,'
-  Warn 'or torch (which registers the cuDNN 8 DLLs) failed to import. Fix torch first.'
+} elseif (-not $Cpu -and -not ($ortOut -match 'CUDA_EP: OK')) {
+  Warn 'onnxruntime-gpu is installed but its CUDA ExecutionProvider CANNOT LOAD —'
+  Warn 'everything that uses onnxruntime (MDX-Net separation, g2pW polyphone'
+  Warn 'disambiguation) will run on the CPU and will NOT report an error.'
+  Warn 'Most likely the wheel targets a different CUDA major version than torch.'
+  Warn 'Re-run this script; if it persists, run probe_ort_cuda.py, which names'
+  Warn 'the DLL that could not be resolved.'
 } else {
   Ok 'onnxruntime ready.'
 }

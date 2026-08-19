@@ -48,14 +48,17 @@ def _find_project_root(start):
     若再次搬迁，数层数会静默指向错误位置，表现为词典整体失效而不报错。
     """
     d = os.path.abspath(start)
-    for _ in range(8):
+    while True:
         if os.path.exists(os.path.join(d, "server.js")):
             return d
         parent = os.path.dirname(d)
         if parent == d:
-            break
+            # 上溯到文件系统根仍未找到：退回 start 自身（与 chinese2.py 同）。
+            # 调用方会得到一个不存在的词典路径并显式报错，好过按层数推导出
+            # 一个看着像模像样的错目录。此前这里是 dirname×3，从
+            # gsv_code/text 只上溯到 vendor/tts —— 不是项目根，且不报错。
+            return os.path.abspath(start)
         d = parent
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(start))))
 
 
 _PROJECT_ROOT = _find_project_root(_THIS_DIR)

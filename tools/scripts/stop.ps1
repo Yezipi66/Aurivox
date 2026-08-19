@@ -2,10 +2,15 @@
 
 # ============================================================
 #  TTS Broker stop script (relocated under tools\scripts)
-#  Locate LISTENING processes by port and terminate:
-#    - backend server.js : 9886
-#    - engine infer      : 9880
-#  Only kills LISTENING (server-side) processes.
+#  Terminate the backend (:9886) and the inference engine (:9880).
+#
+#  Two passes, because listening on a port and running are not the same thing:
+#    1. by port  -- the normal case;
+#    2. by executable location -- a process that has stopped listening but is
+#       still alive still holds file locks, so "no listening process" is not
+#       the same as "nothing is running". A backend that had dropped its
+#       listener was reported as not running by this script and then blocked a
+#       file migration for as long as it took to find it by hand.
 # ============================================================
 
 $Ports = @(
@@ -27,6 +32,20 @@ function Get-ListeningPids($port) {
   return ($found | Sort-Object -Unique)
 }
 
+# Project root = the directory holding package.json, found by walking up.
+# Never by counting directory levels: this file has been moved before, and a
+# level count keeps "working" while pointing somewhere wrong.
+function Get-ProjectRoot {
+  $d = Split-Path -Parent $PSCommandPath
+  while ($d) {
+    if (Test-Path -LiteralPath (Join-Path $d 'package.json')) { return $d }
+    $parent = Split-Path -Parent $d
+    if ($parent -eq $d) { return $null }
+    $d = $parent
+  }
+  return $null
+}
+
 Write-Host "==================== TTS Broker Stop ====================" -ForegroundColor Cyan
 $killedAny = $false
 
@@ -46,6 +65,30 @@ foreach ($item in $Ports) {
       $killedAny = $true
     } catch {
       Write-Host ("  :{0,-5} {1,-20} failed to stop PID={2}: {3}" -f $port, $name, $procId, $_.Exception.Message) -ForegroundColor Red
+    }
+  }
+}
+
+# Pass 2: anything still running from inside the project directory.
+$root = Get-ProjectRoot
+if ($root) {
+  $leftovers = @()
+  foreach ($p in Get-Process) {
+    if ($p.Id -eq $PID) { continue }
+    $exe = $null
+    try { $exe = $p.Path } catch { }
+    if (-not $exe) { continue }
+    if ($exe.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+      $leftovers += $p
+    }
+  }
+  foreach ($p in $leftovers) {
+    try {
+      Stop-Process -Id $p.Id -Force -ErrorAction Stop
+      Write-Host ("  {0,-27} stopped PID={1} ({2})" -f 'still-running (no listener)', $p.Id, $p.Path) -ForegroundColor Green
+      $killedAny = $true
+    } catch {
+      Write-Host ("  {0,-27} failed to stop PID={1}: {2}" -f 'still-running (no listener)', $p.Id, $_.Exception.Message) -ForegroundColor Red
     }
   }
 }

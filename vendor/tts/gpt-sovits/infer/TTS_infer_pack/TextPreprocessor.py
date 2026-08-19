@@ -11,6 +11,8 @@ import re
 import torch
 from gsv_code.text.LangSegmenter import LangSegmenter
 from gsv_code.text import chinese
+from gsv_code.text import seg_reconcile
+from gsv_code.text import runtime_status
 from typing import Dict, List, Tuple
 from gsv_code.text.cleaner import clean_text
 from gsv_code.text import cleaned_text_to_sequence
@@ -84,7 +86,13 @@ def _resolve_auto_segment_language(seg_lang: str, seg_text: str, cjk_default: st
 # through their own g2p pipeline and are never counted.
 _YUE_STRONG_RE = re.compile(r'[喺嘅佢哋咩冇唔啲嚟咗噉俾畀]')
 _YUE_WEAK_RE = re.compile(r'[嘢啱係既咁啦喇咪嘥攞揾餸攰瞓]')
-_HAN_RE = re.compile(r'[\u3400-\u4DBF\u4E00-\u9FFF]')
+# Must stay character-for-character identical to HAN_RE in
+# web/src/lib/hanLanguage.js. The web picker offers a position only when its
+# regex calls the character Han, and this side drops a position when its regex
+# does not -- so any divergence is a silent hole: the user selects a character
+# the engine then ignores, with nothing reported anywhere. The compatibility
+# block U+F900-U+FAFF was present on the web side only until 2026-08-17.
+_HAN_RE = re.compile(r'[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]')
 _YUE_STRONG_SCORE = 2.0
 _YUE_WEAK_SCORE = 1.0
 _YUE_GENERAL_HAN_PENALTY = 0.05
@@ -168,6 +176,15 @@ def _apply_lang_overrides(langlist, textlist, overrides, with_positions=False, a
         while i < len(seg_text):
             original_position = absolute + i
             forced_lang = position.get(original_position)
+            # Positions are absolute indices into text the caller may have
+            # edited after the selection was made, so an entry can land on a
+            # kana, a Latin letter or a digit. A Han-language override on a
+            # non-Han character is meaningless by definition (the picker never
+            # offers it), and honouring it would read that character in a
+            # language the user never chose. Drop it here as the last line of
+            # defence -- the web side prunes the same entries before sending.
+            if forced_lang and not _HAN_RE.match(seg_text[i]):
+                forced_lang = None
             if forced_lang:
                 emit(forced_lang, seg_text[i], [original_position])
             else:
@@ -210,6 +227,80 @@ def _split_clauses(text: str) -> List[str]:
     if buf:
         clauses.append(buf)
     return [c for c in clauses if c]
+
+
+def _seg_status(kind, detail):
+    """把分段丢字这件事记成状态位，而不是只当场吞掉。
+
+    detail 里只放定位需要的内容；正文本身可能很长，restored 只有被补回的那几个
+    字符。"""
+    if kind == "unalignable":
+        runtime_status.note(
+            "LangSegmenter",
+            runtime_status.SEGMENT_UNALIGNABLE,
+            "segmenter returned text that is not a substring of its input; "
+            "left as-is",
+            segment=detail.get("segment", ""),
+        )
+    else:
+        runtime_status.note(
+            "LangSegmenter",
+            runtime_status.SEGMENT_TEXT_LOST,
+            "segmenter dropped characters; restored from the source text",
+            restored=detail.get("restored", []),
+        )
+
+
+def segment_lossless(text, default_lang="", get_texts=None):
+    """LangSegmenter.getTexts()，外加一道"拼回来必须等于原文"的对账。
+
+    分段器会丢字符：逗号、小句首的空格都实测丢过。丢了不报错、不可见，用户也无从
+    校对——屏幕上的正文和念出来的正文已经是两个字符串了。小句是我们自己切的，原文
+    是已知的，所以直接比对补回即可。不碰语言判定：补回的那一段并入左邻片段，不重新
+    检测、不加启发式。
+    """
+    seg = get_texts or LangSegmenter.getTexts
+    segments = seg(text, default_lang) if get_texts is None else seg(text)
+    return seg_reconcile.reconcile(text, segments, on_status=_seg_status)
+
+
+def resolve_auto_multilingual(text, auto_base_lang, get_texts=None):
+    """Route a text into (langlist, textlist) the way Auto (Multilingual) does.
+
+    This is the whole of the auto_zh_ja_yue / auto_zh_ja decision. It used to
+    live inline inside segment_and_extract_feature_for_text, which meant the
+    only way to see what it decides was to synthesise audio and listen. A
+    routing rule that cannot be inspected without a GPU is a routing rule
+    nobody checks.
+
+    ``get_texts`` is injectable so a test can drive the router with a stub
+    segmenter and no model weights; it defaults to the real detector.
+
+    The rules, in order:
+      1. Split into clauses at sentence terminators, commas and paired quotes.
+         This bounds every signal below to a short span.
+      2. Per clause, pick the reading for Han characters that carry no script
+         signal of their own (cjk_default):
+           kana present            -> ja
+           Cantonese score > 1.5   -> yue
+           otherwise               -> the voice's base language
+      3. Per segment, keep an unambiguous script (Hangul, Latin, kana) and send
+         everything ambiguous to cjk_default.
+    """
+    base_lang = _norm_base_lang(auto_base_lang)
+    langlist, textlist = [], []
+    for clause in _split_clauses(text):
+        cjk_default = "ja" if _has_kana(clause) else ("yue" if _is_yue_clause(clause) else base_lang)
+        for tmp in segment_lossless(clause, get_texts=get_texts):
+            seg_lang = _resolve_auto_segment_language(
+                tmp["lang"], tmp["text"], cjk_default
+            )
+            if langlist and seg_lang == langlist[-1]:
+                textlist[-1] += tmp["text"]
+            else:
+                langlist.append(seg_lang)
+                textlist.append(tmp["text"])
+    return langlist, textlist
 
 
 def get_first(text: str) -> str:
@@ -367,21 +458,21 @@ class TextPreprocessor:
             textlist = []
             langlist = []
             if language == "all_zh":
-                for tmp in LangSegmenter.getTexts(text,"zh"):
+                for tmp in segment_lossless(text, "zh"):
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
             elif language == "all_yue":
-                for tmp in LangSegmenter.getTexts(text,"zh"):
+                for tmp in segment_lossless(text, "zh"):
                     if tmp["lang"] == "zh":
                         tmp["lang"] = "yue"
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
             elif language == "all_ja":
-                for tmp in LangSegmenter.getTexts(text,"ja"):
+                for tmp in segment_lossless(text, "ja"):
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
             elif language == "all_ko":
-                for tmp in LangSegmenter.getTexts(text):
+                for tmp in segment_lossless(text):
                     seg_lang = tmp["lang"]
                     if seg_lang in ("zh", "x"):
                         seg_lang = "zh"
@@ -396,11 +487,11 @@ class TextPreprocessor:
                 langlist.append("en")
                 textlist.append(text)
             elif language == "auto":
-                for tmp in LangSegmenter.getTexts(text):
+                for tmp in segment_lossless(text):
                     langlist.append(tmp["lang"])
                     textlist.append(tmp["text"])
             elif language == "auto_yue":
-                for tmp in LangSegmenter.getTexts(text):
+                for tmp in segment_lossless(text):
                     if tmp["lang"] == "zh":
                         tmp["lang"] = "yue"
                     langlist.append(tmp["lang"])
@@ -412,20 +503,9 @@ class TextPreprocessor:
                 # Cantonese (yue) clauses are detected via weighted character scoring.
                 # Ambiguous CJK segments (zh / zh-tw"x") follow the clause default;
                 # en/ja/ko keep their detected language.
-                base_lang = _norm_base_lang(auto_base_lang)
-                for clause in _split_clauses(text):
-                    cjk_default = "ja" if _has_kana(clause) else ("yue" if _is_yue_clause(clause) else base_lang)
-                    for tmp in LangSegmenter.getTexts(clause):
-                        seg_lang = _resolve_auto_segment_language(
-                            tmp["lang"], tmp["text"], cjk_default
-                        )
-                        if langlist and seg_lang == langlist[-1]:
-                            textlist[-1] += tmp["text"]
-                        else:
-                            langlist.append(seg_lang)
-                            textlist.append(tmp["text"])
+                langlist, textlist = resolve_auto_multilingual(text, auto_base_lang)
             else:
-                for tmp in LangSegmenter.getTexts(text):
+                for tmp in segment_lossless(text):
                     if langlist:
                         if (tmp["lang"] == "en" and langlist[-1] == "en") or (tmp["lang"] != "en" and langlist[-1] != "en"):
                             textlist[-1] += tmp["text"]
@@ -457,7 +537,14 @@ class TextPreprocessor:
             for i in range(len(textlist)):
                 lang = langlist[i]
                 phones, word2ph, norm_text = self.clean_text_inf(
-                    textlist[i], lang, version, position_base=position_bases[i] if i < len(position_bases) else 0
+                    textlist[i], lang, version,
+                    position_base=position_bases[i] if i < len(position_bases) else 0,
+                    # Only a single run means this really is the whole line, so
+                    # the short-utterance pad upstream applies is appropriate.
+                    # With two or more runs each call sees one fragment of a
+                    # mixed line, and padding a fragment inserts a pause in the
+                    # middle of a sentence.
+                    allow_short_pad=(len(textlist) == 1),
                 )
                 bert = self.get_bert_inf(phones, word2ph, norm_text, lang)
                 phones_list.append(phones)
@@ -489,7 +576,8 @@ class TextPreprocessor:
         phone_level_feature = torch.cat(phone_level_feature, dim=0)
         return phone_level_feature.T
 
-    def clean_text_inf(self, text: str, language: str, version: str = "v2", position_base: int = 0):
+    def clean_text_inf(self, text: str, language: str, version: str = "v2", position_base: int = 0,
+                       allow_short_pad: bool = True):
         language = language.replace("all_", "")
         # The language-specific cleaners call the shared pronunciation layer
         # internally. Set the original-text base while they run so @N:char
@@ -500,7 +588,7 @@ class TextPreprocessor:
         except Exception:
             pron_correction = None
         try:
-            phones, word2ph, norm_text = clean_text(text, language, version)
+            phones, word2ph, norm_text = clean_text(text, language, version, allow_short_pad=allow_short_pad)
             phones = cleaned_text_to_sequence(phones, version)
             return phones, word2ph, norm_text
         finally:

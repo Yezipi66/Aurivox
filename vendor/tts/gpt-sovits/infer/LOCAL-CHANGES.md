@@ -26,6 +26,9 @@
 | 接入个人读音词典 | `from gsv_code.text import pron_correction` | 三处。词典本体在 `data/pron_lexicon/`，由前端「读音校对」写入 |
 | 逐位置读音覆盖 | `lang_overrides` / `position_offset` / `set_segment_base` | 上游没有「按字符位置覆盖读音」的概念，整套参数是本项目新增 |
 | Auto Han 语言路由 | `_resolve_auto_segment_language` / `_norm_base_lang` | 中日粤共用汉字时的判定，含保守加权的粤语识别 |
+| 短句补逗号只在整行时生效 | `allow_short_pad=(len(textlist) == 1)` | r12b-fix5。上游对不足 4 个音素的片段无条件在前面补一个逗号；中英混排时每个英文短词都是一个片段，句子中间会被塞满停顿。⛔ 只改这个调用点，**不要改 `gsv_code/text/cleaner.py` 里的默认值**——训练集预处理走同一个函数，默认值一改，已训练的音色全部作废 |
+| `@N` 覆盖必须落在汉字上 | `_apply_lang_overrides` 里的 `not _HAN_RE.match(seg_text[i])` | r12b-fix6。覆盖是按**绝对字符下标**存的，正文一改就会落到别的字符上（典型是假名）。汉字语言覆盖落在非汉字上按定义无意义，此处直接丢弃。前端也会剪一遍，但 payload 也可能来自修复之前保存的 recipe，所以引擎侧必须自己兜底 |
+| `_HAN_RE` 补 U+F900–U+FAFF | `_HAN_RE = re.compile(...)` | r12b-fix6。此前比前端 `web/src/lib/hanLanguage.js` 的 `HAN_RE` 少了「CJK 兼容汉字」一段：挑选器把这些字当汉字给用户选，引擎却当非汉字丢掉，**两边都不报错**。⛔ 两个正则必须逐字符相同，`lib/han_override_contract.node.test.js` 会断言这一点 |
 
 ### `TTS_infer_pack/text_segmentation_method.py`
 
@@ -48,6 +51,13 @@
 | `TTS_infer_pack/auto_language_test.py` | Auto Han 路由的回归测试。用 `ast` 只抽取两个纯函数，因此无需装 torch 即可运行 |
 | `TTS_infer_pack/context_language.node.test.js` | 前端 `web/src/lib/autoLanguage.js` 与本目录判定逻辑的一致性测试，属 `npm test` 套件 |
 | 本文件 | —— |
+
+跨目录守卫（不在本目录，但约束本目录）：
+
+| 文件 | 约束的内容 |
+|---|---|
+| `lib/han_override_contract.node.test.js` | `_apply_lang_overrides` 必须丢弃落在非汉字上的 `@N`；`_HAN_RE` 必须与前端 `HAN_RE` 逐字符相同 |
+| `lib/training/g2pw_ort.node.test.js` | `allow_short_pad` 的默认值与调用点；`chinese2.py` 与 `vendor/uvr5/mdxnet.py` 两份 CUDA DLL 注册代码必须逐字节相同 |
 
 ---
 

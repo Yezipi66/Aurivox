@@ -52,6 +52,9 @@ MAX_COMPRESSED_MB = 200
 # earlier build shipped without web/dist. So these are anchored to the top level.
 TOP_EXCLUDE = {
     "venv", ".venv", "venv_idx241", "assets", ".staging",
+    # dev-time backups written by the apply-r12b-fix*.py patch scripts
+    # (57 files, 1.8MB). Same category as .staging, which is already here.
+    ".patch-backup",
     "logs", "log", "outputs", "output", "backups", "tmp", "temp",
     "cr-sandbox", "voices", "dist",  # top-level dist = our own output
     # leftover folders from extracting an older distribution-kit patch in place
@@ -100,19 +103,69 @@ PATH_EXCLUDE = {
     # ffmpeg is OPTIONAL (only vocal separation / UVR5 needs it) and ~275MB.
     # Users fetch it on demand via download_ffmpeg.py, so keep it out of source.
     os.path.join("vendor", "ffmpeg"),
+    # cmake is installed by 02_make_wheelhouse.bat purely to BUILD wheels
+    # ("pip install --upgrade pip setuptools wheel cmake") and is never
+    # used at runtime. KEEP_EXT holds .exe unconditionally, so without
+    # this entry cmake-gui.exe (32.3MB), ctest.exe (13.8MB), cpack.exe
+    # (12.9MB), cmake.exe (12.8MB) and CMake.qch (9.0MB) all shipped:
+    # 4165 files, 92.8MB -- the single largest thing in the release.
+    os.path.join("tools", "runtime", "python", "Lib", "site-packages", "cmake"),
     # micromamba conda envs (IndexTTS / IndexTTS2 engines) ship a FULL CUDA
     # torch stack — torch_cuda.dll (~1GB), cublasLt/cudnn (~hundreds of MB
     # each) and dnnl.lib (~2GB) — totalling ~10GB. These are runtime, created
     # at deploy time, so drop the whole tree here. Physical files stay on disk;
     # they simply never get walked into the release zip.
     os.path.join("vendor", "micromamba"),
-    # pure model dirs (no needed code lives here):
+    # There are two gsv_code trees on disk; the live engine is
+    # vendor/tts/gpt-sovits/gsv_code. This old one holds no code that
+    # anything imports -- BUT it used to hold four runtime *data* files
+    # (namedict_cache.pickle, ja_userdic/{userdict.csv,user.dict,userdict.md5})
+    # which are loaded by path, not by import, so "zero references" never
+    # applied to them. They were migrated into the live tree on 2026-08-19;
+    # before that migration this exclusion silently shipped releases with an
+    # empty English name dictionary and no Japanese user dictionary.
+    # Do not re-derive "unused" for data files from import graphs.
+    os.path.join("vendor", "gsv_code"),
+    # vendor/gsv-infer is a CUDA compilation artifact leftover (1 byte,
+    # BigVGAN/alias_free_activation/cuda/build/_). The live BigVGAN lives
+    # in vendor/tts/gpt-sovits/infer/BigVGAN. Zero references, never should
+    # have shipped, but without this exclusion it does.
+    os.path.join("vendor", "gsv-infer"),
+    # Pure model dirs (no needed code lives here). All of these live under
+    # models/ since r12b; the old vendor/gsv-tools/... entries listed here
+    # before pointed at directories that no longer exist, so nothing was
+    # actually being excluded.
+    #
+    # models/ is NOT excluded wholesale on purpose: models/tts/gpt-sovits/
+    # G2PWModel/ also holds the polyphone dictionaries, which are small, are
+    # NOT re-downloaded (download_models.py only fetches g2pW.onnx out of the
+    # official zip) and therefore must ship. The 635MB .onnx beside them is
+    # dropped by EXCLUDE_EXT.
+    os.path.join("models", "tts", "gpt-sovits", "v1"),
+    os.path.join("models", "tts", "gpt-sovits", "v2"),
+    os.path.join("models", "tts", "gpt-sovits", "v2Pro"),
+    os.path.join("models", "tts", "gpt-sovits", "v2ProPlus"),
+    os.path.join("models", "tts", "gpt-sovits", "sv"),
+    os.path.join("models", "tts", "gpt-sovits", "chinese-hubert-base"),
+    os.path.join("models", "tts", "gpt-sovits", "chinese-roberta-wwm-ext-large"),
+    # ASR weights only; the ASR scripts (fasterwhisper_asr.py, asr_utils.py,
+    # funasr_asr.py, config.py) live in vendor/asr/ and do ship.
+    os.path.join("models", "asr"),
+    os.path.join("models", "separation"),
+    os.path.join("models", "vocoder"),
+    os.path.join("models", "sr"),
+    os.path.join("models", "lang"),
+    # Old layout: kept so that a build run on a machine that has not migrated
+    # yet still excludes the weights sitting in the retired locations.
     os.path.join("vendor", "gsv-tools", "pretrained"),
-    # NOTE: do NOT exclude the whole gsv-tools/asr dir -- it holds the
-    # scripts (fasterwhisper_asr.py, asr_utils.py, funasr_asr.py, config.py).
-    # Exclude only the downloaded ASR model subdirs; the code ships, the huge
-    # weights are dropped here (and .bin is also caught by EXCLUDE_EXT).
-    os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3-turbo"),
+    # fix12: this used to read "faster-whisper-large-v3-turbo". No such
+    # directory exists -- the one on disk is "faster-whisper-large-v3" --
+    # so the rule never matched and ~3.4MB of sidecar json shipped. Its
+    # model.bin was held back by EXCLUDE_EXT, i.e. by the catch-all rather
+    # than by this rule. Since r12b the ASR weights live under
+    # models/asr/faster-whisper/large-v3-turbo and the downloader knows
+    # only that one, so this whole tree is retired.
+    os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3"),
     os.path.join("vendor", "gsv-tools", "asr", "models"),
     os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
     os.path.join("vendor", "tts", "gpt-sovits", "gsv_code", "pretrained_models"),
@@ -163,6 +216,28 @@ EXCLUDE_FILES = {
     # stray reports / caches (junk at any depth)
     "tree_report.txt",  # loose *.pyc now dropped generically via EXCLUDE_EXT
     "requirements.lock.current.txt",
+    # Relocation ledger written by tools/scripts/Move-BaseModels.ps1. It
+    # sits in models/ ROOT, and models/ is deliberately not excluded
+    # wholesale (G2PWModel's dictionaries must ship), while PATH_EXCLUDE
+    # only lists subdirectories under it -- so this per-machine run record
+    # slipped through. .csv is not in EXCLUDE_EXT either, by design:
+    # data/pron_lexicon ships .csv dictionaries.
+    ".r12b-move-journal.csv",
+    # G2PWModel/record.log -- training run output, not a shipped asset.
+    "record.log",
+    # Regenerable pickle caches. Dropped BY NAME, not by extension: the
+    # three .pickle files in gsv_code/text do NOT behave alike.
+    #   engdict_cache.pickle  english.py:224  else: read_dict(); cache_dict()
+    #   polyphonic.pickle     g2pw.py:118     else: read_dict(); cache_dict()
+    # both rebuild themselves on first use, so shipping the dev machine's
+    # copy is pure weight. But:
+    #   namedict_cache.pickle english.py:237  else: name_dict = {}
+    # has NO rebuild path -- it degrades silently to an empty dictionary.
+    # An extension-wide .pickle rule would therefore break English name
+    # pronunciation on end-user machines with no error anywhere. Keep it
+    # shipping; only the two self-rebuilding caches are dropped.
+    "engdict_cache.pickle",
+    "polyphonic.pickle",
     # per-machine user state written by the running app (paths.js). It pins an
     # ABSOLUTE assetsRoot from whatever machine last ran; shipping it forces
     # every tester's assets/.staging onto the dev machine's D:\ path. Must NOT

@@ -1,5 +1,5 @@
 // Unit tests for the UVR5 model registry (Node built-in runner, no jest):
-//     node --test vendor/gsv-tools/uvr5/
+//     node --test vendor/uvr5/
 //
 // Contract under test (uvr5_models.js):
 //   * normalizePipeline coerces legacy shapes, drops unknowns, clamps agg,
@@ -12,6 +12,26 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const uvr5 = require("./uvr5_models");
+
+// C7：项目根一路上溯找 server.js，绝不数目录层数（判定物与 lib/paths.js 的
+// detectAppDir、chinese2.py 的 _find_project_root 一致）。此前下面读
+// lib/routes/uvr5.js 用的是 path.join(__dirname, "..", "..", ...) —— 
+// vendor/uvr5 -> engines/uvr5 这种同深度改名没事，但这棵树的深度一变就会
+// 指向不存在的文件。找不到时显式抛错，不退回层数推导。
+function findProjectRoot(start) {
+  let d = path.resolve(start);
+  for (;;) {
+    if (fs.existsSync(path.join(d, "server.js"))) return d;
+    const parent = path.dirname(d);
+    if (parent === d) {
+      throw new Error(
+        "project root not found above " + start + " (looked for server.js); " +
+        "refusing to fall back to counting directory levels (C7)");
+    }
+    d = parent;
+  }
+}
+const PROJECT_ROOT = findProjectRoot(__dirname);
 
 // Downloading and reading are two halves of one fact: where the weights live.
 // They have been maintained separately before, and drifted — the panel offered
@@ -49,7 +69,7 @@ test("下载器不得自己拼一个旁边的权重目录", () => {
 
 test("下载路由必须把权重目录显式传给下载器", () => {
   const routeSource = fs.readFileSync(
-    path.join(__dirname, "..", "..", "lib", "routes", "uvr5.js"), "utf8");
+    path.join(PROJECT_ROOT, "lib", "routes", "uvr5.js"), "utf8");
   assert.ok(/"--dest",\s*weightsDir/.test(routeSource),
     "路由起下载时没传 --dest；下载器只能去猜，猜错就是白下几个 GB");
 });

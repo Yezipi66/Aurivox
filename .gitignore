@@ -168,4 +168,5 @@ tools/deploy/.deploy_*.txt
 tools/deploy/.deploy_selection.json
 .patch-backup/
 aurivox-*-update
-backups/
+backups
+.hermes/

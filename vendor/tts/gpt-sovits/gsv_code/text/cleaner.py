@@ -18,7 +18,7 @@ special = [
 ]
 
 
-def clean_text(text, language, version=None):
+def clean_text(text, language, version=None, allow_short_pad=True):
     if version is None:
         version = os.environ.get("version", "v2")
     if version == "v1":
@@ -45,7 +45,27 @@ def clean_text(text, language, version=None):
         assert len(norm_text) == len(word2ph)
     elif language == "en":
         phones = language_module.g2p(norm_text)
-        if len(phones) < 4:
+        # A very short English utterance gives the acoustic model too little to
+        # work with, so upstream prepends "," -- a REAL pause phoneme, not a
+        # spacer -- to buy it some room. That is reasonable when the argument is
+        # a whole English line, which is what upstream assumed.
+        #
+        # It is wrong when the argument is one word. TextPreprocessor calls this
+        # once per language run, so in mixed text "bug" arrives on its own, comes
+        # out as 3 phonemes, and is read with an audible pause in front of it:
+        #   这个bug很难修  ->  zh e4 g e5 | , B AH1 G | h en3 ...
+        # Words of 3 phonemes or fewer are exactly the ones that show up in
+        # mixed Chinese-English speech: bug, app, log, git, ok, PR, AI, bot.
+        #
+        # Short whole inputs are still protected, one layer up and by a better
+        # rule: TextPreprocessor re-runs the entire line prefixed with "." when
+        # the FINAL phoneme count is under 6.
+        #
+        # Default stays True so 1-get-text.py (training set preprocessing) is
+        # bit-for-bit unchanged. Training and inference must agree about
+        # phonemes; changing this for training would silently mismatch every
+        # voice already trained.
+        if allow_short_pad and len(phones) < 4:
             phones = [","] + phones
         word2ph = None
     else:

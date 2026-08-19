@@ -8,6 +8,10 @@ from gsv_code.text.symbols import punctuation
 
 from gsv_code.text.symbols2 import symbols
 
+# 连字符复合词规则（join -> split -> 预测）。单独成模块是因为本文件依赖 nltk 和
+# wordsegment，测试环境装不上，规则留在这里就没有任何测试跑得到它。
+from gsv_code.text import en_hyphen
+
 # 读音校对覆盖层（task7 英语接入）：读音单元 = 词 -> ARPABET 音素列表。
 # 注入点 = en_G2p 逐词求出音素后、拼接前；覆盖项直接替换（en 无 word2ph 对齐约束，
 # 允许音素数变化）。任何异常/缺失一律原样返回，保证零回归。
@@ -324,6 +328,16 @@ class en_G2p(G2p):
 
         return prons[:-1]
 
+    def _dict_pron(self, spelling):
+        """词典里查一个拼写，查不到返回 None。给 en_hyphen 用。
+
+        只查词典，不递归、不预测：连字符规则要么拿到词典里的确定答案，要么让位给
+        原来的分词和预测两级，不自己制造答案。
+        """
+        if len(spelling) > 1 and spelling in self.cmu:
+            return self.cmu[spelling][0]
+        return None
+
     def qryword(self, o_word):
         word = o_word.lower()
 
@@ -334,6 +348,15 @@ class en_G2p(G2p):
         # 单词仅首字母大写时查找姓名字典
         if o_word.istitle() and word in self.namedict:
             return self.namedict[word][0]
+
+        # 连字符复合词：先合（去连字符查词典），再拆（按连字符切开逐段查词典）。
+        # 顺序不能反：re-run 拆开会得到 RE = R EY1（do-re-mi 的 re），合起来才命中
+        # 词典里的 RERUN = R IY1 R AH1 N。词典里本来就带连字符的词（E-MAIL 等 909 条）
+        # 在上面第一级就返回了，走不到这里。
+        if "-" in word:
+            hyphen_phones, _hyphen_how = en_hyphen.resolve(word, self._dict_pron)
+            if hyphen_phones:
+                return hyphen_phones
 
         # oov 长度小于等于 3 直接读字母
         if len(word) <= 3:
@@ -367,9 +390,10 @@ class en_G2p(G2p):
         # 尝试进行分词，应对复合词
         comps = wordsegment.segment(word.lower())
 
-        # 无法分词的送回去预测
+        # 无法分词的送回去预测。预测器没见过连字符，喂给它只会得到把连字符
+        # 当字母念的结果（re-run -> R IY0 AO1 R N），所以此处一律去掉连字符。
         if len(comps) == 1:
-            return self.predict(word)
+            return self.predict(en_hyphen.joined(word))
 
         # 可以分词的递归处理
         return [phone for comp in comps for phone in self.qryword(comp)]

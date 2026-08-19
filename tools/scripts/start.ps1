@@ -270,7 +270,7 @@ Start-Process $backendUrl | Out-Null
 # left from the old location keeps dead absolute paths and the engine fails to
 # load with no obvious error. Repair it from the shipped template here.
 function Repair-EngineConfig {
-  param([string]$LiveCfg, [string]$ExampleCfg)
+  param([string]$LiveCfg, [string]$ExampleCfg, [string]$ProjectRoot)
 
   if (-not (Test-Path $ExampleCfg)) {
     Log ('[cfg][WARN] Template missing: {0}. Skipping tts_infer.yaml validation.' -f $ExampleCfg) 'Yellow'
@@ -290,15 +290,39 @@ function Repair-EngineConfig {
     } else {
       foreach ($line in ($content -split "`r?`n")) {
         if ($line -match '^\s*#') { continue }
-        if ($line -match '^\s*[A-Za-z0-9_]+\s*:\s*(.+?)\s*$') {
-          $val = $Matches[1].Trim().Trim('"').Trim("'")
-          # Only inspect values that look like an absolute Windows path.
-          if ($val -match '^[A-Za-z]:[\\/]') {
+        if ($line -match '^\s*([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$') {
+          $key = $Matches[1]
+          $val = $Matches[2].Trim().Trim('"').Trim("'")
+
+          # Every *_path key is a path and must be checked, absolute or not.
+          #
+          # This used to inspect only values that LOOK like an absolute Windows
+          # path. A config whose paths were all relative therefore passed every
+          # check and was reported "present and valid" -- while every single
+          # path in it pointed at a directory that no longer exists. The config
+          # had been dead since the previous reorganisation and this function
+          # said it was healthy at every startup.
+          $isPathKey = $key -match '_path$'
+          $looksAbsolute = $val -match '^[A-Za-z]:[\\/]'
+
+          if ($isPathKey -or $looksAbsolute) {
             # Mangled non-ASCII path: the GBK console replaced Chinese chars
             # with '?' (0x3F) when the yaml was last written on a bad path.
             if ($val -match '\?') { $needsRegen = $true; $reason = ('mangled path: {0}' -f $val); break }
-            # Stale path from another machine/location -> does not exist here.
-            if (-not (Test-Path -LiteralPath $val)) { $needsRegen = $true; $reason = ('stale path: {0}' -f $val); break }
+
+            # Relative values are resolved against the project root, which is
+            # what the engine does at run time (it chdir's there first).
+            $probe = $val
+            if (-not $looksAbsolute) {
+              if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $probe = $null }
+              else { $probe = Join-Path $ProjectRoot ($val -replace '^\./', '') }
+            }
+
+            if ($probe -and -not (Test-Path -LiteralPath $probe)) {
+              $needsRegen = $true
+              $reason = ('stale path: {0} -> {1}' -f $val, $probe)
+              break
+            }
           }
         }
       }
@@ -322,7 +346,7 @@ function Repair-EngineConfig {
   }
 }
 
-Repair-EngineConfig -LiveCfg $ENGINE_CFG -ExampleCfg ($ENGINE_CFG + '.example')
+Repair-EngineConfig -LiveCfg $ENGINE_CFG -ExampleCfg ($ENGINE_CFG + '.example') -ProjectRoot $BASE_DIR
 
 # 2. Inference engine
 Log ('[2/2] Inference service on port {0} ...' -f $ENGINE_PORT) 'Green'

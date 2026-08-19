@@ -78,6 +78,13 @@ $TORCHAUDIO_VER = 'torchaudio==2.2.0'
 $TORCHVISION_VER = 'torchvision==0.17.0'
 $CUDA_INDEX     = 'https://download.pytorch.org/whl/cu121'
 $ORT_GPU_VER    = 'onnxruntime-gpu==1.18.0'   # only used by the inline fallback below
+# The GPU onnxruntime wheel must NOT come from PyPI: PyPI's onnxruntime-gpu is
+# built against CUDA 11.8 up to and including 1.18.x, and its provider DLL then
+# fails to load next to torch cu121 WITHOUT raising -- onnxruntime just drops the
+# CUDA ExecutionProvider and MDX-Net / g2pW run on the CPU forever, silently.
+# The version pin alone is not the pin: the index is part of it.
+# Keep this value identical to $ortIndex in install_torch.ps1.
+$ORT_CUDA12_INDEX = 'https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/'
 
 function Info($m){ Write-Host ('[deploy] {0}' -f $m) -ForegroundColor Cyan }
 function Ok($m){ Write-Host ('[deploy] {0}' -f $m) -ForegroundColor Green }
@@ -310,9 +317,12 @@ if (Test-Path $torchScript) {
   # onnxruntime. A GPU-less machine should keep install_torch.ps1 present.
   $tArgs = @('-m','pip','install','--no-deps',$TORCH_VER,$TORCHAUDIO_VER,$TORCHVISION_VER,'--extra-index-url',$CUDA_INDEX)
   $null = Invoke-Native $VENV_PY $tArgs
-  # onnxruntime is also out of the lock now — install the GPU build here to match.
+  # onnxruntime is also out of the lock now -- install the GPU build here to match.
+  # --index-url (not --extra-index-url): the CUDA 12 build of 1.18.x exists ONLY on
+  # the ONNX Runtime Azure DevOps feed, and a same-name/same-version wheel sits on
+  # PyPI, so an extra index would let pip pick the wrong (CUDA 11.8) one.
   & $VENV_PY -m pip uninstall -y onnxruntime onnxruntime-gpu 2>$null | Out-Null
-  $null = Invoke-Native $VENV_PY @('-m','pip','install','--no-deps',$ORT_GPU_VER)
+  $null = Invoke-Native $VENV_PY @('-m','pip','install','--no-deps','--index-url',$ORT_CUDA12_INDEX,$ORT_GPU_VER)
 }
 # Verify torch by ACTUALLY importing it — the only trustworthy signal. A killed
 # uv/pip (McAfee etc.) or a network error can leave torch missing while the step

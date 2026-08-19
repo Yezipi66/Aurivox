@@ -1487,8 +1487,8 @@ function normModelVersion(v) {
 }
 const _MV_BASE_REQ = {
   v2: [
-    { label: 's2G', cands: ['gsv-v2final/s2G2333k.pth', 'gsv-v2final-pretrained/s2G2333k.pth', 's2G2333k.pth', 'v2Pro/s2G488k.pth', 's2G488k.pth', 'gsv-v2final/s2G488k.pth'] },
-    { label: 's2D', cands: ['gsv-v2final/s2D2333k.pth', 'gsv-v2final-pretrained/s2D2333k.pth', 's2D2333k.pth', 'v2Pro/s2D488k.pth', 's2D488k.pth', 'gsv-v2final/s2D488k.pth'] },
+    { label: 's2G', cands: ['v2/s2G2333k.pth', 'gsv-v2final/s2G2333k.pth', 'gsv-v2final-pretrained/s2G2333k.pth', 's2G2333k.pth', 'v1/s2G488k.pth', 'v2Pro/s2G488k.pth', 's2G488k.pth', 'gsv-v2final/s2G488k.pth'] },
+    { label: 's2D', cands: ['v2/s2D2333k.pth', 'gsv-v2final/s2D2333k.pth', 'gsv-v2final-pretrained/s2D2333k.pth', 's2D2333k.pth', 'v1/s2D488k.pth', 'v2Pro/s2D488k.pth', 's2D488k.pth', 'gsv-v2final/s2D488k.pth'] },
   ],
   v2Pro: [
     { label: 's2G', cands: ['v2Pro/s2Gv2Pro.pth'] },
@@ -1496,8 +1496,8 @@ const _MV_BASE_REQ = {
     { label: 'sv', cands: ['sv/pretrained_eres2netv2w24s4ep4.ckpt'] },
   ],
   v2ProPlus: [
-    { label: 's2G', cands: ['v2Pro/s2Gv2ProPlus.pth'] },
-    { label: 's2D', cands: ['v2Pro/s2Dv2ProPlus.pth'] },
+    { label: 's2G', cands: ['v2ProPlus/s2Gv2ProPlus.pth', 'v2Pro/s2Gv2ProPlus.pth'] },
+    { label: 's2D', cands: ['v2ProPlus/s2Dv2ProPlus.pth', 'v2Pro/s2Dv2ProPlus.pth'] },
     { label: 'sv', cands: ['sv/pretrained_eres2netv2w24s4ep4.ckpt'] },
   ],
 };
@@ -1540,6 +1540,8 @@ function isBaseVoice(id) { return id === BASE_VOICE_ID; }
 // Absolute s1 (GPT) base checkpoint, or null when absent.
 function _baseS1Path() {
   return _mvFirstExisting([
+    "v2/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+    "v1/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
     "gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
     "gsv-v2final/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
     "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
@@ -1547,9 +1549,12 @@ function _baseS1Path() {
 }
 // SoVITS base weights per version. Order = dropdown order; `default` = pre-selected.
 const _BASE_SOVITS_DEFS = [
-  { version: "v2",        cands: ["gsv-v2final/s2G2333k.pth", "gsv-v2final/s2G488k.pth", "s2G2333k.pth"] },
+  // v2 的回退顺序必须与 _MV_BASE_REQ.v2 的 s2G 一致：先找 v2 自己的 2333k，找不到
+  // 才退到 v1 的 488k（shape-safe）。两张表若不一致，训练体检说"底模齐"而推理下拉
+  // 里却没有这个版本，同一台机器上两处各说各话。
+  { version: "v2",        cands: ["v2/s2G2333k.pth", "gsv-v2final/s2G2333k.pth", "gsv-v2final-pretrained/s2G2333k.pth", "s2G2333k.pth", "v1/s2G488k.pth", "v2Pro/s2G488k.pth", "s2G488k.pth", "gsv-v2final/s2G488k.pth"] },
   { version: "v2Pro",     cands: ["v2Pro/s2Gv2Pro.pth"], default: true },
-  { version: "v2ProPlus", cands: ["v2Pro/s2Gv2ProPlus.pth"] },
+  { version: "v2ProPlus", cands: ["v2ProPlus/s2Gv2ProPlus.pth", "v2Pro/s2Gv2ProPlus.pth"] },
 ];
 // Build the { gpt:[], sovits:[] } checkpoint inventory the Generate dropdowns read.
 function baseCheckpoints() {

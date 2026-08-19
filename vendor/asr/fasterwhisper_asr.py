@@ -23,7 +23,17 @@ from modelscope import snapshot_download as snapshot_download_ms
 from tqdm import tqdm
 
 # 项目内工具（替代 tools.my_utils 和 tools.asr.config）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# C7 说明：这里要的是**包 asr 的父目录**，不是项目根。本文件就在 asr/ 包内，
+# 「自己目录的父目录」是自指的，跟着 asr/ 一起搬不会失准（vendor/asr ->
+# engines/asr 无影响）。但它毕竟仍是一次层数推导，所以补一条存在性断言：
+# 万一本文件被挪出 asr/ 包，立刻报错，而不是 import 到别处的同名模块。
+_PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if not os.path.exists(os.path.join(_PKG_PARENT, "asr", "asr_utils.py")):
+    raise RuntimeError(
+        "asr/asr_utils.py not found under %r: fasterwhisper_asr.py must stay "
+        "inside the 'asr' package directory. Do not derive this path by "
+        "counting directory levels (engine contract C7)." % _PKG_PARENT)
+sys.path.insert(0, _PKG_PARENT)
 from asr.asr_utils import load_cudnn, get_asr_models
 
 # FunASR / DAMO Chinese post-processing is intentionally disabled: on Windows

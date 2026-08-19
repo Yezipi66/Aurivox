@@ -306,11 +306,23 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
 
 | 文件 | 大小 | 说明 |
 |------|------|------|
-| `pretrained/gsv-v2final/s1bert25hz-5kh-*.ckpt` | ~150MB | S1 预训练 |
-| `pretrained/v2Pro/s2Gv2Pro.pth` | ~680MB | S2 Generator 预训练 |
-| `pretrained/v2Pro/s2Dv2Pro.pth` | ~550MB | S2 Discriminator 预训练 |
-| `pretrained/cnhubert/` | ~300MB | Hubert 特征提取 |
-| `asr/models/faster-whisper-large-v3-turbo/` | ~1.6GB | ASR 模型 |
+路径均相对项目根目录，与 `lib/paths.js` 中的常量一致。底模按版本分目录存放：
+`v1/` `v2/` `v2Pro/` `v2ProPlus/`。GPT（S1）底模上游只有两份，v2 / v2Pro / v2ProPlus
+共用 v2 的那一份，因此它位于 `v2/` 下，两个 Pro 目录只放 SoVITS 权重。
+
+| 文件 | 大小 | 说明 |
+|------|------|------|
+| `models/tts/gpt-sovits/v2/s1bert25hz-5kh-*.ckpt` | ~150MB | S1 预训练（v2 / v2Pro / v2ProPlus 共用） |
+| `models/tts/gpt-sovits/v1/s1bert25hz-2kh-*.ckpt` | ~150MB | S1 预训练（v1） |
+| `models/tts/gpt-sovits/v2Pro/s2Gv2Pro.pth` | ~680MB | S2 Generator 预训练 |
+| `models/tts/gpt-sovits/v2Pro/s2Dv2Pro.pth` | ~550MB | S2 Discriminator 预训练 |
+| `models/tts/gpt-sovits/chinese-hubert-base/` | ~300MB | Hubert 特征提取 |
+| `models/tts/gpt-sovits/chinese-roberta-wwm-ext-large/` | ~1.3GB | 文本 BERT 特征 |
+| `models/asr/faster-whisper/large-v3-turbo/` | ~1.6GB | ASR 模型 |
+| `models/separation/uvr5/vr\|mdx\|roformer/` | 按需 | 人声分离权重，按架构分目录 |
+
+若本机仍是旧的 `gsv-v2final/` + `v2Pro/` 混放布局，运行
+`tools/scripts/Move-BaseModels.ps1` 迁移（默认只预演，加 `-Apply` 才实际移动）。
 
 ## 已知限制
 

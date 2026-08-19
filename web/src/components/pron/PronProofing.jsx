@@ -18,6 +18,7 @@ import {
   hanPositions,
   normalizeAssignments,
   parseLangOverrides,
+  pruneForced,
   readingAt,
   readingKey,
 } from '../../lib/hanLanguage'
@@ -670,7 +671,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings 
 function HanLangPicker({ text, direction, forced, setForced, readings, setReadings, onDragState }) {
   const { t } = useT()
   const positions = hanPositions(text)
-  const map = normalizeAssignments(forced, direction)
+  const map = normalizeAssignments(forced, direction, text)
   const [target, setTarget] = useState(direction?.choices?.[0] || 'zh')
   const [drag, setDrag] = useState([])
   const ref = useRef([])
@@ -797,7 +798,12 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
 }
 
 function charLang(ch, direction, assignments, index, inferredHan) {
-  const positional = assignments?.[index]
+  // A manual override only ever applies to a Han character. Checking the actual
+  // character here (rather than trusting the index) keeps the preview honest
+  // even if a stale entry reaches this far: a Han-language override sitting on
+  // a kana or a Latin letter is meaningless by definition. The engine's
+  // _apply_lang_overrides enforces the same rule on its side.
+  const positional = HAN_RE.test(ch) ? assignments?.[index] : undefined
   if (positional) return positional
   if (/[\uac00-\ud7a3]/.test(ch)) return 'ko'
   if (/[A-Za-z]/.test(ch)) return 'en'
@@ -806,7 +812,7 @@ function charLang(ch, direction, assignments, index, inferredHan) {
   return null
 }
 function HanFinalPreview({ text, direction, forced }) {
-  const { t } = useT(); const assignments = normalizeAssignments(forced, direction); const groups=[]
+  const { t } = useT(); const assignments = normalizeAssignments(forced, direction, text); const groups=[]
   const inferredHan=direction?.autoMode?inferAutoHanLanguages(text,direction.base,assignments):{}
   let previous='zh'
   Array.from(String(text||'')).forEach((ch,index)=>{const detected=charLang(ch,direction,assignments,index,inferredHan);const lang=detected||previous;previous=lang;const last=groups[groups.length-1];if(last&&last.lang===lang)last.text+=ch;else groups.push({lang,text:ch})})
@@ -841,7 +847,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
   // Characters forced to the reverse language are read in that language, so the
   // Chinese/Cantonese reading proofing below does not apply to them (they are
   // muted there). Their reading is set in the Han character language section.
-  const assignmentMap = normalizeAssignments(hanForced, hanDirection)
+  const assignmentMap = normalizeAssignments(hanForced, hanDirection, text)
   const forcedPositions = hanDirection ? assignmentList(assignmentMap, text) : []
   const mutedLangByPosition = Object.fromEntries(forcedPositions.map(pos => [pos.index, pos.lang]))
   const forcedInText = forcedPositions.map(pos => pos.char)
@@ -898,5 +904,6 @@ export {
   hanOverrideDirection,
   countOverrides,
   parseLangOverrides,
+  pruneForced,
   LANG_LABEL,
 }

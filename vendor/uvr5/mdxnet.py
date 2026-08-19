@@ -9,21 +9,69 @@ import soundfile as sf
 import torch
 from tqdm import tqdm
 
-# Windows / Python 3.8+: dependent DLLs of extension modules are NO LONGER resolved
-# via %PATH% — only via directories registered with os.add_dll_directory(). Register
-# torch's bundled CUDA/cuDNN DLL dir (cudart/cublas/cudnn…) BEFORE onnxruntime is
-# imported so its CUDAExecutionProvider can load. torch is imported above, so those
-# DLLs are also already mapped into the process. Without this, onnxruntime silently
-# falls back to CPU inside the pipeline's clean-env subprocess (even when a manual
-# `import torch, onnxruntime` in an interactive shell happens to work). No-op on
-# non-Windows and when the dir is absent.
-if os.name == "nt":
+# --- BEGIN shared block: onnxruntime CUDA DLL registration -------------------
+# Keep every copy of this block byte-identical. lib/training/g2pw_ort.node.test.js
+# compares them and fails if they drift.
+#
+# Two independent things must BOTH be right before onnxruntime's CUDA
+# ExecutionProvider will load on Windows, and neither of them raises when wrong:
+#
+#   1. The wheel must match torch's CUDA major version. onnxruntime-gpu on PyPI
+#      was built against CUDA 11.8 until 1.19.0, so the obvious command
+#      (`pip install onnxruntime-gpu==1.18.0`) gives a provider DLL that imports
+#      cudart64_110 / cublas64_11 / cufft64_10. torch cu121 ships
+#      cudart64_12 / cublas64_12 / cufft64_11, so the load dies with "error 126"
+#      -- which names the DLL that could not be loaded, never the dependency
+#      that was actually missing. tools/deploy/install_torch.ps1 pins both the
+#      version AND the CUDA 12 index for this reason.
+#   2. The CUDA/cuDNN DLLs live inside torch, not on the system. Since Python
+#      3.8, Windows no longer resolves an extension module's dependencies via
+#      %PATH% -- only via directories passed to os.add_dll_directory(). That
+#      registration has to happen BEFORE onnxruntime is imported.
+#
+# When either is wrong onnxruntime just hands back a CPU session. Anything that
+# needs to KNOW must look at session.get_providers(); get_available_providers()
+# still lists CUDA on onnxruntime<1.19 even when its DLLs failed to load, so it
+# reports success on a machine that is running entirely on the CPU.
+#
+# No-op on non-Windows, when torch is not installed, and when the dir is absent.
+#
+# It returns the exception instead of swallowing it. Failing here means
+# onnxruntime will not find its CUDA dependencies and will hand back a CPU
+# session, which produces audio -- slowly -- and never raises. Each caller
+# decides how to report ORT_CUDA_DLL_ERROR; nothing may drop it silently.
+def _register_torch_cuda_dlls():
+    if os.name != "nt":
+        return None
     try:
-        _torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-        if os.path.isdir(_torch_lib):
-            os.add_dll_directory(_torch_lib)
-    except Exception:
-        pass
+        import torch
+
+        lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.isdir(lib):
+            os.add_dll_directory(lib)
+    except Exception as err:
+        return err
+    return None
+
+
+ORT_CUDA_DLL_ERROR = _register_torch_cuda_dlls()
+# --- END shared block: onnxruntime CUDA DLL registration ---------------------
+
+if ORT_CUDA_DLL_ERROR is not None:
+    # 这棵树是独立进程，导不到 gsv_code 的状态位模块，所以就地打一行带标记的日志。
+    # 标记与 runtime_status.MARKER 一致，父进程用同一条规则就能捞到。
+    import json as _json
+
+    print(
+        "[[TTS-STATUS]] " + _json.dumps({
+            "code": "ort_cuda_dll_dir_failed",
+            "component": "mdxnet",
+            "count": 1,
+            "detail": "could not register torch/lib for onnxruntime CUDA; "
+                      "separation may fall back to CPU: %r" % (ORT_CUDA_DLL_ERROR,),
+        }, ensure_ascii=False, sort_keys=True),
+        flush=True,
+    )
 
 cpu = torch.device("cpu")
 

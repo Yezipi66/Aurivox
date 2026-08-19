@@ -26,14 +26,54 @@ export function hanPositions(text) {
   return out
 }
 
+// Positions are code-point indices, matching Array.from() here, the engine's
+// Python string indexing, and the `@N` payload keys. Never use String.charAt /
+// str[i]: those are UTF-16 code-unit indices and would drift apart from the
+// engine on any astral-plane character.
+export function charAtPosition(text, index) {
+  if (!Number.isInteger(index) || index < 0) return undefined
+  const chars = Array.from(String(text ?? ''))
+  return index < chars.length ? chars[index] : undefined
+}
+
+// An override is only meaningful while the position it names still holds a Han
+// character. Text is edited freely after a selection is made, and the stored
+// form is an absolute index, so the same index can end up over a kana, a Latin
+// letter, or past the end of the line. Such an entry must not survive: it is
+// invisible in the picker (which iterates hanPositions) yet would still be
+// counted, previewed and sent to the engine.
+export function isLiveAssignment(text, index, lang) {
+  if (!HAN_LANGS.includes(lang)) return false
+  const char = charAtPosition(text, index)
+  return char !== undefined && HAN_RE.test(char)
+}
+
+// Drop every stored entry whose position no longer holds a Han character.
+// Used to heal persisted state (localStorage survives a text change).
+export function pruneForced(forced, text) {
+  return (forced || []).filter(item => (
+    item && typeof item === 'object'
+    && Number.isInteger(item.index)
+    && isLiveAssignment(text, item.index, item.lang)
+  ))
+}
+
 // Read only the positional form. Old {char, lang} / string entries are not
 // allowed to become global character overrides, because repeated Han characters
 // may intentionally be assigned different languages.
-export function normalizeAssignments(forced, direction) {
+//
+// `text` is the body the indices refer to. It is mandatory in practice: without
+// it there is no way to tell a live override from one stranded by an edit, and
+// every consumer of this map (preview colouring, the counter, the engine
+// payload) would act on the stranded one. `tools/guard_han_text_arg.cjs`
+// enforces that every call site passes it.
+export function normalizeAssignments(forced, direction, text) {
   const out = {}
+  const checkText = text !== undefined && text !== null
   for (const item of (forced || [])) {
     if (!item || typeof item !== 'object') continue
     if (!Number.isInteger(item.index) || !HAN_LANGS.includes(item.lang)) continue
+    if (checkText && !isLiveAssignment(text, item.index, item.lang)) continue
     // The fallback language can still be explicitly selected: it is visible as
     // a manual choice and may later be range-toggled off. Only a second gesture
     // over an entirely same-language range clears it.
@@ -110,9 +150,9 @@ export function hanOverrideDirection(textLang, voiceLang) {
   }
 }
 
-export function buildLangOverrides(direction, forced) {
+export function buildLangOverrides(direction, forced, text) {
   if (!direction) return undefined
-  const map = normalizeAssignments(forced, direction)
+  const map = normalizeAssignments(forced, direction, text)
   const out = {}
   for (const [index, lang] of Object.entries(map)) out[`@${index}`] = lang
   return Object.keys(out).length ? out : undefined

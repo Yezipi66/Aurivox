@@ -96,7 +96,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
     // flat base overrides + lang_overrides + han_readings (server.js merges them).
     const rEff = row.textLang || defaultTextLang || rmVoiceLang || 'ja'
     const rDir = hanOverrideDirection(rEff, rmVoiceLang)
-    const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [])
+    // The row's own text when it has one, otherwise the shared default -- that is
+    // exactly the body this recipe will be replayed against, and the body the
+    // stored `@N` indices have to still line up with.
+    const rText = (row.text && row.text.trim()) ? row.text : defaultText
+    const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [], rText)
     setSaveRecipeDefaults({
       reference_audio: row.refAudio || '',
       reference_text: row.promptText || '',
@@ -144,7 +148,7 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
   // #4: shared comparison-text reading proofing + Han-character language payloads.
   const defaultPanelLang = _cmpTargetFam || _cmpBaseFam || 'ja'
   const defaultHanDir = hanOverrideDirection(defaultTextLang, voiceLang)
-  const defaultLangOverrides = buildLangOverrides(defaultHanDir, defaultHanForced)
+  const defaultLangOverrides = buildLangOverrides(defaultHanDir, defaultHanForced, defaultText)
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
 
   // Load default advanced params from backend
@@ -352,7 +356,9 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
       const rEff = body.text_lang
       const rDir = hanOverrideDirection(rEff, rowVoiceLang)
       const rPanel = normalizeLangFamily(rEff) || String(rowVoiceLang || '').replace(/^all_/, '') || 'ja'
-      const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [])
+      // body.text is the exact string this request will synthesise, so prune the
+      // stored `@N` indices against it and nothing else.
+      const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [], body.text)
       const rPronPayload = buildPronPayload(row.pronOverrides || {}, rPanel, rDir, row.hanForced || [], row.hanReadings || {})
       if (rPronPayload || rLangOverrides) {
         if (rPronPayload) body.pron_overrides = rPronPayload

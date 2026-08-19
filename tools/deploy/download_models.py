@@ -4,11 +4,13 @@
 download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
 
 模型不随发行包分发(约 9GB),由本脚本引导下载到项目内的真实路径:
-    vendor/gsv-tools/pretrained/          底模 (gsv / v2Pro / sv / hubert / roberta)
-    vendor/gsv-tools/asr/faster-whisper-large-v3-turbo/  ASR (faster-whisper large-v3-turbo)
-    vendor/gsv-tools/uvr5/uvr5_weights/   UVR5 去人声 (HP2)
-    GPT_SoVITS/text/G2PWModel/                  G2PW 多音字 (g2pW.onnx)  ← 同时写入 gsv_code 副本
-    vendor/gsv-tools/pretrained/fast_langdetect/  语言检测 (lid.176.bin) ← 同时写副本
+    models/tts/gpt-sovits/v1|v2|v2Pro|v2ProPlus/  底模, 一个版本一个目录
+    models/tts/gpt-sovits/sv|chinese-hubert-base|chinese-roberta-wwm-ext-large/
+    models/tts/gpt-sovits/G2PWModel/          G2PW 多音字 (g2pW.onnx)
+    models/asr/faster-whisper/large-v3-turbo/ ASR (faster-whisper large-v3-turbo)
+    models/asr/funasr/                        ASR (FunASR, 中文/粤语)
+    models/separation/uvr5/vr|mdx|roformer/   人声分离, 按架构分目录
+    models/lang/fast_langdetect/              语言检测 (lid.176.bin)
 
 用法:
     python download_models.py --wizard          # 交互式菜单
@@ -75,15 +77,15 @@ HF_REPO_MELBAND = "KimberleyJSN/melbandroformer"
 # BS-Roformer ep_317 权重: MSST(Music-Source-Separation-Training) 模型库 HF 镜像
 # (HF 标注 MIT)。同样无需 yaml(分离器内置该 checkpoint 的默认配置)。
 HF_REPO_BSROFORMER = "Eddycrack864/Music-Source-Separation-Training"
-# ASR 运行时(asr.js -> fasterwhisper_asr.py, --model_dir=asr, -s large-v3-turbo)
-# 期望模型位于 asr/faster-whisper-large-v3-turbo/。turbo 权重在 mobiuslabsgmbh 仓库,
+# ASR 运行时(asr.js 传 --model_dir=FASTER_WHISPER_DIR, -s large-v3-turbo)期望模型位于
+# models/asr/faster-whisper/<size>/, 即 large-v3-turbo/。turbo 权重在 mobiuslabsgmbh 仓库,
 # 非 Systran 的 large-v3。用错仓库/路径会导致运行时 "Unable to open file 'model.bin'"。
 HF_REPO_ASR = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
 MIRROR = "https://hf-mirror.com"
 
 # FunASR (前端可选的中文/粤语 ASR 引擎; asr.js -> funasr_asr.py) 的模型来自 ModelScope
-# 的 iic/。运行时首次使用会经 modelscope.snapshot_download 懒下载到
-# gsv-tools/asr/models/<name>/。这里把它们纳入"部署期可选下载", 让前端暴露的 FunASR
+# 的 iic/。运行时首次使用会经 modelscope.snapshot_download 懒下载到 funasr_asr.py 的
+# MODELS_DIR, 即 models/asr/funasr/<name>/。这里把它们纳入"部署期可选下载", 让前端的 FunASR
 # 引擎有对应的离线下载路径 (否则首次训练必须联网、且许可从未在部署同意里披露)。
 # 每条: (modelscope_model_id, 本地目录名)。
 MS_FUNASR = [
@@ -106,12 +108,23 @@ URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve
 # 相对项目根的目录
 # 第三方代码位置（r12a 起按工作流环节划分）。
 GSV_CODE = os.path.join("vendor", "tts", "gpt-sovits", "gsv_code")
-# 权重位置。仍在旧目录下，下一轮迁入 models/。
-PRE = os.path.join("vendor", "gsv-tools", "pretrained")
-ASR = os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3-turbo")
-UVR = os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights")
-# FunASR 模型的落地目录 (与 funasr_asr.py 的 MODELS_DIR 一致)。
-FUNASR_DIR = os.path.join("vendor", "gsv-tools", "asr", "models")
+
+# 权重位置。必须与 lib/paths.js 的常量逐条对应 —— 那里是全项目唯一的位置权威,
+# 这里只是把同一组位置写成 Python。守卫测试 lib/base_model_layout.node.test.js
+# 会逐条核对, 两边一旦分叉就红。
+#
+# 这几行此前仍停在 r12a 之前的 vendor/gsv-tools/ 下(注释还写着"下一轮迁入
+# models/"), 而权重早在 r12b 就已迁入 models/。于是这个下载器把约 9GB 文件下到了
+# 没有任何代码会去读的目录: 下载成功、校验通过、结果全不生效。
+PRE = os.path.join("models", "tts", "gpt-sovits")            # = paths.js GSV_PRETRAINED_DIR
+ASR = os.path.join("models", "asr", "faster-whisper", "large-v3-turbo")  # = FASTER_WHISPER_DIR/<size>
+# 分离权重按架构分子目录 vr / roformer / mdx (见 vendor/uvr5/uvr5_models.js 的
+# archDir())。扁平放在 uvr5/ 下的权重, 注册表一律判定为"未安装"。
+UVR = os.path.join("models", "separation", "uvr5")           # = paths.js UVR5_WEIGHTS_DIR
+# FunASR 模型的落地目录 (= paths.js FUNASR_MODELS_DIR)。
+FUNASR_DIR = os.path.join("models", "asr", "funasr")
+# 语种识别权重 (= paths.js MODEL_ASSETS.langdetect)。
+LANGDETECT_DIR = os.path.join("models", "lang", "fast_langdetect")
 
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
 #   backend = "hf"  -> source=(repo, path_in_repo)
@@ -123,12 +136,12 @@ MANIFEST = {
     "core": [
         # S1 GPT (AR) —— 每个版本都需要
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"),
-         os.path.join(PRE, "gsv-v2final", "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"), 120_000_000),
+         os.path.join(PRE, "v2", "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"), 120_000_000),
         ("hf", (HF_REPO_GSV, "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"),
-         os.path.join(PRE, "gsv-v2final", "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"), 120_000_000),
+         os.path.join(PRE, "v1", "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"), 120_000_000),
         # v1/v2 base 488k (推理回退基座, 保留)
-        ("hf", (HF_REPO_GSV, "s2G488k.pth"), os.path.join(PRE, "v2Pro", "s2G488k.pth"), 80_000_000),
-        ("hf", (HF_REPO_GSV, "s2D488k.pth"), os.path.join(PRE, "v2Pro", "s2D488k.pth"), 80_000_000),
+        ("hf", (HF_REPO_GSV, "s2G488k.pth"), os.path.join(PRE, "v1", "s2G488k.pth"), 80_000_000),
+        ("hf", (HF_REPO_GSV, "s2D488k.pth"), os.path.join(PRE, "v1", "s2D488k.pth"), 80_000_000),
         # v2Pro (默认基座)
         ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2Pro.pth"), os.path.join(PRE, "v2Pro", "s2Gv2Pro.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2Pro.pth"), os.path.join(PRE, "v2Pro", "s2Dv2Pro.pth"), 80_000_000),
@@ -153,14 +166,14 @@ MANIFEST = {
     # ---- 备用基座 v2 (G+D) 按需 ----
     "alt_v2": [
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2G2333k.pth"),
-         os.path.join(PRE, "gsv-v2final", "s2G2333k.pth"), 80_000_000),
+         os.path.join(PRE, "v2", "s2G2333k.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2D2333k.pth"),
-         os.path.join(PRE, "gsv-v2final", "s2D2333k.pth"), 80_000_000),
+         os.path.join(PRE, "v2", "s2D2333k.pth"), 80_000_000),
     ],
     # ---- 备用基座 v2ProPlus (G+D) 按需 ----
     "alt_v2proplus": [
-        ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2ProPlus.pth"), os.path.join(PRE, "v2Pro", "s2Gv2ProPlus.pth"), 80_000_000),
-        ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2ProPlus.pth"), os.path.join(PRE, "v2Pro", "s2Dv2ProPlus.pth"), 80_000_000),
+        ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2ProPlus.pth"), os.path.join(PRE, "v2ProPlus", "s2Gv2ProPlus.pth"), 80_000_000),
+        ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2ProPlus.pth"), os.path.join(PRE, "v2ProPlus", "s2Dv2ProPlus.pth"), 80_000_000),
     ],
     "asr": [
         ("hf", (HF_REPO_ASR, "config.json"), os.path.join(ASR, "config.json"), 500),
@@ -170,7 +183,7 @@ MANIFEST = {
         ("hf", (HF_REPO_ASR, "model.bin"), os.path.join(ASR, "model.bin"), 1_500_000_000),
     ],
     # FunASR 中文/粤语 ASR 引擎 (前端可选, 中文更准 + 自带标点)。模型在 ModelScope
-    # 的 iic/, 用 "ms" 后端整目录下载到 gsv-tools/asr/models/<name>/, 与 funasr_asr.py
+    # 的 iic/, 用 "ms" 后端整目录下载到 models/asr/funasr/<name>/, 与 funasr_asr.py
     # 运行时懒下载的落地路径一致 —— 预下载后离线首训即可用。
     "funasr": [
         ("ms", mid, os.path.join(FUNASR_DIR, name), 5_000_000)
@@ -183,48 +196,50 @@ MANIFEST = {
     # 去伴奏 HP 家族 (VR)
     "uvr5_hp": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP2_all_vocals.pth"),
-         os.path.join(UVR, "HP2_all_vocals.pth"), 50_000_000),
+         os.path.join(UVR, "vr", "HP2_all_vocals.pth"), 50_000_000),
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP3_all_vocals.pth"),
-         os.path.join(UVR, "HP3_all_vocals.pth"), 50_000_000),
+         os.path.join(UVR, "vr", "HP3_all_vocals.pth"), 50_000_000),
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP5_only_main_vocal.pth"),
-         os.path.join(UVR, "HP5_only_main_vocal.pth"), 50_000_000),
+         os.path.join(UVR, "vr", "HP5_only_main_vocal.pth"), 50_000_000),
     ],
     # 去混响/去回声 DeEcho ×3 (VR)
     "uvr5_deecho": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoNormal.pth"),
-         os.path.join(UVR, "VR-DeEchoNormal.pth"), 30_000_000),
+         os.path.join(UVR, "vr", "VR-DeEchoNormal.pth"), 30_000_000),
         ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoAggressive.pth"),
-         os.path.join(UVR, "VR-DeEchoAggressive.pth"), 30_000_000),
+         os.path.join(UVR, "vr", "VR-DeEchoAggressive.pth"), 30_000_000),
         ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoDeReverb.pth"),
-         os.path.join(UVR, "VR-DeEchoDeReverb.pth"), 30_000_000),
+         os.path.join(UVR, "vr", "VR-DeEchoDeReverb.pth"), 30_000_000),
     ],
     # MDX 去混响 (FoxJoy onnx, 2 文件)
     "uvr5_mdx": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/onnx_dereverb_By_FoxJoy/vocals.onnx"),
-         os.path.join(UVR, "onnx_dereverb_By_FoxJoy", "vocals.onnx"), 20_000_000),
+         os.path.join(UVR, "mdx", "onnx_dereverb_By_FoxJoy", "vocals.onnx"), 20_000_000),
         ("hf", (HF_REPO_UVR5, "uvr5_weights/onnx_dereverb_By_FoxJoy/other.onnx"),
-         os.path.join(UVR, "onnx_dereverb_By_FoxJoy", "other.onnx"), 20_000_000),
+         os.path.join(UVR, "mdx", "onnx_dereverb_By_FoxJoy", "other.onnx"), 20_000_000),
     ],
     # Roformer 高质量分离 (体积大头): BS-Roformer + Mel-Band, 均无需 yaml (内置默认配置)。
     "uvr5_roformer": [
         # BS-Roformer (MSST zoo mirror, MIT).
         ("hf", (HF_REPO_BSROFORMER, "model_bs_roformer_ep_317_sdr_12.9755.ckpt"),
-         os.path.join(UVR, "model_bs_roformer_ep_317_sdr_12.9755.ckpt"), 200_000_000),
+         os.path.join(UVR, "roformer", "model_bs_roformer_ep_317_sdr_12.9755.ckpt"), 200_000_000),
         # Mel-Band Roformer (KimberleyJSN, MIT).
         ("hf", (HF_REPO_MELBAND, "MelBandRoformer.ckpt"),
-         os.path.join(UVR, "MelBandRoformer.ckpt"), 200_000_000),
+         os.path.join(UVR, "roformer", "MelBandRoformer.ckpt"), 200_000_000),
     ],
     "g2pw": [
-        # 下载官方 G2PWModel.zip, 仅抽出 g2pW.onnx, 同时写入两个副本
-        # (GPT_SoVITS/text 与 gsv_code/text 的既有 G2PWModel/ 目录都需要该权重)。
+        # 下载官方 G2PWModel.zip, 仅抽出 g2pW.onnx。落点只有一个:
+        # models/tts/gpt-sovits/G2PWModel/ (= paths.js MODEL_ASSETS.g2pw)。
+        # 原先写的 GPT_SoVITS/text/G2PWModel/ 这个目录在本项目里根本不存在,
+        # 那份副本从来没被任何代码读到过。
         ("g2pzip", URL_G2PWMODEL_ZIP,
-         os.path.join("GPT_SoVITS", "text", "G2PWModel", "g2pW.onnx"), 50_000_000,
-         [os.path.join(GSV_CODE, "text", "G2PWModel", "g2pW.onnx")]),
+         os.path.join(PRE, "G2PWModel", "g2pW.onnx"), 50_000_000),
     ],
     "langdetect": [
+        # 落点只有一个: models/lang/fast_langdetect/ (= paths.js MODEL_ASSETS.langdetect)。
+        # 原先那份写进 gsv_code/pretrained_models/ 的副本同样无人读取。
         ("url", URL_LID176,
-         os.path.join(PRE, "fast_langdetect", "lid.176.bin"), 100_000_000,
-         [os.path.join(GSV_CODE, "pretrained_models", "fast_langdetect", "lid.176.bin")]),
+         os.path.join(LANGDETECT_DIR, "lid.176.bin"), 100_000_000),
     ],
 }
 GROUPS = ["core", "alt_v2", "alt_v2proplus", "asr", "funasr",

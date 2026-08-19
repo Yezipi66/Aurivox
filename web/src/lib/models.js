@@ -18,7 +18,11 @@ export const BASE_VOICE_ID = '__base__'
 // The built-in Base checkpoints live under the pretrained-weights root, not under
 // assets/<id>/, so their paths carry these distinctive signatures. Used to tag a
 // restored base selection back to __base__ so a base+asset mix survives reload.
-const BASE_CKPT_RE = /(?:^|\/)(?:gsv-v2final|v2Pro)\/|(?:^|\/)s1bert25hz-|(?:^|\/)s2G(?:2333k|488k|v2Pro|v2ProPlus)\.pth$/
+// 底模按版本分目录（v1 / v2 / v2Pro / v2ProPlus，见 lib/paths.js 的 BASE_DIRS）。
+// 旧布局的 gsv-v2final/ 仍然认，否则尚未搬文件的机器上，已保存的配方会认不出底模。
+// 版本目录只在底模根 gpt-sovits/ 之下才算数：光看 /v2/ 这一段会把用户自己路径里
+// 恰好有 v2 目录的检查点误判成底模。
+const BASE_CKPT_RE = /(?:^|\/)gpt-sovits\/(?:v1|v2|v2Pro|v2ProPlus)\/|(?:^|\/)(?:gsv-v2final|v2Pro)\/|(?:^|\/)s1bert25hz-|(?:^|\/)s2G(?:2333k|488k|v2Pro|v2ProPlus)\.pth$/
 
 // Extract the owning asset id from a published checkpoint path, e.g.
 //   ".../assets/<id>/gpt_checkpoints/<file>.ckpt" -> "<id>"

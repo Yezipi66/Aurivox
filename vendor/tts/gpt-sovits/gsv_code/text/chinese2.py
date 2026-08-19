@@ -6,6 +6,7 @@ from pypinyin import lazy_pinyin, Style
 from pypinyin.contrib.tone_convert import to_finals_tone3, to_initials
 
 from gsv_code.text.symbols import punctuation
+from gsv_code.text import runtime_status
 from gsv_code.text.tone_sandhi import ToneSandhi
 from gsv_code.text.zh_normalization.text_normlization import TextNormalizer
 
@@ -51,11 +52,75 @@ is_g2pw = True  # True if is_g2pw_str.lower() == 'true' else False
 # fail phoneme conversion, leaving the training set empty ("phoneme has 0 rows").
 # Do the real import defensively and degrade to the pypinyin path (already
 # implemented below) so Chinese fine-tune still works without g2pW.
+# --- BEGIN shared block: onnxruntime CUDA DLL registration -------------------
+# Keep every copy of this block byte-identical. lib/training/g2pw_ort.node.test.js
+# compares them and fails if they drift.
+#
+# Two independent things must BOTH be right before onnxruntime's CUDA
+# ExecutionProvider will load on Windows, and neither of them raises when wrong:
+#
+#   1. The wheel must match torch's CUDA major version. onnxruntime-gpu on PyPI
+#      was built against CUDA 11.8 until 1.19.0, so the obvious command
+#      (`pip install onnxruntime-gpu==1.18.0`) gives a provider DLL that imports
+#      cudart64_110 / cublas64_11 / cufft64_10. torch cu121 ships
+#      cudart64_12 / cublas64_12 / cufft64_11, so the load dies with "error 126"
+#      -- which names the DLL that could not be loaded, never the dependency
+#      that was actually missing. tools/deploy/install_torch.ps1 pins both the
+#      version AND the CUDA 12 index for this reason.
+#   2. The CUDA/cuDNN DLLs live inside torch, not on the system. Since Python
+#      3.8, Windows no longer resolves an extension module's dependencies via
+#      %PATH% -- only via directories passed to os.add_dll_directory(). That
+#      registration has to happen BEFORE onnxruntime is imported.
+#
+# When either is wrong onnxruntime just hands back a CPU session. Anything that
+# needs to KNOW must look at session.get_providers(); get_available_providers()
+# still lists CUDA on onnxruntime<1.19 even when its DLLs failed to load, so it
+# reports success on a machine that is running entirely on the CPU.
+#
+# No-op on non-Windows, when torch is not installed, and when the dir is absent.
+#
+# It returns the exception instead of swallowing it. Failing here means
+# onnxruntime will not find its CUDA dependencies and will hand back a CPU
+# session, which produces audio -- slowly -- and never raises. Each caller
+# decides how to report ORT_CUDA_DLL_ERROR; nothing may drop it silently.
+def _register_torch_cuda_dlls():
+    if os.name != "nt":
+        return None
+    try:
+        import torch
+
+        lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.isdir(lib):
+            os.add_dll_directory(lib)
+    except Exception as err:
+        return err
+    return None
+
+
+ORT_CUDA_DLL_ERROR = _register_torch_cuda_dlls()
+# --- END shared block: onnxruntime CUDA DLL registration ---------------------
+
+if ORT_CUDA_DLL_ERROR is not None:
+    # 不抛出（CPU 也能出声），但必须留下状态位，否则"变慢了"这种症状事后无从追查。
+    runtime_status.note(
+        "chinese2",
+        runtime_status.ORT_CUDA_DLL_DIR_FAILED,
+        "could not register torch/lib for onnxruntime CUDA; inference may fall "
+        "back to CPU: %r" % (ORT_CUDA_DLL_ERROR,),
+    )
+
+
 if is_g2pw:
     try:
         from gsv_code.text.g2pw import G2PWPinyin, correct_pronunciation
     except Exception as _g2pw_err:
         print(f"[chinese2] g2pW unavailable ({_g2pw_err!r}); using pypinyin fallback for Chinese.")
+        runtime_status.note(
+            "chinese2",
+            runtime_status.G2PW_IMPORT_FAILED,
+            "gsv_code.text.g2pw could not be imported; Chinese polyphones fall "
+            "back to pypinyin: %r" % (_g2pw_err,),
+        )
         is_g2pw = False
 if is_g2pw:
     # print("当前使用g2pw进行拼音推理")
@@ -104,6 +169,14 @@ if is_g2pw:
             f"[chinese2]   bert model dir : {bert_path}\n"
             f"[chinese2]   override with env g2pw_model_dir / bert_path"
         )
+        runtime_status.note(
+            "chinese2",
+            runtime_status.G2PW_MODEL_LOAD_FAILED,
+            "g2pW weights could not be loaded; Chinese polyphone accuracy "
+            "drops to pypinyin: %r" % (_g2pw_err,),
+            g2pw_model_dir=g2pw_model_dir,
+            bert_path=bert_path,
+        )
         is_g2pw = False
 
 rep_map = {
@@ -131,7 +204,45 @@ try:
     from gsv_code.text import pron_correction as _pron
 except Exception as _pron_err:  # pragma: no cover
     print(f"[chinese2] pron_correction unavailable ({_pron_err!r}); pronunciation override disabled.")
+    runtime_status.note(
+        "chinese2",
+        runtime_status.PRON_OVERLAY_UNAVAILABLE,
+        "pron_correction could not be imported; every reading proofread by the "
+        "user is ignored: %r" % (_pron_err,),
+    )
     _pron = None
+
+
+# 送 g2pW 推理时，把标点还原成全角。
+#
+# 上面的 replace_punctuation 把「。，！？」压成半角「.,!?」，这一步本身是必要的:
+# 下游音素表 symbols2.punctuation 只收半角。但压扁之后的文本被原样送进了 g2pW,
+# 而 g2pW 的预训练语料是全角中文 —— 半角句点在它眼里不构成句末信号,句末的多音字
+# 就会判错:
+#     g2pW('了一半。') -> ['le5',   'yi2', 'ban4', '。']   对
+#     g2pW('了一半.') -> ['liao3', 'yi2', 'ban4', '.']    错
+# 所以只在「送进模型的那一份」上还原全角,其余流程一律仍走半角。
+#
+# ⛔ 映射必须逐字符 1:1、长度不变。下游 pinyins[pre_word_length:now_word_length]
+#    是按字符下标切的,长度一变整句拼音就会集体错位。因此这里只做单字符替换,
+#    不做增删,也不碰 '…' 和 '-' —— 这两个本来就没有对应的全角中文形式。
+_G2PW_INPUT_PUNCT = {",": "，", ".": "。", "!": "！", "?": "？"}
+_G2PW_OUTPUT_PUNCT = {v: k for k, v in _G2PW_INPUT_PUNCT.items()}
+
+
+def to_g2pw_input(seg):
+    """把一个待推理片段里的半角标点换成全角，长度不变。"""
+    return "".join(_G2PW_INPUT_PUNCT.get(ch, ch) for ch in seg)
+
+
+def from_g2pw_result(pinyins):
+    """把 g2pW 原样吐回来的全角标点换回半角。
+
+    g2pW 不认识标点,是当作透传项原样返回的,所以喂进去的全角会跟着结果一起出来。
+    下游 chinese2.py 的 `assert c in punctuation` 只认半角,漏掉这一步会当场抛
+    AssertionError。逐项替换,不改变列表长度。
+    """
+    return [_G2PW_OUTPUT_PUNCT.get(p, p) for p in pinyins]
 
 
 def replace_punctuation(text):
@@ -167,8 +278,11 @@ def get_word_pinyins(text):
     g2pw_batch = []
     cursor = 0
     if is_g2pw:
-        batch_inputs = [seg for seg in processed if seg]
+        # 与 _g2p 逐字对齐：这个函数是那条流水线的第二份实现，注释里承诺了
+        # 「预览读音 == 实际合成读音」。只改其中一处，校对界面就会开始骗人。
+        batch_inputs = [to_g2pw_input(seg) for seg in processed if seg]
         g2pw_batch = g2pw._g2pw(batch_inputs) if batch_inputs else []
+        g2pw_batch = [from_g2pw_result(r) for r in g2pw_batch]
 
     out = []
     for seg in processed:
@@ -301,8 +415,9 @@ def _g2p(segments):
     g2pw_batch_cursor = 0
     processed_segments = [re.sub("[a-zA-Z]+", "", seg) for seg in segments]
     if is_g2pw:
-        batch_inputs = [seg for seg in processed_segments if seg]
+        batch_inputs = [to_g2pw_input(seg) for seg in processed_segments if seg]
         g2pw_batch_results = g2pw._g2pw(batch_inputs) if batch_inputs else []
+        g2pw_batch_results = [from_g2pw_result(r) for r in g2pw_batch_results]
 
     for seg in processed_segments:
         pinyins = []
@@ -337,8 +452,29 @@ def _g2p(segments):
                                     break
                             if _ok:
                                 sub_initials, sub_finals = _ni, _nf
-                        elif os.environ.get("PRON_DEBUG"):
-                            print(f"[pron] apply(pypinyin) length mismatch word={word!r} ov={len(_ov_py)} finals={len(sub_finals)}; kept base", flush=True)
+                            else:
+                                # 覆盖里有不成拼音的项，整条丢弃。丢弃本身是对的，
+                                # 但"用户校对过的读音没生效"必须留下痕迹。
+                                runtime_status.note(
+                                    "chinese2",
+                                    runtime_status.PRON_OVERRIDE_LENGTH_MISMATCH,
+                                    "a pypinyin-branch reading override was discarded: "
+                                    "the override is not spelled as pinyin",
+                                    word=word,
+                                )
+                        else:
+                            if os.environ.get("PRON_DEBUG"):
+                                print(f"[pron] apply(pypinyin) length mismatch word={word!r} ov={len(_ov_py)} finals={len(sub_finals)}; kept base", flush=True)
+                            # 校对层静默失效点：长度对不上就整条丢弃，界面上却显示
+                            # 覆盖已保存。丢弃保留（对齐不上强行套用会串音），但状态位
+                            # 必须有，否则用户只会看到"我改了没用"。
+                            runtime_status.note(
+                                "chinese2",
+                                runtime_status.PRON_OVERRIDE_LENGTH_MISMATCH,
+                                "a pypinyin-branch reading override was discarded: "
+                                "syllable count does not match the finals",
+                                word=word,
+                            )
                 sub_finals = tone_modifier.modified_tone(word, pos, sub_finals)
                 # 儿化
                 sub_initials, sub_finals = _merge_erhua(sub_initials, sub_finals, word, pos)
