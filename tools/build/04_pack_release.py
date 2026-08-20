@@ -54,7 +54,25 @@ TOP_EXCLUDE = {
     "venv", ".venv", "venv_idx241", "assets", ".staging",
     # dev-time backups written by the apply-r12b-fix*.py patch scripts
     # (57 files, 1.8MB). Same category as .staging, which is already here.
+    #
+    # r12c-batch15: this entry went STALE and silently stopped matching. It
+    # names a TOP-LEVEL ".patch-backup" (leading dot); the patch scripts have
+    # since written to "cache/patch-backup/" (no dot, one level deeper). The
+    # rule kept evaluating, kept matching nothing, and 73 backup files -- five
+    # r12b-era timestamped snapshots plus the r12c-batch12/13/14 backups,
+    # including their applied.patch diffs -- shipped to end users. Kept here
+    # for machines that still carry the old top-level folder; the live catch
+    # is now the "patch-backup" entry in NAME_EXCLUDE, which is anchored to the
+    # directory NAME at ANY depth and therefore survives the next move.
     ".patch-backup",
+    # cache/ is scratch: patch backups (above), the HuggingFace hub cache
+    # (cache/hf/...), and one-off build logs. Nothing here is read on a fresh
+    # install -- every consumer recreates its own cache on first use.
+    "cache",
+    # .hermes/ is dev-only tooling state. Zero references from any shipped
+    # code path (grepped across js/cjs/py/bat/ps1/json: the only two hits are
+    # comments in dev scripts), yet it shipped one 14.3KB file.
+    ".hermes",
     "logs", "log", "outputs", "output", "backups", "tmp", "temp",
     "cr-sandbox", "voices", "dist",  # top-level dist = our own output
     # leftover folders from extracting an older distribution-kit patch in place
@@ -88,6 +106,13 @@ NAME_EXCLUDE = {
     ".git", ".hg", ".svn",
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".numba_cache", ".cache", ".gradio", ".ipynb_checkpoints",
+    # r12c-batch15: apply-*.py patch backups, by DIRECTORY NAME at any depth.
+    # TOP_EXCLUDE already drops "cache" and ".patch-backup", but both of those
+    # are anchored to a specific location -- which is exactly how the original
+    # ".patch-backup" rule died when the backups moved into cache/. This entry
+    # is location-independent on purpose: it is the one that keeps working
+    # after the next move.
+    "patch-backup",
 }
 
 # The bundled portable Node runtime keeps its OWN node_modules (that is where npm
@@ -100,6 +125,16 @@ NODE_RUNTIME_PREFIX = "tools/runtime/node/"
 # Specific subtrees (relative paths) to drop wherever they are anchored.
 PATH_EXCLUDE = {
     os.path.join("web", "node_modules"),
+    # r12c-batch15: tools/dev holds ASSISTANT-GENERATED dev tooling -- the
+    # apply-r12c-batch*.py patch scripts, collect_repo_source*.py, and the
+    # read-only probes. r12c-batch13 moved them OUT of the repo root (the root
+    # layout guard only inspects depth 1) and into tools/dev -- but tools/ is
+    # shipped wholesale, so "tidying the root" quietly moved them INTO the
+    # release. Caught by arithmetic: --dry-run reported 5908 files while the
+    # probe reported 5909, and the one extra file was the probe itself, which
+    # had just been dropped into tools/dev. Same failure mode as the stale
+    # ".patch-backup" rule above: a depth-anchored guard vs. content that moved.
+    os.path.join("tools", "dev"),
     # ffmpeg is OPTIONAL (only vocal separation / UVR5 needs it) and ~275MB.
     # Users fetch it on demand via download_ffmpeg.py, so keep it out of source.
     os.path.join("vendor", "ffmpeg"),
@@ -494,6 +529,42 @@ def main():
     ]:
         if not any(norm(r) == norm(need) or norm(r).startswith(norm(need)) for r, _, _ in included):
             print(f"  [WARN] missing {need}  -> {hint}")
+
+    # ---- HARD preflight: the r12c relocation targets ------------------------
+    # Everything above is a [WARN]: it prints and packs anyway. That is fine for
+    # "you forgot to build the frontend" but wrong for the trees r12c MOVED,
+    # because the failure mode there is a zip that extracts and then cannot
+    # synthesise anything -- with no error at pack time. Note that not one of
+    # the WARN entries above mentions engines/ or pipeline/, so a clean
+    # "0 warnings" run proved only that the PRE-r12c files were still there.
+    #
+    # Floors are set at roughly half the 2026-08-20 measured counts, so normal
+    # churn cannot trip them but "the tree moved / emptied" always does:
+    #   engines/gpt-sovits 183   pipeline/uvr5 58   pipeline/asr 6
+    #   pipeline/slicer 2        lib 135
+    required = [
+        ("engines/gpt-sovits/", 100, "live TTS engine (r12c: was vendor/tts/gpt-sovits)"),
+        ("pipeline/uvr5/",       30, "vocal separation (r12c: was vendor/uvr5)"),
+        ("pipeline/asr/",         3, "speech recognition (r12c: was vendor/asr)"),
+        ("pipeline/slicer/",      1, "audio slicing (r12c: was vendor/slicer)"),
+        ("lib/",                 50, "our own server-side code"),
+    ]
+    hard_fail = []
+    for prefix, floor, what in required:
+        n = sum(1 for r, _, _ in included if norm(r).startswith(prefix))
+        if n < floor:
+            hard_fail.append((prefix, n, floor, what))
+    if not any(norm(r) == "server.js" for r, _, _ in included):
+        hard_fail.append(("server.js", 0, 1, "broker main program"))
+    if hard_fail:
+        print("\n[PREFLIGHT-FAIL] the release is missing code it cannot run without:")
+        for prefix, n, floor, what in hard_fail:
+            print(f"    {prefix:<26} {n:>5} file(s), expected >= {floor}   ({what})")
+        print("  This is a FAIL, not a warning: such a zip extracts cleanly and")
+        print("  then fails at runtime, which is the kind that ships unnoticed.")
+        print("  Check the exclusion tables above and the layout in docs/ROOT_LAYOUT.md.")
+        return 4
+
     # data/ is per-installation state apart from the DATA_KEEP allowlist. A leak
     # here ships the dev box's voice roster / canvas graphs to every tester.
     leaked_data = [r for r, _, _ in included
