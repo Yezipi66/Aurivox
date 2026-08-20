@@ -63,11 +63,11 @@ function Dump-Tree($base, $label){
   }
   W ""
 }
-Dump-Tree (Join-Path $root 'vendor\uvr5') 'vendor\uvr5 (vocal separation code)'
-Dump-Tree (Join-Path $root 'vendor\asr') 'vendor\asr (speech recognition code)'
-Dump-Tree (Join-Path $root 'vendor\tts') 'vendor\tts (TTS engines)'
-Dump-Tree (Join-Path $root 'vendor\gsv-tools') 'vendor\gsv-tools (weights only, moving to models/)'
-Dump-Tree (Join-Path $root 'vendor') 'vendor (ffmpeg etc.)'
+Dump-Tree (Join-Path $root 'pipeline\uvr5') 'pipeline\uvr5 (vocal separation code)'
+Dump-Tree (Join-Path $root 'pipeline\asr') 'pipeline\asr (speech recognition code)'
+Dump-Tree (Join-Path $root 'pipeline\slicer') 'pipeline\slicer (audio slicing code)'
+Dump-Tree (Join-Path $root 'engines') 'engines (one dir per TTS engine)'
+Dump-Tree (Join-Path $root 'vendor') 'vendor (prebuilt third-party: ffmpeg / micromamba)'
 Dump-Tree (Join-Path $root 'wheels') 'wheels (if any)'
 Dump-Tree (Join-Path $root 'tools')  'tools (if any)'
 Dump-Tree (Join-Path $root 'web')    'web (source, dist excluded)'

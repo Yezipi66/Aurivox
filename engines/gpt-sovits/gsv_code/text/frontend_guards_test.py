@@ -18,7 +18,7 @@ import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GSV_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))          # vendor/tts/gpt-sovits
+GSV_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))          # engines/gpt-sovits
 PKG_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))    # holds gsv_code/
 for p in (PKG_ROOT, GSV_ROOT):
     if p not in sys.path:

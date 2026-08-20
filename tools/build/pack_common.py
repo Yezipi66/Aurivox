@@ -46,8 +46,8 @@ _MODEL_PREFIX = (
     "vendor/gsv-tools/pretrained/",
     "vendor/gsv-tools/asr/",
     "vendor/gsv-tools/uvr5/uvr5_weights/",
-    "vendor/tts/gpt-sovits/gsv_code/pretrained_models/",
-    "vendor/tts/gpt-sovits/infer/sr/AP_BWE_main/24kto48k/",
+    "engines/gpt-sovits/gsv_code/pretrained_models/",
+    "engines/gpt-sovits/infer/sr/AP_BWE_main/24kto48k/",
 )
 _MODEL_EXT = {
     ".pth", ".ckpt", ".pt", ".onnx", ".bin", ".safetensors", ".h5", ".pb",

@@ -4,7 +4,7 @@ The full TextPreprocessor imports torch and the model packages. This test
 extracts only the pure routing functions from the source, so it runs on a bare
 Python with no venv, no weights and no GPU:
 
-    python vendor/tts/gpt-sovits/infer/TTS_infer_pack/auto_language_test.py
+    python engines/gpt-sovits/infer/TTS_infer_pack/auto_language_test.py
 
 What it does NOT cover: the language DETECTOR (fast_langdetect / split_lang)
 that labels each fragment. That needs the model weights. Here the detector is
@@ -26,7 +26,7 @@ SOURCE = Path(__file__).with_name("TextPreprocessor.py")
 # seg_reconcile and runtime_status are standard-library only, on purpose: the
 # completeness guard has to be loadable in exactly this kind of bare
 # environment, otherwise nothing here could check it.
-_GSV_ROOT = Path(__file__).resolve().parents[2]          # vendor/tts/gpt-sovits
+_GSV_ROOT = Path(__file__).resolve().parents[2]          # engines/gpt-sovits
 for _p in (str(_GSV_ROOT), str(_GSV_ROOT.parent.parent.parent)):
     if _p not in sys.path:
         sys.path.insert(0, _p)

@@ -106,8 +106,8 @@ URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.
 URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve/main/G2PWModel.zip"
 
 # 相对项目根的目录
-# 第三方代码位置（r12a 起按工作流环节划分）。
-GSV_CODE = os.path.join("vendor", "tts", "gpt-sovits", "gsv_code")
+# 引擎源码位置（r12c 起：engines/<引擎名>/，见 docs/ENGINE_CONTRACT.md §2）。
+GSV_CODE = os.path.join("engines", "gpt-sovits", "gsv_code")
 
 # 权重位置。必须与 lib/paths.js 的常量逐条对应 —— 那里是全项目唯一的位置权威,
 # 这里只是把同一组位置写成 Python。守卫测试 lib/base_model_layout.node.test.js
@@ -118,7 +118,7 @@ GSV_CODE = os.path.join("vendor", "tts", "gpt-sovits", "gsv_code")
 # 没有任何代码会去读的目录: 下载成功、校验通过、结果全不生效。
 PRE = os.path.join("models", "tts", "gpt-sovits")            # = paths.js GSV_PRETRAINED_DIR
 ASR = os.path.join("models", "asr", "faster-whisper", "large-v3-turbo")  # = FASTER_WHISPER_DIR/<size>
-# 分离权重按架构分子目录 vr / roformer / mdx (见 vendor/uvr5/uvr5_models.js 的
+# 分离权重按架构分子目录 vr / roformer / mdx (见 pipeline/uvr5/uvr5_models.js 的
 # archDir())。扁平放在 uvr5/ 下的权重, 注册表一律判定为"未安装"。
 UVR = os.path.join("models", "separation", "uvr5")           # = paths.js UVR5_WEIGHTS_DIR
 # FunASR 模型的落地目录 (= paths.js FUNASR_MODELS_DIR)。

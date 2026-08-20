@@ -87,23 +87,23 @@ def analyze(entry, search_dirs):
 
 # Paths below are relative to ROOT (the project root).
 # 第三方代码按工作流环节分类存放；GPT-SoVITS 一支的三部分同处一根之下。
-GSV = "vendor/tts/gpt-sovits"
+GSV = "engines/gpt-sovits"
 GSV_CODE = GSV + "/gsv_code"
 GSV_INFER = GSV + "/infer"
 ENTRIES = [
-    ("vendor/tts/gpt-sovits/gsv_code/s2_train.py", [GSV_CODE]),
-    ("vendor/tts/gpt-sovits/gsv_code/s1_train.py", [GSV_CODE]),
-    ("vendor/tts/gpt-sovits/gsv_code/prepare_datasets/1-get-text.py", [GSV_CODE]),
-    ("vendor/tts/gpt-sovits/gsv_code/prepare_datasets/2-get-hubert-wav32k.py", [GSV_CODE]),
-    ("vendor/tts/gpt-sovits/gsv_code/prepare_datasets/3-get-semantic.py", [GSV_CODE]),
+    ("engines/gpt-sovits/gsv_code/s2_train.py", [GSV_CODE]),
+    ("engines/gpt-sovits/gsv_code/s1_train.py", [GSV_CODE]),
+    ("engines/gpt-sovits/gsv_code/prepare_datasets/1-get-text.py", [GSV_CODE]),
+    ("engines/gpt-sovits/gsv_code/prepare_datasets/2-get-hubert-wav32k.py", [GSV_CODE]),
+    ("engines/gpt-sovits/gsv_code/prepare_datasets/3-get-semantic.py", [GSV_CODE]),
     # 2-get-sv.py also imports ERes2NetV2 / kaldi from the inference runtime;
     # this list mirrors the PYTHONPATH set in lib/training/steps/preprocess.js.
-    ("vendor/tts/gpt-sovits/gsv_code/prepare_datasets/2-get-sv.py",
+    ("engines/gpt-sovits/gsv_code/prepare_datasets/2-get-sv.py",
      [GSV_CODE, GSV_INFER]),
-    ("vendor/slicer/slicer2.py", ["vendor/slicer"]),
-    ("vendor/uvr5/webui.py", ["vendor", "vendor/uvr5"]),
-    ("vendor/asr/funasr_asr.py", ["vendor", "vendor/asr"]),
-    ("vendor/asr/fasterwhisper_asr.py", ["vendor", "vendor/asr"]),
+    ("pipeline/slicer/slicer2.py", ["pipeline/slicer"]),
+    ("pipeline/uvr5/webui.py", ["vendor", "pipeline/uvr5"]),
+    ("pipeline/asr/funasr_asr.py", ["vendor", "pipeline/asr"]),
+    ("pipeline/asr/fasterwhisper_asr.py", ["vendor", "pipeline/asr"]),
     # inference server (launched by start.ps1) + its search roots
     ("lib/inference/infer_server.py", [GSV_INFER]),
 ]

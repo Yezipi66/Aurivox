@@ -344,7 +344,7 @@ if ($torchRC -eq 0) { $TORCH_OK = $true; Ok 'PyTorch verified (import OK).' }
 else { Warn 'PyTorch is NOT importable — it did not install correctly.' }
 
 # --- 4b. ffmpeg + ffprobe (project-local, no global footprint) ---
-# UVR5 vocal separation (vendor/uvr5/webui.py) and the broker's audio
+# UVR5 vocal separation (pipeline/uvr5/webui.py) and the broker's audio
 # transcoding require ffmpeg/ffprobe. download_ffmpeg.py fetches a static build
 # into vendor\ffmpeg\<platform>\ (idempotent: skips if already runnable). Failure
 # is non-fatal here — the broker degrades to a system ffmpeg / WAV — but vocal

@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 # 项目内工具（替代 tools.my_utils 和 tools.asr.config）
 # C7 说明：这里要的是**包 asr 的父目录**，不是项目根。本文件就在 asr/ 包内，
-# 「自己目录的父目录」是自指的，跟着 asr/ 一起搬不会失准（vendor/asr ->
+# 「自己目录的父目录」是自指的，跟着 asr/ 一起搬不会失准（pipeline/asr ->
 # engines/asr 无影响）。但它毕竟仍是一次层数推导，所以补一条存在性断言：
 # 万一本文件被挪出 asr/ 包，立刻报错，而不是 import 到别处的同名模块。
 _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

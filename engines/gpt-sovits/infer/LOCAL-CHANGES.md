@@ -15,9 +15,12 @@
 | 改动 | 位置线索 | 说明 |
 |---|---|---|
 | 参考音频缓存 | `_ref_cache_cap` | 缓存已编码的参考音频，避免同一音色连续合成时重复编码。上限由环境变量 `AURIVOX_REF_CACHE` 控制，默认 8，设为 0 关闭 |
-| 包名改为 `gsv_code` | 文件头部 import 段 | 上游的 `GPT_SoVITS.*` 在本项目里是 `gsv_code.*`（见 `vendor/tts/gpt-sovits/gsv_code/`） |
+| 包名改为 `gsv_code` | 文件头部 import 段 | 上游的 `GPT_SoVITS.*` 在本项目里是 `gsv_code.*`（见 `engines/gpt-sovits/gsv_code/`） |
 | import 顺序保护 | 文件头部注释 | 与 `lib/inference/infer_server.py` 中的 librosa/torch 顺序约束配套，详见该文件注释 |
 | 失败诊断提示 | 异常分支中的长字符串 | 例如 fp16 数值不稳定时提示改 `tts_infer.yaml` 的 `is_half`，替代上游的裸异常 |
+| 配置写回只倒原有段 | `save_configs` / `_file_sections` | 上游把 `default_configs` 全表倒进 `tts_infer.yaml`，其中 v3/v4 写死上游布局 `GPT_SoVITS/pretrained_models/`（本项目无此目录）。每次热切模型都会把死路径写回配置，下次启动被 `start.ps1` 的 `Repair-EngineConfig` 判 stale 整份重置，用户选的模型丢失。改为只写回文件里原有的段；`default_configs` 全表保留不动（`init_vits_weights` 要用它查 LoRA 底模） |
+| 配置里不写绝对路径 | `_aurivox_relativise_paths` | 项目根之下的路径写成相对路径，基准取 `os.getcwd()`（`infer_server.py:62` 已 chdir 到项目根）。绝对路径会把本机盘符钉进配置，换机器即失效 |
+| 配置写回显式 utf-8 | `save_configs` 的 `open(...)` | 上游裸 `open(path, "w")` 用本地编码（中文 Windows 为 GBK），而 `_load_configs` 用 utf-8 读 |
 
 ### `TTS_infer_pack/TextPreprocessor.py`
 
@@ -57,7 +60,7 @@
 | 文件 | 约束的内容 |
 |---|---|
 | `lib/han_override_contract.node.test.js` | `_apply_lang_overrides` 必须丢弃落在非汉字上的 `@N`；`_HAN_RE` 必须与前端 `HAN_RE` 逐字符相同 |
-| `lib/training/g2pw_ort.node.test.js` | `allow_short_pad` 的默认值与调用点；`chinese2.py` 与 `vendor/uvr5/mdxnet.py` 两份 CUDA DLL 注册代码必须逐字节相同 |
+| `lib/training/g2pw_ort.node.test.js` | `allow_short_pad` 的默认值与调用点；`chinese2.py` 与 `pipeline/uvr5/mdxnet.py` 两份 CUDA DLL 注册代码必须逐字节相同 |
 
 ---
 

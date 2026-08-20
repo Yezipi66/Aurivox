@@ -1,0 +1,16 @@
+{
+  "id": "REPLACE-ME-WITH-DIRECTORY-NAME",
+  "label": "引擎显示名",
+
+  "_comment_param_keys": [
+    "这个引擎认识的参数名，逐个列。不在表上的键会被拦下并报错，",
+    "而不是被忽略 —— 否则参数名拼错会表现为「设了没效果」，很难查。",
+    "留空数组 = 这个引擎不接受任何 engine_params。"
+  ],
+  "param_keys": [],
+
+  "_comment_optional": "以下为可选字段，用不到可整行删掉。",
+  "default_base_url": "http://127.0.0.1:0000",
+  "upstream": "https://github.com/…",
+  "local_changes": "LOCAL-CHANGES.md"
+}

@@ -31,6 +31,12 @@ function collect(dir) {
 
 collect(path.join(root, 'lib'))
 // Third-party trees carry our own tests for the wrappers we call into.
+// r12c: that third-party code now lives in engines/ (per-engine) and
+// pipeline/ (engine-agnostic tools); vendor/ holds only prebuilt binaries,
+// which carry no tests of ours. Keep scanning vendor/ anyway so a stray
+// wrapper landing there is not silently untested.
+collect(path.join(root, 'engines'))
+collect(path.join(root, 'pipeline'))
 collect(path.join(root, 'vendor'))
 collect(path.join(root, 'web', 'src'))
 testFiles.sort()

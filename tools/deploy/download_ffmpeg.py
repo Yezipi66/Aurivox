@@ -4,7 +4,7 @@
 download_ffmpeg.py — project-local ffmpeg provisioning (Windows-only, no global footprint).
 
 Purpose (PH): the broker transcodes the engine's WAV output to mp3/opus/aac/flac
-via ffmpeg. In addition, the training pipeline's UVR5 step (vendor/uvr5/webui.py)
+via ffmpeg. In addition, the training pipeline's UVR5 step (pipeline/uvr5/webui.py)
 probes/reformats inputs with ffprobe + ffmpeg. Rather than requiring the user to
 install ffmpeg system-wide (which touches PATH / package managers / admin rights),
 this script downloads a static ffmpeg build and unpacks BOTH executables INTO the

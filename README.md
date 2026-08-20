@@ -25,7 +25,7 @@
 一键部署脚本自动建 venv、装依赖、下载模型并自检。
 
 - **训练**：人声提取 → 切片 → ASR → 预处理 → S1(GPT) → S2(SoVITS) 全链路管线，带失败恢复。
-- **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`，引擎本体在 `vendor/tts/gpt-sovits/infer/`），完整 S1+S2 串联。
+- **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`，引擎本体在 `engines/gpt-sovits/infer/`），完整 S1+S2 串联。
 - **分发**：`deploy.bat`（首次部署向导）+ `start.ps1`（启动），无需手工配环境。
 
 
@@ -38,8 +38,8 @@
 | `server.js` | Express 后端主入口（REST + 推理编排 + 资产/训练接口） |
 | `web/` | 前端（Vite + React；`src/` 已模块化为 `lib/` + `components/{generate,train,compare,assets,broker}`） |
 | `lib/training/` | 训练管线：`pipeline.js` 状态机 + `steps/`（denoise/slice/asr/preprocess/train_s1/train_s2）；第三方代码与权重不在此处 |
-| `lib/inference/` | 自包含推理服务的进程入口（`infer_server.py`，OpenAI 兼容）；推理运行时本体在 `vendor/tts/gpt-sovits/infer/` |
-| `vendor/` | 第三方代码，第一层按工作流环节划分：`uvr5/`（人声分离）、`asr/`（语音识别）、`slicer/`（音频切分）、`tts/<引擎>/`（合成引擎）。GPT-SoVITS 一支含 `gsv_code/`（上游源码，目录名同时是 Python 包名，不可改）、`infer/`（推理运行时）、`train/`（上游训练脚本）。本项目对推理运行时的改动记于 `vendor/tts/gpt-sovits/infer/LOCAL-CHANGES.md`，升级上游时须逐条比对 |
+| `lib/inference/` | 自包含推理服务的进程入口（`infer_server.py`，OpenAI 兼容）；推理运行时本体在 `engines/gpt-sovits/infer/` |
+| `vendor/` | 第三方代码，第一层按工作流环节划分：`uvr5/`（人声分离）、`asr/`（语音识别）、`slicer/`（音频切分）、`tts/<引擎>/`（合成引擎）。GPT-SoVITS 一支含 `gsv_code/`（上游源码，目录名同时是 Python 包名，不可改）、`infer/`（推理运行时）、`train/`（上游训练脚本）。本项目对推理运行时的改动记于 `engines/gpt-sovits/infer/LOCAL-CHANGES.md`，升级上游时须逐条比对 |
 | `vendor/gsv-tools/` | 权重暂存处，代码已迁走，下一轮全部迁入顶层 `models/` |
 | `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
 | `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |

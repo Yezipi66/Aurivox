@@ -6,7 +6,7 @@
 `vendor/` 的含义是「上游在别处，我们的改动是打在它上面的补丁」，
 不是「一个字都没改」。改动集中在下列文件，其余文件保持上游原样。
 
-姊妹文件：`vendor/tts/gpt-sovits/infer/LOCAL-CHANGES.md`（推理运行时那一半）。
+姊妹文件：`engines/gpt-sovits/infer/LOCAL-CHANGES.md`（推理运行时那一半）。
 
 ---
 
@@ -17,7 +17,7 @@
 
 ⚠ **升级时最容易踩的坑**：上游 g2pw 的部分模块内部写的是绝对导入
 `import text.xxx`，即把 `text` 当顶层包名。改名之后，仅把
-`vendor/tts/gpt-sovits` 和 `.../infer` 加进 `sys.path` 是不够的，**还必须把
+`engines/gpt-sovits` 和 `.../infer` 加进 `sys.path` 是不够的，**还必须把
 `gsv_code` 目录本身也加进去**，否则 `No module named 'text'`。而
 `text/chinese2.py` 里那处 import 外面套着 try/except，会把这个错误吞掉并
 **静默退回 pypinyin** —— 表现为「能出声、多音字全错」，不报任何错。
@@ -40,7 +40,7 @@
 
 | 改动 | 位置线索 | 说明 |
 |---|---|---|
-| CUDA DLL 目录注册 | `_register_torch_cuda_dlls()`，紧接其后的调用 | Windows 上 onnxruntime-gpu 找不到 torch 自带的 CUDA DLL，会**静默退回 CPU**（error 126）。必须在 `if is_g2pw:` **之前**执行。与 `vendor/uvr5/mdxnet.py` 中的同名函数是**同一段代码的两份副本**——两棵树分进程运行、无法互相 import，靠 `lib/training/g2pw_ort.node.test.js` 断言两份逐字节相同来防漂移。**改一处必须改另一处。** |
+| CUDA DLL 目录注册 | `_register_torch_cuda_dlls()`，紧接其后的调用 | Windows 上 onnxruntime-gpu 找不到 torch 自带的 CUDA DLL，会**静默退回 CPU**（error 126）。必须在 `if is_g2pw:` **之前**执行。与 `pipeline/uvr5/mdxnet.py` 中的同名函数是**同一段代码的两份副本**——两棵树分进程运行、无法互相 import，靠 `lib/training/g2pw_ort.node.test.js` 断言两份逐字节相同来防漂移。**改一处必须改另一处。** |
 | 接入读音校对 | `from gsv_code.text import pron_correction as _pron`，`_pron.apply(...)` 三处 | 见上 |
 | **g2pW 输入标点还原** | `to_g2pw_input()` / `from_g2pw_result()`，调用点在 `_g2p()` 与 `get_word_pinyins()` | r12b-fix7。`replace_punctuation()` 把「。，！？」压成半角送进 g2pW，而 g2pW 的预训练语料是全角中文，半角句点不构成句末信号，句末多音字判错：`g2pW('了一半。')→le5` 正确、`g2pW('了一半.')→liao3` 错误。修法是**只在送模型的那一份上还原全角**，拿回结果立刻换回半角。⛔ 两条硬约束：①映射必须逐字符 1:1、**长度不变**（下游 `pinyins[pre_word_length:now_word_length]` 按字符下标切）；②**必须换回半角**，否则 `chinese2.py` 的 `assert c in punctuation` 当场抛 AssertionError（`punctuation` 只有半角）。⛔ **两个调用点必须同时改**：`get_word_pinyins()` 是同一条流水线的第二份实现，注释里承诺「预览读音 == 实际合成读音」，只改一处读音校对界面就会开始骗人 |
 | 静默降级 | `except` 分支里的 `print` | ⚠ 已知缺陷：g2pw 加载失败时退回 pypinyin 只打印一行，没有任何可被自检读取的状态位 |

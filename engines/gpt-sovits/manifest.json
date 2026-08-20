@@ -1,0 +1,28 @@
+{
+  "id": "gpt-sovits",
+  "label": "GPT-SoVITS",
+  "upstream": "https://github.com/RVC-Boss/GPT-SoVITS",
+  "local_changes": "infer/LOCAL-CHANGES.md",
+
+  "_comment_param_keys": [
+    "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
+    "服务端本来就会忽略它，静默放行会让一个拼错的参数名看起来像生效了。",
+    "这张表此前硬编码在 lib/flowgraph/adapter.js 里，那意味着接第二个引擎",
+    "要改 adapter；搬到这里之后 adapter 只认 manifest，加引擎不碰 lib/。"
+  ],
+  "param_keys": [
+    "format", "split", "max_chars", "concat", "silence_ms",
+    "reference_text", "aux_ref_audio_paths",
+    "temperature", "top_k", "top_p", "repetition_penalty",
+    "text_split_method", "speed_factor",
+    "gpt_model", "sovits_model", "text_lang", "prompt_lang",
+    "batch_size", "batch_threshold", "split_bucket", "fragment_interval",
+    "parallel_infer", "sample_steps", "if_sr", "super_sampling",
+    "media_type", "streaming_mode", "overlap_length", "min_chunk_length",
+    "pron_overrides", "auto_base_lang", "lang_overrides", "engine_batch",
+    "voice_label"
+  ],
+
+  "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
+  "default_base_url": "http://127.0.0.1:9880"
+}

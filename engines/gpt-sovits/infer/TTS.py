@@ -186,6 +186,42 @@ v4:
 """
 
 
+def _aurivox_relativise_paths(configs: dict, root: str) -> dict:
+    """把 root 之下的绝对路径改写成相对路径（"./a/b"，正斜杠）。
+
+    [aurivox 本地改动 r12c-fix13]
+
+    为什么基准取 root=os.getcwd()：
+      lib/inference/infer_server.py:62 在导入引擎前已经 os.chdir(PROJECT_ROOT)，
+      引擎解析配置里的相对路径就是按 cwd 解的；start.ps1 的 Repair-EngineConfig
+      也是按项目根解的。两边同一个基准，写出去的相对路径两边都认。
+      —— 用现成的 cwd，不数目录层数（纪律 C7）。
+
+    只动 *_path 键。不在 root 之下（或不同盘符）的绝对路径原样保留：
+    那是用户显式指到外部磁盘的模型，改写它反而会指丢。
+    """
+    out = {}
+    for section, body in configs.items():
+        if not isinstance(body, dict):
+            out[section] = body
+            continue
+        new_body = dict(body)
+        for key, val in body.items():
+            if not key.endswith("_path"):
+                continue
+            if not isinstance(val, str) or not val or not os.path.isabs(val):
+                continue
+            try:
+                rel = os.path.relpath(val, root)
+            except ValueError:
+                continue        # Windows 上跨盘符 relpath 会抛，保留绝对路径
+            if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+                continue        # 不在项目根之下，保留绝对路径
+            new_body[key] = "./" + rel.replace(os.sep, "/")
+        out[section] = new_body
+    return out
+
+
 def set_seed(seed: int):
     seed = int(seed)
     seed = seed if seed != -1 else random.randint(0, 2**32 - 1)
@@ -306,6 +342,10 @@ class TTS_Config:
         if isinstance(configs, str):
             self.configs_path = configs
             configs: dict = self._load_configs(self.configs_path)
+            # [aurivox 本地改动 r12c-fix13] 记住文件里原本有哪几段。
+            # save_configs() 只写回这几段，见该方法上的注释。
+            self._file_sections = (set(configs.keys())
+                                   if isinstance(configs, dict) else None)
 
         assert isinstance(configs, dict)
         configs_ = deepcopy(self.default_configs)
@@ -370,13 +410,41 @@ class TTS_Config:
         return configs
 
     def save_configs(self, configs_path: str = None) -> None:
-        configs = deepcopy(self.default_configs)
-        if self.configs is not None:
+        # [aurivox 本地改动 r12c-fix13] 三处，详见 LOCAL-CHANGES.md：
+        #
+        # 1. 只写回**文件里原本就有的段**。上游这里倒的是 default_configs 全表，
+        #    而全表里的 v3/v4 写死的是上游布局 GPT_SoVITS/pretrained_models/，
+        #    本项目没有那个目录。结果是：每次热切模型都把两段死路径写进配置，
+        #    下次启动被 start.ps1 的 Repair-EngineConfig 判 stale、整份重置，
+        #    用户选的模型跟着丢。
+        #    注意 default_configs 本身**必须保留 v1..v4 全表** —— init_vits_weights()
+        #    要用 default_configs[model_version] 查 LoRA 底模，而 model_version 是从
+        #    权重文件头读出来的，删键会在导入 v3/v4 模型时 KeyError。
+        #    这里只管「往文件里倒哪几段」，不动表。
+        #
+        # 2. 项目根之下的绝对路径写成相对路径。把本机盘符钉进配置，换机器或
+        #    换目录后引擎加载必失败。
+        #
+        # 3. 显式 utf-8。上游裸 open(..., "w") 用的是本地编码（中文 Windows 上是
+        #    GBK），而 _load_configs() 明确用 utf-8 读 —— 写读两套编码。
+        file_sections = getattr(self, "_file_sections", None)
+        if file_sections is None:
+            # 没有从文件加载过（上游的 configs=None 分支）：保持上游行为，写全表
+            configs = deepcopy(self.default_configs)
+        else:
+            configs = dict((k, deepcopy(v))
+                           for k, v in self.default_configs.items()
+                           if k in file_sections)
+
+        if getattr(self, "configs", None) is not None:
             configs["custom"] = self.update_configs()
 
         if configs_path is None:
             configs_path = self.configs_path
-        with open(configs_path, "w") as f:
+
+        configs = _aurivox_relativise_paths(configs, os.getcwd())
+
+        with open(configs_path, "w", encoding="utf-8") as f:
             yaml.dump(configs, f)
 
     def update_configs(self):

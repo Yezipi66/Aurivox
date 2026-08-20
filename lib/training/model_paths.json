@@ -1,12 +1,12 @@
 {
   "_note": "scripts = third-party code under vendor/, weights = model files. Keep the two tables apart; mixing them is what let this file rot. Nothing reads it yet -- see loadModelPaths() in lib/training/config.js.",
   "scripts": {
-    "s1_train": "./vendor/tts/gpt-sovits/train/s1_train.py",
-    "s2_train": "./vendor/tts/gpt-sovits/train/s2_train.py",
-    "slicer2": "./vendor/slicer/slicer2.py",
-    "asr_funasr": "./vendor/asr/funasr_asr.py",
-    "asr_fasterwhisper": "./vendor/asr/fasterwhisper_asr.py",
-    "uvr5_cli": "./vendor/uvr5/uvr5_cli.py"
+    "s1_train": "./engines/gpt-sovits/train/s1_train.py",
+    "s2_train": "./engines/gpt-sovits/train/s2_train.py",
+    "slicer2": "./pipeline/slicer/slicer2.py",
+    "asr_funasr": "./pipeline/asr/funasr_asr.py",
+    "asr_fasterwhisper": "./pipeline/asr/fasterwhisper_asr.py",
+    "uvr5_cli": "./pipeline/uvr5/uvr5_cli.py"
   },
   "weights": {
     "s1": "./models/tts/gpt-sovits/v2/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",

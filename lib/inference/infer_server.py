@@ -45,8 +45,8 @@ LIB_DIR = os.path.dirname(THIS_DIR)                         # .../lib
 PROJECT_ROOT = os.path.dirname(LIB_DIR)                     # 项目根
 
 # 推理运行时 (TTS/sv/BigVGAN/sr/TTS_infer_pack) 属第三方代码, 位于
-# vendor/tts/gpt-sovits/infer; gsv_code 作为包导入需要它的上级目录在 path 上。
-GSV_DIR = os.environ.get("GSV_DIR") or os.path.join(PROJECT_ROOT, "vendor", "tts", "gpt-sovits")
+# engines/gpt-sovits/infer; gsv_code 作为包导入需要它的上级目录在 path 上。
+GSV_DIR = os.environ.get("GSV_DIR") or os.path.join(PROJECT_ROOT, "engines", "gpt-sovits")
 GSV_INFER_DIR = os.environ.get("GSV_INFER_DIR") or os.path.join(GSV_DIR, "infer")
 sys.path.insert(0, GSV_DIR)
 sys.path.insert(0, GSV_INFER_DIR)
@@ -62,7 +62,10 @@ sys.path.append(os.path.join(GSV_DIR, "gsv_code"))
 os.chdir(PROJECT_ROOT)
 
 # numba (librosa 依赖) 缓存目录: 指向项目内可写目录, 避免 site-packages 只读导致的 PermissionError
-os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(PROJECT_ROOT, ".numba_cache"))
+# r12c batch13: 落点统一到 cache/numba，与 lib/paths.js:396 的 CACHE.numba 对齐。
+# 这里只能把同一个位置再写成 Python（跟 download_models.py 一样），
+# 位置权威仍在 lib/paths.js。改那边就要同步改这里。
+os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(PROJECT_ROOT, "cache", "numba"))
 os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
 
 # Windows 上 numpy/soundfile/sklearn 等各自捆绑 OpenMP/MKL 运行时, 若在 torch 之前加载,

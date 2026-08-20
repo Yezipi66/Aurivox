@@ -28,7 +28,7 @@ if not os.path.exists(sv_path):
         "speaker-verification weight not found: %s (set SV_CKPT_PATH to override)" % sv_path
     )
 
-# ERes2NetV2 / kaldi are vendored flat in vendor/tts/gpt-sovits/infer (already on sys.path)
+# ERes2NetV2 / kaldi are vendored flat in engines/gpt-sovits/infer (already on sys.path)
 from ERes2NetV2 import ERes2NetV2
 import kaldi as Kaldi
 

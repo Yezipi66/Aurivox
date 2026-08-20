@@ -50,7 +50,10 @@ Thumbs.db
 .staging/
 .gradio/
 .cache/
-# numba JIT cache, created at runtime by the inference stack
+# Runtime caches. r12c batch13 consolidated every cache under cache/
+# (see lib/paths.js CACHE_DIR / CACHE). The bare .numba_cache/ line stays so a
+# tree that predates the move keeps ignoring its leftovers.
+cache/
 .numba_cache/
 
 # ─── Model weights & checkpoints (large binaries, never in git) ───
@@ -129,24 +132,31 @@ app-config.json
 voices.json
 lib/voices.json
 # vendored runtime / models / third-party
+#
+# r12c batch14 收口。改这一段必须**双向**验（D19）：
+#   删排除行 -> 大块二进制可能泄漏进 git（一进历史 git rm 也删不掉）
+#   删例外行 -> 新代码整片被忽略，提交上去是空的
+# 验收只看 `git status --short`（语义唯一），不看 `git check-ignore -v`
+# （-v 命中任何规则都打印，含 ! 反向规则，读起来像失败其实是成功）。
+#
+# GPT_SoVITS/ ：顶层那棵历史遗留权重树已于 batch14 移出项目。
+# 规则**刻意保留** —— 万一哪个脚本把权重重新下回原位，它必须仍然进不了 git。
+# 「规则在、目录不在」在这里是有意为之，不是陈旧行。
 GPT_SoVITS/
-# vendor/ holds third-party SOURCE, which is tracked. Ignore everything
-# under it by default and re-admit the trees we vendor deliberately, so a
-# new binary payload cannot slip in unnoticed.
+# vendor/ 现在只放第三方成品（ffmpeg / micromamba），整棵不进 git。
+# batch14 删掉的 5 条：
+#   !/vendor/tts/          -> 已搬去 engines/gpt-sovits/（batch12）
+#   !/vendor/gsv-tools/    -> 已归档 ..\junk\（batch14）
+#   !/pipeline/uvr5/ !/pipeline/asr/ !/pipeline/slicer/
+#                          -> **空操作**：这三条是为抵消 /vendor/* 写的，
+#                             可 pipeline/ 不被任何规则排除，搬家后一直没有作用。
+#                             留着会让人以为 pipeline/ 需要靠例外才进 git。
 /vendor/*
-!/vendor/uvr5/
-!/vendor/asr/
-!/vendor/slicer/
-!/vendor/tts/
-!/vendor/gsv-tools/
 tools/runtime/
-# Weights that stay put in this round. gsv-tools/ now holds nothing but
-# these; r12b moves them to models/ and the directory disappears.
-vendor/gsv-tools/asr/models/
-vendor/gsv-tools/asr/faster-whisper-*/
-vendor/gsv-tools/uvr5/uvr5_weights/
-vendor/uvr5/uvr5_weights/
-vendor/tts/gpt-sovits/gsv_code/text/ja_userdic/
+# gsv-tools/ 整棵已归档，它下面那三条权重排除行随之删除。
+# pipeline/uvr5/uvr5_weights/ 是活的（uvr5 仍在用），保留。
+pipeline/uvr5/uvr5_weights/
+engines/gpt-sovits/gsv_code/text/ja_userdic/
 # backups & junk
 *.bak
 *.bak[0-9]

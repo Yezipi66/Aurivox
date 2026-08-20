@@ -117,7 +117,7 @@ PATH_EXCLUDE = {
     # they simply never get walked into the release zip.
     os.path.join("vendor", "micromamba"),
     # There are two gsv_code trees on disk; the live engine is
-    # vendor/tts/gpt-sovits/gsv_code. This old one holds no code that
+    # engines/gpt-sovits/gsv_code. This old one holds no code that
     # anything imports -- BUT it used to hold four runtime *data* files
     # (namedict_cache.pickle, ja_userdic/{userdict.csv,user.dict,userdict.md5})
     # which are loaded by path, not by import, so "zero references" never
@@ -128,7 +128,7 @@ PATH_EXCLUDE = {
     os.path.join("vendor", "gsv_code"),
     # vendor/gsv-infer is a CUDA compilation artifact leftover (1 byte,
     # BigVGAN/alias_free_activation/cuda/build/_). The live BigVGAN lives
-    # in vendor/tts/gpt-sovits/infer/BigVGAN. Zero references, never should
+    # in engines/gpt-sovits/infer/BigVGAN. Zero references, never should
     # have shipped, but without this exclusion it does.
     os.path.join("vendor", "gsv-infer"),
     # Pure model dirs (no needed code lives here). All of these live under
@@ -149,7 +149,7 @@ PATH_EXCLUDE = {
     os.path.join("models", "tts", "gpt-sovits", "chinese-hubert-base"),
     os.path.join("models", "tts", "gpt-sovits", "chinese-roberta-wwm-ext-large"),
     # ASR weights only; the ASR scripts (fasterwhisper_asr.py, asr_utils.py,
-    # funasr_asr.py, config.py) live in vendor/asr/ and do ship.
+    # funasr_asr.py, config.py) live in pipeline/asr/ and do ship.
     os.path.join("models", "asr"),
     os.path.join("models", "separation"),
     os.path.join("models", "vocoder"),
@@ -168,9 +168,15 @@ PATH_EXCLUDE = {
     os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3"),
     os.path.join("vendor", "gsv-tools", "asr", "models"),
     os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
-    os.path.join("vendor", "tts", "gpt-sovits", "gsv_code", "pretrained_models"),
+    # r12c: the GPT-SoVITS tree moved vendor/tts/gpt-sovits -> engines/gpt-sovits.
+    # These two entries are written segment-by-segment, so the textual
+    # "vendor/tts/gpt-sovits" -> "engines/gpt-sovits" sweep did NOT catch them.
+    # Left stale they would silently stop excluding, and the weights would be
+    # packed into the release — the failure mode is a 600MB-larger zip, not an
+    # error, which is exactly the kind that ships unnoticed.
+    os.path.join("engines", "gpt-sovits", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
-    os.path.join("vendor", "tts", "gpt-sovits", "infer", "sr", "AP_BWE_main", "24kto48k"),
+    os.path.join("engines", "gpt-sovits", "infer", "sr", "AP_BWE_main", "24kto48k"),
 }
 
 # stray model/media files anywhere (keeps sibling json/py/txt that code needs,
