@@ -1,6 +1,6 @@
 # Aurivox
 
-> Aurivox 是一个面向 **Windows + NVIDIA CUDA 本地环境** 的 GPT-SoVITS 训练、资产管理与推理工作台，**采用MIT开源协议**。本项目是 local-first 工具，对外的接口采用OpenAI-compatible 接口，用于兼容其他客户端。
+> Aurivox 是一个面向 **Windows + NVIDIA CUDA 本地环境** 的 GPT-SoVITS 训练、资产管理与推理工作台，**采用 AGPL-3.0 开源协议**。本项目是 local-first 工具，对外的接口采用 OpenAI-compatible 接口，用于兼容其他客户端。
 
 ## 亮点速览
 
