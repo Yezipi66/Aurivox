@@ -179,4 +179,24 @@ tools/deploy/.deploy_selection.json
 .patch-backup/
 aurivox-*-update
 backups
+.hermes/tools/dev/_scratch/
 .hermes/
+tools/dev/_scratch/
+
+# --- IndexTTS2：上游源码与上游文件不进仓库（license）---
+# 仓库里只保留我们自己写的胶水：shim.py / manifest.json /
+# UPSTREAM.md / LOCAL-CHANGES.md / SOURCE_MANIFEST.json / README.md
+# 源码按 UPSTREAM.md 记的 commit 由安装脚本拉取。
+engines/indextts2/indextts/
+engines/indextts2/pyproject.toml
+engines/indextts2/uv.lock
+engines/indextts2/.python-version
+engines/indextts2/MANIFEST.in
+engines/indextts2/LICENSE
+engines/indextts2/LICENSE_ZH.txt
+engines/indextts2/DISCLAIMER
+engines/indextts2/NOTICE
+
+# 权重二进制补漏：*.pth/*.ckpt/*.pt/*.bin/*.safetensors 已排，*.t7 之前漏了
+*.t7
+

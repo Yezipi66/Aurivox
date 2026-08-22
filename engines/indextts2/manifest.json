@@ -1,0 +1,82 @@
+{
+  "id": "indextts2",
+  "label": "IndexTTS2",
+  "upstream": "https://github.com/index-tts/index-tts",
+  "local_changes": "LOCAL-CHANGES.md",
+
+  "_comment_param_keys": [
+    "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
+    "静默放行会让一个拼错的参数名看起来像生效了。",
+    "",
+    "⛔ 这张表里一个 GPT-SoVITS 的键都不该出现。两个引擎的词汇表本来就",
+    "不一样，broker 只传话不翻译：把 top_k 映射成 emo_alpha 之类的『善意』，",
+    "翻译错了不会报错，只是声音不对 —— 那是最难查的一类 bug。",
+    "代价是每个引擎自带一套词汇，这个代价是主动选的，不是疏漏。"
+  ],
+  "param_keys": [
+    "format", "split", "max_chars", "concat", "silence_ms",
+    "media_type", "engine_batch", "voice_label",
+    "emo_alpha", "interval_silence", "verbose",
+    "max_text_tokens_per_segment"
+  ],
+
+  "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
+  "default_base_url": "http://127.0.0.1:9881",
+
+  "_comment_max_chars": [
+    "⭐ 每引擎独立的分段长度，覆盖 synthesisService 的默认值。",
+    "为什么必须比 gpt-sovits 小得多：IndexTTS2 实测 RTF≈32（生成 1 秒音频",
+    "要算 32 秒）。默认 60 字符 ≈15-20 秒音频 ⇒ 单段约 480-640 秒，直接",
+    "撑爆下面的 timeout_ms。20 字符 ≈5-7 秒音频 ⇒ 单段约 160-220 秒，",
+    "在 600 秒预算内有充足余量。",
+    "⚠ 这个值是按实测 RTF 推算的，不是实测分段耗时；首次真机跑通后应复核。"
+  ],
+  "max_chars": 20,
+
+  "_comment_timeout_ms": [
+    "⭐ 每引擎独立的单次请求超时，覆盖 client 里的模块级 300000。",
+    "超时是按『每一段』计的，不是整篇：每段单独发一次 HTTP。",
+    "600000 = 上面 max_chars 最坏情况(约 220 秒)的约 2.7 倍余量，",
+    "留给首段可能的 CUDA 上下文初始化。"
+  ],
+  "timeout_ms": 600000,
+
+  "_comment_runtime": [
+    "⭐ IndexTTS2 自带一套 Python 环境（torch 2.8 + cu128），与 broker 的",
+    "venv 没有共同依赖，也不能共用 —— 这是它必须以独立进程 + HTTP 存在",
+    "的根本原因，不是为了好看。",
+    "python: 引擎 venv 的解释器，相对项目根。",
+    "entry : shim 脚本，相对本 manifest 所在目录。",
+    "ready_timeout_ms: 冷启动预热预算。实测 import 34.55s + 构造 26.51s",
+    "  ≈61s，取 180000 留三倍余量。start.ps1 应轮询 /health 直到 ready，",
+    "  并在 failed=true 时立即放弃、把 error 打进日志 —— 别干等满超时。"
+  ],
+  "runtime": {
+    "python": "engines/indextts2/venv/Scripts/python.exe",
+    "entry": "shim.py",
+    "checkpoints": "models/tts/indextts2/checkpoints",
+    "ready_endpoint": "/health",
+    "ready_timeout_ms": 180000,
+    "preload": true
+  },
+
+  "_comment_capabilities": [
+    "⭐ 引擎能力声明。broker 据此跳过不适用的通用步骤 ——",
+    "这些分支此前硬编码在 lib/ 里，按 GPT-SoVITS 的能力写死。",
+    "",
+    "hot_swap_models=false 是最重要的一条：GPT-SoVITS 可以在运行中换权重",
+    "（switchModels），IndexTTS2 的权重在构造 IndexTTS2(model_dir=) 时一次",
+    "性加载，换权重只能重启进程。broker 必须据此跳过 switchModels，",
+    "而不是调用后忽略失败。",
+    "",
+    "reference_clip_seconds=null 表示不施加时长约束。3-10 秒那条是",
+    "GPT-SoVITS 的要求，不是所有引擎的。"
+  ],
+  "capabilities": {
+    "hot_swap_models": false,
+    "requires_reference_audio": true,
+    "reference_clip_seconds": null,
+    "streaming": false,
+    "output_sample_rate": 22050
+  }
+}
