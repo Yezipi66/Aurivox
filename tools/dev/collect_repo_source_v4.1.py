@@ -90,8 +90,13 @@ ROOT_FILE_EXTRA = {"LICENSE", "NOTICE", ".env.example", ".gitignore",
 #    ⚠ 反向的坑：engines/ 和 pipeline/ 下面装的同样是上游代码，但那是**我们
 #    改过、要自己维护的**上游代码（每棵树里都有 LOCAL-CHANGES.md 为证），
 #    必须收。别看见"第三方"三个字就顺手排掉。
-#    真正不收的只有 vendor/ 下我们一行没动过的成品（micromamba / ffmpeg）
-#    和 tools/runtime/ 里下载来的运行时。
+#    真正不收的只有三类：vendor/ 下我们一行没动过的成品（micromamba /
+#    ffmpeg）、tools/runtime/ 里下载来的运行时，以及 engines/<id>/.venv/
+#    —— 每个引擎自带的 Python 环境（r12c batch16 起）。
+#    前两类是「别人的成品」，第三类是「机器生成的产物」：它由同目录下的
+#    uv.lock 一条 `uv sync` 重建，收进快照没有信息量，只有 8GB 体积。
+#    ⭐ 判据始终是「这里面有没有我们要读/要改的东西」，不是「它是不是
+#       第三方」—— engines/ 下的上游代码要收，正是因为我们会改它。
 THIRD_PARTY_RE = re.compile(
     r"^(vendor/micromamba/"
     r"|vendor/ffmpeg/"
@@ -102,7 +107,18 @@ THIRD_PARTY_RE = re.compile(
     r"|.*/site-packages/"
     r"|.*/dist-packages/"
     r"|.*/node_modules/"
-    r"|.*/_vendor/)")
+    r"|.*/_vendor/"
+    # r12c batch16: 每引擎自带的 Python 环境 engines/<id>/.venv/。
+    # ⚠ 上面的 `.*/site-packages/` 已挡住里面的大头，但挡不住
+    #   .venv/Scripts/ 和 .venv/Lib/ 下非 site-packages 的部分
+    #   （pyvenv.cfg、activate 脚本、一堆 .exe）。
+    # ⭐ 这**不违反**本节开头那条「engines/ 下的上游代码必须收」：
+    #    .venv 不是代码，是 `uv sync` 的产物。要收的是**配方**
+    #    （engines/<id>/pyproject.toml + uv.lock），那两个照收不误。
+    # ⭐ 写成 `(.*/)?` 而不是 `.*/`：后者要求 .venv 前面至少有一个
+    #    斜杠，顶层的 .venv/ 会漏掉。现在项目根上叫 venv/ 不叫
+    #    .venv/，那个洞碰巧没人踩到 —— 但"碰巧"不是理由。
+    r"|(.*/)?\.venv/)")
 
 # ── 3. 权重/媒体/产物：按扩展名，这类没有"其实是源码"的风险 ──────────────
 WEIGHT_EXT = {".pth", ".ckpt", ".pt", ".onnx", ".bin", ".safetensors", ".h5",

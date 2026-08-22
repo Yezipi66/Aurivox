@@ -51,7 +51,13 @@ MAX_COMPRESSED_MB = 200
 # name at any depth would wrongly delete needed files — that is exactly why an
 # earlier build shipped without web/dist. So these are anchored to the top level.
 TOP_EXCLUDE = {
-    "venv", ".venv", "venv_idx241", "assets", ".staging",
+    # ".venv" 搬去了 NAME_EXCLUDE：它不是"通用词"，是 Python 虚拟环境的
+    # 约定名，任何深度出现的 .venv 都一定是虚拟环境。留在这里只能挡住
+    # 顶层的，挡不住 engines\<id>\.venv\（每引擎一套，各 8GB 起）。
+    # "venv_idx241" 已删：那个目录被移到 D:\Project\env_backup\，
+    # 项目内不存在 ⇒ 死条目。排除清单腐烂的表现不是报错，是包大了
+    # 没人发现，所以死条目要当场删，不要"留着也没坏处"。
+    "venv", "assets", ".staging",
     # dev-time backups written by the apply-r12b-fix*.py patch scripts
     # (57 files, 1.8MB). Same category as .staging, which is already here.
     #
@@ -104,6 +110,14 @@ DATA_KEEP = {
 # Dev/VCS/cache junk safe to drop at ANY depth.
 NAME_EXCLUDE = {
     ".git", ".hg", ".svn",
+    # r12c batch16: 每引擎自带一套 Python 环境（GSV 是 torch 2.2.0+cu121，
+    # IndexTTS2 是 2.8.0+cu128 —— 四个 minor 版本 + 两个 CUDA 大版本之差，
+    # 合并共享会把两个引擎的稳定性焊死，所以隔离是唯一解）。这些环境
+    # 现在住在 engines\<id>\.venv\，在 deploy 时重建，绝不进发行包。
+    # ⭐ 放这里而不是 TOP_EXCLUDE：TOP_EXCLUDE 是给 data/assets/dist 这类
+    #    **通用词**用的（深层可能是依赖自己的合法目录，误删过 web/dist）。
+    #    ".venv" 不是通用词，它是虚拟环境的约定名，和 __pycache__ 同类。
+    ".venv",
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".numba_cache", ".cache", ".gradio", ".ipynb_checkpoints",
     # r12c-batch15: apply-*.py patch backups, by DIRECTORY NAME at any depth.
@@ -190,19 +204,16 @@ PATH_EXCLUDE = {
     os.path.join("models", "vocoder"),
     os.path.join("models", "sr"),
     os.path.join("models", "lang"),
-    # Old layout: kept so that a build run on a machine that has not migrated
-    # yet still excludes the weights sitting in the retired locations.
-    os.path.join("vendor", "gsv-tools", "pretrained"),
-    # fix12: this used to read "faster-whisper-large-v3-turbo". No such
-    # directory exists -- the one on disk is "faster-whisper-large-v3" --
-    # so the rule never matched and ~3.4MB of sidecar json shipped. Its
-    # model.bin was held back by EXCLUDE_EXT, i.e. by the catch-all rather
-    # than by this rule. Since r12b the ASR weights live under
-    # models/asr/faster-whisper/large-v3-turbo and the downloader knows
-    # only that one, so this whole tree is retired.
-    os.path.join("vendor", "gsv-tools", "asr", "faster-whisper-large-v3"),
-    os.path.join("vendor", "gsv-tools", "asr", "models"),
-    os.path.join("vendor", "gsv-tools", "uvr5", "uvr5_weights"),
+    # r12c batch16: 四条 vendor/gsv-tools/* 排除已删（pretrained /
+    # asr/faster-whisper-large-v3 / asr/models / uvr5/uvr5_weights）。
+    # 权重自 r12b 起住在 models/ 下，vendor/gsv-tools 这棵树已不存在
+    # ⇒ 这四条一条也没在排除任何东西，是**冗余不是保险**。
+    # ⭐ 真正的保险是 EXCLUDE_EXT（已含全套权重扩展名）+ 新增的
+    #    tools/build/check_release_size.py（按体量兜底）。
+    #    按名字排除总会漏 —— 这四条本身就是漏掉的证据。
+    # （fix12 那段考古注释随三条陈旧路径一并删除。它记的教训——"规则
+    #   写错了不会报错，只会静默不生效"——已由 check_release_size.py
+    #   接管，那是**结构性**的接管，不是再写一条注释提醒下一个人。）
     # r12c: the GPT-SoVITS tree moved vendor/tts/gpt-sovits -> engines/gpt-sovits.
     # These two entries are written segment-by-segment, so the textual
     # "vendor/tts/gpt-sovits" -> "engines/gpt-sovits" sweep did NOT catch them.
