@@ -28,6 +28,55 @@
     "max_text_tokens_per_segment"
   ],
 
+  "_comment_maps": [
+    "⭐ 第 1c 步新增：平台的词 → 这台引擎的键名。",
+    "只有四行 —— 这不是没写全，是 IndexTTS2 真的只有这四个概念：",
+    "  text_lang       没有。它不接受语言参数，语言从文本自己看出来。",
+    "  reference_text  没有。零样本克隆只要音频，不要配套的文本。",
+    "  reference_lang  同上。",
+    "  speed           没有。语速不是它的调用参数。",
+    "  aux_reference_audio 没有。它只接一条参考音频。",
+    "  streaming       没有（capabilities.streaming 也是 false）。",
+    "",
+    "⭐ 「没写 = 不发」这条规则在这里才显出价值：shim.py:382-392 对不认识",
+    "的键**直接 400 并把键名逐个列出来**。搬家前平台按 GPT-SoVITS 的形状",
+    "拼请求体，发过来的 text_lang / prompt_text / prompt_lang / speed_factor /",
+    "top_k / ... 会被一次性全列成 unknown parameter —— 也就是说，在这一刀",
+    "之前，配方能存 indextts2，但一调用必然 400。"
+  ],
+  "maps": {
+    "text": "text",
+    "reference_audio": "ref_audio_path",
+    "seed": "seed",
+    "media_type": "media_type"
+  },
+
+  "_comment_payload_keys": [
+    "⭐ 允许从合成配置透传给引擎的**引擎原生**键名白名单。",
+    "逐条等于 shim.py 的 CALL_TIME_KEYS（shim.py:120-125）——两端各设一道，",
+    "这道防「平台乱发」，那道防「名片和 shim 不同步」。",
+    "",
+    "⛔ 这里不包含 LOAD_TIME_KEYS（use_fp16 / use_cuda_kernel / ...）：",
+    "那些只能在引擎进程启动时设，按次发过去 shim 会明确报错而不是假装接受",
+    "（shim.py:394-403）。把它们列进来等于骗调用方以为能热切。"
+  ],
+  "payload_keys": [
+    "emo_alpha",
+    "interval_silence",
+    "verbose",
+    "max_text_tokens_per_segment"
+  ],
+
+  "_comment_defaults": [
+    "⭐ 空的，而且是**故意**空的，不是漏写。",
+    "IndexTTS2 的每一个调用参数在引擎侧都有自己的默认值，平台没有任何理由",
+    "替它决定 emo_alpha 该是多少 —— 那正是 GPT-SoVITS 那 14 行默认值犯的错，",
+    "别在第二台引擎上重犯一遍。",
+    "media_type 不写在这里：平台已经通过 maps.media_type 显式送 wav 过去，",
+    "而 shim 只认 wav（shim.py:135）。"
+  ],
+  "defaults": {},
+
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
   "default_base_url": "http://127.0.0.1:9881",
 

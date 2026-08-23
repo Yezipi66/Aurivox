@@ -36,6 +36,99 @@
     "voice_label"
   ],
 
+  "_comment_maps": [
+    "⭐ 第 1c 步新增：平台的词 → 这台引擎的键名。",
+    "左边那一列（text / text_lang / reference_audio / ...）是**平台自己的词**，",
+    "定义在 lib/engines/payload.js 的 CANONICAL_KEYS，全平台只有这一组；",
+    "右边是 GPT-SoVITS 管它们叫什么。加一台引擎 = 给同一组词换一套说法，",
+    "不是给平台加词。",
+    "",
+    "搬家前这五个键名硬写在 server.js:773-779 的 buildTtsPayload 里 ——",
+    "那意味着任何一台不叫 ref_audio_path 的引擎都收到一个它看不懂的请求体。",
+    "IndexTTS2 的 shim 对不认识的键直接 400（shim.py:382-392），所以那不是",
+    "「兼容性一般」，是「根本调不动」。",
+    "",
+    "没写的词 = 这台引擎没这个概念，平台就不发。GPT-SoVITS 这几个词都有，",
+    "所以这里是满的；IndexTTS2 的名片里就只有四行。"
+  ],
+  "maps": {
+    "text": "text",
+    "text_lang": "text_lang",
+    "reference_audio": "ref_audio_path",
+    "reference_text": "prompt_text",
+    "reference_lang": "prompt_lang",
+    "aux_reference_audio": "aux_ref_audio_paths",
+    "speed": "speed_factor",
+    "seed": "seed",
+    "media_type": "media_type",
+    "streaming": "streaming_mode"
+  },
+
+  "_comment_payload_keys": [
+    "⭐ 允许从合成配置透传给引擎的**引擎原生**键名白名单。",
+    "这张表逐字等于搬家前 server.js:709-722 的 TTS_PASS_THROUGH_KEYS ——",
+    "一个没加、一个没减。那张表当时躺在平台代码里，是「引擎的词汇表长在",
+    "抽象层身上」最直白的一处。",
+    "",
+    "⚠ 与上面的 param_keys 不是一回事，别合并：",
+    "  param_keys   给画布/编辑器看的「这台引擎认识哪些参数」，含 format /",
+    "               split / concat / silence_ms 这类**平台自己的**分段拼接选项，",
+    "               它们从来不发给引擎。",
+    "  payload_keys 真正会出现在 /tts 请求体里的键。"
+  ],
+  "payload_keys": [
+    "text", "text_lang", "ref_audio_path", "aux_ref_audio_paths",
+    "prompt_text", "prompt_lang",
+    "top_k", "top_p", "temperature", "repetition_penalty", "seed",
+    "speed_factor", "text_split_method",
+    "batch_size", "batch_threshold", "split_bucket",
+    "fragment_interval", "parallel_infer",
+    "sample_steps", "if_sr", "super_sampling",
+    "media_type", "streaming_mode",
+    "overlap_length", "min_chunk_length",
+    "pron_overrides",
+    "auto_base_lang",
+    "lang_overrides"
+  ],
+
+  "_comment_defaults": [
+    "⭐ 这台引擎的默认值，只填「谁都没填过」的键。",
+    "这 14 行逐条等于搬家前 server.js:789-802 那一串",
+    "`if (payload.x === undefined) payload.x = ...`。它们在那里的时候，",
+    "是**平台在替 GPT-SoVITS 决定它自己的默认参数**。",
+    "",
+    "⛔ 为什么不能干脆删掉、让引擎自己兜底：因为其中至少 batch_size 不是",
+    "GPT-SoVITS 的默认值（它默认 1），4 是我们自己的调优决策。删了会让",
+    "生成悄悄变慢一截，而且不报任何错。见下面的 defaults_env。"
+  ],
+  "defaults": {
+    "top_k": 15,
+    "top_p": 1.0,
+    "temperature": 1.0,
+    "text_split_method": "cut5",
+    "batch_size": 4,
+    "batch_threshold": 0.75,
+    "split_bucket": true,
+    "speed_factor": 1.0,
+    "fragment_interval": 0.3,
+    "media_type": "wav",
+    "streaming_mode": false,
+    "parallel_infer": true,
+    "repetition_penalty": 1.35,
+    "seed": -1
+  },
+
+  "_comment_defaults_env": [
+    "⭐ 名片自己声明「哪个环境变量能顶掉我的哪个默认值」，平台不认识任何",
+    "具体变量名（和上面的 base_url_env 同一个套路）。",
+    "AURIVOX_TTS_BATCH_SIZE 是搬家前 server.js:740-743 就有的旋钮：",
+    "低显存显卡上长文本会 OOM，设成 1 就好。范围 1-16、非整数或越界一律",
+    "回落名片里的 4 —— 与搬家前 parseInt 那一段的判断逐条一致。"
+  ],
+  "defaults_env": {
+    "batch_size": { "var": "AURIVOX_TTS_BATCH_SIZE", "type": "int", "min": 1, "max": 16 }
+  },
+
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
   "default_base_url": "http://127.0.0.1:9880",
 

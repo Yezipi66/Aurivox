@@ -109,6 +109,12 @@ const { startCudaProbe, detectCuda } = require("./lib/system/cuda");
 const { Mutex } = require("./lib/util/mutex");
 const { HttpError } = require("./lib/http/http");
 const { VoicesStore } = require("./lib/voices/store");
+// 引擎抽象层（契约 v2）。名片是「加引擎不改代码」的唯一入口：
+//   profile.js  一张名片解析成引擎档案（地址/超时/分段/能力/映射/默认值）
+//   payload.js  按名片把一次调用拼成这台引擎认识的请求体
+const { resolveEngineProfile } = require("./lib/engines/profile");
+const { findLegacyDefaultId } = require("./lib/engines/legacyDefault");
+const { assembleEnginePayload, engineKey, acceptsKey } = require("./lib/engines/payload");
 // voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
 // in-place transcribe jobs. In-memory only (best-effort progress, like training).
 const transcribeJobs = new Map();
@@ -705,21 +711,15 @@ function forceSplitLong(text, softLimit, hardLimit) {
 //  TTS PAYLOAD BUILDER
 // ===========================
 
-// TTS 推理参数白名单 — 前端 cfg 中存在即透传给 9880 引擎
-const TTS_PASS_THROUGH_KEYS = [
-  "text", "text_lang", "ref_audio_path", "aux_ref_audio_paths",
-  "prompt_text", "prompt_lang",
-  "top_k", "top_p", "temperature", "repetition_penalty", "seed",
-  "speed_factor", "text_split_method",
-  "batch_size", "batch_threshold", "split_bucket",
-  "fragment_interval", "parallel_infer",
-  "sample_steps", "if_sr", "super_sampling",
-  "media_type", "streaming_mode",
-  "overlap_length", "min_chunk_length",
-  "pron_overrides",
-  "auto_base_lang",
-  "lang_overrides",
-];
+// ⭐ 契约 v2 第 1c 步：这张表搬去名片了。
+//
+// 它原来叫 TTS_PASS_THROUGH_KEYS，23 个键，**全是 GPT-SoVITS 的词汇**，
+// 躺在平台代码里。现在的唯一来源是 engines/gpt-sovits/manifest.json 的
+// payload_keys（逐字搬过去，一个没加一个没减）。
+//
+// 它整个删掉了（连同 ctx 里那一项）：全仓只有 buildTtsPayload 读过它，
+// 没有任何路由从 ctx 里取用。留一个空壳"以后可能有人要"就是制造死代码 ——
+// 这一刀的前一刀刚被死代码咬过一次（requires_engine_params），不重犯。
 
 // Reproducibility: turn a random-seed request (-1 / empty / null / invalid) into a
 // CONCRETE seed in the engine's range [0, 2^32-1]. Resolving here — before the engine
@@ -742,7 +742,17 @@ const _DEFAULT_TTS_BATCH_SIZE = (() => {
   return (Number.isInteger(n) && n >= 1 && n <= 16) ? n : 4;
 })();
 
-function buildTtsPayload(text, cfg) {
+// ---------------------------------------------------------------------------
+//  平台的活：把「参考音频/参考文本」解析成这台机器上真实存在的东西
+// ---------------------------------------------------------------------------
+// 这一段和引擎无关，任何引擎都需要「给我一条能打开的音频路径」。它过去和
+// 拼请求体的代码搅在同一个函数里，所以看不出哪一半是平台的、哪一半是
+// GPT-SoVITS 的。第 1c 步把它单拎出来，是为了让割线看得见。
+//
+// 返回的是**平台的词**（reference_audio / reference_text），不是任何引擎的
+// 键名 —— 调用方（synthesisService）过去读的是 .ref_audio_path / .prompt_text，
+// 那两个名字在一台不叫这个名字的引擎上会拿到 undefined，静默失败。
+function resolveReference(cfg) {
   let refAudio = cfg.reference_audio || "";
   let refText = cfg.reference_text || "";
 
@@ -764,49 +774,68 @@ function buildTtsPayload(text, cfg) {
     } catch (e) { console.error("[TTS] Failed to auto-ref:", e.message); }
   }
 
-  // Convert relative paths to absolute for GPT-SoVITS engine
+  // 相对路径转绝对路径。引擎是独立进程（多数还是另一个 Python 环境），它的
+  // 工作目录和我们不是一回事，相对路径过去就是找不到文件。
   if (refAudio && !refAudio.includes(":\\") && !refAudio.startsWith("/")) {
     refAudio = resolveRefPath(refAudio);
   }
 
-  // 基础字段
-  const payload = {
+  return { reference_audio: refAudio, reference_text: refText };
+}
+
+// 老路径引擎的名片，懒解析 + 缓存。
+// 没传 engine 的调用方 = webui 那条老合成路径，它诞生时全世界只有一台引擎。
+// ⛔ 解析不出来就抛，不回落到一张写死的 GSV 表 —— 回落会让「名片写坏了」
+//    表现成「声音不对」，那是这一整轮都在消灭的失败形式。
+let _legacyProfileCache = null;
+function legacyEngineProfile() {
+  if (!_legacyProfileCache) {
+    _legacyProfileCache = resolveEngineProfile(findLegacyDefaultId());
+  }
+  return _legacyProfileCache;
+}
+
+// ---------------------------------------------------------------------------
+//  拼请求体：平台备料，名片说怎么摆
+// ---------------------------------------------------------------------------
+// @param {string} text     要合成的文本
+// @param {object} cfg      合成配置（键名是历史形状，见文件末尾的"遗留词汇"说明）
+// @param {object} [engine] resolveEngineProfile 的产物；不传 = 老路径引擎
+function buildTtsPayload(text, cfg, engine) {
+  const profile = engine || legacyEngineProfile();
+  const { reference_audio, reference_text } = resolveReference(cfg);
+
+  // 平台的词 —— 右边这些 cfg 字段名是历史遗留的 GSV 形状，
+  // 但它们是**平台内部配置对象的字段**，不是发出去的键名。
+  // 把 cfg 本身改成平台词汇是下一刀的事（见 CFG_LEGACY_FIELDS 的说明）。
+  const canonical = {
     text,
     text_lang: cfg.text_lang || cfg.language || "ja",
-    ref_audio_path: refAudio,
-    prompt_text: refText,
-    prompt_lang: cfg.prompt_lang || cfg.language || "ja",
+    reference_audio,
+    reference_text,
+    reference_lang: cfg.prompt_lang || cfg.language || "ja",
+    speed: cfg.speed_factor,
+    seed: cfg.seed,
+    media_type: cfg.media_type,
+    aux_reference_audio: cfg.aux_ref_audio_paths,
   };
 
-  // 白名单透传：cfg 中有值就传给引擎（引擎自有默认值兜底）
-  for (const key of TTS_PASS_THROUGH_KEYS) {
-    if (cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== "") {
-      payload[key] = cfg[key];
-    }
-  }
-
-  // 默认值兜底（仅在 cfg 完全没传时补）
-  if (payload.top_k === undefined) payload.top_k = 15;
-  if (payload.top_p === undefined) payload.top_p = 1.0;
-  if (payload.temperature === undefined) payload.temperature = 1.0;
-  if (payload.text_split_method === undefined) payload.text_split_method = "cut5";
-  if (payload.batch_size === undefined) payload.batch_size = _DEFAULT_TTS_BATCH_SIZE;
-  if (payload.batch_threshold === undefined) payload.batch_threshold = 0.75;
-  if (payload.split_bucket === undefined) payload.split_bucket = true;
-  if (payload.speed_factor === undefined) payload.speed_factor = 1.0;
-  if (payload.fragment_interval === undefined) payload.fragment_interval = 0.3;
-  if (payload.media_type === undefined) payload.media_type = "wav";
-  if (payload.streaming_mode === undefined) payload.streaming_mode = false;
-  if (payload.parallel_infer === undefined) payload.parallel_infer = true;
-  if (payload.repetition_penalty === undefined) payload.repetition_penalty = 1.35;
-  if (payload.seed === undefined) payload.seed = -1;
+  const payload = assembleEnginePayload({
+    profile,
+    canonical,
+    cfg,
+    engineParams: cfg.engine_params,
+  });
 
   // Auxiliary references → absolute paths (Patch #11): resolve each aux entry the
   // SAME way as the main reference so live generate no longer relies on the
   // engine's cwd coinciding with APP_DIR. Accepts legacy strings and v3
   // { base, path } objects; drops anything missing on this machine.
-  if (Array.isArray(payload.aux_ref_audio_paths) && payload.aux_ref_audio_paths.length) {
-    payload.aux_ref_audio_paths = payload.aux_ref_audio_paths
+  // ⭐ 键名问名片要，不再写死 —— 没有这个概念的引擎（maps 里没这一行）
+  //   整段跳过，而不是往请求体里塞一个它看不懂的键。
+  const auxKey = engineKey(profile, "aux_reference_audio");
+  if (auxKey && Array.isArray(payload[auxKey]) && payload[auxKey].length) {
+    payload[auxKey] = payload[auxKey]
       .map((p) => {
         if (p && typeof p === "object") {
           const r = pathResolver.resolveManagedRef(p, {});
@@ -815,7 +844,7 @@ function buildTtsPayload(text, cfg) {
         return resolveRefPath(p);
       })
       .filter((p) => p && fs.existsSync(p));
-    if (payload.aux_ref_audio_paths.length === 0) delete payload.aux_ref_audio_paths;
+    if (payload[auxKey].length === 0) delete payload[auxKey];
   }
 
   return payload;
@@ -836,12 +865,18 @@ async function switchModels(cfg) {
 }
 
 async function generateOneSegment(segmentText, cfg, engine) {
-  const payload = buildTtsPayload(segmentText, cfg);
-  // aux_ref_audio_paths is resolved (to absolute, existence-filtered) inside
-  // buildTtsPayload (Patch #11); do NOT re-inject the raw cfg value here or the
-  // resolved paths would be clobbered back to project-relative on live generate.
+  const payload = buildTtsPayload(segmentText, cfg, engine);
+  // 辅助参考音频在 buildTtsPayload 里已经解析成绝对路径并按存在性过滤过
+  // （Patch #11）；⛔ 别在这里把 cfg 里的原值再塞回去，那会把解析好的路径
+  // 打回项目相对路径，live generate 就找不到文件了。
+  //
+  // 下面这两个键是 GPT-SoVITS 的私有参数，补一次是因为白名单那一段会把
+  // 空串/null 过滤掉，而 if_sr 的 false 需要显式送达。
+  // ⭐ 第 1c 步加了名片门控：这台引擎的 payload_keys 上没有这个键就不发 ——
+  //   IndexTTS2 的 shim 对不认识的键直接 400，硬塞过去等于必然失败。
+  const _profile = engine || legacyEngineProfile();
   for (const key of ["sample_steps", "if_sr"]) {
-    if (cfg[key] !== undefined) payload[key] = cfg[key];
+    if (cfg[key] !== undefined && acceptsKey(_profile, key)) payload[key] = cfg[key];
   }
   // 引擎跟着请求走（契约 v2 第 1b 步）：
   // 谁发过来的 engine，就发到谁的地址、用谁的超时。
@@ -1762,7 +1797,7 @@ function scanStagingTasks() {
 // factories. They receive shared server-scope symbols via `ctx` and are
 // mounted here (paths unchanged). The static frontend + SPA catch-all are
 // registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, TTS_PASS_THROUGH_KEYS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
 app.use(require("./lib/routes/voices")(ctx));
