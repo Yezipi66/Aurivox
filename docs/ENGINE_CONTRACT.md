@@ -527,8 +527,8 @@ FG_ENGINE_UNSUPPORTED: 这台服务器上没有装引擎 xxx；已装的是：gp
 | `lib\services\synthesisService.js:183` | 每段合成前无条件 `switchModels`（IndexTTS2 不能热切权重） |
 | `server.js:67` | 引擎地址写死 `127.0.0.1:9880`（名片写的 9881 没人读） |
 | `server.js:787-803` | 无条件塞 14 个 GSV 默认值 —— 与 `shim.py` 的"未知键回 400"正面对撞 |
-| `lib\flowgraph\nodes.js:69` | 默认 `engine_id: 'gpt-sovits'` |
-| `lib\flowgraph\docs.js:218-219` | 引擎选项只列 gpt-sovits |
+| ~~`lib\flowgraph\nodes.js:69`~~ | ~~默认 `engine_id: 'gpt-sovits'`~~ ✅ 第 2 步：默认值改为空，回落交给名片的 `legacy_default` |
+| ~~`lib\flowgraph\docs.js:218-219`~~ | ~~引擎选项只列 gpt-sovits~~ ✅ 第 2 步：下拉框按 `engines/*/manifest.json` 现算；「引擎参数」节点的格子同时改成按 `param_keys` 生成 |
 | `tools\scripts\start.ps1:52` | `$ENGINE_PORT = 9880`，只起一个引擎 |
 | `lib\audio\concat.js:37`、`lib\audio\wav.js:10` | 静音段采样率写死 22050 |
 | `web\src\lib\models.js` | 领域模型写死"一个音色 = 一个 GPT 权重 + 一个 SoVITS 权重" |
