@@ -131,9 +131,28 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [sampleSteps, setSampleSteps] = useState(32)
   const [superSampling, setSuperSampling] = useState(false)
   const [mediaType, setMediaType] = usePersistentState('generate.mediaType', 'wav')
-  const [streamingMode, setStreamingMode] = useState(false)
-  const [overlapLength, setOverlapLength] = useState(2)
-  const [minChunkLength, setMinChunkLength] = useState(16)
+  // ⛔ 这里原本还有 streamingMode / overlapLength / minChunkLength 三个 state。
+  //
+  // 撤掉的理由不是「没用」，是**放错了地方**（2026-08-23 查实）：
+  //   1. Workbench 走 /api/generate，它拿到音频后是普通 JSON 响应（runGenerate
+  //      等的是 audio_url），**根本消费不了流** —— 这个界面上开「流式」开不出流式。
+  //   2. 这三个键写进 advanced_params.json 后，本组件挂载时**从来不读回来**
+  //      （挂载时那段 useEffect 只读 7 个键：temperature / top_k / top_p /
+  //      repetition_penalty / text_split_method / speed_factor / seed）
+  //      ⇒ 拧一次、刷新即丢。
+  //   3. 它们唯一的真实去处是 /v1/audio/speech 的兜底（speechService 读 advParams）
+  //      ⇒ 等于「藏在合成界面里的另一个端点的配置项」，名字、位置、反馈全在骗人。
+  //   4. streaming_mode 还有真危害：/v1/audio/speech:84 判定要不要流式**只看
+  //      req.body**，但存盘的 true 照样会进 payload ⇒ broker 不流、却告诉引擎流。
+  //
+  // 撤掉后的落点（已核对名片）：
+  //   streaming_mode  在 manifest.defaults ⇒ 每次仍发 false（行为不变，且不再可能
+  //                   被盘上的陈年 true 污染）
+  //   overlap_length / min_chunk_length 只在 params.schema 里有 default（＝界面初值），
+  //                   不在 defaults ⇒ 不再出现在 payload 里，与 OpenAI 口 / Flow 一致。
+  //
+  // ⚠ 撤的是**界面格子**，不是 API 能力：lib/services/synthesisService.js:107-109
+  //   仍然解析这三个入参，第三方和 Flow 可以显式传（契约 §7 逃生门）。
   // A-1 engine-batch mode (1.0.6): hand the whole text to the engine in one call
   // so it splits + batches in parallel (batch_size), instead of the broker
   // synthesising each split segment sequentially. Produces a single audio (no
@@ -407,8 +426,7 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       split_bucket: splitBucket, fragment_interval: fragmentInterval,
       parallel_infer: parallelInfer, engine_batch: engineBatch,
       sample_steps: sampleSteps, if_sr: superSampling,
-      media_type: mediaType, streaming_mode: streamingMode,
-      overlap_length: overlapLength, min_chunk_length: minChunkLength,
+      media_type: mediaType,
       gpt_model: selGpt, sovits_model: selSovits,
       text_lang: textLang, prompt_lang: selectedPromptLang || lang,
       // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
@@ -420,19 +438,31 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     }
     const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
     if (data) {
-      // Auto-save advanced params after a successful UI-driven generation.
+      // 成功合成后回存「上次拧到哪」。
+      //
+      // ⭐⭐ 只存**读得回来的键**。原来这里存 18 个，而全前端只读得回 7 个
+      //    （本组件 :163 起、ReferenceCompareTab:737-743，两处用的正是同一组 7 个）。
+      //    另外 11 个是**只写不读**，它们唯一的去处是 /v1/audio/speech 的兜底
+      //    —— 而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，**盘上赢**。
+      //
+      //    后果是实测出来的：盘上文件盖掉了 6 个名片默认值，包括
+      //      batch_size 名片 4 → 盘上 1     （用户从没在界面上碰过这一格，
+      //                                      是这里后台悄悄写进去的）
+      //      seed       名片 -1 → 盘上 2769901998
+      //                                     （某次合成 resolve 出的一次性随机种子
+      //                                      被回存成了永久默认值）
+      //      version v2Pro→v2 / is_half true→false（**启动期**设置被合成参数文件盖掉）
+      //    ⇒ 契约 C11 的默认值在真机上等于失效。收窄到 7 个之后，用户没拧过的键
+      //      盘上不再有，自动退回名片 —— 名片才是默认值的唯一产地。
+      //
+      // ⚠ 第 10 步（前端按 param_schema 循环渲染）会把这张表也改成名片驱动，
+      //   届时判据是「这一格在界面上存在」，不再是写死的键名。
       api('/api/advanced-params', {
         method: 'POST',
         body: {
           temperature, top_k: topK, top_p: topP,
           repetition_penalty: repPenalty, text_split_method: splitMethod,
           speed_factor: speedFactor, seed,
-          batch_size: batchSize, batch_threshold: batchThreshold,
-          split_bucket: splitBucket, fragment_interval: fragmentInterval,
-          parallel_infer: parallelInfer, engine_batch: engineBatch,
-          sample_steps: sampleSteps, if_sr: superSampling,
-          media_type: mediaType, streaming_mode: streamingMode,
-          overlap_length: overlapLength, min_chunk_length: minChunkLength,
         },
       }).catch(() => {})
     }
@@ -491,9 +521,8 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
     if (p.sample_steps !== undefined) setSampleSteps(p.sample_steps)
     if (p.if_sr !== undefined) setSuperSampling(!!p.if_sr)
     if (p.media_type !== undefined) setMediaType(p.media_type)
-    if (p.streaming_mode !== undefined) setStreamingMode(!!p.streaming_mode)
-    if (p.overlap_length !== undefined) setOverlapLength(p.overlap_length)
-    if (p.min_chunk_length !== undefined) setMinChunkLength(p.min_chunk_length)
+    // streaming_mode / overlap_length / min_chunk_length 的格子已撤（见 :134 注释）。
+    // 老历史记录里可能还存着这三个键，回填时直接忽略 —— 没有格子可以放它们了。
     if (p.engine_batch !== undefined) setEngineBatch(!!p.engine_batch)
     if (Array.isArray(p.aux_ref_audio_paths)) setAuxRefs(p.aux_ref_audio_paths)
     else setAuxRefs([])
@@ -836,21 +865,9 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                           <option value="raw">RAW</option>
                         </Select>
                       </div>
-                      <div>
-                        <label className="field-label">Streaming Mode</label>
-                        <Select className="control" value={streamingMode ? 1 : 0} onChange={e => setStreamingMode(!!parseInt(e.target.value))}>
-                          <option value={0}>Disabled</option>
-                          <option value={1}>Enabled (best quality)</option>
-                        </Select>
-                      </div>
-                      <div>
-                        <label className="field-label">Overlap Length</label>
-                        <input type="number" className="control" step="1" min="0" max="10" value={overlapLength} onChange={e => setOverlapLength(parseInt(e.target.value) || 2)} />
-                      </div>
-                      <div>
-                        <label className="field-label">Min Chunk Length</label>
-                        <input type="number" className="control" step="4" min="4" max="64" value={minChunkLength} onChange={e => setMinChunkLength(parseInt(e.target.value) || 16)} />
-                      </div>
+                      {/* Streaming Mode / Overlap Length / Min Chunk Length 三个格子
+                          已于 2026-08-23 撤除 —— 它们配的是 /v1/audio/speech 的行为，
+                          却长在一个消费不了流的界面上，且存了从不读回。理由全文见 :134。 */}
                     </div>
                   )}
 

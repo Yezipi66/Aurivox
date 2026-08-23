@@ -99,7 +99,15 @@
     "",
     "⛔ 为什么不能干脆删掉、让引擎自己兜底：因为其中至少 batch_size 不是",
     "GPT-SoVITS 的默认值（它默认 1），4 是我们自己的调优决策。删了会让",
-    "生成悄悄变慢一截，而且不报任何错。见下面的 defaults_env。"
+    "生成悄悄变慢一截，而且不报任何错。见下面的 defaults_env。",
+    "",
+    "⭐⭐ 这一节的语义是「**每次合成都发**这个值，界面开没开都发」。",
+    "所以它不等于「界面格子的初值」—— 后者写在 params.schema.<键>.default。",
+    "两者对同一个键只能二选一，写重了 profile.js 当场抛（否则就是 C11 说的",
+    "那种会各自漂移的副本）。这个区分是被 7 条黄金样本测试逼出来的：",
+    "我第一版把 sample_steps/if_sr/overlap_length/min_chunk_length 写进了",
+    "defaults，结果 OpenAI 兼容口和 Flow 这些**从来没发过它们**的路径",
+    "凭空多了 4 个键 —— 那是行为变更，不是重构。"
   ],
   "defaults": {
     "top_k": 15,
@@ -118,12 +126,135 @@
     "seed": -1
   },
 
+  "_comment_params_schema": [
+    "⭐ 契约 §5.4「每个参数长什么样 —— 界面按这个长出面板，不再写死一套",
+    "GPT-SoVITS 的」。这一节是在还 C11（§8:590 参数表只有一份）的账。",
+    "",
+    "这 16 个格子逐字搬自 web/src/components/generate/GenerateTab.jsx:756-853：",
+    "控件类型、min / max / step、常用还是高级、标签，全部原样。搬之前它们",
+    "只活在 JSX 里，装了别家引擎的人在 Workbench 页面上一个格子都长不出来。",
+    "",
+    "⛔ 这里**不写 default** —— 默认值只能在上面的 defaults 一节。",
+    "两处都能写就会漂，而漂了不报错。profile.js 会当场拦下写了 default 的 schema。",
+    "好处是 defaults_env 的旋钮（AURIVOX_TTS_BATCH_SIZE）现在真的能拧动界面初值，",
+    "而以前前端写死 batch_size=1 且无条件发出去，把名片的 4 和那个旋钮一起盖掉了。",
+    "",
+    "⚠ 只列**这台引擎私有**的参数。format / split / max_chars / concat /",
+    "silence_ms / media_type / engine_batch / voice_label 这 8 个是平台自己的词",
+    "（两张名片都有），seed 也是平台词（IndexTTS2 用 maps 映射它）——",
+    "它们不归任何一台引擎描述，所以不在这里。"
+  ],
+  "params": {
+    "schema": {
+      "temperature": {
+        "type": "number", "min": 0, "max": 2, "step": 0.05, "tier": "common",
+        "label": { "en": "Temperature", "zh": "Temperature" },
+        "help": { "en": "Randomness of generation.", "zh": "生成随机性。" }
+      },
+      "top_k": {
+        "type": "integer", "min": 1, "max": 100, "step": 1, "tier": "common",
+        "label": { "en": "Top K", "zh": "Top K" },
+        "help": { "en": "Sampling candidate count.", "zh": "采样候选数量。" }
+      },
+      "top_p": {
+        "type": "number", "min": 0, "max": 1, "step": 0.05, "tier": "common",
+        "label": { "en": "Top P", "zh": "Top P" },
+        "help": { "en": "Nucleus sampling threshold.", "zh": "核采样阈值。" }
+      },
+      "repetition_penalty": {
+        "type": "number", "min": 0.5, "max": 2, "step": 0.05, "tier": "common",
+        "label": { "en": "Repetition Penalty", "zh": "Repetition Penalty" },
+        "help": { "en": "Penalty against repeated output.", "zh": "抑制重复输出的惩罚系数。" }
+      },
+      "text_split_method": {
+        "type": "enum", "tier": "common",
+        "label": { "en": "Split Method", "zh": "Split Method" },
+        "help": { "en": "How long text is split before synthesis.", "zh": "合成前的长文本切分方式。" },
+        "choices": [
+          { "value": "cut0", "label": { "en": "cut0 (no split)", "zh": "cut0 (no split)" } },
+          { "value": "cut1", "label": { "en": "cut1 (punctuation)", "zh": "cut1 (punctuation)" } },
+          { "value": "cut2", "label": { "en": "cut2 (sentence)", "zh": "cut2 (sentence)" } },
+          { "value": "cut3", "label": { "en": "cut3 (paragraph)", "zh": "cut3 (paragraph)" } },
+          { "value": "cut4", "label": { "en": "cut4 (length)", "zh": "cut4 (length)" } },
+          { "value": "cut5", "label": { "en": "cut5 (default)", "zh": "cut5 (default)" } }
+        ]
+      },
+      "speed_factor": {
+        "type": "number", "min": 0.5, "max": 2, "step": 0.1, "tier": "common",
+        "label": { "en": "Speed Factor", "zh": "Speed Factor" },
+        "help": { "en": "Playback speed multiplier.", "zh": "语速倍率。" }
+      },
+
+      "batch_size": {
+        "type": "integer", "min": 1, "max": 8, "step": 1, "tier": "advanced",
+        "label": { "en": "Batch Size", "zh": "Batch Size" },
+        "help": { "en": "Segments synthesised per batch.", "zh": "每批合成的分段数量。" }
+      },
+      "batch_threshold": {
+        "type": "number", "min": 0, "max": 1, "step": 0.05, "tier": "advanced",
+        "label": { "en": "Batch Threshold", "zh": "Batch Threshold" },
+        "help": { "en": "Length-similarity threshold for batching.", "zh": "分批时的长度相似度阈值。" }
+      },
+      "split_bucket": {
+        "type": "boolean", "tier": "advanced",
+        "label": { "en": "Split Bucket", "zh": "Split Bucket" },
+        "help": { "en": "Group segments of similar length before synthesis.", "zh": "合成前将长度相近的分段分组处理。" }
+      },
+      "fragment_interval": {
+        "type": "number", "min": 0, "max": 2, "step": 0.05, "tier": "advanced",
+        "label": { "en": "Fragment Interval (s)", "zh": "Fragment Interval (s)" },
+        "help": { "en": "Silence in seconds inserted between segments.", "zh": "分段之间插入的静音秒数。" }
+      },
+      "parallel_infer": {
+        "type": "boolean", "tier": "advanced",
+        "label": { "en": "Parallel Infer", "zh": "Parallel Infer" },
+        "help": { "en": "Infer segments in parallel.", "zh": "并行推理各分段。" }
+      },
+      "sample_steps": {
+        "default": 32,
+        "type": "integer", "min": 4, "max": 64, "step": 4, "tier": "advanced",
+        "label": { "en": "Sample Steps (v3)", "zh": "Sample Steps (v3)" },
+        "help": { "en": "Sampling steps for the vocoder. v3/v4 models only.", "zh": "声码器采样步数，仅 v3/v4 模型有效。" }
+      },
+      "if_sr": {
+        "default": false,
+        "type": "boolean", "tier": "advanced",
+        "label": { "en": "Super Sampling (v3)", "zh": "Super Sampling (v3)" },
+        "help": { "en": "Run super-resolution on the result. v3/v4 models only.", "zh": "对结果执行超分辨率处理，仅 v3/v4 模型有效。" }
+      },
+      "streaming_mode": {
+        "type": "boolean", "tier": "advanced",
+        "label": { "en": "Streaming Mode", "zh": "Streaming Mode" },
+        "help": { "en": "Return audio chunks while synthesis is still running.", "zh": "边合成边返回音频分片。" }
+      },
+      "overlap_length": {
+        "default": 2,
+        "type": "integer", "min": 0, "max": 10, "step": 1, "tier": "advanced",
+        "label": { "en": "Overlap Length", "zh": "Overlap Length" },
+        "help": { "en": "Overlap between streamed chunks, in frames.", "zh": "流式分片之间的重叠帧数。" }
+      },
+      "min_chunk_length": {
+        "default": 16,
+        "type": "integer", "min": 4, "max": 64, "step": 4, "tier": "advanced",
+        "label": { "en": "Min Chunk Length", "zh": "Min Chunk Length" },
+        "help": { "en": "Smallest chunk the engine will stream out.", "zh": "流式输出的最小分片长度。" }
+      }
+    }
+  },
+
   "_comment_defaults_env": [
     "⭐ 名片自己声明「哪个环境变量能顶掉我的哪个默认值」，平台不认识任何",
     "具体变量名（和上面的 base_url_env 同一个套路）。",
     "AURIVOX_TTS_BATCH_SIZE 是搬家前 server.js:740-743 就有的旋钮：",
     "低显存显卡上长文本会 OOM，设成 1 就好。范围 1-16、非整数或越界一律",
-    "回落名片里的 4 —— 与搬家前 parseInt 那一段的判断逐条一致。"
+    "回落名片里的 4 —— 与搬家前 parseInt 那一段的判断逐条一致。",
+    "",
+    "⭐⭐ 为什么是 4 而不是 1（Owner 2026-08-23 裁定）：GPT-SoVITS 自己有",
+    "两个不同场景的默认值 —— **微调默认 1，推理默认 4**。搬家前平台里那",
+    "几份副本抄的是 1，那是把微调场景的数字用到了推理路径上。而引擎契约",
+    "v2 只管推理（见 docs/ENGINE_CONTRACT.md），所以这里就该是 4。",
+    "⛔ 别再把这两个数字混在一起讨论：它们不是同一个问题的两种意见，",
+    "是两个场景各自正确的答案。"
   ],
   "defaults_env": {
     "batch_size": { "var": "AURIVOX_TTS_BATCH_SIZE", "type": "int", "min": 1, "max": 16 }

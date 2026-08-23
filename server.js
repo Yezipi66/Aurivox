@@ -114,7 +114,12 @@ const { VoicesStore } = require("./lib/voices/store");
 //   payload.js  按名片把一次调用拼成这台引擎认识的请求体
 const { resolveEngineProfile } = require("./lib/engines/profile");
 const { findLegacyDefaultId } = require("./lib/engines/legacyDefault");
+// 契约 C11：任何「引擎有哪些参数 / 默认多少」的问题只问这一个地方。
+const { engineParamDefaults, applyEngineKnobs } = require("./lib/engines/paramTable");
+const { createAdvancedParamsStore } = require("./lib/advancedParams");
 const { assembleEnginePayload, engineKey, acceptsKey } = require("./lib/engines/payload");
+// 第 3 步（甲）：出错时说出真正出事的那台引擎的名字，并把上游报错挂成属性。
+const { upstreamFailure, emptyAudioFailure } = require("./lib/engines/upstreamError");
 // voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
 // in-place transcribe jobs. In-memory only (best-effort progress, like training).
 const transcribeJobs = new Map();
@@ -724,23 +729,22 @@ function forceSplitLong(text, softLimit, hardLimit) {
 // Reproducibility: turn a random-seed request (-1 / empty / null / invalid) into a
 // CONCRETE seed in the engine's range [0, 2^32-1]. Resolving here — before the engine
 // call AND before writing meta.json — means the exact seed used is recorded, so a later
-// Rerun replays the identical value and reproduces the same audio. A valid non-negative
-// integer is passed through unchanged. Mirrors the engine's set_seed(-1) randomisation
-// range, so behaviour is unchanged except the value is now captured instead of lost.
+// Rerun replays the identical value and re-synthesises with that same seed. A valid
+// non-negative integer is passed through unchanged. Mirrors the engine's set_seed(-1)
+// randomisation range, so behaviour is unchanged except the value is now captured
+// instead of lost.
+// ⚠ Replaying the same seed does NOT yield a byte-identical file — measured ~-88 dB of
+// float jitter on otherwise identical input. This comment previously claimed it
+// "reproduces the same audio"; see the measurement note in lib/services/synthesisService.js.
 function resolveSeed(seed) {
   const n = typeof seed === "number" ? seed : parseInt(seed, 10);
   return (Number.isInteger(n) && n >= 0) ? n : Math.floor(Math.random() * 0x100000000);
 }
 
-// A-1 (within-request parallelism): batch_size groups the segments one input is
-// split into; with parallel_infer they run together, cutting the wall-clock time
-// of ONE multi-sentence request. Default raised 1 -> 4. This is the
-// throughput/VRAM knob: on a low-VRAM GPU that OOMs on long inputs, set
-// AURIVOX_TTS_BATCH_SIZE=1. Recipes / advanced params still override per call.
-const _DEFAULT_TTS_BATCH_SIZE = (() => {
-  const n = parseInt(process.env.AURIVOX_TTS_BATCH_SIZE, 10);
-  return (Number.isInteger(n) && n >= 1 && n <= 16) ? n : 4;
-})();
+// A-1 那个 batch_size 旋钮（AURIVOX_TTS_BATCH_SIZE，低显存 GPU 降回 1）
+// 已搬到名片的 defaults_env 上，判断逐条一致（int / 1..16 / 不合法就回落）。
+// ⛔ 这里原来的 _DEFAULT_TTS_BATCH_SIZE 已删除而不是留着兜底 —— 契约 §12：
+//    一刀结束时老写法必须已经不存在，两份一起跑就是下一次漂移的起点。
 
 // ---------------------------------------------------------------------------
 //  平台的活：把「参考音频/参考文本」解析成这台机器上真实存在的东西
@@ -870,28 +874,31 @@ async function generateOneSegment(segmentText, cfg, engine) {
   // （Patch #11）；⛔ 别在这里把 cfg 里的原值再塞回去，那会把解析好的路径
   // 打回项目相对路径，live generate 就找不到文件了。
   //
-  // 下面这两个键是 GPT-SoVITS 的私有参数，补一次是因为白名单那一段会把
-  // 空串/null 过滤掉，而 if_sr 的 false 需要显式送达。
+  // 补一次是因为白名单那一段会把空串/null 过滤掉，而布尔 false 必须显式送达
+  // （不发和发 false 在引擎那边是两件事）。
   // ⭐ 第 1c 步加了名片门控：这台引擎的 payload_keys 上没有这个键就不发 ——
   //   IndexTTS2 的 shim 对不认识的键直接 400，硬塞过去等于必然失败。
+  // ⭐ C11：原来这里写死补 ["sample_steps","if_sr"] 两个键 —— 那是 GPT-SoVITS
+  //   的私有参数名。现在补的是「这台引擎名片上声明的全部旋钮」，所以下游引擎
+  //   的布尔参数不会再在这一行上被静默丢掉。
   const _profile = engine || legacyEngineProfile();
-  for (const key of ["sample_steps", "if_sr"]) {
-    if (cfg[key] !== undefined && acceptsKey(_profile, key)) payload[key] = cfg[key];
-  }
+  applyEngineKnobs(payload, _profile, cfg);
   // 引擎跟着请求走（契约 v2 第 1b 步）：
   // 谁发过来的 engine，就发到谁的地址、用谁的超时。
   // engine 为空 = 老调用方，gsvPost 自己懒解析老路径名片，行为不变。
-  // ⚠ 下面那句错误文案里的 "GPT-SoVITS /tts failed" 是承重的：
-  //   synthesisService.js:22 用正则靠它把上游报错抠出来。改它要连那边
-  //   一起改，否则上游报错会静默丢失。第 1b 步不动它。
+  // ⭐ 第 3 步（甲）：错误文案里的引擎名改为从名片来（_profile 就在上面几行）。
+  //   老路径引擎的 label 就是 "GPT-SoVITS"，所以对今天的用户这句话**一个字节
+  //   都没变**；接了别的引擎时才会说出那台的名字。
+  //   承重的部分（上游报错怎么传到 synthesisService）已经从「文案 + 正则」搬到
+  //   err.upstreamBody 属性上了，见 lib/engines/upstreamError.js 的注释。
   const ttsRes = await gsvPost("/tts", payload,
     engine ? { baseUrl: engine.base_url, reqTimeout: engine.timeout_ms } : undefined);
   if (ttsRes.statusCode >= 400) {
-    throw new Error(`GPT-SoVITS /tts failed (${ttsRes.statusCode}): ${ttsRes.body.toString()}`);
+    throw upstreamFailure(_profile, ttsRes.statusCode, ttsRes.body.toString());
   }
   const audioBytes = ttsRes.body;
   if (!audioBytes || audioBytes.length === 0) {
-    throw new Error("GPT-SoVITS returned empty audio");
+    throw emptyAudioFailure(_profile);
   }
   return audioBytes;
 }
@@ -906,48 +913,46 @@ async function generateOneSegment(segmentText, cfg, engine) {
 
 // ADVANCED_PARAMS_FILE 取自 lib/paths.js（data/ 优先，回退项目根）。
 
-const DEFAULT_ADVANCED_PARAMS = {
-  // Common
-  temperature: 1.0,
-  top_k: 15,
-  top_p: 1.0,
-  repetition_penalty: 1.35,
-  text_split_method: "cut5",
-  speed_factor: 1.0,
-  seed: -1,
-  // Advanced inference
-  batch_size: _DEFAULT_TTS_BATCH_SIZE,
-  batch_threshold: 0.75,
-  split_bucket: true,
-  fragment_interval: 0.3,
-  parallel_infer: true,
-  sample_steps: 32,
-  if_sr: false,
-  media_type: "wav",
-  streaming_mode: false,
-  overlap_length: 2,
-  min_chunk_length: 16,
-  // Engine-level (require engine restart)
+// 这三个是**启动期**设置：改了要重启引擎进程，不是一次合成的可调值。
+// 它们不在任何一张名片的 param_keys 上，因为契约 §2 明写平台不管引擎怎么
+// 起（那是逃生门那边的事）。⚠ 留在这里是现状，不是设计 —— 见挂账。
+const ENGINE_LAUNCH_DEFAULTS = {
   version: "v2Pro",
   is_half: true,
   device: "cuda",
 };
 
-function loadAdvancedParams() {
-  try {
-    if (!fs.existsSync(ADVANCED_PARAMS_FILE)) return { ...DEFAULT_ADVANCED_PARAMS };
-    const data = JSON.parse(fs.readFileSync(ADVANCED_PARAMS_FILE, "utf-8"));
-    return { ...DEFAULT_ADVANCED_PARAMS, ...data };
-  } catch (e) {
-    console.error("[ADVANCED_PARAMS] Failed to read:", e.message);
-    return { ...DEFAULT_ADVANCED_PARAMS };
-  }
+// 一次合成的可调值，全部来自名片（契约 C11：参数表只有一份）。
+//
+// 这里原本是一张写死的 18 键表。它是 batch_size 那四份副本里**唯一正确**
+// 的一份（写的是 _DEFAULT_TTS_BATCH_SIZE，跟着 AURIVOX_TTS_BATCH_SIZE 旋钮
+// 走），可惜前端无条件发 1 把它盖掉了，所以正确也没用上。
+//
+// ⛔ 不再缓存成常量：已装哪些引擎、环境变量拧到几，都是**运行时事实**。
+//    存成模块级常量就等于在进程启动的那一瞬间又拍了一张快照 —— 副本会从
+//    那一刻起重新开始漂。
+//
+// ⭐ 2026-08-23：三个函数的**函数体**搬去了 lib/advancedParams.js。
+//    原因不是整理代码，是它们在这里**测不到** —— server.js 一被 require 就
+//    listen，进不了测试进程。证据：把 save 从合并改成替换（一个真实的行为
+//    变更），全量 661 条测试**一条没红**。这里留下的三个薄壳只为不动 ctx 接线。
+const advancedParamsStore = createAdvancedParamsStore({
+  file: ADVANCED_PARAMS_FILE,
+  engineDefaults: () => engineParamDefaults(findLegacyDefaultId()),
+  launchDefaults: ENGINE_LAUNCH_DEFAULTS,
+});
+
+function defaultAdvancedParams() {
+  return advancedParamsStore.defaults();
 }
 
+function loadAdvancedParams() {
+  return advancedParamsStore.load();
+}
+
+// ⭐⭐ **替换**，不是合并 —— 理由全文见 lib/advancedParams.js 顶部第 ② 条。
 function saveAdvancedParams(params) {
-  const merged = { ...loadAdvancedParams(), ...params, updated_at: new Date().toISOString() };
-  fs.writeFileSync(ADVANCED_PARAMS_FILE, JSON.stringify(merged, null, 2), "utf-8");
-  return merged;
+  return advancedParamsStore.save(params);
 }
 
 // ============================================================
@@ -1797,7 +1802,7 @@ function scanStagingTasks() {
 // factories. They receive shared server-scope symbols via `ctx` and are
 // mounted here (paths unchanged). The static frontend + SPA catch-all are
 // registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, DEFAULT_ADVANCED_PARAMS, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
 app.use(require("./lib/routes/voices")(ctx));
