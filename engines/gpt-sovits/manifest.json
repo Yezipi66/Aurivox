@@ -1,4 +1,17 @@
 {
+  "_comment_contract": [
+    "⭐ 第一张按引擎契约 v2 写的名片（docs/ENGINE_CONTRACT.md）。",
+    "下面每一个值都是从 lib/ 里搬出来的**今天的实际行为**，不是新定的规矩 ——",
+    "第 1 步的验收标准是「GPT-SoVITS 行为一个字不变」，所以这里改任何一个",
+    "数字都等于改行为，请先看测试。搬家前它们分别写死在：",
+    "  default_base_url  ← lib/gsv/client.js:10",
+    "  timeout_ms        ← lib/gsv/client.js（300000，三处重复）",
+    "  max_chars         ← lib/services/synthesisService.js:126（softLimit 30）",
+    "  reference_clip_seconds ← synthesisService.js:105-113（3-10 秒那条）",
+    "  hot_swap_models   ← 无条件调 switchModels 这个行为本身"
+  ],
+  "contract_version": 2,
+
   "id": "gpt-sovits",
   "label": "GPT-SoVITS",
   "upstream": "https://github.com/RVC-Boss/GPT-SoVITS",
@@ -24,5 +37,61 @@
   ],
 
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
-  "default_base_url": "http://127.0.0.1:9880"
+  "default_base_url": "http://127.0.0.1:9880",
+
+  "_comment_base_url_env": [
+    "⭐ 名片自己指定「哪个环境变量能覆盖我的地址」，平台不认识任何具体变量名。",
+    "这一行的存在，是为了让历史环境变量 GPT_SOVITS_BASE_URL 继续有效，",
+    "同时不用把 GPT_SOVITS 这几个字写进 lib/。优先级：env > 本名片。",
+    "下游引擎想要同样的能力，自己写一行就有，不用求我们改代码。"
+  ],
+  "base_url_env": "GPT_SOVITS_BASE_URL",
+
+  "_comment_legacy_default": [
+    "⚠ 过渡期标记，第 2 步之后会删。",
+    "webui 那条老合成路径没有『引擎』这个参数 —— 它诞生时全世界只有一台引擎。",
+    "第 1 步把写死的地址拔掉了，但还没给老路径加引擎参数（那是第 2 步）。",
+    "这一行的意思是：『没人告诉我连哪台的时候，连我』。",
+    "把它写在名片上而不是写在 lib/ 里，是为了让『老路径今天绑死在谁身上』",
+    "成为一件看得见、可审计、将来可以被删掉的事实。",
+    "有且只能有一张名片写这一行，写了两张会直接报错（不会静默按字母序挑）。"
+  ],
+  "legacy_default": true,
+
+  "_comment_timeout_ms": [
+    "单次请求超时，按『每一段』计不是整篇。300000 = 搬家前 lib/gsv/client.js",
+    "里那个模块级默认值，原样搬过来，没有调整。"
+  ],
+  "timeout_ms": 300000,
+
+  "_comment_max_chars": [
+    "分段软上限；硬上限由平台按 ×2 算（= 90），与搬家前算法一致。",
+    "⚠ 这个值必须是 45，不是 30。搬家时我差点写错，被钉子测试拦下：",
+    "  synthesisService.js:126 是 `parseInt(max_chars,10) || 45`；",
+    "  splitJapaneseText 自己的默认参数虽然写着 30/60，但合成路径**永远**",
+    "  显式传 softLimit，那个 30 从来轮不到 —— 是条死路径。",
+    "  照着那行注释搬会把全体用户的分段长度从 45 悄悄改成 30。"
+  ],
+  "max_chars": 45,
+
+  "_comment_capabilities": [
+    "hot_swap_models=true 是 GPT-SoVITS 区别于多数引擎的地方：它能在运行中",
+    "  /set_gpt_weights + /set_sovits_weights 换权重。多数引擎做不到，",
+    "  权重在构造时一次性加载，换权重只能重启进程。",
+    "reference_clip_seconds=[3,10] 就是那条 400 报错的来源。这是 GPT-SoVITS",
+    "  的要求，不是所有引擎的 —— 不限制的引擎请显式写 null。",
+    "output_sample_rate=32000 是 GPT-SoVITS v2 的输出采样率。",
+    "  ⚠ 已知不一致：lib/audio/concat.js:37 今天仍按 22050 生成段间静音。",
+    "  第 1 步不动它（动了就是改行为），单独一刀处理。",
+    "supports_finetune=true —— 全仓唯一一个。契约 v2 只管推理，这个键唯一",
+    "  的用途是决定训练页显不显示。"
+  ],
+  "capabilities": {
+    "hot_swap_models": true,
+    "requires_reference_audio": true,
+    "reference_clip_seconds": [3, 10],
+    "streaming": true,
+    "output_sample_rate": 32000,
+    "supports_finetune": true
+  }
 }

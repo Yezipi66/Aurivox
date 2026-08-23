@@ -1,4 +1,12 @@
 {
+  "_comment_contract": [
+    "按引擎契约 v2 补齐（docs/ENGINE_CONTRACT.md）。原有数值一个没动，",
+    "只补了 contract_version 与 capabilities.supports_finetune 两行 ——",
+    "在 lib/engines/profile.js 出现之前，下面这些字段是**没人读的死数据**，",
+    "从第 1 步开始它们才真正生效。"
+  ],
+  "contract_version": 2,
+
   "id": "indextts2",
   "label": "IndexTTS2",
   "upstream": "https://github.com/index-tts/index-tts",
@@ -77,6 +85,13 @@
     "requires_reference_audio": true,
     "reference_clip_seconds": null,
     "streaming": false,
-    "output_sample_rate": 22050
+    "output_sample_rate": 22050,
+
+    "_comment_supports_finetune": [
+      "契约 v2 只管推理，不管微调。这个键唯一的用途是决定训练页显不显示 ——",
+      "false ⇒ 选中本引擎时训练页整个藏起来。「藏起来」是 v2 的事，",
+      "「做出来」不是。将来别家微调另立训练契约。"
+    ],
+    "supports_finetune": false
   }
 }

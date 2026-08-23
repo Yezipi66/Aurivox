@@ -835,7 +835,7 @@ async function switchModels(cfg) {
   return _modelSwitcher.ensure(cfg);
 }
 
-async function generateOneSegment(segmentText, cfg) {
+async function generateOneSegment(segmentText, cfg, engine) {
   const payload = buildTtsPayload(segmentText, cfg);
   // aux_ref_audio_paths is resolved (to absolute, existence-filtered) inside
   // buildTtsPayload (Patch #11); do NOT re-inject the raw cfg value here or the
@@ -843,7 +843,14 @@ async function generateOneSegment(segmentText, cfg) {
   for (const key of ["sample_steps", "if_sr"]) {
     if (cfg[key] !== undefined) payload[key] = cfg[key];
   }
-  const ttsRes = await gsvPost("/tts", payload);
+  // 引擎跟着请求走（契约 v2 第 1b 步）：
+  // 谁发过来的 engine，就发到谁的地址、用谁的超时。
+  // engine 为空 = 老调用方，gsvPost 自己懒解析老路径名片，行为不变。
+  // ⚠ 下面那句错误文案里的 "GPT-SoVITS /tts failed" 是承重的：
+  //   synthesisService.js:22 用正则靠它把上游报错抠出来。改它要连那边
+  //   一起改，否则上游报错会静默丢失。第 1b 步不动它。
+  const ttsRes = await gsvPost("/tts", payload,
+    engine ? { baseUrl: engine.base_url, reqTimeout: engine.timeout_ms } : undefined);
   if (ttsRes.statusCode >= 400) {
     throw new Error(`GPT-SoVITS /tts failed (${ttsRes.statusCode}): ${ttsRes.body.toString()}`);
   }
@@ -1663,7 +1670,23 @@ function pickLatestByEpoch(files, re) {
 
 // Reject a recipe whose role is not a known voice — keeps recipes anchored to
 // real assets and blocks typos from creating orphan presets.
+//
+// ⭐ 2026-08-23 补的一个既有的洞：底模（BASE_VOICE_ID）按设计**不在
+// voices.json 里**（见 isBaseVoice / baseVoiceReg，以及 synthesisService 里
+// 「resolve it in-memory so zero-shot inference on the pretrained weights works
+// without a fine-tuned asset」那段注释）。于是这个 hasOwnProperty 会把底模判成
+// unknown voice，`POST /api/recipes` 返回 400 ——
+//
+//     底模零样本**能推理**，却**存不成配方**；存不成配方就出不了 broker。
+//
+// 而「用底模 + 一段参考音频做零样本」正是 IndexTTS2 这类引擎的主力用法。
+// 配方是串联 webui/flow 到 broker 的调用单元，这个洞正好卡在那条主线上。
+//
+// 放行底模不会放松「配方必须锚在真实资产上」这条规矩：底模是平台自带的内建
+// 音色（voices API 里也是 unshift 一条 builtin 进列表的），它比 voices.json
+// 里任何一条都更「真实存在」。
 function knownVoice(role) {
+  if (isBaseVoice(role)) return true;
   try { return Object.prototype.hasOwnProperty.call(loadVoices(), role); }
   catch (_) { return false; }
 }
