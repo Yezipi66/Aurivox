@@ -212,9 +212,45 @@ if not os.path.exists(config_path):
     else:
         print(f"[config] warning: neither {config_path} nor template {_example} exists")
 
+def _sweep_upstream_shell_dir():
+    """收掉上游 TTS_Config 在项目根拉出来的那个空壳目录。
+
+    上游 engines/gpt-sovits/infer/TTS.py 的 TTS_Config.__init__ (class 在 :248)
+    第 333 行有一句**无条件**的 os.makedirs("GPT_SoVITS/configs/"), 它是相对
+    当前工作目录的, 而本文件 :62 已经 chdir 到项目根 (yaml 里的相对底模路径靠
+    这个基准解析, 不能改), 于是每次起引擎都会在项目根上新造一个空目录。
+
+    它从头到尾没人读写: 本项目传给 TTS_Config 的是 lib/inference/tts_infer.yaml
+    这条绝对路径, 上游那个"没给配置就用默认路径"的分支永远不会进。
+
+    ⭐ 为什么把清理放在这里而不是去改上游那一行:
+       改上游是零功能价值的改动, 却要在每次升级上游时重新施加
+       (见 engines/gpt-sovits/infer/LOCAL-CHANGES.md 的维护成本)。
+       这个文件是本项目自己的, 收尾放这儿等于一行上游代码都不动。
+
+    ⛔ 只在**确实是空的**时候删: 只要底下有任何文件就原样留着 —— 那说明有人
+       把旧布局的权重树搬回来了, 那是 lib/root_layout.node.test.js 的活,
+       轮不到这里悄悄删掉别人的东西。
+    """
+    import shutil
+
+    shell = os.path.join(PROJECT_ROOT, "GPT_SoVITS")
+    if not os.path.isdir(shell):
+        return
+    for _cur, _dirs, files in os.walk(shell):
+        if files:
+            print(f"[cleanup] {shell} 里有文件, 不动它 (权重归 models/)")
+            return
+    shutil.rmtree(shell, ignore_errors=True)
+
+
 tts_config = TTS_Config(config_path)
 print(tts_config)
 tts_pipeline = TTS(tts_config)
+
+# ⭐ 必须放在 TTS_Config / TTS 都构造完之后 —— 空壳是 TTS_Config.__init__ 造的,
+#   提前删会被它随后重新造出来。
+_sweep_upstream_shell_dir()
 
 # tts_pipeline 是模块级全局单例, 被所有请求共享。切换 GPT/SoVITS 权重
 # (init_t2s_weights / init_vits_weights) 与推理 (run) 会并发访问同一对象:

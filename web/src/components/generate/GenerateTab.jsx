@@ -97,6 +97,17 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
   const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
   const [concatEnabled, setConcatEnabled] = usePersistentState('generate.concatEnabled', true)
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
+  // 强制重新推理：跳过合成结果复用缓存的读。
+  //
+  // ⭐ 走 usePersistentState（浏览器本地），**不**进 /api/advanced-params。
+  //   那个端点存的是**引擎参数表**，而这是平台自己的开关（一台引擎都没装
+  //   的时候它依然有意义）—— 混进去正是契约 C11 禁止的第二份参数表，
+  //   而且 loadAdvancedParams 是「盘上赢」，会把它变成所有调用方的默认值。
+  //
+  // ⚠ 默认 false：勾选是用户主动的动作，不勾就享受复用。
+  //   面板默认折叠（下面 showAdvanced），所以勾上之后用户不一定看得见自己
+  //   勾着 —— Owner 已判定这可接受（勾是他自己动的手），此处留痕备查。
+  const [forceResynth, setForceResynth] = usePersistentState('generate.forceResynth', false)
 
   // 读音校对（task6）：本次覆盖仅内存态。#4 起改用 Proof & language 弹窗，无需
   // 单独的启用开关（弹窗内无条件渲染校对面板，overrides 直接进 payload）。
@@ -435,6 +446,9 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
       pron_overrides: pronPayload,
       lang_overrides: langOverrides,
       source: 'generate', voice_label: selected?.display_name || selectedVoice,
+      // 平台开关，不是引擎参数：只在这一次请求里有效，服务端也不会把它存进 recipe
+      // （否则 Rerun 会被永久钉成强制重推）。
+      force_resynth: forceResynth,
     }
     const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
     if (data) {
@@ -818,6 +832,22 @@ function GenerateTab({ voices, selectedVoice, setSelectedVoice, onEditVoice, onS
                       <div>
                         <label className="field-label">Seed (-1 = random)</label>
                         <input type="number" className="control" value={seed} onChange={e => setSeed(parseInt(e.target.value) || -1)} />
+                      </div>
+                      {/*
+                        强制重新推理。放 Common 档是 Owner 定的（"比较基础"）。
+                        ⚠ 它与同排其它格子**不是一类东西**：那些是引擎参数，会存进
+                          /api/advanced-params；这一个是平台开关，存在浏览器本地
+                          （generate.forceResynth），绝不进引擎参数表 —— 详见
+                          状态声明处的注释。
+                      */}
+                      <div>
+                        <label className="field-label">Force re-synthesis</label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 32 }}>
+                          <input type="checkbox" checked={forceResynth} onChange={e => setForceResynth(e.target.checked)} />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            Ignore cached audio and re-run inference
+                          </span>
+                        </label>
                       </div>
                     </div>
                   )}

@@ -48,6 +48,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `venv` | 目录 | Python 虚拟环境，可重建 | 否 |
 | `THIRD_PARTY_LICENSES` | 目录 | 第三方许可证正文，合规义务 | 否 |
 | `.git` | 目录 | git 自己 | 否 |
+| `GPT_SoVITS` | 目录 | **空壳，不是权重树**。上游 `engines/gpt-sovits/infer/TTS.py` 的 `TTS_Config.__init__` 有一句无条件的 `os.makedirs("GPT_SoVITS/configs/")`，相对引擎 CWD（= 项目根，`infer_server.py:62` 显式 chdir，`_aurivox_relativise_paths` 依赖它）。本项目走 `lib/inference/tts_infer.yaml` 这条绝对路径，「用默认配置」那个分支永远不进 ⇒ **这个目录从不被读写，删掉毫无影响，下次起引擎会自动重建**。⚠ 放行的只是空壳：`lib/root_layout.node.test.js` 盯着它，里面一旦出现**任何文件**就红（顶层这棵权重树已于 batch14 移出项目，权重归 `models/`） | 否 |
 | `.hermes` | 目录 | 已 ignore；`docs/SCOPE_r12c.md` §3 Batch 5 决定它是迁 `cache/hermes/` 还是留 | 否 |
 
 ## 改这张表的规矩

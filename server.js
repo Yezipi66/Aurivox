@@ -117,9 +117,11 @@ const { findLegacyDefaultId } = require("./lib/engines/legacyDefault");
 // 契约 C11：任何「引擎有哪些参数 / 默认多少」的问题只问这一个地方。
 const { engineParamDefaults, applyEngineKnobs } = require("./lib/engines/paramTable");
 const { createAdvancedParamsStore } = require("./lib/advancedParams");
+const { createSegmentCache } = require("./lib/cache/segmentCache");
+const { inferWithCache } = require("./lib/cache/cachedInference");
 const { assembleEnginePayload, engineKey, acceptsKey } = require("./lib/engines/payload");
 // 第 3 步（甲）：出错时说出真正出事的那台引擎的名字，并把上游报错挂成属性。
-const { upstreamFailure, emptyAudioFailure } = require("./lib/engines/upstreamError");
+const { upstreamFailure, emptyAudioFailure, isTransportError, transportFailure } = require("./lib/engines/upstreamError");
 // voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
 // in-place transcribe jobs. In-memory only (best-effort progress, like training).
 const transcribeJobs = new Map();
@@ -800,6 +802,29 @@ function legacyEngineProfile() {
 }
 
 // ---------------------------------------------------------------------------
+//  合成结果复用缓存
+// ---------------------------------------------------------------------------
+// 全文说明在 lib/cache/segmentCache.js 顶部。这里只做实例化。
+//
+// AURIVOX_CACHE=0 整体关掉（出了怪声音时第一个该试的开关）。
+const segmentCache = createSegmentCache({
+  dir: PATHS.CACHE.segments,
+  enabled: process.env.AURIVOX_CACHE !== "0",
+});
+// 命中/未命中计数与淘汰节奏都在 lib/cache/cachedInference.js 里。
+//
+// ⭐ 把算出来的目录打在启动横幅里。PATHS.CACHE.segments 挂在 CACHE_DIR 环境变量
+//   下（lib/paths.js），而这个变量本来是为 Python 侧那批 numba/hf/torch 缓存
+//   设的 —— 真机上一旦有人设过它，分段缓存就会跟着搬到别的盘，表现是
+//   "每段写入 ENOENT、命中率恒为 0、但合成一切正常"。一行日志换一次排障。
+if (segmentCache.enabled) {
+  const from = process.env.CACHE_DIR ? "（跟随环境变量 CACHE_DIR）" : "";
+  console.log(`[CACHE] 分段复用已开启 — 目录: ${segmentCache.dir}${from}`);
+} else {
+  console.log("[CACHE] 分段复用已关闭（AURIVOX_CACHE=0）");
+}
+
+// ---------------------------------------------------------------------------
 //  拼请求体：平台备料，名片说怎么摆
 // ---------------------------------------------------------------------------
 // @param {string} text     要合成的文本
@@ -868,7 +893,7 @@ async function switchModels(cfg) {
   return _modelSwitcher.ensure(cfg);
 }
 
-async function generateOneSegment(segmentText, cfg, engine) {
+async function generateOneSegment(segmentText, cfg, engine, out = {}) {
   const payload = buildTtsPayload(segmentText, cfg, engine);
   // 辅助参考音频在 buildTtsPayload 里已经解析成绝对路径并按存在性过滤过
   // （Patch #11）；⛔ 别在这里把 cfg 里的原值再塞回去，那会把解析好的路径
@@ -883,6 +908,35 @@ async function generateOneSegment(segmentText, cfg, engine) {
   //   的布尔参数不会再在这一行上被静默丢掉。
   const _profile = engine || legacyEngineProfile();
   applyEngineKnobs(payload, _profile, cfg);
+
+  // ⭐⭐ 复用缓存的取值点就在这里，位置是刻意的：payload 已经拼完
+  //    （buildTtsPayload + applyEngineKnobs 都过了），马上就要发出去 ——
+  //    这一刻 payload 里有且仅有这次推理的全部输入。指纹它，「漏一个键」
+  //    在构造上就不可能发生。
+  //
+  //    ⛔ 别把这段搬到 synthesisService 的分段循环里：那里手上只有 cfg，
+  //      得自己再拼一次 payload，那就是第二条装配线，迟早和真的这条漂开，
+  //      而漂开的症状是**返回一段错的音频且不报错**。
+  //
+  //    实测收益（640 字 / 30 段 / 3070 Laptop）：改一句话 45.6 秒 → 3.9 秒。
+  //    ⭐ 策略本身在 lib/cache/cachedInference.js，这里只有接线。理由：这几行
+  //      是全仓出错代价最高的代码之一（算错了不报错，只是让用户听到上一次的
+  //      音频），而 server.js 是全仓唯一进不了测试进程的文件（一 require 就
+  //      app.listen）。所以策略放到能被测试直接调用的地方去。
+  //
+  //    out 是**出参**不是返回值：盘上有 8 个假 generateOneSegment（各测试的
+  //    harness），改返回值形状会把它们全部拖下水，而出参对它们完全透明
+  //    —— 它们不写 out，调用方读到的就是 undefined，即「不知道是否命中」。
+  return await inferWithCache(
+    segmentCache,
+    { profile: _profile, payload, cfg },
+    () => _inferOneSegment(payload, cfg, engine, _profile),
+    out,
+  );
+}
+
+// 真正去推理这一段（缓存未命中时才会被调用）。
+async function _inferOneSegment(payload, cfg, engine, _profile) {
   // 引擎跟着请求走（契约 v2 第 1b 步）：
   // 谁发过来的 engine，就发到谁的地址、用谁的超时。
   // engine 为空 = 老调用方，gsvPost 自己懒解析老路径名片，行为不变。
@@ -891,8 +945,23 @@ async function generateOneSegment(segmentText, cfg, engine) {
   //   都没变**；接了别的引擎时才会说出那台的名字。
   //   承重的部分（上游报错怎么传到 synthesisService）已经从「文案 + 正则」搬到
   //   err.upstreamBody 属性上了，见 lib/engines/upstreamError.js 的注释。
-  const ttsRes = await gsvPost("/tts", payload,
-    engine ? { baseUrl: engine.base_url, reqTimeout: engine.timeout_ms } : undefined);
+  // ⛔ 传输层失败要单独接：gsvPost 内部是 `req.on("error", reject)`
+  //   （lib/gsv/client.js:69），Node 的 ECONNREFUSED 原样抛出来，既没有
+  //   upstreamBody 也没有引擎身份 ⇒ 一路落到通用兜底，用户只看到
+  //   "Internal server error"，而日志里写着 connect ECONNREFUSED 127.0.0.1:9880。
+  //   2026-08-23 实测撞到（引擎没启动）。这是新用户与下游插件作者最可能
+  //   撞上的第一个错误，恰恰是唯一不点名引擎的那个。
+  let ttsRes;
+  try {
+    ttsRes = await gsvPost("/tts", payload,
+      engine ? { baseUrl: engine.base_url, reqTimeout: engine.timeout_ms } : undefined);
+  } catch (err) {
+    if (isTransportError(err)) {
+      throw transportFailure(_profile, err,
+        { baseUrl: (engine && engine.base_url) || _profile.base_url });
+    }
+    throw err;
+  }
   if (ttsRes.statusCode >= 400) {
     throw upstreamFailure(_profile, ttsRes.statusCode, ttsRes.body.toString());
   }
@@ -900,6 +969,10 @@ async function generateOneSegment(segmentText, cfg, engine) {
   if (!audioBytes || audioBytes.length === 0) {
     throw emptyAudioFailure(_profile);
   }
+  // ⭐ 交出去的是**引擎原样吐回来的字节**，不是 toPcm16Wav 之后的 —— 存进缓存的
+  //   也就是这一份。理由：指纹算的是 payload（引擎的输入），那么条目就该是引擎
+  //   的输出，一进一出对得上。转码是调用方的事，命中时它照样会再转一次，
+  //   行为与 miss 时一模一样。
   return audioBytes;
 }
 

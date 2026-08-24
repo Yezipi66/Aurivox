@@ -83,6 +83,27 @@ test('读得回来的键，也必须真的存过 —— 否则「记忆」是假
   assert.deepEqual(readOnly, [], `这些键会被读回却从没存过：${readOnly.join(', ')}`)
 })
 
+test('⛔ 强制重推是平台开关，绝不许混进引擎参数表', () => {
+  // advanced_params.json 是**引擎参数**的界面记忆。force_resynth 不是任何一台
+  // 引擎的参数（一台引擎都没装它也有意义），混进去有两个具体后果：
+  //   ① 它会沉进盘上文件，而 loadAdvancedParams 是「盘上赢」⇒ 变成所有调用方
+  //      （含 /v1/audio/speech）的默认值，用户在别处根本没勾过；
+  //   ② 一旦被当成引擎参数，它就会进 payload ⇒ 进缓存指纹 ⇒ 缓存全废。
+  // 它该待的地方是浏览器本地（usePersistentState），那是纯界面偏好。
+  assert.ok(
+    !writtenKeys().has('force_resynth'),
+    'force_resynth 被写进了 /api/advanced-params —— 它是平台开关，不是引擎参数',
+  )
+  assert.ok(
+    CODE.includes("usePersistentState('generate.forceResynth'"),
+    '强制重推的勾选状态必须持久化在浏览器本地（Owner 要求恢复上次设置）',
+  )
+  assert.ok(
+    /force_resynth:\s*forceResynth/.test(CODE),
+    '勾选状态必须真的进到 /api/generate 的请求体里，否则这个开关谁也管不着',
+  )
+})
+
 test('流式那三个格子没有被加回合成面板', () => {
   // 它们配的是 /v1/audio/speech 的行为，而这个界面消费不了流（runGenerate 等的是
   // audio_url）。要给端点配默认值，那是端点配置该干的事，不是合成格子。

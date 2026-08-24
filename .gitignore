@@ -54,6 +54,7 @@ Thumbs.db
 # (see lib/paths.js CACHE_DIR / CACHE). The bare .numba_cache/ line stays so a
 # tree that predates the move keeps ignoring its leftovers.
 cache/
+!lib/cache/
 .numba_cache/
 
 # ─── Model weights & checkpoints (large binaries, never in git) ───
