@@ -202,15 +202,21 @@ argv = sys.argv
 if config_path in [None, ""]:
     config_path = os.path.join(THIS_DIR, "tts_infer.yaml")
 
-# 活动配置缺失时从模板复制(活动 yaml 会被运行时热加载回写, 故不入库)
-if not os.path.exists(config_path):
-    _example = config_path + ".example"
-    if os.path.exists(_example):
-        import shutil
-        shutil.copyfile(_example, config_path)
-        print(f"[config] {config_path} not found, copied from template: {_example}")
-    else:
-        print(f"[config] warning: neither {config_path} nor template {_example} exists")
+# 活动配置的自检与修复(活动 yaml 会被运行时热加载回写, 故不入库)。
+#
+# ⭐ 这段逻辑从 tools/scripts/start.ps1 的 Repair-EngineConfig 搬过来 ——
+#   它是 GPT-SoVITS 独有的收拾工作, 平台正在改成"按名片起引擎", 引擎特有的
+#   逻辑不该留在平台的启动脚本里。搬到这儿之后**谁起这个进程都一样修**:
+#   start.ps1 起、平台起、开发者手工敲命令起, 行为完全一致。
+#   判据比原先的"缺了才复制"严格: 空文件、被 GBK 控制台写坏的问号路径、
+#   指向已不存在位置的旧路径, 都会带备份地重建。
+#   ⛔ 这里显式把本文件所在目录放进 sys.path 再 import: :51-52 往 path 前面
+#   插了两个引擎目录, 不能指望"脚本目录一定还在最前面"。
+if THIS_DIR not in sys.path:
+    sys.path.append(THIS_DIR)
+from config_repair import repair as _repair_engine_config  # noqa: E402
+
+_repair_engine_config(config_path, config_path + ".example", PROJECT_ROOT)
 
 def _sweep_upstream_shell_dir():
     """收掉上游 TTS_Config 在项目根拉出来的那个空壳目录。

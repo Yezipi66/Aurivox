@@ -261,92 +261,12 @@ if ($ready) { Log '      Backend ready [OK]. Opening browser.' 'Green' }
 else { Log ('      [WARN] Backend not ready in {0}s. Opening browser anyway. See logs\backend*.log.' -f $BACKEND_WAIT) 'Yellow' }
 Start-Process $backendUrl | Out-Null
 
-# 1.5 Validate / repair the machine-local engine config (tts_infer.yaml).
-# tts_infer.yaml is PER-MACHINE runtime state: it holds this box's absolute
-# model paths + the last-selected GPT/SoVITS weights and is hot-rewritten by
-# the engine at runtime. It must NOT be shipped in a release (the packager
-# excludes it and ships tts_infer.yaml.example instead). When the install is
-# copied/moved to another machine or path (e.g. D:\TTS工作台\), a stale yaml
-# left from the old location keeps dead absolute paths and the engine fails to
-# load with no obvious error. Repair it from the shipped template here.
-function Repair-EngineConfig {
-  param([string]$LiveCfg, [string]$ExampleCfg, [string]$ProjectRoot)
-
-  if (-not (Test-Path $ExampleCfg)) {
-    Log ('[cfg][WARN] Template missing: {0}. Skipping tts_infer.yaml validation.' -f $ExampleCfg) 'Yellow'
-    return
-  }
-
-  $needsRegen = $false
-  $reason = ''
-
-  if (-not (Test-Path $LiveCfg)) {
-    $needsRegen = $true; $reason = 'missing'
-  } else {
-    $content = $null
-    try { $content = Get-Content -LiteralPath $LiveCfg -Raw -ErrorAction Stop } catch { }
-    if ([string]::IsNullOrWhiteSpace($content)) {
-      $needsRegen = $true; $reason = 'empty or unreadable'
-    } else {
-      foreach ($line in ($content -split "`r?`n")) {
-        if ($line -match '^\s*#') { continue }
-        if ($line -match '^\s*([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$') {
-          $key = $Matches[1]
-          $val = $Matches[2].Trim().Trim('"').Trim("'")
-
-          # Every *_path key is a path and must be checked, absolute or not.
-          #
-          # This used to inspect only values that LOOK like an absolute Windows
-          # path. A config whose paths were all relative therefore passed every
-          # check and was reported "present and valid" -- while every single
-          # path in it pointed at a directory that no longer exists. The config
-          # had been dead since the previous reorganisation and this function
-          # said it was healthy at every startup.
-          $isPathKey = $key -match '_path$'
-          $looksAbsolute = $val -match '^[A-Za-z]:[\\/]'
-
-          if ($isPathKey -or $looksAbsolute) {
-            # Mangled non-ASCII path: the GBK console replaced Chinese chars
-            # with '?' (0x3F) when the yaml was last written on a bad path.
-            if ($val -match '\?') { $needsRegen = $true; $reason = ('mangled path: {0}' -f $val); break }
-
-            # Relative values are resolved against the project root, which is
-            # what the engine does at run time (it chdir's there first).
-            $probe = $val
-            if (-not $looksAbsolute) {
-              if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $probe = $null }
-              else { $probe = Join-Path $ProjectRoot ($val -replace '^\./', '') }
-            }
-
-            if ($probe -and -not (Test-Path -LiteralPath $probe)) {
-              $needsRegen = $true
-              $reason = ('stale path: {0} -> {1}' -f $val, $probe)
-              break
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if ($needsRegen) {
-    if (Test-Path $LiveCfg) {
-      $bak = '{0}.bak-{1}' -f $LiveCfg, (Get-Date -Format 'yyyyMMdd-HHmmss')
-      try { Copy-Item -LiteralPath $LiveCfg -Destination $bak -Force; Log ('[cfg] Backed up bad config -> {0}' -f (Split-Path $bak -Leaf)) 'DarkGray' } catch { }
-    }
-    try {
-      Copy-Item -LiteralPath $ExampleCfg -Destination $LiveCfg -Force
-      Log ('[cfg] Regenerated tts_infer.yaml from template (reason: {0}).' -f $reason) 'Yellow'
-      Log '      Re-select your GPT/SoVITS model in the UI if needed.' 'DarkGray'
-    } catch {
-      Log ('[cfg][ERROR] Could not write {0}: {1}' -f $LiveCfg, $_.Exception.Message) 'Red'
-    }
-  } else {
-    Log '[cfg] tts_infer.yaml present and valid.' 'Green'
-  }
-}
-
-Repair-EngineConfig -LiveCfg $ENGINE_CFG -ExampleCfg ($ENGINE_CFG + '.example') -ProjectRoot $BASE_DIR
+# 1.5 引擎自己的活动配置 (tts_infer.yaml) 由引擎自己自检自修。
+# 这里原先有一个 76 行的 Repair-EngineConfig: 逐行读 yaml、挑出路径值、
+# 发现被 GBK 控制台写坏的问号或指向已不存在位置的旧路径就备份重建。
+# 它是 GPT-SoVITS 独有的收拾工作, 已搬进 lib/inference/config_repair.py,
+# 由 lib/inference/infer_server.py 启动时调用 —— 谁起这个进程都一样修。
+# ⛔ 别把它搬回来: 平台正在改成按名片起引擎, 启动脚本里不该再有引擎特例。
 
 # 2. Inference engine
 Log ('[2/2] Inference service on port {0} ...' -f $ENGINE_PORT) 'Green'
