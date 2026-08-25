@@ -159,12 +159,16 @@ PATH_EXCLUDE = {
     # (12.9MB), cmake.exe (12.8MB) and CMake.qch (9.0MB) all shipped:
     # 4165 files, 92.8MB -- the single largest thing in the release.
     os.path.join("tools", "runtime", "python", "Lib", "site-packages", "cmake"),
-    # micromamba conda envs (IndexTTS / IndexTTS2 engines) ship a FULL CUDA
-    # torch stack — torch_cuda.dll (~1GB), cublasLt/cudnn (~hundreds of MB
-    # each) and dnnl.lib (~2GB) — totalling ~10GB. These are runtime, created
-    # at deploy time, so drop the whole tree here. Physical files stay on disk;
-    # they simply never get walked into the release zip.
-    os.path.join("vendor", "micromamba"),
+    # (removed 2026-08-25) The "vendor/micromamba" exclusion is gone.
+    # vendor\micromamba was deleted from disk on 2026-08-24 and contract clause
+    # C12.3 now forbids introducing a second package ecosystem (conda-forge) at
+    # all -- the reason is licence-manifest boundaries, not technology.
+    # So unlike the GPT_SoVITS/ rule in .gitignore (deliberately kept as an
+    # anti-regression guard, because weights CAN get re-downloaded into place),
+    # this tree will not come back. A rule pointing at a dead end is worse than
+    # no rule: it tells the next reader we still use conda.
+    # Engine virtualenvs live in engines\<id>\.venv\ and are already covered by
+    # NAME_EXCLUDE above.
     # There are two gsv_code trees on disk; the live engine is
     # engines/gpt-sovits/gsv_code. This old one holds no code that
     # anything imports -- BUT it used to hold four runtime *data* files

@@ -126,7 +126,6 @@ chinese-roberta-wwm-ext-large/
 # and then no negation inside it can ever work.
 /data/*
 # These two are configuration, not regenerable cache: keep them tracked.
-!/data/advanced_params.json
 !/data/training_defaults.json
 /recipes/
 app-config.json
@@ -144,7 +143,11 @@ lib/voices.json
 # 规则**刻意保留** —— 万一哪个脚本把权重重新下回原位，它必须仍然进不了 git。
 # 「规则在、目录不在」在这里是有意为之，不是陈旧行。
 GPT_SoVITS/
-# vendor/ 现在只放第三方成品（ffmpeg / micromamba），整棵不进 git。
+# vendor/ 现在只放第三方成品，整棵不进 git。
+# ⭐ 2026-08-25 更正：这里原本写着「ffmpeg / micromamba」，但 micromamba 已于
+#    2026-08-24 整棵删除，vendor/ 下**只剩 ffmpeg**。契约 C12.3 明写不引入
+#    第二个包生态，所以它不会回来 —— 与上面 GPT_SoVITS/ 那条"刻意保留防回潮"
+#    不同，那条防的是权重可能被重新下回原位，这里没有对应的回潮路径。
 # batch14 删掉的 5 条：
 #   !/vendor/tts/          -> 已搬去 engines/gpt-sovits/（batch12）
 #   !/vendor/gsv-tools/    -> 已归档 ..\junk\（batch14）
