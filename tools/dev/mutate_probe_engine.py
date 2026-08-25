@@ -71,33 +71,48 @@ def asked_fields(out):
 print("=== probe_new_engine 验红 ===")
 print()
 
+def drop_entry():
+    """把 runtime.entry 从模板里挖掉（调用方负责 backup/restore）。"""
+    d = json.load(open(TEMPLATE, encoding="utf-8"))
+    d.get("runtime", {}).pop("entry", None)
+    json.dump(d, open(TEMPLATE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
+
 # ---- 基线 -----------------------------------------------------------------
+# ⭐⭐ 2026-08-25 改口径。原来这里断言「基线**要**了字段」，因为当时模板确实
+#    缺 runtime.entry / ready_endpoint / maps.text。模板修好之后那三条突变
+#    集体失效 —— 不是代码坏了，是**断言写得比意图窄**：意图是「清单随模板和
+#    代码变化而变化」，写出来却成了「模板必须是坏的」。
+#    改法是把 M1/M2 反向做（挖掉，看它喊不喊），这样两种模板状态下都成立，
+#    顺带让基线那条变成**模板的回归守卫**：模板一旦退化，这里立刻红。
 rc0, out0 = run()
 base = asked_fields(out0)
-record("基线：退出码 0，且报告里列出了被要的字段",
-       rc0 == 0 and len(base) > 0,
-       "rc=%s fields=%s" % (rc0, base))
+record("⭐ 基线：退出码 0，且平台一次没开口（模板照抄就能用）",
+       rc0 == 0 and base == [],
+       "rc=%s；平台还在要这些字段：%s" % (rc0, base))
 record("基线：探针自己清理干净（engines/smoketest 不在盘上）",
        not os.path.exists(SMOKE_DIR),
        SMOKE_DIR)
 
-# ---- M1：模板里先把 runtime.entry 填好 ⇒ 探针应当少要这一个 ---------------
-# 证明探针读的是**模板真实内容**，不是写死的「模板缺这两个」。
+# ---- M1：把 runtime.entry 从模板里挖掉 ⇒ 探针必须喊出来 -------------------
+# 证明探针读的是**模板真实内容**，不是把一张清单写死在脚本里。
 backup(TEMPLATE)
-d = json.load(open(TEMPLATE, encoding="utf-8"))
-d.setdefault("runtime", {})["entry"] = "shim.py"
-json.dump(d, open(TEMPLATE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+drop_entry()
 rc, out = run()
 got = asked_fields(out)
-ok = ("runtime.entry" in base) and ("runtime.entry" not in got)
-record("M1：模板补上 runtime.entry ⇒ 探针不再要它（读的是模板真身）", ok,
-       "基线要了 %s；补完要了 %s" % (base, got))
+ok = ("runtime.entry" not in base) and ("runtime.entry" in got)
+record("M1：模板挖掉 runtime.entry ⇒ 探针喊出来（读的是模板真身）", ok,
+       "基线要了 %s；挖掉后要了 %s" % (base, got))
 restore(TEMPLATE)
 
-# ---- M2：⭐⭐ 平台不再要求 runtime.entry ⇒ 探针必须跟着不要 ----------------
-# 这一条证明「必填清单是问出来的」。把 profile.js 里那次 required() 换成直取，
-# 平台就不喊了；探针若还在报 runtime.entry，说明它在背书而不是在量。
+# ---- M2：⭐⭐ 模板挖掉 + 平台也不再要求 ⇒ 探针必须**不喊** ----------------
+# 这一条才是命门：M1 只证明「模板变了它跟着变」，M2 证明「**平台**变了它也跟着变」。
+# 挖掉模板里的 entry，同时把 profile.js 那次 required() 换成直取 ——
+# 平台不喊了，探针也必须不喊。它若还在报 runtime.entry，说明它在背一张
+# 写死的清单，那平台哪天改了要求，它会一直报旧账。
+backup(TEMPLATE)
 backup(PROFILE)
+drop_entry()
 txt = open(PROFILE, encoding="utf-8").read()
 pat = re.compile(r"required\(manifest,\s*'runtime\.entry',\s*r\.entry,[^)]*\)", re.S)
 txt2, n = pat.subn("(r.entry || 'shim.py')", txt)
@@ -105,9 +120,21 @@ assert n == 1, "M2 没打上：profile.js 里没找到 runtime.entry 那次 requ
 open(PROFILE, "w", encoding="utf-8").write(txt2)
 rc, out = run()
 got = asked_fields(out)
-ok = ("runtime.entry" in base) and ("runtime.entry" not in got)
-record("⭐⭐ M2：平台不再要求 runtime.entry ⇒ 探针跟着不要（清单是问出来的）", ok,
-       "基线要了 %s；拆掉要求后要了 %s" % (base, got))
+ok = "runtime.entry" not in got
+record("⭐⭐ M2：模板挖掉了、但平台也不再要求 ⇒ 探针跟着不喊（清单是问出来的）", ok,
+       "挖掉模板 + 拆掉平台要求之后，探针仍在要：%s" % got)
+restore(PROFILE)
+restore(TEMPLATE)
+
+# ---- M2b：只拆平台要求、模板不动 ⇒ 基线不该有任何变化 --------------------
+# 正对照。没有它，M2 的绿可能只是「探针什么都不喊」这种平凡绿。
+backup(PROFILE)
+txt = open(PROFILE, encoding="utf-8").read()
+open(PROFILE, "w", encoding="utf-8").write(pat.sub("(r.entry || 'shim.py')", txt))
+rc, out = run()
+record("M2b 正对照：只拆平台要求、模板不动 ⇒ 报告与基线一致",
+       rc == 0 and asked_fields(out) == base,
+       "rc=%s fields=%s vs base=%s" % (rc, asked_fields(out), base))
 restore(PROFILE)
 
 # ---- M3：盘上留着上次的残骸 ⇒ 自检必须 FAIL 并停手 -------------------------
