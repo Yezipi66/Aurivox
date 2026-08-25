@@ -45,11 +45,37 @@ $env:PYTHONUTF8        = '1'
 $env:PYTHONIOENCODING  = 'utf-8'
 $env:PYTHONUNBUFFERED  = '1'
 
-$ENGINE_PY     = Join-Path $BASE_DIR 'venv\Scripts\python.exe'
-$ENGINE_SCRIPT = Join-Path $BASE_DIR 'lib\inference\infer_server.py'
-$ENGINE_CFG    = Join-Path $BASE_DIR 'lib\inference\tts_infer.yaml'
-$ENGINE_HOST   = '127.0.0.1'
-$ENGINE_PORT   = 9880
+# ── 起哪台引擎、拿什么起：问名片，不写在这里 ───────────────────────────
+# 搬家前这里躺着五个 $ENGINE_* 变量，全是 GPT-SoVITS 专有的（解释器、
+# 入口、配置文件、监听地址）。它们合起来是一张没写在名片上的名片：
+# 第三台引擎的作者会发现名片写完了引擎还是起不来，因为得改这个文件 ——
+# 而那正是「加一台引擎不碰 lib/」这条标准要挡住的事。
+#
+# ⭐ 只搬「起什么」，不搬「怎么起」：下面那 90 行端口逻辑（Test-Port /
+#   Get-ListenerPid / Resolve-Port / Test-IsOwnProcess）一行没动。它们是
+#   被真机 bug 打磨出来的 Windows 专有知识，重写它们没法保证行为不变。
+$ENGINE_ID = $env:ENGINE_ID
+if (-not $ENGINE_ID) { $ENGINE_ID = 'gpt-sovits' }
+
+# 问一次名片。$Port 给了就按它算命令行，不给就用名片声明的默认端口。
+# ⚠ 纯函数，无副作用，可以放心问两次 —— 第一次拿期望端口去解冲突，
+#   解完带着定下来的端口再问一次要最终命令行。
+function Get-EnginePlan {
+  param([int]$Port = 0)
+  $cli  = Join-Path $BASE_DIR 'lib\engines\engine-launch-plan.cjs'
+  $args = @($cli, '--engine', $ENGINE_ID)
+  if ($Port -gt 0) { $args += @('--port', "$Port") }
+  $raw = & $NODE $args 2>&1
+  $txt = ($raw | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    Log ('[engine][ERROR] 算不出 {0} 的启动计划: {1}' -f $ENGINE_ID, $txt) 'Red'
+    return $null
+  }
+  try { return $txt | ConvertFrom-Json } catch {
+    Log ('[engine][ERROR] 启动计划不是合法 JSON: {0}' -f $txt) 'Red'
+    return $null
+  }
+}
 $BACKEND_PORT  = 9886
 $BACKEND_WAIT  = 30
 
@@ -146,7 +172,10 @@ function Test-IsOwnProcess {
   $baseLc    = $baseDir.ToLowerInvariant()
   $underBase = $hay.Contains($baseLc)
   $isBackend = $hay.Contains('server.js')
-  $isEngine  = $hay.Contains('infer_server.py')
+  # 引擎的记号来自名片（见 $ENGINE_PROC_MARK 的赋值处）。拿不到就只认
+  # backend —— 宁可漏认自家引擎（后果是端口往上挪一个，还能起来），
+  # 也不要瞎猜一个名字去误伤别人的进程。
+  $isEngine  = ($ENGINE_PROC_MARK -and $hay.Contains($ENGINE_PROC_MARK))
   return ($underBase -and ($isBackend -or $isEngine))
 }
 
@@ -184,11 +213,22 @@ Log '==================== TTS Broker Startup ====================' 'Cyan'
 Log ('root : {0}' -f $BASE_DIR) 'DarkGray'
 Log ('node : {0}' -f $NODE) 'DarkGray'
 
-# --- Guard: venv present ---
-if (-not (Test-Path $ENGINE_PY)) {
-  Log ('[ERROR] venv Python not found: {0}' -f $ENGINE_PY) 'Red'
-  Log '        Run 首次部署.bat first.' 'Red'
-  exit 1
+# --- Guard: 这台引擎装没装 ---
+# 搬家前这里查的是写死的 venv\Scripts\python.exe。第三台引擎完全可能用别的
+# 解释器（自己的 venv、conda、系统 python），查死一个路径等于规定所有引擎
+# 必须共用一个 venv —— 那条规定从来没人同意过，只是写在了这一行里。
+$plan0 = Get-EnginePlan
+if ($null -eq $plan0) { Log '[engine][ERROR] 拿不到启动计划，无法继续。' 'Red'; exit 1 }
+if ($plan0.launchable) {
+  if (-not (Test-Path $plan0.python)) {
+    Log ('[ERROR] 引擎 {0} 的解释器不存在: {1}' -f $ENGINE_ID, $plan0.python) 'Red'
+    Log '        Run 首次部署.bat first.' 'Red'
+    exit 1
+  }
+} else {
+  # 名片没写 runtime = 这台引擎由作者自己起。不是错误，但要说出来，
+  # 否则后面"引擎没上线"会看着像 bug。
+  Log ('[engine] {0} 不由平台启动（名片没有 runtime 段）。' -f $ENGINE_ID) 'Yellow'
 }
 
 # 0. Frontend: shipped pre-built. Build only as fallback when dist missing.
@@ -221,6 +261,14 @@ if ((-not (Test-Path $distIdx)) -or (-not (Test-Path $distAssets))) {
 #   * frontend: served SAME-ORIGIN by the backend (web\dist, relative fetch in
 #               web/src/lib/api.js -> API_BASE=''), so a shifted backend port
 #               needs NO port injection — opening the resolved URL is enough.
+# ── 这台引擎想听哪儿、怎么认出它自己的进程（$plan0 在上面的守卫处已算好）──
+# ⭐ 端口保护对**不可启动**的引擎同样生效：作者自己起的引擎照样占着 9880，
+#   别的程序就不该占它。所以 host/port 这几样，计划在不可启动时也会给。
+$ENGINE_HOST      = $plan0.host
+$ENGINE_PORT      = [int]$plan0.desired_port
+$ENGINE_PROC_MARK = $plan0.own_process_mark
+Log ('[engine] {0} ({1}) 期望监听 {2}:{3}' -f $ENGINE_ID, $plan0.label, $ENGINE_HOST, $ENGINE_PORT) 'DarkGray'
+
 $engineRes  = Resolve-Port -name 'engine'  -desired $ENGINE_PORT  -baseDir $BASE_DIR
 $backendRes = Resolve-Port -name 'backend' -desired $BACKEND_PORT -baseDir $BASE_DIR
 foreach ($r in @($engineRes, $backendRes)) {
@@ -273,14 +321,27 @@ Log ('[2/2] Inference service on port {0} ...' -f $ENGINE_PORT) 'Green'
 if ($engineRes.Action -eq 'own') {
   Log ('      Port {0} already held by OUR engine. Treat engine as running.' -f $ENGINE_PORT) 'Yellow'
 } else {
-  $ok = $true
-  if (-not (Test-Path $ENGINE_SCRIPT)) { Log ('      [ERROR] Missing infer_server.py: {0}' -f $ENGINE_SCRIPT) 'Red'; $ok = $false }
+  # 端口可能被挪过，所以带着定下来的那个再问一次完整计划 ——
+  # ⛔ 别用上面 $plan0 的 args：那里面的 -p 还是名片上的旧端口，
+  #   引擎会听在没人连的地方，表现成「引擎永远不上线」。
+  $plan = Get-EnginePlan -Port $ENGINE_PORT
+  $ok = ($null -ne $plan) -and $plan.launchable
+  if ($ok -and -not (Test-Path $plan.python)) {
+    Log ('      [ERROR] 引擎解释器不存在: {0}' -f $plan.python) 'Red'; $ok = $false
+  }
+  if ($ok -and -not (Test-Path $plan.entry)) {
+    Log ('      [ERROR] 引擎入口不存在: {0}' -f $plan.entry) 'Red'; $ok = $false
+  }
   if ($ok) {
     $infLog = Join-Path $LogDir 'inference.log'
     $infErr = Join-Path $LogDir 'inference.err.log'
-    $engineArgs = @($ENGINE_SCRIPT, '-a', $ENGINE_HOST, '-p', "$ENGINE_PORT", '-c', $ENGINE_CFG)
-    Start-Process -FilePath $ENGINE_PY -ArgumentList $engineArgs -WorkingDirectory $BASE_DIR -WindowStyle Hidden -RedirectStandardOutput $infLog -RedirectStandardError $infErr | Out-Null
+    # 入口在最前，其余参数由名片给出（$plan.args 里的 {host}/{port} 已展开）。
+    $engineArgs = @($plan.entry) + $plan.args
+    Log ('      cmd : {0} {1}' -f $plan.python, ($engineArgs -join ' ')) 'DarkGray'
+    Log ('      cwd : {0}' -f $plan.cwd) 'DarkGray'
+    Start-Process -FilePath $plan.python -ArgumentList $engineArgs -WorkingDirectory $plan.cwd -WindowStyle Hidden -RedirectStandardOutput $infLog -RedirectStandardError $infErr | Out-Null
     Log '      Inference service started in background.' 'Gray'
+    Log ('      探活 {0}，预算 {1} 秒。' -f $plan.ready_url, [int]($plan.ready_timeout_ms / 1000)) 'DarkGray'
     Log '      See logs\inference.log / logs\inference.err.log for loading progress.' 'DarkGray'
   }
 }

@@ -13,10 +13,40 @@
 #       file migration for as long as it took to find it by hand.
 # ============================================================
 
+# backend 是平台自己的端口，不是引擎知识，留在这里。
 $Ports = @(
-  @{ Name = "backend server.js"; Port = 9886 },
-  @{ Name = "engine infer_server"; Port = 9880 }
+  @{ Name = "backend server.js"; Port = 9886 }
 )
+
+# 引擎的端口问名片要 —— 这个文件里不该有任何一台具体引擎的知识。
+#
+# ⭐⭐ 但停止脚本的可靠性高于一切：它原本一个外部程序都不用，改成问 node
+#    就等于给"停不掉服务"新增一个失败原因，而停不掉的进程会锁住文件
+#    （见本文件顶部那笔账）。所以问不到时**只警告不退出**，交给下面第二遍
+#    （按项目目录扫进程）兜底 —— 那一遍更强，且不依赖任何外部程序。
+#
+# 要的是名片声明的默认端口：停止脚本不知道上次启动有没有把端口挪走过，
+# 挪走过的那台同样由第二遍兜住。
+function Get-EnginePorts {
+  $root = Get-ProjectRoot
+  if (-not $root) { return @() }
+  $node = Join-Path $root 'tools\runtime\node\node.exe'
+  if (-not (Test-Path -LiteralPath $node)) { $node = 'node' }
+  $cli = Join-Path $root 'lib\engines\engine-launch-plan.cjs'
+  if (-not (Test-Path -LiteralPath $cli)) { return @() }
+  try {
+    $txt = (& $node $cli '--all' 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { return @() }
+    $data = $txt | ConvertFrom-Json
+  } catch { return @() }
+  $out = @()
+  foreach ($e in $data.engines) {
+    if ($e.ok -and $e.launchable) {
+      $out += @{ Name = ("engine " + $e.id); Port = [int]$e.port }
+    }
+  }
+  return $out
+}
 
 function Get-ListeningPids($port) {
   $found = @()
@@ -48,6 +78,16 @@ function Get-ProjectRoot {
 
 Write-Host "==================== TTS Broker Stop ====================" -ForegroundColor Cyan
 $killedAny = $false
+
+# ⚠ PS 5.1：函数必须先定义后调用（顺序执行，没有提升）。这段之所以在这里
+#    而不是跟着 $Ports 走，就是因为 Get-EnginePorts 要用上面的 Get-ProjectRoot。
+$enginePorts = Get-EnginePorts
+if ($enginePorts.Count -eq 0) {
+  Write-Host "  [WARN] 拿不到引擎端口列表(名片/node)，改由下面第二遍按项目目录清理。" -ForegroundColor Yellow
+} else {
+  # ⚠ PS 5.1 坑：单元素数组在 += 时会被拆成标量。用 @() 包住再展开。
+  foreach ($ep in @($enginePorts)) { $Ports += $ep }
+}
 
 foreach ($item in $Ports) {
   $port = $item.Port
