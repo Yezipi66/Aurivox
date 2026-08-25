@@ -298,6 +298,50 @@
   ],
   "max_chars": 45,
 
+  "_comment_runtime": [
+    "⭐ 这一段在 2026-08-24 之前是 null —— 因为 GPT-SoVITS 的进程是",
+    "tools/scripts/start.ps1 直接起的，名片说了不算。这正是契约 §9 记的那",
+    "笔账：平台的启动脚本里写死了这一台引擎的知识。",
+    "",
+    "⛔ entry 的 `../../` 就是这笔账的可见形态：别的引擎的入口脚本在自己",
+    "的目录里（engines/<id>/shim.py），只有 GPT-SoVITS 的入口在平台的",
+    "lib/inference/ 下。这个 `../../` 不是笔误，是提醒 —— 第 3 步做出通用",
+    "宿主之后，infer_server.py 应该搬进 engines/gpt-sovits/，届时这两个点",
+    "点会消失。它一天还在，账就一天没还完。",
+    "",
+    "python: 根 venv。Owner 2026-08-24 定案：平台只维护 GPT-SoVITS 这一套",
+    "  环境（6.8 GB），其他引擎的环境一概由引擎作者/用户自己负责。",
+    "",
+    "ready_endpoint 是 \"/\" 不是 \"/health\" —— infer_server.py:525 的",
+    "  @APP.get(\"/\") 函数名就叫 health，server.js 一直拿它做探活。别照着",
+    "  IndexTTS2 的名片抄成 /health，那个地址在这台引擎上不存在。",
+    "",
+    "verify 的模块/类/方法名是从 infer_server.py 读出来的，不是编的：",
+    "  :184 from TTS import TTS, TTS_Config",
+    "  :490 run / :587 set_ref_audio / :599 init_t2s_weights /",
+    "  :611 init_vits_weights —— 平台真正用到的就这四个。",
+    "  sys_path 两条对应 infer_server.py:51-52 的两个 sys.path.insert；",
+    "  少任何一条，from TTS import 都会失败。"
+  ],
+  "runtime": {
+    "python": "venv/Scripts/python.exe",
+    "entry": "../../lib/inference/infer_server.py",
+    "ready_endpoint": "/",
+    "ready_timeout_ms": 180000,
+    "preload": true,
+    "verify": {
+      "sys_path": ["engines/gpt-sovits/infer", "engines/gpt-sovits"],
+      "imports": [
+        {
+          "module": "TTS",
+          "class": "TTS",
+          "methods": ["run", "set_ref_audio", "init_t2s_weights", "init_vits_weights"]
+        },
+        { "module": "TTS", "class": "TTS_Config" }
+      ]
+    }
+  },
+
   "_comment_capabilities": [
     "hot_swap_models=true 是 GPT-SoVITS 区别于多数引擎的地方：它能在运行中",
     "  /set_gpt_weights + /set_sovits_weights 换权重。多数引擎做不到，",

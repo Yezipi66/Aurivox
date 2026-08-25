@@ -106,15 +106,38 @@
     "entry : shim 脚本，相对本 manifest 所在目录。",
     "ready_timeout_ms: 冷启动预热预算。实测 import 34.55s + 构造 26.51s",
     "  ≈61s，取 180000 留三倍余量。start.ps1 应轮询 /health 直到 ready，",
-    "  并在 failed=true 时立即放弃、把 error 打进日志 —— 别干等满超时。"
+    "  并在 failed=true 时立即放弃、把 error 打进日志 —— 别干等满超时。",
+    "",
+    "⛔ 教训：python 这一行原先写的是 `.../venv/Scripts/python.exe`，少了一",
+    "个点（盘上是 `.venv`）。写错了很久没人发现，因为在 lib/engines/",
+    "envCheck.js 出现之前，全平台没有任何人读 runtime —— 死数据不会报错，",
+    "它只会在你终于用上它的那天报错。新增字段前先问：谁读它？",
+    "",
+    "verify: 平台据此判断这台引擎装没装（只验不建 —— 平台不装环境）。",
+    "  模块/类/方法名不是编的，是从 shim.py 读出来的：",
+    "  shim.py:162 from indextts.infer_v2 import IndexTTS2",
+    "  shim.py:169 IndexTTS2(cfg_path=..., model_dir=...)",
+    "  shim.py:234 self.tts.infer(spk_audio_prompt=, text=, output_path=)",
+    "  ⇒ 改 shim.py 时这里要跟着改，否则校验会漏掉真正的断裂。"
   ],
   "runtime": {
-    "python": "engines/indextts2/venv/Scripts/python.exe",
+    "python": "engines/indextts2/.venv/Scripts/python.exe",
     "entry": "shim.py",
     "checkpoints": "models/tts/indextts2/checkpoints",
     "ready_endpoint": "/health",
     "ready_timeout_ms": 180000,
-    "preload": true
+    "preload": true,
+    "verify": {
+      "sys_path": ["engines/indextts2"],
+      "imports": [
+        {
+          "module": "indextts.infer_v2",
+          "class": "IndexTTS2",
+          "methods": ["infer"],
+          "init_params": ["cfg_path", "model_dir"]
+        }
+      ]
+    }
   },
 
   "_comment_capabilities": [
