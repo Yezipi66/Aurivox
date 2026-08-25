@@ -38,9 +38,13 @@ MUST_SHIP = [
     ("pipeline/slicer/", "目录", "⭐ r12c 搬家落点：切片"),
     ("tools/runtime/python/", "目录", "内嵌 Python"),
     ("tools/runtime/node/", "目录", "内嵌 Node"),
-    ("data/advanced_params.json", "文件", "出厂默认参数"),
+    ("data/training_defaults.json", "文件", "出厂默认参数（训练页）"),
     ("deploy.bat", "文件", "部署入口"),
 ]
+# ⛔⛔ 2026-08-25：data/advanced_params.json 从 MUST_SHIP 挪到了 MUST_NOT_SHIP。
+#    它不是出厂默认值，是**一台机器上界面最后拧到哪**的记忆（见
+#    lib/advancedParams.js 2026-08-23 划的界）。发出去等于把某台开发机的
+#    状态当成所有人的默认值。见下方 MUST_NOT_SHIP 里那一条。
 
 # 每项 = (前缀, 说明, 豁免前缀元组)
 #
@@ -66,6 +70,17 @@ MUST_NOT_SHIP = [
     ("tools/dev/", "助手产出的开发工具（batch15 收口）", ()),
     (".hermes/", "开发期工具状态（batch15 收口）", ()),
     ("tools/checks/", "孤儿检查脚本（batch15 已归档）", ()),
+    # ⭐⭐ 反向断言（2026-08-25）：这条不是"清理垃圾"，是**防止一个已经发生过的
+    #    bug 复发**。advanced_params.json 曾经在 MUST_SHIP 和打包器的 DATA_KEEP
+    #    里，于是发行包里带着某台开发机 2026-08-20 的界面状态，当所有新装机器的
+    #    出厂默认值 —— 实测盖掉了 6 个名片默认值（batch_size 名片 4 → 盘上 1，
+    #    seed → 2769901998，version v2Pro → v2，is_half true → false）。
+    #    ⇒ 光把它从 MUST_SHIP 删掉是不够的：那样谁把 DATA_KEEP 那行加回去，
+    #      不会有任何东西报红。必须**翻成反向断言**。
+    #    ⭐ 不发它是对的：盘上没有这个文件时，每个键都退回名片（契约 C11），
+    #      lib/advancedParams.node.test.js 有一条测试钉着这件事。
+    ("data/advanced_params.json",
+     "界面记忆而非出厂默认值 —— 发出去会把一台机器的状态变成所有人的默认值", ()),
     ("outputs/", "产物", ()),
     ("logs/", "日志", ()),
     ("venv/", "开发机虚拟环境", ()),
@@ -184,6 +199,32 @@ def selftest(included):
               "该放行的没放行")
         check("豁免反向：models/ 下的 .pth 仍然报红", len(leaked_under(fake_bad)) == 1,
               "⛔ 豁免写太宽 ⇒ 整条 models/ 禁运形同虚设，权重泄漏将不再被发现")
+
+    # ---- advanced_params.json 反向断言的验红 --------------------------------
+    # ⛔⛔ 这条守卫拦的是**已经发生过**的 bug：那个文件曾经既在 MUST_SHIP 里、
+    # 又在打包器的 DATA_KEEP 里，于是一台开发机 2026-08-20 的界面状态被当成
+    # 出厂默认值发给所有人。守卫不验红就是摆设，所以这里用假数据正反各验一次。
+    AP = "data/advanced_params.json"
+    check("advanced_params 已不在 MUST_SHIP",
+          not any(norm(p) == AP for p, _k, _w in MUST_SHIP),
+          "⛔ 它又被当成「必须进包」了 —— 界面记忆不是出厂默认值")
+    check("advanced_params 在 MUST_NOT_SHIP 里",
+          any(norm(p) == AP for p, _w, _e in MUST_NOT_SHIP),
+          "⛔ 反向断言没了 ⇒ 谁把打包器 DATA_KEEP 那行加回去都不会报红")
+    ap_exempt = None
+    for pfx, _why, ex in MUST_NOT_SHIP:
+        if norm(pfx) == AP:
+            ap_exempt = ex
+    check("advanced_params 这条不带豁免", ap_exempt == (),
+          "⛔ 加了豁免等于给它开后门")
+    # 反向：假装它进了包，必须被判为泄漏
+    check("验红：包里出现 advanced_params 就报泄漏",
+          len(hits([(AP, "", 1)], AP)) == 1,
+          "⛔ 它真进了包也不会被发现 —— 这条守卫是摆设")
+    # 正对照：同目录下真正的出厂默认值不许被这条误伤
+    check("正对照：training_defaults 不被这条误伤",
+          len(hits([("data/training_defaults.json", "", 1)], AP)) == 0,
+          "⛔ 匹配退化成了前缀/子串 ⇒ 会把真正该发的默认值也拦掉")
 
     print("\n   自检：%d ok / %d FAIL" % (ok, fail))
     return fail == 0

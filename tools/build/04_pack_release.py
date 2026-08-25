@@ -97,13 +97,27 @@ TOP_EXCLUDE_PREFIX = ("venv_", "venv-", ".venv_")
 
 # Top-level "data/" holds ALL runtime data since the step-2 move (it used to be
 # scattered across the repo root). It can no longer be dropped wholesale: the
-# two shipped default files live there now and used to ship from the root. So
+# shipped default files live there now and used to ship from the root. So
 # data/ is pruned by an ALLOWLIST instead — anything not named here (the voice
 # registry, its backups, recipes, canvas graphs and run state, the per-machine
 # app-config.json) is per-installation state and must never ship.
+#
+# ⛔⛔ 2026-08-25: advanced_params.json was REMOVED from this allowlist.
+# It is not a shipped default — it is "what the UI was last set to" on ONE
+# machine (see lib/advancedParams.js, the boundary drawn on 2026-08-23:
+# 「它是界面状态的记忆，不是默认值表」). Defaults have exactly one home: the
+# engine manifest (contract C11).
+# Shipping it meant every fresh install inherited a dev machine's frozen
+# snapshot as its factory defaults — measured: batch_size 1 instead of the
+# manifest's 4, seed 2769901998, version v2, is_half false.
+# ⭐ Absent file is the CORRECT state: lib/advancedParams.js falls back to the
+#    manifest for every key, and there is a test nailing that
+#    (「没有盘上文件时，每一个值都来自名片」).
+# ⭐ The reverse guard lives in tools/dev/probe_release_contents.py: that file
+#    now asserts advanced_params.json is NOT in the release. Putting it back
+#    here turns the probe red instead of silently shipping one machine's state.
 DATA_KEEP = {
-    "advanced_params.json",   # shipped defaults, overridable by the user
-    "training_defaults.json",  # ditto
+    "training_defaults.json",  # genuine shipped defaults for the training page
     "pron_lexicon",            # shipped pronunciation dictionaries
 }
 
@@ -456,6 +470,28 @@ def collect_included(root, out_abspath=None):
                 continue
             if rel_dir == "" and fn in ROOT_EXCLUDE_FILES:
                 continue
+            # ⛔⛔ 2026-08-25 修一个从来没生效过的白名单。
+            # in_excluded_tree() 里那段 data/ 的 DATA_KEEP 分支是**按文件名写的**
+            # （rest[1] not in DATA_KEEP），但那个函数在下面只被用来剪**目录**
+            # （见上方 dns 剪枝与 rel_dir 判断），文件循环里一次都没调过。
+            # ⇒ DATA_KEEP 对 data/ 顶层的**文件**是一张废纸；只有子目录
+            #   （voices/ backups/ recipes/ flowgraph/）走对了路。
+            #
+            # 实测这个洞的形状（2026-08-25 在真实仓库树上跑 collect_included）：
+            #   进包的 data/ 文件 = advanced_params.json / training_defaults.json
+            #                      / pron_lexicon/zh.json
+            # app-config.json 和 voices.json **没有**漏 —— 但它们不是被这张白名单
+            # 拦住的，而是被 EXCLUDE_FILES 按文件名**逐个点名**拦住的（见上方注释）。
+            # 那就是这个洞真正的代价：每漏一个本机状态文件，就手工补一个名字，
+            # 而 advanced_params.json 因为一直被当成"出厂默认值"，谁也没去补它。
+            # 补上这一行之后，data/ 顶层就变成**白名单说了算**：以后新加的任何
+            # 本机状态文件默认不进包，不必等它先漏一次才被人点名。
+            #
+            # ⭐ 这里不整个改调 in_excluded_tree(rel)：那个函数还管着
+            #    TOP_EXCLUDE / PATH_EXCLUDE / node_modules 等一大堆规则，
+            #    突然套到每个文件上会改变发行包的整体形状。只补 data/ 这一处。
+            if norm(rel_dir) == "data" and fn not in DATA_KEEP:
+                continue
             ext = os.path.splitext(fn)[1].lower()
             if ext in EXCLUDE_EXT and ext not in KEEP_EXT:
                 continue
@@ -538,7 +574,10 @@ def main():
         ("THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json", "ffmpeg external-tool license inventory"),
         ("tools/deploy/deploy_wizard.py", "deploy wizard (license/select/confirm TUI)"),
         ("deploy.bat", "deploy launcher"),
-        ("data/advanced_params.json", "shipped defaults moved from the repo root into data/"),
+        # ⛔ 2026-08-25: data/advanced_params.json deliberately NOT listed here.
+        #    It is per-machine UI state, not a shipped default — see DATA_KEEP.
+        #    Its absence from the release is the desired outcome, so demanding
+        #    it here would warn forever on a correct build.
         ("data/training_defaults.json", "shipped defaults moved from the repo root into data/"),
         ("stop.bat", "root stop launcher (calls tools\\scripts\\stop.ps1)"),
     ]:
