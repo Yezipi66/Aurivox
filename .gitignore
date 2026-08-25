@@ -201,3 +201,9 @@ engines/indextts2/NOTICE
 # 权重二进制补漏：*.pth/*.ckpt/*.pt/*.bin/*.safetensors 已排，*.t7 之前漏了
 *.t7
 
+
+# tools/dev 下的**测量产物**：每跑一次就变（耗时、字节数、时间戳），
+# 进仓库只会制造无意义的 diff，还会诱人把「上次的读数」当成事实引用。
+# 只排 .out.txt —— 脚本本身（.ps1/.cjs/.py）要入库：
+# 量法可复现才算取证，读数不可复现是正常的。
+tools/dev/*.out.txt
