@@ -66,10 +66,19 @@ def guarded(section):
 # --------------------------------------------------------------- 假引擎
 FAKE_ENGINE = '''# -*- coding: utf-8 -*-
 """一台只用标准库的假引擎。它不认识 Aurivox，Aurivox 也不认识它。"""
-import random, struct, wave
+import os, random, struct, wave
 
 class FakeTTS(object):
     def __init__(self, cfg_path, model_dir, use_fp16=False):
+        # ⭐ 真上游拿到没展开的 "{checkpoints}/config.yaml" 只会报一个
+        #   「文件不存在」，看不出是名片写错还是宿主没展开。这里当场点名，
+        #   让「占位符没展开」这件事本身可取证。
+        for name, val in (("cfg_path", cfg_path), ("model_dir", model_dir)):
+            if "{" in str(val) or "}" in str(val):
+                raise RuntimeError(
+                    "init_args.%s 里的占位符没被展开就传进来了：%r" % (name, val))
+        if not os.path.isdir(model_dir):
+            raise RuntimeError("model_dir 展开后不是一个存在的目录：%r" % model_dir)
         self.cfg_path = cfg_path
         self.model_dir = model_dir
         self.use_fp16 = use_fp16
@@ -94,13 +103,27 @@ def make_profile(engine_dir, ckpt_dir, seed_spec):
     return {
         "id": "faketts",
         "label": {"zh": "假引擎", "en": "Fake TTS"},
-        "runtime": {"sys_path": [engine_dir], "cwd": engine_dir},
+        # ⭐ dir + runtime.checkpoints 是 {占位符} 展开的两个输入，真名片上
+        #   本来就有；夹具早先没写，于是占位符那条路径整条没被走过。
+        "dir": engine_dir,
+        "runtime": {
+            "sys_path": [engine_dir],
+            "cwd": engine_dir,
+            # 名片里 checkpoints 是**相对项目根**的，host.py 负责转绝对路径。
+            "checkpoints": os.path.relpath(
+                ckpt_dir, os.path.dirname(os.path.dirname(engine_dir))),
+        },
         "call": {
             "kind": "python",
             "module": "fake_engine",
             "class": "FakeTTS",
-            "init_args": {"cfg_path": os.path.join(ckpt_dir, "config.yaml"),
-                          "model_dir": ckpt_dir},
+            # ⛔⛔ 这里曾经是写死的绝对路径 —— 于是 init_args 的 {占位符} 展开
+            #   **一次都没被测到**，而 host.py 当时压根没实现展开：名片里写
+            #   "{checkpoints}/config.yaml" 会把大括号当字面量传给上游。
+            #   真名片非用占位符不可（它不知道机器上的绝对路径），所以夹具
+            #   也必须用占位符，否则这条路径永远是盲区。
+            "init_args": {"cfg_path": "{checkpoints}/config.yaml",
+                          "model_dir": "{checkpoints}"},
             "method": "speak",
             "bind": {"text": "sentence", "ref_audio": "prompt_wav",
                      "output_path": "out_file"},
@@ -108,7 +131,10 @@ def make_profile(engine_dir, ckpt_dir, seed_spec):
             "seed": seed_spec,
         },
         "params": {"load_time": ["use_fp16"], "call_time": ["loudness", "pace"]},
-        "capabilities": {"requires_reference_audio": True},
+        # ⛔ 曾经写成 "capabilities": {"requires_reference_audio": True} —— 那是我
+        #   凭空发明的形状。`resolveEngineProfile()` 真出的那份是**扁平顶层**。
+        #   夹具跟真身不一致时，全绿只证明「代码和我的想象一致」。
+        "requires_reference_audio": True,
         "output_formats": ["wav"],
     }
 
@@ -198,9 +224,15 @@ def main():
             out, err = p.communicate(timeout=5)
             print(err.decode("utf-8", "replace")[-2000:])
             return 1
+        # ⭐ 加载失败时必须把**原因**带出来。原先这里只报 load=0.0s device=None，
+        #   于是「为什么没加载上」得靠人去翻 stderr —— 红了却不知道红在哪，
+        #   等于把排查成本从闸转嫁给人。这是第 10 条教训（闸要能自证）的同一条。
+        load_note = "load=%ss device=%s" % (h.get("load_seconds"), h.get("device"))
+        if h.get("ready") is not True:
+            why = str(h.get("error") or "").strip().replace("\n", " ⏎ ")
+            load_note += "  ⛔ 原因：%s" % (why[-300:] if why else "（宿主没给 error）")
         row("加载成功（ready=true, failed=false）",
-            h.get("ready") is True and h.get("failed") is False,
-            "load=%ss device=%s" % (h.get("load_seconds"), h.get("device")))
+            h.get("ready") is True and h.get("failed") is False, load_note)
         row("⭐ /health 报出了播种计划（可取证，不用猜）",
             h.get("seed_mode") == "global" and h.get("seed_rngs") == ["python"],
             "%s %s" % (h.get("seed_mode"), h.get("seed_rngs")))

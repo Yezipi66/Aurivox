@@ -77,6 +77,57 @@
   ],
   "defaults": {},
 
+  "_comment_call": [
+    "怎么调这台引擎的 Python 类 —— 通用宿主 lib/engines/host.py 全靠这一段。",
+    "每个值都是从 engines/indextts2/shim.py 里量出来的：",
+    "  module/class  shim.py:162  from indextts.infer_v2 import IndexTTS2",
+    "  init_args     shim.py:169-179  IndexTTS2(cfg_path=..., model_dir=..., use_*=False)",
+    "  cfg_path      shim.py:482  cfg = os.path.join(ckpt, 'config.yaml')",
+    "  method/bind   shim.py:234-238  self.tts.infer(spk_audio_prompt=, text=, output_path=)",
+    "  seed          shim.py:200-219  播 python / numpy / torch(+cuda)，在 infer 锁内",
+    "⭐ bind 是「平台的词 → 上游方法参数名」，和顶层 maps（平台的词 → HTTP 键名）",
+    "  不是一回事，两段都要留。"
+  ],
+  "call": {
+    "kind": "python",
+    "module": "indextts.infer_v2",
+    "class": "IndexTTS2",
+    "init_args": {
+      "cfg_path": "{checkpoints}/config.yaml",
+      "model_dir": "{checkpoints}",
+      "use_fp16": false,
+      "use_cuda_kernel": false,
+      "use_deepspeed": false
+    },
+    "method": "infer",
+    "bind": {
+      "text": "text",
+      "ref_audio": "spk_audio_prompt",
+      "output_path": "output_path"
+    },
+    "returns": "file",
+    "seed": {
+      "mode": "global",
+      "rngs": ["python", "numpy", "torch", "torch.cuda"],
+      "scope": "locked"
+    }
+  },
+
+  "_comment_params": [
+    "两张白名单，区别是**生命周期**不是风格（shim.py:110-124 原话）：",
+    "  load_time  构造 IndexTTS2 时用，改它要重启进程",
+    "  call_time  每次 infer 都可以不一样",
+    "⛔ 不能拿 payload_keys 代替：那个字段在两台引擎上用法不一致",
+    "  （gpt-sovits 把 text/ref_audio_path/seed 也列了进去）。"
+  ],
+  "params": {
+    "load_time": ["use_fp16", "use_cuda_kernel", "use_deepspeed", "use_accel", "use_torch_compile"],
+    "call_time": ["emo_alpha", "interval_silence", "verbose", "max_text_tokens_per_segment"]
+  },
+
+  "_comment_output_formats": "宿主只送 WAV 字节回去，转码是平台上层的事。",
+  "output_formats": ["wav"],
+
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
   "default_base_url": "http://127.0.0.1:9881",
 
@@ -118,28 +169,11 @@
     "  shim.py:162 from indextts.infer_v2 import IndexTTS2",
     "  shim.py:169 IndexTTS2(cfg_path=..., model_dir=...)",
     "  shim.py:234 self.tts.infer(spk_audio_prompt=, text=, output_path=)",
-    "  ⇒ 改 shim.py 时这里要跟着改，否则校验会漏掉真正的断裂。",
-    "",
-    "⭐ 2026-08-25（第 2c 步）新增 args / cwd。名字对应 shim.py:87 的 _arg()：",
-    "  shim.py:98  --host        （默认 127.0.0.1）",
-    "  shim.py:99  --port        （默认 9881）",
-    "  shim.py:102 --checkpoints （没有默认值，缺了 shim.py:476 直接 FATAL）",
-    "  --config 不写：shim.py:482 会在 checkpoints 目录里找 config.yaml，",
-    "  那正是上游放它的地方；写死一个路径反而会在权重换版本时对不上。",
-    "",
-    "  ⚠ {checkpoints} 展开的是上面那行 runtime.checkpoints 的绝对路径。",
-    "  用了这个占位符就必须写那一行 —— 平台会当场抛，不会传一个字面量",
-    "  \"{checkpoints}\" 让 shim 去报「目录不存在」。",
-    "",
-    "cwd \".\" = 项目根，只是个起点：shim.py:491 自己会 chdir 到 checkpoints",
-    "  的父目录（上游有相对 CWD 的硬编码，见那一段注释）。",
-    "  ⛔ 别在名片里替它 chdir —— 进程里已经定了一次，两处定会打架。"
+    "  ⇒ 改 shim.py 时这里要跟着改，否则校验会漏掉真正的断裂。"
   ],
   "runtime": {
     "python": "engines/indextts2/.venv/Scripts/python.exe",
     "entry": "shim.py",
-    "args": ["--host", "{host}", "--port", "{port}", "--checkpoints", "{checkpoints}"],
-    "cwd": ".",
     "checkpoints": "models/tts/indextts2/checkpoints",
     "ready_endpoint": "/health",
     "ready_timeout_ms": 180000,

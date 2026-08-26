@@ -38,6 +38,7 @@
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -111,6 +112,71 @@ def _seed_torch_cuda(seed):
         return None          # 不是错误：这台机器就是没有 CUDA
     torch.cuda.manual_seed_all(seed)
     return "torch.cuda"
+
+
+# ---------------------------------------------------------------------------
+#  init_args 里的 {占位符}
+# ---------------------------------------------------------------------------
+#
+# ⛔⛔ 这一段原本**不存在**：`init_args` 是被原样 `dict()` 一下就 `klass(**init_args)`
+#   了，于是名片里写 "{checkpoints}/config.yaml" 会把**大括号本身**当字面量传给
+#   上游构造函数 —— 上游拿到一个不存在的路径，报一个跟名片毫无关系的错。
+#
+#   为什么以前没暴露：探针里那台假引擎的 init_args 是写死的字面值，不带占位符。
+#   ⇒ 又是「夹具比现实简单」造成的假绿，和 requires_reference_audio 那次同一类。
+#
+# ⭐ 占位符表**故意和 launchPlan.js 的 PLACEHOLDERS 对齐**（那边是
+#   host/port/root/engine_dir/checkpoints）。这里只认路径那三个 —— 构造一个
+#   模型对象不需要知道自己监听在哪。两边同名同义，别让它们分叉。
+_PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
+
+
+def _placeholder_values(profile):
+    engine_dir = os.path.abspath(profile.get("dir") or ".")
+    # engines/<id>/ 的上两级 = 项目根
+    root = os.path.dirname(os.path.dirname(engine_dir))
+    runtime = profile.get("runtime") or {}
+    ckpt = runtime.get("checkpoints")
+    return {
+        "root": root,
+        "engine_dir": engine_dir,
+        # 名片里 checkpoints 是相对项目根的，这里转成绝对路径再给上游 ——
+        # 上游不该关心我们的目录约定。
+        "checkpoints": os.path.abspath(os.path.join(root, ckpt)) if ckpt else None,
+    }
+
+
+def _expand_init_args(init_args, profile):
+    """把 init_args 里的 {占位符} 换成真路径。
+
+    ⛔ 不认识的占位符**当场抛**，不是原样留着 —— 原样留着会变成一个
+      长得像路径的字符串传进上游，错误信息里再也看不出是名片写错了。
+    """
+    if not init_args:
+        return {}
+    values = _placeholder_values(profile)
+    out = {}
+    for key, raw in init_args.items():
+        if not isinstance(raw, str):
+            out[key] = raw
+            continue
+        missing = []
+
+        def _sub(m):
+            name = m.group(1)
+            if name not in values or values[name] is None:
+                missing.append(name)
+                return m.group(0)
+            return values[name]
+
+        expanded = _PLACEHOLDER_RE.sub(_sub, raw)
+        if missing:
+            raise ValueError(
+                "call.init_args.%s 里的占位符 %s 填不出来（认得的是：%s）"
+                % (key, ", ".join("{%s}" % m for m in missing),
+                   ", ".join("{%s}" % k for k in sorted(values))))
+        out[key] = expanded
+    return out
 
 
 SEEDERS = {
@@ -238,7 +304,7 @@ class Engine(object):
                 BANNER, module_name.split(".")[0],
                 getattr(root_mod, "__file__", "?")))
 
-            init_args = dict(self.call.get("init_args") or {})
+            init_args = _expand_init_args(self.call.get("init_args"), self.profile)
             sys.stderr.write("%s constructing %s(%s)\n" % (
                 BANNER, class_name, ", ".join(sorted(init_args))))
             self.obj = klass(**init_args)
@@ -498,7 +564,12 @@ def validate_request(body, profile, seed_plan):
     load_time = set(profile["params"].get("load_time") or [])
     call_time = set(profile["params"].get("call_time") or [])
     formats = set(f.lower() for f in (profile.get("output_formats") or ["wav"]))
-    needs_ref = bool(profile.get("capabilities", {}).get("requires_reference_audio"))
+    # ⛔ 这里曾经写成 profile.get("capabilities", {}).get("requires_reference_audio")。
+    #   `resolveEngineProfile()` 真出的那份里它是**扁平顶层**的，不在 capabilities 下
+    #   ⇒ 那个读法在真名片上恒为 None ⇒ needs_ref 恒为 False ⇒
+    #   「必须给参考音频」那道 400 **静默消失**（不报错、不告警，闸只是不存在了）。
+    #   ⭐ 手写夹具测不出这种形状漂移 —— 见 tools/dev/probe_profile_contract.py。
+    needs_ref = bool(profile.get("requires_reference_audio"))
 
     text = body.get("text")
     if not text or not str(text).strip():
