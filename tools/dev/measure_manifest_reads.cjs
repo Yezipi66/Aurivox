@@ -77,7 +77,9 @@ m.id = PROBE_ID
 //    于是从头到尾没进过被测对象：既不在「活」里也不在「死」里，**凭空消失**。
 //    量法把被测对象改掉，量出来的就不是被测对象的账。
 m.runtime = m.runtime || {}
-if (!m.runtime.entry) m.runtime.entry = 'shim.py'
+// ⚠ 2026-08-27 起模板自己就带 entry（指向通用宿主），这行兜底基本不会触发。
+//   值跟着改是为了：万一它触发了，量出来的也不是一个已经不存在的形状。
+if (!m.runtime.entry) m.runtime.entry = '../../lib/engines/host.py'
 if (!m.runtime.ready_endpoint) m.runtime.ready_endpoint = '/ready'
 if (!m.maps || !m.maps.text) m.maps = Object.assign({ text: 'text' }, m.maps || {})
 

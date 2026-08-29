@@ -902,7 +902,8 @@ async function generateOneSegment(segmentText, cfg, engine, out = {}) {
   // 补一次是因为白名单那一段会把空串/null 过滤掉，而布尔 false 必须显式送达
   // （不发和发 false 在引擎那边是两件事）。
   // ⭐ 第 1c 步加了名片门控：这台引擎的 payload_keys 上没有这个键就不发 ——
-  //   IndexTTS2 的 shim 对不认识的键直接 400，硬塞过去等于必然失败。
+  //   通用宿主对不认识的键直接 400（lib/engines/host.py:637-645），
+  //   硬塞过去等于必然失败。
   // ⭐ C11：原来这里写死补 ["sample_steps","if_sr"] 两个键 —— 那是 GPT-SoVITS
   //   的私有参数名。现在补的是「这台引擎名片上声明的全部旋钮」，所以下游引擎
   //   的布尔参数不会再在这一行上被静默丢掉。
@@ -1877,6 +1878,7 @@ function scanStagingTasks() {
 // registered LAST so specific API routes always win.
 const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
+app.use(require("./lib/routes/engines")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
 app.use(require("./lib/routes/voices")(ctx));
 app.use(require("./lib/routes/synthesis")(ctx));

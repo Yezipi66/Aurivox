@@ -188,8 +188,10 @@ backups
 tools/dev/_scratch/
 
 # --- IndexTTS2：上游源码与上游文件不进仓库（license）---
-# 仓库里只保留我们自己写的胶水：shim.py / manifest.json /
+# 仓库里只保留我们自己写的胶水：manifest.json /
 # UPSTREAM.md / LOCAL-CHANGES.md / SOURCE_MANIFEST.json / README.md
+# ⭐ 2026-08-27：这一行原先第一个列的是 shim.py。它已经删了（判据 8），
+#   "我们自己写的胶水"里现在**一行 Python 都没有** —— 只剩一张名片。
 # 源码按 UPSTREAM.md 记的 commit 由安装脚本拉取。
 engines/indextts2/indextts/
 engines/indextts2/pyproject.toml
@@ -210,3 +212,6 @@ engines/indextts2/NOTICE
 # 只排 .out.txt —— 脚本本身（.ps1/.cjs/.py）要入库：
 # 量法可复现才算取证，读数不可复现是正常的。
 tools/dev/*.out.txt
+models/ 
+ 
+ 

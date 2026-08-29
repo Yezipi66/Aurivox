@@ -107,14 +107,20 @@ def make_profile(engine_dir, ckpt_dir, seed_spec):
         #   本来就有；夹具早先没写，于是占位符那条路径整条没被走过。
         "dir": engine_dir,
         "runtime": {
-            "sys_path": [engine_dir],
-            "cwd": engine_dir,
+            # ⛔ 2026-08-27：sys_path 的真形状在 runtime.verify 下面
+            #   （lib/engines/profile.js:286）。夹具早先写在顶层 ⇒ 29/29
+            #   全绿证明的只是「host.py 和我的想象一致」。
+            "verify": {"sys_path": [engine_dir]},
             # 名片里 checkpoints 是**相对项目根**的，host.py 负责转绝对路径。
             "checkpoints": os.path.relpath(
                 ckpt_dir, os.path.dirname(os.path.dirname(engine_dir))),
         },
         "call": {
             "kind": "python",
+            # ⭐ 契约 §5.3：调用的工作目录在 call.cwd，而且**用占位符**
+            #   （§5.3 的例子就是 "{engine_dir}"）—— 夹具跟真名片写法一致，
+            #   否则占位符那条路径又成盲区（同下面 init_args 的教训）。
+            "cwd": "{engine_dir}",
             "module": "fake_engine",
             "class": "FakeTTS",
             # ⛔⛔ 这里曾经是写死的绝对路径 —— 于是 init_args 的 {占位符} 展开

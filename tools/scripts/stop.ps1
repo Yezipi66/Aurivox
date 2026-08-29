@@ -18,14 +18,14 @@ $Ports = @(
   @{ Name = "backend server.js"; Port = 9886 }
 )
 
-# 引擎的端口问名片要 —— 这个文件里不该有任何一台具体引擎的知识。
+# 引擎的端口问 manifest.json 要 —— 这个文件里不该有任何一台具体引擎的知识。
 #
 # ⭐⭐ 但停止脚本的可靠性高于一切：它原本一个外部程序都不用，改成问 node
 #    就等于给"停不掉服务"新增一个失败原因，而停不掉的进程会锁住文件
 #    （见本文件顶部那笔账）。所以问不到时**只警告不退出**，交给下面第二遍
 #    （按项目目录扫进程）兜底 —— 那一遍更强，且不依赖任何外部程序。
 #
-# 要的是名片声明的默认端口：停止脚本不知道上次启动有没有把端口挪走过，
+# 要的是 manifest.json 声明的默认端口：停止脚本不知道上次启动有没有把端口挪走过，
 # 挪走过的那台同样由第二遍兜住。
 function Get-EnginePorts {
   $root = Get-ProjectRoot
@@ -83,7 +83,7 @@ $killedAny = $false
 #    而不是跟着 $Ports 走，就是因为 Get-EnginePorts 要用上面的 Get-ProjectRoot。
 $enginePorts = Get-EnginePorts
 if ($enginePorts.Count -eq 0) {
-  Write-Host "  [WARN] 拿不到引擎端口列表(名片/node)，改由下面第二遍按项目目录清理。" -ForegroundColor Yellow
+  Write-Host "  [WARN] 拿不到引擎端口列表(manifest.json/node)，改由下面第二遍按项目目录清理。" -ForegroundColor Yellow
 } else {
   # ⚠ PS 5.1 坑：单元素数组在 += 时会被拆成标量。用 @() 包住再展开。
   foreach ($ep in @($enginePorts)) { $Ports += $ep }

@@ -129,8 +129,32 @@ cp .env.example .env    # 编辑 .env 设置 API keys 等
 start.bat
 ```
 
-后端运行在 `http://127.0.0.1:9886`，前端 `http://127.0.0.1:5173`，
-推理服务 `http://127.0.0.1:9880`（由 `start.ps1` 拉起，日志见 `logs/inference.log`）。
+后端运行在 `http://127.0.0.1:9886`，前端 `http://127.0.0.1:5173`。
+
+推理引擎由 `start.ps1` 拉起。**默认把 `engines/` 下装了的每一台都起起来**，
+每台听自己 `manifest.json` 里 `default_base_url` 声明的端口，日志各写一份：
+
+| 引擎 | 默认地址 | 日志 |
+|---|---|---|
+| `gpt-sovits` | `http://127.0.0.1:9880` | `logs/gpt-sovits.log`、`logs/gpt-sovits.err.log` |
+| `indextts2` | `http://127.0.0.1:9881` | `logs/indextts2.log`、`logs/indextts2.err.log` |
+
+> ⚠ 日志文件名从前是 `logs/inference.log`（只有一台引擎的时候）。同时起两台
+> 之后那个名字答不了「这是哪台的日志」，而且两台会往同一个文件里写，所以
+> 改成了 `logs/<引擎 id>.log`。
+
+只起其中几台：
+
+```bat
+set ENGINE_IDS=gpt-sovits          :: 只起这一台
+set ENGINE_IDS=gpt-sovits,indextts2 :: 起这两台
+start.bat
+```
+
+`ENGINE_ID`（单数、只能写一台）是老写法，继续有效；两个都设时 `ENGINE_IDS` 说了算。
+
+有一台起不来（比如它的 Python 环境还没装）不会影响其余：那一台会被跳过并
+在启动摘要里写明原因，后端和别的引擎照常起。
 
 ## 依赖锁定（完全可复现环境）
 

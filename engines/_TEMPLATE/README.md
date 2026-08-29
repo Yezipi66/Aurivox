@@ -9,11 +9,11 @@
 > ⭐ **2026-08-25：`manifest.json` 里现在只剩今天真的通电的键。**
 > `call`（通用宿主）、`smoke`（强制冒烟）、`escape_hatch`（逃生门）这三块
 > 已经挪回契约文档 —— 它们**读取 0 次**，填了不会有任何事发生，也不会报错。
-> 量法：`tools\dev\measure_manifest_reads.cjs`（把名片包一层 Proxy，
+> 量法：`tools\dev\measure_manifest_reads.cjs`（把 manifest.json 包一层 Proxy，
 > 记录平台每一次取值）。
 >
-> ⭐ 名片写完之后，用 `tools\dev\probe_new_engine.cjs` 验一遍：
-> 它会造一台只有名片的假引擎，推着平台走完 5 关，告诉你还差什么。
+> ⭐ manifest.json 写完之后，用 `tools\dev\probe_new_engine.cjs` 验一遍：
+> 它会造一台只有 manifest.json 的假引擎，推着平台走完 5 关，告诉你还差什么。
 
 ## 目标
 
@@ -27,7 +27,7 @@
 | **微调（训练）** | **只支持 GPT-SoVITS**，它是本项目的核心业务模型 |
 
 微调各家的数据格式、目录结构、阶段划分差异远大于推理，**没验证过的东西
-不写进契约**。所以名片里的 `supports_finetune` 请保持 `false`。
+不写进契约**。所以 manifest.json 里的 `supports_finetune` 请保持 `false`。
 
 > ⚠ **诚实交代：这个字段今天还没有消费者。**
 > 平台把它解析出来了（`lib/engines/profile.js`），但**训练页的显隐还没接上**
@@ -50,14 +50,14 @@
 ```
 1. 复制本目录，改名为引擎 id（小写、连字符，如 indextts2）      【现状】
 2. 克隆上游 + 按上游文档装好它自己的环境   ← 不进 git（C10）      【现状】
-3. 生成草稿名片：平台扫一遍，八成字段自动填好                    【待建】
+3. 生成草稿 manifest.json：平台扫一遍，八成字段自动填好                    【待建】
 4. 确认映射：平台给候选，你点确认       ← 唯一需要人的地方        【待建】
-5. 三道校验：名字对得上 → 名片自检 → 冒烟出声（含绑定判别）      【待建】
+5. 三道校验：名字对得上 → manifest.json 自检 → 冒烟出声（含绑定判别）      【待建】
 6. 出声 = 装上了
 ```
 
-⚠ **第 3、4、5 步今天还没有。**别等平台来问你 —— 名片要**手写**，
-参考 `engines/indextts2/manifest.json` 那张真名片。写完跑
+⚠ **第 3、4、5 步今天还没有。**别等平台来问你 —— manifest.json 要**手写**，
+参考 `engines/indextts2/manifest.json` 那张真 manifest.json。写完跑
 `tools\dev\probe_new_engine.cjs` 自检，那是今天唯一存在的那道校验。
 
 ### ⭐ 第 4 步：为什么这一步省不掉
@@ -107,7 +107,7 @@
 > 都起不来，所以暂时共用。长期方向是拆掉根 `venv/`，让 GPT-SoVITS 也住进
 > 自己的目录。⇒ **你的引擎请老老实实放本目录下。**
 >
-> ⭐ 平台**只验不建**（契约 C12）：它会核对你名片里写的解释器在不在、
+> ⭐ 平台**只验不建**（契约 C12）：它会核对你 manifest.json 里写的解释器在不在、
 > 模块/类/方法在不在，**不会替你装环境**。核对不过 = 没装。
 
 **唯一例外：`smoke/` 下的参考音频要进 git。**它是判据不是素材——换一段音频，
@@ -135,7 +135,9 @@ engines/<id>/
 ├── README.md         这个引擎怎么装、有什么坑
 ├── UPSTREAM.md       上游地址 + commit + 已知的坑
 ├── LOCAL-CHANGES.md  改了上游哪几行；一行没改也要写「零改动」并留证据
-├── shim.py           平台按 manifest 的 runtime.entry 去跑它  ← 今天真正的接入点
+│                     ⭐⭐ 没有 shim.py 这一行 —— **你不需要写任何 Python**。
+│                     平台的通用宿主 lib/engines/host.py 所有引擎共用一份，
+│                     怎么调你这台引擎全看 manifest.json 的 call 段（见下）
 ├── smoke/ref_a.wav   【待建】冒烟用的固定参考音频（⭐ 落地后要进 git）
 ├── smoke/ref_b.wav   【待建】另一个人的音色，绑定判别用（⭐ 同样要进 git）
 ├── driver.js         【待建】逃生门，只在 manifest 明写 escape_hatch 时启用
@@ -144,44 +146,100 @@ engines/<id>/
 └── venv/             ⛔ 不进 git
 ```
 
-## 三种调用形态 【待建】
+## 三种调用形态
 
-⚠ 下面这张表描述的是**通用宿主落地之后**的样子。今天平台只有一种做法：
-名片写 `runtime.entry`，你自己在引擎目录里放一个脚本，平台去跑它。
-`engines/indextts2/shim.py` 就是这么一个脚本，可以直接照着改。
+| 形态 | 什么意思 | 什么时候用 | 状态 |
+|---|---|---|---|
+| `python` | 平台起子进程，导入一个类、调一个方法 | 上游提供 Python 接口 | **【现状】** |
+| `cli` | 平台起子进程，传命令行参数，产出音频文件 | **多数开源 TTS。往往比 Python 接口更稳** | 【待建】 |
+| `http` | 引擎自己是常驻服务，平台发请求 | 上游本来就是个服务 | 【现状】※ |
 
-| 形态 | 什么意思 | 什么时候用 |
-|---|---|---|
-| `python` | 平台起子进程，导入一个类、调一个方法 | 上游提供 Python 接口 |
-| `cli` | 平台起子进程，传命令行参数，产出音频文件 | **多数开源 TTS。往往比 Python 接口更稳** |
-| `http` | 引擎自己是常驻服务，平台发请求 | 上游本来就是个服务 |
+※ `http` 形态今天的做法是**不走通用宿主**：manifest.json 不写 `call` 段，
+`runtime.entry` 指你自己的服务入口（GPT-SoVITS 就是这样）。
 
 ⭐ **`cli` 是一等公民，不是降级方案。**作者通常会保证命令行向后兼容，
-内部类名却说改就改。
+内部类名却说改就改。它的 manifest.json 形状见 `docs/ENGINE_CONTRACT.md §5.3`，
+宿主侧尚未实现 —— 今天填了不会生效，会被拒绝启动而不是静默。
 
 **不在兼容范围内**：闭源云端服务（不需要这套抽象）、流式输出
 （与分段拼接冲突，要接走逃生门）。
 
+### ⭐⭐ `python` 形态：你要写的是名字，不是代码
+
+**2026-08-27 起，接一台 `python` 形态的引擎不需要写一行 Python。**
+manifest.json 里 `runtime.entry` 指向平台的通用宿主，`call` 段告诉它怎么调你：
+
+```jsonc
+"call": {
+  "kind": "python",
+  "cwd": "engines/<id>",          // 调用时上游需要待在哪（很多上游有相对 CWD 硬编码）
+  "module": "yourtts.infer",      // import 谁
+  "class":  "YourTTS",            // 构造谁
+  "init_args": { "model_dir": "{checkpoints}" },   // 加载期，改它要重启
+  "method": "infer",              // 每次合成调哪个方法
+  "bind": {                       // 平台的三个词 → 你这个方法的形参名
+    "text": "text",
+    "ref_audio": "ref_audio",
+    "output_path": "output_path"
+  },
+  "returns": "file",              // file = 写到 output_path；bytes = 直接返回
+  "seed": { "mode": "global", "rngs": ["python", "numpy", "torch"], "scope": "locked" }
+}
+```
+
+⛔ **`seed` 不许省略**（契约 §5.2.1）。三选一：你的方法自己收
+（`{"arg":"seed"}`）、宿主替你播全局 RNG（上面那种）、或者老实写 `"none"`
+表示这台引擎不可复现 —— 那时宿主会对带 `seed` 的请求**回 400**。
+省略 = 静默忽略 = 用户拿到一个声音对不上、`meta.json` 里却白纸黑字记着
+种子的档案。**"不支持" 和 "没写" 必须能区分开。**
+
+⭐ `rngs` 必须**你来列**，平台不写死。你要是纯 ONNX / JAX 引擎，`torch`
+根本没装；平台无条件去播只能 `try/except` 吞掉 —— 那等于播种失败是静默的。
+
+⚠ `call.module` / `call.class` / `call.method` 必须和
+`runtime.verify.imports` 里那三个名字**同源**，否则「验的」和「跑的」
+不是同一个东西。
+
 ## ⭐ `runtime` 段：让平台替你把引擎起起来
 
-名片里写了 `runtime` 段，`tools/scripts/start.ps1` 就会照着它拉起你的引擎进程
+manifest.json 里写了 `runtime` 段，`tools/scripts/start.ps1` 就会照着它拉起你的引擎进程
 ——**不用改启动脚本**。不写也合法，那表示"这台引擎由作者自己起"。
 
 ```jsonc
 "runtime": {
-  "python": "{engine_dir}/.venv/Scripts/python.exe",  // 你的解释器
-  "entry":  "{engine_dir}/shim.py",                    // 入口脚本
-  "args":   ["--host", "{host}", "--port", "{port}"],  // 命令行，占位符会展开
-  "cwd":    "{root}",
+  "python": "engines/<id>/.venv/Scripts/python.exe",   // 你的解释器（相对项目根）
+  "entry":  "../../lib/engines/host.py",               // ⭐ 平台的通用宿主，照抄
+  "args":   ["--profile-json", "{profile_json}",       // ⭐ 照抄这三对
+             "--host", "{host}", "--port", "{port}"],
+  "cwd":    ".",
   "ready_endpoint": "/health",
   "ready_timeout_ms": 180000,
   "preload": true
 }
 ```
 
-认识的占位符只有 `{host}` `{port}` `{root}` `{engine_dir}` `{checkpoints}`。
+⚠ **解释器仍然是你自己 venv 的** —— 换的是脚本，不是环境。torch 那一套
+还得装在 `engines/<id>/.venv` 里。这两件事别混。
+
+认识的占位符只有 `{host}` `{port}` `{root}` `{engine_dir}` `{checkpoints}`
+`{profile_json}`。
 ⛔ **拼错的占位符会当场报错，不会原样传下去** —— 原样传的后果是引擎说
-"某个文件找不到"，而名片看着完全正常。
+"某个文件找不到"，而 manifest.json 看着完全正常。
+
+### ⭐ `{profile_json}` 是什么，为什么必须写
+
+它是平台把你这张 manifest.json**解析好之后落盘的那份**
+（`cache/engines/<id>.profile.json`，路径由 `lib/engines/engine-launch-plan.cjs`
+算出来并在 spawn 之前写好）。宿主**不读 `manifest.json`** —— manifest.json 的语义
+只有 `lib/engines/profile.js` 一个实现，写两遍迟早分叉。
+
+⛔ 入口指了 `host.py` 却漏写这个占位符，表现是宿主开口就 FATAL
+「`--profile-json` 是必须的」，看着像宿主坏了，其实是 `args` 里漏了一对。
+
+⭐ 它还兼着第二个差事：`start.ps1` 靠命令行里这个值**认自家进程**。
+走宿主的引擎入口路径全都一样，只有这份 profile 一台引擎一个 ——
+要是拿入口当记号，A 引擎占着端口时平台会认为「我的引擎已经在跑了」，
+**B 永远起不来而且不报任何错**。
 
 ⚠ **"我该监听哪个端口"来自 `default_base_url`，不是 `runtime`。**
 那个地址必须带端口。（它和环境变量顶出来的地址是两件事：前者是"我听哪儿"，
@@ -213,11 +271,11 @@ engines/<id>/
 
 | 第几道 | 什么时候 | 不过会怎样 |
 |---|---|---|
-| 一 | 平台启动时，去引擎环境里核对名片写的每一个名字真的存在 | **不注册**，界面显示"没装" |
-| 二 | 作者手动跑一条命令自检名片 | 直接指出哪个字段错了 |
+| 一 | 平台启动时，去引擎环境里核对 manifest.json 写的每一个名字真的存在 | **不注册**，界面显示"没装" |
+| 二 | 作者手动跑一条命令自检 manifest.json | 直接指出哪个字段错了 |
 | 三 | 装完冒烟：固定文本 + 固定参考音频 + **绑定判别** | **出声才算装上** |
 
-**第一道不是校验 JSON 合不合法**，是拿着名片去你的 Python 环境里逐个核对：
+**第一道不是校验 JSON 合不合法**，是拿着 manifest.json 去你的 Python 环境里逐个核对：
 模块导得进来吗、类有吗、方法有吗、这个方法真的收 `spk_audio_prompt` 吗。
 **方法名打错一个字母，注册时就拦下来**，而不是等用户点合成才炸。
 
@@ -267,15 +325,15 @@ engines/<id>/
 写进 `params.schema`，界面会照着长出面板。**平台不需要认识它们中的
 任何一个**，只需要知道"有一个 0 到 1 的数字，界面上叫情绪强度"。
 
-## 名片没有资格声明的三件事
+## manifest.json 没有资格声明的三件事
 
-以下由**平台**决定，名片写了会被拒绝注册：
+以下由**平台**决定，manifest.json 写了会被拒绝注册：
 
 1. **音频格式** —— 平台内部一律 16 位 PCM WAV，引擎给别的平台负责转
 2. **并发** —— 同一块显卡上的推理由平台排队，引擎不用自己加锁
-3. **重试与超时** —— 名片只声明"我大概要多久"，怎么重试是平台的事
+3. **重试与超时** —— manifest.json 只声明"我大概要多久"，怎么重试是平台的事
 
-**理由**：这三件事每个作者都会做，而且做得都不一样。让它们进名片，
+**理由**：这三件事每个作者都会做，而且做得都不一样。让它们进 manifest.json，
 等于让通用代码换个地方重新长一遍。
 
 ## 验收

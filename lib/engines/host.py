@@ -7,11 +7,19 @@
 把「传话的」那 294 行样板（HTTP 服务、探活、四类 400 校验、wav 头解析、
 推理排队、洗 sys.path）从每台引擎的目录里收上来，只留下名片描述的那部分。
 
+✅ 2026-08-27：`engines/indextts2/shim.py`（523 行）**已经删掉了** ——
+契约 §11 判据 8「shim.py 缩到零」结账。判据不是「看着能跑」：
+`tools/dev/run_ab.py` 采四段音频比梅尔差，跨路径 0.00% / 天花板 127.25%，
+5 条判据 5 过；`tools/dev/verify_launch.py` 照平台真实启动路径起了一次
+并真出了声，14 条 14 过。
+⇒ 下面凡是引 `shim.py:NNN` 的地方，都是**已删文件的存档引文**，
+  保留是因为那些行号是当初每一条设计的出处；别去那个路径找它。
+
 它怎么知道要跑哪台引擎
 ----------------------
 ⛔ **它不读 `manifest.json`。**
 名片的语义只有一个实现 —— `lib/engines/profile.js`。宿主收的是**已经解析好**
-的 JSON。理由是 `shim.py` 第 106 行那句自白：
+的 JSON。理由是（已删的）`shim.py` 第 106 行那句自白：
 
     #  2) 参数白名单 —— 与 manifest.json 的 param_keys 必须一致
     LOAD_TIME_KEYS = frozenset({...})
@@ -177,6 +185,48 @@ def _expand_init_args(init_args, profile):
                    ", ".join("{%s}" % k for k in sorted(values))))
         out[key] = expanded
     return out
+
+
+def _resolve_cwd(profile):
+    """算出调用时该待在哪个目录（契约 §5.3 的 `call.cwd`）。
+
+    ⭐ 上游代码里常有 `checkpoints/bpe.model` 这种相对 CWD 的硬编码，而且是
+      **调用实参**不是默认值 —— 显式传参救不了，chdir 是唯一不改上游源码的解法。
+    ⛔ 但**目录名由名片说了算，不由宿主推**（契约 §5.2「全部是名字，没有一行逻辑」）。
+      曾经想过让宿主自己推 `dirname(checkpoints)` —— 那是 IndexTTS2 的巧合，
+      焊进通用层就等着下一台引擎踩。推错了不报错，只是路径不对。
+
+    写法两种，和 `runtime.checkpoints` 一个约定：
+      - `{engine_dir}` / `{checkpoints}` / `{root}` 槽位（§5.3 的例子就是 `{engine_dir}`）
+      - 或者一条**相对项目根**的路径，如 `models/tts/indextts2`
+    没写 ⇒ 返回 None ⇒ 不 chdir，待在被拉起来的地方（诚实的默认值）。
+    """
+    raw = (profile.get("call") or {}).get("cwd")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("call.cwd 得是一条非空路径，现在是 %r" % (raw,))
+
+    values = _placeholder_values(profile)
+    missing = []
+
+    def _sub(m):
+        name = m.group(1)
+        if name not in values or values[name] is None:
+            missing.append(name)
+            return m.group(0)
+        return values[name]
+
+    expanded = _PLACEHOLDER_RE.sub(_sub, raw)
+    if missing:
+        raise ValueError(
+            "call.cwd 里的占位符 %s 填不出来（认得的是：%s）"
+            % (", ".join("{%s}" % m for m in missing),
+               ", ".join("{%s}" % k for k in sorted(values))))
+
+    if os.path.isabs(expanded):
+        return os.path.normpath(expanded)
+    return os.path.normpath(os.path.join(values["root"], expanded))
 
 
 SEEDERS = {
@@ -723,7 +773,12 @@ def main():
         return 2
 
     # 引擎源码目录进 sys.path（名片 runtime.verify.sys_path）
-    for p in (runtime.get("sys_path") or []):
+    # ⛔ 2026-08-27：这行注释一直是对的，代码却读的是 runtime.sys_path ——
+    #   名片里没有那个键，于是永远 += []，最后死在 ModuleNotFoundError。
+    #   ⭐ 用的是**校验块**的路径不是笔误：第一道校验（契约 §6）导入哪条路径，
+    #     宿主就必须加载哪条路径 —— 不同就等于验的和跑的不是同一个模块。
+    sys_path_decl = (runtime.get("verify") or {}).get("sys_path") or []
+    for p in sys_path_decl:
         ap = os.path.abspath(p)
         if ap in sys.path:
             sys.path.remove(ap)
@@ -732,19 +787,34 @@ def main():
     # ⭐ 上游代码里常有 `checkpoints/xxx` 这种相对 CWD 的硬编码，而且是
     #   **调用实参**不是默认值 —— 显式传参救不了。chdir 是唯一不改上游源码
     #   的解法。⛔ 只在这里定一次，之后进程不再改。
-    cwd = runtime.get("cwd")
+    #   ⛔ 读的是 **call.cwd**（契约 §5.3），不是 runtime.cwd。§9 把 runtime.cwd
+    #     定义成「启动器从哪儿 spawn」，消费者是 launchPlan.js / start.ps1；
+    #     同名不同义，混用会静默 chdir 到项目根，然后上游找不到 checkpoints/。
+    try:
+        cwd = _resolve_cwd(profile)
+    except ValueError as exc:
+        sys.stderr.write("%s FATAL: %s\n" % (BANNER, exc))
+        return 2
     if cwd:
-        cwd = os.path.abspath(cwd)
         if not os.path.isdir(cwd):
-            sys.stderr.write("%s FATAL: runtime.cwd 不存在：%s\n" % (BANNER, cwd))
+            sys.stderr.write(
+                "%s FATAL: call.cwd 指向的目录不存在：%s\n"
+                "%s        名片 %s 里写的是 %r\n"
+                % (BANNER, cwd, BANNER, profile["id"],
+                   (profile.get("call") or {}).get("cwd")))
             return 2
         os.chdir(cwd)
 
     sys.stderr.write("%s starting  engine=%s host=%s port=%s\n"
                      % (BANNER, profile["id"], host, port))
-    sys.stderr.write("%s cwd=%s\n" % (BANNER, os.getcwd()))
+    # ⭐ 印实际值 + 印它是哪来的。判据/路径这类东西「可调但必须可见」，
+    #   不然出了岔子只能靠猜是谁把目录挪了。
+    sys.stderr.write("%s cwd=%s (%s)\n"
+                     % (BANNER, os.getcwd(),
+                        ("call.cwd=%r" % (profile.get("call") or {}).get("cwd"))
+                        if cwd else "名片没写 call.cwd，沿用启动目录"))
     sys.stderr.write("%s python=%s\n" % (BANNER, sys.executable))
-    sys.stderr.write("%s sys_path+=%s\n" % (BANNER, runtime.get("sys_path") or []))
+    sys.stderr.write("%s sys_path+=%s\n" % (BANNER, sys_path_decl))
     if _DROPPED:
         sys.stderr.write("%s scrubbed %d alien sys.path entr%s: %s\n"
                          % (BANNER, len(_DROPPED),

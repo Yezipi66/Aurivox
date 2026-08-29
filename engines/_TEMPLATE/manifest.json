@@ -1,8 +1,23 @@
 {
-  "_comment_contract": [
-    "契约版本 2。条款见 docs/ENGINE_CONTRACT.md。",
-    "⚠ 版本 2 的部分能力标着【待建】—— 契约先冻结，平台实现随后跟上。",
-    "以 _ 开头的键是注释，注册表会剥掉，不进运行时对象。"
+  "_comment_howto": [
+    "⭐ 这是一份**照抄就能跑**的 manifest.json。契约版本 2，条款见 docs/ENGINE_CONTRACT.md。",
+    "",
+    "这里的每一个键，平台今天都真的会去读 —— 用 tools/dev/measure_manifest_reads.cjs",
+    "量过（把 manifest.json 包一层 Proxy，记录平台每一次取值）。填了不生效的键一个都没有。",
+    "⚠ 唯一的例外是 upstream / local_changes 两处，那里单独注明了。",
+    "",
+    "⭐⭐ 2026-08-27：`call` 一段**回到这张表里了**。通用宿主",
+    "lib/engines/host.py 已经落地并通过 A/B 判据（tools/dev/run_ab.py，",
+    "跨路径梅尔差 0.00%、天花板 127.25%，5 条判据 5 过），",
+    "IndexTTS2 的 523 行 shim.py 已经删干净 —— 也就是说：",
+    "**接一台新引擎不用再写任何 Python，把下面 call 段填对就行。**",
+    "",
+    "契约版本 2 里**仍然**没通电的设计（强制冒烟 smoke、逃生门 escape_hatch）",
+    "还在这张表外面，见 docs/ENGINE_CONTRACT.md「终局形态」一节。",
+    "留在这里只会让人认真填完、然后什么都不发生。",
+    "",
+    "以 _ 开头的键是注释，注册表读 manifest.json 的第一步就把它们剥掉（registry.js:32）。",
+    "⛔ 所以别拿下划线给真键起名 —— 它到不了平台手里，而且不会报错。"
   ],
   "contract_version": 2,
 
@@ -10,142 +25,67 @@
   "label": "引擎显示名",
 
   "_comment_upstream": [
-    "⭐ C10：上游源码不进 git，安装时按下面这个 commit 拉取。",
-    "commit 号是不可再生信息 —— 删掉上游的 .git 之后就再也拿不回来了。",
-    "丢了它，安装脚本不知道该拉哪一版。"
+    "tools/install-engine.cjs 照这一节把上游源码拉下来（§12 第 4 步）。合成路径不读它。",
+    "commit 是不可再生信息 —— 删掉上游的 .git 之后就再也拿不回来了（C10）。",
+    "必须是完整 40 位 sha：短 sha 会随仓库长大而变得有歧义，分支和标签会移动，",
+    "这三种都回答不了「半年后还能不能装回一模一样的版本」。",
+    "真的没有就写 null，并在 commit_unknown_reason 里说清为什么 —— 那台引擎照样能合成，",
+    "只是装不了（C13.1：留空是合法的，平台不因缺失就拒绝注册）。"
   ],
   "upstream": {
     "url": "https://github.com/…",
-    "commit": "把完整 40 位 sha 写在这里",
+    "commit": "把完整 40 位 sha 写在这里，或者写 null",
+    "commit_unknown_reason": "只在 commit 为 null 时写；说清为什么拿不到，别写「暂无」",
     "license": "上游许可证名称（例：MIT / Apache-2.0 / 自定许可）"
   },
   "local_changes": "LOCAL-CHANGES.md",
 
-  "_comment_call": [
-    "⭐⭐ 这一节回答『怎么调这个引擎』。全部是名字，没有一行逻辑。",
-    "kind 三选一：",
-    "  python —— 平台起子进程，导入一个类、调一个方法",
-    "  cli    —— 平台起子进程，传命令行参数，产出音频文件（多数开源 TTS）",
-    "  http   —— 引擎自己是常驻服务，平台发请求",
-    "",
-    "bind 的三行是第 4 步要人确认的东西：平台的『文本』『参考音频』",
-    "『输出路径』在这个引擎里分别叫什么。机器猜不准，必须人点头一次 ——",
-    "猜错了不会报错，只会声音不对。",
-    "",
-    "returns：file = 它写文件，平台去读；bytes = 方法直接返回音频字节。"
+  "_comment_install": [
+    "可选。克隆下来还要跑一条命令才能建好这台引擎的 Python 环境时才写。",
+    "env_command 必须是**数组**，一个词一项 —— 写成字符串的话，",
+    "带空格的路径会被从中间劈开。它在 engines/<id>/ 里跑。",
+    "⛔ 别把 pip install -r 之类的写死在平台代码里：每台引擎的环境配方",
+    "只有它自己知道，平台只负责照着跑（C12.2：平台只验不建）。",
+    "不写这一节也能装 —— 有些引擎克隆下来就能用。"
   ],
-  "call": {
-    "kind": "python",
-    "module": "yourtts.infer",
-    "class": "YourTTS",
-    "init_args": {
-      "model_dir": "{checkpoints}"
-    },
-    "method": "infer",
-    "bind": {
-      "text": "text",
-      "ref_audio": "ref_audio_path",
-      "output_path": "output_path"
-    },
-    "returns": "file",
-
-    "//seed": [
-      "⭐ 契约 §5.2.1：这一行**必须写**，三选一，没有默认值。",
-      "  不写会让「这台引擎不支持复现」和「我忘了写」长得一模一样，",
-      "  而后者今天的表现是**静默忽略 seed** —— 用户以为锁住了，其实没有。",
-      "",
-      "  {\"arg\": \"seed\"}                     引擎自己收 seed，宿主塞进调用参数",
-      "  {\"mode\": \"global\", \"rngs\": [...],   宿主替它播全局 RNG",
-      "   \"scope\": \"locked\"}                 rngs 可选：python / numpy / torch / torch.cuda",
-      "  \"none\"                              不可复现 —— 宿主会**拒收**带 seed 的请求",
-      "",
-      "  scope 只能是 \"locked\"：播种改的是进程级全局状态，不在同一把锁内的",
-      "  并发请求会互相冲掉对方刚播下的种子。"
-    ],
-    "seed": {
-      "mode": "global",
-      "rngs": ["python", "numpy", "torch", "torch.cuda"],
-      "scope": "locked"
-    }
+  "install": {
+    "env_command": ["uv", "sync"]
   },
 
-  "_comment_call_cli_example": [
-    "命令行形态长这样，用不到可整块删掉：",
-    "{ \"kind\": \"cli\",",
-    "  \"argv\": [\"{python}\", \"-m\", \"yourtts.cli\",",
-    "            \"--text\", \"{text}\", \"--ref\", \"{ref_audio}\",",
-    "            \"--out\", \"{output_path}\"],",
-    "  \"cwd\": \"{engine_dir}\", \"returns\": \"file\" }",
-    "",
-    "可用槽位：{python} {engine_dir} {checkpoints} {text} {ref_audio}",
-    "{output_path} {seed}，以及本名片 params 里声明过的任何参数名。"
+  "_comment_address": [
+    "⭐ 平台把合成请求发到哪里。",
+    "base_url_env 可选：写了它，同名环境变量就能顶掉上面的地址。",
+    "整行删掉 = 只认 default_base_url。"
   ],
+  "default_base_url": "http://127.0.0.1:0000",
+  "base_url_env": "YOURTTS_BASE_URL",
 
-  "_comment_params": [
-    "⭐ 这个引擎认识的参数名，逐个列。不在表上的键会被拦下并报错，",
-    "而不是被忽略 —— 否则参数名拼错会表现为「设了没效果」，很难查。",
-    "",
-    "分两类，因为生命周期不同：",
-    "  load_time —— 构造时用，改它要重启进程",
-    "  call_time —— 每次合成用",
-    "",
-    "⛔ 这张表里不该出现任何别家引擎的键。平台只传话不翻译：",
-    "把 top_k 映射成 emo_alpha 之类的『善意』，翻译错了不会报错，",
-    "只是声音不对 —— 那是最难查的一类 bug。见契约 §5.5。",
-    "",
-    "schema 是界面面板的来源，也是『预留兼容字段』的落点：",
-    "情绪、语速、停顿、风格……平台不需要认识它们中的任何一个，",
-    "只需要知道『有一个 0 到 1 的数字，界面上叫情绪强度』。"
+  "_comment_budget": [
+    "max_chars  : 每引擎独立的分段长度。慢引擎必须调小，否则单段就撑爆超时。",
+    "             硬上限由平台取 max_chars×2，不用另写。",
+    "timeout_ms : 单次请求超时，按『每一段』计，不是整篇。"
   ],
-  "params": {
-    "load_time": [],
-    "call_time": [],
-    "schema": {
-      "_example_emo_alpha": {
-        "type": "number",
-        "min": 0,
-        "max": 1,
-        "default": 0.8,
-        "label": { "zh": "情绪强度", "en": "Emotion strength" }
-      }
-    }
-  },
-
-  "_comment_runtime": [
-    "⭐ 每个引擎自带一套 Python 环境。这不是权宜之计，是",
-    "「加一个引擎 = 新建 engines/<id>/ 一个目录」的必然推论 ——",
-    "共享环境会把两个引擎的稳定性焊死（一个升 torch 就逼另一个跟着升、",
-    "跟着重测）。那是「加引擎会动到别人」的隐蔽形态。",
-    "",
-    "python : 引擎 venv 的解释器，相对项目根",
-    "checkpoints : 权重目录，相对项目根。⭐ 权重不进 git（C10）",
-    "ready_timeout_ms : 冷启动预热预算。按实测冷启动耗时取三倍余量"
-  ],
-  "runtime": {
-    "python": "engines/<id>/venv/Scripts/python.exe",
-    "checkpoints": "models/tts/<id>/checkpoints",
-    "ready_timeout_ms": 180000,
-    "preload": true
-  },
+  "max_chars": 45,
+  "timeout_ms": 300000,
 
   "_comment_capabilities": [
-    "⭐ 引擎能力声明。平台据此跳过不适用的通用步骤 ——",
-    "这些分支曾经硬编码在 lib/ 里，按 GPT-SoVITS 的能力写死。",
+    "⭐ 引擎能力声明。平台据此跳过不适用的通用步骤 —— 这些分支曾经硬编码",
+    "在 lib/ 里，按 GPT-SoVITS 的能力写死。六个键平台全都读。",
     "",
-    "hot_swap_models : 能不能在运行中换权重。false ⇒ 平台跳过换权重步骤，",
-    "  而不是调用后忽略失败",
-    "requires_reference_audio : 零样本引擎基本都是 true",
-    "reference_clip_seconds : 参考音频时长约束。null = 不约束。",
-    "  3-10 秒那条是 GPT-SoVITS 的要求，不是所有引擎的",
-    "streaming : 流式输出不在契约兼容范围内，要接走逃生门（§7）",
-    "output_sample_rate : 平台据此生成静音段、做拼接",
+    "hot_swap_models : 能不能在运行中换权重。false ⇒ 平台跳过换权重这一步，",
+    "  而不是调用之后忽略失败。",
+    "requires_reference_audio : 零样本引擎基本都是 true。",
+    "reference_clip_seconds : 参考音频时长约束。不限制请**显式写 null** ——",
+    "  漏写会抛错，因为「忘了写」和「不限制」必须能区分开。",
+    "  [3, 10] 那个区间是 GPT-SoVITS 的要求，不是所有引擎的。",
+    "output_sample_rate : 平台生成段间静音、做拼接时要用。猜错会得到变调或对不上的静音。",
+    "streaming : 流式输出不在契约版本 2 的兼容范围内。",
     "",
-    "⭐ supports_finetune 请保持 false。",
-    "契约版本 2 只管推理，不管微调 —— 微调各家差异远大于推理，",
-    "没验证过的东西不写进契约。目前只有 GPT-SoVITS 支持微调。",
-    "平台拿这个字段只做一件事：为 false 就不显示训练页。",
-    "藏起来是必须的：否则用户会在你的引擎上点开训练页、",
-    "按 GPT-SoVITS 的流程跑一轮，几小时机时之后才发现它不该出现。"
+    "⭐ supports_finetune 请保持 false。契约版本 2 只管推理，不管微调 ——",
+    "各家微调差异远大于推理，没验证过的东西不写进契约。",
+    "平台拿它只做一件事：为 false 就不显示训练页。藏起来是必须的，否则用户会",
+    "在你的引擎上点开训练页、按 GPT-SoVITS 的流程跑一轮，几小时机时之后",
+    "才发现它不该出现。"
   ],
   "capabilities": {
     "hot_swap_models": false,
@@ -156,55 +96,260 @@
     "supports_finetune": false
   },
 
-  "_comment_budget": [
-    "max_chars  : 每引擎独立的分段长度。慢引擎必须调小，否则单段就撑爆超时",
-    "timeout_ms : 单次请求超时，按『每一段』计，不是整篇"
+  "_comment_runtime": [
+    "⭐ 平台怎么把这台引擎起起来。整节删掉 = 这台引擎不由平台起（合法状态，",
+    "但平台也就没法替你校验它装没装）。",
+    "",
+    "⭐ 每个引擎自带一套 Python 环境。这不是权宜之计，是「加一个引擎 =",
+    "新建 engines/<id>/ 一个目录」的必然推论 —— 共享环境会把两个引擎的稳定性",
+    "焊死（一个升 torch 就逼另一个跟着升、跟着重测）。那是「加引擎会动到别人」",
+    "的隐蔽形态。",
+    "",
+    "python           : 引擎 venv 的解释器，相对项目根，⛔不许写绝对路径",
+    "entry            : 平台要跑起来的那个脚本，相对**本 manifest 所在目录**。必填。",
+    "  ⭐⭐ 照抄下面那行就行：`../../lib/engines/host.py` 是平台的**通用宿主**，",
+    "    所有引擎共用一份。你不需要在自己目录里放任何 Python —— 宿主怎么调",
+    "    你这台引擎，全看下面的 `call` 段。",
+    "  ⚠ 解释器仍然是**你自己 venv 的**：换的是脚本，不是环境。torch 那一套",
+    "    还得装在 engines/<id>/.venv 里，这两件事别混。",
+    "  ⛔ 上游本来就是个常驻服务（形如 GPT-SoVITS）才写自己的入口 —— 那种引擎",
+    "    不由通用宿主托管，manifest.json 里也就没有 call 段。两条路，别同时走。",
+    "args             : 追加给 entry 的命令行参数。可选，默认空。",
+    "  走通用宿主就照抄下面那三对。⭐ {profile_json} = 平台把这张 manifest.json 解析好",
+    "  之后落盘的那个文件（cache/engines/<id>.profile.json，由",
+    "  lib/engines/engine-launch-plan.cjs 算路径并在 spawn 之前写出来）。",
+    "  宿主**不读 manifest.json**：manifest.json 的语义只有 lib/engines/profile.js 一个",
+    "  实现，写两遍迟早分叉。",
+    "  ⛔ 入口指到 host.py 却漏写这个占位符，表现是宿主开口就 FATAL",
+    "    「--profile-json 是必须的」—— 看着像宿主坏了，其实是这行漏了。",
+    "  ⭐ 它还兼着第二个差事：start.ps1 靠命令行里这个值认自家进程。",
+    "    走宿主的引擎入口路径全都一样，只有它一台一个。",
+    "cwd              : 工作目录，相对项目根。可选，默认引擎目录。",
+    "checkpoints      : 权重目录，相对项目根。⭐ 权重不进 git（C10）",
+    "  ⭐ 走宿主时它**没有退休**，只是读它的人换了：宿主从解析结果里自己取，",
+    "  再把 call 段里的 {checkpoints} 填成绝对路径。所以别因为 args 里看不到",
+    "  --checkpoints 就删掉它。",
+    "ready_endpoint   : 探活地址，必须以 / 开头。必填 —— 平台靠它判断起来没有。",
+    "ready_timeout_ms : 冷启动预算。按实测冷启动耗时取三倍余量。",
+    "preload          : 平台启动时要不要顺带把它拉起来。",
+    "verify           : 深度体检。可选，整节删掉 = 只查解释器在不在。",
+    "  写了它，平台会用上面那个解释器去 import 一遍，确认依赖真的装好了 ——",
+    "  这能把「装了但 import 就炸」和「没装」区分开。",
+    "  ⭐ 走宿主的话它**别删**：verify.sys_path 有第二个消费者 —— 宿主起来时",
+    "  按它把引擎源码目录加进 sys.path。验哪条路径就得跑哪条路径。",
+    "  ⭐ verify.imports 里的 module/class/methods 必须和下面 call 段的",
+    "  call.module / call.class / call.method **同源** —— 不一致等于",
+    "  「验的和跑的不是同一个东西」。",
+    "",
+    "⛔ runtime 下平台只认这 9 个键，多写一个就抛。理由是拼错会被静默忽略，",
+    "表现成「平台反复查询却一直等到超时」而 manifest.json 看着完全正常。"
   ],
-  "max_chars": 45,
-  "timeout_ms": 300000,
-
-  "_comment_smoke": [
-    "⭐ 第三道校验：冒烟。强制，不可跳过。",
-    "装完必须用固定文本 + 固定参考音频跑一次，出声才算装上。",
-    "冒烟不通过 = 这个引擎『没装』，不是『装了但有问题』。",
-    "",
-    "⭐ smoke/ 下的参考音频要进 git —— 这是 C10『权重与素材不进仓库』的唯一例外。",
-    "因为它是判据不是素材：换一段音频，『装好了』这句话的含义就变了。",
-    "⭐ 是两段不是一段（契约修订 1 / 2026-08-23）：ref_a.wav 与 ref_b.wav，",
-    "必须是音色明显不同的两个人 —— 理由见下面第 3 条判据。",
-    "约束：每段 ≤5 秒、16 位 PCM WAV、≤500KB，",
-    "必须可自由分发（自录或明确授权），⛔不许用上游仓库里的示例音频",
-    "—— 那段音频往往跟着上游的许可证走。",
-    "",
-    "冒烟判三件事：①没崩、按时出了结果 ②是合法 WAV 且大小达标",
-    "③绑定判别：换一段参考音频输出必须不同、换一段不同长度的文本输出时长必须跟着变。",
-    "",
-    "⭐ 第 3 条是补洞不是加严：①②抓不住『参考音频绑错了』——",
-    "绑到一个收字符串却忽略它的参数上，进程不崩、是合法 WAV、大小也够，",
-    "三条全过但音色根本没克隆。那正是契约 §4 点名的『猜错了不会报错，",
-    "只会出来的声音不对』。",
-    "",
-    "⛔不判像不像 —— 不同权重/显卡/种子的波形本来就不一样，",
-    "拿相似度当判据只会得到一个经常无故变红、然后被所有人忽略的测试。",
-    "第 3 条不违反这一点：它比的是自己跟自己（换了输入输出就得跟着变），",
-    "不需要标准答案音频，跨显卡跨种子跨权重都成立。",
-    "⚠ 它不是零漏网：绑错了但恰好也让两次输出不同的情况抓不住。"
-  ],
-  "smoke": {
-    "text": "这是一次安装自检。",
-    "text_long": "这是一次安装自检，这一段刻意写得长一些，用来确认文本真的被送进了引擎。",
-    "ref_audio_a": "smoke/ref_a.wav",
-    "ref_audio_b": "smoke/ref_b.wav",
-    "min_output_bytes": 16000
+  "runtime": {
+    "python": "engines/<id>/.venv/Scripts/python.exe",
+    "entry": "../../lib/engines/host.py",
+    "args": [
+      "--profile-json", "{profile_json}",
+      "--host", "{host}",
+      "--port", "{port}"
+    ],
+    "cwd": ".",
+    "checkpoints": "models/tts/<id>/checkpoints",
+    "ready_endpoint": "/health",
+    "ready_timeout_ms": 180000,
+    "preload": true,
+    "verify": {
+      "sys_path": ["engines/<id>"],
+      "imports": [
+        {
+          "module": "yourtts.infer",
+          "class": "YourTTS",
+          "methods": ["infer"],
+          "init_params": ["model_dir"]
+        }
+      ]
+    }
   },
 
-  "_comment_escape_hatch": [
-    "⭐ 逃生门（§7）。整行删掉 = 不启用，这是默认。",
-    "只有名片里明写才生效，注册表会显示『这个引擎用了逃生门』。",
-    "⚠ 逃生门不豁免冒烟 —— 还是得出声才算装上。"
+  "_comment_call": [
+    "⭐⭐ 通用宿主 lib/engines/host.py 全靠这一段才知道怎么调你这台引擎。",
+    "**全是名字，没有一行逻辑** —— 这一段就是「不写代码」的兑现处。",
+    "",
+    "⛔ 什么时候整节删掉：你这台引擎自带常驻服务（GPT-SoVITS 那种），",
+    "  不由宿主托管。那时 runtime.entry 指你自己的入口，call 段不要写。",
+    "  ⚠ 反过来，entry 指了 host.py 却没有 call 段 ⇒ 宿主拒绝启动（rc=2）。",
+    "",
+    "kind      : python / cli / http。今天宿主真正实现的是 python，",
+    "            cli / http 见 docs/ENGINE_CONTRACT.md §5.3 / §5.4。",
+    "cwd       : 调用时上游需要待在哪，相对项目根。",
+    "  ⛔ 和 runtime.cwd 同名不同义：那个是「启动器从哪儿 spawn」，",
+    "    这个是「调用时上游需要待在哪」（很多上游有相对 CWD 的硬编码）。",
+    "    各有各的消费者，别混，也别在两处各 chdir 一次。",
+    "module / class      宿主要 import 的模块和要构造的类。",
+    "init_args           构造那个类时传什么。⭐ 这里是**加载期**，改它要重启。",
+    "method              每次合成调的那个方法名。",
+    "bind                平台的三个词 → 你这个方法的**形参名**：",
+    "  text / ref_audio / output_path。⛔ 漏 text 一定拒绝启动。",
+    "returns   : file（方法把音频写到 output_path）或 bytes（直接返回）。",
+    "            写 file 就必须在 bind 里给 output_path，否则拒绝启动。",
+    "seed      : ⭐⭐ 三选一，**不许省略**（契约 §5.2.1）：",
+    "  {\"arg\": \"<形参名\"}         你的方法自己收 seed",
+    "  {\"mode\":\"global\", \"rngs\":[…], \"scope\":\"locked\"}  你不收，宿主播全局 RNG",
+    "  \"none\"                      这台引擎不可复现 ⇒ 宿主对带 seed 的请求回 400",
+    "  ⛔ 省略 = 静默忽略 = 用户拿到一个声音对不上、却白纸黑字记着 seed 的",
+    "    meta.json。「不支持」和「没写」必须能区分开。",
+    "  ⭐ rngs 必须**你来列**，平台不写死：你要是纯 ONNX/JAX 引擎，torch 根本",
+    "    没装，平台无条件去播只能 try/except 吞掉 —— 那等于播种失败是静默的。",
+    "    列了但环境里没有 ⇒ 拒绝启动，不是运行时吞异常。",
+    "",
+    "⭐ 大括号是**占位符**，由宿主在启动时填成本机绝对路径。认得的只有三个：",
+    "  {root} / {engine_dir} / {checkpoints}。写错会被当场拒绝启动，不会静默。",
+    "  manifest.json 不知道、也不该知道这台机器上的绝对路径。",
+    "",
+    "⛔ 改完这一段就重跑 tools/dev/probe_host.py（29 条），它逐条验的就是",
+    "  这里的每一项到底有没有生效。"
   ],
-  "_escape_hatch": "driver.js",
 
-  "_comment_optional": "以下为可选字段，用不到可整行删掉。",
-  "default_base_url": "http://127.0.0.1:0000"
+  "call": {
+    "kind": "python",
+    "cwd": "engines/<id>",
+    "module": "yourtts.infer",
+    "class": "YourTTS",
+    "init_args": {
+      "model_dir": "{checkpoints}"
+    },
+    "method": "infer",
+    "bind": {
+      "text": "text",
+      "ref_audio": "ref_audio",
+      "output_path": "output_path"
+    },
+    "returns": "file",
+    "seed": {
+      "mode": "global",
+      "rngs": ["python", "numpy", "torch"],
+      "scope": "locked"
+    }
+  },
+
+  "_comment_maps": [
+    "⭐⭐ 这三段回答『合成请求体怎么拼』。全是名字，没有一行逻辑。",
+    "",
+    "maps —— 平台的词 → 你这台引擎的键名。平台一共只有这 10 个词，",
+    "  下面全列出来了。你这台引擎没有的概念，**显式写 null**，别删行 ——",
+    "  留着那一行，下一个人才知道你是想过的，不是漏了。",
+    "  ⛔ 不许映射到空字符串：那等于说「这个概念我有，但它叫空」，",
+    "  拼出来的请求体会多一个 \"\" 键。",
+    "  ⛔ maps.text 是唯一一个漏了就抛的 —— 而且它到**拼请求体那一刻**才抛，",
+    "  manifest.json 解析这一关一声不吭。别以为 manifest.json 能加载就是写完了。",
+    "",
+    "payload_keys —— 允许从配置里原样透传的、你这台引擎的原生键名白名单。",
+    "  不在表上的键会被拦下，而不是被忽略 —— 否则参数名拼错会表现为",
+    "  「设了没效果」，那是最难查的一类 bug。",
+    "",
+    "defaults —— 你这台引擎的默认值，用**引擎原生键名**。只填没人填过的键。",
+    "  ⭐ 默认值的唯一产地就是这里（C11）。平台的 data/ 里没有第二份。",
+    "",
+    "defaults_env —— 可选：声明哪个环境变量能顶掉某个默认值。",
+    "  写法 { \"<引擎键名>\": { \"var\": \"环境变量名\", \"type\": \"int\", \"min\": 1, \"max\": 16 } }",
+    "  type 三选一：int / bool / 其它（按字符串）。取值不合法就回落 manifest.json 里的值。",
+    "  整节删掉 = 没有这种旋钮，这是默认。",
+    "",
+    "⛔ 这几张表里不该出现任何**别家引擎**的键名。平台只传话不翻译：",
+    "把 top_k 映射成 emo_alpha 之类的『善意』，翻译错了不会报错，只是声音不对。"
+  ],
+  "maps": {
+    "text": "text",
+    "text_lang": null,
+    "reference_audio": "ref_audio_path",
+    "reference_text": null,
+    "reference_lang": null,
+    "aux_reference_audio": null,
+    "speed": null,
+    "seed": "seed",
+    "media_type": "media_type",
+    "streaming": null
+  },
+  "payload_keys": ["example_strength"],
+  "defaults": {
+    "example_strength": 0.8
+  },
+  "defaults_env": {},
+
+  "_comment_params": [
+    "⭐ 界面上的参数面板从这两段来，而且只从这两段来（C11）。",
+    "",
+    "param_keys —— 『这台引擎有哪些参数』的**唯一声明处**。",
+    "  ⛔ 漏写它不会报任何错，界面上直接一个格子都不出现 ——",
+    "  作者只会觉得「怎么调不了参数」，查不到原因。这是最容易踩的一格。",
+    "",
+    "params.schema —— 『每个参数长什么样』。只描述，不声明：",
+    "  schema 里出现一个 param_keys 没有的名字会当场抛，",
+    "  因为那意味着界面上会长出一个发不出去的格子。",
+    "  type 可选 number / int / bool / string / enum（enum 要给 choices）。",
+    "  默认值写在 defaults 里就别在这儿再写一份，写重了会抛。",
+    "  min / max / step 只对数值型有意义，是界面滑块的刻度。",
+    "  ⭐ tier —— 界面把参数分成「常用」和「高级」两屏。**不写就是 advanced**，",
+    "    也就是说漏写 tier 的参数会安静地藏进高级屏。要它出现在第一屏，",
+    "    必须显式写 \"tier\": \"common\"。",
+    "  help —— 可选，鼠标悬停的解释文字，形状和 label 一样是 { zh, en }。",
+    "",
+    "⭐ schema 也是『预留兼容字段』的落点：情绪、语速、停顿、风格……",
+    "平台不需要认识它们中的任何一个，只需要知道『有一个 0 到 1 的数字，",
+    "界面上叫情绪强度』。",
+    "",
+    "⚠ 下面 example_strength 是一个**能真的跑通**的样例（param_keys、schema、",
+    "payload_keys、defaults 四处一致）。改成你自己的参数，或者整组删掉。"
+  ],
+  "_comment_params_whitelists": [
+    "⭐⭐ 走通用宿主的引擎**必须**填这两张白名单。它们分别喂 /tts 上的两道 400：",
+    "    load_time  只能在起进程时给。出现在合成请求里 ⇒ 400。",
+    "    call_time  允许透传给上面 call.method 的额外形参。不在表上 ⇒ 400。",
+    "",
+    "  ⛔ 不在表上的键**被拦下**，不是被忽略 —— 否则参数名拼错会表现成",
+    "    「设了没效果」，那是最难查的一类 bug。实现在",
+    "    lib/engines/host.py 的 validate_request()（host.py:637-645）。",
+    "",
+    "  ⛔ 同一个名字不能同时出现在两张表里：两道 400 会互相打架，而且没人",
+    "    说得清改了它到底要不要重启。lib/engines/hostProfile.js 会拒绝装配。",
+    "",
+    "  ⛔ 别拿 payload_keys 顶替这张表 —— 那张回答的是「HTTP 载荷里放哪些键」，",
+    "    里面混着 text / seed 这类核心键，当白名单用会把两道闸都判错。",
+    "",
+    "  ⭐ 这两个键是 params.schema（界面画格子那套）的**兄弟键**，各管各的。",
+    "    ⚠ 两边容易漂：schema 里有、call_time 里没有的参数，界面能调、",
+    "      发出去必被 400。加参数时两处一起加。"
+  ],
+  "param_keys": ["example_strength"],
+  "params": {
+    "load_time": [],
+    "call_time": ["example_strength"],
+    "schema": {
+      "example_strength": {
+        "type": "number",
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "tier": "common",
+        "label": { "zh": "情绪强度（样例）", "en": "Emotion strength (sample)" },
+        "help": {
+          "zh": "样例参数，改成你自己的，或者整组删掉。",
+          "en": "Sample knob — replace it with your own, or delete the whole group."
+        }
+      }
+    }
+  },
+
+  "_comment_output_formats": [
+    "你这台引擎**自己**能直接吐出来的格式。要别的格式 ⇒ 宿主回 400，",
+    "由平台去转 —— 不在引擎里塞转码逻辑（契约：引擎只管推理）。",
+    "整行删掉 = 默认 [\"wav\"]。"
+  ],
+  "output_formats": ["wav"],
+
+  "_comment_do_not_write": [
+    "⛔ legacy_default —— 别写这个键。",
+    "它回答的是『老合成路径没人指定引擎时连哪台』，全平台**有且只能有一张**",
+    "manifest.json 认领。你照抄写上 true，第二张一出现平台就抛 ENGINE_LEGACY_DEFAULT_AMBIGUOUS。",
+    "今天认领它的是 gpt-sovits；等到每次调用都自带 engine_id，这个键会被整个删掉。"
+  ]
 }

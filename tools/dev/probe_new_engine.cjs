@@ -113,7 +113,9 @@ function guessValue(keyPath, wantNumber) {
   if (keyPath.startsWith('maps.')) return leaf
   if (keyPath.startsWith('capabilities.')) return false
   if (leaf === 'python') return '.venv/Scripts/python.exe'
-  if (leaf === 'entry') return 'shim.py'
+  // ⚠ 模板自己带 entry（指向通用宿主），这条兜底基本不会触发。
+  //   2026-08-27 值跟着改：别拿一个已经不存在的形状当占位。
+  if (leaf === 'entry') return '../../lib/engines/host.py'
   if (leaf === 'ready_endpoint') return '/health'
   if (leaf === 'module') return 'os'
   if (/base_url/.test(leaf)) return 'http://127.0.0.1:19999'

@@ -9,8 +9,27 @@
 
   "id": "indextts2",
   "label": "IndexTTS2",
-  "upstream": "https://github.com/index-tts/index-tts",
+  "_comment_upstream": [
+    "C10：上游源码不进 git，安装时按这里钉的 commit 拉。",
+    "sha 出自 UPSTREAM.md —— 那是在删 .git 之前抢记下来的，事后拿不回来。",
+    "license 出自本目录的 LICENSE（bilibili Model Use License Agreement，自定许可）。"
+  ],
+  "upstream": {
+    "url": "https://github.com/index-tts/index-tts",
+    "commit": "13495845e3028f0bb6ca1462ad22aa0e76349e40",
+    "license": "bilibili Model Use License Agreement"
+  },
   "local_changes": "LOCAL-CHANGES.md",
+
+  "_comment_install": [
+    "第 4 步：tools/install-engine.cjs 照这里装。",
+    "env_command 出自 UPSTREAM.md —— 上游用 uv 管环境，配方是本目录的",
+    "pyproject.toml + uv.lock（精确锁定）+ .python-version（3.11.13）。",
+    "⚠ 首次建环境必须联网：pyproject.toml 把 torch 指向 cu128，要下几个 GB。"
+  ],
+  "install": {
+    "env_command": ["uv", "sync"]
+  },
 
   "_comment_param_keys": [
     "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
@@ -38,7 +57,8 @@
     "  aux_reference_audio 没有。它只接一条参考音频。",
     "  streaming       没有（capabilities.streaming 也是 false）。",
     "",
-    "⭐ 「没写 = 不发」这条规则在这里才显出价值：shim.py:382-392 对不认识",
+    "⭐ 「没写 = 不发」这条规则在这里才显出价值：通用宿主",
+    "lib/engines/host.py:637-645 对不认识",
     "的键**直接 400 并把键名逐个列出来**。搬家前平台按 GPT-SoVITS 的形状",
     "拼请求体，发过来的 text_lang / prompt_text / prompt_lang / speed_factor /",
     "top_k / ... 会被一次性全列成 unknown parameter —— 也就是说，在这一刀",
@@ -53,12 +73,17 @@
 
   "_comment_payload_keys": [
     "⭐ 允许从合成配置透传给引擎的**引擎原生**键名白名单。",
-    "逐条等于 shim.py 的 CALL_TIME_KEYS（shim.py:120-125）——两端各设一道，",
-    "这道防「平台乱发」，那道防「名片和 shim 不同步」。",
+    "逐条等于下面 params.call_time —— 两端各设一道，",
+    "这道防「平台乱发」，那道防「引擎收到不该收的」。",
     "",
-    "⛔ 这里不包含 LOAD_TIME_KEYS（use_fp16 / use_cuda_kernel / ...）：",
-    "那些只能在引擎进程启动时设，按次发过去 shim 会明确报错而不是假装接受",
-    "（shim.py:394-403）。把它们列进来等于骗调用方以为能热切。"
+    "⭐⭐ 2026-08-27：另一端从前是 shim.py 里手抄的 CALL_TIME_KEYS，",
+    "  它自己的注释写着「与 manifest.json 必须一致」——「必须一致」＝",
+    "  没有任何东西保证一致。shim.py 删掉之后那份手抄件没了，宿主直接读",
+    "  manifest.json 的 params.call_time。⇒ 两端同源，不会再分叉。",
+    "",
+    "⛔ 这里不包含 params.load_time（use_fp16 / use_cuda_kernel / ...）：",
+    "那些只能在引擎进程启动时设，按次发过去宿主会明确报错而不是假装接受",
+    "（host.py:647-652）。把它们列进来等于骗调用方以为能热切。"
   ],
   "payload_keys": [
     "emo_alpha",
@@ -73,63 +98,26 @@
     "替它决定 emo_alpha 该是多少 —— 那正是 GPT-SoVITS 那 14 行默认值犯的错，",
     "别在第二台引擎上重犯一遍。",
     "media_type 不写在这里：平台已经通过 maps.media_type 显式送 wav 过去，",
-    "而 shim 只认 wav（shim.py:135）。"
+    "而这台引擎只认 wav（下面 output_formats 就是那道闸的判据，",
+    "host.py:653-659 「要 mp3 ⇒ 400」）。"
   ],
   "defaults": {},
 
-  "_comment_call": [
-    "怎么调这台引擎的 Python 类 —— 通用宿主 lib/engines/host.py 全靠这一段。",
-    "每个值都是从 engines/indextts2/shim.py 里量出来的：",
-    "  module/class  shim.py:162  from indextts.infer_v2 import IndexTTS2",
-    "  init_args     shim.py:169-179  IndexTTS2(cfg_path=..., model_dir=..., use_*=False)",
-    "  cfg_path      shim.py:482  cfg = os.path.join(ckpt, 'config.yaml')",
-    "  method/bind   shim.py:234-238  self.tts.infer(spk_audio_prompt=, text=, output_path=)",
-    "  seed          shim.py:200-219  播 python / numpy / torch(+cuda)，在 infer 锁内",
-    "⭐ bind 是「平台的词 → 上游方法参数名」，和顶层 maps（平台的词 → HTTP 键名）",
-    "  不是一回事，两段都要留。"
-  ],
-  "call": {
-    "kind": "python",
-    "module": "indextts.infer_v2",
-    "class": "IndexTTS2",
-    "init_args": {
-      "cfg_path": "{checkpoints}/config.yaml",
-      "model_dir": "{checkpoints}",
-      "use_fp16": false,
-      "use_cuda_kernel": false,
-      "use_deepspeed": false
-    },
-    "method": "infer",
-    "bind": {
-      "text": "text",
-      "ref_audio": "spk_audio_prompt",
-      "output_path": "output_path"
-    },
-    "returns": "file",
-    "seed": {
-      "mode": "global",
-      "rngs": ["python", "numpy", "torch", "torch.cuda"],
-      "scope": "locked"
-    }
-  },
-
-  "_comment_params": [
-    "两张白名单，区别是**生命周期**不是风格（shim.py:110-124 原话）：",
-    "  load_time  构造 IndexTTS2 时用，改它要重启进程",
-    "  call_time  每次 infer 都可以不一样",
-    "⛔ 不能拿 payload_keys 代替：那个字段在两台引擎上用法不一致",
-    "  （gpt-sovits 把 text/ref_audio_path/seed 也列了进去）。"
-  ],
-  "params": {
-    "load_time": ["use_fp16", "use_cuda_kernel", "use_deepspeed", "use_accel", "use_torch_compile"],
-    "call_time": ["emo_alpha", "interval_silence", "verbose", "max_text_tokens_per_segment"]
-  },
-
-  "_comment_output_formats": "宿主只送 WAV 字节回去，转码是平台上层的事。",
-  "output_formats": ["wav"],
-
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
   "default_base_url": "http://127.0.0.1:9881",
+
+  "_comment_base_url_env": [
+    "⭐ 哪个环境变量能覆盖上面那个地址。变量名由本 manifest.json 指定，",
+    "平台不认识任何具体的变量名。",
+    "",
+    "⭐⭐ 2026-08-29 补上这一行，起因是启动脚本改成能同时起多台引擎：",
+    "  9881 被别的程序占住时，启动脚本会把这台引擎挪到 9882，然后把新地址",
+    "  写进这个变量，后端才跟得上。这一行不写，端口一挪，后端仍然去连 9881，",
+    "  发到这台引擎的合成就会全部失败 —— 而且看不出原因，因为引擎自己是好的。",
+    "  ⚠ 这一行是**加引擎只写 manifest.json** 的正面例子：想要这个能力，",
+    "    自己写一行就有，不用改 lib/ 也不用改启动脚本。"
+  ],
+  "base_url_env": "INDEXTTS2_BASE_URL",
 
   "_comment_max_chars": [
     "⭐ 每引擎独立的分段长度，覆盖 synthesisService 的默认值。",
@@ -154,7 +142,26 @@
     "venv 没有共同依赖，也不能共用 —— 这是它必须以独立进程 + HTTP 存在",
     "的根本原因，不是为了好看。",
     "python: 引擎 venv 的解释器，相对项目根。",
-    "entry : shim 脚本，相对本 manifest 所在目录。",
+    "entry : 入口脚本，相对本 manifest 所在目录。",
+    "",
+    "⭐⭐ 2026-08-27：entry 从自带的 shim.py 换成了平台的通用宿主",
+    "  ../../lib/engines/host.py —— 契约 §11 判据 8「shim.py 缩到零」。",
+    "  判据不是「看着能跑」：tools/dev/run_ab.py 采四段音频比过梅尔差，",
+    "  跨路径 0.00%、天花板 127.25%（5 条判据 5 过）。",
+    "  ⚠ 解释器仍是**引擎自己的 venv** —— 换的是脚本不是环境。宿主是通用的，",
+    "    torch 那一套还得在引擎的 venv 里，这两件事别混。",
+    "",
+    "⭐ {profile_json} = 平台把这张 manifest.json 解析好之后落盘的那个文件。",
+    "  宿主**不读 manifest.json**（它自己的 FATAL 里写着理由：manifest.json 语义只有",
+    "  lib/engines/profile.js 一个实现，写两遍迟早分叉）。路径由",
+    "  lib/engines/engine-launch-plan.cjs 算并在 spawn 之前写出来。",
+    "  ⛔ 入口指到 host.py 却漏写这个占位符，表现是宿主开口 FATAL",
+    "    「--profile-json 是必须的」—— 看着像宿主坏了，其实是这行漏了。",
+    "",
+    "⛔ --checkpoints 没了，不是漏写：宿主从解析结果里的 runtime.checkpoints",
+    "  自己取（host.py 的 _placeholder_values）。所以下面那行 checkpoints",
+    "  **仍然必须留着** —— 它从「命令行参数的来源」变成了「manifest.json 字段」，",
+    "  读它的人换了，字段没退休。",
     "ready_timeout_ms: 冷启动预热预算。实测 import 34.55s + 构造 26.51s",
     "  ≈61s，取 180000 留三倍余量。start.ps1 应轮询 /health 直到 ready，",
     "  并在 failed=true 时立即放弃、把 error 打进日志 —— 别干等满超时。",
@@ -165,15 +172,31 @@
     "它只会在你终于用上它的那天报错。新增字段前先问：谁读它？",
     "",
     "verify: 平台据此判断这台引擎装没装（只验不建 —— 平台不装环境）。",
-    "  模块/类/方法名不是编的，是从 shim.py 读出来的：",
-    "  shim.py:162 from indextts.infer_v2 import IndexTTS2",
-    "  shim.py:169 IndexTTS2(cfg_path=..., model_dir=...)",
-    "  shim.py:234 self.tts.infer(spk_audio_prompt=, text=, output_path=)",
-    "  ⇒ 改 shim.py 时这里要跟着改，否则校验会漏掉真正的断裂。"
+    "  模块/类/方法名不是编的，它和下面 call 段里那三个名字**同源**：",
+    "  call.module / call.class / call.method 是宿主真正要 import 和调用的，",
+    "  这里是第一道校验要 import 的。⇒ 两处必须一致，不一致等于「验的和",
+    "  跑的不是同一个东西」。",
+    "  ⭐ verify.sys_path 还有第二个消费者：host.py 起来时按它加载引擎源码",
+    "    目录。用校验块的路径不是笔误 —— 验哪条路径就得跑哪条路径。",
+    "",
+    "⭐ 2026-08-25（第 2c 步）新增 args / cwd。",
+    "  2026-08-27 args 改成宿主的三个参数，见上面那段。",
+    "",
+    "cwd \".\" = 项目根，只是个起点。真正的 chdir 由宿主按 call.cwd 做",
+    "  （上游有相对 CWD 的硬编码，见 call 段那里的注释）。",
+    "  ⛔ runtime.cwd 和 call.cwd 同名不同义，别混：前者是「启动器从哪儿",
+    "    spawn」，后者是「调用时上游需要待在哪」。各有各的消费者。",
+    "  ⛔ 也别在 manifest.json 里替它 chdir 两次 —— 进程里只该定一次。"
   ],
   "runtime": {
     "python": "engines/indextts2/.venv/Scripts/python.exe",
-    "entry": "shim.py",
+    "entry": "../../lib/engines/host.py",
+    "args": [
+      "--profile-json", "{profile_json}",
+      "--host", "{host}",
+      "--port", "{port}"
+    ],
+    "cwd": ".",
     "checkpoints": "models/tts/indextts2/checkpoints",
     "ready_endpoint": "/health",
     "ready_timeout_ms": 180000,
@@ -216,5 +239,104 @@
       "「做出来」不是。将来别家微调另立训练契约。"
     ],
     "supports_finetune": false
-  }
+  },
+
+  "_comment_call": [
+    "⭐ 通用宿主 lib/engines/host.py 全靠这一段才知道怎么调上游。",
+    "  每一项的出处都是**已删的** engines/indextts2/shim.py 的实际代码，",
+    "  行号在后面。⚠ 那个文件 2026-08-27 随判据 8 删掉了（523 → 0）——",
+    "  下面的行号是**存档引文**，不是还能打开的路径。留着是因为「这一项",
+    "  当初凭什么这么填」只有它回答得了；照抄一遍到这里等于伪造出处。",
+    "  ⛔ 改这里等于改「平台怎么调这台引擎」，改完必须重跑 tools/dev/probe_host.py。",
+    "",
+    "  module / class      shim.py:162",
+    "  init_args.cfg_path  shim.py:482（cfg = join(ckpt, \"config.yaml\")）",
+    "  init_args.model_dir 就是 checkpoints 目录本身",
+    "  use_* 三个          shim.py:169-179",
+    "  method / bind       shim.py:234-238",
+    "  seed                shim.py:200-219（四个随机源逐个播）",
+    "",
+    "  {checkpoints} 这种大括号是**占位符**，由宿主在启动时填成绝对路径。",
+    "  manifest.json 不知道也不该知道这台机器上的绝对路径。认得的占位符只有三个：",
+    "  {root} / {engine_dir} / {checkpoints}，写错会被当场拒绝启动，不会静默。"
+  ],
+
+  "call": {
+    "kind": "python",
+    "cwd": "models/tts/indextts2",
+    "module": "indextts.infer_v2",
+    "class": "IndexTTS2",
+    "init_args": {
+      "cfg_path": "{checkpoints}/config.yaml",
+      "model_dir": "{checkpoints}",
+      "use_fp16": false,
+      "use_cuda_kernel": false,
+      "use_deepspeed": false
+    },
+    "method": "infer",
+    "bind": {
+      "text": "text",
+      "ref_audio": "spk_audio_prompt",
+      "output_path": "output_path"
+    },
+    "returns": "file",
+    "seed": {
+      "mode": "global",
+      "rngs": [
+        "python",
+        "numpy",
+        "torch",
+        "torch.cuda"
+      ],
+      "scope": "locked"
+    }
+  },
+
+  "_comment_params": [
+    "⭐ 两张白名单，分别喂 /tts 上的两道 400：",
+    "    load_time  只能在加载引擎时给。出现在合成请求里 ⇒ 400。",
+    "    call_time  允许透传给上游方法。不在这张表里 ⇒ 400（拼错当场抓）。",
+    "",
+    "  ⭐ 今天读它们的是通用宿主：host.py:637-645（未知键 400）、",
+    "    host.py:647-652（加载期参数出现在调用里 400）。",
+    "  出处（存档引文，文件已删）：shim.py:116-118（LOAD_TIME_KEYS）、",
+    "    shim.py:121-124（CALL_TIME_KEYS）。那两张表当年是**手抄**在",
+    "    Python 里的，注释写着「与 manifest.json 必须一致」——",
+    "    这一刀之后不用再靠人保证一致：只剩这一份。",
+    "",
+    "  ⛔ 同一个名字不能同时出现在两张表里 —— 那样两道 400 会互相打架，",
+    "    而且没人说得清改了它到底要不要重启。hostProfile.js 会拒绝装配。",
+    "",
+    "  ⭐ 这一段是 params 的**兄弟键**，和 params.schema（UI 画格子用的那套）",
+    "    各管各的，互不覆盖。",
+    "",
+    "  ⛔ 别拿 payload_keys 顶替这张表：那是「HTTP 载荷里放哪些键」，",
+    "    gpt-sovits 的 payload_keys 里混着 text / ref_audio_path / seed",
+    "    这些核心键，当白名单用会把两道闸都判错。"
+  ],
+
+  "params": {
+    "load_time": [
+      "use_fp16",
+      "use_cuda_kernel",
+      "use_deepspeed",
+      "use_accel",
+      "use_torch_compile"
+    ],
+    "call_time": [
+      "emo_alpha",
+      "interval_silence",
+      "verbose",
+      "max_text_tokens_per_segment"
+    ]
+  },
+
+  "_comment_output_formats": [
+    "这台引擎自己能直接吐出来的格式。要别的格式 ⇒ 400，由平台去转，",
+    "不在引擎里塞转码逻辑（契约：引擎只管推理）。"
+  ],
+
+  "output_formats": [
+    "wav"
+  ]
 }

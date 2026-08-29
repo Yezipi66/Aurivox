@@ -1,6 +1,6 @@
 {
   "_comment_contract": [
-    "⭐ 第一张按引擎契约 v2 写的名片（docs/ENGINE_CONTRACT.md）。",
+    "⭐ 第一张按引擎契约 v2 写的 manifest.json（docs/ENGINE_CONTRACT.md）。",
     "下面每一个值都是从 lib/ 里搬出来的**今天的实际行为**，不是新定的规矩 ——",
     "第 1 步的验收标准是「GPT-SoVITS 行为一个字不变」，所以这里改任何一个",
     "数字都等于改行为，请先看测试。搬家前它们分别写死在：",
@@ -14,7 +14,21 @@
 
   "id": "gpt-sovits",
   "label": "GPT-SoVITS",
-  "upstream": "https://github.com/RVC-Boss/GPT-SoVITS",
+  "_comment_upstream": [
+    "C10：上游源码不进 git，安装时按这里钉的 commit 拉。",
+    "⛔ commit 是 null，且这是一笔还不上的账，不是待办：这台引擎的上游代码",
+    "在 2026-08 之前就已经被搬进 engines/gpt-sovits/gsv_code 并删掉了 .git，",
+    "sha 没有任何地方记过。C10 说得很清楚：删了 .git 事后就再也拿不回来。",
+    "⛔ 不许为了让字段好看而随手填一个 sha —— 填错比留空更坏，",
+    "留空至少诚实地表示「这一版装不回来」。",
+    "license 出自 THIRD_PARTY_LICENSES/runtime/INDEX.json 的 GPT-SoVITS 条目。"
+  ],
+  "upstream": {
+    "url": "https://github.com/RVC-Boss/GPT-SoVITS",
+    "commit": null,
+    "commit_unknown_reason": "上游 .git 在源码搬进本仓库时即被删除，当时没有记下 sha，事后无法恢复（C10 明示的那种丢失）。本仓库里的 gsv_code/ 还带着本地改动（见 infer/LOCAL-CHANGES.md），因此它也不等于上游任何一个 commit 的原样副本。",
+    "license": "MIT"
+  },
   "local_changes": "infer/LOCAL-CHANGES.md",
 
   "_comment_param_keys": [
@@ -45,11 +59,11 @@
     "",
     "搬家前这五个键名硬写在 server.js:773-779 的 buildTtsPayload 里 ——",
     "那意味着任何一台不叫 ref_audio_path 的引擎都收到一个它看不懂的请求体。",
-    "IndexTTS2 的 shim 对不认识的键直接 400（shim.py:382-392），所以那不是",
+    "通用宿主对不认识的键直接 400（lib/engines/host.py:637-645），所以那不是",
     "「兼容性一般」，是「根本调不动」。",
     "",
     "没写的词 = 这台引擎没这个概念，平台就不发。GPT-SoVITS 这几个词都有，",
-    "所以这里是满的；IndexTTS2 的名片里就只有四行。"
+    "所以这里是满的；IndexTTS2 的 manifest.json 里就只有四行。"
   ],
   "maps": {
     "text": "text",
@@ -137,11 +151,11 @@
     "⛔ 这里**不写 default** —— 默认值只能在上面的 defaults 一节。",
     "两处都能写就会漂，而漂了不报错。profile.js 会当场拦下写了 default 的 schema。",
     "好处是 defaults_env 的旋钮（AURIVOX_TTS_BATCH_SIZE）现在真的能拧动界面初值，",
-    "而以前前端写死 batch_size=1 且无条件发出去，把名片的 4 和那个旋钮一起盖掉了。",
+    "而以前前端写死 batch_size=1 且无条件发出去，把 manifest.json 的 4 和那个旋钮一起盖掉了。",
     "",
     "⚠ 只列**这台引擎私有**的参数。format / split / max_chars / concat /",
     "silence_ms / media_type / engine_batch / voice_label 这 8 个是平台自己的词",
-    "（两张名片都有），seed 也是平台词（IndexTTS2 用 maps 映射它）——",
+    "（两张 manifest.json 都有），seed 也是平台词（IndexTTS2 用 maps 映射它）——",
     "它们不归任何一台引擎描述，所以不在这里。"
   ],
   "params": {
@@ -243,11 +257,11 @@
   },
 
   "_comment_defaults_env": [
-    "⭐ 名片自己声明「哪个环境变量能顶掉我的哪个默认值」，平台不认识任何",
+    "⭐ manifest.json 自己声明「哪个环境变量能顶掉我的哪个默认值」，平台不认识任何",
     "具体变量名（和上面的 base_url_env 同一个套路）。",
     "AURIVOX_TTS_BATCH_SIZE 是搬家前 server.js:740-743 就有的旋钮：",
     "低显存显卡上长文本会 OOM，设成 1 就好。范围 1-16、非整数或越界一律",
-    "回落名片里的 4 —— 与搬家前 parseInt 那一段的判断逐条一致。",
+    "回落 manifest.json 里的 4 —— 与搬家前 parseInt 那一段的判断逐条一致。",
     "",
     "⭐⭐ 为什么是 4 而不是 1（Owner 2026-08-23 裁定）：GPT-SoVITS 自己有",
     "两个不同场景的默认值 —— **微调默认 1，推理默认 4**。搬家前平台里那",
@@ -264,9 +278,9 @@
   "default_base_url": "http://127.0.0.1:9880",
 
   "_comment_base_url_env": [
-    "⭐ 名片自己指定「哪个环境变量能覆盖我的地址」，平台不认识任何具体变量名。",
+    "⭐ manifest.json 自己指定「哪个环境变量能覆盖我的地址」，平台不认识任何具体变量名。",
     "这一行的存在，是为了让历史环境变量 GPT_SOVITS_BASE_URL 继续有效，",
-    "同时不用把 GPT_SOVITS 这几个字写进 lib/。优先级：env > 本名片。",
+    "同时不用把 GPT_SOVITS 这几个字写进 lib/。优先级：env > 本 manifest.json。",
     "下游引擎想要同样的能力，自己写一行就有，不用求我们改代码。"
   ],
   "base_url_env": "GPT_SOVITS_BASE_URL",
@@ -276,9 +290,9 @@
     "webui 那条老合成路径没有『引擎』这个参数 —— 它诞生时全世界只有一台引擎。",
     "第 1 步把写死的地址拔掉了，但还没给老路径加引擎参数（那是第 2 步）。",
     "这一行的意思是：『没人告诉我连哪台的时候，连我』。",
-    "把它写在名片上而不是写在 lib/ 里，是为了让『老路径今天绑死在谁身上』",
+    "把它写在 manifest.json 上而不是写在 lib/ 里，是为了让『老路径今天绑死在谁身上』",
     "成为一件看得见、可审计、将来可以被删掉的事实。",
-    "有且只能有一张名片写这一行，写了两张会直接报错（不会静默按字母序挑）。"
+    "有且只能有一张 manifest.json 写这一行，写了两张会直接报错（不会静默按字母序挑）。"
   ],
   "legacy_default": true,
 
@@ -300,21 +314,28 @@
 
   "_comment_runtime": [
     "⭐ 这一段在 2026-08-24 之前是 null —— 因为 GPT-SoVITS 的进程是",
-    "tools/scripts/start.ps1 直接起的，名片说了不算。这正是契约 §9 记的那",
+    "tools/scripts/start.ps1 直接起的，manifest.json 说了不算。这正是契约 §9 记的那",
     "笔账：平台的启动脚本里写死了这一台引擎的知识。",
     "",
-    "⛔ entry 的 `../../` 就是这笔账的可见形态：别的引擎的入口脚本在自己",
-    "的目录里（engines/<id>/shim.py），只有 GPT-SoVITS 的入口在平台的",
-    "lib/inference/ 下。这个 `../../` 不是笔误，是提醒 —— 第 3 步做出通用",
-    "宿主之后，infer_server.py 应该搬进 engines/gpt-sovits/，届时这两个点",
-    "点会消失。它一天还在，账就一天没还完。",
+    "⛔⛔ 2026-08-27 更正：这条注释原先写「entry 的 `../../` 就是这笔账的",
+    "可见形态 —— 别的引擎入口在自己目录里，只有 GPT-SoVITS 指到平台」。",
+    "通用宿主落地之后**那个判别法失效了**：走宿主的引擎（indextts2、以及",
+    "_TEMPLATE）entry 也是 `../../lib/engines/host.py`，同样两个点点。",
+    "⇒ 别再拿 `../../` 认「谁欠着账」。今天真正的判别法是**有没有 call 段**：",
+    "  有 call 段 = 由通用宿主托管（entry 指 host.py，是终局形态）；",
+    "  没有 call 段 = 引擎自带常驻服务，自己的入口（本引擎就是这种）。",
+    "",
+    "⚠ 账本身**一分没还**：infer_server.py 还躺在平台的 lib/inference/ 下，",
+    "  它应该搬进 engines/gpt-sovits/。只是这笔账现在不体现在 `../../` 上，",
+    "  体现在「入口路径跑出了自己的引擎目录」这件事上。它一天还在，",
+    "  账就一天没还完。",
     "",
     "python: 根 venv。Owner 2026-08-24 定案：平台只维护 GPT-SoVITS 这一套",
     "  环境（6.8 GB），其他引擎的环境一概由引擎作者/用户自己负责。",
     "",
     "ready_endpoint 是 \"/\" 不是 \"/health\" —— infer_server.py:525 的",
     "  @APP.get(\"/\") 函数名就叫 health，server.js 一直拿它做探活。别照着",
-    "  IndexTTS2 的名片抄成 /health，那个地址在这台引擎上不存在。",
+    "  IndexTTS2 的 manifest.json 抄成 /health，那个地址在这台引擎上不存在。",
     "",
     "verify 的模块/类/方法名是从 infer_server.py 读出来的，不是编的：",
     "  :184 from TTS import TTS, TTS_Config",
@@ -328,7 +349,7 @@
     "    :283 $engineArgs = @($ENGINE_SCRIPT,'-a',$ENGINE_HOST,'-p',\"$ENGINE_PORT\",'-c',$ENGINE_CFG)",
     "    :284 -WorkingDirectory $BASE_DIR",
     "  一个参数没加、没减、没换顺序。它们在脚本里的时候，是**平台的启动器**",
-    "  知道 GPT-SoVITS 的命令行长什么样；写到这里之后，脚本只管把名片说的",
+    "  知道 GPT-SoVITS 的命令行长什么样；写到这里之后，脚本只管把 manifest.json 说的",
     "  东西起起来。",
     "",
     "  ⚠ 入口脚本本身不写进 args —— 它是 entry，由平台拼在最前面。",
