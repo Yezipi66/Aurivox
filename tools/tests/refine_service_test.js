@@ -35,9 +35,16 @@ const ctx = {
     readFileSync: () => JSON.stringify(state.meta || { display_name: "Parent", language: "ja", base_version: "v2" }),
     readdirSync: (p, opt) => {
       if (opt && opt.withFileTypes) return [];
-      const s = String(p);
-      if (s.includes("gpt_checkpoints")) return state.gptFiles !== undefined ? state.gptFiles : ["parent-e8.ckpt"];
-      if (s.includes("sovits_models")) return state.sovFiles !== undefined ? state.sovFiles : ["parent_v2_e8_s100.pth"];
+      // A published model now lives at  <asset>/models/<engine>/<slot>/ , so the
+      // stub keys off the LAST path segment (the slot), not off a directory name
+      // that used to carry the engine's shape. Note "gpt-sovits" contains both
+      // "gpt" and "sovits" as substrings, so a substring test would match the
+      // engine segment too -- compare the final segment exactly.
+      const parts = String(p).replace(/\\/g, "/").split("/").filter(Boolean);
+      const slot = parts[parts.length - 1];
+      const engine = parts[parts.length - 2];
+      if (engine === "gpt-sovits" && slot === "gpt") return state.gptFiles !== undefined ? state.gptFiles : ["parent-e8.ckpt"];
+      if (engine === "gpt-sovits" && slot === "sovits") return state.sovFiles !== undefined ? state.sovFiles : ["parent_v2_e8_s100.pth"];
       return [];
     },
     statSync: () => ({ isDirectory: () => !state.notDir }),

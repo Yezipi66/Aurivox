@@ -380,6 +380,29 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   border-color: var(--accent);
 }
 
+/* 引擎选框（导航条右侧）。⛔ 在这条之前 App.jsx 上确实写着
+   className="nav-select"，但 styles.css 里没有这个选择器 —— 也就是说
+   那个框从来没被本站样式碰过一下，长的是浏览器默认样子。
+   现在它是 <Select className="control nav-select">：边框/底色由 .control 出
+   （全站输入框都用它），下面这几条只负责把 .control 的 width:100% 收成
+   导航条能用的宽度，并把字号压到和 .nav-btn 一致。
+   ⚠ 顺序要求：.nav-select 必须排在 .control 之后，否则同权重下被它盖掉。 */
+.nav-select {
+  align-self: center;
+  width: auto;
+  min-width: 132px;
+  max-width: 220px;
+  height: auto;
+  padding: 0.4rem 0.7rem;
+  font-size: 12px;
+  font-weight: 600;
+}
+.nav-select:hover { background: var(--surface); }
+.nav-select[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 /* Item 17: compact EN / 中文 interface-language switch (nav bar). */
 .lang-toggle {
   display: inline-flex;
@@ -580,6 +603,35 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 }
 .form-grid-wide {
   grid-column: 1 / -1;
+}
+
+/* 勾选框（ToggleField，共享组件）。
+   ⛔ 这条之前是「一个左上一个右下」那个 bug 的根子：.form-grid 是
+   align-items:start 的两列网格，带 label 的输入框有 ~34px 高，而手写的
+   <input type=checkbox> 只有一行文字高 —— 于是同一排里两个勾选框一个贴
+   顶一个飘在中间。⇒ 给它一个和输入框一样的 min-height，整行占满格子，
+   同一排就永远对齐了。⛔ 别把这些写回 JSX 内联。 */
+.toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-height, 34px);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-field > input[type="checkbox"] {
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+.toggle-field > .field-label {
+  margin: 0;
+  cursor: inherit;
+}
+.toggle-field.is-disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* ===== Phase 1: density helpers ===== */

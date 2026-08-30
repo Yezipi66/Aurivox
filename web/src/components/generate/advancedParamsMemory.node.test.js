@@ -36,20 +36,27 @@ function stripComments(s) {
 
 const CODE = stripComments(SRC)
 
-/** POST /api/advanced-params 时提交的那一组键。 */
+/** 一段代码里**逐个点名**的键（spread 出来的那些不算，它们由名片决定）。 */
+function namedKeys(chunk) {
+  const keys = new Set()
+  for (const raw of chunk.split(',')) {
+    const s = raw.trim()
+    if (!s || s.startsWith('...')) continue
+    const head = s.split(':')[0].trim()
+    // 只收看起来像标识符的（`temperature,` 简写和 `top_k: topK` 都算），
+    // 表达式碎片（括号、箭头函数残片）一律跳过。
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(head)) keys.add(head)
+  }
+  return keys
+}
+
+/** POST /api/advanced-params 时**逐个点名**提交的那一组键。 */
 function writtenKeys() {
   const i = CODE.indexOf("api('/api/advanced-params', {")
   assert.ok(i !== -1, '找不到回存 advanced-params 的调用')
   const after = CODE.slice(CODE.indexOf('body: {', i) + 'body: {'.length)
-  const chunk = after.slice(0, after.indexOf('},'))
-  // `temperature,` 这种简写和 `top_k: topK` 这种都要认。
-  return new Set(
-    chunk
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => s.split(':')[0].trim()),
-  )
+  const chunk = after.slice(0, after.indexOf('\n      }'))
+  return namedKeys(chunk)
 }
 
 /** 挂载时从 GET /api/advanced-params 回填的那一组键。 */
@@ -64,6 +71,16 @@ function restoredKeys() {
   assert.ok(keys.size > 0, '一个回填的键都没抠到，说明这条守卫的抓取规则已经失效')
   return keys
 }
+
+// ⭐ 2026-08-29 起，这两条守卫守的形状变了 —— 原因值得写清楚。
+//
+// 引擎参数这一大半，现在两边都不再逐个点名：
+//   存：paramValues 里**用户动过**的那些键
+//   读：GET 回来的键里，**当前引擎名片有**的那些
+// 也就是说「存的 ⊆ 名片」「读的 ⊆ 名片」，两个集合相等不再靠人肉对齐两张
+// 列表，而是由构造保证 —— 这正是 2026-08-23 那个坑（存 18 读 7）的根治。
+// ⛔ 但「逐个点名」的键还有（seed 就是一个，它不在任何名片里）。那部分仍然
+//    会漂，所以这两条守卫继续守它们。
 
 test('存进界面记忆的键，必须都读得回来 —— 不许再出现只写不读的沉积', () => {
   const read = restoredKeys()
@@ -81,6 +98,33 @@ test('读得回来的键，也必须真的存过 —— 否则「记忆」是假
   const written = writtenKeys()
   const readOnly = [...read].filter((k) => !written.has(k))
   assert.deepEqual(readOnly, [], `这些键会被读回却从没存过：${readOnly.join(', ')}`)
+})
+
+test('引擎参数两边都按名片走，⛔ 不许退回逐个点名', () => {
+  // 这一条是上面两条的前提。一旦有人把 spread 改回一串写死的键名，
+  // 上面两条会继续通过（两张列表可以抄得一模一样），却又回到了「靠人对齐」
+  // 的老路 —— 而那正是 2026-08-23 那个坑的形状。
+  const save = CODE.slice(CODE.indexOf("api('/api/advanced-params', {"))
+  assert.ok(
+    /\.\.\.Object\.fromEntries/.test(save.slice(0, 500)),
+    '回存 advanced-params 时又开始逐个点名引擎参数了',
+  )
+  assert.ok(
+    /touchedParams\.has/.test(save.slice(0, 500)),
+    '回存时没有只挑用户动过的键 —— 没动过的键回存下去就把名片默认值抄死在盘上了',
+  )
+  const load = CODE.slice(CODE.indexOf("api('/api/advanced-params').then"))
+  assert.ok(
+    /param_schema/.test(load.slice(0, 800)),
+    '挂载回填时没有按当前引擎的名片过滤 —— 换引擎后会把上一台的键灌进来',
+  )
+})
+
+test('⛔ 存回去的必须只是用户动过的那些，不能是整份参数值', () => {
+  // 整份回存 = 把名片默认值抄进盘上文件。之后名片改了也不生效，
+  // 因为 loadAdvancedParams 是「盘上赢」（:460 那段实测）。
+  const save = CODE.slice(CODE.indexOf("api('/api/advanced-params', {"), CODE.indexOf("api('/api/advanced-params', {") + 500)
+  assert.ok(!/\.\.\.paramValues\b/.test(save), '整份 paramValues 被回存了')
 })
 
 test('⛔ 强制重推是平台开关，绝不许混进引擎参数表', () => {

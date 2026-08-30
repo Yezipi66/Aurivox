@@ -8,6 +8,7 @@ import { usePreviewMode } from '../../lib/previewMode'
 import { useT } from '../../lib/i18n'
 import { usePersistentState } from '../../usePersistentState'
 import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
+import { modelCountsByEngine } from '../../lib/modelPickers.pure.js'
 
 // PC — Broker model re-bind with a two-level selector:
 //   1. primary  = every voice that owns a model of this type (voices-with-models)
@@ -16,7 +17,7 @@ import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
 function RecipeModelRebind({ recipe, onSaved }) {
   const { t } = useT()
   const [open, setOpen] = useState(false)
-  const [voicesList, setVoicesList] = useState(null)   // [{voiceId, displayName, hasGpt, hasSovits}]
+  const [voicesList, setVoicesList] = useState(null)   // [{voiceId, displayName, engines, models}]
   const [gpt, setGpt] = useState(recipe.gpt_ckpt || '')
   const [sovits, setSovits] = useState(recipe.sovits_pth || '')
   // 7.1: a single shared Voice ID drives both the GPT and SoVITS model lists (one row, three dropdowns).
@@ -33,11 +34,18 @@ function RecipeModelRebind({ recipe, onSaved }) {
   const [msg, setMsg] = useState(null)
   const modelCache = useRef({})
 
+  // ⚠ 这个「换模型」小面板改的是配方顶层那两个权重字段 —— 配方格式这轮不动
+  //   （Owner 2026-08-30），所以它只装得下两个位，而且是第一台引擎的形状。
+  //   ⇒ 引擎名在这里是**这个面板自己的题目**，不是平台写死了一台引擎。
+  //   ⚠ 挂账：配方升级到「跟着引擎走的参数单」之后，这里要跟着改成按位渲染。
+  const REBIND_ENGINE = 'gpt-sovits'
   const loadVoiceModels = async (voiceId) => {
     if (!voiceId) return { gpt: [], sovits: [] }
     if (modelCache.current[voiceId]) return modelCache.current[voiceId]
     const r = await api(`/api/recipes-models/${encodeURIComponent(voiceId)}`)
-    const m = r.ok ? { gpt: r.data.gpt || [], sovits: r.data.sovits || [] } : { gpt: [], sovits: [] }
+    // 返回体是「按引擎分组、按位分组」的三层结构；这个面板只取它认识的那两位。
+    const slots = (r.ok && r.data && r.data.models && r.data.models[REBIND_ENGINE]) || {}
+    const m = { gpt: slots.gpt || [], sovits: slots.sovits || [] }
     modelCache.current[voiceId] = m
     return m
   }
@@ -96,7 +104,9 @@ function RecipeModelRebind({ recipe, onSaved }) {
     return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>{t('Change models', '更换模型')}</button>
   }
 
-  const modelVoices = (voicesList || []).filter(v => v.hasGpt || v.hasSovits)
+  // 有任何模型的角色都可以挑 —— ⛔ 以前问的是「有没有 GPT 或有没有 SoVITS」，
+  // 那两个字段已经不存在了，留着会让这个下拉永远是空的。
+  const modelVoices = (voicesList || []).filter(v => Object.keys(v.models || {}).length > 0)
 
   return (
     <div className="rebind">
@@ -123,7 +133,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
           {gptCustom && (
             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
-                placeholder="assets/<voice>/gpt_checkpoints/....ckpt" />
+                placeholder="assets/<voice>/models/<engine>/<slot>/….ckpt" />
               <button className="btn btn-sm" title="Browse for a .ckpt file" onClick={() => setPickGpt(true)}>📁</button>
             </div>
           )}
@@ -141,7 +151,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
           {sovitsCustom && (
             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
-                placeholder="assets/<voice>/sovits_models/....pth" />
+                placeholder="assets/<voice>/models/<engine>/<slot>/….pth" />
               <button className="btn btn-sm" title="Browse for a .pth file" onClick={() => setPickSovits(true)}>📁</button>
             </div>
           )}
@@ -456,15 +466,11 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
     return () => { dead = true; clearInterval(t) }
   }, [activeTaskId])
 
-  // Pick the "latest" checkpoint (highest step for GPT, last for SoVITS) as
-  // the model that Generate would auto-select for this voice.
-  const ckpts = meta?.assets?.checkpoints || {}
-  const gptList = ckpts.gpt || []
-  const sovitsList = ckpts.sovits || []
-  const latestGpt = gptList.length
-    ? [...gptList].sort((a, b) => (Number(b.steps) || 0) - (Number(a.steps) || 0))[0]
-    : null
-  const latestSovits = sovitsList.length ? sovitsList[sovitsList.length - 1] : null
+  // 这个角色手上有哪几台引擎的模型、各几个。
+  //
+  // ⭐ 以前这里是写死的两格（GPT / SoVITS）——只有第一台引擎能填进去，
+  //   别的引擎的模型在这条状态栏上一个字都看不到。现在**有几台引擎就几格**。
+  const modelCounts = modelCountsByEngine(meta)
 
   const item = (k, v, placeholder) => (
     <span className="ctx-item">
@@ -506,10 +512,15 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
       <span className="ctx-sep" />
       {item('Lang', voice ? String(voice.language || '—').toUpperCase() : '—', !voice)}
       <span className="ctx-sep" />
-      {item('GPT', latestGpt ? latestGpt.name : 'not selected', !latestGpt)}
-      <span className="ctx-sep" />
-      {item('SoVITS', latestSovits ? latestSovits.name : 'not selected', !latestSovits)}
-      <span className="ctx-sep" />
+      {modelCounts.length === 0
+        ? item('Models', 'none', true)
+        : modelCounts.map(c => (
+            <span key={c.engineId} style={{ display: 'contents' }}>
+              {item(c.engineId, String(c.count), false)}
+              <span className="ctx-sep" />
+            </span>
+          ))}
+      {modelCounts.length === 0 && <span className="ctx-sep" />}
       <span className="ctx-item">
         <span className={`badge ${health === null ? 'badge-neutral' : health?.engine_online ? 'badge-ok' : 'badge-danger'}`}>
           {health === null ? '…' : health?.engine_online ? 'Connected' : 'Unreachable'}

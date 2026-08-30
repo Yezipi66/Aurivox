@@ -8,7 +8,9 @@ import { ReferenceCompareTab } from './components/compare/ReferenceCompareTab'
 import { GenerateTab } from './components/generate/GenerateTab'
 import { TrainingTab } from './components/train/TrainingTab'
 import { FlowCanvasTab } from './components/flowgraph/FlowCanvasTab'
-import { LangProvider, LangToggle } from './lib/i18n'
+import { LangProvider, LangToggle, useT } from './lib/i18n'
+import { Select } from './components/common/Select'
+import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessState } from './lib/engines'
 
 export default function App() {
   return (
@@ -19,6 +21,9 @@ export default function App() {
 }
 
 function AppShell() {
+  // 只有底模徽章用得着 —— 它要在中英之间说人话。AppShell 就在 LangProvider
+  // 里面，所以这个 hook 在这里是合法的。
+  const { lang } = useT()
   const [page, setPage] = usePersistentState('ui.page', 'generate')
   const [voices, setVoices] = useState([])
   const [selectedVoice, setSelectedVoice] = usePersistentState('ui.selectedVoice', '')
@@ -32,6 +37,13 @@ function AppShell() {
   // whether it is there keeps a dead tab off the nav bar on installs that never
   // switched it on, instead of offering a button that can only disappoint.
   const [flowReady, setFlowReady] = useState(false)
+  // 装了哪几台引擎，以及现在用的是哪一台。
+  // ⛔ 初值是空列表 + null，不是「先假设有一台叫某某的」：在列表回来之前，
+  //    界面对「有哪些引擎」这件事应当一无所知。凡是需要引擎信息才能决定的
+  //    东西（参数面板、训练页显隐），这段时间就先不显示。
+  const [engines, setEngines] = useState([])
+  const [engineErrors, setEngineErrors] = useState([])
+  const [selectedEngineId, setSelectedEngineId] = usePersistentState('ui.selectedEngine', '')
   const [genActivity, setGenActivity] = useState(null) // null | { label } — live inference activity for the context row
   const [activeTaskId, setActiveTaskId] = usePersistentState('train.activeTaskId', null)
   // Persisted in-flight Rebuild/Restore so its lightweight pipeline survives page
@@ -82,6 +94,48 @@ function AppShell() {
     return () => { dead = true; clearInterval(t) }
   }, [])
 
+  // 引擎列表。probe=0：这里只要「装了哪几台、各自长什么样」，不探活 ——
+  // 探活要挨个打网络，一台超时就拖住整张列表，而挑引擎、长面板都不需要
+  // 知道它此刻活没活。在线状态由下面那个健康轮询单独负责。
+  useEffect(() => {
+    let dead = false
+    fetchEngines({ probe: false }).then(r => {
+      if (dead) return
+      setEngines(r.engines)
+      // 名片坏掉的引擎不在 r.engines 里，在 r.errors 里。必须显示出来 ——
+      // 一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。
+      setEngineErrors(r.errors || [])
+    }).catch(() => {})
+    return () => { dead = true }
+  }, [])
+
+  // 引擎进程状态的轮询（契约 §12 第 5 步）。
+  // ⭐⭐⭐ 上面那次是**一次性**的 —— 名片和参数表只有装卸引擎时才变。
+  //   但「这台引擎现在跑没跑、在装模型没有」是每几秒都在变的东西。
+  //   不轮询的话，那个进程徽章会永远停在开页面那一刻：换模型时它照样写着
+  //   "待命"，而人正对着一个要等几分钟的重启在猜是不是卡死了 ——
+  //   那个徽章存在的唯一理由就没了。
+  // ⭐ 合并只动 process 一个字段，且没变化时原样还回旧数组，
+  //   否则每一轮都产出新数组 ⇒ 下面那些 useEffect([engines]) 每 8 秒重跑。
+  useEffect(() => {
+    let dead = false
+    const tick = () => fetchEngines({ probe: false })
+      .then(r => { if (!dead) setEngines(prev => mergeProcessState(prev, r.engines)) })
+      .catch(() => {}) // ⛔ 拉不到就保持原样，不许把徽章翻成"停着"
+    const t = setInterval(tick, 8000)
+    return () => { dead = true; clearInterval(t) }
+  }, [])
+
+  // 上次选的那台还在就还用它，不在了（比如卸了）退到第一台。
+  // ⛔ 这里不点名任何引擎作为兜底默认值。
+  useEffect(() => {
+    if (engines.length === 0) return
+    const picked = pickEngine(engines, selectedEngineId)
+    if (picked && picked.id !== selectedEngineId) setSelectedEngineId(picked.id)
+  }, [engines])
+
+  const engine = pickEngine(engines, selectedEngineId)
+
   useEffect(() => {
     api('/api/flowgraph/status')
       .then(r => setFlowReady(!!(r.ok && r.data && r.data.ok)))
@@ -122,12 +176,42 @@ function AppShell() {
         <button className={`nav-btn ${page === 'generate' ? 'active' : ''}`} onClick={() => setPage('generate')}>Generate</button>
         <button className={`nav-btn ${page === 'compare' ? 'active' : ''}`} onClick={() => setPage('compare')}>Compare Refs</button>
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
-        <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
+        {/* 契约 §11 判据 11：训练页只对 supports_finetune: true 的引擎显示。
+            照抄下面 flowReady 那个形状。showsTrainingTab 是 fail-closed 的：
+            列表还没回来（engine 是 null）、或者名片没写这一格，都不显示 ——
+            少显示一个页签刷新一下就有了；多显示会让人对一台根本不能微调的
+            引擎填完一整张表，最后才发现白填。 */}
+        {showsTrainingTab(engine) && (
+          <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
+        )}
         <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
         {flowReady && (
           <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
         )}
         <div style={{ flex: 1 }} />
+        {/* 引擎选择器。只有装了两台以上才出现 —— 一台的时候它是个只有一个
+            选项的下拉框，占地方还让人以为自己漏装了什么。 */}
+        {/* ⛔ 这里原来是全 App 唯一一个裸 <select>，而且挂的 class
+            `.nav-select` 在 styles.css 里根本不存在 ⇒ 浏览器默认样式，
+            一个白底方框戳在深色导航条中间。别的地方（RefPickers、
+            ParamField…）用的都是 components/common/Select.jsx。
+            ⇒ 换成同一个组件，样式和菜单行为就跟全站一致了。
+            Select 的 onChange 也发 { target: { value } }，调用方一个字不用改。 */}
+        {engines.length > 1 && (
+          <Select className="control nav-select" value={engine?.id || ''} onChange={e => setSelectedEngineId(e.target.value)}
+            title="切换引擎：参数面板和页签会跟着这台引擎的 manifest.json 变">
+            {engines.map(en => (
+              <option key={en.id} value={en.id}>{en.label || en.id}</option>
+            ))}
+          </Select>
+        )}
+        {/* 名片坏掉的引擎不在列表里。不说的话，它就是「凭空少了一台」。 */}
+        {engineErrors.length > 0 && (
+          <span title={engineErrors.map(e => `${e.id}: ${e.error || e.message}`).join('\n')}
+            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(207,102,121,0.15)', color: 'var(--danger)', border: '1px solid rgba(207,102,121,0.3)', alignSelf: 'center' }}>
+            {engineErrors.length} 张 manifest.json 读不了
+          </span>
+        )}
         <LangToggle />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
         {health && (() => {
@@ -146,9 +230,33 @@ function AppShell() {
             <span title={title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, alignSelf: 'center' }}>{label}</span>
           );
         })()}
-        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: health?.engine_online ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)', color: health?.engine_online ? 'var(--success)' : 'var(--danger)', border: `1px solid ${health?.engine_online ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)'}`, alignSelf: 'center' }}>
-          {health === null ? '...' : health.engine_online ? 'GPT-SoVITS Connected' : 'GPT-SoVITS Unreachable'}
-        </span>
+        {/* ⭐⭐⭐ 关于「当前这台引擎」，顶栏只留这一枚灯。
+            2026-08-30 之前这里是**三枚**：底模齐 / 进程状态 / Connected。
+            Owner：「你现在右上角的指示灯越来越多了，是非常不好的兆头…
+                    你再加是想变成飞机仪表盘嘛」。
+
+            ⭐ 并掉的实质理由不是省地方，是那三枚里有两枚已经在说错话：
+              引擎改成「用到才起」之后，「Unreachable」变成了**常态**，
+              而一枚正常状态下常亮红灯的指示灯只会训练人忽略所有红灯。
+            ⭐ 「底模齐」也不再占格子 —— 永远绿的灯不携带信息，降级进悬停；
+              但「底模缺」留在灯面上，那是唯一一种看不见就会被卡住一小时的坏。
+
+            ⛔ 这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定；
+              跑没跑、齐没齐，服务端早算完了。 */}
+        {(() => {
+          const b = engineBadge(engine, health, lang);
+          if (!b) return null;
+          const tone = b.tone === 'ok'
+            ? { bg: 'rgba(76,175,80,0.15)', fg: 'var(--success)', bd: 'rgba(76,175,80,0.3)' }
+            : b.tone === 'busy'
+              ? { bg: 'rgba(255,183,77,0.15)', fg: 'var(--warning, #ffb74d)', bd: 'rgba(255,183,77,0.35)' }
+              : b.tone === 'bad'
+                ? { bg: 'rgba(207,102,121,0.15)', fg: 'var(--danger)', bd: 'rgba(207,102,121,0.3)' }
+                : { bg: 'rgba(158,158,158,0.15)', fg: 'var(--muted)', bd: 'rgba(158,158,158,0.3)' };
+          return (
+            <span title={b.title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}`, alignSelf: 'center', whiteSpace: 'nowrap' }}>{b.label}</span>
+          );
+        })()}
       </nav>
 
       {(page === 'generate' || page === 'compare') && (
@@ -160,7 +268,7 @@ function AppShell() {
             instead of the centred 1400px column the reading pages use. */}
         <div className={page === 'flow' ? 'workspace-container workspace-container--full' : 'workspace-container'}>
           {page === 'generate' && (
-            <GenerateTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice}
+            <GenerateTab engine={engine} voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice}
               onEditVoice={() => {}}
               onSwitchToCompare={() => setPage('compare')}
               onVoiceUpdate={loadVoices}
@@ -178,10 +286,19 @@ function AppShell() {
               setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
-          {page === 'train' && (
-            <TrainingTab voices={voices} loadVoices={loadVoices}
-              activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
-              trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} health={health} />
+          {/* 判据 11 的另一半：页签藏了，页面本身也得关上 —— 否则上次停在
+              Tune 页的人刷新后照样进得来。同 flow 页的做法：说清为什么没有，
+              不要给一个空白面板。⚠ engine 为 null 时说的是「还在读」，跟
+              「这台不支持」是两回事，不能合成一句话。 */}
+          {page === 'train' && (showsTrainingTab(engine)
+            ? <TrainingTab voices={voices} loadVoices={loadVoices}
+                activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
+                trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} health={health} />
+            : <div style={{ padding: 24, color: 'var(--muted)' }}>
+                {engine === null
+                  ? '正在读引擎列表…'
+                  : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
+              </div>
           )}
           {page === 'broker' && (
             <BrokerTab />

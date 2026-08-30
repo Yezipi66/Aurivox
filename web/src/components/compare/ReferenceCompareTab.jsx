@@ -11,6 +11,7 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } fro
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, langLabel, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipePath } from '../../lib/recipes'
+import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
 
 // Compare Refs target-language options: the plain per-segment "auto" is dropped
 // here (this page is decoupled from the Generate voice — no per-voice auto-detect),
@@ -175,10 +176,15 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
     // Also pull the built-in Base model (GET /api/assets/__base__) so its pretrained
     // weights are selectable here for zero-shot reference comparison — it isn't in the
     // /api/assets roster (no folder on disk), so it must be fetched explicitly.
+    // ⚠ 这一页整页都是「两份权重两两组合去试听」的形状 —— 它问的是那条特定的
+    //   合成链路，所以引擎名在这里是**这一页自己的题目**，不是平台写死了一台引擎。
+    //   ⇒ 2026-08-30 只把取值层级换成新结构，形状原样不动。
+    // ⚠ 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
+    //   混搭开关一起动。那是独立一件事，本轮不做。
+    const CMP_ENGINE = 'gpt-sovits'
     const buildModels = (vid, meta, out) => {
-      const ckpts = meta?.assets?.checkpoints || {}
-      const gptList = ckpts.gpt || []
-      const sovitsList = ckpts.sovits || []
+      const gptList = modelsFromMeta(meta, CMP_ENGINE, 'gpt')
+      const sovitsList = modelsFromMeta(meta, CMP_ENGINE, 'sovits')
       if (gptList.length === 0 || sovitsList.length === 0) return
       gptList.forEach(gpt => {
         sovitsList.forEach(sovits => {
