@@ -17,6 +17,7 @@ import { api } from '../../lib/api'
 import { TrainParamFields, buildTrainingParams, REBUILD_PARAM_DEFAULTS, LANGUAGES } from '../train/TrainingTab'
 import { ConfirmDialog } from '../common/Dialogs'
 import { useT } from '../../lib/i18n'
+import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
 
 const baseName = (p) => (p || '').split(/[\\/]/).pop()
 
@@ -80,8 +81,11 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
       .catch(() => {})
     api(`/api/assets/${voiceId}`).then(r => {
       if (cancelled || !r.ok || !r.data?.ok) return
-      const c = r.data.meta?.assets?.checkpoints || {}
-      const gpt = c.gpt || [], sovits = c.sovits || []
+      // ⚠ 精调是**这条训练管线**自己的事（继续训一版），它天然只认这条管线产的
+      //   那两份权重 ⇒ 引擎名在这里是这个弹窗自己的题目，不是平台写死了一台引擎。
+      //   2026-08-30 只换取值层级。
+      const gpt = modelsFromMeta(r.data.meta, 'gpt-sovits', 'gpt')
+      const sovits = modelsFromMeta(r.data.meta, 'gpt-sovits', 'sovits')
       setCkpts({ gpt, sovits })
       setSelS1((gpt.find(x => x.default) || gpt[gpt.length - 1] || {}).path || '')
       setSelS2((sovits.find(x => x.default) || sovits[sovits.length - 1] || {}).path || '')

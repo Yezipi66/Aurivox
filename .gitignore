@@ -66,6 +66,10 @@ SoVITS_weights/
 GPT_weights/
 sovits_models/
 gpt_checkpoints/
+# 2026-08-30 起，角色的模型统一住在 assets/<角色>/models/<引擎id>/<权重位>/ 下。
+# ⚠ 上面那两行**留着**：还没搬家的用户盘上仍有老目录，这两行一删，
+#   他们下一次 git add 就会把好几 GB 的权重加进索引。
+assets/*/models/
 faster-whisper-large-v3-turbo/
 chinese-hubert-base/
 chinese-roberta-wwm-ext-large/

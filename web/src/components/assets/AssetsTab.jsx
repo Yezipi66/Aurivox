@@ -9,6 +9,7 @@ import { IconFolder, IconFolderSearch, IconPencil, IconTrash } from '../common/I
 import { RebuildProgress, RestoreModal } from '../train/TrainingTab'
 import ReferenceTranscriptProofing from './ReferenceTranscriptProofing'
 import RefineModal from './RefineModal'
+import { modelCountsByEngine, countModelsInMeta, modelsFromMeta } from '../../lib/modelPickers.pure.js'
 
 // ============================
 //  ASSETS TAB
@@ -525,27 +526,32 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
     acc.raw += (a.raw?.file_count || 0)
     acc.rawDur += (a.raw?.total_duration || 0)
     acc.slices += (a.slices?.file_count || 0)
-    acc.gpt += (a.checkpoints?.gpt || []).length
-    acc.sovits += (a.checkpoints?.sovits || []).length
+    // 模型总数按**引擎**分开数 —— ⛔ 以前是写死的两格，第二台引擎的模型
+    // 在这排统计上一个数字都露不出来。
+    for (const c of modelCountsByEngine(asset)) {
+      acc.byEngine[c.engineId] = (acc.byEngine[c.engineId] || 0) + c.count
+    }
     acc.segments += (asset.segment_total || 0)
     return acc
-  }, { voices: 0, raw: 0, rawDur: 0, slices: 0, gpt: 0, sovits: 0, segments: 0 })
+  }, { voices: 0, raw: 0, rawDur: 0, slices: 0, byEngine: {}, segments: 0 })
 
   // Derive a health badge for a voice from its available assets.
   // Color-blind friendly: every state carries a distinct shape glyph (sym),
   // so states stay distinguishable without relying on color alone.
   const voiceHealth = (asset) => {
     const a = asset.assets || {}
-    const hasGpt = (a.checkpoints?.gpt || []).length > 0
-    const hasSovits = (a.checkpoints?.sovits || []).length > 0
+    // ⭐⭐ 判据从「有 GPT **且** 有 SoVITS」改成「**有没有任何模型**」。
+    //   那个「两份都要有」是第一台引擎的成套要求 —— 照搬到别的引擎上，
+    //   一个只有另一台引擎模型的角色会永远挂着红叉说自己缺模型，
+    //   而它其实完全能用。要不要成套是**那台引擎**的事，不是这排徽章的事。
+    const hasModels = countModelsInMeta(asset) > 0
     const hasRaw = (a.raw?.file_count || 0) > 0
     const hasSlices = (a.slices?.file_count || 0) > 0
     const hasSegs = (asset.segment_total || 0) > 0
-    const scanned = hasGpt || hasSovits || hasRaw || hasSlices || hasSegs
+    const scanned = hasModels || hasRaw || hasSlices || hasSegs
     if (!scanned) return { key: 'needscan', label: 'Needs Scan', cls: 'badge-muted', sym: '○' }
-    if (!hasGpt || !hasSovits) {
-      const which = (!hasGpt && !hasSovits) ? 'Models' : (!hasGpt ? 'GPT' : 'SoVITS')
-      return { key: 'nomodel', label: `Missing ${which}`, cls: 'badge-danger', sym: '✕' }
+    if (!hasModels) {
+      return { key: 'nomodel', label: 'Missing Models', cls: 'badge-danger', sym: '✕' }
     }
     if (!hasSegs) {
       if (!hasRaw && !hasSlices) {
@@ -663,8 +669,9 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
             <span className="stat-pill"><span className="sp-v">{totals.raw}</span><span className="sp-k">raw files</span></span>
             <span className="stat-pill"><span className="sp-v">{totals.rawDur.toFixed(1)}s</span><span className="sp-k">raw dur</span></span>
             <span className="stat-pill"><span className="sp-v">{totals.slices}</span><span className="sp-k">slices</span></span>
-            <span className="stat-pill"><span className="sp-v">{totals.gpt}</span><span className="sp-k">GPT ckpts</span></span>
-            <span className="stat-pill"><span className="sp-v">{totals.sovits}</span><span className="sp-k">SoVITS ckpts</span></span>
+            {Object.keys(totals.byEngine).sort().map(eid => (
+              <span className="stat-pill" key={eid}><span className="sp-v">{totals.byEngine[eid]}</span><span className="sp-k">{eid} models</span></span>
+            ))}
             <span className="stat-pill"><span className="sp-v">{totals.segments}</span><span className="sp-k">segments</span></span>
             {/* Collapsed hint floats to the free space right of the stat pills */}
             {!noteExpanded && <NamingNotePill className="nn-in-bar" onOpen={() => setNoteOpen(true)} />}
@@ -716,9 +723,12 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
           const a = asset.assets || {}
           const raw = a.raw || {}
           const slices = a.slices || {}
-          const ckpts = a.checkpoints || {}
-          const gptCount = (ckpts.gpt || []).length
-          const sovitsCount = (ckpts.sovits || []).length
+          // 这个角色手上有哪几台引擎的模型、各几个（有几台就显示几格）。
+          const modelCounts = modelCountsByEngine(asset)
+          // ⚠ 「精修」是**那条训练管线**自己的事：它要继续训的正是它自己产的
+          //   那两份权重 ⇒ 引擎名在这里是这个按钮自己的题目，不是平台写死一台引擎。
+          const canRefine = modelsFromMeta(asset, 'gpt-sovits', 'gpt').length > 0
+                         && modelsFromMeta(asset, 'gpt-sovits', 'sovits').length > 0
           const segCount = asset.segment_total || 0
           const h = voiceHealth(asset)
           const canRebuild = (raw.file_count || 0) > 0 || (slices.file_count || 0) > 0
@@ -833,7 +843,7 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
                         Rebuild
                       </button>
                     )}
-                    {gptCount > 0 && sovitsCount > 0 && (
+                    {canRefine && (
                       <button
                         className="btn btn-sm btn-ghost"
                         onClick={() => setRefineTarget({ id, displayName: asset.display_name || id, baseVersion: asset.base_version, parentLanguage: asset.language || asset.text_lang || 'auto' })}
@@ -892,8 +902,9 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
                       <span className="stat-pill"><span className="sp-v">{raw.file_count || 0}</span><span className="sp-k">raw</span></span>
                       <span className="stat-pill"><span className="sp-v">{(raw.total_duration || 0).toFixed(1)}s</span><span className="sp-k">dur</span></span>
                       <span className="stat-pill"><span className="sp-v">{slices.file_count || 0}</span><span className="sp-k">slices</span></span>
-                      <span className="stat-pill"><span className="sp-v">{gptCount}</span><span className="sp-k">GPT</span></span>
-                      <span className="stat-pill"><span className="sp-v">{sovitsCount}</span><span className="sp-k">SoVITS</span></span>
+                      {modelCounts.map(c => (
+                        <span className="stat-pill" key={c.engineId}><span className="sp-v">{c.count}</span><span className="sp-k">{c.engineId}</span></span>
+                      ))}
                       <span className="stat-pill"><span className="sp-v">{segCount}</span><span className="sp-k">segments</span></span>
                       {canTranscribe && (
                         <button
