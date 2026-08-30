@@ -197,8 +197,7 @@ Python 依赖只有**一个** `requirements.txt` —— 一份**逐包精确 `==
 | `raw_b4_extraction/` | 提取前的原始混音（仅启用人声提取且保留原始时生成，供审计/重构）|
 | `slicer_opt/` | 切片音频 |
 | `asr_opt/` | ASR 结果 |
-| `gpt_checkpoints/` | GPT (S1) 模型 |
-| `sovits_models/` | SoVITS (S2) 模型 |
+| `models/<引擎id>/<模型位>/` | 该角色在**某台引擎**上的模型。目录名就是引擎 id 和名片里声明的模型位名（例如 `models/gpt-sovits/gpt/`、`models/gpt-sovits/sovits/`）。一台引擎有几个模型位、各叫什么，由它的名片说（见引擎契约 §5.7）|
 | `references/` | 参考音频 |
 
 > 注：`2-name2text.txt`、`4-cnhubert/`、`5-wav32k/`、`6-name2semantic.tsv`、`logs_s1/`、`logs_s2/`

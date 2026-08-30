@@ -8,7 +8,8 @@
     "  timeout_ms        ← lib/gsv/client.js（300000，三处重复）",
     "  max_chars         ← lib/services/synthesisService.js:126（softLimit 30）",
     "  reference_clip_seconds ← synthesisService.js:105-113（3-10 秒那条）",
-    "  hot_swap_models   ← 无条件调 switchModels 这个行为本身"
+    "  weights[].applies_at ← 无条件调 switchModels 这个行为本身",
+    "    （2026-08-30 之前这里写的是引擎级的 hot_swap_models，已退休）"
   ],
   "contract_version": 2,
 
@@ -30,6 +31,86 @@
     "license": "MIT"
   },
   "local_changes": "infer/LOCAL-CHANGES.md",
+
+  "_comment_models": [
+    "2026-08-29 新增，连同上面 runtime.checkpoints 那一行。",
+    "",
+    "⭐ 这台引擎的底模目录**本来就存在**，只是从来没写在名片上 —— 它写死在",
+    "  平台代码里（lib/paths.js:261 GSV_PRETRAINED_DIR，默认 models/tts/gpt-sovits）。",
+    "  于是全平台出现了两套互不相通的『底模在哪』：这一台问代码，别的引擎问名片。",
+    "  补上这两段之后两台引擎口径统一，界面才能一视同仁地把底模显示出来。",
+    "  ⚠ 补的是**声明**，不是搬家：GSV_PRETRAINED_DIR 那条老路一行没动，",
+    "    权重还在原地，训练体检还走老路。这里只是把同一个事实说出来。",
+    "",
+    "checkpoints_env：规矩同 base_url_env —— 名片说听哪个变量，平台才去读，",
+    "  lib/ 里不会因此多出一个写死的变量名。这里填 GSV_PRETRAINED_DIR，",
+    "  是为了让本来就能用环境变量把权重挪走的人，界面上看到的还是真实位置。",
+    "  ⚠ 已知不全：MODELS_DIR / TTS_MODELS_DIR 这两个上层变量也能顶掉路径，",
+    "    它们被顶而 GSV_PRETRAINED_DIR 没被顶时，这里显示的路径会偏。",
+    "    这一刀不追（追它等于把 paths.js 的整条回落链抄进名片）。",
+    "",
+    "⛔ required 里**故意不列 s2G/s1 那些权重**。理由是漂移：那批文件名连同",
+    "  v2/v2Pro/v2ProPlus 的回落顺序，已经在 server.js 的 _BASE_SOVITS_DEFS",
+    "  和 _MV_BASE_REQ 里各写过一遍，那两张表的注释本身就在警告『两张表若不",
+    "  一致，训练体检说底模齐而推理下拉里却没有这个版本』。再抄第三张，就是",
+    "  再给同一个事实开一个会过期的副本。",
+    "  ⇒ 这里只列**没有任何回落、少了就一定起不来**的两个特征提取器，",
+    "    它们不属于上面任何一张表，不构成重复。"
+  ],
+  "models": {
+    "checkpoints_env": "GSV_PRETRAINED_DIR",
+    "required": [
+      "chinese-hubert-base",
+      "chinese-roberta-wwm-ext-large"
+    ],
+    "hint": "GPT-SoVITS 的预训练权重不进 git。上面那个目录下应有 chinese-hubert-base / chinese-roberta-wwm-ext-large 两个特征提取器，以及 v2 / v2Pro / v2ProPlus 里至少一套 s1/s2 权重（具体哪一套由平台按可用性自己挑）。",
+    "source": {
+      "url": "https://huggingface.co/lj1995/GPT-SoVITS",
+      "license_gate": false
+    }
+  },
+
+  "_comment_weights": [
+    "⭐⭐ 这台引擎推理时要用户选几个权重、各叫什么。整张名片里，关于",
+    "「模型」你只需要写这一样。",
+    "",
+    "  位置不用写 —— 平台约定死了：assets/<角色>/models/<这台引擎的 id>/<位名>/",
+    "  后缀不用写 —— 平台不筛，目录里有什么就列什么（一个候选也可以是整个目录）",
+    "  版本不用写 —— 平台不需要知道",
+    "",
+    "GPT-SoVITS 推理要同时给 S1 和 S2 两份权重，所以这里是两个位。",
+    "IndexTTS2 只有一份，它那边就写一个。",
+    "",
+    "⚠ 整段不写 = 「这台引擎不需要用户选模型」（只有一个写死的底模），",
+    "  合法，界面上就不出现模型选择。⛔ 不是出错。",
+    "",
+    "⭐ 三种写法都收，挑最省事的那种：",
+    "     \"weights\": 2                                  只要数量",
+    "     \"weights\": [\"gpt\", \"sovits\"]                 顺带给名字",
+    "     \"weights\": [{\"name\":\"gpt\",\"label\":\"GPT 模型\"}]  再顺带给标签",
+    "",
+    "⛔ name 直接进磁盘路径，所以不许带 / 或 \\，也不许重名。",
+    "⛔ name 改了等于换了个目录：老目录里的模型会从下拉里消失（不会被删）。",
+    "  改名要连带搬目录 —— 这跟改任何一个磁盘约定是一回事。",
+    "",
+    "⭐ param = 用户选中的那一份**用哪个参数名发给你**。",
+    "  这个键必须同时写进下面的 param_keys（那张表是词汇表，不在表上的",
+    "  键会被拦下）。GPT-SoVITS 这两个位分别走 gpt_model / sovits_model，",
+    "  平台收到后调 /set_gpt_weights 和 /set_sovits_weights 换权重。",
+    "",
+    "⭐ applies_at = 这一份选择**送到哪一步**，两个值穷尽：",
+    "    call   —— 进程活着的时候一次调用就能换（必须配 param）。",
+    "    launch —— 开进程那一步吃进去的，换一份 = 带着它重开一次（不许配 param）。",
+    "  GPT-SoVITS 两个位都是 call：进程起着就能把权重换掉。",
+    "",
+    "⚠ 不写 applies_at 平台按有没有 param 推（有=call，没有=launch）；",
+    "  写了就必须和 param 对得上，否则当场装不上。",
+    "⛔ 绝不许为了让界面好看而填一个引擎根本不读的键。"
+  ],
+  "weights": [
+    { "name": "gpt", "label": "GPT", "param": "gpt_model", "applies_at": "call" },
+    { "name": "sovits", "label": "SoVITS", "param": "sovits_model", "applies_at": "call" }
+  ],
 
   "_comment_param_keys": [
     "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
@@ -366,6 +447,7 @@
     "entry": "../../lib/inference/infer_server.py",
     "args": ["-a", "{host}", "-p", "{port}", "-c", "{root}/lib/inference/tts_infer.yaml"],
     "cwd": ".",
+    "checkpoints": "models/tts/gpt-sovits",
     "ready_endpoint": "/",
     "ready_timeout_ms": 180000,
     "preload": true,
@@ -383,9 +465,11 @@
   },
 
   "_comment_capabilities": [
-    "hot_swap_models=true 是 GPT-SoVITS 区别于多数引擎的地方：它能在运行中",
-    "  /set_gpt_weights + /set_sovits_weights 换权重。多数引擎做不到，",
-    "  权重在构造时一次性加载，换权重只能重启进程。",
+    "⛔ 这里原本写着 hot_swap_models=true。2026-08-30 退休、整行删掉。",
+    "  同一件事现在写在**每个模型位**上：上面 gpt / sovits 两个位的 applies_at",
+    "  都是 call ⇒ 进程活着时 /set_gpt_weights + /set_sovits_weights 一次调用",
+    "  就换掉。这台引擎确实是少数派，多数引擎的权重在构造时一次性吃进内存，",
+    "  那种位写 launch ⇒ 平台带着新的那一份把进程重开一次。",
     "reference_clip_seconds=[3,10] 就是那条 400 报错的来源。这是 GPT-SoVITS",
     "  的要求，不是所有引擎的 —— 不限制的引擎请显式写 null。",
     "output_sample_rate=32000 是 GPT-SoVITS v2 的输出采样率。",
@@ -395,7 +479,6 @@
     "  的用途是决定训练页显不显示。"
   ],
   "capabilities": {
-    "hot_swap_models": true,
     "requires_reference_audio": true,
     "reference_clip_seconds": [3, 10],
     "streaming": true,
