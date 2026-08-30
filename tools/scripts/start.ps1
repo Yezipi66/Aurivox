@@ -311,6 +311,19 @@ foreach ($eid in $ENGINE_IDS) {
     OwnerPid    = $null
     Skip        = $false
     SkipReason  = ''
+    # ⭐⭐⭐ 开机到底点不点着它。
+    #   以前这里没有这个概念：engines\ 下装了几台就起几台。而其中一台
+    #   **一起进程就吃掉约 6G 内存**（一个字都还没合成）。装到第四台，
+    #   开机就是四份内存一起吃 —— 而用户这一开机可能一台都没用上。
+    #
+    #   现在这个答案由平台从名片**推**出来（见 lib\engines\residency.js）：
+    #   那台引擎的模型如果是"开进程那一步吃进去"的，起着就等于占着内存，
+    #   放掉真能吐出来 ⇒ 开机不点，第一次真有人要它的时候后端自己去起。
+    #
+    #   ⛔ 脚本这一侧**不做判断**，只读计划里的这个答案。判据在哪台引擎
+    #     身上、怎么推出来的，都不是启动脚本该知道的事（契约 §9）。
+    Preload     = ($plan0.preload -eq $true)
+    OnDemand    = ($plan0.on_demand -eq $true)
   }
   if ($rec.Launchable) {
     if (-not (Test-Path $plan0.python)) {
@@ -471,6 +484,19 @@ foreach ($e in $ENGINES) {
     Log '      这台由作者自己起，平台只替它守住端口。' 'Yellow'
     continue
   }
+  # ⭐⭐ 按需档：现在不起它，等到第一次真有人要它的时候后端再起。
+  #
+  #   ⚠ 端口仍然是**这里**定的（上面 Resolve-Port 已经跑过，结果写进了
+  #     这台引擎自己的 base_url_env）。后端起它的时候用的就是这个端口，
+  #     两边不会打架。⇒ 那 90 行端口逻辑一行没动，还在这个脚本里。
+  #
+  #   ⚠ 已经在跑的情况（Action='own'，上次留下的进程还听着）由下面那个
+  #     分支管，这里的 continue 不会把它误伤 —— 顺序不能反。
+  if ($e.Action -ne 'own' -and -not $e.Preload) {
+    Log '      不预先启动：这台引擎的模型是开进程那一刻吃进内存的，起着就一直占着。' 'Yellow'
+    Log '      第一次用到它的时候后端会自己起（首次要等它加载，界面上会显示进度）。' 'DarkGray'
+    continue
+  }
   if ($e.Action -eq 'own') {
     Log ('      Port {0} already held by OUR engine. Treat engine as running.' -f $e.Port) 'Yellow'
     continue
@@ -511,6 +537,8 @@ foreach ($e in $ENGINES) {
     Log ('  Engine  : {0,-14} 没起（{1}）' -f $e.Id, $e.SkipReason) 'Red'
   } elseif (-not $e.Launchable) {
     Log ('  Engine  : {0,-14} http://{1}:{2}  由作者自己起' -f $e.Id, $e.EHost, $e.Port) 'Yellow'
+  } elseif (-not $e.Preload -and $e.Action -ne 'own') {
+    Log ('  Engine  : {0,-14} http://{1}:{2}  用到才起（端口已守住）' -f $e.Id, $e.EHost, $e.Port) 'Yellow'
   } else {
     Log ('  Engine  : {0,-14} http://{1}:{2}  logs\{0}.log' -f $e.Id, $e.EHost, $e.Port)
   }

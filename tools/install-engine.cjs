@@ -19,10 +19,66 @@ const ROOT = path.resolve(__dirname, '..')
 const { getEngine, listEngineIds } = require(path.join(ROOT, 'lib/engines/registry'))
 const { resolveEngineProfile } = require(path.join(ROOT, 'lib/engines/profile'))
 const { buildInstallPlan } = require(path.join(ROOT, 'lib/engines/installPlan'))
+const { checkpointStatus } = require(path.join(ROOT, 'lib/engines/checkpoints'))
 
 function die(msg, code = 1) {
   process.stderr.write(msg.endsWith('\n') ? msg : msg + '\n')
   process.exit(code)
+}
+
+// 底模那一段。⭐ 2026-08-29 加的，直接原因是 Owner 那句
+// 「上游要接入进来，他还得手动把模型放对」。
+//
+// ⛔ 这个工具**不下模型**（步骤表里没有这一步，见 installPlan.js）。
+//   它只把名片说的话搬出来：该放哪、缺什么、名片给的取回命令长什么样。
+//   不下的理由不是懒：下模型要联网、要几个 GB、有的还要先去网站点同意，
+//   把它塞进「装源码」这一步，失败之后没人说得清是哪一半没成。
+function printCheckpoints(profile, { trailing }) {
+  let st
+  try {
+    st = checkpointStatus(profile)
+  } catch (err) {
+    process.stdout.write(`\n⚠ 底模状态查不了：${(err && err.message) || err}\n`)
+    return
+  }
+
+  process.stdout.write('\n底模（权重）\n')
+
+  if (!st.declared) {
+    // ⛔ 不写 ≠ 不需要。这里只能说"我不知道"，并且把该补的那一行指出来。
+    process.stdout.write(
+      `  ？ ${st.reason}\n` +
+      `     要让平台替你查，在 engines/${st.id}/manifest.json 里补一行\n` +
+      '     runtime.checkpoints（相对项目根的目录），再写一段 models.required。\n')
+    return
+  }
+
+  const mark = st.ready === true ? '✅' : st.ready === null ? '？' : '⛔'
+  process.stdout.write(
+    `  ${mark} 位置 ${st.abs_path}\n` +
+    `     来源 ${st.path_source === 'manifest' ? 'manifest.json 的 runtime.checkpoints' : st.path_source}\n`)
+  if (st.reason) process.stdout.write(`     ${st.reason}\n`)
+
+  if (st.ready === true) return
+
+  if (st.hint) process.stdout.write(`\n  名片给的说明：${st.hint}\n`)
+  if (st.source && st.source.license_gate) {
+    process.stdout.write(
+      '\n  ⚠ 这个模型要**先去网站上点同意**才能下。\n' +
+      '     不点就下，会得到 401/403 —— 那看着像网络故障，其实不是。\n')
+  }
+  if (st.source && st.source.url) {
+    process.stdout.write(`  模型主页：${st.source.url}\n`)
+  }
+  if (st.source && st.source.command) {
+    process.stdout.write(
+      '\n  名片写的取回命令（⛔ 这个工具不替你跑，请自己在引擎环境里执行）：\n' +
+      `     位置：${st.source.cwd}\n` +
+      `     ${st.source.command.join(' ')}\n`)
+  } else if (trailing) {
+    process.stdout.write(
+      '\n  这张名片没写取回命令 —— 按上面的说明手动放，放完再回来跑一次这个工具就能复核。\n')
+  }
 }
 
 function main(argv) {
@@ -46,10 +102,12 @@ function main(argv) {
   const manifest = getEngine(id)
 
   let plan
+  let profile = null
   try {
     // 名片解析和计划构建一起接住：对用的人来说这两件事没有区别，
     // 都是「这张 manifest.json 我读不下去」。⛔ 不把栈追踪甩给他。
-    plan = buildInstallPlan(resolveEngineProfile(id), manifest)
+    profile = resolveEngineProfile(id)
+    plan = buildInstallPlan(profile, manifest)
   } catch (err) {
     // ⭐ 拒绝安装时要把原因说完整：这里最常见的就是「上游版本没钉住」，
     //    而那不是这个工具能替人决定的事。
@@ -86,6 +144,10 @@ function main(argv) {
     if (yes) die('\n⛔ 已停手，一个字节没动。', 3)
   }
 
+  // ⭐ 底模报告放在"要不要真装"这个决定**之前** —— 装源码要几分钟到几十分钟，
+  //   让人装完才知道"还得再下 6 个 GB 模型"，等于把一次可以并行的等待排成串。
+  printCheckpoints(profile, { trailing: false })
+
   if (!yes) {
     process.stdout.write(
       '\n以上只是计划，磁盘没动。真的要装：\n' +
@@ -118,6 +180,11 @@ function main(argv) {
     `\n✅ ${plan.label} 的源码已就位（${plan.commit.slice(0, 12)}…）\n` +
     '  ⛔ 这只说明「源码和环境到位了」，不等于「能出声」。\n' +
     `  接着跑这条才算装上：${plan.verify_hint}\n`)
+
+  // 再报一次底模。⚠ 不是重复：上面那次是装之前的现状，这次是装完之后的 ——
+  // 中间隔着 uv sync，人很可能已经离开屏幕几十分钟了。少了这一次，
+  // 「源码装好了」会被当成「装好了」，然后引擎起不来，报错来自上游代码深处。
+  printCheckpoints(profile, { trailing: true })
   return 0
 }
 

@@ -405,6 +405,56 @@ const _modelSwitcher = new ModelSwitcher(gsvGet);
 // invalidates the resident-weights cache; the /api/health route calls this.
 function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(online); }
 
+// ---------------------------------------------------------------------------
+//  引擎进程看管人 —— 用到才起，不用就放
+// ---------------------------------------------------------------------------
+//
+// ⭐⭐⭐ 为什么后端得管这件事，而不是启动脚本：一台把模型在开进程那一刻就
+//   吃进内存的引擎（6 GB 起步），开机就点着意味着装到第三、四台时，光是
+//   开机就把内存吃干净了 —— 而其中大多数这一整天都不会被用到。
+//   ⇒ 起停必须跟着**请求**走，而请求只有后端看得见。
+//
+// ⛔ 端口不归它管。每一台引擎监听哪儿仍然由启动脚本解出来、写进各自的
+//   环境变量；这里 spawn 时的端口是从那个结果里反解出来的。
+//   （启动脚本里那套 Windows 端口冲突逻辑一行都不许搬过来重写。）
+const { EngineSupervisor } = require("./lib/engines/supervisor");
+const { spawnFromPlan, probeOnce } = require("./lib/engines/spawnEngine");
+const { buildLaunchPlan: _buildLaunchPlan } = require("./lib/engines/launchPlan");
+const _engineSupervisor = new EngineSupervisor({
+  spawn: (plan) => spawnFromPlan(plan, { rootDir: __dirname }),
+  probe: (url, timeoutMs) => probeOnce(url, timeoutMs),
+  buildPlan: (profile, opts) => _buildLaunchPlan(profile, Object.assign({ rootDir: __dirname }, opts)),
+  loadProfile: (id) => resolveEngineProfile(id),
+  log: (line) => console.log(line),
+  env: process.env,
+});
+// 定时把空闲够久的放掉。⭐ 这件事和「有人来抢名额」无关 —— 内存该吐就吐，
+//   不该等到下一个人来要位置才想起来。
+// ⚠ unref：这个定时器不该单独把进程留住。少了它，Ctrl-C 之后后端不退出。
+const _engineSweepTimer = setInterval(() => {
+  try { _engineSupervisor.sweep(); } catch (err) { console.warn("[engine] 清扫出错：" + ((err && err.message) || err)); }
+}, 60000);
+if (_engineSweepTimer.unref) _engineSweepTimer.unref();
+
+// ⛔ 后端退出时必须把引擎一起带走。留一堆吃着 6 GB 的孤儿进程比崩掉还糟：
+//   下次启动会被自己的残骸占住端口，而且看不出原因。
+//
+// ⭐⭐⭐ 只挂 `exit`，⛔ **绝不自己挂 SIGINT / SIGTERM**。
+//   这个后端本来就有一套优雅退出（见文件末尾的 shutdown()）：收到信号后
+//   **先不退**，停止收新请求、让正在跑的合成做完（默认最多等 120 秒），
+//   然后才 process.exit。
+//   我第一版在这里自己挂了信号并当场 process.exit(0) —— 那会把那套东西整个
+//   架空：用户 Ctrl-C 一下，一个跑了两分钟、马上就要出音频的合成当场没了。
+//   ⚠ 这个错**测试一条都不会红**（没有任何测试在跑真的信号），
+//     语法检查是撞上重名变量才顺带把它逼出来的。
+// ⇒ `exit` 是那套流程的**最后一站**：不管它是正常走完、超时强退、还是
+//   第二次信号强杀，都会经过这里。同步执行，正好够 kill 掉子进程。
+//
+// ⭐ 自检句：**往一个进程上挂信号处理之前，先查这个进程已经挂了什么。**
+process.on("exit", () => {
+  try { _engineSupervisor.stopAll("后端退出"); } catch { /* 退出路径上不许再抛 */ }
+});
+
 function loadVoices() { return voicesStore.load(); }
 function saveVoices(data) { return voicesStore.save(data); }
 function withVoicesLock(fn) { return voicesStore.withLock(fn); }
@@ -1690,15 +1740,61 @@ function baseCheckpoints() {
   }
   return { gpt, sovits };
 }
+
+// ⭐⭐ 2026-08-30：把上面这段**登记**成 GPT-SoVITS 的底模找法，而不是让平台
+//    直接调它。区别不是风格问题：
+//      · 上面那段是**一台引擎的私货** —— 上游把 s1 放一处、s2 按版本放好几处，
+//        既不按权重位分目录，也不是「整个目录算一份模型」，通用规则套不上。
+//      · 登记之后，平台侧（lib/assets/baseModels.js）**一个引擎名都不认识**，
+//        它对所有引擎只有两条通用规则：底模目录下有按权重位分的子目录就列子目录，
+//        没有就把整个底模目录当作那一份候选。
+//    ⇒ IndexTTS2 走第二条，一行专属代码都不用写，它的底模就出现在下拉里了。
+//    ⇒ 将来 IndexTTS3/4/5 装上就能用；只有底模长得跟上面 GSV 一样怪的，
+//      才需要来这里登记一条。
+//
+// ⚠ 这仍是一笔挂着的账（一台引擎的路径知识住在 server.js 里）。归宿是将来的
+//   扩展机制（Owner 2026-08-30：现在不做）。⭐ 但账已经被收进这一个地方了。
+try {
+  const { registerBaseModelSource } = require("./lib/assets/baseModels");
+  registerBaseModelSource("gpt-sovits", () => {
+    const ck = baseCheckpoints();
+    // 名片里 GPT-SoVITS 的两个权重位就叫 gpt / sovits（engines/gpt-sovits/manifest.json）。
+    return { gpt: ck.gpt, sovits: ck.sovits };
+  });
+} catch (e) {
+  console.warn(`[assets] 无法登记 GPT-SoVITS 底模找法: ${e && e.message}`);
+}
+
+// 平台侧通用的底模清单：所有已装引擎，按 { <引擎id>: { <权重位>: [...] } } 分组。
+// ⚠ fail-open：某台引擎的名片坏了 / 底模没下，只影响它自己那一格，
+//   ⛔ 不许让整份底模清单变空（那会让所有引擎的下拉一起空掉）。
+function baseModelsAll() {
+  let profiles = [];
+  try {
+    const { listEngines } = require("./lib/engines/registry");
+    const { resolveEngineProfile } = require("./lib/engines/profile");
+    for (const e of (listEngines() || [])) {
+      try { profiles.push(resolveEngineProfile(e.id || e)); } catch (_) { /* 跳过这一台 */ }
+    }
+  } catch (_) { return {}; }
+  try {
+    const { baseModelsByEngine } = require("./lib/assets/baseModels");
+    return baseModelsByEngine(profiles, {});
+  } catch (_) { return {}; }
+}
+
 // Synthetic asset meta for the base voice: empty roster (0 slices / 0 raw / no
-// reference) + injected checkpoints so GET /api/assets/:id populates the dropdowns.
+// reference) + injected models so GET /api/assets/:id populates the dropdowns.
+//
+// ⭐ assets.models 的形状跟真角色的**完全一致**：{ <引擎id>: { <权重位>: [...] } }。
+//   界面把「底模」和「当前角色的微调模型」并成一个下拉时，两边共用一套拆包代码。
 function baseVoiceMeta() {
   return {
     id: BASE_VOICE_ID,
     display_name: BASE_VOICE_DISPLAY,
     language: "auto", text_lang: "auto", prompt_lang: "auto",
     builtin: true,
-    assets: { checkpoints: baseCheckpoints(), references: [] },
+    assets: { models: baseModelsAll(), references: [] },
     segment_total: 0, segment_matched: 0,
   };
 }
@@ -1876,7 +1972,7 @@ function scanStagingTasks() {
 // factories. They receive shared server-scope symbols via `ctx` and are
 // mounted here (paths unchanged). The static frontend + SPA catch-all are
 // registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/engines")(ctx));
 app.use(require("./lib/routes/pron")(ctx));

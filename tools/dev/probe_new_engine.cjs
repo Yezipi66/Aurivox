@@ -100,6 +100,17 @@ function setPath(obj, keyPath, value) {
 //   脚本最后打印的是**键名清单**，不是这些值 —— 别把占位值当成推荐配置。
 function guessValue(keyPath, wantNumber) {
   const leaf = keyPath.split('.').pop()
+
+  // ⚠ 认名字的规则要排在 wantNumber 前面。
+  //   fillableFrom() 对 ENGINE_MANIFEST_INVALID_VALUE 一律给 wantNumber:true，
+  //   可「这个值不合法」并不等于「它想要一个数字」。upstream.commit 要的是
+  //   40 位十六进制 sha（profile.js:328），被填成数字 1 之后平台再问一次、
+  //   再填一次 1 …… 探针就在这儿空转到第 60 轮撞上限，[2] [3] 两段全走不到。
+  if (keyPath === 'upstream.commit') return '0'.repeat(40)
+  if (leaf === 'commit_unknown_reason') return null
+  if (leaf === 'license') return 'UNKNOWN'
+  if (keyPath === 'upstream.url') return 'https://example.invalid/upstream.git'
+
   if (wantNumber || /_ms$/.test(leaf)) {
     if (/timeout/.test(leaf)) return 60000
     if (/sample_rate/.test(leaf)) return 22050
