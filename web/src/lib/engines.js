@@ -637,19 +637,25 @@ export function engineBadge (engine, health, lang = 'zh') {
   }
 
   // ── 兜底：这台机器**不管进程**（process 为 null）──────────────────
-  // ⭐ 只有在这种时候，「探活不通」才真的是一件坏事 —— 因为没有人会去起它。
-  //   ⇒ 老那枚 Connected/Unreachable 的语义原样保留在这里，一个字没丢。
-  const up = health?.engine_online === true
-  if (health == null) {
-    return { tone: 'unknown', label: `${name} · …`, title: title(zh ? '正在读取状态…' : 'Loading…') }
-  }
+  // ⭐⭐⭐ 2026-08-30 刀 4：这里原本是老那枚 Connected / Unreachable ——
+  //   它读 `health.engine_online`，而 engine_online 是「往某个端口探一下活」。
+  //
+  //   端口是第六项。推理只需要 输入+参数+权重+环境；端口是我给引擎套的
+  //   HTTP 外壳产生的，不是引擎需要的东西。⇒ 一台用命令行跑的引擎（大多数）
+  //   在这枚灯下**永远显示"连不上"**，而它其实好好的。
+  //
+  //   更根本的：引擎是**用完即走的进程**，"常驻在线"这个概念对它不成立。
+  //   一枚回答"它现在在不在线"的灯，问的是一个不存在的问题。
+  //
+  // ⭐ 只留三态，而且都由**这一次操作**驱动，不由轮询驱动：
+  //   准备中 / 生成中 / 好了或没成 —— 那三态由上面的 processBadge 负责。
+  //   走到这里 = 平台不管这台的进程 ⇒ 平台对它此刻的状态**一无所知**，
+  //   而"一无所知"的诚实说法是不画状态，⛔ 不是画一枚红灯。
   return {
-    tone: up ? 'ok' : 'bad',
-    label: `${name} · ${up ? (zh ? '已连接' : 'connected') : (zh ? '连不上' : 'unreachable')}`,
-    title: title(up
-      ? (zh ? '探活通。' : 'Reachable.')
-      : (zh
-        ? '探活不通，而这台机器不由本平台管进程 ⇒ 得你自己把引擎起起来。'
-        : 'Not reachable, and this host does not manage engine processes — start it yourself.')),
+    tone: 'idle',
+    label: name,
+    title: title(zh
+      ? '这台引擎的进程不由本平台管 ⇒ 平台不知道它此刻的状态，也不该猜。\n出没出问题，按下生成那一刻就知道了。'
+      : 'This engine\'s process is not managed by the platform — its current state is unknown, and guessing would be a lie. You will know when you press Generate.'),
   }
 }

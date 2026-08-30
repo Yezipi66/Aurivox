@@ -881,22 +881,32 @@ test('不是本平台起的 ⇒ 说出来，⛔ 不合并成「在跑」', async
   assert.ok(b.label.includes('外部进程'))
 })
 
-test('⭐ 不管进程的机器：老那套 Connected/Unreachable 一个字没丢', async () => {
+// ⭐⭐⭐ 2026-08-30 刀 4：下面两条原本钉的是「老那套 Connected/Unreachable
+//   一个字没丢」。⛔ 不是为了让测试变绿才翻 —— 它钉住的是一个**错形状**：
+//   engine_online = 往某个端口探一下活。端口是第六项：推理只需要
+//   输入+参数+权重+环境，端口是 HTTP 外壳的产物。一台用命令行跑的引擎
+//   （大多数）在这枚灯下永远显示"连不上"，而它其实好好的。
+//   而且引擎是**用完即走的进程**，"它现在在不在线"根本是个不存在的问题。
+//   ⇒ 现在断言的是它的反面：**平台不管进程时，不许画任何在线状态**。
+test('⭐⭐⭐ 不管进程的机器：⛔ 不许画在线/离线 —— 那问的是不存在的问题', async () => {
   const { engineBadge } = await import('./engines.js')
-  const up = engineBadge({ id: 'e', label: 'E', checkpoints: CK_OK, process: null }, { engine_online: true })
-  assert.equal(up.tone, 'ok')
-  assert.ok(up.label.includes('已连接'))
-  // ⭐ 只有在没人会去起它的时候，「探活不通」才真的是坏事。
-  const down = engineBadge({ id: 'e', label: 'E', checkpoints: CK_OK, process: null }, { engine_online: false })
-  assert.equal(down.tone, 'bad')
-  assert.ok(down.label.includes('连不上'))
-  assert.ok(/自己把引擎起起来/.test(down.title))
+  for (const health of [{ engine_online: true }, { engine_online: false }, null]) {
+    const b = engineBadge({ id: 'e', label: 'E', checkpoints: CK_OK, process: null }, health)
+    assert.equal(b.tone, 'idle', '⛔ 平台不知道 ≠ 引擎坏了；不知道就别画红也别画绿')
+    assert.equal(b.label, 'E', '⛔ 灯面上不许出现"已连接/连不上"这类探活结论')
+    assert.ok(!/已连接|连不上|connected|unreachable/i.test(b.label + b.title))
+  }
 })
 
-test('health 还没回来 ⇒ 不画成连不上', async () => {
-  const { engineBadge } = await import('./engines.js')
-  const b = engineBadge({ id: 'e', label: 'E', checkpoints: CK_OK, process: null }, null)
-  assert.equal(b.tone, 'unknown')
+test('⛔ engineBadge 整个函数里不许再读 engine_online', async () => {
+  const fs = await import('node:fs')
+  const url = await import('node:url')
+  const p = url.fileURLToPath(new URL('./engines.js', import.meta.url))
+  const src = fs.readFileSync(p, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n')
+  assert.equal((src.match(/engine_online/g) || []).length, 0,
+    '⛔ 端口探活的结论不许再进任何一枚灯')
 })
 
 test('⛔ 顶栏关于当前引擎只许有一枚灯', async () => {

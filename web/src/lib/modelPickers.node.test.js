@@ -18,7 +18,7 @@ import {
   enginesInMeta, modelsFromMeta, countModelsInMeta, modelCountsByEngine,
   weightsToSend, weightsFromParams, anySlotSwitchable, slotsNeedingRelaunch,
   launchWeightsToSend,
-  voicesForEngine,
+  voicesForEngine, describeGeneration,
 } from './modelPickers.pure.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -94,40 +94,47 @@ test('接口没吐 applies_at ⇒ 兜底 launch（⛔ 不兜底成"能热换"）
   assert.deepEqual(slotsNeedingRelaunch(s), ['a', 'b'])
 })
 
-test('⭐ 二维筛选：别的角色的模型不出现在下拉里', () => {
+test('⭐ 一条规则：候选只来自当前选中的这个角色', () => {
   const g = candidatesForSlot(ASSETS, 'enj-two', 'alpha', 'Alice')
-  const owners = g.map(x => x.voiceId)
-  assert.deepEqual(owners, ['__base__', 'Alice'])
-  assert.ok(!owners.includes('Bob'), 'Bob 的权重不该出现在 Alice 的下拉里')
+  assert.deepEqual(g.map(x => x.voiceId), ['Alice'])
+  assert.ok(!g.some(x => x.voiceId === 'Bob'), 'Bob 的权重不该出现在 Alice 的下拉里')
 })
 
-test('⭐ 底模永远在最前，且在每一个角色下面都出现', () => {
+// ⭐⭐ 2026-08-31 Owner：「为什么 voice 下面还是会有出现底模？都有 base model
+//    这种虚拟资产了」。原来这里钉的是「底模在每一个角色下面都出现」——
+//    那是底模还没有自己条目时的权宜。它现在是一个正经的虚拟角色，
+//    再在别人下面出现一次就是同一份权重的第二个入口，而且那个入口会让
+//    历史记录说「用的是 Alice」。
+test('⛔ 底模不出现在别的角色下面；选中它自己时照常出现且在最前', () => {
   for (const who of ['Alice', 'Bob']) {
     const g = candidatesForSlot(ASSETS, 'enj-two', 'alpha', who)
-    assert.equal(g[0].builtin, true)
-    assert.equal(g[0].voiceId, '__base__')
+    assert.ok(!g.some(x => x.builtin), `${who} 的下拉里不该有底模`)
   }
+  const b = candidatesForSlot(ASSETS, 'enj-two', 'alpha', '__base__')
+  assert.equal(b[0].builtin, true)
+  assert.equal(b[0].voiceId, '__base__')
 })
 
-test('⭐ 一个模型位的引擎，就长一个下拉，且底模在里面', () => {
+test('⭐ 一个模型位的引擎，就长一个下拉', () => {
   const slots = slotsOf(ONE_SLOT)
   assert.equal(slots.length, 1)
   const g = candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Alice')
   const flat = flattenGroups(g)
-  assert.equal(flat.length, 2)                      // 底模 + Alice 自己微调的
-  assert.ok(flat.some(i => i.name === 'base-solo'))
+  assert.equal(flat.length, 1)                      // 只有 Alice 自己微调的
+  assert.ok(!flat.some(i => i.name === 'base-solo'), '底模不在角色的下拉里')
   // ⭐ 整个目录就是一份候选 —— 平台不筛后缀，目录也能当模型。
-  assert.equal(flat.find(i => i.name === 'base-solo').is_dir, true)
+  const base = flattenGroups(candidatesForSlot(ASSETS, 'enj-one', 'solo', '__base__'))
+  assert.equal(base.find(i => i.name === 'base-solo').is_dir, true)
 })
 
 test('空的位不出现（目录建了但里面没东西 ≠ 有模型）', () => {
   const g = candidatesForSlot(ASSETS, 'enj-two', 'beta', 'Alice')
-  assert.deepEqual(g.map(x => x.voiceId), ['__base__'])   // Alice 的 beta 是空数组
+  assert.deepEqual(g, [])   // Alice 的 beta 是空数组，底模也不再来补位
 })
 
-test('这台引擎在这个角色下一个模型都没有 ⇒ 只剩底模；都没有 ⇒ 空', () => {
-  assert.deepEqual(candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Bob').map(x => x.voiceId), ['__base__'])
-  assert.deepEqual(candidatesForSlot(ASSETS, 'enj-nope', 'solo', 'Alice'), [])
+test('这台引擎在这个角色下一个模型都没有 ⇒ 空（⛔ 不拿底模顶上）', () => {
+  assert.deepEqual(candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Bob'), [])
+  assert.deepEqual(candidatesForSlot(ASSETS, 'enj-nope', 'solo', '__base__'), [])
   assert.deepEqual(candidatesForSlot(ASSETS, 'enj-two', '不存在的位', 'Alice'), [])
   assert.deepEqual(candidatesForSlot(null, 'enj-two', 'alpha', 'Alice'), [])
   assert.deepEqual(candidatesForSlot(ASSETS, '', 'alpha', 'Alice'), [])
@@ -147,9 +154,10 @@ test('从路径倒推角色：三层结构认，素材路径不认，底模不�
 })
 
 test('⭐ 属于谁，看它在不在清单里，不看路径长什么样', () => {
-  const g = candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Alice')
+  const b = candidatesForSlot(ASSETS, 'enj-one', 'solo', '__base__')
   // 底模路径没有任何"我是底模"的特征，照样认得出来
-  assert.deepEqual(ownerOfPath(g, '/w/enj-one'), { voiceId: '__base__', displayName: 'Base', builtin: true })
+  assert.deepEqual(ownerOfPath(b, '/w/enj-one'), { voiceId: '__base__', displayName: 'Base', builtin: true })
+  const g = candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Alice')
   assert.equal(ownerOfPath(g, 'assets/Alice/models/enj-one/solo/alice-solo').voiceId, 'Alice')
   assert.equal(ownerOfPath(g, '/不在清单里/的/路径'), null)
   assert.equal(ownerOfPath(g, ''), null)
@@ -211,7 +219,8 @@ test('⛔ 失效的旧选择必须换掉（换引擎后不许把别人的权重�
   const groups = { solo: candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Alice') }
   const out = reconcileSelection(slots, groups, { solo: 'assets/Alice/models/enj-two/alpha/alice-a.ckpt' })
   assert.notEqual(out.solo, 'assets/Alice/models/enj-two/alpha/alice-a.ckpt')
-  assert.equal(out.solo, '/w/enj-one')   // 退回第一条（底模）
+  // 退回这个角色自己的第一条 —— ⛔ 不再退回底模（底模已经不在别人的下拉里）
+  assert.equal(out.solo, 'assets/Alice/models/enj-one/solo/alice-solo')
 })
 
 test('候选是空的时候选择就是空字符串，不是 undefined', () => {
@@ -397,6 +406,60 @@ test('空位/空表都不炸', () => {
 test('顺序照抄音色清单，不重排', () => {
   const got = voicesForEngine(VOICES, ASSETS_2SLOT, 'e1', [{ name: 'a' }])
   assert.deepEqual(got.map(v => v.id), ['base', 'alice', 'bob'])
+})
+
+// --- 历史记录那一行怎么写 -----------------------------------------------
+//
+// 病历：Owner 2026-08-31 00:42 在真机上看到一条 IndexTTS2 的记录印着
+//     Base model · Auto · GPT - / SoVITS - · ref 交谈2_2.wav · seed 3788417817
+// 那台引擎既没有 GPT 位也没有 SoVITS 位。原因是 GenerateTab.jsx 里写死的模板
+//     `GPT ${item.gpt} / SoVITS ${item.sovits}`
+// —— 位名写死、位数写死成 2。
+
+test('一个位的引擎写一格，⛔ 不是两格空一格', () => {
+  assert.equal(
+    describeGeneration({ engine_label: 'Enj One', weights: [{ name: 'solo', label: 'Solo', value: 'checkpoints' }] }),
+    'Enj One · Solo checkpoints')
+})
+
+test('三个位的引擎写三格 —— 位数不是常数 2', () => {
+  assert.equal(
+    describeGeneration({ engine_label: 'Enj Three', weights: [
+      { name: 'a', label: 'A', value: 'x.ckpt' },
+      { name: 'b', label: 'B', value: 'y.pth' },
+      { name: 'c', label: 'C', value: 'z' }] }),
+    'Enj Three · A x.ckpt / B y.pth / C z')
+})
+
+test('⛔ 没选的位写横杠，位不许从行里消失（消失 = 用户以为没这个位）', () => {
+  assert.equal(
+    describeGeneration({ engine_label: 'Enj Two', weights: [
+      { name: 'alpha', label: 'Alpha', value: '' },
+      { name: 'beta', label: 'Beta', value: 'b.pth' }] }),
+    'Enj Two · Alpha - / Beta b.pth')
+})
+
+test('一个位都没有的引擎：只写引擎名，⛔ 不留一个空的分隔符', () => {
+  assert.equal(describeGeneration({ engine_label: 'Enj Zero', weights: [] }), 'Enj Zero')
+})
+
+test('没有 label 就退到引擎 id；位没有 label 就退到位名', () => {
+  assert.equal(
+    describeGeneration({ engine_id: 'enj-one', weights: [{ name: 'solo', value: 'v' }] }),
+    'enj-one · solo v')
+})
+
+test('⚠ 老条目（这一版之前的 meta.json）没有 weights ⇒ 整段不写，⛔ 不去猜位名', () => {
+  assert.equal(describeGeneration({ voice: 'v1' }), '')
+  assert.equal(describeGeneration({}), '')
+  assert.equal(describeGeneration(null), '')
+  // 老条目里可能还留着上一版写下的那两个键 —— 也不许用。
+  assert.equal(describeGeneration({ gpt: 'a.ckpt', sovits: 'b.pth' }), '')
+})
+
+test('坏形状不许把整张历史列表带崩', () => {
+  assert.equal(describeGeneration({ engine_label: 'E', weights: 'nope' }), 'E')
+  assert.equal(describeGeneration({ engine_label: 'E', weights: [null, {}, { name: 'ok', label: 'OK' }] }), 'E · OK -')
 })
 
 // --- 守卫：不许认识任何具体引擎 -----------------------------------------

@@ -113,6 +113,7 @@ const { VoicesStore } = require("./lib/voices/store");
 //   profile.js  一张名片解析成引擎档案（地址/超时/分段/能力/映射/默认值）
 //   payload.js  按名片把一次调用拼成这台引擎认识的请求体
 const { resolveEngineProfile } = require("./lib/engines/profile");
+const { storedGeneration } = require("./lib/engines/weightSummary");
 const { findLegacyDefaultId } = require("./lib/engines/legacyDefault");
 // 契约 C11：任何「引擎有哪些参数 / 默认多少」的问题只问这一个地方。
 const { engineParamDefaults, applyEngineKnobs } = require("./lib/engines/paramTable");
@@ -1004,8 +1005,14 @@ async function _inferOneSegment(payload, cfg, engine, _profile) {
   //   撞上的第一个错误，恰恰是唯一不点名引擎的那个。
   let ttsRes;
   try {
+    // ⭐⭐ 刀 2：这里过去是 `engine ? {...} : undefined` —— 不带 engine 时把
+    //   「连哪台」交给 gsvPost 里那个懒解析的模块级默认值（永远是名片上写
+    //   legacy_default 的那台，9880）。那是一次**看不见的**改道：调用方以为
+    //   自己没指定地址，实际上指定了，而且指定的是别人。
+    //   现在一律用 _profile（上面就是 `engine || legacyEngineProfile()`），
+    //   落到哪台在这一行看得见，也能被日志和报错点名。
     ttsRes = await gsvPost("/tts", payload,
-      engine ? { baseUrl: engine.base_url, reqTimeout: engine.timeout_ms } : undefined);
+      { baseUrl: _profile.base_url, reqTimeout: _profile.timeout_ms });
   } catch (err) {
     if (isTransportError(err)) {
       throw transportFailure(_profile, err,
@@ -1239,8 +1246,18 @@ function genItemFromMeta(meta) {
     text: meta.text || "",
     voice: meta.voiceLabel || meta.voice || "",
     lang: meta.lang || "",
-    gpt: meta.gpt || "\u2014",
-    sovits: meta.sovits || "\u2014",
+    // ⭐⭐ 2026-08-31。这里以前是 gpt / sovits 两个写死的键 —— 读回来的时候
+    //   把第一台引擎的位表又抄了一遍，所以哪怕上面写 meta 的那三处改好了,
+    //   这一行还是能把「GPT - / SoVITS -」重新变出来。四处必须一起改。
+    //
+    //   ⭐⭐⭐ 同一天的第二次订正（Owner 当场驳回）：我第一版写的是
+    //   「老 meta 没有 weights ⇒ 空数组，⛔ 不兜底」，还给它编了个理由。
+    //   他的原话：「那你这个元数据不就炸了？我都不知道是哪个模型生成的。
+    //   名片上不是有 engine_id 嘛？**有没有可能我是想不用硬编码**？」
+    //   —— 去掉硬编码和扔掉数据是两件事，我做成了一件。老条目的 meta.recipe
+    //   是**原样的请求体**，里面本来就有 engine_id 和那次选的每一份模型，
+    //   拿它去查名片就能原样说清楚，一个位名都不必写在这里。
+    ...storedGeneration(meta, resolveEngineProfile),
     segments: meta.segments || 1,
     createdAt: meta.createdAt || 0,
     audio_url: meta.audio_url || "",

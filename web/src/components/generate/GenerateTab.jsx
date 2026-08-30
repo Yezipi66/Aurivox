@@ -13,7 +13,8 @@ import { useAssetsWithModels } from '../../lib/models'
 // ⛔ 这个组件里不许再出现任何引擎名字或模型位名字。
 import { slotsOf, candidatesForSlot, flattenGroups, itemLabel,
          reconcileSelection, weightsToSend, launchWeightsToSend, weightsFromParams,
-         slotsNeedingRelaunch, voicesForEngine, modelNotesFor } from '../../lib/modelPickers.pure.js'
+         slotsNeedingRelaunch, voicesForEngine, modelNotesFor,
+         describeGeneration } from '../../lib/modelPickers.pure.js'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, VOICE_LANG_LABEL, basename, defaultTargetLang, effectiveBaseLang, fmtRecentTime, langLabel, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
@@ -474,10 +475,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   useEffect(() => {
     if (!selectedVoice) return
-    api(`/api/voices/${selectedVoice}/validate`).then(r => {
+    // ⭐ 点名当前引擎：问的是「**这台**引擎开工要的东西齐没齐」。
+    //   ⛔ 不点名会把装着的每一台都答一遍 —— 那是给别的界面用的，不是这里。
+    const q = engine?.id ? `?engine_id=${encodeURIComponent(engine.id)}` : ''
+    api(`/api/voices/${selectedVoice}/validate${q}`).then(r => {
       if (r.ok && r.data.ok) setValidation(r.data.checks)
     }).catch(() => setValidation(null))
-  }, [selectedVoice, voices])
+  }, [selectedVoice, voices, engine?.id])
 
   // Use user-selected ref (from VoiceSidebar) or fall back to an auto-picked slice
   // that still exists on disk (server's live `exists` check) and preferably sits in
@@ -538,6 +542,21 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 引擎参数：只发这台引擎名片里有的键，且遵守 sends_always。
       // ⛔ 名片没写的键一个都不发 —— 服务端会静默忽略，症状是
       //    「我明明调了却没效果」，最难查的那一类。
+      // ⭐⭐⭐ 这一次要连哪台引擎 —— 由**界面上选中的那台**说了算。
+      //   ⛔ 少了这一句的后果就是这一刀要修的那个 bug：请求不点名，
+      //     服务端就去名片里找 legacy_default 那台认领（见
+      //     lib/engines/legacyDefault.js）。于是界面按 A 引擎画格子、
+      //     按 A 引擎发参数、按 A 引擎选权重，请求却打到 B 引擎身上，
+      //     用户看到的是 B 引擎的原话「tts failed」。
+      //   ⛔ 也不许写成 `engine?.id || '某个默认值'` —— 引擎没选出来时
+      //     要空着让服务端报「你没说连哪台」，而不是替用户挑一台。
+      engine_id: engine?.id,
+      // 这台引擎的参数格子。⭐ 点名了引擎，就把参数装进**它自己那一格**，
+      //   服务端据此核对「你发的这袋参数是不是这台引擎的」。
+      //   平铺那一份（下一行）是老路径还在读的形状，暂时并存。
+      engine_params: engine?.id
+        ? { [engine.id]: paramsToSend(engine, paramValues, touchedParams) }
+        : undefined,
       ...paramsToSend(engine, paramValues, touchedParams),
       seed,
       engine_batch: engineBatch,
@@ -1196,7 +1215,12 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   <div className="rr-main">
                     <div className="rr-text" title={item.text}>{item.text || '(empty)'}</div>
                     <div className="rr-meta">
-                      {item.voice} · {langLabel(item.lang)} · GPT {item.gpt} / SoVITS {item.sovits}
+                      {/* ⭐⭐ 这里以前是写死的 `GPT {item.gpt} / SoVITS {item.sovits}` ——
+                          跑 IndexTTS2 也照样印「GPT - / SoVITS -」，两个它没有的位。
+                          现在整段由 describeGeneration 按后端存下的位表拼，位名、
+                          位数、引擎名全部来自名片。⛔ 这里不许再出现任何位名。 */}
+                      {item.voice} · {langLabel(item.lang)}
+                      {describeGeneration(item) ? ` · ${describeGeneration(item)}` : ''}
                       {item.segments > 1 ? ` · ${item.segments} seg` : ''}
                       {refBasename(item) ? ` · ref ${refBasename(item)}` : ''} · {fmtRecentTime(item.createdAt)}
                       {(item.seed ?? item.params?.seed) !== undefined && (item.seed ?? item.params?.seed) !== null && (item.seed ?? item.params?.seed) !== -1 && (
@@ -1492,12 +1516,19 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
         {validation && (
           <div className="field" style={{ marginTop: 8 }}>
             <label className="field-label">Model Validity</label>
-            {/* ⚠ 挂账：这块问的是「那条合成链路准备好了没」，后端至今固定问两个位
-                （见它自己在那处写的同一笔账）。要改成「当前引擎有几个位就问几个」
-                得连着配方一起动，配方这轮不动 ⇒ 这里保持原样，不假装已经通用。 */}
+            {/* ⭐⭐⭐ 刀 3：这里过去写死两行「GPT Model / SoVITS Model」——
+                那是一台引擎的零件清单被抄进了平台。换一台引擎，这两行要么
+                恒为红叉（它其实什么都不缺），要么答非所问（IndexTTS2 只有
+                一个位，界面却追问它 SoVITS 在不在）。
+                现在：**几行、叫什么，是这台引擎的名片说的**，前端一个位名
+                都不认识 —— 后端 /api/voices/:id/validate 直接给 slots[]。
+                ⛔ 别再往这里加任何具体名字。 */}
             <div className="validity-list">
-              <div className="validity-row"><span>GPT Model</span>{statusBadge(validation.gpt_model_exists)}</div>
-              <div className="validity-row"><span>SoVITS Model</span>{statusBadge(validation.sovits_model_exists)}</div>
+              {(validation.slots || []).map(s => (
+                <div className="validity-row" key={`${s.engine_id}:${s.name}`}>
+                  <span>{s.label || s.name}</span>{statusBadge(s.present)}
+                </div>
+              ))}
               <div className="validity-row"><span>Reference Audio</span>{statusBadge(validation.reference_audio_exists)}</div>
             </div>
           </div>

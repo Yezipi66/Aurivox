@@ -78,13 +78,21 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
 // can be edited freely. The graph therefore stays self-contained: changing the
 // voice record later cannot silently change what a saved graph does.
 
-// The fields of a voice record that mean something to the engine. Everything
-// else in the record (display name, tags, timestamps) is broker bookkeeping.
-export const VOICE_PRESET_KEYS = Object.freeze([
-  'gpt_model', 'sovits_model',
-  'sample_steps', 'if_sr', 'aux_ref_audio_paths',
-  'batch_size', 'batch_threshold', 'split_bucket', 'fragment_interval',
-  'parallel_infer', 'speed_factor',
+// ⭐⭐⭐ 2026-08-30 刀 3：这里原本是一张**白名单** ——
+//     ['gpt_model','sovits_model','sample_steps','if_sr','batch_size', …]
+//   十一个键，一个不漏地是 GPT-SoVITS 的参数表被抄进了画布。它的坏法是静默的：
+//   换一台引擎，它的键一个都不在名单上 ⇒ 选了音色、什么都没被带进来，
+//   而界面不会说一个字。（这正是 `nodes.js` 写死 16 个 GSV 键那个 bug 的同族。）
+//
+// ⭐ 换成**减法**：画布不认识任何引擎参数名，它只认识**平台自己的记账字段**。
+//   剩下的残余，全都是引擎的东西 ⇒ 原样带进参数节点。
+//   ⇒ 新引擎带来的新键自动就在里面，这个文件一行都不用改。
+//
+// ⛔ 不许有人再往这里加引擎参数名。要排除的只能是平台自己造的字段。
+export const VOICE_BOOKKEEPING_KEYS = Object.freeze([
+  'id', 'voiceId', 'name', 'display_name', 'label', 'description', 'tags',
+  'created_at', 'updated_at', 'engine_id', 'language',
+  'ref_audio', 'reference_text', 'segments', 'meta',
 ])
 
 // voice record -> the values to write into an engine-parameters node. Empty and
@@ -92,9 +100,10 @@ export const VOICE_PRESET_KEYS = Object.freeze([
 export function voicePreset(record) {
   const out = {}
   if (!record || typeof record !== 'object') return out
-  for (const key of VOICE_PRESET_KEYS) {
-    const value = record[key]
+  for (const [key, value] of Object.entries(record)) {
+    if (VOICE_BOOKKEEPING_KEYS.includes(key)) continue
     if (value === null || value === undefined || value === '') continue
+    if (typeof value === 'object' && !Array.isArray(value)) continue
     out[key] = Array.isArray(value) ? value.join(',') : value
   }
   return out

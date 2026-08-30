@@ -82,15 +82,22 @@ function AppShell() {
     setSelectedPromptLang(promptLang || '')
   }, [])
 
-  // Poll engine health so the badge reflects the GPT-SoVITS engine (port 9880) in
-  // real time. A one-shot check would go stale if the engine dies mid-session.
+  // ⭐⭐⭐ 2026-08-30 刀 4：这个轮询过去的名义是「让徽章实时反映 GPT-SoVITS
+  //   引擎（端口 9880）」—— 那是第六项：端口不是推理需要的东西，是我给引擎
+  //   套的 HTTP 外壳产生的。engine_online 现在**前端一处都不读了**
+  //   （engines.js:engineBadge 与 BrokerTab 那两枚灯已删）。
+  //
+  // ⭐ 留下来的是它另一半用途：ffmpeg 装没装、有没有 CUDA —— 那是**这台机器**
+  //   的事实，不是某台引擎的事实，对所有引擎一视同仁 ⇒ 它不是第六项。
+  //   ⇒ 轮询降到 30s（机器装没装 ffmpeg 不会在 8 秒里变）。
+  // ⛔ 不许再拿这里的结果去画任何一枚"引擎在不在线"的灯。
   useEffect(() => {
     let dead = false
     const check = () => api('/api/health')
-      .then(r => { if (!dead) setHealth(r.data || { ok: false, engine_online: false }) })
-      .catch(() => { if (!dead) setHealth({ ok: false, engine_online: false }) })
+      .then(r => { if (!dead) setHealth(r.data || { ok: false }) })
+      .catch(() => { if (!dead) setHealth({ ok: false }) })
     check()
-    const t = setInterval(check, 8000)
+    const t = setInterval(check, 30000)
     return () => { dead = true; clearInterval(t) }
   }, [])
 
@@ -279,7 +286,7 @@ function AppShell() {
               onActivity={setGenActivity} />
           )}
           {page === 'compare' && (
-            <ReferenceCompareTab voices={voices} selectedVoice={selectedVoice} onActivity={setGenActivity} />
+            <ReferenceCompareTab engine={engine} voices={voices} selectedVoice={selectedVoice} onActivity={setGenActivity} />
           )}
           {page === 'assets' && (
             <AssetsTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}

@@ -369,6 +369,42 @@
     "  {root} / {engine_dir} / {checkpoints}，写错会被当场拒绝启动，不会静默。"
   ],
 
+  "_comment_init_args": [
+    "⛔⛔ 这一段只能待在 manifest 顶层。它 2026-08-30 试过两个位置，两次都错：",
+    "  ① 放进 call.init_args ——  lib/engines/host.py:360 是 klass(**init_args)，",
+    "     一个键都不筛 ⇒ 运行时 TypeError，长得像上游的毛病。",
+    "  ② 放进 call 当兄弟键 —— lib/engines/hostProfile.js:57 有 CALL_KEYS 白名单",
+    "     （kind/module/class/init_args/method/bind/returns/seed/cwd），多一个键",
+    "     ⇒ 启动脚本 ENGINE_HOST_CONTRACT_INVALID，这台引擎**整台被跳过**，",
+    "     前端只看到 Internal server error。真机上就是这么炸的。",
+    "  ⇒ call 那一层是**封闭白名单**，注释一律写在顶层 _comment_* 里。",
+    "",
+    "== use_fp16：2026-08-30 真机改 false → true ==",
+    "⛔ 原来那个 false 是照抄上游 infer_v2.py:38 的函数签名默认值 ——",
+    "  那是**库作者的保守默认**（要照顾没有 fp16 的老卡），不是这台机器上",
+    "  该用的值。照抄它的代价：模型按 fp32 常驻，显存约翻倍，RTX 3070",
+    "  Laptop 的 8192 MiB 装不下 ⇒ WDDM 把溢出的部分放回系统内存 ⇒ 每一步",
+    "  扩散都在 PCIe 上搬权重 ⇒ 实测 5-8 秒/步。",
+    "",
+    "  取证（2026-08-30 23:43-00:32，同一台 3070 Laptop）：",
+    "    日文 3 段 · 段0  infer 392.19s / 音频 10.60s / RTF 36.9993",
+    "      分解 gpt_gen 152.06 + gpt_forward 0.02 + s2mel 196.16 + bigvgan 23.54",
+    "    全中文             infer 232.03s / 7.918s / RTF 29.3",
+    "    全中文（复测）     infer 243.47s / 8.22s  / RTF 29.62",
+    "  ⇒ 换语言没救、把另一台引擎杀掉也没救 ⇒ 不是挤显存，是 fp32 本身。",
+    "",
+    "  ⚠ 下面 _comment_max_chars 里那句「实测 RTF≈32」就是在这个 false 之下",
+    "  测出来的。它被我当成了**引擎的体质**，还照它推出了 max_chars=20 和",
+    "  timeout_ms=600000 —— 那是给我自己造的病定制的参数。新读数出来后这",
+    "  两个值必须重算，⛔ 不许留着旧数字。",
+    "",
+    "== use_cuda_kernel / use_deepspeed：先留 false，一次只动一个变量 ==",
+    "  use_cuda_kernel：BigVGAN 的融合激活 CUDA 核，要现场编译，失败会退回",
+    "    普通实现（infer_v2.py:110-119）。它只加速 bigvgan 那 23.54s，不是大头。",
+    "  use_deepspeed：要装 deepspeed，装不上会自己关掉（infer_v2.py:101-105）。",
+    "  ⇒ 先看 fp16 一项能把 RTF 拉到多少，再决定要不要动它们。"
+  ],
+
   "call": {
     "kind": "python",
     "cwd": "models/tts/indextts2",
@@ -377,7 +413,7 @@
     "init_args": {
       "cfg_path": "{checkpoints}/config.yaml",
       "model_dir": "{checkpoints}",
-      "use_fp16": false,
+      "use_fp16": true,
       "use_cuda_kernel": false,
       "use_deepspeed": false
     },

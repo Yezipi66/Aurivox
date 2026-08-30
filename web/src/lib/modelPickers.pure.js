@@ -115,16 +115,28 @@ export function ownerOfPath(groups, path) {
  *
  * @returns [{ voiceId, displayName, builtin, items:[…] }]  空组已经剔掉
  *
- * ⭐ 底模那一组永远排在最前：它是「不挑角色都能用的那一份」，用户找它的频率
- *    最高，而且它出现在**每一个**角色下面（底模是全局的）。
+ * ⭐⭐ 2026-08-31 订正。这里原来写的是「底模出现在**每一个**角色下面（底模是
+ *    全局的）」，代码里对应一句特判：`if (!a.builtin && a.voiceId !== voiceId)`。
+ *    那句话在底模还没有自己的条目时是对的 —— 那时候不把它挂在别人下面，
+ *    它就没有地方可去。
+ *
+ *    但底模现在是**一个正经的虚拟角色**（`__base__`，Base model，
+ *    lib/routes/assets.js:152 就是这么发出来的，它有自己的 voiceId、自己的
+ *    display_name、自己的模型表）。它已经有地方去了。继续让它在每个角色下面
+ *    再出现一次，等于同一份权重在界面上有两个入口，而这两个入口的语义还不一样：
+ *    「选 Akafuyu，然后在位里挑底模」和「选 Base model」发出去的东西一样，
+ *    显示出来的角色却不一样 —— 历史记录会因此说谎。
+ *
+ *    ⇒ 特判删掉，只留一条规则：**候选来自当前选中的这个角色**。底模被选中时
+ *      voiceId 就是它自己，于是它照常出现，⛔ 不需要为它开任何后门。
  */
 export function candidatesForSlot(assets, engineId, slotName, voiceId) {
   if (!engineId || !slotName) return []
   const out = []
   for (const a of (assets || [])) {
     if (!a) continue
-    // 二维筛选就在这两行：非底模的，只留当前角色。
-    if (!a.builtin && a.voiceId !== voiceId) continue
+    // 一条规则：这一组是不是当前这个角色的。底模也走这条（它自己就是一个角色）。
+    if (a.voiceId !== voiceId) continue
     const items = ((a.models || {})[engineId] || {})[slotName]
     if (!Array.isArray(items) || items.length === 0) continue
     out.push({
@@ -342,6 +354,38 @@ export function anySlotSwitchable(slots) {
  */
 export function slotsNeedingRelaunch(slots) {
   return (slots || []).filter(s => s && s.applies_at !== 'call').map(s => s.name)
+}
+
+/**
+ * 一条历史记录那一行上的「引擎 · 模型」怎么写。
+ *
+ * 病历（Owner 2026-08-31 00:42 真机抓到）：Recent Generations 里写着
+ *     Base model · Auto · GPT - / SoVITS - · ref 交谈2_2.wav · seed 3788417817
+ * 而这一次跑的是 IndexTTS2 —— 它没有 GPT 位也没有 SoVITS 位，只有一个叫
+ * `model` 的位。那一行是 GenerateTab.jsx:1217 写死的模板：
+ *     `GPT ${item.gpt} / SoVITS ${item.sovits}`
+ *
+ * 现在位表跟着后端存进 meta 的 `weights` 走（它自己是按名片算的）。
+ *
+ * ⛔ 这个函数里不许出现任何位名、任何引擎名，也不许假设位有几个：
+ *   0 个位（引擎没有可换的模型）、1 个位、3 个位都要能写出来。
+ * ⛔ 没选的位不许省略：写 `位名 -`。位从行里消失 = 用户以为这台引擎没这个位。
+ * ⚠ 老条目（这一版之前生成的 meta.json）没有 weights ⇒ 返回空串，
+ *   调用方整段不显示。这是有意的，见 server.js genItemFromMeta 的说明。
+ *
+ * @returns {string} 例如 'IndexTTS2 · Model checkpoints' / 'GPT-SoVITS · GPT a.ckpt / SoVITS b.pth'
+ *                   / '' （既没有引擎名也没有位）
+ */
+export function describeGeneration(item) {
+  const parts = []
+  const engine = item && (item.engine_label || item.engine_id)
+  if (engine) parts.push(String(engine))
+  const weights = (item && Array.isArray(item.weights)) ? item.weights : []
+  const slots = weights
+    .filter(w => w && w.name)
+    .map(w => `${w.label || w.name} ${w.value || '-'}`)
+  if (slots.length) parts.push(slots.join(' / '))
+  return parts.join(' · ')
 }
 
 // ---------------------------------------------------------------------------

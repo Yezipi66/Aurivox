@@ -28,7 +28,7 @@ const BASE_VOICE_ID = '__base__'
 // ===========================
 //  REFERENCE COMPARE TAB
 // ===========================
-function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
+function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()
   // Persisted: a Compare Refs workspace must survive reloads / app restarts.
   // Generated audio is referenced by a server URL (result.audio_url) — not a blob —
@@ -318,6 +318,11 @@ function ReferenceCompareTab({ voices, selectedVoice, onActivity }) {
         voice: rowVoiceId,
         text: row.text.trim() || defaultText,
         format: 'wav',
+        // ⭐ 和 Generate 页同一件事：这一次要连哪台引擎，由界面上选中的那台
+        //   说了算，⛔ 不让服务端去 legacy_default 里认领。
+        //   （这一页下面那一堆 temperature/top_k/text_split_method 仍然是
+        //    **手抄进前端的 GSV 参数表** —— 那是下一刀要收的东西，不是这一刀。）
+        engine_id: engine?.id,
         source: 'comparerefs',
         split: true,
         concat: true,
