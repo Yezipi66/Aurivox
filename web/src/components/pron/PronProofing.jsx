@@ -25,6 +25,14 @@ import {
 
 // Item 17: localised language name for use inside translated sentences. Technical
 // reading units (kana, ARPABET, pinyin, jyutping) always stay English.
+// ⭐ 刀 A1（2026-08-31）：读音预览必须跟着当前选中的那台引擎走。
+//   缺引擎时说的是「去哪儿能补上」，⛔ 不是一句 "Preview failed (400)"。
+//   ⛔ 也不许改成"帮你挑一台" —— 理由写在 PronPanel 的文件内注释里。
+const NO_ENGINE_MSG = (t) => t(
+  'Reading preview follows the engine you picked on the Generate page. Pick an engine there first.',
+  '读音预览跟着「合成」页选中的那台引擎走（换一台引擎读音可能就不一样了）。请先在那里选一台引擎。',
+)
+
 function langName(t, code) {
   return t(
     ({ zh: 'Chinese', yue: 'Cantonese', ja: 'Japanese', en: 'English', ko: 'Korean' })[code] || code,
@@ -84,7 +92,18 @@ function tokIsPunct(tok) {
 
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedPositions, mutedLangLabel, mutedLangByPosition }) {
+// ⭐⭐⭐ 刀 A1（2026-08-31）新增 `engineId`。
+//   后端 /api/pron/preview 现在 **engine_id 必传**（lib/routes/pron.js:58-65），
+//   不传直接 400 `PRON_ENGINE_ID_MISSING`。
+//
+//   ⛔ 为什么不让后端挑一台兜底：判据在 `lib/inference/infer_server.py:574`
+//     的注释 ——「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。」
+//     ⇒ 换一台引擎去预览，读出来可能也对，但**它已经不再回答原来那个问题**。
+//     给一个看起来对、和实际合成不一致、又不报错的读音，比没有这个功能更坏。
+//
+// ⚠ 因此 engineId 缺席时这个面板**主动灰掉并说清原因**，⛔ 不发那个必定 400
+//   的请求（发了用户只会看到一句英文报错，不知道该去哪儿改）。
+function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedPositions, mutedLangLabel, mutedLangByPosition, engineId }) {
   const { t } = useT()
   const wide = layout === 'wide'
   const mutePositionSet = mutedPositions instanceof Set ? mutedPositions : new Set(mutedPositions || [])
@@ -123,9 +142,10 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
     setError(null); setPreview(null); setWordEdits({}); setRespellEdits({}); setOpenDetail({})
     if (!text.trim()) { setError(t('Enter text above first.', '请先在上方输入文本。')); return }
     if (!supported) { setError(t(`Reading proofing does not support "${lang}" yet.`, `读音校对暂不支持 “${lang}”。`)); return }
+    if (!engineId) { setError(NO_ENGINE_MSG(t)); return }
     setLoading(true)
     try {
-      const r = await api('/api/pron/preview', { method: 'POST', body: { text, lang } })
+      const r = await api('/api/pron/preview', { method: 'POST', body: { text, lang, engine_id: engineId } })
       if (!r.ok) throw new Error(r.data?.error || `Preview failed (${r.status})`)
       setPreview(r.data)
       // 按预览里出现的每种语言加载词典。
@@ -211,8 +231,9 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   const respellEn = async (word, occ) => {
     const src = String(respellEdits[editKey('en', word, occ)] || '').trim()
     if (!src) return
+    if (!engineId) { setError(NO_ENGINE_MSG(t)); return }
     try {
-      const r = await api('/api/pron/preview', { method: 'POST', body: { text: src, lang: 'en' } })
+      const r = await api('/api/pron/preview', { method: 'POST', body: { text: src, lang: 'en', engine_id: engineId } })
       if (r.ok) {
         const arpa = (r.data?.tokens || []).flatMap(tk => tk.readings || [])
         if (arpa.length) changeWordReading('en', word, occ, arpa.join(' '))
@@ -527,10 +548,12 @@ function previewReading(data, lang) {
 // bridge in the old UI: it calls the already-existing /api/pron/preview endpoint
 // for the selected language, displays the returned reading, and writes the edited
 // value into the position-keyed han_readings payload used by inference.
-function HanReadingReview({ text, direction, assignments, readings, setReadings }) {
+function HanReadingReview({ text, direction, assignments, readings, setReadings, engineId }) {
   const { t } = useT()
   const selected = assignmentList(assignments, text)
-  const selectionSignature = selected.map(item => `${readingKey(item)}=${item.lang}`).join('|')
+  // ⭐ 刀 A1：engineId 进签名 —— 换一台引擎 g2p 就换了一套，
+  //   这一批建议读音必须重新问。⛔ 不许把它从签名里拿掉。
+  const selectionSignature = selected.map(item => `${readingKey(item)}=${item.lang}`).join('|') + `#${engineId || ''}`
   const [suggestions, setSuggestions] = useState({})
 
   useEffect(() => {
@@ -563,9 +586,12 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings 
     Promise.all(selected.map(async item => {
       const key = readingKey(item)
       try {
+        // ⭐ 刀 A1：engine_id 必传。⛔ 缺了不发 —— 见下面 selectionSignature 那一支，
+        //   engineId 已经进了依赖签名，选上引擎之后这一批会自己重来。
+        if (!engineId) return [key, { reading: '', candidates: [], loading: false, error: NO_ENGINE_MSG(t) }]
         const r = await api('/api/pron/preview', {
           method: 'POST',
-          body: { text: item.char, lang: item.lang },
+          body: { text: item.char, lang: item.lang, engine_id: engineId },
         })
         if (!r.ok) throw new Error(r.data?.error || `Preview failed (${r.status})`)
         const value = previewReading(r.data, item.lang)
@@ -668,7 +694,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings 
   )
 }
 
-function HanLangPicker({ text, direction, forced, setForced, readings, setReadings, onDragState }) {
+function HanLangPicker({ text, direction, forced, setForced, readings, setReadings, onDragState, engineId }) {
   const { t } = useT()
   const positions = hanPositions(text)
   const map = normalizeAssignments(forced, direction, text)
@@ -792,7 +818,7 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
       <div style={{ marginTop: 8, fontSize: 11, color: overriddenCount ? 'var(--accent)' : 'var(--muted)' }}>
         {t(`${overriddenCount} position(s) manually overridden`, `${overriddenCount} 个位置已手动覆盖`)}
       </div>
-      <HanReadingReview text={text} direction={direction} assignments={map} readings={readings || {}} setReadings={setReadings} />
+      <HanReadingReview text={text} direction={direction} assignments={map} readings={readings || {}} setReadings={setReadings} engineId={engineId} />
     </div>
   )
 }
@@ -821,7 +847,10 @@ function HanFinalPreview({ text, direction, forced }) {
 
 // One modal that houses BOTH the per-character language picker and reading
 // proofing, so the page keeps only a compact trigger button (no tall panels).
-function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPronOverrides, hanDirection, hanForced, setHanForced, hanReadings, setHanReadings }) {
+// ⭐ 刀 A1（2026-08-31）：新增 `engineId`，一路传到两个会发 /pron/preview 的孩子。
+//   ⛔ 4 个渲染点都必须传 —— 漏一个的表现是"那个页面的读音预览安静地不工作"。
+//   `pronEngineId.node.test.js` 有一条守卫逐个点名盯着它们。
+function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPronOverrides, hanDirection, hanForced, setHanForced, hanReadings, setHanReadings, engineId }) {
   const { t } = useT()
   const dragActiveRef = useRef(false)
   const backdropPointerDownRef = useRef(false)
@@ -866,6 +895,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
               readings={hanReadings}
               setReadings={setHanReadings}
               onDragState={active => { dragActiveRef.current = active }}
+              engineId={engineId}
             />
           </div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
@@ -884,6 +914,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
               mutedPositions={forcedPositions.map(pos => pos.index)}
               mutedLangByPosition={mutedLangByPosition}
               mutedLangLabel={hanDirection ? t('another Han language', '另一种汉字语言') : null}
+              engineId={engineId}
             />
           </div>
           <HanFinalPreview text={text} direction={hanDirection} forced={hanForced} />

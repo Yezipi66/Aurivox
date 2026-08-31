@@ -218,3 +218,8 @@ engines/indextts2/NOTICE
 tools/dev/*.out.txt
 models/ 
 web/dist.before*/
+
+# 平台自己量出来的记录（每台引擎最多吃过多少内存）。
+# 换一台机器这些数就不成立了 —— 这是本机的观测，不是项目的一部分。
+# ⛔ 不是缓存：删了不会自动重算，只会退回「不知道」。
+state/

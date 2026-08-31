@@ -85,6 +85,31 @@ export function showsTrainingTab(engine) {
   return !!(engine && engine.supports_finetune === true)
 }
 
+/**
+ * 刀 F2：起 / 停一台引擎。
+ *
+ * ⭐⭐⭐ 这两个函数出现之前，`web/src/` 里请求 `/api/engines/*` 的写操作是
+ *   **0 次** —— 后端 supervisor 的 ensure / stop 全都测穿了，界面上一个都够不着。
+ *   起一台引擎唯一的办法是点一次合成。
+ *
+ * ⛔ 这里不做任何"能不能起"的判断（那在 engineActions.pure.js 和后端
+ *   residency.js）。这两个函数只负责发出去、把响应原样交回。
+ * ⛔ 也不许在这里 catch 掉错误再返回一个 ok —— 静默成功是最贵的那种坏法。
+ */
+export function startEngine (id, { weights, confirmed } = {}) {
+  const body = {}
+  if (weights) body.weights = weights
+  // ⛔ 只有**显式**说了才带上。后端靠 "有没有这个键" 区分
+  //   「没说」和「说了不同意」（lib/engines/supervisor.js:337）；
+  //   无脑带一个 false 会让每次手动启动都被拒。
+  if (confirmed !== undefined) body.confirmed = !!confirmed
+  return api(`/api/engines/${encodeURIComponent(id)}/start`, { method: 'POST', body })
+}
+
+export function stopEngine (id) {
+  return api(`/api/engines/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {} })
+}
+
 // ⛔⛔ 这里原本有一个 showsModelPickers(engine)：名片说这台引擎不能热换权重，
 //    就把模型下拉整个藏掉。2026-08-30 删除。
 //

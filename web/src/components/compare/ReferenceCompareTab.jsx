@@ -153,11 +153,17 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
 
   // Load default advanced params from backend
+  // ⭐⭐⭐ 刀 A1（2026-08-31）：这里过去是裸的 `/api/advanced-params`，
+  //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault）。那条路已经删了
+  //   ⇒ 现在**必须**带上 engine_id，且 engine 还没到就一个字节都不发。
+  //   ⛔ 不许在这里塞任何回落引擎 —— 回落回来的默认值属于**另一台**引擎，
+  //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都对不上的错。
   useEffect(() => {
-    api('/api/advanced-params').then(r => {
+    if (!engine?.id) return
+    api(`/api/advanced-params?engine_id=${encodeURIComponent(engine.id)}`).then(r => {
       if (r.ok && r.data) setDefaultParams(r.data)
     }).catch(() => {})
-  }, [])
+  }, [engine?.id])
 
   // Preload segments for selected voice
   useEffect(() => {
@@ -470,6 +476,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 pronOverrides={defaultPronOverrides || {}} setPronOverrides={setDefaultPronOverrides}
                 hanDirection={defaultHanDir} hanForced={defaultHanForced} setHanForced={setDefaultHanForced}
                 hanReadings={defaultHanReadings} setHanReadings={setDefaultHanReadings}
+                engineId={engine?.id}
               />
             )}
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
@@ -505,6 +512,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           key={row.id}
           row={row}
           index={rowIdx}
+          engineId={engine?.id}
           allAudioFiles={allAudioFiles}
           voiceFiles={voiceFiles}
           onUpdate={updateRow}
@@ -646,7 +654,9 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
   )
 }
 
-function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch }) {
+// ⭐ 刀 A1（2026-08-31）：新增 `engineId` —— 行内的读音校对要发 /pron/preview，
+//   而那个接口现在 engine_id 必传。⛔ 漏传的表现是"这一行的读音预览安静地不工作"。
+function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId }) {
   const { t } = useT()
   const [showPicker, setShowPicker] = useState(false)
   const [recipeId, setRecipeId] = useState('')
@@ -1147,6 +1157,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                 pronOverrides={row.pronOverrides || {}} setPronOverrides={o => onUpdate(row.id, 'pronOverrides', o)}
                 hanDirection={rowHanDir} hanForced={rowHanForced} setHanForced={f => onUpdate(row.id, 'hanForced', f)}
                 hanReadings={row.hanReadings || {}} setHanReadings={r => onUpdate(row.id, 'hanReadings', r)}
+                engineId={engineId}
               />
             )}
           </>

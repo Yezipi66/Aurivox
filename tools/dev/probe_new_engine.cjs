@@ -278,9 +278,24 @@ function walkStages(profile, manifest) {
     return JSON.stringify(r).slice(0, 160)
   })
 
-  add('老路兜底（findLegacyDefaultId）', () => {
-    const { findLegacyDefaultId } = freshRequire('lib/engines/legacyDefault.js')
-    return '老路默认引擎 = ' + String(findLegacyDefaultId())
+  // ⭐⭐⭐ 刀 A1（2026-08-31）：这里过去是
+  //     add('老路兜底（findLegacyDefaultId）', () => freshRequire('lib/engines/legacyDefault.js'))
+  //   `lib\engines\legacyDefault.js` 已**整个删除**（平台不再替用户猜"用哪台引擎"）。
+  //
+  // ⚠ 这一处是**整刀里唯一漏网的引用**，而且漏得很有代表性：
+  //   `tools\dev\` 下没有任何 `.node.test.js` 盯着它 ⇒ 跑全量测试 1514 条全绿，
+  //   它照样坏着；只有哪天真的有人跑这个探针，才会吃一个 MODULE_NOT_FOUND。
+  //   ⭐ 判据：**"删掉一个模块"这件事，测试套件只覆盖得到有测试的地方** ——
+  //     所以删模块之后必须全仓库找 require/import 形状，⛔ 不是只看测试绿不绿。
+  //
+  // 现在把它翻面：探针改成**确认那个模块确实不在了**。
+  //   ⛔ 不许因为"这只是个 dev 脚本"就把这一格删空 —— 探针的价值就是把
+  //     "接一台新引擎会经过哪些台阶"逐格摆出来，少一格就少一格看得见的历史。
+  add('老路兜底已拆除（legacyDefault 必须不存在）', () => {
+    const fsx = require('node:fs')
+    const p = path.join(ROOT, 'lib', 'engines', 'legacyDefault.js')
+    if (fsx.existsSync(p)) throw new Error('lib/engines/legacyDefault.js 又回来了 —— A1 被回退了')
+    return '✔ 已删除：平台不再猜默认引擎，没选引擎就报 RECIPE_NO_ENGINE / PRON_ENGINE_ID_MISSING'
   })
 
   return stages

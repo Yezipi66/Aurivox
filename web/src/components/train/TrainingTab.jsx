@@ -939,7 +939,9 @@ function DenoiseReviewPanel({ taskId, onResumed, onCancel }) {
 // (data/pron_lexicon/{lang}.json), which the g2p layer applies on the next
 // training/inference run. Overrides are per-line and transient; only the lexicon
 // save persists (that's the closed loop; see PG-1a).
-function AsrRowProof({ text, lang, onChange, disabled }) {
+// ⭐ 刀 A1（2026-08-31）：`engineId` 一路传到 PronPanel —— /api/pron/preview
+//   现在 engine_id 必传。⛔ 不传的表现是"这里的读音校对安静地不工作"。
+function AsrRowProof({ text, lang, onChange, disabled, engineId }) {
   const [open, setOpen] = useState(false)
   const [overrides, setOverrides] = useState({})
   return (
@@ -948,13 +950,13 @@ function AsrRowProof({ text, lang, onChange, disabled }) {
         {open ? 'Hide reading proofing' : 'Proof reading'}
       </button>
       {open && (
-        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} layout="wide" />
+        <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} layout="wide" engineId={engineId} />
       )}
     </div>
   )
 }
 
-function AsrReviewPanel({ taskId, onResumed, lang }) {
+function AsrReviewPanel({ taskId, onResumed, lang, engineId }) {
   const { t: tr } = useT();
   const [rows, setRows] = useState(null);
   const [listName, setListName] = useState('');
@@ -1044,7 +1046,7 @@ function AsrReviewPanel({ taskId, onResumed, lang }) {
                           onChange={e => setText(r.index, e.target.value)} />
                 </div>
                 <WordConf words={r.words} tr={tr} />
-                <AsrRowProof text={r.text} disabled={busy}
+                <AsrRowProof text={r.text} disabled={busy} engineId={engineId}
                              lang={(r.lang || (lang === 'auto' ? '' : lang) || '').toLowerCase()}
                              onChange={val => setText(r.index, val)} />
               </div>
@@ -1123,7 +1125,7 @@ function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onClose }
   )
 }
 
-function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill, health }) {
+function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill, health }) {
   const { t: tr } = useT()
   const [form, setForm] = usePersistentState('train.form', {
     inputDir: '', language: 'auto', voiceName: '',
@@ -2706,7 +2708,7 @@ function TrainingTab({ voices, loadVoices, activeTaskId, setActiveTaskId, trainP
                 </div>
               )}
               {isAwaitingReview && status?.reviewStage === 'asr' && (
-                <AsrReviewPanel taskId={taskId} lang={status?.language || form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
+                <AsrReviewPanel taskId={taskId} engineId={engine?.id} lang={status?.language || form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
               )}
               {isInterrupted && (
                 <div className="msg msg-error" style={{ marginBottom: 8 }}>

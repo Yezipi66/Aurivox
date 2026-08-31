@@ -114,7 +114,6 @@ const { VoicesStore } = require("./lib/voices/store");
 //   payload.js  按名片把一次调用拼成这台引擎认识的请求体
 const { resolveEngineProfile } = require("./lib/engines/profile");
 const { storedGeneration } = require("./lib/engines/weightSummary");
-const { findLegacyDefaultId } = require("./lib/engines/legacyDefault");
 // 契约 C11：任何「引擎有哪些参数 / 默认多少」的问题只问这一个地方。
 const { engineParamDefaults, applyEngineKnobs } = require("./lib/engines/paramTable");
 const { createAdvancedParamsStore } = require("./lib/advancedParams");
@@ -421,6 +420,17 @@ function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(onlin
 const { EngineSupervisor } = require("./lib/engines/supervisor");
 const { spawnFromPlan, probeOnce } = require("./lib/engines/spawnEngine");
 const { buildLaunchPlan: _buildLaunchPlan } = require("./lib/engines/launchPlan");
+
+// ⭐⭐⭐ 内存判据在这里插上。上限从「最多几台」改成「机器还剩多少」——
+//   「开了几台」是个代理指标，靠两个假设换算（一台大概吃多少、这机器上只有
+//   我们在跑），假设一破就答错而且不会有任何提示。真机 2026-08-31 把两个
+//   假设都打穿了：GSV 峰值 3547 MB，16 G 机器空着只剩 6230 MB。
+//   ⇒「还剩多少」这个数天然已经把别人吃掉的算进去了。
+//
+// ⛔ 两个都是**注入**进去的，不是在 supervisor.js 顶上 require 的 ——
+//   那个文件那 57 条测试得能在一台没有引擎、不许写盘的机器上跑穷。
+const _memprobe = require("./lib/engines/memprobe");
+const _memledger = require("./lib/engines/memledger");
 const _engineSupervisor = new EngineSupervisor({
   spawn: (plan) => spawnFromPlan(plan, { rootDir: __dirname }),
   probe: (url, timeoutMs) => probeOnce(url, timeoutMs),
@@ -428,7 +438,26 @@ const _engineSupervisor = new EngineSupervisor({
   loadProfile: (id) => resolveEngineProfile(id),
   log: (line) => console.log(line),
   env: process.env,
+  mem: {
+    freeMb: () => _memprobe.freeMb(),
+    sampleTree: (pid) => _memprobe.sampleTree(pid),
+  },
+  // 把 rootDir 绑上 —— supervisor 不该知道账本落在盘上的哪儿。
+  ledger: {
+    needMb: (id) => _memledger.needMb(__dirname, id),
+    record: (id, mb) => _memledger.record(__dirname, id, mb),
+    markAttempting: (id) => _memledger.markAttempting(__dirname, id),
+    reapAttempts: () => _memledger.reapAttempts(__dirname),
+  },
 });
+// ⭐⭐ 开机结上一轮的账：还挂着「正在试」的，都是**没活着回来**的。
+//   被系统 OOM 杀掉的进程来不及让我们读峰值 —— 这条是它唯一会留下的痕迹。
+// ⛔ 不抛：结不了账不该拦住后端启动。
+try {
+  _engineSupervisor.reapCrashes();
+} catch (err) {
+  console.warn("[engine] 结上一轮的内存账时出错，忽略：" + ((err && err.message) || err));
+}
 // 定时把空闲够久的放掉。⭐ 这件事和「有人来抢名额」无关 —— 内存该吐就吐，
 //   不该等到下一个人来要位置才想起来。
 // ⚠ unref：这个定时器不该单独把进程留住。少了它，Ctrl-C 之后后端不退出。
@@ -840,17 +869,14 @@ function resolveReference(cfg) {
   return { reference_audio: refAudio, reference_text: refText };
 }
 
-// 老路径引擎的名片，懒解析 + 缓存。
-// 没传 engine 的调用方 = webui 那条老合成路径，它诞生时全世界只有一台引擎。
-// ⛔ 解析不出来就抛，不回落到一张写死的 GSV 表 —— 回落会让「名片写坏了」
-//    表现成「声音不对」，那是这一整轮都在消灭的失败形式。
-let _legacyProfileCache = null;
-function legacyEngineProfile() {
-  if (!_legacyProfileCache) {
-    _legacyProfileCache = resolveEngineProfile(findLegacyDefaultId());
-  }
-  return _legacyProfileCache;
-}
+// ⭐⭐⭐ 2026-08-31（刀 A1）：这里过去有 legacyEngineProfile() —— 没传 engine 的
+//   调用方，替它去解析「名片上写 legacy_default 的那台」。**已删。**
+//
+//   它的问题不是"取自哪台"，是它让 `engine` 这个参数**看起来可选**。
+//   一个可选的引擎参数，意味着每个新调用点都可以忘了传，而忘了传**不报错**
+//   —— 报出来的是另一台引擎的原话。
+// ⇒ buildTtsPayload 的 engine **变必传**，不传当场抛。
+//   ⛔ 不回落、⛔ 不给默认、⛔ 不留 `engine || 什么什么`。
 
 // ---------------------------------------------------------------------------
 //  合成结果复用缓存
@@ -880,9 +906,15 @@ if (segmentCache.enabled) {
 // ---------------------------------------------------------------------------
 // @param {string} text     要合成的文本
 // @param {object} cfg      合成配置（键名是历史形状，见文件末尾的"遗留词汇"说明）
-// @param {object} [engine] resolveEngineProfile 的产物；不传 = 老路径引擎
+// @param {object} engine   resolveEngineProfile 的产物。⭐ **必传**（刀 A1）。
 function buildTtsPayload(text, cfg, engine) {
-  const profile = engine || legacyEngineProfile();
+  if (!engine) {
+    throw new Error(
+      "buildTtsPayload: engine is required — 平台没有默认引擎。" +
+      " 调用方必须先解析出这次要打哪一台（resolveEngineProfile(engine_id)）。"
+    );
+  }
+  const profile = engine;
   const { reference_audio, reference_text } = resolveReference(cfg);
 
   // 平台的词 —— 右边这些 cfg 字段名是历史遗留的 GSV 形状，
@@ -934,14 +966,18 @@ function buildTtsPayload(text, cfg, engine) {
 //  GENERATION CORE
 // ===========================
 
-async function switchModels(cfg) {
+async function switchModels(cfg, engine) {
   // 切权重必须成功后才推理: 失败则抛错, 避免静默地用旧/半加载模型合成 (错声音/异常)。
   // Point 4 — same-model coalescing: delegate to the shared ModelSwitcher, which
   // skips the /set_*_weights round-trip when the requested weights are already
   // resident. Behaviour on a first/changed request or on failure is identical
   // to the previous inline implementation (same thrown Error messages). Safe
   // because switchModels is only ever called under withGenerationLock.
-  return _modelSwitcher.ensure(cfg);
+  // ⭐ engine = 这次请求解析出来的名片。换权重是发给**这一台**的请求，
+  //   地址必须跟着走 —— 不跟着走的后果不是"落到默认那台"，而是客户端当场
+  //   抛 ENGINE_BASE_URL_MISSING，前端只看得到 "Internal server error"。
+  //   （2026-08-30 实测：界面上选好音色一按生成就 500，一声不出。）
+  return _modelSwitcher.ensure(cfg, engine || null);
 }
 
 async function generateOneSegment(segmentText, cfg, engine, out = {}) {
@@ -958,7 +994,9 @@ async function generateOneSegment(segmentText, cfg, engine, out = {}) {
   // ⭐ C11：原来这里写死补 ["sample_steps","if_sr"] 两个键 —— 那是 GPT-SoVITS
   //   的私有参数名。现在补的是「这台引擎名片上声明的全部旋钮」，所以下游引擎
   //   的布尔参数不会再在这一行上被静默丢掉。
-  const _profile = engine || legacyEngineProfile();
+  // ⭐ 刀 A1：这里过去是 `engine || legacyEngineProfile()`。engine 现在必传，
+  //   而且上面 buildTtsPayload 已经先替我们把「没传」拦成异常了。
+  const _profile = engine;
   applyEngineKnobs(payload, _profile, cfg);
 
   // ⭐⭐ 复用缓存的取值点就在这里，位置是刻意的：payload 已经拼完
@@ -1009,7 +1047,7 @@ async function _inferOneSegment(payload, cfg, engine, _profile) {
     //   「连哪台」交给 gsvPost 里那个懒解析的模块级默认值（永远是名片上写
     //   legacy_default 的那台，9880）。那是一次**看不见的**改道：调用方以为
     //   自己没指定地址，实际上指定了，而且指定的是别人。
-    //   现在一律用 _profile（上面就是 `engine || legacyEngineProfile()`），
+    //   现在一律用 _profile（= 必传的 engine，刀 A1），
     //   落到哪台在这一行看得见，也能被日志和报错点名。
     ttsRes = await gsvPost("/tts", payload,
       { baseUrl: _profile.base_url, reqTimeout: _profile.timeout_ms });
@@ -1069,16 +1107,18 @@ const ENGINE_LAUNCH_DEFAULTS = {
 //    变更），全量 661 条测试**一条没红**。这里留下的三个薄壳只为不动 ctx 接线。
 const advancedParamsStore = createAdvancedParamsStore({
   file: ADVANCED_PARAMS_FILE,
-  engineDefaults: () => engineParamDefaults(findLegacyDefaultId()),
+  // ⭐ 刀 A1：过去是 `() => engineParamDefaults(findLegacyDefaultId())`。
+  //   现在由调用方说是哪台；⛔ 没说就一个默认值都不给。
+  engineDefaults: (engineId) => (engineId ? engineParamDefaults(engineId) : {}),
   launchDefaults: ENGINE_LAUNCH_DEFAULTS,
 });
 
-function defaultAdvancedParams() {
-  return advancedParamsStore.defaults();
+function defaultAdvancedParams(engineId) {
+  return advancedParamsStore.defaults(engineId);
 }
 
-function loadAdvancedParams() {
-  return advancedParamsStore.load();
+function loadAdvancedParams(engineId) {
+  return advancedParamsStore.load(engineId);
 }
 
 // ⭐⭐ **替换**，不是合并 —— 理由全文见 lib/advancedParams.js 顶部第 ② 条。

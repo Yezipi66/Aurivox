@@ -97,7 +97,9 @@ function RowAudio({ url }) {
   )
 }
 
-export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning }) {
+// ⭐ 刀 A1（2026-08-31）：`engineId` 往下传给 TextPrepModal —— /api/pron/preview
+//   现在 engine_id 必传，⛔ 平台不替你挑一台。
+export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning, engineId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [buckets, setBuckets] = useState([])
@@ -290,6 +292,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
           pronOverrides={pronOverrides} setPronOverrides={setPronOverrides}
           hanDirection={hanDir} hanForced={hanForced} setHanForced={setHanForced}
           hanReadings={hanReadings} setHanReadings={setHanReadings}
+          engineId={engineId}
         />
       )}
     </div>

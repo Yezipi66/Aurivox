@@ -366,16 +366,14 @@
   ],
   "base_url_env": "GPT_SOVITS_BASE_URL",
 
-  "_comment_legacy_default": [
-    "⚠ 过渡期标记，第 2 步之后会删。",
-    "webui 那条老合成路径没有『引擎』这个参数 —— 它诞生时全世界只有一台引擎。",
-    "第 1 步把写死的地址拔掉了，但还没给老路径加引擎参数（那是第 2 步）。",
-    "这一行的意思是：『没人告诉我连哪台的时候，连我』。",
-    "把它写在 manifest.json 上而不是写在 lib/ 里，是为了让『老路径今天绑死在谁身上』",
-    "成为一件看得见、可审计、将来可以被删掉的事实。",
-    "有且只能有一张 manifest.json 写这一行，写了两张会直接报错（不会静默按字母序挑）。"
+  "_comment_legacy_default_removed": [
+    "⭐ 2026-08-31（刀 A1）：这里过去有 \"legacy_default\": true —— 意思是",
+    "『没人告诉我连哪台的时候，连我』。整个机制（本键 + lib/engines/legacyDefault.js）",
+    "已删除。删除条件当时写的是『当 web 前端开始发 engine_id 时』，而",
+    "web/src/components/generate/GenerateTab.jsx 已经在发了。",
+    "⛔ 别把这个键加回来：一有默认引擎，第 N+1 台引擎的作者就永远要回答",
+    "『我算不算默认』，而这个问题对每台引擎的答案都不一样。"
   ],
-  "legacy_default": true,
 
   "_comment_timeout_ms": [
     "单次请求超时，按『每一段』计不是整篇。300000 = 搬家前 lib/gsv/client.js",

@@ -14,7 +14,7 @@ import { modelCountsByEngine, countModelsInMeta, modelsFromMeta } from '../../li
 // ============================
 //  ASSETS TAB
 // ============================
-function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
+function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
   const { t } = useT()
   const [assets, setAssets] = useState(null)
   const [scanning, setScanning] = useState(false)
@@ -1056,6 +1056,7 @@ function AssetsTab({ voices, selectedVoice, setSelectedVoice, setPage, loadVoice
       {proofTarget && (
         <ReferenceTranscriptProofing
           voiceId={proofTarget.id}
+          engineId={engine?.id}
           asrRunning={transcribeJobs[proofTarget.id]?.status === 'running'}
           onClose={() => setProofTarget(null)}
           onSaved={() => {

@@ -8,6 +8,7 @@ import { ReferenceCompareTab } from './components/compare/ReferenceCompareTab'
 import { GenerateTab } from './components/generate/GenerateTab'
 import { TrainingTab } from './components/train/TrainingTab'
 import { FlowCanvasTab } from './components/flowgraph/FlowCanvasTab'
+import { EnginesTab } from './components/engines/EnginesTab'
 import { LangProvider, LangToggle, useT } from './lib/i18n'
 import { Select } from './components/common/Select'
 import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessState } from './lib/engines'
@@ -116,6 +117,20 @@ function AppShell() {
     return () => { dead = true }
   }, [])
 
+  // 刀 F2：起 / 停之后立刻重拉一次，⛔ 不等那个 8 秒轮询。
+  // ⭐ 等 8 秒的表现是"按钮点了没反应"，然后用户再点一次 —— 而第二次点的是
+  //   一台正在启动的引擎（要等几十秒到几分钟），只会排得更久。
+  const refreshEngines = useCallback(() => {
+    return fetchEngines({ probe: false })
+      .then(r => {
+        setEngines(prev => mergeProcessState(prev, r.engines))
+        // ⭐ 名片坏掉的那几台也一起刷新 —— 用户在引擎页看到"读不出来"，
+        //   去改完 manifest.json 再回来点一下，就该少一条。
+        setEngineErrors(r.errors || [])
+      })
+      .catch(() => {}) // ⛔ 拉不到就保持原样，不许把徽章翻成"停着"
+  }, [])
+
   // 引擎进程状态的轮询（契约 §12 第 5 步）。
   // ⭐⭐⭐ 上面那次是**一次性**的 —— 名片和参数表只有装卸引擎时才变。
   //   但「这台引擎现在跑没跑、在装模型没有」是每几秒都在变的东西。
@@ -191,6 +206,9 @@ function AppShell() {
         {showsTrainingTab(engine) && (
           <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
         )}
+        {/* 刀 F2：引擎管理页。⛔ 不做成"装了两台以上才显示" ——
+            装一台的时候一样要能起停它，而"起不来"恰恰是只装了一台时最要紧的事。 */}
+        <button className={`nav-btn ${page === 'engines' ? 'active' : ''}`} onClick={() => setPage('engines')}>Engines</button>
         <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
         {flowReady && (
           <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
@@ -289,7 +307,10 @@ function AppShell() {
             <ReferenceCompareTab engine={engine} voices={voices} selectedVoice={selectedVoice} onActivity={setGenActivity} />
           )}
           {page === 'assets' && (
-            <AssetsTab voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
+            /* ⭐ 刀 A1（2026-08-31）：`engine` 传下去，是给参考文本校对里的
+               读音预览用的 —— /api/pron/preview 现在 engine_id 必传，
+               ⛔ 平台不替你挑一台（换一台预览出来的读音和实际合成不是一回事）。 */
+            <AssetsTab engine={engine} voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
               setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
@@ -298,7 +319,7 @@ function AppShell() {
               不要给一个空白面板。⚠ engine 为 null 时说的是「还在读」，跟
               「这台不支持」是两回事，不能合成一句话。 */}
           {page === 'train' && (showsTrainingTab(engine)
-            ? <TrainingTab voices={voices} loadVoices={loadVoices}
+            ? <TrainingTab engine={engine} voices={voices} loadVoices={loadVoices}
                 activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
                 trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} health={health} />
             : <div style={{ padding: 24, color: 'var(--muted)' }}>
@@ -306,6 +327,9 @@ function AppShell() {
                   ? '正在读引擎列表…'
                   : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
               </div>
+          )}
+          {page === 'engines' && (
+            <EnginesTab engines={engines} engineErrors={engineErrors} onChanged={refreshEngines} />
           )}
           {page === 'broker' && (
             <BrokerTab />

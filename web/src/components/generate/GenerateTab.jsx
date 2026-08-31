@@ -229,9 +229,21 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   useEffect(() => { api('/api/recipes').then(r => { if (r.ok) setRecipes(r.data?.recipes || []) }).catch(() => {}) }, [])
 
-  // Load advanced params from backend on mount
+  // Load advanced params from backend.
+  //
+  // ⭐⭐⭐ 刀 A1/A2（2026-08-31）：这里过去是 `api('/api/advanced-params')`
+  //   一个裸地址、依赖数组 `[]`（只在挂载时跑一次）。
+  //   后端删掉 legacyDefault 之后，**不带 engine_id 就不再回落到任何一台名片**
+  //   （`lib/routes/pron.js:17-22`）⇒ 不改这一行的后果是：真机上高级设置里
+  //   所有"用户没拧过"的格子全部变空 —— 而且不报错。
+  //
+  // ⚠ 依赖数组从 `[]` 改成 `[engine?.id]`，这是**故意的行为变化**：
+  //   默认值本来就属于那张名片，换一台引擎就该重新问一次。
+  //   ⛔ 不许改回 `[]` —— 挂载那一刻 engine 往往还没加载完，
+  //     那会退化成"永远拿不到默认值"。
   useEffect(() => {
-    api('/api/advanced-params').then(r => {
+    if (!engine?.id) return
+    api(`/api/advanced-params?engine_id=${encodeURIComponent(engine.id)}`).then(r => {
       if (r.ok && r.data) {
         const p = r.data
         // 盘上存着的那份「上次拧到哪」。⛔ 只认当前引擎名片里有的键 ——
@@ -246,7 +258,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         if (p.seed !== undefined) setSeed(p.seed)
       }
     }).catch(() => {})
-  }, [])
+  }, [engine?.id])
 
   // ══ 模型选择 ═══════════════════════════════════════════════════════════
   //
@@ -891,6 +903,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   pronOverrides={pronOverrides} setPronOverrides={setPronOverrides}
                   hanDirection={hanDir} hanForced={hanForcedLive} setHanForced={setHanForced}
                   hanReadings={hanReadings} setHanReadings={setHanReadings}
+                  engineId={engine?.id}
                 />
               )}
             </div>

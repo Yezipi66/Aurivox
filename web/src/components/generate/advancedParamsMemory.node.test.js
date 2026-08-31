@@ -59,11 +59,19 @@ function writtenKeys() {
   return namedKeys(chunk)
 }
 
-/** 挂载时从 GET /api/advanced-params 回填的那一组键。 */
+/**
+ * ⭐ 刀 A1/A2（2026-08-31）：读取的地址从裸 `/api/advanced-params` 变成
+ *   带 `?engine_id=` 的模板串，依赖数组从 `[]` 变成 `[engine?.id]`。
+ *   ⇒ 这两个锚点跟着改。⛔ 不许改回去：后端不带 engine_id 就不回落到
+ *     任何一台名片（pron.js:17-22），界面上表现为"格子全空、不报错"。
+ */
+const LOAD_ANCHOR = 'api(`/api/advanced-params?engine_id='
+
+/** 从 GET /api/advanced-params 回填的那一组键。 */
 function restoredKeys() {
-  const i = CODE.indexOf("api('/api/advanced-params').then")
-  assert.ok(i !== -1, '找不到挂载时读取 advanced-params 的 useEffect')
-  const chunk = CODE.slice(i, CODE.indexOf('}, [])', i))
+  const i = CODE.indexOf(LOAD_ANCHOR)
+  assert.ok(i !== -1, '找不到读取 advanced-params 的 useEffect（或者它又不带 engine_id 了）')
+  const chunk = CODE.slice(i, CODE.indexOf('}, [engine?.id])', i))
   const keys = new Set()
   for (const m of chunk.matchAll(/p\.([A-Za-z_][A-Za-z0-9_]*)\s*!==\s*undefined/g)) {
     keys.add(m[1])
@@ -113,11 +121,21 @@ test('引擎参数两边都按名片走，⛔ 不许退回逐个点名', () => {
     /touchedParams\.has/.test(save.slice(0, 500)),
     '回存时没有只挑用户动过的键 —— 没动过的键回存下去就把名片默认值抄死在盘上了',
   )
-  const load = CODE.slice(CODE.indexOf("api('/api/advanced-params').then"))
+  const load = CODE.slice(CODE.indexOf(LOAD_ANCHOR))
   assert.ok(
     /param_schema/.test(load.slice(0, 800)),
     '挂载回填时没有按当前引擎的名片过滤 —— 换引擎后会把上一台的键灌进来',
   )
+})
+
+test('⭐⭐⭐ 读 advanced-params 必须带上 engine_id，且 engine 没到就不发', () => {
+  const i = CODE.indexOf(LOAD_ANCHOR)
+  assert.ok(i !== -1, '读取 advanced-params 时没带 engine_id')
+  const before = CODE.slice(Math.max(0, i - 200), i)
+  assert.ok(/if \(!engine\?\.id\) return/.test(before),
+    'engine 还没加载就发请求了 —— 会拿到一份不属于任何引擎的空表')
+  assert.ok(CODE.includes('}, [engine?.id])'),
+    '依赖数组不是 [engine?.id] —— 换引擎后默认值不会重新问那张名片')
 })
 
 test('⛔ 存回去的必须只是用户动过的那些，不能是整份参数值', () => {

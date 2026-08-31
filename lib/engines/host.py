@@ -47,6 +47,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -145,9 +146,14 @@ def _placeholder_values(profile):
     root = os.path.dirname(os.path.dirname(engine_dir))
     runtime = profile.get("runtime") or {}
     ckpt = runtime.get("checkpoints")
+    # ⭐ engine_python：kind="cli" 的 argv 第一个词几乎总是「这台引擎自己的
+    #   解释器」。名片里写 `runtime.python` 已经有了，⛔ 不该逼作者再抄一遍 ——
+    #   抄两遍就会有一天只改了其中一遍，而且不报错。
+    py = runtime.get("python")
     return {
         "root": root,
         "engine_dir": engine_dir,
+        "engine_python": os.path.abspath(os.path.join(root, py)) if py else None,
         # 名片里 checkpoints 是相对项目根的，这里转成绝对路径再给上游 ——
         # 上游不该关心我们的目录约定。
         "checkpoints": os.path.abspath(os.path.join(root, ckpt)) if ckpt else None,
@@ -185,6 +191,115 @@ def _expand_init_args(init_args, profile):
                    ", ".join("{%s}" % k for k in sorted(values))))
         out[key] = expanded
     return out
+
+
+def _expand_word(raw, values, where):
+    """把一个词里的 {占位符} 换成真路径。认不出来当场抛（同 init_args 的理由）。"""
+    missing = []
+
+    def _sub(m):
+        name = m.group(1)
+        if name not in values or values[name] is None:
+            missing.append(name)
+            return m.group(0)
+        return values[name]
+
+    out = _PLACEHOLDER_RE.sub(_sub, raw)
+    if missing:
+        raise ValueError(
+            "%s 里的占位符 %s 填不出来（认得的是：%s）"
+            % (where, ", ".join("{%s}" % m for m in missing),
+               ", ".join("{%s}" % k for k in sorted(values))))
+    return out
+
+
+# ---------------------------------------------------------------------------
+#  1.5) kind="cli"：一个参数 → 命令行上的 0..N 个词
+# ---------------------------------------------------------------------------
+#
+# ⭐ 这一段是 `call.args` 那张表的**唯一**解释处，而且它必须穷举 —— 没有
+#   「其余情况看着办」的分支。看着办 = 宿主替名片作者猜，猜错不报错，
+#   只是那个开关没上命令行，声音悄悄变了。
+def _render_cli_arg(name, entry, value):
+    flag = entry["flag"]
+    style = entry.get("style") or "value"
+
+    if style == "boolean":
+        # 真才出现；假就整个不出现（上游没有否定式可用）
+        return [flag] if value else []
+
+    if style == "boolean_optional":
+        # argparse 的 BooleanOptionalAction：「不传」和「传 false」是两件事，
+        # 所以这里两种都要出词，⛔ 不能把 false 当成「不传」。
+        if flag.startswith("--"):
+            return [flag] if value else ["--no-" + flag[2:]]
+        raise ValueError(
+            'call.args.%s.style = "boolean_optional" 需要长开关（--），现在是 %r'
+            % (name, flag))
+
+    if value is None:
+        return []
+
+    if style == "join":
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(
+                'call.args.%s.style = "join" 要一个数组，现在收到 %s'
+                % (name, type(value).__name__))
+        sep = entry.get("join") or ","
+        return [flag, sep.join(str(v) for v in value)]
+
+    if style == "repeat":
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(
+                'call.args.%s.style = "repeat" 要一个数组，现在收到 %s'
+                % (name, type(value).__name__))
+        out = []
+        for v in value:
+            out.extend([flag, str(v)])
+        return out
+
+    if style == "value":
+        return [flag, str(value)]
+
+    raise ValueError("call.args.%s.style 认不出来：%r" % (name, style))
+
+
+def build_cli_argv(call, profile, slots, params):
+    """拼出要执行的完整命令。
+
+    slots  —— bind 槽位的实参：{"text": ..., "ref_audio": ..., "output_path": ...}
+    params —— 引擎私有参数（call_time），键必须在 call.args 里有一条形状。
+
+    ⛔ 抽成纯函数是有意的：不起进程、不装上游、没有 GPU 也能逐条测到
+      —— 四种开关形状写错，是这条路上判别力最高的地方。
+    """
+    values = _placeholder_values(profile)
+    argv = [_expand_word(w, values, "call.argv") for w in (call.get("argv") or [])]
+    if not argv:
+        raise ValueError('call.kind = "cli" 但 call.argv 是空的')
+
+    bind = call.get("bind") or {}
+    for slot in ("text", "ref_audio", "output_path"):
+        flag = bind.get(slot)
+        if not flag:
+            continue
+        val = slots.get(slot)
+        if val is None:
+            continue
+        argv.extend([flag, str(val)])
+
+    args_table = call.get("args") or {}
+    for name in sorted(params):
+        entry = args_table.get(name)
+        if not entry:
+            # ⛔ 静默丢弃是这条路上最容易犯、最难发现的错：参数在界面上
+            #   调了、在请求里到了、在命令行上没有 —— 三处都不报错。
+            raise ValueError(
+                "参数 %r 没有在 call.args 里说明该变成哪个命令行开关 —— "
+                "宿主不替名片猜（认得的有：%s）"
+                % (name, ", ".join(sorted(args_table)) or "（一个都没写）"))
+        argv.extend(_render_cli_arg(name, entry, params[name]))
+    return argv
 
 
 def _resolve_cwd(profile):
@@ -329,6 +444,7 @@ class Engine(object):
     def __init__(self, profile):
         self.profile = profile
         self.call = profile["call"]
+        self.kind = self.call.get("kind") or "python"
         self.seed_plan = SeedPlan(self.call.get("seed"))
         self.obj = None
         self.device = None
@@ -341,6 +457,36 @@ class Engine(object):
 
     # -- 加载 ---------------------------------------------------------------
     def load(self):
+        if self.kind == "cli":
+            return self._load_cli()
+        return self._load_python()
+
+    def _load_cli(self):
+        """cli 形态没有「加载」这一步 —— 每次请求起一个新进程。
+
+        ⛔ 这里**不许**装出一副模型已驻留的样子：`/health` 上的 resident=False
+          是给上层看的诚实读数。模型每次重载的代价由驻留策略去解决，
+          不该靠宿主谎报。
+        """
+        t0 = time.time()
+        try:
+            argv = build_cli_argv(self.call, self.profile,
+                                  {"text": "", "output_path": ""}, {})
+            exe = argv[0]
+            # 只验第一个词能不能找到 —— 这是「装没装对」最早能喊出来的时刻。
+            if os.path.isabs(exe) and not os.path.exists(exe):
+                raise RuntimeError("call.argv 第一个词指向的可执行文件不存在：%s" % exe)
+            sys.stderr.write("%s cli: %s\n" % (BANNER, " ".join(argv)))
+            self.load_seconds = round(time.time() - t0, 2)
+            self.device = _guess_device()
+            self.ready = True
+            sys.stderr.write("%s ready (cli, per-request process)\n" % BANNER)
+        except Exception:
+            self.error = traceback.format_exc()
+            self.load_seconds = round(time.time() - t0, 2)
+            sys.stderr.write("%s LOAD FAILED\n%s\n" % (BANNER, self.error))
+
+    def _load_python(self):
         t0 = time.time()
         try:
             module_name = self.call["module"]
@@ -372,6 +518,83 @@ class Engine(object):
     # -- 合成 ---------------------------------------------------------------
     def synthesize(self, text, ref_audio_path, call_params, seed=None):
         """返回 (wav_bytes, meta)。"""
+        if self.kind == "cli":
+            return self._synthesize_cli(text, ref_audio_path, call_params, seed)
+        return self._synthesize_python(text, ref_audio_path, call_params, seed)
+
+    def _synthesize_cli(self, text, ref_audio_path, call_params, seed=None):
+        returns = self.call.get("returns", "file")
+        params = dict(call_params)
+        if seed is not None and self.seed_plan.mode == "arg":
+            params[self.seed_plan.arg_name] = seed
+            seed_info = {"applied": ["engine:%s" % self.seed_plan.arg_name],
+                         "failed": []}
+        else:
+            # ⛔ mode="global" 在 cli 形态下**播不到**：种子要播的是子进程里的
+            #   全局 RNG，我们这个进程播了它也看不见。名片写了就当场喊，
+            #   ⛔ 不许收下再默默无效。
+            if seed is not None and self.seed_plan.mode == "global":
+                raise RuntimeError(
+                    'call.seed.mode = "global" 在 kind="cli" 下无效：种子要播的是'
+                    "子进程里的随机源，这个进程播不到它。请给上游一个种子开关，"
+                    'call.seed 写 {"mode":"arg", ...}。')
+            seed_info = None
+
+        out_path = None
+        try:
+            if returns == "file":
+                fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
+                os.close(fd)
+            argv = build_cli_argv(
+                self.call, self.profile,
+                {"text": text, "ref_audio": ref_audio_path,
+                 "output_path": out_path},
+                params)
+
+            t0 = time.time()
+            proc = subprocess.run(
+                argv, cwd=_resolve_cwd(self.profile),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            elapsed = time.time() - t0
+
+            tail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+            if proc.returncode != 0:
+                # ⭐ 照抄子进程说的话。自己重写一遍错误信息 = 把最值钱的
+                #   那几行冲掉，剩下一句「合成失败」。
+                raise RuntimeError(
+                    "%s 退出码 %d\n--- stderr（末尾 4000 字）---\n%s"
+                    % (os.path.basename(argv[0]), proc.returncode, tail[-4000:]))
+
+            if returns == "file":
+                with open(out_path, "rb") as fh:
+                    data = fh.read()
+                if not data:
+                    raise RuntimeError(
+                        "命令退出码 0，却没往 %s 写出任何字节\n"
+                        "--- stderr（末尾 4000 字）---\n%s" % (out_path, tail[-4000:]))
+            else:
+                data = proc.stdout or b""
+                if not data:
+                    raise RuntimeError(
+                        'call.returns 写的是 "bytes"，但命令的 stdout 是空的\n'
+                        "--- stderr（末尾 4000 字）---\n%s" % tail[-4000:])
+
+            meta = _wav_meta(data)
+            meta["seed_applied"] = (
+                "+".join(seed_info["applied"])
+                if seed_info and seed_info["applied"] else None)
+            meta["infer_seconds"] = round(elapsed, 2)
+            if meta.get("duration"):
+                meta["rtf"] = round(elapsed / meta["duration"], 2)
+            return data, meta
+        finally:
+            if out_path:
+                try:
+                    os.unlink(out_path)
+                except OSError:
+                    pass
+
+    def _synthesize_python(self, text, ref_audio_path, call_params, seed=None):
         bind = self.call["bind"]
         returns = self.call.get("returns", "file")
         method = getattr(self.obj, self.call["method"])
@@ -514,6 +737,10 @@ class Handler(BaseHTTPRequestHandler):
                 "busy": eng.busy,
                 "device": eng.device,
                 "load_seconds": eng.load_seconds,
+                # ⭐ 形态和「模型在不在显存里」是两个不同的问题，各占一个字段。
+                #   cli 形态每次请求起一个新进程 ⇒ resident=False，⛔ 不许瞒着。
+                "call_kind": eng.kind,
+                "resident": eng.kind != "cli",
                 "served": eng.served,
                 "engine": prof["id"],
                 "banner": BANNER,
@@ -687,6 +914,7 @@ def validate_request(body, profile, seed_plan):
 # ---------------------------------------------------------------------------
 REQUIRED_TOP = ("id", "runtime", "call", "params")
 REQUIRED_CALL_PY = ("module", "class", "method", "bind")
+REQUIRED_CALL_CLI = ("argv", "bind")
 
 
 def validate_profile(profile):
@@ -696,15 +924,21 @@ def validate_profile(profile):
         if k not in profile:
             problems.append("缺 %s" % k)
     call = profile.get("call") or {}
-    kind = call.get("kind")
-    if kind != "python":
+    kind = call.get("kind") or "python"
+    if kind not in ("python", "cli"):
         problems.append(
-            "call.kind = %r —— 这份宿主目前只实现了 python 形态（契约 §5.2）。"
-            "cli / http 形态是分开的两条路。" % (kind,))
+            "call.kind = %r —— 这份宿主实现的是 python / cli 两种形态"
+            "（契约 §5.2、§5.3）。http 形态是分开的一条路。" % (kind,))
     else:
-        for k in REQUIRED_CALL_PY:
+        required = REQUIRED_CALL_PY if kind == "python" else REQUIRED_CALL_CLI
+        for k in required:
             if k not in call:
                 problems.append("缺 call.%s" % k)
+        if kind == "cli":
+            argv = call.get("argv")
+            if argv is not None and (not isinstance(argv, list) or not argv
+                                     or not all(isinstance(w, str) and w for w in argv)):
+                problems.append("call.argv 得是一个非空的字符串数组")
         bind = call.get("bind") or {}
         if "text" not in bind:
             problems.append("缺 call.bind.text —— 平台不知道该把正文放进哪个参数")

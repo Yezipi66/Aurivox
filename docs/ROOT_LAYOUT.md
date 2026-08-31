@@ -42,6 +42,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `.staging` | 目录 | 与 `assets` 同盘的原子暂存（`STAGING_ROOT`），保证 rename 不跨盘 | 否 |
 | `cache` | 目录 | 全部可再生缓存（`lib/paths.js` 的 `CACHE_DIR`）。补丁备份也归这里 | 否 |
 | `outputs` | 目录 | 合成产物 | 否 |
+| `state` | 目录 | 平台**自己量出来的**记录，只有这台机器算数（`engine_memory.json`：每台引擎最多吃过多少内存）。⛔ 不是缓存 —— 删了不会自动重算，只会退回「不知道」，下次启动那台引擎又是在赌。⚠ 不进 git：换台机器这些数就不成立了 | 否 |
 | `logs` | 目录 | 运行日志 | 否 |
 | `dist` | 目录 | `tools/build/04_pack_release.py` 的发行产物 | 否 |
 | `node_modules` | 目录 | npm 依赖，可重装 | 否 |
