@@ -2517,8 +2517,8 @@ A1 删掉 `lib\engines\legacyDefault.js`，1514 条全绿；
 | **A3** | 拔 `9880` 默认值，端口由运行期分配（§5.9 五） | 5 | A2（都写 `server.js`）+ **C4** | ⚠ 已完成 2026-09-01（独立分支 `w1/a3-c4`，**未并入 live**） | `grep -rn "9880" lib/ server.js` |
 | **A4** | `lib\inference\infer_server.py` 迁出 `lib\`（顶撞 `SCOPE §2`） | 1 文件 | A2（`check_ckpt.py` 路径） | ⬜ 待开【2026-09-01 裁定延后】触运行时 sys.path、有「仍留在 lib」历史裁决、缺真机冒烟能力，不动 | `ls lib/inference/infer_server.py` 应不存在 |
 | **B1** | `profile.js` 加 **TOP_KEYS** 顶层白名单 | — | — ✅可并行 | ✅ **完成 2026-08-31**（正文 §12.14） | 喂 `{"max_char":1}` 必须报错，⛔ 不许静默忽略 |
-| **B2** | 第一道校验：**装得上**（§6） | — | B1 | ⬜ 待开 | 新脚本存在且对空名片报缺 |
-| **B3** | 第二道：**环境起得来** | — | B2 | ⬜ 待开 | 同上 |
+| **B2** | 第一道校验：**装得上**（§6） | — | B1 | ✅ **完成**（`lib\engines\envCheck.js` 浅层 + `env_probe.py` 深层 + `envCheck.node.test.js` 21 条守卫，全部绿，2026-09-01 复验） | `npx node --test lib/engines/envCheck.node.test.js` |
+| **B3** | 第二道：**环境起得来** | — | B2 | ✅ **已含于 envCheck 深层**：深层用引擎自己的解释器 import 名片声明的模块/类/方法，回答"起得起"（同上文件，只验不建，⛔ 绝不挂在每次合成上） | 同上 + `env_probe.py` `--spec` |
 | **B4** | 第三道：**出得了声** | — | B3 **+ A2** | ⬜ 待开 | 第三台引擎上必须能红 |
 | **C4** | `engines\_TEMPLATE\manifest.json` 删 `default_base_url`/`base_url_env` | — | A3 之后做 | ⚠ 已完成 2026-09-01（与 A3 同一独立分支 `w1/a3-c4`，**未并入 live**） | `grep -n "base_url" engines/_TEMPLATE/manifest.json` |
 | **C2** | §12「第 2 步是两半」② 与 §3 Batch3 回写真实状态 | — | — ✅可并行 | ⬜ 待开 | — |
