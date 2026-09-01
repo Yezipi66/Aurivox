@@ -2514,15 +2514,15 @@ A1 删掉 `lib\engines\legacyDefault.js`，1514 条全绿；
 |---|---|---|---|---|---|
 | **A1** | 删 `lib\engines\legacyDefault.js` 及 7 个消费者 | 27 | — | ✅ **完成 2026-08-31** | `grep -rn "legacyDefault\|legacy_default" lib/ server.js engines/` → **0** |
 | **A2** | 模型位名字改从名片读（`slotDir`/`slotFromMeta` 的第二参） | 15 | A1（都写 `routes/synthesis.js`+`server.js`） | ✅ **完成 2026-08-31** | 见 §12.11 的分流裁决：合成路径归零，训练管线收进 `lib\training\pipelineIdentity.js` **一处** |
-| **A3** | 拔 `9880` 默认值，端口由运行期分配（§5.9 五） | 5 | A2（都写 `server.js`）+ **C4** | ⬜ 待开 | `grep -rn "9880" lib/ server.js`（`launchPlan.js:136,278` 的文案先改） |
-| **A4** | `lib\inference\infer_server.py` 迁出 `lib\`（顶撞 `SCOPE §2`） | 1 文件 | A2（`check_ckpt.py` 路径） | ⬜ 待开 | `ls lib/inference/infer_server.py` 应不存在 |
+| **A3** | 拔 `9880` 默认值，端口由运行期分配（§5.9 五） | 5 | A2（都写 `server.js`）+ **C4** | ⚠ 已完成 2026-09-01（独立分支 `w1/a3-c4`，**未并入 live**） | `grep -rn "9880" lib/ server.js` |
+| **A4** | `lib\inference\infer_server.py` 迁出 `lib\`（顶撞 `SCOPE §2`） | 1 文件 | A2（`check_ckpt.py` 路径） | ⬜ 待开【2026-09-01 裁定延后】触运行时 sys.path、有「仍留在 lib」历史裁决、缺真机冒烟能力，不动 | `ls lib/inference/infer_server.py` 应不存在 |
 | **B1** | `profile.js` 加 **TOP_KEYS** 顶层白名单 | — | — ✅可并行 | ✅ **完成 2026-08-31**（正文 §12.14） | 喂 `{"max_char":1}` 必须报错，⛔ 不许静默忽略 |
 | **B2** | 第一道校验：**装得上**（§6） | — | B1 | ⬜ 待开 | 新脚本存在且对空名片报缺 |
 | **B3** | 第二道：**环境起得来** | — | B2 | ⬜ 待开 | 同上 |
 | **B4** | 第三道：**出得了声** | — | B3 **+ A2** | ⬜ 待开 | 第三台引擎上必须能红 |
-| **C4** | `engines\_TEMPLATE\manifest.json` 删 `default_base_url`/`base_url_env` | — | — ✅可并行 | ⬜ 待开 | `grep -n "base_url" engines/_TEMPLATE/manifest.json` |
+| **C4** | `engines\_TEMPLATE\manifest.json` 删 `default_base_url`/`base_url_env` | — | A3 之后做 | ⚠ 已完成 2026-09-01（与 A3 同一独立分支 `w1/a3-c4`，**未并入 live**） | `grep -n "base_url" engines/_TEMPLATE/manifest.json` |
 | **C2** | §12「第 2 步是两半」② 与 §3 Batch3 回写真实状态 | — | — ✅可并行 | ⬜ 待开 | — |
-| **C3** | `no_memory` 可强制继续（Owner 2026-08-31 09:20 裁决）落 `docs\` | — | — ✅可并行 | ⬜ 待开 | 代码已在 `supervisor.js:358`，文档零字 |
+| **C3** | `no_memory` 裁决落 `docs\` | — | — ✅可并行 | ⚠ 已落 docs 2026-09-01（见 §12.15）：区分「第一次启动无数据可强制继续」与「内存真不够是终态拒绝」两条 | `grep -n "no_memory" lib/engines/residency.js` |
 | **D1** | `services\failureDetail.js:48` 那条上游报错正则 | 1 | A1 | ✅ **完成 2026-08-31** | `grep -n "GPT-SoVITS" lib/services/failureDetail.js` → **0** |
 | **A5** | `routes\system.js:114` 的 `gpt_sovits_url` —— 那是**对外 JSON 的键名** | 2 | — ✅可并行 | ⬜ 待开【2026-08-31 新登记】 | `grep -n "gpt_sovits_url" lib/routes/system.js web/src/` → 0 |
 | **E1** | **前端 26 条守卫全是文本守卫 ⇒ 补真渲染测试**（`jsdom` **已经在 `web\package.json` dependencies 里**，不用新增依赖） | 0 | — ✅可并行 | ⬜ 待开【2026-08-31 新登记】 | 故意在某个渲染点删掉 `engineId={...}`，那条测试必须**红**（今天：文本守卫红、`npm run build` **绿**） |
@@ -3057,3 +3057,24 @@ param_keys  params  output_formats
 
 三处都已删除/改正。⭐ **判据：一个键"写了没人读"和"根本不存在"，
 在今天之前的仓库里长得一模一样。**
+
+## §12.15 `no_memory` 两条分支的裁决【现状 · 2026-09-01 刀 C3】
+
+内存这一关，代码里实际是**两条不同的分支**，不是台账写的"一条可强制继续"——
+
+| 触发条件 | 行动 | `confirmed:true` 的作用 | 位置 |
+|---|---|---|---|
+| 第一次启动、**从没量过**这台引擎内存（`need==null`） | `needs_confirm`：弹框问"继续吗" | ✅ **可强制继续**——不拦，跑完就有实测 | `lib\engines\residency.js:304` |
+| 量过、内存**真不够**（`want > budget`） | `no_memory`：终态拒绝，抛 `ENGINE_NO_MEMORY` | ⛔ **无效**，`confirmed` 过不了这条 | `lib\engines\residency.js:314-324`、`lib\engines\supervisor.js:358` |
+
+⭐ 关键区分：
+
+- **`needs_confirm` 这条能"强制继续"**——它是"平台不知道"，不是"平台说不行"。让"不知道"只发生一次，跑完就被实测覆盖（`lib\engines\memledger.js` 落盘，`residency.js:299` 注释）。
+- **`no_memory` 这条是终态拒绝，没有强制继续的口子**——`residency.js:314-324` 自己的注释明确：⛔ "为一次注定失败的请求顺手关掉别人腾地方，副作用发生了、请求还是失败了，两头都不落好。"
+
+台账（§12.9）之前把两条混成"no_memory 可强制继续"是错的。裁决（Owner 2026-08-31 09:20）的**真实语义**是：
+
+1. 第一次启动、无内存数据 → 允许强制继续（跑完学一次）。
+2. 内存真不够 → 是终态拒绝，**不许**为它腾地方、**不许**强制继续。
+
+钉这个裁决的行为在 `lib\engines\residency.node.test.js`（分支判定测试）；若该测试文件不存在，见判据 §12.9 D 行。
