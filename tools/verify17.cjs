@@ -222,8 +222,15 @@ function stripComments(s) {
 var _walked = null
 function walk() {
   if (_walked) return _walked
+  // ⚠ 'cache' / 'dist' 是 2026-08-31 真机上抓到的：`cache/patch-backup/20260803-*/web/src/...`
+  //   里躺着三周前的旧副本，被 FE 那两条"全 web/src 没有一处裸读"当成了活代码 ⇒ 假红。
+  //   ⭐ 判据：**"全仓库"的单位是"会被跑到的文件"，⛔ 不是"盘上的文件"**。
+  //   `cache/` 是补丁备份、`dist/` 是 vite 产物 —— 两者 vite 不编译、server.js 不 require。
+  //   ⛔ 禁令：⛔ 不许因为沙箱树里没有这两个目录就以为这条 SKIP 是多余的
+  //     —— 沙箱恒绿正是它被漏写的原因。
   const SKIP = new Set(['node_modules', '.git', '__pycache__', 'pretrained',
-    'pretrained_models', 'uvr5_weights', 'models', 'ja_userdic'])
+    'pretrained_models', 'uvr5_weights', 'models', 'ja_userdic',
+    'cache', 'dist'])
   const out = []
   const rec = (d) => {
     let ents
