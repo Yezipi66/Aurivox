@@ -235,6 +235,7 @@
     "⚠ 这个值是按实测 RTF 推算的，不是实测分段耗时；首次真机跑通后应复核。"
   ],
   "max_chars": 20,
+  "max_chars_source": "measured",
 
   "_comment_timeout_ms": [
     "⭐ 每引擎独立的单次请求超时，覆盖 client 里的模块级 300000。",
@@ -243,6 +244,7 @@
     "留给首段可能的 CUDA 上下文初始化。"
   ],
   "timeout_ms": 600000,
+  "timeout_ms_source": "measured",
 
   "_comment_runtime": [
     "⭐ IndexTTS2 自带一套 Python 环境（torch 2.8 + cu128），与 broker 的",
@@ -307,6 +309,7 @@
     "checkpoints": "models/tts/indextts2/checkpoints",
     "ready_endpoint": "/health",
     "ready_timeout_ms": 180000,
+    "ready_timeout_ms_source": "measured",
     "preload": true,
     "verify": {
       "sys_path": ["engines/indextts2"],

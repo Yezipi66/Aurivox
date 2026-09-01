@@ -380,6 +380,7 @@
     "里那个模块级默认值，原样搬过来，没有调整。"
   ],
   "timeout_ms": 300000,
+  "timeout_ms_source": "estimated",
 
   "_comment_max_chars": [
     "分段软上限；硬上限由平台按 ×2 算（= 90），与搬家前算法一致。",
@@ -390,6 +391,7 @@
     "  照着那行注释搬会把全体用户的分段长度从 45 悄悄改成 30。"
   ],
   "max_chars": 45,
+  "max_chars_source": "estimated",
 
   "_comment_runtime": [
     "⭐ 这一段在 2026-08-24 之前是 null —— 因为 GPT-SoVITS 的进程是",
@@ -448,6 +450,7 @@
     "checkpoints": "models/tts/gpt-sovits",
     "ready_endpoint": "/",
     "ready_timeout_ms": 180000,
+    "ready_timeout_ms_source": "estimated",
     "preload": true,
     "verify": {
       "sys_path": ["engines/gpt-sovits/infer", "engines/gpt-sovits"],
