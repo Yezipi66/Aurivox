@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as engines from '../../lib/engines.js'
 
 // ---------------------------------------------------------------------------
 //  刀 F2 的接线守卫
@@ -20,6 +21,12 @@ import { fileURLToPath } from 'node:url'
 //
 // ⭐ 而"按钮什么情况下该灰"那部分**不在这里** —— 它在
 //   lib/engineActions.node.test.js，那些是真的把函数调起来跑的。
+//
+// ⭐⭐ 下面两条（带 `真测试` 标记）是**真跑的接线测试**，不是文本守卫：
+//   它们把 `startEngine` / `stopEngine` 当普通函数调，用 `globalThis.fetch`
+//   的替身接住发出的请求，断言 URL 含 `/start` `/stop`、method 是 POST。
+//   ⇒ 接线断掉（URL 写成别的路径、或改用 GET）时这两条**会红**，
+//     补上了上面文本守卫"抓不到 engineld 笔误"的缺口。
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const webSrc = path.resolve(here, '../..')
@@ -85,4 +92,51 @@ test('⛔ 这个页面里不许出现任何一台引擎的名字', () => {
   for (const id of ids) {
     assert.ok(!src.includes(id), `引擎管理页里写死了引擎名 "${id}"`)
   }
+})
+
+// ---------------------------------------------------------------------------
+//  真测试：把 startEngine / stopEngine 当普通函数调，用 fetch 替身接住请求。
+//  接线断掉（URL 写错路径、或改用 GET）⇒ 下面这两条红。
+//  补上文本守卫"抓不到 engineld 笔误"的缺口。
+// ---------------------------------------------------------------------------
+
+function withFetchStub(fn) {
+  const real = globalThis.fetch
+  const calls = []
+  globalThis.fetch = (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET', body: opts.body || null })
+    return Promise.resolve({
+      ok: true,
+      headers: { get: () => null },
+      json: () => ({}),
+      arrayBuffer: () => new ArrayBuffer(0),
+      text: () => '',
+    })
+  }
+  return fn(calls).finally(() => { globalThis.fetch = real })
+}
+
+test('⭐⭐⭐ 真测试 F2：start/stop 必须真走 POST 写路口，接线断掉这里红', async () => {
+  await withFetchStub(async (calls) => {
+    await engines.startEngine('gpt-sovits', { confirmed: true })
+    await engines.stopEngine('gpt-sovits')
+
+    assert.equal(calls.length, 2, 'start + stop 应各触发一次 fetch')
+    assert.match(calls[0].url, /\/start$/, '启动必须走 /<id>/start（URL 写错=红）')
+    assert.equal(calls[0].method, 'POST', '启动必须是 POST（改 GET=红）')
+    assert.match(calls[1].url, /\/stop$/, '关闭必须走 /<id>/stop')
+    assert.equal(calls[1].method, 'POST', '关闭必须是 POST')
+    const startBody = JSON.parse(calls[0].body)
+    assert.equal(startBody.confirmed, true, '调用方传了 confirmed 应原样带')
+  })
+})
+
+test('⭐⭐⭐ 真测试 F2：不传 confirmed 时请求体必须没有 confirmed 键', async () => {
+  await withFetchStub(async (calls) => {
+    await engines.startEngine('x') // 不传 confirmed
+
+    const body = JSON.parse(calls[calls.length - 1].body)
+    assert.equal('confirmed' in body, false,
+      '不传 confirmed 时不许带该键——后端靠"有没有"区分"没说"和"不同意"（supervisor.js:337）')
+  })
 })

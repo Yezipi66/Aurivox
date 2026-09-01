@@ -2527,7 +2527,7 @@ A1 删掉 `lib\engines\legacyDefault.js`，1514 条全绿；
 | **A5** | `routes\system.js:114` 的 `gpt_sovits_url` —— 那是**对外 JSON 的键名** | 2 | — ✅可并行 | ⬜ 待开【2026-08-31 新登记】 | `grep -n "gpt_sovits_url" lib/routes/system.js web/src/` → 0 |
 | **E1** | 前端「界面按名片长」的行为约束全部由真测试覆盖 | 0 | — ✅可并行 | ✅ **完成 2026-09-01**（`web/src/lib/engines.node.test.js` 82 条 + `engineActions.node.test.js` 13 条真跑函数，⛔不是文本守卫；判据"删渲染点必红"已实证：故意写反预期→测试变红。"26 条文本守卫"是过时数字，实际仅 4 处文本守卫，守"13 个写死格子别长回来"作兜底） | `cd web && npx node --test src/lib/engines.node.test.js` |
 | **F1** | **`lib\routes\engines.js` 加起/停引擎的 HTTP 口**（薄壳；内核 `supervisor.ensure/stop/status` 全都已经在了） | 0 | — ✅可并行 | ✅ **完成 2026-08-31**（18 号包；16 条守卫**真调 handler**，⛔不是文本守卫） | `grep -n "router\.post" lib/routes/engines.js` 必须 **≥1**（今天是 **0**） |
-| **F2** | **前端引擎管理页**：不点合成也能起/停/看引擎 | 0 | F1 | ✅ **完成 2026-08-31**（18 号包）⚠ **JSX 沙箱验不了，`npm run build` 只在真机跑得了** | `grep -rn "/api/engines/.*\(start\|stop\)" web/src/` 必须 ≥1（今天是 0） |
+| **F2** | **前端引擎管理页**：不点合成也能起/停/看引擎 | 0 | F1 | ✅ **完成 2026-08-31** + 2026-09-01 补强：`enginesTab.wiring.node.test.js` 原 6 条为文本守卫（自证"抓不到 engineld 笔误"），**已补 2 条真测试**（stub `globalThis.fetch`，断言 start/stop 真走 POST 写路口——接线断掉会红） | `cd web && npx node --test src/components/engines/enginesTab.wiring.node.test.js` |
 | C1 | §5.9 落盘 | — | — | ✅ 完成 2026-08-31 | — |
 
 ##### ⚠⚠ E1 为什么必须单独立一刀：`npm run build` 绿 ≠ 接线对【2026-08-31 真机取证】
