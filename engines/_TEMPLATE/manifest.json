@@ -161,10 +161,12 @@
 
   "_comment_address": [
     "⭐ 平台把合成请求发到哪里。",
-    "base_url_env 可选：写了它，同名环境变量就能顶掉上面的地址。",
-    "整行删掉 = 只认 default_base_url。"
+    "⭐ 刀 A3/C4（2026-09-01）：default_base_url 现在是**可选**——由平台启动的引擎",
+    "  端口由平台分配（见契约 §5.9「端口是运输不是管理」），不用、也不该由名片作者写死。",
+    "  这张模板索性不写 default_base_url：照抄照填即可，平台起引擎时会分端口。",
+    "base_url_env 可选：写了它，同名环境变量就能顶掉运行期分配到的地址。",
+    "（如果你确实要写死一个地址——不推荐——把 default_base_url 这一行加回来填上。）"
   ],
-  "default_base_url": "http://127.0.0.1:0000",
   "base_url_env": "YOURTTS_BASE_URL",
 
   "_comment_budget": [
