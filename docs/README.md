@@ -1,5 +1,8 @@
 # Aurivox 内部设计文档
 
+> **TTS engine onboarding transition:** The former Engine Contract has been retired. Existing GPT-SoVITS and IndexTTS2 manifests are legacy implementation data, not templates for new engines. See `docs/ENGINE_ONBOARDING_STATUS.md`.
+
+
 这里存放当前版本稳定化和未来 Workflow/Flow 方向的内部设计文档。
 
 - [`FLOW-ARCH-001-DECISION.md`](./FLOW-ARCH-001-DECISION.md)：Workbench / Flow 产品边界与人工等待架构决策

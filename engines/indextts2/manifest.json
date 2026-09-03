@@ -1,6 +1,6 @@
 {
   "_comment_contract": [
-    "按引擎契约 v2 补齐（docs/ENGINE_CONTRACT.md）。原有数值一个没动，",
+    "按旧引擎接入实现 补齐（retired engine-integration specification）。原有数值一个没动，",
     "只补了 contract_version 与 capabilities.supports_finetune 两行 ——",
     "在 lib/engines/profile.js 出现之前，下面这些字段是**没人读的死数据**，",
     "从第 1 步开始它们才真正生效。"

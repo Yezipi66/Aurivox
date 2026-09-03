@@ -22,7 +22,7 @@
 
 ## 这份文件为什么现在就写（而不是等有改动了再写）
 
-`docs/ENGINE_CONTRACT.md` §6 判据 4 是「`vendor/` 下搜不到
+`retired engine-integration specification` §6 判据 4 是「`vendor/` 下搜不到
 `LOCAL-CHANGES.md`」—— 判据是**文件在不在**，不是**内容有没有**。
 一棵上游树没有这个文件，和「有这个文件但写着无改动」，是两种不同的状态：
 前者是**没人查过**，后者是**查过且当时是干净的**。

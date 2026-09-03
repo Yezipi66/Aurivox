@@ -106,7 +106,7 @@ URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.
 URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve/main/G2PWModel.zip"
 
 # 相对项目根的目录
-# 引擎源码位置（r12c 起：engines/<引擎名>/，见 docs/ENGINE_CONTRACT.md §2）。
+# 引擎源码位置（r12c 起：engines/<引擎名>/，见 retired engine-integration specification §2）。
 GSV_CODE = os.path.join("engines", "gpt-sovits", "gsv_code")
 
 # 权重位置。必须与 lib/paths.js 的常量逐条对应 —— 那里是全项目唯一的位置权威,

@@ -1,6 +1,6 @@
 {
   "_comment_contract": [
-    "⭐ 第一张按引擎契约 v2 写的 manifest.json（docs/ENGINE_CONTRACT.md）。",
+    "⭐ 第一张按旧引擎接入实现 写的 manifest.json（retired engine-integration specification）。",
     "下面每一个值都是从 lib/ 里搬出来的**今天的实际行为**，不是新定的规矩 ——",
     "第 1 步的验收标准是「GPT-SoVITS 行为一个字不变」，所以这里改任何一个",
     "数字都等于改行为，请先看测试。搬家前它们分别写死在：",
@@ -347,7 +347,7 @@
     "⭐⭐ 为什么是 4 而不是 1（Owner 2026-08-23 裁定）：GPT-SoVITS 自己有",
     "两个不同场景的默认值 —— **微调默认 1，推理默认 4**。搬家前平台里那",
     "几份副本抄的是 1，那是把微调场景的数字用到了推理路径上。而引擎契约",
-    "v2 只管推理（见 docs/ENGINE_CONTRACT.md），所以这里就该是 4。",
+    "v2 只管推理（见 retired engine-integration specification），所以这里就该是 4。",
     "⛔ 别再把这两个数字混在一起讨论：它们不是同一个问题的两种意见，",
     "是两个场景各自正确的答案。"
   ],
