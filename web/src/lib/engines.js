@@ -360,8 +360,9 @@ export function pathFields(engine) {
  * 键，表现是「我明明调了却没效果」，极难查（这正是 param_keys 要列全白名单
  * 的理由，见 registry 那段）。
  *
- * `sends_always` 为 false 的键，只有用户真的动过才发 —— 名片用它表达
- * 「这个参数只在某些模型上有意义，别无条件塞给引擎」。
+ * `sends_always` 已退役（f68421f）：只有用户明确动过的键（touchedParams）
+ * 才进入请求体。名片 defaults 里的值仍由后端 engineKnobs 循环填入 payload，
+ * 前端不需要知道哪些键平台会替它填。
  */
 export function paramsToSend(engine, values, touched) {
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []

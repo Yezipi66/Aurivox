@@ -157,7 +157,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   //   ⚠ 只装引擎参数。平台自己的开关（force re-synthesis / engine batch /
   //     media type / seed）不在这里 —— 它们不属于任何一台引擎，见各自注释。
   const [paramValues, setParamValues] = useState({})
-  // 用户亲手动过哪些格子。sends_always 为 false 的键，只有动过才发出去 ——
+  // 用户亲手动过哪些格子。只有动过才发出去 ——
   // 「没动」和「设成了跟默认值一样的数」在请求体里必须长得不一样，否则
   // 平台无法区分「用户要这个值」和「用户没管」。
   const [touchedParams, setTouchedParams] = useState(() => new Set())
@@ -554,7 +554,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       reference_text: effectiveRefText || undefined,
       split: splitEnabled, max_chars: maxChars,
       concat: concatEnabled, silence_ms: silenceMs,
-      // 引擎参数：只发这台引擎名片里有的键，且遵守 sends_always。
+      // 引擎参数：只发这台引擎名片里有的键，且只有用户动过的才发。
       // ⛔ 名片没写的键一个都不发 —— 服务端会静默忽略，症状是
       //    「我明明调了却没效果」，最难查的那一类。
       // ⭐⭐⭐ 这一次要连哪台引擎 —— 由**界面上选中的那台**说了算。
