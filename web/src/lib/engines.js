@@ -371,11 +371,15 @@ export function paramsToSend(engine, values, touched) {
     if (!f || f.name === undefined) continue
     const has = values && Object.prototype.hasOwnProperty.call(values, f.name)
     if (!has) continue
+    // Keep hidden values in UI memory, but never leak them into another mode.
+    if (!isFieldVisible(f, values)) continue
     // 路径格子空着 = 用户没选这个文件 ⇒ 不发这个键。
     // ⛔ 不能发空字符串：引擎那边会当成「路径是空的」去打开文件而不是
     //    「没给路径」，报出来的错跟用户做的事对不上。
     if (isPathField(f) && (values[f.name] === '' || values[f.name] == null)) continue
-    if (f.sends_always === true || seen.has(f.name)) out[f.name] = values[f.name]
+    // UI suggestions are not invocation defaults. Only explicit user choices
+    // cross the engine boundary; the upstream engine owns all omitted defaults.
+    if (seen.has(f.name)) out[f.name] = values[f.name]
   }
   return out
 }

@@ -528,7 +528,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // reproduce the audio with identical settings (not just reload the text).
   const runGenerate = async (body, meta) => {
     setLoading(true); setError(null); setResult(null)
-    const t = (body.text || '').trim()
+    const t = typeof body.text === 'string' ? body.text : ''
     const willSplit = !!body.split && t.length > (body.max_chars || 30)
     const estChunks = Math.max(1, Math.ceil(t.length / Math.max(1, body.max_chars || 30)))
     onActivity?.({ label: willSplit ? `Generating · ${estChunks} chunks` : 'Generating' })
@@ -544,9 +544,12 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   const handleGenerate = async () => {
     if (!selectedVoice) { setError('Select a voice first'); return }
-    if (!text.trim()) { setError('Enter text to synthesize'); return }
+    // Only the truly empty string is invalid. Whitespace is meaningful to some
+    // TTS engines (for example as an intentional pause), so never trim here.
+    if (text === '') { setError('Enter text to synthesize'); return }
+    const explicitEngineParams = paramsToSend(engine, paramValues, touchedParams)
     const body = {
-      voice: selectedVoice, text: text.trim(), format: 'wav',
+      voice: selectedVoice, text, format: 'wav',
       ref_audio: currentRefAudio || undefined,
       reference_text: effectiveRefText || undefined,
       split: splitEnabled, max_chars: maxChars,
@@ -566,10 +569,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 这台引擎的参数格子。⭐ 点名了引擎，就把参数装进**它自己那一格**，
       //   服务端据此核对「你发的这袋参数是不是这台引擎的」。
       //   平铺那一份（下一行）是老路径还在读的形状，暂时并存。
-      engine_params: engine?.id
-        ? { [engine.id]: paramsToSend(engine, paramValues, touchedParams) }
-        : undefined,
-      ...paramsToSend(engine, paramValues, touchedParams),
+      engine_params: engine?.id ? { [engine.id]: explicitEngineParams } : undefined,
+      ...explicitEngineParams,
       seed,
       engine_batch: engineBatch,
       media_type: mediaType,
@@ -866,9 +867,9 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 value={text} onChange={e => { setText(e.target.value); }}
               />
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <span>Characters: <span style={{ color: 'var(--text)' }}>{text.trim().length}</span></span>
+                <span>Characters: <span style={{ color: 'var(--text)' }}>{text.length}</span></span>
                 {splitEnabled && (
-                  <span>Estimated chunks: <span style={{ color: 'var(--text)' }}>{Math.max(1, Math.ceil(text.trim().length / Math.max(1, maxChars)))}</span></span>
+                  <span>Estimated chunks: <span style={{ color: 'var(--text)' }}>{Math.max(1, Math.ceil(text.length / Math.max(1, maxChars)))}</span></span>
                 )}
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   Target language:
@@ -1152,13 +1153,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 engine_id: engine?.id || '',
                 // ⭐ 引擎自己的参数存进它自己的格子，原样存原样取，平台不认识
                 //    里面任何一个键名。换一台引擎，这里存的就是那台的参数。
-                engine_params: engine?.id ? { [engine.id]: { ...paramValues } } : {},
+                engine_params: engine?.id
+                  ? { [engine.id]: paramsToSend(engine, paramValues, touchedParams) }
+                  : {},
                 params: {
                   // PA: pin the full inference contract so the recipe reproduces
                   // the exact audition when distributed via /v1/audio/speech.
                   // ⚠ 这一份是**给老配方和老前端留的兼容底**：后端仍按 v3 的键集
                   //    往 params 里写一份。真正权威的是上面的 engine_params。
-                  ...paramValues,
+                  ...paramsToSend(engine, paramValues, touchedParams),
                   seed,
                   aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : [],
                   pron_overrides: (Object.keys(pronOverrides).length > 0) ? pronOverrides : {},

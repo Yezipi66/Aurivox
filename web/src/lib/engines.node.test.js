@@ -263,14 +263,30 @@ test('布尔格子', () => {
 //  发出去的请求体
 // ============================================================
 
-test('sends_always 的键每次都发', () => {
+test('UI 建议值不等于调用默认值：完全没动过就一个键都不发', () => {
   const sent = paramsToSend(FAKE, initialParamValues(FAKE), new Set())
-  assert.deepEqual(Object.keys(sent).sort(), ['flavour', 'wobble'])
+  assert.deepEqual(sent, {})
 })
 
-test('sends_always 为 false 的键，用户动过才发', () => {
-  const sent = paramsToSend(FAKE, initialParamValues(FAKE), new Set(['goose_count']))
-  assert.deepEqual(Object.keys(sent).sort(), ['flavour', 'goose_count', 'wobble'])
+test('用户明确动过的值才发，包括 false 和 0', () => {
+  const values = { ...initialParamValues(FAKE), goose_count: 0, enabled: false }
+  const engine = { ...FAKE, param_schema: [
+    ...FAKE.param_schema,
+    { name: 'enabled', type: 'boolean', default: true },
+  ] }
+  const sent = paramsToSend(engine, values, new Set(['goose_count', 'enabled']))
+  assert.deepEqual(sent, { goose_count: 0, enabled: false })
+})
+
+test('当前模式隐藏的参数保留在 UI 状态中但不发送', () => {
+  const engine = { id: 'modeful', param_schema: [
+    { name: 'mode', type: 'select' },
+    { name: 'prompt_text', type: 'text', only_when: { mode: 'zero_shot' } },
+  ] }
+  const values = { mode: 'preset', prompt_text: 'keep for later' }
+  const sent = paramsToSend(engine, values, new Set(['mode', 'prompt_text']))
+  assert.deepEqual(sent, { mode: 'preset' })
+  assert.equal(values.prompt_text, 'keep for later')
 })
 
 test('⛔ 名片不认识的键一律不发 —— 服务端会静默忽略，表现是「我明明调了却没效果」', () => {

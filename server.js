@@ -2125,7 +2125,9 @@ app.use((err, req, res, next) => {
   const msg = status >= 500
     ? clientError(err, "Internal server error")
     : ((err && err.message) ? err.message : "Bad request");
-  res.status(status).json({ error: msg });
+  const code = (err && err.code) || (err && err.extra && err.extra.code) ||
+    (status >= 500 ? "INTERNAL_ERROR" : "REQUEST_FAILED");
+  res.status(status).json({ code, message: msg, error: msg });
 });
 
 // ---- Start ----
