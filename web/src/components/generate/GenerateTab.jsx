@@ -20,7 +20,7 @@ import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
 // ⚠ fieldLabel / fieldHelp / recipePath 曾经在这里 —— 三个写死的类型分支换成
 //   <ParamField> 之后它们只在 ParamField 里用了，留着就是空引用。
-import { fieldsForTier, schemaGap, initialParamValues, coerceParamValue, paramsToSend, hasMappedKey, isFieldVisible, TIERS } from '../../lib/engines'
+import { fieldsForTier, schemaGap, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible, TIERS } from '../../lib/engines'
 import { ParamField, ToggleField } from '../common/ParamField'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
@@ -548,6 +548,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     // TTS engines (for example as an intentional pause), so never trim here.
     if (text === '') { setError('Enter text to synthesize'); return }
     const explicitEngineParams = paramsToSend(engine, paramValues, touchedParams)
+    const phasedEngineParams = paramsByPhase(engine, paramValues, touchedParams)
     const body = {
       voice: selectedVoice, text, format: 'wav',
       ref_audio: currentRefAudio || undefined,
@@ -569,8 +570,11 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 这台引擎的参数格子。⭐ 点名了引擎，就把参数装进**它自己那一格**，
       //   服务端据此核对「你发的这袋参数是不是这台引擎的」。
       //   平铺那一份（下一行）是老路径还在读的形状，暂时并存。
-      engine_params: engine?.id ? { [engine.id]: explicitEngineParams } : undefined,
-      ...explicitEngineParams,
+      engine_params: engine?.id ? { [engine.id]: phasedEngineParams.call } : undefined,
+      engine_load_params: engine?.id && Object.keys(phasedEngineParams.load).length
+        ? { [engine.id]: phasedEngineParams.load }
+        : undefined,
+      ...phasedEngineParams.call,
       seed,
       engine_batch: engineBatch,
       media_type: mediaType,

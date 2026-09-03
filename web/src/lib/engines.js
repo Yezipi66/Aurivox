@@ -385,6 +385,20 @@ export function paramsToSend(engine, values, touched) {
   return out
 }
 
+/** 将用户明确设置的参数按作者声明的生命周期分流。 */
+export function paramsByPhase(engine, values, touched) {
+  const explicit = paramsToSend(engine, values, touched)
+  const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
+  const byName = new Map(schema.filter(Boolean).map(field => [field.name, field]))
+  const call = {}
+  const load = {}
+  for (const [name, value] of Object.entries(explicit)) {
+    const target = byName.get(name)?.phase === 'load' ? load : call
+    target[name] = value
+  }
+  return { call, load }
+}
+
 /**
  * 取当前语言的那一句。名片里 label / help 都是 { en, zh }。
  * 缺当前语言就退到英文，再缺就退到键名本身 —— ⛔ 不返回空字符串：
