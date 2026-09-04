@@ -6,7 +6,6 @@
     "从第 1 步开始它们才真正生效。"
   ],
   "contract_version": 2,
-
   "id": "indextts2",
   "label": "IndexTTS2",
   "_comment_upstream": [
@@ -20,7 +19,6 @@
     "license": "bilibili Model Use License Agreement"
   },
   "local_changes": "LOCAL-CHANGES.md",
-
   "_comment_install": [
     "第 4 步：tools/install-engine.cjs 照这里装。",
     "env_command 出自 UPSTREAM.md —— 上游用 uv 管环境，配方是本目录的",
@@ -28,9 +26,11 @@
     "⚠ 首次建环境必须联网：pyproject.toml 把 torch 指向 cu128，要下几个 GB。"
   ],
   "install": {
-    "env_command": ["uv", "sync"]
+    "env_command": [
+      "uv",
+      "sync"
+    ]
   },
-
   "_comment_models": [
     "2026-08-29 新增。这一段回答的是 Owner 那句「上游要接入进来，他还得手动",
     "把模型放对」—— 在它出现之前，平台对『模型』一个字都不说：底模路径只活",
@@ -79,14 +79,16 @@
       "url": "https://www.modelscope.cn/models/IndexTeam/IndexTTS-2",
       "license_gate": false,
       "command": [
-        "modelscope", "download",
-        "--model", "IndexTeam/IndexTTS-2",
-        "--local_dir", "{checkpoints}"
+        "modelscope",
+        "download",
+        "--model",
+        "IndexTeam/IndexTTS-2",
+        "--local_dir",
+        "{checkpoints}"
       ],
       "cwd": "engine_dir"
     }
   },
-
   "_comment_weights": [
     "⭐⭐ 这台引擎推理时要用户选几个权重、各叫什么。整张名片里，关于",
     "「模型」你只需要写这一样。位置/后缀/版本一律不用写 —— 位置是平台",
@@ -116,9 +118,12 @@
     "  这里写出来是因为它是一句**事实陈述**，不该靠另一个字段的缺席来表达。"
   ],
   "weights": [
-    { "name": "model", "label": "Model", "applies_at": "launch" }
+    {
+      "name": "model",
+      "label": "Model",
+      "applies_at": "launch"
+    }
   ],
-
   "_comment_param_keys": [
     "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
     "静默放行会让一个拼错的参数名看起来像生效了。",
@@ -128,14 +133,299 @@
     "翻译错了不会报错，只是声音不对 —— 那是最难查的一类 bug。",
     "代价是每个引擎自带一套词汇，这个代价是主动选的，不是疏漏。"
   ],
-  "param_keys": [
-    "format", "split", "max_chars", "concat", "silence_ms",
-    "media_type", "engine_batch", "voice_label",
-    "emo_alpha", "interval_silence", "verbose",
-    "max_text_tokens_per_segment",
-    "emo_audio_prompt", "emo_vector", "use_emo_text", "emo_text", "use_random"
+  "parameters": [
+    {
+      "name": "use_fp16",
+      "type": "boolean",
+      "phase": "load",
+      "tier": "advanced",
+      "group": "runtime",
+      "order": 10,
+      "label": {
+        "en": "Use FP16",
+        "zh": "使用 FP16"
+      },
+      "help": {
+        "en": "Applied when IndexTTS2 starts. Changing it restarts the engine on the next generation.",
+        "zh": "在 IndexTTS2 启动时应用。修改后将在下一次生成时重新启动引擎。"
+      }
+    },
+    {
+      "name": "use_cuda_kernel",
+      "type": "boolean",
+      "phase": "load",
+      "tier": "advanced",
+      "group": "runtime",
+      "order": 20,
+      "label": {
+        "en": "Use CUDA Kernel",
+        "zh": "使用 CUDA Kernel"
+      },
+      "help": {
+        "en": "Applied when IndexTTS2 starts. Changing it restarts the engine on the next generation.",
+        "zh": "在 IndexTTS2 启动时应用。修改后将在下一次生成时重新启动引擎。"
+      }
+    },
+    {
+      "name": "use_deepspeed",
+      "type": "boolean",
+      "phase": "load",
+      "tier": "advanced",
+      "group": "runtime",
+      "order": 30,
+      "label": {
+        "en": "Use DeepSpeed",
+        "zh": "使用 DeepSpeed"
+      },
+      "help": {
+        "en": "Applied when IndexTTS2 starts. Changing it restarts the engine on the next generation.",
+        "zh": "在 IndexTTS2 启动时应用。修改后将在下一次生成时重新启动引擎。"
+      }
+    },
+    {
+      "name": "use_accel",
+      "type": "boolean",
+      "phase": "load",
+      "tier": "advanced",
+      "group": "runtime",
+      "order": 40,
+      "label": {
+        "en": "Use Acceleration",
+        "zh": "使用加速模式"
+      },
+      "help": {
+        "en": "Applied when IndexTTS2 starts. Changing it restarts the engine on the next generation.",
+        "zh": "在 IndexTTS2 启动时应用。修改后将在下一次生成时重新启动引擎。"
+      }
+    },
+    {
+      "name": "use_torch_compile",
+      "type": "boolean",
+      "phase": "load",
+      "tier": "advanced",
+      "group": "runtime",
+      "order": 50,
+      "label": {
+        "en": "Use Torch Compile",
+        "zh": "使用 Torch Compile"
+      },
+      "help": {
+        "en": "Applied when IndexTTS2 starts. Changing it restarts the engine on the next generation.",
+        "zh": "在 IndexTTS2 启动时应用。修改后将在下一次生成时重新启动引擎。"
+      }
+    },
+    {
+      "name": "emo_alpha",
+      "type": "number",
+      "phase": "call",
+      "suggested_value": 1.0,
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "tier": "common",
+      "group": "emotion",
+      "order": 10,
+      "label": {
+        "en": "Emotion Alpha",
+        "zh": "情绪强度"
+      },
+      "help": {
+        "en": "Blend factor for the emotion reference. 1.0 = full emotion.",
+        "zh": "情绪参考的混合系数。1.0 = 完全采用情绪参考。"
+      }
+    },
+    {
+      "name": "interval_silence",
+      "type": "integer",
+      "phase": "call",
+      "suggested_value": 200,
+      "min": 0,
+      "max": 2000,
+      "step": 50,
+      "tier": "common",
+      "label": {
+        "en": "Interval Silence (ms)",
+        "zh": "段间静音（毫秒）"
+      },
+      "help": {
+        "en": "Silence inserted between segments when the engine splits the text itself.",
+        "zh": "引擎自行切分文本时，段与段之间插入的静音时长。"
+      }
+    },
+    {
+      "name": "verbose",
+      "type": "boolean",
+      "phase": "call",
+      "suggested_value": false,
+      "tier": "advanced",
+      "label": {
+        "en": "Verbose Engine Log",
+        "zh": "引擎详细日志"
+      },
+      "help": {
+        "en": "Ask the engine to print per-segment detail to its own console.",
+        "zh": "让引擎在自己的控制台打印逐段细节。"
+      }
+    },
+    {
+      "name": "max_text_tokens_per_segment",
+      "type": "integer",
+      "phase": "call",
+      "suggested_value": 120,
+      "min": 20,
+      "max": 500,
+      "step": 10,
+      "tier": "advanced",
+      "label": {
+        "en": "Max Text Tokens / Segment",
+        "zh": "每段最大文本 token 数"
+      },
+      "help": {
+        "en": "Upper bound on tokens per engine-side segment. Larger = fewer, longer segments.",
+        "zh": "引擎侧每一段的 token 上限。越大分得越少、每段越长。"
+      }
+    },
+    {
+      "name": "emo_audio_prompt",
+      "type": "select",
+      "phase": "call",
+      "source": "audio",
+      "allow_custom": true,
+      "suggested_value": "",
+      "tier": "common",
+      "group": "emotion",
+      "order": 20,
+      "width": "full",
+      "label": {
+        "en": "Emotion Reference Audio",
+        "zh": "情绪参考音频"
+      },
+      "help": {
+        "en": "A second clip that supplies the emotion (the voice still comes from the speaker clip). Leave empty to take the emotion from the speaker clip itself.",
+        "zh": "另给一段音频决定情绪（音色仍来自音色参考音频）。留空 = 情绪也取自音色参考音频。"
+      }
+    },
+    {
+      "name": "emo_vector",
+      "type": "number",
+      "phase": "call",
+      "repeat": 8,
+      "dim_labels": [
+        {
+          "en": "Happy",
+          "zh": "高兴"
+        },
+        {
+          "en": "Angry",
+          "zh": "愤怒"
+        },
+        {
+          "en": "Sad",
+          "zh": "悲伤"
+        },
+        {
+          "en": "Afraid",
+          "zh": "恐惧"
+        },
+        {
+          "en": "Disgusted",
+          "zh": "反感"
+        },
+        {
+          "en": "Melancholic",
+          "zh": "低落"
+        },
+        {
+          "en": "Surprised",
+          "zh": "惊讶"
+        },
+        {
+          "en": "Calm",
+          "zh": "自然"
+        }
+      ],
+      "suggested_value": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "tier": "advanced",
+      "group": "emotion",
+      "order": 30,
+      "width": "full",
+      "label": {
+        "en": "Emotion Vector (8-dim)",
+        "zh": "情绪向量（八维）"
+      },
+      "help": {
+        "en": "Dial the emotion directly instead of supplying a reference clip. All zeros = do not use.",
+        "zh": "不给参考音频，直接把情绪拧出来。全 0 = 不使用。"
+      }
+    },
+    {
+      "name": "use_emo_text",
+      "type": "boolean",
+      "phase": "call",
+      "suggested_value": false,
+      "tier": "advanced",
+      "group": "emotion",
+      "order": 40,
+      "label": {
+        "en": "Emotion From Text",
+        "zh": "用文本描述情绪"
+      },
+      "help": {
+        "en": "Let a text description drive the emotion, instead of a reference clip or vector.",
+        "zh": "用一句文本描述来决定情绪，替代参考音频/情绪向量。"
+      }
+    },
+    {
+      "name": "emo_text",
+      "type": "text",
+      "phase": "call",
+      "suggested_value": "",
+      "tier": "advanced",
+      "group": "emotion",
+      "order": 50,
+      "width": "full",
+      "only_when": {
+        "use_emo_text": true
+      },
+      "label": {
+        "en": "Emotion Description",
+        "zh": "情绪描述"
+      },
+      "help": {
+        "en": "e.g. \"speaking softly, a little sad\". Only used when Emotion From Text is on.",
+        "zh": "例如「轻声细语，有点难过」。只在勾了「用文本描述情绪」时生效。"
+      }
+    },
+    {
+      "name": "use_random",
+      "type": "boolean",
+      "phase": "call",
+      "suggested_value": false,
+      "tier": "advanced",
+      "group": "emotion",
+      "order": 60,
+      "label": {
+        "en": "Randomise Emotion",
+        "zh": "情绪随机采样"
+      },
+      "help": {
+        "en": "Adds randomness to emotion sampling. NOTE: breaks seed reproducibility.",
+        "zh": "在情绪采样上加随机。⚠ 打开后同一个 seed 不再复现同一段音频。"
+      }
+    }
   ],
-
   "_comment_emotion_2026_08_29": [
     "⭐ 上面 param_keys 末尾那 5 个是 2026-08-29 补的情绪四件套。",
     "  名字和顺序逐字出自上游 infer_v2.py:365-369 的形参：",
@@ -148,7 +438,6 @@
     "  （host.py:565-566）。这就是「加引擎只写 manifest.json」该有的样子 ——",
     "  也是这一刀值不值的判据。"
   ],
-
   "_comment_maps": [
     "⭐ 第 1c 步新增：平台的词 → 这台引擎的键名。",
     "只有四行 —— 这不是没写全，是 IndexTTS2 真的只有这四个概念：",
@@ -172,7 +461,6 @@
     "seed": "seed",
     "media_type": "media_type"
   },
-
   "_comment_payload_keys": [
     "⭐ 允许从合成配置透传给引擎的**引擎原生**键名白名单。",
     "逐条等于下面 params.call_time —— 两端各设一道，",
@@ -187,18 +475,6 @@
     "那些只能在引擎进程启动时设，按次发过去宿主会明确报错而不是假装接受",
     "（host.py:647-652）。把它们列进来等于骗调用方以为能热切。"
   ],
-  "payload_keys": [
-    "emo_alpha",
-    "interval_silence",
-    "verbose",
-    "max_text_tokens_per_segment",
-    "emo_audio_prompt",
-    "emo_vector",
-    "use_emo_text",
-    "emo_text",
-    "use_random"
-  ],
-
   "_comment_defaults": [
     "⭐ 空的，而且是**故意**空的，不是漏写。",
     "IndexTTS2 的每一个调用参数在引擎侧都有自己的默认值，平台没有任何理由",
@@ -208,11 +484,8 @@
     "而这台引擎只认 wav（下面 output_formats 就是那道闸的判据，",
     "host.py:653-659 「要 mp3 ⇒ 400」）。"
   ],
-  "defaults": {},
-
   "_comment_default_base_url": "推理服务默认监听处；可被 io.engine 节点的 base_url 覆盖。",
   "default_base_url": "http://127.0.0.1:9881",
-
   "_comment_base_url_env": [
     "⭐ 哪个环境变量能覆盖上面那个地址。变量名由本 manifest.json 指定，",
     "平台不认识任何具体的变量名。",
@@ -225,7 +498,6 @@
     "    自己写一行就有，不用改 lib/ 也不用改启动脚本。"
   ],
   "base_url_env": "INDEXTTS2_BASE_URL",
-
   "_comment_max_chars": [
     "⭐ 每引擎独立的分段长度，覆盖 synthesisService 的默认值。",
     "为什么必须比 gpt-sovits 小得多：IndexTTS2 实测 RTF≈32（生成 1 秒音频",
@@ -236,7 +508,6 @@
   ],
   "max_chars": 20,
   "max_chars_source": "measured",
-
   "_comment_timeout_ms": [
     "⭐ 每引擎独立的单次请求超时，覆盖 client 里的模块级 300000。",
     "超时是按『每一段』计的，不是整篇：每段单独发一次 HTTP。",
@@ -245,7 +516,6 @@
   ],
   "timeout_ms": 600000,
   "timeout_ms_source": "measured",
-
   "_comment_runtime": [
     "⭐ IndexTTS2 自带一套 Python 环境（torch 2.8 + cu128），与 broker 的",
     "venv 没有共同依赖，也不能共用 —— 这是它必须以独立进程 + HTTP 存在",
@@ -301,9 +571,12 @@
     "python": "engines/indextts2/.venv/Scripts/python.exe",
     "entry": "../../lib/engines/host.py",
     "args": [
-      "--profile-json", "{profile_json}",
-      "--host", "{host}",
-      "--port", "{port}"
+      "--profile-json",
+      "{profile_json}",
+      "--host",
+      "{host}",
+      "--port",
+      "{port}"
     ],
     "cwd": ".",
     "checkpoints": "models/tts/indextts2/checkpoints",
@@ -312,18 +585,24 @@
     "ready_timeout_ms_source": "measured",
     "preload": true,
     "verify": {
-      "sys_path": ["engines/indextts2"],
+      "sys_path": [
+        "engines/indextts2"
+      ],
       "imports": [
         {
           "module": "indextts.infer_v2",
           "class": "IndexTTS2",
-          "methods": ["infer"],
-          "init_params": ["cfg_path", "model_dir"]
+          "methods": [
+            "infer"
+          ],
+          "init_params": [
+            "cfg_path",
+            "model_dir"
+          ]
         }
       ]
     }
   },
-
   "_comment_capabilities": [
     "⭐ 引擎能力声明。broker 据此跳过不适用的通用步骤 ——",
     "这些分支此前硬编码在 lib/ 里，按 GPT-SoVITS 的能力写死。",
@@ -343,7 +622,6 @@
     "reference_clip_seconds": null,
     "streaming": false,
     "output_sample_rate": 22050,
-
     "_comment_supports_finetune": [
       "契约 v2 只管推理，不管微调。这个键唯一的用途是决定训练页显不显示 ——",
       "false ⇒ 选中本引擎时训练页整个藏起来。「藏起来」是 v2 的事，",
@@ -351,7 +629,6 @@
     ],
     "supports_finetune": false
   },
-
   "_comment_call": [
     "⭐ 通用宿主 lib/engines/host.py 全靠这一段才知道怎么调上游。",
     "  每一项的出处都是**已删的** engines/indextts2/shim.py 的实际代码，",
@@ -371,7 +648,6 @@
     "  manifest.json 不知道也不该知道这台机器上的绝对路径。认得的占位符只有三个：",
     "  {root} / {engine_dir} / {checkpoints}，写错会被当场拒绝启动，不会静默。"
   ],
-
   "_comment_init_args": [
     "⛔⛔ 这一段只能待在 manifest 顶层。它 2026-08-30 试过两个位置，两次都错：",
     "  ① 放进 call.init_args ——  lib/engines/host.py:360 是 klass(**init_args)，",
@@ -407,7 +683,6 @@
     "  use_deepspeed：要装 deepspeed，装不上会自己关掉（infer_v2.py:101-105）。",
     "  ⇒ 先看 fp16 一项能把 RTF 拉到多少，再决定要不要动它们。"
   ],
-
   "call": {
     "kind": "python",
     "cwd": "models/tts/indextts2",
@@ -438,7 +713,6 @@
       "scope": "locked"
     }
   },
-
   "_comment_params": [
     "⭐ 两张白名单，分别喂 /tts 上的两道 400：",
     "    load_time  只能在加载引擎时给。出现在合成请求里 ⇒ 400。",
@@ -461,233 +735,10 @@
     "    gpt-sovits 的 payload_keys 里混着 text / ref_audio_path / seed",
     "    这些核心键，当白名单用会把两道闸都判错。"
   ],
-
-  "params": {
-    "load_time": [
-      "use_fp16",
-      "use_cuda_kernel",
-      "use_deepspeed",
-      "use_accel",
-      "use_torch_compile"
-    ],
-    "call_time": [
-      "emo_alpha",
-      "interval_silence",
-      "verbose",
-      "max_text_tokens_per_segment",
-      "emo_audio_prompt",
-      "emo_vector",
-      "use_emo_text",
-      "emo_text",
-      "use_random"
-    ],
-
-    "_comment_schema": [
-      "⭐ 界面画格子的唯一依据。在它出现之前这张表是空的 —— 后果不是",
-      "  「面板上少几格」，是**选到这台引擎 Advanced Settings 整个是空的**，",
-      "  而 param_keys 里明明列着 12 个键。看着像这台引擎调不了，实际是",
-      "  名片作者没写这一段（前端 schemaGap() 专门把这两种「没有」分开说）。",
-      "",
-      "⭐ 这里只列 params.call_time 那 4 个。⛔ load_time 的 5 个",
-      "  （use_fp16 / use_cuda_kernel / ...）**不能进来**：它们只能在加载引擎时给，",
-      "  出现在合成请求里 host.py:647-652 当场 400。面板是「这一次合成」的面板，",
-      "  放一个按了必定报错的格子，比不放还糟。",
-      "",
-      "⭐ 一律写 schema.default 而不是顶层 defaults —— 两者语义不同",
-      "  （profile.js:482-509）：defaults = 每次合成都发；schema.default = 只是",
-      "  界面初值，用户不动就不发。选后者 ⇒ 这一刀**不改变任何一条已有路径",
-      "  发出去的键**，OpenAI 兼容口和 Flow 的请求体逐字不变。",
-      "",
-      "  数值取自上游 IndexTTS2.infer() 的形参默认值（emo_alpha=1.0 /",
-      "  interval_silence=200 / verbose=False / max_text_tokens_per_segment=120）,",
-      "  不是我们挑的 —— 界面初值和引擎自己的默认行为对上，用户不动格子时",
-      "  发不发这个键结果一样。",
-      "",
-      "⭐⭐ 2026-08-29：情绪四件套补齐了（上一版这里写着「那是下一刀」）。",
-      "  Owner 的原话是「一个情绪强度不够」「没有情绪参考音频」——",
-      "  确实：这台引擎有四种给情绪的方式，名片只说得出其中一种。",
-      "",
-      "  ⭐ 四件套全部用**五种预设样式**表达，没有为情绪新增任何一种类型：",
-      "      emo_alpha         数字",
-      "      emo_audio_prompt  下拉(平台音频库) + allow_custom",
-      "      emo_vector        数字 × repeat 8",
-      "      use_emo_text      勾选   /  emo_text 文本",
-      "  ⛔ 平台没有「情绪参考音频」这种类型。那是**这张名片给格子起的名字**，",
-      "    不是平台认识的种类 —— 换到 GSV 那边，同一个原语叫「辅助参考音频」",
-      "    （Owner 原话：本质上是同一个输入）。",
-      "",
-      "  ⭐ 仍然一律写 schema.default 而不是顶层 defaults：这一刀**不改变任何",
-      "    一条已有路径发出去的键**，用户不动格子就一个新键都不发。"
-    ],
-
-    "schema": {
-      "emo_alpha": {
-        "type": "number",
-        "default": 1.0,
-        "min": 0,
-        "max": 1,
-        "step": 0.05,
-        "tier": "common",
-        "group": "emotion",
-        "order": 10,
-        "label": { "en": "Emotion Alpha", "zh": "情绪强度" },
-        "help": {
-          "en": "Blend factor for the emotion reference. 1.0 = full emotion.",
-          "zh": "情绪参考的混合系数。1.0 = 完全采用情绪参考。"
-        }
-      },
-      "emo_audio_prompt": {
-        "_comment": [
-          "情绪参考音频 —— 上游 infer_v2.py:366 的 emo_audio_prompt。",
-          "⭐ 类型是**下拉 + source:audio**，不是 file：选项由平台运行时扫音频库",
-          "  得到，名片列不出来。allow_custom=true ⇒ 库里没有的也能自己指一个。",
-          "  （file 是 custom file：平台压根不认识的任意文件，没有候选列表。",
-          "   两者的区别就是候选从哪来 —— BrokerTab.jsx:53 那个 custom 判据同义。）",
-          "⛔ 不写 accept 白名单去卡后缀：卡错了就会拦住引擎其实打得开的文件。"
-        ],
-        "type": "select",
-        "source": "audio",
-        "allow_custom": true,
-        "default": "",
-        "tier": "common",
-        "group": "emotion",
-        "order": 20,
-        "width": "full",
-        "label": { "en": "Emotion Reference Audio", "zh": "情绪参考音频" },
-        "help": {
-          "en": "A second clip that supplies the emotion (the voice still comes from the speaker clip). Leave empty to take the emotion from the speaker clip itself.",
-          "zh": "另给一段音频决定情绪（音色仍来自音色参考音频）。留空 = 情绪也取自音色参考音频。"
-        }
-      },
-      "emo_vector": {
-        "_comment": [
-          "八维情绪向量 —— 上游 infer_v2.py:367 的 emo_vector。",
-          "⭐ 这是 repeat 的样板：**数字 × repeat 8**，不是第六种类型叫「向量」。",
-          "  平台不认识「情绪有几维」，它只知道这张名片说了 8 格。",
-          "⭐ dim_labels 的八个词逐字出自上游 infer_v2.py:352 的注释与 :751 的",
-          "  desired_vector_order —— 顺序错一位不会报错，只是情绪不对。",
-          "    [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm]",
-          "    [\"高兴\",\"愤怒\",\"悲伤\",\"恐惧\",\"反感\",\"低落\",\"惊讶\",\"自然\"]",
-          "⚠ 上游 normalize_emo_vec() 会把总和压到 ≤0.8 并逐维乘一个 bias。",
-          "  ⛔ 平台**不替它做**这件事：那是引擎的归一化，抄一份到这边迟早分叉。",
-          "  所以这里 max 写 1 只是滑块画到哪，填 1.0 也照发（min/max 是界面提示）。"
-        ],
-        "type": "number",
-        "repeat": 8,
-        "dim_labels": [
-          { "en": "Happy", "zh": "高兴" },
-          { "en": "Angry", "zh": "愤怒" },
-          { "en": "Sad", "zh": "悲伤" },
-          { "en": "Afraid", "zh": "恐惧" },
-          { "en": "Disgusted", "zh": "反感" },
-          { "en": "Melancholic", "zh": "低落" },
-          { "en": "Surprised", "zh": "惊讶" },
-          { "en": "Calm", "zh": "自然" }
-        ],
-        "default": [0, 0, 0, 0, 0, 0, 0, 0],
-        "min": 0,
-        "max": 1,
-        "step": 0.05,
-        "tier": "advanced",
-        "group": "emotion",
-        "order": 30,
-        "width": "full",
-        "label": { "en": "Emotion Vector (8-dim)", "zh": "情绪向量（八维）" },
-        "help": {
-          "en": "Dial the emotion directly instead of supplying a reference clip. All zeros = do not use.",
-          "zh": "不给参考音频，直接把情绪拧出来。全 0 = 不使用。"
-        }
-      },
-      "use_emo_text": {
-        "_comment": "上游 infer_v2.py:368 的 use_emo_text。勾上之后情绪由一段文本描述决定。",
-        "type": "boolean",
-        "default": false,
-        "tier": "advanced",
-        "group": "emotion",
-        "order": 40,
-        "label": { "en": "Emotion From Text", "zh": "用文本描述情绪" },
-        "help": {
-          "en": "Let a text description drive the emotion, instead of a reference clip or vector.",
-          "zh": "用一句文本描述来决定情绪，替代参考音频/情绪向量。"
-        }
-      },
-      "emo_text": {
-        "_comment": [
-          "上游 infer_v2.py:368 的 emo_text。",
-          "⭐ only_when：没勾上 use_emo_text 时这一格没有意义，藏起来。",
-          "  ⛔ 平台**不检查** use_emo_text 这个键存不存在（fail-open）——",
-          "    名片作者拼错一个键名，这一格照长。少画一格不报错，最难查。"
-        ],
-        "type": "text",
-        "default": "",
-        "tier": "advanced",
-        "group": "emotion",
-        "order": 50,
-        "width": "full",
-        "only_when": { "use_emo_text": true },
-        "label": { "en": "Emotion Description", "zh": "情绪描述" },
-        "help": {
-          "en": "e.g. \"speaking softly, a little sad\". Only used when Emotion From Text is on.",
-          "zh": "例如「轻声细语，有点难过」。只在勾了「用文本描述情绪」时生效。"
-        }
-      },
-      "use_random": {
-        "_comment": "上游 infer_v2.py:368 的 use_random。情绪采样加随机 ⇒ ⛔ 会让同一个 seed 不再复现。",
-        "type": "boolean",
-        "default": false,
-        "tier": "advanced",
-        "group": "emotion",
-        "order": 60,
-        "label": { "en": "Randomise Emotion", "zh": "情绪随机采样" },
-        "help": {
-          "en": "Adds randomness to emotion sampling. NOTE: breaks seed reproducibility.",
-          "zh": "在情绪采样上加随机。⚠ 打开后同一个 seed 不再复现同一段音频。"
-        }
-      },
-      "interval_silence": {
-        "type": "integer",
-        "default": 200,
-        "min": 0,
-        "max": 2000,
-        "step": 50,
-        "tier": "common",
-        "label": { "en": "Interval Silence (ms)", "zh": "段间静音（毫秒）" },
-        "help": {
-          "en": "Silence inserted between segments when the engine splits the text itself.",
-          "zh": "引擎自行切分文本时，段与段之间插入的静音时长。"
-        }
-      },
-      "max_text_tokens_per_segment": {
-        "type": "integer",
-        "default": 120,
-        "min": 20,
-        "max": 500,
-        "step": 10,
-        "tier": "advanced",
-        "label": { "en": "Max Text Tokens / Segment", "zh": "每段最大文本 token 数" },
-        "help": {
-          "en": "Upper bound on tokens per engine-side segment. Larger = fewer, longer segments.",
-          "zh": "引擎侧每一段的 token 上限。越大分得越少、每段越长。"
-        }
-      },
-      "verbose": {
-        "type": "boolean",
-        "default": false,
-        "tier": "advanced",
-        "label": { "en": "Verbose Engine Log", "zh": "引擎详细日志" },
-        "help": {
-          "en": "Ask the engine to print per-segment detail to its own console.",
-          "zh": "让引擎在自己的控制台打印逐段细节。"
-        }
-      }
-    }
-  },
-
   "_comment_output_formats": [
     "这台引擎自己能直接吐出来的格式。要别的格式 ⇒ 400，由平台去转，",
     "不在引擎里塞转码逻辑（契约：引擎只管推理）。"
   ],
-
   "output_formats": [
     "wav"
   ]
