@@ -533,8 +533,21 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     const estChunks = Math.max(1, Math.ceil(t.length / Math.max(1, body.max_chars || 30)))
     onActivity?.({ label: willSplit ? `Generating · ${estChunks} chunks` : 'Generating' })
     try {
-      const r = await api('/api/generate', { method: 'POST', body })
-      if (!r.ok) throw new Error(r.data.error || `Server error ${r.status}`)
+      let r = await api('/api/generate', { method: 'POST', body })
+      if (!r.ok && r.data?.code === 'ENGINE_MEMORY_CONFIRM_REQUIRED' && !body.memory_risk_confirmed) {
+        const details = r.data.details || {}
+        const lines = [r.data.message || 'Starting this engine may use substantial system memory.']
+        if (details.historical_peak_mb != null) lines.push(`Historical peak: ${details.historical_peak_mb} MB`)
+        if (details.required_mb != null) lines.push(`Estimated with headroom: ${details.required_mb} MB`)
+        if (details.free_mb != null) lines.push(`Currently available: ${details.free_mb} MB`)
+        lines.push('', 'Continue with this attempt?')
+        if (!window.confirm(lines.join('\n'))) return null
+        r = await api('/api/generate', {
+          method: 'POST',
+          body: { ...body, memory_risk_confirmed: true },
+        })
+      }
+      if (!r.ok) throw new Error(r.data?.message || r.data?.error || `Server error ${r.status}`)
       setResult(r.data)
       if (r.data.audio_url) { loadRecent() }
       return r.data
