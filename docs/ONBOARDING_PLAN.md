@@ -79,9 +79,9 @@
 
 | # | 事项 | 状态 | 证据 | 备注 |
 |---|---|---|---|---|
-| **B1** | `MAX_LAUNCH_SLOTS = 1` | ✅ **已实测** | [实测] `probe_max_launch_slots2.cjs`：两个 launch 位 → ⛔ 抛 `ENGINE_TOO_MANY_LAUNCH_SLOTS`，spawn 0 次；**两个 call 位不受影响** | ⭐ 天花板确认。⚠️ **拒绝在第一次合成时**，不在装引擎时（`registry.js`/`profile.js` 都不含它）⇒ 装得上、界面正常、点合成才炸。⚠️ 写它时**零测试覆盖**，上表是本次补的 |
+| **B1** | `MAX_LAUNCH_SLOTS = 1` | ⚠️ **已定位，未修** | [实测] `probe_max_launch_slots2.cjs`：两个 launch 位 → ⛔ 抛 `ENGINE_TOO_MANY_LAUNCH_SLOTS`，spawn 0 次；**两个 call 位不受影响** | ⭐ 天花板确认。⚠️ **拒绝在第一次合成时**，不在装引擎时（`registry.js`/`profile.js` 都不含它）⇒ 装得上、界面正常、点合成才炸。⚠️ 写它时**零测试覆盖**，上表是本次补的 |
 | **B2** | launch 位只能换目录 | ⬜ 待开 | [读码] `{checkpoints}` 只有一个占位符 | B1 的根因：一个进程只有一个底模目录 |
-| **B3** | `cap` 降级成护栏 | ⬜ 待开 | [读码] `DEFAULT_CAP = 2`，注释自陈「当不了法官」 | 代码已有方向，未执行 |
+| **B3** | `cap` 降级成护栏 | ✅ **2026-09-29 已修** | [实测] `cap.node.test.js` 16 条 + 6 条变异全抓住。**B3 之前 cap 只有夹具值、零行为测试**（改完 1633 条全绿 = 没有测试在看它） | 判据是 `needMb == null`（**不知道**），不是「内存够不够」。<br>⭐ cap 自动算：**总内存 / 8G**（8G→1 / 16G→2 / 32G→4 / 128G→16），`AURIVOX_ENGINE_CAP` 可覆盖 |
 | **B4** | 端口归零（管道化） | ⬜ 待开 | [读码] `host.py:1066` 一行 + `client.js` 145 行 | 治「存在感」不治「占多少」。**卡在 C1 后面** |
 | **B5** | 占用对用户可见 | ⬜ 待开 | [实测] 用户无法得知当前开了几台 / 吃了多少 | 账本数据已存在，只差暴露 |
 
@@ -99,7 +99,7 @@
 |---|---|---|---|
 | **D1** | README 目录导览过期 | ✅ **2026-09-04 已修** | [实测] `vendor/tts/` `vendor/gsv-tools/` `tools/checks/` 均已不存在；`outputs/flowgraph/` 实为 `_flow_runs/`；模型文件表把 GSV 写成了平台约定 |
 | **D2** | CHANGELOG「待重新标记」无解释 | ✅ **2026-09-04 已修** | [实测] 已补 release gate 说明 + 指向稳定化计划 |
-| **D3** | `ENGINE_ONBOARDING_STATUS.md` 只有目标 | ⬜ 待开 | = A3 |
+| **D3** | `ENGINE_ONBOARDING_STATUS.md` 只有目标 | ✅ **已被 A3 覆盖** | 该文件已指向契约 + 台账 |
 | **D4** | **本文件** | ✅ **2026-09-04 已建** | 旧台账随契约退休删除 |
 
 ### E 组 · 顺手查出来的
