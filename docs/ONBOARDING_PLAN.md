@@ -14,8 +14,8 @@
 |---|---|
 | 这个项目要做什么 | [`../docs/IDEA.md`](../docs/IDEA.md) |
 | 现在的进度、下一刀 | 本文件 |
-| 引擎抽象层长什么样 | `lib/engines/*.js` 的文件头注释（那里是最新的） |
-| 怎么装一个引擎 | ⬜ **未成文**，见 A3 |
+| 引擎抽象层长什么样 | [`ENGINE_ONBOARDING_CONTRACT.md`](./ENGINE_ONBOARDING_CONTRACT.md)（为什么是这样）· `lib/engines/*.js` 的文件头注释（那里是最新的） |
+| **怎么装一个引擎** | [`../engines/_TEMPLATE/README.md`](../engines/_TEMPLATE/README.md) 操作手册 · [`../engines/_TEMPLATE/manifest.json`](../engines/_TEMPLATE/manifest.json) 逐字段注释 |
 
 ⚠️ **口径**：下面每一条都标注了**证据来源**。
 `[实测]` = 我在这台机器上跑出来的；`[读码]` = 从代码读出来的，**未实机验证**。
@@ -70,16 +70,16 @@
 | # | 事项 | 状态 | 证据 | 备注 |
 |---|---|---|---|---|
 | **A1** | 参数草稿生成器 | ⬜ 待开 | [实测] 全仓库无 scaffold | 反射上游 signature 生成 `parameters[]` 草稿。**最大的接入缺口** |
-| **A2** | `engines/_TEMPLATE/` | ⬜ 待开 | [实测] 目录不存在 | `c3f0ae8` 随契约退休删除。最小样例在 `fakeEngine.node.test.js:40` |
-| **A3** | onboarding 契约成文 | ⬜ 待开 | [实测] `ENGINE_ONBOARDING_STATUS.md` 仅 17 行 / 7 条目标 | 「加引擎具体做什么」无可执行步骤。A1/A2 的规格书 |
+| **A2** | `engines/_TEMPLATE/` | ✅ **2026-09-04 已建** | [实测] 模板 + README；**经平台自己的 registry/profile/hostProfile 校验通过**；14 种「照着填错」变体逐一验过反应 | 目录名下划线开头 ⇒ `registry.js:83` 跳过，不会被当成真引擎 |
+| **A3** | onboarding 契约成文 | ✅ **2026-09-04 已建** | [实测] `docs/ENGINE_ONBOARDING_CONTRACT.md`（11 节，每条标 [实测]/[读码]） | 是**已实现行为的说明书**，不是规范。A1 的规格书 |
 | **A4** | GSV 迁新版声明 | ⬜ 待开 | [实测] GSV 无 `call` 段，`runtime.entry` = `lib/inference/infer_server.py` | **平台今天有两套推理实现并存**。高成本，不阻塞接新引擎 |
-| **A5** | `input.text.parameter` 落地 | ⬜ 待开 | [实测] `deriveTextBinding()` 已实现，零引擎使用 | 两台都还在用旧 `maps` |
+| **A5** | `input.text.parameter` 落地 | ⛔ **实测不可做** | [实测] `deriveTextBinding` 实现是 `{...m, maps:{text:p}}` ⇒ **maps 被整体替换** | 只能表达「只有一个输入概念」的引擎。GSV 有 10 个映射、IndexTTS2 有 4 个，**两台都无法用 input 表达**。要么扩语法，要么承认为死胡同 |
 
 ### B 组 · 多模型 / 资源占用
 
 | # | 事项 | 状态 | 证据 | 备注 |
 |---|---|---|---|---|
-| **B1** | `MAX_LAUNCH_SLOTS = 1` | ⚠️ **未验证** | [读码] `residency.js:182`，`supervisor.js:323` 抛 `ENGINE_TOO_MANY_LAUNCH_SLOTS` | ⭐ **「多模型」的真正天花板**：两个 launch 位的名片**注册时就拒**。**需实机验证** |
+| **B1** | `MAX_LAUNCH_SLOTS = 1` | ✅ **已实测** | [实测] `probe_max_launch_slots2.cjs`：两个 launch 位 → ⛔ 抛 `ENGINE_TOO_MANY_LAUNCH_SLOTS`，spawn 0 次；**两个 call 位不受影响** | ⭐ 天花板确认。⚠️ **拒绝在第一次合成时**，不在装引擎时（`registry.js`/`profile.js` 都不含它）⇒ 装得上、界面正常、点合成才炸。⚠️ 写它时**零测试覆盖**，上表是本次补的 |
 | **B2** | launch 位只能换目录 | ⬜ 待开 | [读码] `{checkpoints}` 只有一个占位符 | B1 的根因：一个进程只有一个底模目录 |
 | **B3** | `cap` 降级成护栏 | ⬜ 待开 | [读码] `DEFAULT_CAP = 2`，注释自陈「当不了法官」 | 代码已有方向，未执行 |
 | **B4** | 端口归零（管道化） | ⬜ 待开 | [读码] `host.py:1066` 一行 + `client.js` 145 行 | 治「存在感」不治「占多少」。**卡在 C1 后面** |
@@ -89,7 +89,7 @@
 
 | # | 事项 | 状态 | 证据 |
 |---|---|---|---|
-| **C1** | 第三道校验「出得了声」 | ⬜ 待开 | [实测] 不存在。**唯一关键路径欠账**，且卡着 B4 |
+| **C1** | 第三道校验「出得了声」 | ⬜ 待开（形态已定） | [实测] 不存在。**唯一关键路径欠账**，且卡着 B4 | ⭐ 2026-09-04 Owner 裁决分两级：**A 级**跑一次真合成出非空 WAV、**B 级**只验宿主拿到合法响应。旧判据「第三台引擎上必须能红」已随之调整（今天只有 2 台） |
 | C2 | Flow 默认关闭 | ✅ 已裁决 | [实测] 需 `FLOWGRAPH_ENABLED=1`。§12.12「两套节点表」已裁决不排期 |
 | C3 | 训练管线绑死 GSV | ⬜ 待开 | [实测] `pipelineIdentity.js:62` `TRAINING_ENGINE_ID='gpt-sovits'` |
 
@@ -106,16 +106,26 @@
 
 | # | 事项 | 状态 | 证据 |
 |---|---|---|---|
-| E1 | `engines/indextts2/checkpoints/` 161MB 未下完的 HF 缓存 | ⚠️ 已 ignore，盘上垃圾待清 | [实测] `f834541` 加了 `engines/*/checkpoints/`；`.incomplete` 文件仍在盘上 |
+| E1 | `engines/indextts2/checkpoints/` 161MB 未下完的 HF 缓存 | ✅ **2026-09-04 已清** | [实测] `f834541` 加 ignore；`33c58fd` 后删除该目录。IndexTTS2 底模复验 `ready: true`、缺 0 个 | ⭐ 根因：那次迁移把底模落错了地方 —— 名片说的是 `models/tts/indextts2/checkpoints`，真底模一直好好在那儿 |
 | E2 | `state/engine_memory.json` 有悬挂 `attempting` | ⚠️ 待观察 | [实测] IndexTTS2 有 `startedAt` 未收尾 ⇒ 曾崩过；`reapAttempts` 会处理 |
 | E3 | `lib/inference/infer_server.py` 还在 `lib/` 下 | ⬜ 裁定延后 | [实测] 违反 `SCOPE §2` |
 | E4 | `default_base_url` / `base_url_env` 在退休路上但是活键 | ⬜ 待拆 | [读码] `profile.js:302` 注释自陈 |
 
 ---
 
-## 3. 下一刀（2026-09-04 讨论结论）
+## 3. Owner 裁决（2026-09-04）
 
-**待 Owner 定。** 候选顺序与理由：
+| 议题 | 裁决 |
+|---|---|
+| 资源占用形态 | **C —— 全常驻 RAM、按需换进显存**（低延迟 API 服务）。⚠️ 该形态假设多卡机器；8GB 单卡上「100 个常驻」物理上不成立。**部署侧**的事，不阻塞接入新引擎 |
+| A4（GSV 迁移） | **先不做** |
+| C1 验收形态 | **C —— A 级真合成 + B 级合法响应，两级** |
+| E1 那 161MB | **删** |
+| CosyVoice2 模型位形状 | **不预判**（避免凭印象下判断） |
+
+## 4. 下一刀
+
+**待定。** 候选顺序与理由：
 
 ```
 第一梯队   A3 → A2 → A1    解锁接入新引擎（三者一组，缺一另两没法定型）
@@ -130,13 +140,12 @@
            A5 / C3 / E3 / E4
 ```
 
-⚠️ **B1 建议先花 10 分钟实机验证**：它是 [读码] 得来的，**没跑过**。
-如果接的引擎正好两个 launch 位，会在**装引擎那步**就撞墙，
-那时 A1 做完也没用。
+✅ **B1 已于 2026-09-04 实测**（见第 2 节）。结论：撞墙点在**第一次合成**，
+不在装引擎 ⇒ A1 做完仍然可用，只有真需要两个 launch 位时才炸。
 
 ---
 
-## 4. 维护纪律
+## 5. 维护纪律
 
 1. **做完一刀，当场改第 2 节那张表的状态格。** 不许记在别处。
 2. **证据分级**：`[实测]` / `[读码]` 必须标。读码不等于跑过。

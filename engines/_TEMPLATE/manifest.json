@@ -1,0 +1,265 @@
+{
+  "_comment_读我": [
+    "这是一张**模板**。照它填，填完删掉所有下划线开头的键（它们只是注释）。",
+    "⛔ 别直接复制这份文件的名字去建目录 —— 目录名就是引擎 id，",
+    "   里面的 id 字段必须和目录名**逐字相同**，否则装不上（ENGINE_MANIFEST_ID_MISMATCH）。",
+    "⭐ 平台只验不建：它不会替你装环境、不会替你下模型。",
+    "   装完用 node tools/install-engine.cjs <id> 拉源码（默认只打印计划，加 --yes 才动手）。",
+    "   下完用 node tools/dev/check-engine-env.cjs --engine <id> 查状态（加 --deep 会真去 import）。",
+    "📖 字段逐条说明见 engines/_TEMPLATE/README.md。"
+  ],
+
+  "contract_version": 2,
+  "id": "REPLACE_ME",
+  "label": "REPLACE ME（界面上显示的名字）",
+
+  "_comment_upstream": [
+    "⛔ upstream.commit 是**必填**的。平台不会替你拉最新版顶上：",
+    "   那样装出来的版本跟开发时用的可能不是同一个，而症状不会是报错，",
+    "   是声音不对、或者某个参数悄悄失效（C10）。",
+    "   不知道该钉哪一版就写 null 并在 upstream.commit_unknown_reason 里说明原因。"
+  ],
+  "upstream": {
+    "url": "https://github.com/REPLACE/REPLACE",
+    "commit": null,
+    "commit_unknown_reason": "还没定：先跑通再钉（填了这行 install 就会拒绝执行）",
+    "license": "REPLACE（上游许可证原文放 THIRD_PARTY_LICENSES/）"
+  },
+  "local_changes": "LOCAL-CHANGES.md",
+
+  "_comment_install": [
+    "建环境用上游自己的配方，argv 形式（不是一整行命令 —— 带空格的路径会被拆错）。",
+    "uv sync / poetry install / pip install -r requirements.txt 都行。",
+    "不写这一段 = 这台引擎不用平台代装（例如源码早就在仓库里的历史引擎）。"
+  ],
+  "install": {
+    "env_command": ["uv", "sync"]
+  },
+
+  "_comment_models": [
+    "底模放哪、哪几个文件算齐、怎么取回 —— 三件事都在这一段。",
+    "⭐ runtime.checkpoints（下面 runtime 段里）说的是「放哪」，",
+    "   models.required 说的是「哪几个文件算齐」，两个都要写：",
+    "   只写前者 ⇒ 平台只能告诉你目录在不在，说不出齐不齐（ready: null）。",
+    "⚠ 取回命令里的 {checkpoints} 占位符由平台填成绝对路径，可直接照抄执行。",
+    "⛔ 本文件里不许出现任何具体下载器名 —— 命令是名片写的，平台只填占位符。",
+    "⚠ 底模不要放进 engines/<id>/ 下面（那里是源码 + 自己的 .venv）。"
+  ],
+  "models": {
+    "required": ["REPLACE_ME.bin"],
+    "hint": "去哪儿下、多大、需不需要先在网页上点同意 —— 写在这里，界面上会显示。",
+    "source": {
+      "url": "https://huggingface.co/REPLACE/REPLACE",
+      "license_gate": false,
+      "command": ["REPLACE", "download", "--repo", "REPLACE/REPLACE", "--local-dir", "{checkpoints}"],
+      "cwd": "engine_dir"
+    }
+  },
+
+  "_comment_weights": [
+    "这台引擎有几个模型位（一份权重 = 一个位）。界面上会按这里长出几个下拉。",
+    "⛔ 不写 = 一个下拉都不长（不是默认给你两个）。",
+    "",
+    "applies_at 只有两个值，穷举：",
+    "  launch  开进程那一步就吃进内存的 ⇒ 换一份要带着它重开进程",
+    "  call    进程活着时一次调用换掉 ⇒ 换模型不重开",
+    "",
+    "⭐ 判据不是风格，是物理事实：这个模型是构造引擎对象时吃进去的，还是请求时喂的。",
+    "填错的后果不对称 —— 该 launch 当 call ⇒ 发一个引擎不读的键、声音没变、**不报错**。",
+    "",
+    "⚠ call 位必须写 param（换成用哪个参数名发过去），launch 位⛔不许写。",
+    "⚠ 平台今天只能送进去**一个** launch 位（重定向底模目录，一个进程只有一个）。",
+    "   写两个 launch 位 ⇒ 第一次合成时抛 ENGINE_TOO_MANY_LAUNCH_SLOTS。",
+    "   没有模型位的引擎（单一写死底模、不支持微调）可以不写这一段。"
+  ],
+  "weights": [
+    { "name": "model", "label": "Model", "applies_at": "launch" }
+  ],
+
+  "_comment_预算": [
+    "max_chars  一条请求最多几个字，平台据此切段。",
+    "timeout_ms 等这台引擎起多久（含加载模型的时间）。",
+    "⛔ *_source 必须写：measured=实测得来 / estimated=估的。",
+    "   平台用真实读数当权威，manifest 里的值只当读数来源的说明。"
+  ],
+  "max_chars": 50,
+  "max_chars_source": "estimated",
+  "timeout_ms": 180000,
+  "timeout_ms_source": "estimated",
+
+  "_comment_地址": [
+    "default_base_url 是这台引擎自己该监听哪儿。",
+    "⛔ 名片没写也没关系：平台会分配一个端口并在启动时告诉引擎。",
+    "   （A3 之后这两个键在退休路上，今天仍是活键。）",
+    "base_url_env 指定用哪个环境变量临时改地址 —— 变量名由你定，平台不认识任何具体变量名。"
+  ],
+  "base_url_env": "REPLACE_BASE_URL",
+
+  "_comment_capabilities": [
+    "requires_reference_audio  true ⇒ 每次请求必须带参考音频，宿主会 400 拦下没带的。",
+    "                         且 call.bind 必须有 ref_audio 槽位接它。",
+    "reference_clip_seconds  参考音频最长几秒（null = 不限）。",
+    "streaming               这台引擎自己支持流式吗（和平台的流式 broker 是两件事）。",
+    "supports_finetune       true ⇒ 界面上才长出 Tune 页签。⛔ 别为了让页签出现而写 true。"
+  ],
+  "capabilities": {
+    "requires_reference_audio": true,
+    "reference_clip_seconds": null,
+    "streaming": false,
+    "output_sample_rate": 22050,
+    "supports_finetune": false
+  },
+
+  "_comment_runtime": [
+    "python   这台引擎自己的解释器，**相对项目根**。⛔ 一台引擎一套（与平台 venv 隔离，C12）。",
+    "entry    进程入口，**相对本文件所在目录**。走通用宿主就填 ../../lib/engines/host.py。",
+    "args     argv 数组，数字要写成字符串（\"8000\" 不是 8000）。",
+    "         ⚠ 走通用宿主时 args 里必须有 {profile_json}，漏了宿主开口就 FATAL。",
+    "cwd      启动器从哪儿 spawn，相对项目根。⛔ 别跟 call.cwd 混：那个是「调用时待在哪」。",
+    "checkpoints 底模目录，相对项目根。{checkpoints} 占位符取的就是它。",
+    "ready_endpoint  /health 这类就绪探针。",
+    "ready_timeout_ms 等多久算起来（含加载模型）。",
+    "preload   开机要不要顺手点着它。⛔ 只能往下压不能往上抬：",
+    "          写了 false ⇒ 不预热；写 true 也要平台看有没有 launch 位",
+    "          （起进程就吃 6G 内存的引擎不该预热，作者比平台更清楚）。",
+    "verify    平台的第二道校验用：拿你这台引擎的解释器去 import 下面点名的模块/类/方法。",
+    "          ⚠ imports 的键只有 module / class / methods / init_params 四个，写别的当场报错。"
+  ],
+  "runtime": {
+    "python": "engines/REPLACE_ME/.venv/Scripts/python.exe",
+    "entry": "../../lib/engines/host.py",
+    "args": ["--profile-json", "{profile_json}", "--host", "{host}", "--port", "{port}"],
+    "cwd": ".",
+    "checkpoints": "models/tts/REPLACE_ME",
+    "ready_endpoint": "/health",
+    "ready_timeout_ms": 180000,
+    "ready_timeout_ms_source": "estimated",
+    "preload": false,
+    "verify": {
+      "sys_path": ["engines/REPLACE_ME"],
+      "imports": [
+        {
+          "module": "REPLACE_MODULE",
+          "class": "REPLACE_CLASS",
+          "methods": ["REPLACE_METHOD"],
+          "init_params": []
+        }
+      ]
+    }
+  },
+
+  "_comment_call": [
+    "『怎么调这台引擎的 Python 类』—— 通用宿主靠它反射调用，**不改你上游一行代码**。",
+    "",
+    "kind 只有两个值，键表**各自一张**（写错形态的键当场报错，不静默忽略）：",
+    "  python  module + class + init_args + method + bind",
+    "  cli     argv + args + bind（每次请求起一个新进程 ⇒ 不常驻，/health 会诚实报 resident:false）",
+    "",
+    "bind 是三个槽位，⛔ text 必填：",
+    "  text         要合成的文本（python 形态填上游的参数名，cli 形态填命令行开关如 \"--text\"）",
+    "  ref_audio    参考音频传给它哪个参数",
+    "  output_path  ⛔ returns=\"file\" 时必填：宿主把临时文件路径递给上游",
+    "",
+    "returns  file=上游写文件宿主读回来 / bytes=上游直接返回字节。不写默认 file。",
+    "seed    ⛔ 必填，三态（种子是**副作用**不是实参，形态和普通参数不同）：",
+    "           \"none\"                            不可复现 —— 宿主**显式拒收** seed（400）",
+    "           {\"arg\": \"<参数名>\"}                引擎自己收 —— 宿主把 seed 塞进这个参数名",
+    "           {\"mode\":\"global\",\"scope\":\"locked\",",
+    "            \"rngs\":[\"torch\",\"torch.cuda\"]}   宿主播全局 RNG。rngs 逐个列，⛔不许省",
+    "         ⛔ 不写 = 静默忽略 seed（『不支持』和『忘了写』会长得一模一样）。",
+    "         ⚠⚠ mode:global 还必须写 scope:\"locked\" —— 少了它引擎进程起来就 FATAL。",
+    "         ⚠⚠ 这一段的闸在**引擎进程启动时**（host.py 的 SeedPlan），不在装引擎时：",
+    "            装得上 ≠ 种子那部分对。rngs 列错名字、scope 漏写，都是起进程才炸。",
+    "",
+    "⚠ python 与 cli 两种形态的 bind 槽位里写的东西不同：一个是方法参数名，一个是命令行开关。"
+  ],
+  "call": {
+    "kind": "python",
+    "module": "REPLACE_MODULE",
+    "class": "REPLACE_CLASS",
+    "init_args": {},
+    "method": "infer",
+    "bind": {
+      "text": "text",
+      "ref_audio": "REPLACE_REF_AUDIO_PARAM",
+      "output_path": "REPLACE_OUTPUT_PARAM"
+    },
+    "returns": "file",
+    "seed": "none"
+  },
+
+  "_comment_parameters": [
+    "⭐ 界面上长什么样**全部由这一段决定**。一份声明，平台派生出 param_keys /",
+    "   payload_keys / params.load_time / params.call_time / params.schema 五份视图。",
+    "⛔ 不要再手写那五份中的任何一份 —— 新旧并存会直接报错（两份会漂移的事实）。",
+    "",
+    "每条参数：",
+    "  name   上游那个参数名，逐字照抄（拼错了 ⇒ 宿主 400 列出 unknown parameter）",
+    "  type   text / number / select / boolean / file",
+    "         （integer / enum / path / string 是别名，会被归并，写哪个都认 ——",
+    "          但归并后整数那味会单独记住，所以要整数语义就写 integer）",
+    "  phase  call（每次推理可变，默认）/ load（构造时吃进去，改它要重启进程）",
+    "",
+    "界面字段（可选，但建议写全）：",
+    "  label / help   {en,zh} 双语。help 写清楚这个参数调了会怎样。",
+    "  default        界面初值。⛔ 只填没人填过的键，别当成『平台每次替你发』。",
+    "  min/max/step   number / integer 用。",
+    "  choices        select 用：[{value, label:{en,zh}}]。",
+    "  only_when      {其它参数名: 值} —— 条件显示（如开关打开才出现的输入框）。",
+    "  tier           common（默认页签）/ advanced（高级页签）。",
+    "  group / order  分组与排序。",
+    "  allow_custom   enum 是否允许手输不在 choices 里的值。",
+    "",
+    "⚠ 平台只校验格子非空，不看里面的键名 —— 键名写错引擎自己会报错，",
+    "   那个报错比平台瞎猜的准。平台是搬运工，不是翻译。",
+    "⚠ 平台自己的键（format/split/concat/speed…）**不要**写进这一段，",
+    "   它们不属于任何一台引擎，界面上另有位置。"
+  ],
+  "parameters": [
+    {
+      "name": "REPLACE_LOAD_PARAM",
+      "type": "boolean",
+      "phase": "load",
+      "tier": "advanced",
+      "group": "runtime",
+      "order": 10,
+      "label": { "en": "REPLACE", "zh": "替换" },
+      "help": {
+        "en": "Set at engine construction time. Changing it requires restarting the engine process.",
+        "zh": "构造引擎时生效。改它要重启引擎进程。"
+      }
+    },
+    {
+      "name": "REPLACE_CALL_PARAM",
+      "type": "number",
+      "phase": "call",
+      "tier": "common",
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "label": { "en": "REPLACE", "zh": "替换" },
+      "help": { "en": "REPLACE", "zh": "替换" }
+    }
+  ],
+
+  "_comment_maps": [
+    "平台的词 → 这台引擎的键名。没映射的词 = 这台引擎没这个概念，不发。",
+    "平台词表固定这 10 个（加引擎不加词，只是给它们换一个说法）：",
+    "  必发（哪怕值是空字符串）: text / text_lang / reference_audio / reference_text / reference_lang",
+    "  空值不发              : aux_reference_audio / speed / seed / media_type / streaming",
+    "⛔ text 必填 —— 平台不知道『要合成的文本』在你那儿叫什么，就拼不出请求体。",
+    "⚠ 这里的键名不要和 parameters 里的名字搞混：",
+    "   maps 管『平台核心输入』，parameters 管『引擎私有旋钮』。"
+  ],
+  "maps": {
+    "text": "text",
+    "reference_audio": "ref_audio_path"
+  },
+
+  "_comment_output_formats": [
+    "这台引擎能出什么格式。不写 = 只出 wav（安全的默认）。",
+    "⚠ 转码是平台上层的事（ffmpeg），引擎只出它会的格式。",
+    "⛔ 声明了但引擎不会出 ⇒ 宿主 400（这道 400 就是为了这个）。"
+  ],
+  "output_formats": ["wav"]
+}

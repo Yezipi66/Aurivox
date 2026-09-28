@@ -2,8 +2,11 @@
 
 The former Engine Contract has been retired and is no longer an authoring or compatibility specification.
 
-> 📍 **进度看 [`ONBOARDING_PLAN.md`](./ONBOARDING_PLAN.md)。** 那是当前唯一的进度台账
-> （本文件只讲方向，那份讲「现在在哪、下一刀是什么」）。
+> 📍 **三份文档分工**：
+> - 方向（本文）—— 要做成什么样
+> - 进度 [`ONBOARDING_PLAN.md`](./ONBOARDING_PLAN.md) —— 现在在哪、下一刀是什么
+> - 行为 [`ENGINE_ONBOARDING_CONTRACT.md`](./ENGINE_ONBOARDING_CONTRACT.md) —— 为什么是这样（每条标 `[实测]`/`[读码]`）
+> - 怎么接 [`../engines/_TEMPLATE/README.md`](../engines/_TEMPLATE/README.md) —— 操作手册
 
 GPT-SoVITS and IndexTTS2 remain supported through the current legacy integration path. Their existing manifests describe that implementation only and must not be copied as templates for new engines.
 

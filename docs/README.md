@@ -6,6 +6,8 @@
 这里存放当前版本稳定化和未来 Workflow/Flow 方向的内部设计文档。
 
 - [`ONBOARDING_PLAN.md`](./ONBOARDING_PLAN.md)：⭐ **引擎接入进度台账（进度的唯一真相）** —— 抽象层已建成什么、还欠哪几刀、下一刀是什么
+- [`ENGINE_ONBOARDING_CONTRACT.md`](./ENGINE_ONBOARDING_CONTRACT.md)：引擎接入契约 v3 草案 —— **已实现行为的说明书**（为什么是这样），每条标 `[实测]`/`[读码]`
+- [`../engines/_TEMPLATE/README.md`](../engines/_TEMPLATE/README.md)：⭐ **接一个新引擎的操作手册**（五步 + 写错了会怎样）
 - [`ENGINE_ONBOARDING_STATUS.md`](./ENGINE_ONBOARDING_STATUS.md)：引擎接入的**方向**（七条目标）与各自兑现情况；过程记在上一份
 - [`FLOW-ARCH-001-DECISION.md`](./FLOW-ARCH-001-DECISION.md)：Workbench / Flow 产品边界与人工等待架构决策
 - [`FLOW-ARCH-002-HUMAN-GATE-DECISION.md`](./FLOW-ARCH-002-HUMAN-GATE-DECISION.md)：Human Gate、Artifact Revision 与 Run Resume 契约
