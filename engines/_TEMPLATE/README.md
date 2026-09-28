@@ -25,7 +25,7 @@ engines/
 
 ⛔ `engines/` 整棵树是要进 git 的（`manifest.json` / `UPSTREAM.md` /
 `LOCAL-CHANGES.md` 都在里面）。所以**别把底模放这儿** —— 底模归
-`models/tts/<引擎id>/`，见下面第 3 步。
+`models/tts/<引擎id>/`，见下面第 4 步。
 
 ## 五步
 
@@ -48,7 +48,36 @@ copy engines\_TEMPLATE\manifest.json engines\cosyvoice2\manifest.json
 | `parameters[].phase` | 该 load 当 call ⇒ 改它不生效、不报错 |
 | `upstream.commit` | 装出来的版本跟开发时用的不同 ⇒ **声音不对**，不报错 |
 
-### 2 · 拉源码（可选，但推荐）
+### 2 · 生成参数草稿（有 `call` 段之后）
+
+```bash
+node tools/scaffold-params.cjs --engine cosyvoice2            # 只打印
+node tools/scaffold-params.cjs --engine cosyvoice2 --write    # 写到 parameters.draft.json
+```
+
+它在**你这台引擎的解释器**里反射 `__init__` 和目标方法的签名，生成
+`parameters[]` 草稿 —— 省掉手抄参数名、类型、默认值这一段。
+
+⛔ **它是草稿，不是成品。** 下面这些反射拿不到，每条都留了 `REPLACE_ME`：
+
+| 拿不到的 | 为什么 |
+|---|---|
+| `min` / `max` / `step` | 上游签名里没有范围信息 |
+| `choices` | 上游没写 `Literal[...]` 时就得自己列 |
+| `label` / `help` 的中文 | 平台不替你翻译 |
+| `only_when` | 「这个输入框依赖那个开关」是引擎的语义，反射不出来 |
+| `tier` / `group` | 界面分组是产品决定，不是引擎事实 |
+
+⚠ **草稿里 `_needs_review: true` 的条目要逐条看**：那些是「默认值是 None、
+平台按参数名猜的类型」。猜错的代价是界面上出现一个改了不生效的旋钮。
+
+⚠ 路径类参数（`cfg_path` / `model_dir` / `*_dir`）会被**自动排除**并说明原因
+—— 它们归 `call.init_args` 管。做成界面格子的话，用户改了会「声音不对且不报错」。
+
+并进 `manifest.json` 之后，**记得删掉每个条目上的 `_confidence` / `_why` /
+`_needs_review` 等下划线开头的键**（它们是给你看的说明，不是名片字段）。
+
+### 3 · 拉源码（可选，但推荐）
 
 ```bash
 node tools/install-engine.cjs cosyvoice2           # 只打印计划，不动盘
@@ -64,7 +93,7 @@ node tools/install-engine.cjs cosyvoice2 --yes     # 真装
 ⚠️ `upstream.commit` 是 `null` 时它会拒绝执行并说明原因 —— **这是故意的**。
 平台不会替你拉最新版顶上。
 
-### 3 · 下底模
+### 4 · 下底模
 
 底模放 `models/tts/<引擎id>/`（**不是** `engines/<id>/`）。放哪由你名片的
 `runtime.checkpoints` 决定。
@@ -82,7 +111,7 @@ node tools/dev/check-engine-env.cjs --engine cosyvoice2   # 或用这个查
 
 只写前者 ⇒ 平台只能告诉你目录在不在，**说不出齐不齐**（三态里的 `null`）。
 
-### 4 · 自检（三道校验，前两道现成，第三道见下）
+### 5 · 自检（三道校验，前两道现成，第三道见下）
 
 ```bash
 node tools/dev/check-engine-env.cjs --engine cosyvoice2          # 第一道：装没装
@@ -99,7 +128,7 @@ node tools/dev/check-engine-env.cjs --engine cosyvoice2 --deep   # 第二道：�
 ⚠️ **第三道「出得了声」（真跑一次合成）今天还没有** —— 这是台账上唯一的关键路径
 欠账。意思是：前两道过了，你**仍然**只能靠手动试一次来确认它真能出声。
 
-### 5 · 装好了，前端自动长出来
+### 6 · 装好了，前端自动长出来
 
 **不需要跑任何脚本，不需要改任何代码。** 重启后端即可。
 
