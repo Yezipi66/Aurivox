@@ -87,6 +87,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const { t, lang: uiLang } = useT()
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
+  const [memoryRisk, setMemoryRisk] = useState(null)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
   // result + recent are persisted: audio is referenced by a server URL (audio_url),
@@ -533,19 +534,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     const estChunks = Math.max(1, Math.ceil(t.length / Math.max(1, body.max_chars || 30)))
     onActivity?.({ label: willSplit ? `Generating · ${estChunks} chunks` : 'Generating' })
     try {
-      let r = await api('/api/generate', { method: 'POST', body })
+      const r = await api('/api/generate', { method: 'POST', body })
       if (!r.ok && r.data?.code === 'ENGINE_MEMORY_CONFIRM_REQUIRED' && !body.memory_risk_confirmed) {
-        const details = r.data.details || {}
-        const lines = [r.data.message || 'Starting this engine may use substantial system memory.']
-        if (details.historical_peak_mb != null) lines.push(`Historical peak: ${details.historical_peak_mb} MB`)
-        if (details.required_mb != null) lines.push(`Estimated with headroom: ${details.required_mb} MB`)
-        if (details.free_mb != null) lines.push(`Currently available: ${details.free_mb} MB`)
-        lines.push('', 'Continue with this attempt?')
-        if (!window.confirm(lines.join('\n'))) return null
-        r = await api('/api/generate', {
-          method: 'POST',
-          body: { ...body, memory_risk_confirmed: true },
-        })
+        setMemoryRisk({ body, meta, message: r.data.message, details: r.data.details || {} })
+        return null
       }
       if (!r.ok) throw new Error(r.data?.message || r.data?.error || `Server error ${r.status}`)
       setResult(r.data)
@@ -553,6 +545,14 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       return r.data
     } catch (err) { setError(err.message); return null }
     finally { setLoading(false); onActivity?.(null) }
+  }
+
+  const cancelMemoryRisk = () => setMemoryRisk(null)
+  const continueMemoryRisk = () => {
+    const pending = memoryRisk
+    setMemoryRisk(null)
+    if (!pending) return
+    runGenerate({ ...pending.body, memory_risk_confirmed: true }, pending.meta)
   }
 
   const handleGenerate = async () => {
@@ -804,6 +804,24 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   return (
     <div className="workspace-grid">
+      <ConfirmDialog
+        open={!!memoryRisk}
+        title={t('System memory risk', '系统内存风险')}
+        message={memoryRisk ? (
+          <>
+            <div>{memoryRisk.message}</div>
+            <div style={{ marginTop: 10 }}>
+              {memoryRisk.details.historical_peak_mb != null && <div>{t('Historical peak', '历史峰值')}: {memoryRisk.details.historical_peak_mb} MB</div>}
+              {memoryRisk.details.required_mb != null && <div>{t('Estimated with headroom', '包含余量的估算')}: {memoryRisk.details.required_mb} MB</div>}
+              {memoryRisk.details.free_mb != null && <div>{t('Currently available', '当前可用')}: {memoryRisk.details.free_mb} MB</div>}
+            </div>
+          </>
+        ) : null}
+        confirmLabel={t('Try this time', '本次仍然尝试')}
+        cancelLabel={t('Cancel', '取消')}
+        onConfirm={continueMemoryRisk}
+        onCancel={cancelMemoryRisk}
+      />
       <div className="workspace-left">
         <div className="section">
           <div className="section-hdr"><span>Generate</span></div>

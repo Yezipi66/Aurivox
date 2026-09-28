@@ -451,7 +451,7 @@
     "ready_endpoint": "/",
     "ready_timeout_ms": 180000,
     "ready_timeout_ms_source": "estimated",
-    "preload": true,
+    "preload": false,
     "verify": {
       "sys_path": ["engines/gpt-sovits/infer", "engines/gpt-sovits"],
       "imports": [

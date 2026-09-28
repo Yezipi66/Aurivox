@@ -210,6 +210,16 @@ engines/indextts2/NOTICE
 # 权重二进制补漏：*.pth/*.ckpt/*.pt/*.bin/*.safetensors 已排，*.t7 之前漏了
 *.t7
 
+# 2026-09-04：engines/<id>/checkpoints/ —— 名片 runtime.checkpoints 声明的底模目录。
+# ⚠ 为什么必须显式排：engines/ 整棵树是**要进 git 的**（manifest.json /
+#   UPSTREAM.md / LOCAL-CHANGES.md 都在里面），所以「engines/ 是源码目录」
+#   这条推不出「engines/ 下面没有权重」。*.pth/*.safetensors 那些后缀
+#   只挡得住权重文件，挡不住 HF / ModelScope 下载时顺手带下来的
+#   config.json、bpe.model、*.yaml，以及 .cache/huggingface/download/ 里的
+#   *.incomplete —— 实测一次没下完的 IndexTTS2 缓存就是 161MB 纯文本+半成品，
+#   git add 一次就进索引。目录级 ignore 是这里唯一正确的粒度。
+engines/*/checkpoints/
+
 
 # tools/dev 下的**测量产物**：每跑一次就变（耗时、字节数、时间戳），
 # 进仓库只会制造无意义的 diff，还会诱人把「上次的读数」当成事实引用。
