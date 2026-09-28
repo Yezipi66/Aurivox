@@ -4,6 +4,11 @@
 
 ## v1.0.8（待重新标记）
 
+> ⚠ **为什么还挂着「待重新标记」**：1.0.8 是内部稳定化版本，按
+> [`docs/internal/INTERNAL-1.0.8-STABILIZATION.md`](./internal/INTERNAL-1.0.8-STABILIZATION.md)
+> 的 release gate，要等验收门槛过了才打 tag。最新正式 tag 仍是 `v1.0.7`。
+> ⛔ 未过 gate 之前不合并 `main`、不 push `main`、不 release。
+
 - 修复 Broker 分段时全文 `lang_overrides` 位置重复应用的问题，避免全文开头的语言覆盖泄漏到后续 segment。
 - 保留 Python 内部切句的全局字符位置，并记录生成 segment 的 `source_start`。
 - 修复 Han character language 的位置级读音覆盖和 Reading Proofing 数据契约。

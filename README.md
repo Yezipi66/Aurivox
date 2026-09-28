@@ -42,14 +42,15 @@
 | `web/` | 前端（Vite + React；`src/` 已模块化为 `lib/` + `components/{generate,train,compare,assets,broker}`） |
 | `lib/training/` | 训练管线：`pipeline.js` 状态机 + `steps/`（denoise/slice/asr/preprocess/train_s1/train_s2）；第三方代码与权重不在此处 |
 | `lib/inference/` | 自包含推理服务的进程入口（`infer_server.py`，OpenAI 兼容）；推理运行时本体在 `engines/gpt-sovits/infer/` |
-| `vendor/` | 第三方代码，第一层按工作流环节划分：`uvr5/`（人声分离）、`asr/`（语音识别）、`slicer/`（音频切分）、`tts/<引擎>/`（合成引擎）。GPT-SoVITS 一支含 `gsv_code/`（上游源码，目录名同时是 Python 包名，不可改）、`infer/`（推理运行时）、`train/`（上游训练脚本）。本项目对推理运行时的改动记于 `engines/gpt-sovits/infer/LOCAL-CHANGES.md`，升级上游时须逐条比对 |
-| `vendor/gsv-tools/` | 权重暂存处，代码已迁走，下一轮全部迁入顶层 `models/` |
+| `vendor/` | 第三方**成品**（当前只有 `ffmpeg/`），原封不动就能跑，我们没改过一行。第三方**代码**不在这儿：`uvr5/`（人声分离）· `asr/`（语音识别）· `slicer/`（音频切分）都归 `pipeline/`（所有引擎共用，换引擎时不换）；引擎源码归 `engines/<id>/`（一台引擎一份，随引擎走） |
+| `models/` | 全部权重。二进制、能重新下载、不进 git。按用途分 `tts/<引擎id>/<版本>/` · `asr/` · `separation/` · `vocoder/` · `sr/` · `lang/` |
+| `engines/<id>/` | 一台引擎一个目录：上游源码 + 它自己的 `.venv` + `manifest.json`。底模**不在**这里，在 `models/tts/<id>/` |
 | `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
 | `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |
-| `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`checks/`（环境体检）、`scripts/`（启停与打包 PowerShell）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试） |
+| `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`install-engine.cjs`（按名片钉的 commit 拉上游）、`dev/`（一次性补丁与探针）、`scripts/`（启停与打包 PowerShell）、`deploy/`（部署与下载）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试）、`runtime/` · `wheels/` |
 | `docs/` | 项目文档；`docs/internal/` 存放内部阶段性记录 |
 | `data/` | 运行期数据，全部集中于此：音色注册表 `voices.json` 及其轮转备份 `backups/`、配方 `recipes/`、画布的图与运行状态 `flowgraph/`、参考音频导入暂存区 `voices/`、读音词典 `pron_lexicon/`、本地配置 `app-config.json`，以及可被覆盖的默认值 `advanced_params.json` / `training_defaults.json`。该目录不进版本库 |
-| `outputs/` | 推理产物，按来源分为 `generate/` · `comparerefs/` · `broker/` · `flowgraph/`，互不混淆 |
+| `outputs/` | 推理产物，按来源分为 `generate/` · `comparerefs/` · `broker/` · `ab/` · `_flow_runs/`（画布运行），互不混淆 |
 
 > **路径权威**：上述所有目录与运行期文件的位置，统一定义在 `lib/paths.js`，其它模块
 > 一律从该文件取常量，不得自行拼接目录名。要调整某个目录的位置，只需改动该文件；
@@ -330,25 +331,44 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
 
 ## 模型文件
 
-| 文件 | 大小 | 说明 |
-|------|------|------|
-路径均相对项目根目录，与 `lib/paths.js` 中的常量一致。底模按版本分目录存放：
-`v1/` `v2/` `v2Pro/` `v2ProPlus/`。GPT（S1）底模上游只有两份，v2 / v2Pro / v2ProPlus
-共用 v2 的那一份，因此它位于 `v2/` 下，两个 Pro 目录只放 SoVITS 权重。
+> ⭐ **每台引擎的底模位置由它自己的名片声明**，平台不规定。
+> 权威是 `engines/<id>/manifest.json` 的 `runtime.checkpoints`（放在哪）和
+> `models.required`（哪几个文件算齐）；可以用 `models.checkpoints_env` 声明的
+> 环境变量临时改路径。**下表只是 GPT-SoVITS 一家的实况**，不是平台约定。
+> 查任意一台的真实状态：`node tools/dev/check-engine-env.cjs --engine <引擎id>`
+> （加 `--deep` 会在引擎自己的解释器里 import 名片点名的模块/类/方法，慢几十秒）。
+
+### GPT-SoVITS（`models/tts/gpt-sovits/`）
+
+底模按版本分目录：`v1/` `v2/` `v2Pro/` `v2ProPlus/`。GPT（S1）底模上游只有两份，
+v2 / v2Pro / v2ProPlus 共用 v2 的那一份，因此它位于 `v2/` 下，两个 Pro 目录只放
+SoVITS 权重。
 
 | 文件 | 大小 | 说明 |
 |------|------|------|
-| `models/tts/gpt-sovits/v2/s1bert25hz-5kh-*.ckpt` | ~150MB | S1 预训练（v2 / v2Pro / v2ProPlus 共用） |
-| `models/tts/gpt-sovits/v1/s1bert25hz-2kh-*.ckpt` | ~150MB | S1 预训练（v1） |
-| `models/tts/gpt-sovits/v2Pro/s2Gv2Pro.pth` | ~680MB | S2 Generator 预训练 |
-| `models/tts/gpt-sovits/v2Pro/s2Dv2Pro.pth` | ~550MB | S2 Discriminator 预训练 |
-| `models/tts/gpt-sovits/chinese-hubert-base/` | ~300MB | Hubert 特征提取 |
-| `models/tts/gpt-sovits/chinese-roberta-wwm-ext-large/` | ~1.3GB | 文本 BERT 特征 |
-| `models/asr/faster-whisper/large-v3-turbo/` | ~1.6GB | ASR 模型 |
-| `models/separation/uvr5/vr\|mdx\|roformer/` | 按需 | 人声分离权重，按架构分目录 |
+| `v2/s1bert25hz-5kh-*.ckpt` | ~150MB | S1 预训练（v2 / v2Pro / v2ProPlus 共用） |
+| `v1/s1bert25hz-2kh-*.ckpt` | ~150MB | S1 预训练（v1） |
+| `v2Pro/s2Gv2Pro.pth` | ~680MB | S2 Generator 预训练 |
+| `v2Pro/s2Dv2Pro.pth` | ~550MB | S2 Discriminator 预训练 |
+| `chinese-hubert-base/` | ~300MB | Hubert 特征提取 |
+| `chinese-roberta-wwm-ext-large/` | ~1.3GB | 文本 BERT 特征 |
 
 若本机仍是旧的 `gsv-v2final/` + `v2Pro/` 混放布局，运行
 `tools/scripts/Move-BaseModels.ps1` 迁移（默认只预演，加 `-Apply` 才实际移动）。
+
+### 其它引擎
+
+`models/tts/<引擎id>/`，内容与取回命令同样以那张名片为准。例如 IndexTTS2 声明
+`runtime.checkpoints = models/tts/indextts2/checkpoints`，`models.required` 点名 8 个
+文件（`config.yaml` / `gpt.pth` / `s2mel.pth` / …），并在 `models.source.command`
+里给出可直接照抄的一行取回命令。
+
+### 训练管线共用（与哪台引擎无关）
+
+| 文件 | 大小 | 说明 |
+|------|------|------|
+| `models/asr/faster-whisper/large-v3-turbo/` | ~1.6GB | ASR 模型 |
+| `models/separation/uvr5/vr\|mdx\|roformer/` | 按需 | 人声分离权重，按架构分目录 |
 
 ## 已知限制
 
