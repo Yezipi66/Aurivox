@@ -284,11 +284,18 @@ def reflect(spec):
 
     # --- 调用期：目标方法的参数 ---
     call = []
+    # ⭐ partial：这个结果**不完整**。
+    #   方法名拼错 ⇒ 只反射到加载期 ⇒ 草稿少了整整一段调用期参数。
+    #   ⛔ 那不是「警告一下就行」—— 缺的那一段在界面上表现为
+    #   「少了一批真实存在的旋钮」，且没有任何报错。
+    #   所以调用方要能据此**拒绝写盘**，而不是打个 log 继续。
+    partial = False
     if method_name:
         fn = getattr(klass, method_name, None)
         if fn is None:
             warnings.append("调用期：%s 上没有 %s 这个方法 —— 只给了加载期"
                             % (class_name, method_name))
+            partial = True
         else:
             if isinstance(fn, property):
                 fn = fn.fget
@@ -297,9 +304,15 @@ def reflect(spec):
                 warnings.append("调用期：%s" % w)
     else:
         warnings.append("没给 method —— 只反射了加载期")
+        partial = True
 
     return {
         "ok": True,
+        # ⭐ partial=true ⇒ 这个结果只覆盖了一部分，调用方必须说出来。
+        "partial": partial,
+        "partial_reason": (("方法 %s 在 %s 上不存在" % (method_name, class_name))
+                           if (partial and method_name) else
+                           ("没给 method —— 只反射了加载期" if partial else None)),
         "python": {
             "version": sys.version.split()[0],
             "executable": sys.executable,

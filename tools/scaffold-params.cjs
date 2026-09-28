@@ -217,6 +217,11 @@ function buildDraft(reflection, opts = {}) {
   const parameters = []
   const excluded = []
   const warnings = [...(reflection.warnings || [])]
+  // ⭐ 不完整的反射结果**不带 needs_review 之外的任何免责**：
+  //   它就是少了一段。buildDraft 不阻止写盘（那是 CLI 的判断），
+  //   但 partial 必须一路传出去，让调用方能拒绝。
+  const partial = reflection.partial === true
+  const partialReason = reflection.partial_reason || null
   // ⚠ opts.existing 是**名字数组**（['emo_alpha']），不是对象数组。
   //   写成 .map(e => e.name) 时，对字符串取 .name 得到 undefined ⇒ 集合永远是空
   //   ⇒ _already_in_manifest 永远不设 ⇒ 「不覆盖别人已有的参数」这条形同虚设。
@@ -303,7 +308,7 @@ function buildDraft(reflection, opts = {}) {
       parameters.push(draft)
     }
   }
-  return { parameters, excluded, warnings }
+  return { parameters, excluded, warnings, partial, partialReason }
 }
 
 // ---------------------------------------------------------------------------
@@ -395,9 +400,26 @@ function main(argv) {
   process.stdout.write(`  用的源码 ${reflection.python.module_file}\n`)
 
   const existing = (manifest.parameters || []).map((p) => p.name)
-  const { parameters, excluded, warnings } = buildDraft(reflection, { existing })
+  const { parameters, excluded, warnings, partial, partialReason } =
+    buildDraft(reflection, { existing })
 
   for (const w of warnings) process.stdout.write(`  ⚠ ${w}\n`)
+
+  // ⛔⛔ 不完整的反射不许写盘。
+  //   方法名拼错 ⇒ 草稿少了整整一段调用期参数 ⇒ 并进名片后，
+  //   界面上就是「少了一批真实存在的旋钮」，**没有任何报错**。
+  //   ⭐ 这是「设了它但什么都没发生」那一类失败，宁可拒绝。
+  if (partial) {
+    process.stderr.write(
+      `\n⛔ 反射结果不完整：${partialReason}\n` +
+      `  草稿只有 ${parameters.length} 条（加载期），**缺了调用期那一整段**。\n` +
+      '  并进 manifest.json 的话，界面上会少一批真实存在的旋钮，且不报错。\n' +
+      '  请核对名片里的 call.method 是否与上游一致，然后重跑。\n')
+    if (write) {
+      process.stderr.write(`\n⛔ 已拒绝写盘（--write 无效）。\n`)
+    }
+    return 2
+  }
 
   process.stdout.write(`\nparameters[] 草稿（${parameters.length} 条）\n`)
   process.stdout.write('─'.repeat(72) + '\n')
