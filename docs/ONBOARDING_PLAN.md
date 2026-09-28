@@ -107,9 +107,51 @@
 | # | 事项 | 状态 | 证据 |
 |---|---|---|---|
 | E1 | `engines/indextts2/checkpoints/` 161MB 未下完的 HF 缓存 | ✅ **2026-09-04 已清** | [实测] `f834541` 加 ignore；`33c58fd` 后删除该目录。IndexTTS2 底模复验 `ready: true`、缺 0 个 | ⭐ 根因：那次迁移把底模落错了地方 —— 名片说的是 `models/tts/indextts2/checkpoints`，真底模一直好好在那儿 |
-| E2 | `state/engine_memory.json` 有悬挂 `attempting` | ⚠️ 待观察 | [实测] IndexTTS2 有 `startedAt` 未收尾 ⇒ 曾崩过；`reapAttempts` 会处理 |
+| E2 | `state/engine_memory.json` 有悬挂 `attempting` | ✅ **2026-09-29 已清** | [实测] 那条 `startedAt` 是 **2026-09-04** 留的（不是当天），25 天前；已删，备份 `engine_memory.json.bak-before-reap` | ⭐ `engines` 账本**保留**（8574MB 是实测峰值，删了得重新量） |
 | E3 | `lib/inference/infer_server.py` 还在 `lib/` 下 | ⬜ 裁定延后 | [实测] 违反 `SCOPE §2` |
 | E4 | `default_base_url` / `base_url_env` 在退休路上但是活键 | ⬜ 待拆 | [读码] `profile.js:302` 注释自陈 |
+
+---
+
+## 2.5 ⬜ 欠账：A1 的增强（Owner 2026-09-29 指示暂缓）
+
+A1 的**主体已完成**（反射生成 `parameters[]`，见上表）。以下是实测后
+**新发现**的增强方向，Owner 指示**先记欠账，不做**。
+
+| # | 欠账 | 实测依据 | 为什么没做 |
+|---|---|---|---|
+| **N6** | **`--help` 解析器**（`tools/scaffold-cli-help.cjs`） | [实测] 两台真引擎给出**相反**答案：<br>· IndexTTS2 `cli_v2 synth --help` 信息量很大<br>· GSV `infer_server.py --help` **只有 3 个服务启动参数，推理参数一个都没有**（它们走 HTTP body） | Owner 指示暂缓 |
+| **N7** | **UI 表单辅助填写名片** | 同上 | 同上；且现在瓶颈不是参数，是「用户不知道 module/class」——一个输入框解决不了 |
+
+### ⭐ 但侦察得到的三条结论要留着（别重新测一遍）
+
+**1. `--help` 与反射是互补，不是替代。**
+
+| | 反射 | `--help` |
+|---|---|---|
+| 默认值（`interval_silence=200`） | ✅ | ❌ argparse 不显示 |
+| 必填/选填 | ✅ | ❌ |
+| Python 参数名（`spk_audio_prompt`） | ✅ | ❌ 是 `--voice` |
+| **参数说明文本** | ❌ | ✅ |
+| **维度**（"8-dimensional emotion vector"） | ❌ | ✅ |
+| **语义别名**（`--emotion-weight` → `emo_alpha`） | ❌ | ✅ |
+| **互斥组**（`--fp16\|--no-fp16`） | ❌ | ✅ 正是 `boolean_optional` 的证据 |
+| **覆盖 GSV** | ✅ | ❌ **完全失效** |
+
+⇒ 那三样（维度/别名/互斥组）是**反射根本拿不到**的，
+而它们恰好是手写名片**最容易错**的地方。
+
+**2. GSV 证明 `--help` 覆盖不了全部引擎。** 它的推理参数在
+`TTS_PASS_THROUGH_KEYS` 里，不在 argparse 里 ⇒ 任何 `--help` 方案
+**必须**能回落到反射，不能只做 `--help`。
+
+**3. ⚠ 平台注入会污染 `sys.path`。** 实测起 GSV 的解释器时，
+Hermes 注入的 numpy 覆盖了项目 venv 的，报
+`ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'`。
+
+⇒ `reflect_params.py` 的 `_scrub_sys_path()` 就是为这个写的，**它拦住了**。
+⛔ **任何「起引擎解释器跑东西」的工具都必须做这个防护** ——
+将来做 `--help` 解析器时同理。
 
 ---
 

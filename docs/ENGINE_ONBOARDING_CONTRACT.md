@@ -139,6 +139,31 @@ parameters[]  ──▶  param_keys          全部参数名
 ⭐ 变异测试 5 条，全部被测试抓住（`needs_review` 标反 / 排除名单失效 /
 bool 掉进 number / 名字线索不发建议 / `_already_in_manifest` 静默失效）。
 
+#### ⚠ 未实现但已实测的相邻路线：`--help` 解析 [实测 · Owner 指示暂缓]
+
+Owner 2026-09-29 提出「解析上游 `--help` 自动填字段」。**实测两台真引擎，
+结论是「互补，不是替代」**：
+
+| | 反射 | `--help` |
+|---|---|---|
+| 默认值 / 必填 / Python 参数名 | ✅ | ❌ |
+| **参数说明文本** | ❌ | ✅ |
+| **维度**（IndexTTS2: "8-dimensional emotion vector"） | ❌ | ✅ |
+| **语义别名**（`--emotion-weight` → `emo_alpha`） | ❌ | ✅ |
+| **互斥组**（`--fp16\|--no-fp16` ⇒ `boolean_optional` 的证据） | ❌ | ✅ |
+| **覆盖 GSV** | ✅ | ❌ **完全失效** |
+
+**GSV 的 `infer_server.py --help` 只有 3 个服务启动参数，推理参数一个都没有**
+——它们走 HTTP request body，不在 argparse 里。
+
+⇒ 两条硬结论（将来做的时候别再测一遍）：
+1. **`--help` 方案必须能回落到反射**，不能只做 `--help`。
+2. **反射仍必须是主路** —— 它是唯一覆盖全部引擎的那条。
+
+⚠ **起引擎解释器时必须洗 `sys.path`**：实测起 GSV 的解释器，Hermes 注入的
+numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarray_umath`。
+`reflect_params.py` 的 `_scrub_sys_path()` 拦住了这一条。
+
 ---
 
 ## §4 顶层键白名单
