@@ -448,6 +448,10 @@ const _engineSupervisor = new EngineSupervisor({
     record: (id, mb) => _memledger.record(__dirname, id, mb),
     markAttempting: (id) => _memledger.markAttempting(__dirname, id),
     reapAttempts: () => _memledger.reapAttempts(__dirname),
+    // ⭐ B5：占用报告要能说「哪台上次没活着回来」。⛔ 区分不了「被 OOM 杀了」
+    //   和「用户直接关掉」（memledger.markAttempting 自己就这么写着）——
+    //   两种都值得让人看见，所以不假装能分。
+    attemptingIds: () => Object.keys((_memledger.load(__dirname) || {}).attempting || {}),
   },
 });
 // ⭐⭐ 开机结上一轮的账：还挂着「正在试」的，都是**没活着回来**的。
