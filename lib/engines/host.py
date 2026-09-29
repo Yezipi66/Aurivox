@@ -630,6 +630,15 @@ class Engine(object):
                     data = fh.read()
                 if not data:
                     raise RuntimeError("%s wrote an empty file" % self.call["class"])
+            elif returns == "generator":
+                # ⭐ 2026-09-29：CosyVoice2 五个推理方法都返回生成器。
+                #   采样率从 call.generator_sample_rate 取（名片声明）——
+                #   ⛔ 不从 item 里猜：万一项里没有，它就该响亮地失败，
+                #     而默默塞一个 16000 会得到**变调**的音频，且不报错。
+                data = _collect_generator(
+                    result,
+                    self.call.get("generator_sample_rate"),
+                    '%s.%s' % (self.call["class"], self.call["method"]))
             else:
                 data = result
                 if not isinstance(data, (bytes, bytearray)):
@@ -654,6 +663,95 @@ class Engine(object):
                     os.unlink(out_path)
                 except OSError:
                     pass
+
+
+def _collect_generator(result, sample_rate, call_desc):
+    """把上游的**生成器**收成一个 WAV 字节流。
+
+    ⭐⭐ 为什么要有第三种形态（2026-09-29，接 CosyVoice2 时发现的）
+
+      `call.returns` 原本只有两种：
+        "file"   上游接受 output_path，自己写文件
+        "bytes"  上游返回 bytes
+      而 CosyVoice2 五个推理方法（inference_sft / zero_shot /
+      cross_lingual / instruct2 / vc）**全是生成器**：
+      `yield {"tts_speech": tensor, "sample_rate": 24000}`，
+      一次 yield 一块。非流式时也只是**攒完再 yield 一次**。
+
+      ⛔ 这不是 CosyVoice 独有的怪癖 —— 「流式合成」天然就是这个形状，
+        而 Owner 定的范围是「平台不应该损害对应模型的功能」
+        （五个方法一个不落）⇒ 平台必须认这个形状，否则那五分之四的能力接不了。
+
+      ⭐ 所以加这一种，而不是给 CosyVoice 单独写个 wrapper：
+        每个非标准引擎配一个 wrapper，就是回到 GSV 那个坑 ——
+        两套实现迟早分叉。
+
+    ⭐ 收的规则（据 example.py 的官方用法反推）：
+      - 每个 item 是 dict，取 `tts_speech`（torch tensor）与 `sample_rate`
+      - 有几块就 torch.cat 起来（CosyVoice 的非流式路径只 yield 一块，
+        但 ⛔ 不假设「只有一块」—— 上游改了就静默截断）
+      - 采样率取自**第一块**，⛔ 不信 item 之间的自相矛盾（那说明上游坏了）
+      - 落盘用标准库 `wave` + 手写 int16，⛔ **不 import torchaudio** ——
+        宿主那条纪律是「只用标准库」（这个进程跑在引擎自己的 venv 里），
+        而 torchaudio 有没有装、版本对不对，宿主说了不算。
+    """
+    import array
+    chunks = []
+    rate = None
+    for item in result:
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "%s 吐出来的不是 dict（是 %s）—— 这一段按 dict 形状写的"
+                % (call_desc, type(item).__name__))
+        speech = item.get("tts_speech")
+        if speech is None:
+            # ⛔ 静默跳过 = 音频缺一段而你不知道是哪一段
+            raise RuntimeError(
+                "%s 吐出来的 item 里没有 tts_speech（键有：%s）"
+                % (call_desc, ", ".join(sorted(item)) or "空"))
+        r = item.get("sample_rate", rate)
+        if rate is None:
+            rate = r
+        elif r is not None and r != rate:
+            raise RuntimeError(
+                "%s 中途换了采样率（%s → %s）—— 拼起来会变调"
+                % (call_desc, rate, r))
+        chunks.append(speech)
+    if not chunks:
+        raise RuntimeError("%s 一个字节都没吐（生成器是空的）" % call_desc)
+    if rate is None:
+        raise RuntimeError("%s 没给过 sample_rate" % call_desc)
+
+    try:
+        import torch
+    except ImportError:
+        torch = None
+
+    waves = []
+    for t in chunks:
+        if torch is not None and isinstance(t, torch.Tensor):
+            flat = t.detach().to("cpu").reshape(-1)
+            # ⭐ 浮点 → int16：乘 32767 再夹。⛔ 不写 32768 ——
+            #   那个在 +1.0 时会溢出成 -32768（那一格 audible 的「咔」）。
+            x = flat.clamp(-1.0, 1.0).mul(32767.0).round().to(torch.int16).numpy()
+        else:
+            x = array.array("h")
+            for v in t:
+                iv = int(round(float(v) * 32767.0))
+                x.append(max(-32768, min(32767, iv)))
+        waves.append(x)
+    data = waves[0] if len(waves) == 1 else array.array("h")
+    if len(waves) > 1:
+        for w in waves[1:]:
+            data.extend(w)
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(int(rate))
+        w.writeframes(data.tobytes())
+    return buf.getvalue()
 
 
 def _guess_device():
