@@ -486,7 +486,9 @@ if (_engineSweepTimer.unref) _engineSweepTimer.unref();
 //
 // ⭐ 自检句：**往一个进程上挂信号处理之前，先查这个进程已经挂了什么。**
 process.on("exit", () => {
-  try { _engineSupervisor.stopAll("后端退出"); } catch { /* 退出路径上不许再抛 */ }
+  // ⭐ 第二个参数 exiting=true 是**必须**的：stopAll 靠它决定走同步那条路。
+  //   process.on('exit') 里没有事件循环再跑一轮，异步 taskkill 会被掐掉。
+  try { _engineSupervisor.stopAll("后端退出", true); } catch { /* 退出路径上不许再抛 */ }
 });
 
 function loadVoices() { return voicesStore.load(); }
