@@ -703,3 +703,175 @@ export function engineBadge (engine, health, lang = 'zh') {
       : 'This engine\'s process is not managed by the platform — its current state is unknown, and guessing would be a lie. You will know when you press Generate.'),
   }
 }
+
+
+// ============================================================================
+//  B5 占用透明度 —— 「平台此刻占了你的什么」
+//
+//  ⭐ 数据全部由后端算好（lib/engines/occupancy.js + GET /api/engines 的
+//    `occupancy` 段）。这个文件**一个判断都不新加**，只决定「怎么显示」——
+//    ⭐ 理由与 engineBadge 完全一样：顶栏说一句、别处说另一句，是这个项目
+//    最贵的一类 bug（requires_reference_audio 那道 400 静默消失就是这么来的）。
+//
+//  ⭐⭐ 三态必须分得开，⛔ 不许糊成两态：
+//     number   这台引擎**历史上最多**吃过多少（memledger 只涨不落）
+//     null     **从来没量到过** —— ⛔ 不是 0。0 的意思是「它不吃内存」，
+//              而那是最危险的说法。
+//     ⚠ 报的是**历史峰值**而不是实时读数：峰值才对应 OOM 风险，
+//       实时读数在 Linux OOM 之后读到的残值不可靠。
+// ============================================================================
+
+/** 把字节数/MB 变成人能读的样子。⛔ 未知就说「?」，⛔ 绝不显示 0。 */
+export function fmtMemMb (mb) {
+  if (mb === null || mb === undefined || !Number.isFinite(Number(mb))) return '?'
+  const n = Number(mb)
+  if (n <= 0) return '?'
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} GB`
+  return `${Math.round(n)} MB`
+}
+
+/**
+ * 把后端那台机器的占用总览翻成一句话。
+ *
+ * @param {object|null} occ  /api/engines 回来的 occupancy 段
+ * @param {string} [lang]
+ * @returns {null|{tone:'ok'|'idle'|'unknown', label:string, detail:string[], title:string}}
+ *   null = 后端没给（老 broker / 接口报错）⇒ 不画，⛔ 不是画成「不占用」。
+ */
+export function occupancyBadge (occ, lang = 'zh') {
+  if (!occ || typeof occ !== 'object') return null
+  const zh = lang !== 'en'
+
+  // ⛔ 后端自己报错了 ⇒ 说「不知道」，⛔ 不说「没占用」。
+  //   「没占用」是最贵的那种撒谎：用户会以为安全，于是开更多。
+  if (typeof occ.error === 'string' && occ.error) {
+    return {
+      tone: 'unknown',
+      label: zh ? '占用：读不到' : 'usage: unknown',
+      detail: [occ.error],
+      title: (zh ? '读不到占用情况' : 'cannot read usage') + '\n\n' + occ.error,
+    }
+  }
+
+  // ⭐⭐⭐ 形状对不对，比字段空不空更要紧。
+  //
+  //   ⚠⚠ 这一段是被**接线测试**逼出来的：occupancy.node.test.js 里我用的是
+  //   自己手写的 occ（running / residentPeakMb / freeMb …），全绿；
+  //   而后端 occupancyReport() 真正吐的是 `{engines, summary, headline}` ——
+  //   数字全在 `summary` 里，键名还是 free_mb / total_mb。
+  //   ⛔ 照着手写的输入写实现 ⇒ 名字对不上 ⇒ **每一项都显示不出来**，
+  //     而界面看上去只是「空着」，不报错。
+  //   ⭐ 教训与 engineBadge 那段同源：**输入必须来自真的那一头**。
+  const sum = occ.summary
+  if (!Array.isArray(occ.engines) || !sum || typeof sum !== 'object') return null
+
+  const detail = []
+  detail.push(zh
+    ? `装了 ${sum.installed} 台引擎`
+    : `${sum.installed} engine(s) installed`)
+  detail.push(zh
+    ? (sum.running ? `${sum.running} 台在跑` : '现在一台都没在跑（用到才起）')
+    : (sum.running ? `${sum.running} running` : 'none running (start on demand)'))
+  if (sum.resident_peak_mb > 0) {
+    detail.push(zh
+      ? `在跑的这些峰值合计约 ${fmtMemMb(sum.resident_peak_mb)}`
+      : `running peak ~${fmtMemMb(sum.resident_peak_mb)}`)
+  }
+  // ⭐ unknown_count 是**风险最高**的那一档（从没人量过它吃多少），
+  //   所以它排在余量前面 —— 那是用户该先知道的事。
+  if (sum.unknown_count > 0) {
+    detail.push(zh
+      ? `⚠ ${sum.unknown_count} 台从来没量过占用`
+      : `⚠ ${sum.unknown_count} never measured`)
+  }
+  if (Number.isFinite(sum.free_mb) && Number.isFinite(sum.total_mb)) {
+    detail.push(zh
+      ? `系统剩余 ${fmtMemMb(sum.free_mb)} / 共 ${fmtMemMb(sum.total_mb)}`
+      : `free ${fmtMemMb(sum.free_mb)} / ${fmtMemMb(sum.total_mb)}`)
+  }
+
+  const label = zh
+    ? `占用：${sum.running} 台在跑`
+    : `usage: ${sum.running} running`
+
+  // ⭐ 后端已经写好了一句人话（headline），优先用它 ——
+  //   ⭐ 理由：那句话是后端跟 occupancy 同一份数据算出来的，
+  //     前端再措辞一次就多了一处「两边说法不一致」的可能。
+  const title = (occ.headline || (zh ? '平台此刻占了你的什么' : 'what the platform is using'))
+    + '\n\n' + detail.join('\n')
+
+  return {
+    // ⭐ tone 只有三档：跑着 / 没跑 / 读不到。
+    //   ⛔ 不加「危险」档 —— 危险是**引擎级**的（某台峰值高），
+    //     机器级只有一个诚实的问题：现在跑着几台。
+    //   ⚠ 但 unknown_count > 0 时**值得**提一句，所以放进 detail 而不是 tone：
+    //     把它升成 tone 会让「有台没量过」看起来像「机器出问题了」。
+    tone: sum.running ? 'ok' : 'idle',
+    label,
+    detail,
+    title,
+  }
+}
+
+/**
+ * 单台引擎的占用徽章（挂在每台引擎那一行）。
+ *
+ * ⭐ 「没量到过」是一个**必须说出来**的状态，不是「0」。
+ * @returns {null|{tone:'ok'|'busy'|'unknown'|'bad', label:string, title:string}}
+ */
+export function engineUsageBadge (eng, occ, lang = 'zh') {
+  if (!eng || !occ || typeof occ !== 'object') return null
+  const zh = lang !== 'en'
+  const list = Array.isArray(occ.engines) ? occ.engines : []
+  const row = list.find((e) => e && e.id === eng.id)
+  if (!row) return null
+  const name = eng.label || eng.id || (zh ? '引擎' : 'engine')
+
+  // ⭐⭐ 上次没活着回来 ⇒ 最高优先级的那一条警告。
+  //   ⛔ 它排在「没量到」前面：一次 OOM 比「不知道吃多少」更值得先说。
+  if (row.last_attempt_unfinished) {
+    return {
+      tone: 'bad',
+      label: zh ? `${name} · 上次没起来` : `${name} · last attempt failed`,
+      title: (zh
+        ? '上一次启动这台引擎没活着回来（多半是内存不够被赶出来了）。\n再起它之前，先把别的引擎停掉几只。'
+        : 'last start of this engine did not survive (likely OOM).\nstop a few others before retrying.'),
+    }
+  }
+
+  if (row.running && row.peak_mb !== null && row.peak_mb !== undefined) {
+    return {
+      tone: 'busy',
+      label: zh ? `${name} · 峰值 ${fmtMemMb(row.peak_mb)}` : `${name} · peak ${fmtMemMb(row.peak_mb)}`,
+      title: (zh
+        ? `在跑。历史上最多吃到过 ${fmtMemMb(row.peak_mb)}。`
+        : `running. peaked at ${fmtMemMb(row.peak_mb)}.`),
+    }
+  }
+  if (row.running) {
+    return {
+      tone: 'busy',
+      label: zh ? `${name} · 在跑（没量到占用）` : `${name} · running (usage unmeasured)`,
+      title: zh
+        ? '在跑，但它吃多少内存还没量到过 —— 那个数只能靠实际启动一次得来。'
+        : 'running, but its memory use has never been measured.',
+    }
+  }
+  if (row.peak_mb !== null && row.peak_mb !== undefined) {
+    return {
+      tone: 'idle',
+      label: zh ? `${name} · 峰值 ${fmtMemMb(row.peak_mb)}` : `${name} · peak ${fmtMemMb(row.peak_mb)}`,
+      title: zh
+        ? `没在跑。启动它大概会吃到 ${fmtMemMb(row.peak_mb)}（上一次量到的峰值）。`
+        : `not running. last measured peak ${fmtMemMb(row.peak_mb)}.`,
+    }
+  }
+  // ⛔ 从来没量过：说「没量到」，⛔ 绝不说「0」（0 = 它不吃内存，最危险的说法）
+  return {
+    tone: 'unknown',
+    label: zh ? `${name} · 占用没量到过` : `${name} · usage unmeasured`,
+    title: zh
+      ? '这台引擎吃多少内存还没量到过 —— 那个数只能靠实际启动一次得来。\n（显示成 0 会是「它不吃内存」，那是假的。）'
+      : 'never measured. A 0 here would falsely mean "uses no memory".',
+  }
+}

@@ -43,6 +43,10 @@ function AppShell() {
   //    界面对「有哪些引擎」这件事应当一无所知。凡是需要引擎信息才能决定的
   //    东西（参数面板、训练页显隐），这段时间就先不显示。
   const [engines, setEngines] = useState([])
+  // ⭐ B5 占用透明度：后端算好的那一份（lib/engines/occupancy.js）。
+  //   ⛔ 默认 null 而不是 {} —— occupancyBadge 判的是「字段在不在」，
+  //     {} 会让「后端没给」和「真装了 0 台」长得一样，而那两句的含义相反。
+  const [occupancy, setOccupancy] = useState(null)
   const [engineErrors, setEngineErrors] = useState([])
   const [selectedEngineId, setSelectedEngineId] = usePersistentState('ui.selectedEngine', '')
   const [genActivity, setGenActivity] = useState(null) // null | { label } — live inference activity for the context row
@@ -110,6 +114,8 @@ function AppShell() {
     fetchEngines({ probe: false }).then(r => {
       if (dead) return
       setEngines(r.engines)
+      // ⭐ 拉不到就保持 null（= 不画），⛔ 不许翻成「没占用」。
+      setOccupancy(r.occupancy ?? null)
       // 名片坏掉的引擎不在 r.engines 里，在 r.errors 里。必须显示出来 ——
       // 一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。
       setEngineErrors(r.errors || [])
@@ -124,6 +130,7 @@ function AppShell() {
     return fetchEngines({ probe: false })
       .then(r => {
         setEngines(prev => mergeProcessState(prev, r.engines))
+        setOccupancy(r.occupancy ?? null)
         // ⭐ 名片坏掉的那几台也一起刷新 —— 用户在引擎页看到"读不出来"，
         //   去改完 manifest.json 再回来点一下，就该少一条。
         setEngineErrors(r.errors || [])
@@ -142,7 +149,18 @@ function AppShell() {
   useEffect(() => {
     let dead = false
     const tick = () => fetchEngines({ probe: false })
-      .then(r => { if (!dead) setEngines(prev => mergeProcessState(prev, r.engines)) })
+      .then(r => {
+        if (dead) return
+        setEngines(prev => mergeProcessState(prev, r.engines))
+        // ⭐⭐ occupancy **每 8 秒都会变**（谁在跑、峰值），所以要跟着更新；
+        //   但 ⛔ 只在**内容真的变了**时才 set —— 否则每 8 秒一个新对象
+        //   ⇒ 整个引擎页重渲，而那一页有 N 个引擎的按钮和徽章。
+        //   ⭐ 判据用 JSON 字符串：这一段只有十来个标量，代价可忽略，
+        //     而换来的是「没变就真的不重渲」。
+        setOccupancy(prev => (JSON.stringify(prev) === JSON.stringify(r.occupancy ?? null)
+          ? prev
+          : (r.occupancy ?? null)))
+      })
       .catch(() => {}) // ⛔ 拉不到就保持原样，不许把徽章翻成"停着"
     const t = setInterval(tick, 8000)
     return () => { dead = true; clearInterval(t) }
@@ -329,7 +347,7 @@ function AppShell() {
               </div>
           )}
           {page === 'engines' && (
-            <EnginesTab engines={engines} engineErrors={engineErrors} onChanged={refreshEngines} />
+            <EnginesTab engines={engines} engineErrors={engineErrors} occupancy={occupancy} onChanged={refreshEngines} />
           )}
           {page === 'broker' && (
             <BrokerTab />

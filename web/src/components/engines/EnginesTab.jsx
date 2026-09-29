@@ -18,7 +18,7 @@
 //     或者更坏 —— "按钮灰着，其实能起"。
 
 import { useState } from 'react'
-import { startEngine, stopEngine, processBadge } from '../../lib/engines'
+import { startEngine, stopEngine, processBadge, occupancyBadge, engineUsageBadge } from '../../lib/engines'
 import { engineControls, actionOutcome } from '../../lib/engineActions.pure.js'
 
 const TONE_CLASS = {
@@ -26,14 +26,24 @@ const TONE_CLASS = {
   busy: 'badge-accent',
   idle: 'badge-neutral',
   unknown: 'badge-muted',
+  bad: 'badge-danger',
 }
 
-export function EnginesTab ({ engines = [], engineErrors = [], onChanged }) {
+// ⭐ badge-danger 不一定在所有主题里都定义了；没有就退回 danger 边框色。
+//   ⛔ 不用 badge-bad：那是 engineBadge 用的另一个类名，两套命名会漂。
+function toneClass (tone) {
+  return TONE_CLASS[tone] || 'badge-muted'
+}
+
+export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null, onChanged }) {
   // { [id]: 'start' | 'stop' } —— 这一台正在等后端回话。
   const [pending, setPending] = useState({})
   // { [id]: { kind, message, ... } } —— 上一次操作的结果，就地显示在那一行。
   // ⛔ 不做成全局一条 —— 五台引擎共用一条提示，看不出说的是哪一台。
   const [outcome, setOutcome] = useState({})
+
+  // ⭐ 两个翻函数都是纯的（web/src/lib/engines.js），这里只调一次。
+  const occBadge = occupancyBadge(occupancy)
 
   const setBusy = (id, what) => setPending(p => ({ ...p, [id]: what }))
   const clearBusy = (id) => setPending(p => { const n = { ...p }; delete n[id]; return n })
@@ -65,6 +75,21 @@ export function EnginesTab ({ engines = [], engineErrors = [], onChanged }) {
         <br />
         ⚠ 同时启动多台引擎会占用大量内存 —— 平台会按实测峰值拦，拦下来时这里会写明原因。
       </p>
+
+      {/* ⭐⭐ B5 占用透明度：机器级总览。
+          ⛔ null = 后端没给这一段 ⇒ **不画**（不是画「没占用」）。
+          ⭐ 判据是「字段在不在」而不是「数组空不空」—— 两者都长得像 []，
+            但一个是「真装了 0 台」、另一个是「平台不知道」，含义相反。 */}
+      {occBadge && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className={`badge ${toneClass(occBadge.tone)}`} title={occBadge.title}>
+              {occBadge.label}
+            </span>
+            <span style={{ color: 'var(--muted)' }}>{occBadge.detail.join(' · ')}</span>
+          </div>
+        </div>
+      )}
 
       {/* 名片坏掉的引擎在 errors 里，不在 engines 里。必须显示 ——
           一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。 */}
@@ -102,6 +127,21 @@ export function EnginesTab ({ engines = [], engineErrors = [], onChanged }) {
               {badge === null && (
                 <span className="badge badge-muted" title="这台部署不管引擎进程，或这台引擎由作者自己起。">
                   平台不管
+                </span>
+              )}
+
+              {/* ⭐⭐ B5 引擎级占用。⛔ null = 后端没报这台 ⇒ **不画**。
+                  ⛔ 绝不为「没量到」画一枚写着 0 的徽章 —— 那等于说
+                    「它不吃内存」，而那是最危险的说法（用户会以为能多开）。
+                  ⚠ tone=bad 那一枚是「上次启动没活着回来」⇒ 多半 OOM，
+                    它排在最前面，因为那是唯一需要用户行动的一条。 */}
+              {usage && (
+                <span
+                  className={`badge ${toneClass(usage.tone)}`}
+                  style={usage.tone === 'bad' ? { borderColor: 'var(--danger)' } : undefined}
+                  title={usage.title}
+                >
+                  {usage.label}
                 </span>
               )}
               <div style={{ flex: 1 }} />
