@@ -405,7 +405,11 @@ def in_excluded_tree(rel):
     # node_modules at ANY depth is dropped (app backend + web deps are restored
     # at deploy via `npm ci`), with ONE exception: the portable node runtime's
     # own node_modules, which IS npm itself and must ship. Keeping it here means
-    # `tools\runtime\node\npm.cmd ci` actually works on the target machine.
+    # `tools\runtime\node\node.exe ...\npm\bin\npm-cli.js ci` works on the
+    # target machine.
+    # ⛔ 2026-09-29：**不要**写成 `npm.cmd ci` —— npm.cmd 靠 PATH 推断 npm 在哪，
+    #   装过全局 Node 的机器上会跳到全局那份（版本对不上 → ERR_REQUIRE_ESM，
+    #   而错误信息里一个字都不提这回事）。实测踩过，根因与 Node 版本无关。
     if "node_modules" in r.split("/"):
         return not r.startswith(NODE_RUNTIME_PREFIX)
     # top-level data/ — allowlist, see DATA_KEEP

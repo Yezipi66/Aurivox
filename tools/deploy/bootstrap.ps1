@@ -424,12 +424,39 @@ $NODE_MODULES  = Join-Path $ROOT 'node_modules'
 if (-not (Test-Path $PKG_JSON)) {
   Warn ('package.json not found at project root: {0} — skipping node deps.' -f $PKG_JSON)
 } else {
-  # Locate npm: prefer the bundled node runtime (self-contained: npm.cmd next to
-  # it resolves its own node.exe), else a system npm on PATH.
+  # Locate npm: prefer the bundled node runtime, else a system npm on PATH.
+  #
+  # --- 2026-09-29：⛔ **绝不调 npm.cmd** -----------------------------------
+  #
+  # 实测（真机精简部署，[实测] 日志 deploy_20260929_214808.log）：
+  #   npm.cmd 报 ERR_REQUIRE_ESM，后端依赖装不上，整个平台起不来。
+  #
+  # 根因不在版本不匹配，而在 **npm.cmd 的一段路径推断**：
+  #   它先跑 node_modules/npm/bin/npm-prefix.js 问「npm 在哪」，
+  #   而那个脚本靠「PATH 上有没有 npm」来回答。
+  #   ⇒ 机器上一旦装过全局 Node（很常见），它就跳到全局那份去了：
+  #        npm-prefix.js 返回 D:\nodejs\global
+  #        内置 npm 是 10.8.2，被换成了全局的 12.0.2（要求 node≥22，内嵌是 20.17）
+  #   ⛔ **升 Node 修不了这个** —— 新版 Node 自带的是同一份 npm-prefix.js、
+  #     同一套推断逻辑。
+  #
+  # ⭐ 解法就是 tools/build/01_build_frontend.bat 早就在用的写法：
+  #   直接调包内那份 npm-cli.js，完全绕开前缀推断。
+  #   （build 脚本一直是对的，只有部署这一处是错的 —— 这就是不一致的来源。）
+  $NPM_CLI = Join-Path $NODE_DIR 'node_modules\npm\bin\npm-cli.js'
   $npmExe = $null
-  if (Test-Path $NPM_CMD) {
-    $npmExe = $NPM_CMD
+  $npmArgs = $null
+  if ((Test-Path $NODE_EXE) -and (Test-Path $NPM_CLI)) {
+    $npmExe  = $NODE_EXE
+    $npmArgs = @($NPM_CLI)
     if (Test-Path $NODE_EXE) { $env:PATH = $NODE_DIR + ';' + $env:PATH }  # belt-and-suspenders
+    Info ('using bundled npm: {0} (node {1})' -f $NPM_CLI, (& $NODE_EXE --version))
+  } elseif (Test-Path $NPM_CMD) {
+    # ⛔ 兜底才走 npm.cmd，且**说清它可能劫持** ——
+    #   否则症状是「ERR_REQUIRE_ESM」，而那句话完全不提 PATH 上的全局 npm。
+    $npmExe = $NPM_CMD
+    Warn ('bundled npm-cli.js missing; falling back to npm.cmd — it may pick up a')
+    Warn ('  global npm from PATH if one is installed. Run 03_fetch_runtimes.py to fix.')
     Info ('using bundled npm: {0}' -f $NPM_CMD)
   } else {
     $sysNpm = Get-Command npm.cmd -ErrorAction SilentlyContinue
@@ -464,10 +491,10 @@ if (-not (Test-Path $PKG_JSON)) {
         # what package-lock.json pins.
         if (Test-Path $PKG_LOCK) {
           Info 'restoring backend node deps: npm ci ...'
-          $nRC = Invoke-Native $npmExe @('ci','--no-audit','--no-fund')
+          $nRC = Invoke-Native $npmExe ($npmArgs + @('ci','--no-audit','--no-fund'))
         } else {
           Warn 'package-lock.json missing — falling back to `npm install` (NOT reproducible).'
-          $nRC = Invoke-Native $npmExe @('install','--no-audit','--no-fund')
+          $nRC = Invoke-Native $npmExe ($npmArgs + @('install','--no-audit','--no-fund'))
         }
       } finally { Pop-Location }
       if ($nRC -eq 0 -and (Test-Path $NODE_MODULES)) { $NODE_OK = $true; Ok 'backend node deps installed.' }
@@ -599,7 +626,10 @@ if ($NODE_OK) {
   Ok  '  后端 node 依赖        : OK (npm ci)'
 } else {
   Write-Host '  后端 node 依赖        : MISSING / FAILED  <== 后端服务无法启动!' -ForegroundColor Red
-  Write-Host '     修复: 在项目根目录运行  tools\runtime\node\npm.cmd ci' -ForegroundColor Yellow
+  Write-Host '     修复: 在项目根目录运行下面这条（⛔ 不要用 npm.cmd，理由见下）:' -ForegroundColor Yellow
+  Write-Host '       tools\runtime\node\node.exe tools\runtime\node\node_modules\npm\bin\npm-cli.js ci' -ForegroundColor Yellow
+  Write-Host '       npm.cmd 按 PATH 推断 npm 在哪 ⇒ 装过全局 Node 的机器上会跳到全局' -ForegroundColor Yellow
+  Write-Host '       那份（版本对不上，报 ERR_REQUIRE_ESM，而错误里一个字都不提这回事）' -ForegroundColor Yellow
   Write-Host '           (需要 package-lock.json 与 node 运行时;详见部署日志)' -ForegroundColor Yellow
 }
 Write-Host '============================================================' -ForegroundColor White
