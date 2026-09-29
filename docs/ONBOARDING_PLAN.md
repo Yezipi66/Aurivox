@@ -165,6 +165,65 @@ Hermes 注入的 numpy 覆盖了项目 venv 的，报
 | E1 那 161MB | **删** |
 | CosyVoice2 模型位形状 | **不预判**（避免凭印象下判断） |
 
+## 3b. 环境分层 —— C12（Owner 2026-08-24/25 拍板，2026-09-29 重新立此条）
+
+> ⭐ **这条曾经写在被删掉的 `docs/ENGINE_CONTRACT.md` C12 段里。**
+> 那份契约在 `c3f0ae8` 删了，**设计意图随之消失** ——
+> 于是 2026-09-29 有人（AI）把「GSV 住根 venv」读成了设计，
+> 连续五次判断错误。**账要还。**
+
+**Owner 原话（2026-08-24）**：「我们不可能维护这么多环境，我只维护
+GPT-SoVITS 兼容这一套，其他一概不负责。」
+
+**Owner 原话（2026-08-25）**：Aurivox 要成为**平台**，而不是「一个基于
+GPT-SoVITS 的项目」。**根环境里住着一台引擎，本身就是后者的物证。**
+
+### 三条不变式
+
+| | |
+|---|---|
+| **1** | ⛔ **根 `venv/` 只装平台自己的**（fastapi/uvicorn/pydantic），⛔ 不含 torch / CUDA / librosa |
+| **2** | ⭐ **每台引擎住 `engines/<id>/.venv`**，版本互相独立（GSV 要 torch 2.2+cu121，IndexTTS2 要 2.8+cu128，物理上无法共存） |
+| **3** | ⛔ **平台只验不建**（同 C12.2）：核对（名片声明的解释器/模块/类/方法在不在）+ 启动。**核对不过 = 没装** |
+
+### 「平台只验不建」的落地形状（ComfyUI 式，2026-09-29 Owner 确认）
+
+| 事情 | 谁做 | 平台提供什么 |
+|---|---|---|
+| 下模型 | **用户** | 名片 `models.required` / `source.url`（indexedt2 已给 modelscope URL） |
+| 建引擎环境 | **用户** | 名片 `install.env_command`（契约里早有这个字段） |
+| GSV 的下载脚本 | ⭐ **另一回事** | 它成熟，值得单独做 |
+
+⚠️ **Owner 原话（2026-09-29）**：「每周都有新的 TTS，我怎么可能专门维护所有 TTS 引擎」
+⇒ **平台绝不为每台引擎写下载/安装脚本。** 那是「平台维护所有引擎」。
+
+### ⭐ 日常判法
+
+**一件事该不该做，问它是让 GPT-SoVITS 更特殊，还是更像一台普通引擎。**
+
+⛔ 因此**不许新增任何依赖「共用」的机制** —— 例如让平台代码假设 GSV 的包
+一定在自己的 `sys.path` 里。每加一处这样的假设，将来拆环境就要多还一笔。
+
+### 当前偏差（2026-09-29 实测）
+
+| | |
+|---|---|
+| 根 `venv/` | 6.6GB，⛔ **装着 GSV 的 torch 2.2.0+cu121 + CUDA 全套** |
+| `engines/gpt-sovits/` | ⛔ **没有 `.venv`**，名片 `runtime.python: venv/Scripts/python.exe` 指根 venv |
+| `engines/indextts2/.venv` | ✅ 7.9GB，**已是正确形态**（独立、版本自定） |
+| `bootstrap.ps1` | ⛔ 步骤 3-4 **无条件**装 requirements.txt(200 包) + `install_torch.ps1`(CUDA 12.1) |
+
+⚠️ **实测的平台重依赖分布**（`git grep` 量出来的，不是推断）：
+- `routes/*` → **零**重依赖 ✅
+- `lib/`（除 `lib/inference/`）→ **只有 `lib/engines/host.py` 一处** import numpy/torch，
+  而它跑在**引擎自己的 venv** 里 ⇒ 平台 venv 不需要它
+- `lib/inference/*`（7 文件）→ torch/librosa/soundfile/numpy/TTS/gsv_code/config_repair
+  ⇒ **全是 GSV 专有**
+
+⇒ **平台瘦下来在技术上成立**，且可验。
+
+---
+
 ## 4. 下一刀
 
 **待定。** 候选顺序与理由：
