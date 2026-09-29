@@ -1,0 +1,65 @@
+# ============================================================================
+#  平台自己的 Python 依赖 —— requirements-platform.txt
+#
+#  ⭐⭐ 2026-09-29 新增。存在的理由是一笔欠了很多天的账：
+#
+#    Owner 2026-08-24/25 拍过板（写在后来被删掉的 docs/ENGINE_CONTRACT.md C12 段）：
+#      「我们不可能维护这么多环境，我只维护 GPT-SoVITS 兼容这一套」
+#      「Aurivox 要成为平台，而不是一个基于 GPT-SoVITS 的项目。
+#        根环境里住着一台引擎，本身就是后者的物证。」
+#
+#  ⚠ 旧 requirements.txt 是**根 venv 的 pip freeze**，而那个 venv 装的是
+#    GSV 的依赖（torch 2.2.0+cu121 + CUDA 全套 + librosa + soundfile …）
+#    ⇒ 200 个包，6.6GB。
+#    ⛔ 后果：**新用户装平台必背 5-6GB**，哪怕他一台引擎都不装。
+# ⛔ 而「用户自己下引擎」这句话就变成了空话。
+#
+#  ────────────────────────────────────────��────────────────────────────────────────
+#  [实测] `git grep` 的结果：
+#
+#    1. 平台运行时是 **Node**，不是 Python。
+#       package.json 只有 4 个依赖：cors / express / js-yaml / multer。
+# ⭐ 平台进程里根本没有 Python 解释器在跑。
+# 
+# 2. `lib/`（除 lib/inference/）里 import 重依赖的只有**一个**文件：
+# `lib/engines/host.py` → numpy / torch
+# ⭐ 而它跑在**引擎自己的 .venv** 里（host.py 注释自陈：
+# 「这个进程跑在引擎自己的 venv 里，和 broker 的 venv 没有任何共同依赖」）。
+# 
+# 3. `routes/` 零重依赖（[实测] git grep 结果为空）。
+# 
+# 4. `tools/deploy/*.py`（download_models / download_ffmpeg / deploy_wizard）
+# [实测] **只用标准库** —— 第三方依赖为零。
+# 
+# 5. `fastapi` / `uvicorn` 只被 `lib/inference/infer_server.py` import，
+# 而那是 **GPT-SoVITS 专有**的实现（E3 那笔账：它该搬进 engines/gpt-sovits/）。
+# 
+# ⇒ 平台自己要的，就是下面这三个**工具链**包。torch / librosa / soundfile /
+# fastapi 全部属于「某台引擎」或「某条训练线」，⛔ 不进平台环境。
+# 
+# ────────────────────────────────────────
+# ⛔ 因为 `lib/training/python.json` 指向 `./venv/Scripts/python.exe`，
+# 而训练线要 torch 2.2.0+cu121（Owner 2026-09-29 裁决「C3 暂不做」——
+# 等真有第二个可微调引擎再说）。
+# ⇒ 今天瘦身会让**训练立刻坏掉**。
+# ⭐ 所以：新增这份瘦版 + bootstrap 加开关，默认仍走旧的（老用户零影响），
+# 等训练线也搬进 engines/<id>/.venv 之后再切默认。
+# ⚠ 这个先后顺序不是保守，是「不弄坏正在用的东西」。
+# 
+# ────────────────────────────────────────
+# venv\Scripts\python.exe -m pip install --no-deps -r requirements-platform.txt
+# 
+# ⭐ 为什么是 --no-deps：与 bootstrap 现有做法一致（全钉死，不让 pip 重解析）。
+# 三个包都是无依赖或已被别处满足的，装完不需要再拉一堆传递依赖。
+# ============================================================================
+
+# uv —— 并行安装器，bootstrap 步骤 3 用它（比 pip 快很多）
+uv==0.12.1
+
+# packaging —— 版本解析与元数据工具，uv/pip/wheel 工具链共用的底座
+packaging==26.2
+
+# hf_transfer —— huggingface 下模型时的加速器（bootstrap 步骤 6）
+# ⚠ 只在用户真的要下模型时才用得上；留着是因为它只有 8MB，
+#   而删掉它的收益不到 1MB，风险却多一个「模型下不动」。
+hf_transfer==0.1.9

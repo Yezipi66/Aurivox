@@ -208,7 +208,7 @@ GPT-SoVITS 的项目」。**根环境里住着一台引擎，本身就是后者�
 
 | | |
 |---|---|
-| 根 `venv/` | 6.6GB，⛔ **装着 GSV 的 torch 2.2.0+cu121 + CUDA 全套** |
+| 根 `venv/` | 6.6GB，⛔ 装着 GSV 的 torch 2.2.0+cu121 + CUDA 全套　→　✅ **瘦版已备好**：`requirements-platform.txt`（3 包 / [实测] 干净 venv 62MB，部署工具全部能跑），**但默认还没切**（见下） |
 | `engines/gpt-sovits/` | ⛔ **没有 `.venv`**，名片 `runtime.python: venv/Scripts/python.exe` 指根 venv |
 | `engines/indextts2/.venv` | ✅ 7.9GB，**已是正确形态**（独立、版本自定） |
 | `bootstrap.ps1` | ⛔ 步骤 3-4 **无条件**装 requirements.txt(200 包) + `install_torch.ps1`(CUDA 12.1) |
