@@ -204,7 +204,34 @@ if ($env:TTS_NO_UV -eq '1') {
 }
 
 # --- 3. project deps (exclude torch; torch is commented out in requirements.txt) ---
+#
+# --- 2026-09-29：平台瘦环境（开关，默认**保持原样**）--------------------------------
+# 两份 requirements 的分工（[实测] 名单是 git grep 量出来的，见那份文件的头部）：
+#
+#   requirements.txt           200 包 / 6.6 GB —— 它是**根 venv 的 pip freeze**，
+#                              而那个 venv 装的是 GPT-SoVITS 的依赖
+#                              （torch 2.2.0+cu121 + CUDA 全套 + librosa…）。
+#   requirements-platform.txt    3 包 / 62 MB —— 平台自己真正要的
+#                              （uv / packaging / hf_transfer 三个工具链包）。
+#
+# 为什么默认**不**切：lib/training/python.json 指向 ./venv/Scripts/python.exe，
+# 而训练线要 torch 2.2.0+cu121（Owner 2026-09-29 裁决「C3 暂不做」）。
+# 今天切默认 ⇒ 训练立刻坏掉。
+# ⇒ 开关默认 false = 老用户行为逐字节不变。要试新的：deploy.bat --platform-only
+#
+# ⭐ 这条路的终点：训练线也搬进 engines/<id>/.venv 之后，把默认翻过来，
+#   「用户自己下引擎」才不再是一句空话（今天装平台必背这 5-6GB）。
+$PLATFORM_ONLY = $false
+foreach ($a in $args) {
+  if ($a -eq '--platform-only' -or $a -eq '-PlatformOnly') { $PLATFORM_ONLY = $true }
+}
+
 $REQ    = Join-Path $ROOT 'requirements.txt'
+if ($PLATFORM_ONLY) {
+  $REQ = Join-Path $ROOT 'requirements-platform.txt'
+  Info 'using the platform-only requirements (no torch / no CUDA).'
+  Info 'the training line needs torch 2.2.0+cu121 and will NOT work under this flag.'
+}
 $WHEELS = Join-Path $ROOT 'tools\wheels'
 if (-not (Test-Path $REQ)) { Die ('requirements.txt not found: {0}' -f $REQ) }
 
@@ -303,7 +330,13 @@ if ($LASTEXITCODE -ne 0) {
 # re-running the whole bootstrap: tools\deploy\install_torch.ps1 (or install_pytorch.bat).
 $TORCH_OK = $false
 $torchScript = Join-Path $SCRIPT_DIR 'install_torch.ps1'
-if (Test-Path $torchScript) {
+if ($PLATFORM_ONLY) {
+  # torch 约 5-6GB，而平台（Node 进程）一个字节都用不到它 ——
+  # [实测] fastapi/uvicorn 只被 GSV 的 infer_server.py 用，routes/ 零重依赖。
+  # ⛔ 训练线会因此坏掉：lib/training/python.json 指的就是这个根 venv。
+  Info 'skipping PyTorch (--platform-only). Engines install their own.'
+  Info 'training is NOT available under this flag.'
+} elseif (Test-Path $torchScript) {
   Info 'installing PyTorch via install_torch.ps1 ...'
   & powershell -ExecutionPolicy Bypass -NoProfile -File $torchScript
   if ($LASTEXITCODE -ne 0) { Warn 'torch install reported a non-zero exit — will verify by import below.' }
@@ -331,17 +364,27 @@ if (Test-Path $torchScript) {
 # Run via a temp .py (NOT `python -c "..."`): under WinPS 5.1 native-argument
 # re-parsing splits the string on spaces / strips quotes, so python receives only
 # `import torch; print(` -> SyntaxError. A temp file is immune to that.
-$torchProbe = @'
+# ⭐ 2026-09-29：--platform-only 时**不跑**这段。
+# ⛔ 踩过的坑（还没发布就发现了）：跳过安装之后若照旧跑 import torch，
+#   它必然失败 ⇒ 报一句「PyTorch is NOT importable — it did not install
+#   correctly」⇒ 而真实原因是「按你的要求跳过了」。
+#   ⭐ 症状极具欺骗性：它把「按开关跳过」说成「装失败了」，
+#     而用户看到之后会去重跑 install_torch.ps1 —— 正好装上那 5-6GB。
+if ($PLATFORM_ONLY) {
+  Info 'skipping the PyTorch import check (--platform-only: nothing to verify).'
+} else {
+  $torchProbe = @'
 import torch
 print("  torch", torch.__version__, "cuda_available =", torch.cuda.is_available())
 '@
-$torchTmp = Join-Path $env:TEMP ('ttsbroker_torchok_{0}.py' -f ([guid]::NewGuid().ToString('N')))
-Set-Content -Path $torchTmp -Value $torchProbe -Encoding UTF8
-& $VENV_PY -u $torchTmp
-$torchRC = $LASTEXITCODE
-Remove-Item $torchTmp -ErrorAction SilentlyContinue
-if ($torchRC -eq 0) { $TORCH_OK = $true; Ok 'PyTorch verified (import OK).' }
-else { Warn 'PyTorch is NOT importable — it did not install correctly.' }
+  $torchTmp = Join-Path $env:TEMP ('ttsbroker_torchok_{0}.py' -f ([guid]::NewGuid().ToString('N')))
+  Set-Content -Path $torchTmp -Value $torchProbe -Encoding UTF8
+  & $VENV_PY -u $torchTmp
+  $torchRC = $LASTEXITCODE
+  Remove-Item $torchTmp -ErrorAction SilentlyContinue
+  if ($torchRC -eq 0) { $TORCH_OK = $true; Ok 'PyTorch verified (import OK).' }
+  else { Warn 'PyTorch is NOT importable — it did not install correctly.' }
+}
 
 # --- 4b. ffmpeg + ffprobe (project-local, no global footprint) ---
 # UVR5 vocal separation (pipeline/uvr5/webui.py) and the broker's audio
@@ -533,7 +576,12 @@ Write-Host '============================================================' -Foreg
 Write-Host '  部署结果小结 / Deployment summary' -ForegroundColor White
 Write-Host '------------------------------------------------------------' -ForegroundColor White
 Ok  '  依赖 (dependencies) : installed'
-if ($TORCH_OK) {
+if ($PLATFORM_ONLY) {
+  # ⭐ 不是「缺失」，是**按要求没装**。⛔ 不许报成 MISSING/FAILED ——
+  #   那会让用户去补装那 5-6GB，正好把「平台瘦下来」这件事抵消掉。
+  Info '  PyTorch             : 未安装（--platform-only；各引擎自带自己的环境）'
+  Info '                        训练线不可用；每台引擎要装它自己那份 torch。'
+} elseif ($TORCH_OK) {
   Ok  '  PyTorch             : OK (import verified)'
 } else {
   Write-Host '  PyTorch             : MISSING / FAILED  <== 需要手动补装!' -ForegroundColor Red
@@ -557,7 +605,14 @@ if ($NODE_OK) {
 Write-Host '============================================================' -ForegroundColor White
 Write-Host ''
 # The server needs BOTH torch (inference) and node deps (the broker process).
-if ($TORCH_OK -and $NODE_OK) {
+# ⭐ --platform-only: 平台本身是 Node 进程，一个字节都不用 torch ⇒ 这一格不适用。
+if ($PLATFORM_ONLY) {
+  if ($NODE_OK) {
+    Ok 'Bootstrap finished (platform only). Run start.bat; install engines separately.'
+  } else {
+    Warn 'Bootstrap finished, but backend node deps are missing — restore them before start.bat.'
+  }
+} elseif ($TORCH_OK -and $NODE_OK) {
   Ok 'Bootstrap finished. You can now run start.bat'
 } elseif (-not $TORCH_OK -and -not $NODE_OK) {
   Warn 'Bootstrap finished, but PyTorch AND backend node deps are missing — fix both before start.bat.'

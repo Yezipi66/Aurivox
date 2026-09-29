@@ -23,6 +23,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `LICENSE` | 文件 | 我们的许可证（MIT） | 是 |
 | `NOTICE` | 文件 | 第三方归属声明，合规义务 | 是 |
 | `requirements.txt` | 文件 | Python 依赖（torch 三行刻意注释掉，见头部说明） | 是 |
+| `requirements-platform.txt` | 文件 | **平台自己**的 Python 依赖（3 包 / 62MB）。[实测] `git grep` 量出：平台运行时是 Node、`tools/deploy/*.py` 只用标准库、`fastapi`/`uvicorn`/`torch` 全属某台引擎或训练线。`deploy.bat --platform-only` 用它 | 是 |
 | `start.bat` | 文件 | 启动器 | 是 |
 | `stop.bat` | 文件 | 停止器 | 是 |
 | `deploy.bat` | 文件 | 部署入口 | 是 |

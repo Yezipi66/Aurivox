@@ -60,7 +60,15 @@ REM  were the user's choice, already captured by the wizard sidecars above.
 REM ==========================================================================
 echo.
 echo [deploy] initializing environment ^(venv + uv pip install + npm ci^) + provisioning ...
-powershell -ExecutionPolicy Bypass -NoProfile -File "%DEPLOY%\bootstrap.ps1"
+REM --- 2026-09-29：--platform-only 透传（见 bootstrap.ps1 里的说明）---------
+REM   默认**不传** ⇒ 行为与今天逐字节相同（老用户零影响）。
+REM   加 --platform-only ⇒ 只装平台那 3 个包（62MB），不装 torch/CUDA。
+REM   ⛔ 该模式下训练线不可用，且**每台引擎要用它自己那份 .venv**。
+set "BOOTSTRAP_ARGS="
+if /I "%~1"=="--platform-only" set "BOOTSTRAP_ARGS=--platform-only"
+if /I "%~2"=="--platform-only" set "BOOTSTRAP_ARGS=--platform-only"
+if /I "%~3"=="--platform-only" set "BOOTSTRAP_ARGS=--platform-only"
+powershell -ExecutionPolicy Bypass -NoProfile -File "%DEPLOY%\bootstrap.ps1" %BOOTSTRAP_ARGS%
 set "RC=%ERRORLEVEL%"
 REM Exit 7 now means: bootstrap detected a non-ASCII (e.g. Chinese) path and the
 REM USER chose NOT to continue at the confirmation prompt. That is a clean
