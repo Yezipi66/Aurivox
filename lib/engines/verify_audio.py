@@ -149,10 +149,15 @@ def http_json(url, payload=None, timeout=30, method=None):
     try:
         with urlopen(req, timeout=timeout) as resp:
             body = resp.read()
+            ctype = resp.headers.get("Content-Type") or ""
+            # ⭐ 二进制响应（audio/wav）原样带回，⛔ 不许试�� JSON 化 ——
+            #   试了也只会得到一句「响应不是 JSON」，而真相是「它压根不是 JSON」。
+            if ctype.startswith("audio/") or not ctype.startswith("application/json"):
+                return resp.getcode(), None, None, body, ctype
             try:
-                return resp.getcode(), json.loads(body.decode("utf-8")), None
+                return resp.getcode(), json.loads(body.decode("utf-8")), None, None, ctype
             except Exception:
-                return resp.getcode(), None, "响应不是 JSON：%r" % body[:200]
+                return resp.getcode(), None, None, body, ctype
     except HTTPError as exc:
         raw = b""
         try:
@@ -160,13 +165,13 @@ def http_json(url, payload=None, timeout=30, method=None):
         except Exception:
             pass
         try:
-            return exc.code, json.loads(raw.decode("utf-8")), None
+            return exc.code, json.loads(raw.decode("utf-8")), None, None, ""
         except Exception:
-            return exc.code, None, "HTTP %d，body=%r" % (exc.code, raw[:200])
+            return exc.code, None, "HTTP %d，body=%r" % (exc.code, raw[:200]), None, ""
     except URLError as exc:
-        return None, None, "连不上 %s：%s" % (url, exc)
+        return None, None, "连不上 %s：%s" % (url, exc), None, ""
     except Exception as exc:
-        return None, None, "%s: %s" % (type(exc).__name__, exc)
+        return None, None, "%s: %s" % (type(exc).__name__, exc), None, ""
 
 
 def verify_level_b(spec):
@@ -183,8 +188,8 @@ def verify_level_b(spec):
     ok = True
 
     # --- 1. 就绪 ---
-    status, body, err = http_json(base + "/health",
-                                 timeout=spec.get("ready_timeout", 30))
+    status, body, err, raw, ctype = http_json(base + "/health",
+                 timeout=spec.get("ready_timeout", 30))
     if err:
         return {"ok": False, "level": "B", "stage": "health",
                 "error": "打不通 /health", "detail": err, "steps": out["steps"]}
@@ -218,7 +223,7 @@ def verify_level_b(spec):
     for k, v in (spec.get("minimal_request") or {}).items():
         empty[k] = v
     empty.pop("text", None)              # ⛔ 故意去掉
-    status, body, err = http_json(base + "/tts", payload=empty, timeout=30)
+    status, body, err, raw, ctype = http_json(base + "/tts", payload=empty, timeout=30)
     if err:
         return {"ok": False, "level": "B", "stage": "contract",
                 "error": "打不通 /tts", "detail": err, "steps": out["steps"]}
@@ -265,8 +270,8 @@ def verify_level_a(spec):
                     "why": "⛔ 平台不替你造一个假路径 —— 那样验的是 404，不是引擎"}
         payload["ref_audio_path"] = rp
 
-    status, body, err = http_json(base + "/tts", payload=payload,
-                                 timeout=spec.get("synth_timeout", 180))
+    status, body, err, raw, ctype = http_json(base + "/tts", payload=payload,
+                                     timeout=spec.get("synth_timeout", 180))
     if err:
         return {"ok": False, "level": "A", "stage": "synth",
                 "error": "合成请求失败", "detail": err, "steps": out["steps"]}
@@ -282,7 +287,7 @@ def verify_level_a(spec):
     # 宿主可能直接回 audio/wav，也可能回 JSON 带 base64。两种都认，
     # ⛔ 但**只认这两种** —— 出现第三种形状时要说「我不认识」，
     # 那样猜错会表现为「验过了其实没验」。
-    audio, shape = _extract_audio(body)
+    audio, shape = _extract_audio(body, raw)
     if audio is None:
         return {"ok": False, "level": "A", "stage": "decode",
                 "error": "响应里没有音频，而我不知道它是什么形状",
@@ -303,11 +308,19 @@ def verify_level_a(spec):
             "duration_sec": wav.get("duration_sec")}
 
 
-def _extract_audio(body):
-    """从响应里取出音频字节，并说明它是从哪种形状里取的。"""
+def _extract_audio(body, raw=None):
+    """从响应里取出音频字节，并说明它是从哪种形状里取的。
+
+    ⭐ 真实宿主成功时回的是 **`audio/wav` 二进制**（不是 JSON）——
+       host.py 的 do_POST 末尾是 `self.wfile.write(data)`，data 就是 WAV 字节。
+       ⛔ 所以「解析 stdout 当 JSON」这条路对成功的情形根本不成立：
+          二进制没法安全地穿过 stdout（编码/缓冲/截断都会毁掉它）。
+    ⇒ 调用方必须把**原始字节**传进来（`raw`），这里只负责判断形状。
+    """
+    if raw is not None and len(raw) > 0:
+        return raw, "raw:audio/wav"
     if body is None:
         return None, None
-    # JSON 形态：base64 音频
     if isinstance(body, dict):
         for key in ("audio", "audio_b64", "data", "wav_base64"):
             v = body.get(key)
@@ -317,9 +330,8 @@ def _extract_audio(body):
                     return base64.b64decode(v), "json:%s(base64)" % key
                 except Exception as exc:
                     return None, "json:%s 解不开（%s）" % (key, exc)
-        # ⛔ 明确说「不认得」，而不是默默当成「没有音频」
         return None, "json（键不认识：%s）" % ", ".join(sorted(body)[:8])
-    return None, "非 JSON（调用方需要直接收字节，见下）"
+    return None, "非 JSON 且没有原始字节"
 
 
 # ---------------------------------------------------------------------------

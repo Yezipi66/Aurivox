@@ -956,6 +956,23 @@ def validate_profile(profile):
 # ---------------------------------------------------------------------------
 #  6) main
 # ---------------------------------------------------------------------------
+def _flag(name):
+    """「有没有」型开关：只认 --name 单独出现（可 --name=true/false）。
+
+    ⛔ **不能**用 _arg 读它：--stdio 是不带值的开关，而 _arg 遇到
+       "--stdio" 且后面还有参数时会把**下一个参数**当成它的值。
+       实测（管道那轮踩过）：--pipe 放最后时 _arg 返回 None
+       ⇒ 传输模式静默失效，退回监听端口。
+       症状是「我明明开了，怎么还在占端口」，而原因在两行之外。"""
+    pref = "--%s=" % name
+    for a in sys.argv[1:]:
+        if a == "--%s" % name:
+            return True
+        if a.startswith(pref):
+            return a[len(pref):].strip().lower() not in ("0", "false", "no", "off", "")
+    return False
+
+
 def _arg(name, default=None):
     """--name=value 或 --name value 都认。"""
     pref = "--%s=" % name
@@ -1000,11 +1017,20 @@ def main():
         return 2
 
     runtime = profile.get("runtime") or {}
+    # ⭐⭐ stdio 传输：引擎**不监听任何 TCP 端口**，也没有 socket 可用。
+    #   ⛔ 管道那轮踩过：填 0 会让操作系统随机分配一个端口
+    #   （--pipe 模式下 host.py 若照常监听，就是「以为省了、实际又多一个」）。
+    #   ⛔ 也不许回落成 127.0.0.1:<名片端口>：那个端口没人听，
+    #     而「连不上」和「连上了别人的引擎」症状完全不同。
+    use_stdio = _flag("stdio") or os.environ.get("AURIVOX_ENGINE_TRANSPORT") == "stdio"
     host = _arg("host", os.environ.get("ENGINE_HOST", "127.0.0.1"))
     port = int(_arg("port", os.environ.get("ENGINE_PORT", "0")) or 0)
-    if not port:
-        sys.stderr.write("%s FATAL: --port=<端口> 是必须的\n" % BANNER)
+    if not use_stdio and not port:
+        sys.stderr.write("%s FATAL: --port=<端口> 是必须的"
+                         "（或者 --stdio 走 stdio 传输，零端口）\n" % BANNER)
         return 2
+    if use_stdio:
+        host, port = None, None
 
     # 引擎源码目录进 sys.path（名片 runtime.verify.sys_path）
     # ⛔ 2026-08-27：这行注释一直是对的，代码却读的是 runtime.sys_path ——
@@ -1063,11 +1089,31 @@ def main():
     # ⭐ 先绑端口再加载模型：这样调用方一 spawn 就能连上 /health 拿到
     #   503 + load_seconds，知道「在起，别急」。反过来那段时间里探活是
     #   「连接被拒」，和「进程崩了」长得一模一样。
-    httpd = ThreadingHTTPServer((host, port), Handler)
-    httpd.daemon_threads = True
-
     threading.Thread(target=engine.load,
                      name="%s-load" % profile["id"], daemon=True).start()
+
+    # ⭐ 两条路，**Handler 是同一个**。
+    #   ⭐⭐ 这是整件事的关键：Handler 一个字没改 ⇒ 请求格式、响应格式、
+    #      错误形状、音频字节全部不变 ⇒ 上层 7 个调用方零改动。
+    #   ⭐ 端口该在模型加载**之前**就绪（HTTP 路线的老规矩：spawn 完立刻
+    #     能连上 /health 拿 503 + load_seconds）。stdio 路线没有端口，
+    #     但「立刻能问」这件事一样要成立 —— 平台 spawn 完就写第一个 /health。
+    if use_stdio:
+        try:
+            import stdio_transport
+        except ImportError as exc:
+            sys.stderr.write("%s FATAL: --stdio 需要 stdio_transport.py（%s）\n"
+                             % (BANNER, exc))
+            return 2
+        sys.stderr.write("%s stdio 就绪（引擎 %s，零 TCP 端口）\n"
+                         % (BANNER, profile["id"]))
+        sys.stderr.flush()
+        return stdio_transport.serve(
+            Handler, profile["id"],
+            on_ready=lambda eid: None)
+
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd.daemon_threads = True
 
     try:
         httpd.serve_forever(poll_interval=0.5)
