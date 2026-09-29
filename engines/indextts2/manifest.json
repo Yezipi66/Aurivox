@@ -568,7 +568,7 @@
     "  ⛔ 也别在 manifest.json 里替它 chdir 两次 —— 进程里只该定一次。"
   ],
   "runtime": {
-    "python": "engines/indextts2/.venv/Scripts/python.exe",
+    "python": "engines/indextts2/.venv",
     "entry": "../../lib/engines/host.py",
     "args": [
       "--profile-json",

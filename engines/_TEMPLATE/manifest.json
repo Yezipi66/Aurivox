@@ -126,7 +126,7 @@
     "          ⚠ imports 的键只有 module / class / methods / init_params 四个，写别的当场报错。"
   ],
   "runtime": {
-    "python": "engines/REPLACE_ME/.venv/Scripts/python.exe",
+    "python": "engines/REPLACE_ME/.venv",
     "entry": "../../lib/engines/host.py",
     "args": ["--profile-json", "{profile_json}", "--host", "{host}", "--port", "{port}"],
     "cwd": ".",

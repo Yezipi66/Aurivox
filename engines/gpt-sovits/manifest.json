@@ -449,7 +449,7 @@
     "  ⛔ 别改成 {engine_dir}：infer_server.py 里有相对 CWD 的路径。"
   ],
   "runtime": {
-    "python": "engines/gpt-sovits/.venv/Scripts/python.exe",
+    "python": "engines/gpt-sovits/.venv",
     "entry": "../../lib/inference/infer_server.py",
     "args": ["-a", "{host}", "-p", "{port}", "-c", "{root}/lib/inference/tts_infer.yaml"],
     "cwd": ".",
