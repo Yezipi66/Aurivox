@@ -1,5 +1,5 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { FsFilePicker } from '../common/Dialogs'
@@ -8,7 +8,13 @@ import { usePreviewMode } from '../../lib/previewMode'
 import { useT } from '../../lib/i18n'
 import { usePersistentState } from '../../usePersistentState'
 import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
-import { modelCountsByEngine } from '../../lib/modelPickers.pure.js'
+import { modelCountsByEngine, paramsSummaryOf } from '../../lib/modelPickers.pure.js'
+
+// 权重文件的扩展名 —— ⛔ 不写死成 .ckpt / .pth（那是 GPT-SoVITS 的形状）。
+// 一台非 GSV 引擎的权重可能是 .safetensors / .onnx / .pt / .bin，
+// 过滤太窄的后果是：自定义路径那一栏的「浏览」**看不到文件**，
+// 而界面上没有任何一句话解释为什么。
+const WEIGHT_EXTS = ['.ckpt', '.pt', '.pth', '.bin', '.safetensors', '.onnx', '.bin']
 
 // PC — Broker model re-bind with a two-level selector:
 //   1. primary  = every voice that owns a model of this type (voices-with-models)
@@ -23,6 +29,11 @@ function RecipeModelRebind({ recipe, onSaved }) {
   // 7.1: a single shared Voice ID drives both the GPT and SoVITS model lists (one row, three dropdowns).
   // Cross-voice mixing is still possible via each model slot's "custom path" escape hatch (D2).
   const [voice, setVoice] = useState(recipe.role || '')
+  // ⭐ 这两个下拉渲染的是「这台引擎在这个资产上有的前两个模型位」，
+  //   位名由后端给出（slotNames），不写死成 'gpt' / 'sovits'。
+  //   变量名 gpt*/sovits* 留着是为了不碰配方那两个字段名（gpt_ckpt /
+  //   sovits_pth，格式这轮不动），⛔ 但它们现在只是「第 0 位 / 第 1 位」。
+  const [slotNames, setSlotNames] = useState([])
   const [gptModels, setGptModels] = useState([])
   const [sovitsModels, setSovitsModels] = useState([])
   const [gptCustom, setGptCustom] = useState(false)
@@ -35,20 +46,49 @@ function RecipeModelRebind({ recipe, onSaved }) {
   const modelCache = useRef({})
 
   // ⚠ 这个「换模型」小面板改的是配方顶层那两个权重字段 —— 配方格式这轮不动
-  //   （Owner 2026-08-30），所以它只装得下两个位，而且是第一台引擎的形状。
-  //   ⇒ 引擎名在这里是**这个面板自己的题目**，不是平台写死了一台引擎。
-  //   ⚠ 挂账：配方升级到「跟着引擎走的参数单」之后，这里要跟着改成按位渲染。
-  const REBIND_ENGINE = 'gpt-sovits'
+  //   （Owner 2026-08-30），所以它只装得下**两个**位。
+  //
+  // ⭐⭐ 2026-10-01：过去这里是 `REBIND_ENGINE = 'gpt-sovits'` 写死，位名也写死
+  //   成 'gpt' / 'sovits'，连文件选择器的扩展名都是 .ckpt / .pth。后果：
+  //   一台 CosyVoice 的资产在 Broker 里**连一个模型位都列不出来**，
+  //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
+  //
+  //   现在引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
+  //   **已经有** engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
+  //   的 enginesInMeta 算出来的）和 models[<engineId>][<slot>]。
+  //   ⛔ 前端不猜引擎有哪些位 —— 后端给什么位就渲染什么位。
   const loadVoiceModels = async (voiceId) => {
-    if (!voiceId) return { gpt: [], sovits: [] }
+    if (!voiceId) return { engines: [], slots: {}, bySlot: {} }
     if (modelCache.current[voiceId]) return modelCache.current[voiceId]
     const r = await api(`/api/recipes-models/${encodeURIComponent(voiceId)}`)
-    // 返回体是「按引擎分组、按位分组」的三层结构；这个面板只取它认识的那两位。
-    const slots = (r.ok && r.data && r.data.models && r.data.models[REBIND_ENGINE]) || {}
-    const m = { gpt: slots.gpt || [], sovits: slots.sovits || [] }
+    // 返回体是「按引擎分组、按位分组」的三层结构。
+    const engines = (r.ok && Array.isArray(r.data && r.data.engines)) ? r.data.engines : []
+    const models = (r.ok && r.data && r.data.models) || {}
+    const m = { engines, slots: models, bySlot: {} }
     modelCache.current[voiceId] = m
     return m
   }
+
+  // 这个配方现在正在用哪台引擎：配方自己**没有** engine_id（配方格式这轮不动），
+  //   所以身份是从它钉的那份权重反查出来的 —— 那份权重属于谁，就是哪台引擎。
+  //   ⛔ 找不到就 null，让调用方说人话，别默默退回第一台引擎（那等于把
+  //   一台引擎的权重发给另一台）。
+  const engineOfRecipe = (voiceId) => {
+    const m = modelCache.current[voiceId]
+    if (!m) return null
+    const pinned = [recipe.gpt_ckpt, recipe.sovits_pth].map(x => (x && typeof x === 'object') ? x.path : x).filter(Boolean)
+    for (const eid of m.engines) {
+      const slots = m.slots[eid] || {}
+      for (const list of Object.values(slots)) {
+        if ((list || []).some(x => x && pinned.includes(x.path))) return eid
+      }
+    }
+    return null
+  }
+
+  // 这台引擎在这个资产上到底有哪几个位，⛔ 由后端给的列表决定，不猜。
+  //   （GSV ⇒ ['gpt','sovits']；CosyVoice ⇒ ['model']；别的形状就按它的来。）
+  const slotNamesOf = (m, engineId) => Object.keys((m && m.slots && m.slots[engineId]) || {})
 
   const load = async () => {
     if (voicesList) return
@@ -57,9 +97,21 @@ function RecipeModelRebind({ recipe, onSaved }) {
     // Seed both slots from the recipe's own voice; if the pinned file isn't one
     // of that voice's known models, start in custom mode.
     const m = await loadVoiceModels(recipe.role)
-    setGptModels(m.gpt); setSovitsModels(m.sovits)
-    setGptCustom(!(recipe.gpt_ckpt && m.gpt.some(x => x.path === recipe.gpt_ckpt)))
-    setSovitsCustom(!(recipe.sovits_pth && m.sovits.some(x => x.path === recipe.sovits_pth)))
+    const eid = engineOfRecipe(recipe.role)
+    const slots = slotNamesOf(m, eid)
+    const slotMap = (m.slots && m.slots[eid]) || {}
+    // 配方顶层只有 gpt_ckpt / sovits_pth 两个字段（格式这轮不动），所以这里
+    //   取的是「这台引擎的前两个位」，按后端给的顺序，不按名字猜。
+    const [s0, s1] = slots
+    setSlotNames([s0, s1].filter(Boolean))
+    const list0 = (s0 && slotMap[s0]) || []
+    const list1 = (s1 && slotMap[s1]) || []
+    setGptModels(list0); setSovitsModels(list1)
+    // pinned 是 v3 的 { base, path } 还是 v2 的裸字符串，两种都吃。
+    const pinned = [recipe.gpt_ckpt, recipe.sovits_pth]
+      .map(x => (x && typeof x === 'object') ? x.path : x).filter(Boolean)
+    setGptCustom(!pinned[0] || !list0.some(x => x.path === pinned[0]))
+    setSovitsCustom(!pinned[1] || !list1.some(x => x.path === pinned[1]))
   }
 
   // Selecting a Voice ID refreshes both the GPT and SoVITS lists, each defaulting to its first entry
@@ -67,10 +119,17 @@ function RecipeModelRebind({ recipe, onSaved }) {
   const onVoiceChange = async (v) => {
     setVoice(v)
     const m = await loadVoiceModels(v)
-    setGptModels(m.gpt); setSovitsModels(m.sovits)
+    const eid = engineOfRecipe(v)
+    const slots = slotNamesOf(m, eid)
+    const slotMap = (m.slots && m.slots[eid]) || {}
+    const [s0, s1] = slots
+    setSlotNames([s0, s1].filter(Boolean))
+    const list0 = (s0 && slotMap[s0]) || []
+    const list1 = (s1 && slotMap[s1]) || []
+    setGptModels(list0); setSovitsModels(list1)
     setGptCustom(false); setSovitsCustom(false)
-    if (m.gpt.length > 0 && !m.gpt.some(x => x.path === gpt)) setGpt(m.gpt[0].path)
-    if (m.sovits.length > 0 && !m.sovits.some(x => x.path === sovits)) setSovits(m.sovits[0].path)
+    if (list0.length > 0 && !list0.some(x => x.path === gpt)) setGpt(list0[0].path)
+    if (list1.length > 0 && !list1.some(x => x.path === sovits)) setSovits(list1[0].path)
   }
 
   // PC-3: when a picked model lives outside the project the server refuses with
@@ -110,8 +169,12 @@ function RecipeModelRebind({ recipe, onSaved }) {
 
   return (
     <div className="rebind">
-      {/* 7.1: one row, three dropdowns — Voice ID (shared) · GPT checkpoint · SoVITS model.
-          Each model slot keeps a "custom path…" escape hatch (cross-voice / outside the project) (D2/D4). */}
+      {/* 7.1: one row, three dropdowns — Voice ID (shared) · model slot 0 · model slot 1.
+          ⭐ 2026-10-01：两个位下拉的标签过去写死成「GPT checkpoint」「SoVITS model」，
+             文件选择器的扩展名也写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
+             连标题都对不上。现在标题取后端给的真实位名（slotNames），扩展名放开。
+             Each model slot keeps a "custom path…" escape hatch (cross-voice /
+             outside the project) (D2/D4). */}
       <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div className="field" style={{ flex: '0 1 170px', minWidth: 130 }}>
           <label className="field-label">Voice ID</label>
@@ -121,7 +184,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
           </Select>
         </div>
         <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
-          <label className="field-label">GPT checkpoint</label>
+          <label className="field-label">{slotNames[0] || t('Model', '模型')}</label>
           <Select className="control"
             value={gptCustom ? '__custom__' : (gptModels.some(m => m.path === gpt) ? gpt : '')}
             title={gptCustom ? gpt : ''}
@@ -133,13 +196,18 @@ function RecipeModelRebind({ recipe, onSaved }) {
           {gptCustom && (
             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
-                placeholder="assets/<voice>/models/<engine>/<slot>/….ckpt" />
-              <button className="btn btn-sm" title="Browse for a .ckpt file" onClick={() => setPickGpt(true)}>📁</button>
+                placeholder="assets/<voice>/models/<engine>/<slot>/…" />
+              <button className="btn btn-sm" title={t('Browse for a model file', '浏览模型文件')} onClick={() => setPickGpt(true)}>📁</button>
             </div>
           )}
         </div>
+        {/* ⛔ 只有一位的引擎（CosyVoice 的 model 位就是一个）**不画第二格**。
+            画一个标题写着「模型」、候选永远为空的下拉，比不画更糟：用户会以为
+            「这个音色真的没有第二个模型」，而真相是「这台引擎只有一个位」。
+            判据跟方法下拉一样：名片/后端没给的，界面不许替它编一个。 */}
+        {slotNames.length > 1 && (
         <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
-          <label className="field-label">SoVITS model</label>
+          <label className="field-label">{slotNames[1]}</label>
           <Select className="control"
             value={sovitsCustom ? '__custom__' : (sovitsModels.some(m => m.path === sovits) ? sovits : '')}
             title={sovitsCustom ? sovits : ''}
@@ -151,11 +219,12 @@ function RecipeModelRebind({ recipe, onSaved }) {
           {sovitsCustom && (
             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
-                placeholder="assets/<voice>/models/<engine>/<slot>/….pth" />
-              <button className="btn btn-sm" title="Browse for a .pth file" onClick={() => setPickSovits(true)}>📁</button>
+                placeholder="assets/<voice>/models/<engine>/<slot>/…" />
+              <button className="btn btn-sm" title={t('Browse for a model file', '浏览模型文件')} onClick={() => setPickSovits(true)}>📁</button>
             </div>
           )}
         </div>
+        )}
       </div>
       {error && <div className="msg msg-error">{error}</div>}
       {msg && <div className="msg msg-ok">{msg}</div>}
@@ -189,9 +258,9 @@ function RecipeModelRebind({ recipe, onSaved }) {
         <button className="btn btn-sm btn-primary" disabled={busy || !!extConfirm} onClick={() => save(false)}>{busy ? t('Saving…', '保存中…') : t('Save models', '保存模型')}</button>
         <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>{t('Close', '关闭')}</button>
       </div>
-      <FsFilePicker open={pickGpt} exts={['.ckpt', '.pt']} title="Select a GPT checkpoint (.ckpt)"
+      <FsFilePicker open={pickGpt} exts={WEIGHT_EXTS} title={t('Select a model file', '选择模型文件')}
         onPick={(p) => setGpt(p)} onClose={() => setPickGpt(false)} />
-      <FsFilePicker open={pickSovits} exts={['.pth', '.pt']} title="Select a SoVITS model (.pth)"
+      <FsFilePicker open={pickSovits} exts={WEIGHT_EXTS} title={t('Select a model file', '选择模型文件')}
         onPick={(p) => setSovits(p)} onClose={() => setPickSovits(false)} />
     </div>
   )
@@ -199,6 +268,14 @@ function RecipeModelRebind({ recipe, onSaved }) {
 
 function RecipeCard({ recipe, endpoint, onChanged }) {
   const { t } = useT()
+  // ⭐ 参数摘要：按**这个配方自己带的键**渲染，键的顺序尽量按当前引擎的
+  //   param_schema 走（paramsSummaryOf）。过去这里是写死的
+  //   `top_k / temperature / speed` 三个 GPT-SoVITS 键。
+  //   ⚠️ 配方没有 engine_id（配方格式不动），所以**不按引擎身份过滤** ——
+  //   参数就在配方里，显示配方里有的，不编配方里没有的。这比「猜它是哪台
+  //   引擎然后只显示那几个键」更不容易错。
+  const { short: paramSummary, full: paramSummaryFull } =
+    useMemo(() => paramsSummaryOf(recipe.params, null), [recipe.params])
   const [copied, setCopied] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -279,9 +356,20 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
               {langMsg && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{langMsg}</span>}
             </span>
           </div>
-          <div><span className="rc-k">GPT</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
-          <div><span className="rc-k">SoVITS</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : t('(none)', '（无）')}</span></div>
-          <div><span className="rc-k">{t('Params', '参数')}</span><span className="rc-v">top_k {recipe.params?.top_k} · temp {recipe.params?.temperature} · speed {recipe.params?.speed}</span></div>
+          <div><span className="rc-k">{t('Model slot 1', '模型位 1')}</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
+          <div><span className="rc-k">{t('Model slot 2', '模型位 2')}</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : t('(none)', '（无）')}</span></div>
+          {/* ⭐⭐ 2026-10-01：过去这里是写死的三个 GPT-SoVITS 键
+              （`top_k {…} · temp {…} · speed {…}`）。一台 CosyVoice 的配方在
+              Broker 里显示的是「top_k undefined · temp undefined · speed undefined」，
+              而这个配方明明带着 prompt_text / spk_id —— 参数**就在那儿**，
+              只是这一页不认识它们的键名。
+
+              现在按**当前引擎名片上的 param_schema** 渲染：有什么显示什么，
+              一个都没有就老实说「没有参数」。
+              ⛔ 前端不猜哪几个参数值得显示（那又是一个写死的清单）。 */}
+          <div><span className="rc-k">{t('Params', '参数')}</span><span className="rc-v" title={paramSummaryFull}>
+            {paramSummary || t('(none)', '（无）')}
+          </span></div>
           <div><span className="rc-k">{t('Source', '来源')}</span><span className="rc-v">{recipe.meta?.source || '—'}{recipe.meta?.notes ? ` · ${recipe.meta.notes}` : ''}</span></div>
         </div>
         <div className="rc-cmd">

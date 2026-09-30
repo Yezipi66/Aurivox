@@ -464,3 +464,80 @@ export function reconcileSelection(slots, groupsBySlot, prev) {
   }
   return out
 }
+
+/**
+ * 配方的参数摘要 —— 「这个配方到底带了哪些参数」。
+ *
+ * ⭐⭐ 为什么不能写死三个键：过去 Broker 的配方卡片显示的是
+ *   `top_k {…} · temp {…} · speed {…}`。一台 CosyVoice 的配方在那里显示成
+ *   「top_k undefined · temp undefined · speed undefined」—— 而这个配方明明
+ *   带着 prompt_text / spk_id，参数**就在那儿**，只是这一页不认识它们的键名。
+ *
+ * 判据（三条，都来自平台的既有纪律，不是新发明的）：
+ *   1. 显示**配方里真有**的键。不在 params 里的不编（不显示 undefined）。
+ *   2. 引擎级的键**从当前引擎的 param_schema** 取顺序和标签；取不到就按
+ *      配方自己的键顺序 —— 那样也不会错，只是不够整齐。
+ *   3. 平台自己的字段（pron_overrides / han_readings / aux_ref_audio_paths /
+ *      lang_overrides 等）**不算「超参」**，它们在别处已经各自显示了，
+ *      混进来只会把摘要撑成一堵墙。
+ *
+ * @param params   recipe.params
+ * @param engine   这台引擎的 profile（可选）
+ * @param limit    摘要里最多显示几个（默认 3）；剩下的进 full
+ * @returns { short, full, count, unknown }
+ *   short  摘要正文（"top_k 15 · temperature 1.0"）
+ *   full   全部（给 title 属性看）
+ *   count  一共有几个
+ *   unknown 有几个键不在任何引擎的 param_schema 上（没装这台引擎时会出现）
+ */
+
+// 平台自己的字段：它们是**资产/校对**的一部分，不是这一台引擎的超参。
+// ⛔ 这份清单属于「平台长什么样」，换任何引擎都一模一样 —— 和 seed 同一条纪律。
+const PLATFORM_PARAM_KEYS = new Set([
+  'seed', 'aux_ref_audio_paths', 'pron_overrides', 'lang_overrides', 'han_readings',
+  'media_type', 'mediaType', 'format', 'batch_id', 'batch_seq', 'batch_total', 'batch_label',
+])
+
+export function paramsSummaryOf(params, engine, limit = 3) {
+  const p = (params && typeof params === 'object') ? params : {}
+  const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
+  const known = new Map()
+  for (const f of schema) {
+    if (f && f.name !== undefined && !PLATFORM_PARAM_KEYS.has(f.name)) known.set(f.name, f)
+  }
+
+  // 顺序：先按名片顺序走一遍，再把名片上没有的追加在后面。
+  // ⛔ 不丢弃「名片上没有」的键：那台引擎可能还没装进这个项目，
+  //   但配方里的值是真存在的 —— 显示出来比静默吞掉诚实。
+  const ordered = []
+  const seen = new Set()
+  for (const f of schema) {
+    const n = f && f.name
+    if (n === undefined || seen.has(n)) continue
+    if (!Object.prototype.hasOwnProperty.call(p, n)) continue
+    if (PLATFORM_PARAM_KEYS.has(n)) continue
+    ordered.push(n); seen.add(n)
+  }
+  for (const k of Object.keys(p)) {
+    if (seen.has(k) || PLATFORM_PARAM_KEYS.has(k)) continue
+    if (p[k] === undefined) continue
+    ordered.push(k); seen.add(k)
+  }
+
+  const fmt = (k, v) => {
+    const val = Array.isArray(v) ? `[${v.length}]` : (v && typeof v === 'object' ? '{…}' : String(v))
+    return `${k} ${val}`
+  }
+  const all = ordered.map(k => fmt(k, p[k]))
+  const count = all.length
+  let unknown = 0
+  for (const k of ordered) if (!known.has(k)) unknown += 1
+
+  const n = Math.max(0, limit)
+  return {
+    short: all.slice(0, n).join(' · '),
+    full: all.join(' · '),
+    count,
+    unknown,
+  }
+}

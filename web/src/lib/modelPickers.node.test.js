@@ -19,7 +19,7 @@ import {
   weightsToSend, weightsFromParams, anySlotSwitchable, slotsNeedingRelaunch,
   launchWeightsToSend,
   voicesForEngine, describeGeneration,
-} from './modelPickers.pure.js'
+  paramsSummaryOf } from './modelPickers.pure.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -474,4 +474,81 @@ test('⛔ 这个文件里不许出现任何真实引擎 id 或模型位名字', 
     assert.ok(!code.toLowerCase().includes(banned),
       `代码里出现了 "${banned}" —— 平台不许认识任何一台具体引擎`)
   }
+})
+
+// ---------------------------------------------------------------------------
+//  paramsSummaryOf —— 配方的参数摘要（2026-10-01）
+//
+//  ⭐ 它取代的是 Broker 页里写死的 `top_k {…} · temperature {…} · speed {…}`。
+//     换一台引擎时，那三个键不存在 ⇒ 摘要显示一串 undefined，而配方里
+//     真带的参数（prompt_text / spk_id …）一个字都不显示。
+// ---------------------------------------------------------------------------
+
+test('⭐ 摘要显示配方里真有的键，不显示配方里没有的键', () => {
+  const r = paramsSummaryOf({ prompt_text: '你好', spk_id: '中文女' }, null)
+  assert.equal(r.count, 2)
+  assert.match(r.short, /prompt_text 你好/)
+  assert.match(r.short, /spk_id 中文女/)
+  // ⛔ 绝不能出现 undefined —— 那正是换引擎之后用户看到的东西。
+  assert.ok(!r.full.includes('undefined'), '摘要里出现了 undefined')
+})
+
+test('⭐ 平台自己的字段不进摘要（它们在别处各自显示了）', () => {
+  // 判据：这些字段换任何引擎含义都不变（平台的长相），混进来只会撑成一堵墙。
+  const r = paramsSummaryOf({
+    seed: -1, pron_overrides: { a: 1 }, han_readings: { b: 2 },
+    aux_ref_audio_paths: ['x.wav'], lang_overrides: {},
+    temperature: 1.0,
+  }, null)
+  assert.equal(r.count, 1)
+  assert.match(r.short, /temperature 1/)
+  for (const k of ['seed', 'pron_overrides', 'han_readings', 'aux_ref_audio_paths', 'lang_overrides']) {
+    assert.ok(!r.full.includes(k), `${k} 不该出现在引擎超参摘要里`)
+  }
+})
+
+test('⭐ 键的顺序按当前引擎的 param_schema 走', () => {
+  // 名片顺序 = 作者想让人看的顺序；没有名片就按配方自己的顺序。
+  const engine = { param_schema: [{ name: 'b' }, { name: 'a' }, { name: 'zz' }] }
+  const r = paramsSummaryOf({ a: 1, b: 2, zz: 3 }, engine)
+  assert.equal(r.short, 'b 2 · a 1 · zz 3')     // 按 schema，不按对象字面量顺序
+  const r2 = paramsSummaryOf({ zz: 3, a: 1, b: 2 }, engine)
+  assert.equal(r2.short, 'b 2 · a 1 · zz 3')    // 输入换顺序，输出不变
+})
+
+test('⭐ 名片上没有的键不被丢弃（那台引擎可能还没装进这个项目）', () => {
+  // 静默吞掉比显示错更糟：用户会以为这个配方没有那个参数。
+  const engine = { param_schema: [{ name: 'known' }] }
+  const r = paramsSummaryOf({ known: 1, mystery: 'x' }, engine)
+  assert.equal(r.count, 2)
+  assert.match(r.short, /mystery x/)
+  assert.equal(r.unknown, 1)                     // 「有几个键这台引擎不认识」
+})
+
+test('空配方 / 没有 params ⇒ 一条都不编', () => {
+  for (const input of [undefined, null, {}, 'not-an-object']) {
+    const r = paramsSummaryOf(input, null)
+    assert.equal(r.count, 0, `输入 ${JSON.stringify(input)} 不该产生任何条目`)
+    assert.equal(r.short, '')
+  }
+})
+
+test('摘要只显示 limit 个，其余进 full（title 属性里看全部）', () => {
+  const r = paramsSummaryOf({ a: 1, b: 2, c: 3, d: 4 }, null, 2)
+  assert.equal(r.count, 4)
+  assert.equal(r.short, 'a 1 · b 2')
+  assert.equal(r.full, 'a 1 · b 2 · c 3 · d 4')
+})
+
+test('数组 / 对象值缩成长度和省略号，不整个序列化进界面', () => {
+  const r = paramsSummaryOf({ voices: ['a', 'b', 'c'], cfg: { x: 1, y: 2 } }, null)
+  assert.match(r.short, /voices \[3\]/)
+  assert.match(r.short, /cfg \{…\}/)
+  assert.ok(!r.short.includes('x: 1'), '对象值不该整个摊开在摘要里')
+})
+
+test('值为 undefined 的键不算一条', () => {
+  const r = paramsSummaryOf({ a: 1, b: undefined }, null)
+  assert.equal(r.count, 1)
+  assert.equal(r.short, 'a 1')
 })
