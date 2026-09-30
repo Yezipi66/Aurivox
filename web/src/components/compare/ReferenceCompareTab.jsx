@@ -9,6 +9,17 @@ import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, langLabel, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
+// ⭐⭐ 2026-10-01：这一页过去**一个引擎库函数都没 import**，超参是 26 行手抄的
+//   GPT-SoVITS 键名（temperature/top_k/top_p/repetition_penalty/
+//   text_split_method/speed_factor）—— 于是换一台引擎，格子照常显示、填了
+//   发出去**上游不认**、不报错。violates 平台第 2 条纪律「不静默忽略」。
+//
+//   现在跟 GenerateTab 用**同一套**：格子按 engine.param_schema 长，
+//   发出去用 paramsToSend。判据是契约 §11 第 9 条 ——「装一台谁都没见过的
+//   引擎，web/ 一个字都不用改」。
+import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue,
+         paramsToSend } from '../../lib/engines'
+import { ParamField } from '../common/ParamField'
 import { useT } from '../../lib/i18n'
 import { recipePath } from '../../lib/recipes'
 import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
@@ -107,20 +118,42 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       reference_text: row.promptText || '',
       language: row.textLang || defaultTextLang || rmVoiceLang || 'ja',
       params: {
-        top_k: row.top_k, top_p: row.top_p, temperature: row.temperature, speed: row.speed_factor,
+        // ⭐⭐ 2026-10-01：过去这里是 **7 个手抄的 GSV 键名**逐个抄
+        //   （top_k/top_p/temperature/speed/text_split_method/
+        //   repetition_penalty/seed）。换一台引擎，配方存下来的就是一堆
+        //   上游不认的键 —— 存的时候不报错，回放的时候也不报错。
+        //
+        //   现在存当前引擎名片上、且这一行**用户明确动过**的那些（跟请求体
+        //   走的是同一个 paramsToSend，配方和实际发出去的东西形状一致）。
+        ...paramsToSend(engine, row.params, row.touched),
         // PA: pin the full contract. Fields Compare does not expose per-row
         // (advanced group) fall back to the shared defaults so the recipe still
         // reproduces the audition.
-        text_split_method: row.text_split_method,
-        repetition_penalty: row.repetition_penalty,
+        //
+        // ⭐⭐ 2026-10-01：过去这里是 **7 行手抄的 GSV 键名**
+        //   （sample_steps / if_sr / batch_size / batch_threshold /
+        //   split_bucket / fragment_interval / parallel_infer），逐个
+        //   `dp.<键名>`。换一台引擎 ⇒ 配方存下一堆上游不认的键，存时不报错、
+        //   回放时也不报错。
+        //
+        //   现在：凡是在**当前引擎名片上**的（不论 common 还是 advanced 层），
+        //   都按「这行没动过 ⇒ 取共享默认 / 动过 ⇒ 取这一行的」补齐，
+        //   这样配方仍然是「完整合同」（回放得出一模一样的结果），
+        //   而键名一个都不写死。
+        ...(() => {
+          const known = (engine?.param_schema || [])
+          const shared = defaultParams || {}
+          const out = {}
+          for (const f of known) {
+            if (!f || !f.name) continue
+            if (Object.prototype.hasOwnProperty.call(row.params || {}, f.name)) continue  // 上面已写
+            if (Object.prototype.hasOwnProperty.call(shared, f.name)) out[f.name] = shared[f.name]
+          }
+          return out
+        })(),
+        // ⛔ seed 是平台自己的开关，不在任何引擎的 param_schema 上，但配方
+        //   必须把它钉住 —— 否则回放不是同一个结果。
         seed: row.seed,
-        sample_steps: dp.sample_steps,
-        if_sr: dp.if_sr,
-        batch_size: dp.batch_size,
-        batch_threshold: dp.batch_threshold,
-        split_bucket: dp.split_bucket,
-        fragment_interval: dp.fragment_interval,
-        parallel_infer: dp.parallel_infer,
         aux_ref_audio_paths: (row.auxRefPaths && row.auxRefPaths.length > 0) ? row.auxRefPaths : [],
         // P1-1 / #4: pin this row's own reading overrides (not a shared, cross-row set).
         pron_overrides: (row.pronOverrides && Object.keys(row.pronOverrides).length > 0) ? row.pronOverrides : {},
@@ -187,10 +220,27 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     //   ⇒ 2026-08-30 只把取值层级换成新结构，形状原样不动。
     // ⚠ 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
     //   混搭开关一起动。那是独立一件事，本轮不做。
-    const CMP_ENGINE = 'gpt-sovits'
+    // ⭐⭐ 2026-10-01：过去这里是 `CMP_ENGINE = 'gpt-sovits'` 写死，注释自己
+    //   承认「这一页要变成通用的，得按当前引擎有几个位重画……本轮不做」。
+    //
+    //   现在**按当前引擎的两个位名取权重**：GSV 的位名就还叫 gpt/sovits，
+    //   所以 GSV 用户看到的下拉一个字都没变；别的引擎名下名片给什么位名就取
+    //   什么位名 —— 取不到就只有 0 个组合，行自己退化成「用当前音色」，
+    //   而不是画一个空下拉。
+    //
+    //   ⚠️ 真正的「每行不同引擎并排」仍是计划里的遗留 L3（那要重画整行的
+    //   混搭开关，不是本刀）。这里只是**不再按引擎身份分叉**。
     const buildModels = (vid, meta, out) => {
-      const gptList = modelsFromMeta(meta, CMP_ENGINE, 'gpt')
-      const sovitsList = modelsFromMeta(meta, CMP_ENGINE, 'sovits')
+      // 位名也来自名片，不写死 'gpt'/'sovits'
+      // （weight_slots 是 [{name,label,param,applies_at}]，这里只要 name）。
+      const slots = (engine?.weight_slots || []).map(s => s && s.name).filter(Boolean)
+      const gptSlot = slots.length > 0 ? slots[0] : null
+      const sovitsSlot = slots.length > 1 ? slots[1] : null
+      // ⛔ 不足两个位 ⇒ 造不出「两份权重两两组合」这种行，一组都不造。
+      //   静默造 0 组 = 行画出来是空的、用户不知道为什么。
+      if (!gptSlot || !sovitsSlot) return
+      const gptList = modelsFromMeta(meta, engine?.id, gptSlot)
+      const sovitsList = modelsFromMeta(meta, engine?.id, sovitsSlot)
       if (gptList.length === 0 || sovitsList.length === 0) return
       gptList.forEach(gpt => {
         sovitsList.forEach(sovits => {
@@ -224,7 +274,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
       setAvailableModels(models)
     }).catch(() => {})
-  }, [])
+    // ⛔ 依赖里必须有 engine.id：buildModels 现在按**当前引擎**的位名取权重。
+    //   少了这一项 ⇒ 换引擎后这个下拉还是上一台引擎的权重，而且是**安静地**
+    //   错 —— 界面上没有任何一处会告诉你它没跟着换。
+  }, [engine?.id])
 
   const addRow = (opts = {}) => {
     const rowId = nextId.current++
@@ -246,18 +299,22 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // cross-voice reference picker so the user can immediately borrow a reference.
     const startSource = (defaultModel && defaultModel.voiceId === BASE_VOICE_ID) ? 'cross' : undefined
     const dp = defaultParams || {}
+    // ⭐ 2026-10-01：过去这里逐个抄 6 个 GPT-SoVITS 键名当行的默认值。现在
+    //   参数值和 touched 由 CompareRow 按当前引擎的 param_schema 自己起步
+    //   （initialParamValues）—— 行的诞生不再知道任何一台引擎的参数叫什么。
+    //   ⛔ method 用名片给的默认值，不许在这里「取第一个」。
+    const methodDefault = (engine?.methods && engine.methods.length > 0)
+      ? (engine.default_method || null)
+      : null
     setRows(prev => [...prev, {
       id: rowId,
       refAudio: defaultRef,
       ...(startSource ? { refSource: startSource } : {}),
       auxRefPaths: [],
       text: defaultText,
-      temperature: dp.temperature ?? 1.0,
-      top_k: dp.top_k ?? 15,
-      top_p: dp.top_p ?? 1.0,
-      repetition_penalty: dp.repetition_penalty ?? 1.35,
-      text_split_method: dp.text_split_method ?? 'cut5',
-      speed_factor: dp.speed_factor ?? 1.0,
+      params: {},
+      touched: [],
+      ...(methodDefault ? { method: methodDefault } : {}),
       seed: dp.seed ?? -1,
       // A-1 engine-batch three-state: 'inherit' (follow master) | 'on' | 'off'.
       engine_batch: 'inherit',
@@ -298,7 +355,20 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   const loadRecipeIntoRow = (row, recipeId) => {
     const rec=recipes.find(r=>r.id===recipeId); if(!rec)return; const p=rec.params||{}
-    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',temperature:p.temperature??r.temperature,top_k:p.top_k??r.top_k,top_p:p.top_p??r.top_p,repetition_penalty:p.repetition_penalty??r.repetition_penalty,text_split_method:p.text_split_method||r.text_split_method,speed_factor:p.speed??r.speed_factor,seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:parseLangOverrides(p.lang_overrides),hanReadings:p.han_readings||{},result:null,error:null}:r))
+    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',// ⭐⭐ 2026-10-01：过去这里逐个抄 6 个 GSV 键名从配方里取。现在按当前
+      //   引擎的 param_schema 取，并把取到的东西标成**用户动过**（touched =
+      //   配方里出现的键名）—— 配方回放本来就是用户显式存下来的选择。
+      ...(() => {
+        const known = new Set((engine?.param_schema || []).map(f => f && f.name))
+        const picked = {}
+        for (const [k, v] of Object.entries(p)) {
+          // ⛔ seed 不在 param_schema 里（平台自己的开关），在下面单独处理。
+          if (known.has(k) && v !== undefined) picked[k] = v
+        }
+        return { params: { ...(r.params || {}), ...picked },
+                 touched: Array.from(new Set([...(r.touched || []), ...Object.keys(picked)])) }
+      })(),
+      seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:parseLangOverrides(p.lang_overrides),hanReadings:p.han_readings||{},result:null,error:null}:r))
     setRowModels(prev=>({...prev,[row.id]:{voiceId:rec.role||selectedVoice,gptCheckpoint:recipePath(rec.gpt_ckpt),sovitsModel:recipePath(rec.sovits_pth)}}))
   }
 
@@ -326,20 +396,26 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         format: 'wav',
         // ⭐ 和 Generate 页同一件事：这一次要连哪台引擎，由界面上选中的那台
         //   说了算，⛔ 不让服务端去 legacy_default 里认领。
-        //   （这一页下面那一堆 temperature/top_k/text_split_method 仍然是
-        //    **手抄进前端的 GSV 参数表** —— 那是下一刀要收的东西，不是这一刀。）
         engine_id: engine?.id,
         source: 'comparerefs',
         split: true,
         concat: true,
         ref_audio: row.refAudio || undefined,
         aux_ref_audio_paths: row.auxRefPaths.length > 0 ? row.auxRefPaths : undefined,
-        temperature: row.temperature,
-        top_k: row.top_k,
-        top_p: row.top_p,
-        repetition_penalty: row.repetition_penalty,
-        text_split_method: row.text_split_method,
-        speed_factor: row.speed_factor,
+        // ⭐⭐ 2026-10-01：过去这里是 **7 个手抄进前端的 GSV 参数键**
+        //   （temperature/top_k/top_p/repetition_penalty/text_split_method/
+        //   speed_factor/seed）。换一台引擎这些键上游**不认**，而请求**照发**，
+        //   不报错 —— 用户看到的是「参数调了没反应」。
+        //
+        //   现在只发用户**明确动过**的那些，键名和类型都来自当前引擎的
+        //   param_schema（paramsToSend 是 web/src/lib/engines.js 的权威实现，
+        //   GenerateTab 用的是同一个函数，不是新写一份）。
+        ...paramsToSend(engine, row.params, row.touched),
+        // ⭐ 这一行走哪个推理方法（点 1：profile.methods 交到前端）。
+        //   ⛔ 只交**名字**：方法内部怎么绑参数、要不要参考音频，是 host.py 的事，
+        //   前端不复制那份规则（那是第二份会漂移的事实）。
+        //   单方法引擎 methods 为 null ⇒ 不发这个键，让后端用名片上的固定入口。
+        ...(row.method ? { method: row.method } : {}),
         seed: row.seed,
         // A-1: resolve this row's three-state engine-batch against the master.
         engine_batch: (row.engine_batch === 'on') ? true
@@ -513,6 +589,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           row={row}
           index={rowIdx}
           engineId={engine?.id}
+          // ⭐ 2026-10-01：整个 engine 对象（param_schema / methods / …）。
+          //   只传 engineId 的话这一页就没法按名片长格子 —— 名字拿不到形状。
+          engine={engine}
           allAudioFiles={allAudioFiles}
           voiceFiles={voiceFiles}
           onUpdate={updateRow}
@@ -526,15 +605,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           availableModels={availableModels}
           rowModel={rowModels[row.id] || { voiceId: '', gptCheckpoint: '', sovitsModel: '' }}
           onModelChange={(model) => setRowModels(prev => ({ ...prev, [row.id]: model }))}
-          defaultParams={defaultParams || {
-            temperature: 1.0,
-            top_k: 15,
-            top_p: 1.0,
-            repetition_penalty: 1.35,
-            text_split_method: 'cut5',
-            speed_factor: 1.0,
-            seed: -1,
-          }}
+          defaultParams={defaultParams}
           selectedVoice={selectedVoice}
           voices={voices}
           voiceLang={voiceLang}
@@ -656,7 +727,7 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
 
 // ⭐ 刀 A1（2026-08-31）：新增 `engineId` —— 行内的读音校对要发 /pron/preview，
 //   而那个接口现在 engine_id 必传。⛔ 漏传的表现是"这一行的读音预览安静地不工作"。
-function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId }) {
+function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId, engine }) {
   const { t } = useT()
   const [showPicker, setShowPicker] = useState(false)
   const [recipeId, setRecipeId] = useState('')
@@ -754,23 +825,57 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
     }
   }, [segments, voiceId])
 
-  // Advanced params (initialized from row or defaults)
-  const [temperature, setTemperature] = useState(row.temperature ?? defaultParams?.temperature ?? 1.0)
-  const [topK, setTopK] = useState(row.top_k ?? defaultParams?.top_k ?? 15)
-  const [topP, setTopP] = useState(row.top_p ?? defaultParams?.top_p ?? 1.0)
-  const [repPenalty, setRepPenalty] = useState(row.repetition_penalty ?? defaultParams?.repetition_penalty ?? 1.35)
-  const [splitMethod, setSplitMethod] = useState(row.text_split_method ?? defaultParams?.text_split_method ?? 'cut5')
-  const [speedFactor, setSpeedFactor] = useState(row.speed_factor ?? defaultParams?.speed_factor ?? 1.0)
-  const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
+  // ⭐⭐ 2026-10-01：超参不再由这一页手抄。
+  //
+  // 过去是 7 个 useState + 7 个 useEffect，每个都写死一个 GPT-SoVITS 键名。
+  // 换一台引擎 ⇒ 格子照常显示、填了发出去上游不认、**不报错**。
+  //
+  // 现在形状跟 GenerateTab 完全一致：
+  //   paramValues   这一行的格子值（从名片默认值起步）
+  //   touched       用户**明确动过**哪些 —— paramsToSend 只发这些
+  //   ⛔ touched 不能省。没动过的键是「界面建议」，不是「用户选的」；
+  //     全发过去等于平台替用户决定上游默认值。
+  const [paramValues, setParamValues] = useState(() => ({
+    ...initialParamValues(engine),
+    ...(row.params || {}),
+  }))
+  // ⛔ row.params 里存着的都是用户动过的（它们当初就是从 touched 存下来的），
+  //   所以从配方/旧行恢复出来的值天然算 touched。
+  const [touched, setTouched] = useState(() => new Set(Object.keys(row.params || {})))
+  const setParam = (name, raw) => {
+    const field = (engine?.param_schema || []).find(f => f && f.name === name)
+    setParamValues(v => ({ ...v, [name]: field ? coerceParamValue(field, raw) : raw }))
+    setTouched(prev => {
+      const next = new Set(prev); next.add(name); return next
+    })
+  }
+  // 换引擎 ⇒ 上一台的格子名对不上这台，重新从名片默认值起步。
+  // ⛔ touched 清空：那些键名是上一台引擎的，跟着过来就是「用户在新引擎上
+  //   明确选过旧引擎的参数」——那不存在。
+  useEffect(() => {
+    setParamValues(initialParamValues(engine))
+    setTouched(new Set())
+  }, [engine?.id])
 
-  // Store advanced params back to row on change
-  useEffect(() => { onUpdate(row.id, 'temperature', temperature) }, [temperature])
-  useEffect(() => { onUpdate(row.id, 'top_k', topK) }, [topK])
-  useEffect(() => { onUpdate(row.id, 'top_p', topP) }, [topP])
-  useEffect(() => { onUpdate(row.id, 'repetition_penalty', repPenalty) }, [repPenalty])
-  useEffect(() => { onUpdate(row.id, 'text_split_method', splitMethod) }, [splitMethod])
-  useEffect(() => { onUpdate(row.id, 'speed_factor', speedFactor) }, [speedFactor])
+  // 存回 row：只存用户动过的那些（GenerateTab:643 同一条纪律）
+  // ⭐ 存两样：params（发出去的形状）+ touched（哪些是用户真动过的）。
+  //   touched 必须是**能还原的**（数组），不能只活在本地 state 里 ——
+  //   generateRow 在 tab 级读的是 row，它拿不到这一行的本地 state。
+  useEffect(() => {
+    const explicit = paramsToSend(engine, paramValues, touched)
+    onUpdate(row.id, 'params', explicit)
+    onUpdate(row.id, 'touched', Array.from(touched))
+  }, [paramValues, touched, engine?.id])
+
+  // ⛔ seed 不属于任何一台引擎 ⇒ 不进 param_schema，是平台自己的 state
+  //    （GenerateTab:201 同一条纪律）。判据：换一台引擎，这一格含义一个字不变。
+  const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
   useEffect(() => { onUpdate(row.id, 'seed', seed) }, [seed])
+
+  // 这一层要画哪些格子：按当前引擎的 param_schema 取 common 层，再按
+  // only_when 条件过滤（GenerateTab:196-198 同一条形状）。
+  const visibleFields = fieldsForTier(engine, 'common')
+    .filter(f => isFieldVisible(f, paramValues))
 
   const allFiles = [...allAudioFiles, ...voiceFiles]
 
@@ -1173,37 +1278,33 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         {showAdvanced && (
           <div className="collapsible-body">
             <div className="form-grid">
-              <div>
-                <label className="field-label">Temperature</label>
-                <input type="number" className="control" step="0.05" min="0" max="2" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value) || 1.0)} />
-              </div>
-              <div>
-                <label className="field-label">Top K</label>
-                <input type="number" className="control" step="1" min="1" max="100" value={topK} onChange={e => setTopK(parseInt(e.target.value) || 15)} />
-              </div>
-              <div>
-                <label className="field-label">Top P</label>
-                <input type="number" className="control" step="0.05" min="0" max="1" value={topP} onChange={e => setTopP(parseFloat(e.target.value) || 1.0)} />
-              </div>
-              <div>
-                <label className="field-label">Repetition Penalty</label>
-                <input type="number" className="control" step="0.05" min="0.5" max="2" value={repPenalty} onChange={e => setRepPenalty(parseFloat(e.target.value) || 1.35)} />
-              </div>
-              <div>
-                <label className="field-label">Split Method</label>
-                <Select className="control" value={splitMethod} onChange={e => setSplitMethod(e.target.value)}>
-                  <option value="cut0">cut0 (no split)</option>
-                  <option value="cut1">cut1 (punctuation)</option>
-                  <option value="cut2">cut2 (sentence)</option>
-                  <option value="cut3">cut3 (paragraph)</option>
-                  <option value="cut4">cut4 (length)</option>
-                  <option value="cut5">cut5 (default)</option>
-                </Select>
-              </div>
-              <div>
-                <label className="field-label">Speed Factor</label>
-                <input type="number" className="control" step="0.1" min="0.5" max="2" value={speedFactor} onChange={e => setSpeedFactor(parseFloat(e.target.value) || 1.0)} />
-              </div>
+              {/* ⭐⭐ 2026-10-01：这里原本是 **7 个手抄的 <input>**，
+                  每个都写死一个 GPT-SoVITS 键名（Top K / Top P /
+                  Repetition Penalty / Split Method / Speed Factor / Seed）。
+                  换一台引擎 ⇒ 格子照常显示、填了发出去**上游不认**、不报错。
+
+                  现在按 engine.param_schema 循环 —— 跟 GenerateTab:1016 同一个
+                  <ParamField>，⛔ 不许再在这里分叉出 f.type === '...' 的分支。
+                  GSV 这一层（common）拿到的正是 temperature/top_k/top_p/
+                  repetition_penalty/text_split_method/speed_factor 六项，
+                  跟过去逐格一致（Seed 见下面那段注释）。
+
+                  ⛔ options 故意不传：ParamField:197 只在 `select + source`
+                  时才用它（候选项要扫盘），写死 choices 的格子自取
+                  field.choices（ParamField:90）。这一页不扫权重/音色/音频 ——
+                  那是 GenerateTab 的活，这里没有 assets 上下文。 */}
+              {visibleFields.map(f => (
+                <ParamField key={f.name}
+                  field={f}
+                  values={paramValues}
+                  onChange={setParam}
+                  lang={lang}
+                  t={t} />
+              ))}
+
+              {/* ⛔ Seed 不在 param_schema 里：它不是**任何一台引擎**的参数，
+                  是平台自己的开关（GenerateTab:1030 同一条纪律）。
+                  判据：换一台引擎，这一格的含义一个字都不变。 */}
               <div>
                 <label className="field-label">Seed (-1 = random)</label>
                 <input type="number" className="control" value={seed} onChange={e => setSeed(parseInt(e.target.value) || -1)} />
@@ -1216,6 +1317,21 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   <option value="off">{t('Off', '关')}</option>
                 </Select>
               </div>
+              {/* ⭐ 2026-10-01：这一行走哪个推理方法（点 1 把 call.methods
+                  交到了前端）。比如 CosyVoice2 的 zero_shot / instruct2 / vc，
+                  同一段文本在同一个音色上走不同入口。
+
+                  ⛔ 只有一个方法（engine.methods 为 null）⇒ **不画这个下拉**：
+                  没有第二个选项的下拉只是噪声。判据跟 schemaGap 一样 ——
+                  名片没说的东西，界面不许替它编一个。 */}
+              {Array.isArray(engine?.methods) && engine.methods.length > 0 && (
+                <div title={t('Which inference entrypoint THIS row uses. Only engines whose manifest declares call.methods offer more than one.', '这一行走哪个推理入口。只有名片里声明了 call.methods 的引擎才有得选。')}>
+                  <label className="field-label">{t('Method', '推理方法')}</label>
+                  <Select className="control" value={row.method || engine.default_method || engine.methods[0]} onChange={e => onUpdate(row.id, 'method', e.target.value)}>
+                    {engine.methods.map(m => <option key={m} value={m}>{m}</option>)}
+                  </Select>
+                </div>
+              )}
             </div>
           </div>
         )}
