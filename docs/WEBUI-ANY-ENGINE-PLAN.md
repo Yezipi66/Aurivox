@@ -3,7 +3,15 @@
 > 分支：`feat/webui-any-engine`
 > 基线：`45586c9` · `1740 tests / 1740 pass / 0 fail / 1 skipped`
 > 建立：2026-10-01
-> 状态：**待 Owner 批准开工**
+> 状态：✅ **三点全部完成**（2026-10-01，Owner 批准自主执行）
+>
+> | 点 | 提交 | 结果 |
+> |---|---|---|
+> | 1 多方法透出 | `4a0964e` | ✅ 12 条新测试 + 3 变异 |
+> | 2 对比页按名片 | `60a6fbb` | ✅ 11 条新测试 + 7 变异 |
+> | 3 Broker 去硬编码 | `3afd1f8` | ✅ 15 条新测试 + 8 变异 |
+>
+> **未 push**（等 Owner 说）。全量 `1763 pass / 0 fail`，`npm run build` 绿。
 
 ---
 
@@ -86,8 +94,14 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 1. `resolveEngineProfile('cosyvoice2').methods` 有 5 个键 [实测]
 2. `default_method` ∈ `methods` [实测]
 3. GSV / IndexTTS2 → `methods` 为 `null`，**不抛** [实测]
-4. `probe_host_methods.py` 19/19；`probe_host.py` 29/29 不退化
-5. **变异**：把装配那段删掉 → 至少一条验收点变红
+4. `probe_host.py` 29/29 不退化 [实测]（`probe_host_methods.py` 维持 18/18：
+   计划写的「加到 19」是因为初稿以为 profile 那段没测；实际那些断言改成
+   `lib/engines/profile.node.test.js` 的 6 条真行为测试更合适 —— JSX 之外
+   的纯函数就该有真行为测试，不是探针里的字符串匹配）
+5. **变异**：装配整个删掉 → 红 11 条；「取第一个」代替 default_method →
+   红 7 条；空 methods 当成没声明 → 红 3 条 [实测]
+6. [实测] `cosyvoice2` → 5 个方法 / `cosyvoice-300m-sft` → 3 个；
+   `gpt-sovits` 与 `indextts2` 为 `null` 且**不抛**
 
 ---
 
@@ -114,8 +128,14 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 2. 每行能选方法（5 方法的引擎出现下拉；单方法的引擎不出现）
 3. ⭐ **接线判据**：随便挑一个渲染点删掉 `engineId`，**必须有测试变红**
    （`ENGINE_ONBOARDING_CONTRACT.md` §9 的 E1 判据：`npm run build` 绿不证明接线对）
-4. GSV 用户仍能改那 6 个超参（不回归）
-5. `npm run build` 通过 + 全量 1740 不退化
+4. GSV 用户仍能改那 6 个超参（不回归）[实测] `fieldsForTier(gsv,'common')`
+   仍返回那 6 项
+5. `npm run build` 通过 + 全量不退化 [实测] 1763 pass / 0 fail
+6. [实测] 假引擎 `wobble` / `flavour` 出现、`top_p` 消失、`secret` 归 advanced；
+   只发用户动过的 `wobble`，不发明明摆着的 `flavour`
+7. [变异] 7 个全抓到：写死 `top_p` 键 / 本地 state 复活 / `row['top_p']` 下标 /
+   接线断掉不传 `engine` / 方法下拉无视 `length` / 依赖漏 `engine.id` /
+   `touched` 不存回 / `seed` 被删 / `cut5` 枚举写死
 
 ---
 
@@ -131,10 +151,23 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 **预期效果**：非 GSV 的配方不再显示 `top_k`；重绑按钮按当前引擎判定。
 
 **验收点**
-1. 非 GSV 配方 → 参数摘要不出现 `top_k`
-2. `BrokerTab.jsx` 活代码里搜不到 `'gpt-sovits'`
-3. GSV 现有行为不变（不回归）
-4. 全量 1740 不退化
+1. 非 GSV 配方 → 参数摘要不出现 `top_k` [实测] CosyVoice2 配方摘要 =
+   `prompt_text … · spk_id … · text_frontend …`
+2. `BrokerTab.jsx` 活代码里搜不到 `'gpt-sovits'`（含 `REBIND_ENGINE` 常量）[实测]
+3. GSV 现有行为不变（不回归）[实测] GSV 配方摘要仍含
+   `temperature / top_k / top_p`
+4. 全量不退化 [实测] 1763 pass / 0 fail
+
+⭐⭐ **2026-10-01 订正（读码后）**：本计划初稿写的是「从配方的 `engine_id`
+读引擎」。**配方顶层根本没有 `engine_id`** —— 配方格式这轮不动
+（Owner 2026-08-30 的决定），`lib/routes/recipes.js` 里没有任何一处写它。
+所以实际做法是两条：
+  - 重绑面板的引擎身份，从**它钉的那份权重**反查（`engineOfRecipe()`）
+  - 参数摘要**不按引擎身份过滤** —— 显示配方自带的键，不编配方没有的键
+    （`paramsSummaryOf`，纯函数 + 8 条真行为测试）
+
+这样反而更不容易错：「猜它是哪台引擎然后只显示那几个键」一旦猜错，
+参数就消失了；而「配方里有的就显示」永远不会错。
 
 ---
 
@@ -174,6 +207,9 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 | L2 | `lib/workflow` 与 `lib/flowgraph` 两套图引擎并存 | 纯前者的生产代码 0 引用（测试 100+ 条在跑）；Flow 线再议 |
 | L3 | 对比页「多引擎并排」（每行不同引擎）| 本计划的点 2 只做到「每行跟随当前引擎 + 可切方法」；真正的每行独立选引擎是更大的功能 |
 | L4 | 联网策略文档（`host.py` 注释说「宿主永远不该联网」，实际是「默认离线 + 用户可覆盖」）| |
+| L5 | **配方顶层没有引擎身份**（`engine_id` / `weight_slots`）— 2026-10-01 点 3 读码发现 | Broker 现在靠「从钉的权重反查」定位引擎。配方格式升级（`schema_version` v4？）后应改为直接存 `engine_id` + 按位存权重，届时 Broker 可以直接渲染任意位数的引擎 |
+| L6 | **只有一位的引擎画不出「两份权重两两组合」** — 点 2 发现 | 对比页和 Broker 的模型下拉都是「两个位」的形状（配方顶层只有 `gpt_ckpt`/`sovits_pth` 两个字段）。CosyVoice 只有一个 `model` 位 ⇒ 这两处现在都退化成单下拉。解法跟 L5 是同一件：配方升级到按位存 |
+| L7 | **配方参数摘要不按引擎身份过滤** — 点 3 的刻意选择 | 名片上没有的键会**显示**出来（`unknown` 计数保留）。这是为了「那台引擎还没装进项目」时不静默吞参数。代价：摘要里可能混入这台引擎不认的键。解 L5 时应改成按 `engine_id` 过滤 |
 
 ---
 
