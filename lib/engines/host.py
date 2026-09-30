@@ -516,11 +516,14 @@ class Engine(object):
                              % (BANNER, self.load_seconds, self.error))
 
     # -- 合成 ---------------------------------------------------------------
-    def synthesize(self, text, ref_audio_path, call_params, seed=None):
+    def synthesize(self, text, ref_audio_path, call_params, seed=None, method_cfg=None):
         """返回 (wav_bytes, meta)。"""
         if self.kind == "cli":
+            # ⛔ cli 形态不接 call.methods —— 命令行只有一个入口，「切方法」要
+            #   的是另一套 argv 模板，没写就不许假装支持。
             return self._synthesize_cli(text, ref_audio_path, call_params, seed)
-        return self._synthesize_python(text, ref_audio_path, call_params, seed)
+        return self._synthesize_python(text, ref_audio_path, call_params, seed,
+                                       method_cfg)
 
     def _synthesize_cli(self, text, ref_audio_path, call_params, seed=None):
         returns = self.call.get("returns", "file")
@@ -594,15 +597,57 @@ class Engine(object):
                 except OSError:
                     pass
 
-    def _synthesize_python(self, text, ref_audio_path, call_params, seed=None):
+    def _synthesize_python(self, text, ref_audio_path, call_params, seed=None, method_cfg=None):
         bind = self.call["bind"]
         returns = self.call.get("returns", "file")
-        method = getattr(self.obj, self.call["method"])
+        # ⭐ 2026-09-30：一次请求一个方法。call.methods 里每个方法可以带自己
+        #   的 method 名和 bind（别名）—— vc 的 source_wav 跟 zero_shot 的
+        #   prompt_wav 是同一个输入的不同叫法。
+        if method_cfg:
+            method = getattr(self.obj, method_cfg.get("method") or self.call["method"])
+            bind = method_cfg.get("bind") or bind
+        else:
+            method = getattr(self.obj, self.call["method"])
+        method_label = '%s.%s' % (self.call["class"],
+                                   (method_cfg or {}).get("method") or self.call["method"])
 
         kwargs = dict(call_params)
         kwargs[bind["text"]] = text
-        if bind.get("ref_audio"):
+        if bind.get("ref_audio") and ref_audio_path is not None:
             kwargs[bind["ref_audio"]] = ref_audio_path
+        # ⭐ vc 这类方法不读 text（它转换已有音频）—— 硬塞一个空串会让上游
+        #   以为「有个空文本要念」而多产出几秒静音，或直接报错。
+        if not str(text or "").strip():
+            kwargs.pop(bind["text"], None)
+
+        # ⭐⭐ 2026-09-30 真机抓到：有些上游方法**签名上必填**、但在实际走的那条
+        #   路上**根本不用**。CosyVoice2 的 zero_shot 是典型：
+        #     inference_zero_shot(tts_text, prompt_text, prompt_wav, zero_shot_spk_id='')
+        #   复用已存音色时这两个传空串即可（上游 example.py 就是这么写的），
+        #   但平台不给 ⇒ TypeError: missing 2 required positional arguments。
+        #
+        #   methods.<名>.blank_when = {"<平台侧名字>": "<触发参数名>"}
+        #   —— 触发参数在请求里有值时，把那个平台侧名字对应的**上游**参数填空串。
+        #   ⛔ 键写平台侧的名字，值才是触发参数；宿主认得平台侧的名字，因为
+        #     bind 那个槽位（ref_audio_path）可能压根没进 kwargs（没给参考音频时）。
+        blank_when = (method_cfg or {}).get("blank_when") or {}
+        if blank_when:
+            active = [t for t in blank_when.values()
+                      if call_params.get(t) not in (None, "")]
+            if active:
+                for slot in blank_when:
+                    # ⭐ 平台侧的键 → 上游的参数名，走**已经验过**的那条映射：
+                    #   text          → bind["text"]
+                    #   ref_audio_path→ bind["ref_audio"]（参考音频那个槽位）
+                    #   其它           → 同名（call_time 参数本来就是平台侧词）
+                    if slot == "text":
+                        up = bind.get("text")
+                    elif slot in ("ref_audio_path", "ref_audio"):
+                        up = bind.get("ref_audio") or slot
+                    else:
+                        up = slot
+                    if up:
+                        kwargs[up] = ""
 
         out_path = None
         if returns == "file":
@@ -638,13 +683,13 @@ class Engine(object):
                 data = _collect_generator(
                     result,
                     self.call.get("generator_sample_rate"),
-                    '%s.%s' % (self.call["class"], self.call["method"]))
+                    method_label)
             else:
                 data = result
                 if not isinstance(data, (bytes, bytearray)):
                     raise RuntimeError(
                         'call.returns 写的是 "bytes"，但 %s.%s 返回的是 %s'
-                        % (self.call["class"], self.call["method"],
+                        % (self.call["class"], method_label.split('.')[-1],
                            type(data).__name__))
                 data = bytes(data)
 
@@ -903,16 +948,24 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(code, message, **extra)
             return
 
-        text = str(body["text"])
+        # ⭐ 2026-09-30：一次请求一个方法。请求带 method=… 就是切方法；
+        #   不带就走名片写的 default_method。
+        #   ⛔ text 允许为空 —— vc 这类方法转换的是**已有音频**，不读文本。
+        #   （validate_request 已按方法判过要不要 text。）
+        text = str(body.get("text") or "")
         ref = body.get("ref_audio_path")
         seed = int(body["seed"]) if body.get("seed") is not None else None
+        method_name, method_cfg, _ = resolve_method(prof, body.get("method"))
         call_time = set(prof["params"].get("call_time") or [])
+        if method_cfg and method_cfg.get("call_time") is not None:
+            call_time = set(method_cfg["call_time"])
         call_params = {k: body[k] for k in body if k in call_time}
 
         with eng.infer_lock:
             eng.busy = True
             try:
-                data, meta = eng.synthesize(text, ref, call_params, seed=seed)
+                data, meta = eng.synthesize(text, ref, call_params, seed=seed,
+                                            method_cfg=method_cfg)
                 eng.served += 1
             except Exception:
                 tb = traceback.format_exc()
@@ -946,7 +999,66 @@ class Handler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 #  4) 请求校验 —— 抽成纯函数，才能不起进程就测
 # ---------------------------------------------------------------------------
-CORE_KEYS = frozenset({"text", "ref_audio_path", "seed", "format", "media_type"})
+# ⭐ 2026-09-30 加 "method"：请求用它切推理方法（call.methods）。
+CORE_KEYS = frozenset({"text", "ref_audio_path", "seed", "format", "media_type",
+                      "method"})
+
+
+def resolve_method(profile, requested):
+    """决定这一次合成走哪个方法。
+
+    ⭐ 2026-09-30： CosyVoice2 有**五个**推理方法（sft / zero_shot /
+      cross_lingual / instruct2 / vc），它们要的参数互不相同
+      （sft 要 spk_id，vc 要两个音频，instruct2 要 instruct_text…）。
+      过去的宿主只会 `getattr(self.obj, call["method"])` —— 一次方法，
+      于是「换参数」根本换不到方法：请求里写 spk_id 也好、写 instruct_text
+      也好，跑的永远是 inference_zero_shot。
+
+      ⛔ 而那份要求在名片里是**真的写着**的（每个参数带 applies_to）。名片许
+      愿，平台不执行 ⇒ 用户传了正确的参数却被当成零值兜底，合成出**错的**
+      声音而不报错。这是功能缺失，不是体验问题。
+
+    ⭐ 现在的形状：
+        call.methods = { "zero_shot": {...}, "cross_lingual": {...}, … }
+        call.default_method = "zero_shot"
+      请求里带 method（或 operation）即可切换；⛔ 不带就用 default_method。
+      call.method（单数）继续支持 —— 引擎只有一个推理入口时它就是全部。
+
+    返回 (方法名, 方法配置, 请求里的 method 值)。
+    """
+    call = profile.get("call") or {}
+    methods = call.get("methods")
+    single = call.get("method")
+
+    if not isinstance(methods, dict) or not methods:
+        # ⭐ 单方法：call.method 仍是权威，请求里带 method 也照样用这一个
+        #   （这样同一份请求能同时跑新旧两种名片）。
+        if requested and requested != single:
+            return None, None, requested
+        return single, {}, requested
+
+    name = requested or call.get("default_method")
+    if not name:
+        # 没写 default_method ⛔ 不能瞎挑第一个 —— dict 顺序是书写顺序，
+        #   「取第一个」会随名片编辑而漂移，等于让行为不可预测。
+        return None, None, requested
+    if name not in methods:
+        return None, None, requested
+    cfg = methods[name] or {}
+    # 每个方法可以声明自己要的 call_time 参数/别名；缺的用 call.bind 兜底。
+    merged = dict(call.get("bind") or {})
+    for k, v in (cfg.get("bind") or {}).items():
+        merged[k] = v
+    return name, {"method": cfg.get("method", name),
+                  "bind": merged,
+                  "requires_text": cfg.get("requires_text", True),
+                  "requires_ref_audio": cfg.get("requires_ref_audio", None),
+                  "call_time": cfg.get("call_time", None),
+                  # ⭐⭐ blank_when 必须一起带下去 —— 少了它，「签名必填但实际
+                  #   那条路不用」的参数就永远填不上 ⇒ TypeError。
+                  #   2026-09-30 真机上栽过：它写在了这里**下面**的函数里，
+                  #   于是 resolve_method 明明配好了，调用方拿到的却没有。
+                  "blank_when": cfg.get("blank_when", None)}, requested
 
 
 def validate_request(body, profile, seed_plan):
@@ -962,12 +1074,62 @@ def validate_request(body, profile, seed_plan):
     #   `resolveEngineProfile()` 真出的那份里它是**扁平顶层**的，不在 capabilities 下
     #   ⇒ 那个读法在真名片上恒为 None ⇒ needs_ref 恒为 False ⇒
     #   「必须给参考音频」那道 400 **静默消失**（不报错、不告警，闸只是不存在了）。
-    #   ⭐ 手写夹具测不出这种形状漂移 —— 见 tools/dev/probe_profile_contract.py。
+    #   ⭐ 手写夹具测出力形漂移 —— 见 tools/dev/probe_profile_contract.py.
     needs_ref = bool(profile.get("requires_reference_audio"))
 
-    text = body.get("text")
-    if not text or not str(text).strip():
+    name, mcfg, _ = resolve_method(profile, body.get("method"))
+    if mcfg is None:
+        avail = sorted((profile.get("call") or {}).get("methods") or {}) or \
+            [((profile.get("call") or {}).get("method"))]
+        return 400, ("'method'=%r is not available on %s. Available: %s"
+                     % (body.get("method"), profile["id"], ", ".join(str(a) for a in avail))), \
+               {"available_methods": [a for a in avail if a]}
+
+    # ⭐ 方法级覆盖全局 —— vc 不用 text（它转换已有音频），sft 不用参考音频
+    #   （它用内置音色）。一刀切的全局要求会**误杀**这些方法：给 vc 传个
+    #   空 text 会被「text 不能为空」拦下，而 vc 本来就不读 text。
+    needs_text = mcfg.get("requires_text", True)
+    if needs_text and not str(body.get("text") or "").strip():
         return 400, "'text' is required and must not be empty", {}
+
+    if mcfg.get("requires_ref_audio") is True:
+        needs_ref = True
+    elif mcfg.get("requires_ref_audio") is False:
+        needs_ref = False
+
+    # ⭐⭐ 2026-09-30 真机抓到：参考音频**有时可选**。
+    #   CosyVoice2 的 zero_shot 有两种用法 ——
+    #     ① 带参考音频，现场克隆音色（要 ref）
+    #     ② zero_shot_spk_id，复用以前存好的音色（⛔ 不要 ref）
+    #   而 requires_ref_audio 是**静态**布尔 ⇒ ② 会被「必须给参考音频」
+    #   那道 400 拦下，而它本来就不需要参考音频。
+    #
+    # ⛔ 更糟的是那条报错会把人带偏：它说「这台引擎从参考音频克隆音色」，
+    #   而用户明明只是想复用一个已经存在的音色。
+    #
+    #   call.ref_audio_optional_if = ["<参数名>"] —— 列出的任一参数在请求里
+    #   有值，就豁免参考音频要求。没有这个字段 = 旧行为，一字不改。
+    optional_if = (profile.get("call") or {}).get("ref_audio_optional_if") or []
+    if needs_ref and any(body.get(k) not in (None, "") for k in optional_if):
+        needs_ref = False
+
+    # ⭐ 方法可以自带 call_time 参数（sft 要 spk_id、instruct2 要 instruct_text）。
+    #   不声明就沿用全局那份 —— 多数方法就是全局的子集。
+    #
+    # ⭐⭐ 2026-09-30 修的真缺口：call_time 白名单过去是**全局一份**，于是
+    #   属于别的方法的参数会被原样塞进 kwargs ⇒
+    #   `TypeError: upstream_instruct2() got an unexpected keyword argument
+    #   'prompt_text'` —— 一个 500，把「你填错方法了」说成「引擎炸了」。
+    #   正确做法是**只放行这个方法自己认的参数**，别的一律在 validate 阶段
+    #   就 400 掉（用户能在请求里看出来，而不是拿到一个 500）。
+    m_call_time = mcfg.get("call_time")
+    if m_call_time is not None:
+        call_time = set(m_call_time)
+    else:
+        # 没声明 = 沿用全局，但仍要把**全局里不被任何方法认的参数**挡掉吗？
+        # ⛔ 不挡：一份旧名片（call.method 单数）里 call_time 是它唯一的声明，
+        #   挡了就等于让它什么都不传 —— 那是破坏向后兼容。
+        call_time = set(call_time)
 
     ref = body.get("ref_audio_path")
     if needs_ref:
@@ -1046,23 +1208,76 @@ def validate_profile(profile):
         problems.append(
             "call.kind = %r —— 这份宿主实现的是 python / cli 两种形态"
             "（契约 §5.2、§5.3）。http 形态是分开的一条路。" % (kind,))
+        return _finish_profile(problems, call)
+
+    required = REQUIRED_CALL_PY if kind == "python" else REQUIRED_CALL_CLI
+    # ⭐ 2026-09-30：call.methods 存在时，call.method 不再必需 —— 一个引擎
+    #   可以有**五个**推理入口，单数字段表达不了。两条路互斥：写了 methods
+    #   就以它为准，没写才认 method（旧名片一个字不改照跑）。
+    methods = call.get("methods")
+    multi = isinstance(methods, dict) and bool(methods)
+    for k in required:
+        if k == "method" and multi:
+            continue
+        if k not in call:
+            problems.append("缺 call.%s" % k)
+
+    if kind == "cli":
+        argv = call.get("argv")
+        if argv is not None and (not isinstance(argv, list) or not argv
+                                 or not all(isinstance(w, str) and w for w in argv)):
+            problems.append("call.argv 得是一个非空的字符串数组")
+        # ⛔ cli 只有一个 argv 入口，切方法要的是另一套模板 —— 名片写了
+        #   methods 却不生效，等于骗人。不许放它过去。
+        if multi:
+            problems.append(
+                "call.kind=cli 上写了 call.methods —— 这份宿主只在 python 形态"
+                "实现了切方法；命令行只有一个入口，argv 模板得另写一套")
+
+    bind = call.get("bind") or {}
+    if multi:
+        default = call.get("default_method")
+        # ⭐ 必须说清默认走哪个 —— ⛔ 不许「取第一个」：dict 顺序是书写顺序，
+        #   「取第一个」会随名片编辑而漂移，等于让行为不可预测。
+        if not default:
+            problems.append("call.methods 有 %d 个方法，但没写 call.default_method"
+                            % len(methods))
+        elif default not in methods:
+            problems.append("call.default_method=%r 不在 call.methods 里（现有：%s）"
+                            % (default, ", ".join(sorted(methods))))
+        for mname, mcfg in methods.items():
+            mcfg = mcfg or {}
+            if not (mcfg.get("method") or mname):
+                problems.append("call.methods.%s 没写 method" % mname)
+            mbind = mcfg.get("bind") or bind
+            if (mcfg.get("requires_text", True) and "text" not in mbind):
+                problems.append("call.methods.%s 读文本却没有 bind.text —— "
+                                "平台不知道该把正文放进哪个参数" % mname)
+            if (mcfg.get("requires_ref_audio", None) is True
+                    and not mbind.get("ref_audio")):
+                problems.append("call.methods.%s 要参考音频却没有 bind.ref_audio"
+                                % mname)
     else:
-        required = REQUIRED_CALL_PY if kind == "python" else REQUIRED_CALL_CLI
-        for k in required:
-            if k not in call:
-                problems.append("缺 call.%s" % k)
-        if kind == "cli":
-            argv = call.get("argv")
-            if argv is not None and (not isinstance(argv, list) or not argv
-                                     or not all(isinstance(w, str) and w for w in argv)):
-                problems.append("call.argv 得是一个非空的字符串数组")
-        bind = call.get("bind") or {}
         if "text" not in bind:
             problems.append("缺 call.bind.text —— 平台不知道该把正文放进哪个参数")
-        if call.get("returns", "file") == "file" and "output_path" not in bind:
-            problems.append(
-                'call.returns 是 "file"，但没有 call.bind.output_path —— '
-                "平台不知道该让引擎把音频写到哪里")
+
+    # ⭐ returns=file 时要 output_path —— 多方法也得**各自**有，否则某个方法
+    #   合成完宿主找不到文件。多方法下顶层那个可被方法级覆盖。
+    if call.get("returns", "file") == "file":
+        owners = [("call", bind)]
+        if multi:
+            owners = [("call", bind)] + [
+                ("call.methods.%s" % n, (c or {}).get("bind") or bind)
+                for n, c in methods.items()]
+        for label, b in owners:
+            if "output_path" not in b:
+                problems.append(
+                    'call.returns 是 "file"，但 %s.bind 没有 output_path —— '
+                    "平台不知道该让引擎把音频写到哪里" % label)
+    return _finish_profile(problems, call)
+
+
+def _finish_profile(problems, call):
     try:
         SeedPlan(call.get("seed"))
     except ValueError as exc:
