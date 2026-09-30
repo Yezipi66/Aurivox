@@ -697,6 +697,9 @@ def _collect_generator(result, sample_rate, call_desc):
     """
     import array
     chunks = []
+    # ⭐ 名片声明的采样率（call.generator_sample_rate）。⛔ 可以是 None ——
+    #   那就只认 item 里给的，一路都没有时报错（见下）。
+    declared_rate = sample_rate
     rate = None
     for item in result:
         if not isinstance(item, dict):
@@ -709,10 +712,26 @@ def _collect_generator(result, sample_rate, call_desc):
             raise RuntimeError(
                 "%s 吐出来的 item 里没有 tts_speech（键有：%s）"
                 % (call_desc, ", ".join(sorted(item)) or "空"))
-        r = item.get("sample_rate", rate)
-        if rate is None:
+        # ⭐ 采样率可以从两处来，**都不给才算缺**：
+        #   1) item 里的 sample_rate —— 有些引擎每块都带；
+        #   2) 名片里的 call.generator_sample_rate —— 有些（[实测] CosyVoice2）
+        #      把采样率放在**模型对象**上，yield 出来的 dict 里压根没这个键。
+        # ⚠ 过去这里只认 1)，拿到 [实测] 一整段合成成功的音频后报
+        #   「没给过 sample_rate」—— 而答案一直在名片里。
+        r = item.get("sample_rate")
+        if r is None:
+            r = declared_rate          # 名片声明的（可能也是 None）
+        if r is None:
+            if rate is None:
+                # 一路都没有 ⇒ 响亮地失败，而不是默默塞一个 16000
+                #   （那个会得到**变调**的音频，且不报错）
+                raise RuntimeError(
+                    "%s 既没在 item 里给 sample_rate，名片也没写 "
+                    "call.generator_sample_rate —— 采样率猜错会得到变调的音频"
+                    % call_desc)
+        elif rate is None:
             rate = r
-        elif r is not None and r != rate:
+        elif r != rate:
             raise RuntimeError(
                 "%s 中途换了采样率（%s → %s）—— 拼起来会变调"
                 % (call_desc, rate, r))
