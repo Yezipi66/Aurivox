@@ -243,10 +243,16 @@ state/
 #     名片（manifest.json）、上游源码、submodule、venv、缓存、生成产物 ——
 #     一样都不进。缺了它，平台照常分发，只是少几台可选引擎。
 #
-#     ⚠️ 这条是往前加的：IndexTTS2 / GPT-SoVITS 早先把上游源码 vendoring
-#        进仓库了（历史遗留），新引擎不沿用那个先例。
+#     IndexTTS2 早先把上游源码 vendoring 进仓库（历史遗留），已外置干净 ——
+#     现在只剩 5 个说明文档，走 ENGINES_DIR 装。
 #
-# ⭐ 留在仓库里的只有 engines/_TEMPLATE/（通用模板）—— 它不含任何引擎。
+# ⭐⭐ GPT-SoVITS 是**例外，而且是设计决策**（Owner 2026-10-01 确认）：
+#     平台最初就围着它做的，它是第一支持引擎，源码留在仓库里。改这条之前先读
+#     README 的项目更迭史。⭐ .gitignore 只管**未跟踪**的文件，而
+#     engines/gpt-sovits/ 早就被跟踪了 —— 所以下面这两行对它无效，GSV 的改动
+#     照常能提交。真正被挡住的只有**新**引擎目录。
+#
+# ⭐ 留在仓库里的默认只有 engines/_TEMPLATE/（通用模板）—— 它不含任何引擎。
 # ⭐ 引擎放哪：ENGINES_DIR 环境变量指过去（registry 认它），
 #   默认 <repo>/engines，用户可改成 D:\tts-engines\ 之类。
 engines/*/
