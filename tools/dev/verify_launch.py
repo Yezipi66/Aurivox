@@ -413,6 +413,59 @@ def shutdown(proc, fh, port):
     return not port_is_open(port)
 
 
+def _manifest():
+    """这台引擎的名片（纯 stdlib 读文件；node 那边查不到）。
+
+    ⭐ 所有「这台引擎认不认 X」的判据都从这里出发 —— 名片是唯一产地。
+    ⛔ 不在本脚本里维护任何一张「引擎 → 它要什么」的表：那份表必然漂移，
+    而漂移的报错是「静默忽略一个参数」（平台第 2 条纪律要消灭的那种）。
+    """
+    try:
+        with io.open(os.path.join(ROOT, "engines", ENGINE_ID, "manifest.json"),
+                     encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _seedable():
+    """这台引擎有没有随机源？—— 问名片 call.seed，不猜。"""
+    seed = (_manifest().get("call") or {}).get("seed")
+    if seed is None:
+        return True          # 没写 = 老形状（GSV 那样），照旧发
+    if isinstance(seed, dict):
+        return (seed.get("mode") or "global") != "none"
+    return seed != "none"
+
+
+def _default_method_cfg():
+    """这台引擎**默认**那个方法的配置（名片的 call.methods[default_method]）。
+
+    ⭐ 为什么需要它（2026-10-01 真机抓出来的）：cosyvoice2 的 zero_shot
+    方法级 call_time = ["prompt_text", "zero_shot_spk_id"] —— 而
+    `prompt_text` 是**必填**的（上游 inference_zero_shot() 的位置参数）。
+    只发 text + ref_audio ⇒
+        TypeError: CosyVoice.inference_zero_shot() missing 1 required
+                   positional argument: 'prompt_text'
+    ⇒ 「这台引擎认哪些键」的完整答案 = 平台级 param_keys/payload_keys ∪
+       **方法级 call_time**。只看前者会漏掉方法级那几个。
+    """
+    call = _manifest().get("call") or {}
+    methods = call.get("methods")
+    if not isinstance(methods, dict) or not methods:
+        return None
+    name = call.get("default_method") or sorted(methods)[0]
+    return methods.get(name) or {}
+
+
+def _method_param_names():
+    """这台引擎（默认方法）要的引擎原生参数名。"""
+    cfg = _default_method_cfg()
+    if not cfg:
+        return []
+    return list(cfg.get("call_time") or [])
+
+
 def _wants(extra, key):
     """这台引擎认不认这个键？—— 问名片，不猜。
 
@@ -436,10 +489,19 @@ def _wants(extra, key):
     return key in keys
 
 
-def synth(port, text, ref, seed, timeout, extra=None):
+def synth(port, text, ref, seed, timeout, extra=None, method_args=None):
     url = "http://127.0.0.1:%d/tts" % port
-    payload = {"text": text, "ref_audio_path": ref, "seed": seed,
-               "media_type": "wav"}
+    payload = {"text": text, "ref_audio_path": ref, "media_type": "wav"}
+    # ⭐⭐ 2026-10-01 修正（第二次，真机又抓到一个）：seed 也不能无条件发。
+    #   cosyvoice2 的名片 call.seed = "none" —— 它**没有**随机源。宿主对此
+    #   明确 400，报错写得很清楚（该照它的）：
+    #     "this engine declares call.seed = \"none\": it cannot reproduce a
+    #      previous run, so the broker must not record a seed for it.
+    #      Accepting the seed and ignoring it would put a seed in meta.json
+    #      that never took effect."
+    #   ⇒ 平台的判据跟宿主一致：**不接受一个不会生效的值**。
+    if _seedable():
+        payload["seed"] = seed
     # ⭐⭐ 2026-10-01 修正（第一版写错了，真机抓出来的）：
     #   我第一版**无条件**加了 text_lang / prompt_lang / text_split_method。
     #   那三个是 **GSV 老宿主** infer_server.py 的 check_params()（:388-414）
@@ -455,6 +517,11 @@ def synth(port, text, ref, seed, timeout, extra=None):
     #   正确判据：**这台引擎认不认这些键** —— 问名片，不是猜。
     #   GSV 的 param_keys 里有 text_lang / prompt_lang / text_split_method；
     #   indextts2 的没有（它的 param_keys 是情绪相关那九个）。
+    # 方法级参数（--method-arg）**原样进 payload**，平台不翻译它们。
+    #   ⛔ 键名必须是引擎原生的（prompt_text 而不是 reference_text）——
+    #      那份名单的唯一产地是名片的 call.methods[...].call_time。
+    if method_args:
+        payload.update(method_args)
     if _wants(extra, "text_lang"):
         payload["text_lang"] = "zh"
     if _wants(extra, "prompt_lang"):
@@ -506,6 +573,14 @@ def main(argv=None):
     #    防这一脚。
     ap.add_argument("--engine", default=None,
                     help="要起哪台引擎（默认 indextts2；例：--engine gpt-sovits）")
+    # ⚠ 2026-10-01：多方法引擎（cosyvoice2）的**方法级参数**必须显式给。
+    #   例：zero_shot 要 prompt_text（= 参考音频对应的原文），
+    #        sft 要 spk_id，vc 要 source_wav。
+    #   ⛔ 刻意**不自动补** —— 「补什么值」是业务决定（prompt_text 该填这段
+    #      参考音频的原文，不是随便一句），脚本猜了就是造一个假成功。
+    #      判据「哪些参数这个方法要」从名片读；「这些参数的值是什么」由人给。
+    ap.add_argument("--method-arg", action="append", default=[], metavar="KEY=VALUE",
+                    help="给引擎的引擎原生参数，可多次。例：--method-arg prompt_text=你好")
     ap.add_argument("--ab-param", default=None,
                     help="成对对比这一个参数，形如 key=v1,v2（如 if_sr=true,false）")
     args = ap.parse_args(argv)
@@ -513,6 +588,15 @@ def main(argv=None):
     #   改成收参数会动到 500 行里十几处。用 global 是这里最省事、最不出错的做法。
     if args.engine:
         ENGINE_ID = args.engine
+
+    # --method-arg key=value → dict。⚠️ 值按字面量传（不做类型推断）：
+    #   猜「12345 是 int 还是 str」就是在替引擎做决定。
+    margs = {}
+    for _item in args.method_arg:
+        if "=" not in _item:
+            raise Fail("--method-arg 要写成 key=value，收到：%s" % _item, 2)
+        _k, _v = _item.split("=", 1)
+        margs[_k] = _v
 
     say("%s 照平台的启动路径起一次 %s" % (BANNER, ENGINE_ID))
     say("  仓库根 %s" % ROOT)
@@ -560,10 +644,25 @@ def main(argv=None):
                   "宿主把引擎身份写死了，或者名片没递到。")
 
         say("")
+        # ⭐ 把「这台引擎（默认方法）要哪些引擎原生参数」打出来并对照本次
+        #   给了哪些。少给了 → 上游 TypeError，报错还深埋在 traceback 里
+        #   （2026-10-01 实测：missing 1 required positional argument）。
+        # ⚠ 只**列出来**，不判定「少了」。cosyvoice2 的 zero_shot.call_time
+        #   里有两个：prompt_text（必填，缺了上游 TypeError）和
+        #   zero_shot_spk_id（**可选**，留空就正常走参考音频）。
+        #   名片目前**没有**区分「call_time 里哪些必填」——
+        #   ⇒ 我第一版写「⛔ 少了」是**越权判据**：会把一个可选参数报成缺失，
+        #   误导人去补一个不该补的东西。
+        #   正确做法：列出来，让上游的 TypeError 当「必填」那个判据 ——
+        #   它的报错比脚本猜的准（payload.js 注释里也是这条纪律）。
+        _want = _method_param_names()
+        if _want:
+            say("      这台引擎默认方法的 call_time：%s" % ", ".join(_want))
+            say("      这次给了：%s" % (", ".join(sorted(margs)) or "（无）"))
         say("[6] 真出一段声（⭐ 契约 §11 判据 5：测试全绿不等于能出声）")
         t0 = time.time()
         code, headers, body = synth(args.port, args.text, args.ref,
-                                    args.seed, args.timeout)
+                                    args.seed, args.timeout, method_args=margs)
         el = time.time() - t0
         if code != 200:
             snippet = body.decode("utf-8", "replace")[:600]
@@ -593,22 +692,31 @@ def main(argv=None):
 
         say("")
         say("[7] 播种还活着吗（判据是字节，不是自述）")
-        _, _, body2 = synth(args.port, args.text, args.ref,
-                            args.seed, args.timeout)
-        # ⚠️ 2026-10-01：这条在 **gpt-sovits 上真的判红**，而且是**真的**：
-        #   它默认 parallel_infer=True，文本切块并行处理，set_seed 之后每块
-        #   仍各开一个 RNG ⇒ 同 seed 两次出来的音频数据确实不同（字节数一样、
-        #   数据段不同）。这不是脚本的判据写错了，是这台引擎的并行性质。
-        #   ⛔ 别用「那就改成 parallel_infer=false」来凑绿 —— 那是改引擎的运行
-        #   方式去迎合判据。判据就是判据：它红着，说明这台引擎的播种不可靠，
-        #   任何基于字节相同的推理（[7b] 的旧版本）在这台引擎上都不成立。
-        check(body == body2,
-              "⭐⭐ 同 seed 两次 ⇒ 字节完全相同（并行推理的引擎可能不满足）",
-              "%d vs %d 字节  sha=%s" % (
-                  len(body), len(body2),
-                  hashlib.sha256(body).hexdigest()[:16]),
-              "同 seed 出来的东西不一样 ⇒ 这台引擎的播种不可靠（并行推理常见），"
-              "基于字节相同的 A/B 推理在这台引擎上都不成立。见 [7b]。")
+        if not _seedable():
+            # ⛔ 这台引擎没有随机源（名片 call.seed=none，宿主连 seed 都不收）
+            #   ⇒「同 seed 两次」这个判据**没有意义**，也不该跑 ——
+            #   照着判据硬跑只会得到一条永远红的假警报。
+            #   （2026-10-01 实测 cosyvoice2 就是这样被判红的。）
+            check(True, "这台引擎 call.seed=none ⇒ 跳过播种判据（无随机源）",
+                  "见名片 call.seed", "")
+        else:
+            # ⛔ 这一次的 HTTP 状态**必须查**。2026-10-01 实测：没查，于是第二次
+            #   返回 201644 字节（第一次 576044），判据读成「播种不可靠」
+            #   —— 而真相是「第二次根本没成」。
+            _c2, _h2, body2 = synth(args.port, args.text, args.ref,
+                                     args.seed, args.timeout, method_args=margs)
+            if _c2 != 200:
+                raise Fail("播种校验的第二次合成返回 %d，不是 200" % _c2, 1,
+                           "它说：%s\n\n日志末 40 行：\n\n%s"
+                           % (body2.decode("utf-8", "replace")[:600],
+                              tail(log_path)))
+            check(body == body2,
+                  "⭐⭐ 同 seed 两次 ⇒ 字节完全相同（并行推理的引擎可能不满足）",
+                  "%d vs %d 字节  sha=%s" % (
+                      len(body), len(body2),
+                      hashlib.sha256(body).hexdigest()[:16]),
+                  "同 seed 出来的东西不一样 ⇒ 这台引擎的播种不可靠（并行推理常见），"
+                  "基于字节相同的 A/B 推理在这台引擎上都不成立。见 [7b]。")
 
         # ── [7b] 成对对比：这个参数真的到了引擎吗 ──────────────────────
         #
@@ -625,7 +733,8 @@ def main(argv=None):
             got = []
             for v in vals:
                 _c, _h, _b = synth(args.port, args.text, args.ref,
-                                   args.seed, args.timeout, extra={_k: v})
+                                   args.seed, args.timeout, extra={_k: v},
+                                   method_args=margs)
                 if _c != 200:
                     raise Fail("%s=%s 返回 %d，不是 200" % (_k, v, _c), 1,
                                "它说：%s" % _b.decode("utf-8", "replace")[:400])
@@ -654,7 +763,8 @@ def main(argv=None):
                 hs = []
                 for _i in range(N):
                     _c, _h, _b = synth(args.port, args.text, args.ref,
-                                       args.seed, args.timeout, extra={_k: v})
+                                       args.seed, args.timeout, extra={_k: v},
+                                       method_args=margs)
                     hs.append(hashlib.sha256(_b).hexdigest())
                 per[v] = hs
                 say("      %s=%-8s 跑 %d 次，sha %s"
