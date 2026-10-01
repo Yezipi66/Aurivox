@@ -613,7 +613,18 @@ class Engine(object):
 
         kwargs = dict(call_params)
         kwargs[bind["text"]] = text
-        if bind.get("ref_audio") and ref_audio_path is not None:
+        # ⭐⭐ 2026-10-01 真机抓到（300m-sft 的 sft）：方法级
+        #   requires_ref_audio=False（用内置音色，不要参考音频），而顶层 bind
+        #   有 ref_audio ⇒ merge 之后 merged 仍带它 ⇒ 宿主把参考音频塞进
+        #   kwargs ⇒ 上游报
+        #     TypeError: inference_sft() got an unexpected keyword argument
+        #               'prompt_wav'
+        #   ⛔ 剪在这里而不是在 resolve_method 里剪：bind 是**填充用的入口**，
+        #   kwargs 才是**真发出去的东西**。剪错了地方会让 bind["text"] /
+        #   bind["output_path"] 这些入口 KeyError（我第一版就栽在这儿，
+        #   probe_host_methods 的两条 vc 用例当场抓住）。
+        wants_ref = (method_cfg or {}).get("requires_ref_audio")
+        if wants_ref is not False and bind.get("ref_audio") and ref_audio_path is not None:
             kwargs[bind["ref_audio"]] = ref_audio_path
         # ⭐ vc 这类方法不读 text（它转换已有音频）—— 硬塞一个空串会让上游
         #   以为「有个空文本要念」而多产出几秒静音，或直接报错。
@@ -1045,7 +1056,42 @@ def resolve_method(profile, requested):
     if name not in methods:
         return None, None, requested
     cfg = methods[name] or {}
-    # 每个方法可以声明自己要的 call_time 参数/别名；缺的用 call.bind 兜底。
+    # ⭐⭐⭐ 2026-10-01 真机抓到：方法级 bind 是**整体替换**，不是逐键覆盖。
+    #
+    #   原来写的是「顶层 bind 打底 + 方法级逐键覆盖」（merge）。那在
+    #   「方法只是换个别名」时对，在「方法**不要**某个槽位」时**完全错**：
+    #
+    #     cosyvoice-300m-sft 名片（本身写对了）：
+    #       顶层   bind = {text: tts_text, ref_audio: prompt_wav}
+    #       sft    bind = {text: tts_text}            ← 故意**没有** ref_audio
+    #       上游   inference_sft(tts_text, spk_id, …) ← 签名里没有 prompt_wav
+    #
+    #   merge 之后 merged 仍是 {text, ref_audio} ⇒ 宿主把参考音频塞进
+    #   kwargs ⇒ 上游报
+    #       TypeError: CosyVoice.inference_sft() got an unexpected keyword
+    #               argument 'prompt_wav'
+    #
+    #   ⛔ 为什么「方法级没写」等于「这个方法不要」而不是「沿用顶层」：
+    #      **requires_ref_audio: false 就是那个声明**（validate_request:1095-1098
+    #      已经在读它）。bind 里没那个键 = 平台不知道往哪放 ⇒ 不该放。
+    #      反过来「方法级显式写了 ref_audio」时它照旧生效。
+    # ⭐ merge（打底 + 逐键覆盖）是对的，**我第一版改成「整体替换」是错的**
+    #   —— 2026-10-01 被 probe_host_methods 的两条 vc 用例当场抓住：
+    #   vc.bind 只写 {"ref_audio": "prompt_wav"}（它不读文本，所以没有 text
+    #   键）。整体替换会把顶层 bind 里的 text 丢掉 ⇒ vc 那个槽位就没了。
+    #
+    #   那 300M-SFT 的 sft 为什么还坏？它的 sft.bind = {"text": "tts_text"}
+    #   （**故意不写 ref_audio**），而顶层 bind 有 ref_audio ⇒ merge 后
+    #   merged 仍带 ref_audio ⇒ 宿主塞了 prompt_wav ⇒ 上游
+    #       TypeError: inference_sft() got an unexpected keyword argument
+    #   ⛔ 关键：「方法级没写某个槽位」= **这个方法不要它**，而不是
+    #      「沿用顶层」。那个信息由 requires_ref_audio / requires_text 声明 ——
+    #      它们已经是这个意思（validate_request:1091-1098 在读）。
+    #   ⇒ 修法：merge 之后，按 requires_* 把「这个方法明确不要」的槽位删掉。
+    #   ⚠️ 剪枝**不能**在这里做：bind["text"] / bind["output_path"] 是宿主
+    #   **填充用的入口**（_synthesize_python:615 / :656 无条件用它们），
+    #   删了就 KeyError。剪枝发生在「往 kwargs 里放」那一步 ——
+    #   见 _synthesize_python 里那两处按 requires_* 的判断。
     merged = dict(call.get("bind") or {})
     for k, v in (cfg.get("bind") or {}).items():
         merged[k] = v

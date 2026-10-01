@@ -152,14 +152,31 @@ def make_manifest(tmp, multi=True):
         # ⭐ 契约 §5.2.1：种子必须显式写出来 —— 不写的话「不支持」和
         #   「忘了写」长得一模一样，而这个假引擎根本没用随机数。
         "seed": "none",
-        "bind": {"text": "tts_text", "output_path": None},
+        # ⭐⭐ 2026-10-01：顶层 bind **必须带 ref_audio**（值随便，下面会被
+        #   pop 掉 output_path 但保留这个键）。
+        #
+        #   为什么：真实的 cosyvoice-300m-sft 名片就是这样 ——
+        #     顶层   bind = {text: tts_text, ref_audio: prompt_wav}
+        #     sft    bind = {text: tts_text}          ← 故意**不写** ref_audio
+        #   宿主 merge 之后仍带 ref_audio ⇒ 把参考音频塞进 kwargs ⇒ 上游
+        #     TypeError: inference_sft() got an unexpected keyword
+        #               argument 'prompt_wav'
+        #
+        #   ⚠️ 这个夹具原来顶层**只有 text** ⇒ 那个 bug 在它上面**不可复现**
+        #   ⇒ 我第一版守卫断言写对了、20 条全绿，变异却抓不到（因为压根没
+        #   触发）。夹具比现实简单 = 假绿，这跟 host.py:135 注释里记的是
+        #   同一类病。
+        "bind": {"text": "tts_text", "ref_audio": "prompt_wav"},
     }
-    call["bind"].pop("output_path")
+    call["bind"].pop("output_path", None)
     if multi:
         call["methods"] = {
             "sft": {
                 "method": "upstream_sft",
-                "bind": {"text": "tts_text", "ref_audio": None},
+                # ⭐ 与 300m-sft 的真名片同形：**不写** ref_audio 键
+                #   （原夹具写的是 ref_audio: None —— 那是「显式不要」，
+                #   和「没提」不是一回事，恰好绕过了要测的那条路径）。
+                "bind": {"text": "tts_text"},
                 "requires_text": True,
                 "requires_ref_audio": False,
                 "call_time": ["spk_id"],
@@ -373,6 +390,38 @@ def probe_multi(port):
             st, raw = post(base, {"method": "sft", "text": "你好。", "spk_id": "x"})
             row("⭐ sft 不用给参考音频（不被全局要求误杀）", st == 200, "HTTP %s" % st)
 
+            # ⛔⛔ 这条请求**故意带上** ref_audio_path。理由：sft 不需要参考音频，
+            #   但界面上参考音频那一栏是**公共的**（用户可能刚选了一个），
+            #   请求里就会多带这一个键。宿主必须**按方法裁掉**它 ——
+            #   2026-10-01 真机上正是这样炸的：
+            #     TypeError: inference_sft() got an unexpected keyword
+            #               argument 'prompt_wav'
+            #   ⚠️ 上面那条不带 ref 的请求**测不到这个 bug**（不带就没有可裁的），
+            #   第一版守卫就栽在这儿：断言写对了，请求却不会触发它。
+            st, raw = post(base, {"method": "sft", "text": "你好。",
+                                  "spk_id": "x", "ref_audio_path": ref})
+            _s = stamp_of(raw)
+            _kw = _s.get("kwargs") or {}
+            # ⚠️ 判据是「kwargs **恰好**是 {spk_id}」，不是「里面没有
+            #   prompt_wav」。后者在 kwargs 变成 {} 时也会绿 —— 那是我第一版
+            #   写错的（变异测试立刻暴露：kwargs={} 时第一条仍然 ok）。
+            #   「恰好相等」才同时盯住两件事：多传了会红、漏传了也会红。
+            row("⭐⭐ sft 的 kwargs **恰好**只有 spk_id（参考音频被裁掉、"
+                "该传的没漏）",
+                _kw == {"spk_id": "x"}, "kwargs=%s" % (_kw,))
+
+            # ⭐⭐ 2026-10-01 真机抓到（cosyvoice-300m-sft 的 sft）：上面那条
+            #   只看 HTTP 200，**没看 kwargs 里有什么** ⇒ 一个真 bug 从它
+            #   底下过去了 ——
+            #     sft 声明 requires_ref_audio=False（用内置音色），而顶层
+            #     bind 有 ref_audio ⇒ merge 之后仍在 ⇒ 宿主把参考音频塞进
+            #     kwargs ⇒ 上游报
+            #       TypeError: inference_sft() got an unexpected keyword
+            #                 argument 'prompt_wav'
+            #   夹具这边同样是 sft.bind={text} + 顶层 bind 带 ref_audio，
+            #   所以**这个 bug 在夹具上本来就可复现**，只是没人断言 kwargs。
+            #   ⚠ 判据是「kwargs 里不该有那个键」，不是「HTTP 200」——
+            #     200 只说明上游没抱怨，不说明我们没多发东西。
             # --- ⭐ blank_when：签名必填但那条路不用的参数要拿到空串 ------
             st, raw = post(base, {"method": "reuse", "text": "你好。",
                                   "saved_spk": "my_spk"})
