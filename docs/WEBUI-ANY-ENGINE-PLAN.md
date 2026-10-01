@@ -210,6 +210,7 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 | L5 | **配方顶层没有引擎身份**（`engine_id` / `weight_slots`）— 2026-10-01 点 3 读码发现 | Broker 现在靠「从钉的权重反查」定位引擎。配方格式升级（`schema_version` v4？）后应改为直接存 `engine_id` + 按位存权重，届时 Broker 可以直接渲染任意位数的引擎 |
 | L6 | **只有一位的引擎画不出「两份权重两两组合」** — 点 2 发现 | 对比页和 Broker 的模型下拉都是「两个位」的形状（配方顶层只有 `gpt_ckpt`/`sovits_pth` 两个字段）。CosyVoice 只有一个 `model` 位 ⇒ 这两处现在都退化成单下拉。解法跟 L5 是同一件：配方升级到按位存 |
 | ~~P1~~ | ✅ **`if_sr` 那一格曾是死的** —— 已修，提交 `166dce8`（Owner 2026-10-01 裁定「做掉吧」）| 见下面 §7 |
+| **L8** | ⛔ **「Super Sampling」这一格不知道自己用不上**（2026-10-01 真机查出）| 名片 `param_schema.if_sr` 声明了它，但 `TTS.py:1583` 那四处要求 `version == "v3"` + `use_vocoder`；跑 v2ProPlus 时这一格**打开也没用**，而界面上没有任何一处说「这个模型用不上」。修法多半是名片的 `parameters[]` 支持「前置条件」（比如 `only_when: { model_version: 'v3' }`），前端按 `isFieldVisible` 那一套隐藏/置灰。⚠️ 这是**平台契约的新增能力**，不在本计划范围 |
 | L7 | **配方参数摘要不按引擎身份过滤** — 点 3 的刻意选择 | 名片上没有的键会**显示**出来（`unknown` 计数保留）。这是为了「那台引擎还没装进项目」时不静默吞参数。代价：摘要里可能混入这台引擎不认的键。解 L5 时应改成按 `engine_id` 过滤 |
 
 ---
@@ -311,3 +312,36 @@ assembleEnginePayload({ profile: gsv, canonical: {...}, cfg: { if_sr: true } })
 [变异] 7 个全抓到：`is not None` 写成 truthy / 折完不摘别名 / 别名方向反了 /
 平台没给也硬折 / 宿主不认 `if_sr`（回到 bug 本身）/ import 了不调用 /
 名片把 `param_schema` 改名成 `super_sampling`。
+
+### 真机实测，以及一个必须说清的限定
+
+起了真 GSV 引擎（`infer_server.py`，9 秒 ready，v2ProPlus），固定 `seed=12345`
+发真请求：
+
+| | 字节 | 时长 | 采样率 |
+|---|---|---|---|
+| `if_sr=true` | 162604 | 2.54s | 32000Hz |
+| `if_sr=false` | 162604 | 2.54s | 32000Hz |
+| 完全不给 `if_sr` | 162604 | 2.54s | 32000Hz |
+
+⚠️⚠️ **三组音频一模一样**。折叠是对的（`if_sr` 确实到了
+`TTS.py:1229`），但**这一格在当前模型上本来就无效**：
+
+    # engines/gpt-sovits/infer/TTS.py:1583 / 1647 / 1668 / 1690
+    super_sampling if self.configs.use_vocoder and self.configs.version == "v3" else False
+
+而这台引擎跑的是 `v2ProPlus` ⇒ 四处全部走 `else False`。名片里
+`param_schema.if_sr` 的 help 本来就写着 "v3/v4 models only." —— 名片没
+撒谎，是**平台没有把这个前置条件告诉用户**。
+
+⇒ 所以本次修复的性质要说准：**必要但不充分**。
+它消灭的是「用户打开这一格、平台却连请求都没带上」那个真 bug（那一层已被
+端到端测试证明）；它**没有**、也不该由它来解决「v2ProPlus 上超采样本就不
+适用」这件事。后者是**名片该说清的事**，记为下面 L8。
+
+⚠️ 第一版实测用的是随机 seed（默认 -1），两次音频本来就会不同 ⇒ 那次
+「字节数差 25%」是**假象**（seed 之外还有 WAV 头的时间戳）。改成固定
+seed 才是上面这张表。记下来是因为这个坑很容易再踩一次。
+
+[真机] 引擎起来 9 秒；两个 seed 固定、只切 `if_sr` 的请求字节数完全一致
+
