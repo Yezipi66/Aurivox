@@ -149,3 +149,31 @@ test('touched 必须跟着 params 一起存回 row（generateRow 在 tab 级读�
   assert.ok(/onUpdate\(row\.id, 'touched'/.test(CODE), 'touched 没有存回 row')
   assert.ok(/Array\.from\(touched\)/.test(CODE), 'touched 存的是不可还原的形状（Set 序列化后为空）')
 })
+
+// ---------------------------------------------------------------------------
+//  ⭐ 2026-10-01 真机补的一条：不能只画 common 层
+//
+//  事实（不是推断）：实测两台 CosyVoice 的 param_schema **common 层是空的**
+//  —— cosyvoice2 六项、cosyvoice-300m-sft 两项，全在 advanced。
+//  ⇒ 这一页原来只取 common 时，选它们画出**零个格子**，而界面上看不出任何
+//  异常（折叠区照样能展开，里面就是空的）。
+//
+//  这条守卫防它回来。判据是「档位来自 TIERS 且两档都取」，不是「不许写
+//  common 这个词」—— 那样会误伤 GenerateTab 那种合理的地方。
+// ---------------------------------------------------------------------------
+
+test('⭐⭐ 档位来自 TIERS，不许只画 common 一层', () => {
+  assert.ok(/TIERS/.test(CODE),
+    '对比页没有引用 TIERS —— 档位名单被复制了一份，或者根本没做两档')
+  assert.ok(/fieldsForTier\(engine, tier\)/.test(CODE),
+    "fieldsForTier 收的不是变量 tier，而是写死的某一层 —— " +
+    '只画一层会让 common 层为空的引擎（两台 CosyVoice）画出零个格子')
+  // ⛔ 查「它做了什么」而不是「这个变量名在不在」：2026-10-01 第一版这条
+  //   断言只测 /tiersWithFields/ 出现过，于是把
+  //   `const tiersWithFields = TIERS`（不做过滤）也放了过去 —— 变异测试
+  //   抓到那一刻才发现它是个空壳。变量名在 ≠ 判据在。
+  assert.ok(/tiersWithFields\s*=\s*TIERS\.filter\(/.test(CODE),
+    "tiersWithFields 没有过滤掉空档位 —— 空档位按钮点开是空的，比不画更糟")
+  assert.ok(/tiersWithFields\.length > 1/.test(CODE),
+    '只有一个档有格子时也要画档位按钮（那一个按钮是噪声）')
+})

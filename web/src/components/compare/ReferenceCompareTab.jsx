@@ -18,7 +18,7 @@ import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime,
 //   发出去用 paramsToSend。判据是契约 §11 第 9 条 ——「装一台谁都没见过的
 //   引擎，web/ 一个字都不用改」。
 import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue,
-         paramsToSend } from '../../lib/engines'
+         paramsToSend, TIERS } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
 // ⭐ 2026-10-01：老 localStorage 里的行是**摊平**形状（超参直接在行上），
 //   迁移成 params/touched。不迁的话用户调过的超参会静静消失，而格子显示的
@@ -876,10 +876,22 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
   useEffect(() => { onUpdate(row.id, 'seed', seed) }, [seed])
 
-  // 这一层要画哪些格子：按当前引擎的 param_schema 取 common 层，再按
-  // only_when 条件过滤（GenerateTab:196-198 同一条形状）。
-  const visibleFields = fieldsForTier(engine, 'common')
+  // ⭐⭐ 2026-10-01（真机查出）：原来这里只取 common 一层。**实测两台
+  //   CosyVoice 的 param_schema 的 common 层是空的**（6 项和 2 项全在
+  //   advanced）⇒ 选它们时对比页画出**零个格子**，而界面上看不出任何异常。
+  //
+  //   修法跟 GenerateTab 一样：跟着 TIERS 两档都画，档位按钮也是 TIERS.map
+  //   —— ⛔ 不写死 ['common','advanced']，那份名单在 web/src/lib/engines.js
+  //   是唯一产地。
+  const [advTier, setAdvTier] = useState('common')
+  const visibleFields = (tier) => fieldsForTier(engine, tier)
     .filter(f => isFieldVisible(f, paramValues))
+  // ⛔ 某档一个格子都没有 ⇒ **不画那个档位按钮**。画一个点开是空的标签页，
+  //    比不画更糟（用户以为这一档坏了）。判据跟方法下拉同一条：名片没给的
+  //    界面不许替它编一个。
+  const tiersWithFields = TIERS.filter(t => visibleFields(t).length > 0)
+  // 当前档被换引擎换空了 ⇒ 落到第一个有格子的档，别停在空档上。
+  const effTier = tiersWithFields.includes(advTier) ? advTier : (tiersWithFields[0] || 'common')
 
   const allFiles = [...allAudioFiles, ...voiceFiles]
 
@@ -1289,15 +1301,34 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
                   现在按 engine.param_schema 循环 —— 跟 GenerateTab:1016 同一个
                   <ParamField>，⛔ 不许再在这里分叉出 f.type === '...' 的分支。
-                  GSV 这一层（common）拿到的正是 temperature/top_k/top_p/
+                  GSV 的 common 层拿到的正是 temperature/top_k/top_p/
                   repetition_penalty/text_split_method/speed_factor 六项，
                   跟过去逐格一致（Seed 见下面那段注释）。
+
+                  ⚠️ **两档都画**（跟着 TIERS），不是只画 common。实测两台
+                  CosyVoice 的 common 层是**空的** ⇒ 只画 common 时选它们
+                  一个格子都没有，而界面上看不出任何异常。
 
                   ⛔ options 故意不传：ParamField:197 只在 `select + source`
                   时才用它（候选项要扫盘），写死 choices 的格子自取
                   field.choices（ParamField:90）。这一页不扫权重/音色/音频 ——
                   那是 GenerateTab 的活，这里没有 assets 上下文。 */}
-              {visibleFields.map(f => (
+              {/* ⭐ 档位按钮从 TIERS 来（GenerateTab:987 同一个形状）——
+                  写死两档就是第二份「有几档」的事实。 */}
+              {tiersWithFields.length > 1 && (
+                <div style={{ display: 'flex', gap: 6, gridColumn: '1 / -1' }}>
+                  {tiersWithFields.map(tier => (
+                    <button key={tier} type="button" className="btn btn-sm"
+                      onClick={() => setAdvTier(tier)}
+                      style={{ background: effTier === tier ? 'var(--accent)' : 'var(--surface)',
+                               color: effTier === tier ? '#fff' : 'var(--muted)' }}>
+                      {tier}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {visibleFields(effTier).map(f => (
                 <ParamField key={f.name}
                   field={f}
                   values={paramValues}
