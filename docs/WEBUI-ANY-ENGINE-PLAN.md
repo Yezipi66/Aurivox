@@ -209,6 +209,7 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 | L4 | 联网策略文档（`host.py` 注释说「宿主永远不该联网」，实际是「默认离线 + 用户可覆盖」）| |
 | L5 | **配方顶层没有引擎身份**（`engine_id` / `weight_slots`）— 2026-10-01 点 3 读码发现 | Broker 现在靠「从钉的权重反查」定位引擎。配方格式升级（`schema_version` v4？）后应改为直接存 `engine_id` + 按位存权重，届时 Broker 可以直接渲染任意位数的引擎 |
 | L6 | **只有一位的引擎画不出「两份权重两两组合」** — 点 2 发现 | 对比页和 Broker 的模型下拉都是「两个位」的形状（配方顶层只有 `gpt_ckpt`/`sovits_pth` 两个字段）。CosyVoice 只有一个 `model` 位 ⇒ 这两处现在都退化成单下拉。解法跟 L5 是同一件：配方升级到按位存 |
+| **P1** | ⛔⭐ **`if_sr` 这个格子是死的**（2026-10-01 收尾复核查出，**先前就有，非本计划引入**）| 见下面 §7 |
 | L7 | **配方参数摘要不按引擎身份过滤** — 点 3 的刻意选择 | 名片上没有的键会**显示**出来（`unknown` 计数保留）。这是为了「那台引擎还没装进项目」时不静默吞参数。代价：摘要里可能混入这台引擎不认的键。解 L5 时应改成按 `engine_id` 过滤 |
 
 ---
@@ -222,3 +223,64 @@ GSV / IndexTTS2 无 methods 时为 `null`。
 | 3 | 多方法能选，且 `default_method` 有效 | 探针 + 变异 |
 | 4 | 前端无 `'gpt-sovits'` 硬编码（活代码）| grep + 测试 |
 | 5 | `npm run build` 绿 **且** 运行时接线对 | build + 接线判据（E1）|
+
+---
+
+## 7. 收尾复核查出的 P1：`if_sr` 那一格是死的
+
+⚠️ **这一条不是本计划三点之一，也没有修** —— 它在平台核心（名片 ↔ 宿主之间），
+改它等于动 `payload.js` / 名片，超出「只改三个前端文件」的 scope。记在这里，
+等你裁定。
+
+### 事实（实测，不是读码推断）
+
+1. GSV 名片 `engines/gpt-sovits/manifest.json` 的 `param_schema` 里有一个
+   参数叫 **`if_sr`**（label: "Super Sampling (v3)"），`payload_keys` 里
+   **同时列了 `if_sr` 和 `super_sampling`** 两个别名。
+2. GSV 走的是**自己的老宿主** `lib/inference/infer_server.py`
+   （`runtime.entry`，不是通用 `host.py`）。它的 `TTS_Request`（pydantic）
+   **只有 `super_sampling`，没有 `if_sr`**。
+3. pydantic v2 默认**静默忽略**多余字段 ⇒ 平台发过去的 `if_sr`
+   **无声消失，不报错**。
+
+探针实测（用 GSV 自己的 venv 跑它的 `TTS_Request`，不需要起引擎）：
+
+```
+平台发的 16 个键 → 老宿主收到的:
+  ... 14 个 ✅ 收到
+  if_sr            ⛔ 静默丢弃
+  ... 2 个 ✅ 收到
+```
+
+### 波及面比想象的大
+
+`assembleEnginePayload`（平台**正规**的拼请求体路径，`lib/engines/payload.js`）
+走一遍：
+
+```js
+assembleEnginePayload({ profile: gsv, canonical: {...}, cfg: { if_sr: true } })
+// → 出的键里有 if_sr
+// → ⛔ 老宿主不认的: ["if_sr"]
+```
+
+⇒ **GenerateTab 今天就有这个毛病**，不是对比页引入的。界面上「Super Sampling」
+那一格，用户打开它，什么都不会发生，也没有一处提示。
+
+### 为什么不能改名片
+
+`if_sr` 这个名字是**磁盘上 v3 配方的历史键名**，被 `lib/recipeStore.js:84`
+的 `V3_PARAM_KEYS` 和 `lib/recipeView.js:40` 冻住了（C11 豁免表里登记着，
+理由就是「v3 磁盘格式的历史事实，被存量配方冻住，名片变了它也不能变」）。
+把名片的 `param_schema.if_sr` 改名成 `super_sampling` ⇒ **存量 v3 配方读错**。
+
+### 三条可能的修法（都需要你裁定，我没动）
+
+| # | 修法 | 代价 | 风险 |
+|---|---|---|---|
+| A | `TTS_Request` 加 `if_sr` 别名字段（`if_sr: bool = False` 然后 `super_sampling = super_sampling or if_sr`）| 改老宿主一个字段 | 最低。但老宿主是 GSV 私产，要确认它愿不愿意被平台改 |
+| B | 名片 `maps` 加一条别名（`"super_sampling": "super_sampling"`）并在 `assembleEnginePayload` 里做别名折叠 | 改 `payload.js` 核心 + 名片 | 中。`maps` 是「平台词 → 引擎词」，塞两个引擎的别名进去是语义污染 |
+| C | 平台侧在发请求前把 `if_sr` 翻成 `super_sampling`（一份「历史键名对照表」）| 新增一张表 | ⛔ 最高：这就是 C11 明令禁止的「第二份参数名清单」，且必然漂移 |
+
+⚠️ 我的判断是 **A**，理由：`if_sr` 是磁盘格式的既成事实，让**收件人**认它
+（而不是让平台各处去翻译）成本最低、漂移面最小。B/C 都会新增一份「键名对照」
+的事实，正是 C11 那条守卫存在的理由。
