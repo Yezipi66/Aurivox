@@ -20,6 +20,10 @@ import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime,
 import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue,
          paramsToSend } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
+// ⭐ 2026-10-01：老 localStorage 里的行是**摊平**形状（超参直接在行上），
+//   迁移成 params/touched。不迁的话用户调过的超参会静静消失，而格子显示的
+//   却是名片默认值 —— 没有任何提示。
+import { migrateRow } from '../../lib/compareRowMigrate'
 import { useT } from '../../lib/i18n'
 import { recipePath } from '../../lib/recipes'
 import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
@@ -49,9 +53,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const [rows, setRows] = usePersistentState('compare.rows', [], {
     // Legacy per-row target 'auto' (option removed) falls back to "use default".
     rehydrate: r => Array.isArray(r)
-      ? r.map(x => ({ ...x, loading: false, error: null, textLang: x.textLang === 'auto' ? '' : x.textLang })).slice(0, 24)
+      ? r.map(x => migrateRow(x)).slice(0, 24)
       : [],
-  })  // [{ id, refAudio, auxRefPaths, text, ...params, loading, result, error }]
+  })  // [{ id, refAudio, auxRefPaths, text, params, touched, method, seed, loading, result, error }]
   const [allAudioFiles, setAllAudioFiles] = useState([])
   const [voiceFiles, setVoiceFiles] = useState([])
   // PF-a: Compare's shared default text starts empty. An empty per-row Text means
