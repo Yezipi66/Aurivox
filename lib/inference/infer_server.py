@@ -19,7 +19,7 @@ D:\\AI\\GPT-SoVITS-v2pro-20250604 引擎即可完成推理。
 import os
 import sys
 import traceback
-from typing import Generator, Union
+from typing import Generator, Optional, Union
 
 # ------------------------------------------------------------------
 # Force UTF-8 I/O. On a Chinese Windows console the default stdout/stderr
@@ -215,6 +215,10 @@ if config_path in [None, ""]:
 if THIS_DIR not in sys.path:
     sys.path.append(THIS_DIR)
 from config_repair import repair as _repair_engine_config  # noqa: E402
+# ⭐ 2026-10-01：请求别名折叠（if_sr → super_sampling）。判断本身在
+#   alias_fold.py —— 那儿有它的测试；这里只负责在 tts_handle 里调。
+#   ⚠️ 同目录 import 依赖上面那个 sys.path.append(THIS_DIR)。
+from alias_fold import fold_aliases  # noqa: E402
 
 _repair_engine_config(config_path, config_path + ".example", PROJECT_ROOT)
 
@@ -291,6 +295,31 @@ class TTS_Request(BaseModel):
     repetition_penalty: float = 1.35
     sample_steps: int = 32
     super_sampling: bool = False
+    # ⭐⭐ 2026-10-01 别名折叠 —— 「Super Sampling」那一格以前是**死的**。
+    #
+    # 事实（不是推断）：平台从 engines/gpt-sovits/manifest.json 的
+    # param_schema 长出这一格，键名是 `if_sr`；assembleEnginePayload 也照
+    # payload_keys 原样把它发过来。但这个宿主的 TTS_Request 只有
+    # super_sampling，**pydantic v2 静默忽略多余字段** ⇒ 用户在界面上打开
+    # 那一格、点生成，声音一点不变，**没有一处报错**。
+    #
+    # 为什么在这里折叠（而不是让平台各处去翻译）：
+    #   ⛔ `if_sr` 是磁盘上 v3 配方的历史键名，被 lib/recipeStore.js:84 的
+    #     V3_PARAM_KEYS 和 lib/recipeView.js:40 冻住了（C11 豁免表登记着，
+    #     理由是「v3 磁盘格式的历史事实，名片变了它也不能变」）。改名片会让
+    #     存量配方读错。
+    #   ⛔ 在平台侧加一张「历史键名对照表」就是 C11 明令禁止的**第二份参数名
+    #     清单**，而且必然漂移。
+    #   ⇒ 既成事实让**收件人**认，成本最低、漂移面最小。
+    #
+    # 真实消费点在下游 engines/gpt-sovits/infer/TTS.py:1229
+    # （super_sampling = inputs.get("super_sampling", False)），宿主不翻译它
+    # 就永远读不到。
+    #
+    # 优先级：`if_sr` 是平台唯一的规范键（没有任何生产代码发 super_sampling），
+    # 所以**两个都给时 if_sr 赢**。这样即使将来有人按下游的名字发，也不会
+    # 把用户在界面上明确关掉的那一格又打开。
+    if_sr: Optional[bool] = None
     overlap_length: int = 2
     min_chunk_length: int = 16
     # 读音校对（task6）：本次合成的词粒度读音覆盖，形如 {"乐句": ["yue4","ju4"]}
@@ -415,6 +444,17 @@ def check_params(req: dict):
 
 
 async def tts_handle(req: dict):
+    # ⭐⭐ 2026-10-01：把平台侧的 if_sr 折叠成下游认的 super_sampling。
+    #
+    # 折叠点为什么在**这里**（tts_handle 的第一行）而不是端点上：GET 和 POST
+    # 两条路都汇到这个函数，在这儿折叠一处就够 —— 在端点上做就得写两遍，
+    # 而两遍迟早会漂移成一处有、一处没有。
+    #
+    # 判断本身（哪两个键是别名、冲突时谁赢、为什么不能让平台各处去翻译）
+    # 全部在 lib/inference/alias_fold.py 的注释和测试里 —— 那儿才是这件事的
+    # 产地，这里只负责调。
+    fold_aliases(req)
+
     streaming_mode = req.get("streaming_mode", False)
     return_fragment = req.get("return_fragment", False)
     media_type = req.get("media_type", "wav")
