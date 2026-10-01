@@ -413,17 +413,54 @@ def shutdown(proc, fh, port):
     return not port_is_open(port)
 
 
+def _wants(extra, key):
+    """这台引擎认不认这个键？—— 问名片，不猜。
+
+    ⭐ 为什么不能靠「试试看，发了会不会 400」：那是一次真机请求 50+ 秒
+    （IndexTTS2 光加载就 52 秒），而且**第一次尝试就用它当判据**等于让
+    「能不能跑通」取决于「猜得对不对」。
+
+    ⛔ 这里刻意读 resolveEngineProfile 的 param_keys + payload_keys 两处 ——
+       有些键写在 param_keys（宿主认的），有些只写在 payload_keys
+       （平台可以透传的引擎原生键）。两边并起来才是「这台引擎认什么」。
+    """
+    try:
+        # 直接读名片。这个脚本是纯 stdlib，node 那边查不到；而「这台引擎认
+        # 什么键」的**唯一产地**就是名片的 param_keys / payload_keys。
+        with io.open(os.path.join(ROOT, "engines", ENGINE_ID, "manifest.json"),
+                     encoding="utf-8") as f:
+            man = json.load(f)
+    except Exception:
+        return False
+    keys = set(man.get("param_keys") or []) | set(man.get("payload_keys") or [])
+    return key in keys
+
+
 def synth(port, text, ref, seed, timeout, extra=None):
     url = "http://127.0.0.1:%d/tts" % port
-    # ⚠ 2026-10-01：这两个键是**宿主**的要求，不是平台参数的。
-    #   GSV 的 infer_server.py 的 check_params()（:388-414）对 text_lang /
-    #   prompt_lang 缺一个就 400（"text_lang is required"）。通用宿主
-    #   host.py 不要求（它从名片 knows 这台引擎有没有语言概念）。
-    #   ⛔ 别把这两个键从**参数面板**里搬 —— 它们不是用户该选的，是宿主
-    #      校验要的东西，放进 payload 就是把宿主契约漏给了前端。
     payload = {"text": text, "ref_audio_path": ref, "seed": seed,
-               "text_lang": "zh", "prompt_lang": "zh",
-               "media_type": "wav", "text_split_method": "cut0"}
+               "media_type": "wav"}
+    # ⭐⭐ 2026-10-01 修正（第一版写错了，真机抓出来的）：
+    #   我第一版**无条件**加了 text_lang / prompt_lang / text_split_method。
+    #   那三个是 **GSV 老宿主** infer_server.py 的 check_params()（:388-414）
+    #   的校验要求 —— 缺一个就 400。⇒ 在 GSV 上必须发。
+    #
+    #   ⛔⛔ 但通用宿主 host.py **明确拒收未知键**（:1147-1151，会逐个列出来
+    #      说「拼错了否则会被静默忽略」）。indextts2 实测：
+    #        400 {"detail": "unknown parameter(s): prompt_lang, text_lang,
+    #              text_split_method"}
+    #   ⇒ 无条件发这三个 = 把一台引擎的宿主契约漏给另一台。**这正是宿主那条
+    #      守卫要防的事，我自己犯了。**
+    #
+    #   正确判据：**这台引擎认不认这些键** —— 问名片，不是猜。
+    #   GSV 的 param_keys 里有 text_lang / prompt_lang / text_split_method；
+    #   indextts2 的没有（它的 param_keys 是情绪相关那九个）。
+    if _wants(extra, "text_lang"):
+        payload["text_lang"] = "zh"
+    if _wants(extra, "prompt_lang"):
+        payload["prompt_lang"] = "zh"
+    if _wants(extra, "text_split_method"):
+        payload["text_split_method"] = "cut0"
     if extra:
         payload.update(extra)
     data = json.dumps(payload).encode("utf-8")
