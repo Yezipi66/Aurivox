@@ -143,12 +143,22 @@ function suggestBackendAlternative (dir, lockRel) {
   const opt = (hw.BACKEND_PREFERENCE || []).find((b) => b.key === rec.recommended)
   if (!opt || !opt.index) return null   // ⛔ 没有官方 index ⇒ 平台给不出命令
 
-  // 只重建 torch；锁文件里的其余包照旧（那才是锁文件的价值）
+  // ⛔ 只重建 torch；锁文件里的其余包照旧（那才是锁文件的价值）。
+  // ⭐ 完整流程是**两步**（Owner 定的顺序）：
+  //   ① uv sync --no-install-package torch  ← 照锁装其余全部，只跳过 torch
+  //   ② uv pip install torch==<纯版本> --index-url <本机后端的官方 index>
+  // ⛔ 为什么不用「先 uv sync 再补装」：那会先装一整套 CUDA torch
+  //   （实测某台 lock 另带 38 个 nvidia-*-cu12，仅 Linux 生效），
+  //   白下载数 GB，且与随后装的版本冲突。
+  // ⛔ 为什么不用「改 lock 去掉 torch」：lock 是上游的产物，
+  //   改了产生 diff，且 uv 会在下次 sync 时重新解析。
   return {
-    argv: ['uv', 'pip', 'install', `torch==${pin.plain}`, '--index-url', opt.index],
-    why: `锁文件指定的是 CUDA 版（${pin.version}），与本机推荐的后端（${opt.label}）不一致。`
-      + `可保留锁定的版本号 ${pin.plain}，改从 ${opt.label} 的官方 index 安装 torch；`
-      + '锁文件中的其余依赖保持不变。',
+    // ⛔ 不重复 argv：主命令已经是第①步了，这里只给**第②步**。
+    //   重复一遍会让界面显示两条几乎一样的命令。
+    then: ['uv', 'pip', 'install', `torch==${pin.plain}`, '--index-url', opt.index],
+    why: `锁文件指定的 torch 是 CUDA 版（${pin.version}），与本机推荐的后端`
+      + `（${opt.label}）不一致。上面的命令已跳过 torch，`
+      + `请再执行这一步，从 ${opt.label} 的官方 index 安装 torch ${pin.plain}：`,
     needs: ['torch'],
   }
 }
@@ -213,8 +223,13 @@ function suggestEnvCommand (dir) {
       //   （实测某台已装引擎的 lock 锁的是 +cu128，另带 38 个 nvidia-*-cu12）。
       //   ⇒ 有替代命令时，这句改成只说「照锁装」这一事实。
       why: (alt
-        ? `上游有 ${lock}，其中锁定的后端与本机不一致。`
+        ? `上游有 ${lock}，其中锁定的 torch 后端与本机不一致，`
+          + `因此跳过 torch、只装其余依赖。`
         : `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。`),
+      // ⭐ 有替代命令时，**执行的那条也必须用它** ——
+      //   否则点「安装」装的是 CUDA 版，而 alternative 只作展示。
+      //   --no-install-package 让 uv 照锁装其余全部、只跳过 torch。
+      argv: (alt ? ['uv', 'sync', '--no-install-package', 'torch'] : ['uv', 'sync']),
       alternative: alt }
   }
   if (conda) {
@@ -309,10 +324,14 @@ function buildEnvPlan (input = {}) {
       whatToDo: guess.why,
       // ⭐ 锁文件的后端与本机不一致时，第二条命令（只重建 torch）
       alternative: guess.alternative || null,
-      note: `该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。\n`
-        + `  ${guess.why}\n`
-        + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
-        + 'install.env_command，平台将优先采用该声明。',
+      note: (guess.alternative
+        // ⛔ 有替代命令时⛔ 不再说「请在 Manifest 里声明」——
+        //   那会让用户以为得自己写 Manifest，而命令已经给出来了。
+        ? `${guess.why}\n该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。`
+        : `该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。\n`
+          + `  ${guess.why}\n`
+          + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
+          + 'install.env_command，平台将优先采用该声明。'),
       steps: [
         {
           kind: 'env',

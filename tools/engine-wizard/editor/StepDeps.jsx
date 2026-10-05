@@ -194,20 +194,19 @@ export default function StepDeps ({ state }) {
         </div>
       )}
 
-      {/* ---- 锁文件后端与本机不一致 ⇒ 并列给出第二条命令 ----
-          ⛔ 两条**并列展示**，⛔ 不替使用者拍板（平台只验不建）。
-             ⛔ alternative 也不进 steps：自动执行等于替他选了。
+      {/* ---- 锁文件后端与本机不一致 ⇒ 主命令之后还有第②步 ----
+          ⛔ 主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
+             这一块显示的是**装 torch 那一步**，⛔ 不重复主命令。
           ⚠️ 数据来自 **preview**（进入页面时取的 execute:false 计划），
-             ⛔ 不是 plan（/wizard/deps 从 GitHub 拉 lock）——
-             上一版挂在 plan 上，界面因此永远不显示。*/}
+             ⛔ 不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
       {preview && preview.alternative && (
         <div className="field">
           <label className="field-label" htmlFor="wz-alt">
-            {t('Alternative for this machine', '本机适用的替代命令')}
+            {t('Then install Torch for this machine', '然后安装本机适用的 Torch')}
           </label>
           <div className="rc-cmd" id="wz-alt">
             <div className="rc-cmd-body">
-              <code>{preview.alternative.argv.join(' ')}</code>
+              <code>{preview.alternative.then.join(' ')}</code>
             </div>
           </div>
           <p className="field-hint" style={{ marginTop: 0 }}>

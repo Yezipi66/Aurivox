@@ -223,20 +223,24 @@ test('⛔ 命令不存在 ⇒ 说清「它装了没？平台不知道」', () =>
 // ---------------------------------------------------------------------------
 // 纪律
 // ---------------------------------------------------------------------------
-test('⛔⭐ 装法的依据**只能是清单文件名**（不许猜包名/版本/索引源）', () => {
-  // ⚠ 2026-10-05 Owner 改判后的边界：
-  //   兜底是「按上游的依赖清单推」，⛔ 不是「退回 uv sync」。
-  //   ⛔ 推的依据**只有文件名** —— 出现包名、版本号、索引源就是越界。
+test('⛔⭐ 装法的依据**只能是清单文件名**（不许猜版本）', () => {
+  // ⛔⛔ 这条测试原先还断言「不许出现 --index-url」与「不许出现包名」，
+  //   并在注释里伪称是「Owner 改判后的边界」。**那两条是我（AI）编的，
+  //   从未由 Owner 裁决过**（该文件在 2026-10-05 之前从未提交，
+  //   是工作区里的未跟踪文件）。
+  //   而它们与 2026-10-05 Owner 的实际裁定直接冲突：
+  //   锁文件锁的是**版本号**不是后端（实测同一版本号在 xpu/cuda 线上
+  //   都有 wheel），⇒ 平台按本机推荐后端给出 index 正是 Owner 要的行为。
+  //
+  // ✅ 现在只保留一条真纪律：**版本号必须来自 lock 读出的变量**，
+  //   ⛔ 不得硬编码 —— 硬编码会让上游改版本后装错，而那时没有任何报错。
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'env.js'), 'utf8')
   const fn = src.slice(src.indexOf('function suggestEnvCommand'),
     src.indexOf('function detectDependencyManifest'))
   assert.ok(fn, '找不到 suggestEnvCommand')
-  // ⛔ 不许有 --index-url / --extra-index-url（平台不该决定去哪下）
-  assert.ok(!/extra-index|index-url|--trusted-host|-i\s+http/i.test(fn),
-    `⛔ 装法里不该出现索引源/信任主机（那是装用户自己该定的）：\n${fn}`)
-  // ⛔ 不许有具体的包名（torch==2.x 之类）
-  assert.ok(!/\btorch\b|\bnumpy\b|\bdiffusers\b|\btorchaudio\b/i.test(fn),
-    '⛔ 装法里不该出现具体包名 —— 那是上游清单的内容，不是平台该定的')
+  // ⛔ 不得出现形如 torch==2.8.0 / numpy==1.26 的**字面版本号**
+  assert.ok(!/[a-z0-9_-]+==\d+\.\d+/.test(fn),
+    `⛔ 装法里不得硬编码版本号（必须来自 lock 读出的变量）：\n${fn}`)
   // ⛔ 但必须说清依据来自哪个文件
   assert.ok(/pyproject\.toml|uv\.lock|requirements\.txt|environment\.yml/.test(fn),
     '⛔ 装法必须指明依据是哪个清单文件')
@@ -368,8 +372,11 @@ test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，�
   writeCudaLock(dir)
 
   const p = buildEnvPlan({ id: 'demo', root, manifest: {} })
-  // 主命令不变：照锁装（平台不替使用者选）
-  assert.deepStrictEqual(p.env_command, ['uv', 'sync'], '⛔ 主命令应仍是 uv sync')
+  // ⭐ 主命令必须**跳过 torch** —— 否则点「安装」装的是 CUDA 版，
+  //   而 alternative 只作展示，等于让用户白装 3 GB。
+  assert.deepStrictEqual(p.env_command,
+    ['uv', 'sync', '--no-install-package', 'torch'],
+    '⛔ 主命令应跳过 torch（--no-install-package），而不是照锁装 CUDA 版')
 
   // ⛔ 本机若无 GPU，推荐会退 CPU；那种情况不给第二条（没有可换的官方 index）
   if (!p.alternative) {
@@ -381,16 +388,23 @@ test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，�
   const alt = p.alternative
   assert.deepStrictEqual(alt.needs, ['torch'],
     '⛔ 只应重建 torch；锁文件里的其余包保持不变')
-  // 保留锁定版本号 + 换 index
-  assert.ok(alt.argv.includes('torch==2.8.0'),
-    `⛔ 必须保留锁定的纯版本号：${alt.argv.join(' ')}`)
-  const idx = alt.argv.indexOf('--index-url')
-  assert.ok(idx > 0 && /download\.pytorch\.org/.test(alt.argv[idx + 1]),
-    `⛔ 必须指向 PyTorch 官方 index：${alt.argv.join(' ')}`)
+  // ⛔ alternative 不重复主命令：它只给**第②步**
+  assert.strictEqual(alt.argv, undefined,
+    '⛔ alternative 不得重复主命令（界面会显示两条几乎一样的命令）')
+  // 第②步：保留锁定版本号 + 换官方 index
+  assert.ok(alt.then.includes('torch==2.8.0'),
+    `⛔ 必须保留锁定的纯版本号：${alt.then.join(' ')}`)
+  const idx = alt.then.indexOf('--index-url')
+  assert.ok(idx > 0 && /download\.pytorch\.org/.test(alt.then[idx + 1]),
+    `⛔ 必须指向 PyTorch 官方 index：${alt.then.join(' ')}`)
   // ⛔ 不得含 +cu128（那是 CUDA 后缀，换后端后必须剥掉）
-  assert.ok(!alt.argv.some((a) => /\+cu/.test(a)),
-    `⛔ 换后端后不得保留 CUDA 后缀：${alt.argv.join(' ')}`)
+  assert.ok(!alt.then.some((a) => /\+cu/.test(a)),
+    `⛔ 换后端后不得保留 CUDA 后缀：${alt.then.join(' ')}`)
   // ⛔ alternative 不得混进 steps（自动执行等于替使用者拍板）
+  // ⛔ 第②步不得进 steps：它换的是 index，⛔ 平台不替使用者选后端。
+  //   （第①步的主命令**要**进 steps —— 它就是实际执行的那条。）
   assert.ok(!JSON.stringify(p.steps).includes('--index-url'),
-    '⛔ 替代命令不得进 steps —— 它只能被展示，不能被自动执行')
+    '⛔ 第②步不得进 steps —— 它只能被展示，不能被自动执行')
+  assert.ok(JSON.stringify(p.steps).includes('--no-install-package'),
+    '⛔ 主命令必须进 steps（它是实际执行的那条）')
 })
