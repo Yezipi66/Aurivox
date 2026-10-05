@@ -334,8 +334,9 @@ EXCLUDE_FILES = {
 }
 # Old junk that lived AT THE PROJECT ROOT. Matched ONLY at top level so we don't
 # accidentally drop legit same-named files that now live deeper, e.g. the real
-# launchers tools\scripts\start.ps1 and the dev tool
-# (stop moved to the cross-platform tools\cli\stop.js; .bat/.sh are thin shells)
+# launchers: tools\scripts\start.bat / start.sh / stop.bat / stop.sh are thin
+# shells; the bodies are tools\cli\start.js and tools\cli\stop.js.
+# (start.ps1 and stop.ps1 were deleted 2026-10-05 — cross-platform now.)
 # tools\scripts\dump_tree.ps1 must still ship.
 ROOT_EXCLUDE_FILES = {
     "dump_tree.ps1",
@@ -346,7 +347,7 @@ ROOT_EXCLUDE_FILES = {
     # tools\scripts\stop.bat -> tools\cli\stop.js) and MUST ship — do not blacklist it here. Only the
     # truly obsolete root scripts below are dropped.
     # ⭐ 2026-10-05 stop.ps1 已删（主体移到 tools\cli\stop.js，薄壳是 .bat/.sh）
-    "start.ps1", "start.vbs",
+    "start.vbs",
     "restart.bat", "run_start.bat",
     # superseded by download_models.py wizard
     "configure_models.bat",

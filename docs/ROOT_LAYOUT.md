@@ -25,7 +25,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `requirements-gpt-sovits.txt` | 文件 | ⭐ **GPT-SoVITS 那台引擎的** Python 依赖（torch 三行刻意注释掉，见头部说明）。⚠️ **2026-10-04 由 `requirements.txt` 更名**：它从来不是「平台的依赖」，继续用旧名会让人以为装平台就得装它 | 是 |
 | `requirements-platform.txt` | 文件 | ⭐ **平台自己的** Python 依赖（3 个工具链包 / 62MB） | 是 |
 | `requirements-platform.txt` | 文件 | **平台自己**的 Python 依赖（3 包 / 62MB）。[实测] `git grep` 量出：平台运行时是 Node、`tools/deploy/*.py` 只用标准库、`fastapi`/`uvicorn`/`torch` 全属某台引擎或训练线。`deploy.bat --platform-only` 用它 | 是 |
-| `start.bat` | 文件 | 启动器 | 是 |
+| `start.bat` | 文件 | 启动入口（薄壳，Windows）。主体 `tools/cli/start.js`，macOS/Linux 用 `tools/scripts/start.sh` | 是 |
 | `stop.bat` | 文件 | 停止入口（薄壳，Windows）。主体 `tools/cli/stop.js`，macOS/Linux 用 `tools/scripts/stop.sh` | 是 |
 | `deploy.bat` | 文件 | 部署入口 | 是 |
 | `.env.example` | 文件 | 环境变量样例；真 `.env` 不进 git | 是 |

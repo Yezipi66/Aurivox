@@ -1,36 +1,37 @@
 @echo off
-title TTS Broker - Launcher
+REM =============================================================================
+REM  start.bat - Windows entry. The body lives in tools\cli\start.js
+REM
+REM  Double-click target. macOS/Linux users run tools\scripts\start.sh, which
+REM  calls the SAME Node body.
+REM
+REM  ASCII-ONLY on purpose: cmd.exe reads a .bat with the console OEM code page
+REM  (GBK on zh-CN Windows); GBK-decoding UTF-8 bytes can swallow a line's
+REM  trailing 0x0A and desynchronise the parser, so cmd runs comment fragments
+REM  as commands. All Chinese lives in the Node body.
+REM =============================================================================
+setlocal
+set "ROOT=%~dp0"
 
-cd /d "%~dp0"
+if not exist "%ROOT%tools\cli\start.js" (
+  echo [start][ERROR] body not found: %ROOT%tools\cli\start.js
+  echo         install package is incomplete.
+  exit /b 1
+)
 
-if not exist "venv\Scripts\python.exe" goto novenv
-if not exist "node_modules\" goto nonode
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [start][ERROR] node not found on PATH.
+  echo         The body is written in Node - the same runtime as the backend -
+  echo         so Node is a prerequisite, not an extra.
+  echo         https://nodejs.org  ^(pick LTS^)
+  pause
+  exit /b 1
+)
 
-powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0tools\scripts\start.ps1"
+node "%ROOT%tools\cli\start.js" %*
 set "RC=%ERRORLEVEL%"
-
 echo.
-echo Startup done - backend and inference engine run in the background;
-echo closing this window will not stop them.
-timeout /t 3 /nobreak >nul
-goto :eof
-
-:novenv
-echo [ERROR] venv\ not found.
-echo         Run the first-time deployment script first.
-echo.
+if not "%RC%"=="0" echo [start] exit code %RC%
 pause
-exit /b 1
-
-:nonode
-echo [ERROR] node_modules\ not found.
-echo         Backend node dependencies are not installed. They are NOT bundled
-echo         in the release and are restored by the deployment wizard via
-echo         `npm ci`. Re-run the first-time deployment script (deploy.bat),
-echo         or restore them manually from the project root:
-echo             tools\runtime\node\node.exe tools\runtime\node\node_modules\npm\bin\npm-cli.js ci
-echo           (⛔ 不要用 npm.cmd：它按 PATH 推断前缀，装过全局 Node 的机器上
-echo            会跳到全局 npm 去，报 ERR_REQUIRE_ESM 而看不出原因)
-echo.
-pause
-exit /b 1
+exit /b %RC%
