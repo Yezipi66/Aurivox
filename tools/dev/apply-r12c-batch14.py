@@ -261,7 +261,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `README.md` | 文件 | 项目说明 | 是 |
 | `LICENSE` | 文件 | 我们的许可证（MIT） | 是 |
 | `NOTICE` | 文件 | 第三方归属声明，合规义务 | 是 |
-| `requirements.txt` | 文件 | Python 依赖（torch 三行刻意注释掉，见头部说明） | 是 |
+| `requirements-gpt-sovits.txt` | 文件 | **GPT-SoVITS 那台引擎的** Python 依赖（torch 三行刻意注释掉，见头部说明） | 是 |
 | `start.bat` | 文件 | 启动器 | 是 |
 | `stop.bat` | 文件 | 停止器 | 是 |
 | `deploy.bat` | 文件 | 部署入口 | 是 |

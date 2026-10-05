@@ -2,7 +2,7 @@
 #  install_torch.ps1 — install PyTorch (CUDA) into the project venv
 #  tools\deploy -> tools -> <root>
 #
-#  torch is intentionally NOT in requirements.txt (it is commented out there)
+#  torch is intentionally NOT in requirements-gpt-sovits.txt (it is commented out there)
 #  because its wheel is huge, CUDA-specific, and comes from a dedicated index.
 #  This standalone script installs it separately and can be re-run any time
 #  (e.g. to switch CUDA build, or after a failed / offline first attempt).
@@ -11,7 +11,7 @@
 #  (onnxruntime-gpu) is dead weight on a machine without an NVIDIA GPU. We only
 #  support NVIDIA acceleration (no AMD / DirectML), so it is a binary choice tied
 #  to the SAME GPU probe as torch:  NVIDIA GPU ? onnxruntime-gpu : onnxruntime.
-#  It is therefore also kept OUT of requirements.txt (commented there).
+#  It is therefore also kept OUT of requirements-gpt-sovits.txt (commented there).
 #
 #  CPU FALLBACK: with NO -Cpu / -Gpu / -Cuda argument, this script probes for a
 #  usable NVIDIA GPU (nvidia-smi, then WMI video-controller fallback). If one is
@@ -165,7 +165,7 @@ $pkgs = @(("torch=={0}" -f $Torch), ("torchaudio=={0}" -f $Audio), ("torchvision
 # CRITICAL: install torch WITHOUT its dependencies (--no-deps) by default.
 # torch/torchaudio/torchvision declare deps like fsspec, sympy, networkx, jinja2,
 # filelock, typing-extensions, numpy, pillow — all of which are ALREADY pinned in
-# requirements.txt and installed in step 3. If we let pip/uv pull torch's deps, it
+# requirements-gpt-sovits.txt and installed in step 3. If we let pip/uv pull torch's deps, it
 # re-resolves them against torch's ranges and happily UPGRADES/DOWNGRADES our
 # locked versions (e.g. fsspec==2026.4.0 -> something else), silently breaking the
 # frozen environment. Since deps are present, --no-deps installs torch cleanly and
@@ -177,7 +177,7 @@ if ($WithDeps) {
   Warn '-WithDeps set — installing torch WITH its dependencies (may change locked versions).'
   $depFlag = @()
 } else {
-  Info 'installing torch with --no-deps (protects the locked requirements.txt versions).'
+  Info 'installing torch with --no-deps (protects the locked requirements-gpt-sovits.txt versions).'
 }
 
 if (-not $env:UV_HTTP_TIMEOUT) { $env:UV_HTTP_TIMEOUT = '120' }
@@ -233,7 +233,7 @@ if ($probeRC -ne 0) {
 # ==============================================================================
 #  onnxruntime — same GPU/CPU split as torch (reuses the $Cpu decision above)
 # ==============================================================================
-# onnxruntime is kept OUT of requirements.txt for the same reason as torch: the
+# onnxruntime is kept OUT of requirements-gpt-sovits.txt for the same reason as torch: the
 # GPU package (onnxruntime-gpu) is useless on a box without an NVIDIA GPU — it
 # would just fall back to the CPU EP anyway, while emitting cuDNN-DLL warnings and
 # wasting space. We support ONLY NVIDIA acceleration (no AMD / DirectML), so the

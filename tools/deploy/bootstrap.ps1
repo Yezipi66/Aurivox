@@ -203,12 +203,12 @@ if ($env:TTS_NO_UV -eq '1') {
   if (-not $UV_OK) { Warn 'uv unavailable — falling back to pip (slower).' }
 }
 
-# --- 3. project deps (exclude torch; torch is commented out in requirements.txt) ---
+# --- 3. project deps (exclude torch; torch is commented out in requirements-gpt-sovits.txt) ---
 #
 # --- 2026-09-29：平台瘦环境（开关，默认**保持原样**）--------------------------------
 # 两份 requirements 的分工（[实测] 名单是 git grep 量出来的，见那份文件的头部）：
 #
-#   requirements.txt           200 包 / 6.6 GB —— 它是**根 venv 的 pip freeze**，
+#   requirements-gpt-sovits.txt           200 包 / 6.6 GB —— 它是**根 venv 的 pip freeze**，
 #                              而那个 venv 装的是 GPT-SoVITS 的依赖
 #                              （torch 2.2.0+cu121 + CUDA 全套 + librosa…）。
 #   requirements-platform.txt    3 包 / 62 MB —— 平台自己真正要的
@@ -226,16 +226,16 @@ foreach ($a in $args) {
   if ($a -eq '--platform-only' -or $a -eq '-PlatformOnly') { $PLATFORM_ONLY = $true }
 }
 
-$REQ    = Join-Path $ROOT 'requirements.txt'
+$REQ    = Join-Path $ROOT 'requirements-gpt-sovits.txt'
 if ($PLATFORM_ONLY) {
   $REQ = Join-Path $ROOT 'requirements-platform.txt'
   Info 'using the platform-only requirements (no torch / no CUDA).'
   Info 'the training line needs torch 2.2.0+cu121 and will NOT work under this flag.'
 }
 $WHEELS = Join-Path $ROOT 'tools\wheels'
-if (-not (Test-Path $REQ)) { Die ('requirements.txt not found: {0}' -f $REQ) }
+if (-not (Test-Path $REQ)) { Die ('requirements-gpt-sovits.txt not found: {0}' -f $REQ) }
 
-# requirements.txt is a hand-maintained, fully-pinned `pip freeze` snapshot. It is
+# requirements-gpt-sovits.txt is a hand-maintained, fully-pinned `pip freeze` snapshot. It is
 # installed with --no-deps (below), so EVERY transitive dependency must be listed and
 # EVERY version must be exact. "The freeze IS the lock" — there is no separate
 # requirements.in / lock generator anymore (that pip-tools-style automation was
@@ -243,7 +243,7 @@ if (-not (Test-Path $REQ)) { Die ('requirements.txt not found: {0}' -f $REQ) }
 # that fails on clean machines without a compiler).
 #
 # To regenerate: on the reference/dev machine that already has a WORKING venv, run
-#     venv\Scripts\python.exe -m pip freeze > requirements.txt
+#     venv\Scripts\python.exe -m pip freeze > requirements-gpt-sovits.txt
 # then hand-fix the two things freeze gets "wrong" for our delivery:
 #   1) re-comment the torch / torchaudio / torchvision lines freeze pulls in — torch
 #      is installed separately by install_torch.ps1 (step 4), which auto-detects the
@@ -267,7 +267,7 @@ if (Test-Path $WHEELS) {
 }
 
 Info 'installing project dependencies (this may take a while) ...'
-# requirements.txt is a COMPLETE `pip freeze` snapshot (every transitive dep is
+# requirements-gpt-sovits.txt is a COMPLETE `pip freeze` snapshot (every transitive dep is
 # pinned). Install it with --no-deps so pip installs each pinned version as-is
 # WITHOUT running its dependency resolver. This is the correct way to reproduce
 # a frozen environment, and it avoids "ResolutionImpossible" from pins that are
@@ -292,7 +292,7 @@ if (-not $UV_OK) {
   $pipArgs = @('-m','pip','install','--no-deps') + $findLinks + @('-r', "$REQ")
   $pRC = Invoke-Native $VENV_PY $pipArgs
   if ($pRC -ne 0) {
-    # DO NOT retry with the dependency resolver. requirements.txt is a frozen
+    # DO NOT retry with the dependency resolver. requirements-gpt-sovits.txt is a frozen
     # snapshot meant for --no-deps; re-running WITH the resolver only surfaces
     # paper-only conflicts (e.g. accelerate 1.14 wants torch>2.2 vs the pinned
     # torch==2.2.0+cu121) that never affect the frozen runtime — a red herring
@@ -319,11 +319,11 @@ if ($LASTEXITCODE -ne 0) {
   Warn 'pip check reported issues above. If they are only "has requirement X, but'
   Warn 'you have Y" warnings for packages that still import fine (common with a'
   Warn 'frozen env), you can ignore them. If a package is MISSING, add it to'
-  Warn 'requirements.txt and re-run deploy.bat.'
+  Warn 'requirements-gpt-sovits.txt and re-run deploy.bat.'
 }
 
 # --- 4. torch (CUDA 12.1) + onnxruntime — delegated to install_torch.ps1 ---
-# torch AND onnxruntime are kept out of requirements.txt (huge / CUDA-specific /
+# torch AND onnxruntime are kept out of requirements-gpt-sovits.txt (huge / CUDA-specific /
 # dedicated index / GPU-conditional), so they are installed by their own re-runnable
 # script, which probes for an NVIDIA GPU and picks the CUDA vs CPU build for BOTH.
 # This keeps concerns separate and lets users re-install / switch CUDA build without
@@ -343,7 +343,7 @@ if ($PLATFORM_ONLY) {
 } else {
   Warn ('install_torch.ps1 not found next to bootstrap: {0}' -f $torchScript)
   Warn 'Falling back to inline torch install.'
-  # --no-deps: deps are already installed from the frozen requirements.txt above;
+  # --no-deps: deps are already installed from the frozen requirements-gpt-sovits.txt above;
   # letting pip pull torch's deps would re-resolve and change our locked versions.
   # NOTE: this inline path is a last resort (install_torch.ps1 missing). It CANNOT
   # do GPU detection, so it assumes the dev-default CUDA build for BOTH torch and

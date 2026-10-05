@@ -93,7 +93,7 @@ as applicable.
   Aurivox's Python runtime dependencies are installed at deploy time with
   pip / uv from a package index; they are NOT redistributed inside the Aurivox
   distribution. The complete frozen dependency set is recorded for
-  reproducibility in the project's requirements file (requirements.txt), but
+  reproducibility in the project's requirements file (requirements-gpt-sovits.txt), but
   those packages are fetched by the end user's own installer, not shipped by us.
 
   The distribution package bundles only the following prebuilt Python wheels,

@@ -2,10 +2,10 @@
   "schema": 1,
   "kind": "python_packages",
   "generated": "2026-07-17",
-  "source_requirements": "requirements.txt",
+  "source_requirements": "requirements-gpt-sovits.txt",
   "python": "3.11",
   "cuda": "12.1",
-  "note": "Frozen pip/uv closure of Aurivox Python dependencies, recorded from requirements.txt for reproducibility. These are installed by the end user's installer from a package index and are NOT redistributed inside the Aurivox distribution [bundled=false], EXCEPT two prebuilt win_amd64 wheels that ARE shipped [bundled=true]: jieba_fast and pyopenjtalk, both MIT. license fields for non-bundled packages are informational; only shipped wheels must carry their license text under THIRD_PARTY_LICENSES/.",
+  "note": "Frozen pip/uv closure of Aurivox Python dependencies, recorded from requirements-gpt-sovits.txt for reproducibility. These are installed by the end user's installer from a package index and are NOT redistributed inside the Aurivox distribution [bundled=false], EXCEPT two prebuilt win_amd64 wheels that ARE shipped [bundled=true]: jieba_fast and pyopenjtalk, both MIT. license fields for non-bundled packages are informational; only shipped wheels must carry their license text under THIRD_PARTY_LICENSES/.",
   "count": 209,
   "packages": [
     {

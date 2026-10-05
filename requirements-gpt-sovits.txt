@@ -1,14 +1,24 @@
-# TTS Broker — 完整 pip freeze 冻结锁（逐包精确 pin，含全部传递依赖）。
+# TTS Broker — GPT-SoVITS 那套依赖的完整 pip freeze 冻结锁（逐包 pin，含全部传递依赖）。
+#
+# ⚠️ 2026-10-04 更名（原名 requirements.txt）。为什么：
+#   它是**某台引擎**（GPT-SoVITS）的依赖，不是平台的。
+#   平台自己要的只有 3 个工具链包，见 requirements-platform.txt。
+#   ⛔ 继续叫 requirements.txt 就是**撒谎的文件名** —— 读的人会以为那是全平台依赖。
+#   ⚠️ 这条也是 C12 的直接后果：根 venv 只装平台自己的，装引擎依赖是引擎层的事。
+#   （Engine 环境归属见 docs/ONBOARDING_PLAN.md §5.2 的 A16 / §5.8）
+#
 # 部署脚本用 `--no-deps` 精确复现，交付即开发机环境。
 #
-# 改依赖：开发机 `pip install ...` 调到能跑 → `pip freeze > requirements.txt`
+# 改依赖：在**那台引擎自己的环境**里 pip install … 调到能跑 → pip freeze > 本文件
 #   → 把 freeze 带出来的 torch / torchaudio / torchvision 与 onnxruntime-gpu
 #     这几行重新注释掉（见下）。
 #
-# torch 三件套 + onnxruntime 故意不进锁：体积大 / CUDA 专属 / 走独立 index，且都由
-# tools\deploy\install_torch.ps1 单独 `--no-deps` 安装 —— 它自动探测本机有无 NVIDIA
-# GPU（只支持 N 卡，不支持 AMD/DirectML）：有 → torch cu121 + onnxruntime-gpu，
-# 无 → torch CPU 版 + onnxruntime(CPU)。写死进锁会架空判断,把无 N 卡机器硬塞 GPU 包。
+# torch 三件套 + onnxruntime 故意不进锁：体积大 / CUDA 专属 / 走独立 index。
+#   ⚠️ 2026-10-04 待办（A17）：install_torch.ps1 目前**只支持 NVIDIA**
+#      （原文：「no AMD / DirectML」，「NVIDIA present ? cu121 : cpu」），
+#      而这台机器没有 N 卡 ⇒ 现在装出来的是 CPU 版，只能跑 CPU。
+#      A17 给它加 XPU 分支 + 构建后自检。
+#      ⛔ 别把 XPU 版硬写进这份锁 —— 那会把「本机有什么」变成「所有机器有什么」。
 #
 # onnxruntime 版本锁 1.18.0（匹配 torch cu121 自带的 cuDNN 8）：勿升到 1.19+，
 # 那会改用 cuDNN 9、静默关闭 CUDA ExecutionProvider，MDX-Net 退回 CPU。

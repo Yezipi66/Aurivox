@@ -10,7 +10,7 @@ What goes IN:
     is reproducible.
   * tools/ (build + deploy + scripts + wheels + runtime[python+node])
   * root entries: deploy.bat start.bat stop.bat, README_用户版.txt,
-    requirements.txt, package*.json, business configs (server.js, *.json)
+    requirements-gpt-sovits.txt, package*.json, business configs (server.js, *.json)
   * tools\deploy\: bootstrap.ps1, install_torch.ps1, download_models.py,
     download_ffmpeg.py (deploy/ops scripts live here, not at the root)
 What stays OUT (BLACKLIST — users download / generate):

@@ -1,4 +1,7 @@
-"""⭐ 对账：盘上那个 venv 与 git 里记录的 requirements.txt 是否一致。
+"""⭐ 对账：盘上那个 venv 与 git 里记录的那份锁是否一致。
+
+⚠️ 2026-10-04：那份锁已由 requirements.txt 更名为
+requirements-gpt-sovits.txt（A16 —— 它是 GPT-SoVITS 的依赖，不是平台的）。
 
 ⚠️ 为什么这件事决定 A19 能不能删：
 如果盘上装的 == 锁里写的，那么删掉之后**按锁重装就能还原**，
@@ -82,8 +85,8 @@ def main():
     print('快照: %s\n' % os.path.relpath(snap_path, ROOT))
 
     disk = read_snapshot_section(snap_path, 'venv')
-    lock = read_lock(os.path.join(ROOT, 'requirements.txt'))
-    ok = compare('根 venv  vs  requirements.txt', disk, lock)
+    lock = read_lock(os.path.join(ROOT, 'requirements-gpt-sovits.txt'))
+    ok = compare('根 venv  vs  requirements-gpt-sovits.txt', disk, lock)
 
     if ok:
         print('⇒ ✅ 结论：锁**完整描述**了盘上那个 venv ⇒ 按锁重装可还原 ⇒ 删除可逆。')

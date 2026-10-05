@@ -16,7 +16,7 @@ Layer model (see 分发方案与实施计划 §1):
   N  node_modules node_modules/**             (backend prod deps)       -> full pkg only
   A  app          everything else that ships  (server.js, lib/, web/dist,
                   business *.json, tools/scripts, tools/build, launchers,
-                  LICENSE/NOTICE/README, requirements.txt ...)          -> HOT-PATCHABLE
+                  LICENSE/NOTICE/README, requirements-gpt-sovits.txt ...)          -> HOT-PATCHABLE
   M  models       pretrained/asr/uvr5 weights & stray media            -> never shipped
 
 Only layer "A" is diffed by the patch generator. Any change touching R/W/N/M

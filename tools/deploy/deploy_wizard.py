@@ -445,7 +445,7 @@ def stage_confirm(sel, by_group):
     rule("#")
     print("  1) 环境初始化 (固定, 保证依赖一致):")
     print("       - 用内嵌 Python 3.11 创建 venv\\")
-    print("       - pip install uv, 然后 uv pip install -r requirements.txt")
+    print("       - pip install uv, 然后 uv pip install -r requirements-gpt-sovits.txt")
     print("       - 安装本地 wheel: jieba_fast, pyopenjtalk")
     print("       - 安装 PyTorch (CUDA, install_torch)")
     dropped = sel.get("dropped_for_license") or []

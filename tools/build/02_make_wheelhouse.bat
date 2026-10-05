@@ -28,7 +28,7 @@ del /q "%WHEELS%\*.whl" >nul 2>nul
 
 rem ---- packages that typically need compilation on Windows/cp311 ----
 rem   (everything else has ready PyPI wheels and installs online at deploy time)
-rem   Versions MUST match requirements.txt (jieba_fast==0.53, pyopenjtalk==0.4.1).
+rem   Versions MUST match requirements-gpt-sovits.txt (jieba_fast==0.53, pyopenjtalk==0.4.1).
 set "WHEEL_PKGS=jieba_fast==0.53 pyopenjtalk==0.4.1"
 
 rem ---- 1. locate & enter the VC x64 build environment ----
@@ -103,7 +103,7 @@ set "CMAKE_POLICY_VERSION_MINIMUM=3.5"
 
 rem --no-deps: build ONLY the compile-needing targets. Their pure-python/ABI
 rem deps (numpy, tqdm, colorama, ...) have PyPI wheels and are installed online
-rem at deploy time per requirements.txt pins — no need to clutter tools\wheels.
+rem at deploy time per requirements-gpt-sovits.txt pins — no need to clutter tools\wheels.
 "%PY%" -m pip wheel --no-deps %WHEEL_PKGS% -w "%WHEELS%"
 set "RC=%ERRORLEVEL%"
 

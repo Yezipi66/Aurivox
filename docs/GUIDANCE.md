@@ -94,7 +94,7 @@ venv\Scripts\python.exe tools\deploy\download_models.py --check
 ### Q6. 人声分离 / UVR5 报 `No module named 'onnxruntime'` 或 MDX 段直接失败?
 
 UVR5 的 **MDX-Net**(`onnx_dereverb`)与中文 **g2pW** 多音字都依赖 `onnxruntime`。正常情况下 `deploy.bat`
-会随 `requirements.txt` 自动装好;若你的 `venv` 是旧版本部署遗留、缺这个包,手动补装即可:
+会随 `requirements-gpt-sovits.txt` 自动装好;若你的 `venv` 是旧版本部署遗留、缺这个包,手动补装即可:
 
 ```bat
 venv\Scripts\python.exe -m pip install "onnxruntime-gpu==1.18.0"

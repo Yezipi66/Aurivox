@@ -46,7 +46,7 @@ REM  Stage 5: environment initialization + provisioning via bootstrap.ps1
 REM  bootstrap.ps1 is the single hardened engine and owns, in order:
 REM    - venv creation (health-checked / rebuilt if moved)
 REM    - pip/setuptools/wheel upgrade, install uv (online)
-REM    - uv pip install -r requirements.txt --no-deps (+ local wheels:
+REM    - uv pip install -r requirements-gpt-sovits.txt --no-deps (+ local wheels:
 REM      jieba_fast / pyopenjtalk), with automatic pip fallback
 REM    - PyTorch (CUDA 12.1) via install_torch.ps1
 REM    - backend node deps via `npm ci` (node_modules is NOT bundled;

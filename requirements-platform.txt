@@ -8,7 +8,7 @@
 #      「Aurivox 要成为平台，而不是一个基于 GPT-SoVITS 的项目。
 #        根环境里住着一台引擎，本身就是后者的物证。」
 #
-#  ⚠ 旧 requirements.txt 是**根 venv 的 pip freeze**，而那个 venv 装的是
+#  ⚠ 旧 requirements-gpt-sovits.txt 是**根 venv 的 pip freeze**，而那个 venv 装的是
 #    GSV 的依赖（torch 2.2.0+cu121 + CUDA 全套 + librosa + soundfile …）
 #    ⇒ 200 个包，6.6GB。
 #    ⛔ 后果：**新用户装平台必背 5-6GB**，哪怕他一台引擎都不装。
