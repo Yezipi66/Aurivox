@@ -93,7 +93,7 @@ export function StepModels ({ state, onChange, probe }) {
       {!id && (
         <div className="msg msg-info">
           {t('Fill in the link first — the model list comes from the manifest.',
-            '先填链接 —— 要下哪些模型写在名片里。')}
+            '请先填写链接，需要下载的模型在 Manifest 中声明。')}
         </div>
       )}
 
@@ -210,7 +210,7 @@ export function StepModels ({ state, onChange, probe }) {
           {M.state === null && (
             <div className="msg msg-danger">
               {t('Cannot tell — the manifest does not say which files are required.',
-            '无法判断 —— 名片未指定必需文件。')}
+            '无法判断，Manifest 未指定必需文件。')}
             </div>
           )}
         </>

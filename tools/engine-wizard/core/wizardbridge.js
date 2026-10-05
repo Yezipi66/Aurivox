@@ -184,7 +184,8 @@ function handleProbe (req, res) {
         meta: { dependencies: detectDependencyFile(found) },
         note: '这个仓库没有 pyproject.toml，读不到项目信息。'
           + '包名/入口/命令这些事实读不出来。\n'
-          + '⛔ 这不代表它没有依赖，也可能放在子目录里。请换一份带依赖清单的仓库，或按上游说明自己安装。',
+          + '这不代表该仓库没有依赖，依赖也可能位于子目录中。'
+      + '请改用带依赖清单的仓库，或按上游说明自行安装。',
         found_files: found,
         downloader: dlScripts,
         downloader_cmds: readmeCmds,

@@ -229,7 +229,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
           {t('⛔ repeat unset or 1 = a single value (scalar). Only ≥ 2 makes an array. '
             + 'Those are two different things to the engine, and neither is reported '
             + 'as an error.',
-            '⛔ repeat 不写或写 1 = 单个值（标量）；只有 ≥ 2 才是数组。'
+            'repeat 未填或填 1 表示单个值（标量），仅当大于等于 2 时才为数组。'
             + '这两种对引擎是两件事，而且都不会报错。')}
         </p>
       </details>
@@ -327,7 +327,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('Engines without a call section are started by a different, older '
               + 'path — that is a valid shape, not an error.',
-              '没有 call 段的引擎由另一条更老的路径启动 —— 那是合法形状，不是错误。')}
+              '没有 call 段的引擎由另一条较早的路径启动，这是合法形式，不属于错误。')}
           </p>
           <CallSection value={manifest.call}
             onChange={(x) => set('call', x)} t={t} />
@@ -342,7 +342,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
             {t('⚠ These fields all live inside Advanced Settings (collapsed by '
               + 'default); none appear in the main area. Every entry you add is '
               + 'one more thing the user has to look at.',
-              '⚠ 这些格子全部位于 Advanced Settings（默认折叠）内，主区域不会显示。'
+              '以上参数全部位于 Advanced Settings（默认折叠）内，主区域不会显示。'
               + '每多写一条，用户的界面上就多一格。')}
           </p>
           {(manifest.parameters || []).map((p, i) => (

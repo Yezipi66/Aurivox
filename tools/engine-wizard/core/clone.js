@@ -86,9 +86,9 @@ function checkClonable (id, opts = {}) {
     entries: info.entries,
     error: `engines/${id}/ 里已经有 ${info.entries.length} 项：`
       + `${listed.map((e) => e).join('、')}${info.entries.length > 8 ? ' …' : ''}\n`
-      + '⛔ git clone 不往非空目录里放东西。\n'
-      + '  · 这通常说明这台引擎已经克隆过了 —— 先看看是不是要重装\n'
-      + '  · 要重装的话，把那个目录挪走或删掉再回来（平台不替你删）',
+      + 'git clone 要求目标目录为空。\n'
+      + '  · 通常表示该引擎已克隆过，请确认是否需要重新安装\n'
+      + '  · 如需重新安装，请先移除该目录（平台不会自动删除）\n'
   }
 }
 
@@ -105,8 +105,8 @@ function buildClonePlan (input = {}) {
   //    还占掉了「看计划」这一步。⛔ 空就是空，当场说清。
   if (!input.cloneUrl || !String(input.cloneUrl).trim()) {
     return { ok: false, code: 'NO_CLONE_URL',
-      error: '\u26d4 没有 clone 地址。\n'
-        + '这一步要先跑「看这个链接」—— 那一步会从你贴的 GitHub 地址里解析出 cloneUrl。' }
+      error: '没有 clone 地址。\n'
+        + '请先执行「解析链接」，该步骤会从 GitHub 地址中取得 cloneUrl。' }
   }
   const clonable = checkClonable(id, input)
   if (!clonable.ok) {
@@ -128,8 +128,8 @@ function buildClonePlan (input = {}) {
       cwd: '.',
       needs_network: true,
       why: `把上游拉进 engines/${id}/`
-        + (depth.length ? '（浅克隆，只取最新一版 ⇒ ⛔ 之后没法 checkout 到历史版本）'
-          : '（整仓，不浅取 —— 浅取会让将来的 checkout 到指定版本失败）')
+        + (depth.length ? '（浅克隆，仅取最新版，之后无法 checkout 到历史版本）'
+          : '（完整克隆。浅克隆会导致之后无法 checkout 到指定版本）')
         + '，默认分支',
     },
   ]
@@ -137,8 +137,8 @@ function buildClonePlan (input = {}) {
   if (depth.length) {
     steps.push({
       kind: 'note',
-      why: '⚠ 选了浅克隆：如果之后要钉某个历史版本，'
-        + '得回来重新整仓克隆。',
+      why: '已选择浅克隆。若之后需要指定历史版本，'
+        + '必须重新完整克隆。',
     })
   }
 

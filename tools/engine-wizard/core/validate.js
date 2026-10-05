@@ -97,7 +97,7 @@ function diagnose (manifest) {
     }
     if (p.tier === undefined) {
       push('info', 'TIER_DEFAULTED',
-        `参数「${p.name}」没写 tier，默认按 advanced（进阶档）处理 —— 常用档只显示用户常用的。`, where)
+        `参数「${p.name}」未声明 tier，默认归入 advanced（进阶档），常用档仅显示常用项。`, where)
     }
     if (p.label === undefined) {
       push('warn', 'LABEL_MISSING',

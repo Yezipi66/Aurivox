@@ -88,7 +88,8 @@ test('ready:true ⇒ 文件齐了', () => {
   const r = describeModels(id, mkdtempModelsDir)
   assert.strictEqual(r.ok, true, r.error)
   assert.strictEqual(r.status.ready, true, JSON.stringify(r.status))
-  assert.ok(r.notes.some((n) => n.includes('一个不少')), r.notes.join(' | '))
+  // ⛔ 钉实质：说明声明的文件都在，⛔ 不钉「一个不少」这个措辞。
+  assert.ok(r.notes.some((n) => /全部存在|一个不少/.test(n)), r.notes.join(' | '))
 })
 
 test('⛔ ready:false ⇒ 缺了，如实说缺', () => {
@@ -111,10 +112,16 @@ test('⛔ ⭐ ready:null ⇒ 必须说「说不出来」，⛔ 不得说成齐�
   const r = describeModels(id, mkdtempModelsDir)
   assert.strictEqual(r.ok, true, r.error)
   assert.strictEqual(r.status.ready, null, JSON.stringify(r.status))
+  // ⛔ 钉**实质**（状态未知），⛔ 不钉措辞：「说不出来」这类词会随文案调整。
+  //   实质 = 明确说「既非完整也非缺失」，且不许出现 ready:true 的结论。
   const all = r.notes.join(' | ')
-  assert.ok(all.includes('说不出来'), all)
-  assert.ok(all.includes('糊成 false'), '⛔ 要解释为什么不能糊')
-  assert.ok(all.includes('糊成 true'), all)
+  assert.ok(/状态未知/.test(all), all)
+  assert.ok(/既不能视为完整|不等于「齐了」/.test(all),
+    `⛔ 必须说清「不是齐了也不是缺了」：${all}`)
+  assert.ok(!/文件一个不少|全部存在/.test(all),
+    `⛔ 状态未知时不得说成完整：${all}`)
+  assert.ok(!/目录不存在|文件缺失/.test(all),
+    `⛔ 状态未知时不得说成缺失：${all}`)
 })
 
 // ---------------------------------------------------------------------------
@@ -165,9 +172,11 @@ test('⭐ 缺 checkpoints / required 要分别说清后果', () => {
   const gaps = explainMissingInfo({ runtime: {}, models: {} })
   assert.strictEqual(gaps.length, 2)
   const byKey = Object.fromEntries(gaps.map((g) => [g.key, g]))
-  assert.ok(byKey['runtime.checkpoints'].why.includes('目录在不在'),
+  // ⛔ 钉实质：checkpoints 缺失时只能说「目录在不在」，⛔ 不钉字面。
+  assert.ok(/只能.*目录|无法判断是否完整/.test(byKey['runtime.checkpoints'].why),
     byKey['runtime.checkpoints'].why)
-  assert.ok(byKey['models.required'].why.includes('null'),
+  // ⛔ 钉实质：required 缺失时必须点明结果是「无法判断」这一状态。
+  assert.ok(/状态未知|无法判断/.test(byKey['models.required'].why),
     byKey['models.required'].why)
   for (const g of gaps) assert.ok(g.example, `${g.key} 没有例子`)
 })
@@ -202,7 +211,10 @@ test('⛔ 名片没写 source.command ⇒ 说「没有命令可打印」，⛔ �
   assert.strictEqual(r.ok, true, r.error)
   assert.deepStrictEqual(r.commands, [], '⛔ 不能凭空造一条下载命令')
   const all = r.notes.join(' | ')
-  assert.ok(all.includes('没有命令可以打印'), all)
+  // ⛔ 钉实质：说明「无命令可显示」+ 给出下一步，⛔ 不钉「没有命令可以打印」这七个字。
+  assert.ok(/无命令|没有命令/.test(all), all)
+  assert.ok(/Manifest/.test(all) && /补充|自行下载/.test(all),
+    `⛔ 必须说清下一步（在 Manifest 补命令，或自行下载）：${all}`)
 })
 
 test('⚠ 许可门槛要显示出来（有的仓库要先去网站点同意）', () => {
@@ -212,5 +224,7 @@ test('⚠ 许可门槛要显示出来（有的仓库要先去网站点同意）'
   raw.models.source.license_gate = true   // ⛔ 布尔，不是字符串（profile.js:613）
   fs.writeFileSync(path.join(mkdtempEngineDir, 'manifest.json'), JSON.stringify(raw))
   const r = describeModels(id, mkdtempModelsDir)
-  assert.ok(r.notes.some((n) => n.includes('先在网站点同意')), r.notes.join(' | '))
+  // ⛔ 钉实质：必须提到许可协议 + 未接受时的症状，⛔ 不钉「网站点同意」这个措辞。
+  assert.ok(r.notes.some((n) => /许可/.test(n) && /401|403/.test(n)),
+    r.notes.join(' | '))
 })

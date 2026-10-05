@@ -43,16 +43,16 @@ function readEnvCommand (manifest) {
     // ✅ 现在只说：① 缺什么 ② 怎么补 ③ 补了之后会怎样。
     return {
       ok: false, code: 'NO_INSTALL_SECTION',
-      whatToDo: '名片里还没有 install.env_command —— '
-        + '这一步要靠它才知道怎么装依赖。\n'
-        + '两种做法，任选一种：\n'
-        + '  ① 先跳过这步，去第 4 步把名片填完（名片里写 install.env_command），'
-        + '再回到这里执行；\n'
-        + '  ② 或者自己在 engines/<引擎名>/ 目录里按上游说明装好环境，'
-        + '平台会检测到它已经装好。',
-      error: '名片里还没有 install.env_command，这一步要靠它才知道怎么装依赖。\n'
-        + '可以先去第 4 步把名片填完再回来执行；'
-        + '也可以自己在 engines/<引擎名>/ 里按上游说明装好，'
+      whatToDo: 'Manifest 尚未声明 install.env_command，'
+        + '该字段用于确定依赖安装方式。\n'
+        + '可选两种处理方式：\n'
+        + '  ① 暂时跳过本步骤，在第 4 步填写 Manifest 时声明 '
+        + 'install.env_command，然后返回本步骤执行；\n'
+        + '  ② 按上游说明在 engines/<引擎 id>/ 内自行创建环境，'
+        + '平台会检测到该环境已就绪。',
+      error: 'Manifest 尚未声明 install.env_command，该字段用于确定依赖安装方式。\n'
+        + '可在第 4 步填写 Manifest 后返回执行；'
+        + '也可按上游说明在 engines/<引擎 id>/ 内自行创建环境，'
         + '平台会检测到。',
     }
   }
@@ -73,7 +73,7 @@ function readEnvCommand (manifest) {
       ok: false, code: 'BAD_ENV_COMMAND',
       error: 'install.env_command 必须是**非空的字符串数组**（argv 形式），'
         + '例如 ["uv","sync"]。\n'
-        + '⛔ 写成一整行命令会在带空格的路径上被拆错，那种错很难查。',
+        + '写成一整行命令会在含空格的路径上被错误拆分，排查困难。',
     }
   }
   return { ok: true, argv: cmd.map((s) => s.trim()) }
@@ -139,7 +139,7 @@ function suggestEnvCommand (dir) {
     return { argv: null, from: null,
       why: '这一层里没有找到依赖清单（pyproject.toml / uv.lock / '
         + 'requirements.txt / environment.yml，根目录和一层子目录都找过了）\n'
-        + '⇒ **请在名片里写 install.env_command**，平台会按你写的那条装；'
+        + '请在 Manifest 中声明 install.env_command，平台将按该声明安装；'
         + '或者按上游说明自己装。' }
   }
   // ⭐ 优先级照上游文档的通行做法：锁文件 > pyproject > requirements
@@ -166,7 +166,7 @@ function suggestEnvCommand (dir) {
     const rel = pyproj.includes('/') ? pyproj.slice(pyproj.indexOf('/') + 1) : '.'
     return { argv: ['uv', 'pip', 'install', '-e', rel], from: pyproj, cwd,
       why: `上游只有 ${pyproj} ⇒ 用 uv pip install -e ${rel} 装它声明的依赖。\n`
-        + '⚠ 上游没有锁文件 ⇒ 装到什么版本是上游定的，不可复现。' }
+        + '上游未提供锁文件，安装版本由上游决定，无法复现。' }
   }
   return { argv: ['uv', 'pip', 'install', '-r', req], from: req,
     cwd: req.includes('/') ? req.slice(0, req.indexOf('/')) : '.',
@@ -235,28 +235,27 @@ function buildEnvPlan (input = {}) {
     //   ⛔ 现在补齐，且 why 与正常路径**用同一段文字**，
     //     ⛔ 不出现「有 steps 的路径」和「没 steps 的路径」两种说法。
     const cwdRel = guess.cwd || '.'
-    const NOTE = '⚠ env_command 返回 0 只说明命令跑完了，'
-      + '⛔ **不代表这台引擎能用** —— 那要等后面的校验'
-      + '（import 探针 / 真跑一次合成）。'
+    const NOTE = 'env_command 返回 0 仅表示命令执行完毕，'
+      + '不代表该引擎可以运行，仍需后续校验（import 探针或实际合成）。'
     return {
       ok: true, id, from: 'probe', from_file: guess.from,
       guessed: true,
       env_command: guess.argv,
       whatToDo: guess.why,
-      note: `⚠ 这条装法是**按上游的依赖清单推出来的**（依据：${guess.from}）。\n`
+      note: `该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。\n`
         + `  ${guess.why}\n`
-        + '⛔ 如果这台引擎需要特殊装法，在名片里写 install.env_command，'
-        + '平台会优先用你写的那条。',
+        + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
+        + 'install.env_command，平台将优先采用该声明。',
       steps: [
         {
           kind: 'env',
           argv: guess.argv,
           cwd: path.join('engines', id, cwdRel),
           needs_network: true,
-          why: `⚠ 名片没写 install.env_command ⇒ 这条是**按上游的依赖清单推出来的**。\n`
+          why: `Manifest 未声明 install.env_command，该方式依据上游依赖清单推导得出。\n`
             + `  ${guess.why}\n`
-            + '  ⛔ 这台引擎要特殊装法的话，在名片里写 install.env_command，'
-            + '平台会优先用你写的那条。',
+            + '  如该引擎需要特定安装方式，请在 Manifest 中声明 '
+            + 'install.env_command，平台将优先采用该声明。',
         },
         { kind: 'note', why: NOTE },
       ],
@@ -281,17 +280,17 @@ function buildEnvPlan (input = {}) {
       //   名片写的 vs 平台按上游清单推的，⛔ 不让用户以为是黑箱。
       why: usingManifest
         ? `按名片里写的 install.env_command 装。\n  ${guess.why}`
-        : `⚠ 名片没写 install.env_command ⇒ 这条是**按上游的依赖清单推出来的**。\n`
+        : `Manifest 未声明 install.env_command，该方式依据上游依赖清单推导得出。\n`
           + `  ${guess.why}\n`
-          + '  ⛔ 这台引擎要特殊装法的话，在名片里写 install.env_command，'
-          + '平台会优先用你写的那条。',
+          + '  如该引擎需要特定安装方式，请在 Manifest 中声明 '
+          + 'install.env_command，平台将优先采用该声明。',
     },
   ]
 
   steps.push({
     kind: 'note',
-    why: '⚠ env_command 返回 0 只说明命令跑完了，'
-      + '⛔ **不代表这台引擎能用** —— 那要等后面的校验'
+    why: 'env_command 返回 0 仅表示命令执行完毕，'
+      + '不代表该引擎可以运行，仍需后续校验'
       + '（import 探针 / 真跑一次合成）。',
   })
 
@@ -329,7 +328,7 @@ function runEnv (input = {}) {
   if (r.error) {
     return { ...plan, ok: false, code: 'SPAWN_FAILED',
       error: `起不动「${step.argv[0]}」：${r.error.message}\n`
-        + '⚠ 它装了没？平台不知道 —— 检查一下 engines/<id>/ 下面。' }
+        + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。' }
   }
   if (r.status !== 0) {
     return {
@@ -342,8 +341,8 @@ function runEnv (input = {}) {
       // ⚠ 2026-10-05：原文带「（installPlan.js:44）」—— ⛔ 界面不该出现内部文件名
     //   （和之前 registry.js:83 同款毛病，Owner：「用词不能太随便」）。
     //   ⛔ 而且 installPlan.js 已按 A4' 退役，指向一个不存在的文件更没意义。
-    note: '⚠ 装到一半失败是最难办的一种状态：目录留在半装状态，重装要先清掉它。'
-        + '先把上面这条错误读完再决定重试还是换命令。',
+    note: '安装中断会保留不完整的环境，重新安装前需先清理该目录。'
+      + '请先阅读上方错误信息，再决定重试或更换命令。',
     }
   }
 
@@ -351,7 +350,7 @@ function runEnv (input = {}) {
     ...plan,
     ok: true,
     envStatus: r.status,
-    note: 'env_command 退出码 0。⚠ 这只说明命令跑完了，'
+    note: 'env_command 退出码 0，仅表示命令执行完毕，'
       + '「这台引擎能不能 import」要等后面的校验。',
   }
 }

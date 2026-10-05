@@ -173,8 +173,8 @@ export default function App () {
             </button>
           </div>
           <p className="field-hint" style={{ margin: 0 }}>
-            {t('Collapsed — click any step above to keep configuring.',
-              '已收起 —— 点上面任意一步继续配置。')}
+            {t('Collapsed. Select a step above to continue configuring.',
+              '已收起。选择上方任一步骤即可继续配置。')}
           </p>
         </div>
       )}

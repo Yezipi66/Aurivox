@@ -157,7 +157,7 @@ function probeProject (input = {}) {
     unfilled.push({
       key: 'runtime.entry',
       why: `上游给了 ${scriptNames.length} 个命令（${scriptNames.join(', ')}）`
-        + ' —— ⛔ 平台不能替你挑哪个是推理服务',
+        + '，平台无法判断其中哪个是推理服务',
       example: scriptNames[0],
     })
   } else {

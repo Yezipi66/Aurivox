@@ -96,9 +96,9 @@ test('⛔ ⭐ 目录非空 ⇒ 动手之前就拦住，且理由要说清', () =
   assert.strictEqual(r.code, 'DIR_NOT_EMPTY')
   assert.ok(r.entries.includes('manifest.json'), r.entries.join())
   assert.ok(r.error.includes('2 项'), '要说清有几个')
-  // ⛔ 理由要写成人话，不是 git 的原话
+  // ⛔ 理由要说清「是 git clone 的限制，且目录必须为空」，⛔ 不钉具体措辞。
   assert.ok(r.error.includes('git clone'), r.error)
-  assert.ok(r.error.includes('不往非空目录'), r.error)
+  assert.ok(/目标目录为空|目录.*空/.test(r.error), r.error)
   // ⛔ 平台不替用户删东西 —— 建议里不能出现「已删除」
   assert.ok(!/已删除|已经帮你/.test(r.error), r.error)
 })
@@ -108,7 +108,8 @@ test('⛔ ⭐ 「已克隆过」要能被认出来（这是最常见的那个非
   fs.writeFileSync(path.join(engineDir, 'manifest.json'), '{"id":"old"}')
   const r = checkClonable('old', { root })
   assert.strictEqual(r.ok, false)
-  assert.ok(r.error.includes('已经克隆过'), r.error)
+  // ⛔ 钉实质：提示「已克隆过」这件事，⛔ 不钉「已经克隆过」这五个字。
+  assert.ok(/已克隆过|克隆过|重新安装/.test(r.error), r.error)
 })
 
 // ---------------------------------------------------------------------------
@@ -159,7 +160,8 @@ test('默认整仓克隆（不浅取）', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://x/y.git', root })
   assert.ok(!p.steps[0].argv.includes('--depth'), '⛔ 默认不该浅取')
-  assert.ok(p.steps[0].why.includes('整仓'), p.steps[0].why)
+  // ⛔ 钉实质：说明这是完整克隆（而非浅克隆），⛔ 不钉「整仓」这个词。
+  assert.ok(/完整克隆|不浅取|整个仓库/.test(p.steps[0].why), p.steps[0].why)
 })
 
 test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）', () => {
@@ -169,7 +171,11 @@ test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）'
   assert.ok(p.steps[0].argv.includes('--depth'))
   const note = p.steps.find((s) => s.kind === 'note')
   assert.ok(note, '⛔ 浅克隆必须给一条提醒')
-  assert.ok(note.why.includes('重新整仓克隆'), note.why)
+  // ⛔ 钉实质：必须说「浅克隆后无法指定历史版本，需重新完整克隆」，
+  //   ⛔ 不钉「重新整仓克隆」这个措辞。
+  assert.ok(/完整克隆|整仓/.test(note.why), note.why)
+  assert.ok(/历史版本|指定版本/.test(note.why),
+    `⛔ 必须说清浅克隆的代价：${note.why}`)
 })
 
 // ---------------------------------------------------------------------------

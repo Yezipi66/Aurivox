@@ -53,9 +53,9 @@ function platformProfile (id) {
 /** 名片没点名任何文件时，表里那一行写什么 */
 function t_missingHint (status) {
   if (!status.declared) {
-    return '名片里没写 runtime.checkpoints —— 平台不知道底模该放在哪'
+    return 'Manifest 未声明 runtime.checkpoints，无法确定 Checkpoint 的存放位置'
   }
-  return '名片没点名具体文件（models.required 为空）—— 没法说「齐了」'
+  return 'Manifest 未声明具体文件（models.required 为空），无法判断是否完整'
 }
 
 function describeModels (id, appDir) {
@@ -73,7 +73,7 @@ function describeModels (id, appDir) {
   } catch (e) {
     return { ok: false, code: 'NO_PROFILE',
       error: `平台解析不出 ${id} 的名片：${e.message}\n`
-        + '（名片本身可能有问题 —— 那是第 5 步的事）' }
+        + '（Manifest 本身可能有问题，需在第 5 步检查）' }
   }
 
   let status
@@ -87,15 +87,16 @@ function describeModels (id, appDir) {
   // ---- ⭐ ready 是**三态**，糊成布尔就是撒谎（checkpoints.js:84-91 的原话）----
   const notes = []
   if (status.ready === true) {
-    notes.push('✅ 名片说的文件一个不少')
+    notes.push('Manifest 声明的文件全部存在')
   } else if (status.ready === false) {
-    notes.push('⛔ 目录不在，或者名片点名的文件缺了')
+    notes.push('目录不存在，或 Manifest 声明的文件缺失')
   } else {
-    notes.push('⚠ **说不出来** —— 名片没写 runtime.checkpoints，'
-      + '或者没写 models.required（哪几个文件算「齐了」）')
-    notes.push('  ⛔ 这不等于「齐了」，也不等于「缺了」。'
-      + '糊成 false 会让一台好好的引擎永远挂红灯；'
-      + '糊成 true 等于替名片作者担保了一件他从没说过的事。')
+    // ⛔ ready 为 null 时**不能**压成 false 或 true：
+    //   压 false 会让可用的引擎永远显示为缺失，压 true 等于替 Manifest
+    //   作者担保一件他没有声明的事。⇒ 如实说「状态未知」。
+    notes.push('状态未知：Manifest 未声明 runtime.checkpoints，'
+      + '或未声明 models.required（用于判断哪些文件算完整）')
+    notes.push('既不能视为完整，也不能视为缺失。')
   }
 
   // ---- 命令：名片写的，平台只填占位符 ----
@@ -113,16 +114,15 @@ function describeModels (id, appDir) {
   } else if (src.command) {
     commands.push(String(src.command))
   } else {
-    notes.push('⛔ 名片里没写 models.source.command —— '
-      + '平台没有命令可以打印给你。')
-    notes.push('  要么在名片里补上那条命令，要么你自己按上游说明下载。')
+    notes.push('Manifest 未声明 models.source.command，无命令可显示。'
+      + '请在 Manifest 中补充该命令，或按上游说明自行下载。')
   }
 
   // ⛔ license_gate 是**布尔**（profile.js:613 `=== true`），
   //   ⛔ 别把它的值当文字显示 —— 那会是「true」两个字。
   if (src.license_gate) {
-    notes.push('⚠ 这个模型有**许可门槛** —— 有些仓库要先在网站点同意，'
-      + '才下得下来。（名片里 models.source.license_gate = true 就是这个意思）')
+    notes.push('该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。'
+      + '（Manifest 中 models.source.license_gate = true 即表示此意）')
   }
 
   // ⭐⭐⭐ **下载清单**（2026-10-05 Owner：「我们列出一个表，说要下这些模型就可以了」）
@@ -183,14 +183,14 @@ function explainMissingInfo (profile) {
   if (!rt || !rt.checkpoints) {
     gaps.push({
       key: 'runtime.checkpoints',
-      why: '没写底模放哪 ⇒ 平台只能告诉你目录在不在，说不出齐不齐',
+      why: '未声明 Checkpoint 存放位置，平台只能判断目录是否存在，无法判断是否完整',
       example: 'models/tts/<引擎id>',
     })
   }
   if (!md.required || (Array.isArray(md.required) && md.required.length === 0)) {
     gaps.push({
       key: 'models.required',
-      why: '没写「哪几个文件算齐」⇒ 平台的 ready 只能是 null（说不出来）',
+      why: '未声明用于判断完整性的文件清单，平台只能返回「状态未知」',
       example: ['model.pt', 'config.yaml'],
     })
   }

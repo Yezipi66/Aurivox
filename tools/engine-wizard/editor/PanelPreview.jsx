@@ -49,7 +49,7 @@ class ErrorBoundary extends React.Component {
           <div className="field-hint">
             {t2('This is a bug in the preview, not in your manifest — '
               + 'the form on the left and saving still work.',
-              '这是预览的缺陷，不是你的名片填错了 —— 左边的填表和存盘仍然可用。')}
+              '这是预览的缺陷，与 Manifest 填写无关，左侧的填表与存盘仍可使用。')}
           </div>
         </div>
       )
@@ -156,7 +156,7 @@ function PreviewInner ({ manifest }) {
           {other > 0 && (
             <p className="field-hint" style={{ marginTop: 10 }}>
               ▸ {t(`the other tier has ${other} more — switch tabs to see them`,
-                `另一档还有 ${other} 个 —— 切标签能看到`)}
+                `另一档还有 ${other} 个，切换标签即可查看`)}
             </p>
           )}
         </div>

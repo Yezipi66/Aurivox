@@ -168,7 +168,7 @@ function VerifyField ({ value, onChange, t }) {
       <Row label="imports"
         hint={t('what the platform should import to decide whether the engine is '
           + 'installed — module, class, and the method names',
-          '平台靠 import 什么来判断这台引擎装没装 —— 模块、类、方法名')}>
+          '平台依据 import 的模块、类、方法名判断该引擎是否已安装')}>
         <table className="table">
           <tbody>
             {imports.map((im, i) => (
@@ -264,8 +264,8 @@ function BindField ({ value, onChange, t }) {
       {SLOTS.map((slot) => (
         <Row key={slot} label={slot}
           hint={slot === 'text'
-            ? t('required — maps the input text to an argument name',
-              '必填 —— 把输入文本映射到上游哪个参数名')
+            ? t('required. Maps the input text to an argument name',
+              '必填。将输入文本映射到上游对应的参数名')
             : t('maps to an argument name upstream; leave empty when this engine '
               + 'has no such concept',
               '映射到上游哪个参数名；这台引擎没这个概念就留空')}>
@@ -277,7 +277,7 @@ function BindField ({ value, onChange, t }) {
       <p className="plan-warn">
         {t('⛔ These are the platform\'s fixed input words. Each one maps to whatever '
           + 'the engine calls that thing — a wrong mapping is not reported as an error.',
-          '⛔ 这些是平台固定的输入词。每个词对应上游自己的叫法 —— 映射错了不会报错。')}
+          '以上为平台固定的输入词，每个词对应上游各自的名称，映射错误不会报错。')}>
       </p>
     </>
   )
@@ -361,7 +361,7 @@ export function RuntimeSection ({ value, onChange, t }) {
         hint={t('the engine\'s own environment directory (e.g. engines/<id>/.venv)',
           '这台引擎自己的环境目录（如 engines/<id>/.venv）')}
         warn={t('⛔ must be relative — an absolute path is rejected outright',
-          '⛔ 必须是相对路径 —— 绝对路径会被直接拒绝')}>
+          '必须为相对路径，绝对路径会被拒绝')}>
         <input className="control" type="text" value={v.python || ''}
           placeholder="engines/xxx/.venv"
           onChange={(e) => set('python', e.target.value.trim())} />
@@ -392,7 +392,7 @@ export function RuntimeSection ({ value, onChange, t }) {
       </Row>
       <Row label="ready_timeout_ms_source"
         hint={t('required: where that number came from — measured or estimated',
-          '必填：那个数从哪来 —— 实测还是估的')}
+          '必填：需说明该数值的来源（实测或估算）')}>
         warn={t('writing a number without saying where it came from is rejected',
           '写了数却不说明出处会被拒绝')}>
         <select className="control" value={v.ready_timeout_ms_source || ''}
@@ -468,9 +468,9 @@ export function CallSection ({ value, onChange, t }) {
       </Row>
       <Row label="returns"
         hint={t('file / bytes / generator — what the method gives back',
-          'file / bytes / generator —— 方法返回什么')}
+          'file / bytes / generator，方法的返回形式')}>
         warn={t('⛔ wrong value here fails at call time, not at load time',
-          '⛔ 这里填错是在调用时报错，不是加载时')}>
+          '此处填写错误将在调用时触发，而非加载时')}>
         <select className="control" value={v.returns || ''}
           onChange={(e) => set('returns', e.target.value || undefined)}>
           <option value="">{t('(unset)', '（不写）')}</option>
@@ -490,7 +490,7 @@ export function CallSection ({ value, onChange, t }) {
               + 'The platform has a single requires_reference_audio switch at the top '
               + 'level — per-method needs can only be expressed here.',
               '每个方法要各自的 bind 和 call_time。'
-              + '顶层的 requires_reference_audio 只有一个总开关 —— 分方法的需求只能在这里表达。')}
+              + '顶层的 requires_reference_audio 只有一个总开关，分方法的需求只能在此表达。')}>
           </p>
           <MethodsField value={v.methods} onChange={(m) => set('methods', m)} t={t} />
         </div>
@@ -513,7 +513,7 @@ export function ModelsSection ({ value, onChange, t }) {
       <Row label="required"
         hint={t('the files that count as «the weights are there» — the platform '
           + 'can only answer yes/no against this list',
-          '哪些文件算「权重齐了」—— 平台只能对着这份清单回答有/没有')}
+          '用于判断 Checkpoint 是否完整的文件清单，平台据此回答有无')}>
         warn={t('without this the platform can only say the folder exists, '
           + 'not whether it is complete',
           '不写这个，平台只能说目录在不在，说不出齐不齐')}>
@@ -539,7 +539,7 @@ export function ModelsSection ({ value, onChange, t }) {
       <p className="plan-warn">
         {t('⛔ The platform does not download anything. It only prints this command '
           + 'with the path filled in. Downloading is the user\'s job.',
-          '⛔ 平台不下载任何东西，只把这条命令填好路径打印出来。下载由用户自己完成。')}
+          '平台不执行下载，仅填入路径后显示该命令，下载需自行完成。')}>
       </p>
     </>
   )

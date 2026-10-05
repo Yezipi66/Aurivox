@@ -97,9 +97,9 @@ export default function MainArea ({ manifest }) {
             <div style={{ gridColumn: '1 / -1' }}>
               <label className="field-label">{t('Model slot', '模型位')}</label>
               <p className="field-hint" style={{ marginTop: 0 }}>
-                {t('This engine has no user-selectable weight slot (weights is empty) '
-                  + '— simply leave weights out of the manifest.',
-                  '这台引擎没有用户可选的权重位（weights 为空）—— 名片里不写 weights 即可')}
+                {t('This engine has no user-selectable weight slot (weights is empty). '
+                  + 'Simply leave weights out of the manifest.',
+                  '该引擎没有可供选择的权重位（weights 为空），Manifest 中不声明 weights 即可')}>
               </p>
             </div>
             )}
@@ -114,7 +114,7 @@ export default function MainArea ({ manifest }) {
               {' '}
               {t('but the platform only has one global switch — if this engine needs '
                 + 'it per method, the manifest cannot express that.',
-                '但平台只有一个总开关 —— 若这台引擎不同方法需求不同，'
+                '但平台只有一个总开关，若该引擎的不同方法需求不同，'
                 + '名片表达不了。')}
             </p>
           </div>
@@ -125,7 +125,7 @@ export default function MainArea ({ manifest }) {
         {t('⬆ Notice: the shape above is decided by the platform — switching engines '
           + 'does not change a single character of it. Only the “Advanced Settings” '
           + 'block below comes from the manifest.',
-          '⬆ 注意：上面这些格子的形状由平台决定 —— 换一台引擎，一个字都不会变。'
+          '注意：以上格子的形式由平台决定，更换引擎时不会发生变化。'
           + '只有下面 Advanced Settings 里的格子来自名片。')}
       </p>
     </div>

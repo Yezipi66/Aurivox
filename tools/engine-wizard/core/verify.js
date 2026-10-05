@@ -131,9 +131,9 @@ function runChecks (id, opts = {}) {
         : ready === false
           ? '目录不在，或名片点名的文件缺了'
           // ⛔ null 的原话（checkpoints.js:84-91）
-          : '⚠ 说不出来 —— 名片没写 runtime.checkpoints，'
-            + '或没写 models.required（哪几个文件算齐）'
-            + '⛔ 这不等于「齐了」，也不等于「缺了」',
+          : '状态未知：Manifest 未声明 runtime.checkpoints，'
+            + '或未声明 models.required（用于判断哪些文件算完整）。'
+            + '既不能视为完整，也不能视为缺失',
       required: st.required || [],
       missing: st.missing || [],
       abs_path: st.abs_path || null,
@@ -194,7 +194,7 @@ function runAudioCheck (id, opts = {}) {
       error: 'A 级要真的合成一次。请求体需要用户填写：'
         + '里面的键名是**引擎方言**（照这张名片的 maps 写），'
         + '编出来的请求验不了「声音对不对」。\n'
-        + '你在向导里填一份真实的（文本 + 参考音频），我再跑。',
+        + '请提供真实的请求内容（文本与参考音频）后重试。',
       expected_shape: '照名片 call.bind 的槽位名：'
         + Object.keys((profile.call && profile.call.bind) || {})
           .map((k) => `${k}: '…'`).join('  ') || '(这张名片没有 call.bind)',

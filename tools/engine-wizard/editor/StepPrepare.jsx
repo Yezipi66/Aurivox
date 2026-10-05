@@ -31,24 +31,24 @@ const ERR_TEXT = {
     'The link ended in "/{tail}". Only the repository root is used.',
     '已去除链接末尾的 “/{tail}”，改用仓库根地址。'],
   EMPTY_LINK: [
-    'No link yet.', '还没填链接。'],
+    'No link yet.', '尚未填写链接。'],
   NO_OWNER: [
-    'Missing the repository name — a link looks like github.com/owner/name.',
-    '还缺仓库名 —— 链接要写成 github.com/用户名/仓库名。'],
+    'Missing the repository name. A link looks like github.com/owner/name.',
+    '缺少仓库名。链接格式为 github.com/用户名/仓库名。'],
   NOT_GITHUB: [
-    'Only GitHub links are supported — {host} cannot be cloned here. Paste the GitHub address instead.',
-    '只支持 GitHub 链接 —— {host} 这里拉不了，请换成 GitHub 上的仓库地址。'],
+    'Only GitHub links are supported. {host} cannot be cloned here. Paste the GitHub address instead.',
+    '仅支持 GitHub 链接，{host} 无法克隆。请改用 GitHub 仓库地址。'],
   NO_REPO: [
-    'Missing the repository name — "{owner}" is the account; the link needs github.com/owner/name.',
-    '缺仓库名 —— "{owner}" 是用户名，链接要写成 github.com/用户名/仓库名。'],
+    'Missing the repository name. "{owner}" is the account; the link needs github.com/owner/name.',
+    '缺少仓库名。"{owner}" 为用户名，链接格式为 github.com/用户名/仓库名。'],
   UNKNOWN_TAIL: [
-    'Cannot read "{tail}" in this link — paste the repository home page.',
-    '无法识别链接里的 "{tail}" —— 请贴仓库首页的地址。'],
+    'Cannot read "{tail}" in this link. Paste the repository home page.',
+    '无法识别链接中的 "{tail}"。请粘贴仓库首页地址。'],
   EMPTY: [
     'The folder name cannot be empty.', '目录名不能为空。'],
   WHITESPACE: [
-    'The folder name has leading or trailing spaces — it must match the folder exactly.',
-    '目录名前后有空格 —— 必须和文件夹名完全一致。'],
+    'The folder name has leading or trailing spaces. It must match the folder exactly.',
+    '目录名前后含有空格，必须与文件夹名完全一致。'],
   RESERVED_PREFIX: [
     'The folder name cannot start with "{prefix}".', '目录名不能以 "{prefix}" 开头。'],
   ILLEGAL_CHAR: [

@@ -64,8 +64,11 @@ test('⛔ ⭐ readEnvCommand：没有 install 段就报错（装法由 suggestEn
   //      用户不关心契约，他要知道**现在该怎么办**。
   // ✅ 现在只要求：说清缺什么 + 给两条可执行的路。
   assert.ok(/env_command/.test(r.error), r.error)
-  assert.ok(/第 4 步/.test(r.error) && /自己/.test(r.error),
-    `⛔ 要告诉用户两条路（第 4 步填名片 / 自己装）：${r.error}`)
+  // ⛔ 钉实质：必须给两条可执行的路（第 4 步填 Manifest / 自行安装），
+  //   ⛔ 不钉「自己」这个具体词。
+  assert.ok(/第 4 步/.test(r.error), `⛔ 必须提到第 4 步：${r.error}`)
+  assert.ok(/自行|自己/.test(r.error),
+    `⛔ 必须提到自行安装这条路：${r.error}`)
   // ⛔ 不许出现内部术语和破折号解释腔
   assert.ok(!/平台不替你猜|不猜装法|这不是错|——/.test(r.error),
     `⛔ 界面文案不许出现内部裁决或破折号：${r.error}`)
@@ -154,7 +157,10 @@ test('⭐ 计划里必须提醒「退出码 0 不代表能用」', () => {
     manifest: { install: { env_command: ['uv', 'sync'] } } })
   const note = p.steps.find((s) => s.kind === 'note')
   assert.ok(note, '⛔ 必须有那条提醒')
-  assert.ok(note.why.includes('不代表这台引擎能用'), note.why)
+  // ⛔ 钉实质：必须说「退出码 0 不代表引擎可用」，⛔ 不钉「不代表这台引擎能用」的字面。
+  assert.ok(/不代表.*(能|可用|运行)/.test(note.why), note.why)
+  assert.ok(/校验|探针|合成/.test(note.why),
+    `⛔ 必须说清下一步是什么（后续校验）：${note.why}`)
 })
 
 test('⛔ 不给 execute:true ⇒ 一行命令都不跑', () => {
@@ -195,7 +201,9 @@ test('⛔ 命令失败 ⇒ 如实带出上游原话 + 提醒「装到一半」',
   assert.strictEqual(r.code, 'ENV_FAILED')
   assert.strictEqual(r.status, 3)
   assert.ok(r.error.includes('boom'), '⛔ 必须把上游的原话带出来')
-  assert.ok(r.note.includes('装到一半'), r.note)
+  // ⛔ 钉实质：必须说明「安装中断会留下不完整环境、需先清理」，
+  //   ⛔ 不钉「装到一半」这四个字。
+  assert.ok(/不完整|中断|清理/.test(r.note), r.note)
 })
 
 test('⛔ 命令不存在 ⇒ 说清「它装了没？平台不知道」', () => {
@@ -206,7 +214,10 @@ test('⛔ 命令不存在 ⇒ 说清「它装了没？平台不知道」', () =>
   })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'SPAWN_FAILED')
-  assert.ok(r.error.includes('装了没'), r.error)
+  // ⛔ 钉实质：必须说「平台无法确认是否装成功」+ 让人去查目录，⛔ 不钉措辞。
+  assert.ok(/无法确认|不知道|不能确认/.test(r.error), r.error)
+  assert.ok(/engines\/<id>|engines/.test(r.error),
+    `⛔ 必须指出去哪里查：${r.error}`)
 })
 
 // ---------------------------------------------------------------------------

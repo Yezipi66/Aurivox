@@ -59,9 +59,9 @@ export default function Diagnostics ({ result, loading }) {
             <div className="msg msg-danger">
               {result.parse_error
                 ? t('Invalid JSON — the preview on the right is the previous version',
-                    'JSON 无法解析 —— 右侧显示的是上一次的结果')
+                    'JSON 无法解析，右侧显示的是上一次的结果')
                 : t('The checker itself failed. This says nothing about your manifest.',
-                    '检查器自身出错。这与你的名片是否正确无关。')}
+                    '检查器自身出错，与 Manifest 是否正确无关。')}
               <div className="field-hint">{broken}</div>
             </div>
           </div>
@@ -101,7 +101,7 @@ export default function Diagnostics ({ result, loading }) {
               + 'It does not mean the engine will run, and it does not mean '
               + 'the value bindings are correct — that needs a real synthesis run.',
               '此处通过检查，表示名片结构被接受。'
-              + '这不代表引擎能运行，也不代表参数绑定正确 —— 后者需要真跑一次合成来确认。')}
+              + '这不代表引擎能运行，也不代表参数绑定正确，后者需实际执行一次合成以确认。')}
           </p>
 
           {errors.length > 0 && (
