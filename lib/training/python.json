@@ -1,4 +1,20 @@
 {
-  "python": "./venv/Scripts/python.exe",
-  "description": "项目 Python 环境 (Python 3.11, torch 2.2.0+cu121)"
+  "_comment": [
+    "训练线用哪个 Python —— 2026-10-04 起指向**引擎自己的 venv**，不再是平台根 venv。",
+    "",
+    "为什么：Owner 2026-10-04 裁定「GSV 那 200 个包归引擎环境兼训练扩展环境，",
+    "训练和 GSV 推理暂时共用一个 venv」（已在本机与上一部开发机验证）。",
+    "而 C3 早已裁定训练链绑死 GSV ⇒ 训练是 GSV 专属实现，",
+    "它的环境就该跟 GSV 走，而不是跟平台走。",
+    "",
+    "⭐ 形状：这里写的是**虚拟环境目录**（与名片 runtime.python 同一约定，",
+    "   平台按 process.platform 推导 Scripts/python.exe 或 bin/python）。",
+    "   ⛔ 不是可执行文件路径 —— 那是 2026-09-29 之前的旧形状。",
+    "",
+    "⛔ 本机（Arc，无 NVIDIA）训练线不可用：根 venv 不再带 torch，且",
+    "   UVR5 不支持 CPU。这不是这个文件造成的，是 C3 的必然结果。"
+  ],
+  "venv": "engines/gpt-sovits/.venv",
+  "python": "engines/gpt-sovits/.venv",
+  "description": "GSV 的环境（训练与推理共用 ——暂时的候补；等真有第二个可微调引擎时再拆）"
 }
