@@ -10,7 +10,10 @@ const assert = require("assert");
 const w = require("../../lib/audio/wav");
 const f = require("../../lib/audio/ffmpeg");
 const g = require("../../lib/gsv/client");
-const cu = require("../../lib/system/cuda");
+// ⭐ 2026-10-05：lib/system/cuda.js → lib/system/gpu.js（文件名回答的是
+//    「这台机器有什么显卡」，而「CUDA」在项目里另有一个含义）。
+//    旧导出名 startCudaProbe / detectCuda 仍在 gpu.js 里，兼容期保留。
+const cu = require("../../lib/system/gpu");
 
 let failed = 0;
 function check(name, fn) {
