@@ -96,24 +96,30 @@ function probePyproject (text) {
 
 /** 探测一个依赖清单文件名 —— 决定我们走 uv pip 还是上游脚本 */
 function detectDependencyFile (filenames) {
+  // ⛔ note 是**用户可见**的（StepPrepare 的「依赖清单」那栏直接渲染它）⇒
+  //   只说「识别到哪个文件」，⛔ 不说「因此用哪种装法」——
+  //   那是判据，属维护者的信息。装法由 suggestEnvCommand 单独产出。
   const order = [
-    { f: 'pyproject.toml', kind: 'pyproject', note: '正规：uv pip 按项目装' },
-    { f: 'uv.lock', kind: 'lock', note: '有锁文件 ⇒ 版本已定，照它装' },
-    { f: 'requirements.txt', kind: 'requirements', note: '老项目：uv pip -r' },
-    { f: 'environment.yml', kind: 'conda', note: 'conda 环境' },
-    { f: 'setup.py', kind: 'setup', note: '老项目：pip install -e .' },
+    { f: 'pyproject.toml', kind: 'pyproject' },
+    { f: 'uv.lock', kind: 'lock' },
+    { f: 'requirements.txt', kind: 'requirements' },
+    { f: 'environment.yml', kind: 'conda' },
+    { f: 'setup.py', kind: 'setup' },
   ]
   const hit = []
   for (const o of order) if (filenames.includes(o.f)) hit.push(o)
   if (hit.length === 0) {
     return { found: false,
-      note: '没找到依赖清单。请按项目 README 自行安装，或换一份带依赖清单的仓库。' }
+    note: '未找到依赖清单（pyproject.toml / uv.lock / requirements.txt / '
+      + 'environment.yml）。请按项目 README 安装，或改用带依赖清单的仓库。' }
   }
   return {
     found: true,
     primary: hit[0],
     all: hit,
-    note: hit.map((h) => `${h.f}（${h.note}）`).join('；'),
+    // ⛔ 只列识别到的文件名。⛔ 不说「因此用哪种装法」——
+    //   那是判据（装法由 suggestEnvCommand 单独产出），用户不需要看到。
+    note: hit.map((h) => h.f).join('；'),
   }
 }
 

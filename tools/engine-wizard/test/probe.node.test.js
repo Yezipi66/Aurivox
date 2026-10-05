@@ -149,11 +149,22 @@ test('只有 requirements.txt（老项目）也能认', () => {
 test('⛔ 一个都没有 ⇒ 如实说「没有」，不猜', () => {
   const r = detectDependencyFile(['README.md', 'assets/logo.png'])
   assert.strictEqual(r.found, false)
-  // ⭐ 只钉实质：确实说了「没有清单」
-  assert.ok(/没找到|没有/.test(r.note), r.note)
+  // ⭐ 只钉实质：确实说了「没有清单」。
+  //   ⛔ 不钉「没找到 / 没有」这两个词 —— 措辞已在 2026-10-05 统一成
+  //   「未找到 / 未找到依赖清单」，断言跟着措辞变会无谓地红。
+  assert.ok(/未找到|没找到|没有/.test(r.note), r.note)
   // ⛔⛔ 不许出现「平台不替你猜」这类内部术语（Owner 反复强调的口吻问题）
   assert.ok(!/平台不替你猜|平台不会替你|——/.test(r.note),
     `⛔ 不许出现内部术语或破折号：${r.note}`)
+})
+
+// ⛔ note 是**用户可见**的（StepPrepare 的「依赖清单」栏直接渲染）
+//   ⇒ 只列识别到的文件名，⛔ 不得掺「因此用哪种装法」的判据。
+test('⛔ 依赖清单的 note 只列文件名，⛔ 不说「因此用哪种装法」', () => {
+  const r = detectDependencyFile(['pyproject.toml', 'uv.lock'])
+  assert.strictEqual(r.note, 'pyproject.toml；uv.lock')
+  assert.ok(!/uv pip|uv sync|conda env|pip install/.test(r.note),
+    `⛔ note 不该包含装法（那是判据，属维护者信息）：${r.note}`)
 })
 
 test('conda 环境文件能被认出来', () => {

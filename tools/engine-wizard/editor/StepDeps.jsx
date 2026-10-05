@@ -146,10 +146,13 @@ export default function StepDeps ({ state }) {
           <div className="layer-label">
             {t('GPU-related packages', '与 GPU 相关的包')}
           </div>
+          {/* ⛔⛔ t() 只有两个参数（i18n.jsx:44 `t = (en, zh)`）。
+               这里曾传三个 ⇒ 第二段英文被当中文返回，
+               中文界面上直接显示 "a different Torch build."（实测截图）。 */}
           <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('These only run on this kind of graphics card. Other cards need',
-              'a different Torch build.',
-              '这些包只能在这种显卡上用。换成别的显卡，就要装另一个版本的 Torch。')}
+            {t('These packages only run on this kind of graphics card. '
+              + 'Other cards need a different Torch build.',
+              '这些包只能在这种显卡上使用。更换显卡后需要安装其他版本的 Torch。')}
           </p>
           {d.torch.packages.map((r) => {
             const V = VERDICT[r.verdict] || VERDICT.unknown
@@ -191,6 +194,41 @@ export default function StepDeps ({ state }) {
               '此处为推荐值，全部选项列于下方。若上游锁定的 wheel 与本机显卡'
               + '不匹配，可改选其他后端，或自行安装 Torch。')}
           </p>
+        </div>
+      )}
+
+      {/* ---- ⭐ 执行计划：把真正要跑的命令**摆出来** ----
+          ⛔ 过去界面上只有「选哪个后端」的下拉，⛔ 没有任何地方显示
+          「将要执行的命令是什么」⇒ 用户点安装前看不到要跑什么。
+          ⛔ 命令来自 preview（execute:false 的计划），⛔ 不是 plan。*/}
+      {preview && preview.ok && (preview.env_command || []).length > 0 && (
+        <div className="field">
+          <label className="field-label" htmlFor="wz-cmd">
+            {t('Command to run', '将要执行的命令')}
+          </label>
+          <div className="rc-cmd" id="wz-cmd">
+            <div className="rc-cmd-body">
+              <code>{(preview.env_command || []).join(' ')}</code>
+            </div>
+          </div>
+          {preview.whatToDo && (
+            <p className="field-hint" style={{ marginTop: 0 }}>
+              {preview.whatToDo}
+            </p>
+          )}
+          {preview.stepsRun && preview.stepsRun.length > 0 && (
+            <div className="preflight" style={{ marginTop: 6 }}>
+              {preview.stepsRun.map((s) => (
+                <div key={s.n} className="pf-row">
+                  <span className="badge badge-sym">{s.ok ? '✓' : '✗'}</span>
+                  <span className="pf-val"><code>{s.argv.join(' ')}</code></span>
+                  <span className="field-hint" style={{ marginTop: 0 }}>
+                    {s.ok ? t('done', '完成') : t('failed', '失败')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -260,6 +298,29 @@ export default function StepDeps ({ state }) {
         <div className="msg msg-danger">
           {result.error}
           {result.note && <div className="field-hint">{result.note}</div>}
+        </div>
+      )}
+      {/* ⭐ 逐步结果：⛔ 过去只显示一段 note，⛔ 看不出「跑到第几步、
+          每步各自的输出」—— 装依赖要几十分钟，只有这一步才能让人知道进度。*/}
+      {result && result.stepsRun && result.stepsRun.length > 0 && (
+        <div className="preflight">
+          {result.stepsRun.map((s) => (
+            <div key={s.n} className="pf-row">
+              <span className="badge badge-sym">{s.ok ? '✓' : '✗'}</span>
+              <span className="pf-val">
+                {t(`Step ${s.n}/${s.of}`, `第 ${s.n}/${s.of} 步`)}
+                {' '}<code>{s.argv.join(' ')}</code>
+              </span>
+              <span className={`pf-warn${s.ok ? '' : ''}`}>
+                {s.ok ? t('done', '完成') : t('failed', '失败')}
+              </span>
+              {!s.ok && s.output && (
+                <div className="rc-cmd-body" style={{ marginTop: 4 }}>
+                  <code>{String(s.output).slice(0, 2000)}</code>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
       {result && result.ok && result.note && (

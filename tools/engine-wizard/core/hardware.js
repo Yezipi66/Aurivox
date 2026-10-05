@@ -166,6 +166,10 @@ function recommendBackend (gpus) {
   // ⛔ 推荐不是保证：本机实际可用性由 lock 后端与检测结果的比对给出
   //   （judgeTorchSpec），界面分开显示，⛔ 不混进 reason。
 
+  // ⭐ 顺序 = **独显优先**。核显与独显并存时一律选独显（这是常识，
+  //   不是可选项）：核显慢一到两个数量级，且它一直在跑桌面合成。
+  //   ⛔ 判据：新增厂商时排在 nvidia 之后；⛔ 不许因为「探测到多个」
+  //   就改成「取最后一个」或「按集成显卡优先」。
   if (has('nvidia')) {
     return { recommended: 'cuda', confidence: 'guidance', reason: '推荐使用 CUDA' }
   }
@@ -185,8 +189,16 @@ function recommendBackend (gpus) {
       ? { recommended: 'directml', confidence: 'guidance', reason: '推荐使用 DirectML' }
       : { recommended: 'rocm', confidence: 'guidance', reason: '推荐使用 ROCm' }
   }
-  // 分不清 ⇒ CPU 版。CPU 是「哪里都装得上」的选择，代价是速度。
-  return { recommended: 'cpu', confidence: 'unknown', reason: '推荐使用 CPU' }
+  // ⛔ 分不清 ⇒ CPU 版。这是**明确的回退**，⛔ 不是「探测到了 CPU」。
+  //   界面上必须显示成「未检测到可用的加速器，已回退 CPU」——
+  //   ⛔ 只写「推荐使用 CPU」会读起来像探测成功，而 CPU 推理慢到基本不可用。
+  return {
+    recommended: 'cpu',
+    confidence: 'fallback',
+    reason: '未检测到可用的加速器，已回退 CPU',
+    // ⭐ 供界面显示警告：探测失败要**说清是回退**
+    fellBack: true,
+  }
 }
 
 /**
@@ -204,7 +216,13 @@ function inspectHardware () {
     reason: rec.reason,
     // ⚠ 永远说清楚：这是建议不是保证
     confidence: rec.confidence,
-    caveat: '按已识别的显卡型号匹配，未在本机运行验证。',
+    // ⭐ 探测失败时为 true —— 界面据此显示「已回退」的警告，
+    //   ⛔ 不然用户会把「回退到 CPU」读成「探测到了 CPU」。
+    fellBack: !!rec.fellBack,
+    // ⚠ 探测为空时 caveat 要说清「什么都没探测到」，而不是「未在本机运行验证」
+    caveat: gpus.length === 0
+      ? '未检测到任何加速设备，已回退 CPU。CPU 推理速度很慢，微调不可用。'
+      : '按已识别的显卡型号匹配，未在本机运行验证。',
     preferenceOrder: BACKEND_PREFERENCE,
     options: BACKEND_PREFERENCE,
   }

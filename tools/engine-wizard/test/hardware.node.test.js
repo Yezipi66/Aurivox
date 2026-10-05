@@ -84,9 +84,36 @@ test('⭐ ⛔ 认不出的厂商 ⇒ cpu，且理由要说清「为什么退」'
   }
 })
 
-test('⭐ ⛔ 分不清时 confidence 是 unknown（⛔ 不是 guidance）', () => {
-  assert.strictEqual(recommendBackend([]).confidence, 'unknown')
+test('⭐ ⛔ 分不清时 confidence 不是 guidance（是明确的回退）', () => {
+  // ⭐ 值从 'unknown' 改成 'fallback'：两者都表示「不是探测成功的推荐」，
+  //   而 'fallback' 说清了它是**回退**⇒ 界面据此显示警告。
+  //   ⛔ 守卫的实质是「不许把回退说成探测成功」，不是钉某个字符串。
+  const fallback = recommendBackend([])
+  assert.notStrictEqual(fallback.confidence, 'guidance',
+    '⛔ 回退不得标成 guidance（那会让界面显示成探测成功的推荐）')
+  assert.strictEqual(fallback.recommended, 'cpu')
+  // ⭐ 必须带 fellBack 标记：界面据此说明「已回退」而不是「推荐使用 CPU」
+  assert.strictEqual(fallback.fellBack, true,
+    '⛔ 回退必须带 fellBack=true，否则界面读起来像探测到了 CPU')
+  assert.ok(/回退/.test(fallback.reason),
+    `⛔ 理由要说清是回退：${fallback.reason}`)
+
   assert.strictEqual(recommendBackend([{ vendor: 'nvidia' }]).confidence, 'guidance')
+})
+
+// ⛔ 独显优先：核显与独显并存时选独显（常识，不是可选项）
+test('⭐ ⛔ 核显 + 独显并存 ⇒ 独显优先', () => {
+  const both = [
+    { vendor: 'intel', name: 'Intel(R) Arc(TM) 140T GPU' },
+    { vendor: 'nvidia', name: 'RTX 4090' },
+  ]
+  assert.strictEqual(recommendBackend(both).recommended, 'cuda',
+    '⛔ 独显优先 —— 核显慢一到两个数量级，且它一直在跑桌面合成')
+  // ⛔ 顺序不能被探测器返回的顺序影响
+  assert.strictEqual(recommendBackend(both.slice().reverse()).recommended, 'cuda',
+    '⛔ 推荐不得依赖探测结果的顺序')
+  // 只有核显时才用 XPU
+  assert.strictEqual(recommendBackend([both[0]]).recommended, 'ipex')
 })
 
 // ---------------------------------------------------------------------------

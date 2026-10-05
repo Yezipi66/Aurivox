@@ -214,6 +214,11 @@ const done = facts && facts.cloned === true
             placeholder="https://github.com/owner/name"
             onChange={(e) => {
               setUrl(e.target.value)
+              // ⭐ 每次输入都写回父组件 —— 否则收起/展开这一步时链接就没了
+              //   （state 只在解析成功时才被写入，见 resolve()里的 onChange）。
+              //   ⛔ 写回父组件的是**原始输入**，⛔ 不含解析产物
+              //   （res/probe/cloneUrl 仍只在解析成功时写）。
+              onChange({ url: e.target.value })
               // ⛔ 只在**真的变了**时才清结果；
               //   ⛔⛔ 只清这四个键，别整体替换 prep（会把别的键一起抹掉）
               if (e.target.value !== lastResolved) {

@@ -29,9 +29,11 @@ export const STEPS = [
     key: 'prepare',
     n: 1,
     // ⛔ 五步名称统一动名词，直接说这一步要做的动作 —— 界面不出现半截英文。
-    // ⛔ 英文那半必须真写英文：t() 在切到英文界面时取label[0]，
+    // ⛔ 英文那半必须真写英文：t() 在切到英文界面时取 label[0]，
     //   两半都写中文 ⇒ 切英文时这一步的名字不会变。
-    label: ['1 Clone repository', '1 克隆仓库'],
+    // ⛔⛔ label 里**不许带序号**：轨道上的 dot 已经渲染了序号
+    //   （Pipeline.jsx:22 的 String(i + 1)）⇒ 带上就是「1  1 克隆仓库」两遍。
+    label: ['Clone repository', '克隆仓库'],
     does: ['粘贴 GitHub 仓库地址，系统读取项目信息并准备克隆命令，随后即可安装依赖。',
         '粘贴 GitHub 仓库地址，系统读取项目信息并准备克隆命令，随后即可安装依赖。'],
     needs: ['url'],
@@ -47,7 +49,7 @@ export const STEPS = [
     key: 'env',
     n: 2,
     // 这一步做的是列出要装的包，并把与 GPU 相关的单独标出来
-    label: ['2 Install dependencies', '2 安装依赖'],
+    label: ['Install dependencies', '安装依赖'],
     does: ['按上游声明的依赖清单安装依赖包，与 GPU 相关的包单独列出。安装完成后可检查能否启动。',
         '按上游声明的依赖清单安装依赖包，与 GPU 相关的包单独列出。安装完成后可检查能否启动。'],
     // ⛔ env_command 必须由名片给出 —— 平台不猜（判据来自已退役的 installPlan.js:44）
@@ -59,7 +61,7 @@ export const STEPS = [
     n: 3,
     // 这一步展示上游自带的下载方式（自带脚本或 README 里的命令），
     // ⛔ 平台不另造一套 —— 各项目的下载方式本来就各不相同。
-    label: ['3 Download models', '3 下载模型'],
+    label: ['Download models', '下载模型'],
     does: ['显示上游项目自带的下载方式与存放位置，由使用者手动执行。',
         '显示上游项目自带的下载方式与存放位置，由使用者手动执行。'],
     parallelWith: 'manifest',
@@ -71,7 +73,7 @@ export const STEPS = [
     key: 'manifest',
     n: 4,
     // 用户在这一步做的事是填一张表。⛔ 界面上不叫它 manifest —— 那是文件名
-    label: ['4 Write manifest', '4 填写名片'],
+    label: ['Write manifest', '填写名片'],
     does: ['填写引擎名片：名称、参数与启动方式。',
         '填写引擎名片：名称、参数与启动方式。'],
     parallelWith: 'models',
@@ -81,7 +83,7 @@ export const STEPS = [
     n: 5,
     // ⛔ 这一步的检测逻辑尚未实现（见 ./StepVerify.jsx 头部），
     //   计划内容为三块互不依赖的结果：启动与退出码 / 音频 / ASR 回读。
-    label: ['5 Verify', '5 检查'],
+    label: ['Verify', '检查'],
     does: ['检查安装结果：是否已安装、能否启动、权重是否完整、能否合成。四项分别显示，互不作为前置条件。',
         '检查安装结果：是否已安装、能否启动、权重是否完整、能否合成。四项分别显示，互不作为前置条件。'],
     needs: ['id'],
