@@ -4,8 +4,13 @@
     "⛔ 别直接复制这份文件的名字去建目录 —— 目录名就是引擎 id，",
     "   里面的 id 字段必须和目录名**逐字相同**，否则装不上（ENGINE_MANIFEST_ID_MISMATCH）。",
     "⭐ 平台只验不建：它不会替你装环境、不会替你下模型。",
-    "   装完用 node tools/install-engine.cjs <id> 拉源码（默认只打印计划，加 --yes 才动手）。",
-    "   下完用 node tools/dev/check-engine-env.cjs --engine <id> 查状态（加 --deep 会真去 import）。",
+    "   👉 准确含义是「不替你**决定从哪儿下**」—— 你在 models.source.command",
+    "      里写好那条命令，平台只照着执行（那是执行名片，不是平台生成）。",
+    "⛔ 2026-10-04：node tools/install-engine.cjs 已随 lib/engines/installPlan.js",
+    "   **整体退役**（Owner 裁决：它的前提「先有名片再克隆」是反的）。",
+    "   · 拉源码 → git clone（目录必须空），顺序见 docs/ENGINE_ADOPTION_FLOW.md",
+    "   · 查底模齐不齐 / 打印取回命令 → node tools/engine-checkpoints.cjs <id>",
+    "   · 查状态 → node tools/dev/check-engine-env.cjs --engine <id>（加 --deep 真去 import）。",
     "📖 字段逐条说明见 engines/_TEMPLATE/README.md。"
   ],
 

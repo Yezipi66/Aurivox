@@ -1,11 +1,34 @@
 # 接入一台新 TTS 引擎
 
+> ⛔⛔ **本文件的「五步」已被 2026-10-04 那轮讨论推翻，不要照它走。**
+> ⛔ **第 3 步整步作废** —— `tools/install-engine.cjs` 与 `lib/engines/installPlan.js`
+> 已整体退役（Owner 裁决，理由见本文件顶部第二块 banner）。
+>
+> **现行流程（5 步）看 [`../../docs/ENGINE_ADOPTION_FLOW.md`](../../docs/ENGINE_ADOPTION_FLOW.md)**：
+>
+> ```
+> 1 克隆    git clone <url> engines/<id>/      ← 目录必须空
+> 2 建环境  照名片的 install.env_command；⚠ 注意 torch
+> 3 下模型  落到 engines/<id>/checkpoints/ + 下完对一次名
+> 4 写名片  落盘 manifest.json
+> 5 校验    三块独立显示，缺哪块写哪块
+> ```
+>
+> 与本文件的四处差异：
+> ① **名片从第 1 步挪到第 4 步**（为了让 clone 时目录是空的）
+> ② **第 3 步从「只打印命令」改成「真下载」** —— ⛔ 而本文件说「平台不替你下载」，
+>    那条规则的**准确含义是「不替你决定从哪儿下」**；决定（`models.source.command`）
+>    已经在名片里，平台执行它不违反「只验不建」
+> ③ **权重不再放 `models/tts/<id>/`**，改放 `engines/<id>/checkpoints/`
+>    （`.gitignore` 早已有 `engines/*/checkpoints/` 一行；C3 契约不破）
+> ④ **「6 · 前端能用」不再是独立步骤** —— 平台本来什么都不做
+
 > 目标读者：第一次在这个平台上装引擎的人（人或 AI）。
 > 进度与欠账看 [`../../docs/ONBOARDING_PLAN.md`](../../docs/ONBOARDING_PLAN.md)。
 >
 > **一句话**：`engines/<id>/manifest.json` 是唯一权威。平台只验不建 ——
-> 它不替你装环境、不替你下模型、不改你上游一行代码。照 `manifest.json` 里的
-> 注释填，填完用两条命令自检。
+> 它不替你装环境、不改你上游一行代码。照 `manifest.json` 里的注释填，填完用两条命令自检。
+> 👉 **「从哪儿下模型」由你决定并写进名片，平台照着执行**（见上面 ②）。
 
 ## 目录名就是引擎 id
 
@@ -24,10 +47,11 @@ engines/
 （`ENGINE_MANIFEST_ID_MISMATCH`）。
 
 ⛔ `engines/` 整棵树是要进 git 的（`manifest.json` / `UPSTREAM.md` /
-`LOCAL-CHANGES.md` 都在里面）。所以**别把底模放这儿** —— 底模归
-`models/tts/<引擎id>/`，见下面第 4 步。
+`LOCAL-CHANGES.md` 都在里面）。所以**别把底模放进源码那一层** ——
+⚠ **2026-10-04 起底模归 `engines/<引擎id>/checkpoints/`**（它已被 `.gitignore` 排除），
+而**不是** `models/tts/<引擎id>/`（存量四台还在那儿，迁移中）。见下面第 4 步。
 
-## 五步
+## 五步（⚠ 已被推翻 —— 现行 5 步见顶部 banner）
 
 ### 1 · 建目录 + 填名片
 
@@ -77,31 +101,37 @@ node tools/scaffold-params.cjs --engine cosyvoice2 --write    # 写到 parameter
 并进 `manifest.json` 之后，**记得删掉每个条目上的 `_confidence` / `_why` /
 `_needs_review` 等下划线开头的键**（它们是给你看的说明，不是名片字段）。
 
-### 3 · 拉源码（可选，但推荐）
+### 3 · 拉源码（可选，但推荐）—— ⛔ **本步已作废，命令不存在了**
 
 ```bash
+# ⛔ 以下两条命令已于 2026-10-04 随 lib/engines/installPlan.js 一起退役：
 node tools/install-engine.cjs cosyvoice2           # 只打印计划，不动盘
 node tools/install-engine.cjs cosyvoice2 --yes     # 真装
 ```
 
-它按名片里钉的 `upstream.commit` 走 `init → remote → fetch → checkout → drop-git`，
-然后跑 `install.env_command` 建环境。
+**为什么作废**（Owner 裁决，理由见顶部 banner）：它走的是
+`init → remote → fetch → checkout → drop-git`，而这套存在的**唯一理由**
+是「`manifest.json` 已经在目录里，`git clone` 拒绝拉进非空目录」。
+本文件第 1 步要求先填名片 ⇒ 目录非空 ⇒ 才有那个 workaround。
+**而正确顺序是反的**（先克隆，名片第 4 步才写）⇒ workaround 的理由消失
+⇒ 连同它一起退役。
 
-⚠️ 用 `init`+`fetch` 而不是 `git clone`，是因为 `manifest.json` 已经在那个目录里了，
-`clone` 拒绝拉进非空目录。
+⚠️ `upstream.commit` 是 `null` 时它会拒绝执行并说明原因 —— 那条**纪律本身
+仍然成立**（平台不替你拉最新版顶上），只是现在**由向导那一侧负责**，
+而 ⚠️ **向导今天还缺「钉版本 + 删 `.git`」这一步**（ONBOARDING_PLAN A4'）。
 
-⚠️ `upstream.commit` 是 `null` 时它会拒绝执行并说明原因 —— **这是故意的**。
-平台不会替你拉最新版顶上。
+👉 **今天要手工拉源码：照上游 README 的 clone 命令来。**
 
 ### 4 · 下底模
 
-底模放 `models/tts/<引擎id>/`（**不是** `engines/<id>/`）。放哪由你名片的
-`runtime.checkpoints` 决定。
+底模放 `engines/<引擎id>/checkpoints/`（⚠ **2026-10-04 起**：不再放 `models/tts/<引擎id>/`）。
+放哪由你名片的 `runtime.checkpoints` 决定 —— 那是个**相对项目根**的目录。
 
-平台**不替你下载**，但会把你名片里写的那条命令**填好占位符直接打印给你**：
+平台**不替你决定从哪儿下**，但会把你名片里写的那条命令（`models.source.command`）
+**填好占位符打印给你**；向导还会替你执行它（那是执行名片，不是平台生成）：
 
 ```bash
-node tools/install-engine.cjs cosyvoice2     # 收尾会打印这条
+node tools/engine-checkpoints.cjs cosyvoice2     # 查齐不齐 + 打印这条取回命令
 node tools/dev/check-engine-env.cjs --engine cosyvoice2   # 或用这个查
 ```
 
@@ -125,8 +155,24 @@ node tools/dev/check-engine-env.cjs --engine cosyvoice2 --deep   # 第二道：�
 ⚠️ 两道是**两根轴**，不是一根：`ok` = 装没装，`assets` = 权重在不在。
 「环境装好了、权重还没下」是完全正常的中间状态。
 
-⚠️ **第三道「出得了声」（真跑一次合成）今天还没有** —— 这是台账上唯一的关键路径
-欠账。意思是：前两道过了，你**仍然**只能靠手动试一次来确认它真能出声。
+⚠️ **第三道「出得了声」已经做出来了**（2026-09-29，本文件这句话当时写的）：
+
+```bash
+node tools/verify-engine.cjs --engine cosyvoice2             # B 级（默认）：宿主拿到合法响应
+node tools/verify-engine.cjs --engine cosyvoice2 --level A --request req.json   # A 级：真跑一次合成
+```
+
+A 级**先跑 B**（宿主没就绪时直接发 `/tts` 得到的 503 与「声音不对」长得一样）；
+`req.json` 的键是**引擎方言**，照该引擎名片的 `maps` 写。
+⚠️ **A 级查的是「WAV 有没有帧」，查不出内容乱码** —— 同一份 WAV 可以既有波形
+又全是乱码（[实测] 2026-10-02 CosyVoice2 zero_shot 在 XPU 上首次合成：
+所有「非空类」判据全绿，FunASR 反查相似度只有 **0.216**；换成配对的
+参考音频+文本后升到 **1.000**）。要判「说对了没有」得另配 ASR 回读比对。
+
+⚠️ **浅层校验会报假绿灯**（[实测] 2026-10-04）：它只查 `python.exe` 文件在不在。
+三台 venv 的 `pyvenv.cfg` 指向另一台机器的 uv 基础解释器（那个路径已不存在），
+浅层仍报「装了」，而实际 `uv trampoline failed to spawn Python child process`。
+⇒ **判「这台引擎能不能跑」只能用 `--deep`。**
 
 ### 6 · 装好了，前端自动长出来
 
@@ -180,7 +226,8 @@ Owner 2026-08-24 拍板：「我只维护 GPT-SoVITS 兼容这一套，其他一
 它只会忠实把你的错误翻译过去。
 
 **「装上了」= 平台这一侧没毛病。≠「你的映射是对的」。**
-后者只能靠第一道真跑一次合成来验（而那道今天还没有，见第 4 步）。
+后者只能靠第三道 A 级真跑一次合成来验（`tools/verify-engine.cjs --level A`）。
+⚠️ 而 A 级也只验到「出声」，**验不到「说得对」** —— 那要靠回读比对，见第 5 步。
 
 ## 参考
 

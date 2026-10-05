@@ -13,14 +13,23 @@
 - **OpenAI 兼容推理**：内置自包含推理服务，`/v1/audio/speech` 可直接被标准 OpenAI 客户端调用。
 - **解压即用分发包**：内嵌可重定位 Python + 一键部署向导（自动建 venv、装依赖、下载模型并自检）。
 
-> 📖 **最终用户请先读 [`GUIDANCE.md`](./GUIDANCE.md)**（部署 / 启动 / 停止 + 常见问题 FAQ）。
-> 本文件现在同时面向最终用户、开发者和二次开发者：部署、启动、训练管线、推理、API 和开发说明都集中在这里。历史变更单独记录在 [`CHANGELOG.md`](./CHANGELOG.md)。
+> 📖 **最终用户请先读 [`GUIDANCE.md`](./docs/GUIDANCE.md)**（部署 / 启动 / 停止 + 常见问题 FAQ）。
+> 本文件现在同时面向最终用户、开发者和二次开发者：部署、启动、训练管线、推理、API 和开发说明都集中在这里。历史变更单独记录在 [`CHANGELOG.md`](./docs/CHANGELOG.md)。
 
 ## 支持范围与不支持范围
 
 - 支持：Windows 10/11 x64、NVIDIA CUDA、GPT-SoVITS v2/v2Pro/v2ProPlus。
 - CPU：可用于部分推理，但速度明显较慢；不作为微调和 UVR5 的目标环境。
-- 暂不支持：Linux、macOS、Apple Silicon、AMD GPU、Intel GPU。
+- 暂不支持：Linux、macOS、Apple Silicon、AMD GPU。
+
+> ⚠️ **2026-10-04 订正**：「暂不支持 Intel GPU」这一条**已过时**。
+> 平台方向早已改成「多引擎 + 跨平台」（见 [`docs/ONBOARDING_PLAN.md`](./docs/ONBOARDING_PLAN.md) §0），
+> `lib/engines/platformPaths.js` 就是为此加的 —— 名片写的是**虚拟环境目录**，
+> 平台按 `process.platform` 推导 `Scripts/python.exe`（win32）还是 `bin/python`
+> （linux/darwin），⛔ 不做「三种都试，哪个存在用哪个」。
+> ⚠️ 但**「能跑起来」与「正式支持」是两件事**：Intel 核显上 XPU 可用
+> （[实测] fp16 matmul 比 CPU 快 15–24 倍），而 NVIDIA 之外的路径**未做回归测试**。
+> 微调线（UVR5 / S1 / S2）今天仍绑死 GSV + CUDA，见 ONBOARDING_PLAN C3。
 
 基于开源项目 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)（RVC-Boss，v2 / v2Pro / v2ProPlus）
 打造的 TTS 训练与推理一体化工作流：在其之上做工程化封装，自包含、可独立部署。
@@ -44,10 +53,10 @@
 | `lib/inference/` | 自包含推理服务的进程入口（`infer_server.py`，OpenAI 兼容）；推理运行时本体在 `engines/gpt-sovits/infer/` |
 | `vendor/` | 第三方**成品**（当前只有 `ffmpeg/`），原封不动就能跑，我们没改过一行。第三方**代码**不在这儿：`uvr5/`（人声分离）· `asr/`（语音识别）· `slicer/`（音频切分）都归 `pipeline/`（所有引擎共用，换引擎时不换）；引擎源码归 `engines/<id>/`（一台引擎一份，随引擎走） |
 | `models/` | 全部权重。二进制、能重新下载、不进 git。按用途分 `tts/<引擎id>/<版本>/` · `asr/` · `separation/` · `vocoder/` · `sr/` · `lang/` |
-| `engines/<id>/` | 一台引擎一个目录：上游源码 + 它自己的 `.venv` + `manifest.json`。底模**不在**这里，在 `models/tts/<id>/` |
+| `engines/<id>/` | 一台引擎一个目录：上游源码 + 它自己的 `.venv` + `manifest.json`。⚠ **2026-10-04 起新引擎的底模也放这里**（`engines/<id>/checkpoints/`，`.gitignore` 早有这一行）；⚠ **存量四台仍在 `models/tts/<id>/`**，迁移分两步做（GSV 那份要等训练线解绑，见 `docs/ONBOARDING_PLAN.md` A6）。**哪台在哪，以它名片的 `runtime.checkpoints` 为准** |
 | `assets/{voiceId}/` | 已发布角色资产（`meta.json` + 训练产物 + `logs_s1` / `logs_s2`） |
 | `.staging/{taskId}/` | 训练任务工作区（`task.json` 运行日志 + 中间产物；发布成功后按需清理） |
-| `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`install-engine.cjs`（按名片钉的 commit 拉上游）、`dev/`（一次性补丁与探针）、`scripts/`（启停与打包 PowerShell）、`deploy/`（部署与下载）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试）、`runtime/` · `wheels/` |
+| `tools/` | 开发与运维脚本：`run_tests.cjs`（测试入口，即 `npm test`）、`engine-checkpoints.cjs`（查底模齐不齐 + 打印名片的取回命令）、`engine-wizard/`（安装向导，⛔ 未提交）、`dev/`（一次性补丁与探针）、`scripts/`（启停与打包 PowerShell）、`deploy/`（部署与下载）、`build/`（发行版构建）、`tests/`（需单独运行的集成测试）、`runtime/` · `wheels/` |
 | `docs/` | 项目文档；`docs/internal/` 存放内部阶段性记录 |
 | `data/` | 运行期数据，全部集中于此：音色注册表 `voices.json` 及其轮转备份 `backups/`、配方 `recipes/`、画布的图与运行状态 `flowgraph/`、参考音频导入暂存区 `voices/`、读音词典 `pron_lexicon/`、本地配置 `app-config.json`，以及可被覆盖的默认值 `advanced_params.json` / `training_defaults.json`。该目录不进版本库 |
 | `outputs/` | 推理产物，按来源分为 `generate/` · `comparerefs/` · `broker/` · `ab/` · `_flow_runs/`（画布运行），互不混淆 |
@@ -91,7 +100,7 @@
 
 - ⏳ 全程耐心等待,首次可能 **20~60 分钟**(取决于网速)。
 - 🔁 若中途失败,重跑本脚本即可(支持续跑,已装的会跳过)。
-- 🎵 **如需对外提供 OpenAI 兼容接口的 MP3(或 opus / aac / flac)输出,请一并安装 ffmpeg**(引擎只出 WAV,MP3 转码依赖 ffmpeg,项目未内置其它编码器)。安装方式见 [FAQ · Q7](./GUIDANCE.md#q7-需要-ffmpeg-吗)。
+- 🎵 **如需对外提供 OpenAI 兼容接口的 MP3(或 opus / aac / flac)输出,请一并安装 ffmpeg**(引擎只出 WAV,MP3 转码依赖 ffmpeg,项目未内置其它编码器)。安装方式见 [FAQ · Q7](./docs/GUIDANCE.md#q7-需要-ffmpeg-吗)。
 
 ---
 
@@ -142,6 +151,13 @@ start.bat
 |---|---|---|
 | `gpt-sovits` | `http://127.0.0.1:9880` | `logs/gpt-sovits.log`、`logs/gpt-sovits.err.log` |
 | `indextts2` | `http://127.0.0.1:9881` | `logs/indextts2.log`、`logs/indextts2.err.log` |
+| `cosyvoice2` | `http://127.0.0.1:9882` | `logs/cosyvoice2.log`、`logs/cosyvoice2.err.log` |
+| `cosyvoice-300m-sft` | `http://127.0.0.1:9892` | `logs/cosyvoice-300m-sft.log`、`logs/cosyvoice-300m-sft.err.log` |
+
+> ⚠️ **2026-10-04 补齐**：这张表从前只有两台，后两台是接 CosyVoice 时加的，
+> 忘了同步。⚠️ **别把它当权威** —— 端口由每台自己的名片 `default_base_url` 说，
+> 权威是 `engines/<id>/manifest.json`；`GET /api/health` 的 `engines[]` 会把
+> 在册的 id / base_url / online 全部列出来（[实测] 2026-10-04 四台全 `online:false`）。
 
 > ⚠ 日志文件名从前是 `logs/inference.log`（只有一台引擎的时候）。同时起两台
 > 之后那个名字答不了「这是哪台的日志」，而且两台会往同一个文件里写，所以
@@ -313,7 +329,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
     音色的参考音频可同时保持热，正是多音色 recipe 轮转想要的。容量 `AURIVOX_REF_CACHE`（默认 8，`0`=关）。
 
 > 环境变量小抄：`AURIVOX_TTS_BATCH_SIZE=4` · `AURIVOX_MAX_QUEUE=32` · `AURIVOX_RETRY_AFTER=3` · `AURIVOX_REF_CACHE=8`。
-> 详见 `BROKER_streaming_and_residency.md` 与最终用户向的 [FAQ · Q14](./GUIDANCE.md#faq)。
+> 详见 `BROKER_streaming_and_residency.md` 与最终用户向的 [FAQ · Q14](./docs/GUIDANCE.md#faq)。
 
 ### 本地 Broker / 可信内网接口加固（v1.0.7）
 
@@ -327,7 +343,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
 - **文件日志**：`console.*` 同时 tee 到 `logs/aurivox-<日期>.log`（按天滚动）。`AURIVOX_LOG_DIR`（默认 `logs/`）、`AURIVOX_LOG_FILE=0` 关闭。
 
 > 环境变量小抄（v1.0.7 新增）：`AURIVOX_CORS_ORIGIN=http://127.0.0.1:5173` · `AURIVOX_SHUTDOWN_GRACE_MS=120000` · `AURIVOX_LOG_DIR=logs` · `AURIVOX_LOG_FILE=1`。
-> 详见 `CHANGES-1.0.7.md` 与最终用户向的 [FAQ · Q15](./GUIDANCE.md#faq)。
+> 详见 `CHANGES-1.0.7.md` 与最终用户向的 [FAQ · Q15](./docs/GUIDANCE.md#faq)。
 
 ## 模型文件
 
@@ -358,7 +374,8 @@ SoVITS 权重。
 
 ### 其它引擎
 
-`models/tts/<引擎id>/`，内容与取回命令同样以那张名片为准。例如 IndexTTS2 声明
+`engines/<引擎id>/checkpoints/`（新引擎）或 `models/tts/<引擎id>/`（存量四台，⚠ 迁移中），
+内容与取回命令同样以那张名片为准。例如 IndexTTS2 声明
 `runtime.checkpoints = models/tts/indextts2/checkpoints`，`models.required` 点名 8 个
 文件（`config.yaml` / `gpt.pth` / `s2mel.pth` / …），并在 `models.source.command`
 里给出可直接照抄的一行取回命令。
@@ -380,18 +397,18 @@ SoVITS 权重。
    `soundfile` + `mean(axis=1)`，**不依赖 ffmpeg**），避免立体声导致 HuBERT 特征提取崩溃；无法读取的压缩格式
    （mp3/m4a/aac）由 ffmpeg 兜底解码。每次预处理结束会打印一行
    `[load_audio] total=.. loaded=.. (downmixed=.. resampled=.. via_ffmpeg=..) failed=..` 统计，便于核对有效条数。
-   部署时下载的 `vendor/ffmpeg`，**v1.0.7 起**会对所有 Python 子进程可见（见「环境要求」与 [`CHANGELOG.md`](./CHANGELOG.md)）；仅当自带
+   部署时下载的 `vendor/ffmpeg`，**v1.0.7 起**会对所有 Python 子进程可见（见「环境要求」与 [`CHANGELOG.md`](./docs/CHANGELOG.md)）；仅当自带
    与系统 ffmpeg 均缺失时，这类格式才会被跳过并计入 `failed`。
 5. **UVR5 MDX-Net 显存**: MDX-Net 是 UVR5 里最吃显存的模型，长音频 + 大 batch 极易 OOM
    （`cudaErrorMemoryAllocation`）。**默认参数按 4 GB 小显存设计（逐窗 batch=1）**；大显存显卡可自行调大分段/批。
-   仍 OOM 时把 MDX 段切到 CPU（`UVR5_MDX_DEVICE=cpu`）。详见 [FAQ · Q10](./GUIDANCE.md#faq)。
+   仍 OOM 时把 MDX 段切到 CPU（`UVR5_MDX_DEVICE=cpu`）。详见 [FAQ · Q10](./docs/GUIDANCE.md#faq)。
 6. **Roformer 权重与配置配套**: Mel-Band / BS-Roformer 需 `.ckpt` 与其**配套 `.yaml`** 同名成对放入
-   `uvr5_weights\`；缺配置时 loader 退回默认配置，会因结构不符报「missing params」而加载失败。见 [FAQ · Q11](./GUIDANCE.md#faq)。
+   `uvr5_weights\`；缺配置时 loader 退回默认配置，会因结构不符报「missing params」而加载失败。见 [FAQ · Q11](./docs/GUIDANCE.md#faq)。
 7. **FunASR 无置信度**: FunASR/Paraformer 为非自回归结构，默认不输出逐词后验，校对页置信度**如实留空、不着色**
-   （非错误）；需置信度高亮请用 Faster Whisper。见 [FAQ · Q8](./GUIDANCE.md#faq)。
+   （非错误）；需置信度高亮请用 Faster Whisper。见 [FAQ · Q8](./docs/GUIDANCE.md#faq)。
 
 ## FAQ
-详情请查看[`GUIDANCE.md`](./GUIDANCE.md)。
+详情请查看[`GUIDANCE.md`](./docs/GUIDANCE.md)。
 
 ## 变更历史
-README 不再内嵌逐版本 changelog。请查看 [`CHANGELOG.md`](./CHANGELOG.md)。
+README 不再内嵌逐版本 changelog。请查看 [`CHANGELOG.md`](./docs/CHANGELOG.md)。

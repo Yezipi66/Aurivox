@@ -20,7 +20,9 @@
   },
   "local_changes": "LOCAL-CHANGES.md",
   "_comment_install": [
-    "第 4 步：tools/install-engine.cjs 照这里装。",
+    "⛔ 2026-10-04：原先这里写的 tools/install-engine.cjs 已随 lib/engines/installPlan.js",
+    "   **整体退役**（Owner 裁决：它的前提「先有名片再克隆」是反的）。",
+    "   拉源码走安装向导 tools/engine-wizard/；⛔ 那套还没提交。",
     "env_command 出自 UPSTREAM.md —— 上游用 uv 管环境，配方是本目录的",
     "pyproject.toml + uv.lock（精确锁定）+ .python-version（3.11.13）。",
     "⚠ 首次建环境必须联网：pyproject.toml 把 torch 指向 cu128，要下几个 GB。"
