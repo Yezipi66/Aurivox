@@ -281,6 +281,36 @@ function detectDependencyManifest (dir) {
  * ⚠ 执行要等用户确认，因为这一步要联网、要下几个 GB、
  *   而且失败在「装了一半」的位置上（【台账:44】）。
  */
+/**
+ * ⭐ 组装执行步骤。**有 alternative 时第②步也进 steps** ——
+ *   它是这次安装的一部分，⛔ 不是可选建议。
+ *
+ * 过去 alternative 只作展示，而 runEnv 只跑 steps[0]
+ * ⇒ 点「安装」装出一个**没有 torch 的环境**，界面却显示「完成」。
+ *
+ * @param {{argv:string[], cwdRel:string, alt?:object|null}} o
+ * @returns {{kind:string, argv:string[], cwd:string, needs_network:boolean, why:string}[]}
+ */
+function buildSteps ({ argv, cwdRel, alt }) {
+  const steps = [{
+    kind: 'env',
+    argv,
+    cwd: cwdRel,
+    needs_network: true,
+    why: '照上游依赖清单安装。',
+  }]
+  if (alt && alt.then) {
+    steps.push({
+      kind: 'env',
+      argv: alt.then,
+      cwd: cwdRel,
+      needs_network: true,
+      why: '安装本机后端对应的 Torch。',
+    })
+  }
+  return steps
+}
+
 function buildEnvPlan (input = {}) {
   const id = input.id
   const root = input.root || projectRoot()
@@ -332,21 +362,21 @@ function buildEnvPlan (input = {}) {
           + `  ${guess.why}\n`
           + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
           + 'install.env_command，平台将优先采用该声明。'),
-      steps: [
-        {
-          kind: 'env',
-          argv: guess.argv,
-          // ⛔ steps[0] 只放**要执行的那条**；alternative 由界面并列展示，
-          //   ⛔ 不进 steps —— 自动执行等于替使用者拍板。
-          cwd: path.join('engines', id, cwdRel),
-          needs_network: true,
-          why: `Manifest 未声明 install.env_command，该方式依据上游依赖清单推导得出。\n`
-            + `  ${guess.why}\n`
-            + '  如该引擎需要特定安装方式，请在 Manifest 中声明 '
-            + 'install.env_command，平台将优先采用该声明。',
-        },
-        { kind: 'note', why: NOTE },
-      ],
+      steps: buildSteps({
+        argv: guess.argv,
+        // ⚠ cwd 必须是**相对项目根**的路径（runEnv 会 path.join(root, cwd)）。
+        //   早退分支里 guess.cwd 是相对**引擎目录**的（uv sync 要在有
+        //   uv.lock 的地方跑）⇒ 必须补上 engines/<id>/ 前缀，
+        //   ⛔ 否则会 cd 到项目根执行，uv 找不到 lock。
+        cwdRel: path.join('engines', id, guess.cwd || '.'),
+        // ⭐ 有 alternative 时，第②步（装本机后端的 torch）**也进 steps**
+        //   —— 它是这次安装的一部分，⛔ 不是可选建议。
+        //   ⛔ 只放进 alternative 的话，runEnv 永远不会执行它
+        //   （平台过去只跑 steps[0]）⇒ 装出一个没有 torch 的环境
+        //   而界面显示「完成」。
+        alt: guess.alternative,
+        id, cwdRel2: null,
+      }),
     }
   }
 
@@ -355,25 +385,15 @@ function buildEnvPlan (input = {}) {
   const usingManifest = cmd.ok
   const argv = usingManifest ? cmd.argv : guess.argv
 
-  const steps = [
-    {
-      kind: 'env',
-      argv,
-      // ⚠ cwd = **清单所在的那个目录**：uv sync 要在有 uv.lock 的地方跑；
-      //   pip -r 也要在清单旁边跑。实测某台引擎的清单在 infer/requirements.txt
-      //   ⇒ cwd 必须是 engines/<id>/infer，⛔ 不是 engines/<id>（2026-10-05 修）。
-      cwd: path.join('engines', id, (guess && guess.cwd) || '.'),
-      needs_network: true,
-      // ⭐ 理由要说清**这条装法是怎么来的** ——
-      //   名片写的 vs 平台按上游清单推的，⛔ 不让用户以为是黑箱。
-      why: usingManifest
-        ? `按名片里写的 install.env_command 装。\n  ${guess.why}`
-        : `Manifest 未声明 install.env_command，该方式依据上游依赖清单推导得出。\n`
-          + `  ${guess.why}\n`
-          + '  如该引擎需要特定安装方式，请在 Manifest 中声明 '
-          + 'install.env_command，平台将优先采用该声明。',
-    },
-  ]
+  const steps = buildSteps({
+    argv,
+    // ⚠ cwd = **清单所在的那个目录**：uv sync 要在有 uv.lock 的地方跑；
+    //   pip -r 也要在清单旁边跑。实测某台引擎的清单在 infer/requirements.txt
+    //   ⇒ cwd 必须是 engines/<id>/infer，⛔ 不是 engines/<id>（2026-10-05 修）。
+    cwdRel: path.join('engines', id, (guess && guess.cwd) || '.'),
+    // ⭐ 有 alternative 时第②步也进 steps（见 buildSteps 的注释）
+    alt: (!usingManifest && guess) ? guess.alternative : null,
+  })
 
   steps.push({
     kind: 'note',
@@ -399,47 +419,98 @@ function buildEnvPlan (input = {}) {
 }
 
 /** 执行。⛔ 只有 execute:true 才真跑。 */
+/** 跑一步。返回 {ok, code, status, stdout, stderr, error} */
+function runOne (step, root, timeoutMs) {
+  const r = spawnSync(step.argv[0], step.argv.slice(1), {
+    cwd: step.absCwd || step.cwd,
+    encoding: 'utf-8',
+    timeout: timeoutMs,
+    windowsHide: true,
+    // ⛔ argv 直接 spawn —— 走 shell 会被含空格的路径拆错
+    shell: false,
+  })
+  if (r.error) {
+    return { ok: false, code: 'SPAWN_FAILED', status: null, error: r.error.message }
+  }
+  return {
+    ok: r.status === 0,
+    code: r.status === 0 ? 'OK' : 'ENV_FAILED',
+    status: r.status,
+    stdout: (r.stdout || '').trim(),
+    stderr: (r.stderr || '').trim(),
+  }
+}
+
+/**
+ * @param {object} input {id, manifest, execute, root, timeoutMs, onStep}
+ * @param {(i:number,total:number,step:object,argv:string[])=>void} [input.onStep]
+ *   每步开始前的回调，用于让界面显示进度。
+ * @returns {object} 计划的字段 + {stepsRun, failedAt, ok, note}
+ */
 function runEnv (input = {}) {
   const plan = buildEnvPlan(input)
   if (!plan.ok || !plan.execute) return plan
 
   const root = input.root || projectRoot()
-  const step = plan.steps[0]
-  const r = spawnSync(step.argv[0], step.argv.slice(1), {
-    cwd: path.join(root, step.cwd),
-    encoding: 'utf-8',
-    timeout: input.timeoutMs || 60 * 60 * 1000,   // 装环境要很久
-    windowsHide: true,
-    shell: false,      // ⛔ argv 直接 spawn —— 走 shell 会被空格路径坑
-  })
+  const timeoutMs = input.timeoutMs || 60 * 60 * 1000   // 装环境要很久
+  // ⛔⛔ 必须过滤掉 kind !== 'env' 的项：steps 里混着 {kind:'note'}
+  //   那种说明性条目，它没有 argv ⇒ 直接 spawn 会报 ENOENT。
+  //   （过去只跑 steps[0] 才碰巧没踩到：note 排在最后。）
+  const steps = (plan.steps || []).filter((s) => s && s.kind === 'env' && s.argv)
+  const stepsRun = []
 
-  if (r.error) {
-    return { ...plan, ok: false, code: 'SPAWN_FAILED',
-      error: `起不动「${step.argv[0]}」：${r.error.message}\n`
-        + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。' }
-  }
-  if (r.status !== 0) {
-    return {
-      ...plan,
-      ok: false,
-      code: 'ENV_FAILED',
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]
+    // ⛔ cwd 必须是**绝对路径**：上面的 spawn 用它当 cwd，
+    //   传相对路径会相对于进程 cwd 而非项目根。
+    step.absCwd = require('node:path').join(root, step.cwd || '.')
+    if (typeof input.onStep === 'function') {
+      try { input.onStep(i, steps.length, step, step.argv) } catch (e) { /* 回调不影响安装 */ }
+    }
+
+    const r = runOne(step, root, timeoutMs)
+    stepsRun.push({
+      n: i + 1,
+      of: steps.length,
+      argv: step.argv,
+      ok: r.ok,
       status: r.status,
-      // ⛔ 如实把上游的原话带出来 —— 那比我们的转述有用
-      error: (r.stderr || r.stdout || '（没有输出）').trim(),
-      // ⚠ 2026-10-05：原文带「（installPlan.js:44）」—— ⛔ 界面不该出现内部文件名
-    //   （和之前 registry.js:83 同款毛病，Owner：「用词不能太随便」）。
-    //   ⛔ 而且 installPlan.js 已按 A4' 退役，指向一个不存在的文件更没意义。
-    note: '安装中断会保留不完整的环境，重新安装前需先清理该目录。'
-      + '请先阅读上方错误信息，再决定重试或更换命令。',
+      code: r.code,
+      // ⛔ 失败时带出上游原话；成功时只留尾部（uv 输出很长，界面用不上）
+      output: r.ok ? r.stdout.slice(-2000) : (r.stderr || r.stdout || '（没有输出）'),
+    })
+
+    if (!r.ok) {
+      return {
+        ...plan,
+        ok: false,
+        code: r.code === 'SPAWN_FAILED' ? 'SPAWN_FAILED' : 'ENV_FAILED',
+        status: r.status,
+        stepsRun,
+        failedAt: i + 1,
+        failedArgv: step.argv,
+        error: r.code === 'SPAWN_FAILED'
+          ? `起不动「${step.argv[0]}」：${r.error}\n`
+            + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。'
+          : (r.stderr || r.stdout || '（没有输出）'),
+        note: steps.length > 1
+          ? `第 ${i + 1}/${steps.length} 步失败。`
+            + '安装中断会保留不完整的环境，重新安装前需先清理该目录。'
+            + '请先阅读上方错误信息，再决定重试或更换命令。'
+          : '安装中断会保留不完整的环境，重新安装前需先清理该目录。'
+            + '请先阅读上方错误信息，再决定重试或更换命令。',
+      }
     }
   }
 
   return {
     ...plan,
     ok: true,
-    envStatus: r.status,
-    note: 'env_command 退出码 0，仅表示命令执行完毕，'
-      + '「这台引擎能不能 import」要等后面的校验。',
+    envStatus: 0,
+    stepsRun,
+    failedAt: null,
+    note: `已完成 ${steps.length} 个步骤。退出码 0 仅表示命令执行完毕，`
+      + '该引擎能否正常导入仍需后续校验。',
   }
 }
 

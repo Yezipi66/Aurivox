@@ -401,10 +401,14 @@ test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，�
   assert.ok(!alt.then.some((a) => /\+cu/.test(a)),
     `⛔ 换后端后不得保留 CUDA 后缀：${alt.then.join(' ')}`)
   // ⛔ alternative 不得混进 steps（自动执行等于替使用者拍板）
-  // ⛔ 第②步不得进 steps：它换的是 index，⛔ 平台不替使用者选后端。
-  //   （第①步的主命令**要**进 steps —— 它就是实际执行的那条。）
-  assert.ok(!JSON.stringify(p.steps).includes('--index-url'),
-    '⛔ 第②步不得进 steps —— 它只能被展示，不能被自动执行')
-  assert.ok(JSON.stringify(p.steps).includes('--no-install-package'),
-    '⛔ 主命令必须进 steps（它是实际执行的那条）')
+  // ⭐ 两步**都要**进 steps：走完向导就该有可用环境。
+  //   ⛔ 过去第②步只作展示，而 runEnv 只跑 steps[0]
+  //   ⇒ 装出一个没有 torch 的环境，界面却显示「完成」。
+  const envSteps = p.steps.filter((s) => s.kind === 'env')
+  assert.strictEqual(envSteps.length, 2,
+    `⛔ 应有 2 个可执行步骤（装其余 + 装本机 torch），实际 ${envSteps.length}`)
+  assert.ok(JSON.stringify(envSteps).includes('--no-install-package'),
+    '⛔ 第①步必须跳过 torch')
+  assert.ok(JSON.stringify(envSteps).includes('--index-url'),
+    '⛔ 第②步（装本机后端的 torch）必须进 steps —— 它是安装的一部分')
 })
