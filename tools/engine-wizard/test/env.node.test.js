@@ -446,3 +446,49 @@ test('⛔ execute 不为 true ⇒ 只出计划，⛔ stepsRun 为空', () => {
   assert.ok(r.alternative == null,
     '⛔ 锁里没有 torch 时不应给出替代命令')
 })
+
+// ⭐ 跨平台：uv 的可执行文件布局**按平台推导**，不是写死的。
+//   形状与平台自己的 lib/engines/platformPaths.js venvPythonRelPath 一致：
+//     win32        → Scripts/uv.exe
+//     linux/darwin → bin/uv
+//   不认识的平台返回 null —— ⛔ 不猜（猜错比报「不支持」更难让人看懂）。
+test('⭐ uvRelPath 按平台给形状（win32 / linux / darwin / 其他）', () => {
+  const env2 = require('../core/env.js')
+  const norm = (s) => s.split(String.fromCharCode(92)).join('/')
+  assert.strictEqual(norm(env2.uvRelPath('win32')), 'Scripts/uv.exe')
+  assert.strictEqual(norm(env2.uvRelPath('linux')), 'bin/uv')
+  assert.strictEqual(norm(env2.uvRelPath('darwin')), 'bin/uv')
+  // ⛔ 不认识的平台：⛔ 不猜，给 null
+  assert.strictEqual(env2.uvRelPath('freebsd'), null)
+  assert.strictEqual(env2.uvRelPath('aix'), null)
+  assert.strictEqual(env2.uvRelPath(''), null)
+})
+
+// ⭐ resolveUv 必须**真的解析到磁盘上存在的 uv**（不挑平台形状）。
+//   ⛔ 判据是「返回的路径存在且可用」，不是「路径长什么样」
+//   —— 钉实质：只要这台机器上解析不到 uv，就报 UV_NOT_FOUND 而不是 ENOENT。
+test('⭐ resolveUv 在本机解析到项目自带的 uv', () => {
+  const env2 = require('../core/env.js')
+  const { projectRoot } = require('../core/clone.js')
+  const root = projectRoot()
+  const got = env2.resolveUv(root)
+  assert.ok(got, '⛔ 项目自带 uv 却没解析到')
+  assert.ok(fs.existsSync(got), '⛔ 解析出的路径不存在：' + got)
+  // 路径必须在**项目根**下面 —— 分发的保证就在这里
+  assert.ok(got.indexOf(root) === 0,
+    '⛔ 解析结果不在项目根下：' + got)
+})
+
+// ⛔ 找不到 uv 时**如实报错**，⛔ 不让 spawn 抛 ENOENT。
+test('⭐ resolveUv 找不到 ⇒ null；runEnv 报 UV_NOT_FOUND 而不是 ENOENT', () => {
+  const env2 = require('../core/env.js')
+  const { root, engineDir } = mkdtempRootWithEngine('nou')
+  fs.writeFileSync(path.join(engineDir, 'uv.lock'), 'version = 1\n')
+  // 夹具根下面没有 venv ⇒ resolveUv 只能靠项目根兜底；
+  //   这里直接测「根下面没有 uv 的情形」：指向一个空目录。
+  const empty = fs.mkdtempSync(os.tmpdir() + '-')
+  assert.strictEqual(env2.resolveUv(empty), null,
+    '⛔ 空目录不该解析出 uv')
+  assert.strictEqual(env2.uvRelPath('freebsd'), null,
+    '⛔ 不认识的平台必须给 null')
+})

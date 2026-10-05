@@ -312,29 +312,62 @@ function buildSteps ({ argv, cwdRel, alt }) {
 }
 
 /**
+ * uv 的可执行文件，**相对平台虚拟环境目录** —— 布局按平台推导。
+ *
+ * ⚠ 为什么按平台分（而不是写死一个名字）：
+ *   虚拟环境的布局在 posix 与 windows 上是**结构性**不同，不是命名习惯：
+ *   windows 的 Scripts/ 来自那个年代 .cmd 包装脚本的做法，posix 一直是 bin/。
+ *   平台自己的 lib/engines/platformPaths.js:54 venvPythonRelPath 就是这么分的。
+ *
+ * ⭐ 纯函数：不读盘、不看 env。platform 显式传入，
+ *   所以 macOS/Linux 的形状在 Windows 上也能测。
+ * ⛔ 不认识的平台（freebsd / aix 等）返回 null —— **不猜**。
+ *   猜错的后果是「指到一个不存在的文件」⇒ 报「没找到 uv」，而用户什么都没做错。
+ *
+ * @param {string} platform  process.platform（win32 / linux / darwin）
+ * @returns {string|null} 相对 venv 目录的路径；不认识的平台给 null
+ */
+function uvRelPath (platform) {
+  if (platform === 'win32') return path.join('Scripts', 'uv.exe')
+  if (platform === 'linux' || platform === 'darwin') return path.join('bin', 'uv')
+  return null
+}
+
+/**
  * ⭐ 解析 uv 的可执行文件 —— **平台自带的优先**。
  *
- * ⚠️ 为什么需要它（实测 2026-10-05）：`uv` 通常**不在 PATH 上**
- *   （本机 uv.exe 在 venv/Scripts/ 与 cache/slim-venv/Scripts/，
- *   而 `uv --version` 在 bash 里报 command not found）
- *   ⇒ runEnv 用 shell:false spawn 'uv' 直接 ENOENT，
- *   ⛔ 而界面把它显示成「安装失败」，用户看不出是「工具没找到」。
+ * ⚠️ 为什么需要它（实测 2026-10-05，probe_spawn_path.js）：
+ *   `uv` 不在 PATH 上（项目 venv 的目录没被加进 PATH），
+ *   而 spawnSync 用 shell:false 时**只有裸名才走 PATH 搜索** ——
+ *   带路径分隔符的参数一律按文件路径解析。
+ *   ⛔ 而且 runEnv 执行时 cwd 是**引擎目录**（engines/<id>），不是项目根
+ *   ⇒ 相对路径 'venv/Scripts/uv.exe' 会解析成
+ *      engines/<id>/venv/Scripts/uv.exe —— 不存在。
+ *   ⭐ 所以这里返回**绝对路径**，而不是相对路径。
+ *
+ * ⭐ 分发与多平台：绝对路径是**运行时从项目根算出来的**，不是写死的字符串。
+ *   平台拷到哪，server.js 就在哪，projectRoot() 就指向那，
+ *   uv 就在旁边的 venv 里 —— 跟平台自己的 venvPython() 同一个模式。
+ *   布局按平台推导（win32 Scripts/ / posix bin/），
+ *   所以 Linux 与 macOS 用户不需要改代码。
  *
  * ⭐ 沿用平台既有做法（bootstrap.js 对 node/npm 的同一规则）：
  *   自带 → 找得到就用自带的；找不到才留给 PATH。
  *
  * @param {string} root 项目根
- * @returns {string|null} 可执行文件路径；找不到返回 null
+ * @param {string} [platform] 默认 process.platform
+ * @returns {string|null} 可执行文件绝对路径；找不到返回 null
  */
-function resolveUv (root) {
-  const cands = [
-    path.join(root, 'venv', 'Scripts', 'uv.exe'),
-    path.join(root, 'venv', 'Scripts', 'uv'),
-    path.join(root, 'venv', 'bin', 'uv'),
-    path.join(root, 'cache', 'slim-venv', 'Scripts', 'uv.exe'),
-    path.join(root, 'cache', 'slim-venv', 'bin', 'uv'),
+function resolveUv (root, platform) {
+  const plat = platform || process.platform
+  const rel = uvRelPath(plat)
+  if (!rel) return null          // ⛔ 不认识的平台：不猜
+  const bases = [
+    path.join(root, 'venv'),
+    path.join(root, 'cache', 'slim-venv'),   // 次选：精简镜像里的
   ]
-  for (const c of cands) {
+  for (const b of bases) {
+    const c = path.join(b, rel)
     try { if (fs.existsSync(c)) return c } catch (e) { /* 下一个 */ }
   }
   // ⛔ 不扫 PATH：找不到就返回 null，由调用方报出「uv 未找到」
@@ -575,4 +608,4 @@ function runEnv (input = {}) {
   }
 }
 
-module.exports = { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv }
+module.exports = { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv, uvRelPath, resolveUv }
