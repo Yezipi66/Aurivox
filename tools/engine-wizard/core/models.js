@@ -71,9 +71,18 @@ function describeModels (id, appDir) {
   try {
     profile = platformProfile(id)
   } catch (e) {
+    // ⛔ 这两种原因要分开说，⛔ 且**不能指向第 5 步**：
+    //   describeModels 跑在第 3 步，而 Manifest 第 4 步才写 ⇒
+    //   「去第 5 步检查」指向一个还不存在的 Manifest。
+    //   · 未安装   ⇒ 下一步是第 1 步（把仓库克隆下来）
+    //   · 装了但解析失败 ⇒ 第 4 步保存时 validate() 当场就会报，
+    //     ⛔ 不必等到第 5 步
+    const notInstalled = e && e.code === 'FG_ENGINE_UNSUPPORTED'
     return { ok: false, code: 'NO_PROFILE',
-      error: `平台解析不出 ${id} 的名片：${e.message}\n`
-        + '（Manifest 本身可能有问题，需在第 5 步检查）' }
+      error: notInstalled
+        ? e.message
+        : `平台无法解析 ${id} 的 Manifest：${e.message}\n`
+          + '该问题会在第 4 步保存 Manifest 时提示。' }
   }
 
   let status

@@ -194,7 +194,40 @@ test('⛔ 名片读不出来 ⇒ 如实报 NO_PROFILE', () => {
   const r = describeModels('definitely-not-installed-xyz', process.env.MODELS_DIR)
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_PROFILE')
-  assert.ok(r.error.includes('第 5 步'), '要指向写名片那一步')
+  // ⛔ 原断言要求「指向第 5 步」，⛔ 那是错的：
+  //   describeModels 跑在第 3 步，而 Manifest 第 4 步才写
+  //   ⇒ 让用户「去第 5 步检查」指向一个还不存在的 Manifest。
+  //
+  // ⛔ 本测试用的引擎**未安装**，走的是「未安装」分支 ⇒ 该分支只说
+  //   「未安装 + 已装的是谁」，⛔ 不指向任何步骤（下一步是第 1 步，
+  //   但那由流程顺序保证，不需要文案再说一遍）。
+  //   「已安装但解析失败」才指向第 4 步 —— 见下一条测试。
+  assert.ok(/未安装/.test(r.error), r.error)
+  assert.ok(!r.error.includes('第 5 步'),
+    `⛔ 不得指向第 5 步（此时 Manifest 还没写）：${r.error}`)
+})
+
+// ⛔ 两种失败原因必须分开说，⛔ 且各自的「下一步」不同：
+//   · 未安装        ⇒ 下一步是第 1 步（流程顺序已保证，文案不必再说）
+//   · 已装但解析失败 ⇒ 下一步是第 4 步（保存 Manifest 时 validate() 当场报）
+// ⛔ 混成一句话 ⇒ 用户会去一个还没写的 Manifest 上找问题。
+test('⛔ 已安装但 Manifest 解析失败 ⇒ 指向第 4 步，⛔ 不是第 5 步', () => {
+  const { id } = manifestOk(['model.pt'])
+  const mkdtempEngineDir = path.join(mkdtempEnginesDir, id)
+  const raw = JSON.parse(fs.readFileSync(path.join(mkdtempEngineDir, 'manifest.json'), 'utf-8'))
+  // 顶层键不认识 ⇒ profile.js 会抛错，但**目录存在**（不是「未安装」）
+  raw.zzz_not_a_real_top_level_key = 1
+  fs.writeFileSync(path.join(mkdtempEngineDir, 'manifest.json'), JSON.stringify(raw))
+
+  const r = describeModels(id, mkdtempModelsDir)
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'NO_PROFILE')
+  assert.ok(r.error.includes('第 4 步'),
+    `⛔ 解析失败应指向第 4 步（保存时会当场报）：${r.error}`)
+  assert.ok(!r.error.includes('第 5 步'),
+    `⛔ 不得指向第 5 步：${r.error}`)
+  assert.ok(!r.error.includes('未安装'),
+    `⛔ 该引擎目录存在，不得说成「未安装」：${r.error}`)
 })
 
 // ---------------------------------------------------------------------------

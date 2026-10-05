@@ -243,96 +243,11 @@ export function StepModels ({ state, onChange, probe }) {
   )
 }
 
-export function StepVerify ({ state, onChange }) {
-  const { t } = useT()
-  const [r, setR] = React.useState(null)
-  const [audio, setAudio] = React.useState(null)
-  const [busy, setBusy] = React.useState('')
-  const id = state.id
 
-  const runChecks = async () => {
-    setBusy('checks')
-    try {
-      const res = await fetch('/wizard/verify', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, deep: false }),
-      })
-      const j = await res.json()
-      setR(j)
-      onChange({ verified: true, verifyOk: j.ok === true })
-    } finally { setBusy('') }
-  }
-
-  const runAudio = async (level) => {
-    setBusy('audio')
-    try {
-      const res = await fetch('/wizard/verify', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, audio: level }),
-      })
-      setAudio(await res.json())
-    } finally { setBusy('') }
-  }
-
-  React.useEffect(() => { if (id && !r) runChecks() /* eslint-disable-line */ }, [id])
-
-  const checks = (r && r.checks) ? Object.values(r.checks) : []
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {checks.map((c) => {
-        // ⛔ ready:null 不算失败，但**也不算通过** —— 原文说清
-        const ok = c.ready === undefined ? c.ok : c.ready === true
-        const label = { env_shallow: t('Installed', '装没装'),
-          env_deep: t('Starts', '起不起来'),
-          checkpoints: t('Weights', '权重齐不齐'),
-          audio: t('Speaks', '出不出声') }[c.key] || c.key
-        const note = c.note || (c.problems && c.problems[0]) || ''
-        return (
-          <div key={c.key} className={`msg ${ok ? 'msg-info' : 'msg-danger'}`}>
-            <b>{ok ? '✓' : '✗'} {label}</b>
-            {note && <div className="field-hint">{note}</div>}
-          </div>
-        )
-      })}
-
-      {r && r.problems && r.problems.length > 0 && (
-        <div className="msg msg-danger">{r.problems.join('; ')}</div>
-      )}
-
-      <div className="layer-label">{t('Fourth check: does it speak', '第四道：出不出声')}</div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm" type="button"
-          disabled={busy === 'audio'} onClick={() => runAudio('B')}>
-          {t('B level (fast, no audio)', 'B 级（快，不出声）')}
-        </button>
-        <button className="btn btn-sm" type="button"
-          disabled={busy === 'audio'} onClick={() => runAudio('A')}>
-          {t('A level (really synthesise)', 'A 级（真跑一次合成）')}
-        </button>
-        <button className="btn btn-sm" type="button"
-          disabled={busy === 'checks'} onClick={runChecks}>
-          {busy === 'checks' ? t('Checking…', '正在查…') : t('Run the first three again', '重跑前三道')}
-        </button>
-      </div>
-
-      {audio && !audio.ok && (
-        <div className="msg msg-danger">
-          {audio.error}
-          {audio.expected_shape && (
-            <div className="field-hint">
-              {t("The request body uses this engine's own dialect:",
-                '请求体用这台引擎的方言：')} <code>{audio.expected_shape}</code>
-            </div>
-          )}
-        </div>
-      )}
-      {audio && audio.ok && (
-        <div className="msg msg-info">{audio.note || t('Done.', '完成。')}</div>
-      )}
-    </div>
-  )
-}
+// ⛔ StepVerify 已移出本文件：原实现（自动跑前三道 + 无条件上报 verified）
+//   会让第 5 步一进入就变成对勾，且形状与裁决的三块独立结果不符。
+//   实现与理由见 ./StepVerify.jsx 头部。
+export { StepVerify } from './StepVerify'
 
 // ---------------------------------------------------------------------------
 //  ⛔ 流程条只有五步，⛔ 不设「装完了怎么用」那一步。

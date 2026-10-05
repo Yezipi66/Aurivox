@@ -80,10 +80,12 @@ export default function StepDeps ({ state }) {
   }
 
   if (!plan) {
+    // ⛔ 陈述当前状态 + 下一步，⛔ 不写「需要先…」这类客服式引导
+    //   （「需要」是在解释为什么不能做，而 canStart 已经拦住了，解释给人听没有意义）
     return (
       <div className="msg msg-info" style={{ marginBottom: 0 }}>
-        {t('Clone the repository first.',
-          '需要先把仓库克隆下来')}
+        {t('The repository is not available yet. Complete step 1 to continue.',
+          '仓库尚未就绪。完成第 1 步后可继续。')}
       </div>
     )
   }

@@ -240,10 +240,10 @@ const done = facts && facts.cloned === true
 
       <p className="field-hint" style={{ margin: 0 }}>
         {t('Paste the repository root link — a link to a file or folder inside it '
-          + 'is rejected. The directory name is what the manifest id must match '
-          + 'word for word, so changing it later means renaming the folder.',
+          + 'is rejected. The directory name becomes the folder under engines/ and '
+          + 'is used as the id when the manifest is written in step 4.',
           '请粘贴仓库根地址，指向仓库内文件或目录的地址无效。'
-          + '目录名必须与 Manifest 的 id 完全一致。')}
+          + '该目录名将作为 engines/ 下的文件夹名，并在第 4 步写入 Manifest 时用作 id。')}
       </p>
 
       {busy === 'link' && (

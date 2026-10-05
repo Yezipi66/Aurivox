@@ -3,7 +3,8 @@ import Pipeline from './Pipeline'
 import ManifestPage from './ManifestPage'
 import StepPrepare from './StepPrepare'
 import StepDeps from './StepDeps'
-import { StepModels, StepVerify } from './StepsExtra'
+import { StepModels } from './StepsExtra'
+import { StepVerify } from './StepVerify'
 import { STEPS, stepDone } from './steps'
 import { useT, LangToggle } from '../../../web/src/lib/i18n'
 // ⚠ 这里**只**给「当前打开的是哪一步」用持久化（page）。
@@ -155,7 +156,10 @@ export default function App () {
                 onSaved={() => addFacts({ manifestSaved: true })} />
             )}
             {page === 'verify' && (
-              <StepVerify state={wz} onChange={addFacts} />
+              // ⛔ 不传 state/onChange：第 5 步尚未实现，
+              //   且⛔ 不上报 verified（旧实现会一进入就自动跑校验并置
+              //   verified=true，而 stepDone 判的就是它 ⇒ 这一步凭空变成对勾）。
+              <StepVerify />
             )}
                 </fieldset>
         </div>

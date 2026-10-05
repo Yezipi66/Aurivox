@@ -65,15 +65,19 @@ test('⭐ 五步：1/2/3 合成一步，第 6 步已删', () => {
   assert.ok(!mod.STEPS.some((s) => s.key === 'ready'))
 })
 
-test('⭐ 六个标签全是中文（Owner：命名风格不统一）', () => {
-  // ⚠ 2026-10-05 Owner：「命名风格不统一」
-  //   ⛔ 之前是 ['Weights','Weights 权重'] / ['Manifest','Manifest 名片']
-  //      —— 中英拼接，两边都不统一（那是我在为自己的偷懒找理由）。
+test('⭐ 五个步骤名：中文位是中文、英文位是英文（Owner 2026-10-05）', () => {
+  // ⛔ 之前这条断言要求 label[0] === label[1]（中英相同）——
+  //   那正是「切到英文界面时步骤名不会变」的病根：t() 在英文界面取
+  //   label[0]，两半都写中文 ⇒ 英文界面显示的还是中文。
+  // ✅ 现在的规则：**中文位是中文，英文位是英文**，各说各话。
   for (const s of mod.STEPS) {
-    assert.deepStrictEqual(s.label[0], s.label[1],
-      `${s.key} 的中英标签不一致：${JSON.stringify(s.label)}`)
-    assert.ok(/[\u4e00-\u9fa5]/.test(s.label[0]),
-      `${s.key} 的标签不是中文：${s.label[0]}`)
+    assert.ok(/[\u4e00-\u9fa5]/.test(s.label[1]),
+      `${s.key} 的中文标签不是中文：${s.label[1]}`)
+    assert.ok(/[A-Za-z]/.test(s.label[0]),
+      `${s.key} 的英文标签没有英文（切英文界面会显示中文）：${s.label[0]}`)
+    // ⛔ 中文位不许夹半截英文（那正是「Weights 权重」式拼接）
+    assert.ok(!/[A-Za-z]{3,}/.test(s.label[1]),
+      `${s.key} 的中文标签夹了英文单词：${s.label[1]}`)
   }
   // ⛔ 半截英文（Label 里带中文又有长英文单词）也不许
   for (const s of mod.STEPS) {
