@@ -334,7 +334,8 @@ EXCLUDE_FILES = {
 }
 # Old junk that lived AT THE PROJECT ROOT. Matched ONLY at top level so we don't
 # accidentally drop legit same-named files that now live deeper, e.g. the real
-# launchers tools\scripts\start.ps1 / stop.ps1 and the dev tool
+# launchers tools\scripts\start.ps1 and the dev tool
+# (stop moved to the cross-platform tools\cli\stop.js; .bat/.sh are thin shells)
 # tools\scripts\dump_tree.ps1 must still ship.
 ROOT_EXCLUDE_FILES = {
     "dump_tree.ps1",
@@ -342,9 +343,10 @@ ROOT_EXCLUDE_FILES = {
     "pack_sources.py", "apply_gsv_patch3.py", "surgery.py", "test_phase4.js",
     # old root launchers, replaced by start.bat + tools\scripts\*.ps1. NOTE: the
     # CURRENT user-facing stop launcher IS the root stop.bat (it calls
-    # tools\scripts\stop.ps1) and MUST ship — do not blacklist it here. Only the
+    # tools\scripts\stop.bat -> tools\cli\stop.js) and MUST ship — do not blacklist it here. Only the
     # truly obsolete root scripts below are dropped.
-    "start.ps1", "start.vbs", "stop.ps1",
+    # ⭐ 2026-10-05 stop.ps1 已删（主体移到 tools\cli\stop.js，薄壳是 .bat/.sh）
+    "start.ps1", "start.vbs",
     "restart.bat", "run_start.bat",
     # superseded by download_models.py wizard
     "configure_models.bat",
@@ -583,7 +585,7 @@ def main():
         #    Its absence from the release is the desired outcome, so demanding
         #    it here would warn forever on a correct build.
         ("data/training_defaults.json", "shipped defaults moved from the repo root into data/"),
-        ("stop.bat", "root stop launcher (calls tools\\scripts\\stop.ps1)"),
+        ("stop.bat", "root stop launcher (calls tools\\scripts\\stop.bat -> tools\\cli\\stop.js)"),
     ]:
         if not any(norm(r) == norm(need) or norm(r).startswith(norm(need)) for r, _, _ in included):
             print(f"  [WARN] missing {need}  -> {hint}")

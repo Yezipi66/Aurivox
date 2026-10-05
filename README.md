@@ -116,7 +116,7 @@
 
 ### 停止
 
-> 双击 **`stop.bat`**
+> 双击 **`stop.bat`**（macOS / Linux 用 `tools/scripts/stop.sh`，两者调同一份主体）
 
 ---
 

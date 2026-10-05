@@ -53,7 +53,7 @@
 
 ## 四、停止
 
-> 双击 **`stop.bat`**
+> 双击 **`stop.bat`**（macOS / Linux 用 `tools/scripts/stop.sh`）
 
 ---
 
@@ -89,7 +89,7 @@ venv\Scripts\python.exe tools\deploy\download_models.py --check
 
 ### Q5. 端口被占用?
 
-后端 **9886** / 引擎 **9880**。先运行 `stop.bat` 再启动。
+后端 **9886** / 引擎 **9880**。先运行 `stop.bat`（macOS / Linux 用 `tools/scripts/stop.sh`）再启动。
 
 ### Q6. 人声分离 / UVR5 报 `No module named 'onnxruntime'` 或 MDX 段直接失败?
 
