@@ -14,10 +14,8 @@
 #     这几行重新注释掉（见下）。
 #
 # torch 三件套 + onnxruntime 故意不进锁：体积大 / CUDA 专属 / 走独立 index。
-#   ⚠️ 2026-10-04 待办（A17）：install_torch.ps1 目前**只支持 NVIDIA**
-#      （原文：「no AMD / DirectML」，「NVIDIA present ? cu121 : cpu」），
-#      而这台机器没有 N 卡 ⇒ 现在装出来的是 CPU 版，只能跑 CPU。
-#      A17 给它加 XPU 分支 + 构建后自检。
+#   ✅ 2026-10-05（A17 完成）：主体已移到 tools/cli/install-torch.js（跨平台），
+#      按本机设备选构建：NVIDIA→cu121、Intel→xpu、AMD/Linux→rocm、其余→CPU。
 #      ⛔ 别把 XPU 版硬写进这份锁 —— 那会把「本机有什么」变成「所有机器有什么」。
 #
 # onnxruntime 版本锁 1.18.0（匹配 torch cu121 自带的 cuDNN 8）：勿升到 1.19+，
@@ -133,10 +131,11 @@ nltk==3.9.4
 numba==0.65.1
 numpy==1.23.4
 omegaconf==2.3.1
-# onnxruntime is installed by install_torch.ps1 (same GPU probe as torch):
+# onnxruntime is installed by tools/cli/install-torch.js (same device probe as torch;
+#    note it only has a CUDA wheel, so the XPU/ROCm builds also get the CPU one):
 #   NVIDIA GPU -> onnxruntime-gpu==1.18.0 (CUDA EP, cuDNN 8) ; else -> onnxruntime==1.18.0 (CPU).
 # Kept out of the lock so a GPU-less machine is not forced onto onnxruntime-gpu.
-#onnxruntime-gpu==1.18.0  # installed by install_torch.ps1 (auto CPU/GPU)
+#onnxruntime-gpu==1.18.0  # installed by tools/cli/install-torch.js (auto: cuda/xpu/rocm/cpu)
 openai-whisper==20250625
 OpenCC==1.1.8
 orjson==3.11.9
@@ -200,12 +199,12 @@ ToJyutping==3.2.0
 tokenizers==0.19.1
 tomli==2.4.1
 tomlkit==0.12.0
-#torch==2.2.0+cu121       # installed by install_torch.ps1 (auto CPU/GPU)
+#torch==2.2.0+cu121       # installed by tools/cli/install-torch.js (auto: cuda/xpu/rocm/cpu)
 torch-complex==0.4.4
-#torchaudio==2.2.0+cu121  # installed by install_torch.ps1 (auto CPU/GPU)
+#torchaudio==2.2.0+cu121  # installed by tools/cli/install-torch.js (auto: cuda/xpu/rocm/cpu)
 torchdiffeq==0.2.5
 torchmetrics==1.2.1
-#torchvision==0.17.0+cu121 # installed by install_torch.ps1 (auto CPU/GPU)
+#torchvision==0.17.0+cu121 # installed by tools/cli/install-torch.js (auto: cuda/xpu/rocm/cpu)
 tqdm==4.68.3
 transformers==4.43.0
 transformers-stream-generator==0.0.5

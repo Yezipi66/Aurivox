@@ -1689,7 +1689,7 @@
       "license_url": null,
       "verification_status": "unverified",
       "bundled": false,
-      "note": "installed separately from CUDA-specific index by install_torch.ps1"
+      "note": "installed separately from the build-specific index by tools/cli/install-torch.js"
     },
     {
       "name": "torchaudio",
@@ -1698,7 +1698,7 @@
       "license_url": null,
       "verification_status": "unverified",
       "bundled": false,
-      "note": "installed separately from CUDA-specific index by install_torch.ps1"
+      "note": "installed separately from the build-specific index by tools/cli/install-torch.js"
     }
   ],
   "bundled_count": 2

@@ -73,18 +73,6 @@ if ($__badChars.Count -gt 0) {
   Write-Host '[deploy] User confirmed non-ASCII path -- continuing. / 已确认,继续安装。' -ForegroundColor Yellow
 }
 
-$TORCH_VER      = 'torch==2.2.0'
-$TORCHAUDIO_VER = 'torchaudio==2.2.0'
-$TORCHVISION_VER = 'torchvision==0.17.0'
-$CUDA_INDEX     = 'https://download.pytorch.org/whl/cu121'
-$ORT_GPU_VER    = 'onnxruntime-gpu==1.18.0'   # only used by the inline fallback below
-# The GPU onnxruntime wheel must NOT come from PyPI: PyPI's onnxruntime-gpu is
-# built against CUDA 11.8 up to and including 1.18.x, and its provider DLL then
-# fails to load next to torch cu121 WITHOUT raising -- onnxruntime just drops the
-# CUDA ExecutionProvider and MDX-Net / g2pW run on the CPU forever, silently.
-# The version pin alone is not the pin: the index is part of it.
-# Keep this value identical to $ortIndex in install_torch.ps1.
-$ORT_CUDA12_INDEX = 'https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/'
 
 function Info($m){ Write-Host ('[deploy] {0}' -f $m) -ForegroundColor Cyan }
 function Ok($m){ Write-Host ('[deploy] {0}' -f $m) -ForegroundColor Green }
@@ -246,7 +234,7 @@ if (-not (Test-Path $REQ)) { Die ('requirements-gpt-sovits.txt not found: {0}' -
 #     venv\Scripts\python.exe -m pip freeze > requirements-gpt-sovits.txt
 # then hand-fix the two things freeze gets "wrong" for our delivery:
 #   1) re-comment the torch / torchaudio / torchvision lines freeze pulls in — torch
-#      is installed separately by install_torch.ps1 (step 4), which auto-detects the
+#      is installed separately by tools\cli\install-torch.js (step 4), which auto-detects the
 #      GPU and picks cu121 vs a CPU-only build. Hard-pinning +cu121 in the lock would
 #      bypass that and force cu121 onto GPU-less machines. (No --extra-index-url is
 #      needed here either — that was only for torch, which now lives outside the lock.)
@@ -322,41 +310,46 @@ if ($LASTEXITCODE -ne 0) {
   Warn 'requirements-gpt-sovits.txt and re-run deploy.bat.'
 }
 
-# --- 4. torch (CUDA 12.1) + onnxruntime — delegated to install_torch.ps1 ---
-# torch AND onnxruntime are kept out of requirements-gpt-sovits.txt (huge / CUDA-specific /
-# dedicated index / GPU-conditional), so they are installed by their own re-runnable
-# script, which probes for an NVIDIA GPU and picks the CUDA vs CPU build for BOTH.
-# This keeps concerns separate and lets users re-install / switch CUDA build without
-# re-running the whole bootstrap: tools\deploy\install_torch.ps1 (or install_pytorch.bat).
+# --- 4. torch + onnxruntime — delegated to the cross-platform Node body ---
+# torch AND onnxruntime are kept out of requirements-gpt-sovits.txt (huge /
+# build-target-specific / dedicated index / device-conditional), so their own
+# re-runnable installer handles them. It picks CUDA / XPU / ROCm / CPU for BOTH
+# from one device probe.
+#
+# ⭐ 2026-10-05：主体从 install_torch.ps1（372 行 PowerShell）移到
+#    tools/cli/install-torch.js，薄壳是 install-torch.bat / install-torch.sh。
+#    三处理由：
+#      1. 原 .ps1 硬编码 `venv\Scripts\python.exe` —— macOS/Linux 的 venv 是
+#         `venv/bin/python`，那条路在别的平台上直接断。
+#      2. 原 .ps1 只问 NVIDIA（原文：「no AMD / DirectML」）⇒ 这台没有 N 卡的
+#         机器只能拿到 CPU 构建。现在走 lib/system/gpu.js 问操作系统。
+#      3. 逻辑与入口分离 ⇒ Windows / macOS / Linux 跑的是**同一份**实现。
+#
+# ⛔ 原来这里有一段「脚本缺失时的 inline 回退」，现在**删掉了**：
+#    主体成单点之后，「文件不在」意味着**安装包不完整**，不是该在运行时兜住的
+#    正常状况 —— 兜住它的代价是**第二份 torch/onnxruntime 安装逻辑**，
+#    而那份 inline 代码装的是 `pip install onnxruntime-gpu`（来自 PyPI，
+#    那个 wheel 在 1.19.0 之前是 CUDA 11.8 的，torch cu121 带的是 CUDA 12
+#    ⇒ CUDA ExecutionProvider 静默载不进去，而日志里什么都不说）。
+#    单点之后这个失败模式不存在了。
 $TORCH_OK = $false
-$torchScript = Join-Path $SCRIPT_DIR 'install_torch.ps1'
+$torchBody = Join-Path $ROOT 'tools\cli\install-torch.js'
 if ($PLATFORM_ONLY) {
   # torch 约 5-6GB，而平台（Node 进程）一个字节都用不到它 ——
   # [实测] fastapi/uvicorn 只被 GSV 的 infer_server.py 用，routes/ 零重依赖。
   # ⛔ 训练线会因此坏掉：lib/training/python.json 指的就是这个根 venv。
   Info 'skipping PyTorch (--platform-only). Engines install their own.'
   Info 'training is NOT available under this flag.'
-} elseif (Test-Path $torchScript) {
-  Info 'installing PyTorch via install_torch.ps1 ...'
-  & powershell -ExecutionPolicy Bypass -NoProfile -File $torchScript
+} elseif (Test-Path $torchBody) {
+  Info 'installing PyTorch via tools\cli\install-torch.js ...'
+  & node $torchBody
   if ($LASTEXITCODE -ne 0) { Warn 'torch install reported a non-zero exit — will verify by import below.' }
 } else {
-  Warn ('install_torch.ps1 not found next to bootstrap: {0}' -f $torchScript)
-  Warn 'Falling back to inline torch install.'
-  # --no-deps: deps are already installed from the frozen requirements-gpt-sovits.txt above;
-  # letting pip pull torch's deps would re-resolve and change our locked versions.
-  # NOTE: this inline path is a last resort (install_torch.ps1 missing). It CANNOT
-  # do GPU detection, so it assumes the dev-default CUDA build for BOTH torch and
-  # onnxruntime. A GPU-less machine should keep install_torch.ps1 present.
-  $tArgs = @('-m','pip','install','--no-deps',$TORCH_VER,$TORCHAUDIO_VER,$TORCHVISION_VER,'--extra-index-url',$CUDA_INDEX)
-  $null = Invoke-Native $VENV_PY $tArgs
-  # onnxruntime is also out of the lock now -- install the GPU build here to match.
-  # --index-url (not --extra-index-url): the CUDA 12 build of 1.18.x exists ONLY on
-  # the ONNX Runtime Azure DevOps feed, and a same-name/same-version wheel sits on
-  # PyPI, so an extra index would let pip pick the wrong (CUDA 11.8) one.
-  & $VENV_PY -m pip uninstall -y onnxruntime onnxruntime-gpu 2>$null | Out-Null
-  $null = Invoke-Native $VENV_PY @('-m','pip','install','--no-deps','--index-url',$ORT_CUDA12_INDEX,$ORT_GPU_VER)
+  Die ('install-torch body not found: {0}' -f $torchBody)
+  Die 'The install package is incomplete. There is deliberately NO inline fallback:'
+  Die 'a second copy of the torch/onnxruntime install logic would drift from the body.'
 }
+
 # Verify torch by ACTUALLY importing it — the only trustworthy signal. A killed
 # uv/pip (McAfee etc.) or a network error can leave torch missing while the step
 # above still "finished". We report this prominently in the final summary so a
@@ -369,7 +362,7 @@ if ($PLATFORM_ONLY) {
 #   它必然失败 ⇒ 报一句「PyTorch is NOT importable — it did not install
 #   correctly」⇒ 而真实原因是「按你的要求跳过了」。
 #   ⭐ 症状极具欺骗性：它把「按开关跳过」说成「装失败了」，
-#     而用户看到之后会去重跑 install_torch.ps1 —— 正好装上那 5-6GB。
+#     而用户看到之后会去重跑 install-torch —— 正好装上那 5-6GB。
 if ($PLATFORM_ONLY) {
   Info 'skipping the PyTorch import check (--platform-only: nothing to verify).'
 } else {
@@ -612,8 +605,8 @@ if ($PLATFORM_ONLY) {
   Ok  '  PyTorch             : OK (import verified)'
 } else {
   Write-Host '  PyTorch             : MISSING / FAILED  <== 需要手动补装!' -ForegroundColor Red
-  Write-Host '     修复: 双击 tools\deploy\install_pytorch.bat  (或运行' -ForegroundColor Yellow
-  Write-Host '           tools\deploy\install_torch.ps1)。若被杀毒(如迈克菲)拦截,' -ForegroundColor Yellow
+  Write-Host '     修复: 运行 tools\deploy\install-torch.bat  (macOS/Linux 用 .sh)' -ForegroundColor Yellow
+  Write-Host '           tools\deploy\install-torch.bat)。若被杀毒(如迈克菲)拦截,' -ForegroundColor Yellow
   Write-Host '           先把本目录加入杀软白名单, 或先执行  set TTS_NO_UV=1  再重试。' -ForegroundColor Yellow
 }
 if ($FFMPEG_OK) {

@@ -241,7 +241,7 @@ def show_fixed_environment():
         print(f"  Python 依赖: {cnt} 个 (uv pip install), 其中随包 wheel {len(bundled)} 个:")
         for p in bundled:
             print(f"     - {p.get('name')} {p.get('version')} (本地编译, {p.get('license') or 'MIT'})")
-        print("     其余均由 uv 从 PyPI 安装; torch/torchaudio 由 install_torch 单独安装。")
+        print("     其余均由 uv 从 PyPI 安装; torch/torchaudio 由 tools/cli/install-torch.js 单独安装。")
     except Exception:
         print("  Python 依赖: (python_packages.json 不可读)")
     # 运行时组件
@@ -447,7 +447,7 @@ def stage_confirm(sel, by_group):
     print("       - 用内嵌 Python 3.11 创建 venv\\")
     print("       - pip install uv, 然后 uv pip install -r requirements-gpt-sovits.txt")
     print("       - 安装本地 wheel: jieba_fast, pyopenjtalk")
-    print("       - 安装 PyTorch (CUDA, install_torch)")
+    print("       - 安装 PyTorch（自动选 cuda / xpu / rocm / cpu）")
     dropped = sel.get("dropped_for_license") or []
     if dropped:
         labels = [next((l for gg, l, _ in GROUP_META if gg == g), g) for g in dropped]

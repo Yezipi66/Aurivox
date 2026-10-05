@@ -125,12 +125,12 @@
 ### 开发模式
 
 ```bash
-# Python 依赖：直接按冻结锁精确复现（torch + onnxruntime 见 install_torch.ps1）
+# Python 依赖：直接按冻结锁精确复现（torch + onnxruntime 见 tools\cli\install-torch.js）
 pip install --no-deps -r requirements-gpt-sovits.txt
 # 改完依赖后，在这台开发机重新冻结并提交 requirements-gpt-sovits.txt：
 #   pip freeze > requirements-gpt-sovits.txt
 #   然后把 freeze 出来的 torch / torchaudio / torchvision 与 onnxruntime-gpu 这几行重新注释掉
-#   （由 install_torch.ps1 单独装，会自动判断有无 NVIDIA GPU：有→cu121+onnxruntime-gpu，无→CPU 版+onnxruntime）
+#   （由 tools\cli\install-torch.js 单独装：按本机设备选构建 —— NVIDIA→cu121+onnxruntime-gpu、Intel→xpu、AMD/Linux→rocm、其余→CPU 版+onnxruntime）
 
 # Node.js 依赖
 npm install
@@ -182,7 +182,7 @@ Python 依赖只有**一个** `requirements-gpt-sovits.txt` —— 一份**逐�
 
 > 注：早前那套 `requirements.in`（意图）+ `lock_requirements.py`（生成器）的 pip-tools 风格双文件已**退役**。
 
-- **安装**：`deploy.bat` / `bootstrap.ps1` 用 `uv pip install --no-deps -r requirements-gpt-sovits.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装,避免复现时被解析器悄悄升/降级,也避免纸面假冲突（如 `accelerate 1.14` 声明要 `torch>2.2` vs 锁死的 `torch==2.2.0+cu121`）。`torch/torchaudio/torchvision` **与 `onnxruntime`** 体积大且 GPU 专属，一并由 `install_torch.ps1` 单独 `--no-deps` 安装（同一套 NVIDIA 探测:有 N 卡→cu121+`onnxruntime-gpu`,无→CPU 版+`onnxruntime`;只支持 N 卡，不支持 AMD/DirectML）。
+- **安装**：`deploy.bat` / `bootstrap.ps1` 用 `uv pip install --no-deps -r requirements-gpt-sovits.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装,避免复现时被解析器悄悄升/降级,也避免纸面假冲突（如 `accelerate 1.14` 声明要 `torch>2.2` vs 锁死的 `torch==2.2.0+cu121`）。`torch/torchaudio/torchvision` **与 `onnxruntime`** 体积大且 GPU 专属，一并由 `tools\cli\install-torch.js` 单独 `--no-deps` 安装（同一套设备探测：NVIDIA→cu121+`onnxruntime-gpu`、Intel→xpu、AMD→rocm、其余→CPU 版+`onnxruntime`）。
 - **改依赖**：在**开发机**上直接 `pip install ...` 把 venv 调到能跑 → 重新冻结覆盖：
 
   ```bat
@@ -190,8 +190,8 @@ Python 依赖只有**一个** `requirements-gpt-sovits.txt` —— 一份**逐�
   ```
 
   然后**手动处理 `pip freeze` 会顺手带进来、但不该进锁的东西**：
-  1. 把 freeze 出来的 `torch` / `torchaudio` / `torchvision` **与 `onnxruntime-gpu`** 这几行**重新注释掉**——它们体积大、GPU 专属，由 `install_torch.ps1` 单独 `--no-deps` 安装（同一套 NVIDIA 探测:有 N 卡→cu121+`onnxruntime-gpu`,无→CPU 版+`onnxruntime`）。写死进锁会架空这个判断,把没显卡的机器硬塞进 GPU 包。因此锁里也**不需要** `--extra-index-url .../cu121`（那是 torch 唯一的用途，已随 torch 一起移出）；
-  2. `onnxruntime` 的版本 pin（`==1.18.0`,cuDNN 8;尽量别漂到 1.19+，那会改用 cuDNN 9 并静默关掉 CUDA ExecutionProvider）现由 `install_torch.ps1` 的 `-Ort` 参数默认值持有；requirements-gpt-sovits.txt 顶部保留一条注释说明即可。
+  1. 把 freeze 出来的 `torch` / `torchaudio` / `torchvision` **与 `onnxruntime-gpu`** 这几行**重新注释掉**——它们体积大、GPU 专属，由 `tools\cli\install-torch.js` 单独 `--no-deps` 安装（同一套设备探测：NVIDIA→cu121+`onnxruntime-gpu`、Intel→xpu、AMD→rocm、其余→CPU 版+`onnxruntime`）。写死进锁会架空这个判断,把没显卡的机器硬塞进 GPU 包。因此锁里也**不需要** `--extra-index-url .../cu121`（那是 torch 唯一的用途，已随 torch 一起移出）；
+  2. `onnxruntime` 的版本 pin（`==1.18.0`,cuDNN 8;尽量别漂到 1.19+，那会改用 cuDNN 9 并静默关掉 CUDA ExecutionProvider）现由 `tools\cli\install-torch.js` 的 `--ort` 参数默认值持有；requirements-gpt-sovits.txt 顶部保留一条注释说明即可。
   - freeze 忠实反映当前 venv:传递依赖一个不少（否则 `--no-deps` 安装会缺包）。**提交这份 `requirements-gpt-sovits.txt`**。
 
 > ⚠️ 因为安装用 `--no-deps`，`requirements-gpt-sovits.txt` **必须**是完整 freeze——否则传递依赖会缺失。改依赖 = 在开发机装好后 `pip freeze` 重新覆盖，**不要手工逐行编辑** pin。
