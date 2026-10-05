@@ -91,6 +91,12 @@ export default defineConfig({
   server: {
     port: 5199,
     strictPort: true,
+    // ⛔ 必须显式绑定 127.0.0.1。vite 5 默认只绑 IPv6 回环（[::1]），
+    //   ⛔ 而浏览器访问 127.0.0.1:5199 走 IPv4 ⇒ 连不上。
+    //   症状：页面打不开，而 vite 日志一切正常。
+    //   ⛔ 日志里显示 localhost 不代表 IPv4 通 —— localhost 两个协议都能解析。
+    //   判据：改完 netstat 里应出现 127.0.0.1:5199，而不只是 [::1]:5199。
+    host: '127.0.0.1',
     // ⛔ 后端没起也能用：/api/engines 拿不到时，前端退回「粘贴 JSON」模式。
     proxy: {
       '/api': 'http://127.0.0.1:9886',
