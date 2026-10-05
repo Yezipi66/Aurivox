@@ -232,8 +232,10 @@ function planDependencies (text, opts = {}) {
       isMain,
       verdict: j ? j.verdict : (hw ? 'unknown' : 'unknown'),
       why: j ? j.why
-        : isMain ? '⛔ 没检测本机 ⇒ 说不出能不能用'
-          : `跟着 torch 走 —— 后端由 torch 那一行决定`,
+        : isMain ? '未检测本机，无法判断该包能否使用'
+        // ⛔ 没锁定 torch 后端时无法判断，但 ⛔ 不给理由（那是判据）。
+        //   后端由 torch 的版本决定，lock 里没写就说不出是哪个。
+          : '后端由 torch 的版本决定，lock 中未声明'
     }
   })
 

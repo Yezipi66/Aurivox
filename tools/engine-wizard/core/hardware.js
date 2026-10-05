@@ -157,35 +157,36 @@ function fs_ () {
 function recommendBackend (gpus) {
   const has = (v) => gpus.some((g) => g.vendor === v)
 
+  // ⛔ reason 只陈述结论，⛔ 不给理由。理由是维护者的信息（依据哪套偏好
+  //   顺序、为什么这个平台选它），而界面上它渲染成一行提示（StepDeps.jsx）
+  //   ⇒ 放进去只会让人读第二遍已经写在标题里的结论。
+  //   判据：reason 里出现 StabilityMatrix /「按型号判断」/「有三条路」
+  //   这类实现依据 ⇒ 那句话该待在代码注释里。
+  //
+  // ⛔ 推荐不是保证：本机实际可用性由 lock 后端与检测结果的比对给出
+  //   （judgeTorchSpec），界面分开显示，⛔ 不混进 reason。
+
   if (has('nvidia')) {
-    return { recommended: 'cuda', confidence: 'guidance',
-      reason: '检测到 NVIDIA GPU ⇒ StabilityMatrix 的首选是 CUDA' }
+    return { recommended: 'cuda', confidence: 'guidance', reason: '推荐使用 CUDA' }
   }
   if (process.platform === 'darwin' && has('apple')) {
-    return { recommended: 'mps', confidence: 'guidance',
-      reason: 'Apple Silicon ⇒ 走 MPS（不是 CUDA）' }
+    // MPS 是 Apple Silicon 上的选择，⛔ 不是 CUDA。差别只影响本页推荐。
+    return { recommended: 'mps', confidence: 'guidance', reason: '推荐使用 MPS' }
   }
   if (has('intel')) {
-    // ⚠ StabilityMatrix 原文的 caveat 原样保留：
-    //   「detection is name-based and matches GPUs whose name contains "Arc"」
-    return { recommended: 'ipex', confidence: 'guidance',
-      reason: '检测到 Intel 核显/Arc ⇒ StabilityMatrix 推荐 IPEX / XPU'
-        + '（按显卡型号里有没有 Intel Arc 判断）' }
+    // ⚠ 探测是**按型号名**判的（型号含 Arc 才算 Arc）。那是置信度问题，
+    //   由 confidence 字段承担，⛔ 不写进 reason。
+    return { recommended: 'ipex', confidence: 'guidance', reason: '推荐使用 XPU' }
   }
   if (has('amd')) {
-    // ⚠ StabilityMatrix：AMD 在 Windows 上最复杂 —— 三条路
+    // Windows 上有三条路（ROCm / ZLUDA / DirectML），取最兼容的兜底；
+    // 完整排序见 BACKEND_PREFERENCE。
     return process.platform === 'win32'
-      ? { recommended: 'directml', confidence: 'guidance',
-        reason: '检测到 AMD + Windows ⇒ StabilityMatrix 的兜底建议是 DirectML'
-          + '（Windows AMD 有三条路：ROCm / ZLUDA / DirectML，'
-          + '这条最兼容，但不是最快的）' }
-      : { recommended: 'rocm', confidence: 'guidance',
-        reason: '检测到 AMD + Linux ⇒ 推荐原生 ROCm' }
+      ? { recommended: 'directml', confidence: 'guidance', reason: '推荐使用 DirectML' }
+      : { recommended: 'rocm', confidence: 'guidance', reason: '推荐使用 ROCm' }
   }
-  // ⛔ 分不清 ⇒ CPU（StabilityMatrix 与我们 install_torch.ps:109 同一个选择）
-  return { recommended: 'cpu', confidence: 'unknown',
-    reason: '⛔ 没检测到能认出来的 GPU ⇒ 退 CPU 版'
-      + '（CPU 是「到处都装得上」的选择，代价是慢）' }
+  // 分不清 ⇒ CPU 版。CPU 是「哪里都装得上」的选择，代价是速度。
+  return { recommended: 'cpu', confidence: 'unknown', reason: '推荐使用 CPU' }
 }
 
 /**
@@ -203,8 +204,7 @@ function inspectHardware () {
     reason: rec.reason,
     // ⚠ 永远说清楚：这是建议不是保证
     confidence: rec.confidence,
-    caveat: '根据显卡型号给出，'
-      + '不是对你这台机器的实测结果。',
+    caveat: '按已识别的显卡型号匹配，未在本机运行验证。',
     preferenceOrder: BACKEND_PREFERENCE,
     options: BACKEND_PREFERENCE,
   }
@@ -226,14 +226,15 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
   //    而那正是 Owner 要的「标绿 / 标黄」。
   const mine = detected || null
 
+  // why = 「这是什么」+「和本机是否一致」两句，都是结论。
+  // ⛔ 不追加「装之前请确认」：状态徽标（✓ / ! / ?）已经说明该怎么做了，
+  //   再加一句叮嘱只是把同一个意思说两遍。
   const verdictFor = (kind, desc) => {
-    if (!mine) return { kind, verdict: 'unknown', why: desc + '（未检测本机）' }
+    if (!mine) return { kind, verdict: 'unknown', why: `${desc}（未检测本机）` }
     if (mine === kind) {
-      return { kind, verdict: 'match',
-        why: `${desc}，和本机推荐的后端（${mine}）一致。` }
+      return { kind, verdict: 'match', why: `${desc}，与本机推荐一致` }
     }
-    return { kind, verdict: 'mismatch',
-      why: `${desc}，但本机推荐的是 ${mine}，不是这个。装之前请确认。` }
+    return { kind, verdict: 'mismatch', why: `${desc}，本机推荐的是 ${mine}` }
   }
 
   // ---- 后缀自报（+cu121 / +rocm6.4 / +xpu…）----
@@ -241,17 +242,17 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
   if (explicit) {
     const tag = explicit[1].toLowerCase()
     if (tag.startsWith('cu')) {
-      return verdictFor('cuda', `lock 里锁的是 CUDA 版（${tag}）—— 需要 NVIDIA 驱动。`)
+      return verdictFor('cuda', `CUDA 版（${tag}），需要 NVIDIA 驱动`)
     }
     if (tag.startsWith('rocm')) {
-      return verdictFor('rocm', `lock 里锁的是 ROCm 版（${tag}）—— 需要 AMD 驱动。`)
+      return verdictFor('rocm', `ROCm 版（${tag}），需要 AMD 驱动`)
     }
     if (tag.startsWith('xpu') || tag.startsWith('ipex')) {
-      return verdictFor('ipex', `lock 里锁的是 Intel XPU 版（${tag}）。`)
+      return verdictFor('ipex', `Intel XPU 版（${tag}）`)
     }
     // ⛔ 不认识的后缀 ⇒ 如实说「不认识」，⛔ 不硬套
     return { kind: 'unknown', verdict: 'unknown',
-      why: `lock 里的后缀 +${tag} 无法识别，装之前请自行确认。` }
+      why: `后缀 +${tag} 无法识别，请自行确认。` }
   }
 
   // ---- 没有后缀 ⇒ ⚠⚠ **不能**直接当成CPU 版（2026-10-04 实测踩到）
@@ -267,24 +268,19 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
     const locked = ctx.lockedPackages || []
     const cudaDeps = locked.filter((n) => /^nvidia-|^triton$/.test(n))
     if (cudaDeps.length) {
-      return verdictFor('cuda',
-        `lock 里 torch 没写后缀，但它同时锁了 ${cudaDeps.length} 个 CUDA 依赖`
-        + `（${cudaDeps.slice(0, 3).join(', ')}${cudaDeps.length > 3 ? '…' : ''}）`
-        + ' —— 这套环境是给 NVIDIA 准备的')
+      return verdictFor('cuda', 'CUDA 版，需要 NVIDIA 驱动')
     }
     const xpuDeps = locked.filter((n) => /^intel-|^xpu|^ipex/.test(n))
     if (xpuDeps.length) {
-      return verdictFor('ipex',
-        `lock 里带 Intel XPU 依赖（${xpuDeps.slice(0, 3).join(', ')}）`)
+      return verdictFor('ipex', 'Intel XPU 版')
     }
     return { kind: 'cpu', verdict: 'match',
-      why: 'lock 里是纯 CPU 版（torch 没后缀，也没有 NVIDIA/XPU 依赖跟着）'
-        + ' —— 到处都装得上，代价是慢。' }
+      why: 'CPU 版，任何机器均可安装，速度较慢。' }
   }
 
   // ⛔ 分不出来就说分不出来
   return { kind: 'unknown', verdict: 'unknown',
-    why: '这一行看不出是哪个后端的 wheel，装之前请自行确认。' }
+    why: '无法判断该包适用的后端，请自行确认。' }
 }
 
 /**

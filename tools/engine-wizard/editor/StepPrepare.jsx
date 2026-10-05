@@ -28,9 +28,8 @@ import { RiskUnlock } from './Pipeline'
 const ERR_TEXT = {
   // 不是错误，是「我们把你的链接改了」的告知
   TRIMMED_TAIL: [
-    'The link ended in "/{tail}" — only the repository root is used, because the '
-      + 'whole repository is needed.',
-    '链接末尾的 “/{tail}” 已去掉 —— 用的是仓库根，因为要克隆的是整个仓库。'],
+    'The link ended in "/{tail}". Only the repository root is used.',
+    '已去除链接末尾的 “/{tail}”，改用仓库根地址。'],
   EMPTY_LINK: [
     'No link yet.', '还没填链接。'],
   NO_OWNER: [
@@ -243,8 +242,8 @@ const done = facts && facts.cloned === true
         {t('Paste the repository root link — a link to a file or folder inside it '
           + 'is rejected. The directory name is what the manifest id must match '
           + 'word for word, so changing it later means renaming the folder.',
-          '粘仓库根链接 —— 指到仓库里某个文件或目录的链接会被拒。'
-          + '目录名就是名片里的 id，必须逐字相同，事后改就是改目录。')}
+          '请粘贴仓库根地址，指向仓库内文件或目录的地址无效。'
+          + '目录名必须与 Manifest 的 id 完全一致。')}
       </p>
 
       {busy === 'link' && (

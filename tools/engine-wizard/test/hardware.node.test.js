@@ -50,14 +50,15 @@ test('NVIDIA ⇒ cuda', () => {
 test('⭐ Intel（名字含 Arc）⇒ ipex —— 这台机器就是', () => {
   const r = recommendBackend([{ vendor: 'intel', name: 'Intel(R) Arc(TM) 140T GPU' }])
   assert.strictEqual(r.recommended, 'ipex')
-  // ⚠ StabilityMatrix 原文：'detection is name-based' —— 理由里要带这句
-  assert.ok(/名字|name-based|Arc/.test(r.reason), r.reason)
+  // ⛔ reason 只说结论；置信度由 confidence 字段承担，⛔ 不塞进 reason。
+  assert.strictEqual(r.reason, '推荐使用 XPU')
+  assert.strictEqual(r.confidence, 'guidance')
 })
 
 test('AMD + Windows ⇒ directml（三条路里最兼容的那条）', () => {
   const r = recommendBackend([{ vendor: 'amd', name: 'Radeon RX 7900' }])
   assert.strictEqual(r.recommended, 'directml')
-  assert.ok(/ROCm|ZLUDA|DirectML/.test(r.reason), r.reason)
+  assert.strictEqual(r.reason, '推荐使用 DirectML')
 })
 
 test('AMD + Linux ⇒ rocm', () => {
@@ -97,9 +98,9 @@ test('⭐ ⭐ inspectHardware 必须把**所有**选项都返回（推荐 ≠ �
   assert.strictEqual(h.options.length, BACKEND_PREFERENCE.length)
   assert.ok(h.options.some((o) => o.key === h.recommended))
   // ⚠ 纪律 2：必须说清「这只是推荐，你可以改」。
-  //   ⚠ 2026-10-05：措辞改成「根据显卡型号给出，不是实测」了
-  //   ⇒ 这条断言改钉**实质**（推荐 ≠ 决定），⛔ 不许断言某几个字。
-  assert.ok(h.caveat && /可以|自行|不是|能/.test(h.caveat), h.caveat)
+  //   ⛔ 不许断言某几个字（措辞会改），改钉**实质**：
+  //   caveat 要点明「未在本机验证」，即推荐 ≠ 保证。
+  assert.ok(h.caveat && /未在本机|不是实测|未经/.test(h.caveat), h.caveat)
   // ⛔ 不许用破折号解释腔（Owner 2026-10-05 的口吻要求）
   assert.ok(!/——/.test(h.caveat), `⛔ 界面文案不许用破折号：${h.caveat}`)
 })
@@ -244,7 +245,9 @@ test('⭐⭐ torch 没后缀但 lock 里有 CUDA 依赖 ⇒ 判 cuda，⛔ 不�
   const onIntel = judgeTorchSpec(torch.spec, 'ipex', ctx)
   assert.strictEqual(onIntel.kind, 'cuda', '⛔ 判成 cpu 就错了')
   assert.strictEqual(onIntel.verdict, 'mismatch', 'Intel 机器上应该是 mismatch')
-  assert.ok(/CUDA 依赖/.test(onIntel.why), onIntel.why)
+  // ⛔ why 是界面文案：只说结论「CUDA 版」，⛔ 不讲「因为锁了几个 CUDA 依赖」。
+  //   判据由上面两条 kind/verdict 断言守住。
+  assert.strictEqual(onIntel.why, 'CUDA 版，需要 NVIDIA 驱动，本机推荐的是 ipex')
 
   const onNvidia = judgeTorchSpec(torch.spec, 'cuda', ctx)
   assert.strictEqual(onNvidia.verdict, 'match', 'NVIDIA 机器上应该一致')
@@ -253,7 +256,8 @@ test('⭐⭐ torch 没后缀但 lock 里有 CUDA 依赖 ⇒ 判 cuda，⛔ 不�
 test('⭐ 真的纯 CPU（没有 NVIDIA/XPU 旁证）⇒ 才判 cpu', () => {
   const j = judgeTorchSpec('torch==2.2.0', 'ipex', { lockedPackages: ['torch', 'numpy'] })
   assert.strictEqual(j.kind, 'cpu')
-  assert.ok(j.why.includes('没有 NVIDIA'), j.why)
+  // ⛔ 同上：结论上界面，⛔ 不把「没有 NVIDIA/XPU 旁证」这个判据讲给用户。
+  assert.strictEqual(j.why, 'CPU 版，任何机器均可安装，速度较慢。')
 })
 
 test('⭐ lock 里有 Intel XPU 依赖 ⇒ 判 ipex', () => {

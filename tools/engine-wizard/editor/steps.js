@@ -222,11 +222,11 @@ export function riskNotice (stepKey, t, vars) {
       level: 'warn',
       // ⛔ 这条是纯告知（无占位符），所以留在 t() 里，不改成 code + params。
       //   说清三件事：要做什么、要花多久、失败后怎么收拾。
-      text: fill(t('This installs everything the engine needs to run. It downloads '
-        + 'several GB and takes a while. If it fails halfway, delete the engine '
-        + 'folder and run this step again.',
-        '这一步会把这台引擎运行所需的一切装好。需要下载几个 GB，耗时较长。'
-        + '如果中途失败，删掉引擎目录后重新执行这一步。')),
+      text: fill(t('This installs everything the engine needs to run. Several GB '
+        + 'are downloaded and it takes a while. If it fails halfway, delete the '
+        + 'engine folder and run this step again.',
+        '安装该引擎运行所需的全部依赖。需下载数 GB，耗时较长。'
+        + '若中途失败，请删除引擎目录后重新执行本步骤。')),
     }
   }
   return null

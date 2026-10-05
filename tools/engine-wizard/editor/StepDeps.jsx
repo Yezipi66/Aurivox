@@ -163,12 +163,11 @@ export default function StepDeps ({ state }) {
             ))}
           </select>
           <p className="field-hint">
-            {t('⛔ That is a recommendation, not a decision — every option is '
-              + 'here. If the wheel upstream pinned cannot use your GPU, pick '
-              + 'another one, or install torch yourself afterwards.',
-              '⛔ 那是推荐，不是决定 —— 所有选项都在这儿。'
-              + '如果上游锁的那个 wheel 你的显卡用不了，可以换一条，'
-              + '也可以事后自己装 torch。')}
+            {t('This is a recommendation. Every option is listed below; if the '
+              + 'wheel pinned upstream cannot use this GPU, pick another one, '
+              + 'or install Torch afterwards.',
+              '此处为推荐值，全部选项列于下方。若上游锁定的 wheel 与本机显卡'
+              + '不匹配，可改选其他后端，或自行安装 Torch。')}
           </p>
         </div>
       )}
@@ -185,9 +184,9 @@ export default function StepDeps ({ state }) {
           {showNormal && (
             <div className="collapsible-body">
               <p className="field-hint" style={{ marginTop: 0 }}>
-              {t('No graphics-card-specific packages here. The same command'
+              {t('No graphics-card-specific packages. The same command'
                 + ' works on every machine.',
-                '这里没有和显卡相关的包，任何机器都用同一条命令。')}
+                '不含与显卡相关的依赖包，所有机器使用同一条安装命令。')}
               </p>
               <div className="pf-chips">
                 {d.normal.packages.map((p) => (
@@ -209,10 +208,9 @@ export default function StepDeps ({ state }) {
         </button>
       </RiskUnlock>
       <p className="field-hint" style={{ marginTop: 0 }}>
-        {t('This downloads several GB and takes a while. If it fails halfway, '
+        {t('Several GB are downloaded and it takes a while. If it fails halfway, '
           + 'delete the engine folder and run this step again.',
-          '这一步要下载几个 GB，耗时较长。如果中途失败，'
-          + '删掉引擎目录后重新执行这一步。')}
+          '需下载数 GB，耗时较长。若中途失败，请删除引擎目录后重新执行本步骤。')}
       </p>
 
       {result && !result.ok && (
