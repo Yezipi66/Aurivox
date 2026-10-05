@@ -293,7 +293,7 @@ const MUTATIONS = [
     file: CLI,
     find: '      } catch (err) {\n        engines.push({ id, ok: false, error: err && err.message ? err.message : String(err) })\n      }',
     replace: '      } catch (err) {\n        throw err\n      }',
-    why: '一张名片写坏 ⇒ stop.ps1 一台都停不掉 ⇒ 进程锁住文件',
+    why: '一张名片写坏 ⇒ stop.js 一台都停不掉 ⇒ 进程锁住文件',
   },
   // ⛔ 这里**不放**「--all 报 plan.port 而不是 plan.desired_port」那条突变。
   //
