@@ -226,7 +226,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
             </select></label>
         </div>
         <p className="plan-warn">
-          {t('⛔ repeat unset or 1 = a single value (scalar). Only ≥ 2 makes an array. '
+          {t('repeat unset or 1 means a single value (scalar). Only 2 or more makes an array. '
             + 'Those are two different things to the engine, and neither is reported '
             + 'as an error.',
             'repeat 未填或填 1 表示单个值（标量），仅当大于等于 2 时才为数组。'

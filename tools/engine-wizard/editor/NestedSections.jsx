@@ -275,7 +275,7 @@ function BindField ({ value, onChange, t }) {
         </Row>
       ))}
       <p className="plan-warn">
-        {t('⛔ These are the platform\'s fixed input words. Each one maps to whatever '
+        {t('These are the platform\'s fixed input words. Each one maps to whatever '
           + 'the engine calls that thing — a wrong mapping is not reported as an error.',
           '以上为平台固定的输入词，每个词对应上游各自的名称，映射错误不会报错。')}>
       </p>
@@ -360,7 +360,7 @@ export function RuntimeSection ({ value, onChange, t }) {
       <Row label="python"
         hint={t('the engine\'s own environment directory (e.g. engines/<id>/.venv)',
           '这台引擎自己的环境目录（如 engines/<id>/.venv）')}
-        warn={t('⛔ must be relative — an absolute path is rejected outright',
+        warn={t('must be relative. An absolute path is rejected outright',
           '必须为相对路径，绝对路径会被拒绝')}>
         <input className="control" type="text" value={v.python || ''}
           placeholder="engines/xxx/.venv"
@@ -469,7 +469,7 @@ export function CallSection ({ value, onChange, t }) {
       <Row label="returns"
         hint={t('file / bytes / generator — what the method gives back',
           'file / bytes / generator，方法的返回形式')}>
-        warn={t('⛔ wrong value here fails at call time, not at load time',
+        warn={t('a wrong value here fails at call time, not at load time',
           '此处填写错误将在调用时触发，而非加载时')}>
         <select className="control" value={v.returns || ''}
           onChange={(e) => set('returns', e.target.value || undefined)}>
@@ -537,7 +537,7 @@ export function ModelsSection ({ value, onChange, t }) {
           onChange={(a) => set('source', { ...src, command: a })} />
       </Row>
       <p className="plan-warn">
-        {t('⛔ The platform does not download anything. It only prints this command '
+        {t('The platform does not download anything. It only prints this command '
           + 'with the path filled in. Downloading is the user\'s job.',
           '平台不执行下载，仅填入路径后显示该命令，下载需自行完成。')}>
       </p>

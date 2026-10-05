@@ -109,7 +109,7 @@ export default function MainArea ({ manifest }) {
           <div style={{ gridColumn: '1 / -1' }}>
             <label className="field-label">{t('Reference audio', '参考音频')}</label>
             <p className="field-hint" style={{ marginTop: 0 }}>
-              ⛔ {t('the manifest sets capabilities.requires_reference_audio = true',
+              {t('the manifest sets capabilities.requires_reference_audio = true',
                 '名片里 capabilities.requires_reference_audio = true')}
               {' '}
               {t('but the platform only has one global switch — if this engine needs '
