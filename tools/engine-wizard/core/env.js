@@ -311,6 +311,37 @@ function buildSteps ({ argv, cwdRel, alt }) {
   return steps
 }
 
+/**
+ * ⭐ 解析 uv 的可执行文件 —— **平台自带的优先**。
+ *
+ * ⚠️ 为什么需要它（实测 2026-10-05）：`uv` 通常**不在 PATH 上**
+ *   （本机 uv.exe 在 venv/Scripts/ 与 cache/slim-venv/Scripts/，
+ *   而 `uv --version` 在 bash 里报 command not found）
+ *   ⇒ runEnv 用 shell:false spawn 'uv' 直接 ENOENT，
+ *   ⛔ 而界面把它显示成「安装失败」，用户看不出是「工具没找到」。
+ *
+ * ⭐ 沿用平台既有做法（bootstrap.js 对 node/npm 的同一规则）：
+ *   自带 → 找得到就用自带的；找不到才留给 PATH。
+ *
+ * @param {string} root 项目根
+ * @returns {string|null} 可执行文件路径；找不到返回 null
+ */
+function resolveUv (root) {
+  const cands = [
+    path.join(root, 'venv', 'Scripts', 'uv.exe'),
+    path.join(root, 'venv', 'Scripts', 'uv'),
+    path.join(root, 'venv', 'bin', 'uv'),
+    path.join(root, 'cache', 'slim-venv', 'Scripts', 'uv.exe'),
+    path.join(root, 'cache', 'slim-venv', 'bin', 'uv'),
+  ]
+  for (const c of cands) {
+    try { if (fs.existsSync(c)) return c } catch (e) { /* 下一个 */ }
+  }
+  // ⛔ 不扫 PATH：找不到就返回 null，由调用方报出「uv 未找到」
+  //   —— 那比 ENOENT 更能让人看懂。
+  return null
+}
+
 function buildEnvPlan (input = {}) {
   const id = input.id
   const root = input.root || projectRoot()
@@ -420,8 +451,12 @@ function buildEnvPlan (input = {}) {
 
 /** 执行。⛔ 只有 execute:true 才真跑。 */
 /** 跑一步。返回 {ok, code, status, stdout, stderr, error} */
-function runOne (step, root, timeoutMs) {
-  const r = spawnSync(step.argv[0], step.argv.slice(1), {
+function runOne (step, root, timeoutMs, argvOverride) {
+  // ⭐ argvOverride：调用方可能已把工具名换成绝对路径
+  //   （uv 不在 PATH 上，spawnSync 用 shell:false ⇒ 只认绝对路径与 PATH）
+  //   ⚠ 不传则回退到 step.argv —— 既有调用点不受影响。
+  const argv = Array.isArray(argvOverride) && argvOverride.length > 0 ? argvOverride : step.argv
+  const r = spawnSync(argv[0], argv.slice(1), {
     cwd: step.absCwd || step.cwd,
     encoding: 'utf-8',
     timeout: timeoutMs,
@@ -449,7 +484,14 @@ function runOne (step, root, timeoutMs) {
  */
 function runEnv (input = {}) {
   const plan = buildEnvPlan(input)
-  if (!plan.ok || !plan.execute) return plan
+  // ⛔⛔ 判据是 **input.execute**，⛔ 不是 plan.execute ——
+  //   buildEnvPlan 从不设置 plan.execute（它只负责出计划），
+  //   而这里过去读的是 plan.execute ⇒ 永远 undefined
+  //   ⇒ ⛔ runEnv 永远在第一行就 return，**一条命令都没跑**，
+  //   ⛔ 而返回的 plan.ok 是 true ⇒ 界面显示「完成」。
+  //   症状实测（2026-10-05）：点「安装」后 stepsRun 为空但 ok:true。
+  if (!plan.ok) return plan
+  if (input.execute !== true) return { ...plan, stepsRun: [], failedAt: null }
 
   const root = input.root || projectRoot()
   const timeoutMs = input.timeoutMs || 60 * 60 * 1000   // 装环境要很久
@@ -464,15 +506,34 @@ function runEnv (input = {}) {
     // ⛔ cwd 必须是**绝对路径**：上面的 spawn 用它当 cwd，
     //   传相对路径会相对于进程 cwd 而非项目根。
     step.absCwd = require('node:path').join(root, step.cwd || '.')
+    // ⭐ 头是 uv 这类**平台自带工具**时换成绝对路径。
+    //   ⚠ uv 装在**项目根**下（venv/Scripts/uv.exe），⛔ 不是引擎的 root
+    //   （夹具/引擎目录）下 —— 所以要查 projectRoot()，不是 root。
+    //   实测 uv 不在 PATH 上，而 spawnSync 用 shell:false ⇒ 只认绝对路径与 PATH。
+    const argv = step.argv.slice()
+    if (/^uv$/i.test(argv[0])) {
+      const abs = resolveUv(projectRoot()) || resolveUv(root)
+      if (abs) argv[0] = abs
+      // ⛔ uv 找不到 ⇒ 如实报「工具未找到」，⛔ 不让 spawn 报 ENOENT
+      else {
+        return {
+          ...plan, ok: false, code: 'UV_NOT_FOUND',
+          stepsRun, failedAt: i + 1, failedArgv: step.argv,
+          error: '未找到 uv。平台通常自带它（在 venv/Scripts/uv.exe），'
+            + '请确认平台文件完整，或将 uv 加入 PATH 后重试。',
+          note: '安装未开始。',
+        }
+      }
+    }
     if (typeof input.onStep === 'function') {
-      try { input.onStep(i, steps.length, step, step.argv) } catch (e) { /* 回调不影响安装 */ }
+      try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调不影响安装 */ }
     }
 
-    const r = runOne(step, root, timeoutMs)
+    const r = runOne(step, root, timeoutMs, argv)
     stepsRun.push({
       n: i + 1,
       of: steps.length,
-      argv: step.argv,
+      argv,
       ok: r.ok,
       status: r.status,
       code: r.code,

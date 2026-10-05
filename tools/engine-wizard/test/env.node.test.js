@@ -412,3 +412,37 @@ test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，�
   assert.ok(JSON.stringify(envSteps).includes('--index-url'),
     '⛔ 第②步（装本机后端的 torch）必须进 steps —— 它是安装的一部分')
 })
+
+// ⛔⛔ execute:true 时**必须真的执行**，⛔ 不许静默返回 ok:true。
+//   症状实测（2026-10-05）：runEnv 判的是 plan.execute，而
+//   buildEnvPlan 从不设置它⇒ 永远 undefined ⇒ 第一行就 return，
+//   ⛔ 一条命令都没跑，⛔ 而 plan.ok 是 true ⇒ 界面显示「完成」。
+test('⛔⛔ execute:true ⇒ 真的去跑（⛔ 不许静默返回 ok:true）', () => {
+  const { root, engineDir: dir } = mkdtempRootWithEngine('exe')
+  fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
+  // 用一条一定不存在的命令：⛔ 不看它跑不跑得起来，
+  //   只看**有没有真的去跑**（stepsRun 有内容 + 如实报失败）。
+  const r = runEnv({
+    id: 'exe', root, execute: true,
+    manifest: { install: { env_command: ['definitely-not-a-real-cmd-abc'] } },
+    timeoutMs: 5000,
+  })
+  assert.ok(Array.isArray(r.stepsRun) && r.stepsRun.length >= 1,
+    `⛔ execute:true 却没跑任何步骤（stepsRun=${JSON.stringify(r.stepsRun)}）`)
+  assert.strictEqual(r.ok, false, '⛔ 命令不存在时不得报成功')
+  assert.ok(r.failedAt >= 1, '⛔ 必须报出第几步失败')
+})
+
+// ⛔ execute 不为 true 时**不许**跑命令，但要如实返回空 stepsRun。
+test('⛔ execute 不为 true ⇒ 只出计划，⛔ stepsRun 为空', () => {
+  const { root, engineDir: dir } = mkdtempRootWithEngine('noop')
+  fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
+  const r = runEnv({ id: 'noop', root, manifest: {} })
+  assert.deepStrictEqual(r.stepsRun, [], '⛔ 未要求执行时不得有 stepsRun')
+  assert.ok(r.ok, '出计划本身应当 ok')
+  // ⚠ 本夹具的 uv.lock 里**没有 torch** ⇒ 不触发后端不一致的分支
+  //   ⇒ 命令就是纯 uv sync（不带 --no-install-package）。
+  assert.deepStrictEqual(r.env_command, ['uv', 'sync'])
+  assert.ok(r.alternative == null,
+    '⛔ 锁里没有 torch 时不应给出替代命令')
+})
