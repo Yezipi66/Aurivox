@@ -9,7 +9,7 @@ Why this exists
 ---------------
 `node_modules` is NOT bundled in the release (04_pack_release.py keeps it out to
 shrink the zip AND avoid physically redistributing third-party npm packages); it
-is restored on the target by `npm ci` (bootstrap.ps1). The deploy wizard's
+is restored on the target by `npm ci` (tools/deploy/bootstrap.js). The deploy wizard's
 "第二层" (bundled code / runtime / deps) license view wants to enumerate those
 backend deps, but the release had no machine-readable inventory for them —
 parallel to runtime/python_packages.json for the PyPI closure.
@@ -165,7 +165,7 @@ def build_inventory(root):
         "note": ("Machine-readable inventory of the BACKEND (root) production npm "
                  "dependency closure and each package's SELF-DECLARED license. "
                  "node_modules is NOT bundled in the release; it is restored on the "
-                 "target by `npm ci` (bootstrap.ps1). This file is GENERATED (not "
+                 "target by `npm ci` (tools/deploy/bootstrap.js). This file is GENERATED (not "
                  "hand-maintained) by tools/build/gen_node_licenses.py from the "
                  "installed node_modules/<pkg>/package.json, so we never hand-assert "
                  "a license. The deploy wizard reads it to display backend deps under "

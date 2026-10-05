@@ -7,7 +7,7 @@ tools/wheels/
     - jieba_fast==0.53
     - pyopenjtalk==0.3.4
 
-其余依赖在部署(bootstrap.ps1)时从 PyPI 联网安装,PyPI 有现成 cp311 wheel。
+其余依赖在部署(tools/deploy/bootstrap.js)时从 PyPI 联网安装,PyPI 有现成 cp311 wheel。
 部署时的安装命令会自动带上  --find-links tools\wheels  优先使用这里的轮子。
 
 注意:轮子是 cp311 / win_amd64 专用,必须与内嵌 Python 3.11 的 ABI 一致。

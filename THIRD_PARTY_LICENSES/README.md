@@ -78,12 +78,12 @@ installed at deploy time from a package index (`bundled: false`), inventoried in
 index.
 
 The backend **Node** production dependency closure is likewise **not bundled** —
-`node_modules` is restored on the target by `npm ci` (bootstrap.ps1) from the
+`node_modules` is restored on the target by `npm ci` (tools/deploy/bootstrap.js) from the
 shipped `package-lock.json`. Its per-package licenses are inventoried in
 `runtime/node_packages.json`, which is **generated** (not hand-maintained) by
 `tools/build/gen_node_licenses.py` reading each installed
 `node_modules/<pkg>/package.json` — so no Node license is ever hand-asserted.
-bootstrap.ps1 regenerates it right after `npm ci`; the file may be absent on a
+tools/deploy/bootstrap.js regenerates it right after `npm ci`; the file may be absent on a
 first, pre-`npm ci` wizard run, in which case the wizard points to `package.json`
 and the installed `node_modules` instead.
 

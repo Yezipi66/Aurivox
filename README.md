@@ -182,7 +182,7 @@ Python 依赖只有**一个** `requirements-gpt-sovits.txt` —— 一份**逐�
 
 > 注：早前那套 `requirements.in`（意图）+ `lock_requirements.py`（生成器）的 pip-tools 风格双文件已**退役**。
 
-- **安装**：`deploy.bat` / `bootstrap.ps1` 用 `uv pip install --no-deps -r requirements-gpt-sovits.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装,避免复现时被解析器悄悄升/降级,也避免纸面假冲突（如 `accelerate 1.14` 声明要 `torch>2.2` vs 锁死的 `torch==2.2.0+cu121`）。`torch/torchaudio/torchvision` **与 `onnxruntime`** 体积大且 GPU 专属，一并由 `tools\cli\install-torch.js` 单独 `--no-deps` 安装（同一套设备探测：NVIDIA→cu121+`onnxruntime-gpu`、Intel→xpu、AMD→rocm、其余→CPU 版+`onnxruntime`）。
+- **安装**：`deploy.bat` / `tools/deploy/bootstrap.js` 用 `uv pip install --no-deps -r requirements-gpt-sovits.txt`（失败回退 `pip --no-deps`）——**不跑求解器**，逐包按 pin 精确装,避免复现时被解析器悄悄升/降级,也避免纸面假冲突（如 `accelerate 1.14` 声明要 `torch>2.2` vs 锁死的 `torch==2.2.0+cu121`）。`torch/torchaudio/torchvision` **与 `onnxruntime`** 体积大且 GPU 专属，一并由 `tools\cli\install-torch.js` 单独 `--no-deps` 安装（同一套设备探测：NVIDIA→cu121+`onnxruntime-gpu`、Intel→xpu、AMD→rocm、其余→CPU 版+`onnxruntime`）。
 - **改依赖**：在**开发机**上直接 `pip install ...` 把 venv 调到能跑 → 重新冻结覆盖：
 
   ```bat

@@ -23,7 +23,7 @@ echo.
 
 REM --- non-ASCII install path check REMOVED ---------------------------------
 REM Path restriction lifted per user request (non-ASCII paths tested OK).
-REM (bootstrap.ps1 may still enforce its own exit 7 -- see the note below and
+REM (bootstrap may still enforce its own exit 7 -- see the note below and
 REM  remove that check there too if you want the restriction fully gone.)
 
 REM --- embedded python must exist to run the wizard -------------------------
@@ -42,8 +42,8 @@ if "%RC%"=="10" goto aborted
 if not "%RC%"=="0" goto wizerror
 
 REM ==========================================================================
-REM  Stage 5: environment initialization + provisioning via bootstrap.ps1
-REM  bootstrap.ps1 is the single hardened engine and owns, in order:
+REM  Stage 5: environment initialization + provisioning via bootstrap
+REM  bootstrap is the single hardened engine and owns, in order:
 REM    - venv creation (health-checked / rebuilt if moved)
 REM    - pip/setuptools/wheel upgrade, install uv (online)
 REM    - uv pip install -r requirements-gpt-sovits.txt --no-deps (+ local wheels:
@@ -60,7 +60,7 @@ REM  were the user's choice, already captured by the wizard sidecars above.
 REM ==========================================================================
 echo.
 echo [deploy] initializing environment ^(venv + uv pip install + npm ci^) + provisioning ...
-REM --- 2026-09-29：--platform-only 透传（见 bootstrap.ps1 里的说明）---------
+REM --- 2026-09-29：--platform-only 透传（见 bootstrap 里的说明）---------
 REM   默认**不传** ⇒ 行为与今天逐字节相同（老用户零影响）。
 REM   加 --platform-only ⇒ 只装平台那 3 个包（62MB），不装 torch/CUDA。
 REM   ⛔ 该模式下训练线不可用，且**每台引擎要用它自己那份 .venv**。
@@ -68,7 +68,9 @@ set "BOOTSTRAP_ARGS="
 if /I "%~1"=="--platform-only" set "BOOTSTRAP_ARGS=--platform-only"
 if /I "%~2"=="--platform-only" set "BOOTSTRAP_ARGS=--platform-only"
 if /I "%~3"=="--platform-only" set "BOOTSTRAP_ARGS=--platform-only"
-powershell -ExecutionPolicy Bypass -NoProfile -File "%DEPLOY%\bootstrap.ps1" %BOOTSTRAP_ARGS%
+REM 2026-10-05: the body moved from bootstrap.ps1 to tools\deploy\bootstrap.js
+REM (cross-platform). This line only calls the thin shell bootstrap.bat.
+call "%DEPLOY%\bootstrap.bat" %BOOTSTRAP_ARGS%
 set "RC=%ERRORLEVEL%"
 REM Exit 7 now means: bootstrap detected a non-ASCII (e.g. Chinese) path and the
 REM USER chose NOT to continue at the confirmation prompt. That is a clean
@@ -83,7 +85,7 @@ echo ============================================================
 goto end
 
 REM (the old :guard7 "[DEPLOY REFUSED]" auto-refusal was removed. A non-ASCII
-REM  path no longer blocks deployment; bootstrap.ps1 only WARNS and asks the
+REM  path no longer blocks deployment; bootstrap only WARNS and asks the
 REM  user to confirm. If the user declines, we land on :pathcancel below.)
 
 :pathcancel

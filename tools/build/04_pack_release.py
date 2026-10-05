@@ -11,7 +11,7 @@ What goes IN:
   * tools/ (build + deploy + scripts + wheels + runtime[python+node])
   * root entries: deploy.bat start.bat stop.bat, README_用户版.txt,
     requirements-gpt-sovits.txt, package*.json, business configs (server.js, *.json)
-  * tools\deploy\: bootstrap.ps1, download_models.py,
+  * tools\deploy\: bootstrap.js + bootstrap.bat/.sh, download_models.py,
     download_ffmpeg.py (deploy/ops scripts live here, not at the root)
 What stays OUT (BLACKLIST — users download / generate):
   * ALL models (~9GB): pretrained / asr / uvr5 weights / *.onnx / *.bin ...

@@ -16,8 +16,8 @@ deploy_wizard.py — Aurivox 部署向导 (纯控制台 / 黑窗 TUI)。
   阶段 4  最终确认将要执行的全部操作 (含裁剪后的最终下载清单)。
 
 通过后把用户选择写入 tools/deploy/.deploy_selection.json 以及两个纯文本旁车文件
-(.deploy_models.txt / .deploy_ffmpeg.txt); 随后 deploy.bat 调用 bootstrap.ps1,
-由 bootstrap.ps1 读取旁车文件, 非交互地完成环境初始化 + 模型下载 + ffmpeg 下载。
+(.deploy_models.txt / .deploy_ffmpeg.txt); 随后 deploy.bat 调用 tools/deploy/bootstrap.js,
+由 tools/deploy/bootstrap.js 读取旁车文件, 非交互地完成环境初始化 + 模型下载 + ffmpeg 下载。
 
 退出码:
   0   用户完成全部确认 (已写入 selection)。
@@ -505,7 +505,7 @@ def main():
     }
     with open(SELECTION_FILE, "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False, indent=2)
-    # 供 bootstrap.ps1 直接读取的两个纯文本旁车文件 (避免在 ps1/bat 里解析 JSON):
+    # 供 tools/deploy/bootstrap.js 直接读取的两个纯文本旁车文件 (避免在 ps1/bat 里解析 JSON):
     # .deploy_models.txt = 逗号分隔的模型组; .deploy_ffmpeg.txt = 1/0。
     here = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(here, ".deploy_models.txt"), "w", encoding="ascii") as fh:
