@@ -205,9 +205,17 @@ function suggestEnvCommand (dir) {
   const pyproj = pick('pyproject.toml')
   const req = pick('requirements.txt')
   if (lock) {
+    // ⛔ 只算一次：alternative 要同时用于 why 与返回值
+    const alt = suggestBackendAlternative(dir, lock)
     return { argv: ['uv', 'sync'], from: lock, cwd: '.',
-      why: `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。`,
-      alternative: suggestBackendAlternative(dir, lock) }
+      // ⛔⛔ 不写「照它装最稳」—— 那只在锁的后端与本机一致时成立。
+      //   锁的后端是 CUDA 而本机是 XPU 时，照装恰恰装的是**不能用的**那套
+      //   （实测某台已装引擎的 lock 锁的是 +cu128，另带 38 个 nvidia-*-cu12）。
+      //   ⇒ 有替代命令时，这句改成只说「照锁装」这一事实。
+      why: (alt
+        ? `上游有 ${lock}，其中锁定的后端与本机不一致。`
+        : `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。`),
+      alternative: alt }
   }
   if (conda) {
     return { argv: ['conda', 'env', 'create', '-f', conda],

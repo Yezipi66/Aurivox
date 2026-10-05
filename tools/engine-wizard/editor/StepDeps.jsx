@@ -60,6 +60,26 @@ export default function StepDeps ({ state }) {
   const d = plan && plan.ok ? plan.deps : null
   const hw = plan ? plan.hardware : null
 
+  // ⭐⭐ 计划态：进入页面就取一次**不执行**的计划。
+  //   ⛔ 上一版只在点「安装」后才有 result，而 alternative 在 result 里
+  //   ⇒ 用户看计划时看不到第二条命令，那正是它该出现的地方。
+  //   ⛔ execute: false ⇒ 后端只出计划不执行（平台只验不建）。
+  const [preview, setPreview] = React.useState(null)
+  const engineId = state.id
+  React.useEffect(() => {
+    if (!engineId) return
+    let alive = true
+    fetch('/wizard/env', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: engineId, manifest: state.manifest || {}, execute: false,
+      }),
+    }).then((r) => r.json())
+      .then((j) => { if (alive) setPreview(j) })
+      .catch(() => { if (alive) setPreview(null) })
+    return () => { alive = false }
+  }, [engineId])
+
   React.useEffect(() => {
     if (hw && backend === null) setBackend(hw.recommended)
   }, [hw])
@@ -176,19 +196,22 @@ export default function StepDeps ({ state }) {
 
       {/* ---- 锁文件后端与本机不一致 ⇒ 并列给出第二条命令 ----
           ⛔ 两条**并列展示**，⛔ 不替使用者拍板（平台只验不建）。
-             ⛔ alternative 也不进 steps：自动执行等于替他选了。*/}
-      {plan && plan.alternative && (
+             ⛔ alternative 也不进 steps：自动执行等于替他选了。
+          ⚠️ 数据来自 **preview**（进入页面时取的 execute:false 计划），
+             ⛔ 不是 plan（/wizard/deps 从 GitHub 拉 lock）——
+             上一版挂在 plan 上，界面因此永远不显示。*/}
+      {preview && preview.alternative && (
         <div className="field">
           <label className="field-label" htmlFor="wz-alt">
             {t('Alternative for this machine', '本机适用的替代命令')}
           </label>
           <div className="rc-cmd" id="wz-alt">
             <div className="rc-cmd-body">
-              <code>{plan.alternative.argv.join(' ')}</code>
+              <code>{preview.alternative.argv.join(' ')}</code>
             </div>
           </div>
           <p className="field-hint" style={{ marginTop: 0 }}>
-            {plan.alternative.why}
+            {preview.alternative.why}
           </p>
         </div>
       )}
