@@ -343,13 +343,66 @@ function parseUvLock (text) {
       else source = '（其它来源）'
     }
     // ⭐ spec = lock 里那一条（带后缀的话就在 version 里）
-    out.push({ name, version, source, spec: `torch==${version}` })
+    // ⭐ marker 一起带出：同一个包在 lock 里可能按平台分成多条
+    //   （实测某台的 torch 同时有 PyPI 与 whl/cu128 两条），
+    //   ⛔ 只取第一条会拿到不适用于本机的那条。
+    const marker = (b.match(/marker\s*=\s*"([^"]*)"/) || [])[1] || null
+    out.push({ name, version, source, marker, spec: `torch==${version}` })
   }
   return out
 }
 
+/**
+ * 从 uv.lock 读出 torch 的**纯版本号**（剥掉 +cu128 / +xpu 这类后缀）。
+ *
+ * ⭐ 为什么需要它：lock 里写的是 `2.8.0+cu128`，而同一版本号在
+ *   xpu / cpu / rocm 线上各有自己的 wheel（实测 torch-2.8.0+xpu-cp311-win_amd64
+ *   与 torch-2.8.0+cu128-cp311-win_amd64 同时存在）。
+ *   ⇒ lock 锁的是**版本号**，⛔ 不是后端。想换后端不必放弃锁文件。
+ *
+ * ⚠️⚠️ 同一个 torch 在 lock 里**可能有多条记录**，按 marker 分流。实测某台
+ *   已装引擎的 uv.lock：
+ *     version = "2.8.0"        source = PyPI        marker = 非 win32/linux
+ *     version = "2.8.0+cu128"  source = whl/cu128   marker = win32 或 linux
+ *   ⇒ ⛔ 取第一条会漏掉真正适用于本机的那条（它没有后缀 ⇒ 判成 cpu/null）。
+ *   ✅ 规则：**带后缀的优先**；都带后缀时取与当前平台匹配的那条。
+ *
+ * @param {string} text uv.lock 全文
+ * @param {string} [platform] process.platform，默认取当前平台
+ * @returns {{version:string, plain:string, backend:string|null}|null}
+ *   version = lock 里的原样版本（含后缀）· plain = 剥掉后缀
+ *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
+ */
+function readTorchPin (text, platform) {
+  const plat = platform || process.platform
+  const rows = parseUvLock(text)
+  const cands = rows.filter((r) => r.name.toLowerCase() === 'torch' && r.version)
+  if (!cands.length) return null
+
+  const backendOf = (r) => {
+    const v = String(r.version)
+    if (/\+(?:cu|cuda)\d*/i.test(v) || /download\.pytorch\.org\/whl\/cu/i.test(r.source || '')) return 'cuda'
+    if (/\+(?:xpu|ipex)/i.test(v) || /download\.pytorch\.org\/whl\/xpu/i.test(r.source || '')) return 'ipex'
+    if (/\+rocm/i.test(v) || /rocm/i.test(r.source || '')) return 'rocm'
+    return null
+  }
+  const isWinLinux = (r) => r.marker ? /win32|linux/.test(r.marker) : false
+  const isOther = (r) => r.marker ? /darwin|win32\s*==\s*'false'/.test(r.marker) : false
+
+  // 优先级：带后缀且 marker 匹配本机 > 带后缀 > 匹配本机 > 第一条
+  let pick = cands.find((r) => backendOf(r) && isWinLinux(r) && plat !== 'darwin')
+    || cands.find((r) => backendOf(r) && isWinLinux(r))
+    || cands.find((r) => backendOf(r))
+    || cands.find((r) => isWinLinux(r) && plat !== 'darwin')
+    || cands.find((r) => isOther(r) && plat === 'darwin')
+    || cands[0]
+
+  const version = String(pick.version)
+  return { version, plain: version.replace(/\+.*$/, ''), backend: backendOf(pick) }
+}
+
 module.exports = {
-  parseUvLock, clearHardwareCache,
+  parseUvLock, readTorchPin, clearHardwareCache,
   BACKEND_PREFERENCE, detectGpus, recommendBackend, inspectHardware,
   judgeTorchSpec, splitTorchPackages, TORCH_FAMILY,
 }

@@ -99,6 +99,62 @@ function readEnvCommand (manifest) {
  *   名片作者知道这台引擎的特殊装法（要编译、要特定源…），
  *   探测推出的只是「常规装法」，⛔ 不能盖过名片。
  *
+ */
+
+/**
+ * ⭐⭐ 锁文件装不了本机后端时，给出**第二条**命令（两条都给，平台不拍板）。
+ *
+ * 问题的实况（实测某台已装引擎的 uv.lock）：lock 里写的是
+ *   torch 2.8.0+cu128  source = download.pytorch.org/whl/cu128
+ *   另带 38 个 nvidia-*-cu12
+ * ⇒ `uv sync` 会照装一整套 CUDA。而 lock 锁的是**版本号**，⛔ 不是后端：
+ *   同一个 2.8.0 在 xpu / cpu / rocm 线上各有 wheel
+ *   （实测 torch-2.8.0+xpu-cp311-cp311-win_amd64.whl 存在）。
+ *   ⇒ 想换后端**不必放弃锁文件**：记下版本号，只重建 torch。
+ *
+ * ⛔ 本函数**只产出一条建议**，不执行、不判断哪条对 ——
+ *   平台只验不建 ⇒ 用哪条由使用者决定。
+ *
+ * @param {string} dir 清单所在目录
+ * @param {string} lockRel lock 相对路径（可能带一层子目录）
+ * @returns {{argv:string[], why:string, needs:string[]}|null}
+ *   null = 读不出 torch 版本 / 锁的后端与推荐一致 / 推荐后端没有官方 index
+ */
+function suggestBackendAlternative (dir, lockRel) {
+  let hw
+  try {
+    hw = require('./hardware.js')
+  } catch (e) { return null }
+  if (!hw || typeof hw.readTorchPin !== 'function') return null
+
+  let text
+  try { text = fs.readFileSync(path.join(dir, lockRel), 'utf8') } catch (e) { return null }
+
+  const pin = hw.readTorchPin(text)
+  if (!pin || !pin.plain) return null
+
+  let rec
+  try { rec = hw.recommendBackend(hw.detectGpus()) } catch (e) { return null }
+  if (!rec || !rec.recommended) return null
+
+  // ⛔ 一致时不给第二条：没有需要解决的问题，多给一条只是噪音
+  if (pin.backend && pin.backend === rec.recommended) return null
+
+  const opt = (hw.BACKEND_PREFERENCE || []).find((b) => b.key === rec.recommended)
+  if (!opt || !opt.index) return null   // ⛔ 没有官方 index ⇒ 平台给不出命令
+
+  // 只重建 torch；锁文件里的其余包照旧（那才是锁文件的价值）
+  return {
+    argv: ['uv', 'pip', 'install', `torch==${pin.plain}`, '--index-url', opt.index],
+    why: `锁文件指定的是 CUDA 版（${pin.version}），与本机推荐的后端（${opt.label}）不一致。`
+      + `可保留锁定的版本号 ${pin.plain}，改从 ${opt.label} 的官方 index 安装 torch；`
+      + '锁文件中的其余依赖保持不变。',
+    needs: ['torch'],
+  }
+}
+
+/**
+ * 按上游的依赖清单推导安装方式。
  * @param {string} dir 引擎目录
  * @returns {{argv:string[]|null, from:string|null, why:string}}
  */
@@ -150,7 +206,8 @@ function suggestEnvCommand (dir) {
   const req = pick('requirements.txt')
   if (lock) {
     return { argv: ['uv', 'sync'], from: lock, cwd: '.',
-      why: `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。` }
+      why: `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。`,
+      alternative: suggestBackendAlternative(dir, lock) }
   }
   if (conda) {
     return { argv: ['conda', 'env', 'create', '-f', conda],
@@ -242,6 +299,8 @@ function buildEnvPlan (input = {}) {
       guessed: true,
       env_command: guess.argv,
       whatToDo: guess.why,
+      // ⭐ 锁文件的后端与本机不一致时，第二条命令（只重建 torch）
+      alternative: guess.alternative || null,
       note: `该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。\n`
         + `  ${guess.why}\n`
         + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
@@ -250,6 +309,8 @@ function buildEnvPlan (input = {}) {
         {
           kind: 'env',
           argv: guess.argv,
+          // ⛔ steps[0] 只放**要执行的那条**；alternative 由界面并列展示，
+          //   ⛔ 不进 steps —— 自动执行等于替使用者拍板。
           cwd: path.join('engines', id, cwdRel),
           needs_network: true,
           why: `Manifest 未声明 install.env_command，该方式依据上游依赖清单推导得出。\n`

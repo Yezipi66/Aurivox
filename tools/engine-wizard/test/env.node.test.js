@@ -336,3 +336,61 @@ test('⭐ 名片的 install.env_command 仍然**优先**（名片作者知道特
   assert.strictEqual(p.from, 'manifest', '⛔ 探测的装法盖过了名片 —— 那就反了')
   assert.deepStrictEqual(p.env_command, ['conda', 'env', 'create', '-f', 'x.yml'])
 })
+
+// ---------------------------------------------------------------------------
+// ⭐⭐ 锁文件锁了 CUDA，而本机是别的后端 ⇒ 并列给出第二条命令
+//
+// 问题的实况（实测某台已装引擎的 uv.lock）：lock 里写的是
+//   torch 2.8.0+cu128  source = download.pytorch.org/whl/cu128
+// 而 lock 锁的是**版本号**，⛔ 不是后端 —— 同一个 2.8.0 在 xpu 线上也有
+// （实测 torch-2.8.0+xpu-cp311-cp311-win_amd64.whl 存在）。
+// ⇒ 换后端不必放弃锁文件：保留版本号，只换 index。
+// ---------------------------------------------------------------------------
+
+/** 造一份「torch 锁在 CUDA 线上」的 uv.lock（形状照真实 lock） */
+function writeCudaLock (dir) {
+  fs.writeFileSync(path.join(dir, 'uv.lock'), [
+    'version = 1',
+    '',
+    '[[package]]',
+    'name = "torch"',
+    'version = "2.8.0+cu128"',
+    'source = { registry = "https://download.pytorch.org/whl/cu128" }',
+    'marker = "sys_platform == \'linux\' or sys_platform == \'win32\'"',
+    '',
+  ].join('\n'))
+}
+
+test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，且只动 torch', () => {
+  const { root } = mkdtempRoot()
+  const dir = path.join(root, 'engines', 'demo')
+  fs.mkdirSync(dir, { recursive: true })
+  writeCudaLock(dir)
+
+  const p = buildEnvPlan({ id: 'demo', root, manifest: {} })
+  // 主命令不变：照锁装（平台不替使用者选）
+  assert.deepStrictEqual(p.env_command, ['uv', 'sync'], '⛔ 主命令应仍是 uv sync')
+
+  // ⛔ 本机若无 GPU，推荐会退 CPU；那种情况不给第二条（没有可换的官方 index）
+  if (!p.alternative) {
+    // CI / 无 GPU 环境：断言「不给」而不是让测试失败
+    assert.ok(true, '本机无可用加速后端，不给替代命令（符合预期）')
+    return
+  }
+
+  const alt = p.alternative
+  assert.deepStrictEqual(alt.needs, ['torch'],
+    '⛔ 只应重建 torch；锁文件里的其余包保持不变')
+  // 保留锁定版本号 + 换 index
+  assert.ok(alt.argv.includes('torch==2.8.0'),
+    `⛔ 必须保留锁定的纯版本号：${alt.argv.join(' ')}`)
+  const idx = alt.argv.indexOf('--index-url')
+  assert.ok(idx > 0 && /download\.pytorch\.org/.test(alt.argv[idx + 1]),
+    `⛔ 必须指向 PyTorch 官方 index：${alt.argv.join(' ')}`)
+  // ⛔ 不得含 +cu128（那是 CUDA 后缀，换后端后必须剥掉）
+  assert.ok(!alt.argv.some((a) => /\+cu/.test(a)),
+    `⛔ 换后端后不得保留 CUDA 后缀：${alt.argv.join(' ')}`)
+  // ⛔ alternative 不得混进 steps（自动执行等于替使用者拍板）
+  assert.ok(!JSON.stringify(p.steps).includes('--index-url'),
+    '⛔ 替代命令不得进 steps —— 它只能被展示，不能被自动执行')
+})

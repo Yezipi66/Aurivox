@@ -174,6 +174,25 @@ export default function StepDeps ({ state }) {
         </div>
       )}
 
+      {/* ---- 锁文件后端与本机不一致 ⇒ 并列给出第二条命令 ----
+          ⛔ 两条**并列展示**，⛔ 不替使用者拍板（平台只验不建）。
+             ⛔ alternative 也不进 steps：自动执行等于替他选了。*/}
+      {plan && plan.alternative && (
+        <div className="field">
+          <label className="field-label" htmlFor="wz-alt">
+            {t('Alternative for this machine', '本机适用的替代命令')}
+          </label>
+          <div className="rc-cmd" id="wz-alt">
+            <div className="rc-cmd-body">
+              <code>{plan.alternative.argv.join(' ')}</code>
+            </div>
+          </div>
+          <p className="field-hint" style={{ marginTop: 0 }}>
+            {plan.alternative.why}
+          </p>
+        </div>
+      )}
+
       {/* ---- ① 普通依赖：只给个数，可展开 ---- */}
       {d && d.normal.count > 0 && (
         <div className="collapsible">
