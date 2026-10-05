@@ -531,6 +531,7 @@ export function processBadge (engine, lang = 'zh') {
       return {
         tone: 'unknown',
         label: zh ? '外部进程' : 'external',
+        launchKey: null,
         title: zh
           ? '这台引擎正在跑，但不是本平台起的（多半是你自己在另一个窗口开着）。\n' +
             '⇒ 本平台不会去停它，换模型也不会重开它。'
@@ -540,6 +541,7 @@ export function processBadge (engine, lang = 'zh') {
     return {
       tone: 'idle',
       label: zh ? '待命' : 'idle',
+      launchKey: null,
       title: zh
         ? '现在没在跑 —— 这是正常的。\n' +
           '⇒ 下一次用到它时会自动起来；起的那一下要等模型装进内存。'
@@ -564,15 +566,24 @@ export function processBadge (engine, lang = 'zh') {
       tone: 'busy',
       label: zh ? '启动中…' : 'starting…',
       title: lines.join('\n'),
+      // ⚠️ 2026-10-05：engineBadge 改成「悬停只留底模目录 + 正在装哪一份」，
+      //   而「正在装哪一份」这条事实原先只存在于 title 里、没被单独交出来。
+      launchKey: p.launch_key || null,
     }
   }
 
   if (p.busy === true) {
     lines.push('', zh ? '正在合成。' : 'Synthesising.')
-    return { tone: 'busy', label: zh ? '合成中' : 'busy', title: lines.join('\n') }
+    return {
+      tone: 'busy', label: zh ? '合成中' : 'busy', title: lines.join('\n'),
+      launchKey: p.launch_key || null,
+    }
   }
 
-  return { tone: 'ok', label: zh ? '在跑' : 'running', title: lines.join('\n') }
+  return {
+    tone: 'ok', label: zh ? '在跑' : 'running', title: lines.join('\n'),
+    launchKey: p.launch_key || null,
+  }
 }
 
 /**
@@ -657,27 +668,49 @@ export function engineBadge (engine, health, lang = 'zh') {
   const ck = checkpointBadge(engine, lang)
   const pr = processBadge(engine, lang)
 
-  // 悬停 = 把两段原样叠起来，中间空一行。⛔ 不重写、不摘要：
-  //   那两段里有绝对路径和取回命令，那才是"我该去哪儿放什么"的答案。
-  const detail = []
-  if (pr && pr.title) detail.push(pr.title)
-  if (ck && ck.title) detail.push(ck.title)
-  const title = (head) => [head, '', ...detail].join('\n').trim()
+  // ⚠️ 2026-10-05（Owner）：悬停**只留底模目录那一行**。
+  //
+  // ⛔ 原来是把进程状态 + 底模两段叠起来。⛔ 进程状态那段被判「小学生」——
+  //   「现在没在跑 —— 这是正常的。⇒ 下一次用到它时会自动起来；
+  //     起的那一下要等模型装进内存。」这类句子在回答一个**用户没问**的问题
+  //   （他没问「现在跑不跑」），却把真正要答的（底模在哪）挤到了第二段。
+  //
+  // ⭐ 保留的：**底模目录**。它是「我该去哪儿放什么」的唯一答案，
+  //   而且它在底模缺的时候唯一能让人自己动手定位。
+  // ⛔ 去掉：进程状态说明 / 取回命令 / 模型主页 / 许可提醒 —— 那些是
+  //   `tools/engine-checkpoints.cjs` 与平台文档的事，不该挂在顶栏一枚灯上。
+  //
+  // ⚠️ 但有一条例外：**启动中「正在装哪一份」**（launch_key）必须留。
+  //   它不是「跑不跑」那种状态话，而是一条**具体事实** —— 人等着的时候
+  //   唯一能看见的就是「我在等哪一份权重进内存」。⭐ 事实留，说明走。
+  const dirLine = (() => {
+    const t = ck && ck.title ? String(ck.title) : ''
+    const m = t.match(/(?:^|\n)\s*(?:底模目录：|Checkpoints: )(.+)/)
+    if (m) return (zh ? '底模目录：' : 'Checkpoints: ') + m[1].trim()
+    return t.trim()
+  })()
+  const launching = pr && pr.launchKey
+  const title = (() => {
+    const head = dirLine || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir')
+    return launching
+      ? [head, '', (zh ? `正在装：${pr.launchKey}` : `Loading: ${pr.launchKey}`)].join('\n')
+      : head
+  })()
 
   // ── 1. 底模缺 —— 唯一有资格红的 ──────────────────────────────────
   if (ck && ck.tone === 'bad') {
     return {
       tone: 'bad',
       label: `${name} · ${ck.label}`,
-      title: title(zh
-        ? '底模没放齐 ⇒ 这台引擎起不来。下面写了该放在哪、怎么取回。'
-        : 'Base weights incomplete — this engine cannot start. See below.'),
+      title,
     }
   }
 
   // ── 2..5. 进程状态 ───────────────────────────────────────────────
   if (pr) {
-    return { tone: pr.tone, label: `${name} · ${pr.label}`, title: title('') }
+    // ⚠️ 悬停与第 1 支同一个：只给底模目录。
+    // ⛔ 原来这里是把 processBadge 的说明叠上去（那些被判「小学生」的句子）。
+    return { tone: pr.tone, label: `${name} · ${pr.label}`, title }
   }
 
   // ── 兜底：这台机器**不管进程**（process 为 null）──────────────────
@@ -698,9 +731,11 @@ export function engineBadge (engine, health, lang = 'zh') {
   return {
     tone: 'idle',
     label: name,
-    title: title(zh
-      ? '这台引擎的进程不由本平台管 ⇒ 平台不知道它此刻的状态，也不该猜。\n出没出问题，按下生成那一刻就知道了。'
-      : 'This engine\'s process is not managed by the platform — its current state is unknown, and guessing would be a lie. You will know when you press Generate.'),
+    // ⚠️ 2026-10-05：这一支原来把底模目录那一段丢掉、只留一句
+    // 「平台不知道它此刻的状态…按下生成那一刻就知道了」。⛔ 而那句话与
+    //   上一支的差别只剩**底模目录** —— ⭐ 底模目录对这一支同样有用
+    //   （平台不管进程，但权重要放哪仍然是这台引擎的事）。
+    title,
   }
 }
 

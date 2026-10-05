@@ -842,7 +842,15 @@ test('⭐⭐⭐ 待命是灰的，⛔ 绝不许是红的（按需起停之后「
   assert.equal(b.tone, 'idle', '待命画成 bad ⇒ 每天一排红灯 ⇒ 学会无视所有红灯')
   assert.ok(b.label.includes('IndexTTS2'))
   assert.ok(b.label.includes('待命'))
-  assert.ok(/正常/.test(b.title), '悬停必须明说这是正常的')
+  // ⚠️ 2026-10-05（Owner）：原来这条断言的是**文案** ——
+  //   「悬停必须明说这是正常的」/ 判据 `/正常/.test(b.title)`。
+  //   ⛔ 测句子而不是测契约 ⇒ 改一次文案就红，而运行时行为一个字没变。
+  // ⭐ 契约是：**底模齐时悬停一律给底模目录**（那是「我该去哪儿放什么」的唯一答案），
+  //   而不是「现在跑不跑」—— 后者已经由 label 里的「待命」两个字回答了。
+  assert.ok(b.title.includes('D:/x/checkpoints'),
+    '待命态的悬停必须给出底模目录')
+  assert.ok(!/正常|自动起来|再点一次/.test(b.title),
+    '⛔ 悬停不再承载「现在跑不跑」的说明 —— 那是 label 的职责')
 })
 
 test('底模缺 ⇒ 红，且盖过进程状态（你不动手它永远起不来）', async () => {
@@ -867,7 +875,7 @@ test('⭐ 底模齐不再占灯面，但必须还在悬停里', async () => {
   assert.ok(b.title.includes('D:/x/checkpoints'), '⛔ 但不许连悬停一起丢掉')
 })
 
-test('⭐⭐⭐ 启动中 ⇒ 橙，且悬停里那句「不用再点一次」必须还在', async () => {
+test('⭐⭐⭐ 启动中 ⇒ 橙，且悬停里必须看得到「正在装哪一份」', async () => {
   const { engineBadge } = await import('./engines.js')
   const b = engineBadge(
     { id: 'e', label: 'E', checkpoints: CK_OK, online: false, process: { running: true, phase: 'loading', launch_key: 'Akafuyu/model/v2' } },
@@ -875,8 +883,13 @@ test('⭐⭐⭐ 启动中 ⇒ 橙，且悬停里那句「不用再点一次」�
   )
   assert.equal(b.tone, 'busy')
   assert.ok(b.label.includes('启动中'))
-  assert.ok(b.title.includes('不用再点一次'), '这句话是这枚灯存在的全部理由')
-  assert.ok(b.title.includes('Akafuyu/model/v2'), '现在装的是哪一份 —— A 那件事唯一看得见的证据')
+  // ⚠️ 2026-10-05（Owner）：原来断言的是「不用再点一次」这句**文案**。
+  //   ⛔ 测句子 ⇒ 改一次文案就红。
+  // ⭐ 真正不可丢的是**「现在装的是哪一份」** —— 那条 launch_key 是启动过程
+  //   唯一看得见的证据（人要知道自己在等哪一份权重进内存）。
+  //   ⚠️ 「不用再点一次」由 label 的「启动中」回答，所以它进不了悬停。
+  assert.ok(/Akafuyu\/model\/v2/.test(b.title),
+    '正在装的是哪一份 —— 启动过程唯一看得见的证据')
 })
 
 test('合成中 ⇒ 橙', async () => {
@@ -919,11 +932,48 @@ test('⛔ engineBadge 整个函数里不许再读 engine_online', async () => {
   const fs = await import('node:fs')
   const url = await import('node:url')
   const p = url.fileURLToPath(new URL('./engines.js', import.meta.url))
-  const src = fs.readFileSync(p, 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n')
-  assert.equal((src.match(/engine_online/g) || []).length, 0,
-    '⛔ 端口探活的结论不许再进任何一枚灯')
+  // ⚠️ 2026-10-05：原来这条判据是 `src.match(/engine_online/g).length === 0` ——
+  //   ⛔ 那数的是**整个文件里出现过这个词几次**，而 659 行（JSDoc 的
+  //   「@param health …只用它的 engine_online」）与 718 行（说明「它读
+  //   health.engine_online 而那是端口探活」）都是**注释**。
+  //   ⇒ 判据把注释也算进去 ⇒ 早该红，只是没人跑它。
+  //   （同一族毛病今天已经出现三次：守卫按「文件存在」判、守卫静默 skip、
+  //     引用已删除文件。**判据必须测行为，不是测文本。**）
+  //
+  // ⚠️ 2026-10-05：原来这条判据是 `src.match(/engine_online/g).length === 0` ——
+  //   ⛔ 那数的是**整个文件里出现过这个词几次**，而 659 行（JSDoc）与 718 行
+  //   （说明「它读 health.engine_online 而那是端口探活」）都是**注释**。
+  //   ⇒ 早该红，只是没人跑它。
+  //
+  // ⚠️⚠️ 中间试过两版间接法，**都栽在同一件事上**：注释里完全可以写出
+  //   代码形态（`` `health.engine_online` `` 里有反引号、`.engine_online`
+  //   前面是 `health`），所以「剥掉注释再 grep」与「只匹配代码形态」
+  //   一样会把注释算进来。
+  //
+  // ⭐ 唯一可靠的做法：**先把 `engineBadge` 这个函数的源码切出来**，
+  //   在**它自己身上**数 —— 而它的函数体内已经没有任何注释了（说明都在函数外）。
+  // ⚠️⚠️⚠️ 这条守卫的前身判了四版，**每一版都栽在同一件事上**，值得写下来：
+  //   · v1 `src.match(/engine_online/g).length === 0`  ⇒ 把函数外的 JSDoc 也算进来
+  //   · v2 「剥掉注释再 grep」                        ⇒ 依赖另一段正则的边界（`://`）
+  //   · v3 「只匹配代码形态 `.engine_online`」        ⇒ 注释里写得出代码形态
+  //     （本项目就有：`` 它读 `health.engine_online` ``）⇒ 仍然命中
+  //   · v4 「只切出 engineBadge 的函数体」            ⇒ 函数体内**本来就有**那段
+  //     说明（processBadge 的注释内联在后面）⇒ 仍然命中
+  //   · v5 切体之后加「长度 > 200」的自检            ⇒ 抓到了 v4 的假绿，却仍非正解
+  //
+  // ⭐ 结论：**文本扫描测不出「有没有读某个字段」**，而注释可以合法地出现在任何位置
+  //   —— 所以这条守卫改成**问函数自己**：给它两个 health 变体，看读数动不动。
+  //   动不动 = 它有没有把端口探活的结论吃进来。
+  const { engineBadge } = await import('./engines.js')
+  const eng = { id: 'e', label: 'E', checkpoints: CK_OK, online: false, process: { running: false } }
+  const a = engineBadge(eng, { engine_online: true })
+  const b = engineBadge(eng, { engine_online: false })
+  // ⚠️ 语义别写反：这条要断言的是「**不随** health.engine_online 变」。
+  //   第一版写成 notDeepStrictEqual ⇒ ⭐ **恒红**（读数本就该一致）。
+  assert.deepStrictEqual(
+    { tone: a.tone, label: a.label },
+    { tone: b.tone, label: b.label },
+    '⛔ engineBadge 的读数随 health.engine_online 变了 ⇒ 它在读端口探活的结论')
 })
 
 test('⛔ 顶栏关于当前引擎只许有一枚灯', async () => {

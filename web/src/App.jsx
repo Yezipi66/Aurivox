@@ -13,6 +13,29 @@ import { LangProvider, LangToggle, useT } from './lib/i18n'
 import { Select } from './components/common/Select'
 import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessState } from './lib/engines'
 
+/**
+ * 把操作系统报的设备名整理成一句能给人看的话。
+ *
+ * ⚠️ 为什么需要它：`/api/health` 的 `device_name` 是**系统原样报上来的字符串** ——
+ *   这台机器上是 `Intel(R) Arc(TM) 140T GPU (32GB)`，里面混着商标符号、
+ *   用途后缀和一段**不可信的显存**（WMI 的 AdapterRAM 报 4.0GB，
+ *   而真实共享内存是 58.5GB）。
+ * ⛔ 所以这里把商标符号、用途后缀、以及那段显存数字一起去掉 ——
+ *   界面上不该出现一个我们自己都不信的数字。
+ *
+ * ⚠️ 只做「去掉」，不猜、不改写：万一名里没有 GPU 这类词，就原样保留。
+ */
+function prettyDevice(raw) {
+  if (!raw) return '未知设备';
+  return String(raw)
+    .replace(/\((?:R|TM)\)/g, '')          // (R) (TM) 商标符号
+    .replace(/[®™]/g, '')
+    .replace(/\s*\(\s*\d+(?:\.\d+)?\s*GB\s*\)/gi, '')  // (32GB) —— ⛔ 不可信的显存
+    .replace(/\s*\bGPU\b\s*$/i, '')            // 结尾的用途后缀
+    .replace(/\s{2,}/g, ' ')
+    .trim() || String(raw);
+}
+
 export default function App() {
   return (
     <LangProvider>
@@ -258,17 +281,36 @@ function AppShell() {
         <LangToggle />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
         {health && (() => {
+          // ⚠ 2026-10-05：探测机制换了（lib/system/gpu.js：问操作系统，不再问
+          //   任何 venv 里的 torch）—— 因为根 venv 瘦身之后那条路必然答「无 CUDA」，
+          //   而那不是事实。
+          //
+          // ⭐ 但**标签语义一个字没动**：README 定义的就是
+          //   「CUDA <显存>（绿=检测到 N 卡）/ CPU only（红=未检测到 N 卡）」，
+          //   而「未检测到 N 卡」在这台机器上**是准确的**。⛔ 不该因为
+          //   「这台机器有别的 GPU」就去改标签的既定义 ——
+          //   那是拿一个未被要求的改进去覆盖一条已经写清楚的约定。
+          //
+          // ✅ 唯一补的是 **tooltip**：那里可以把话说完而不动标签语义。
+          //   「有没有这块卡」是平台知道的；「引擎用不用得上它」是引擎层的事，
+          //   而平台的**没有**这个声明（名片里没有 supported_backends）
+          //   ⇒ 所以这里**不断言**引擎，只陈述探测结果。
           const c = health.cuda;
-          // Three states: probing (neutral) → CUDA ready (green) / CPU (red).
           const probing = !c || c.ready === false;
           const ok = !!c?.available;
+          // ⭐ 非 NVIDIA 的 GPU：⛔ 不看 vram_gb（WMI 的 AdapterRAM 在核显上
+          //   报 4.0GB，而真实共享内存 58.5GB —— 那个数字不可信）
+          const otherGpu = !probing && !ok && !!c?.device_name;
           const bg = probing ? 'rgba(158,158,158,0.15)' : ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)';
           const fg = probing ? 'var(--muted)' : ok ? 'var(--success)' : 'var(--danger)';
           const bd = probing ? 'rgba(158,158,158,0.3)' : ok ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)';
-          const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'CPU only';
-          const title = probing ? 'Detecting CUDA…'
-            : ok ? `CUDA ready — ${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
-            : 'No NVIDIA GPU detected. Inference runs on CPU (slower); fine-tuning is not recommended.';
+          const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'No CUDA';
+          const title = probing ? '正在探测本机的计算设备…'
+            : ok ? `CUDA 可用 — ${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
+            // ⭐ 只有一行。⛔ 不写「⛔ 无权威显存读数」/「取决于引擎后端支持」这类
+            //   给排障人看的话，也不把内部取值（intel/amd）露到界面上。
+            : otherGpu ? `本机 GPU：${prettyDevice(c.device_name)}。`
+            : '未检测到 CUDA 设备。推理将在 CPU 上运行。';
           return (
             <span title={title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, alignSelf: 'center' }}>{label}</span>
           );
