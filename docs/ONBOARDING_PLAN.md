@@ -85,14 +85,14 @@
 | **A9** | ⭐ **权重候选探针**（自动发现，多源交叉）| ⬜ **待开**（Owner 已认可方向） | [实测] **三源都不完全可靠**：① IndexTTS2 的 `config.yaml` 点名 5 个但**后缀错 + 漏 3 项**；② **CosyVoice2 的 `cosyvoice2.yaml` 里一个权重文件名都没有** ⇒ 钩子完全失效；③ 代码里的下载调用只覆盖第三方包拉的（`models.external[]` 为它留了形状） | ⛔ **`models.required` 永远要人确认** —— 自动判定会把好引擎报成「缺文件」。⭐ 复用的形状是 A1 的 `reflect_params.py`（实测：漏 0 / 误排 0 / 类型 13/14），**维护的是探针不是清单** |
 | **A10** | ⭐ **名片表单三件套 + 三段分组** | ⬜ **待开** | [读码] `fieldmeta.js` + `NestedSections.jsx` 已有中文标签，但**没说格式、也没说填错报什么** | ⭐ **第三件几乎零成本**：`profile.js` 每个键的抛错消息**本身写了「应该写什么」** ⇒ 把已有消息提到字段下面即可。三段 = 必须人填 / 能反射 / 有先例。⭐ 顺序上正好成立（第 2 步建环境 → 反射 → 第 4 步落盘） |
 | **A11** | 术语裁决：权重→**Checkpoint**、名片→**Manifest** | ⬜ **待改**（已裁，8+9 处） | [实测] 「权重」在中文 ML 里 = 模型内部参数，而这一步是**训练产出的文件**；`gpt-sovits` 权重目录里 `chinese-hubert-base/` 和 `chinese-roberta-wwm-ext-large/` **根本不是权重**。`i18n.jsx:4-7` 明文点名 Checkpoint 保持英文；`i18n.jsx:29` **默认语言是 `en`** | ⛔ **不改名片键**（`models.*` / `runtime.checkpoints` 是磁盘既有格式）。⛔ **不改注释** —— 全树「名片」247 处里只有 16 处是用户可见文案，其余 231 处是注释，而注释用中文是对的。⚠️ 残留不一致要显式承认：**步骤叫 Checkpoint、端点仍叫 `/wizard/models`** |
-| **A19** | ⭐⭐ **把盘上那个根 venv 换成瘦版（大清理）** | ⬜ **待开**（Owner 2026-10-04 补上的漏项） | [实测] 盘上 `venv/` = **7.0 GB · 457 个包**（torch 2.2.0+cu121 占 4.4GB + librosa + soundfile + fastapi）—— 而它**已经起不来**（base 解释器在旧机）。⚠️ **A16/A17 只是改配方与构建流程，没有一刀真的清理它** —— 这一条才是那个「清理」 | ⭐ **本机低风险**：删掉的东西**本来就不可用**，而包清单在 git 里（`requirements.txt` / `requirements-platform.txt`）⇒ 可完全重建。⛔ **前置**：A14（训练不再指根 venv）+ A16（已更名）+ A17（有构建后自检）。⚠️ **必须配一条守卫测试**，否则它会慢慢长回 457 个包 —— **C12 不变式 1 至今没有任何守卫** |
+| **A19** | ⭐⭐ **把盘上那个根 venv 换成瘦版（大清理）** | ✅ **2026-10-04 已做**（`24478ea`） | [实测] 盘上 `venv/` = **7.0 GB · 457 个包**（torch 2.2.0+cu121 占 4.4GB + librosa + soundfile + fastapi）—— 而它**已经起不来**（base 解释器在旧机）。⚠️ **A16/A17 只是改配方与构建流程，没有一刀真的清理它** —— 这一条才是那个「清理」 | ⭐ **本机低风险**：删掉的东西**本来就不可用**，而包清单在 git 里（`requirements.txt` / `requirements-platform.txt`）⇒ 可完全重建。⛔ **前置**：A14（训练不再指根 venv）+ A16（已更名）+ A17（有构建后自检）。⚠️ **必须配一条守卫测试**，否则它会慢慢长回 457 个包 —— **C12 不变式 1 至今没有任何守卫** |
 | **A20** | 「名片」这个词**按受众分** | ✅ **已裁**（Owner 2026-10-04） | [实测] `web/src/components/compare/ReferenceCompareTab.jsx:1363` 是**全项目唯一**一处「名片」出现在产品界面（`web/src` 里 192 处「名片」全是代码注释）。Owner 裁定：**「名片」要出现在给最终用户看的界面上** ⇒ **该处不改** | ⭐ 由此形成一条**有意的**规则：**面向最终用户 = 名片**（更好懂）；**面向接入者/AI = Manifest**（与技术文件同名）。⚠️ **这是按受众分的区分，不是漂移** —— 必须写在这里，否则下一个人会把它「统一」掉。⚠️ 而 `i18n.jsx:29` 的默认语言是 `en` ⇒ 中文位那个词只在中文界面出现 |
 | **A13** | ⭐ **`envCheck` 不验「环境是不是按名片配方装的」** | ⬜ **待开**（缺口登记） | [读码] 它只验「解释器能起 + 名片点名的模块能 import」。⇒ **没有任何机制能发现「名片说 `uv sync`、实际是 hand-built 的 XPU 环境」** —— 而后者已实测存在（`C:\Aurivox\envs\indextts2` 是 torch 2.14.1+xpu + transformers 4.52.1，名片配方却是 `uv sync`/cu128） | ⛔ **这是平台侧一个真缺口**，不是配置问题。⚠️ 它与 §3c 的 X3（浅层报假绿灯）是**两个不同形状的缺口**：X3 是「文件在但跑不起来」，这条是「跑得起来但不是按配方装的」 |
-| **A14** | ⭐ **`lib/training/python.json` 指向引擎 venv** | ⬜ **待开**（Owner 2026-10-04 已定方向） | [读码] 训练线源码**已经在引擎目录**（`engines/gpt-sovits/train/{s1_train.py,s2_train.py}`，`paths.js` 有 `GSV_TRAIN_DIR`）—— 只有解释器指针留在平台层：`python.json` → `./venv/Scripts/python.exe` | ⭐ **这是 A16/A17 的前提** —— 训练不指根 venv 了，根 venv 才敢瘦。⚠️ `python_helper.js:52-76` 已有完整解析链 + 对「绝对路径失效」的容错，**但按「文件存在」挑，不按「能起」挑**（见 A15）。⚠️ **待裁**：训练与 GSV 推理**共用一个 venv**（简单，但推理会背上 `deepspeed`/`wavmark`）还是 `train/` 另开一个 |
-| **A15** | ⭐ **按「能起」挑解释器，不按「文件存在」挑** | 🟡 **部分完成（2026-10-04）** | [实测] **不是两处，是三份副本**：`configRepair.node.test.js` · `aliasFold.node.test.js` · `envCheck.node.test.js` 各有一份 `findPython()`，判据全是 `fs.existsSync` —— 而 venv 的文件**在**，只是 base 解释器指向另一台机器。⭐ 已收成一份：`lib/util/pythonResolve.js` + `projectPythonCandidates()` | ✅ **22 → 5**，零新增失败。⭐ 判据比「能跑」更严：**必须能按绝对路径 spawn** —— [实测] PATH 上那个 python 的安装路径带 `*`，裸名能跑但绝对路径 ENOENT，且 `path.relative` 会吃掉反斜杠（round-trip 不成立）。⚠️ **计划的「22 → 0」没达成**，剩 5 条被 **A18** 挡住。⚠️ `lib/training/python_helper.js` 的候选顺序**故意没动**（见下） |
-| **A18** | ⭐ **测试夹具只复制 `python.exe`、不带 DLL** | ⬜ **待开**（先于 A15 存在） | [实测] `lib/engines/envCheck.node.test.js:115` 的 `pythonRef()`：`fs.copyFileSync(PYTHON, dest)` —— 只复制**一个 exe** 进人造 venv 形状目录。而 **Python 的 `python.exe` 不是自包含的**，它要同目录的 `python311.dll` ⇒ `0xC0000135 STATUS_DLL_NOT_FOUND` | ⚠️ **A15 没有制造它**：改之前复制的是那个坏 venv 的 exe（报 `uv trampoline failed`），改之后复制的是能跑的内嵌 python（报 `0xC0000135`）—— **同一个夹具缺陷，两个症状**。⚠️ 那个注释自己写着「复制它进 probe-venv/Scripts/python.exe 是可行的」—— **在 Linux/macOS 上可行（单文件 trampoline），在 Windows 上不成立**。可能的修法：真建一个 venv / 连 DLL 一起复制 / 换夹具形状。⛔ **别用仓库外手建的环境去凑**（那会让测试依赖没有 freeze、没有进版本库的环境） |
-| **A16** | `requirements.txt` 更名 → `requirements-gpt-sovits.txt` | ⬜ **待开** | [实测] 它是**根 venv 的 pip freeze**，而那个 venv 装的是 GSV 的依赖（torch 2.2.0+cu121 + CUDA 全套 + librosa + soundfile + fastapi，200 包 / 6.6GB）。[读码] GSV 的名片 **`install: null`** ⇒ 它走的就是这份文件 | ⚠️ **动它之前必须先解一道待裁**（见 §5.7）：GSV 的依赖该归「引擎环境」还是「训练扩展环境」。⚠️ 一旦根 venv 改用 `requirements-platform.txt`，这份文件**只对 GSV 有效**，继续叫 `requirements.txt` 就是**撒谎的文件名** |
-| **A17** | ⭐ **平台构建流程切片**（瘦身的另一半） | 🟡 **部分完成**（2026-10-05） | [已修 ✅] `install_torch.ps1` **只支持 N 卡**，无卡时装 CPU 版 —— 那个版本 `requirements-platform.txt:41-46` 自己说会让**训练立刻坏掉**。⚠️ 所以「根 venv 只装 3 个包」这件事**只改 requirements 不够** | 拆三件：① 启动器的 venv + npm + ffmpeg 分支（瘦身）② 模型下载分第二段 ③ **`install_torch.ps1` 加 XPU 分支**（按 `hardware.js` 的 StabilityMatrix 偏好顺序）+ **CPU 版构建后自检** + 明写「训练线在本机不可用」。⛔ **不是「补文档」，是独立一刀**
+| **A14** | ⭐ **`lib/training/python.json` 指向引擎 venv** | ✅ **指向已改**（`24478ea`）· ⚠️ **目标环境仍不可用** | [读码] 训练线源码**已经在引擎目录**（`engines/gpt-sovits/train/{s1_train.py,s2_train.py}`，`paths.js` 有 `GSV_TRAIN_DIR`）—— 只有解释器指针留在平台层：`python.json` → `./venv/Scripts/python.exe` | ⭐ **这是 A16/A17 的前提** —— 训练不指根 venv 了，根 venv 才敢瘦。⚠️ `python_helper.js:52-76` 已有完整解析链 + 对「绝对路径失效」的容错，**但按「文件存在」挑，不按「能起」挑**（见 A15）。⚠️ **待裁**：训练与 GSV 推理**共用一个 venv**（简单，但推理会背上 `deepspeed`/`wavmark`）还是 `train/` 另开一个 |
+| **A15** | ⭐ **按「能起」挑解释器，不按「文件存在」挑** | ✅ **2026-10-04 已达成 22 → 0** | [实测] **不是两处，是三份副本**：`configRepair.node.test.js` · `aliasFold.node.test.js` · `envCheck.node.test.js` 各有一份 `findPython()`，判据全是 `fs.existsSync` —— 而 venv 的文件**在**，只是 base 解释器指向另一台机器。⭐ 已收成一份：`lib/util/pythonResolve.js` + `projectPythonCandidates()` | ✅ **22 → 5**，零新增失败。⭐ 判据比「能跑」更严：**必须能按绝对路径 spawn** —— [实测] PATH 上那个 python 的安装路径带 `*`，裸名能跑但绝对路径 ENOENT，且 `path.relative` 会吃掉反斜杠（round-trip 不成立）。⚠️ **计划的「22 → 0」没达成**，剩 5 条被 **A18** 挡住。⚠️ `lib/training/python_helper.js` 的根 venv 回退**已删**（`24478ea`）—— 那次回退返回的是「能启动但没有 torch」的解释器，`ModuleNotFoundError` 会让人去装包而不是看环境 |
+| **A18** | ⭐ **测试夹具只复制 `python.exe`、不带 DLL** | ✅ **2026-10-04 已做**（`e64d999`） | [实测] `lib/engines/envCheck.node.test.js:115` 的 `pythonRef()`：`fs.copyFileSync(PYTHON, dest)` —— 只复制**一个 exe** 进人造 venv 形状目录。而 **Python 的 `python.exe` 不是自包含的**，它要同目录的 `python311.dll` ⇒ `0xC0000135 STATUS_DLL_NOT_FOUND` | ⚠️ **A15 没有制造它**：改之前复制的是那个坏 venv 的 exe（报 `uv trampoline failed`），改之后复制的是能跑的内嵌 python（报 `0xC0000135`）—— **同一个夹具缺陷，两个症状**。⚠️ 那个注释自己写着「复制它进 probe-venv/Scripts/python.exe 是可行的」—— **在 Linux/macOS 上可行（单文件 trampoline），在 Windows 上不成立**。可能的修法：真建一个 venv / 连 DLL 一起复制 / 换夹具形状。⛔ **别用仓库外手建的环境去凑**（那会让测试依赖没有 freeze、没有进版本库的环境） |
+| **A16** | `requirements.txt` 更名 → `requirements-gpt-sovits.txt` | ✅ **2026-10-05 已做**（`6d7feba`+`bac77f4`） | [实测] 它是**根 venv 的 pip freeze**，而那个 venv 装的是 GSV 的依赖（torch 2.2.0+cu121 + CUDA 全套 + librosa + soundfile + fastapi，200 包 / 6.6GB）。[读码] GSV 的名片 **`install: null`** ⇒ 它走的就是这份文件 | ⚠️ **动它之前必须先解一道待裁**（见 §5.7）：GSV 的依赖该归「引擎环境」还是「训练扩展环境」。⚠️ 一旦根 venv 改用 `requirements-platform.txt`，这份文件**只对 GSV 有效**，继续叫 `requirements.txt` 就是**撒谎的文件名** |
+| **A17** | ⭐ **平台构建流程切片**（瘦身的另一半） | 🟡 **③已完成，①②未做**（2026-10-05） | [已修 ✅] `install_torch.ps1` **只支持 N 卡**，无卡时装 CPU 版 —— 那个版本 `requirements-platform.txt:41-46` 自己说会让**训练立刻坏掉**。⚠️ 所以「根 venv 只装 3 个包」这件事**只改 requirements 不够** | 拆三件：① 启动器的 venv + npm + ffmpeg 分支（瘦身）② 模型下载分第二段 ③ **`install_torch.ps1` 加 XPU 分支**（按 `hardware.js` 的 StabilityMatrix 偏好顺序）+ **CPU 版构建后自检** + 明写「训练线在本机不可用」。⛔ **不是「补文档」，是独立一刀**
 
 > **2026-10-05 结项（部分）**：③ **已完成**，且顺手把主体从 372 行 PowerShell 移到 `tools/cli/install-torch.js`（跨平台；薄壳 `install-torch.bat` / `install-torch.sh`）。构建分支现按本机设备选：**NVIDIA→cu121 · Intel→xpu · AMD/Linux→rocm · 其余→CPU**（原文件第 12 行写着「no AMD / DirectML」）。8 条守卫（`tools/cli/install-torch.node.test.js`）。⛔ **本项剩下的**：①② 启动器拆两段 + ③ 的「CPU 版构建后自检」还没做 —— 也就是说**训练线不可用这件事仍然没有任何自检会告诉用户**。 |
 
@@ -679,6 +679,128 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 
 ---
 
+## §5.10 ⭐ 跨平台抽离（2026-10-05，Owner 指令）
+
+> Owner 定的形状：**脚本主体用通用语言（Node），`.bat` / `.sh` 只是薄壳**。
+> 起因：开发验证平台从 CUDA 机器换成 Arc，而部署与启动链 **1723 行 PowerShell
+> 全是 Windows 独占** ⇒ Linux / macOS 上根本装不起来。
+
+⭐ **实测结论和原本的估计不同**：那 665 行（bootstrap）里真正锁死 Windows 的
+只有两处 —— `venv\Scripts\python.exe`（6 处）与 `Join-Path` 的反斜杠（7 处）；
+`Get-NetTCPConnection` / `Get-CimInstance` / `Get-Process` / `netstat` /
+`nvidia-smi` / `Win32_` / `taskkill` / 注册表 **各 0 处**。
+⇒ 那 600 行是**平台无关的流程**，只是用 PowerShell 的壳写着 ⇒ **照搬换壳**，
+不是重新设计。这条结论值得记住：**下次估「移植工作量」别只看行数。**
+
+| 原文件 | 行数 | 新主体 | 薄壳 |
+|---|---|---|---|
+| `bootstrap.ps1` | 665 | `tools/deploy/bootstrap.js` | `bootstrap.bat` / `.sh` |
+| `start.ps1` | 547 | `tools/cli/start.js` | `start.bat` / `.sh` |
+| `install_torch.ps1` | 372 | `tools/cli/install-torch.js` | `install-torch.bat` / `.sh` |
+| `stop.ps1` | 139 | `tools/cli/stop.js` | `stop.bat` / `.sh` |
+| `install_pytorch.bat` | 55 | **删**（同一件事的第二个入口名 = 会漂移） | — |
+
+⭐ **共享原语抽成两个库**，而不是四个入口各写一份：
+  · `lib/system/ports.js` —— 三平台的「谁在监听 / 这是谁 / 杀掉它 / 拉起后台进程」
+  · `lib/system/portChoice.js` —— 那 90 行端口归属算法，**逐条搬**（含来历）
+
+⚠️ 顺带做完 A17 的 ③：`install-torch` 的设备分支从「只支持 NVIDIA」扩到
+**NVIDIA / Intel(XPU) / AMD(ROCm, Linux only) / Apple / CPU**。
+
+### 三条「不许删」的纪律，随主体一起搬到了守卫里
+
+1. ⛔ **只认 LISTENING**，不认 TIME_WAIT —— 否则 start 误判「上次还在跑」而拒绝重启
+2. ⭐ **端口必须在第一个 spawn 之前全部定完** —— 端口经环境变量传递，而
+   `spawnDetached` 出来的进程是脱离的，spawn 那一刻就把环境变量拷走了
+3. ⛔ **绝不调 `npm.cmd`** —— 它按 PATH 推断 npm 在哪，装过全局 Node 的机器上
+   会跳到全局那份，报 ERR_REQUIRE_ESM 而**错误里一个字都不提这件事**
+
+### 实测踩到并已写进守卫的坑
+
+· **`.bat` 必须纯 ASCII** —— cmd.exe 按系统 OEM 代码页（本机 GBK）读 `.bat`，
+  GBK 解码 UTF-8 会把行尾 `0x0A` 当成双字节字符后半截吃掉 ⇒ 换行错位 ⇒
+  cmd 把注释碎片当命令执行。`chcp 65001` **救不了**（只影响它之后的行）。
+· **ROCm 的 index 不能照抄 CUDA 的拼法** —— ROCm 用**自己的版本号**（`rocm6.1`），
+  照抄会得到不存在的 `rocm121`。由守卫抓到。
+· **目录扫描只能比可执行文件路径，不能比命令行** —— 命令行里含仓库路径的东西
+  包括用户那个「cd 到项目目录再运行 stop」的 shell ⇒ 比命令行会**杀掉用户的 shell**。
+· **逐个 pid 查进程 = 每个进程起一次 PowerShell** ⇒ 204 个进程要几十秒。
+  改成一条命令拿全 ⇒ **353 ms**。
+· **进程表缓存不能是进程生命周期级** —— 之后才起的进程查不到 ⇒ stop 的第二遍
+  （专门为「已经不监听但还活着」准备的）会说「没有」。
+
+### ⭐⭐ 一次教训，值得单列
+
+**「文本扫描」测不出代码行为** —— 这个项目已经为它栽了**四次**：
+守卫按「文件存在」判 · 守卫静默 skip · `engine_online` 扫到 JSDoc ·
+守卫读着自己的说明书（「⛔ 不许报成 MISSING/FAILED」）判自己不合格。
+
+⇒ **规律：扫文本之前先问「注释会不会被算进去」。**
+⇒ 更进一步：`engine_online` 那条守卫最终改成**问函数自己**
+（给它两个 health 变体，看读数动不动）—— ⭐ **测行为，不是测文本**。
+
+## §5.11 ⭐ 下一批（按依赖排序，2026-10-05）
+
+> ⛔ 排除 `tools/engine-wizard/**`（另一个会话在改，Owner 指示不碰）。
+
+### 第 0 步：E1 —— 重建引擎环境（**卡住整条链**）
+
+**A14 只是把 `lib/training/python.json` 指向了 `engines/gpt-sovits/.venv`，
+而那个 venv 现在起不来**（`uv trampoline failed to spawn`）：
+
+```
+[实测] 三个引擎 venv 是 uv 建的，**不可搬运** ——
+       trampoline 把 base 路径焊在 exe 里，改 pyvenv.cfg 无效
+       （tools/dev/probe_venv_home_repair.py 是那份实测记录）
+```
+
+⇒ **训练 / 微调 / UVR5 / ASR / 切片现在全部不可用**，而台账上没有任何一处
+   自检会告诉用户这件事。
+
+⭐ 前提是 **A17 的 ①**（启动器拆两段）—— 因为重建要走新的安装流程，
+而 A17 ① 就是「第一段：venv + npm + ffmpeg」。
+
+**验收**：① `engines/gpt-sovits/.venv` 真能起并 import torch
+② 训练线端到端跑一次切片 → ASR → 训练
+③ ⭐ **构建产物里明写「本机训练线可用 / 不可用 + 原因」**（A17 ③ 的后一半）
+
+### 第 1 步：A17 ①②③ 剩余部分
+
+| | 内容 | 状态 |
+|---|---|---|
+| ① | 启动器拆两段（venv+npm+ffmpeg / 模型下载） | 未做 |
+| ② | 模型下载分第二段 | 未做 |
+| ③ | **CPU 版构建后自检** | 未做 ⭐ 最要紧 |
+
+⚠️ ③ 的理由：A17 ③ 做完前，**「训练线不可用」这件事仍然没有任何自检会告诉用户**。
+
+### 第 2 步：A6–A9（权重路径，第 3 步的实体工作）
+
+| | 内容 |
+|---|---|
+| A6 | `models/tts/`（20G）→ `engines/<id>/checkpoints/`（⚠️ **GSV 永不做**） |
+| A7 | 第 3 步真下载（现在只打印命令） |
+| A8 | 下完对一次名（缺 / 多 / 后缀不符，三态） |
+| A9 | 权重候选探针（自动发现，多源交叉） |
+
+### 第 3 步：A10 / A11（名片表单 + 术语）
+
+A11 是**已裁但未改**：权重 → **Checkpoint**（8 处）· 名片 → **Manifest**（9 处）。
+⚠️ 「名片」要按受众分（`ReferenceCompareTab.jsx:1363` 面向最终用户写「名片」，
+其余 8 处对开发者写 Manifest）。
+
+### 其它零散
+
+| | 内容 |
+|---|---|
+| A4 | GSV 迁新版声明 |
+| A4'' | 向导补「钉版本 + 删 `.git`」 |
+| A13 | `envCheck` 不验「环境是不是按名片配方装的」 |
+| B1 | `MAX_LAUNCH_SLOTS = 1`（已定位未修） |
+| B2 | launch 位只能换目录 |
+| C4 | 第 5 步改成「三块独立显示」+ 复用 `Player.jsx` |
+| — | **分支未 push**：`feat/env-isolation-gpu-detect` 上叠了 9 笔 |
+
 ## 5. 维护纪律
 
 1. **做完一刀，当场改第 2 节那张表的状态格。** 不许记在别处。
@@ -716,4 +838,3 @@ C3 说的是「不做第二个可微调引擎的训练抽象」，而这里是�
 | **乙** | 承认它是**手工的、不受平台管的**历史环境 | ⛔ 与「`runtime.python` 是活键」矛盾 —— 平台会一直报「没装」而人不知道为什么 |
 
 ⚠️ **这落在 E1（重建引擎 venv）上**，而 E1 是引擎层的事。**等第 2 批开工时再定。**
-
