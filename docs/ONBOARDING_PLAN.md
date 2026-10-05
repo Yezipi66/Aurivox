@@ -75,19 +75,19 @@
 | **A1** | 参数草稿生成器 | ✅ **2026-09-04 已建** | [实测] `tools/scaffold-params.cjs` + `lib/engines/reflect_params.py`；拿 IndexTTS2（人已手写 14 条）当标准答案：**漏 0、误排 0、类型 13/14 一致** | 剩下 1 处分歧（`emo_audio_prompt` 真人写 select+audio 源，生成器给 text）是**人工判断**，不是缺陷。⚠ 它生成**草稿**，`min/max/label/help/only_when` 反射拿不到，仍要人核对 |
 | **A2** | `engines/_TEMPLATE/` | ✅ **2026-09-04 已建** | [实测] 模板 + README；**经平台自己的 registry/profile/hostProfile 校验通过**；14 种「照着填错」变体逐一验过反应 | 目录名下划线开头 ⇒ `registry.js:83` 跳过，不会被当成真引擎 |
 | **A3** | onboarding 契约成文 | ✅ **2026-09-04 已建** | [实测] `docs/ENGINE_ONBOARDING_CONTRACT.md`（11 节，每条标 [实测]/[读码]） | 是**已实现行为的说明书**，不是规范。A1 的规格书 |
-| **A4** | GSV 迁新版声明 | ⬜ 待开 | [实测] GSV 无 `call` 段，`runtime.entry` = `lib/inference/infer_server.py` | **平台今天有两套推理实现并存**。高成本，不阻塞接新引擎 |
-| **A4'** | ⭐ **`installPlan.js` 整体退役**（Owner 2026-10-04 裁决，走 **B 方案**）| ✅ **已退役** | [实测] `lib/engines/installPlan.js` + `installPlan.node.test.js` + `tools/install-engine.cjs` **三个文件已删**；`tools/engine-checkpoints.cjs` 是从 `install-engine.cjs` 劈出来活下来的那一半 | ⛔ **理由不是「顺序排错」，是前提被证伪**（详见 §2.6）。⚠️ **代价：拉源码这条路今天没有可用工具** —— 向导未提交，且缺「钉版本 + 删 `.git`」那一步（见 A4''）。⚠️ 顺带丢了 `install.env_command` 的**平台侧 parse 期校验**（`parseInstall` 随文件走了），现在只有执行它的向导 `env.js` 在动手前校验 |
+| **A4** | GSV 迁新版声明 | ⬜ **待开** · 🔴 `engines/gpt-sovits/**` | [实测] GSV 无 `call` 段，`runtime.entry` = `lib/inference/infer_server.py` | **平台今天有两套推理实现并存**。高成本，不阻塞接新引擎 |
+| **A4'** | ⭐ **`installPlan.js` 整体退役**（Owner 2026-10-04 裁决，走 **B 方案**）| ✅ **2026-10-04 已退役**（`b5f20c8` 等）· 顺带补了 `tools/engine-checkpoints.cjs` | [实测] `lib/engines/installPlan.js` + `installPlan.node.test.js` + `tools/install-engine.cjs` **三个文件已删**；`tools/engine-checkpoints.cjs` 是从 `install-engine.cjs` 劈出来活下来的那一半 | ⛔ **理由不是「顺序排错」，是前提被证伪**（详见 §2.6）。⚠️ **代价：拉源码这条路今天没有可用工具** —— 向导未提交，且缺「钉版本 + 删 `.git`」那一步（见 A4''）。⚠️ 顺带丢了 `install.env_command` 的**平台侧 parse 期校验**（`parseInstall` 随文件走了），现在只有执行它的向导 `env.js` 在动手前校验 |
 | **A5** | `input.text.parameter` 落地 | ⛔ **实测不可做** | [实测] `deriveTextBinding` 实现是 `{...m, maps:{text:p}}` ⇒ **maps 被整体替换** | 只能表达「只有一个输入概念」的引擎。GSV 有 10 个映射、IndexTTS2 有 4 个，**两台都无法用 input 表达**。要么扩语法，要么承认为死胡同 |
-| **A4''** | ⭐ **向导补「钉版本 + 删 `.git`」**（A4' 退役的**直接后果**）| ⬜ **待开** | [读码] 2026-10-04 通读 `tools/engine-wizard/core/clone.js`：它 `git clone` 后**不删 `.git`、不 pin**；`core/env.js` 也不碰版本 | ⛔ **这是 A4' 之后唯一挡在「版本可追溯」前面的东西**。今天的状态是「版本有两个来源（`.git` 里的分支名 + 名片里可能为 null 的 `commit`），且都不权威」。⚠️ 与 §6.1「commit 必不填」是同一笔账的两面：**commit 在第 4 步才产生 ⇒ pin 必须能被推迟到第 4 步之后**，而旧 `installPlan.js:78` 的硬拦时机是「装之前」，对不上 |
-| **A6** | ⭐ **权重路径搬迁**：`models/tts/`（20G）→ `engines/<id>/checkpoints/` | ⬜ **待开**（Owner 2026-10-04 已定方向） | [实测] `models/` 各支归属：`tts/` 20G = 四台引擎专属；`asr/` 5.9G · `separation/` 1.7G · `vocoder|sr|lang/` 455M = **训练线/校验线共用，不动**。✅ `.gitignore:213-221` **已有 `engines/*/checkpoints/`**；✅ C3 不破（仍相对项目根，名片只改一个字符串）；✅ 顺带闭环 `engines/cosyvoice2/` 那个嵌套 `.git` | ⛔ **必须分两步**：先搬三台非训练线引擎（17.6G），**GSV 那 2.8G 要等 C3** —— `lib/paths.js` 有 5 处以上硬编码（`GSV_PRETRAINED_DIR:301` / `BASE_DIRS:343-351` / `S1_V2_FILE:362` / `BASE_WEIGHTS_*:376-393` 带 legacy/canonical 双读），而 `lib/training/` 读的就是它，**一次全搬 = 立刻弄坏训练**。⚠️ 过渡期三台在新路径、GSV 留旧路径 —— **不违反任何契约**（`runtime.checkpoints` 逐台声明） |
-| **A7** | ⭐ **第 3 步真下载**（现在只打印命令）| ⬜ **待开**（Owner 2026-10-04 已定方向） | [读码] `models.source.command` **已经是名片声明的 argv**，平台已会填占位符（`{checkpoints}`→绝对路径）、已知道 `license_gate`。⇒ **执行它不违反「只验不建」** —— 规则禁的是「平台**生成**命令」，不是「平台**执行**」 | ⚠️ **规则没被写全**：「不替你下载」的准确含义是「**不替你决定从哪儿下**」，而决定已在名片里。要回写进 `_TEMPLATE/README.md`。必须有三件：**断点续传**（5.49GB）· **并发**（`llm.pt` 单文件 2GB）· **进度**。⚠️ `[待裁]` 是否加 SHA 字段（会动磁盘格式） |
-| **A8** | ⭐ **权重下完对一次名**（缺/多/后缀不符三态）| ⬜ **待开** | [实测] **这个不一致真的发生过**：`indextts2/checkpoints/config.yaml` 写 `gpt.pt` / `s2mel.pt`，盘上是 **`gpt.pth` / `s2mel.pth`**；而 config 还漏了 `bpe.model` / `pinyin.vocab` / `qwen0.6bemo4-merge/` | 零成本（只列两个目录），比 hash 可靠 —— 上游不一定给 hash，而 config 名字本身不可信。⚠️ 「多出来」的一类里有 `.cache/` 和 `hf_cache/`，那是**运行期产物不是权重**，别误报 |
-| **A9** | ⭐ **权重候选探针**（自动发现，多源交叉）| ⬜ **待开**（Owner 已认可方向） | [实测] **三源都不完全可靠**：① IndexTTS2 的 `config.yaml` 点名 5 个但**后缀错 + 漏 3 项**；② **CosyVoice2 的 `cosyvoice2.yaml` 里一个权重文件名都没有** ⇒ 钩子完全失效；③ 代码里的下载调用只覆盖第三方包拉的（`models.external[]` 为它留了形状） | ⛔ **`models.required` 永远要人确认** —— 自动判定会把好引擎报成「缺文件」。⭐ 复用的形状是 A1 的 `reflect_params.py`（实测：漏 0 / 误排 0 / 类型 13/14），**维护的是探针不是清单** |
-| **A10** | ⭐ **名片表单三件套 + 三段分组** | ⬜ **待开** | [读码] `fieldmeta.js` + `NestedSections.jsx` 已有中文标签，但**没说格式、也没说填错报什么** | ⭐ **第三件几乎零成本**：`profile.js` 每个键的抛错消息**本身写了「应该写什么」** ⇒ 把已有消息提到字段下面即可。三段 = 必须人填 / 能反射 / 有先例。⭐ 顺序上正好成立（第 2 步建环境 → 反射 → 第 4 步落盘） |
-| **A11** | 术语裁决：权重→**Checkpoint**、名片→**Manifest** | ⬜ **待改**（已裁，8+9 处） | [实测] 「权重」在中文 ML 里 = 模型内部参数，而这一步是**训练产出的文件**；`gpt-sovits` 权重目录里 `chinese-hubert-base/` 和 `chinese-roberta-wwm-ext-large/` **根本不是权重**。`i18n.jsx:4-7` 明文点名 Checkpoint 保持英文；`i18n.jsx:29` **默认语言是 `en`** | ⛔ **不改名片键**（`models.*` / `runtime.checkpoints` 是磁盘既有格式）。⛔ **不改注释** —— 全树「名片」247 处里只有 16 处是用户可见文案，其余 231 处是注释，而注释用中文是对的。⚠️ 残留不一致要显式承认：**步骤叫 Checkpoint、端点仍叫 `/wizard/models`** |
+| **A4''** | ⭐ **向导补「钉版本 + 删 `.git`」**（A4' 退役的**直接后果**）| ⬜ **待开** · 🔴 `core/pin.js`（wizard） | [读码] 2026-10-04 通读 `tools/engine-wizard/core/clone.js`：它 `git clone` 后**不删 `.git`、不 pin**；`core/env.js` 也不碰版本 | ⛔ **这是 A4' 之后唯一挡在「版本可追溯」前面的东西**。今天的状态是「版本有两个来源（`.git` 里的分支名 + 名片里可能为 null 的 `commit`），且都不权威」。⚠️ 与 §6.1「commit 必不填」是同一笔账的两面：**commit 在第 4 步才产生 ⇒ pin 必须能被推迟到第 4 步之后**，而旧 `installPlan.js:78` 的硬拦时机是「装之前」，对不上 |
+| **A6** | ⭐ **权重路径搬迁**：`models/tts/`（20G）→ `engines/<id>/checkpoints/` | ⬜ **待开** · 🟢 仅 A6①（改 3 张名片，跳过 GSV） | [实测] `models/` 各支归属：`tts/` 20G = 四台引擎专属；`asr/` 5.9G · `separation/` 1.7G · `vocoder|sr|lang/` 455M = **训练线/校验线共用，不动**。✅ `.gitignore:213-221` **已有 `engines/*/checkpoints/`**；✅ C3 不破（仍相对项目根，名片只改一个字符串）；✅ 顺带闭环 `engines/cosyvoice2/` 那个嵌套 `.git` | ⛔ **必须分两步**：先搬三台非训练线引擎（17.6G），**GSV 那 2.8G 要等 C3** —— `lib/paths.js` 有 5 处以上硬编码（`GSV_PRETRAINED_DIR:301` / `BASE_DIRS:343-351` / `S1_V2_FILE:362` / `BASE_WEIGHTS_*:376-393` 带 legacy/canonical 双读），而 `lib/training/` 读的就是它，**一次全搬 = 立刻弄坏训练**。⚠️ 过渡期三台在新路径、GSV 留旧路径 —— **不违反任何契约**（`runtime.checkpoints` 逐台声明） |
+| **A7** | ⭐ **第 3 步真下载**（现在只打印命令）| ⬜ **待开** · 🔴 `core/download.js` | [读码] `models.source.command` **已经是名片声明的 argv**，平台已会填占位符（`{checkpoints}`→绝对路径）、已知道 `license_gate`。⇒ **执行它不违反「只验不建」** —— 规则禁的是「平台**生成**命令」，不是「平台**执行**」 | ⚠️ **规则没被写全**：「不替你下载」的准确含义是「**不替你决定从哪儿下**」，而决定已在名片里。要回写进 `_TEMPLATE/README.md`。必须有三件：**断点续传**（5.49GB）· **并发**（`llm.pt` 单文件 2GB）· **进度**。⚠️ `[待裁]` 是否加 SHA 字段（会动磁盘格式） |
+| **A8** | ⭐ **权重下完对一次名**（缺/多/后缀不符三态）| ⬜ **待开** · 🔴 `core/checkpoints-audit.js` | [实测] **这个不一致真的发生过**：`indextts2/checkpoints/config.yaml` 写 `gpt.pt` / `s2mel.pt`，盘上是 **`gpt.pth` / `s2mel.pth`**；而 config 还漏了 `bpe.model` / `pinyin.vocab` / `qwen0.6bemo4-merge/` | 零成本（只列两个目录），比 hash 可靠 —— 上游不一定给 hash，而 config 名字本身不可信。⚠️ 「多出来」的一类里有 `.cache/` 和 `hf_cache/`，那是**运行期产物不是权重**，别误报 |
+| **A9** | ⭐ **权重候选探针**（自动发现，多源交叉）| ⬜ **待开** · 🔴 `core/weight-discovery.js` | [实测] **三源都不完全可靠**：① IndexTTS2 的 `config.yaml` 点名 5 个但**后缀错 + 漏 3 项**；② **CosyVoice2 的 `cosyvoice2.yaml` 里一个权重文件名都没有** ⇒ 钩子完全失效；③ 代码里的下载调用只覆盖第三方包拉的（`models.external[]` 为它留了形状） | ⛔ **`models.required` 永远要人确认** —— 自动判定会把好引擎报成「缺文件」。⭐ 复用的形状是 A1 的 `reflect_params.py`（实测：漏 0 / 误排 0 / 类型 13/14），**维护的是探针不是清单** |
+| **A10** | ⭐ **名片表单三件套 + 三段分组** | ⬜ **待开** · 🔴 `editor/ManifestForm.jsx` | [读码] `fieldmeta.js` + `NestedSections.jsx` 已有中文标签，但**没说格式、也没说填错报什么** | ⭐ **第三件几乎零成本**：`profile.js` 每个键的抛错消息**本身写了「应该写什么」** ⇒ 把已有消息提到字段下面即可。三段 = 必须人填 / 能反射 / 有先例。⭐ 顺序上正好成立（第 2 步建环境 → 反射 → 第 4 步落盘） |
+| **A11** | 术语裁决：权重→**Checkpoint**、名片→**Manifest** | ⬜ **待改**（已裁）· 🟢 `web/src/` 为主 | [实测] 「权重」在中文 ML 里 = 模型内部参数，而这一步是**训练产出的文件**；`gpt-sovits` 权重目录里 `chinese-hubert-base/` 和 `chinese-roberta-wwm-ext-large/` **根本不是权重**。`i18n.jsx:4-7` 明文点名 Checkpoint 保持英文；`i18n.jsx:29` **默认语言是 `en`** | ⛔ **不改名片键**（`models.*` / `runtime.checkpoints` 是磁盘既有格式）。⛔ **不改注释** —— 全树「名片」247 处里只有 16 处是用户可见文案，其余 231 处是注释，而注释用中文是对的。⚠️ 残留不一致要显式承认：**步骤叫 Checkpoint、端点仍叫 `/wizard/models`** |
 | **A19** | ⭐⭐ **把盘上那个根 venv 换成瘦版（大清理）** | ✅ **2026-10-04 已做**（`24478ea`） | [实测] 盘上 `venv/` = **7.0 GB · 457 个包**（torch 2.2.0+cu121 占 4.4GB + librosa + soundfile + fastapi）—— 而它**已经起不来**（base 解释器在旧机）。⚠️ **A16/A17 只是改配方与构建流程，没有一刀真的清理它** —— 这一条才是那个「清理」 | ⭐ **本机低风险**：删掉的东西**本来就不可用**，而包清单在 git 里（`requirements.txt` / `requirements-platform.txt`）⇒ 可完全重建。⛔ **前置**：A14（训练不再指根 venv）+ A16（已更名）+ A17（有构建后自检）。⚠️ **必须配一条守卫测试**，否则它会慢慢长回 457 个包 —— **C12 不变式 1 至今没有任何守卫** |
 | **A20** | 「名片」这个词**按受众分** | ✅ **已裁**（Owner 2026-10-04） | [实测] `web/src/components/compare/ReferenceCompareTab.jsx:1363` 是**全项目唯一**一处「名片」出现在产品界面（`web/src` 里 192 处「名片」全是代码注释）。Owner 裁定：**「名片」要出现在给最终用户看的界面上** ⇒ **该处不改** | ⭐ 由此形成一条**有意的**规则：**面向最终用户 = 名片**（更好懂）；**面向接入者/AI = Manifest**（与技术文件同名）。⚠️ **这是按受众分的区分，不是漂移** —— 必须写在这里，否则下一个人会把它「统一」掉。⚠️ 而 `i18n.jsx:29` 的默认语言是 `en` ⇒ 中文位那个词只在中文界面出现 |
-| **A13** | ⭐ **`envCheck` 不验「环境是不是按名片配方装的」** | ⬜ **待开**（缺口登记） | [读码] 它只验「解释器能起 + 名片点名的模块能 import」。⇒ **没有任何机制能发现「名片说 `uv sync`、实际是 hand-built 的 XPU 环境」** —— 而后者已实测存在（`C:\Aurivox\envs\indextts2` 是 torch 2.14.1+xpu + transformers 4.52.1，名片配方却是 `uv sync`/cu128） | ⛔ **这是平台侧一个真缺口**，不是配置问题。⚠️ 它与 §3c 的 X3（浅层报假绿灯）是**两个不同形状的缺口**：X3 是「文件在但跑不起来」，这条是「跑得起来但不是按配方装的」 |
+| **A13** | ⭐ **`envCheck` 不验「环境是不是按名片配方装的」** | ⬜ **待开** · 🟢 `lib/engines/envCheck.js`（零代码） | [读码] 它只验「解释器能起 + 名片点名的模块能 import」。⇒ **没有任何机制能发现「名片说 `uv sync`、实际是 hand-built 的 XPU 环境」** —— 而后者已实测存在（`C:\Aurivox\envs\indextts2` 是 torch 2.14.1+xpu + transformers 4.52.1，名片配方却是 `uv sync`/cu128） | ⛔ **这是平台侧一个真缺口**，不是配置问题。⚠️ 它与 §3c 的 X3（浅层报假绿灯）是**两个不同形状的缺口**：X3 是「文件在但跑不起来」，这条是「跑得起来但不是按配方装的」 |
 | **A14** | ⭐ **`lib/training/python.json` 指向引擎 venv** | ✅ **指向已改**（`24478ea`）· ⚠️ **目标环境仍不可用** | [读码] 训练线源码**已经在引擎目录**（`engines/gpt-sovits/train/{s1_train.py,s2_train.py}`，`paths.js` 有 `GSV_TRAIN_DIR`）—— 只有解释器指针留在平台层：`python.json` → `./venv/Scripts/python.exe` | ⭐ **这是 A16/A17 的前提** —— 训练不指根 venv 了，根 venv 才敢瘦。⚠️ `python_helper.js:52-76` 已有完整解析链 + 对「绝对路径失效」的容错，**但按「文件存在」挑，不按「能起」挑**（见 A15）。⚠️ **待裁**：训练与 GSV 推理**共用一个 venv**（简单，但推理会背上 `deepspeed`/`wavmark`）还是 `train/` 另开一个 |
 | **A15** | ⭐ **按「能起」挑解释器，不按「文件存在」挑** | ✅ **2026-10-04 已达成 22 → 0** | [实测] **不是两处，是三份副本**：`configRepair.node.test.js` · `aliasFold.node.test.js` · `envCheck.node.test.js` 各有一份 `findPython()`，判据全是 `fs.existsSync` —— 而 venv 的文件**在**，只是 base 解释器指向另一台机器。⭐ 已收成一份：`lib/util/pythonResolve.js` + `projectPythonCandidates()` | ✅ **22 → 5**，零新增失败。⭐ 判据比「能跑」更严：**必须能按绝对路径 spawn** —— [实测] PATH 上那个 python 的安装路径带 `*`，裸名能跑但绝对路径 ENOENT，且 `path.relative` 会吃掉反斜杠（round-trip 不成立）。⚠️ **计划的「22 → 0」没达成**，剩 5 条被 **A18** 挡住。⚠️ `lib/training/python_helper.js` 的根 venv 回退**已删**（`24478ea`）—— 那次回退返回的是「能启动但没有 torch」的解释器，`ModuleNotFoundError` 会让人去装包而不是看环境 |
 | **A18** | ⭐ **测试夹具只复制 `python.exe`、不带 DLL** | ✅ **2026-10-04 已做**（`e64d999`） | [实测] `lib/engines/envCheck.node.test.js:115` 的 `pythonRef()`：`fs.copyFileSync(PYTHON, dest)` —— 只复制**一个 exe** 进人造 venv 形状目录。而 **Python 的 `python.exe` 不是自包含的**，它要同目录的 `python311.dll` ⇒ `0xC0000135 STATUS_DLL_NOT_FOUND` | ⚠️ **A15 没有制造它**：改之前复制的是那个坏 venv 的 exe（报 `uv trampoline failed`），改之后复制的是能跑的内嵌 python（报 `0xC0000135`）—— **同一个夹具缺陷，两个症状**。⚠️ 那个注释自己写着「复制它进 probe-venv/Scripts/python.exe 是可行的」—— **在 Linux/macOS 上可行（单文件 trampoline），在 Windows 上不成立**。可能的修法：真建一个 venv / 连 DLL 一起复制 / 换夹具形状。⛔ **别用仓库外手建的环境去凑**（那会让测试依赖没有 freeze、没有进版本库的环境） |
@@ -153,7 +153,7 @@
 | # | 事项 | 状态 | 证据 | 备注 |
 |---|---|---|---|---|
 | **B1** | `MAX_LAUNCH_SLOTS = 1` | ⚠️ **已定位，未修** | [实测] `probe_max_launch_slots2.cjs`：两个 launch 位 → ⛔ 抛 `ENGINE_TOO_MANY_LAUNCH_SLOTS`，spawn 0 次；**两个 call 位不受影响** | ⭐ 天花板确认。⚠️ **拒绝在第一次合成时**，不在装引擎时（`registry.js`/`profile.js` 都不含它）⇒ 装得上、界面正常、点合成才炸。⚠️ 写它时**零测试覆盖**，上表是本次补的 |
-| **B2** | launch 位只能换目录 | ⬜ 待开 | [读码] `{checkpoints}` 只有一个占位符 | B1 的根因：一个进程只有一个底模目录 |
+| **B2** | launch 位只能换目录 | ⬜ **待开** · 🟢 `lib/engines/launchPlan.js` | [读码] `{checkpoints}` 只有一个占位符 | B1 的根因：一个进程只有一个底模目录 |
 | **B3** | `cap` 降级成护栏 | ✅ **2026-09-29 已修** | [实测] `cap.node.test.js` 16 条 + 6 条变异全抓住。**B3 之前 cap 只有夹具值、零行为测试**（改完 1633 条全绿 = 没有测试在看它） | 判据是 `needMb == null`（**不知道**），不是「内存够不够」。<br>⭐ cap 自动算：**总内存 / 8G**（8G→1 / 16G→2 / 32G→4 / 128G→16），`AURIVOX_ENGINE_CAP` 可覆盖 |
 | **B4** | 端口归零 | ✅ **2026-09-29 已做（stdio）** | [实测] 提交 `2fe41e7`：`stdio_transport.py` + `stdioTransport.js` + `host.py --stdio`；真 IndexTTS2 `ready 60.5s`、`/tts` 出 270380 字节 WAV、`netstat` 确认 9881 无人监听；1690 测试全绿 | ⭐ **命名管道那套已按 Owner 裁决删除**（半双工 / nMaxInstances 配额 / createConnection 被静默忽略）。⚠️ **不接默认**，要走得显式 `buildLaunchPlan({transport:'stdio'})`。⚠️ 已知限制：严格串行 —— 但 `host.py:795` 的 `infer_lock` 在 HTTP 下也是一台一次一个 infer，**没有牺牲任何现有能力** |
 | **B5** | 占用对用户可见 | ✅ **2026-09-29 已做完（后端+UI）** | [实测] `lib/engines/occupancy.js` + `GET /api/engines.occupancy`；26 条测试 + 10 条变异全抓住 | ⭐ **报「历史峰值」而不是实时读数** —— Owner 纠正：峰值就是 OOM 风险本身，Linux 上实时读数反而最危险（OOM killer 正在杀进程时读到的是崩溃中的数）。⛔ 字段名必须叫 `peak_mb`，不许叫 current/rss。✅ **前端已画**（顶部总览 + 每台徽章） | ⭐ UI 接线见提交 `100e85e`：23 条测试 + **10/10 变异全抓住**。⚠ 接线测试抓到两个「全绿但功能不存在」的真 bug（形状对不上 / 峰值恒为 0）。
@@ -163,7 +163,7 @@
 | # | 事项 | 状态 | 证据 |
 |---|---|---|---|
 | **C1** | 第三道校验「出得了声」 | ✅ **2026-09-29 已做** | [实测] `lib/engines/verify_audio.py` + `verifyAudio.js` + `tools/verify-engine.cjs`；15 条 node 测试 + `tools/dev/probe_verify_audio.py` **7/7 判别力实测**（假宿主，行为已知） | ⭐ A/B 两级【Owner 裁决】：**B 级**宿主拿到合法响应（快、不吃显存、验「谈得拢」）、**A 级**真跑一次合成拿非空 WAV。⭐ A 级**先跑 B**（宿主没就绪时直接发 /tts 得 503，那结果与「声音不对」长得一样）。⭐ WAV 体检看**有没有帧** —— 44 字节空 WAV 能播 0 秒，界面上看不出异常。⚠️ **A 级仍未通过 `verify-engine.cjs` 在真引擎上跑过**（[实测] 2026-10-03 有一次 CosyVoice2 zero_shot 在 XPU 上真出声音，但走的是 `C:\Aurivox` 的探针脚本，⛔ 不算本行的验收）。⭐⭐ **2026-10-02 新发现：A 级这道判据不够** —— 它查「WAV 有没有帧」，而实测有一段音频所有非空判据全绿、FunASR 反查相似度只有 **0.216**（乱码）；换配对参考音频+文本后 **1.000**。⇒ 「出得了声」与「说得对」是两件事，**后者平台今天没有判据** |
-| **C4** | 第 5 步改成「三块独立显示」 | ⬜ **待开**（Owner 2026-10-04 已定方向） | [决定] ① 引擎起没起 + 状态码 ② **音频 → 复用 Generate 的 `Player.jsx`**，⛔ ffmpeg/ffprobe 降级掉 ③ ASR 回读（延后，缺了就写「这一块没有」）。⛔ **三块不绑成一个必须全过的门** | ⭐ ② 比 ffmpeg 强：[读码] `Player({src})` 内部 `fetch` + `decodeAudioData` ⇒ **「能解码并出声」本身就是校验**，且给人看**波形图**。[实测] 相似度 0.216 那段音频**所有非空类判据全绿（含 ffprobe）**，而波形图会立刻显示「一段一段的」。⚠️ 落地障碍：`Player` 吃 **URL**，产物要落 `outputs/_verify/`；⚠️ **wizard 的 vite config 只 proxy 了 `/api`，没 proxy `/outputs`**。③ 已有可用实现（`C:\Aurivox\verify_tts.py`，且**在 XPU 上跑过**）—— 延后的不是可行性是优先级 |
+| **C4** | 第 5 步改成「三块独立显示」 | ⬜ **待开** · 🔴 第 5 步在向导里 | [决定] ① 引擎起没起 + 状态码 ② **音频 → 复用 Generate 的 `Player.jsx`**，⛔ ffmpeg/ffprobe 降级掉 ③ ASR 回读（延后，缺了就写「这一块没有」）。⛔ **三块不绑成一个必须全过的门** | ⭐ ② 比 ffmpeg 强：[读码] `Player({src})` 内部 `fetch` + `decodeAudioData` ⇒ **「能解码并出声」本身就是校验**，且给人看**波形图**。[实测] 相似度 0.216 那段音频**所有非空类判据全绿（含 ffprobe）**，而波形图会立刻显示「一段一段的」。⚠️ 落地障碍：`Player` 吃 **URL**，产物要落 `outputs/_verify/`；⚠️ **wizard 的 vite config 只 proxy 了 `/api`，没 proxy `/outputs`**。③ 已有可用实现（`C:\Aurivox\verify_tts.py`，且**在 XPU 上跑过**）—— 延后的不是可行性是优先级 |
 | C2 | Flow 默认关闭 | ✅ 已裁决 | [实测] 需 `FLOWGRAPH_ENABLED=1`。§12.12「两套节点表」已裁决不排期 |
 | C3 | 训练管线绑死 GSV | ⛔ **Owner 2026-09-29 裁决：暂不做** | [实测] `pipelineIdentity.js:62` `TRAINING_ENGINE_ID='gpt-sovits'` | ⭐ **Owner 原话：「暂时还没见过其他开放微调的 TTS，所以暂时不做」** —— 训练/微调这条路今天只有 GSV 一条线，绑死不构成问题；等真有第二个可微调引擎再说。⚠ **不做 ≠ 不用记**：这一格留着，避免下一个人以为它已经做完了。 |
 
@@ -171,7 +171,7 @@
 
 | # | 事项 | 状态 | 证据 |
 |---|---|---|---|
-| **D1** | README 目录导览过期 | ✅ **2026-09-04 已修** | [实测] `vendor/tts/` `vendor/gsv-tools/` `tools/checks/` 均已不存在；`outputs/flowgraph/` 实为 `_flow_runs/`；模型文件表把 GSV 写成了平台约定 |
+| **D1** | README 目录导览过期 | ✅ **裁定已在代码里**（`core/clone.js`：整仓克隆 + 此刻不问 sha）· ⛔ 本节作废 | [实测] `vendor/tts/` `vendor/gsv-tools/` `tools/checks/` 均已不存在；`outputs/flowgraph/` 实为 `_flow_runs/`；模型文件表把 GSV 写成了平台约定 |
 | **D2** | CHANGELOG「待重新标记」无解释 | ✅ **2026-09-04 已修** | [实测] 已补 release gate 说明 + 指向稳定化计划 |
 | **D3** | `ENGINE_ONBOARDING_STATUS.md` 只有目标 | ✅ **已被 A3 覆盖** | 该文件已指向契约 + 台账 |
 | **D4** | **本文件** | ✅ **2026-09-04 已建** | 旧台账随契约退休删除 |
@@ -418,20 +418,19 @@ Intel Arc 140T 核显 32GB 共享 + NPU 3720，**无 NVIDIA**），且为避免�
 
 ---
 
-#### **D1** · `upstream.commit` 必不填 —— ⛔ **这是裁定，不是任务**
+#### ~~**D1**~~ · `upstream.commit` —— ✅ **2026-10-05 复核：裁定已在代码里，本节作废**
 
-| | |
-|---|---|
-| ✅ **裁定** | **选填**（Owner 2026-10-04：「参考 `tools/engine-wizard/` 在克隆部分的逻辑就行」） |
-| **依据** | [读码] `core/clone.js` 的实际做法：clone 之后**不 pin、不删 `.git`**（注释自陈「先克隆、第 5 步才写名片，**此刻还不知道要哪个 sha**」）；⭐ 并且**默认整仓克隆**，注释明写理由是「按 sha 浅取会被服务端拒绝（`allowReachableSHA1InWant`）」⇒ **整仓是为了将来还能 checkout 到指定版本** |
-| **裁出来的完整形状** | 克隆时**不问** commit<br>克隆**必须整仓**（为了第 4 步之后能 checkout）<br>名片写了 commit → 若非 null：`checkout --detach` + 删 `.git`<br>若为 null：**保留 `.git`**，并明确告诉用户「版本只有 `.git` 知道」 |
-| **文件** | 本表 §6.1 · `lib/engines/profile.js:704-720`（那段「**这一段注释在 A4' 落地前是悬空的**」要落地）· `engines/_TEMPLATE/README.md` |
-| **验收** | ① 台账 §6.1 不再是「待裁」② `git grep -n "悬空" lib/engines/profile.js` 无结果 |
-| ⚠️ **重要后果** | `gpt-sovits` 正是 `commit: null` 那一档 ⇒ **它今天会停在「保留 `.git` + 警告」**，⛔ **不被拦**。而这与它的真实处境一致（源码早就在仓库里、`.git` 已删、sha 不可得） |
-
-⚠️ **D1 是 A4'' 唯一的硬前置** —— 裁了它，A4'' 就可开工。
-
----
+> ⭐ **Owner 2026-10-05 指出：「不是说走克隆嘛？克隆就没有 sha 了。」—— 对。**
+>
+> 复核 `tools/engine-wizard/core/clone.js` 的注释，白纸黑字：
+> 「先克隆、第 5 步才写名片，**此刻还不知道要哪个 sha**」，
+> 且**默认整仓克隆** —— 理由是「按 sha 浅取会被服务端拒绝
+> （`allowReachableSHA1InWant`）⇒ 整仓是为了将来还能 checkout 到指定版本」。
+>
+> ⇒ **`commit` 选填这件事从来不需要「裁定」，代码里已经是那个形状了。**
+> ⇒ 是**本节落后**，把它写成了「待裁」。
+> ⇒ 连带作废：`lib/engines/profile.js` 里那句「这一段注释在 A4' 落地前是悬空的」
+>   —— D1 不是它的前置，**A4'' 才是**（§2 进度表 A4'' 行已改）。
 
 #### **A15** · 按「能起」挑解释器，不按「文件存在」挑 —— ⭐ **计划里最干净的一步**
 
@@ -739,67 +738,48 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 ⇒ 更进一步：`engine_online` 那条守卫最终改成**问函数自己**
 （给它两个 health 变体，看读数动不动）—— ⭐ **测行为，不是测文本**。
 
-## §5.11 ⭐ 下一批（按依赖排序，2026-10-05）
+## §5.11 ⭐ 剩下的事，按「谁来做」分（2026-10-05 复核磁盘实况）
 
-> ⛔ 排除 `tools/engine-wizard/**`（另一个会话在改，Owner 指示不碰）。
+> ⛔ **Owner 指示：`tools/engine-wizard/**` 不用我做** ⇒ 下表按落点分开。
 
-### 第 0 步：E1 —— 重建引擎环境（**卡住整条链**）
+### 🔴 落点在 wizard（不用我做）
 
-**A14 只是把 `lib/training/python.json` 指向了 `engines/gpt-sovits/.venv`，
-而那个 venv 现在起不来**（`uv trampoline failed to spawn`）：
-
-```
-[实测] 三个引擎 venv 是 uv 建的，**不可搬运** ——
-       trampoline 把 base 路径焊在 exe 里，改 pyvenv.cfg 无效
-       （tools/dev/probe_venv_home_repair.py 是那份实测记录）
-```
-
-⇒ **训练 / 微调 / UVR5 / ASR / 切片现在全部不可用**，而台账上没有任何一处
-   自检会告诉用户这件事。
-
-⭐ 前提是 **A17 的 ①**（启动器拆两段）—— 因为重建要走新的安装流程，
-而 A17 ① 就是「第一段：venv + npm + ffmpeg」。
-
-**验收**：① `engines/gpt-sovits/.venv` 真能起并 import torch
-② 训练线端到端跑一次切片 → ASR → 训练
-③ ⭐ **构建产物里明写「本机训练线可用 / 不可用 + 原因」**（A17 ③ 的后一半）
-
-### 第 1 步：A17 ①②③ 剩余部分
-
-| | 内容 | 状态 |
+| | 内容 | 落点 |
 |---|---|---|
-| ① | 启动器拆两段（venv+npm+ffmpeg / 模型下载） | 未做 |
-| ② | 模型下载分第二段 | 未做 |
-| ③ | **CPU 版构建后自检** | 未做 ⭐ 最要紧 |
+| **A4** | GSV 迁新版声明 | `engines/gpt-sovits/**` |
+| **A4''** | 向导补「钉版本 + 删 `.git`」 | `core/pin.js` |
+| **A7** | 第 3 步真下载（现在只打印命令） | `core/download.js` |
+| **A8** | 权重下完对一次名（缺/多/后缀不符） | `core/checkpoints-audit.js` |
+| **A9** | 权重候选探针（自动发现，多源交叉） | `core/weight-discovery.js` |
+| **A10** | 名片表单三件套 + 三段分组 | `editor/ManifestForm.jsx` |
+| **C4** | 第 5 步三块独立显示（复用 `common/Player.jsx`，**已存在**） | 向导第 5 步 |
+| ~~欠账~~ | 清用户可见文案里的 `installPlan.js:行号` | `core/env.js` · `core/clone.js` |
 
-⚠️ ③ 的理由：A17 ③ 做完前，**「训练线不可用」这件事仍然没有任何自检会告诉用户**。
+### 🟢 落点不碰 wizard（我能做）
 
-### 第 2 步：A6–A9（权重路径，第 3 步的实体工作）
+| | 内容 | 落点 | 备注 |
+|---|---|---|---|
+| **E1** | ⭐ **重建引擎环境** | `engines/*/.venv` | **[实测] 三个 venv 是 uv 建的、不可搬运** ⇒ 训练/微调/UVR5/ASR/切片**现在全部不可用**，而没有任何自检会告诉用户 |
+| **A17③ 后一半** | ⭐ **构建后自检**：训练线不可用时**明写原因** | `tools/deploy/bootstrap.js` | 与 E1 配套 |
+| **A17①②** | 启动器拆两段（venv+npm+ffmpeg / 模型下载） | `tools/deploy/bootstrap.js` | E1 走新流程要先有它 |
+| **A13** | 登记 `envCheck` 不验「是否按名片配方装的」 | `lib/engines/envCheck.js` 文件头 + 本表 | **零代码**。⚠️ [实测] `C:\Aurivox\envs\indextts2` 是 torch 2.14.1+xpu，而那张名片的配方是 `uv sync`（cu128）⇒ **全绿但环境不对**，比会响的失败更危险 |
+| **A6①** | 3 张名片写 `runtime.checkpoints` | `engines/*/manifest.json` | ⚠️ **GSV 永不做** ⇒ 只动另外三张。[实测] 现在 4 张全是 `models/tts/*` |
+| **A11** | 术语：权重→**Checkpoint**、名片→**Manifest** | `web/src/` 为主 | [实测] 现在 `名片` 190 处 / `Manifest` 36 处；`web/src/` 里 名片 23 文件 / Manifest **2** |
+| **B2** | launch 位只能换目录 | `lib/engines/launchPlan.js` | B1（`MAX_LAUNCH_SLOTS=1`，已定位未修）的根因 |
+| ~~D1~~ | ~~commit 必不填~~ | — | ✅ **已由代码落地**，见 §5.1 |
 
-| | 内容 |
-|---|---|
-| A6 | `models/tts/`（20G）→ `engines/<id>/checkpoints/`（⚠️ **GSV 永不做**） |
-| A7 | 第 3 步真下载（现在只打印命令） |
-| A8 | 下完对一次名（缺 / 多 / 后缀不符，三态） |
-| A9 | 权重候选探针（自动发现，多源交叉） |
+### ⭐ 我这边该做的顺序
 
-### 第 3 步：A10 / A11（名片表单 + 术语）
+```
+1.  A17③ 的自检框架   ← 先搭框（能报「不可用 + 原因」）
+2.  E1 重建引擎环境   ← 让框架有东西可验
+3.  → 自检真跑出「训练线不可用 + 为什么」
+4.  A13 登记（零代码，随时可插）
+```
+⚠️ E1 的前提是 A17①（新的安装流程第一段）。
 
-A11 是**已裁但未改**：权重 → **Checkpoint**（8 处）· 名片 → **Manifest**（9 处）。
-⚠️ 「名片」要按受众分（`ReferenceCompareTab.jsx:1363` 面向最终用户写「名片」，
-其余 8 处对开发者写 Manifest）。
-
-### 其它零散
-
-| | 内容 |
-|---|---|
-| A4 | GSV 迁新版声明 |
-| A4'' | 向导补「钉版本 + 删 `.git`」 |
-| A13 | `envCheck` 不验「环境是不是按名片配方装的」 |
-| B1 | `MAX_LAUNCH_SLOTS = 1`（已定位未修） |
-| B2 | launch 位只能换目录 |
-| C4 | 第 5 步改成「三块独立显示」+ 复用 `Player.jsx` |
-| — | **分支未 push**：`feat/env-isolation-gpu-detect` 上叠了 9 笔 |
+⭐ **分支 `feat/env-isolation-gpu-detect` 上叠了 11 笔，全部未 push**，
+其中 3 笔是另一个会话的（`b6f233e` / `52f08d4` / `c93fe65`）—— 两人在同一条历史上。
 
 ## 5. 维护纪律
 
