@@ -1,0 +1,451 @@
+'use strict'
+// ============================================================================
+//  WIZARD BRIDGE —— 把六步挂到 HTTP 上
+//
+//  ⛔⛔ 纪律：不许出现任何具体引擎名。
+//  ⛔ 纪律：⛔ 本文件**不做**任何业务判断，只做「路由 + 转交」+ 读文件。
+// ============================================================================
+
+const fs = require('node:fs')
+const path = require('node:path')
+
+const { resolveEngine, parseRepoUrl } = require('./resolve')
+const { runClone, buildClonePlan } = require('./clone')
+const { runEnv, buildEnvPlan } = require('./env')
+const { describeModels, explainMissingInfo } = require('./models')
+const { probeProject, detectDependencyFile, planDependencies } = require('./probe')
+const { inspectHardware, parseUvLock } = require('./hardware')
+const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
+const https = require('node:https')
+
+/**
+ * ⭐ 第 2 步的探测：**只读上游那几个文本文件**，⛔ 不 clone、不建目录。
+ *
+ * ⚠ 为什么走 https 直读而不是先 clone 下来再读：
+ *   第 3 步才是克隆（PLAN_v2 §二的顺序）。⛔ 如果探测就 clone，
+ *   那目录会先变非空 —— 正好把第 3 步的前提破坏掉。
+ *
+ * ⛔ 只读这几个文件，一个别的都不读：
+ *   pyproject.toml / uv.lock / requirements.txt / environment.yml / setup.py
+ *   ⛔ 不下载仓库、不执行上游任何代码。
+ */
+/**
+ * ⭐⭐ 从 README 原文里挑出**模型下载命令**（形态二：上游没脚本，只写了命令）
+ *
+ * ⚠ 只认**下载工具的固定前缀** —— ⛔ 不做自然语言理解、不猜：
+ *   hf download / huggingface-cli download / modelscope download
+ *   这三个是 TTS 项目实际在用的（实测某上游 README 里就是 hf download）。
+ * ⛔ 命令不完整（没带仓库名）也照样给出来 —— ⛔ 平台不替它补全，
+ *   补错了等于平台在编造上游的下载方式。
+ *
+ * @param {string} markdown README 原文
+ * @returns {string[]} 去重后的命令（保持 README 里的顺序）
+ */
+function extractDownloadCommands (markdown) {
+  if (!markdown || typeof markdown !== 'string') return []
+  const OUT = []
+  const seen = new Set()
+  for (const m of markdown.matchAll(/^[ \t]*(?:\$|>|#{1,6}\s*)?((?:(?:uv tool install|pip install)[^\n]*\n[ \t]*)?\b(?:hf|huggingface-cli|modelscope)[ \t]+download\b[^\n`]*)/gm)) {
+    let cmd = m[1].trim().replace(/\s+/g, ' ')
+    cmd = cmd.replace(/[`|]+$/, '').trim()
+    if (!cmd || seen.has(cmd)) continue
+    seen.add(cmd)
+    // ⚠ 2026-10-05 Owner：「四条命令让用户自己选，下载之前可以探测一下有什么，
+    //   用户可以自选目录，也就是 --local-dir=checkpoints 这里
+    //   改一个 --local-dir=path/set/by/user 的事，魔搭那个也是同理的」
+    //
+    // ⛔ 所以**不能把整条命令原样丢出去** —— 原样就等于把目标目录
+    //   写死成上游随手取的名（checkpoints / checkpoints_2）。
+    // ✅ 拆成结构：① 用哪个工具 ② 下哪个模型 ③ 目标目录（**可改**）
+    const parts = parseDownloadCmd(cmd)
+    if (!parts) continue
+    OUT.push(parts)
+  }
+  return OUT
+}
+
+/**
+ * ⭐ 把一条下载命令拆成「工具 / 模型 / 目标目录」。
+ *
+ * ⛔ 只认已知的两种工具和它们的参数写法（实测 TTS 项目就这两种）：
+ *     hf download <org>/<repo> --local-dir=<dir>
+ *     modelscope download --model <org>/<repo> --local_dir <dir>
+ * ⛔ 认不出来的写法 ⇒ 返回 null ⇒ 界面上**如实说「看不懂这条」**，
+ *   ⛔ 绝不猜（猜错 = 平台替上游编了一个错的下载方式）。
+ */
+function parseDownloadCmd (cmd) {
+  // modelscope: --model <repo> [--local_dir <dir>]
+  const ms = cmd.match(/^modelscope\s+download\b(.*)$/)
+  if (ms) {
+    const repo = (ms[1].match(/--model\s+([^\s]+)/) || [])[1]
+    if (!repo) return null
+    const dir = (ms[1].match(/--local_dir\s+([^\s]+)/)
+      || ms[1].match(/--local-dir[=\s]+([^\s]+)/) || [])[1]
+    return { tool: 'modelscope', repo, dir: dir || null, raw: cmd }
+  }
+  // hf / huggingface-cli: <org>/<repo> [--local-dir=<dir>]
+  // ⚠ 2026-10-05 守卫抓到的 bug：原来用 `([^\s]+)` 抓第一个 token 当仓库名，
+  //   ⛔ 于是 `hf download --local-dir=x` 会把 **`--local-dir=x` 当成模型名**。
+  //   ⛔ 那等于平台替上游编了一个不存在的模型。
+  // ✅ 所以必须先排掉以 `-` 开头的 token（那是参数，不是位置参数）。
+  const rest = cmd.replace(/^(?:hf|huggingface-cli)\s+download\s+/, '')
+  const toks = rest.split(/\s+/)
+  const repo = toks.find((t) => t && !t.startsWith('-'))
+  if (!repo || !/^[^\s/]+\/[^\s/]+/.test(repo)) return null
+  const tail = rest.slice(rest.indexOf(repo) + repo.length)
+  const dir = (tail.match(/--local-dir[=\s]+([^\s]+)/) || [])[1]
+  return { tool: 'hf', repo, dir: dir || null, raw: cmd }
+}
+
+/**
+ * ⭐ 上游可能提供的**模型下载入口**文件名。
+ *
+ * ⚠ 这是「探测清单」，⛔ 不是「平台支持的下载方式」——
+ *   平台不实现任何下载逻辑，⛔ 只是告诉用户「上游自己有个脚本可以跑」。
+ *   ⛔ 清单之外的（引擎自研的 downloader.py 等）读不到 ⇒ 如实说没找到。
+ */
+const DOWNLOAD_SCRIPTS = [
+  'download_models.py',
+  'download_models.sh',
+  'download.sh',
+  'download.py',
+  'download_weights.py',
+  'download_ckpt.py',
+  'download_checkpoints.sh',
+]
+
+function fetchRaw (owner, name, file) {
+  return new Promise((resolve) => {
+    const url = `https://raw.githubusercontent.com/${owner}/${name}/main/${file}`
+    const req = https.get(url,
+      { headers: { 'user-agent': 'aurivox-engine-wizard' } },
+      (res) => {
+        if (res.statusCode !== 200) { res.resume(); resolve(null); return }
+        let body = ''
+        res.setEncoding('utf-8')
+        res.on('data', (c) => { body += c })
+        res.on('end', () => resolve(body))
+      })
+    req.on('error', () => resolve(null))
+    req.setTimeout(20000, () => { req.destroy(); resolve(null) })
+  })
+}
+
+/** POST /wizard/probe {url} —— ⭐ 探测上游（只读文本文件） */
+function handleProbe (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/probe')) return false
+  readBody(req, async (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const parsed = parseRepoUrl(body.url)
+    if (!parsed.ok) { json(res, 400, parsed); return }
+
+    // ⛔ 候选清单固定 —— 一个都不多读
+    const CANDIDATES = ['pyproject.toml', 'uv.lock', 'requirements.txt',
+      'environment.yml', 'setup.py']
+    const texts = {}
+    const found = []
+    for (const f of CANDIDATES) {
+      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      if (t !== null) { found.push(f); texts[f] = t }
+    }
+
+    // ⭐⭐⭐ **上游自己的模型下载入口**（2026-10-05 Owner 定：
+    //   「模型不再需要统一管理……不同引擎项目里面一定会有下载模型的代码的」）
+    //
+    // ⛔ 之前平台自己列一张表让人抄命令 —— 那是**重复造轮子**：
+    //   上游知道自己的模型在哪个仓库、要下哪几个文件、用 hf 还是 modelscope。
+    //
+    // ⚠ 实测（2026-10-05，两个真上游）这件事有两种形态：
+    //   ① **有脚本**：根目录有 download_models.py / download_weights.py 之类
+    //   ② **写进 README**：没有脚本，但 README 里直接给了命令 ——
+    //      实测某个上游就是 `hf download <org>/<repo> --local-dir=checkpoints`，
+    //      根目录只有 tools/gpu_check.py，⛔ 没有任何下载脚本。
+    //   ⇒ 两种都要认，⛔ 认不到才如实说「上游没给」。
+    const dlScripts = []
+    for (const f of DOWNLOAD_SCRIPTS) {
+      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      if (t !== null) {
+        dlScripts.push({ kind: 'script', file: f,
+          head: t.split('\n').slice(0, 12).join('\n') })
+      }
+    }
+    // ② README 里的下载命令（形态二）
+    let readmeCmds = []
+    if (dlScripts.length === 0) {
+      const rd = (await fetchRaw(parsed.owner, parsed.repo, 'README.md')) || ''
+      readmeCmds = extractDownloadCommands(rd)
+    }
+
+    if (!texts['pyproject.toml']) {
+      // ⛔ 没有 pyproject ⇒ 如实说「探测器用不上」，⛔ 不退回任何别的来源
+      json(res, 200, {
+        ok: true,
+        meta: { dependencies: detectDependencyFile(found) },
+        note: '这个仓库没有 pyproject.toml，读不到项目信息。'
+          + '包名/入口/命令这些事实读不出来。\n'
+          + '⛔ 这不代表它没有依赖，也可能放在子目录里。请换一份带依赖清单的仓库，或按上游说明自己安装。',
+        found_files: found,
+        downloader: dlScripts,
+        downloader_cmds: readmeCmds,
+      })
+      return
+    }
+
+    const r = probeProject({ pyproject: texts['pyproject.toml'], filenames: found })
+    // ⭐ 统一返回契约：所有 /wizard/* 端点成功时都带 ok:true
+    //   （前端据此判成功；少了它界面会把成功当失败 —— 实测踩过）
+    json(res, 200, { ok: true, ...r, found_files: found,
+      downloader: dlScripts, downloader_cmds: readmeCmds })
+  })
+  return true
+}
+
+/**
+ * POST /wizard/deps  {url}
+ *  ⭐ 第 2 步的数据源：读上游 pyproject + uv.lock，跟本机比出绿/黄/白。
+ *  ⛔ 不装任何东西 —— 只回答「要装哪些包」。
+ */
+/**
+ * GET /wizard/hardware —— ⭐ 单独暴露硬件检测（排查用，也给界面复用）
+ *
+ * ⛔ 检测失败**不能**让端点挂掉 —— 退 CPU 是一个有意义的答案，
+ *   而不是 500（2026-10-03 实测踩过：这里抛出去，整个 /wizard/deps 也没了）。
+ */
+function handleHardware (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/hardware')) return false
+  try {
+    json(res, 200, inspectHardware())
+  } catch (e) {
+    json(res, 200, {
+      gpus: [], recommended: 'cpu', confidence: 'unknown',
+      reason: `检测本身出错了（${e.message}）⇒ 退 CPU 版`,
+      caveat: '检测是尽力而为，不是保证',
+      options: require('./hardware').BACKEND_PREFERENCE,
+    })
+  }
+  return true
+}
+
+
+function handleDeps (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/deps')) return false
+  readBody(req, async (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const parsed = parseRepoUrl(body.url)
+    if (!parsed.ok) { json(res, 400, parsed); return }
+
+    const get = async (f) => {
+      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      return t
+    }
+    const [py, lockText] = await Promise.all([get('pyproject.toml'), get('uv.lock')])
+
+    if (!py) {
+      json(res, 200, { ok: false, code: 'NO_PYPROJECT',
+        error: '这个仓库没有 pyproject.toml，读不到依赖列表。\n'
+          + '它可能在 uv.lock / requirements.txt 或子目录里。请换一份带依赖清单的仓库，或按上游说明自己安装。' })
+      return
+    }
+
+    // ⭐ 本机检测 —— ⛔ 失败也不让整个请求失败（CI 上没 GPU 也要能跑）
+    let hardware = null
+    try { hardware = inspectHardware() } catch { hardware = null }
+
+    const base = planDependencies(py, { hardware })
+    if (!base.ok) { json(res, 200, base); return }
+
+    // ⭐ 把 lock 里的 torch 系并进去 —— pyproject 只写 torch>=2.5.0，
+    //   真正锁死 wheel 的是 lock（2026-10-04 实测：只看 pyproject 判不出后端）
+    if (lockText) {
+      const rows = parseUvLock(lockText)
+      const lockedNames = rows.map((r) => r.name)
+      const { judgeTorchSpec } = require('./hardware')
+      const torchRow = base.deps.torch.packages.find((p) => p.isMain)
+      if (torchRow && hardware) {
+        const lockedTorch = rows.find((r) => r.name === 'torch')
+        if (lockedTorch) {
+          const j = judgeTorchSpec(lockedTorch.spec, hardware.recommended,
+            { lockedPackages: lockedNames })
+          torchRow.spec = lockedTorch.spec
+          torchRow.verdict = j.verdict
+          torchRow.why = j.why
+          base.verdict = j.verdict
+        }
+      }
+      base.locked = rows
+    }
+    json(res, 200, base)
+  })
+  return true
+}
+
+function json (res, code, body) {
+  res.writeHead(code, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+/** 读请求体 —— ⛔ 有上限，超了就断（防止一个 manifest 把内存吃光） */
+function readBody (req, cb, limit = 2 * 1024 * 1024) {
+  let body = ''
+  let tooBig = false
+  req.on('data', (c) => {
+    body += c
+    if (body.length > limit) { tooBig = true; req.destroy() }
+  })
+  req.on('end', () => {
+    if (tooBig) {
+      cb(null, { tooBig: true }); return
+    }
+    if (!body.trim()) { cb(null, {}); return }
+    try { cb(null, JSON.parse(body)) } catch (e) { cb(e, null) }
+  })
+}
+
+// ---------------------------------------------------------------------------
+//  GET /wizard/state          当前状态（哪些步骤能走、哪些卡住）
+// ---------------------------------------------------------------------------
+function handleState (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/state')) return false
+
+  // ⛔ 这一层不 require 平台的 registry —— 那东西一 require 就去扫全盘，
+  //   在一个「问问进度」的 GET 里做太重了。
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) {
+    json(res, 200, { ok: true, state: 'idle',
+      message: '还没填链接。' })
+    return true
+  }
+  // ⭐ 只报「这一步能不能走」，具体判定交给各步自己的模块
+  let state = 'start'
+  try {
+    const dir = path.join(__dirname, '..', '..', '..', 'engines', id)
+    state = fs.existsSync(path.join(dir, 'manifest.json'))
+      ? 'manifest_done' : 'cloned_or_empty'
+  } catch { state = 'start' }
+  json(res, 200, { ok: true, state, id })
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  POST /wizard/resolve      第 1 步：链接 → id
+// ---------------------------------------------------------------------------
+function handleResolve (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/resolve')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
+    json(res, 200, resolveEngine({ url: body.url, id: body.id }))
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  POST /wizard/clone        第 2 步
+//  ⛔ execute 必须显式 true —— 默认只回计划（跟 install-engine.cjs 一致）
+// ---------------------------------------------------------------------------
+function handleClone (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/clone')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const input = {
+      id: body.id,
+      cloneUrl: body.cloneUrl,
+      branch: body.branch,
+      depth: body.depth,
+      execute: body.execute === true,
+      // ⛔ 默认不许浅取/不许执行
+      ...(body.depth === 1 ? { depth: 1 } : {}),
+    }
+    const r = input.execute ? runClone(input) : buildClonePlan(input)
+    json(res, r.ok ? 200 : 400, r)
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  POST /wizard/env          第 3 步
+// ---------------------------------------------------------------------------
+function handleEnv (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/env')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const input = {
+      id: body.id,
+      manifest: body.manifest,
+      execute: body.execute === true,
+    }
+    const r = input.execute ? runEnv(input) : buildEnvPlan(input)
+    json(res, r.ok ? 200 : 400, r)
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  GET /wizard/models?id=    第 4 步 —— ⛔ 只列，不下
+// ---------------------------------------------------------------------------
+function handleModels (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/models')) return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '需要 ?id=' }); return true }
+
+  // ⛔ 不在这里 require profile —— describeModels 内部会用平台自己的
+  //   resolveEngineProfile（权威实现只有那一份）。这里再 require 一次
+  //   只会多一份「我以为它怎么用」的猜测。
+  const r = describeModels(id)
+  if (!r.ok) { json(res, r.code === 'NO_PROFILE' ? 404 : 400, r); return true }
+  const { resolveEngineProfile } = require(
+    path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'profile.js'))
+  json(res, 200, { ...r, gaps: explainMissingInfo(resolveEngineProfile(id)) })
+  return true
+}
+
+/** GET /wizard/verify/checks —— 第 7 步：四道校验的清单 */
+function handleVerifyChecks (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/checks')) return false
+  json(res, 200, { ok: true, checks: verifyChecks() })
+  return true
+}
+
+/**
+ * POST /wizard/verify  {id, deep?, audio?, request?}
+ *  ⭐ 调平台的四道校验，⛔ 不自己判断（见 core/verify.js 的头注）
+ */
+function handleVerify (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = body.id
+    if (!id) { json(res, 400, { ok: false, error: '需要 id' }); return }
+
+    // ---- 前三道（不跑出声那道）----
+    if (body.audio) {
+      const r = runAudioCheck(id, { audio: body.audio, request: body.request })
+      json(res, r.ok ? 200 : 400, r)
+      return
+    }
+    const r = runChecks(id, { deep: body.deep !== false })
+    json(res, 200, r)
+  })
+  return true
+}
+
+module.exports = {
+  handleState, handleResolve, handleProbe, handleDeps, handleHardware,
+  handleClone, handleEnv, handleModels,
+  handleVerifyChecks, handleVerify,
+  // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
+  //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
+  extractDownloadCommands, parseDownloadCmd,
+}
