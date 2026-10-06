@@ -114,9 +114,12 @@ test('⛔ 一个依赖清单都没有 ⇒ 如实说「没有」，⛔ 不退回�
   // ⚠ 同上：「平台不替你猜」是把设计原则讲给用户听 ⇒ 改成说他该做什么
   // ⚠ 2026-10-05：只说「这一层没有清单」，⛔ 不许说「平台不替你猜怎么装」
   //   —— 那是把内部设计原则讲给用户听（Owner 反复强调的口吻问题）。
-  assert.ok(/没有依赖清单|清单/.test(d.note), d.note)
-  assert.ok(!/平台不替你猜|平台不会替你|——/.test(d.note),
-    `⛔ 不许出现内部术语或破折号：${d.note}`)
+  // ⚠ note 已双语化（英文为主 + noteZh 中文）⇒ 两条都要钉。
+  //   ⛔ 不断言具体措辞，只钉实质：必须说清「这一层没有清单」。
+  assert.ok(/no dependency manifest/i.test(d.note), 'note（英文）：' + d.note)
+  assert.ok(/没有依赖清单|清单/.test(d.noteZh), 'noteZh（中文）：' + d.noteZh)
+  assert.ok(!/平台不替你猜|平台不会替你|——/.test(d.noteZh),
+    `⛔ 不许出现内部术语或破折号：${d.noteZh}`)
 })
 
 test('找到了就如实列出来', () => {
@@ -163,7 +166,7 @@ test('⭐ 计划里必须提醒「退出码 0 不代表能用」', () => {
     `⛔ 必须说清下一步是什么（后续校验）：${note.why}`)
 })
 
-test('⛔ 不给 execute:true ⇒ 一行命令都不跑', () => {
+test('⛔ 不给 execute:true ⇒ 一行命令都不跑', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('e5')
   runEnv({ id: 'e5', root, manifest: { install: { env_command: ['uv', 'sync'] } } })
   // uv sync 会真的动目录；这里只验它没跑（引擎目录里不该多出 .venv）
@@ -174,10 +177,10 @@ test('⛔ 不给 execute:true ⇒ 一行命令都不跑', () => {
 // ---------------------------------------------------------------------------
 // ⭐ ⭐ 端到端：真的跑一条命令（无害的那种）
 // ---------------------------------------------------------------------------
-test('⭐ 真跑一条无害命令，验证 argv 真被执行、cwd 真是引擎目录', () => {
+test('⭐ 真跑一条无害命令，验证 argv 真被执行、cwd 真是引擎目录', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('e6')
   // 让「命令」把 cwd 写下来 —— 这样能证明它真的在引擎目录里跑
-  const r = runEnv({
+  const r = await runEnv({
     id: 'e6', root, execute: true,
     manifest: { install: {
       env_command: ['node', '-e',
@@ -189,9 +192,9 @@ test('⭐ 真跑一条无害命令，验证 argv 真被执行、cwd 真是引擎
     `cwd 不对：${wrote}`)
 })
 
-test('⛔ 命令失败 ⇒ 如实带出上游原话 + 提醒「装到一半」', () => {
+test('⛔ 命令失败 ⇒ 如实带出上游原话 + 提醒「装到一半」', async () => {
   const { root } = mkdtempRootWithEngine('e7')
-  const r = runEnv({
+  const r = await runEnv({
     id: 'e7', root, execute: true,
     manifest: { install: {
       env_command: ['node', '-e',
@@ -203,21 +206,25 @@ test('⛔ 命令失败 ⇒ 如实带出上游原话 + 提醒「装到一半」',
   assert.ok(r.error.includes('boom'), '⛔ 必须把上游的原话带出来')
   // ⛔ 钉实质：必须说明「安装中断会留下不完整环境、需先清理」，
   //   ⛔ 不钉「装到一半」这四个字。
-  assert.ok(/不完整|中断|清理/.test(r.note), r.note)
+  // ⚠ note 已双语化（英文为主 + noteZh 中文）⇒ 断言走 noteZh，两边都要钉。
+  assert.ok(/不完整|中断|清理/.test(r.noteZh), r.noteZh)
+  assert.ok(/partial environment|interrupted/i.test(r.note), r.note)
 })
 
-test('⛔ 命令不存在 ⇒ 说清「它装了没？平台不知道」', () => {
+test('⛔ 命令不存在 ⇒ 说清「它装了没？平台不知道」', async () => {
   const { root } = mkdtempRootWithEngine('e8')
-  const r = runEnv({
+  const r = await runEnv({
     id: 'e8', root, execute: true,
     manifest: { install: { env_command: ['definitely-not-a-real-cmd-xyz'] } },
   })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'SPAWN_FAILED')
   // ⛔ 钉实质：必须说「平台无法确认是否装成功」+ 让人去查目录，⛔ 不钉措辞。
-  assert.ok(/无法确认|不知道|不能确认/.test(r.error), r.error)
-  assert.ok(/engines\/<id>|engines/.test(r.error),
-    `⛔ 必须指出去哪里查：${r.error}`)
+  // ⚠ error 已双语化（英文为主 + errorZh 中文）⇒ 断言走 errorZh，两边都要钉。
+  assert.ok(/无法确认|不知道|不能确认/.test(r.errorZh), r.errorZh)
+  assert.ok(/engines.<id>|engines/.test(r.errorZh),
+    `⛔ 必须指出去哪里查：${r.errorZh}`)
+  assert.ok(/cannot confirm/i.test(r.error), r.error)
 })
 
 // ---------------------------------------------------------------------------
@@ -417,12 +424,12 @@ test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，�
 //   症状实测（2026-10-05）：runEnv 判的是 plan.execute，而
 //   buildEnvPlan 从不设置它⇒ 永远 undefined ⇒ 第一行就 return，
 //   ⛔ 一条命令都没跑，⛔ 而 plan.ok 是 true ⇒ 界面显示「完成」。
-test('⛔⛔ execute:true ⇒ 真的去跑（⛔ 不许静默返回 ok:true）', () => {
+test('⛔⛔ execute:true ⇒ 真的去跑（⛔ 不许静默返回 ok:true）', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('exe')
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
   // 用一条一定不存在的命令：⛔ 不看它跑不跑得起来，
   //   只看**有没有真的去跑**（stepsRun 有内容 + 如实报失败）。
-  const r = runEnv({
+  const r = await runEnv({
     id: 'exe', root, execute: true,
     manifest: { install: { env_command: ['definitely-not-a-real-cmd-abc'] } },
     timeoutMs: 5000,
@@ -434,10 +441,10 @@ test('⛔⛔ execute:true ⇒ 真的去跑（⛔ 不许静默返回 ok:true）',
 })
 
 // ⛔ execute 不为 true 时**不许**跑命令，但要如实返回空 stepsRun。
-test('⛔ execute 不为 true ⇒ 只出计划，⛔ stepsRun 为空', () => {
+test('⛔ execute 不为 true ⇒ 只出计划，⛔ stepsRun 为空', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('noop')
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
-  const r = runEnv({ id: 'noop', root, manifest: {} })
+  const r = await runEnv({ id: 'noop', root, manifest: {} })
   assert.deepStrictEqual(r.stepsRun, [], '⛔ 未要求执行时不得有 stepsRun')
   assert.ok(r.ok, '出计划本身应当 ok')
   // ⚠ 本夹具的 uv.lock 里**没有 torch** ⇒ 不触发后端不一致的分支
@@ -467,28 +474,32 @@ test('⭐ uvRelPath 按平台给形状（win32 / linux / darwin / 其他）', ()
 // ⭐ resolveUv 必须**真的解析到磁盘上存在的 uv**（不挑平台形状）。
 //   ⛔ 判据是「返回的路径存在且可用」，不是「路径长什么样」
 //   —— 钉实质：只要这台机器上解析不到 uv，就报 UV_NOT_FOUND 而不是 ENOENT。
-test('⭐ resolveUv 在本机解析到项目自带的 uv', () => {
+test('⭐ resolveUv 在本机解析到平台自带的 uv（与 bootstrap 同一调法）', () => {
   const env2 = require('../core/env.js')
   const { projectRoot } = require('../core/clone.js')
   const root = projectRoot()
   const got = env2.resolveUv(root)
-  assert.ok(got, '⛔ 项目自带 uv 却没解析到')
-  assert.ok(fs.existsSync(got), '⛔ 解析出的路径不存在：' + got)
-  // 路径必须在**项目根**下面 —— 分发的保证就在这里
-  assert.ok(got.indexOf(root) === 0,
-    '⛔ 解析结果不在项目根下：' + got)
+  assert.ok(got && got.ok, '⛔ 项目自带 uv 却没解析到：' + JSON.stringify(got))
+  // ⭐ 正路：用**平台 venv 的 python** 当解释器，`-m uv` 当模块调
+  //   —— 与 bootstrap.js:362 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
+  //   ⛔ 不再找 venv/Scripts/uv.exe 那个 console-script shim。
+  assert.deepStrictEqual(got.argv.slice(1), ['-m', 'uv'],
+    '⛔ 不是 python -m uv 的调法：' + JSON.stringify(got.argv))
+  // ⭐ 分发的保证：解释器必须在**项目根**下面（运行时算出，不是写死字符串）
+  assert.ok(got.argv[0].indexOf(root) === 0,
+    '⛔ 解释器不在项目根下：' + got.argv[0])
+  assert.ok(require('fs').existsSync(got.argv[0]),
+    '⛔ 解析出的解释器不存在：' + got.argv[0])
 })
 
-// ⛔ 找不到 uv 时**如实报错**，⛔ 不让 spawn 抛 ENOENT。
-test('⭐ resolveUv 找不到 ⇒ null；runEnv 报 UV_NOT_FOUND 而不是 ENOENT', () => {
+// ⛔ 不认识的平台 ⇒ 如实报 ok:false，⛔ 不猜、⛔ 不让 spawn 抛 ENOENT。
+test('⭐ resolveUv 不认识的平台 ⇒ ok:false + why（⛔ 不猜）', () => {
   const env2 = require('../core/env.js')
-  const { root, engineDir } = mkdtempRootWithEngine('nou')
-  fs.writeFileSync(path.join(engineDir, 'uv.lock'), 'version = 1\n')
-  // 夹具根下面没有 venv ⇒ resolveUv 只能靠项目根兜底；
-  //   这里直接测「根下面没有 uv 的情形」：指向一个空目录。
-  const empty = fs.mkdtempSync(os.tmpdir() + '-')
-  assert.strictEqual(env2.resolveUv(empty), null,
-    '⛔ 空目录不该解析出 uv')
+  const { projectRoot } = require('../core/clone.js')
+  const got = env2.resolveUv(projectRoot(), 'freebsd')
+  assert.ok(got && got.ok === false, '⛔ 不认识的平台必须报 ok:false')
+  assert.ok(typeof got.why === 'string' && got.why.length > 0,
+    '⛔ 失败时必须有可展示的 why')
   assert.strictEqual(env2.uvRelPath('freebsd'), null,
     '⛔ 不认识的平台必须给 null')
 })

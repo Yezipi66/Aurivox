@@ -110,7 +110,10 @@ function detectDependencyFile (filenames) {
   for (const o of order) if (filenames.includes(o.f)) hit.push(o)
   if (hit.length === 0) {
     return { found: false,
-    note: '未找到依赖清单（pyproject.toml / uv.lock / requirements.txt / '
+    note: 'No dependency manifest found (pyproject.toml / uv.lock / requirements.txt / '
+      + 'environment.yml) — follow the project README to install, or use a '
+      + 'repository that ships one.',
+    noteZh: '未找到依赖清单（pyproject.toml / uv.lock / requirements.txt / '
       + 'environment.yml）。请按项目 README 安装，或改用带依赖清单的仓库。' }
   }
   return {
@@ -148,7 +151,9 @@ function probeProject (input = {}) {
   } else {
     unfilled.push({
       key: 'call.module',
-      why: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]：'
+      why: 'Neither [project.name] nor [project.scripts] in pyproject — '
+        + 'the python package name cannot be read; check the source directory.',
+      whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]：'
         + 'python 包名读不出来，得看源码目录',
       example: 'my_tts',
     })
@@ -162,14 +167,18 @@ function probeProject (input = {}) {
   } else if (scriptNames.length > 1) {
     unfilled.push({
       key: 'runtime.entry',
-      why: `上游给了 ${scriptNames.length} 个命令（${scriptNames.join(', ')}）`
+      why: `Upstream provides ${scriptNames.length} commands (${scriptNames.join(', ')}), ` 
+        + 'cannot tell which one is the inference service.',
+      whyZh: `上游给了 ${scriptNames.length} 个命令（${scriptNames.join(', ')}）`
         + '，平台无法判断其中哪个是推理服务',
       example: scriptNames[0],
     })
   } else {
     unfilled.push({
       key: 'runtime.entry',
-      why: 'pyproject 里没有 [project.scripts] ⇒ 上游可能只提供 python API，'
+      why: 'pyproject has no [project.scripts] — upstream likely only '
+        + 'provides a python API, with no ready-made service command.',
+      whyZh: 'pyproject 里没有 [project.scripts] ⇒ 上游可能只提供 python API，'
         + '没有现成的服务命令',
       example: 'serve.py / api.py（要我们自己写）',
     })
@@ -215,7 +224,11 @@ function planDependencies (text, opts = {}) {
     return {
       ok: false,
       code: 'NO_DEPENDENCIES',
-      error: '上游的 pyproject.toml 里没读到依赖列表。\n'
+      error: 'The upstream pyproject.toml does not expose a dependency list.\n'
+        + 'That does not necessarily mean it has no dependencies (they may live in uv.lock / '
+        + 'requirements.txt / a subdirectory); try a repository that ships a manifest, or follow '
+        + 'the upstream instructions.',
+      errorZh: '上游的 pyproject.toml 里没读到依赖列表。\n'
         + '这不一定说明它没依赖（可能在 uv.lock / requirements.txt / 子目录里），'
         + '请换一份带依赖清单的仓库再来，或按上游说明自己安装。',
     }
@@ -238,9 +251,12 @@ function planDependencies (text, opts = {}) {
       isMain,
       verdict: j ? j.verdict : (hw ? 'unknown' : 'unknown'),
       why: j ? j.why
-        : isMain ? '未检测本机，无法判断该包能否使用'
+        : isMain ? 'This machine was not detected — cannot tell whether this package will work.'
         // ⛔ 没锁定 torch 后端时无法判断，但 ⛔ 不给理由（那是判据）。
         //   后端由 torch 的版本决定，lock 里没写就说不出是哪个。
+          : 'The backend is decided by the Torch version, which is not declared in the lock.'
+      , whyZh: j ? j.whyZh
+        : isMain ? '未检测本机，无法判断该包能否使用'
           : '后端由 torch 的版本决定，lock 中未声明'
     }
   })

@@ -47,7 +47,8 @@ function saveManifest (manifest, opts = {}) {
 
   // ---- 1. 形状 ----
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    return { ok: false, code: 'BAD_SHAPE', error: 'manifest must be a JSON object' }
+    return { ok: false, code: 'BAD_SHAPE', error: 'manifest must be a JSON object',
+      errorZh: 'manifest 必须是一个 JSON 对象' }
   }
 
   // ---- 2. id（最常错的一项，先查）----
@@ -61,7 +62,7 @@ function saveManifest (manifest, opts = {}) {
   const rel = path.relative(enginesDir, dir)
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     return { ok: false, code: 'OUT_OF_SCOPE',
-      error: 'refusing to write outside engines/' }
+      error: 'refusing to write outside engines/', errorZh: '拒绝写到 engines/ 之外' }
   }
 
   // ---- 4. 目录在不在 ----
@@ -85,7 +86,8 @@ function saveManifest (manifest, opts = {}) {
   const exists = fs.existsSync(file)
   if (exists && !opts.overwrite) {
     return { ok: false, code: 'EXISTS', path: file,
-      error: `engines/${id}/manifest.json already exists — overwrite was not requested` }
+      error: `engines/${id}/manifest.json already exists — overwrite was not requested`,
+      errorZh: `engines/${id}/manifest.json 已存在，且未请求覆盖` }
   }
 
   // ---- 6. ⛔⛔ 注释键**原样保留** ----

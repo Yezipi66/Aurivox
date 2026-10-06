@@ -182,7 +182,8 @@ function handleProbe (req, res) {
       json(res, 200, {
         ok: true,
         meta: { dependencies: detectDependencyFile(found) },
-        note: '这个仓库没有 pyproject.toml，读不到项目信息。'
+        note: 'This repository has no pyproject.toml, so project metadata cannot be read.',
+    noteZh: '这个仓库没有 pyproject.toml，读不到项目信息。'
           + '包名/入口/命令这些事实读不出来。\n'
           + '这不代表该仓库没有依赖，依赖也可能位于子目录中。'
       + '请改用带依赖清单的仓库，或按上游说明自行安装。',
@@ -221,8 +222,10 @@ function handleHardware (req, res) {
   } catch (e) {
     json(res, 200, {
       gpus: [], recommended: 'cpu', confidence: 'unknown',
-      reason: `检测本身出错了（${e.message}）⇒ 退 CPU 版`,
-      caveat: '检测是尽力而为，不是保证',
+      reason: `Detection failed (${e.message}) — falling back to CPU`,
+    reasonZh: `检测本身出错了（${e.message}）⇒ 退 CPU 版`,
+      caveat: 'Detection is best-effort, not a guarantee',
+    caveatZh: '检测是尽力而为，不是保证',
       options: require('./hardware').BACKEND_PREFERENCE,
     })
   }
@@ -246,7 +249,8 @@ function handleDeps (req, res) {
 
     if (!py) {
       json(res, 200, { ok: false, code: 'NO_PYPROJECT',
-        error: '这个仓库没有 pyproject.toml，读不到依赖列表。\n'
+        error: 'This repository has no pyproject.toml, so the dependency list cannot be read.\n',
+    errorZh: '这个仓库没有 pyproject.toml，读不到依赖列表。\n'
           + '它可能在 uv.lock / requirements.txt 或子目录里。请换一份带依赖清单的仓库，或按上游说明自己安装。' })
       return
     }
@@ -318,7 +322,7 @@ function handleState (req, res) {
   const id = url.searchParams.get('id')
   if (!id) {
     json(res, 200, { ok: true, state: 'idle',
-      message: '还没填链接。' })
+      message: 'No link entered yet.' })
     return true
   }
   // ⭐ 只报「这一步能不能走」，具体判定交给各步自己的模块
@@ -383,8 +387,45 @@ function handleEnv (req, res) {
       manifest: body.manifest,
       execute: body.execute === true,
     }
-    const r = input.execute ? runEnv(input) : buildEnvPlan(input)
-    json(res, r.ok ? 200 : 400, r)
+    // ⛔ 只出计划（execute:false）时走原来的 JSON 响应 —— 快的请求不该用流。
+    if (!input.execute) {
+      const r = buildEnvPlan(input)
+      json(res, r.ok ? 200 : 400, r)
+      return
+    }
+    // ⭐⭐ 执行（execute:true）走 **SSE 流式**：
+    //   装依赖要几分钟到几十分钟，普通 JSON 响应的意思是「前端等到全部装完」。
+    //   流式让前端**边装边看**：每步开始推一个 step 事件，每行输出推一个 line。
+    //   ⛔ 浏览器 fetch 能读 SSE（resp.body.getReader()），
+    //      axios/XMLHttpRequest 读不了 —— 所以前端必须用 fetch。
+    //   ⛔ 格式：`data: {json}\n\n` 是标准 SSE；这里每一块都是完整 JSON 事件。
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+      // ⛔ 必须关掉中间层的缓冲 —— vite 的 dev 中间件若缓冲，前端就等不到行。
+      //   'x-accel-buffering': 'no' 是 nginx 约定；vite/node 原生也认 no-cache。
+    })
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+    // ⭐ onStep：每步开始（前端用来画「第 N/M 步」）
+    input.onStep = (i, total, step, argv) => {
+      send('step', { i, total, argv: argv.join(' '), cwd: step.cwd })
+    }
+    // ⭐ onLine：每行输出（前端用来画进度条 / 实时日志）
+    input.onLine = (text, isErr) => {
+      send('line', { text: text.replace(/\r?\n$/, ''), err: !!isErr })
+    }
+    runEnv(input).then((r) => {
+      send('done', r)
+      res.end()
+    }).catch((e) => {
+      send('done', { ok: false, code: 'BRIDGE_FAILED',
+        error: (e && e.message) || String(e) })
+      res.end()
+    })
   })
   return true
 }
@@ -397,7 +438,7 @@ function handleModels (req, res) {
   if (!req.url || !req.url.startsWith('/wizard/models')) return false
   const url = new URL(req.url, 'http://x')
   const id = url.searchParams.get('id')
-  if (!id) { json(res, 400, { ok: false, error: '需要 ?id=' }); return true }
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
 
   // ⛔ 不在这里 require profile —— describeModels 内部会用平台自己的
   //   resolveEngineProfile（权威实现只有那一份）。这里再 require 一次
@@ -428,7 +469,7 @@ function handleVerify (req, res) {
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const id = body.id
-    if (!id) { json(res, 400, { ok: false, error: '需要 id' }); return }
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
 
     // ---- 前三道（不跑出声那道）----
     if (body.audio) {

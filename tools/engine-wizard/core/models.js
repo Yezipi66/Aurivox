@@ -64,7 +64,7 @@ function describeModels (id, appDir) {
     cp = platformCheckpoints()
   } catch (e) {
     return { ok: false, code: 'NO_PLATFORM_MODULE',
-      error: `平台自己的 lib/engines/checkpoints.js 调不动：${e.message}` }
+      error: `The platform's own lib/engines/checkpoints.js cannot be loaded: ${e.message}`, errorZh: `平台自己的 lib/engines/checkpoints.js 调不动：${e.message}` }
   }
 
   let profile
@@ -90,7 +90,7 @@ function describeModels (id, appDir) {
     status = cp.checkpointStatus(profile, { appDir })
   } catch (e) {
     return { ok: false, code: 'STATUS_FAILED',
-      error: `平台算不出这台引擎的权重现状：${e.message}` }
+      error: `The platform cannot determine this engine's checkpoint state: ${e.message}`, errorZh: `平台算不出这台引擎的权重现状：${e.message}` }
   }
 
   // ---- ⭐ ready 是**三态**，糊成布尔就是撒谎（checkpoints.js:84-91 的原话）----
@@ -192,14 +192,16 @@ function explainMissingInfo (profile) {
   if (!rt || !rt.checkpoints) {
     gaps.push({
       key: 'runtime.checkpoints',
-      why: '未声明 Checkpoint 存放位置，平台只能判断目录是否存在，无法判断是否完整',
+      why: 'Checkpoint location is not declared — the platform can only tell whether the directory exists, not whether it is complete.',
+      whyZh: '未声明 Checkpoint 存放位置，平台只能判断目录是否存在，无法判断是否完整',
       example: 'models/tts/<引擎id>',
     })
   }
   if (!md.required || (Array.isArray(md.required) && md.required.length === 0)) {
     gaps.push({
       key: 'models.required',
-      why: '未声明用于判断完整性的文件清单，平台只能返回「状态未知」',
+      why: 'No file list is declared for integrity checks — the platform can only report unknown.',
+      whyZh: '未声明用于判断完整性的文件清单，平台只能返回「状态未知」',
       example: ['model.pt', 'config.yaml'],
     })
   }

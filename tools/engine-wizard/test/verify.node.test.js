@@ -81,7 +81,9 @@ test('⛔ ⭐ A 级没给 request ⇒ 不跑，并说清为什么不自己编一
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_REQUEST')
   // ⛔ 理由必须说清「为什么平台不替你编」
-  assert.ok(r.error.includes('方言'), r.error)
+  // ⚠ error 已双语化（英文为主 + errorZh 中文）⇒ 断言走 errorZh，两边都要钉。
+  assert.ok(r.errorZh.includes('方言'), r.errorZh)
+  assert.ok(/dialect/i.test(r.error), r.error)
   assert.ok(r.expected_shape, '⛔ 要告诉用户请求体该长什么样')
 })
 

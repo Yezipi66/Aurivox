@@ -95,12 +95,14 @@ test('⛔ ⭐ 目录非空 ⇒ 动手之前就拦住，且理由要说清', () =
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'DIR_NOT_EMPTY')
   assert.ok(r.entries.includes('manifest.json'), r.entries.join())
-  assert.ok(r.error.includes('2 项'), '要说清有几个')
+  // ⚠ 断言改钉**实质**：数量。中文措辞已双语化（error 英文 + errorZh 中文）
+  assert.ok(r.errorZh.includes('2 项') || /2 item/i.test(r.error), '要说清有几个')
   // ⛔ 理由要说清「是 git clone 的限制，且目录必须为空」，⛔ 不钉具体措辞。
-  assert.ok(r.error.includes('git clone'), r.error)
-  assert.ok(/目标目录为空|目录.*空/.test(r.error), r.error)
+  assert.ok(/git clone/i.test(r.error) || /git clone/.test(r.errorZh), r.error)
+  assert.ok(/empty target directory|空目录|目录为空/i.test(r.error) || /目标目录为空/.test(r.errorZh), r.error)
   // ⛔ 平台不替用户删东西 —— 建议里不能出现「已删除」
-  assert.ok(!/已删除|已经帮你/.test(r.error), r.error)
+  // ⛔ 不许说「已删除 / 已经帮你」——中文与英文两侧都要钉
+  assert.ok(!/已删除|已经帮你/.test(r.errorZh) && !/deleted for you|removed for you/i.test(r.error), r.error)
 })
 
 test('⛔ ⭐ 「已克隆过」要能被认出来（这是最常见的那个非空）', () => {
@@ -109,7 +111,7 @@ test('⛔ ⭐ 「已克隆过」要能被认出来（这是最常见的那个非
   const r = checkClonable('old', { root })
   assert.strictEqual(r.ok, false)
   // ⛔ 钉实质：提示「已克隆过」这件事，⛔ 不钉「已经克隆过」这五个字。
-  assert.ok(/已克隆过|克隆过|重新安装/.test(r.error), r.error)
+  assert.ok(/already cloned|reinstall/.test(r.error) || /已克隆过|克隆过|重新安装/.test(r.errorZh), r.error)
 })
 
 // ---------------------------------------------------------------------------
@@ -161,7 +163,7 @@ test('默认整仓克隆（不浅取）', () => {
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://x/y.git', root })
   assert.ok(!p.steps[0].argv.includes('--depth'), '⛔ 默认不该浅取')
   // ⛔ 钉实质：说明这是完整克隆（而非浅克隆），⛔ 不钉「整仓」这个词。
-  assert.ok(/完整克隆|不浅取|整个仓库/.test(p.steps[0].why), p.steps[0].why)
+  assert.ok(/full clone|entire repository|whole repository/i.test(p.steps[0].why) || /完整克隆|不浅取|整个仓库/.test(p.steps[0].whyZh), p.steps[0].why)
 })
 
 test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）', () => {
@@ -173,8 +175,8 @@ test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）'
   assert.ok(note, '⛔ 浅克隆必须给一条提醒')
   // ⛔ 钉实质：必须说「浅克隆后无法指定历史版本，需重新完整克隆」，
   //   ⛔ 不钉「重新整仓克隆」这个措辞。
-  assert.ok(/完整克隆|整仓/.test(note.why), note.why)
-  assert.ok(/历史版本|指定版本/.test(note.why),
+  assert.ok(/full re.clone|reclone|re.clone/i.test(note.why) || /完整克隆|整仓/.test(note.whyZh), note.why)
+  assert.ok(/history|specific version|version later/i.test(note.why) || /历史版本|指定版本/.test(note.whyZh),
     `⛔ 必须说清浅克隆的代价：${note.why}`)
 })
 
@@ -193,7 +195,7 @@ test('⛔ 传了 branch 也⛔ 必须被忽略：argv 里不许出现 --branch',
     'clone.js 又把 branch 捡回来了：' + JSON.stringify(p.steps[0].argv))
   assert.ok(!p.steps[0].argv.includes('dev_1.5'),
     'argv 里漏了分支名：' + JSON.stringify(p.steps[0].argv))
-  assert.ok(p.steps[0].why.includes('默认分支'), p.steps[0].why)
+  assert.ok(p.steps[0].why.includes('default branch') || p.steps[0].whyZh.includes('默认分支'), p.steps[0].why)
 })
 
 // ---------------------------------------------------------------------------
@@ -227,9 +229,11 @@ test('⭐ git 成功后的话里不许出现「能用」「可用」', () => {
   const { root } = mkdtempRoot()
   // ⛔ 不真的联网克隆 —— 只验这句话的措辞
   const fake = buildClonePlan({ id: 'n', cloneUrl: 'https://x/y.git', root, execute: true })
-  fake.note = 'git 退出码 0。这只说明文件到位了，'
+  fake.note = 'git exited 0. That only means the files are in place — '
+    + 'whether this engine actually works awaits the checks that come next.'
+  fake.noteZh = 'git 退出码 0。这只说明文件到位了，'
     + '「这台引擎能用吗」要等后面的校验。'
-  assert.ok(fake.note.includes('要等后面的校验'), fake.note)
+  assert.ok(fake.noteZh.includes('要等后面的校验') || /checks that come next/i.test(fake.note), fake.note)
 })
 
 // ---------------------------------------------------------------------------

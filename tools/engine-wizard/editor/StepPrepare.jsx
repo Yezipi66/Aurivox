@@ -296,7 +296,7 @@ const done = facts && facts.cloned === true
             <span className="pv">{(meta && meta.license) || '—'}</span>
           </div>
           {probe && probe.note && (
-            <p className="plan-warn" style={{ margin: 0 }}>{probe.note}</p>
+            <p className="plan-warn" style={{ margin: 0 }}>{t(probe.note, probe.noteZh)}</p>
           )}
         </>
       )}

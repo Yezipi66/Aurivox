@@ -51,14 +51,17 @@ test('⭐ Intel（名字含 Arc）⇒ ipex —— 这台机器就是', () => {
   const r = recommendBackend([{ vendor: 'intel', name: 'Intel(R) Arc(TM) 140T GPU' }])
   assert.strictEqual(r.recommended, 'ipex')
   // ⛔ reason 只说结论；置信度由 confidence 字段承担，⛔ 不塞进 reason。
-  assert.strictEqual(r.reason, '推荐使用 XPU')
+  // ⚠ reason 已双语化（英文为主 + reasonZh 中文），⛔ 不断言具体措辞，
+  //   只钉实质：结论里必须出现后端名。
+  assert.ok(/xpu/i.test(r.reason), 'reason 应指向 XPU：' + r.reason)
+  assert.ok(r.reasonZh && /XPU/.test(r.reasonZh), 'reasonZh 也应指向 XPU')
   assert.strictEqual(r.confidence, 'guidance')
 })
 
 test('AMD + Windows ⇒ directml（三条路里最兼容的那条）', () => {
   const r = recommendBackend([{ vendor: 'amd', name: 'Radeon RX 7900' }])
   assert.strictEqual(r.recommended, 'directml')
-  assert.strictEqual(r.reason, '推荐使用 DirectML')
+  assert.ok(/directml/i.test(r.reason), 'reason 应指向 DirectML：' + r.reason)
 })
 
 test('AMD + Linux ⇒ rocm', () => {
@@ -95,7 +98,7 @@ test('⭐ ⛔ 分不清时 confidence 不是 guidance（是明确的回退）', 
   // ⭐ 必须带 fellBack 标记：界面据此说明「已回退」而不是「推荐使用 CPU」
   assert.strictEqual(fallback.fellBack, true,
     '⛔ 回退必须带 fellBack=true，否则界面读起来像探测到了 CPU')
-  assert.ok(/回退/.test(fallback.reason),
+  assert.ok(/回退|falling back/i.test(fallback.reason),
     `⛔ 理由要说清是回退：${fallback.reason}`)
 
   assert.strictEqual(recommendBackend([{ vendor: 'nvidia' }]).confidence, 'guidance')
@@ -127,7 +130,9 @@ test('⭐ ⭐ inspectHardware 必须把**所有**选项都返回（推荐 ≠ �
   // ⚠ 纪律 2：必须说清「这只是推荐，你可以改」。
   //   ⛔ 不许断言某几个字（措辞会改），改钉**实质**：
   //   caveat 要点明「未在本机验证」，即推荐 ≠ 保证。
-  assert.ok(h.caveat && /未在本机|不是实测|未经/.test(h.caveat), h.caveat)
+  // ⚠ caveat 已双语化：zh 界面看 caveatZh，en 界面看 caveat，两边都要钉。
+  assert.ok(h.caveat && /(not verified|未在本机)/i.test(h.caveat), h.caveat)
+  assert.ok(h.caveatZh && /(未在本机|不是实测|未经)/.test(h.caveatZh), h.caveatZh)
   // ⛔ 不许用破折号解释腔（Owner 2026-10-05 的口吻要求）
   assert.ok(!/——/.test(h.caveat), `⛔ 界面文案不许用破折号：${h.caveat}`)
 })
@@ -168,14 +173,17 @@ test('⭐ ⚪ 不认识的后缀 ⇒ unknown，⛔ 不硬套成某个后端', ()
   assert.strictEqual(j.kind, 'unknown')
   // ⚠ 2026-10-05：措辞改成「请自行确认」了 ⇒ 这条断言改钉**实质**：
   //   ⭐ 必须说清「装之前要用户确认」，⛔ 不许断言某几个字。
-  assert.ok(/确认/.test(j.why), j.why)
-  assert.ok(!/——/.test(j.why), `⛔ 界面文案不许用破折号解释：${j.why}`)
+  // ⚠ why 已双语化：英文为主 + whyZh 中文。断言走 whyZh（它保留了原措辞），
+  //   ⛔ 不断言英文的具体用词 —— 措辞会调，实质才是重点。
+  assert.ok(/确认/.test(j.whyZh), 'whyZh 应要求用户确认：' + j.whyZh)
+  assert.ok(!/——/.test(j.whyZh), `⛔ 界面文案不许用破折号解释：${j.whyZh}`)
 })
 
 test('⭐ ⚪ 没给本机信息 ⇒ verdict 是 unknown（⛔ 不是 match）', () => {
   const j = judgeTorchSpec('torch==2.2.0+cu121')
   assert.strictEqual(j.verdict, 'unknown')
-  assert.ok(/未检测/.test(j.why), j.why)
+  // ⚠ why 已双语化（英文为主 + whyZh）⇒ 断言走 whyZh，不断言英文用词。
+  assert.ok(/未检测/.test(j.whyZh), j.whyZh)
 })
 
 // ---------------------------------------------------------------------------
@@ -274,7 +282,11 @@ test('⭐⭐ torch 没后缀但 lock 里有 CUDA 依赖 ⇒ 判 cuda，⛔ 不�
   assert.strictEqual(onIntel.verdict, 'mismatch', 'Intel 机器上应该是 mismatch')
   // ⛔ why 是界面文案：只说结论「CUDA 版」，⛔ 不讲「因为锁了几个 CUDA 依赖」。
   //   判据由上面两条 kind/verdict 断言守住。
-  assert.strictEqual(onIntel.why, 'CUDA 版，需要 NVIDIA 驱动，本机推荐的是 ipex')
+  // ⚠ why 已双语化（英文为主 + whyZh），⛔ 不断言具体措辞，只钉实质：
+  //   必须点出后端名（CUDA）与「与本机不一致」这个结论。
+  assert.ok(/cuda/i.test(onIntel.why), 'why 应点出 CUDA：' + onIntel.why)
+  assert.ok(/recommends/i.test(onIntel.why), 'why 应给出本机推荐：' + onIntel.why)
+  assert.ok(onIntel.whyZh && /CUDA 版/.test(onIntel.whyZh), 'whyZh：' + onIntel.whyZh)
 
   const onNvidia = judgeTorchSpec(torch.spec, 'cuda', ctx)
   assert.strictEqual(onNvidia.verdict, 'match', 'NVIDIA 机器上应该一致')
@@ -284,7 +296,7 @@ test('⭐ 真的纯 CPU（没有 NVIDIA/XPU 旁证）⇒ 才判 cpu', () => {
   const j = judgeTorchSpec('torch==2.2.0', 'ipex', { lockedPackages: ['torch', 'numpy'] })
   assert.strictEqual(j.kind, 'cpu')
   // ⛔ 同上：结论上界面，⛔ 不把「没有 NVIDIA/XPU 旁证」这个判据讲给用户。
-  assert.strictEqual(j.why, 'CPU 版，任何机器均可安装，速度较慢。')
+  assert.ok(/cpu build/i.test(j.why), 'why 应点出 CPU 版：' + j.why)
 })
 
 test('⭐ lock 里有 Intel XPU 依赖 ⇒ 判 ipex', () => {

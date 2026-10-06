@@ -39,7 +39,7 @@ function handleValidate (req, res, coreDir) {
   req.on('end', () => {
     if (tooBig) {
       res.writeHead(413, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: '名片过大（>4MB），这不像一张 manifest' }))
+      res.end(JSON.stringify({ error: 'Manifest too large (>4MB) — this does not look like a manifest' }))
       return
     }
     let manifest

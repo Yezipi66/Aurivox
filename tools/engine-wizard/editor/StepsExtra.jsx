@@ -127,7 +127,7 @@ export function StepModels ({ state, onChange, probe }) {
                         ? <span className="badge badge-ok">{t('Present', '已就位')}</span>
                         : <span className="badge badge-warn">{t('Missing', '缺')}</span>
                     ) : (
-                      <span className="muted">{it.why}</span>
+                      <span className="muted">{t(it.why, it.whyZh)}</span>
                     )}
                   </td>
                 </tr>

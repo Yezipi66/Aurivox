@@ -40,7 +40,8 @@ function checks () {
       titleZh: '装没装',
       // 「纯查盘，几毫秒」
       cost: 'cheap',
-      why: '纯查盘：解释器在不在、入口在不在、verify.sys_path 在不在',
+      why: "Disk check only — whether the interpreter, the entrypoint and verify.sys_path exist.",
+      whyZh: '纯查盘：解释器在不在、入口在不在、verify.sys_path 在不在',
     },
     {
       key: 'env_deep',
@@ -49,7 +50,8 @@ function checks () {
       titleZh: '起不起来',
       // 「慢（实测三十多秒）」
       cost: 'slow',
-      why: '起这台引擎自己的解释器去 import 名片点名的模块/类/方法',
+      why: "Boots the engine's own interpreter and imports the module/class/method named in the manifest.",
+      whyZh: '起这台引擎自己的解释器去 import 名片点名的模块/类/方法',
     },
     {
       key: 'checkpoints',
@@ -57,7 +59,8 @@ function checks () {
       titleEn: 'Weights',
       titleZh: '权重齐不齐',
       cost: 'cheap',
-      why: '名片说的那几个文件缺不缺（ready 是三态，null = 说不出来）',
+      why: 'Whether the files the manifest names are all present (ready is three-valued: null means it cannot be determined).',
+      whyZh: '名片说的那几个文件缺不缺（ready 是三态，null = 说不出来）',
     },
     {
       key: 'audio',
@@ -65,7 +68,8 @@ function checks () {
       titleEn: 'Speaks',
       titleZh: '出不出声',
       cost: 'heavy',
-      why: 'B 级只要合法响应；A 级真跑一次合成拿非空 WAV',
+      why: 'Tier B only needs a well-formed response; Tier A runs a real synthesis and requires a non-empty WAV.',
+      whyZh: 'B 级只要合法响应；A 级真跑一次合成拿非空 WAV',
     },
   ]
 }
@@ -86,7 +90,7 @@ function runChecks (id, opts = {}) {
     profile = resolveEngineProfile(id, process.env)
   } catch (e) {
     return { ok: false, code: 'NO_PROFILE',
-      error: `平台解析不出 ${id} 的名片：${e.message}` }
+      error: `The platform cannot read the manifest for ${id}: ${e.message}`, errorZh: `平台解析不出 ${id} 的名片：${e.message}` }
   }
 
   const out = { ok: true, id, checks: {}, problems: [] }
@@ -166,7 +170,7 @@ function runAudioCheck (id, opts = {}) {
     verifyAudio = platform('lib/engines/verifyAudio.js')
   } catch (e) {
     return { ok: false, code: 'NO_VERIFY_MODULE',
-      error: `平台自己的 lib/engines/verifyAudio.js 调不动：${e.message}` }
+      error: `The platform's own lib/engines/verifyAudio.js cannot be loaded: ${e.message}`, errorZh: `平台自己的 lib/engines/verifyAudio.js 调不动：${e.message}` }
   }
 
   const { resolveEngineProfile } = platform('lib/engines/profile.js')
@@ -176,14 +180,14 @@ function runAudioCheck (id, opts = {}) {
     profile = resolveEngineProfile(id, process.env)
     manifest = requireEngine(id)
   } catch (e) {
-    return { ok: false, code: 'NO_PROFILE', error: e.message }
+    return { ok: false, code: 'NO_PROFILE', error: e.message, errorZh: e.message }
   }
 
   // ⛔ 名片没写 runtime ⇒ 平台不负责起它 ⇒ 这一道无从谈起
   //   （verify-engine.cjs:47 那段注释的原话）
   if (!profile.runtime) {
     return { ok: false, code: 'NO_RUNTIME',
-      error: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`
+      error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`, errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`
         + '也就无从替它验「出不出得了声」。这一道要由起它的人自己做。' }
   }
 
@@ -191,7 +195,11 @@ function runAudioCheck (id, opts = {}) {
     // ⭐ A 级要真的合成 ⇒ 平台**不会编一个请求体**
     return {
       ok: false, code: 'NO_REQUEST', level: 'A',
-      error: 'A 级要真的合成一次。请求体需要用户填写：'
+      error: 'Tier A requires a real synthesis. The request body needs these fields:\n'
+        + 'The key names are the engine\u2019s own dialect (follow the maps in this manifest),\n'
+        + 'and a request the platform makes up cannot verify whether the voice is right.\n'
+        + 'Provide the real request (text and reference audio) and retry.',
+      errorZh: 'A 级要真的合成一次。请求体需要用户填写：\n'
         + '里面的键名是**引擎方言**（照这张名片的 maps 写），'
         + '编出来的请求验不了「声音对不对」。\n'
         + '请提供真实的请求内容（文本与参考音频）后重试。',

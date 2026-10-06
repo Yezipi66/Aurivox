@@ -61,7 +61,7 @@ function parseRepoUrl (input) {
   if (!raw) {
     return {
       ok: false, code: 'EMPTY_LINK',
-      error: '还没填链接。',
+      error: 'No link entered yet.', errorZh: '还没填链接。',
       example: 'https://github.com/owner/name',
     }
   }
@@ -75,7 +75,7 @@ function parseRepoUrl (input) {
   else if (/^[\w.-]+$/.test(raw)) {
     return {
       ok: false, code: 'NO_OWNER',
-      error: '还缺仓库名。链接要写成 github.com/用户名/仓库名',
+      error: 'Repository name is missing. Use github.com/OWNER/REPO.', errorZh: '还缺仓库名。链接要写成 github.com/用户名/仓库名',
       params: { host: 'github.com' },
       example: 'https://github.com/owner/name',
     }
@@ -88,7 +88,8 @@ function parseRepoUrl (input) {
       //      用户不关心我们为什么这么设计，他只想知道该怎么填；
       //   ② ⛔ 硬编码中文 ⇒ 切英文仍然是中文。
       // ✅ 现在：⛔ 不解释原因，⛔ 只说「改成这样填」。
-      error: `还只支持 GitHub 链接。${hostOf(raw)} 请换成 GitHub 上的仓库地址。`,
+      error: `Only GitHub links are supported for now. ${hostOf(raw)} \u2014 use a GitHub repository URL.`,
+    errorZh: `还只支持 GitHub 链接。${hostOf(raw)} 请换成 GitHub 上的仓库地址。`,
       params: { host: hostOf(raw) },
       example: 'https://github.com/owner/name',
     }
@@ -99,7 +100,8 @@ function parseRepoUrl (input) {
   if (parts.length < 2) {
     return {
       ok: false, code: 'NO_REPO',
-      error: `链接里只有用户名 "${parts[0] || ''}"，缺仓库名。正确写法：github.com/用户名/仓库名`,
+      error: `The link only has an owner ("${parts[0] || ''}") and no repository. Use github.com/OWNER/REPO.`,
+    errorZh: `链接里只有用户名 "${parts[0] || ''}"，缺仓库名。正确写法：github.com/用户名/仓库名`,
       params: { owner: parts[0] || '' },
       example: 'https://github.com/owner/name',
     }
@@ -112,7 +114,7 @@ function parseRepoUrl (input) {
   const repo = repoWithSuffix.replace(/\.git$/i, '')
   if (!repo) {
     return { ok: false, code: 'NO_REPO',
-      error: '仓库名是空的，".git" 前面要有名字。',
+      error: 'The repository name is empty \u2014 something must come before ".git".', errorZh: '仓库名是空的，".git" 前面要有名字。',
       example: 'https://github.com/owner/name' }
   }
   // ─────────────────────────────────────────────────────────────
@@ -156,7 +158,8 @@ function parseRepoUrl (input) {
       // ⛔ 认不出来的（拼错、别的结构）如实说，⛔ 不静默吞掉
       return {
         ok: false, code: 'UNKNOWN_TAIL',
-        error: `无法识别链接里的 "${parts[2]}"。请贴仓库首页的地址。`,
+        error: `The "${parts[2]}" part of the link is not recognised. Paste the repository home URL.`,
+    errorZh: `无法识别链接里的 "${parts[2]}"。请贴仓库首页的地址。`,
         params: { tail: parts[2] },
         example: `https://github.com/${owner}/${repo}`,
       }
@@ -220,28 +223,28 @@ function suggestId (repo) {
  */
 function validateId (id) {
   if (typeof id !== 'string' || !id.trim()) {
-    return { ok: false, code: 'EMPTY', error: '目录名不能为空。' }
+    return { ok: false, code: 'EMPTY', error: 'Directory name cannot be empty.', errorZh: '目录名不能为空。' }
   }
   const s = id.trim()
   if (s !== id) {
     return { ok: false, code: 'WHITESPACE',
-      error: '目录名前后有空格，必须和文件夹名完全一致。' }
+      error: 'The directory name has surrounding whitespace; it must match the folder name exactly.', errorZh: '目录名前后有空格，必须和文件夹名完全一致。' }
   }
   for (const p of RESERVED_PREFIXES) {
     if (s.startsWith(p)) {
       return { ok: false, code: 'RESERVED_PREFIX',
-        error: `目录名不能以 "${p}" 开头。`,
+        error: `The directory name must not start with "${p}".`, errorZh: `目录名不能以 "${p}" 开头。`,
         params: { prefix: p } }
     }
   }
   if (ILLEGAL_IN_DIRNAME.test(s)) {
     return { ok: false, code: 'ILLEGAL_CHAR',
-      error: '目录名含有不能放进文件夹名的字符：\\ / : * ? " < > |',
+      error: 'The directory name contains characters that cannot be used in folder names: \\ / : * ? " < > |', errorZh: '目录名含有不能放进文件夹名的字符：\\ / : * ? " < > |',
       params: { chars: '\\ / : * ? " < > |' } }
   }
   if (PLATFORM_NAMES.has(s)) {
     return { ok: false, code: 'RESERVED_NAME',
-      error: `"${s}" 是平台保留的目录名，换一个。`,
+      error: `"${s}" is a name reserved by the platform; choose another.`, errorZh: `"${s}" 是平台保留的目录名，换一个。`,
       params: { name: s } }
   }
   return { ok: true, id: s }

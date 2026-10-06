@@ -84,16 +84,54 @@ export default function StepDeps ({ state }) {
     if (hw && backend === null) setBackend(hw.recommended)
   }, [hw])
 
+  // ⭐⭐ 实时安装状态 —— 进度条 / 当前步骤 / 最近输出
+  //   ⛔ 只在执行中更新；done 之后保持最后状态让用户看到结果。
+  const [live, setLive] = React.useState(null)   // {stage:'step'|'line', i, total, argv, text, err}
+  const [tail, setTail] = React.useState([])      // 最近 N 行输出
+
+  // ⛔ 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
+  //   ⛔ 不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
   const run = async () => {
-    setBusy(true); setResult(null)
+    setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
     try {
-      const r = await fetch('/wizard/env', {
+      const resp = await fetch('/wizard/env', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id: state.id, manifest: state.manifest || {}, execute: true, backend,
         }),
       })
-      setResult(await r.json())
+      if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
+      // ⛔ resp.body 是 ReadableStream —— 逐块读，按 \n\n 切 SSE 事件
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let finalResult = null
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let sep
+        while ((sep = buf.indexOf('\n\n')) >= 0) {
+          const raw = buf.slice(0, sep)
+          buf = buf.slice(sep + 2)
+          const dataLine = raw.split('\n').find((l) => l.startsWith('data: '))
+          if (!dataLine) continue
+          let ev
+          try { ev = JSON.parse(dataLine.slice(6)) } catch (e) { continue }
+          if (ev && typeof ev === 'object') {
+            if ('i' in ev && 'total' in ev) {
+              setLive({ stage: 'step', i: ev.i + 1, total: ev.total, argv: ev.argv })
+            } else if ('text' in ev) {
+              setLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
+              setTail((t) => [...t.slice(-39), ev.text])
+            } else if ('ok' in ev || 'stepsRun' in ev || 'error' in ev) {
+              finalResult = ev
+            }
+          }
+        }
+      }
+      // 流结束了：最后的 done 事件是完整结果
+      setResult(finalResult || { ok: false, error: '连接中断，未收到完成事件' })
     } catch (e) {
       setResult({ ok: false, error: e.message })
     } finally { setBusy(false) }
@@ -113,7 +151,7 @@ export default function StepDeps ({ state }) {
   if (!plan.ok) {
     return (
       <>
-        <div className="msg msg-danger">{plan.error}</div>
+        <div className="msg msg-danger">{t(plan.error, plan.errorZh)}</div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-sm" type="button" onClick={reload}>
             {t('Retry', '重试')}
@@ -135,8 +173,8 @@ export default function StepDeps ({ state }) {
             : t('no recognisable GPU', '没有可识别的 GPU')}
           {' → '}{t('recommended', '推荐')}{' '}
           <b>{backendOf(hw.options, hw.recommended)}</b>
-          {hw.reason && <div className="field-hint">{hw.reason}</div>}
-          {hw.caveat && <div className="field-hint">⚠ {hw.caveat}</div>}
+          {hw.reason && <div className="field-hint">{t(hw.reason, hw.reasonZh)}</div>}
+          {hw.caveat && <div className="field-hint">⚠ {t(hw.caveat, hw.caveatZh)}</div>}
         </div>
       )}
 
@@ -163,7 +201,7 @@ export default function StepDeps ({ state }) {
                 <span className="field-hint" style={{ marginTop: 0 }}>
                   {lang === 'zh' ? V.zh : V.en}
                 </span>
-                {r.why && <span className="pf-warn">{r.why}</span>}
+                {r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
               </div>
             )
           })}
@@ -183,7 +221,7 @@ export default function StepDeps ({ state }) {
                 {o.label}
                 {o.key === hw.recommended
                   ? (lang === 'zh' ? '（推荐）' : ' (recommended)') : ''}
-                {' — '}{o.for}
+                {' — '}{t(o.for, o.forZh)}
               </option>
             ))}
           </select>
@@ -213,7 +251,7 @@ export default function StepDeps ({ state }) {
           </div>
           {preview.whatToDo && (
             <p className="field-hint" style={{ marginTop: 0 }}>
-              {preview.whatToDo}
+              {t(preview.whatToDo, preview.whatToDoZh)}
             </p>
           )}
           {preview.stepsRun && preview.stepsRun.length > 0 && (
@@ -248,7 +286,7 @@ export default function StepDeps ({ state }) {
             </div>
           </div>
           <p className="field-hint" style={{ marginTop: 0 }}>
-            {preview.alternative.why}
+            {t(preview.alternative.why, preview.alternative.whyZh)}
           </p>
         </div>
       )}
@@ -289,15 +327,52 @@ export default function StepDeps ({ state }) {
         </button>
       </RiskUnlock>
       <p className="field-hint" style={{ marginTop: 0 }}>
-        {t('Several GB are downloaded and it takes a while. If it fails halfway, '
-          + 'delete the engine folder and run this step again.',
-          '需下载数 GB，耗时较长。若中途失败，请删除引擎目录后重新执行本步骤。')}
+        {t('Several GB are downloaded and it takes a while. If it stops midway, '
+          + 'run this step again — the download continues from the breakpoint '
+          + 'and already-downloaded wheels are kept.',
+          '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
+          + '已下载的依赖不会重下。')}
       </p>
+
+      {/* ---- ⭐ 实时进度：busy 时显示 ---- */}
+      {busy && (
+        <div className="preflight" style={{ marginTop: 0 }}>
+          <div className="layer-label">
+            {live && live.stage === 'step'
+              ? t(`Step ${live.i}/${live.total}`, `第 ${live.i}/${live.total} 步`)
+              : t('Running…', '执行中…')}
+          </div>
+          {live && live.stage === 'step' && (
+            <div className="pf-row">
+              <span className="badge badge-sym">▶</span>
+              <span className="pf-val"><code>{live.argv}</code></span>
+            </div>
+          )}
+          {/* 进度条：有总步数时按步数显示，单步时用不确定动画 */}
+          {live && live.total > 1 ? (
+            <div className="wz-progress">
+              <div className="wz-progress-bar"
+                style={{ width: `${Math.round(((live.i - 1) / live.total) * 100) + (live.stage === 'line' ? 100 / live.total : 0)}%` }} />
+            </div>
+          ) : (
+            <div className="wz-progress wz-progress-indeterminate">
+              <div className="wz-progress-bar" />
+            </div>
+          )}
+          {tail.length > 0 && (
+            <div className="rc-cmd-body" style={{ marginTop: 4, maxHeight: 160, overflowY: 'auto' }}>
+              <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {tail.join('\n')}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
       {result && !result.ok && (
         <div className="msg msg-danger">
-          {result.error}
-          {result.note && <div className="field-hint">{result.note}</div>}
+          {t(result.error, result.errorZh)}
+          {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
         </div>
       )}
       {/* ⭐ 逐步结果：⛔ 过去只显示一段 note，⛔ 看不出「跑到第几步、
@@ -324,7 +399,7 @@ export default function StepDeps ({ state }) {
         </div>
       )}
       {result && result.ok && result.note && (
-        <div className="msg msg-info">{result.note}</div>
+        <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
     </div>
   )

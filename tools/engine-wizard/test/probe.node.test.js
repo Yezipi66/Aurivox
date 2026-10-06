@@ -152,10 +152,12 @@ test('⛔ 一个都没有 ⇒ 如实说「没有」，不猜', () => {
   // ⭐ 只钉实质：确实说了「没有清单」。
   //   ⛔ 不钉「没找到 / 没有」这两个词 —— 措辞已在 2026-10-05 统一成
   //   「未找到 / 未找到依赖清单」，断言跟着措辞变会无谓地红。
-  assert.ok(/未找到|没找到|没有/.test(r.note), r.note)
+  // ⚠ note 已双语化（英文为主 + noteZh 中文）⇒ 断言走 noteZh，两边都要钉。
+  assert.ok(/未找到|没找到|没有/.test(r.noteZh), r.noteZh)
+  assert.ok(/No dependency manifest found/i.test(r.note), r.note)
   // ⛔⛔ 不许出现「平台不替你猜」这类内部术语（Owner 反复强调的口吻问题）
-  assert.ok(!/平台不替你猜|平台不会替你|——/.test(r.note),
-    `⛔ 不许出现内部术语或破折号：${r.note}`)
+  assert.ok(!/平台不替你猜|平台不会替你|——/.test(r.noteZh),
+    `⛔ 不许出现内部术语或破折号：${r.noteZh}`)
 })
 
 // ⛔ note 是**用户可见**的（StepPrepare 的「依赖清单」栏直接渲染）

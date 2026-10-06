@@ -39,19 +39,24 @@ const BACKEND_PREFERENCE = [
   { key: 'cuda',   label: 'CUDA',   for: 'NVIDIA（Windows/Linux）',
     index: 'https://download.pytorch.org/whl/cu121',
     pkg: 'torch (cu121 wheel)' },
-  { key: 'zluda',  label: 'ZLUDA',  for: 'AMD（Windows）',
+  { key: 'zluda',  label: 'ZLUDA',  for: 'AMD (Windows)',
+  forZh: 'AMD（Windows）',
     index: null,
     pkg: 'torch (ZLUDA build)' },
-  { key: 'ipex',   label: 'IPEX / XPU', for: 'Intel Arc / Core Ultra 核显',
+  { key: 'ipex',   label: 'IPEX / XPU', for: 'Intel Arc / Core Ultra iGPU',
+  forZh: 'Intel Arc / Core Ultra 核显',
     index: 'https://download.pytorch.org/whl/xpu',
     pkg: 'torch (xpu wheel)' },
-  { key: 'rocm',   label: 'ROCm',   for: 'AMD（Linux，或 Windows 上受支持的多架构卡）',
+  { key: 'rocm',   label: 'ROCm',   for: 'AMD (Linux, or a multi-arch card supported on Windows)',
+  forZh: 'AMD（Linux，或 Windows 上受支持的多架构卡）',
     index: 'https://download.pytorch.org/whl/rocm6.4',
     pkg: 'torch (rocm wheel)' },
-  { key: 'directml', label: 'DirectML', for: 'AMD / Intel（Windows，最兼容的兜底）',
+  { key: 'directml', label: 'DirectML', for: 'AMD / Intel (Windows; the most compatible fallback)',
+  forZh: 'AMD / Intel（Windows，最兼容的兜底）',
     index: null,
     pkg: 'torch-directml' },
-  { key: 'cpu',    label: 'CPU',    for: '所有平台（最后兜底）',
+  { key: 'cpu',    label: 'CPU',    for: 'Every platform (last resort)',
+  forZh: '所有平台（最后兜底）',
     index: 'https://download.pytorch.org/whl/cpu',
     pkg: 'torch (cpu wheel)' },
 ]
@@ -171,23 +176,23 @@ function recommendBackend (gpus) {
   //   ⛔ 判据：新增厂商时排在 nvidia 之后；⛔ 不许因为「探测到多个」
   //   就改成「取最后一个」或「按集成显卡优先」。
   if (has('nvidia')) {
-    return { recommended: 'cuda', confidence: 'guidance', reason: '推荐使用 CUDA' }
+    return { recommended: 'cuda', confidence: 'guidance', reason: 'Recommended: CUDA', reasonZh: '推荐使用 CUDA' }
   }
   if (process.platform === 'darwin' && has('apple')) {
     // MPS 是 Apple Silicon 上的选择，⛔ 不是 CUDA。差别只影响本页推荐。
-    return { recommended: 'mps', confidence: 'guidance', reason: '推荐使用 MPS' }
+    return { recommended: 'mps', confidence: 'guidance', reason: 'Recommended: MPS', reasonZh: '推荐使用 MPS' }
   }
   if (has('intel')) {
     // ⚠ 探测是**按型号名**判的（型号含 Arc 才算 Arc）。那是置信度问题，
     //   由 confidence 字段承担，⛔ 不写进 reason。
-    return { recommended: 'ipex', confidence: 'guidance', reason: '推荐使用 XPU' }
+    return { recommended: 'ipex', confidence: 'guidance', reason: 'Recommended: XPU', reasonZh: '推荐使用 XPU' }
   }
   if (has('amd')) {
     // Windows 上有三条路（ROCm / ZLUDA / DirectML），取最兼容的兜底；
     // 完整排序见 BACKEND_PREFERENCE。
     return process.platform === 'win32'
-      ? { recommended: 'directml', confidence: 'guidance', reason: '推荐使用 DirectML' }
-      : { recommended: 'rocm', confidence: 'guidance', reason: '推荐使用 ROCm' }
+      ? { recommended: 'directml', confidence: 'guidance', reason: 'Recommended: DirectML', reasonZh: '推荐使用 DirectML' }
+      : { recommended: 'rocm', confidence: 'guidance', reason: 'Recommended: ROCm', reasonZh: '推荐使用 ROCm' }
   }
   // ⛔ 分不清 ⇒ CPU 版。这是**明确的回退**，⛔ 不是「探测到了 CPU」。
   //   界面上必须显示成「未检测到可用的加速器，已回退 CPU」——
@@ -195,7 +200,8 @@ function recommendBackend (gpus) {
   return {
     recommended: 'cpu',
     confidence: 'fallback',
-    reason: '未检测到可用的加速器，已回退 CPU',
+    reason: 'No accelerator detected — falling back to CPU.',
+    reasonZh: '未检测到可用的加速器，已回退 CPU',
     // ⭐ 供界面显示警告：探测失败要**说清是回退**
     fellBack: true,
   }
@@ -214,6 +220,7 @@ function inspectHardware () {
     gpus,
     recommended: rec.recommended,
     reason: rec.reason,
+    reasonZh: rec.reasonZh,
     // ⚠ 永远说清楚：这是建议不是保证
     confidence: rec.confidence,
     // ⭐ 探测失败时为 true —— 界面据此显示「已回退」的警告，
@@ -221,6 +228,9 @@ function inspectHardware () {
     fellBack: !!rec.fellBack,
     // ⚠ 探测为空时 caveat 要说清「什么都没探测到」，而不是「未在本机运行验证」
     caveat: gpus.length === 0
+      ? 'No accelerator detected — falling back to CPU. CPU inference is very slow and fine-tuning is unavailable.'
+      : 'Matched by detected GPU model — not verified by actually running on this machine.',
+    caveatZh: gpus.length === 0
       ? '未检测到任何加速设备，已回退 CPU。CPU 推理速度很慢，微调不可用。'
       : '按已识别的显卡型号匹配，未在本机运行验证。',
     preferenceOrder: BACKEND_PREFERENCE,
@@ -247,12 +257,17 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
   // why = 「这是什么」+「和本机是否一致」两句，都是结论。
   // ⛔ 不追加「装之前请确认」：状态徽标（✓ / ! / ?）已经说明该怎么做了，
   //   再加一句叮嘱只是把同一个意思说两遍。
-  const verdictFor = (kind, desc) => {
-    if (!mine) return { kind, verdict: 'unknown', why: `${desc}（未检测本机）` }
-    if (mine === kind) {
-      return { kind, verdict: 'match', why: `${desc}，与本机推荐一致` }
+  const verdictFor = (kind, desc, descZh) => {
+    if (!mine) {
+      return { kind, verdict: 'unknown',
+        why: `${desc} (this machine was not detected)`, whyZh: `${descZh}（未检测本机）` }
     }
-    return { kind, verdict: 'mismatch', why: `${desc}，本机推荐的是 ${mine}` }
+    if (mine === kind) {
+      return { kind, verdict: 'match',
+        why: `${desc} — matches the recommended backend for this machine`, whyZh: `${descZh}，与本机推荐一致` }
+    }
+    return { kind, verdict: 'mismatch',
+      why: `${desc} — this machine recommends ${mine}`, whyZh: `${descZh}，本机推荐的是 ${mine}` }
   }
 
   // ---- 后缀自报（+cu121 / +rocm6.4 / +xpu…）----
@@ -260,17 +275,18 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
   if (explicit) {
     const tag = explicit[1].toLowerCase()
     if (tag.startsWith('cu')) {
-      return verdictFor('cuda', `CUDA 版（${tag}），需要 NVIDIA 驱动`)
+      return verdictFor('cuda', `CUDA build (${tag}), needs NVIDIA drivers`, `CUDA 版（${tag}），需要 NVIDIA 驱动`)
     }
     if (tag.startsWith('rocm')) {
-      return verdictFor('rocm', `ROCm 版（${tag}），需要 AMD 驱动`)
+      return verdictFor('rocm', `ROCm build (${tag}), needs AMD drivers`, `ROCm 版（${tag}），需要 AMD 驱动`)
     }
     if (tag.startsWith('xpu') || tag.startsWith('ipex')) {
-      return verdictFor('ipex', `Intel XPU 版（${tag}）`)
+      return verdictFor('ipex', `Intel XPU build (${tag})`, `Intel XPU 版（${tag}）`)
     }
     // ⛔ 不认识的后缀 ⇒ 如实说「不认识」，⛔ 不硬套
     return { kind: 'unknown', verdict: 'unknown',
-      why: `后缀 +${tag} 无法识别，请自行确认。` }
+      why: `Suffix +${tag} is not recognized — please check manually.`,
+      whyZh: `后缀 +${tag} 无法识别，请自行确认。` }
   }
 
   // ---- 没有后缀 ⇒ ⚠⚠ **不能**直接当成CPU 版（2026-10-04 实测踩到）
@@ -286,19 +302,21 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
     const locked = ctx.lockedPackages || []
     const cudaDeps = locked.filter((n) => /^nvidia-|^triton$/.test(n))
     if (cudaDeps.length) {
-      return verdictFor('cuda', 'CUDA 版，需要 NVIDIA 驱动')
+      return verdictFor('cuda', 'CUDA build, needs NVIDIA drivers', 'CUDA 版，需要 NVIDIA 驱动')
     }
     const xpuDeps = locked.filter((n) => /^intel-|^xpu|^ipex/.test(n))
     if (xpuDeps.length) {
-      return verdictFor('ipex', 'Intel XPU 版')
+      return verdictFor('ipex', 'Intel XPU build', 'Intel XPU 版')
     }
     return { kind: 'cpu', verdict: 'match',
-      why: 'CPU 版，任何机器均可安装，速度较慢。' }
+      why: 'CPU build — installable on any machine, but slower.',
+      whyZh: 'CPU 版，任何机器均可安装，速度较慢。' }
   }
 
   // ⛔ 分不出来就说分不出来
   return { kind: 'unknown', verdict: 'unknown',
-    why: '无法判断该包适用的后端，请自行确认。' }
+    why: 'Could not determine which backend this package targets — please check manually.',
+    whyZh: '无法判断该包适用的后端，请自行确认。' }
 }
 
 /**

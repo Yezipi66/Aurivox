@@ -54,7 +54,7 @@ function inspectTarget (id, opts = {}) {
   const root = opts.root || projectRoot()
   if (!root) {
     return { ok: false, code: 'NO_ROOT',
-      error: '找不到项目根（向上没有 server.js）。向导需要在项目目录内运行。' }
+      error: 'Project root not found (no server.js above). The wizard must run inside the project directory.', errorZh: '找不到项目根（向上没有 server.js）。向导需要在项目目录内运行。' }
   }
   const dir = engineDir(id, root)
 
@@ -84,11 +84,16 @@ function checkClonable (id, opts = {}) {
     code: 'DIR_NOT_EMPTY',
     dir: info.dir,
     entries: info.entries,
-    error: `engines/${id}/ 里已经有 ${info.entries.length} 项：`
+    error: `engines/${id}/ already has ${info.entries.length} item(s):`
+      + `${listed.join(', ')}${info.entries.length > 8 ? ' …' : ''}\n`
+      + 'git clone requires an empty target directory.\n'
+      + '  · Usually this means the engine was already cloned — check whether you need to reinstall.\n'
+      + '  · To reinstall, remove the directory first (the platform will not delete it for you).\n',
+    errorZh: `engines/${id}/ 里已经有 ${info.entries.length} 项：`
       + `${listed.map((e) => e).join('、')}${info.entries.length > 8 ? ' …' : ''}\n`
       + 'git clone 要求目标目录为空。\n'
       + '  · 通常表示该引擎已克隆过，请确认是否需要重新安装\n'
-      + '  · 如需重新安装，请先移除该目录（平台不会自动删除）\n'
+      + '  · 如需重新安装，请先移除该目录（平台不会自动删除）\n',
   }
 }
 
@@ -105,7 +110,8 @@ function buildClonePlan (input = {}) {
   //    还占掉了「看计划」这一步。⛔ 空就是空，当场说清。
   if (!input.cloneUrl || !String(input.cloneUrl).trim()) {
     return { ok: false, code: 'NO_CLONE_URL',
-      error: '没有 clone 地址。\n'
+      error: 'No clone URL given.\n',
+      errorZh: '没有 clone 地址。\n'
         + '请先执行「解析链接」，该步骤会从 GitHub 地址中取得 cloneUrl。' }
   }
   const clonable = checkClonable(id, input)
@@ -127,7 +133,11 @@ function buildClonePlan (input = {}) {
       argv: ['git', 'clone', ...depth, input.cloneUrl, `engines/${id}`],
       cwd: '.',
       needs_network: true,
-      why: `把上游拉进 engines/${id}/`
+      why: `Pull the upstream into engines/${id}/` + (depth.length
+          ? ' (shallow clone, latest only \u2014 history cannot be checked out later)'
+          : ' (full clone. A shallow clone would prevent checking out a specific version later)')
+        + ', default branch',
+      whyZh: `把上游拉进 engines/${id}/`
         + (depth.length ? '（浅克隆，仅取最新版，之后无法 checkout 到历史版本）'
           : '（完整克隆。浅克隆会导致之后无法 checkout 到指定版本）')
         + '，默认分支',
@@ -137,14 +147,18 @@ function buildClonePlan (input = {}) {
   if (depth.length) {
     steps.push({
       kind: 'note',
-      why: '已选择浅克隆。若之后需要指定历史版本，'
+      why: 'Shallow clone selected. To pin a specific version later, '
+        + 'a full re-clone is required.',
+      whyZh: '已选择浅克隆。若之后需要指定历史版本，'
         + '必须重新完整克隆。',
     })
   }
 
   steps.push({
     kind: 'gitignore',
-    why: `上游源码需要写入 .gitignore 排除，${id} 那一树有几千个文件，\n`
+    why: `The upstream source tree must be excluded via .gitignore \u2014 engines/${id} ` 
+      + `holds thousands of files that would otherwise be committed.`,
+    whyZh: `上游源码需要写入 .gitignore 排除，${id} 那一树有几千个文件，\n`
       + `否则会随提交进入版本库。`
   })
 
@@ -177,7 +191,7 @@ function runClone (input = {}) {
 
   if (r.error) {
     return { ...plan, ok: false, code: 'SPAWN_FAILED',
-      error: `起不动 git：${r.error.message}` }
+      error: `Cannot launch git: ${r.error.message}`, errorZh: `起不动 git：${r.error.message}` }
   }
   if (r.status !== 0) {
     return {
@@ -195,7 +209,9 @@ function runClone (input = {}) {
     ...plan,
     ok: true,
     gitStatus: r.status,
-    note: 'git 退出码 0。这只说明文件到位了，'
+    note: 'git exited 0. That only means the files are in place — '
+      + 'whether this engine actually works awaits the checks that come next.',
+    noteZh: 'git 退出码 0。这只说明文件到位了，'
       + '「这台引擎能用吗」要等后面的校验。',
   }
 }

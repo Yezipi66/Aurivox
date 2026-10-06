@@ -25,8 +25,10 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
-const { spawnSync } = require('node:child_process')
+const { spawnSync, spawn } = require('node:child_process')
 const { projectRoot, engineDir } = require('./clone.js')
+const { venvPythonRelPath } = require(
+  path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'platformPaths.js'))
 
 /** 名片里的 env_command 必须是什么形状 —— 与已退役的 installPlan.js:46-55 同一条判据 */
 function readEnvCommand (manifest) {
@@ -156,7 +158,10 @@ function suggestBackendAlternative (dir, lockRel) {
     // ⛔ 不重复 argv：主命令已经是第①步了，这里只给**第②步**。
     //   重复一遍会让界面显示两条几乎一样的命令。
     then: ['uv', 'pip', 'install', `torch==${pin.plain}`, '--index-url', opt.index],
-    why: `锁文件指定的 torch 是 CUDA 版（${pin.version}），与本机推荐的后端`
+    why: `The lock pins Torch as a CUDA build (${pin.version}), which differs from the backend `
+      + `recommended for this machine (${opt.label}) — run this step `
+      + `next to install Torch ${pin.plain} from the official ${opt.label} index:`,
+    whyZh: `锁文件指定的 torch 是 CUDA 版（${pin.version}），与本机推荐的后端`
       + `（${opt.label}）不一致。上面的命令已跳过 torch，`
       + `请再执行这一步，从 ${opt.label} 的官方 index 安装 torch ${pin.plain}：`,
     needs: ['torch'],
@@ -223,6 +228,10 @@ function suggestEnvCommand (dir) {
       //   （实测某台已装引擎的 lock 锁的是 +cu128，另带 38 个 nvidia-*-cu12）。
       //   ⇒ 有替代命令时，这句改成只说「照锁装」这一事实。
       why: (alt
+        ? `The upstream provides ${lock}; the Torch backend it pins does not match this machine, `
+          + `so Torch is skipped and only the rest is installed.`
+        : `The upstream provides ${lock} — versions are already pinned, so install straight from it.`),
+      whyZh: (alt
         ? `上游有 ${lock}，其中锁定的 torch 后端与本机不一致，`
           + `因此跳过 torch、只装其余依赖。`
         : `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。`),
@@ -235,7 +244,8 @@ function suggestEnvCommand (dir) {
   if (conda) {
     return { argv: ['conda', 'env', 'create', '-f', conda],
       from: conda, cwd: conda.includes('/') ? conda.slice(0, conda.indexOf('/')) : '.',
-      why: `上游用 conda 环境文件（${conda}）⇒ 用 conda env create。` }
+      why: `The upstream uses a conda environment file (${conda}) — run conda env create.`,
+      whyZh: `上游用 conda 环境文件（${conda}）⇒ 用 conda env create。` }
   }
   if (pyproj) {
     // ⛔⛔ pyproject 单独存在时**不能**直接 uv sync ——
@@ -245,12 +255,15 @@ function suggestEnvCommand (dir) {
     const cwd = pyproj.includes('/') ? pyproj.slice(0, pyproj.indexOf('/')) : '.'
     const rel = pyproj.includes('/') ? pyproj.slice(pyproj.indexOf('/') + 1) : '.'
     return { argv: ['uv', 'pip', 'install', '-e', rel], from: pyproj, cwd,
-      why: `上游只有 ${pyproj} ⇒ 用 uv pip install -e ${rel} 装它声明的依赖。\n`
+      why: `The upstream provides only ${pyproj} — install it with uv pip install -e ${rel}.`
+        + '\nThe upstream ships no lock file, so installed versions are decided by upstream and are not reproducible.',
+      whyZh: `上游只有 ${pyproj} ⇒ 用 uv pip install -e ${rel} 装它声明的依赖。\n`
         + '上游未提供锁文件，安装版本由上游决定，无法复现。' }
   }
   return { argv: ['uv', 'pip', 'install', '-r', req], from: req,
     cwd: req.includes('/') ? req.slice(0, req.indexOf('/')) : '.',
-    why: `上游是 ${req}（老项目）⇒ uv pip install -r ${req}。` }
+    why: `The upstream uses ${req} (legacy) — uv pip install -r ${req}.`,
+    whyZh: `上游是 ${req}（老项目）⇒ uv pip install -r ${req}。` }
 }
 
 function detectDependencyManifest (dir) {
@@ -265,14 +278,18 @@ function detectDependencyManifest (dir) {
   if (found.length === 0) {
     return {
       found: false,
-      note: '这一层里没有依赖清单'
+      note: 'No dependency manifest at this level'
+        + ' (pyproject.toml / uv.lock / requirements.txt / environment.yml are all absent).\n'
+        + 'It may live in a subdirectory, or this engine may need no extra install.',
+      noteZh: '这一层里没有依赖清单'
         + '（pyproject.toml / uv.lock / requirements.txt / environment.yml 都没有）。\n'
         + '可能放在子目录里，也可能这台引擎不需要额外安装。',
       found_files: [],
     }
   }
   return { found: true, found_files: found,
-    note: '上游的依赖清单：' + found.join('、') }
+    note: 'Upstream dependency manifests: ' + found.join(', '),
+    noteZh: '上游的依赖清单：' + found.join('、') }
 }
 
 /**
@@ -334,45 +351,70 @@ function uvRelPath (platform) {
 }
 
 /**
- * ⭐ 解析 uv 的可执行文件 —— **平台自带的优先**。
+ * ⭐ 解析 uv 的两段 —— **与平台 bootstrap 同一套调用方式**。
  *
- * ⚠️ 为什么需要它（实测 2026-10-05，probe_spawn_path.js）：
- *   `uv` 不在 PATH 上（项目 venv 的目录没被加进 PATH），
- *   而 spawnSync 用 shell:false 时**只有裸名才走 PATH 搜索** ——
- *   带路径分隔符的参数一律按文件路径解析。
- *   ⛔ 而且 runEnv 执行时 cwd 是**引擎目录**（engines/<id>），不是项目根
- *   ⇒ 相对路径 'venv/Scripts/uv.exe' 会解析成
- *      engines/<id>/venv/Scripts/uv.exe —— 不存在。
- *   ⭐ 所以这里返回**绝对路径**，而不是相对路径。
+ * ⚠️ 为什么必须返回**平台 venv 的 python**（而不是 uv 的 shim 可执行文件）：
+ *   uv 是**装进平台 venv 的一个包**（requirements-platform.txt:57 uv==0.12.1），
+ *   平台自己在 bootstrap.js:362 就是这么调的：
+ *     runNative(VENV_PY, ['-m', 'uv', 'pip', 'install', ...])
+ *   ⛔ 过去我改的是找 `venv/Scripts/uv.exe` —— 那是 pip 生成的 console-script shim，
+ *      shim 只是个小入口脚本，它的可用性取决于 venv 的 python 路径没变。
+ *      平台自己的正路（python -m uv）依赖不到 shim，**更抗分发时的路径漂移**。
+ *
+ * ⚠️ 为什么必须**带回退**（bootstrap.js:313/321）：
+ *   平台允许 uv **不存在** —— `TTS_NO_UV=1` 直接跳过；uv 装失败就 Warn 后继续，
+ *   bootstrap 照样成功。⇒ 一台正常分发的机器完全可以没有 uv。
+ *   ⛔ 过去我在这种情况下直接报 UV_NOT_FOUND 死掉 —— 那是**我引入的新失败**，
+ *      而平台自己早就设计了兜底。
+ *   ⭐ 所以这里的回退链是：
+ *       ① 平台 venv 的 python -m uv   （正路，与 bootstrap 一致）
+ *       ② PATH 上的 uv                 （用户自己装了 uv、且 venv 里没装）
+ *       ③ 都没有 ⇒ null（调用方如实报错）
  *
  * ⭐ 分发与多平台：绝对路径是**运行时从项目根算出来的**，不是写死的字符串。
  *   平台拷到哪，server.js 就在哪，projectRoot() 就指向那，
- *   uv 就在旁边的 venv 里 —— 跟平台自己的 venvPython() 同一个模式。
- *   布局按平台推导（win32 Scripts/ / posix bin/），
- *   所以 Linux 与 macOS 用户不需要改代码。
+ *   venv 就在旁边 —— 与平台自己的 venvPython() 同一模式。
+ *   布局按平台推导（win32 Scripts/ / posix bin/）。
  *
- * ⭐ 沿用平台既有做法（bootstrap.js 对 node/npm 的同一规则）：
- *   自带 → 找得到就用自带的；找不到才留给 PATH。
+ * ⭐ 探针实测（probe_spawn_path.js）：spawnSync 用 shell:false 时
+ *   **只有裸名才走 PATH 搜索**，带路径分隔符的参数一律按文件路径解析。
+ *   而 runEnv 执行时 cwd 是**引擎目录**（engines/<id>），不是项目根
+ *   ⇒ 相对路径 'venv/Scripts/uv.exe' 会解析成
+ *      engines/<id>/venv/Scripts/uv.exe —— 不存在。
+ *   ⭐ 所以这里返回**绝对路径**。
  *
  * @param {string} root 项目根
  * @param {string} [platform] 默认 process.platform
- * @returns {string|null} 可执行文件绝对路径；找不到返回 null
+ * @returns {{ok:true, argv:string[], via:string} | {ok:false, why:string}}
  */
 function resolveUv (root, platform) {
   const plat = platform || process.platform
-  const rel = uvRelPath(plat)
-  if (!rel) return null          // ⛔ 不认识的平台：不猜
-  const bases = [
-    path.join(root, 'venv'),
-    path.join(root, 'cache', 'slim-venv'),   // 次选：精简镜像里的
-  ]
-  for (const b of bases) {
-    const c = path.join(b, rel)
-    try { if (fs.existsSync(c)) return c } catch (e) { /* 下一个 */ }
+  const pyRel = venvPythonRelPath(plat)
+  // ⛔ 不认识的平台：⛔ 不猜（猜错比报「不支持」更难让人看懂）
+  if (!pyRel) return { ok: false, why: '这个平台（' + (plat || '未知') + '）没有已知的 Python 虚拟环境布局' }
+
+  // 候选 venv：平台的 venv 优先，精简镜像里的次之
+  const venvs = [path.join(root, 'venv'), path.join(root, 'cache', 'slim-venv')]
+  for (const v of venvs) {
+    const py = path.join(v, pyRel)
+    try {
+      if (!fs.existsSync(py)) continue
+      // ⭐ 确认 uv 作为**模块**装在里面了（-m uv --version 能跑）
+      const chk = spawnSync(py, ['-m', 'uv', '--version'], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 20000, windowsHide: true, shell: false,
+      })
+      if (chk.status === 0) return { ok: true, argv: [py, '-m', 'uv'], via: 'venv 自带 uv（' + v + '）' }
+    } catch (e) { /* 下一个 */ }
   }
-  // ⛔ 不扫 PATH：找不到就返回 null，由调用方报出「uv 未找到」
-  //   —— 那比 ENOENT 更能让人看懂。
-  return null
+  // ② 回退到 PATH 上的 uv（用户自己装的）
+  //   ⚠ 必须用**裸名** —— spawnSync 只有裸名才走 PATH 搜索
+  const p = spawnSync('uv', ['--version'], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 20000, windowsHide: true, shell: false,
+  })
+  if (!p.error && p.status === 0) return { ok: true, argv: ['uv'], via: 'PATH 上的 uv' }
+  return { ok: false, why: '未找到 uv（平台 venv 里没有，PATH 上也没有）' }
 }
 
 function buildEnvPlan (input = {}) {
@@ -416,14 +458,20 @@ function buildEnvPlan (input = {}) {
       guessed: true,
       env_command: guess.argv,
       whatToDo: guess.why,
+      whatToDoZh: guess.whyZh,
       // ⭐ 锁文件的后端与本机不一致时，第二条命令（只重建 torch）
       alternative: guess.alternative || null,
+      // ⭐ note / noteZh：同一句话的英文与中文版本，前端按 lang 选。
+      // ⛔ 两段必须**成对维护** —— 只改一边会让另一语言界面出现半句英文。
       note: (guess.alternative
-        // ⛔ 有替代命令时⛔ 不再说「请在 Manifest 里声明」——
-        //   那会让用户以为得自己写 Manifest，而命令已经给出来了。
-        ? `${guess.why}\n该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。`
-        : `该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。\n`
+        ? `${guess.why}\nThe install method is derived from the upstream dependency manifest — ${guess.from}.`
+        : `The install method is derived from the upstream dependency manifest — ${guess.from}.\n`
           + `  ${guess.why}\n`
+          + 'If this engine needs a specific install method, declare install.env_command in the Manifest; the platform prefers that declaration.'),
+      noteZh: (guess.alternative
+        ? `${guess.whyZh}\n该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。`
+        : `该安装方式依据上游依赖清单推导得出（依据：${guess.from}）。\n`
+          + `  ${guess.whyZh}\n`
           + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
           + 'install.env_command，平台将优先采用该声明。'),
       steps: buildSteps({
@@ -483,39 +531,84 @@ function buildEnvPlan (input = {}) {
 }
 
 /** 执行。⛔ 只有 execute:true 才真跑。 */
-/** 跑一步。返回 {ok, code, status, stdout, stderr, error} */
-function runOne (step, root, timeoutMs, argvOverride) {
-  // ⭐ argvOverride：调用方可能已把工具名换成绝对路径
-  //   （uv 不在 PATH 上，spawnSync 用 shell:false ⇒ 只认绝对路径与 PATH）
-  //   ⚠ 不传则回退到 step.argv —— 既有调用点不受影响。
-  const argv = Array.isArray(argvOverride) && argvOverride.length > 0 ? argvOverride : step.argv
-  const r = spawnSync(argv[0], argv.slice(1), {
-    cwd: step.absCwd || step.cwd,
-    encoding: 'utf-8',
-    timeout: timeoutMs,
-    windowsHide: true,
-    // ⛔ argv 直接 spawn —— 走 shell 会被含空格的路径拆错
-    shell: false,
+/**
+ * 跑一步（异步流式）。返回 Promise<{ok, code, status, stdout, stderr, error}>
+ *
+ * ⭐ 为什么异步：同步 spawnSync 会**阻塞**直到命令结束 —— 装依赖要几分钟到几
+ *   十分钟，界面只能干等。改 spawn 后 stdout/stderr 逐行回调，进度条才有米下锅。
+ * ⛔ 不传给 onLine 时行为不变（仍收集尾部输出），调用方不必为了用进度而改判据。
+ *
+ * @param {object} step       计划里的一步（含 argv / cwd / absCwd）
+ * @param {string} root       项目根
+ * @param {number} timeoutMs  超时（毫秒）
+ * @param {string[]} [argvOverride] 覆盖 step.argv（工具名换成绝对路径）
+ * @param {(line:string)=>void} [onLine] stdout/stderr 每行回调
+ * @returns {Promise<{ok:boolean, code:string, status:number|null, stdout:string, stderr:string, error?:string}>}
+ */
+function runOne (step, root, timeoutMs, argvOverride, onLine) {
+  return new Promise((resolve) => {
+    const argv = Array.isArray(argvOverride) && argvOverride.length > 0 ? argvOverride : step.argv
+    const child = spawn(argv[0], argv.slice(1), {
+      cwd: step.absCwd || step.cwd,
+      windowsHide: true,
+      // ⛔ argv 直接 spawn —— 走 shell 会被含空格的路径拆错
+      shell: false,
+    })
+    let stdoutTail = ''
+    let stderrTail = ''
+    let killedByTimeout = false
+    const onChunk = (buf, isErr) => {
+      const text = buf.toString('utf8')
+      if (isErr) stderrTail = (stderrTail + text).slice(-16000)
+      else stdoutTail = (stdoutTail + text).slice(-16000)
+      if (typeof onLine === 'function') {
+        // ⛔ 回调不能中断执行；出错只当没听见
+        try { onLine(text, isErr) } catch (e) { /* 忽略 */ }
+      }
+    }
+    child.stdout.on('data', (d) => onChunk(d, false))
+    child.stderr.on('data', (d) => onChunk(d, true))
+    child.on('error', (err) => {
+      resolve({ ok: false, code: 'SPAWN_FAILED', status: null,
+        stdout: stdoutTail, stderr: stderrTail, error: err.message })
+    })
+    child.on('close', (code) => {
+      if (killedByTimeout) {
+        resolve({ ok: false, code: 'ENV_TIMEOUT', status: code,
+          stdout: stdoutTail, stderr: stderrTail,
+          error: `命令超时（${Math.round(timeoutMs / 60000)} 分钟）被终止。\n`
+            + '下载可能仍在继续 —— 重新执行本步骤会从断点续传，不会重下已完成的部分。' })
+        return
+      }
+      resolve({
+        ok: code === 0,
+        code: code === 0 ? 'OK' : 'ENV_FAILED',
+        status: code,
+        stdout: stdoutTail.trim(),
+        stderr: stderrTail.trim(),
+      })
+    })
+    // ⛔ 超时处理：杀掉进程树。uv/pip 下载大包时要很长的安静期，
+    //   所以超时从「整条命令」放宽到「无输出超时」由调用方用 progress 心跳处理；
+    //   这里只在调用方显式传 timeoutMs 时按总时长兜底。
+    if (timeoutMs > 0) {
+      setTimeout(() => {
+        killedByTimeout = true
+        try { child.kill('SIGKILL') } catch (e) { /* 已退出 */ }
+      }, timeoutMs).unref()
+    }
   })
-  if (r.error) {
-    return { ok: false, code: 'SPAWN_FAILED', status: null, error: r.error.message }
-  }
-  return {
-    ok: r.status === 0,
-    code: r.status === 0 ? 'OK' : 'ENV_FAILED',
-    status: r.status,
-    stdout: (r.stdout || '').trim(),
-    stderr: (r.stderr || '').trim(),
-  }
 }
 
 /**
  * @param {object} input {id, manifest, execute, root, timeoutMs, onStep}
  * @param {(i:number,total:number,step:object,argv:string[])=>void} [input.onStep]
  *   每步开始前的回调，用于让界面显示进度。
- * @returns {object} 计划的字段 + {stepsRun, failedAt, ok, note}
+ * @param {(line:string, isErr:boolean)=>void} [input.onLine]
+ *   每步 stdout/stderr 的逐行回调，用于进度条 / 实时日志。
+ * @returns {Promise<object>} 计划的字段 + {stepsRun, failedAt, ok, note}
  */
-function runEnv (input = {}) {
+async function runEnv (input = {}) {
   const plan = buildEnvPlan(input)
   // ⛔⛔ 判据是 **input.execute**，⛔ 不是 plan.execute ——
   //   buildEnvPlan 从不设置 plan.execute（它只负责出计划），
@@ -534,6 +627,30 @@ function runEnv (input = {}) {
   const steps = (plan.steps || []).filter((s) => s && s.kind === 'env' && s.argv)
   const stepsRun = []
 
+  // ⭐⭐⭐ 断点续传 —— 每个引擎目录下的 .wizard-env-progress.json
+  //   记录已成功完成的步骤。重跑时跳过它们：
+  //   uv/pip 的缓存会让**重复跑同一条命令**只重下缺的部分（已下载的 wheel
+  //   不会重下）—— 所以「跳过已完成步骤」配合「不删环境目录」，中断重跑
+  //   只补剩下的，而不是全部重来。
+  // ⛔ 判据必须含 argv：换了命令（比如换了 torch 后端）就不该跳过。
+  const progressFile = path.join(root, 'engines', String(input.id || ''), '.wizard-env-progress.json')
+  let doneKeys = new Set()
+  try {
+    if (fs.existsSync(progressFile)) {
+      const prev = JSON.parse(fs.readFileSync(progressFile, 'utf8'))
+      if (Array.isArray(prev.done)) doneKeys = new Set(prev.done.map((d) => d.key))
+    }
+  } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
+
+  const persist = () => {
+    try {
+      fs.writeFileSync(progressFile, JSON.stringify({
+        engine: input.id, updatedAt: new Date().toISOString(),
+        done: stepsRun.map((s) => ({ key: s.argvKey, at: s.doneAt })),
+      }, null, 2), 'utf8')
+    } catch (e) { /* 进度文件写不进不该拦住安装 */ }
+  }
+
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]
     // ⛔ cwd 必须是**绝对路径**：上面的 spawn 用它当 cwd，
@@ -542,56 +659,99 @@ function runEnv (input = {}) {
     // ⭐ 头是 uv 这类**平台自带工具**时换成绝对路径。
     //   ⚠ uv 装在**项目根**下（venv/Scripts/uv.exe），⛔ 不是引擎的 root
     //   （夹具/引擎目录）下 —— 所以要查 projectRoot()，不是 root。
-    //   实测 uv 不在 PATH 上，而 spawnSync 用 shell:false ⇒ 只认绝对路径与 PATH。
+    //   实测 uv 不在 PATH 上，而 spawn 用 shell:false ⇒ 只认绝对路径与 PATH。
     const argv = step.argv.slice()
     if (/^uv$/i.test(argv[0])) {
-      const abs = resolveUv(projectRoot()) || resolveUv(root)
-      if (abs) argv[0] = abs
-      // ⛔ uv 找不到 ⇒ 如实报「工具未找到」，⛔ 不让 spawn 报 ENOENT
-      else {
+      // ⚠️⚠️ 另一个会话 2026-10-05 把 resolveUv 的返回形状改成了
+      //   {ok, argv:[py,'-m','uv'], via} | {ok:false, why} —— 不再是「路径字符串」。
+      //   ⛔ 我第一版还按旧的「返回路径」用 `if (abs) argv[0] = abs`，
+      //     把整个对象塞进 argv[0] ⇒ spawn 报
+      //     「The "file" argument must be of type string. Received an instance of Object」
+      //     （实测复现：argv 显示成 [object Object]）。
+      //   ⇒ 现在按新形状：ok 时把它的 argv 整段换上，失败时如实报 why。
+      const uv = resolveUv(projectRoot()) || resolveUv(root)
+      if (uv && uv.ok) {
+        argv.splice(0, 1, ...uv.argv)
+      } else {
+        // ⛔ uv 找不到 ⇒ 如实报「工具未找到」，⛔ 不让 spawn 报 ENOENT
         return {
           ...plan, ok: false, code: 'UV_NOT_FOUND',
           stepsRun, failedAt: i + 1, failedArgv: step.argv,
-          error: '未找到 uv。平台通常自带它（在 venv/Scripts/uv.exe），'
-            + '请确认平台文件完整，或将 uv 加入 PATH 后重试。',
-          note: '安装未开始。',
+          error: (uv && uv.why) || 'uv was not found. The platform usually ships it '
+            + 'inside its own virtual environment; if that path is missing, check that the '
+            + 'platform files are intact, or add uv to PATH and retry.',
+          errorZh: (uv && uv.whyZh) || '未找到 uv。平台通常自带它（在平台自己的虚拟环境里），'
+            + '如果该路径不存在，请确认平台文件完整，或将 uv 加入 PATH 后重试。',
+          note: 'Installation did not start.',
+          noteZh: '安装未开始。',
         }
       }
     }
+
+    const argvKey = argv.join(' ')
+    // ⭐ 断点续传：这条命令上次已经成功跑完 ⇒ 跳过（界面会看到「已完成」）。
+    //   ⛔ 只有完全相同的命令才跳 —— 换后端/换清单都会让 key 变，必须重跑。
+    if (doneKeys.has(argvKey)) {
+      stepsRun.push({
+        n: i + 1, of: steps.length, argv, argvKey,
+        ok: true, status: 0, code: 'SKIPPED',
+        output: '上次已成功执行，跳过（断点续传）。',
+        doneAt: new Date().toISOString(),
+      })
+      continue
+    }
+
     if (typeof input.onStep === 'function') {
       try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调不影响安装 */ }
     }
 
-    const r = runOne(step, root, timeoutMs, argv)
+    const r = await runOne(step, root, timeoutMs, argv, input.onLine)
     stepsRun.push({
       n: i + 1,
       of: steps.length,
       argv,
+      argvKey,
       ok: r.ok,
       status: r.status,
       code: r.code,
       // ⛔ 失败时带出上游原话；成功时只留尾部（uv 输出很长，界面用不上）
       output: r.ok ? r.stdout.slice(-2000) : (r.stderr || r.stdout || '（没有输出）'),
+      doneAt: r.ok ? new Date().toISOString() : null,
     })
+    if (r.ok) persist()
 
     if (!r.ok) {
       return {
         ...plan,
         ok: false,
-        code: r.code === 'SPAWN_FAILED' ? 'SPAWN_FAILED' : 'ENV_FAILED',
+        code: r.code === 'SPAWN_FAILED' ? 'SPAWN_FAILED' : r.code,
         status: r.status,
         stepsRun,
         failedAt: i + 1,
         failedArgv: step.argv,
         error: r.code === 'SPAWN_FAILED'
+          ? `Cannot launch ${step.argv[0]}: ${r.error}\n`
+            + 'The platform cannot confirm whether the install succeeded — check the engines/<id>/ directory.'
+          : (r.stderr || r.stdout || '(no output)'),
+        errorZh: r.code === 'SPAWN_FAILED'
           ? `起不动「${step.argv[0]}」：${r.error}\n`
             + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。'
           : (r.stderr || r.stdout || '（没有输出）'),
         note: steps.length > 1
-          ? `第 ${i + 1}/${steps.length} 步失败。`
-            + '安装中断会保留不完整的环境，重新安装前需先清理该目录。'
+          ? `Step ${i + 1}/${steps.length} failed.\n`
+            + 'An interrupted install leaves a partial environment. Re-running this step resumes from where it stopped:\n'
+            + 'Steps that already succeeded are skipped, and only the rest continue (uv/pip caches keep the downloaded wheels).\n'
+            + 'Read the error above before deciding whether to retry or change the command.'
+          : 'An interrupted install leaves a partial environment. Re-running this step resumes from where it stopped:\n'
+            + 'uv/pip caches keep the downloaded parts, so nothing is re-downloadable from scratch.\n'
+            + 'Read the error above before deciding whether to retry or change the command.',
+        noteZh: steps.length > 1
+          ? `第 ${i + 1}/${steps.length} 步失败。\n`
+            + '安装中断会保留不完整的环境。重新执行本步骤会**从断点续传**：\n'
+            + '已成功的步骤会跳过，未完成的部分继续（uv/pip 的缓存会保留已下载的 wheel）。\n'
             + '请先阅读上方错误信息，再决定重试或更换命令。'
-          : '安装中断会保留不完整的环境，重新安装前需先清理该目录。'
+          : '安装中断会保留不完整的环境。重新执行本步骤会**从断点续传**：\n'
+            + 'uv/pip 的缓存会保留已下载的部分，不会全部重下。\n'
             + '请先阅读上方错误信息，再决定重试或更换命令。',
       }
     }
@@ -603,7 +763,9 @@ function runEnv (input = {}) {
     envStatus: 0,
     stepsRun,
     failedAt: null,
-    note: `已完成 ${steps.length} 个步骤。退出码 0 仅表示命令执行完毕，`
+    note: `Completed ${steps.length} step(s). An exit code of 0 only means the command finished —`
+      + ' whether the engine can actually be imported still needs the checks that come next.',
+    noteZh: `已完成 ${steps.length} 个步骤。退出码 0 仅表示命令执行完毕，`
       + '该引擎能否正常导入仍需后续校验。',
   }
 }

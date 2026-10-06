@@ -173,10 +173,15 @@ test('⭐ 缺 checkpoints / required 要分别说清后果', () => {
   assert.strictEqual(gaps.length, 2)
   const byKey = Object.fromEntries(gaps.map((g) => [g.key, g]))
   // ⛔ 钉实质：checkpoints 缺失时只能说「目录在不在」，⛔ 不钉字面。
-  assert.ok(/只能.*目录|无法判断是否完整/.test(byKey['runtime.checkpoints'].why),
+  // ⚠ why 已双语化（英文为主 + whyZh 中文）⇒ 断言走 whyZh，两边都要钉。
+  assert.ok(/只能.*目录|无法判断是否完整/.test(byKey['runtime.checkpoints'].whyZh),
+    byKey['runtime.checkpoints'].whyZh)
+  assert.ok(/can only tell whether the directory exists/i.test(byKey['runtime.checkpoints'].why),
     byKey['runtime.checkpoints'].why)
   // ⛔ 钉实质：required 缺失时必须点明结果是「无法判断」这一状态。
-  assert.ok(/状态未知|无法判断/.test(byKey['models.required'].why),
+  assert.ok(/状态未知|无法判断/.test(byKey['models.required'].whyZh),
+    byKey['models.required'].whyZh)
+  assert.ok(/can only report unknown/i.test(byKey['models.required'].why),
     byKey['models.required'].why)
   for (const g of gaps) assert.ok(g.example, `${g.key} 没有例子`)
 })
