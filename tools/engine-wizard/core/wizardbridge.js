@@ -12,6 +12,7 @@ const path = require('node:path')
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan } = require('./clone')
 const { runEnv, buildEnvPlan } = require('./env')
+const { runDownload, unifyDest } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, detectDependencyFile, planDependencies } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
@@ -45,7 +46,10 @@ function extractDownloadCommands (markdown) {
   if (!markdown || typeof markdown !== 'string') return []
   const OUT = []
   const seen = new Set()
-  for (const m of markdown.matchAll(/^[ \t]*(?:\$|>|#{1,6}\s*)?((?:(?:uv tool install|pip install)[^\n]*\n[ \t]*)?\b(?:hf|huggingface-cli|modelscope)[ \t]+download\b[^\n`]*)/gm)) {
+  // ⭐ 2026-10-06 扩展：除了 CLI（hf/modelscope download），还认
+  //   Python API 形态 —— snapshot_download("repo", local_dir=...)
+  //   （实测某上游只给了 Python API，没给 CLI 命令）。
+  for (const m of markdown.matchAll(/^[ \t]*(?:\$|>|#{1,6}\s*)?((?:(?:uv tool install|pip install)[^\n]*\n[ \t]*)?(?:\b(?:hf|huggingface-cli|modelscope)[ \t]+download\b[^\n`]*|snapshot_download\s*\([^)\n]*\)))/gm)) {
     let cmd = m[1].trim().replace(/\s+/g, ' ')
     cmd = cmd.replace(/[`|]+$/, '').trim()
     if (!cmd || seen.has(cmd)) continue
@@ -74,7 +78,19 @@ function extractDownloadCommands (markdown) {
  *   ⛔ 绝不猜（猜错 = 平台替上游编了一个错的下载方式）。
  */
 function parseDownloadCmd (cmd) {
-  // modelscope: --model <repo> [--local_dir <dir>]
+  // ⭐ 形态③ Python API：snapshot_download("repo", local_dir='...')
+  //   （实测某上游只给了 Python API，没给 CLI 命令）
+  //   ⛔ 它包在 python 代码里，不是裸命令 —— 提取 repo + local_dir，
+  //     向导负责把它包成一条可执行命令（python -c "..."）。
+  const sd = cmd.match(/snapshot_download\s*\(\s*['"]([^'"]+)['"]/)
+  if (sd) {
+    const repo = sd[1]
+    const dir = (cmd.match(/local_dir\s*=\s*['"]?([^'",\s)]+)['"]?/) || [])[1]
+    // ⛔ 只有 modelscope / huggingface 形状的 repo 才认
+    if (!/^[^/]+[\/][^/]+/.test(repo)) return null
+    return { tool: 'snapshot', repo, dir: dir || null, raw: cmd }
+  }
+  // 形态① modelscope: --model <repo> [--local_dir <dir>]
   const ms = cmd.match(/^modelscope\s+download\b(.*)$/)
   if (ms) {
     const repo = (ms[1].match(/--model\s+([^\s]+)/) || [])[1]
@@ -83,7 +99,7 @@ function parseDownloadCmd (cmd) {
       || ms[1].match(/--local-dir[=\s]+([^\s]+)/) || [])[1]
     return { tool: 'modelscope', repo, dir: dir || null, raw: cmd }
   }
-  // hf / huggingface-cli: <org>/<repo> [--local-dir=<dir>]
+  // 形态② hf / huggingface-cli: <org>/<repo> [--local-dir=<dir>]
   // ⚠ 2026-10-05 守卫抓到的 bug：原来用 `([^\s]+)` 抓第一个 token 当仓库名，
   //   ⛔ 于是 `hf download --local-dir=x` 会把 **`--local-dir=x` 当成模型名**。
   //   ⛔ 那等于平台替上游编了一个不存在的模型。
@@ -431,6 +447,50 @@ function handleEnv (req, res) {
 }
 
 // ---------------------------------------------------------------------------
+//  POST /wizard/download  {id, root, argv}  第 3 步 —— 执行下载（SSE 流式）
+// ---------------------------------------------------------------------------
+//  ⭐ 统一落盘：调用方（前端）负责把命令里的 local_dir 替换成
+//     engines/<id>/checkpoints/，本端点只负责执行 + 透传输出。
+//  ⭐ SSE 流式：下载要几分钟到几十分钟，普通 JSON 响应 = 前端等到全部下完。
+//     流式让前端边下边看：每行输出推一个 line 事件，结束推 done。
+function handleDownload (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/download')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const input = {
+      id: body.id,
+      root: body.root,
+      argv: body.argv,
+      timeoutMs: body.timeoutMs,
+    }
+    // ⛔ 只执行（没有 execute:false 的分支）—— 这个端点就是用来下载的
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+    // ⭐ onLine：每行输出（前端用来画进度条 / 实时日志）
+    input.onLine = (text, isErr) => {
+      send('line', { text: text.replace(/\r?\n$/, ''), err: !!isErr })
+    }
+    runDownload(input).then((r) => {
+      send('done', r)
+      res.end()
+    }).catch((e) => {
+      send('done', { ok: false, code: 'BRIDGE_FAILED',
+        error: (e && e.message) || String(e) })
+      res.end()
+    })
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
 //  GET /wizard/models?id=    第 4 步 —— ⛔ 只列，不下
 // ---------------------------------------------------------------------------
 function handleModels (req, res) {
@@ -485,7 +545,7 @@ function handleVerify (req, res) {
 
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
-  handleClone, handleEnv, handleModels,
+  handleClone, handleEnv, handleDownload, handleModels,
   handleVerifyChecks, handleVerify,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。

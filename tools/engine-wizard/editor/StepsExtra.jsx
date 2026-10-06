@@ -46,45 +46,72 @@ export function StepModels ({ state, onChange, probe }) {
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
   const M = (r && r.manifest) || null
-  // ⭐ 上游自己的下载入口（两种形态，见 core/wizardbridge.js 的探测）
   const upstreamScripts = (probe && probe.downloader) || []
   const upstreamCmds = (probe && probe.downloader_cmds) || []
-  // 目标目录用户可改 —— ⛔ 不锁死成上游随手取的名
-  const [dlDirs, setDlDirs] = React.useState({})
-  const setDlDir = (i, v) => setDlDirs((m) => ({ ...m, [i]: v }))
-  const dirOf = (c, i) => (dlDirs[i] === undefined ? (c.dir || '') : dlDirs[i])
-  // ⭐ 按工具拼命令 —— 参数写法两个工具不一样（--local-dir= vs --local_dir）
-  const renderCmd = (c, dir) => {
-    const d = String(dir || '').trim()
-    if (c.tool === 'modelscope') {
-      return `modelscope download --model ${c.repo}${d ? ` --local_dir ${d}` : ''}`
-    }
-    return `${c.tool} download ${c.repo}${d ? ` --local-dir=${d}` : ''}`
+
+  // ⭐ 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
+  const [dedup, setDedup] = React.useState(true)
+  const seenRepos = new Set()
+  const visibleCmds = upstreamCmds.filter((c) => {
+    if (!dedup) return true
+    if (seenRepos.has(c.repo)) return false
+    seenRepos.add(c.repo)
+    return true
+  })
+
+  // ⭐ 下载状态（SSE 流式，照 StepDeps 模式）
+  const [dlLive, setDlLive] = React.useState(null)
+  const [dlTail, setDlTail] = React.useState([])
+  const [dlBusy, setDlBusy] = React.useState(false)
+
+  const runDownload = async (c) => {
+    setDlBusy(true); setDlTail([]); setDlLive({ stage: 'start' })
+    try {
+      const dest = `engines/${id}/checkpoints`
+      let argv
+      if (c.tool === 'snapshot') {
+        argv = ['python', '-c',
+          `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='${dest}')`]
+      } else if (c.tool === 'modelscope') {
+        argv = ['modelscope', 'download', '--model', c.repo, '--local_dir', dest]
+      } else {
+        argv = ['hf', 'download', c.repo, `--local-dir=${dest}`]
+      }
+      const resp = await fetch('/wizard/download', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
+      })
+      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); return }
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let sep
+        while ((sep = buf.indexOf('\n\n')) >= 0) {
+          const raw = buf.slice(0, sep); buf = buf.slice(sep + 2)
+          const dl = raw.split('\n').find((l) => l.startsWith('data: '))
+          if (!dl) continue
+          let ev
+          try { ev = JSON.parse(dl.slice(6)) } catch (e) { continue }
+          if ('text' in ev) {
+            setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
+            setDlTail((t) => [...t.slice(-39), ev.text])
+          } else if ('ok' in ev || 'error' in ev) {
+            setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
+          }
+        }
+      }
+    } catch (e) {
+      setDlLive({ stage: 'error', error: e.message })
+    } finally { setDlBusy(false) }
   }
 
-  // ⛔ **下到哪由使用者定**：平台不填默认路径、不替使用者决定、
-  //   ⛔ 也不校验那个目录合不合规。平台只做一件事 ——
-  //   把命令里的 --local-dir / --local_dir 换成使用者填的值。
-  //   ⛔ 两种写法都要认：hf 是 --local-dir=，modelscope 是 --local_dir（少一个横杠）。
-  //   判据：改目录后，命令里的路径参数与输入框同值。
-  const [dest, setDest] = React.useState('')
-  // ⭐ 只改**下载工具**命令里的目录参数；⛔ 其他命令（上游脚本）一个字都不动。
-  //   ⛔ 之前这里给任何命令都补 --local-dir ⇒ 「python download_models.py」
-  //      会被塞成「python download_models.py --local-dir=…」，
-  //      而那个脚本根本不认这个参数（实测）。
-  const rewriteDir = (cmd) => {
-    const v = dest.trim()
-    if (!v) return cmd
-    const isDownloader = /^\s*(?:uv\s+tool\s+run\s+)?(?:hf|huggingface-cli|modelscope)\b/.test(cmd)
-    if (!isDownloader) return cmd
-    const hasDir = /--local[-_]dir/.test(cmd)
-    return hasDir
-      ? cmd
-        .replace(/--local[-_]dir=\S+/g, `--local-dir=${v}`)
-        .replace(/(--local_dir)(\s+)\S+/g, `$1$2${v}`)
-      // README 那条命令本来没带目录参数 ⇒ 补一个（用的就是这个工具的参数名）
-      : cmd + ` --local-dir=${v}`
-  }
+  // ⭐ 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/
+  //   ⛔ 不删原目录 —— hf/modelscope 的缓存在那里，删了要重下。
+  //   ⛔ 不替用户决定路径 —— 这是平台统一落盘策略，不是用户可选的。
 
 
   return (
@@ -116,40 +143,97 @@ export function StepModels ({ state, onChange, probe }) {
             )}
           </div>
 
-          <table className="table">
-            <tbody>
-              {M.items.map((it, i) => (
-                <tr key={i}>
-                  <th><code>{it.name || t('(not named)', '（未命名）')}</code></th>
-                  <td>
-                    {it.need ? (
-                      it.have
-                        ? <span className="badge badge-ok">{t('Present', '已就位')}</span>
-                        : <span className="badge badge-warn">{t('Missing', '缺')}</span>
-                    ) : (
-                      <span className="muted">{t(it.why, it.whyZh)}</span>
-                    )}
-                  </td>
+          {/* ⭐ 下载清单表格：模型名 / 仓库链接 / 大小 / SHA-256 / 状态 */}
+          {visibleCmds.length > 0 && (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('Model', '模型')}</th>
+                  <th>{t('Repo', '仓库')}</th>
+                  <th>{t('Size', '大小')}</th>
+                  <th>{t('SHA-256', 'SHA-256')}</th>
+                  <th>{t('Status', '状态')}</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {visibleCmds.map((c, i) => {
+                  const item = M.items.find((it) => it.name === c.repo)
+                  const have = item ? item.have : null
+                  return (
+                    <tr key={i}>
+                      <td><code>{c.repo}</code></td>
+                      <td>
+                        <a href={`https://huggingface.co/${c.repo}`} target="_blank" rel="noreferrer">
+                          {t('HF', 'HF')}
+                        </a>
+                        {' / '}
+                        <a href={`https://modelscope.cn/models/${c.repo}`} target="_blank" rel="noreferrer">
+                          {t('MS', 'MS')}
+                        </a>
+                      </td>
+                      <td>{t('(unknown)', '（未知）')}</td>
+                      <td>{t('(unknown)', '（未知）')}</td>
+                      <td>
+                        {have === true
+                          ? <span className="badge badge-ok">{t('Present', '已就位')}</span>
+                          : have === false
+                            ? <span className="badge badge-warn">{t('Missing', '缺')}</span>
+                            : <span className="muted">{t('(unknown)', '（未知）')}</span>}
+                      </td>
+                      <td>
+                        <button className="btn btn-sm" type="button"
+                          disabled={dlBusy} onClick={() => runDownload(c)}>
+                          {t('Download', '下载')}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
 
-          {/* ── ⭐ 上游自己的下载入口 ──────────────────────────
-              两条口径：
-              ① 「从现在开始，模型不再需要统一管理」
-                 ⇒ ⛔ 平台不统一下载，模型归各引擎自己管。
-              ② 「四条命令让用户自己选，下载之前可以探测一下有什么，
-                 用户可以自选目录，也就是 --local-dir=checkpoints 这里
-                 改一个 --local-dir=path/set/by/user 的事，魔搭那个也是同理的」
-                 ⇒ ⭐ 命令**拆成三段**（工具 / 模型 / 目标目录），
-                   ⭐ 目标目录是一个**输入框**，用户想改就改；
-                   ⭐ 几个模型列成表让用户**自己选**下哪个。
+          {/* 去重复选框 */}
+          {upstreamCmds.length > 1 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+              <input type="checkbox" checked={dedup}
+                onChange={(e) => setDedup(e.target.checked)} />
+              <span>{t('Deduplicate by repo', '按仓库去重')}</span>
+            </label>
+          )}
 
-              ⚠ 原样丢整条命令是**错的** —— 原样就等于把目标目录
-                写死成上游随手取的名（checkpoints / checkpoints_2）。
-              ⚠ 探测（每个模型目录里有什么）留给第 5 步的检查，
-                ⛔ 这一步不下载任何东西，所以不必先探测。*/}
+          {/* 进度条 */}
+          {dlBusy && (
+            <div className="preflight" style={{ marginTop: 8 }}>
+              <div className="layer-label">
+                {dlLive && dlLive.stage === 'line'
+                  ? t('Downloading…', '下载中…')
+                  : t('Starting…', '启动中…')}
+              </div>
+              <div className="wz-progress wz-progress-indeterminate">
+                <div className="wz-progress-bar" />
+              </div>
+              {dlTail.length > 0 && (
+                <div className="rc-cmd-body" style={{ marginTop: 4, maxHeight: 120, overflowY: 'auto' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {dlTail.join('\n')}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+          {dlLive && dlLive.stage === 'done' && (
+            <div className={`msg ${dlLive.ok ? 'msg-info' : 'msg-danger'}`}>
+              {dlLive.ok
+                ? t('Download finished. Re-check to verify.', '下载完成，请重新检查确认。')
+                : t('Download failed:', '下载失败：') + ' ' + (dlLive.error || '')}
+            </div>
+          )}
+
+          {/* ── 上游附带的下载脚本（如果有）──
+              ⛔ 平台不执行它们 —— 只是告诉用户「上游自己给了这个脚本」。
+              执行是用户自己的事，平台只负责把命令摆出来。*/}
           {upstreamScripts.length > 0 && (
             <div className="section" style={{ marginTop: 4 }}>
               <div className="section-hdr">
@@ -164,43 +248,6 @@ export function StepModels ({ state, onChange, probe }) {
                 {upstreamScripts.map((d) => (
                   <div key={d.file} className="rc-cmd" style={{ marginTop: 4 }}>
                     <pre className="rc-cmd-body">{`python ${d.file}`}</pre>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {upstreamCmds.length > 0 && (
-            <div className="section" style={{ marginTop: 4 }}>
-              <div className="section-hdr">
-                <h2 style={{ fontSize: 13 }}>{t('How the upstream downloads', '下载方式')}</h2>
-              </div>
-              <div className="section-body">
-                <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('From the project README. Change the folder if you want:',
-                    '摘自项目 README。存放位置可自行修改：')}
-                </div>
-
-                {upstreamCmds.map((c, i) => (
-                  <div key={i} style={{ marginBottom: 10 }}>
-                    <div className="plan-kv">
-                      <span className="pk">{t('Model', '模型')}</span>
-                      <span className="pv"><code>{c.repo}</code></span>
-                      <span className="pk">{t('Tool', '工具')}</span>
-                      <span className="pv"><code>{c.tool}</code></span>
-                    </div>
-                    <div className="field" style={{ marginTop: 4 }}>
-                      <label className="field-label"
-                        htmlFor={`wz-dl-dir-${i}`}>
-                        {t('Save into', '存到')}
-                      </label>
-                      <input id={`wz-dl-dir-${i}`} className="control" type="text"
-                        value={dlDirs[i] === undefined ? (c.dir || '') : dlDirs[i]}
-                        onChange={(e) => setDlDir(i, e.target.value)} />
-                    </div>
-                    <div className="rc-cmd">
-                      <pre className="rc-cmd-body">{renderCmd(c, dirOf(c, i))}</pre>
-                    </div>
                   </div>
                 ))}
               </div>
