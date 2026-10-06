@@ -134,6 +134,14 @@ export function StepModels ({ state, onChange, probe }) {
           } else if ('ok' in ev || 'error' in ev) {
             setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
             setDlBusy(false)
+            // ⭐ 下载完成后自动调 /wizard/download/files 逐文件校验
+            //   ⛔ 不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件
+            if (ev.ok && id) {
+              fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
+                .then((r) => r.json())
+                .then((j) => { if (j.ok) setFileList(j.files) })
+                .catch(() => { /* 读不到 ⇒ 空列表 */ })
+            }
           }
         }
         pump()
