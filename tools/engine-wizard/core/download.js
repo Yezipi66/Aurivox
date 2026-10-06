@@ -17,10 +17,42 @@
 // ============================================================================
 
 const { spawn } = require('node:child_process')
+const fs = require('node:fs')
 const path = require('node:path')
 
 /**
- * 执行一条下载命令（异步流式）。
+ * 进度文件路径 —— 每个引擎目录下记录已完成的下载命令。
+ * ⭐ 断点续传：重跑时跳过已完成的命令（hf/modelscope CLI 自带缓存，
+ *    重复跑同一条命令只补缺的，不会重下已下载的）。
+ */
+function progressFile (root, id) {
+  return path.join(root, 'engines', String(id || ''), '.wizard-download-progress.json')
+}
+
+/** 读进度文件，返回已完成的命令 key 集合 */
+function readProgress (root, id) {
+  const f = progressFile(root, id)
+  try {
+    if (!fs.existsSync(f)) return new Set()
+    const data = JSON.parse(fs.readFileSync(f, 'utf8'))
+    if (Array.isArray(data.done)) return new Set(data.done.map((d) => d.key))
+  } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
+  return new Set()
+}
+
+/** 写进度文件 */
+function writeProgress (root, id, doneKeys) {
+  const f = progressFile(root, id)
+  try {
+    fs.writeFileSync(f, JSON.stringify({
+      engine: id, updatedAt: new Date().toISOString(),
+      done: [...doneKeys].map((key) => ({ key, at: new Date().toISOString() })),
+    }, null, 2), 'utf8')
+  } catch (e) { /* 进度文件写不进不该拦住下载 */ }
+}
+
+/**
+ * 执行一条下载命令（异步流式 + 断点续传）。
  *
  * @param {object} input
  * @param {string} input.id        引擎 id（用于日志）
@@ -38,8 +70,19 @@ function runDownload (input = {}) {
         error: 'No command to run.' })
       return
     }
+    const root = input.root || process.cwd()
+    const id = input.id || ''
+    const argvKey = argv.join(' ')
+    // ⭐ 断点续传：这条命令上次已经成功跑完 ⇒ 跳过
+    const doneKeys = readProgress(root, id)
+    if (doneKeys.has(argvKey)) {
+      resolve({ ok: true, code: 'SKIPPED', status: 0, stdout: '', stderr: '',
+        output: 'Previously completed — skipped (breakpoint resume).',
+        outputZh: '上次已成功执行，跳过（断点续传）。' })
+      return
+    }
     const child = spawn(argv[0], argv.slice(1), {
-      cwd: input.root || process.cwd(),
+      cwd: root,
       windowsHide: true,
       shell: false,
     })
@@ -66,6 +109,11 @@ function runDownload (input = {}) {
           stdout: stdoutTail, stderr: stderrTail,
           error: `Download timed out (${Math.round((input.timeoutMs || 7200000) / 60000)} min).` })
         return
+      }
+      // ⭐ 下载成功 ⇒ 写入进度文件（下次重跑会跳过）
+      if (code === 0) {
+        doneKeys.add(argvKey)
+        writeProgress(root, id, doneKeys)
       }
       resolve({
         ok: code === 0,
@@ -120,4 +168,4 @@ function unifyDest (argv, engineId, root) {
   return out
 }
 
-module.exports = { runDownload, unifyDest }
+module.exports = { runDownload, unifyDest, readProgress }

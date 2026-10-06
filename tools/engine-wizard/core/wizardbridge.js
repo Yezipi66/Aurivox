@@ -447,6 +447,23 @@ function handleEnv (req, res) {
 }
 
 // ---------------------------------------------------------------------------
+//  GET /wizard/download/progress?id=  第 3 步 —— 读断点续传进度
+// ---------------------------------------------------------------------------
+// ⭐ 前端刷新后恢复下载状态用。返回已完成的命令列表。
+function handleDownloadProgress (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/progress')) return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const { readProgress } = require('./download')
+  const root = url.searchParams.get('root') || ''
+  const done = [...readProgress(root, id)]
+  json(res, 200, { ok: true, done })
+  return true
+}
+
+// ---------------------------------------------------------------------------
 //  POST /wizard/download  {id, root, argv}  第 3 步 —— 执行下载（SSE 流式）
 // ---------------------------------------------------------------------------
 //  ⭐ 统一落盘：调用方（前端）负责把命令里的 local_dir 替换成
@@ -545,7 +562,7 @@ function handleVerify (req, res) {
 
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
-  handleClone, handleEnv, handleDownload, handleModels,
+  handleClone, handleEnv, handleDownload, handleDownloadProgress, handleModels,
   handleVerifyChecks, handleVerify,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
