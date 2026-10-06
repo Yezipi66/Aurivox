@@ -64,3 +64,27 @@
   box-shadow: 0 0 0 1000px var(--bg) inset;
   -webkit-text-fill-color: var(--text);
 }
+
+/* ---- 安装进度条（StepDeps 实时进度） ---- */
+/* ⭐ 圆角与颜色一律走项目变量 —— styleguard 禁止裸 px 圆角与写死的色值 */
+.wz-progress {
+  height: 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  overflow: hidden;
+  margin: 6px 0;
+}
+.wz-progress-bar {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.wz-progress-indeterminate .wz-progress-bar {
+  width: 40%;
+  animation: wz-progress-slide 1.2s ease-in-out infinite;
+}
+@keyframes wz-progress-slide {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
