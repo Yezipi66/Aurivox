@@ -12,7 +12,7 @@ const path = require('node:path')
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan } = require('./clone')
 const { runEnv, buildEnvPlan } = require('./env')
-const { runDownload, unifyDest } = require('./download')
+const { runDownload, unifyDest, fetchRemoteManifest, checkFileStatus, downloadFile } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, detectDependencyFile, planDependencies } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
@@ -402,6 +402,7 @@ function handleEnv (req, res) {
       id: body.id,
       manifest: body.manifest,
       execute: body.execute === true,
+      backend: body.backend,   // ⭐ 2026-10-06：前端 StepDeps 会传 backend（torch 后端选择）
     }
     // ⛔ 只出计划（execute:false）时走原来的 JSON 响应 —— 快的请求不该用流。
     if (!input.execute) {
@@ -470,6 +471,69 @@ function handleDownloadFiles (req, res) {
     }
   } catch (e) { /* 读不到 ⇒ 空列表 */ }
   json(res, 200, { ok: true, files })
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  GET /wizard/download/manifest?id=&repo=&tool=  第 3 步 —— 获取远端文件列表
+// ---------------------------------------------------------------------------
+//  ⭐ 调用 fetchRemoteManifest 获取文件列表，再逐个 checkFileStatus
+//  ⭐ 返回 { ok: true, files: [{ name, size, sha256, status }] }
+function handleDownloadManifest (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  const repo = url.searchParams.get('repo')
+  const tool = url.searchParams.get('tool') || 'hf'
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  if (!repo) { json(res, 400, { ok: false, error: '?repo= is required' }); return true }
+  const root = url.searchParams.get('root') || ''
+  fetchRemoteManifest(repo, tool).then((files) => {
+    const enriched = files.map((f) => {
+      const st = checkFileStatus(f.name, f.size, f.sha256, root, id)
+      return { name: f.name, size: f.size, sha256: f.sha256, status: st.status }
+    })
+    json(res, 200, { ok: true, files: enriched })
+  }).catch((e) => {
+    json(res, 200, { ok: true, files: [] })
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  POST /wizard/download/file { id, root, file }  第 3 步 —— 单文件下载（SSE）
+// ---------------------------------------------------------------------------
+//  ⭐ 调用 downloadFile 下载单个文件，SSE 流式返回进度
+function handleDownloadFile (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/file')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const { id, root, file } = body
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    if (!file || !file.name) { json(res, 400, { ok: false, error: 'file.name is required' }); return }
+    const repo = body.repo || ''
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+    downloadFile(file, repo, root, id, (text, isErr) => {
+      send('line', { text, err: !!isErr })
+    }).then((r) => {
+      send('done', r)
+      res.end()
+    }).catch((e) => {
+      send('done', { ok: false, code: 'BRIDGE_FAILED',
+        error: (e && e.message) || String(e) })
+      res.end()
+    })
+  })
   return true
 }
 
@@ -590,6 +654,7 @@ function handleVerify (req, res) {
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
+  handleDownloadManifest, handleDownloadFile,
   handleVerifyChecks, handleVerify,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
