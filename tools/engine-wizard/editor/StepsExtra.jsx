@@ -45,6 +45,13 @@ export function StepModels ({ state, onChange, probe }) {
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
+  // ⭐ 下载状态（SSE 流式，照 StepDeps 模式）
+  // ⚠️ 声明必须在使用之前 —— 第 68 行的 useEffect 引用了 dlLive，
+  //    ⛔ 声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）
+  const [dlLive, setDlLive] = React.useState(null)
+  const [dlTail, setDlTail] = React.useState([])
+  const [dlBusy, setDlBusy] = React.useState(false)
+
   // ⭐ 断点续传：页面加载时读进度文件，恢复「已下载」状态
   //   ⛔ 不依赖 manifest —— 下载就是下载，和名片没有任何关系
   React.useEffect(() => {
@@ -85,11 +92,6 @@ export function StepModels ({ state, onChange, probe }) {
     seenRepos.add(c.repo)
     return true
   })
-
-  // ⭐ 下载状态（SSE 流式，照 StepDeps 模式）
-  const [dlLive, setDlLive] = React.useState(null)
-  const [dlTail, setDlTail] = React.useState([])
-  const [dlBusy, setDlBusy] = React.useState(false)
 
   // ⭐ 下载是「发射后不管」的后台任务 —— 点击后启动下载，不阻塞 UI，
   //   用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
