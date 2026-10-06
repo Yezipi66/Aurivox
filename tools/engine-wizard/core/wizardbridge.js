@@ -489,14 +489,18 @@ function handleDownloadManifest (req, res) {
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   if (!repo) { json(res, 400, { ok: false, error: '?repo= is required' }); return true }
   const root = url.searchParams.get('root') || ''
-  fetchRemoteManifest(repo, tool).then((files) => {
-    const enriched = files.map((f) => {
-      const st = checkFileStatus(f.name, f.size, f.sha256, root, id)
-      return { name: f.name, size: f.size, sha256: f.sha256, status: st.status }
+  fetchRemoteManifest(repo, tool).then((result) => {
+    if (!result.ok) {
+      json(res, 200, { ok: false, error: result.error || 'Failed to fetch remote manifest' })
+      return
+    }
+    const enriched = result.files.map((f) => {
+      const st = checkFileStatus(f.name, f.size, root, id)
+      return { name: f.name, size: f.size, sha256: st.sha256, status: st.status }
     })
     json(res, 200, { ok: true, files: enriched })
   }).catch((e) => {
-    json(res, 200, { ok: true, files: [] })
+    json(res, 200, { ok: false, error: (e && e.message) || String(e) })
   })
   return true
 }

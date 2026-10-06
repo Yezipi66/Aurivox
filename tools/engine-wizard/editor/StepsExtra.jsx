@@ -54,6 +54,7 @@ export function StepModels ({ state, onChange, probe }) {
   // ⭐ 远端文件列表（来自 /wizard/download/manifest）
   const [manifest, setManifest] = React.useState(null)
   const [probeLoading, setProbeLoading] = React.useState(false)
+  const [probeError, setProbeError] = React.useState(null)
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
@@ -102,22 +103,82 @@ export function StepModels ({ state, onChange, probe }) {
   })
 
   // ⭐ 嗅探仓库：调 /wizard/download/manifest 获取文件列表
+  //   ⭐ 追加不覆盖：点击某个仓库的按钮，显示该仓库的文件；
+  //     再点击另一个仓库的按钮，追加其文件到列表后面
+  //   ⭐ 同仓库去重：同一个仓库重复点击按钮，忽略
   const loadManifest = async (c) => {
     if (!id || !c || !c.repo) return
     setProbeLoading(true)
+    setProbeError(null)
     try {
       const tool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
+      // ⭐ 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
+      if (!resp.ok) {
+        setProbeError(t('Probe failed: HTTP ${resp.status}', '嗅探失败：HTTP ${resp.status}'))
+        return
+      }
+      const contentType = resp.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        setProbeError(t('Probe failed: invalid response', '嗅探失败：响应格式错误'))
+        return
+      }
       const j = await resp.json()
-      if (j.ok) setManifest(j.files)
-    } catch (e) { /* 读不到 ⇒ 保持空列表 */ } finally { setProbeLoading(false) }
+      if (j.ok) {
+        setManifest((prev) => {
+          // 同仓库去重：如果已经嗅探过这个仓库，忽略
+          if (prev && prev.some((f) => f.repo === c.repo)) return prev
+          // 追加：把新文件加到列表后面，带上 repo 字段
+          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool: c.tool }))
+          return [...(prev || []), ...newFiles]
+        })
+      } else {
+        // ⭐ 显示错误信息，让用户知道嗅探失败
+        setProbeError(j.error || t('Probe failed', '嗅探失败'))
+      }
+    } catch (e) {
+      setProbeError(e.message || t('Probe failed', '嗅探失败'))
+    } finally { setProbeLoading(false) }
+  }
+
+  // ⭐ 下载全部：遍历所有 missing/partial 文件，逐个下载
+  //   ⭐ 用 ref 追踪下载状态，避免闭包读到旧的 state 值
+  const dlBusyRef = React.useRef(false)
+  const downloadAll = () => {
+    if (!manifest || manifest.length === 0) return
+    const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
+    if (filesToDownload.length === 0) return
+    dlBusyRef.current = true
+    setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
+    let idx = 0
+    const downloadNext = () => {
+      if (idx >= filesToDownload.length) {
+        dlBusyRef.current = false
+        setDlLive({ stage: 'done', ok: true })
+        setDlBusyBoth(false)
+        return
+      }
+      const f = filesToDownload[idx]
+      const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
+      idx++
+      runDownload(cmd, f)
+      // 等待当前文件下载完成后再下载下一个
+      const checkDone = setInterval(() => {
+        if (!dlBusyRef.current) {
+          clearInterval(checkDone)
+          downloadNext()
+        }
+      }, 500)
+    }
+    downloadNext()
   }
 
   // ⭐ 下载是「发射后不管」的后台任务 —— 点击后启动下载，不阻塞 UI，
   //   用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
   //   ⛔ 不用 await —— await 会阻塞 UI，用户要等下载完成才能做其他事。
+  const setDlBusyBoth = (v) => { dlBusyRef.current = v; setDlBusy(v) }
   const runDownload = (c, file) => {
-    setDlBusy(true); setDlTail([]); setDlLive({ stage: 'start' })
+    setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
     // ⭐ 如果有文件信息，使用文件级下载端点（支持断点续传）
     if (file && file.name) {
       fetch('/wizard/download/file', {
@@ -129,12 +190,12 @@ export function StepModels ({ state, onChange, probe }) {
           file: { name: file.name, size: file.size, sha256: file.sha256 },
         }),
       }).then((resp) => {
-        if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusy(false); return }
+        if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusyBoth(false); return }
         const reader = resp.body.getReader()
         const decoder = new TextDecoder()
         let buf = ''
         const pump = () => reader.read().then(({ done, value }) => {
-          if (done) { setDlBusy(false); return }
+          if (done) { setDlBusyBoth(false); return }
           buf += decoder.decode(value, { stream: true })
           let sep
           while ((sep = buf.indexOf('\n\n')) >= 0) {
@@ -148,7 +209,7 @@ export function StepModels ({ state, onChange, probe }) {
               setDlTail((t) => [...t.slice(-39), ev.text])
             } else if ('ok' in ev || 'error' in ev) {
               setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
-              setDlBusy(false)
+              setDlBusyBoth(false)
               // ⭐ 下载完成后自动刷新 manifest
               if (ev.ok && id) {
                 fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${c.tool === 'modelscope' ? 'modelscope' : 'hf'}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
@@ -161,12 +222,12 @@ export function StepModels ({ state, onChange, probe }) {
           pump()
         }).catch((e) => {
           setDlLive({ stage: 'error', error: e.message })
-          setDlBusy(false)
+          setDlBusyBoth(false)
         })
         pump()
       }).catch((e) => {
         setDlLive({ stage: 'error', error: e.message })
-        setDlBusy(false)
+        setDlBusyBoth(false)
       })
       return
     }
@@ -186,12 +247,12 @@ export function StepModels ({ state, onChange, probe }) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
     }).then((resp) => {
-      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusy(false); return }
+      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusyBoth(false); return }
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
       const pump = () => reader.read().then(({ done, value }) => {
-        if (done) { setDlBusy(false); return }
+        if (done) { setDlBusyBoth(false); return }
         buf += decoder.decode(value, { stream: true })
         let sep
         while ((sep = buf.indexOf('\n\n')) >= 0) {
@@ -205,7 +266,7 @@ export function StepModels ({ state, onChange, probe }) {
             setDlTail((t) => [...t.slice(-39), ev.text])
           } else if ('ok' in ev || 'error' in ev) {
             setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
-            setDlBusy(false)
+            setDlBusyBoth(false)
             // ⭐ 下载完成后自动调 /wizard/download/files 逐文件校验
             //   ⛔ 不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件
             if (ev.ok && id) {
@@ -219,12 +280,12 @@ export function StepModels ({ state, onChange, probe }) {
         pump()
       }).catch((e) => {
         setDlLive({ stage: 'error', error: e.message })
-        setDlBusy(false)
+        setDlBusyBoth(false)
       })
       pump()
     }).catch((e) => {
       setDlLive({ stage: 'error', error: e.message })
-      setDlBusy(false)
+      setDlBusyBoth(false)
     })
   }
 
@@ -256,10 +317,21 @@ export function StepModels ({ state, onChange, probe }) {
               <code>engines/{id}/checkpoints/</code>
             </span>
           </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button
+              className="btn btn-sm"
+              type="button"
+              disabled={dlBusy}
+              onClick={downloadAll}
+            >
+              {t('Download all', '下载全部')}
+            </button>
+          </div>
           <table className="table">
             <thead>
               <tr>
                 <th>{t('File', '文件')}</th>
+                <th>{t('Repo', '仓库')}</th>
                 <th>{t('Size', '大小')}</th>
                 <th>{t('SHA-256', 'SHA-256')}</th>
                 <th>{t('Status', '状态')}</th>
@@ -268,10 +340,11 @@ export function StepModels ({ state, onChange, probe }) {
             </thead>
             <tbody>
               {manifest.map((f, i) => {
-                const cmd = probe.downloader_cmds[0] || { repo: '', tool: 'hf' }
+                const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
                 return (
                   <tr key={i}>
                     <td><code>{f.name}</code></td>
+                    <td><code>{f.repo || ''}</code></td>
                     <td>
                       {f.size > 0
                         ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
@@ -332,6 +405,11 @@ export function StepModels ({ state, onChange, probe }) {
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('Run these in the engine folder:', '在引擎目录内执行：')}
             </div>
+            {probeError && (
+              <div className="msg msg-danger" style={{ marginTop: 4 }}>
+                {probeError}
+              </div>
+            )}
             {visibleCmds.map((c, i) => (
               <div key={i} className="rc-cmd" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>

@@ -51,6 +51,7 @@ function validatePlugin () {
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
     handleVerifyChecks, handleVerify,
+    handleDownloadManifest, handleDownloadFile,
   } = require(path.join(CORE, 'wizardbridge.js'))
   // ⛔ 顺序：长前缀在前。manifest/<id> 是动态的，必须排在 installed 之前，
   //    否则 /wizard/manifest/xxx 会被别的 handler 先吃掉。
@@ -60,6 +61,7 @@ function validatePlugin () {
     handleClone, handleEnv, handleModels,
     handleVerifyChecks, handleVerify,
     handleInstalled, handleSave, handleValidate,
+    handleDownloadManifest, handleDownloadFile,
   ]
   return {
     name: 'aurivox-wizard-validate',

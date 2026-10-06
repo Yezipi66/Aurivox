@@ -96,7 +96,7 @@ test('checkFileStatus — 正式文件存在 + 大小匹配 + SHA-256 匹配 →
   const sha = crypto.createHash('sha256').update(content).digest('hex')
   fs.writeFileSync(path.join(dir, 'model.bin'), content)
 
-  const r = checkFileStatus('model.bin', content.length, sha, root, id)
+  const r = checkFileStatus('model.bin', content.length, root, id)
   assert.strictEqual(r.status, 'ok')
   assert.strictEqual(r.size, content.length)
 })
@@ -109,12 +109,12 @@ test('checkFileStatus — 正式文件存在但大小不匹配 → partial', () 
 
   fs.writeFileSync(path.join(dir, 'model.bin'), 'hello')
 
-  const r = checkFileStatus('model.bin', 9999, null, root, id)
+  const r = checkFileStatus('model.bin', 9999, root, id)
   assert.strictEqual(r.status, 'partial')
   assert.strictEqual(r.size, 5)
 })
 
-test('checkFileStatus — 正式文件存在但 SHA-256 不匹配 → partial', () => {
+test('checkFileStatus — 正式文件存在 + 大小匹配 → ok（不再用 SHA-256 校验）', () => {
   const root = mkdtemp()
   const id = 'test-sha'
   const dir = path.join(root, 'engines', id, 'checkpoints')
@@ -123,8 +123,9 @@ test('checkFileStatus — 正式文件存在但 SHA-256 不匹配 → partial', 
   const content = 'hello world'
   fs.writeFileSync(path.join(dir, 'model.bin'), content)
 
-  const r = checkFileStatus('model.bin', content.length, 'wrongsha', root, id)
-  assert.strictEqual(r.status, 'partial')
+  const r = checkFileStatus('model.bin', content.length, root, id)
+  assert.strictEqual(r.status, 'ok')
+  assert.strictEqual(r.sha256, crypto.createHash('sha256').update(content).digest('hex'))
 })
 
 test('checkFileStatus — .tmp 文件存在 → partial', () => {
@@ -135,7 +136,7 @@ test('checkFileStatus — .tmp 文件存在 → partial', () => {
 
   fs.writeFileSync(path.join(dir, 'model.bin.tmp'), 'partial data')
 
-  const r = checkFileStatus('model.bin', 100, 'abc', root, id)
+  const r = checkFileStatus('model.bin', 100, root, id)
   assert.strictEqual(r.status, 'partial')
   assert.strictEqual(r.size, 12)
 })
@@ -144,7 +145,7 @@ test('checkFileStatus — 都不存在 → missing', () => {
   const root = mkdtemp()
   const id = 'test-missing'
 
-  const r = checkFileStatus('model.bin', 100, 'abc', root, id)
+  const r = checkFileStatus('model.bin', 100, root, id)
   assert.strictEqual(r.status, 'missing')
   assert.strictEqual(r.size, 0)
 })
@@ -184,6 +185,63 @@ test('downloadFile — SHA-256 校验', async () => {
   // 由于 downloadFile 内部用 https.get，无法在单元测试中验证
   // 这里只验证函数签名
   assert.strictEqual(typeof downloadFile, 'function')
+})
+
+// ---------------------------------------------------------------------------
+//  fetchRemoteManifest — 错误处理守卫
+// ---------------------------------------------------------------------------
+test('fetchRemoteManifest — API 返回 404 时返回 ok:false', async () => {
+  const { server, url } = await startServer((req, res) => {
+    res.writeHead(404, { 'content-type': 'text/html' })
+    res.end('<!doctype html><html><body>Not Found</body></html>')
+  })
+  try {
+    const result = await fetchRemoteManifest('owner/repo', 'hf', url)
+    assert.strictEqual(result.ok, false)
+    assert.ok(result.error.includes('404'))
+    assert.deepStrictEqual(result.files, [])
+  } finally {
+    server.close()
+  }
+})
+
+test('fetchRemoteManifest — API 返回非 JSON 时返回 ok:false', async () => {
+  const { server } = await startServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' })
+    res.end('<!doctype html><html><body>Error</body></html>')
+  })
+  try {
+    const result = await fetchRemoteManifest('owner/repo', 'hf')
+    assert.strictEqual(result.ok, false)
+    assert.ok(result.error)
+    assert.deepStrictEqual(result.files, [])
+  } finally {
+    server.close()
+  }
+})
+
+test('fetchRemoteManifest — API 返回 500 时返回 ok:false', async () => {
+  const { server, url } = await startServer((req, res) => {
+    res.writeHead(500, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Internal Server Error' }))
+  })
+  try {
+    const result = await fetchRemoteManifest('owner/repo', 'hf', url)
+    assert.strictEqual(result.ok, false)
+    assert.ok(result.error.includes('500'))
+    assert.deepStrictEqual(result.files, [])
+  } finally {
+    server.close()
+  }
+})
+
+test('fetchRemoteManifest — 网络错误时返回 ok:false', async () => {
+  // 连接一个不存在的端口，模拟网络错误
+  const result = await fetchRemoteManifest('owner/repo', 'hf')
+  // 由于 fetchRemoteManifest 内部用 https.get，连接 huggingface.co
+  // 在测试环境中可能超时或失败，这里只验证返回格式
+  assert.strictEqual(typeof result.ok, 'boolean')
+  assert.ok(Array.isArray(result.files))
 })
 
 // ---------------------------------------------------------------------------

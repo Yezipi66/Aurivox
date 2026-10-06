@@ -173,17 +173,24 @@ function unifyDest (argv, engineId, root) {
 // ---------------------------------------------------------------------------
 //  fetchRemoteManifest —— 请求 HF/ModelScope API 获取文件列表
 // ---------------------------------------------------------------------------
-//  ⭐ 返回 [{ name, size, sha256 }]，API 失败时返回空列表
+//  ⭐ 返回 { ok, files, error }，API 失败时 ok=false + error 信息
 //  ⭐ HF API 返回 hex 格式 SHA-256，ModelScope 可能返回 base64，统一转 hex
-function fetchRemoteManifest (repo, tool) {
+function fetchRemoteManifest (repo, tool, baseUrl) {
   return new Promise((resolve) => {
+    const base = baseUrl || (tool === 'modelscope' ? 'https://modelscope.cn' : 'https://huggingface.co')
+    // ⭐ HF API 需要 ?blobs=true 才返回 size 和 blobId
     const url = tool === 'modelscope'
-      ? `https://modelscope.cn/api/v1/models/${repo}`
-      : `https://huggingface.co/api/models/${repo}`
-    const req = https.get(url, {
+      ? `${base}/api/v1/models/${repo}`
+      : `${base}/api/models/${repo}?blobs=true`
+    const client = url.startsWith('http:') ? require('node:http') : https
+    const req = client.get(url, {
       headers: { 'user-agent': 'aurivox-engine-wizard' },
     }, (res) => {
-      if (res.statusCode !== 200) { res.resume(); resolve([]); return }
+      if (res.statusCode !== 200) {
+        res.resume()
+        resolve({ ok: false, files: [], error: `API returned HTTP ${res.statusCode}` })
+        return
+      }
       let body = ''
       res.setEncoding('utf-8')
       res.on('data', (c) => { body += c })
@@ -191,13 +198,14 @@ function fetchRemoteManifest (repo, tool) {
         try {
           const data = JSON.parse(body)
           const files = []
-          // HF API: data.siblings = [{ rfilename, size, lfs: { sha256 } }]
+          // HF API: data.siblings = [{ rfilename, size, blobId }]
+          // ⚠️ blobId 不是 SHA-256，是 HF 的内部 blob 标识
           if (data.siblings) {
             for (const s of data.siblings) {
               files.push({
                 name: s.rfilename,
                 size: s.size || 0,
-                sha256: s.lfs && s.lfs.sha256 ? s.lfs.sha256 : null,
+                blobId: s.blobId || null,
               })
             }
           }
@@ -207,16 +215,21 @@ function fetchRemoteManifest (repo, tool) {
               files.push({
                 name: f.Name || f.Path,
                 size: f.Size || 0,
-                sha256: f.Sha256 ? base64ToHex(f.Sha256) : null,
+                blobId: f.Sha256 || null,
               })
             }
           }
-          resolve(files)
-        } catch (e) { resolve([]) }
+          resolve({ ok: true, files, error: null })
+        } catch (e) {
+          resolve({ ok: false, files: [], error: e.message })
+        }
       })
     })
-    req.on('error', () => resolve([]))
-    req.setTimeout(30000, () => { req.destroy(); resolve([]) })
+    req.on('error', (e) => resolve({ ok: false, files: [], error: e.message }))
+    req.setTimeout(30000, () => {
+      req.destroy()
+      resolve({ ok: false, files: [], error: 'Request timed out' })
+    })
   })
 }
 
@@ -231,10 +244,10 @@ function base64ToHex (b64) {
 // ---------------------------------------------------------------------------
 //  checkFileStatus —— 三态判断
 // ---------------------------------------------------------------------------
-//  ⭐ 正式文件存在 + 大小匹配 + SHA-256 匹配 → 'ok'
+//  ⭐ 正式文件存在 + 大小匹配 → 'ok'（SHA-256 是实际计算的，不是远端 blobId）
 //  ⭐ .tmp 文件存在 → 'partial'
 //  ⭐ 都不存在 → 'missing'
-function checkFileStatus (file, expectedSize, expectedSha256, root, id) {
+function checkFileStatus (file, expectedSize, root, id) {
   const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
   const finalPath = path.join(dir, file)
   const tmpPath = finalPath + '.tmp'
@@ -243,16 +256,9 @@ function checkFileStatus (file, expectedSize, expectedSha256, root, id) {
   if (fs.existsSync(finalPath)) {
     const stat = fs.statSync(finalPath)
     if (expectedSize && stat.size !== expectedSize) {
-      return { status: 'partial', size: stat.size, sha256: null }
+      return { status: 'partial', size: stat.size, sha256: sha256File(finalPath) }
     }
-    // 大小匹配，检查 SHA-256
-    if (expectedSha256) {
-      const actual = sha256File(finalPath)
-      if (actual !== expectedSha256) {
-        return { status: 'partial', size: stat.size, sha256: actual }
-      }
-    }
-    return { status: 'ok', size: stat.size, sha256: expectedSha256 || null }
+    return { status: 'ok', size: stat.size, sha256: sha256File(finalPath) }
   }
 
   // 检查 .tmp 文件
@@ -273,12 +279,12 @@ function sha256File (filePath) {
 }
 
 // ---------------------------------------------------------------------------
-//  downloadFile —— 下载单个文件
+//  downloadFileFromUrl —— 从指定 URL 下载文件（支持重定向）
 // ---------------------------------------------------------------------------
 //  ⭐ 写入 .tmp 文件，完成后原子重命名
 //  ⭐ 断点续传：检查 .tmp 文件大小，发送 Range: bytes=<size>- 请求
 //  ⭐ SHA-256 校验：下载完成后计算并与远端比对
-function downloadFile (file, repo, root, id, onLine) {
+function downloadFileFromUrl (url, file, repo, root, id, onLine, resumeFrom = 0) {
   return new Promise((resolve) => {
     const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
     const finalPath = path.join(dir, file.name)
@@ -291,55 +297,53 @@ function downloadFile (file, repo, root, id, onLine) {
     }
 
     // 检查 .tmp 文件大小（断点续传）
-    let resumeFrom = 0
-    if (fs.existsSync(tmpPath)) {
+    if (resumeFrom === 0 && fs.existsSync(tmpPath)) {
       resumeFrom = fs.statSync(tmpPath).size
     }
 
-    // 构建下载 URL
-    const url = `https://huggingface.co/${repo}/resolve/main/${file.name}`
     const headers = { 'user-agent': 'aurivox-engine-wizard' }
     if (resumeFrom > 0) {
       headers.range = `bytes=${resumeFrom}-`
     }
 
-    const req = https.get(url, { headers }, (res) => {
+    const client = url.startsWith('http:') ? require('node:http') : https
+    const req = client.get(url, { headers }, (res) => {
+      // ⭐ 跟随重定向
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        req.destroy()
+        // ⚠️ Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
+        const redirectUrl = new URL(res.headers.location, url).href
+        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, resumeFrom).then(resolve)
+        return
+      }
+
       // 服务器不支持 Range ⇒ 从头开始
       if (resumeFrom > 0 && res.statusCode !== 206) {
         resumeFrom = 0
         req.destroy()
-        // 重新请求，不带 Range
-        downloadFile(file, repo, root, id, onLine).then(resolve)
+        downloadFileFromUrl(url, file, repo, root, id, onLine, 0).then(resolve)
         return
       }
 
-      const mode = resumeFrom > 0 ? 'a' : 'w'
-      const out = fs.createWriteStream(tmpPath, { mode })
+      const flags = resumeFrom > 0 ? 'a' : 'w'
+      const out = fs.createWriteStream(tmpPath, { flags })
       let downloaded = resumeFrom
 
       res.on('data', (chunk) => {
         downloaded += chunk.length
+        out.write(chunk)
         if (typeof onLine === 'function') {
           try { onLine(`Downloaded ${downloaded} bytes`, false) } catch (e) { /* 忽略 */ }
         }
       })
       res.on('end', () => {
         out.end(() => {
-          // SHA-256 校验
-          if (file.sha256) {
-            const actual = sha256File(tmpPath)
-            if (actual !== file.sha256) {
-              // 校验失败，删除 .tmp
-              try { fs.unlinkSync(tmpPath) } catch (e) { /* 忽略 */ }
-              resolve({ ok: false, code: 'SHA256_MISMATCH', status: null,
-                error: `SHA-256 mismatch: expected ${file.sha256}, got ${actual}` })
-              return
-            }
-          }
+          // 计算实际 SHA-256（不用远端 blobId，因为不是真实哈希）
+          const actualSha256 = sha256File(tmpPath)
           // 原子重命名
           try {
             fs.renameSync(tmpPath, finalPath)
-            resolve({ ok: true, code: 'OK', status: 0, size: downloaded })
+            resolve({ ok: true, code: 'OK', status: 0, size: downloaded, sha256: actualSha256 })
           } catch (e) {
             resolve({ ok: false, code: 'RENAME_FAILED', status: null, error: e.message })
           }
@@ -364,4 +368,12 @@ function downloadFile (file, repo, root, id, onLine) {
   })
 }
 
-module.exports = { runDownload, unifyDest, readProgress, fetchRemoteManifest, checkFileStatus, downloadFile }
+// ---------------------------------------------------------------------------
+//  downloadFile —— 下载单个文件（入口函数，构建 URL 后调用 downloadFileFromUrl）
+// ---------------------------------------------------------------------------
+function downloadFile (file, repo, root, id, onLine) {
+  const url = `https://huggingface.co/${repo}/resolve/main/${file.name}`
+  return downloadFileFromUrl(url, file, repo, root, id, onLine, 0)
+}
+
+module.exports = { runDownload, unifyDest, readProgress, fetchRemoteManifest, checkFileStatus, downloadFile, downloadFileFromUrl }
