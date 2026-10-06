@@ -158,8 +158,8 @@ export function StepModels ({ state, onChange, probe }) {
       {err && <div className="msg msg-danger">{err}</div>}
       {!id && (
         <div className="msg msg-info">
-          {t('Fill in the link first — the model list comes from the manifest.',
-            '请先填写链接，需要下载的模型在 Manifest 中声明。')}
+          {t('Fill in the link first — the model list comes from the upstream README.',
+            '请先填写链接，需要下载的模型从上游 README 中提取。')}
         </div>
       )}
 
