@@ -314,7 +314,8 @@ function buildSteps ({ argv, cwdRel, alt }) {
     argv,
     cwd: cwdRel,
     needs_network: true,
-    why: '照上游依赖清单安装。',
+    why: 'Install dependencies from the upstream lock file.',
+    whyZh: '照上游依赖清单安装。',
   }]
   if (alt && alt.then) {
     steps.push({
@@ -322,7 +323,8 @@ function buildSteps ({ argv, cwdRel, alt }) {
       argv: alt.then,
       cwd: cwdRel,
       needs_network: true,
-      why: '安装本机后端对应的 Torch。',
+      why: 'Install the Torch build matching this machine backend.',
+      whyZh: '安装本机后端对应的 Torch。',
     })
   }
   return steps
@@ -413,8 +415,9 @@ function resolveUv (root, platform) {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 20000, windowsHide: true, shell: false,
   })
-  if (!p.error && p.status === 0) return { ok: true, argv: ['uv'], via: 'PATH 上的 uv' }
-  return { ok: false, why: '未找到 uv（平台 venv 里没有，PATH 上也没有）' }
+  if (!p.error && p.status === 0) return { ok: true, argv: ['uv'], via: 'uv on PATH', viaZh: 'PATH 上的 uv' }
+  return { ok: false, why: 'uv was not found (neither in the platform venv nor on PATH).',
+    whyZh: '未找到 uv（平台 venv 里没有，PATH 上也没有）' }
 }
 
 function buildEnvPlan (input = {}) {
@@ -576,7 +579,10 @@ function runOne (step, root, timeoutMs, argvOverride, onLine) {
       if (killedByTimeout) {
         resolve({ ok: false, code: 'ENV_TIMEOUT', status: code,
           stdout: stdoutTail, stderr: stderrTail,
-          error: `命令超时（${Math.round(timeoutMs / 60000)} 分钟）被终止。\n`
+          error: `Command timed out (${Math.round(timeoutMs / 60000)} min) and was killed.\n`
+            + 'The download may still be in progress — re-running this step resumes '
+            + 'from the breakpoint; already-downloaded parts are not re-fetched.',
+          errorZh: `命令超时（${Math.round(timeoutMs / 60000)} 分钟）被终止。\n`
             + '下载可能仍在继续 —— 重新执行本步骤会从断点续传，不会重下已完成的部分。' })
         return
       }
@@ -695,7 +701,8 @@ async function runEnv (input = {}) {
       stepsRun.push({
         n: i + 1, of: steps.length, argv, argvKey,
         ok: true, status: 0, code: 'SKIPPED',
-        output: '上次已成功执行，跳过（断点续传）。',
+        output: 'Previously completed successfully — skipped (breakpoint resume).',
+        outputZh: '上次已成功执行，跳过（断点续传）。',
         doneAt: new Date().toISOString(),
       })
       continue
@@ -715,7 +722,7 @@ async function runEnv (input = {}) {
       status: r.status,
       code: r.code,
       // ⛔ 失败时带出上游原话；成功时只留尾部（uv 输出很长，界面用不上）
-      output: r.ok ? r.stdout.slice(-2000) : (r.stderr || r.stdout || '（没有输出）'),
+      output: r.ok ? r.stdout.slice(-2000) : (r.stderr || r.stdout || '(no output)'),
       doneAt: r.ok ? new Date().toISOString() : null,
     })
     if (r.ok) persist()
