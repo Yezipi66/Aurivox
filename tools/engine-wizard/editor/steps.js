@@ -52,8 +52,11 @@ export const STEPS = [
     label: ['Install dependencies', '安装依赖'],
     does: ['按上游声明的依赖清单安装依赖包，与 GPU 相关的包单独列出。安装完成后可检查能否启动。',
         '按上游声明的依赖清单安装依赖包，与 GPU 相关的包单独列出。安装完成后可检查能否启动。'],
-    // ⛔ env_command 必须由名片给出 —— 平台不猜（判据来自已退役的 installPlan.js:44）
-    requiresManifestField: 'install.env_command',
+    // ⭐ 2026-10-06 修正：env 的数据来自 probe（第 1 步），不依赖 manifest。
+    //   ⛔ 原来写 requiresManifestField: 'install.env_command' 是错的 ——
+    //     那会让用户必须先写 manifest 才能装依赖，而 manifest 第 4 步才写。
+    //   ✅ 现在只需要引擎目录存在（needs: ['id']）。
+    needs: ['id'],
     risk: 'network-heavy',
   },
   {
@@ -62,12 +65,14 @@ export const STEPS = [
     // 这一步展示上游自带的下载方式（自带脚本或 README 里的命令），
     // ⛔ 平台不另造一套 —— 各项目的下载方式本来就各不相同。
     label: ['Download models', '下载模型'],
-    does: ['显示上游项目自带的下载方式与存放位置，由使用者手动执行。',
-        '显示上游项目自带的下载方式与存放位置，由使用者手动执行。'],
+    // ⭐ 2026-10-06 修正：现在平台可以代为下载了（download.js + SSE 流式），
+    //   ⛔ 原来写「由使用者手动执行」是错的 —— 那会让用户以为得自己抄命令。
+    //   ✅ 现在：平台执行下载，用户只需勾选要下哪个 + 点「下载」。
+    does: ['列出上游项目自带的下载方式与存放位置，勾选后点「下载」即可。下载在后台进行，可随时进入下一步。',
+        '列出上游项目自带的下载方式与存放位置，勾选后点「下载」即可。下载在后台进行，可随时进入下一步。'],
     parallelWith: 'manifest',
-    // ⛔ 平台只展示命令，不代为下载 ⇒ 副标题必须写明由使用者执行，
-    //   否则步骤名像在承诺平台会下载。
-    readOnly: true,
+    // ⭐ 2026-10-06 修正：去掉 readOnly —— 现在可以下载了。
+    //   ⛔ 原来 readOnly: true 会让步骤名像在承诺平台不会下载。
   },
   {
     key: 'manifest',

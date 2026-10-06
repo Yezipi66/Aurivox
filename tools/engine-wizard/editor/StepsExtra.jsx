@@ -34,7 +34,13 @@ export function StepModels ({ state, onChange, probe }) {
     try {
       const res = await fetch(`/wizard/models?id=${encodeURIComponent(id)}`)
       const j = await res.json()
-      if (!j.ok && j.code === 'NO_PROFILE') { setErr(j.error); return }
+      // ⭐ manifest 不存在时不报错 —— 下载清单来自 probe，不依赖 manifest
+      //   ⛔ 只是不显示「缺哪些文件」的表格（M.items 为空）
+      if (!j.ok && j.code === 'NO_PROFILE') {
+        setR({ ok: true, manifest: null, status: null, commands: [] })
+        return
+      }
+      if (!j.ok) { setErr(j.error); return }
       setR(j)
       // ⛔ null（说不出来）**不写进 facts** ⇒ 界面上这一步不会变成「已完成」
       if (j.status && j.status.ready !== null && j.status.ready !== undefined) {

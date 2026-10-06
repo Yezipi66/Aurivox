@@ -92,16 +92,14 @@ test('⭐ 名字说「要做什么」而不是只给名词', () => {
     assert.ok(s.does && s.does[0] && s.does[1],
       `${s.key} 缺 does（界面要说清这一步做什么）`)
   }
-  // ⭐⭐ 第 3 步：名字叫「下载模型」⇒ 必须说清**平台不统一下载**。
-  //   Owner 2026-10-05：「从现在开始，模型不再需要统一管理」
-  //   ⇒ 平台只摆出**上游自己**的下载方式（自带脚本 / README 里的命令）。
-  //   ⛔ 不加这句 ⇒ 用户以为平台会替他下一份统一管理的权重。
+  // ⭐⭐ 第 3 步：名字叫「下载模型」⇒ 必须说清**平台代为下载**。
+  //   Owner 2026-10-06：「下载模型就是下载模型，和名片没有任何关系」
+  //   ⇒ 平台执行下载，用户只需勾选要下哪个 + 点「下载」。
+  //   ⛔ 原来写「由使用者手动执行」是错的 —— 那会让用户以为得自己抄命令。
   const models = mod.STEPS.find((s) => s.key === 'models')
-  // ⚠ 2026-10-05 Owner 亲自改成了「由使用者手动执行」——
-  //   ⭐ 那句比我的好：说的是**谁来做**，不是「平台不做什么」。
-  //   ⇒ 断言改钉实质：**必须说清由人执行**，⛔ 不许断言某几个字。
-  assert.ok(/手动|自己|自行|manually|by yourself/i.test(models.does[1]),
-    `第 3 步的说明必须说清「由使用者手动执行」：${models.does[1]}`)
+  // ⚠ 2026-10-06 断言改钉实质：**必须说清平台代为下载**，⛔ 不许断言某几个字。
+  assert.ok(/勾选后点「下载」即可|平台执行下载|代为下载/i.test(models.does[1]),
+    `第 3 步的说明必须说清「平台代为下载」：${models.does[1]}`)
 })
 
 test('⭐ models 与 manifest 必须是并发的那一对', () => {
@@ -120,31 +118,25 @@ test('⛔ 除 models↔manifest 外，其余不许声明并发', () => {
 })
 
 // ---------------------------------------------------------------------------
-// env 那一步：名片必须自己说怎么装
+// env 那一步：数据来自 probe，不依赖 manifest
 // ---------------------------------------------------------------------------
-test('⭐ env 步骤声明了它依赖哪个名片字段', () => {
+// ⭐ 2026-10-06 修正：env 步骤的数据来自 probe（第 1 步），不依赖 manifest。
+//   ⛔ 原来写 requiresManifestField: 'install.env_command' 是错的 ——
+//     那会让用户必须先写 manifest 才能装依赖，而 manifest 第 4 步才写。
+//   ✅ 现在只需要引擎目录存在（needs: ['id']）。
+test('⭐ env 步骤不依赖 manifest', () => {
   const env = mod.STEPS.find((s) => s.key === 'env')
-  assert.strictEqual(env.requiresManifestField, 'install.env_command',
-    '⛔ env 步骤没声明依赖 install.env_command —— 「平台不猜装法」就没人守了')
+  assert.ok(!env.requiresManifestField,
+    '⛔ env 步骤不该依赖 manifest —— 数据来自 probe，不来自名片')
 })
 
-test('⭐ 没有 env_command ⇒ env 步骤不能开始', () => {
+test('⭐ env 步骤只需要引擎目录存在就能开始', () => {
   const { stepStatus, canStart } = mod
   const s = { id: 'x', url: 'https://github.com/a/b', cloneUrl: 'u', manifest: {} }
   const st = stepStatus(s).find((x) => x.step === 'env')
-  assert.strictEqual(st.ok, false, '⛔ 没写 env_command 也放行')
+  assert.strictEqual(st.ok, true, '⛔ env 步骤只需要 id，不该被 manifest 拦住')
   const c = canStart('env', s)
-  assert.strictEqual(c.ok, false)
-  assert.ok(c.reason, '⛔ 不能开始时要说清为什么')
-})
-
-test('⭐ 写了 env_command ⇒ env 步骤能开始', () => {
-  const { canStart } = mod
-  const s = {
-    id: 'x', url: 'https://github.com/a/b', cloneUrl: 'u',
-    manifest: { install: { env_command: ['uv', 'sync'] } },
-  }
-  assert.strictEqual(canStart('env', s).ok, true)
+  assert.strictEqual(c.ok, true)
 })
 
 // ---------------------------------------------------------------------------
