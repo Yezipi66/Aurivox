@@ -64,30 +64,32 @@ export function StepModels ({ state, onChange, probe }) {
   const [dlTail, setDlTail] = React.useState([])
   const [dlBusy, setDlBusy] = React.useState(false)
 
-  const runDownload = async (c) => {
+  // ⭐ 下载是「发射后不管」的后台任务 —— 点击后启动下载，不阻塞 UI，
+  //   用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
+  //   ⛔ 不用 await —— await 会阻塞 UI，用户要等下载完成才能做其他事。
+  const runDownload = (c) => {
     setDlBusy(true); setDlTail([]); setDlLive({ stage: 'start' })
-    try {
-      const dest = `engines/${id}/checkpoints`
-      let argv
-      if (c.tool === 'snapshot') {
-        argv = ['python', '-c',
-          `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='${dest}')`]
-      } else if (c.tool === 'modelscope') {
-        argv = ['modelscope', 'download', '--model', c.repo, '--local_dir', dest]
-      } else {
-        argv = ['hf', 'download', c.repo, `--local-dir=${dest}`]
-      }
-      const resp = await fetch('/wizard/download', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
-      })
-      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); return }
+    const dest = `engines/${id}/checkpoints`
+    let argv
+    if (c.tool === 'snapshot') {
+      argv = ['python', '-c',
+        `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='${dest}')`]
+    } else if (c.tool === 'modelscope') {
+      argv = ['modelscope', 'download', '--model', c.repo, '--local_dir', dest]
+    } else {
+      argv = ['hf', 'download', c.repo, `--local-dir=${dest}`]
+    }
+    // ⛔ 不 await —— 下载在后台跑，用户可以随时进入第 4 步
+    fetch('/wizard/download', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
+    }).then((resp) => {
+      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusy(false); return }
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
+      const pump = () => reader.read().then(({ done, value }) => {
+        if (done) { setDlBusy(false); return }
         buf += decoder.decode(value, { stream: true })
         let sep
         while ((sep = buf.indexOf('\n\n')) >= 0) {
@@ -101,12 +103,19 @@ export function StepModels ({ state, onChange, probe }) {
             setDlTail((t) => [...t.slice(-39), ev.text])
           } else if ('ok' in ev || 'error' in ev) {
             setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
+            setDlBusy(false)
           }
         }
-      }
-    } catch (e) {
+        pump()
+      }).catch((e) => {
+        setDlLive({ stage: 'error', error: e.message })
+        setDlBusy(false)
+      })
+      pump()
+    }).catch((e) => {
       setDlLive({ stage: 'error', error: e.message })
-    } finally { setDlBusy(false) }
+      setDlBusy(false)
+    })
   }
 
   // ⭐ 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/
@@ -183,7 +192,7 @@ export function StepModels ({ state, onChange, probe }) {
                       </td>
                       <td>
                         <button className="btn btn-sm" type="button"
-                          disabled={dlBusy} onClick={() => runDownload(c)}>
+                          onClick={() => runDownload(c)}>
                           {t('Download', '下载')}
                         </button>
                       </td>
