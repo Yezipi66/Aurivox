@@ -28,24 +28,19 @@ export function StepModels ({ state, onChange, probe }) {
   const [busy, setBusy] = React.useState(false)
   const id = state.id
 
+  // ⭐ 下载清单来自 probe（第 1 步），不依赖 manifest
+  //   Owner 2026-10-06：「下载模型就是下载模型，和名片没有任何关系」
+  //   ⛔ 原来调 /wizard/models 是错的 —— 那个端点内部调 describeModels →
+  //     resolveEngineProfile → 需要 manifest，而 manifest 第 4 步才写。
+  //   ✅ 现在直接用 probe.downloader_cmds（第 1 步从 README 提取的下载命令）
   const load = async () => {
     if (!id) return
     setBusy(true); setErr(null)
     try {
-      const res = await fetch(`/wizard/models?id=${encodeURIComponent(id)}`)
-      const j = await res.json()
-      // ⭐ manifest 不存在时不报错 —— 下载清单来自 probe，不依赖 manifest
-      //   ⛔ 只是不显示「缺哪些文件」的表格（M.items 为空）
-      if (!j.ok && j.code === 'NO_PROFILE') {
-        setR({ ok: true, manifest: null, status: null, commands: [] })
-        return
-      }
-      if (!j.ok) { setErr(j.error); return }
-      setR(j)
-      // ⛔ null（说不出来）**不写进 facts** ⇒ 界面上这一步不会变成「已完成」
-      if (j.status && j.status.ready !== null && j.status.ready !== undefined) {
-        onChange({ weightsReady: j.status.ready })
-      }
+      if (!probe) { setErr('No probe data. Complete step 1 first.'); return }
+      const cmds = probe.downloader_cmds || []
+      const scripts = probe.downloader || []
+      setR({ ok: true, manifest: null, status: null, commands: [], downloader_cmds: cmds, downloader: scripts })
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
