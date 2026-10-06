@@ -60,6 +60,18 @@ export function StepModels ({ state, onChange, probe }) {
       .catch(() => { /* 读不到进度文件 ⇒ 没有已下载的 */ })
   }, [id])
 
+  // ⭐ 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表
+  //   ⛔ 不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件
+  //   ⭐ 三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 半截（大小为0）
+  const [fileList, setFileList] = React.useState(null)
+  React.useEffect(() => {
+    if (!id || !dlLive || dlLive.stage !== 'done') return
+    fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (j.ok) setFileList(j.files) })
+      .catch(() => { /* 读不到 ⇒ 空列表 */ })
+  }, [id, dlLive])
+
   const M = (r && r.manifest) || null
   const upstreamScripts = (probe && probe.downloader) || []
   const upstreamCmds = (probe && probe.downloader_cmds) || []
@@ -252,6 +264,29 @@ export function StepModels ({ state, onChange, probe }) {
               {dlLive.ok
                 ? t('Download finished. Re-check to verify.', '下载完成，请重新检查确认。')
                 : t('Download failed:', '下载失败：') + ' ' + (dlLive.error || '')}
+            </div>
+          )}
+
+          {/* ⭐ 逐文件校验结果：三态显示 */}
+          {fileList && fileList.length > 0 && (
+            <div className="preflight" style={{ marginTop: 8 }}>
+              <div className="layer-label">{t('Files on disk', '磁盘上的文件')}</div>
+              {fileList.map((f, i) => {
+                const state = f.size > 0 ? 'ok' : 'partial'
+                return (
+                  <div key={i} className="pf-row">
+                    <span className={`badge badge-${state}`}>
+                      {state === 'ok' ? '✓' : '◐'}
+                    </span>
+                    <span className="pf-val"><code>{f.name}</code></span>
+                    <span className="field-hint" style={{ marginTop: 0 }}>
+                      {f.size > 0
+                        ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+                        : t('(empty / partial)', '（空 / 半截）')}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           )}
 

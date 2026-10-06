@@ -447,6 +447,33 @@ function handleEnv (req, res) {
 }
 
 // ---------------------------------------------------------------------------
+//  GET /wizard/download/files?id=  第 3 步 —— 逐文件校验（不依赖 manifest）
+// ---------------------------------------------------------------------------
+// ⭐ 直接列 engines/<id>/checkpoints/ 下的文件，返回文件名 + 大小。
+//   ⛔ 不依赖 manifest —— 下载就是下载，和名片没有任何关系。
+//   ⭐ 前端据此显示三态：已下载 / 未下载 / 半截（大小为 0 或很小）
+function handleDownloadFiles (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/files')) return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const root = url.searchParams.get('root') || ''
+  const dir = path.join(root, 'engines', id, 'checkpoints')
+  let files = []
+  try {
+    if (fs.existsSync(dir)) {
+      files = fs.readdirSync(dir).map((name) => {
+        const stat = fs.statSync(path.join(dir, name))
+        return { name, size: stat.size, isDir: stat.isDirectory() }
+      }).filter((f) => !f.isDir)
+    }
+  } catch (e) { /* 读不到 ⇒ 空列表 */ }
+  json(res, 200, { ok: true, files })
+  return true
+}
+
+// ---------------------------------------------------------------------------
 //  GET /wizard/download/progress?id=  第 3 步 —— 读断点续传进度
 // ---------------------------------------------------------------------------
 // ⭐ 前端刷新后恢复下载状态用。返回已完成的命令列表。
@@ -562,7 +589,7 @@ function handleVerify (req, res) {
 
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
-  handleClone, handleEnv, handleDownload, handleDownloadProgress, handleModels,
+  handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleVerifyChecks, handleVerify,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
