@@ -45,6 +45,21 @@ export function StepModels ({ state, onChange, probe }) {
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
+  // ⭐ 断点续传：页面加载时读进度文件，恢复「已下载」状态
+  //   ⛔ 不依赖 manifest —— 下载就是下载，和名片没有任何关系
+  React.useEffect(() => {
+    if (!id) return
+    fetch(`/wizard/download/progress?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.ok && Array.isArray(j.done) && j.done.length > 0) {
+          // 有已完成的命令 → 标记为「已下载」
+          setDlLive({ stage: 'done', ok: true })
+        }
+      })
+      .catch(() => { /* 读不到进度文件 ⇒ 没有已下载的 */ })
+  }, [id])
+
   const M = (r && r.manifest) || null
   const upstreamScripts = (probe && probe.downloader) || []
   const upstreamCmds = (probe && probe.downloader_cmds) || []
