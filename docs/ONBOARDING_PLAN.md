@@ -781,6 +781,64 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 ⭐ **分支 `feat/env-isolation-gpu-detect` 上叠了 11 笔，全部未 push**，
 其中 3 笔是另一个会话的（`b6f233e` / `52f08d4` / `c93fe65`）—— 两人在同一条历史上。
 
+## §5.12 ⭐ 向导第 3 步：下载模型（统一落盘，2026-10-06 Owner 定方向）
+
+> **Owner 定的分法**：「统一的是落到引擎下面的目录」—— 落盘路径平台统一
+> （`engines/<id>/checkpoints/`），下载方式跟随上游（hf / modelscope /
+> snapshot_download，从 README 提取）。
+>
+> ⛔ 不是「统一管理模型」：TTS 生态零散（上游改文件名/加版本/换仓库），
+>   平台维护模型清单 = 永远跟不上（Owner 已否定集中式）。
+> ⛔ 唯一管不了的形态：`from_pretrained("repo")` 无 local_dir（模型进 HF 缓存）。
+>   实测 VoxCPM 支持本地路径 ⇒ 可用 snapshot_download 统一落盘绕开。
+
+### 三步（用户原话 + 落盘裁决）
+
+1. **从 README 提取下载命令**（一般是 modelscope 和 HF）
+   现有 `extractDownloadCommands`（wizardbridge.js）已认 CLI 形态
+   （`hf download` / `modelscope download`，实测 IndexTTS 提取出 4 条）。
+   ⚠️ **要扩展认 Python 形态**：`snapshot_download("repo", local_dir=...)`（VoxCPM）。
+2. **嗅探并列出下载清单**（表格：模型名/仓库链接/大小/SHA-256/状态），
+   默认内部去重，加复选框去掉去重。
+3. **下载**（统一落盘 `engines/<id>/checkpoints/`，断点续传 + 进度显示，
+   逐文件校验：已下载=已下载，未下好=未下载，半截=续传或删掉重下+提示）。
+
+### scope（动到的文件）
+
+| 文件 | 改动 |
+|---|---|
+| `tools/engine-wizard/core/wizardbridge.js` | `parseDownloadCmd` 扩认 `snapshot_download("repo", local_dir=…)`；badge 链接（`huggingface.co/<org>/<repo>`）推命令作兜底 |
+| `tools/engine-wizard/core/download.js` | **新建**：下载执行器（照 `env.js` 的 `runOne` 异步 spawn + SSE 流式，透传 CLI 的 stderr 进度） |
+| `tools/engine-wizard/core/models.js` | `describeModels` 增强：调 HF/MS API 展开 per-file 列表（大小可拿，SHA-256 待定）；下载前统一把 `local_dir` 替换成 `engines/<id>/checkpoints/` |
+| `tools/engine-wizard/editor/StepsExtra.jsx` | `StepModels` 界面：表格（名/链接/大小/SHA/状态）+ 去重复选框 + 「下载」按钮 + 进度条（照第 2 步模式） |
+| `tools/engine-wizard/test/models.node.test.js` 等 | 守卫：提取形态 / 落盘替换 / 状态三态 / SSE 流 |
+| `tools/engine-wizard/editor/editor.css` | 表格/进度条样式 |
+
+⛔ 不碰：`tools/deploy/download_models.py`（GSV 专用，models/tts 老路径）——
+   Owner 已确认它不符合平台原则，本批不迁移它。
+⛔ 不动 `tools/engine-wizard/editor/StepDeps.jsx`（第 2 步已完成）。
+
+### 验收点（真实执行，不许「应该可以」）
+
+1. `extractDownloadCommands` 对 IndexTTS README：提取 ≥4 条（hf×2 + modelscope×2）
+2. 对 VoxCPM README：提取到 snapshot_download（Python 形态）
+3. 下载执行：spawn CLI，SSE 出 step/line/done（用小模型实测）
+4. 统一落盘：命令里 local_dir 实际变成 `engines/<id>/checkpoints/`
+5. 下完刷新 `checkpointStatus`：三态正确（已下载/未下载/半截）
+6. 半截文件：hf/modelscope 有缓存 ⇒ 续传；不支持时删缓存重下并提示
+7. 表格 UI：五列渲染 + 去重复选框生效
+8. `npm test` 不新增失败（wizard 现有守卫全绿）
+
+### 依赖 / 顺序
+
+```
+1. parseDownloadCmd 扩展（认 snapshot_download + badge 链接）
+   → 2. download.js（执行器 + SSE，照 env.js 模式）
+   → 3. models.js（per-file 列表 + 落盘替换）
+   → 4. StepModels.jsx（表格 + 去重 + 按钮 + 进度条）
+   → 5. 守卫测试
+```
+
 ## 5. 维护纪律
 
 1. **做完一刀，当场改第 2 节那张表的状态格。** 不许记在别处。
