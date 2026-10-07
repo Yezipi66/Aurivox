@@ -53,6 +53,34 @@ function writeProgress (root, id, doneKeys) {
   } catch (e) { /* 进度文件写不进不该拦住下载 */ }
 }
 
+// ---------------------------------------------------------------------------
+//  parseDownloadProgress / parseSize —— 解析 hf/modelscope tqdm 风格进度
+// ---------------------------------------------------------------------------
+//  ⭐ hf / modelscope CLI 的下载进度是 tqdm 风格：
+//     Downloading model.safetensors: 45%|████▌     | 1.2GB/2.7GB [00:30<00:45, 25.3MB/s]
+//  ⭐ parseDownloadProgress 解析一行，返回 { file, percent, downloaded, total } 或 null
+//  ⭐ parseSize 把 "1.2GB" 之类的字符串转成字节数（1.2GB → 1288490188）
+function parseDownloadProgress (line) {
+  const m = line.match(/Downloading (.+?): (\d+)%\|.*?\| ([\d.]+[KMG]?B?)\/([\d.]+[KMG]?B?) \[/)
+  if (!m) return null
+  return {
+    file: m[1],
+    percent: parseInt(m[2], 10),
+    downloaded: m[3],
+    total: m[4],
+  }
+}
+
+function parseSize (s) {
+  if (!s) return 0
+  const m = String(s).trim().match(/^([\d.]+)\s*([KMG]?B?)$/i)
+  if (!m) return 0
+  const num = parseFloat(m[1])
+  const unit = (m[2] || '').toUpperCase()
+  const mult = { '': 1, 'B': 1, 'KB': 1024, 'MB': 1024 ** 2, 'GB': 1024 ** 3, 'TB': 1024 ** 4 }[unit] || 1
+  return Math.floor(num * mult)
+}
+
 /**
  * 执行一条下载命令（异步流式 + 断点续传）。
  *
@@ -61,6 +89,7 @@ function writeProgress (root, id, doneKeys) {
  * @param {string} input.root      项目根
  * @param {string[]} input.argv    完整命令（已替换好 local_dir）
  * @param {(line:string, isErr:boolean)=>void} [input.onLine]  每行输出回调
+ * @param {(progress:{file:string, percent:number, downloaded:string, total:string})=>void} [input.onProgress]  下载进度回调
  * @param {number} [input.timeoutMs]  超时（毫秒），默认 2 小时
  * @returns {Promise<{ok:boolean, code:string, status:number|null, stdout:string, stderr:string, error?:string}>}
  */
@@ -97,6 +126,16 @@ function runDownload (input = {}) {
       else stdoutTail = (stdoutTail + text).slice(-16000)
       if (typeof input.onLine === 'function') {
         try { input.onLine(text, isErr) } catch (e) { /* 忽略 */ }
+      }
+      // ⭐ 解析 hf/modelscope tqdm 风格进度，触发 onProgress 回调
+      if (!isErr && typeof input.onProgress === 'function') {
+        const lines = text.split('\n')
+        for (const line of lines) {
+          const progress = parseDownloadProgress(line)
+          if (progress) {
+            try { input.onProgress(progress) } catch (e) { /* 忽略 */ }
+          }
+        }
       }
     }
     child.stdout.on('data', (d) => onChunk(d, false))
@@ -328,7 +367,7 @@ function enrichManifestFiles (files, repo, tool, root, id) {
 //     不符即删掉脏文件并判失败
 //  @param {boolean} [skipTmpDetect] 内部用：⛔ 不许外部传。
 //    从零重来时置 true，否则下一跳又会探测到同一个 .tmp ⇒ 无限递归。
-function downloadFileFromUrl (url, file, repo, root, id, onLine, resumeFrom = 0, skipTmpDetect = false) {
+function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false) {
   return new Promise((resolve) => {
     const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
     const finalPath = path.join(dir, file.name)
@@ -364,7 +403,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, resumeFrom = 0,
         req.destroy()
         // ⚠️ Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
         const redirectUrl = new URL(res.headers.location, url).href
-        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, resumeFrom).then(resolve)
+        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom).then(resolve)
         return
       }
 
@@ -397,7 +436,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, resumeFrom = 0,
       if (resumeFrom > 0 && status !== 206) {
         resumeFrom = 0
         req.destroy()
-        downloadFileFromUrl(url, file, repo, root, id, onLine, 0, true).then(resolve)
+        downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true).then(resolve)
         return
       }
 
@@ -421,6 +460,20 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, resumeFrom = 0,
         out.write(chunk)
         if (typeof onLine === 'function') {
           try { onLine(`Downloaded ${downloaded} bytes`, false) } catch (e) { /* 忽略 */ }
+        }
+        // ⭐ 计算并报告下载进度
+        if (typeof onProgress === 'function') {
+          const total = expectedSize > 0 ? expectedSize : (startOffset + contentLength)
+          if (total > 0) {
+            try {
+              onProgress({
+                file: file.name,
+                percent: Math.min(100, Math.round((downloaded / total) * 100)),
+                downloaded: downloaded,
+                total: total,
+              })
+            } catch (e) { /* 忽略 */ }
+          }
         }
       })
       res.on('end', () => {
@@ -474,9 +527,40 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, resumeFrom = 0,
 // ---------------------------------------------------------------------------
 //  downloadFile —— 下载单个文件（入口函数，构建 URL 后调用 downloadFileFromUrl）
 // ---------------------------------------------------------------------------
-function downloadFile (file, repo, root, id, onLine) {
-  const url = `https://huggingface.co/${repo}/resolve/main/${file.name}`
-  return downloadFileFromUrl(url, file, repo, root, id, onLine, 0)
+//  ⭐ URL 编码：对 file.name 的每个路径部分编码，但保留 / 作为路径分隔符
+//  ⭐ 分支名：优先使用传入的 branch，否则依次尝试 main、master
+//  ⭐ 404 重试：当前分支 404 时自动尝试下一个分支
+function encodeFilePath (filePath) {
+  if (!filePath) return ''
+  return filePath.split('/').map(encodeURIComponent).join('/')
 }
 
-module.exports = { runDownload, unifyDest, readProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, downloadFile, downloadFileFromUrl }
+function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, branches) {
+  if (!branches || branches.length === 0) {
+    return Promise.resolve({
+      ok: false,
+      code: 'ALL_BRANCHES_FAILED',
+      status: null,
+      error: 'All branch attempts failed (tried: main, master).',
+      errorZh: '所有分支尝试均失败（已尝试：main、master）。',
+    })
+  }
+  const [currentBranch, ...rest] = branches
+  const encodedName = encodeFilePath(file.name)
+  const url = `https://huggingface.co/${repo}/resolve/${currentBranch}/${encodedName}`
+  return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0).then((result) => {
+    // 成功或非 404 错误，直接返回
+    if (result.ok || !result.status || result.status !== 404) {
+      return result
+    }
+    // 404 时尝试下一个分支
+    return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, rest)
+  })
+}
+
+function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
+  const branches = branch ? [branch] : ['main', 'master']
+  return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches)
+}
+
+module.exports = { runDownload, unifyDest, readProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }

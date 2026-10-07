@@ -535,6 +535,31 @@ function buildEnvPlan (input = {}) {
 
 /** 执行。⛔ 只有 execute:true 才真跑。 */
 /**
+ * 解析 uv/pip 的下载进度行。
+ * @param {string} text 输出文本（可能含多行）
+ * @returns {{file:string, size:string|null, status:string}[]}
+ */
+function parseProgress (text) {
+  if (!text || typeof text !== 'string') return []
+  const results = []
+  for (const l of text.split('\n')) {
+    const trimmed = l.trim()
+    // uv 下载行：Downloading torch (731.1MiB)
+    let m = trimmed.match(/^Downloading\s+(\S+)\s+\(([^)]+)\)/)
+    if (m) {
+      results.push({ file: m[1], size: m[2], status: 'downloading' })
+      continue
+    }
+    // uv 下载完成：Downloaded torch
+    m = trimmed.match(/^Downloaded\s+(\S+)/)
+    if (m) {
+      results.push({ file: m[1], size: null, status: 'downloaded' })
+    }
+  }
+  return results
+}
+
+/**
  * 跑一步（异步流式）。返回 Promise<{ok, code, status, stdout, stderr, error}>
  *
  * ⭐ 为什么异步：同步 spawnSync 会**阻塞**直到命令结束 —— 装依赖要几分钟到几
@@ -567,6 +592,13 @@ function runOne (step, root, timeoutMs, argvOverride, onLine) {
       if (typeof onLine === 'function') {
         // ⛔ 回调不能中断执行；出错只当没听见
         try { onLine(text, isErr) } catch (e) { /* 忽略 */ }
+      }
+      // 解析 uv/pip 下载进度并发送
+      const progress = parseProgress(text)
+      for (const p of progress) {
+        if (typeof send === 'function') {
+          try { send('progress', p) } catch (e) { /* 忽略 */ }
+        }
       }
     }
     child.stdout.on('data', (d) => onChunk(d, false))

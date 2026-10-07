@@ -190,7 +190,10 @@ function handleProbe (req, res) {
     let readmeCmds = []
     if (dlScripts.length === 0) {
       const rd = (await fetchRaw(parsed.owner, parsed.repo, 'README.md')) || ''
-      readmeCmds = extractDownloadCommands(rd)
+      readmeCmds = extractDownloadCommands(rd).map((cmd) => ({
+        ...cmd,
+        repo: cmd.repo || `${parsed.owner}/${parsed.repo}`,
+      }))
     }
 
     if (!texts['pyproject.toml']) {
@@ -530,6 +533,8 @@ function handleDownloadFile (req, res) {
     }
     downloadFile(file, repo, root, id, (text, isErr) => {
       send('line', { text, err: !!isErr })
+    }, (p) => {
+      send('progress', { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total })
     }).then((r) => {
       send('done', r)
       res.end()
@@ -590,6 +595,10 @@ function handleDownload (req, res) {
     // ⭐ onLine：每行输出（前端用来画进度条 / 实时日志）
     input.onLine = (text, isErr) => {
       send('line', { text: text.replace(/\r?\n$/, ''), err: !!isErr })
+    }
+    // ⭐ onProgress：下载进度（前端用来画进度条）
+    input.onProgress = (p) => {
+      send('progress', { file: p.file, percent: p.percent, downloaded: p.downloaded, total: p.total })
     }
     runDownload(input).then((r) => {
       send('done', r)

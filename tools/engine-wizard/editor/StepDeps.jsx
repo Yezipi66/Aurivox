@@ -88,6 +88,7 @@ export default function StepDeps ({ state }) {
   //   ⛔ 只在执行中更新；done 之后保持最后状态让用户看到结果。
   const [live, setLive] = React.useState(null)   // {stage:'step'|'line', i, total, argv, text, err}
   const [tail, setTail] = React.useState([])      // 最近 N 行输出
+  const [progress, setProgress] = React.useState(null) // 字节进度 {name, downloaded, total}
 
   // ⛔ 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
   //   ⛔ 不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
@@ -124,6 +125,8 @@ export default function StepDeps ({ state }) {
             } else if ('text' in ev) {
               setLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
               setTail((t) => [...t.slice(-39), ev.text])
+            } else if ('name' in ev && ('downloaded' in ev || 'total' in ev)) {
+              setProgress({ name: ev.name, downloaded: ev.downloaded || 0, total: ev.total || 0 })
             } else if ('ok' in ev || 'stepsRun' in ev || 'error' in ev) {
               finalResult = ev
             }
@@ -338,18 +341,37 @@ export default function StepDeps ({ state }) {
       {busy && (
         <div className="preflight" style={{ marginTop: 0 }}>
           <div className="layer-label">
-            {live && live.stage === 'step'
-              ? t(`Step ${live.i}/${live.total}`, `第 ${live.i}/${live.total} 步`)
-              : t('Running…', '执行中…')}
+            {progress
+              ? t(`Downloading ${progress.name} (${fmtBytes(progress.downloaded)})`,
+                  `正在下载 ${progress.name}（${fmtBytes(progress.downloaded)}）`)
+              : live && live.stage === 'step'
+                ? t(`Step ${live.i}/${live.total}`, `第 ${live.i}/${live.total} 步`)
+                : t('Running…', '执行中…')}
           </div>
+          {progress && (
+            <div className="pf-row">
+              <span className="badge badge-sym">⬇</span>
+              <span className="pf-val">
+                <code>{progress.name}</code>
+                <span className="field-hint" style={{ marginTop: 0 }}>
+                  {fmtBytes(progress.downloaded)}{progress.total > 0 ? ` / ${fmtBytes(progress.total)}` : ''}
+                </span>
+              </span>
+            </div>
+          )}
           {live && live.stage === 'step' && (
             <div className="pf-row">
               <span className="badge badge-sym">▶</span>
               <span className="pf-val"><code>{live.argv}</code></span>
             </div>
           )}
-          {/* 进度条：有总步数时按步数显示，单步时用不确定动画 */}
-          {live && live.total > 1 ? (
+          {/* 进度条：有字节进度时按字节显示，有总步数时按步数显示，单步时用不确定动画 */}
+          {progress && progress.total > 0 ? (
+            <div className="wz-progress">
+              <div className="wz-progress-bar"
+                style={{ width: `${Math.round((progress.downloaded / progress.total) * 100)}%` }} />
+            </div>
+          ) : live && live.total > 1 ? (
             <div className="wz-progress">
               <div className="wz-progress-bar"
                 style={{ width: `${Math.round(((live.i - 1) / live.total) * 100) + (live.stage === 'line' ? 100 / live.total : 0)}%` }} />
@@ -403,6 +425,14 @@ export default function StepDeps ({ state }) {
       )}
     </div>
   )
+}
+
+function fmtBytes (n) {
+  if (!n || n <= 0) return '0B'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
+  return n.toFixed(n >= 100 ? 0 : 1) + units[i]
 }
 
 function backendOf (options, key) {

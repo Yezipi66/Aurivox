@@ -22,6 +22,30 @@ import { loadDownloadState, saveDownloadState } from './downloadState'
 // probe 是第 1 步探测的原始结果 —— 上游自己的下载入口就在那里面。
 //   ⇒ 这一步优先展示**上游自己给的**方式，⛔ 平台不另造一套。
 //   判据：界面上出现的下载命令必须能在 probe.downloader / downloader_cmds 里找到出处。
+
+// ⭐ 统一命令构建：展示和执行使用同一个函数
+//   display: 用户看到的命令字符串
+//   argv: 实际执行的命令数组
+//   ⚠️ 两者来自同一个函数，确保逻辑一致
+const buildCommand = (c) => {
+  if (c.tool === 'snapshot') {
+    return {
+      display: `python -c "from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')"`,
+      argv: ['python', '-c', `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')`]
+    }
+  } else if (c.tool === 'modelscope') {
+    return {
+      display: `modelscope download --model ${c.repo} --local_dir checkpoints`,
+      argv: ['modelscope', 'download', '--model', c.repo, '--local_dir', 'checkpoints']
+    }
+  } else {
+    return {
+      display: `hf download ${c.repo} --local-dir=checkpoints`,
+      argv: ['hf', 'download', c.repo, '--local-dir=checkpoints']
+    }
+  }
+}
+
 export function StepModels ({ state, onChange, probe }) {
   const { t, lang } = useT()
   const [r, setR] = React.useState(null)
@@ -51,6 +75,7 @@ export function StepModels ({ state, onChange, probe }) {
   const [dlLive, setDlLive] = React.useState(null)
   const [dlTail, setDlTail] = React.useState([])
   const [dlBusy, setDlBusy] = React.useState(false)
+  const [dlProgress, setDlProgress] = React.useState(null)
 
   // ⭐ 远端文件列表（来自 /wizard/download/manifest）
   const [manifest, setManifest] = React.useState(null)
@@ -126,7 +151,11 @@ export function StepModels ({ state, onChange, probe }) {
   //     再点击另一个仓库的按钮，追加其文件到列表后面
   //   ⭐ 同仓库去重：同一个仓库重复点击按钮，忽略
   const loadManifest = async (c) => {
-    if (!id || !c || !c.repo) return
+    if (!id || !c || !c.repo) {
+      setProbeError(t('Repository information is missing. Please check the upstream README.',
+        '仓库信息缺失，请检查上游 README。'))
+      return
+    }
     setProbeLoading(true)
     setProbeError(null)
     try {
@@ -171,9 +200,14 @@ export function StepModels ({ state, onChange, probe }) {
       tool: f.tool || tool,
     }))
     if (!Array.isArray(prev) || prev.length === 0) return freshList
-    const key = (f) => `${f.repo || ''}|${f.name}`
+    // ⭐ 用传入的 repo 作为 fallback，确保 prev 里的文件也有 repo
+    const key = (f) => `${f.repo || repo}|${f.name}`
     const byKey = new Map(freshList.map((f) => [key(f), f]))
-    const merged = prev.map((f) => byKey.get(key(f)) || f)
+    const merged = prev.map((f) => byKey.get(key(f)) || {
+      ...f,
+      repo: f.repo || repo,
+      tool: f.tool || tool,
+    })
     const seen = new Set(prev.map(key))
     for (const f of freshList) if (!seen.has(key(f))) merged.push(f)
     return merged
@@ -245,9 +279,12 @@ export function StepModels ({ state, onChange, probe }) {
             if ('text' in ev) {
               setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
               setDlTail((t) => [...t.slice(-39), ev.text])
+            } else if ('percent' in ev) {
+              setDlProgress({ file: ev.file || '', percent: ev.percent || 0, downloaded: ev.downloaded || '', total: ev.total || '' })
             } else if ('ok' in ev || 'error' in ev) {
               setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
               setDlBusyBoth(false)
+              setDlProgress(null)
               // ⭐ 下载完成后自动刷新 manifest（合并刷新，⛔ 不整表覆盖）
               if (ev.ok && id) {
                 const refreshTool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
@@ -272,15 +309,8 @@ export function StepModels ({ state, onChange, probe }) {
     }
     // ⭐ 路径由后端 unifyDest 统一处理，前端只传原始命令
     //   ⛔ 原来硬编码 `engines/${id}/checkpoints` 正斜杠，在 Windows 上可能有问题
-    let argv
-    if (c.tool === 'snapshot') {
-      argv = ['python', '-c',
-        `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')`]
-    } else if (c.tool === 'modelscope') {
-      argv = ['modelscope', 'download', '--model', c.repo, '--local_dir', 'checkpoints']
-    } else {
-      argv = ['hf', 'download', c.repo, '--local-dir=checkpoints']
-    }
+    // ⭐ 使用 buildCommand 统一构建，确保执行和展示一致
+    const { argv } = buildCommand(c)
     // ⛔ 不 await —— 下载在后台跑，用户可以随时进入第 4 步
     fetch('/wizard/download', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -303,9 +333,12 @@ export function StepModels ({ state, onChange, probe }) {
           if ('text' in ev) {
             setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
             setDlTail((t) => [...t.slice(-39), ev.text])
+          } else if ('percent' in ev) {
+            setDlProgress({ file: ev.file || '', percent: ev.percent || 0, downloaded: ev.downloaded || '', total: ev.total || '' })
           } else if ('ok' in ev || 'error' in ev) {
             setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
             setDlBusyBoth(false)
+            setDlProgress(null)
             // ⭐ 下载完成后自动调 /wizard/download/files 逐文件校验
             //   ⛔ 不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件
             if (ev.ok && id) {
@@ -467,14 +500,12 @@ export function StepModels ({ state, onChange, probe }) {
                 {probeError}
               </div>
             )}
-            {visibleCmds.map((c, i) => (
+            {visibleCmds.map((c, i) => {
+              const { display } = buildCommand(c)
+              return (
               <div key={i} className="rc-cmd" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>
-                  {c.tool === 'snapshot'
-                    ? `python -c "from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')"`
-                    : c.tool === 'modelscope'
-                      ? `modelscope download --model ${c.repo} --local_dir checkpoints`
-                      : `hf download ${c.repo} --local-dir=checkpoints`}
+                  {display}
                 </pre>
                 <button
                   className="btn btn-sm"
@@ -488,7 +519,8 @@ export function StepModels ({ state, onChange, probe }) {
                     : t('Probe repo', '嗅探仓库')}
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -506,13 +538,26 @@ export function StepModels ({ state, onChange, probe }) {
       {dlBusy && (
         <div className="preflight" style={{ marginTop: 8 }}>
           <div className="layer-label">
-            {dlLive && dlLive.stage === 'line'
-              ? t('Downloading…', '下载中…')
-              : t('Starting…', '启动中…')}
+            {dlProgress
+              ? t(`Downloading ${dlProgress.file} (${dlProgress.percent}%)`, `正在下载 ${dlProgress.file} (${dlProgress.percent}%)`)
+              : (dlLive && dlLive.stage === 'line'
+                ? t('Downloading…', '下载中…')
+                : t('Starting…', '启动中…'))}
           </div>
-          <div className="wz-progress wz-progress-indeterminate">
-            <div className="wz-progress-bar" />
-          </div>
+          {dlProgress ? (
+            <>
+              <div className="wz-progress">
+                <div className="wz-progress-bar" style={{ width: `${dlProgress.percent}%` }} />
+              </div>
+              <div className="field-hint" style={{ marginTop: 4 }}>
+                {dlProgress.downloaded}{dlProgress.total ? ` / ${dlProgress.total}` : ''}
+              </div>
+            </>
+          ) : (
+            <div className="wz-progress wz-progress-indeterminate">
+              <div className="wz-progress-bar" />
+            </div>
+          )}
           {dlTail.length > 0 && (
             <div className="rc-cmd-body" style={{ marginTop: 4, maxHeight: 120, overflowY: 'auto' }}>
               <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
