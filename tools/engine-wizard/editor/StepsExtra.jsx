@@ -1,5 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import { loadDownloadState, saveDownloadState } from './downloadState'
 
 // ============================================================================
 //  STEP WEIGHTS + STEP VERIFY + STEP READY —— 第 3 / 5 / 6 步
@@ -22,7 +23,7 @@ import { useT } from '../../../web/src/lib/i18n'
 //   ⇒ 这一步优先展示**上游自己给的**方式，⛔ 平台不另造一套。
 //   判据：界面上出现的下载命令必须能在 probe.downloader / downloader_cmds 里找到出处。
 export function StepModels ({ state, onChange, probe }) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const [r, setR] = React.useState(null)
   const [err, setErr] = React.useState(null)
   const [busy, setBusy] = React.useState(false)
@@ -55,6 +56,26 @@ export function StepModels ({ state, onChange, probe }) {
   const [manifest, setManifest] = React.useState(null)
   const [probeLoading, setProbeLoading] = React.useState(false)
   const [probeError, setProbeError] = React.useState(null)
+
+  // ⭐ 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
+  const [dedup, setDedup] = React.useState(true)
+
+  // ⭐ 持久化：从 localStorage 恢复状态
+  React.useEffect(() => {
+    if (!id) return
+    const saved = loadDownloadState(id)
+    if (saved) {
+      if (saved.manifest) setManifest(saved.manifest)
+      if (saved.probeError) setProbeError(saved.probeError)
+      if (typeof saved.dedup === 'boolean') setDedup(saved.dedup)
+    }
+  }, [id])
+
+  // ⭐ 持久化：保存状态到 localStorage
+  React.useEffect(() => {
+    if (!id) return
+    saveDownloadState(id, { manifest, probeError, dedup })
+  }, [id, manifest, probeError, dedup])
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
@@ -92,8 +113,6 @@ export function StepModels ({ state, onChange, probe }) {
   const upstreamScripts = (probe && probe.downloader) || []
   const upstreamCmds = (probe && probe.downloader_cmds) || []
 
-  // ⭐ 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
-  const [dedup, setDedup] = React.useState(true)
   const seenRepos = new Set()
   const visibleCmds = upstreamCmds.filter((c) => {
     if (!dedup) return true
@@ -139,6 +158,25 @@ export function StepModels ({ state, onChange, probe }) {
     } catch (e) {
       setProbeError(e.message || t('Probe failed', '嗅探失败'))
     } finally { setProbeLoading(false) }
+  }
+
+  // ⭐ manifest 刷新：把新状态合并回旧表，⛔ 不整表覆盖
+  //   ⚠️ 刷新响应可能缺 repo/tool（旧后端），而旧表里每一项都带着来源 ——
+  //     整表覆盖会把「这个文件属于哪个仓库」抹掉，重下/续传按钮随之失效。
+  //   ⭐ 以「仓库 + 文件名」为键：命中就更新状态，⛔ 不动其他仓库的行。
+  const mergeManifest = (prev, fresh, repo, tool) => {
+    const freshList = (fresh || []).map((f) => ({
+      ...f,
+      repo: f.repo || repo,
+      tool: f.tool || tool,
+    }))
+    if (!Array.isArray(prev) || prev.length === 0) return freshList
+    const key = (f) => `${f.repo || ''}|${f.name}`
+    const byKey = new Map(freshList.map((f) => [key(f), f]))
+    const merged = prev.map((f) => byKey.get(key(f)) || f)
+    const seen = new Set(prev.map(key))
+    for (const f of freshList) if (!seen.has(key(f))) merged.push(f)
+    return merged
   }
 
   // ⭐ 下载全部：遍历所有 missing/partial 文件，逐个下载
@@ -208,14 +246,15 @@ export function StepModels ({ state, onChange, probe }) {
               setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
               setDlTail((t) => [...t.slice(-39), ev.text])
             } else if ('ok' in ev || 'error' in ev) {
-              setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
+              setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
               setDlBusyBoth(false)
-              // ⭐ 下载完成后自动刷新 manifest
+              // ⭐ 下载完成后自动刷新 manifest（合并刷新，⛔ 不整表覆盖）
               if (ev.ok && id) {
-                fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${c.tool === 'modelscope' ? 'modelscope' : 'hf'}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
+                const refreshTool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
+                fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${refreshTool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
                   .then((r) => r.json())
-                  .then((j) => { if (j.ok) setManifest(j.files) })
-                  .catch(() => { /* 读不到 ⇒ 空列表 */ })
+                  .then((j) => { if (j.ok) setManifest((prev) => mergeManifest(prev, j.files, c.repo, refreshTool)) })
+                  .catch(() => { /* 读不到 ⇒ 保留旧表 */ })
               }
             }
           }
@@ -265,7 +304,7 @@ export function StepModels ({ state, onChange, probe }) {
             setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
             setDlTail((t) => [...t.slice(-39), ev.text])
           } else if ('ok' in ev || 'error' in ev) {
-            setDlLive({ stage: 'done', ok: ev.ok, error: ev.error })
+            setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
             setDlBusyBoth(false)
             // ⭐ 下载完成后自动调 /wizard/download/files 逐文件校验
             //   ⛔ 不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件
@@ -343,8 +382,20 @@ export function StepModels ({ state, onChange, probe }) {
                 const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
                 return (
                   <tr key={i}>
-                    <td><code>{f.name}</code></td>
-                    <td><code>{f.repo || ''}</code></td>
+                    <td><code>{f.name || ''}</code></td>
+                    <td>
+                      {f.repo ? (
+                        <a
+                          href={f.tool === 'modelscope'
+                            ? `https://modelscope.cn/models/${f.repo}`
+                            : `https://huggingface.co/${f.repo}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {f.repo}
+                        </a>
+                      ) : t('(unknown)', '（未知）')}
+                    </td>
                     <td>
                       {f.size > 0
                         ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
@@ -357,7 +408,13 @@ export function StepModels ({ state, onChange, probe }) {
                     </td>
                     <td>
                       {f.status === 'ok' && <span title={t('Done', '已完成')}>✅</span>}
-                      {f.status === 'partial' && <span title={t('Downloading', '下载中')}>⌛</span>}
+                      {f.status === 'partial' && (
+                        <span title={
+                          lang === 'zh'
+                            ? (f.noteZh || '文件不完整，需要续传或重下。')
+                            : (f.note || 'The file is incomplete — resume or re-download it.')
+                        }>⌛</span>
+                      )}
                       {f.status === 'missing' && <span title={t('Missing', '未下载')}>❌</span>}
                     </td>
                     <td>
@@ -469,7 +526,7 @@ export function StepModels ({ state, onChange, probe }) {
         <div className={`msg ${dlLive.ok ? 'msg-info' : 'msg-danger'}`}>
           {dlLive.ok
             ? t('Download finished. Re-check to verify.', '下载完成，请重新检查确认。')
-            : t('Download failed:', '下载失败：') + ' ' + (dlLive.error || '')}
+            : t('Download failed:', '下载失败：') + ' ' + (lang === 'zh' && dlLive.errorZh ? dlLive.errorZh : (dlLive.error || ''))}
         </div>
       )}
 

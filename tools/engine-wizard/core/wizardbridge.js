@@ -10,9 +10,9 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { resolveEngine, parseRepoUrl } = require('./resolve')
-const { runClone, buildClonePlan } = require('./clone')
+const { runClone, buildClonePlan, projectRoot } = require('./clone')
 const { runEnv, buildEnvPlan } = require('./env')
-const { runDownload, unifyDest, fetchRemoteManifest, checkFileStatus, downloadFile } = require('./download')
+const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, detectDependencyFile, planDependencies } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
@@ -459,7 +459,7 @@ function handleDownloadFiles (req, res) {
   const url = new URL(req.url, 'http://x')
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
-  const root = url.searchParams.get('root') || ''
+  const root = url.searchParams.get('root') || projectRoot() || ''
   const dir = path.join(root, 'engines', id, 'checkpoints')
   let files = []
   try {
@@ -477,8 +477,11 @@ function handleDownloadFiles (req, res) {
 // ---------------------------------------------------------------------------
 //  GET /wizard/download/manifest?id=&repo=&tool=  第 3 步 —— 获取远端文件列表
 // ---------------------------------------------------------------------------
-//  ⭐ 调用 fetchRemoteManifest 获取文件列表，再逐个 checkFileStatus
-//  ⭐ 返回 { ok: true, files: [{ name, size, sha256, status }] }
+//  ⭐ 调用 fetchRemoteManifest 获取文件列表，再用 enrichManifestFiles 补本地状态
+//  ⭐ 返回 { ok: true, files: [{ name, size, sha256, status, repo, tool, note, noteZh }] }
+//  ⛔ 必须带 repo/tool —— 前端单文件下载完成后会重新调本端点刷新，
+//     刷新后整表覆盖。⛔ 不带 repo 就等于把表里每一项的来源抹掉，
+//     重下/续传按钮和仓库列会一起变成「未知」。
 function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
@@ -488,16 +491,13 @@ function handleDownloadManifest (req, res) {
   const tool = url.searchParams.get('tool') || 'hf'
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   if (!repo) { json(res, 400, { ok: false, error: '?repo= is required' }); return true }
-  const root = url.searchParams.get('root') || ''
+  const root = url.searchParams.get('root') || projectRoot() || ''
   fetchRemoteManifest(repo, tool).then((result) => {
     if (!result.ok) {
       json(res, 200, { ok: false, error: result.error || 'Failed to fetch remote manifest' })
       return
     }
-    const enriched = result.files.map((f) => {
-      const st = checkFileStatus(f.name, f.size, root, id)
-      return { name: f.name, size: f.size, sha256: st.sha256, status: st.status }
-    })
+    const enriched = enrichManifestFiles(result.files, repo, tool, root, id)
     json(res, 200, { ok: true, files: enriched })
   }).catch((e) => {
     json(res, 200, { ok: false, error: (e && e.message) || String(e) })
@@ -514,9 +514,10 @@ function handleDownloadFile (req, res) {
   if (!req.url || !req.url.startsWith('/wizard/download/file')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
-    const { id, root, file } = body
+    const { id, file } = body
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     if (!file || !file.name) { json(res, 400, { ok: false, error: 'file.name is required' }); return }
+    const root = body.root || projectRoot() || ''
     const repo = body.repo || ''
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -552,7 +553,7 @@ function handleDownloadProgress (req, res) {
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   const { readProgress } = require('./download')
-  const root = url.searchParams.get('root') || ''
+  const root = url.searchParams.get('root') || projectRoot() || ''
   const done = [...readProgress(root, id)]
   json(res, 200, { ok: true, done })
   return true
