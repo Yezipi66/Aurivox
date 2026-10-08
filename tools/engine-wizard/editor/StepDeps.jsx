@@ -26,6 +26,49 @@ import { RiskUnlock } from './Pipeline'
  * ⛔ mark 用符号（✓ ! ?）是因为它要放进表格第一列，
  *   ⛔ 符号旁边永远跟着完整文字，不靠符号表意。
  */
+// ============================================================================
+// localStorage 持久化工具（照 downloadState.js 的模式）
+//   - 按引擎 ID 隔离状态
+//   - localStorage 不可用时静默失败
+//   - 不保存瞬态状态（busy、live、tail）
+// ============================================================================
+
+const STORAGE_KEY_PREFIX = 'wizard:deps:'
+
+function getStorage () {
+  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
+  if (typeof global !== 'undefined' && global.localStorage) return global.localStorage
+  return null
+}
+
+function getKey (id) {
+  return STORAGE_KEY_PREFIX + id
+}
+
+function loadDepsState (id) {
+  if (!id) return null
+  try {
+    const storage = getStorage()
+    if (!storage) return null
+    const raw = storage.getItem(getKey(id))
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch (e) {
+    return null
+  }
+}
+
+function saveDepsState (id, state) {
+  if (!id) return
+  try {
+    const storage = getStorage()
+    if (!storage) return
+    storage.setItem(getKey(id), JSON.stringify(state))
+  } catch (e) {
+    // localStorage 不可用时静默失败
+  }
+}
+
 const VERDICT = {
   match: { mark: '✓', en: 'Matches this machine', zh: '与本机匹配' },
   mismatch: { mark: '!', en: 'Does not match this machine', zh: '与本机不匹配' },
@@ -34,15 +77,32 @@ const VERDICT = {
 
 export default function StepDeps ({ state }) {
   const { t, lang } = useT()
-  // ⛔ 数据自己取，不靠 App 往下传 —— 那条链路对不上。
-  const [plan, setPlan] = React.useState(null)
-  const [showNormal, setShowNormal] = React.useState(false)
-  const [backend, setBackend] = React.useState(null)
-  const [unlocked, setUnlocked] = React.useState(false)
-  const [busy, setBusy] = React.useState(false)
-  const [result, setResult] = React.useState(null)
-
+  const engineId = state.id
   const url = state.repoUrl || ''
+
+  // 从 localStorage 恢复状态（懒初始化，避免首帧覆盖）
+  const saved = React.useMemo(() => loadDepsState(engineId), [engineId])
+
+  // ⛔ 数据自己取，不靠 App 往下传 —— 那条链路对不上。
+  const [plan, setPlan] = React.useState(saved?.plan || null)
+  const [showNormal, setShowNormal] = React.useState(saved?.showNormal || false)
+  const [backend, setBackend] = React.useState(saved?.backend || null)
+  const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
+  const [busy, setBusy] = React.useState(false)
+  const [result, setResult] = React.useState(saved?.result || null)
+  const [preview, setPreview] = React.useState(saved?.preview || null)
+  const [live, setLive] = React.useState(null)   // 瞬态，不持久化
+  const [tail, setTail] = React.useState([])      // 瞬态，不持久化
+  const [progress, setProgress] = React.useState(saved?.progress || null)
+
+  // 保存到 localStorage（排除瞬态状态）
+  React.useEffect(() => {
+    if (!engineId) return
+    saveDepsState(engineId, {
+      plan, showNormal, backend, unlocked, result, preview, progress,
+    })
+  }, [engineId, plan, showNormal, backend, unlocked, result, preview, progress])
+
   const reload = async () => {
     if (!url) return
     try {
@@ -64,8 +124,6 @@ export default function StepDeps ({ state }) {
   //   ⛔ 上一版只在点「安装」后才有 result，而 alternative 在 result 里
   //   ⇒ 用户看计划时看不到第二条命令，那正是它该出现的地方。
   //   ⛔ execute: false ⇒ 后端只出计划不执行（平台只验不建）。
-  const [preview, setPreview] = React.useState(null)
-  const engineId = state.id
   React.useEffect(() => {
     if (!engineId) return
     let alive = true
@@ -86,9 +144,6 @@ export default function StepDeps ({ state }) {
 
   // ⭐⭐ 实时安装状态 —— 进度条 / 当前步骤 / 最近输出
   //   ⛔ 只在执行中更新；done 之后保持最后状态让用户看到结果。
-  const [live, setLive] = React.useState(null)   // {stage:'step'|'line', i, total, argv, text, err}
-  const [tail, setTail] = React.useState([])      // 最近 N 行输出
-  const [progress, setProgress] = React.useState(null) // 字节进度 {name, downloaded, total}
 
   // ⛔ 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
   //   ⛔ 不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
@@ -178,6 +233,13 @@ export default function StepDeps ({ state }) {
           <b>{backendOf(hw.options, hw.recommended)}</b>
           {hw.reason && <div className="field-hint">{t(hw.reason, hw.reasonZh)}</div>}
           {hw.caveat && <div className="field-hint">⚠ {t(hw.caveat, hw.caveatZh)}</div>}
+          <p className="field-hint" style={{ marginTop: 0 }}>
+            {t('Several GB are downloaded and it takes a while. If it stops midway, '
+              + 'run this step again — the download continues from the breakpoint '
+              + 'and already-downloaded wheels are kept.',
+              '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
+              + '已下载的依赖不会重下。')}
+          </p>
         </div>
       )}
 
@@ -320,23 +382,6 @@ export default function StepDeps ({ state }) {
         </div>
       )}
 
-      {/* ---- 执行：显式解锁（照 TrainingTab 的 expert-unlock）----
-          ⚠ RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
-            ⛔ 不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
-      <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
-        <button className="btn btn-primary btn-sm" type="button"
-          disabled={busy} onClick={run}>
-          {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
-        </button>
-      </RiskUnlock>
-      <p className="field-hint" style={{ marginTop: 0 }}>
-        {t('Several GB are downloaded and it takes a while. If it stops midway, '
-          + 'run this step again — the download continues from the breakpoint '
-          + 'and already-downloaded wheels are kept.',
-          '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-          + '已下载的依赖不会重下。')}
-      </p>
-
       {/* ---- ⭐ 实时进度：busy 时显示 ---- */}
       {busy && (
         <div className="preflight" style={{ marginTop: 0 }}>
@@ -423,6 +468,16 @@ export default function StepDeps ({ state }) {
       {result && result.ok && result.note && (
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
+
+      {/* ---- 执行：显式解锁（照 TrainingTab 的 expert-unlock）----
+          ⚠ RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
+            ⛔ 不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
+      <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
+        <button className="btn btn-primary btn-sm" type="button"
+          disabled={busy} onClick={run}>
+          {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
+        </button>
+      </RiskUnlock>
     </div>
   )
 }

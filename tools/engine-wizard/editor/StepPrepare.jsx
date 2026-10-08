@@ -319,6 +319,16 @@ const done = facts && facts.cloned === true
             </span>
           </div>
 
+          {cloneRes && !cloneRes.ok && (
+            <div className="msg msg-danger">{cloneRes.error}</div>
+          )}
+          {done && (
+            <div className="msg msg-info">
+              {t('Cloned into engines/' + (idInput || autoId) + '/.',
+                '已克隆到 engines/' + (idInput || autoId) + '/。')}
+            </div>
+          )}
+
           {/* ⭐ vars：把项目名和**完整路径**喂给风险文案
               （⛔ 原来只说「写进 engines/」，而那目录里已经有好几个引擎了，
                 用户分不清这一步要动的是哪一个）*/}
@@ -332,16 +342,6 @@ const done = facts && facts.cloned === true
               {t('Next', '下一步')}
             </button>
           </RiskUnlock>
-
-          {cloneRes && !cloneRes.ok && (
-            <div className="msg msg-danger">{cloneRes.error}</div>
-          )}
-          {done && (
-            <div className="msg msg-info">
-              {t('Cloned into engines/' + (idInput || autoId) + '/.',
-                '已克隆到 engines/' + (idInput || autoId) + '/。')}
-            </div>
-          )}
         </>
       )}
     </div>

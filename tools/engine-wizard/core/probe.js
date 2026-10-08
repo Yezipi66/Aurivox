@@ -279,8 +279,9 @@ function planDependencies (text, opts = {}) {
     //    用户看不到凭什么推荐 ipex）
     hardware: hw ? {
       gpus: hw.gpus || [],
-      recommended: hw.recommended, reason: hw.reason,
-      confidence: hw.confidence, caveat: hw.caveat, options: hw.options,
+      recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
+      confidence: hw.confidence, caveat: hw.caveat, caveatZh: hw.caveatZh,
+      options: hw.options,
     } : null,
     verdict: overall,
   }

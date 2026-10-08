@@ -50,7 +50,7 @@ function validatePlugin () {
   const {
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify,
+    handleVerifyChecks, handleVerify, handleProfile,
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,
   } = require(path.join(CORE, 'wizardbridge.js'))
@@ -60,7 +60,7 @@ function validatePlugin () {
     handleSpec, handleRead,
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify,
+    handleVerifyChecks, handleVerify, handleProfile,
     handleInstalled, handleSave, handleValidate,
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,
@@ -69,16 +69,25 @@ function validatePlugin () {
     name: 'aurivox-wizard-validate',
     configureServer (server) {
       server.middlewares.use((req, res, next) => {
-        // ⛔ 四个 handler 都是**同步**返回 boolean（各自处理 body）。
-        //   第一次写成 .then(...) ⇒ 「not a function」⇒ 中间件永远不 next()
-        //   ⇒ 整个 dev server 卡死（2026-10-03 实测）。
+        // ⛔ handler 返回 boolean（同步）或 Promise<boolean>（异步）。
+        //   async handler 即使返回 false，返回的也是 Promise<false>，
+        //   Promise 是 truthy ⇒ 会被误判为已处理 ⇒ next() 不调用 ⇒ 卡死。
+        //   ⇒ 对 Promise，不能同步判定，要等它 resolve。
         let handled = false
         try {
           for (const h of HANDLERS) {
-            if (h(req, res)) { handled = true; break }
+            const r = h(req, res)
+            if (r === true) { handled = true; break }
+            if (r && typeof r.then === 'function') {
+              // async handler — 等 Promise resolve 再决定是否已处理
+              r.then((ok) => {
+                if (ok) { /* 已处理，不做 */ }
+                else { /* 不匹配，继续 next */ next() }
+              }).catch(() => { next() })
+              handled = true; break
+            }
           }
         } catch (err) {
-          // ⛔ 中间件自己出事：如实回 500，不要把异常吞成「保存成功」
           res.writeHead(500, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ error: String((err && err.message) || err) }))
           return

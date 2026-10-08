@@ -254,7 +254,7 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
               files.push({
                 name: f.Name || f.Path,
                 size: f.Size || 0,
-                blobId: f.Sha256 || null,
+                sha256: f.Sha256 || null,
               })
             }
           }
@@ -288,7 +288,7 @@ function base64ToHex (b64) {
 //     默认报 'ok' 就是给假绿灯（文件可能是上次中断留下的半截）。
 //  ⭐ .tmp 文件存在 → 'partial'
 //  ⭐ 都不存在 → 'missing'
-function checkFileStatus (file, expectedSize, root, id) {
+async function checkFileStatus (file, expectedSize, root, id) {
   const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
   const finalPath = path.join(dir, file)
   const tmpPath = finalPath + '.tmp'
@@ -301,7 +301,7 @@ function checkFileStatus (file, expectedSize, root, id) {
       return {
         status: 'partial',
         size: stat.size,
-        sha256: sha256File(finalPath),
+        sha256: await sha256File(finalPath),
         note: 'The remote file list gives no size for this file — completeness cannot be confirmed.',
         noteZh: '远端文件列表没有给出这个文件的大小，无法确认完整性。',
       }
@@ -310,12 +310,12 @@ function checkFileStatus (file, expectedSize, root, id) {
       return {
         status: 'partial',
         size: stat.size,
-        sha256: sha256File(finalPath),
+        sha256: await sha256File(finalPath),
         note: 'The file on disk does not match the size the remote file list reports.',
         noteZh: '磁盘上的文件和远端文件列表给出的大小不一致。',
       }
     }
-    return { status: 'ok', size: stat.size, sha256: sha256File(finalPath) }
+    return { status: 'ok', size: stat.size, sha256: await sha256File(finalPath) }
   }
 
   // 检查 .tmp 文件
@@ -327,12 +327,15 @@ function checkFileStatus (file, expectedSize, root, id) {
   return { status: 'missing', size: 0, sha256: null }
 }
 
-/** 计算文件 SHA-256 */
+/** 计算文件 SHA-256（流式读取，支持大文件） */
 function sha256File (filePath) {
-  try {
-    const buf = fs.readFileSync(filePath)
-    return crypto.createHash('sha256').update(buf).digest('hex')
-  } catch (e) { return null }
+  return new Promise((resolve) => {
+    const hash = crypto.createHash('sha256')
+    const stream = fs.createReadStream(filePath)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+    stream.on('error', () => resolve(null))
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -344,15 +347,17 @@ function sha256File (filePath) {
 //     抹掉，仓库列、重下、续传按钮会一起失效。
 //  ⭐ partial 时带上 note/noteZh 说明**为什么**不完整（远端没给大小 / 大小不符），
 //     ⛔ 不是笼统一句「半截」。
-function enrichManifestFiles (files, repo, tool, root, id) {
-  return (files || []).map((f) => {
-    const st = checkFileStatus(f.name, f.size, root, id)
-    return {
-      name: f.name, size: f.size, sha256: st.sha256, status: st.status,
+async function enrichManifestFiles (files, repo, tool, root, id) {
+  const results = []
+  for (const f of (files || [])) {
+    const st = await checkFileStatus(f.name, f.size, root, id)
+    results.push({
+      name: f.name, size: f.size, sha256: st.sha256 || f.sha256 || null, status: st.status,
       repo, tool,
       note: st.note || null, noteZh: st.noteZh || null,
-    }
-  })
+    })
+  }
+  return results
 }
 
 // ---------------------------------------------------------------------------
@@ -477,7 +482,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         }
       })
       res.on('end', () => {
-        out.end(() => {
+        out.end(async () => {
           // ⛔ 大小校验：远端给了大小就逐字节比对，不符即判失败并删掉脏文件
           const sizeMismatch = (expected, source) => ({
             ok: false, code: 'SIZE_MISMATCH', status,
@@ -501,7 +506,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
             return
           }
           // 计算实际 SHA-256（不用远端 blobId，因为不是真实哈希）
-          const actualSha256 = sha256File(tmpPath)
+          const actualSha256 = await sha256File(tmpPath)
           // 原子重命名
           try {
             fs.renameSync(tmpPath, finalPath)

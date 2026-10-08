@@ -485,7 +485,7 @@ function handleDownloadFiles (req, res) {
 //  ⛔ 必须带 repo/tool —— 前端单文件下载完成后会重新调本端点刷新，
 //     刷新后整表覆盖。⛔ 不带 repo 就等于把表里每一项的来源抹掉，
 //     重下/续传按钮和仓库列会一起变成「未知」。
-function handleDownloadManifest (req, res) {
+async function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
   const url = new URL(req.url, 'http://x')
@@ -495,12 +495,12 @@ function handleDownloadManifest (req, res) {
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   if (!repo) { json(res, 400, { ok: false, error: '?repo= is required' }); return true }
   const root = url.searchParams.get('root') || projectRoot() || ''
-  fetchRemoteManifest(repo, tool).then((result) => {
+  fetchRemoteManifest(repo, tool).then(async (result) => {
     if (!result.ok) {
       json(res, 200, { ok: false, error: result.error || 'Failed to fetch remote manifest' })
       return
     }
-    const enriched = enrichManifestFiles(result.files, repo, tool, root, id)
+    const enriched = await enrichManifestFiles(result.files, repo, tool, root, id)
     json(res, 200, { ok: true, files: enriched })
   }).catch((e) => {
     json(res, 200, { ok: false, error: (e && e.message) || String(e) })
@@ -665,11 +665,36 @@ function handleVerify (req, res) {
   return true
 }
 
+// ---------------------------------------------------------------------------
+//  GET /wizard/profile/<id> —— 第 4 步：从已有引擎导入
+// ---------------------------------------------------------------------------
+// ⭐ 调用平台的 resolveEngineProfile(id)，返回解析后的 profile。
+//   前端把解析后的 profile 转换回 manifest 格式，自动填写核心字段。
+// ⛔ 不自己解析 manifest —— 那是平台的事，这里只做转发。
+function handleProfile (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/profile/')) return false
+
+  const raw = req.url.slice('/wizard/profile/'.length).split('?')[0]
+  let id
+  try { id = decodeURIComponent(raw) } catch { id = raw }
+
+  try {
+    const { resolveEngineProfile } = require(
+      path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'profile.js'))
+    const profile = resolveEngineProfile(id)
+    json(res, 200, { ok: true, profile })
+  } catch (e) {
+    json(res, 404, { ok: false, error: e.message, code: e.code })
+  }
+  return true
+}
+
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
-  handleVerifyChecks, handleVerify,
+  handleVerifyChecks, handleVerify, handleProfile,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RuntimeSection, CallSection, ModelsSection } from './NestedSections'
+import { useInstalled } from './useInstalled'
 
 // ============================================================================
 //  MANIFEST FORM —— ⭐ 名片填表（不是 JSON 编辑器）
@@ -247,6 +248,11 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 // ---------------------------------------------------------------------------
 export default function ManifestForm ({ manifest, onChange, spec }) {
   const { t } = useT()
+  const { installed } = useInstalled()
+  const [importId, setImportId] = React.useState('')
+  const [importing, setImporting] = React.useState(false)
+  const [importErr, setImportErr] = React.useState(null)
+
   if (!spec) {
     return <p className="field-hint" style={{ margin: 0 }}>
       {t('Loading field spec…', '正在读字段规格…')}
@@ -258,6 +264,45 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     if (v === undefined || v === '') delete next[k]
     else next[k] = v
     onChange(next)
+  }
+
+  // ---- 从已有引擎导入 ----
+  const handleImport = async () => {
+    if (!importId) return
+    setImporting(true)
+    setImportErr(null)
+    try {
+      const r = await fetch(`/wizard/manifest/${encodeURIComponent(importId)}`)
+      const j = await r.json()
+      if (!r.ok || !j.ok) {
+        setImportErr(j.error || `HTTP ${r.status}`)
+        return
+      }
+      const src = j.manifest
+      const next = { ...manifest }
+      // 核心字段
+      if (src.runtime) next.runtime = src.runtime
+      if (src.call) next.call = src.call
+      if (src.maps) next.maps = src.maps
+      if (src.parameters) next.parameters = src.parameters
+      if (src.capabilities) next.capabilities = src.capabilities
+      if (src.models) next.models = src.models
+      if (src.weights) next.weights = src.weights
+      if (src.upstream) next.upstream = src.upstream
+      if (src.install) next.install = src.install
+      if (src.output_formats) next.output_formats = src.output_formats
+      if (src.max_chars) next.max_chars = src.max_chars
+      if (src.max_chars_source) next.max_chars_source = src.max_chars_source
+      if (src.timeout_ms) next.timeout_ms = src.timeout_ms
+      if (src.timeout_ms_source) next.timeout_ms_source = src.timeout_ms_source
+      if (src.base_url_env) next.base_url_env = src.base_url_env
+      if (src.default_base_url) next.default_base_url = src.default_base_url
+      onChange(next)
+    } catch (e) {
+      setImportErr(e.message)
+    } finally {
+      setImporting(false)
+    }
   }
 
   const setParam = (i, v) => {
@@ -286,10 +331,52 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     return L ? t(L.en, L.zh) : g
   }
 
+  // ---- 字段分组：核心 vs 高级 ----
+  const CORE_GROUPS = ['basics', 'runtime', 'call']
+  const ADVANCED_GROUPS = ['source', 'models', 'capabilities', 'install', 'output']
+
+  const coreSections = GROUP_ORDER.filter((g) => CORE_GROUPS.includes(g) && byGroup[g])
+  const advancedSections = GROUP_ORDER.filter((g) => ADVANCED_GROUPS.includes(g) && byGroup[g])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {GROUP_ORDER.filter((g) => byGroup[g]).map((g) => (
-        // ⭐ 项目现成的 .section 三件套
+      {/* ---- 从已有引擎导入 ---- */}
+      {installed.length > 0 && (
+        <div className="section">
+          <div className="section-hdr"><h2>{t('Import from existing engine', '从已有引擎导入')}</h2></div>
+          <div className="section-body">
+            <p className="field-hint" style={{ marginTop: 0 }}>
+              {t('Import core fields (runtime, call, maps, parameters, etc.) from an '
+                + 'already-installed engine. This saves you from filling in everything '
+                + 'from scratch.',
+                '从已安装的引擎导入核心字段（runtime、call、maps、parameters 等），'
+                + '省去从头填写所有字段的负担。')}
+            </p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select className="control" value={importId}
+                onChange={(e) => setImportId(e.target.value)}
+                style={{ minWidth: 200 }}>
+                <option value="">{t('Select an engine…', '选择一个引擎…')}</option>
+                {installed.map((e) => (
+                  <option key={e.id} value={e.id}>{e.id}</option>
+                ))}
+              </select>
+              <button className="btn btn-sm btn-primary" type="button"
+                disabled={!importId || importing} onClick={handleImport}>
+                {importing ? t('Importing…', '导入中…') : t('Import', '导入')}
+              </button>
+            </div>
+            {importErr && (
+              <div className="msg msg-danger" style={{ marginTop: 8 }}>
+                {importErr}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---- 核心字段（必填）---- */}
+      {coreSections.map((g) => (
         <div className="section" key={g}>
           <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
           <div className="section-body">
@@ -333,6 +420,29 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
             onChange={(x) => set('call', x)} t={t} />
         </div>
       </div>
+
+      {/* ---- 高级字段（可选，折叠）---- */}
+      {advancedSections.length > 0 && (
+        <details className="expert-block">
+          <summary className="expert-summary">
+            {t('Advanced settings (optional)', '高级设置（可选）')}
+          </summary>
+          <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {advancedSections.map((g) => (
+              <div className="section" key={g}>
+                <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
+                <div className="section-body">
+                  {byGroup[g].map((s) => (
+                    <Field key={s.key} sec={s}
+                      value={manifest[s.key]}
+                      onChange={(v) => set(s.key, v)} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {/* ---- parameters：界面参数 ---- */}
       <div className="section">
