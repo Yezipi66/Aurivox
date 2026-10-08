@@ -375,23 +375,6 @@ export default function StepDeps ({ state }) {
         </div>
       )}
 
-      {/* ---- 执行：显式解锁（照 TrainingTab 的 expert-unlock）----
-          ⚠ RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
-            ⛔ 不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
-      <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
-        <button className="btn btn-primary btn-sm" type="button"
-          disabled={busy} onClick={run}>
-          {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
-        </button>
-      </RiskUnlock>
-      <p className="field-hint" style={{ marginTop: 0 }}>
-        {t('Several GB are downloaded and it takes a while. If it stops midway, '
-          + 'run this step again — the download continues from the breakpoint '
-          + 'and already-downloaded wheels are kept.',
-          '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-          + '已下载的依赖不会重下。')}
-      </p>
-
       {/* ---- ⭐ 实时进度：busy 时显示 ---- */}
       {busy && (
         <div className="preflight" style={{ marginTop: 0 }}>
@@ -478,6 +461,23 @@ export default function StepDeps ({ state }) {
       {result && result.ok && result.note && (
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
+
+      {/* ---- 执行：显式解锁（照 TrainingTab 的 expert-unlock）----
+          ⚠ RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
+            ⛔ 不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
+      <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
+        <button className="btn btn-primary btn-sm" type="button"
+          disabled={busy} onClick={run}>
+          {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
+        </button>
+      </RiskUnlock>
+      <p className="field-hint" style={{ marginTop: 0 }}>
+        {t('Several GB are downloaded and it takes a while. If it stops midway, '
+          + 'run this step again — the download continues from the breakpoint '
+          + 'and already-downloaded wheels are kept.',
+          '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
+          + '已下载的依赖不会重下。')}
+      </p>
     </div>
   )
 }

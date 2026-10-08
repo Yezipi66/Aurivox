@@ -254,7 +254,7 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
               files.push({
                 name: f.Name || f.Path,
                 size: f.Size || 0,
-                blobId: f.Sha256 || null,
+                sha256: f.Sha256 || null,
               })
             }
           }
@@ -348,7 +348,7 @@ function enrichManifestFiles (files, repo, tool, root, id) {
   return (files || []).map((f) => {
     const st = checkFileStatus(f.name, f.size, root, id)
     return {
-      name: f.name, size: f.size, sha256: st.sha256, status: st.status,
+      name: f.name, size: f.size, sha256: st.sha256 || f.sha256 || null, status: st.status,
       repo, tool,
       note: st.note || null, noteZh: st.noteZh || null,
     }

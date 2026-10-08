@@ -450,7 +450,7 @@ export function StepModels ({ state, onChange, probe }) {
                     </td>
                     <td>
                       {f.sha256
-                        ? <code style={{ fontSize: 11 }}>{f.sha256.slice(0, 16)}...</code>
+                        ? <code style={{ fontSize: 11 }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
                         : t('(unknown)', '（未知）')}
                     </td>
                     <td>
