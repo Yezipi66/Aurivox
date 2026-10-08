@@ -485,7 +485,7 @@ function handleDownloadFiles (req, res) {
 //  ⛔ 必须带 repo/tool —— 前端单文件下载完成后会重新调本端点刷新，
 //     刷新后整表覆盖。⛔ 不带 repo 就等于把表里每一项的来源抹掉，
 //     重下/续传按钮和仓库列会一起变成「未知」。
-function handleDownloadManifest (req, res) {
+async function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
   const url = new URL(req.url, 'http://x')
@@ -495,12 +495,12 @@ function handleDownloadManifest (req, res) {
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   if (!repo) { json(res, 400, { ok: false, error: '?repo= is required' }); return true }
   const root = url.searchParams.get('root') || projectRoot() || ''
-  fetchRemoteManifest(repo, tool).then((result) => {
+  fetchRemoteManifest(repo, tool).then(async (result) => {
     if (!result.ok) {
       json(res, 200, { ok: false, error: result.error || 'Failed to fetch remote manifest' })
       return
     }
-    const enriched = enrichManifestFiles(result.files, repo, tool, root, id)
+    const enriched = await enrichManifestFiles(result.files, repo, tool, root, id)
     json(res, 200, { ok: true, files: enriched })
   }).catch((e) => {
     json(res, 200, { ok: false, error: (e && e.message) || String(e) })
