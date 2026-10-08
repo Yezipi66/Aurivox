@@ -233,6 +233,13 @@ export default function StepDeps ({ state }) {
           <b>{backendOf(hw.options, hw.recommended)}</b>
           {hw.reason && <div className="field-hint">{t(hw.reason, hw.reasonZh)}</div>}
           {hw.caveat && <div className="field-hint">⚠ {t(hw.caveat, hw.caveatZh)}</div>}
+          <p className="field-hint" style={{ marginTop: 0 }}>
+            {t('Several GB are downloaded and it takes a while. If it stops midway, '
+              + 'run this step again — the download continues from the breakpoint '
+              + 'and already-downloaded wheels are kept.',
+              '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
+              + '已下载的依赖不会重下。')}
+          </p>
         </div>
       )}
 
@@ -471,13 +478,6 @@ export default function StepDeps ({ state }) {
           {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
         </button>
       </RiskUnlock>
-      <p className="field-hint" style={{ marginTop: 0 }}>
-        {t('Several GB are downloaded and it takes a while. If it stops midway, '
-          + 'run this step again — the download continues from the breakpoint '
-          + 'and already-downloaded wheels are kept.',
-          '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-          + '已下载的依赖不会重下。')}
-      </p>
     </div>
   )
 }
