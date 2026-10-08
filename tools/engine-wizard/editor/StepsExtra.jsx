@@ -66,6 +66,10 @@ export function StepModels ({ state, onChange, probe }) {
       const cmds = probe.downloader_cmds || []
       const scripts = probe.downloader || []
       setR({ ok: true, manifest: null, status: null, commands: [], downloader_cmds: cmds, downloader: scripts })
+      // ⭐ 清空之前嗅探到的仓库文件
+      setManifest(null)
+      setProbeError(null)
+      setFileList(null)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
@@ -203,10 +207,20 @@ export function StepModels ({ state, onChange, probe }) {
     // ⭐ 用传入的 repo 作为 fallback，确保 prev 里的文件也有 repo
     const key = (f) => `${f.repo || repo}|${f.name}`
     const byKey = new Map(freshList.map((f) => [key(f), f]))
-    const merged = prev.map((f) => byKey.get(key(f)) || {
-      ...f,
-      repo: f.repo || repo,
-      tool: f.tool || tool,
+    const merged = prev.map((f) => {
+      const freshFile = byKey.get(key(f))
+      if (!freshFile) {
+        return {
+          ...f,
+          repo: f.repo || repo,
+          tool: f.tool || tool,
+        }
+      }
+      // ⭐ 保留旧的 sha256 值（当新值为 null 时）
+      return {
+        ...freshFile,
+        sha256: freshFile.sha256 || f.sha256 || null,
+      }
     })
     const seen = new Set(prev.map(key))
     for (const f of freshList) if (!seen.has(key(f))) merged.push(f)
