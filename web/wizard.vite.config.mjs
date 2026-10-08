@@ -50,7 +50,7 @@ function validatePlugin () {
   const {
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify,
+    handleVerifyChecks, handleVerify, handleProfile,
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,
   } = require(path.join(CORE, 'wizardbridge.js'))
@@ -60,7 +60,7 @@ function validatePlugin () {
     handleSpec, handleRead,
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify,
+    handleVerifyChecks, handleVerify, handleProfile,
     handleInstalled, handleSave, handleValidate,
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,

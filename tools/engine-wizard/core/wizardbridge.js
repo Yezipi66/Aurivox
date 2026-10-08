@@ -665,11 +665,36 @@ function handleVerify (req, res) {
   return true
 }
 
+// ---------------------------------------------------------------------------
+//  GET /wizard/profile/<id> —— 第 4 步：从已有引擎导入
+// ---------------------------------------------------------------------------
+// ⭐ 调用平台的 resolveEngineProfile(id)，返回解析后的 profile。
+//   前端把解析后的 profile 转换回 manifest 格式，自动填写核心字段。
+// ⛔ 不自己解析 manifest —— 那是平台的事，这里只做转发。
+function handleProfile (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/profile/')) return false
+
+  const raw = req.url.slice('/wizard/profile/'.length).split('?')[0]
+  let id
+  try { id = decodeURIComponent(raw) } catch { id = raw }
+
+  try {
+    const { resolveEngineProfile } = require(
+      path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'profile.js'))
+    const profile = resolveEngineProfile(id)
+    json(res, 200, { ok: true, profile })
+  } catch (e) {
+    json(res, 404, { ok: false, error: e.message, code: e.code })
+  }
+  return true
+}
+
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
-  handleVerifyChecks, handleVerify,
+  handleVerifyChecks, handleVerify, handleProfile,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

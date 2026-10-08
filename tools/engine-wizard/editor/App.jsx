@@ -82,8 +82,10 @@ export default function App () {
   // ---- 向导状态：**必须**活在 App 这一层
   //   ⛔ 不许下沉到各Step 组件的局部 state —— 组件卸载即状态归零，
   //     而卸载是导航的正常结果。判据：导航往返后克隆区仍在。
-  const [wz, setWz] = React.useState(
-    { url: '', id: '', cloneUrl: '', repoUrl: '' })
+  const [wz, setWz] = usePersistentState('wizard.wz',
+    { url: '', id: '', cloneUrl: '', repoUrl: '' }, {
+      rehydrate: (v) => ({ url: '', id: '', cloneUrl: '', repoUrl: '', ...v }),
+    })
   const [facts, setFacts] = React.useState({})
   const [prep, setPrep] = React.useState({})
 

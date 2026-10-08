@@ -95,7 +95,7 @@ function handleRead (req, res) {
   try { id = decodeURIComponent(raw) } catch { id = raw }
   const r = readManifestById(id)
   if (!r.ok) { json(res, r.code === 'BAD_ID' ? 400 : 404, r); return true }
-  json(res, 200, { id, manifest: r.manifest, path: r.path })
+  json(res, 200, { ok: true, id, manifest: r.manifest, path: r.path })
   return true
 }
 
