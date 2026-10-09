@@ -246,6 +246,295 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 }
 
 // ---------------------------------------------------------------------------
+// ⭐ 从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）
+//
+// ⛔⛔ 三条纪律（硬约束，违反即返工）：
+//   1. 只填**表单**，⛔ 绝不直接写 manifest.json —— 落盘是用户按「保存」的事
+//   2. 映射候选只给候选，**人点选之后**才写 maps，⛔ 绝不自动落盘
+//   3. 不新增任何平台侧校验逻辑 —— 界面只展示「反射说了什么」
+// ---------------------------------------------------------------------------
+function ReflectPanel ({ manifest, onChange }) {
+  const { t } = useT()
+  const { installed } = useInstalled()
+  const [engineId, setEngineId] = React.useState(manifest.id || '')
+  const [busy, setBusy] = React.useState(false)
+  const [result, setResult] = React.useState(null)
+  const [err, setErr] = React.useState(null)
+  // ⭐ 勾上的候选才会被采纳 —— 默认全不勾（「人点选后才写」这条纪律的界面形态）
+  const [picked, setPicked] = React.useState({})
+
+  // 引擎目录名：优先表单里已填的 id，否则让用户从已装的里挑
+  React.useEffect(() => {
+    if (!engineId && manifest.id) setEngineId(manifest.id)
+  }, [manifest.id])
+
+  const run = async () => {
+    if (!engineId) return
+    setBusy(true)
+    setErr(null)
+    setResult(null)
+    setPicked({})
+    try {
+      const r = await fetch('/wizard/params', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: engineId,
+          // ⭐ 名片里已经有的 maps 只用来打「已映射」标记，⛔ 不会覆盖
+          existingMaps: manifest.maps || {},
+          existing: (manifest.parameters || []).map((p) => p.name),
+        }),
+      })
+      const j = await r.json()
+      if (!j.ok) { setErr(j.error || `HTTP ${r.status}`); return }
+      setResult(j)
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const applyParams = () => {
+    if (!result) return
+    // ⭐ 把草稿**追加**进表单（同名的不覆盖已有人手写的）
+    const existing = manifest.parameters || []
+    const have = new Set(existing.map((p) => p.name))
+    const added = result.parameters
+      .filter((p) => !have.has(p.name))
+      .map((p) => ({
+        name: p.name,
+        type: p.type,
+        phase: p.phase,
+        tier: p.tier,
+        group: p.group,
+        order: p.order,
+        label: p.label,
+        help: p.help,
+        // ⚠ _needs_review 一路带过去 —— 界面要能显示「这条类型是猜的」
+        ...(p._needs_review ? { _needs_review: true, _why: p._why } : {}),
+        ...(p._platform_key ? { _platform_key: true, _why: p._why } : {}),
+      }))
+    onChange({ ...manifest, parameters: [...existing, ...added] })
+  }
+
+  const applyMaps = () => {
+    if (!result) return
+    // ⭐ 只有**勾上的**才写 maps。默认一个都不勾。
+    const next = { ...(manifest.maps || {}) }
+    let n = 0
+    for (const row of result.map_candidates) {
+      const pick = picked[row.platform_key]
+      if (!pick) continue
+      next[row.platform_key] = pick
+      n += 1
+    }
+    onChange({ ...manifest, maps: next })
+    setErr(null)
+    // 采纳后把这些行标成已映射（界面即时反映，不重发请求）
+    setResult({ ...result, map_candidates: result.map_candidates.map((r) => ({
+      ...r,
+      already_mapped: Object.prototype.hasOwnProperty.call(next, r.platform_key),
+    })) })
+  }
+
+  const pickedCount = Object.keys(picked).length
+
+  return (
+    <div className="section">
+      <div className="section-hdr">
+        <h2>{t('Reflect from source', '从源码反射生成')}</h2>
+      </div>
+      <div className="section-body">
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('Read the engine\'s own source on this machine and list the knobs it '
+            + 'exposes. Source, environment and weights must already be on disk '
+            + '(steps 1-3), so this works offline.',
+            '读本机上这台引擎自己的源码，列出它暴露的旋钮。源码、环境、权重需已在盘上'
+            + '（第 1-3 步），因此这一步不联网。')}
+        </p>
+        <p className="plan-warn">
+          {t('This fills the form only. It never writes manifest.json, and mapped '
+            + 'platform words stay candidates until you tick them.',
+            '只填表单，不直接写 manifest.json。映射候选在你勾选之后才会写进 maps。')}
+        </p>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input className="control" style={{ maxWidth: 220 }}
+            value={engineId} placeholder={t('engine id', '引擎 id')}
+            onChange={(e) => setEngineId(e.target.value)} />
+          {installed.length > 0 && (
+            <select className="control" style={{ maxWidth: 200 }}
+              value="" onChange={(e) => e.target.value && setEngineId(e.target.value)}>
+              <option value="">{t('or pick…', '或选一个…')}</option>
+              {installed.map((e) => (
+                <option key={e.id} value={e.id}>{e.id}</option>
+              ))}
+            </select>
+          )}
+          <button className="btn btn-sm btn-primary" type="button"
+            disabled={!engineId || busy} onClick={run}>
+            {busy ? t('Reflecting…', '反射中…') : t('Reflect', '反射')}
+          </button>
+        </div>
+
+        {err && <div className="msg msg-danger" style={{ marginTop: 8 }}>{err}</div>}
+
+        {result && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="msg msg-info">
+              {t(`Reflected ${result.counts.reflected} named parameters: `
+                + `${result.counts.parameters} for the form, `
+                + `${result.counts.excluded} excluded (each says why), `
+                + `${result.counts.map_candidates} platform-word candidates.`,
+                `反射到 ${result.counts.reflected} 个具名参数：草稿 ${result.counts.parameters} 条，`
+                + `排除 ${result.counts.excluded} 条（每条都写了原因），`
+                + `平台词候选 ${result.counts.map_candidates} 组。`)}
+            </div>
+            {result.partial && (
+              <div className="msg msg-warning">
+                {t('The reflection is incomplete: ', '反射结果不完整：') + result.partial_reason}
+              </div>
+            )}
+
+            {/* ---- ① parameters[] 草稿：按钮只填表单 ---- */}
+            <div className="card">
+              <div className="form-grid" style={{ alignItems: 'center' }}>
+                <strong>{t('Parameter draft', '参数草稿')}</strong>
+                <button className="btn btn-sm" type="button" onClick={applyParams}>
+                  + {t('Append to form', '追加到表单')}
+                </button>
+              </div>
+              {result.parameters.length === 0 ? (
+                <p className="field-hint">
+                  {t('No parameters survived the exclusions. Check the excluded list below.',
+                    '排除之后没有剩下任何参数。看看下面的排除清单。')}
+                </p>
+              ) : (
+                <div className="param-grid" style={{ marginTop: 8 }}>
+                  {result.parameters.map((p) => (
+                    <div key={p.name} className="field">
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <code>{p.name}</code>
+                        <span className="badge badge-neutral">{p.type}</span>
+                        <span className="badge badge-neutral">{p.phase}</span>
+                        {p._needs_review && (
+                          <span className="badge badge-warn">
+                            {t('type guessed from name', '类型按名字猜的')}
+                          </span>
+                        )}
+                        {p._platform_key && (
+                          <span className="badge badge-warn">
+                            {t('platform word', '平台词')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="field-hint">{p._why || p.help?.en || ''}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ---- ② 映射候选：单独一栏，人勾选后才写 maps ---- */}
+            <div className="card">
+              <div className="form-grid" style={{ alignItems: 'center' }}>
+                <strong>
+                  {t('Platform word candidates (maps)', '平台词候选（maps）')}
+                </strong>
+                <button className="btn btn-sm btn-primary" type="button"
+                  disabled={pickedCount === 0} onClick={applyMaps}>
+                  {pickedCount > 0
+                    ? t(`Write ${pickedCount} into maps`, `写 ${pickedCount} 条进 maps`)
+                    : t('Nothing ticked', '未勾选')}
+                </button>
+              </div>
+              <p className="field-hint">
+                {t('Nothing is written until you tick a row. Rows already mapped in '
+                  + 'the manifest are marked and never overwritten automatically.',
+                  '未勾选前什么都不写。名片里已映射的行会被标出，⛔ 不会自动覆盖。')}
+              </p>
+              {result.map_candidates.length === 0 ? (
+                <p className="field-hint">
+                  {t('No parameter name looks like a platform word.',
+                    '没有一个参数名像平台词。')}
+                </p>
+              ) : (
+                <div className="param-grid" style={{ marginTop: 8 }}>
+                  {result.map_candidates.map((row) => (
+                    <div key={row.platform_key} className="field">
+                      <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input type="checkbox"
+                          checked={!!picked[row.platform_key]}
+                          onChange={(e) => {
+                            const next = { ...picked }
+                            if (e.target.checked) next[row.platform_key] = row.candidates[0].engine_param
+                            else delete next[row.platform_key]
+                            setPicked(next)
+                          }} />
+                        <code>{row.platform_key}</code>
+                        {row.already_mapped && (
+                          <span className="badge badge-ok">
+                            {t(`mapped → ${row.current}`, `已映射 → ${row.current}`)}
+                          </span>
+                        )}
+                      </label>
+                      {picked[row.platform_key] ? (
+                        <select className="control"
+                          value={picked[row.platform_key]}
+                          onChange={(e) => setPicked({ ...picked, [row.platform_key]: e.target.value })}>
+                          {row.candidates.map((c) => (
+                            <option key={c.engine_param} value={c.engine_param}>
+                              {c.engine_param} ({c.phase}, {c.score})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="field-hint">
+                          {row.candidates.map((c) => c.engine_param).join(' / ')}
+                          {row.candidates[0] ? ` — ${row.candidates[0].why}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ---- ③ 排除清单：每条都说了为什么 ---- */}
+            {result.excluded.length > 0 && (
+              <div className="card">
+                <strong>
+                  {t(`Excluded (${result.excluded.length})`, `排除的（${result.excluded.length} 条）`)}
+                </strong>
+                <div className="param-grid" style={{ marginTop: 8 }}>
+                  {result.excluded.map((e) => (
+                    <div key={e.phase + e.name} className="field">
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <code>{e.name}</code>
+                        <span className="badge badge-neutral">{e.phase}</span>
+                        {e.needs_human && (
+                          <span className="badge badge-warn">
+                            {t('needs a human', '需要人定')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="field-hint">{e.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="plan-warn">{result.caveat}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 export default function ManifestForm ({ manifest, onChange, spec }) {
   const { t } = useT()
   const { installed } = useInstalled()
@@ -443,6 +732,9 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
           </div>
         </details>
       )}
+
+      {/* ---- ⭐ 从源码反射生成（第 4 步：只填表单，不落盘）---- */}
+      <ReflectPanel manifest={manifest} onChange={onChange} />
 
       {/* ---- parameters：界面参数 ---- */}
       <div className="section">

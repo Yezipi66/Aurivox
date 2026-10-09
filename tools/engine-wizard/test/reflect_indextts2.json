@@ -1,0 +1,426 @@
+{
+  "ok": true,
+  "partial": false,
+  "partial_reason": null,
+  "python": {
+    "version": "3.11.9",
+    "module_file": "D:\\Project/tts_broker_openai_compat/engines/index-tts\\indextts\\__init__.py"
+  },
+  "class": "indextts.infer_v2_5.IndexTTS2",
+  "method": "infer",
+  "load": [
+    {
+      "name": "cfg_path",
+      "phase": "load",
+      "required": false,
+      "default": "checkpoints/config.yaml",
+      "default_repr": "'checkpoints/config.yaml'",
+      "kind": {
+        "kind": "text",
+        "confidence": "medium",
+        "why": "默认值是 Python str"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "path?",
+        "confidence": "weak",
+        "why": "名字像路径 —— 确认它该不该做成界面格子"
+      }
+    },
+    {
+      "name": "model_dir",
+      "phase": "load",
+      "required": false,
+      "default": "checkpoints",
+      "default_repr": "'checkpoints'",
+      "kind": {
+        "kind": "text",
+        "confidence": "medium",
+        "why": "默认值是 Python str"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "path?",
+        "confidence": "weak",
+        "why": "名字像路径 —— 确认它该不该做成界面格子"
+      }
+    },
+    {
+      "name": "use_bf16",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "device",
+      "phase": "load",
+      "required": false,
+      "default": null,
+      "default_repr": "None",
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "默认值是 None —— 上游没给默认值，或默认就是空"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "use_cuda_kernel",
+      "phase": "load",
+      "required": false,
+      "default": null,
+      "default_repr": "None",
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "默认值是 None —— 上游没给默认值，或默认就是空"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "use_deepspeed",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "use_accel",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "use_torch_compile",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "use_qwen_emo",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    }
+  ],
+  "call": [
+    {
+      "name": "spk_audio_prompt",
+      "phase": "call",
+      "required": true,
+      "default": null,
+      "default_repr": null,
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "必填参数，没有默认值"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "audio",
+        "confidence": "weak",
+        "why": "名字像音频输入（值是文件路径）"
+      }
+    },
+    {
+      "name": "lang",
+      "phase": "call",
+      "required": true,
+      "default": null,
+      "default_repr": null,
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "必填参数，没有默认值"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "emo_audio_prompt",
+      "phase": "call",
+      "required": false,
+      "default": null,
+      "default_repr": "None",
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "默认值是 None —— 上游没给默认值，或默认就是空"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "audio",
+        "confidence": "weak",
+        "why": "名字像音频输入（值是文件路径）"
+      }
+    },
+    {
+      "name": "emo_alpha",
+      "phase": "call",
+      "required": false,
+      "default": 1,
+      "default_repr": "1.0",
+      "kind": {
+        "kind": "number",
+        "confidence": "medium",
+        "why": "默认值是 Python float"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "number",
+        "confidence": "weak",
+        "why": "名字像数值旋钮"
+      }
+    },
+    {
+      "name": "emo_vector",
+      "phase": "call",
+      "required": false,
+      "default": null,
+      "default_repr": "None",
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "默认值是 None —— 上游没给默认值，或默认就是空"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "number[]",
+        "confidence": "weak",
+        "why": "名字像数字数组（每维一个值）"
+      }
+    },
+    {
+      "name": "use_emo_text",
+      "phase": "call",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "emo_text",
+      "phase": "call",
+      "required": false,
+      "default": null,
+      "default_repr": "None",
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "默认值是 None —— 上游没给默认值，或默认就是空"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "text",
+        "confidence": "weak",
+        "why": "名字像文本"
+      }
+    },
+    {
+      "name": "use_random",
+      "phase": "call",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "boolean",
+        "confidence": "weak",
+        "why": "名字以 use_/has_/enable_ 开头"
+      }
+    },
+    {
+      "name": "interval_silence",
+      "phase": "call",
+      "required": false,
+      "default": 200,
+      "default_repr": "200",
+      "kind": {
+        "kind": "integer",
+        "confidence": "medium",
+        "why": "默认值是 Python int（但 int 也可能是被当 bool 用的 0/1）"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "number",
+        "confidence": "weak",
+        "why": "名字像数值旋钮"
+      }
+    },
+    {
+      "name": "verbose",
+      "phase": "call",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "max_text_tokens_per_segment",
+      "phase": "call",
+      "required": false,
+      "default": 120,
+      "default_repr": "120",
+      "kind": {
+        "kind": "integer",
+        "confidence": "medium",
+        "why": "默认值是 Python int（但 int 也可能是被当 bool 用的 0/1）"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "stream_return",
+      "phase": "call",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "more_segment_before",
+      "phase": "call",
+      "required": false,
+      "default": 0,
+      "default_repr": "0",
+      "kind": {
+        "kind": "integer",
+        "confidence": "medium",
+        "why": "默认值是 Python int（但 int 也可能是被当 bool 用的 0/1）"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "duration_factor",
+      "phase": "call",
+      "required": false,
+      "default": 1,
+      "default_repr": "1.0",
+      "kind": {
+        "kind": "number",
+        "confidence": "medium",
+        "why": "默认值是 Python float"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "text_normalization",
+      "phase": "call",
+      "required": false,
+      "default": true,
+      "default_repr": "True",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "text",
+        "confidence": "weak",
+        "why": "名字像文本"
+      }
+    },
+    {
+      "name": "generation_kwargs",
+      "phase": "call",
+      "skipped": true,
+      "why": "变长参数（*args / **kwargs）—— 平台不替你猜怎么展开"
+    }
+  ],
+  "warnings": []
+}

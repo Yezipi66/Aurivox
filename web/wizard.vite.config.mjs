@@ -50,17 +50,20 @@ function validatePlugin () {
   const {
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify, handleProfile,
+    handleVerifyChecks, handleVerify, handleProfile, handleParams,
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,
   } = require(path.join(CORE, 'wizardbridge.js'))
   // ⛔ 顺序：长前缀在前。manifest/<id> 是动态的，必须排在 installed 之前，
   //    否则 /wizard/manifest/xxx 会被别的 handler 先吃掉。
+  // ⚠ handleParams 认的是 /wizard/params 这个**整串**，与本表中其它前缀
+  //    无一互为前缀 ⇒ 放哪儿都不影响匹配。放在 profile 之后是因为
+  //    第 4 步的使用顺序（先导入已有引擎，再反射生成草稿）。
   const HANDLERS = [
     handleSpec, handleRead,
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify, handleProfile,
+    handleVerifyChecks, handleVerify, handleProfile, handleParams,
     handleInstalled, handleSave, handleValidate,
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,

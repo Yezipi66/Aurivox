@@ -140,10 +140,10 @@ media_type       ← media_type    streaming        ← streaming_mode
 | 1 | 对 **index-tts** 反射 → 草稿 | 产出 **≥17 条**（签名有 17 个具名参数） |
 | 2 | 对 **cosyvoice2** 反射 → 草稿 | 产出 **≥13 条** |
 | 3 | ⭐ **映射候选命中答案卷** | 拿 **GSV 人手写的 10 条 `maps`**（§1.3）当考题，候选至少命中 **8 条**（`[实测]` 纯启发式已达 8/10）—— 考题是 GSV，产物不含 GSV |
-| 4 | **平台词混入要排除** | 草稿里**不得**出现 `format` / `split` / `concat` / `silence_ms` / `engine_batch`（`[实测]` 这些是平台自己的词，曾混进 GSV 提取结果） |
-| 5 | **不自动落盘** | 按钮只填表单，⛔ 不直接写 `manifest.json` |
+| 4 | ~~平台词混入要排除~~ ⇒ **真参数一个都不能少** | `[实测]` 反射只读签名，14 个平台词在 index-tts/cosyvoice2 反射结果里**命中 0 个** ⇒ 本条原判据（排 `format`/`split`/`concat`）是为已废弃的「多源合并」写的，**反射这条路压根不会混入平台词**。改判据为：**反射读到的每个真参数都必须出现在草稿里**（必填参数即使类型反射不出也要留，标 `_needs_review`） |
+| 5 | 不自动落盘 | 按钮只填表单，⛔ 不直接写 `manifest.json` |
 | 6 | ⭐ **变异测试** | 把映射启发式去掉 ⇒ 验收 3 的测试必须变红 |
-| 7 | `npm test` 不退化 | 新增失败 = 0 |
+| 7 | `npm test` 不退化 | 新增失败 = 0（⛔ 基线必须用 `git stash -u` 收 untracked，否则测的不是真基线） |
 
 ### 风险与缓解
 
@@ -154,39 +154,123 @@ media_type       ← media_type    streaming        ← streaming_mode
 
 ---
 
+### ✅ 完成情况（2026-10-09）
+
+**状态：✅ 完成，独立审阅「有条件通过」后已修复，`npm test` 基线不退化，待提交。**
+
+#### 实际产出的文件
+
+| 文件 | 状态 |
+|---|---|
+| `tools/engine-wizard/core/paramsFromReflect.js` | ✅ 新建（反射 JSON → 草稿 + 映射候选，复用 `scaffold-params.cjs` 的 EXCLUDE 同对象） |
+| `tools/engine-wizard/test/paramsFromReflect.node.test.js` | ✅ 新建（32 条真行为测试，含变异测试） |
+| `tools/engine-wizard/test/fixture_gsv_answer_sheet.json` | ✅ 新建（GSV 答案卷，`expected_maps` 与真名片逐字相同） |
+| `tools/engine-wizard/test/reflect_indextts2.json` / `reflect_cosyvoice2.json` / `reflect_cosyvoice2_methods.json` | ✅ 新建（真跑反射器原始输出，未手工编辑） |
+| `tools/engine-wizard/core/wizardbridge.js` | ✅ 小改（`POST /wizard/params`） |
+| `tools/engine-wizard/editor/ManifestForm.jsx` | ✅ 中改（ReflectPanel：按钮 + 草稿 + 候选 + excluded 展示） |
+| `web/wizard.vite.config.mjs` | ✅ 小改 |
+
+#### 7 条验收实测结果
+
+| # | 验收 | 结果 |
+|---|---|---|
+| 1 | index-tts 反射 → 草稿 ≥17 | ✅ **20 条** |
+| 2 | cosyvoice2 反射 → 草稿 ≥13 | ✅ **15 条**（5 方法合并；单方法 12 条是反作弊基线） |
+| 3 | 映射候选命中答案卷 ≥8 | ✅ **10/10**（比计划要求的 8 更好） |
+| 4 | 真参数一个不能少 | ✅ 见下方「判据修正」 |
+| 5 | 不自动落盘 | ✅ 全链路无 `fs` 写；mtime/size 前后一致 |
+| 6 | 变异测试 | ✅ `MAP_RULES` 清空后命中从 10 掉到 0 |
+| 7 | `npm test` 不退化 | ✅ **基线 fail 33 → 上线 fail 33，新增 0**（`git stash -u` 真基线） |
+
+#### ⚠️ 判据修正（计划写错，已按实测改）
+
+- **验收 4 原判据作废**：原写「排 `format`/`split`/`concat`」，但那是为已废弃的「多源合并」写的。
+  `[实测]` 反射只读签名，14 个平台词在 index-tts(25) / cosyvoice2(13) 反射结果里**命中 0 个** ⇒ 反射这条路不会混入平台词。
+  **并因此删掉了子 Agent 多加的 `PLATFORM_WORDS` 硬排除** —— 它会误伤 GSV `payload_keys` 里的 9 个真参数（`batch_threshold`/`split_bucket`/`pron_overrides`…），违反「不损害模型能力」铁律。
+- **必填但类型反射不出的参数**（如 index-tts 的 `lang`）：**放 excluded 并标 `needs_human`**（Owner 定：甲），
+  界面上在「排除的」卡片里可见，但**不猜类型、不给输入框** —— 用户照 `cli.py` 的 `required=True` 自己定。
+
+#### 遗留（第 2 步要接的）
+
+- 前端 ReflectPanel **未在浏览器真渲染过**（只过 babel 编译 + 测试）
+- 反射出的 20 条参数，中文说明仍是 `REPLACE_ME` —— **这正是第 2 步要解的**
+- 真新引擎（F5-TTS / Fish-Speech）未验 —— 第 3 步补
+
+---
+
 ## 第 2 步 · 草稿展示 + 引导填对（难点三）
 
-### scope
+### scope（Owner 2026-10-09 定的操作流，⛔ 照这个来）
 
-第 4 步表单每个字段告诉用户「**填什么格式 + 例子 + 填错会怎样**」。
+```
+0. 平台前端的用语翻译成人话（正常人能听懂的）
+1. 读所有能填的参数，列成一张表
+2. 平台能识别的自动填好（如 prompt_text → reference_text，只有一个意思的）
+3. 用户手动填：平台认不出的【必填】参数
+4. 用户选填：平台认不出的【非必填】参数
+```
+
 ⛔ **只做展示，不做任何校验**（平台是传话筒）。
+
+#### ⭐ 上游官方解释：整份摊开，⛔ 不做名字匹配（Owner 定：乙）
+
+`[实测]` IndexTTS2 上游自己的两个入口用了**不同的词**：
+
+| 入口 | 名字 |
+|---|---|
+| Python 函数 `infer()`（反射读这个） | `emo_vector` / `spk_audio_prompt` / `emo_alpha` |
+| CLI `cli_v2.py`（官方解释挂这） | `--emotion-vector` / `--voice` / `--emotion-weight` |
+
+`[实测]` 直接同名只对上 **3/14**（`text`/`output_path`/`verbose`）；归一化后**还是 3/14** ——
+差异不是连字符，是**整个词不同**（`spk`⇔`voice`、`emo`⇔`emotion`、`alpha`⇔`weight`）。
+
+⇒ ⛔ **不维护对应表**（甲）：今天补 indexTTS2 的洞，明天接入别的引擎又没表，
+   **而且那是上游自己不规范**，不该平台买单。
+⇒ ✅ **整份摊开**（乙）：把 CLI 的 `--flag` + 官方 `help=` 原话**原样列给用户看**，
+   **直接同名的那几个顺手自动填**，其余让用户自己对照上游原话。
+
+官方解释实例（`[实测]` `indextts/cli_v2.py:227-237`、`cli.py:111-118`）：
+```
+--voice            "Path to the speaker reference audio"（且 required=True）
+--emotion-audio    "Path to the emotion reference audio"
+--emotion-text     "Emotion description text"
+--emotion-vector   "Comma-separated 8-dimensional emotion vector"
+--device           "Device (cpu, cuda, mps, xpu)"
+--fp16             "Use FP16 for inference"
+```
 
 ### 要动的文件
 
 | 文件 | 改动 | 性质 |
 |---|---|---|
 | `tools/engine-wizard/core/fieldmeta.js` | 每个字段补三件套 `format` / `example` / `onError` | 中改 |
-| `tools/engine-wizard/editor/ManifestForm.jsx` | 渲染三件套 | 小改 |
-| `tools/engine-wizard/test/styleguard.node.test.js` | 视需要补守卫 | 视情况 |
+| `tools/engine-wizard/core/cliHelp.js` | **新建** —— 从上游 CLI 的 argparse `help=` 抓官方解释，**整份摊开**（不做名字匹配）+ 直接同名的自动填 | 新文件 |
+| `tools/engine-wizard/editor/ManifestForm.jsx` | 渲染三件套 + **官方解释面板**（上游原话）+ 按「必填认不出 / 选填认不出 / 平台已认」分区，认不出的选填默认折叠 | 中改 |
+| `tools/engine-wizard/test/cliHelp.node.test.js` | **新建** —— 喂真 CLI 源码，验抓到的官方解释；验「不做名字匹配」 | 新文件 |
 
-⭐ **数据来源**：`[读码]` **`profile.js` 每条抛错本身就写着「应该写什么」**
+⭐ **fieldmeta 的数据来源**：`[读码]` **`profile.js` 每条抛错本身就写着「应该写什么」**
 ⇒ **搬运已有文案，不是新写。**
 
-### 预期效果
+### 预期效果（对应用户操作流）
 
-- 每个必填字段下方能看到「填什么格式 + 例子」
-- 高危字段（`[实测]` 14 个静默失效字段）挂 `.badge-warn`
-- ⛔ **界面上没有任何新增校验逻辑**
+| 用户看到 | 对应 |
+|---|---|
+| 平台认识的参数显示中文人话 + 标「平台已自动填好」 | 第 2 步 |
+| **必填但认不出的参数排在最前，高亮**「这个必须你填」 | 第 3 步（`[实测]` index-tts 只有 `lang` 一个） |
+| 认不出的选填参数折叠，标「参数太多可不管，需要时再展开」 | 第 4 步 |
+| 每个参数下方可展开看**上游官方原话** | ⭐ 乙 |
 
 ### 验收点
 
 | # | 验收 | 判据 |
 |---|---|---|
-| 1 | 至少 **10 个字段**有 `format` + `example` | grep `fieldmeta.js` 可数 |
-| 2 | ⭐ **文案来自平台已有抛错** | 至少 3 条 `onError` 能在 `profile.js` grep 到原句 |
-| 3 | ⛔ **没新增平台侧校验** | `git diff lib/` 为空 |
-| 4 | 静默失效字段有警告标 | `[实测]` 那 14 个字段有 `.badge-warn` |
-| 5 | `npm test` 不退化 | 新增失败 = 0 |
+| 1 | 平台认识的参数有中文人话 | ≥10 个字段有 `format` + `example`（grep `fieldmeta.js` 可数） |
+| 2 | ⭐ **文案来自平台已有抛错** | ≥3 条 `onError` 能在 `profile.js` grep 到原句 |
+| 3 | ⭐ **官方解释是上游原话** | 对 index-tts 跑：能抓到 `--emotion-vector` 的 "Comma-separated 8-dimensional emotion vector"、`--voice` 的 "Path to the speaker reference audio" |
+| 4 | ⛔ **不做名字匹配** | `emo_alpha` 不许被配到 `--emotion-weight` 的说明上；配不上的就摊开给用户看 |
+| 5 | **必填认不出的被突出** | index-tts 的 `lang` 在界面上有「必须你填」标记且**没被删** |
+| 6 | ⛔ **没新增平台侧校验** | `git diff lib/` 为空 |
+| 7 | `npm test` 不退化 | 新增失败 = 0（基线用 `git stash -u`） |
 
 ---
 
@@ -266,6 +350,6 @@ media_type       ← media_type    streaming        ← streaming_mode
 
 | 步骤 | 状态 |
 |---|---|
-| 第 1 步 反射 → 草稿 + 映射候选 | ⬜ 待 Owner 批准 |
-| 第 2 步 草稿展示 + 引导 | ⬜ 待第 1 步完成 |
+| 第 1 步 反射 → 草稿 + 映射候选 | ✅ 完成（7 条验收实测通过，基线不退化）—— 待提交 |
+| 第 2 步 草稿展示 + 引导 | ⬜ 待第 1 步提交 |
 | 第 3 步 端到端验证 | ⬜ 待第 2 步完成 |

@@ -17,6 +17,7 @@ const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, detectDependencyFile, planDependencies } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
 const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
+const { reflectAndBuild } = require('./paramsFromReflect')
 const https = require('node:https')
 
 /**
@@ -666,6 +667,48 @@ function handleVerify (req, res) {
 }
 
 // ---------------------------------------------------------------------------
+//  POST /wizard/params      第 4 步 —— 反射 → parameters[] 草稿 + 映射候选
+// ---------------------------------------------------------------------------
+// ⭐⭐ 这一步为什么能离线跑：第 4 步写名片时，源码（第 1 步克隆）、
+//   环境（第 2 步）、权重（第 3 步）**全部已在磁盘上** ⇒ 不需要联网。
+//
+// ⛔⛔ 这条端点**只产草稿**，⛔ 绝不写 manifest.json：
+//   · parameters[] 是候选，界面逐条确认后才可能进表单
+//   · map_candidates 是候选，**人点选之后**才写 maps
+//   · 落盘是 POST /wizard/save 的事，与本端点无关
+//
+// ⛔ 不新增任何平台侧校验逻辑：反射器报什么就传什么，partial / warnings /
+//   excluded 一律原样带出去。
+function handleParams (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/params')) return false
+  // ⚠ 锚定：startsWith 会把 /wizard/paramsxyz、/wizard/params/extra 一起吃掉。
+  //   ⛔ 前缀必须整串匹配（后面只许跟 ? 查询串）—— 与 handleProfile 的
+  //      '/wizard/profile/' 同一类判据（长/短前缀互吃的坑）。
+  const tail = req.url.slice('/wizard/params'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
+
+    const { buildSpec } = require('./paramsFromReflect')
+    const spec = buildSpec(body)
+    if (!spec.ok) { json(res, 400, { ok: false, code: 'BAD_SPEC', error: spec.error }); return }
+
+    // ⭐ 反射失败（ok:false）是一个**答案**，不是端点出错 ⇒ 一律 200。
+    //   反射器永远以 0 退出，正是为了这个区分（reflect_params.py 头注）。
+    const r = reflectAndBuild(spec.value, {
+      methods: body.methods,
+      existing: body.existing,
+      existingMaps: body.existingMaps,
+      timeoutMs: body.timeoutMs,
+    })
+    json(res, 200, r)
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
 //  GET /wizard/profile/<id> —— 第 4 步：从已有引擎导入
 // ---------------------------------------------------------------------------
 // ⭐ 调用平台的 resolveEngineProfile(id)，返回解析后的 profile。
@@ -694,7 +737,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
-  handleVerifyChecks, handleVerify, handleProfile,
+  handleVerifyChecks, handleVerify, handleProfile, handleParams,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,
