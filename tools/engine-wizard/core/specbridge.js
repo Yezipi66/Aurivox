@@ -10,12 +10,13 @@
 // ============================================================================
 
 const path = require('node:path')
-const { SECTIONS, PARAM_FIELDS } = require('./fieldmeta')
+const { SECTIONS, PARAM_FIELDS, PLATFORM_WORDS } = require('./fieldmeta')
 
 /**
  * 表单要的全部信息，压成一个 JSON。
  * - sections：顶层段的分组、说明、危险等级
  * - paramFields：parameters[] 每一条有哪些格
+ * - platformWords：平台那 10 个词的**中文人话**（第 2 步用）
  * ⚠ 只送**渲染需要的**，不把整个 fieldmeta 倒出去。
  */
 function buildSpec () {
@@ -35,6 +36,15 @@ function buildSpec () {
       howto: f.howto,
       warn: f.warn || null,
       default: f.default === undefined ? null : f.default,
+    })),
+    // ⭐ 第 2 步：平台词的中文人话。反射草稿里命中的行显示它，
+    //   ⛔ 表外的一个字都不翻译（只给上游原话）。
+    platformWords: PLATFORM_WORDS.map((w) => ({
+      key: w.key,
+      danger: w.danger,
+      label: w.label,
+      help: w.help,
+      warn: w.warn || null,
     })),
   }
 }

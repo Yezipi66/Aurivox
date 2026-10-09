@@ -679,7 +679,7 @@ function handleVerify (req, res) {
 //
 // ⛔ 不新增任何平台侧校验逻辑：反射器报什么就传什么，partial / warnings /
 //   excluded 一律原样带出去。
-function handleParams (req, res) {
+async function handleParams (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/params')) return false
   // ⚠ 锚定：startsWith 会把 /wizard/paramsxyz、/wizard/params/extra 一起吃掉。
@@ -687,13 +687,27 @@ function handleParams (req, res) {
   //      '/wizard/profile/' 同一类判据（长/短前缀互吃的坑）。
   const tail = req.url.slice('/wizard/params'.length)
   if (tail !== '' && tail[0] !== '?') return false
-  readBody(req, (err, body) => {
+  readBody(req, async (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
 
     const { buildSpec } = require('./paramsFromReflect')
     const spec = buildSpec(body)
     if (!spec.ok) { json(res, 400, { ok: false, code: 'BAD_SPEC', error: spec.error }); return }
+
+    // ⭐ 第 2 步：上游 CLI 的官方原话（argparse help= 整份摊开）。
+    //   ⛔ 抓不到不影响反射 —— 那是一个**答案**（这台引擎的 CLI 不在盘上 /
+    //     没有 CLI），如实带 note 出去，⛔ 不许让整个端点失败。
+    let cli = null
+    try {
+      const { collectCliHelp } = require('./cliHelp')
+      cli = collectCliHelp({
+        dir: path.join(path.dirname(spec.value.sys_path[0]), '..'),
+        python: spec.value.python,
+      })
+    } catch (e) {
+      cli = { ok: false, error: `抓 CLI 原话失败：${e.message}`, sources: [], flags: [], by_dest: {} }
+    }
 
     // ⭐ 反射失败（ok:false）是一个**答案**，不是端点出错 ⇒ 一律 200。
     //   反射器永远以 0 退出，正是为了这个区分（reflect_params.py 头注）。
@@ -703,7 +717,17 @@ function handleParams (req, res) {
       existingMaps: body.existingMaps,
       timeoutMs: body.timeoutMs,
     })
-    json(res, 200, r)
+    if (!r.ok) { json(res, 200, r); return }
+    // ⭐ 把草稿按「用户操作流」排成三块（①已自动填 ②必须你填 ③可以不管）
+    //   ⛔ 只是重排 + 贴上游原话，⛔ 不改 parameters[] 的内容，也不删任何一条。
+    let organized = null
+    try {
+      const { organizeDraft } = require('./cliHelp')
+      organized = organizeDraft(r, cli && cli.ok ? cli : null)
+    } catch (e) {
+      organized = { ok: false, error: `分区失败：${e.message}`, blocks: [] }
+    }
+    json(res, 200, { ...r, cli, organized })
   })
   return true
 }

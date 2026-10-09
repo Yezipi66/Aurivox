@@ -331,11 +331,16 @@ function MethodsField ({ value, onChange, t }) {
       })}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
         <input className="control" type="text" style={{ width: 'auto', minWidth: 180 }}
-          placeholder={t('method id', '方法 id')}
+          placeholder={names.length === 0
+            ? t('zero_shot (default)', 'zero_shot（默认）')
+            : t('method id', '方法 id')}
           value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn btn-sm" type="button"
           onClick={() => {
-            const k = name.trim()
+            // ⭐ 第一个方法默认叫 zero_shot（零样本，最常用的合成方式）。
+            //   ⛔ 纯 UX 默认：换了方法反射会当场重算参数，不影响任何判断。
+            //   ⚠ 只兜第一个（names 还空着）—— 之后让用户自己命名。
+            const k = (name.trim() || (names.length === 0 ? 'zero_shot' : '')).trim()
             if (!k || v[k]) return
             onChange({ ...v, [k]: {} }); setName('')
           }}>+</button>

@@ -266,7 +266,14 @@ function buildDraftPackage (reflection, opts = {}) {
   ].filter((p) => !p.skipped)
 
   // ① 平台核心词的同名变体 —— 留着，但标出来让人自己删
+  //   ⭐ 同时把反射报上来的 `required` 抄到草稿上（第 2 步要靠它分区）。
+  //     ⛔ 为什么在这里补而不改 scaffold-params.cjs：那份是第 1 步的产物，
+  //       被 lib/engines/scaffold.node.test.js 守着形状；而「界面按必填排序」
+  //       是第 2 步的需求。⇒ 只加一个字段，⛔ 不改任何已有字段。
+  //     ⚠ 判据来源：反射结果里的 required（reflect_params.py 给的）。
+  //       ⛔ 平台不自己判断「这个参数必填」，只如实传。
   for (const p of parameters) {
+    if (requiredByName.get(p.name) === true) p.required = true
     if (isPlatformCanonical(p.name)) {
       p._platform_key = true
       p._why = '这个名字是平台核心词在引擎那边的写法：它多半该走 maps，'

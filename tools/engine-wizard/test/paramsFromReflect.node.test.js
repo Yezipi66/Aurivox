@@ -649,11 +649,17 @@ test('⭐ 端点：缺 id / 目录不存在 / 名片没 call 段 ⇒ 各自说�
   })
 })
 
-test('⭐ 端点：非 POST / 路径不对 ⇒ 不接管（⛔ 别把别的请求吃掉）', () => {
+test('⭐ 端点：非 POST / 路径不对 ⇒ 不接管（⛔ 别把别的请求吃掉）', async () => {
+  // ⚠ handleParams 是 async（2026-10-09 修的浏览器 404 bug）：它返回的是
+  //   Promise<false>，⛔ 不能再断言同步返回值 —— 那永远不成立。
+  //   本意没变：路径/方法不对时，它必须 resolve 成 false（=不接管），
+  //   让请求继续走下一个 handler。await 后判值才对。
   const fake = { method: 'GET', url: '/wizard/params', on () {}, destroy () {} }
-  assert.strictEqual(BRIDGE.handleParams(fake, { writeHead () {}, end () {} }), false)
+  assert.strictEqual(await BRIDGE.handleParams(fake, { writeHead () {}, end () {} }), false,
+    '⛔ GET 请求被接管了 —— handleParams 只该处理 POST /wizard/params')
   const post2 = { method: 'POST', url: '/wizard/paramsxyz', on () {}, destroy () {} }
-  assert.strictEqual(BRIDGE.handleParams(post2, { writeHead () {}, end () {} }), false)
+  assert.strictEqual(await BRIDGE.handleParams(post2, { writeHead () {}, end () {} }), false,
+    '⛔ /wizard/paramsxyz 被接管了 —— 前缀没锚定，会吃掉别的请求')
 })
 
 test('⭐ 端点已注册：handleParams 是函数且已进 wizardbridge 的导出表', () => {

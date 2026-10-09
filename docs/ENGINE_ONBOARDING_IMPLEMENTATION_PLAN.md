@@ -274,6 +274,40 @@ media_type       ← media_type    streaming        ← streaming_mode
 
 ---
 
+### 🚧 完成情况（2026-10-09）—— ⚠️ **未审阅，与第 3 步一起审**
+
+**状态：🚧 实现完成，未经独立审阅。** Owner 定：第 2、3 步一起审，审过再提交。
+
+#### 实际产出的文件
+
+| 文件 | 改动 |
+|---|---|
+| `tools/engine-wizard/core/cliHelp.js` | **新建** —— 从上游 CLI 的 argparse 抓官方 help 原话，整份摊开（⛔ 不做名字匹配，只直接同名自动贴） |
+| `tools/engine-wizard/core/cli_help_extract.py` | **新建** —— cliHelp 的 Python 提取器（AST 解析 argparse） |
+| `tools/engine-wizard/test/cliHelp.node.test.js` | **新建** —— 喂真 CLI 源码验抓取 |
+| `tools/engine-wizard/editor/ManifestForm.jsx` | 中改 —— ReflectPanel 三块分区 + 上游原话可展开 + 接 fieldmeta 中文说明 + run() 带 methods 反射 |
+| `tools/engine-wizard/core/wizardbridge.js` | handleParams 改 async（修浏览器 404 bug） |
+| `tools/engine-wizard/core/paramsFromReflect.js` | required 抄到草稿（为分区） |
+| `tools/engine-wizard/core/fieldmeta.js` / `specbridge.js` | 小改 |
+| `tools/engine-wizard/editor/NestedSections.jsx` | 加第一个方法默认 id=`zero_shot`（纯 UX 默认） |
+
+#### 已自查通过（未审阅）
+
+- 官方原话抓到：`--emotion-vector` = "Comma-separated 8-dimensional emotion vector"、`--voice` = "Path to the speaker reference audio"、`--device` = "...cpu, cuda, mps, xpu"
+- 不做名字匹配：`emo_vector`/`emo_alpha`/`spk_audio_prompt` 全返回 null；直接同名（`text`/`device`/`verbose`/`fp16`）自动贴
+- 三块分区浏览器真渲染："You must fill these" / "Optional knobs you can ignore" / "Already handled for you"，全中文人话
+- 带 methods 反射：后端返回 14 条含推理参数（`tts_text`/`prompt_wav`/`source_wav`…）
+- 404 bug 修复 + 那条同步断言测试改 async
+- `npm test`：2145 / fail 33，与基线一致，新增失败 0
+
+#### ⚠️ 审阅要重点查的（自查没跑通/存疑）
+
+1. **前端"带 methods 反射"完整链路没 100% 跑通** —— 后端逻辑验过（带 methods 出 14 条），但浏览器里"导入名片 → manifest.call.methods 进状态 → 反射带出 methods"这条前端状态链，我手动点时没稳定跑通
+2. **前端 ReflectPanel 未在浏览器真渲染三块分区的"必填认不出"实况**（index-tts 的 `lang`）—— 只在 cosyvoice2 上验过
+3. 判据 1（≥10 字段有 format+example）、判据 2（≥3 条 onError 来自 profile.js）**自查没逐条数**，审阅要补
+
+---
+
 ## 第 3 步 · 端到端验证
 
 ### scope
@@ -350,6 +384,6 @@ media_type       ← media_type    streaming        ← streaming_mode
 
 | 步骤 | 状态 |
 |---|---|
-| 第 1 步 反射 → 草稿 + 映射候选 | ✅ 完成（7 条验收实测通过，基线不退化）—— 待提交 |
-| 第 2 步 草稿展示 + 引导 | ⬜ 待第 1 步提交 |
-| 第 3 步 端到端验证 | ⬜ 待第 2 步完成 |
+| 第 1 步 反射 → 草稿 + 映射候选 | ✅ 完成并提交（7 条验收实测通过，基线不退化） |
+| 第 2 步 草稿展示 + 引导 | 🚧 实现完成，**未审阅**（与第 3 步一起审） |
+| 第 3 步 端到端验证 | ⬜ 待实现，**与第 2 步一起审阅** |

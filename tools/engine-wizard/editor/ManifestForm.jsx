@@ -246,6 +246,280 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 }
 
 // ---------------------------------------------------------------------------
+// ⭐ 第 2 步：草稿的三块分区渲染（用户操作流的界面形态）
+//
+// ⛔⛔ 三条纪律（硬约束，违反即返工）：
+//   1. **参数一条都不许丢** —— 三块是同一份 parameters[] 的重排视图。
+//      数据侧 organizeDraft 已经保证 must+may === parameters.length；
+//      这里再加一道显示侧的守卫（三条数对不上就如实说，⛔ 不许悄悄少显示）。
+//   2. **平台认识的才给中文人话** —— 只查 spec.platformWords（fieldmeta 的
+//      PLATFORM_WORDS，也就是 payload.js 那 10 个词）。⛔ 表外的一个字都不
+//      翻译，只给「上游官方原话」（那条还是上游自己写的英文，⛔ 不改写）。
+//   3. **不新增任何校验** —— 界面只展示「反射/上游说了什么」。
+//      必填标记来自反射结果里的 required 字段，⛔ 不是平台自己判的。
+// ---------------------------------------------------------------------------
+
+/** 平台那 10 个词的中文人话。spec 拿不到时退化成空表（界面照样能跑）。 */
+function usePlatformWords (spec) {
+  const map = React.useMemo(() => {
+    const out = {}
+    for (const w of (spec && spec.platformWords) || []) out[w.key] = w
+    return out
+  }, [spec])
+  return map
+}
+
+/**
+ * 一条参数的说明。
+ * ⭐ 优先级（⛔ 照这个来，别调）：
+ *   ① 平台认识的词 → fieldmeta 的中文人话（用户看得懂的那个）
+ *   ② 其余 → 反射给的理由（`_why`，可能含 REPLACE_ME）或上游 help 的英文
+ * ⭐ 两条都不编：没有就说没有，⛔ 不许自己写一句「这个参数控制 xxx」。
+ */
+function ParamHelp ({ item, words, t }) {
+  const w = words && words[item.name]
+  if (w) {
+    return (
+      <>
+        <div className="field-hint">{t(w.help, w.help)}</div>
+        {w.warn && <div className="plan-warn">⚠ {t(w.warn, w.warn)}</div>}
+      </>
+    )
+  }
+  const why = item._why || (item.help && item.help.en) || ''
+  if (!why) {
+    return (
+      <div className="field-hint">
+        {t('The upstream did not say what this does. Open the official wording below to check.',
+          '上游没说这个是干什么的。展开下面的「上游官方原话」自己对照。')}
+      </div>
+    )
+  }
+  // ⚠ _why 里可能含 REPLACE_ME —— 那是提醒「这里要人填」，如实显示
+  return <div className="field-hint">{why}</div>
+}
+
+/**
+ * ⭐⭐ 「上游官方原话」折叠块。
+ *
+ * ⛔⛔ 原话逐字显示，⛔ 不翻译、不改写、不缩写、不补标点。
+ *    用户要的就是上游自己写的那句（「Comma-separated 8-dimensional emotion
+ *    vector」顺带告诉了用户怎么填，比平台猜的准）。
+ *
+ * ⚠ 两种内容叠在一起，⛔ 不许合并：
+ *   ① `item._cli` —— 直接同名自动贴上的那一条（上游自己写成同名 = 事实）
+ *   ② `cli.flags`  —— 上游 CLI 的**全部** flag 摊开（Owner 定：乙）。
+ *      不配对的那些参数，用户照着自己对照。
+ *      ⛔ 这不是冗余：① 只是「这条大概率是它」，② 才是完整的答案。
+ */
+function UpstreamWords ({ item, cli, t }) {
+  const own = item._cli || null
+  const rest = ((cli && cli.flags) || []).filter((f) => {
+    if (!own) return true
+    // 直接同名那条在 ① 里已经单独显示了，⛔ 不在 ② 里重复列同一份
+    return !(f.dest === own.dest && f.source_file === own.source_file)
+  })
+  const total = (own ? 1 : 0) + rest.length
+  if (!total) {
+    return (
+      <p className="field-hint">
+        {t('This engine has no CLI on disk, so there is no official wording to show. '
+          + 'Read the upstream source, or write the description yourself.',
+          '盘上没有这台引擎的 CLI，没有官方原话可看。读上游源码，或自己写说明。')}
+      </p>
+    )
+  }
+  return (
+    <>
+      {own && (
+        <div className="field">
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <code>{own.flag}</code>
+            {own.subcommand && <span className="badge badge-neutral">{own.subcommand}</span>}
+            {own.required && <span className="badge badge-warn">{t('required', '上游要求必填')}</span>}
+            <span className="badge badge-ok">
+              {t('same name as this parameter', '与本参数同名')}
+            </span>
+          </div>
+          <div className="field-hint">{own.help || t('(no help text)', '（上游没写说明）')}</div>
+        </div>
+      )}
+      <p className="field-hint">
+        {t(`${rest.length} other upstream flags. They are listed whole, not matched to this `
+          + 'parameter: the upstream uses different words for the same thing, and guessing '
+          + 'the pairing would silently send the user down the wrong path.',
+          `上游另外 ${rest.length} 个 flag，整份摊开，不与本参数配对：`
+          + '上游对同一个东西用的是另一套词，猜对应关系会静默地把用户引到错的路上。')}
+      </p>
+      <div className="param-grid">
+        {rest.map((f) => (
+          <div key={f.dest + '|' + f.source_file + '|' + (f.subcommand || '')} className="field">
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <code>{f.is_option ? f.flags.join(' ') : f.flags[0]}</code>
+              {f.subcommand && <span className="badge badge-neutral">{f.subcommand}</span>}
+              {f.required && <span className="badge badge-warn">{t('required', '上游要求必填')}</span>}
+              {f.choices && <span className="badge badge-info">{f.choices.join(' / ')}</span>}
+              <span className="badge badge-muted">{f.source_file}</span>
+            </div>
+            <div className="field-hint">{f.help || t('(no help text)', '（上游没写说明）')}</div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/** 一条参数的卡片：名字 + 徽标 + 中文人话 + 上游原话（可展开） */
+function DraftItem ({ item, words, cli, t }) {
+  const isPlatform = !!(words && words[item.name])
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <code>{item.name}</code>
+        {isPlatform && (
+          <span className="badge badge-ok">
+            {t((words[item.name] && words[item.name].label) || 'platform word', '平台认识的')}
+          </span>
+        )}
+        {item.type && <span className="badge badge-neutral">{item.type}</span>}
+        {item.phase && <span className="badge badge-neutral">{item.phase}</span>}
+        {item.required === true && (
+          <span className="badge badge-danger">{t('you must fill this', '这个必须你填')}</span>
+        )}
+        {item._needs_review && (
+          <span className="badge badge-warn">{t('type guessed from name', '类型按名字猜的')}</span>
+        )}
+        {item._platform_key && (
+          <span className="badge badge-warn">{t('platform word', '平台词')}</span>
+        )}
+      </div>
+      <ParamHelp item={item} words={words} t={t} />
+      {/* ⭐ 上游原话默认折叠 —— 每条都摊开是噪音，要的人自己点。
+          ⛔ 用项目的 .expert-block（⛔ 不许裸 <details>，那个没边框/间距）*/}
+      <details className="expert-block" style={{ marginTop: 6 }}>
+        <summary className="expert-summary">
+          {t('Upstream official wording', '上游官方原话')}
+        </summary>
+        <div style={{ marginTop: 8 }}>
+          <UpstreamWords item={item} cli={cli} t={t} />
+        </div>
+      </details>
+    </div>
+  )
+}
+
+/**
+ * ⭐⭐ 三块分区的主组件。
+ * ① 平台已自动填好的  ② 必须你填的  ③ 可以不管的（默认折叠）
+ */
+function DraftBlocks ({ organized, cli, spec }) {
+  const { t } = useT()
+  const words = usePlatformWords(spec)
+  const byKey = {}
+  for (const b of organized.blocks || []) byKey[b.key] = b.items || []
+
+  // ⛔ 显示侧的最后一道守卫：一条参数都不许丢。
+  //   数据侧 organizeDraft 已经保证过，这里再查一次 —— 因为「界面少显示一条」
+  //   和「数据少一条」是同一个后果（用户永远看不到那个旋钮），而显示侧是
+  //   唯一离用户最近的那一层。
+  const shown = (byKey.must || []).length + (byKey.may || []).length
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* ---- ① 平台已自动填好的 ---- */}
+      <div className="card">
+        <strong>{t('Already handled for you', '平台已自动填好的')}</strong>
+        <p className="field-hint">
+          {t('These platform words already point at an engine parameter in this manifest. '
+            + 'Nothing to do here.',
+            '这些平台词在这张名片里已经指向引擎参数了，不用再动。')}
+        </p>
+        {(byKey.auto || []).length === 0 ? (
+          <p className="field-hint">
+            {t('None yet. Tick rows in the platform word candidates below to map them.',
+              '还没有。在下面的「平台词候选」里勾选即可映射。')}
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            {(byKey.auto || []).map((item) => (
+              <div key={item.name} className="field">
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <code>{item.name}</code>
+                  <span className="badge badge-ok">{t('platform word', '平台词')}</span>
+                  {words[item.name] && (
+                    <span>{t(words[item.name].label, words[item.name].label)}</span>
+                  )}
+                  {item._mapped_to && (
+                    <span className="badge badge-neutral">
+                      {t(`→ ${item._mapped_to}`, `→ ${item._mapped_to}`)}
+                    </span>
+                  )}
+                </div>
+                {words[item.name] && (
+                  <div className="field-hint">{t(words[item.name].help, words[item.name].help)}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ---- ② 必须你填的（排最前 + 高亮）---- */}
+      <div className="card">
+        <strong>
+          {t(`You must fill these (${(byKey.must || []).length})`,
+            `必须你填的（${(byKey.must || []).length} 条）`)}
+        </strong>
+        <p className="field-hint">
+          {t('The upstream requires these, but the platform cannot tell what they mean. '
+            + 'Each one needs a label and a description from you.',
+            '上游要求这几个必须给，但平台说不出它们是什么意思。每一条都要你写名字和说明。')}
+        </p>
+        {(byKey.must || []).length === 0 ? (
+          <p className="field-hint">
+            {t('None. Every required parameter is already handled.',
+              '没有。必填参数都已经处理好了。')}
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            {(byKey.must || []).map((item) => (
+              <DraftItem key={item.name} item={item} words={words} cli={cli} t={t} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ---- ③ 可以不管的（默认折叠）---- */}
+      <details className="expert-block">
+        <summary className="expert-summary">
+          {t(`Optional knobs you can ignore (${(byKey.may || []).length})`,
+            `可以不管的（${(byKey.may || []).length} 条）`)}
+        </summary>
+        <p className="field-hint" style={{ marginTop: 8 }}>
+          {t('The upstream has defaults for all of these. Leave them alone unless a user '
+            + 'asks for that knob.',
+            '这些上游都给了默认值。没人要就别动。')}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+          {(byKey.may || []).map((item) => (
+            <DraftItem key={item.name} item={item} words={words} cli={cli} t={t} />
+          ))}
+        </div>
+      </details>
+
+      {shown !== organized.counts.must + organized.counts.may && (
+        <div className="msg msg-warning">
+          {t(`Only ${shown} of ${organized.counts.must + organized.counts.may} parameters are shown. `
+            + 'Some are missing from the screen.',
+            `只显示了 ${shown} 条，应有 ${organized.counts.must + organized.counts.may} 条。`
+            + '有参数没显示出来。')}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ⭐ 从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）
 //
 // ⛔⛔ 三条纪律（硬约束，违反即返工）：
@@ -253,7 +527,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 //   2. 映射候选只给候选，**人点选之后**才写 maps，⛔ 绝不自动落盘
 //   3. 不新增任何平台侧校验逻辑 —— 界面只展示「反射说了什么」
 // ---------------------------------------------------------------------------
-function ReflectPanel ({ manifest, onChange }) {
+function ReflectPanel ({ manifest, onChange, spec }) {
   const { t } = useT()
   const { installed } = useInstalled()
   const [engineId, setEngineId] = React.useState(manifest.id || '')
@@ -275,6 +549,14 @@ function ReflectPanel ({ manifest, onChange }) {
     setResult(null)
     setPicked({})
     try {
+      // ⭐ 多方法引擎：把名片 call.methods 里声明的**真实方法名**传给后端，
+      //   否则只反射加载期（构造参数），推理期参数（tts_text / prompt_wav…）
+      //   一个都拿不到 —— 那正是用户要配的东西。
+      //   ⛔ 单方法引擎（没写 call.methods）不传 ⇒ 后端走 call.method 单个反射。
+      const methodsByName = (manifest.call && manifest.call.methods) || {}
+      const methodList = Object.values(methodsByName)
+        .map((m) => (m && m.method) || null)
+        .filter(Boolean)
       const r = await fetch('/wizard/params', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -283,6 +565,8 @@ function ReflectPanel ({ manifest, onChange }) {
           // ⭐ 名片里已经有的 maps 只用来打「已映射」标记，⛔ 不会覆盖
           existingMaps: manifest.maps || {},
           existing: (manifest.parameters || []).map((p) => p.name),
+          // ⭐ 多方法引擎的推理方法真名（inference_sft / inference_zero_shot…）
+          ...(methodList.length ? { methods: methodList } : {}),
         }),
       })
       const j = await r.json()
@@ -397,44 +681,64 @@ function ReflectPanel ({ manifest, onChange }) {
               </div>
             )}
 
-            {/* ---- ① parameters[] 草稿：按钮只填表单 ---- */}
-            <div className="card">
-              <div className="form-grid" style={{ alignItems: 'center' }}>
-                <strong>{t('Parameter draft', '参数草稿')}</strong>
-                <button className="btn btn-sm" type="button" onClick={applyParams}>
-                  + {t('Append to form', '追加到表单')}
-                </button>
+            {/* ⭐⭐ 第 2 步：按「用户操作流」三块分区。
+                ⛔ 这不是把参数拆开，是**同一份草稿的重排视图** ——
+                  organizeDraft 保证 must + may === parameters.length，
+                  一条都不许丢（丢一条 = 界面上少一个旋钮，且不报错）。 */}
+            {result.organized && result.organized.ok ? (
+              <DraftBlocks organized={result.organized} cli={result.cli} />
+            ) : (
+              /* ⚠ 分区失败不许静默退回旧视图 —— 那会把「分错了」说成「没参数」。
+                 如实说，并把原始草稿留在下面。 */
+              <div className="msg msg-warning">
+                {t('Could not group the draft: ', '参数分区没做成：')
+                  + (result.organized ? result.organized.error : '分区结果缺失')}
               </div>
-              {result.parameters.length === 0 ? (
-                <p className="field-hint">
-                  {t('No parameters survived the exclusions. Check the excluded list below.',
-                    '排除之后没有剩下任何参数。看看下面的排除清单。')}
-                </p>
-              ) : (
-                <div className="param-grid" style={{ marginTop: 8 }}>
-                  {result.parameters.map((p) => (
-                    <div key={p.name} className="field">
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <code>{p.name}</code>
-                        <span className="badge badge-neutral">{p.type}</span>
-                        <span className="badge badge-neutral">{p.phase}</span>
-                        {p._needs_review && (
-                          <span className="badge badge-warn">
-                            {t('type guessed from name', '类型按名字猜的')}
-                          </span>
-                        )}
-                        {p._platform_key && (
-                          <span className="badge badge-warn">
-                            {t('platform word', '平台词')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="field-hint">{p._why || p.help?.en || ''}</div>
-                    </div>
-                  ))}
+            )}
+
+            {/* ---- ① 参数草稿原文（三块视图的数据来源，⛔ 不许删）---- */}
+            <details className="expert-block">
+              <summary className="expert-summary">
+                {t(`Raw draft (${result.counts.parameters} parameters)`,
+                  `原始草稿（${result.counts.parameters} 条参数）`)}
+              </summary>
+              <div style={{ marginTop: 8 }}>
+                <div className="form-grid" style={{ alignItems: 'center' }}>
+                  <button className="btn btn-sm" type="button" onClick={applyParams}>
+                    + {t('Append to form', '追加到表单')}
+                  </button>
                 </div>
-              )}
-            </div>
+                {result.parameters.length === 0 ? (
+                  <p className="field-hint">
+                    {t('No parameters survived the exclusions. Check the excluded list below.',
+                      '排除之后没有剩下任何参数。看看下面的排除清单。')}
+                  </p>
+                ) : (
+                  <div className="param-grid" style={{ marginTop: 8 }}>
+                    {result.parameters.map((p) => (
+                      <div key={p.name} className="field">
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <code>{p.name}</code>
+                          <span className="badge badge-neutral">{p.type}</span>
+                          <span className="badge badge-neutral">{p.phase}</span>
+                          {p._needs_review && (
+                            <span className="badge badge-warn">
+                              {t('type guessed from name', '类型按名字猜的')}
+                            </span>
+                          )}
+                          {p._platform_key && (
+                            <span className="badge badge-warn">
+                              {t('platform word', '平台词')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="field-hint">{p._why || p.help?.en || ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
 
             {/* ---- ② 映射候选：单独一栏，人勾选后才写 maps ---- */}
             <div className="card">
@@ -734,7 +1038,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
       )}
 
       {/* ---- ⭐ 从源码反射生成（第 4 步：只填表单，不落盘）---- */}
-      <ReflectPanel manifest={manifest} onChange={onChange} />
+      <ReflectPanel manifest={manifest} onChange={onChange} spec={spec} />
 
       {/* ---- parameters：界面参数 ---- */}
       <div className="section">

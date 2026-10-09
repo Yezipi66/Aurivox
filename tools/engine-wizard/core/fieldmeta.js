@@ -140,10 +140,73 @@ const PARAM_FIELDS_BY_KEY = Object.freeze(
   PARAM_FIELDS.reduce((m, f) => { m[f.key] = f; return m }, {})
 )
 
+// ----------------------------------------------------------------------------
+//  ⭐⭐ 平台词表（第 2 步的「人话」库）
+// ----------------------------------------------------------------------------
+//  这是 payload.js 的 CANONICAL_KEYS 那 10 个词，**平台唯一认识的一组概念**。
+//  反射出来的参数草稿里，凡是名字落在这一张表上的（或映射候选勾上的），
+//  平台上就显示这里的**中文人话**；⛔ 表外的一个字都不翻译。
+//
+//  ⚠ 为什么单独一张表而不并进 PARAM_FIELDS：
+//    PARAM_FIELDS 说的是「parameters[] 这一条有哪些**格**」（name/type/tier…），
+//    说的是**卡片的字段**；这里说的是**平台那 10 个概念分别是什么意思**。
+//    两件事，混在一张表里就会有人以为改一个是改另一个。
+//
+//  ⛔ 纪律（与文件头同一条）：这张表里不许出现任何具体引擎名 ——
+//    它描述的是**平台的词**，跟装哪台引擎无关。
+//
+//  ⭐ 文案来源：payload.js 里 CORE_KEYS / OPTIONAL_KEYS 的头注（「空值发不发」
+//    的区分是它写的），加上 profile.js 对 parameters[] / maps 的抛错原句。
+//    ⇒ 搬运已有文案，不是新写。
+// ----------------------------------------------------------------------------
+const PLATFORM_WORDS = Object.freeze([
+  // ── CORE：只要名片映射了就一定发，哪怕值是空字符串（payload.js:39-47）──
+  { key: 'text', danger: DANGER.BLOCK,
+    label: '要合成的文字',
+    help: '念出来的那段话。用户每次合成都会改它。' },
+  { key: 'text_lang', danger: DANGER.INFO,
+    label: '这段文字的语言',
+    help: '要合成的文字是什么语言。它管的是发音，不是音色。',
+    warn: '没写这一条的平台不认识什么语言，引擎只能自己判断。' },
+  { key: 'reference_audio', danger: DANGER.BLOCK,
+    label: '参考音频（音色从哪来）',
+    help: '决定「用什么声音念」的那段录音。不填就是引擎的默认音色。',
+    warn: '⚠ 这台引擎要是不支持换音色，这一条映射了也不会有效果。' },
+  { key: 'reference_text', danger: DANGER.INFO,
+    label: '参考音频里念的是什么',
+    help: '上面那段录音对应的文字稿。有的引擎靠它把音色对齐得更好。' },
+  { key: 'reference_lang', danger: DANGER.INFO,
+    label: '参考音频的语言',
+    help: '上面那段录音是什么语言。它和「要合成的文字的语言」是两件事。' },
+  // ── OPTIONAL：不填就不发，交给引擎自己的默认值（payload.js:44-47）──
+  { key: 'aux_reference_audio', danger: DANGER.INFO,
+    label: '第二个参考音频',
+    help: '再给一段录音，用来混合音色。多数引擎用不到。' },
+  { key: 'speed', danger: DANGER.INFO,
+    label: '语速',
+    help: '念多快。1 是原速，2 是两倍快。' },
+  { key: 'seed', danger: DANGER.INFO,
+    label: '随机种子',
+    help: '同一个种子配同样的输入，出来的声音一致。想让每次结果不同就留空。' },
+  { key: 'media_type', danger: DANGER.INFO,
+    label: '输出格式',
+    help: '合成出来是什么格式，比如 wav / mp3。' },
+  { key: 'streaming', danger: DANGER.SILENT,
+    label: '流式输出',
+    help: '边合成边往回传，不用等整段念完。',
+    warn: '⚠ 填错不报错，只是听着不像流式。' },
+])
+
+const PLATFORM_WORDS_BY_KEY = Object.freeze(
+  PLATFORM_WORDS.reduce((m, w) => { m[w.key] = w; return m }, {})
+)
+
 module.exports = {
   DANGER,
   SECTIONS,
   SECTIONS_BY_KEY,
   PARAM_FIELDS,
   PARAM_FIELDS_BY_KEY,
+  PLATFORM_WORDS,
+  PLATFORM_WORDS_BY_KEY,
 }
