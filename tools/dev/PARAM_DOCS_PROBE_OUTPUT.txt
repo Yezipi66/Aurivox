@@ -1,0 +1,82 @@
+>> JSON 写入 tools/dev/PARAM_DOCS_PROBE_RESULT.json
+
+================================================================================
+引擎 index-tts  —— indextts.infer_v2_5.IndexTTS2.infer
+  类源文件      : engines/index-tts/indextts/infer_v2_5.py
+  加载期参数来自: engines/index-tts/indextts/infer_v2_5.py
+  调用期参数来自: engines/index-tts/indextts/infer_v2_5.py
+  CLI 文件      : ['engines/index-tts/indextts/cli.py', 'engines/index-tts/indextts/cli_v2.py']
+  ----------------------------------------------------------------------------
+   [load] cfg_path                   docstring(__init__)    path to the config file.
+   [load] model_dir                  docstring(__init__)    path to the model directory.
+   [load] use_bf16                   docstring(__init__)    whether to use bf16.
+   [load] device                     docstring(__init__)    device to use (e.g., 'cuda:0', 'cpu'). If None, it wi...
+   [load] use_cuda_kernel            docstring(__init__)    whether to use BigVGan custom fused activation CUDA k...
+   [load] use_deepspeed              docstring(__init__)    whether to use DeepSpeed or not.
+   [load] use_accel                  docstring(__init__)    whether to use acceleration engine for GPT2 or not.
+   [load] use_torch_compile          docstring(__init__)    whether to use torch.compile for optimization or not.
+   [load] use_qwen_emo               docstring(__init__)    if True, load the QwenEmotion text-to-emotion model. ...
+   [call] spk_audio_prompt           argparse(alias:voice)  Path to the audio prompt file
+   [call] lang                       none                   ——（无）
+   [call] emo_audio_prompt           argparse(alias:emotion_audio) Default emotion reference audio for every batch task
+   [call] emo_alpha                  argparse(alias:emotion_weight) Default emotion weight mapped to IndexTTS2 emo_alpha
+   [call] emo_vector                 argparse(alias:emotion_vector) Default comma-separated 8-dimensional emotion vector
+   [call] use_emo_text               none                   ——（无）
+   [call] emo_text                   argparse(alias:emotion_text) Default emotion description text for every batch task
+   [call] use_random                 none                   ——（无）
+   [call] interval_silence           none                   ——（无）
+   [call] verbose                    argparse(same-name)    Show verbose inference output
+   [call] max_text_tokens_per_segment none                   ——（无）
+   [call] stream_return              none                   ——（无）
+   [call] more_segment_before        none                   ——（无）
+   [call] duration_factor            none                   ——（无）
+   [call] text_normalization         none                   ——（无）
+   [call] generation_kwargs          none                   ——（无）
+  ----------------------------------------------------------------------------
+  签名参数覆盖：15/25 = 60.0%  来源 {'docstring': 9, 'argparse': 6}
+  无说明：lang, use_emo_text, use_random, interval_silence, max_text_tokens_per_segment, stream_return, more_segment_before, duration_factor, text_normalization, generation_kwargs
+
+================================================================================
+引擎 cosyvoice2  —— cosyvoice.cli.cosyvoice.CosyVoice2.inference_zero_shot
+  类源文件      : engines/cosyvoice2/cosyvoice/cli/cosyvoice.py
+  加载期参数来自: engines/cosyvoice2/cosyvoice/cli/cosyvoice.py
+  调用期参数来自: engines/cosyvoice2/cosyvoice/cli/cosyvoice.py
+  CLI 文件      : ['engines/cosyvoice2/runtime/python/fastapi/client.py', 'engines/cosyvoice2/webui.py']
+  ----------------------------------------------------------------------------
+   [load] model_dir                  argparse(same-name)    local path or modelscope repo id
+   [load] load_jit                   none                   ——（无）
+   [load] load_trt                   none                   ——（无）
+   [load] load_vllm                  none                   ——（无）
+   [load] fp16                       none                   ——（无）
+   [load] trt_concurrent             none                   ——（无）
+   [call] tts_text                   none                   ——（无）
+   [call] prompt_text                none                   ——（无）
+   [call] prompt_wav                 none                   ——（无）
+   [call] zero_shot_spk_id           none                   ——（无）
+   [call] stream                     none                   ——（无）
+   [call] speed                      none                   ——（无）
+   [call] text_frontend              none                   ——（无）
+  ----------------------------------------------------------------------------
+  签名参数覆盖：1/13 = 7.7%  来源 {'argparse': 1}
+  无说明：load_jit, load_trt, load_vllm, fp16, trt_concurrent, tts_text, prompt_text, prompt_wav, zero_shot_spk_id, stream, speed, text_frontend
+
+================================================================================
+引擎 gpt-sovits  —— TTS.TTS.run
+  类源文件      : engines/gpt-sovits/infer/TTS.py
+  加载期参数来自: engines/gpt-sovits/infer/TTS.py
+  调用期参数来自: engines/gpt-sovits/infer/TTS.py
+  CLI 文件      : []
+  ----------------------------------------------------------------------------
+   [load] configs                    none                   ——（无）
+   [call] inputs                     docstring(method)      { "text": "",                   # str.(required) text...
+  ----------------------------------------------------------------------------
+  签名参数覆盖：1/2 = 50.0%  来源 {'docstring': 1}
+  无说明：configs
+  ----------------------------------------------------------------------------
+  ⭐ dict 参数（签名看不到，从 docstring 摘出）：24 个，24 有说明
+
+================================================================================
+覆盖率汇总（真实跑出）
+  index-tts    15/25 =  60.0%   来源 {'docstring': 9, 'argparse': 6}
+  cosyvoice2    1/13 =   7.7%   来源 {'argparse': 1}
+  gpt-sovits    1/ 2 =  50.0%   来源 {'docstring': 1}   +dict 24/24

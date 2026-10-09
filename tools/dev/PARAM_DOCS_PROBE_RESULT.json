@@ -1,0 +1,1770 @@
+{
+  "index-tts": {
+    "engine": "index-tts",
+    "class": "indextts.infer_v2_5.IndexTTS2",
+    "method": "infer",
+    "sources": {
+      "module_file": "engines/index-tts/indextts/infer_v2_5.py",
+      "load_params_from": "engines/index-tts/indextts/infer_v2_5.py",
+      "call_params_from": "engines/index-tts/indextts/infer_v2_5.py",
+      "cli_files": [
+        "engines/index-tts/indextts/cli.py",
+        "engines/index-tts/indextts/cli_v2.py"
+      ],
+      "cli_records": [
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Model directory",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "checkpoints"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "text"
+          ],
+          "dest": "text",
+          "help": "Text to be synthesized",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "-v",
+            "--voice"
+          ],
+          "dest": "voice",
+          "help": "Path to the audio prompt file",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "-o",
+            "--output_path"
+          ],
+          "dest": "output_path",
+          "help": "Path to the output wav file",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "gen.wav"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "-c",
+            "--config"
+          ],
+          "dest": "config",
+          "help": "Path to the config file",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "checkpoints/config.yaml"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Path to the model directory",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "checkpoints"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "--fp16"
+          ],
+          "dest": "fp16",
+          "help": "Use FP16 for inference",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": false
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "-f",
+            "--force"
+          ],
+          "dest": "force",
+          "help": "Overwrite output file if exists",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": false
+        },
+        {
+          "file": "engines/index-tts/indextts/cli.py",
+          "option_strings": [
+            "-d",
+            "--device"
+          ],
+          "dest": "device",
+          "help": "Device (cpu, cuda, mps, xpu)",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Persist a model resource directory",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "key"
+          ],
+          "dest": "key",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "value"
+          ],
+          "dest": "value",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--source"
+          ],
+          "dest": "source",
+          "help": "Model download source (default: auto-detect based on network)",
+          "choices": [
+            "huggingface",
+            "modelscope",
+            "auto"
+          ],
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": "auto"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Path to the IndexTTS2 model resource directory",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--no-save"
+          ],
+          "dest": "no_save",
+          "help": "Do not persist --model-dir after a successful download",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Path to the IndexTTS2 model directory",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--device"
+          ],
+          "dest": "device",
+          "help": "Required runtime device, e.g. cpu, cuda, cuda:0, mps or xpu",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--batch-file"
+          ],
+          "dest": "batch_file",
+          "help": "Path to the JSON Lines batch file",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": true,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Path to the IndexTTS2 model directory",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--dry-run"
+          ],
+          "dest": "dry_run",
+          "help": "Validate the batch file without loading model weights",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--force"
+          ],
+          "dest": "force",
+          "help": "Overwrite output if it exists",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--output-dir"
+          ],
+          "dest": "output_dir",
+          "help": "Directory for automatically named independent WAV outputs",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--output-prefix"
+          ],
+          "dest": "output_prefix",
+          "help": "Filename prefix for automatically named independent WAV outputs",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--concat"
+          ],
+          "dest": "concat",
+          "help": "Generate one concatenated batch output",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--output"
+          ],
+          "dest": "output",
+          "help": "Path to write concatenated batch WAV audio",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--keep-temp"
+          ],
+          "dest": "keep_temp",
+          "help": "Keep internal batch concat temporary files",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--device"
+          ],
+          "dest": "device",
+          "help": "Runtime device",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--fp16"
+          ],
+          "dest": "fp16",
+          "help": "Use FP16 inference",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--deepspeed"
+          ],
+          "dest": "deepspeed",
+          "help": "Use DeepSpeed",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--cuda-kernel"
+          ],
+          "dest": "cuda_kernel",
+          "help": "Use CUDA kernel",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--accel"
+          ],
+          "dest": "accel",
+          "help": "Use GPT2 acceleration engine",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--torch-compile"
+          ],
+          "dest": "torch_compile",
+          "help": "Use torch.compile for s2mel optimization",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "help": "Show verbose inference output",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--voice"
+          ],
+          "dest": "voice",
+          "help": "Default speaker reference audio for every batch task",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-audio"
+          ],
+          "dest": "emotion_audio",
+          "help": "Default emotion reference audio for every batch task",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-text"
+          ],
+          "dest": "emotion_text",
+          "help": "Default emotion description text for every batch task",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-vector"
+          ],
+          "dest": "emotion_vector",
+          "help": "Default comma-separated 8-dimensional emotion vector",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-weight"
+          ],
+          "dest": "emotion_weight",
+          "help": "Default emotion weight mapped to IndexTTS2 emo_alpha",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": "1.0"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--concat-file"
+          ],
+          "dest": "concat_file",
+          "help": "Path to the JSON Lines concat file",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": true,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--output"
+          ],
+          "dest": "output",
+          "help": "Path to write concatenated WAV audio",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": true,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--force"
+          ],
+          "dest": "force",
+          "help": "Overwrite output if it exists",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--dry-run"
+          ],
+          "dest": "dry_run",
+          "help": "Validate the concat file without creating output audio",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--text"
+          ],
+          "dest": "text",
+          "help": "Text to synthesize",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--text-file"
+          ],
+          "dest": "text_file",
+          "help": "UTF-8 text file to synthesize",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--stdin"
+          ],
+          "dest": "stdin",
+          "help": "Read text from standard input",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--voice"
+          ],
+          "dest": "voice",
+          "help": "Path to the speaker reference audio",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-audio"
+          ],
+          "dest": "emotion_audio",
+          "help": "Path to the emotion reference audio",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-text"
+          ],
+          "dest": "emotion_text",
+          "help": "Emotion description text",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-vector"
+          ],
+          "dest": "emotion_vector",
+          "help": "Comma-separated 8-dimensional emotion vector",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--emotion-weight"
+          ],
+          "dest": "emotion_weight",
+          "help": "Emotion weight mapped to IndexTTS2 emo_alpha",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": "1.0"
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--output"
+          ],
+          "dest": "output",
+          "help": "Path to write generated audio",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--force"
+          ],
+          "dest": "force",
+          "help": "Overwrite output if it exists",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--model-dir"
+          ],
+          "dest": "model_dir",
+          "help": "Path to the IndexTTS2 model directory",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--device"
+          ],
+          "dest": "device",
+          "help": "Runtime device",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--fp16"
+          ],
+          "dest": "fp16",
+          "help": "Use FP16 inference",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--deepspeed"
+          ],
+          "dest": "deepspeed",
+          "help": "Use DeepSpeed",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--cuda-kernel"
+          ],
+          "dest": "cuda_kernel",
+          "help": "Use CUDA kernel",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--accel"
+          ],
+          "dest": "accel",
+          "help": "Use GPT2 acceleration engine",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--torch-compile"
+          ],
+          "dest": "torch_compile",
+          "help": "Use torch.compile for s2mel optimization",
+          "choices": null,
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": null
+        },
+        {
+          "file": "engines/index-tts/indextts/cli_v2.py",
+          "option_strings": [
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "help": "Show verbose inference output",
+          "choices": null,
+          "action": "store_true",
+          "type": null,
+          "required": null,
+          "default": null
+        }
+      ]
+    },
+    "params": [
+      {
+        "name": "cfg_path",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "path to the config file.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "'checkpoints/config.yaml'"
+      },
+      {
+        "name": "model_dir",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "path to the model directory.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "'checkpoints'"
+      },
+      {
+        "name": "use_bf16",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "whether to use bf16.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "device",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "device to use (e.g., 'cuda:0', 'cpu'). If None, it will be set automatically based on the availability of CUDA or MPS.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "None"
+      },
+      {
+        "name": "use_cuda_kernel",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "whether to use BigVGan custom fused activation CUDA kernel, only for CUDA device.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "None"
+      },
+      {
+        "name": "use_deepspeed",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "whether to use DeepSpeed or not.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "use_accel",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "whether to use acceleration engine for GPT2 or not.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "use_torch_compile",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "whether to use torch.compile for optimization or not.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "use_qwen_emo",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "if True, load the QwenEmotion text-to-emotion model. Required for ``infer(..., use_emo_text=True)``. Attempting to use emotion-text guidance when this is disabled will raise a RuntimeError.",
+        "source": "docstring(__init__)",
+        "source_detail": "engines/index-tts/indextts/infer_v2_5.py :: IndexTTS2.__init__ docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "spk_audio_prompt",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "Path to the audio prompt file",
+        "source": "argparse(alias:voice)",
+        "source_detail": "engines/index-tts/indextts/cli.py :: -v --voice",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      },
+      {
+        "name": "lang",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      },
+      {
+        "name": "emo_audio_prompt",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "Default emotion reference audio for every batch task",
+        "source": "argparse(alias:emotion_audio)",
+        "source_detail": "engines/index-tts/indextts/cli_v2.py :: --emotion-audio",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "None"
+      },
+      {
+        "name": "emo_alpha",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "Default emotion weight mapped to IndexTTS2 emo_alpha",
+        "source": "argparse(alias:emotion_weight)",
+        "source_detail": "engines/index-tts/indextts/cli_v2.py :: --emotion-weight",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "1.0"
+      },
+      {
+        "name": "emo_vector",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "Default comma-separated 8-dimensional emotion vector",
+        "source": "argparse(alias:emotion_vector)",
+        "source_detail": "engines/index-tts/indextts/cli_v2.py :: --emotion-vector",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "None"
+      },
+      {
+        "name": "use_emo_text",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "emo_text",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "Default emotion description text for every batch task",
+        "source": "argparse(alias:emotion_text)",
+        "source_detail": "engines/index-tts/indextts/cli_v2.py :: --emotion-text",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "None"
+      },
+      {
+        "name": "use_random",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "interval_silence",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "200"
+      },
+      {
+        "name": "verbose",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "Show verbose inference output",
+        "source": "argparse(same-name)",
+        "source_detail": "engines/index-tts/indextts/cli_v2.py :: --verbose",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "max_text_tokens_per_segment",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "120"
+      },
+      {
+        "name": "stream_return",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "more_segment_before",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "0"
+      },
+      {
+        "name": "duration_factor",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "1.0"
+      },
+      {
+        "name": "text_normalization",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "True"
+      },
+      {
+        "name": "generation_kwargs",
+        "phase": "call",
+        "skipped_by_reflect": true,
+        "reflect_why": "变长参数（*args / **kwargs）—— 平台不替你猜怎么展开",
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      }
+    ],
+    "dict_params": [],
+    "warnings": [],
+    "reflect_ok": true,
+    "coverage": {
+      "total": 25,
+      "with_doc": 15,
+      "pct": 60.0,
+      "by_source": {
+        "docstring": 9,
+        "argparse": 6
+      },
+      "no_doc": [
+        "lang",
+        "use_emo_text",
+        "use_random",
+        "interval_silence",
+        "max_text_tokens_per_segment",
+        "stream_return",
+        "more_segment_before",
+        "duration_factor",
+        "text_normalization",
+        "generation_kwargs"
+      ],
+      "with_literal_choices": []
+    },
+    "coverage_dict": {
+      "total": 0,
+      "with_doc": 0,
+      "pct": 0.0,
+      "by_source": {},
+      "no_doc": [],
+      "with_literal_choices": []
+    }
+  },
+  "cosyvoice2": {
+    "engine": "cosyvoice2",
+    "class": "cosyvoice.cli.cosyvoice.CosyVoice2",
+    "method": "inference_zero_shot",
+    "sources": {
+      "module_file": "engines/cosyvoice2/cosyvoice/cli/cosyvoice.py",
+      "load_params_from": "engines/cosyvoice2/cosyvoice/cli/cosyvoice.py",
+      "call_params_from": "engines/cosyvoice2/cosyvoice/cli/cosyvoice.py",
+      "cli_files": [
+        "engines/cosyvoice2/runtime/python/fastapi/client.py",
+        "engines/cosyvoice2/webui.py"
+      ],
+      "cli_records": [
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--host"
+          ],
+          "dest": "host",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "0.0.0.0"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--port"
+          ],
+          "dest": "port",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "int",
+          "required": null,
+          "default": "50000"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--mode"
+          ],
+          "dest": "mode",
+          "help": "request mode",
+          "choices": [
+            "sft",
+            "zero_shot",
+            "cross_lingual",
+            "instruct"
+          ],
+          "action": null,
+          "type": null,
+          "required": null,
+          "default": "sft"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--tts_text"
+          ],
+          "dest": "tts_text",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "你好，我是通义千问语音合成大模型，请问有什么可以帮您的吗？"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--spk_id"
+          ],
+          "dest": "spk_id",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "中文女"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--prompt_text"
+          ],
+          "dest": "prompt_text",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "希望你以后能够做的比我还好呦。"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--prompt_wav"
+          ],
+          "dest": "prompt_wav",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "../../../asset/zero_shot_prompt.wav"
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--instruct_text"
+          ],
+          "dest": "instruct_text",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "Theo 'Crimson', is a fiery, passionate rebel leader.                                  Fights with fervor for justice, but struggles with impulsiveness."
+        },
+        {
+          "file": "engines/cosyvoice2/runtime/python/fastapi/client.py",
+          "option_strings": [
+            "--tts_wav"
+          ],
+          "dest": "tts_wav",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "demo.wav"
+        },
+        {
+          "file": "engines/cosyvoice2/webui.py",
+          "option_strings": [
+            "--port"
+          ],
+          "dest": "port",
+          "help": null,
+          "choices": null,
+          "action": null,
+          "type": "int",
+          "required": null,
+          "default": 8000
+        },
+        {
+          "file": "engines/cosyvoice2/webui.py",
+          "option_strings": [
+            "--model_dir"
+          ],
+          "dest": "model_dir",
+          "help": "local path or modelscope repo id",
+          "choices": null,
+          "action": null,
+          "type": "str",
+          "required": null,
+          "default": "pretrained_models/CosyVoice2-0.5B"
+        }
+      ]
+    },
+    "params": [
+      {
+        "name": "model_dir",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "local path or modelscope repo id",
+        "source": "argparse(same-name)",
+        "source_detail": "engines/cosyvoice2/webui.py :: --model_dir",
+        "why": null,
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      },
+      {
+        "name": "load_jit",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "load_trt",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "load_vllm",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "fp16",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "trt_concurrent",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "1"
+      },
+      {
+        "name": "tts_text",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      },
+      {
+        "name": "prompt_text",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      },
+      {
+        "name": "prompt_wav",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": null
+      },
+      {
+        "name": "zero_shot_spk_id",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "''"
+      },
+      {
+        "name": "stream",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "False"
+      },
+      {
+        "name": "speed",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "1.0"
+      },
+      {
+        "name": "text_frontend",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": null,
+        "default_repr": "True"
+      }
+    ],
+    "dict_params": [],
+    "warnings": [],
+    "reflect_ok": true,
+    "coverage": {
+      "total": 13,
+      "with_doc": 1,
+      "pct": 7.7,
+      "by_source": {
+        "argparse": 1
+      },
+      "no_doc": [
+        "load_jit",
+        "load_trt",
+        "load_vllm",
+        "fp16",
+        "trt_concurrent",
+        "tts_text",
+        "prompt_text",
+        "prompt_wav",
+        "zero_shot_spk_id",
+        "stream",
+        "speed",
+        "text_frontend"
+      ],
+      "with_literal_choices": []
+    },
+    "coverage_dict": {
+      "total": 0,
+      "with_doc": 0,
+      "pct": 0.0,
+      "by_source": {},
+      "no_doc": [],
+      "with_literal_choices": []
+    }
+  },
+  "gpt-sovits": {
+    "engine": "gpt-sovits",
+    "class": "TTS.TTS",
+    "method": "run",
+    "sources": {
+      "module_file": "engines/gpt-sovits/infer/TTS.py",
+      "load_params_from": "engines/gpt-sovits/infer/TTS.py",
+      "call_params_from": "engines/gpt-sovits/infer/TTS.py",
+      "cli_files": [],
+      "cli_records": []
+    },
+    "params": [
+      {
+        "name": "configs",
+        "phase": "load",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": null,
+        "source": "none",
+        "source_detail": null,
+        "why": "三个源都没拿到",
+        "literal_choices": null,
+        "annotation": "Union[dict, str, TTS_Config]",
+        "default_repr": null
+      },
+      {
+        "name": "inputs",
+        "phase": "call",
+        "skipped_by_reflect": false,
+        "reflect_why": null,
+        "doc": "{ \"text\": \"\",                   # str.(required) text to be synthesized \"text_lang: \"\",               # str.(required) language of the text to be synthesized \"ref_audio_path\": \"\",         # str.(required) reference audio path \"aux_ref_audio_paths\": [],    # list.(optional) auxiliary reference audio paths for multi-speaker tone fusion \"prompt_text\": \"\",            # str.(optional) prompt text for the reference audio \"prompt_lang\": \"\",            # str.(required) language of the prompt text for the reference audio \"top_k\": 15,                  # int. top k sampling \"top_p\": 1,                   # float. top p sampling \"temperature\": 1,             # float. temperature for sampling \"text_split_method\": \"cut1\",  # str. text split method, see text_segmentation_method.py for details. \"batch_size\": 1,              # int. batch size for inference \"batch_threshold\": 0.75,      # float. threshold for batch splitting. \"split_bucket\": True,         # bool. whether to split the batch into multiple buckets. \"speed_factor\":1.0,           # float. control the speed of the synthesized audio. \"fragment_interval\":0.3,      # float. to control the interval of the audio fragment. \"seed\": -1,                   # int. random seed for reproducibility. \"parallel_infer\": True,       # bool. whether to use parallel inference. \"repetition_penalty\": 1.35,   # float. repetition penalty for T2S model. \"sample_steps\": 32,           # int. number of sampling steps for VITS model V3. \"super_sampling\": False,      # bool. whether to use super-sampling for audio when using VITS model V3. \"return_fragment\": False,     # bool. step by step return the audio fragment. (Best Quality, Slowest response speed. old version of streaming mode) \"streaming_mode\": False,      # bool. return audio chunk by chunk. (Medium quality, Slow response speed) \"overlap_length\": 2,          # int. overlap length of semantic tokens for streaming mode. \"min_chunk_length\": 16,        # int. The minimum chunk length of semantic tokens for streaming mode. (affects audio chunk size) \"fixed_length_chunk\": False,  # bool. When turned on, it can achieve faster streaming response, but with lower quality. (lower quality, faster response speed) }",
+        "source": "docstring(method)",
+        "source_detail": "engines/gpt-sovits/infer/TTS.py :: TTS.run docstring",
+        "why": null,
+        "literal_choices": null,
+        "annotation": "dict",
+        "default_repr": null
+      }
+    ],
+    "dict_params": [
+      {
+        "name": "text",
+        "phase": "call(dict)",
+        "doc": "str.(required) text to be synthesized",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "ref_audio_path",
+        "phase": "call(dict)",
+        "doc": "str.(required) reference audio path",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "aux_ref_audio_paths",
+        "phase": "call(dict)",
+        "doc": "list.(optional) auxiliary reference audio paths for multi-speaker tone fusion",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "prompt_text",
+        "phase": "call(dict)",
+        "doc": "str.(optional) prompt text for the reference audio",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "prompt_lang",
+        "phase": "call(dict)",
+        "doc": "str.(required) language of the prompt text for the reference audio",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "top_k",
+        "phase": "call(dict)",
+        "doc": "int. top k sampling",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "top_p",
+        "phase": "call(dict)",
+        "doc": "float. top p sampling",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "temperature",
+        "phase": "call(dict)",
+        "doc": "float. temperature for sampling",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "text_split_method",
+        "phase": "call(dict)",
+        "doc": "str. text split method, see text_segmentation_method.py for details.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "batch_size",
+        "phase": "call(dict)",
+        "doc": "int. batch size for inference",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "batch_threshold",
+        "phase": "call(dict)",
+        "doc": "float. threshold for batch splitting.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "split_bucket",
+        "phase": "call(dict)",
+        "doc": "bool. whether to split the batch into multiple buckets.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "speed_factor",
+        "phase": "call(dict)",
+        "doc": "float. control the speed of the synthesized audio.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "fragment_interval",
+        "phase": "call(dict)",
+        "doc": "float. to control the interval of the audio fragment.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "seed",
+        "phase": "call(dict)",
+        "doc": "int. random seed for reproducibility.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "parallel_infer",
+        "phase": "call(dict)",
+        "doc": "bool. whether to use parallel inference.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "repetition_penalty",
+        "phase": "call(dict)",
+        "doc": "float. repetition penalty for T2S model.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "sample_steps",
+        "phase": "call(dict)",
+        "doc": "int. number of sampling steps for VITS model V3.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "super_sampling",
+        "phase": "call(dict)",
+        "doc": "bool. whether to use super-sampling for audio when using VITS model V3.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "return_fragment",
+        "phase": "call(dict)",
+        "doc": "bool. step by step return the audio fragment. (Best Quality, Slowest response speed. old version of streaming mode)",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "streaming_mode",
+        "phase": "call(dict)",
+        "doc": "bool. return audio chunk by chunk. (Medium quality, Slow response speed)",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "overlap_length",
+        "phase": "call(dict)",
+        "doc": "int. overlap length of semantic tokens for streaming mode.",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "min_chunk_length",
+        "phase": "call(dict)",
+        "doc": "int. The minimum chunk length of semantic tokens for streaming mode. (affects audio chunk size)",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      },
+      {
+        "name": "fixed_length_chunk",
+        "phase": "call(dict)",
+        "doc": "bool. When turned on, it can achieve faster streaming response, but with lower quality. (lower quality, faster response speed)",
+        "source": "docstring(dict-key)",
+        "in_reflect": false
+      }
+    ],
+    "warnings": [],
+    "reflect_ok": true,
+    "coverage": {
+      "total": 2,
+      "with_doc": 1,
+      "pct": 50.0,
+      "by_source": {
+        "docstring": 1
+      },
+      "no_doc": [
+        "configs"
+      ],
+      "with_literal_choices": []
+    },
+    "coverage_dict": {
+      "total": 24,
+      "with_doc": 24,
+      "pct": 100.0,
+      "by_source": {
+        "docstring": 24
+      },
+      "no_doc": [],
+      "with_literal_choices": []
+    }
+  }
+}
