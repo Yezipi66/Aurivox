@@ -187,8 +187,26 @@ fieldmeta 已定义 `BLOCK / SILENT / INFO`，但渲染层拍平成一种黄。*
 2. `tools/engine-wizard/core/tierreview.js:59` 注释内 U+FFFD（非活代码 UI 文案）—— 低优先级。
 3. 本机测试环境既存失败（indextts2 manifest 缺失等）—— 环境问题，非代码回归。
 
-### P1 骨架 — ⬜ 待开始
-第 1 章分级 + 第 2 章渐进 + 第 6 章布局（重写 ManifestForm render）。
+### P1 骨架 — ✅ 已完成并通过浏览器实测
+
+| 提交 | 任务 | 状态 |
+|---|---|---|
+| `82ee68f` | 第 1+2 章 信息架构三级分组(L1/L2/L3) + 渐进披露(扫描定高/成功展开) | ✅ 浏览器实测通过 |
+| `61e98fa` | 第 6 章 布局 60/40 + sticky SaveBar + Diagnostics 默认折叠 | ✅ 浏览器实测通过 |
+
+**浏览器实测结论**：
+- 首屏 L1 控件从 39 → 22（扫描面板 + call.bind 绑定 + 必填 8 项），L2/L3 折叠
+- `id/label/contract_version` 零泄漏（HIDDEN_KEYS 过滤，浏览器 code 标签扫描确认）
+- 扫描区定高：初始 90px → 扫描后 90px（子命令从占位变 10 选项，零跳变）；切子命令 90→90
+- 扫描成功 → 绑定区滚动定位（call section 入视口）
+- 读取名片仍读磁盘原文（python=engines/gpt-sovits/.venv、entry、ready_timeout_ms 等真名片值灌入）—— P0 未破坏
+- SaveBar sticky bottom:0 常驻；有硬错时禁用+msg-danger 说明（不消失）
+- L2/L3 折叠标题「已有内容」徽标按嵌套路径正确出现
+- npm test：2149 tests / 33 fail，与基线 7c3838f 失败集逐条 diff **0 新增失败**
+
+**P1 遗留（不阻塞）**：
+1. 参数表 `<table className="control">`（扫描结果表）→ 应改 `.table`，属第 5 章视觉清理，并入 P3。
+2. SaveBar 5 态细分（待扫描/扫描中/已自动填 N 项）留到简单实现或后续阶段，P1 只做了 sticky + 禁用态。
 
 ### P2 警告系统 — ⬜ 待开始
 第 3 章三级 + validate 补 `_source` 检测。
