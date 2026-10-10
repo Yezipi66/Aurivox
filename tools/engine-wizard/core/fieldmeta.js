@@ -39,7 +39,7 @@ const SECTIONS = Object.freeze([
     howto: '上游信息：仓库地址、commit、许可证。',
     warn: 'commit 填错 ⇒ 装出来的版本与开发时不同 ⇒ **声音不对且不报错**。' },
   { key: 'local_changes', group: 'source', danger: DANGER.INFO,
-    howto: '本地改过上游哪些文件的说明。写「无」也要写 —���它是有无之别的物证。' },
+    howto: '本地改过上游哪些文件的说明。写「无」也要写，它是有无之别的物证。' },
   { key: 'install', group: 'install', danger: DANGER.INFO,
     howto: '怎么装这台引擎的环境。平台**不代劳**，只照这里打印命令。' },
   { key: 'models', group: 'models', danger: DANGER.INFO,
