@@ -262,7 +262,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 // ---------------------------------------------------------------------------
 function CliGenPanel ({ manifest, onChange }) {
   const { t } = useT()
-  const { installed } = useInstalled()
+  const { installed, loadOne } = useInstalled()
   const [allDirs, setAllDirs] = React.useState([])   // engines/ 下所有文件夹（含没名片）
   const [mode, setMode] = React.useState(manifest.id ? 'scan' : 'idle')
   const [engineId, setEngineId] = React.useState(manifest.id || '')
@@ -283,8 +283,28 @@ function CliGenPanel ({ manifest, onChange }) {
 
   React.useEffect(() => { if (!engineId && manifest.id) setEngineId(engineId || manifest.id) }, [manifest.id])
 
-  // 读取：选一台**已有名片**的引擎，直接进扫描（id 已知）
-  const startRead = (id) => { if (!id) return; setEngineId(id); setMode('scan'); setScan(null); setErr(null); setSubcmd('') }
+  // ⭐ 读取：选一台**已有名片**的引擎 → 先把磁盘名片原文灌进表单，再进编辑态。
+  //   ⛔ 绝对不许只进扫描空壳：那样表单里只剩 cli 扫描结果，
+  //      原有的 models / runtime / install / call 全被冲掉，点保存就是毁数据。
+  //   读取和新建是两条不同的路：读出来的是什么就是什么，⛔ 不自动清空已有字段。
+  const startRead = async (id) => {
+    if (!id) return
+    setBusy(true); setErr(null); setScan(null); setSubcmd('')
+    try {
+      const r = await loadOne(id)
+      if (!r.ok) { setErr(r.error || t('Failed to read the manifest', '读取名片失败')); return }
+      let parsed
+      try { parsed = JSON.parse(r.text) } catch (e) {
+        setErr(t('The manifest on disk is not valid JSON', '磁盘上的名片不是合法 JSON')); return
+      }
+      // 灌进表单：以磁盘原文为准（唯一真相），⛔ 不在这里补默认值、不清字段。
+      onChange(parsed)
+      setEngineId(id)
+      setReadPick(id)
+      // 进了编辑态（不是扫描）：用户想再扫可以自己点「扫描参数」。
+      setMode('read')
+    } finally { setBusy(false) }
+  }
   // 新建：选一台 engines/ 下的文件夹（含还没名片的），进扫描
   const startNew = (id) => { if (!id) return; setEngineId(id); setMode('scan'); setScan(null); setErr(null); setSubcmd('') }
 
@@ -387,7 +407,7 @@ function CliGenPanel ({ manifest, onChange }) {
           </div>
         )}
 
-        {/* ② 扫描参数（自动填）*/}
+        {/* ② 扫描参数（自动填）—— 只走「新建」这条路 */}
         {mode === 'scan' && (
           <>
             <div className="form-grid" style={{ alignItems: 'center' }}>
@@ -407,6 +427,30 @@ function CliGenPanel ({ manifest, onChange }) {
                 {busy ? t('Scanning…', '扫描中…') : (scan ? t('Rescan', '重新扫描') : t('Scan parameters', '扫描参数'))}
               </button>
             </div>
+            {err && <div className="msg msg-danger">{err}</div>}
+          </>
+        )}
+
+        {/* ②′ 读取名片后：确认表单里是磁盘原文，需要的话也可以再扫一次 */}
+        {mode === 'read' && (
+          <>
+            <div className="form-grid" style={{ alignItems: 'center' }}>
+              <div className="field">
+                <label className="field-label">{t('Engine id', '引擎 id')}</label>
+                <input className="control" value={engineId} onChange={(e) => setEngineId(e.target.value)} />
+              </div>
+              <button className="btn btn-sm" type="button" onClick={() => setMode('idle')}>
+                {t('Pick another engine', '换一台引擎')}
+              </button>
+              <button className="btn btn-sm btn-primary" type="button" disabled={busy || !engineId} onClick={doScan}>
+                {busy ? t('Scanning…', '扫描中…') : t('Scan parameters', '扫描参数')}
+              </button>
+            </div>
+            <p className="field-hint" style={{ marginTop: 6 }}>
+              {t('The manifest on disk is already loaded into the form below. Nothing was cleared. '
+                + 'Editing and saving keeps everything already there.',
+                '磁盘上的名片原文已灌进下面的表单，原有字段一个都没动。直接改、再保存即可。')}
+            </p>
             {err && <div className="msg msg-danger">{err}</div>}
           </>
         )}
