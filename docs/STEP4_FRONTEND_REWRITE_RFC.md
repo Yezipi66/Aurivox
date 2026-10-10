@@ -208,8 +208,37 @@ fieldmeta 已定义 `BLOCK / SILENT / INFO`，但渲染层拍平成一种黄。*
 1. 参数表 `<table className="control">`（扫描结果表）→ 应改 `.table`，属第 5 章视觉清理。
 2. SaveBar 5 态细分（待扫描/扫描中/已自动填 N 项）未做，P1 只做了 sticky + 禁用态。
 
-### P2 警告系统 — ⬜ 待开始
-第 3 章三级 + validate 补 `_source` 检测。
+### P2 警告系统 — ✅ 已完成（前序提交，HEAD 已含）
 
-### P3 润色 — ⬜ 待开始
-第 4 章文案 + 第 5 章 inline style/i18n 清理（含 P0 遗留的 MainArea 游离 `>`）。
+| 提交 | 任务 | 状态 |
+|---|---|---|
+| `aa49071` | validate 补 _source 硬规则 error 检测 | ✅ |
+| `7ce5c0b` | 第 3 章 警告三级分级 BLOCK/SILENT/INFO 三色 | ✅ |
+
+### P3 润色 — ✅ 已完成
+
+| 提交 | 任务 | 状态 |
+|---|---|---|
+| `77eb314` | ⭐ 修 L2/L3 嵌套编辑器不渲染阻塞 bug（P1 漏网，最重要） | ✅ 浏览器实测 |
+| `072d97a` | 第 4 章文案人话 + 第 5 章视觉清理（table→.table、游离 >、i18n） | ✅ 浏览器实测 |
+| `f7dbf5c` | SaveBar 5 态可视（待扫描/已自动填 N 项，第 6 章补） | ✅ 浏览器实测 |
+
+**P3 自验结论**（实现者实测，待独立验收）：
+- ⭐ 任务 A（L2/L3 嵌套渲染 bug）：根因是 byGroup 构建 `if (NESTED_GROUPS.includes(s.group)) continue`
+  把 runtime/call/models 从 byGroup 剔除，导致依赖 byGroup 判空的嵌套编辑器恒空不渲染。
+  修法：删 continue + 新增 CONTAINER_KEYS 剔除非标量段容器键（避免 [object Object]）+ 嵌套编辑器无条件渲染。
+  实测：读真名片 → L2 runtime 嵌套段 python 可改并落进 manifest；L3 models 嵌套段 required 可改并落进 manifest。
+- 任务 B（文案人话）：4 条对照表文案全改三句式（后果+默认行为+修复路径），中英 t(en,zh) 同步。
+  中文界面实测生效、无「说不出齐不齐」黑话；英文界面 msg-warn 英文位同步更新。
+- 任务 C（视觉清理）：扫描表 `table.control`→`.table`（清 inline style）；NestedSections ArgsField 裸 table→.table；
+  修 MainArea.jsx:102 游离 `>`（P0 遗留）；AST 精确定位游离 JSXText > = 0。
+- 任务 D（SaveBar 5 态）：从 manifest 推导「待扫描 / 已自动填 N 项」两态徽标，实测生效。
+- npm test fail=17 与基线一致（0 新增）；styleguard 17 全过；babel 编译通过；引擎名 0 命中；中间件 for...break 未改。
+
+**P3 遗留（不阻塞）**：
+1. SaveBar「扫描中」态需 CliGenPanel 的 busy 状态提升到 App 层（三组件重构，有回归风险，未做）。
+2. 扫描表 `.table` 渲染实测受限于本机无任何引擎 `.venv`（cli 扫描需引擎环境），代码改动与其余 4 个 .table 一致，逻辑正确。
+3. inline `display:flex` 保留的几处（label+badge 并排、select+button 并排、纵向堆叠容器）属 styles.css 无等价类的
+   一次性布局定位（RFC 第 5 章允许），⛔ 删了会把 select+button 并排的按钮挤成细条（Owner 点名过的坑）。
+4. fieldmeta.js 的 warn/howto 里仍有 `——` 破折号（非 RFC 对照表 4 条内的既有文案，styleguard 守卫不匹配 warn:/howto: 键，
+   不强制；为控制改动范围未动）。
