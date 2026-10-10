@@ -66,7 +66,10 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         )}
         <span style={{ flex: 1 }} />
 
-        {/* ---- 存 ---- */}
+        {/* ---- 存 ----
+            ⭐ 第 6 章：有硬错时**禁用保存 + 说明原因**，⛔ 不是让按钮消失。
+              旧代码 hasErrors 时整块按钮 null（消失），用户找不到存盘入口
+              也不知道为什么 —— 现在是灰置禁用 + 下方红条说明。 */}
         {!hasErrors && exists && !confirmOverwrite
           ? (
             <>
@@ -80,14 +83,15 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
               </button>
             </>
             )
-          : !hasErrors
-            ? (
-              <button className="btn btn-sm btn-primary" type="button"
-                disabled={busy || !id} onClick={() => save(false)}>
-                {busy ? t('Saving…', '正在存…') : t('Save manifest', '存盘')}
-              </button>
-              )
-            : null}
+          : (
+            <button className="btn btn-sm btn-primary" type="button"
+              disabled={busy || !id || hasErrors} onClick={() => save(false)}
+              title={hasErrors
+                ? t('Fix the errors below first', '先修完下面的错误再存')
+                : undefined}>
+              {busy ? t('Saving…', '正在存…') : t('Save manifest', '存盘')}
+            </button>
+            )}
       </div>
 
       {/* ⭐ 有错误：整块 msg-danger 列出具体哪几条（⛔ 不再横挤在顶栏，像第二步那样占整行）*/}

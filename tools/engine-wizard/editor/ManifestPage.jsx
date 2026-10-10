@@ -39,6 +39,10 @@ export default function ManifestPage ({
   }
 
   return (
+    // ⭐ 第 6 章布局：左右分栏不变（左表单右预览），SaveBar 改 sticky bottom
+    //   永远可见。workspace-grid 的列宽由 styles.css 定（左自适应 + 右 380px
+    //   ≈ 40%），⛔ 不再自造比例。SaveBar 用内联 sticky 定位（一次性布局
+    //   定位是样式铁律允许的唯一 inline 场景）。
     <div className="workspace-grid">
       <div className="workspace-left">
         <div className="ref-tabs">
@@ -55,15 +59,7 @@ export default function ManifestPage ({
         </div>
 
         {view === 'form'
-          ? (
-            <>
-              <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest} />
-              {/* ⭐ SaveBar 移到表单**最下面**：填的时候不被打断，填完滚到底
-                  才看到「还有几处问题 + 存盘」，是自然的收尾。⛔ 不再放顶部
-                  一进来就甩红错误。 */}
-              <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
-            </>
-            )
+          ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest} />
           : (
             // JSON 逃生口直接用项目的 `textarea.control`
             // （styles.css 里 `textarea.control` 已给好 padding/resize/行高）。
@@ -78,10 +74,6 @@ export default function ManifestPage ({
 
         {err && view === 'json' && (
           <div className="msg msg-danger">{err}</div>
-        )}
-        {/* JSON 视图也要能存盘（SaveBar 同样在最下面）*/}
-        {view === 'json' && (
-          <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
         )}
       </div>
 
@@ -102,6 +94,24 @@ export default function ManifestPage ({
               </div>
             </div>
             )}
+      </div>
+
+      {/* ⭐⭐ SaveBar —— 跨左右两栏 sticky bottom，**永远可见**。
+          原来埋在表单最底，用户填完要滚 7 屏回去才能存（RFC 第 6 章）。
+          ⚠ 跨两栏做法：sticky 容器放在 workspace-grid 之后、独立成行，
+            position:sticky + bottom:0 ⇒ 滚动到底部时吸底常驻。
+          ⛔ 不放进左栏或右栏内部 —— 那会让它只跟着那一栏滚。 */}
+      <div style={{
+        gridColumn: '1 / -1',
+        position: 'sticky',
+        bottom: 0,
+        zIndex: 5,
+        background: 'var(--panel)',
+        borderTop: '1px solid var(--border)',
+        padding: '8px 0',
+        marginTop: 4,
+      }}>
+        <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
       </div>
     </div>
   )

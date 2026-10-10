@@ -36,7 +36,9 @@ function whereText (d) {
 
 export default function Diagnostics ({ result, loading }) {
   const { t } = useT()
-  const [open, setOpen] = React.useState(true)   // ⭐ 默认展开
+  // ⭐ 第 6 章：默认**折叠**（RFC：右栏 Diagnostics 默认折叠，让位给 Preview）。
+  //   计数徽标仍常驻标题行，一眼看出有无问题；要细看点开。
+  const [open, setOpen] = React.useState(false)   // ⭐ 默认折叠
 
   // 还没跑出结果：连标题都不占地方
   if (loading && !result) {
