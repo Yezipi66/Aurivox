@@ -48,16 +48,29 @@ export default function App () {
     return () => { alive = false }
   }, [])
 
-  // ---- 名片（表单 / JSON 两视图共用一份；第 2 步读它的 install.env_command）----
+  // ---- 名片：**唯一真相**是 manifest ----
+  // ⭐ 为什么不能再让 text 和 manifest 双向同步（A4 竞态）：
+  //   旧写法有两处写同一个 state：① text 防抖 300ms 后 setManifest；
+  //   ② onManifest 里 setManifest + setText。切 Form/JSON 视图时，
+  //   text 停在旧值把 manifest 冲掉，用户刚填的内容就丢了。
+  // ✅ 现在：manifest 是唯一真相，text 只在 JSON 视图里当**编辑缓冲**，
+  //   且只走 text→manifest 一个方向（单向，⛔ 不写回 text ⇒ 不会循环）。
   const [manifest, setManifest] = React.useState(null)
-  const [text, setText] = React.useState('{"id": "", "label": "", "parameters": []}')
+  // ⭐ text 的初值故意是 null：null = 「还没进过 JSON 视图」。
+  //   这样切到 JSON 时能分辨「用户没编辑过」（用 manifest 现算）
+  //   和「用户编过」（保留缓冲）。⛔ 用一个字符串占位不行，
+  //   那个占位符会被当成用户输入写回 manifest。
+  const [text, setText] = React.useState(null)
   const [err, setErr] = React.useState(null)
 
-  // ---- 防抖解析 JSON（高级逃生口用）----
+  // ---- JSON 逃生口：**只** text → manifest，300ms 防抖 ----
+  // ⛔ 这里绝不 setText —— manifest 变了也不回写 text，
+  //   否则用户正在编辑的 JSON 会被半途替换。
   React.useEffect(() => {
+    if (text === null) return          // 没进过 JSON 视图：不解析
     const h = setTimeout(() => {
       try { setManifest(JSON.parse(text)); setErr(null) }
-      catch (e) { setErr(e.message); setManifest(null) }
+      catch (e) { setErr(e.message) }
     }, 300)
     return () => clearTimeout(h)
   }, [text])
@@ -155,7 +168,10 @@ export default function App () {
             {page === 'manifest' && (
               <ManifestPage manifest={manifest} spec={spec}
                 text={text} err={err} setText={setText}
-                onManifest={(m) => { setManifest(m); setText(JSON.stringify(m, null, 2)) }}
+                // ⛔ 只 setManifest，⛔ 绝不 setText —— 那正是 A4 的竞态来源：
+                //   表单改一次就写回 text，切到 JSON 视图时旧 text 又把
+                //   manifest 冲掉。text 只在切视图时由 ManifestPage 现算。
+                onManifest={(m) => { setManifest(m); setErr(null) }}
                 diag={vresult} loading={vloading}
                 onSaved={() => addFacts({ manifestSaved: true })} />
             )}

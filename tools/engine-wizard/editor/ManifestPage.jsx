@@ -26,18 +26,30 @@ export default function ManifestPage ({
   const { t } = useT()
   const [view, setView] = React.useState('form')
 
+  // ⭐ text 是 manifest 的**纯派生**：只有「切进 JSON 视图」这一刻现算，
+  //   之后就是用户手里的编辑缓冲。
+  //   ⛔ 不用 useEffect 同步：那会形成 manifest→text→manifest 的回环，
+  //   正是 A4 竞态的成因。切视图是一个**事件**，就在点击里算。
+  //   ⛔ 只在「之前没编过」(text===null) 时才覆盖，编过就保留缓冲。
+  const switchTo = (v) => {
+    if (v === 'json' && text === null) {
+      setText(JSON.stringify(manifest || {}, null, 2))
+    }
+    setView(v)
+  }
+
   return (
     <div className="workspace-grid">
       <div className="workspace-left">
         <div className="ref-tabs">
           <button type="button"
             className={`ref-tab${view === 'form' ? ' active' : ''}`}
-            onClick={() => setView('form')}>
+            onClick={() => switchTo('form')}>
             {t('Form', '填表')}
           </button>
           <button type="button"
             className={`ref-tab${view === 'json' ? ' active' : ''}`}
-            onClick={() => setView('json')}>
+            onClick={() => switchTo('json')}>
             JSON
           </button>
         </div>
@@ -57,8 +69,11 @@ export default function ManifestPage ({
             // （styles.css 里 `textarea.control` 已给好 padding/resize/行高）。
             // ⛔ 之前自造的 .ed-json 是白底非等宽字体，那个框在深色页面上
             //   是纯白的，非常刺眼。
+            // ⭐ text 为 null（还没切进来过）时用 manifest 现算兜底 ——
+            //   ⛔ React 的 value={null} 是非受控输入，切视图时会闪。
             <textarea className="control" style={{ minHeight: 320 }}
-              value={text} onChange={(e) => setText(e.target.value)} />
+              value={text ?? JSON.stringify(manifest || {}, null, 2)}
+              onChange={(e) => setText(e.target.value)} />
             )}
 
         {err && view === 'json' && (
