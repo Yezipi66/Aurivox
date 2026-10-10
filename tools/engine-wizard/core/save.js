@@ -148,16 +148,24 @@ function listInstalled (opts = {}) {
   } catch {
     return []
   }
+  // ⭐ opts.all：列出**所有**文件夹（含还没名片的）——「新建名片」入口用，
+  //   这样第 1 步克隆来、还没写名片的引擎也能列出来给用户扫描。
+  //   ⛔ 默认（all 不传）行为不变：只列有 manifest 的（测试守着这条）。
+  const withManifest = (n) => {
+    const mf = path.join(enginesDir, n, 'manifest.json')
+    if (!fs.existsSync(mf)) return null
+    let has = false
+    try {
+      has = JSON.parse(fs.readFileSync(mf, 'utf-8')).id === n
+    } catch { /* 读不了就当不知道 */ }
+    return { id: n, manifestPresent: true, idMatchesDir: has }
+  }
+  if (opts.all) {
+    return names.map((n) => withManifest(n) || { id: n, manifestPresent: false, idMatchesDir: false })
+  }
   return names
-    .filter((n) => fs.existsSync(path.join(enginesDir, n, 'manifest.json')))
-    .map((n) => {
-      let has = false
-      try {
-        has = JSON.parse(fs.readFileSync(
-          path.join(enginesDir, n, 'manifest.json'), 'utf-8')).id === n
-      } catch { /* 读不了就当不知道 */ }
-      return { id: n, manifestPresent: true, idMatchesDir: has }
-    })
+    .map((n) => withManifest(n))
+    .filter(Boolean)
 }
 
 /**

@@ -174,7 +174,9 @@ def _one(call):
     if not isinstance(choices, (list, tuple)):
         choices = None
 
-    # action= / type= 常是 Identifier（argparse.BooleanOptionalAction）或 Attribute
+    # action= / type= 常是 Identifier（argparse.BooleanOptionalAction）或 Attribute，
+    # 但**最常见的是字符串常量**（action="store_true"）—— 漏了它，开关型 flag
+    # 会被当成带值型，拼出来的命令行把 store_true 变成 "--force True"，上游报错。
     action_node = _kw(call, "action")
     action = None
     if action_node is not None:
@@ -182,6 +184,8 @@ def _one(call):
             action = action_node.id
         elif isinstance(action_node, ast.Attribute):
             action = action_node.attr
+        elif isinstance(action_node, ast.Constant) and isinstance(action_node.value, str):
+            action = action_node.value
 
     type_node = _kw(call, "type")
     type_name = None

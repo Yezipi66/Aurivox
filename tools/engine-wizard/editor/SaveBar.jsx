@@ -64,39 +64,47 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         {exists && (
           <span className="badge badge-warn">{t('already exists', '已存在')}</span>
         )}
+        <span style={{ flex: 1 }} />
 
         {/* ---- 存 ---- */}
-        {hasErrors
+        {!hasErrors && exists && !confirmOverwrite
           ? (
-            <span className="field-hint" style={{ marginTop: 0 }}>
-              {t(`${diag.summary.errors} problem(s) must be fixed before saving`,
-                `还有 ${diag.summary.errors} 处问题，修完才能存`)}
-            </span>
+            <>
+              <button className="btn btn-sm btn-danger" type="button"
+                disabled={busy} onClick={() => save(true)}>
+                {t('Overwrite', '覆盖')}
+              </button>
+              <button className="btn btn-sm" type="button"
+                onClick={() => setConfirmOverwrite(false)}>
+                {t('Cancel', '取消')}
+              </button>
+            </>
             )
-          : exists && !confirmOverwrite
+          : !hasErrors
             ? (
-              <>
-                <span style={{ flex: 1 }} />
-                <button className="btn btn-sm btn-danger" type="button"
-                  disabled={busy} onClick={() => save(true)}>
-                  {t('Overwrite', '覆盖')}
-                </button>
-                <button className="btn btn-sm" type="button"
-                  onClick={() => setConfirmOverwrite(false)}>
-                  {t('Cancel', '取消')}
-                </button>
-              </>
+              <button className="btn btn-sm btn-primary" type="button"
+                disabled={busy || !id} onClick={() => save(false)}>
+                {busy ? t('Saving…', '正在存…') : t('Save manifest', '存盘')}
+              </button>
               )
-            : (
-              <>
-                <span style={{ flex: 1 }} />
-                <button className="btn btn-sm btn-primary" type="button"
-                  disabled={busy || !id} onClick={() => save(false)}>
-                  {busy ? t('Saving…', '正在存…') : t('Save manifest', '存盘')}
-                </button>
-              </>
-              )}
+            : null}
       </div>
+
+      {/* ⭐ 有错误：整块 msg-danger 列出具体哪几条（⛔ 不再横挤在顶栏，像第二步那样占整行）*/}
+      {hasErrors && (
+        <div className="msg msg-danger" style={{ marginTop: 6 }}>
+          <strong>{t(`${diag.summary.errors} problem(s) must be fixed before saving:`,
+            `还有 ${diag.summary.errors} 处问题，修完才能存：`)}</strong>
+          {((diag.diagnostics || []).filter((d) => d.level === 'error').slice(0, 5)).map((d, i) => {
+            const where = d.section || d.field || (d.index !== undefined ? `parameters[${d.index}]` : '')
+            return (
+              <div key={i} style={{ marginTop: 4 }}>
+                {where ? <code>{where}</code> : null}{where ? ' — ' : ''}{d.message}
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* ---- 结果 ---- */}
       {result && (

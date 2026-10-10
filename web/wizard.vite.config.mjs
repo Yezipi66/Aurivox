@@ -47,13 +47,11 @@ function validatePlugin () {
   const { handleValidate } = require(path.join(CORE, 'bridge.js'))
   const { handleSpec } = require(path.join(CORE, 'specbridge.js'))
   const { handleInstalled, handleSave, handleRead } = require(path.join(CORE, 'savebridge.js'))
-  const {
-    handleState, handleResolve, handleProbe, handleDeps, handleHardware,
-    handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify, handleProfile, handleParams,
-    handleDownloadManifest, handleDownloadFile,
-    handleDownloadFiles, handleDownloadProgress,
-  } = require(path.join(CORE, 'wizardbridge.js'))
+  // ⭐ wizardbridge 整体引用（⛔ 不逐个解构）—— 解构在模块加载时求值，
+  //   若引擎侧刚加了新导出（如 handleCliArgs），vite 的模块图可能缓存旧导出表
+  //   ⇒ 解构出来的 handleCliArgs 是 undefined。整体引用 + 运行时 .handleX 动态取，
+  //   每次请求都读到最新的导出。
+  const wb = require(path.join(CORE, 'wizardbridge.js'))
   // ⛔ 顺序纪律（两层，缺一不可）：
   //   ① 长前缀在前。manifest/<id> 是动态的，必须排在 installed 之前，
   //      否则 /wizard/manifest/xxx 会被别的 handler 先吃掉。
@@ -66,15 +64,21 @@ function validatePlugin () {
   //    无一互为前缀 ⇒ 与 handleValidate 互换位置不影响 params 路由。
   const HANDLERS = [
     handleSpec, handleRead,
-    handleState, handleResolve, handleProbe, handleDeps, handleHardware,
-    handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify, handleProfile, handleValidate,
+    wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
+    wb.handleClone, wb.handleEnv, wb.handleModels,
+    wb.handleVerifyChecks, wb.handleVerify, wb.handleProfile, handleValidate, wb.handleCliArgs,
     handleInstalled, handleSave,
-    handleDownloadFile, handleDownloadFiles, handleDownloadProgress,
+    wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
+    // ⛔ handleDownload 认的是 /wizard/download 这个**前缀**，会把上面的
+    //   download/file、download/files、download/manifest、download/progress
+    //   全部吃掉 ⇒ 它必须排在所有 download 子端点之后（具体优先于前缀）。
+    //   （子 Agent deleg_1f88218b 查证：前端 StepsExtra.jsx:329 调它执行下载 SSE，
+    //   它一直没进 HANDLERS ⇒ 点下载 404 —— 这是「第三步下载坏了」的真身之一。）
+    wb.handleDownload,
     // ⛔ 唯二的 async handler 沉底：中间件一调用到返回 Promise 的 handler
     //   就 break + next()，其后的 handler 无论 URL 是否匹配都轮不到。
     //   ⇒ async 只能放队尾，sync 全部排它们前面。
-    handleParams, handleDownloadManifest,
+    wb.handleParams, wb.handleDownloadManifest,
   ]
   return {
     name: 'aurivox-wizard-validate',
@@ -87,13 +91,13 @@ function validatePlugin () {
         let handled = false
         try {
           for (const h of HANDLERS) {
+            if (typeof h !== 'function') continue
             const r = h(req, res)
             if (r === true) { handled = true; break }
             if (r && typeof r.then === 'function') {
-              // async handler — 等 Promise resolve 再决定是否已处理
               r.then((ok) => {
-                if (ok) { /* 已处理，不做 */ }
-                else { /* 不匹配，继续 next */ next() }
+                if (ok) { /* 已处理 */ }
+                else { next() }
               }).catch(() => { next() })
               handled = true; break
             }

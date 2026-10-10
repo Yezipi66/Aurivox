@@ -246,275 +246,202 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 }
 
 // ---------------------------------------------------------------------------
-// ⭐ 第 2 步：草稿的三块分区渲染（用户操作流的界面形态）
+// ⭐ CliGenPanel —— 走命令行（cli 形态）的「扫描 → 自动填 → 手编」
 //
-// ⛔⛔ 三条纪律（硬约束，违反即返工）：
-//   1. **参数一条都不许丢** —— 三块是同一份 parameters[] 的重排视图。
-//      数据侧 organizeDraft 已经保证 must+may === parameters.length；
-//      这里再加一道显示侧的守卫（三条数对不上就如实说，⛔ 不许悄悄少显示）。
-//   2. **平台认识的才给中文人话** —— 只查 spec.platformWords（fieldmeta 的
-//      PLATFORM_WORDS，也就是 payload.js 那 10 个词）。⛔ 表外的一个字都不
-//      翻译，只给「上游官方原话」（那条还是上游自己写的英文，⛔ 不改写）。
-//   3. **不新增任何校验** —— 界面只展示「反射/上游说了什么」。
-//      必填标记来自反射结果里的 required 字段，⛔ 不是平台自己判的。
+// 操作流（Owner 2026-10-10 定，⛔ 照这个来）：
+//   进来 → [读取名片]（改已有引擎）或 [新建名片]（默认新建）
+//   新建后 → [扫描参数] → 列出上游命令行的 flag 表（官方说明 / 必填选填 / 类型）
+//   → 平台**自动填**一批进名片（bind 三槽位 + args，⛔ 不要求用户逐个勾）
+//   → 用户手动编辑补改 → 最下面 [保存]
+//
+// ⭐ 这条路扫上游命令行 --flag，flag 即参数，官方 help 直接挂它上面
+//   ⇒ 不用读函数签名、不用猜 flag↔参数对应。
+//
+// ⛔ 纪律：只填表单不落盘（落盘是 SaveBar 的事）；help 原样递出不改写。
+//    布局借鉴项目现有 .workspace-left/.workspace-right（左操作 + 右实时 JSON）。
 // ---------------------------------------------------------------------------
-
-/** 平台那 10 个词的中文人话。spec 拿不到时退化成空表（界面照样能跑）。 */
-function usePlatformWords (spec) {
-  const map = React.useMemo(() => {
-    const out = {}
-    for (const w of (spec && spec.platformWords) || []) out[w.key] = w
-    return out
-  }, [spec])
-  return map
-}
-
-/**
- * 一条参数的说明。
- * ⭐ 优先级（⛔ 照这个来，别调）：
- *   ① 平台认识的词 → fieldmeta 的中文人话（用户看得懂的那个）
- *   ② 其余 → 反射给的理由（`_why`，可能含 REPLACE_ME）或上游 help 的英文
- * ⭐ 两条都不编：没有就说没有，⛔ 不许自己写一句「这个参数控制 xxx」。
- */
-function ParamHelp ({ item, words, t }) {
-  const w = words && words[item.name]
-  if (w) {
-    return (
-      <>
-        <div className="field-hint">{t(w.help, w.help)}</div>
-        {w.warn && <div className="plan-warn">⚠ {t(w.warn, w.warn)}</div>}
-      </>
-    )
-  }
-  const why = item._why || (item.help && item.help.en) || ''
-  if (!why) {
-    return (
-      <div className="field-hint">
-        {t('The upstream did not say what this does. Open the official wording below to check.',
-          '上游没说这个是干什么的。展开下面的「上游官方原话」自己对照。')}
-      </div>
-    )
-  }
-  // ⚠ _why 里可能含 REPLACE_ME —— 那是提醒「这里要人填」，如实显示
-  return <div className="field-hint">{why}</div>
-}
-
-/**
- * ⭐⭐ 「上游官方原话」折叠块。
- *
- * ⛔⛔ 原话逐字显示，⛔ 不翻译、不改写、不缩写、不补标点。
- *    用户要的就是上游自己写的那句（「Comma-separated 8-dimensional emotion
- *    vector」顺带告诉了用户怎么填，比平台猜的准）。
- *
- * ⚠ 两种内容叠在一起，⛔ 不许合并：
- *   ① `item._cli` —— 直接同名自动贴上的那一条（上游自己写成同名 = 事实）
- *   ② `cli.flags`  —— 上游 CLI 的**全部** flag 摊开（Owner 定：乙）。
- *      不配对的那些参数，用户照着自己对照。
- *      ⛔ 这不是冗余：① 只是「这条大概率是它」，② 才是完整的答案。
- */
-function UpstreamWords ({ item, cli, t }) {
-  const own = item._cli || null
-  const rest = ((cli && cli.flags) || []).filter((f) => {
-    if (!own) return true
-    // 直接同名那条在 ① 里已经单独显示了，⛔ 不在 ② 里重复列同一份
-    return !(f.dest === own.dest && f.source_file === own.source_file)
-  })
-  const total = (own ? 1 : 0) + rest.length
-  if (!total) {
-    return (
-      <p className="field-hint">
-        {t('This engine has no CLI on disk, so there is no official wording to show. '
-          + 'Read the upstream source, or write the description yourself.',
-          '盘上没有这台引擎的 CLI，没有官方原话可看。读上游源码，或自己写说明。')}
-      </p>
-    )
-  }
-  return (
-    <>
-      {own && (
-        <div className="field">
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            <code>{own.flag}</code>
-            {own.subcommand && <span className="badge badge-neutral">{own.subcommand}</span>}
-            {own.required && <span className="badge badge-warn">{t('required', '上游要求必填')}</span>}
-            <span className="badge badge-ok">
-              {t('same name as this parameter', '与本参数同名')}
-            </span>
-          </div>
-          <div className="field-hint">{own.help || t('(no help text)', '（上游没写说明）')}</div>
-        </div>
-      )}
-      <p className="field-hint">
-        {t(`${rest.length} other upstream flags. They are listed whole, not matched to this `
-          + 'parameter: the upstream uses different words for the same thing, and guessing '
-          + 'the pairing would silently send the user down the wrong path.',
-          `上游另外 ${rest.length} 个 flag，整份摊开，不与本参数配对：`
-          + '上游对同一个东西用的是另一套词，猜对应关系会静默地把用户引到错的路上。')}
-      </p>
-      <div className="param-grid">
-        {rest.map((f) => (
-          <div key={f.dest + '|' + f.source_file + '|' + (f.subcommand || '')} className="field">
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              <code>{f.is_option ? f.flags.join(' ') : f.flags[0]}</code>
-              {f.subcommand && <span className="badge badge-neutral">{f.subcommand}</span>}
-              {f.required && <span className="badge badge-warn">{t('required', '上游要求必填')}</span>}
-              {f.choices && <span className="badge badge-info">{f.choices.join(' / ')}</span>}
-              <span className="badge badge-muted">{f.source_file}</span>
-            </div>
-            <div className="field-hint">{f.help || t('(no help text)', '（上游没写说明）')}</div>
-          </div>
-        ))}
-      </div>
-    </>
-  )
-}
-
-/** 一条参数的卡片：名字 + 徽标 + 中文人话 + 上游原话（可展开） */
-function DraftItem ({ item, words, cli, t }) {
-  const isPlatform = !!(words && words[item.name])
-  return (
-    <div className="card">
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-        <code>{item.name}</code>
-        {isPlatform && (
-          <span className="badge badge-ok">
-            {t((words[item.name] && words[item.name].label) || 'platform word', '平台认识的')}
-          </span>
-        )}
-        {item.type && <span className="badge badge-neutral">{item.type}</span>}
-        {item.phase && <span className="badge badge-neutral">{item.phase}</span>}
-        {item.required === true && (
-          <span className="badge badge-danger">{t('you must fill this', '这个必须你填')}</span>
-        )}
-        {item._needs_review && (
-          <span className="badge badge-warn">{t('type guessed from name', '类型按名字猜的')}</span>
-        )}
-        {item._platform_key && (
-          <span className="badge badge-warn">{t('platform word', '平台词')}</span>
-        )}
-      </div>
-      <ParamHelp item={item} words={words} t={t} />
-      {/* ⭐ 上游原话默认折叠 —— 每条都摊开是噪音，要的人自己点。
-          ⛔ 用项目的 .expert-block（⛔ 不许裸 <details>，那个没边框/间距）*/}
-      <details className="expert-block" style={{ marginTop: 6 }}>
-        <summary className="expert-summary">
-          {t('Upstream official wording', '上游官方原话')}
-        </summary>
-        <div style={{ marginTop: 8 }}>
-          <UpstreamWords item={item} cli={cli} t={t} />
-        </div>
-      </details>
-    </div>
-  )
-}
-
-/**
- * ⭐⭐ 三块分区的主组件。
- * ① 平台已自动填好的  ② 必须你填的  ③ 可以不管的（默认折叠）
- */
-function DraftBlocks ({ organized, cli, spec }) {
+function CliGenPanel ({ manifest, onChange }) {
   const { t } = useT()
-  const words = usePlatformWords(spec)
-  const byKey = {}
-  for (const b of organized.blocks || []) byKey[b.key] = b.items || []
+  const { installed } = useInstalled()
+  const [allDirs, setAllDirs] = React.useState([])   // engines/ 下所有文件夹（含没名片）
+  const [mode, setMode] = React.useState(manifest.id ? 'scan' : 'idle')
+  const [engineId, setEngineId] = React.useState(manifest.id || '')
+  const [busy, setBusy] = React.useState(false)
+  const [err, setErr] = React.useState(null)
+  const [scan, setScan] = React.useState(null)
+  const [subcmd, setSubcmd] = React.useState('')
+  const [readPick, setReadPick] = React.useState('')   // 「读取」入口选中的引擎
+  const [newPick, setNewPick] = React.useState('')      // 「新建」入口选中的文件夹
 
-  // ⛔ 显示侧的最后一道守卫：一条参数都不许丢。
-  //   数据侧 organizeDraft 已经保证过，这里再查一次 —— 因为「界面少显示一条」
-  //   和「数据少一条」是同一个后果（用户永远看不到那个旋钮），而显示侧是
-  //   唯一离用户最近的那一层。
-  const shown = (byKey.must || []).length + (byKey.may || []).length
+  // ⭐ 拉 engines/ 下所有文件夹（含还没名片的）——「新建名片」入口靠它列出
+  //   第 1 步克隆来、还没写名片的引擎。⛔ 与 installed（只有名片的）是两份数据。
+  React.useEffect(() => {
+    fetch('/wizard/installed?all=1').then((r) => r.json())
+      .then((j) => setAllDirs(j.engines || []))
+      .catch(() => {})
+  }, [])
+
+  React.useEffect(() => { if (!engineId && manifest.id) setEngineId(engineId || manifest.id) }, [manifest.id])
+
+  // 读取：选一台**已有名片**的引擎，直接进扫描（id 已知）
+  const startRead = (id) => { if (!id) return; setEngineId(id); setMode('scan'); setScan(null); setErr(null); setSubcmd('') }
+  // 新建：选一台 engines/ 下的文件夹（含还没名片的），进扫描
+  const startNew = (id) => { if (!id) return; setEngineId(id); setMode('scan'); setScan(null); setErr(null); setSubcmd('') }
+
+  // 扫描 + 自动填：一步到位 —— 扫出参数表，同时把能对应的填进名片 call 段
+  const doScan = async () => {
+    if (!engineId) return
+    setBusy(true); setErr(null); setScan(null)
+    try {
+      const r = await fetch('/wizard/cli-args', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: engineId, subcommand: subcmd || undefined }),
+      })
+      const j = await r.json()
+      if (!j.ok) { setErr(j.error || `HTTP ${r.status}`); return }
+      setScan(j)
+      const inferSubs = (j.subcommands || []).filter(s => /synth|infer|tts|generate/i.test(s))
+      const pickedSub = subcmd || inferSubs[0] || (j.subcommands || [])[0] || ''
+      setSubcmd(pickedSub)
+      autoFill(j, pickedSub)
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  // ⭐ 自动填：把推理参数直接写进名片的 call 段（cli 形态），⛔ 不用用户勾
+  //   平台能认出来的（text/ref_audio/output_path 三槽位 + 其余 args）全填，
+  //   认不出的留给用户手编。
+  const autoFill = (j, sub) => {
+    const args = (j.args || []).filter(a => (sub === '(root)' ? !a.subcommand : a.subcommand === sub))
+    if (!args.length) return
+    const call = { ...(manifest.call || {}), kind: 'cli' }
+    // ⛔ argv 骨架每次从固定前缀重建（不累加旧子命令，否则切子命令会堆
+    //   infer/synth 多个）。_MODULE_ 待用户补或来自 suggested_call。
+    const prefix = (call.argv || []).slice(0, (call.argv || []).indexOf('_MODULE_') >= 0 ? (call.argv || []).indexOf('_MODULE_') + 1 : 3)
+    call.argv = (prefix.length ? prefix : ['{engine_python}', '-m', '_MODULE_']).concat(sub && sub !== '(root)' ? [sub] : [])
+    // 三槽位：按官方 flag 名认（text→--text/--prompt-text，ref→--voice/--ref-audio…）
+    const byName = Object.fromEntries(args.map(a => [a.name, a]))
+    const findFlag = (...names) => { for (const n of names) if (byName[n]) return byName[n].flag; return null }
+    call.bind = call.bind || {}
+    if (!call.bind.text) { const f = findFlag('text', 'tts_text', 'prompt_text', 'gen_text'); if (f) call.bind.text = f }
+    if (!call.bind.ref_audio) { const f = findFlag('voice', 'ref_audio', 'prompt_wav', 'ref_wav', 'spk', 'speaker', 'reference_audio'); if (f) call.bind.ref_audio = f }
+    if (!call.bind.output_path) { const f = findFlag('output', 'output_path', 'out', 'save_path'); if (f) call.bind.output_path = f }
+    // 其余 flag 全进 args
+    call.args = call.args || {}
+    for (const a of args) if (!call.args[a.name]) call.args[a.name] = { flag: a.flag, style: a.style }
+    // ⭐ 基本信息自动填（⛔ 不覆盖用户已填的）：
+    //   id = 引擎 id（= 目录名，第 1 步定的）；label 默认 = id（用户想改再改）；
+    //   contract_version = 平台当前契约版本（2）。
+    //   ⇒ 这三项平台都能自动填，不该摆在用户脸上 ⇒ 挪进第三块折叠区。
+    const next = { ...manifest, call }
+    if (!next.id && engineId) next.id = engineId
+    if (!next.label && (next.id || engineId)) next.label = next.id || engineId
+    if (next.contract_version === undefined) next.contract_version = 2
+    onChange(next)
+  }
+
+  const args = (scan && scan.args || []).filter(a => !subcmd || a.subcommand === subcmd || (subcmd === '(root)' && !a.subcommand))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {/* ---- ① 平台已自动填好的 ---- */}
-      <div className="card">
-        <strong>{t('Already handled for you', '平台已自动填好的')}</strong>
-        <p className="field-hint">
-          {t('These platform words already point at an engine parameter in this manifest. '
-            + 'Nothing to do here.',
-            '这些平台词在这张名片里已经指向引擎参数了，不用再动。')}
+    <div className="section">
+      <div className="section-hdr"><h2>{t('Generate manifest from CLI', '从命令行生成名片')}</h2></div>
+      <div className="section-body">
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('Scan the engine’s command-line tool. Flags are listed with their official descriptions, and recognized ones are filled into the manifest automatically.',
+            '扫描引擎的命令行工具。列出每个参数和官方说明，能认出来的自动填进名片。')}
         </p>
-        {(byKey.auto || []).length === 0 ? (
-          <p className="field-hint">
-            {t('None yet. Tick rows in the platform word candidates below to map them.',
-              '还没有。在下面的「平台词候选」里勾选即可映射。')}
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-            {(byKey.auto || []).map((item) => (
-              <div key={item.name} className="field">
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <code>{item.name}</code>
-                  <span className="badge badge-ok">{t('platform word', '平台词')}</span>
-                  {words[item.name] && (
-                    <span>{t(words[item.name].label, words[item.name].label)}</span>
-                  )}
-                  {item._mapped_to && (
-                    <span className="badge badge-neutral">
-                      {t(`→ ${item._mapped_to}`, `→ ${item._mapped_to}`)}
-                    </span>
-                  )}
-                </div>
-                {words[item.name] && (
-                  <div className="field-hint">{t(words[item.name].help, words[item.name].help)}</div>
-                )}
+
+        {/* ① 两个入口：读取（改已有）/ 新建（接新引擎）—— 各自选自己的引擎，不共用下拉 */}
+        {mode === 'idle' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* 读取名片：改一台已有名片的引擎 */}
+            <div className="field">
+              <label className="field-label">{t('Read manifest (edit an engine that already has one)', '读取名片（改一台已经有名片的引擎）')}</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select className="control" value={readPick}
+                  onChange={(e) => setReadPick(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                  <option value="">{t('— pick an engine —', '— 选一台引擎 —')}</option>
+                  {(installed || []).map(e => <option key={e.id} value={e.id}>{e.id}</option>)}
+                </select>
+                <button className="btn btn-sm" type="button" disabled={!readPick}
+                  style={{ flexShrink: 0 }}
+                  onClick={() => startRead(readPick)}>{t('Read', '读取')}</button>
               </div>
-            ))}
+            </div>
+            {/* 新建名片：接一台新引擎（engines/ 下还没名片的文件夹）*/}
+            <div className="field">
+              <label className="field-label">{t('New manifest (build one for an engine cloned in step 1)', '新建名片（给第 1 步克隆来的引擎建一张名片）')}</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select className="control" value={newPick}
+                  onChange={(e) => setNewPick(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+                  <option value="">{t('— pick a folder under engines/ —', '— 选 engines/ 下的一个文件夹 —')}</option>
+                  {allDirs.map(e => <option key={e.id} value={e.id}>
+                    {e.id}{e.manifestPresent ? '' : `（${t('no manifest yet', '还没名片')}）`}
+                  </option>)}
+                </select>
+                <button className="btn btn-sm btn-primary" type="button" disabled={!newPick}
+                  style={{ flexShrink: 0 }}
+                  onClick={() => startNew(newPick)}>{t('New', '新建')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ② 扫描参数（自动填）*/}
+        {mode === 'scan' && (
+          <>
+            <div className="form-grid" style={{ alignItems: 'center' }}>
+              <div className="field">
+                <label className="field-label">{t('Engine id', '引擎 id')}</label>
+                <input className="control" value={engineId} onChange={(e) => setEngineId(e.target.value)} />
+              </div>
+              {scan && (
+                <div className="field">
+                  <label className="field-label">{t('Subcommand', '子命令')}</label>
+                  <select className="control" value={subcmd} onChange={(e) => { setSubcmd(e.target.value); autoFill(scan, e.target.value) }}>
+                    {(scan.subcommands || []).map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              )}
+              <button className="btn btn-sm btn-primary" type="button" disabled={busy || !engineId} onClick={doScan}>
+                {busy ? t('Scanning…', '扫描中…') : (scan ? t('Rescan', '重新扫描') : t('Scan parameters', '扫描参数'))}
+              </button>
+            </div>
+            {err && <div className="msg msg-danger">{err}</div>}
+          </>
+        )}
+
+        {/* ③ 参数表（扫出来给用户看，已自动填的标出来）*/}
+        {scan && scan.ok && args.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <strong className="field-label">{t(`Parameters (${args.length})`, `参数（${args.length} 个）`)}</strong>
+            <table className="control" style={{ width: '100%', marginTop: 6, borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--muted-foreground)' }}>
+                  <th style={{ padding: '4px 6px' }}>{t('Flag', '参数')}</th>
+                  <th style={{ padding: '4px 6px' }}>{t('Type', '类型')}</th>
+                  <th style={{ padding: '4px 6px' }}>{t('Req', '必填')}</th>
+                  <th style={{ padding: '4px 6px' }}>{t('Official description', '官方说明')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {args.map(a => (
+                  <tr key={a.name} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '4px 6px' }}><code>{a.flag}</code>{a.is_tool && <span className="badge badge-neutral" style={{ marginLeft: 6 }}>{t('tool', '工具')}</span>}</td>
+                    <td style={{ padding: '4px 6px' }}>{a.style}</td>
+                    <td style={{ padding: '4px 6px' }}>{a.required ? '✓' : ''}</td>
+                    <td style={{ padding: '4px 6px', color: 'var(--muted-foreground)' }}>{a.help || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="field-hint" style={{ marginTop: 6 }}>
+              {t('Recognized flags are already filled into the call section below. Edit anything the scan missed, then Save.',
+                '能认出来的参数已自动填进下面的 call 段。扫描没覆盖的手动补，然后保存。')}
+            </p>
           </div>
         )}
       </div>
-
-      {/* ---- ② 必须你填的（排最前 + 高亮）---- */}
-      <div className="card">
-        <strong>
-          {t(`You must fill these (${(byKey.must || []).length})`,
-            `必须你填的（${(byKey.must || []).length} 条）`)}
-        </strong>
-        <p className="field-hint">
-          {t('The upstream requires these, but the platform cannot tell what they mean. '
-            + 'Each one needs a label and a description from you.',
-            '上游要求这几个必须给，但平台说不出它们是什么意思。每一条都要你写名字和说明。')}
-        </p>
-        {(byKey.must || []).length === 0 ? (
-          <p className="field-hint">
-            {t('None. Every required parameter is already handled.',
-              '没有。必填参数都已经处理好了。')}
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-            {(byKey.must || []).map((item) => (
-              <DraftItem key={item.name} item={item} words={words} cli={cli} t={t} />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ---- ③ 可以不管的（默认折叠）---- */}
-      <details className="expert-block">
-        <summary className="expert-summary">
-          {t(`Optional knobs you can ignore (${(byKey.may || []).length})`,
-            `可以不管的（${(byKey.may || []).length} 条）`)}
-        </summary>
-        <p className="field-hint" style={{ marginTop: 8 }}>
-          {t('The upstream has defaults for all of these. Leave them alone unless a user '
-            + 'asks for that knob.',
-            '这些上游都给了默认值。没人要就别动。')}
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-          {(byKey.may || []).map((item) => (
-            <DraftItem key={item.name} item={item} words={words} cli={cli} t={t} />
-          ))}
-        </div>
-      </details>
-
-      {shown !== organized.counts.must + organized.counts.may && (
-        <div className="msg msg-warning">
-          {t(`Only ${shown} of ${organized.counts.must + organized.counts.may} parameters are shown. `
-            + 'Some are missing from the screen.',
-            `只显示了 ${shown} 条，应有 ${organized.counts.must + organized.counts.may} 条。`
-            + '有参数没显示出来。')}
-        </div>
-      )}
     </div>
   )
 }
@@ -526,348 +453,22 @@ function DraftBlocks ({ organized, cli, spec }) {
 //   1. 只填**表单**，⛔ 绝不直接写 manifest.json —— 落盘是用户按「保存」的事
 //   2. 映射候选只给候选，**人点选之后**才写 maps，⛔ 绝不自动落盘
 //   3. 不新增任何平台侧校验逻辑 —— 界面只展示「反射说了什么」
+
 // ---------------------------------------------------------------------------
-function ReflectPanel ({ manifest, onChange, spec }) {
-  const { t } = useT()
-  const { installed } = useInstalled()
-  const [engineId, setEngineId] = React.useState(manifest.id || '')
-  const [busy, setBusy] = React.useState(false)
-  const [result, setResult] = React.useState(null)
-  const [err, setErr] = React.useState(null)
-  // ⭐ 勾上的候选才会被采纳 —— 默认全不勾（「人点选后才写」这条纪律的界面形态）
-  const [picked, setPicked] = React.useState({})
 
-  // 引擎目录名：优先表单里已填的 id，否则让用户从已装的里挑
-  React.useEffect(() => {
-    if (!engineId && manifest.id) setEngineId(manifest.id)
-  }, [manifest.id])
-
-  const run = async () => {
-    if (!engineId) return
-    setBusy(true)
-    setErr(null)
-    setResult(null)
-    setPicked({})
-    try {
-      // ⭐ 多方法引擎：把名片 call.methods 里声明的**真实方法名**传给后端，
-      //   否则只反射加载期（构造参数），推理期参数（tts_text / prompt_wav…）
-      //   一个都拿不到 —— 那正是用户要配的东西。
-      //   ⛔ 单方法引擎（没写 call.methods）不传 ⇒ 后端走 call.method 单个反射。
-      const methodsByName = (manifest.call && manifest.call.methods) || {}
-      const methodList = Object.values(methodsByName)
-        .map((m) => (m && m.method) || null)
-        .filter(Boolean)
-      const r = await fetch('/wizard/params', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: engineId,
-          // ⭐ 名片里已经有的 maps 只用来打「已映射」标记，⛔ 不会覆盖
-          existingMaps: manifest.maps || {},
-          existing: (manifest.parameters || []).map((p) => p.name),
-          // ⭐ 多方法引擎的推理方法真名（inference_sft / inference_zero_shot…）
-          ...(methodList.length ? { methods: methodList } : {}),
-        }),
-      })
-      const j = await r.json()
-      if (!j.ok) { setErr(j.error || `HTTP ${r.status}`); return }
-      setResult(j)
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const applyParams = () => {
-    if (!result) return
-    // ⭐ 把草稿**追加**进表单（同名的不覆盖已有人手写的）
-    const existing = manifest.parameters || []
-    const have = new Set(existing.map((p) => p.name))
-    const added = result.parameters
-      .filter((p) => !have.has(p.name))
-      .map((p) => ({
-        name: p.name,
-        type: p.type,
-        phase: p.phase,
-        tier: p.tier,
-        group: p.group,
-        order: p.order,
-        label: p.label,
-        help: p.help,
-        // ⚠ _needs_review 一路带过去 —— 界面要能显示「这条类型是猜的」
-        ...(p._needs_review ? { _needs_review: true, _why: p._why } : {}),
-        ...(p._platform_key ? { _platform_key: true, _why: p._why } : {}),
-      }))
-    onChange({ ...manifest, parameters: [...existing, ...added] })
-  }
-
-  const applyMaps = () => {
-    if (!result) return
-    // ⭐ 只有**勾上的**才写 maps。默认一个都不勾。
-    const next = { ...(manifest.maps || {}) }
-    let n = 0
-    for (const row of result.map_candidates) {
-      const pick = picked[row.platform_key]
-      if (!pick) continue
-      next[row.platform_key] = pick
-      n += 1
-    }
-    onChange({ ...manifest, maps: next })
-    setErr(null)
-    // 采纳后把这些行标成已映射（界面即时反映，不重发请求）
-    setResult({ ...result, map_candidates: result.map_candidates.map((r) => ({
-      ...r,
-      already_mapped: Object.prototype.hasOwnProperty.call(next, r.platform_key),
-    })) })
-  }
-
-  // ⭐ 只数「已选了具体候选」的行。同分并列时先勾上、但还没从下拉选的
-  //   值是空串，不算数 —— 按钮文案与实际写进 maps 的条数一致。
-  const pickedCount = Object.values(picked).filter(Boolean).length
-
-  return (
-    <div className="section">
-      <div className="section-hdr">
-        <h2>{t('Reflect from source', '从源码反射生成')}</h2>
-      </div>
-      <div className="section-body">
-        <p className="field-hint" style={{ marginTop: 0 }}>
-          {t('Read the engine\'s own source on this machine and list the knobs it '
-            + 'exposes. Source, environment and weights must already be on disk '
-            + '(steps 1-3), so this works offline.',
-            '读本机上这台引擎自己的源码，列出它暴露的旋钮。源码、环境、权重需已在盘上'
-            + '（第 1-3 步），因此这一步不联网。')}
-        </p>
-        <p className="plan-warn">
-          {t('This fills the form only. It never writes manifest.json, and mapped '
-            + 'platform words stay candidates until you tick them.',
-            '只填表单，不直接写 manifest.json。映射候选在你勾选之后才会写进 maps。')}
-        </p>
-
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input className="control" style={{ maxWidth: 220 }}
-            value={engineId} placeholder={t('engine id', '引擎 id')}
-            onChange={(e) => setEngineId(e.target.value)} />
-          {installed.length > 0 && (
-            <select className="control" style={{ maxWidth: 200 }}
-              value="" onChange={(e) => e.target.value && setEngineId(e.target.value)}>
-              <option value="">{t('or pick…', '或选一个…')}</option>
-              {installed.map((e) => (
-                <option key={e.id} value={e.id}>{e.id}</option>
-              ))}
-            </select>
-          )}
-          <button className="btn btn-sm btn-primary" type="button"
-            disabled={!engineId || busy} onClick={run}>
-            {busy ? t('Reflecting…', '反射中…') : t('Reflect', '反射')}
-          </button>
-        </div>
-
-        {err && <div className="msg msg-danger" style={{ marginTop: 8 }}>{err}</div>}
-
-        {result && (
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="msg msg-info">
-              {t(`Reflected ${result.counts.reflected} named parameters: `
-                + `${result.counts.parameters} for the form, `
-                + `${result.counts.excluded} excluded (each says why), `
-                + `${result.counts.map_candidates} platform-word candidates.`,
-                `反射到 ${result.counts.reflected} 个具名参数：草稿 ${result.counts.parameters} 条，`
-                + `排除 ${result.counts.excluded} 条（每条都写了原因），`
-                + `平台词候选 ${result.counts.map_candidates} 组。`)}
-            </div>
-            {result.partial && (
-              <div className="msg msg-warning">
-                {t('The reflection is incomplete: ', '反射结果不完整：') + result.partial_reason}
-              </div>
-            )}
-
-            {/* ⭐⭐ 第 2 步：按「用户操作流」三块分区。
-                ⛔ 这不是把参数拆开，是**同一份草稿的重排视图** ——
-                  organizeDraft 保证 must + may === parameters.length，
-                  一条都不许丢（丢一条 = 界面上少一个旋钮，且不报错）。 */}
-            {result.organized && result.organized.ok ? (
-              <DraftBlocks organized={result.organized} cli={result.cli} />
-            ) : (
-              /* ⚠ 分区失败不许静默退回旧视图 —— 那会把「分错了」说成「没参数」。
-                 如实说，并把原始草稿留在下面。 */
-              <div className="msg msg-warning">
-                {t('Could not group the draft: ', '参数分区没做成：')
-                  + (result.organized ? result.organized.error : '分区结果缺失')}
-              </div>
-            )}
-
-            {/* ---- ① 参数草稿原文（三块视图的数据来源，⛔ 不许删）---- */}
-            <details className="expert-block">
-              <summary className="expert-summary">
-                {t(`Raw draft (${result.counts.parameters} parameters)`,
-                  `原始草稿（${result.counts.parameters} 条参数）`)}
-              </summary>
-              <div style={{ marginTop: 8 }}>
-                <div className="form-grid" style={{ alignItems: 'center' }}>
-                  <button className="btn btn-sm" type="button" onClick={applyParams}>
-                    + {t('Append to form', '追加到表单')}
-                  </button>
-                </div>
-                {result.parameters.length === 0 ? (
-                  <p className="field-hint">
-                    {t('No parameters survived the exclusions. Check the excluded list below.',
-                      '排除之后没有剩下任何参数。看看下面的排除清单。')}
-                  </p>
-                ) : (
-                  <div className="param-grid" style={{ marginTop: 8 }}>
-                    {result.parameters.map((p) => (
-                      <div key={p.name} className="field">
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <code>{p.name}</code>
-                          <span className="badge badge-neutral">{p.type}</span>
-                          <span className="badge badge-neutral">{p.phase}</span>
-                          {p._needs_review && (
-                            <span className="badge badge-warn">
-                              {t('type guessed from name', '类型按名字猜的')}
-                            </span>
-                          )}
-                          {p._platform_key && (
-                            <span className="badge badge-warn">
-                              {t('platform word', '平台词')}
-                            </span>
-                          )}
-                        </div>
-                        <div className="field-hint">{p._why || p.help?.en || ''}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </details>
-
-            {/* ---- ② 映射候选：单独一栏，人勾选后才写 maps ---- */}
-            <div className="card">
-              <div className="form-grid" style={{ alignItems: 'center' }}>
-                <strong>
-                  {t('Platform word candidates (maps)', '平台词候选（maps）')}
-                </strong>
-                <button className="btn btn-sm btn-primary" type="button"
-                  disabled={pickedCount === 0} onClick={applyMaps}>
-                  {pickedCount > 0
-                    ? t(`Write ${pickedCount} into maps`, `写 ${pickedCount} 条进 maps`)
-                    : t('Nothing ticked', '未勾选')}
-                </button>
-              </div>
-              <p className="field-hint">
-                {t('Nothing is written until you tick a row. Rows already mapped in '
-                  + 'the manifest are marked and never overwritten automatically.',
-                  '未勾选前什么都不写。名片里已映射的行会被标出，⛔ 不会自动覆盖。')}
-              </p>
-              {result.map_candidates.length === 0 ? (
-                <p className="field-hint">
-                  {t('No parameter name looks like a platform word.',
-                    '没有一个参数名像平台词。')}
-                </p>
-              ) : (
-                <div className="param-grid" style={{ marginTop: 8 }}>
-                  {result.map_candidates.map((row) => (
-                    <div key={row.platform_key} className="field">
-                      <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input type="checkbox"
-                          checked={!!picked[row.platform_key]}
-                          onChange={(e) => {
-                            const next = { ...picked }
-                            if (e.target.checked) {
-                              // ⭐ 同分并列 = 平台分不出哪个才对 ⇒ ⛔ 不替人预选。
-                              //   只勾上（key 存在、值为空串），从下拉选完才写 maps；
-                              //   下拉此时显示占位「选一个…」，用户点定才算数。
-                              //   ⛔ 平台不猜纪律：绝不默认 candidates[0]
-                              //   （同分时按字母序排，情绪参考会顶掉音色参考 —— 静默错配）。
-                              //   ✅ 唯一分数不并列时，candidates[0] 就是明确的最高分，
-                              //   仍自动预选，省得手点。
-                              next[row.platform_key] =
-                                row.candidates.length > 1 &&
-                                  row.candidates[0].score === row.candidates[1].score
-                                  ? ''
-                                  : row.candidates[0].engine_param
-                            } else delete next[row.platform_key]
-                            setPicked(next)
-                          }} />
-                        <code>{row.platform_key}</code>
-                        {row.already_mapped && (
-                          <span className="badge badge-ok">
-                            {t(`mapped → ${row.current}`, `已映射 → ${row.current}`)}
-                          </span>
-                        )}
-                      </label>
-                      {/* ⭐ 勾了就展开下拉（哪怕还没选具体候选、值为空串），
-                          让用户能主动从并列里点定；⛔ 空串时 disabled 占位，
-                          绝不默认落到字母序在前的那个。未勾才只读提示。 */}
-                      {(row.platform_key in picked) ? (
-                        <select className="control"
-                          value={picked[row.platform_key] || ''}
-                          onChange={(e) => setPicked({ ...picked, [row.platform_key]: e.target.value })}>
-                          {!picked[row.platform_key] && (
-                            <option value="" disabled>
-                              {t(`Pick one… (${row.candidates.length} tie)`,
-                                `选一个…（${row.candidates.length} 个并列）`)}
-                            </option>
-                          )}
-                          {row.candidates.map((c) => (
-                            <option key={c.engine_param} value={c.engine_param}>
-                              {c.engine_param} ({c.phase}, {c.score})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="field-hint">
-                          {row.candidates.map((c) => c.engine_param).join(' / ')}
-                          {row.candidates[0] ? ` — ${row.candidates[0].why}` : ''}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* ---- ③ 排除清单：每条都说了为什么 ---- */}
-            {result.excluded.length > 0 && (
-              <div className="card">
-                <strong>
-                  {t(`Excluded (${result.excluded.length})`, `排除的（${result.excluded.length} 条）`)}
-                </strong>
-                <div className="param-grid" style={{ marginTop: 8 }}>
-                  {result.excluded.map((e) => (
-                    <div key={e.phase + e.name} className="field">
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <code>{e.name}</code>
-                        <span className="badge badge-neutral">{e.phase}</span>
-                        {e.needs_human && (
-                          <span className="badge badge-warn">
-                            {t('needs a human', '需要人定')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="field-hint">{e.reason}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p className="plan-warn">{result.caveat}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
+// ---------------------------------------------------------------------------
+// ⭐ 主组件 —— 「生成优先」版（2026-10-10 重写，.bak 是旧的字段优先版）
+//
+// 操作流（Owner 定的）：
+//   ① 顶部：从 CLI 扫描生成（新建/读取名片 → 扫描参数 → 参数表 → 自动填）
+//   ② 中部：手工编辑（导入已有 / 核心字段 runtime+call+models / 反射生成）
+//   ③ 折叠：高级设置（source/capabilities/install/output）+ 参数区 parameters
+//
+// ⛔ 纪律：只填表单不落盘（落盘是 SaveBar 的事）；活代码不许出现引擎名。
 // ---------------------------------------------------------------------------
 export default function ManifestForm ({ manifest, onChange, spec }) {
   const { t } = useT()
   const { installed } = useInstalled()
-  const [importId, setImportId] = React.useState('')
-  const [importing, setImporting] = React.useState(false)
-  const [importErr, setImportErr] = React.useState(null)
 
   if (!spec) {
     return <p className="field-hint" style={{ margin: 0 }}>
@@ -880,45 +481,6 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     if (v === undefined || v === '') delete next[k]
     else next[k] = v
     onChange(next)
-  }
-
-  // ---- 从已有引擎导入 ----
-  const handleImport = async () => {
-    if (!importId) return
-    setImporting(true)
-    setImportErr(null)
-    try {
-      const r = await fetch(`/wizard/manifest/${encodeURIComponent(importId)}`)
-      const j = await r.json()
-      if (!r.ok || !j.ok) {
-        setImportErr(j.error || `HTTP ${r.status}`)
-        return
-      }
-      const src = j.manifest
-      const next = { ...manifest }
-      // 核心字段
-      if (src.runtime) next.runtime = src.runtime
-      if (src.call) next.call = src.call
-      if (src.maps) next.maps = src.maps
-      if (src.parameters) next.parameters = src.parameters
-      if (src.capabilities) next.capabilities = src.capabilities
-      if (src.models) next.models = src.models
-      if (src.weights) next.weights = src.weights
-      if (src.upstream) next.upstream = src.upstream
-      if (src.install) next.install = src.install
-      if (src.output_formats) next.output_formats = src.output_formats
-      if (src.max_chars) next.max_chars = src.max_chars
-      if (src.max_chars_source) next.max_chars_source = src.max_chars_source
-      if (src.timeout_ms) next.timeout_ms = src.timeout_ms
-      if (src.timeout_ms_source) next.timeout_ms_source = src.timeout_ms_source
-      if (src.base_url_env) next.base_url_env = src.base_url_env
-      if (src.default_base_url) next.default_base_url = src.default_base_url
-      onChange(next)
-    } catch (e) {
-      setImportErr(e.message)
-    } finally {
-      setImporting(false)
-    }
   }
 
   const setParam = (i, v) => {
@@ -936,8 +498,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
 
   const byGroup = {}
   for (const s of spec.sections) {
-    if (s.group === 'parameters') continue      // ⛔ 单独渲染，不进分组表
-    // ⛔ 这三段有专门的嵌套编辑器（NestedSections.jsx）
+    if (s.group === 'parameters') continue
     if (NESTED_GROUPS.includes(s.group)) continue
     ;(byGroup[s.group] = byGroup[s.group] || []).push(s)
   }
@@ -947,111 +508,62 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     return L ? t(L.en, L.zh) : g
   }
 
-  // ---- 字段分组：核心 vs 高级 ----
-  const CORE_GROUPS = ['basics', 'runtime', 'call']
-  const ADVANCED_GROUPS = ['source', 'models', 'capabilities', 'install', 'output']
-
+  const CORE_GROUPS = ['runtime', 'call']
+  const ADVANCED_GROUPS = ['basics', 'source', 'models', 'capabilities', 'install', 'output']
   const coreSections = GROUP_ORDER.filter((g) => CORE_GROUPS.includes(g) && byGroup[g])
   const advancedSections = GROUP_ORDER.filter((g) => ADVANCED_GROUPS.includes(g) && byGroup[g])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {/* ---- 从已有引擎导入 ---- */}
-      {installed.length > 0 && (
-        <div className="section">
-          <div className="section-hdr"><h2>{t('Import from existing engine', '从已有引擎导入')}</h2></div>
-          <div className="section-body">
-            <p className="field-hint" style={{ marginTop: 0 }}>
-              {t('Import core fields (runtime, call, maps, parameters, etc.) from an '
-                + 'already-installed engine. This saves you from filling in everything '
-                + 'from scratch.',
-                '从已安装的引擎导入核心字段（runtime、call、maps、parameters 等），'
-                + '省去从头填写所有字段的负担。')}
-            </p>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <select className="control" value={importId}
-                onChange={(e) => setImportId(e.target.value)}
-                style={{ minWidth: 200 }}>
-                <option value="">{t('Select an engine…', '选择一个引擎…')}</option>
-                {installed.map((e) => (
-                  <option key={e.id} value={e.id}>{e.id}</option>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* ⭐⭐ ① 生成区 —— 页面主体，放最顶：新建/读取名片 → 扫描 → 参数表 → 自动填 */}
+      <CliGenPanel manifest={manifest} onChange={onChange} />
+
+      {/* 反射生成（第二条生成路，读函数签名）*/}
+
+      {/* 核心字段：runtime + call（扫描没覆盖的在这里补）*/}
+          {coreSections.map((g) => (
+            <div className="section" key={g}>
+              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
+              <div className="section-body">
+                {byGroup[g].map((s) => (
+                  <Field key={s.key} sec={s} value={manifest[s.key]} onChange={(v) => set(s.key, v)} />
                 ))}
-              </select>
-              <button className="btn btn-sm btn-primary" type="button"
-                disabled={!importId || importing} onClick={handleImport}>
-                {importing ? t('Importing…', '导入中…') : t('Import', '导入')}
-              </button>
-            </div>
-            {importErr && (
-              <div className="msg msg-danger" style={{ marginTop: 8 }}>
-                {importErr}
               </div>
-            )}
+            </div>
+          ))}
+
+          {/* models / runtime / call 三段（嵌套编辑器）*/}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
+            <div className="section-body">
+              <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* ---- 核心字段（必填）---- */}
-      {coreSections.map((g) => (
-        <div className="section" key={g}>
-          <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
-          <div className="section-body">
-            {byGroup[g].map((s) => (
-              <Field key={s.key} sec={s}
-                value={manifest[s.key]}
-                onChange={(v) => set(s.key, v)} />
-            ))}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
+            <div className="section-body">
+              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
+            </div>
           </div>
-        </div>
-      ))}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
+            <div className="section-body">
+              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
+            </div>
+          </div>
 
-      {/* ---- models：权重在哪、哪几个文件算齐 ---- */}
-      <div className="section">
-        <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
-        <div className="section-body">
-          <ModelsSection value={manifest.models}
-            onChange={(x) => set('models', x)} t={t} />
-        </div>
-      </div>
-
-      {/* ---- runtime：怎么把引擎拉起来（三段里最必填的一段）---- */}
-      <div className="section">
-        <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
-        <div className="section-body">
-          <RuntimeSection value={manifest.runtime}
-            onChange={(x) => set('runtime', x)} t={t} />
-        </div>
-      </div>
-
-      {/* ---- call：怎么调它（没有 call 段的引擎走老宿主，也是合法的）---- */}
-      <div className="section">
-        <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
-        <div className="section-body">
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('Engines without a call section are started by a different, older '
-              + 'path — that is a valid shape, not an error.',
-              '没有 call 段的引擎由另一条较早的路径启动，这是合法形式，不属于错误。')}
-          </p>
-          <CallSection value={manifest.call}
-            onChange={(x) => set('call', x)} t={t} />
-        </div>
-      </div>
-
-      {/* ---- 高级字段（可选，折叠）---- */}
+      {/* ③ 高级设置 + 参数区（折叠）*/}
       {advancedSections.length > 0 && (
         <details className="expert-block">
-          <summary className="expert-summary">
-            {t('Advanced settings (optional)', '高级设置（可选）')}
-          </summary>
+          <summary className="expert-summary">{t('Advanced settings (optional)', '高级设置（可选）')}</summary>
           <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {advancedSections.map((g) => (
               <div className="section" key={g}>
                 <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
                 <div className="section-body">
                   {byGroup[g].map((s) => (
-                    <Field key={s.key} sec={s}
-                      value={manifest[s.key]}
-                      onChange={(v) => set(s.key, v)} />
+                    <Field key={s.key} sec={s} value={manifest[s.key]} onChange={(v) => set(s.key, v)} />
                   ))}
                 </div>
               </div>
@@ -1060,19 +572,12 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
         </details>
       )}
 
-      {/* ---- ⭐ 从源码反射生成（第 4 步：只填表单，不落盘）---- */}
-      <ReflectPanel manifest={manifest} onChange={onChange} spec={spec} />
-
-      {/* ---- parameters：界面参数 ---- */}
-      <div className="section">
-        <div className="section-hdr"><h2>{gLabel('parameters')}</h2></div>
-        <div className="section-body">
+      <details className="expert-block">
+        <summary className="expert-summary">{t('parameters (interface parameters)', 'parameters（界面参数）')}</summary>
+        <div style={{ paddingTop: 8 }}>
           <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('⚠ These fields all live inside Advanced Settings (collapsed by '
-              + 'default); none appear in the main area. Every entry you add is '
-              + 'one more thing the user has to look at.',
-              '以上参数全部位于 Advanced Settings（默认折叠）内，主区域不会显示。'
-              + '每多写一条，用户的界面上就多一格。')}
+            {t('⚠ These fields all live inside Advanced Settings (collapsed by default); none appear in the main area.',
+              '以上参数全部位于 Advanced Settings（默认折叠）内，主区域不会显示。')}
           </p>
           {(manifest.parameters || []).map((p, i) => (
             <ParamRow key={i} entry={p || {}} index={i} spec={spec}
@@ -1084,7 +589,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
             </button>
           </div>
         </div>
-      </div>
+      </details>
     </div>
   )
 }

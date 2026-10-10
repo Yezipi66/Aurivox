@@ -42,11 +42,15 @@ export default function ManifestPage ({
           </button>
         </div>
 
-        <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
-
         {view === 'form'
           ? (
-            <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest} />
+            <>
+              <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest} />
+              {/* ⭐ SaveBar 移到表单**最下面**：填的时候不被打断，填完滚到底
+                  才看到「还有几处问题 + 存盘」，是自然的收尾。⛔ 不再放顶部
+                  一进来就甩红错误。 */}
+              <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
+            </>
             )
           : (
             // JSON 逃生口直接用项目的 `textarea.control`
@@ -59,6 +63,10 @@ export default function ManifestPage ({
 
         {err && view === 'json' && (
           <div className="msg msg-danger">{err}</div>
+        )}
+        {/* JSON 视图也要能存盘（SaveBar 同样在最下面）*/}
+        {view === 'json' && (
+          <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
         )}
       </div>
 

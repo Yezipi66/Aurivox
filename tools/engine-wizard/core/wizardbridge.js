@@ -752,6 +752,56 @@ async function handleParams (req, res) {
 }
 
 // ---------------------------------------------------------------------------
+//  POST /wizard/cli-args —— 走命令行（cli 形态）的草稿生成
+// ---------------------------------------------------------------------------
+// ⭐ 与 /wizard/params（反射函数签名）并列的**另一条路**：
+//    这条路不 import 引擎、不读函数签名，直接以上游命令行的 --flag 为参数。
+//    ⇒ 卡点 6/7 自动解：flag 即参数，官方 help 直接挂它上面，不用猜对应。
+//    ⇒ 更通用：几乎每台引擎都有 CLI，不用管它内部是什么 Python 类。
+//
+// 入参：{id} —— 引擎目录名（ engines/<id>/ ）
+// 出参：{ok, subcommands, args, suggested_call}
+//   subcommands   上游有哪些子命令（synth/infer/batch…），用户选一个
+//   args          该子命令的 flag 列表，每条 {name, flag, style, help, required, is_tool}
+//   suggested_call 建议的 cli 形态 call 段骨架（⛔ 只是骨架，人确认后才落盘）
+//
+// ⛔ 纪律：一条 flag 都不删、help 原样递出、不预设哪个子命令是对的 —— 全列出。
+// ⚠ 与 handleParams 同：**同步返回 true**（URL 匹配即接管），readBody 在回调里
+//   异步处理。⛔ 不许返回 Promise —— 中间件见到 Promise 会 break 出循环，
+//   排在它后面的 handler 全灭（卡点1 的同款坑）。
+function handleCliArgs (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/cli-args')) return false
+  const tail = req.url.slice('/wizard/cli-args'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
+
+    const { buildSpec } = require('./paramsFromReflect')
+    // ⭐ forCli：cli 扫描定位目录即可，⛔ 不走反射的 call.module/class 前置校验
+    //   （那会把新建名片直接 BAD_SPEC 堵死）。
+    const spec = buildSpec(body, { forCli: true })
+    if (!spec.ok) { json(res, 400, { ok: false, code: 'BAD_SPEC', error: spec.error }); return }
+
+    // 引擎目录 = sys_path[0]（kind=cli 时就是 engines/<id>）
+    const dir = spec.value.sys_path && spec.value.sys_path[0]
+    let cli = null
+    try {
+      const { collectCliHelp } = require('./cliHelp')
+      cli = collectCliHelp({ dir, python: spec.value.python })
+    } catch (e) {
+      cli = { ok: false, error: `扫 CLI 失败：${e.message}`, flags: [], by_dest: {}, sources: [] }
+    }
+
+    const { buildCliDraft } = require('./cliDraft')
+    const draft = buildCliDraft(cli, { subcommand: body.subcommand || null })
+    json(res, 200, draft)
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
 //  GET /wizard/profile/<id> —— 第 4 步：从已有引擎导入
 // ---------------------------------------------------------------------------
 // ⭐ 调用平台的 resolveEngineProfile(id)，返回解析后的 profile。
@@ -780,7 +830,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
-  handleVerifyChecks, handleVerify, handleProfile, handleParams,
+  handleVerifyChecks, handleVerify, handleProfile, handleParams, handleCliArgs,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

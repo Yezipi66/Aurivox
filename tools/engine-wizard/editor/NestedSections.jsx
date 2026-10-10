@@ -57,6 +57,77 @@ function ArrayField ({ value, onChange, placeholder, t }) {
   )
 }
 
+// ⭐ ArgsField —— call.args 编辑器（cli 形态）：一张 {name:{flag,style}} 的表格。
+//   ⛔ 不能套 ArrayField（那是字符串数组）也不能套 ObjectField（value 是对象不是标量）。
+//   每行：name（键）/ flag（--flag）/ style（value|boolean）/ 删除。可新增行。
+function ArgsField ({ value, onChange, t }) {
+  const v = (value && typeof value === 'object') ? value : {}
+  const rows = Object.entries(v).map(([name, a]) => ({
+    name,
+    flag: (a && a.flag) || '',
+    style: (a && a.style) || 'value',
+  }))
+  const emit = (next) => {
+    const obj = {}
+    for (const r of next) {
+      if (!r.name) continue
+      obj[r.name] = { flag: r.flag, style: r.style }
+    }
+    onChange(Object.keys(obj).length ? obj : undefined)
+  }
+  return (
+    <div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ textAlign: 'left', color: 'var(--muted-foreground)' }}>
+            <th style={{ padding: '2px 4px' }}>name</th>
+            <th style={{ padding: '2px 4px' }}>flag</th>
+            <th style={{ padding: '2px 4px' }}>style</th>
+            <th style={{ padding: '2px 4px' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td style={{ padding: '2px 4px' }}>
+                <input className="control" type="text" value={r.name}
+                  onChange={(e) => {
+                    const next = rows.slice(); next[i] = { ...r, name: e.target.value }; emit(next)
+                  }} />
+              </td>
+              <td style={{ padding: '2px 4px' }}>
+                <input className="control" type="text" value={r.flag} placeholder="--flag"
+                  onChange={(e) => {
+                    const next = rows.slice(); next[i] = { ...r, flag: e.target.value }; emit(next)
+                  }} />
+              </td>
+              <td style={{ padding: '2px 4px' }}>
+                <select className="control" value={r.style}
+                  onChange={(e) => {
+                    const next = rows.slice(); next[i] = { ...r, style: e.target.value }; emit(next)
+                  }}>
+                  <option value="value">value</option>
+                  <option value="boolean">boolean</option>
+                </select>
+              </td>
+              <td style={{ padding: '2px 4px' }}>
+                <button className="btn btn-sm" type="button"
+                  onClick={() => emit(rows.filter((_, j) => j !== i))}>
+                  {t('del', '删')}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button className="btn btn-sm" type="button" style={{ marginTop: 4 }}
+        onClick={() => emit([...rows, { name: '', flag: '--', style: 'value' }])}>
+        {t('Add flag', '加一个参数')}
+      </button>
+    </div>
+  )
+}
+
 /** key → value 的浅对象（init_args 这类）—— ⭐ 用项目的 .table 画「键 值 ×」三列 */
 function ObjectField ({ value, onChange, t }) {
   const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
@@ -471,6 +542,21 @@ export function CallSection ({ value, onChange, t }) {
           '平台的每个输入词对应上游哪个参数')}>
         <BindField value={v.bind} onChange={(b) => set('bind', b)} t={t} />
       </Row>
+      {v.kind === 'cli' && (
+        <>
+          <Row label="argv"
+            hint={t('the command to run, comma-separated. {engine_python} / {engine_dir} / {root} are filled by the platform',
+              '要跑的命令，逗号分隔。{engine_python} / {engine_dir} / {root} 由平台替换')}>
+            <ArrayField value={v.argv} onChange={(a) => set('argv', a)} t={t}
+              placeholder="{engine_python}, -m, module, synth" />
+          </Row>
+          <Row label="args"
+            hint={t('every command-line flag, one per row. name = key, flag = the --flag, style = value/boolean',
+              '每个命令行参数一行。name = 键，flag = --flag，style = value/boolean')}>
+            <ArgsField value={v.args} onChange={(a) => set('args', a)} t={t} />
+          </Row>
+        </>
+      )}
       <Row label="returns"
         hint={t('file / bytes / generator — what the method gives back',
           'file / bytes / generator，方法的返回形式')}>

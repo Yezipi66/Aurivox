@@ -655,8 +655,9 @@ const ROOT = path.join(__dirname, '..', '..', '..')
  *   methods  可选：给了就逐个方法反射再合并（多方法引擎）
  * @returns {{ok:true, value:object} | {ok:false, error:string}}
  */
-function buildSpec (body) {
+function buildSpec (body, opts) {
   const b = body || {}
+  const forCli = opts && opts.forCli  // ⭐ cli 路线：只定位目录+python，⛔ 不要 call.module/class
   if (!b.id || typeof b.id !== 'string') {
     return { ok: false, error: 'id is required（反射要知道去读哪个引擎目录）' }
   }
@@ -680,7 +681,10 @@ function buildSpec (body) {
 
   const mod = b.module || call.module
   const cls = b.class || call.class
-  if (!mod || !cls) {
+  // ⭐ forCli：cli 路线是扫源码文本（argparse --flag），⛔ 不 import 类 ⇒
+  //   根本不需要 call.module/class。⛔ 新建名片默认没有这一段，卡在这里
+  //   等于把 cli 扫描堵死（新建名片实测直接 BAD_SPEC）——跳过。
+  if (!forCli && (!mod || !cls)) {
     return {
       ok: false,
       error: '反射需要知道 import 哪个模块的哪个类（call.module / call.class）。'
@@ -691,21 +695,25 @@ function buildSpec (body) {
   //   平台的 Python 里没有 torch、也没有这台引擎的模块，反射必然失败，
   //   而那个失败会被说成「这台引擎没参数」。
   const py = b.python || rt.python
-  if (!py) {
+  if (!forCli && !py) {
     return { ok: false, error: '名片里没有 runtime.python。反射必须在引擎自己的解释器里跑' }
   }
   // ⚠ runtime.python 写的是**目录**（`engines/<id>/.venv`），不是一个可执行文件。
   //   Windows 上真正能起的是 `.venv/Scripts/python.exe` ⇒ 补这一段。
   //   ⛔ 不补的表现是 spawn ENOENT，报错说的是「起不动解释器」，而真正的原因
   //      是「路径少了一截」—— 那是最难查的一类误导（本步实测踩过）。
-  const pyPath = path.resolve(ROOT, py)
-  const pyExe = process.platform === 'win32'
-    ? path.join(pyPath, 'Scripts', 'python.exe')
-    : path.join(pyPath, 'bin', 'python')
-  const pyFinal = fs.existsSync(pyExe)
+  // ⭐ forCli：cli 扫描是文本扫描（读 .py 源码），不 spawn python ⇒ 没 runtime.python
+  //   也不拦。pyFinal 给 null，下游 collectCliHelp 不依赖它。
+  const pyPath = py ? path.resolve(ROOT, py) : null
+  const pyExe = pyPath
+    ? (process.platform === 'win32'
+        ? path.join(pyPath, 'Scripts', 'python.exe')
+        : path.join(pyPath, 'bin', 'python'))
+    : null
+  const pyFinal = pyExe && fs.existsSync(pyExe)
     ? pyExe
-    : (/\.[a-z]+$/i.test(pyPath) ? pyPath : null)
-  if (!pyFinal) {
+    : (pyPath && /\.[a-z]+$/i.test(pyPath) ? pyPath : null)
+  if (!forCli && !pyFinal) {
     return {
       ok: false,
       error: `找不到 ${py} 里的解释器（期望 ${path.relative(ROOT, pyExe)}）。`

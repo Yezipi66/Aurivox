@@ -22,7 +22,11 @@ function handleInstalled (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/installed')) return false
   try {
-    json(res, 200, { engines: listInstalled() })
+    // ⭐ ?all=1：列出 engines/ 下**所有**文件夹（含还没名片的）——
+    //   「新建名片」入口靠它列出第 1 步克隆来、还没写名片的引擎。
+    //   ⛔ 默认仍只列有 manifest 的（不改老行为）。
+    const all = /[?&]all=1/.test(req.url)
+    json(res, 200, { engines: listInstalled({ all }) })
   } catch (e) {
     json(res, 500, { error: e.message })
   }

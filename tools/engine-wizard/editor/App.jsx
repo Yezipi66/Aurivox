@@ -66,7 +66,9 @@ export default function App () {
   const [vresult, setVresult] = React.useState(null)
   const [vloading, setVloading] = React.useState(false)
   React.useEffect(() => {
-    if (!manifest) { setVresult(null); return }
+    // ⭐ 空名片（还没开始建，比如没有 id）不校验 —— 刚点进来就对着一张
+    //   空名片报「缺 runtime」纯是增加心理负担。等用户真填了（有 id）再验。
+    if (!manifest || !manifest.id) { setVresult(null); setVloading(false); return }
     let alive = true
     setVloading(true)
     fetch('/wizard/validate', {
