@@ -15,6 +15,7 @@
 // ============================================================================
 
 const http = require('node:http')
+const path = require('node:path')
 
 /**
  * 处理一次校验请求。
@@ -22,12 +23,15 @@ const http = require('node:http')
  * @param {http.ServerResponse} res
  * @returns {Promise<boolean>}  true = 这次请求已被处理
  */
-function handleValidate (req, res, coreDir) {
+function handleValidate (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/validate')) return false
 
-  const { diagnose, summarize } = require(
-    require('node:path').join(coreDir, 'validate.js'))
+  // ⭐ validate.js 与本文件同在 core/ 目录，用 __dirname 直接定位。
+  //   ⛔ 不能指望调用方传 coreDir —— vite 中间件是 h(req, res) 两参调用，
+  //   第三个参数从来传不进来（曾因此抛 path.join(undefined,…) 的 500）。
+  //   ⇒ 自定位最稳，不依赖任何外部注入。
+  const { diagnose, summarize } = require(path.join(__dirname, 'validate.js'))
 
   let body = ''
   let tooBig = false

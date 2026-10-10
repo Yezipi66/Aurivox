@@ -698,11 +698,25 @@ async function handleParams (req, res) {
     // ⭐ 第 2 步：上游 CLI 的官方原话（argparse help= 整份摊开）。
     //   ⛔ 抓不到不影响反射 —— 那是一个**答案**（这台引擎的 CLI 不在盘上 /
     //     没有 CLI），如实带 note 出去，⛔ 不许让整个端点失败。
+    //   ⭐⭐ 扫描目录 = **这台引擎自己的目录**，逐字取 spec.value.sys_path[0]。
+    //      2026-10-10 实测踩过：这里曾写成
+    //        path.join(path.dirname(spec.value.sys_path[0]), '..')
+    //      即 sys_path[0] 的**上级**。sys_path[0] 是 engines/<id> ⇒ 上级正是
+    //      **项目根** ⇒ 递归兜底把 engines/ 下每一台引擎、tools/、lib/ 的
+    //      全部 argparse 文件全扫了（一台引擎一次抓到 22 个源文件、244 个
+    //      flag，其中别的引擎的克隆与平台自己的工具脚本占了大半）。
+    //      后果不是报错，是**别的引擎的 flag 被当成这台引擎的官方原话摊开** ——
+    //      静默误导，且用户无从分辨哪条属于哪台。
+    //   ⚠ 副产物：引擎**自己**目录下的其它 argparse 脚本（构建/导出脚本等）
+    //      仍会进来 —— 它们是这台引擎的源码，⛔ 不是跨引擎污染。
+    //      ⛔ 不在这里按目录名再筛一层：「哪个 CLI 才是用户会敲的那个」
+    //      是人的判断，平台的活是摊开全部 + 标出来源文件（cli.flags[].
+    //      source_file 已带）。
     let cli = null
     try {
       const { collectCliHelp } = require('./cliHelp')
       cli = collectCliHelp({
-        dir: path.join(path.dirname(spec.value.sys_path[0]), '..'),
+        dir: spec.value.sys_path[0],
         python: spec.value.python,
       })
     } catch (e) {
@@ -711,11 +725,16 @@ async function handleParams (req, res) {
 
     // ⭐ 反射失败（ok:false）是一个**答案**，不是端点出错 ⇒ 一律 200。
     //   反射器永远以 0 退出，正是为了这个区分（reflect_params.py 头注）。
+    //   ⭐⭐ opts.manifest：把名片原文传下去 —— **卡点 3** 靠它补上
+    //     call.bind 指向的真实入参（反射器读不到 bind，而那是这台引擎
+    //     真实必填的 text / output_path）。
+    //     ⛔ 不传的后果不是报错，是「界面上少两格必填」，且没有任何信号。
     const r = reflectAndBuild(spec.value, {
       methods: body.methods,
       existing: body.existing,
       existingMaps: body.existingMaps,
       timeoutMs: body.timeoutMs,
+      manifest: spec.manifest,
     })
     if (!r.ok) { json(res, 200, r); return }
     // ⭐ 把草稿按「用户操作流」排成三块（①已自动填 ②必须你填 ③可以不管）

@@ -54,19 +54,27 @@ function validatePlugin () {
     handleDownloadManifest, handleDownloadFile,
     handleDownloadFiles, handleDownloadProgress,
   } = require(path.join(CORE, 'wizardbridge.js'))
-  // ⛔ 顺序：长前缀在前。manifest/<id> 是动态的，必须排在 installed 之前，
-  //    否则 /wizard/manifest/xxx 会被别的 handler 先吃掉。
+  // ⛔ 顺序纪律（两层，缺一不可）：
+  //   ① 长前缀在前。manifest/<id> 是动态的，必须排在 installed 之前，
+  //      否则 /wizard/manifest/xxx 会被别的 handler 先吃掉。
+  //   ② 同步 handler 必须全部排在异步 handler 之前。中间件调用到**第一个**
+  //      async handler（返回 Promise）就 break + next()，它后面的 handler
+  //      无论 URL 是否匹配都轮不到。⇒ handleValidate 必须排在 handleParams
+  //      之前；否则 /wizard/validate 被挡在 handleParams 后面，整条校验环
+  //      404（卡点1：UI 满屏 REPLACE_ME 草稿却一条红框不报，Save 恒 disabled）。
   // ⚠ handleParams 认的是 /wizard/params 这个**整串**，与本表中其它前缀
-  //    无一互为前缀 ⇒ 放哪儿都不影响匹配。放在 profile 之后是因为
-  //    第 4 步的使用顺序（先导入已有引擎，再反射生成草稿）。
+  //    无一互为前缀 ⇒ 与 handleValidate 互换位置不影响 params 路由。
   const HANDLERS = [
     handleSpec, handleRead,
     handleState, handleResolve, handleProbe, handleDeps, handleHardware,
     handleClone, handleEnv, handleModels,
-    handleVerifyChecks, handleVerify, handleProfile, handleParams,
-    handleInstalled, handleSave, handleValidate,
-    handleDownloadManifest, handleDownloadFile,
-    handleDownloadFiles, handleDownloadProgress,
+    handleVerifyChecks, handleVerify, handleProfile, handleValidate,
+    handleInstalled, handleSave,
+    handleDownloadFile, handleDownloadFiles, handleDownloadProgress,
+    // ⛔ 唯二的 async handler 沉底：中间件一调用到返回 Promise 的 handler
+    //   就 break + next()，其后的 handler 无论 URL 是否匹配都轮不到。
+    //   ⇒ async 只能放队尾，sync 全部排它们前面。
+    handleParams, handleDownloadManifest,
   ]
   return {
     name: 'aurivox-wizard-validate',

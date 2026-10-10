@@ -622,7 +622,9 @@ function ReflectPanel ({ manifest, onChange, spec }) {
     })) })
   }
 
-  const pickedCount = Object.keys(picked).length
+  // ⭐ 只数「已选了具体候选」的行。同分并列时先勾上、但还没从下拉选的
+  //   值是空串，不算数 —— 按钮文案与实际写进 maps 的条数一致。
+  const pickedCount = Object.values(picked).filter(Boolean).length
 
   return (
     <div className="section">
@@ -772,8 +774,20 @@ function ReflectPanel ({ manifest, onChange, spec }) {
                           checked={!!picked[row.platform_key]}
                           onChange={(e) => {
                             const next = { ...picked }
-                            if (e.target.checked) next[row.platform_key] = row.candidates[0].engine_param
-                            else delete next[row.platform_key]
+                            if (e.target.checked) {
+                              // ⭐ 同分并列 = 平台分不出哪个才对 ⇒ ⛔ 不替人预选。
+                              //   只勾上（key 存在、值为空串），从下拉选完才写 maps；
+                              //   下拉此时显示占位「选一个…」，用户点定才算数。
+                              //   ⛔ 平台不猜纪律：绝不默认 candidates[0]
+                              //   （同分时按字母序排，情绪参考会顶掉音色参考 —— 静默错配）。
+                              //   ✅ 唯一分数不并列时，candidates[0] 就是明确的最高分，
+                              //   仍自动预选，省得手点。
+                              next[row.platform_key] =
+                                row.candidates.length > 1 &&
+                                  row.candidates[0].score === row.candidates[1].score
+                                  ? ''
+                                  : row.candidates[0].engine_param
+                            } else delete next[row.platform_key]
                             setPicked(next)
                           }} />
                         <code>{row.platform_key}</code>
@@ -783,10 +797,19 @@ function ReflectPanel ({ manifest, onChange, spec }) {
                           </span>
                         )}
                       </label>
-                      {picked[row.platform_key] ? (
+                      {/* ⭐ 勾了就展开下拉（哪怕还没选具体候选、值为空串），
+                          让用户能主动从并列里点定；⛔ 空串时 disabled 占位，
+                          绝不默认落到字母序在前的那个。未勾才只读提示。 */}
+                      {(row.platform_key in picked) ? (
                         <select className="control"
-                          value={picked[row.platform_key]}
+                          value={picked[row.platform_key] || ''}
                           onChange={(e) => setPicked({ ...picked, [row.platform_key]: e.target.value })}>
+                          {!picked[row.platform_key] && (
+                            <option value="" disabled>
+                              {t(`Pick one… (${row.candidates.length} tie)`,
+                                `选一个…（${row.candidates.length} 个并列）`)}
+                            </option>
+                          )}
                           {row.candidates.map((c) => (
                             <option key={c.engine_param} value={c.engine_param}>
                               {c.engine_param} ({c.phase}, {c.score})

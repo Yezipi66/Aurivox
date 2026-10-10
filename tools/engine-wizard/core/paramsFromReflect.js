@@ -194,6 +194,153 @@ function isPlatformCanonical (name) {
 }
 
 // ---------------------------------------------------------------------------
+//  交叉校验：名片 call.module 与上游 CLI 实际 import 的模块是否一致
+// ---------------------------------------------------------------------------
+// ⭐⭐ 为什么要有它（2026-10-10 实测踩过的一台 TTS 引擎）：
+//   名片 call.module 写 `A`，而上游 CLI 的 import 是
+//   `from B import 同一个类`（某 cli_v2.py 的延迟 import 里，[实测] 已核）。
+//   Wizard 照 call.module 反射 ⇒ 反射出 A **独有**的那几个参数，
+//   其中一个还是**必填**（A 的签名里无默认值）⇒ 被顶进「必须你填」，
+//   而真实 CLI 根本没有它。
+//   全程零提醒：反射器只在盘上读签名，看不到 CLI 那一侧的事实。
+//
+// ⛔⛔ 这是**提醒**，不是拦截，更不是自动改：
+//   · 平台不猜哪个 module 对（上游一份仓库里同时存在多个推理版本，
+//     webui.py 按 --v25 开关二选一 import；哪个是「对的」取决于人的意图）
+//   · 只如实把「CLI 里 import 的模块」与「名片写的模块」摆在一起，附上
+//     文件:行号，人自己判断要不要改名片
+//
+// ⭐ 三个判据，全部只读盘、⛔ 不跑 import、不跑引擎代码：
+//   ① 找不到 CLI 文件          → 一条说明性提示（不是警告）
+//   ② CLI 里没有 import 过这个类 → 找不到任何交叉证据，不说话
+//   ③ CLI 里 import 了这个类，
+//      但模块名与名片写的不一致 → ⚠️ 警告，带 文件:行号 证据
+//
+// ⛔ 纪律：本函数里不许出现任何具体引擎名（测守卫着）。
+// ---------------------------------------------------------------------------
+
+// ⚠ 只取「引擎自己的 CLI 文件名」当入口。findCliFiles 会**递归兜底**找出
+//   整个引擎目录里所有含 add_argument 的脚本（TensorRT 构建脚本、webui、
+//   demo…），而那些脚本几乎都 import 同一个类 —— 把它们的 import 全算进来，
+//   判据 ③ 就永远不成立（任何版本都会被某个脚本 import 过）。
+//   ⚠ 取的是 cliHelp.js 的 CLI_CANDIDATES，⛔ 不在这里复制一份名单。
+// ⚠ 匹配的是**文件名**（path.basename）而不是整条相对路径 ——
+//   `<pkg>/cli_v2.py` 的 basename 是 `cli_v2.py`，在名单里。
+//     ⚠ 也因此 `backends/trt/infer.py`（basename `infer.py`，在名单里）
+//       会算作入口 —— 那是它**自己**的名字撞上了通用 CLI 名，
+//       ⛔ 不是平台的判定，如实算进来。
+const CLI_ENTRY_NAMES = Object.freeze(new Set(
+  require(path.join(__dirname, 'cliHelp.js')).CLI_CANDIDATES))
+
+// ⚠ 正则只认**行首**的 import（可有任意缩进，覆盖函数体内的延迟 import ——
+//   cli_v2.py 里某函数体的 `from ... import ...` 就是缩进的延迟 import）。
+//   ⛔ 不解析 AST：判据是「这个文件里有没有出现过这个 import」，不是
+//      「这个 import 是否真会执行到」。缩进的延迟 import 正是最常见的形态，
+//      按行首（可缩进）匹配才不会漏。
+const IMPORT_FROM_RE = /^\s*from\s+([A-Za-z_][\w.]*)\s+import\s+(.+?)(?:#.*)?$/
+const IMPORT_PLAIN_RE = /^\s*import\s+([A-Za-z_][\w.]*)\s*$/
+
+/** 从一行 import 里把被导入的名字逐个拆出来（去括号、去 `as` 别名） */
+function importedNames (clause) {
+  return clause.replace(/[()\\]/g, ' ').split(',')
+    .map((s) => s.trim().split(/\s+as\s+/)[0].trim())
+    .filter(Boolean)
+}
+
+/**
+ * 从引擎目录里的 CLI 文件里，找出「import 了某个类」的语句。
+ *
+ * @param {string} dir 引擎源码目录
+ * @param {string} cls 要找的类名
+ * @returns {Array<{file: string, line: number, module: string}>}
+ *   file  相对 dir 的路径（用 / 分隔，跨平台显示一致）
+ *   line  1 起的行号
+ *   module 该 import 语句写的模块名
+ *   ⚠ 空数组 = 没有交叉证据（判据 ②），⛔ 不是「对不上」
+ */
+function findClassImports (dir, cls) {
+  const out = []
+  if (!dir || !cls) return out
+  let files = []
+  try {
+    files = require(path.join(__dirname, 'cliHelp.js')).findCliFiles(dir)
+  } catch { return out }
+  for (const rel of files) {
+    // ⭐ 只认「CLI 入口文件名」。递归兜底找出来的每个脚本都 import 同一个类，
+    //   算进来会让判据 ③ 永远不成立（任何模块版本都会被某个脚本 import 过）。
+    if (!CLI_ENTRY_NAMES.has(path.basename(rel))) continue
+    let text
+    try { text = fs.readFileSync(path.join(dir, rel), 'utf8') } catch { continue }
+    const lines = text.split(/\r?\n/)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const from = line.match(IMPORT_FROM_RE)
+      if (from) {
+        if (importedNames(from[2]).includes(cls)) {
+          out.push({ file: rel.split(path.sep).join('/'), line: i + 1, module: from[1] })
+        }
+        continue
+      }
+      const plain = line.match(IMPORT_PLAIN_RE)
+      if (plain && plain[1].split('.').pop() === cls) {
+        out.push({ file: rel.split(path.sep).join('/'), line: i + 1, module: plain[1] })
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * 交叉校验：名片 call.module 与上游 CLI 实际 import 的模块是否一致。
+ *
+ * ⛔ 只读盘、不跑代码、不写盘。⛔ 不改任何输入。
+ * ⛔ 不自动改名片、不阻塞：返回的是**一句提醒**，人决定改不改。
+ *
+ * @param {object} opts
+ *   dir       引擎源码目录（= sys_path[0]，与 CLI 扫描同一个目录）
+ *   module    名片 call.module
+ *   cls       名片 call.class
+ * @returns {string|null} 要提醒的那句话；没有任何事要提醒时返回 null
+ */
+function checkModuleMatchesCli ({ dir, module, cls }) {
+  if (!dir || !module || !cls) return null
+  if (!fs.existsSync(dir)) return null
+
+  let files = []
+  try {
+    files = require(path.join(__dirname, 'cliHelp.js')).findCliFiles(dir)
+  } catch { return null }
+  const entries = files.filter((f) => CLI_ENTRY_NAMES.has(path.basename(f)))
+  if (!entries.length) {
+    // 判据 ①：这台引擎没有 CLI 入口文件。⛔ 不是警告 ——
+    //   「没有 CLI」是一个事实，不是「名片可能写错了」。静默返回，
+    //   ⛔ 不往里加噪音。
+    return null
+  }
+
+  const hits = findClassImports(dir, cls)
+  if (!hits.length) {
+    // 判据 ②：CLI 里没有 import 过这个类。⛔ 不猜 ——
+    //   有的引擎靠 Python API / webui / SDK 用，CLI 是给人敲的，
+    //   两者 import 不同的东西完全正常。没有证据就不说话。
+    return null
+  }
+
+  const same = hits.filter((h) => h.module === module)
+  if (same.length) return null // CLI 里确实 import 了名片写的那个模块 ⇒ 一致
+
+  // 判据 ③：CLI import 了这个类，但来自**另一个**模块。
+  const where = hits.map((h) => `${h.file}:${h.line}`).join('、')
+  const mods = [...new Set(hits.map((h) => h.module))].join('、')
+  return `交叉校验提醒：名片 call.module 写的是「${module}」，但上游 CLI `
+    + `（${where}）import ${cls} 用的是「${mods}」。\n`
+    + '  两者不是同一个模块 ⇒ 反射出的是**那个模块**的参数，可能与用户会敲的 '
+    + 'CLI 不是同一套（多出的参数在真实 CLI 上根本不存在，缺的参数则完全看不见）。\n'
+    + '  ⚠️ 平台不改你的名片：哪一个模块是这台引擎该用的，取决于你的意图'
+    + '（上游一份仓库里可以同时存在多个推理版本）。请自己核对后决定。'
+}
+
+// ---------------------------------------------------------------------------
 //  组装：反射结果 → 给界面的草稿包
 // ---------------------------------------------------------------------------
 /**
@@ -284,19 +431,106 @@ function buildDraftPackage (reflection, opts = {}) {
   // ② 映射候选 —— 在反射全集上做
   const mapCandidates = mapCandidatesFor(allParams, opts.existingMaps || {})
 
+  // ③ ⭐⭐ 卡点 3：call.bind 的槽位 —— 反射器看不见的**真实必填**
+  //
+  //   ⚠⚠ 为什么必须在这里补（2026-10-10 实测踩过的一台 TTS 引擎）：
+  //     reflect_params.py 的 BIND_SLOTS = ('self','text','ref_audio','output_path')
+  //     会把这几个名字**整条跳过**（`if name in BIND_SLOTS: continue`）——
+  //     而这是**对的**：它们是平台自己的槽位，归宿是 call.bind，
+  //     不是 parameters[]（混进去 = 同一个概念声明两次）。
+  //     但真实 infer() 的必填三件套是 spk_audio_prompt / text / output_path，
+  //     反射器**一条都不报**（text / output_path 在 BIND_SLOTS 里被跳过，
+  //     spk_audio_prompt 能出现只是因为它恰好同时在签名里、且不在名单里）。
+  //     ⇒ 这两个必填参数对 Wizard 完全隐形，界面上一格都没有，
+  //       ⛔ 且不报错（「漏掉」在这条链上永远没有信号）。
+  //
+  //   ⭐ 补法：读名片 manifest.call.bind，把它的**值**（引擎侧真实参数名）
+  //     并进参数清单，标 source='call.bind' + required=true。
+  //   ⛔ 为什么是「值」而不是「键」：bind 是 {平台槽位 → 引擎参数名}，
+  //     `{text: 'text', ref_audio: 'spk_audio_prompt'}` ——
+  //     引擎那边真实存在的参数名是 spk_audio_prompt（键 ref_audio 是平台的词）。
+  //   ⛔ 不在这里改反射器（reflect_params.py 不动）：那份是第 1 步的产物，
+  //     被 lib/engines/scaffold.node.test.js 守着形状；「界面要看得见 bind」
+  //     是第 2 步的需求 ⇒ 只在这里补，⛔ 不改任何已有条目。
+  //
+  //   ⚠⚠ 不去重删重 —— 但也不造重复条目（2026-10-10 实测踩过）：
+  //     · 反射**已经报过**这个参数（如 spk_audio_prompt，它不在 BIND_SLOTS）
+  //       ⇒ ⛔ **不新增第二条**，只在原条目上补 _bind_slot / _bind_slot_note
+  //         —— 实测第一版在这里无条件新增，结果 must 块里出现**两条
+  //         spk_audio_prompt**、界面渲染出两张同名卡片（React key 还重复），
+  //         「界面少一格」的修法自己造出了「界面多一格」。
+  //     · 反射**没报过**（text / output_path，它们就是 BIND_SLOTS 里的名字）
+  //       ⇒ 新增一条，source='call.bind' —— 这正是本判据要修的那个洞。
+  //   ⭐ 无论哪种，都保证「每个 bind 槽位指向的参数在清单里恰好出现一次」。
+  const bindParams = []
+  const bind = (opts.manifest && opts.manifest.call && opts.manifest.call.bind) || null
+  if (bind && typeof bind === 'object') {
+    for (const [slot, engineParam] of Object.entries(bind)) {
+      if (typeof engineParam !== 'string' || !engineParam.trim()) continue
+      const name = engineParam.trim()
+      // ⚠ 只看**草稿**（parameters）里有没有它，⛔ 不看 allParams。
+      //   实测踩过（第一版）：写成 `parameters.find(...) || allParams.find(...)`
+      //   ⇒ 一个被 excluded 的 bind 参数（output_path 会命中 path_like）
+      //     会在 allParams 里「命中」，标记打在**副本**上然后 continue ——
+      //   结果它既没进草稿、excluded 里那条也没被动过 ⇒ **凭空消失**。
+      //   ⭐ 判据：进了草稿 = 打标记；没进草稿（含被排除）= 新增一条，
+      //     带 _already_excluded 让人看见「它也曾在排除清单里」。
+      const hit = parameters.find((p) => p.name === name)
+      const wasExcluded = excluded.some((e) => e.name === name)
+      if (hit) {
+        // ⭐ 反射已经看得见它 ⇒ 只补标记，⛔ 不新增条目（见上面的实测）。
+        //   _bind_slot 让界面能标出「这个槽位归 call.bind 的 <slot>」。
+        //   required 一律补上：bind 槽位是宿主每次调用都要递进去的真实入参
+        //   （text 没有就没有 TTS，output_path 是 returns=file 的落点）——
+        //   ⛔ 这是名片**自己声明**的事实，不是平台的推断。
+        hit._bind_slot = slot
+        hit._bind_slot_note = `名片 call.bind.${slot} 指向这个参数`
+        if (hit.required !== true) hit.required = true
+        continue
+      }
+      bindParams.push({
+        name,
+        // ⚠ type 用占位符而不是猜：bind 只给名字，给不出类型。
+        //   ⛔ 不许按名字猜一个 type 塞进去 —— 那是平台替人定控件形状，
+        //     而猜错的表现是「一个真实必填参数被做成错的控件」。
+        //   ⚠ label/help 同样是 REPLACE_ME（与 scaffold-params.cjs 的草稿纪律一致）。
+        type: 'REPLACE_ME',
+        phase: 'call',
+        tier: 'common',
+        group: 'generate',
+        order: 0,
+        label: { en: name, zh: 'REPLACE_ME' },
+        help: { en: 'REPLACE_ME (from call.bind)', zh: 'REPLACE_ME' },
+        required: true,
+        source: 'call.bind',
+        _bind_slot: slot,
+        // ⚠ 这两枚标记说的是「平台在别处也见过这个名字」—— 如实标，
+        //   ⛔ 不是「这条重复了」。重复已在上面被拦掉，不会走到这里。
+        _already_reflected: wasExcluded,
+        _already_excluded: wasExcluded,
+        _why: `来自名片 call.bind 的 ${slot} 槽位（→ ${name}）。`
+          + '反射器不读 call.bind（BIND_SLOTS 里的名字在反射器里被整条跳过），'
+          + '而它既然是 bind 槽位指向的真实引擎参数，就是这台引擎的真实入参。',
+      })
+    }
+  }
+
+  const allParameters = [...parameters, ...bindParams]
+
   return {
     ok: true,
-    parameters,
+    parameters: allParameters,
     excluded,
     map_candidates: mapCandidates,
     warnings: draft.warnings || [],
     partial: draft.partial,
     partial_reason: draft.partialReason || null,
     counts: {
-      parameters: parameters.length,
+      parameters: allParameters.length,
       excluded: excluded.length,
       map_candidates: mapCandidates.length,
       reflected: allParams.length,
+      from_bind: bindParams.length,
     },
     caveat: '这是草稿：min / max / choices / 中英文标签反射拿不到，需要人逐条核对。',
   }
@@ -360,6 +594,11 @@ function mergeReflections (list) {
  * spec 与 SCAFFOLD.reflectParams 相同，额外可带 `methods: [...]`：
  * 给了就逐个方法反射再合并；不给就反射单个 `method`。
  *
+ * ⭐ `opts.manifest`：这张名片的原文。**卡点 3** 要用它的 call.bind
+ *   （反射器读不到 bind，而 bind 指向的是真实必填入参）。
+ *   ⚠ 不给就只产出反射看得见的那一半 —— 那是「少一格且不报错」，
+ *     ⛔ 所以端点必须把名片传进来（见 wizardbridge.js 的 handleParams）。
+ *
  * ⛔ 它**不写盘** —— 与 buildDraftPackage 同一条纪律。
  */
 function reflectAndBuild (spec, opts = {}) {
@@ -370,7 +609,27 @@ function reflectAndBuild (spec, opts = {}) {
     { ...spec, method: m }, { timeoutMs: opts.timeoutMs }))
   const merged = mergeReflections(results)
   if (!merged.ok) return merged
-  return buildDraftPackage(merged, opts)
+  const pkg = buildDraftPackage(merged, opts)
+  if (!pkg.ok) return pkg
+
+  // ⭐⭐ 卡点 2：交叉校验（call.module 与上游 CLI import 是否一致）。
+  //   ⚠ 放在这里而不是 buildDraftPackage 里：判据需要**引擎目录**（去读
+  //     CLI 源码），而那属于端点/上层的事，buildDraftPackage 只收反射结果。
+  //   ⚠ 目录取 spec.sys_path[0] —— 与 CLI 官方原话扫描**同一个**目录
+  //     （卡点 5 修好之后它就是引擎自己的目录），两份证据同源，不会打架。
+  //   ⛔ 只加一句提醒，⛔ 不改 parameters[]、不改 map_candidates、不拦截。
+  let cross = null
+  try {
+    cross = checkModuleMatchesCli({
+      dir: Array.isArray(spec.sys_path) && spec.sys_path.length ? spec.sys_path[0] : null,
+      module: spec.module,
+      cls: spec.class,
+    })
+  } catch { cross = null }   // ⛔ 读盘出错不许把整条反射拖下水 —— 只少一句提醒
+
+  if (cross) pkg.warnings = [...(pkg.warnings || []), cross]
+  pkg.counts = { ...pkg.counts, cross_warnings: cross ? 1 : 0 }
+  return pkg
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +725,16 @@ function buildSpec (body) {
         .map((p) => path.resolve(ROOT, p)),
       skip: Array.isArray(b.skip) ? b.skip : [],
     },
+    // ⭐⭐ 名片的原文（卡点 3 要用的就是它）。
+    //   ⚠ 为什么必须往外带：反射器只读签名，**读不到 call.bind**；而 bind
+    //     指向的是这台引擎的**真实入参**（text / output_path 这类必填）。
+    //     反射产物里看不见它们 ⇒ 界面上一个格子都没有，且不报错。
+    //   ⛔ 只是原样带出，⛔ 不在这里做任何判断、不改任何字段。
+    manifest,
+    // ⭐ 引擎源码目录（= sys_path[0]）。两个下游都从这一个值取：
+    //   卡点 5 的 CLI 官方原话扫描 + 卡点 2 的交叉校验 ⇒ 两份证据同源。
+    engineDir: ((rt.verify && rt.verify.sys_path) || [path.join('engines', b.id)])
+      .map((p) => path.resolve(ROOT, p))[0],
   }
 }
 
@@ -477,6 +746,9 @@ module.exports = {
   candidatesFor,
   mapCandidatesFor,
   isPlatformCanonical,
+  // ⭐ 卡点 2 的交叉校验。导出它是为了让测试能直接喂目录验判据，
+  //   ⛔ 不是为了让调用方绕过 reflectAndBuild 自己拼。
+  checkModuleMatchesCli,
   PLATFORM_KEYS,
   PLATFORM_CANONICAL_VARIANTS,
   EXCLUDE,
