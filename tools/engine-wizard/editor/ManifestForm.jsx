@@ -2,6 +2,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RuntimeSection, CallSection, ModelsSection } from './NestedSections'
 import { useInstalled } from './useInstalled'
+import RequiredEight from './RequiredEight'
 
 // ============================================================================
 //  MANIFEST FORM —— ⭐ 名片填表（不是 JSON 编辑器）
@@ -46,6 +47,11 @@ const GROUP_ORDER = [
   'basics', 'source', 'models', 'runtime', 'call',
   'capabilities', 'install', 'output',
 ]
+
+// ⭐ 彻底不渲染的键：id / label / contract_version。
+// 理由：autoFill 已经自动填好（id=目录名、label 默认=id、contract_version=2），
+// 摆在用户脸上纯属噪音。⇒ 从 byGroup 构建时直接过滤掉，任何层级都不出现。
+const HIDDEN_KEYS = ['id', 'label', 'contract_version']
 
 // ⛔ 这三段是**嵌套结构**，有专门的编辑器（NestedSections.jsx），
 //    不能「一个键一个 input」—— 那样只显示说明、填不了值。
@@ -254,13 +260,20 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 //   → 平台**自动填**一批进名片（bind 三槽位 + args，⛔ 不要求用户逐个勾）
 //   → 用户手动编辑补改 → 最下面 [保存]
 //
+// ⭐ 第 2 章渐进披露（RFC）：mode 流转 idle → scanned → editing
+//   · idle：两个入口（读取 / 新建）各自清晰
+//   · scan：选引擎 → 扫描；**扫描控件行定高**（子命令 select 扫描前占位、
+//    扫描后填值，只换内容不换高度，⛔ 禁止布局跳变）
+//   · read：读取磁盘原文后进编辑态（P0 成果，⛔ 不许改回空壳）
+//   · 扫描成功 → 回调 onScanDone() ⇒ 主组件展开核心绑定区并滚动定位
+//
 // ⭐ 这条路扫上游命令行 --flag，flag 即参数，官方 help 直接挂它上面
 //   ⇒ 不用读函数签名、不用猜 flag↔参数对应。
 //
 // ⛔ 纪律：只填表单不落盘（落盘是 SaveBar 的事）；help 原样递出不改写。
 //    布局借鉴项目现有 .workspace-left/.workspace-right（左操作 + 右实时 JSON）。
 // ---------------------------------------------------------------------------
-function CliGenPanel ({ manifest, onChange }) {
+function CliGenPanel ({ manifest, onChange, onScanDone }) {
   const { t } = useT()
   const { installed, loadOne } = useInstalled()
   const [allDirs, setAllDirs] = React.useState([])   // engines/ 下所有文件夹（含没名片）
@@ -325,6 +338,9 @@ function CliGenPanel ({ manifest, onChange }) {
       const pickedSub = subcmd || inferSubs[0] || (j.subcommands || [])[0] || ''
       setSubcmd(pickedSub)
       autoFill(j, pickedSub)
+      // ⭐ 扫描成功 → 回调主组件：展开核心绑定区 + 滚动定位（RFC 第 2 章）。
+      //   ⛔ 回调放在 autoFill 之后，让名片先填上再展开，绑定区一进来就有值。
+      if (onScanDone) onScanDone()
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
@@ -407,22 +423,29 @@ function CliGenPanel ({ manifest, onChange }) {
           </div>
         )}
 
-        {/* ② 扫描参数（自动填）—— 只走「新建」这条路 */}
+        {/* ② 扫描参数（自动填）—— 只走「新建」这条路。
+            ⭐ 定高纪律：这一行**固定 minHeight**（一次布局），子命令 select
+              扫描前是「— 扫描后选择 —」占位、扫描后填值，只换内容不换高度，
+              ⛔ 禁止布局跳变。引擎 id 输入框常驻（换引擎可改）。 */}
         {mode === 'scan' && (
           <>
-            <div className="form-grid" style={{ alignItems: 'center' }}>
+            <div className="form-grid" style={{ alignItems: 'center', minHeight: 76 }}>
               <div className="field">
                 <label className="field-label">{t('Engine id', '引擎 id')}</label>
                 <input className="control" value={engineId} onChange={(e) => setEngineId(e.target.value)} />
               </div>
-              {scan && (
-                <div className="field">
-                  <label className="field-label">{t('Subcommand', '子命令')}</label>
-                  <select className="control" value={subcmd} onChange={(e) => { setSubcmd(e.target.value); autoFill(scan, e.target.value) }}>
-                    {(scan.subcommands || []).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              )}
+              <div className="field">
+                <label className="field-label">{t('Subcommand', '子命令')}</label>
+                <select className="control" value={subcmd} disabled={!scan}
+                  onChange={(e) => { setSubcmd(e.target.value); autoFill(scan, e.target.value) }}>
+                  <option value="">
+                    {scan
+                      ? t('— pick a subcommand —', '— 选一个子命令 —')
+                      : t('(appears after scanning)', '（扫描后出现）')}
+                  </option>
+                  {(scan && scan.subcommands || []).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
               <button className="btn btn-sm btn-primary" type="button" disabled={busy || !engineId} onClick={doScan}>
                 {busy ? t('Scanning…', '扫描中…') : (scan ? t('Rescan', '重新扫描') : t('Scan parameters', '扫描参数'))}
               </button>
@@ -431,10 +454,11 @@ function CliGenPanel ({ manifest, onChange }) {
           </>
         )}
 
-        {/* ②′ 读取名片后：确认表单里是磁盘原文，需要的话也可以再扫一次 */}
+        {/* ②′ 读取名片后：确认表单里是磁盘原文，需要的话也可以再扫一次。
+            ⭐ 定高纪律：与 scan 行同高（一次布局），换引擎/扫描按钮位置不变。 */}
         {mode === 'read' && (
           <>
-            <div className="form-grid" style={{ alignItems: 'center' }}>
+            <div className="form-grid" style={{ alignItems: 'center', minHeight: 76 }}>
               <div className="field">
                 <label className="field-label">{t('Engine id', '引擎 id')}</label>
                 <input className="control" value={engineId} onChange={(e) => setEngineId(e.target.value)} />
@@ -514,6 +538,20 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   const { t } = useT()
   const { installed } = useInstalled()
 
+  // ⭐ 扫描状态：CliGenPanel 扫成功后回调 onScanDone(true) ⇒ 核心绑定区展开
+  //   + 滚动定位到绑定区。⛔ 这不是 CliGenPanel 的内部状态 —— 主组件要
+  //   据此开合 L1 的绑定区，所以上提到这里。
+  const [scanDone, setScanDone] = React.useState(false)
+  const bindRef = React.useRef(null)
+
+  // ⭐ 扫描成功 → 绑定区自动展开 + 滚动定位（RFC 第 2 章）。
+  //   用 useEffect 等 DOM 渲染完再滚，⛔ 不在回调里直接滚（那时还没挂载）。
+  React.useEffect(() => {
+    if (scanDone && bindRef.current) {
+      bindRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [scanDone])
+
   if (!spec) {
     return <p className="field-hint" style={{ margin: 0 }}>
       {t('Loading field spec…', '正在读字段规格…')}
@@ -544,6 +582,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   for (const s of spec.sections) {
     if (s.group === 'parameters') continue
     if (NESTED_GROUPS.includes(s.group)) continue
+    if (HIDDEN_KEYS.includes(s.key)) continue
     ;(byGroup[s.group] = byGroup[s.group] || []).push(s)
   }
 
@@ -552,21 +591,71 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     return L ? t(L.en, L.zh) : g
   }
 
-  const CORE_GROUPS = ['runtime', 'call']
-  const ADVANCED_GROUPS = ['basics', 'source', 'models', 'capabilities', 'install', 'output']
-  const coreSections = GROUP_ORDER.filter((g) => CORE_GROUPS.includes(g) && byGroup[g])
-  const advancedSections = GROUP_ORDER.filter((g) => ADVANCED_GROUPS.includes(g) && byGroup[g])
+  // ⭐ 三级分组（RFC 第 1 章）：
+  //   L1 核心（常驻展开）：扫描面板 + call.bind 核心绑定 + 真·必填 8 项
+  //   L2 常用可选（折叠，有值时提示）：runtime.args / cwd / capabilities.streaming 等
+  //   L3 审计高级（永远折叠）：upstream / install / models / weights / base_url_env 等
+  // 首屏只出 L1，不再 39 控件全糊脸。
+  const L2_GROUPS = ['runtime', 'call', 'capabilities']
+  const L3_GROUPS = ['source', 'models', 'install', 'output']
+
+  // ⭐ L2/L3 里**嵌套段**（runtime / call / models）用 NestedSections 的全量编辑器，
+  //   平铺键（upstream / max_chars_source / base_url_env / output_formats 等）用 Field。
+  //   ⇒ 一个组可能既有嵌套段又有平铺键，分开渲染。
+  const l2Nested = L2_GROUPS.filter((g) => NESTED_GROUPS.includes(g) && byGroup[g])
+  const l2Flat = L2_GROUPS.filter((g) => byGroup[g])
+  const l3Nested = L3_GROUPS.filter((g) => NESTED_GROUPS.includes(g) && byGroup[g])
+  const l3Flat = L3_GROUPS.filter((g) => byGroup[g])
+
+  // 「有值时提示」：L2/L3 折叠标题上挂徽标，一眼看出这折叠里已有内容
+  // ⭐ 键路径要取对：args/cwd 在 runtime 下、streaming 在 capabilities 下，
+  //   ⛔ 不是顶层键 —— 取顶层会永远取空，徽标永不出现。
+  const hasVal = (paths) => paths.some((path) => {
+    const v = path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), manifest)
+    return v !== undefined && v !== null && v !== ''
+  })
+
+  // ⭐ 核心绑定区（call.bind）在 L1 常驻展开（RFC 第 1 章：L1 核心常驻）。
+  //   扫描成功不改变其开合，只触发滚动定位（见上方 useEffect）。
+  //   ⛔ 不再用 bindOpen 变量控制 details —— 绑定区是 L1，不是折叠项。
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* ⭐⭐ ① 生成区 —— 页面主体，放最顶：新建/读取名片 → 扫描 → 参数表 → 自动填 */}
-      <CliGenPanel manifest={manifest} onChange={onChange} />
+      {/* ⭐⭐ L1 ① 扫描面板 —— 第一屏只做这个（选引擎 + 扫描 + 自动填） */}
+      <CliGenPanel manifest={manifest} onChange={onChange}
+        onScanDone={() => setScanDone(true)} />
 
-      {/* 反射生成（第二条生成路，读函数签名）*/}
+      {/* ⭐⭐ L1 ② 核心绑定区 —— 扫描成功才展开 */}
+      <div className="section" ref={bindRef}>
+        <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
+        <div className="section-body">
+          <p className="field-hint" style={{ marginTop: 0 }}>
+            {t('Which upstream argument each platform input word goes to. '
+              + 'The scan fills what it recognizes; check the three core bindings '
+              + '(text / reference audio / output) and correct anything off.',
+              '平台的每个输入词对应上游哪个参数。扫描认得出的已自动填好，'
+              + '请核对三个核心绑定（文字 / 参考音频 / 输出），错的改掉。')}
+          </p>
+          <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
+        </div>
+      </div>
 
-      {/* 核心字段：runtime + call（扫描没覆盖的在这里补）*/}
-          {coreSections.map((g) => (
+      {/* ⭐⭐ L1 ③ 真·必填 8 项（平台当场抛错的那 8 个） */}
+      <RequiredEight manifest={manifest} onChange={onChange} />
+
+      {/* ---- L2 常用可选（折叠，有值时提示）---- */}
+      <details className="expert-block" open={false}>
+        <summary className="expert-summary">
+          {t('Common options (optional)', '常用可选')}
+          {hasVal(['runtime.args', 'runtime.cwd', 'capabilities.streaming']) && (
+            <span className="badge badge-info" style={{ marginLeft: 6 }}>
+              {t('has values', '已有内容')}
+            </span>
+          )}
+        </summary>
+        <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {l2Flat.map((g) => (
             <div className="section" key={g}>
               <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
               <div className="section-body">
@@ -576,61 +665,66 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
               </div>
             </div>
           ))}
-
-          {/* models / runtime / call 三段（嵌套编辑器）*/}
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
-            <div className="section-body">
-              <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
-            </div>
-          </div>
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
-            <div className="section-body">
-              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
-            </div>
-          </div>
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
-            <div className="section-body">
-              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
-            </div>
-          </div>
-
-      {/* ③ 高级设置 + 参数区（折叠）*/}
-      {advancedSections.length > 0 && (
-        <details className="expert-block">
-          <summary className="expert-summary">{t('Advanced settings (optional)', '高级设置（可选）')}</summary>
-          <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {advancedSections.map((g) => (
-              <div className="section" key={g}>
-                <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
-                <div className="section-body">
-                  {byGroup[g].map((s) => (
-                    <Field key={s.key} sec={s} value={manifest[s.key]} onChange={(v) => set(s.key, v)} />
-                  ))}
-                </div>
+          {l2Nested.map((g) => (
+            <div className="section" key={g}>
+              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
+              <div className="section-body">
+                {g === 'runtime'
+                  ? <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
+                  : <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />}
               </div>
-            ))}
-          </div>
-        </details>
-      )}
-
-      <details className="expert-block">
-        <summary className="expert-summary">{t('parameters (interface parameters)', 'parameters（界面参数）')}</summary>
-        <div style={{ paddingTop: 8 }}>
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('⚠ These fields all live inside Advanced Settings (collapsed by default); none appear in the main area.',
-              '以上参数全部位于 Advanced Settings（默认折叠）内，主区域不会显示。')}
-          </p>
-          {(manifest.parameters || []).map((p, i) => (
-            <ParamRow key={i} entry={p || {}} index={i} spec={spec}
-              onChange={setParam} onDelete={delParam} />
+            </div>
           ))}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-            <button className="btn btn-sm" type="button" onClick={addParam}>
-              + {t('Add a parameter', '添加一个参数')}
-            </button>
+        </div>
+      </details>
+
+      {/* ---- L3 审计高级（永远折叠）---- */}
+      <details className="expert-block" open={false}>
+        <summary className="expert-summary">
+          {t('Audit / advanced (rarely needed)', '审计与高级（多数用不到）')}
+          {hasVal(['upstream', 'install', 'models', 'weights', 'base_url_env']) && (
+            <span className="badge badge-info" style={{ marginLeft: 6 }}>
+              {t('has values', '已有内容')}
+            </span>
+          )}
+        </summary>
+        <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {l3Flat.map((g) => (
+            <div className="section" key={g}>
+              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
+              <div className="section-body">
+                {byGroup[g].map((s) => (
+                  <Field key={s.key} sec={s} value={manifest[s.key]} onChange={(v) => set(s.key, v)} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {l3Nested.map((g) => (
+            <div className="section" key={g}>
+              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
+              <div className="section-body">
+                <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
+              </div>
+            </div>
+          ))}
+          {/* 界面参数区 —— 参数表（永远折叠） */}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('parameters')}</h2></div>
+            <div className="section-body">
+              <p className="field-hint" style={{ marginTop: 0 }}>
+                {t('⚠ These fields all live inside Advanced Settings (collapsed by default); none appear in the main area.',
+                  '以上参数全部位于 Advanced Settings（默认折叠）内，主区域不会显示。')}
+              </p>
+              {(manifest.parameters || []).map((p, i) => (
+                <ParamRow key={i} entry={p || {}} index={i} spec={spec}
+                  onChange={setParam} onDelete={delParam} />
+              ))}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                <button className="btn btn-sm" type="button" onClick={addParam}>
+                  + {t('Add a parameter', '添加一个参数')}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </details>
