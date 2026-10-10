@@ -34,6 +34,20 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
   const exists = !!installed.find((e) => e.id === id)
   const willCreate = !!id && !exists
 
+  // ⭐ 第 6 章 SaveBar 5 态可视（P3 补，基于 manifest 可推导的信息）：
+  //   ① 待扫描 —— call 段还没绑定/参数（bind 空且 args 空）
+  //   ② 已自动填 N 项 —— call.bind 有槽位或 call.args 有条目（扫描自动填的标志）
+  //   ③ 可保存 —— 有 id 且无硬错
+  //   ④ 硬错阻断 —— hasErrors（见下方红条）
+  //   ⑤ 扫描中 —— 需 CliGenPanel 的 busy 状态（跨组件），⛔ 不在此推断，标遗留。
+  // ⛔ 只从 manifest 现有字段推导，⛔ 不做跨组件状态提升（避免动 ManifestForm/
+  //    ManifestPage 三处结构、引入回归）。bind 三槽位 + args 条数 = 自动填了多少。
+  const call = (manifest && manifest.call) || {}
+  const bindSlots = Object.keys(call.bind || {}).filter((k) => call.bind[k])
+  const argCount = Object.keys(call.args || {}).length
+  const filledCount = bindSlots.length + argCount
+  const notScanned = !call.kind || (bindSlots.length === 0 && argCount === 0)
+
   const save = async (overwrite) => {
     setBusy(true); setResult(null)
     try {
@@ -63,6 +77,18 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         )}
         {exists && (
           <span className="badge badge-warn">{t('already exists', '已存在')}</span>
+        )}
+        {/* ⭐ 第 6 章 5 态徽标：待扫描 / 已自动填 N 项。
+            ⛔ 只用平台 .badge-*，不新增 class。 */}
+        {id && notScanned && (
+          <span className="badge badge-neutral">
+            {t('not scanned yet', '还没扫描')}
+          </span>
+        )}
+        {id && !notScanned && filledCount > 0 && (
+          <span className="badge badge-ok">
+            {t(`${filledCount} auto-filled`, `已自动填 ${filledCount} 项`)}
+          </span>
         )}
         <span style={{ flex: 1 }} />
 
