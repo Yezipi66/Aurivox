@@ -55,7 +55,21 @@ const HIDDEN_KEYS = ['id', 'label', 'contract_version']
 
 // ⛔ 这三段是**嵌套结构**，有专门的编辑器（NestedSections.jsx），
 //    不能「一个键一个 input」—— 那样只显示说明、填不了值。
+//   ⭐ 归属（2026-10-10 定）：call 的完整编辑器常驻 L1 核心绑定区；
+//     runtime 归 L2、models 归 L3。三个编辑器**无条件渲染**，不靠 spec 平铺字段判空。
 const NESTED_GROUPS = ['runtime', 'call', 'models']
+
+// ⛔ 段容器键本身 —— 这些键的值是**对象或数组**（不是标量），
+//    ⛔ 绝不能走平铺 Field（input 会把对象渲染成 [object Object]，改了就毁数据）。
+//    · runtime/call/models 有专门嵌套编辑器（NestedSections）
+//    · capabilities/weights/upstream/install 是嵌套对象/数组，各有归属区或专门处理
+//    · parameters/maps 归「界面参数区」（下方单独渲染，不进这里）
+//    ⇒ 这些键**跳过平铺渲染**，但它们**组内的平铺子字段**（runtime 组的
+//      max_chars/base_url_env、capabilities 组的开关等）照常渲染。
+const CONTAINER_KEYS = [
+  'runtime', 'call', 'models', 'weights', 'capabilities',
+  'upstream', 'install', 'parameters', 'maps',
+]
 
 // 顶层哪些键是「简单值」⇒ 直接给个输入框；哪些是对象/数组 ⇒ 展开写
 const SIMPLE_KEYS = {
@@ -592,11 +606,20 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     set('parameters', list.length ? list : undefined)
   }
 
+  // ⭐ byGroup 构建：嵌套段（runtime/call/models）**保留**在 byGroup 里。
+  //   ⛔⛔ 曾经这里有一行 `if (NESTED_GROUPS.includes(s.group)) continue`，
+  //     把 runtime/call/models 三段从 byGroup 剔掉了 —— 导致下面
+  //     RuntimeSection/ModelsSection 两个嵌套编辑器不渲染，
+  //     用户在这些区改不了任何嵌套字段（P1 漏网的阻塞 bug）。
+  //   ✅ 修法：嵌套组照样进 byGroup，嵌套编辑器**无条件**渲染（见 L2/L3 JSX）。
+  //   ⛔ 但「段容器键本身」（runtime/call/models/weights/capabilities…值非标量）
+  //     要从平铺渲染里剔除，否则 Field 会把对象渲染成 [object Object] ——
+  //     这原是那行 continue 顺带避开的问题，删掉 continue 后必须显式处理。
   const byGroup = {}
   for (const s of spec.sections) {
     if (s.group === 'parameters') continue
-    if (NESTED_GROUPS.includes(s.group)) continue
     if (HIDDEN_KEYS.includes(s.key)) continue
+    if (CONTAINER_KEYS.includes(s.key)) continue
     ;(byGroup[s.group] = byGroup[s.group] || []).push(s)
   }
 
@@ -606,19 +629,30 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   }
 
   // ⭐ 三级分组（RFC 第 1 章）：
-  //   L1 核心（常驻展开）：扫描面板 + call.bind 核心绑定 + 真·必填 8 项
-  //   L2 常用可选（折叠，有值时提示）：runtime.args / cwd / capabilities.streaming 等
-  //   L3 审计高级（永远折叠）：upstream / install / models / weights / base_url_env 等
+  //   L1 核心（常驻展开）：扫描面板 + call 全量编辑器 + 真·必填 8 项
+  //   L2 常用可选（折叠，有值时提示）：runtime 嵌套编辑器 + capabilities 平铺键
+  //   L3 审计高级（永远折叠）：models 嵌套编辑器 + source/install/output 平铺键
   // 首屏只出 L1，不再 39 控件全糊脸。
-  const L2_GROUPS = ['runtime', 'call', 'capabilities']
+  //
+  // ⭐ call 段归属说明（避免同一份 manifest.call 渲染两遍）：
+  //   call 的完整编辑器（CallSection）常驻在 L1 核心绑定区。
+  //   ⛔ L2 **不再**重复放 call —— 否则一个 call 两个编辑器，改一处另一处
+  //   不同步。所以 l2Nested 只留 runtime。
+  const L2_GROUPS = ['runtime', 'capabilities']
   const L3_GROUPS = ['source', 'models', 'install', 'output']
 
-  // ⭐ L2/L3 里**嵌套段**（runtime / call / models）用 NestedSections 的全量编辑器，
+  // ⭐ L2/L3 的**嵌套段**（runtime / models）用 NestedSections 的全量编辑器，
   //   平铺键（upstream / max_chars_source / base_url_env / output_formats 等）用 Field。
   //   ⇒ 一个组可能既有嵌套段又有平铺键，分开渲染。
-  const l2Nested = L2_GROUPS.filter((g) => NESTED_GROUPS.includes(g) && byGroup[g])
+  //
+  // ⛔⛔ 嵌套段**无条件**渲染，⛔ 不许依赖 byGroup[g] 判空！
+  //   曾经的 bug：byGroup 构建时 `if (NESTED_GROUPS.includes(s.group)) continue`
+  //   把 runtime/call/models 剔除，导致 `l2Nested/l3Nested`（依赖 byGroup[g]）
+  //   恒为空数组 ⇒ RuntimeSection/ModelsSection 全部不渲染，用户改不了嵌套字段。
+  //   现在嵌套段直接写死在 JSX 里（L2=RuntimeSection、L3=ModelsSection，
+  //   call 的 CallSection 在 L1 常驻），与 spec 有没有平铺字段无关。
+  //   平铺字段仍走 byGroup 判空（没有就不渲染该组的平铺键）。
   const l2Flat = L2_GROUPS.filter((g) => byGroup[g])
-  const l3Nested = L3_GROUPS.filter((g) => NESTED_GROUPS.includes(g) && byGroup[g])
   const l3Flat = L3_GROUPS.filter((g) => byGroup[g])
 
   // 「有值时提示」：L2/L3 折叠标题上挂徽标，一眼看出这折叠里已有内容
@@ -679,16 +713,16 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
               </div>
             </div>
           ))}
-          {l2Nested.map((g) => (
-            <div className="section" key={g}>
-              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
-              <div className="section-body">
-                {g === 'runtime'
-                  ? <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
-                  : <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />}
-              </div>
+          {/* ⭐⭐ L2 嵌套段：runtime（全量嵌套编辑器）。
+              ⛔ 曾经这里用 l2Nested.map + byGroup 判空，恒为空 ⇒ 不渲染（阻塞 bug）。
+              现在无条件渲染 RuntimeSection —— 嵌套字段（python/entry/args/
+              ready_endpoint/ready_timeout_ms/verify…）都要能改。 */}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
+            <div className="section-body">
+              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
             </div>
-          ))}
+          </div>
         </div>
       </details>
 
@@ -713,14 +747,16 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
               </div>
             </div>
           ))}
-          {l3Nested.map((g) => (
-            <div className="section" key={g}>
-              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
-              <div className="section-body">
-                <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
-              </div>
+          {/* ⭐⭐ L3 嵌套段：models（全量嵌套编辑器）。
+              ⛔ 曾经这里用 l3Nested.map + byGroup 判空，恒为空 ⇒ 不渲染（阻塞 bug）。
+              现在无条件渲染 ModelsSection —— 嵌套字段（required/hint/
+              source.url/source.command）都要能改。 */}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
+            <div className="section-body">
+              <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
             </div>
-          ))}
+          </div>
           {/* 界面参数区 —— 参数表（永远折叠） */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('parameters')}</h2></div>
