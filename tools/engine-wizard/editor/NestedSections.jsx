@@ -24,7 +24,18 @@ import { useT } from '../../../web/src/lib/i18n'
 
 // ---------------------------------------------------------------------------
 // 一行：键名 + 说明 + 控件
+// ⭐ 第 3 章警告三级（RFC）：按 danger 分色，不再一律拍成黄。
+//   BLOCK（平台会抛错、装不上）→ .msg-danger 红框
+//   SILENT（设了没效果、填错不报错）→ .msg-warn 黄框
+//   INFO（纯提示）→ .field-hint 灰字（不是框）
+//   ⛔ 只用平台现成类，不新增 class、不 inline style。
 // ---------------------------------------------------------------------------
+// warn 文案按 danger 档位套不同的平台类（第 3 章）
+const WARN_BOX = {
+  block: 'msg-danger',   // 红框：真会阻断加载
+  silent: 'msg-warn',    // 黄框：设了没效果
+  info: 'field-hint',    // 灰字：纯提示
+}
 function Row ({ label, hint, warn, children, danger }) {
   const { t } = useT()
   return (
@@ -36,9 +47,15 @@ function Row ({ label, hint, warn, children, danger }) {
             {t('no error if wrong', '填错不报错')}
           </span>
         )}
+        {danger === 'block' && (
+          <span className="badge badge-danger">
+            {t('blocks loading', '填错装不上')}
+          </span>
+        )}
       </div>
       {hint && <div className="field-hint">{hint}</div>}
-      {warn && <div className="plan-warn">⚠ {warn}</div>}
+      {/* ⭐ 按 danger 分色：block 红框 / silent 黄框 / info 灰字 */}
+      {warn && <div className={WARN_BOX[danger] || 'msg-warn'}>⚠ {warn}</div>}
       {children}
     </div>
   )
@@ -345,7 +362,8 @@ function BindField ({ value, onChange, t }) {
             onChange={(e) => set(slot, e.target.value.trim())} />
         </Row>
       ))}
-      <p className="plan-warn">
+      {/* ⭐ 映射错误不会报错 = 设了没效果 ⇒ SILENT 黄框（第 3 章）*/}
+      <p className="msg msg-warn">
         {t('These are the platform\'s fixed input words. Each one maps to whatever '
           + 'the engine calls that thing — a wrong mapping is not reported as an error.',
           '以上为平台固定的输入词，每个词对应上游各自的名称，映射错误不会报错。')}
@@ -437,7 +455,8 @@ export function RuntimeSection ({ value, onChange, t }) {
         hint={t('the engine\'s own environment directory (e.g. engines/<id>/.venv)',
           '这台引擎自己的环境目录（如 engines/<id>/.venv）')}
         warn={t('must be relative. An absolute path is rejected outright',
-          '必须为相对路径，绝对路径会被拒绝')}>
+          '必须为相对路径，绝对路径会被拒绝')}
+        danger="block">
         <input className="control" type="text" value={v.python || ''}
           placeholder="engines/xxx/.venv"
           onChange={(e) => set('python', e.target.value.trim())} />
@@ -468,9 +487,10 @@ export function RuntimeSection ({ value, onChange, t }) {
       </Row>
       <Row label="ready_timeout_ms_source"
         hint={t('required: where that number came from — measured or estimated',
-          '必填：需说明该数值的来源（实测或估算）')}>
+          '必填：需说明该数值的来源（实测或估算）')}
         warn={t('writing a number without saying where it came from is rejected',
           '写了数却不说明出处会被拒绝')}
+        danger="block">
         <select className="control" value={v.ready_timeout_ms_source || ''}
           onChange={(e) => set('ready_timeout_ms_source', e.target.value || undefined)}>
           <option value="">{t('(unset)', '（不写）')}</option>
@@ -559,9 +579,10 @@ export function CallSection ({ value, onChange, t }) {
       )}
       <Row label="returns"
         hint={t('file / bytes / generator — what the method gives back',
-          'file / bytes / generator，方法的返回形式')}>
+          'file / bytes / generator，方法的返回形式')}
         warn={t('a wrong value here fails at call time, not at load time',
           '此处填写错误将在调用时触发，而非加载时')}
+        danger="silent">
         <select className="control" value={v.returns || ''}
           onChange={(e) => set('returns', e.target.value || undefined)}>
           <option value="">{t('(unset)', '（不写）')}</option>
@@ -604,10 +625,11 @@ export function ModelsSection ({ value, onChange, t }) {
       <Row label="required"
         hint={t('the files that count as «the weights are there» — the platform '
           + 'can only answer yes/no against this list',
-          '用于判断 Checkpoint 是否完整的文件清单，平台据此回答有无')}>
+          '用于判断 Checkpoint 是否完整的文件清单，平台据此回答有无')}
         warn={t('without this the platform can only say the folder exists, '
           + 'not whether it is complete',
           '不写这个，平台只能说目录在不在，说不出齐不齐')}
+        danger="silent">
         <ArrayField value={v.required} onChange={(a) => set('required', a)} t={t} />
       </Row>
       <Row label="hint" hint={t('shown to the user when the weights are missing',
@@ -627,7 +649,8 @@ export function ModelsSection ({ value, onChange, t }) {
         <LinesField value={src.command} t={t}
           onChange={(a) => set('source', { ...src, command: a })} />
       </Row>
-      <p className="plan-warn">
+      {/* ⭐ 平台不代下载 = 纯行为说明 ⇒ INFO 灰字（第 3 章）*/}
+      <p className="field-hint" style={{ marginTop: 6 }}>
         {t('The platform does not download anything. It only prints this command '
           + 'with the path filled in. Downloading is the user\'s job.',
           '平台不执行下载，仅填入路径后显示该命令，下载需自行完成。')}

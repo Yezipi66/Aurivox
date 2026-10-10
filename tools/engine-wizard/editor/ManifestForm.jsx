@@ -80,8 +80,22 @@ function Field ({ sec, value, onChange }) {
             {t('no error if wrong', '填错不报错')}
           </span>
         )}
+        {sec.danger === 'block' && (
+          <span className="badge badge-danger">
+            {t('blocks loading', '填错装不上')}
+          </span>
+        )}
       </div>
       <div className="field-hint">{sec.howto}</div>
+      {/* ⭐ 第 3 章警告三级：按 sec.danger 分色。
+          block→msg-danger 红框 / silent→msg-warn 黄框 / info→field-hint 灰字。 */}
+      {sec.warn && (
+        <div className={
+          sec.danger === 'block' ? 'msg msg-danger'
+            : sec.danger === 'silent' ? 'msg msg-warn'
+              : 'field-hint'
+        }>⚠ {sec.warn}</div>
+      )}
       {kind === 'number'
         ? (
           <input className="control" type="number" value={value ?? ''}
@@ -95,7 +109,6 @@ function Field ({ sec, value, onChange }) {
               ? ''
               : e.target.value)} />
           )}
-      {sec.warn && <div className="plan-warn">⚠ {sec.warn}</div>}
       {sec.structure && (
         <div className="rc-cmd">
           <pre className="rc-cmd-body">{sec.structure}</pre>
@@ -232,7 +245,8 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
               <option value="audio">audio</option>
             </select></label>
         </div>
-        <p className="plan-warn">
+        {/* repeat 填错不报错 = 设了没效果 ⇒ SILENT 黄框（第 3 章）*/}
+        <p className="msg msg-warn">
           {t('repeat unset or 1 means a single value (scalar). Only 2 or more makes an array. '
             + 'Those are two different things to the engine, and neither is reported '
             + 'as an error.',
