@@ -385,7 +385,12 @@ function AppShell() {
             : <div style={{ padding: 24, color: 'var(--muted)' }}>
                 {engine === null
                   ? '正在读引擎列表…'
-                  : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
+                  : <>
+                      {`${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
+                      <div style={{ marginTop: 12 }}>
+                        <button className="btn btn-sm" onClick={() => setPage('assets')}>返回 Assets</button>
+                      </div>
+                    </>}
               </div>
           )}
           {page === 'engines' && (
