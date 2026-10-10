@@ -472,5 +472,25 @@ test('⛔⭐ 每个 JSX 都必须真能编译（⛔ 测试全绿 ≠ 前端能�
     }
   }
   assert.deepStrictEqual(bad, [],
-    `\n⛔ 有 ${bad.length} 个文件编译失败（页面会白屏）：\n  ${bad.join('\n  ')}`)
+    `\n有 ${bad.length} 个文件编译失败（页面会白屏）：\n  ${bad.join('\n  ')}`)
+})
+
+test('注释与字符串里不许出现 emoji 或符号语气', () => {
+  const WIZ = path.join(__dirname, '..', 'editor')
+  const CORE = path.join(__dirname, '..', 'core')
+  const bad = []
+  for (const dir of [WIZ, CORE]) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!['.jsx', '.js'].includes(path.extname(f))) continue
+      const src = fs.readFileSync(path.join(dir, f), 'utf8')
+      const lines = src.split('\n')
+      lines.forEach((line, i) => {
+        // 匹配 emoji 区段和常见符号语气字符
+        const m = line.match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u)
+        if (m) bad.push(`${dir === WIZ ? 'editor' : 'core'}/${f}:${i + 1}  ${m[0]}  ${line.trim().slice(0, 60)}`)
+      })
+    }
+  }
+  assert.deepStrictEqual(bad, [],
+    `\n有 ${bad.length} 处 emoji 或符号语气字符，契约 5cdf33d 全禁：\n  ${bad.join('\n  ')}`)
 })

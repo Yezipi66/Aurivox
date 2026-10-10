@@ -4,31 +4,31 @@ import { useT } from '../../../web/src/lib/i18n'
 // ============================================================================
 //  NESTED SECTION —— 嵌套段的填表（runtime / call / models）
 //
-//  ⭐ 为什么单独一个文件
+//    为什么单独一个文件
 //  这三段不是「几个键」，而是**嵌套结构**：
 //    runtime.verify.sys_path[] / imports[].class …
 //    call.init_args{} / bind{三槽位} / methods{每个方法一套} / args[]
 //    models.required[] / source.command[]
-//  ⇒ 一个键一个 input 画不出来。
+//   一个键一个 input 画不出来。
 //
-//  ⛔⛔ 但**不照抄任何一张真名片** —— 真名片形状各不相同，
-//  照抄 = 第二份事实，必然漂移。⇒ 这里按**形状分类**，每种形状一个编辑器。
+//      但**不照抄任何一张真名片** —— 真名片形状各不相同，
+//  照抄 = 第二份事实，必然漂移。 这里按**形状分类**，每种形状一个编辑器。
 //
-//  ⭐ 排版全部用项目类：.field / .field-label / .field-hint / .control /
+//    排版全部用项目类：.field / .field-label / .field-hint / .control /
 //    .plan-warn / .badge / .table / .expert-block / .expert-summary
-//    ⛔⛔ 之前自造的 .nx-row/.nx-label/.nx-ctl/.nx-obj/.nx-obj-row/.nx-lineno
-//      全项目 CSS 里一个定义都没有 ⇒ 那一大块是纯裸奔。
+//        之前自造的 .nx-row/.nx-label/.nx-ctl/.nx-obj/.nx-obj-row/.nx-lineno
+//      全项目 CSS 里一个定义都没有  那一大块是纯裸奔。
 //
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
+//      纪律：不许出现任何具体引擎名。
 // ============================================================================
 
 // ---------------------------------------------------------------------------
 // 一行：键名 + 说明 + 控件
-// ⭐ 第 3 章警告三级（RFC）：按 danger 分色，不再一律拍成黄。
+//   第 3 章警告三级（RFC）：按 danger 分色，不再一律拍成黄。
 //   BLOCK（平台会抛错、装不上）→ .msg-danger 红框
 //   SILENT（设了没效果、填错不报错）→ .msg-warn 黄框
 //   INFO（纯提示）→ .field-hint 灰字（不是框）
-//   ⛔ 只用平台现成类，不新增 class、不 inline style。
+//     只用平台现成类，不新增 class、不 inline style。
 // ---------------------------------------------------------------------------
 // warn 文案按 danger 档位套不同的平台类（第 3 章）
 const WARN_BOX = {
@@ -54,8 +54,8 @@ function Row ({ label, hint, warn, children, danger }) {
         )}
       </div>
       {hint && <div className="field-hint">{hint}</div>}
-      {/* ⭐ 按 danger 分色：block 红框 / silent 黄框 / info 灰字 */}
-      {warn && <div className={WARN_BOX[danger] || 'msg-warn'}>⚠ {warn}</div>}
+      {/*   按 danger 分色：block 红框 / silent 黄框 / info 灰字 */}
+      {warn && <div className={WARN_BOX[danger] || 'msg-warn'}> {warn}</div>}
       {children}
     </div>
   )
@@ -74,8 +74,8 @@ function ArrayField ({ value, onChange, placeholder, t }) {
   )
 }
 
-// ⭐ ArgsField —— call.args 编辑器（cli 形态）：一张 {name:{flag,style}} 的表格。
-//   ⛔ 不能套 ArrayField（那是字符串数组）也不能套 ObjectField（value 是对象不是标量）。
+//   ArgsField —— call.args 编辑器（cli 形态）：一张 {name:{flag,style}} 的表格。
+//     不能套 ArrayField（那是字符串数组）也不能套 ObjectField（value 是对象不是标量）。
 //   每行：name（键）/ flag（--flag）/ style（value|boolean）/ 删除。可新增行。
 function ArgsField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
@@ -94,7 +94,7 @@ function ArgsField ({ value, onChange, t }) {
   }
   return (
     <div>
-      {/* ⭐ 用项目的 .table（与 ObjectField/LinesField 一致），⛔ 不再裸 table + inline style */}
+      {/*   用项目的 .table（与 ObjectField/LinesField 一致），  不再裸 table + inline style */}
       <table className="table">
         <thead>
           <tr>
@@ -146,7 +146,7 @@ function ArgsField ({ value, onChange, t }) {
   )
 }
 
-/** key → value 的浅对象（init_args 这类）—— ⭐ 用项目的 .table 画「键 值 ×」三列 */
+/** key → value 的浅对象（init_args 这类）——   用项目的 .table 画「键 值 ×」三列 */
 function ObjectField ({ value, onChange, t }) {
   const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
   const rows = Object.entries(obj)
@@ -346,7 +346,7 @@ function BindField ({ value, onChange, t }) {
     else next[k] = val
     onChange(Object.keys(next).length ? next : undefined)
   }
-  // 平台词表是固定的那几个 —— ⛔ 那属于平台，不属于名片，这里只提示不强制
+  // 平台词表是固定的那几个 ——   那属于平台，不属于名片，这里只提示不强制
   const SLOTS = ['text', 'ref_audio', 'ref_text', 'ref_lang', 'text_lang', 'out']
   return (
     <>
@@ -363,7 +363,7 @@ function BindField ({ value, onChange, t }) {
             onChange={(e) => set(slot, e.target.value.trim())} />
         </Row>
       ))}
-      {/* ⭐ 映射错误不会报错 = 设了没效果 ⇒ SILENT 黄框（第 3 章）*/}
+      {/*   映射错误不会报错 = 设了没效果  SILENT 黄框（第 3 章）*/}
       <p className="msg msg-warn">
         {t('Confirm which upstream argument each of the 3 core inputs goes to: '
           + 'the text to synthesize / the reference audio / the output. '
@@ -428,9 +428,9 @@ function MethodsField ({ value, onChange, t }) {
           value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn btn-sm" type="button"
           onClick={() => {
-            // ⭐ 第一个方法默认叫 zero_shot（零样本，最常用的合成方式）。
-            //   ⛔ 纯 UX 默认：换了方法反射会当场重算参数，不影响任何判断。
-            //   ⚠ 只兜第一个（names 还空着）—— 之后让用户自己命名。
+            //   第一个方法默认叫 zero_shot（零样本，最常用的合成方式）。
+            //     纯 UX 默认：换了方法反射会当场重算参数，不影响任何判断。
+            //    只兜第一个（names 还空着）—— 之后让用户自己命名。
             const k = (name.trim() || (names.length === 0 ? 'zero_shot' : '')).trim()
             if (!k || v[k]) return
             onChange({ ...v, [k]: {} }); setName('')
@@ -653,7 +653,7 @@ export function ModelsSection ({ value, onChange, t }) {
         <LinesField value={src.command} t={t}
           onChange={(a) => set('source', { ...src, command: a })} />
       </Row>
-      {/* ⭐ 平台不代下载 = 纯行为说明 ⇒ INFO 灰字（第 3 章）*/}
+      {/*   平台不代下载 = 纯行为说明  INFO 灰字（第 3 章）*/}
       <p className="field-hint" style={{ marginTop: 6 }}>
         {t('The platform does not download anything. It only prints this command '
           + 'with the path filled in. Downloading is the user\'s job.',
