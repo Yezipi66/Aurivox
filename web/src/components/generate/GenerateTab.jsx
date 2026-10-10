@@ -314,6 +314,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [modelChoice, setModelChoice] = usePersistentState('generate.modelChoice.byEngine', {})
   const modelChoiceRef = useRef(modelChoice)
   modelChoiceRef.current = modelChoice
+  const generateAbortRef = useRef(null)
 
   // 平台已经扫到的所有模型文件，**不分位、不分引擎**，给 type: 'path' 的格子当候选。
   //
@@ -533,8 +534,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     const willSplit = !!body.split && t.length > (body.max_chars || 30)
     const estChunks = Math.max(1, Math.ceil(t.length / Math.max(1, body.max_chars || 30)))
     onActivity?.({ label: willSplit ? `Generating · ${estChunks} chunks` : 'Generating' })
+    const ctrl = new AbortController()
+    generateAbortRef.current = ctrl
     try {
-      const r = await api('/api/generate', { method: 'POST', body })
+      const r = await api('/api/generate', { method: 'POST', body, signal: ctrl.signal })
       if (!r.ok && r.data?.code === 'ENGINE_MEMORY_CONFIRM_REQUIRED' && !body.memory_risk_confirmed) {
         setMemoryRisk({ body, meta, message: r.data.message, details: r.data.details || {} })
         return null
@@ -546,6 +549,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     } catch (err) { setError(err.message); return null }
     finally { setLoading(false); onActivity?.(null) }
   }
+
+  const handleCancelGenerate = useCallback(() => {
+    if (generateAbortRef.current) {
+      generateAbortRef.current.abort()
+      generateAbortRef.current = null
+    }
+    setLoading(false)
+    onActivity?.(null)
+  }, [onActivity])
 
   const cancelMemoryRisk = () => setMemoryRisk(null)
   const continueMemoryRisk = () => {
@@ -1165,6 +1177,11 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
                 {loading ? 'Generating...' : 'Generate'}
               </button>
+              {loading && (
+                <button className="btn btn-sm" onClick={handleCancelGenerate}>
+                  {t('Cancel', '取消')}
+                </button>
+              )}
               <button className="btn btn-ghost" disabled={!selectedVoice || !currentRefAudio}
                 title={!currentRefAudio ? 'Pick a reference audio first' : 'Save this reference + parameters as a reusable recipe'}
                 onClick={() => setShowSaveRecipe(true)}>

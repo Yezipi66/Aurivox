@@ -30,6 +30,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   // Patch #12: S2 acoustic refinement modal target (derive a new voice).
   const [refineTarget, setRefineTarget] = useState(null) // { id, displayName, baseVersion }
   const rebuildPollRef = useRef(null)
+  const scanAbortRef = useRef(null)
   // Live lightweight-pipeline progress for an in-flight Rebuild/Restore, so the
   // user can see which step (preprocess → S1/S2 → finalize → publish) is running
   // and read a clear error if one fails — instead of just listening to the fan.
@@ -225,8 +226,13 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
 
   const handleScan = async () => {
     setScanning(true); setScanMsg(null)
+    const ctrl = new AbortController()
+    scanAbortRef.current = ctrl
     try {
-      const r = await api('/api/assets/scan', { method: 'POST' })
+      const r = await fetch('/api/assets/scan', { method: 'POST', signal: ctrl.signal }).then(async r => {
+        const data = await r.json().catch(() => null)
+        return { ok: r.ok, status: r.status, data }
+      })
       if (r.ok) {
         setAssets(r.data.assets || {})
         setScanMsg({ type: 'success', text: `Scan complete - ${r.data.scanned || 0} voice(s) found` })
@@ -235,10 +241,22 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         setScanMsg({ type: 'error', text: r.data?.error || 'Scan failed' })
       }
     } catch (e) {
-      setScanMsg({ type: 'error', text: e.message })
+      if (e.name === 'AbortError') {
+        setScanMsg({ type: 'info', text: 'Scan cancelled' })
+      } else {
+        setScanMsg({ type: 'error', text: e.message })
+      }
     } finally {
+      scanAbortRef.current = null
       setScanning(false)
       setTimeout(() => setScanMsg(null), 4000)
+    }
+  }
+
+  const handleCancelScan = () => {
+    if (scanAbortRef.current) {
+      scanAbortRef.current.abort()
+      scanAbortRef.current = null
     }
   }
 
@@ -644,9 +662,15 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             </div>
           )}
           <button className="btn btn-sm" onClick={loadAssets} disabled={scanning}>Refresh</button>
-          <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>
-            {scanning ? 'Scanning...' : 'Scan All'}
-          </button>
+          {scanning ? (
+            <button className="btn btn-sm btn-danger" onClick={handleCancelScan}>
+              Cancel Scan
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-primary" onClick={handleScan}>
+              Scan All
+            </button>
+          )}
         </div>
       </div>
       <div className="section-body">
@@ -714,7 +738,13 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             <div className="es-title">No voice assets yet</div>
             <div className="es-sub">Scan your assets directory to detect voices, or fine-tune a new voice to get started.</div>
             <div className="empty-actions">
-              <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan Dataset'}</button>
+              {scanning ? (
+                <button className="btn btn-sm btn-danger" onClick={handleCancelScan}>
+                  Cancel Scan
+                </button>
+              ) : (
+                <button className="btn btn-sm btn-primary" onClick={handleScan}>Scan Dataset</button>
+              )}
               <button className="btn btn-sm" onClick={() => setPage('train')}>Start Tuning</button>
             </div>
           </div>

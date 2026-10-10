@@ -20,6 +20,7 @@
 import { useState } from 'react'
 import { startEngine, stopEngine, processBadge, occupancyBadge, engineUsageBadge } from '../../lib/engines'
 import { engineControls, actionOutcome } from '../../lib/engineActions.pure.js'
+import { ConfirmDialog } from '../common/Dialogs.jsx'
 
 const TONE_CLASS = {
   ok: 'badge-ok',
@@ -41,6 +42,9 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
   // { [id]: { kind, message, ... } } —— 上一次操作的结果，就地显示在那一行。
   // ⛔ 不做成全局一条 —— 五台引擎共用一条提示，看不出说的是哪一台。
   const [outcome, setOutcome] = useState({})
+
+  // 停止确认对话框状态：记录待确认停止的引擎 id（null 表示未在确认流程）。
+  const [confirmStopId, setConfirmStopId] = useState(null)
 
   // ⭐ 两个翻函数都是纯的（web/src/lib/engines.js），这里只调一次。
   const occBadge = occupancyBadge(occupancy)
@@ -157,7 +161,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                 className="btn"
                 disabled={!ctl.stop.enabled || !!busy}
                 title={ctl.stop.title}
-                onClick={() => run(engine.id, 'stop', () => stopEngine(engine.id))}
+                onClick={() => setConfirmStopId(engine.id)}
               >
                 {busy === 'stop' ? '关闭中…' : ctl.stop.label}
               </button>
@@ -210,6 +214,21 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
         )
       })}
       </div>
+      <ConfirmDialog
+        open={confirmStopId !== null}
+        title="停止引擎"
+        message="停止引擎会中断所有正在进行的推理请求，确认继续吗？"
+        confirmLabel="停止"
+        cancelLabel="取消"
+        danger={true}
+        busy={pending[confirmStopId] === 'stop'}
+        onConfirm={() => {
+          const id = confirmStopId
+          setConfirmStopId(null)
+          run(id, 'stop', () => stopEngine(id))
+        }}
+        onCancel={() => setConfirmStopId(null)}
+      />
     </div>
   )
 }

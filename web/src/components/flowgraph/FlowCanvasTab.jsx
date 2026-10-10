@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../../lib/api'
+import { ConfirmDialog } from '../common/Dialogs'
 import { useT } from '../../lib/i18n'
 import { usePersistentState } from '../../usePersistentState'
 import {
@@ -107,6 +108,8 @@ export function FlowCanvasTab() {
   const [failedNode, setFailedNode] = useState(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const runAbortRef = useRef(null)
   const [search, setSearch] = useState('')
   // The voices saved on this machine. Loaded once so the voice setting can be a
   // list to pick from instead of an id to remember and type correctly.
@@ -268,17 +271,23 @@ export function FlowCanvasTab() {
     return false
   }, [dragWire, endGesture, say, selected, setGraph])
 
+  const doDelete = useCallback(() => {
+    if (!selected) return
+    const gone = selected
+    setGraph(g => removeNode(g, gone))
+    setSelected(null)
+    endGesture()
+    setConfirmDelete(false)
+    say(`Node ${gone} and all of its connections have been deleted.`, `已删除节点 ${gone} 及其全部连线。`)
+  }, [endGesture, say, selected, setGraph])
+
   const deleteSelected = useCallback(() => {
     if (!selected) {
       say('Select a node first, then press Delete.', '请先选中节点，再按 Delete。', true)
       return
     }
-    const gone = selected
-    setGraph(g => removeNode(g, gone))
-    setSelected(null)
-    endGesture()
-    say(`Node ${gone} and all of its connections have been deleted.`, `已删除节点 ${gone} 及其全部连线。`)
-  }, [endGesture, say, selected, setGraph])
+    setConfirmDelete(true)
+  }, [say, selected])
 
   const onCanvasMove = useCallback(event => {
     // Panning is read straight off the scroll box, so it composes with the
@@ -456,13 +465,32 @@ export function FlowCanvasTab() {
     setBusy(true)
     setRun(null)
     setFailedNode(null)
-    const r = await api('/api/flowgraph/runs', { method: 'POST', body: { graph } })
-    setBusy(false)
-    if (r.ok) { setRun(r.data); setNote(null) }
-    else {
-      setFailedNode(r.data?.error?.node_id || null)
-      const text = describeFailure(r.data?.error)
-      setNote({ bad: true, en: text.en, zh: text.zh })
+    const controller = new AbortController()
+    runAbortRef.current = controller
+    try {
+      const r = await fetch('/api/flowgraph/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ graph }),
+        signal: controller.signal,
+      })
+      const data = await r.json()
+      setBusy(false)
+      runAbortRef.current = null
+      if (r.ok) { setRun(data); setNote(null) }
+      else {
+        setFailedNode(data?.error?.node_id || null)
+        const text = describeFailure(data?.error)
+        setNote({ bad: true, en: text.en, zh: text.zh })
+      }
+    } catch (e) {
+      setBusy(false)
+      runAbortRef.current = null
+      if (e.name === 'AbortError') {
+        say('The run was cancelled.', '运行已取消。')
+        return
+      }
+      setNote({ bad: true, en: e.message || 'Network error.', zh: e.message || '网络错误。' })
     }
   }
 
@@ -496,7 +524,9 @@ export function FlowCanvasTab() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, height: 'calc(100vh - 92px)' }}>
       <Toolbar
         graph={graph} setGraph={setGraph} saved={saved} onOpen={open}
-        onSave={save} onCheck={check} onStart={start} busy={busy}
+        onSave={save} onCheck={check} onStart={start} onCancel={() => {
+          runAbortRef.current?.abort()
+        }} busy={busy}
         problems={problems} status={status} t={t}
         docks={docks} setDocks={setDocks}
       />
@@ -657,6 +687,20 @@ export function FlowCanvasTab() {
           )
           : <Rail side="right" label={t('Properties', '属性')} onOpen={() => setDocks(d => ({ ...d, rightOpen: true }))} />}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={t('Delete node', '删除节点')}
+        message={t(
+          `Deleting node ${selected} will also remove all of its connections. This cannot be undone.`,
+          `删除节点 ${selected} 将同时删除其全部连线，且无法撤销。`,
+        )}
+        confirmLabel={t('Delete', '删除')}
+        cancelLabel={t('Cancel', '取消')}
+        danger
+        onConfirm={doDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   )
 }
@@ -825,7 +869,7 @@ function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
 }
 
 function Toolbar({
-  graph, setGraph, saved, onOpen, onSave, onCheck, onStart, busy, problems, status, t,
+  graph, setGraph, saved, onOpen, onSave, onCheck, onStart, onCancel, busy, problems, status, t,
   docks, setDocks,
 }) {
   return (
@@ -874,10 +918,19 @@ function Toolbar({
         </div>
       )}
       <button onClick={onCheck} style={buttonStyle}>{t('Validate', '校验')}</button>
-      <button onClick={onStart} disabled={busy}
-        style={{ ...buttonStyle, background: ACCENT, color: '#fff', borderColor: 'transparent', fontWeight: 600 }}>
-        {busy ? t('Running…', '运行中…') : t('Run', '运行')}
-      </button>
+      {busy
+        ? (
+          <button onClick={onCancel}
+            style={{ ...buttonStyle, background: 'var(--danger, #cf6679)', color: '#fff', borderColor: 'transparent', fontWeight: 600 }}>
+            {t('Cancel', '取消')}
+          </button>
+        )
+        : (
+          <button onClick={onStart} disabled={false}
+            style={{ ...buttonStyle, background: ACCENT, color: '#fff', borderColor: 'transparent', fontWeight: 600 }}>
+            {t('Run', '运行')}
+          </button>
+        )}
     </div>
   )
 }
