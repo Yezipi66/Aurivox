@@ -1026,7 +1026,7 @@ function AsrReviewPanel({ taskId, onResumed, lang, engineId }) {
       )}
       {loading && <div className="msg">Loading transcript…</div>}
       {err && <div className="msg msg-error">{err}</div>}
-      {msg && <div className="msg msg-ok">{msg}</div>}
+      {msg && <div className="msg msg-success">{msg}</div>}
       {rows && rows.length > 0 && (
         <div className="asr-review-list">
           {rows.map(r => (
@@ -2315,7 +2315,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                    onChange={e => setField('keepStaging', e.target.checked)} />
             {tr('Keep task workspace after publish', '发布后保留任务工作区')}
           </label>
-          <p className="field-hint" style={{ marginTop: 4, color: 'var(--warning)' }}>
+          <p className="msg msg-warn" style={{ marginTop: 4, color: 'var(--warning)' }}>
             {tr(
               <>By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
               intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
@@ -2617,14 +2617,14 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                   </div>
             ))}
           {form.trainS1 === false && form.trainS2 === false && (
-            <p className="field-hint" style={{ marginTop: 10 }}>{tr('Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.',
+            <p className="msg msg-warn" style={{ marginTop: 10 }}>{tr('Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.',
               'S1 和 S2 都未启用（两个流程步骤均已关闭）——本次运行只会做预处理（切片 / ASR）并发布参考音频。')}</p>
           )}
 
           {/* One-time low-VRAM (≤4GB) advisory. We never auto-shrink batch_size —
               the user decides; this only points them at the control. */}
           {showLowVram && (
-            <div className="msg" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.35)' }}>
+            <div className="msg msg-warn" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.35)' }}>
               <span style={{ fontSize: 16, lineHeight: 1.2 }}>⚠️</span>
               <div style={{ flex: 1, fontSize: 12.5 }}>
                 检测到显存较小的 GPU（{cuda?.device_name || 'GPU'} · {cuda?.vram_gb}GB）。微调可能因显存不足（OOM）而失败，
@@ -2857,7 +2857,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
               <div className="confirm-hdr"><span>{tr('ASR engine / language mismatch', 'ASR 引擎与语言不匹配')}</span></div>
               <div className="confirm-body">
-                <p style={{ fontSize: 13, margin: 0 }}>
+                <p style={{ fontSize: 13, margin: 0, color: 'var(--warning, #e0b341)', fontWeight: 500 }}>
                   {tr(`FunASR only supports Chinese / Cantonese. The current language is ${langName}; continuing may produce errors.`,
                       `FunASR 仅支持中文/粤语，当前语言是${langName}，继续运行可能出错。`)}
                 </p>

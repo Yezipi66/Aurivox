@@ -323,7 +323,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             </div>
           )}
           {!refinementType && (
-            <div className="hint-warn" style={{ marginTop: 4 }}>{t('Select at least one model to refine.', '请至少选择一个要精修的模型。')}</div>
+            <div className="msg msg-warn" style={{ marginTop: 4 }}>{t('Select at least one model to refine.', '请至少选择一个要精修的模型。')}</div>
           )}
 
           {/* Warm-start summary — always tell the user exactly what they continue from. */}

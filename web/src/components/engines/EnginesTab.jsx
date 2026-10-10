@@ -94,7 +94,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       {/* 名片坏掉的引擎在 errors 里，不在 engines 里。必须显示 ——
           一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。 */}
       {engineErrors.length > 0 && (
-        <div className="card" style={{ borderColor: 'var(--danger)' }}>
+        <div className="msg msg-danger">
           <strong>这几台引擎的名片读不出来，所以没出现在下面的列表里：</strong>
           <ul>
             {engineErrors.map(e => (
@@ -178,7 +178,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
               <div className="card" style={{ marginTop: 8 }}>
                 <div style={{ whiteSpace: 'pre-wrap' }}>{res.message}</div>
                 {res.mem && res.mem.freeMb != null && (
-                  <div className="msg msg-warning">当前可用内存约 {res.mem.freeMb} MB。</div>
+                  <div className="msg msg-info">当前可用内存约 {res.mem.freeMb} MB。</div>
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button

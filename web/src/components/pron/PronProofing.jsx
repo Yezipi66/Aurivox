@@ -322,7 +322,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
         </div>
       )}
 
-      {error && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
+      {error && <div className="msg msg-error" style={{ marginTop: 6 }}>{error}</div>}
       </div>{/* .pron-edit */}
       <div className="pron-out">
       {preview?.langs?.includes('ko') && <div style={{marginTop:10,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setShowAllKo(v=>!v)}>{showAllKo?t('Show suggested Korean checks','仅显示建议检查'):t('Show all Korean words','显示全部韩语词')}</button><span className="field-hint">{t('Latin text remains English/ARPABET. Han characters remain ZH/YUE/JA and never fall back to Korean.','拉丁字母继续使用英语/ARPABET；汉字保持 ZH/YUE/JA，绝不回落到韩语。')}</span></div>}

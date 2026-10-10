@@ -887,7 +887,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 </div>
               ))}
               {incompleteItems.map((it, i) => (
-                <div className="field-hint" key={`missing-${it.path}-${i}`}
+                <div className="msg msg-error" key={`missing-${it.path}-${i}`}
                      style={{ marginTop: 4, color: 'var(--danger, #d05353)' }}
                      title={(it.missing || []).join('\n')}>
                   {it.missing_text}
@@ -1234,7 +1234,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
                 <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 13 }}>Download WAV</a>
               </div>
-              {result.warning && <div className="msg msg-warning" style={{ marginTop: 8 }}>{result.warning}</div>}
+              {result.warning && <div className="msg msg-warn" style={{ marginTop: 8 }}>{result.warning}</div>}
             </div>
           </div>
         )}

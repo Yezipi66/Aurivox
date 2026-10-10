@@ -84,7 +84,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <label className="field-label">{t('Name (emotion / identifier)', '名称（emotion / 标识符）')}</label>
             <input className="control" value={name} autoFocus placeholder={t('e.g. calm, angry, cheerful', '例如 calm、angry、cheerful')}
               onChange={e => setName(e.target.value)} />
-            {nameErr && <div className="field-hint" style={{ color: 'var(--danger)' }}>{nameErr}</div>}
+            {nameErr && <div className="msg msg-error">{nameErr}</div>}
           </div>
           <div className="recipe-preview">
             <div><span className="rp-k">Voice</span><span className="rp-v">{role || '—'}</span></div>

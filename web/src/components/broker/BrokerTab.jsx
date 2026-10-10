@@ -227,7 +227,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
         )}
       </div>
       {error && <div className="msg msg-error">{error}</div>}
-      {msg && <div className="msg msg-ok">{msg}</div>}
+      {msg && <div className="msg msg-success">{msg}</div>}
       {extConfirm && (
         <div className="msg msg-warn">
           <strong>⚠️ {t('This model file is outside the project (not under assets/).', '该模型文件不在项目内（不在 assets/ 目录下）。')}</strong>

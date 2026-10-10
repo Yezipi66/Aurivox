@@ -185,7 +185,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
           </div>
 
           {loading && <div className="field-hint">Loading transcript…</div>}
-          {error && <div className="field-hint" style={{ color: 'var(--danger)' }}>{error}</div>}
+          {error && <div className="msg msg-error">{error}</div>}
 
           {!loading && buckets.length === 0 && !error && (
             <div className="field-hint">

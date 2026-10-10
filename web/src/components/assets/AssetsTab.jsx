@@ -971,7 +971,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                 <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                   {isLoadingSegs && <div className="msg">Loading segments...</div>}
                   {segData && segData.error && <div className="msg msg-error">{segData.error}</div>}
-                  {segData && segData.segments && segData.segments.length === 0 && <div className="msg">No segments found.</div>}
+                  {segData && segData.segments && segData.segments.length === 0 && <div className="msg msg-info">No segments found.</div>}
                   {segData && segData.segments && segData.segments.length > 0 && (
                     <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                       <table className="table" style={{ width: '100%', fontSize: 12 }}>

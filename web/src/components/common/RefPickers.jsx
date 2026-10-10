@@ -227,7 +227,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
           {t("Custom files are imported into this voice's managed assets when you save a recipe.",
              '保存配方时，自定义文件会被导入到该音色的托管资产中。')}
         </div>
-        {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
+        {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}
       </div>
     )
   }
@@ -238,7 +238,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
       <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from your computer', '从你的电脑选择任意音频文件')}>
         {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom file\u2026', '自定义文件\u2026')}
       </button>
-      {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
+      {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}
       {custom && (
         <div style={{ marginTop: 6 }}>
           <div className="field-hint" style={{ color: 'var(--warning)' }}>

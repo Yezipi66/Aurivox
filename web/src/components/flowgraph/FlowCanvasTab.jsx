@@ -869,9 +869,9 @@ function Toolbar({
       {status && !status.can_synthesize && (
         // Worth stating plainly: a graph that runs but produces no audio is the
         // most confusing possible outcome.
-        <span style={{ fontSize: 11, color: MUTED }}>
+        <div className="msg msg-warn" style={{ marginTop: 8 }}>
           {t('Synthesis is not configured on this machine; synthesis nodes will fail.', '本机未配置合成服务，合成节点将执行失败')}
-        </span>
+        </div>
       )}
       <button onClick={onCheck} style={buttonStyle}>{t('Validate', '校验')}</button>
       <button onClick={onStart} disabled={busy}
