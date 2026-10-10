@@ -128,6 +128,51 @@ function diagnose (manifest) {
     }
   }
 
+  // ---- 4. _source 硬规则（profile.js checkMeasuredSources，落盘前提前报）--
+  //
+  // ⭐ 为什么这里补：profile.js 的 checkMeasuredSources（C13.2 出处守卫）是
+  //   **内部函数**，没导出 ⇒ resolveFromObject 走不到它，只能等真落盘、
+  //   registry 加载时才抛。那时红框来得太晚 —— 用户存完才知道被打回。
+  //   向导的定位是「落盘前的助手」，所以这里照它的规则提前检出，报 BLOCK。
+  //
+  // ⛔ 只搬这一条硬规则（写了数就必须带 _source，值域三选一）。
+  //   不加任何软提示 —— 那是平台管得到的，不该在这里重复。
+  //
+  // 规则原文（profile.js）：
+  //   max_chars / timeout_ms（顶层）、runtime.ready_timeout_ms（runtime 段）
+  //   —— 写了这个数，同级就必须有对应的 _source 键，
+  //   取值只能是 measured / upstream / estimated，否则当场抛错。
+  const MEASURED_SOURCES = Object.freeze(['measured', 'upstream', 'estimated'])
+  // [数据键, _source 键, 所在段, 段名]。前两个在顶层，第三个在 runtime 段内。
+  const MEASURED_PAIRS = Object.freeze([
+    ['max_chars', 'max_chars_source', manifest, 'manifest.json 顶层'],
+    ['timeout_ms', 'timeout_ms_source', manifest, 'manifest.json 顶层'],
+    ['ready_timeout_ms', 'ready_timeout_ms_source', manifest.runtime, 'runtime 段'],
+  ])
+  for (const [key, srcKey, obj, segment] of MEASURED_PAIRS) {
+    // C13.1：数可以不写（留空合法），不校验；写了就必须说明出处
+    if (!obj || !(key in obj)) continue
+    const srcMeta = SECTIONS_BY_KEY[srcKey] || null
+    const where = {
+      section: srcKey, field: srcKey, sectionMeta: srcMeta, danger: DANGER.BLOCK,
+    }
+    if (!(srcKey in obj)) {
+      push('error', 'ENGINE_MANIFEST_MISSING_SOURCE',
+        `${segment}写了 ${key} 但没有 ${srcKey} —— ${key} 是跑过才知道的数，` +
+        `写了就必须说明它怎么来的（${MEASURED_SOURCES.join(' / ')}），` +
+        '否则半年后没人分得清这是量出来的还是拍出来的。' +
+        '（如果还没量过，把这一行删掉即可，平台会用保守值。）', where)
+    } else if (!MEASURED_SOURCES.includes(obj[srcKey])) {
+      // 值非法也是硬错：不认识的出处值会被平台拒绝（不能默默当实测用）
+      push('error', 'ENGINE_MANIFEST_INVALID_VALUE',
+        `${segment}的 ${srcKey} 写的是 ${JSON.stringify(obj[srcKey])} —— ` +
+        `必须是 ${MEASURED_SOURCES.join(' / ')} 之一` +
+        '（measured=本项目实测，upstream=上游文档写的，estimated=推算/经验拍）。' +
+        '不认识的出处值不能默默当实测用：一个 estimated 被当成 measured 去信，' +
+        '平台会提前放弃一个其实还在正常加载的引擎。', where)
+    }
+  }
+
   return out
 }
 
