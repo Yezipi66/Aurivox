@@ -99,7 +99,7 @@ export default function MainArea ({ manifest }) {
               <p className="field-hint" style={{ marginTop: 0 }}>
                 {t('This engine has no user-selectable weight slot (weights is empty). '
                   + 'Simply leave weights out of the manifest.',
-                  '该引擎没有可供选择的权重位（weights 为空），Manifest 中不声明 weights 即可')}>
+                  '该引擎没有可供选择的权重位（weights 为空），Manifest 中不声明 weights 即可')}
               </p>
             </div>
             )}

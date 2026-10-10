@@ -507,26 +507,28 @@ function CliGenPanel ({ manifest, onChange, onScanDone }) {
           </>
         )}
 
-        {/* ③ 参数表（扫出来给用户看，已自动填的标出来）*/}
+        {/* ③ 参数表（扫出来给用户看，已自动填的标出来）
+            ⭐ 用项目的 .table（width/border-collapse/font-size/th/td 都齐），
+              ⛔ 不用 className="control"（那是输入框类，不是表格类，P1 遗留）。 */}
         {scan && scan.ok && args.length > 0 && (
           <div style={{ marginTop: 10 }}>
             <strong className="field-label">{t(`Parameters (${args.length})`, `参数（${args.length} 个）`)}</strong>
-            <table className="control" style={{ width: '100%', marginTop: 6, borderCollapse: 'collapse', fontSize: 13 }}>
+            <table className="table">
               <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--muted-foreground)' }}>
-                  <th style={{ padding: '4px 6px' }}>{t('Flag', '参数')}</th>
-                  <th style={{ padding: '4px 6px' }}>{t('Type', '类型')}</th>
-                  <th style={{ padding: '4px 6px' }}>{t('Req', '必填')}</th>
-                  <th style={{ padding: '4px 6px' }}>{t('Official description', '官方说明')}</th>
+                <tr>
+                  <th>{t('Flag', '参数')}</th>
+                  <th>{t('Type', '类型')}</th>
+                  <th>{t('Req', '必填')}</th>
+                  <th>{t('Official description', '官方说明')}</th>
                 </tr>
               </thead>
               <tbody>
                 {args.map(a => (
-                  <tr key={a.name} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '4px 6px' }}><code>{a.flag}</code>{a.is_tool && <span className="badge badge-neutral" style={{ marginLeft: 6 }}>{t('tool', '工具')}</span>}</td>
-                    <td style={{ padding: '4px 6px' }}>{a.style}</td>
-                    <td style={{ padding: '4px 6px' }}>{a.required ? '✓' : ''}</td>
-                    <td style={{ padding: '4px 6px', color: 'var(--muted-foreground)' }}>{a.help || ''}</td>
+                  <tr key={a.name}>
+                    <td><code>{a.flag}</code>{a.is_tool && <span className="badge badge-neutral" style={{ marginLeft: 6 }}>{t('tool', '工具')}</span>}</td>
+                    <td>{a.style}</td>
+                    <td>{a.required ? '✓' : ''}</td>
+                    <td>{a.help || ''}</td>
                   </tr>
                 ))}
               </tbody>

@@ -94,31 +94,32 @@ function ArgsField ({ value, onChange, t }) {
   }
   return (
     <div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      {/* ⭐ 用项目的 .table（与 ObjectField/LinesField 一致），⛔ 不再裸 table + inline style */}
+      <table className="table">
         <thead>
-          <tr style={{ textAlign: 'left', color: 'var(--muted-foreground)' }}>
-            <th style={{ padding: '2px 4px' }}>name</th>
-            <th style={{ padding: '2px 4px' }}>flag</th>
-            <th style={{ padding: '2px 4px' }}>style</th>
-            <th style={{ padding: '2px 4px' }}></th>
+          <tr>
+            <th>name</th>
+            <th>flag</th>
+            <th>style</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              <td style={{ padding: '2px 4px' }}>
+              <td>
                 <input className="control" type="text" value={r.name}
                   onChange={(e) => {
                     const next = rows.slice(); next[i] = { ...r, name: e.target.value }; emit(next)
                   }} />
               </td>
-              <td style={{ padding: '2px 4px' }}>
+              <td>
                 <input className="control" type="text" value={r.flag} placeholder="--flag"
                   onChange={(e) => {
                     const next = rows.slice(); next[i] = { ...r, flag: e.target.value }; emit(next)
                   }} />
               </td>
-              <td style={{ padding: '2px 4px' }}>
+              <td>
                 <select className="control" value={r.style}
                   onChange={(e) => {
                     const next = rows.slice(); next[i] = { ...r, style: e.target.value }; emit(next)
@@ -127,7 +128,7 @@ function ArgsField ({ value, onChange, t }) {
                   <option value="boolean">boolean</option>
                 </select>
               </td>
-              <td style={{ padding: '2px 4px' }}>
+              <td>
                 <button className="btn btn-sm" type="button"
                   onClick={() => emit(rows.filter((_, j) => j !== i))}>
                   {t('del', '删')}
@@ -364,9 +365,10 @@ function BindField ({ value, onChange, t }) {
       ))}
       {/* ⭐ 映射错误不会报错 = 设了没效果 ⇒ SILENT 黄框（第 3 章）*/}
       <p className="msg msg-warn">
-        {t('These are the platform\'s fixed input words. Each one maps to whatever '
-          + 'the engine calls that thing — a wrong mapping is not reported as an error.',
-          '以上为平台固定的输入词，每个词对应上游各自的名称，映射错误不会报错。')}
+        {t('Confirm which upstream argument each of the 3 core inputs goes to: '
+          + 'the text to synthesize / the reference audio / the output. '
+          + 'The platform has already matched them automatically; just check them.',
+          '确认 3 个核心输入对应上游哪个参数：要合成的文字 / 参考音频 / 输出。机器已自动匹配，核对即可。')}
       </p>
     </>
   )
@@ -452,10 +454,11 @@ export function RuntimeSection ({ value, onChange, t }) {
   return (
     <>
       <Row label="python"
-        hint={t('the engine\'s own environment directory (e.g. engines/<id>/.venv)',
+        hint={t('the engine’s own environment directory (e.g. engines/<id>/.venv)',
           '这台引擎自己的环境目录（如 engines/<id>/.venv）')}
-        warn={t('must be relative. An absolute path is rejected outright',
-          '必须为相对路径，绝对路径会被拒绝')}
+        warn={t('use the engine’s own environment directory (e.g. engines/<id>/.venv). '
+          + 'An absolute path will not save.',
+          '填引擎自己的环境目录（如 engines/<id>/.venv），填绝对路径存不了。')}
         danger="block">
         <input className="control" type="text" value={v.python || ''}
           placeholder="engines/xxx/.venv"
@@ -488,8 +491,9 @@ export function RuntimeSection ({ value, onChange, t }) {
       <Row label="ready_timeout_ms_source"
         hint={t('required: where that number came from — measured or estimated',
           '必填：需说明该数值的来源（实测或估算）')}
-        warn={t('writing a number without saying where it came from is rejected',
-          '写了数却不说明出处会被拒绝')}
+        warn={t('saving is rejected: this number must say where it came from '
+          + '(measured / estimated / upstream).',
+          '保存时会被打回：这个数字必须说明来源（实测/估算/上游）。')}
         danger="block">
         <select className="control" value={v.ready_timeout_ms_source || ''}
           onChange={(e) => set('ready_timeout_ms_source', e.target.value || undefined)}>
@@ -626,9 +630,9 @@ export function ModelsSection ({ value, onChange, t }) {
         hint={t('the files that count as «the weights are there» — the platform '
           + 'can only answer yes/no against this list',
           '用于判断 Checkpoint 是否完整的文件清单，平台据此回答有无')}
-        warn={t('without this the platform can only say the folder exists, '
-          + 'not whether it is complete',
-          '不写这个，平台只能说目录在不在，说不出齐不齐')}
+        warn={t('this works without it, but then the platform cannot help you check '
+          + 'whether the weight files are all present. Listing the key files is recommended.',
+          '不填也能用，但平台没法帮你确认权重文件齐不齐。建议列出关键文件。')}
         danger="silent">
         <ArrayField value={v.required} onChange={(a) => set('required', a)} t={t} />
       </Row>
