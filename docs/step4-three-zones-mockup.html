@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<style>
+:root{
+  --bg:#0f0f0f; --surface:#1a1a1a; --panel:#242424; --border:#333;
+  --text:#e0e0e0; --muted:#888; --accent:#bb86fc; --accent-soft:rgba(187,134,252,0.15);
+  --success:#4caf50; --warning:#ffb74d; --danger:#cf6679; --info:#64b5f6;
+  --radius-sm:6px; --radius-md:10px; --control-height:34px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:13px/1.5 ui-sans-serif,system-ui,"Segoe UI","Microsoft YaHei",sans-serif;padding:16px}
+h1{font-size:14px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:11px;margin-bottom:16px}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;margin-bottom:12px}
+.section-hdr{background:var(--panel);padding:6px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.section-body{padding:12px}
+.field-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+.field-hint{font-size:10px;color:var(--muted);margin-top:3px}
+.control{width:100%;height:var(--control-height);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0 10px;font-size:13px}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;font-size:10px;font-weight:700;border:1px solid;border-radius:999px}
+.badge-warn{background:rgba(255,183,77,.15);color:var(--warning);border-color:rgba(255,183,77,.35)}
+.badge-info{background:rgba(100,181,246,.12);color:var(--info);border-color:rgba(100,181,246,.3)}
+.badge-accent{background:var(--accent-soft);color:var(--accent);border-color:rgba(187,134,252,.35)}
+.badge-ok{background:rgba(76,175,80,.15);color:var(--success);border-color:rgba(76,175,80,.35)}
+.expert-block{border-top:1px dashed var(--border);padding-top:10px;margin-top:10px}
+.expert-summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th{text-align:left;font-size:10px;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)}
+.table td{padding:6px 10px;border-bottom:1px solid var(--border)}
+code{background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px;font-size:12px}
+.zone-tag{font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px}
+.z1{background:var(--accent-soft);color:var(--accent)}
+.z2{background:rgba(76,175,80,.15);color:var(--success)}
+.z3{background:rgba(100,181,246,.12);color:var(--info)}
+.row{display:flex;gap:8px;align-items:center}
+.row .control{flex:1;min-width:0}
+.btn{height:30px;padding:0 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#000;font-weight:700}
+.btn-sm{height:26px;font-size:11px;padding:0 10px}
+.silent{border-left:2px solid var(--warning);padding-left:8px;color:var(--warning)}
+.matched{background:rgba(76,175,80,.08);border-color:rgba(76,175,80,.4)}
+.unmatched{background:rgba(255,183,77,.08);border-color:rgba(255,183,77,.4)}
+.hdr-note{margin-left:auto;font-weight:400;text-transform:none;color:var(--muted)}
+</style>
+</head>
+<body>
+<h1>第 4 步「写名片」三区布局稿</h1>
+<div class="sub">核心映射（紫）· 平台已知（绿）· 引擎透传（蓝）</div>
+
+<div class="section">
+  <div class="section-hdr">
+    核心映射
+    <span class="zone-tag z1">区 1</span>
+    <span class="hdr-note">平台输入词对应引擎参数</span>
+  </div>
+  <div class="section-body">
+    <p class="field-hint" style="margin:0 0 10px">
+      平台固定需要三个输入：合成文本、参考音频、输出。此处确认它们各自对应引擎的哪个参数。
+    </p>
+
+    <div class="field" style="margin-bottom:12px">
+      <label class="field-label">合成文本 <span class="badge badge-accent">text</span></label>
+      <div class="row">
+        <input class="control matched" list="flaglist" value="--text">
+        <span class="badge badge-ok">扫描已匹配</span>
+      </div>
+      <div class="field-hint">官方说明：Text to synthesize</div>
+    </div>
+
+    <div class="field" style="margin-bottom:12px">
+      <label class="field-label">参考音频 <span class="badge badge-accent">reference_audio</span></label>
+      <div class="row">
+        <input class="control unmatched" list="flaglist" placeholder="从候选选择，或输入参数名">
+        <span class="badge badge-warn">未匹配，需指定</span>
+      </div>
+      <div class="field-hint">引擎参数中未识别出参考音频。从候选中选择，或直接填写参数名。</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">输出 <span class="badge badge-accent">output_path</span></label>
+      <div class="row">
+        <input class="control matched" list="flaglist" value="--output_path">
+        <span class="badge badge-ok">扫描已匹配</span>
+      </div>
+      <div class="field-hint">官方说明：Path to write the generated audio</div>
+    </div>
+
+    <datalist id="flaglist">
+      <option value="--voice">Path to the speaker reference audio</option>
+      <option value="--ref-audio">Reference audio</option>
+      <option value="--prompt-wav">Prompt wav</option>
+      <option value="--spk">Speaker</option>
+      <option value="--output_path">Path to write output</option>
+    </datalist>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-hdr">
+    平台已知字段
+    <span class="zone-tag z2">区 2</span>
+    <span class="hdr-note">平台已定义语义，缺失会阻止加载</span>
+  </div>
+  <div class="section-body">
+    <div class="field-label" style="margin-bottom:8px">必填字段（8 项）</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="field"><label class="field-label">runtime.python</label><input class="control" value="engines/index-tts/.venv"></div>
+      <div class="field"><label class="field-label">runtime.entry</label><input class="control" value="../../lib/engines/host.py"></div>
+      <div class="field"><label class="field-label">runtime.ready_endpoint</label><input class="control" value="/health"></div>
+      <div class="field"><label class="field-label">runtime.ready_timeout_ms</label><input class="control" value="180000"></div>
+      <div class="field"><label class="field-label">timeout_ms</label><input class="control" value="300000"></div>
+      <div class="field"><label class="field-label">max_chars</label><input class="control" value="200"></div>
+      <div class="field"><label class="field-label">requires_reference_audio</label><select class="control"><option>true</option><option>false</option></select></div>
+      <div class="field"><label class="field-label">output_sample_rate</label><input class="control" value="24000"></div>
+    </div>
+
+    <div class="field" style="margin-bottom:10px">
+      <label class="field-label">models.required <span class="badge badge-warn">填错不报错</span></label>
+      <div class="field-hint">用于判断权重是否齐全的文件清单</div>
+      <div class="silent">不填写时引擎仍可运行，但平台无法确认权重文件是否齐全。建议列出关键文件。</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">local_changes</label>
+      <div class="field-hint">对引擎源码所做的本地改动记录。无改动时填写「无」。</div>
+    </div>
+
+    <details class="expert-block">
+      <summary class="expert-summary">runtime 其余字段（args / cwd / verify 等）</summary>
+      <div class="field" style="margin-top:8px"><label class="field-label">runtime.args</label><input class="control" value="-a {host} -p {port}"></div>
+    </details>
+    <details class="expert-block">
+      <summary class="expert-summary">models 与 weights 完整编辑器</summary>
+    </details>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-hdr">
+    引擎透传参数
+    <span class="zone-tag z3">区 3</span>
+    <span class="hdr-note">平台原样传递给引擎</span>
+  </div>
+  <div class="section-body">
+    <div class="row" style="margin-bottom:10px">
+      <span style="font-size:11px;color:var(--muted)">子命令：</span>
+      <button class="btn btn-sm btn-primary">synth</button>
+      <button class="btn btn-sm">infer</button>
+      <button class="btn btn-sm">batch</button>
+      <span class="badge badge-info" style="margin-left:auto">synth 组共 7 个参数</span>
+    </div>
+
+    <table class="table">
+      <thead><tr><th>参数</th><th>类型</th><th>必填</th><th>官方说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>--text</code></td><td>str</td><td style="color:var(--danger)">必填</td><td title="Text to synthesize">Text to synthesize</td></tr>
+        <tr><td><code>--voice</code></td><td>str</td><td style="color:var(--danger)">必填</td><td title="Path to the speaker reference audio">Path to the speaker reference audio</td></tr>
+        <tr><td><code>--emotion-weight</code></td><td>float</td><td></td><td title="Emotion weight mapped to IndexTTS2 emo_alpha">Emotion weight mapped to IndexTTS2 emo_alpha</td></tr>
+        <tr><td><code>--emotion-text</code></td><td>str</td><td></td><td title="Emotion description text">Emotion description text</td></tr>
+        <tr><td><code>--fp16</code></td><td>flag</td><td></td><td title="Use fp16">Use fp16</td></tr>
+        <tr><td><code>--device</code></td><td>str</td><td></td><td title="Device">Device</td></tr>
+        <tr><td><code>--force</code></td><td>flag</td><td></td><td title="Overwrite output">Overwrite output</td></tr>
+      </tbody>
+    </table>
+    <div class="field-hint">区 3 的参数写入 call.args，不参与区 1 的映射。</div>
+  </div>
+</div>
+
+<div class="sub" style="margin-top:16px">
+  区 1：平台需要的输入，需确认。区 2：平台已定义语义的字段，缺失会阻止加载。区 3：引擎其余参数，原样透传。
+</div>
+</body>
+</html>

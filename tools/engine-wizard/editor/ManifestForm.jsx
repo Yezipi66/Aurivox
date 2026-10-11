@@ -4,6 +4,7 @@ import { RuntimeSection, CallSection, ModelsSection } from './NestedSections'
 import { useInstalled } from './useInstalled'
 import RequiredEight from './RequiredEight'
 import CliGenPanel from './CliGenPanel'
+import CoreBindings from './CoreBindings'
 
 // ============================================================================
 //  MANIFEST FORM ——   名片填表（不是 JSON 编辑器）
@@ -310,6 +311,13 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   const [scanDone, setScanDone] = React.useState(false)
   const bindRef = React.useRef(null)
 
+  //   autofill 状态：CliGenPanel 扫成功后回调 onAutoFilled，把匹配记录传上来，
+  //   区 1 的 CoreBindings 靠它渲染「扫描已匹配 / 未匹配，需指定」。
+  //   matched = { text, ref_audio, output_path }（null=没认出）
+  //   candidates = 当前子命令的 flag 列表（combobox 候选）
+  //   必须放在早返回（!spec）之前，否则 Hooks 顺序会乱（Rendered more hooks）。
+  const [autofill, setAutofill] = React.useState(null)
+
   //   扫描成功 → 绑定区自动展开 + 滚动定位（RFC 第 2 章）。
   //   用 useEffect 等 DOM 渲染完再滚，  不在回调里直接滚（那时还没挂载）。
   React.useEffect(() => {
@@ -410,21 +418,15 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
 
       {/*     L1 ① 扫描面板 —— 第一屏只做这个（选引擎 + 扫描 + 自动填） */}
       <CliGenPanel manifest={manifest} onChange={onChange}
-        onScanDone={() => setScanDone(true)} />
+        onScanDone={() => setScanDone(true)}
+        onAutoFilled={({ sub, matched, argList }) => setAutofill({ sub, matched, argList })} />
 
-      {/*     L1 ② 核心绑定区 —— 扫描成功才展开 */}
-      <div className="section" ref={bindRef}>
-        <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
-        <div className="section-body">
-          <p className="field-hint" style={{ marginTop: 0 }}>
-            {t('Which upstream argument each platform input word goes to. '
-              + 'The scan fills what it recognizes; check the three core bindings '
-              + '(text / reference audio / output) and correct anything off.',
-              '平台的每个输入词对应上游哪个参数。扫描认得出的已自动填好，'
-              + '请核对三个核心绑定（文字 / 参考音频 / 输出），错的改掉。')}
-          </p>
-          <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
-        </div>
+      {/*     L1 ② 核心绑定区 —— 区 1 核心映射（combobox + 匹配状态） */}
+      <div ref={bindRef}>
+        <CoreBindings call={manifest.call} onChange={(x) => set('call', x)}
+          candidates={autofill && autofill.argList || []}
+          matched={autofill && autofill.matched || null}
+          scanned={!!autofill} />
       </div>
 
       {/*     L1 ③ 真·必填 8 项（平台当场抛错的那 8 个） */}
@@ -459,6 +461,14 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
             <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
             <div className="section-body">
               <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
+            </div>
+          </div>
+          {/*     L2 嵌套段：call 其余字段（kind/module/class/method/init_args/returns）。
+                区 1 的 CoreBindings 只负责 bind 三槽位，call 的其它字段在这里编辑。 */}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
+            <div className="section-body">
+              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
             </div>
           </div>
         </div>

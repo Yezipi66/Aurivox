@@ -33,7 +33,7 @@ import { useT } from '../../../web/src/lib/i18n'
 // warn 文案按 danger 档位套不同的平台类（第 3 章）
 const WARN_BOX = {
   block: 'msg-danger',   // 红框：真会阻断加载
-  silent: 'msg-warn',    // 黄框：设了没效果
+  silent: 'field-hint',  // 灰字 + 左边框：设了没效果
   info: 'field-hint',    // 灰字：纯提示
 }
 function Row ({ label, hint, warn, children, danger }) {
@@ -55,7 +55,12 @@ function Row ({ label, hint, warn, children, danger }) {
       </div>
       {hint && <div className="field-hint">{hint}</div>}
       {/*   按 danger 分色：block 红框 / silent 黄框 / info 灰字 */}
-      {warn && <div className={WARN_BOX[danger] || 'msg-warn'}> {warn}</div>}
+      {warn && (
+        <div className={danger === 'silent' ? 'field-hint' : (WARN_BOX[danger] || 'field-hint')}
+          style={danger === 'silent' ? { borderLeft: '2px solid var(--warning)', paddingLeft: 8 } : undefined}>
+          {warn}
+        </div>
+      )}
       {children}
     </div>
   )
@@ -364,7 +369,7 @@ function BindField ({ value, onChange, t }) {
         </Row>
       ))}
       {/*   映射错误不会报错 = 设了没效果  SILENT 黄框（第 3 章）*/}
-      <p className="msg msg-warn">
+      <p className="field-hint" style={{ borderLeft: '2px solid var(--warning)', paddingLeft: 8 }}>
         {t('Confirm which upstream argument each of the 3 core inputs goes to: '
           + 'the text to synthesize / the reference audio / the output. '
           + 'The platform has already matched them automatically; just check them.',
@@ -536,9 +541,8 @@ export function CallSection ({ value, onChange, t }) {
           'python = 调一个类；cli = 跑一条命令')}>
         <select className="control" value={v.kind || ''}
           onChange={(e) => set('kind', e.target.value || undefined)}>
-          <option value="">{t('(unset)', '（不写）')}</option>
-          <option value="python">python</option>
-          <option value="cli">cli</option>
+          <option value="python">python（调一个类）</option>
+          <option value="cli">cli（跑一条命令）</option>
         </select>
       </Row>
       {v.kind !== 'cli' && (<>
