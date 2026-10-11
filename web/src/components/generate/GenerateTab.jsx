@@ -849,7 +849,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               ))}
               {incompleteItems.map((it, i) => (
                 <div className="msg msg-error" key={`missing-${it.path}-${i}`}
-                     style={{ marginTop: 4, color: 'var(--danger, #d05353)' }}
+                     style={{ marginTop: 4 }}
                      title={(it.missing || []).join('\n')}>
                   {it.missing_text}
                 </div>
@@ -1185,7 +1185,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               onSaved={(rec) => setError(null)}
             />
 
-            {notice && <div className="msg msg-ok">{notice}</div>}
+            {notice && <div className="msg msg-success">{notice}</div>}
             {error && <div className="msg msg-error"><strong>Error:</strong> {error}</div>}
           </div>
         </div>

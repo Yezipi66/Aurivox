@@ -37,7 +37,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
   const reqLang = recipe.language || 'auto'
   const cmd = `curl -X POST ${endpoint} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ***" \\
+  -H "Authorization: Bearer $API_KEY" \\
   -d '{"model":"tts-1","voice":"${recipe.id}","input":"${sampleInput}","language":"${reqLang}"}' \\
   --output out.wav`
   const cmdOneLine = cmd.replace(/\\\s*\n\s*/g, ' ')
