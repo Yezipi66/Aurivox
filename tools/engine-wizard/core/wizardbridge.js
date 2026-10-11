@@ -802,6 +802,159 @@ function handleCliArgs (req, res) {
 }
 
 // ---------------------------------------------------------------------------
+//  POST /wizard/discover —— 自动探测引擎形态并发现参数
+// ---------------------------------------------------------------------------
+// ⭐ 平台不假设引擎形态，先探测再决定：
+//   1. 读 engines/<id>/ 看有没有 argparse 源码 → 有则跑 cli 扫描
+//   2. 读名片看 call.kind 或看有没有 python class → 是 python 则跑反射
+//   3. 两者都有 → 都跑，结果经 paramDigest 合并
+//   4. 都没有 → 返回 {ok:false, error:'未能发现参数，请手工填写'}
+//
+// ⛔ 纪律：探不到如实报，不假装。python 反射失败（venv 未配好等）如实说明。
+function handleDiscover (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/discover')) return false
+  const tail = req.url.slice('/wizard/discover'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  readBody(req, async (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
+
+    const id = body.id
+    if (!id || typeof id !== 'string') {
+      json(res, 400, { ok: false, error: 'id is required' })
+      return
+    }
+
+    const dir = path.join(__dirname, '..', '..', '..', 'engines', id)
+    if (!fs.existsSync(dir)) {
+      json(res, 404, { ok: false, error: `引擎目录不存在：${id}` })
+      return
+    }
+
+    const notes = []
+    let manifest = {}
+    const mf = path.join(dir, 'manifest.json')
+    if (fs.existsSync(mf)) {
+      try { manifest = JSON.parse(fs.readFileSync(mf, 'utf8')) } catch { manifest = {} }
+    }
+
+    // 探测 cli 形态：找 argparse 源文件
+    let cliHelpResult = null
+    let cliDraft = null
+    let hasCli = false
+    try {
+      const { findCliFiles } = require('./cliHelp')
+      const cliFiles = findCliFiles(dir)
+      hasCli = cliFiles.length > 0
+      if (hasCli) {
+        notes.push(`发现 ${cliFiles.length} 个 argparse 源文件：${cliFiles.join(', ')}`)
+        const { collectCliHelp } = require('./cliHelp')
+        cliHelpResult = collectCliHelp({ dir })
+        if (cliHelpResult.ok && cliHelpResult.flags && cliHelpResult.flags.length > 0) {
+          const { buildCliDraft } = require('./cliDraft')
+          cliDraft = buildCliDraft(cliHelpResult)
+          notes.push(`CLI 扫描得到 ${cliDraft.args ? cliDraft.args.length : 0} 个 flag`)
+        } else if (cliHelpResult.ok) {
+          notes.push('CLI 源文件里没有 add_argument 调用')
+        } else {
+          notes.push(`CLI 扫描失败：${cliHelpResult.error}`)
+        }
+      } else {
+        notes.push('没有发现 argparse 源文件')
+      }
+    } catch (e) {
+      notes.push(`CLI 探测异常：${e.message}`)
+    }
+
+    // 探测 python 形态：名片 call.kind 或 buildSpec 能否建起来
+    let hasPython = false
+    let pythonDraft = null
+    let pythonSpec = null
+    try {
+      const { buildSpec } = require('./paramsFromReflect')
+      // 不用 forCli：需要完整的 call.module/class 校验
+      pythonSpec = buildSpec({ id })
+      if (pythonSpec.ok) {
+        hasPython = true
+        notes.push(`名片声明了 python 类：${pythonSpec.value.module}.${pythonSpec.value.class}`)
+      } else {
+        // buildSpec 失败的原因可能就是没有 python 形态
+        if (pythonSpec.error && pythonSpec.error.includes('call.module')) {
+          notes.push('名片没有声明 python 类（call.module / call.class 缺失）')
+        } else if (pythonSpec.error && pythonSpec.error.includes('runtime.python')) {
+          notes.push('名片没有配置 runtime.python（引擎环境未就绪）')
+        } else {
+          notes.push(`python 形态探测失败：${pythonSpec.error}`)
+        }
+      }
+    } catch (e) {
+      notes.push(`python 形态探测异常：${e.message}`)
+    }
+
+    // 两者都没有
+    if (!hasCli && !hasPython) {
+      json(res, 200, {
+        ok: false,
+        error: '未能发现参数，请手工填写',
+        notes,
+      })
+      return
+    }
+
+    // 跑 python 反射
+    if (hasPython && pythonSpec && pythonSpec.ok) {
+      const pyExe = pythonSpec.value.python
+      // pyFinal 可能是目录（buildSpec 对 .venv 路径的兜底），需检查是否可执行
+      const pyReady = pyExe && fs.existsSync(pyExe) && fs.statSync(pyExe).isFile()
+      if (!pyReady) {
+        notes.push('引擎环境未就绪，先完成第 2 步')
+      } else {
+        try {
+          const { reflectAndBuild } = require('./paramsFromReflect')
+          pythonDraft = reflectAndBuild(pythonSpec.value, { manifest })
+          if (pythonDraft.ok) {
+            const count = pythonDraft.parameters ? pythonDraft.parameters.length : 0
+            notes.push(`python 反射得到 ${count} 个参数`)
+            if (pythonDraft.warnings && pythonDraft.warnings.length > 0) {
+              notes.push(`python 反射有 ${pythonDraft.warnings.length} 条警告`)
+            }
+          } else {
+            notes.push(`python 反射失败：${pythonDraft.error}`)
+            // 反射失败不影响 cli 路的结果
+          }
+        } catch (e) {
+          notes.push(`python 反射异常：${e.message}`)
+        }
+      }
+    }
+
+    // 用 paramDigest 统一形状
+    const { merge } = require('./paramDigest')
+    const cliArgs = cliDraft && cliDraft.ok ? cliDraft.args : []
+    const pythonParams = pythonDraft && pythonDraft.ok ? pythonDraft.parameters : []
+    const { params, groups } = merge(cliArgs, pythonParams)
+
+    const source = hasCli && hasPython ? 'both' : (hasCli ? 'cli' : 'python')
+
+    json(res, 200, {
+      ok: true,
+      source,
+      params,
+      groups,
+      suggested_call: cliDraft && cliDraft.ok ? cliDraft.suggested_call : null,
+      notes,
+      counts: {
+        cli: cliArgs.length,
+        python: pythonParams.length,
+        total: params.length,
+      },
+    })
+  })
+  return true
+}
+
+// ---------------------------------------------------------------------------
 //  GET /wizard/profile/<id> —— 第 4 步：从已有引擎导入
 // ---------------------------------------------------------------------------
 // ⭐ 调用平台的 resolveEngineProfile(id)，返回解析后的 profile。
@@ -831,6 +984,7 @@ module.exports = {
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
   handleVerifyChecks, handleVerify, handleProfile, handleParams, handleCliArgs,
+  handleDiscover,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

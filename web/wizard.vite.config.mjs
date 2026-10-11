@@ -67,6 +67,7 @@ function validatePlugin () {
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
     wb.handleClone, wb.handleEnv, wb.handleModels,
     wb.handleVerifyChecks, wb.handleVerify, wb.handleProfile, handleValidate, wb.handleCliArgs,
+    wb.handleDiscover,
     handleInstalled, handleSave,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
     // ⛔ handleDownload 认的是 /wizard/download 这个**前缀**，会把上面的
