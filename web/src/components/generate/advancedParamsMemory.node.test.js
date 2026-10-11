@@ -20,19 +20,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readDirSources, stripComments } from '../../__testsupport__/readDirSources.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const SRC = fs.readFileSync(path.join(HERE, 'GenerateTab.jsx'), 'utf-8')
-
-/** 去掉 // 行注释和注释块，免得注释里提到的键名混进来。 */
-function stripComments(s) {
-  return s
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter((line) => !line.trimStart().startsWith('//'))
-    .join('\n')
-}
+// 读本目录下全部源码：组件按功能拆成多个文件后，只读 GenerateTab.jsx
+// 会看不见拆出去的部分，守卫静默失效。
+const SRC = readDirSources(import.meta.url, '.')
 
 const CODE = stripComments(SRC)
 

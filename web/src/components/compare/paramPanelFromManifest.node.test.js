@@ -22,15 +22,15 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readDirSources, stripComments } from '../../__testsupport__/readDirSources.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const SRC = fs.readFileSync(path.join(HERE, 'ReferenceCompareTab.jsx'), 'utf-8')
+// 读本目录下全部源码：组件按功能拆成多个文件后，只读 ReferenceCompareTab.jsx
+// 会看不见拆出去的部分，守卫静默失效。
+const SRC = readDirSources(import.meta.url, '.')
 
-// 注释里可以提这些名字（守卫本身就在提），守的是代码。
-const CODE = SRC
-  .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')   // JSX 注释
-  .replace(/\/\*[\s\S]*?\*\//g, '')       // 块注释
-  .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+// 注释里可以提这些名字（上面那段注释本身就在提），守的是代码。
+const CODE = stripComments(SRC)
 
 // 这台引擎的参数表，曾经被逐条手抄进这个文件。
 //

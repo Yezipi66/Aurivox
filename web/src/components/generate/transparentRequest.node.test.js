@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
+import { readDirSources } from '../../__testsupport__/readDirSources.mjs'
 
-const src = fs.readFileSync(new URL('./GenerateTab.jsx', import.meta.url), 'utf8')
+// 读本目录下全部源码：组件按功能拆成多个文件后，只读 GenerateTab.jsx
+// 会看不见拆出去的部分，守卫静默失效。
+const src = readDirSources(import.meta.url, '.')
 
 test('Generate 只拒绝真正的空字符串，发送 text 原文', () => {
   assert.match(src, /if \(text === ''\)/)
