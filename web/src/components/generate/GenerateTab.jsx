@@ -103,6 +103,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     rehydrate: r => (Array.isArray(r) ? r : []),
   })
   const recent = recentAll.filter(x => !dismissed.includes(x.id))
+  const [showAllRecent, setShowAllRecent] = useState(false)
   const [genConfirm, setGenConfirm] = useState(null)      // secondary-confirm modal payload
   const [genConfirmBusy, setGenConfirmBusy] = useState(false)
   const [showSaveRecipe, setShowSaveRecipe] = useState(false)  // P1: Save as recipe modal
@@ -140,6 +141,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // Advanced settings — loaded from /api/advanced-params (global, not per-voice)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showLongTextSplit, setShowLongTextSplit] = useState(false)
   const [advTier, setAdvTier] = useState('common')
 
   // ============================================================
@@ -956,34 +958,39 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               )}
             </div>
 
-            <div className="section" style={{ margin: '6px 0' }}>
-              <div className="section-hdr"><span>Long-Text Splitting</span></div>
-              <div className="section-body">
-                <div className="form-grid">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={splitEnabled} onChange={e => setSplitEnabled(e.target.checked)} />
-                    Split long text
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Max chars:</span>
-                    <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 12 }} value={maxChars} min={10} max={200} onChange={e => setMaxChars(parseInt(e.target.value) || 30)} />
-                  </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={concatEnabled} onChange={e => setConcatEnabled(e.target.checked)} disabled={!splitEnabled} />
-                    Concatenate
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Silence (ms):</span>
-                    <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 12 }} value={silenceMs} min={0} max={2000} step={50} onChange={e => setSilenceMs(parseInt(e.target.value) || 300)} />
-                  </div>
-                </div>
-                {splitEnabled && text.length > maxChars && (
-                  <div className="field-hint" style={{ marginTop: 6, color: 'var(--warning)' }}>
-                    {t(`Text (${text.length} chars) will be split into segments of ~${maxChars} chars each.`,
-                       `文本（${text.length} 字符）将被拆分为每段约 ${maxChars} 字符的片段。`)}
-                  </div>
-                )}
+            <div className="collapsible" style={{ margin: '6px 0' }}>
+              <div className="collapsible-hdr" onClick={() => setShowLongTextSplit(!showLongTextSplit)}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Long-Text Splitting</span>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showLongTextSplit ? '▲' : '▼'}</span>
               </div>
+              {showLongTextSplit && (
+                <div className="collapsible-body">
+                  <div className="form-grid">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={splitEnabled} onChange={e => setSplitEnabled(e.target.checked)} />
+                      Split long text
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Max chars:</span>
+                      <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 12 }} value={maxChars} min={10} max={200} onChange={e => setMaxChars(parseInt(e.target.value) || 30)} />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={concatEnabled} onChange={e => setConcatEnabled(e.target.checked)} disabled={!splitEnabled} />
+                      Concatenate
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Silence (ms):</span>
+                      <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 12 }} value={silenceMs} min={0} max={2000} step={50} onChange={e => setSilenceMs(parseInt(e.target.value) || 300)} />
+                    </div>
+                  </div>
+                  {splitEnabled && text.length > maxChars && (
+                    <div className="field-hint" style={{ marginTop: 6, color: 'var(--warning)' }}>
+                      {t(`Text (${text.length} chars) will be split into segments of ~${maxChars} chars each.`,
+                         `文本（${text.length} 字符）将被拆分为每段约 ${maxChars} 字符的片段。`)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Advanced Settings */}
@@ -1278,7 +1285,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated audio will appear here.', '生成的音频将显示在这里。')}</div>
               </div>
             ) : (
-              recent.map(item => (
+              (showAllRecent ? recent : recent.slice(0, 5)).map(item => (
                 <div key={item.id} className="recent-row">
                   <div className="rr-main">
                     <div className="rr-text" title={item.text}>{item.text || '(empty)'}</div>
@@ -1305,6 +1312,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   </div>
                 </div>
               ))
+            )}
+            {recent.length > 5 && !showAllRecent && (
+              <div style={{ textAlign: "center", padding: "12px 0" }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => setShowAllRecent(true)}>
+                  {t(`Show more (${recent.length - 5} items)`, `显示更多（还有 ${recent.length - 5} 条）`)}
+                </button>
+              </div>
             )}
           </div>
         </div>
