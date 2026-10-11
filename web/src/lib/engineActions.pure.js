@@ -52,7 +52,7 @@ const REASON = {
     en: 'This deployment does not manage engine processes.',
   },
   external: {
-    zh: '这台引擎正在跑，但不是本平台起的（多半是你自己在另一个窗口开着）。\n⇒ 平台不会去停它。',
+    zh: '这台引擎正在跑，但不是本平台起的（多半是作者自己在另一个窗口开着）。\n⇒ 平台不会去停它。',
     en: 'The engine is up but was not started by this app, so it cannot be stopped here.',
   },
   starting: {

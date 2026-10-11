@@ -220,7 +220,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     return (
       <div style={{ marginTop: 8 }}>
         <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
-        <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick one or more audio files from your computer', '从你的电脑选择一个或多个音频文件')}>
+        <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick one or more audio files from your computer', '从电脑选择一个或多个音频文件')}>
           {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom files\u2026', '自定义文件\u2026')}
         </button>
         <div className="field-hint" style={{ marginTop: 4 }}>
@@ -235,7 +235,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
   return (
     <div style={{ marginTop: 8 }}>
       <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
-      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from your computer', '从你的电脑选择任意音频文件')}>
+      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from your computer', '从电脑选择任意音频文件')}>
         {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom file\u2026', '自定义文件\u2026')}
       </button>
       {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}

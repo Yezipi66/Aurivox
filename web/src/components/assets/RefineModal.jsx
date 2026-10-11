@@ -247,7 +247,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {language === ''
                     ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language if you want to declare one for the new corpus.',
-                        '未声明——本分支继承父级音色的语言。只有当你想为新语料指定语言时才需要选择。')
+                        '未声明——本分支继承父级音色的语言。仅当需要为新语料指定语言时才需选择。')
                     : language === (parentLanguage || 'auto')
                       ? t('Same as the parent Voice — this is equivalent to inheriting; no separate language branch is created.',
                           '与父级音色相同——等同于继承，不会额外产生语言派生。')
@@ -405,11 +405,11 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <div style={{ fontSize: 13, lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
             <p style={{ marginTop: 0 }}>
               {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
-                 '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非你自备转写。')}
+                 '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非自备转写。')}
             </p>
             <p>
               {t('Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
-                 '在预处理前，系统会等待下面设定的秒数，让你把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
+                 '在预处理前，系统会等待下面设定的秒数，以便将文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 12 }}>
               {t('Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',

@@ -606,7 +606,7 @@ const TRAIN_PRESETS = [
     hintZh: 'batch size 1 + gradient checkpoint，适合 8GB 显存的 GPU。epoch 划分同样为 S1 8 / S2 25。',
     fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 1,      s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: true,  s2Fp16: true } },
   { key: 'custom',   label: 'Custom',               hint: 'Your own values — edit anything in the pipeline steps below.',
-    hintZh: '使用你自己的参数——可在下方各流程步骤中任意修改。',
+    hintZh: '使用自定义参数，可在下方各流程步骤中任意修改。',
     fields: null },
 ]
 
@@ -2025,7 +2025,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
             {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
-                '启用后，流程会在分离完成后立即停止，让你试听提取出的人声。听着干净就继续，质量差就取消本次任务——这是决定成败的第一道 GIGO 门。')}
+                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。听着干净就继续，质量差就取消本次任务——这是决定成败的第一道 GIGO 门。')}
           </p>
 
           {/* 提取后，分离出的人声才是真正的“raw”（切片/ASR/训练都用它）。提取前的
@@ -2298,7 +2298,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           <p className="field-hint" style={{ marginTop: 4 }}>
             {tr('When enabled the pipeline stops right after transcription so you can correct the recognised text and pronunciation before preprocessing/training continue.',
-                '启用后，流程会在转写完成后立即停止，让你在继续预处理 / 训练之前修正识别出的文本和读音。')}
+                '启用后，流程会在转写完成后立即停止，以便在继续预处理 / 训练之前修正识别出的文本和读音。')}
           </p>
         </>
       );
@@ -2323,14 +2323,14 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               want to <strong>keep</strong> those intermediates for inspection or debugging. It will
               count against your disk space.</>,
               <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>——中间预处理特征与 checkpoint）
-              会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有当你想<strong>保留</strong>
-              这些中间产物用于检查或调试时才开启。它会占用你的磁盘空间。</>)}
+              会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有想<strong>保留</strong>
+              这些中间产物用于检查或调试时才开启。它会占用磁盘空间。</>)}
           </p>
           <p className="field-hint">
             {tr(
               <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so you
               can inspect it. Delete it later from the Train page&rsquo;s cache manager when you no longer need it.</>,
-              <>保留的工作区<strong>绝不会</strong>被后续任务复用——它仅供你检查之用。不再需要时，可在 Train 页面的缓存管理器中删除它。</>)}
+              <>保留的工作区<strong>绝不会</strong>被后续任务复用——仅供检查之用。不再需要时，可在 Train 页面的缓存管理器中删除。</>)}
           </p>
         </>
       );
@@ -2507,13 +2507,13 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                           <>You changed <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> settings. That step runs <strong>before</strong> the failure point,
                            so its output must be regenerated — an in-place resume would reuse the old cache and silently ignore your change.
                            This therefore launches a <strong>brand-new task</strong> (fork) and re-runs from <strong>{FSTEP_LABELS[rerunStart]}</strong>.</>,
-                          <>你修改了 <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> 的设置。该步骤在失败点<strong>之前</strong>运行，
-                           因此它的输出必须重新生成——原地恢复会复用旧缓存并悄悄忽略你的修改。
+                          <>已修改 <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> 的设置。该步骤在失败点<strong>之前</strong>运行，
+                           因此它的输出必须重新生成——原地恢复会复用旧缓存并忽略该修改。
                            所以这里会启动一个<strong>全新任务</strong>（分叉），并从 <strong>{FSTEP_LABELS[rerunStart]}</strong> 重新运行。</>)
                         : tr(
                           <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
                            Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).</>,
-                          <>你把重启点移到了一个更早、已完成的步骤（<strong>{FSTEP_LABELS[rerunStart]}</strong>）。
+                          <>重启点已移到一个更早、已完成的步骤（<strong>{FSTEP_LABELS[rerunStart]}</strong>）。
                            修改已完成的步骤意味着必须重新运行，因此这里会启动一个<strong>全新任务</strong>（分叉）。</>)}
                      {' '}{tr(
                        <>Only the products of steps <strong>before {FSTEP_LABELS[rerunStart]}</strong> are copied to the new task — so make sure you have enough <strong>disk space</strong> for them.
@@ -2669,7 +2669,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             open={cacheConfirm}
             title={tr('Clean training cache', '清理训练缓存')}
             message={tr('Delete all finished task workspaces from the training cache (.staging)? Running tasks are never deleted. Your published models and assets are not affected.',
-              '要从训练缓存（.staging）中删除所有已完成的任务工作区吗？运行中的任务永远不会被删除。你已发布的模型和资源不受影响。')}
+              '要从训练缓存（.staging）中删除所有已完成的任务工作区吗？运行中的任务永远不会被删除。已发布的模型和资源不受影响。')}
             confirmLabel={tr('Clean cache', '清理缓存')}
             danger
             busy={clearing}
@@ -2791,12 +2791,12 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             <p style={{ marginTop: 0 }}>
               {tr(
                 'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
-                '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非你自备转写。')}
+                '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非自备转写。')}
             </p>
             <p>
               {tr(
                 'Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
-                '在预处理前，系统会等待下面设定的秒数，让你把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
+                '在预处理前，系统会等待下面设定的秒数，留出时间把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 12 }}>
               {tr(
@@ -3028,7 +3028,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
 
         <p className="modal-desc">
           {tr('Choose how to rebuild the missing artifacts. The shortest safe path is preselected; existing models are always kept unless you opt into retraining.',
-              '选择如何重建缺失的产物。已默认选中最短的安全路径；除非你主动选择重新训练，否则始终保留现有模型。')}
+              '选择如何重建缺失的产物。已默认选中最短的安全路径；除非主动选择重新训练，否则始终保留现有模型。')}
         </p>
 
         {/* Current asset state */}

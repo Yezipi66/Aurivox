@@ -533,7 +533,7 @@ export function processBadge (engine, lang = 'zh') {
         label: zh ? '外部进程' : 'external',
         launchKey: null,
         title: zh
-          ? '这台引擎正在跑，但不是本平台起的（多半是你自己在另一个窗口开着）。\n' +
+          ? '这台引擎正在跑，但不是本平台起的（多半是作者自己在另一个窗口开着）。\n' +
             '⇒ 本平台不会去停它，换模型也不会重开它。'
           : 'Engine is up but was not started by this app; it will not be stopped or relaunched here.',
       }
@@ -832,7 +832,7 @@ export function occupancyBadge (occ, lang = 'zh') {
   // 后端已经写好了一句人话（headline），优先用它，
   //   理由：那句话是后端跟 occupancy 同一份数据算出来的，
   //     前端再措辞一次就多了一处「两边说法不一致」的可能。
-  const title = (occ.headline || (zh ? '平台此刻占了你的什么' : 'what the platform is using'))
+  const title = (occ.headline || (zh ? '平台此刻占用了什么' : 'what the platform is using'))
     + '\n\n' + detail.join('\n')
 
   return {

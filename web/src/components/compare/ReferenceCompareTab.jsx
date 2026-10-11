@@ -519,7 +519,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             <div className="field-hint" style={{ marginBottom: 4 }}>
               {t(
                 <>Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
-                <>默认所有行都使用这段文本，这样你就能在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
+                <>默认所有行都使用这段文本，以便在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
             </div>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}
               placeholder="Enter the text used across all rows for comparison…" />
@@ -562,7 +562,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
               {t(
                 <>You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
-                <>你也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
+                <>也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
             </div>
           </div>
 
