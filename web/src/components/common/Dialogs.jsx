@@ -38,7 +38,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 
   const nameErr = name ? recipeNameError(name) : null
   const previewId = role && name.trim() ? `${role}/${name.trim()}` : '—'
-  // 预览里权重那几行。⛔ 这个对话框不认识任何一个权重字段名 ——
+  // 预览里权重那几行。这个对话框不认识任何一个权重字段名，
   //   哪些字段、显示成什么，全在配方那个文件里一处说了算。
   const weightPreview = recipeWeightPreview(d)
 
@@ -56,7 +56,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
       language,
       params: d.params || {},
       // 这张配方是给哪台引擎存的，以及那台引擎自己的一袋参数。
-      // ⛔ 这个对话框不认识袋子里任何一个键，原样转发 —— 少转发的后果是
+      // 这个对话框不认识袋子里任何一个键，原样转发，少转发的后果是
       //    后端只能把参数收进 _unassigned 占位格，下次打开未必认得回来。
       engine_id: d.engine_id || '',
       engine_params: d.engine_params || {},
@@ -90,7 +90,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <div><span className="rp-k">Voice</span><span className="rp-v">{role || '—'}</span></div>
             <div><span className="rp-k">OpenAI voice</span><code className="rp-code">{previewId}</code></div>
             <div><span className="rp-k">Reference</span><span className="rp-v" title={d.reference_audio}>{basename(d.reference_audio)}</span></div>
-            {/* ⭐⭐ 原来这里是写死的两行 ⇒ 换一台引擎就永远显示「GPT（无）/
+            {/* 原来这里是写死的两行 ⇒ 换一台引擎就永远显示「GPT（无）/
                 SoVITS（无）」，等于对用户说"你没有模型"。真实情况是：配方格式
                 还装不下这台引擎的模型选择（挂账见引擎契约 §9）。
                 ⇒ 存进去了就列出来，一个都存不进就把原因说出来。 */}

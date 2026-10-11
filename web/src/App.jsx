@@ -16,21 +16,21 @@ import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessSt
 /**
  * 把操作系统报的设备名整理成一句能给人看的话。
  *
- * ⚠️ 为什么需要它：`/api/health` 的 `device_name` 是**系统原样报上来的字符串** ——
+ * 为什么需要它：`/api/health` 的 `device_name` 是**系统原样报上来的字符串**，
  *   这台机器上是 `Intel(R) Arc(TM) 140T GPU (32GB)`，里面混着商标符号、
  *   用途后缀和一段**不可信的显存**（WMI 的 AdapterRAM 报 4.0GB，
  *   而真实共享内存是 58.5GB）。
- * ⛔ 所以这里把商标符号、用途后缀、以及那段显存数字一起去掉 ——
+ * 所以这里把商标符号、用途后缀、以及那段显存数字一起去掉，
  *   界面上不该出现一个我们自己都不信的数字。
  *
- * ⚠️ 只做「去掉」，不猜、不改写：万一名里没有 GPU 这类词，就原样保留。
+ * 只做「去掉」，不猜、不改写：万一名里没有 GPU 这类词，就原样保留。
  */
 function prettyDevice(raw) {
   if (!raw) return '未知设备';
   return String(raw)
     .replace(/\((?:R|TM)\)/g, '')          // (R) (TM) 商标符号
     .replace(/[®™]/g, '')
-    .replace(/\s*\(\s*\d+(?:\.\d+)?\s*GB\s*\)/gi, '')  // (32GB) —— ⛔ 不可信的显存
+    .replace(/\s*\(\s*\d+(?:\.\d+)?\s*GB\s*\)/gi, '')  // (32GB)，不可信的显存
     .replace(/\s*\bGPU\b\s*$/i, '')            // 结尾的用途后缀
     .replace(/\s{2,}/g, ' ')
     .trim() || String(raw);
@@ -45,7 +45,7 @@ export default function App() {
 }
 
 function AppShell() {
-  // 只有底模徽章用得着 —— 它要在中英之间说人话。AppShell 就在 LangProvider
+  // 只有底模徽章用得着，它要在中英之间说人话。AppShell 就在 LangProvider
   // 里面，所以这个 hook 在这里是合法的。
   const { lang } = useT()
   const [page, setPage] = usePersistentState('ui.page', 'generate')
@@ -62,12 +62,12 @@ function AppShell() {
   // switched it on, instead of offering a button that can only disappoint.
   const [flowReady, setFlowReady] = useState(false)
   // 装了哪几台引擎，以及现在用的是哪一台。
-  // ⛔ 初值是空列表 + null，不是「先假设有一台叫某某的」：在列表回来之前，
+  // 初值是空列表 + null，不是「先假设有一台叫某某的」：在列表回来之前，
   //    界面对「有哪些引擎」这件事应当一无所知。凡是需要引擎信息才能决定的
   //    东西（参数面板、训练页显隐），这段时间就先不显示。
   const [engines, setEngines] = useState([])
-  // ⭐ B5 占用透明度：后端算好的那一份（lib/engines/occupancy.js）。
-  //   ⛔ 默认 null 而不是 {} —— occupancyBadge 判的是「字段在不在」，
+  // B5 占用透明度：后端算好的那一份（lib/engines/occupancy.js）。
+  //   默认 null 而不是 {}，occupancyBadge 判的是「字段在不在」，
   //     {} 会让「后端没给」和「真装了 0 台」长得一样，而那两句的含义相反。
   const [occupancy, setOccupancy] = useState(null)
   const [engineErrors, setEngineErrors] = useState([])
@@ -110,15 +110,15 @@ function AppShell() {
     setSelectedPromptLang(promptLang || '')
   }, [])
 
-  // ⭐⭐⭐ 2026-08-30 刀 4：这个轮询过去的名义是「让徽章实时反映 GPT-SoVITS
-  //   引擎（端口 9880）」—— 那是第六项：端口不是推理需要的东西，是我给引擎
+  // 2026-08-30 刀 4：这个轮询过去的名义是「让徽章实时反映 GPT-SoVITS
+  //   引擎（端口 9880）」，那是第六项：端口不是推理需要的东西，是我给引擎
   //   套的 HTTP 外壳产生的。engine_online 现在**前端一处都不读了**
   //   （engines.js:engineBadge 与 BrokerTab 那两枚灯已删）。
   //
-  // ⭐ 留下来的是它另一半用途：ffmpeg 装没装、有没有 CUDA —— 那是**这台机器**
+  // 留下来的是它另一半用途：ffmpeg 装没装、有没有 CUDA，那是**这台机器**
   //   的事实，不是某台引擎的事实，对所有引擎一视同仁 ⇒ 它不是第六项。
   //   ⇒ 轮询降到 30s（机器装没装 ffmpeg 不会在 8 秒里变）。
-  // ⛔ 不许再拿这里的结果去画任何一枚"引擎在不在线"的灯。
+  // 不许再拿这里的结果去画任何一枚"引擎在不在线"的灯。
   useEffect(() => {
     let dead = false
     const check = () => api('/api/health')
@@ -129,7 +129,7 @@ function AppShell() {
     return () => { dead = true; clearInterval(t) }
   }, [])
 
-  // 引擎列表。probe=0：这里只要「装了哪几台、各自长什么样」，不探活 ——
+  // 引擎列表。probe=0：这里只要「装了哪几台、各自长什么样」，不探活，
   // 探活要挨个打网络，一台超时就拖住整张列表，而挑引擎、长面板都不需要
   // 知道它此刻活没活。在线状态由下面那个健康轮询单独负责。
   useEffect(() => {
@@ -137,37 +137,37 @@ function AppShell() {
     fetchEngines({ probe: false }).then(r => {
       if (dead) return
       setEngines(r.engines)
-      // ⭐ 拉不到就保持 null（= 不画），⛔ 不许翻成「没占用」。
+      // 拉不到就保持 null（= 不画），不许翻成「没占用」。
       setOccupancy(r.occupancy ?? null)
-      // 名片坏掉的引擎不在 r.engines 里，在 r.errors 里。必须显示出来 ——
+      // 名片坏掉的引擎不在 r.engines 里，在 r.errors 里。必须显示出来，
       // 一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。
       setEngineErrors(r.errors || [])
     }).catch(() => {})
     return () => { dead = true }
   }, [])
 
-  // 刀 F2：起 / 停之后立刻重拉一次，⛔ 不等那个 8 秒轮询。
-  // ⭐ 等 8 秒的表现是"按钮点了没反应"，然后用户再点一次 —— 而第二次点的是
+  // 刀 F2：起 / 停之后立刻重拉一次，不等那个 8 秒轮询。
+  // 等 8 秒的表现是"按钮点了没反应"，然后用户再点一次，而第二次点的是
   //   一台正在启动的引擎（要等几十秒到几分钟），只会排得更久。
   const refreshEngines = useCallback(() => {
     return fetchEngines({ probe: false })
       .then(r => {
         setEngines(prev => mergeProcessState(prev, r.engines))
         setOccupancy(r.occupancy ?? null)
-        // ⭐ 名片坏掉的那几台也一起刷新 —— 用户在引擎页看到"读不出来"，
+        // 名片坏掉的那几台也一起刷新，用户在引擎页看到"读不出来"，
         //   去改完 manifest.json 再回来点一下，就该少一条。
         setEngineErrors(r.errors || [])
       })
-      .catch(() => {}) // ⛔ 拉不到就保持原样，不许把徽章翻成"停着"
+      .catch(() => {}) // 拉不到就保持原样，不许把徽章翻成"停着"
   }, [])
 
   // 引擎进程状态的轮询（契约 §12 第 5 步）。
-  // ⭐⭐⭐ 上面那次是**一次性**的 —— 名片和参数表只有装卸引擎时才变。
+  // 上面那次是**一次性**的，名片和参数表只有装卸引擎时才变。
   //   但「这台引擎现在跑没跑、在装模型没有」是每几秒都在变的东西。
   //   不轮询的话，那个进程徽章会永远停在开页面那一刻：换模型时它照样写着
-  //   "待命"，而人正对着一个要等几分钟的重启在猜是不是卡死了 ——
+  //   "待命"，而人正对着一个要等几分钟的重启在猜是不是卡死了，
   //   那个徽章存在的唯一理由就没了。
-  // ⭐ 合并只动 process 一个字段，且没变化时原样还回旧数组，
+  // 合并只动 process 一个字段，且没变化时原样还回旧数组，
   //   否则每一轮都产出新数组 ⇒ 下面那些 useEffect([engines]) 每 8 秒重跑。
   useEffect(() => {
     let dead = false
@@ -175,22 +175,22 @@ function AppShell() {
       .then(r => {
         if (dead) return
         setEngines(prev => mergeProcessState(prev, r.engines))
-        // ⭐⭐ occupancy **每 8 秒都会变**（谁在跑、峰值），所以要跟着更新；
-        //   但 ⛔ 只在**内容真的变了**时才 set —— 否则每 8 秒一个新对象
+        // occupancy **每 8 秒都会变**（谁在跑、峰值），所以要跟着更新；
+        //   但 只在**内容真的变了**时才 set，否则每 8 秒一个新对象
         //   ⇒ 整个引擎页重渲，而那一页有 N 个引擎的按钮和徽章。
-        //   ⭐ 判据用 JSON 字符串：这一段只有十来个标量，代价可忽略，
+        //   判据用 JSON 字符串：这一段只有十来个标量，代价可忽略，
         //     而换来的是「没变就真的不重渲」。
         setOccupancy(prev => (JSON.stringify(prev) === JSON.stringify(r.occupancy ?? null)
           ? prev
           : (r.occupancy ?? null)))
       })
-      .catch(() => {}) // ⛔ 拉不到就保持原样，不许把徽章翻成"停着"
+      .catch(() => {}) // 拉不到就保持原样，不许把徽章翻成"停着"
     const t = setInterval(tick, 8000)
     return () => { dead = true; clearInterval(t) }
   }, [])
 
   // 上次选的那台还在就还用它，不在了（比如卸了）退到第一台。
-  // ⛔ 这里不点名任何引擎作为兜底默认值。
+  // 这里不点名任何引擎作为兜底默认值。
   useEffect(() => {
     if (engines.length === 0) return
     const picked = pickEngine(engines, selectedEngineId)
@@ -241,13 +241,13 @@ function AppShell() {
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
         {/* 契约 §11 判据 11：训练页只对 supports_finetune: true 的引擎显示。
             照抄下面 flowReady 那个形状。showsTrainingTab 是 fail-closed 的：
-            列表还没回来（engine 是 null）、或者名片没写这一格，都不显示 ——
+            列表还没回来（engine 是 null）、或者名片没写这一格，都不显示，
             少显示一个页签刷新一下就有了；多显示会让人对一台根本不能微调的
             引擎填完一整张表，最后才发现白填。 */}
         {showsTrainingTab(engine) && (
           <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
         )}
-        {/* 刀 F2：引擎管理页。⛔ 不做成"装了两台以上才显示" ——
+        {/* 刀 F2：引擎管理页。不做成"装了两台以上才显示"，
             装一台的时候一样要能起停它，而"起不来"恰恰是只装了一台时最要紧的事。 */}
         <button className={`nav-btn ${page === 'engines' ? 'active' : ''}`} onClick={() => setPage('engines')}>Engines</button>
         <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
@@ -255,9 +255,9 @@ function AppShell() {
           <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
         )}
         <div style={{ flex: 1 }} />
-        {/* 引擎选择器。只有装了两台以上才出现 —— 一台的时候它是个只有一个
+        {/* 引擎选择器。只有装了两台以上才出现，一台的时候它是个只有一个
             选项的下拉框，占地方还让人以为自己漏装了什么。 */}
-        {/* ⛔ 这里原来是全 App 唯一一个裸 <select>，而且挂的 class
+        {/* 这里原来是全 App 唯一一个裸 <select>，而且挂的 class
             `.nav-select` 在 styles.css 里根本不存在 ⇒ 浏览器默认样式，
             一个白底方框戳在深色导航条中间。别的地方（RefPickers、
             ParamField…）用的都是 components/common/Select.jsx。
@@ -281,25 +281,25 @@ function AppShell() {
         <LangToggle />
         {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
         {health && (() => {
-          // ⚠ 2026-10-05：探测机制换了（lib/system/gpu.js：问操作系统，不再问
-          //   任何 venv 里的 torch）—— 因为根 venv 瘦身之后那条路必然答「无 CUDA」，
+          // 2026-10-05：探测机制换了（lib/system/gpu.js：问操作系统，不再问
+          //   任何 venv 里的 torch），因为根 venv 瘦身之后那条路必然答「无 CUDA」，
           //   而那不是事实。
           //
-          // ⭐ 但**标签语义一个字没动**：README 定义的就是
+          // 但**标签语义一个字没动**：README 定义的就是
           //   「CUDA <显存>（绿=检测到 N 卡）/ CPU only（红=未检测到 N 卡）」，
-          //   而「未检测到 N 卡」在这台机器上**是准确的**。⛔ 不该因为
-          //   「这台机器有别的 GPU」就去改标签的既定义 ——
+          //   而「未检测到 N 卡」在这台机器上**是准确的**。不该因为
+          //   「这台机器有别的 GPU」就去改标签的既定义，
           //   那是拿一个未被要求的改进去覆盖一条已经写清楚的约定。
           //
-          // ✅ 唯一补的是 **tooltip**：那里可以把话说完而不动标签语义。
+          // 唯一补的是 **tooltip**：那里可以把话说完而不动标签语义。
           //   「有没有这块卡」是平台知道的；「引擎用不用得上它」是引擎层的事，
           //   而平台的**没有**这个声明（名片里没有 supported_backends）
           //   ⇒ 所以这里**不断言**引擎，只陈述探测结果。
           const c = health.cuda;
           const probing = !c || c.ready === false;
           const ok = !!c?.available;
-          // ⭐ 非 NVIDIA 的 GPU：⛔ 不看 vram_gb（WMI 的 AdapterRAM 在核显上
-          //   报 4.0GB，而真实共享内存 58.5GB —— 那个数字不可信）
+          // 非 NVIDIA 的 GPU：不看 vram_gb（WMI 的 AdapterRAM 在核显上
+          //   报 4.0GB，而真实共享内存 58.5GB，那个数字不可信）
           const otherGpu = !probing && !ok && !!c?.device_name;
           const bg = probing ? 'rgba(158,158,158,0.15)' : ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)';
           const fg = probing ? 'var(--muted)' : ok ? 'var(--success)' : 'var(--danger)';
@@ -307,7 +307,7 @@ function AppShell() {
           const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'No CUDA';
           const title = probing ? '正在探测本机的计算设备…'
             : ok ? `CUDA 可用 — ${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
-            // ⭐ 只有一行。⛔ 不写「⛔ 无权威显存读数」/「取决于引擎后端支持」这类
+            // 只有一行。不写「无权威显存读数」/「取决于引擎后端支持」这类
             //   给排障人看的话，也不把内部取值（intel/amd）露到界面上。
             : otherGpu ? `本机 GPU：${prettyDevice(c.device_name)}。`
             : '未检测到 CUDA 设备。推理将在 CPU 上运行。';
@@ -315,18 +315,18 @@ function AppShell() {
             <span title={title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, alignSelf: 'center' }}>{label}</span>
           );
         })()}
-        {/* ⭐⭐⭐ 关于「当前这台引擎」，顶栏只留这一枚灯。
+        {/* 关于「当前这台引擎」，顶栏只留这一枚灯。
             2026-08-30 之前这里是**三枚**：底模齐 / 进程状态 / Connected。
             Owner：「你现在右上角的指示灯越来越多了，是非常不好的兆头…
                     你再加是想变成飞机仪表盘嘛」。
 
-            ⭐ 并掉的实质理由不是省地方，是那三枚里有两枚已经在说错话：
+            并掉的实质理由不是省地方，是那三枚里有两枚已经在说错话：
               引擎改成「用到才起」之后，「Unreachable」变成了**常态**，
               而一枚正常状态下常亮红灯的指示灯只会训练人忽略所有红灯。
-            ⭐ 「底模齐」也不再占格子 —— 永远绿的灯不携带信息，降级进悬停；
+            「底模齐」也不再占格子，永远绿的灯不携带信息，降级进悬停；
               但「底模缺」留在灯面上，那是唯一一种看不见就会被卡住一小时的坏。
 
-            ⛔ 这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定；
+            这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定；
               跑没跑、齐没齐，服务端早算完了。 */}
         {(() => {
           const b = engineBadge(engine, health, lang);
@@ -367,16 +367,16 @@ function AppShell() {
             <ReferenceCompareTab engine={engine} voices={voices} selectedVoice={selectedVoice} onActivity={setGenActivity} />
           )}
           {page === 'assets' && (
-            /* ⭐ 刀 A1（2026-08-31）：`engine` 传下去，是给参考文本校对里的
-               读音预览用的 —— /api/pron/preview 现在 engine_id 必传，
-               ⛔ 平台不替你挑一台（换一台预览出来的读音和实际合成不是一回事）。 */
+            /* 刀 A1（2026-08-31）：`engine` 传下去，是给参考文本校对里的
+               读音预览用的，/api/pron/preview 现在 engine_id 必传，
+               平台不替你挑一台（换一台预览出来的读音和实际合成不是一回事）。 */
             <AssetsTab engine={engine} voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
               setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
-          {/* 判据 11 的另一半：页签藏了，页面本身也得关上 —— 否则上次停在
+          {/* 判据 11 的另一半：页签藏了，页面本身也得关上，否则上次停在
               Tune 页的人刷新后照样进得来。同 flow 页的做法：说清为什么没有，
-              不要给一个空白面板。⚠ engine 为 null 时说的是「还在读」，跟
+              不要给一个空白面板。engine 为 null 时说的是「还在读」，跟
               「这台不支持」是两回事，不能合成一句话。 */}
           {page === 'train' && (showsTrainingTab(engine)
             ? <TrainingTab engine={engine} voices={voices} loadVoices={loadVoices}

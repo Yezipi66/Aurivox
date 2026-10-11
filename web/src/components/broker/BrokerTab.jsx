@@ -10,7 +10,7 @@ import { usePersistentState } from '../../usePersistentState'
 import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
 import { modelCountsByEngine, paramsSummaryOf } from '../../lib/modelPickers.pure.js'
 
-// 权重文件的扩展名 —— ⛔ 不写死成 .ckpt / .pth（那是 GPT-SoVITS 的形状）。
+// 权重文件的扩展名，不写死成 .ckpt / .pth（那是 GPT-SoVITS 的形状）。
 // 一台非 GSV 引擎的权重可能是 .safetensors / .onnx / .pt / .bin，
 // 过滤太窄的后果是：自定义路径那一栏的「浏览」**看不到文件**，
 // 而界面上没有任何一句话解释为什么。
@@ -29,10 +29,10 @@ function RecipeModelRebind({ recipe, onSaved }) {
   // 7.1: a single shared Voice ID drives both the GPT and SoVITS model lists (one row, three dropdowns).
   // Cross-voice mixing is still possible via each model slot's "custom path" escape hatch (D2).
   const [voice, setVoice] = useState(recipe.role || '')
-  // ⭐ 这两个下拉渲染的是「这台引擎在这个资产上有的前两个模型位」，
+  // 这两个下拉渲染的是「这台引擎在这个资产上有的前两个模型位」，
   //   位名由后端给出（slotNames），不写死成 'gpt' / 'sovits'。
   //   变量名 gpt*/sovits* 留着是为了不碰配方那两个字段名（gpt_ckpt /
-  //   sovits_pth，格式这轮不动），⛔ 但它们现在只是「第 0 位 / 第 1 位」。
+  //   sovits_pth，格式这轮不动），但它们现在只是「第 0 位 / 第 1 位」。
   const [slotNames, setSlotNames] = useState([])
   const [gptModels, setGptModels] = useState([])
   const [sovitsModels, setSovitsModels] = useState([])
@@ -45,10 +45,10 @@ function RecipeModelRebind({ recipe, onSaved }) {
   const [msg, setMsg] = useState(null)
   const modelCache = useRef({})
 
-  // ⚠ 这个「换模型」小面板改的是配方顶层那两个权重字段 —— 配方格式这轮不动
+  // 这个「换模型」小面板改的是配方顶层那两个权重字段，配方格式这轮不动
   //   （Owner 2026-08-30），所以它只装得下**两个**位。
   //
-  // ⭐⭐ 2026-10-01：过去这里是 `REBIND_ENGINE = 'gpt-sovits'` 写死，位名也写死
+  // 2026-10-01：过去这里是 `REBIND_ENGINE = 'gpt-sovits'` 写死，位名也写死
   //   成 'gpt' / 'sovits'，连文件选择器的扩展名都是 .ckpt / .pth。后果：
   //   一台 CosyVoice 的资产在 Broker 里**连一个模型位都列不出来**，
   //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
@@ -56,7 +56,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
   //   现在引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
   //   **已经有** engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
   //   的 enginesInMeta 算出来的）和 models[<engineId>][<slot>]。
-  //   ⛔ 前端不猜引擎有哪些位 —— 后端给什么位就渲染什么位。
+  //   前端不猜引擎有哪些位，后端给什么位就渲染什么位。
   const loadVoiceModels = async (voiceId) => {
     if (!voiceId) return { engines: [], slots: {}, bySlot: {} }
     if (modelCache.current[voiceId]) return modelCache.current[voiceId]
@@ -70,8 +70,8 @@ function RecipeModelRebind({ recipe, onSaved }) {
   }
 
   // 这个配方现在正在用哪台引擎：配方自己**没有** engine_id（配方格式这轮不动），
-  //   所以身份是从它钉的那份权重反查出来的 —— 那份权重属于谁，就是哪台引擎。
-  //   ⛔ 找不到就 null，让调用方说人话，别默默退回第一台引擎（那等于把
+  //   所以身份是从它钉的那份权重反查出来的，那份权重属于谁，就是哪台引擎。
+  //   找不到就 null，让调用方说人话，别默默退回第一台引擎（那等于把
   //   一台引擎的权重发给另一台）。
   const engineOfRecipe = (voiceId) => {
     const m = modelCache.current[voiceId]
@@ -86,7 +86,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
     return null
   }
 
-  // 这台引擎在这个资产上到底有哪几个位，⛔ 由后端给的列表决定，不猜。
+  // 这台引擎在这个资产上到底有哪几个位，由后端给的列表决定，不猜。
   //   （GSV ⇒ ['gpt','sovits']；CosyVoice ⇒ ['model']；别的形状就按它的来。）
   const slotNamesOf = (m, engineId) => Object.keys((m && m.slots && m.slots[engineId]) || {})
 
@@ -163,14 +163,14 @@ function RecipeModelRebind({ recipe, onSaved }) {
     return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>{t('Change models', '更换模型')}</button>
   }
 
-  // 有任何模型的角色都可以挑 —— ⛔ 以前问的是「有没有 GPT 或有没有 SoVITS」，
+  // 有任何模型的角色都可以挑，以前问的是「有没有 GPT 或有没有 SoVITS」，
   // 那两个字段已经不存在了，留着会让这个下拉永远是空的。
   const modelVoices = (voicesList || []).filter(v => Object.keys(v.models || {}).length > 0)
 
   return (
     <div className="rebind">
       {/* 7.1: one row, three dropdowns — Voice ID (shared) · model slot 0 · model slot 1.
-          ⭐ 2026-10-01：两个位下拉的标签过去写死成「GPT checkpoint」「SoVITS model」，
+          2026-10-01：两个位下拉的标签过去写死成「GPT checkpoint」「SoVITS model」，
              文件选择器的扩展名也写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
              连标题都对不上。现在标题取后端给的真实位名（slotNames），扩展名放开。
              Each model slot keeps a "custom path…" escape hatch (cross-voice /
@@ -201,7 +201,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
             </div>
           )}
         </div>
-        {/* ⛔ 只有一位的引擎（CosyVoice 的 model 位就是一个）**不画第二格**。
+        {/* 只有一位的引擎（CosyVoice 的 model 位就是一个）**不画第二格**。
             画一个标题写着「模型」、候选永远为空的下拉，比不画更糟：用户会以为
             「这个音色真的没有第二个模型」，而真相是「这台引擎只有一个位」。
             判据跟方法下拉一样：名片/后端没给的，界面不许替它编一个。 */}
@@ -268,10 +268,10 @@ function RecipeModelRebind({ recipe, onSaved }) {
 
 function RecipeCard({ recipe, endpoint, onChanged }) {
   const { t } = useT()
-  // ⭐ 参数摘要：按**这个配方自己带的键**渲染，键的顺序尽量按当前引擎的
+  // 参数摘要：按**这个配方自己带的键**渲染，键的顺序尽量按当前引擎的
   //   param_schema 走（paramsSummaryOf）。过去这里是写死的
   //   `top_k / temperature / speed` 三个 GPT-SoVITS 键。
-  //   ⚠️ 配方没有 engine_id（配方格式不动），所以**不按引擎身份过滤** ——
+  //   配方没有 engine_id（配方格式不动），所以**不按引擎身份过滤**，
   //   参数就在配方里，显示配方里有的，不编配方里没有的。这比「猜它是哪台
   //   引擎然后只显示那几个键」更不容易错。
   const { short: paramSummary, full: paramSummaryFull } =
@@ -358,15 +358,15 @@ function RecipeCard({ recipe, endpoint, onChanged }) {
           </div>
           <div><span className="rc-k">{t('Model slot 1', '模型位 1')}</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
           <div><span className="rc-k">{t('Model slot 2', '模型位 2')}</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : t('(none)', '（无）')}</span></div>
-          {/* ⭐⭐ 2026-10-01：过去这里是写死的三个 GPT-SoVITS 键
+          {/* 2026-10-01：过去这里是写死的三个 GPT-SoVITS 键
               （`top_k {…} · temp {…} · speed {…}`）。一台 CosyVoice 的配方在
               Broker 里显示的是「top_k undefined · temp undefined · speed undefined」，
-              而这个配方明明带着 prompt_text / spk_id —— 参数**就在那儿**，
+              而这个配方明明带着 prompt_text / spk_id，参数**就在那儿**，
               只是这一页不认识它们的键名。
 
               现在按**当前引擎名片上的 param_schema** 渲染：有什么显示什么，
               一个都没有就老实说「没有参数」。
-              ⛔ 前端不猜哪几个参数值得显示（那又是一个写死的清单）。 */}
+              前端不猜哪几个参数值得显示（那又是一个写死的清单）。 */}
           <div><span className="rc-k">{t('Params', '参数')}</span><span className="rc-v" title={paramSummaryFull}>
             {paramSummary || t('(none)', '（无）')}
           </span></div>
@@ -556,7 +556,7 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
 
   // 这个角色手上有哪几台引擎的模型、各几个。
   //
-  // ⭐ 以前这里是写死的两格（GPT / SoVITS）——只有第一台引擎能填进去，
+  // 以前这里是写死的两格（GPT / SoVITS），只有第一台引擎能填进去，
   //   别的引擎的模型在这条状态栏上一个字都看不到。现在**有几台引擎就几格**。
   const modelCounts = modelCountsByEngine(meta)
 
@@ -609,13 +609,13 @@ function ContextRow({ voices, selectedVoice, health, activeTaskId, activity }) {
             </span>
           ))}
       {modelCounts.length === 0 && <span className="ctx-sep" />}
-      {/* ⭐⭐⭐ 2026-08-30 刀 4：这里原本是 Connected / Unreachable ——
+      {/* 2026-08-30 刀 4：这里原本是 Connected / Unreachable，
           最后一枚读 `health.engine_online`（往端口探活）的灯，已删。
           理由与 engines.js:engineBadge 那一处同一条：端口是第六项，
           引擎是用完即走的进程，"它现在在不在线"是一个不存在的问题；
           对命令行引擎这枚灯永远红，而红灯常亮 = 所有红灯失效。
-          ⛔ 不许以任何形式重新加回来（包括改叫 "Ready" / "Idle"）。
-          这一行的状态由「Task」那一格说 —— 它说的是**这一次操作**。 */}
+          不许以任何形式重新加回来（包括改叫 "Ready" / "Idle"）。
+          这一行的状态由「Task」那一格说，它说的是**这一次操作**。 */}
       <span className="ctx-item">
         <span className="ctx-k">Task</span>
         <span className={`badge ${taskPlaceholder ? 'badge-neutral' : taskStatus?.status === 'failed' ? 'badge-danger' : taskBusy ? 'badge-accent' : 'badge-info'}`}>{taskLabel}</span>

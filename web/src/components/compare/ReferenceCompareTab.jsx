@@ -9,20 +9,20 @@ import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, langLabel, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
-// ⭐⭐ 2026-10-01：这一页过去**一个引擎库函数都没 import**，超参是 26 行手抄的
+// 2026-10-01：这一页过去**一个引擎库函数都没 import**，超参是 26 行手抄的
 //   GPT-SoVITS 键名（temperature/top_k/top_p/repetition_penalty/
-//   text_split_method/speed_factor）—— 于是换一台引擎，格子照常显示、填了
+//   text_split_method/speed_factor），于是换一台引擎，格子照常显示、填了
 //   发出去**上游不认**、不报错。violates 平台第 2 条纪律「不静默忽略」。
 //
 //   现在跟 GenerateTab 用**同一套**：格子按 engine.param_schema 长，
-//   发出去用 paramsToSend。判据是契约 §11 第 9 条 ——「装一台谁都没见过的
+//   发出去用 paramsToSend。判据是契约 §11 第 9 条，「装一台谁都没见过的
 //   引擎，web/ 一个字都不用改」。
 import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue,
          paramsToSend, TIERS } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
-// ⭐ 2026-10-01：老 localStorage 里的行是**摊平**形状（超参直接在行上），
+// 2026-10-01：老 localStorage 里的行是**摊平**形状（超参直接在行上），
 //   迁移成 params/touched。不迁的话用户调过的超参会静静消失，而格子显示的
-//   却是名片默认值 —— 没有任何提示。
+//   却是名片默认值，没有任何提示。
 import { migrateRow } from '../../lib/compareRowMigrate'
 import { useT } from '../../lib/i18n'
 import { recipePath } from '../../lib/recipes'
@@ -122,10 +122,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       reference_text: row.promptText || '',
       language: row.textLang || defaultTextLang || rmVoiceLang || 'ja',
       params: {
-        // ⭐⭐ 2026-10-01：过去这里是 **7 个手抄的 GSV 键名**逐个抄
+        // 2026-10-01：过去这里是 **7 个手抄的 GSV 键名**逐个抄
         //   （top_k/top_p/temperature/speed/text_split_method/
         //   repetition_penalty/seed）。换一台引擎，配方存下来的就是一堆
-        //   上游不认的键 —— 存的时候不报错，回放的时候也不报错。
+        //   上游不认的键，存的时候不报错，回放的时候也不报错。
         //
         //   现在存当前引擎名片上、且这一行**用户明确动过**的那些（跟请求体
         //   走的是同一个 paramsToSend，配方和实际发出去的东西形状一致）。
@@ -134,7 +134,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         // (advanced group) fall back to the shared defaults so the recipe still
         // reproduces the audition.
         //
-        // ⭐⭐ 2026-10-01：过去这里是 **7 行手抄的 GSV 键名**
+        // 2026-10-01：过去这里是 **7 行手抄的 GSV 键名**
         //   （sample_steps / if_sr / batch_size / batch_threshold /
         //   split_bucket / fragment_interval / parallel_infer），逐个
         //   `dp.<键名>`。换一台引擎 ⇒ 配方存下一堆上游不认的键，存时不报错、
@@ -155,8 +155,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           }
           return out
         })(),
-        // ⛔ seed 是平台自己的开关，不在任何引擎的 param_schema 上，但配方
-        //   必须把它钉住 —— 否则回放不是同一个结果。
+        // seed 是平台自己的开关，不在任何引擎的 param_schema 上，但配方
+        //   必须把它钉住，否则回放不是同一个结果。
         seed: row.seed,
         aux_ref_audio_paths: (row.auxRefPaths && row.auxRefPaths.length > 0) ? row.auxRefPaths : [],
         // P1-1 / #4: pin this row's own reading overrides (not a shared, cross-row set).
@@ -190,10 +190,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
 
   // Load default advanced params from backend
-  // ⭐⭐⭐ 刀 A1（2026-08-31）：这里过去是裸的 `/api/advanced-params`，
+  // 刀 A1（2026-08-31）：这里过去是裸的 `/api/advanced-params`，
   //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault）。那条路已经删了
   //   ⇒ 现在**必须**带上 engine_id，且 engine 还没到就一个字节都不发。
-  //   ⛔ 不许在这里塞任何回落引擎 —— 回落回来的默认值属于**另一台**引擎，
+  //   不许在这里塞任何回落引擎，回落回来的默认值属于**另一台**引擎，
   //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都对不上的错。
   useEffect(() => {
     if (!engine?.id) return
@@ -219,20 +219,20 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // Also pull the built-in Base model (GET /api/assets/__base__) so its pretrained
     // weights are selectable here for zero-shot reference comparison — it isn't in the
     // /api/assets roster (no folder on disk), so it must be fetched explicitly.
-    // ⚠ 这一页整页都是「两份权重两两组合去试听」的形状 —— 它问的是那条特定的
+    // 这一页整页都是「两份权重两两组合去试听」的形状，它问的是那条特定的
     //   合成链路，所以引擎名在这里是**这一页自己的题目**，不是平台写死了一台引擎。
     //   ⇒ 2026-08-30 只把取值层级换成新结构，形状原样不动。
-    // ⚠ 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
+    // 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
     //   混搭开关一起动。那是独立一件事，本轮不做。
-    // ⭐⭐ 2026-10-01：过去这里是 `CMP_ENGINE = 'gpt-sovits'` 写死，注释自己
+    // 2026-10-01：过去这里是 `CMP_ENGINE = 'gpt-sovits'` 写死，注释自己
     //   承认「这一页要变成通用的，得按当前引擎有几个位重画……本轮不做」。
     //
     //   现在**按当前引擎的两个位名取权重**：GSV 的位名就还叫 gpt/sovits，
     //   所以 GSV 用户看到的下拉一个字都没变；别的引擎名下名片给什么位名就取
-    //   什么位名 —— 取不到就只有 0 个组合，行自己退化成「用当前音色」，
+    //   什么位名，取不到就只有 0 个组合，行自己退化成「用当前音色」，
     //   而不是画一个空下拉。
     //
-    //   ⚠️ 真正的「每行不同引擎并排」仍是计划里的遗留 L3（那要重画整行的
+    //   真正的「每行不同引擎并排」仍是计划里的遗留 L3（那要重画整行的
     //   混搭开关，不是本刀）。这里只是**不再按引擎身份分叉**。
     const buildModels = (vid, meta, out) => {
       // 位名也来自名片，不写死 'gpt'/'sovits'
@@ -240,7 +240,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       const slots = (engine?.weight_slots || []).map(s => s && s.name).filter(Boolean)
       const gptSlot = slots.length > 0 ? slots[0] : null
       const sovitsSlot = slots.length > 1 ? slots[1] : null
-      // ⛔ 不足两个位 ⇒ 造不出「两份权重两两组合」这种行，一组都不造。
+      // 不足两个位 ⇒ 造不出「两份权重两两组合」这种行，一组都不造。
       //   静默造 0 组 = 行画出来是空的、用户不知道为什么。
       if (!gptSlot || !sovitsSlot) return
       const gptList = modelsFromMeta(meta, engine?.id, gptSlot)
@@ -278,9 +278,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
       setAvailableModels(models)
     }).catch(() => {})
-    // ⛔ 依赖里必须有 engine.id：buildModels 现在按**当前引擎**的位名取权重。
+    // 依赖里必须有 engine.id：buildModels 现在按**当前引擎**的位名取权重。
     //   少了这一项 ⇒ 换引擎后这个下拉还是上一台引擎的权重，而且是**安静地**
-    //   错 —— 界面上没有任何一处会告诉你它没跟着换。
+    //   错，界面上没有任何一处会告诉你它没跟着换。
   }, [engine?.id])
 
   const addRow = (opts = {}) => {
@@ -303,10 +303,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // cross-voice reference picker so the user can immediately borrow a reference.
     const startSource = (defaultModel && defaultModel.voiceId === BASE_VOICE_ID) ? 'cross' : undefined
     const dp = defaultParams || {}
-    // ⭐ 2026-10-01：过去这里逐个抄 6 个 GPT-SoVITS 键名当行的默认值。现在
+    // 2026-10-01：过去这里逐个抄 6 个 GPT-SoVITS 键名当行的默认值。现在
     //   参数值和 touched 由 CompareRow 按当前引擎的 param_schema 自己起步
-    //   （initialParamValues）—— 行的诞生不再知道任何一台引擎的参数叫什么。
-    //   ⛔ method 用名片给的默认值，不许在这里「取第一个」。
+    //   （initialParamValues），行的诞生不再知道任何一台引擎的参数叫什么。
+    //   method 用名片给的默认值，不许在这里「取第一个」。
     const methodDefault = (engine?.methods && engine.methods.length > 0)
       ? (engine.default_method || null)
       : null
@@ -359,14 +359,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   const loadRecipeIntoRow = (row, recipeId) => {
     const rec=recipes.find(r=>r.id===recipeId); if(!rec)return; const p=rec.params||{}
-    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',// ⭐⭐ 2026-10-01：过去这里逐个抄 6 个 GSV 键名从配方里取。现在按当前
+    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',// 2026-10-01：过去这里逐个抄 6 个 GSV 键名从配方里取。现在按当前
       //   引擎的 param_schema 取，并把取到的东西标成**用户动过**（touched =
-      //   配方里出现的键名）—— 配方回放本来就是用户显式存下来的选择。
+      //   配方里出现的键名），配方回放本来就是用户显式存下来的选择。
       ...(() => {
         const known = new Set((engine?.param_schema || []).map(f => f && f.name))
         const picked = {}
         for (const [k, v] of Object.entries(p)) {
-          // ⛔ seed 不在 param_schema 里（平台自己的开关），在下面单独处理。
+          // seed 不在 param_schema 里（平台自己的开关），在下面单独处理。
           if (known.has(k) && v !== undefined) picked[k] = v
         }
         return { params: { ...(r.params || {}), ...picked },
@@ -398,25 +398,25 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         voice: rowVoiceId,
         text: row.text.trim() || defaultText,
         format: 'wav',
-        // ⭐ 和 Generate 页同一件事：这一次要连哪台引擎，由界面上选中的那台
-        //   说了算，⛔ 不让服务端去 legacy_default 里认领。
+        // 和 Generate 页同一件事：这一次要连哪台引擎，由界面上选中的那台
+        //   说了算，不让服务端去 legacy_default 里认领。
         engine_id: engine?.id,
         source: 'comparerefs',
         split: true,
         concat: true,
         ref_audio: row.refAudio || undefined,
         aux_ref_audio_paths: row.auxRefPaths.length > 0 ? row.auxRefPaths : undefined,
-        // ⭐⭐ 2026-10-01：过去这里是 **7 个手抄进前端的 GSV 参数键**
+        // 2026-10-01：过去这里是 **7 个手抄进前端的 GSV 参数键**
         //   （temperature/top_k/top_p/repetition_penalty/text_split_method/
         //   speed_factor/seed）。换一台引擎这些键上游**不认**，而请求**照发**，
-        //   不报错 —— 用户看到的是「参数调了没反应」。
+        //   不报错，用户看到的是「参数调了没反应」。
         //
         //   现在只发用户**明确动过**的那些，键名和类型都来自当前引擎的
         //   param_schema（paramsToSend 是 web/src/lib/engines.js 的权威实现，
         //   GenerateTab 用的是同一个函数，不是新写一份）。
         ...paramsToSend(engine, row.params, row.touched),
-        // ⭐ 这一行走哪个推理方法（点 1：profile.methods 交到前端）。
-        //   ⛔ 只交**名字**：方法内部怎么绑参数、要不要参考音频，是 host.py 的事，
+        // 这一行走哪个推理方法（点 1：profile.methods 交到前端）。
+        //   只交**名字**：方法内部怎么绑参数、要不要参考音频，是 host.py 的事，
         //   前端不复制那份规则（那是第二份会漂移的事实）。
         //   单方法引擎 methods 为 null ⇒ 不发这个键，让后端用名片上的固定入口。
         ...(row.method ? { method: row.method } : {}),
@@ -593,8 +593,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           row={row}
           index={rowIdx}
           engineId={engine?.id}
-          // ⭐ 2026-10-01：整个 engine 对象（param_schema / methods / …）。
-          //   只传 engineId 的话这一页就没法按名片长格子 —— 名字拿不到形状。
+          // 2026-10-01：整个 engine 对象（param_schema / methods / …）。
+          //   只传 engineId 的话这一页就没法按名片长格子，名字拿不到形状。
           engine={engine}
           allAudioFiles={allAudioFiles}
           voiceFiles={voiceFiles}
@@ -729,8 +729,8 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
   )
 }
 
-// ⭐ 刀 A1（2026-08-31）：新增 `engineId` —— 行内的读音校对要发 /pron/preview，
-//   而那个接口现在 engine_id 必传。⛔ 漏传的表现是"这一行的读音预览安静地不工作"。
+// 刀 A1（2026-08-31）：新增 `engineId`，行内的读音校对要发 /pron/preview，
+//   而那个接口现在 engine_id 必传。漏传的表现是"这一行的读音预览安静地不工作"。
 function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId, engine }) {
   const { t } = useT()
   const [showPicker, setShowPicker] = useState(false)
@@ -829,21 +829,21 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
     }
   }, [segments, voiceId])
 
-  // ⭐⭐ 2026-10-01：超参不再由这一页手抄。
+  // 2026-10-01：超参不再由这一页手抄。
   //
   // 过去是 7 个 useState + 7 个 useEffect，每个都写死一个 GPT-SoVITS 键名。
   // 换一台引擎 ⇒ 格子照常显示、填了发出去上游不认、**不报错**。
   //
   // 现在形状跟 GenerateTab 完全一致：
   //   paramValues   这一行的格子值（从名片默认值起步）
-  //   touched       用户**明确动过**哪些 —— paramsToSend 只发这些
-  //   ⛔ touched 不能省。没动过的键是「界面建议」，不是「用户选的」；
+  //   touched       用户**明确动过**哪些，paramsToSend 只发这些
+  //   touched 不能省。没动过的键是「界面建议」，不是「用户选的」；
   //     全发过去等于平台替用户决定上游默认值。
   const [paramValues, setParamValues] = useState(() => ({
     ...initialParamValues(engine),
     ...(row.params || {}),
   }))
-  // ⛔ row.params 里存着的都是用户动过的（它们当初就是从 touched 存下来的），
+  // row.params 里存着的都是用户动过的（它们当初就是从 touched 存下来的），
   //   所以从配方/旧行恢复出来的值天然算 touched。
   const [touched, setTouched] = useState(() => new Set(Object.keys(row.params || {})))
   const setParam = (name, raw) => {
@@ -854,16 +854,16 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
     })
   }
   // 换引擎 ⇒ 上一台的格子名对不上这台，重新从名片默认值起步。
-  // ⛔ touched 清空：那些键名是上一台引擎的，跟着过来就是「用户在新引擎上
-  //   明确选过旧引擎的参数」——那不存在。
+  // touched 清空：那些键名是上一台引擎的，跟着过来就是「用户在新引擎上
+  //   明确选过旧引擎的参数」，那不存在。
   useEffect(() => {
     setParamValues(initialParamValues(engine))
     setTouched(new Set())
   }, [engine?.id])
 
   // 存回 row：只存用户动过的那些（GenerateTab:643 同一条纪律）
-  // ⭐ 存两样：params（发出去的形状）+ touched（哪些是用户真动过的）。
-  //   touched 必须是**能还原的**（数组），不能只活在本地 state 里 ——
+  // 存两样：params（发出去的形状）+ touched（哪些是用户真动过的）。
+  //   touched 必须是**能还原的**（数组），不能只活在本地 state 里，
   //   generateRow 在 tab 级读的是 row，它拿不到这一行的本地 state。
   useEffect(() => {
     const explicit = paramsToSend(engine, paramValues, touched)
@@ -871,22 +871,22 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
     onUpdate(row.id, 'touched', Array.from(touched))
   }, [paramValues, touched, engine?.id])
 
-  // ⛔ seed 不属于任何一台引擎 ⇒ 不进 param_schema，是平台自己的 state
+  // seed 不属于任何一台引擎 ⇒ 不进 param_schema，是平台自己的 state
   //    （GenerateTab:201 同一条纪律）。判据：换一台引擎，这一格含义一个字不变。
   const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
   useEffect(() => { onUpdate(row.id, 'seed', seed) }, [seed])
 
-  // ⭐⭐ 2026-10-01（真机查出）：原来这里只取 common 一层。**实测两台
+  // 2026-10-01（真机查出）：原来这里只取 common 一层。**实测两台
   //   CosyVoice 的 param_schema 的 common 层是空的**（6 项和 2 项全在
   //   advanced）⇒ 选它们时对比页画出**零个格子**，而界面上看不出任何异常。
   //
   //   修法跟 GenerateTab 一样：跟着 TIERS 两档都画，档位按钮也是 TIERS.map
-  //   —— ⛔ 不写死 ['common','advanced']，那份名单在 web/src/lib/engines.js
+  //，不写死 ['common','advanced']，那份名单在 web/src/lib/engines.js
   //   是唯一产地。
   const [advTier, setAdvTier] = useState('common')
   const visibleFields = (tier) => fieldsForTier(engine, tier)
     .filter(f => isFieldVisible(f, paramValues))
-  // ⛔ 某档一个格子都没有 ⇒ **不画那个档位按钮**。画一个点开是空的标签页，
+  // 某档一个格子都没有 ⇒ **不画那个档位按钮**。画一个点开是空的标签页，
   //    比不画更糟（用户以为这一档坏了）。判据跟方法下拉同一条：名片没给的
   //    界面不许替它编一个。
   const tiersWithFields = TIERS.filter(t => visibleFields(t).length > 0)
@@ -1171,7 +1171,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             {/* 6.1: the redundant slice dropdown was removed. The Audition list below is the sole
                 reference picker (audition + click), expanded by default (D1). It also offers Raw audio.
                 The 3–10s out-of-range hint now lives in the always-visible row header (covers every
-                reference source); each audition item still carries its own inline ⚠ flag. */}
+                reference source); each audition item still carries its own inline flag. */}
             <div className="collapsible" style={{ marginTop: 6 }}>
               <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Audition reference &mdash; Slices / Raw (click one to set it as the main reference)</span>
@@ -1294,26 +1294,26 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         {showAdvanced && (
           <div className="collapsible-body">
             <div className="form-grid">
-              {/* ⭐⭐ 2026-10-01：这里原本是 **7 个手抄的 <input>**，
+              {/* 2026-10-01：这里原本是 **7 个手抄的 <input>**，
                   每个都写死一个 GPT-SoVITS 键名（Top K / Top P /
                   Repetition Penalty / Split Method / Speed Factor / Seed）。
                   换一台引擎 ⇒ 格子照常显示、填了发出去**上游不认**、不报错。
 
-                  现在按 engine.param_schema 循环 —— 跟 GenerateTab:1016 同一个
-                  <ParamField>，⛔ 不许再在这里分叉出 f.type === '...' 的分支。
+                  现在按 engine.param_schema 循环，跟 GenerateTab:1016 同一个
+                  <ParamField>，不许再在这里分叉出 f.type === '...' 的分支。
                   GSV 的 common 层拿到的正是 temperature/top_k/top_p/
                   repetition_penalty/text_split_method/speed_factor 六项，
                   跟过去逐格一致（Seed 见下面那段注释）。
 
-                  ⚠️ **两档都画**（跟着 TIERS），不是只画 common。实测两台
+                  **两档都画**（跟着 TIERS），不是只画 common。实测两台
                   CosyVoice 的 common 层是**空的** ⇒ 只画 common 时选它们
                   一个格子都没有，而界面上看不出任何异常。
 
-                  ⛔ options 故意不传：ParamField:197 只在 `select + source`
+                  options 故意不传：ParamField:197 只在 `select + source`
                   时才用它（候选项要扫盘），写死 choices 的格子自取
-                  field.choices（ParamField:90）。这一页不扫权重/音色/音频 ——
+                  field.choices（ParamField:90）。这一页不扫权重/音色/音频，
                   那是 GenerateTab 的活，这里没有 assets 上下文。 */}
-              {/* ⭐ 档位按钮从 TIERS 来（GenerateTab:987 同一个形状）——
+              {/* 档位按钮从 TIERS 来（GenerateTab:987 同一个形状），
                   写死两档就是第二份「有几档」的事实。 */}
               {tiersWithFields.length > 1 && (
                 <div style={{ display: 'flex', gap: 6, gridColumn: '1 / -1' }}>
@@ -1337,7 +1337,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   t={t} />
               ))}
 
-              {/* ⛔ Seed 不在 param_schema 里：它不是**任何一台引擎**的参数，
+              {/* Seed 不在 param_schema 里：它不是**任何一台引擎**的参数，
                   是平台自己的开关（GenerateTab:1030 同一条纪律）。
                   判据：换一台引擎，这一格的含义一个字都不变。 */}
               <div>
@@ -1352,12 +1352,12 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   <option value="off">{t('Off', '关')}</option>
                 </Select>
               </div>
-              {/* ⭐ 2026-10-01：这一行走哪个推理方法（点 1 把 call.methods
+              {/* 2026-10-01：这一行走哪个推理方法（点 1 把 call.methods
                   交到了前端）。比如 CosyVoice2 的 zero_shot / instruct2 / vc，
                   同一段文本在同一个音色上走不同入口。
 
-                  ⛔ 只有一个方法（engine.methods 为 null）⇒ **不画这个下拉**：
-                  没有第二个选项的下拉只是噪声。判据跟 schemaGap 一样 ——
+                  只有一个方法（engine.methods 为 null）⇒ **不画这个下拉**：
+                  没有第二个选项的下拉只是噪声。判据跟 schemaGap 一样，
                   名片没说的东西，界面不许替它编一个。 */}
               {Array.isArray(engine?.methods) && engine.methods.length > 0 && (
                 <div title={t('Which inference entrypoint THIS row uses. Only engines whose manifest declares call.methods offer more than one.', '这一行走哪个推理入口。只有名片里声明了 call.methods 的引擎才有得选。')}>

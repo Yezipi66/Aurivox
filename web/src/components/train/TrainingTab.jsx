@@ -757,7 +757,7 @@ function LiveLogs({ logs }) {
   )
 }
 
-// 极简播放/暂停（无进度条）——校对每行试听 ASR 切片。src 指向后端 Range 路由，
+// 极简播放/暂停（无进度条），校对每行试听 ASR 切片。src 指向后端 Range 路由，
 // preload="none" 惰性加载，一次只播一行。
 function ReviewRowAudio({ taskId, relPath }) {
   const ref = useRef(null)
@@ -794,7 +794,7 @@ function confTier(c) {
   if (c >= CONF_MID) return 'mid'
   return 'lo'
 }
-// 色盲友好（A+C）：颜色仅作辅助，另用【符号】做冗余编码——不依赖红绿分辨也能读。
+// 色盲友好（A+C）：颜色仅作辅助，另用【符号】做冗余编码，不依赖红绿分辨也能读。
 // hi=✓（较为可信）/ mid=~（可疑）/ lo=!（存疑）。词级另叠加下划线（见 CSS .arr-w-*）。
 const CONF_COLORS = {
   hi: { fg: '#2ecc71', bg: 'rgba(46,204,113,0.16)', sym: '✓' },
@@ -939,8 +939,8 @@ function DenoiseReviewPanel({ taskId, onResumed, onCancel }) {
 // (data/pron_lexicon/{lang}.json), which the g2p layer applies on the next
 // training/inference run. Overrides are per-line and transient; only the lexicon
 // save persists (that's the closed loop; see PG-1a).
-// ⭐ 刀 A1（2026-08-31）：`engineId` 一路传到 PronPanel —— /api/pron/preview
-//   现在 engine_id 必传。⛔ 不传的表现是"这里的读音校对安静地不工作"。
+// 刀 A1（2026-08-31）：`engineId` 一路传到 PronPanel，/api/pron/preview
+//   现在 engine_id 必传。不传的表现是"这里的读音校对安静地不工作"。
 function AsrRowProof({ text, lang, onChange, disabled, engineId }) {
   const [open, setOpen] = useState(false)
   const [overrides, setOverrides] = useState({})
@@ -1383,7 +1383,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     });
   };
 
-  // 轮询训练状态 —— 有 taskId 就轮询，不依赖本地 training 布尔
+  // 轮询训练状态，有 taskId 就轮询，不依赖本地 training 布尔
   useEffect(() => {
     if (!taskId) return;
     let dead = false; // 标记任务已彻底消失，停止轮询
@@ -1535,7 +1535,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
       if (trainOn && !asrOn && !ack.g2) { setError(null); setGateGraceSec(30); setGate({ type: 'g2' }); return; }
     }
     // FunASR 语言告知门：FunASR 只支持中文/粤语。选了 FunASR 却是其他语言时，
-    // 只做告知（继续 / 切换到 Whisper / 取消），不阻断——按用户意愿放行。
+    // 只做告知（继续 / 切换到 Whisper / 取消），不阻断，按用户意愿放行。
     {
       const asrOn = form.asr !== false;
       const lang = String(form.language || 'auto').toLowerCase();
@@ -1592,7 +1592,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
   };
   const cancelGate = () => { setGate(null); gateAckRef.current = { g1: false, g2: false, preprocessOff: false, graceSec: 30 }; };
 
-  // FunASR 语言告知门 —— 三选项（只告知，不阻断）。
+  // FunASR 语言告知门，三选项（只告知，不阻断）。
   // 继续：坚持用 FunASR（后端仍会在失败时自动回退 Whisper 兜底）。
   const asrLangContinue = async () => {
     asrLangAckRef.current = true;
@@ -2015,7 +2015,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
 
       {form.denoise && (
         <>
-          {/* GIGO 门 1：人声提取后暂停试听。与 ASR 校对门并列，默认开启——分离质量
+          {/* GIGO 门 1：人声提取后暂停试听。与 ASR 校对门并列，默认开启，分离质量
               是决定训练成败的第一道关口，值得停下来听一耳朵（不满意可直接取消管线）。
               放在“启用人声提取”正下方，与该步骤的开关相邻，而非埋在高级参数里。 */}
           <label className="toggle-row" style={{ marginBottom: 8 }}>
@@ -2760,7 +2760,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
       )}
 
       {/* No-GPU pre-flight: CPU fine-tuning is allowed but must be acknowledged. */}
-      {/* 门控 G1：未开启 S1/S2 —— 只跑切片/ASR，跳过 preprocess。 */}
+      {/* 门控 G1：未开启 S1/S2，只跑切片/ASR，跳过 preprocess。 */}
       <ConfirmDialog
         open={gate?.type === 'g1'}
         icon={<span style={{ fontSize: 18 }}>ⓘ</span>}
@@ -2777,7 +2777,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
         }
       />
 
-      {/* 门控 G2/G3：训练开启但未勾 ASR —— 强提醒不阻断 + 宽限期投放自备 .list。 */}
+      {/* 门控 G2/G3：训练开启但未勾 ASR，强提醒不阻断 + 宽限期投放自备 .list。 */}
       <ConfirmDialog
         open={gate?.type === 'g2'}
         danger
