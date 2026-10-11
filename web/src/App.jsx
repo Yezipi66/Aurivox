@@ -273,13 +273,13 @@ function AppShell() {
         )}
         {/* 名片坏掉的引擎不在列表里。不说的话，它就是「凭空少了一台」。 */}
         {engineErrors.length > 0 && (
-          <span title={engineErrors.map(e => `${e.id}: ${e.error || e.message}`).join('\n')}
-            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(207,102,121,0.15)', color: 'var(--danger)', border: '1px solid rgba(207,102,121,0.3)', alignSelf: 'center' }}>
+          <span className="badge badge-danger" title={engineErrors.map(e => `${e.id}: ${e.error || e.message}`).join('\n')}
+            style={{ alignSelf: 'center' }}>
             {engineErrors.length} 张 manifest.json 读不了
           </span>
         )}
         <LangToggle />
-        {health?.ffmpeg_available && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.3)', alignSelf: 'center' }}>ffmpeg</span>}
+        {health?.ffmpeg_available && <span className="badge badge-ok" style={{ alignSelf: 'center' }}>ffmpeg</span>}
         {health && (() => {
           // 2026-10-05：探测机制换了（lib/system/gpu.js：问操作系统，不再问
           //   任何 venv 里的 torch），因为根 venv 瘦身之后那条路必然答「无 CUDA」，
@@ -301,9 +301,7 @@ function AppShell() {
           // 非 NVIDIA 的 GPU：不看 vram_gb（WMI 的 AdapterRAM 在核显上
           //   报 4.0GB，而真实共享内存 58.5GB，那个数字不可信）
           const otherGpu = !probing && !ok && !!c?.device_name;
-          const bg = probing ? 'rgba(158,158,158,0.15)' : ok ? 'rgba(76,175,80,0.15)' : 'rgba(207,102,121,0.15)';
-          const fg = probing ? 'var(--muted)' : ok ? 'var(--success)' : 'var(--danger)';
-          const bd = probing ? 'rgba(158,158,158,0.3)' : ok ? 'rgba(76,175,80,0.3)' : 'rgba(207,102,121,0.3)';
+          const tone = probing ? 'neutral' : ok ? 'ok' : 'danger';
           const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'No CUDA';
           const title = probing ? '正在探测本机的计算设备…'
             : ok ? `CUDA 可用 — ${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
@@ -312,7 +310,7 @@ function AppShell() {
             : otherGpu ? `本机 GPU：${prettyDevice(c.device_name)}。`
             : '未检测到 CUDA 设备。推理将在 CPU 上运行。';
           return (
-            <span title={title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: bg, color: fg, border: `1px solid ${bd}`, alignSelf: 'center' }}>{label}</span>
+            <span className={`badge badge-${tone}`} title={title} style={{ alignSelf: 'center' }}>{label}</span>
           );
         })()}
         {/* 关于「当前这台引擎」，顶栏只留这一枚灯。
@@ -331,15 +329,12 @@ function AppShell() {
         {(() => {
           const b = engineBadge(engine, health, lang);
           if (!b) return null;
-          const tone = b.tone === 'ok'
-            ? { bg: 'rgba(76,175,80,0.15)', fg: 'var(--success)', bd: 'rgba(76,175,80,0.3)' }
-            : b.tone === 'busy'
-              ? { bg: 'rgba(255,183,77,0.15)', fg: 'var(--warning, #ffb74d)', bd: 'rgba(255,183,77,0.35)' }
-              : b.tone === 'bad'
-                ? { bg: 'rgba(207,102,121,0.15)', fg: 'var(--danger)', bd: 'rgba(207,102,121,0.3)' }
-                : { bg: 'rgba(158,158,158,0.15)', fg: 'var(--muted)', bd: 'rgba(158,158,158,0.3)' };
+          const tone = b.tone === 'ok' ? 'ok'
+            : b.tone === 'busy' ? 'warn'
+            : b.tone === 'bad' ? 'danger'
+            : 'neutral';
           return (
-            <span title={b.title} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}`, alignSelf: 'center', whiteSpace: 'nowrap' }}>{b.label}</span>
+            <span className={`badge badge-${tone}`} title={b.title} style={{ alignSelf: 'center', whiteSpace: 'nowrap' }}>{b.label}</span>
           );
         })()}
       </nav>
@@ -382,15 +377,17 @@ function AppShell() {
             ? <TrainingTab engine={engine} voices={voices} loadVoices={loadVoices}
                 activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
                 trainPrefill={trainPrefill} setTrainPrefill={setTrainPrefill} health={health} />
-            : <div style={{ padding: 24, color: 'var(--muted)' }}>
-                {engine === null
-                  ? '正在读引擎列表…'
-                  : <>
-                      {`${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
-                      <div style={{ marginTop: 12 }}>
-                        <button className="btn btn-sm" onClick={() => setPage('assets')}>返回 Assets</button>
-                      </div>
-                    </>}
+            : <div className="empty-state">
+                <div className="es-sub" style={{ marginBottom: 0 }}>
+                  {engine === null
+                    ? '正在读引擎列表…'
+                    : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
+                </div>
+                {engine !== null && (
+                  <div style={{ marginTop: 12 }}>
+                    <button className="btn btn-sm" onClick={() => setPage('assets')}>返回 Assets</button>
+                  </div>
+                )}
               </div>
           )}
           {page === 'engines' && (
@@ -403,8 +400,10 @@ function AppShell() {
             ? <FlowCanvasTab />
             // A stored page choice can outlive the switch being turned off, so
             // say why the canvas is missing instead of showing a blank pane.
-            : <div style={{ padding: 24, color: 'var(--muted)' }}>
-                这台服务器上没有开画布。启动时加上 FLOWGRAPH_ENABLED=1 再刷新这一页。
+            : <div className="empty-state">
+                <div className="es-sub" style={{ marginBottom: 0 }}>
+                  这台服务器上没有开画布。启动时加上 FLOWGRAPH_ENABLED=1 再刷新这一页。
+                </div>
               </div>
           )}
         </div>
