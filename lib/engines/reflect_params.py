@@ -164,6 +164,51 @@ def _literal_choices(text):
     return out or None
 
 
+def _extract_help(doc, name):
+    """从 docstring 里按参数名提取说明。
+
+    按优先级试三种风格，拿到就停：
+    1. numpy 风格 Parameters 段：name : type 下一行缩进说明
+    2. Google 风格 Args: 段：name (type): description 或 name: description
+    3. Sphinx 风格 :param name: description
+    拿不到返回 None。
+    """
+    if not doc:
+        return None
+
+    # numpy 风格 Parameters 段：`name : type` 换行后跟缩进的说明文字。
+    # 先于 Google 处理 —— 否则 `spk_id : str` 会被 Google 的单行正则
+    # 误抓成说明 "str"（那是类型不是说明）。
+    m = re.search(
+        r'^[ \t]*' + re.escape(name) + r'[ \t]*:[ \t]*[^\n]*\n((?:[ \t]+[^\n]*\n?)+)',
+        doc, re.MULTILINE
+    )
+    if m:
+        text = ' '.join(line.strip() for line in m.group(1).split('\n') if line.strip())
+        if text:
+            return text
+
+    # Google 风格 Args: 段：`name (type): description` 或 `name: description`。
+    # 要求冒号后**非空**且同一行有内容 —— 排除 numpy 的 `name : type` 单行形式
+    # （那种冒号后是类型，真说明在下一行，已由上面的 numpy 分支处理）。
+    m = re.search(
+        r'^[ \t]*' + re.escape(name) + r'[ \t]*(?:\([^)]*\))?[ \t]*:[ \t]*(\S.*)$',
+        doc, re.MULTILINE
+    )
+    if m:
+        return m.group(1).strip() or None
+
+    # Sphinx 风格 :param name:
+    m = re.search(
+        r'^[ \t]*:param[ \t]+' + re.escape(name) + r'[ \t]*:[ \t]*(\S.*)$',
+        doc, re.MULTILINE
+    )
+    if m:
+        return m.group(1).strip() or None
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 #  2) 反射一个函数
 # ---------------------------------------------------------------------------
@@ -172,13 +217,26 @@ def _literal_choices(text):
 BIND_SLOTS = ("self", "text", "ref_audio", "output_path")
 
 
-def _reflect_callable(fn, phase, skip):
-    """反射一个可调用对象，返回参数清单。"""
+def _reflect_callable(fn, phase, skip, fallback_doc=None):
+    """反射一个可调用对象，返回参数清单。
+
+    fallback_doc：fn 自己没 docstring 时的兜底（加载期用类 docstring ——
+    Args: 段常写在类上，而 __init__ 没有自己的 docstring）。
+    """
     try:
         sig = inspect.signature(fn)
     except (ValueError, TypeError) as exc:
         return [], "拿不到签名（%s）—— 有些 C 扩展或装饰器包装的函数是这样" % exc
-
+    # docstring 提取：取一次，给每个参数用。
+    # __init__ 没有自己的 docstring 时，用类 docstring 兜底（Args: 常写在类上）。
+    # 注意：object.__init__ 的默认 docstring 是 "Initialize self. ..." 样板，
+    # 它不是空字符串 —— 必须显式识别并当成「没有」，否则 fallback 永远用不上。
+    try:
+        doc = inspect.getdoc(fn)
+    except Exception:
+        doc = None
+    if not doc or doc.startswith('Initialize self.'):
+        doc = fallback_doc
     out = []
     for name, p in sig.parameters.items():
         if name in BIND_SLOTS:
@@ -218,6 +276,8 @@ def _reflect_callable(fn, phase, skip):
             #   「界面上少了一个真实存在的旋钮」，**没有任何报错**。
             #   ⚠ 它是线索不是结论：最终由人定，这里只是别把证据丢了。
             "name_hint": _hint_from_name(name),
+            # ⭐ docstring 提取：有就递原文，没有就 null。
+            "help": _extract_help(doc, name),
         }
         # Literal[...] 里的选项是**上游自己说的**，可以直接用
         ann = entry.get("annotation") or {}
@@ -278,7 +338,9 @@ def reflect(spec):
     skip = list(spec.get("skip") or [])
 
     # --- 加载期：__init__ 的参数（去掉 self）---
-    load, w = _reflect_callable(klass.__init__, "load", skip)
+    # 类 docstring 兜底：Args: 段常写在类上，__init__ 自己没 docstring。
+    class_doc = inspect.getdoc(klass)
+    load, w = _reflect_callable(klass.__init__, "load", skip, fallback_doc=class_doc)
     if w:
         warnings.append("加载期：%s" % w)
 
