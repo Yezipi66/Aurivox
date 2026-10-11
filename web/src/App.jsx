@@ -11,6 +11,7 @@ import { FlowCanvasTab } from './components/flowgraph/FlowCanvasTab'
 import { EnginesTab } from './components/engines/EnginesTab'
 import { LangProvider, LangToggle, useT } from './lib/i18n'
 import { Select } from './components/common/Select'
+import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessState } from './lib/engines'
 
 /**
@@ -347,6 +348,10 @@ function AppShell() {
         {/* The canvas is a workbench, not a document: it gets the whole window
             instead of the centred 1400px column the reading pages use. */}
         <div className={page === 'flow' ? 'workspace-container workspace-container--full' : 'workspace-container'}>
+          {/* 错误边界包住整个页面区：某个页面渲染出错时，顶栏和其他页面
+              仍然可用。key={page} 让切页时重置错误状态，否则出错后切页
+              仍会显示上一个页面的报错。 */}
+          <ErrorBoundary key={page} label="页面">
           {page === 'generate' && (
             <GenerateTab engine={engine} voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice}
               onEditVoice={() => {}}
@@ -406,6 +411,7 @@ function AppShell() {
                 </div>
               </div>
           )}
+          </ErrorBoundary>
         </div>
       </main>
     </div>
