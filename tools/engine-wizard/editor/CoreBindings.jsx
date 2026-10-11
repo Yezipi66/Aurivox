@@ -81,7 +81,7 @@ export default function CoreBindings ({ call, onChange, candidates, matched, sca
 
         {candidates && candidates.length > 0 && (
           <datalist id={listId}>
-            {candidates.map((a) => <option key={a.flag} value={a.flag}>{a.help || ''}</option>)}
+            {candidates.map((a) => <option key={a.target} value={a.target}>{a.help || ''}</option>)}
           </datalist>
         )}
       </div>

@@ -419,7 +419,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
       {/*     L1 ① 扫描面板 —— 第一屏只做这个（选引擎 + 扫描 + 自动填） */}
       <CliGenPanel manifest={manifest} onChange={onChange}
         onScanDone={() => setScanDone(true)}
-        onAutoFilled={({ sub, matched, argList }) => setAutofill({ sub, matched, argList })} />
+        onAutoFilled={({ matched, argList }) => setAutofill({ matched, argList })} />
 
       {/*     L1 ② 核心绑定区 —— 区 1 核心映射（combobox + 匹配状态） */}
       <div ref={bindRef}>
