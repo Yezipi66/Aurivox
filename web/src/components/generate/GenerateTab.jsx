@@ -883,7 +883,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               {relaunchSlots.length > 0 && (
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {t('Changing the model above restarts this engine with it — the first generation after a change takes longer while the model loads.',
-                     '在上面换模型会让这台引擎带着它重新启动一次 —— 换过之后的第一次生成要多等一会儿，等它把模型装进内存。')}
+                     '在上面换模型会让这台引擎带着它重新启动一次，换过之后的第一次生成要多等一会儿，等它把模型装进内存。')}
                 </div>
               )}
               {/* 2026-08-30：盘上放了模型、下拉却是空的，而且没有一个字解释
@@ -1471,7 +1471,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
               return (
                 <div className="ref-range-warn">
                   {t(`⚠ Reference is ${dur.toFixed(1)}s — the engine requires ${REF_MIN_SEC}–${REF_MAX_SEC}s. Pick another ${activeIsRaw ? 'clip' : 'slice'} or generation will fail.`,
-                     `⚠ 参考音频为 ${dur.toFixed(1)} 秒 —— 引擎要求 ${REF_MIN_SEC}–${REF_MAX_SEC} 秒。请另选一个${activeIsRaw ? '片段' : '切片'}，否则生成将失败。`)}
+                     `⚠ 参考音频为 ${dur.toFixed(1)} 秒，引擎要求 ${REF_MIN_SEC}–${REF_MAX_SEC} 秒。请另选一个${activeIsRaw ? '片段' : '切片'}，否则生成将失败。`)}
                 </div>
               )
             }
@@ -1488,15 +1488,15 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
                 style={{ fontSize: 11, width: '100%', fontStyle: refTextOverride != null ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}
                 value={refTextOverride != null ? refTextOverride : activeRefText}
                 onChange={e => onRefTextOverride?.(e.target.value)}
-                placeholder={activeIsRaw ? t('No aligned transcript — type a reference text for this run (optional)…', '没有对齐的转写文本 —— 可为本次生成输入一段参考文本（可选）…') : t('Reference text…', '参考文本…')}
+                placeholder={activeIsRaw ? t('No aligned transcript — type a reference text for this run (optional)…', '没有对齐的转写文本：可为本次生成输入一段参考文本（可选）…') : t('Reference text…', '参考文本…')}
               />
               <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
                 <span>
                   {refTextOverride != null
-                    ? t('✎ Edited for this run only — the source file is unchanged.', '✎ 仅对本次生成有效 —— 源文件不会被修改。')
+                    ? t('✎ Edited for this run only — the source file is unchanged.', '✎ 仅对本次生成有效，源文件不会被修改。')
                     : (activeIsRaw && !activeRefText
-                        ? t('Raw audio has no aligned reference text — type one to guide this run (optional).', '原始音频没有对齐的参考文本 —— 可输入一段以引导本次生成（可选）。')
-                        : t('Reference transcript — edits here affect only this run, not the file.', '参考转写文本 —— 此处的修改仅影响本次生成，不会改动文件。'))}
+                        ? t('Raw audio has no aligned reference text — type one to guide this run (optional).', '原始音频没有对齐的参考文本：可输入一段以引导本次生成（可选）。')
+                        : t('Reference transcript — edits here affect only this run, not the file.', '参考转写文本：此处的修改仅影响本次生成，不会改动文件。'))}
                 </span>
                 {refTextOverride != null && (
                   <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 10, flex: '0 0 auto' }}

@@ -1131,14 +1131,14 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             </div>
             <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 0, cursor: 'pointer' }}
               title={t('Mix models across assets — pick the GPT and SoVITS models from any voice independently (e.g. A’s GPT + B’s SoVITS).',
-                       '跨资产混搭模型 —— GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
+                       '跨资产混搭模型：GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
               <input type="checkbox" checked={mix} onChange={e => toggleMix(e.target.checked)} />
               <span>{t('Mix models across assets', '跨资产混搭模型')}</span>
             </label>
             {modelsMixed && (
               <div className="field-hint" style={{ flexBasis: '100%', color: 'var(--warning)', marginBottom: 0 }}>
                 {t('Mixed stack across assets — reference audio & language follow the SoVITS (timbre) side.',
-                   '跨资产混搭 —— 参考音频与语言跟随 SoVITS（音色）侧。')}
+                   '跨资产混搭：参考音频与语言跟随 SoVITS（音色）侧。')}
               </div>
             )}
           </div>

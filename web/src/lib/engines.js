@@ -543,7 +543,7 @@ export function processBadge (engine, lang = 'zh') {
       label: zh ? '待命' : 'idle',
       launchKey: null,
       title: zh
-        ? '现在没在跑 —— 这是正常的。\n' +
+        ? '现在没在跑：这是正常的。\n' +
           '⇒ 下一次用到它时会自动起来；起的那一下要等模型装进内存。'
         : 'Not running — this is normal. It will start automatically on first use.',
     }
@@ -560,7 +560,7 @@ export function processBadge (engine, lang = 'zh') {
   //   是这整套东西里**唯一**会让人以为卡死的时刻。
   if (p.phase && p.phase !== 'ready') {
     lines.push('', zh
-      ? '正在把模型装进内存，这一下可能要等几十秒到几分钟。\n⛔ 不用再点一次 —— 再点只会排在后面，更慢。'
+      ? '正在把模型装进内存，这一下可能要等几十秒到几分钟。\n⛔ 不用再点一次：再点只会排在后面，更慢。'
       : 'Loading the model into memory; this can take a while. No need to click again.')
     return {
       tone: 'busy',
@@ -888,7 +888,7 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
       tone: 'busy',
       label: zh ? `${name} · 在跑（没量到占用）` : `${name} · running (usage unmeasured)`,
       title: zh
-        ? '在跑，但它吃多少内存还没量到过 —— 那个数只能靠实际启动一次得来。'
+        ? '在跑，但它吃多少内存还没量到过：那个数只能靠实际启动一次得来。'
         : 'running, but its memory use has never been measured.',
     }
   }
@@ -906,7 +906,7 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
     tone: 'unknown',
     label: zh ? `${name} · 占用没量到过` : `${name} · usage unmeasured`,
     title: zh
-      ? '这台引擎吃多少内存还没量到过 —— 那个数只能靠实际启动一次得来。\n（显示成 0 会是「它不吃内存」，那是假的。）'
+      ? '这台引擎吃多少内存还没量到过：那个数只能靠实际启动一次得来。\n（显示成 0 会是「它不吃内存」，那是假的。）'
       : 'never measured. A 0 here would falsely mean "uses no memory".',
   }
 }

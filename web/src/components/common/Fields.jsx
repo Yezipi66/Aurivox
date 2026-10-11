@@ -43,7 +43,7 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
             </p>
             <p>
               如果某个 Voice 的 <code>meta.json</code> 被删除或缺少字段，语言会依据这些文件名重建。
-              已存在的元数据始终最高优先 —— 已有的语言不会被覆盖。<strong>请谨慎重命名：</strong>
+              已存在的元数据始终最高优先（已有的语言不会被覆盖）。<strong>请谨慎重命名：</strong>
               手动修改模型文件名可能破坏语言恢复，重用同一个 id 可能与其它 Voice 冲突。
               在此处重命名会安全地同时更新 id、文件夹与元数据。
             </p>
@@ -72,7 +72,7 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
       </div>
       <div className="naming-note-ft">
         <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '知道了')}</button>
-        {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认 —— 之后将保持折叠。')}</span>}
+        {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认，之后将保持折叠。')}</span>}
       </div>
     </div>
   )
@@ -136,9 +136,9 @@ client.audio.speech.create(
               但有几处 Aurivox 特有的差异，接入前请留意：
             </p>
             <ul>
-              <li><code>voice</code>（<strong>必填</strong>）：最大的差异 —— 它<strong>不是</strong> <code>alloy</code>/<code>nova</code> 这类名字，而是一个 <strong>recipe id</strong> <code>role/name</code>（走 recipe：固定的模型 / 参考音频 / 参数，可复现）；也可只填 <code>role</code>（整声路径，自动挑选最佳 checkpoint）。</li>
+              <li><code>voice</code>（<strong>必填</strong>）：最大的差异在于，它<strong>不是</strong> <code>alloy</code>/<code>nova</code> 这类名字，而是一个 <strong>recipe id</strong> <code>role/name</code>（走 recipe：固定的模型 / 参考音频 / 参数，可复现）；也可只填 <code>role</code>（整声路径，自动挑选最佳 checkpoint）。</li>
               <li><code>input</code>（<strong>必填</strong>）：待合成文本，最长 5000 字符。</li>
-              <li><code>model</code>（可选）：仅为兼容 OpenAI 客户端而接受，<strong>会被忽略</strong> —— 实际的 GPT / SoVITS 权重由 recipe 固定。随便填（如 <code>tts-1</code>）即可。</li>
+              <li><code>model</code>（可选）：仅为兼容 OpenAI 客户端而接受，<strong>会被忽略</strong>，实际的 GPT / SoVITS 权重由 recipe 固定。随便填（如 <code>tts-1</code>）即可。</li>
               <li><code>response_format</code>（可选）：默认 <code>wav</code>（无外部依赖）。<code>mp3</code>/<code>opus</code>/<code>aac</code>/<code>flac</code> 需要服务器安装 <code>ffmpeg</code>。</li>
               <li><code>stream</code>（<strong>可选，Aurivox 扩展</strong>）：设 <code>true</code> 分块边合边回、首字节更快；<strong>默认不在服务器落盘</strong>，需归档时再加 <code>persist:true</code>（一边回流一边存档）。<strong>流式仅支持 <code>wav</code> / <code>ogg</code></strong>（<code>mp3</code> 等需整段转码，不走流式）。客户端断开连接即中止本次合成。</li>
               <li><code>speed</code>（可选）：语速倍率。</li>
@@ -146,16 +146,16 @@ client.audio.speech.create(
             </ul>
             <p>
               <strong>语言优先级：请求 <code>language</code> → recipe.language → 资产语言 → auto。</strong>
-              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展——<strong>不传则行为与以前完全一致</strong>。
+              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展（<strong>不传则行为与以前完全一致</strong>）。
               响应头始终返回 <code>X-Text-Lang</code>（最终解析结果）；仅当<strong>既没传 <code>language</code>、
               recipe 也没钉语言</strong>而兜底到 <code>auto</code> 时（或请求了不支持的语言），才带 <code>X-Language-Warning</code>。
               想要确定性输出，请求里显式带 <code>language</code>，或在 recipe 上设置语言。
             </p>
             <p>
               <strong>性能与并发（v1.0.6）：</strong>
-              ① <strong>请求内并行</strong> —— 单条较长请求会被切分并行合成以压低时延，默认 <code>batch_size=4</code>；显存吃紧或长文本 OOM 时把服务器环境变量 <code>AURIVOX_TTS_BATCH_SIZE</code> 设为 <code>1</code>（或在 recipe 高级参数里下调），显存富裕可上调（1–16）。
-              ② <strong>模型留驻</strong> —— 同一音色连续合成不重载权重；<strong>换参考音频</strong>也走缓存（最近用过的免重抽），多音色 recipe 轮转各自保持热，容量由 <code>AURIVOX_REF_CACHE</code> 控制（默认 8）。
-              ③ <strong>过载保护</strong> —— 推理为单卡串行，请求排队积压超上限时立即返回 <code>503</code>（<code>code: generation_queue_full</code>）并带 <code>Retry-After</code> 头，请客户端据此重试；上限 <code>AURIVOX_MAX_QUEUE</code>（默认 32，0=不限）、<code>AURIVOX_RETRY_AFTER</code>（默认 3 秒）。
+              ① <strong>请求内并行</strong>：单条较长请求会被切分并行合成以压低时延，默认 <code>batch_size=4</code>；显存吃紧或长文本 OOM 时把服务器环境变量 <code>AURIVOX_TTS_BATCH_SIZE</code> 设为 <code>1</code>（或在 recipe 高级参数里下调），显存富裕可上调（1–16）。
+              ② <strong>模型留驻</strong>：同一音色连续合成不重载权重；<strong>换参考音频</strong>也走缓存（最近用过的免重抽），多音色 recipe 轮转各自保持热，容量由 <code>AURIVOX_REF_CACHE</code> 控制（默认 8）。
+              ③ <strong>过载保护</strong>：推理为单卡串行，请求排队积压超上限时立即返回 <code>503</code>（<code>code: generation_queue_full</code>）并带 <code>Retry-After</code> 头，请客户端据此重试；上限 <code>AURIVOX_MAX_QUEUE</code>（默认 32，0=不限）、<code>AURIVOX_RETRY_AFTER</code>（默认 3 秒）。
             </p>
             <p>常见命令：</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
@@ -202,7 +202,7 @@ client.audio.speech.create(
       </div>
       <div className="naming-note-ft">
         <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '知道了')}</button>
-        {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认 —— 之后将保持折叠。')}</span>}
+        {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认，之后将保持折叠。')}</span>}
       </div>
     </div>
   )

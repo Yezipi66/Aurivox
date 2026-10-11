@@ -236,7 +236,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
                <>它将以<strong>绝对路径</strong>方式固定。这会带来以下后果：</>)}
             <ul style={{ margin: '4px 0 0 18px' }}>
               <li>{t(<>The original file <strong>must not be moved or renamed</strong> — otherwise every request using this recipe will fail.</>,
-                     <>原始文件<strong>不能被移动或重命名</strong>——否则每个使用该 recipe 的请求都会失败。</>)}</li>
+                     <>原始文件<strong>不能被移动或重命名</strong>：否则每个使用该 recipe 的请求都会失败。</>)}</li>
               <li>{t(<>The path is tied to <strong>this machine</strong>; the recipe is no longer self-contained.</>,
                      <>该路径与<strong>本机</strong>绑定；此 recipe 不再是自包含的。</>)}</li>
               <li>{t('To distribute it you must ship these model files to the other machine as well (just like the voice assets).',
@@ -245,7 +245,7 @@ function RecipeModelRebind({ recipe, onSaved }) {
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
             <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => save(true)}>
-              {busy ? t('Saving…', '保存中…') : t('I understand — pin absolute path', '我已了解——固定为绝对路径')}
+              {busy ? t('Saving…', '保存中…') : t('I understand — pin absolute path', '我已了解：固定为绝对路径')}
             </button>
             <button className="btn btn-sm" disabled={busy} onClick={() => setExtConfirm(null)}>{t('Cancel', '取消')}</button>
           </div>

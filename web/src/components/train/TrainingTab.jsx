@@ -379,7 +379,7 @@ function AsrParamFields({ form, setField }) {
         {form.asrEngine === 'funasr' && (
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
             {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
-              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效——其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
+              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
           </p>
         )}
       </div>
@@ -2025,7 +2025,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
             {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
-                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。听着干净就继续，质量差就取消本次任务——这是决定成败的第一道 GIGO 门。')}
+                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。听着干净就继续，质量差就取消本次任务：这是决定成败的第一道 GIGO 门。')}
           </p>
 
           {/* 提取后，分离出的人声才是真正的“raw”（切片/ASR/训练都用它）。提取前的
@@ -2086,9 +2086,9 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
                 {isSaved
                   ? tr(`Editing saved preset “${savedName}”${savedDirty ? ' (unsaved changes)' : ''} — runs top to bottom (each stage feeds the next).`,
-                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}——从上到下逐级串联（上一级输出喂给下一级）。`)
+                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}，从上到下逐级串联（上一级输出喂给下一级）。`)
                   : tr('Custom separation chain — runs top to bottom (each stage feeds the next).',
-                      '自定义分离链——从上到下逐级串联（上一级输出喂给下一级）。')}
+                      '自定义分离链：从上到下逐级串联（上一级输出喂给下一级）。')}
               </div>
               {chain.length === 0 && (
                 <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '还没有分级，请在下方添加。')}</p>
@@ -2127,7 +2127,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
                 {isSaved
                   ? tr('Up to 3 stages. Edits are a draft — press “Update preset” to save them back, “Save as new preset” to branch a copy, or “Delete preset” to remove it.',
-                      '最多 3 级。改动仅为草稿——点“更新预设”才会写回，点“另存为新预设”另存副本，点“删除预设”移除。')
+                      '最多 3 级。改动仅为草稿：点“更新预设”才会写回，点“另存为新预设”另存副本，点“删除预设”移除。')
                   : tr('Up to 3 stages. Saved presets are kept on this page only.', '最多 3 级。已保存预设仅保留在本页面。')}
               </p>
             </div>
@@ -2272,7 +2272,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           {form.trainS1 !== false
             ? <TrainParamFields form={form} setField={setField} part="s1" />
-            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S1 (GPT) fine-tuning is turned off — this step will be skipped.', 'S1 (GPT) 微调已关闭——此步骤将被跳过。')}</p>}
+            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S1 (GPT) fine-tuning is turned off — this step will be skipped.', 'S1 (GPT) 微调已关闭：此步骤将被跳过。')}</p>}
         </>
       );
     } else if (selectedNode === 'train_s2') {
@@ -2284,7 +2284,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           {form.trainS2 !== false
             ? <TrainParamFields form={form} setField={setField} part="s2" versionMode="multi" />
-            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S2 (SoVITS) fine-tuning is turned off — this step will be skipped.', 'S2 (SoVITS) 微调已关闭——此步骤将被跳过。')}</p>}
+            : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S2 (SoVITS) fine-tuning is turned off — this step will be skipped.', 'S2 (SoVITS) 微调已关闭：此步骤将被跳过。')}</p>}
         </>
       );
     } else if (selectedNode === 'preprocess') {
@@ -2322,7 +2322,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               the voice is published, since the finished asset no longer needs it. Enable this only when you
               want to <strong>keep</strong> those intermediates for inspection or debugging. It will
               count against your disk space.</>,
-              <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>——中间预处理特征与 checkpoint）
+              <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>，内含中间预处理特征与 checkpoint）
               会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有想<strong>保留</strong>
               这些中间产物用于检查或调试时才开启。它会占用磁盘空间。</>)}
           </p>
@@ -2330,7 +2330,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             {tr(
               <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so you
               can inspect it. Delete it later from the Train page&rsquo;s cache manager when you no longer need it.</>,
-              <>保留的工作区<strong>绝不会</strong>被后续任务复用——仅供检查之用。不再需要时，可在 Train 页面的缓存管理器中删除。</>)}
+              <>保留的工作区<strong>绝不会</strong>被后续任务复用：仅供检查之用。不再需要时，可在 Train 页面的缓存管理器中删除。</>)}
           </p>
         </>
       );
@@ -2417,7 +2417,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                 {displayName && (
                   <p className="field-hint">
                     {tr('Proposed ID:', '建议 ID：')} <code>{proposedId || '…'}</code>
-                    <span className="field-note"> {tr('(finalized at creation — may differ)', '（在创建时最终确定——可能与此不同）')}</span>
+                    <span className="field-note"> {tr('(finalized at creation — may differ)', '（在创建时最终确定，可能与此不同）')}</span>
                     {dupDisplay.length > 0 && (
                       <><br/><span className="pf-warn">{tr(
                         `ⓘ ${dupDisplay.length} existing voice${dupDisplay.length > 1 ? 's' : ''} already use this display name (id${dupDisplay.length > 1 ? 's' : ''}: ${dupDisplay.map(v => v.id).join(', ')}). A new distinct voice will be created.`,
@@ -2436,7 +2436,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                 <label className="field-label">{tr('Audio Folder Path', '音频文件夹路径')} *</label>
                 <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder={tr('e.g. D:\\raw_audio\\MyVoice', '例如：D:\\raw_audio\\MyVoice')} />
                 <p className="field-hint">{tr('ⓘ Folder path only — point to a folder of audio files. If you have a single audio file, put it inside a folder first, then select that folder.',
-                  'ⓘ 仅填文件夹路径——指向一个存放音频文件的文件夹。如果只有单个音频文件，请先把它放进一个文件夹，再选择该文件夹。')}</p>
+                  'ⓘ 仅填文件夹路径：指向一个存放音频文件的文件夹。如果只有单个音频文件，请先把它放进一个文件夹，再选择该文件夹。')}</p>
               </div>
             </div>
 
@@ -2508,7 +2508,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                            so its output must be regenerated — an in-place resume would reuse the old cache and silently ignore your change.
                            This therefore launches a <strong>brand-new task</strong> (fork) and re-runs from <strong>{FSTEP_LABELS[rerunStart]}</strong>.</>,
                           <>已修改 <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> 的设置。该步骤在失败点<strong>之前</strong>运行，
-                           因此它的输出必须重新生成——原地恢复会复用旧缓存并忽略该修改。
+                           因此它的输出必须重新生成：原地恢复会复用旧缓存并忽略该修改。
                            所以这里会启动一个<strong>全新任务</strong>（分叉），并从 <strong>{FSTEP_LABELS[rerunStart]}</strong> 重新运行。</>)
                         : tr(
                           <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
@@ -2518,7 +2518,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                      {' '}{tr(
                        <>Only the products of steps <strong>before {FSTEP_LABELS[rerunStart]}</strong> are copied to the new task — so make sure you have enough <strong>disk space</strong> for them.
                        The original failed task is kept untouched, and even if this fork succeeds it will publish as a NEW task, not a recovery of the old one.</>,
-                       <>只有 <strong>{FSTEP_LABELS[rerunStart]} 之前</strong>步骤的产物会被复制到新任务——所以请确保有足够的<strong>磁盘空间</strong>。
+                       <>只有 <strong>{FSTEP_LABELS[rerunStart]} 之前</strong>步骤的产物会被复制到新任务，所以请确保有足够的<strong>磁盘空间</strong>。
                        原来的失败任务保持不变，即使这个分叉成功，它也会作为一个新任务发布，而不是对旧任务的恢复。</>)}</>
                   : tr(
                     <>Continuing failed task <code>{recovery.sourceTaskId}</code> from the <strong>{FSTEP_LABELS[recovery.failedStep]}</strong> step,
@@ -2605,20 +2605,20 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                     {tr(
                       <>⚠ Base models for <strong>{v.version}</strong> are missing ({(v.criticalMissing || []).join(' + ')}) — this
                       version is blocked (it would only produce electrical noise). Run:{' '}</>,
-                      <>⚠ <strong>{v.version}</strong> 的底模缺失（{(v.criticalMissing || []).join(' + ')}）——该版本已被阻止
+                      <>⚠ <strong>{v.version}</strong> 的底模缺失（{(v.criticalMissing || []).join(' + ')}）：该版本已被阻止
                       （否则只会产生电流噪声）。请运行：{' '}</>)}
                     <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
                   </div>
                 : <div key={v.version} className="msg msg-warn" style={{ marginTop: 10 }}>
                     ⚠ <strong>{v.version}</strong>: {(v.missing || []).includes('sv')
-                      ? tr('speaker-vector (SV) model missing — training will run but without SV enhancement', 'speaker-vector（SV）模型缺失——训练仍会进行，但没有 SV 增强')
+                      ? tr('speaker-vector (SV) model missing — training will run but without SV enhancement', 'speaker-vector（SV）模型缺失，训练仍会进行，但没有 SV 增强')
                       : tr('a preferred base model is missing; training will fall back to a lower-quality base', '缺少一个更优的底模；训练将回退到质量较低的底模')}. {tr('Run:', '请运行：')}{' '}
                     <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
                   </div>
             ))}
           {form.trainS1 === false && form.trainS2 === false && (
             <p className="msg msg-warn" style={{ marginTop: 10 }}>{tr('Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.',
-              'S1 和 S2 都未启用（两个流程步骤均已关闭）——本次运行只会做预处理（切片 / ASR）并发布参考音频。')}</p>
+              'S1 和 S2 都未启用（两个流程步骤均已关闭）：本次运行只会做预处理（切片 / ASR）并发布参考音频。')}</p>
           )}
 
           {/* One-time low-VRAM (≤4GB) advisory. We never auto-shrink batch_size —
@@ -2654,7 +2654,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                 <button className="btn btn-primary" onClick={handleStart}
                   disabled={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)}
                   title={form.trainS2 !== false && !!(baseModelStatus && baseModelStatus.anyBlocking)
-                    ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模——请先为它们运行 download_models.py')
+                    ? tr('Some selected SoVITS versions are missing base models — run download_models.py for them first', '所选的部分 SoVITS 版本缺少底模：请先为它们运行 download_models.py')
                     : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
               )}
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
@@ -2704,7 +2704,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               {isAwaitingReview && status?.reviewStage !== 'denoise' && status?.reviewStage !== 'asr' && (
                 <div className="msg msg-warn" style={{ margin: '8px 0' }}>
                   {tr('Paused for review. If this looks stuck, your web build is stale — rebuild the frontend (npm run build) so the audition/proofreading panel loads.',
-                      '已暂停等待校对。若卡住无法继续，说明前端构建是旧的——请重新构建前端（npm run build）以加载试听/校对面板。')}
+                      '已暂停等待校对。若卡住无法继续，说明前端构建是旧的：请重新构建前端（npm run build）以加载试听/校对面板。')}
                 </div>
               )}
               {isAwaitingReview && status?.reviewStage === 'asr' && (
@@ -2791,7 +2791,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             <p style={{ marginTop: 0 }}>
               {tr(
                 'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
-                '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非自备转写。')}
+                '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
             </p>
             <p>
               {tr(
@@ -3010,7 +3010,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
   const isNoop = !!plan?.noop
 
   const planLabel = loading ? tr('Computing…', '计算中…')
-    : isNoop ? tr('Already complete — nothing to rebuild.', '已完整——无需重建。')
+    : isNoop ? tr('Already complete — nothing to rebuild.', '已完整：无需重建。')
     : stages.length ? stages.join('  →  ')
     : plan?.needs_segments ? 'generateSegments'
     : tr('No steps for the selected options.', '当前所选选项没有需要执行的步骤。')
@@ -3048,11 +3048,11 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             <div className="restore-group-title">{tr('Slicing', '切片')}</div>
             <label className="radio-row">
               <input type="radio" name="slice" checked={sliceChoice === 'noslice'} onChange={() => setSliceChoice('noslice')} />
-              <span>{tr('Use raw as reference audio', '使用原始音频作为参考音频')} <span className="hint">{tr('— fastest, no slicing; ASR writes raw_opt.list', '——最快，不切片；ASR 写入 raw_opt.list')}</span></span>
+              <span>{tr('Use raw as reference audio', '使用原始音频作为参考音频')} <span className="hint">{tr('— fastest, no slicing; ASR writes raw_opt.list', '最快，不切片；ASR 写入 raw_opt.list')}</span></span>
             </label>
             <label className="radio-row">
               <input type="radio" name="slice" checked={sliceChoice === 'real'} onChange={() => setSliceChoice('real')} />
-              <span>{tr('Re-slice raw into clips', '将原始音频重新切成片段')} <span className="hint">{tr('— cleaner cuts, slower; forces re-transcribe', '——切分更干净，但更慢；会强制重新转写')}</span></span>
+              <span>{tr('Re-slice raw into clips', '将原始音频重新切成片段')} <span className="hint">{tr('— cleaner cuts, slower; forces re-transcribe', '切分更干净，但更慢；会强制重新转写')}</span></span>
             </label>
 
             {/* Slice parameters — only when real slicing is selected */}
@@ -3080,8 +3080,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
               <input type="checkbox" checked={doAsr || asrForced} disabled={asrForced} onChange={e => setDoAsr(e.target.checked)} />
               <span>
                 {tr('Run ASR to (re)generate the transcript & segments', '运行 ASR 以（重新）生成转写文本与分段')}
-                {asrForced && <span className="hint"> {tr('— required for the selected options', '——所选选项需要此步骤')}</span>}
-                {!doAsr && !asrForced && <span className="hint-warn"> {tr('— skipped: reference-text-free', '——已跳过：不使用参考文本')}</span>}
+                {asrForced && <span className="hint"> {tr('— required for the selected options', '所选选项需要此步骤')}</span>}
+                {!doAsr && !asrForced && <span className="hint-warn"> {tr('— skipped: reference-text-free', '已跳过：不使用参考文本')}</span>}
               </span>
             </label>
 
@@ -3113,8 +3113,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
               <span>
                 Train S1 (GPT)
                 {state.Mg === false
-                  ? <span className="hint-warn"> {tr('— missing', '——缺失')}</span>
-                  : <span className="hint"> {tr('— already present, retrain to overwrite', '——已存在，重新训练将覆盖')}</span>}
+                  ? <span className="hint-warn"> {tr('— missing', '缺失')}</span>
+                  : <span className="hint"> {tr('— already present, retrain to overwrite', '已存在，重新训练将覆盖')}</span>}
               </span>
             </label>
             <label className="toggle-row">
@@ -3122,8 +3122,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
               <span>
                 Train S2 (SoVITS)
                 {state.Ms === false
-                  ? <span className="hint-warn"> {tr('— missing', '——缺失')}</span>
-                  : <span className="hint"> {tr('— already present, retrain to overwrite', '——已存在，重新训练将覆盖')}</span>}
+                  ? <span className="hint-warn"> {tr('— missing', '缺失')}</span>
+                  : <span className="hint"> {tr('— already present, retrain to overwrite', '已存在，重新训练将覆盖')}</span>}
               </span>
             </label>
 

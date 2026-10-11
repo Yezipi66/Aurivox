@@ -44,7 +44,7 @@ export function processPhase (engine) {
 
 const REASON = {
   'not-ours': {
-    zh: '这台引擎的名片没写 runtime 段 —— 它由作者自己起，平台起不了也停不了它。',
+    zh: '这台引擎的名片没写 runtime 段：它由作者自己起，平台起不了也停不了它。',
     en: 'This engine has no runtime section in its manifest; it is started by its author, not by this app.',
   },
   unmanaged: {
@@ -56,7 +56,7 @@ const REASON = {
     en: 'The engine is up but was not started by this app, so it cannot be stopped here.',
   },
   starting: {
-    zh: '正在把模型装进内存，这一下可能要等几十秒到几分钟。\n⛔ 不用再点 —— 再点只会排在后面。',
+    zh: '正在把模型装进内存，这一下可能要等几十秒到几分钟。\n⛔ 不用再点：再点只会排在后面。',
     en: 'Loading the model into memory; this can take a while. No need to click again.',
   },
   running: {
@@ -64,7 +64,7 @@ const REASON = {
     en: 'Already running.',
   },
   busy: {
-    zh: '正在给一次合成干活。现在关掉它，那次合成会拿到半截音频 —— ⛔ 不是一句报错。\n请等它跑完。',
+    zh: '正在给一次合成干活。现在关掉它，那次合成会拿到半截音频：⛔ 不是一句报错。\n请等它跑完。',
     en: 'Busy synthesising. Stopping now would truncate that job. Wait for it to finish.',
   },
   idle: {
@@ -109,7 +109,7 @@ export function engineControls (engine, lang = 'zh') {
       label: phase === 'starting' ? (zh ? '启动中…' : 'Starting…') : startLabel,
       title: phase === 'idle'
         ? (zh
-            ? '把这台引擎起起来。\n⭐ 不用先点合成 —— 这正是这个页面存在的理由。\n⚠ 起的那一下要把模型装进内存，可能要等几十秒到几分钟。'
+            ? '把这台引擎起起来。\n⭐ 不用先点合成：这正是这个页面存在的理由。\n⚠ 起的那一下要把模型装进内存，可能要等几十秒到几分钟。'
             : 'Start this engine now, without having to run a synthesis first.')
         : reason(phase, lang),
     },

@@ -77,7 +77,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       <p className="msg msg-info">
         这台机器上装了哪几台引擎、各自跑没跑，以及不点合成也能把它起起来。
         <br />
-        ⚠ 同时启动多台引擎会占用大量内存 —— 平台会按实测峰值拦，拦下来时这里会写明原因。
+        ⚠ 同时启动多台引擎会占用大量内存：平台会按实测峰值拦，拦下来时这里会写明原因。
       </p>
 
       {/* B5 占用透明度：机器级总览。
@@ -102,7 +102,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
           <strong>这几台引擎的名片读不出来，所以没出现在下面的列表里：</strong>
           <ul>
             {engineErrors.map(e => (
-              <li key={e.id}><code>{e.id}</code>{e.code ? ` [${e.code}]` : ''} —— {e.error || e.message}</li>
+              <li key={e.id}><code>{e.id}</code>{e.code ? ` [${e.code}]` : ''}：{e.error || e.message}</li>
             ))}
           </ul>
         </div>

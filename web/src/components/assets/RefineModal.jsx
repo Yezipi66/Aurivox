@@ -154,7 +154,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
     if (reuseBlocked) {
       setError(t(
         `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” above.`,
-        `无法在该音色的现有数据上精修 —— 缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入我自己的新音频」。`))
+        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入我自己的新音频」。`))
       return
     }
     if (useOwnData && !inputDir.trim()) { setError(t('Please provide the source audio folder for own-data refinement.', '请填写自备数据精修的源音频文件夹。')); return }
@@ -185,7 +185,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             and S2 (SoVITS) are independent — refine either or both. This creates a new derived
             Voice; the source Voice and its checkpoints are always preserved.</>,
             <>在该音色现有 checkpoint 的基础上继续训练，以进一步适配。S1 (GPT) 与 S2 (SoVITS)
-            相互独立——可只精修其一或两者都精修。这会创建一个新的派生音色；源音色及其 checkpoint 始终会被保留。</>)}
+            相互独立，可只精修其一或两者都精修。这会创建一个新的派生音色；源音色及其 checkpoint 始终会被保留。</>)}
         </p>
 
         {/* Lineage — abstract generation chain. Gen 0 = original recording. */}
@@ -193,7 +193,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <span className="badge" style={{ marginRight: 8 }}>Gen {lineage.generation}</span>
           {t('This derived Voice will become', '本次派生音色将成为第')}{' '}
           <strong style={{ color: 'var(--text)' }}>Gen {lineage.generation + 1}</strong>{' '}
-          {t('— direct parent:', '代 —— 直接父级：')} <strong style={{ color: 'var(--text)' }}>{parent}</strong>
+          {t('— direct parent:', '代，直接父级为')} <strong style={{ color: 'var(--text)' }}>{parent}</strong>
           {lineage.root && lineage.root !== lineage.parent && (
             <span> · {t('root', '根')}: <code>{lineage.root}</code></span>
           )}
@@ -217,14 +217,14 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             <input type="checkbox" checked={useOwnData} onChange={e => setUseOwnData(e.target.checked)} />
             <span>
               {t('Bring my own new audio (full pipeline)', '导入我自己的新音频（完整管线）')}
-              <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '——关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹跑切片/ASR/预处理；仅用新数据，不做合并。')}</span>
+              <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹跑切片/ASR/预处理；仅用新数据，不做合并。')}</span>
             </span>
           </label>
           {reuseBlocked && (
             <div className="hint-warn" style={{ marginTop: 8, color: 'var(--warning)' }}>
               {t(
                 `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” to train from a fresh corpus.`,
-                `⚠ 该音色尚不足以在现有数据上精修 —— 缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入我自己的新音频」以用全新语料训练。`)}
+                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入我自己的新音频」以用全新语料训练。`)}
             </div>
           )}
           {useOwnData && (
@@ -247,12 +247,12 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {language === ''
                     ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language if you want to declare one for the new corpus.',
-                        '未声明——本分支继承父级音色的语言。仅当需要为新语料指定语言时才需选择。')
+                        '未声明：本分支继承父级音色的语言。仅当需要为新语料指定语言时才需选择。')
                     : language === (parentLanguage || 'auto')
                       ? t('Same as the parent Voice — this is equivalent to inheriting; no separate language branch is created.',
-                          '与父级音色相同——等同于继承，不会额外产生语言派生。')
+                          '与父级音色相同，等同于继承，不会额外产生语言派生。')
                       : t('⚠ Different from the parent Voice — this derives a cross-language branch, recorded on the new Voice as its own language (a Japanese model annealed on Chinese data, for example).',
-                          '⚠ 与父级音色不同——将派生一条跨语言分支，并作为新音色自身的语言记录（例如把日语模型用中文数据退火）。')}
+                          '⚠ 与父级音色不同，将派生一条跨语言分支，并作为新音色自身的语言记录（例如把日语模型用中文数据退火）。')}
                 </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 8 }}>
@@ -279,7 +279,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
               </div>
               <div className="field-hint" style={{ marginTop: 6 }}>
                 {t('New data only — the parent dataset is NOT merged. Integrate any upstream data into this folder yourself before starting.',
-                   '仅使用新数据——不会与父级数据集合并。开始前请自行把任何上游数据整合进该文件夹。')}
+                   '仅使用新数据（不会与父级数据集合并）。开始前请自行把任何上游数据整合进该文件夹。')}
               </div>
             </div>
           )}
@@ -292,7 +292,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             <input type="checkbox" checked={refineS1} onChange={e => setRefineS1(e.target.checked)} />
             <span>
               {t('Refine S1 (GPT)', '精修 S1 (GPT)')}
-              <span className="hint"> {t('— continues from the parent S1 checkpoint; adapts semantic rhythm & prosody', '——从父级 S1 checkpoint 继续训练；适配语义层面的节奏与韵律')}</span>
+              <span className="hint"> {t('— continues from the parent S1 checkpoint; adapts semantic rhythm & prosody', '从父级 S1 checkpoint 继续训练；适配语义层面的节奏与韵律')}</span>
             </span>
           </label>
           {refineS1 && ckpts.gpt.length > 0 && (
@@ -309,7 +309,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             <input type="checkbox" checked={refineS2} onChange={e => setRefineS2(e.target.checked)} />
             <span>
               {t('Refine S2 (SoVITS)', '精修 S2 (SoVITS)')}
-              <span className="hint"> {t('— continues from the parent S2 checkpoint; adapts timbre & acoustics', '——从父级 S2 checkpoint 继续训练；适配音色与音质')}</span>
+              <span className="hint"> {t('— continues from the parent S2 checkpoint; adapts timbre & acoustics', '从父级 S2 checkpoint 继续训练；适配音色与音质')}</span>
             </span>
           </label>
           {refineS2 && ckpts.sovits.length > 0 && (
@@ -405,7 +405,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <div style={{ fontSize: 13, lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
             <p style={{ marginTop: 0 }}>
               {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
-                 '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败——除非自备转写。')}
+                 '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
             </p>
             <p>
               {t('Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
