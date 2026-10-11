@@ -122,7 +122,7 @@ export default function MainArea ({ manifest }) {
       </div>
 
       <p className="msg msg-info" style={{ marginBottom: 0, marginTop: 12 }}>
-        {t('⬆ Notice: the shape above is decided by the platform — switching engines '
+        {t('Notice: the shape above is decided by the platform. Switching engines '
           + 'does not change a single character of it. Only the “Advanced Settings” '
           + 'block below comes from the manifest.',
           '注意：以上格子的形式由平台决定，更换引擎时不会发生变化。'
