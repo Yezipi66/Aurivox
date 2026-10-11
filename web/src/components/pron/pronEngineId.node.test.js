@@ -26,12 +26,28 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readDirSources } from '../../__testsupport__/readDirSources.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SRC = path.join(HERE, '..', '..')
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8')
 
-const PRON = read('components/pron/PronProofing.jsx')
+// 读一个组件目录下的全部源码：组件按功能拆成多个文件后，只读原来那一个
+// .jsx 的守卫会看不见拆出去的部分，守卫静默失效。
+// ⛔ 这里仍然「逐个点名」（SIGNATURES / RENDERS 表照旧），只是读取范围
+//    从单文件放宽到目录 —— 泛化成「检查存在 engineId 这个词」是不许的。
+const readDir = (relDir) => readDirSources(import.meta.url, path.join('..', '..', relDir))
+
+// 路径可能是文件也可能是目录：目录走 readDirSources（覆盖拆分后的兄弟文件），
+// 文件仍按单文件读。
+const readDirOrFile = (rel) => {
+  const abs = path.join(SRC, rel)
+  return fs.statSync(abs).isDirectory()
+    ? readDirSources(import.meta.url, path.join('..', '..', rel))
+    : fs.readFileSync(abs, 'utf8')
+}
+
+const PRON = readDir('components/pron')
 
 test('⭐⭐⭐ 三处 /api/pron/preview 调用都必须带 engine_id', () => {
   const calls = [...PRON.matchAll(/api\(\s*'\/api\/pron\/preview'[\s\S]{0,260}?\)/g)]
@@ -66,42 +82,42 @@ test('⭐ engineId 必须进 HanReadingReview 的依赖签名', () => {
  * ⭐ 每一行都是一次真实的"我差点漏掉"。
  */
 const SIGNATURES = [
-  ['components/pron/PronProofing.jsx', /function PronPanel\(\{[^}]*\bengineId\b/],
-  ['components/pron/PronProofing.jsx', /function HanReadingReview\(\{[^}]*\bengineId\b/],
-  ['components/pron/PronProofing.jsx', /function HanLangPicker\(\{[^}]*\bengineId\b/],
-  ['components/pron/PronProofing.jsx', /function TextPrepModal\(\{[^}]*\bengineId\b/],
+  ['components/pron', /function PronPanel\(\{[^}]*\bengineId\b/],
+  ['components/pron', /function HanReadingReview\(\{[^}]*\bengineId\b/],
+  ['components/pron', /function HanLangPicker\(\{[^}]*\bengineId\b/],
+  ['components/pron', /function TextPrepModal\(\{[^}]*\bengineId\b/],
   ['components/assets/ReferenceTranscriptProofing.jsx', /function ReferenceTranscriptProofing\(\{[^}]*\bengineId\b/],
   ['components/assets/AssetsTab.jsx', /function AssetsTab\(\{\s*engine\b/],
-  ['components/train/TrainingTab.jsx', /function TrainingTab\(\{\s*engine\b/],
-  ['components/train/TrainingTab.jsx', /function AsrRowProof\(\{[^}]*\bengineId\b/],
-  ['components/train/TrainingTab.jsx', /function AsrReviewPanel\(\{[^}]*\bengineId\b/],
-  ['components/compare/ReferenceCompareTab.jsx', /function CompareRow\(\{[^}]*\bengineId\b/],
+  ['components/train', /function TrainingTab\(\{\s*engine\b/],
+  ['components/train', /function AsrRowProof\(\{[^}]*\bengineId\b/],
+  ['components/train', /function AsrReviewPanel\(\{[^}]*\bengineId\b/],
+  ['components/compare', /function CompareRow\(\{[^}]*\bengineId\b/],
 ]
 
 for (const [file, re] of SIGNATURES) {
   test(`⛔ 签名断链：${file} ${re.source.slice(0, 40)}`, () => {
-    assert.match(read(file), re, `${file} 的这个组件签名上没有引擎 —— 链在这里断了`)
+    assert.match(readDirOrFile(file), re, `${file} 的这个组件签名上没有引擎 —— 链在这里断了`)
   })
 }
 
 /** 渲染点：`<组件` 之后 700 字符内必须出现 engineId=。 */
 const RENDERS = [
-  ['components/generate/GenerateTab.jsx', '<TextPrepModal'],
-  ['components/compare/ReferenceCompareTab.jsx', '<TextPrepModal'],
-  ['components/compare/ReferenceCompareTab.jsx', '<CompareRow'],
+  ['components/generate', '<TextPrepModal'],
+  ['components/compare', '<TextPrepModal'],
+  ['components/compare', '<CompareRow'],
   ['components/assets/AssetsTab.jsx', '<ReferenceTranscriptProofing'],
   ['components/assets/ReferenceTranscriptProofing.jsx', '<TextPrepModal'],
-  ['components/train/TrainingTab.jsx', '<AsrReviewPanel'],
-  ['components/train/TrainingTab.jsx', '<AsrRowProof'],
-  ['components/train/TrainingTab.jsx', '<PronPanel'],
-  ['components/pron/PronProofing.jsx', '<HanLangPicker'],
-  ['components/pron/PronProofing.jsx', '<HanReadingReview'],
-  ['components/pron/PronProofing.jsx', '<PronPanel'],
+  ['components/train', '<AsrReviewPanel'],
+  ['components/train', '<AsrRowProof'],
+  ['components/train', '<PronPanel'],
+  ['components/pron', '<HanLangPicker'],
+  ['components/pron', '<HanReadingReview'],
+  ['components/pron', '<PronPanel'],
 ]
 
 for (const [file, tag] of RENDERS) {
   test(`⛔ 渲染点漏传：${file} ${tag}`, () => {
-    const code = read(file)
+    const code = readDirOrFile(file)
     const idxs = [...code.matchAll(new RegExp(tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s>]', 'g'))].map(m => m.index)
     assert.ok(idxs.length > 0, `${file} 里找不到 ${tag}`)
     for (const i of idxs) {
