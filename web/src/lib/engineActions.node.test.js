@@ -49,7 +49,7 @@ test('⭐⭐⭐ 正在合成（busy）⇒ 关闭按钮必须灰掉，理由是"�
   const c = engineControls({ id: 'x', managed: true, process: { running: true, busy: true } })
   assert.equal(c.phase, 'busy')
   assert.equal(c.stop.enabled, false)
-  assert.match(c.stop.title, /半截音频/, '这里必须说清后果 —— 关掉它不是"操作失败"，是那次合成被腰斩')
+  assert.match(c.stop.title, /不完整的音频/, '这里必须说清后果 —— 关掉它不是"操作失败"，是那次合成被腰斩')
 })
 
 test('在跑且不忙 ⇒ 能关，不能重复启动', () => {

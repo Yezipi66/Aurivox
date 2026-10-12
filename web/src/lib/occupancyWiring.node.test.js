@@ -52,7 +52,7 @@ test('接线：后端真实产物 → 机器级徽章（⛔ 手写对象不算�
   const b = occupancyBadge(occ)
   assert.ok(b, '真实产物必须能翻成徽章')
   assert.equal(b.tone, 'ok')
-  assert.match(b.label, /1 台在跑/)
+  assert.match(b.label, /1 台运行中/)
   // ⭐ 峰值要真的进去（数值来自后端，不是测试自己编的）
   assert.ok(b.detail.some((d) => d.includes(fmtMemMb(3000))), '历史峰值合计')
 })
@@ -72,7 +72,7 @@ test('接线：从来没量到过的那台 ⇒ unknown，⛔ 前端不许显示 
   //   前端**不许**把它变成「0 MB」/绿标。
   //   ⛔ 0 的意思是「它不吃内存」—— 那是最危险的说法（用户会以为能多开）。
   assert.ok(!/\b0\s?(MB|GB)/.test(b.label), `⛔ 标签里出现了 0：${b.label}`)
-  assert.match(b.label, /没量到过/)
+  assert.match(b.label, /未测量/)
 })
 
 test('接线：attempting 是数组形状时，OOM 警告能到 UI（后端两种都发）', () => {
@@ -90,7 +90,7 @@ test('接线：attempting 是数组形状时，OOM 警告能到 UI（后端两�
   })
   const b = engineUsageBadge({ id: 'b', label: 'B' }, occ)
   assert.equal(b.tone, 'bad', '⛔ 数组形状的 attempting 必须被认出来')
-  assert.match(b.label, /上次没起来/)
+  assert.match(b.label, /上次启动失败/)
   // ⭐ 变异靶：把 attemptingHas 的数组分支删掉 ⇒ 这条必须红
 })
 
@@ -112,7 +112,7 @@ test('接线：后端报 error 时前端说「读不到」，⛔ 绝不说「没
   //   **没有 engines 数组**。前端必须据此说「读不到」。
   const b = occupancyBadge({ error: '账本打不开' })
   assert.equal(b.tone, 'unknown')
-  assert.match(b.label, /读不到/)
+  assert.match(b.label, /无法读取/)
   // ⭐ 变异靶：把 `!Array.isArray(occ.engines)` 那道闸删掉
   //   ⇒ 它会掉到「0 台在跑」的绿标 ⇒ 必须红。
   assert.notEqual(b.tone, 'idle')

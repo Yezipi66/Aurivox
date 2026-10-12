@@ -75,7 +75,7 @@ test('occupancyBadge: 缺 occupancy 段 ⇒ null（⛔ 不是「没占用」）'
 test('occupancyBadge: 后端报错 ⇒ 读不到，⛔ 绝不说「没占用」', () => {
   const b = occupancyBadge({ error: 'ledger 打不开' })
   assert.equal(b.tone, 'unknown')
-  assert.match(b.label, /读不到/)
+  assert.match(b.label, /无法读取/)
   // ⭐ 变异靶：把 error 分支删掉，让它掉到「0 台在跑」⇒ 必须红
   assert.notEqual(b.tone, 'idle')
 })
@@ -83,13 +83,13 @@ test('occupancyBadge: 后端报错 ⇒ 读不到，⛔ 绝不说「没占用」'
 test('occupancyBadge: 跑着几台就说几台', () => {
   const b = occupancyBadge(OCC)
   assert.equal(b.tone, 'ok')
-  assert.match(b.label, /1 台在跑/)
+  assert.match(b.label, /1 台运行中/)
 })
 
 test('occupancyBadge: 一台没跑 ⇒ idle，且说清「用到才起」', () => {
   const b = occupancyBadge({ ...OCC, summary: { ...OCC.summary, running: 0, resident_peak_mb: 0 } })
   assert.equal(b.tone, 'idle')
-  assert.ok(b.detail.some((d) => /用到才起/.test(d)), '要说清是按需起的')
+  assert.ok(b.detail.some((d) => /按需启动/.test(d)), '要说清是按需起的')
 })
 
 test('occupancyBadge: 峰值与系统余量都进 detail', () => {
@@ -107,7 +107,7 @@ test('occupancyBadge: 峰值与系统余量都进 detail', () => {
 test('engineUsageBadge: 没量到过 ⇒ unknown，⛔ 绝不是 0/ok', () => {
   const b = engineUsageBadge({ id: 'b', label: 'B' }, OCC)
   assert.equal(b.tone, 'unknown')
-  assert.match(b.label, /没量到过/)
+  assert.match(b.label, /未测量/)
   // ⭐ 变异靶：把「没量到」判成 ok（显示 0 MB）⇒ 必须红
   assert.notEqual(b.tone, 'ok')
   assert.ok(!/\b0\s?(MB|GB)/.test(b.label), '⛔ 标签里不许出现 0 MB')
@@ -123,7 +123,7 @@ test('engineUsageBadge: 在跑但没量到 ⇒ busy，且说清「没量到」',
   const occ = { ...OCC, engines: [{ id: 'c', label: 'C', running: true, peak_mb: null, last_attempt_unfinished: false }] }
   const b = engineUsageBadge({ id: 'c', label: 'C' }, occ)
   assert.equal(b.tone, 'busy')
-  assert.match(b.label, /没量到/)
+  assert.match(b.label, /未测量/)
   // ⭐ 变异靶：让它显示成 idle ⇒ 必须红（它在跑）
   assert.notEqual(b.tone, 'idle')
 })
@@ -132,14 +132,14 @@ test('engineUsageBadge: 没在跑 + 有峰值 ⇒ idle + 「大概会吃到」',
   const occ = { ...OCC, engines: [{ id: 'a', label: 'A', running: false, peak_mb: 3000, last_attempt_unfinished: false }] }
   const b = engineUsageBadge({ id: 'a', label: 'A' }, occ)
   assert.equal(b.tone, 'idle')
-  assert.match(b.title, /大概会吃到/)
+  assert.match(b.title, /预计占用/)
 })
 
 test('engineUsageBadge: ⭐ 上次没起来 ⇒ bad，排在「没量到」前面', () => {
   const occ = { ...OCC, engines: [{ id: 'd', label: 'D', running: false, peak_mb: null, last_attempt_unfinished: true }] }
   const b = engineUsageBadge({ id: 'd', label: 'D' }, occ)
   assert.equal(b.tone, 'bad')
-  assert.match(b.label, /上次没起来/)
+  assert.match(b.label, /上次启动失败/)
   // ⭐⭐ 变异靶：把 last_attempt_unfinished 这一支删掉/挪到最后
   //   ⇒ 它会掉进「没量到过」(unknown) ⇒ 必须红。
   //   这是本组测试存在的**主要理由**：attempting 有两种形状

@@ -694,7 +694,7 @@ test('⭐⭐ 引擎在跑但不是我们起的，必须单独说 —— 这是�
   assert.match(b.title, /不会去停它/, '必须告诉人平台不会插手，否则他不知道该信谁')
 })
 
-test('⭐⭐⭐ 正在装模型那几十秒必须盖过一切 —— 这是唯一会让人以为卡死的时刻', async () => {
+test('⭐⭐⭐ 正在装模型那几十秒必须盖过一切：这是唯一会让人以为卡死的时刻', async () => {
   const { processBadge } = await import('./engines.js')
   // 换一次模型 = 带着新权重把进程整个重开，6 GB 起步。
   // 界面不吭声的话，正常人的反应是再点一次 —— 于是排队更长、更像卡死。
@@ -704,10 +704,10 @@ test('⭐⭐⭐ 正在装模型那几十秒必须盖过一切 —— 这是唯�
   })
   assert.equal(b.tone, 'busy')
   assert.match(b.label, /启动中/)
-  // ⭐ phase 必须优先于 busy：两个都为真时，人需要知道的是"在装模型"，
+  // ⭐ phase 必须优先于 busy：两个都为真时，人需要知道的是"正在加载模型"，
   //   而不是"在合成" —— 后者会让他觉得马上就好。
   assert.doesNotMatch(b.label, /合成/)
-  assert.match(b.title, /不用再点/, '这一句就是这个徽章存在的全部理由')
+  assert.match(b.title, /不要重复点击/, '这一句就是这个徽章存在的全部理由')
 })
 
 test('phase 到了 ready 就不再喊启动中', async () => {
@@ -871,7 +871,7 @@ test('⭐ 底模齐不再占灯面，但必须还在悬停里', async () => {
     { engine_online: true },
   )
   assert.equal(b.tone, 'ok')
-  assert.ok(!b.label.includes('底模齐'), '永远绿的灯不携带信息 ⇒ 不占格子')
+  assert.ok(!b.label.includes('底模就绪'), '永远绿的灯不携带信息 ⇒ 不占格子')
   assert.ok(b.title.includes('D:/x/checkpoints'), '⛔ 但不许连悬停一起丢掉')
 })
 
