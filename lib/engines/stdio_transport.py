@@ -193,7 +193,7 @@ class _StdioFile(object):
            ⇒ 排查会跑去查路由表和 HTTP 实现，而两者都是好的。
 
         ⭐ 顺带说明：这条在**真 socket 上同样是 bug**，只是 HTTP 路线
-           因为客户端每次都新开连接（Connection: close）看不出来。
+           因为客户端每次都新开连接（Connection: close）无法察觉。
            ⭐⭐ stdio 是长连接，于是它必然暴露 —— 传输层替我们揭了一个
              一直存在的隐患。这正是「长连接更接近真实」的代价与收益。
         """
@@ -267,7 +267,7 @@ def serve(handler_factory, engine_id=None, on_ready=None):
     #      那些字节留在流里 ⇒ 下一个请求的请求行被拼在它后面 ⇒ 501。
     #
     #   ⭐⭐ 顺带一个重要发现：坑 3 在**真 socket 上也是 bug**，只是 HTTP 路线
-    #   因为客户端每次新开连接看不出来。stdio 是长连接，必然暴露。
+    #   因为客户端每次新开连接无法察觉。stdio 是长连接，必然暴露。
     #   ⭐⭐ 也就是说 stdio 替我们揭出了一个一直存在的隐患。
 
     handler_cls = handler_factory

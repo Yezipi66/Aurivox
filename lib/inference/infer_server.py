@@ -314,7 +314,7 @@ class TTS_Request(BaseModel):
     #
     # 真实消费点在下游 engines/gpt-sovits/infer/TTS.py:1229
     # （super_sampling = inputs.get("super_sampling", False)），宿主不翻译它
-    # 就永远读不到。
+    # 就永远无法读取。
     #
     # 优先级：`if_sr` 是平台唯一的规范键（没有任何生产代码发 super_sampling），
     # 所以**两个都给时 if_sr 赢**。这样即使将来有人按下游的名字发，也不会

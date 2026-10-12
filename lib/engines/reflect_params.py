@@ -59,7 +59,7 @@ BANNER = "[reflect]"
 #  为什么：平台的进程环境里可能带着别的 Python 的路径（开发机上尤其明显，
 #  Hermes 就把自己的 site-packages 塞在 sys.path 前面）。那些包一旦先被
 #  import 进来，这台引擎拿到的就是**别的那一份** torch —— 而症状是
-#  「版本对不上，报错却指向一个跟当前包无关的地方」。
+#  「版本不匹配，报错却指向一个跟当前包无关的地方」。
 def _scrub_sys_path():
     keep = []
     for p in sys.path:
@@ -245,7 +245,7 @@ def _reflect_callable(fn, phase, skip, fallback_doc=None):
                       inspect.Parameter.VAR_KEYWORD):
             out.append({
                 "name": name, "phase": phase, "skipped": True,
-                "why": "变长参数（*args / **kwargs）—— 平台不替你猜怎么展开",
+                "why": "变长参数（*args / **kwargs）—— 平台不替用户猜测怎么展开",
             })
             continue
         if name in skip:

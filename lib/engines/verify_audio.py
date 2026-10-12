@@ -14,7 +14,7 @@
 ⭐ ��两道都过了，仍然**完全可能**出一堆不能听的���音：
 
     · 上���类能 import，但它要的那份权重不在（第二道不查权重）
-    · 权重在，但配置写错、码本对不上
+    · 权重在，但配置写错、码本不匹配
     · 构造成功，infer 跑一半抛异常
     · 出来了��但**是空的**（0 字节 / 0 帧）
     · 采样率是 0 / 声道数荒诞 —— 能播，但没法用
@@ -129,7 +129,7 @@ def inspect_wav(data):
         "channels": ch,
         "sample_width": width,
         "duration_sec": duration,
-        # ⭐ 采样率是 host.py 自己也报的那一份 —— 两边对不上说明有一边在骗人
+        # ⭐ 采样率是 host.py 自己也报的那一份 —— 两边不匹配说明有一边在骗人
         "consistency": "宿主与探针读到的 WAV 头一致",
     }
 
@@ -286,7 +286,7 @@ def verify_level_a(spec):
 
     # 宿主可能直接回 audio/wav，也可能回 JSON 带 base64。两种都认，
     # ⛔ 但**只认这两种** —— 出现第三种形状时要说「我不认识」，
-    # 那样猜错会表现为「验过了其实没验」。
+    # 那样猜错会表现为「验证通过但实际未验证」。
     audio, shape = _extract_audio(body, raw)
     if audio is None:
         return {"ok": False, "level": "A", "stage": "decode",

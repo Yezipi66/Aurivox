@@ -217,7 +217,7 @@ def _expand_word(raw, values, where):
 #  1.5) kind="cli"：一个参数 → 命令行上的 0..N 个词
 # ---------------------------------------------------------------------------
 #
-# ⭐ 这一段是 `call.args` 那张表的**唯一**解释处，而且它必须穷举 —— 没有
+# ⭐ 这一段是 `call.args` 那份表的**唯一**解释处，而且它必须穷举 —— 没有
 #   「其余情况看着办」的分支。看着办 = 宿主替名片作者猜，猜错不报错，
 #   只是那个开关没上命令行，声音悄悄变了。
 def _render_cli_arg(name, entry, value):
@@ -419,7 +419,7 @@ class SeedPlan(object):
             try:
                 got = SEEDERS[name](seed)
             except Exception as exc:
-                # ⭐ 照实记下来。名片列了却播不到 = 环境和名片对不上，
+                # ⭐ 照实记下来。名片列了却播不到 = 环境和名片不匹配，
                 #    该由 §6 第一道校验在注册时拦掉，不是运行时假装没事。
                 failed.append("%s(%s)" % (name, exc.__class__.__name__))
                 continue
@@ -1103,7 +1103,7 @@ def resolve_method(profile, requested):
                   # ⭐⭐ blank_when 必须一起带下去 —— 少了它，「签名必填但实际
                   #   那条路不用」的参数就永远填不上 ⇒ TypeError。
                   #   2026-09-30 真机上栽过：它写在了这里**下面**的函数里，
-                  #   于是 resolve_method 明明配好了，调用方拿到的却没有。
+                  #   于是 resolve_method 已配置好，调用方拿到的却没有。
                   "blank_when": cfg.get("blank_when", None)}, requested
 
 
@@ -1196,7 +1196,7 @@ def validate_request(body, profile, seed_plan):
                      "be silently ignored and look like it took effect"
                      % ", ".join(unknown)), {"unknown": unknown}
 
-    # 加载期参数出现在调用里 = 调用方以为能热切，其实不能。
+    # 加载期参数出现在调用里 = 调用方以为能热切，实际不能。
     in_call = sorted(k for k in body if k in load_time)
     if in_call:
         return 400, ("%s can only be set when the engine process starts, not per "
@@ -1384,7 +1384,7 @@ def main():
     try:
         profile = load_profile(source)
     except Exception as exc:
-        sys.stderr.write("%s FATAL: 读不了解析结果 %s：%s\n" % (BANNER, source, exc))
+        sys.stderr.write("%s FATAL: 无法读取解析结果 %s：%s\n" % (BANNER, source, exc))
         return 2
 
     problems = validate_profile(profile)
