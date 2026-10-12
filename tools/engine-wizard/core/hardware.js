@@ -495,7 +495,7 @@ function readTorchFamilyPins (text, platform) {
 }
 
 module.exports = {
-  parseUvLock, readTorchPin, clearHardwareCache,
+  parseUvLock, readTorchPin, readTorchFamilyPins, clearHardwareCache,
   BACKEND_PREFERENCE, detectGpus, recommendBackend, inspectHardware,
   judgeTorchSpec, splitTorchPackages, TORCH_FAMILY,
 }

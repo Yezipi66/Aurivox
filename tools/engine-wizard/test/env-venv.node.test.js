@@ -619,6 +619,123 @@ test('⛔ 不涉及 torch 的装法 ⛔ 不硬验 torch（⛔ 不替用户猜它
 })
 
 // ---------------------------------------------------------------------------
+// ⑪ ⭐⭐⭐ alt 那步必须装 torch 系**整族**（⛔ 不是只装 torch）
+//
+// ⚠⚠ 真机验收（2026-10-12）发现的 P0：
+//   alt 那步只装 torch ⇒ torchaudio 留在 CUDA 版
+//     torch       2.8.0+xpu    能 import
+//     torchaudio  2.8.0+cu128  import 报 FileNotFoundError: libtorchaudio.pyd
+//   而 torchaudio 是引擎代码里 import 了 20 处的必需依赖 ⇒ 引擎跑不起来。
+//   ⭐ 实测：xpu 索引上 torchaudio==2.8.0 解析出来就是 2.8.0+xpu
+//     （同一版本号、同一个索引自动配对），所以整族一起装是对的。
+//
+// ⛔ 判据是「目标环境」与「配对」，不是「参数存在」：
+//   · alt 那步装的是 torch + torchaudio（版本号与 lock 一致）且同一个 --index-url
+//   · alt 那步与主安装步：-p 的值 == engines/<id>/.venv 内 python 的绝对路径
+// ---------------------------------------------------------------------------
+
+/** 造一份「torch + torchaudio 都锁在 CUDA 线上」的 uv.lock */
+function writeCudaFamilyLockTo (dir) {
+  fs.writeFileSync(path.join(dir, 'uv.lock'), [
+    'version = 1',
+    '',
+    '[[package]]',
+    'name = "torch"',
+    'version = "2.8.0+cu128"',
+    'source = { registry = "https://download.pytorch.org/whl/cu128" }',
+    'marker = "sys_platform == \'linux\' or sys_platform == \'win32\'"',
+    '',
+    '[[package]]',
+    'name = "torchaudio"',
+    'version = "2.8.0+cu128"',
+    'source = { registry = "https://download.pytorch.org/whl/cu128" }',
+    'marker = "sys_platform == \'linux\' or sys_platform == \'win32\'"',
+    '',
+  ].join('\n'))
+}
+
+test('⛔⭐⭐ alt 那步必须装 torch + torchaudio 整族（版本号与 lock 一致）', () => {
+  const { root } = mkdtempEngineWithManifest('fam1', 'uv.lock')
+  writeCudaFamilyLockTo(path.join(root, 'engines', 'fam1'))
+  const p = planOf(root, 'fam1', {})
+  assert.strictEqual(p.ok, true, p.error)
+  if (!p.alternative) {
+    // 本机无可用加速后端时不给替代命令（合法）
+    assert.ok(true, '本机无可用加速后端，不给替代命令（符合预期）')
+    return
+  }
+  const alt = p.alternative
+  // ⭐ 必须装 torch 和 torchaudio 两个包
+  assert.ok(alt.then.includes('torch==2.8.0'),
+    `⛔ alt 那步必须装 torch==2.8.0：${alt.then.join(' ')}`)
+  assert.ok(alt.then.includes('torchaudio==2.8.0'),
+    `⛔ alt 那步必须装 torchaudio==2.8.0：${alt.then.join(' ')}`)
+  // ⭐ 版本号必须与 lock 一致（⛔ 不硬编码）
+  assert.ok(!alt.then.some((a) => /\+cu/.test(a)),
+    `⛔ 换后端后不得保留 CUDA 后缀：${alt.then.join(' ')}`)
+  // ⭐ 只有一个 --index-url（⛔ 防止两个 index 混用把 torch 拉回 cu128）
+  const idxCount = alt.then.filter((a) => a === '--index-url').length
+  assert.strictEqual(idxCount, 1,
+    `⛔ alt 那步必须有且只有一个 --index-url：${alt.then.join(' ')}`)
+  const idx = alt.then.indexOf('--index-url')
+  assert.ok(idx > 0 && /download\.pytorch\.org/.test(alt.then[idx + 1]),
+    `⛔ 必须指向 PyTorch 官方 index：${alt.then.join(' ')}`)
+  // ⭐ needs 必须包含整族
+  assert.ok(Array.isArray(alt.needs) && alt.needs.includes('torch') && alt.needs.includes('torchaudio'),
+    `⛔ alt.needs 必须包含 torch 和 torchaudio：${JSON.stringify(alt.needs)}`)
+})
+
+test('⛔⭐⭐ 主安装步必须跳过 torch 系整族（⛔ 不是只跳 torch）', () => {
+  const { root } = mkdtempEngineWithManifest('fam2', 'uv.lock')
+  writeCudaFamilyLockTo(path.join(root, 'engines', 'fam2'))
+  const p = planOf(root, 'fam2', {})
+  assert.strictEqual(p.ok, true, p.error)
+  if (!p.alternative) {
+    assert.ok(true, '本机无可用加速后端，不给替代命令（符合预期）')
+    return
+  }
+  // 主安装步 = uv sync --no-install-package torch --no-install-package torchaudio
+  const mainStep = p.steps.filter((s) => s.kind === 'env')
+    .find((s) => /sync/.test(s.argv.join(' ')))
+  assert.ok(mainStep, '⛔ 找不到主安装步（uv sync）')
+  const argv = mainStep.argv
+  assert.ok(argv.includes('--no-install-package'),
+    `⛔ 主安装步必须跳过 torch 系：${argv.join(' ')}`)
+  // ⭐ 必须跳过 torch 和 torchaudio 两个包
+  const skipCount = argv.filter((a) => a === '--no-install-package').length
+  assert.ok(skipCount >= 2,
+    `⛔ 主安装步必须跳过 torch 和 torchaudio 两个包，实际跳过 ${skipCount} 个：${argv.join(' ')}`)
+  const noInstallIdx = argv.indexOf('--no-install-package')
+  assert.ok(noInstallIdx >= 0 && argv[noInstallIdx + 1] === 'torch',
+    `⛔ 主安装步第一个跳过的必须是 torch：${argv.join(' ')}`)
+  const secondIdx = argv.indexOf('--no-install-package', noInstallIdx + 1)
+  assert.ok(secondIdx >= 0 && argv[secondIdx + 1] === 'torchaudio',
+    `⛔ 主安装步第二个跳过的必须是 torchaudio：${argv.join(' ')}`)
+})
+
+test('⛔⭐⭐ alt 那步与主安装步的目标环境都必须等于该引擎的 .venv', () => {
+  const { root } = mkdtempEngineWithManifest('fam3', 'uv.lock')
+  writeCudaFamilyLockTo(path.join(root, 'engines', 'fam3'))
+  const p = planOf(root, 'fam3', {})
+  assert.strictEqual(p.ok, true, p.error)
+  if (!p.alternative) {
+    assert.ok(true, '本机无可用加速后端，不给替代命令（符合预期）')
+    return
+  }
+  const want = engineVenvPythonAbs(root, 'fam3')
+  const wantVenv = path.join(root, 'engines', 'fam3', '.venv')
+  const steps = p.steps.filter((s) => s.kind === 'env')
+  // ⭐ alt 那步：带 --index-url 的那步
+  const altStep = steps.find((s) => /--index-url/.test(s.argv.join(' ')))
+  assert.ok(altStep, '⛔ 找不到 alt 那步（带 --index-url）')
+  assertTargetsEngineVenv(altStep.argv, altStep.env, want, wantVenv, 'alt 那步')
+  // ⭐ 主安装步：uv sync 那步
+  const mainStep = steps.find((s) => /sync/.test(s.argv.join(' ')))
+  assert.ok(mainStep, '⛔ 找不到主安装步（uv sync）')
+  assertTargetsEngineVenv(mainStep.argv, mainStep.env, want, wantVenv, '主安装步')
+})
+
+// ---------------------------------------------------------------------------
 // 活代码纪律
 // ---------------------------------------------------------------------------
 test('⛔ env.js 活代码里不许出现任何具体引擎名', () => {

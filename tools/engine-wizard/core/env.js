@@ -130,10 +130,10 @@ function suggestBackendAlternative (dir, lockRel) {
     hw = require('./hardware.js')
   } catch (e) { return null }
   if (!hw || typeof hw.readTorchPin !== 'function') return null
+  if (typeof hw.readTorchFamilyPins !== 'function') return null
 
   let text
   try { text = fs.readFileSync(path.join(dir, lockRel), 'utf8') } catch (e) { return null }
-
   const pin = hw.readTorchPin(text)
   if (!pin || !pin.plain) return null
 
@@ -147,10 +147,22 @@ function suggestBackendAlternative (dir, lockRel) {
   const opt = (hw.BACKEND_PREFERENCE || []).find((b) => b.key === rec.recommended)
   if (!opt || !opt.index) return null   // ⛔ 没有官方 index ⇒ 平台给不出命令
 
-  // ⛔ 只重建 torch；锁文件里的其余包照旧（那才是锁文件的价值）。
+  // ⭐⭐ 读整族（torch + lock 里真有的兄弟包）
+  //   ⛔ 只装 torch 一个包会让 torchaudio 留在 CUDA 版 ⇒ 引擎跑不起来
+  //   （真机实测：torch 2.8.0+xpu 能 import，torchaudio 2.8.0+cu128 报
+  //     FileNotFoundError: libtorchaudio.pyd 找不到依赖）
+  //   ⭐ 实测：xpu 索引上 torchaudio==2.8.0 解析出来就是 2.8.0+xpu
+  //     （同一版本号、同一个索引自动配对），所以整族一起装是对的。
+  const family = hw.readTorchFamilyPins(text)
+  if (!family || !family.length) return null
+
+  const specs = family.map((p) => `${p.name}==${p.plain}`)
+  const names = family.map((p) => p.name)
+
+  // ⛔ 只重建 torch 系；锁文件里的其余包照旧（那才是锁文件的价值）。
   // ⭐ 完整流程是**两步**（Owner 定的顺序）：
-  //   ① uv sync --no-install-package torch  ← 照锁装其余全部，只跳过 torch
-  //   ② uv pip install torch==<纯版本> --index-url <本机后端的官方 index>
+  //   ① uv sync --no-install-package torch --no-install-package torchaudio …
+  //   ② uv pip install torch==<v> torchaudio==<v> … --index-url <本机 index>
   // ⛔ 为什么不用「先 uv sync 再补装」：那会先装一整套 CUDA torch
   //   （实测某台 lock 另带 38 个 nvidia-*-cu12，仅 Linux 生效），
   //   白下载数 GB，且与随后装的版本冲突。
@@ -159,14 +171,17 @@ function suggestBackendAlternative (dir, lockRel) {
   return {
     // ⛔ 不重复 argv：主命令已经是第①步了，这里只给**第②步**。
     //   重复一遍会让界面显示两条几乎一样的命令。
-    then: ['uv', 'pip', 'install', `torch==${pin.plain}`, '--index-url', opt.index],
+    then: ['uv', 'pip', 'install', ...specs, '--index-url', opt.index],
     why: `The lock pins Torch as a CUDA build (${pin.version}), which differs from the backend `
       + `recommended for this machine (${opt.label}) — run this step `
-      + `next to install Torch ${pin.plain} from the official ${opt.label} index:`,
+      + `next to install the Torch family (${names.join(', ')}) at version ${pin.plain} `
+      + `from the official ${opt.label} index:`,
     whyZh: `锁文件指定的 torch 是 CUDA 版（${pin.version}），与本机推荐的后端`
       + `（${opt.label}）不一致。上面的命令已跳过 torch，`
-      + `请再执行这一步，从 ${opt.label} 的官方 index 安装 torch ${pin.plain}：`,
-    needs: ['torch'],
+      + `请再执行这一步，从 ${opt.label} 的官方 index 安装 torch 系整族`
+      + `（${names.join('、')}），版本号 ${pin.plain}：`,
+    needs: names,
+    familyPins: family,
   }
 }
 
@@ -239,8 +254,12 @@ function suggestEnvCommand (dir) {
         : `上游有 ${lock} ⇒ 版本已经定死了，照它装最稳。`),
       // ⭐ 有替代命令时，**执行的那条也必须用它** ——
       //   否则点「安装」装的是 CUDA 版，而 alternative 只作展示。
-      //   --no-install-package 让 uv 照锁装其余全部、只跳过 torch。
-      argv: (alt ? ['uv', 'sync', '--no-install-package', 'torch'] : ['uv', 'sync']),
+      //   --no-install-package 让 uv 照锁装其余全部、只跳过 torch 系整族。
+      //   ⚠⛔ 必须跳过整族（torch + torchaudio + …）：只跳 torch 会把兄弟包
+      //     留在 CUDA 版 ⇒ torchaudio import 报 FileNotFoundError（真机实测）。
+      argv: (alt
+        ? ['uv', 'sync', ...(alt.needs || ['torch']).flatMap((n) => ['--no-install-package', n])]
+        : ['uv', 'sync']),
       alternative: alt }
   }
   if (conda) {
