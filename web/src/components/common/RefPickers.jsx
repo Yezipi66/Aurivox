@@ -202,7 +202,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     setErr(null); setUploading(true)
     try {
       // Multi-select reuses the single-file endpoint, uploading sequentially and
-      // accumulating via onPick — no batch protocol (Patch #11 aux custom files).
+      // 通过 onPick 累积——无批处理协议（辅助自定义文件）。
       for (const f of files) {
         const fd = new FormData(); fd.append('audio', f)
         const r = await api('/api/custom-ref-audio', { method: 'POST', body: fd, contentType: 'multipart' })
@@ -267,7 +267,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
 }
 
 // Single-voice reference list: Slices / Raw tabs + inline audition players.
-// Hoisted from Compare's RefAudioTabs and parameterized (Patch #11) so a single
+// 从 Compare 的 RefAudioTabs 提取并参数化，单个
 // implementation serves BOTH the main reference (selectMode="single") and the
 // auxiliary references (selectMode="multi"). onPick(path,text) for single;
 // onToggle(path,text) for multi. `selectedPaths` (multi) drives the checked/
@@ -383,7 +383,7 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
   )
 }
 
-// Auxiliary-reference picker (Patch #11): the ONE shared multi-select reference
+// 辅助参考选择器：唯一共享的多选参考
 // selector used by BOTH Generate and Compare. Sources: This voice's segments
 // (Slices/Raw, multi) · Another voice's segments (CrossRefPicker) · Custom files
 // (multi upload). Identity uses base+normalized path so the current main

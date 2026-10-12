@@ -1,9 +1,9 @@
 // ============================================================
-//  刀 F2：引擎管理页，不点合成也能起 / 停 / 看引擎
+//  引擎管理页，不点合成也能起 / 停 / 看引擎
 // ============================================================
 //
 // 这个页面存在的全部理由（2026-08-31 当场量出来的）：
-//   · lib/routes/engines.js 在刀 F1 之前只有 1 个路由，且是 GET
+//   · lib/routes/engines.js 有多个路由
 //   · supervisor.ensure()（起引擎）唯一的活调用点在**合成里**
 //   · supervisor.stop(id)（停单台）活代码里 0 个调用点
 //   ⇒ 界面能"看"引擎，不能"动"引擎。**想起一台引擎，唯一的办法是点一次合成。**
@@ -12,10 +12,10 @@
 //   全仓库**没有一个 .jsx 在渲染它**，同一种坏法（做完了，没接上）。
 //
 // 这个文件里不许出现任何具体引擎的名字，也不许判"内存够不够 / 名额满没满"。
-//   前端只挡它自己看得见的四件事（不归平台管、没装看管人、已经在跑、正忙），
+//   前端只挡它自己看得见的四件事（不归平台管、没装看管人、已在运行、正忙），
 //   判断全部在 lib/engineActions.pure.js；剩下的一律发出去让后端说不行。
 //   判据：**判据只能有一份。** 前端多一份的表现是"按钮亮着按下去被拒"，
-//     或者更坏，"按钮灰着，其实能起"。
+//     或者更坏，"按钮灰着，但实际能启动"。
 
 import { useState } from 'react'
 import { startEngine, stopEngine, processBadge, occupancyBadge, engineUsageBadge } from '../../lib/engines'
@@ -75,9 +75,9 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       <div className="section-hdr"><h2>引擎</h2></div>
       <div className="section-body">
       <p className="msg msg-info">
-        这台机器上装了哪几台引擎、各自跑没跑，以及不点合成也能把它起起来。
+        本机安装了哪些引擎、各自是否在运行，以及无需点击合成即可启动。
         <br />
-        ⚠ 同时启动多台引擎会占用大量内存：平台会按实测峰值拦，拦下来时这里会写明原因。
+        ⚠ 同时启动多台引擎会占用大量内存：平台会按实测峰值拦截，拦截时此处会写明原因。
       </p>
 
       {/* B5 占用透明度：机器级总览。
@@ -99,7 +99,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
           一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。 */}
       {engineErrors.length > 0 && (
         <div className="msg msg-danger">
-          <strong>这几台引擎的名片读不出来，所以没出现在下面的列表里：</strong>
+          <strong>这些引擎的配置信息无法读取，因此未出现在下方列表中：</strong>
           <ul>
             {engineErrors.map(e => (
               <li key={e.id}><code>{e.id}</code>{e.code ? ` [${e.code}]` : ''}：{e.error || e.message}</li>
@@ -109,7 +109,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       )}
 
       {engines.length === 0 && (
-        <div className="card">这台机器上一台引擎都没装（或者列表还没拉回来）。</div>
+        <div className="card">本机未安装任何引擎（或列表尚未加载完成）。</div>
       )}
 
       {engines.map(engine => {
@@ -127,17 +127,17 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                   {badge.label}
                 </span>
               )}
-              {/* null = 这台部署不管进程，不是"没在跑"。两者必须分开显示。 */}
+              {/* null = 这台部署不管进程，不是"未运行"。两者必须分开显示。 */}
               {badge === null && (
-                <span className="badge badge-muted" title="这台部署不管引擎进程，或这台引擎由作者自己起。">
+                <span className="badge badge-muted" title="本部署不管理引擎进程，或由作者自行启动。">
                   平台不管
                 </span>
               )}
 
               {/* B5 引擎级占用。null = 后端没报这台 ⇒ **不画**。
-                  绝不为「没量到」画一枚写着 0 的徽章，那等于说
+                  绝不为「未测量」画一枚写着 0 的徽章，那等于说
                     「它不吃内存」，而那是最危险的说法（用户会以为能多开）。
-                  tone=bad 那一枚是「上次启动没活着回来」⇒ 多半 OOM，
+                  tone=bad 那一枚是「上次启动未正常退出」⇒ 通常 OOM，
                     它排在最前面，因为那是唯一需要用户行动的一条。 */}
               {usage && (
                 <span
@@ -174,8 +174,8 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
             )}
 
             {/* 唯一一个需要人来回答的分支。
-                不许把它当普通报错红字弹出去，那会让"平台还没量过这台引擎
-                  要多少内存"变成一句没法推进的话，而用户其实只要点一下就行。
+                不许把它当普通报错红字弹出去，那会让"平台尚未测量过这台引擎
+                  要多少内存"变成一句没法推进的话，而用户其实只要点击一次就行。
                 §12 开放问题 ② 记的就是这个形状：一个必须有人回答的问题，
                 下游那条路上没有人，这个页面上有。 */}
             {res && res.kind === 'confirm' && (
@@ -202,12 +202,12 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
             {res && res.kind === 'ok' && (
               <div className="msg msg-success" style={{ marginTop: 8 }}>
                 {/* action 四种各自说人话。不压成"成功"，
-                    "本来就在跑"和"刚给你起起来"对用户不是一回事。 */}
-                {res.action === 'reuse' && '它本来就在跑，直接用了。'}
-                {res.action === 'start' && '起来了。'}
-                {res.action === 'relaunch' && '为了换那一份模型，把它重开了一次。'}
-                {res.action === 'not-ours' && '这台引擎由作者自己起，平台没有动它。'}
-                {res.action == null && '好了。'}
+                    "本来就在运行"和"刚为你启动"对用户不是一回事。 */}
+                {res.action === 'reuse' && '该引擎已在运行，直接复用。'}
+                {res.action === 'start' && '已启动。'}
+                {res.action === 'relaunch' && '为更换模型，已重新启动该引擎。'}
+                {res.action === 'not-ours' && '该引擎由作者自行启动，平台未对其执行操作。'}
+                {res.action == null && '操作完成。'}
               </div>
             )}
           </div>

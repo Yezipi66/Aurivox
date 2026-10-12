@@ -7,7 +7,7 @@ import { langName } from './PronProofing'
 
 // One modal that houses BOTH the per-character language picker and reading
 // proofing, so the page keeps only a compact trigger button (no tall panels).
-// 刀 A1（2026-08-31）：新增 `engineId`，一路传到两个会发 /pron/preview 的孩子。
+// ：新增 `engineId`，一路传到两个会发 /pron/preview 的孩子。
 //   4 个渲染点都必须传，漏一个的表现是"那个页面的读音预览安静地不工作"。
 //   `pronEngineId.node.test.js` 有一条守卫逐个点名盯着它们。
 function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPronOverrides, hanDirection, hanForced, setHanForced, hanReadings, setHanReadings, engineId }) {

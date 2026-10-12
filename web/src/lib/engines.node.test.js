@@ -714,7 +714,7 @@ test('phase 到了 ready 就不再喊启动中', async () => {
   const { processBadge } = await import('./engines.js')
   const b = processBadge({ id: 'x', process: { running: true, pid: 7, phase: 'ready' } })
   assert.equal(b.tone, 'ok')
-  assert.match(b.label, /在跑/)
+  assert.match(b.label, /运行中/)
 })
 
 test('⭐ 现在装的是哪一份模型必须写在悬停里 —— 这是换模型唯一看得见的证据', async () => {

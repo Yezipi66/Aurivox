@@ -11,7 +11,7 @@ import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, pa
 import { ParamField } from '../common/ParamField'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 
-// 刀 A1（2026-08-31）：新增 `engineId`，行内的读音校对要发 /pron/preview，
+// `engineId` 用于行内的读音校对，要发 /pron/preview，
 //   而那个接口现在 engine_id 必传。漏传的表现是"这一行的读音预览安静地不工作"。
 function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId, engine }) {
   const { t } = useT()
@@ -29,7 +29,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // defaults to EXPANDED.
   const [showSlicePreview, setShowSlicePreview] = useState(true)
   // PF-c: auxiliary reference source/custom state now lives inside the shared
-  // AuxReferencePicker (Patch #11), so CompareRow no longer tracks it locally.
+  // AuxReferencePicker，CompareRow 不再在本地跟踪它。
   // 6.5: inline confirm for deleting a Compare result's audio from disk.
   const [cmpDelConfirm, setCmpDelConfirm] = useState(false)
 
@@ -135,7 +135,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       const next = new Set(prev); next.add(name); return next
     })
   }
-  // 换引擎 ⇒ 上一台的格子名对不上这台，重新从名片默认值起步。
+  // 换引擎 ⇒ 上一台的格子名不匹配这台，重新从名片默认值起步。
   // touched 清空：那些键名是上一台引擎的，跟着过来就是「用户在新引擎上
   //   明确选过旧引擎的参数」，那不存在。
   useEffect(() => {
@@ -642,7 +642,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   没有第二个选项的下拉只是噪声。判据跟 schemaGap 一样，
                   名片没说的东西，界面不许替它编一个。 */}
               {Array.isArray(engine?.methods) && engine.methods.length > 0 && (
-                <div title={t('Which inference entrypoint THIS row uses. Only engines whose manifest declares call.methods offer more than one.', '这一行走哪个推理入口。只有名片里声明了 call.methods 的引擎才有得选。')}>
+                <div title={t('Which inference entrypoint THIS row uses. Only engines whose manifest declares call.methods offer more than one.', '此行使用哪个推理入口。仅当引擎的清单声明了 call.methods 时才提供多个选项。')}>
                   <label className="field-label">{t('Method', '推理方法')}</label>
                   <Select className="control" value={row.method || engine.default_method || engine.methods[0]} onChange={e => onUpdate(row.id, 'method', e.target.value)}>
                     {engine.methods.map(m => <option key={m} value={m}>{m}</option>)}

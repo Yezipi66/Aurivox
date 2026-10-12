@@ -49,8 +49,8 @@ function previewReading(data, lang) {
 function HanReadingReview({ text, direction, assignments, readings, setReadings, engineId }) {
   const { t } = useT()
   const selected = assignmentList(assignments, text)
-  // 刀 A1：engineId 进签名，换一台引擎 g2p 就换了一套，
-  //   这一批建议读音必须重新问。不许把它从签名里拿掉。
+  // ：engineId 进签名，换一台引擎 g2p 就换了一套，
+  //   这一批建议读音必须重新问。不许把它从签名里移除。
   const selectionSignature = selected.map(item => `${readingKey(item)}=${item.lang}`).join('|') + `#${engineId || ''}`
   const [suggestions, setSuggestions] = useState({})
 
@@ -84,7 +84,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
     Promise.all(selected.map(async item => {
       const key = readingKey(item)
       try {
-        // 刀 A1：engine_id 必传。缺了不发，见下面 selectionSignature 那一支，
+        // ：engine_id 必传。缺了不发，见下面 selectionSignature 那一支，
         //   engineId 已经进了依赖签名，选上引擎之后这一批会自己重来。
         if (!engineId) return [key, { reading: '', candidates: [], loading: false, error: NO_ENGINE_MSG(t) }]
         const r = await api('/api/pron/preview', {
@@ -135,7 +135,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
         {t('Selected Han readings', '已选汉字读音校对')}
       </div>
       <div className="field-hint" style={{ marginBottom: 8 }}>
-        {t('Only explicitly selected positions appear here. Characters left on automatic inference stay unlit and are reviewed below.', '这里只显示用户明确框选的位置。保持自动判定的汉字不会点亮，继续在下方“读音校对”中处理。')}
+        {t('Only explicitly selected positions appear here. Characters left on automatic inference stay unlit and are reviewed below.', '这里只显示用户明确框选的位置。保持自动判定的汉字不会高亮显示，继续在下方“读音校对”中处理。')}
       </div>
       {groups.map(group => {
         const unit = READING_UNIT[group.lang]

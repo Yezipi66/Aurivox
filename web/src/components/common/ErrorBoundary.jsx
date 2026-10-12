@@ -12,7 +12,7 @@ import React from 'react'
 // class 组件才有，函数组件拿不到这两个钩子。
 //
 // 不调 useT：出错时 React 上下文可能已经损坏，再去读语言设置会二次抛错。
-// 语言从 localStorage 直接读，读不到就退回英文。
+// 语言从 localStorage 直接读，无法读取就退回英文。
 // ---------------------------------------------------------------------------
 
 function readLang () {
@@ -42,7 +42,7 @@ export class ErrorBoundary extends React.Component {
   render () {
     if (this.state.err) {
       const zh = readLang() === 'zh'
-      const label = this.props.label || (zh ? '这一块' : 'This section')
+      const label = this.props.label || (zh ? '此区域' : 'This section')
       return (
         <div className="empty-state" style={{ textAlign: 'left' }}>
           <div className="es-title">

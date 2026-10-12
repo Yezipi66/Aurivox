@@ -57,7 +57,7 @@ function buildTrainingParams(form) {
     learning_rate: form.learningRate === 'default' ? 'default' : (Number(form.learningRate) || 'default'),
     // S1 advanced
     seed: form.s1Seed ?? 1234,
-    // Patch #10: S1 saves every 4 epochs (8 % 4 == 0), S2 every 5 (25 % 5 == 0),
+    // : S1 saves every 4 epochs (8 % 4 == 0), S2 every 5 (25 % 5 == 0),
     // so the final scheduled epoch always lands on a checkpoint. `save_every_n_epoch`
     // is kept for backward compatibility with older recipes / the diff logic.
     save_every_n_epoch: form.s1SaveEvery ?? 4,

@@ -112,15 +112,6 @@ function AppShell() {
     setSelectedPromptLang(promptLang || '')
   }, [])
 
-  // 2026-08-30 刀 4：这个轮询过去的名义是「让徽章实时反映 GPT-SoVITS
-  //   引擎（端口 9880）」，那是第六项：端口不是推理需要的东西，是我给引擎
-  //   套的 HTTP 外壳产生的。engine_online 现在**前端一处都不读了**
-  //   （engines.js:engineBadge 与 BrokerTab 那两枚灯已删）。
-  //
-  // 留下来的是它另一半用途：ffmpeg 装没装、有没有 CUDA，那是**这台机器**
-  //   的事实，不是某台引擎的事实，对所有引擎一视同仁 ⇒ 它不是第六项。
-  //   ⇒ 轮询降到 30s（机器装没装 ffmpeg 不会在 8 秒里变）。
-  // 不许再拿这里的结果去画任何一枚"引擎在不在线"的灯。
   useEffect(() => {
     let dead = false
     const check = () => api('/api/health')
@@ -148,7 +139,7 @@ function AppShell() {
     return () => { dead = true }
   }, [])
 
-  // 刀 F2：起 / 停之后立刻重拉一次，不等那个 8 秒轮询。
+  // 起 / 停之后立刻重拉一次，不等那个 8 秒轮询。
   // 等 8 秒的表现是"按钮点了没反应"，然后用户再点一次，而第二次点的是
   //   一台正在启动的引擎（要等几十秒到几分钟），只会排得更久。
   const refreshEngines = useCallback(() => {
@@ -156,6 +147,7 @@ function AppShell() {
       .then(r => {
         setEngines(prev => mergeProcessState(prev, r.engines))
         setOccupancy(r.occupancy ?? null)
+        // 起 / 停之后立刻重拉一次，不等那个 8 秒轮询。
         // 名片坏掉的那几台也一起刷新，用户在引擎页看到"读不出来"，
         //   去改完 manifest.json 再回来点一下，就该少一条。
         setEngineErrors(r.errors || [])
@@ -165,7 +157,7 @@ function AppShell() {
 
   // 引擎进程状态的轮询（契约 §12 第 5 步）。
   // 上面那次是**一次性**的，名片和参数表只有装卸引擎时才变。
-  //   但「这台引擎现在跑没跑、在装模型没有」是每几秒都在变的东西。
+  //   但「这台引擎现在是否在运行、在装模型没有」是每几秒都在变的东西。
   //   不轮询的话，那个进程徽章会永远停在开页面那一刻：换模型时它照样写着
   //   "待命"，而人正对着一个要等几分钟的重启在猜是不是卡死了，
   //   那个徽章存在的唯一理由就没了。
@@ -177,7 +169,7 @@ function AppShell() {
       .then(r => {
         if (dead) return
         setEngines(prev => mergeProcessState(prev, r.engines))
-        // occupancy **每 8 秒都会变**（谁在跑、峰值），所以要跟着更新；
+        // occupancy **每 8 秒都会变**（哪些在运行、峰值），所以要跟着更新；
         //   但 只在**内容真的变了**时才 set，否则每 8 秒一个新对象
         //   ⇒ 整个引擎页重渲，而那一页有 N 个引擎的按钮和徽章。
         //   判据用 JSON 字符串：这一段只有十来个标量，代价可忽略，
@@ -249,7 +241,7 @@ function AppShell() {
         {showsTrainingTab(engine) && (
           <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
         )}
-        {/* 刀 F2：引擎管理页。不做成"装了两台以上才显示"，
+        {/* 引擎管理页。不做成"装了两台以上才显示"，
             装一台的时候一样要能起停它，而"起不来"恰恰是只装了一台时最要紧的事。 */}
         <button className={`nav-btn ${page === 'engines' ? 'active' : ''}`} onClick={() => setPage('engines')}>Engines</button>
         <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
@@ -257,7 +249,7 @@ function AppShell() {
           <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
         )}
         <div style={{ flex: 1 }} />
-        {/* 引擎选择器。只有装了两台以上才出现，一台的时候它是个只有一个
+        {/* 引擎管理页。只有装了两台以上才出现引擎选择器，一台的时候它是个只有一个
             选项的下拉框，占地方还让人以为自己漏装了什么。 */}
         {/* 这里原来是全 App 唯一一个裸 <select>，而且挂的 class
             `.nav-select` 在 styles.css 里根本不存在 ⇒ 浏览器默认样式，
@@ -277,7 +269,7 @@ function AppShell() {
         {engineErrors.length > 0 && (
           <span className="badge badge-danger" title={engineErrors.map(e => `${e.id}: ${e.error || e.message}`).join('\n')}
             style={{ alignSelf: 'center' }}>
-            {engineErrors.length} 张 manifest.json 读不了
+            {engineErrors.length} 张 manifest.json 无法读取
           </span>
         )}
         <LangToggle />
@@ -306,7 +298,7 @@ function AppShell() {
           const tone = probing ? 'neutral' : ok ? 'ok' : 'danger';
           const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'No CUDA';
           const title = probing ? '正在探测本机的计算设备…'
-            : ok ? `CUDA 可用 — ${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
+            : ok ? `CUDA 可用：${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
             // 只有一行。不写「无权威显存读数」/「取决于引擎后端支持」这类
             //   给排障人看的话，也不把内部取值（intel/amd）露到界面上。
             : otherGpu ? `本机 GPU：${prettyDevice(c.device_name)}。`
@@ -321,7 +313,7 @@ function AppShell() {
                     你再加是想变成飞机仪表盘嘛」。
 
             并掉的实质理由不是省地方，是那三枚里有两枚已经在说错话：
-              引擎改成「用到才起」之后，「Unreachable」变成了**常态**，
+              引擎改成「按需启动」之后，「Unreachable」变成了**常态**，
               而一枚正常状态下常亮红灯的指示灯只会训练人忽略所有红灯。
             「底模齐」也不再占格子，永远绿的灯不携带信息，降级进悬停；
               但「底模缺」留在灯面上，那是唯一一种看不见就会被卡住一小时的坏。
@@ -368,17 +360,18 @@ function AppShell() {
             <ReferenceCompareTab engine={engine} voices={voices} selectedVoice={selectedVoice} onActivity={setGenActivity} />
           )}
           {page === 'assets' && (
-            /* 刀 A1（2026-08-31）：`engine` 传下去，是给参考文本校对里的
-               读音预览用的，/api/pron/preview 现在 engine_id 必传，
-               平台不替你挑一台（换一台预览出来的读音和实际合成不是一回事）。 */
+            /* `engine` 传下去，是给参考文本校对里的读音预览用的。
+               /api/pron/preview 现在 engine_id 必传，平台不替你挑一台
+               （换一台预览出来的读音和实际合成不是一回事）。 */
             <AssetsTab engine={engine} voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
               setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
-          {/* 判据 11 的另一半：页签藏了，页面本身也得关上，否则上次停在
-              Tune 页的人刷新后照样进得来。同 flow 页的做法：说清为什么没有，
-              不要给一个空白面板。engine 为 null 时说的是「还在读」，跟
-              「这台不支持」是两回事，不能合成一句话。 */}
+          {/* `engine` 传下去，是给参考文本校对里的 /api/pron/preview 用的，
+              它现在 engine_id 必传，平台不替你挑一台。判据 11 的另一半：页签藏了，
+              页面本身也得关上，否则上次停在 Tune 页的人刷新后照样进得来。
+              同 flow 页的做法：说清为什么没有，不要给一个空白面板。engine 为 null
+              时说的是「还在读」，跟「这台不支持」是两回事，不能合成一句话。 */}
           {page === 'train' && (showsTrainingTab(engine)
             ? <TrainingTab engine={engine} voices={voices} loadVoices={loadVoices}
                 activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
@@ -387,7 +380,7 @@ function AppShell() {
                 <div className="es-sub" style={{ marginBottom: 0 }}>
                   {engine === null
                     ? '正在读引擎列表…'
-                    : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去改那张 manifest.json。`}
+                    : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去修改该 manifest.json。`}
                 </div>
                 {engine !== null && (
                   <div style={{ marginTop: 12 }}>

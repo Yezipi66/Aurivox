@@ -144,7 +144,7 @@ function refBasename(item) {
   return parts[parts.length - 1] || ''
 }
 
-// Reference-path identity (Patch #11). A managed reference is identified by its
+// Reference-path identity (). A managed reference is identified by its
 // FULL normalized path — never by basename alone — so `assets/A/raw/x.wav` and
 // `assets/B/raw/x.wav` are distinct references even though they share a filename.
 // Backslashes are normalized, a leading "./" or "/" and a legacy "assets/" prefix

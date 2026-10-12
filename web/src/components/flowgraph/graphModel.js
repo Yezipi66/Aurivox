@@ -78,7 +78,7 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
 // can be edited freely. The graph therefore stays self-contained: changing the
 // voice record later cannot silently change what a saved graph does.
 
-// 2026-08-30 刀 3：这里原本是一张**白名单**，
+// 这里是一张**白名单**，
 //     ['gpt_model','sovits_model','sample_steps','if_sr','batch_size', …]
 //   十一个键，一个不漏地是 GPT-SoVITS 的参数表被抄进了画布。它的坏法是静默的：
 //   换一台引擎，它的键一个都不在名单上 ⇒ 选了音色、什么都没被带进来，

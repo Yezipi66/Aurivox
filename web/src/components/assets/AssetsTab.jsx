@@ -25,9 +25,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { id, displayName }
   const [deleting, setDeleting] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState(null) // { id, displayName }
-  // Patch #13: reference-transcript proofing modal target (edit existing text; no ASR).
+  // 参考文本校对弹窗目标（编辑已有文本，无 ASR）。
   const [proofTarget, setProofTarget] = useState(null) // { id }
-  // Patch #12: S2 acoustic refinement modal target (derive a new voice).
+  // S2 声学精修弹窗目标（衍生新音色）。
   const [refineTarget, setRefineTarget] = useState(null) // { id, displayName, baseVersion }
   const rebuildPollRef = useRef(null)
   const scanAbortRef = useRef(null)
@@ -981,7 +981,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                               Generate reference text
                             </button>
                           )}
-                          {/* Patch #13: proofread the EXISTING transcript (no ASR). */}
+                          {/* 校对已有文本（无 ASR）。 */}
                           <button
                             className="btn btn-sm btn-ghost"
                             disabled={running}
@@ -1082,7 +1082,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* Patch #13: proofread the existing reference transcript (no ASR). */}
+      {/* 校对已有参考文本（无 ASR）。 */}
       {proofTarget && (
         <ReferenceTranscriptProofing
           voiceId={proofTarget.id}
@@ -1097,7 +1097,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* Patch #12: S2 acoustic refinement → derive a new voice. */}
+      {/* S2 声学精修 → 衍生新音色。 */}
       {refineTarget && (
         <RefineModal
           voiceId={refineTarget.id}

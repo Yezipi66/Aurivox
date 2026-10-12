@@ -56,7 +56,7 @@ const VOCAL_PRESETS = [
     pipeline: [{ model: 'MDX-Net' }] },
   { id: 'deep', label: ['Deep clean: MDX-Net → DeEcho-Aggressive  ★', '深度清洗：MDX-Net → DeEcho-Aggressive  ★'],
     hint: ['Official cleanest configuration. Two-stage chain — slower.',
-           '官方推荐最干净配置。两级串联，耗时较长。'],
+           '官方推荐最佳配置。两级串联，耗时较长。'],
     pipeline: [{ model: 'MDX-Net' }, { model: 'DeEcho-Aggressive', agg: AGG_DEFAULT }] },
   { id: 'melband', label: ['Mel-Band Roformer', 'Mel-Band Roformer'],
     hint: ['Roformer-based vocal isolation. Large model (~700MB) — needs download.',
@@ -76,10 +76,10 @@ const EXPERT_META = {
   precision: { archs: ['vr', 'mdx', 'roformer'], type: 'enum', options: ['fp32', 'fp16'], default: 'fp32',
     label: ['Precision', '精度'],
     hint: ['fp32 is safest. fp16 is faster but makes HP models emit NaN on many GPUs.',
-           'fp32 最稳；fp16 更快，但 HP 系列在很多显卡上会出 NaN。'] },
+           'fp32 最稳定；fp16 更快，但 HP 系列在很多显卡上会产生 NaN。'] },
   tta: { archs: ['vr'], type: 'bool', default: false,
     label: ['TTA (test-time augmentation)', 'TTA 测试时增强'],
-    hint: ['Cleaner separation, ~2× time.', '分离更干净，耗时约 2 倍。'] },
+    hint: ['Cleaner separation, ~2× time.', '分离效果更佳，耗时约 2 倍。'] },
   postprocess: { archs: ['vr'], type: 'bool', default: false,
     label: ['Mask post-process', '掩码后处理'],
     hint: ['Extra refinement of the separation mask.', '对分离掩码做额外精修。'] },
@@ -89,13 +89,13 @@ const EXPERT_META = {
   chunks: { archs: ['mdx'], type: 'int', min: 5, max: 40, default: 8,
     label: ['Segment length (s)', '分段长度（秒）'],
     hint: ['MDX-Net is prone to running out of GPU memory (OOM). The default (8 s) targets a 4 GB GPU; on cards with more VRAM, raise it for more context and speed.',
-           'MDX-Net 极易爆显存（OOM）。默认值（8 秒）以 4 GB 显存为基准；显存更大的显卡可自行调高，以获得更多上下文与更快速度。'] },
+           'MDX-Net 极易耗尽显存（OOM）。默认值（8 秒）以 4 GB 显存为基准；显存更大的显卡可自行调高，以获得更多上下文与更快速度。'] },
   overlap: { archs: ['roformer'], type: 'int', min: 1, max: 8, default: 2,
     label: ['Chunk overlap', '分块重叠'],
     hint: ['Higher = better quality, slower.', '越大质量越好、越慢。'] },
   batchSize: { archs: ['roformer'], type: 'int', min: 1, max: 16, default: 2,
     label: ['Batch size', '批大小'],
-    hint: ['Higher = faster on big GPUs, more VRAM.', '越大在大显存上越快、更吃显存。'] },
+    hint: ['Higher = faster on big GPUs, more VRAM.', '越大在大显存上越快、显存占用更大。'] },
 }
 const EXPERT_KEYS = Object.keys(EXPERT_META)
 const expertKeysForArch = (arch) => EXPERT_KEYS.filter(k => EXPERT_META[k].archs.includes(arch))
@@ -147,7 +147,7 @@ const LANGUAGES = [
 // handleStart already serialises these same form.* fields into customParams.training.
 const TRAIN_PRESETS = [
   { key: 'smoke',    label: 'Quick Smoke Test',     hint: 'Tiny run to verify the pipeline end-to-end (~2 epochs).',
-    hintZh: '极小规模的试跑，用于端到端验证整条流程（约 2 个 epoch）。',
+    hintZh: '极小规模的试运行，用于端到端验证整条流程（约 2 个 epoch）。',
     fields: { gptEpochs: 2,  sovitsEpochs: 2,  batchSize: 'auto', s1SaveEvery: 1, s2SaveEvery: 1, s2GradCkpt: false, s2Fp16: true } },
   { key: 'default',  label: 'Default (S1 8 / S2 25)', hint: 'S1 trains fewer epochs to limit prosody overfitting; S2 trains more epochs for acoustic and timbre adaptation.',
     hintZh: 'S1 训练较少的 epoch 以限制韵律过拟合；S2 训练更多 epoch 以适配音质与音色。',

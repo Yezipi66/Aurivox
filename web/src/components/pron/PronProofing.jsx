@@ -13,12 +13,12 @@ import { TextPrepModal } from './TextPrepModal'
 
 // Item 17: localised language name for use inside translated sentences. Technical
 // reading units (kana, ARPABET, pinyin, jyutping) always stay English.
-// 刀 A1（2026-08-31）：读音预览必须跟着当前选中的那台引擎走。
+// ：读音预览必须跟着当前选中的那台引擎走。
 //   缺引擎时说的是「去哪儿能补上」，不是一句 "Preview failed (400)"。
 //   也不许改成"帮你挑一台"，理由写在 PronPanel 的文件内注释里。
 const NO_ENGINE_MSG = (t) => t(
   'Reading preview follows the engine you picked on the Generate page. Pick an engine there first.',
-  '读音预览跟着「合成」页选中的那台引擎走（换一台引擎读音可能就不一样了）。请先在那里选一台引擎。',
+  '读音预览取决于「合成」页选中的那台引擎（换一台引擎读音可能就不一样了）。请先在那里选一台引擎。',
 )
 
 function langName(t, code) {

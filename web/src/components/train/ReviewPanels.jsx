@@ -65,7 +65,7 @@ function DenoiseReviewPanel({ taskId, onResumed, onCancel }) {
       </div>
       <p className="denoise-review-hint">
         {tr('Listen to the separated vocals. Continue if they sound clean; cancel if the quality is poor — garbled, muffled, or with obvious background music left in.',
-            '试听分离出来的人声：听着干净就继续；如果质量不好（发糊、发闷，或还留着明显的伴奏），就取消。')}
+            '试听分离出来的人声：音质清晰则继续；如果质量不好（模糊、沉闷，或还留着明显的伴奏），就取消。')}
       </p>
       {loading && <div className="msg">{tr('Loading audio…', '加载音频…')}</div>}
       {err && <div className="msg msg-error">{err}</div>}
@@ -104,7 +104,7 @@ function DenoiseReviewPanel({ taskId, onResumed, onCancel }) {
 // (data/pron_lexicon/{lang}.json), which the g2p layer applies on the next
 // training/inference run. Overrides are per-line and transient; only the lexicon
 // save persists (that's the closed loop; see PG-1a).
-// 刀 A1（2026-08-31）：`engineId` 一路传到 PronPanel，/api/pron/preview
+// ：`engineId` 一路传到 PronPanel，/api/pron/preview
 //   现在 engine_id 必传。不传的表现是"这里的读音校对安静地不工作"。
 function AsrRowProof({ text, lang, onChange, disabled, engineId }) {
   const [open, setOpen] = useState(false)

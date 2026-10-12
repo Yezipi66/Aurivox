@@ -99,7 +99,7 @@ function ScalarControl({ field, value, onChange, lang, options, t }) {
           <input type="text" className="control"
             list={listId}
             placeholder={source
-              ? t('pick one, or type any path', '从库里挑一个，或者自己填')
+              ? t('pick one, or type any path', '从列表中选择一项，或自行填写路径')
               : undefined}
             value={typeof value === 'string' ? value : (value == null ? '' : recipePath(value))}
             onChange={e => onChange(e.target.value)} />
@@ -212,7 +212,7 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
 
   // repeat：一排 N 个，格子数由**名片**定死。
   if (n > 1) {
-    // 值不是数组、或者长度对不上时，补成 N 格再画，但**不改 values**：
+    // 值不是数组、或者长度不匹配时，补成 N 格再画，但**不改 values**：
     //   我们只是没法画一个长度不对的东西，不代表要替用户改他的值。
     const cur = Array.isArray(value) && value.length === n
       ? value

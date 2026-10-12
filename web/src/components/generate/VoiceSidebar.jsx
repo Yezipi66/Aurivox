@@ -260,9 +260,9 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
         {validation && (
           <div className="field" style={{ marginTop: 8 }}>
             <label className="field-label">Model Validity</label>
-            {/* 刀 3：这里过去写死两行「GPT Model / SoVITS Model」，
+            {/* ：这里过去写死两行「GPT Model / SoVITS Model」，
                 那是一台引擎的零件清单被抄进了平台。换一台引擎，这两行要么
-                恒为红叉（它其实什么都不缺），要么答非所问（IndexTTS2 只有
+                恒为红叉（它实际什么都不缺），要么答非所问（IndexTTS2 只有
                 一个位，界面却追问它 SoVITS 在不在）。
                 现在：**几行、叫什么，是这台引擎的名片说的**，前端一个位名
                 都不认识，后端 /api/voices/:id/validate 直接给 slots[]。

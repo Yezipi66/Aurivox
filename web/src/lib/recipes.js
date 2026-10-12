@@ -22,7 +22,7 @@ export function recipePath(value) {
 }
 
 // 平台自己要读的那几个键：它们不是任何一台引擎的参数（一台引擎都没装也
-// 有意义），下面要单独搬运和整形，所以先从袋子里拿掉，避免搬两遍。
+// 有意义），下面要单独搬运和整形，所以先从袋子里移除，避免搬两遍。
 const PLATFORM_OWNED = new Set([
   'aux_ref_audio_paths',
   'pron_overrides',
@@ -60,11 +60,11 @@ export function recipeParamBag(recipe, engineId = '') {
 // 配方顶层那两个权重字段（gpt_ckpt / sovits_pth）↔ 合成请求里的参数名。
 //
 // 这张表是**配方格式还没升级**留下的账，不是设计。配方顶层只留得下两个
-//   权重字段，是照着第一台引擎的形状定的；第三个位、第四个位都没地方放。
+//   权重字段，是照着第一台引擎的形状定的；第三个位、第四个位无位置放置。
 //   所以整个仓库里**只有这一个文件**认识这两个字段名，界面别处一律按
 //   「名片说这台引擎有几个位」来处理，将来配方升级只用改这里。
 //
-// 对不上这张表的位（比如第三个位、或者某台引擎自己的位）就是存不进配方，
+// 不匹配这张表的位（比如第三个位、或者某台引擎自己的位）就是无法保存到配方，
 //   这时**什么都不写**。不许硬塞进这两个格子：存的时候不报错，取出来
 //   却发给了另一个参数，声音不对而且查不出来。
 const RECIPE_WEIGHT_FIELDS = { gpt_model: 'gpt_ckpt', sovits_model: 'sovits_pth' }
@@ -95,7 +95,7 @@ const RECIPE_WEIGHT_LABELS = { gpt_ckpt: 'GPT', sovits_pth: 'SoVITS' }
  *   要消灭的那句谎话。真实情况是：配方格式还装不下这台引擎的模型选择。
  *
  * @returns {{rows: Array<{key,label,path}>, storable: boolean}}
- *          storable=false ⇒ 一个位都存不进配方，界面应当说明原因而不是显示"无"。
+ *          storable=false ⇒ 一个位都无法保存到配方，界面应当说明原因而不是显示"无"。
  */
 export function recipeWeightPreview(d) {
   const rows = []

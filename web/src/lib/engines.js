@@ -79,14 +79,14 @@ export function pickEngine(engines, savedId) {
  *    引擎还没加载出来（undefined / null）也不显示。
  *    理由是两边的坏法不对称：
  *      少显示一个页签 = 用户点不到一个他本来也用不了的东西，刷新一下就有了；
- *      多显示一个页签 = 用户点进去、填完表、跑一遍，才发现这台引擎根本不支持微调。
+ *      多显示一个页签 = 用户点进去、填完表、执行一遍，才发现这台引擎根本不支持微调。
  */
 export function showsTrainingTab(engine) {
   return !!(engine && engine.supports_finetune === true)
 }
 
 /**
- * 刀 F2：起 / 停一台引擎。
+ * ：起 / 停一台引擎。
  *
  * 这两个函数出现之前，`web/src/` 里请求 `/api/engines/*` 的写操作是
  *   **0 次**，后端 supervisor 的 ensure / stop 全都测穿了，界面上一个都够不着。
@@ -182,9 +182,9 @@ export function schemaGap(engine) {
     engine_id: engine.id,
     param_key_count: keys.length,
     message:
-      `engines/${engine.id}/manifest.json 里没有写 params.schema，` +
-      `所以这里画不出参数格子。这台引擎实际接受 ${keys.length} 个参数` +
-      `（manifest.json 的 param_keys 列着），补上 params.schema 就会出现在这里。`,
+      `engines/${engine.id}/manifest.json 未声明 params.schema，` +
+      `因此此处无法显示参数配置项。该引擎实际接受 ${keys.length} 个参数` +
+      `（manifest.json 的 param_keys 中有列出）；补充 params.schema 后即可在此处显示。`,
   }
 }
 
@@ -203,7 +203,7 @@ export function initialParamValues(engine) {
 }
 
 /**
- * 界面上收到的那一下（多半是字符串）翻成这个格子该有的类型。
+ * 界面上收到的值（多数情况下是字符串）翻成这个格子该有的类型。
  *
  * 翻不动就返回名片里的 default，不返回 0 也不返回空字符串：
  * 输入框清空的一瞬间值是 ''，`parseFloat('')` 是 NaN，塞进请求体会变成 null，
@@ -212,7 +212,7 @@ export function initialParamValues(engine) {
 /**
  * 五种预设样式，与后端 `lib/engines/paramTypes.js` 是**同一张表**。
  * 想在这儿加第六种之前，先去改那个文件；两边分叉的症状是
- *    「后端收得下、前端画不出」，而画不出的格子不会报错。
+ *    「后端能收、前端不能渲染」，而不能渲染的格子不会报错。
  */
 export const PARAM_TYPES = ['text', 'number', 'select', 'boolean', 'file']
 
@@ -251,7 +251,7 @@ export function coerceParamValue(field, raw) {
 
   // 一排 / 多选：整条都是数组，逐格按标量规则翻。
   // 任何一格翻不动就整条退回 default，不半条半条地留：
-  //    发一条长度对不上的数组给引擎，多半不报错，只是声音不对。
+  //    发一条长度不匹配的数组给引擎，多数情况下不报错，只是声音不对。
   if (wantsArray(field)) {
     if (!Array.isArray(raw)) return fallback
     const n = repeatOf(field)
@@ -376,7 +376,7 @@ export function paramsToSend(engine, values, touched) {
     if (!isFieldVisible(f, values)) continue
     // 路径格子空着 = 用户没选这个文件 ⇒ 不发这个键。
     // 不能发空字符串：引擎那边会当成「路径是空的」去打开文件而不是
-    //    「没给路径」，报出来的错跟用户做的事对不上。
+    //    「没给路径」，报出来的错跟用户做的事不匹配。
     if (isPathField(f) && (values[f.name] === '' || values[f.name] == null)) continue
     // UI suggestions are not invocation defaults. Only explicit user choices
     // cross the engine boundary; the upstream engine owns all omitted defaults.
@@ -448,7 +448,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     return {
       tone: 'unknown',
       label: zh ? '底模 ?' : 'weights ?',
-      title: c.reason || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir'),
+      title: c.reason || (zh ? '该引擎的清单未声明底模目录' : 'manifest does not declare a checkpoints dir'),
     }
   }
 
@@ -462,7 +462,7 @@ export function checkpointBadge(engine, lang = 'zh') {
   if (c.ready !== true && c.source) {
     if (c.source.license_gate) {
       lines.push('', zh
-        ? '⚠ 这个模型要先去主页上点同意才能下（不点会 401/403，看着像网络故障）'
+        ? '⚠ 需先在模型主页接受许可才能下载（否则会返回 401/403，表现为网络故障）'
         : '⚠ You must accept the license on the model page first (otherwise 401/403)')
     }
     if (c.source.url) lines.push((zh ? '模型主页：' : 'Model page: ') + c.source.url)
@@ -476,13 +476,13 @@ export function checkpointBadge(engine, lang = 'zh') {
   }
 
   if (c.ready === true) {
-    return { tone: 'ok', label: zh ? '底模齐' : 'weights ok', title: lines.join('\n') }
+    return { tone: 'ok', label: zh ? '底模就绪' : 'weights ok', title: lines.join('\n') }
   }
   if (c.ready === false) {
     const n = Array.isArray(c.missing) ? c.missing.length : 0
     return {
       tone: 'bad',
-      label: n > 0 ? (zh ? `底模缺 ${n}` : `weights: ${n} missing`) : (zh ? '底模没放' : 'weights missing'),
+      label: n > 0 ? (zh ? `底模缺 ${n} 项` : `weights: ${n} missing`) : (zh ? '底模缺失' : 'weights missing'),
       title: lines.join('\n'),
     }
   }
@@ -492,8 +492,8 @@ export function checkpointBadge(engine, lang = 'zh') {
 // ---------------------------------------------------------------------------
 //  进程徽章（2026-08-30，契约 §12 第 5 步）
 // ---------------------------------------------------------------------------
-// 来历：引擎从「开机全点着」改成「用到才起、不用就放」之后，
-//   界面上出现了一个以前不存在的状态，**这台引擎现在没在跑，而这是正常的**。
+// 来历：引擎从「开机全点着」改成「按需启动、空闲释放」之后，
+//   界面上出现了一个以前不存在的状态，**这台引擎现在未运行，而这是正常的**。
 //
 // 为什么非画不可，只有一个理由，但足够：
 //   一台把权重在开进程那一刻吃进内存的引擎（6 GB 起步），换模型 = 整个重开。
@@ -504,12 +504,12 @@ export function checkpointBadge(engine, lang = 'zh') {
 // 这里不做任何判断。跑没跑、在忙没忙、装的是哪一份，服务端都算完了，
 //   这个函数只负责翻成"徽章上写什么、悬停显示什么"。
 //
-// 三种「没在跑」必须说成三句不同的话，不许合并：
-//   · process === null   → 这台机器**不管进程**（后端没装看管人）⇒ 不画徽章。
+// 三种「未运行」必须说成三句不同的话，不许合并：
+//   · process === null   → 这台机器**不管进程**（后端未装看管人）⇒ 不画徽章。
 //       报成"停着"会让人去点一个不存在的启动按钮。
 //   · running === false  → 确实没起，**而这是正常的**，下次要用会自己起。
 //       ⇒ 语气必须是中性的"待命"，不是红色的"离线/挂了"。
-//   · online 为真但 running 为假 → 引擎在跑，**但不是这个平台起的**
+//   · online 为真但 running 为假 → 引擎在运行，**但不是本平台启动的**
 //       （开发机上最常见）。⇒ 这两个字段有意不合并，见 /api/engines。
 
 /**
@@ -526,15 +526,15 @@ export function processBadge (engine, lang = 'zh') {
   const lines = []
 
   if (p.running !== true) {
-    // 引擎在跑但不是我们起的，这不是错误，是开发机的日常。
+    // 引擎在运行但不是本平台启动的，这不是错误，是开发机的常态。
     if (engine.online === true) {
       return {
         tone: 'unknown',
         label: zh ? '外部进程' : 'external',
         launchKey: null,
         title: zh
-          ? '这台引擎正在跑，但不是本平台起的（多半是作者自己在另一个窗口开着）。\n' +
-            '⇒ 本平台不会去停它，换模型也不会重开它。'
+          ? '该引擎正在运行，但并非由本平台启动（通常是作者在另一个窗口中手动启动）。\n' +
+            '⇒ 不会去停它，更换模型时也不会重新启动它。'
           : 'Engine is up but was not started by this app; it will not be stopped or relaunched here.',
       }
     }
@@ -543,8 +543,8 @@ export function processBadge (engine, lang = 'zh') {
       label: zh ? '待命' : 'idle',
       launchKey: null,
       title: zh
-        ? '现在没在跑：这是正常的。\n' +
-          '⇒ 下一次用到它时会自动起来；起的那一下要等模型装进内存。'
+        ? '当前未在运行：这是正常状态。\n' +
+          '⇒ 下次使用时会自动启动；启动时需要等待模型载入内存。'
         : 'Not running — this is normal. It will start automatically on first use.',
     }
   }
@@ -560,7 +560,7 @@ export function processBadge (engine, lang = 'zh') {
   //   是这整套东西里**唯一**会让人以为卡死的时刻。
   if (p.phase && p.phase !== 'ready') {
     lines.push('', zh
-      ? '正在把模型装进内存，这一下可能要等几十秒到几分钟。\n⛔ 不用再点一次：再点只会排在后面，更慢。'
+      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n⛔ 不要重复点击：重复点击只会排队等待，速度更慢。'
       : 'Loading the model into memory; this can take a while. No need to click again.')
     return {
       tone: 'busy',
@@ -581,7 +581,7 @@ export function processBadge (engine, lang = 'zh') {
   }
 
   return {
-    tone: 'ok', label: zh ? '在跑' : 'running', title: lines.join('\n'),
+    tone: 'ok', label: zh ? '运行中' : 'running', title: lines.join('\n'),
     launchKey: p.launch_key || null,
   }
 }
@@ -630,7 +630,7 @@ export function mergeProcessState (engines, fresh) {
 //
 // 他说的不只是"占地方"，底下还压着一个真的坏掉的东西：
 //
-//   引擎改成「用到才起」之后，老那枚「Connected / Unreachable」**天天红**。
+//   引擎改成「按需启动」之后，老那枚「Connected / Unreachable」**持续报红**。
 //   它报的是探活通不通；而现在"没起"是常态、是**设计如此**。
 //   ⇒ 一枚在正常状态下常亮红灯的指示灯，唯一的效果是训练人忽略所有红灯。
 //   这跟"少一枚灯好看一点"是两件事：并不是把三枚塞进一枚省地方，
@@ -641,8 +641,8 @@ export function mergeProcessState (engines, fresh) {
 //   ┌───┬──────────────┬──────┬────────────────────────────────────────┐
 //   │ 1 │ 底模缺       │ 红   │ 你不动手它永远起不来 ⇒ 唯一有资格红的   │
 //   │ 2 │ 启动中…      │ 橙   │ 唯一会让人以为卡死的时刻 ⇒ 见下         │
-//   │ 3 │ 合成中       │ 橙   │ 在干活                                  │
-//   │ 4 │ 在跑         │ 绿   │                                         │
+//   │ 3 │ 合成中       │ 橙   │ 正在执行合成                          │
+//   │ 4 │ 运行中       │ 绿   │                                         │
 //   │ 5 │ 待命         │ 灰   │ 没起，**而这是正常的** ⇒ 绝不许红     │
 //   └───┴──────────────┴──────┴────────────────────────────────────────┘
 //
@@ -651,7 +651,7 @@ export function mergeProcessState (engines, fresh) {
 //   但「底模缺」必须留在**灯面上**：那是唯一一种"看不见就会被卡住一小时"的坏。
 //
 // 这个函数一个判断都不新加。底模齐没齐、进程跑没跑，服务端早算完了，
-//   上面两个函数早翻好了，这里只决定**谁上台**和**悬停里怎么排**。
+//   上面两个函数已就绪，这里只决定**谁上台**和**悬停里怎么排**。
 //   ⇒ 不会出现"顶栏说一句、别处说另一句"。
 
 /**
@@ -671,9 +671,9 @@ export function engineBadge (engine, health, lang = 'zh') {
   // 2026-10-05（Owner）：悬停**只留底模目录那一行**。
   //
   // 原来是把进程状态 + 底模两段叠起来。进程状态那段被判「小学生」，
-  //   「现在没在跑，这是正常的。⇒ 下一次用到它时会自动起来；
+  //   「现在未运行，这是正常的。⇒ 下一次使用时会自动启动；
   //     起的那一下要等模型装进内存。」这类句子在回答一个**用户没问**的问题
-  //   （他没问「现在跑不跑」），却把真正要答的（底模在哪）挤到了第二段。
+  //   （他没问「现在是否在运行」），却把真正要答的（底模在哪）挤到了第二段。
   //
   // 保留的：**底模目录**。它是「我该去哪儿放什么」的唯一答案，
   //   而且它在底模缺的时候唯一能让人自己动手定位。
@@ -714,25 +714,25 @@ export function engineBadge (engine, health, lang = 'zh') {
   }
 
   // ── 兜底：这台机器**不管进程**（process 为 null）──────────────────
-  // 2026-08-30 刀 4：这里原本是老那枚 Connected / Unreachable，
+  // 这里原本是老那枚 Connected / Unreachable，
   //   它读 `health.engine_online`，而 engine_online 是「往某个端口探一下活」。
   //
   //   端口是第六项。推理只需要 输入+参数+权重+环境；端口是我给引擎套的
   //   HTTP 外壳产生的，不是引擎需要的东西。⇒ 一台用命令行跑的引擎（大多数）
-  //   在这枚灯下**永远显示"连不上"**，而它其实好好的。
+  //   在这枚灯下**永远显示"连不上"**，而它实际完好的。
   //
   //   更根本的：引擎是**用完即走的进程**，"常驻在线"这个概念对它不成立。
   //   一枚回答"它现在在不在线"的灯，问的是一个不存在的问题。
   //
   // 只留三态，而且都由**这一次操作**驱动，不由轮询驱动：
-  //   准备中 / 生成中 / 好了或没成，那三态由上面的 processBadge 负责。
+  //   准备中 / 生成中 / 完成或失败，那三态由上面的 processBadge 负责。
   //   走到这里 = 平台不管这台的进程 ⇒ 平台对它此刻的状态**一无所知**，
   //   而"一无所知"的诚实说法是不画状态，不是画一枚红灯。
   return {
     tone: 'idle',
     label: name,
     // 2026-10-05：这一支原来把底模目录那一段丢掉、只留一句
-    // 「平台不知道它此刻的状态…按下生成那一刻就知道了」。而那句话与
+    // 「平台不知道它此刻的状态…按下生成那一刻就会知道」。而那句话与
     //   上一支的差别只剩**底模目录**，底模目录对这一支同样有用
     //   （平台不管进程，但权重要放哪仍然是这台引擎的事）。
     title,
@@ -750,7 +750,7 @@ export function engineBadge (engine, health, lang = 'zh') {
 //
 //  三态必须分得开，不许糊成两态：
 //     number   这台引擎**历史上最多**吃过多少（memledger 只涨不落）
-//     null     **从来没量到过**，不是 0。0 的意思是「它不吃内存」，
+//     null     **从未测量过**，不是 0。0 的意思是「它不消耗内存」，
 //              而那是最危险的说法。
 //     报的是**历史峰值**而不是实时读数：峰值才对应 OOM 风险，
 //       实时读数在 Linux OOM 之后读到的残值不可靠。
@@ -782,9 +782,9 @@ export function occupancyBadge (occ, lang = 'zh') {
   if (typeof occ.error === 'string' && occ.error) {
     return {
       tone: 'unknown',
-      label: zh ? '占用：读不到' : 'usage: unknown',
+      label: zh ? '占用：无法读取' : 'usage: unknown',
       detail: [occ.error],
-      title: (zh ? '读不到占用情况' : 'cannot read usage') + '\n\n' + occ.error,
+      title: (zh ? '无法读取占用情况' : 'cannot read usage') + '\n\n' + occ.error,
     }
   }
 
@@ -794,7 +794,7 @@ export function occupancyBadge (occ, lang = 'zh') {
   //   自己手写的 occ（running / residentPeakMb / freeMb …），全绿；
   //   而后端 occupancyReport() 真正吐的是 `{engines, summary, headline}`，
   //   数字全在 `summary` 里，键名还是 free_mb / total_mb。
-  //   照着手写的输入写实现 ⇒ 名字对不上 ⇒ **每一项都显示不出来**，
+  //   照着手写的输入写实现 ⇒ 名字不匹配 ⇒ **每一项都显示不出来**，
   //     而界面看上去只是「空着」，不报错。
   //   教训与 engineBadge 那段同源：**输入必须来自真的那一头**。
   const sum = occ.summary
@@ -805,18 +805,18 @@ export function occupancyBadge (occ, lang = 'zh') {
     ? `装了 ${sum.installed} 台引擎`
     : `${sum.installed} engine(s) installed`)
   detail.push(zh
-    ? (sum.running ? `${sum.running} 台在跑` : '现在一台都没在跑（用到才起）')
+    ? (sum.running ? `${sum.running} 台运行中` : '当前无引擎在运行（按需启动）')
     : (sum.running ? `${sum.running} running` : 'none running (start on demand)'))
   if (sum.resident_peak_mb > 0) {
     detail.push(zh
-      ? `在跑的这些峰值合计约 ${fmtMemMb(sum.resident_peak_mb)}`
+      ? `运行中引擎的峰值合计约 ${fmtMemMb(sum.resident_peak_mb)}`
       : `running peak ~${fmtMemMb(sum.resident_peak_mb)}`)
   }
   // unknown_count 是**风险最高**的那一档（从没人量过它吃多少），
   //   所以它排在余量前面，那是用户该先知道的事。
   if (sum.unknown_count > 0) {
     detail.push(zh
-      ? `⚠ ${sum.unknown_count} 台从来没量过占用`
+      ? `⚠ ${sum.unknown_count} 台从未测量过占用`
       : `⚠ ${sum.unknown_count} never measured`)
   }
   if (Number.isFinite(sum.free_mb) && Number.isFinite(sum.total_mb)) {
@@ -826,21 +826,21 @@ export function occupancyBadge (occ, lang = 'zh') {
   }
 
   const label = zh
-    ? `占用：${sum.running} 台在跑`
+    ? `占用：${sum.running} 台运行中`
     : `usage: ${sum.running} running`
 
-  // 后端已经写好了一句人话（headline），优先用它，
+  // 后端已经生成了一句说明文字（headline），优先使用它，
   //   理由：那句话是后端跟 occupancy 同一份数据算出来的，
   //     前端再措辞一次就多了一处「两边说法不一致」的可能。
   const title = (occ.headline || (zh ? '平台此刻占用了什么' : 'what the platform is using'))
     + '\n\n' + detail.join('\n')
 
   return {
-    // tone 只有三档：跑着 / 没跑 / 读不到。
+    // tone 只有三档：运行中 / 未运行 / 不可达。
     //   不加「危险」档，危险是**引擎级**的（某台峰值高），
-    //     机器级只有一个诚实的问题：现在跑着几台。
+    //     机器级只有一个诚实的问题：现在有几台在运行。
     //   但 unknown_count > 0 时**值得**提一句，所以放进 detail 而不是 tone：
-    //     把它升成 tone 会让「有台没量过」看起来像「机器出问题了」。
+    //     把它升成 tone 会让「有台未测量」看起来像「机器出问题了」。
     tone: sum.running ? 'ok' : 'idle',
     label,
     detail,
@@ -851,7 +851,7 @@ export function occupancyBadge (occ, lang = 'zh') {
 /**
  * 单台引擎的占用徽章（挂在每台引擎那一行）。
  *
- * 「没量到过」是一个**必须说出来**的状态，不是「0」。
+ * 「未测量」是一个**必须说出来**的状态，不是「0」。
  * @returns {null|{tone:'ok'|'busy'|'unknown'|'bad', label:string, title:string}}
  */
 export function engineUsageBadge (eng, occ, lang = 'zh') {
@@ -862,14 +862,14 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
   if (!row) return null
   const name = eng.label || eng.id || (zh ? '引擎' : 'engine')
 
-  // 上次没活着回来 ⇒ 最高优先级的那一条警告。
-  //   它排在「没量到」前面：一次 OOM 比「不知道吃多少」更值得先说。
+  // 上次未正常退出 ⇒ 最高优先级的那一条警告。
+  //   它排在「未测量」前面：一次 OOM 比「不知道内存占用」更值得先说。
   if (row.last_attempt_unfinished) {
     return {
       tone: 'bad',
-      label: zh ? `${name} · 上次没起来` : `${name} · last attempt failed`,
+      label: zh ? `${name} · 上次启动失败` : `${name} · last attempt failed`,
       title: (zh
-        ? '上一次启动这台引擎没活着回来（多半是内存不够被赶出来了）。\n再起它之前，先把别的引擎停掉几只。'
+        ? '上一次启动该引擎未成功（通常是内存不足被系统终止）。\n重新启动前，请先停止其他若干台引擎。'
         : 'last start of this engine did not survive (likely OOM).\nstop a few others before retrying.'),
     }
   }
@@ -879,16 +879,16 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
       tone: 'busy',
       label: zh ? `${name} · 峰值 ${fmtMemMb(row.peak_mb)}` : `${name} · peak ${fmtMemMb(row.peak_mb)}`,
       title: (zh
-        ? `在跑。历史上最多吃到过 ${fmtMemMb(row.peak_mb)}。`
+        ? `运行中。历史峰值为 ${fmtMemMb(row.peak_mb)}。`
         : `running. peaked at ${fmtMemMb(row.peak_mb)}.`),
     }
   }
   if (row.running) {
     return {
       tone: 'busy',
-      label: zh ? `${name} · 在跑（没量到占用）` : `${name} · running (usage unmeasured)`,
+      label: zh ? `${name} · 运行中（未测量占用）` : `${name} · running (usage unmeasured)`,
       title: zh
-        ? '在跑，但它吃多少内存还没量到过：那个数只能靠实际启动一次得来。'
+        ? '运行中，但其内存占用量尚未测量：该数值只能通过实际启动测得。'
         : 'running, but its memory use has never been measured.',
     }
   }
@@ -897,16 +897,16 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
       tone: 'idle',
       label: zh ? `${name} · 峰值 ${fmtMemMb(row.peak_mb)}` : `${name} · peak ${fmtMemMb(row.peak_mb)}`,
       title: zh
-        ? `没在跑。启动它大概会吃到 ${fmtMemMb(row.peak_mb)}（上一次量到的峰值）。`
+        ? `未在运行。启动后预计占用约 ${fmtMemMb(row.peak_mb)}（上次测量的峰值）。`
         : `not running. last measured peak ${fmtMemMb(row.peak_mb)}.`,
     }
   }
-  // 从来没量过：说「没量到」，绝不说「0」（0 = 它不吃内存，最危险的说法）
+  // 从未测量：说「未测量」，绝不说「0」（0 = 它不消耗内存，最危险的说法）
   return {
     tone: 'unknown',
-    label: zh ? `${name} · 占用没量到过` : `${name} · usage unmeasured`,
+    label: zh ? `${name} · 占用未测量` : `${name} · usage unmeasured`,
     title: zh
-      ? '这台引擎吃多少内存还没量到过：那个数只能靠实际启动一次得来。\n（显示成 0 会是「它不吃内存」，那是假的。）'
+      ? '该引擎的内存占用量尚未测量：该数值只能通过实际启动测得。\n（若显示为 0 会被误读为「不占用内存」，这是不准确的。）'
       : 'never measured. A 0 here would falsely mean "uses no memory".',
   }
 }

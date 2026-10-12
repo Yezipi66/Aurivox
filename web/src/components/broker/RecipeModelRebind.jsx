@@ -171,7 +171,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
       {/* 7.1: one row, three dropdowns — Voice ID (shared) · model slot 0 · model slot 1.
           2026-10-01：两个位下拉的标签过去写死成「GPT checkpoint」「SoVITS model」，
              文件选择器的扩展名也写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
-             连标题都对不上。现在标题取后端给的真实位名（slotNames），扩展名放开。
+             连标题都不匹配。现在标题取后端给的真实位名（slotNames），扩展名放开。
              Each model slot keeps a "custom path…" escape hatch (cross-voice /
              outside the project) (D2/D4). */}
       <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>

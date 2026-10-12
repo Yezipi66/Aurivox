@@ -181,14 +181,14 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // Load advanced params from backend.
   //
-  // 刀 A1/A2（2026-08-31）：这里过去是 `api('/api/advanced-params')`
+  // /A2（2026-08-31）：这里过去是 `api('/api/advanced-params')`
   //   一个裸地址、依赖数组 `[]`（只在挂载时跑一次）。
   //   后端删掉 legacyDefault 之后，**不带 engine_id 就不再回落到任何一台名片**
   //   （`lib/routes/pron.js:17-22`）⇒ 不改这一行的后果是：真机上高级设置里
   //   所有"用户没拧过"的格子全部变空，而且不报错。
   //
   // 依赖数组从 `[]` 改成 `[engine?.id]`，这是**故意的行为变化**：
-  //   默认值本来就属于那张名片，换一台引擎就该重新问一次。
+  //   默认值本来就属于该名片，换一台引擎就该重新问一次。
   //   不许改回 `[]`，挂载那一刻 engine 往往还没加载完，
   //     那会退化成"永远拿不到默认值"。
   useEffect(() => {
@@ -258,7 +258,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // 持久化：每个 引擎 × 角色 各自记住上次每个位选了什么，刷新后只要还在候选里就恢复。
   // 存的时候按 引擎id → 角色 → 位名 分三层，否则换引擎会把上一台的路径捡回来。
   // 换了名字（原来叫 generate.modelChoice）：老浏览器里存着的是**两个位的老形状**，
-  //   用同一个名字读出来会得到一坨对不上的数据。换名 ⇒ 老的自然作废，
+  //   用同一个名字读出来会得到一坨不匹配的数据。换名 ⇒ 老的自然作废，
   //   最多是"上次选的没记住"，不会把一条别的形状的路径摆到下拉里。
   const [modelChoice, setModelChoice] = usePersistentState('generate.modelChoice.byEngine', {})
   const modelChoiceRef = useRef(modelChoice)
@@ -296,7 +296,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   //    是什么，也不该知道。
   // 这一段**必须**放在 refVoiceId 声明之后。我第一版把它写在 :302，
   //     而 refVoiceId 是 :318 的 const ⇒ 暂时性死区，一进这一页就 ReferenceError
-  //     白屏。沙箱里没有 node_modules，build 跑不了，这种错**只能靠读**。
+  //     白屏。沙箱里没有 node_modules，build 无法运行，这种错**只能靠读**。
   //     ⇒ 往这个函数体里插新的 const 时，先确认它依赖的每一个名字都在上面。
   const selectSources = useSelectSources({
     voices,
@@ -438,7 +438,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   useEffect(() => {
     if (!selectedVoice) return
-    // 点名当前引擎：问的是「**这台**引擎开工要的东西齐没齐」。
+    // 点名当前引擎：问的是「**这台**引擎启动要的东西齐没齐」。
     //   不点名会把装着的每一台都答一遍，那是给别的界面用的，不是这里。
     const q = engine?.id ? `?engine_id=${encodeURIComponent(engine.id)}` : ''
     api(`/api/voices/${selectedVoice}/validate${q}`).then(r => {
@@ -648,7 +648,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     if (p.silence_ms !== undefined) setSilenceMs(p.silence_ms)
     // 历史条目里存的是当时那台引擎的参数。回填时只认当前引擎名片里有的键，
     // 并且标成「动过」，用户明确要求重放这一条，那就是他要的值。
-    // 认不出的键直接丢：换引擎之后老条目里的键名对不上，硬塞会发出去。
+    // 认不出的键直接丢：换引擎之后老条目里的键名不匹配，硬塞会发出去。
     {
       const known = new Map((engine?.param_schema || []).map(f => [f.name, f]))
       const picked = {}
@@ -832,7 +832,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               {relaunchSlots.length > 0 && (
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {t('Changing the model above restarts this engine with it — the first generation after a change takes longer while the model loads.',
-                     '在上面换模型会让这台引擎带着它重新启动一次，换过之后的第一次生成要多等一会儿，等它把模型装进内存。')}
+                     '在上面换模型会让这台引擎带着它重新启动一次，换过之后的第一次生成需要更长时间，等它把模型装进内存。')}
                 </div>
               )}
               {/* 2026-08-30：盘上放了模型、下拉却是空的，而且没有一个字解释
@@ -1013,7 +1013,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                                 「一个左上一个右下」的来历（见 ToggleField 的注释）。 */}
                           <ToggleField
                             label={t('Force re-synthesis', '强制重新推理')}
-                            help={t('Ignore cached audio and re-run inference', '忽略缓存音频，重新跑一遍推理')}
+                            help={t('Ignore cached audio and re-run inference', '忽略缓存音频，重新执行推理')}
                             checked={forceResynth}
                             onChange={setForceResynth} />
                         </div>
@@ -1088,7 +1088,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                        `这些参数仅用于本次生成并发送给 ${engineName}，不会更改语音配置。`)}
                   </div>
 
-                  {/* Auxiliary Reference Audio — shared AuxReferencePicker (Patch #11):
+                  {/* Auxiliary Reference Audio — shared AuxReferencePicker ():
                       This voice (Slices/Raw) · Another voice · Custom files, multi-select
                       + audio preview. Identical interaction to Compare Refs.
 

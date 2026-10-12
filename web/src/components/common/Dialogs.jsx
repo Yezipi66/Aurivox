@@ -93,7 +93,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             {/* 原来这里是写死的两行 ⇒ 换一台引擎就永远显示「GPT（无）/
                 SoVITS（无）」，等于对用户说"你没有模型"。真实情况是：配方格式
                 还装不下这台引擎的模型选择（挂账见引擎契约 §9）。
-                ⇒ 存进去了就列出来，一个都存不进就把原因说出来。 */}
+                ⇒ 保存成功就列出来，一个都保存失败就把原因说出来。 */}
             {weightPreview.rows.map(r => (
               <div key={r.key}><span className="rp-k">{r.label}</span>
                 <span className="rp-v" title={r.path}>{basename(r.path)}</span></div>
@@ -101,7 +101,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             {!weightPreview.storable && (
               <div><span className="rp-k">{t('Model', '模型')}</span>
                 <span className="rp-v">{t('not stored in this recipe yet',
-                  '暂时存不进配方')}</span></div>
+                  '暂时无法写入配方')}</span></div>
             )}
           </div>
           <div className="field">

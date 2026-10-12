@@ -24,7 +24,6 @@ function tokIsPunct(tok) {
 
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-// 刀 A1（2026-08-31）新增 `engineId`。
 //   后端 /api/pron/preview 现在 **engine_id 必传**（lib/routes/pron.js:58-65），
 //   不传直接 400 `PRON_ENGINE_ID_MISSING`。
 //

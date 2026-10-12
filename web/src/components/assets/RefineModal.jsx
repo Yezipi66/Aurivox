@@ -1,4 +1,4 @@
-// Patch #12 / Refine-two-mode — Voice Refinement (restore-style, S1 / S2 independent).
+// Voice Refinement (restore-style, S1 / S2 independent).
 // Creates a NEW derived Voice by continuing training from the selected parent's
 // checkpoints. S1 (GPT) and S2 (SoVITS) are independent steps — the user may refine
 // either or both, exactly like the Restore flow's independent train toggles.
@@ -217,7 +217,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             <input type="checkbox" checked={useOwnData} onChange={e => setUseOwnData(e.target.checked)} />
             <span>
               {t('Bring my own new audio (full pipeline)', '导入我自己的新音频（完整管线）')}
-              <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹跑切片/ASR/预处理；仅用新数据，不做合并。')}</span>
+              <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹运行切片/ASR/预处理；仅用新数据，不做合并。')}</span>
             </span>
           </label>
           {reuseBlocked && (

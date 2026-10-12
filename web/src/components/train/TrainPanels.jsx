@@ -139,7 +139,7 @@ function ReviewRowAudio({ taskId, relPath }) {
   )
 }
 
-// Patch #23 — ASR 置信度着色。faster-whisper 的 word/segment 概率折算成 [0,1]，
+// — ASR 置信度着色。faster-whisper 的 word/segment 概率折算成 [0,1]，
 // 映射到 绿(有把握)/黄(可疑)/红(存疑) 三档，辅助人工校对。
 const CONF_HI = 0.85
 const CONF_MID = 0.6

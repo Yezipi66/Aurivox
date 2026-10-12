@@ -131,7 +131,7 @@ export function ContextRow({ voices, selectedVoice, health, activeTaskId, activi
             </span>
           ))}
       {modelCounts.length === 0 && <span className="ctx-sep" />}
-      {/* 2026-08-30 刀 4：这里原本是 Connected / Unreachable，
+      {/* 上下文行显示引擎状态。
           最后一枚读 `health.engine_online`（往端口探活）的灯，已删。
           理由与 engines.js:engineBadge 那一处同一条：端口是第六项，
           引擎是用完即走的进程，"它现在在不在线"是一个不存在的问题；

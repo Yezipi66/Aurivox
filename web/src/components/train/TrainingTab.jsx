@@ -764,7 +764,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
         <optgroup key={cat} label={label}>
           {items.map(m => (
             <option key={m.id} value={m.id}>
-              {tr(m.label.en, m.label.zh)}{m.installed ? '' : tr(' — not installed', ' — 未安装')}
+              {tr(m.label.en, m.label.zh)}{m.installed ? '' : tr(' — not installed', '：未安装')}
             </option>
           ))}
         </optgroup>
@@ -776,11 +776,11 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     const opts = VOCAL_PRESETS.map(p => {
       const ids = p.pipeline ? p.pipeline.map(s => s.model) : [];
       const missing = uvr5Models ? ids.filter(id => uvr5ById[id] && !uvr5ById[id].installed) : [];
-      const suffix = missing.length ? tr(' — needs download', ' — 需下载') : '';
+      const suffix = missing.length ? tr(' — needs download', '：需下载') : '';
       return <option key={p.id} value={p.id}>{tr(p.label[0], p.label[1])}{suffix}</option>;
     });
     const saved = (form.denoiseSavedPresets || []).map(s => (
-      <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已存')}: {s.name}</option>
+      <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已保存')}: {s.name}</option>
     ));
     return saved.length ? [...opts.slice(0, -1), <optgroup key="saved" label={tr('Saved presets', '已保存预设')}>{saved}</optgroup>, opts[opts.length - 1]] : opts;
   };
@@ -936,12 +936,12 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
             {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
-                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。听着干净就继续，质量差就取消本次任务：这是决定成败的第一道 GIGO 门。')}
+                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。音质清晰则继续，质量差就取消本次任务：这是决定成败的第一道 GIGO 门。')}
           </p>
 
           {/* 提取后，分离出的人声才是真正的“raw”（切片/ASR/训练都用它）。提取前的
               原始混音默认归档到资产的 raw_b4_extraction/，便于日后重构或换参重跑。
-              个别只想留最终人声、想省磁盘的用户可以关掉。 */}
+              个别只想留最终人声、希望节省磁盘的用户可以关掉。 */}
           <label className="toggle-row" style={{ marginBottom: 8 }}>
             <input type="checkbox" checked={form.keepRawB4Extraction !== false}
                    onChange={e => setField('keepRawB4Extraction', e.target.checked)} />
@@ -949,7 +949,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
             {tr('After extraction the separated vocals become the asset\u2019s raw/ (they are what slicing, ASR and training use). The original pre-extraction mixdown is archived to raw_b4_extraction/ so the voice folder stays self-contained and can be reconstructed. Turn this off to save disk if you only need the final vocals.',
-                '提取完成后，分离出的人声会成为资产的 raw/（切片、ASR、训练都用它）。提取前的原始混音则归档到 raw_b4_extraction/，让音色目录自包含、可随时重构或换参重跑。若只需最终人声、想省磁盘，可关闭此项。')}
+                '提取完成后，分离出的人声会成为资产的 raw/（切片、ASR、训练都用它）。提取前的原始混音则归档到 raw_b4_extraction/，让音色目录自包含、可随时重构或换参重跑。若只需最终人声、希望节省磁盘空间，可关闭此项。')}
           </p>
 
           <div className="field">
@@ -1541,7 +1541,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                 检测到显存较小的 GPU（{cuda?.device_name || 'GPU'} · {cuda?.vram_gb}GB）。微调可能因显存不足（OOM）而失败，
                 建议<strong>手动把 Batch Size 调小</strong>（如 1–2）后再开始。该提醒只显示一次。
               </div>
-              <button className="btn btn-sm" onClick={dismissLowVram}>知道了</button>
+              <button className="btn btn-sm" onClick={dismissLowVram}>确认</button>
             </div>
           )}
 
@@ -1813,7 +1813,7 @@ export {
   RebuildProgress,
   TrainingTab,
   RestoreModal,
-  // Patch #12 — reused by the Refinement modal so it exposes the exact same training
+  // — reused by the Refinement modal so it exposes the exact same training
   // parameter fields / serialiser / defaults as the Training and Restore flows.
   TrainParamFields,
   buildTrainingParams,

@@ -19,7 +19,7 @@ import { CompareRow } from './CompareRow'
 import { CompareBatchCard } from './CompareBatchCard'
 
 // RefAudioTabs was hoisted to common/RefPickers.jsx as the shared RefAudioList
-// (Patch #11). Compare's main reference now uses RefAudioList(single); auxiliary
+// Compare 的主参考现在用 RefAudioList(single)；辅助
 // references use the shared AuxReferencePicker.
 
 // ===========================
@@ -172,11 +172,11 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
 
   // Load default advanced params from backend
-  // 刀 A1（2026-08-31）：这里过去是裸的 `/api/advanced-params`，
+  // 当前用 `/api/advanced-params` 加上 engine_id，
   //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault）。那条路已经删了
   //   ⇒ 现在**必须**带上 engine_id，且 engine 还没到就一个字节都不发。
   //   不许在这里塞任何回落引擎，回落回来的默认值属于**另一台**引擎，
-  //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都对不上的错。
+  //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都不匹配的错。
   useEffect(() => {
     if (!engine?.id) return
     api(`/api/advanced-params?engine_id=${encodeURIComponent(engine.id)}`).then(r => {
@@ -551,7 +551,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, cursor: 'pointer' }}
             title={t('Master switch: send each row\u2019s whole text to the engine in ONE call so it splits and batches chunks in parallel (batch_size). Faster; single audio per row, no per-segment files. Each row can override this (Advanced Settings \u2192 Engine Batch).', '总开关：把每一行的整段文本一次性交给引擎，由引擎切分并按 batch_size 并行推理。更快；每行输出单个音频、无分段文件。各行可在「Advanced Settings → Engine Batch」单独覆盖。')}>
             <input type="checkbox" checked={cmpEngineBatch} onChange={e => setCmpEngineBatch(e.target.checked)} />
-            <span>{t('Engine Batch (parallel) \u2014 all rows', '引擎批量并行 \u2014 全部行（总开关）')}</span>
+            <span>{t('Engine Batch (parallel) \u2014 all rows', '引擎批量并行：全部行（总开关）')}</span>
           </label>
 
           <div className="cmp-toolbar">
