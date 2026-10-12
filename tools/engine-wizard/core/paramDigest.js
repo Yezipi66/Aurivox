@@ -2,10 +2,12 @@
 // ============================================================================
 //  paramDigest —— 统一层：cli 路与 python 路的参数输出对齐成同一形状
 //
-//  ⭐ 两条路的输入形状不同，但输出形状相同：
+// 两条路的输入形状不同，但输出形状相同：
 //     cli 路   {name, flag, style, help, required, is_tool, subcommand}
 //     python 路 {name, phase, required, default, kind, help, ...}
-//     输出     {source, name, target, kind, help, required, group, is_tool}
+//     输出     {source, name, target, kind, style, help, required, group, is_tool}
+//     ⭐ cli 路的 style 一并透出（只有它有）：那张表是名片 args 段要用的，
+//       与 kind 是两张不同的表，不能互相顶替。
 //
 //  ⛔ 纪律：本层只对齐形状，不做任何判断（不猜类型、不改 help、不删参数）。
 // ============================================================================
@@ -44,12 +46,17 @@ function kindFromPython (kind) {
 }
 
 // cli 路条目 → 统一形状
+// ⭐ style 与 kind 一起带出来：kind 是界面显示的类型名（str/boolean/array），
+//   style 是名片 args 段认的写法词（value/boolean/repeat）。
+//   ⛔ 只带 kind 的话，前端写进 args 的就是类型名，那张名片存不下来
+//   （宿主认得的那几个词与统一层的那几个词不是同一张表）。
 function fromCli (a) {
   return {
     source: 'cli',
     name: a.name,
     target: a.flag,
     kind: kindFromStyle(a.style),
+    style: a.style,
     help: a.help || null,
     required: a.required === true,
     group: a.subcommand || '(root)',
@@ -65,6 +72,8 @@ function fromPython (p) {
     name: p.name,
     target: p.name,
     kind: kindFromPython(kind),
+    // ⛔ python 路不写 style：它没有命令行开关，写一个占位词进去，
+    //   反而像是这台引擎有那个开关。
     help: p.help || null,
     required: p.required === true,
     group: p.phase || 'call',
