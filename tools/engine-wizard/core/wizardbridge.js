@@ -1093,12 +1093,74 @@ function handleProfile (req, res) {
   return true
 }
 
+// ---------------------------------------------------------------------------
+//  GET /wizard/install-state?id=   「这台引擎现在装到哪了」
+// ---------------------------------------------------------------------------
+// ⭐ 完成状态（流程条上的对勾）**只由真实产物判**，⛔ 不由「用户点过什么」判。
+//   前端 App 挂载时调它渲染对勾，⛔ 不依赖 localStorage 里的 facts。
+//
+// ⛔⛔ 必须用 req.url，不是 req.path（Vite 的 connect 有时不给 req.path，
+//    实测 2026-10-03 报 500 "path argument must be of type string"）。
+// ⛔ 判据全部是盘上的东西，⛔ 不能在这个端点里写死任何引擎名。
+// ⚠ 与已存在的 GET /wizard/installed（返回引擎列表那一个）不冲突：
+//    那个回答「装过哪些」，这个回答「这一台装到哪了」。
+// ⛔ 不许写成 async handler：中间件的 for 循环见到 Promise 就 break + next()，
+//    排在本函数后面的 handler 会全部静默失效（同 handleParams 的头注）。
+function handleInstallState (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/install-state')) return false
+  // ⚠ 前缀认的是整串（后面只许跟 ? 查询串）—— 与 handleParams 的 tail 检查同判据
+  const tail = req.url.slice('/wizard/install-state'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const root = url.searchParams.get('root') || projectRoot() || ''
+  try {
+    const { installState } = require('./installState')
+    json(res, 200, installState(root, id))
+  } catch (e) {
+    // ⛔ 端点自己出问题不许把 500 摊给界面：如实说「判不出来」，
+    //   而那正是所有步骤都没勾的理由，不是崩掉。
+    json(res, 200, { ok: false, error: (e && e.message) || String(e), steps_done: {} })
+  }
+  return true
+}
+
+// ---------------------------------------------------------------------------
+//  POST /wizard/reset-progress   {id, section}  逃生口：从头重装本步
+// ---------------------------------------------------------------------------
+// ⭐ 只清「哪些步骤算做完了」这份记录：
+//    ⛔ 不删引擎目录里的源码、⛔ 不删已装依赖、⛔ 不删已下载的模型文件。
+// ⚠ section：'env'（第 2 步装依赖）/ 'models'（第 3 步下模型）/ 'all'
+function handleResetProgress (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/reset-progress')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
+    const id = body.id
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    const root = body.root || projectRoot() || ''
+    try {
+      const { resetProgress } = require('./installState')
+      resetProgress(root, id, body.section)
+      json(res, 200, { ok: true, id, section: body.section || 'env' })
+    } catch (e) {
+      json(res, 500, { ok: false, code: 'RESET_FAILED',
+        error: (e && e.message) || String(e) })
+    }
+  })
+  return true
+}
+
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
   handleVerifyChecks, handleVerify, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
+  handleInstallState, handleResetProgress,
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,
