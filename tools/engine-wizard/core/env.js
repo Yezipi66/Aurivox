@@ -504,11 +504,22 @@ function syncEnvFor (venvDirAbs) {
  *
  * ⚠ 有 alternative 时第②步也进 steps（见下面 buildSteps 的注释）。
  *
+ * ⭐ 两条装依赖的路径各要自己的目标环境参数（2026-10-12 修 P0）：
+ *   · targetPython：主安装步用的 `-p <引擎环境里的 python>`（sync 那条路除外）
+ *   · altPython：第②步（装本机后端 torch）用的 `-p`，**与主步是不是 sync 无关**
+ * ⛔ 为什么必须分开：第②步**永远是 `uv pip install …`**，
+ *   而 `uv pip` 的 `-p` 才是「装进哪个环境」（见 withTargetPython）。
+ *   ⚠⚠ 上一次修复只给**主**安装步加了 -p，漏了第②步
+ *     ⇒ 实测第②步把 torch 装进了**平台根 venv**，
+ *     而引擎环境里 288 个包独缺 torch ⇒ 用户拿到的环境 import torch 失败，
+ *     三步退出码却全是 0，界面显示「安装完成」。
+ *
  * @param {{argv:string[], cwdRel:string, alt?:object|null,
- *          venv?:object|null, sync?:object|null, targetPython?:string|null}} o
+ *          venv?:object|null, sync?:object|null,
+ *          targetPython?:string|null, altPython?:string|null}} o
  * @returns {object[]}
  */
-function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython }) {
+function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython }) {
   const steps = []
   // ⭐ 建环境那一步排最前（⛔ conda 那条路除外）
   if (venv && Array.isArray(venv.argv)) {
@@ -536,17 +547,142 @@ function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython }) {
   if (alt && alt.then) {
     steps.push({
       kind: 'env',
-      // ⭐ 第②步装 torch，同样要钉同一个目标环境 ⛔ 否则装到别处
-      //   （targetPython 是**引擎**环境里那个，不是建环境时用的平台 python）
-      argv: withTargetPython(alt.then, targetPython),
+      // ⛔⛔ 第②步必须钉**同一个**目标环境（altPython），⛔ 不能跟着主步走。
+      //   主步是 `uv sync` 时 targetPython 故意是 null（sync 靠
+      //   UV_PROJECT_ENVIRONMENT，见 syncEnvFor），⛔ 但第②步是 `uv pip install`，
+      //   对它来说 -p 才是「装进哪个环境」⇒ 必须显式给引擎环境里的 python。
+      //   ⚠⚠ 这正是上一次修复漏掉的一步（2026-10-12 真机 P0）：
+      //   torch 装进平台根 venv，引擎环境里独缺它 ⇒ import torch 失败，
+      //   而三步退出码全是 0，界面显示「安装完成」。
+      //   另有那层 UV_PROJECT_ENVIRONMENT（sync 那条路带来的）在这里是**无害**的：
+      //   `uv pip install` 只读 -p，不看那个变量（实测）。
+      argv: withTargetPython(alt.then, altPython || targetPython),
       cwd: cwdRel,
       needs_network: true,
       env: sync || undefined,
-      why: 'Install the Torch build matching this machine backend.',
-      whyZh: '安装本机后端对应的 Torch。',
+      why: 'Install the Torch build matching this machine backend, '
+        + 'into this engine\'s own environment.',
+      whyZh: '把本机后端对应的 Torch 装进该引擎自己的环境。',
     })
   }
   return steps
+}
+
+/**
+ * ⭐ 这一步是不是「平台自己建引擎环境」那一步（`<python> -m uv venv <dir>`）。
+ *
+ * ⚠ 判据看的是**相邻两个 argv 元素**（`uv` 紧跟 `venv`）：
+ *   ⛔ 别拿 `/venv/` 这类正则去扫整行 —— `conda env create -f env.yml`
+ *      里也可能有 "env"，而 `-m uv venv` 这两个词是**并列**的。
+ *
+ * @param {object} step 计划里的一步
+ * @returns {boolean}
+ */
+function isVenvCreateStep (step) {
+  const argv = (step && step.argv) || []
+  for (let i = 0; i + 1 < argv.length; i++) {
+    if (/^uv$/i.test(argv[i]) && /^venv$/i.test(argv[i + 1])) return true
+  }
+  return false
+}
+
+/**
+ * ⭐⭐⭐ 装完自检：**这个环境能不能 import 引擎的核心依赖**
+ *
+ * ⚠⚠ 为什么必须有这一步（2026-10-12 真机 P0 的另一半）：
+ *   三条命令退出码全是 0，界面显示「安装完成」，
+ *   而 engines/<id>/.venv 里有 288 个包，独缺 torch
+ *   ⇒ `<引擎环境>/Scripts/python.exe -c "import torch"` 报 ModuleNotFoundError，
+ *   transformers 自己警告「None of PyTorch, TensorFlow >= 2.0, or Flax have been found」。
+ *   ⛔ 退出码 0 只说明**命令跑完了**，⛔ 不说明**装进了对的地方**。
+ *
+ * ⭐ 判据复用 lib/util/pythonResolve.js 的 canSpawnPython
+ *   （「能按绝对路径起起来并执行代码」）而不是 existsSync
+ *   —— 平台踩过「文件在但起不来」的坑（见那个文件的文件头）。
+ *
+ * ⛔ 验哪些包：从**这次真的跑过的命令**里读（steps 的 argv + alt.needs），
+ *   ⛔ 不替用户猜这台引擎需要什么。不涉及 torch 的装法就不验 torch。
+ *
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @param {object[]} steps 本次执行的可执行步骤（已过滤掉 kind!=='env'）
+ * @param {object|null} alt alternative（有则它的 needs 是要验的包）
+ * @param {{probe?:Function, timeoutMs?:number}} [opts]
+ *   probe 供测试注入：(pyAbs, mod) => {ok, code, stdout, stderr}
+ * @returns {{checked:boolean, reason?:string, mods:string[],
+ *            missing?:string[], results?:object[]}}
+ */
+function verifyEngineEnvImports (root, id, steps, alt, opts = {}) {
+  // ⛔ 平台没参与建环境（conda 那条路自建环境）⇒ 平台手里没有它的解释器
+  const builtHere = steps.some(isVenvCreateStep)
+  if (!builtHere) {
+    return { checked: false, reason: 'this-install-method-manages-its-own-environment',
+      mods: [] }
+  }
+  // ⭐ 要验哪些包：从真的跑过的命令里读
+  const mods = new Set()
+  for (const s of steps) {
+    const line = (s.argv || []).join(' ')
+    if (/(^|\s)torch(==|@|\s|$)/.test(line)) mods.add('torch')
+  }
+  if (alt && Array.isArray(alt.needs)) {
+    for (const n of alt.needs) if (typeof n === 'string' && n) mods.add(n)
+  }
+  const list = [...mods]
+  if (list.length === 0) {
+    return { checked: false, reason: 'no-core-dependency-declared', mods: [] }
+  }
+
+  const probe = typeof opts.probe === 'function' ? opts.probe : probeImportInEngineVenv
+  const results = []
+  const missing = []
+  for (const mod of list) {
+    const r = probe(root, id, mod, opts.timeoutMs)
+    results.push(r)
+    if (!r.ok) missing.push(mod)
+  }
+  return { checked: true, mods: list, missing, results }
+}
+
+/**
+ * ⭐ 在该引擎自己的环境里 import 一个模块。
+ *
+ * ⚠ 为什么分两下：canSpawnPython 先判「这个解释器起不起来」，
+ *   起不来时的 ModuleNotFoundError 是**假象**（连解释器都没跑起来）。
+ *   ⇒ 先用它判解释器，再用真正的 import 判那个包（见 verifyEngineEnvImports）。
+ *
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @param {string} mod  包名
+ * @param {number} [timeoutMs]
+ * @returns {{ok:boolean, mod:string, code:string, detail:string}}
+ */
+function probeImportInEngineVenv (root, id, mod, timeoutMs) {
+  const py = engineVenvPythonAbs(root, id)
+  if (!py) {
+    return { ok: false, mod, code: 'NO_ENGINE_PYTHON',
+      detail: 'no known virtual environment layout for this platform' }
+  }
+  // ⛔ canSpawnPython：判「能按绝对路径起起来并执行代码」，⛔ 不是「文件在」
+  if (!canSpawnPython(py, { timeoutMs: Math.min(timeoutMs || 20000, 20000) })) {
+    return { ok: false, mod, code: 'ENGINE_VENV_UNUSABLE',
+      detail: `cannot launch ${py}` }
+  }
+  let r
+  try {
+    r = spawnSync(py, ['-c', `import ${mod}`], {
+      encoding: 'utf8', timeout: timeoutMs || 120000,
+      windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch (e) {
+    return { ok: false, mod, code: 'PROBE_FAILED', detail: e.message }
+  }
+  if (r.error) return { ok: false, mod, code: 'PROBE_FAILED', detail: r.error.message }
+  if (r.status !== 0) {
+    return { ok: false, mod, code: 'MODULE_NOT_FOUND',
+      detail: (r.stderr || r.stdout || '').trim().slice(0, 600) }
+  }
+  return { ok: true, mod, code: 'OK', detail: '' }
 }
 
 /**
@@ -693,6 +829,9 @@ function buildEnvPlan (input = {}) {
       + '不代表该引擎可以运行，仍需后续校验（import 探针或实际合成）。'
     const guessSync = Array.isArray(guess.argv) && guess.argv[1] === 'sync'
     const guessTarget = guessSync ? null : engineVenvPythonAbs(root, id)
+    // ⛔ 第②步的目标解释器与 guessSync **无关**：它永远是 `uv pip install`，
+    //   -p 才是它的目标环境开关（见 buildSteps 的注释）
+    const guessAltTarget = engineVenvPythonAbs(root, id)
     return {
       ok: true, id, from: 'probe', from_file: guess.from,
       guessed: true,
@@ -731,6 +870,7 @@ function buildEnvPlan (input = {}) {
         venv,
         sync: guessSync ? syncEnvFor(engineVenvDirAbs(root, id)) : null,
         targetPython: guessTarget,
+        altPython: guessAltTarget,
       }),
     }
   }
@@ -744,6 +884,8 @@ function buildEnvPlan (input = {}) {
   const installSync = (!usingManifest && syncRoute)
     ? syncEnvFor(engineVenvDirAbs(root, id)) : null
   const installTarget = installSync ? null : engineVenvPythonAbs(root, id)
+  // ⛔ 第②步的目标解释器与 installSync 无关（它永远是 `uv pip install`）
+  const installAltTarget = engineVenvPythonAbs(root, id)
 
   const steps = buildSteps({
     argv: withTargetPython(argv, installTarget),
@@ -757,6 +899,7 @@ function buildEnvPlan (input = {}) {
     venv,
     sync: installSync,
     targetPython: installTarget,
+    altPython: installAltTarget,
   })
 
   steps.push({
@@ -919,6 +1062,13 @@ async function runEnv (input = {}) {
   //   （过去只跑 steps[0] 才碰巧没踩到：note 排在最后。）
   const steps = (plan.steps || []).filter((s) => s && s.kind === 'env' && s.argv)
   const stepsRun = []
+  // ⭐⭐ 装完自检用的探针入口（可注入，⛔ 测试不许真 spawn）
+  const probe = typeof input.probeImport === 'function' ? input.probeImport : null
+  // ⭐⭐ 执行单步的入口（可注入，⛔ 测试不许真装包）。
+  //   注入点存在的理由：自检在**全部步骤跑完之后**才算，
+  //   ⛔ 而计划里那几条 uv 命令一跑就是几个 GB ⇒ 测试必须能把「跑」这一步换掉，
+  //   ⛔ 同时保留**真实的计划**（argv / env 的形状正是要验的东西）。
+  const runStep = typeof input.runStep === 'function' ? input.runStep : runOne
 
   // ⭐⭐⭐ 断点续传 —— 每个引擎目录下的 .wizard-env-progress.json
   //   记录已成功完成的步骤。重跑时跳过它们：
@@ -1016,7 +1166,7 @@ async function runEnv (input = {}) {
       try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调不影响安装 */ }
     }
 
-    const r = await runOne(step, root, timeoutMs, argv, input.onLine, step.env)
+    const r = await runStep(step, root, timeoutMs, argv, input.onLine, step.env)
     stepsRun.push({
       n: i + 1,
       of: steps.length,
@@ -1068,16 +1218,70 @@ async function runEnv (input = {}) {
     }
   }
 
+  // ⭐⭐⭐ 装完自检 —— ⛔ 命令全退 0 ⛔ 不等于这个环境能用。
+  //   实测过的病（2026-10-12 真机 P0）：三步退出码全是 0、界面显示「安装完成」，
+  //   而 engines/<id>/.venv 独缺 torch ⇒ import torch 失败。
+  //   ⚠ 病灶正是 alt 那步没钉目标环境（装进了平台根 venv），
+  //     所以这里不是补一句提示，是**如实判它有没有装成功**。
+  const v = verifyEngineEnvImports(root, String(input.id || ''),
+    steps, plan.alternative, { probe: probe || undefined })
+  if (v.checked && v.missing.length > 0) {
+    return {
+      ...plan,
+      ok: false,
+      // ⛔⛔ 不许用回 ENV_FAILED：那会让界面显示「第 N 步失败」，
+      //   而事实上**每一步都成功了**，是装错了地方。
+      code: 'ENGINE_ENV_UNUSABLE',
+      envCheck: v,
+      stepsRun,
+      failedAt: null,
+      error: `Every command reported success, but ${v.missing.join(', ')} `
+        + 'cannot be imported in this engine\'s own environment under '
+        + `engines/${input.id}/.venv.\n`
+        + 'The packages went somewhere else, most likely the platform\'s own '
+        + 'virtual environment.\n'
+        + 'To install them into the engine\'s environment, run:\n'
+        + `  <platform python> -m uv pip install -p <engines/${input.id}/.venv python> `
+        + `${v.missing.join(' ')}\n`
+        + 'The absolute path of that interpreter is shown in the command list above.',
+      errorZh: `所有命令都报告成功，但 ${v.missing.join('、')} 在该引擎自己的环境`
+        + `（engines/${input.id}/.venv）里无法 import。\n`
+        + '这些包装到了别处，最可能装进了平台自己的虚拟环境。\n'
+        + '装进该引擎环境的做法：\n'
+        + `  <平台 python> -m uv pip install -p <engines/${input.id}/.venv 的 python> `
+        + `${v.missing.join(' ')}\n`
+        + '那个解释器的绝对路径见上方命令列表。',
+      note: 'The install finished, but the engine cannot import its core '
+        + `dependency (${v.missing.join(', ')}) in its own environment.\n`
+        + 'An exit code of 0 only means the command finished. Re-running this '
+        + 'step will skip the completed commands and run only what is missing.',
+      noteZh: '安装已执行完毕，但该引擎在自己的环境里 import 不了核心依赖'
+        + `（${v.missing.join('、')}）。\n`
+        + '退出码 0 只说明命令执行完毕。重新执行本步骤会跳过已完成的命令，'
+        + '只补装缺的部分。',
+    }
+  }
+
   return {
     ...plan,
     ok: true,
     envStatus: 0,
     stepsRun,
     failedAt: null,
-    note: `Completed ${steps.length} step(s). An exit code of 0 only means the command finished —`
-      + ' whether the engine can actually be imported still needs the checks that come next.',
-    noteZh: `已完成 ${steps.length} 个步骤。退出码 0 仅表示命令执行完毕，`
-      + '该引擎能否正常导入仍需后续校验。',
+    // ⭐ 自检结论带给界面：通过时说清**验过了**（⛔ 不许只是安静地成功）
+    envCheck: v,
+    note: v.checked
+      ? `Completed ${steps.length} step(s). Every command exited 0, and `
+        + `${v.mods.join(', ')} imports in this engine's own environment. `
+        + 'Whether the engine can actually start still needs the checks that come next.'
+      : `Completed ${steps.length} step(s). An exit code of 0 only means the command finished —`
+        + ' whether the engine can actually be imported still needs the checks that come next.',
+    noteZh: v.checked
+      ? `已完成 ${steps.length} 个步骤。所有命令退出码均为 0，`
+        + `且 ${v.mods.join('、')} 在该引擎自己的环境里可以 import。`
+        + '该引擎能否真正启动仍需后续校验。'
+      : `已完成 ${steps.length} 个步骤。退出码 0 仅表示命令执行完毕，`
+        + '该引擎能否正常导入仍需后续校验。',
   }
 }
 
@@ -1087,4 +1291,6 @@ module.exports = {
   // ⭐ 建隔离环境用得上的那几件（buildVenvStep / canUseEngineVenv 等）
   engineVenvDirAbs, engineVenvPythonAbs, canUseEngineVenv,
   platformPythonAbs, buildVenvStep, withTargetPython, syncEnvFor,
+  // ⭐⭐ 装完自检（2026-10-12 真机 P0：装出来的环境缺 torch 却报成功）
+  verifyEngineEnvImports, probeImportInEngineVenv, isVenvCreateStep,
 }
