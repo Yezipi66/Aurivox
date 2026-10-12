@@ -76,9 +76,15 @@ function validatePlugin () {
     //   （子 Agent deleg_1f88218b 查证：前端 StepsExtra.jsx:329 调它执行下载 SSE，
     //   它一直没进 HANDLERS ⇒ 点下载 404 —— 这是「第三步下载坏了」的真身之一。）
     wb.handleDownload,
-    // ⛔ 唯二的 async handler 沉底：中间件一调用到返回 Promise 的 handler
-    //   就 break + next()，其后的 handler 无论 URL 是否匹配都轮不到。
-    //   ⇒ async 只能放队尾，sync 全部排它们前面。
+    // ⭐ 2026-10-12（P0）：这两个曾经是 async handler，排在队尾。
+    //   ⛔ 现在**全部 handler 都是同步返回 true/false**（async 的 bug 已修，
+    //   见 core/wizardbridge.js 里 handleDownloadManifest / handleParams 的头注）：
+    //   async function 无论 URL 匹不匹配都返回 Promise ⇒ 本循环一见到 Promise
+    //   就 break 出循环 ⇒ 排在它后面的 handler 无论匹不匹配都轮不到 ⇒ 请求穿透
+    //   到 vite 的 HTML fallback ⇒ 200 + text/html ⇒ 前端报「响应格式错误」。
+    //   ⚠ 但**排序纪律本身仍然有效**，⛔ 不要因为「现在都是同步的」就重排：
+    //     中间件的同步 return 判据没变，将来任何 handler 改回 async 都会
+    //     让它后面的全部 handler 静默失效（静默失效，不是报错）。
     wb.handleParams, wb.handleDownloadManifest,
   ]
   return {

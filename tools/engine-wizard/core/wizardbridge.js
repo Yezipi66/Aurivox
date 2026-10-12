@@ -368,6 +368,36 @@ function json (res, code, body) {
   res.end(JSON.stringify(body))
 }
 
+/**
+ * ⛔ 兜住 readBody 回调里的异常（2026-10-12 P0 修 async handler 时顺手补的）。
+ *
+ * ⚠ 为什么必须兜：readBody 调 cb(...) 时**不接返回值**（core/wizardbridge.js 的
+ *   readBody，`cb(null, JSON.parse(body))` 是裸调）。所以 cb 一旦是 async
+ *   箭头，它返回的 Promise 没人接 ⇒ 回调里任何一次 throw 都变成
+ *   unhandledRejection ⇒ **一个字节都回不去**，连接一直挂着。
+ *   症状不是报错，是「点了没反应」——比报错更难查，且看不出是哪一步炸的。
+ *   端点已经 ⛔ 改成同步返回 true（见 handleParams 的头注），可异步的活
+ *   仍然必须在这层兜住。
+ *
+ * ⭐ 且兜住之后回出去的一定是**合法 JSON**：前端按 content-type 守卫判断
+ *   （StepsExtra.jsx:174），半个响应或空 body 都会被报成「响应格式错误」。
+ *
+ * @param {object} res HTTP 响应
+ * @param {Function} cb readBody 回调，通常是 async 箭头
+ */
+function respondSafely (res, cb) {
+  return (err, body) => {
+    Promise.resolve()
+      .then(() => cb(err, body))
+      .catch((e) => {
+        // ⛔ 已经写过响应头就不能再写 —— 只把连接收掉，否则前端会看到半截 JSON。
+        if (res.headersSent) { try { res.end() } catch { /* 已断开 */ } return }
+        json(res, 500, { ok: false, code: 'BRIDGE_FAILED',
+          error: (e && e.message) || String(e) })
+      })
+  }
+}
+
 /** 读请求体 —— ⛔ 有上限，超了就断（防止一个 manifest 把内存吃光） */
 function readBody (req, cb, limit = 2 * 1024 * 1024) {
   let body = ''
@@ -542,7 +572,20 @@ function handleDownloadFiles (req, res) {
 //  ⛔ 必须带 repo/tool —— 前端单文件下载完成后会重新调本端点刷新，
 //     刷新后整表覆盖。⛔ 不带 repo 就等于把表里每一项的来源抹掉，
 //     重下/续传按钮和仓库列会一起变成「未知」。
-async function handleDownloadManifest (req, res) {
+//
+// ⛔⛔⛔ 这里**不许**写 async（2026-10-12 P0 实测踩过）：
+//   中间件（web/wizard.vite.config.mjs 的 for 循环）拿到 handler 的返回值后
+//   只认两样东西：严格 true（已接管）或带 .then 的 Promise（队尾那个 async handler）。
+//   ⛔ 而 async function **无论匹不匹配都返回 Promise** ——
+//   「GET 请求打到 /wizard/download/manifest」时本函数第一行就 `return false`，
+//   但中间件看到的是 Promise{false} ⇒ 命中 async 分支 ⇒ break 出循环 ⇒
+//   排在它前面的 handleParams（也是 async）先把这个请求吞掉，本函数**根本轮不到**。
+//   轮不到 ⇒ next() ⇒ 穿透到 vite 的 HTML fallback ⇒ 200 + text/html
+//   ⇒ 前端 StepsExtra.jsx:174 的 content-type 守卫报「嗅探失败：响应格式错误」。
+//   ⭐ 判据：凡是能被中间件调到的 handler，**同步**返回 true/false；
+//     异步活一律塞进 readBody 回调或 .then() 里 —— 那两处的中间件看不见。
+//     同款正确写法就在本文件里：handleCliArgs、handleDiscover。
+function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
   const url = new URL(req.url, 'http://x')
@@ -560,6 +603,11 @@ async function handleDownloadManifest (req, res) {
     const enriched = await enrichManifestFiles(result.files, repo, tool, root, id)
     json(res, 200, { ok: true, files: enriched })
   }).catch((e) => {
+    // ⛔ 若异常发生在 json() 之后（例如 enrich 里又抛了），响应头已经写出去了，
+    //   再写一次会抛 ERR_HTTP_HEADERS_SENT，把真正的错误盖掉。
+    //   ⭐ 前端按 content-type 守卫判断（StepsExtra.jsx:174），半个响应同样算
+    //   「响应格式错误」⇒ 只能收连接，不能补第二次 writeHead。
+    if (res.headersSent) { try { res.end() } catch { /* 已断开 */ } return }
     json(res, 200, { ok: false, error: (e && e.message) || String(e) })
   })
   return true
@@ -735,7 +783,17 @@ function handleVerify (req, res) {
 //
 // ⛔ 不新增任何平台侧校验逻辑：反射器报什么就传什么，partial / warnings /
 //   excluded 一律原样带出去。
-async function handleParams (req, res) {
+//
+// ⛔⛔⛔ 这里**不许**写 async（2026-10-12 P0 实测踩过，同款 bug 在
+//   handleDownloadManifest 上也有一份）：
+//   async function 无论 URL 匹不匹配都返回 Promise ⇒ 中间件的 for 循环
+//   一见到 Promise 就 break 出循环并 next() ⇒ 本函数对**所有**请求都被
+//   提前中断（哪怕第一行就 `return false`，中间件看见的也是 Promise{false}）
+//   ⇒ 请求穿透到 vite 的 HTML fallback ⇒ 200 + text/html ⇒ 第 4 步参数反射
+//   永远拿不到 JSON。
+//   ⭐ 异步活全在 readBody 的回调里做（回调由 req 的 'end' 事件驱动，
+//     中间件看不见它，也不需要看见）；函数本身**同步**返回 true/false。
+function handleParams (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/params')) return false
   // ⚠ 锚定：startsWith 会把 /wizard/paramsxyz、/wizard/params/extra 一起吃掉。
@@ -743,7 +801,7 @@ async function handleParams (req, res) {
   //      '/wizard/profile/' 同一类判据（长/短前缀互吃的坑）。
   const tail = req.url.slice('/wizard/params'.length)
   if (tail !== '' && tail[0] !== '?') return false
-  readBody(req, async (err, body) => {
+  readBody(req, respondSafely(res, async (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
 
@@ -803,7 +861,7 @@ async function handleParams (req, res) {
       organized = { ok: false, error: `分区失败：${e.message}`, blocks: [] }
     }
     json(res, 200, { ...r, cli, organized })
-  })
+  }))
   return true
 }
 
@@ -1044,4 +1102,6 @@ module.exports = {
   // ⭐ 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   ⛔ 不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,
+  // ⭐ 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。
+  respondSafely,
 }
