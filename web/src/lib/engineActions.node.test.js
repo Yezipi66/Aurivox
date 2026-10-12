@@ -65,7 +65,7 @@ test('⭐⭐ 引擎在跑但不是平台起的（external）⇒ 关闭必须灰�
   const c = engineControls({ id: 'x', managed: true, online: true, process: { running: false } })
   assert.equal(c.phase, 'external')
   assert.equal(c.stop.enabled, false)
-  assert.match(c.stop.title, /不是本平台起的/)
+  assert.match(c.stop.title, /不是本平台启动的/)
 })
 
 test('⛔ 每一个灰掉的按钮都必须带理由 —— 不说理由等于告诉用户"这儿坏了"', () => {
