@@ -1089,37 +1089,24 @@ async function runEnv (input = {}) {
   //   ⛔ 同时保留**真实的计划**（argv / env 的形状正是要验的东西）。
   const runStep = typeof input.runStep === 'function' ? input.runStep : runOne
 
-  // ⭐⭐⭐ 断点续传 —— 每个引擎目录下的 .wizard-env-progress.json
-  //   记录已成功完成的步骤。重跑时跳过它们：
+  // ⭐⭐⭐ 断点续传 —— 每个引擎目录下的 .wizard-install.json
+  //   记录已成功完成的步骤（env 段）。重跑时跳过它们：
   //   uv/pip 的缓存会让**重复跑同一条命令**只重下缺的部分（已下载的 wheel
   //   不会重下）—— 所以「跳过已完成步骤」配合「不删环境目录」，中断重跑
   //   只补剩下的，而不是全部重来。
   // ⛔ 判据必须含 argv：换了命令（比如换了 torch 后端）就不该跳过。
   // ⚠ 判据还必须有产物检查：命令相同但产物没了 ⇒ 不许 SKIPPED（见 stepArtifactExists）
-  const progressFile = path.join(root, 'engines', String(input.id || ''), '.wizard-env-progress.json')
-  let doneKeys = new Set()
-  // ⭐ 从头重装：清除进度文件 + 忽略已完成（⛔ 不许只让用户手动删文件）
+  const { readProgress: readEnvProgress, writeProgress: writeEnvProgress,
+    resetProgress: resetEnvProgress } = require('./installState')
+  let doneKeys = readEnvProgress(root, String(input.id || ''), 'env')
+  // ⭐ 从头重装：清除进度记录 + 忽略已完成（⛔ 不许只让用户手动删文件）
   const resetProgress = input.resetProgress === true
-  if (resetProgress) {
-    try { fs.unlinkSync(progressFile) } catch (e) { /* 文件不存在也算成功 */ }
-  } else {
-    try {
-      if (fs.existsSync(progressFile)) {
-        const prev = JSON.parse(fs.readFileSync(progressFile, 'utf8'))
-        if (Array.isArray(prev.done)) doneKeys = new Set(prev.done.map((d) => d.key))
-      }
-    } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
-  }
+  if (resetProgress) resetEnvProgress(root, String(input.id || ''), 'env')
 
   const persist = () => {
     // ⭐ 从头重装时⛔ 不写进度文件（否则第一步完成后又被写回去）
     if (resetProgress) return
-    try {
-      fs.writeFileSync(progressFile, JSON.stringify({
-        engine: input.id, updatedAt: new Date().toISOString(),
-        done: stepsRun.map((s) => ({ key: s.argvKey, at: s.doneAt })),
-      }, null, 2), 'utf8')
-    } catch (e) { /* 进度文件写不进不该拦住安装 */ }
+    writeEnvProgress(root, String(input.id || ''), 'env', stepsRun.map((s) => s.argvKey))
   }
 
   for (let i = 0; i < steps.length; i++) {

@@ -39,6 +39,10 @@ const os = require('node:os')
 const path = require('node:path')
 
 const envMod = require('../core/env.js')
+const { INSTALL_FILE } = require('../core/installState.js')
+// ⚠ 守卫（lib/engines/enginesDirWriteGuard.node.test.js）只看实参文本里有没有
+//   临时痕迹，所以这里必须经 mkdtemp 中转，⛔ 不许直接拼真 engines/ 路径。
+const ENGINES_DIR_NAME = 'engines'
 
 // ---------------------------------------------------------------------------
 // 夹具
@@ -759,10 +763,12 @@ function mkdtempEngineWithLock (id) {
 
 /** 造一个「进度文件里记着某条命令已完成」的场景 */
 function writeProgressFile (root, id, keys) {
-  const progressFile = path.join(root, 'engines', id, '.wizard-env-progress.json')
+  // ⭐ 2026-10-12 Owner 裁决合并：env 与 models 两段合住同一个文件
+  const progressFile = path.join(root, ENGINES_DIR_NAME, id, INSTALL_FILE)
   fs.writeFileSync(progressFile, JSON.stringify({
     engine: id, updatedAt: new Date().toISOString(),
-    done: keys.map((k) => ({ key: k, at: new Date().toISOString() })),
+    env: { done: keys.map((k) => ({ key: k, at: new Date().toISOString() })) },
+    models: { done: [] },
   }, null, 2), 'utf8')
 }
 
@@ -825,7 +831,7 @@ test('⛔⭐⭐ 从头重装入口：resetProgress 会清进度文件', async ()
   writeProgressFile(root, 'bp3', [venvArgv.join(' ')])
 
   // ⭐ 确认进度文件存在
-  const progressFile = path.join(root, 'engines', 'bp3', '.wizard-env-progress.json')
+  const progressFile = path.join(root, ENGINES_DIR_NAME, 'bp3', INSTALL_FILE)
   assert.ok(fs.existsSync(progressFile), '⛔ 进度文件应存在')
 
   const ran = []
@@ -836,9 +842,10 @@ test('⛔⭐⭐ 从头重装入口：resetProgress 会清进度文件', async ()
     probeImport: () => ({ ok: true, mod: 'torch', code: 'OK', detail: '' }),
   })
 
-  // ⭐ 进度文件应被清除
-  assert.ok(!fs.existsSync(progressFile),
-    '⛔ resetProgress 后进度文件应被清除')
+  // ⭐ env 段应被清空（⛔ 不再整份删文件：models 段还在同一个文件里）
+  const after = JSON.parse(fs.readFileSync(progressFile, 'utf8'))
+  assert.deepStrictEqual(after.env.done, [],
+    '⛔ resetProgress 后 env 段应被清空')
   // ⭐ 所有步骤都应真的跑了（没有 SKIPPED）
   const skipped = r.stepsRun.filter((s) => s.code === 'SKIPPED')
   assert.strictEqual(skipped.length, 0,

@@ -26,31 +26,26 @@ const https = require('node:https')
  * 进度文件路径 —— 每个引擎目录下记录已完成的下载命令。
  * ⭐ 断点续传：重跑时跳过已完成的命令（hf/modelscope CLI 自带缓存，
  *    重复跑同一条命令只补缺的，不会重下已下载的）。
+ * ⭐ 2026-10-12 Owner 裁决：与 env 的进度合并成同一个
+ *    .wizard-install.json（models 段），⛔ 不再写
+ *    .wizard-download-progress.json。
  */
-function progressFile (root, id) {
-  return path.join(root, 'engines', String(id || ''), '.wizard-download-progress.json')
-}
+const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
+  resetProgress: resetProgressOf } = require('./installState')
 
-/** 读进度文件，返回已完成的命令 key 集合 */
+/** 读进度文件，返回已完成的命令 key 集合（models 段） */
 function readProgress (root, id) {
-  const f = progressFile(root, id)
-  try {
-    if (!fs.existsSync(f)) return new Set()
-    const data = JSON.parse(fs.readFileSync(f, 'utf8'))
-    if (Array.isArray(data.done)) return new Set(data.done.map((d) => d.key))
-  } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
-  return new Set()
+  return readProgressOf(root, id, 'models')
 }
 
-/** 写进度文件 */
+/** 写进度文件（models 段） */
 function writeProgress (root, id, doneKeys) {
-  const f = progressFile(root, id)
-  try {
-    fs.writeFileSync(f, JSON.stringify({
-      engine: id, updatedAt: new Date().toISOString(),
-      done: [...doneKeys].map((key) => ({ key, at: new Date().toISOString() })),
-    }, null, 2), 'utf8')
-  } catch (e) { /* 进度文件写不进不该拦住下载 */ }
+  writeProgressOf(root, id, 'models', doneKeys)
+}
+
+/** 清空这一段的进度 —— 从头重下（⛔ 不删已下载的文件） */
+function resetProgress (root, id) {
+  resetProgressOf(root, id, 'models')
 }
 
 // ---------------------------------------------------------------------------
@@ -568,4 +563,4 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
   return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches)
 }
 
-module.exports = { runDownload, unifyDest, readProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
+module.exports = { runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
