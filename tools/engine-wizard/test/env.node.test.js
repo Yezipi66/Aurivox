@@ -301,8 +301,15 @@ test('⛔⛔ 探测兜底那条也必须带 steps（否则命令根本不跑却�
   const p = buildEnvPlan({ id: 'demo', manifest: {}, root })
   assert.ok(Array.isArray(p.steps) && p.steps.length > 0,
     '⛔ 兜底路径没带 steps ⇒ runEnv 拿到 undefined，命令没跑却显示成功')
-  assert.deepStrictEqual(p.steps[0].argv, ['uv', 'sync'])
-  assert.ok(p.steps[0].cwd, '⛔ 每一步都要说清在哪个目录跑')
+  // ⚠ 2026-10-12：steps[0] 现在是**建隔离环境**那一步（平台原来压根不建，
+  //   装依赖那步必然报 No virtual environment found）。
+  //   ⇒ 断言装依赖那步要按 argv 内容找，⛔ 不许钉下标（它已经不是 0 了）。
+  const install = p.steps.filter((s) => s.kind === 'env')
+    .find((s) => /sync/i.test(s.argv.join(' ')))
+  assert.ok(install, `⛔ 找不到装依赖那一步：`
+    + p.steps.map((s) => (s.argv || []).join(' ')).join('\n'))
+  assert.ok(install.argv.includes('sync'))
+  assert.ok(install.cwd, '⛔ 每一步都要说清在哪个目录跑')
 })
 
 test('⭐⭐ 清单在**子目录**里也要找得到（实测某台装好的引擎就是 infer/requirements.txt）', () => {
@@ -314,10 +321,17 @@ test('⭐⭐ 清单在**子目录**里也要找得到（实测某台装好的引
   const p = buildEnvPlan({ id: 'demo', manifest: {}, root })
   assert.strictEqual(p.ok, true, `⛔ 子目录有清单却判定「没有」：${p.error}`)
   assert.deepStrictEqual(p.env_command,
-    ['uv', 'pip', 'install', '-r', 'infer/requirements.txt'])
+    ['uv', 'pip', 'install', '-p', p.env_command[4], '-r', 'infer/requirements.txt'])
+  // ⚠ 2026-10-12：平台会钉上目标解释器（-p），且目标是该引擎的 .venv
+  const venvPy = p.env_command[4]
+  assert.ok(path.isAbsolute(venvPy) && /engines[\\/]demo[\\/]\.venv/.test(venvPy),
+    `⛔ -p 必须指向该引擎的 .venv：${venvPy}`)
   // ⭐ cwd 必须是清单所在的那个目录，不是引擎根
-  assert.ok(p.steps[0].cwd.endsWith('demo' + path.sep + 'infer'),
-    `⛔ cwd 要指向清单所在目录：${p.steps[0].cwd}`)
+  //   （steps[0] 现在是建环境那一步 ⇒ 按内容找装依赖那步，⛔ 不钉下标）
+  const install = p.steps.filter((s) => s.kind === 'env')
+    .find((s) => /pip/.test(s.argv.join(' ')))
+  assert.ok(install.cwd.endsWith('demo' + path.sep + 'infer'),
+    `⛔ cwd 要指向清单所在目录：${install.cwd}`)
 })
 
 test('⛔⛔ .venv / site-packages 里的清单**不算**这台引擎的', () => {
@@ -412,13 +426,38 @@ test('⭐⭐ 锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，�
   //   ⛔ 过去第②步只作展示，而 runEnv 只跑 steps[0]
   //   ⇒ 装出一个没有 torch 的环境，界面却显示「完成」。
   const envSteps = p.steps.filter((s) => s.kind === 'env')
-  assert.strictEqual(envSteps.length, 2,
-    `⛔ 应有 2 个可执行步骤（装其余 + 装本机 torch），实际 ${envSteps.length}`)
+  // ⚠ 2026-10-12：现在是 **3** 步（建隔离环境 + 装其余 + 装本机 torch）。
+  //   平台原来压根不建环境 ⇒ 装依赖那步必然报 No virtual environment found。
+  assert.strictEqual(envSteps.length, 3,
+    `⛔ 应有 3 个可执行步骤（建环境 + 装其余 + 装本机 torch），实际 ${envSteps.length}`)
   assert.ok(JSON.stringify(envSteps).includes('--no-install-package'),
-    '⛔ 第①步必须跳过 torch')
+    '⛔ 装其余那一步必须跳过 torch')
   assert.ok(JSON.stringify(envSteps).includes('--index-url'),
-    '⛔ 第②步（装本机后端的 torch）必须进 steps —— 它是安装的一部分')
+    '⛔ 装本机后端的 torch 那一步必须进 steps —— 它是安装的一部分')
+  // ⭐ 建环境那一步必须在最前
+  assert.ok(/venv/i.test(envSteps[0].argv.join(' ')),
+    `⛔ 第 1 步应是建环境：${envSteps[0].argv.join(' ')}`)
+  // ⭐ 装 torch 那一步同样要钉目标环境，⛔ 否则装到平台根 venv
+  const torchStep = envSteps.find((s) => /--index-url/.test(s.argv.join(' ')))
+  const torchTarget = targetPythonOf(torchStep.argv)
+  if (torchTarget) {
+    assert.ok(/engines[\\/]demo[\\/]\.venv/.test(torchTarget),
+      `⛔ 装 torch 那步也必须装进该引擎的 .venv：${torchTarget}`)
+  } else {
+    // sync 那条路靠 UV_PROJECT_ENVIRONMENT（⛔ -p 对 sync 无效）
+    assert.ok(torchStep.env && /engines[\\/]demo[\\/]\.venv/.test(torchStep.env.UV_PROJECT_ENVIRONMENT),
+      `⛔ sync 路线必须用 UV_PROJECT_ENVIRONMENT 钉目标：`
+      + JSON.stringify(torchStep.env))
+  }
 })
+
+/** ⭐ 把 argv 里 -p/--python 后面那个值取出来 */
+function targetPythonOf (argv) {
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === '-p' || argv[i] === '--python') return argv[i + 1]
+  }
+  return null
+}
 
 // ⛔⛔ execute:true 时**必须真的执行**，⛔ 不许静默返回 ok:true。
 //   症状实测（2026-10-05）：runEnv 判的是 plan.execute，而

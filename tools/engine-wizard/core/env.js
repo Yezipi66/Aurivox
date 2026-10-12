@@ -29,6 +29,8 @@ const { spawnSync, spawn } = require('node:child_process')
 const { projectRoot, engineDir } = require('./clone.js')
 const { venvPythonRelPath } = require(
   path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'platformPaths.js'))
+const { canSpawnPython } = require(
+  path.join(__dirname, '..', '..', '..', 'lib', 'util', 'pythonResolve.js'))
 
 /** 名片里的 env_command 必须是什么形状 —— 与已退役的 installPlan.js:46-55 同一条判据 */
 function readEnvCommand (manifest) {
@@ -299,30 +301,247 @@ function detectDependencyManifest (dir) {
  *   而且失败在「装了一半」的位置上（【台账:44】）。
  */
 /**
- * ⭐ 组装执行步骤。**有 alternative 时第②步也进 steps** ——
- *   它是这次安装的一部分，⛔ 不是可选建议。
+ * ============================================================
+ *  该引擎自己的隔离环境（engines/<id>/.venv）
  *
- * 过去 alternative 只作展示，而 runEnv 只跑 steps[0]
- * ⇒ 点「安装」装出一个**没有 torch 的环境**，界面却显示「完成」。
+ *  ⚠ 为什么要有这一段（Owner 2026-10-12 判定 P0）
  *
- * @param {{argv:string[], cwdRel:string, alt?:object|null}} o
- * @returns {{kind:string, argv:string[], cwd:string, needs_network:boolean, why:string}[]}
+ *    平台原来从头到尾⛔ 没有一处建 engines/<id>/.venv：
+ *    第 2 步只有一条 `uv pip install -r requirements.txt`
+ *    ⇒ uv 报「No virtual environment found; run 'uv venv' to create an
+ *      environment, or pass '--system' to install into a non-virtual
+ *      environment」⇒ 用户压根创建不了引擎的 Python 环境。
+ *
+ *  ⛔⛔ 三条实测得来的硬约束（Owner 2026-10-12 亲自跑过）
+ *
+ *   ① uv 选目标环境的**唯一**可靠方式是 `-p/--python <绝对路径>`。
+ *      设 VIRTUAL_ENV ⛔ 无效（uv 认自己所在的那个环境，环境变量压不住它），
+ *      `--python <相对路径>` 也无效（uv 报「No virtual environment ... for
+ *      path」）⇒ 装依赖那步必须把目标解释器的绝对路径写进 argv。
+ *      ⚠ 别和 `--python-version`（那是平台约束，不是装进哪个环境）搞混。
+ *
+ *   ② ⛔ `uv sync` 的 `-p/--python` **不是**「装进哪个解释器」，
+ *      而是「用哪个解释器**当基准建项目环境**」。
+ *      实测 `uv sync -p <某个已存在的 venv>` 会照锁装完、退出码 0，
+ *      ⛔ 但装进的是它在项目目录**新建的 .venv**，指定的 venv 里什么都没有。
+ *      ⇒ sync 那条路的正确写法是 UV_PROJECT_ENVIRONMENT=<绝对路径>。
+ *      ⚠ 这个坑**静默成功**，比报错更难发现。
+ *
+ *   ③ `conda env create` 自己会建环境 ⇒ ⛔ 不许再塞一步 uv venv 过去。
+ *
+ *  ⚠ 版本怎么定（Owner 定的规范：「有声明的就用声明的，没声明的就用平台自己的」）
+ *    ⛔ 名片 schema（lib/engines/profile.js 的 TOP_KEYS 与 install 段）
+ *      实测**没有**声明 python 版本的字段 ⇒ 只能退回平台根 venv 的 python。
+ *      ⛔ 不许自己给名片加这个字段：加了就要有人填，不填就默默按错的版本装。
+ *      ⚠ 实测某台引擎上游要求 3.10，而它 .python-version / setup.py /
+ *        pyproject.toml / environment.yml 全是 404 ⇒ 平台读不到声明。
+ *        装的时候若版本不满足，**如实报出来**（那是上游与本机的真实差距），
+ *        ⛔ 不闷头失败、⛔ 不自动换版本。
+ * ============================================================
  */
-function buildSteps ({ argv, cwdRel, alt }) {
-  const steps = [{
+
+/** ⭐ 该引擎的隔离环境目录（绝对路径） */
+function engineVenvDirAbs (root, id) {
+  return path.join(root, 'engines', String(id), '.venv')
+}
+
+/** ⭐ 该引擎隔离环境里那个解释器的绝对路径（布局按平台推导） */
+function engineVenvPythonAbs (root, id) {
+  const rel = venvPythonRelPath(process.platform)
+  if (!rel) return null       // ⛔ 不认识的平台：⛔ 不猜（见 resolveUv 同样的口径）
+  return path.join(engineVenvDirAbs(root, id), rel)
+}
+
+/**
+ * ⭐⭐ 这个环境**能不能用** —— 判据是「能按绝对路径起起来并执行代码」。
+ *
+ * ⚠ 为什么不能用「文件存在」（lib/util/pythonResolve.js 那个坑）：
+ *   平台实测踩过：venv/Scripts/python.exe 文件在、pyvenv.cfg 的 home 指向
+ *   另一台机器 ⇒ 启动报 uv trampoline failed to spawn。
+ *   ⛔ 而这个平台是本项目里**唯一**把这件事写成函数的文件 ⇒ 复用它，
+ *   ⛔ 不许在本文件里再写一份「existsSync 就算好」。
+ *
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @returns {boolean}
+ */
+function canUseEngineVenv (root, id) {
+  const py = engineVenvPythonAbs(root, id)
+  if (!py) return false
+  return canSpawnPython(py)
+}
+
+/**
+ * ⭐ 平台根 venv 的 python（绝对路径）—— 建引擎环境时的**基准解释器**。
+ *
+ * ⚠ 为什么是「平台根」而不是引擎自己的：引擎环境此刻还不存在，
+ *   拿它的 python 当基准是循环依赖。
+ * ⚠ 路径按平台推导（win32 Scripts/ / posix bin/），⛔ 不写死。
+ *
+ * ⭐ 与 resolveUv 同一口径：**项目根优先，root 兜底**。
+ *   原因：uv 装在平台自己的 venv 里，而那套 venv 在**项目根**下，
+ *   ⛔ 不是引擎目录、也不是传进来的 root 之下。
+ *   （runEnv 解析 uv 时也是 `resolveUv(projectRoot()) || resolveUv(root)`，
+ *     这里必须同一条，否则会出现「装依赖用 A 的 uv、建环境用 B 的 python」。）
+ * ⚠ 这里只查文件在不在（要 spawn 的那份判据在 canUseEngineVenv）：
+ *   出计划时不 spawn，⛔ 不让预览接口为了排版等 20 秒。
+ *
+ * @param {string} root 引擎/夹具那一层的根
+ * @returns {string|null} 找不到该解释器时给 null（调用方如实报错）
+ */
+function platformPythonAbs (root) {
+  const rel = venvPythonRelPath(process.platform)
+  if (!rel) return null
+  const prj = (() => { try { return projectRoot() } catch (e) { return null } })()
+  const bases = [prj, root].filter((b) => typeof b === 'string' && b)
+  for (const b of bases) {
+    const p = path.join(b, 'venv', rel)
+    try { if (fs.existsSync(p)) return p } catch (e) { /* 下一个 */ }
+  }
+  return null
+}
+
+/**
+ * ⭐ 建环境那一步的 argv：`<平台python> -m uv venv <绝对路径>`。
+ *
+ * ⚠ 为什么走 uv 而不是 `python -m venv`：
+ *   平台解析 uv 用的是「平台 venv 的 python -m uv」（见 resolveUv），
+ *   本步要用的包管理器和装依赖那步是**同一个** ⇒ 一条路，不两套。
+ *   ⛔ `python -m venv` 造出来的环境不带 uv，装依赖那步还得另外找 uv。
+ *
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @returns {{argv:string[]|null, python:string|null, why:string, whyZh:string}}
+ */
+function buildVenvStep (root, id) {
+  const venvDir = engineVenvDirAbs(root, id)
+  const py = platformPythonAbs(root)
+  if (!py) {
+    return { argv: null, python: null,
+      why: 'This platform has no known Python virtual environment layout, so the platform '
+        + 'cannot tell which interpreter to use.',
+      whyZh: '这个平台没有已知的 Python 虚拟环境布局，平台不知道该用哪个解释器。' }
+  }
+  return {
+    // ⚠ 实测：对**已存在**的环境重跑 uv venv 会报「A virtual environment already
+    //   exists」并退 2 ⇒ 幂等靠 skipIfExists 在执行期跳过（与断点续传同一套机制），
+    //   ⛔ 不是靠 --allow-existing（那会把已有环境当普通目录保留，重装等于没生效）。
+    argv: [py, '-m', 'uv', 'venv', venvDir, '--no-project'],
+    python: py,
+    venvDir,
+    skipIfExists: true,
+    why: 'Create an isolated Python environment for this engine under engines/'
+      + `${id}/.venv. Dependencies are installed into it, not into the platform's own `
+      + 'environment.',
+    whyZh: `为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境。`
+      + '依赖会装进这个环境，不装进平台自己的环境。',
+  }
+}
+
+/**
+ * ⭐ 给装依赖那一步**钉上目标解释器**。
+ *
+ * ⚠ 实测：`-p/--python` 必须是**绝对路径**（相对路径 uv 会报
+ *   「No virtual environment or system Python installation found for path」）。
+ * ⚠ 实测：设 VIRTUAL_ENV 对 uv ⛔ 无效 ⇒ ⛔ 这里只走 -p 一条路。
+ * ⛔ 已经在 argv 里显式写了目标解释器的（名片作者自己写的）不重复加。
+ *
+ * ⚠⚠ 只对 **`uv pip …`** 加这个参数，有两个原因：
+ *   ① `-p` 是 uv 的参数，⛔ 不是 pip / poetry / conda 的 ——
+ *      给 `node -e …` 或 `pip install -r …` 加 `-p` 会让命令直接起不来
+ *      （实测：spawn -p ENOENT）。
+ *   ② `uv sync` 也不加（它的 -p 是「用哪个解释器当基准建项目环境」，
+ *      ⛔ 指过去会静默装进另一个 .venv，见 syncEnvFor）。
+ *   ⇒ 其他装法（名片自己声明的）平台 ⛔ 不改它的 argv。
+ *
+ * @param {string[]} argv 原 argv
+ * @param {string} pyAbs  目标解释器绝对路径
+ * @returns {string[]}
+ */
+function withTargetPython (argv, pyAbs) {
+  if (!pyAbs) return argv
+  const out = (argv || []).slice()
+  // ⛔ 名片作者自己指定了（真名片就这么写）⇒ 以名片为准，⛔ 不重复加
+  if (out.includes('-p') || out.includes('--python')) return out
+  // ⛔ 只认 `uv pip …`：别的命令加 -p 会起不来（见上）
+  if (!/^uv$/i.test(out[0] || '') || out[1] !== 'pip') return out
+  // ⚠ 位置：`uv pip <subcmd> -p <py> …`
+  //   （uv 认全局选项，位置不挑；这里放在子命令后面纯粹为了 argv 读起来顺。）
+  let at = 2
+  if (out[2] === 'install' || out[2] === 'compile' || out[2] === 'sync') at = 3
+  out.splice(at, 0, '-p', pyAbs)
+  return out
+}
+
+/**
+ * ⭐⭐ uv sync 那条路的**目标环境**：UV_PROJECT_ENVIRONMENT。
+ *
+ * ⚠⚠ 为什么 sync 不用 `-p`（这是本次最容易做错的一处）：
+ *   实测 `uv sync -p <某个已存在的 venv>` 会照锁装完、退出码 0，
+ *   ⛔ 但装进的是它在项目目录**新建的 .venv**，
+ *   指定的 venv 里根本没有那个包 —— 静默装错地方。
+ *   ⛔ 正确写法只有 UV_PROJECT_ENVIRONMENT=<绝对路径>。
+ *   ⚠ 另一个坑：cwd 在清单所在的子目录时，uv 会把 .venv 建在**那一层**
+ *     （实测 infer/requirements.txt ⇒ infer/.venv），所以这个变量必须显式给。
+ *
+ * @param {string} venvDirAbs 该引擎隔离环境目录的绝对路径
+ * @returns {{UV_PROJECT_ENVIRONMENT:string}}
+ */
+function syncEnvFor (venvDirAbs) {
+  // ⛔ 刻意**不**设 VIRTUAL_ENV：实测它对 uv 无效，
+  //   留着会给人「设了就生效」的错觉（Owner 2026-10-12）。
+  return { UV_PROJECT_ENVIRONMENT: venvDirAbs }
+}
+
+/**
+ * ⭐ 组装执行步骤。
+ *
+ * ⭐ 建环境是**第①步**，装依赖紧随其后 —— 顺序不能反：
+ *   反了就是「装到不存在的环境里」，症状与没建环境一模一样
+ *   （uv 报 No virtual environment found）。
+ *
+ * ⚠ 装法自带环境的（conda）⛔ 不加建环境那一步（conda 自己会建，建两遍）。
+ *
+ * ⚠ 有 alternative 时第②步也进 steps（见下面 buildSteps 的注释）。
+ *
+ * @param {{argv:string[], cwdRel:string, alt?:object|null,
+ *          venv?:object|null, sync?:object|null, targetPython?:string|null}} o
+ * @returns {object[]}
+ */
+function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython }) {
+  const steps = []
+  // ⭐ 建环境那一步排最前（⛔ conda 那条路除外）
+  if (venv && Array.isArray(venv.argv)) {
+    steps.push({
+      kind: 'env',
+      argv: venv.argv,
+      cwd: cwdRel,
+      needs_network: false,
+      // ⭐ 执行期据此判重：环境已能起 ⇒ 跳过（与断点续传同一套机制）
+      skipIfExists: true,
+      why: venv.why,
+      whyZh: venv.whyZh,
+    })
+  }
+  steps.push({
     kind: 'env',
     argv,
     cwd: cwdRel,
     needs_network: true,
+    // ⭐ sync 那条路用 UV_PROJECT_ENVIRONMENT 选目标（⛔ 不用 -p，见 syncEnvFor）
+    env: sync || undefined,
     why: 'Install dependencies from the upstream lock file.',
     whyZh: '照上游依赖清单安装。',
-  }]
+  })
   if (alt && alt.then) {
     steps.push({
       kind: 'env',
-      argv: alt.then,
+      // ⭐ 第②步装 torch，同样要钉同一个目标环境 ⛔ 否则装到别处
+      //   （targetPython 是**引擎**环境里那个，不是建环境时用的平台 python）
+      argv: withTargetPython(alt.then, targetPython),
       cwd: cwdRel,
       needs_network: true,
+      env: sync || undefined,
       why: 'Install the Torch build matching this machine backend.',
       whyZh: '安装本机后端对应的 Torch。',
     })
@@ -438,6 +657,22 @@ function buildEnvPlan (input = {}) {
   //   ⛔ 原来这里是 `if (!cmd.ok) return { ...cmd, id }` —— 只认名片，
   //      而名片第 4 步才写 ⇒ 第 2 步必然卡死（Owner 实测：「卡住了」）。
   const guess = suggestEnvCommand(dir)
+  // ⭐⭐ 建隔离环境的准备（2026-10-12）：环境先建，装依赖才有地方装。
+  //   ⛔ conda 那条路除外（conda env create 自己会建环境）。
+  //   ⚠ 装法**既看名片也看探测**：名片自己写的 conda/sync 同样要认，
+  //   ⛔ 否则会给一台声明 conda 的引擎塞一步 uv venv。
+  const effArgv = cmd.ok ? cmd.argv : guess.argv
+  const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
+  const venv = condaRoute ? null : buildVenvStep(root, id)
+  // ⭐ sync 那条路用 UV_PROJECT_ENVIRONMENT 选目标（⛔ 不用 -p，见 syncEnvFor）
+  const syncRoute = Array.isArray(effArgv) && effArgv[1] === 'sync'
+  // ⭐ 名片自己写的 sync：⛔ 平台不替名片作者改 argv 的语义 ⇒ 仍按 manifest 处理，
+  //   只有**探测**出的 sync 才由平台接管目标环境。
+  const sync = (syncRoute && !cmd.ok)
+    ? syncEnvFor(engineVenvDirAbs(root, id)) : null
+  // ⭐ 装依赖要钉的目标解释器（sync 那条路除外，它靠环境变量）
+  const targetPython = sync ? null : engineVenvPythonAbs(root, id)
+
   if (!cmd.ok) {
     if (!guess.argv) {
       // ⛔ 两边都没有 ⇒ 如实说清**要做什么**，⛔ 不写「平台不会替你猜装法」
@@ -456,10 +691,12 @@ function buildEnvPlan (input = {}) {
     const cwdRel = guess.cwd || '.'
     const NOTE = 'env_command 返回 0 仅表示命令执行完毕，'
       + '不代表该引擎可以运行，仍需后续校验（import 探针或实际合成）。'
+    const guessSync = Array.isArray(guess.argv) && guess.argv[1] === 'sync'
+    const guessTarget = guessSync ? null : engineVenvPythonAbs(root, id)
     return {
       ok: true, id, from: 'probe', from_file: guess.from,
       guessed: true,
-      env_command: guess.argv,
+      env_command: withTargetPython(guess.argv, guessTarget),
       whatToDo: guess.why,
       whatToDoZh: guess.whyZh,
       // ⭐ 锁文件的后端与本机不一致时，第二条命令（只重建 torch）
@@ -478,7 +715,7 @@ function buildEnvPlan (input = {}) {
           + '如该引擎需要特定安装方式，请在 Manifest 中声明 '
           + 'install.env_command，平台将优先采用该声明。'),
       steps: buildSteps({
-        argv: guess.argv,
+        argv: withTargetPython(guess.argv, guessTarget),
         // ⚠ cwd 必须是**相对项目根**的路径（runEnv 会 path.join(root, cwd)）。
         //   早退分支里 guess.cwd 是相对**引擎目录**的（uv sync 要在有
         //   uv.lock 的地方跑）⇒ 必须补上 engines/<id>/ 前缀，
@@ -490,7 +727,10 @@ function buildEnvPlan (input = {}) {
         //   （平台过去只跑 steps[0]）⇒ 装出一个没有 torch 的环境
         //   而界面显示「完成」。
         alt: guess.alternative,
-        id, cwdRel2: null,
+        // ⭐ 建隔离环境那一步（conda 那条路除外）
+        venv,
+        sync: guessSync ? syncEnvFor(engineVenvDirAbs(root, id)) : null,
+        targetPython: guessTarget,
       }),
     }
   }
@@ -499,15 +739,24 @@ function buildEnvPlan (input = {}) {
   // ⭐ 装法：名片优先，探测兜底（见上面 suggestEnvCommand）
   const usingManifest = cmd.ok
   const argv = usingManifest ? cmd.argv : guess.argv
+  // ⭐ sync 用环境变量选目标环境；⛔ 名片自己写的 sync 不接管
+  //   （名片作者负责他自己的 argv 语义，平台 ⛔ 不替他改）
+  const installSync = (!usingManifest && syncRoute)
+    ? syncEnvFor(engineVenvDirAbs(root, id)) : null
+  const installTarget = installSync ? null : engineVenvPythonAbs(root, id)
 
   const steps = buildSteps({
-    argv,
+    argv: withTargetPython(argv, installTarget),
     // ⚠ cwd = **清单所在的那个目录**：uv sync 要在有 uv.lock 的地方跑；
     //   pip -r 也要在清单旁边跑。实测某台引擎的清单在 infer/requirements.txt
     //   ⇒ cwd 必须是 engines/<id>/infer，⛔ 不是 engines/<id>（2026-10-05 修）。
     cwdRel: path.join('engines', id, (guess && guess.cwd) || '.'),
     // ⭐ 有 alternative 时第②步也进 steps（见 buildSteps 的注释）
     alt: (!usingManifest && guess) ? guess.alternative : null,
+    // ⭐ 建隔离环境那一步（conda 那条路除外）
+    venv,
+    sync: installSync,
+    targetPython: installTarget,
   })
 
   steps.push({
@@ -566,14 +815,18 @@ function parseProgress (text) {
  *   十分钟，界面只能干等。改 spawn 后 stdout/stderr 逐行回调，进度条才有米下锅。
  * ⛔ 不传给 onLine 时行为不变（仍收集尾部输出），调用方不必为了用进度而改判据。
  *
+ *  ⭐ 其实uv sync 会**自己**建项目环境（默认 .venv）——
+ *    实测清单在 infer/ 子目录时它把 .venv 建在 infer/ 而不是引擎目录，
+ *    ⛔ 那与名片上写的 runtime.python（engines/<id>/.venv）不是同一个。
  * @param {object} step       计划里的一步（含 argv / cwd / absCwd）
  * @param {string} root       项目根
  * @param {number} timeoutMs  超时（毫秒）
  * @param {string[]} [argvOverride] 覆盖 step.argv（工具名换成绝对路径）
  * @param {(line:string)=>void} [onLine] stdout/stderr 每行回调
+ * @param {object} [envOverride]  这一步要加的环境变量（如 UV_PROJECT_ENVIRONMENT）
  * @returns {Promise<{ok:boolean, code:string, status:number|null, stdout:string, stderr:string, error?:string}>}
  */
-function runOne (step, root, timeoutMs, argvOverride, onLine) {
+function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride) {
   return new Promise((resolve) => {
     const argv = Array.isArray(argvOverride) && argvOverride.length > 0 ? argvOverride : step.argv
     const child = spawn(argv[0], argv.slice(1), {
@@ -581,6 +834,8 @@ function runOne (step, root, timeoutMs, argvOverride, onLine) {
       windowsHide: true,
       // ⛔ argv 直接 spawn —— 走 shell 会被含空格的路径拆错
       shell: false,
+      // ⭐ uv sync 靠 UV_PROJECT_ENVIRONMENT 选目标环境（⛔ -p 不管用，见 syncEnvFor）
+      env: envOverride ? { ...process.env, ...envOverride } : undefined,
     })
     let stdoutTail = ''
     let stderrTail = ''
@@ -727,6 +982,23 @@ async function runEnv (input = {}) {
     }
 
     const argvKey = argv.join(' ')
+    // ⭐ 建环境那一步的幂等：环境**已经能起**（不是「目录存在」）⇒ 跳过。
+    //   ⚠ 判据是 canUseEngineVenv（能不能按绝对路径 spawn），
+    //     ⛔ 不是 existsSync —— 平台实测踩过「文件在但起不来」那个坑
+    //     （venv/Scripts/python.exe 在，pyvenv.cfg 指向另一台机器）。
+    //   ⭐ 与断点续传同一套机制（标 SKIPPED、界面显示「已完成」）。
+    const alreadyThere = step.skipIfExists === true
+      && canUseEngineVenv(root, String(input.id || ''))
+    if (alreadyThere) {
+      stepsRun.push({
+        n: i + 1, of: steps.length, argv, argvKey,
+        ok: true, status: 0, code: 'SKIPPED',
+        output: 'This engine already has a working Python environment — skipped.',
+        outputZh: '该引擎已有可用的 Python 环境，跳过。',
+        doneAt: new Date().toISOString(),
+      })
+      continue
+    }
     // ⭐ 断点续传：这条命令上次已经成功跑完 ⇒ 跳过（界面会看到「已完成」）。
     //   ⛔ 只有完全相同的命令才跳 —— 换后端/换清单都会让 key 变，必须重跑。
     if (doneKeys.has(argvKey)) {
@@ -744,7 +1016,7 @@ async function runEnv (input = {}) {
       try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调不影响安装 */ }
     }
 
-    const r = await runOne(step, root, timeoutMs, argv, input.onLine)
+    const r = await runOne(step, root, timeoutMs, argv, input.onLine, step.env)
     stepsRun.push({
       n: i + 1,
       of: steps.length,
@@ -809,4 +1081,10 @@ async function runEnv (input = {}) {
   }
 }
 
-module.exports = { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv, uvRelPath, resolveUv }
+module.exports = {
+  readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv,
+  uvRelPath, resolveUv,
+  // ⭐ 建隔离环境用得上的那几件（buildVenvStep / canUseEngineVenv 等）
+  engineVenvDirAbs, engineVenvPythonAbs, canUseEngineVenv,
+  platformPythonAbs, buildVenvStep, withTargetPython, syncEnvFor,
+}
