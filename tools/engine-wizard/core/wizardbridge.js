@@ -1143,6 +1143,18 @@ function handleResetProgress (req, res) {
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     const root = body.root || projectRoot() || ''
     try {
+      // ⛔ 目录不存在 ⇒ 没有进度可清，⛔ 不许顺手写一个文件进去。
+      //   （那会在 engines/ 下凭空造一个引擎目录，而向导的纪律是
+      //     「只读 engines/ 之外不写；engines/ 里只写真克隆出来的东西」。）
+      const { validateId } = require('./save')
+      const idErr = validateId(id)
+      if (idErr) { json(res, 400, { ok: false, code: 'BAD_ID', error: idErr }); return }
+      const dir = path.join(root, 'engines', id)
+      if (!fs.existsSync(dir)) {
+        json(res, 200, { ok: true, id, section: body.section || 'env', cleared: 0,
+          note: '引擎目录不存在，没有进度可清。' })
+        return
+      }
       const { resetProgress } = require('./installState')
       resetProgress(root, id, body.section)
       json(res, 200, { ok: true, id, section: body.section || 'env' })
