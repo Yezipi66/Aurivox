@@ -12,8 +12,27 @@ import { useT } from '../../../web/src/lib/i18n'
 
 const GLYPH = { completed: '✓', running: '●', failed: '✗', pending: null }
 
+/**
+ * ⭐ 哪些步骤现在能点 —— 门槛：**克隆完成**才解锁后面四步。
+ *
+ * Owner 2026-10-12 裁决：克隆完成 = 引擎初步接入，此后后面四步才有意义。
+ * 所以 prepare 没完成时，env / models / manifest / verify 一律不可点，
+ * 点了给人话说明（⛔ 不是点进去一片空）。
+ *
+ * @param {object} done 各步骤的完成状态（来自 install-state 端点）
+ * @returns {{[k:string]:boolean}} 步骤 key ⇒ 能不能点
+ */
+function unlockedSteps (done) {
+  const out = {}
+  for (const st of STEPS) out[st.key] = true
+  // ⛔ 判据是 prepare 的完成态（真克隆了），⛔ 不是「用户点过克隆按钮」。
+  if (!done.prepare) for (const st of STEPS) if (st.key !== 'prepare') out[st.key] = false
+  return out
+}
+
 export default function Pipeline ({ done, selected, onSelect }) {
-  const { lang } = useT()
+  const { t, lang } = useT()
+  const gate = unlockedSteps(done)
   return (
     <div className="pipe-map">
       {STEPS.map((st, i) => {
@@ -21,16 +40,26 @@ export default function Pipeline ({ done, selected, onSelect }) {
           : selected === st.key ? 'running' : 'pending'
         const glyph = GLYPH[status] === null ? String(i + 1) : GLYPH[status]
         const prevDone = i > 0 && done[STEPS[i - 1].key]
+        // ⛔ 不可点的步骤仍然要能点（点了解释为什么），但样式上要看得出来
+        //   —— 项目已有 .pipe-step.disabled-step，⛔ 不自造类。
+        const locked = !gate[st.key]
         return (
           <button key={st.key} type="button"
-            className={`pipe-step${selected === st.key ? ' selected' : ''}`}
+            className={`pipe-step${selected === st.key ? ' selected' : ''}${locked ? ' disabled-step' : ''}`}
             aria-pressed={selected === st.key}
-            onClick={() => onSelect(selected === st.key ? null : st.key)}>
+            aria-disabled={locked ? 'true' : undefined}
+            onClick={() => onSelect(selected === st.key ? null : st.key, locked)}>
             {i > 0 && <span className={`pipe-seg${prevDone ? ' done' : ''}`} />}
             <span className={`pipe-dot ${status}`}>{glyph}</span>
             <span className={`pipe-label${status === 'running' ? ' running' : ''}`}>
               {lang === 'zh' ? st.label[1] : st.label[0]}
             </span>
+            {locked && (
+              <span className="field-hint">
+                {t('Locked until the repository is cloned.',
+                  '克隆完成后解锁。')}
+              </span>
+            )}
           </button>
         )
       })}

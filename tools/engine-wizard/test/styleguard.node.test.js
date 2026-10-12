@@ -480,9 +480,9 @@ test('界面文案不许出现 emoji 或符号语气', () => {
   // 契约 5cdf33d 清的是界面文案。
   // 豁免：既有功能性状态图标（下载/完成/缺失指示）不在本次范围，登记在 EXEMPT。
   const EXEMPT = new Set([
-    'StepDeps.jsx:398',      // 下载进度指示图标
-    'StepsExtra.jsx:457',    // 文件已完成状态图标
-    'StepsExtra.jsx:465',    // 文件未下载状态图标
+    'StepDeps.jsx:389',      // 下载进度指示图标
+    'StepsExtra.jsx:458',    // 文件已完成状态图标
+    'StepsExtra.jsx:466',    // 文件未下载状态图标
   ])
   const WIZ = path.join(__dirname, '..', 'editor')
   const bad = []
