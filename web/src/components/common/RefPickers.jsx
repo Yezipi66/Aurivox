@@ -114,7 +114,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
       </Select>
       <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
         {t('Cross-voice reference — timbre and quality may differ from this model.',
-           '跨音色参考 — 音色和质量可能与本模型不同。')}
+           '跨音色参考：音色和质量可能与本模型不同。')}
       </div>
       <div className="ref-tabs">
         <span className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
@@ -243,7 +243,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
         <div style={{ marginTop: 6 }}>
           <div className="field-hint" style={{ color: 'var(--warning)' }}>
             {t('Custom reference — no aligned transcript. Add one below (optional).',
-               '自定义参考 — 没有对齐的文本。可在下方添加（可选）。')}
+               '自定义参考：没有对齐的文本。可在下方添加（可选）。')}
           </div>
           <div style={{ fontSize: 12, wordBreak: 'break-all', margin: '4px 0' }}>{custom.name}</div>
           <AudioPlayer src={custom.url} onDuration={d => setDur(d)} />

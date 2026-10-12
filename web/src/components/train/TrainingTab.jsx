@@ -1048,7 +1048,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               the S1 "Advanced Parameters" pattern. Named 高级参数 (not 专家). */}
           {advStages.length > 0 && (
             <details className="expert-block" style={{ marginTop: 4, marginBottom: 8 }}>
-              <summary className="expert-summary">{tr('Advanced Parameters — separator internals', '高级参数 — 分离器内部设置')}</summary>
+              <summary className="expert-summary">{tr('Advanced Parameters — separator internals', '高级参数：分离器内部设置')}</summary>
               <div className="msg msg-danger expert-warning">
                 <strong>{tr('⚠ Advanced.', '⚠ 高级参数。')}</strong>{' '}
                 {tr('These change speed/precision. fp16 makes HP models emit NaN on many GPUs; TTA roughly doubles time. Most users should leave the defaults.',
@@ -1056,7 +1056,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               </div>
               <label className="toggle-row expert-unlock">
                 <input type="checkbox" checked={!!form.denoiseAdvUnlocked} onChange={e => setField('denoiseAdvUnlocked', e.target.checked)} />
-                {tr('I understand — let me edit advanced parameters', '我了解 — 允许我编辑高级参数')}
+                {tr('I understand — let me edit advanced parameters', '我了解，允许我编辑高级参数')}
               </label>
               <fieldset disabled={!form.denoiseAdvUnlocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
                 {advStages.map(({ stage, apply, i }) => {
@@ -1459,7 +1459,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
 
           {/* Pipeline map — click a step to configure it (or inspect its status during a run) */}
           <div className="field" style={{ marginTop: 10 }}>
-            <label className="field-label">{tr('Pipeline — click any step to configure', '流程 — 点击任意步骤进行配置')}</label>
+            <label className="field-label">{tr('Pipeline — click any step to configure', '流程：点击任意步骤进行配置')}</label>
             <PipelineMap
               statusSteps={status?.steps || (recovery ? recovery.steps : null)}
               enabledMap={recovery

@@ -14,7 +14,7 @@ function NamingNotePill({ onOpen, className = '' }) {
       title={t('Show model naming & metadata notes', '查看模型命名与元数据说明')}
     >
       <span className="nn-i">i</span>
-      {t('Model naming & metadata — how renaming works', '模型命名与元数据 — 重命名的工作方式')}
+      {t('Model naming & metadata — how renaming works', '模型命名与元数据：重命名的工作方式')}
     </button>
   )
 }
@@ -24,7 +24,7 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
   return (
     <div className="naming-note-card">
       <div className="naming-note-hd">
-        <span>{t('Model naming & metadata rebuild — read before renaming', '模型命名与元数据重建 — 重命名前请阅读')}</span>
+        <span>{t('Model naming & metadata rebuild — read before renaming', '模型命名与元数据重建：重命名前请阅读')}</span>
         {acked && (
           <button type="button" className="nn-x" title={t('Collapse', '折叠')} onClick={onCollapse}>×</button>
         )}

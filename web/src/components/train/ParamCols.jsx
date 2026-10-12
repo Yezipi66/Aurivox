@@ -169,7 +169,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
           one SoVITS trained per checked version). Otherwise a single select (asset rebuild). */}
       {showS2 && (versionMode === 'multi' ? (
         <div className="train-version-row" style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('SoVITS Version(s) — one model trained per checked version', 'SoVITS 版本 — 每勾选一个版本训练一个模型')}</label>
+          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('SoVITS Version(s) — one model trained per checked version', 'SoVITS 版本：每勾选一个版本训练一个模型')}</label>
           <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
             {[
               { v: 'v2', label: 'v2' },
@@ -227,7 +227,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
         </div>
         <label className="toggle-row expert-unlock">
           <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
-          {t('I understand the risks — let me edit expert parameters', '我了解风险 — 允许我编辑专家参数')}
+          {t('I understand the risks — let me edit expert parameters', '我了解风险，允许我编辑专家参数')}
         </label>
         <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
           <div className={colsClass}>
