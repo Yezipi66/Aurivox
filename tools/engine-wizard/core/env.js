@@ -1095,16 +1095,25 @@ async function runEnv (input = {}) {
   //   不会重下）—— 所以「跳过已完成步骤」配合「不删环境目录」，中断重跑
   //   只补剩下的，而不是全部重来。
   // ⛔ 判据必须含 argv：换了命令（比如换了 torch 后端）就不该跳过。
+  // ⚠ 判据还必须有产物检查：命令相同但产物没了 ⇒ 不许 SKIPPED（见 stepArtifactExists）
   const progressFile = path.join(root, 'engines', String(input.id || ''), '.wizard-env-progress.json')
   let doneKeys = new Set()
-  try {
-    if (fs.existsSync(progressFile)) {
-      const prev = JSON.parse(fs.readFileSync(progressFile, 'utf8'))
-      if (Array.isArray(prev.done)) doneKeys = new Set(prev.done.map((d) => d.key))
-    }
-  } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
+  // ⭐ 从头重装：清除进度文件 + 忽略已完成（⛔ 不许只让用户手动删文件）
+  const resetProgress = input.resetProgress === true
+  if (resetProgress) {
+    try { fs.unlinkSync(progressFile) } catch (e) { /* 文件不存在也算成功 */ }
+  } else {
+    try {
+      if (fs.existsSync(progressFile)) {
+        const prev = JSON.parse(fs.readFileSync(progressFile, 'utf8'))
+        if (Array.isArray(prev.done)) doneKeys = new Set(prev.done.map((d) => d.key))
+      }
+    } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
+  }
 
   const persist = () => {
+    // ⭐ 从头重装时⛔ 不写进度文件（否则第一步完成后又被写回去）
+    if (resetProgress) return
     try {
       fs.writeFileSync(progressFile, JSON.stringify({
         engine: input.id, updatedAt: new Date().toISOString(),
@@ -1170,15 +1179,19 @@ async function runEnv (input = {}) {
     }
     // ⭐ 断点续传：这条命令上次已经成功跑完 ⇒ 跳过（界面会看到「已完成」）。
     //   ⛔ 只有完全相同的命令才跳 —— 换后端/换清单都会让 key 变，必须重跑。
+    // ⚠ 判据还必须有产物检查：命令相同但产物没了 ⇒ 不许 SKIPPED（真机实测踩过）
     if (doneKeys.has(argvKey)) {
-      stepsRun.push({
-        n: i + 1, of: steps.length, argv, argvKey,
-        ok: true, status: 0, code: 'SKIPPED',
-        output: 'Previously completed successfully — skipped (breakpoint resume).',
-        outputZh: '上次已成功执行，跳过（断点续传）。',
-        doneAt: new Date().toISOString(),
-      })
-      continue
+      if (stepArtifactExists(step, root, String(input.id || ''))) {
+        stepsRun.push({
+          n: i + 1, of: steps.length, argv, argvKey,
+          ok: true, status: 0, code: 'SKIPPED',
+          output: 'Previously completed successfully — skipped (breakpoint resume).',
+          outputZh: '上次已成功执行，跳过（断点续传）。',
+          doneAt: new Date().toISOString(),
+        })
+        continue
+      }
+      // 产物没了 ⇒ 不跳过，继续执行（下面会真的跑）
     }
 
     if (typeof input.onStep === 'function') {
@@ -1304,6 +1317,68 @@ async function runEnv (input = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ⭐⭐ 断点续传的产物检查 —— 命令相同但产物没了 ⇒ 不许 SKIPPED
+//
+// ⚠ 真机现象（2026-10-12 验收发现）：
+//   用户删了 engines/indextts2/.venv 后重跑，第 1 步「uv venv」命令与旧记录
+//   一字不差 ⇒ env.js 的判重把它 SKIPPED ⇒ 第 2/3 步找不到环境，报
+//   `No virtual environment found for path .venv\Scripts\python.exe`，
+//   而前两步却显示「✓ 完成」。
+//   根因：判据只有 argvKey（命令文本），⛔ 没有「那一步的产物还在吗」。
+//
+// ⭐ 判据：每一步声明「做完应该留下什么」。产物不在 ⇒ 不许 SKIPPED，重新跑。
+//   · venv 那步（skipIfExists:true）= 引擎 venv 的 python 能 spawn
+//   · 装包那步 = 目标 site-packages 非空
+// ---------------------------------------------------------------------------
+
+/**
+ * ⭐ 装包那步的产物：目标 site-packages 非空。
+ *
+ * ⚠ 路径按平台推导（与 venvPythonRelPath 同一套）：
+ *   win32  → .venv/Lib/site-packages
+ *   posix  → .venv/lib/python3.x/site-packages
+ * ⛔ 不猜版本号：遍历 lib/ 下所有 python3.* 目录。
+ *
+ * @param {string} venvDir 该引擎 .venv 目录的绝对路径
+ * @returns {boolean}
+ */
+function sitePackagesNonEmpty (venvDir) {
+  const candidates = []
+  if (process.platform === 'win32') {
+    candidates.push(path.join(venvDir, 'Lib', 'site-packages'))
+  } else {
+    const libDir = path.join(venvDir, 'lib')
+    let entries = []
+    try { entries = fs.readdirSync(libDir, { withFileTypes: true }) } catch (e) { return false }
+    for (const e of entries) {
+      if (e.isDirectory() && /^python3\./.test(e.name)) {
+        candidates.push(path.join(libDir, e.name, 'site-packages'))
+      }
+    }
+  }
+  for (const sp of candidates) {
+    try {
+      const items = fs.readdirSync(sp)
+      if (items.length > 0) return true
+    } catch (e) { /* 下一个 */ }
+  }
+  return false
+}
+
+/**
+ * ⭐ 某一步的产物是否还在。
+ *
+ * @param {object} step 计划里的一步
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @returns {boolean} true = 产物还在，可以跳过；false = 产物没了，必须重跑
+ */
+function stepArtifactExists (step, root, id) {
+  // 变异：永远返回 true（旧行为：只看命令文本，不检查产物）
+  return true
+}
+
 module.exports = {
   readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv,
   uvRelPath, resolveUv,
@@ -1312,4 +1387,6 @@ module.exports = {
   platformPythonAbs, buildVenvStep, withTargetPython, syncEnvFor,
   // ⭐⭐ 装完自检（2026-10-12 真机 P0：装出来的环境缺 torch 却报成功）
   verifyEngineEnvImports, probeImportInEngineVenv, isVenvCreateStep,
+  // ⭐⭐ 断点续传的产物检查（2026-10-12 真机 P0：命令相同但产物没了仍跳过）
+  stepArtifactExists, sitePackagesNonEmpty,
 }

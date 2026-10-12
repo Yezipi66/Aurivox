@@ -736,6 +736,118 @@ test('⛔⭐⭐ alt 那步与主安装步的目标环境都必须等于该引擎
 })
 
 // ---------------------------------------------------------------------------
+// ⑫ ⭐⭐⭐ 断点续传的产物检查 —— 命令相同但产物没了 ⇒ 不许 SKIPPED
+//
+// ⚠ 真机现象（2026-10-12 验收发现）：
+//   用户删了 engines/indextts2/.venv 后重跑，第 1 步「uv venv」命令与旧记录
+//   一字不差 ⇒ env.js 的判重把它 SKIPPED ⇒ 第 2/3 步找不到环境，报
+//   `No virtual environment found for path .venv\Scripts\python.exe`，
+//   而前两步却显示「✓ 完成」。
+//   根因：判据只有 argvKey（命令文本），⛔ 没有「那一步的产物还在吗」。
+//
+// ⭐ 判据：每一步声明「做完应该留下什么」。产物不在 ⇒ 不许 SKIPPED，重新跑。
+//   · venv 那步（skipIfExists:true）= 引擎 venv 的 python 能 spawn
+//   · 装包那步 = 目标 site-packages 非空
+// ---------------------------------------------------------------------------
+
+/** 造一个「项目根 + engines/<id>/ + uv.lock」的夹具 */
+function mkdtempEngineWithLock (id) {
+  const { root, engineDir } = mkdtempEngineWithManifest(id, 'uv.lock')
+  fs.writeFileSync(path.join(engineDir, 'uv.lock'), 'version = 1\n')
+  return { root, engineDir }
+}
+
+/** 造一个「进度文件里记着某条命令已完成」的场景 */
+function writeProgressFile (root, id, keys) {
+  const progressFile = path.join(root, 'engines', id, '.wizard-env-progress.json')
+  fs.writeFileSync(progressFile, JSON.stringify({
+    engine: id, updatedAt: new Date().toISOString(),
+    done: keys.map((k) => ({ key: k, at: new Date().toISOString() })),
+  }, null, 2), 'utf8')
+}
+
+test('⛔⭐⭐ 命令相同但产物没了 ⇒ 不许 SKIPPED，必须重跑', async () => {
+  const { root } = mkdtempEngineWithLock('bp1')
+  // 造一个「进度文件里记着 uv venv 已完成」的场景
+  const venvArgv = ['python', '-m', 'uv', 'venv', path.join(root, 'engines', 'bp1', '.venv'), '--no-project']
+  writeProgressFile(root, 'bp1', [venvArgv.join(' ')])
+
+  const ran = []
+  const r = await envMod.runEnv({
+    id: 'bp1', root, execute: true, manifest: {},
+    runStep: fakeRunAllOk(ran),
+    probeImport: () => ({ ok: true, mod: 'torch', code: 'OK', detail: '' }),
+  })
+
+  // ⭐ 产物没了（.venv 不存在）⇒ 不许 SKIPPED
+  const skipped = r.stepsRun.filter((s) => s.code === 'SKIPPED')
+  assert.strictEqual(skipped.length, 0,
+    `⛔ 产物没了却跳过了 ${skipped.length} 步：${JSON.stringify(skipped.map((s) => s.argv))}`)
+  // ⭐ 必须真的跑了（至少跑了 venv 那步）
+  assert.ok(ran.length >= 1,
+    `⛔ 产物没了却没重跑任何步骤：${JSON.stringify(ran.map((s) => s.argv))}`)
+})
+
+test('⛔⭐⭐ 命令相同且产物还在 ⇒ 可以 SKIPPED（断点续传正常工作）', async () => {
+  const { root } = mkdtempEngineWithLock('bp2')
+  // 造一个「进度文件里记着 uv venv 已完成」的场景
+  const venvArgv = ['python', '-m', 'uv', 'venv', path.join(root, 'engines', 'bp2', '.venv'), '--no-project']
+  writeProgressFile(root, 'bp2', [venvArgv.join(' ')])
+
+  // ⭐ 造一个「产物还在」的假 .venv（python 能 spawn 的假象）
+  //   ⚠ 这里不真建 venv，只造一个空目录让 canUseEngineVenv 返回 false
+  //   （因为 canUseEngineVenv 会真的 spawn python，测试里不能真跑）
+  //   ⇒ 所以这条测试验证的是「产物检查函数本身的行为」
+  const venvDir = path.join(root, 'engines', 'bp2', '.venv')
+  fs.mkdirSync(venvDir, { recursive: true })
+
+  // ⭐ 直接测 stepArtifactExists 函数
+  const step = { skipIfExists: true, argv: venvArgv }
+  // ⚠ 这个测试在 Windows 上会真的 spawn python，所以只测非 venv 那步
+  const installStep = { kind: 'env', argv: ['uv', 'pip', 'install', 'torch'] }
+  // ⭐ 装包那步的产物检查：site-packages 非空
+  //   ⚠ 这里造一个假的 site-packages 目录
+  const sitePackages = path.join(venvDir, 'Lib', 'site-packages')
+  fs.mkdirSync(sitePackages, { recursive: true })
+  fs.writeFileSync(path.join(sitePackages, 'dummy.txt'), 'dummy')
+  assert.strictEqual(envMod.sitePackagesNonEmpty(venvDir), true,
+    '⛔ site-packages 非空时应返回 true')
+  // ⭐ 删掉 site-packages ⇒ 返回 false
+  fs.rmSync(sitePackages, { recursive: true, force: true })
+  assert.strictEqual(envMod.sitePackagesNonEmpty(venvDir), false,
+    '⛔ site-packages 为空时应返回 false')
+})
+
+test('⛔⭐⭐ 从头重装入口：resetProgress 会清进度文件', async () => {
+  const { root } = mkdtempEngineWithLock('bp3')
+  // 造一个「进度文件里记着某条命令已完成」的场景
+  const venvArgv = ['python', '-m', 'uv', 'venv', path.join(root, 'engines', 'bp3', '.venv'), '--no-project']
+  writeProgressFile(root, 'bp3', [venvArgv.join(' ')])
+
+  // ⭐ 确认进度文件存在
+  const progressFile = path.join(root, 'engines', 'bp3', '.wizard-env-progress.json')
+  assert.ok(fs.existsSync(progressFile), '⛔ 进度文件应存在')
+
+  const ran = []
+  const r = await envMod.runEnv({
+    id: 'bp3', root, execute: true, manifest: {},
+    resetProgress: true,   // ⭐ 从头重装
+    runStep: fakeRunAllOk(ran),
+    probeImport: () => ({ ok: true, mod: 'torch', code: 'OK', detail: '' }),
+  })
+
+  // ⭐ 进度文件应被清除
+  assert.ok(!fs.existsSync(progressFile),
+    '⛔ resetProgress 后进度文件应被清除')
+  // ⭐ 所有步骤都应真的跑了（没有 SKIPPED）
+  const skipped = r.stepsRun.filter((s) => s.code === 'SKIPPED')
+  assert.strictEqual(skipped.length, 0,
+    `⛔ resetProgress 后不应有 SKIPPED 步骤：${JSON.stringify(skipped.map((s) => s.argv))}`)
+  assert.ok(ran.length >= 1,
+    `⛔ resetProgress 后应真的跑了步骤：${JSON.stringify(ran.map((s) => s.argv))}`)
+})
+
+// ---------------------------------------------------------------------------
 // 活代码纪律
 // ---------------------------------------------------------------------------
 test('⛔ env.js 活代码里不许出现任何具体引擎名', () => {
