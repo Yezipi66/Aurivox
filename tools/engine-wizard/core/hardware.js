@@ -409,12 +409,17 @@ function parseUvLock (text) {
  *   version = lock 里的原样版本（含后缀）· plain = 剥掉后缀
  *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
  */
-function readTorchPin (text, platform) {
-  const plat = platform || process.platform
-  const rows = parseUvLock(text)
-  const cands = rows.filter((r) => r.name.toLowerCase() === 'torch' && r.version)
-  if (!cands.length) return null
-
+/**
+ * ⭐ 锁文件里挑 torch 那一行的判据（readTorchPin 与 readTorchFamilyPins 共用）。
+ *
+ * ⚠ 为什么必须是函数而不是内联：两条读法对「同一包有多条记录」的要求**完全相同**，
+ *   各写一份就会漂（曾经 readTorchPin 内联了一份，family 那条若再抄一遍，
+ *   两条读法会在 marker 匹配上给出不同答案）。
+ *
+ * ⚠⚠ 优先级：带后缀且 marker 匹配本机 > 带后缀 > 匹配本机 > 第一条
+ *   （理由见 readTorchPin 的文件头：lock 里同一个包常按平台分成多条）
+ */
+function preferLockRow (cands, plat) {
   const backendOf = (r) => {
     const v = String(r.version)
     if (/\+(?:cu|cuda)\d*/i.test(v) || /download\.pytorch\.org\/whl\/cu/i.test(r.source || '')) return 'cuda'
@@ -422,19 +427,71 @@ function readTorchPin (text, platform) {
     if (/\+rocm/i.test(v) || /rocm/i.test(r.source || '')) return 'rocm'
     return null
   }
-  const isWinLinux = (r) => r.marker ? /win32|linux/.test(r.marker) : false
-  const isOther = (r) => r.marker ? /darwin|win32\s*==\s*'false'/.test(r.marker) : false
+  const isWinLinux = (r) => (r.marker ? /win32|linux/.test(r.marker) : false)
+  const isOther = (r) => (r.marker ? /darwin|win32\s*==\s*'false'/.test(r.marker) : false)
 
-  // 优先级：带后缀且 marker 匹配本机 > 带后缀 > 匹配本机 > 第一条
-  let pick = cands.find((r) => backendOf(r) && isWinLinux(r) && plat !== 'darwin')
+  return cands.find((r) => backendOf(r) && isWinLinux(r) && plat !== 'darwin')
     || cands.find((r) => backendOf(r) && isWinLinux(r))
     || cands.find((r) => backendOf(r))
     || cands.find((r) => isWinLinux(r) && plat !== 'darwin')
     || cands.find((r) => isOther(r) && plat === 'darwin')
     || cands[0]
+}
 
+function readTorchPin (text, platform) {
+  const plat = platform || process.platform
+  const rows = parseUvLock(text)
+  const cands = rows.filter((r) => r.name.toLowerCase() === 'torch' && r.version)
+  if (!cands.length) return null
+
+  const pick = preferLockRow(cands, plat)
   const version = String(pick.version)
+  const backendOf = (r) => {
+    const v = String(r.version)
+    if (/\+(?:cu|cuda)\d*/i.test(v) || /download\.pytorch\.org\/whl\/cu/i.test(r.source || '')) return 'cuda'
+    if (/\+(?:xpu|ipex)/i.test(v) || /download\.pytorch\.org\/whl\/xpu/i.test(r.source || '')) return 'ipex'
+    if (/\+rocm/i.test(v) || /rocm/i.test(r.source || '')) return 'rocm'
+    return null
+  }
   return { version, plain: version.replace(/\+.*$/, ''), backend: backendOf(pick) }
+}
+
+/**
+ * ⭐⭐ torch **系**（不止 torch 一个）的锁定版本。
+ *
+ * ⚠⚠ 为什么必须有这个函数（Owner 2026-10-12 真机验收发现）：
+ *   过去「装本机后端」那一步只装 torch 一个包 ⇒ 真机上装出来的是
+ *     torch      2.8.0+xpu   能 import
+ *     torchaudio 2.8.0+cu128  import 报 FileNotFoundError: libtorchaudio.pyd
+ *   而 torchaudio 是引擎代码里 import 了 20 处的必需依赖 ⇒ 引擎跑不起来。
+ *   根因：**torch 系是一族必须版本配对、同一个 index 的包**，
+ *   只换其中一个，等于留下一个错后端的兄弟。
+ *   ⭐ 实测：xpu 索引上 `torchaudio==2.8.0` 解析出来就是 `2.8.0+xpu`
+ *     （同一版本号、同一个索引自动配对），所以整族一起装是对的。
+ *
+ * ⛔ 锁文件里**没有**的兄弟包不凭空加：
+ *   torchvision 常常不在锁里（引擎不用视觉）⇒ 加了就是替用户决定。
+ *
+ * @param {string} text uv.lock 全文
+ * @param {string} [platform] process.platform，默认取当前平台
+ * @returns {{name:string, plain:string}[]|null} torch 排第一；读不出 torch 给 null
+ */
+function readTorchFamilyPins (text, platform) {
+  const plat = platform || process.platform
+  const rows = parseUvLock(text)
+  const torchCands = rows.filter((r) => r.name.toLowerCase() === 'torch' && r.version)
+  if (!torchCands.length) return null
+  const torchRow = preferLockRow(torchCands, plat)
+  const plain = String(torchRow.version).replace(/\+.*$/, '')
+  const out = [{ name: 'torch', plain }]
+  // ⭐ 顺序固定（先音频后视觉）：命令与界面上都要稳定，不按文件系统顺序。
+  for (const sib of ['torchaudio', 'torchvision']) {
+    const cands = rows.filter((r) => r.name.toLowerCase() === sib && r.version
+      && String(r.version).replace(/\+.*$/, '') === plain)
+    if (!cands.length) continue          // lock 里没有 ⇒ 不装
+    out.push({ name: sib, plain: String(preferLockRow(cands, plat).version).replace(/\+.*$/, '') })
+  }
+  return out
 }
 
 module.exports = {
