@@ -1,32 +1,35 @@
 'use strict'
-// downloadState — localStorage 持久化测试
+// downloadState — 第 3 步下载状态的门面（内部走 useInstallSession 会话段）
 //
-//  ⭐ 测试策略：
-//    · 用 Node 的 global.localStorage mock 浏览器 localStorage
-//    · 测试 loadDownloadState/saveDownloadState/clearDownloadState
-//    · 测试不同引擎状态隔离
-//    · 测试 localStorage 不可用时的错误处理
+// ⭐ 2026-10-12 Owner 裁决「统一重构持久化」后，这个文件不再自己读写
+//   localStorage，而是转调 editor/useInstallSession.js 的会话段。
+//   本测试守三件事：
+//     ① 三个导出名还在（StepsExtra.jsx 在用）
+//     ② 键里含 id 与 url（换 URL ⇒ 读不到旧仓库的清单）
+//     ③ 一段都不许落 localStorage（探测结果不是持久态）
 
 const { test } = require('node:test')
 const assert = require('node:assert')
 
-// ⭐ 在 Node 环境里 mock localStorage
 class MockStorage {
   constructor () { this.data = new Map() }
   getItem (k) { return this.data.has(k) ? this.data.get(k) : null }
   setItem (k, v) { this.data.set(k, String(v)) }
   removeItem (k) { this.data.delete(k) }
   clear () { this.data.clear() }
+  get size () { return this.data.size }
 }
 
-// ⭐ 动态 import ESM 模块
+const URL_A = 'https://github.com/acme/alpha'
+const URL_B = 'https://github.com/acme/beta'
+
 async function importModule () {
   return await import('../editor/downloadState.js')
 }
 
-test('downloadState — saveDownloadState + loadDownloadState 往返', async () => {
-  const storage = new MockStorage()
-  global.localStorage = storage
+test('downloadState — save + load 往返', async () => {
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
   const state = {
@@ -34,67 +37,81 @@ test('downloadState — saveDownloadState + loadDownloadState 往返', async () 
     probeError: null,
     dedup: false,
   }
-  saveDownloadState('test-engine', state)
-  const loaded = loadDownloadState('test-engine')
+  saveDownloadState('test-engine', URL_A, state)
+  const loaded = loadDownloadState('test-engine', URL_A)
   assert.deepStrictEqual(loaded, state)
 })
 
-test('downloadState — 不同引擎状态隔离', async () => {
-  const storage = new MockStorage()
-  global.localStorage = storage
+test('⭐⭐ downloadState — 换 URL ⇒ 读不到旧仓库的下载清单（防串号）', async () => {
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
-  saveDownloadState('engine-a', { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
-  saveDownloadState('engine-b', { manifest: [{ name: 'b.bin' }], probeError: null, dedup: false })
+  saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  // ⛔ 换了 URL 还显示旧仓库的文件清单，就是真机踩过的那个串号
+  assert.strictEqual(loadDownloadState('alpha', URL_B), null,
+    '⛔ 换了 URL 还读到上一个仓库的下载清单')
+  assert.ok(loadDownloadState('alpha', URL_A), '同一 id + url 应该读得到')
+})
 
-  const a = loadDownloadState('engine-a')
-  const b = loadDownloadState('engine-b')
+test('downloadState — 不同引擎状态隔离', async () => {
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
+  const { saveDownloadState, loadDownloadState } = await importModule()
+
+  saveDownloadState('engine-a', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  saveDownloadState('engine-b', URL_A, { manifest: [{ name: 'b.bin' }], probeError: null, dedup: false })
+
+  const a = loadDownloadState('engine-a', URL_A)
+  const b = loadDownloadState('engine-b', URL_A)
   assert.strictEqual(a.manifest[0].name, 'a.bin')
   assert.strictEqual(b.manifest[0].name, 'b.bin')
   assert.strictEqual(a.dedup, true)
   assert.strictEqual(b.dedup, false)
 })
 
-test('downloadState — clearDownloadState 清除指定引擎', async () => {
-  const storage = new MockStorage()
-  global.localStorage = storage
+test('downloadState — clearDownloadState 只清指定引擎的那一段', async () => {
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState, clearDownloadState } = await importModule()
 
-  saveDownloadState('engine-a', { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
-  saveDownloadState('engine-b', { manifest: [{ name: 'b.bin' }], probeError: null, dedup: true })
+  saveDownloadState('engine-a', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  saveDownloadState('engine-b', URL_A, { manifest: [{ name: 'b.bin' }], probeError: null, dedup: true })
 
-  clearDownloadState('engine-a')
-  assert.strictEqual(loadDownloadState('engine-a'), null)
-  assert.ok(loadDownloadState('engine-b'))
+  clearDownloadState('engine-a', URL_A)
+  assert.strictEqual(loadDownloadState('engine-a', URL_A), null)
+  assert.ok(loadDownloadState('engine-b', URL_A))
 })
 
-test('downloadState — localStorage 不可用时静默失败', async () => {
+test('⛔ downloadState — 一段都不落 localStorage（探测结果不是持久态）', async () => {
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
+  const { saveDownloadState } = await importModule()
+
+  saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  assert.strictEqual(global.localStorage.size, 0,
+    '⛔ 写进 localStorage 了：' + [...global.localStorage.data.keys()].join(', '))
+  assert.ok(global.sessionStorage.size > 0, '⛔ sessionStorage 里没有会话段')
+})
+
+test('downloadState — storage 不可用时静默失败', async () => {
   global.localStorage = null
+  global.sessionStorage = null
   const { saveDownloadState, loadDownloadState, clearDownloadState } = await importModule()
 
-  // 不应该抛异常
-  saveDownloadState('test', { manifest: null, probeError: null, dedup: true })
-  assert.strictEqual(loadDownloadState('test'), null)
-  clearDownloadState('test')
-})
-
-test('downloadState — 损坏的 JSON 被忽略', async () => {
-  const storage = new MockStorage()
-  global.localStorage = storage
-  const { loadDownloadState } = await importModule()
-
-  storage.setItem('wizard:download:broken', 'not valid json{{{')
-  assert.strictEqual(loadDownloadState('broken'), null)
+  assert.strictEqual(loadDownloadState('test', URL_A), null)
+  saveDownloadState('test', URL_A, { manifest: null, probeError: null, dedup: true })
+  clearDownloadState('test', URL_A)
 })
 
 test('downloadState — 空 id 返回 null', async () => {
-  const storage = new MockStorage()
-  global.localStorage = storage
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
   const { loadDownloadState, saveDownloadState, clearDownloadState } = await importModule()
 
-  assert.strictEqual(loadDownloadState(''), null)
-  assert.strictEqual(loadDownloadState(null), null)
-  assert.strictEqual(loadDownloadState(undefined), null)
-  saveDownloadState('', { manifest: null, probeError: null, dedup: true })
-  clearDownloadState('')
+  assert.strictEqual(loadDownloadState('', URL_A), null)
+  assert.strictEqual(loadDownloadState(null, URL_A), null)
+  assert.strictEqual(loadDownloadState(undefined, URL_A), null)
+  saveDownloadState('', URL_A, { manifest: null, probeError: null, dedup: true })
+  clearDownloadState('', URL_A)
 })

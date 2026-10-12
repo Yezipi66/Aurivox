@@ -89,22 +89,23 @@ export function StepModels ({ state, onChange, probe }) {
   // ⭐ 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
 
-  // ⭐ 持久化：从 localStorage 恢复状态
+  // ⭐ 持久化：从会话段恢复状态（sessionStorage，键含 id 与 url）
+  //   ⛔ 懒初始化读一次；换 URL / 换引擎 ⇒ 键变 ⇒ 恢复到的是另一段会话。
   React.useEffect(() => {
     if (!id) return
-    const saved = loadDownloadState(id)
+    const saved = loadDownloadState(id, state.repoUrl || '')
     if (saved) {
       if (saved.manifest) setManifest(saved.manifest)
       if (saved.probeError) setProbeError(saved.probeError)
       if (typeof saved.dedup === 'boolean') setDedup(saved.dedup)
     }
-  }, [id])
+  }, [id, state.repoUrl])
 
-  // ⭐ 持久化：保存状态到 localStorage
+  // ⭐ 持久化：保存状态到会话段
   React.useEffect(() => {
     if (!id) return
-    saveDownloadState(id, { manifest, probeError, dedup })
-  }, [id, manifest, probeError, dedup])
+    saveDownloadState(id, state.repoUrl || '', { manifest, probeError, dedup })
+  }, [id, state.repoUrl, manifest, probeError, dedup])
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
@@ -645,9 +646,36 @@ export function StepModels ({ state, onChange, probe }) {
         <button className="btn btn-sm" type="button" onClick={load} disabled={busy || !id}>
           {busy ? t('Checking…', '正在查…') : t('Check again', '再查一次')}
         </button>
+        {/* ---- ⭐ 逃生口：从头重装本步（2026-10-12 补，此前没有入口）----
+            ⚠ 只清「哪些下载算做完了」这份记录（models 段），
+              ⛔ 不删已下载的模型文件、⛔ 不删源码与依赖。*/}
+        {id && (
+          <>
+            <button className="btn btn-sm" type="button"
+              disabled={dlBusy}
+              onClick={() => resetThisStepOf(id)}>
+              {t('Reinstall this step from the start', '从头重装本步')}
+            </button>
+            <span className="field-hint">
+              {t('Clears the record of finished downloads in this step only. '
+                + 'Downloaded files are kept.',
+                '只清除本步的已完成记录，已下载的文件保留。')}
+            </span>
+          </>
+        )}
       </div>
     </div>
   )
+}
+
+/** 从头重装本步：清 models 段的进度记录（⛔ 不删已下载的文件） */
+async function resetThisStepOf (id) {
+  try {
+    await fetch('/wizard/reset-progress', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, section: 'models' }),
+    })
+  } catch (e) { /* 端点不通 ⇒ 记录还在，⛔ 不当成已清 */ }
 }
 
 

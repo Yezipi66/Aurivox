@@ -1,6 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
+import { loadSession, saveSession } from './useInstallSession'
 
 // ============================================================================
 //  STEP DEPS —— 第 2 步：读依赖 → 列出要装什么 → 用户选 → 才装
@@ -18,6 +19,16 @@ import { RiskUnlock } from './Pipeline'
 // ============================================================================
 
 /**
+ * ⭐ 2026-10-12 Owner 裁决「统一重构持久化」：本组件原来自己抄了一份
+ *    localStorage 读写（键 wizard:deps:<id>）。现在收敛到同一个会话模块
+ *    editor/useInstallSession.js，并且改落 sessionStorage —— 探测结果按
+ *    裁决 ② 不进 localStorage，但退出网页 / 下一次扫描前要在（刷新不丢）。
+ *
+ * ⭐ 会话键含 id **与 url**：换 URL 或换引擎 ⇒ 旧会话自动失效。
+ *    真机踩过的 bug：URL 改了却显示旧仓库的依赖列表（串号）。
+ */
+
+/**
  * Torch 后端与本机的匹配结论 —— 三个可判定的状态。
  *
  * ⛔ 不写「对得上」「看不出来」这类对话里的说法：界面要的是可判定的结论。
@@ -26,48 +37,11 @@ import { RiskUnlock } from './Pipeline'
  * ⛔ mark 用符号（✓ ! ?）是因为它要放进表格第一列，
  *   ⛔ 符号旁边永远跟着完整文字，不靠符号表意。
  */
-// ============================================================================
-// localStorage 持久化工具（照 downloadState.js 的模式）
-//   - 按引擎 ID 隔离状态
-//   - localStorage 不可用时静默失败
-//   - 不保存瞬态状态（busy、live、tail）
-// ============================================================================
-
-const STORAGE_KEY_PREFIX = 'wizard:deps:'
-
-function getStorage () {
-  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
-  if (typeof global !== 'undefined' && global.localStorage) return global.localStorage
-  return null
-}
-
-function getKey (id) {
-  return STORAGE_KEY_PREFIX + id
-}
-
-function loadDepsState (id) {
-  if (!id) return null
-  try {
-    const storage = getStorage()
-    if (!storage) return null
-    const raw = storage.getItem(getKey(id))
-    if (!raw) return null
-    return JSON.parse(raw)
-  } catch (e) {
-    return null
-  }
-}
-
-function saveDepsState (id, state) {
-  if (!id) return
-  try {
-    const storage = getStorage()
-    if (!storage) return
-    storage.setItem(getKey(id), JSON.stringify(state))
-  } catch (e) {
-    // localStorage 不可用时静默失败
-  }
-}
+// ---------------------------------------------------------------------------
+// ⭐ 2026-10-12：这一段的本地读写已删除（收敛到 ./useInstallSession）。
+//    原来的 STORAGE_KEY_PREFIX / getStorage / loadDepsState / saveDepsState
+//    四个 helper 全部走同一个会话模块，⛔ 不再自己写一份 localStorage。
+// ---------------------------------------------------------------------------
 
 const VERDICT = {
   match: { mark: '✓', en: 'Matches this machine', zh: '与本机匹配' },
@@ -80,28 +54,33 @@ export default function StepDeps ({ state }) {
   const engineId = state.id
   const url = state.repoUrl || ''
 
-  // 从 localStorage 恢复状态（懒初始化，避免首帧覆盖）
-  const saved = React.useMemo(() => loadDepsState(engineId), [engineId])
+  // ⭐ 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）
+  //   ⛔ 懒初始化（useState 初值）而不是 useEffect：首帧就要用恢复值，
+  //      否则第 1 帧会把旧值覆盖回默认值再写盘，恢复就白做了。
+  const saved = React.useMemo(
+    () => loadSession(engineId, url), [engineId, url])
 
   // ⛔ 数据自己取，不靠 App 往下传 —— 那条链路对不上。
-  const [plan, setPlan] = React.useState(saved?.plan || null)
+  const [plan, setPlan] = React.useState(saved?.depsPlan || null)
   const [showNormal, setShowNormal] = React.useState(saved?.showNormal || false)
   const [backend, setBackend] = React.useState(saved?.backend || null)
+  const [result, setResult] = React.useState(saved?.depsResult || null)
+  const [preview, setPreview] = React.useState(saved?.depsPreview || null)
   const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
   const [busy, setBusy] = React.useState(false)
-  const [result, setResult] = React.useState(saved?.result || null)
-  const [preview, setPreview] = React.useState(saved?.preview || null)
   const [live, setLive] = React.useState(null)   // 瞬态，不持久化
   const [tail, setTail] = React.useState([])      // 瞬态，不持久化
-  const [progress, setProgress] = React.useState(saved?.progress || null)
+  const [progress, setProgress] = React.useState(saved?.depsProgress || null)
 
-  // 保存到 localStorage（排除瞬态状态）
+  // 保存到会话段（排除瞬态状态：busy / live / tail 一段都不存）
+  //   ⭐ 键含 id 与 url ⇒ 换任一个，写的都是另一段会话，⛔ 不会污染旧的。
   React.useEffect(() => {
     if (!engineId) return
-    saveDepsState(engineId, {
-      plan, showNormal, backend, unlocked, result, preview, progress,
+    saveSession(engineId, url, {
+      depsPlan: plan, showNormal, backend, unlocked,
+      depsResult: result, depsPreview: preview, depsProgress: progress,
     })
-  }, [engineId, plan, showNormal, backend, unlocked, result, preview, progress])
+  }, [engineId, url, plan, showNormal, backend, unlocked, result, preview, progress])
 
   const reload = async () => {
     if (!url) return
@@ -112,6 +91,18 @@ export default function StepDeps ({ state }) {
       })
       setPlan(await r.json())
     } catch (e) { setPlan({ ok: false, error: e.message }) }
+  }
+
+  // ⭐ 逃生口：从头重装本步。清 env 段的进度记录后让用户照常点「安装」
+  //   ⛔ 只清记录，⛔ 不删源码、⛔ 不删已装依赖（那是另一回事）。
+  const resetThisStep = async () => {
+    if (!engineId) return
+    try {
+      await fetch('/wizard/reset-progress', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: engineId, section: 'env' }),
+      })
+    } catch (e) { /* 端点不通 ⇒ 记录还在，⛔ 不当成已清 */ }
   }
   React.useEffect(() => {
     if (url && !plan) reload() /* eslint-disable-line */
@@ -478,6 +469,24 @@ export default function StepDeps ({ state }) {
           {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
         </button>
       </RiskUnlock>
+
+      {/* ---- ⭐ 逃生口：从头重装本步（2026-10-12 补，此前没有入口）----
+          ⚠ 只清「哪些步骤算做完了」这份记录（.wizard-install.json 的 env 段），
+            ⛔ 不删引擎目录里的源码、⛔ 不删已装依赖。清完之后再点「安装」，
+            每一步都会真的重跑，而 uv 的缓存会让已下载的 wheel 不重下。*/}
+      {!busy && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-sm" type="button"
+            onClick={() => resetThisStep()}>
+            {t('Reinstall this step from the start', '从头重装本步')}
+          </button>
+          <span className="field-hint">
+            {t('Clears the record of finished steps in this step only. Source code '
+              + 'and installed packages are kept, and cached wheels are reused.',
+              '只清除本步的已完成记录。源码与已安装的依赖保留，已下载的依赖包会复用。')}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

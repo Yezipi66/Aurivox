@@ -1,75 +1,42 @@
-// downloadState.js — localStorage 读写工具
-// 用于持久化第 3 步的下载状态（manifest、probeError、dedup）
+// downloadState.js — 第 3 步下载状态的**门面**（内部走 useInstallSession）
 //
-// ⭐ 设计原则：
-//   - 不同引擎状态隔离（用 id 作为 key）
-//   - localStorage 不可用时静默失败
-//   - 只保存需要持久化的状态（manifest、probeError、dedup）
-//   - 不保存临时状态（dlLive、dlTail、dlBusy、fileList）
+// ⭐ 2026-10-12 Owner 裁决「统一重构持久化」：这里原来自己抄了一份
+//    localStorage 读写（键 wizard:download:<id>）。现在三处收敛到同一个
+//    editor/useInstallSession.js，本文件只保留导出名（StepsExtra.jsx 在用），
+//    内部改走会话段。
+//
+// ⭐ 判据（防串号）：键里含 id **与 url**。原来只按 id 分键 ⇒ 换 URL 后
+//    仍显示旧仓库的下载清单（真机踩过）。所以本门面的签名多了 url：
+//      loadDownloadState(id, url) / saveDownloadState(id, url, state)
+//    ⛔ url 省不掉 —— 省了就没有防串号那一层。
+//
+// ⭐ 落在 sessionStorage 而不是 localStorage：这些是**探测结果**，
+//    按裁决 ② 不持久化到 localStorage，但退出网页 / 下一次扫描前要在。
 
-const STORAGE_KEY_PREFIX = 'wizard:download:'
+import { loadSession, saveSession, clearSession } from './useInstallSession.js'
 
-function getStorage () {
-  // 浏览器环境
-  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
-  // Node 环境（测试）
-  if (typeof global !== 'undefined' && global.localStorage) return global.localStorage
-  return null
-}
-
-function getKey (id) {
-  return STORAGE_KEY_PREFIX + id
-}
-
-/**
- * 从 localStorage 读取下载状态
- * @param {string} id - 引擎 ID
- * @returns {Object|null} - 保存的状态，如果没有则返回 null
- */
-export function loadDownloadState (id) {
+/** 从会话段读下载状态（manifest / probeError / dedup 三项） */
+export function loadDownloadState (id, url) {
   if (!id) return null
-  try {
-    const storage = getStorage()
-    if (!storage) return null
-    const key = getKey(id)
-    const raw = storage.getItem(key)
-    if (!raw) return null
-    return JSON.parse(raw)
-  } catch (e) {
-    return null
-  }
+  const s = loadSession(id, url)
+  if (!s) return null
+  // ⛔ 三项都没有 ⇒ 等于没存过（读 null 让调用方走「新开一页」那条路）
+  if (s.manifest == null && s.probeError == null && s.dedup === true) return null
+  return { manifest: s.manifest, probeError: s.probeError, dedup: s.dedup }
 }
 
-/**
- * 保存下载状态到 localStorage
- * @param {string} id - 引擎 ID
- * @param {Object} state - 要保存的状态（manifest、probeError、dedup）
- */
-export function saveDownloadState (id, state) {
-  if (!id) return
-  try {
-    const storage = getStorage()
-    if (!storage) return
-    const key = getKey(id)
-    const raw = JSON.stringify(state)
-    storage.setItem(key, raw)
-  } catch (e) {
-    // localStorage 不可用时静默失败
-  }
+/** 存下载状态到会话段 */
+export function saveDownloadState (id, url, state) {
+  if (!id || !state) return
+  saveSession(id, url, {
+    manifest: state.manifest === undefined ? undefined : state.manifest,
+    probeError: state.probeError === undefined ? undefined : state.probeError,
+    dedup: state.dedup === undefined ? undefined : state.dedup,
+  })
 }
 
-/**
- * 清除下载状态
- * @param {string} id - 引擎 ID
- */
-export function clearDownloadState (id) {
+/** 清掉这一段会话（换引擎 / 换 URL 时主动丢） */
+export function clearDownloadState (id, url) {
   if (!id) return
-  try {
-    const storage = getStorage()
-    if (!storage) return
-    const key = getKey(id)
-    storage.removeItem(key)
-  } catch (e) {
-    // localStorage 不可用时静默失败
-  }
+  clearSession(id, url)
 }

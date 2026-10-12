@@ -7,10 +7,12 @@ import { StepModels } from './StepsExtra'
 import { StepVerify } from './StepVerify'
 import { STEPS, stepDone } from './steps'
 import { useT, LangToggle } from '../../../web/src/lib/i18n'
-// ⚠ 这里**只**给「当前打开的是哪一步」用持久化（page）。
-//   ⛔ 链接、目录名、解析结果一律**不持久化** —— 残留的旧目录名
-//     会派生出对不上的命令和路径。
-import { usePersistentState } from '../../../web/src/usePersistentState'
+// ⭐ 2026-10-12 Owner 裁决「统一重构持久化」：向导的持久化收敛到这一个模块。
+//   · 持久段（localStorage）= 用户输入与选择 + 当前展开哪一步
+//   · 会话段（sessionStorage）= 探测结果与各步瞬态（键含 id 与 url）
+//   ⛔ 完成状态（对勾）一段都不存：它由 GET /wizard/install-state 按真实产物判。
+import { loadPersist, savePersist, loadPage, savePage,
+  loadSession, saveSession, purgeOrphanKeys } from './useInstallSession'
 
 // ============================================================================
 //  向导骨架 —— 层级照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()
@@ -97,21 +99,84 @@ export default function App () {
   // ---- 向导状态：**必须**活在 App 这一层
   //   ⛔ 不许下沉到各Step 组件的局部 state —— 组件卸载即状态归零，
   //     而卸载是导航的正常结果。判据：导航往返后克隆区仍在。
-  const [wz, setWz] = usePersistentState('wizard.wz',
-    { url: '', id: '', cloneUrl: '', repoUrl: '' }, {
-      rehydrate: (v) => ({ url: '', id: '', cloneUrl: '', repoUrl: '', ...v }),
-    })
-  const [facts, setFacts] = React.useState({})
-  const [prep, setPrep] = React.useState({})
+  //
+  //  ⭐ 2026-10-12 拆两段（Owner 裁决「统一重构持久化」）：
+  //    wz     = 持久段（localStorage）：用户输入与选择，⛔ 不放探测结果
+  //    prep   = 会话段（sessionStorage）：探测结果 res/probe/plan/cloneRes
+  //            键含 id 与 url ⇒ 换 URL 或换引擎 ⇒ 旧的自动失效（防串号）
+  const [wz, setWzRaw] = React.useState(loadPersist)
+  const persistedUrl = wz.repoUrl || wz.url || ''
+  // 会话段只在「id + url 都定了」之后才有意义 —— 都是空的时候读出来也是空。
+  const [prep, setPrep] = React.useState(() => loadSession(wz.id, persistedUrl) || {})
 
-  const addFacts = (patch) => setFacts((f) => ({ ...f, ...patch }))
+  // 写持久段（⛔ 只写用户输入与选择；探测结果走 saveSession）
+  const setWz = (updater) => setWzRaw((cur) => {
+    const next = typeof updater === 'function' ? updater(cur) : updater
+    savePersist(next)
+    return next
+  })
+
+  // ⭐ 换 URL / 换引擎 ⇒ 会话段的键变了 ⇒ 必须整段丢掉，⛔ 不许把上一个
+  //   仓库的探测结果显示给这一个（真机踩过的串号）。判据：URL 一变就清空。
+  const lastStamp = React.useRef(null)
+  React.useEffect(() => {
+    const stamp = String(wz.id || '') + '|' + persistedUrl
+    const first = lastStamp.current === null
+    lastStamp.current = stamp
+    // 首帧：useState 初始值已经读过正确的会话段，⛔ 不要再覆盖一次
+    if (first) return
+    setPrep(loadSession(wz.id, persistedUrl) || {})
+  }, [wz.id, persistedUrl])
+
+  const patchPrep = (updater) => setPrep((cur) => {
+    const next = typeof updater === 'function' ? updater(cur) : updater
+    saveSession(wz.id, persistedUrl, {
+      res: next.res, probe: next.probe, plan: next.plan, cloneRes: next.cloneRes,
+    })
+    return next
+  })
+
+  // ---- ⭐ 完成状态：**只由真实产物判**（GET /wizard/install-state）
+  //   ⛔ 不读 localStorage 里的 facts —— 那些一刷新就没了，而且「点过什么」
+  //      不等于「装好了」。判据见 core/installState.js 与 steps.js 的 stepDone。
+  const [facts, setFacts] = React.useState({})
+  const reloadFacts = React.useCallback(() => {
+    if (!wz.id) { setFacts({}); return }
+    let alive = true
+    fetch(`/wizard/install-state?id=${encodeURIComponent(wz.id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive && j && j.ok && j.steps_done) setFacts(j.steps_done) })
+      .catch(() => { /* 端点调不通 ⇒ 一个勾都没有，⛔ 不猜 */ })
+    return () => { alive = false }
+  }, [wz.id])
+  React.useEffect(reloadFacts, [reloadFacts])
+
+  // 老的 addFacts 两类用法分开：
+  //   · 克隆成功 —— 产物此刻真在盘上，本地即时反馈
+  //   · 名片保存成功 —— 重新问端点，⛔ 不让前端自己写「做完了」
+  const addFacts = (patch) => {
+    if (!patch || typeof patch !== 'object') return
+    if (patch.cloned === true) { setFacts((f) => ({ ...f, cloned: true })); return }
+    if (patch.manifestSaved === true) reloadFacts()
+  }
+
   const done = Object.fromEntries(
     STEPS.map((st) => [st.key, stepDone(st.key, facts)]))
 
-  // 当前展开的是哪一步。⛔ 全部向导状态只有 page 持久化：
-  //   链接、目录名、解析结果一律不持久化 —— 残留的旧目录名会派生出
-  //   对不上的命令和路径。
-  const [page, setPage] = usePersistentState('wizard.step', 'prepare')
+  // 当前展开的是哪一步（持久段：刷新后停在上次那一步）
+  const [page, setPageState] = React.useState(loadPage)
+  const setPage = (next) => {
+    const v = typeof next === 'function' ? next(page) : next
+    setPageState(v)
+    savePage(v)
+  }
+
+  // ⭐ 孤儿键一次性清理（Owner 浏览器里有 tf.v1.wizard.repo，代码里没人读）
+  //   读一次就删，⛔ 不留长期清理代码。
+  React.useEffect(() => { purgeOrphanKeys() }, [])
+
+  // ⭐ 门槛说明的显隐（克隆未完成时点了第 2~5 步 ⇒ 说明为什么点不开）
+  const [gateMsg, setGateMsg] = React.useState(false)
 
   const step = STEPS.find((x) => x.key === page)
   const title = step ? (lang === 'zh' ? step.label[1] : step.label[0]) : ''
@@ -131,7 +196,22 @@ export default function App () {
 
       {/* ---- 流程条：点一下展开那一步，再点收起 ---- */}
       <Pipeline done={done} selected={page}
-        onSelect={(k) => setPage((cur) => (cur === k ? null : k))} />
+        onSelect={(k, locked) => {
+          // ⭐ 门槛：克隆未完成时后面四步不可点，点给人话说明
+          //   ⛔ 不是点进去一片空（Owner 2026-10-12 裁决）
+          if (locked && k !== page) { setGateMsg(true); return }
+          setGateMsg(false)
+          setPage((cur) => (cur === k ? null : k))
+        }} />
+
+      {/* ---- 门槛说明：为什么现在点不开第 2~5 步 ---- */}
+      {gateMsg && page !== 'prepare' && (
+        <div className="msg msg-info">
+          {t('The repository is not cloned yet. Finish step 1 to continue: '
+            + 'the remaining steps work on the cloned engine directory.',
+            '仓库尚未克隆完成。请先完成第 1 步，后续步骤都在克隆下来的引擎目录上进行。')}
+        </div>
+      )}
 
       {/* ---- 展开的那一步：项目的 .node-detail 详情框 -------------
           ⭐ 外壳照抄 TrainingTab.jsx:2338-2350 的 renderNodeDetail()：
@@ -156,7 +236,7 @@ export default function App () {
               <StepPrepare state={wz} facts={facts}
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
                 onDone={() => addFacts({ cloned: true })}
-                prep={prep} onPrep={setPrep} />
+                prep={prep} onPrep={patchPrep} />
             )}
             {page === 'env' && (
               <StepDeps state={{ ...wz, manifest: manifest || {} }} />
