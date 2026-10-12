@@ -387,11 +387,11 @@ async function main () {
     //   ⚠ 端口仍然是**这里**定的（上面 resolvePort 已经跑过，结果写进了
     //     这台引擎自己的 base_url_env）。后端起它的时候用的就是这个端口，
     //     两边不会打架。
-    //   ⚠ 已经在跑的情况（Action='own'，上次留下的进程还听着）由下面那个分支管，
+    //   ⚠ 已在运行的情况（Action='own'，上次留下的进程还听着）由下面那个分支处理，
     //     这里的 continue 不会把它误伤 —— 顺序不能反。
     if (e.Action !== 'own' && !e.Preload) {
       Log('      不预先启动：这台引擎的模型是开进程那一刻吃进内存的，起着就一直占着。', 'Yellow')
-      Log('      第一次用到它的时候后端会自己起（首次要等它加载，界面上会显示进度）。', 'DarkGray')
+      Log('      第一次使用时后端会自动启动（首次需要等待加载，界面上会显示进度）。', 'DarkGray')
       continue
     }
     if (e.Action === 'own') {
@@ -439,7 +439,7 @@ async function main () {
   for (const e of ENGINES) {
     if (e.Skip) Log(`  Engine  : ${e.Id.padEnd(14)} 没起（${e.SkipReason}）`, 'Red')
     else if (!e.Launchable) Log(`  Engine  : ${e.Id.padEnd(14)} http://${e.EHost}:${e.Port}  由作者自己起`, 'Yellow')
-    else if (!e.Preload && e.Action !== 'own') Log(`  Engine  : ${e.Id.padEnd(14)} http://${e.EHost}:${e.Port}  用到才起（端口已守住）`, 'Yellow')
+    else if (!e.Preload && e.Action !== 'own') Log(`  Engine  : ${e.Id.padEnd(14)} http://${e.EHost}:${e.Port}  按需启动（端口已守住）`, 'Yellow')
     else Log(`  Engine  : ${e.Id.padEnd(14)} http://${e.EHost}:${e.Port}  logs\\${e.Id}.log`, 'DarkGray')
   }
   Log('  Launcher will exit. Backend and inference stay running in background.', 'Cyan')

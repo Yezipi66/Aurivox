@@ -117,7 +117,7 @@ if (!explicitPy) {
 //  2. 设备探测 ⭐ 这是相对原脚本最实质的一处改动
 // =============================================================================
 // 原脚本只问 NVIDIA，而且是两套 Windows 手段（nvidia-smi + Win32_VideoController
-// 正则匹配 'NVIDIA'）。这台机器没有 N 卡 ⇒ 恒定落到 CPU 分支。
+// 正则匹配 'NVIDIA'）。这台机器没有 N 卡 ⇒ 恒定进入 CPU 分支。
 //
 // 现在：问操作系统「有什么计算设备」，并按 vendor 选构建。
 // ⚠️ 检测失败 ⇒ 落 CPU。理由同原脚本：CPU 构建是那个「到处都能 import」的选择，
@@ -173,7 +173,7 @@ function decideBackend () {
   }
   if (has('amd')) {
     // ⚠️ AMD 走 ROCm。PyTorch 官方的 ROCm wheel **只发 Linux**，
-    //    Windows 上没有 —— 与其装一个跑不了的，不如说清楚。
+    //    Windows 上没有 —— 与其装一个无法运行的，不如说明清楚。
     if (process.platform === 'win32') {
       Warn('本机有 AMD 设备，但 PyTorch 官方 ROCm wheel **不发布 Windows 版**。')
       Warn('  ⇒ 落到 CPU 构建。若要用 AMD：装 Linux，或改用 DirectML 版 torch。')
@@ -242,7 +242,7 @@ if (DRY) {
 // =============================================================================
 // torch 默认 --no-deps：它声明的 fsspec / sympy / networkx / jinja2 /
 // filelock / typing-extensions / numpy / pillow 全都**已经**被
-// requirements-gpt-sovits.txt 锁住并装好了。让 pip/uv 去解 torch 的依赖，
+// requirements-gpt-sovits.txt 锁定并已完成安装。让 pip/uv 去解析 torch 的依赖，
 // 它会按 torch 的版本区间把锁定的版本升/降掉（fsspec==2026.4.0 → 别的），
 // 静悄悄破坏冻结环境。逃生口是 --with-deps（裸 venv 场景）。
 const depFlag = WITH_DEPS ? [] : ['--no-deps']
@@ -256,7 +256,7 @@ const env = Object.assign({}, process.env, {
 
 // 优先 uv（并行下载），失败自动退回 pip（兼容性最好）
 let useUv = process.env.TTS_NO_UV !== '1' && spawnSync(PY, ['-m', 'uv', '--version'], { env, stdio: 'ignore' }).status === 0
-if (process.env.TTS_NO_UV === '1') Warn('TTS_NO_UV=1 —— 跳过 uv，用 pip。')
+if (process.env.TTS_NO_UV === '1') Warn('TTS_NO_UV=1：跳过 uv，用 pip。')
 
 function runNative (exe, args) {
   // stdio: 'inherit' —— 让进度条直接进终端，不经过管道（原脚本用
@@ -319,8 +319,8 @@ for name, mod in (("cuda", "cuda"), ("xpu", "xpu")):
 if (torchProbe.rc !== 0) {
   Warn('torch 装上了，但导入/验证失败（见上面输出）。')
   if (!WITH_DEPS) {
-    Warn('若报的是缺模块（sympy / networkx / fsspec 之类），多半是你在一个裸 venv 上跑的。')
-    Warn('先跑完整部署，或加 --with-deps。')
+    Warn('若报的是缺模块（sympy / networkx / fsspec 之类），通常是在裸 venv 上运行。')
+    Warn('请先完成完整部署，或加 --with-deps。')
   }
 } else {
   Ok('PyTorch 就绪。')
@@ -331,7 +331,7 @@ if (torchProbe.rc !== 0) {
 // =============================================================================
 // ⚠️ 两个 onnxruntime 包提供**同一个** `onnxruntime` import，共存会打架。
 //    先卸掉两个，重跑（换机器搬 venv、CPU↔GPU 切换）最后只剩一种。
-Info('保证只留一种 onnxruntime 变体（先卸掉可能冲突的那个）…')
+Info('保证只留一种 onnxruntime 变体（先卸掉可能冲突的那个）。')
 spawnSync(PY, ['-m', 'pip', 'uninstall', '-y', 'onnxruntime', 'onnxruntime-gpu'], { env, stdio: 'ignore' })
 
 // ⭐ onnxruntime-gpu **不能从 PyPI 拿**：PyPI 上那个是按 CUDA 11.8 构建的
@@ -389,9 +389,9 @@ else:
 if (ortProbe.rc !== 0) {
   Warn('onnxruntime 装上了，但导入/验证失败（见上面输出）。')
 } else if (ortIsGpuWheel && !/CUDA_EP: OK/.test(ortProbe.out)) {
-  Warn('onnxruntime-gpu 装上了，但它的 CUDA ExecutionProvider **载不进来** ——')
+  Warn('onnxruntime-gpu 已安装，但其 CUDA ExecutionProvider **无法加载**：')
   Warn('所有用 onnxruntime 的地方（MDX-Net 分离人声、g2pW 多音字消歧）会跑在 CPU 上，**且不报错**。')
-  Warn('最可能是这个 wheel 的 CUDA 主版本和 torch 对不上。')
+  Warn('通常是该 wheel 的 CUDA 主版本与 torch 不匹配。')
 } else {
   Ok('onnxruntime 就绪。')
 }
