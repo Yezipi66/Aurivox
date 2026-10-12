@@ -77,6 +77,29 @@ function guessRepoFromUrl (raw) {
   return m2 ? m2[1] : ''
 }
 
+/**
+ * 许可证那一格显示什么。
+ *
+ * ⚠ 这一格直接渲染 meta.license，而 meta.license 是**值字段**：
+ *   ⛔ 它只装许可证标识（SPDX id）或 null，⛔ 不装句子。
+ *   ⚠ 探针曾在「只看到许可证文件」时把值写成一句英文描述，
+ *     于是那句话原样出现在界面上，而它本该是元数据。
+ *   ⇒ 读不出标识时，用 licenseEvidence 这个**事实字段**说清楚，
+ *     并且在这里翻译成人话（⛔ 中文侧不许出现英文句子）。
+ *
+ * @param {object|null} meta 探测返回的 meta
+ * @param {Function} t 双语函数 t(英文, 中文)
+ */
+function licenseText (meta, t) {
+  if (!meta) return '—'
+  if (meta.license) return meta.license
+  if (meta.licenseEvidence === 'file-only' && meta.licenseFile) {
+    return t(`License file ${meta.licenseFile} present, license type not read`,
+      `仓库里有 ${meta.licenseFile} 文件，许可证类型未读出`)
+  }
+  return '—'
+}
+
 export default function StepPrepare ({ state, facts, onChange, onDone, prep, onPrep }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
@@ -293,7 +316,7 @@ const done = facts && facts.cloned === true
             <span className="pk">{t('Python', 'Python')}</span>
             <span className="pv">{(meta && meta.requiresPython) || '—'}</span>
             <span className="pk">{t('License', '许可证')}</span>
-            <span className="pv">{(meta && meta.license) || '—'}</span>
+            <span className="pv">{licenseText(meta, t)}</span>
           </div>
           {probe && probe.note && (
             <p className="plan-warn" style={{ margin: 0 }}>{t(probe.note, probe.noteZh)}</p>

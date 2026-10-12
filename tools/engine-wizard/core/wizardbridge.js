@@ -14,7 +14,7 @@ const { runClone, buildClonePlan, projectRoot } = require('./clone')
 const { runEnv, buildEnvPlan } = require('./env')
 const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
-const { probeProject, detectDependencyFile, planDependencies } = require('./probe')
+const { probeProject, planDependencies, probePyproject } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
 const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
 const { reflectAndBuild } = require('./paramsFromReflect')
@@ -131,6 +131,16 @@ const DOWNLOAD_SCRIPTS = [
   'download_checkpoints.sh',
 ]
 
+/**
+ * ⭐ 许可证文件候选名（2026-10-12 加进第 1 步的候选清单）。
+ *
+ * ⚠ 判据：这几种命名是老布局仓库的通行写法。⛔ 只认「根目录有没有这个文件」，
+ *   ⛔ 不读正文、不判类型、不猜是哪一种许可证。
+ * ⛔ 顺序即优先级（先到先得）—— 多数仓库只有其中一种。
+ */
+const LICENSE_FILES = ['LICENSE', 'LICENSE.txt', 'LICENSE.md',
+  'LICENCE', 'LICENCE.txt', 'COPYING', 'COPYING.txt']
+
 function fetchRaw (owner, name, file) {
   return new Promise((resolve) => {
     const url = `https://raw.githubusercontent.com/${owner}/${name}/main/${file}`
@@ -167,6 +177,17 @@ function handleProbe (req, res) {
       if (t !== null) { found.push(f); texts[f] = t }
     }
 
+    // ⭐⭐ 许可证文件 —— ⚠ 2026-10-12（P0）新增的一个候选。
+    //   许可证**不是 pyproject 的字段**：老布局仓库根目录只有一个 LICENSE 文件。
+    //   ⛔⛔ 只认「文件在不在」，⛔ 不读正文、不猜是哪一种许可证：
+    //     判 Apache/MIT 要读正文做判断 ⇒ 那是解析，平台这里只做读取。
+    let licenseFile = null
+    for (const f of LICENSE_FILES) {
+      // eslint-disable-next-line no-await-in-loop
+      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      if (t !== null) { licenseFile = f; break }
+    }
+
     // ⭐⭐⭐ **上游自己的模型下载入口**（2026-10-05 Owner 定：
     //   「模型不再需要统一管理……不同引擎项目里面一定会有下载模型的代码的」）
     //
@@ -197,28 +218,43 @@ function handleProbe (req, res) {
       }))
     }
 
-    if (!texts['pyproject.toml']) {
-      // ⛔ 没有 pyproject ⇒ 如实说「探测器用不上」，⛔ 不退回任何别的来源
-      json(res, 200, {
-        ok: true,
-        meta: { dependencies: detectDependencyFile(found) },
-        note: 'This repository has no pyproject.toml, so project metadata cannot be read.',
-    noteZh: '这个仓库没有 pyproject.toml，读不到项目信息。'
-          + '包名/入口/命令这些事实读不出来。\n'
-          + '这不代表该仓库没有依赖，依赖也可能位于子目录中。'
-      + '请改用带依赖清单的仓库，或按上游说明自行安装。',
-        found_files: found,
-        downloader: dlScripts,
-        downloader_cmds: readmeCmds,
-      })
-      return
-    }
-
-    const r = probeProject({ pyproject: texts['pyproject.toml'], filenames: found })
+    // ⭐⭐⭐ 2026-10-12（P0）：原来这里在**缺 pyproject.toml 时提前 return**
+    //   一句「读不到项目信息」，把包名与许可证一并清空。
+    //   ⛔ 而这两个字段的来源都不是 pyproject：
+    //     包名     ← setup.py 的 name=
+    //     许可证   ← 根目录的 LICENSE / COPYING 文件
+    //   ⇒ 现在无论有没有 pyproject 都走 probeProject，
+    //     让它自己决定哪个字段读得到、哪个读不到（⛔ 读不到就说读不到）。
+    const r = probeProject({
+      pyproject: texts['pyproject.toml'],
+      requirements: texts['requirements.txt'],
+      setupPy: texts['setup.py'],
+      licenseFile,
+      filenames: found,
+    })
     // ⭐ 统一返回契约：所有 /wizard/* 端点成功时都带 ok:true
     //   （前端据此判成功；少了它界面会把成功当失败 —— 实测踩过）
-    json(res, 200, { ok: true, ...r, found_files: found,
-      downloader: dlScripts, downloader_cmds: readmeCmds })
+    // ⭐ note 如实说明「哪些字段没读到、为什么」，⛔ 不说「请换一份仓库」。
+    const noPy = !texts['pyproject.toml']
+    json(res, 200, {
+      ok: true,
+      ...r,
+      // ⭐ 没有 pyproject 时，如实说清「哪些还读不到」——
+      //   哪些读到了由 r.meta 自己说话，⛔ 不在这里下结论。
+      note: noPy
+        ? 'No pyproject.toml in this repository. Package name and license are still '
+          + 'read from setup.py and the license file when present; the console command '
+          + 'cannot be read from these files.'
+        : null,
+      noteZh: noPy
+        ? '这个仓库没有 pyproject.toml。包名与许可证仍会从 setup.py 和许可证文件读出'
+          + '（如果它们存在），而运行命令无法从这些文件里读到。'
+        : null,
+      license_file: licenseFile,
+      found_files: found,
+      downloader: dlScripts,
+      downloader_cmds: readmeCmds,
+    })
   })
   return true
 }
@@ -253,6 +289,17 @@ function handleHardware (req, res) {
 }
 
 
+/**
+ * POST /wizard/deps  {url}
+ *  ⭐ 第 2 步的数据源：读上游的依赖清单 + uv.lock，跟本机比出绿/黄/白。
+ *  ⛔ 不装任何东西 —— 只回答「要装哪些包」。
+ *
+ * ⚠ 2026-10-12（P0）：这里原来**只读 pyproject.toml**，
+ *   没有就直接 ok:false / NO_PYPROJECT ⇒ 2020-2023 年那种
+ *   只放 requirements.txt 的老布局，第 2 步直接断流程。
+ *   而提示语「它可能在 requirements.txt 里」正是这个端点自己写的
+ *   —— 文案说了，代码没读。现在真的读了。
+ */
 function handleDeps (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/deps')) return false
@@ -265,13 +312,20 @@ function handleDeps (req, res) {
       const t = await fetchRaw(parsed.owner, parsed.repo, f)
       return t
     }
-    const [py, lockText] = await Promise.all([get('pyproject.toml'), get('uv.lock')])
+    // ⭐ 三个来源一起读：依赖列表两个（pyproject 优先）+ lock（只锁 torch 版本）
+    const [py, reqText, lockText] = await Promise.all([
+      get('pyproject.toml'), get('requirements.txt'), get('uv.lock')])
 
-    if (!py) {
-      json(res, 200, { ok: false, code: 'NO_PYPROJECT',
-        error: 'This repository has no pyproject.toml, so the dependency list cannot be read.\n',
-    errorZh: '这个仓库没有 pyproject.toml，读不到依赖列表。\n'
-          + '它可能在 uv.lock / requirements.txt 或子目录里。请换一份带依赖清单的仓库，或按上游说明自己安装。' })
+    // ⛔ 两份依赖清单都没有 ⇒ 确实读不到，如实说。
+    //   ⛔ 不是「pyproject 不在就什么都不报」，⛔ 也不是编造。
+    const pyHasDeps = py ? probePyproject(py).dependencies.length > 0 : false
+    if (!pyHasDeps && !reqText) {
+      json(res, 200, { ok: false, code: 'NO_DEPENDENCY_MANIFEST',
+        error: 'This repository has no dependency list: no pyproject.toml and no '
+          + 'requirements.txt.\nIt may live in uv.lock, a subdirectory, or a file named '
+          + 'differently. Follow the upstream instructions to install.',
+        errorZh: '这个仓库读不到依赖列表：既没有 pyproject.toml，也没有 requirements.txt。\n'
+          + '它可能放在 uv.lock、子目录里，或换了别的文件名；请按上游说明自行安装。' })
       return
     }
 
@@ -279,11 +333,13 @@ function handleDeps (req, res) {
     let hardware = null
     try { hardware = inspectHardware() } catch { hardware = null }
 
-    const base = planDependencies(py, { hardware })
+    const base = planDependencies(py, { hardware, requirements: reqText })
     if (!base.ok) { json(res, 200, base); return }
 
     // ⭐ 把 lock 里的 torch 系并进去 —— pyproject 只写 torch>=2.5.0，
     //   真正锁死 wheel 的是 lock（2026-10-04 实测：只看 pyproject 判不出后端）
+    //   ⛔ lock **只**用来判 torch 后端，⛔ 不当依赖列表来源：
+    //     它锁的是全部传递依赖，拿它当清单会把传递依赖全列成顶层依赖。
     if (lockText) {
       const rows = parseUvLock(lockText)
       const lockedNames = rows.map((r) => r.name)
