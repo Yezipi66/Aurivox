@@ -189,10 +189,15 @@ function installState (root, id, deps = {}) {
   const steps = {
     prepare: { done: hasClone, why: hasClone ? 'cloned' : 'missing' },
     env: { done: envOk, why: hasClone ? (envOk ? 'venv-spawns' : 'venv-unusable') : 'missing' },
-    // ⭐ models 的三态：true=齐了 · false=缺了 · null=说不出来。
-    //   null 与 false 都由 stepDone 判「做过没」，但**这里如实区分**，
-    //   界面可以据此说「没有 checkpoints 目录」而不是笼统一句「没下」。
-    models: { done: weights !== null, why: weights === null ? 'unknown' : (weights ? 'present' : 'empty'), ready: weights },
+    // ⭐ models 是三态：true=齐了 · false=缺了 · null=说不出来。
+    //   ⇒ done（喂给 steps.js 的 stepDone）在 true/false 两种下都为真：
+    //     stepDone('models') 判的就是 weightsReady===true || weightsReady===false
+    //     —— 「确实缺了」也算查过了。null（说不出来）才不算做完。
+    models: {
+      done: weights !== null,
+      ready: weights,
+      why: weights === null ? 'unknown' : (weights ? 'present' : 'empty'),
+    },
     manifest: { done: manifestOk, why: manifestOk ? 'present' : 'missing' },
     verify: { done: verified, why: 'not-implemented' },
   }

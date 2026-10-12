@@ -6,13 +6,14 @@
 //    把实现改回旧写法，守卫它的那条断言必须失败。红了 ⇒ 守卫活着；
 //    没红 ⇒ 那条断言是个摆设（比没有更坏，它给人安全感）。
 //
-//  ⚠ 做法：**临时改写源文件**，然后在进程内**重新加载**（ESM 用查询串绕开
-//    模块缓存，CJS 删 require.cache），当场跑那条守卫断言。
+//  ⚠ 做法：把源文件复制到**本进程私有的临时目录**、改成旧写法，然后在进程内
+//    **重新加载那份副本**，当场跑守卫断言。
 //    ⛔ 不许 spawn 子进程 —— 实测 2026-10-12：从 node --test 内部
 //      spawnSync('node --test <file>') 拿到的是「status=0 且空输出」，
 //      子进程一条测试都没跑 ⇒ 每次变异都假绿。子进程这条路不通。
-//    ⛔ 还原写在 finally 里，⛔ 不用 git checkout（工作区有别人在途的改动，
-//      且本仓禁用 reset/checkout）。
+//    ⛔⛔ 不许就地改写源文件 —— node --test 是多文件并行的，就地改的那几百
+//      毫秒里另一个进程正好读到变异版，它自己的用例会假红（实测过）。
+//      复制到私有沙盒目录，真实源文件一个字节都不动。
 // ============================================================================
 
 const { test } = require('node:test')
@@ -42,7 +43,14 @@ const URL_B = 'https://github.com/acme/beta'
 let bump = 0
 
 /**
- * 临时把源文件改成旧写法 ⇒ 进程内重新加载 ⇒ 交给 probe 跑守卫断言 ⇒ 还原。
+ * 把源文件复制到**本进程私有的临时目录**、改成旧写法、重新加载，交给 probe
+ * 跑守卫断言。真实源文件一个字节都不动。
+ *
+ * ⛔⛔ 为什么必须复制而不是就地改：`node --test` 是**多文件并行**的。
+ *    就地改写 useInstallSession.js 的那几百毫秒里，另一个进程里的
+ *    useInstallSession.node.test.js 刚好读到变异版 ⇒ 它自己的用例会
+ *    假红（实测：并行跑时那两条防串号测试红灯，单独跑全绿）。
+ *    那是把「变异测试」自己变成污染源，比没有变异更坏。
  *
  * @param {string} src 源文件
  * @param {(s:string)=>string} patchFn 变异：原文 ⇒ 旧写法
@@ -55,24 +63,34 @@ async function mutateAndProbe (src, patchFn, probe) {
   // ⛔ 变异没生效就别跑：那种「没红」是文件没被改，不是守卫抓到
   assert.notStrictEqual(mutated, original,
     '⛔ 变异补丁没改到任何东西 —— 正则没匹配上，结论无效')
+  bump += 1
+  // ⭐ 私有临时目录 + 原名：相对 import（./useInstallSession.js）才不会断
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-mut-'))
+  const copy = path.join(sandbox, path.basename(src))
   try {
-    fs.writeFileSync(src, mutated, 'utf8')
-    bump += 1
+    fs.writeFileSync(copy, mutated, 'utf8')
+    // ⭐ 它 import 的兄弟模块也要复制过去（相对 import 按副本所在目录解析）
+    for (const rel of [/from '\.\/([\w.-]+\.js)'/g]) {
+      let mm
+      while ((mm = rel.exec(mutated)) !== null) {
+        const dep = path.join(path.dirname(src), mm[1])
+        if (fs.existsSync(dep)) {
+          fs.copyFileSync(dep, path.join(sandbox, mm[1]))
+        }
+      }
+    }
     let m
     if (isEsm) {
       // ⭐ ESM：查询串绕开模块缓存（⛔ 不能删 require.cache）
       //   ⚠ Windows 上绝对路径必须先转 file:// URL，否则报
       //     ERR_UNSUPPORTED_ESM_URL_SCHEME（'d:' 不是协议）。
-      m = await import(pathToFileURL(src).href + '?mut=' + bump)
+      m = await import(pathToFileURL(copy).href + '?mut=' + bump)
     } else {
-      delete require.cache[require.resolve(src)]
-      m = require(src)
+      m = require(copy)
     }
     await probe(m)
   } finally {
-    // ⭐ 用读到的原文写回（⛔ 不用 git：工作区有别人在途的改动）
-    fs.writeFileSync(src, original, 'utf8')
-    if (!isEsm) delete require.cache[require.resolve(src)]
+    fs.rmSync(sandbox, { recursive: true, force: true })
   }
 }
 
@@ -232,9 +250,6 @@ test('反证：未变异时同类守卫全部安静（上面的红不是假象�
   assert.ok(m.loadSession('alpha', URL_A), '同 id + url 应恢复')
   assert.strictEqual(global.localStorage.size, 0, '探测结果不落 localStorage')
 
-  // ⭐ CJS 要显式踢掉缓存再 require，否则可能拿到上一个变异留下来的模块
-  //   （require.cache 在进程内是共享的，而变异 ④⑤ 刚刚 require 过它）
-  delete require.cache[require.resolve(ISTATE)]
   const IS = require(ISTATE)
   const root = mkdtempRoot()
   try {
@@ -255,13 +270,24 @@ test('反证：未变异时同类守卫全部安静（上面的红不是假象�
 })
 
 // ---------------------------------------------------------------------------
-//  ⑧ 还原验证：跑完变异，源文件必须一字不差还原
-//     （⛔ 变异把自己留在盘上是最难发现的事故）
+//  ⑧ 副产物验证：变异用的临时目录必须清干净
+//     （⛔ 在 os.tmpdir() 里留下一堆 .mut-* 是看不见的垃圾堆积）
 // ---------------------------------------------------------------------------
-test('⛔ 变异跑完后源文件必须还原（finally 保证）', () => {
+test('⛔ 变异用的临时目录必须清干净（mkdtemp + finally rmSync）', () => {
+  const mine = fs.readdirSync(os.tmpdir())
+    .filter((n) => /^wizard-mut-/.test(n))
+  assert.deepStrictEqual(mine, [],
+    '⛔ os.tmpdir() 里残留了变异沙盒目录：' + mine.join(', '))
+})
+
+// ---------------------------------------------------------------------------
+//  ⑨ 反向验证：真实源文件一个字节都没被改过
+//     （⛔ 就地变异会污染并行跑的其它测试文件，见 mutateAndProbe 的头注）
+// ---------------------------------------------------------------------------
+test('⛔ 真实源文件不许被变异碰到（并行跑的其它测试文件还在读它）', () => {
   for (const f of [SESS, ISTATE, DLSTATE]) {
     const s = fs.readFileSync(f, 'utf8')
     assert.ok(!/\/\/ 变异/.test(s),
-      '⛔ ' + path.basename(f) + ' 里还留着「变异」标记 —— 上一次还原失败')
+      '⛔ ' + path.basename(f) + ' 里留着「变异」标记 —— 就地变异会污染并行测试')
   }
 })
