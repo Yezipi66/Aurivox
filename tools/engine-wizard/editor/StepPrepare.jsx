@@ -216,7 +216,16 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
-      if (j.ok && execute) { onChange({ cloned: true }); onDone && onDone() }
+      if (j.ok && execute) {
+        // ⛔⛔ 克隆成功这一刻必须同时写回 id（用本次真正的 curId）。
+        //   旧写法只写 `cloned: true`，而 id 只在 resolve 里回过一次 ——
+        //   用户改过目录名、或解析用的是上一次的 URL 时，wz.id 停在旧值，
+        //   于是第 2/3 步拿着**上一台引擎的 id** 去装依赖、下权重
+        //   （2026-10-13 Owner 真机抓到：克隆的是 spark-tts，
+        //    第 2 步三步全绿却全是 indextts2 的路径，spark-tts 连 .venv 都没有）。
+        onChange({ cloned: true, id: curId })
+        onDone && onDone()
+      }
     } finally { setBusy('') }
   }
 

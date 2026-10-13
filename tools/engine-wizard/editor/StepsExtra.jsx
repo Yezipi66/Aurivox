@@ -46,12 +46,18 @@ const buildCommand = (c) => {
   }
 }
 
-export function StepModels ({ state, onChange, probe }) {
+export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const { t, lang } = useT()
   const [r, setR] = React.useState(null)
   const [err, setErr] = React.useState(null)
   const [busy, setBusy] = React.useState(false)
-  const id = state.id
+  // ⛔⛔ 同 StepDeps：目录名必须是本次会话克隆出来的那个，⛔ 不是持久段旧 id。
+  //   2026-10-13 Owner 真机抓到：第 3 步把权重下进了上一台引擎的 checkpoints。
+  const sessionId = (prep && prep.res && prep.res.id) || ''
+  React.useEffect(() => {
+    if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
+  }, [sessionId, state.id])
+  const id = sessionId || state.id
 
   // ⭐ 下载清单来自 probe（第 1 步），不依赖 manifest
   //   Owner 2026-10-06：「下载模型就是下载模型，和名片没有任何关系」

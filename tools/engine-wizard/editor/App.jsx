@@ -239,10 +239,14 @@ export default function App () {
                 prep={prep} onPrep={patchPrep} />
             )}
             {page === 'env' && (
-              <StepDeps state={{ ...wz, manifest: manifest || {} }} />
+              <StepDeps state={{ ...wz, manifest: manifest || {} }}
+                prep={prep}
+                onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))} />
             )}
             {page === 'models' && (
               <StepModels state={wz} onChange={addFacts}
+                prep={prep}
+                onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 probe={prep.probe || null} />
             )}
             {page === 'manifest' && (

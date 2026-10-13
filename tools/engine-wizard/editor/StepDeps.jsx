@@ -49,16 +49,28 @@ const VERDICT = {
   unknown: { mark: '?', en: 'Cannot determine', zh: '无法判断' },
 }
 
-export default function StepDeps ({ state }) {
+export default function StepDeps ({ state, prep, onFixId }) {
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
+  // ⛔⛔ 目录名必须是「第 1 步真克隆出来的那个」，⛔ 不是持久段里的旧 id。
+  //   2026-10-13 Owner 真机抓到：克隆的是 spark-tts，而 wz.id 停在
+  //   上一次装的 indextts2 ⇒ 第 2 步把依赖装进了 indextts2，
+  //   spark-tts 连 .venv 都没有，界面却显示三步全绿。
+  //   prep.res 是**本次会话**的解析结果（换 URL 即失效），
+  //   它比持久段更接近「用户此刻在装哪台」。
+  //   ⭐ 两者不一致时以会话段为准，并把持久段一起纠正过来。
+  const sessionId = (prep && prep.res && prep.res.id) || ''
+  React.useEffect(() => {
+    if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
+  }, [sessionId, state.id])
+  const targetId = sessionId || engineId
 
   // ⭐ 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）
   //   ⛔ 懒初始化（useState 初值）而不是 useEffect：首帧就要用恢复值，
   //      否则第 1 帧会把旧值覆盖回默认值再写盘，恢复就白做了。
   const saved = React.useMemo(
-    () => loadSession(engineId, url), [engineId, url])
+    () => loadSession(targetId, url), [targetId, url])
 
   // ⛔ 数据自己取，不靠 App 往下传 —— 那条链路对不上。
   const [plan, setPlan] = React.useState(saved?.depsPlan || null)
@@ -75,12 +87,12 @@ export default function StepDeps ({ state }) {
   // 保存到会话段（排除瞬态状态：busy / live / tail 一段都不存）
   //   ⭐ 键含 id 与 url ⇒ 换任一个，写的都是另一段会话，⛔ 不会污染旧的。
   React.useEffect(() => {
-    if (!engineId) return
-    saveSession(engineId, url, {
+    if (!targetId) return
+    saveSession(targetId, url, {
       depsPlan: plan, showNormal, backend, unlocked,
       depsResult: result, depsPreview: preview, depsProgress: progress,
     })
-  }, [engineId, url, plan, showNormal, backend, unlocked, result, preview, progress])
+  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress])
 
   const reload = async () => {
     if (!url) return
@@ -96,11 +108,11 @@ export default function StepDeps ({ state }) {
   // ⭐ 逃生口：从头重装本步。清 env 段的进度记录后让用户照常点「安装」
   //   ⛔ 只清记录，⛔ 不删源码、⛔ 不删已装依赖（那是另一回事）。
   const resetThisStep = async () => {
-    if (!engineId) return
+    if (!targetId) return
     try {
       await fetch('/wizard/reset-progress', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: engineId, section: 'env' }),
+        body: JSON.stringify({ id: targetId, section: 'env' }),
       })
     } catch (e) { /* 端点不通 ⇒ 记录还在，⛔ 不当成已清 */ }
   }
@@ -116,18 +128,18 @@ export default function StepDeps ({ state }) {
   //   ⇒ 用户看计划时看不到第二条命令，那正是它该出现的地方。
   //   ⛔ execute: false ⇒ 后端只出计划不执行（平台只验不建）。
   React.useEffect(() => {
-    if (!engineId) return
+    if (!targetId) return
     let alive = true
     fetch('/wizard/env', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        id: engineId, manifest: state.manifest || {}, execute: false,
+        id: targetId, manifest: state.manifest || {}, execute: false,
       }),
     }).then((r) => r.json())
       .then((j) => { if (alive) setPreview(j) })
       .catch(() => { if (alive) setPreview(null) })
     return () => { alive = false }
-  }, [engineId])
+  }, [targetId])
 
   React.useEffect(() => {
     if (hw && backend === null) setBackend(hw.recommended)
@@ -466,7 +478,7 @@ export default function StepDeps ({ state }) {
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
         <button className="btn btn-primary btn-sm" type="button"
           disabled={busy} onClick={run}>
-          {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
+          {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
         </button>
       </RiskUnlock>
 
