@@ -81,6 +81,9 @@
 
 folderName.js 是本轮新建文件，7 行代码配 26 行注释，是代码文件被当作草稿纸的样本。
 
+其中 env.js、wizardbridge.js、StepVerify.jsx 三个文件同时归第 4 节的其他路，
+第一路 D2 不碰，见第 4 节排除说明。第一路实际删注释的文件数是 49 个。
+
 ## 2. 待清偿欠账
 
 一笔已清：建 venv 未指定解释器的修复，提交 44068e0，只含 env.js 一个文件。
@@ -125,7 +128,8 @@ folderName.js 是本轮新建文件，7 行代码配 26 行注释，是代码文
 
 ### D2 注释只删不补
 
-动文件：第 1 节列出的 52 个文件。
+动文件：第 1 节 52 个里排除 env.js、wizardbridge.js、StepVerify.jsx 三个共用文件后
+的 49 个。这三个归第 4 节其他路，D2 期间不碰。
 怎么改：逐文件删掉四类归属性内容。只删，不补写。删完仍超 20% 的继续删到比例以内。
 删掉的内容迁往 skill 与 docs 台账，不是销毁。
 
@@ -326,12 +330,20 @@ ffprobe 一项能对一台已装引擎产出的音频给出真实信息。
 | core/save.js | 第四路（D5 的 save 部分同路） |
 | core/clone.js | 第三路 |
 | core/wizardbridge.js | 第二路（C1、C2）与 D3 的 fetchRaw 部分 |
-| core/cliHelp.js 等 52 个注释密集文件 | 第一路 |
+| core/cliHelp.js 等第 1 节清单里的剩余文件 | 第一路（排除下方三个共用文件） |
 | core/probe.js | 第二路 |
 | editor/StepVerify.jsx、core/verify.js | 第五路 |
 
-禁止第一路在 D2 期间碰 core/wizardbridge.js，那里归第二路。
+以下三个文件同时出现在第 1 节清单与第 4 节归属表里，属于多路共用，
+第一路 D2 期间一律不碰，它们的注释归位在各自那一路做：
+
+core/env.js 归第三路（A1、A2、A5）与 D5。
+core/wizardbridge.js 归第二路（C1、C2）与 D3 的 fetchRaw 部分。
+editor/StepVerify.jsx 归第五路。
+
 D3 的 fetchRaw 改动并入第二路，因为 C2 就是改 fetchRaw 的分支参数。
+第一路 D2 清单从第 1 节排除上述三个文件，剩余 49 个。
+比例验收按剩余 49 个统计，三个共用文件的比例在各自那一路收口时一并验。
 
 ## 5. 执行编排
 
