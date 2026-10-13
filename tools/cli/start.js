@@ -9,10 +9,10 @@
 //
 //  ⚠️⚠️ 关于「起哪台引擎、拿什么起」：全部问 lib/engines/engine-launch-plan.cjs，
 //     这里**不写任何一台具体引擎的知识**。搬家前这个脚本里躺着五个 $ENGINE_*
-//     变量，全是 GPT-SoVITS 专有的（解释器、入口、配置文件、监听地址）——
+//     变量，全是 GPT-SoVITS 专有的（解释器、入口、配置文件、监听地址），
 //     那等于一份写在启动脚本里的、谁也改不了的 manifest.json。
 //     第三台引擎的作者会发现 manifest.json 写完了引擎还是起不来，因为得改
-//     这个文件 —— 而那正是「加一台引擎不碰 lib/」这条标准要挡住的事。
+//     这个文件：而那正是「加一台引擎不碰 lib/」这条标准要挡住的事。
 //
 //  ⚠️ 而端口那 90 行搬到了 lib/system/portChoice.js，**逐条保留**（那里记着
 //     每条判据的来历）。这里只负责把结果接到环境变量与命令行上。
@@ -97,7 +97,7 @@ async function main () {
   if (fs.existsSync(BUNDLED_NODE)) {
     NODE = BUNDLED_NODE
     NPM = BUNDLED_NPM
-    // ⭐ 自带的 node 目录要排在 PATH 最前，否则它起的 npm/node 子进程解析不到。
+    // 自带的 node 目录要排在 PATH 最前，否则它起的 npm/node 子进程解析不到。
     const dir = path.dirname(BUNDLED_NODE)
     process.env.PATH = dir + path.delimiter + process.env.PATH
   }
@@ -122,10 +122,10 @@ async function main () {
   //   $ENGINE_ID    单台（老写法，继续认；两个都设时 ENGINE_IDS 说了算）
   //   两个都不设     = engines\ 下装了的每一台
   //
-  // ⭐ 默认起全部，是为了让「加一台引擎 = 克隆上游 + 写一张 manifest.json +
+  // 默认起全部，是为了让「加一台引擎 = 克隆上游 + 写一张 manifest.json +
   //   一行代码都不写」这句话真的成立：默认值一旦写死某个 id，第三台引擎的
   //   作者就得改这个文件，那就又是一行代码。
-  // ⛔ 不限制同时起几台，也不在这里判断显存够不够 —— 装了几台是用户的决定，
+  // 不限制同时起几台，也不在这里判断显存够不够：装了几台是用户的决定，
   //   这个脚本没有资格替他删掉一台。
   const CLI = path.join(ROOT, 'lib', 'engines', 'engine-launch-plan.cjs')
 
@@ -151,7 +151,7 @@ async function main () {
 
   /**
    * 问一次 manifest.json。给了 port 就按它算命令行，不给就用名片声明的默认端口。
-   * ⚠️ 纯函数、无副作用 —— 可以放心问两次：第一次拿期望端口去解冲突，
+   * ⚠️ 纯函数、无副作用：可以放心问两次：第一次拿期望端口去解冲突，
    *   解完带着定下来的端口再问一次要最终命令行。
    */
   function enginePlan (id, port) {
@@ -181,7 +181,7 @@ async function main () {
   for (const eid of engineIds) {
     const plan0 = enginePlan(eid, 0)
     if (plan0 === null) {
-      // ⛔ 这里**不 exit**：一台算不出计划，不该把后端和别的引擎一起拖下水。
+      // 这里**不 exit**：一台算不出计划，不该把后端和别的引擎一起拖下水。
       Log(`[engine][ERROR] ${eid}: 拿不到启动计划，跳过这一台。`, 'Red')
       continue
     }
@@ -198,14 +198,14 @@ async function main () {
       OwnerPid: null,
       Skip: false,
       SkipReason: '',
-      // ⭐⭐⭐ 开机到底点不点着它。
+      // 开机到底点不点着它。
       //   以前没有这个概念：engines\ 下装了几台就起几台。而其中一台
       //   **一起进程就吃掉约 6G 内存**（一个字都还没合成）。装到第四台，
-      //   开机就是四份内存一起吃 —— 而用户这一开机可能一台都没用上。
+      //   开机就是四份内存一起吃：而用户这一开机可能一台都没用上。
       //   现在这个答案由平台从名片**推**出来（见 lib\engines\residency.js）：
       //   那台引擎的模型如果是「开进程那一步吃进去」的，起着就等于占着内存，
       //   放掉真能吐出来 ⇒ 开机不点，第一次真有人要它的时候后端自己去起。
-      //   ⛔ 脚本这一侧**不做判断**，只读计划里的这个答案。判据在哪台引擎
+      //   脚本这一侧**不做判断**，只读计划里的这个答案。判据在哪台引擎
       //     身上、怎么推出来的，都不是启动脚本该知道的事（契约 §9）。
       Preload: plan0.preload === true,
       OnDemand: plan0.on_demand === true,
@@ -213,9 +213,9 @@ async function main () {
     if (rec.Launchable) {
       // ⚠️ 不能查死一个 venv 路径：第三台引擎完全可能用别的解释器
       //   （自己的 venv、conda、系统 python）。查死一个路径等于规定
-      //   所有引擎必须共用一个 venv —— 那条规定从来没人同意过，
+      //   所有引擎必须共用一个 venv：那条规定从来没人同意过，
       //   只是写在了那一行里。路径由名片给出（plan.python）。
-      //   ⛔ 别在这儿再套一层 venvPython()：plan.python **已经是**可执行文件本身
+      //   别在这儿再套一层 venvPython()：plan.python **已经是**可执行文件本身
       //     （launch-plan 由 lib/engines/platformPaths.js 推导过），
       //     拿它的 dirname 再套一次会得到一个更短、几乎必然不存在的路径。
       if (!plan0.python || !fs.existsSync(plan0.python)) {
@@ -261,24 +261,24 @@ async function main () {
   }
 
   // =============================================================================
-  //  3. ⭐ 先把所有端口定下来，再启动任何东西
+  //  3. 先把所有端口定下来，再启动任何东西
   // =============================================================================
   // 必须排在最前面：后端从这里继承环境变量，spawn 之后再改就晚了。
   // 某个端口被占、挪走之后，整条链上的人要对得上同一个新号码：
   //   * 引擎  : 命令行上收到 -p <port>；后端通过它那个 base_url_env 找到它
-  //     ⛔ 变量名不写死成 GPT_SOVITS_BASE_URL —— 每台引擎在自己的名片里写
+  //     变量名不写死成 GPT_SOVITS_BASE_URL：每台引擎在自己的名片里写
   //       base_url_env，写死一个名字，第二台引擎起来后端也连不上。
   //   * 后端  : 读 BROKER_PORT；浏览器打开挪之后的那个端口。
   //   * 前端  : 由后端**同源**伺服（web\dist，前端 API_BASE='' 走相对路径），
   //             所以后端端口挪了**不用**往前端注入任何东西。
   //
-  // ⭐ 端口保护对**不可启动**的引擎同样生效：作者自己起的引擎照样占着它那个
+  // 端口保护对**不可启动**的引擎同样生效：作者自己起的引擎照样占着它那个
   //   端口，别的程序就不该占它。所以 host/port 这几样，计划在不可启动时也给。
   for (const e of ENGINES) {
     Log(`[engine] ${e.Id} (${e.Label}) 期望监听 ${e.EHost}:${e.DesiredPort}`, 'DarkGray')
   }
 
-  // 本次已经许出去的端口。⛔ 必须一路带着：两台引擎默认端口撞车时，
+  // 本次已经许出去的端口。必须一路带着：两台引擎默认端口撞车时，
   // 光问「现在有没有人在听」是分不出来的（谁都还没开始听）。
   const claimed = []
   const allMarks = ENGINES.filter(e => e.Mark).map(e => e.Mark)
@@ -286,7 +286,7 @@ async function main () {
   const portResults = []
   P.clearProcsCache()
   for (const e of ENGINES) {
-    // ⭐ 只传这一台自己的记号 —— 理由见 portChoice.js 里 testIsOwnProcess 的那段。
+    // 只传这一台自己的记号：理由见 portChoice.js 里 testIsOwnProcess 的那段。
     const r = PC.resolvePort('engine ' + e.Id, e.DesiredPort, ROOT,
       { marks: e.Mark ? [e.Mark] : [], exclude: claimed })
     e.Port = r.port
@@ -366,11 +366,11 @@ async function main () {
   // 这里原先有一个 76 行的 Repair-EngineConfig：逐行读 yaml、挑出路径值、
   // 发现被 GBK 控制台写坏的问号或指向已不存在位置的旧路径就备份重建。
   // 它是 GPT-SoVITS 独有的收拾工作，已搬进 lib/inference/config_repair.py，
-  // 由 lib/inference/infer_server.py 启动时调用 —— 谁起这个进程都一样修。
-  // ⛔ 别把它搬回来：平台已改成按 manifest.json 起引擎，启动脚本里不该再有引擎特例。
+  // 由 lib/inference/infer_server.py 启动时调用：谁起这个进程都一样修。
+  // 别把它搬回来：平台已改成按 manifest.json 起引擎，启动脚本里不该再有引擎特例。
 
   // =============================================================================
-  //  5. 推理引擎 —— 逐台起
+  //  5. 推理引擎：逐台起
   // =============================================================================
   // ⚠ 日志文件名一台一份：logs\<id>.log / logs\<id>.err.log。
   //   起两台之后 logs\inference.log 这个名字答不了「这是哪台的日志」，
@@ -383,12 +383,12 @@ async function main () {
     if (e.Skip) { Log(`      跳过这一台：${e.SkipReason}。其余照常。`, 'Red'); continue }
     if (!e.Launchable) { Log('      这台由作者自己起，平台只替它守住端口。', 'Yellow'); continue }
 
-    // ⭐⭐ 按需档：现在不起它，等到第一次真有人要它的时候后端再起。
+    // 按需档：现在不起它，等到第一次真有人要它的时候后端再起。
     //   ⚠ 端口仍然是**这里**定的（上面 resolvePort 已经跑过，结果写进了
     //     这台引擎自己的 base_url_env）。后端起它的时候用的就是这个端口，
     //     两边不会打架。
     //   ⚠ 已在运行的情况（Action='own'，上次留下的进程还听着）由下面那个分支处理，
-    //     这里的 continue 不会把它误伤 —— 顺序不能反。
+    //     这里的 continue 不会把它误伤：顺序不能反。
     if (e.Action !== 'own' && !e.Preload) {
       Log('      不预先启动：这台引擎的模型是开进程那一刻吃进内存的，起着就一直占着。', 'Yellow')
       Log('      第一次使用时后端会自动启动（首次需要等待加载，界面上会显示进度）。', 'DarkGray')
@@ -398,8 +398,8 @@ async function main () {
       Log(`      Port ${e.Port} already held by OUR engine. Treat engine as running.`, 'Yellow')
       continue
     }
-    // 端口可能被挪过，所以带着定下来的那个再问一次完整计划 ——
-    // ⛔ 别用上面那份计划的 args：那里面的 -p 还是名片上的旧端口，
+    // 端口可能被挪过，所以带着定下来的那个再问一次完整计划，
+    // 别用上面那份计划的 args：那里面的 -p 还是名片上的旧端口，
     //   引擎会听在没人连的地方，表现成「引擎永远不上线」。
     const plan = enginePlan(e.Id, e.Port)
     let ok = plan !== null && plan.launchable
@@ -422,7 +422,7 @@ async function main () {
       })
       if (!r.ok) Log('      [ERROR] 引擎起不来: ' + r.why, 'Red')
       else Log('      Inference service started in background.', 'Gray')
-      // ⚠ 启动脚本**不等**引擎加载完 —— 它起完就走。判断这台引擎上没上线的
+      // ⚠ 启动脚本**不等**引擎加载完：它起完就走。判断这台引擎上没上线的
       //   是后端：/api/engines 与 /api/health 会去请求下面这个地址。
       //   冷启动几十秒很正常，那段时间里它显示成不在线不是故障。
       Log(`      上线检查地址 ${plan.ready_url}；冷启动预算 ${Math.round((plan.ready_timeout_ms || 0) / 1000)} 秒（本脚本不等它，看后端 /api/health）。`, 'DarkGray')
@@ -446,7 +446,7 @@ async function main () {
   Log('========================================', 'Cyan')
 }
 
-// ⭐ 顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），
+// 顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），
 //   所以整个主体在 main() 里跑。
 main().catch(e => {
   console.error('[start][ERROR] ' + (e && e.stack ? e.stack : e))

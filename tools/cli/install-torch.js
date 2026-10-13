@@ -9,7 +9,7 @@
 //
 //  ⚠️⚠️⚠️ **torch 属于引擎层，不属于平台层**（ONBOARDING_PLAN §5.2 C12）：
 //     平台根 venv 只装 3 个工具链包（requirements-platform.txt）。
-//     ⚠️ 但**本脚本的默认目标仍是平台根 venv** —— 那是 2026-08-29 以来
+//     ⚠️ 但**本脚本的默认目标仍是平台根 venv**：那是 2026-08-29 以来
 //        bootstrap 的既有行为，改默认值等于改部署语义。
 //     ⇒ 所以用 --python 显式指定。E1（重建引擎环境）落地后，
 //        bootstrap 应当传 `engines\<引擎>\.venv` 而不是根 venv。
@@ -29,20 +29,20 @@
 //     TTS_NO_UV=1                  跳过 uv，用 pip
 //
 //  跨平台改造（相对原 .ps1）：
-//   1. venv 解释器路径 —— 原来硬编码 `venv\Scripts\python.exe`（Windows 专用）。
+//   1. venv 解释器路径：原来硬编码 `venv\Scripts\python.exe`（Windows 专用）。
 //      现在走 lib/engines/platformPaths.js 的跨平台推导。
-//   2. 设备探测 —— 原来只问 NVIDIA（nvidia-smi + WMI/Win32_VideoController）。
+//   2. 设备探测：原来只问 NVIDIA（nvidia-smi + WMI/Win32_VideoController）。
 //      现在走 lib/system/gpu.js：**同一段代码问操作系统**，覆盖
 //      NVIDIA / Intel / AMD / Apple，并给出理由。
-//   3. ⭐ **新增 XPU 分支**（原脚本第 12 行原文：「no AMD / DirectML」，
-//      第 25 行：「NVIDIA GPU present ? cu121 : cpu」）—— 那台机器上装出来
+//   3. **新增 XPU 分支**（原脚本第 12 行原文：「no AMD / DirectML」，
+//      第 25 行：「NVIDIA GPU present ? cu121 : cpu」）：该机器上装出来
 //      的只能是 CPU 版，2.5 GB 的 CUDA wheel 一次也用不上。
-//   4. onnxruntime 的 provider 探针 —— 原来用 `ctypes.WinDLL`（Windows 专用），
+//   4. onnxruntime 的 provider 探针：原来用 `ctypes.WinDLL`（Windows 专用），
 //      现在按平台选 WinDLL / CDLL。
 //   5. 原脚本那些 `$env:TEMP` 临时 .py 文件一律取消：直接 `-c` 不安全
 //      （Windows PowerShell 5.1 的原生参数重解析会把引号吃掉，
 //      原脚本第 212-214 行的注释记了这个坑），所以改成**从本文件所在目录
-//      落一个探针脚本再删** —— 跨平台且不依赖 shell 的引号规则。
+//      落一个探针脚本再删**：跨平台且不依赖 shell 的引号规则。
 // =============================================================================
 
 'use strict'
@@ -80,7 +80,7 @@ const VER = {
   ort: opt('--ort', '1.18.0'),
   cuda: opt('--cuda', 'cu121'),
   // ⚠️ ROCm 用的是 **ROCm 版本**（6.1 / 6.2 / …），跟 CUDA 版本是两套编号。
-  //   第一版写成 VER.cuda.replace('cu','') ⇒ cu121 变成 rocm121 —— 一个
+  //   第一版写成 VER.cuda.replace('cu','') ⇒ cu121 变成 rocm121：一个
   //   不存在的源。由 tools/cli/install-torch.node.test.js 抓到。
   rocm: opt('--rocm', '6.1'),
 }
@@ -92,7 +92,7 @@ const WITH_DEPS = flag('--with-deps')
 // =============================================================================
 // ⚠️ 原脚本硬编码 `venv\Scripts\python.exe`。那是 Windows 布局；macOS/Linux 的
 //    venv 是 `venv/bin/python`（无 .exe、无 Scripts）。用 platformPaths 推导。
-// ⚠️ venvPython 返回的是 {ok, python} / {ok:false, why}，**不是字符串** ——
+// ⚠️ venvPython 返回的是 {ok, python} / {ok:false, why}，**不是字符串**，
 //    它对 FreeBSD 之类故意不给猜，而是给一句用户能看懂的话。
 const explicitPy = opt('--python', null)
 let PY = null
@@ -110,14 +110,14 @@ if (!fs.existsSync(PY)) {
 }
 if (!explicitPy) {
   Warn('默认目标仍是**平台根 venv**（既有行为）。')
-  Warn('  ⭐ 但 torch 属于**引擎层** —— 接更多引擎后应当用 --python 指向那台引擎的 venv。')
+  Warn('  但 torch 属于**引擎层**：接更多引擎后应当用 --python 指向那台引擎的 venv。')
 }
 
 // =============================================================================
-//  2. 设备探测 ⭐ 这是相对原脚本最实质的一处改动
+//  2. 设备探测 这是相对原脚本最实质的一处改动
 // =============================================================================
 // 原脚本只问 NVIDIA，而且是两套 Windows 手段（nvidia-smi + Win32_VideoController
-// 正则匹配 'NVIDIA'）。这台机器没有 N 卡 ⇒ 恒定进入 CPU 分支。
+// 正则匹配 'NVIDIA'）。本机没有 N 卡 ⇒ 恒定进入 CPU 分支。
 //
 // 现在：问操作系统「有什么计算设备」，并按 vendor 选构建。
 // ⚠️ 检测失败 ⇒ 落 CPU。理由同原脚本：CPU 构建是那个「到处都能 import」的选择，
@@ -137,7 +137,7 @@ function decideBackend () {
     return { backend: 'cpu', reason: 'TTS_TORCH_CPU=1', gpus: [] }
   }
   if (process.env.TTS_TORCH_CUDA) {
-    // ⚠️ 第一版漏了「把 VER.cuda 一起改掉」—— 于是设了 cu118 却仍从 cu121 的
+    // ⚠️ 第一版漏了「把 VER.cuda 一起改掉」：于是设了 cu118 却仍从 cu121 的
     //   index 装。用户设环境变量却拿到别的构建，比不认这个变量更糟。
     VER.cuda = process.env.TTS_TORCH_CUDA
     Info('TTS_TORCH_CUDA=' + VER.cuda + ' -> 强制 CUDA 构建。')
@@ -147,8 +147,8 @@ function decideBackend () {
   // 自动：问操作系统
   // ⚠️ detectGpuNow() 返回的是**一个对象**不是数组：
   //   {ready, available, device_name, vendor, devices:[{name,vendor}], platform, probe}
-  //   `available` 的含义是「有没有 CUDA」—— ⛔ 别拿它当「有没有 GPU」用
-  //   （Intel Arc 那台机器上 available:false，但设备实实在在在那儿）。
+  //   `available` 的含义是「有没有 CUDA」：别拿它当「有没有 GPU」用
+  //   （Intel Arc 该机器上 available:false，但设备实实在在在那儿）。
   //   要问的是 vendor。
   let info = null
   try { info = gpu.detectGpuNow() } catch (e) { info = null }
@@ -168,12 +168,12 @@ function decideBackend () {
     return { backend: 'cuda', reason: '本机有 NVIDIA 设备', devices }
   }
   if (has('intel')) {
-    // ⭐ 本次新增的分支。Intel 核显/独显走 XPU 构建，index 是 pytorch 官方给的。
+    // 本次新增的分支。Intel 核显/独显走 XPU 构建，index 是 pytorch 官方给的。
     return { backend: 'xpu', reason: '本机有 Intel 设备（无 NVIDIA）', devices }
   }
   if (has('amd')) {
     // ⚠️ AMD 走 ROCm。PyTorch 官方的 ROCm wheel **只发 Linux**，
-    //    Windows 上没有 —— 与其装一个无法运行的，不如说明清楚。
+    //    Windows 上没有：与其装一个无法运行的，不如说明清楚。
     if (process.platform === 'win32') {
       Warn('本机有 AMD 设备，但 PyTorch 官方 ROCm wheel **不发布 Windows 版**。')
       Warn('  ⇒ 落到 CPU 构建。若要用 AMD：装 Linux，或改用 DirectML 版 torch。')
@@ -183,7 +183,7 @@ function decideBackend () {
   }
   if (has('apple')) {
     // Apple Silicon：官方没有 MPS 专用构建，走 CPU 构建但用 MPS 后端。
-    Info('本机是 Apple 设备。PyTorch 无 MPS 专用 wheel —— 装 CPU 构建，'
+    Info('本机是 Apple 设备。PyTorch 无 MPS 专用 wheel：装 CPU 构建，'
        + 'PyTorch 会自动用 MPS 后端（不需 CUDA/ROCm）。')
     return { backend: 'cpu', reason: 'Apple 设备（走 CPU 构建 + MPS 后端）', devices }
   }
@@ -204,7 +204,7 @@ const TORCH_INDEX = {
 const index = TORCH_INDEX[decision.backend]
 
 // onnxruntime 的 CPU/GPU 拆分：它**只**有 CUDA 与 CPU 两种 wheel。
-// ⚠️ 所以 Intel XPU / AMD ROCm 下仍然装 CPU 版 onnxruntime ——
+// ⚠️ 所以 Intel XPU / AMD ROCm 下仍然装 CPU 版 onnxruntime，
 //    那不是 bug：onnxruntime-gpu 只认 CUDA ExecutionProvider。
 //    影响面要说清楚：MDX-Net 分离人声、g2pW 多音字消歧会走 CPU。
 const ortPkg = decision.backend === 'cuda'
@@ -259,7 +259,7 @@ let useUv = process.env.TTS_NO_UV !== '1' && spawnSync(PY, ['-m', 'uv', '--versi
 if (process.env.TTS_NO_UV === '1') Warn('TTS_NO_UV=1：跳过 uv，用 pip。')
 
 function runNative (exe, args) {
-  // stdio: 'inherit' —— 让进度条直接进终端，不经过管道（原脚本用
+  // stdio: 'inherit'：让进度条直接进终端，不经过管道（原脚本用
   // Start-Process -NoNewWindow -Wait 达到同样目的）。
   return spawnSync(exe, args, { env, stdio: 'inherit' }).status
 }
@@ -273,8 +273,8 @@ function install (pkgsToInstall, extraArgs) {
         // 而不是从 CUDA/XPU index 拿带后端的那个
         ['--extra-index-url', index, '--index-strategy', 'unsafe-best-match'])
     if (runNative(PY, args) === 0) return true
-    // ⭐ 关键：**记住 uv 已经坏了**。原脚本在 torch 那次失败后只设了 $UV_OK=$false，
-    //   而 onnxruntime 那次又重新判断 —— 这里直接置位，后面的包不再浪费一次 uv 尝试。
+    // 关键：**记住 uv 已经坏了**。原脚本在 torch 那次失败后只设了 $UV_OK=$false，
+    //   而 onnxruntime 那次又重新判断：这里直接置位，后面的包不再浪费一次 uv 尝试。
     useUv = false
     Warn('uv 安装失败；退回 pip（兼容性最好的一条路）…')
   }
@@ -327,20 +327,20 @@ if (torchProbe.rc !== 0) {
 }
 
 // =============================================================================
-//  6. onnxruntime —— 同一套 backend 决策的又一次体现
+//  6. onnxruntime：同一套 backend 决策的又一次体现
 // =============================================================================
 // ⚠️ 两个 onnxruntime 包提供**同一个** `onnxruntime` import，共存会打架。
 //    先卸掉两个，重跑（换机器搬 venv、CPU↔GPU 切换）最后只剩一种。
 Info('保证只留一种 onnxruntime 变体（先卸掉可能冲突的那个）。')
 spawnSync(PY, ['-m', 'pip', 'uninstall', '-y', 'onnxruntime', 'onnxruntime-gpu'], { env, stdio: 'ignore' })
 
-// ⭐ onnxruntime-gpu **不能从 PyPI 拿**：PyPI 上那个是按 CUDA 11.8 构建的
+// onnxruntime-gpu **不能从 PyPI 拿**：PyPI 上那个是按 CUDA 11.8 构建的
 //   （到 1.19.0 为止），会 import cudart64_110 / cublas64_11，
 //   而 torch cu121 带的是 cudart64_12 ⇒ Windows 报 error 126，
 //   onnxruntime **不报错地**丢掉 CUDA ExecutionProvider，
 //   MDX-Net 和 g2pW 就永远跑在 CPU 上，日志里什么都没有。
 //   ≤1.18.x 的 CUDA 12 构建只在 ONNX Runtime 的 Azure DevOps feed 上。
-//   ⚠️ 版本 pin 从来不够 —— **index 也是 pin 的一部分**。
+//   ⚠️ 版本 pin 从来不够：**index 也是 pin 的一部分**。
 const ORT_GPU_INDEX = 'https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/'
 const ortIndexArgs = ortIsGpuWheel ? ['--index-url', ORT_GPU_INDEX] : []
 if (ortIsGpuWheel) Info('onnxruntime GPU wheel 来源：' + ORT_GPU_INDEX)
@@ -349,7 +349,7 @@ if (!install([ortPkg], ortIndexArgs)) Die('onnxruntime 安装失败。检查网�
 
 // ── 验证 onnxruntime（GPU 时真的把 provider 的 DLL 载一遍）──────────────────
 // get_available_providers() **不算验证**：onnxruntime<1.19 会按构建配置列出
-// CUDAExecutionProvider，不管那些 DLL 能不能载入 —— 原脚本的旧探针因此在
+// CUDAExecutionProvider，不管那些 DLL 能不能载入：原脚本的旧探针因此在
 // CUDA EP 从未初始化过的机器上报过成功。真的去载 DLL：那正是 error 126 会发生的操作，
 // 而且安装期不需要有 .onnx 文件。
 const ortProbe = runProbe(`
@@ -364,7 +364,7 @@ try:
     if is_win and os.path.isdir(lib):
         os.add_dll_directory(lib)
 except Exception as ex:
-    print("  torch 不可导入（%r）—— GPU 检查会不确定" % (ex,))
+    print("  torch 不可导入（%r）：GPU 检查会不确定" % (ex,))
 
 import onnxruntime as ort
 print("  onnxruntime", ort.__version__)
@@ -373,7 +373,7 @@ if is_win and os.path.isdir(capi):
     try: os.add_dll_directory(capi)
     except Exception: pass
 
-# ⭐ 跨平台的一处：原来只有 ctypes.WinDLL（Windows 专用）
+# 跨平台的一处：原来只有 ctypes.WinDLL（Windows 专用）
 name = "onnxruntime_providers_cuda.dll" if is_win else "libonnxruntime_providers_cuda.so"
 dll = os.path.join(capi, name)
 if not os.path.isfile(dll):
@@ -417,5 +417,5 @@ if (decision.backend === 'cpu') {
 } else {
   console.log('')
   Ok('构建：' + BACKEND_LABEL[decision.backend] + '。'
-     + (decision.backend === 'cuda' ? '' : '⚠️ onnxruntime 仍是 CPU 构建 —— 它只认 CUDA ExecutionProvider。'))
+     + (decision.backend === 'cuda' ? '' : '⚠️ onnxruntime 仍是 CPU 构建：它只认 CUDA ExecutionProvider。'))
 }
