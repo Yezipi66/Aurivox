@@ -538,6 +538,11 @@ const MARKDOWN_BOLD_RE = /\*\*[^*\n]+\*\*|__[^_\n]+__/
 const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SYMBOL_RE|MARKDOWN_BOLD_RE|CRITERIA_SELF_RE/
 
 //  D1 时点的债务快照，按文件记违规注释行数。
+//
+//  数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来，合计 2105 行，
+//  与提交说明一致。旧口径（逐字符状态机）全树漏扫 418 行、覆盖率 92.9%，
+//  两张表的节点数不同源，不可直接相减。末四个文件在旧口径下未被扫到，
+//  显式设 0 键使它们进入扫描范围。
 const DEBT_LEDGER = {
   'core/env.js': 258,
   'core/wizardbridge.js': 155,
@@ -545,19 +550,21 @@ const DEBT_LEDGER = {
   'test/env-venv.node.test.js': 107,
   'test/env.node.test.js': 87,
   'editor/StepPrepare.jsx': 83,
+  'core/probe.js': 74,
+  'core/hardware.js': 73,
   'editor/StepsExtra.jsx': 71,
-  'core/hardware.js': 69,
+  'core/resolve.js': 69,
   'core/download.js': 54,
+  'test/paramsFromReflect.node.test.js': 54,
+  'test/styleguard.node.test.js': 51,
   'test/cliHelp.node.test.js': 50,
   'editor/StepDeps.jsx': 49,
   'core/cliHelp.js': 48,
   'test/clone.node.test.js': 39,
-  'test/styleguard.node.test.js': 39,
   'editor/App.jsx': 37,
   'editor/steps.js': 35,
   'test/requirements.node.test.js': 34,
   'test/hardware.node.test.js': 32,
-  'test/paramsFromReflect.node.test.js': 32,
   'test/models.node.test.js': 29,
   'test/steps.node.test.js': 26,
   'test/persistenceMutation.node.test.js': 24,
@@ -567,6 +574,7 @@ const DEBT_LEDGER = {
   'core/clone.js': 21,
   'core/verify.js': 21,
   'test/asyncHandlerFallback.node.test.js': 20,
+  'core/save.js': 18,
   'core/installState.js': 16,
   'editor/ManifestPage.jsx': 16,
   'test/resolve.node.test.js': 16,
@@ -589,16 +597,13 @@ const DEBT_LEDGER = {
   'editor/ManifestForm.jsx': 8,
   'editor/downloadState.js': 7,
   'core/instances.js': 6,
-  'core/probe.js': 6,
   'editor/StepVerify.jsx': 6,
-  'test/folderName.node.test.js': 6,
+  'test/folderName.node.test.js': 5,
   'core/cliDraft.js': 5,
   'core/paramDigest.js': 5,
-  'core/resolve.js': 5,
   'core/specbridge.js': 5,
   'editor/folderName.js': 5,
   'test/save.node.test.js': 5,
-  'core/save.js': 4,
   'editor/RequiredEight.jsx': 4,
   'editor/useInstalled.js': 4,
   'test/computeAutoFill.node.test.js': 4,
@@ -606,60 +611,78 @@ const DEBT_LEDGER = {
   'test/validate.node.test.js': 3,
   'editor/index.jsx': 2,
   'test/downloadState.test.js': 2,
+  // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0（见上面的说明）。
+  //   仍显式设键让它们进扫描范围 —— 不设键的文件只配报 newFiles。
+  'comment_ratio.cjs': 0,
+  'editor/CoreBindings.jsx': 0,
+  'editor/NestedSections.jsx': 0,
+  'editor/SaveBar.jsx': 0,
 }
 
-// 取注释体：// 与块注释。逐字符状态机扫，字符串字面量整段跳过，
-// 判定顺序固定为「先判注释起点再判字符串」，不会把代码里的 // 当注释。
-function commentBodies (src) {
+// 注释抽取交给 @babel/parser（项目 Vite 校验用的就是它）。
+// 旧实现是手写逐字符状态机，把正则字面量与源码中出现的反引号当成字符串
+// 起点，两个引号之间整段吞掉：本文件 142 个注释节点只抽出 109 行，
+// 「守卫自身干净」是漏扫造成的假象。babel 的 ast.comments 直接给出每个
+// 注释节点的 loc，抽不到即失败，不会假阴性。
+let babelParse = null
+try {
+  babelParse = require(require.resolve('@babel/parser', {
+    paths: [path.join(__dirname, '..', '..', '..', 'web')],
+  })).parse
+} catch (e) {
+  babelParse = null
+}
+
+// parse 失败必须带着文件名和错误原文炸出来，静默跳过等于把问题记成 0 违规。
+function babelAst (rel, src) {
+  if (!babelParse) throw new Error(`拿不到 @babel/parser（${rel}）`)
+  let last = null
+  for (const opts of [
+    { sourceType: 'unambiguous', plugins: ['jsx'] },
+    { sourceType: 'module', plugins: ['jsx'] },
+    { sourceType: 'script', plugins: ['jsx'] },
+  ]) {
+    try { return babelParse(src, opts) } catch (e) { last = e }
+  }
+  throw new Error(`babel 解析失败 ${rel}: ${String(last && last.message).split('\n')[0]}`)
+}
+
+// 注释节点（babel ast.comments 原样）。供覆盖率自证使用：抽不出全部节点
+// 就说明解析器有洞，本文件自己先当靶子。
+function commentNodes (rel, src) {
+  return babelAst(rel, src).comments || []
+}
+
+// 取注释体：每个注释节点按 loc 行号展开成逐行 body。
+// JSX 文件必须带 plugins:['jsx']，否则 JSX 里的注释取不到。
+// 行号取 loc.start.line，与「定位到源码行」的用途对齐。
+function commentBodies (rel, src) {
+  const comments = commentNodes(rel, src)
   const out = []
-  const n = src.length
-  let i = 0
-  let line = 1
-  while (i < n) {
-    const ch = src[i]
-    if (ch === '\n') { line++; i++; continue }
-    if (ch === '\r' || ch === ' ' || ch === '\t') { i++; continue }
-    if (ch === "'" || ch === '"' || ch === '`') {
-      const q = ch
-      i++
-      while (i < n && src[i] !== q) {
-        if (src[i] === '\\') i++
-        if (i < n && src[i] === '\n') line++
-        i++
-      }
-      i++
-      continue
-    }
-    if (ch === '/' && src[i + 1] === '/') {
-      const startLine = line
-      const raw = src.slice(i)
-      const eol = raw.search(/\r\n|\n|\r/)
-      const text = eol === -1 ? raw : raw.slice(0, eol)
-      out.push({ line: startLine, body: text.replace(/^\/\/\/?/, '').replace(/^\/\//, '') })
-      if (eol === -1) i = n
-      else {
-        for (let k = 0; k < eol; k++) if (raw[k] === '\n') line++
-        i += eol
-      }
-      continue
-    }
-    if (ch === '/' && src[i + 1] === '*') {
-      const startLine = line
-      let j = i + 2
-      let text = ''
-      while (j < n) {
-        if (src[j] === '*' && src[j + 1] === '/') { j += 2; break }
-        text += src[j]
-        if (src[j] === '\n') line++
-        j++
-      }
-      text.split('\n').forEach((seg, k) => {
-        out.push({ line: startLine + k, body: seg.replace(/^\s*\*\/?/, '').replace(/^\/\*/, '') })
+  comments.forEach((c, idx) => {
+    const start = c.loc.start.line
+    const span = c.loc.end.line - start + 1
+    const lines = String(c.value == null ? '' : c.value).split('\n')
+    for (let k = 0; k < span; k++) {
+      const seg = k < lines.length ? lines[k] : ''
+      out.push({
+        node: idx,
+        line: start + k,
+        body: seg.replace(/^\s*\*\/?/, '').replace(/^\/\*/, ''),
       })
-      i = j
-      continue
     }
-    i++
+  })
+  // 覆盖率自证：节点一个都不许漏抽，行也不许漏（每行都落在自己节点的区间内）
+  const seen = new Set(out.map((b) => b.node))
+  if (seen.size !== comments.length) {
+    throw new Error(`注释抽取漏节点：${rel} babel 有 ${comments.length} 个注释节点，只抽出 ${seen.size} 个`)
+  }
+  const badLine = out.find((b) => {
+    const c = comments[b.node]
+    return b.line < c.loc.start.line || b.line > c.loc.end.line
+  })
+  if (badLine) {
+    throw new Error(`注释抽取行号错位：${rel}:${badLine.line}`)
   }
   return out
 }
@@ -690,7 +713,8 @@ function scanWizardTree () {
   for (const f of collectSourceFiles(WIZARD_ROOT, [])) {
     const rel = path.relative(WIZARD_ROOT, f).replace(/\\/g, '/')
     const hits = []
-    for (const c of commentBodies(fs.readFileSync(f, 'utf8'))) {
+    const bodies = commentBodies(rel, fs.readFileSync(f, 'utf8'))
+    for (const c of bodies) {
       if (CRITERIA_SELF_RE.test(c.body)) continue
       const r = reasonsOf(c.body)
       if (r.length) hits.push({ line: c.line, reasons: r.join(' ') })
@@ -747,4 +771,119 @@ test('注释归位守卫：注释只解释代码，不新增四类归属性内�
     console.log(`注释归位债务减少 ${shrunk.length} 个文件：\n  ${shrunk.join('\n  ')}\n`
       + '  台账待更新为新的快照（D2 逐文件删注释后统一改）。')
   }
+})
+
+// ---------------------------------------------------------------------------
+//  覆盖率自证：抽不出全部注释节点，「守卫自身干净」就是漏扫造成的假象
+//
+//  旧状态机把本文件里的正则字面量与反引号当成字符串起点，142 个注释节点
+//  只抽出 109 行：守卫扫不到自己新增的那部分，DEBT_LEDGER 又由同一把漏抽
+//  尺子量出，测试再拿同一把尺子比对，于是恒等、永不变红。
+//  现在以 babel 的 ast.comments 为基准，抽出的每行都必须落在节点区间内。
+// ---------------------------------------------------------------------------
+test('⭐ 注释抽取覆盖率自证：babel 节点数与抽出数逐文件一致', () => {
+  const rel = path.relative(WIZARD_ROOT, __filename).replace(/\\/g, '/')
+  const src = fs.readFileSync(__filename, 'utf8')
+  const nodes = commentNodes(rel, src)
+  const bodies = commentBodies(rel, src)
+  // ① 节点一个都不许漏（漏节点 = 有注释根本没被判据看过）
+  assert.strictEqual(new Set(bodies.map((b) => b.node)).size, nodes.length,
+    `注释抽取漏节点：${rel} babel ${nodes.length} 个，抽出 ${new Set(bodies.map((b) => b.node)).size} 个`)
+  // ② 每行都落在自己节点的 loc 区间内（错位 = 行号对不上，D2 删注释会删错行）
+  for (const b of bodies) {
+    const c = nodes[b.node]
+    assert.ok(b.line >= c.loc.start.line && b.line <= c.loc.end.line,
+      `注释抽取行号错位：${rel}:${b.line}（节点区间 ${c.loc.start.line}-${c.loc.end.line}）`)
+  }
+  // ③ 全树每一个文件都过同一道自证：节点数与抽出数相等
+  let checked = 0
+  for (const f of collectSourceFiles(WIZARD_ROOT, [])) {
+    const r = path.relative(WIZARD_ROOT, f).replace(/\\/g, '/')
+    const s = fs.readFileSync(f, 'utf8')
+    const ns = commentNodes(r, s)
+    const bs = commentBodies(r, s)
+    assert.strictEqual(new Set(bs.map((b) => b.node)).size, ns.length,
+      `注释抽取漏节点：${r} babel ${ns.length} 个，抽出 ${new Set(bs.map((b) => b.node)).size} 个`)
+    checked++
+  }
+  console.log(`注释抽取覆盖率：本文件 babel ${nodes.length} 个节点 / 抽出 ${bodies.length} 行；全树 ${checked} 个文件全部相等`)
+})
+
+// ---------------------------------------------------------------------------
+//  注入冒烟：故意加一条带当日日期的违规注释，守卫必须报出文件与行号
+//
+//  这是「判据真的拦得住」的唯一证明 —— 只有扫全树的断言变绿，也可能是判据
+//  本身失效。这里注入、断言命中、还原，三步都在一个 test 内完成。
+// ---------------------------------------------------------------------------
+test('⭐ 注入带当日日期的违规注释，守卫必须报出文件与行号', () => {
+  // 不就地改写源文件：node --test 多文件并行，就地改的窗口内别的进程可能
+  // 正在扫这棵树（persistenceMutation.node.test.js 定的规矩）。
+  // 所以改为在内存里构造带注入行的源文本，只调用抽取与判据，不落盘。
+  const rel = 'core/instances.js'
+  const src = fs.readFileSync(path.join(WIZARD_ROOT, 'core', 'instances.js'), 'utf8')
+  const today = new Date().toISOString().slice(0, 10)
+  const probe = `${src}\n// 注入冒烟：实测于 ${today} 由守卫用例触发\n`
+
+  const found = {}
+  for (const c of commentBodies(rel, probe)) {
+    if (CRITERIA_SELF_RE.test(c.body)) continue
+    const r = reasonsOf(c.body)
+    if (r.length) found[c.line] = r.join(' ')
+  }
+  const hits = Object.entries(found)
+  assert.ok(hits.length > 0,
+    `注入了一条带日期 ${today} 的注释，守卫一条都没报 ⇒ 判据失效`)
+  const lastLine = probe.replace(/\n$/, '').split('\n').length
+  assert.strictEqual(Number(hits[hits.length - 1][0]), lastLine,
+    `注入在第 ${lastLine} 行，守卫只报到 ${hits.map((h) => h[0]).join(',')} —— 行号对不上`)
+  assert.ok(hits.some(([, r]) => r.includes('日期体')),
+    `守卫报了行，但没给「日期体」判据：${JSON.stringify(hits)}`)
+  // 行号必须真的指向新加的那一行，不能是把别的行算成命中
+  assert.strictEqual(probe.split('\n')[lastLine - 1],
+    `// 注入冒烟：实测于 ${today} 由守卫用例触发`,
+    '行号对上了但指的不是注入那一行')
+})
+
+// ---------------------------------------------------------------------------
+//  不误报：合法的代码写法，一条都不许报
+//
+//  判据不能靠「什么都报」显得有效，需要证伪。下面每一条都是 probe.js 与
+//  styleguard 里真实出现过的反例：自增幂、指针记号、正则转义、模板串、
+//  箭头、按位取反、反引号模板、Windows 路径。
+// ---------------------------------------------------------------------------
+test('⭐ 不误报：幂/指针/正则/模板串/箭头/取反/路径，守卫全绿', () => {
+  // `a -> b` 与 `2~7` 不是合法 JS，babel 抽注释只认得能解析的源码 ——
+  // 这正是换 babel 的理由：非法输入应当报错，而不是静默当成 0 违规。
+  // 所以这里分两半：合法代码位置出现这些记号；注释里出现同样的记号。
+  const code = [
+    'const pow = 2 ** 7',
+    'const ptr = "&x"',
+    'const r = /\\/\\//',
+    'const t = `x // y`',
+    'const arrows = "a -> b"',
+    'const tildes = "2~7"',
+    'const loose = "7 ~ 2"',
+    'const win = "C:\\\\Users\\\\User\\\\AppData\\\\x.js"',
+    'const d = new Date()',
+    'const re = /\\d{4}-\\d{2}-\\d{2}/',
+    'const s = "a // b"',
+    'const q = \'juice\'',
+  ].join('\n')
+  const withComments = `${code}\n`
+    + '// 这段注释里有 2 ** 7 和 &x 与 /\\/\\// 与 a -> b 与 2~7\n'
+    + '// 路径写法 C:\\Users\\User\\AppData 也出现一次\n'
+    + '/* 块注释里的 x // y 与 2~7 与 &x 同样不算 */\n'
+  for (const [name, src] of [['code', code], ['withComments', withComments]]) {
+    const bodies = []
+    for (const c of commentBodies(`inject-fp-${name}.cjs`, src)) {
+      if (CRITERIA_SELF_RE.test(c.body)) continue
+      const r = reasonsOf(c.body)
+      if (r.length) bodies.push(`第 ${c.line} 行被误报 [${r.join(' ')}]：${JSON.stringify(c.body)}`)
+    }
+    assert.deepStrictEqual(bodies, [],
+      `\n${name} 里的合法写法被误报成归属性注释（${bodies.length} 条）：\n  ${bodies.join('\n  ')}`)
+  }
+  // 合法代码里一条注释都不该出现 —— 上述记号全在字符串与正则里
+  const nodes = commentNodes('inject-fp-code.cjs', code)
+  assert.deepStrictEqual(nodes, [], '这段纯代码里不该有注释节点')
 })
