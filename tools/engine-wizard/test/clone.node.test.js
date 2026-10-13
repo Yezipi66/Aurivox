@@ -128,6 +128,58 @@ test('⛔ ⭐ cloneUrl 空 ⇒ 当场报，不生成 `git clone \'\'`（2026-10-
   }
 })
 
+test('⛔⛔ ⭐ id 缺失/空/纯空格/非字符串 ⇒ MISSING_ID，⛔ 不许抛 Node path 错', () => {
+  // ⚠ Owner 2026-10-13 真机抓到：id 为 undefined 时 buildClonePlan 直接让
+  //   path.join(root,'engines',undefined) 抛
+  //   `The "path" argument must be of type string. Received undefined`，
+  //   界面把这句话原样渲染给用户 —— 那是 Node 内核报错，不是人话。
+  //   cloneUrl 那条 2026-10-04 就修过，id 这条漏了。判据：同规格。
+  const { root } = mkdtempRoot()
+  const GOOD_URL = 'https://github.com/a/b.git'
+  for (const bad of [undefined, null, '', '   ', '\t\n', 0, 42, {}, [], NaN]) {
+    let r
+    try {
+      // ⛔ 抛出来 = 测试失败（那正是这个 bug 的形状）
+      r = buildClonePlan({ id: bad, cloneUrl: GOOD_URL, root })
+    } catch (e) {
+      assert.fail(`id=${JSON.stringify(bad)} 竟然抛了：${e.message}`)
+    }
+    assert.strictEqual(r.ok, false, `id=${JSON.stringify(bad)} 却放行了`)
+    assert.strictEqual(r.code, 'MISSING_ID',
+      `id=${JSON.stringify(bad)} 的 code 不对：${r.code}`)
+    // ⛔ 不许把 Node 的内核报错透给界面
+    assert.ok(!/must be of type string/i.test(r.error || ''),
+      '⛔ path 参数的内核报错漏到界面上了')
+    // ⭐ 中文侧必须说人话：告诉用户该干什么
+    assert.ok(r.errorZh && r.errorZh.length > 8, '⛔ 没有中文人话')
+    assert.ok(/目录名/.test(r.errorZh), r.errorZh)
+    // ⛔ 空 id 也绝不许生成一条克隆命令
+    assert.ok(!JSON.stringify(r).includes('git clone'), '⛔ 空 id 也出了计划')
+  }
+})
+
+test('⛔⛔ ⭐ id 缺失时 checkClonable 也不许抛（它可被单独调用）', () => {
+  const { root } = mkdtempRoot()
+  for (const bad of [undefined, '', '   ']) {
+    let r
+    try {
+      r = checkClonable(bad, { root })
+    } catch (e) {
+      assert.fail(`checkClonable(${JSON.stringify(bad)}) 竟然抛了：${e.message}`)
+    }
+    assert.strictEqual(r.ok, false)
+    assert.strictEqual(r.code, 'MISSING_ID')
+  }
+})
+
+test('⭐ 正常 id ⇒ 照旧出计划（⛔ 不许被新校验挡住）', () => {
+  const { root } = mkdtempRoot()
+  const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
+  assert.strictEqual(p.ok, true, p.error)
+  assert.strictEqual(p.id, 'newone')
+  assert.deepStrictEqual(p.steps[0].argv.slice(-1), ['engines/newone'])
+})
+
 test('⭐ 默认只出计划，不动盘', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })

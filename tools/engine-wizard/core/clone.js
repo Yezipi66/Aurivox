@@ -73,6 +73,14 @@ function inspectTarget (id, opts = {}) {
  * @returns {{ok:true, dir} | {ok:false, code, error, entries?}}
  */
 function checkClonable (id, opts = {}) {
+  // ⛔ 2026-10-13：id 的校验在 buildClonePlan 里已做（MISSING_ID）。
+  //   这里再兜一层，因为它可被单独调用（core/wizardbridge.js 等路径）——
+  //   ⛔ 绝不能在这个位置抛 Node path 错。同规格：空/非字符串/纯空格 ⇒ 拒绝。
+  if (typeof id !== 'string' || !id.trim()) {
+    return { ok: false, code: 'MISSING_ID',
+      error: 'No directory name given.\n',
+      errorZh: '还没有填目录名。请先填写目录名，它会成为 engines/ 下的文件夹名。' }
+  }
   const info = inspectTarget(id, opts)
   if (!info.ok) return info
   if (info.entries.length === 0) return { ok: true, dir: info.dir }
@@ -105,6 +113,19 @@ function checkClonable (id, opts = {}) {
  */
 function buildClonePlan (input = {}) {
   const id = input.id
+  // ⛔⛔ 2026-10-13 真机踩到：id 缺失时**不报错**，而是让
+  //    path.join(root, 'engines', undefined) 当场抛
+  //    `The "path" argument must be of type string. Received undefined`，
+  //    界面原样渲染那句话 —— 用户看到的是 Node 内核崩溃，不是「请填写目录名」。
+  //    ⚠ cloneUrl 那一条 2026-10-04 就修过（见下），id 这条漏了。同规格补齐。
+  // ⛔ 空就是空，当场说清：缺 / 非字符串 / trim 后为空，三回事都拦在这里。
+  if (typeof id !== 'string' || !id.trim()) {
+    return { ok: false, code: 'MISSING_ID',
+      error: 'No directory name given.\n',
+      errorZh: '还没有填目录名。\n'
+        + '请先填写目录名：它会成为 engines/ 下的文件夹名，并作为 id 写入名片。\n'
+        + '粘贴链接并解析成功后，目录名会自动填好。' }
+  }
   // ⛔⛔ 2026-10-04 实测踩到：cloneUrl 空时**不报错**，
   //    而是生成 `git clone '' engines/<id>` —— 一条必然失败的命令，
   //    还占掉了「看计划」这一步。⛔ 空就是空，当场说清。
