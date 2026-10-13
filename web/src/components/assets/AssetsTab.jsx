@@ -561,7 +561,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     // 判据从「有 GPT **且** 有 SoVITS」改成「**有没有任何模型**」。
     //   那个「两份都要有」是第一台引擎的成套要求，照搬到别的引擎上，
     //   一个只有另一台引擎模型的角色会永远挂着红叉说自己缺模型，
-    //   而它其实完全能用。要不要成套是**那台引擎**的事，不是这排徽章的事。
+    //   而它完全能用。要不要成套是**那台引擎**的事，不是这排徽章的事。
     const hasModels = countModelsInMeta(asset) > 0
     const hasRaw = (a.raw?.file_count || 0) > 0
     const hasSlices = (a.slices?.file_count || 0) > 0

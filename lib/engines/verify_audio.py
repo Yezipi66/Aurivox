@@ -64,7 +64,7 @@ import traceback
 import wave
 
 # ⛔ 刻意不 import 任何 HTTP 库：宿主 stdlib 的 urllib 够用，而多一个依赖
-#    就多一处「这台机器上装没装」的变量 —— 而那正是本文件要验的东西之外的事。
+#    就多一处「本机上装没装」的变量 —— 而那正是本文件要验的东西之外的事。
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 

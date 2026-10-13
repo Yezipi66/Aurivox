@@ -118,7 +118,7 @@ def _seed_torch(seed):
 def _seed_torch_cuda(seed):
     import torch
     if not torch.cuda.is_available():
-        return None          # 不是错误：这台机器就是没有 CUDA
+        return None          # 不是错误：本机就是没有 CUDA
     torch.cuda.manual_seed_all(seed)
     return "torch.cuda"
 

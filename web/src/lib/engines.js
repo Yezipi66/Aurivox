@@ -505,7 +505,7 @@ export function checkpointBadge(engine, lang = 'zh') {
 //   这个函数只负责翻成"徽章上写什么、悬停显示什么"。
 //
 // 三种「未运行」必须说成三句不同的话，不许合并：
-//   · process === null   → 这台机器**不管进程**（后端未装看管人）⇒ 不画徽章。
+//   · process === null   → 本机**不管进程**（后端未装看管人）⇒ 不画徽章。
 //       报成"停着"会让人去点一个不存在的启动按钮。
 //   · running === false  → 确实没起，**而这是正常的**，下次要用会自己起。
 //       ⇒ 语气必须是中性的"待命"，不是红色的"离线/挂了"。
@@ -514,7 +514,7 @@ export function checkpointBadge(engine, lang = 'zh') {
 
 /**
  * @returns {null|{tone:'ok'|'busy'|'idle'|'unknown', label:string, title:string}}
- *   null = 不画这个徽章（列表还没回来，或这台机器不管引擎进程）
+ *   null = 不画这个徽章（列表还没回来，或本机不管引擎进程）
  */
 export function processBadge (engine, lang = 'zh') {
   if (!engine) return null
@@ -713,7 +713,7 @@ export function engineBadge (engine, health, lang = 'zh') {
     return { tone: pr.tone, label: `${name} · ${pr.label}`, title }
   }
 
-  // ── 兜底：这台机器**不管进程**（process 为 null）──────────────────
+  // ── 兜底：本机**不管进程**（process 为 null）──────────────────
   // 这里原本是老那枚 Connected / Unreachable，
   //   它读 `health.engine_online`，而 engine_online 是「往某个端口探一下活」。
   //
@@ -766,7 +766,7 @@ export function fmtMemMb (mb) {
 }
 
 /**
- * 把后端那台机器的占用总览翻成一句话。
+ * 把后端该机器的占用总览翻成一句话。
  *
  * @param {object|null} occ  /api/engines 回来的 occupancy 段
  * @param {string} [lang]

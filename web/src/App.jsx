@@ -19,7 +19,7 @@ import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessSt
  * 把操作系统报的设备名整理成一句能给人看的话。
  *
  * 为什么需要它：`/api/health` 的 `device_name` 是**系统原样报上来的字符串**，
- *   这台机器上是 `Intel(R) Arc(TM) 140T GPU (32GB)`，里面混着商标符号、
+ *   本机上是 `Intel(R) Arc(TM) 140T GPU (32GB)`，里面混着商标符号、
  *   用途后缀和一段**不可信的显存**（WMI 的 AdapterRAM 报 4.0GB，
  *   而真实共享内存是 58.5GB）。
  * 所以这里把商标符号、用途后缀、以及那段显存数字一起去掉，
@@ -281,8 +281,8 @@ function AppShell() {
           //
           // 但**标签语义一个字没动**：README 定义的就是
           //   「CUDA <显存>（绿=检测到 N 卡）/ CPU only（红=未检测到 N 卡）」，
-          //   而「未检测到 N 卡」在这台机器上**是准确的**。不该因为
-          //   「这台机器有别的 GPU」就去改标签的既定义，
+          //   而「未检测到 N 卡」在本机上**是准确的**。不该因为
+          //   「本机有别的 GPU」就去改标签的既定义，
           //   那是拿一个未被要求的改进去覆盖一条已经写清楚的约定。
           //
           // 唯一补的是 **tooltip**：那里可以把话说完而不动标签语义。
