@@ -508,3 +508,243 @@ test('界面文案不许出现 emoji 或符号语气', () => {
   assert.deepStrictEqual(bad, [],
     `\n有 ${bad.length} 处界面文案含 emoji 或符号语气，契约 5cdf33d 全禁：\n  ${bad.join('\n  ')}`)
 })
+
+// ---------------------------------------------------------------------------
+//  注释归位守卫（基准一）
+//
+//  注释只解释文件本身、代码块、代码行：这段在做什么、为什么这样实现、
+//  什么输入会让它坏。四类归属性内容不进代码注释，判据来源见
+//  docs/WIZARD_FIX_PLAN_DCABD.md 第 0 节：现场经过、归属叙述、纪律宣告、情绪标记。
+//
+//  可执行判据取四条：日期体、归属类词、现场经过类词、强调符号。
+//  markdown 加粗只判 md 文档，代码注释里的乘号与指针语义不判。
+//  纪律宣告类按本笔任务书未列入可执行判据，实测边际 2 行，另行记账。
+//
+//  债务如实记账：D1 时点全树仍带存量，DEBT_LEDGER 是这一时点的快照，
+//  只许变小不许变大。新写一条违规注释会让对应文件计数对不上，
+//  测试报出文件与行号。
+// ---------------------------------------------------------------------------
+
+const WIZARD_ROOT = path.join(__dirname, '..')
+const PLAN_DOC = path.join(__dirname, '..', '..', '..', 'docs', 'WIZARD_FIX_PLAN_DCABD.md')
+const SCAN_EXTS = new Set(['.js', '.jsx', '.cjs', '.mjs'])
+const SCAN_SKIP_DIRS = new Set(['node_modules', '__pycache__', 'cache'])
+
+const DATE_FORM_RE = /\b\d{4}-\d{2}-\d{2}\b/
+const ATTRIBUTION_WORDS = ['Owner', '亲自', '前任', '裁决', '裁定']
+const SCENE_WORDS = ['实测', '试错', '报障', '踩过', '踩到', '曾经', '一度', '上一版', '今晚']
+const EMPHASIS_SYMBOL_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u
+const MARKDOWN_BOLD_RE = /\*\*[^*\n]+\*\*|__[^_\n]+__/
+const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SYMBOL_RE|MARKDOWN_BOLD_RE|CRITERIA_SELF_RE/
+
+//  D1 时点的债务快照，按文件记违规注释行数。
+const DEBT_LEDGER = {
+  'core/env.js': 258,
+  'core/wizardbridge.js': 155,
+  'core/paramsFromReflect.js': 119,
+  'test/env-venv.node.test.js': 107,
+  'test/env.node.test.js': 87,
+  'editor/StepPrepare.jsx': 83,
+  'editor/StepsExtra.jsx': 71,
+  'core/hardware.js': 69,
+  'core/download.js': 54,
+  'test/cliHelp.node.test.js': 50,
+  'editor/StepDeps.jsx': 49,
+  'core/cliHelp.js': 48,
+  'test/clone.node.test.js': 39,
+  'test/styleguard.node.test.js': 39,
+  'editor/App.jsx': 37,
+  'editor/steps.js': 35,
+  'test/requirements.node.test.js': 34,
+  'test/hardware.node.test.js': 32,
+  'test/paramsFromReflect.node.test.js': 32,
+  'test/models.node.test.js': 29,
+  'test/steps.node.test.js': 26,
+  'test/persistenceMutation.node.test.js': 24,
+  'core/models.js': 23,
+  'editor/useInstallSession.js': 23,
+  'test/download.node.test.js': 22,
+  'core/clone.js': 21,
+  'core/verify.js': 21,
+  'test/asyncHandlerFallback.node.test.js': 20,
+  'core/installState.js': 16,
+  'editor/ManifestPage.jsx': 16,
+  'test/resolve.node.test.js': 16,
+  'editor/PanelPreview.jsx': 15,
+  'test/probe.node.test.js': 15,
+  'core/validate.js': 14,
+  'test/installStateEndpoint.node.test.js': 12,
+  'test/verify.node.test.js': 12,
+  'editor/Diagnostics.jsx': 11,
+  'editor/MainArea.jsx': 11,
+  'test/installState.node.test.js': 11,
+  'editor/Pipeline.jsx': 10,
+  'core/savebridge.js': 9,
+  'editor/CliGenPanel.jsx': 9,
+  'test/bridge.node.test.js': 9,
+  'test/useInstallSession.node.test.js': 9,
+  'core/bridge.js': 8,
+  'core/fieldmeta.js': 8,
+  'core/tierreview.js': 8,
+  'editor/ManifestForm.jsx': 8,
+  'editor/downloadState.js': 7,
+  'core/instances.js': 6,
+  'core/probe.js': 6,
+  'editor/StepVerify.jsx': 6,
+  'test/folderName.node.test.js': 6,
+  'core/cliDraft.js': 5,
+  'core/paramDigest.js': 5,
+  'core/resolve.js': 5,
+  'core/specbridge.js': 5,
+  'editor/folderName.js': 5,
+  'test/save.node.test.js': 5,
+  'core/save.js': 4,
+  'editor/RequiredEight.jsx': 4,
+  'editor/useInstalled.js': 4,
+  'test/computeAutoFill.node.test.js': 4,
+  'test/tierreview.node.test.js': 4,
+  'test/validate.node.test.js': 3,
+  'editor/index.jsx': 2,
+  'test/downloadState.test.js': 2,
+}
+
+// 取注释体：// 与块注释。逐字符状态机扫，字符串字面量整段跳过，
+// 判定顺序固定为「先判注释起点再判字符串」，不会把代码里的 // 当注释。
+function commentBodies (src) {
+  const out = []
+  const n = src.length
+  let i = 0
+  let line = 1
+  while (i < n) {
+    const ch = src[i]
+    if (ch === '\n') { line++; i++; continue }
+    if (ch === '\r' || ch === ' ' || ch === '\t') { i++; continue }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const q = ch
+      i++
+      while (i < n && src[i] !== q) {
+        if (src[i] === '\\') i++
+        if (i < n && src[i] === '\n') line++
+        i++
+      }
+      i++
+      continue
+    }
+    if (ch === '/' && src[i + 1] === '/') {
+      const startLine = line
+      const raw = src.slice(i)
+      const eol = raw.search(/\r\n|\n|\r/)
+      const text = eol === -1 ? raw : raw.slice(0, eol)
+      out.push({ line: startLine, body: text.replace(/^\/\/\/?/, '').replace(/^\/\//, '') })
+      if (eol === -1) i = n
+      else {
+        for (let k = 0; k < eol; k++) if (raw[k] === '\n') line++
+        i += eol
+      }
+      continue
+    }
+    if (ch === '/' && src[i + 1] === '*') {
+      const startLine = line
+      let j = i + 2
+      let text = ''
+      while (j < n) {
+        if (src[j] === '*' && src[j + 1] === '/') { j += 2; break }
+        text += src[j]
+        if (src[j] === '\n') line++
+        j++
+      }
+      text.split('\n').forEach((seg, k) => {
+        out.push({ line: startLine + k, body: seg.replace(/^\s*\*\/?/, '').replace(/^\/\*/, '') })
+      })
+      i = j
+      continue
+    }
+    i++
+  }
+  return out
+}
+
+function collectSourceFiles (dir, out) {
+  if (!fs.existsSync(dir)) return out
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (SCAN_SKIP_DIRS.has(e.name)) continue
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) { collectSourceFiles(p, out); continue }
+    if (!SCAN_EXTS.has(path.extname(e.name)) || e.name.endsWith('.bak')) continue
+    out.push(p)
+  }
+  return out
+}
+
+function reasonsOf (body) {
+  const r = []
+  if (DATE_FORM_RE.test(body)) r.push('日期体')
+  for (const w of ATTRIBUTION_WORDS) if (body.includes(w)) r.push('归属:' + w)
+  for (const w of SCENE_WORDS) if (body.includes(w)) r.push('现场:' + w)
+  if (EMPHASIS_SYMBOL_RE.test(body)) r.push('符号')
+  return r
+}
+
+function scanWizardTree () {
+  const found = {}
+  for (const f of collectSourceFiles(WIZARD_ROOT, [])) {
+    const rel = path.relative(WIZARD_ROOT, f).replace(/\\/g, '/')
+    const hits = []
+    for (const c of commentBodies(fs.readFileSync(f, 'utf8'))) {
+      if (CRITERIA_SELF_RE.test(c.body)) continue
+      const r = reasonsOf(c.body)
+      if (r.length) hits.push({ line: c.line, reasons: r.join(' ') })
+    }
+    if (hits.length) found[rel] = hits
+  }
+  return found
+}
+
+function describeHits (found, keys) {
+  const rows = []
+  for (const rel of keys) for (const h of (found[rel] || []).slice(0, 40)) rows.push(`${rel}:${h.line}  ${h.reasons}`)
+  return rows.length ? `\n命中的文件与行号：\n  ${rows.join('\n  ')}` : ''
+}
+
+test('注释归位守卫：计划文档零命中（判据来源自身干净）', () => {
+  const bad = []
+  const lines = fs.readFileSync(PLAN_DOC, 'utf8').split('\n')
+  lines.forEach((line, i) => {
+    if (/^\s*#/.test(line)) return
+    if (/^\s*\|/.test(line)) return
+    if (CRITERIA_SELF_RE.test(line)) return
+    const r = reasonsOf(line)
+    if (MARKDOWN_BOLD_RE.test(line)) r.push('加粗')
+    if (r.length) bad.push(`${i + 1}  [${r.join(' ')}]  ${line.trim().slice(0, 60)}`)
+  })
+  assert.deepStrictEqual(bad, [],
+    `\n计划文档残留归属性内容（${bad.length} 处）：\n  ${bad.join('\n  ')}\n`
+    + '  这份文档是判据的来源，它自己要干净。\n')
+})
+
+test('注释归位守卫：注释只解释代码，不新增四类归属性内容', () => {
+  const found = scanWizardTree()
+  const actual = {}
+  for (const [rel, hits] of Object.entries(found)) actual[rel] = hits.length
+
+  const grown = []
+  const newFiles = []
+  const shrunk = []
+  for (const [rel, n] of Object.entries(actual)) {
+    if (!(rel in DEBT_LEDGER)) { newFiles.push(`${rel}: ${n}`); continue }
+    if (n > DEBT_LEDGER[rel]) grown.push(`${rel}: 台账 ${DEBT_LEDGER[rel]} -> 实测 ${n}`)
+    if (n < DEBT_LEDGER[rel]) shrunk.push(`${rel}: 台账 ${DEBT_LEDGER[rel]} -> 实测 ${n}`)
+  }
+  for (const rel of Object.keys(DEBT_LEDGER)) if (!(rel in actual)) shrunk.push(`${rel}: 台账 ${DEBT_LEDGER[rel]} -> 实测 0`)
+
+  const blocked = grown.concat(newFiles).map((row) => row.split(': ')[0].replace(': ', ''))
+  assert.deepStrictEqual(grown.concat(newFiles), [],
+    `\n注释归位债务变多了（${grown.length + newFiles.length} 个文件）：\n  ${grown.concat(newFiles).join('\n  ')}`
+    + describeHits(found, blocked)
+    + '\n  新写的注释只解释这段在做什么、为什么这样实现、什么输入会让它坏。\n')
+
+  if (shrunk.length) {
+    console.log(`注释归位债务减少 ${shrunk.length} 个文件：\n  ${shrunk.join('\n  ')}\n`
+      + '  台账待更新为新的快照（D2 逐文件删注释后统一改）。')
+  }
+})
