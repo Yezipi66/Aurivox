@@ -56,7 +56,7 @@ function basename(p) {
 // re-POSTs with { force:true }.
 
 // Client-side mirror of the server name rule: Unicode letters allowed, only
-// filesystem-dangerous symbols blacklisted (locked 2026-07-07).
+// filesystem-dangerous symbols blacklisted.
 const RECIPE_NAME_BLACKLIST = /[\/\\:*?"<>|]/
 
 function recipeNameError(name) {

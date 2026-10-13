@@ -83,7 +83,6 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
       if (cancelled || !r.ok || !r.data?.ok) return
       // 精调是**这条训练管线**自己的事（继续训一版），它天然只认这条管线产的
       //   那两份权重 ⇒ 引擎名在这里是这个弹窗自己的题目，不是平台写死了一台引擎。
-      //   2026-08-30 只换取值层级。
       const gpt = modelsFromMeta(r.data.meta, 'gpt-sovits', 'gpt')
       const sovits = modelsFromMeta(r.data.meta, 'gpt-sovits', 'sovits')
       setCkpts({ gpt, sovits })

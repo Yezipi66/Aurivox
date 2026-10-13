@@ -7,7 +7,7 @@
 把「传话的」那 294 行样板（HTTP 服务、探活、四类 400 校验、wav 头解析、
 推理排队、洗 sys.path）从每台引擎的目录里收上来，只留下名片描述的那部分。
 
- 2026-08-27：`engines/indextts2/shim.py`（523 行）**已经删掉了**
+ `engines/indextts2/shim.py`（523 行）**已经删掉了**，
 契约 §11 判据 8「shim.py 缩到零」结账。判据不是「看着能跑」：
 `tools/dev/run_ab.py` 采四段音频比梅尔差，跨路径 0.00% / 天花板 127.25%，
 5 条判据 5 过；`tools/dev/verify_launch.py` 照平台真实启动路径起了一次
@@ -126,11 +126,11 @@ def _seed_torch_cuda(seed):
 # ---------------------------------------------------------------------------
 # init_args 里的 {占位符}
 # ---------------------------------------------------------------------------
-# 这一段原本**不存在**：`init_args` 是被原样 `dict()` 一下就 `klass(**init_args)`
-# 了，于是名片里写 "{checkpoints}/config.yaml" 会把**大括号本身**当字面量传给
+# `init_args` 里的 {占位符} 必须在传进构造函数之前替换掉：
+# 否则名片里写 "{checkpoints}/config.yaml" 会把**大括号本身**当字面量传给
 # 上游构造函数：上游拿到一个不存在的路径，报一个跟名片毫无关系的错。
-# 为什么以前没暴露：探针里那台假引擎的 init_args 是写死的字面值，不带占位符。
-# ⇒ 又是「夹具比现实简单」造成的假绿，和 requires_reference_audio 那次同一类。
+# ⇒ 又是「夹具比现实简单」造成的假绿，和 requires_reference_audio 同一类：
+# 探针里那台假引擎的 init_args 是写死的字面值，不带占位符。
 # 占位符表**故意和 launchPlan.js 的 PLACEHOLDERS 对齐**（那边是
 # host/port/root/engine_dir/checkpoints）。这里只认路径那三个：构造一个
 # 模型对象不需要知道自己监听在哪。两边同名同义，别让它们分叉。
@@ -596,7 +596,7 @@ class Engine(object):
     def _synthesize_python(self, text, ref_audio_path, call_params, seed=None, method_cfg=None):
         bind = self.call["bind"]
         returns = self.call.get("returns", "file")
-        # 2026-09-30：一次请求一个方法。call.methods 里每个方法可以带自己
+        # 一次请求一个方法。call.methods 里每个方法可以带自己
         # 的 method 名和 bind（别名）：vc 的 source_wav 跟 zero_shot 的
         # prompt_wav 是同一个输入的不同叫法。
         if method_cfg:
@@ -609,16 +609,14 @@ class Engine(object):
 
         kwargs = dict(call_params)
         kwargs[bind["text"]] = text
-        # 2026-10-01 真机抓到（300m-sft 的 sft）：方法级
-        # requires_ref_audio=False（用内置音色，不要参考音频），而顶层 bind
+        # 方法级 requires_ref_audio=False（用内置音色，不要参考音频），而顶层 bind
         # 有 ref_audio ⇒ merge 之后 merged 仍带它 ⇒ 宿主把参考音频塞进
         # kwargs ⇒ 上游报
         # TypeError: inference_sft() got an unexpected keyword argument
         # 'prompt_wav'
         # 剪在这里而不是在 resolve_method 里剪：bind 是**填充用的入口**，
         # kwargs 才是**真发出去的东西**。剪错了地方会让 bind["text"] /
-        # bind["output_path"] 这些入口 KeyError（我第一版就栽在这儿，
-        # probe_host_methods 的两条 vc 用例当场抓住）。
+        # bind["output_path"] 这些入口 KeyError。
         wants_ref = (method_cfg or {}).get("requires_ref_audio")
         if wants_ref is not False and bind.get("ref_audio") and ref_audio_path is not None:
             kwargs[bind["ref_audio"]] = ref_audio_path
@@ -627,7 +625,7 @@ class Engine(object):
         if not str(text or "").strip():
             kwargs.pop(bind["text"], None)
 
-        # 2026-09-30 真机抓到：有些上游方法**签名上必填**、但在实际走的那条
+        # 有些上游方法**签名上必填**、但在实际走的那条
         # 路上**根本不用**。CosyVoice2 的 zero_shot 是典型：
         # inference_zero_shot(tts_text, prompt_text, prompt_wav, zero_shot_spk_id='')
         # 复用已存音色时这两个传空串即可（上游 example.py 就是这么写的），
@@ -682,7 +680,7 @@ class Engine(object):
                 if not data:
                     raise RuntimeError("%s wrote an empty file" % self.call["class"])
             elif returns == "generator":
-                # 2026-09-29：CosyVoice2 五个推理方法都返回生成器。
+                # CosyVoice2 五个推理方法都返回生成器。
                 # 采样率从 call.generator_sample_rate 取（名片声明）
                 # 不从 item 里猜：万一项里没有，它就该响亮地失败，
                 # 而默默塞一个 16000 会得到**变调**的音频，且不报错。
@@ -719,7 +717,7 @@ class Engine(object):
 def _collect_generator(result, sample_rate, call_desc):
     """把上游的**生成器**收成一个 WAV 字节流。
 
-     为什么要有第三种形态（2026-09-29，接 CosyVoice2 时发现的）
+     为什么要有第三种形态
 
       `call.returns` 原本只有两种：
         "file"   上游接受 output_path，自己写文件
@@ -767,7 +765,7 @@ def _collect_generator(result, sample_rate, call_desc):
         # 1) item 里的 sample_rate：有些引擎每块都带；
         # 2) 名片里的 call.generator_sample_rate：有些（[实测] CosyVoice2）
         # 把采样率放在**模型对象**上，yield 出来的 dict 里压根没这个键。
-        # 过去这里只认 1)，拿到 [实测] 一整段合成成功的音频后报
+        # 只认 1) 会让「一整段合成成功的音频」在最后报
         # 「没给过 sample_rate」：而答案一直在名片里。
         r = item.get("sample_rate")
         if r is None:
@@ -954,7 +952,7 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(code, message, **extra)
             return
 
-        # 2026-09-30：一次请求一个方法。请求带 method=… 就是切方法；
+        # 一次请求一个方法。请求带 method=… 就是切方法；
         # 不带就走名片写的 default_method。
         # text 允许为空：vc 这类方法转换的是**已有音频**，不读文本。
         # （validate_request 已按方法判过要不要 text。）
@@ -1005,7 +1003,7 @@ class Handler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 # 4) 请求校验：抽成纯函数，才能不起进程就测
 # ---------------------------------------------------------------------------
-# 2026-09-30 加 "method"：请求用它切推理方法（call.methods）。
+# "method"：请求用它切推理方法（call.methods）。
 CORE_KEYS = frozenset({"text", "ref_audio_path", "seed", "format", "media_type",
                       "method"})
 
@@ -1013,11 +1011,11 @@ CORE_KEYS = frozenset({"text", "ref_audio_path", "seed", "format", "media_type",
 def resolve_method(profile, requested):
     """决定这一次合成走哪个方法。
 
-     2026-09-30： CosyVoice2 有**五个**推理方法（sft / zero_shot /
+     CosyVoice2 有**五个**推理方法（sft / zero_shot /
       cross_lingual / instruct2 / vc），它们要的参数互不相同
       （sft 要 spk_id，vc 要两个音频，instruct2 要 instruct_text…）。
-      过去的宿主只会 `getattr(self.obj, call["method"])`：一次方法，
-      于是「换参数」根本换不到方法：请求里写 spk_id 也好、写 instruct_text
+      宿主一次只认 `getattr(self.obj, call["method"])` 这一个方法时，
+      「换参数」就换不到方法：请求里写 spk_id 也好、写 instruct_text
       也好，跑的永远是 inference_zero_shot。
 
        而那份要求在名片里是**真的写着**的（每个参数带 applies_to）。名片许
@@ -1051,9 +1049,9 @@ def resolve_method(profile, requested):
     if name not in methods:
         return None, None, requested
     cfg = methods[name] or {}
-    # 2026-10-01 真机抓到：方法级 bind 是**整体替换**，不是逐键覆盖。
-    # 原来写的是「顶层 bind 打底 + 方法级逐键覆盖」（merge）。那在
-    # 「方法只是换个别名」时对，在「方法**不要**某个槽位」时**完全错**：
+    # 方法级 bind 是**整体替换**，不是逐键覆盖。
+    # 逐键覆盖（顶层 bind 打底 + 方法级覆盖）在「方法只是换个别名」时对，
+    # 在「方法**不要**某个槽位」时**完全错**：
     # cosyvoice-300m-sft 名片（本身写对了）：
     # 顶层   bind = {text: tts_text, ref_audio: prompt_wav}
     # sft    bind = {text: tts_text}            ← 故意**没有** ref_audio
@@ -1066,8 +1064,7 @@ def resolve_method(profile, requested):
     # **requires_ref_audio: false 就是那个声明**（validate_request:1095-1098
     # 已经在读它）。bind 里没那个键 = 平台不知道往哪放 ⇒ 不该放。
     # 反过来「方法级显式写了 ref_audio」时它照旧生效。
-    # merge（打底 + 逐键覆盖）是对的，**我第一版改成「整体替换」是错的**
-    # 2026-10-01 被 probe_host_methods 的两条 vc 用例当场抓住：
+    # 「方法只是换个别名」时逐键覆盖是对的，但整体替换会出错：
     # vc.bind 只写 {"ref_audio": "prompt_wav"}（它不读文本，所以没有 text
     # 键）。整体替换会把顶层 bind 里的 text 丢掉 ⇒ vc 那个槽位就没了。
     # 那 300M-SFT 的 sft 为什么还坏？它的 sft.bind = {"text": "tts_text"}
@@ -1092,8 +1089,8 @@ def resolve_method(profile, requested):
                   "call_time": cfg.get("call_time", None),
                   # blank_when 必须一起带下去：少了它，「签名必填但实际
                   # 那条路不用」的参数就永远填不上 ⇒ TypeError。
-                  # 2026-09-30 真机上栽过：它写在了这里**下面**的函数里，
-                  # 于是 resolve_method 已配置好，调用方拿到的却没有。
+                  # 它必须由 resolve_method 一起带下来：写在**下面**的函数里，
+                  # 等于 resolve_method 已配置好、调用方拿到的却没有。
                   "blank_when": cfg.get("blank_when", None)}, requested
 
 
@@ -1133,7 +1130,7 @@ def validate_request(body, profile, seed_plan):
     elif mcfg.get("requires_ref_audio") is False:
         needs_ref = False
 
-    # 2026-09-30 真机抓到：参考音频**有时可选**。
+    # 参考音频**有时可选**。
     # CosyVoice2 的 zero_shot 有两种用法
     # ① 带参考音频，现场克隆音色（要 ref）
     # ② zero_shot_spk_id，复用以前存好的音色（ 不要 ref）
@@ -1149,7 +1146,7 @@ def validate_request(body, profile, seed_plan):
 
     # 方法可以自带 call_time 参数（sft 要 spk_id、instruct2 要 instruct_text）。
     # 不声明就沿用全局那份：多数方法就是全局的子集。
-    # 2026-09-30 修的真缺口：call_time 白名单过去是**全局一份**，于是
+    # call_time 白名单要**逐方法一份**：一份全局的，
     # 属于别的方法的参数会被原样塞进 kwargs ⇒
     # `TypeError: upstream_instruct2() got an unexpected keyword argument
     # 'prompt_text'`：一个 500，把「你填错方法了」说成「引擎炸了」。
@@ -1244,7 +1241,7 @@ def validate_profile(profile):
         return _finish_profile(problems, call)
 
     required = REQUIRED_CALL_PY if kind == "python" else REQUIRED_CALL_CLI
-    # 2026-09-30：call.methods 存在时，call.method 不再必需：一个引擎
+    # call.methods 存在时，call.method 不再必需：一个引擎
     # 可以有**五个**推理入口，单数字段表达不了。两条路互斥：写了 methods
     # 就以它为准，没写才认 method（旧名片一个字不改照跑）。
     methods = call.get("methods")
@@ -1398,8 +1395,8 @@ def main():
         host, port = None, None
 
     # 引擎源码目录进 sys.path（名片 runtime.verify.sys_path）
-    # 2026-08-27：这行注释一直是对的，代码却读的是 runtime.sys_path
-    # 名片里没有那个键，于是永远 += []，最后死在 ModuleNotFoundError。
+    # 必须读 runtime.verify.sys_path：名片里没有 runtime.sys_path 那个键，
+    # 读它等于永远 += []，最后死在 ModuleNotFoundError。
     # 用的是**校验块**的路径不是笔误：第一道校验（契约 §6）导入哪条路径，
     # 宿主就必须加载哪条路径：不同就等于验的和跑的不是同一个模块。
     sys_path_decl = (runtime.get("verify") or {}).get("sys_path") or []

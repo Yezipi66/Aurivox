@@ -77,9 +77,7 @@ export function ContextRow({ voices, selectedVoice, health, activeTaskId, activi
   }, [activeTaskId])
 
   // 这个角色手上有哪几台引擎的模型、各几个。
-  //
-  // 以前这里是写死的两格（GPT / SoVITS），只有第一台引擎能填进去，
-  //   别的引擎的模型在这条状态栏上一个字都看不到。现在**有几台引擎就几格**。
+  // 有几台引擎就几格，每格只装那台引擎在这个角色下的模型。
   const modelCounts = modelCountsByEngine(meta)
 
   const item = (k, v, placeholder) => (

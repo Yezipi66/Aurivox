@@ -3,7 +3,7 @@ Task 6 复核: 检查训练产出的 GPT (-e<N>.ckpt) 是否含 init_t2s_weights
 {weight, config, info} 结构。
 用法: venv\Scripts\python.exe lib\inference\check_ckpt.py
 
-⚠ 2026-08-30: 角色的模型改按引擎和模型位分目录存放, 老的
+⚠ 角色的模型改按引擎和模型位分目录存放, 老的
    assets/<角色>/gpt_checkpoints/ 变成 assets/<角色>/models/<引擎id>/<模型位>/。
    这个脚本查的是**这条训练管线**自己产的那种 ckpt, 所以引擎名写在这里是
    它自己的题目; 但仍然同时扫老目录, 因为还没搬家的机器上文件就在那儿。

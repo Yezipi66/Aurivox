@@ -13,8 +13,7 @@ import { RecipeModelRebind } from './RecipeModelRebind'
 export function RecipeCard({ recipe, endpoint, onChanged }) {
   const { t } = useT()
   // 参数摘要：按**这个配方自己带的键**渲染，键的顺序尽量按当前引擎的
-  //   param_schema 走（paramsSummaryOf）。过去这里是写死的
-  //   `top_k / temperature / speed` 三个 GPT-SoVITS 键。
+  //   param_schema 走（paramsSummaryOf）。键名一个都不写死。
   //   配方没有 engine_id（配方格式不动），所以**不按引擎身份过滤**，
   //   参数就在配方里，显示配方里有的，不编配方里没有的。这比「猜它是哪台
   //   引擎然后只显示那几个键」更不容易错。
@@ -102,14 +101,12 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
           </div>
           <div><span className="rc-k">{t('Model slot 1', '模型位 1')}</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
           <div><span className="rc-k">{t('Model slot 2', '模型位 2')}</span><span className="rc-v" title={recipe.sovits_pth}>{recipe.sovits_pth ? basename(recipe.sovits_pth) : t('(none)', '（无）')}</span></div>
-          {/* 2026-10-01：过去这里是写死的三个 GPT-SoVITS 键
-              （`top_k {…} · temp {…} · speed {…}`）。一台 CosyVoice 的配方在
-              Broker 里显示的是「top_k undefined · temp undefined · speed undefined」，
+          {/* 参数按**当前引擎名片上的 param_schema** 渲染：有什么显示什么，
+              一个都没有就老实说「没有参数」。
+              不写死键名的话，一台别的引擎的配方在 Broker 里显示的是
+              「top_k undefined · temp undefined · speed undefined」，
               而这个配方明明带着 prompt_text / spk_id，参数**就在那儿**，
               只是这一页不认识它们的键名。
-
-              现在按**当前引擎名片上的 param_schema** 渲染：有什么显示什么，
-              一个都没有就老实说「没有参数」。
               前端不猜哪几个参数值得显示（那又是一个写死的清单）。 */}
           <div><span className="rc-k">{t('Params', '参数')}</span><span className="rc-v" title={paramSummaryFull}>
             {paramSummary || t('(none)', '（无）')}

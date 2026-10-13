@@ -275,9 +275,8 @@ function AppShell() {
         <LangToggle />
         {health?.ffmpeg_available && <span className="badge badge-ok" style={{ alignSelf: 'center' }}>ffmpeg</span>}
         {health && (() => {
-          // 2026-10-05：探测机制换了（lib/system/gpu.js：问操作系统，不再问
-          //   任何 venv 里的 torch），因为根 venv 瘦身之后那条路必然答「无 CUDA」，
-          //   而那不是事实。
+          // 探测机制：问操作系统（lib/system/gpu.js），不问任何 venv 里的 torch，
+          //   因为根 venv 瘦身之后那条路必然答「无 CUDA」，而那不是事实。
           //
           // 但**标签语义一个字没动**：README 定义的就是
           //   「CUDA <显存>（绿=检测到 N 卡）/ CPU only（红=未检测到 N 卡）」，
@@ -308,7 +307,7 @@ function AppShell() {
           );
         })()}
         {/* 关于「当前这台引擎」，顶栏只留这一枚灯。
-            2026-08-30 之前这里是**三枚**：底模齐 / 进程状态 / Connected。
+            这里合并掉的是三枚：底模齐 / 进程状态 / Connected。
             Owner：「你现在右上角的指示灯越来越多了，是非常不好的兆头…
                     你再加是想变成飞机仪表盘嘛」。
 

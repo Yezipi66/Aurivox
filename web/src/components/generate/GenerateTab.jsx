@@ -129,7 +129,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // 这个页面走 /api/generate，它等的是一份**做完的**音频（runGenerate 读的是
   // audio_url），消费不了流。所以只对流式输出有意义的那几个参数，在这一页上
-  // 长出来也是摆设，2026-08-23 就是因为这个把它们撤掉的（全文见下面 :145）。
+  // 长出来也是摆设，这就是它们被撤掉的原因（全文见下面 :145）。
   // 这不是一份引擎名单，是**这个页面自己的能力声明**：换哪台引擎都成立。
   //    悬着的问题：这三个键名毕竟还是写在前端的。更干净的做法是让名片
   //      说清「这个参数只在流式路径上有意义」，但那要给 schema 加字段，
@@ -151,7 +151,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [mediaType, setMediaType] = usePersistentState('generate.mediaType', 'wav')
   // 这里原本还有 streamingMode / overlapLength / minChunkLength 三个 state。
   //
-  // 撤掉的理由不是「没用」，是**放错了地方**（2026-08-23 查实）：
+  // 撤掉的理由不是「没用」，是**放错了地方**：
   //   1. Workbench 走 /api/generate，它拿到音频后是普通 JSON 响应（runGenerate
   //      等的是 audio_url），**根本消费不了流**，这个界面上开「流式」开不出流式。
   //   2. 这三个键写进 advanced_params.json 后，本组件挂载时**从来不读回来**
@@ -181,7 +181,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // Load advanced params from backend.
   //
-  // /A2（2026-08-31）：这里过去是 `api('/api/advanced-params')`
+  // 这里不能是 `api('/api/advanced-params')`
   //   一个裸地址、依赖数组 `[]`（只在挂载时跑一次）。
   //   后端删掉 legacyDefault 之后，**不带 engine_id 就不再回落到任何一台名片**
   //   （`lib/routes/pron.js:17-22`）⇒ 不改这一行的后果是：真机上高级设置里
@@ -212,11 +212,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // ══ 模型选择 ═══════════════════════════════════════════════════════════
   //
-  // 2026-08-30 大改。这里以前写死着两个下拉（GPT / SoVITS），那是第一台
-  //   引擎的形状。结果第二台引擎装上了、名片也写了、界面上也能选，但在
-  //   「有哪些模型可用」这份清单里一个入口都没有。
-  //
-  //   现在：**下拉有几个，是这台引擎的名片说的**；每个下拉里装什么，是
+  // 下拉有几个，是这台引擎的名片说的；每个下拉里装什么，是
   //   「这台引擎的底模 ∪ 当前角色下这台引擎的模型」这个二维筛选说的。
   //
   // 跨资产混搭没了（原来那个 "Mix models across assets" 开关）。挑别人的
@@ -305,7 +301,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   })
   const selectOptions = (f) => optionsForField(f, selectSources)
   // 当前这一套的一句话摘要：「角色 / 第一个位选的 / 第二个位选的 / …」。
-  // 位有几个就写几段，以前这里写死两段。
+  // 位有几个就写几段。
   const selectedItems = useMemo(() => weightSlots.map(s => {
     const flat = flattenGroups(groupsBySlot[s.name] || [])
     return flat.find(x => x.path === selWeights[s.name]) || null
@@ -533,9 +529,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 名片没写的键一个都不发，服务端会静默忽略，症状是
       //    「我明明调了却没效果」，最难查的那一类。
       // 这一次要连哪台引擎，由**界面上选中的那台**说了算。
-      //   少了这一句的后果就是这一刀要修的那个 bug：请求不点名，
-      //     服务端就去名片里找 legacy_default 那台认领（见
-      //     lib/engines/legacyDefault.js）。于是界面按 A 引擎画格子、
+      // 少了这一句，请求不点名，服务端就去名片里找 legacy_default 那台
+      //     认领（见 lib/engines/legacyDefault.js）。于是界面按 A 引擎画格子、
       //     按 A 引擎发参数、按 A 引擎选权重，请求却打到 B 引擎身上，
       //     用户看到的是 B 引擎的原话「tts failed」。
       //   也不许写成 `engine?.id || '某个默认值'`，引擎没选出来时
@@ -559,8 +554,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 开进程那一刻才吃得进去的那些模型，选择走这一个平台级的键。
       //   它不是引擎参数（引擎那道出门关也会把它拦下），收件人是平台：
       //   平台拿它决定要不要带着这一份把引擎重开一次。
-      //   少了这一句的后果就是这一刀要修的那个 bug，
-      //     下拉能选、后端连"你选过"都看不见、声音没变、而且不报错。
+      // 少了这一句，下拉能选、后端连"你选过"都看不见、声音没变、而且不报错。
       launch_weights: launchWeightsToSend(weightSlots, selWeights),
       text_lang: textLang, prompt_lang: selectedPromptLang || lang,
       // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
@@ -835,7 +829,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                      '在上面换模型会让这台引擎带着它重新启动一次，换过之后的第一次生成需要更长时间，等它把模型装进内存。')}
                 </div>
               )}
-              {/* 2026-08-30：盘上放了模型、下拉却是空的，而且没有一个字解释
+              {/* 盘上放了模型、下拉却是空的，而且没有一个字解释
                   为什么，「这个角色没有模型」「放错了一层」「目录名不是权重位名」
                   三件事在界面上长得一模一样。静默是这个仓库最难查的一种坏法。
                   这里**不加指示灯**（顶栏那笔账刚清过）：话说在它出问题的
@@ -1041,7 +1035,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   ))}
 
                   {/* Streaming Mode / Overlap Length / Min Chunk Length 三个格子
-                      已于 2026-08-23 撤除，它们配的是 /v1/audio/speech 的行为，
+                      已撤除，它们配的是 /v1/audio/speech 的行为，
                       却长在一个消费不了流的界面上，且存了从不读回。理由全文见 :134。
                       名片里仍然写着这三个参数（引擎确实支持），由上面的
                       STREAM_ONLY 拦在这一页之外。 */}

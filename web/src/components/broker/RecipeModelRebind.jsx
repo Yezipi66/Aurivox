@@ -44,15 +44,15 @@ export function RecipeModelRebind({ recipe, onSaved }) {
   const [msg, setMsg] = useState(null)
   const modelCache = useRef({})
 
-  // 这个「换模型」小面板改的是配方顶层那两个权重字段，配方格式这轮不动
-  //   （Owner 2026-08-30），所以它只装得下**两个**位。
+  // 这个「换模型」小面板改的是配方顶层那两个权重字段，配方格式不动，
+  //   所以它只装得下**两个**位。
   //
-  // 2026-10-01：过去这里是 `REBIND_ENGINE = 'gpt-sovits'` 写死，位名也写死
-  //   成 'gpt' / 'sovits'，连文件选择器的扩展名都是 .ckpt / .pth。后果：
-  //   一台 CosyVoice 的资产在 Broker 里**连一个模型位都列不出来**，
+  // 引擎名和位名都不能写死（`REBIND_ENGINE = 'gpt-sovits'` / 'gpt' /
+  //   'sovits'，连文件选择器的扩展名都钉成 .ckpt / .pth）。否则一台别的
+  //   引擎的资产在 Broker 里**连一个模型位都列不出来**，
   //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
   //
-  //   现在引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
+  //   引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
   //   **已经有** engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
   //   的 enginesInMeta 算出来的）和 models[<engineId>][<slot>]。
   //   前端不猜引擎有哪些位，后端给什么位就渲染什么位。
@@ -169,9 +169,9 @@ export function RecipeModelRebind({ recipe, onSaved }) {
   return (
     <div className="rebind">
       {/* 7.1: one row, three dropdowns — Voice ID (shared) · model slot 0 · model slot 1.
-          2026-10-01：两个位下拉的标签过去写死成「GPT checkpoint」「SoVITS model」，
-             文件选择器的扩展名也写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
-             连标题都不匹配。现在标题取后端给的真实位名（slotNames），扩展名放开。
+          两个位下拉的标签不能写死成「GPT checkpoint」「SoVITS model」，
+             文件选择器的扩展名也不能写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
+             连标题都不匹配。标题取后端给的真实位名（slotNames），扩展名放开。
              Each model slot keeps a "custom path…" escape hatch (cross-voice /
              outside the project) (D2/D4). */}
       <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>

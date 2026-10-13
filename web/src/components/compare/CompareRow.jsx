@@ -111,12 +111,11 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
     }
   }, [segments, voiceId])
 
-  // 2026-10-01：超参不再由这一页手抄。
+  // 超参不手抄：键名与类型都来自当前引擎的 param_schema。
   //
-  // 过去是 7 个 useState + 7 个 useEffect，每个都写死一个 GPT-SoVITS 键名。
   // 换一台引擎 ⇒ 格子照常显示、填了发出去上游不认、**不报错**。
   //
-  // 现在形状跟 GenerateTab 完全一致：
+  // 形状跟 GenerateTab 完全一致：
   //   paramValues   这一行的格子值（从名片默认值起步）
   //   touched       用户**明确动过**哪些，paramsToSend 只发这些
   //   touched 不能省。没动过的键是「界面建议」，不是「用户选的」；
@@ -158,7 +157,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
   useEffect(() => { onUpdate(row.id, 'seed', seed) }, [seed])
 
-  // 2026-10-01（真机查出）：原来这里只取 common 一层。**实测两台
+  // 真机查出：不能只取 common 一层。**实测两台
   //   CosyVoice 的 param_schema 的 common 层是空的**（6 项和 2 项全在
   //   advanced）⇒ 选它们时对比页画出**零个格子**，而界面上看不出任何异常。
   //
@@ -576,16 +575,12 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         {showAdvanced && (
           <div className="collapsible-body">
             <div className="form-grid">
-              {/* 2026-10-01：这里原本是 **7 个手抄的 <input>**，
-                  每个都写死一个 GPT-SoVITS 键名（Top K / Top P /
-                  Repetition Penalty / Split Method / Speed Factor / Seed）。
-                  换一台引擎 ⇒ 格子照常显示、填了发出去**上游不认**、不报错。
-
-                  现在按 engine.param_schema 循环，跟 GenerateTab:1016 同一个
+              {/* 按 engine.param_schema 循环，跟 GenerateTab:1016 同一个
                   <ParamField>，不许再在这里分叉出 f.type === '...' 的分支。
                   GSV 的 common 层拿到的正是 temperature/top_k/top_p/
-                  repetition_penalty/text_split_method/speed_factor 六项，
-                  跟过去逐格一致（Seed 见下面那段注释）。
+                  repetition_penalty/text_split_method/speed_factor 六项（Seed
+                  见下面那段注释）。手写 <input> 的做法换一台引擎就会
+                  让格子照常显示、填了发出去**上游不认**、不报错。
 
                   **两档都画**（跟着 TIERS），不是只画 common。实测两台
                   CosyVoice 的 common 层是**空的** ⇒ 只画 common 时选它们
@@ -634,7 +629,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   <option value="off">{t('Off', '关')}</option>
                 </Select>
               </div>
-              {/* 2026-10-01：这一行走哪个推理方法（点 1 把 call.methods
+              {/* 这一行走哪个推理方法（点 1 把 call.methods
                   交到了前端）。比如 CosyVoice2 的 zero_shot / instruct2 / vc，
                   同一段文本在同一个音色上走不同入口。
 

@@ -32,7 +32,7 @@ import { recipePath } from '../../lib/recipes'
 /**
  * 勾选框统一走这一个组件。
  *
- * 起因是 Owner 2026-08-29 报的一条：「引擎详细日志和引擎批量并行都是勾选框，
+ * 起因是一条报给 Owner 的「引擎详细日志和引擎批量并行都是勾选框，
  *    你一个左上一个右下」。根子在 `styles.css:575` 的 `.form-grid` 是两列
  *    `align-items: start`，别的格子是「标签在上、控件在下」占满一格高，
  *    而裸 `<input type=checkbox>` 只有一行高，于是它在自己那一格里贴着顶，

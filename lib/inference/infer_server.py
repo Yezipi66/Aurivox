@@ -62,7 +62,7 @@ sys.path.append(os.path.join(GSV_DIR, "gsv_code"))
 os.chdir(PROJECT_ROOT)
 
 # numba (librosa 依赖) 缓存目录: 指向项目内可写目录, 避免 site-packages 只读导致的 PermissionError
-# r12c batch13: 落点统一到 cache/numba，与 lib/paths.js:396 的 CACHE.numba 对齐。
+# 落点统一到 cache/numba，与 lib/paths.js:396 的 CACHE.numba 对齐。
 # 这里只能把同一个位置再写成 Python（跟 download_models.py 一样），
 # 位置权威仍在 lib/paths.js。改那边就要同步改这里。
 os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(PROJECT_ROOT, "cache", "numba"))
@@ -204,19 +204,19 @@ if config_path in [None, ""]:
 
 # 活动配置的自检与修复(活动 yaml 会被运行时热加载回写, 故不入库)。
 #
-# ⭐ 这段逻辑从 tools/scripts/start.ps1 的 Repair-EngineConfig 搬过来 ——
+# 这段逻辑从 tools/scripts/start.ps1 的 Repair-EngineConfig 搬过来，
 #   它是 GPT-SoVITS 独有的收拾工作, 平台正在改成"按名片起引擎", 引擎特有的
 #   逻辑不该留在平台的启动脚本里。搬到这儿之后**谁起这个进程都一样修**:
 #   start.ps1 起、平台起、开发者手工敲命令起, 行为完全一致。
 #   判据比原先的"缺了才复制"严格: 空文件、被 GBK 控制台写坏的问号路径、
 #   指向已不存在位置的旧路径, 都会带备份地重建。
-#   ⛔ 这里显式把本文件所在目录放进 sys.path 再 import: :51-52 往 path 前面
+#   这里显式把本文件所在目录放进 sys.path 再 import: :51-52 往 path 前面
 #   插了两个引擎目录, 不能指望"脚本目录一定还在最前面"。
 if THIS_DIR not in sys.path:
     sys.path.append(THIS_DIR)
 from config_repair import repair as _repair_engine_config  # noqa: E402
-# ⭐ 2026-10-01：请求别名折叠（if_sr → super_sampling）。判断本身在
-#   alias_fold.py —— 那儿有它的测试；这里只负责在 tts_handle 里调。
+# 请求别名折叠（if_sr → super_sampling）。判断本身在
+#   alias_fold.py：那儿有它的测试；这里只负责在 tts_handle 里调。
 #   ⚠️ 同目录 import 依赖上面那个 sys.path.append(THIS_DIR)。
 from alias_fold import fold_aliases  # noqa: E402
 
@@ -233,12 +233,12 @@ def _sweep_upstream_shell_dir():
     它从头到尾没人读写: 本项目传给 TTS_Config 的是 lib/inference/tts_infer.yaml
     这条绝对路径, 上游那个"没给配置就用默认路径"的分支永远不会进。
 
-    ⭐ 为什么把清理放在这里而不是去改上游那一行:
+    为什么把清理放在这里而不是去改上游那一行:
        改上游是零功能价值的改动, 却要在每次升级上游时重新施加
        (见 engines/gpt-sovits/infer/LOCAL-CHANGES.md 的维护成本)。
        这个文件是本项目自己的, 收尾放这儿等于一行上游代码都不动。
 
-    ⛔ 只在**确实是空的**时候删: 只要底下有任何文件就原样留着 —— 那说明有人
+    只在**确实是空的**时候删: 只要底下有任何文件就原样留着：那说明有人
        把旧布局的权重树搬回来了, 那是 lib/root_layout.node.test.js 的活,
        轮不到这里悄悄删掉别人的东西。
     """
@@ -258,14 +258,14 @@ tts_config = TTS_Config(config_path)
 print(tts_config)
 tts_pipeline = TTS(tts_config)
 
-# ⭐ 必须放在 TTS_Config / TTS 都构造完之后 —— 空壳是 TTS_Config.__init__ 造的,
+# 必须放在 TTS_Config / TTS 都构造完之后：空壳是 TTS_Config.__init__ 造的,
 #   提前删会被它随后重新造出来。
 _sweep_upstream_shell_dir()
 
 # tts_pipeline 是模块级全局单例, 被所有请求共享。切换 GPT/SoVITS 权重
 # (init_t2s_weights / init_vits_weights) 与推理 (run) 会并发访问同一对象:
 # 若一次推理进行中另一请求切了权重, 推理会读到半加载状态而抛异常 (/tts 返回 400
-# -> server.js 返回 500), 刷新后 (权重已切完) 又正常 —— 典型竞态。
+# -> server.js 返回 500), 刷新后 (权重已切完) 又正常：典型竞态。
 # 用一把互斥锁把"切权重"与"推理"串行化: 切模型时新推理排队等待, 反之亦然。
 _model_lock = asyncio.Lock()
 
@@ -295,7 +295,7 @@ class TTS_Request(BaseModel):
     repetition_penalty: float = 1.35
     sample_steps: int = 32
     super_sampling: bool = False
-    # ⭐⭐ 2026-10-01 别名折叠 —— 「Super Sampling」那一格以前是**死的**。
+    # 别名折叠：「Super Sampling」那一格以前是**死的**。
     #
     # 事实（不是推断）：平台从 engines/gpt-sovits/manifest.json 的
     # param_schema 长出这一格，键名是 `if_sr`；assembleEnginePayload 也照
@@ -304,11 +304,11 @@ class TTS_Request(BaseModel):
     # 那一格、点生成，声音一点不变，**没有一处报错**。
     #
     # 为什么在这里折叠（而不是让平台各处去翻译）：
-    #   ⛔ `if_sr` 是磁盘上 v3 配方的历史键名，被 lib/recipeStore.js:84 的
+    #   `if_sr` 是磁盘上 v3 配方的历史键名，被 lib/recipeStore.js:84 的
     #     V3_PARAM_KEYS 和 lib/recipeView.js:40 冻住了（C11 豁免表登记着，
     #     理由是「v3 磁盘格式的历史事实，名片变了它也不能变」）。改名片会让
     #     存量配方读错。
-    #   ⛔ 在平台侧加一张「历史键名对照表」就是 C11 明令禁止的**第二份参数名
+    #   在平台侧加一张「历史键名对照表」就是 C11 明令禁止的**第二份参数名
     #     清单**，而且必然漂移。
     #   ⇒ 既成事实让**收件人**认，成本最低、漂移面最小。
     #
@@ -444,14 +444,14 @@ def check_params(req: dict):
 
 
 async def tts_handle(req: dict):
-    # ⭐⭐ 2026-10-01：把平台侧的 if_sr 折叠成下游认的 super_sampling。
+    # 把平台侧的 if_sr 折叠成下游认的 super_sampling。
     #
     # 折叠点为什么在**这里**（tts_handle 的第一行）而不是端点上：GET 和 POST
-    # 两条路都汇到这个函数，在这儿折叠一处就够 —— 在端点上做就得写两遍，
+    # 两条路都汇到这个函数，在这儿折叠一处就够：在端点上做就得写两遍，
     # 而两遍迟早会漂移成一处有、一处没有。
     #
     # 判断本身（哪两个键是别名、冲突时谁赢、为什么不能让平台各处去翻译）
-    # 全部在 lib/inference/alias_fold.py 的注释和测试里 —— 那儿才是这件事的
+    # 全部在 lib/inference/alias_fold.py 的注释和测试里：那儿才是这件事的
     # 产地，这里只负责调。
     fold_aliases(req)
 
