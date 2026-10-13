@@ -220,8 +220,6 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     } finally { setBusy('') }
   }
 
-  // ⭐ 不填目录名时的默认值 = 仓库根链接的最后一段
-  const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
   // ⭐⭐⭐ 目标目录由**后端**给（resolve 返回的 targetDir）
   //
   // ⛔⛔ 前端曾经自己拼：window.location.pathname 撕 + 硬编码 '/' 分隔符。
