@@ -1,6 +1,8 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
+// ⛔⛔ 目录名的唯一来源：输入框 + 仓库名。⛔ 没有 state.id 这个来源。
+import { folderName } from './folderName'
 
 // ============================================================================
 //  STEP PREPARE —— 第 1 步：链接 → 探测 → 克隆
@@ -139,10 +141,24 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     return r.json()
   }
 
+  // ⭐ 不填目录名时的默认值 = 仓库根链接的最后一段
+  // ⭐⭐⭐ 目录名的**唯一来源**：输入框里敲的优先，留空才用仓库名。
+  //   ⛔ 没有 state.id（持久段里的旧 id）—— 那是上一次安装的结果，
+  //     拿它顶上来就是 Owner 2026-10-13 抓到的「同屏两个目录名」。
+  //   ⛔ 这一行同时喂给：克隆请求 / 命令文案 / 目标路径 / 风险文案
+  //     ⇒ 四处由同一个值驱动，⛔ 不各算一份。
+  const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
+  const curId = folderName({ typed: idInput, suggested: autoId })
+
   // ---- ① 解析（⛔ 本地，不联网）+ 紧接着只读探测 ----
   const resolve = async () => {
     setBusy('link')
-    const j = await post('/wizard/resolve', { url, id: idInput || undefined })
+    // ⛔ 解析只用输入框里的值（⛔ 不发 state.id 的旧值）。
+    //   留空时后端的 id 参数故意不给：parseRepoUrl 会自己猜一个建议值，
+    //   ⛔ 那时让旧 id 顶上来就是把上次那个引擎的目录名又找回来。
+    const j = await post('/wizard/resolve', {
+      url, id: (idInput.trim() || undefined),
+    })
     // ⛔ res 与 probe 一起写，一次到位（分两次写会让探测结果被覆盖）
     //   ⚠ 必须打 /wizard/probe —— 它返回 meta（包名/命令/依赖清单）；
     //     ⛔ /wizard/deps 返回的是 deps，没有 meta。
@@ -151,11 +167,14 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       try { probeJ = await post('/wizard/probe', { url: j.url }) }
       catch (e) { /* 探测失败不阻断 —— 克隆那步照样能看 */ }
     }
+    // ⭐ 解析成功的这一刻 = 目录名唯一一次从响应回写父组件的时机
+    //   （wz.id 于是永远是「最近一次成功解析出来的那个」）
+    const resolvedName = j.ok ? folderName({ typed: idInput, suggested: j.id }) : ''
     onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
     if (j.ok) {
       // ⭐ 用户没自己填目录名 ⇒ 用解析出来的（别覆盖成空）
       if (!idInput.trim()) setIdInput(j.id)
-      onChange({ url, id: (idInput.trim() || j.id), repoUrl: j.url, cloneUrl: j.cloneUrl })
+      onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
     }
     setBusy('')
   }
@@ -170,16 +189,31 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   }
 
   // ---- ③ 克隆（⚠ 这一步才写盘）----
+  // ⛔⛔ 目录名单源：curId 是这一步唯一的 id 来源，⛔ 不再有 state.id。
+  //   旧写法 `id: idInput || state.id` 就是 Owner 抓到的那个双 id bug：
+  //   输入框一空就退化到 localStorage 里的旧 id（上次装的那个引擎），
+  //   于是命令写新目录、克隆请求打旧目录。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
+    // ⛔ 目录名为空 ⇒ 当场拦下，⛔ 不发请求。
+    //   空着发过去只会看到「The "path" argument must be of type string」
+    //   —— 那是 Node 的内核报错，不是「请填写目录名」。
+    if (!curId) {
+      setCloneRes({ ok: false, code: 'MISSING_ID',
+        error: t('Fill in the directory name first.',
+          '请先填写目录名。'),
+        errorZh: '请先填写目录名：它会成为 engines/ 下的文件夹名。' })
+      setBusy('')
+      return
+    }
     try {
       // ⚠ cloneUrl ⛔ 同时从两处取：父组件的 wz 和本组件的解析结果 res。
       //   只读 props 的话，解析刚完成时那一帧拿到的还是空的
       //   （实测：计划里出现 `git clone ''`）。
       const cloneUrl = (res && res.cloneUrl) || state.cloneUrl
-      const j = await post('/wizard/clone', {
-        id: idInput || state.id, cloneUrl, execute,
-      })
+      // ⛔ 与文案/只读预览同一个 curId —— 后端按它算 engines/<id>，
+      //   ⛔ 前端不另拼一份。
+      const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
       if (j.ok && execute) { onChange({ cloned: true }); onDone && onDone() }
@@ -207,7 +241,6 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   //   ⛔ 拿不到 enginesDir ⇒ ⛔ 不显示路径（宁可不显示，不显示错的）。
   //   ⛔ 分隔符由后端给：Windows 是 \、Linux/macOS 是 / —— ⛔ 前端不猜。
   //   判据：改目录名时，命令与目标路径必须一起变。
-  const curId = (idInput || autoId || '').trim()
   const enginesDir = (res && res.enginesDir) || null
   const pathSep = (res && res.pathSep) || null
   const relEngineDir = `engines/${curId}/`
@@ -347,21 +380,24 @@ const done = facts && facts.cloned === true
           )}
           {done && (
             <div className="msg msg-info">
-              {t('Cloned into engines/' + (idInput || autoId) + '/.',
-                '已克隆到 engines/' + (idInput || autoId) + '/。')}
+              {t('Cloned into engines/' + curId + '/.',
+                '已克隆到 engines/' + curId + '/。')}
             </div>
           )}
 
           {/* ⭐ vars：把项目名和**完整路径**喂给风险文案
               （⛔ 原来只说「写进 engines/」，而那目录里已经有好几个引擎了，
-                用户分不清这一步要动的是哪一个）*/}
+                用户分不清这一步要动的是哪一个）
+              ⛔ name/path 都取自 curId 这一个值 ⇒ 与上面那条命令同源。*/}
           <RiskUnlock stepKey="prepare" unlocked={unlocked} onUnlock={setUnlocked}
             vars={{
-              name: autoId || idInput || t('<name>', '<项目名>'),
+              name: curId || t('<name>', '<项目名>'),
               path: fullEngineDir || t('(computing…)', '（正在计算…）'),
             }}>
             <button className="btn btn-primary btn-sm" type="button"
-              disabled={busy === 'clone'} onClick={() => doClone(true)}>
+              // ⛔ 目录名为空时按钮禁用：⛔ 不许拿旧 id 顶，也不许发空请求
+              disabled={busy === 'clone' || !curId}
+              onClick={() => doClone(true)}>
               {t('Next', '下一步')}
             </button>
           </RiskUnlock>
