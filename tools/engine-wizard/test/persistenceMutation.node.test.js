@@ -27,6 +27,9 @@ const ROOT = path.resolve(__dirname, '..', '..', '..')
 const SESS = path.join(ROOT, 'tools', 'engine-wizard', 'editor', 'useInstallSession.js')
 const ISTATE = path.join(ROOT, 'tools', 'engine-wizard', 'core', 'installState.js')
 const DLSTATE = path.join(ROOT, 'tools', 'engine-wizard', 'editor', 'downloadState.js')
+// ⛔ 2026-10-13：id 校验（MISSING_ID）与目录名单源（folderName）也要变异
+const CLONE = path.join(ROOT, 'tools', 'engine-wizard', 'core', 'clone.js')
+const FOLDER_NAME = path.join(ROOT, 'tools', 'engine-wizard', 'editor', 'folderName.js')
 
 class MockStorage {
   constructor () { this.data = new Map() }
@@ -237,7 +240,55 @@ test('变异⑥：downloadState 不把 url 传进会话模块 ⇒ 防串号守�
 })
 
 // ---------------------------------------------------------------------------
-//  ⑦ 反向验证：**不改任何东西**时这些守卫必须安静
+//  ⑦ 变异：把 clone.js 的 id 校验退回旧写法 ⇒ MISSING_ID 守卫必须报
+//     这正是 Owner 2026-10-13 真机抓到的形状：校验一缺，空 id 就变成
+//     `The "path" argument must be of type string. Received undefined`
+//     ⚠ 变异必须**整块删净**：只删一半会留下不成对的括号 ⇒ 变异版语法错，
+//       那是「变异打歪」不是「测试摆设」（第一版就踩了这个）。
+// ---------------------------------------------------------------------------
+test('变异⑦：删掉 clone.js 的 id 校验 ⇒ 空 id 守卫必须报', async () => {
+  await mutateAndProbe(CLONE, (s) => s.replace(
+    /  if \(typeof id !== 'string' \|\| !id\.trim\(\)\) \{\n    return \{ ok: false, code: 'MISSING_ID',\n      error: 'No directory name given\.\\n',\n      errorZh: '还没有填目录名。\\n'\n        \+ '请先填写目录名：它会成为 engines\/ 下的文件夹名，并作为 id 写入名片。\\n'\n        \+ '粘贴链接并解析成功后，目录名会自动填好。' \}\n  \}\n/,
+    "  // 变异：删掉 id 校验，回到 2026-10-13 之前的写法\n"
+  ), async (C) => {
+    const root = mkdtempRoot()
+    try {
+      await assertGuardFires(() => {
+        let threw = false
+        let r = null
+        try {
+          r = C.buildClonePlan({ id: undefined, cloneUrl: 'https://x/y.git', root })
+        } catch (e) {
+          // 变异版命中真身：Node 的 path 参数报错
+          threw = /must be of type string/.test(e.message)
+        }
+        const bad = threw || !r || r.ok !== false || r.code !== 'MISSING_ID'
+        assert.ok(bad, '空 id 竟然没被拦下 —— 守卫没抓到')
+      }, '删掉 clone.js 的 id 校验')
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+})
+
+// ---------------------------------------------------------------------------
+//  ⑧ 变异：folderName 拿持久段旧 id 兜底 ⇒ 目录名单源守卫必须报
+//     （Owner 抓到的双 id bug 的根：`idInput || state.id`）
+// ---------------------------------------------------------------------------
+test('变异⑧：目录名退化到持久段旧 id ⇒ 单源守卫必须报', async () => {
+  await mutateAndProbe(FOLDER_NAME, (s) => s
+    .replace(/export function folderName \(\{ typed, suggested \} = \{\}\) \{/,
+      'export function folderName ({ typed, suggested, persistedId } = {}) {')
+    .replace(/  if \(a\) return a\n/,
+      "  if (a) return a\n  if (persistedId) return String(persistedId).trim() // 变异：旧 id 兜底\n")
+  , async (m) => {
+    await assertGuardFires(() => {
+      assert.strictEqual(m.folderName({ typed: '', suggested: 'repo', persistedId: 'old' }),
+        'repo', '输入框空时用了持久段的旧 id —— 这就是真机那个双目录名')
+    }, '目录名退化到持久段旧 id')
+  })
+})
+
+// ---------------------------------------------------------------------------
+//  反证：**不改任何东西**时这些守卫必须安静
 //     （否则上面那些「报了」是假象 —— 本来就在报）
 // ---------------------------------------------------------------------------
 test('反证：未变异时同类守卫全部安静（上面的红不是假象）', async () => {
@@ -267,6 +318,30 @@ test('反证：未变异时同类守卫全部安静（上面的红不是假象�
     const s = IS.installState(root, 'e2', { spawnProbe: () => true })
     assert.strictEqual(s.steps_done.prepare, false, '空目录不算克隆')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
+
+  // ---- 2026-10-13 新增的两条：未变异时必须**安静** ----
+  // ⚠ 这两个临时根都要显式清掉：⑧ 号用例在数 os.tmpdir() 里的
+  //   `wizard-mut-*` 残留，漏一个就是那条用例假红。
+  const C = require(CLONE)
+  const mutRootA = mkdtempRoot()
+  try {
+    const cleanPlan = C.buildClonePlan({
+      id: undefined, cloneUrl: 'https://x/y.git', root: mutRootA,
+    })
+    assert.strictEqual(cleanPlan.ok, false, '空 id 本就要被拦')
+    assert.strictEqual(cleanPlan.code, 'MISSING_ID', '未变异时 code 就是 MISSING_ID')
+  } finally { fs.rmSync(mutRootA, { recursive: true, force: true }) }
+  const mutRootB = mkdtempRoot()
+  try {
+    const okPlan = C.buildClonePlan({
+      id: 'good', cloneUrl: 'https://x/y.git', root: mutRootB,
+    })
+    assert.strictEqual(okPlan.ok, true, '⛔ 正常 id 被新校验挡住了')
+  } finally { fs.rmSync(mutRootB, { recursive: true, force: true }) }
+
+  const FN = require(FOLDER_NAME)
+  assert.strictEqual(FN.folderName({ typed: '', suggested: 'repo', persistedId: 'old' }),
+    'repo', '⛔ 未变异的 folderName 根本不该认 persistedId 这一位')
 })
 
 // ---------------------------------------------------------------------------
@@ -285,7 +360,7 @@ test('⛔ 变异用的临时目录必须清干净（mkdtemp + finally rmSync）'
 //     （⛔ 就地变异会污染并行跑的其它测试文件，见 mutateAndProbe 的头注）
 // ---------------------------------------------------------------------------
 test('⛔ 真实源文件不许被变异碰到（并行跑的其它测试文件还在读它）', () => {
-  for (const f of [SESS, ISTATE, DLSTATE]) {
+  for (const f of [SESS, ISTATE, DLSTATE, CLONE, FOLDER_NAME]) {
     const s = fs.readFileSync(f, 'utf8')
     assert.ok(!/\/\/ 变异/.test(s),
       '⛔ ' + path.basename(f) + ' 里留着「变异」标记 —— 就地变异会污染并行测试')
