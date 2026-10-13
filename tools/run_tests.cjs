@@ -88,10 +88,21 @@ if (!testFiles.length) {
   }
 }
 
+// stdio 选择：'inherit' 让输出直接进当前终端，但 Node 的 test runner 在
+// stdin 不是 tty 时会认为环境异常并整体退出（报 stdin is not a tty，
+// 连一条测试都不跑）。本项目的验收常需要把输出交给管道或重定向，
+// 所以这里按 stdin 是否 tty 选择：交互终端用 inherit 保住实时进度，
+// 其余情况改用 pipe 并把子进程输出原样转写，避免测试被静默吞掉。
+const interactive = process.stdin.isTTY === true
 const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...testFiles], {
   cwd: root,
-  stdio: 'inherit',
+  stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe'],
 })
+
+if (!interactive) {
+  process.stdout.write(result.stdout || '')
+  process.stderr.write(result.stderr || '')
+}
 
 if (result.error) {
   console.error('[tests] failed to launch Node test runner:', result.error.message)
