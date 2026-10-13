@@ -7,7 +7,7 @@ GPT-SoVITS 这台引擎在启动时检查自己那份**机器本地**的活动�
 (lib/inference/tts_infer.yaml): 缺了、空了、或者里面的路径已经指向不存在
 的位置, 就从随包的模板 (tts_infer.yaml.example) 重新生成, 旧的先备份。
 
-⭐ 为什么住在引擎这边, 而不是启动脚本里
+为什么住在引擎这边, 而不是启动脚本里
 ---------------------------------------
 这段逻辑原先长在 tools/scripts/start.ps1 的 Repair-EngineConfig 里
 (76 行 PowerShell)。它是 **GPT-SoVITS 独有**的: 别的引擎没有 tts_infer.yaml,
@@ -15,9 +15,9 @@ GPT-SoVITS 这台引擎在启动时检查自己那份**机器本地**的活动�
 
 平台正在改成"按名片起引擎"(契约 v2 §5.1 / §9), 启动的人从 start.ps1 变成
 平台自己。引擎特有的收拾工作若留在平台脚本里, 就会变成第二个引擎接进来时
-没人敢删、也没人看得懂的残留 —— 所以搬到引擎自己身上: **谁起它都一样修**。
+没人敢删、也没人看得懂的残留：所以搬到引擎自己身上: **谁起它都一样修**。
 
-⛔ 只用标准库
+只用标准库
 -------------
 本模块跑在引擎自己的环境里, 且要能在**没有 torch / 没有 yaml 包**的情况下
 被测试直接调用 (lib/inference/configRepair.node.test.js 就是这么验它的)。
@@ -33,7 +33,7 @@ GPT-SoVITS 这台引擎在启动时检查自己那份**机器本地**的活动�
 5. 路径不存在        -> regen, reason='stale path: <原值> -> <探测到的绝对路径>'
 6. 以上都不中        -> 不动
 
-⭐ 第 5 条只检查两类值: 键名以 `_path` 结尾的, 或者值长得像 Windows 绝对路径
+第 5 条只检查两类值: 键名以 `_path` 结尾的, 或者值长得像 Windows 绝对路径
    (`^[A-Za-z]:[\\/]`)。PowerShell 版本注释里记着一个教训: 早期只看"长得像
    绝对路径"的值, 于是**一份路径全是相对写法的死配置每次都被判成健康**。
    `_path` 结尾这条判据就是为补那个洞加的, 移植时一并搬过来。
@@ -44,7 +44,7 @@ import re
 import shutil
 from datetime import datetime
 
-# `key: value` —— 与 PowerShell 版的正则同义
+# `key: value`：与 PowerShell 版的正则同义
 _KV_RE = re.compile(r"^\s*([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$")
 _COMMENT_RE = re.compile(r"^\s*#")
 _ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
@@ -54,7 +54,7 @@ _DOT_SLASH_RE = re.compile(r"^\./")
 def _strip_quotes(value):
     """去掉首尾的引号。
 
-    对齐 PowerShell 的 `.Trim('"').Trim("'")` —— 它剥的是**首尾连续的**引号
+    对齐 PowerShell 的 `.Trim('"').Trim("'")`：它剥的是**首尾连续的**引号
     字符, 不是"配对的一对"。
     """
     return value.strip().strip('"').strip("'")
@@ -64,7 +64,7 @@ def decide(live_cfg, example_cfg, project_root, exists=os.path.exists,
            read_text=None):
     """判断要不要重新生成, 返回 (needs_regen, reason)。
 
-    这是纯判断, 不碰磁盘写入 —— 测试直接调它。
+    这是纯判断, 不碰磁盘写入：测试直接调它。
     `exists` / `read_text` 可注入, 便于用假盘面验守卫自己会不会红。
     """
     if read_text is None:
@@ -73,7 +73,7 @@ def decide(live_cfg, example_cfg, project_root, exists=os.path.exists,
                 return fh.read()
 
     if not exists(example_cfg):
-        # 没有模板 = 没有可回退的东西。⛔ 这时候绝不能判 regen:
+        # 没有模板 = 没有可回退的东西。这时候绝不能判 regen:
         # 那会把用户唯一一份配置备份掉然后留下一个空位。
         return (False, "template missing")
 
@@ -152,7 +152,7 @@ def repair(live_cfg, example_cfg, project_root, log=print,
 
 # ---------------------------------------------------------------------------
 # 给 configRepair.node.test.js 用的 JSON 探针。
-# ⭐ 只做判断、不写盘 —— 测试要能在不真的破坏任何配置的前提下问它"你会怎么判"。
+# 只做判断、不写盘：测试要能在不真的破坏任何配置的前提下问它"你会怎么判"。
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse

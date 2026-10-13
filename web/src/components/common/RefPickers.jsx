@@ -202,7 +202,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     setErr(null); setUploading(true)
     try {
       // Multi-select reuses the single-file endpoint, uploading sequentially and
-      // 通过 onPick 累积——无批处理协议（辅助自定义文件）。
+      // 通过 onPick 累积：无批处理协议（辅助自定义文件）。
       for (const f of files) {
         const fd = new FormData(); fd.append('audio', f)
         const r = await api('/api/custom-ref-audio', { method: 'POST', body: fd, contentType: 'multipart' })

@@ -56,7 +56,7 @@ const REASON = {
     en: 'The engine is up but was not started by this app, so it cannot be stopped here.',
   },
   starting: {
-    zh: '正在把模型装进内存，此过程可能需要数十秒至数分钟。\n⛔ 不要重复点击：重复点击只会排队等待。',
+    zh: '正在把模型装进内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待。',
     en: 'Loading the model into memory; this can take a while. No need to click again.',
   },
   running: {
@@ -64,7 +64,7 @@ const REASON = {
     en: 'Already running.',
   },
   busy: {
-    zh: '正在执行一次合成。现在关闭它，该次合成会得到不完整的音频：⛔ 并非一句报错。\n请等待其完成。',
+    zh: '正在执行一次合成。现在关闭它，该次合成会得到不完整的音频：并非一句报错。\n请等待其完成。',
     en: 'Busy synthesising. Stopping now would truncate that job. Wait for it to finish.',
   },
   idle: {
@@ -109,7 +109,7 @@ export function engineControls (engine, lang = 'zh') {
       label: phase === 'starting' ? (zh ? '启动中…' : 'Starting…') : startLabel,
       title: phase === 'idle'
         ? (zh
-            ? '启动这台引擎。\n⭐ 无需先触发合成：这正是本页面的用途。\n⚠ 启动时需要将模型载入内存，可能需要数十秒至数分钟。'
+            ? '启动这台引擎。\n无需先触发合成：这正是本页面的用途。\n⚠ 启动时需要将模型载入内存，可能需要数十秒至数分钟。'
             : 'Start this engine now, without having to run a synthesis first.')
         : reason(phase, lang),
     },

@@ -49,7 +49,7 @@ function collectRanges (src) {
   const out = []
   let ast
   try {
-    ast = parse(src, { sourceType: 'unambiguous', errorRecovery: false })
+    ast = parse(src, { sourceType: 'unambiguous', errorRecovery: false, plugins: ['jsx'] })
   } catch (e) {
     return null
   }
