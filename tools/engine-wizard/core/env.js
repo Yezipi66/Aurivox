@@ -445,7 +445,16 @@ function buildVenvStep (root, id) {
     // ⚠ 实测：对**已存在**的环境重跑 uv venv 会报「A virtual environment already
     //   exists」并退 2 ⇒ 幂等靠 skipIfExists 在执行期跳过（与断点续传同一套机制），
     //   ⛔ 不是靠 --allow-existing（那会把已有环境当普通目录保留，重装等于没生效）。
-    argv: [py, '-m', 'uv', 'venv', venvDir, '--no-project'],
+    // ⛔⛔ --python 必须显式指定平台自己的解释器。
+    //   2026-10-13 Owner 真机抓到：只写 `uv venv <路径>` 而不带 --python 时，
+    //   uv 自己挑了**最新版** CPython（本机挑到 3.14.7，平台是 3.11.9）——
+    //   于是上游 requirements 里 `torch==2.5.1` 报
+    //   「no wheels with a matching Python ABI tag (cp314)」，第 2 步直接失败。
+    //   「用平台 python 跑 uv」⛔ 不等于「新环境用平台 python」：
+    //   uv 是平台 venv 里的一个包，它默认认自己所在的环境，
+    //   建新环境时有自己的一套挑选逻辑（实测 VIRTUAL_ENV 也压不住它）。
+    //   Owner 定的规范：简历有声明就按声明，没声明就用平台自己的。
+    argv: [py, '-m', 'uv', 'venv', venvDir, '--python', py, '--no-project'],
     python: py,
     venvDir,
     skipIfExists: true,
