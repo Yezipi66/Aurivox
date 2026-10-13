@@ -621,9 +621,13 @@ const DEBT_LEDGER = {
 
 // 注释抽取交给 @babel/parser（项目 Vite 校验用的就是它）。
 // 旧实现是手写逐字符状态机，把正则字面量与源码中出现的反引号当成字符串
-// 起点，两个引号之间整段吞掉：本文件 142 个注释节点只抽出 109 行，
+// 起点，两个引号之间整段吞掉。同单位（行对行）比：e124670 时点本文件的注释
+// 被 babel 展开成 150 行，旧工具只抽出 109 行 —— 少抽 41 行。
 // 「守卫自身干净」是漏扫造成的假象。babel 的 ast.comments 直接给出每个
 // 注释节点的 loc，抽不到即失败，不会假阴性。
+// 计宽窄只能用同一种单位：节点数是节点数，行数是行数，两者相减无意义。
+// 「142 个注释节点只抽出 109 行」是拿节点数减行数，那个差值不作数；
+// 正文的比法一律换成行对行、集合对集合。
 let babelParse = null
 try {
   babelParse = require(require.resolve('@babel/parser', {
@@ -651,6 +655,19 @@ function babelAst (rel, src) {
 // 就说明解析器有洞，本文件自己先当靶子。
 function commentNodes (rel, src) {
   return babelAst(rel, src).comments || []
+}
+
+// 节点按 loc 展开后应有的条数（行）之和。
+//   这与 commentNodes().length 是两种单位：一个节点可以展开成多行，
+//   少展开一行时节点数不变，两者相减或互相代替都会掩盖退化。
+//   本文件全树 162 个多行注释节点，其中 14 个的最后一行带违规判据
+//   （core/resolve.js:53 归属词加日期体、editor/StepDeps.jsx:257 现场经过词、
+//   余下 12 行命中强调符号）—— 只少展开末行就会静默少报这 14 行，
+//   而节点数与行号区间两条断言都察觉不到。
+function expectedBodyCount (nodes) {
+  let total = 0
+  for (const c of nodes) total += c.loc.end.line - c.loc.start.line + 1
+  return total
 }
 
 // 取注释体：每个注释节点按 loc 行号展开成逐行 body。
@@ -683,6 +700,14 @@ function commentBodies (rel, src) {
   })
   if (badLine) {
     throw new Error(`注释抽取行号错位：${rel}:${badLine.line}`)
+  }
+  // 逐行展开不许少一行：多行节点少展开末行时，上面两条都发现不了
+  const want = expectedBodyCount(comments)
+  if (out.length !== want) {
+    const per = comments.map((c, i) => [i, out.filter((b) => b.node === i).length, c.loc.end.line - c.loc.start.line + 1])
+      .filter(([, got, span]) => got !== span)
+    throw new Error(`注释抽取少展开：${rel} 节点逐行展开应为 ${want} 条，实际抽出 ${out.length} 条；`
+      + `展开条数对不上的节点：${per.map(([i, got, span]) => `#${i}(第 ${comments[i].loc.start.line} 行起，应 ${span} 实 ${got})`).join('、')}`)
   }
   return out
 }
@@ -776,12 +801,14 @@ test('注释归位守卫：注释只解释代码，不新增四类归属性内�
 // ---------------------------------------------------------------------------
 //  覆盖率自证：抽不出全部注释节点，「守卫自身干净」就是漏扫造成的假象
 //
-//  旧状态机把本文件里的正则字面量与反引号当成字符串起点，142 个注释节点
-//  只抽出 109 行：守卫扫不到自己新增的那部分，DEBT_LEDGER 又由同一把漏抽
-//  尺子量出，测试再拿同一把尺子比对，于是恒等、永不变红。
-//  现在以 babel 的 ast.comments 为基准，抽出的每行都必须落在节点区间内。
+//  旧状态机把本文件里的正则字面量与反引号当成字符串起点。同单位比，
+//  e124670 时点本文件的注释被 babel 展开成 150 行，旧工具只抽出 109 行：
+//  守卫扫不到自己新增的那部分，DEBT_LEDGER 又由同一把漏抽尺子量出，测试
+//  再拿同一把尺子比对，于是恒等、永不变红。
+//  现在以 babel 的 ast.comments 为基准，逐文件断言抽出的每一行都落在节点区间内，
+//  且抽出的总条数等于所有节点按 loc 展开的条数之和（见下面第 ④ 条）。
 // ---------------------------------------------------------------------------
-test('⭐ 注释抽取覆盖率自证：babel 节点数与抽出数逐文件一致', () => {
+test('⭐ 注释抽取覆盖率自证：babel 节点数、逐行展开条数与抽出数逐文件一致', () => {
   const rel = path.relative(WIZARD_ROOT, __filename).replace(/\\/g, '/')
   const src = fs.readFileSync(__filename, 'utf8')
   const nodes = commentNodes(rel, src)
@@ -806,7 +833,21 @@ test('⭐ 注释抽取覆盖率自证：babel 节点数与抽出数逐文件一�
       `注释抽取漏节点：${r} babel ${ns.length} 个，抽出 ${new Set(bs.map((b) => b.node)).size} 个`)
     checked++
   }
-  console.log(`注释抽取覆盖率：本文件 babel ${nodes.length} 个节点 / 抽出 ${bodies.length} 行；全树 ${checked} 个文件全部相等`)
+  //   第四，逐行展开不许少一行：抽出的条数等于所有节点按 loc 展开的条数之和。
+  //   前三条只管「节点在不在」与「行号在不在区间内」，两者在少展开末行时都不变；
+  //   这一条才是多行节点末行（带违规最常见的位置）不被静默丢掉的保证。
+  for (const f of collectSourceFiles(WIZARD_ROOT, [])) {
+    const r = path.relative(WIZARD_ROOT, f).replace(/\\/g, '/')
+    const ns = commentNodes(r, fs.readFileSync(f, 'utf8'))
+    const got = commentBodies(r, fs.readFileSync(f, 'utf8'))
+    const want = expectedBodyCount(ns)
+    assert.strictEqual(got.length, want,
+      `注释抽取少展开：${r} babel ${ns.length} 个节点逐行展开应为 ${want} 条，实际抽出 ${got.length} 条`
+      + `（少 ${want - got.length} 条）`)
+  }
+  const multi = nodes.filter((c) => c.loc.end.line > c.loc.start.line).length
+  console.log(`注释抽取覆盖率：本文件 babel ${nodes.length} 个节点 / 逐行展开 ${bodies.length} 条`
+    + `（其中多行节点 ${multi} 个）；全树 ${checked} 个文件逐文件相等`)
 })
 
 // ---------------------------------------------------------------------------
