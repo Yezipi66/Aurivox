@@ -48,7 +48,7 @@ const REASON = {
     en: 'This engine has no runtime section in its manifest; it is started by its author, not by this app.',
   },
   unmanaged: {
-    zh: '这台部署不管引擎进程（没装看管人）。',
+    zh: '该部署不管理引擎进程（未安装进程管理器）。',
     en: 'This deployment does not manage engine processes.',
   },
   external: {

@@ -220,7 +220,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             </label>
             <label className="radio-row">
               <input type="radio" name="slice" checked={sliceChoice === 'real'} onChange={() => setSliceChoice('real')} />
-              <span>{tr('Re-slice raw into clips', '将原始音频重新切成片段')} <span className="hint">{tr('— cleaner cuts, slower; forces re-transcribe', '切分更干净，但更慢；会强制重新转写')}</span></span>
+              <span>{tr('Re-slice raw into clips', '将原始音频重新切成片段')} <span className="hint">{tr('— cleaner cuts, slower; forces re-transcribe', '切分效果更佳，但更慢；会强制重新转写')}</span></span>
             </label>
 
             {/* Slice parameters — only when real slicing is selected */}

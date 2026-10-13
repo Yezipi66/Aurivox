@@ -1369,7 +1369,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                       {TRAIN_PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
                       {savedTP.length > 0 && (
                         <optgroup label={tr('Saved presets', '已保存预设')}>
-                          {savedTP.map(s => <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已存')}: {s.name}</option>)}
+                          {savedTP.map(s => <option key={`saved:${s.name}`} value={`saved:${s.name}`}>{tr('Saved', '已保存')}: {s.name}</option>)}
                         </optgroup>
                       )}
                     </Select>

@@ -203,9 +203,9 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
         <div className="train-version-row" style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('Base Model Version', 'Base 模型版本')}</label>
           <Select className="control" value={form.modelVersion || 'v2'} onChange={e => setField('modelVersion', e.target.value)}>
-            <option value="v2">{t('v2 — general base (s2G2333k)', 'v2 — 通用 base (s2G2333k)')}</option>
-            <option value="v2Pro">{t('v2Pro — needs v2Pro base + SV model', 'v2Pro — 需要 v2Pro base + SV 模型')}</option>
-            <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus — 需要 v2ProPlus base + SV 模型')}</option>
+            <option value="v2">{t('v2 — general base (s2G2333k)', 'v2：通用 base (s2G2333k)')}</option>
+            <option value="v2Pro">{t('v2Pro — needs v2Pro base + SV model', 'v2Pro：需要 v2Pro base + SV 模型')}</option>
+            <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus：需要 v2ProPlus base + SV 模型')}</option>
           </Select>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
             {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before you start.',

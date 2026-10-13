@@ -35,7 +35,7 @@
 //      现在走 lib/system/gpu.js：**同一段代码问操作系统**，覆盖
 //      NVIDIA / Intel / AMD / Apple，并给出理由。
 //   3. **新增 XPU 分支**（原脚本第 12 行原文：「no AMD / DirectML」，
-//      第 25 行：「NVIDIA GPU present ? cu121 : cpu」）：该机器上装出来
+//      第 25 行：「NVIDIA GPU present ? cu121 : cpu」）：那台机器上装出来
 //      的只能是 CPU 版，2.5 GB 的 CUDA wheel 一次也用不上。
 //   4. onnxruntime 的 provider 探针：原来用 `ctypes.WinDLL`（Windows 专用），
 //      现在按平台选 WinDLL / CDLL。
@@ -148,7 +148,7 @@ function decideBackend () {
   // ⚠️ detectGpuNow() 返回的是**一个对象**不是数组：
   //   {ready, available, device_name, vendor, devices:[{name,vendor}], platform, probe}
   //   `available` 的含义是「有没有 CUDA」：别拿它当「有没有 GPU」用
-  //   （Intel Arc 该机器上 available:false，但设备实实在在在那儿）。
+  //   （Intel Arc 那台机器上 available:false，但设备实实在在在那儿）。
   //   要问的是 vendor。
   let info = null
   try { info = gpu.detectGpuNow() } catch (e) { info = null }

@@ -757,7 +757,7 @@ export function fmtMemMb (mb) {
 }
 
 /**
- * 把后端该机器的占用总览翻成一句话。
+ * 把后端那台机器的占用总览翻成一句话。
  *
  * @param {object|null} occ  /api/engines 回来的 occupancy 段
  * @param {string} [lang]
