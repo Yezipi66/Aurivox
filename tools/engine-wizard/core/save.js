@@ -54,7 +54,7 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // ---- 4. 目录在不在 ----
-  //    但**我们**是开发工具，建目录是合理的：这里如实说明建了什么。
+  //   但我们是开发工具，建目录是合理的：这里如实说明建了什么。
   let createdDir = false
   if (!fs.existsSync(dir)) {
     if (opts.allowCreateDir === false) {
@@ -77,10 +77,9 @@ function saveManifest (manifest, opts = {}) {
       errorZh: `engines/${id}/manifest.json 已存在，且未请求覆盖` }
   }
 
-  // ---- 6. 注释键**原样保留** ----
-  //  平台是在**读取时**剥（lib/engines/registry.js:56 stripComments），
-  //    不是写入时剥。写盘时剥 ⇒ 「读回来再存一次」就把文档永久删了。
-  //  ⇒ 写盘：逐字保留，不做任何过滤。
+  // ---- 6. 注释键原样保留 ----
+  //  平台是在读取时剥（lib/engines/registry.js:56 stripComments），不是写入时剥。
+  //    写盘时剥 ⇒「读回来再存一次」就把文档永久删了。
   const clean = manifest
 
   //   这里必须兜住：不然异常一路冒到 HTTP 层变成 500，
@@ -125,8 +124,8 @@ function listInstalled (opts = {}) {
   } catch {
     return []
   }
-  // opts.all：列出**所有**文件夹（含还没名片的），供「新建名片」入口扫描；
-  //   默认仍只列有 manifest 的（测试守着这条）。
+  // opts.all：列出所有文件夹（含还没名片的），供「新建名片」入口扫描；
+  //   默认仍只列有 manifest 的。
   const withManifest = (n) => {
     const mf = path.join(enginesDir, n, 'manifest.json')
     if (!fs.existsSync(mf)) return null
@@ -146,7 +145,7 @@ function listInstalled (opts = {}) {
 
 /**
  * 读一张已装引擎的名片。
- * 路径穿越防护与写入**同等严格**：先过 validateId，再用 path.relative
+ * 路径穿越防护与写入同等严格：先过 validateId，再用 path.relative
  *   确认解析结果仍在 engines/ 之内，两条都过才读盘。
  */
 function readManifestById (id, opts = {}) {

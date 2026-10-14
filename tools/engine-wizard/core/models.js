@@ -1,7 +1,7 @@
 'use strict'
 //  MODELS：第 4 步：把「要下什么」摆出来
 //
-//  ⇒ 所以这里的全部产出是「一段可以照抄的命令」+「缺哪些文件」。
+//  这里的全部产出是「一段可以照抄的命令」+「缺哪些文件」。
 
 const path = require('node:path')
 
@@ -11,8 +11,7 @@ function platformCheckpoints () {
 }
 
 /**
- * 拿到**平台自己解析出来的** profile。
- *
+ * 拿到平台自己解析出来的 profile。
  */
 function platformProfile (id) {
   const { resolveEngineProfile } = require(path.join(__dirname, '..', '..', '..',
@@ -21,7 +20,7 @@ function platformProfile (id) {
 }
 
 /**
- * 一台引擎的权重现状：**只查，不下**。
+ * 一台引擎的权重现状：只查，不下。
  *
  * @param {string} id 引擎 id（走平台 registry 拿 profile）
  * @returns {{ok:true, status:object, commands:string[], notes:string[]}
@@ -69,7 +68,7 @@ function describeModels (id, appDir) {
   } else if (status.ready === false) {
     notes.push('目录不存在，或 Manifest 声明的文件缺失')
   } else {
-    // ready 为 null 时**不能**压成 false 或 true：
+    // ready 为 null 时不能压成 false 或 true：
     //   压 false 会让可用的引擎永远显示为缺失，压 true 等于替 Manifest
     //   作者担保一件他没有声明的事。⇒ 如实说「状态未知」。
     notes.push('状态未知：Manifest 未声明 runtime.checkpoints，'
@@ -95,7 +94,7 @@ function describeModels (id, appDir) {
       + '请在 Manifest 中补充该命令，或按上游说明自行下载。')
   }
 
-  // license_gate 是**布尔**（profile.js:613 `=== true`），
+  // license_gate 是布尔（profile.js:613 `=== true`），
   //   别把它的值当文字显示：那会是「true」两个字。
   if (src.license_gate) {
     notes.push('该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。'
@@ -106,7 +105,7 @@ function describeModels (id, appDir) {
   //     need  哪些文件算「齐」（名片点名的）
   //     have  现在有哪些
   //     miss  还缺哪些
-  //     state ready 三态 그대로
+  //     state ready 三态原文照搬
   const items = (status.required || []).map((f) => ({
     name: f,
     have: !!(status.missing && !status.missing.includes(f)),
