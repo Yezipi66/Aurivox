@@ -54,7 +54,7 @@ function readEnvCommand (manifest) {
       || cmd.some((s) => typeof s !== 'string' || !s.trim())) {
     return {
       ok: false, code: 'BAD_ENV_COMMAND',
-      error: 'install.env_command 必须是**非空的字符串数组**（argv 形式），'
+      error: 'install.env_command 必须是非空的字符串数组（argv 形式），'
         + '例如 ["uv","sync"]。\n'
         + '写成一整行命令会在含空格的路径上被错误拆分，排查困难。',
     }
@@ -1145,10 +1145,10 @@ async function runEnv (input = {}) {
             + 'Read the error above before deciding whether to retry or change the command.',
         noteZh: steps.length > 1
           ? `第 ${i + 1}/${steps.length} 步失败。\n`
-            + '安装中断会保留不完整的环境。重新执行本步骤会**从断点续传**：\n'
+            + '安装中断会保留不完整的环境。重新执行本步骤会从断点续传：\n'
             + '已成功的步骤会跳过，未完成的部分继续（uv/pip 的缓存会保留已下载的 wheel）。\n'
             + '请先阅读上方错误信息，再决定重试或更换命令。'
-          : '安装中断会保留不完整的环境。重新执行本步骤会**从断点续传**：\n'
+          : '安装中断会保留不完整的环境。重新执行本步骤会从断点续传：\n'
             + 'uv/pip 的缓存会保留已下载的部分，不会全部重下。\n'
             + '请先阅读上方错误信息，再决定重试或更换命令。',
       }
