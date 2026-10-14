@@ -16,7 +16,7 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
 /**
  * 夹具造在 os.tmpdir() 里，绝不碰真的 engines/。
  *
- * 为什么这个函数名和返回值这么别扭（被守卫判过一次）：
+ * 这个函数名和返回值这么别扭，是被守卫判过一次：
  *   lib/engines/enginesDirWriteGuard.node.test.js:148 扫所有测试文件里
  *   「往看起来像 engines 的目录写东西」的调用，它区分真假只认实参里
  *   有没有临时目录的痕迹（/mkdtemp|tmpdir|TMPDIR|os\.tmp/i）。
@@ -33,20 +33,20 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
  *
  * 三个约束同时要满足（守卫判过两次、真克隆跑过一次 120 秒才知道）：
  *
- * ① lib/engines/enginesDirWriteGuard.node.test.js:148 扫所有测试文件里
+ * 一 lib/engines/enginesDirWriteGuard.node.test.js:148 扫所有测试文件里
  *    「往看起来像 engines 的目录写东西」的调用 —— 它只看实参文本，
  *    判据是「提到 engines 但没有任何临时痕迹」。
  *    路径变量名必须带 mkdtemp；夹具内部不要手写
  *      path.join(x, 'engines')（那个实参含 'engines' 却不含 mkdtemp）。
  *
- * ② buildClonePlan / runClone 收的 root 是项目根，它自己拼
+ * 二 buildClonePlan / runClone 收的 root 是项目根，它自己拼
  *    root/engines/<id>。夹具必须返回根，不是 engines 层。
  *
- * ③ 最要紧的一条：测试里那个「引擎目录」必须正好是被测代码会去查的
- *    那一层（root/engines/<id>）。写错一层 ⇒ 代码判成「目录空」⇒
- *    放行 ⇒ 真的去联网克隆（实测：一条跑了 120 秒）。
+ * 三 最要紧的一条：测试里那个「引擎目录」必须正好是被测代码会去查的
+ *    那一层（root/engines/<id>）。写错一层，代码判成「目录空」，
+ *    放行，真的去联网克隆（实测：一条跑了 120 秒）。
  *    所以 mkdtempRootWithEngine 返回 engineDir 那一层，
- *      调用方直接往它里面写文件，不需要自己拼路径（拼错就是 ③）。
+ *      调用方直接往它里面写文件，不需要自己拼路径（拼错就是第三条）。
  *
  * @returns {{root:string, engineDir:string}}
  *   root      → 交给被测函数
@@ -69,21 +69,21 @@ function mkdtempRootWithEngine (id) {
 }
 
 // 目录空不空 —— 这条判据是这一步存在的全部理由
-test('目录不存在 ⇒ 可以克隆', () => {
+test('目录不存在，可以克隆', () => {
   const { root } = mkdtempRoot()
   const r = checkClonable('newone', { root: root })
   assert.strictEqual(r.ok, true, r.error)
 })
 
-test('目录存在但空 ⇒ 也可以（git 自己能放）', () => {
+test('目录存在但空，也可以（git 自己能放）', () => {
   const { root } = mkdtempRootWithEngine('newone')
   const r = checkClonable('newone', { root })
   assert.strictEqual(r.ok, true, r.error)
 })
 
-test('⛔ ⭐ 目录非空 ⇒ 动手之前就拦住，且理由要说清', () => {
+test('目录非空，动手之前就拦住，且理由要说清', () => {
   // 文件要放在 root/engines/<id> 那一层（checkClonable 就查这里）。
-  //   放错一层的话它查的是空目录 ⇒ 放行 ⇒ 这条测试就白写了。
+  //   放错一层的话它查的是空目录，放行，这条测试就白写了。
   const { root, engineDir } = mkdtempRootWithEngine('old')
   fs.writeFileSync(path.join(engineDir, 'manifest.json'), '{}')
   fs.writeFileSync(path.join(engineDir, 'pyproject.toml'), '')
@@ -102,7 +102,7 @@ test('⛔ ⭐ 目录非空 ⇒ 动手之前就拦住，且理由要说清', () =
   assert.ok(!/已删除|已经帮你/.test(r.errorZh) && !/deleted for you|removed for you/i.test(r.error), r.error)
 })
 
-test('⛔ ⭐ 「已克隆过」要能被认出来（这是最常见的那个非空）', () => {
+test('「已克隆过」要能被认出来（这是最常见的那个非空）', () => {
   const { root, engineDir } = mkdtempRootWithEngine('old')
   fs.writeFileSync(path.join(engineDir, 'manifest.json'), '{"id":"old"}')
   const r = checkClonable('old', { root })
@@ -111,18 +111,18 @@ test('⛔ ⭐ 「已克隆过」要能被认出来（这是最常见的那个非
   assert.ok(/already cloned|reinstall/.test(r.error) || /已克隆过|克隆过|重新安装/.test(r.errorZh), r.error)
 })
 
-test('⛔ ⭐ cloneUrl 空 ⇒ 当场报，不生成 `git clone \'\'`（实测踩到）', () => {
+test('cloneUrl 空，当场报，不生成 `git clone \'\'`（实测踩到）', () => {
   const root = mkdtempRoot()
   for (const bad of [undefined, '', '   ', null]) {
     const r = buildClonePlan({ id: 'n', cloneUrl: bad, root })
     assert.strictEqual(r.ok, false, `cloneUrl=${JSON.stringify(bad)} 却放行了`)
     assert.strictEqual(r.code, 'NO_CLONE_URL')
     assert.ok(!JSON.stringify(r).includes("clone ''"),
-      '⛔ 生成了一条必然失败的空命令')
+      '生成了一条必然失败的空命令')
   }
 })
 
-test('⛔⛔ ⭐ id 缺失/空/纯空格/非字符串 ⇒ MISSING_ID，⛔ 不许抛 Node path 错', () => {
+test('id 缺失/空/纯空格/非字符串，MISSING_ID，不许抛 Node path 错', () => {
   // Owner 真机抓到：id 为 undefined 时 buildClonePlan 直接让
   //   path.join(root,'engines',undefined) 抛
   //   `The "path" argument must be of type string. Received undefined`，
@@ -143,16 +143,16 @@ test('⛔⛔ ⭐ id 缺失/空/纯空格/非字符串 ⇒ MISSING_ID，⛔ 不�
       `id=${JSON.stringify(bad)} 的 code 不对：${r.code}`)
     // 不许把 Node 的内核报错透给界面
     assert.ok(!/must be of type string/i.test(r.error || ''),
-      '⛔ path 参数的内核报错漏到界面上了')
+      'path 参数的内核报错漏到界面上了')
     // 中文侧必须说人话：告诉用户该干什么
-    assert.ok(r.errorZh && r.errorZh.length > 8, '⛔ 没有中文人话')
+    assert.ok(r.errorZh && r.errorZh.length > 8, '没有中文人话')
     assert.ok(/目录名/.test(r.errorZh), r.errorZh)
     // 空 id 也绝不许生成一条克隆命令
-    assert.ok(!JSON.stringify(r).includes('git clone'), '⛔ 空 id 也出了计划')
+    assert.ok(!JSON.stringify(r).includes('git clone'), '空 id 也出了计划')
   }
 })
 
-test('⛔⛔ ⭐ id 缺失时 checkClonable 也不许抛（它可被单独调用）', () => {
+test('id 缺失时 checkClonable 也不许抛（它可被单独调用）', () => {
   const { root } = mkdtempRoot()
   for (const bad of [undefined, '', '   ']) {
     let r
@@ -166,7 +166,7 @@ test('⛔⛔ ⭐ id 缺失时 checkClonable 也不许抛（它可被单独调用
   }
 })
 
-test('⭐ 正常 id ⇒ 照旧出计划（⛔ 不许被新校验挡住）', () => {
+test('正常 id，照旧出计划（不许被新校验挡住）', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
   assert.strictEqual(p.ok, true, p.error)
@@ -174,19 +174,19 @@ test('⭐ 正常 id ⇒ 照旧出计划（⛔ 不许被新校验挡住）', () =
   assert.deepStrictEqual(p.steps[0].argv.slice(-1), ['engines/newone'])
 })
 
-test('⭐ 默认只出计划，不动盘', () => {
+test('默认只出计划，不动盘', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
   assert.strictEqual(p.ok, true, p.error)
-  assert.strictEqual(p.execute, false, '⛔ 默认不许执行')
+  assert.strictEqual(p.execute, false, '默认不许执行')
   assert.strictEqual(p.steps[0].kind, 'clone')
   assert.deepStrictEqual(p.steps[0].argv.slice(0, 3),
     ['git', 'clone', 'https://github.com/a/b.git'])
   assert.ok(!fs.existsSync(path.join(root, 'engines', 'newone')),
-    '⛔ 出计划这一步不许建目录')
+    '出计划这一步不许建目录')
 })
 
-test('⭐ 每一步都要有 why —— 一条看不懂的命令，装的人没法判断要不要紧', () => {
+test('每一步都要有 why —— 一条看不懂的命令，装的人没法判断要不要紧', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
   for (const s of p.steps) {
@@ -194,17 +194,17 @@ test('⭐ 每一步都要有 why —— 一条看不懂的命令，装的人没�
   }
 })
 
-test('⛔ 步骤里要提醒 gitignore（上游源码会进 git）', () => {
+test('步骤里要提醒 gitignore（上游源码会进 git）', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
   assert.ok(p.steps.some((s) => s.kind === 'gitignore'),
-    '⛔ 必须提醒 engines/ 整棵树要进 git')
+    '必须提醒 engines/ 整棵树要进 git')
 })
 
 test('默认整仓克隆（不浅取）', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'newone', cloneUrl: 'https://x/y.git', root })
-  assert.ok(!p.steps[0].argv.includes('--depth'), '⛔ 默认不该浅取')
+  assert.ok(!p.steps[0].argv.includes('--depth'), '默认不该浅取')
   // 钉实质：说明这是完整克隆（而非浅克隆），不钉「整仓」这个词。
   assert.ok(/full clone|entire repository|whole repository/i.test(p.steps[0].why) || /完整克隆|不浅取|整个仓库/.test(p.steps[0].whyZh), p.steps[0].why)
 })
@@ -215,19 +215,19 @@ test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）'
     depth: 1, root })
   assert.ok(p.steps[0].argv.includes('--depth'))
   const note = p.steps.find((s) => s.kind === 'note')
-  assert.ok(note, '⛔ 浅克隆必须给一条提醒')
+  assert.ok(note, '浅克隆必须给一条提醒')
   // 钉实质：必须说「浅克隆后无法指定历史版本，需重新完整克隆」，
   //   不钉「重新整仓克隆」这个措辞。
   assert.ok(/full re.clone|reclone|re.clone/i.test(note.why) || /完整克隆|整仓/.test(note.whyZh), note.why)
   assert.ok(/history|specific version|version later/i.test(note.why) || /历史版本|指定版本/.test(note.whyZh),
-    `⛔ 必须说清浅克隆的代价：${note.why}`)
+    `必须说清浅克隆的代价：${note.why}`)
 })
 
 // Owner 改判：「克隆就只克隆默认分支得了」。
 // 原先的分支框是死控件：探测打 /wizard/probe {url} 压根没用它，
-// 用户点「重读」读的又是默认分支 ⇒ 填了分支，探测结果和真正克隆的代码对不上。
+// 用户点「重读」读的又是默认分支，填了分支，探测结果和真正克隆的代码对不上。
 // 所以 API 也一并删掉 branch —— 留一个前端碰不到的参数就是留陷阱。
-test('⛔ 传了 branch 也⛔ 必须被忽略：argv 里不许出现 --branch', () => {
+test('传了 branch 也必须被忽略：argv 里不许出现 --branch', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'n', cloneUrl: 'https://x/y.git',
     branch: 'dev_1.5', root })
@@ -238,28 +238,28 @@ test('⛔ 传了 branch 也⛔ 必须被忽略：argv 里不许出现 --branch',
   assert.ok(p.steps[0].why.includes('default branch') || p.steps[0].whyZh.includes('默认分支'), p.steps[0].why)
 })
 
-test('⛔ 不给 execute:true 就绝不动盘', () => {
+test('不给 execute:true 就绝不动盘', () => {
   const { root } = mkdtempRoot()
   runClone({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
   assert.ok(!fs.existsSync(path.join(root, 'engines', 'newone')),
-    '⛔ 不该建目录')
+    '不该建目录')
 })
 
-test('⛔ 非空目录时即使 execute:true 也不许跑 git', () => {
+test('非空目录时即使 execute:true 也不许跑 git', () => {
   // 这里用的是 mkdtempRootWithEngine('old') —— 它保证 root/engines/old 真的存在。
-  //   如果引擎目录没真造出来，checkClonable 会判成「目录空」⇒ 放行
-  //   ⇒ 真的去联网克隆（实测踩过：一条测试跑了 120 秒）。
+  //   如果引擎目录没真造出来，checkClonable 会判成「目录空」，放行，
+  //   真的去联网克隆（实测踩过：一条测试跑了 120 秒）。
   const { root, engineDir } = mkdtempRootWithEngine('old')
   fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
   const r = runClone({ id: 'old', cloneUrl: 'https://github.com/a/b.git',
     execute: true, root })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'DIR_NOT_EMPTY')
-  // ⛔ 目录里的东西不能被动
+  // 目录里的东西不能被动
   assert.strictEqual(fs.readdirSync(engineDir).length, 1)
 })
 
-test('⭐ git 成功后的话里不许出现「能用」「可用」', () => {
+test('git 成功后的话里不许出现「能用」「可用」', () => {
   const { root } = mkdtempRoot()
   // 不真的联网克隆 —— 只验这句话的措辞
   const fake = buildClonePlan({ id: 'n', cloneUrl: 'https://x/y.git', root, execute: true })
@@ -270,7 +270,7 @@ test('⭐ git 成功后的话里不许出现「能用」「可用」', () => {
   assert.ok(fake.noteZh.includes('要等后面的校验') || /checks that come next/i.test(fake.note), fake.note)
 })
 
-test('⛔ clone.js 活代码里不许出现任何具体引擎名', () => {
+test('clone.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm']
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'clone.js'), 'utf-8')

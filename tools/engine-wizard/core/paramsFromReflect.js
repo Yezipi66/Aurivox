@@ -69,7 +69,7 @@ function candidatesFor (name) {
   return out.sort((a, b) => b.score - a.score)
 }
 
-// 规则表里 ③ 的分数（90）高于 ⑤（80）⇒ 排序天然生效。
+// 规则表里 reference_audio 那一档的分数（100）高于 text_lang 那一档（80），排序天然生效。
 //   这一行是给读代码的人的说明，不是分支。
 
 /** 平台词 → 这台引擎的参数名候选。 */
@@ -173,7 +173,7 @@ function checkModuleMatchesCli ({ dir, module, cls }) {
   }
 
   const same = hits.filter((h) => h.module === module)
-  if (same.length) return null // CLI 里确实 import 了名片写的那个模块 ⇒ 一致
+  if (same.length) return null // CLI 里确实 import 了名片写的那个模块，一致
 
   const where = hits.map((h) => `${h.file}:${h.line}`).join('、')
   const mods = [...new Set(hits.map((h) => h.module))].join('、')

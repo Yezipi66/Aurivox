@@ -82,7 +82,7 @@ function runDownload (input = {}) {
     const root = input.root || process.cwd()
     const id = input.id || ''
     const argvKey = argv.join(' ')
-    // 断点续传：这条命令上次已经成功跑完 ⇒ 跳过
+    // 断点续传：这条命令上次已经成功跑完，跳过
     const doneKeys = readProgress(root, id)
     if (doneKeys.has(argvKey)) {
       resolve({ ok: true, code: 'SKIPPED', status: 0, stdout: '', stderr: '',
@@ -129,7 +129,7 @@ function runDownload (input = {}) {
           error: `Download timed out (${Math.round((input.timeoutMs || 7200000) / 60000)} min).` })
         return
       }
-      // 下载成功 ⇒ 写入进度文件（下次重跑会跳过）
+      // 下载成功，写入进度文件（下次重跑会跳过）
       if (code === 0) {
         doneKeys.add(argvKey)
         writeProgress(root, id, doneKeys)
@@ -271,7 +271,7 @@ async function checkFileStatus (file, expectedSize, root, id) {
 
   if (fs.existsSync(finalPath)) {
     const stat = fs.statSync(finalPath)
-    // 远端没给大小 ⇒ 无从比对，不能当作已下载完成
+    // 远端没给大小，无从比对，不能当作已下载完成
     if (!expectedSize) {
       return {
         status: 'partial',
@@ -340,11 +340,11 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
 //  断点续传：检查 .tmp 文件大小，发送 Range: bytes=<size>- 请求
 //  SHA-256：下载完成后算实际哈希，不用远端 blobId（那不是真哈希）
 //  非 2xx 一律不写盘（原来 404 的 HTML 错误页会被当成模型文件落盘）
-//  content-type 是 text/html ⇒ 判失败
+//  content-type 是 text/html，判失败
 //  下载完比对 file.size（远端没给就退一步比对 content-length），
 //     不符即删掉脏文件并判失败
 //  @param {boolean} [skipTmpDetect] 内部用：不许外部传。
-//    从零重来时置 true，否则下一跳又会探测到同一个 .tmp ⇒ 无限递归。
+//    从零重来时置 true，否则下一跳又会探测到同一个 .tmp，无限递归。
 function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false) {
   return new Promise((resolve) => {
     const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
@@ -384,7 +384,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // 非 2xx ⇒ 报错，不写盘
+      // 非 2xx，报错，不写盘
       //   原来无论 404/403/500 都把响应体写盘、重命名、报 ok:true，
       //   于是 404 的 HTML 错误页被当成模型文件落盘。
       if (status < 200 || status >= 300) {
@@ -397,7 +397,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // content-type 是 HTML ⇒ 这是错误页面，不是要下的文件
+      // content-type 是 HTML，这是错误页面，不是要下的文件
       const ctype = String(res.headers['content-type'] || '').toLowerCase()
       if (ctype.includes('text/html')) {
         res.resume()
@@ -409,7 +409,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // 服务器不支持 Range ⇒ 从零重来（不再探测 .tmp，否则无限递归）
+      // 服务器不支持 Range，从零重来（不再探测 .tmp，否则无限递归）
       if (resumeFrom > 0 && status !== 206) {
         resumeFrom = 0
         req.destroy()
@@ -473,7 +473,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
               return
             }
           } else if (startOffset === 0 && contentLength > 0 && downloaded !== contentLength) {
-            // 远端没给大小 ⇒ 退一步比对响应声明的 content-length
+            // 远端没给大小，退一步比对响应声明的 content-length
             dropTmp()
             resolve(sizeMismatch(contentLength, 'the server'))
             return
