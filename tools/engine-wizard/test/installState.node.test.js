@@ -1,18 +1,11 @@
 'use strict'
-// ============================================================================
-//  installState —— ① 两份进度合并后的读写（env / models 两段互不干扰）
+// installState —— ① 两份进度合并后的读写（env / models 两段互不干扰）
 //              ② 「这台引擎装到哪了」的产物判据
 //
-//  ⭐ 这份测试守两件事，各有一条能变红的断言：
-//    ① env 写盘不许抹掉 models 的 done（反过来也是）—— 两段合住一个文件，
-//       最容易犯的错就是整份重写。
-//    ② 对勾只由盘上的产物判：造出/删掉目录树 ⇒ 判据跟着变。
-//
-//  ⛔ 变异测试（跑过）：
-//    · writeProgress 改成整份重写（丢掉另一段）⇒ 「两段互不干扰」变红
-//    · installState 改成「目录在就算 cloned」⇒ 「空目录不算克隆」变红
-//    · resetProgress 改成删整个文件 ⇒ 「只清自己那一段」变红
-// ============================================================================
+// 守两件事，各有一条能变红的断言：
+//   ① env 写盘不许抹掉 models 的 done（反过来也是）—— 两段合住一个文件，
+//      最容易犯的错就是整份重写。
+//   ② 对勾只由盘上的产物判：造出/删掉目录树 ⇒ 判据跟着变。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -22,7 +15,7 @@ const path = require('node:path')
 
 const IS = require('../core/installState.js')
 
-// ⚠ 守卫（lib/engines/enginesDirWriteGuard.node.test.js:148）要求路径上带临时
+// 守卫（lib/engines/enginesDirWriteGuard.node.test.js:148）要求路径上带临时
 //   目录痕迹，否则并行跑会污染真的 engines/ ⇒ 变量名必须带 mkdtemp。
 function mkdtempRoot () {
   const mkdtempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-install-'))
@@ -43,10 +36,8 @@ function mkEngine (root, id, files = []) {
   return mkdtempEngineDir
 }
 
-// ---------------------------------------------------------------------------
-//  ① 两份进度合并后的读写
-// ---------------------------------------------------------------------------
-test('⭐ 进度文件名就是 .wizard-install.json（⛔ 不再写旧的那两个）', () => {
+// ① 两份进度合并后的读写
+test('进度文件名就是 .wizard-install.json（不再写旧的那两个）', () => {
   assert.strictEqual(IS.INSTALL_FILE, '.wizard-install.json')
   const root = mkdtempRoot()
   try {
@@ -57,7 +48,7 @@ test('⭐ 进度文件名就是 .wizard-install.json（⛔ 不再写旧的那两
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⭐⭐ env 与 models 两段互不干扰（写一段不许抹掉另一段）', () => {
+test('env 与 models 两段互不干扰（写一段不许抹掉另一段）', () => {
   const root = mkdtempRoot()
   try {
     mkEngine(root, 'e1')
@@ -66,16 +57,16 @@ test('⭐⭐ env 与 models 两段互不干扰（写一段不许抹掉另一段�
     // 两段都还在
     assert.deepStrictEqual([...IS.readProgress(root, 'e1', 'env')], ['uv venv', 'uv sync'])
     assert.deepStrictEqual([...IS.readProgress(root, 'e1', 'models')], ['hf download x'])
-    // ⭐ 反过来再写一次 env ⇒ models 那段不许被抹掉（整份重写就会抹掉）
+    // 反过来再写一次 env，models 那段不许被抹掉（整份重写就会抹掉）
     IS.writeProgress(root, 'e1', 'env', new Set(['uv venv']))
     assert.deepStrictEqual([...IS.readProgress(root, 'e1', 'models')], ['hf download x'],
       '⛔ 写 env 段把 models 段抹掉了 —— 这正是合并成一个文件后最容易犯的错')
-    // ⭐ 而 env 段确实是新的
+    // 而 env 段确实是新的
     assert.deepStrictEqual([...IS.readProgress(root, 'e1', 'env')], ['uv venv'])
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⭐⭐ 不同引擎的进度互不干扰', () => {
+test('不同引擎的进度互不干扰', () => {
   const root = mkdtempRoot()
   try {
     mkEngine(root, 'e1')
@@ -87,7 +78,7 @@ test('⭐⭐ 不同引擎的进度互不干扰', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⭐ resetProgress 只清自己那一段（⛔ 不删文件、不动另一段）', () => {
+test('resetProgress 只清自己那一段（不删文件、不动另一段）', () => {
   const root = mkdtempRoot()
   try {
     mkEngine(root, 'e1')
@@ -98,12 +89,12 @@ test('⭐ resetProgress 只清自己那一段（⛔ 不删文件、不动另一�
       '⛔ reset 后 env 段还有东西')
     assert.deepStrictEqual([...IS.readProgress(root, 'e1', 'models')], ['hf download x'],
       '⛔ reset env 段把 models 段也清了')
-    // ⭐ 文件还在（⛔ 不是 unlink 整个文件 —— 另一段还在里面）
+    // 文件还在（不是 unlink 整个文件，另一段还在里面）
     assert.ok(fs.existsSync(IS.progressFile(root, 'e1')))
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⭐ resetProgress(section=all) 两段都清', () => {
+test('resetProgress(section=all) 两段都清', () => {
   const root = mkdtempRoot()
   try {
     mkEngine(root, 'e1')
@@ -115,7 +106,7 @@ test('⭐ resetProgress(section=all) 两段都清', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⛔ 损坏的进度文件 ⇒ 按「没有进度」处理（⛔ 不抛）', () => {
+test('损坏的进度文件 ⇒ 按「没有进度」处理（不抛）', () => {
   const root = mkdtempRoot()
   try {
     const d = mkEngine(root, 'e1')
@@ -127,7 +118,7 @@ test('⛔ 损坏的进度文件 ⇒ 按「没有进度」处理（⛔ 不抛）'
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⛔ resetProgress 只清进度记录，⛔ 不动引擎目录里的任何文件', () => {
+test('resetProgress 只清进度记录，不动引擎目录里的任何文件', () => {
   const root = mkdtempRoot()
   try {
     const d = mkEngine(root, 'e1', ['manifest.json'])
@@ -139,13 +130,11 @@ test('⛔ resetProgress 只清进度记录，⛔ 不动引擎目录里的任何�
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-// ---------------------------------------------------------------------------
-//  ② 「这台引擎装到哪了」—— 判据必须是盘上的产物
-// ---------------------------------------------------------------------------
-/** 假的 venv 探针（⛔ 单测不许真 spawn python） */
+// ② 「这台引擎装到哪了」—— 判据必须是盘上的产物
+/** 假的 venv 探针（单测不许真 spawn python） */
 const venvOk = new Set()
 
-test('⭐⭐ 伪造目录树 ⇒ 对勾跟着变（克隆 / 名片 / 权重三段）', () => {
+test('伪造目录树 ⇒ 对勾跟着变（克隆 / 名片 / 权重三段）', () => {
   const root = mkdtempRoot()
   try {
     // 什么都没有 ⇒ 一个勾都没有
@@ -164,7 +153,7 @@ test('⭐⭐ 伪造目录树 ⇒ 对勾跟着变（克隆 / 名片 / 权重三�
     s = IS.installState(root, 'e1', { spawnProbe: (id) => venvOk.has(id) })
     assert.strictEqual(s.steps_done.env, true)
 
-    // ⭐ venv 又起不来了（用户删了 .venv）⇒ env 勾必须消失
+    // venv 又起不来了（用户删了 .venv），env 勾必须消失
     venvOk.delete('e1')
     s = IS.installState(root, 'e1', { spawnProbe: () => false })
     assert.strictEqual(s.steps_done.env, false,
@@ -184,13 +173,13 @@ test('⭐⭐ 伪造目录树 ⇒ 对勾跟着变（克隆 / 名片 / 权重三�
     s = IS.installState(root, 'e1', { spawnProbe: () => false })
     assert.strictEqual(s.steps_done.models, true)
 
-    // ⭐ 权重是一个 0 字节的半截文件 ⇒ 如实报「有目录但空的」（ready=false）
-    //   ⚠ 先删掉再写 0 字节：writeFileSync 不会截断已存在文件的旧内容
+    // 权重是一个 0 字节的半截文件 ⇒ 如实报「有目录但空的」（ready=false）
+    //   先删掉再写 0 字节：writeFileSync 不会截断已存在文件的旧内容
     fs.rmSync(path.join(d, 'checkpoints', 'm.safetensors'), { force: true })
     fs.writeFileSync(path.join(d, 'checkpoints', 'm.safetensors'), '')
     s = IS.installState(root, 'e1', { spawnProbe: () => false })
     assert.strictEqual(s.steps.models.ready, false, '⛔ 半截文件要如实报「有目录但空的」')
-    // ⭐「确实缺了」也算查过了（steps.js 的 stepDone 就是这个判据）⇒ done 为真
+    // 「确实缺了」也算查过了（steps.js 的 stepDone 就是这个判据）⇒ done 为真
     assert.strictEqual(s.steps_done.models, true,
       '⛔ ready=false（确实缺了）不算查过 —— steps.js stepDone 明确算')
   } finally {
@@ -199,7 +188,7 @@ test('⭐⭐ 伪造目录树 ⇒ 对勾跟着变（克隆 / 名片 / 权重三�
   }
 })
 
-test('⛔ 空目录不算克隆（git 报 not empty 那个坑的反面）', () => {
+test('空目录不算克隆（git 报 not empty 那个坑的反面）', () => {
   const root = mkdtempRoot()
   try {
     mkEngine(root, 'e1')           // 建了目录，一个文件都没有
@@ -211,7 +200,7 @@ test('⛔ 空目录不算克隆（git 报 not empty 那个坑的反面）', () =
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⛔ verify 恒 false（这一步的检测逻辑尚未实现，⛔ 不许伪装成对勾）', () => {
+test('verify 恒 false（这一步的检测逻辑尚未实现，不许伪装成对勾）', () => {
   const root = mkdtempRoot()
   try {
     const d = mkEngine(root, 'e1', ['manifest.json'])
@@ -224,7 +213,7 @@ test('⛔ verify 恒 false（这一步的检测逻辑尚未实现，⛔ 不许�
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⛔ 权重目录都没有 ⇒ 三态的 null（说不出来），⛔ 不糊成 false', () => {
+test('权重目录都没有 ⇒ 三态的 null（说不出来），不糊成 false', () => {
   const root = mkdtempRoot()
   try {
     mkEngine(root, 'e1', ['README.md'])
@@ -235,7 +224,7 @@ test('⛔ 权重目录都没有 ⇒ 三态的 null（说不出来），⛔ 不�
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⛔ manifest.json 是坏 JSON ⇒ 不算打了勾（半个文件不是产物）', () => {
+test('manifest.json 是坏 JSON ⇒ 不算打了勾（半个文件不是产物）', () => {
   const root = mkdtempRoot()
   try {
     const d = mkEngine(root, 'e1', ['README.md'])
@@ -245,7 +234,7 @@ test('⛔ manifest.json 是坏 JSON ⇒ 不算打了勾（半个文件不是产�
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('⛔ installState 里不出现任何具体引擎名', () => {
+test('installState 里不出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice', 'vox' + 'cpm']
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'installState.js'), 'utf8')
   const code = src.split('\n')

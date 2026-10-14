@@ -10,10 +10,8 @@ const os = require('node:os')
 
 const BRIDGE = require('../core/wizardbridge.js')
 
-// ---------------------------------------------------------------------------
 // 刻意不 import 那个 .mjs（它会拉起 vite/react 的整个依赖图），
 // 也不把它抽成共享模块（那会让两处漂移，漂移的守卫等于没有守卫）。
-// ---------------------------------------------------------------------------
 /**
  * @param {Function[]} handlers HANDLERS 表（顺序即优先级）
  * @returns {Function} connect 风格的中间件
@@ -46,11 +44,9 @@ function wizardMiddleware (handlers) {
   }
 }
 
-// ---------------------------------------------------------------------------
 // HANDLERS 的顺序 = web/wizard.vite.config.mjs 里的顺序，改那边要同步改这边。
-//     这里只取与本 bug 相关的四个端点 + 队尾两个 async（历史），
-//     其余 handler 不参与：顺序纪律关心的只是「async 的必须在最后」。
-// ---------------------------------------------------------------------------
+// 这里只取与本 bug 相关的四个端点 + 队尾两个 async（历史），
+// 其余 handler 不参与：顺序纪律关心的只是「async 的必须在最后」。
 const specbridge = require('../core/specbridge')
 const savebridge = require('../core/savebridge')
 const HANDLERS = [
@@ -61,8 +57,8 @@ const HANDLERS = [
   BRIDGE.handleParams, BRIDGE.handleDownloadManifest,
 ]
 
-// ⚠ vite 的 HTML fallback：任何没被 handler 接走的请求都回 index.html。
-//   症状就出在这里：200 + Content-Type: text/html。
+// vite 的 HTML fallback：任何没被 handler 接走的请求都回 index.html。
+// 症状就出在这里：200 + Content-Type: text/html。
 function htmlFallback (req, res) {
   res.writeHead(200, { 'content-type': 'text/html' })
   res.end('<!doctype html><html><head></head><body></body></html>')
@@ -71,7 +67,7 @@ function htmlFallback (req, res) {
 function startServer () {
   const mw = wizardMiddleware(HANDLERS)
   const server = http.createServer((req, res) => {
-    // ⚠ next 必须绑住 req/res：中间件是裸调 next()，不传参。
+    // next 必须绑住 req/res：中间件是裸调 next()，不传参。
     mw(req, res, () => htmlFallback(req, res))
   })
   return new Promise((resolve) => {
@@ -81,8 +77,8 @@ function startServer () {
   })
 }
 
-// ⛔ 超时兜底：async handler 会让请求既不响应也不报错（正是这个 bug 的本体）。
-//   没有它，一个挂死的请求会让 node --test 整个文件不退出 —— 挂死比断言失败难查。
+// 超时兜底：async handler 会让请求既不响应也不报错（正是这个 bug 的本体）。
+// 没有它，一个挂死的请求会让 node --test 整个文件不退出 —— 挂死比断言失败难查。
 const withTimeout = (p, ms, label) => Promise.race([
   p,
   new Promise((_, rej) => setTimeout(
@@ -102,7 +98,7 @@ const post = (base, p, body) => withTimeout((async () => {
   return { status: r.status, ct: r.headers.get('content-type') || '', text: await r.text() }
 })(), 15000, p)
 
-test('⭐ P0 四个 wizard 端点全部回 application/json（⛔ 不是 text/html）', async () => {
+test('P0 四个 wizard 端点全部回 application/json（不是 text/html）', async () => {
   const { server, base } = await startServer()
   try {
     const cases = [
@@ -112,7 +108,7 @@ test('⭐ P0 四个 wizard 端点全部回 application/json（⛔ 不是 text/ht
       ['POST /wizard/params （曾 async）', await post(base, '/wizard/params', {})],
     ]
     for (const [name, r] of cases) {
-      // ⛔ 这一条就是 2026-10-12 P0 的判据：前端只看 content-type。
+      // 前端只看 content-type
       assert.match(r.ct, /application\/json/,
         `⛔ ${name} 回的是 ${r.ct || '(无)'} —— 被 vite 的 HTML fallback 抢走了\nbody: ${r.text.slice(0, 200)}`)
       // 头对了还不够，body 也得是合法 JSON（半个响应同样会被前端判成格式错误）。
@@ -124,7 +120,7 @@ test('⭐ P0 四个 wizard 端点全部回 application/json（⛔ 不是 text/ht
 })
 
 // false 是中间件 next() 的前提 —— 返回 Promise 会 break 出循环
-test('⭐⭐ 曾 async 的两个 handler 现在**同步**返回 false 且不写任何响应', async () => {
+test('曾 async 的两个 handler 现在同步返回 false 且不写任何响应', async () => {
   const res = {
     headersSent: false,
     writeHead () { this.wroteHead = true; this.headersSent = true },
@@ -146,7 +142,7 @@ test('⭐⭐ 曾 async 的两个 handler 现在**同步**返回 false 且不写�
   assert.strictEqual(r3, false, '⛔ handleDownloadManifest 对 POST 必须同步返回 false')
   assert.strictEqual(res.wroteHead, undefined, '⛔ handleDownloadManifest 不该被写')
 
-  // ⛔⛔ 变异点（这一条钉死 async 写法）：
+  // 变异点（这一条钉死 async 写法）：
   //   async function 哪怕第一行就 return false，返回的也是 Promise。
   //   中间件一见到 Promise 就 break 出循环 ⇒ 排在它后面的 handler 全灭。
   assert.notStrictEqual(r1 && typeof r1.then, 'function',
@@ -156,11 +152,11 @@ test('⭐⭐ 曾 async 的两个 handler 现在**同步**返回 false 且不写�
 })
 
 
-test('⭐⭐ 异步出错时回的是合法 JSON（⛔ 不是半个响应，也不是挂死）', async () => {
+test('异步出错时回的是合法 JSON（不是半个响应，也不是挂死）', async () => {
   const { server, base } = await startServer()
   try {
     // POST /wizard/params 带一个会炸的 req（没有 'end' 事件 ⇒ 回调永不跑）
-    //    真正要验的是：回调里 throw 时连接**收得住**，且 body 是合法 JSON。
+    //    真正要验的是：回调里 throw 时连接收得住，且 body 是合法 JSON。
     const req = new http.IncomingMessage(null)
     req.method = 'POST'
     req.url = '/wizard/params'
@@ -190,7 +186,7 @@ test('⭐⭐ 异步出错时回的是合法 JSON（⛔ 不是半个响应，也�
   }
 })
 
-test('⭐ 错误响应不会二次写头（⛔ 已经回过就不许再 writeHead）', async () => {
+test('错误响应不会二次写头（已经回过就不许再 writeHead）', async () => {
   const { respondSafely } = require('../core/wizardbridge.js')
   let writes = 0
   const res = {
@@ -205,15 +201,14 @@ test('⭐ 错误响应不会二次写头（⛔ 已经回过就不许再 writeHea
   assert.strictEqual(writes, 0, '⛔ 头已发出还再 writeHead ⇒ ERR_HTTP_HEADERS_SENT 把真错盖掉')
 })
 
-// 端点的契约是「回 JSON」，不是「一定成功」
-test('⭐⭐ manifest 端点端到端：真发真收，内容是 JSON 而不是 HTML', async () => {
+test('manifest 端点端到端：真发真收，内容是 JSON 而不是 HTML', async () => {
   const { server, base } = await startServer()
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-mf-'))
   try {
     const r = await get(base, `/wizard/download/manifest?id=zz&repo=owner%2Frepo&tool=hf&root=${encodeURIComponent(root)}`)
     assert.match(r.ct, /application\/json/, `⛔ content-type 是 ${r.ct}`)
     const j = JSON.parse(r.text)
-    // ⭐ 远端多半不通（不联网），但**不通也必须回 JSON** —— 这才是本 bug 的判据。
+    // 远端多半不通（不联网），但不通也必须回 JSON —— 这才是本 bug 的判据。
     assert.ok(typeof j.ok === 'boolean', `响应不是约定形状: ${r.text.slice(0, 200)}`)
     if (!j.ok) assert.ok(j.error, '⛔ ok:false 必须带 error')
   } finally {
@@ -223,7 +218,7 @@ test('⭐⭐ manifest 端点端到端：真发真收，内容是 JSON 而不是 
 })
 
 
-test('⭐⭐ params 端点端到端：空 body 回 JSON（⛔ 不是 HTML fallback）', async () => {
+test('params 端点端到端：空 body 回 JSON（不是 HTML fallback）', async () => {
   const { server, base } = await startServer()
   try {
     const r = await post(base, '/wizard/params', {})
@@ -236,8 +231,7 @@ test('⭐⭐ params 端点端到端：空 body 回 JSON（⛔ 不是 HTML fallba
   }
 })
 
-// 不看源码字面量，靠运行时判据（构造函数名）——注释和格式会被人重排，构造函数名不会骗人。
-test('⭐⭐⭐ 两个曾 async 的 handler 构造函数不是 AsyncFunction', () => {
+test('两个曾 async 的 handler 构造函数不是 AsyncFunction', () => {
   for (const name of ['handleParams', 'handleDownloadManifest']) {
     assert.strictEqual(BRIDGE[name].constructor.name, 'Function',
       `⛔ ${name} 又变回 async 了 —— 中间件的 for 循环一见到 Promise 就 break，` +
@@ -245,12 +239,10 @@ test('⭐⭐⭐ 两个曾 async 的 handler 构造函数不是 AsyncFunction', (
   }
 })
 
-// 直接读 .mjs 源文件，assert HANDLERS 段里没有 async 导出名。
-test('⭐⭐⭐ vite 中间件的 HANDLERS 表全部是同步 handler（⛔ 顺序不许重排）', () => {
+test('vite 中间件的 HANDLERS 表全部是同步 handler（顺序不许重排）', () => {
   const cfgPath = path.join(__dirname, '..', '..', '..', 'web', 'wizard.vite.config.mjs')
   const src = fs.readFileSync(cfgPath, 'utf8')
-  // ⛔ 断言：HANDLERS 数组段内不允许出现 wb.handleParams 之类以外的 async 痕迹。
-  //   真正的判据在 ⑥（构造函数名）；这里补的是「配置里注释与代码同步」。
+  // 真正的判据是构造函数名（上面那条）；这里补的是配置里注释与代码同步。
   const arrStart = src.indexOf('const HANDLERS = [')
   assert.ok(arrStart > 0, '⛔ 没找到 HANDLERS 表')
   const arrEnd = src.indexOf('\n  ]', arrStart)

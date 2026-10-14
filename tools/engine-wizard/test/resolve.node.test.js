@@ -25,7 +25,7 @@ test('三种写法都认得出来', () => {
   }
 })
 
-test('⭐⭐ /tree/<branch> ⇒ 归一化到仓库根，并**回报剥掉了什么**', () => {
+test('/tree/<branch> ⇒ 归一化到仓库根，并回报剥掉了什么', () => {
   for (const u of [
     'https://github.com/acme/speech-kit/tree/main',
     'https://github.com/acme/speech-kit/tree/dev_1.5',
@@ -34,30 +34,28 @@ test('⭐⭐ /tree/<branch> ⇒ 归一化到仓库根，并**回报剥掉了什�
     assert.strictEqual(r.ok, true, u)
     assert.strictEqual(r.repo, 'speech-kit', u)
     assert.ok(r.trimmedTail, '⛔ 必须回报剥掉了哪一段')
-    // ⚠ 2026-10-05 Owner：「你这一句话没有做 i18n」⇒ 后端改成只回 code + params，
-  //   中文句子搬到前端 t(en,zh)（StepPrepare 的 ERR_TEXT / TRIMMED_TAIL）。
-  assert.strictEqual(r.noteCode, 'TRIMMED_TAIL', '⛔ 归一化告知要走 code，不是中文句子')
+    // 归一化告知只回 code + params，中文句子由前端 t(en,zh) 负责
+    assert.strictEqual(r.noteCode, 'TRIMMED_TAIL', '⛔ 归一化告知要走 code，不是中文句子')
   assert.ok(r.noteParams && r.noteParams.tail, '⛔ 必须把剥掉的那段回给界面')
   }
 })
 
-test('⭐⭐ 无域名的 owner/repo/tree/branch 也要能用（贪方便复制的那种）', () => {
+test('无域名的 owner/repo/tree/branch 也要能用（贪方便复制的那种）', () => {
   const r = parseRepoUrl('acme/speech-kit/tree/main')
   assert.strictEqual(r.ok, true, r.error)
   assert.strictEqual(r.repo, 'speech-kit')
   assert.strictEqual(r.trimmedTail, 'tree/main')
 })
 
-test('⭐ /blob/<branch>/<file> ⇒ 也能剥（源码链接很常见）', () => {
+test('/blob/<branch>/<file> ⇒ 也能剥（源码链接很常见）', () => {
   const r = parseRepoUrl('https://github.com/acme/speech-kit/blob/main/README.md')
   assert.strictEqual(r.ok, true, r.error)
   assert.strictEqual(r.repo, 'speech-kit')
   assert.ok(r.trimmedTail.includes('blob'), r.trimmedTail)
 })
 
-test('⭐ 常见 GitHub 尾段都能剥（pulls / releases / issues …）', () => {
-  // ⚠ 这些尾段**整个就是一个词**，后面没有 '/' ⇒
-  //   ⛔ 正则里要求尾部带 '/' 会把它们全拒掉（2026-10-04 实测踩过）
+test('常见 GitHub 尾段都能剥（pulls / releases / issues …）', () => {
+  // 这些尾段没有 '/' 结尾，正则里要求尾部带 '/' 会把它们全拒掉
   for (const tail of ['pulls', 'issues', 'releases/v1.2', 'wiki', 'actions']) {
     const r = parseRepoUrl(`https://github.com/a/b/${tail}`)
     assert.strictEqual(r.ok, true, `${tail} 被拒了：${r.error}`)
@@ -65,25 +63,23 @@ test('⭐ 常见 GitHub 尾段都能剥（pulls / releases / issues …）', () 
   }
 })
 
-test('⛔ ⭐ 认不出来的尾段 ⇒ 拒，⛔ 不静默吞掉（可能拼错了）', () => {
+test('认不出来的尾段 ⇒ 拒，不静默吞掉（可能拼错了）', () => {
   const r = parseRepoUrl('https://github.com/acme/speech-kit/pytorch/typo')
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'UNKNOWN_TAIL')
-  // ⭐ 2026-10-05：断言 **code + params**，⛔ 不再断言中文句子。
-  //   界面文案归前端 t(en,zh) 管（editor/StepPrepare.jsx 的 ERR_TEXT），
-  //   后端改措辞不该让测试红；反过来界面文案错了这里也测不到 —— 那在 UI 验。
+  // 界面文案归前端 t(en,zh) 管，后端改措辞不该让测试红
   assert.strictEqual(r.params.tail, 'pytorch', '要把那段原文回给界面')
 })
 
 
-test('⛔ 查询串和锚点不算仓库名的一部分', () => {
+test('查询串和锚点不算仓库名的一部分', () => {
   const a = parseRepoUrl('https://github.com/a/b?tab=readme-ov-file#top')
   const b = parseRepoUrl('https://github.com/a/b#readme')
   assert.strictEqual(a.repo, 'b')
   assert.strictEqual(b.repo, 'b')
 })
 
-test('⛔ 非 GitHub 主机不猜（平台不替用户决定别的主机怎么拉）', () => {
+test('非 GitHub 主机不猜（平台不替用户决定别的主机怎么拉）', () => {
   for (const s of [
     'https://gitlab.com/a/b',
     'https://gitee.com/a/b',
@@ -95,18 +91,15 @@ test('⛔ 非 GitHub 主机不猜（平台不替用户决定别的主机怎么�
   }
 })
 
-test('⛔ 只有 owner 没有 repo / 空输入，要说清缺什么', () => {
-  // ⭐ 2026-10-05：空**链接**的 code 从 EMPTY 改成 EMPTY_LINK。
-  //   理由：validateId 也用 EMPTY（空目录名），两者要分开的文案 ——
-  //   「还没填链接」vs「目录名不能为空」不是一句话，
-  //   ⛔ 共用一个 code 就只能写一句含糊的。
+test('只有 owner 没有 repo / 空输入，要说清缺什么', () => {
+  // 空链接与空目录名是两种不同错误，各自的 code 分开
   assert.strictEqual(parseRepoUrl('acme').code, 'NO_OWNER')
   assert.strictEqual(parseRepoUrl('').code, 'EMPTY_LINK')
   assert.strictEqual(parseRepoUrl(null).code, 'EMPTY_LINK')
   assert.strictEqual(parseRepoUrl('https://github.com/acme').code, 'NO_REPO')
 })
 
-test('猜 id：去掉 .git 后缀，保留大小写（⛔ 不擅自改名）', () => {
+test('猜 id：去掉 .git 后缀，保留大小写（不擅自改名）', () => {
   assert.strictEqual(suggestId('speech-kit'), 'speech-kit')
   assert.strictEqual(suggestId('speech-kit.git'), 'speech-kit')
   assert.strictEqual(suggestId('my-tts-2'), 'my-tts-2')
@@ -114,12 +107,12 @@ test('猜 id：去掉 .git 后缀，保留大小写（⛔ 不擅自改名）', (
   assert.strictEqual(suggestId(null), null)
 })
 
-test('⛔ 非法字符换成连字符（而不是报错 —— 仓库名确实可能带）', () => {
+test('非法字符换成连字符（而不是报错 —— 仓库名确实可能带）', () => {
   assert.strictEqual(suggestId('a:b'), 'a-b')
   assert.strictEqual(suggestId('a b'), 'a b', '空格不是非法字符，只是目录名不好看')
 })
 
-test('⛔ 用户填的 id 优先于猜的，并标记「已确认」', () => {
+test('用户填的 id 优先于猜的，并标记「已确认」', () => {
   const a = resolveEngine({ url: 'a/repo-name' })
   assert.strictEqual(a.id, 'repo-name')
   assert.strictEqual(a.idConfirmed, false, '没填过不该算已确认')
@@ -130,7 +123,7 @@ test('⛔ 用户填的 id 优先于猜的，并标记「已确认」', () => {
 })
 
 
-test('⛔ `_` 开头必须被拒（平台会把这种目录当模板跳过，目录白建）', () => {
+test('`_` 开头必须被拒（平台会把这种目录当模板跳过，目录白建）', () => {
   const r = validateId('_TEMPLATE')
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'RESERVED_PREFIX')
@@ -140,12 +133,12 @@ test('⛔ `_` 开头必须被拒（平台会把这种目录当模板跳过，目
     `⛔ error 里不该出现内部行号（给用户看的）：${r.error}`)
 })
 
-test('⛔ `.` 开头同样被拒', () => {
+test('`.` 开头同样被拒', () => {
   assert.strictEqual(validateId('.hidden').code, 'RESERVED_PREFIX')
   assert.strictEqual(validateId('.git').code, 'RESERVED_PREFIX')
 })
 
-test('⛔ Windows 非法字符被拒', () => {
+test('Windows 非法字符被拒', () => {
   for (const s of ['a/b', 'a\\b', 'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b']) {
     const r = validateId(s)
     assert.strictEqual(r.ok, false, `${s} 竟通过了`)
@@ -153,13 +146,13 @@ test('⛔ Windows 非法字符被拒', () => {
   }
 })
 
-test('⛔ 平台的目录名不能拿来当引擎 id（会覆盖别人的东西）', () => {
+test('平台的目录名不能拿来当引擎 id（会覆盖别人的东西）', () => {
   for (const s of ['engines', 'models', 'lib', 'web', 'tools', 'docs']) {
     assert.strictEqual(validateId(s).code, 'RESERVED_NAME', s)
   }
 })
 
-test('⛔ 前后空格被拒（id 与目录名必须逐字相同）', () => {
+test('前后空格被拒（id 与目录名必须逐字相同）', () => {
   assert.strictEqual(validateId(' x').code, 'WHITESPACE')
   assert.strictEqual(validateId('x ').code, 'WHITESPACE')
 })
@@ -170,18 +163,15 @@ test('正常 id 通过', () => {
   }
 })
 
-test('⛔ 非法 id 要带着「建议值」回来，好让界面直接显示', () => {
+test('非法 id 要带着「建议值」回来，好让界面直接显示', () => {
   const r = resolveEngine({ url: 'a/repo', id: 'bad/id' })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'ILLEGAL_CHAR')
   assert.strictEqual(r.idSuggested, 'repo', '⛔ 得告诉用户「改成这个就能用」')
 })
 
-test('⛔ ⭐ cloneUrl 带 .git ⇒ repo 名必须剥掉后缀', () => {
-  // ⚠ 这条是实测踩出来的（2026-10-04）：
-  //   cloneUrl 一定带 .git（git clone 需要），但探测要读
-  //   <repo>/main/pyproject.toml —— 用带后缀的名字会全 404，
-  //   界面上表现为「没找到任何依赖清单」，而端点直接调却是好的。
+test('cloneUrl 带 .git ⇒ repo 名必须剥掉后缀', () => {
+  // cloneUrl 一定带 .git（git clone 需要），探测却要读 <repo>/main/pyproject.toml
   for (const u of [
     'https://github.com/a/b.git',
     'a/b.git',
@@ -192,7 +182,7 @@ test('⛔ ⭐ cloneUrl 带 .git ⇒ repo 名必须剥掉后缀', () => {
   }
 })
 
-test('⛔ 只有 .git 后缀、没有名字 ⇒ 拒', () => {
+test('只有 .git 后缀、没有名字 ⇒ 拒', () => {
   const r = parseRepoUrl('https://github.com/a/.git')
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_REPO')
@@ -201,11 +191,11 @@ test('⛔ 只有 .git 后缀、没有名字 ⇒ 拒', () => {
 test('cloneUrl 带 .git（git clone 需要这个后缀）', () => {
   const r = resolveEngine({ url: 'https://github.com/a/b' })
   assert.strictEqual(r.cloneUrl, 'https://github.com/a/b.git')
-  // ⭐ 而探测用的 repo 名不带后缀 —— 两者不是一回事
+  // 探测用的 repo 名不带后缀，两者不是一回事
   assert.strictEqual(r.repo, 'b')
 })
 
-test('⛔ resolve.js 活代码里不许出现任何具体引擎名', () => {
+test('resolve.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm', 'chat' + 'tts']
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'resolve.js'), 'utf-8')
@@ -216,7 +206,7 @@ test('⛔ resolve.js 活代码里不许出现任何具体引擎名', () => {
   }
 })
 
-test('⛔ 纪律：本文件不许出现具体引擎名（连测试里都不该有）', () => {
+test('纪律：本文件不许出现具体引擎名（连测试里都不该有）', () => {
   const src = fs.readFileSync(__filename, 'utf-8')
   const code = src.split('\n')
     .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
@@ -224,17 +214,14 @@ test('⛔ 纪律：本文件不许出现具体引擎名（连测试里都不该�
     assert.ok(!code.toLowerCase().includes(bad), `测试里出现了「${bad}」`)
   }
 })
-// resolveEngine 必须返回 url（不带 .git）：
-// 第 2 步的探测读 <owner>/<repo>/main/pyproject.toml，
-// 用带 .git 的名字会全 404 ⇒ 界面永远拿不到依赖列表。
-test('⭐⭐ resolveEngine 返回 url（不带 .git），且与 cloneUrl 不同', () => {
+test('resolveEngine 返回 url（不带 .git），且与 cloneUrl 不同', () => {
   const r = resolveEngine({ url: 'https://github.com/a/b' })
   assert.strictEqual(r.url, 'https://github.com/a/b',
-    '⛔ 没有 url —— 探测会全404（实测踩过）')
+    '⛔ 没有 url —— 探测会全404')
   assert.strictEqual(r.cloneUrl, 'https://github.com/a/b.git')
 })
 
-test('⭐ 归一化信息要一路传下去（界面上要告诉用户我们改了什么）', () => {
+test('归一化信息要一路传下去（界面上要告诉用户我们改了什么）', () => {
   const r = resolveEngine({ url: 'https://github.com/a/b/tree/dev_1.5' })
   assert.strictEqual(r.url, 'https://github.com/a/b')
   assert.strictEqual(r.trimmedTail, 'tree/dev_1.5')
