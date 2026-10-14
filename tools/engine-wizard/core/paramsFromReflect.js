@@ -3,7 +3,7 @@
 const path = require('node:path')
 const fs = require('node:fs')
 
-// ⚠ require 相对**本文件**解析（与 scaffold-params.cjs:24-26 同一条理由：
+// require 相对本文件解析（与 scaffold-params.cjs:24-26 同一条理由：
 //   写成 '../scaffold-params.cjs' 会在 require 失败时被 catch 吞成
 //   「读不到名片」，把「我写错路径」说成「你的名片坏了」）。
 const SCAFFOLD = require(path.join(__dirname, '..', '..', 'scaffold-params.cjs'))
@@ -69,7 +69,7 @@ function candidatesFor (name) {
   return out.sort((a, b) => b.score - a.score)
 }
 
-// ⚠ 规则表里 ③ 的分数（90）高于 ⑤（80）⇒ 排序天然生效。
+// 规则表里 ③ 的分数（90）高于 ⑤（80）⇒ 排序天然生效。
 //   这一行是给读代码的人的说明，不是分支。
 
 /** 平台词 → 这台引擎的参数名候选。 */
@@ -179,15 +179,12 @@ function checkModuleMatchesCli ({ dir, module, cls }) {
   const mods = [...new Set(hits.map((h) => h.module))].join('、')
   return `交叉校验提醒：名片 call.module 写的是「${module}」，但上游 CLI `
     + `（${where}）import ${cls} 用的是「${mods}」。\n`
-    + '  两者不是同一个模块 ⇒ 反射出的是**那个模块**的参数，可能与用户会敲的 '
+    + '  两者不是同一个模块 ⇒ 反射出的是那个模块的参数，可能与用户会敲的 '
     + 'CLI 不是同一套（多出的参数在真实 CLI 上根本不存在，缺的参数则完全看不见）。\n'
-    + '  ⚠️ 平台不改你的名片：哪一个模块是这台引擎该用的，取决于你的意图'
+    + '  平台不改你的名片：哪一个模块是这台引擎该用的，取决于你的意图'
     + '（上游一份仓库里可以同时存在多个推理版本）。请自己核对后决定。'
 }
 
-// ---------------------------------------------------------------------------
-//  组装：反射结果 → 给界面的草稿包
-// ---------------------------------------------------------------------------
 /** 把反射结果变成给界面的草稿包。不写盘。 */
 function buildDraftPackage (reflection, opts = {}) {
   if (!reflection || reflection.ok !== true) {
@@ -372,7 +369,7 @@ function buildSpec (body, opts) {
   if (!fs.existsSync(dir)) {
     return {
       ok: false,
-      error: `引擎目录 ${b.id} 不存在。反射要在**本机**读源码，`
+      error: `引擎目录 ${b.id} 不存在。反射要在本机读源码，`
         + '请先回到第 1 步把源码克隆到 engines/' + b.id + '/',
     }
   }

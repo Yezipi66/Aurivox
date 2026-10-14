@@ -4,7 +4,6 @@
  * 执行一条下载命令，把输出逐行透传给调用方。
  * 异步流式：下载要几分钟到几十分钟，同步 spawnSync 会阻塞到结束。
  * 统一落盘：调用方负责把命令里的 local_dir 替换成 engines/<id>/checkpoints/。
- * 断点续传：hf / modelscope CLI 本身有缓存，重跑同一条命令只补缺的。
  */
 
 const { spawn } = require('node:child_process')
@@ -15,8 +14,6 @@ const https = require('node:https')
 
 /**
  * 进度文件路径：每个引擎目录下记录已完成的下载命令。
- * 断点续传：重跑时跳过已完成的命令（hf/modelscope CLI 自带缓存，
- *    重复跑同一条命令只补缺的，不会重下已下载的）。
  */
 const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
   resetProgress: resetProgressOf } = require('./installState')
@@ -36,9 +33,7 @@ function resetProgress (root, id) {
   resetProgressOf(root, id, 'models')
 }
 
-// ---------------------------------------------------------------------------
 //  parseDownloadProgress / parseSize：解析 hf/modelscope tqdm 风格进度
-// ---------------------------------------------------------------------------
 //  hf / modelscope CLI 的下载进度是 tqdm 风格：
 //     Downloading model.safetensors: 45%|████▌     | 1.2GB/2.7GB [00:30<00:45, 25.3MB/s]
 //  parseDownloadProgress 解析一行，返回 { file, percent, downloaded, total } 或 null
@@ -192,9 +187,7 @@ function unifyDest (argv, engineId, root) {
   return out
 }
 
-// ---------------------------------------------------------------------------
 //  fetchRemoteManifest：请求 HF/ModelScope API 获取文件列表
-// ---------------------------------------------------------------------------
 //  返回 { ok, files, error }，API 失败时 ok=false + error 信息
 function fetchRemoteManifest (repo, tool, baseUrl) {
   return new Promise((resolve) => {
@@ -265,11 +258,9 @@ function base64ToHex (b64) {
   } catch (e) { return b64 }
 }
 
-// ---------------------------------------------------------------------------
 //  checkFileStatus：三态判断
-// ---------------------------------------------------------------------------
 //  正式文件存在 + 大小匹配 → 'ok'（SHA-256 是实际计算的，不是远端 blobId）
-//  正式文件存在但**远端没给大小** → 'partial'：无法确认完整性，
+//  正式文件存在但远端没给大小 → 'partial'：无法确认完整性，
 //     默认报 'ok' 就是给假绿灯（文件可能是上次中断留下的半截）。
 //  .tmp 文件存在 → 'partial'
 //  都不存在 → 'missing'
@@ -324,14 +315,12 @@ function sha256File (filePath) {
   })
 }
 
-// ---------------------------------------------------------------------------
 //  enrichManifestFiles：给远端文件列表补上本地状态 + 来源
-// ---------------------------------------------------------------------------
 //  每条 = 远端给的事实（name/size）+ 本地查出来的状态（status/sha256）
 //  必须带 repo/tool：前端单文件下载完成后会重新调 /wizard/download/manifest
 //     刷新，而刷新是整表替换：不带来源就等于把每一项「属于哪个仓库」
 //     抹掉，仓库列、重下、续传按钮会一起失效。
-//  partial 时带上 note/noteZh 说明**为什么**不完整（远端没给大小 / 大小不符），
+//  partial 时带上 note/noteZh 说明为什么不完整（远端没给大小 / 大小不符），
 //     不是笼统一句「半截」。
 async function enrichManifestFiles (files, repo, tool, root, id) {
   const results = []
@@ -346,12 +335,10 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
   return results
 }
 
-// ---------------------------------------------------------------------------
 //  downloadFileFromUrl：从指定 URL 下载文件（支持重定向）
-// ---------------------------------------------------------------------------
 //  写入 .tmp 文件，完成后原子重命名
 //  断点续传：检查 .tmp 文件大小，发送 Range: bytes=<size>- 请求
-//  SHA-256：下载完成后算**实际**哈希，不用远端 blobId（那不是真哈希）
+//  SHA-256：下载完成后算实际哈希，不用远端 blobId（那不是真哈希）
 //  非 2xx 一律不写盘（原来 404 的 HTML 错误页会被当成模型文件落盘）
 //  content-type 是 text/html ⇒ 判失败
 //  下载完比对 file.size（远端没给就退一步比对 content-length），
@@ -514,9 +501,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
   })
 }
 
-// ---------------------------------------------------------------------------
 //  downloadFile：下载单个文件（入口函数，构建 URL 后调用 downloadFileFromUrl）
-// ---------------------------------------------------------------------------
 //  URL 编码：对 file.name 的每个路径部分编码，但保留 / 作为路径分隔符
 //  分支名：优先使用传入的 branch，否则依次尝试 main、master
 //  404 重试：当前分支 404 时自动尝试下一个分支

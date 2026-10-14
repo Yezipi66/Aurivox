@@ -38,7 +38,7 @@ function probePyproject (text) {
       continue
     }
     if (inDeps) {
-      // 只取「包名 + 版本约束」这一行（"torch>=2.5.0", 这行 TOML 惯例是裸字符串）
+      // 只取「包名 + 版本约束」这一行（"torch>=2.5.0"，这行 TOML 惯例是裸字符串）
       const m = line.match(TOML_LINE.deps)
       if (m) out.dependencies.push(line.replace(/,$/, '').replace(/^["']|["']$/g, ''))
       continue
@@ -108,11 +108,11 @@ function parseRequirements (text) {
     const tail = m[2]
     // 名字后面只能跟两种东西（PEP 508 的形状）：
     //   ① extras：fastapi[all]
-    //   ② **紧贴**的版本约束：torch>=2.5.0 / torch == 2.5.0 里第二种不合法
+    //   ② 紧贴的版本约束：torch>=2.5.0 / torch == 2.5.0 里第二种不合法
     //   ③ 或者什么都没有（裸包名）
     //
-    //   关键：合法的比较算子**必须是两个字符或单个 < >**，
-    //   **单个 `=` 不是算子**：它是赋值。
+    //   关键：合法的比较算子必须是两个字符或单个 < >，
+    //   单个 `=` 不是算子：它是赋值。
     //   这条规则同时挡住了 TOML 赋值行：
     //     name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
     //     license = "Apache-2.0"    ⇒ 同上
@@ -141,7 +141,7 @@ function parseSetupPyName (text) {
 
 /** 探测一个依赖清单文件名：决定我们走 uv pip 还是上游脚本 */
 function detectDependencyFile (filenames) {
-  // note 是**用户可见**的（StepPrepare 的「依赖清单」那栏直接渲染它）⇒
+  // note 是用户可见的（StepPrepare 的「依赖清单」那栏直接渲染它）⇒
   //   只说「识别到哪个文件」，不说「因此用哪种装法」，
   //   那是判据，属维护者的信息。装法由 suggestEnvCommand 单独产出。
   const order = [
@@ -182,7 +182,7 @@ function probeProject (input = {}) {
   // 来源优先级：pyproject 的 [project.name] → pyproject 的 scripts 模块名
   //   → setup.py 的 name=。顺序与 detectDependencyFile 一致（pyproject 优先）。
   let packageName = py.name || null
-  // 来源与值**同进同出**：没有值就没有来源。
+  // 来源与值同进同出：没有值就没有来源。
   //   不预写一个来源再等值来填：那样会出现「值是空的，来源却写得很确定」，
   //     界面上读起来就成了「平台在 pyproject 里读到了包名」，那是假的。
   let packageNameFrom = py.name ? 'pyproject.toml [project.name]' : null
@@ -248,12 +248,12 @@ function probeProject (input = {}) {
 
   // ---- 许可证 ⇒ license ----
   // pyproject 写了 license 就用它（那是最精确的来源）。
-  // 没写但根目录有 LICENSE / COPYING ⇒ **只报「识别到许可证文件」**。
+  // 没写但根目录有 LICENSE / COPYING ⇒ 只报「识别到许可证文件」。
   //   不自己判是 Apache-2.0 还是 MIT：那是读正文做判断，
   //     平台在这里只做「文件在不在」这一件事。
   //
-  // 值字段只装**许可证标识**（SPDX id 或 pyproject 里写的原文），不装句子。
-  //   ⚠ 这条字段是直接渲染到界面上的（StepPrepare.jsx 的 plan-kv）：
+  // 值字段只装许可证标识（SPDX id 或 pyproject 里写的原文），不装句子。
+  //   这条字段是直接渲染到界面上的（StepPrepare.jsx 的 plan-kv）：
   //     一旦在这里塞「LICENSE file detected (LICENSE)」这种句子，
   //     界面上就会出现一句英文描述，而它本该是元数据。
   //   ⇒ 「只看到许可证文件、读不出是哪一种」这个事实放在 licenseEvidence，
@@ -345,13 +345,13 @@ function planDependencies (text, opts = {}) {
     }
   })
 
-  // ⚠ 整体结论 = torch 本体那一行的判定
+  // 整体结论 = torch 本体那一行的判定
   const mainRow = torchGroup.find((r) => r.isMain) || null
   const overall = mainRow ? mainRow.verdict : (hw ? 'unknown' : 'unknown')
 
   return {
     ok: true,
-    // 这次依赖是从**哪个文件**读出来的：界面与维护者都要知道，
+    // 这次依赖是从哪个文件读出来的：界面与维护者都要知道，
     //   不然「怎么读到的」这件事就只能靠猜。
     dep_source: source,
     dep_count: deps.length,
