@@ -1,15 +1,15 @@
 'use strict'
 // ============================================================================
-//  INSTANCES —— 「别人是怎么填的」对照数据
+//  INSTANCES：「别人是怎么填的」对照数据
 //
-//  ⭐ 这个文件是纯**数据**：把三台已经在跑的引擎的名片，按字段摘出来，
+//  这个文件是纯**数据**：把三台已经在跑的引擎的名片，按字段摘出来，
 //  让填名片的人有东西可对照。
 //
 //  为什么这样最省事
-//  46 个键、60 条校验规则 —— 靠读文档全记住不可能。
+//  46 个键、60 条校验规则：靠读文档全记住不可能。
 //  但看一眼「同一字段别人怎么写」立刻就懂。参照实例是这个道理。
 //
-//  ⛔⛔ 纪律：算法代码里不许出现引擎名；**这里可以**，因为它就是数据源。
+//  纪律：算法代码里不许出现引擎名；**这里可以**，因为它就是数据源。
 //  test/ 里有一条测试守着「算法侧仍然干净」。
 // ============================================================================
 
@@ -19,7 +19,7 @@ const path = require('node:path')
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const ENGINES_DIR = path.join(REPO_ROOT, 'engines')
 
-/** 逐字读引擎目录 —— ⛔ 不写引擎名，靠目录自己说话 */
+/** 逐字读引擎目录：不写引擎名，靠目录自己说话 */
 function listEngineIds () {
   let names = []
   try {
@@ -85,7 +85,7 @@ function paramSamples (name) {
     const hit = m.parameters.find((p) => p && p.name === name)
     if (hit) {
       const c = withoutComments(hit)
-      // ⛔ 只留「用户真看得见」的键；_confidence/_why 这些是我们自己的注解
+      // 只留「用户真看得见」的键；_confidence/_why 这些是我们自己的注解
       samples.push({ engine: id, entry: c })
     }
   }
@@ -111,8 +111,8 @@ function allParamNames () {
 }
 
 /**
- * 某一类参数的真实 tier 分布 —— 拿来看「别人把它放哪档」。
- * ⭐ 这是档位复核的**经验基线**：向导建议 common 之前，先看看别人怎么分。
+ * 某一类参数的真实 tier 分布：拿来看「别人把它放哪档」。
+ * 这是档位复核的**经验基线**：向导建议 common 之前，先看看别人怎么分。
  */
 function tierDistribution (phase) {
   const want = phase || 'call'
@@ -126,7 +126,7 @@ function tierDistribution (phase) {
     if (!rows.length) continue
     perEngine[id] = { common: 0, advanced: 0, unspecified: 0 }
     for (const p of rows) {
-      // ⛔ 平台规则：没写 tier ⇒落进 advanced（web/src/lib/engines.js:164）
+      // 平台规则：没写 tier ⇒落进 advanced（web/src/lib/engines.js:164）
       const t = p.tier === 'common' ? 'common' : 'advanced'
       dist[t] += 1
       perEngine[id][t] += 1

@@ -1,25 +1,25 @@
 'use strict'
 // ============================================================================
-//  FIELD META —— 名片每个键的「说明 / 危险等级 / 怎么填」
+//  FIELD META：名片每个键的「说明 / 危险等级 / 怎么填」
 //
-//  ⛔⛔ 纪律（照平台的第一条纪律来）
+//  纪律（照平台的第一条纪律来）
 //  本文件里**不许出现任何具体引擎名**。判据：
 //    装一台谁都没见过的引擎，这个文件一个字都不用改。
 //    node test/fieldmeta.node.test.js 里有一台假引擎守着这条。
 //
-//  ⭐ 这个文件是「文档」，不是「规则」。
+//  这个文件是「文档」，不是「规则」。
 //    真正的校验规则在 lib/engines/profile.js（平台自己的 60 处抛错），
 //    这里只负责把它的错误翻成人话 + 提前警告它**管不到**的那些坑。
 //
 //  为什么要分开：
-//    平台有一类错误是**静默失效**—— 填错了不报错，只是「设了没效果」。
+//    平台有一类错误是**静默失效**：填错了不报错，只是「设了没效果」。
 //    profile.js 拦不住（那是它管不了的），但用户在这里必须看见。
 //    ⇒ danger: 'silent' 的键 = 填错不报错，是最需要提醒的一类。
 // ============================================================================
 
 // 危险等级，三档：
 //   'block'  ── 平台会抛错，不改就跑不起来
-//   'silent' ── ⛔ 平台不拦，但会「设了没效果」。最阴的一档
+//   'silent' ── 平台不拦，但会「设了没效果」。最阴的一档
 //   'info'   ── 填错顶多体验差，平台会兜住
 const DANGER = Object.freeze({
   BLOCK: 'block',
@@ -32,7 +32,7 @@ const SECTIONS = Object.freeze([
   { key: 'contract_version', group: 'basics', danger: DANGER.BLOCK,
     howto: '声明这张名片按哪一版契约解析。平台用它决定认哪些字段。' },
   { key: 'id', group: 'basics', danger: DANGER.BLOCK,
-    howto: '引擎的**唯一标识**。⛔ 必须与 engines/ 下的目录名逐字相同，否则装不上。' },
+    howto: '引擎的**唯一标识**。必须与 engines/ 下的目录名逐字相同，否则装不上。' },
   { key: 'label', group: 'basics', danger: DANGER.INFO,
     howto: '界面上给人看的名字。随便写，不参与任何逻辑。' },
   { key: 'upstream', group: 'source', danger: DANGER.SILENT,
@@ -57,7 +57,7 @@ const SECTIONS = Object.freeze([
   { key: 'timeout_ms_source', group: 'runtime', danger: DANGER.INFO,
     howto: '上面那个数从哪来的。' },
   { key: 'base_url_env', group: 'runtime', danger: DANGER.INFO,
-    howto: '哪个环境变量能改这台引擎的地址。⛔ 平台不认识任何具体变量名，全靠这里声明。' },
+    howto: '哪个环境变量能改这台引擎的地址。平台不认识任何具体变量名，全靠这里声明。' },
   { key: 'capabilities', group: 'capabilities', danger: DANGER.INFO,
     howto: '这台引擎支持什么：要不要参考音频、流式、采样率、能否微调。',
     warn: 'requires_reference_audio 只有一个开关 ⇒ 多方法的引擎表达不了「这个方法要、那个不要」。' },
@@ -69,7 +69,7 @@ const SECTIONS = Object.freeze([
     warn: '缺 call 段 ⇒ 平台走不了通用宿主，得另有一套实现（这本身就是一种「形状」，见 README）。' },
   { key: 'parameters', group: 'parameters', danger: DANGER.INFO,
     howto: '界面参数面板的来源，一份声明派生出 5 份视图。',
-    warn: '⚠ 不得与旧字段（param_keys / payload_keys / params / defaults / defaults_env）并存 —— 平台会抛错（两份会漂移的事实）。' },
+    warn: '⚠ 不得与旧字段（param_keys / payload_keys / params / defaults / defaults_env）并存：平台会抛错（两份会漂移的事实）。' },
   { key: 'maps', group: 'parameters', danger: DANGER.INFO,
     howto: '平台词表 → 引擎方言的翻译。没映射的词 = 这台引擎没这个概念，不发。' },
   { key: 'output_formats', group: 'output', danger: DANGER.INFO,
@@ -78,14 +78,14 @@ const SECTIONS = Object.freeze([
 
 // --- parameters[] 条目的键（UI_KEYS + 归属键）----------------------
 // UI_KEYS 是平台 paramTypes.js 定的 16 个，一个不多一个不少。
-// 这里只加**说明与危险等级**，不重复定义「合法取值」——
+// 这里只加**说明与危险等级**，不重复定义「合法取值」，
 //   那由 profile.js 的白名单负责，我们不维护第二份。
 const PARAM_FIELDS = Object.freeze([
   { key: 'name', required: true, danger: DANGER.BLOCK,
-    howto: '参数名。⛔ 不得与 maps.text 绑定的那个同名，也不得重复。' },
+    howto: '参数名。不得与 maps.text 绑定的那个同名，也不得重复。' },
   { key: 'type', required: true, danger: DANGER.BLOCK,
     howto: '五种之一：text / number / select / boolean / file。',
-    warn: '⚠ 别写 enum / path / string / integer —— 那是旧叫法，新写必须用新名。' },
+    warn: '⚠ 别写 enum / path / string / integer：那是旧叫法，新写必须用新名。' },
   { key: 'phase', default: 'call', danger: DANGER.SILENT,
     howto: 'call（每次调用都能改，默认）还是 load（装引擎时定一次）。',
     warn: '该 load 写成 call ⇒ **改了不生效、不报错**。' },
@@ -96,9 +96,9 @@ const PARAM_FIELDS = Object.freeze([
       '└─ 🔒 Advanced Settings（默认折叠）\n' +
       '     ├─ Common 档   ← tier: "common"\n' +
       '     └─ Advanced 档 ← 什么都不写（默认落这里）\n' +
-      '⚠ ⛔ parameters[] 里的参数**全部**住在折叠容器里，主区域一个都不渲染。\n' +
+      '⚠ parameters[] 里的参数**全部**住在折叠容器里，主区域一个都不渲染。\n' +
       '   所以 tier 不是「常用 vs 冷门」，而是「折叠层里再分两排」。\n' +
-      '   ⚠ 想让某个参数出现在主区域 —— 名片做不到，那是平台的固定区域。',
+      '   ⚠ 想让某个参数出现在主区域：名片做不到，那是平台的固定区域。',
     warn: '⚠ 没写 tier ⇒ 落进 advanced（web/src/lib/engines.js:164）。' },
   { key: 'applies_to', danger: DANGER.INFO,
     howto: '只在这些方法名下显示。多方法引擎的必备字段。' },
@@ -110,7 +110,7 @@ const PARAM_FIELDS = Object.freeze([
   { key: 'suggested_value', danger: DANGER.INFO,
     howto: '格子的初值。⚠ 读入时会被映射成 default，出口叫 default。' },
   { key: 'min', danger: DANGER.INFO,
-    howto: '滑块下限。⛔ **只是画范围，不是校验闸门** —— 抄错会拦住引擎其实能接受的值。' },
+    howto: '滑块下限。**只是画范围，不是校验闸门**：抄错会拦住引擎能接受的值。' },
   { key: 'max', danger: DANGER.INFO, howto: '滑块上限。同上，不是闸门。' },
   { key: 'step', danger: DANGER.INFO, howto: '滑块步长。' },
   { key: 'choices', danger: DANGER.INFO,
@@ -128,7 +128,7 @@ const PARAM_FIELDS = Object.freeze([
   { key: 'order', danger: DANGER.INFO, howto: '组内排序。' },
   { key: 'width', danger: DANGER.INFO, howto: '占多宽（full = 整行）。' },
   { key: 'only_when', danger: DANGER.INFO,
-    howto: '「这个输入框依赖那个开关」——引擎的语义，反射拿不到。' },
+    howto: '「这个输入框依赖那个开关」：引擎的语义，反射拿不到。' },
   { key: 'int', danger: DANGER.INFO,
     howto: '把 number 降级成整数那一味（收取侧要 parseInt）。' },
 ])
@@ -141,21 +141,21 @@ const PARAM_FIELDS_BY_KEY = Object.freeze(
 )
 
 // ----------------------------------------------------------------------------
-//  ⭐⭐ 平台词表（第 2 步的「人话」库）
+//  平台词表（第 2 步的「人话」库）
 // ----------------------------------------------------------------------------
 //  这是 payload.js 的 CANONICAL_KEYS 那 10 个词，**平台唯一认识的一组概念**。
 //  反射出来的参数草稿里，凡是名字落在这一张表上的（或映射候选勾上的），
-//  平台上就显示这里的**中文人话**；⛔ 表外的一个字都不翻译。
+//  平台上就显示这里的**中文人话**；表外的一个字都不翻译。
 //
 //  ⚠ 为什么单独一张表而不并进 PARAM_FIELDS：
 //    PARAM_FIELDS 说的是「parameters[] 这一条有哪些**格**」（name/type/tier…），
 //    说的是**卡片的字段**；这里说的是**平台那 10 个概念分别是什么意思**。
 //    两件事，混在一张表里就会有人以为改一个是改另一个。
 //
-//  ⛔ 纪律（与文件头同一条）：这张表里不许出现任何具体引擎名 ——
+//  纪律（与文件头同一条）：这张表里不许出现任何具体引擎名，
 //    它描述的是**平台的词**，跟装哪台引擎无关。
 //
-//  ⭐ 文案来源：payload.js 里 CORE_KEYS / OPTIONAL_KEYS 的头注（「空值发不发」
+//  文案来源：payload.js 里 CORE_KEYS / OPTIONAL_KEYS 的头注（「空值发不发」
 //    的区分是它写的），加上 profile.js 对 parameters[] / maps 的抛错原句。
 //    ⇒ 搬运已有文案，不是新写。
 // ----------------------------------------------------------------------------

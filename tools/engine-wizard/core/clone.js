@@ -1,31 +1,31 @@
 'use strict'
 // ============================================================================
-//  CLONE —— 第 2 步：把上游拉到 engines/<id>/
+//  CLONE：第 2 步：把上游拉到 engines/<id>/
 //
-//  ⭐ 为什么这一步的判据不是「git 跑成功」
+//  为什么这一步的判据不是「git 跑成功」
 //  git clone 的失败有两种，形状完全不同：
 //    · 网络/权限失败    ⇒ git 自己报错，可直接看
-//    · ⛔ 目录非空     ⇒ 「装了一半才发现」的那一种
+//    · 目录非空     ⇒ 「装了一半才发现」的那一种
 //  后者之所以危险，是因为它发生在**流程的后段**（名片已写、环境已建），
 //  那时候失败，前面所有工作都得回滚。
 //  ⇒ 本文件的第一个职责是**动手之前先证明目录是空的**，
 //    而不是指望 git 替我们报这个错。
 //
-//  ⛔⛔ 关于深度克隆（--depth 1）
+//  关于深度克隆（--depth 1）
 //  计划里的顺序是「先克隆，第 5 步才写名片」，所以我们**不知道**将来
 //  要不要 checkout 到某个特定版本。已退役的 installPlan.js:117 记过
 //  按 sha 浅取会被服务端拒绝（uploadpack.allowReachableSHA1InWant 不是
 //  每个托管都开着）。
 //  ⇒ **默认整仓克隆**，浅取交给用户显式要求。不猜。
 //
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
+//  纪律：不许出现任何具体引擎名。
 // ============================================================================
 
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
-/** 定位项目根 —— ⛔ 用 server.js 作锚点（ROOT_LAYOUT.md 说它是定位锚点 C7） */
+/** 定位项目根：用 server.js 作锚点（ROOT_LAYOUT.md 说它是定位锚点 C7） */
 function projectRoot (from) {
   let dir = from || __dirname
   for (let i = 0; i < 12; i++) {
@@ -42,7 +42,7 @@ function engineDir (id, root) {
 }
 
 /**
- * ⭐ 动手之前先看目标目录。
+ * 动手之前先看目标目录。
  *
  * 判据来自 git 自己的行为（clone 拒绝非空目录），但**提前查**而不是等它报：
  * 等它报的时候，用户可能已经等了很久。
@@ -62,20 +62,20 @@ function inspectTarget (id, opts = {}) {
     return { ok: true, dir, exists: false, entries: [] }
   }
   const entries = fs.readdirSync(dir)
-  // ⛔ 一个空目录 = git 能直接往里放 ⇒ 没问题
+  // 一个空目录 = git 能直接往里放 ⇒ 没问题
   //   「目录不存在」也一样，git 会自己建
   return { ok: true, dir, exists: true, entries }
 }
 
 /**
- * ⭐ 决定能不能克隆 —— ⛔ 理由必须是用户看得懂的话，不是 git 的原话。
+ * 决定能不能克隆：理由必须是用户看得懂的话，不是 git 的原话。
  *
  * @returns {{ok:true, dir} | {ok:false, code, error, entries?}}
  */
 function checkClonable (id, opts = {}) {
-  // ⛔ 2026-10-13：id 的校验在 buildClonePlan 里已做（MISSING_ID）。
-  //   这里再兜一层，因为它可被单独调用（core/wizardbridge.js 等路径）——
-  //   ⛔ 绝不能在这个位置抛 Node path 错。同规格：空/非字符串/纯空格 ⇒ 拒绝。
+  // 2026-10-13：id 的校验在 buildClonePlan 里已做（MISSING_ID）。
+  //   这里再兜一层，因为它可被单独调用（core/wizardbridge.js 等路径），
+  //   绝不能在这个位置抛 Node path 错。同规格：空/非字符串/纯空格 ⇒ 拒绝。
   if (typeof id !== 'string' || !id.trim()) {
     return { ok: false, code: 'MISSING_ID',
       error: 'No directory name given.\n',
@@ -85,7 +85,7 @@ function checkClonable (id, opts = {}) {
   if (!info.ok) return info
   if (info.entries.length === 0) return { ok: true, dir: info.dir }
 
-  // ⛔ 非空 ⇒ 不许默默继续，也不许默默覆盖
+  // 非空 ⇒ 不许默默继续，也不许默默覆盖
   const listed = info.entries.slice(0, 8)
   return {
     ok: false,
@@ -106,19 +106,19 @@ function checkClonable (id, opts = {}) {
 }
 
 /**
- * ⭐ 真正的克隆。**默认只打印计划，不动盘。**
+ * 真正的克隆。**默认只打印计划，不动盘。**
  *
  * 理由跟 tools/install-engine.cjs 一样（它是项目已有的先例）：
  * 克隆要联网、要写盘；「敲错一个字就开始下载」不是一个好的默认值。
  */
 function buildClonePlan (input = {}) {
   const id = input.id
-  // ⛔⛔ 2026-10-13 真机踩到：id 缺失时**不报错**，而是让
+  // 2026-10-13 真机踩到：id 缺失时**不报错**，而是让
   //    path.join(root, 'engines', undefined) 当场抛
   //    `The "path" argument must be of type string. Received undefined`，
-  //    界面原样渲染那句话 —— 用户看到的是 Node 内核崩溃，不是「请填写目录名」。
+  //    界面原样渲染那句话：用户看到的是 Node 内核崩溃，不是「请填写目录名」。
   //    ⚠ cloneUrl 那一条 2026-10-04 就修过（见下），id 这条漏了。同规格补齐。
-  // ⛔ 空就是空，当场说清：缺 / 非字符串 / trim 后为空，三回事都拦在这里。
+  // 空就是空，当场说清：缺 / 非字符串 / trim 后为空，三回事都拦在这里。
   if (typeof id !== 'string' || !id.trim()) {
     return { ok: false, code: 'MISSING_ID',
       error: 'No directory name given.\n',
@@ -126,9 +126,9 @@ function buildClonePlan (input = {}) {
         + '请先填写目录名：它会成为 engines/ 下的文件夹名，并作为 id 写入名片。\n'
         + '粘贴链接并解析成功后，目录名会自动填好。' }
   }
-  // ⛔⛔ 2026-10-04 实测踩到：cloneUrl 空时**不报错**，
-  //    而是生成 `git clone '' engines/<id>` —— 一条必然失败的命令，
-  //    还占掉了「看计划」这一步。⛔ 空就是空，当场说清。
+  // 2026-10-04 实测踩到：cloneUrl 空时**不报错**，
+  //    而是生成 `git clone '' engines/<id>`：一条必然失败的命令，
+  //    还占掉了「看计划」这一步。空就是空，当场说清。
   if (!input.cloneUrl || !String(input.cloneUrl).trim()) {
     return { ok: false, code: 'NO_CLONE_URL',
       error: 'No clone URL given.\n',
@@ -141,8 +141,8 @@ function buildClonePlan (input = {}) {
       entries: clonable.entries }
   }
 
-  // ⛔⛔ **不接受 branch**（Owner 2026-10-04：「克隆就只克隆默认分支得了」）：
-  //   之前那个分支框是**死控件** —— 探测打的是 /wizard/probe {url}，压根没用它，
+  // **不接受 branch**（Owner 2026-10-04：「克隆就只克隆默认分支得了」）：
+  //   之前那个分支框是**死控件**：探测打的是 /wizard/probe {url}，压根没用它，
   //   只有 clone 用；而用户「重读」时读的又是默认分支 ⇒ 填了分支，
   //   探测结果和实际克隆的代码对不上（2026-10-04 实测确认）。
   //   留 --branch 在 API 里 = 留一个前端碰不到的参数 ⇒ 删。
@@ -194,7 +194,7 @@ function buildClonePlan (input = {}) {
 }
 
 /**
- * ⭐ 执行。**只有 execute:true 才会真的跑** ——
+ * 执行。**只有 execute:true 才会真的跑**，
  * 默认仍然只返回计划（跟 install-engine.cjs 的默认行为一致）。
  */
 function runClone (input = {}) {
@@ -224,7 +224,7 @@ function runClone (input = {}) {
     }
   }
 
-  // ⛔ 只报「git 说成功了」，不报「克隆好了」——
+  // 只报「git 说成功了」，不报「克隆好了」，
   //   那要等第 4 步的自检（import 探针）才能下结论。
   return {
     ...plan,

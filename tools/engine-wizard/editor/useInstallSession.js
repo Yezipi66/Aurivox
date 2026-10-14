@@ -1,34 +1,34 @@
 // ============================================================================
-//  安装会话 —— 向导持久化的**唯一**实现
+//  安装会话：向导持久化的**唯一**实现
 //
 //  Owner 2026-10-12 裁决「统一重构持久化」，三条约束落在这里：
-//    ① 完成状态（对勾）只由真实产物判 ⇒ ⛔ 从来不写「点过什么」。
+//    ① 完成状态（对勾）只由真实产物判 ⇒ 从来不写「点过什么」。
 //    ② 探测结果 prep 不持久化到 localStorage，但退出网页 / 下一次扫描前
 //       必须还在 ⇒ 放 sessionStorage（刷新不丢、关 tab 丢、换 URL 失效）。
 //    ③ 克隆完成 = 引擎初步接入，prepare 未完成时后面四步不可点
-//       ⇒ 门槛在 steps.js 的 needs + Pipeline 渲染层，⛔ 不是点进去一片空。
+//       ⇒ 门槛在 steps.js 的 needs + Pipeline 渲染层，不是点进去一片空。
 //
-//  ⭐ 关键设计：**键里含 id 与 url**。换 URL 或换引擎 ⇒ 旧会话段自动失效。
+//  关键设计：**键里含 id 与 url**。换 URL 或换引擎 ⇒ 旧会话段自动失效。
 //    真机踩过的 bug：URL 改了却显示旧仓库的依赖列表（串号）。
-//    判据：本地键形如 <前缀>:<id>:<urlHash> —— 换一个就换一把钥匙，
-//    ⛔ 不许只按 id 分键。
+//    判据：本地键形如 <前缀>:<id>:<urlHash>：换一个就换一把钥匙，
+//    不许只按 id 分键。
 //
-//  ⛔ 三段各管什么：
+//  三段各管什么：
 //    持久段（localStorage） 用户输入与选择：url / id / cloneUrl / repoUrl
-//                           + 当前展开哪一步。⛔ 不再放探测结果。
+//                           + 当前展开哪一步。不再放探测结果。
 //    会话段（sessionStorage）探测结果与各步瞬态：prep（res/probe/plan/cloneRes）
 //                           + StepDeps 的 plan/preview/showNormal/backend/unlocked
 //                           + 下载的 manifest/dedup/probeError。
-//    ⛔ busy / live / tail 这些真瞬态（执行中）一段都不存。
+//    busy / live / tail 这些真瞬态（执行中）一段都不存。
 // ============================================================================
 
 const NS = 'tf.v1.wizard.'
-// ⭐ 孤儿键（Owner 浏览器里有、代码里没人读）：一次性清掉，⛔ 不留长期清理代码。
+// 孤儿键（Owner 浏览器里有、代码里没人读）：一次性清掉，不留长期清理代码。
 const ORPHAN_KEYS = [NS + 'repo']
 
 export { NS }
 
-/** 浏览器 / Node 测试两侧都能拿到的 storage（⛔ 没有就静默失败，不抛） */
+/** 浏览器 / Node 测试两侧都能拿到的 storage（没有就静默失败，不抛） */
 function pick (store) {
   if (typeof window !== 'undefined' && window[store]) return window[store]
   if (typeof global !== 'undefined' && global[store]) return global[store]
@@ -39,11 +39,11 @@ const local = () => pick('localStorage')
 const session = () => pick('sessionStorage')
 
 /**
- * url 摘要 —— 会话键的第二段。
+ * url 摘要：会话键的第二段。
  *
- * ⭐ 只用摘要不用原文：sessionStorage 的键虽然能放原文，但带 query/hash 的
+ * 只用摘要不用原文：sessionStorage 的键虽然能放原文，但带 query/hash 的
  *   长 URL 会让键长得没法看；而且「同一个 id 换了个 URL」这件事本身只需要
- *   一个稳定的区分符。⛔ 不许回退成「只按 id 分键」那就是串号的来源。
+ *   一个稳定的区分符。不许回退成「只按 id 分键」那就是串号的来源。
  */
 function hashUrl (url) {
   const s = String(url || '')
@@ -52,7 +52,7 @@ function hashUrl (url) {
   return h.toString(36)
 }
 
-/** 会话键 —— ⭐ 含 id 与 url，换任一个旧会话自动失效 */
+/** 会话键：含 id 与 url，换任一个旧会话自动失效 */
 function sessionKey (id, url) {
   return NS + 'sess:' + String(id || '') + ':' + hashUrl(url)
 }
@@ -72,7 +72,7 @@ function write (store, key, val) {
     const s = pick(store)
     if (!s) return
     s.setItem(key, JSON.stringify(val))
-  } catch (e) { /* 配额满 / 不可用 ⇒ 静默失败，⛔ 不许让向导崩 */ }
+  } catch (e) { /* 配额满 / 不可用 ⇒ 静默失败，不许让向导崩 */ }
 }
 
 function drop (store, key) {
@@ -83,7 +83,7 @@ function drop (store, key) {
   } catch (e) { /* 同上 */ }
 }
 
-/** ⭐ 孤儿键一次性清理 —— 读一次就删，⛔ 不留长期清理代码 */
+/** 孤儿键一次性清理：读一次就删，不留长期清理代码 */
 export function purgeOrphanKeys () {
   const s = local()
   if (!s) return
@@ -93,13 +93,13 @@ export function purgeOrphanKeys () {
 }
 
 // ---------------------------------------------------------------------------
-//  持久段 —— 用户输入与选择（localStorage）
+//  持久段：用户输入与选择（localStorage）
 // ---------------------------------------------------------------------------
 const PERSIST_KEY = NS + 'wz'
 
 export const PERSIST_SHAPE = { url: '', id: '', cloneUrl: '', repoUrl: '' }
 
-/** 读持久段（带消毒：缺字段补空串，⛔ 不让半截对象进 state） */
+/** 读持久段（带消毒：缺字段补空串，不让半截对象进 state） */
 export function loadPersist () {
   const v = read('localStorage', PERSIST_KEY)
   if (!v || typeof v !== 'object') return { ...PERSIST_SHAPE }
@@ -113,7 +113,7 @@ export function savePersist (patch) {
   write('localStorage', PERSIST_KEY, { ...loadPersist(), ...patch })
 }
 
-/** 当前展开哪一步 —— 也在持久段里（刷新后还在原步骤） */
+/** 当前展开哪一步：也在持久段里（刷新后还在原步骤） */
 export function loadPage () {
   const v = read('localStorage', NS + 'step')
   return typeof v === 'string' ? v : 'prepare'
@@ -124,14 +124,14 @@ export function savePage (page) {
 }
 
 // ---------------------------------------------------------------------------
-//  会话段 —— 探测结果与各步瞬态（sessionStorage，键含 id + url）
+//  会话段：探测结果与各步瞬态（sessionStorage，键含 id + url）
 // ---------------------------------------------------------------------------
 
 /**
  * 读会话段。
  *
- * ⭐ 换 URL 或换引擎 ⇒ 键就换了 ⇒ 这里返回 null，调用方按「没有缓存」处理。
- *    这就是防串号的那一层：⛔ 不许在读到 null 时去猜一个旧的键。
+ * 换 URL 或换引擎 ⇒ 键就换了 ⇒ 这里返回 null，调用方按「没有缓存」处理。
+ *    这就是防串号的那一层：不许在读到 null 时去猜一个旧的键。
  *
  * @param {string} id
  * @param {string} url
@@ -161,7 +161,7 @@ export function loadSession (id, url) {
 }
 
 /**
- * 写会话段（局部 patch，⛔ 不整份覆盖 —— 各组件各自写自己那几个键）。
+ * 写会话段（局部 patch，不整份覆盖：各组件各自写自己那几个键）。
  *
  * @param {string} id
  * @param {string} url
@@ -179,17 +179,17 @@ export function saveSession (id, url, patch) {
   write('sessionStorage', key, next)
 }
 
-/** 清掉这一段会话（换引擎 / 换 URL 时主动丢，⛔ 不是必须 —— 键一变自然失效） */
+/** 清掉这一段会话（换引擎 / 换 URL 时主动丢，不是必须：键一变自然失效） */
 export function clearSession (id, url) {
   if (!id) return
   drop('sessionStorage', sessionKey(id, url))
 }
 
 /**
- * ⭐ derive —— 会话段对哪些「变化」敏感。
+ * derive：会话段对哪些「变化」敏感。
  *
  * 返回一个新的键标识；调用方把它放进 useEffect 的依赖里，
- * 这样「换 URL / 换引擎」会立刻重新读会话段，⛔ 不会读到换号前那一份。
+ * 这样「换 URL / 换引擎」会立刻重新读会话段，不会读到换号前那一份。
  */
 export function sessionStamp (id, url) {
   return String(id || '') + '|' + String(url || '')

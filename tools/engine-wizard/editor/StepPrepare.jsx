@@ -1,29 +1,29 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
-// ⛔⛔ 目录名的唯一来源：输入框 + 仓库名。⛔ 没有 state.id 这个来源。
+// 目录名的唯一来源：输入框 + 仓库名。没有 state.id 这个来源。
 import { folderName } from './folderName'
 
 // ============================================================================
-//  STEP PREPARE —— 第 1 步：链接 → 探测 → 克隆
+//  STEP PREPARE：第 1 步：链接 → 探测 → 克隆
 // ============================================================================
 
 /**
- * ⭐ 从链接里猜项目名 —— 目录名留空时用它做灰字预览。
+ * 从链接里猜项目名：目录名留空时用它做灰字预览。
  *
- * ⛔⛔ **必须是仓库根的最后一段**：
- *   别人常复制 https://github.com/o/r/tree/main 这样的链接 ——
+ * **必须是仓库根的最后一段**：
+ *   别人常复制 https://github.com/o/r/tree/main 这样的链接，
  *   所以只取 github.com 后面的 owner/repo 两段里的第二段。
- *   ⛔ 这只用于填空时的预览；真 id 永远来自 resolve 端点（它有完整校验）。
+ *   这只用于填空时的预览；真 id 永远来自 resolve 端点（它有完整校验）。
  */
 /**
- * 后端错误的**双语文案表** —— 键名 = 后端的 code。
+ * 后端错误的**双语文案表**：键名 = 后端的 code。
  *
- * ⛔ 文案只说三件事：缺什么、正确的样子是什么、下一步做什么。
- *   ⛔ 不解释平台的设计原则（「只认 GitHub」「平台不替你猜」）——
+ * 文案只说三件事：缺什么、正确的样子是什么、下一步做什么。
+ *   不解释平台的设计原则（「只认 GitHub」「平台不替你猜」），
  *     那是内部规则，用户要的是「这个框该怎么填」。
- *   ⛔ 不出现内部路径（registry.js:83 / docs/ROOT_LAYOUT.md 之类）。
- * ⛔ 文案住前端，不住后端：core/resolve.js 只回 { code, params }。
+ *   不出现内部路径（registry.js:83 / docs/ROOT_LAYOUT.md 之类）。
+ * 文案住前端，不住后端：core/resolve.js 只回 { code, params }。
  *   否则切到英文时后端仍是中文句子，而 {res.error} 会原样渲染。
  *   判据：新增错误时先在 core 放 code，再来这里加两行。
  */
@@ -83,11 +83,11 @@ function guessRepoFromUrl (raw) {
  * 许可证那一格显示什么。
  *
  * ⚠ 这一格直接渲染 meta.license，而 meta.license 是**值字段**：
- *   ⛔ 它只装许可证标识（SPDX id）或 null，⛔ 不装句子。
+ *   它只装许可证标识（SPDX id）或 null，不装句子。
  *   ⚠ 探针曾在「只看到许可证文件」时把值写成一句英文描述，
  *     于是那句话原样出现在界面上，而它本该是元数据。
  *   ⇒ 读不出标识时，用 licenseEvidence 这个**事实字段**说清楚，
- *     并且在这里翻译成人话（⛔ 中文侧不许出现英文句子）。
+ *     并且在这里翻译成人话（中文侧不许出现英文句子）。
  *
  * @param {object|null} meta 探测返回的 meta
  * @param {Function} t 双语函数 t(英文, 中文)
@@ -106,7 +106,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
   const [idInput, setIdInput] = React.useState(state.id || '')
-  // ⭐ 这四份结果**住在 App 那层**（prep），⛔ 不是本组件的局部 state ——
+  // 这四份结果**住在 App 那层**（prep），不是本组件的局部 state，
   //   否则切走步骤再切回来就全没了（实测复现，见 App.jsx）。
   const res = prep.res || null
   const probe = prep.probe || null
@@ -115,17 +115,17 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const [busy, setBusy] = React.useState('')
   const [unlocked, setUnlocked] = React.useState(false)
 
-  // ⭐ 上次**解析成功**时链接框里是什么 —— 用来判「用户是不是改了链接」
-  //   ⛔ 必须在 res 之后声明（写反了 ⇒ TDZ：Cannot access 'res'，整页白屏）
+  // 上次**解析成功**时链接框里是什么：用来判「用户是不是改了链接」
+  //   必须在 res 之后声明（写反了 ⇒ TDZ：Cannot access 'res'，整页白屏）
   const lastResolved = (res && res.input) || ''
 
-  // ⚠⚠⚠ **只写一个 patch** —— setRes/setProbe/… 只是名字不同的同一入口。
+  // ⚠⚠⚠ **只写一个 patch**：setRes/setProbe/… 只是名字不同的同一入口。
   //   四个闭包拿的是**同一帧的 prep 快照** ⇒ 分开写会把前一个抹回 null
   //   （实测：probe 成功、res:null ⇒ 整块不渲染）。
-  // ⛔ 原来写的是 `onPrep({ ...prep, [k]: v })` —— 闭包里的 prep
-  //   是**这一帧的快照**，⛔ 同一帧里连续写两次（resolve 先写 res、
+  // 原来写的是 `onPrep({ ...prep, [k]: v })`：闭包里的 prep
+  //   是**这一帧的快照**，同一帧里连续写两次（resolve 先写 res、
   //   探测再写 probe）后写的会把先写的覆盖掉（实测 probe 有、res 是 null）。
-  // ✅ 函数式更新拿到的是最新值，⛔ 与帧无关。
+  // 函数式更新拿到的是最新值，与帧无关。
   const patch = (k, v) => onPrep((w) => ({ ...w, [k]: v }))
   const setRes = (v) => patch('res', v)
   const setProbe = (v) => patch('probe', v)
@@ -141,45 +141,45 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     return r.json()
   }
 
-  // ⭐ 不填目录名时的默认值 = 仓库根链接的最后一段
-  // ⭐⭐⭐ 目录名的**唯一来源**：输入框里敲的优先，留空才用仓库名。
-  //   ⛔ 没有 state.id（持久段里的旧 id）—— 那是上一次安装的结果，
+  // 不填目录名时的默认值 = 仓库根链接的最后一段
+  // 目录名的**唯一来源**：输入框里敲的优先，留空才用仓库名。
+  //   没有 state.id（持久段里的旧 id）：那是上一次安装的结果，
   //     拿它顶上来就是 Owner 2026-10-13 抓到的「同屏两个目录名」。
-  //   ⛔ 这一行同时喂给：克隆请求 / 命令文案 / 目标路径 / 风险文案
-  //     ⇒ 四处由同一个值驱动，⛔ 不各算一份。
+  //   这一行同时喂给：克隆请求 / 命令文案 / 目标路径 / 风险文案
+  //     ⇒ 四处由同一个值驱动，不各算一份。
   const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
   const curId = folderName({ typed: idInput, suggested: autoId })
 
-  // ---- ① 解析（⛔ 本地，不联网）+ 紧接着只读探测 ----
+  // ---- ① 解析（本地，不联网）+ 紧接着只读探测 ----
   const resolve = async () => {
     setBusy('link')
-    // ⛔ 解析只用输入框里的值（⛔ 不发 state.id 的旧值）。
+    // 解析只用输入框里的值（不发 state.id 的旧值）。
     //   留空时后端的 id 参数故意不给：parseRepoUrl 会自己猜一个建议值，
-    //   ⛔ 那时让旧 id 顶上来就是把上次那个引擎的目录名又找回来。
+    //   那时让旧 id 顶上来就是把上次那个引擎的目录名又找回来。
     const j = await post('/wizard/resolve', {
       url, id: (idInput.trim() || undefined),
     })
-    // ⛔ res 与 probe 一起写，一次到位（分两次写会让探测结果被覆盖）
-    //   ⚠ 必须打 /wizard/probe —— 它返回 meta（包名/命令/依赖清单）；
-    //     ⛔ /wizard/deps 返回的是 deps，没有 meta。
+    // res 与 probe 一起写，一次到位（分两次写会让探测结果被覆盖）
+    //   ⚠ 必须打 /wizard/probe：它返回 meta（包名/命令/依赖清单）；
+    //     /wizard/deps 返回的是 deps，没有 meta。
     let probeJ = null
     if (j.ok) {
       try { probeJ = await post('/wizard/probe', { url: j.url }) }
-      catch (e) { /* 探测失败不阻断 —— 克隆那步照样能看 */ }
+      catch (e) { /* 探测失败不阻断：克隆那步照样能看 */ }
     }
-    // ⭐ 解析成功的这一刻 = 目录名唯一一次从响应回写父组件的时机
+    // 解析成功的这一刻 = 目录名唯一一次从响应回写父组件的时机
     //   （wz.id 于是永远是「最近一次成功解析出来的那个」）
     const resolvedName = j.ok ? folderName({ typed: idInput, suggested: j.id }) : ''
     onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
     if (j.ok) {
-      // ⭐ 用户没自己填目录名 ⇒ 用解析出来的（别覆盖成空）
+      // 用户没自己填目录名 ⇒ 用解析出来的（别覆盖成空）
       if (!idInput.trim()) setIdInput(j.id)
       onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
     }
     setBusy('')
   }
 
-  // ---- ② 探测（⛔ 只读，不写盘）----
+  // ---- ② 探测（只读，不写盘）----
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
     const j = await post('/wizard/probe',
@@ -189,15 +189,15 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   }
 
   // ---- ③ 克隆（⚠ 这一步才写盘）----
-  // ⛔⛔ 目录名单源：curId 是这一步唯一的 id 来源，⛔ 不再有 state.id。
+  // 目录名单源：curId 是这一步唯一的 id 来源，不再有 state.id。
   //   旧写法 `id: idInput || state.id` 就是 Owner 抓到的那个双 id bug：
   //   输入框一空就退化到 localStorage 里的旧 id（上次装的那个引擎），
   //   于是命令写新目录、克隆请求打旧目录。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
-    // ⛔ 目录名为空 ⇒ 当场拦下，⛔ 不发请求。
+    // 目录名为空 ⇒ 当场拦下，不发请求。
     //   空着发过去只会看到「The "path" argument must be of type string」
-    //   —— 那是 Node 的内核报错，不是「请填写目录名」。
+    //：那是 Node 的内核报错，不是「请填写目录名」。
     if (!curId) {
       setCloneRes({ ok: false, code: 'MISSING_ID',
         error: t('Fill in the directory name first.',
@@ -207,18 +207,18 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       return
     }
     try {
-      // ⚠ cloneUrl ⛔ 同时从两处取：父组件的 wz 和本组件的解析结果 res。
+      // ⚠ cloneUrl 同时从两处取：父组件的 wz 和本组件的解析结果 res。
       //   只读 props 的话，解析刚完成时那一帧拿到的还是空的
       //   （实测：计划里出现 `git clone ''`）。
       const cloneUrl = (res && res.cloneUrl) || state.cloneUrl
-      // ⛔ 与文案/只读预览同一个 curId —— 后端按它算 engines/<id>，
-      //   ⛔ 前端不另拼一份。
+      // 与文案/只读预览同一个 curId：后端按它算 engines/<id>，
+      //   前端不另拼一份。
       const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
       if (j.ok && execute) {
-        // ⛔⛔ 克隆成功这一刻必须同时写回 id（用本次真正的 curId）。
-        //   旧写法只写 `cloned: true`，而 id 只在 resolve 里回过一次 ——
+        // 克隆成功这一刻必须同时写回 id（用本次真正的 curId）。
+        //   旧写法只写 `cloned: true`，而 id 只在 resolve 里回过一次，
         //   用户改过目录名、或解析用的是上一次的 URL 时，wz.id 停在旧值，
         //   于是第 2/3 步拿着**上一台引擎的 id** 去装依赖、下权重
         //   （2026-10-13 Owner 真机抓到：克隆的是 spark-tts，
@@ -229,24 +229,24 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     } finally { setBusy('') }
   }
 
-  // ⭐⭐⭐ 目标目录由**后端**给（resolve 返回的 targetDir）
+  // 目标目录由**后端**给（resolve 返回的 targetDir）
   //
-  // ⛔⛔ 前端曾经自己拼：window.location.pathname 撕 + 硬编码 '/' 分隔符。
-  //   ⛔ 硬编码 '/' **只在 Linux/mac 上成立**，Windows 上路径是反斜杠 ⇒ 拼出来是错的
-  //   ⛔ 打包分发后目录可能被挪走（lib/paths.js 支持 AURIVOX_APP_DIR 覆盖），
+  // 前端曾经自己拼：window.location.pathname 撕 + 硬编码 '/' 分隔符。
+  //   硬编码 '/' **只在 Linux/mac 上成立**，Windows 上路径是反斜杠 ⇒ 拼出来是错的
+  //   打包分发后目录可能被挪走（lib/paths.js 支持 AURIVOX_APP_DIR 覆盖），
   //      前端永远算不对，只有后端算得对
-  // ⛔ 最根本：前端不该知道文件系统长什么样
-  // ⛔ 拿不到就退回相对路径 —— ⛔ 绝不显示成空的或假的绝对路径
+  // 最根本：前端不该知道文件系统长什么样
+  // 拿不到就退回相对路径：绝不显示成空的或假的绝对路径
   //
-  // ⛔ 命令与目标路径**必须同源**，否则两者会自相矛盾。
+  // 命令与目标路径**必须同源**，否则两者会自相矛盾。
   //   两个曾经出错的形状：
-  //   ① 用一次解析的快照 —— 用户改目录名时命令跟着变、文案停在旧值，
+  //   ① 用一次解析的快照：用户改目录名时命令跟着变、文案停在旧值，
   //      界面上同时出现新旧两个目录名。
   //   ② 拿不到时回落成相对路径 ⇒ 那句「目标：」里的路径凭空消失。
-  // ✅ 目标路径实时算：后端给 enginesDir（绝对）+ pathSep（该平台的分隔符），
+  // 目标路径实时算：后端给 enginesDir（绝对）+ pathSep（该平台的分隔符），
   //   前端只 + 目录名 ⇒ 与输入框永远同值、永远同步、没有空档期。
-  //   ⛔ 拿不到 enginesDir ⇒ ⛔ 不显示路径（宁可不显示，不显示错的）。
-  //   ⛔ 分隔符由后端给：Windows 是 \、Linux/macOS 是 / —— ⛔ 前端不猜。
+  //   拿不到 enginesDir ⇒ 不显示路径（宁可不显示，不显示错的）。
+  //   分隔符由后端给：Windows 是 \、Linux/macOS 是 /：前端不猜。
   //   判据：改目录名时，命令与目标路径必须一起变。
   const enginesDir = (res && res.enginesDir) || null
   const pathSep = (res && res.pathSep) || null
@@ -259,15 +259,15 @@ const done = facts && facts.cloned === true
   const meta = (probe && probe.meta) || null
 
   return (
-    /* ⭐⭐⭐ **第一步全部铺开** —— 一个连续区域，从上到下直接排。
-       ⛔ 外层这行内联样式就是 TrainingTab.jsx:2355 的原话：
+    /* **第一步全部铺开**：一个连续区域，从上到下直接排。
+       外层这行内联样式就是 TrainingTab.jsx:2355 的原话：
          display:flex / flexDirection:column / gap:8
-       ⛔ 不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
+       不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
       {/* ── 两个输入框，一行 ─────────────────────────────
-          ⭐ 目录名留空 = 自动取**仓库根**最后一段（tree/main 会被剥掉）
-          ⭐ 解析跟着失焦 / 回车自动跑，⛔ 不需要「下一步」*/}
+          目录名留空 = 自动取**仓库根**最后一段（tree/main 会被剥掉）
+          解析跟着失焦 / 回车自动跑，不需要「下一步」*/}
       <div className="form-grid">
         <div className="field">
           <label className="field-label" htmlFor="wz-repo-url">
@@ -277,13 +277,13 @@ const done = facts && facts.cloned === true
             placeholder="https://github.com/owner/name"
             onChange={(e) => {
               setUrl(e.target.value)
-              // ⭐ 每次输入都写回父组件 —— 否则收起/展开这一步时链接就没了
+              // 每次输入都写回父组件：否则收起/展开这一步时链接就没了
               //   （state 只在解析成功时才被写入，见 resolve()里的 onChange）。
-              //   ⛔ 写回父组件的是**原始输入**，⛔ 不含解析产物
+              //   写回父组件的是**原始输入**，不含解析产物
               //   （res/probe/cloneUrl 仍只在解析成功时写）。
               onChange({ url: e.target.value })
-              // ⛔ 只在**真的变了**时才清结果；
-              //   ⛔⛔ 只清这四个键，别整体替换 prep（会把别的键一起抹掉）
+              // 只在**真的变了**时才清结果；
+              //   只清这四个键，别整体替换 prep（会把别的键一起抹掉）
               if (e.target.value !== lastResolved) {
                 onPrep((w) => ({ ...w, res: null, probe: null, plan: null, cloneRes: null }))
               }
@@ -298,8 +298,8 @@ const done = facts && facts.cloned === true
           <input id="wz-engine-id" className="control" type="text"
             value={idInput} placeholder={autoId || 'auto'}
             onChange={(e) => setIdInput(e.target.value)} />
-          {/* ⛔ 去掉这里的 engines/<name>/ 预览。
-              ⛔ 目录名下面已经有一行说明在讲「目录名就是名片里的 id」，
+          {/* 去掉这里的 engines/<name>/ 预览。
+              目录名下面已经有一行说明在讲「目录名就是名片里的 id」，
                  再挂一个路径预览是**同一件事说两遍**，而且
                  「目标 / 命令」那行会把真实的完整命令给出（更准）。
                  ⇒ 那个路径信息在这一步**一次都不该出现两次**。 */}
@@ -318,7 +318,7 @@ const done = facts && facts.cloned === true
         <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读…')}</p>
       )}
 
-            {/* ⭐ 告知「我们把你的链接改了」—— ⛔ 不是错误，是修正
+            {/* 告知「我们把你的链接改了」：不是错误，是修正
           （文案查表，不走后端的中文句子）*/}
       {res && res.ok && res.noteCode && (
         <p className="plan-warn" style={{ margin: 0 }}>
@@ -337,12 +337,12 @@ const done = facts && facts.cloned === true
         </div>
       )}
 
-      {/* ── 项目信息（⛔ 只读，不写盘）────────────────────────────
-          ⛔ 标题用使用者的视角（「项目信息」），不用平台视角
+      {/* ── 项目信息（只读，不写盘）────────────────────────────
+          标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
-          ⛔ 这一块不摆命令：命令由下面的克隆步骤给出，那才是真命令。
-          ⛔ 不解释平台为何不代选装法 —— 那是内部裁决，与使用者无关。
-          ⛔ 不放「重读」按钮：解析跟着失焦自动跑，探测结果刷新页面就在。*/}
+          这一块不摆命令：命令由下面的克隆步骤给出，那才是真命令。
+          不解释平台为何不代选装法：那是内部裁决，与使用者无关。
+          不放「重读」按钮：解析跟着失焦自动跑，探测结果刷新页面就在。*/}
       {res && res.ok && (
         <>
           <div className="layer-label">{t('Project information', '项目信息')}</div>
@@ -365,11 +365,11 @@ const done = facts && facts.cloned === true
       )}
 
       {/* ── 下一步（⚠ 这一步才写盘）──────────────────────────────
-          ⛔ 标题说「下一步会发生什么」，不说实现步骤（「克隆」）——
+          标题说「下一步会发生什么」，不说实现步骤（「克隆」），
             使用者关心的是流程往前走，不是内部动作名。
-          ⛔ 这里给**真正的 git clone 命令**，⛔ 不只显示 engines/<name>/
+          这里给**真正的 git clone 命令**，不只显示 engines/<name>/
             这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
-          ⛔ 不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
+          不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
           判据：这一块里的命令必须与真正要跑的那条逐字相同。*/}
       {res && res.ok && (
         <>
@@ -392,17 +392,17 @@ const done = facts && facts.cloned === true
             </div>
           )}
 
-          {/* ⭐ vars：把项目名和**完整路径**喂给风险文案
-              （⛔ 原来只说「写进 engines/」，而那目录里已经有好几个引擎了，
+          {/* vars：把项目名和**完整路径**喂给风险文案
+              （原来只说「写进 engines/」，而那目录里已经有好几个引擎了，
                 用户分不清这一步要动的是哪一个）
-              ⛔ name/path 都取自 curId 这一个值 ⇒ 与上面那条命令同源。*/}
+              name/path 都取自 curId 这一个值 ⇒ 与上面那条命令同源。*/}
           <RiskUnlock stepKey="prepare" unlocked={unlocked} onUnlock={setUnlocked}
             vars={{
               name: curId || t('<name>', '<项目名>'),
               path: fullEngineDir || t('(computing…)', '（正在计算…）'),
             }}>
             <button className="btn btn-primary btn-sm" type="button"
-              // ⛔ 目录名为空时按钮禁用：⛔ 不许拿旧 id 顶，也不许发空请求
+              // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
               disabled={busy === 'clone' || !curId}
               onClick={() => doClone(true)}>
               {t('Next', '下一步')}

@@ -1,8 +1,8 @@
 'use strict'
 // ============================================================================
-//  HARDWARE —— 检测本机 GPU，给出 torch 后端建议
+//  HARDWARE：检测本机 GPU，给出 torch 后端建议
 //
-//  ⭐ 逻辑照抄 StabilityMatrix（开源，Apache-2.0）的 docs/advanced/hardware-support.md，
+//  逻辑照抄 StabilityMatrix（开源，Apache-2.0）的 docs/advanced/hardware-support.md，
 //     它的原文：
 //       「The general order of preference is CUDA for NVIDIA, then ZLUDA (Windows AMD),
 //         then IPEX (Intel), then native ROCm (Linux AMD, or supported Windows AMD),
@@ -10,29 +10,29 @@
 //         If a package does not support your detected GPU, the recommended default
 //         falls back to CPU.」
 //
-//  ⛔⛔ 三条纪律（照 StabilityMatrix 自己的说法，不是我的发明）：
+//  三条纪律（照 StabilityMatrix 自己的说法，不是我的发明）：
 //
-//   1. ⛔ **推荐，不是决定**。所有选项都摆出来让用户选，
+//   1. **推荐，不是决定**。所有选项都摆出来让用户选，
 //     包括「照 uv.lock 装」「我自己装 torch」。
 //
-//  2. ⛔ **检测是尽力而为，不是保证**。原文：
+//  2. **检测是尽力而为，不是保证**。原文：
 //     「treat any GPU model boundaries as **guidance rather than a hard guarantee**;
 //       some GPUs work with manual configuration even when a badge is not shown」
 //     ⚠ Intel 那条更明确：「detection is **name-based** and matches GPUs whose
-//       name contains "Arc"」—— 就是字符串匹配，不是真的问驱动。
+//       name contains "Arc"」：就是字符串匹配，不是真的问驱动。
 //
-//  3. ⛔ **分不清就退 CPU**（原文的 fallback，也是我们项目
+//  3. **分不清就退 CPU**（原文的 fallback，也是我们项目
 //     install_torch.ps:109 自己的做法：「If we cannot tell, we assume CPU
 //     (the safe, universally-importable choice) and say so」）。
 //
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
+//  纪律：不许出现任何具体引擎名。
 // ============================================================================
 
 const os = require('node:os')
 const { execFileSync } = require('node:child_process')
 
 /**
- * ⭐ 后端的固定偏好顺序 —— StabilityMatrix 的原文顺序。
+ * 后端的固定偏好顺序：StabilityMatrix 的原文顺序。
  * ⚠ 这是**建议排序**，不是「只支持这几个」。
  */
 const BACKEND_PREFERENCE = [
@@ -65,7 +65,7 @@ function run (cmd, args, timeoutMs) {
   try {
     return execFileSync(cmd, args, {
       encoding: 'utf-8',
-      // ⚠⚠ 8秒不够 —— 2026-10-04 实测：WMI 查显卡在服务进程里跑要十几秒，
+      // ⚠⚠ 8秒不够：2026-10-04 实测：WMI 查显卡在服务进程里跑要十几秒，
       //   超时后 run() 返回 null ⇒ GPU 列表空 ⇒ 推荐退 CPU（错的）。
       //   powershell 启动本身就 2-4 秒，WMI 再几秒。
       timeout: timeoutMs || 30000, windowsHide: true,
@@ -74,7 +74,7 @@ function run (cmd, args, timeoutMs) {
   } catch (e) { return null }
 }
 
-// ⭐ 检测结果缓存 —— ⛔ WMI 每次都要十几秒，
+// 检测结果缓存：WMI 每次都要十几秒，
 //   而 /wizard/deps 是「看一眼」的端点，不能每次都付这个代价。
 //   ⚠ 缓存 5 分钟：刚装完驱动就检测的话，5 分钟内看不到变化。
 let _cache = null
@@ -82,7 +82,7 @@ let _cacheAt = 0
 const CACHE_MS = 5 * 60 * 1000
 
 /**
- * ⭐ 检测本机 GPU。**尽力而为**，任何一步失败都不抛 —— 分不清就交给调用方退 CPU。
+ * 检测本机 GPU。**尽力而为**，任何一步失败都不抛：分不清就交给调用方退 CPU。
  * @returns {{vendor:string, name:string|null, detail:string|null}[]}
  */
 function detectGpus () {
@@ -102,7 +102,7 @@ function detectGpus () {
 
   // ---- 其它厂商：读显卡名（名字匹配，⚠ 就是 StabilityMatrix 说的那种）----
   if (plat === 'win32') {
-    // ⛔ WMI 查询走 powershell（不依赖第三方包）
+    // WMI 查询走 powershell（不依赖第三方包）
     const ps = run('powershell', [
       '-NoProfile', '-Command',
       'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name',
@@ -112,7 +112,7 @@ function detectGpus () {
         const name = raw.replace(/\s+/g, ' ')
         const lower = name.toLowerCase()
         let vendor = 'unknown'
-        // ⚠ 名字匹配 —— 照 StabilityMatrix：「detection is name-based」
+        // ⚠ 名字匹配：照 StabilityMatrix：「detection is name-based」
         if (lower.includes('nvidia')) vendor = 'nvidia'
         else if (lower.includes('amd') || lower.includes('radeon')) vendor = 'amd'
         else if (lower.includes('intel') || lower.includes('arc')) vendor = 'intel'
@@ -144,10 +144,10 @@ function detectGpus () {
   return out
 }
 
-/** ⛔ 清缓存（装完驱动/换了卡之后用） */
+/** 清缓存（装完驱动/换了卡之后用） */
 function clearHardwareCache () { _cache = null; _cacheAt = 0 }
 
-// ⛔ 上面 Linux 分支要 fs，而 detectGpus 是同步的 —— 这里单独 require 免得顶部就依赖 fs
+// 上面 Linux 分支要 fs，而 detectGpus 是同步的：这里单独 require 免得顶部就依赖 fs
 let _fs = null
 function fs_ () {
   if (!_fs) _fs = require('node:fs')
@@ -155,36 +155,36 @@ function fs_ () {
 }
 
 /**
- * ⭐ 按 StabilityMatrix 的偏好顺序，为本机选一个**推荐后端**。
+ * 按 StabilityMatrix 的偏好顺序，为本机选一个**推荐后端**。
  * @param {{vendor:string}[]} gpus
  * @returns {{recommended:string, reason:string, confidence:'guidance'|'unknown'}}
  */
 function recommendBackend (gpus) {
   const has = (v) => gpus.some((g) => g.vendor === v)
 
-  // ⛔ reason 只陈述结论，⛔ 不给理由。理由是维护者的信息（依据哪套偏好
+  // reason 只陈述结论，不给理由。理由是维护者的信息（依据哪套偏好
   //   顺序、为什么这个平台选它），而界面上它渲染成一行提示（StepDeps.jsx）
   //   ⇒ 放进去只会让人读第二遍已经写在标题里的结论。
   //   判据：reason 里出现 StabilityMatrix /「按型号判断」/「有三条路」
   //   这类实现依据 ⇒ 那句话该待在代码注释里。
   //
-  // ⛔ 推荐不是保证：本机实际可用性由 lock 后端与检测结果的比对给出
-  //   （judgeTorchSpec），界面分开显示，⛔ 不混进 reason。
+  // 推荐不是保证：本机实际可用性由 lock 后端与检测结果的比对给出
+  //   （judgeTorchSpec），界面分开显示，不混进 reason。
 
-  // ⭐ 顺序 = **独显优先**。核显与独显并存时一律选独显（这是常识，
+  // 顺序 = **独显优先**。核显与独显并存时一律选独显（这是常识，
   //   不是可选项）：核显慢一到两个数量级，且它一直在跑桌面合成。
-  //   ⛔ 判据：新增厂商时排在 nvidia 之后；⛔ 不许因为「探测到多个」
+  //   判据：新增厂商时排在 nvidia 之后；不许因为「探测到多个」
   //   就改成「取最后一个」或「按集成显卡优先」。
   if (has('nvidia')) {
     return { recommended: 'cuda', confidence: 'guidance', reason: 'Recommended: CUDA', reasonZh: '推荐使用 CUDA' }
   }
   if (process.platform === 'darwin' && has('apple')) {
-    // MPS 是 Apple Silicon 上的选择，⛔ 不是 CUDA。差别只影响本页推荐。
+    // MPS 是 Apple Silicon 上的选择，不是 CUDA。差别只影响本页推荐。
     return { recommended: 'mps', confidence: 'guidance', reason: 'Recommended: MPS', reasonZh: '推荐使用 MPS' }
   }
   if (has('intel')) {
     // ⚠ 探测是**按型号名**判的（型号含 Arc 才算 Arc）。那是置信度问题，
-    //   由 confidence 字段承担，⛔ 不写进 reason。
+    //   由 confidence 字段承担，不写进 reason。
     return { recommended: 'ipex', confidence: 'guidance', reason: 'Recommended: XPU', reasonZh: '推荐使用 XPU' }
   }
   if (has('amd')) {
@@ -194,23 +194,23 @@ function recommendBackend (gpus) {
       ? { recommended: 'directml', confidence: 'guidance', reason: 'Recommended: DirectML', reasonZh: '推荐使用 DirectML' }
       : { recommended: 'rocm', confidence: 'guidance', reason: 'Recommended: ROCm', reasonZh: '推荐使用 ROCm' }
   }
-  // ⛔ 分不清 ⇒ CPU 版。这是**明确的回退**，⛔ 不是「探测到了 CPU」。
-  //   界面上必须显示成「未检测到可用的加速器，已回退 CPU」——
-  //   ⛔ 只写「推荐使用 CPU」会读起来像探测成功，而 CPU 推理慢到基本不可用。
+  // 分不清 ⇒ CPU 版。这是**明确的回退**，不是「探测到了 CPU」。
+  //   界面上必须显示成「未检测到可用的加速器，已回退 CPU」，
+  //   只写「推荐使用 CPU」会读起来像探测成功，而 CPU 推理慢到基本不可用。
   return {
     recommended: 'cpu',
     confidence: 'fallback',
     reason: 'No accelerator detected — falling back to CPU.',
     reasonZh: '未检测到可用的加速器，已回退 CPU',
-    // ⭐ 供界面显示警告：探测失败要**说清是回退**
+    // 供界面显示警告：探测失败要**说清是回退**
     fellBack: true,
   }
 }
 
 /**
- * ⭐ 完整入口：检测 + 推荐 + 全部可选项。
+ * 完整入口：检测 + 推荐 + 全部可选项。
  *
- * ⚠ 返回里**一定**带 `options`（所有可选项）——
+ * ⚠ 返回里**一定**带 `options`（所有可选项），
  *   推荐只是 highlight，用户可以选任何一条，包括「我自己装」。
  */
 function inspectHardware () {
@@ -223,8 +223,8 @@ function inspectHardware () {
     reasonZh: rec.reasonZh,
     // ⚠ 永远说清楚：这是建议不是保证
     confidence: rec.confidence,
-    // ⭐ 探测失败时为 true —— 界面据此显示「已回退」的警告，
-    //   ⛔ 不然用户会把「回退到 CPU」读成「探测到了 CPU」。
+    // 探测失败时为 true：界面据此显示「已回退」的警告，
+    //   不然用户会把「回退到 CPU」读成「探测到了 CPU」。
     fellBack: !!rec.fellBack,
     // ⚠ 探测为空时 caveat 要说清「什么都没探测到」，而不是「未在本机运行验证」
     caveat: gpus.length === 0
@@ -239,9 +239,9 @@ function inspectHardware () {
 }
 
 /**
- * ⭐ ⭐ 关键：判断 **uv.lock 里的 torch 属于哪个后端**，跟检测结果比。
+ * 关键：判断 **uv.lock 里的 torch 属于哪个后端**，跟检测结果比。
  *
- * ⚠ 这才是「标绿 / 标黄」的依据 —— ⛔ 不是「检测到 Intel 就说不行」，
+ * ⚠ 这才是「标绿 / 标黄」的依据：不是「检测到 Intel 就说不行」，
  *   而是「lock 里写的那个后端，跟本机能不能用对得上」。
  *
  * @param {string} spec lock 里那行，比如 'torch==2.2.0+cu121'
@@ -249,13 +249,13 @@ function inspectHardware () {
  */
 function judgeTorchSpec (spec, detected, ctx = {}) {
   const s = String(spec || '')
-  // ⭐ 第二个参数 = inspectHardware().recommended。
-  //    ⚠ 没有它就只能说「这是 CUDA 版」，⛔ 说不准「跟你这台机器对不对得上」——
+  // 第二个参数 = inspectHardware().recommended。
+  //    ⚠ 没有它就只能说「这是 CUDA 版」，说不准「跟你本机对不对得上」，
   //    而那正是 Owner 要的「标绿 / 标黄」。
   const mine = detected || null
 
   // why = 「这是什么」+「和本机是否一致」两句，都是结论。
-  // ⛔ 不追加「装之前请确认」：状态徽标（✓ / ! / ?）已经说明该怎么做了，
+  // 不追加「装之前请确认」：状态徽标（✓ / ! / ?）已经说明该怎么做了，
   //   再加一句叮嘱只是把同一个意思说两遍。
   const verdictFor = (kind, desc, descZh) => {
     if (!mine) {
@@ -283,7 +283,7 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
     if (tag.startsWith('xpu') || tag.startsWith('ipex')) {
       return verdictFor('ipex', `Intel XPU build (${tag})`, `Intel XPU 版（${tag}）`)
     }
-    // ⛔ 不认识的后缀 ⇒ 如实说「不认识」，⛔ 不硬套
+    // 不认识的后缀 ⇒ 如实说「不认识」，不硬套
     return { kind: 'unknown', verdict: 'unknown',
       why: `Suffix +${tag} is not recognized — please check manually.`,
       whyZh: `后缀 +${tag} 无法识别，请自行确认。` }
@@ -297,7 +297,7 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
   //     triton==3.6.0
   //   PyPI 上 `torch==2.10.0` 默认解析出来的是 **CUDA 版**，
   //   而那几个 NVIDIA 包就是它拖进来的依赖。
-  //   ⇒ ⛔ 判据不能只看 torch 那一行有没有后缀，要看整份 lock 的旁证。
+  //   ⇒ 判据不能只看 torch 那一行有没有后缀，要看整份 lock 的旁证。
   if (/torch==[\d.]+$/.test(s.trim())) {
     const locked = ctx.lockedPackages || []
     const cudaDeps = locked.filter((n) => /^nvidia-|^triton$/.test(n))
@@ -313,17 +313,17 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
       whyZh: 'CPU 版，任何机器均可安装，速度较慢。' }
   }
 
-  // ⛔ 分不出来就说分不出来
+  // 分不出来就说分不出来
   return { kind: 'unknown', verdict: 'unknown',
     why: 'Could not determine which backend this package targets — please check manually.',
     whyZh: '无法判断该包适用的后端，请自行确认。' }
 }
 
 /**
- * ⭐ 把 torch 系包从依赖清单里**摘出来**，其余归「普通依赖」。
+ * 把 torch 系包从依赖清单里**摘出来**，其余归「普通依赖」。
  *
- * ⭐ 照 Owner 说的：只有 torch 及其依赖需要单独处理，其它直接同步就行。
- * ⛔ 判定用**包名**，⛔ 不看版本、不猜。
+ * 照 Owner 说的：只有 torch 及其依赖需要单独处理，其它直接同步就行。
+ * 判定用**包名**，不看版本、不猜。
  */
 const TORCH_FAMILY = new Set([
   'torch', 'torchvision', 'torchaudio', 'pytorch-triton',
@@ -344,16 +344,16 @@ function splitTorchPackages (deps) {
 
 
 /**
- * ⭐⭐ 解析 uv.lock 里**锁定**的 torch 系包。
+ * 解析 uv.lock 里**锁定**的 torch 系包。
  *
  * ⚠ 为什么非读 lock 不可（2026-10-04 实测踩到）：
- *   pyproject.toml 写的是 `torch>=2.5.0` —— **没有后缀、分不出后端**；
+ *   pyproject.toml 写的是 `torch>=2.5.0`：**没有后缀、分不出后端**；
  *   真正锁死 wheel 的是 uv.lock 的 `version = "2.10.0"` + source。
  *   ⚠ 而且**锁的未必是 CUDA 版**：实测那份 lock 里 torch 是
  *     `2.10.0` + `registry = "https://pypi.org/simple"` = 通用/CPU 版，
- *     ⛔ 不是 `+cu121`。⇒ 「lock 是 CUDA 版」这个假设本身就不能信。
+ *     不是 `+cu121`。⇒ 「lock 是 CUDA 版」这个假设本身就不能信。
  *
- * ⛔⛔ 只做「行 → 值」，⛔ 不解析整个 lock 语法。
+ * 只做「行 → 值」，不解析整个 lock 语法。
  * @param {string} text uv.lock 原文
  * @returns {{name:string, version:string, source:string|null, spec:string}[]}
  */
@@ -378,10 +378,10 @@ function parseUvLock (text) {
       else if (/registry/.test(src)) source = (src.match(/registry = "([^"]+)"/) || [])[1] || 'PyPI'
       else source = '（其它来源）'
     }
-    // ⭐ spec = lock 里那一条（带后缀的话就在 version 里）
-    // ⭐ marker 一起带出：同一个包在 lock 里可能按平台分成多条
+    // spec = lock 里那一条（带后缀的话就在 version 里）
+    // marker 一起带出：同一个包在 lock 里可能按平台分成多条
     //   （实测某台的 torch 同时有 PyPI 与 whl/cu128 两条），
-    //   ⛔ 只取第一条会拿到不适用于本机的那条。
+    //   只取第一条会拿到不适用于本机的那条。
     const marker = (b.match(/marker\s*=\s*"([^"]*)"/) || [])[1] || null
     out.push({ name, version, source, marker, spec: `torch==${version}` })
   }
@@ -391,17 +391,17 @@ function parseUvLock (text) {
 /**
  * 从 uv.lock 读出 torch 的**纯版本号**（剥掉 +cu128 / +xpu 这类后缀）。
  *
- * ⭐ 为什么需要它：lock 里写的是 `2.8.0+cu128`，而同一版本号在
+ * 为什么需要它：lock 里写的是 `2.8.0+cu128`，而同一版本号在
  *   xpu / cpu / rocm 线上各有自己的 wheel（实测 torch-2.8.0+xpu-cp311-win_amd64
  *   与 torch-2.8.0+cu128-cp311-win_amd64 同时存在）。
- *   ⇒ lock 锁的是**版本号**，⛔ 不是后端。想换后端不必放弃锁文件。
+ *   ⇒ lock 锁的是**版本号**，不是后端。想换后端不必放弃锁文件。
  *
  * ⚠️⚠️ 同一个 torch 在 lock 里**可能有多条记录**，按 marker 分流。实测某台
  *   已装引擎的 uv.lock：
  *     version = "2.8.0"        source = PyPI        marker = 非 win32/linux
  *     version = "2.8.0+cu128"  source = whl/cu128   marker = win32 或 linux
- *   ⇒ ⛔ 取第一条会漏掉真正适用于本机的那条（它没有后缀 ⇒ 判成 cpu/null）。
- *   ✅ 规则：**带后缀的优先**；都带后缀时取与当前平台匹配的那条。
+ *   ⇒ 取第一条会漏掉真正适用于本机的那条（它没有后缀 ⇒ 判成 cpu/null）。
+ *   规则：**带后缀的优先**；都带后缀时取与当前平台匹配的那条。
  *
  * @param {string} text uv.lock 全文
  * @param {string} [platform] process.platform，默认取当前平台
@@ -410,7 +410,7 @@ function parseUvLock (text) {
  *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
  */
 /**
- * ⭐ 锁文件里挑 torch 那一行的判据（readTorchPin 与 readTorchFamilyPins 共用）。
+ * 锁文件里挑 torch 那一行的判据（readTorchPin 与 readTorchFamilyPins 共用）。
  *
  * ⚠ 为什么必须是函数而不是内联：两条读法对「同一包有多条记录」的要求**完全相同**，
  *   各写一份就会漂（曾经 readTorchPin 内联了一份，family 那条若再抄一遍，
@@ -457,7 +457,7 @@ function readTorchPin (text, platform) {
 }
 
 /**
- * ⭐⭐ torch **系**（不止 torch 一个）的锁定版本。
+ * torch **系**（不止 torch 一个）的锁定版本。
  *
  * ⚠⚠ 为什么必须有这个函数（Owner 2026-10-12 真机验收发现）：
  *   过去「装本机后端」那一步只装 torch 一个包 ⇒ 真机上装出来的是
@@ -466,10 +466,10 @@ function readTorchPin (text, platform) {
  *   而 torchaudio 是引擎代码里 import 了 20 处的必需依赖 ⇒ 引擎跑不起来。
  *   根因：**torch 系是一族必须版本配对、同一个 index 的包**，
  *   只换其中一个，等于留下一个错后端的兄弟。
- *   ⭐ 实测：xpu 索引上 `torchaudio==2.8.0` 解析出来就是 `2.8.0+xpu`
+ *   实测：xpu 索引上 `torchaudio==2.8.0` 解析出来就是 `2.8.0+xpu`
  *     （同一版本号、同一个索引自动配对），所以整族一起装是对的。
  *
- * ⛔ 锁文件里**没有**的兄弟包不凭空加：
+ * 锁文件里**没有**的兄弟包不凭空加：
  *   torchvision 常常不在锁里（引擎不用视觉）⇒ 加了就是替用户决定。
  *
  * @param {string} text uv.lock 全文
@@ -484,7 +484,7 @@ function readTorchFamilyPins (text, platform) {
   const torchRow = preferLockRow(torchCands, plat)
   const plain = String(torchRow.version).replace(/\+.*$/, '')
   const out = [{ name: 'torch', plain }]
-  // ⭐ 顺序固定（先音频后视觉）：命令与界面上都要稳定，不按文件系统顺序。
+  // 顺序固定（先音频后视觉）：命令与界面上都要稳定，不按文件系统顺序。
   for (const sib of ['torchaudio', 'torchvision']) {
     const cands = rows.filter((r) => r.name.toLowerCase() === sib && r.version
       && String(r.version).replace(/\+.*$/, '') === plain)

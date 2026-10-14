@@ -1,12 +1,12 @@
 'use strict'
 // ============================================================================
-//  SAVE BRIDGE —— 把「填好了，存到盘上」这件事接起来
+//  SAVE BRIDGE：把「填好了，存到盘上」这件事接起来
 //
-//  ⭐ 两件事：
+//  两件事：
 //   GET  /wizard/installed  → 已装了哪些（覆盖前先看一眼）
 //   POST /wizard/save        → 存盘
 //
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
+//  纪律：不许出现任何具体引擎名。
 // ============================================================================
 
 const path = require('node:path')
@@ -22,9 +22,9 @@ function handleInstalled (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/installed')) return false
   try {
-    // ⭐ ?all=1：列出 engines/ 下**所有**文件夹（含还没名片的）——
+    // ?all=1：列出 engines/ 下**所有**文件夹（含还没名片的），
     //   「新建名片」入口靠它列出第 1 步克隆来、还没写名片的引擎。
-    //   ⛔ 默认仍只列有 manifest 的（不改老行为）。
+    //   默认仍只列有 manifest 的（不改老行为）。
     const all = /[?&]all=1/.test(req.url)
     json(res, 200, { engines: listInstalled({ all }) })
   } catch (e) {
@@ -74,17 +74,17 @@ function handleSave (req, res) {
 }
 
 /**
- * GET /wizard/manifest/<id> —— 读一张**已装**引擎的名片
+ * GET /wizard/manifest/<id>：读一张**已装**引擎的名片
  *
- * ⭐ 为什么平台自己没有这个端点
+ * 为什么平台自己没有这个端点
  *   查过了：lib/routes/engines.js 只提供列表（GET /api/engines），
- *   ⛔ 没有「按 id 取原始 manifest.json」的接口。
+ *   没有「按 id 取原始 manifest.json」的接口。
  *   而向导是独立工具，不往产品里塞代码 ⇒ 这里自己读盘。
  *
- * ⛔ 安全：⛔ 只读 engines/ 之内，且 id 必须先过 validateId
- *   （拦掉 ../escape 这类）—— 读盘也一样要防路径穿越。
+ * 安全：只读 engines/ 之内，且 id 必须先过 validateId
+ *   （拦掉 ../escape 这类）：读盘也一样要防路径穿越。
  *
- * ⛔⛔ 必须用 req.url，不是 req.path。
+ * 必须用 req.url，不是 req.path。
  *    Vite 的 connect 给的 req.url 是带查询串的原文；req.path 有时是 undefined
  *    （实测 2026-10-03：500 "path argument must be of type string"）。
  */

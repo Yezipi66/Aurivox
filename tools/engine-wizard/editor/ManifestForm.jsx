@@ -7,10 +7,10 @@ import CliGenPanel from './CliGenPanel'
 import CoreBindings from './CoreBindings'
 
 // ============================================================================
-//  MANIFEST FORM ——   名片填表（不是 JSON 编辑器）
+//  MANIFEST FORM：名片填表（不是 JSON 编辑器）
 //
 //      这个组件存在的理由
-//  上一版左侧是个 <textarea> 装 JSON —— 那是**代码编辑器**，不是填表。
+//  上一版左侧是个 <textarea> 装 JSON：那是**代码编辑器**，不是填表。
 //  它要求用户：会写 JSON + 记得住几十个键的语义 + 知道哪些填错不报错。
 //   只有技术用户能用，而且技术用户也懒得填。
 //
@@ -22,13 +22,13 @@ import CoreBindings from './CoreBindings'
 //
 //      全部用项目类：.section / .field / .field-label / .field-hint /
 //    .control / .param-grid / .plan-warn / .rc-cmd / .expert-block /
-//    .expert-summary / .badge / .msg ——     一个自造的 mf-*/pr-* 都不留。
+//    .expert-summary / .badge / .msg：一个自造的 mf-*/pr-* 都不留。
 //
 //      纪律：不许出现任何具体引擎名。
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// 分组标题 ——   用**平台的词汇**，不自己造中文名
+// 分组标题：用**平台的词汇**，不自己造中文名
 //  为什么不是「怎么起进程」这种说法：平台自己的界面从不这么叫它。
 //   造一套「更friendly」的说法 = 造第二套词汇，用户学的是我的词、
 //   填的是平台的键，两边对不上。 显示键名，说明放在 fieldmeta 的 howto 里。
@@ -56,12 +56,12 @@ const GROUP_ORDER = [
 const HIDDEN_KEYS = ['id', 'label', 'contract_version']
 
 //   这三段是**嵌套结构**，有专门的编辑器（NestedSections.jsx），
-//    不能「一个键一个 input」—— 那样只显示说明、填不了值。
+//    不能「一个键一个 input」：那样只显示说明、填不了值。
 //     归属（2026-10-10 定）：call 的完整编辑器常驻 L1 核心绑定区；
 //     runtime 归 L2、models 归 L3。三个编辑器**无条件渲染**，不靠 spec 平铺字段判空。
 const NESTED_GROUPS = ['runtime', 'call', 'models']
 
-//   段容器键本身 —— 这些键的值是**对象或数组**（不是标量），
+//   段容器键本身：这些键的值是**对象或数组**（不是标量），
 //      绝不能走平铺 Field（input 会把对象渲染成 [object Object]，改了就毁数据）。
 //    · runtime/call/models 有专门嵌套编辑器（NestedSections）
 //    · capabilities/weights/upstream/install 是嵌套对象/数组，各有归属区或专门处理
@@ -169,7 +169,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
         </div>
       </div>
 
-      {/*   .param-grid —— 项目给「一堆小字段」准备的（2 列，gap 10px，
+      {/*   .param-grid：项目给「一堆小字段」准备的（2 列，gap 10px，
           而且 .param-grid label 自带 11px muted 的标签样式）*/}
       <div className="param-grid">
         <label><span>label</span>
@@ -234,7 +234,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
       </div>
 
       {/*   折叠用**项目的** .expert-block + .expert-summary
-          （    不再用裸 <details> —— 那个没有边框/间距，
+          （    不再用裸 <details>：那个没有边框/间距，
             跟整页所有其它折叠长得不一样）*/}
       <details className="expert-block" style={{ marginTop: 8 }}>
         <summary className="expert-summary">
@@ -285,14 +285,14 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 //   从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）
 //
 //     三条纪律（硬约束，违反即返工）：
-//   1. 只填**表单**，  绝不直接写 manifest.json —— 落盘是用户按「保存」的事
+//   1. 只填**表单**，  绝不直接写 manifest.json：落盘是用户按「保存」的事
 //   2. 映射候选只给候选，**人点选之后**才写 maps，  绝不自动落盘
-//   3. 不新增任何平台侧校验逻辑 —— 界面只展示「反射说了什么」
+//   3. 不新增任何平台侧校验逻辑：界面只展示「反射说了什么」
 
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-//   主组件 —— 「生成优先」版（2026-10-10 重写，.bak 是旧的字段优先版）
+//   主组件：「生成优先」版（2026-10-10 重写，.bak 是旧的字段优先版）
 //
 // 操作流（Owner 定的）：
 //   ① 顶部：从 CLI 扫描生成（新建/读取名片 → 扫描参数 → 参数表 → 自动填）
@@ -306,7 +306,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   const { installed } = useInstalled()
 
   //   扫描状态：CliGenPanel 扫成功后回调 onScanDone(true)  核心绑定区展开
-  //   + 滚动定位到绑定区。  这不是 CliGenPanel 的内部状态 —— 主组件要
+  //   + 滚动定位到绑定区。  这不是 CliGenPanel 的内部状态：主组件要
   //   据此开合 L1 的绑定区，所以上提到这里。
   const [scanDone, setScanDone] = React.useState(false)
   const bindRef = React.useRef(null)
@@ -354,12 +354,12 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
 
   //   byGroup 构建：嵌套段（runtime/call/models）**保留**在 byGroup 里。
   //       曾经这里有一行 `if (NESTED_GROUPS.includes(s.group)) continue`，
-  //     把 runtime/call/models 三段从 byGroup 剔掉了 —— 导致下面
+  //     把 runtime/call/models 三段从 byGroup 剔掉了：导致下面
   //     RuntimeSection/ModelsSection 两个嵌套编辑器不渲染，
   //     用户在这些区改不了任何嵌套字段（P1 漏网的阻塞 bug）。
   //    修法：嵌套组照样进 byGroup，嵌套编辑器**无条件**渲染（见 L2/L3 JSX）。
   //     但「段容器键本身」（runtime/call/models/weights/capabilities…值非标量）
-  //     要从平铺渲染里剔除，否则 Field 会把对象渲染成 [object Object] ——
+  //     要从平铺渲染里剔除，否则 Field 会把对象渲染成 [object Object]，
   //     这原是那行 continue 顺带避开的问题，删掉 continue 后必须显式处理。
   const byGroup = {}
   for (const s of spec.sections) {
@@ -382,7 +382,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   //
   //   call 段归属说明（避免同一份 manifest.call 渲染两遍）：
   //   call 的完整编辑器（CallSection）常驻在 L1 核心绑定区。
-  //     L2 **不再**重复放 call —— 否则一个 call 两个编辑器，改一处另一处
+  //     L2 **不再**重复放 call：否则一个 call 两个编辑器，改一处另一处
   //   不同步。所以 l2Nested 只留 runtime。
   const L2_GROUPS = ['runtime', 'capabilities']
   const L3_GROUPS = ['source', 'models', 'install', 'output']
@@ -403,7 +403,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
 
   // 「有值时提示」：L2/L3 折叠标题上挂徽标，一眼看出这折叠里已有内容
   //   键路径要取对：args/cwd 在 runtime 下、streaming 在 capabilities 下，
-  //     不是顶层键 —— 取顶层会永远取空，徽标永不出现。
+  //     不是顶层键：取顶层会永远取空，徽标永不出现。
   const hasVal = (paths) => paths.some((path) => {
     const v = path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), manifest)
     return v !== undefined && v !== null && v !== ''
@@ -411,17 +411,17 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
 
   //   核心绑定区（call.bind）在 L1 常驻展开（RFC 第 1 章：L1 核心常驻）。
   //   扫描成功不改变其开合，只触发滚动定位（见上方 useEffect）。
-  //     不再用 bindOpen 变量控制 details —— 绑定区是 L1，不是折叠项。
+  //     不再用 bindOpen 变量控制 details：绑定区是 L1，不是折叠项。
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/*     L1 ① 扫描面板 —— 第一屏只做这个（选引擎 + 扫描 + 自动填） */}
+      {/*     L1 ① 扫描面板：第一屏只做这个（选引擎 + 扫描 + 自动填） */}
       <CliGenPanel manifest={manifest} onChange={onChange}
         onScanDone={() => setScanDone(true)}
         onAutoFilled={({ matched, argList }) => setAutofill({ matched, argList })} />
 
-      {/*     L1 ② 核心绑定区 —— 区 1 核心映射（combobox + 匹配状态） */}
+      {/*     L1 ② 核心绑定区：区 1 核心映射（combobox + 匹配状态） */}
       <div ref={bindRef}>
         <CoreBindings call={manifest.call} onChange={(x) => set('call', x)}
           candidates={autofill && autofill.argList || []}
@@ -455,7 +455,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
           ))}
           {/*     L2 嵌套段：runtime（全量嵌套编辑器）。
                 曾经这里用 l2Nested.map + byGroup 判空，恒为空  不渲染（阻塞 bug）。
-              现在无条件渲染 RuntimeSection —— 嵌套字段（python/entry/args/
+              现在无条件渲染 RuntimeSection：嵌套字段（python/entry/args/
               ready_endpoint/ready_timeout_ms/verify…）都要能改。 */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
@@ -497,7 +497,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
           ))}
           {/*     L3 嵌套段：models（全量嵌套编辑器）。
                 曾经这里用 l3Nested.map + byGroup 判空，恒为空  不渲染（阻塞 bug）。
-              现在无条件渲染 ModelsSection —— 嵌套字段（required/hint/
+              现在无条件渲染 ModelsSection：嵌套字段（required/hint/
               source.url/source.command）都要能改。 */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
@@ -505,7 +505,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
               <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
             </div>
           </div>
-          {/* 界面参数区 —— 参数表（永远折叠） */}
+          {/* 界面参数区：参数表（永远折叠） */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('parameters')}</h2></div>
             <div className="section-body">
