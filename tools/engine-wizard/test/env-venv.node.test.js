@@ -1,36 +1,24 @@
 'use strict'
-// ============================================================================
-//  第 2 步的**隔离环境**（engines/<id>/.venv）
+// 第 2 步的隔离环境（engines/<id>/.venv）
 //
-//  ⭐ 为什么单开一个文件：env.node.test.js 守的是「装法有据可依」，
-//    本文件守的是**装之前先把环境建出来**。
+// 为什么单开一个文件：env.node.test.js 守的是「装法有据可依」，
+//    本文件守的是装之前先把环境建出来。
 //    两者是同一个步骤的两件事，混在一个文件里会让失败名看不出是哪件。
 //
-//  ⚠ 病症实况（Owner 2026-10-12 判定 P0）：
-//    平台原来从头到尾⛔ 没有一处建 engines/<id>/.venv，
-//    装依赖那步就是裸 `uv pip install -r requirements.txt`
-//    ⇒ uv 报「No virtual environment found; run 'uv venv' to create one」
-//    ⇒ 用户压根创建不了引擎的 Python 环境。
+// uv 选目标环境的唯一可靠方式是 `-p/--python <绝对路径>`。
+//    设 VIRTUAL_ENV 环境变量无效（uv 认自己所在的那个环境，环境变量压不住）。
+//    `--python <相对路径>` 也无效，uv 报「No virtual environment ... for path」。
+//    ⇒ 所以装依赖那步必须把目标解释器的绝对路径写进 argv。
 //
-//  ⛔⛔ 三条实测得来的硬约束（Owner 2026-10-12 亲自跑过，不要再猜）：
+// uv sync 的 `-p/--python` 不是「装进哪个解释器」，
+//    而是「用哪个解释器当基准建项目环境」——
+//    `uv sync --python <某个已存在的 venv>` 会照锁装完、看着成功，
+//    但装进的是它在项目目录新建的 .venv，目标 venv 里根本没有那个包。
+//    ⇒ sync 那条路的正确写法是 `UV_PROJECT_ENVIRONMENT=<绝对路径>`。
+//    这个陷阱静默成功（退出码 0），比报错更难发现。
 //
-//   ① uv 选目标环境的**唯一**可靠方式是 `-p/--python <绝对路径>`。
-//      设 VIRTUAL_ENV 环境变量⛔ 无效（uv 认自己所在的那个环境，环境变量压不住）。
-//      `--python <相对路径>` 也无效，uv 报「No virtual environment ... for path」。
-//      ⇒ 所以装依赖那步必须把目标解释器的**绝对路径**写进 argv。
-//
-//   ② ⛔ uv sync 的 `-p/--python` **不是**「装进哪个解释器」，
-//      而是「用哪个解释器**当基准建项目环境**」——
-//      实测 `uv sync --python <某个已存在的 venv>` 会照锁装完、看着成功，
-//      ⛔ 但装进的是它**在项目目录新建的 .venv**，目标 venv 里根本没有那个包。
-//      ⇒ sync 那条路的正确写法是 `UV_PROJECT_ENVIRONMENT=<绝对路径>`。
-//      ⛔ 这个陷阱静默成功（退出码 0），比报错更难发现。
-//
-//   ③ conda env create 自己会建环境 ⇒ ⛔ 不许再塞一步 uv venv 过去，
-//      否则同一个环境被建两遍。
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
+// conda env create 自己会建环境 ⇒ 不许再塞一步 uv venv 过去，
+//    否则同一个环境被建两遍。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
