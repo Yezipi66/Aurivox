@@ -1363,15 +1363,30 @@ function sitePackagesNonEmpty (venvDir) {
 }
 
 /**
- * ⭐ 某一步的产物是否还在。
+ * 某一步的产物是否还在。
+ *
+ * 只判断「命令执行完该留下的东西」在不在，不看命令文本：
+ *   建环境那步（skipIfExists）→ 引擎 venv 的解释器能起
+ *   装包那步 → 目标 venv 的 site-packages 非空
+ * 认不出的步（如 conda、纯脚本）→ 返回 true，按旧行为交给命令文本判重，
+ *   不因为「不认识」就把已经完成的步骤重跑一遍。
  *
  * @param {object} step 计划里的一步
  * @param {string} root 项目根
- * @param {string} id   引擎 id
- * @returns {boolean} true = 产物还在，可以跳过；false = 产物没了，必须重跑
+ * @param {string} id 引擎 id
+ * @returns {boolean} 产物在不在
  */
 function stepArtifactExists (step, root, id) {
-  // 变异：永远返回 true（旧行为：只看命令文本，不检查产物）
+  const venvDir = engineVenvDirAbs(root, id)
+  if (step && step.skipIfExists) {
+    // 建环境那步：解释器能起才算产物在（只有目录不算，空壳 venv 会骗过存在性检查）
+    return canUseEngineVenv(root, id)
+  }
+  const argv = (step && step.argv) || []
+  const joined = argv.join(' ')
+  if (/\b(uv|pip)\b/.test(joined) && /\b(install|sync)\b/.test(joined)) {
+    return sitePackagesNonEmpty(venvDir)
+  }
   return true
 }
 
