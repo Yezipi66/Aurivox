@@ -1,25 +1,12 @@
 'use strict'
-// ============================================================================
 //  buildCliDraft：走命令行（cli 形态）的草稿生成
-//
-//  与「反射函数签名」那条线（paramsFromReflect.js）的根本区别：
-//     这条路**不读函数签名**，直接以上游命令行的 --flag 为参数。
-//     ⇒ 卡点 6/7 自动解：flag 本身就是参数，官方 help 直接挂它上面，
-//       不用猜 flag↔函数参数的对应，不用平台编中文名。
-//
 //  输入：cliHelp.collectCliHelp(dir) 的结果 {ok, flags, by_dest, sources}
 //  输出：{
 //    ok, subcommands,        // 上游有哪些子命令（synth/infer/…）
 //    args,                   // 每个 flag 一条 {name, flag, style, help, required, is_tool}
 //    suggested_call,         // 建议的 cli 形态 call 段骨架 {kind, argv, bind, args}
 //  }
-//
-//  纪律：一条 flag 都不删、help 原样递出、不猜哪个子命令是"对的"，
-//     全列出来，标 subcommand，人自己选。
-// ============================================================================
 
-// 工具/加载类 flag：装引擎时定一次，不是每次合成要配的。
-// ⚠ 只是**分类标记**（is_tool），不删，用户能看到全貌自己判断。
 const TOOL_FLAGS = new Set([
   'model_dir', 'model-dir', 'device', 'fp16', 'deepspeed', 'cuda_kernel', 'cuda-kernel',
   'accel', 'torch_compile', 'torch-compile', 'verbose', 'force', 'dry_run', 'dry-run',

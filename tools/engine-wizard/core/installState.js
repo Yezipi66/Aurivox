@@ -1,43 +1,15 @@
 'use strict'
-// ============================================================================
-//  INSTALL STATE：「这台引擎现在装到哪了」的**唯一判据来源**
-//
-//  存在理由：完成状态（流程条上的对勾）只由**真实产物**判，不由
-//    「用户点过什么」判。点过下一步不等于做完：实际可能压根没解析成功。
-//
-//  纪律：不许出现任何具体引擎名。
-//   这个模块给**任意**上游用；写死任何一个名字，另一台就判不出来。
-//
-//  与 steps.js 的关系：这里是 stepDone(stepKey, facts) 里那份 facts 的
-//    生产端：前端拿 install-state 端点的返回直接喂 stepDone，两边同源，
-//    不许在别处再写第二份「装好没有」的判据。
-// ============================================================================
-
 const fs = require('node:fs')
 const path = require('node:path')
 
 /** 进度文件名（env 与 models 两段合并在同一个文件里） */
 const INSTALL_FILE = '.wizard-install.json'
 
-/**
- * 进度文件路径：engines/<id>/.wizard-install.json
- *
- * 2026-10-12 Owner 裁决合并：原来是两份形状相同的文件
- *   .wizard-env-progress.json（env.js）与 .wizard-download-progress.json
- *   （download.js），已退役。Owner 会手动清一次旧文件，所以这里无需
- *   向后兼容，也不再写那两个旧名字。
- */
 function progressFile (root, id) {
   return path.join(root, 'engines', String(id || ''), INSTALL_FILE)
 }
 
-/**
- * 读进度文件：形状 `{ engine, updatedAt, env:{done:[]}, models:{done:[]} }`
- *
- * @param {'env'|'models'} section 两段互不干扰：env 的 done 与 models 的 done
- *        是两套 key（前者是 argv，后者也是 argv，但属于两条不同的安装线）。
- * @returns {Set<string>} 已完成的 key 集合
- */
+
 function readProgress (root, id, section) {
   const sec = section === 'models' ? 'models' : 'env'
   const f = progressFile(root, id)
@@ -50,12 +22,7 @@ function readProgress (root, id, section) {
   return new Set()
 }
 
-/**
- * 写进度文件：**只改自己那一段**，另一段原样保留。
- *
- * 不许整份重写：env 写盘时把 models 的 done 抹掉，反过来也是。
- *   两段各自独立，所以每次都是 read-modify-write 单段。
- */
+
 function writeProgress (root, id, section, doneKeys) {
   const sec = section === 'models' ? 'models' : 'env'
   const f = progressFile(root, id)
@@ -110,19 +77,6 @@ function resetProgress (root, id, section) {
     fs.writeFileSync(f, JSON.stringify(clear(sec), null, 2), 'utf8')
   } catch (e) { /* 写不进就当已经清了 */ }
 }
-
-// ---------------------------------------------------------------------------
-//  产物判定：「这台引擎现在装到哪了」
-//
-//  判据全部是**盘上的东西**：
-//    prepare   → engines/<id>/ 是不是一个真克隆（目录在 + 有内容）
-//    env       → 该引擎 .venv 的 python 能不能 spawn
-//    models    → checkpoints 目录在不在 + 里面有没有非空文件
-//    manifest  → manifest.json 在不在
-//    verify    → 不猜：这一步的检测逻辑尚未实现，恒 false
-//
-//  这里不许写死任何引擎名；不许读 localStorage（那是前端的事）。
-// ---------------------------------------------------------------------------
 
 /** 目录在，且不是一个空壳（clone 完至少有一个条目） */
 function dirHasContent (dir) {
