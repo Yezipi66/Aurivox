@@ -8,25 +8,8 @@ import { folderName } from './folderName'
 //  STEP PREPARE：第 1 步：链接 → 探测 → 克隆
 // ============================================================================
 
-/**
- * 从链接里猜项目名：目录名留空时用它做灰字预览。
- *
- * **必须是仓库根的最后一段**：
- *   别人常复制 https://github.com/o/r/tree/main 这样的链接，
- *   所以只取 github.com 后面的 owner/repo 两段里的第二段。
- *   这只用于填空时的预览；真 id 永远来自 resolve 端点（它有完整校验）。
- */
-/**
- * 后端错误的**双语文案表**：键名 = 后端的 code。
- *
- * 文案只说三件事：缺什么、正确的样子是什么、下一步做什么。
- *   不解释平台的设计原则（「只认 GitHub」「平台不替你猜」），
- *     那是内部规则，用户要的是「这个框该怎么填」。
- *   不出现内部路径（registry.js:83 / docs/ROOT_LAYOUT.md 之类）。
- * 文案住前端，不住后端：core/resolve.js 只回 { code, params }。
- *   否则切到英文时后端仍是中文句子，而 {res.error} 会原样渲染。
- *   判据：新增错误时先在 core 放 code，再来这里加两行。
- */
+/** 从链接里猜项目名：目录名留空时做灰字预览；真 id 永远来自 resolve 端点。 */
+/** 后端错误的双语文案表：键名 = 后端 code；新增错误时先放 core，再来这里加两行。 */
 const ERR_TEXT = {
   // 不是错误，是「我们把你的链接改了」的告知
   TRIMMED_TAIL: [
@@ -80,17 +63,8 @@ function guessRepoFromUrl (raw) {
 }
 
 /**
- * 许可证那一格显示什么。
- *
- * ⚠ 这一格直接渲染 meta.license，而 meta.license 是**值字段**：
- *   它只装许可证标识（SPDX id）或 null，不装句子。
- *   ⚠ 探针曾在「只看到许可证文件」时把值写成一句英文描述，
- *     于是那句话原样出现在界面上，而它本该是元数据。
- *   ⇒ 读不出标识时，用 licenseEvidence 这个**事实字段**说清楚，
- *     并且在这里翻译成人话（中文侧不许出现英文句子）。
- *
- * @param {object|null} meta 探测返回的 meta
- * @param {Function} t 双语函数 t(英文, 中文)
+ * 许可证那一格：meta.license 是值字段（SPDX id 或 null）。
+ * 读不出标识时用 licenseEvidence 事实字段说清楚，中文侧不许出现英文句子。
  */
 function licenseText (meta, t) {
   if (!meta) return '—'
@@ -106,8 +80,6 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
   const [idInput, setIdInput] = React.useState(state.id || '')
-  // 这四份结果**住在 App 那层**（prep），不是本组件的局部 state，
-  //   否则切走步骤再切回来就全没了（实测复现，见 App.jsx）。
   const res = prep.res || null
   const probe = prep.probe || null
   const plan = prep.plan || null
@@ -115,17 +87,10 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const [busy, setBusy] = React.useState('')
   const [unlocked, setUnlocked] = React.useState(false)
 
-  // 上次**解析成功**时链接框里是什么：用来判「用户是不是改了链接」
-  //   必须在 res 之后声明（写反了 ⇒ TDZ：Cannot access 'res'，整页白屏）
+  // 上次解析成功时链接框里的值，用于判「用户是否改了链接」；必须在 res 之后声明（TDZ）。
   const lastResolved = (res && res.input) || ''
 
-  // ⚠⚠⚠ **只写一个 patch**：setRes/setProbe/… 只是名字不同的同一入口。
-  //   四个闭包拿的是**同一帧的 prep 快照** ⇒ 分开写会把前一个抹回 null
-  //   （实测：probe 成功、res:null ⇒ 整块不渲染）。
-  // 原来写的是 `onPrep({ ...prep, [k]: v })`：闭包里的 prep
-  //   是**这一帧的快照**，同一帧里连续写两次（resolve 先写 res、
-  //   探测再写 probe）后写的会把先写的覆盖掉（实测 probe 有、res 是 null）。
-  // 函数式更新拿到的是最新值，与帧无关。
+  // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
   const patch = (k, v) => onPrep((w) => ({ ...w, [k]: v }))
   const setRes = (v) => patch('res', v)
   const setProbe = (v) => patch('probe', v)
@@ -141,38 +106,27 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     return r.json()
   }
 
-  // 不填目录名时的默认值 = 仓库根链接的最后一段
-  // 目录名的**唯一来源**：输入框里敲的优先，留空才用仓库名。
-  //   没有 state.id（持久段里的旧 id）：那是上一次安装的结果，
-  //     拿它顶上来就是 Owner 2026-10-13 抓到的「同屏两个目录名」。
-  //   这一行同时喂给：克隆请求 / 命令文案 / 目标路径 / 风险文案
-  //     ⇒ 四处由同一个值驱动，不各算一份。
+  // 不填目录名时的默认值 = 仓库根链接的最后一段；没有 state.id 来源（旧 id 会造成双 id）。
+  //   这一行同时喂给克隆请求 / 命令文案 / 目标路径 / 风险文案。
   const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
   const curId = folderName({ typed: idInput, suggested: autoId })
 
   // ---- ① 解析（本地，不联网）+ 紧接着只读探测 ----
   const resolve = async () => {
     setBusy('link')
-    // 解析只用输入框里的值（不发 state.id 的旧值）。
-    //   留空时后端的 id 参数故意不给：parseRepoUrl 会自己猜一个建议值，
-    //   那时让旧 id 顶上来就是把上次那个引擎的目录名又找回来。
+    // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
     const j = await post('/wizard/resolve', {
       url, id: (idInput.trim() || undefined),
     })
-    // res 与 probe 一起写，一次到位（分两次写会让探测结果被覆盖）
-    //   ⚠ 必须打 /wizard/probe：它返回 meta（包名/命令/依赖清单）；
-    //     /wizard/deps 返回的是 deps，没有 meta。
+    // 必须打 /wizard/probe（返回 meta）；/wizard/deps 只返回 deps。
     let probeJ = null
     if (j.ok) {
       try { probeJ = await post('/wizard/probe', { url: j.url }) }
       catch (e) { /* 探测失败不阻断：克隆那步照样能看 */ }
     }
-    // 解析成功的这一刻 = 目录名唯一一次从响应回写父组件的时机
-    //   （wz.id 于是永远是「最近一次成功解析出来的那个」）
     const resolvedName = j.ok ? folderName({ typed: idInput, suggested: j.id }) : ''
     onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
     if (j.ok) {
-      // 用户没自己填目录名 ⇒ 用解析出来的（别覆盖成空）
       if (!idInput.trim()) setIdInput(j.id)
       onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
     }
@@ -189,15 +143,10 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   }
 
   // ---- ③ 克隆（⚠ 这一步才写盘）----
-  // 目录名单源：curId 是这一步唯一的 id 来源，不再有 state.id。
-  //   旧写法 `id: idInput || state.id` 就是 Owner 抓到的那个双 id bug：
-  //   输入框一空就退化到 localStorage 里的旧 id（上次装的那个引擎），
-  //   于是命令写新目录、克隆请求打旧目录。
+  // curId 是唯一的 id 来源；旧写法 `id: idInput || state.id` 会让输入框空时退化到旧 id。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
-    // 目录名为空 ⇒ 当场拦下，不发请求。
-    //   空着发过去只会看到「The "path" argument must be of type string」
-    //：那是 Node 的内核报错，不是「请填写目录名」。
+    // 目录名为空 ⇒ 当场拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
     if (!curId) {
       setCloneRes({ ok: false, code: 'MISSING_ID',
         error: t('Fill in the directory name first.',
@@ -207,9 +156,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       return
     }
     try {
-      // ⚠ cloneUrl 同时从两处取：父组件的 wz 和本组件的解析结果 res。
-      //   只读 props 的话，解析刚完成时那一帧拿到的还是空的
-      //   （实测：计划里出现 `git clone ''`）。
+      // cloneUrl 同时从 res 和 state 取，只读 props 会在解析刚完成时拿到空值。
       const cloneUrl = (res && res.cloneUrl) || state.cloneUrl
       // 与文案/只读预览同一个 curId：后端按它算 engines/<id>，
       //   前端不另拼一份。
@@ -217,37 +164,16 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
       if (j.ok && execute) {
-        // 克隆成功这一刻必须同时写回 id（用本次真正的 curId）。
-        //   旧写法只写 `cloned: true`，而 id 只在 resolve 里回过一次，
-        //   用户改过目录名、或解析用的是上一次的 URL 时，wz.id 停在旧值，
-        //   于是第 2/3 步拿着**上一台引擎的 id** 去装依赖、下权重
-        //   （2026-10-13 Owner 真机抓到：克隆的是 spark-tts，
-        //    第 2 步三步全绿却全是 indextts2 的路径，spark-tts 连 .venv 都没有）。
+        // 克隆成功时写回 id，否则用户改过目录名后第 2/3 步会拿到旧 id。
         onChange({ cloned: true, id: curId })
         onDone && onDone()
       }
     } finally { setBusy('') }
   }
 
-  // 目标目录由**后端**给（resolve 返回的 targetDir）
-  //
-  // 前端曾经自己拼：window.location.pathname 撕 + 硬编码 '/' 分隔符。
-  //   硬编码 '/' **只在 Linux/mac 上成立**，Windows 上路径是反斜杠 ⇒ 拼出来是错的
-  //   打包分发后目录可能被挪走（lib/paths.js 支持 AURIVOX_APP_DIR 覆盖），
-  //      前端永远算不对，只有后端算得对
-  // 最根本：前端不该知道文件系统长什么样
-  // 拿不到就退回相对路径：绝不显示成空的或假的绝对路径
-  //
-  // 命令与目标路径**必须同源**，否则两者会自相矛盾。
-  //   两个曾经出错的形状：
-  //   ① 用一次解析的快照：用户改目录名时命令跟着变、文案停在旧值，
-  //      界面上同时出现新旧两个目录名。
-  //   ② 拿不到时回落成相对路径 ⇒ 那句「目标：」里的路径凭空消失。
-  // 目标路径实时算：后端给 enginesDir（绝对）+ pathSep（该平台的分隔符），
-  //   前端只 + 目录名 ⇒ 与输入框永远同值、永远同步、没有空档期。
-  //   拿不到 enginesDir ⇒ 不显示路径（宁可不显示，不显示错的）。
-  //   分隔符由后端给：Windows 是 \、Linux/macOS 是 /：前端不猜。
-  //   判据：改目录名时，命令与目标路径必须一起变。
+  // 目标目录由后端给（enginesDir + pathSep），前端不猜文件系统路径。
+  // 拿不到 enginesDir ⇒ 不显示路径，绝不显示空的或假的绝对路径。
+  // 命令与目标路径同源：改目录名时两者必须一起变。
   const enginesDir = (res && res.enginesDir) || null
   const pathSep = (res && res.pathSep) || null
   const relEngineDir = `engines/${curId}/`

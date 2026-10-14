@@ -1,16 +1,4 @@
 'use strict'
-// ============================================================================
-//  SAVE：把填好的名片落盘
-//
-//  落盘规矩**照平台的，不自己发明**
-//  · 位置：engines/<id>/manifest.json（lib/paths.js:236 ENGINES_DIR）
-//  · id 必须与目录名逐字相同，否则平台报 ENGINE_MANIFEST_ID_MISMATCH
-//    （lib/engines/registry.js:59）：这里**提前拦**，不让用户存完才发现
-//  · 目录必须已存在或有 _comment_* 说明：平台有目录清点守卫盯着
-//
-//  安全：不许写到 engines/ 以外的任何地方。
-//  纪律：不许出现任何具体引擎名。
-// ============================================================================
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -66,7 +54,6 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // ---- 4. 目录在不在 ----
-  // 平台不建目录：那是「只验不建」的一部分。
   //    但**我们**是开发工具，建目录是合理的：这里如实说明建了什么。
   let createdDir = false
   if (!fs.existsSync(dir)) {
@@ -91,23 +78,13 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // ---- 6. 注释键**原样保留** ----
-  //  ⚠⚠ 这里曾写着「剥掉下划线开头的键（平台会剥）」：**那是错的**。
-  //
-  //  真相比「平台会剥」更具体（2026-10-04 在四张已装名片上数过）：
-  //  · **每一张**都有 _ 开头的键，少则十来个，多则二十出头
-  //  · 上游作者靠它们写「权重放哪」「这段为什么这么写」：那是名片的**文档**
-  //
   //  平台是在**读取时**剥（lib/engines/registry.js:56 stripComments），
   //    不是写入时剥。写盘时剥 ⇒ 「读回来再存一次」就把文档永久删了。
-  //    （save.node.test.js 的往返用例抓到的就是这条）
-  //
   //  ⇒ 写盘：逐字保留，不做任何过滤。
   const clean = manifest
 
-  // ⚠ 序列化**可能自己抛**（循环引用、BIGINT、超深嵌套）。
   //   这里必须兜住：不然异常一路冒到 HTTP 层变成 500，
   //   而用户填的名片本身没问题：错的是「有一个字段存不下来」。
-  //   （2026-10-03 实测：save.node.test.js 的循环引用用例抓到的就是这条）
   let text
   try {
     text = JSON.stringify(clean, null, 2) + '\n'
@@ -148,9 +125,8 @@ function listInstalled (opts = {}) {
   } catch {
     return []
   }
-  // opts.all：列出**所有**文件夹（含还没名片的）：「新建名片」入口用，
-  //   这样第 1 步克隆来、还没写名片的引擎也能列出来给用户扫描。
-  //   默认（all 不传）行为不变：只列有 manifest 的（测试守着这条）。
+  // opts.all：列出**所有**文件夹（含还没名片的），供「新建名片」入口扫描；
+  //   默认仍只列有 manifest 的（测试守着这条）。
   const withManifest = (n) => {
     const mf = path.join(enginesDir, n, 'manifest.json')
     if (!fs.existsSync(mf)) return null
@@ -170,10 +146,8 @@ function listInstalled (opts = {}) {
 
 /**
  * 读一张已装引擎的名片。
- * 路径穿越防护与写入**同等严格**：读盘也能被 ../ 骗出去。
- *   1) 先过 validateId（禁 / \ : * ? " < > |、禁 .. 开头、禁保留名）
- *   2) 再用 path.relative 确认解析结果仍在 engines/ 之内
- *   3) 两条都过才读盘：只做一条是不够的
+ * 路径穿越防护与写入**同等严格**：先过 validateId，再用 path.relative
+ *   确认解析结果仍在 engines/ 之内，两条都过才读盘。
  */
 function readManifestById (id, opts = {}) {
   const enginesDir = opts.enginesDir || path.join(repoRoot(), 'engines')

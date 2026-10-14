@@ -1,25 +1,4 @@
 'use strict'
-// ============================================================================
-//  CLONE：第 2 步：把上游拉到 engines/<id>/
-//
-//  为什么这一步的判据不是「git 跑成功」
-//  git clone 的失败有两种，形状完全不同：
-//    · 网络/权限失败    ⇒ git 自己报错，可直接看
-//    · 目录非空     ⇒ 「装了一半才发现」的那一种
-//  后者之所以危险，是因为它发生在**流程的后段**（名片已写、环境已建），
-//  那时候失败，前面所有工作都得回滚。
-//  ⇒ 本文件的第一个职责是**动手之前先证明目录是空的**，
-//    而不是指望 git 替我们报这个错。
-//
-//  关于深度克隆（--depth 1）
-//  计划里的顺序是「先克隆，第 5 步才写名片」，所以我们**不知道**将来
-//  要不要 checkout 到某个特定版本。已退役的 installPlan.js:117 记过
-//  按 sha 浅取会被服务端拒绝（uploadpack.allowReachableSHA1InWant 不是
-//  每个托管都开着）。
-//  ⇒ **默认整仓克隆**，浅取交给用户显式要求。不猜。
-//
-//  纪律：不许出现任何具体引擎名。
-// ============================================================================
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -73,9 +52,7 @@ function inspectTarget (id, opts = {}) {
  * @returns {{ok:true, dir} | {ok:false, code, error, entries?}}
  */
 function checkClonable (id, opts = {}) {
-  // 2026-10-13：id 的校验在 buildClonePlan 里已做（MISSING_ID）。
-  //   这里再兜一层，因为它可被单独调用（core/wizardbridge.js 等路径），
-  //   绝不能在这个位置抛 Node path 错。同规格：空/非字符串/纯空格 ⇒ 拒绝。
+  // id 的校验在 buildClonePlan 里已做，但本函数可被单独调用，故此处同样兜底：空/非字符串/纯空格 ⇒ 拒绝。
   if (typeof id !== 'string' || !id.trim()) {
     return { ok: false, code: 'MISSING_ID',
       error: 'No directory name given.\n',
@@ -113,12 +90,6 @@ function checkClonable (id, opts = {}) {
  */
 function buildClonePlan (input = {}) {
   const id = input.id
-  // 2026-10-13 真机踩到：id 缺失时**不报错**，而是让
-  //    path.join(root, 'engines', undefined) 当场抛
-  //    `The "path" argument must be of type string. Received undefined`，
-  //    界面原样渲染那句话：用户看到的是 Node 内核崩溃，不是「请填写目录名」。
-  //    ⚠ cloneUrl 那一条 2026-10-04 就修过（见下），id 这条漏了。同规格补齐。
-  // 空就是空，当场说清：缺 / 非字符串 / trim 后为空，三回事都拦在这里。
   if (typeof id !== 'string' || !id.trim()) {
     return { ok: false, code: 'MISSING_ID',
       error: 'No directory name given.\n',
@@ -126,9 +97,6 @@ function buildClonePlan (input = {}) {
         + '请先填写目录名：它会成为 engines/ 下的文件夹名，并作为 id 写入名片。\n'
         + '粘贴链接并解析成功后，目录名会自动填好。' }
   }
-  // 2026-10-04 实测踩到：cloneUrl 空时**不报错**，
-  //    而是生成 `git clone '' engines/<id>`：一条必然失败的命令，
-  //    还占掉了「看计划」这一步。空就是空，当场说清。
   if (!input.cloneUrl || !String(input.cloneUrl).trim()) {
     return { ok: false, code: 'NO_CLONE_URL',
       error: 'No clone URL given.\n',
@@ -141,11 +109,6 @@ function buildClonePlan (input = {}) {
       entries: clonable.entries }
   }
 
-  // **不接受 branch**（Owner 2026-10-04：「克隆就只克隆默认分支得了」）：
-  //   之前那个分支框是**死控件**：探测打的是 /wizard/probe {url}，压根没用它，
-  //   只有 clone 用；而用户「重读」时读的又是默认分支 ⇒ 填了分支，
-  //   探测结果和实际克隆的代码对不上（2026-10-04 实测确认）。
-  //   留 --branch 在 API 里 = 留一个前端碰不到的参数 ⇒ 删。
   const depth = input.depth === 1 ? ['--depth', '1'] : []
 
   const steps = [
