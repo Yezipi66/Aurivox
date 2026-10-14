@@ -1,17 +1,16 @@
 'use strict'
 // ============================================================================
-//  ⭐ 样式守卫 —— ⛔ 向导不许重定义项目已有的类
+//  样式守卫：向导不许重定义项目已有的类
 //
-//  ⚠ 这份测试存在的理由（2026-10-04 实测）：
-//   editor.css 一度重复定义了 9 个项目已有的类：
+//  editor.css 重复定义过 9 个项目已有的类：
 //     .pipe-map / .pipe-step / .pipe-dot / .pipe-seg
 //     .expert-block / .expert-summary / .expert-warning
 //     .expert-unlock / .expert-fields
 //   而 editor 又 import 了 web/src/styles.css
-//   ⇒ 同名不同义 + 同时加载 ⇒ **谁生效取决于 import 顺序**。
+//   ⇒ 同名不同义 + 同时加载 ⇒ 谁生效取决于 import 顺序。
 //   那不是「不规范」，是渲染结果不确定。
 //
-//  ⛔ 同理：不许重画项目已有的容器。
+//  同理：不许重画项目已有的容器。
 //   项目的规范形状是 section 三件套 / collapsible / field / msg /
 //   form-grid / param-grid / workspace-container（居中）。
 //   向导自己再写一套同形状的，就是两套事实。
@@ -36,7 +35,7 @@ function projectClasses (css) {
   return out
 }
 
-/** 向导 editor.css 里定义的顶层类（⛔ 不含嵌套选择器的后半段） */
+/** 向导 editor.css 里定义的顶层类，不含嵌套选择器的后半段 */
 function wizardClasses (css) {
   const out = new Set()
   for (const line of css.split('\n')) {
@@ -47,9 +46,9 @@ function wizardClasses (css) {
 }
 
 // ---------------------------------------------------------------------------
-// ⭐ P0：同名冲突
+// P0：同名冲突
 // ---------------------------------------------------------------------------
-test('⭐ ⛔ editor.css 不许定义项目已有的类（同名不同义 = 渲染看 import 顺序）', () => {
+test('editor.css 不许定义项目已有的类（同名不同义 = 渲染看 import 顺序）', () => {
   const p = projectClasses(proj)
   const w = wizardClasses(wiz)
   const clash = [...w].filter((c) => p.has(c)).sort()
@@ -59,7 +58,7 @@ test('⭐ ⛔ editor.css 不许定义项目已有的类（同名不同义 = 渲�
     + '   解法：删掉本文件的定义，用项目那份（TrainingTab 就是这么用的）。')
 })
 
-test('⭐ ⭐ 点名那 9 个曾经重名的（回归守卫）', () => {
+test('点名那 9 个曾经重名的（回归守卫）', () => {
   const ONCE_DUP = ['pipe-map', 'pipe-step', 'pipe-dot', 'pipe-seg',
     'expert-block', 'expert-summary', 'expert-warning',
     'expert-unlock', 'expert-fields']
@@ -73,7 +72,7 @@ test('⭐ ⭐ 点名那 9 个曾经重名的（回归守卫）', () => {
 // ---------------------------------------------------------------------------
 // P1：不许重画已有容器
 // ---------------------------------------------------------------------------
-test('⭐ ⛔ 向导必须用项目的容器类，不能自己造同形状的', () => {
+test('向导必须用项目的容器类，不能自己造同形状的', () => {
   // 这些是项目的规范容器，向导的 JSX 里应该出现
   const src = fs.readdirSync(WIZ)
     .filter((f) => f.endsWith('.jsx'))
@@ -89,12 +88,12 @@ test('⭐ ⛔ 向导必须用项目的容器类，不能自己造同形状的', 
   assert.ok(src.includes('workspace-container'),
     '⛔ 没有用项目的 .workspace-container（居中容器）')
 
-  // ③ ⛔ 不许有自造的 mf-section（section 的同形状替代品）
+  // ③ 不许有自造的 mf-section（section 的同形状替代品）
   assert.ok(!/className="[^"]*\bmf-section\b/.test(src),
     '⛔ 还有 mf-section —— 那是重画项目 .section')
 })
 
-test('⭐ ⛔ 不许出现项目的 --radius 之外的圆角写法', () => {
+test('不许出现项目的 --radius 之外的圆角写法', () => {
   // 项目用 var(--radius-sm/md/lg)；裸 px 圆角 = 自创尺度
   const bare = [...wiz.matchAll(/border-radius:\s*([0-9]+)px/g)].map((m) => m[1])
   assert.deepStrictEqual(bare, [],
@@ -102,14 +101,14 @@ test('⭐ ⛔ 不许出现项目的 --radius 之外的圆角写法', () => {
     + '项目用 var(--radius-sm/md/lg)，跟着它走')
 })
 
-test('⭐ ⛔ 不许手抄语义色的 rgba 常量（项目 --danger/--warning/--info/--success 已在用）', () => {
+test('不许手抄语义色的 rgba 常量（项目 --danger/--warning/--info/--success 已在用）', () => {
   // 项目的 .msg-info 就是这么写的：rgba(100,181,246,0.1) ⇒ 允许这一组
   const KNOWN = new Set(['rgba(100,181,246,0.1)', 'rgba(207,102,121,0.14)',
     'rgba(76,175,80,0.1)'])
   const m = [...wiz.matchAll(/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*[\d.]+\s*\)/g)]
     .map((x) => x[0].replace(/\s+/g, ''))
   const odd = [...new Set(m)].filter((x) => !KNOWN.has(x))
-  // 允许 opacity 变体（.1 / .14），⛔ 但透明度不能是我发明的第三种
+  // 允许 opacity 变体（.1 / .14），但透明度不能是我发明的第三种
   const badAlpha = [...new Set(m)]
     .map((x) => (x.match(/,([\d.]+)\)$/) || [])[1])
     .filter((a) => a && !['0.1', '0.14'].includes(a))
@@ -121,7 +120,7 @@ test('⭐ ⛔ 不许手抄语义色的 rgba 常量（项目 --danger/--warning/-
 // ---------------------------------------------------------------------------
 // P2：字号阶梯不许自创
 // ---------------------------------------------------------------------------
-test('⭐ ⛔ 向导的字号不许超出项目的阶梯', () => {
+test('向导的字号不许超出项目的阶梯', () => {
   // 项目的实际字号（styles.css + TrainingTab）：10 / 11 / 12 / 13 / 14
   const ALLOWED = new Set(['10', '11', '12', '13', '14', 'inherit'])
   const bad = [...wiz.matchAll(/font-size:\s*([0-9]+)px/g)]
@@ -133,29 +132,29 @@ test('⭐ ⛔ 向导的字号不许超出项目的阶梯', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 纪律：色板不散落
+// 色板不散落
 // ---------------------------------------------------------------------------
-test('⭐ 向导只用项目的 CSS 变量，不写死颜色字面量', () => {
+test('向导只用项目的 CSS 变量，不写死颜色字面量', () => {
   const hex = [...wiz.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0])
   assert.deepStrictEqual([...new Set(hex)], [],
     `⛔ 有 ${hex.length} 个写死的颜色：${[...new Set(hex)].slice(0, 5).join(', ')} —— `
     + '全部走 var(--text)/var(--muted)/var(--border)/var(--danger) 等')
 })
 
-test('⛔ editor.css 头部必须写清「三条纪律」', () => {
+test('editor.css 头部必须写清「三条纪律」', () => {
   const head = wiz.split('\n').slice(0, 40).join('\n')
   assert.ok(head.includes('不重定义') || head.includes('不许定义'),
     '⛔ 文件头没写「不重定义项目已有的类」这条纪律')
 })
 // ---------------------------------------------------------------------------
-// ⭐ useT() 解构守卫 —— 2026-10-04 今晚犯了 4 次同一个错
+// useT() 解构守卫：用了 lang/t/setLang 就必须从 useT() 解构出来
 // ---------------------------------------------------------------------------
-test('⭐ ⛔ 用了 lang/t/setLang 就必须从 useT() 解构出来', () => {
+test('用了 lang/t/setLang 就必须从 useT() 解构出来', () => {
   const dir = path.join(__dirname, '..', 'editor')
   const bad = []
   for (const f of fs.readdirSync(dir).filter((x) => /\.jsx?$/.test(x))) {
     const src = fs.readFileSync(path.join(dir, f), 'utf8')
-    // 真的在用 lang（比较/取值），⛔ 不是出现在注释里
+    // 真的在用 lang（比较/取值），不是出现在注释里
     const uses = /[^\w.]lang\s*===|\{lang\b|\blang\s*&&/.test(
       src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, ''))
     if (!uses) continue
@@ -168,14 +167,14 @@ test('⭐ ⛔ 用了 lang/t/setLang 就必须从 useT() 解构出来', () => {
     + '   useT() 返回的是对象 {lang, setLang, t}，⛔ 不是函数。')
 })
 
-test('⭐ ⛔ 禁止把 useT() 当函数调用（useT()(...)）', () => {
+test('禁止把 useT() 当函数调用（useT()(...)）', () => {
   const dir = path.join(__dirname, '..', 'editor')
   for (const f of fs.readdirSync(dir).filter((x) => /\.jsx?$/.test(x))) {
     const src = fs.readFileSync(path.join(dir, f), 'utf8')
     const code = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
     assert.ok(!/useT\(\)\s*\(/.test(code),
       `${f}: 把 useT() 当函数调了（useT() 返回的是对象，不是函数）`)
-    // ⛔ 解构出来的 t 必须被当**函数**用（t('en','zh')），而不是当对象
+    // 解构出来的 t 必须被当函数用（t('en','zh')），而不是当对象
     const destr = /const\s*\{([^}]*)\}\s*=\s*useT\(\)/.exec(code)
     if (destr && /\bt\b/.test(destr[1])) {
       assert.ok(/\bt\s*\(/.test(code),
@@ -185,32 +184,25 @@ test('⭐ ⛔ 禁止把 useT() 当函数调用（useT()(...)）', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ⭐ P0-补：具体引擎名 —— ⛔ 连注释和测试都不许出现
+// P0-补：具体引擎名，连注释和测试都不许出现
 //
-// ⚠ 为什么要全局一条（2026-10-05）：
-//   每个文件自己的守卫只查自己那一个文件（resolve.node.test.js 的
-//   「本文件不许出现具体引擎名」查不到 probe.node.test.js 里的）。
-//   ⇒ 实测 test/resolve.node.test.js 里躺着 33 处 OpenBMB/VoxCPM，
-//     而 186 条测试**全绿** —— 守卫有洞，纪律就等于没有。
-// ⛔ 规则：向导是给**任意**上游用的，装谁都得能用。
-//   提一个具体引擎的名字，就等于把那个引擎写进了通用工具。
+// 每个文件自己的守卫只查自己那一个文件，所以需要全局一条：
+// resolve.node.test.js 的守卫查不到 probe.node.test.js 里的。
 // ---------------------------------------------------------------------------
-// ⭐ 已知引擎名清单 —— ⛔ 这份表本身就写着这些名字，
-//   所以扫描时必须跳过「只是在列举它们」的那几行（否则自己告自己）。
+// 已知引擎名清单。这份表本身就写着这些名字，所以扫描时必须跳过
+// 「只是在列举它们」的那几行（否则自己告自己）。
 const ENGINE_NAMES = [
   'voxcpm', 'gpt-sovits', 'gpt_sovits', 'sovits',
   'indextts', 'cosyvoice', 'fish-speech', 'fish_speech',
   'f5-tts', 'emoji-tts', 'emojitts',
 ]
-// ⛔ 本文件里「就是在列举这些名字」的行（清单本身 + 这条测试的注释）
+// 本文件里「就是在列举这些名字」的行（清单本身 + 这条测试的注释）
 const SELF_RE = /ENGINE_NAMES|具体引擎名/
 
-test('⛔⛔ ⭐ 向导的**活代码**不许出现任何具体引擎名', () => {
-  // ⭐ 范围只有 core/ 和 editor/ —— ⛔ 不含 test/。
-  //    理由（2026-10-05 实测）：test/ 里拿真名片当 fixture 是**有意**的，
-  //    validate/verify 的测试就是要证明「对真名片读得进去」，
-  //    换成假名片那条测试就没意义了。
-  //    ⛔ 但 test/ 里**不许在注释里**写具体引擎名当依赖说明。
+test('向导的活代码不许出现任何具体引擎名', () => {
+  // 范围只有 core/ 和 editor/，不含 test/：test/ 里拿真名片当 fixture 是有意的，
+  // validate/verify 的测试就是要证明「对真名片读得进去」。
+  // 但 test/ 里不许在注释里写具体引擎名当依赖说明。
   const dirs = [
     path.join(__dirname, '..', 'core'),
     path.join(__dirname, '..', 'editor'),
@@ -232,13 +224,13 @@ test('⛔⛔ ⭐ 向导的**活代码**不许出现任何具体引擎名', () =>
   }
   assert.deepStrictEqual(bad, [],
     `\n⛔ 活代码里出现了具体引擎名（${bad.length} 处）：\n  ${bad.join('\n  ')}\n`
-    + '  向导是给**任意**上游用的 —— 装谁都该能装，不是只装那一个。\n'
+    + '  向导是给任意上游用的 —— 装谁都该能装，不是只装那一个。\n'
     + '  ⛔ 连注释都不许写：注释里的具体名字会变成隐形的依赖。')
 })
 
-test('⛔⭐ 测试的注释里不许拿具体引擎名当依赖说明', () => {
-  // ⛔ fixture 数据里的引擎名是**允许**的（那是要验证真名片读得进去）；
-  //    ⛔ 但 // 注释 里写「实测 X 的 uv.lock」这种是隐形依赖 ⇒ 禁。
+test('测试的注释里不许拿具体引擎名当依赖说明', () => {
+  // fixture 数据里的引擎名是允许的（那是要验证真名片读得进去）；
+  // 但 // 注释 里写「实测 X 的 uv.lock」这种是隐形依赖，禁。
   const bad = []
   for (const f of fs.readdirSync(__dirname)) {
     if (!f.endsWith('.js')) continue
@@ -259,19 +251,15 @@ test('⛔⭐ 测试的注释里不许拿具体引擎名当依赖说明', () => {
     + '  fixture 数据里可以有（那是故意的），⛔ 注释里不行 —— '
     + '注释是在解释「为什么这样写」，提到具体引擎就变成隐形依赖。')
 })
-
-
 // ---------------------------------------------------------------------------
-// ⭐ P0-补：幽灵类自动检测
+// P0-补：幽灵类自动检测
 //
-// ⚠ 为什么要这条（2026-10-05 实测）：
-//   前任在 JSX 里用了 59 个自己发明的 className，**全项目 CSS 里一个都没有**
-//   ⇒ 文本裸奔、.ed-cols 塌成 block（Manifest 右栏被推到 y=3012）。
-//   ⛔ 当时 186 条测试全绿 —— 因为没有一条测试查「这个类到底存不存在」。
-// ✅ 这条守卫把「用了但没定义」变成红灯，⛔ 不再靠肉眼。
-//   模板字面量里的 ${...} 跳过（那是运行时拼的，静态扫不准）。
+// 前任在 JSX 里用了 59 个自己发明的 className，全项目 CSS 里一个都没有，
+// 结果是文本裸奔、.ed-cols 塌成 block（Manifest 右栏被推到 y=3012）。
+// 这条守卫把「用了但没定义」变成红灯，不靠肉眼。
+// 模板字面量里的 ${...} 跳过（那是运行时拼的，静态扫不准）。
 // ---------------------------------------------------------------------------
-test('⛔⭐ JSX 用到的每个类都必须有定义（幽灵类守卫）', () => {
+test('JSX 用到的每个类都必须有定义（幽灵类守卫）', () => {
   const projCls = new Set()
   for (const m of proj.matchAll(/\.([a-z][a-z0-9_-]*)/g)) projCls.add(m[1])
   for (const m of wiz.matchAll(/\.([a-z][a-z0-9_-]*)/g)) projCls.add(m[1])
@@ -281,7 +269,7 @@ test('⛔⭐ JSX 用到的每个类都必须有定义（幽灵类守卫）', () 
     if (path.extname(f) !== '.jsx') continue
     const lines = fs.readFileSync(path.join(WIZ, f), 'utf8').split('\n')
     lines.forEach((line, i) => {
-      // className="a b"  /  className={`a b`} 两种都扫；⛔ 跳过含 ${} 的（拼出来的）
+      // className="a b"  /  className={`a b`} 两种都扫；跳过含 ${} 的（拼出来的）
       for (const m of line.matchAll(/className=\{?["`]([^"`$]*)["`]/g)) {
         for (const c of m[1].split(/\s+/)) {
           if (!c || !/^[a-z][a-z0-9_-]*$/.test(c)) continue
@@ -298,24 +286,21 @@ test('⛔⭐ JSX 用到的每个类都必须有定义（幽灵类守卫）', () 
 })
 
 // ---------------------------------------------------------------------------
-// ⭐⭐ P0：界面文案的**口吻**守卫（2026-10-05）
+// P0：界面文案的口吻守卫
 //
-// ⚠ 这份守卫来自一次系统复查的结论：技术实现没问题，
-//   但**文案把内部焦虑直接暴露给用户和下一个维护者**。
-//   ⛔ 那不是「措辞偏好」，是产品缺陷 —— 用户看到的是我们的思考过程。
+// 技术实现没问题，但文案把内部焦虑直接暴露给用户和下一个维护者。
+// 那不是措辞偏好，是产品缺陷 —— 用户看到的是我们的思考过程。
 //
-// 📌 判据：凡是**会显示在界面上**的字符串（error/note/why/text/hint
-//   以及 t() 的中文位），一律不许出现下面这些。
+// 判据：凡是会显示在界面上的字符串（error/note/why/text/hint 以及 t() 的中文位），
+// 一律不许出现下面这些。
 // ---------------------------------------------------------------------------
 
 /**
  * 从一行里抽出「用户可见」的字符串内容。
  *
- * ⚠⚠ 2026-10-05 这个函数漏检过两轮，代价是 Owner 亲自指出问题：
- *   它只认 `t('en', '中文')` **函数调用**，
- *   ⛔ 于是对象字面量形式（{ zh: '跟这台机器对得上' }）整个漏掉，
- *   ⛔ 连着「那段代码是死代码（0 处引用）」也一起没被发现。
- *   ⇒ 现在**三种形式都收**。
+ * 它只认 `t('en', '中文')` 函数调用，于是对象字面量形式
+ * （{ zh: '跟这台机器对得上' }）整个漏掉，连着「那段代码是死代码」
+ * 也一起没被发现。现在三种形式都收。
  */
 function visibleStrings (line) {
   const out = []
@@ -325,7 +310,7 @@ function visibleStrings (line) {
   // ② t('en', '中文')
   const m2 = line.match(/,\s*'([^']{3,160})'\s*\)/)
   if (m2) out.push(m2[1])
-  // ③ ⭐ 对象字面量：{ zh: '…' } / { mark:…, en:…, zh:… }
+  // ③ 对象字面量：{ zh: '…' } / { mark:…, en:…, zh:… }
   const m3 = line.match(/\bzh\s*:\s*'([^']{2,160})'/)
   if (m3) out.push(m3[1])
   return out
@@ -342,7 +327,7 @@ const FORBIDDEN_IN_UI = [
   ['契约里明确允许', '拿我们的契约安慰用户'],
   // ③ 破折号解释腔 —— 项目前端几乎不用
   ['——', '破折号解释腔'],
-  // ④ 口语 —— 「对得上」「看不出来」是**人在对话里说的话**，不是界面文案
+  // ④ 口语 —— 「对得上」「看不出来」是人在对话里说的话，不是界面文案
   ['对得上', '说话口气，不是软件文案'],
   ['看不出来', '说话口气，不是软件文案'],
   ['没什么', '口语'],
@@ -356,7 +341,7 @@ const FORBIDDEN_IN_UI = [
   ['docs/', '内部路径'],
 ]
 
-test('⛔⭐ 界面文案不许出现内部术语、emoji、破折号（Owner 2026-10-05 强调的口吻）', () => {
+test('界面文案不许出现内部术语、emoji、破折号', () => {
   const bad = []
   const dirs = [
     path.join(__dirname, '..', 'core'),
@@ -367,7 +352,7 @@ test('⛔⭐ 界面文案不许出现内部术语、emoji、破折号（Owner 20
       if (!['.js', '.jsx'].includes(path.extname(f))) continue
       const lines = fs.readFileSync(path.join(dir, f), 'utf8').split('\n')
       lines.forEach((line, i) => {
-        // ⛔ 跳过注释：⛔ 是我们的**内部**标记，注释里可以用
+        // 跳过注释：⛔ 是我们的内部标记，注释里可以用
         if (/^\s*(\/\/|\*)/.test(line)) return
         for (const str of visibleStrings(line)) {
           for (const [pat, why] of FORBIDDEN_IN_UI) {
@@ -385,9 +370,7 @@ test('⛔⭐ 界面文案不许出现内部术语、emoji、破折号（Owner 20
     + '⛔ 不解释我们为什么这么设计。')
 })
 
-test('⛔ 注释里不许出现用户原话（脏话/情绪化措辞不能进仓库）', () => {
-  // ⚠ 2026-10-05 实测：曾把 Owner 的原话（含脏话）直接抄进注释。
-  //   ⛔ 那进 git 就是事故，CI 扫到要当 P0 处理。
+test('注释里不许出现用户原话（脏话/情绪化措辞不能进仓库）', () => {
   const BANNED = ['妈逼', '你妈', '吊儿郎当', '亮瞎', '作死', '扯淡', '妈的']
   const bad = []
   for (const dir of [path.join(__dirname, '..', 'core'),
@@ -408,29 +391,27 @@ test('⛔ 注释里不许出现用户原话（脏话/情绪化措辞不能进仓
 })
 
 // ---------------------------------------------------------------------------
-// ⭐⭐ P0：JSX 语法守卫 —— **改文案也要能编译**
+// JSX 语法守卫：改文案也要能编译
 //
-// ⚠⚠ 2026-10-05 实测事故：为了改一句文案，把 t('…') 的字符串
-//   拆成多行时漏了右引号 ⇒ `Unterminated string constant`，
-//   ⛔ 整个向导白屏。
-//   ⛔ 而 `node --test` **照样 200+ 全绿** —— 因为测试根本不编译 JSX。
-//   ⇒ 结论：**测试全绿 ≠ 前端能跑**。JSX 必须单独过一遍 babel。
+// 为改一句文案把 t('…') 的字符串拆成多行时漏了右引号，
+// 结果是 Unterminated string constant，整个向导白屏。
+// 而 node --test 照样全绿，因为测试根本不编译 JSX。
+// 结论：测试全绿 ≠ 前端能跑。JSX 必须单独过一遍 babel。
 //
-// ✅ 这里做两件事：
-//   ① 静态查「单引号不成对」的行（能抓到大部分）
-//   ② ⭐ 真编译一遍（用 @babel/parser，项目 Vite 用的同一个）
+// 这里做两件事：
+// ① 静态查「单引号不成对」的行（能抓到大部分）
+// ② 真编译一遍（用 @babel/parser，项目 Vite 用的同一个）
 // ---------------------------------------------------------------------------
 
-test('⛔⭐ JSX 里的字符串引号必须成对（改文案最容易破的地方）', () => {
+test('JSX 里的字符串引号必须成对（改文案最容易破的地方）', () => {
   const bad = []
   const WIZ = path.join(__dirname, '..', 'editor')
   for (const f of fs.readdirSync(WIZ)) {
     if (!['.jsx', '.js'].includes(path.extname(f))) continue
     const lines = fs.readFileSync(path.join(WIZ, f), 'utf8').split('\n')
     lines.forEach((line, i) => {
-      // ⭐ 先消掉**双引号**字符串 —— 它们里面合法地含单引号
-      //   （实测踩到：t("The request body uses this engine's own dialect:")
-      //    被误报成「引号不成对」）
+      // 先消掉双引号字符串 —— 它们里面合法地含单引号
+      // （t("The request body uses this engine's own dialect:") 会被误报成「引号不成对」）
       let code = line.replace(/\/\/.*$/, '')
       code = code.replace(/"(?:[^"\\]|\\.)*"/g, '""')
       // 再消掉已配对的单引号字符串，剩下的单引号必须成偶数
@@ -444,16 +425,16 @@ test('⛔⭐ JSX 里的字符串引号必须成对（改文案最容易破的地
     `\n⛔ 有 ${bad.length} 行的字符串引号不成对（会编译失败 ⇒ 页面白屏）：\n  ${bad.join('\n  ')}`)
 })
 
-test('⛔⭐ 每个 JSX 都必须真能编译（⛔ 测试全绿 ≠ 前端能跑）', () => {
-  // ⚠ 用项目 Vite 依赖的同一个 babel —— ⛔ 不用别的解析器，
-  //   否则「我这能过」而 Vite 报错，等于没测（2026-10-05 实测过这个坑）。
+test('每个 JSX 都必须真能编译（测试全绿 ≠ 前端能跑）', () => {
+  // 用项目 Vite 依赖的同一个 babel，不用别的解析器，
+  // 否则「我这能过」而 Vite 报错，等于没测。
   let parse
   try {
     parse = require(require.resolve('@babel/parser', {
       paths: [path.join(__dirname, '..', '..', '..', 'web')],
     })).parse
   } catch (e) {
-    // ⚠ 拿不到 babel 就**跳过**而不是假装通过 —— ⛔ 绝不能给假绿灯
+    // 拿不到 babel 就跳过而不是假装通过 —— 绝不能给假绿灯
     return
   }
   const WIZ = path.join(__dirname, '..', 'editor')
@@ -510,7 +491,7 @@ test('界面文案不许出现 emoji 或符号语气', () => {
 })
 
 // ---------------------------------------------------------------------------
-//  注释归位守卫（基准一）
+//  注释归位守卫
 //
 //  注释只解释文件本身、代码块、代码行：这段在做什么、为什么这样实现、
 //  什么输入会让它坏。四类归属性内容不进代码注释，判据来源见
@@ -520,9 +501,8 @@ test('界面文案不许出现 emoji 或符号语气', () => {
 //  markdown 加粗只判 md 文档，代码注释里的乘号与指针语义不判。
 //  纪律宣告类按本笔任务书未列入可执行判据，实测边际 2 行，另行记账。
 //
-//  债务如实记账：D1 时点全树仍带存量，DEBT_LEDGER 是这一时点的快照，
-//  只许变小不许变大。新写一条违规注释会让对应文件计数对不上，
-//  测试报出文件与行号。
+//  债务如实记账：DEBT_LEDGER 是 D1 时点的快照，只许变小不许变大。
+//  新写一条违规注释会让对应文件计数对不上，测试报出文件与行号。
 // ---------------------------------------------------------------------------
 
 const WIZARD_ROOT = path.join(__dirname, '..')
@@ -539,10 +519,8 @@ const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SY
 
 //  D1 时点的债务快照，按文件记违规注释行数。
 //
-//  数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来，合计 2105 行，
-//  与提交说明一致。旧口径（逐字符状态机）全树漏扫 418 行、覆盖率 92.9%，
-//  两张表的节点数不同源，不可直接相减。末四个文件在旧口径下未被扫到，
-//  显式设 0 键使它们进入扫描范围。
+//  数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
+//  末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。
 const DEBT_LEDGER = {
   'core/env.js': 258,
   'core/wizardbridge.js': 155,
@@ -611,7 +589,7 @@ const DEBT_LEDGER = {
   'test/validate.node.test.js': 3,
   'editor/index.jsx': 2,
   'test/downloadState.test.js': 2,
-  // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0（见上面的说明）。
+  // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0。
   //   仍显式设键让它们进扫描范围 —— 不设键的文件只配报 newFiles。
   'comment_ratio.cjs': 0,
   'editor/CoreBindings.jsx': 0,
@@ -621,12 +599,9 @@ const DEBT_LEDGER = {
 
 // 注释抽取交给 @babel/parser（项目 Vite 校验用的就是它）。
 // 旧实现是手写逐字符状态机，把正则字面量与源码中出现的反引号当成字符串
-// 起点，两个引号之间整段吞掉。同单位（行对行）比：e124670 时点本文件的注释
-// 被 babel 展开成 150 行，旧工具只抽出 109 行 —— 少抽 41 行。
-// 「守卫自身干净」是漏扫造成的假象。babel 的 ast.comments 直接给出每个
+// 起点，两个引号之间整段吞掉。babel 的 ast.comments 直接给出每个
 // 注释节点的 loc，抽不到即失败，不会假阴性。
-// 计宽窄只能用同一种单位：节点数是节点数，行数是行数，两者相减无意义。
-// 「142 个注释节点只抽出 109 行」是拿节点数减行数，那个差值不作数；
+// 计宽窄只能用同一种单位：节点数是节点数，行数是行数，两者相减无意义；
 // 正文的比法一律换成行对行、集合对集合。
 let babelParse = null
 try {
@@ -660,10 +635,6 @@ function commentNodes (rel, src) {
 // 节点按 loc 展开后应有的条数（行）之和。
 //   这与 commentNodes().length 是两种单位：一个节点可以展开成多行，
 //   少展开一行时节点数不变，两者相减或互相代替都会掩盖退化。
-//   本文件全树 162 个多行注释节点，其中 14 个的最后一行带违规判据
-//   （core/resolve.js:53 归属词加日期体、editor/StepDeps.jsx:257 现场经过词、
-//   余下 12 行命中强调符号）—— 只少展开末行就会静默少报这 14 行，
-//   而节点数与行号区间两条断言都察觉不到。
 function expectedBodyCount (nodes) {
   let total = 0
   for (const c of nodes) total += c.loc.end.line - c.loc.start.line + 1
@@ -801,14 +772,11 @@ test('注释归位守卫：注释只解释代码，不新增四类归属性内�
 // ---------------------------------------------------------------------------
 //  覆盖率自证：抽不出全部注释节点，「守卫自身干净」就是漏扫造成的假象
 //
-//  旧状态机把本文件里的正则字面量与反引号当成字符串起点。同单位比，
-//  e124670 时点本文件的注释被 babel 展开成 150 行，旧工具只抽出 109 行：
-//  守卫扫不到自己新增的那部分，DEBT_LEDGER 又由同一把漏抽尺子量出，测试
-//  再拿同一把尺子比对，于是恒等、永不变红。
+//  旧状态机把本文件里的正则字面量与反引号当成字符串起点，于是恒等、永不变红。
 //  现在以 babel 的 ast.comments 为基准，逐文件断言抽出的每一行都落在节点区间内，
 //  且抽出的总条数等于所有节点按 loc 展开的条数之和（见下面第 ④ 条）。
 // ---------------------------------------------------------------------------
-test('⭐ 注释抽取覆盖率自证：babel 节点数、逐行展开条数与抽出数逐文件一致', () => {
+test('注释抽取覆盖率自证：babel 节点数、逐行展开条数与抽出数逐文件一致', () => {
   const rel = path.relative(WIZARD_ROOT, __filename).replace(/\\/g, '/')
   const src = fs.readFileSync(__filename, 'utf8')
   const nodes = commentNodes(rel, src)
@@ -816,7 +784,7 @@ test('⭐ 注释抽取覆盖率自证：babel 节点数、逐行展开条数与�
   // ① 节点一个都不许漏（漏节点 = 有注释根本没被判据看过）
   assert.strictEqual(new Set(bodies.map((b) => b.node)).size, nodes.length,
     `注释抽取漏节点：${rel} babel ${nodes.length} 个，抽出 ${new Set(bodies.map((b) => b.node)).size} 个`)
-  // ② 每行都落在自己节点的 loc 区间内（错位 = 行号对不上，D2 删注释会删错行）
+  // ② 每行都落在自己节点的 loc 区间内（错位 = 行号对不上）
   for (const b of bodies) {
     const c = nodes[b.node]
     assert.ok(b.line >= c.loc.start.line && b.line <= c.loc.end.line,
@@ -856,10 +824,9 @@ test('⭐ 注释抽取覆盖率自证：babel 节点数、逐行展开条数与�
 //  这是「判据真的拦得住」的唯一证明 —— 只有扫全树的断言变绿，也可能是判据
 //  本身失效。这里注入、断言命中、还原，三步都在一个 test 内完成。
 // ---------------------------------------------------------------------------
-test('⭐ 注入带当日日期的违规注释，守卫必须报出文件与行号', () => {
+test('注入带当日日期的违规注释，守卫必须报出文件与行号', () => {
   // 不就地改写源文件：node --test 多文件并行，就地改的窗口内别的进程可能
-  // 正在扫这棵树（persistenceMutation.node.test.js 定的规矩）。
-  // 所以改为在内存里构造带注入行的源文本，只调用抽取与判据，不落盘。
+  // 正在扫这棵树。所以改为在内存里构造带注入行的源文本，只调用抽取与判据，不落盘。
   const rel = 'core/instances.js'
   const src = fs.readFileSync(path.join(WIZARD_ROOT, 'core', 'instances.js'), 'utf8')
   const today = new Date().toISOString().slice(0, 10)
@@ -892,7 +859,7 @@ test('⭐ 注入带当日日期的违规注释，守卫必须报出文件与行�
 //  styleguard 里真实出现过的反例：自增幂、指针记号、正则转义、模板串、
 //  箭头、按位取反、反引号模板、Windows 路径。
 // ---------------------------------------------------------------------------
-test('⭐ 不误报：幂/指针/正则/模板串/箭头/取反/路径，守卫全绿', () => {
+test('不误报：幂/指针/正则/模板串/箭头/取反/路径，守卫全绿', () => {
   // `a -> b` 与 `2~7` 不是合法 JS，babel 抽注释只认得能解析的源码 ——
   // 这正是换 babel 的理由：非法输入应当报错，而不是静默当成 0 违规。
   // 所以这里分两半：合法代码位置出现这些记号；注释里出现同样的记号。
