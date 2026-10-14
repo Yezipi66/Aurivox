@@ -1,26 +1,20 @@
 'use strict'
-// ============================================================================
 //  VERIFY：第 7 步：校验
-//
 //  本文件**不判断任何事**。四道校验平台全都有实现，这里只做三件事：
 //    1. 按顺序调它们
 //    2. 如实把结果传出去（ok / problems / ready 三态）
 //    3. 不把「说不出来」说成「齐了」或「缺了」
-//
 //  四道校验各自的权威实现（一个都不许在这里重写）：
 //    第 1 道 浅层「装没装」   lib/engines/envCheck.js:checkEngineEnvShallow
 //    第 2 道 深层「起不起来」 lib/engines/envCheck.js:checkEngineEnvDeep
 //    第 3 道 「齐不齐」       lib/engines/checkpoints.js:checkpointStatus
 //    第 4 道 「出不出声」     lib/engines/verifyAudio.js（verifyEngine）
-//
 //  关于第 4 道（A 级）
 //   它要**真的合成一次**。tools/verify-engine.cjs:63 那段注释写着：
 //   「A 级要真的合成。请给一份请求体」：平台要你交一份请求体，
 //   它不会自己编一个（编出来的请求验不了「声音对不对」）。
 //   ⇒ 所以 A 级缺 request 时，本文件**如实说不给跑**，不糊一个假的上去。
-//
 //  纪律：不许出现任何具体引擎名。
-// ============================================================================
 
 const path = require('node:path')
 
