@@ -1,8 +1,8 @@
 'use strict'
 // 名片校验层 —— 三台真引擎当压力用例
 //
-// ⭐ 为什么用三台真引擎当用例（这是方法论，不是省事）
-// 骨架要**形状完全不同**的引擎都能过，才敢拿去装第四台。
+// 为什么用三台真引擎当用例（这是方法论，不是省事）
+// 骨架要形状完全不同的引擎都能过，才敢拿去装第四台。
 // 只按一台写，坑一定留在后面 —— 那是平台反复付过学费的同一种缺陷。
 //
 //   形状            哪台            考什么
@@ -11,7 +11,7 @@
 //   5 个方法        多方法那台      applies_to 有没有位置放
 //   0 个权重位      零位那台        weights 空数组是不是合法
 //
-// 另有一台**假引擎**（wobble/flavour/goose_count）守「不许出现任何引擎名」。
+// 另有一台假引擎（wobble/flavour/goose_count）守「不许出现任何引擎名」。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -24,7 +24,7 @@ const { SECTIONS, PARAM_FIELDS, SECTIONS_BY_KEY } = require('../core/fieldmeta')
 const REPO = path.resolve(__dirname, '..', '..', '..')
 
 // ---------------------------------------------------------------------------
-// 一、真引擎：三台都读得进去，且**没有 error**
+// 一、真引擎：三台都读得进去，且没有 error
 // ---------------------------------------------------------------------------
 const REAL_ENGINES = ['gpt-sovits', 'indextts2', 'cosyvoice2']
 
@@ -37,7 +37,7 @@ for (const id of REAL_ENGINES) {
     const diags = diagnose(manifest)
     const sum = summarize(diags)
 
-    // ⛔ 这是关键断言：一张已经在平台跑着的名片，校验层不能判它错。
+    // 这是关键断言：一张已经在平台跑着的名片，校验层不能判它错。
     //    判错 = 校验层比平台更严 ⇒ 那它就是个不合格的检查器。
     assert.strictEqual(sum.errors, 0,
       `校验层判它有错，但平台一直在用它：\n` +
@@ -133,7 +133,7 @@ test('假引擎也能吃到默认值的提示（tier 默认 advanced）', () => 
 // ---------------------------------------------------------------------------
 // 四、纪律守卫：本层不许出现任何具体引擎名
 // ---------------------------------------------------------------------------
-test('⛔ validate.js / fieldmeta.js 里不许出现任何具体引擎名', () => {
+test('validate.js / fieldmeta.js 里不许出现任何具体引擎名', () => {
   const FILES = ['validate.js', 'fieldmeta.js']
   // 用 split 拼，绕开「测试文件自己写着这些名字」的自指问题
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice2',
@@ -157,8 +157,7 @@ test('⛔ validate.js / fieldmeta.js 里不许出现任何具体引擎名', () =
 test('参数元数据的默认值与平台一致（phase=call / tier=advanced）', () => {
   const byKey = Object.fromEntries(PARAM_FIELDS.map(f => [f.key, f]))
   assert.strictEqual(byKey.phase.default, 'call')
-  // ⛔ tier 的默认值必须是 advanced —— 平台 engines.js:164 那条规则的直接后果，
-  //    写成 common 会让「没写 tier 的参数」全部浮到常用档
+  // tier 的默认值必须是 advanced，写成 common 会让「没写 tier 的参数」全部浮到常用档
   assert.strictEqual(byKey.tier.default, 'advanced')
   assert.strictEqual(byKey.repeat.default, 1)
 })
@@ -171,7 +170,7 @@ test('每个顶层段都有说明与危险等级', () => {
   }
 })
 
-test('⚠ 危险字段必须写了 warn（静默失效那一类要提醒）', () => {
+test('危险字段必须写了 warn（静默失效那一类要提醒）', () => {
   // 平台管不到、填错不报错的那几个 —— 必须有 warn 文案
   const MUST_WARN = ['weights', 'call']
   for (const k of MUST_WARN) {

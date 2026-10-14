@@ -1,7 +1,7 @@
 'use strict'
 // downloadState — 第 3 步下载状态的门面（内部走 useInstallSession 会话段）
 //
-// ⭐ 2026-10-12 Owner 裁决「统一重构持久化」后，这个文件不再自己读写
+// 「统一重构持久化」后，这个文件不再自己读写
 //   localStorage，而是转调 editor/useInstallSession.js 的会话段。
 //   本测试守三件事：
 //     ① 三个导出名还在（StepsExtra.jsx 在用）
@@ -42,13 +42,13 @@ test('downloadState — save + load 往返', async () => {
   assert.deepStrictEqual(loaded, state)
 })
 
-test('⭐⭐ downloadState — 换 URL ⇒ 读不到旧仓库的下载清单（防串号）', async () => {
+test('downloadState — 换 URL ⇒ 读不到旧仓库的下载清单（防串号）', async () => {
   global.localStorage = new MockStorage()
   global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
   saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
-  // ⛔ 换了 URL 还显示旧仓库的文件清单，就是真机踩过的那个串号
+  // 换了 URL 还显示旧仓库的文件清单就是串号
   assert.strictEqual(loadDownloadState('alpha', URL_B), null,
     '⛔ 换了 URL 还读到上一个仓库的下载清单')
   assert.ok(loadDownloadState('alpha', URL_A), '同一 id + url 应该读得到')
@@ -83,7 +83,7 @@ test('downloadState — clearDownloadState 只清指定引擎的那一段', asyn
   assert.ok(loadDownloadState('engine-b', URL_A))
 })
 
-test('⛔ downloadState — 一段都不落 localStorage（探测结果不是持久态）', async () => {
+test('downloadState — 一段都不落 localStorage（探测结果不是持久态）', async () => {
   global.localStorage = new MockStorage()
   global.sessionStorage = new MockStorage()
   const { saveDownloadState } = await importModule()

@@ -1,16 +1,12 @@
 'use strict'
 // env（第 2 步）：装法的依据是上游自己的依赖清单文件名，不凭空猜。
-// 改动后做法：按上游自己的依赖清单推：
+// 按上游自己的依赖清单推：
 //   有 uv.lock         ⇒ uv sync                （版本已定死）
 //   有 environment.yml ⇒ conda env create -f …
 //   有 pyproject.toml  ⇒ uv pip install -e .
 //   有 requirements.txt ⇒ uv pip install -r …
 // 只根据文件名存在与否，不猜包名、不猜版本、不猜索引源。
 // 名片写了 install.env_command ⇒ 以名片为准（名片作者知道特殊装法）。
-//
-// 为什么改：原来只认名片，而名片是第 4 步才写的
-// ⇒ 用户从第 1 步走到第 2 步必然卡住：「名片里没有 install 段」。
-// 那等于向导逼用户先跳回去填名片才能装环境。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -52,8 +48,6 @@ test('readEnvCommand：没有 install 段就报错（装法由 suggestEnvCommand
   assert.strictEqual(r.code, 'NO_INSTALL_SECTION')
   // 错误信息里不该出现任何「我们就用 uv」的意思
   assert.ok(!/用 ?uv|退回|fallback|默认用/i.test(r.error), r.error)
-  // 原来这条断言的是文案里有「不是错」—— 那是拿契约安慰用户，
-  //   用户不关心契约，他要知道现在该怎么办。
   // 现在只要求：说清缺什么 + 给两条可执行的路。
   assert.ok(/env_command/.test(r.error), r.error)
   // 钉实质：必须给两条可执行的路（第 4 步填 Manifest / 自行安装），
@@ -101,9 +95,6 @@ test('一个依赖清单都没有 ⇒ 如实说「没有」，不退回任何默
   const d = detectDependencyManifest(path.join(root, 'engines', 'e1'))
   assert.strictEqual(d.found, false)
   assert.ok(!/uv sync|pip install/i.test(d.note), d.note)
-  // 同上：「平台不替你猜」是把设计原则讲给用户听 ⇒ 改成说他该做什么。
-  // 只说「这一层没有清单」，不许说「平台不替你猜怎么装」
-  //   —— 那是把内部设计原则讲给用户听。
   // note 已双语化（英文为主 + noteZh 中文）⇒ 两条都要钉。
   //   不断言具体措辞，只钉实质：必须说清「这一层没有清单」。
   assert.ok(/no dependency manifest/i.test(d.note), 'note（英文）：' + d.note)
@@ -214,14 +205,6 @@ test('命令不存在 ⇒ 说清「它装了没？平台不知道」', async () 
 })
 
 test('装法的依据只能是清单文件名（不许猜版本）', () => {
-  // 这条测试原先还断言「不许出现 --index-url」与「不许出现包名」，
-  //   并在注释里伪称是「Owner 改判后的边界」。那两条是编的，
-  //   从未由 Owner 裁决过（该文件在 2026-10-05 之前从未提交，
-  //   是工作区里的未跟踪文件）。
-  //   而它们与实际裁定直接冲突：
-  //   锁文件锁的是版本号不是后端（实测同一版本号在 xpu/cuda 线上
-  //   都有 wheel），⇒ 平台按本机推荐后端给出 index 正是要的行为。
-  //
   // 现在只保留一条真纪律：版本号必须来自 lock 读出的变量，
   //   不得硬编码 —— 硬编码会让上游改版本后装错，而那时没有任何报错。
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'env.js'), 'utf8')
@@ -291,7 +274,7 @@ test('探测兜底那条也必须带 steps（否则命令根本不跑却显示�
   assert.ok(install.cwd, '每一步都要说清在哪个目录跑')
 })
 
-test('清单在子目录里也要找得到（实测某台装好的引擎就是 infer/requirements.txt）', () => {
+test('清单在子目录里也要找得到（如 infer/requirements.txt）', () => {
   const { root } = mkdtempRoot()
   const dir = path.join(root, 'engines', 'demo')
   fs.mkdirSync(path.join(dir, 'infer'), { recursive: true })
@@ -332,8 +315,8 @@ test('名片的 install.env_command 仍然优先（名片作者知道特殊装�
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
 
-  // 名片里 env_command 是裸数组（实测真名片就是 ["uv","sync"] 那样），
-  //   不是 {argv:[...]} —— 第一版写错了形状，害得以为优先级反了。
+  // 名片里 env_command 是裸数组（["uv","sync"] 那样），不是 {argv:[...]}
+  //   —— 第一版写错了形状，害得以为优先级反了。
   const p = buildEnvPlan({ id: 'demo', root, manifest: {
     install: { env_command: ['conda', 'env', 'create', '-f', 'x.yml'] },
   } })
@@ -341,13 +324,8 @@ test('名片的 install.env_command 仍然优先（名片作者知道特殊装�
   assert.deepStrictEqual(p.env_command, ['conda', 'env', 'create', '-f', 'x.yml'])
 })
 
-// 锁文件锁了 CUDA，而本机是别的后端 ⇒ 并列给出第二条命令
-//
-// 问题的实况（实测某台已装引擎的 uv.lock）：lock 里写的是
-//   torch 2.8.0+cu128  source = download.pytorch.org/whl/cu128
-// 而 lock 锁的是版本号，不是后端 —— 同一个 2.8.0 在 xpu 线上也有
-// （实测 torch-2.8.0+xpu-cp311-cp311-win_amd64.whl 存在）。
-// ⇒ 换后端不必放弃锁文件：保留版本号，只换 index。
+// 锁文件锁的版本号在不同后端线上都有 wheel，所以换后端不必放弃锁文件：
+// 保留版本号，只换 index。
 
 /** 造一份「torch 锁在 CUDA 线上」的 uv.lock（形状照真实 lock） */
 function writeCudaLock (dir) {
@@ -437,9 +415,9 @@ function targetPythonOf (argv) {
 }
 
 // execute:true 时必须真的执行，不许静默返回 ok:true。
-//   症状实测（2026-10-05）：runEnv 判的是 plan.execute，而
-//   buildEnvPlan 从不设置它 ⇒ 永远 undefined ⇒ 第一行就 return，
-//   一条命令都没跑，而 plan.ok 是 true ⇒ 界面显示「完成」。
+//   症状：runEnv 判的是 plan.execute，而 buildEnvPlan 从不设置它
+//   ⇒ 永远 undefined ⇒ 第一行就 return，一条命令都没跑，
+//   而 plan.ok 是 true ⇒ 界面显示「完成」。
 test('execute:true ⇒ 真的去跑（不许静默返回 ok:true）', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('exe')
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')

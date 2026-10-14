@@ -48,34 +48,34 @@ test('parseRequirements：== / >= / 无版本 三种形态都读出包名', () =
     `实际读出：${JSON.stringify(r.dependencies)}`)
 })
 
-test('⭐ parseRequirements：包名与版本串**成对**，第 2 步要的是版本不是名字', () => {
+test('parseRequirements：包名与版本串成对，第 2 步要的是版本不是名字', () => {
   const r = parseRequirements(REQ)
   assert.strictEqual(r.dependencies.length, r.specs.length)
   const byName = new Map(r.dependencies.map((n, i) => [n.toLowerCase(), r.specs[i]]))
-  // ⭐ 钉住版本的那条必须原样带出版本约束（判后端靠的就是这个）
+  // 钉住版本的那条必须原样带出版本约束（判后端靠的就是这个）
   assert.strictEqual(byName.get('torch'), 'torch==2.2.0')
   assert.strictEqual(byName.get('numpy'), 'numpy==1.24.0',
     '⛔ 行尾注释不许留在 spec 里')
-  // ⭐ extras 与约束之间多写的空格要归一（判后端要的是规范形状）
+  // extras 与约束之间多写的空格要归一（判后端要的是规范形状）
   assert.strictEqual(byName.get('fastapi'), 'fastapi[all]>=0.100')
-  // ⭐ 裸包名 ⇒ spec 就是包名（⛔ 不许补一个假的版本号）
+  // 裸包名 ⇒ spec 就是包名（不许补一个假的版本号）
   assert.strictEqual(byName.get('onnxruntime-gpu'), 'onnxruntime-gpu')
 })
 
-test('⭐ parseRequirements：extras 剥掉 []，包名就是包名', () => {
+test('parseRequirements：extras 剥掉 []，包名就是包名', () => {
   const r = parseRequirements('fastapi[all]>=0.100\nhttpx[cli]>=0.27\n')
   assert.deepStrictEqual(r.dependencies, ['fastapi', 'httpx'])
   assert.ok(!r.dependencies.some((n) => n.includes('[')), 'extras 没剥掉')
 })
 
-test('⭐ parseRequirements：环境标记只取分号前', () => {
+test('parseRequirements：环境标记只取分号前', () => {
   const r = parseRequirements('librosa; python_version<"3.9"\nnumpy; sys_platform=="linux"\n')
   assert.deepStrictEqual(r.dependencies, ['librosa', 'numpy'])
   assert.deepStrictEqual(r.specs, ['librosa', 'numpy'],
     '⛔ spec 不许带上环境标记（那是条件，不是依赖）')
 })
 
-test('⭐ parseRequirements：-r / -e / -c / --index-url / --find-links / --hash 全跳过', () => {
+test('parseRequirements：-r / -e / -c / --index-url / --find-links / --hash 全跳过', () => {
   const r = parseRequirements([
     '-r base.txt', '-e .', '-c constraints.txt',
     '--index-url https://pypi.org/simple', '--extra-index-url https://x.invalid',
@@ -87,13 +87,13 @@ test('⭐ parseRequirements：-r / -e / -c / --index-url / --find-links / --hash
   assert.strictEqual(r.skipped, 8)
 })
 
-test('⭐ parseRequirements：空行与 # 注释跳过', () => {
+test('parseRequirements：空行与 # 注释跳过', () => {
   const r = parseRequirements('\n\n# 只有注释\n   # 缩进注释\n\n')
   assert.strictEqual(r.found, true, '⛔ 文件本身存在 ⇒ found 为 true')
   assert.deepStrictEqual(r.dependencies, [])
 })
 
-test('⭐ parseRequirements：直连来源不是普通依赖（⛔ 不编成包名）', () => {
+test('parseRequirements：直连来源不是普通依赖（不编成包名）', () => {
   const r = parseRequirements([
     'git+https://github.com/owner/pkg.git#egg=pkg',
     'file:///opt/local/wheelhouse',
@@ -104,7 +104,7 @@ test('⭐ parseRequirements：直连来源不是普通依赖（⛔ 不编成包�
   assert.deepStrictEqual(r.dependencies, [], JSON.stringify(r.dependencies))
 })
 
-test('⭐ parseRequirements：续行不是一条独立依赖', () => {
+test('parseRequirements：续行不是一条独立依赖', () => {
   const r = parseRequirements([
     'openssl==3.0.1 \\',
     '    --hash=sha256:123456',
@@ -114,14 +114,14 @@ test('⭐ parseRequirements：续行不是一条独立依赖', () => {
     `续行不应产生第二个依赖：${JSON.stringify(r.dependencies)}`)
 })
 
-test('⭐ parseRequirements：重复声明去重，保留第一次', () => {
+test('parseRequirements：重复声明去重，保留第一次', () => {
   const r = parseRequirements('torch==2.2.0\ntorch>=2.5.0\nTorch==2.3.0\n')
   assert.deepStrictEqual(r.dependencies, ['torch'])
   assert.strictEqual(r.specs.length, 1)
   assert.strictEqual(r.specs[0], 'torch==2.2.0', '保留第一次的约束')
 })
 
-test('parseRequirements：⛔ null / 非字符串 / 空串不能炸，且 found 为 false', () => {
+test('parseRequirements：null / 非字符串 / 空串不能炸，且 found 为 false', () => {
   for (const bad of [null, undefined, 42, {}, [], '']) {
     const r = parseRequirements(bad)
     assert.strictEqual(r.found, false, `${JSON.stringify(bad)} 不该是 found`)
@@ -131,7 +131,7 @@ test('parseRequirements：⛔ null / 非字符串 / 空串不能炸，且 found 
 })
 
 
-test('⛔ parseRequirements 遇 pyproject 文本不乱报依赖', () => {
+test('parseRequirements 遇 pyproject 文本不乱报依赖', () => {
   const PYPROJECT = `
 [project]
 name = "speechkit"
@@ -153,7 +153,7 @@ speechkit = "speechkit.cli:main"
   }
 })
 
-test('⛔ 不是依赖声明的行不许被猜成包名', () => {
+test('不是依赖声明的行不许被猜成包名', () => {
   // 一行里出现两个词、又不是版本约束 ⇒ 不是依赖声明，跳过
   const r = parseRequirements('foo bar\nthis is prose, not a dependency\npython3 setup.py\n')
   assert.deepStrictEqual(r.dependencies, [],
@@ -162,7 +162,7 @@ test('⛔ 不是依赖声明的行不许被猜成包名', () => {
 
 
 
-test('⭐⭐ 走 requirements 路径：出 torch 判定（hardware judge），不再是 ok:false', () => {
+test('走 requirements 路径：出 torch 判定（hardware judge），不再是 ok:false', () => {
   const plan = planDependencies(null, {
     hardware: { recommended: 'ipex', gpus: [] },
     requirements: REQ,
@@ -187,7 +187,7 @@ test('⭐⭐ 走 requirements 路径：出 torch 判定（hardware judge），�
   assert.strictEqual(plan.deps.normal.count, 3)
 })
 
-test('⭐ 带 +cu 后端的那条 ⇒ mismatch（真的判了，不是原样透传）', () => {
+test('带 +cu 后端的那条 ⇒ mismatch（真的判了，不是原样透传）', () => {
   const plan = planDependencies(null, {
     hardware: { recommended: 'ipex', gpus: [] },
     requirements: 'torch==2.2.0+cu121\nnumpy==1.24.0\n',
@@ -199,7 +199,7 @@ test('⭐ 带 +cu 后端的那条 ⇒ mismatch（真的判了，不是原样透�
   assert.ok(main.whyZh && main.whyZh.length > 0, '⛔ 必须有中文理由')
 })
 
-test('⭐ 没检测本机 ⇒ 判 unknown（⛔ 不猜），但依赖照样读出', () => {
+test('没检测本机 ⇒ 判 unknown（不猜），但依赖照样读出', () => {
   const plan = planDependencies(null, { requirements: 'torch==2.2.0\nnumpy\n' })
   assert.strictEqual(plan.ok, true)
   assert.strictEqual(plan.hardware, null)
@@ -207,7 +207,7 @@ test('⭐ 没检测本机 ⇒ 判 unknown（⛔ 不猜），但依赖照样读�
   assert.strictEqual(main.verdict, 'unknown')
 })
 
-test('⛔ 两份清单都没有 ⇒ 如实说读不到（⛔ 不编造、⛔ 不说「换仓库」）', () => {
+test('两份清单都没有 ⇒ 如实说读不到（不编造、不说「换仓库」）', () => {
   const plan = planDependencies(null, {})
   assert.strictEqual(plan.ok, false)
   assert.strictEqual(plan.code, 'NO_DEPENDENCIES')
@@ -246,7 +246,7 @@ speechkit = "speechkit.cli:main"
 where = ["src"]
 `
 
-test('⛔ 回归：老调用 planDependencies(pyprojectText, {hardware}) 行为不变', () => {
+test('回归：老调用 planDependencies(pyprojectText, {hardware}) 行为不变', () => {
   const plan = planDependencies(GOOD_PYPROJECT, {
     hardware: { recommended: 'ipex', gpus: [] },
   })
@@ -261,7 +261,7 @@ test('⛔ 回归：老调用 planDependencies(pyprojectText, {hardware}) 行为�
   assert.strictEqual(plan.deps.normal.count, 0)
 })
 
-test('⛔ 回归：⭐ pyproject 优先于 requirements（⛔ 不是「随便挑一个」）', () => {
+test('回归：pyproject 优先于 requirements（不是「随便挑一个」）', () => {
   const plan = planDependencies(GOOD_PYPROJECT, {
     hardware: { recommended: 'ipex', gpus: [] },
     requirements: 'librosa==0.10.0\nsoundfile==0.12.0\n',
@@ -273,7 +273,7 @@ test('⛔ 回归：⭐ pyproject 优先于 requirements（⛔ 不是「随便挑
     '⛔ requirements 的包混进来了')
 })
 
-test('⛔ 回归：pyproject 在但没有 dependencies ⇒ 退回 requirements', () => {
+test('回归：pyproject 在但没有 dependencies ⇒ 退回 requirements', () => {
   const noDeps = `
 [build-system]
 requires = ["setuptools"]
@@ -286,7 +286,7 @@ requires = ["setuptools"]
   assert.strictEqual(plan.dep_source, 'requirements.txt')
 })
 
-test('⛔ 回归：planDependencies(null, {requirements}) 不炸', () => {
+test('回归：planDependencies(null, {requirements}) 不炸', () => {
   const plan = planDependencies(null, { requirements: 'torch==2.2.0\n' })
   assert.strictEqual(plan.ok, true)
   assert.strictEqual(plan.deps.torch.count, 1)
@@ -304,12 +304,12 @@ const SETUP_PY = [
   ')',
 ].join('\n')
 
-test('⭐ setup.py 的 name= 能读出包名（⛔ 没有 pyproject 也读）', () => {
+test('setup.py 的 name= 能读出包名（没有 pyproject 也读）', () => {
   const name = parseSetupPyName(SETUP_PY)
   assert.strictEqual(name, 'speechkit')
 })
 
-test('⛔ setup.py 只读文本：没有 name= 就返回 null（⛔ 不猜）', () => {
+test('setup.py 只读文本：没有 name= 就返回 null（不猜）', () => {
   assert.strictEqual(parseSetupPyName('from setuptools import setup\nsetup(version="1")\n'),
     null)
   for (const bad of [null, undefined, 42, {}, '']) {
@@ -317,7 +317,7 @@ test('⛔ setup.py 只读文本：没有 name= 就返回 null（⛔ 不猜）', 
   }
 })
 
-test('⭐⭐ 第 1 步：缺 pyproject 时，包名与许可证**不再全空**', () => {
+test('第 1 步：缺 pyproject 时，包名与许可证不再全空', () => {
   const r = probeProject({
     pyproject: undefined,
     requirements: REQ,
@@ -329,7 +329,7 @@ test('⭐⭐ 第 1 步：缺 pyproject 时，包名与许可证**不再全空**'
     '⛔ 包名读不出来（来源是 setup.py，不是 pyproject）')
   assert.ok(r.sources['call.module'].includes('setup.py'))
   // 许可证「值」与「来源」必须一致：只有文件、没有标识时，
-  //   值是 null（⛔ 不装句子），事实由 licenseEvidence 承载。
+  //   值是 null（不装句子），事实由 licenseEvidence 承载。
   assert.strictEqual(r.meta.license, null,
     `⛔ 许可证值里装了句子（这个字段会直接渲染到界面）：${r.meta.license}`)
   assert.strictEqual(r.meta.licenseFrom, null,
@@ -346,7 +346,7 @@ test('⭐⭐ 第 1 步：缺 pyproject 时，包名与许可证**不再全空**'
     `⛔ 事实字段里猜了许可证类型：${r.meta.licenseEvidence}`)
 })
 
-test('⭐ pyproject 写了 license ⇒ 优先用它（比文件存在更精确）', () => {
+test('pyproject 写了 license ⇒ 优先用它（比文件存在更精确）', () => {
   const r = probeProject({
     pyproject: GOOD_PYPROJECT,
     licenseFile: 'LICENSE',
@@ -370,7 +370,7 @@ function sentenceIn (v) {
     ? String(v) : null
 }
 
-test('⛔ 值字段不许装句子：许可证/包名都是标识，不是描述', () => {
+test('值字段不许装句子：许可证/包名都是标识，不是描述', () => {
   const cases = [
     probeProject({ filenames: ['README.md'] }),
     probeProject({ requirements: REQ, licenseFile: 'LICENSE' }),
@@ -386,7 +386,7 @@ test('⛔ 值字段不许装句子：许可证/包名都是标识，不是描述
   }
 })
 
-test('⛔ 没有值就不许声称来源：packageName / license 三个字段同进同出', () => {
+test('没有值就不许声称来源：packageName / license 三个字段同进同出', () => {
   const cases = [
     probeProject({ filenames: ['README.md'] }),
     probeProject({ requirements: REQ, licenseFile: 'LICENSE' }),
@@ -409,9 +409,9 @@ test('⛔ 没有值就不许声称来源：packageName / license 三个字段同
   }
 })
 
-test('⛔ 老式布局（只有 requirements.txt + LICENSE）⇒ 包名与来源都不许撒谎', () => {
-  // 实测那种上游根目录既没有 pyproject.toml 也没有 setup.py：
-  // 确实读不到包名 —— ⛔ 那就如实留空，⛔ 不许声称「来自 pyproject.toml」。
+test('老式布局（只有 requirements.txt + LICENSE）⇒ 包名与来源都不许撒谎', () => {
+  // 上游根目录既没有 pyproject.toml 也没有 setup.py 的布局：
+  // 确实读不到包名 —— 那就如实留空，不许声称「来自 pyproject.toml」。
   const r = probeProject({
     requirements: REQ,
     licenseFile: 'LICENSE',
@@ -425,7 +425,7 @@ test('⛔ 老式布局（只有 requirements.txt + LICENSE）⇒ 包名与来源
   assert.ok(!('call.module' in r.values))
 })
 
-test('⛔ 什么来源都没有 ⇒ 如实留空，不猜包名与许可证', () => {
+test('什么来源都没有 ⇒ 如实留空，不猜包名与许可证', () => {
   const r = probeProject({ filenames: ['README.md'] })
   assert.ok(!('call.module' in r.values))
   assert.strictEqual(r.meta.packageName, null)
@@ -434,7 +434,7 @@ test('⛔ 什么来源都没有 ⇒ 如实留空，不猜包名与许可证', ()
   assert.ok(r.unfilled.some((u) => u.key === 'call.module'))
 })
 
-test('⛔ pyproject 优先：pyproject 有 name 时不许被 setup.py 覆盖', () => {
+test('pyproject 优先：pyproject 有 name 时不许被 setup.py 覆盖', () => {
   const r = probeProject({
     pyproject: GOOD_PYPROJECT,
     setupPy: 'setup(name="othername")',
@@ -446,7 +446,7 @@ test('⛔ pyproject 优先：pyproject 有 name 时不许被 setup.py 覆盖', (
 
 
 
-test('⛔ 依赖来源相关的用户可见文案不许有 emoji / 破折号 / 口语', () => {
+test('依赖来源相关的用户可见文案不许有 emoji / 破折号 / 口语', () => {
   const FORBIDDEN = ['\u26d4', '——', '对得上', '看不出来', '没什么', '搞定',
     '拿掉', '弄坏', '平台不替你猜', '这不是错', '请换一份']
   const seen = []
@@ -461,7 +461,7 @@ test('⛔ 依赖来源相关的用户可见文案不许有 emoji / 破折号 / �
   }
 })
 
-test('⛔ 成功响应必须说清依赖是从哪个文件读出来的', () => {
+test('成功响应必须说清依赖是从哪个文件读出来的', () => {
   for (const plan of [
     planDependencies(GOOD_PYPROJECT, {}),
     planDependencies(null, { requirements: 'torch==2.2.0\n' }),
