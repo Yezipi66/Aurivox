@@ -1,26 +1,4 @@
 'use strict'
-// ============================================================================
-//  PROJECT PROBE：从上游项目的元数据文件里**机械**提取事实
-//
-//  为什么这是「探测」而不是「猜」
-//  这些值在项目自己的配置文件里写着：我们只是**读**它，不推断它：
-//    pyproject.toml → [project.scripts]  = 平台该起哪个命令
-//                   → [project.name]    = python 包叫什么
-//                   → [tool.setuptools.packages.find] where = src 布局
-//    requirements.txt / environment.yml  = 依赖从哪来（决定装法）
-//
-//  判据：**只提取，不推理**
-//  · 提取到 → 给出值，并附上「在哪个文件哪一行」
-//  · 没提取到 → 如实说没找到，绝不用「大概率是 X」填空
-//
-//  ⚠ 实测依据（2026-10-03，某上游试点）：
-//  我先前把 runtime.entry 和 call.module 记成「只有读过源码才知道」，
-//  那是我判据太保守：它们就在 pyproject.toml 里，机械可读。
-//  这个纠正把自动填充率从 38% 提到了 53%。
-//
-//  纪律：不许出现任何具体引擎名。
-// ============================================================================
-
 const TOML_LINE = {
   name: /^\s*name\s*=\s*["']([^"']+)["']/,
   scripts: /^\s*([\w-]+)\s*=\s*["']([\w.]+):(\w+)["']\s*$/,
@@ -30,14 +8,7 @@ const TOML_LINE = {
   deps: /^\s*["']([\w.\-]+)\s*(?:[<>=!~][^"']*)?["']\s*,?\s*$/,
 }
 
-/**
- * 解析 pyproject.toml：只做「行 → 值」，不做 TOML 语义分析。
- * 拿不到就返回空结构，由调用方如实报告「没读到」。
- */
 function probePyproject (text) {
-  // dependencies 要收集起来：Owner 2026-10-04 的第 2 步：
-  //   「列出需要安装的大包，其中 torch 单独列出来」
-  //   之前这里 `if (inDeps) continue` 把依赖**整个丢掉了**。
   const out = { found: false, scripts: {}, srcRoot: null, dependencies: [] }
   if (typeof text !== 'string') return out
 
@@ -51,10 +22,6 @@ function probePyproject (text) {
 
     if (/^\[project\.scripts\]$/.test(line)) { inScripts = true; continue }
     if (/^\[project\.optional-dependencies\]/.test(line)) { inScripts = false; continue }
-    // ⚠⚠ 真实项目的写法是 `dependencies = [`（带 = ，在 [project] 段里），
-    //   不是 `[project.dependencies]` 那种section：我原来只认后者，
-    //   所以 2026-10-04 在真上游上读出 0 条依赖。
-    //   两种都认：inline 数组（真项目）与 section（规范写法）。
     if (/^dependencies\s*=\s*\[/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^\[project\.dependencies\]$/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^optional-dependencies\s*=\s*\{/.test(line)) { inDeps = false; continue }
@@ -94,27 +61,6 @@ function probePyproject (text) {
   return out
 }
 
-/**
- * 解析 requirements.txt：纪律与 probePyproject **完全一致**：
- *   只做「行 → 值」，不做语义分析、不猜、不补全。
- *
- * ⚠ 为什么必须有它（2026-10-12 Owner 判定的 P0）：
- *   2020-2023 年那批项目在根目录放 requirements.txt，没有 pyproject.toml。
- *   第 1 步的探测器**已经扫到了 requirements.txt**，而第 2 步的
- *   依赖端点只认 pyproject.toml ⇒ 第 2 步直接 ok:false，接一台新引擎的
- *   流程在第 2 步就断了。而那句「它可能在 requirements.txt 里」的提示
- *   正是这个端点自己写的：文案说了，代码没读。
- *
- * 这份清单里**认不出的行就跳过**，绝不猜成某个包名：
- *   -r / -e / --index-url / --hash / -c …  ⇒ 选项行，不是依赖声明
- *   git+https://… / file://… / 包名 @ URL  ⇒ 直连来源，不是普通依赖
- *   行尾 `\` 的续行                        ⇒ 它不是独立的一条依赖
- *
- * @param {string} text requirements.txt 原文
- * @returns {{found:boolean, dependencies:string[], specs:string[], skipped:number}}
- *   dependencies = 包名（去重、保持原文件顺序）；specs = 与之一一对应的
- *   规范化依赖串（`torch==2.2.0`），第 2 步判后端要的是**版本约束**，不是名字。
- */
 function parseRequirements (text) {
   const out = { found: false, dependencies: [], specs: [], skipped: 0 }
   if (typeof text !== 'string' || !text) return out
@@ -181,7 +127,6 @@ function parseRequirements (text) {
     const key = name.toLowerCase().replace(/[-_.]+/g, '-')
     if (seen.has(key)) continue
     seen.add(key)
-    // spec = 包名 + 约束（去掉多写的空格），第 2 步判后端靠的是它
     out.dependencies.push(name)
     out.specs.push(name + tail.replace(/\s+/g, ''))
   }
@@ -227,19 +172,6 @@ function detectDependencyFile (filenames) {
   }
 }
 
-/**
- * 主入口：把探测结果变成可以直接填进名片的值。
- *
- * ⚠ 2026-10-12（P0）：**包名与许可证的来源都不是 pyproject**。
- *   缺 pyproject.toml 时这两个字段曾经一并变空：而它们明明能从别处读：
- *     包名     ← setup.py 的 `name=`（只正则读文本，不 import 它）
- *     许可证   ← 根目录有没有 LICENSE / COPYING 文件（只报「识别到文件」，
- *                不自己猜是哪一种许可证：判类型要读正文，那是解析不是读取）
- *   ⇒ 缺 pyproject 只让「命令 / src 布局」读不出，不该让它把这些也带走。
- *
- * @param {{pyproject?:string, requirements?:string, setupPy?:string,
- *          licenseFile?:string, filenames?:string[], pythonHint?:string}} input
- */
 function probeProject (input = {}) {
   const py = probePyproject(input.pyproject)
   const req = parseRequirements(input.requirements)
@@ -355,26 +287,6 @@ function probeProject (input = {}) {
 }
 
 
-/**
- * 第 2 步的核心：读依赖 → 拆出 torch 系 → 跟本机比对出绿/黄/白。
- *
- * 判据来源：
- *   · 依赖列表：上游 pyproject.toml 或 requirements.txt 里写的（**不是我们猜的**）
- *   · torch 系怎么判：包名（hardware.js 的 TORCH_FAMILY）
- *   · 绿/黄/白：跟本机推荐后端比对（hardware.js 的 judgeTorchSpec）
- *
- * ⚠ 2026-10-12（P0）**接受两个来源**，优先级固定：
- *   pyproject.toml 优先，没有才 requirements.txt。
- *   不是「随便挑一个」：一个仓库同时有两份清单时，
- *     pyproject 的 dependencies 才是上游声明的顶层依赖。
- *   uv.lock **不作为依赖列表来源**：它只锁 torch 的 wheel 版本
- *     （handleDeps 用它做后端判定），拿它当依赖清单会把传递依赖
- *     全列成顶层依赖。
- *   向后兼容：`planDependencies(pyprojectText, opts)` 的老调用
- *     （只传第一个参数）行为不变。
- *
- * 纪律：不许出现任何具体引擎名。
- */
 function planDependencies (text, opts = {}) {
   const pyDeps = probePyproject(text).dependencies || []
   const reqParsed = parseRequirements(opts.requirements)
@@ -454,9 +366,6 @@ function planDependencies (text, opts = {}) {
       normal: { count: rest.length, packages: rest, action: 'sync' },
       torch: { count: torchGroup.length, packages: torchGroup, action: 'choose-backend' },
     },
-    // gpus 也要带上：界面上要写「检测到 Intel(R) Arc(TM) 140T」
-    //   （2026-10-04 实测踩过：漏了它，界面只剩「推荐 ipex」，
-    //    用户看不到凭什么推荐 ipex）
     hardware: hw ? {
       gpus: hw.gpus || [],
       recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
