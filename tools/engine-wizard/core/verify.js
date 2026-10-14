@@ -1,8 +1,8 @@
 'use strict'
 //  VERIFY：第 7 步：校验
-//  本文件不判断任何事。四道校验平台全都有实现，这里只做三件事：
+//  四道校验的权威实现在别处，这里只按顺序调它们、如实把结果传出去：
 //    1. 按顺序调它们
-//    2. 如实把结果传出去（ok / problems / ready 三态）
+//    2. 结果带 ok / problems / ready 三态
 //    3. 不把「说不出来」说成「齐了」或「缺了」
 //  四道校验各自的权威实现（一个都不许在这里重写）：
 //    第 1 道 浅层「装没装」   lib/engines/envCheck.js:checkEngineEnvShallow

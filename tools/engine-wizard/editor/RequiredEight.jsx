@@ -1,18 +1,17 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
 //  REQUIRED EIGHT —— L1 核心区的「真·必填 8 项」
 //
-//  ⭐ 为什么单独一个组件
+//  为什么单独一个组件
 //  平台 profile.js 的 required() 调用一共 8 处，缺一个当场抛错、名片装不上。
-//  这是第 4 步用户**必须**过目的最小集合，所以常驻展开摆在 L1。
+//  这是第 4 步用户必须过目的最小集合，所以常驻展开摆在 L1。
 //  依据（profile.js 行号）：runtime.python / runtime.entry /
 //  runtime.ready_endpoint / runtime.ready_timeout_ms / timeout_ms /
 //  max_chars / capabilities.requires_reference_audio /
 //  capabilities.output_sample_rate。
 //
-//  ⭐ 为什么不直接用 RuntimeSection / CallSection
+//  为什么不直接用 RuntimeSection / CallSection
 //  那两个段是「一个键一个 Row」的全量编辑器（含 verify / checkpoints /
 //  ready_timeout_ms_source 等 L2/L3 内容）。L1 只取其中必填的那 8 格，
 //  全量编辑器下沉到 L2/L3 折叠区，避免两处同源维护漂移。

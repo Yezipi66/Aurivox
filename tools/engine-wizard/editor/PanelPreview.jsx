@@ -6,19 +6,11 @@ import {
   fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, TIERS,
 } from '../../../web/src/lib/engines'
 
-// ============================================================================
-//  名片面板预览 —— ⭐ 复用平台真正的组件，一个字都没重写
+// 名片面板预览：import 平台真在用的组件，不自己画一份。
+// 若自己画 HTML，平台改了真组件后预览会停在旧样子，预览就开始骗人。
 //
-//  ⛔⛔ 这个文件存在的全部理由
-//  预览的价值是「所见即真界面」。如果自己画一遍 HTML，那它就是第二份实现
-//  —— 平台迟早改了真组件，预览还停在旧样子，于是**预览开始骗人**。
-//  ⇒ 所以这里 import 的全是 web/src 下**真在用**的东西。
-//
-//  ⛔⛔ `t` **必须显式传给 ParamField**：ParamField 自己不调 useT，t 是 props。
-//  ⛔ 漏传不报编译错、只在渲染到那一格时抛 "t is not a function" ⇒ 整页白屏。
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。它只认名片，不认引擎。
-// ============================================================================
+// t 必须显式传给 ParamField：它自己不调 useT，t 是 props。
+// 漏传不报编译错，只在渲染到那一格时抛 "t is not a function"，整页白屏。
 
 export default function PanelPreview ({ manifest }) {
   return (
