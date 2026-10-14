@@ -1,15 +1,5 @@
 'use strict'
-// ⭐ wizardbridge 的 import 守卫
-//
-// ⚠ 这份测试存在的理由（2026-10-04 实测踩过）：
-//   handleProbe 里用了 `parseRepoUrl`，但顶部只解构了 `resolveEngine`
-//   ⇒ 运行时 ReferenceError。
-//   ⛔ 而 Vite 会把它 minify 成 `h is not a function` —— 一个**完全
-//     指向不了错误位置**的报错。我为此绕了十几轮（怀疑缓存、怀疑网络、
-//     怀疑中间件），最后靠「在纯 node 里模拟中间件」才拿到真栈。
-//
-//  ⇒ 这条守卫扫的是**「用了但没导入」**：
-//   把每个 `xxx(` 的调用跟顶部解构出来的名字对一遍。
+// wizardbridge 的 import 守卫：扫「用了但没导入」，把每个 `xxx(` 的调用跟顶部解构出来的名字对一遍。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -95,10 +85,8 @@ test('⭐ 七个步骤的端点都在', () => {
 })
 
 test('⭐ ⛔ 长前缀必须排在短前缀之前（/verify/checks 会被 /verify 吃掉）', () => {
-  // ⚠ 中间件是「第一个返回 true 的赢」，⛔ 顺序错了长前缀永远匹配不上
-  // ⚠ 路径：web/ 在**项目根**，⛔ 不在 tools/ 下
-    //   （写错了会 ENOENT，测试报「文件不存在」而不是「顺序不对」——
-    //     那是个看不出真相的失败。2026-10-04 实测踩过）
+  // 中间件是「第一个返回 true 的赢」，顺序错了长前缀永远匹配不上。
+  // 路径：web/ 在项目根，不在 tools/ 下（写错了会 ENOENT）。
     const cfg = fs.readFileSync(
       path.join(__dirname, '..', '..', '..', 'web', 'wizard.vite.config.mjs'),
       'utf-8')

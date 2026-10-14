@@ -1,8 +1,5 @@
 'use strict'
-// 探测器 —— ⭐ 判据是「**提取到就给，提取不到就说没有**」，不是「总能给出个值」
-//
-//  ⚠ 这些测试里带了真实上游的字段名（speech-kit 那份 pyproject 的结构），
-//   ⛔ 但**不许在 core/probe.js 的活代码里**出现任何具体引擎名。
+
 
 const { test } = require('node:test')
 const { extractDownloadCommands, parseDownloadCmd } = require('../core/wizardbridge')
@@ -13,9 +10,7 @@ const path = require('node:path')
 const { probePyproject, probeProject, detectDependencyFile } =
   require('../core/probe.js')
 
-// ---------------------------------------------------------------------------
 // 一份结构完整的 pyproject（形状照真实的规范项目写）
-// ---------------------------------------------------------------------------
 const GOOD = `
 [project]
 name = "speechkit"
@@ -38,7 +33,6 @@ where = ["src"]
 include = ["speechkit*"]
 `
 
-// ---------------------------------------------------------------------------
 test('读出 [project.name] / [project.scripts] / src 布局', () => {
   const p = probePyproject(GOOD)
   assert.strictEqual(p.found, true)
@@ -50,8 +44,7 @@ test('读出 [project.name] / [project.scripts] / src 布局', () => {
   assert.strictEqual(p.license, 'Apache-2.0')
 })
 
-// ---------------------------------------------------------------------------
-test('⛔ ⭐ 提取不到就必须说没有 —— 不能返回半截默认值', () => {
+test('⛔ 提取不到就必须说没有 —— 不能返回半截默认值', () => {
   const p = probePyproject('')
   assert.strictEqual(p.found, false)
   assert.deepStrictEqual(p.scripts, {})
@@ -71,9 +64,7 @@ test('⛔ null / 非字符串不能让探测器炸掉', () => {
   }
 })
 
-// ---------------------------------------------------------------------------
-// ⭐ 核心：多命令时**不许替用户挑**
-// ---------------------------------------------------------------------------
+// 核心：多命令时不许替用户挑
 test('⛔ 上游给多个命令时，如实说要人来挑，不自动选一个', () => {
   const multi = `
 [project]
@@ -98,7 +89,6 @@ test('单命令 ⇒ 给它，并说清从哪读到的', () => {
   assert.ok(r.sources['call.module'].includes('[project.name]'))
 })
 
-// ---------------------------------------------------------------------------
 test('⛔ 没有 scripts 时要说「上游只给 python API」，不能编一个入口', () => {
   const noScripts = `
 [project]
@@ -131,9 +121,7 @@ test('⛔ 什么都没读到 ⇒ 全部进 unfilled，且 values 几乎是空的
   }
 })
 
-// ---------------------------------------------------------------------------
 // 依赖清单探测 —— 决定装法
-// ---------------------------------------------------------------------------
 test('依赖清单：pyproject 优先，锁文件次之', () => {
   const r = detectDependencyFile(['README.md', 'requirements.txt', 'pyproject.toml'])
   assert.strictEqual(r.found, true)
@@ -149,7 +137,7 @@ test('只有 requirements.txt（老项目）也能认', () => {
 test('⛔ 一个都没有 ⇒ 如实说「没有」，不猜', () => {
   const r = detectDependencyFile(['README.md', 'assets/logo.png'])
   assert.strictEqual(r.found, false)
-  // ⭐ 只钉实质：确实说了「没有清单」。
+  // 只钉实质：确实说了「没有清单」。
   //   ⛔ 不钉「没找到 / 没有」这两个词 —— 措辞已在 2026-10-05 统一成
   //   「未找到 / 未找到依赖清单」，断言跟着措辞变会无谓地红。
   // ⚠ note 已双语化（英文为主 + noteZh 中文）⇒ 断言走 noteZh，两边都要钉。
@@ -160,7 +148,7 @@ test('⛔ 一个都没有 ⇒ 如实说「没有」，不猜', () => {
     `⛔ 不许出现内部术语或破折号：${r.noteZh}`)
 })
 
-// ⛔ note 是**用户可见**的（StepPrepare 的「依赖清单」栏直接渲染）
+// note 是用户可见的（StepPrepare 的「依赖清单」栏直接渲染）
 //   ⇒ 只列识别到的文件名，⛔ 不得掺「因此用哪种装法」的判据。
 test('⛔ 依赖清单的 note 只列文件名，⛔ 不说「因此用哪种装法」', () => {
   const r = detectDependencyFile(['pyproject.toml', 'uv.lock'])
@@ -173,9 +161,7 @@ test('conda 环境文件能被认出来', () => {
   assert.strictEqual(detectDependencyFile(['environment.yml']).primary.kind, 'conda')
 })
 
-// ---------------------------------------------------------------------------
 // 纪律
-// ---------------------------------------------------------------------------
 test('⛔ probe.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm', 'chat' + 'tts']
@@ -188,16 +174,7 @@ test('⛔ probe.js 活代码里不许出现任何具体引擎名', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ⭐⭐ 第 3 步：上游自己的下载方式（2026-10-05 Owner）
-//
-// 「从现在开始，模型不再需要统一管理」
-//   ⇒ ⛔ 平台不替上游决定模型下到哪、下哪几个文件、用 hf 还是 modelscope。
-//
-// 「四条命令让用户自己选……用户可以自选目录，也就是 --local-dir=checkpoints
-//   这里改一个 --local-dir=path/set/by/user 的事」
-//   ⇒ ⭐ 提取出来之后必须**拆成三段**，目标目录是用户可改的。
-//   ⛔⛔ 原样丢整条命令 = 把目标目录写死成上游随手取的名 ⇒ 直接判失败。
-// ---------------------------------------------------------------------------
+// 上游的下载命令提取出来必须拆成三段（工具 / 模型 / 目录），目标目录用户可改。
 const README_MD = [
   '### 3. Download Models',
   '',

@@ -1,10 +1,5 @@
 'use strict'
-// resolve（第 1 步）—— ⭐ 判据全部来自 registry.js 的**实际行为**，不是我发明的
-//
-// ⚠ 这些用例对应平台真实的硬约束：
-//   registry.js:83 `_` / `.` 开头被跳过
-//   registry.js:59 id 与目录名不一致 ⇒ ENGINE_MANIFEST_ID_MISMATCH
-// 一旦 id 定错，后面每一步都在错的目录上干活 ⇒ 这一步错不得。
+
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -14,9 +9,6 @@ const path = require('node:path')
 const { parseRepoUrl, suggestId, validateId, resolveEngine } =
   require('../core/resolve.js')
 
-// ---------------------------------------------------------------------------
-// 链接解析
-// ---------------------------------------------------------------------------
 test('三种写法都认得出来', () => {
   const want = { owner: 'acme', repo: 'speech-kit' }
   for (const s of [
@@ -114,9 +106,6 @@ test('⛔ 只有 owner 没有 repo / 空输入，要说清缺什么', () => {
   assert.strictEqual(parseRepoUrl('https://github.com/acme').code, 'NO_REPO')
 })
 
-// ---------------------------------------------------------------------------
-// 猜 id —— ⛔ 只是建议
-// ---------------------------------------------------------------------------
 test('猜 id：去掉 .git 后缀，保留大小写（⛔ 不擅自改名）', () => {
   assert.strictEqual(suggestId('speech-kit'), 'speech-kit')
   assert.strictEqual(suggestId('speech-kit.git'), 'speech-kit')
@@ -140,13 +129,7 @@ test('⛔ 用户填的 id 优先于猜的，并标记「已确认」', () => {
   assert.strictEqual(b.idConfirmed, true, '用户自己填了 ⇒ 该提示不必再提')
 })
 
-// ---------------------------------------------------------------------------
-// ⭐ 校验：判据 = registry.js 的真实规则
-// ---------------------------------------------------------------------------
-// ⚠ 2026-10-05 改了断言：原来要求 error 里带 "83"（registry.js 的行号）。
-//   ⛔ 那条**测试本身在强制一个错误做法** —— 把内部文件行号讲给用户听。
-//   Owner 原话：「前端的用词不能太随便」：用户要知道的是「换个名字」，
-//   不是「registry.js 第 83 行会跳过它」。
+
 test('⛔ `_` 开头必须被拒（平台会把这种目录当模板跳过，目录白建）', () => {
   const r = validateId('_TEMPLATE')
   assert.strictEqual(r.ok, false)
@@ -194,9 +177,6 @@ test('⛔ 非法 id 要带着「建议值」回来，好让界面直接显示', 
   assert.strictEqual(r.idSuggested, 'repo', '⛔ 得告诉用户「改成这个就能用」')
 })
 
-// ---------------------------------------------------------------------------
-// cloneUrl
-// ---------------------------------------------------------------------------
 test('⛔ ⭐ cloneUrl 带 .git ⇒ repo 名必须剥掉后缀', () => {
   // ⚠ 这条是实测踩出来的（2026-10-04）：
   //   cloneUrl 一定带 .git（git clone 需要），但探测要读
@@ -225,9 +205,6 @@ test('cloneUrl 带 .git（git clone 需要这个后缀）', () => {
   assert.strictEqual(r.repo, 'b')
 })
 
-// ---------------------------------------------------------------------------
-// 纪律
-// ---------------------------------------------------------------------------
 test('⛔ resolve.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm', 'chat' + 'tts']
@@ -247,11 +224,9 @@ test('⛔ 纪律：本文件不许出现具体引擎名（连测试里都不该�
     assert.ok(!code.toLowerCase().includes(bad), `测试里出现了「${bad}」`)
   }
 })
-// ---------------------------------------------------------------------------
-// ⭐ 2026-10-04 踩到的：resolveEngine **必须**返回 url（不带 .git）
-//   第 2 步的探测读 <owner>/<repo>/main/pyproject.toml，
-//   用带 .git 的名字会全 404 ⇒ 界面永远拿不到依赖列表。
-// ---------------------------------------------------------------------------
+// resolveEngine 必须返回 url（不带 .git）：
+// 第 2 步的探测读 <owner>/<repo>/main/pyproject.toml，
+// 用带 .git 的名字会全 404 ⇒ 界面永远拿不到依赖列表。
 test('⭐⭐ resolveEngine 返回 url（不带 .git），且与 cloneUrl 不同', () => {
   const r = resolveEngine({ url: 'https://github.com/a/b' })
   assert.strictEqual(r.url, 'https://github.com/a/b',

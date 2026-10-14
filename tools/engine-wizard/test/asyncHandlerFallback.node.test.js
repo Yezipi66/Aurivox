@@ -1,19 +1,5 @@
 'use strict'
-// ============================================================================
-//  回归：async handler 被 vite 的 HTML fallback 抢响应（2026-10-12 P0）
-//
-//  症状：向导第 3 步「嗅探仓库」报「嗅探失败：响应格式错误」
-//        （前端 editor/StepsExtra.jsx:174 的 content-type 守卫）。
-//  实测：GET /wizard/download/manifest  → 200 text/html ❌
-//        POST /wizard/params             → 200 text/html ❌
-//        （两个同步端点 download/files、probe 都是 application/json ✅）
-//
-//  ⛔ 本文件**不真起 vite**，⛔ 也不 mock 业务逻辑。
-//  起一个真的 http server，把真 handler 挂上去，中间件那一段从
-//  web/wizard.vite.config.mjs 原样抄下来（⛔ 那段 for 循环不许动，
-//  它是 vite connect 对同步 return 敏感的原因）。
-//  ⇒ 测的就是「中间件 + handler」这个组合本身，不是 handler 的内部逻辑。
-// ============================================================================
+
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -25,10 +11,8 @@ const os = require('node:os')
 const BRIDGE = require('../core/wizardbridge.js')
 
 // ---------------------------------------------------------------------------
-//  ⭐ 中间件的 for 循环 —— 与 web/wizard.vite.config.mjs 逐行同构。
-//     ⛔ 刻意不 import 那个 .mjs（它会拉起 vite/react 的整个依赖图），
-//        也不把它抽成共享模块（那会让两处漂移，漂移的守卫等于没有守卫）。
-//        代价是这里要手动同步一次，改中间件时本文件会亮红。
+// 刻意不 import 那个 .mjs（它会拉起 vite/react 的整个依赖图），
+// 也不把它抽成共享模块（那会让两处漂移，漂移的守卫等于没有守卫）。
 // ---------------------------------------------------------------------------
 /**
  * @param {Function[]} handlers HANDLERS 表（顺序即优先级）
@@ -36,10 +20,9 @@ const BRIDGE = require('../core/wizardbridge.js')
  */
 function wizardMiddleware (handlers) {
   return (req, res, next) => {
-    // ⛔ handler 返回 boolean（同步）或 Promise<boolean>（异步）。
+    // handler 返回 boolean（同步）或 Promise<boolean>（异步）。
     //   async handler 即使返回 false，返回的也是 Promise<false>，
     //   Promise 是 truthy ⇒ 会被误判为已处理 ⇒ next() 不调用 ⇒ 卡死。
-    //   ⇒ 对 Promise，不能同步判定，要等它 resolve。
     let handled = false
     try {
       for (const h of handlers) {
@@ -64,7 +47,7 @@ function wizardMiddleware (handlers) {
 }
 
 // ---------------------------------------------------------------------------
-//  ⚠ HANDLERS 的顺序 = web/wizard.vite.config.mjs 里的顺序 ⛔ 改那边要同步改这边。
+// HANDLERS 的顺序 = web/wizard.vite.config.mjs 里的顺序，改那边要同步改这边。
 //     这里只取与本 bug 相关的四个端点 + 队尾两个 async（历史），
 //     其余 handler 不参与：顺序纪律关心的只是「async 的必须在最后」。
 // ---------------------------------------------------------------------------
@@ -74,7 +57,7 @@ const HANDLERS = [
   specbridge.handleSpec, savebridge.handleRead,
   BRIDGE.handleProbe,
   BRIDGE.handleDownloadFiles,
-  // ⛔ 这两个**必须**排在最后 —— 与 vite 配置里的纪律同款。
+  // 这两个必须排在最后 —— 与 vite 配置里的纪律同款。
   BRIDGE.handleParams, BRIDGE.handleDownloadManifest,
 ]
 
@@ -119,9 +102,6 @@ const post = (base, p, body) => withTimeout((async () => {
   return { status: r.status, ct: r.headers.get('content-type') || '', text: await r.text() }
 })(), 15000, p)
 
-// ---------------------------------------------------------------------------
-//  ① 四个端点的 content-type 必须是 application/json
-// ---------------------------------------------------------------------------
 test('⭐ P0 四个 wizard 端点全部回 application/json（⛔ 不是 text/html）', async () => {
   const { server, base } = await startServer()
   try {
@@ -143,10 +123,7 @@ test('⭐ P0 四个 wizard 端点全部回 application/json（⛔ 不是 text/ht
   }
 })
 
-// ---------------------------------------------------------------------------
-//  ② 两个曾 async 的端点：URL/方法不匹配时同步返回 false，且一个字都不许写
-//     （false 是中间件 next() 的前提 —— 返回 Promise 会 break 出循环）
-// ---------------------------------------------------------------------------
+// false 是中间件 next() 的前提 —— 返回 Promise 会 break 出循环
 test('⭐⭐ 曾 async 的两个 handler 现在**同步**返回 false 且不写任何响应', async () => {
   const res = {
     headersSent: false,
@@ -178,9 +155,7 @@ test('⭐⭐ 曾 async 的两个 handler 现在**同步**返回 false 且不写�
     '⛔ handleDownloadManifest 返回了 Promise —— 同上')
 })
 
-// ---------------------------------------------------------------------------
-//  ③ async 干活出错时必须回**合法 JSON**，⛔ 不许挂住
-// ---------------------------------------------------------------------------
+
 test('⭐⭐ 异步出错时回的是合法 JSON（⛔ 不是半个响应，也不是挂死）', async () => {
   const { server, base } = await startServer()
   try {
@@ -230,10 +205,7 @@ test('⭐ 错误响应不会二次写头（⛔ 已经回过就不许再 writeHea
   assert.strictEqual(writes, 0, '⛔ 头已发出还再 writeHead ⇒ ERR_HTTP_HEADERS_SENT 把真错盖掉')
 })
 
-// ---------------------------------------------------------------------------
-//  ④ 真端到端：manifest 端点在真 server 上真拿 JSON（远端 API 打不通也算数，
-//     端点的契约是「回 JSON」，不是「一定成功」）
-// ---------------------------------------------------------------------------
+// 端点的契约是「回 JSON」，不是「一定成功」
 test('⭐⭐ manifest 端点端到端：真发真收，内容是 JSON 而不是 HTML', async () => {
   const { server, base } = await startServer()
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-mf-'))
@@ -250,9 +222,7 @@ test('⭐⭐ manifest 端点端到端：真发真收，内容是 JSON 而不是 
   }
 })
 
-// ---------------------------------------------------------------------------
-//  ⑤ params 端点端到端：空 body 也要回 JSON（不是 HTML）
-// ---------------------------------------------------------------------------
+
 test('⭐⭐ params 端点端到端：空 body 回 JSON（⛔ 不是 HTML fallback）', async () => {
   const { server, base } = await startServer()
   try {
@@ -266,11 +236,7 @@ test('⭐⭐ params 端点端到端：空 body 回 JSON（⛔ 不是 HTML fallba
   }
 })
 
-// ---------------------------------------------------------------------------
-//  ⑥ 守卫：这两个 handler 不许再变回 async
-//     ⛔ 不看源码字面量，靠**运行时**判据（构造函数名）——
-//        注释和格式会被人重排，构造函数名不会骗人。
-// ---------------------------------------------------------------------------
+// 不看源码字面量，靠运行时判据（构造函数名）——注释和格式会被人重排，构造函数名不会骗人。
 test('⭐⭐⭐ 两个曾 async 的 handler 构造函数不是 AsyncFunction', () => {
   for (const name of ['handleParams', 'handleDownloadManifest']) {
     assert.strictEqual(BRIDGE[name].constructor.name, 'Function',
@@ -279,10 +245,7 @@ test('⭐⭐⭐ 两个曾 async 的 handler 构造函数不是 AsyncFunction', (
   }
 })
 
-// ---------------------------------------------------------------------------
-//  ⑦ 守卫：vite 配置里的 HANDLERS 表不许出现 async handler
-//     直接读 .mjs 源文件，assert HANDLERS 段里没有 async 导出名。
-// ---------------------------------------------------------------------------
+// 直接读 .mjs 源文件，assert HANDLERS 段里没有 async 导出名。
 test('⭐⭐⭐ vite 中间件的 HANDLERS 表全部是同步 handler（⛔ 顺序不许重排）', () => {
   const cfgPath = path.join(__dirname, '..', '..', '..', 'web', 'wizard.vite.config.mjs')
   const src = fs.readFileSync(cfgPath, 'utf8')

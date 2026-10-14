@@ -1,20 +1,5 @@
 'use strict'
-// ============================================================================
-//  老式布局（requirements.txt）的依赖读取 —— 2026-10-12 Owner 判定的 P0
-//
-//  ⚠ 为什么有这份测试：
-//   第 2 步的 /wizard/deps 原来**只读 pyproject.toml**，没有就直接 ok:false，
-//   而 2020-2023 年那批项目在根目录放的是 requirements.txt（实测某个上游
-//   根目录只有 requirements.txt，既没有 pyproject.toml 也没有 uv.lock）。
-//   ⇒ 接一台新引擎的流程在第 2 步就断了。
-//   而那个端点自己写的提示语正是「它可能在 requirements.txt 里」
-//   —— 文案说了，代码没读。这份测试守着「现在真的读了」。
-//
-//  ⛔ 判据与 probePyproject 一致：**只做「行 → 值」**。
-//     认不出的行就跳过，⛔ 绝不猜成某个包名。
-//
-//  ⛔⛔ 纪律：测试文件里不许出现任何具体引擎名（守卫见 probe.node.test.js）。
-// ============================================================================
+
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -23,9 +8,7 @@ const {
   parseRequirements, planDependencies, probeProject, parseSetupPyName,
 } = require('../core/probe.js')
 
-// ---------------------------------------------------------------------------
 // 一份形状照真实老项目写的 requirements.txt（结构与内容都是常见形态）
-// ---------------------------------------------------------------------------
 const REQ = [
   '--index-url https://pypi.org/simple',
   '',
@@ -41,21 +24,17 @@ const REQ = [
   'librosa; python_version<"3.9"',  // 环境标记 ⇒ 取分号前
   'numpy==1.24.0  # 钉住版本',      // 行尾注释 ⇒ 剥掉
   'onnxruntime-gpu',                // 无版本约束
-  'git+https://github.com/owner/pkg.git#egg=pkg',   // ⛔ 直连来源
-  'file:///opt/local/wheelhouse',                   // ⛔ 直连来源
-  'https://example.invalid/pkg-1.0.tar.gz',         // ⛔ 直连来源
+  'git+https://github.com/owner/pkg.git#egg=pkg',   // 直连来源
+  'file:///opt/local/wheelhouse',                   // 直连来源
+  'https://example.invalid/pkg-1.0.tar.gz',         // 直连来源
   '--find-links ./wheels',
   '--hash=sha256:abcdef',
   '',
-  'openssl==3.0.1 \\',              // ⛔ 续行：本行不是一条完整依赖
+  'openssl==3.0.1 \\',              // 续行：本行不是一条完整依赖
   '  --hash=sha256:123456',
   '',
-  'torch>=2.5.0',                   // ⭐ 重复声明 ⇒ 去重，保留第一次
+  'torch>=2.5.0',                   // 重复声明 ⇒ 去重，保留第一次
 ].join('\n')
-
-// ---------------------------------------------------------------------------
-// 一、parseRequirements 的基本形态
-// ---------------------------------------------------------------------------
 
 test('parseRequirements：== / >= / 无版本 三种形态都读出包名', () => {
   const r = parseRequirements(REQ)
@@ -151,7 +130,7 @@ test('parseRequirements：⛔ null / 非字符串 / 空串不能炸，且 found 
   }
 })
 
-// ⛔ 这条守住「别把 pyproject 当 requirements 解析」
+
 test('⛔ parseRequirements 遇 pyproject 文本不乱报依赖', () => {
   const PYPROJECT = `
 [project]
@@ -168,22 +147,20 @@ speechkit = "speechkit.cli:main"
   const r = parseRequirements(PYPROJECT)
   assert.deepStrictEqual(r.dependencies, [],
     `⛔ pyproject 不该被读出依赖：${JSON.stringify(r.dependencies)}`)
-  // ⭐ 具体来说：project / name / license 这类行不是依赖声明
+  // project / name / license 这类行不是依赖声明
   for (const wrong of ['project', 'name', 'license', 'speechkit', 'speechkit.cli']) {
     assert.ok(!r.dependencies.includes(wrong), `误报「${wrong}」`)
   }
 })
 
 test('⛔ 不是依赖声明的行不许被猜成包名', () => {
-  // ⛔ 一行里出现两个词、又不是版本约束 ⇒ 不是依赖声明，跳过
+  // 一行里出现两个词、又不是版本约束 ⇒ 不是依赖声明，跳过
   const r = parseRequirements('foo bar\nthis is prose, not a dependency\npython3 setup.py\n')
   assert.deepStrictEqual(r.dependencies, [],
     `⛔ 把散文读成包名了：${JSON.stringify(r.dependencies)}`)
 })
 
-// ---------------------------------------------------------------------------
-// 二、planDependencies 走 requirements 路径
-// ---------------------------------------------------------------------------
+
 
 test('⭐⭐ 走 requirements 路径：出 torch 判定（hardware judge），不再是 ok:false', () => {
   const plan = planDependencies(null, {
@@ -195,7 +172,7 @@ test('⭐⭐ 走 requirements 路径：出 torch 判定（hardware judge），�
   assert.strictEqual(plan.dep_count, 7)
   assert.strictEqual(plan.deps.total, 7)
 
-  // ⭐ torch 系被摘出来单独判
+  // torch 系被摘出来单独判
   //   torch / torchaudio / torchvision / onnxruntime-gpu 都在 TORCH_FAMILY 里
   //   ⇒ 4 条；其余 3 条归「普通依赖」
   assert.strictEqual(plan.deps.torch.count, 4)
@@ -203,10 +180,10 @@ test('⭐⭐ 走 requirements 路径：出 torch 判定（hardware judge），�
   assert.ok(main, '⛔ 没有 isMain 的 torch 行')
   assert.strictEqual(main.spec, 'torch==2.2.0',
     '⛔ spec 必须是 requirements 里那行（带版本），不是裸包名')
-  // ⭐ 钉死版本 ⇒ judgeTorchSpec 给出确定结论（cpu，与本机匹配）
+  // 钉死版本 ⇒ judgeTorchSpec 给出确定结论（cpu，与本机匹配）
   assert.strictEqual(main.verdict, 'match', main.why)
   assert.strictEqual(plan.verdict, 'match')
-  // ⭐ 其余依赖归「普通依赖」
+  // 其余依赖归「普通依赖」
   assert.strictEqual(plan.deps.normal.count, 3)
 })
 
@@ -237,7 +214,7 @@ test('⛔ 两份清单都没有 ⇒ 如实说读不到（⛔ 不编造、⛔ 不
   assert.strictEqual(plan.dep_source, null)
   assert.ok(/requirements\.txt/.test(plan.errorZh), plan.errorZh)
   assert.ok(/requirements\.txt/.test(plan.error), plan.error)
-  // ⛔ 旧文案那句「请换一份带依赖清单的仓库」已经不该出现
+  // 旧文案那句「请换一份带依赖清单的仓库」已经不该出现
   assert.ok(!/换一份/.test(plan.errorZh), plan.errorZh)
 })
 
@@ -250,9 +227,7 @@ test('requirements.txt 在、但每一行都读不出 ⇒ 如实说「没读到�
   assert.ok(/requirements\.txt/.test(plan.errorZh), plan.errorZh)
 })
 
-// ---------------------------------------------------------------------------
-// 三、⛔ 回归保护：有 pyproject 的老路径不许变
-// ---------------------------------------------------------------------------
+
 
 const GOOD_PYPROJECT = `
 [project]
@@ -281,7 +256,7 @@ test('⛔ 回归：老调用 planDependencies(pyprojectText, {hardware}) 行为�
   assert.strictEqual(plan.deps.torch.count, 2)
   const main = plan.deps.torch.packages.find((p) => p.isMain)
   assert.strictEqual(main.spec, 'torch>=2.5.0')
-  // ⭐ pyproject 只写 >=，判不出后端 ⇒ unknown（⛔ 不猜）
+  // pyproject 只写 >=，判不出后端 ⇒ unknown
   assert.strictEqual(main.verdict, 'unknown')
   assert.strictEqual(plan.deps.normal.count, 0)
 })
@@ -317,9 +292,7 @@ test('⛔ 回归：planDependencies(null, {requirements}) 不炸', () => {
   assert.strictEqual(plan.deps.torch.count, 1)
 })
 
-// ---------------------------------------------------------------------------
-// 四、第 1 步（probe）：缺 pyproject 不该让包名与许可证一起变空
-// ---------------------------------------------------------------------------
+
 
 const SETUP_PY = [
   'from setuptools import setup, find_packages',
@@ -355,7 +328,7 @@ test('⭐⭐ 第 1 步：缺 pyproject 时，包名与许可证**不再全空**'
   assert.strictEqual(r.values['call.module'], 'speechkit',
     '⛔ 包名读不出来（来源是 setup.py，不是 pyproject）')
   assert.ok(r.sources['call.module'].includes('setup.py'))
-  // ⭐ 许可证「值」与「来源」必须一致：只有文件、没有标识时，
+  // 许可证「值」与「来源」必须一致：只有文件、没有标识时，
   //   值是 null（⛔ 不装句子），事实由 licenseEvidence 承载。
   assert.strictEqual(r.meta.license, null,
     `⛔ 许可证值里装了句子（这个字段会直接渲染到界面）：${r.meta.license}`)
@@ -363,10 +336,10 @@ test('⭐⭐ 第 1 步：缺 pyproject 时，包名与许可证**不再全空**'
     '⛔ 没有许可证标识却声称了来源')
   assert.strictEqual(r.meta.licenseEvidence, 'file-only')
   assert.strictEqual(r.meta.licenseFile, 'LICENSE')
-  // ⭐ 依赖清单照样认得出
+  // 依赖清单照样认得出
   assert.strictEqual(r.meta.dependencies.primary.kind, 'requirements')
   assert.deepStrictEqual(r.meta.requirementPackages.length, 7)
-  // ⛔ 许可证类型不许被猜出来（⛔ 只报「有 LICENSE 文件」）
+  // 许可证类型不许被猜出来（只报「有 LICENSE 文件」）
   assert.ok(!/Apache|MIT|GPL|BSD/.test(String(r.meta.license)),
     `⛔ 猜了许可证类型：${r.meta.license}`)
   assert.ok(!/Apache|MIT|GPL|BSD/.test(String(r.meta.licenseEvidence)),
@@ -385,20 +358,12 @@ test('⭐ pyproject 写了 license ⇒ 优先用它（比文件存在更精确�
   assert.strictEqual(r.values['call.module'], 'speechkit')
 })
 
-// ---------------------------------------------------------------------------
-// ⭐⭐ 值与来源必须一致（P0 收尾）
-//
-// ⚠ 为什么要有这条守卫：StepPrepare.jsx 把 meta.packageName / meta.license
-//   直接渲染到界面上，而 meta.*From 也在响应里。值字段一旦被塞进句子
-//   （曾经是 "LICENSE file detected (LICENSE)"），那句话就会原样显示。
-//   另一头是来源字段：值是 null 时来源却写着 pyproject，
-//   读起来就成了「平台在 pyproject 里读到了包名」，那是假的。
-//
-// ⛔ 判据：packageName / packageNameFrom / license / licenseFrom
-//   **有值与有来源必须同进同出**。
-// ---------------------------------------------------------------------------
+// 值与来源必须一致：StepPrepare.jsx 把 meta.packageName / meta.license
+// 直接渲染到界面上，而 meta.*From 也在响应里。值字段一旦被塞进句子，
+// 那句话就会原样显示。判据：packageName / packageNameFrom / license / licenseFrom
+// 有值与有来源必须同进同出。
 
-/** ⛔ 值字段不许装句子：它会被直接渲染到界面上。 */
+/** 值字段不许装句子：它会被直接渲染到界面上。 */
 function sentenceIn (v) {
   if (v == null) return null
   return /\s/.test(String(v).trim()) && !/^[\w.+-]+$/.test(String(v).trim())
@@ -479,9 +444,7 @@ test('⛔ pyproject 优先：pyproject 有 name 时不许被 setup.py 覆盖', (
   assert.ok(r.sources['call.module'].includes('pyproject'))
 })
 
-// ---------------------------------------------------------------------------
-// 五、文案纪律（与 styleguard 同一套判据）
-// ---------------------------------------------------------------------------
+
 
 test('⛔ 依赖来源相关的用户可见文案不许有 emoji / 破折号 / 口语', () => {
   const FORBIDDEN = ['\u26d4', '——', '对得上', '看不出来', '没什么', '搞定',
