@@ -7,10 +7,6 @@ const { spawnSync } = require('node:child_process')
 
 const EXTRACTOR = path.join(__dirname, 'cli_help_extract.py')
 
-// ---------------------------------------------------------------------------
-//  候选 CLI 文件名
-// ---------------------------------------------------------------------------
-//   ⚠ 兜底只读**文件名**（readdir 只取名字，不读内容，不遍历 vendor 等大目录）。
 const CLI_CANDIDATES = Object.freeze([
   'cli.py', 'cli_v2.py', 'cli2.py', 'main.py',
   'cli', 'infer.py', 'inference.py',
@@ -26,10 +22,8 @@ const SKIP_DIRS = Object.freeze(new Set([
 const MAX_DEPTH = 4
 const MAX_FILES = 4000
 
-// ---------------------------------------------------------------------------
-//  跑 Python 侧提取器
-// ---------------------------------------------------------------------------
 // spec 走临时文件而不是命令行参数：路径里出现引号/中文时，命令行在 Windows 上
+//   解析不了。
 function runExtractor (dir, candidates, python) {
   if (!fs.existsSync(EXTRACTOR)) {
     return { ok: false, error: `提取器不存在：${EXTRACTOR}`, sources: [], flags: [], by_dest: {} }
@@ -41,7 +35,7 @@ function runExtractor (dir, candidates, python) {
       dir: path.resolve(dir),
       candidates: candidates || CLI_CANDIDATES,
     }), 'utf8')
-    // ⚠ python 可指定；没指定就用系统 PATH 里的 python/python3。
+    // python 可指定；没指定就用系统 PATH 里的 python/python3。
     const exe = python || (process.platform === 'win32' ? 'python' : 'python3')
     const proc = spawnSync(exe, [EXTRACTOR, '--spec-file', specFile], {
       encoding: 'utf8',
@@ -79,17 +73,16 @@ function runExtractor (dir, candidates, python) {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  dest：官方 argparse 的 dest 推导规则（逐字照搬，不是平台发明）
-// argparse：dest 取第一个 **long option** 的名字，去 `--` 前缀，连字符转下划线；
-//           没有 long option 时才退到 positional 名；都没有才用 dest= 显式给。
-// ⚠ `--no-foo` 这种 BooleanOptionalAction 的 dest 仍是 `foo`，`--no-` 是动作
+// argparse 的 dest 推导规则：dest 取第一个 long option 的名字，去 `--` 前缀，
+//   连字符转下划线；没有 long option 时才退到 positional 名；
+//   都没有才用 dest= 显式给。
+// `--no-foo` 这种 BooleanOptionalAction 的 dest 仍是 `foo`，`--no-` 是动作
 function destFor (flags, isOption) {
   if (isOption) {
     const long = flags.find((o) => typeof o === 'string' && o.startsWith('--'))
     if (long) {
       const bare = long.slice(2)
-      // ⚠⚠ 连字符转下划线：`--emotion-vector` 的 dest 是 `emotion_vector`。
+      // 连字符转下划线：`--emotion-vector` 的 dest 是 `emotion_vector`。
       const name = bare.startsWith('no-') ? bare.slice(3) : bare
       return name.replace(/-/g, '_')
     }
@@ -105,9 +98,6 @@ function norm (s) {
   return String(s || '').toLowerCase().replace(/-/g, '_')
 }
 
-// ---------------------------------------------------------------------------
-//  找引擎目录下的 CLI 源
-// ---------------------------------------------------------------------------
 /**
  * 在引擎源码目录里找 CLI 文件。
  * @param {string} dir 引擎源码根目录（或它下面的包目录）
@@ -168,9 +158,6 @@ function findCliFiles (dir, opts = {}) {
   return found
 }
 
-// ---------------------------------------------------------------------------
-//  组装：给界面的 CLI 原话包
-// ---------------------------------------------------------------------------
 /**
  * 从引擎目录抓上游 CLI 的官方原话，整份摊开。
  *
@@ -211,12 +198,8 @@ function collectCliHelp (spec = {}) {
   return { ok: true, sources: r.sources || [], flags, by_dest: byDest }
 }
 
-// ---------------------------------------------------------------------------
-//  直接同名：唯一允许的自动贴
-// ---------------------------------------------------------------------------
 /**
- * 「直接同名」判定：签名参数名与 CLI dest **逐字相同**（去连字符转下划线后）。
- *
+ * 「直接同名」判定：签名参数名与 CLI dest 逐字相同（去连字符转下划线后）。
  *
  * @param {string} paramName 反射出来的签名参数名（snake_case）
  * @param {object} cliHelp  collectCliHelp 的返回值
@@ -227,7 +210,7 @@ function exactMatchFor (paramName, cliHelp) {
   const key = norm(paramName)
   const list = cliHelp.by_dest[key]
   if (!list || !list.length) return null
-  // ⚠ 多个子命令都声明了同名 flag：优先**有官方原话**的那一条，
+  // 多个子命令都声明了同名 flag：优先有官方原话的那一条，
   const sorted = [...list].sort((a, b) => {
     if (!!b.help !== !!a.help) return b.help ? 1 : -1
     if (!!b.required !== !!a.required) return b.required ? 1 : -1
@@ -251,12 +234,8 @@ function exactMatchFor (paramName, cliHelp) {
   return out
 }
 
-// ---------------------------------------------------------------------------
-//  把 CLI 原话按三块分区，接到草稿包上
-// ---------------------------------------------------------------------------
 /**
  * 第 2 步的组装：把上游 CLI 原话按「用户操作流」分成三块，接到草稿包上。
- *
  *
  * @param {object} draft  buildDraftPackage 的返回值
  * @param {object} [cliHelp]  collectCliHelp 的返回值（可为 null）
@@ -284,7 +263,7 @@ function organizeDraft (draft, cliHelp) {
     auto.push(enrich({ name: row.platform_key, _mapped_to: row.current }, 'auto'))
   }
 
-  // ② 必须你填的：必填 + 平台认不出
+  // 必须填的：必填 + 平台认不出
   const must = []
   const may = []
   for (const p of draft.parameters) {

@@ -59,7 +59,7 @@ function detectGpus () {
   const out = []
   const plat = process.platform
 
-  // ---- NVIDIA：nvidia-smi 是主信号（驱动自带，最可靠）----
+  // NVIDIA：nvidia-smi 是主信号（驱动自带，最可靠）
   const smi = run('nvidia-smi', ['-L'])
   if (smi) {
     const names = smi.split('\n')
@@ -103,7 +103,7 @@ function detectGpus () {
             : v === '0x10de' ? 'nvidia' : 'unknown'
         out.push({ vendor, name: c, via: '/sys/class/drm vendor id' })
       }
-    } catch { /* 没有就分不清 ⇒ 交给调用方退 CPU */ }
+    } catch { /* 没有就分不清，交给调用方退 CPU */ }
   }
   _cache = out; _cacheAt = now
   return out
@@ -298,7 +298,7 @@ function parseUvLock (text) {
 }
 
 /**
- * 从 uv.lock 读出 torch 的**纯版本号**（剥掉 +cu128 / +xpu 这类后缀）。
+ * 从 uv.lock 读出 torch 的纯版本号（剥掉 +cu128 / +xpu 这类后缀）。
  *
  * @param {string} text uv.lock 全文
  * @param {string} [platform] process.platform，默认取当前平台
@@ -348,7 +348,7 @@ function readTorchPin (text, platform) {
 }
 
 /**
- * torch **系**（不止 torch 一个）的锁定版本。
+ * torch 系（不止 torch 一个）的锁定版本。
  * @param {string} text uv.lock 全文
  * @param {string} [platform] process.platform，默认取当前平台
  * @returns {{name:string, plain:string}[]|null} torch 排第一；读不出 torch 给 null
@@ -364,7 +364,7 @@ function readTorchFamilyPins (text, platform) {
   for (const sib of ['torchaudio', 'torchvision']) {
     const cands = rows.filter((r) => r.name.toLowerCase() === sib && r.version
       && String(r.version).replace(/\+.*$/, '') === plain)
-    if (!cands.length) continue          // lock 里没有 ⇒ 不装
+    if (!cands.length) continue          // lock 里没有，不装
     out.push({ name: sib, plain: String(preferLockRow(cands, plat).version).replace(/\+.*$/, '') })
   }
   return out

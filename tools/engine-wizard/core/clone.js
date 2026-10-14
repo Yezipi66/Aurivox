@@ -23,8 +23,8 @@ function engineDir (id, root) {
 /**
  * 动手之前先看目标目录。
  *
- * 判据来自 git 自己的行为（clone 拒绝非空目录），但**提前查**而不是等它报：
- * 等它报的时候，用户可能已经等了很久。
+ * 判据来自 git 自己的行为（clone 拒绝非空目录），但提前查而不是等它报：
+ *   等它报的时候，用户可能已经等了很久。
  *
  * @returns {{ok:true, dir:string, exists:boolean, entries:string[]}
  *          | {ok:false, code, error, entries?}}
@@ -41,8 +41,7 @@ function inspectTarget (id, opts = {}) {
     return { ok: true, dir, exists: false, entries: [] }
   }
   const entries = fs.readdirSync(dir)
-  // 一个空目录 = git 能直接往里放 ⇒ 没问题
-  //   「目录不存在」也一样，git 会自己建
+  // 空目录 git 能直接往里放，等于没问题；目录不存在也一样，git 会自己建
   return { ok: true, dir, exists: true, entries }
 }
 
@@ -52,7 +51,8 @@ function inspectTarget (id, opts = {}) {
  * @returns {{ok:true, dir} | {ok:false, code, error, entries?}}
  */
 function checkClonable (id, opts = {}) {
-  // id 的校验在 buildClonePlan 里已做，但本函数可被单独调用，故此处同样兜底：空/非字符串/纯空格 ⇒ 拒绝。
+  // id 的校验在 buildClonePlan 里已做，但本函数可被单独调用，故此处同样兜底：
+  //   空/非字符串/纯空格一律拒绝。
   if (typeof id !== 'string' || !id.trim()) {
     return { ok: false, code: 'MISSING_ID',
       error: 'No directory name given.\n',
@@ -62,7 +62,7 @@ function checkClonable (id, opts = {}) {
   if (!info.ok) return info
   if (info.entries.length === 0) return { ok: true, dir: info.dir }
 
-  // 非空 ⇒ 不许默默继续，也不许默默覆盖
+  // 非空，所以不许默默继续，也不许默默覆盖
   const listed = info.entries.slice(0, 8)
   return {
     ok: false,
@@ -83,10 +83,10 @@ function checkClonable (id, opts = {}) {
 }
 
 /**
- * 真正的克隆。**默认只打印计划，不动盘。**
+ * 真正的克隆。默认只打印计划，不动盘。
  *
  * 理由跟 tools/install-engine.cjs 一样（它是项目已有的先例）：
- * 克隆要联网、要写盘；「敲错一个字就开始下载」不是一个好的默认值。
+ *   克隆要联网、要写盘；「敲错一个字就开始下载」不是一个好的默认值。
  */
 function buildClonePlan (input = {}) {
   const id = input.id
@@ -157,7 +157,7 @@ function buildClonePlan (input = {}) {
 }
 
 /**
- * 执行。**只有 execute:true 才会真的跑**，
+ * 执行。只有 execute:true 才会真的跑，
  * 默认仍然只返回计划（跟 install-engine.cjs 的默认行为一致）。
  */
 function runClone (input = {}) {
@@ -187,8 +187,7 @@ function runClone (input = {}) {
     }
   }
 
-  // 只报「git 说成功了」，不报「克隆好了」，
-  //   那要等第 4 步的自检（import 探针）才能下结论。
+  // 只报「git 说成功了」，不报「克隆好了」：那要等第 4 步的自检（import 探针）才能下结论。
   return {
     ...plan,
     ok: true,
