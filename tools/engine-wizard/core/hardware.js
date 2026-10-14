@@ -5,8 +5,8 @@ const os = require('node:os')
 const { execFileSync } = require('node:child_process')
 
 /**
- * 后端的固定偏好顺序：StabilityMatrix 的原文顺序。
- * ⚠ 这是**建议排序**，不是「只支持这几个」。
+ * 后端的固定偏好顺序，照 StabilityMatrix 的原文顺序。
+ * 这是建议排序，不是只支持这几个。
  */
 const BACKEND_PREFERENCE = [
   { key: 'cuda',   label: 'CUDA',   for: 'NVIDIA（Windows/Linux）',
@@ -50,7 +50,7 @@ let _cacheAt = 0
 const CACHE_MS = 5 * 60 * 1000
 
 /**
- * 检测本机 GPU。**尽力而为**，任何一步失败都不抛：分不清就交给调用方退 CPU。
+ * 检测本机 GPU。任何一步失败都不抛，分不清就交给调用方退 CPU。
  * @returns {{vendor:string, name:string|null, detail:string|null}[]}
  */
 function detectGpus () {
@@ -109,7 +109,7 @@ function detectGpus () {
   return out
 }
 
-/** 清缓存（装完驱动/换了卡之后用） */
+/** 装完驱动或换卡之后调，让下次检测重新跑。 */
 function clearHardwareCache () { _cache = null; _cacheAt = 0 }
 
 // 上面 Linux 分支要 fs，而 detectGpus 是同步的：这里单独 require 免得顶部就依赖 fs
@@ -120,7 +120,7 @@ function fs_ () {
 }
 
 /**
- * 按 StabilityMatrix 的偏好顺序，为本机选一个**推荐后端**。
+ * 按 StabilityMatrix 的偏好顺序，为本机选一个推荐后端。
  * @param {{vendor:string}[]} gpus
  * @returns {{recommended:string, reason:string, confidence:'guidance'|'unknown'}}
  */
@@ -155,8 +155,8 @@ function recommendBackend (gpus) {
 /**
  * 完整入口：检测 + 推荐 + 全部可选项。
  *
- * ⚠ 返回里**一定**带 `options`（所有可选项），
- *   推荐只是 highlight，用户可以选任何一条，包括「我自己装」。
+ * 返回里一定带 options（所有可选项）：推荐只是 highlight，
+ *   用户可以选任何一条，包括「我自己装」。
  */
 function inspectHardware () {
   const gpus = detectGpus()
@@ -180,10 +180,10 @@ function inspectHardware () {
 }
 
 /**
- * 关键：判断 **uv.lock 里的 torch 属于哪个后端**，跟检测结果比。
+ * 判断 uv.lock 里的 torch 属于哪个后端，跟本机检测结果比。
  *
- * ⚠ 这才是「标绿 / 标黄」的依据：不是「检测到 Intel 就说不行」，
- *   而是「lock 里写的那个后端，跟本机能不能用对得上」。
+ * 这是标绿与标黄的依据：不是检测到 Intel 就判不行，
+ * 而是看 lock 里写的后端与本机能不能用对不对得上。
  *
  * @param {string} spec lock 里那行，比如 'torch==2.2.0+cu121'
  * @returns {{kind:string, verdict:'match'|'mismatch'|'unknown', why:string}}
@@ -242,8 +242,8 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
 }
 
 /**
- * 把 torch 系包从依赖清单里**摘出来**，其余归「普通依赖」。
- * 判定用**包名**，不看版本、不猜。
+ * 把 torch 系包从依赖清单里摘出来，其余归普通依赖。
+ * 判定用包名，不看版本、不猜。
  */
 const TORCH_FAMILY = new Set([
   'torch', 'torchvision', 'torchaudio', 'pytorch-triton',
@@ -264,7 +264,7 @@ function splitTorchPackages (deps) {
 
 
 /**
- * 解析 uv.lock 里**锁定**的 torch 系包。
+ * 解析 uv.lock 里锁定的 torch 系包。
  *
  * 只做「行 → 值」，不解析整个 lock 语法。
  * @param {string} text uv.lock 原文
