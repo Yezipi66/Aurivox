@@ -17,9 +17,6 @@ const https = require('node:https')
  * 进度文件路径：每个引擎目录下记录已完成的下载命令。
  * 断点续传：重跑时跳过已完成的命令（hf/modelscope CLI 自带缓存，
  *    重复跑同一条命令只补缺的，不会重下已下载的）。
- * 2026-10-12 Owner 裁决：与 env 的进度合并成同一个
- *    .wizard-install.json（models 段），不再写
- *    .wizard-download-progress.json。
  */
 const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
   resetProgress: resetProgressOf } = require('./installState')
@@ -199,7 +196,6 @@ function unifyDest (argv, engineId, root) {
 //  fetchRemoteManifest：请求 HF/ModelScope API 获取文件列表
 // ---------------------------------------------------------------------------
 //  返回 { ok, files, error }，API 失败时 ok=false + error 信息
-//  HF API 返回 hex 格式 SHA-256，ModelScope 可能返回 base64，统一转 hex
 function fetchRemoteManifest (repo, tool, baseUrl) {
   return new Promise((resolve) => {
     const base = baseUrl || (tool === 'modelscope' ? 'https://modelscope.cn' : 'https://huggingface.co')
@@ -258,7 +254,10 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
   })
 }
 
-/** base64 → hex（ModelScope API 可能返回 base64 格式的 SHA-256） */
+/**
+ * base64 → hex。
+ * HF API 返回 hex 格式 SHA-256，ModelScope 可能返回 base64，统一转 hex 便于比对。
+ */
 function base64ToHex (b64) {
   try {
     const buf = Buffer.from(b64, 'base64')
@@ -279,7 +278,6 @@ async function checkFileStatus (file, expectedSize, root, id) {
   const finalPath = path.join(dir, file)
   const tmpPath = finalPath + '.tmp'
 
-  // 检查正式文件
   if (fs.existsSync(finalPath)) {
     const stat = fs.statSync(finalPath)
     // 远端没给大小 ⇒ 无从比对，不能当作已下载完成
@@ -304,7 +302,6 @@ async function checkFileStatus (file, expectedSize, root, id) {
     return { status: 'ok', size: stat.size, sha256: await sha256File(finalPath) }
   }
 
-  // 检查 .tmp 文件
   if (fs.existsSync(tmpPath)) {
     const stat = fs.statSync(tmpPath)
     return { status: 'partial', size: stat.size, sha256: null }
@@ -313,7 +310,10 @@ async function checkFileStatus (file, expectedSize, root, id) {
   return { status: 'missing', size: 0, sha256: null }
 }
 
-/** 计算文件 SHA-256（流式读取，支持大文件） */
+/**
+ * 计算文件 SHA-256（流式读取，支持大文件）。
+ * 不用远端 blobId：HF 的 blobId 是内部标识，不是文件内容的真实哈希。
+ */
 function sha256File (filePath) {
   return new Promise((resolve) => {
     const hash = crypto.createHash('sha256')
@@ -389,7 +389,6 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
     const req = client.get(url, { headers }, (res) => {
       const status = res.statusCode
 
-      // 跟随重定向
       if (status >= 300 && status < 400 && res.headers.location) {
         req.destroy()
         // Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
@@ -431,10 +430,12 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // 本次响应声明的长度：带 Range 时它是剩余部分，不是整个文件
+      // 本次响应声明的长度：带 Range 时它是剩余部分，不是整个文件。
+      //   不判 status !== 206 会怎样：hf 对 Range 请求仍返回 200 时会重下整份。
       const contentLength = Number(res.headers['content-length'] || 0)
       const startOffset = resumeFrom
 
+      // Range 续传时接着写（'a'），从零或不支持 Range 时从头写（'w'）
       const flags = resumeFrom > 0 ? 'a' : 'w'
       const out = fs.createWriteStream(tmpPath, { flags })
       let downloaded = resumeFrom
@@ -452,7 +453,6 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         if (typeof onLine === 'function') {
           try { onLine(`Downloaded ${downloaded} bytes`, false) } catch (e) { /* 忽略 */ }
         }
-        // 计算并报告下载进度
         if (typeof onProgress === 'function') {
           const total = expectedSize > 0 ? expectedSize : (startOffset + contentLength)
           if (total > 0) {
@@ -493,7 +493,6 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
           }
           // 计算实际 SHA-256（不用远端 blobId，因为不是真实哈希）
           const actualSha256 = await sha256File(tmpPath)
-          // 原子重命名
           try {
             fs.renameSync(tmpPath, finalPath)
             resolve({ ok: true, code: 'OK', status: 0, size: downloaded, sha256: actualSha256 })
@@ -540,11 +539,9 @@ function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, bran
   const encodedName = encodeFilePath(file.name)
   const url = `https://huggingface.co/${repo}/resolve/${currentBranch}/${encodedName}`
   return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0).then((result) => {
-    // 成功或非 404 错误，直接返回
     if (result.ok || !result.status || result.status !== 404) {
       return result
     }
-    // 404 时尝试下一个分支
     return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, rest)
   })
 }

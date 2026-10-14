@@ -26,7 +26,6 @@ function probePyproject (text) {
     if (/^\[project\.dependencies\]$/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^optional-dependencies\s*=\s*\{/.test(line)) { inDeps = false; continue }
     if (/^\[/.test(line)) {
-      // 新的 section
       inScripts = false; inDeps = false
       if (/^\[project\]$/.test(line)) inProject = true
       out.found = true
@@ -166,8 +165,6 @@ function detectDependencyFile (filenames) {
     found: true,
     primary: hit[0],
     all: hit,
-    // 只列识别到的文件名。不说「因此用哪种装法」，
-    //   那是判据（装法由 suggestEnvCommand 单独产出），用户不需要看到。
     note: hit.map((h) => h.f).join('；'),
   }
 }
@@ -178,7 +175,7 @@ function probeProject (input = {}) {
   const files = input.filenames || []
   const deps = detectDependencyFile(files)
   const values = {}
-  const sources = {}     // 每个值都要能说清「从哪来」
+  const sources = {}
   const unfilled = []
 
   // ---- 包名 ⇒ call.module ----
@@ -197,6 +194,8 @@ function probeProject (input = {}) {
       `pyproject.toml [project.scripts]（${first} = ${Object.values(py.scripts)[0].module}）`
   }
   if (!packageName && input.setupPy) {
+    // setup.py 可能是 setuptools.setup(name=...)，也可能是 distutils.core.setup(name=...)，
+    //   两者都读 name 字段
     const fromSetup = parseSetupPyName(input.setupPy)
     if (fromSetup) { packageName = fromSetup; packageNameFrom = 'setup.py name=' }
   }
@@ -297,10 +296,7 @@ function planDependencies (text, opts = {}) {
   const hw = opts.hardware || null        // 没检测就不判断（不猜）
 
   if (deps.length === 0) {
-    // 2026-10-12：文案改了。原来那句「可能在 requirements.txt 里」
-    //   是**这个函数自己写的**，而它**从来没读过 requirements.txt**
-    //：代码说的和代码做的不一致。现在真的读了。
-    //   两份清单都没有才说「读不到」，且只说读不到，不提换仓库。
+    // 两份清单都没有才说「读不到」，且只说读不到，不提换仓库。
     const hadReq = typeof opts.requirements === 'string' && opts.requirements
     return {
       ok: false,
@@ -322,7 +318,7 @@ function planDependencies (text, opts = {}) {
     }
   }
 
-  // 拆包：只有 torch 系需要单独处理（Owner 说的）
+  // 拆包：只有 torch 系需要单独处理
   const { splitTorchPackages } = require('./hardware')
   const { torchish, rest } = splitTorchPackages(deps)
 
