@@ -1,20 +1,11 @@
 'use strict'
-// ============================================================================
-//  DOWNLOAD：向导第 3 步：执行模型下载（统一落盘 engines/<id>/checkpoints/）
-//
-//  本文件只做一件事：**执行一条下载命令**，把输出逐行透传给调用方。
-//     不决定下什么（那是 README 提取 + 用户勾选的事）
-//     不决定下到哪（落盘路径由调用方替换好再传进来）
-//
-//  为什么异步流式：下载要几分钟到几十分钟，同步 spawnSync 会阻塞到结束。
-//     改 spawn 后 stdout/stderr 逐行回调，进度条才有米下锅。
-//
-//  统一落盘：调用方（wizardbridge.handleDownload）负责把命令里的
-//     local_dir 替换成 engines/<id>/checkpoints/，本文件不碰路径。
-//
-//  ⚠️ 断点续传：hf / modelscope CLI 本身有缓存（.hf_cache / .modelscope），
-//     重跑同一条命令只补缺的。本文件不删缓存：删缓存是用户主动行为。
-// ============================================================================
+
+/**
+ * 执行一条下载命令，把输出逐行透传给调用方。
+ * 异步流式：下载要几分钟到几十分钟，同步 spawnSync 会阻塞到结束。
+ * 统一落盘：调用方负责把命令里的 local_dir 替换成 engines/<id>/checkpoints/。
+ * 断点续传：hf / modelscope CLI 本身有缓存，重跑同一条命令只补缺的。
+ */
 
 const { spawn } = require('node:child_process')
 const fs = require('node:fs')
@@ -233,7 +224,7 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
           const data = JSON.parse(body)
           const files = []
           // HF API: data.siblings = [{ rfilename, size, blobId }]
-          // ⚠️ blobId 不是 SHA-256，是 HF 的内部 blob 标识
+          // blobId 不是 SHA-256，是 HF 的内部 blob 标识
           if (data.siblings) {
             for (const s of data.siblings) {
               files.push({
@@ -401,7 +392,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       // 跟随重定向
       if (status >= 300 && status < 400 && res.headers.location) {
         req.destroy()
-        // ⚠️ Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
+        // Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
         const redirectUrl = new URL(res.headers.location, url).href
         downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom).then(resolve)
         return

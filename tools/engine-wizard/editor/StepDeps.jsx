@@ -3,45 +3,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
 import { loadSession, saveSession } from './useInstallSession'
 
-// ============================================================================
-//  STEP DEPS —— 第 2 步：读依赖 → 列出要装什么 → 用户选 → 才装
-//
-//  ⭐⭐ 这个页面只回答一个问题：**现在要装哪些包？**
-//
-//  ⭐ 三块，排版抄项目的 .preflight 那一档
-//    （.preflight + .layer-label + .pf-row/.pf-key/.pf-val/.pf-warn/.pf-chips）：
-//
-//   ① 普通依赖        「其他直接同步就行」—— ⛔ 不逐个列，只给个数 + 可展开
-//   ② torch 系（单独）三态：跟得上 / 不是给这台机器的 / 看不出来
-//   ③ 装法选择        所有后端都摆出来（推荐 ≠ 决定）
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
 
-/**
- * ⭐ 2026-10-12 Owner 裁决「统一重构持久化」：本组件原来自己抄了一份
- *    localStorage 读写（键 wizard:deps:<id>）。现在收敛到同一个会话模块
- *    editor/useInstallSession.js，并且改落 sessionStorage —— 探测结果按
- *    裁决 ② 不进 localStorage，但退出网页 / 下一次扫描前要在（刷新不丢）。
- *
- * ⭐ 会话键含 id **与 url**：换 URL 或换引擎 ⇒ 旧会话自动失效。
- *    真机踩过的 bug：URL 改了却显示旧仓库的依赖列表（串号）。
- */
-
-/**
- * Torch 后端与本机的匹配结论 —— 三个可判定的状态。
- *
- * ⛔ 不写「对得上」「看不出来」这类对话里的说法：界面要的是可判定的结论。
- * ⛔ 状态只有三个，⛔ 不把「无法判断」混进「不匹配」——
- *   「读不出来」与「读出来是不匹配」要采取不同的动作。
- * ⛔ mark 用符号（✓ ! ?）是因为它要放进表格第一列，
- *   ⛔ 符号旁边永远跟着完整文字，不靠符号表意。
- */
-// ---------------------------------------------------------------------------
-// ⭐ 2026-10-12：这一段的本地读写已删除（收敛到 ./useInstallSession）。
-//    原来的 STORAGE_KEY_PREFIX / getStorage / loadDepsState / saveDepsState
-//    四个 helper 全部走同一个会话模块，⛔ 不再自己写一份 localStorage。
-// ---------------------------------------------------------------------------
 
 const VERDICT = {
   match: { mark: '✓', en: 'Matches this machine', zh: '与本机匹配' },
@@ -53,26 +15,21 @@ export default function StepDeps ({ state, prep, onFixId }) {
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
-  // ⛔⛔ 目录名必须是「第 1 步真克隆出来的那个」，⛔ 不是持久段里的旧 id。
-  //   2026-10-13 Owner 真机抓到：克隆的是 spark-tts，而 wz.id 停在
-  //   上一次装的 indextts2 ⇒ 第 2 步把依赖装进了 indextts2，
-  //   spark-tts 连 .venv 都没有，界面却显示三步全绿。
-  //   prep.res 是**本次会话**的解析结果（换 URL 即失效），
+  // prep.res 是本次会话的解析结果（换 URL 即失效），
   //   它比持久段更接近「用户此刻在装哪台」。
-  //   ⭐ 两者不一致时以会话段为准，并把持久段一起纠正过来。
+  //   两者不一致时以会话段为准，并把持久段一起纠正过来。
   const sessionId = (prep && prep.res && prep.res.id) || ''
   React.useEffect(() => {
     if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
   }, [sessionId, state.id])
   const targetId = sessionId || engineId
 
-  // ⭐ 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）
-  //   ⛔ 懒初始化（useState 初值）而不是 useEffect：首帧就要用恢复值，
-  //      否则第 1 帧会把旧值覆盖回默认值再写盘，恢复就白做了。
+  // 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）
+  //   懒初始化（useState 初值）而不是 useEffect：首帧就要用恢复值，
+  //   否则第 1 帧会把旧值覆盖回默认值再写盘，恢复就白做了。
   const saved = React.useMemo(
     () => loadSession(targetId, url), [targetId, url])
 
-  // ⛔ 数据自己取，不靠 App 往下传 —— 那条链路对不上。
   const [plan, setPlan] = React.useState(saved?.depsPlan || null)
   const [showNormal, setShowNormal] = React.useState(saved?.showNormal || false)
   const [backend, setBackend] = React.useState(saved?.backend || null)
@@ -85,7 +42,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
   const [progress, setProgress] = React.useState(saved?.depsProgress || null)
 
   // 保存到会话段（排除瞬态状态：busy / live / tail 一段都不存）
-  //   ⭐ 键含 id 与 url ⇒ 换任一个，写的都是另一段会话，⛔ 不会污染旧的。
+  //   键含 id 与 url ⇒ 换任一个，写的都是另一段会话，不会污染旧的。
   React.useEffect(() => {
     if (!targetId) return
     saveSession(targetId, url, {
@@ -105,8 +62,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
     } catch (e) { setPlan({ ok: false, error: e.message }) }
   }
 
-  // ⭐ 逃生口：从头重装本步。清 env 段的进度记录后让用户照常点「安装」
-  //   ⛔ 只清记录，⛔ 不删源码、⛔ 不删已装依赖（那是另一回事）。
+  // 只清记录，不删源码、不删已装依赖（那是另一回事）。
   const resetThisStep = async () => {
     if (!targetId) return
     try {
@@ -114,7 +70,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: targetId, section: 'env' }),
       })
-    } catch (e) { /* 端点不通 ⇒ 记录还在，⛔ 不当成已清 */ }
+    } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
   }
   React.useEffect(() => {
     if (url && !plan) reload() /* eslint-disable-line */
@@ -123,10 +79,8 @@ export default function StepDeps ({ state, prep, onFixId }) {
   const d = plan && plan.ok ? plan.deps : null
   const hw = plan ? plan.hardware : null
 
-  // ⭐⭐ 计划态：进入页面就取一次**不执行**的计划。
-  //   ⛔ 上一版只在点「安装」后才有 result，而 alternative 在 result 里
-  //   ⇒ 用户看计划时看不到第二条命令，那正是它该出现的地方。
-  //   ⛔ execute: false ⇒ 后端只出计划不执行（平台只验不建）。
+  // 计划态：进入页面就取一次不执行的计划。
+  //   execute: false ⇒ 后端只出计划不执行。
   React.useEffect(() => {
     if (!targetId) return
     let alive = true
@@ -145,11 +99,10 @@ export default function StepDeps ({ state, prep, onFixId }) {
     if (hw && backend === null) setBackend(hw.recommended)
   }, [hw])
 
-  // ⭐⭐ 实时安装状态 —— 进度条 / 当前步骤 / 最近输出
-  //   ⛔ 只在执行中更新；done 之后保持最后状态让用户看到结果。
+  // 只在执行中更新；done 之后保持最后状态让用户看到结果。
 
-  // ⛔ 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
-  //   ⛔ 不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
+  // 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
+  //   不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
   const run = async () => {
     setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
     try {
@@ -160,7 +113,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
-      // ⛔ resp.body 是 ReadableStream —— 逐块读，按 \n\n 切 SSE 事件
+      // resp.body 是 ReadableStream —— 逐块读，按 \n\n 切 SSE 事件
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
@@ -199,8 +152,6 @@ export default function StepDeps ({ state, prep, onFixId }) {
   }
 
   if (!plan) {
-    // ⛔ 陈述当前状态 + 下一步，⛔ 不写「需要先…」这类客服式引导
-    //   （「需要」是在解释为什么不能做，而 canStart 已经拦住了，解释给人听没有意义）
     return (
       <div className="msg msg-info" style={{ marginBottom: 0 }}>
         {t('The repository is not available yet. Complete step 1 to continue.',
@@ -252,9 +203,8 @@ export default function StepDeps ({ state, prep, onFixId }) {
           <div className="layer-label">
             {t('GPU-related packages', '与 GPU 相关的包')}
           </div>
-          {/* ⛔⛔ t() 只有两个参数（i18n.jsx:44 `t = (en, zh)`）。
-               这里曾传三个 ⇒ 第二段英文被当中文返回，
-               中文界面上直接显示 "a different Torch build."（实测截图）。 */}
+          {/* t() 只有两个参数（i18n.jsx:44 `t = (en, zh)`）。
+               传三个 ⇒ 第二段英文被当中文返回。 */}
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('These packages only run on this kind of graphics card. '
               + 'Other cards need a different Torch build.',
@@ -303,10 +253,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
         </div>
       )}
 
-      {/* ---- ⭐ 执行计划：把真正要跑的命令**摆出来** ----
-          ⛔ 过去界面上只有「选哪个后端」的下拉，⛔ 没有任何地方显示
-          「将要执行的命令是什么」⇒ 用户点安装前看不到要跑什么。
-          ⛔ 命令来自 preview（execute:false 的计划），⛔ 不是 plan。*/}
+      {/* ---- 命令来自 preview（execute:false 的计划），不是 plan ---- */}
       {preview && preview.ok && (preview.env_command || []).length > 0 && (
         <div className="field">
           <label className="field-label" htmlFor="wz-cmd">
@@ -339,10 +286,10 @@ export default function StepDeps ({ state, prep, onFixId }) {
       )}
 
       {/* ---- 锁文件后端与本机不一致 ⇒ 主命令之后还有第②步 ----
-          ⛔ 主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
-             这一块显示的是**装 torch 那一步**，⛔ 不重复主命令。
-          ⚠️ 数据来自 **preview**（进入页面时取的 execute:false 计划），
-             ⛔ 不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
+          主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
+          这一块显示的是装 torch 那一步，不重复主命令。
+          数据来自 preview（进入页面时取的 execute:false 计划），
+          不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
       {preview && preview.alternative && (
         <div className="field">
           <label className="field-label" htmlFor="wz-alt">
@@ -385,7 +332,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
         </div>
       )}
 
-      {/* ---- ⭐ 实时进度：busy 时显示 ---- */}
+      {/* ---- 实时进度：busy 时显示 ---- */}
       {busy && (
         <div className="preflight" style={{ marginTop: 0 }}>
           <div className="layer-label">
@@ -445,8 +392,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
           {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
         </div>
       )}
-      {/* ⭐ 逐步结果：⛔ 过去只显示一段 note，⛔ 看不出「跑到第几步、
-          每步各自的输出」—— 装依赖要几十分钟，只有这一步才能让人知道进度。*/}
+
       {result && result.stepsRun && result.stepsRun.length > 0 && (
         <div className="preflight">
           {result.stepsRun.map((s) => (
@@ -472,9 +418,9 @@ export default function StepDeps ({ state, prep, onFixId }) {
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
 
-      {/* ---- 执行：显式解锁（照 TrainingTab 的 expert-unlock）----
-          ⚠ RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
-            ⛔ 不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
+      {/* ---- 执行：显式解锁 ----
+          RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
+            不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
         <button className="btn btn-primary btn-sm" type="button"
           disabled={busy} onClick={run}>
@@ -482,10 +428,9 @@ export default function StepDeps ({ state, prep, onFixId }) {
         </button>
       </RiskUnlock>
 
-      {/* ---- ⭐ 逃生口：从头重装本步（2026-10-12 补，此前没有入口）----
-          ⚠ 只清「哪些步骤算做完了」这份记录（.wizard-install.json 的 env 段），
-            ⛔ 不删引擎目录里的源码、⛔ 不删已装依赖。清完之后再点「安装」，
-            每一步都会真的重跑，而 uv 的缓存会让已下载的 wheel 不重下。*/}
+      {/* ---- 从头重装本步 ----
+          只清「哪些步骤算做完了」这份记录（.wizard-install.json 的 env 段），
+          不删引擎目录里的源码、不删已装依赖。*/}
       {!busy && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-sm" type="button"

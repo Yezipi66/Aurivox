@@ -10,25 +10,24 @@ import CoreBindings from './CoreBindings'
 //  MANIFEST FORM：名片填表（不是 JSON 编辑器）
 //
 //      这个组件存在的理由
-//  上一版左侧是个 <textarea> 装 JSON：那是**代码编辑器**，不是填表。
+//  上一版左侧是个 <textarea> 装 JSON：那是代码编辑器，不是填表。
 //  它要求用户：会写 JSON + 记得住几十个键的语义 + 知道哪些填错不报错。
 //   只有技术用户能用，而且技术用户也懒得填。
 //
-//    这一版：按**分组**分区（项目现成的 .section 三件套）
+//    这一版：按分组分区（项目现成的 .section 三件套）
 //    · 每个字段：键名 + 一句话说明 + 填错的后果
 //    · 高危字段（静默失效那一类）当场挂 .badge-warn
-//    · 参数区是**可增删的行**，不是一坨 JSON
+//    · 参数区是可增删的行，不是一坨 JSON
 //    ·   表单由 /wizard/spec 长出来（fieldmeta 是唯一权威），不手写清单
 //
 //      全部用项目类：.section / .field / .field-label / .field-hint /
 //    .control / .param-grid / .plan-warn / .rc-cmd / .expert-block /
 //    .expert-summary / .badge / .msg：一个自造的 mf-*/pr-* 都不留。
 //
-//      纪律：不许出现任何具体引擎名。
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// 分组标题：用**平台的词汇**，不自己造中文名
+// 分组标题：用平台的词汇，不自己造中文名
 //  为什么不是「怎么起进程」这种说法：平台自己的界面从不这么叫它。
 //   造一套「更friendly」的说法 = 造第二套词汇，用户学的是我的词、
 //   填的是平台的键，两边对不上。 显示键名，说明放在 fieldmeta 的 howto 里。
@@ -55,18 +54,18 @@ const GROUP_ORDER = [
 // 摆在用户脸上纯属噪音。 从 byGroup 构建时直接过滤掉，任何层级都不出现。
 const HIDDEN_KEYS = ['id', 'label', 'contract_version']
 
-//   这三段是**嵌套结构**，有专门的编辑器（NestedSections.jsx），
+//   这三段是嵌套结构，有专门的编辑器（NestedSections.jsx），
 //    不能「一个键一个 input」：那样只显示说明、填不了值。
-//     归属（2026-10-10 定）：call 的完整编辑器常驻 L1 核心绑定区；
-//     runtime 归 L2、models 归 L3。三个编辑器**无条件渲染**，不靠 spec 平铺字段判空。
+//     call 的完整编辑器常驻 L1 核心绑定区；runtime 归 L2、models 归 L3。
+//     三个编辑器无条件渲染，不靠 spec 平铺字段判空。
 const NESTED_GROUPS = ['runtime', 'call', 'models']
 
-//   段容器键本身：这些键的值是**对象或数组**（不是标量），
+//   段容器键本身：这些键的值是对象或数组（不是标量），
 //      绝不能走平铺 Field（input 会把对象渲染成 [object Object]，改了就毁数据）。
 //    · runtime/call/models 有专门嵌套编辑器（NestedSections）
 //    · capabilities/weights/upstream/install 是嵌套对象/数组，各有归属区或专门处理
 //    · parameters/maps 归「界面参数区」（下方单独渲染，不进这里）
-//     这些键**跳过平铺渲染**，但它们**组内的平铺子字段**（runtime 组的
+//     这些键跳过平铺渲染，但它们组内的平铺子字段（runtime 组的
 //      max_chars/base_url_env、capabilities 组的开关等）照常渲染。
 const CONTAINER_KEYS = [
   'runtime', 'call', 'models', 'weights', 'capabilities',
@@ -86,7 +85,7 @@ function Field ({ sec, value, onChange }) {
   const kind = SIMPLE_KEYS[sec.key] || 'text'
   return (
     <div className="field">
-      {/*   键名 + 「填错不报错」徽标同一行（内联 flex，照 TrainingTab 的写法）*/}
+      {/*   键名 + 填错不报错徽标同一行（内联 flex，照 TrainingTab 的写法）*/}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <label className="field-label" style={{ margin: 0 }} title={sec.howto}>
           <code>{sec.key}</code>
@@ -233,8 +232,8 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
               : undefined)} /></label>
       </div>
 
-      {/*   折叠用**项目的** .expert-block + .expert-summary
-          （    不再用裸 <details>：那个没有边框/间距，
+      {/*   折叠用项目的 .expert-block + .expert-summary
+          （不再用裸 <details>：那个没有边框/间距，
             跟整页所有其它折叠长得不一样）*/}
       <details className="expert-block" style={{ marginTop: 8 }}>
         <summary className="expert-summary">
@@ -283,23 +282,14 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 
 // ---------------------------------------------------------------------------
 //   从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）
-//
-//     三条纪律（硬约束，违反即返工）：
-//   1. 只填**表单**，  绝不直接写 manifest.json：落盘是用户按「保存」的事
-//   2. 映射候选只给候选，**人点选之后**才写 maps，  绝不自动落盘
-//   3. 不新增任何平台侧校验逻辑：界面只展示「反射说了什么」
-
+//   只填表单，不直接写 manifest.json；映射候选只给候选，人点选之后才写 maps。
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-//   主组件：「生成优先」版（2026-10-10 重写，.bak 是旧的字段优先版）
-//
-// 操作流（Owner 定的）：
+//   主组件操作流：
 //   ① 顶部：从 CLI 扫描生成（新建/读取名片 → 扫描参数 → 参数表 → 自动填）
 //   ② 中部：手工编辑（导入已有 / 核心字段 runtime+call+models / 反射生成）
 //   ③ 折叠：高级设置（source/capabilities/install/output）+ 参数区 parameters
-//
-//   纪律：只填表单不落盘（落盘是 SaveBar 的事）；活代码不许出现引擎名。
 // ---------------------------------------------------------------------------
 export default function ManifestForm ({ manifest, onChange, spec }) {
   const { t } = useT()
@@ -352,12 +342,8 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
     set('parameters', list.length ? list : undefined)
   }
 
-  //   byGroup 构建：嵌套段（runtime/call/models）**保留**在 byGroup 里。
-  //       曾经这里有一行 `if (NESTED_GROUPS.includes(s.group)) continue`，
-  //     把 runtime/call/models 三段从 byGroup 剔掉了：导致下面
-  //     RuntimeSection/ModelsSection 两个嵌套编辑器不渲染，
-  //     用户在这些区改不了任何嵌套字段（P1 漏网的阻塞 bug）。
-  //    修法：嵌套组照样进 byGroup，嵌套编辑器**无条件**渲染（见 L2/L3 JSX）。
+  //   byGroup 构建：嵌套段（runtime/call/models）保留在 byGroup 里。
+  //     嵌套组照样进 byGroup，嵌套编辑器无条件渲染（见 L2/L3 JSX）。
   //     但「段容器键本身」（runtime/call/models/weights/capabilities…值非标量）
   //     要从平铺渲染里剔除，否则 Field 会把对象渲染成 [object Object]，
   //     这原是那行 continue 顺带避开的问题，删掉 continue 后必须显式处理。
@@ -387,14 +373,11 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   const L2_GROUPS = ['runtime', 'capabilities']
   const L3_GROUPS = ['source', 'models', 'install', 'output']
 
-  //   L2/L3 的**嵌套段**（runtime / models）用 NestedSections 的全量编辑器，
+  //   L2/L3 的嵌套段（runtime / models）用 NestedSections 的全量编辑器，
   //   平铺键（upstream / max_chars_source / base_url_env / output_formats 等）用 Field。
   //    一个组可能既有嵌套段又有平铺键，分开渲染。
   //
-  //     嵌套段**无条件**渲染，  不许依赖 byGroup[g] 判空！
-  //   曾经的 bug：byGroup 构建时 `if (NESTED_GROUPS.includes(s.group)) continue`
-  //   把 runtime/call/models 剔除，导致 `l2Nested/l3Nested`（依赖 byGroup[g]）
-  //   恒为空数组  RuntimeSection/ModelsSection 全部不渲染，用户改不了嵌套字段。
+  //     嵌套段无条件渲染，不许依赖 byGroup[g] 判空。
   //   现在嵌套段直接写死在 JSX 里（L2=RuntimeSection、L3=ModelsSection，
   //   call 的 CallSection 在 L1 常驻），与 spec 有没有平铺字段无关。
   //   平铺字段仍走 byGroup 判空（没有就不渲染该组的平铺键）。
@@ -429,7 +412,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
           scanned={!!autofill} />
       </div>
 
-      {/*     L1 ③ 真·必填 8 项（平台当场抛错的那 8 个） */}
+      {/*     L1 ③ 真必填 8 项（平台当场抛错的那 8 个） */}
       <RequiredEight manifest={manifest} onChange={onChange} />
 
       {/* ---- L2 常用可选（折叠，有值时提示）---- */}
@@ -454,8 +437,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
             </div>
           ))}
           {/*     L2 嵌套段：runtime（全量嵌套编辑器）。
-                曾经这里用 l2Nested.map + byGroup 判空，恒为空  不渲染（阻塞 bug）。
-              现在无条件渲染 RuntimeSection：嵌套字段（python/entry/args/
+              无条件渲染 RuntimeSection：嵌套字段（python/entry/args/
               ready_endpoint/ready_timeout_ms/verify…）都要能改。 */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
@@ -496,8 +478,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
             </div>
           ))}
           {/*     L3 嵌套段：models（全量嵌套编辑器）。
-                曾经这里用 l3Nested.map + byGroup 判空，恒为空  不渲染（阻塞 bug）。
-              现在无条件渲染 ModelsSection：嵌套字段（required/hint/
+              无条件渲染 ModelsSection：嵌套字段（required/hint/
               source.url/source.command）都要能改。 */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
