@@ -95,10 +95,9 @@ function parseDownloadCmd (cmd) {
     return { tool: 'modelscope', repo, dir: dir || null, raw: cmd }
   }
   // 形态② hf / huggingface-cli: <org>/<repo> [--local-dir=<dir>]
-  // 原来用 `([^\s]+)` 抓第一个 token 当仓库名，于是
-  //   `hf download --local-dir=x` 会把 --local-dir=x 当成模型名。
+  // 必须先排掉以 `-` 开头的 token（那是参数，不是位置参数）：
+  //   否则 `hf download --local-dir=x` 会把 --local-dir=x 当成模型名，
   //   那等于平台替上游编了一个不存在的模型。
-  // 所以必须先排掉以 `-` 开头的 token（那是参数，不是位置参数）。
   const rest = cmd.replace(/^(?:hf|huggingface-cli)\s+download\s+/, '')
   const toks = rest.split(/\s+/)
   const repo = toks.find((t) => t && !t.startsWith('-'))
@@ -184,7 +183,7 @@ function handleProbe (req, res) {
 
     // 上游自己的模型下载入口：模型放在哪个仓库、要下哪几个文件、
     //   用 hf 还是 modelscope，上游自己最清楚，所以这里只探测不代列。
-    // 实测（两个真上游）这件事有两种形态：
+    //   两种形态：
     //   ① 有脚本：根目录有 download_models.py / download_weights.py 之类
     //   ② 写进 README：没有脚本，但 README 里直接给了命令 ——
     //      例如 `hf download <org>/<repo> --local-dir=checkpoints`，
@@ -208,10 +207,9 @@ function handleProbe (req, res) {
       }))
     }
 
-    // 缺 pyproject.toml 时不再提前 return：
+    // 无论有没有 pyproject 都走 probeProject：
     //   包名的来源是 setup.py 的 name=，许可证的来源是根目录的 LICENSE / COPYING，
-    //   都不是 pyproject。⇒ 无论有没有 pyproject 都走 probeProject，
-    //   让它自己决定哪个字段读得到、哪个读不到（读不到就说读不到）。
+    //   都不是 pyproject ⇒ 让它自己决定哪个字段读得到、哪个读不到。
     const r = probeProject({
       pyproject: texts['pyproject.toml'],
       requirements: texts['requirements.txt'],
@@ -276,10 +274,9 @@ function handleHardware (req, res) {
  *  第 2 步的数据源：读上游的依赖清单 + uv.lock，跟本机比出绿/黄/白。
  *  不装任何东西 —— 只回答「要装哪些包」。
  *
- * 原来只读 pyproject.toml，没有就直接 ok:false / NO_PYPROJECT：
- *   2020-2023 年那种只放 requirements.txt 的老布局，第 2 步直接断流程。
- *   而提示语「它可能在 requirements.txt 里」正是这个端点自己写的
- *   —— 文案说了，代码没读。现在真的读了。
+ * 依赖清单读 pyproject.toml 与 requirements.txt：
+ *   只放 requirements.txt 的老布局，靠提示语「它可能在 requirements.txt 里」
+ *   是读不到东西的 —— 所以这里真的去读。
  */
 function handleDeps (req, res) {
   if (req.method !== 'POST') return false
@@ -356,8 +353,8 @@ function json (res, code, body) {
  *   是裸调）。所以 cb 一旦是 async 箭头，它返回的 Promise 没人接 ⇒
  *   回调里任何一次 throw 都变成 unhandledRejection ⇒ 一个字节都回不去，
  *   连接一直挂着。症状不是报错，是「点了没反应」。
- *   端点已改成同步返回 true（见 handleParams 的头注），可异步的活
- *   仍然必须在这层兜住。
+ * 端点同步返回 true（见 handleParams 的头注），可异步的活
+ * 仍然必须在这层兜住。
  *
  * 兜住之后回出去的一定是合法 JSON：前端按 content-type 守卫判断
  *   （StepsExtra.jsx:174），半个响应或空 body 都会被报成「响应格式错误」。
@@ -466,7 +463,7 @@ function handleEnv (req, res) {
       execute: body.execute === true,
       backend: body.backend,   // 前端 StepDeps 会传 backend（torch 后端选择）
     }
-    // 只出计划（execute:false）时走原来的 JSON 响应 —— 快的请求不该用流。
+    // 只出计划（execute:false）时走普通 JSON 响应 —— 快的请求不该用流。
     if (!input.execute) {
       const r = buildEnvPlan(input)
       json(res, r.ok ? 200 : 400, r)
@@ -541,7 +538,7 @@ function handleDownloadFiles (req, res) {
 //     刷新后整表覆盖。不带 repo 就等于把表里每一项的来源抹掉，
 //     重下/续传按钮和仓库列会一起变成「未知」。
 //
-// 这里不许写 async（实测踩过）：
+// 这里不许写 async：
 //   中间件（web/wizard.vite.config.mjs 的 for 循环）拿到 handler 的返回值后
 //   只认两样东西：严格 true（已接管）或带 .then 的 Promise（队尾那个 async handler）。
 //   而 async function 无论匹不匹配都返回 Promise ——
@@ -742,7 +739,7 @@ function handleVerify (req, res) {
 // 不新增任何平台侧校验逻辑：反射器报什么就传什么，partial / warnings /
 //   excluded 一律原样带出去。
 //
-// 这里不许写 async（实测踩过，同款 bug 在 handleDownloadManifest 上也有一份）：
+// 这里不许写 async，同款问题在 handleDownloadManifest 上也有一份：
 //   async function 无论 URL 匹不匹配都返回 Promise ⇒ 中间件的 for 循环
 //   一见到 Promise 就 break 出循环并 next() ⇒ 本函数对所有请求都被
 //   提前中断（哪怕第一行就 `return false`，中间件看见的也是 Promise{false}）
@@ -770,10 +767,9 @@ function handleParams (req, res) {
     //   抓不到不影响反射 —— 那是一个答案（这台引擎的 CLI 不在盘上 /
     //     没有 CLI），如实带 note 出去，不许让整个端点失败。
     //   扫描目录 = 这台引擎自己的目录，逐字取 spec.value.sys_path[0]。
-    //     这里曾写成 sys_path[0] 的上级（path.join(dirname(...), '..')）。
-    //     sys_path[0] 是 engines/<id> ⇒ 上级正是项目根 ⇒ 递归兜底把
-    //     engines/ 下每一台引擎、tools/、lib/ 的全部 argparse 文件全扫了
-    //     （一台引擎一次抓到 22 个源文件、244 个 flag）。
+    //     扫描它的上级（path.join(dirname(...), '..')）会递归扫遍
+    //     engines/ 下每一台引擎、tools/、lib/ 的全部 argparse 文件
+    //     （sys_path[0] 是 engines/<id>，上级正是项目根）。
     //     后果不是报错，是别的引擎的 flag 被当成这台引擎的官方原话摊开 ——
     //     静默误导，且用户无从分辨哪条属于哪台。
     //   副产物：引擎自己目录下的其它 argparse 脚本（构建/导出脚本等）
@@ -832,7 +828,7 @@ function handleParams (req, res) {
 //   args          该子命令的 flag 列表，每条 {name, flag, style, help, required, is_tool}
 //   suggested_call 建议的 cli 形态 call 段骨架（只是骨架，人确认后才落盘）
 //
-// 纪律：一条 flag 都不删、help 原样递出、不预设哪个子命令是对的 —— 全列出。
+// 一条 flag 都不删、help 原样递出、不预设哪个子命令是对的 —— 全列出。
 // 与 handleParams 同：同步返回 true（URL 匹配即接管），readBody 在回调里
 //   异步处理。不许返回 Promise —— 中间件见到 Promise 会 break 出循环，
 //   排在它后面的 handler 全灭（卡点1 的同款坑）。
@@ -875,7 +871,7 @@ function handleCliArgs (req, res) {
 //   3. 两者都有 → 都跑，结果经 paramDigest 合并
 //   4. 都没有 → 返回 {ok:false, error:'未能发现参数，请手工填写'}
 //
-// 纪律：探不到如实报，不假装。python 反射失败（venv 未配好等）如实说明。
+// 探不到如实报，不假装。python 反射失败（venv 未配好等）如实说明。
 function handleDiscover (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/discover')) return false
@@ -1047,7 +1043,7 @@ function handleProfile (req, res) {
 //   前端 App 挂载时调它渲染对勾，不依赖 localStorage 里的 facts。
 //
 // 必须用 req.url，不是 req.path（Vite 的 connect 有时不给 req.path，
-//    实测报 500 "path argument must be of type string"）。
+//    会报 500 "path argument must be of type string"）。
 // 判据全部是盘上的东西，不能在这个端点里写死任何引擎名。
 // 与已存在的 GET /wizard/installed（返回引擎列表那一个）不冲突：
 //    那个回答「装过哪些」，这个回答「这一台装到哪了」。
@@ -1089,7 +1085,7 @@ function handleResetProgress (req, res) {
     const root = body.root || projectRoot() || ''
     try {
       // 目录不存在 ⇒ 没有进度可清，不许顺手写一个文件进去。
-      //   （那会在 engines/ 下凭空造一个引擎目录，而向导的纪律是
+      //   （那会在 engines/ 下凭空造一个引擎目录，而向导的约定是
       //     「只读 engines/ 之外不写；engines/ 里只写真克隆出来的东西」。）
       const { validateId } = require('./save')
       const idErr = validateId(id)

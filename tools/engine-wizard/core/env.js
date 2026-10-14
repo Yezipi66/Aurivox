@@ -62,13 +62,8 @@ function readEnvCommand (manifest) {
   return { ok: true, argv: cmd.map((s) => s.trim()) }
 }
 
-/** 上游的依赖清单在哪 —— 只报，不替用户选装法 */
 /**
- * 从上游自己的依赖清单推出装法。
- *
- * 原来第 2 步只认「名片写好的 install.env_command」，
- *   而名片是第 4 步才写的 ⇒ 用户从第 1 步一路走过来，
- *   到第 2 步必然卡住：「名片里没有 install 段」。
+ * 从上游自己的依赖清单推出装法 —— 只报，不替用户选装法。
  *
  * 依据：第 1 步的探测已经读到了上游的清单文件名
  *   （pyproject.toml / uv.lock / requirements.txt / environment.yml），
@@ -133,9 +128,8 @@ function suggestBackendAlternative (dir, lockRel) {
   // 完整流程是两步：
   //   ① uv sync --no-install-package torch --no-install-package torchaudio …
   //   ② uv pip install torch==<v> torchaudio==<v> … --index-url <本机 index>
-  // 为什么不用「先 uv sync 再补装」：那会先装一整套 CUDA torch
-  //   （实测某台 lock 另带 38 个 nvidia-*-cu12，仅 Linux 生效），
-  //   白下载数 GB，且与随后装的版本冲突。
+  // 为什么不用「先 uv sync 再补装」：那会先装一整套 CUDA torch，
+  //   与随后装的版本冲突。
   // 为什么不用「改 lock 去掉 torch」：lock 是上游的产物，
   //   改了产生 diff，且 uv 会在下次 sync 时重新解析。
   return {
@@ -206,9 +200,8 @@ function suggestEnvCommand (dir) {
     // 只算一次：alternative 要同时用于 why 与返回值
     const alt = suggestBackendAlternative(dir, lock)
     return { argv: ['uv', 'sync'], from: lock, cwd: '.',
-      // 不写「照它装最稳」—— 那只在锁的后端与本机一致时成立。
-      //   锁的后端是 CUDA 而本机是 XPU 时，照装恰恰装的是不能用的那套
-      //   （实测某台已装引擎的 lock 锁的是 +cu128，另带 38 个 nvidia-*-cu12）。
+      // 不写「照它装最稳」—— 那只在锁的后端与本机一致时成立：
+      //   锁的后端是 CUDA 而本机是 XPU 时，照装恰恰装的是不能用的那套。
       //   ⇒ 有替代命令时，这句改成只说「照锁装」这一事实。
       why: (alt
         ? `The upstream provides ${lock}; the Torch backend it pins does not match this machine, `
@@ -222,7 +215,7 @@ function suggestEnvCommand (dir) {
       //   否则点「安装」装的是 CUDA 版，而 alternative 只作展示。
       //   --no-install-package 让 uv 照锁装其余全部、只跳过 torch 系整族。
       //   必须跳过整族（torch + torchaudio + …）：只跳 torch 会把兄弟包
-      //     留在 CUDA 版 ⇒ torchaudio import 报 FileNotFoundError（真机实测）。
+      //     留在 CUDA 版 ⇒ torchaudio import 报 FileNotFoundError。
       argv: (alt
         ? ['uv', 'sync', ...(alt.needs || ['torch']).flatMap((n) => ['--no-install-package', n])]
         : ['uv', 'sync']),
@@ -237,7 +230,7 @@ function suggestEnvCommand (dir) {
   if (pyproj) {
     // pyproject 单独存在时不能直接 uv sync ——
     //   上游没锁文件 ⇒ 装到什么版本是未定的 ⇒ 装完不可复现。
-    //   而且很多项目的 pyproject 里依赖写不全（真见过）。
+    //   而且很多项目的 pyproject 里依赖写不全。
     // 诚实的做法：uv pip install -e . （只装它自己声明的依赖）
     const cwd = pyproj.includes('/') ? pyproj.slice(0, pyproj.indexOf('/')) : '.'
     const rel = pyproj.includes('/') ? pyproj.slice(pyproj.indexOf('/') + 1) : '.'
@@ -259,7 +252,7 @@ function detectDependencyManifest (dir) {
     'environment.yml', 'setup.py',
   ]
   const found = candidates.filter((f) => fs.existsSync(path.join(dir, f)))
-  // 这里原来只查根目录，与 suggestEnvCommand 的策略不一致
+  // 这里只查根目录，与 suggestEnvCommand 的策略不一致
   //   （那边会往下找一层并排除 .venv）。
   //   两边策略不一致 ⇒ 同一台引擎在两处得到不同结论，界面自相矛盾。
   if (found.length === 0) {
@@ -286,7 +279,7 @@ function detectDependencyManifest (dir) {
  *   ① uv 选目标环境的唯一可靠方式是 `-p/--python <绝对路径>`。
  *      设 VIRTUAL_ENV 无效（uv 认自己所在的那个环境），相对路径也无效。
  *   ② `uv sync` 的 `-p/--python` 是「用哪个解释器当基准建项目环境」，
- *      不是「装进哪个解释器」。实测 `uv sync -p <已存在的 venv>` 会静默装进
+ *      不是「装进哪个解释器」。`uv sync -p <已存在的 venv>` 会静默装进
  *      项目目录新建的 .venv。sync 那条路的正确写法是 UV_PROJECT_ENVIRONMENT=<绝对路径>。
  *   ③ `conda env create` 自己会建环境 ⇒ 不许再塞一步 uv venv。
  *
@@ -309,7 +302,7 @@ function engineVenvPythonAbs (root, id) {
 /**
  * 这个环境能不能用 —— 判据是「能按绝对路径起起来并执行代码」。
  *
- * 不能用「文件存在」判断：实测 venv/Scripts/python.exe 文件在、
+ * 不能用「文件存在」判断：venv/Scripts/python.exe 文件在、
  * 但 pyvenv.cfg 的 home 指向另一台机器 ⇒ 启动报 uv trampoline failed to spawn。
  * 复用 lib/util/pythonResolve.js 的 canSpawnPython，不在本文件里再写一份。
  *
@@ -377,11 +370,11 @@ function buildVenvStep (root, id) {
     // 不是靠 --allow-existing（那会把已有环境当普通目录保留，重装等于没生效）。
     // --python 必须显式指定平台自己的解释器。
     // 只写 `uv venv <路径>` 而不带 --python 时，uv 自己挑最新版 CPython
-    // （实测本机挑到 3.14.7，平台是 3.11.9）⇒ 上游 requirements 里
-    // `torch==2.5.1` 报「no wheels with a matching Python ABI tag (cp314)」。
+    //   ⇒ 上游 requirements 里 `torch==2.5.1` 会报
+    //   「no wheels with a matching Python ABI tag」。
     // 「用平台 python 跑 uv」不等于「新环境用平台 python」：
     // uv 是平台 venv 里的一个包，它默认认自己所在的环境，
-    // 建新环境时有自己的一套挑选逻辑（实测 VIRTUAL_ENV 也压不住它）。
+    // 建新环境时有自己的一套挑选逻辑（VIRTUAL_ENV 也压不住它）。
     argv: [py, '-m', 'uv', 'venv', venvDir, '--python', py, '--no-project'],
     python: py,
     venvDir,
@@ -405,9 +398,9 @@ function buildVenvStep (root, id) {
  * 只对 `uv pip …` 加这个参数，有两个原因：
  *   ① `-p` 是 uv 的参数，不是 pip / poetry / conda 的 ——
  *      给 `node -e …` 或 `pip install -r …` 加 `-p` 会让命令直接起不来
- *      （实测：spawn -p ENOENT）。
+ *      （spawn 报 ENOENT）。
  *   ② `uv sync` 也不加（它的 -p 是「用哪个解释器当基准建项目环境」，
- *      指过去会静默装进另一个 .venv，见 syncEnvFor）。
+ *      会静默装进另一个 .venv，见 syncEnvFor）。
  *   ⇒ 其他装法（名片自己声明的）平台不改它的 argv。
  *
  * @param {string[]} argv 原 argv
@@ -432,17 +425,17 @@ function withTargetPython (argv, pyAbs) {
 /**
  * uv sync 那条路的目标环境：UV_PROJECT_ENVIRONMENT。
  *
- * sync 不用 `-p`：实测 `uv sync -p <某个已存在的 venv>` 会照锁装完、退出码 0，
+ * sync 不用 `-p`：`uv sync -p <某个已存在的 venv>` 会照锁装完、退出码 0，
  * 但装进的是它在项目目录新建的 .venv，指定的 venv 里根本没有那个包 —— 静默装错地方。
  * 正确写法只有 UV_PROJECT_ENVIRONMENT=<绝对路径>。
- * 另一个坑：cwd 在清单所在的子目录时，uv 会把 .venv 建在那一层
- * （实测 infer/requirements.txt ⇒ infer/.venv），所以这个变量必须显式给。
+ * 连带陷阱：cwd 在清单所在的子目录时，uv 会把 .venv 建在那一层
+ * （infer/requirements.txt ⇒ infer/.venv），所以这个变量必须显式给。
  *
  * @param {string} venvDirAbs 该引擎隔离环境目录的绝对路径
  * @returns {{UV_PROJECT_ENVIRONMENT:string}}
  */
 function syncEnvFor (venvDirAbs) {
-  // 刻意不设 VIRTUAL_ENV：实测它对 uv 无效，
+  // 刻意不设 VIRTUAL_ENV：它对 uv 无效，
   //   留着会给人「设了就生效」的错觉。
   return { UV_PROJECT_ENVIRONMENT: venvDirAbs }
 }
@@ -461,10 +454,9 @@ function syncEnvFor (venvDirAbs) {
  *   · altPython：第②步（装本机后端 torch）用的 `-p`，与主步是不是 sync 无关
  * 为什么必须分开：第②步永远是 `uv pip install …`，
  *   而 `uv pip` 的 `-p` 才是「装进哪个环境」（见 withTargetPython）。
- *   上一次修复只给主安装步加了 -p，漏了第②步
- *   ⇒ 实测第②步把 torch 装进了平台根 venv，
- *     而引擎环境里 288 个包独缺 torch ⇒ 用户拿到的环境 import torch 失败，
- *     三步退出码却全是 0，界面显示「安装完成」。
+ *   漏给第②步加 -p ⇒ torch 被装进平台根 venv，
+ *   而引擎环境里独缺它 ⇒ 用户拿到的环境 import torch 失败，
+ *   三步退出码却全是 0，界面显示「安装完成」。
  *
  * @param {{argv:string[], cwdRel:string, alt?:object|null,
  *          venv?:object|null, sync?:object|null,
@@ -503,10 +495,10 @@ function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython })
       //   主步是 `uv sync` 时 targetPython 故意是 null（sync 靠
       //   UV_PROJECT_ENVIRONMENT，见 syncEnvFor），但第②步是 `uv pip install`，
       //   对它来说 -p 才是「装进哪个环境」⇒ 必须显式给引擎环境里的 python。
-      //   这正是上一次修复漏掉的一步：torch 装进平台根 venv，引擎环境里独缺它
-      //   ⇒ import torch 失败，而三步退出码全是 0，界面显示「安装完成」。
+      //   torch 装进平台根 venv ⇒ 引擎环境里独缺它 ⇒ import torch 失败，
+      //   而三步退出码全是 0，界面显示「安装完成」。
       //   另有那层 UV_PROJECT_ENVIRONMENT（sync 那条路带来的）在这里是无害的：
-      //   `uv pip install` 只读 -p，不看那个变量（实测）。
+      //   `uv pip install` 只读 -p，不看那个变量。
       argv: withTargetPython(alt.then, altPython || targetPython),
       cwd: cwdRel,
       needs_network: true,
@@ -541,14 +533,14 @@ function isVenvCreateStep (step) {
  * 装完自检：这个环境能不能 import 引擎的核心依赖。
  *
  * 为什么必须有这一步：三条命令退出码全是 0，界面显示「安装完成」，
- * 而 engines/<id>/.venv 里有 288 个包，独缺 torch
+ * 而 engines/<id>/.venv 独缺 torch
  *   ⇒ `<引擎环境>/Scripts/python.exe -c "import torch"` 报 ModuleNotFoundError，
  *   transformers 自己警告「None of PyTorch, TensorFlow >= 2.0, or Flax have been found」。
  * 退出码 0 只说明命令跑完了，不说明装进了对的地方。
  *
  * 判据复用 lib/util/pythonResolve.js 的 canSpawnPython
  *   （「能按绝对路径起起来并执行代码」）而不是 existsSync
- *   —— 平台踩过「文件在但起不来」的坑（见那个文件的文件头）。
+ *   —— 文件存在但解释器起不来时，import 的结果是假象。
  *
  * 验哪些包：从这次真的跑过的命令里读（steps 的 argv + alt.needs），
  *   不替用户猜这台引擎需要什么。不涉及 torch 的装法就不验 torch。
@@ -681,7 +673,7 @@ function uvRelPath (platform) {
  *   venv 就在旁边 —— 与平台自己的 venvPython() 同一模式。
  *   布局按平台推导（win32 Scripts/ / posix bin/）。
  *
- * 探针实测（probe_spawn_path.js）：spawnSync 用 shell:false 时
+ * 探针（probe_spawn_path.js）：spawnSync 用 shell:false 时
  *   只有裸名才走 PATH 搜索，带路径分隔符的参数一律按文件路径解析。
  *   而 runEnv 执行时 cwd 是引擎目录（engines/<id>），不是项目根
  *   ⇒ 相对路径 'venv/Scripts/uv.exe' 会解析成
@@ -737,8 +729,8 @@ function buildEnvPlan (input = {}) {
       error: `engines/${id}/ 还不存在。请先执行第 2 步的克隆，或检查路径是否写错。` }
   }
   const cmd = readEnvCommand(input.manifest)
-  // 名片优先，探测兜底。
-  // 原来只认名片，而名片第 4 步才写 ⇒ 第 2 步必然卡死。
+  // 名片优先，探测兜底：名片是第 4 步才写的，
+  //   不兜底则第 2 步必然卡死。
   const guess = suggestEnvCommand(dir)
   // 建隔离环境的准备：环境先建，装依赖才有地方装。
   // conda 那条路除外（conda env create 自己会建环境）。
@@ -766,10 +758,9 @@ function buildEnvPlan (input = {}) {
         whatToDo: guess.why }
     }
     // 探测能推出 ⇒ 用它，但如实说清这是推出来的。
-    // steps 必须和正常路径同构：
-    //   之前这条早返回没带 steps ⇒ runEnv 执行时拿到 undefined，
+    // steps 必须和正常路径同构：缺了它 ⇒ runEnv 执行时拿到 undefined，
     //   命令根本没跑，界面上却显示「成功」。
-    //   现在补齐，且 why 与正常路径用同一段文字。
+    //   这里补齐，且 why 与正常路径用同一段文字。
     const cwdRel = guess.cwd || '.'
     const NOTE = 'env_command 返回 0 仅表示命令执行完毕，'
       + '不代表该引擎可以运行，仍需后续校验（import 探针或实际合成）。'
@@ -809,8 +800,7 @@ function buildEnvPlan (input = {}) {
         // 有 alternative 时，第②步（装本机后端的 torch）也进 steps
         //   —— 它是这次安装的一部分，不是可选建议。
         //   只放进 alternative 的话，runEnv 永远不会执行它
-        //   （平台过去只跑 steps[0]）⇒ 装出一个没有 torch 的环境
-        //   而界面显示「完成」。
+        //   ⇒ 装出一个没有 torch 的环境而界面显示「完成」。
         alt: guess.alternative,
         // 建隔离环境那一步（conda 那条路除外）
         venv,
@@ -836,8 +826,8 @@ function buildEnvPlan (input = {}) {
   const steps = buildSteps({
     argv: withTargetPython(argv, installTarget),
     // cwd = 清单所在的那个目录：uv sync 要在有 uv.lock 的地方跑；
-    //   pip -r 也要在清单旁边跑。实测某台引擎的清单在 infer/requirements.txt
-    //   ⇒ cwd 必须是 engines/<id>/infer，不是 engines/<id>。
+    //   pip -r 也要在清单旁边跑（清单在 infer/requirements.txt
+    //   ⇒ cwd 必须是 engines/<id>/infer，不是 engines/<id>）。
     cwdRel: path.join('engines', id, (guess && guess.cwd) || '.'),
     // 有 alternative 时第②步也进 steps（见 buildSteps 的注释）
     alt: (!usingManifest && guess) ? guess.alternative : null,
@@ -904,7 +894,7 @@ function parseProgress (text) {
  * 不传给 onLine 时行为不变（仍收集尾部输出），调用方不必为了用进度而改判据。
  *
  * uv sync 会自己建项目环境（默认 .venv）——
- *   实测清单在 infer/ 子目录时它把 .venv 建在 infer/ 而不是引擎目录，
+ *   清单在 infer/ 子目录时它把 .venv 建在 infer/ 而不是引擎目录，
  *   那与名片上写的 runtime.python（engines/<id>/.venv）不是同一个。
  * @param {object} step       计划里的一步（含 argv / cwd / absCwd）
  * @param {string} root       项目根
@@ -1040,7 +1030,7 @@ async function runEnv (input = {}) {
     // 头是 uv 这类平台自带工具时换成绝对路径。
     //   uv 装在项目根下（venv/Scripts/uv.exe），不是引擎的 root
     //   （夹具/引擎目录）下 —— 所以要查 projectRoot()，不是 root。
-    //   实测 uv 不在 PATH 上，而 spawn 用 shell:false ⇒ 只认绝对路径与 PATH。
+    //   uv 不在 PATH 上时，spawn 用 shell:false ⇒ 只认绝对路径与 PATH。
     const argv = step.argv.slice()
     if (/^uv$/i.test(argv[0])) {
       // resolveUv 返回 {ok, argv:[py,'-m','uv'], via} | {ok:false, why}。
@@ -1067,7 +1057,7 @@ async function runEnv (input = {}) {
     const argvKey = argv.join(' ')
     // 建环境那一步的幂等：环境已经能起（不是「目录存在」）⇒ 跳过。
     //   判据是 canUseEngineVenv（能不能按绝对路径 spawn），
-    //   不是 existsSync —— 平台实测踩过「文件在但起不来」那个坑
+    //   不是 existsSync —— 有「文件在但起不来」的情况
     //   （venv/Scripts/python.exe 在，pyvenv.cfg 指向另一台机器）。
     //   与断点续传同一套机制（标 SKIPPED、界面显示「已完成」）。
     const alreadyThere = step.skipIfExists === true
@@ -1156,9 +1146,9 @@ async function runEnv (input = {}) {
   }
 
   // 装完自检 —— 命令全退 0 不等于这个环境能用。
-  //   实测过的病：三步退出码全是 0、界面显示「安装完成」，
+  //   症状：三步退出码全是 0、界面显示「安装完成」，
   //   而 engines/<id>/.venv 独缺 torch ⇒ import torch 失败。
-  //   病灶正是 alt 那步没钉目标环境（装进了平台根 venv），
+  //   成因是 alt 那步没钉目标环境（装进了平台根 venv），
   //   所以这里不是补一句提示，是如实判它有没有装成功。
   const v = verifyEngineEnvImports(root, String(input.id || ''),
     steps, plan.alternative, { probe: probe || undefined })
@@ -1166,7 +1156,7 @@ async function runEnv (input = {}) {
     return {
       ...plan,
       ok: false,
-      // 不许用回 ENV_FAILED：那会让界面显示「第 N 步失败」，
+      // 不用 ENV_FAILED：那会让界面显示「第 N 步失败」，
       //   而事实上每一步都成功了，是装错了地方。
       code: 'ENGINE_ENV_UNUSABLE',
       envCheck: v,
