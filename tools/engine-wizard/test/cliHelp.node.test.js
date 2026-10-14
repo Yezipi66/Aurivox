@@ -1,22 +1,20 @@
 'use strict'
-// ============================================================================
-//  cliHelp —— 上游官方原话抓取（第 2 步 · 事 1 / 事 3 的测试）
+//  cliHelp 上游官方原话抓取
 //
-//  ⭐ 判据来自 docs/ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md 第 2 步的验收：
-//    3. ⭐ 官方解释是上游原话 —— 能抓到 --emotion-vector 的
+//  判据来自 docs/ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md 第 2 步的验收：
+//    3. 官方解释是上游原话 —— 能抓到 --emotion-vector 的
 //       "Comma-separated 8-dimensional emotion vector"、--voice 的
 //       "Path to the speaker reference audio"
-//    4. ⛔ 不做名字匹配 —— emo_alpha 不许被配到 --emotion-weight 的说明上
+//    4. 不做名字匹配 —— emo_alpha 不许被配到 --emotion-weight 的说明上
 //    5. 直接同名的（text/device/verbose）被自动贴上官方 help
 //    另加：三块分区不许丢参数（organizeDraft 的守恒律）
 //
-//  ⚠ 为什么这些测试**真读盘**（不用夹具）：
+//  为什么这些测试真读盘（不用夹具）：
 //    本模块的职责是「读上游 Python 源码」。用夹具就等于把「读得对不对」
 //    这件事测没了 —— 夹具是抄来的，源码才是事实。读 2 个文件 + 起 1 次
 //    Python 实测 < 1 秒，没有性能理由用夹具。
 //    （这与 paramsFromReflect.node.test.js 用冻结夹具不矛盾：那一条测的是
-//      「反射出几十 GB torch」那条链，⛔ 不能每次跑；这一条读的是纯文本。）
-// ============================================================================
+//      「反射出几十 GB torch」那条链，不能每次跑；这一条读的是纯文本。）
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -30,13 +28,10 @@ const {
 
 const ROOT = path.join(__dirname, '..', '..', '..')
 
-// ---------------------------------------------------------------------------
-//  真 CLI 源码路径
-// ---------------------------------------------------------------------------
-// ⭐ fixture 数据里可以有具体引擎名（那是**要验证的输入**），
-//   ⛔ 但注释里不许写（styleguard 盯着）。⇒ 路径从常量拼，不写进注释。
-// ⚠ 同一套代码的两个 clone，类所在文件名可能不同（一个在 infer_v2_5.py、
-//   一个在 infer_v2.py）⇒ 路径靠 existsSync 探，⛔ 不凭记忆写死。
+// fixture 数据里可以有具体引擎名（那是要验证的输入），
+//   但注释里不许写（styleguard 盯着）。路径从常量拼，不写进注释。
+// 同一套代码的两个 clone，类所在文件名可能不同（一个在 infer_v2_5.py、
+//   一个在 infer_v2.py）所以路径靠 existsSync 探，不凭记忆写死。
 function firstExisting (...rels) {
   for (const r of rels) {
     const p = path.join(ROOT, r)
@@ -56,9 +51,6 @@ function loadReal () {
   return collectCliHelp({ dir: CLI_DIR_A })
 }
 
-// ---------------------------------------------------------------------------
-//  验收 3：官方解释是上游原话
-// ---------------------------------------------------------------------------
 test('⭐⭐ 验收3：能抓到 --emotion-vector / --voice 的官方原话（逐字，⛔ 不改写）', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：这台引擎的源码不在盘上'); return }
@@ -66,7 +58,7 @@ test('⭐⭐ 验收3：能抓到 --emotion-vector / --voice 的官方原话（�
   assert.ok(r.flags.length >= 20,
     `⛔ 只抓到 ${r.flags.length} 个 flag，上游那份 CLI 明显不止这些 —— 解析器漏了`)
 
-  // ⭐ 判据是**原话逐字**，不是「含关键字」。含关键字的话，平台自己编一句
+  // 判据是原话逐字，不是「含关键字」。含关键字的话，平台自己编一句
   //   「8 维情绪向量」也能过 —— 那测的就不是「上游原话」了。
   const ev = r.by_dest.emotion_vector || []
   assert.ok(ev.length > 0, '⛔ 没抓到 --emotion-vector')
@@ -98,8 +90,8 @@ test('⭐⭐ 验收3（补）：required=True 也如实抓出来（cli.py 的 -v
 test('⭐⭐ 官方原话带 subcommand 名（同一个 flag 在不同子命令下 help 不同）', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
-  // ⭐ 上游一个 CLI 底下挂着好几个子命令，摊开时必须带上名字，否则用户
-  //   不知道照哪条敲。⛔ 不许把它们合并成一条。
+  // 上游一个 CLI 底下挂着好几个子命令，摊开时必须带上名字，否则用户
+  //   不知道照哪条敲。不许把它们合并成一条。
   const withSub = r.flags.filter((f) => f.subcommand)
   assert.ok(withSub.length > 0, '⛔ 一条 flag 都没带 subcommand —— 子命令名丢了')
   // 同一个 dest 出现在多个子命令下是正常的（上游就这么写的）
@@ -124,27 +116,24 @@ test('⭐ 每个 flag 都记着来自哪个文件（多个 CLI 并存时不许�
     '⛔ 每份源码都要报「解析成功/失败」，不许默默当成功')
 })
 
-// ---------------------------------------------------------------------------
-//  验收 4：⛔ 不做名字匹配
-// ---------------------------------------------------------------------------
 test('⛔⛔ 验收4：emo_alpha 不许被配到 --emotion-weight 的说明上', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
-  // ⭐ 上游的 help 原话里确实写着 \"mapped to <Engine> emo_alpha\" ——
-  //   那是**上游自己声明的对应**，⛔ 不是平台猜的。但平台这一层仍然不许
+  // 上游的 help 原话里确实写着 \"mapped to <Engine> emo_alpha\" ——
+  //   那是上游自己声明的对应，不是平台猜的。但平台这一层仍然不许
   //   把 emo_alpha 和 --emotion-weight 接起来：接了就等于平台在维护
   //   名字对应表，换一台引擎又没有。
   const m = exactMatchFor('emo_alpha', r)
   assert.strictEqual(m, null,
     '⛔⛔ emo_alpha 被自动贴上了 CLI 说明 —— 那就是名字匹配，'
     + '会把 --emotion-weight 的意思错安到 emo_alpha 上，静默误导用户')
-  console.log('  exactMatchFor("emo_alpha") → null（原话摊开，⛔ 不配对）')
+  console.log('  exactMatchFor("emo_alpha") → null（原话摊开，不配对）')
 })
 
 test('⛔⛔ 验收4（全表）：反射出来的参数名，只有直接同名的才被贴', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
-  // ⭐ 拿真反射结果的参数名当输入（⛔ 不手工编一张表 —— 那会漏掉真名）。
+  // 拿真反射结果的参数名当输入（不手工编一张表 —— 那会漏掉真名）。
   const fixture = path.join(__dirname, 'reflect_indextts2.json')
   if (!fs.existsSync(fixture)) { console.log('  … 跳过：反射夹具不在'); return }
   const refl = JSON.parse(fs.readFileSync(fixture, 'utf8'))
@@ -169,7 +158,7 @@ test('⛔⛔ 验收4（全表）：反射出来的参数名，只有直接同名
   const matched = names.filter((n) => exactMatchFor(n, r) !== null)
   console.log(`  ${names.length} 个反射参数里，只有 ${matched.length} 个直接同名被贴：`
     + `${matched.join(', ') || '（无）'}`)
-  // ⭐ 反作弊：如果「同名的」一个都没有，说明这条测试的判据本身失效了
+  // 反作弊：如果「同名的」一个都没有，说明这条测试的判据本身失效了
   //   （比如 by_dest 建错了），红一下逼人查，而不是安静地全绿。
   assert.ok(matched.length >= 2,
     `⛔ 只有 ${matched.length} 个同名命中 —— by_dest 索引大概建错了，`
@@ -177,9 +166,9 @@ test('⛔⛔ 验收4（全表）：反射出来的参数名，只有直接同名
 })
 
 test('⛔⛔ 归一化（连字符转下划线）之后仍然不许跨词匹配', () => {
-  // ⭐ 直接同名只算「同一个词」：--output-path 的 dest 是 output_path，
-  //   与签名 output_path 是同一个词 ⇒ 允许。
-  //   但 emo_vector 与 emotion_vector 是**两个词** ⇒ ⛔ 不许。
+  // 直接同名只算「同一个词」：--output-path 的 dest 是 output_path，
+  //   与签名 output_path 是同一个词所以允许。
+  //   但 emo_vector 与 emotion_vector 是两个词所以不许。
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
   // 上游有 --text-file（dest text_file），签名里没有 text_file ⇒ 不该命中
@@ -194,9 +183,6 @@ test('⛔⛔ 归一化（连字符转下划线）之后仍然不许跨词匹配'
   }
 })
 
-// ---------------------------------------------------------------------------
-//  验收 5（数据侧）：直接同名的被自动贴上官方 help
-// ---------------------------------------------------------------------------
 test('⭐⭐ 验收5：text / device / verbose 被自动贴上官方 help', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
@@ -212,7 +198,7 @@ test('⭐⭐ 验收5：text / device / verbose 被自动贴上官方 help', () =
 })
 
 test('⭐ dest 推导规则（argparse 官方规则，逐字照搬）', () => {
-  // ⭐ 这一条测的是**规则本身**，喂字符串就能验，⛔ 不依赖上游源码长什么样。
+  // 这一条测的是规则本身，喂字符串就能验，不依赖上游源码长什么样。
   assert.strictEqual(destFor(['-v', '--voice'], true), 'voice', '有 long option ⇒ 取它')
   assert.strictEqual(destFor(['-o', '--output_path'], true), 'output_path')
   assert.strictEqual(destFor(['--emotion-vector'], true), 'emotion_vector')
@@ -224,10 +210,7 @@ test('⭐ dest 推导规则（argparse 官方规则，逐字照搬）', () => {
   assert.strictEqual(destFor(['my-arg'], false), 'my_arg', '位置参数连字符转下划线')
 })
 
-// ---------------------------------------------------------------------------
-//  三块分区：一条参数都不许丢
-// ---------------------------------------------------------------------------
-/** 造一份草稿包（形状与 buildDraftPackage 的返回值一致，⛔ 不改它） */
+/** 造一份草稿包（形状与 buildDraftPackage 的返回值一致，不改它） */
 function fakeDraft (names) {
   return {
     ok: true,
@@ -251,7 +234,7 @@ test('⭐⭐ 三块分区：must + may === parameters.length（一条都不许�
   const may = o.blocks.find((b) => b.key === 'may').items
   assert.strictEqual(must.length + may.length, names.length,
     `⛔ 分区丢参数：${names.length} 条进去，${must.length + may.length} 条出来`)
-  // ⭐ 必填的必须全在 must 里，选填的全在 may 里
+  // 必填的必须全在 must 里，选填的全在 may 里
   assert.deepStrictEqual(must.map((p) => p.name).sort(), ['lang', 'spk_audio_prompt'])
   assert.strictEqual(may.length, names.length - 2)
   console.log(`  must=${must.length} may=${may.length} 合计=${must.length + may.length}`
@@ -259,9 +242,9 @@ test('⭐⭐ 三块分区：must + may === parameters.length（一条都不许�
 })
 
 test('⭐⭐ 分区守恒律：must + may 必须等于 parameters.length（反作弊）', () => {
-  // ⚠ 这一条是**反作弊**的：把守恒律的校验去掉之后，正常路径也看不出异常
-  //   —— 它会「安静地」少显示一条，而用户永远看不到那个旋钮且不报错。
-  //   ⇒ 判据必须钉住总数，⛔ 不许只查「must 里有那几个」。
+  // 这一条是反作弊的：把守恒律的校验去掉之后，正常路径也看不出异常
+  //   它会「安静地」少显示一条，而用户永远看不到那个旋钮且不报错。
+  //   所以判据必须钉住总数，不许只查「must 里有那几个」。
   const names = ['text', 'lang', 'spk_audio_prompt', 'emo_alpha', 'verbose', 'speed', 'seed']
   const d = fakeDraft(names)
   const o = organizeDraft(d, null)
@@ -277,7 +260,7 @@ test('⭐⭐ 分区守恒律：must + may 必须等于 parameters.length（反�
 })
 
 test('⭐⭐ 坏数据不许把整个分区搞失败（一条 null 也不许变成「一条都不显示」）', () => {
-  // ⚠ 判据：parameters 里混进 null / 缺 required 的行时，分区**仍然成功**，
+  // 判据：parameters 里混进 null / 缺 required 的行时，分区仍然成功，
   //   那条坏行如实落到「选填」那一块 —— 而不是抛错让三块全空。
   //   后果对比：抛错 = 用户一条参数都看不到（最坏的一类失败）；
   //             落进 may = 用户看得到，只是那条标成了选填。
@@ -294,14 +277,14 @@ test('⭐⭐ 坏数据不许把整个分区搞失败（一条 null 也不许变�
   const may = o.blocks.find((b) => b.key === 'may').items
   assert.strictEqual(must.length, 0, '⛔ required:"yes"（字符串）被当成必填了 —— 那是自己判的')
   assert.strictEqual(may.length, 4, '⛔ 坏行没落进「选填」那一块')
-  // ⭐ 坏行要带标记，界面才能显示「这一行有问题」而不是空白一格
+  // 坏行要带标记，界面才能显示「这一行有问题」而不是空白一格
   const malformed = may.filter((x) => x._malformed === true)
   assert.strictEqual(malformed.length, 2, '⛔ 坏行没标 _malformed —— 界面会显示成空白一格')
   console.log('  坏数据 → ok:true，4 条全在「可以不管」那一块，其中 2 条标了 _malformed')
 })
 
 test('⭐ 分区不新增校验：required 只来自反射结果，平台不自己判', () => {
-  // ⚠ 判据：参数名里带 lang / audio 这种「看着必填」的词，平台也**不许**
+  // 判据：参数名里带 lang / audio 这种「看着必填」的词，平台也不许
   //   把它挪进 must —— 必填只有反射说了才算。
   const names = ['audio_path', 'lang_x', 'prompt_wav']
   const d = fakeDraft(names)
@@ -327,7 +310,7 @@ test('⭐ 平台已映射的词进 ① 块，且带上中文人话要用的 plat
   assert.strictEqual(auto.length, 1, '⛔ 已映射的词没进 ① 块')
   assert.strictEqual(auto[0].name, 'text')
   assert.strictEqual(auto[0]._mapped_to, 'tts_text')
-  // ⛔ 没映射的候选**不许**进 ① 块 —— 那是「还没定的事」，标成已做好是骗人
+  // 没映射的候选不许进 ① 块 —— 那是「还没定的事」，标成已做好是骗人
   assert.ok(!auto.some((x) => x.name === 'speed'), '⛔ 未勾选的候选被算进「已自动填好」')
 })
 
@@ -359,7 +342,7 @@ test('⛔ 目录不存在 / 没给 dir ⇒ 如实说，⛔ 不返回空结果冒
 })
 
 test('⭐ 没有 CLI 的目录 ⇒ ok:true + 空 flags + note（抓不到是一个答案）', () => {
-  // ⚠ 找一个**真没有 argparse CLI** 的目录。⛔ 不用 core/ 自己 ——
+  // 找一个真没有 argparse CLI 的目录。不用 core/ 自己 ——
   //   里面躺着一个 cli_help_extract.py，它自己就在用 add_argument（探测用），
   //   拿它当「没有 CLI」的样本会假红。
   const emptyDir = fs.mkdtempSync(path.join(ROOT, '.clihelp-empty-'))
@@ -378,10 +361,10 @@ test('⭐ 没有 CLI 的目录 ⇒ ok:true + 空 flags + note（抓不到是一�
 })
 
 test('⭐ 候选清单：⛔ 不许把 infer.py 之外的东西写死成唯一入口', () => {
-  // ⚠ 上游把 CLI 放哪没有统一约定。清单 + 递归兜底两段都要在。
+  // 上游把 CLI 放哪没有统一约定。清单 + 递归兜底两段都要在。
   assert.ok(CLI_CANDIDATES.includes('cli.py'), '⛔ 清单里没有最常见的 cli.py')
   assert.ok(CLI_CANDIDATES.length >= 3, '⛔ 候选清单太短 —— 上游换个别名就抓不到')
-  // ⛔ 不许有具体引擎名（styleguard 那条纪律的同一件事，只是这里是数据）
+  // 不许有具体引擎名（styleguard 那条纪律的同一件事，只是这里是数据）
   for (const bad of ['indextts', 'cosyvoice', 'gpt-sovits', 'voxcpm', 'fish-speech']) {
     for (const c of CLI_CANDIDATES) {
       assert.ok(!c.toLowerCase().includes(bad), `⛔ 候选清单里出现了「${bad}」`)
@@ -389,9 +372,6 @@ test('⭐ 候选清单：⛔ 不许把 infer.py 之外的东西写死成唯一�
   }
 })
 
-// ---------------------------------------------------------------------------
-//  ⛔ 纪律：活代码里不许出现具体引擎名
-// ---------------------------------------------------------------------------
 test('⛔⛔ core/cliHelp.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + '-tts', 'cosy' + 'voice',
     'indextts', 'vox' + 'cpm', 'fish' + '-speech']
@@ -401,7 +381,7 @@ test('⛔⛔ core/cliHelp.js 活代码里不许出现任何具体引擎名', () 
   for (const bad of FORBIDDEN) {
     assert.ok(!code.toLowerCase().includes(bad), `出现了「${bad}」`)
   }
-  // ⭐ Python 侧那份也要查（它同样是活代码）
+  // Python 侧那份也要查（它同样是活代码）
   const py = fs.readFileSync(path.join(__dirname, '..', 'core', 'cli_help_extract.py'), 'utf8')
   for (const bad of FORBIDDEN) {
     assert.ok(!py.toLowerCase().includes(bad), `Python 提取器里出现了「${bad}」`)
@@ -409,7 +389,7 @@ test('⛔⛔ core/cliHelp.js 活代码里不许出现任何具体引擎名', () 
 })
 
 test('⛔⛔ 不做名字匹配：核心文件里不许出现启发式配对的代码', () => {
-  // ⚠ 这条是**结构性**守卫：靠 grep 抓「有人又加了一套相似度匹配」。
+  // 这条是结构性守卫：靠 grep 抓「有人又加了一套相似度匹配」。
   //   判据：不许有 editDistance / similarity / scoreFor / bestMatch 这类词。
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'cliHelp.js'), 'utf8')
   const py = fs.readFileSync(path.join(__dirname, '..', 'core', 'cli_help_extract.py'), 'utf8')
@@ -420,24 +400,21 @@ test('⛔⛔ 不做名字匹配：核心文件里不许出现启发式配对的�
   }
 })
 
-// ---------------------------------------------------------------------------
-//  Python 侧提取器的契约
-// ---------------------------------------------------------------------------
 test('⭐ Python 提取器存在且导出了 main（⛔ 不许 Node 侧自己解析 Python）', () => {
   const pyPath = path.join(__dirname, '..', 'core', 'cli_help_extract.py')
   assert.ok(fs.existsSync(pyPath), `⛔ 找不到 ${pyPath}`)
   const src = fs.readFileSync(pyPath, 'utf8')
-  // ⚠ `^def main\(` 只匹配行首 —— shebang 与 -*- coding -*- 在前面，
-  //   所以用 m 标志逐行找，⛔ 不用整个文件开头匹配。
+  // `^def main\(` 只匹配行首 —— shebang 与 -*- coding -*- 在前面，
+  //   所以用 m 标志逐行找，不用整个文件开头匹配。
   assert.match(src, /^def main\(/m, '⛔ 提取器没有 main() 入口')
   assert.match(src, /^if __name__/m, '⛔ 提取器没有 __main__ 守卫')
-  // ⭐ 必须用 ast，⛔ 不许正则硬抓
+  // 必须用 ast，不许正则硬抓
   assert.match(src, /^import ast$/m, '⛔ 提取器没用 ast —— 正则抓 help= 会漏换行的情况')
 })
 
 test('⭐⭐ 提取器真跑一遍：真 CLI 源码 → 官方原话（⛔ 不 mock Python）', () => {
   if (!CLI_DIR_A) { console.log('  … 跳过：源码不在盘上'); return }
-  // ⚠ 直接调 runExtractor（绕过 collectCliHelp 的文件发现）——
+  // 直接调 runExtractor（绕过 collectCliHelp 的文件发现）——
   //   这样测的是「Python 那一半」本身，而不是文件发现那一半。
   const r = runExtractor(CLI_DIR_A, CLI_CANDIDATES)
   assert.strictEqual(r.ok, true, `Python 提取器失败：${r.error}\n${r.detail || ''}`)
@@ -445,8 +422,8 @@ test('⭐⭐ 提取器真跑一遍：真 CLI 源码 → 官方原话（⛔ 不 m
   assert.ok(r.sources.every((s) => s.ok === true),
     `⛔ 有源码解析失败：${JSON.stringify(r.sources.filter((s) => !s.ok))}`)
   assert.ok(r.flags.length >= 20, `⛔ 只抓到 ${r.flags.length} 个 flag`)
-  // ⭐ 用 some 而不是 find：同一个 flag 在多个子命令下的 help 不同
-  //   （上游就是这么写的），⛔ 不许只认第一条就当成唯一答案。
+  // 用 some 而不是 find：同一个 flag 在多个子命令下的 help 不同
+  //   （上游就是这么写的），不许只认第一条就当成唯一答案。
   const ev = r.flags.find((f) => f.dest === 'emotion_vector')
   assert.ok(ev, '⛔ 没抓到 --emotion-vector')
   assert.ok(r.flags.some((f) => f.dest === 'emotion_vector'
@@ -459,10 +436,10 @@ test('⭐⭐ 提取器真跑一遍：真 CLI 源码 → 官方原话（⛔ 不 m
 })
 
 test('⭐⭐ dest 是 argparse 的 dest（连字符转下划线），⛔ 不是 flag 原样', () => {
-  // ⚠⚠ 这一条是 2026-10-09 实测踩过的坑，判据必须钉住：
+  // 判据必须钉住：
   //   `--emotion-vector` 的 dest 是 `emotion_vector`（下划线），
-  //   ⛔ 不是 `emotion-vector`（连字符）。
-  //   漏掉这一步的后果不是报错，而是**静默错配**：反射出来的签名参数
+  //   不是 `emotion-vector`（连字符）。
+  //   漏掉这一步的后果不是报错，而是静默错配：反射出来的签名参数
   //   `emo_vector` 与 `emotion-vector` 归一化后永远对不上，于是「直接同名」
   //   那条唯一允许的自动贴一条都不生效，而看输出像是「上游没给同名的」。
   if (!CLI_DIR_A) { console.log('  … 跳过：源码不在盘上'); return }
@@ -480,20 +457,17 @@ test('⭐⭐ dest 是 argparse 的 dest（连字符转下划线），⛔ 不是 
 })
 
 test('⛔ 提取器拿不到 Python 时报「起不动」，⛔ 不许假装抓到了 0 个 flag', () => {
-  // ⚠ 这一条防的是最坏的那类失败：spawn 失败被吞成「这台引擎没 CLI」。
+  // 这一条防的是最坏的那类失败：spawn 失败被吞成「这台引擎没 CLI」。
   const r = runExtractor(CLI_DIR_A || __dirname, CLI_CANDIDATES, 'definitely-not-python-xyz')
   assert.strictEqual(r.ok, false, '⛔ 起不动解释器却返回 ok:true —— 把故障说成「没 CLI」')
   assert.match(r.error, /起不动|非零|不是 JSON/)
   console.log(`  假解释器 → ok:false，原因：${r.error}`)
 })
 
-// ---------------------------------------------------------------------------
-//  ⭐ 第 2 步的接线：required 一路带到界面上
-// ---------------------------------------------------------------------------
 test('⭐⭐ 反射的 required 一路带到草稿上（否则「必须你填」那一块永远是空的）', () => {
-  // ⚠⚠ 这一条是 2026-10-09 实测踩过的坑：buildDraftPackage 只把 required
-  //   写到 excluded（认不出类型的那批），**parameters[] 里一条都没有**。
-  //   后果不是报错，而是第 2 步的「必须你填的」那一块**永远显示 0 条** ——
+  // buildDraftPackage 只把 required 写到 excluded（认不出类型的那批），
+  //   parameters[] 里一条都没有。
+  //   后果不是报错，而是第 2 步的「必须你填的」那一块永远显示 0 条 ——
   //   用户以为这台引擎没有必填参数，而它明明有一个（参考音频）。
   const fx = JSON.parse(fs.readFileSync(
     path.join(__dirname, 'reflect_indextts2.json'), 'utf8'))
@@ -505,7 +479,7 @@ test('⭐⭐ 反射的 required 一路带到草稿上（否则「必须你填」
     + '而用户以为这台引擎没有必填参数')
   console.log(`  parameters[] 里带 required=true 的：${reqInParams.join(', ')}`)
 
-  // ⭐ 接上 organizeDraft：那一条必须落进 ② 块
+  // 接上 organizeDraft：那一条必须落进 ② 块
   const o = organizeDraft(d, null)
   const must = o.blocks.find((b) => b.key === 'must').items.map((p) => p.name)
   for (const n of reqInParams) {
@@ -532,11 +506,8 @@ test('⛔ 分区不许新增校验：required 只认 true（⛔ 不认 "yes"/1 �
     '⛔ "yes" / 1 被当成必填了 —— 平台在自己判断布尔值')
 })
 
-// ---------------------------------------------------------------------------
-//  事 2：平台认识的字段给中文人话（fieldmeta 的 PLATFORM_WORDS）
-// ---------------------------------------------------------------------------
 test('⭐⭐ 事2：fieldmeta 的 PLATFORM_WORDS 就是 payload.js 那 10 个词（逐字相同）', () => {
-  // ⚠ 为什么逐字比对而不是「≥10 条」：这 10 个词是平台**唯一**认识的一组概念
+  // 为什么逐字比对而不是「≥10 条」：这 10 个词是平台唯一认识的一组概念
   //   （payload.js 的 CANONICAL_KEYS）。多一个 = 平台凭空发明了一个概念；
   //   少一个 = 有个概念界面显示不出来。两种情况都不报错。
   const { PLATFORM_WORDS } = require('../core/fieldmeta')
@@ -556,7 +527,7 @@ test('⭐⭐ 事2：10 个词每一个都有中文人话（label + help，⛔ �
     assert.ok(['block', 'silent', 'info'].includes(w.danger),
       `⛔ ${w.key} 的 danger 不在三档里：${w.danger}`)
   }
-  // ⭐ 静默失效那一档必须真的有内容：那正是「填错不报错」的词，
+  // 静默失效那一档必须真的有内容：那正是「填错不报错」的词，
   //   最需要一句提醒（fieldmeta 头注的原话）。
   const silent = PLATFORM_WORDS.filter((w) => w.danger === 'silent')
   assert.ok(silent.length > 0, '⛔ 一档 silent 都没有 —— 那说明「填错不报错」这个词没被提醒')
