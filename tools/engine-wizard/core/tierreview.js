@@ -4,6 +4,7 @@
 // 只做名字与相位的启发式判断，不改参数本身，也不替作者拍板：
 //   写了的档位不动，留空的按规则落进进阶档（安全默认）。
 // 判据写进 _tier_review，让人能看出这一档是怎么来的。
+
 const ADVANCED_HINTS = Object.freeze([
   'verbose', 'debug', 'log', 'log_level', 'quiet', 'trace',
   // 随机性：影响可复现，普通用户不碰

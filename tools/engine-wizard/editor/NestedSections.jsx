@@ -1,35 +1,29 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
 //  NESTED SECTION —— 嵌套段的填表（runtime / call / models）
 //
 //    为什么单独一个文件
-//  这三段不是「几个键」，而是**嵌套结构**：
+//  这三段不是「几个键」，而是嵌套结构：
 //    runtime.verify.sys_path[] / imports[].class …
 //    call.init_args{} / bind{三槽位} / methods{每个方法一套} / args[]
 //    models.required[] / source.command[]
 //   一个键一个 input 画不出来。
 //
-//      但**不照抄任何一张真名片** —— 真名片形状各不相同，
-//  照抄 = 第二份事实，必然漂移。 这里按**形状分类**，每种形状一个编辑器。
+//      但不照抄任何一张真名片 —— 真名片形状各不相同，
+//  照抄 = 第二份事实，必然漂移。这里按形状分类，每种形状一个编辑器。
 //
 //    排版全部用项目类：.field / .field-label / .field-hint / .control /
 //    .plan-warn / .badge / .table / .expert-block / .expert-summary
 //        之前自造的 .nx-row/.nx-label/.nx-ctl/.nx-obj/.nx-obj-row/.nx-lineno
 //      全项目 CSS 里一个定义都没有  那一大块是纯裸奔。
-//
-//      纪律：不许出现任何具体引擎名。
-// ============================================================================
 
-// ---------------------------------------------------------------------------
 // 一行：键名 + 说明 + 控件
 //   第 3 章警告三级（RFC）：按 danger 分色，不再一律拍成黄。
 //   BLOCK（平台会抛错、装不上）→ .msg-danger 红框
 //   SILENT（设了没效果、填错不报错）→ .msg-warn 黄框
 //   INFO（纯提示）→ .field-hint 灰字（不是框）
 //     只用平台现成类，不新增 class、不 inline style。
-// ---------------------------------------------------------------------------
 // warn 文案按 danger 档位套不同的平台类（第 3 章）
 const WARN_BOX = {
   block: 'msg-danger',   // 红框：真会阻断加载

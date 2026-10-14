@@ -13,7 +13,7 @@ function handleInstalled (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/installed')) return false
   try {
-    // ?all=1：列出 engines/ 下**所有**文件夹（含还没名片的），
+    // ?all=1：列出 engines/ 下所有文件夹（含还没名片的），
     //   「新建名片」入口靠它列出第 1 步克隆来、还没写名片的引擎。
     //   默认仍只列有 manifest 的（不改老行为）。
     const all = /[?&]all=1/.test(req.url)
@@ -65,7 +65,7 @@ function handleSave (req, res) {
 }
 
 /**
- * GET /wizard/manifest/<id>：读一张**已装**引擎的名片
+ * GET /wizard/manifest/<id>：读一张已装引擎的名片
  *
  * 平台无按 id 取原始 manifest 的端点（见 lib/routes/engines.js），故此处直接读盘。
  * 安全：只读 engines/ 之内，且 id 必须先过 validateId（拦掉 ../escape 这类）。

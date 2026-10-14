@@ -2,32 +2,29 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
 
-// ============================================================================
 //  CLI GEN PANEL：扫描引擎参数并自动填进名片（cli 与 python 两条路共用）
 //
-// 操作流（Owner 2026-10-10 定，P3 扩展为两条路共用）：
+// 操作流：
 //   进来 → [读取名片]（改已有引擎）或 [新建名片]（默认新建）
 //   新建后 → [扫描参数] → 调 /wizard/discover 自动探测引擎形态
 //     · cli 路：列出上游命令行的 flag 表（官方说明 / 必填选填 / 类型）
 //     · python 路：列出函数签名参数（按加载期 / 调用期分组）
-//   → 平台**自动填**一批进名片（bind 三槽位 + args，不要求用户逐个勾）
+//   → 平台自动填一批进名片（bind 三槽位 + args，不要求用户逐个勾）
 //   → 用户手动编辑补改 → 最下面 [保存]
 //
-// 渐进披露（RFC 第 2 章）：mode 流转 idle → scan → read
+// mode 流转 idle → scan → read：
 //   · idle：两个入口（读取 / 新建）各自清晰
 //   · scan：选引擎 → 扫描；扫描控件行定高（group select 扫描前占位、
 //     扫描后填值，只换内容不换高度，禁止布局跳变）
 //   · read：读取磁盘原文后进编辑态（P0 成果，不许改回空壳）
 //   · 扫描成功 → 回调 onScanDone() 主组件展开核心绑定区并滚动定位
 //
-// 纪律：只填表单不落盘（落盘是 SaveBar 的事）；help 原样递出不改写；
+// 只填表单不落盘（落盘是 SaveBar 的事）；help 原样递出不改写；
 //   探不到时如实显示 notes，不假装。
-// ============================================================================
 
-// ---------------------------------------------------------------------------
 // computeAutoFill：纯函数：把扫描到的参数转成 call 段建议值
 //
-// 为什么纯函数（外援点名「autoFill 闭包陷阱」）：
+// 为什么纯函数：
 //   旧实现 autoFill 读闭包里的 manifest.call，而 doScan 里 setScan(j) 是
 //   异步的。用户快速切子命令时 scan 还是上一次的旧值，用旧 args 填新子命令。
 //   现在：入参全部显式（params / currentCall），返回建议值 + 匹配记录，
@@ -45,7 +42,6 @@ import { useInstalled } from './useInstalled'
 //     argList,     // 当前 group 下全部参数（区 3 渲染用）
 //     notes }      // 平台替名片做不了的决定，如实报给用户
 //   或 null（没有参数）
-// ---------------------------------------------------------------------------
 export function computeAutoFill (params, currentCall) {
   if (!params || !params.length) return null
 

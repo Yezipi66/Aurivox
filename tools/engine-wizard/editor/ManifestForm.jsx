@@ -368,7 +368,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   //
   //   call 段归属说明（避免同一份 manifest.call 渲染两遍）：
   //   call 的完整编辑器（CallSection）常驻在 L1 核心绑定区。
-  //     L2 **不再**重复放 call：否则一个 call 两个编辑器，改一处另一处
+  //     L2 不再重复放 call：否则一个 call 两个编辑器，改一处另一处
   //   不同步。所以 l2Nested 只留 runtime。
   const L2_GROUPS = ['runtime', 'capabilities']
   const L3_GROUPS = ['source', 'models', 'install', 'output']

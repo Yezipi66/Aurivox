@@ -29,9 +29,9 @@ function whereText (d) {
 
 export default function Diagnostics ({ result, loading }) {
   const { t } = useT()
-  // ⭐ 第 6 章：默认**折叠**（RFC：右栏 Diagnostics 默认折叠，让位给 Preview）。
+  // 默认折叠（RFC：右栏 Diagnostics 默认折叠，让位给 Preview）。
   //   计数徽标仍常驻标题行，一眼看出有无问题；要细看点开。
-  const [open, setOpen] = React.useState(false)   // ⭐ 默认折叠
+  const [open, setOpen] = React.useState(false)
 
   // 还没跑出结果：连标题都不占地方
   if (loading && !result) {
@@ -89,8 +89,8 @@ export default function Diagnostics ({ result, loading }) {
 
       {open && (
         <div className="collapsible-body">
-          {/* ⭐ 免责说明：它对**每一张名片**都成立，与当前填得好不好无关
-              ⇒ 常驻一行，⛔ 不混进错误/警告里冒充一条问题。 */}
+          {/* 免责说明：它对每一张名片都成立，与当前填得好不好无关
+              ⇒ 常驻一行，不混进错误/警告里冒充一条问题。 */}
           <p className="msg msg-info">
             {t('A passing check here means the schema is accepted. '
               + 'It does not mean the engine will run, and it does not mean '
@@ -128,7 +128,7 @@ export default function Diagnostics ({ result, loading }) {
 function Diag ({ d }) {
   const { t } = useT()
   const meta = LEVELS[d.level] || LEVELS.info
-  // ⛔ 回落也走 t()：直接写 meta.zh 会在英文界面里漏出中文
+  // 回落也走 t()：直接写 meta.zh 会在英文界面里漏出中文
   const tag = t(meta.en, meta.zh)
   const where = whereText(d)
   return (

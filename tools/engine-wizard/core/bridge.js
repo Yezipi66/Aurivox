@@ -1,5 +1,4 @@
 'use strict'
-// ============================================================================
 //  VALIDATE BRIDGE：把校验层暴露成一个本地 HTTP 接口
 
 const http = require('node:http')

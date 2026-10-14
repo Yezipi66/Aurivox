@@ -1,6 +1,7 @@
 'use strict'
 //  SPEC BRIDGE：把字段元数据送到浏览器
 
+
 const path = require('node:path')
 const { SECTIONS, PARAM_FIELDS, PLATFORM_WORDS } = require('./fieldmeta')
 

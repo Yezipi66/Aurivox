@@ -371,7 +371,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
       {/* ---- 下载清单表格：按文件列出 ----
           每个文件一行，显示大小/SHA-256/状态。
-          emoji：✅已完成 / ⌛下载中 / ❌未下载。*/}
+          emoji：已完成 / 下载中 / 未下载。*/}
       {manifest && manifest.length > 0 && (
         <>
           <div className="plan-kv">

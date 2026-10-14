@@ -58,7 +58,7 @@ export function stepDone (stepKey, facts = {}) {
     case 'env':
       return facts.envBuilt === true
     case 'models':
-      // ready 为 null（说不出来）时**不算做完**：那是需要补名片的信号，
+      // ready 为 null（说不出来）时不算做完：那是需要补名片的信号，
       // 而非一个可以放过的结论。
       return facts.weightsReady === true || facts.weightsReady === false
     case 'manifest':

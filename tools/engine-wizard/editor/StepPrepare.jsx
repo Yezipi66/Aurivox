@@ -4,9 +4,7 @@ import { RiskUnlock } from './Pipeline'
 // 目录名的唯一来源：输入框 + 仓库名。没有 state.id 这个来源。
 import { folderName } from './folderName'
 
-// ============================================================================
 //  STEP PREPARE：第 1 步：链接 → 探测 → 克隆
-// ============================================================================
 
 /** 从链接里猜项目名：目录名留空时做灰字预览；真 id 永远来自 resolve 端点。 */
 /** 后端错误的双语文案表：键名 = 后端 code；新增错误时先放 core，再来这里加两行。 */
@@ -142,7 +140,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     setBusy('')
   }
 
-  // ---- ③ 克隆（⚠ 这一步才写盘）----
+  // ---- ③ 克隆（这一步才写盘）----
   // curId 是唯一的 id 来源；旧写法 `id: idInput || state.id` 会让输入框空时退化到旧 id。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
@@ -185,14 +183,14 @@ const done = facts && facts.cloned === true
   const meta = (probe && probe.meta) || null
 
   return (
-    /* **第一步全部铺开**：一个连续区域，从上到下直接排。
+    /* 第一步全部铺开：一个连续区域，从上到下直接排。
        外层这行内联样式就是 TrainingTab.jsx:2355 的原话：
          display:flex / flexDirection:column / gap:8
        不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
       {/* ── 两个输入框，一行 ─────────────────────────────
-          目录名留空 = 自动取**仓库根**最后一段（tree/main 会被剥掉）
+          目录名留空 = 自动取仓库根最后一段（tree/main 会被剥掉）
           解析跟着失焦 / 回车自动跑，不需要「下一步」*/}
       <div className="form-grid">
         <div className="field">
@@ -208,7 +206,7 @@ const done = facts && facts.cloned === true
               //   写回父组件的是**原始输入**，不含解析产物
               //   （res/probe/cloneUrl 仍只在解析成功时写）。
               onChange({ url: e.target.value })
-              // 只在**真的变了**时才清结果；
+              // 只在真的变了时才清结果；
               //   只清这四个键，别整体替换 prep（会把别的键一起抹掉）
               if (e.target.value !== lastResolved) {
                 onPrep((w) => ({ ...w, res: null, probe: null, plan: null, cloneRes: null }))
@@ -226,9 +224,9 @@ const done = facts && facts.cloned === true
             onChange={(e) => setIdInput(e.target.value)} />
           {/* 去掉这里的 engines/<name>/ 预览。
               目录名下面已经有一行说明在讲「目录名就是名片里的 id」，
-                 再挂一个路径预览是**同一件事说两遍**，而且
+                 再挂一个路径预览是同一件事说两遍，而且
                  「目标 / 命令」那行会把真实的完整命令给出（更准）。
-                 ⇒ 那个路径信息在这一步**一次都不该出现两次**。 */}
+                 ⇒ 那个路径信息在这一步一次都不该出现两次。 */}
         </div>
       </div>
 
@@ -290,10 +288,10 @@ const done = facts && facts.cloned === true
         </>
       )}
 
-      {/* ── 下一步（⚠ 这一步才写盘）──────────────────────────────
+      {/* ── 下一步（这一步才写盘）──────────────────────────────
           标题说「下一步会发生什么」，不说实现步骤（「克隆」），
             使用者关心的是流程往前走，不是内部动作名。
-          这里给**真正的 git clone 命令**，不只显示 engines/<name>/
+          这里给真正的 git clone 命令，不只显示 engines/<name>/
             这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
           不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
           判据：这一块里的命令必须与真正要跑的那条逐字相同。*/}
@@ -318,7 +316,7 @@ const done = facts && facts.cloned === true
             </div>
           )}
 
-          {/* vars：把项目名和**完整路径**喂给风险文案
+          {/* vars：把项目名和完整路径喂给风险文案
               （原来只说「写进 engines/」，而那目录里已经有好几个引擎了，
                 用户分不清这一步要动的是哪一个）
               name/path 都取自 curId 这一个值 ⇒ 与上面那条命令同源。*/}

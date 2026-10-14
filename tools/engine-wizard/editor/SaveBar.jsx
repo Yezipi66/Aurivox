@@ -1,7 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
 //  SAVE BAR —— 存盘
 //
 //    三件事，按用户的真实需要排：
@@ -9,12 +8,9 @@ import { useT } from '../../../web/src/lib/i18n'
 //   2. **会存到哪** —— 把完整路径摆出来，不让人猜
 //   3. **会不会覆盖** —— 已存在时明确问一次，不静默覆盖
 //
-//    用**项目的** .summary-bar（就是项目给「一行摘要 + 徽标 + 按钮」准备的：
+//    用项目的 .summary-bar（就是项目给「一行摘要 + 徽标 + 按钮」准备的：
 //   flex-wrap / gap 8 / surface + border + radius-md），
 //       不再自造 .sv-bar/.sv-path/.sv-blocked/.sv-result。
-//
-//      纪律：不许出现任何具体引擎名。
-// ============================================================================
 
 export default function SaveBar ({ manifest, diag, onSaved }) {
   const { t } = useT()
@@ -93,7 +89,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         <span style={{ flex: 1 }} />
 
         {/* ---- 存 ----
-              第 6 章：有硬错时**禁用保存 + 说明原因**，  不是让按钮消失。
+              第 6 章：有硬错时禁用保存 + 说明原因，  不是让按钮消失。
               旧代码 hasErrors 时整块按钮 null（消失），用户找不到存盘入口
               也不知道为什么 —— 现在是灰置禁用 + 下方红条说明。 */}
         {!hasErrors && exists && !confirmOverwrite

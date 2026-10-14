@@ -5,20 +5,16 @@ import SaveBar from './SaveBar'
 import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
 
-// ============================================================================
-//  MANIFEST PAGE：名片那步（**独立的二级页面**）
+//  MANIFEST PAGE：名片那步（独立的二级页面）
 //
-//  左表单 + 右实时预览，**两栏必须真并排** 
-//    用的是**项目现成**的 .workspace-grid > .workspace-left + .workspace-right
+//  左表单 + 右实时预览，两栏必须真并排
+//    用的是项目现成的 .workspace-grid > .workspace-left + .workspace-right
 //    （GenerateTab.jsx 就是这个组合：左主区 + 右栏 sticky），
 //    不再自造 .ed-cols/.ed-left/.ed-right（那两个是前任发明的，
 //      而且 .workspace-right 的 sticky 在窄屏下项目自己会降级成单列）。
 //
 //  视图切换（填表 / JSON）用项目的 .ref-tabs + .ref-tab(.active)
 //    （项目里就是给「两组内容切一组」用的：切片 / 原始音频）。
-//
-//  纪律：不许出现任何具体引擎名。
-// ============================================================================
 
 export default function ManifestPage ({
   manifest, spec, text, err, setText, onManifest, diag, loading, onSaved,
@@ -26,10 +22,10 @@ export default function ManifestPage ({
   const { t } = useT()
   const [view, setView] = React.useState('form')
 
-  // text 是 manifest 的**纯派生**：只有「切进 JSON 视图」这一刻现算，
+  // text 是 manifest 的纯派生：只有「切进 JSON 视图」这一刻现算，
   //   之后就是用户手里的编辑缓冲。
   //   不用 useEffect 同步：那会形成 manifest→text→manifest 的回环，
-  //   正是 A4 竞态的成因。切视图是一个**事件**，就在点击里算。
+  //   正是 A4 竞态的成因。切视图是一个事件，就在点击里算。
   //   只在「之前没编过」(text===null) 时才覆盖，编过就保留缓冲。
   const switchTo = (v) => {
     if (v === 'json' && text === null) {
@@ -79,7 +75,7 @@ export default function ManifestPage ({
 
       <div className="workspace-right">
         {/* props 名必须是 result：之前传的是 diag=，
-             组件签名却是 ({ result, loading }) ⇒ 诊断面板**永远不显示** */}
+             组件签名却是 ({ result, loading }) ⇒ 诊断面板永远不显示 */}
         <Diagnostics result={diag} loading={loading} />
         {manifest
           ? <PanelPreview manifest={manifest} />
@@ -96,9 +92,9 @@ export default function ManifestPage ({
             )}
       </div>
 
-      {/* SaveBar：跨左右两栏 sticky bottom，**永远可见**。
+      {/* SaveBar：跨左右两栏 sticky bottom，永远可见。
           原来埋在表单最底，用户填完要滚 7 屏回去才能存（RFC 第 6 章）。
-          ⚠ 跨两栏做法：sticky 容器放在 workspace-grid 之后、独立成行，
+          跨两栏做法：sticky 容器放在 workspace-grid 之后、独立成行，
             position:sticky + bottom:0 ⇒ 滚动到底部时吸底常驻。
           不放进左栏或右栏内部：那会让它只跟着那一栏滚。 */}
       <div style={{
