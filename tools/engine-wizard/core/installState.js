@@ -16,6 +16,10 @@ function readProgress (root, id, section) {
   try {
     if (!fs.existsSync(f)) return new Set()
     const data = JSON.parse(fs.readFileSync(f, 'utf8'))
+    // 记录里写的引擎与本次要装的不是同一台 ⇒ 整段作废。
+    //   目录被挪过、文件被复制过、id 改过名时会出现这种错配；
+    //   继承别人的完成记录会让本步被跳过，而产物其实不存在。
+    if (data && data.engine && String(data.engine) !== String(id)) return new Set()
     const list = data && data[sec] && data[sec].done
     if (Array.isArray(list)) return new Set(list.map((d) => d.key))
   } catch (e) { /* 损坏的进度文件 ⇒ 从头来 */ }
@@ -42,6 +46,10 @@ function writeProgress (root, id, section, doneKeys) {
   data.updatedAt = at
   data[sec] = { done: [...doneKeys].map((key) => ({ key, at })) }
   try {
+    // 目录可能还没建（引擎目录被删过、或首次写入）：先建再写。
+    //   不建的话 writeFileSync 抛 ENOENT，被下面的 catch 吞掉，
+    //   表现为「进度永远存不下来、每次都从头跑」。
+    fs.mkdirSync(path.dirname(f), { recursive: true })
     fs.writeFileSync(f, JSON.stringify(data, null, 2), 'utf8')
   } catch (e) { /* 进度文件写不进不该拦住安装 */ }
 }
@@ -74,6 +82,7 @@ function resetProgress (root, id, section) {
   }
   const sec = section === 'models' ? 'models' : section === 'all' ? 'all' : 'env'
   try {
+    fs.mkdirSync(path.dirname(f), { recursive: true })
     fs.writeFileSync(f, JSON.stringify(clear(sec), null, 2), 'utf8')
   } catch (e) { /* 写不进就当已经清了 */ }
 }
