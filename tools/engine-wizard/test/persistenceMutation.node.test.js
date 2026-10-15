@@ -7,11 +7,11 @@
 //
 // 做法：把源文件复制到本进程私有的临时目录、改成旧写法，然后在进程内
 //    重新加载那份副本，当场跑守卫断言。
-//    不许 spawn 子进程 —— 实测：从 node --test 内部
+//    不许 spawn 子进程 —— 从 node --test 内部
 //      spawnSync('node --test <file>') 拿到的是「status=0 且空输出」，
 //      子进程一条测试都没跑 ⇒ 每次变异都假绿。子进程这条路不通。
 //    不许就地改写源文件 —— node --test 是多文件并行的，就地改的那几百
-//      毫秒里另一个进程正好读到变异版，它自己的用例会假红（实测过）。
+//      毫秒里另一个进程正好读到变异版，它自己的用例会假红。
 //      复制到私有沙盒目录，真实源文件一个字节都不动。
 
 const { test } = require('node:test')
@@ -49,8 +49,7 @@ let bump = 0
  *
  * 为什么必须复制而不是就地改：`node --test` 是多文件并行的。
  *    就地改写 useInstallSession.js 的那几百毫秒里，另一个进程里的
- *    useInstallSession.node.test.js 刚好读到变异版 ⇒ 它自己的用例会
- *    假红（实测：并行跑时那两条防串号测试红灯，单独跑全绿）。
+ *    useInstallSession.node.test.js 刚好读到变异版 ⇒ 它自己的用例会假红。
  *    那是把「变异测试」自己变成污染源，比没有变异更坏。
  *
  * @param {string} src 源文件
@@ -278,7 +277,7 @@ test('反证：未变异时同类守卫全部安静（上面的红不是假象�
     assert.strictEqual(s.steps_done.prepare, false, '空目录不算克隆')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 
-  // ---- 2026-10-13 新增的两条：未变异时必须**安静** ----
+  // 新增的两条：未变异时必须安静
   // 这两个临时根都要显式清掉：⑧ 号用例在数 os.tmpdir() 里的
   //   `wizard-mut-*` 残留，漏一个就是那条用例假红。
   const C = require(CLONE)

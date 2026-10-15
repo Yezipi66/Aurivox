@@ -534,9 +534,8 @@ function withServer (fn) {
     savebridge.handleInstalled, savebridge.handleSave,
   ]
 
-  // 兜底超时：本文件第一版在这里挂死过（一个 async handler 返回
-  // Promise<false> 而 Promise 是 truthy ⇒ 请求永远不 next 不响应）。
-  // 挂死的表现是 node --test 整个文件不退出，比断言失败更难查。
+  // 兜底超时：handler 返回 Promise 时 for 循环会提前 break
+  // （Promise 是 truthy ⇒ 请求永远不 next 不响应，node --test 整个文件不退出）。
   // deep 模式（AURIVOX_REFLECT_E2E=1）会真跑反射：5 个方法要 import 5 次
   // torch ⇒ 超时要跟着放大，不能拿默认档去判它挂死。
   const deep = process.env.AURIVOX_REFLECT_E2E === '1'

@@ -36,7 +36,7 @@ test('prepare 必须在 manifest 之前（目录空的硬约束）', () => {
 test('prepare 那一步内部仍然声明 requiresEmptyDir（合并不许丢硬约束）', () => {
   const prep = mod.STEPS.find((s) => s.key === 'prepare')
   assert.strictEqual(prep.requiresEmptyDir, true,
-    '⛔ prepare 丢了 requiresEmptyDir —— Owner 把 1/2/3 合成一步，'
+    '⛔ prepare 丢了 requiresEmptyDir —— 把 1/2/3 合成一步，'
     + '但「目录必须是空的」这条硬约束不能跟着合并掉')
   // 并且要记下内部三小步 —— 界面上要能分开显示
   assert.deepStrictEqual(prep.phases, ['resolve', 'probe', 'clone'],

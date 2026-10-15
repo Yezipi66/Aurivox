@@ -143,7 +143,7 @@ test('一个都没有，如实说「没有」，不猜', () => {
   // note 已双语化（英文为主 + noteZh 中文），断言走 noteZh，两边都要钉。
   assert.ok(/未找到|没找到|没有/.test(r.noteZh), r.noteZh)
   assert.ok(/No dependency manifest found/i.test(r.note), r.note)
-  // 不许出现「平台不替你猜」这类内部术语（Owner 反复强调的口吻问题）
+  // 不许出现「平台不替你猜」这类内部术语（那是口吻问题）
   assert.ok(!/平台不替你猜|平台不会替你|——/.test(r.noteZh),
     `不许出现内部术语或破折号：${r.noteZh}`)
 })

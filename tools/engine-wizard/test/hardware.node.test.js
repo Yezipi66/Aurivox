@@ -7,7 +7,7 @@
 //   3. 分不清就退 CPU
 //
 // 它必须能在没有 GPU 的机器上也跑通（CI 环境就是）——
-//   所以推荐逻辑与真机检测是分开的两个函数，可独立测。
+//   所以推荐逻辑与硬件探测是分开的两个函数，可独立测。
 
 const { test } = require('node:test')
 const assert = require('node:assert')

@@ -157,7 +157,7 @@ test('伪造目录树 ⇒ 对勾跟着变（克隆 / 名片 / 权重三段）', 
     venvOk.delete('e1')
     s = IS.installState(root, 'e1', { spawnProbe: () => false })
     assert.strictEqual(s.steps_done.env, false,
-      '⛔ 环境没了还显示装好了 —— 这就是真机踩过的那个假绿灯')
+      '⛔ 环境没了还显示装好了 —— 那是个假绿灯')
 
     // 写了名片 ⇒ manifest 打勾
     mkEngine(root, 'e1', ['manifest.json'])

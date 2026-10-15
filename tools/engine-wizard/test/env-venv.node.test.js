@@ -278,10 +278,10 @@ test('名片里现在没有 python 版本这个字段（不许自己加一个）
 // ⑨ 每一条会装东西的命令：目标环境必须等于 engines/<id>/.venv
 //
 // 为什么这一段是本文件里最要紧的：上面 ③ 那条测试断言的是「argv 里有 -p」，
-//   而它在真机上是绿的 —— 因为它只看主安装步。
+//   而它在安装顺利时是绿的 —— 因为它只看主安装步。
 //   上一次修复只给主步加了 -p，漏了 alt 那步（装 torch 的第②步）
-//   ⇒ 14 条全绿，真机却把 torch 装进了平台根 venv，
-//     而引擎环境里 288 个包独缺 torch ⇒ 用户拿到的环境 import 失败。
+//   ⇒ 全绿，torch 却装进了平台根 venv，而引擎环境里 288 个包独缺 torch
+//     ⇒ 用户拿到的环境 import 失败。
 //   ⇒ 所以这里的判据一律是「目标环境等于那个绝对路径」，
 //     不接受「参数存在」这种弱判据。
 
@@ -394,8 +394,7 @@ test('requirements 路线：装依赖那步与 alt 那步都钉死目标环境',
 })
 
 test('alt 那一步在 sync 与非 sync 两条路上都要有目标环境', () => {
-  // 上一版的实现从 `targetPython` 取值，而 sync 路线下它是 null
-  //   ⇒ alt 那一步就没人钉了 —— 这正是真机 P0 的成因。
+  // 从 `targetPython` 取值的实现会让 sync 路线下的 alt 那步无人钉，
   //   ⇒ 两种路线都必须独立地给 alt 那一步钉上 -p。
   for (const id of ['alt4', 'alt5']) {
     const { root } = mkdtempEngineWithManifest(id, 'uv.lock')
@@ -415,9 +414,8 @@ test('alt 那一步在 sync 与非 sync 两条路上都要有目标环境', () =
 
 // ⑩ 装完自检：命令全退 0 不等于环境能用
 //
-// 真机 P0 的另一半：alt 那步装错地方之后，三步退出码全是 0、界面显示
-//   「安装完成」，而 engines/<id>/.venv 里 288 个包独缺 torch
-//   ⇒ import torch 失败。
+// alt 那步装错地方之后，三步退出码全是 0、界面显示「安装完成」，
+//   而 engines/<id>/.venv 里 288 个包独缺 torch ⇒ import torch 失败。
 //   ⇒ 必须有一条真的去 import 引擎环境的自检，
 //     不许只看退出码就说「完成」。
 //
@@ -467,7 +465,7 @@ test('装完必须自检引擎环境能不能 import 核心依赖', async () => 
   for (const s of seen) {
     assert.strictEqual(s.id, 'chk1', '自检必须针对这台引擎')
     assert.ok(s.mod, '探针必须说清验的是哪个包')
-    // 自检跑在该引擎自己的环境里（真机上 import torch 用的就是它）
+    // 自检跑在该引擎自己的环境里（import torch 用的就是它）。
     assert.strictEqual(
       envMod.engineVenvPythonAbs(s.root, s.id).split(/[\\/]/).join('/'),
       path.join(root, 'engines', 'chk1', '.venv',
@@ -489,7 +487,7 @@ test('自检发现核心依赖 import 不了 ⇒ 如实报失败，不许显示�
   const ran = []
   const r = await envMod.runEnv({
     id: 'chk2', root, execute: true, manifest: {},
-    // 模拟真机形状：三条命令退出码全是 0，但引擎环境里独缺 torch
+    // 造一个三条命令退出码全 0、但引擎环境里独缺 torch 的场景
     runStep: fakeRunAllOk(ran),
     probeImport: (r2, id, mod) => ({
       ok: false, mod, code: 'MODULE_NOT_FOUND',
@@ -566,7 +564,7 @@ test('conda 那条路不自检（平台压根没参与建那个环境）', async
 
 test('自检探针的判据是「能按绝对路径起起来」（不是「文件存在」）', () => {
   // 空壳 .venv：只有目录 + 0 字节的假 python。
-  //   那正是平台踩过的坑（lib/util/pythonResolve.js：文件在，起不来）
+  //   文件在但起不来（lib/util/pythonResolve.js 那个坑）。
   const { root } = mkdtempEngineWithManifest('chk5', 'requirements.txt')
   const r = envMod.probeImportInEngineVenv(root, 'chk5', 'torch')
   assert.strictEqual(r.ok, false)
@@ -590,7 +588,7 @@ test('不涉及 torch 的装法不硬验 torch（不替用户猜它需要什么�
 
 // ⑪ alt 那步必须装 torch 系整族（不是只装 torch）
 //
-// 真机验收发现过：alt 那步只装 torch ⇒ torchaudio 留在 CUDA 版
+// alt 那步只装 torch ⇒ torchaudio 留在 CUDA 版
 //     torch       2.8.0+xpu    能 import
 //     torchaudio  2.8.0+cu128  import 报 FileNotFoundError: libtorchaudio.pyd
 //   而 torchaudio 是引擎代码里 import 了 20 处的必需依赖 ⇒ 引擎跑不起来。
@@ -704,10 +702,10 @@ test('alt 那步与主安装步的目标环境都必须等于该引擎的 .venv'
 
 // ⑫ 断点续传的产物检查 —— 命令相同但产物没了 ⇒ 不许 SKIPPED
 //
-// 真机上出现过：用户删了 engines/<id>/.venv 后重跑，第 1 步「uv venv」命令与
+// 用户删了 engines/<id>/.venv 后重跑，第 1 步「uv venv」命令与
 //   旧记录一字不差 ⇒ env.js 的判重把它 SKIPPED ⇒ 第 2/3 步找不到环境，报
 //   `No virtual environment found for path .venv\Scripts\python.exe`，
-//   而前两步却显示「✓ 完成」。
+//   而前两步却显示「安装完成」。
 //   根因：判据只有 argvKey（命令文本），没有「那一步的产物还在吗」。
 //
 // 判据：每一步声明「做完应该留下什么」。产物不在 ⇒ 不许 SKIPPED，重新跑。

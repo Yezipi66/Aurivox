@@ -44,7 +44,7 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
  *
  * 三 最要紧的一条：测试里那个「引擎目录」必须正好是被测代码会去查的
  *    那一层（root/engines/<id>）。写错一层，代码判成「目录空」，
- *    放行，真的去联网克隆（实测：一条跑了 120 秒）。
+ *    放行，真的去联网克隆（一条就是 120 秒）。
  *    所以 mkdtempRootWithEngine 返回 engineDir 那一层，
  *      调用方直接往它里面写文件，不需要自己拼路径（拼错就是第三条）。
  *
@@ -123,7 +123,7 @@ test('cloneUrl 空，当场报，不生成 `git clone \'\'`（实测踩到）', 
 })
 
 test('id 缺失/空/纯空格/非字符串，MISSING_ID，不许抛 Node path 错', () => {
-  // Owner 真机抓到：id 为 undefined 时 buildClonePlan 直接让
+  // id 为 undefined 时 buildClonePlan 直接让
   //   path.join(root,'engines',undefined) 抛
   //   `The "path" argument must be of type string. Received undefined`，
   //   界面把这句话原样渲染给用户 —— 那是 Node 内核报错，不是人话。
@@ -223,7 +223,6 @@ test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）'
     `必须说清浅克隆的代价：${note.why}`)
 })
 
-// Owner 改判：「克隆就只克隆默认分支得了」。
 // 原先的分支框是死控件：探测打 /wizard/probe {url} 压根没用它，
 // 用户点「重读」读的又是默认分支，填了分支，探测结果和真正克隆的代码对不上。
 // 所以 API 也一并删掉 branch —— 留一个前端碰不到的参数就是留陷阱。
@@ -248,7 +247,7 @@ test('不给 execute:true 就绝不动盘', () => {
 test('非空目录时即使 execute:true 也不许跑 git', () => {
   // 这里用的是 mkdtempRootWithEngine('old') —— 它保证 root/engines/old 真的存在。
   //   如果引擎目录没真造出来，checkClonable 会判成「目录空」，放行，
-  //   真的去联网克隆（实测踩过：一条测试跑了 120 秒）。
+  //   真的去联网克隆。
   const { root, engineDir } = mkdtempRootWithEngine('old')
   fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
   const r = runClone({ id: 'old', cloneUrl: 'https://github.com/a/b.git',
