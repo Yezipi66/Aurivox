@@ -18,6 +18,18 @@ function tmpRoot () {
   return r
 }
 
+// 真仓库的 engines/ 是用户资产，本文件的测试一个字节都不许写进去。
+// 每次用例前后各查一次目录清单，多出条目就当场失败。
+const REAL_ENGINES = path.join(__dirname, '..', '..', '..', 'engines')
+function realEngineNames () {
+  try { return fs.readdirSync(REAL_ENGINES).sort().join(',') } catch (e) { return '' }
+}
+function assertRealEnginesUntouched (before, when) {
+  const after = realEngineNames()
+  assert.strictEqual(after, before,
+    `${when}：真 engines/ 目录被改动了，测试只许写临时目录`)
+}
+
 const M1 = { id: 'eng1', contract_version: 2, label: 'first' }
 const M2 = { id: 'eng1', contract_version: 2, label: 'second' }
 
