@@ -245,7 +245,7 @@ wizardbridge.js 的 probe 分支把 LICENSE 正文取来交给它，分支由 C2
 本项与 D3 的 fetchRaw 改动是同一处，合并做：
   fetchRaw 签名加分支参数（D3 要求「分支可传入」），
   再把 handleProbe 的所有调用点改成分支从探测结果来。
-  ⛔ 不再分两次改同一个函数。
+  不再分两次改同一个函数。
 
 可复用：hardware.js 的缓存模式（_cache / _cacheAt / CACHE_MS 5 分钟）照搬。
 
