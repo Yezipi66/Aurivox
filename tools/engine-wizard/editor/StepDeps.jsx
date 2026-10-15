@@ -40,6 +40,9 @@ export default function StepDeps ({ state, prep, onFixId }) {
   const [live, setLive] = React.useState(null)   // 瞬态，不持久化
   const [tail, setTail] = React.useState([])      // 瞬态，不持久化
   const [progress, setProgress] = React.useState(saved?.depsProgress || null)
+  // 取消函数（run() 里挂上，finally 里摘掉）。用 ref 不用 state：
+  //   它是「这一次执行」的动作，不是界面状态，进了 state 会触发多余渲染。
+  const cancelRef = React.useRef(null)
 
   // 保存到会话段（排除瞬态状态：busy / live / tail 一段都不存）
   //   键含 id 与 url ⇒ 换任一个，写的都是另一段会话，不会污染旧的。
@@ -113,6 +116,17 @@ export default function StepDeps ({ state, prep, onFixId }) {
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
+      // 取消：打取消端点，让服务端杀掉那个进程（进程树）。
+      //   断掉前端的流不杀进程，那只是看不见它在跑。
+      const cancel = async () => {
+        try {
+          await fetch('/wizard/env/cancel', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: state.id }),
+          })
+        } catch (e) { /* 端点不通时后端仍会照 done 事件如实报 */ }
+      }
+      cancelRef.current = cancel
       // resp.body 是 ReadableStream —— 逐块读，按 \n\n 切 SSE 事件
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
@@ -148,7 +162,10 @@ export default function StepDeps ({ state, prep, onFixId }) {
       setResult(finalResult || { ok: false, error: '连接中断，未收到完成事件' })
     } catch (e) {
       setResult({ ok: false, error: e.message })
-    } finally { setBusy(false) }
+    } finally {
+      cancelRef.current = null
+      setBusy(false)
+    }
   }
 
   if (!plan) {
@@ -190,9 +207,12 @@ export default function StepDeps ({ state, prep, onFixId }) {
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('Several GB are downloaded and it takes a while. If it stops midway, '
               + 'run this step again — the download continues from the breakpoint '
-              + 'and already-downloaded wheels are kept.',
+              + 'and already-downloaded wheels are kept. If you cancel it, the '
+              + 'environment is left partial: the next run removes it and rebuilds '
+              + 'it, and the downloaded wheels are still reused.',
               '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-              + '已下载的依赖不会重下。')}
+              + '已下载的依赖不会重下。若中途取消，环境会停在半截状态：'
+              + '下次执行会先删掉它再重建，已下载的依赖包仍会复用。')}
           </p>
         </div>
       )}
@@ -383,10 +403,35 @@ export default function StepDeps ({ state, prep, onFixId }) {
               </pre>
             </div>
           )}
+          {/* 取消：只在真的 busy 时给。
+              它杀的是服务端那个进程，不是只让前端不再显示。 */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-sm" type="button"
+              disabled={!cancelRef.current}
+              onClick={() => cancelRef.current && cancelRef.current()}>
+              {t('Cancel', '取消')}
+            </button>
+            <span className="field-hint">
+              {t('Stops the download on the server. The engine environment is left '
+                + 'partial; re-running rebuilds it.',
+                '会停掉服务器上正在进行的下载。引擎环境会停在半截状态；'
+                + '重新执行本步骤会先重建它。')}
+            </span>
+          </div>
         </div>
       )}
 
-      {result && !result.ok && (
+      {/* 取消是用户自己的选择，不是失败：用 info 不用 danger。
+          步骤列表里那一条取消的步骤照实标 ✗（它确实没完成），
+          但结论要说「已取消」，不许让用户以为装失败了。 */}
+      {result && result.code === 'INSTALL_CANCELLED' && (
+        <div className="msg msg-info">
+          {t(result.error, result.errorZh)}
+          {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
+        </div>
+      )}
+
+      {result && !result.ok && result.code !== 'INSTALL_CANCELLED' && (
         <div className="msg msg-danger">
           {t(result.error, result.errorZh)}
           {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
