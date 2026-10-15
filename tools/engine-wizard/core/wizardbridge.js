@@ -159,13 +159,17 @@ const _branchCache = new Map()
 function readDefaultBranch (owner, name) {
   const key = `${owner}/${name}`
   const hit = _branchCache.get(key)
-  if (hit && Date.now() - hit.at < BRANCH_TTL_MS) return Promise.resolve(hit.value)
+  // 命中时也要返回 {branch, why} 形状：调用方按对象读 .branch，
+  //   直接还 hit.value（字符串或 null）会让它读到 undefined 或当场抛。
+  if (hit && Date.now() - hit.at < BRANCH_TTL_MS) {
+    return Promise.resolve({ branch: hit.value, why: hit.why || null })
+  }
 
   return new Promise((resolve) => {
     const url = `https://api.github.com/repos/${owner}/${name}`
     const done = (value, why) => {
-      _branchCache.set(key, { at: Date.now(), value })
-      resolve({ branch: value, why })
+      _branchCache.set(key, { at: Date.now(), value, why: why || null })
+      resolve({ branch: value, why: why || null })
     }
     const req = https.get(url, {
       headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
@@ -1197,4 +1201,6 @@ module.exports = {
   extractDownloadCommands, parseDownloadCmd,
   // 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。
   respondSafely,
+  // 导给守卫测试：分支探测的缓存命中路径要能直接验（命中与未命中必须同形状）。
+  __test__: { readDefaultBranch, resolveProbeBranch, _branchCache },
 }
