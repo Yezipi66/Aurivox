@@ -263,10 +263,10 @@ C 块完成记录：
 改动文件：core/wizardbridge.js、core/probe.js、test/licenseText.node.test.js。
 提交：09dae82（C2 分支探测 + fetchRaw 加 branch 参数，合并 D3 的同源改动）、
       e8e0a27（C1 LICENSE 正文识别 + 14 条测试 + 变异验证）。
-状态：通过。四个真实仓库实测：CosyVoice 与 Spark-TTS 从 LICENSE 正文识别出
-      Apache-2.0，ChatTTS 识别出 AGPL-3.0，index-tts 的自定义协议由 pyproject
-      字段给出。三种来源（pyproject 字段、LICENSE 正文、认不出时 file-only）
-      各自工作，没有一处靠相似度猜。
+状态：不通过（独立验收抓到缓存命中路径的形状缺陷），已修复见 c2dcf01。
+      四个真实仓库验证结果：两台的 Apache-2.0 与一台的 AGPL-3.0 从 LICENSE 正文识别出，
+      一台的自定义协议由 pyproject 字段给出。三种来源（pyproject 字段、
+      LICENSE 正文、认不出时 file-only）各自工作，没有一处靠相似度猜。
       全量 2324 条测试、39 失败，与基线一致（新增 14 条全绿）。
 
 ## A. 四个逃生口
