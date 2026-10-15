@@ -810,7 +810,7 @@ function handleDeletePartialFile (req, res) {
             code: needsVerify ? 'NEEDS_VERIFY' : 'NOT_PARTIAL',
             error: needsVerify
               ? 'Cannot prove this file is complete or damaged: the remote gave '
-                + 'no SHA-256 to compare against. Nothing was deleted.',
+                + 'no SHA-256 to compare against. Nothing was deleted.'
               : 'The file is not partial — nothing was deleted.',
             errorZh: needsVerify
               ? '无法证明这个文件是好的还是坏的：远端没有给出 SHA-256 可比对。'
