@@ -656,7 +656,7 @@ async function resetThisStepOf (id) {
 
 
 // StepVerify 已移出本文件：原实现（自动跑前三道 + 无条件上报 verified）
-//   会让第 5 步一进入就变成对勾，且形状与裁决的三块独立结果不符。
+//   会让第 5 步一进入就变成对勾，且形状与那块的三块独立结果不符。
 //   实现与理由见 ./StepVerify.jsx 头部。
 export { StepVerify } from './StepVerify'
 

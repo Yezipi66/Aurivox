@@ -92,8 +92,7 @@ function PreviewInner ({ manifest }) {
   const other = visible(tier === 'common' ? 'advanced' : 'common').length
 
   return (
-    /* 之前这里写死了 maxWidth:760 + margin:'0 auto'
-       —— Owner：「为什么要砍小容器宽度」。现在不设任何限宽，
+    /* 这里不写死 maxWidth:760 + margin:'0 auto'：
        宽度由外层 .workspace-right 决定。 */
     <div>
       <p className="msg msg-info" style={{ marginBottom: 8 }}>
@@ -106,10 +105,9 @@ function PreviewInner ({ manifest }) {
       {/* 主区域 —— 真渲染 */}
       <MainArea manifest={manifest} />
 
-      {/* `Advanced Settings` 保持英文、不翻译 ——
+      {/* `Advanced Settings` 保持英文、不翻译：
            主界面 GenerateTab.jsx 里就是硬编码的英文（没走 t()）。
-           这里若单独翻成中文，预览就跟真界面长得不一样 ——
-             预览的第一职责是「所见即所得」，不是「文案更漂亮」。 */}
+           这里若单独翻成中文，预览就跟真界面长得不一样。 */}
       <div className="collapsible" style={{ marginTop: 8 }}>
         <div className="collapsible-hdr">
           <span>Advanced Settings</span>

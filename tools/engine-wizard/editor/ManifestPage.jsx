@@ -10,8 +10,8 @@ import PanelPreview from './PanelPreview'
 //  左表单 + 右实时预览，两栏必须真并排
 //    用的是项目现成的 .workspace-grid > .workspace-left + .workspace-right
 //    （GenerateTab.jsx 就是这个组合：左主区 + 右栏 sticky），
-//    不再自造 .ed-cols/.ed-left/.ed-right（那两个是前任发明的，
-//      而且 .workspace-right 的 sticky 在窄屏下项目自己会降级成单列）。
+//    不再自造 .ed-cols/.ed-left/.ed-right，
+//      而且 .workspace-right 的 sticky 在窄屏下项目自己会降级成单列。
 //
 //  视图切换（填表 / JSON）用项目的 .ref-tabs + .ref-tab(.active)
 //    （项目里就是给「两组内容切一组」用的：切片 / 原始音频）。

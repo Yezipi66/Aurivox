@@ -48,7 +48,7 @@ export function computeAutoFill (params, currentCall) {
   const call = { ...(currentCall || {}) }
   const notes = []
 
-  // kind 是名片自己的权威，这里只在这条路**单独**成立时才改它。
+  // kind 是名片自己的权威，这里只在这条路单独成立时才改它。
   //   探测是同时扫两条路、再把结果合并成一张表的：表里混着两种来源，
   //   「有 cli 参数就置 cli」于是对一张混合表恒真，
   //   python 名片被改写成 cli 形态之后，它的参数名不再是带横线的开关，
@@ -156,7 +156,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
 
   React.useEffect(() => { if (!engineId && manifest.id) setEngineId(engineId || manifest.id) }, [manifest.id])
 
-  // 读取：选一台**已有名片**的引擎 → 先把磁盘名片原文灌进表单，再进编辑态。
+  // 读取：选一台已有名片的引擎 → 先把磁盘名片原文灌进表单，再进编辑态。
   //  绝对不许只进扫描空壳：那样表单里只剩 cli 扫描结果，
   //    原有的 models / runtime / install / call 全被冲掉，点保存就是毁数据。
   // 读取和新建是两条不同的路：读出来的是什么就是什么，不自动清空已有字段。
@@ -221,7 +221,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
-  // 切分组：用**当前 scan 结果**重算（ 不是闭包旧值）
+  // 切分组：用当前 scan 结果重算（ 不是闭包旧值）
   const changeSub = (sub) => {
     setSubcmd(sub)
     if (scan) {

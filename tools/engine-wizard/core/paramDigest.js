@@ -7,8 +7,6 @@
 //     输出     {source, name, target, kind, style, help, required, group, is_tool}
 //     cli 路的 style 一并透出（只有它有）：那张表是名片 args 段要用的，
 //       与 kind 是两张不同的表，不能互相顶替。
-//
-//  本层只对齐形状，不做任何判断（不猜类型、不改 help、不删参数）。
 
 // kind 映射表：把两条路的类型名映射到统一形状
 const KIND_MAP = {

@@ -7,7 +7,7 @@ import { StepModels } from './StepsExtra'
 import { StepVerify } from './StepVerify'
 import { STEPS, stepDone } from './steps'
 import { useT, LangToggle } from '../../../web/src/lib/i18n'
-// 向导持久化收敛到本模块：持久段（localStorage）= 用户输入与选择 + 展开步骤；
+// 持久段（localStorage）= 用户输入与选择 + 展开步骤；
 //   会话段（sessionStorage）= 探测结果；完成状态由 GET /wizard/install-state 判定。
 import { loadPersist, savePersist, loadPage, savePage,
   loadSession, saveSession, purgeOrphanKeys } from './useInstallSession'
@@ -15,7 +15,7 @@ import { loadPersist, savePersist, loadPage, savePage,
 // 向导骨架照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()：
 //   只渲染 page 指向的那一步；流程条是唯一导航。
 //  「展开」指该步骤内部不再套盒子，不是五步同时渲染。
-//   所有类都借自 web/src/styles.css，本文件不定义任何容器。
+//   所有类都借自 web/src/styles.css，不在这里定义任何容器。
 
 export default function App () {
   const { t, lang } = useT()

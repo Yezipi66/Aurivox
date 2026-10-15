@@ -117,8 +117,8 @@ function parseRequirements (text) {
     //     name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
     //     license = "Apache-2.0"    ⇒ 同上
     //     requires-python = ">=3.10" ⇒ 同上
-    //   （实测：这条守卫就是被「拿 parseRequirements 解析 pyproject 文本」
-    //     逼出来的：那几个 TOML 键名本来被读成了包名。）
+    //   （这条守卫挡住的是把 TOML 赋值行读成包名：那几个 TOML 键名
+    //     本来被读成了包名。）
     if (tail && !/^(?:\[[^\]]*\])?(?:===|==|!=|<=|>=|~=|<|>)/.test(tail)) {
       out.skipped++; continue
     }
@@ -357,7 +357,7 @@ function planDependencies (text, opts = {}) {
     dep_count: deps.length,
     deps: {
       total: deps.length,
-      // 其它依赖「直接同步就行」：原话照 Owner 的意思：
+      // 其它依赖「直接同步就行」：原话是
       //   「除了 Torch 一般没有什么风险，其他直接同步都行」
       normal: { count: rest.length, packages: rest, action: 'sync' },
       torch: { count: torchGroup.length, packages: torchGroup, action: 'choose-backend' },

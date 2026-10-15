@@ -117,7 +117,7 @@ function diagnose (manifest) {
         '否则半年后没人分得清这是量出来的还是拍出来的。' +
         '（如果还没量过，把这一行删掉即可，平台会用保守值。）', where)
     } else if (!MEASURED_SOURCES.includes(obj[srcKey])) {
-      // 值非法也是硬错：不认识的出处值会被平台拒绝（不能默默当实测用）
+      // 值非法也是硬错：不认识的出处值会被平台拒绝（不能默默当成量出来的数）
       push('error', 'ENGINE_MANIFEST_INVALID_VALUE',
         `${segment}的 ${srcKey} 写的是 ${JSON.stringify(obj[srcKey])}：` +
         `必须是 ${MEASURED_SOURCES.join(' / ')} 之一` +

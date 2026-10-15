@@ -1,7 +1,5 @@
 'use strict'
 // WIZARD BRIDGE —— 把六步挂到 HTTP 上
-//
-// 本文件不做任何业务判断，只做「路由 + 转交」+ 读文件。
 
 const fs = require('node:fs')
 const path = require('node:path')
