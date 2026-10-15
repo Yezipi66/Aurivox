@@ -322,6 +322,11 @@ weightsOnDisk 改为有 sha 就校验，没有就只判大小，不假装校验�
 故意让写入失败，原文件未被破坏。
 注意：engines 下的文件本就被忽略，不需要额外加忽略规则。
 
+完成记录（已通过独立验收）：
+改动文件：core/save.js、test/saveBackup.node.test.js。
+提交：774f843（覆盖前留备份，只留一份）、d97a873（测试加真目录哨兵）。
+状态：通过。
+
 ### A5 断点续传认引擎 id
 
 动文件：core/installState.js
@@ -330,6 +335,12 @@ weightsOnDisk 改为有 sha 就校验，没有就只判大小，不假装校验�
 这笔修别人的记录不算我的。
 验收：构造 A 引擎的进度文件后请求装 B，全部重跑不跳过；
 同引擎同命令照旧跳过，断点续传本身不废。
+
+完成记录（已通过独立验收）：
+改动文件：core/installState.js、test/installStateEngineId.node.test.js。
+提交：b7c3ee7（readProgress 比对 data.engine；同一笔修了 writeProgress 与
+      resetProgress 不建目录的连带缺陷）。
+状态：通过。
 
 已完成（提前于本项，做 D 期间修掉的，此处记账以免重复）：
 
