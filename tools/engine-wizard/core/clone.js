@@ -2,7 +2,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
-const { spawnSync } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 
 /** 定位项目根：用 server.js 作锚点（ROOT_LAYOUT.md 说它是定位锚点 C7） */
 function projectRoot (from) {
@@ -157,48 +157,186 @@ function buildClonePlan (input = {}) {
 }
 
 /**
- * 执行。只有 execute:true 才会真的跑，
- * 默认仍然只返回计划（跟 install-engine.cjs 的默认行为一致）。
+ * 杀进程树。
+ *
+ * Windows: taskkill /T 杀整个树 —— child.kill() 只杀 shell 不杀 git
+ *   （git 自己也是父进程，kill 了 shell 它还在跑）。
+ * 非 Windows: kill 进程组（负 PID）—— git 起的子进程在同一组里。
+ *
+ * @param {import('node:child_process').ChildProcess} child
  */
-function runClone (input = {}) {
+function killProcessTree (child) {
+  if (!child || child.killed) return
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'],
+        { windowsHide: true })
+    } catch (e) { /* 进程可能已退出 */ }
+  } else {
+    // 负 PID = 进程组（spawn 默认不设 detached，子进程在同一个组里）
+    try { process.kill(-child.pid, 'SIGKILL') } catch (e) { /* 可能已退出 */ }
+  }
+}
+
+/**
+ * 执行克隆（异步，支持取消）。
+ *
+ * 取消时：
+ *   1. 杀进程树（Windows: taskkill /T；其他: kill 进程组）
+ *   2. 删掉整个目标目录 —— 本步创建的，删除是撤销本步操作
+ *      （⛔ 不是只删 .git —— 只删 .git 会留下残缺目录，下次卡在目录非空）
+ *   3. 返回 CLONE_CANCELLED
+ *
+ * 凭据管理器弹框杀不掉时：5 秒安全网后如实报 CLONE_CANCEL_FAILED。
+ *
+ * @param {object} input - 同 buildClonePlan，另加：
+ *   @param {AbortSignal} [input.signal] - 取消信号
+ *   @param {Function} [input.spawn]   - 可注入的 spawn（测试用，不真跑 git）
+ * @returns {Promise<object>}
+ */
+async function runClone (input = {}) {
   const plan = buildClonePlan(input)
   if (!plan.ok || !plan.execute) return plan
 
   const root = input.root || projectRoot()
   const argv = plan.steps[0].argv
-  const r = spawnSync(argv[0], argv.slice(1), {
-    cwd: root,
-    encoding: 'utf-8',
-    timeout: input.timeoutMs || 30 * 60 * 1000,   // 大仓库可能要很久
-    windowsHide: true,
-  })
+  const targetDir = path.join(root, 'engines', String(input.id))
+  const timeoutMs = input.timeoutMs || 30 * 60 * 1000
+  // 测试注入点：不真跑 git clone（太慢、要联网）
+  const spawnFn = typeof input.spawn === 'function' ? input.spawn : spawn
+  // 测试注入点：杀进程树（Windows taskkill / 非 Windows kill 进程组）
+  const killFn = typeof input.killProcessTree === 'function'
+    ? input.killProcessTree
+    : killProcessTree
 
-  if (r.error) {
-    return { ...plan, ok: false, code: 'SPAWN_FAILED',
-      error: `Cannot launch git: ${r.error.message}`, errorZh: `起不动 git：${r.error.message}` }
-  }
-  if (r.status !== 0) {
-    return {
-      ...plan,
-      ok: false,
-      code: 'GIT_FAILED',
-      error: (r.stderr || r.stdout || 'git 没有说为什么就退了').trim(),
-      status: r.status,
+  return new Promise((resolve) => {
+    let resolved = false
+    let cancelled = false
+    let cancelReason = null        // 'user' | 'timeout' | null
+    let child = null
+    let timeoutId = null
+    let stdout = ''
+    let stderr = ''
+
+    const safeResolve = (result) => {
+      if (resolved) return
+      resolved = true
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null }
+      resolve(result)
     }
-  }
 
-  // 只报「git 说成功了」，不报「克隆好了」：那要等第 4 步的自检（import 探针）才能下结论。
-  return {
-    ...plan,
-    ok: true,
-    gitStatus: r.status,
-    note: 'git exited 0. That only means the files are in place — '
-      + 'whether this engine actually works awaits the checks that come next.',
-    noteZh: 'git 退出码 0。这只说明文件到位了，'
-      + '「这台引擎能用吗」要等后面的校验。',
-  }
+    const cleanup = () => {
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null }
+    }
+
+    /**
+     * 取消：杀进程树 + 删目录。
+     * 不在这里 resolve —— 等 child.on('close') 触发（进程真死了才算取消成功）。
+     * 安全网：进程杀不掉时（如凭据管理器弹框阻塞），5 秒后如实报无法取消。
+     */
+    const doCancel = (reason) => {
+      if (cancelled) return
+      cancelled = true
+      cancelReason = reason
+      if (child) killFn(child)
+      try { fs.rmSync(targetDir, { recursive: true, force: true }) } catch (e) { }
+      // 安全网：进程杀不掉 ⇒ 不假装成功
+      const safetyNetMs = typeof input.safetyNetMs === 'number' ? input.safetyNetMs : 5000
+      setTimeout(() => {
+        if (!resolved && cancelled && cancelReason === 'user') {
+          safeResolve({
+            ...plan, ok: false, code: 'CLONE_CANCEL_FAILED',
+            error: 'Cannot cancel clone: the process could not be killed.\n'
+              + 'A credential manager dialog may be blocking it — close it manually.',
+            errorZh: '无法取消克隆：进程杀不掉。\n'
+              + '可能被凭据管理器弹框阻塞 —— 请手动关闭弹框。',
+          })
+        }
+      }, safetyNetMs).unref()
+    }
+
+    const onAbort = () => doCancel('user')
+
+    if (input.signal) {
+      if (input.signal.aborted) { onAbort(); return }
+      input.signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    try {
+      child = spawnFn(argv[0], argv.slice(1), {
+        cwd: root,
+        windowsHide: true,
+        shell: false,
+      })
+    } catch (e) {
+      if (input.signal) input.signal.removeEventListener('abort', onAbort)
+      safeResolve({
+        ...plan, ok: false, code: 'SPAWN_FAILED',
+        error: `Cannot launch git: ${e.message}`,
+        errorZh: `起不动 git：${e.message}`,
+      })
+      return
+    }
+
+    child.stdout.on('data', (d) => { stdout += d.toString('utf8') })
+    child.stderr.on('data', (d) => { stderr += d.toString('utf8') })
+
+    child.on('error', (e) => {
+      if (input.signal) input.signal.removeEventListener('abort', onAbort)
+      if (cancelled) return
+      safeResolve({
+        ...plan, ok: false, code: 'SPAWN_FAILED',
+        error: `Cannot launch git: ${e.message}`,
+        errorZh: `起不动 git：${e.message}`,
+      })
+    })
+
+    child.on('close', (code) => {
+      if (input.signal) input.signal.removeEventListener('abort', onAbort)
+      cleanup()
+      if (cancelled) {
+        if (cancelReason === 'user') {
+          safeResolve({
+            ...plan, ok: false, code: 'CLONE_CANCELLED',
+            error: 'Clone cancelled by user.\nThe target directory has been removed.',
+            errorZh: '克隆已取消。\n目标目录已删除。',
+          })
+        } else {
+          safeResolve({
+            ...plan, ok: false, code: 'CLONE_TIMEOUT',
+            error: 'Clone timed out. The target directory has been removed.',
+            errorZh: '克隆超时，目标目录已删除。',
+          })
+        }
+        return
+      }
+      if (code !== 0) {
+        safeResolve({
+          ...plan, ok: false, code: 'GIT_FAILED',
+          error: (stderr || stdout || 'git 没有说为什么就退了').trim(),
+          status: code,
+        })
+        return
+      }
+      // 只报「git 说成功了」，不报「克隆好了」：那要等第 4 步的自检（import 探针）才能下结论。
+      safeResolve({
+        ...plan, ok: true, gitStatus: code,
+        note: 'git exited 0. That only means the files are in place — '
+          + 'whether this engine actually works awaits the checks that come next.',
+        noteZh: 'git 退出码 0。这只说明文件到位了，'
+          + '「这台引擎能用吗」要等后面的校验。',
+      })
+    })
+
+    // 超时处理：杀进程树 + 删目录
+    if (timeoutMs > 0) {
+      timeoutId = setTimeout(() => doCancel('timeout'), timeoutMs)
+      timeoutId.unref()
+    }
+  })
 }
 
 module.exports = {
   projectRoot, engineDir, inspectTarget, checkClonable, buildClonePlan, runClone,
+  killProcessTree,
 }

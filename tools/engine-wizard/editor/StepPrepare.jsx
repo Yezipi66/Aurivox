@@ -328,9 +328,24 @@ const done = facts && facts.cloned === true
               // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
               disabled={busy === 'clone' || !curId}
               onClick={() => doClone(true)}>
-              {t('Next', '下一步')}
+              {busy === 'clone'
+                ? t('Cloning…', '正在克隆…')
+                : t('Next', '下一步')}
             </button>
           </RiskUnlock>
+
+          {/* 取消按钮：仅克隆进行中显示。
+              复用 .btn 类，与项目现有一致。 */}
+          {busy === 'clone' && (
+            <button className="btn btn-sm" type="button"
+              onClick={async () => {
+                try {
+                  await post('/wizard/clone/cancel', { id: curId })
+                } catch (e) { /* 取消失败不阻断，后端会安全网兜底 */ }
+              }}>
+              {t('Cancel', '取消')}
+            </button>
+          )}
         </>
       )}
     </div>

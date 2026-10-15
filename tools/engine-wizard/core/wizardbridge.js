@@ -511,6 +511,9 @@ function handleResolve (req, res) {
   return true
 }
 
+// 正在进行的克隆（id → AbortController），供取消端点使用
+const cloneAbortControllers = new Map()
+
 // POST /wizard/clone        第 2 步
 // execute 必须显式 true —— 默认只回计划（跟 install-engine.cjs 一致）
 function handleClone (req, res) {
@@ -527,8 +530,45 @@ function handleClone (req, res) {
       // 默认不许浅取/不许执行
       ...(body.depth === 1 ? { depth: 1 } : {}),
     }
-    const r = input.execute ? runClone(input) : buildClonePlan(input)
-    json(res, r.ok ? 200 : 400, r)
+    if (!input.execute) {
+      const r = buildClonePlan(input)
+      json(res, r.ok ? 200 : 400, r)
+      return
+    }
+    // 执行克隆：创建 AbortController 供取消端点使用
+    const ac = new AbortController()
+    input.signal = ac.signal
+    const id = String(input.id || '')
+    if (id) cloneAbortControllers.set(id, ac)
+    runClone(input).then((r) => {
+      if (id) cloneAbortControllers.delete(id)
+      json(res, r.ok ? 200 : 400, r)
+    }).catch((e) => {
+      if (id) cloneAbortControllers.delete(id)
+      json(res, 500, { ok: false, code: 'BRIDGE_FAILED',
+        error: (e && e.message) || String(e) })
+    })
+  })
+  return true
+}
+
+// POST /wizard/clone/cancel  {id}  取消正在进行的克隆
+function handleCloneCancel (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/clone/cancel')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
+    const ac = cloneAbortControllers.get(id)
+    if (!ac) {
+      json(res, 200, { ok: true, id, cancelled: false,
+        note: 'No active clone found for this id.' })
+      return
+    }
+    ac.abort()
+    cloneAbortControllers.delete(id)
+    json(res, 200, { ok: true, id, cancelled: true })
   })
   return true
 }
@@ -1195,7 +1235,7 @@ module.exports = {
   handleDownloadManifest, handleDownloadFile,
   handleVerifyChecks, handleVerify, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
-  handleInstallState, handleResetProgress,
+  handleInstallState, handleResetProgress, handleCloneCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

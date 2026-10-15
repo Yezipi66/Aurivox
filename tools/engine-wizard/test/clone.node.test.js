@@ -244,13 +244,13 @@ test('不给 execute:true 就绝不动盘', () => {
     '不该建目录')
 })
 
-test('非空目录时即使 execute:true 也不许跑 git', () => {
+test('非空目录时即使 execute:true 也不许跑 git', async () => {
   // 这里用的是 mkdtempRootWithEngine('old') —— 它保证 root/engines/old 真的存在。
   //   如果引擎目录没真造出来，checkClonable 会判成「目录空」，放行，
   //   真的去联网克隆。
   const { root, engineDir } = mkdtempRootWithEngine('old')
   fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
-  const r = runClone({ id: 'old', cloneUrl: 'https://github.com/a/b.git',
+  const r = await runClone({ id: 'old', cloneUrl: 'https://github.com/a/b.git',
     execute: true, root })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'DIR_NOT_EMPTY')
@@ -278,4 +278,218 @@ test('clone.js 活代码里不许出现任何具体引擎名', () => {
   for (const bad of FORBIDDEN) {
     assert.ok(!code.toLowerCase().includes(bad), `出现了「${bad}」`)
   }
+})
+
+// ==================== 取消克隆（A1） ====================
+
+/**
+ * 构造一个假 spawn：返回一个 EventEmitter（模拟 ChildProcess），
+ * 不会退出，直到被外部 kill。这样测试可以精确控制取消时机。
+ */
+function fakeSpawn () {
+  const { EventEmitter } = require('node:events')
+  const fake = new EventEmitter()
+  fake.killed = false
+  fake.pid = 4242
+  fake.stdout = new EventEmitter()
+  fake.stderr = new EventEmitter()
+  // kill 后立刻 emit close（模拟进程被杀）
+  fake.kill = () => { fake.killed = true; fake.emit('close', 1) }
+  return fake
+}
+
+test('取消：传 signal，abort 后返回 CLONE_CANCELLED，目录被删', async () => {
+  const { root } = mkdtempRoot()
+
+  let fakeChild = null
+  const killCalls = []
+  const ac = new AbortController()
+
+  const p = runClone({
+    id: 'cancellable',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    signal: ac.signal,
+    spawn: () => {
+      fakeChild = fakeSpawn()
+      return fakeChild
+    },
+    killProcessTree: (c) => { killCalls.push(c); if (fakeChild) fakeChild.kill() },
+    safetyNetMs: 100,
+  })
+
+  // 等 spawn 真的开始
+  await new Promise((r) => setTimeout(r, 10))
+
+  // 确认 spawn 被调用了
+  assert.ok(fakeChild, 'spawn 应该被调用')
+
+  // 触发取消
+  ac.abort()
+
+  const r = await p
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'CLONE_CANCELLED')
+  assert.ok(r.errorZh.includes('取消'), r.errorZh)
+  assert.ok(killCalls.length > 0, 'killProcessTree 应该被调用')
+})
+
+test('取消后目标目录不存在（spawn 建了目录的情况）', async () => {
+  const { root } = mkdtempRoot()
+  // ⛔ 不能在 spawn 之前就往目标目录里放东西：
+  //    buildClonePlan 的「目录空不空」判据会先拒绝执行，取消逻辑根本走不到。
+  //    真实场景是 git 自己在克隆过程中建目录，所以让 fake spawn 在建时建。
+  const targetDir = path.join(root, 'engines', 'cancellable')
+
+  let fakeChild = null
+  const ac = new AbortController()
+
+  const p = runClone({
+    id: 'cancellable',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    signal: ac.signal,
+    spawn: () => {
+      // git 开始克隆：建目录 + .git
+      fs.mkdirSync(path.join(targetDir, '.git'), { recursive: true })
+      fs.writeFileSync(path.join(targetDir, '.git', 'config'), '')
+      fs.writeFileSync(path.join(targetDir, '.git', 'HEAD'), '')
+      fakeChild = fakeSpawn()
+      return fakeChild
+    },
+    killProcessTree: (c) => { if (fakeChild) fakeChild.kill() },
+    safetyNetMs: 100,
+  })
+
+  await new Promise((r) => setTimeout(r, 10))
+  assert.ok(fakeChild, 'spawn 应该被调用')
+  assert.ok(fs.existsSync(path.join(targetDir, '.git')), 'git 应已开始建目录')
+
+  ac.abort()
+  await p
+
+  // 目录应该被删干净 —— 只删 .git 会留下残缺目录，下次卡在目录非空
+  assert.ok(!fs.existsSync(targetDir), '取消后目标目录应被删除')
+})
+
+test('取消返回的 code 是 CLONE_CANCELLED，不是成功', async () => {
+  const { root } = mkdtempRoot()
+  let fakeChild = null
+  const ac = new AbortController()
+
+  const p = runClone({
+    id: 'cancellable',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    signal: ac.signal,
+    spawn: () => { fakeChild = fakeSpawn(); return fakeChild },
+    killProcessTree: () => { if (fakeChild) fakeChild.kill() },
+    safetyNetMs: 100,
+  })
+
+  await new Promise((r) => setTimeout(r, 10))
+  ac.abort()
+  const r = await p
+
+  assert.strictEqual(r.ok, false, '取消不是成功')
+  assert.strictEqual(r.code, 'CLONE_CANCELLED')
+  // 文案要如实说「已取消」
+  assert.ok(/cancel/i.test(r.error) || /取消/.test(r.errorZh))
+})
+
+test('不取消的正常克隆不受影响（回归保护）', async () => {
+  const { root } = mkdtempRoot()
+
+  const p = runClone({
+    id: 'normalclone',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    spawn: () => {
+      const { EventEmitter } = require('node:events')
+      const fake = new EventEmitter()
+      fake.killed = false
+      fake.pid = 9999
+      fake.stdout = new EventEmitter()
+      fake.stderr = new EventEmitter()
+      // 模拟 git 成功退出
+      setImmediate(() => fake.emit('close', 0))
+      return fake
+    },
+  })
+
+  const r = await p
+  assert.strictEqual(r.ok, true, '正常克隆应该成功')
+  assert.strictEqual(r.code, undefined)
+  assert.ok(r.note || r.noteZh, '成功时应该有 note')
+})
+
+test('凭据管理器弹框：进程杀不掉时返回 CLONE_CANCEL_FAILED', async () => {
+  const { root } = mkdtempRoot()
+  const targetDir = path.join(root, 'engines', 'stuck')
+  fs.mkdirSync(targetDir, { recursive: true })
+
+  let fakeChild = null
+  const ac = new AbortController()
+
+  const p = runClone({
+    id: 'stuck',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    signal: ac.signal,
+    spawn: () => {
+      fakeChild = fakeSpawn()
+      // 覆盖 kill：不杀进程（模拟凭据管理器阻塞）
+      fakeChild.kill = () => { /* 不杀 */ }
+      return fakeChild
+    },
+    killProcessTree: () => { /* 杀不掉 */ },
+    safetyNetMs: 50, // 50ms 后安全网触发
+  })
+
+  await new Promise((r) => setTimeout(r, 10))
+  ac.abort()
+  const r = await p
+
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'CLONE_CANCEL_FAILED')
+  assert.ok(r.errorZh.includes('无法取消') || r.errorZh.includes('取消'))
+})
+
+test('超时取消：返回 CLONE_TIMEOUT，目录被删', async () => {
+  const { root } = mkdtempRoot()
+  const targetDir = path.join(root, 'engines', 'timeouttest')
+  fs.mkdirSync(targetDir, { recursive: true })
+
+  let fakeChild = null
+
+  const p = runClone({
+    id: 'timeouttest',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    timeoutMs: 50, // 50ms 超时
+    spawn: () => {
+      fakeChild = fakeSpawn()
+      // 覆盖 kill：模拟被杀
+      const origKill = fakeChild.kill
+      fakeChild.kill = () => { origKill() }
+      return fakeChild
+    },
+    killProcessTree: () => { if (fakeChild) fakeChild.kill() },
+  })
+
+  const r = await p
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'CLONE_TIMEOUT')
+  assert.ok(!fs.existsSync(targetDir), '超时后目录应被删')
+})
+
+test('killProcessTree 存在且是函数', () => {
+  const { killProcessTree } = require('../core/clone.js')
+  assert.strictEqual(typeof killProcessTree, 'function')
 })
