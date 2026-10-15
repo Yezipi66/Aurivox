@@ -12,7 +12,9 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync, spawn } = require('node:child_process')
-const { projectRoot, engineDir } = require('./clone.js')
+const { projectRoot, engineDir, killProcessTree } = require('./clone.js')
+// killProcessTree 复用 clone.js 那一份：杀进程树（Windows taskkill /T、其他平台
+//   kill 进程组）只有一种正确写法，本文件再写一份必然漂移。
 const { venvPythonRelPath } = require(
   path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'platformPaths.js'))
 const { canSpawnPython } = require(
@@ -287,7 +289,67 @@ function detectDependencyManifest (dir) {
  * 上游若声明了版本但平台读不到，如实报错，不自动换版本。
  */
 
-/** 该引擎的隔离环境目录（绝对路径） */
+/**
+ * 取消/中断时在 .venv 里留下的标记文件。
+ *
+ * 为什么必须有它：装依赖取消或失败后，.venv 里是一半的依赖 ——
+ *   site-packages 非空、uv 的下一条命令不报错，界面看不出这个环境是坏的。
+ * 所以在那一步失败的当时就写下「这个环境不完整」，下次重跑时先看见它。
+ */
+const PARTIAL_VENV_MARK = '.wizard-partial-venv'
+
+/** 该引擎 .venv 下的标记文件绝对路径 */
+function partialVenvMarkAbs (root, id) {
+  return path.join(engineVenvDirAbs(root, id), PARTIAL_VENV_MARK)
+}
+
+/**
+ * .venv 里有没有「环境不完整」这个标记。
+ *
+ * 只认文件在不在，不看内容：内容只是给人看的说明。
+ * 标记只由平台自己写（取消/失败时）和平台自己删（重跑真装完时），
+ * 用户手动建的这份文件同样有效 —— 那也是他知道环境坏了。
+ *
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @returns {boolean}
+ */
+function hasPartialVenvMark (root, id) {
+  try { return fs.existsSync(partialVenvMarkAbs(root, id)) } catch (e) { return false }
+}
+
+/**
+ * 写下/抹掉「环境不完整」这个标记。
+ *
+ * 写不进（只读盘、目录被锁）时静默：这是进度记录，不是安装本身，
+ * 宿主盘只读的机器上不该让它把安装过程炸掉。
+ *
+ * @param {string} root 项目根
+ * @param {string} id   引擎 id
+ * @param {string|null} why null = 抹掉标记
+ */
+function markPartialVenv (root, id, why) {
+  const f = partialVenvMarkAbs(root, id)
+  try {
+    if (why === null || why === undefined) {
+      fs.rmSync(f, { force: true })
+      return
+    }
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    fs.writeFileSync(f, JSON.stringify({
+      at: new Date().toISOString(),
+      why: String(why),
+      noteZh: '这个环境不完整：上一次安装被取消或中途失败。'
+        + '重新执行本步骤会先删掉整个 .venv 再重建，已下载的 wheel 仍会复用。',
+      note: 'This environment is incomplete: the previous install was cancelled '
+        + 'or failed midway. Re-running this step removes the whole .venv and '
+        + 'rebuilds it; already-downloaded wheels are still reused.',
+    }, null, 2), 'utf8')
+  } catch (e) { /* 标记写不写都不该拦住安装本身 */ }
+}
+
+/**
+ * 该引擎自己的隔离环境目录（绝对路径） */
 function engineVenvDirAbs (root, id) {
   return path.join(root, 'engines', String(id), '.venv')
 }
@@ -902,12 +964,26 @@ function parseProgress (text) {
  * @param {string[]} [argvOverride] 覆盖 step.argv（工具名换成绝对路径）
  * @param {(line:string)=>void} [onLine] stdout/stderr 每行回调
  * @param {object} [envOverride]  这一步要加的环境变量（如 UV_PROJECT_ENVIRONMENT）
+ * @param {object} [cancel]  取消通道：
+ *   @param {AbortSignal} [cancel.signal]     取消信号（前端取消按钮 → 端点 → 这里）
+ *   @param {Function} [cancel.spawn]         可注入的 spawn（测试用，不真起进程）
+ *   @param {Function} [cancel.killProcessTree] 可注入的杀进程树（测试用）
+ *   @param {number}   [cancel.safetyNetMs]   杀不掉时的安全网（默认 5000）
  * @returns {Promise<{ok:boolean, code:string, status:number|null, stdout:string, stderr:string, error?:string}>}
  */
-function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride) {
+function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cancel) {
   return new Promise((resolve) => {
     const argv = Array.isArray(argvOverride) && argvOverride.length > 0 ? argvOverride : step.argv
-    const child = spawn(argv[0], argv.slice(1), {
+    // 取消通道：缺省值给「不许注入」。测试注入 spawn 是为了不真起进程，
+    //   生产路径上这里必须是真的 spawn，否则取消逻辑测了等于没测。
+    const spawnFn = typeof cancel === 'object' && cancel && typeof cancel.spawn === 'function'
+      ? cancel.spawn : spawn
+    const killFn = typeof cancel === 'object' && cancel && typeof cancel.killProcessTree === 'function'
+      ? cancel.killProcessTree : killProcessTree
+    const signal = cancel && cancel.signal ? cancel.signal : null
+    const safetyNetMs = (cancel && typeof cancel.safetyNetMs === 'number')
+      ? cancel.safetyNetMs : 5000
+    const child = spawnFn(argv[0], argv.slice(1), {
       cwd: step.absCwd || step.cwd,
       windowsHide: true,
       // argv 直接 spawn —— 走 shell 会被含空格的路径拆错
@@ -918,6 +994,36 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride) {
     let stdoutTail = ''
     let stderrTail = ''
     let killedByTimeout = false
+    // 取消状态：cancelled 由 abort 信号置位，cancelled 为真时下面所有
+    //   resolve 分支都走「已取消」这一条，绝不让退出码冒充成成败。
+    let cancelled = false
+    let resolved = false
+    let safetyNetId = null
+    const safeResolve = (r) => {
+      if (resolved) return
+      resolved = true
+      if (safetyNetId) { clearTimeout(safetyNetId); safetyNetId = null }
+      if (signal) { try { signal.removeEventListener('abort', onAbort) } catch (e) { /* 兼容 */ } }
+      resolve(r)
+    }
+    // 取消：杀进程树（不等 close —— 进程可能永远不退，那时由安全网兜底）
+    const doCancel = () => {
+      if (cancelled) return
+      cancelled = true
+      try { killFn(child) } catch (e) { /* 已退出 */ }
+      if (safetyNetId) clearTimeout(safetyNetId)
+      safetyNetId = setTimeout(() => {
+        // 杀不掉 ⇒ 不假装取消成功。前端据此重试或手动处置。
+        safeResolve({ ok: false, code: 'INSTALL_CANCEL_FAILED', status: null,
+          stdout: stdoutTail, stderr: stderrTail,
+          error: 'Cannot cancel the install: the process could not be killed.\n'
+            + 'A credential manager dialog may be blocking it, or the download '
+            + 'is still writing to disk.',
+          errorZh: '无法取消安装：进程杀不掉。\n'
+            + '可能被凭据管理器弹框阻塞，也可能下载仍在写盘。' })
+      }, safetyNetMs).unref()
+    }
+    const onAbort = () => doCancel()
     const onChunk = (buf, isErr) => {
       const text = buf.toString('utf8')
       if (isErr) stderrTail = (stderrTail + text).slice(-16000)
@@ -937,12 +1043,25 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride) {
     child.stdout.on('data', (d) => onChunk(d, false))
     child.stderr.on('data', (d) => onChunk(d, true))
     child.on('error', (err) => {
-      resolve({ ok: false, code: 'SPAWN_FAILED', status: null,
+      // 起不来与取消无关：如实报 SPAWN_FAILED，不吞、也不伪装成取消
+      safeResolve({ ok: false, code: 'SPAWN_FAILED', status: null,
         stdout: stdoutTail, stderr: stderrTail, error: err.message })
     })
     child.on('close', (code) => {
+      // 取消优先：进程是被我们杀的，退出码（1 / 3221225786 之类）不是安装结论
+      if (cancelled) {
+        safeResolve({ ok: false, code: 'INSTALL_CANCELLED', status: code,
+          stdout: stdoutTail, stderr: stderrTail,
+          error: 'Install cancelled by user. The process tree was killed.\n'
+            + 'The engine environment under engines/<id>/.venv is partial; '
+            + 're-running this step rebuilds it.',
+          errorZh: '安装已取消，进程树已终止。\n'
+            + 'engines/<id>/.venv 下的环境是半截的；重新执行本步骤会先重建它。',
+          cancelled: true })
+        return
+      }
       if (killedByTimeout) {
-        resolve({ ok: false, code: 'ENV_TIMEOUT', status: code,
+        safeResolve({ ok: false, code: 'ENV_TIMEOUT', status: code,
           stdout: stdoutTail, stderr: stderrTail,
           error: `Command timed out (${Math.round(timeoutMs / 60000)} min) and was killed.\n`
             + 'The download may still be in progress — re-running this step resumes '
@@ -951,7 +1070,7 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride) {
             + '下载可能仍在继续 —— 重新执行本步骤会从断点续传，不会重下已完成的部分。' })
         return
       }
-      resolve({
+      safeResolve({
         ok: code === 0,
         code: code === 0 ? 'OK' : 'ENV_FAILED',
         status: code,
@@ -959,6 +1078,13 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride) {
         stderr: stderrTail.trim(),
       })
     })
+    // 取消信号：abort 一到就杀进程。注册放在 spawn 之后是因为
+    //   killFn 需要 child 这个对象；abort 在 spawn 之前就到的情况
+    //   由 runEnv 循环开头那道 abort 检查兜住（见 failedAt 之前的判断）。
+    if (signal) {
+      if (signal.aborted) { doCancel() }
+      else { try { signal.addEventListener('abort', onAbort, { once: true }) } catch (e) { /* 兼容 */ } }
+    }
     // 超时处理：杀掉进程树。uv/pip 下载大包时要很长的安静期，
     //   所以超时从「整条命令」放宽到「无输出超时」由调用方用 progress 心跳处理；
     //   这里只在调用方显式传 timeoutMs 时按总时长兜底。
@@ -1002,6 +1128,11 @@ async function runEnv (input = {}) {
   //   同时保留真实的计划（argv / env 的形状正是要验的东西）。
   const runStep = typeof input.runStep === 'function' ? input.runStep : runOne
 
+  // 取消通道：端点把 AbortController 交进来（前端点「取消」→ abort）。
+  //   没有 signal 时一切照旧 —— 不取消的正常流程不受影响。
+  const signal = (input.signal && typeof input.signal.addEventListener === 'function')
+    ? input.signal : null
+
   // 断点续传 —— 每个引擎目录下的 .wizard-install.json
   //   记录已成功完成的步骤（env 段）。重跑时跳过它们：
   //   uv/pip 的缓存会让重复跑同一条命令只重下缺的部分（已下载的 wheel
@@ -1016,10 +1147,34 @@ async function runEnv (input = {}) {
   const resetProgress = input.resetProgress === true
   if (resetProgress) resetEnvProgress(root, String(input.id || ''), 'env')
 
+  // 取消后留半截环境：第①步（建 .venv）之后取消/失败，.venv 里是一半的依赖。
+  //   半截环境对 uv 是「看起来好的环境」——下次照旧跳过装包步，而 import 失败。
+  //   所以重跑之前先看一眼标记：有标记就删掉整个 .venv，不留半成品给下一步。
+  //   标记的写入时机：那一步不是成功的时候（取消 / 失败 / 超时）都写。
+  if (!resetProgress && hasPartialVenvMark(root, String(input.id || ''))) {
+    const venvDir = engineVenvDirAbs(root, String(input.id || ''))
+    try { fs.rmSync(venvDir, { recursive: true, force: true }) } catch (e) { /* 删不掉 ⇒ 由后续命令如实报错 */ }
+    markPartialVenv(root, String(input.id || ''), null)
+    doneKeys = readEnvProgress(root, String(input.id || ''), 'env')
+  }
+
+  // 只有真正成功的步骤才写 done。SKIPPED 的产品也在里面（它确实完成了），
+  //   但失败、取消、超时的那一条绝不进 done —— 把它写进去，
+  //   下次重跑会跳过一条根本没跑完的命令，而界面显示「已完成」。
   const persist = () => {
     // 从头重装时不写进度文件（否则第一步完成后又被写回去）
     if (resetProgress) return
-    writeEnvProgress(root, String(input.id || ''), 'env', stepsRun.map((s) => s.argvKey))
+    writeEnvProgress(root, String(input.id || ''), 'env',
+      stepsRun.filter((s) => s.ok === true).map((s) => s.argvKey))
+  }
+  // 这一步失败了/被取消了 ⇒ 留下「环境不完整」的标记，下次重跑先删半截环境
+  const markBroken = (why) => {
+    const id = String(input.id || '')
+    try {
+      // 只在建环境那一步之后才可能留下半截环境（第①步之前 .venv 还不存在）
+      const built = fs.existsSync(engineVenvDirAbs(root, id))
+      if (built) markPartialVenv(root, id, why)
+    } catch (e) { /* 标记失败不该盖掉真正的错误 */ }
   }
 
   for (let i = 0; i < steps.length; i++) {
@@ -1093,7 +1248,33 @@ async function runEnv (input = {}) {
       try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调不影响安装 */ }
     }
 
-    const r = await runStep(step, root, timeoutMs, argv, input.onLine, step.env)
+    // 取消信号：每一步开跑之前先看一眼。上一步结束到这一步开始之间点了取消，
+    //   就在这里停下，不新起进程（否则界面已经取消而进程又在跑）。
+    if (signal && signal.aborted) {
+      markBroken('cancelled before this step started')
+      return {
+        ...plan,
+        ok: false,
+        code: 'INSTALL_CANCELLED',
+        cancelled: true,
+        stepsRun,
+        failedAt: i + 1,
+        failedArgv: step.argv,
+        error: 'Install cancelled by user. The process tree was killed.\n'
+          + 'The engine environment under engines/<id>/.venv is partial; '
+          + 're-running this step rebuilds it.',
+        errorZh: '安装已取消，进程树已终止。\n'
+          + 'engines/<id>/.venv 下的环境是半截的；重新执行本步骤会先重建它。',
+        note: 'Steps that already succeeded are still recorded — '
+          + 're-running skips them and continues from where it stopped.',
+        noteZh: '已成功的步骤仍在断点记录里 —— 重跑会跳过它们、从未完成处继续。',
+      }
+    }
+
+    // 取消通道交给 runOne（生产路径是 runOne，测试注入 runStep 时被换成假的，
+    //   假的忽略第七个参数 —— 那正是注入点的用法）。
+    const r = await runStep(step, root, timeoutMs, argv, input.onLine, step.env,
+      { signal })
     stepsRun.push({
       n: i + 1,
       of: steps.length,
@@ -1106,41 +1287,72 @@ async function runEnv (input = {}) {
       output: r.ok ? r.stdout.slice(-2000) : (r.stderr || r.stdout || '(no output)'),
       doneAt: r.ok ? new Date().toISOString() : null,
     })
-    if (r.ok) persist()
+    persist()
 
     if (!r.ok) {
+      // 半截环境标记：取消 / 失败 / 超时都要写（只有成功不写）
+      if (r.code === 'INSTALL_CANCELLED' || r.code === 'INSTALL_CANCEL_FAILED') {
+        markBroken('install cancelled by user')
+      } else if (r.code === 'ENV_TIMEOUT') {
+        markBroken('command timed out and was killed')
+      } else {
+        markBroken('command failed')
+      }
+      // 取消不是失败：代码、文案都要分开。取消是使用者自己的选择，
+      //   把它写成「第 N 步失败」是在用一个错的结论解释一件对的事。
+      const isCancelled = r.code === 'INSTALL_CANCELLED'
+        || r.code === 'INSTALL_CANCEL_FAILED'
       return {
         ...plan,
         ok: false,
         code: r.code === 'SPAWN_FAILED' ? 'SPAWN_FAILED' : r.code,
         status: r.status,
         stepsRun,
-        failedAt: i + 1,
+        failedAt: isCancelled ? i + 1 : i + 1,
         failedArgv: step.argv,
-        error: r.code === 'SPAWN_FAILED'
-          ? `Cannot launch ${step.argv[0]}: ${r.error}\n`
-            + 'The platform cannot confirm whether the install succeeded — check the engines/<id>/ directory.'
-          : (r.stderr || r.stdout || '(no output)'),
-        errorZh: r.code === 'SPAWN_FAILED'
-          ? `起不动「${step.argv[0]}」：${r.error}\n`
-            + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。'
-          : (r.stderr || r.stdout || '（没有输出）'),
-        note: steps.length > 1
-          ? `Step ${i + 1}/${steps.length} failed.\n`
-            + 'An interrupted install leaves a partial environment. Re-running this step resumes from where it stopped:\n'
-            + 'Steps that already succeeded are skipped, and only the rest continue (uv/pip caches keep the downloaded wheels).\n'
-            + 'Read the error above before deciding whether to retry or change the command.'
-          : 'An interrupted install leaves a partial environment. Re-running this step resumes from where it stopped:\n'
-            + 'uv/pip caches keep the downloaded parts, so nothing is re-downloadable from scratch.\n'
-            + 'Read the error above before deciding whether to retry or change the command.',
-        noteZh: steps.length > 1
-          ? `第 ${i + 1}/${steps.length} 步失败。\n`
-            + '安装中断会保留不完整的环境。重新执行本步骤会从断点续传：\n'
-            + '已成功的步骤会跳过，未完成的部分继续（uv/pip 的缓存会保留已下载的 wheel）。\n'
-            + '请先阅读上方错误信息，再决定重试或更换命令。'
-          : '安装中断会保留不完整的环境。重新执行本步骤会从断点续传：\n'
-            + 'uv/pip 的缓存会保留已下载的部分，不会全部重下。\n'
-            + '请先阅读上方错误信息，再决定重试或更换命令。',
+        cancelled: isCancelled ? true : undefined,
+        error: isCancelled
+          ? 'Install cancelled by user. The process tree was killed.\n'
+            + 'The engine environment under engines/<id>/.venv is partial; '
+            + 're-running this step rebuilds it.'
+          : (r.code === 'SPAWN_FAILED'
+            ? `Cannot launch ${step.argv[0]}: ${r.error}\n`
+              + 'The platform cannot confirm whether the install succeeded — check the engines/<id>/ directory.'
+            : (r.stderr || r.stdout || '(no output)')),
+        errorZh: isCancelled
+          ? '安装已取消，进程树已终止。\n'
+            + 'engines/<id>/.venv 下的环境是半截的；重新执行本步骤会先重建它。'
+          : (r.code === 'SPAWN_FAILED'
+            ? `起不动「${step.argv[0]}」：${r.error}\n`
+              + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。'
+            : (r.stderr || r.stdout || '（没有输出）')),
+        // 取消时「上一步跑到哪了」仍然照实报：每一步的状态都在 stepsRun 里
+        note: isCancelled
+          ? `The install stopped before step ${i + 1}/${steps.length}. `
+            + `${stepsRun.filter((s) => s.ok).length} step(s) had already finished.\n`
+            + 'The engine environment is partial. Re-running this step removes '
+            + 'the .venv and rebuilds it; already-downloaded wheels are still reused.'
+          : (steps.length > 1
+            ? `Step ${i + 1}/${steps.length} failed.\n`
+              + 'An interrupted install leaves a partial environment. Re-running this step resumes from where it stopped:\n'
+              + 'Steps that already succeeded are skipped, and only the rest continue (uv/pip caches keep the downloaded wheels).\n'
+              + 'Read the error above before deciding whether to retry or change the command.'
+            : 'An interrupted install leaves a partial environment. Re-running this step resumes from where it stopped:\n'
+              + 'uv/pip caches keep the downloaded parts, so nothing is re-downloadable from scratch.\n'
+              + 'Read the error above before deciding whether to retry or change the command.'),
+        noteZh: isCancelled
+          ? `安装停在第 ${i + 1}/${steps.length} 步之前，此前已有 `
+            + `${stepsRun.filter((s) => s.ok).length} 步完成。\n`
+            + '引擎环境停在半截状态。重新执行本步骤会先删掉 .venv 再重建，'
+            + '已下载的依赖包仍会复用。'
+          : (steps.length > 1
+            ? `第 ${i + 1}/${steps.length} 步失败。\n`
+              + '安装中断会保留不完整的环境。重新执行本步骤会从断点续传：\n'
+              + '已成功的步骤会跳过，未完成的部分继续（uv/pip 的缓存会保留已下载的 wheel）。\n'
+              + '请先阅读上方错误信息，再决定重试或更换命令。'
+            : '安装中断会保留不完整的环境。重新执行本步骤会从断点续传：\n'
+              + 'uv/pip 的缓存会保留已下载的部分，不会全部重下。\n'
+              + '请先阅读上方错误信息，再决定重试或更换命令。'),
       }
     }
   }
@@ -1188,6 +1400,10 @@ async function runEnv (input = {}) {
         + '只补装缺的部分。',
     }
   }
+
+  // 走到这里 = 全部步骤成功、自检也过了 ⇒ 抹掉「环境不完整」的标记。
+  //   标记是给失败/取消用的，装完还留着它，下次重跑会白删一次 .venv。
+  markPartialVenv(root, String(input.id || ''), null)
 
   return {
     ...plan,
@@ -1284,4 +1500,8 @@ module.exports = {
   verifyEngineEnvImports, probeImportInEngineVenv, isVenvCreateStep,
   // 断点续传的产物检查（命令相同但产物没了仍跳过）
   stepArtifactExists, sitePackagesNonEmpty,
+  // 单步执行（取消通道的载体，测试注入 spawn 不真跑）
+  runOne,
+  // 取消/失败后留半截环境的标记（重跑先删 .venv 再建）
+  partialVenvMarkAbs, hasPartialVenvMark, markPartialVenv,
 }
