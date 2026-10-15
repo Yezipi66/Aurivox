@@ -132,6 +132,67 @@ function parseRequirements (text) {
   return out
 }
 
+/**
+ * 从 LICENSE 正文的头部识别许可证，返回 SPDX 标识或 null。
+ *
+ * 认的是标准许可证写在开头的自我声明短语，不是靠正文相似度猜：
+ *   Apache 的开头写着「Apache License / Version 2.0」；
+ *   MIT 的写着「MIT License」或「Permission is hereby granted, free of charge」；
+ *   BSD 的写着「Redistribution and use in source and binary forms」；
+ *   GPL 的写着「GNU GENERAL PUBLIC LICENSE / Version N」；
+ *   MPL 的写着「Mozilla Public License Version N」；
+ *   Unlicense 的写着「This is free and unencumbered software」。
+ * 认不出返回 null，调用方按「只看到文件」如实报，不编一个。
+ *
+ * 单行形态也认：整篇就是一行「MIT」或 SPDX 标识。
+ *
+ * @param {string} text LICENSE 文件正文
+ * @returns {string|null} SPDX 标识
+ */
+function recognizeLicenseText (text) {
+  if (typeof text !== 'string' || !text.trim()) return null
+  // 只看前 4KB：标准许可证的声明都在开头，正文后半段是条款
+  const head = text.slice(0, 4096)
+  const flat = head.replace(/\s+/g, ' ')
+
+  // 单行形态：整篇只有一行，内容是 SPDX 标识本身
+  const oneLine = text.trim()
+  if (!oneLine.includes('\n') && oneLine.length <= 64) {
+    const m = oneLine.match(/^\s*(?:SPDX-License-Identifier:\s*)?([A-Za-z0-9.\-+]+)\s*$/)
+    if (m && SPDX_KNOWN.has(m[1])) return m[1]
+  }
+
+  // SPDX 标识行（有些仓库在文件里直接写这一行）
+  const spdxLine = head.match(/SPDX-License-Identifier:\s*([A-Za-z0-9.\-+]+)/)
+  if (spdxLine && SPDX_KNOWN.has(spdxLine[1])) return spdxLine[1]
+
+  // 标准头部短语
+  if (/Apache License\s+Version 2\.0/i.test(flat)) return 'Apache-2.0'
+  if (/Apache License\s+Version 1\.1/i.test(flat)) return 'Apache-1.1'
+  if (/MIT License/i.test(flat)) return 'MIT'
+  if (/Permission is hereby granted, free of charge/i.test(flat)) return 'MIT'
+  if (/Redistribution and use in source and binary forms/i.test(flat)) {
+    if (/neither the name/i.test(flat)) return 'BSD-3-Clause'
+    return 'BSD-2-Clause'
+  }
+  if (/GNU GENERAL PUBLIC LICENSE\s+Version 3/i.test(flat)) return 'GPL-3.0'
+  if (/GNU GENERAL PUBLIC LICENSE\s+Version 2/i.test(flat)) return 'GPL-2.0'
+  if (/GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3/i.test(flat)) return 'LGPL-3.0'
+  if (/GNU LESSER GENERAL PUBLIC LICENSE\s+Version 2\.1/i.test(flat)) return 'LGPL-2.1'
+  if (/GNU AFFERO GENERAL PUBLIC LICENSE\s+Version 3/i.test(flat)) return 'AGPL-3.0'
+  if (/Mozilla Public License\s+Version 2\.0/i.test(flat)) return 'MPL-2.0'
+  if (/This is free and unencumbered software released into the public domain/i.test(flat)) return 'Unlicense'
+  if (/Creative Commons Attribution 4\.0/i.test(flat)) return 'CC-BY-4.0'
+  return null
+}
+
+// 单行形态认得的标识：只收常见的，不在表里的不认（避免把一句普通英文当标识）
+const SPDX_KNOWN = new Set([
+  'MIT', 'Apache-2.0', 'Apache-1.1', 'BSD-2-Clause', 'BSD-3-Clause',
+  'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0',
+  'MPL-2.0', 'ISC', 'Unlicense', 'CC0-1.0', 'CC-BY-4.0',
+])
+
 /** 从 setup.py 文本里读 `name=`：只正则读文本，绝不 import 它 */
 function parseSetupPyName (text) {
   if (typeof text !== 'string' || !text) return null
@@ -248,9 +309,9 @@ function probeProject (input = {}) {
 
   // ---- 许可证 ⇒ license ----
   // pyproject 写了 license 就用它（那是最精确的来源）。
-  // 没写但根目录有 LICENSE / COPYING ⇒ 只报「识别到许可证文件」。
-  //   不自己判是 Apache-2.0 还是 MIT：那是读正文做判断，
-  //     平台在这里只做「文件在不在」这一件事。
+  // 没写时读 LICENSE 正文的头部：标准许可证会在开头写明自己是哪一种，
+  //   照它的原话转成 SPDX 标识，这不是平台在猜，是转录上游的自我声明。
+  //   正文认不出就只报「有这个文件」，不靠相似度猜。
   //
   // 值字段只装许可证标识（SPDX id 或 pyproject 里写的原文），不装句子。
   //   这条字段是直接渲染到界面上的（StepPrepare.jsx 的 plan-kv）：
@@ -262,6 +323,14 @@ function probeProject (input = {}) {
   let licenseFrom = py.license ? 'pyproject.toml [project.license]' : null
   // 事实字段（机器读）：'file-only' = 只看到许可证文件，没读出是哪一种。
   let licenseEvidence = py.license ? 'identifier' : null
+  if (!license && input.licenseText) {
+    const recognized = recognizeLicenseText(input.licenseText)
+    if (recognized) {
+      license = recognized
+      licenseFrom = `LICENSE 文件正文（${input.licenseFile || 'LICENSE'}）`
+      licenseEvidence = 'identifier'
+    }
+  }
   if (!license && input.licenseFile) {
     licenseEvidence = 'file-only'
   }
@@ -374,5 +443,5 @@ function planDependencies (text, opts = {}) {
 
 module.exports = {
   probePyproject, probeProject, detectDependencyFile, planDependencies,
-  parseRequirements, parseSetupPyName,
+  parseRequirements, parseSetupPyName, recognizeLicenseText,
 }
