@@ -516,9 +516,13 @@ const cloneAbortControllers = new Map()
 
 // POST /wizard/clone        第 2 步
 // execute 必须显式 true —— 默认只回计划（跟 install-engine.cjs 一致）
+// 显式排除 /wizard/clone/cancel：短前缀会把那个长前缀端点也一并匹配掉，
+//   于是同名的 cancel handler 永远拿不到请求。中间件是「第一个返回 true
+//   的赢」，光在表里调顺序挡不住这种前缀包含关系。
 function handleClone (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/clone')) return false
+  if (req.url.startsWith('/wizard/clone/cancel')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const input = {
@@ -579,9 +583,11 @@ function handleCloneCancel (req, res) {
 const envAbortControllers = new Map()
 
 // POST /wizard/env          第 3 步
+// 显式排除 /wizard/env/cancel，理由同 handleClone：短前缀会吃掉长前缀端点。
 function handleEnv (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/env')) return false
+  if (req.url.startsWith('/wizard/env/cancel')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const input = {

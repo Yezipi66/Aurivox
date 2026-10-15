@@ -71,6 +71,7 @@ test('本文件 export 出来的每个 handler 都是函数', () => {
   const m = require(F)
   for (const [k, v] of Object.entries(m)) {
     if (k === 'path') continue          // node 的 path 模块，本就不是函数
+    if (k === '__test__') continue      // 给测试用的内部函数集合，不是 handler
     assert.strictEqual(typeof v, 'function', `${k} 不是函数（是 ${typeof v}）`)
   }
 })
@@ -100,6 +101,58 @@ test('长前缀必须排在短前缀之前（/verify/checks 会被 /verify 吃�
   assert.ok(iChecks >= 0 && iVerify >= 0, '两个 verify handler 都要在表里')
   assert.ok(iChecks < iVerify,
     'handleVerifyChecks（长前缀）必须排在 handleVerify（短前缀）之前')
+})
+
+// 前缀包含才是根因：/wizard/clone/cancel 以 /wizard/clone 开头，
+// 短前缀端点只要匹配成功就会把长前缀端点吃掉。表里调顺序只是掩盖。
+// 所以守卫直接对每个 cancel 长端点确认短端点会放行。
+test('cancel 端点不被同前缀的短端点吃掉', () => {
+  const m = require('../core/wizardbridge.js')
+  const { EventEmitter } = require('node:events')
+
+  const fakeRes = () => {
+    const r = new EventEmitter()
+    r.writeHead = () => r
+    r.end = () => r.emit('_end')
+    return r
+  }
+
+  // 每一个 cancel 子端点与它对应的短端点
+  const PAIRS = [
+    ['/wizard/clone/cancel', 'handleCloneCancel', 'handleClone'],
+    ['/wizard/env/cancel', 'handleEnvCancel', 'handleEnv'],
+  ]
+
+  for (const [url, cancelName, shortName] of PAIRS) {
+    assert.strictEqual(typeof m[cancelName], 'function', `表里少了 ${cancelName}`)
+    assert.strictEqual(typeof m[shortName], 'function', `表里少了 ${shortName}`)
+
+    // cancel 端点自己必须接单
+    const body = JSON.stringify({ id: 'zzz-no-such' })
+    const req = new EventEmitter()
+    req.method = 'POST'
+    req.url = url
+    const resCancel = fakeRes()
+    let cancelHandled = false
+    resCancel.on('_end', () => { cancelHandled = true })
+    const cancelP = m[cancelName](req, resCancel)
+    req.emit('data', Buffer.from(body)); req.emit('end')
+    if (cancelP) {
+      assert.ok(true, `${cancelName} 返回了 true（同步接单）`)
+    } else {
+      assert.ok(cancelHandled, `${cancelName} 对 ${url} 没有任何响应，等于漏接`)
+    }
+
+    // 短端点必须放行（返回 false），否则 cancel 永远拿不到请求
+    const req2 = new EventEmitter()
+    req2.method = 'POST'
+    req2.url = url
+    const resShort = fakeRes()
+    const shortResult = m[shortName](req2, resShort)
+    assert.strictEqual(shortResult, false,
+      `${shortName} 把 ${url} 也匹配掉了 —— ${cancelName} 永远拿不到请求，` +
+      '要在短端点里显式排除自己的 cancel 子端点')
+  }
 })
 
 test('wizardbridge.js 活代码里不许出现具体引擎名', () => {
