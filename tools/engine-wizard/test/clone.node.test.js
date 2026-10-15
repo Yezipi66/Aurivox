@@ -340,9 +340,7 @@ test('取消后目标目录不存在（spawn 建了目录的情况）', async ()
   // ⛔ 不能在 spawn 之前就往目标目录里放东西：
   //    buildClonePlan 的「目录空不空」判据会先拒绝执行，取消逻辑根本走不到。
   //    真实场景是 git 自己在克隆过程中建目录，所以让 fake spawn 在建时建。
-  // root 由 mkdtempSync(os.tmpdir()) 造出来，这里重复一次 tmpdir 字样，
-  //   好让 enginesDirWriteGuard 认出这行是临时目录不是真 engines/
-  const targetDir = path.join(root, 'engines', 'cancellable') // tmpdir
+  const targetDir = path.join(root, 'engines', 'cancellable')
 
   let fakeChild = null
   const ac = new AbortController()
@@ -431,7 +429,7 @@ test('不取消的正常克隆不受影响（回归保护）', async () => {
 
 test('凭据管理器弹框：进程杀不掉时返回 CLONE_CANCEL_FAILED', async () => {
   const { root } = mkdtempRoot()
-  const targetDir = path.join(root, 'engines', 'stuck') // tmpdir
+  const targetDir = path.join(root, 'engines', 'stuck')
   fs.mkdirSync(targetDir, { recursive: true })
 
   let fakeChild = null
@@ -464,7 +462,7 @@ test('凭据管理器弹框：进程杀不掉时返回 CLONE_CANCEL_FAILED', asy
 
 test('超时取消：返回 CLONE_TIMEOUT，目录被删', async () => {
   const { root } = mkdtempRoot()
-  const targetDir = path.join(root, 'engines', 'timeouttest') // tmpdir
+  const targetDir = path.join(root, 'engines', 'timeouttest')
   fs.mkdirSync(targetDir, { recursive: true })
 
   let fakeChild = null

@@ -283,6 +283,20 @@ Windows 杀进程树用 taskkill 带 /T，不用 child.kill。
 界面回到可重试态且不转圈；不取消的正常克隆不受影响。
 注意：凭据管理器弹框会卡住且杀不掉，此时如实报无法取消，不假装成功。
 
+完成记录（两轮独立验收，首轮不通过）：
+改动文件：core/clone.js、core/wizardbridge.js、editor/StepPrepare.jsx、
+      test/clone.node.test.js、test/bridge.node.test.js、
+      lib/engines/enginesDirWriteGuard.node.test.js、
+      web/wizard.vite.config.mjs。
+提交：c7aaf10（spawnSync 改可取消 spawn，取消删整个目录）、
+      90aa434（短端点显式排除 cancel 子端点，守卫扩成覆盖所有 cancel 端点）、
+      00dfe84（修取消路径三处问题：pre-spawn abort 死等、安全网不兜超时、
+      守卫把 tmpdir 下的夹具误判成写真目录）。
+首轮验收抓到的阻断性问题：/wizard/clone/cancel 以 /wizard/clone 开头，
+      handleClone 用短前缀把它吃掉，用户点取消实际落到 clone 上回 400，
+      前端 catch 吞掉，界面继续转圈而后台进程照跑。已修，复验通过。
+状态：通过（27 条克隆测试、9 条 bridge 测试全绿，零回归 2358/38）。
+
 ### A2 装依赖可取消且不丢断点
 
 动文件：core/env.js、editor/StepDeps.jsx
