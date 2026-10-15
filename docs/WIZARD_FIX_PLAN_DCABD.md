@@ -232,8 +232,22 @@ wizardbridge.js 的 probe 分支把 LICENSE 正文取来交给它，分支由 C2
 ### C2 分支探测
 
 动文件：core/wizardbridge.js
+现状（已体检核实）：
+  fetchRaw 第 137 行把分支写死为 main，不接受参数。
+  非 200 一律 resolve(null)，403（限流）与 404（不存在）不区分。
+  handleProbe 最多串行发 18 次请求（5 依赖 + 7 许可 + 5 下载脚本 + README），
+  每次 20 秒超时，全打到 main 上。
+  全仓库没有 api.github.com 调用，没有共享 HTTP 封装，也没有缓存。
+
 怎么改：走 GitHub API 取 default_branch，取不到再回退 main 与 master。
 不引入新依赖，用 node 内置 https。
+
+本项与 D3 的 fetchRaw 改动是同一处，合并做：
+  fetchRaw 签名加分支参数（D3 要求「分支可传入」），
+  再把 handleProbe 的所有调用点改成分支从探测结果来。
+  ⛔ 不再分两次改同一个函数。
+
+可复用：hardware.js 的缓存模式（_cache / _cacheAt / CACHE_MS 5 分钟）照搬。
 
 缓存：同一个 owner 与 repo 组合的分支结果缓存 5 分钟，
 第 1 步要扫多个候选文件，不能每个文件都调一次 API。
@@ -243,6 +257,17 @@ main 再到 master，不重试不等待，整个探测不得因此多花 10 秒�
 验收：只读 master、只读 trunk、只读 main 三种仓库都能读到 pyproject 与 LICENSE；
 连续扫多个候选文件时 API 调用次数为 1；
 API 403 时探测总耗时不显著增加，且结果来自回退分支而非假装读到。
+
+C 块完成记录：
+
+改动文件：core/wizardbridge.js、core/probe.js、test/licenseText.node.test.js。
+提交：09dae82（C2 分支探测 + fetchRaw 加 branch 参数，合并 D3 的同源改动）、
+      e8e0a27（C1 LICENSE 正文识别 + 14 条测试 + 变异验证）。
+状态：通过。四个真实仓库实测：CosyVoice 与 Spark-TTS 从 LICENSE 正文识别出
+      Apache-2.0，ChatTTS 识别出 AGPL-3.0，index-tts 的自定义协议由 pyproject
+      字段给出。三种来源（pyproject 字段、LICENSE 正文、认不出时 file-only）
+      各自工作，没有一处靠相似度猜。
+      全量 2324 条测试、39 失败，与基线一致（新增 14 条全绿）。
 
 ## A. 四个逃生口
 
