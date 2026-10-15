@@ -97,17 +97,26 @@ function saveManifest (manifest, opts = {}) {
     return { ok: true, path: file, dryRun: true, bytes: text.length, createdDir }
   }
 
-  // ---- 7. 先写临时文件再改名 ⇒ 不会写出半个 JSON ----
+  // ---- 7. 覆盖前先备份，再写临时文件改名 ⇒ 不会写出半个 JSON ----
+  //   备份只留一份：反复保存不该攒出一堆 .bak。
+  //   备份失败不阻断保存（备份是保险，不是前置条件）。
+  const bak = file + '.bak'
+  if (exists) {
+    try { fs.copyFileSync(file, bak) } catch (e) { /* 备份不了照样存，只是少了回滚点 */ }
+  }
+
   const tmp = file + '.tmp-wizard'
   try {
     fs.writeFileSync(tmp, text, 'utf-8')
     fs.renameSync(tmp, file)
   } catch (e) {
     try { fs.unlinkSync(tmp) } catch { /* ignore */ }
-    return { ok: false, code: 'WRITE_FAILED', error: e.message }
+    // 写入失败时原文件未被改动（改名前失败），备份还在，如实报错。
+    return { ok: false, code: 'WRITE_FAILED', error: e.message, backup: exists ? bak : null }
   }
 
-  return { ok: true, path: file, bytes: text.length, createdDir, replaced: exists }
+  return { ok: true, path: file, bytes: text.length, createdDir, replaced: exists,
+    backup: exists ? bak : null }
 }
 
 /**
