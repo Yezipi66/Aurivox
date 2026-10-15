@@ -132,9 +132,10 @@ const DOWNLOAD_SCRIPTS = [
 const LICENSE_FILES = ['LICENSE', 'LICENSE.txt', 'LICENSE.md',
   'LICENCE', 'LICENCE.txt', 'COPYING', 'COPYING.txt']
 
-function fetchRaw (owner, name, file) {
+function fetchRaw (owner, name, file, branch) {
+  const ref = branch || 'main'
   return new Promise((resolve) => {
-    const url = `https://raw.githubusercontent.com/${owner}/${name}/main/${file}`
+    const url = `https://raw.githubusercontent.com/${owner}/${name}/${ref}/${file}`
     const req = https.get(url,
       { headers: { 'user-agent': 'aurivox-engine-wizard' } },
       (res) => {
@@ -149,6 +150,70 @@ function fetchRaw (owner, name, file) {
   })
 }
 
+// 仓库默认分支：raw.githubusercontent 的路径里要写分支名，写错整个探测全 404。
+// 拿不到就用 main，再不行用 master。
+// 结果缓存 5 分钟：第 1 步要扫十几个候选文件，每个都调一次 API 会撞速率限制。
+const BRANCH_TTL_MS = 5 * 60 * 1000
+const _branchCache = new Map()
+
+function readDefaultBranch (owner, name) {
+  const key = `${owner}/${name}`
+  const hit = _branchCache.get(key)
+  if (hit && Date.now() - hit.at < BRANCH_TTL_MS) return Promise.resolve(hit.value)
+
+  return new Promise((resolve) => {
+    const url = `https://api.github.com/repos/${owner}/${name}`
+    const done = (value, why) => {
+      _branchCache.set(key, { at: Date.now(), value })
+      resolve({ branch: value, why })
+    }
+    const req = https.get(url, {
+      headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
+    }, (res) => {
+      if (res.statusCode === 403 || res.statusCode === 429) {
+        res.resume()
+        // 速率限制：立刻回退，不重试不等待
+        return done(null, 'RATE_LIMITED')
+      }
+      if (res.statusCode !== 200) { res.resume(); return done(null, `HTTP_${res.statusCode}`) }
+      let body = ''
+      res.setEncoding('utf-8')
+      res.on('data', (c) => { body += c })
+      res.on('end', () => {
+        let b = null
+        try { b = JSON.parse(body).default_branch || null } catch (e) { /* 认不出就回退 */ }
+        done(b, b ? null : 'NO_DEFAULT_BRANCH')
+      })
+    })
+    req.on('error', () => done(null, 'NETWORK'))
+    // 比 fetchRaw 短：分支拿不到可以回退，不该拖住整个探测
+    req.setTimeout(5000, () => { req.destroy(); done(null, 'TIMEOUT') })
+  })
+}
+
+// 探测用哪个分支：API 给什么用什么，给不出就按 main 再 master 试。
+// 返回值里带 source，让调用方能如实说明分支是从哪来的。
+async function resolveProbeBranch (owner, name) {
+  const r = await readDefaultBranch(owner, name)
+  if (r.branch) return { branch: r.branch, source: 'api' }
+  return { branch: null, source: r.why || 'unknown' }
+}
+
+// 按候选顺序试：先探测到的分支，再 main，再 master。
+// 命中即返回，全不中返回 null（如实说不存在）。
+async function fetchWithBranchFallback (owner, name, file, probed) {
+  const tried = []
+  if (probed) tried.push(probed)
+  if (!tried.includes('main')) tried.push('main')
+  if (!tried.includes('master')) tried.push('master')
+  for (const b of tried) {
+    // eslint-disable-next-line no-await-in-loop
+    const t = await fetchRaw(owner, name, file, b)
+    if (t !== null) return t
+  }
+  return null
+}
+
 /** POST /wizard/probe {url} —— 探测上游（只读文本文件） */
 function handleProbe (req, res) {
   if (req.method !== 'POST') return false
@@ -158,25 +223,35 @@ function handleProbe (req, res) {
     const parsed = parseRepoUrl(body.url)
     if (!parsed.ok) { json(res, 400, parsed); return }
 
+    // 先定分支：raw.githubusercontent 的路径里要写分支名，写错整个探测全 404。
+    // API 给不出时按 main 再 master 试（见 fetchWithBranchFallback）。
+    const probeBranch = await resolveProbeBranch(parsed.owner, parsed.repo)
+    const notes = []
+    if (probeBranch.source !== 'api') {
+      // 如实说明分支是怎么定下来的，不假装读到了默认分支
+      notes.push(`未能从 GitHub 读到默认分支（${probeBranch.source}），按 main 与 master 依次尝试。`)
+    }
+
     // 候选清单固定 —— 一个都不多读
     const CANDIDATES = ['pyproject.toml', 'uv.lock', 'requirements.txt',
       'environment.yml', 'setup.py']
     const texts = {}
     const found = []
     for (const f of CANDIDATES) {
-      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
       if (t !== null) { found.push(f); texts[f] = t }
     }
 
     // 许可证文件 —— 第 1 步的新候选。
     //   许可证不是 pyproject 的字段：老布局仓库根目录只有一个 LICENSE 文件。
-    //   只认「文件在不在」，不读正文、不猜是哪一种许可证：
-    //     判 Apache/MIT 要读正文做判断 ⇒ 那是解析，平台这里只做读取。
+    //   取到正文一并交给 probeProject，由它读头部识别是哪种许可证；
+    //   识别不出就只报「有这个文件」，不猜。
     let licenseFile = null
+    let licenseText = null
     for (const f of LICENSE_FILES) {
       // eslint-disable-next-line no-await-in-loop
-      const t = await fetchRaw(parsed.owner, parsed.repo, f)
-      if (t !== null) { licenseFile = f; break }
+      const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
+      if (t !== null) { licenseFile = f; licenseText = t; break }
     }
 
     // 上游自己的模型下载入口：模型放在哪个仓库、要下哪几个文件、
@@ -189,7 +264,7 @@ function handleProbe (req, res) {
     //   ⇒ 两种都要认，认不到才如实说「上游没给」。
     const dlScripts = []
     for (const f of DOWNLOAD_SCRIPTS) {
-      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
       if (t !== null) {
         dlScripts.push({ kind: 'script', file: f,
           head: t.split('\n').slice(0, 12).join('\n') })
@@ -198,7 +273,7 @@ function handleProbe (req, res) {
     // ② README 里的下载命令（形态二）
     let readmeCmds = []
     if (dlScripts.length === 0) {
-      const rd = (await fetchRaw(parsed.owner, parsed.repo, 'README.md')) || ''
+      const rd = (await fetchWithBranchFallback(parsed.owner, parsed.repo, 'README.md', probeBranch.branch)) || ''
       readmeCmds = extractDownloadCommands(rd).map((cmd) => ({
         ...cmd,
         repo: cmd.repo || `${parsed.owner}/${parsed.repo}`,
@@ -213,6 +288,7 @@ function handleProbe (req, res) {
       requirements: texts['requirements.txt'],
       setupPy: texts['setup.py'],
       licenseFile,
+      licenseText,
       filenames: found,
     })
     // 统一返回契约：所有 /wizard/* 端点成功时都带 ok:true
@@ -237,6 +313,8 @@ function handleProbe (req, res) {
       found_files: found,
       downloader: dlScripts,
       downloader_cmds: readmeCmds,
+      // 分支探测的说明（如「API 拿不到默认分支，按 main 与 master 试」）
+      notes,
     })
   })
   return true
@@ -284,8 +362,10 @@ function handleDeps (req, res) {
     const parsed = parseRepoUrl(body.url)
     if (!parsed.ok) { json(res, 400, parsed); return }
 
+    // 同 handleProbe：分支写错整个请求全 404
+    const probeBranch = await resolveProbeBranch(parsed.owner, parsed.repo)
     const get = async (f) => {
-      const t = await fetchRaw(parsed.owner, parsed.repo, f)
+      const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
       return t
     }
     // 三个来源一起读：依赖列表两个（pyproject 优先）+ lock（只锁 torch 版本）
