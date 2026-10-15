@@ -256,7 +256,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const removePartial = async (f) => {
     if (!f || !f.name) return
     try {
-      await fetch('/wizard/download/file', {
+      const resp = await fetch('/wizard/download/file', {
         method: 'DELETE', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id, name: f.name,
@@ -264,8 +264,18 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           root: window.__PROJECT_ROOT__ || '',
         }),
       })
-      setFileList((list) => list.map((x) => (x.name === f.name ? { ...x, status: 'missing', size: 0, sha256: null, shaVerified: false } : x)))
-    } catch (e) { /* 删不掉就让使用者自己删，界面照实报 */ }
+      const j = await resp.json()
+      // 缺信息不等于残缺：没有 sha 可比对时后端不删，如实告诉使用者
+      if (j.ok && (j.deleted || []).includes(f.name)) {
+        setFileList((list) => list.map((x) => (x.name === f.name
+          ? { ...x, status: 'missing', size: 0, sha256: null, shaVerified: false }
+          : x)))
+      } else {
+        setErr(lang === 'zh' ? (j.errorZh || j.error || '未能删除该文件。') : (j.error || 'Could not delete this file.'))
+      }
+    } catch (e) {
+      setErr(lang === 'zh' ? '删除失败，请手动删除该文件。' : 'Delete failed; remove the file manually.')
+    }
   }
 
   // 下载是「发射后不管」的后台任务 —— 点击后启动下载，不阻塞 UI，

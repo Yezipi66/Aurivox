@@ -804,9 +804,19 @@ function handleDeletePartialFile (req, res) {
     removePartialFiles([{ name, size: size || null, sha256: sha256 || null }], root, id)
       .then((r) => {
         if (r.deleted.length === 0) {
-          json(res, 200, { ok: false, code: 'NOT_PARTIAL',
-            error: 'The file is not partial — nothing was deleted.',
-            errorZh: '这个文件不是半截，未删除任何内容。' })
+          const needsVerify = (r.skipped || []).some((s) => s.code === 'NEEDS_VERIFY')
+          json(res, 200, {
+            ok: false,
+            code: needsVerify ? 'NEEDS_VERIFY' : 'NOT_PARTIAL',
+            error: needsVerify
+              ? 'Cannot prove this file is complete or damaged: the remote gave '
+                + 'no SHA-256 to compare against. Nothing was deleted.',
+              : 'The file is not partial — nothing was deleted.',
+            errorZh: needsVerify
+              ? '无法证明这个文件是好的还是坏的：远端没有给出 SHA-256 可比对。'
+                + '未删除任何内容。请重下（用续传）让平台重新校验。'
+              : '这个文件不是半截，未删除任何内容。',
+          })
           return
         }
         json(res, 200, { ok: true, deleted: r.deleted, bytes: r.bytes })

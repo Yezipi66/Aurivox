@@ -562,17 +562,22 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
 /**
  * 删掉半截文件，让它回到 missing 以便重下。
  *
- * 只删明确判为 partial 的文件（大小不符 / sha 不符 / 只有 .tmp / 上游没给大小
- * 所以无法确认）。判为 ok 与 missing 的一律不碰：删 ok 会让用户白下一遍。
+ * ⛔ 只删确实残缺的，缺信息不等于残缺。
+ *    「删 ok 会让使用者白下一遍」比「漏删一个半截」严重得多：前者毁掉
+ *    已经下完的数 GB，后者只是下次重下时多等一会儿。所以判据从严：
  *
- * 判 partial 要用上游给的真实 size 与 sha，不能传 null —— 传 null 会让
- * 「大小不符」被误判成「上游没给大小」，虽然两者都算 partial，
- * 但报出去的原因不一样，使用者没法判断该不该删。
+ *    一、上游给了 sha 且与本地的相符 ⇒ 这个文件的内容是真的，不删
+ *    二、没有 sha 可比对（上游没给、或调用方没传）时，只能用大小，
+ *       而大小对得上不代表内容对（写入中断留下的文件大小也可能凑巧一致）。
+ *       这种情况不删，报 NEEDS_VERIFY 让使用者自己确认。
+ *    三、只有 .tmp、或文件中途断了（大小介于 0 与上游大小之间）、
+ *       或大小为 0 ⇒ 明确残缺，删
+ *    四、上游给了 sha 且不符 ⇒ 明确损坏，删
  *
  * @param {Array<{name:string, size?:number, sha256?:string}>} files 要删的文件
  * @param {string} root 项目根
  * @param {string} id 引擎 id
- * @returns {Promise<{deleted: string[], skipped: {name:string, status:string}[], bytes: number}>}
+ * @returns {Promise<{deleted: string[], skipped: {name:string, status:string, code?:string}[], bytes: number}>}
  */
 async function removePartialFiles (files, root, id) {
   const deleted = []
@@ -585,14 +590,51 @@ async function removePartialFiles (files, root, id) {
     const sha = f && typeof f === 'object' ? (f.sha256 || null) : null
     const finalPath = path.join(dir, name)
     const tmpPath = finalPath + '.tmp'
-    const st = await checkFileStatus(name, size, root, id, sha)
-    if (st.status !== 'partial') { skipped.push({ name, status: st.status }); continue }
-    for (const p of [finalPath, tmpPath]) {
-      try {
-        if (fs.existsSync(p)) { bytes += fs.statSync(p).size; fs.rmSync(p, { force: true }) }
-      } catch (e) { /* 删不掉的留给下一次续传 */ }
+
+    // 正式文件不存在，只有 .tmp ⇒ 明确残缺
+    const hasFinal = fs.existsSync(finalPath)
+    const hasTmp = fs.existsSync(tmpPath)
+    if (!hasFinal && !hasTmp) { skipped.push({ name, status: 'missing' }); continue }
+    if (!hasFinal && hasTmp) {
+      // 只有临时文件，没有别的可判断
+      try { bytes += fs.statSync(tmpPath).size; fs.rmSync(tmpPath, { force: true }) } catch (e) {}
+      deleted.push(name)
+      continue
     }
-    deleted.push(name)
+
+    const stat = fs.statSync(finalPath)
+    // 文件是空的，或比上游说的大小小 ⇒ 下载真中断了。
+    // ⛔ 只在没有 sha 可比对时才用大小判断：有 sha 就由 sha 说话，
+    //    大小差一点更可能是上游给错、或单位/换算问题，不该因此毁掉文件。
+    if (!sha && (stat.size === 0 || (size && stat.size < size))) {
+      for (const p of [finalPath, tmpPath]) {
+        try {
+          if (fs.existsSync(p)) { bytes += fs.statSync(p).size; fs.rmSync(p, { force: true }) }
+        } catch (e) { /* 删不掉的留给下一次续传 */ }
+      }
+      deleted.push(name)
+      continue
+    }
+
+    // 有 sha 可比对：不符就是坏了，删
+    if (sha) {
+      const actual = await sha256File(finalPath)
+      if (actual !== sha) {
+        for (const p of [finalPath, tmpPath]) {
+          try {
+            if (fs.existsSync(p)) { bytes += fs.statSync(p).size; fs.rmSync(p, { force: true }) }
+          } catch (e) { /* 删不掉的留给下一次续传 */ }
+        }
+        deleted.push(name)
+        continue
+      }
+      skipped.push({ name, status: 'ok' })
+      continue
+    }
+
+    // 走到这里：文件在、大小也凑得上，但没有 sha 能证明内容是好的。
+    // 缺信息不等于残缺，不删，如实报需要校验。
+    skipped.push({ name, status: 'needs-verify', code: 'NEEDS_VERIFY' })
   }
   return { deleted, skipped, bytes }
 }

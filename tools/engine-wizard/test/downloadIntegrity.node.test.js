@@ -138,14 +138,80 @@ test('删半截：只删 partial，ok 与 missing 不碰', async () => {
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-test('删半截：.tmp 一并清掉', async () => {
+// ⛔ 缺信息不等于残缺：删 ok 会让使用者白下一遍，比漏删半截严重。
+// 这四条是独立验收子 Agent 漏掉的——它把「ok 被删」归因为自己的探针
+// 写错字节数，只验了参数正确那一种就下了「核心行为全部正确」的结论。
+test('删半截：size 与 sha 都正确 ⇒ 不删', async () => {
+  const root = tmpRoot()
+  const good = Buffer.from('good bytes')
+  putFile(root, 'eng1', 'g.bin', good)
+  const r = await removePartialFiles(
+    [{ name: 'g.bin', size: good.length, sha256: shaOf(good) }], root, 'eng1')
+  assert.deepStrictEqual(r.deleted, [])
+  assert.ok(fs.existsSync(path.join(root, 'engines', 'eng1', 'checkpoints', 'g.bin')))
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('删半截：size 传错一个字节也不删（上游/前端给错不该毁掉文件）', async () => {
+  const root = tmpRoot()
+  const good = Buffer.from('good bytes')
+  putFile(root, 'eng1', 'g.bin', good)
+  const r = await removePartialFiles(
+    [{ name: 'g.bin', size: good.length + 1, sha256: shaOf(good) }], root, 'eng1')
+  assert.deepStrictEqual(r.deleted, [], 'size 不符也有可能是上游给错，不许删')
+  assert.ok(fs.existsSync(path.join(root, 'engines', 'eng1', 'checkpoints', 'g.bin')))
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('删半截：上游没给 sha 也不删，报 NEEDS_VERIFY', async () => {
+  const root = tmpRoot()
+  const good = Buffer.from('good bytes')
+  putFile(root, 'eng1', 'g.bin', good)
+  const r = await removePartialFiles([{ name: 'g.bin', size: good.length }], root, 'eng1')
+  assert.deepStrictEqual(r.deleted, [], '没有 sha 能证明内容是坏的，不删')
+  assert.strictEqual(r.skipped[0].code, 'NEEDS_VERIFY')
+  assert.ok(fs.existsSync(path.join(root, 'engines', 'eng1', 'checkpoints', 'g.bin')))
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('删半截：size 与 sha 都没传也不删', async () => {
+  const root = tmpRoot()
+  const good = Buffer.from('good bytes')
+  putFile(root, 'eng1', 'g.bin', good)
+  const r = await removePartialFiles([{ name: 'g.bin' }], root, 'eng1')
+  assert.deepStrictEqual(r.deleted, [], '前端传 null 过来也不许删掉好文件')
+  assert.ok(fs.existsSync(path.join(root, 'engines', 'eng1', 'checkpoints', 'g.bin')))
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('删半截：sha 不符 ⇒ 删（内容真坏了）', async () => {
+  const root = tmpRoot()
+  const good = Buffer.from('good bytes')
+  putFile(root, 'eng1', 'g.bin', good)
+  const r = await removePartialFiles(
+    [{ name: 'g.bin', size: good.length, sha256: shaOf(Buffer.from('bad')) }], root, 'eng1')
+  assert.deepStrictEqual(r.deleted, ['g.bin'], 'sha 证明内容坏了才删')
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('删半截：只有 .tmp 没有正式文件 ⇒ 删掉 .tmp', async () => {
+  const root = tmpRoot()
+  const dir = path.join(root, 'engines', 'eng1', 'checkpoints')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'm.safetensors.tmp'), 'half')
+  await removePartialFiles([{ name: 'm.safetensors', size: null }], root, 'eng1')
+  assert.ok(!fs.existsSync(path.join(dir, 'm.safetensors.tmp')), '半截 .tmp 要删')
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('删半截：正式文件加 .tmp 且 sha 不符 ⇒ 两个都删', async () => {
   const root = tmpRoot()
   const dir = path.join(root, 'engines', 'eng1', 'checkpoints')
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'm.safetensors'), 'x')
   fs.writeFileSync(path.join(dir, 'm.safetensors.tmp'), 'half')
-  await removePartialFiles([{ name: 'm.safetensors', size: null }], root, 'eng1')
-  assert.ok(!fs.existsSync(path.join(dir, 'm.safetensors')), '正式文件要删')
+  await removePartialFiles([{ name: 'm.safetensors', size: 100, sha256: 'nope' }], root, 'eng1')
+  assert.ok(!fs.existsSync(path.join(dir, 'm.safetensors')), 'sha 不符的正式文件要删')
   assert.ok(!fs.existsSync(path.join(dir, 'm.safetensors.tmp')), '半截 .tmp 也要删')
   fs.rmSync(root, { recursive: true, force: true })
 })
