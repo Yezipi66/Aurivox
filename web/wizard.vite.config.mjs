@@ -68,11 +68,10 @@ function validatePlugin () {
     wb.handleClone, wb.handleCloneCancel, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
     wb.handleVerifyChecks, wb.handleVerify, wb.handleProfile, handleValidate, wb.handleCliArgs,
     wb.handleDiscover,
-    // ⭐ 2026-10-12：install-state（这一台装到哪了）与 reset-progress（从头重装
-    //   本步的逃生口）。两者都是**同步返回 true/false** 的 handler，与上面几件
-    //   同纪律，⛔ 不许改成 async（中间件见到 Promise 就 break，见头部注释）。
-    //   ⚠ 认的都是整串前缀 + tail 只能跟 ?，与 handleParams 同判据 ⇒ 与
-    //     本表其它前缀无一互为前缀，位置不影响路由。
+    // install-state 报这一台装到哪了，reset-progress 是重装本步的逃生口。
+    // 两者都同步返回 true/false，改成 async 会让中间件见到 Promise 就 break
+    // （见文件头）。认的都是整串前缀、tail 只能跟 ?，与本表其它前缀
+    // 无一互为前缀，所以在表里的位置不影响路由。
     wb.handleInstallState, wb.handleResetProgress,
     handleInstalled, handleSave,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,

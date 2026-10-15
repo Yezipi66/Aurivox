@@ -240,12 +240,15 @@ async function runClone (input = {}) {
       cancelReason = reason
       if (child) killFn(child)
       try { fs.rmSync(targetDir, { recursive: true, force: true }) } catch (e) { }
-      // 安全网：进程杀不掉 ⇒ 不假装成功
+      // 安全网：进程杀不掉 ⇒ 不假装成功。
+      // 不分原因兜底：用户取消与超时都会走到这里，只要有一步没 resolve
+      // 就必须收尾，否则调用方永远等不到结果。
       const safetyNetMs = typeof input.safetyNetMs === 'number' ? input.safetyNetMs : 5000
       setTimeout(() => {
-        if (!resolved && cancelled && cancelReason === 'user') {
+        if (!resolved && cancelled) {
           safeResolve({
-            ...plan, ok: false, code: 'CLONE_CANCEL_FAILED',
+            ...plan, ok: false,
+            code: cancelReason === 'user' ? 'CLONE_CANCEL_FAILED' : 'CLONE_TIMEOUT',
             error: 'Cannot cancel clone: the process could not be killed.\n'
               + 'A credential manager dialog may be blocking it — close it manually.',
             errorZh: '无法取消克隆：进程杀不掉。\n'
@@ -258,7 +261,18 @@ async function runClone (input = {}) {
     const onAbort = () => doCancel('user')
 
     if (input.signal) {
-      if (input.signal.aborted) { onAbort(); return }
+      if (input.signal.aborted) {
+        // 取消发生在 spawn 之前：还没有进程要杀、没有 close 事件会来，
+        //   只走 doCancel 的话这个 Promise 永远不 settle。这里直接收尾。
+        doCancel('user')
+        safeResolve({
+          ...plan, ok: false, code: 'CLONE_CANCELLED',
+          cancelled: true,
+          error: 'Clone cancelled before git was launched.',
+          errorZh: '已取消：git 还没启动。',
+        })
+        return
+      }
       input.signal.addEventListener('abort', onAbort, { once: true })
     }
 

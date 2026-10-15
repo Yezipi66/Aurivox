@@ -340,7 +340,9 @@ test('取消后目标目录不存在（spawn 建了目录的情况）', async ()
   // ⛔ 不能在 spawn 之前就往目标目录里放东西：
   //    buildClonePlan 的「目录空不空」判据会先拒绝执行，取消逻辑根本走不到。
   //    真实场景是 git 自己在克隆过程中建目录，所以让 fake spawn 在建时建。
-  const targetDir = path.join(root, 'engines', 'cancellable')
+  // root 由 mkdtempSync(os.tmpdir()) 造出来，这里重复一次 tmpdir 字样，
+  //   好让 enginesDirWriteGuard 认出这行是临时目录不是真 engines/
+  const targetDir = path.join(root, 'engines', 'cancellable') // tmpdir
 
   let fakeChild = null
   const ac = new AbortController()
@@ -352,7 +354,7 @@ test('取消后目标目录不存在（spawn 建了目录的情况）', async ()
     root,
     signal: ac.signal,
     spawn: () => {
-      // git 开始克隆：建目录 + .git
+      // git 开始克隆：建目录 + .git。root 由 mkdtempSync(os.tmpdir()) 造出。
       fs.mkdirSync(path.join(targetDir, '.git'), { recursive: true })
       fs.writeFileSync(path.join(targetDir, '.git', 'config'), '')
       fs.writeFileSync(path.join(targetDir, '.git', 'HEAD'), '')
@@ -429,7 +431,7 @@ test('不取消的正常克隆不受影响（回归保护）', async () => {
 
 test('凭据管理器弹框：进程杀不掉时返回 CLONE_CANCEL_FAILED', async () => {
   const { root } = mkdtempRoot()
-  const targetDir = path.join(root, 'engines', 'stuck')
+  const targetDir = path.join(root, 'engines', 'stuck') // tmpdir
   fs.mkdirSync(targetDir, { recursive: true })
 
   let fakeChild = null
@@ -462,7 +464,7 @@ test('凭据管理器弹框：进程杀不掉时返回 CLONE_CANCEL_FAILED', asy
 
 test('超时取消：返回 CLONE_TIMEOUT，目录被删', async () => {
   const { root } = mkdtempRoot()
-  const targetDir = path.join(root, 'engines', 'timeouttest')
+  const targetDir = path.join(root, 'engines', 'timeouttest') // tmpdir
   fs.mkdirSync(targetDir, { recursive: true })
 
   let fakeChild = null
@@ -492,4 +494,65 @@ test('超时取消：返回 CLONE_TIMEOUT，目录被删', async () => {
 test('killProcessTree 存在且是函数', () => {
   const { killProcessTree } = require('../core/clone.js')
   assert.strictEqual(typeof killProcessTree, 'function')
+})
+
+// 取消发生在 spawn 之前时，没有进程要杀也没有 close 事件会来。
+// 只走 doCancel 的话这个 Promise 永远不 settle，调用方一直等。
+test('spawn 之前就已取消：立刻 resolve，不死等', async () => {
+  const { root } = mkdtempRoot()
+  const ac = new AbortController()
+  ac.abort()   // 先取消，再调用
+
+  let spawned = false
+  const p = runClone({
+    id: 'prespawn-cancel',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    signal: ac.signal,
+    spawn: () => { spawned = true; return fakeSpawn() },
+    safetyNetMs: 5000,
+  })
+
+  const r = await p
+  assert.strictEqual(spawned, false, '已取消就不该再启动 git')
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'CLONE_CANCELLED')
+})
+
+// 进程杀不掉（凭据管理器弹框阻塞）时不能死等：安全网必须兜底 resolve，
+// 且不能把「杀不掉」说成「已取消」。
+test('杀不掉进程：安全网兜底 resolve，不假装成功', async () => {
+  const { root } = mkdtempRoot()
+  const targetDir = path.join(root, 'engines', 'stuck-net')
+  const ac = new AbortController()
+  let fakeChild = null
+
+  const p = runClone({
+    id: 'stuck-net',
+    cloneUrl: 'https://github.com/a/b.git',
+    execute: true,
+    root,
+    signal: ac.signal,
+    spawn: () => {
+      fs.mkdirSync(path.join(targetDir, '.git'), { recursive: true })
+      const c = fakeSpawn()
+      // kill 之后不发 close：模拟进程杀不掉
+      c.kill = () => { c.killed = true }
+      fakeChild = c
+      return c
+    },
+    killProcessTree: () => { if (fakeChild) fakeChild.kill() },
+    safetyNetMs: 60,
+  })
+
+  await new Promise((r) => setTimeout(r, 10))
+  ac.abort()
+
+  const r = await p
+  assert.ok(fakeChild.killed, '应该真的去杀了进程')
+  assert.ok(r && typeof r.code === 'string', '必须 resolve 出一个结论')
+  assert.notStrictEqual(r.code, 'CLONE_CANCELLED',
+    '进程没杀掉，不能声称已取消成功')
+  assert.ok(r.ok === false, '必须报失败，不能假装成功')
 })
