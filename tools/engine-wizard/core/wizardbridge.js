@@ -573,6 +573,11 @@ function handleCloneCancel (req, res) {
   return true
 }
 
+// 正在进行的装依赖（id → AbortController），供取消端点使用。
+//   与 cloneAbortControllers 同一形状：装依赖可能跑几十分钟，
+//   取消按钮必须能杀掉那个进程，而不只是断掉前端的流。
+const envAbortControllers = new Map()
+
 // POST /wizard/env          第 3 步
 function handleEnv (req, res) {
   if (req.method !== 'POST') return false
@@ -584,6 +589,9 @@ function handleEnv (req, res) {
       manifest: body.manifest,
       execute: body.execute === true,
       backend: body.backend,   // 前端 StepDeps 会传 backend（torch 后端选择）
+      // root 与其他端点同一口径：给了就用，没给走 projectRoot()。
+      //   测试与夹具需要它（测试不许写真仓库的 engines/）。
+      root: body.root,
     }
     // 只出计划（execute:false）时走普通 JSON 响应 —— 快的请求不该用流。
     if (!input.execute) {
@@ -608,6 +616,15 @@ function handleEnv (req, res) {
       res.write(`event: ${event}\n`)
       res.write(`data: ${JSON.stringify(data)}\n\n`)
     }
+    // 取消通道：前端点「取消」打这个端点 ⇒ abort ⇒ runEnv 杀进程树。
+    //   与前端的流断开无关：SSE 断了进程照跑，必须由服务端这一侧杀它。
+    const ac = new AbortController()
+    input.signal = ac.signal
+    const envId = String(input.id || '')
+    if (envId) envAbortControllers.set(envId, ac)
+    // 解除挂起的监听：流结束时（done / BRIDGE_FAILED）必须摘掉注册，
+    //   否则这个 AbortController 会一直挂在 id 上，下次重跑发现 id 已被占。
+    const forget = () => { if (envId) envAbortControllers.delete(envId) }
     // onStep：每步开始（前端用来画「第 N/M 步」）
     input.onStep = (i, total, step, argv) => {
       send('step', { i, total, argv: argv.join(' '), cwd: step.cwd })
@@ -617,13 +634,41 @@ function handleEnv (req, res) {
       send('line', { text: text.replace(/\r?\n$/, ''), err: !!isErr })
     }
     runEnv(input).then((r) => {
+      forget()
       send('done', r)
       res.end()
     }).catch((e) => {
+      forget()
       send('done', { ok: false, code: 'BRIDGE_FAILED',
         error: (e && e.message) || String(e) })
       res.end()
     })
+  })
+  return true
+}
+
+// POST /wizard/env/cancel  {id}  取消正在进行的装依赖
+//
+// 与 handleCloneCancel 同构，但语义不同：克隆取消后删掉整个目标目录，
+//   装依赖取消后引擎环境是半截的 —— 那个环境由重跑时先删 .venv 处理
+//   （见 env.js 的 hasPartialVenvMark / markPartialVenv），
+//   所以这里只 abort，不删目录。
+function handleEnvCancel (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/env/cancel')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
+    const ac = envAbortControllers.get(id)
+    if (!ac) {
+      json(res, 200, { ok: true, id, cancelled: false,
+        note: 'No active install found for this id.' })
+      return
+    }
+    ac.abort()
+    envAbortControllers.delete(id)
+    json(res, 200, { ok: true, id, cancelled: true })
   })
   return true
 }
@@ -1235,7 +1280,7 @@ module.exports = {
   handleDownloadManifest, handleDownloadFile,
   handleVerifyChecks, handleVerify, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
-  handleInstallState, handleResetProgress, handleCloneCancel,
+  handleInstallState, handleResetProgress, handleCloneCancel, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

@@ -65,7 +65,7 @@ function validatePlugin () {
   const HANDLERS = [
     handleSpec, handleRead,
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
-    wb.handleClone, wb.handleEnv, wb.handleModels,
+    wb.handleClone, wb.handleCloneCancel, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
     wb.handleVerifyChecks, wb.handleVerify, wb.handleProfile, handleValidate, wb.handleCliArgs,
     wb.handleDiscover,
     // ⭐ 2026-10-12：install-state（这一台装到哪了）与 reset-progress（从头重装
