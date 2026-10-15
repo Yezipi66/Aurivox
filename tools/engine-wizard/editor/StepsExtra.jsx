@@ -209,17 +209,25 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 下载全部：遍历所有 missing/partial 文件，逐个下载。
   //   用 ref 追踪下载状态，避免闭包读到旧的 state 值。
   const dlBusyRef = React.useRef(false)
+  // 暂停只停前端的逐个文件循环，不杀进程：当前文件下载中杀进程会留下半截，
+  // 而 hf 自带缓存，重跑同一条命令只补缺的部分。
+  // 所以界面上必须写清楚「当前文件下载中，暂停将在当前文件完成后生效」，
+  // 不写清楚就是让使用者以为点了就停。
+  const dlPausedRef = React.useRef(false)
+  const [dlPaused, setDlPaused] = React.useState(false)
   const downloadAll = () => {
     if (!manifest || manifest.length === 0) return
     const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
     if (filesToDownload.length === 0) return
     dlBusyRef.current = true
+    dlPausedRef.current = false
+    setDlPaused(false)
     setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
     let idx = 0
     const downloadNext = () => {
-      if (idx >= filesToDownload.length) {
+      if (idx >= filesToDownload.length || dlPausedRef.current) {
         dlBusyRef.current = false
-        setDlLive({ stage: 'done', ok: true })
+        setDlLive(dlPausedRef.current ? { stage: 'paused' } : { stage: 'done', ok: true })
         setDlBusyBoth(false)
         return
       }
@@ -236,6 +244,28 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       }, 500)
     }
     downloadNext()
+  }
+
+  const pauseDownload = () => {
+    dlPausedRef.current = true
+    setDlPaused(true)
+  }
+
+  // 删掉一个半截文件，让它回到「未下载」。走同一个 checkFileStatus 判据
+  //（后端），不在这里按大小猜；判为 ok 的不会被删。
+  const removePartial = async (f) => {
+    if (!f || !f.name) return
+    try {
+      await fetch('/wizard/download/file', {
+        method: 'DELETE', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id, name: f.name,
+          size: f.size || null, sha256: f.sha256 || null,
+          root: window.__PROJECT_ROOT__ || '',
+        }),
+      })
+      setFileList((list) => list.map((x) => (x.name === f.name ? { ...x, status: 'missing', size: 0, sha256: null, shaVerified: false } : x)))
+    } catch (e) { /* 删不掉就让使用者自己删，界面照实报 */ }
   }
 
   // 下载是「发射后不管」的后台任务 —— 点击后启动下载，不阻塞 UI，
@@ -380,7 +410,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               <code>engines/{id}/checkpoints/</code>
             </span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
             <button
               className="btn btn-sm"
               type="button"
@@ -389,7 +419,34 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             >
               {t('Download all', '下载全部')}
             </button>
+            {/* 暂停只停前端的逐个文件循环，不杀进程。文案必须写清楚
+                「当前文件下载中，暂停将在当前文件完成后生效」，不写就是欺骗。 */}
+            {dlBusy && (
+              <button
+                className="btn btn-sm"
+                type="button"
+                disabled={dlPaused}
+                onClick={pauseDownload}
+              >
+                {t('Pause', '暂停')}
+              </button>
+            )}
           </div>
+          {dlBusy && (
+            <div className="field-hint" style={{ marginBottom: 8 }}>
+              {t('A file is downloading now. Pausing takes effect after the '
+                + 'current file finishes — the download process is not killed, '
+                + 'so resuming reuses what has already been fetched.',
+                '当前文件下载中，暂停将在当前文件完成后生效。'
+                + '暂停不会杀掉下载进程，因此续跑时会复用已下载的部分。')}
+            </div>
+          )}
+          {dlLive && dlLive.stage === 'paused' && (
+            <div className="msg msg-info">
+              {t('Paused. The remaining files are still marked as not downloaded.',
+                '已暂停。剩余文件仍标记为未下载。')}
+            </div>
+          )}
           <table className="table">
             <thead>
               <tr>
@@ -571,7 +628,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         <div className="preflight" style={{ marginTop: 8 }}>
           <div className="layer-label">{t('Files on disk', '磁盘上的文件')}</div>
           {fileList.map((f, i) => {
-            const state = f.size > 0 ? 'ok' : 'partial'
+            // 三态由后端判（大小 + 上游 sha），不在这里看大小猜：
+            // 大小对但 sha 不符的必须报半截，只看大小会当成好的。
+            // shaVerified 为 false 时不能声称「已校验」。
+            const state = f.status === 'ok' ? 'ok' : 'partial'
+            const checked = f.shaVerified === true
             return (
               <div key={i} className="pf-row">
                 <span className={`badge badge-${state}`}>
@@ -582,7 +643,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                   {f.size > 0
                     ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
                     : t('(empty / partial)', '（空 / 半截）')}
+                  {state === 'ok' && checked
+                    ? t(' (sha256 verified)', '（SHA-256 已校验）')
+                    : state === 'ok'
+                      ? t(' (sha256 not provided by the remote)', '（远端未提供 SHA-256，未校验）')
+                      : ''}
                 </span>
+                {state === 'partial' && (
+                  <button className="btn btn-mini" onClick={() => removePartial(f)}>
+                    {t('Delete partial and re-download', '删除半截并重下')}
+                  </button>
+                )}
               </div>
             )
           })}

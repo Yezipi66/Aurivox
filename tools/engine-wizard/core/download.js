@@ -259,12 +259,16 @@ function base64ToHex (b64) {
 }
 
 //  checkFileStatus：三态判断
-//  正式文件存在 + 大小匹配 → 'ok'（SHA-256 是实际计算的，不是远端 blobId）
+//  正式文件存在 + 大小匹配 + 有上游 sha 时比对通过 → 'ok'
 //  正式文件存在但远端没给大小 → 'partial'：无法确认完整性，
 //     默认报 'ok' 就是给假绿灯（文件可能是上次中断留下的半截）。
-//  .tmp 文件存在 → 'partial'
+//  大小不符、或与上游 sha 不符 → 'partial'（磁盘文件是坏的，重下）
+//  正式文件不存在但 .tmp 存在 → 'partial'
 //  都不存在 → 'missing'
-async function checkFileStatus (file, expectedSize, root, id) {
+//
+//  sha 只在两边都有时才比对：上游没给就只报实际算出的值，
+//  不声称校验过。本地算出 sha 与上游一致才算真校验。
+async function checkFileStatus (file, expectedSize, root, id, expectedSha) {
   const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
   const finalPath = path.join(dir, file)
   const tmpPath = finalPath + '.tmp'
@@ -290,7 +294,22 @@ async function checkFileStatus (file, expectedSize, root, id) {
         noteZh: '磁盘上的文件和远端文件列表给出的大小不一致。',
       }
     }
-    return { status: 'ok', size: stat.size, sha256: await sha256File(finalPath) }
+    const actualSha = await sha256File(finalPath)
+    // 上游给了 sha 就必须比对。大小对但内容是坏的（写入中断、磁盘出错），
+    // 只看大小会当成好的，装上之后在推理阶段才炸。
+    if (expectedSha && actualSha && actualSha !== expectedSha) {
+      return {
+        status: 'partial',
+        size: stat.size,
+        sha256: actualSha,
+        expectedSha,
+        shaVerified: false,
+        note: 'The file size matches but its SHA-256 differs from the value the remote reports.',
+        noteZh: '文件大小一致，但 SHA-256 与远端给出的不一致，内容已损坏。',
+      }
+    }
+    return { status: 'ok', size: stat.size, sha256: actualSha,
+      shaVerified: Boolean(expectedSha) }
   }
 
   if (fs.existsSync(tmpPath)) {
@@ -322,12 +341,16 @@ function sha256File (filePath) {
 //     抹掉，仓库列、重下、续传按钮会一起失效。
 //  partial 时带上 note/noteZh 说明为什么不完整（远端没给大小 / 大小不符），
 //     不是笼统一句「半截」。
+//  expectedSha 参与判断：上游给了 sha 就比对，两边都有才算校验过。
+//  结果里带 shaVerified 说明「这一条到底有没有真的校验过」，
+//  前端不许把它当成「已校验」来展示。
 async function enrichManifestFiles (files, repo, tool, root, id) {
   const results = []
   for (const f of (files || [])) {
-    const st = await checkFileStatus(f.name, f.size, root, id)
+    const st = await checkFileStatus(f.name, f.size, root, id, f.sha256 || null)
     results.push({
       name: f.name, size: f.size, sha256: st.sha256 || f.sha256 || null, status: st.status,
+      shaVerified: st.shaVerified === true,
       repo, tool,
       note: st.note || null, noteZh: st.noteZh || null,
     })
@@ -536,4 +559,42 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
   return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches)
 }
 
-module.exports = { runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
+/**
+ * 删掉半截文件，让它回到 missing 以便重下。
+ *
+ * 只删明确判为 partial 的文件（大小不符 / sha 不符 / 只有 .tmp / 上游没给大小
+ * 所以无法确认）。判为 ok 与 missing 的一律不碰：删 ok 会让用户白下一遍。
+ *
+ * 判 partial 要用上游给的真实 size 与 sha，不能传 null —— 传 null 会让
+ * 「大小不符」被误判成「上游没给大小」，虽然两者都算 partial，
+ * 但报出去的原因不一样，使用者没法判断该不该删。
+ *
+ * @param {Array<{name:string, size?:number, sha256?:string}>} files 要删的文件
+ * @param {string} root 项目根
+ * @param {string} id 引擎 id
+ * @returns {Promise<{deleted: string[], skipped: {name:string, status:string}[], bytes: number}>}
+ */
+async function removePartialFiles (files, root, id) {
+  const deleted = []
+  const skipped = []
+  let bytes = 0
+  const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
+  for (const f of (files || [])) {
+    const name = f && typeof f === 'object' ? f.name : f
+    const size = f && typeof f === 'object' ? (f.size || null) : null
+    const sha = f && typeof f === 'object' ? (f.sha256 || null) : null
+    const finalPath = path.join(dir, name)
+    const tmpPath = finalPath + '.tmp'
+    const st = await checkFileStatus(name, size, root, id, sha)
+    if (st.status !== 'partial') { skipped.push({ name, status: st.status }); continue }
+    for (const p of [finalPath, tmpPath]) {
+      try {
+        if (fs.existsSync(p)) { bytes += fs.statSync(p).size; fs.rmSync(p, { force: true }) }
+      } catch (e) { /* 删不掉的留给下一次续传 */ }
+    }
+    deleted.push(name)
+  }
+  return { deleted, skipped, bytes }
+}
+
+module.exports = { runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }

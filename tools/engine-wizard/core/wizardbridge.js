@@ -7,7 +7,8 @@ const path = require('node:path')
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot } = require('./clone')
 const { runEnv, buildEnvPlan } = require('./env')
-const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile } = require('./download')
+const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile,
+  removePartialFiles } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, planDependencies, probePyproject } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
@@ -751,11 +752,13 @@ function handleDownloadManifest (req, res) {
   return true
 }
 
-// POST /wizard/download/file { id, root, file }  第 3 步 —— 单文件下载（SSE）
-//   调用 downloadFile 下载单个文件，SSE 流式返回进度
+// /wizard/download/file  第 3 步单文件操作
+//   POST   { id, root, file } 下载单个文件，SSE 流式返回进度
+//   DELETE { id, root, name, size, sha256 } 删掉判为半截的那个文件
 function handleDownloadFile (req, res) {
-  if (req.method !== 'POST') return false
+  if (req.method !== 'POST' && req.method !== 'DELETE') return false
   if (!req.url || !req.url.startsWith('/wizard/download/file')) return false
+  if (req.method === 'DELETE') { handleDeletePartialFile(req, res); return true }
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const { id, file } = body
@@ -786,6 +789,33 @@ function handleDownloadFile (req, res) {
     })
   })
   return true
+}
+
+// DELETE /wizard/download/file —— 删掉半截文件
+//   判据用后端的 checkFileStatus（大小 + 上游 sha），不在前端按大小猜。
+//   判为 ok 与 missing 的都不删：删 ok 会让使用者白下一遍。
+function handleDeletePartialFile (req, res) {
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const { id, name, size, sha256 } = body
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    if (!name) { json(res, 400, { ok: false, error: 'name is required' }); return }
+    const root = body.root || projectRoot() || ''
+    removePartialFiles([{ name, size: size || null, sha256: sha256 || null }], root, id)
+      .then((r) => {
+        if (r.deleted.length === 0) {
+          json(res, 200, { ok: false, code: 'NOT_PARTIAL',
+            error: 'The file is not partial — nothing was deleted.',
+            errorZh: '这个文件不是半截，未删除任何内容。' })
+          return
+        }
+        json(res, 200, { ok: true, deleted: r.deleted, bytes: r.bytes })
+      })
+      .catch((e) => {
+        json(res, 500, { ok: false, code: 'DELETE_FAILED',
+          error: (e && e.message) || String(e) })
+      })
+  })
 }
 
 // GET /wizard/download/progress?id=  第 3 步 —— 读断点续传进度
