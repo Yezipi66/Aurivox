@@ -321,6 +321,16 @@ Windows 杀进程树用 taskkill 带 /T，不用 child.kill。
 状态：通过。取消后未完成步骤不写 done（断点续传不撒谎）；取消后 .venv 里
       有 .wizard-partial-venv 标记，重跑先删整个 .venv 再装。
 
+完成记录（已通过独立验收）：
+改动文件：core/env.js、core/wizardbridge.js、web/wizard.vite.config.mjs、
+      editor/StepDeps.jsx、test/installCancel.node.test.js。
+提交：1172716（取消通道 + 断点语义修正 + 半截环境重建）、
+      341b388（取消端点 /wizard/env/cancel）、
+      6837742（前端取消按钮）、
+      e302899（13 条测试，含真进程与 HTTP 层）。
+状态：通过。取消后未完成步骤不写 done（断点续传不撒谎）；取消后 .venv 里
+      有 .wizard-partial-venv 标记，重跑先删整个 .venv 再装。
+
 ### A3 下载可暂停、可删半截
 
 动文件：core/download.js、editor/StepsExtra.jsx
@@ -336,6 +346,17 @@ weightsOnDisk 改为有 sha 就校验，没有就只判大小，不假装校验�
 注意：暂停不是立即停当前文件。界面文案写死这一句：
 当前文件下载中，暂停将在当前文件完成后生效。
 不写清楚就是欺骗用户。
+
+完成记录（首轮不通过，已修并复验）：
+改动文件：core/download.js、core/wizardbridge.js、editor/StepsExtra.jsx、
+      test/downloadIntegrity.node.test.js、test/download.node.test.js。
+提交：e294523（下载校验 sha256、半截可删、暂停不骗人）、
+      5bef1b7（删半截不许删掉好文件）、
+      fa5a668（修上一笔引入的语法错误）、
+      f38a3cb（修验收抓到的两处纪律违背：未定义的 btn-mini 类、
+      测试注释里的强调符号与归属叙述）。
+状态：通过。暂停是当前文件跑完才停（UI 文案写死）；半截判定为 size=0
+      或 sha 不符；删半截不删掉好文件。
 
 ### A4 名片存盘有备份
 
