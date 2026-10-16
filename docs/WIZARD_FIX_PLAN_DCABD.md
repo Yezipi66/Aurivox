@@ -311,6 +311,16 @@ Windows 杀进程树用 taskkill 带 /T，不用 child.kill。
 取消时在 .venv 里写一个标记文件标明环境不完整，重跑先删掉整个 .venv 再建，
 或用 uv sync --reinstall 重建，接着用半个环境不在允许范围内。
 
+完成记录（已通过独立验收）：
+改动文件：core/env.js、core/wizardbridge.js、web/wizard.vite.config.mjs、
+      editor/StepDeps.jsx、test/installCancel.node.test.js。
+提交：1172716（取消通道 + 断点语义修正 + 半截环境重建）、
+      341b388（取消端点 /wizard/env/cancel）、
+      6837742（前端取消按钮）、
+      e302899（13 条测试，含真进程与 HTTP 层）。
+状态：通过。取消后未完成步骤不写 done（断点续传不撒谎）；取消后 .venv 里
+      有 .wizard-partial-venv 标记，重跑先删整个 .venv 再装。
+
 ### A3 下载可暂停、可删半截
 
 动文件：core/download.js、editor/StepsExtra.jsx
