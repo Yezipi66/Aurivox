@@ -304,8 +304,21 @@ def verify_level_a(spec):
         return {"ok": False, "level": "A", "stage": "wav",
                 "error": "拿到了字节，但**不是能播的音频**", "wav": wav,
                 "steps": out["steps"]}
+    # 把音频写成文件带出来：Player.jsx 画波形需要 src 指向可 fetch 的音频，
+    #   只回报字节数的话前端拿不到音频本体，波形无数据可画。
+    audio_path = None
+    try:
+        out_dir = os.path.join(spec.get("root") or ".", ".wizard-verify-audio")
+        os.makedirs(out_dir, exist_ok=True)
+        audio_path = os.path.join(out_dir, "verify-%s.wav" % spec.get("id", "audio"))
+        with open(audio_path, "wb") as f:
+            f.write(audio)
+    except Exception as exc:
+        audio_path = None
+
     return {"ok": True, "level": "A", "wav": wav, "steps": out["steps"],
-            "duration_sec": wav.get("duration_sec")}
+            "duration_sec": wav.get("duration_sec"),
+            "audio_path": audio_path}
 
 
 def _extract_audio(body, raw=None):

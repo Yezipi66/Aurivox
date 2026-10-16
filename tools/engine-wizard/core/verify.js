@@ -208,5 +208,4 @@ function runAudioCheck (id, opts = {}) {
       error: String((e && e.message) || e) }
   }
 }
-
 module.exports = { checks, runChecks, runAudioCheck }
