@@ -908,28 +908,75 @@ function handleModels (req, res) {
   return true
 }
 
-/** GET /wizard/verify/checks —— 第 7 步：四道校验的清单 */
+/**
+ * GET /wizard/verify/checks?id=<id>&audio=A|B[&request=<json>]
+ *   跑第 5 步的校验。audio 默认 B（只验宿主谈得拢，不合成）；
+ *   audio=A 时要真合成一次，这时才会产出音频本体供波形用。
+ *   request 是 A 级要的请求体（引擎方言的键名，平台不编）。
+ */
 function handleVerifyChecks (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/verify/checks')) return false
   const url = new URL(req.url, 'http://localhost')
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
-  const r = runChecks(id, { deep: true })
-  // 同时跑 audio B 级（只验宿主拿到合法响应，不合成）
-  const audio = runAudioCheck(id, { audio: 'B' })
-  // B 级不合成，没有 audio_path。检查磁盘上有没有 A 级留下的音频文件，
-  //   有的话把路径带出来，前端 Player.jsx 才能画波形。
-  const audioDir = path.join(projectRoot(), 'engines', id, '.wizard-verify-audio')
-  try {
-    if (fs.existsSync(audioDir)) {
-      const files = fs.readdirSync(audioDir).filter(f => f.endsWith('.wav'))
-      if (files.length > 0) audio.audio_path = path.join(audioDir, files[0])
+
+  const audioLevel = url.searchParams.get('audio') === 'A' ? 'A' : 'B'
+  let request = null
+  const rawRequest = url.searchParams.get('request')
+  if (rawRequest) {
+    try { request = JSON.parse(rawRequest) } catch (e) {
+      json(res, 400, { ok: false, error: `request 不是合法 JSON：${e.message}` }); return true
     }
-  } catch { /* 读不到就不带 */ }
+  }
+
+  const r = runChecks(id, { deep: true })
+  // runChecks 在名片解析不出时只回 {ok, code, error, errorZh}，没有 checks 字段。
+  //   直接往 r.checks 上挂会抛 TypeError，变成 HTTP 500 而不是如实报错。
+  if (!r.checks) {
+    r.checks = {}
+  }
+  const audio = runAudioCheck(id, { audio: audioLevel, request })
+  // A 级合成成功时 audio_path 已由 verify_audio.py 给出；B 级不合成，
+  //   磁盘上可能留着上次的 A 级产物，能找到就带上。
+  if (!audio.audio_path) {
+    const found = findVerifyAudio(id)
+    if (found) audio.audio_path = found
+  }
   r.checks.audio = audio
   json(res, r.ok ? 200 : 400, r)
   return true
+}
+
+/**
+ * 找 engines/<id>/.wizard-verify-audio/ 下第一个 wav。
+ * 返回绝对路径，找不到返回 null。
+ */
+function findVerifyAudio (id) {
+  try {
+    const dir = audioDirFor(id)
+    if (!dir) return null
+    if (!fs.existsSync(dir)) return null
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.wav'))
+    if (files.length === 0) return null
+    return path.join(dir, files[0])
+  } catch { /* 读不到就当没有 */ return null }
+}
+
+/**
+ * 算出 engines/<id>/.wizard-verify-audio/ 的绝对路径。
+ * id 里带路径分隔符或 .. 的要拒掉：归一化之后可能逃出 engines/<id>/，
+ *   那就是越权读。save.js 判越界也是这个做法。
+ */
+function audioDirFor (id) {
+  const enginesDir = path.resolve(projectRoot(), 'engines')
+  const dir = path.resolve(enginesDir, String(id), '.wizard-verify-audio')
+  // 必须在 engines/<id>/ 之内：先比前缀，再确认不是 engines 本身
+  const insideEngines = dir.startsWith(enginesDir + path.sep)
+  if (!insideEngines) return null
+  const idPart = path.resolve(enginesDir, String(id))
+  if (idPart === enginesDir) return null
+  return dir
 }
 
 /**
@@ -938,24 +985,35 @@ function handleVerifyChecks (req, res) {
  */
 // GET /wizard/verify/audio?id=<id>
 //   把 verify_audio.py 写出的音频文件送前端，供 Player.jsx 画波形。
-//   只允许读 .wizard-verify-audio/ 目录下的 wav 文件，不暴露其他路径。
+//   只允许读 engines/<id>/.wizard-verify-audio/ 下的 wav，
+//   越权路径一律拒（见 audioDirFor）。
 function handleVerifyAudio (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/verify/audio')) return false
   const url = new URL(req.url, 'http://localhost')
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
-  const enginesDir = path.join(projectRoot(), 'engines')
-  const audioDir = path.join(enginesDir, id, '.wizard-verify-audio')
+  const dir = audioDirFor(id)
+  if (!dir) { json(res, 400, { ok: false, error: 'invalid id' }); return true }
   let audioFile = null
   try {
-    if (fs.existsSync(audioDir)) {
-      const files = fs.readdirSync(audioDir).filter(f => f.endsWith('.wav'))
-      if (files.length > 0) audioFile = path.join(audioDir, files[0])
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.wav'))
+      if (files.length > 0) audioFile = path.join(dir, files[0])
     }
   } catch { /* 读不到就如实报 */ }
   if (!audioFile || !fs.existsSync(audioFile)) {
     json(res, 404, { ok: false, error: 'no audio file found' }); return true
+  }
+  // 再确认一次读到的文件确实在白名单目录内：符号链接可能指向别处
+  try {
+    const real = fs.realpathSync(audioFile)
+    const realDir = fs.realpathSync(dir)
+    if (!real.startsWith(realDir + path.sep)) {
+      json(res, 400, { ok: false, error: 'audio file is outside the allowed directory' }); return true
+    }
+  } catch (e) {
+    json(res, 404, { ok: false, error: `cannot resolve audio file: ${e.message}` }); return true
   }
   const data = fs.readFileSync(audioFile)
   res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length })
