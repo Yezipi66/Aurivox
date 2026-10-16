@@ -39,6 +39,8 @@ function loadComputeAutoFill () {
     if (id === 'react') return {}
     if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en }) }
     if (/useInstalled/.test(id)) return { useInstalled: () => ({}) }
+    // DragBind 是 CliGenPanel 集成进来的子组件，本测试不需要它真的渲染
+    if (/DragBind/.test(id)) return { default: () => null }
     throw new Error('computeAutoFill 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
+import DragBind from './DragBind'
 
 //  CLI GEN PANEL：扫描引擎参数并自动填进名片（cli 与 python 两条路共用）
 //
@@ -357,6 +358,14 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
                 '能认出来的参数已自动填进下面的 call 段。扫描没覆盖的手动补，然后保存。')}
             </p>
           </div>
+        )}
+
+        {/* ③″ 参数池与槽位绑定：三种操作方式（拖动/点击/键盘） */}
+        {scan && scan.ok && args.length > 0 && (
+          <DragBind call={manifest.call} params={args} onChange={(nextCall) => {
+            const next = { ...manifest, call: nextCall }
+            onChange(next)
+          }} />
         )}
 
         {/* ③′ notes：探测说明如实显示（如"引擎环境未就绪"），不假装 */}
