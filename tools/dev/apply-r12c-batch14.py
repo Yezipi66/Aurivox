@@ -634,13 +634,13 @@ def selftest():
 
     # --- 死树归档：确认无活代码引用（在本树上真扫一遍）---------------------
     #
-    # ⚠ 按**裸目录名**扫会误报：`vendor/gsv_code` 和活着的
+    # 按裸目录名扫会误报：`vendor/gsv_code` 和活着的
     # `engines/gpt-sovits/gsv_code` 同名，而全树 106 处 `from gsv_code...`
     # 走的是 `infer_server.py:51` 的 `sys.path.insert(0, GSV_DIR)`，
     # 解析到的是 engines/ 那棵，vendor/ 从来不在 sys.path 上。
     # 所以只认**带路径前缀**的引用。
     #（反过来说：正因为同名，vendor/gsv_code 留在盘上本身就是一个潜在的
-    #  包遮蔽隐患 —— 谁哪天把 vendor/ 加进 sys.path 就会导入错的那棵。）
+    #  包遮蔽隐患，谁哪天把 vendor/ 加进 sys.path 就会导入错的那棵。）
     def _needles(rel):
         out = [rel, rel.replace('/', '\\')]
         base = rel.split('/')[-1]
