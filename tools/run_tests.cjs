@@ -93,7 +93,11 @@ if (!testFiles.length) {
 // 连一条测试都不跑）。本项目的验收常需要把输出交给管道或重定向，
 // 所以这里按 stdin 是否 tty 选择：交互终端用 inherit 保住实时进度，
 // 其余情况改用 pipe 并把子进程输出原样转写，避免测试被静默吞掉。
-const interactive = process.stdin.isTTY === true
+// 只看 stdin 不够：有的宿主（后台任务、CI runner）报 stdin.isTTY 为 true
+// 但实际没有可用终端，此时 inherit 仍会让 test runner 整体退出。
+// 所以要求 stdin 与 stdout 都是 tty 才用 inherit。
+const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true
+// 非交互时子进程输出会被收上来再原样转写，内存占用是测试输出的量级。
 const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...testFiles], {
   cwd: root,
   stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe'],
