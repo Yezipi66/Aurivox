@@ -410,29 +410,29 @@ const _modelSwitcher = new ModelSwitcher(gsvGet);
 function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(online); }
 
 // ---------------------------------------------------------------------------
-//  引擎进程看管人 —— 用到才起，不用就放
+//  引擎进程看管人：用到才起，不用就放
 // ---------------------------------------------------------------------------
 //
-// ⭐⭐⭐ 为什么后端得管这件事，而不是启动脚本：一台把模型在开进程那一刻就
-//   吃进内存的引擎（6 GB 起步），开机就点着意味着装到第三、四台时，光是
-//   开机就把内存吃干净了 —— 而其中大多数这一整天都不会被用到。
-//   ⇒ 起停必须跟着**请求**走，而请求只有后端看得见。
+// 为什么后端得管这件事，而不是启动脚本：一台把模型在开进程那一刻就
+// 吃进内存的引擎（6 GB 起步），开机就点着意味着装到第三、四台时，光是
+// 开机就把内存吃干净了，而其中大多数这一整天都不会被用到。
+// 起停必须跟着请求走，而请求只有后端看得见。
 //
-// ⛔ 端口不归它管。每一台引擎监听哪儿仍然由启动脚本解出来、写进各自的
-//   环境变量；这里 spawn 时的端口是从那个结果里反解出来的。
-//   （启动脚本里那套 Windows 端口冲突逻辑一行都不许搬过来重写。）
+// 端口不归它管。每一台引擎监听哪儿仍然由启动脚本解出来、写进各自的
+// 环境变量；这里 spawn 时的端口是从那个结果里反解出来的。
+// （启动脚本里那套 Windows 端口冲突逻辑一行都不许搬过来重写。）
 const { EngineSupervisor } = require("./lib/engines/supervisor");
 const { spawnFromPlan, probeOnce } = require("./lib/engines/spawnEngine");
 const { buildLaunchPlan: _buildLaunchPlan } = require("./lib/engines/launchPlan");
 
-// ⭐⭐⭐ 内存判据在这里插上。上限从「最多几台」改成「机器还剩多少」——
-//   「开了几台」是个代理指标，靠两个假设换算（一台大概吃多少、这机器上只有
-//   我们在跑），假设一破就答错而且不会有任何提示。真机 2026-08-31 把两个
-//   假设都打穿了：GSV 峰值 3547 MB，16 G 机器空着只剩 6230 MB。
-//   ⇒「还剩多少」这个数天然已经把别人吃掉的算进去了。
+// 内存判据在这里插上。上限从「最多几台」改成「机器还剩多少」。
+// 「开了几台」是个代理指标，靠两个假设换算（一台大概吃多少、这机器上只有
+// 我们在跑），假设一破就答错而且不会有任何提示。真机上两个
+// 假设都打穿了：GSV 峰值 3547 MB，16 G 机器空着只剩 6230 MB。
+// 「还剩多少」这个数天然已经把别人吃掉的算进去了。
 //
-// ⛔ 两个都是**注入**进去的，不是在 supervisor.js 顶上 require 的 ——
-//   那个文件那 57 条测试得能在一台没有引擎、不许写盘的机器上跑穷。
+// 两个都是注入进去的，不是在 supervisor.js 顶上 require 的。
+// 那个文件那 57 条测试得能在一台没有引擎、不许写盘的机器上跑穷。
 const _memprobe = require("./lib/engines/memprobe");
 const _memledger = require("./lib/engines/memledger");
 const _engineSupervisor = new EngineSupervisor({
@@ -446,51 +446,51 @@ const _engineSupervisor = new EngineSupervisor({
     freeMb: () => _memprobe.freeMb(),
     sampleTree: (pid) => _memprobe.sampleTree(pid),
   },
-  // 把 rootDir 绑上 —— supervisor 不该知道账本落在盘上的哪儿。
+  // 把 rootDir 绑上，supervisor 不该知道账本落在盘上的哪儿。
   ledger: {
     needMb: (id) => _memledger.needMb(__dirname, id),
     record: (id, mb) => _memledger.record(__dirname, id, mb),
     markAttempting: (id) => _memledger.markAttempting(__dirname, id),
     reapAttempts: () => _memledger.reapAttempts(__dirname),
-    // ⭐ B5：占用报告要能说「哪台上次没活着回来」。⛔ 区分不了「被 OOM 杀了」
-    //   和「用户直接关掉」（memledger.markAttempting 自己就这么写着）——
-    //   两种都值得让人看见，所以不假装能分。
+    // 占用报告要能说「哪台上次没活着回来」。区分不了「被 OOM 杀了」
+    // 和「用户直接关掉」（memledger.markAttempting 自己就这么写着）。
+    // 两种都值得让人看见，所以不假装能分。
     attemptingIds: () => Object.keys((_memledger.load(__dirname) || {}).attempting || {}),
   },
 });
-// ⭐⭐ 开机结上一轮的账：还挂着「正在试」的，都是**没活着回来**的。
-//   被系统 OOM 杀掉的进程来不及让我们读峰值 —— 这条是它唯一会留下的痕迹。
-// ⛔ 不抛：结不了账不该拦住后端启动。
+// 开机结上一轮的账：还挂着「正在试」的，都是没活着回来的。
+// 被系统 OOM 杀掉的进程来不及让我们读峰值，这条是它唯一会留下的痕迹。
+// 不抛：结不了账不该拦住后端启动。
 try {
   _engineSupervisor.reapCrashes();
 } catch (err) {
   console.warn("[engine] 结上一轮的内存账时出错，忽略：" + ((err && err.message) || err));
 }
-// 定时把空闲够久的放掉。⭐ 这件事和「有人来抢名额」无关 —— 内存该吐就吐，
-//   不该等到下一个人来要位置才想起来。
-// ⚠ unref：这个定时器不该单独把进程留住。少了它，Ctrl-C 之后后端不退出。
+// 定时把空闲够久的放掉。这件事和「有人来抢名额」无关，内存该吐就吐，
+// 不该等到下一个人来要位置才想起来。
+// unref：这个定时器不该单独把进程留住。少了它，Ctrl-C 之后后端不退出。
 const _engineSweepTimer = setInterval(() => {
   try { _engineSupervisor.sweep(); } catch (err) { console.warn("[engine] 清扫出错：" + ((err && err.message) || err)); }
 }, 60000);
 if (_engineSweepTimer.unref) _engineSweepTimer.unref();
 
-// ⛔ 后端退出时必须把引擎一起带走。留一堆吃着 6 GB 的孤儿进程比崩掉还糟：
-//   下次启动会被自己的残骸占住端口，而且看不出原因。
+// 后端退出时必须把引擎一起带走。留一堆吃着 6 GB 的孤儿进程比崩掉还糟：
+// 下次启动会被自己的残骸占住端口，而且看不出原因。
 //
-// ⭐⭐⭐ 只挂 `exit`，⛔ **绝不自己挂 SIGINT / SIGTERM**。
-//   这个后端本来就有一套优雅退出（见文件末尾的 shutdown()）：收到信号后
-//   **先不退**，停止收新请求、让正在跑的合成做完（默认最多等 120 秒），
-//   然后才 process.exit。
-//   我第一版在这里自己挂了信号并当场 process.exit(0) —— 那会把那套东西整个
-//   架空：用户 Ctrl-C 一下，一个跑了两分钟、马上就要出音频的合成当场没了。
-//   ⚠ 这个错**测试一条都不会红**（没有任何测试在跑真的信号），
-//     语法检查是撞上重名变量才顺带把它逼出来的。
-// ⇒ `exit` 是那套流程的**最后一站**：不管它是正常走完、超时强退、还是
-//   第二次信号强杀，都会经过这里。同步执行，正好够 kill 掉子进程。
+// 只挂 `exit`，绝不自己挂 SIGINT / SIGTERM。
+// 这个后端本来就有一套优雅退出（见文件末尾的 shutdown()）：收到信号后
+// 先不退，停止收新请求、让正在跑的合成做完（默认最多等 120 秒），
+// 然后才 process.exit。
+// 我第一版在这里自己挂了信号并当场 process.exit(0)，那会把那套东西整个
+// 架空：用户 Ctrl-C 一下，一个跑了两分钟、马上就要出音频的合成当场没了。
+// 这个错测试一条都不会红（没有任何测试在跑真的信号），
+//   语法检查是撞上重名变量才顺带把它逼出来的。
+// `exit` 是那套流程的最后一站：不管它是正常走完、超时强退、还是
+// 第二次信号强杀，都会经过这里。同步执行，正好够 kill 掉子进程。
 //
-// ⭐ 自检句：**往一个进程上挂信号处理之前，先查这个进程已经挂了什么。**
+// 自检句：往一个进程上挂信号处理之前，先查这个进程已经挂了什么。
 process.on("exit", () => {
-  // ⭐ 第二个参数 exiting=true 是**必须**的：stopAll 靠它决定走同步那条路。
+  // 第二个参数 exiting=true 是必须的：stopAll 靠它决定走同步那条路。
   //   process.on('exit') 里没有事件循环再跑一轮，异步 taskkill 会被掐掉。
   try { _engineSupervisor.stopAll("后端退出", true); } catch { /* 退出路径上不许再抛 */ }
 });
@@ -572,7 +572,7 @@ function normalizeModelPath(raw, opts) {
   return { ok: true, value: s, external: true };
 }
 
-// Patch #11 (R3): a "custom" reference upload lands in APP_DIR/voices/custom_refs
+// A "custom" reference upload lands in APP_DIR/voices/custom_refs
 // (a temp area OUTSIDE ASSETS_ROOT). Persisting that raw path into a v3 recipe
 // would be mislabeled as an ASSETS_ROOT asset (classifyManagedPath treats a bare
 // relative path as asset-relative) → the recipe resolves to a non-existent file
@@ -808,14 +808,14 @@ function forceSplitLong(text, softLimit, hardLimit) {
 //  TTS PAYLOAD BUILDER
 // ===========================
 
-// ⭐ 契约 v2 第 1c 步：这张表搬去名片了。
+// 契约 v2 第 1c 步：这张表搬去名片了。
 //
-// 它原来叫 TTS_PASS_THROUGH_KEYS，23 个键，**全是 GPT-SoVITS 的词汇**，
+// 它原来叫 TTS_PASS_THROUGH_KEYS，23 个键，全是 GPT-SoVITS 的词汇，
 // 躺在平台代码里。现在的唯一来源是 engines/gpt-sovits/manifest.json 的
 // payload_keys（逐字搬过去，一个没加一个没减）。
 //
 // 它整个删掉了（连同 ctx 里那一项）：全仓只有 buildTtsPayload 读过它，
-// 没有任何路由从 ctx 里取用。留一个空壳"以后可能有人要"就是制造死代码 ——
+// 没有任何路由从 ctx 里取用。留一个空壳"以后可能有人要"就是制造死代码，
 // 这一刀的前一刀刚被死代码咬过一次（requires_engine_params），不重犯。
 
 // Reproducibility: turn a random-seed request (-1 / empty / null / invalid) into a
@@ -825,7 +825,7 @@ function forceSplitLong(text, softLimit, hardLimit) {
 // non-negative integer is passed through unchanged. Mirrors the engine's set_seed(-1)
 // randomisation range, so behaviour is unchanged except the value is now captured
 // instead of lost.
-// ⚠ Replaying the same seed does NOT yield a byte-identical file — measured ~-88 dB of
+// Replaying the same seed does NOT yield a byte-identical file — measured ~-88 dB of
 // float jitter on otherwise identical input. This comment previously claimed it
 // "reproduces the same audio"; see the measurement note in lib/services/synthesisService.js.
 function resolveSeed(seed) {
@@ -835,8 +835,8 @@ function resolveSeed(seed) {
 
 // A-1 那个 batch_size 旋钮（AURIVOX_TTS_BATCH_SIZE，低显存 GPU 降回 1）
 // 已搬到名片的 defaults_env 上，判断逐条一致（int / 1..16 / 不合法就回落）。
-// ⛔ 这里原来的 _DEFAULT_TTS_BATCH_SIZE 已删除而不是留着兜底 —— 契约 §12：
-//    一刀结束时老写法必须已经不存在，两份一起跑就是下一次漂移的起点。
+// 这里原来的 _DEFAULT_TTS_BATCH_SIZE 已删除而不是留着兜底，契约 §12：
+// 一刀结束时老写法必须已经不存在，两份一起跑就是下一次漂移的起点。
 
 // ---------------------------------------------------------------------------
 //  平台的活：把「参考音频/参考文本」解析成这台机器上真实存在的东西
@@ -845,8 +845,8 @@ function resolveSeed(seed) {
 // 拼请求体的代码搅在同一个函数里，所以看不出哪一半是平台的、哪一半是
 // GPT-SoVITS 的。第 1c 步把它单拎出来，是为了让割线看得见。
 //
-// 返回的是**平台的词**（reference_audio / reference_text），不是任何引擎的
-// 键名 —— 调用方（synthesisService）过去读的是 .ref_audio_path / .prompt_text，
+// 返回的是平台的词（reference_audio / reference_text），不是任何引擎的
+// 键名。调用方（synthesisService）过去读的是 .ref_audio_path / .prompt_text，
 // 那两个名字在一台不叫这个名字的引擎上会拿到 undefined，静默失败。
 function resolveReference(cfg) {
   let refAudio = cfg.reference_audio || "";
@@ -879,14 +879,14 @@ function resolveReference(cfg) {
   return { reference_audio: refAudio, reference_text: refText };
 }
 
-// ⭐⭐⭐ 2026-08-31（刀 A1）：这里过去有 legacyEngineProfile() —— 没传 engine 的
-//   调用方，替它去解析「名片上写 legacy_default 的那台」。**已删。**
+// 这里过去有 legacyEngineProfile()，没传 engine 的
+// 调用方，替它去解析「名片上写 legacy_default 的那台」。已删。
 //
-//   它的问题不是"取自哪台"，是它让 `engine` 这个参数**看起来可选**。
-//   一个可选的引擎参数，意味着每个新调用点都可以忘了传，而忘了传**不报错**
-//   —— 报出来的是另一台引擎的原话。
-// ⇒ buildTtsPayload 的 engine **变必传**，不传当场抛。
-//   ⛔ 不回落、⛔ 不给默认、⛔ 不留 `engine || 什么什么`。
+// 它的问题不是"取自哪台"，是它让 `engine` 这个参数看起来可选。
+// 一个可选的引擎参数，意味着每个新调用点都可以忘了传，而忘了传不报错，
+// 报出来的是另一台引擎的原话。
+// buildTtsPayload 的 engine 变必传，不传当场抛。
+// 不回落、不给默认、不留 `engine || 什么什么`。
 
 // ---------------------------------------------------------------------------
 //  合成结果复用缓存
@@ -900,9 +900,9 @@ const segmentCache = createSegmentCache({
 });
 // 命中/未命中计数与淘汰节奏都在 lib/cache/cachedInference.js 里。
 //
-// ⭐ 把算出来的目录打在启动横幅里。PATHS.CACHE.segments 挂在 CACHE_DIR 环境变量
-//   下（lib/paths.js），而这个变量本来是为 Python 侧那批 numba/hf/torch 缓存
-//   设的 —— 真机上一旦有人设过它，分段缓存就会跟着搬到别的盘，表现是
+// 把算出来的目录打在启动横幅里。PATHS.CACHE.segments 挂在 CACHE_DIR 环境变量
+// 下（lib/paths.js），而这个变量本来是为 Python 侧那批 numba/hf/torch 缓存
+// 设的。真机上一旦有人设过它，分段缓存就会跟着搬到别的盘，表现是
 //   "每段写入 ENOENT、命中率恒为 0、但合成一切正常"。一行日志换一次排障。
 if (segmentCache.enabled) {
   const from = process.env.CACHE_DIR ? "（跟随环境变量 CACHE_DIR）" : "";
@@ -916,7 +916,7 @@ if (segmentCache.enabled) {
 // ---------------------------------------------------------------------------
 // @param {string} text     要合成的文本
 // @param {object} cfg      合成配置（键名是历史形状，见文件末尾的"遗留词汇"说明）
-// @param {object} engine   resolveEngineProfile 的产物。⭐ **必传**（刀 A1）。
+// @param {object} engine   resolveEngineProfile 的产物。必传。
 function buildTtsPayload(text, cfg, engine) {
   if (!engine) {
     throw new Error(
@@ -927,8 +927,8 @@ function buildTtsPayload(text, cfg, engine) {
   const profile = engine;
   const { reference_audio, reference_text } = resolveReference(cfg);
 
-  // 平台的词 —— 右边这些 cfg 字段名是历史遗留的 GSV 形状，
-  // 但它们是**平台内部配置对象的字段**，不是发出去的键名。
+  // 平台的词。右边这些 cfg 字段名是历史遗留的 GSV 形状，
+  // 但它们是平台内部配置对象的字段，不是发出去的键名。
   // 把 cfg 本身改成平台词汇是下一刀的事（见 CFG_LEGACY_FIELDS 的说明）。
   const canonical = {
     text,
@@ -949,12 +949,12 @@ function buildTtsPayload(text, cfg, engine) {
     engineParams: cfg.engine_params,
   });
 
-  // Auxiliary references → absolute paths (Patch #11): resolve each aux entry the
+  // Auxiliary references → absolute paths: resolve each aux entry the
   // SAME way as the main reference so live generate no longer relies on the
   // engine's cwd coinciding with APP_DIR. Accepts legacy strings and v3
   // { base, path } objects; drops anything missing on this machine.
-  // ⭐ 键名问名片要，不再写死 —— 没有这个概念的引擎（maps 里没这一行）
-  //   整段跳过，而不是往请求体里塞一个它看不懂的键。
+  // 键名问名片要，不再写死。没有这个概念的引擎（maps 里没这一行）
+  // 整段跳过，而不是往请求体里塞一个它看不懂的键。
   const auxKey = engineKey(profile, "aux_reference_audio");
   if (auxKey && Array.isArray(payload[auxKey]) && payload[auxKey].length) {
     payload[auxKey] = payload[auxKey]
@@ -983,50 +983,50 @@ async function switchModels(cfg, engine) {
   // resident. Behaviour on a first/changed request or on failure is identical
   // to the previous inline implementation (same thrown Error messages). Safe
   // because switchModels is only ever called under withGenerationLock.
-  // ⭐ engine = 这次请求解析出来的名片。换权重是发给**这一台**的请求，
-  //   地址必须跟着走 —— 不跟着走的后果不是"落到默认那台"，而是客户端当场
-  //   抛 ENGINE_BASE_URL_MISSING，前端只看得到 "Internal server error"。
-  //   （2026-08-30 实测：界面上选好音色一按生成就 500，一声不出。）
+  // engine = 这次请求解析出来的名片。换权重是发给这一台的请求，
+  // 地址必须跟着走。不跟着走的后果不是"落到默认那台"，而是客户端当场
+  // 抛 ENGINE_BASE_URL_MISSING，前端只看得到 "Internal server error"。
+  // （实测：界面上选好音色一按生成就 500，一声不出。）
   return _modelSwitcher.ensure(cfg, engine || null);
 }
 
 async function generateOneSegment(segmentText, cfg, engine, out = {}) {
   const payload = buildTtsPayload(segmentText, cfg, engine);
   // 辅助参考音频在 buildTtsPayload 里已经解析成绝对路径并按存在性过滤过
-  // （Patch #11）；⛔ 别在这里把 cfg 里的原值再塞回去，那会把解析好的路径
+  // 别在这里把 cfg 里的原值再塞回去，那会把解析好的路径
   // 打回项目相对路径，live generate 就找不到文件了。
   //
   // 补一次是因为白名单那一段会把空串/null 过滤掉，而布尔 false 必须显式送达
   // （不发和发 false 在引擎那边是两件事）。
-  // ⭐ 第 1c 步加了名片门控：这台引擎的 payload_keys 上没有这个键就不发 ——
-  //   通用宿主对不认识的键直接 400（lib/engines/host.py:637-645），
-  //   硬塞过去等于必然失败。
-  // ⭐ C11：原来这里写死补 ["sample_steps","if_sr"] 两个键 —— 那是 GPT-SoVITS
+  // 第 1c 步加了名片门控：这台引擎的 payload_keys 上没有这个键就不发。
+  // 通用宿主对不认识的键直接 400（lib/engines/host.py:637-645），
+  // 硬塞过去等于必然失败。
+  // C11：原来这里写死补 ["sample_steps","if_sr"] 两个键，那是 GPT-SoVITS
   //   的私有参数名。现在补的是「这台引擎名片上声明的全部旋钮」，所以下游引擎
   //   的布尔参数不会再在这一行上被静默丢掉。
-  // ⭐ 刀 A1：这里过去是 `engine || legacyEngineProfile()`。engine 现在必传，
-  //   而且上面 buildTtsPayload 已经先替我们把「没传」拦成异常了。
+  // 这里过去是 `engine || legacyEngineProfile()`。engine 现在必传，
+  // 而且上面 buildTtsPayload 已经先替我们把「没传」拦成异常了。
   const _profile = engine;
   applyEngineKnobs(payload, _profile, cfg);
 
-  // ⭐⭐ 复用缓存的取值点就在这里，位置是刻意的：payload 已经拼完
-  //    （buildTtsPayload + applyEngineKnobs 都过了），马上就要发出去 ——
-  //    这一刻 payload 里有且仅有这次推理的全部输入。指纹它，「漏一个键」
-  //    在构造上就不可能发生。
+  // 复用缓存的取值点就在这里，位置是刻意的：payload 已经拼完
+  // （buildTtsPayload + applyEngineKnobs 都过了），马上就要发出去。
+  // 这一刻 payload 里有且仅有这次推理的全部输入。指纹它，「漏一个键」
+  // 在构造上就不可能发生。
   //
-  //    ⛔ 别把这段搬到 synthesisService 的分段循环里：那里手上只有 cfg，
-  //      得自己再拼一次 payload，那就是第二条装配线，迟早和真的这条漂开，
-  //      而漂开的症状是**返回一段错的音频且不报错**。
+  // 别把这段搬到 synthesisService 的分段循环里：那里手上只有 cfg，
+  // 得自己再拼一次 payload，那就是第二条装配线，迟早和真的这条漂开，
+  // 而漂开的症状是返回一段错的音频且不报错。
   //
-  //    实测收益（640 字 / 30 段 / 3070 Laptop）：改一句话 45.6 秒 → 3.9 秒。
-  //    ⭐ 策略本身在 lib/cache/cachedInference.js，这里只有接线。理由：这几行
-  //      是全仓出错代价最高的代码之一（算错了不报错，只是让用户听到上一次的
-  //      音频），而 server.js 是全仓唯一进不了测试进程的文件（一 require 就
-  //      app.listen）。所以策略放到能被测试直接调用的地方去。
+  // 实测收益（640 字 / 30 段 / 3070 Laptop）：改一句话 45.6 秒 → 3.9 秒。
+  // 策略本身在 lib/cache/cachedInference.js，这里只有接线。理由：这几行
+  // 是全仓出错代价最高的代码之一（算错了不报错，只是让用户听到上一次的
+  // 音频），而 server.js 是全仓唯一进不了测试进程的文件（一 require 就
+  // app.listen）。所以策略放到能被测试直接调用的地方去。
   //
-  //    out 是**出参**不是返回值：盘上有 8 个假 generateOneSegment（各测试的
-  //    harness），改返回值形状会把它们全部拖下水，而出参对它们完全透明
-  //    —— 它们不写 out，调用方读到的就是 undefined，即「不知道是否命中」。
+  // out 是出参不是返回值：盘上有 8 个假 generateOneSegment（各测试的
+  // harness），改返回值形状会把它们全部拖下水，而出参对它们完全透明。
+  // 它们不写 out，调用方读到的就是 undefined，即「不知道是否命中」。
   return await inferWithCache(
     segmentCache,
     { profile: _profile, payload, cfg },
@@ -1040,24 +1040,24 @@ async function _inferOneSegment(payload, cfg, engine, _profile) {
   // 引擎跟着请求走（契约 v2 第 1b 步）：
   // 谁发过来的 engine，就发到谁的地址、用谁的超时。
   // engine 为空 = 老调用方，gsvPost 自己懒解析老路径名片，行为不变。
-  // ⭐ 第 3 步（甲）：错误文案里的引擎名改为从名片来（_profile 就在上面几行）。
-  //   老路径引擎的 label 就是 "GPT-SoVITS"，所以对今天的用户这句话**一个字节
-  //   都没变**；接了别的引擎时才会说出那台的名字。
-  //   承重的部分（上游报错怎么传到 synthesisService）已经从「文案 + 正则」搬到
-  //   err.upstreamBody 属性上了，见 lib/engines/upstreamError.js 的注释。
-  // ⛔ 传输层失败要单独接：gsvPost 内部是 `req.on("error", reject)`
+  // 第 3 步（甲）：错误文案里的引擎名改为从名片来（_profile 就在上面几行）。
+  // 老路径引擎的 label 就是 "GPT-SoVITS"，所以对今天的用户这句话一个字节
+  // 都没变；接了别的引擎时才会说出那台的名字。
+  // 承重的部分（上游报错怎么传到 synthesisService）已经从「文案 + 正则」搬到
+  // err.upstreamBody 属性上了，见 lib/engines/upstreamError.js 的注释。
+  // 传输层失败要单独接：gsvPost 内部是 `req.on("error", reject)`
   //   （lib/gsv/client.js:69），Node 的 ECONNREFUSED 原样抛出来，既没有
   //   upstreamBody 也没有引擎身份 ⇒ 一路落到通用兜底，用户只看到
   //   "Internal server error"，而日志里写着 connect ECONNREFUSED 127.0.0.1:9880。
-  //   2026-08-23 实测撞到（引擎没启动）。这是新用户与下游插件作者最可能
+  //   实测撞到（引擎没启动）。这是新用户与下游插件作者最可能
   //   撞上的第一个错误，恰恰是唯一不点名引擎的那个。
   let ttsRes;
   try {
-    // ⭐⭐ 刀 2：这里过去是 `engine ? {...} : undefined` —— 不带 engine 时把
-    //   「连哪台」交给 gsvPost 里那个懒解析的模块级默认值（永远是名片上写
-    //   legacy_default 的那台，9880）。那是一次**看不见的**改道：调用方以为
-    //   自己没指定地址，实际上指定了，而且指定的是别人。
-    //   现在一律用 _profile（= 必传的 engine，刀 A1），
+    // 这里过去是 `engine ? {...} : undefined`，不带 engine 时把
+    // 「连哪台」交给 gsvPost 里那个懒解析的模块级默认值（永远是名片上写
+    // legacy_default 的那台，9880）。那是一次看不见的改道：调用方以为
+    // 自己没指定地址，实际上指定了，而且指定的是别人。
+    // 现在一律用 _profile（= 必传的 engine），
     //   落到哪台在这一行看得见，也能被日志和报错点名。
     ttsRes = await gsvPost("/tts", payload,
       { baseUrl: _profile.base_url, reqTimeout: _profile.timeout_ms });
@@ -1075,7 +1075,7 @@ async function _inferOneSegment(payload, cfg, engine, _profile) {
   if (!audioBytes || audioBytes.length === 0) {
     throw emptyAudioFailure(_profile);
   }
-  // ⭐ 交出去的是**引擎原样吐回来的字节**，不是 toPcm16Wav 之后的 —— 存进缓存的
+  // 交出去的是引擎原样吐回来的字节，不是 toPcm16Wav 之后的。存进缓存的
   //   也就是这一份。理由：指纹算的是 payload（引擎的输入），那么条目就该是引擎
   //   的输出，一进一出对得上。转码是调用方的事，命中时它照样会再转一次，
   //   行为与 miss 时一模一样。
@@ -1092,9 +1092,9 @@ async function _inferOneSegment(payload, cfg, engine, _profile) {
 
 // ADVANCED_PARAMS_FILE 取自 lib/paths.js（data/ 优先，回退项目根）。
 
-// 这三个是**启动期**设置：改了要重启引擎进程，不是一次合成的可调值。
+// 这三个是启动期设置：改了要重启引擎进程，不是一次合成的可调值。
 // 它们不在任何一张名片的 param_keys 上，因为契约 §2 明写平台不管引擎怎么
-// 起（那是逃生门那边的事）。⚠ 留在这里是现状，不是设计 —— 见挂账。
+// 起（那是逃生门那边的事）。留在这里是现状，不是设计，见挂账。
 const ENGINE_LAUNCH_DEFAULTS = {
   version: "v2Pro",
   is_half: true,
@@ -1103,22 +1103,22 @@ const ENGINE_LAUNCH_DEFAULTS = {
 
 // 一次合成的可调值，全部来自名片（契约 C11：参数表只有一份）。
 //
-// 这里原本是一张写死的 18 键表。它是 batch_size 那四份副本里**唯一正确**
+// 这里原本是一张写死的 18 键表。它是 batch_size 那四份副本里唯一正确
 // 的一份（写的是 _DEFAULT_TTS_BATCH_SIZE，跟着 AURIVOX_TTS_BATCH_SIZE 旋钮
 // 走），可惜前端无条件发 1 把它盖掉了，所以正确也没用上。
 //
-// ⛔ 不再缓存成常量：已装哪些引擎、环境变量拧到几，都是**运行时事实**。
-//    存成模块级常量就等于在进程启动的那一瞬间又拍了一张快照 —— 副本会从
-//    那一刻起重新开始漂。
+// 不再缓存成常量：已装哪些引擎、环境变量拧到几，都是运行时事实。
+// 存成模块级常量就等于在进程启动的那一瞬间又拍了一张快照，副本会从
+// 那一刻起重新开始漂。
 //
-// ⭐ 2026-08-23：三个函数的**函数体**搬去了 lib/advancedParams.js。
-//    原因不是整理代码，是它们在这里**测不到** —— server.js 一被 require 就
-//    listen，进不了测试进程。证据：把 save 从合并改成替换（一个真实的行为
-//    变更），全量 661 条测试**一条没红**。这里留下的三个薄壳只为不动 ctx 接线。
+// 三个函数的函数体搬去了 lib/advancedParams.js。
+// 原因不是整理代码，是它们在这里测不到，server.js 一被 require 就
+// listen，进不了测试进程。证据：把 save 从合并改成替换（一个真实的行为
+// 变更），全量 661 条测试一条没红。这里留下的三个薄壳只为不动 ctx 接线。
 const advancedParamsStore = createAdvancedParamsStore({
   file: ADVANCED_PARAMS_FILE,
-  // ⭐ 刀 A1：过去是 `() => engineParamDefaults(findLegacyDefaultId())`。
-  //   现在由调用方说是哪台；⛔ 没说就一个默认值都不给。
+  // 过去是 `() => engineParamDefaults(findLegacyDefaultId())`。
+  // 现在由调用方说是哪台；没说就一个默认值都不给。
   engineDefaults: (engineId) => (engineId ? engineParamDefaults(engineId) : {}),
   launchDefaults: ENGINE_LAUNCH_DEFAULTS,
 });
@@ -1131,7 +1131,7 @@ function loadAdvancedParams(engineId) {
   return advancedParamsStore.load(engineId);
 }
 
-// ⭐⭐ **替换**，不是合并 —— 理由全文见 lib/advancedParams.js 顶部第 ② 条。
+// 替换，不是合并。理由全文见 lib/advancedParams.js 顶部第 ② 条。
 function saveAdvancedParams(params) {
   return advancedParamsStore.save(params);
 }
@@ -1245,7 +1245,7 @@ function assetsNeedScan() {
 // Delete removes the whole folder (all segments), not just the combined file.
 //
 // Outputs are physically separated by source so generate / compare-refs / broker
-// histories never mix (locked 2026-07-07). `normSource` maps client-supplied
+// histories never mix. `normSource` maps client-supplied
 // source labels to a canonical folder key; unknown values fall back to generate.
 // OUTPUT_ROOTS 取自 lib/paths.js，新增产物来源只需在该文件加一行。
 function normSource(source) {
@@ -1296,17 +1296,17 @@ function genItemFromMeta(meta) {
     text: meta.text || "",
     voice: meta.voiceLabel || meta.voice || "",
     lang: meta.lang || "",
-    // ⭐⭐ 2026-08-31。这里以前是 gpt / sovits 两个写死的键 —— 读回来的时候
-    //   把第一台引擎的位表又抄了一遍，所以哪怕上面写 meta 的那三处改好了,
-    //   这一行还是能把「GPT - / SoVITS -」重新变出来。四处必须一起改。
+    // 这里以前是 gpt / sovits 两个写死的键，读回来的时候
+    // 把第一台引擎的位表又抄了一遍，所以哪怕上面写 meta 的那三处改好了,
+    // 这一行还是能把「GPT - / SoVITS -」重新变出来。四处必须一起改。
     //
-    //   ⭐⭐⭐ 同一天的第二次订正（Owner 当场驳回）：我第一版写的是
-    //   「老 meta 没有 weights ⇒ 空数组，⛔ 不兜底」，还给它编了个理由。
-    //   他的原话：「那你这个元数据不就炸了？我都不知道是哪个模型生成的。
-    //   名片上不是有 engine_id 嘛？**有没有可能我是想不用硬编码**？」
-    //   —— 去掉硬编码和扔掉数据是两件事，我做成了一件。老条目的 meta.recipe
-    //   是**原样的请求体**，里面本来就有 engine_id 和那次选的每一份模型，
-    //   拿它去查名片就能原样说清楚，一个位名都不必写在这里。
+    // 同一天的第二次订正：我第一版写的是
+    // 「老 meta 没有 weights ⇒ 空数组，不兜底」，还给它编了个理由。
+    // 原话：「那你这个元数据不就炸了？我都不知道是哪个模型生成的。
+    // 名片上不是有 engine_id 嘛？有没有可能我是想不用硬编码？」
+    // 去掉硬编码和扔掉数据是两件事，我做成了一件。老条目的 meta.recipe
+    // 是原样的请求体，里面本来就有 engine_id 和那次选的每一份模型，
+    // 拿它去查名片就能原样说清楚，一个位名都不必写在这里。
     ...storedGeneration(meta, resolveEngineProfile),
     segments: meta.segments || 1,
     createdAt: meta.createdAt || 0,
@@ -1511,7 +1511,7 @@ async function runMigrationJob(job, entries, doneNote) {
 
 // POST /api/assets/generate-segments — parse name2text and generate segments.json
 
-// ── Patch #13: reference-transcript proofing (edit existing text, no ASR) ─────
+// ── reference-transcript proofing (edit existing text, no ASR) ─────
 // The asset's reference transcript lives in asr_opt/<kind>.list as lines shaped
 // "<kind>/<file>|<speaker>|<LANG>|<text>". These endpoints let the Assets page
 // read and hand-edit that TEXT in place, reusing the existing Proofing UI. They
@@ -1633,7 +1633,7 @@ function sanitizeCustomParams(custom) {
     intNum(s, 'sovits_epochs', t.sovits_epochs, 1, 100);
     word(s, 'batch_size', t.batch_size, 'auto', 1, 16);
     word(s, 'learning_rate', t.learning_rate, 'default', 1e-7, 1);
-    // 训练目标版本（v2 / v2Pro / v2ProPlus）——前端可在 customParams.training.version 覆盖
+    // 训练目标版本（v2 / v2Pro / v2ProPlus），前端可在 customParams.training.version 覆盖
     oneOf(s, 'version', t.version, ['v2', 'v2Pro', 'v2ProPlus']);
     // 多版本并行训练（读法 B）：versions[] 白名单，每项 ∈ v2/v2Pro/v2ProPlus，去重保序。
     if (Array.isArray(t.versions)) {
@@ -1645,7 +1645,7 @@ function sanitizeCustomParams(custom) {
     // S1 advanced / expert
     intNum(s, 'seed', t.seed, 0, 999999);
     intNum(s, 'save_every_n_epoch', t.save_every_n_epoch, 1, 50);
-    // Patch #10: split S1/S2 checkpoint save intervals (legacy save_every_n_epoch
+    // split S1/S2 checkpoint save intervals (legacy save_every_n_epoch
     // still honoured as a fallback in train.js). S1 default 4 (epoch 8 lands on a
     // save), S2 default 5 (epoch 25 lands on a save).
     intNum(s, 's1_save_every_n_epoch', t.s1_save_every_n_epoch, 1, 50);
@@ -1808,19 +1808,19 @@ function baseCheckpoints() {
   return { gpt, sovits };
 }
 
-// ⭐⭐ 2026-08-30：把上面这段**登记**成 GPT-SoVITS 的底模找法，而不是让平台
-//    直接调它。区别不是风格问题：
-//      · 上面那段是**一台引擎的私货** —— 上游把 s1 放一处、s2 按版本放好几处，
-//        既不按权重位分目录，也不是「整个目录算一份模型」，通用规则套不上。
-//      · 登记之后，平台侧（lib/assets/baseModels.js）**一个引擎名都不认识**，
-//        它对所有引擎只有两条通用规则：底模目录下有按权重位分的子目录就列子目录，
-//        没有就把整个底模目录当作那一份候选。
-//    ⇒ IndexTTS2 走第二条，一行专属代码都不用写，它的底模就出现在下拉里了。
-//    ⇒ 将来 IndexTTS3/4/5 装上就能用；只有底模长得跟上面 GSV 一样怪的，
-//      才需要来这里登记一条。
+// 把上面这段登记成 GPT-SoVITS 的底模找法，而不是让平台
+// 直接调它。区别不是风格问题：
+//   · 上面那段是一台引擎的私货，上游把 s1 放一处、s2 按版本放好几处，
+//     既不按权重位分目录，也不是「整个目录算一份模型」，通用规则套不上。
+//   · 登记之后，平台侧（lib/assets/baseModels.js）一个引擎名都不认识，
+//     它对所有引擎只有两条通用规则：底模目录下有按权重位分的子目录就列子目录，
+//     没有就把整个底模目录当作那一份候选。
+//   IndexTTS2 走第二条，一行专属代码都不用写，它的底模就出现在下拉里了。
+//   将来 IndexTTS3/4/5 装上就能用；只有底模长得跟上面 GSV 一样怪的，
+//   才需要来这里登记一条。
 //
-// ⚠ 这仍是一笔挂着的账（一台引擎的路径知识住在 server.js 里）。归宿是将来的
-//   扩展机制（Owner 2026-08-30：现在不做）。⭐ 但账已经被收进这一个地方了。
+// 这仍是一笔挂着的账（一台引擎的路径知识住在 server.js 里）。归宿是将来的
+// 扩展机制（现在不做）。但账已经被收进这一个地方了。
 try {
   const { registerBaseModelSource } = require("./lib/assets/baseModels");
   registerBaseModelSource("gpt-sovits", () => {
@@ -1833,8 +1833,8 @@ try {
 }
 
 // 平台侧通用的底模清单：所有已装引擎，按 { <引擎id>: { <权重位>: [...] } } 分组。
-// ⚠ fail-open：某台引擎的名片坏了 / 底模没下，只影响它自己那一格，
-//   ⛔ 不许让整份底模清单变空（那会让所有引擎的下拉一起空掉）。
+// fail-open：某台引擎的名片坏了 / 底模没下，只影响它自己那一格，
+//    不许让整份底模清单变空（那会让所有引擎的下拉一起空掉）。
 function baseModelsAll() {
   let profiles = [];
   try {
@@ -1853,7 +1853,7 @@ function baseModelsAll() {
 // Synthetic asset meta for the base voice: empty roster (0 slices / 0 raw / no
 // reference) + injected models so GET /api/assets/:id populates the dropdowns.
 //
-// ⭐ assets.models 的形状跟真角色的**完全一致**：{ <引擎id>: { <权重位>: [...] } }。
+// assets.models 的形状跟真角色完全一致：{ <引擎id>: { <权重位>: [...] } }。
 //   界面把「底模」和「当前角色的微调模型」并成一个下拉时，两边共用一套拆包代码。
 function baseVoiceMeta() {
   return {
@@ -1900,7 +1900,7 @@ function collectTakenVoiceIds() {
 // final id is allocated atomically at task creation and may differ. The UI must
 // label this as "proposed".
 
-// ── Patch #12: Voice Refinement — derive a NEW voice from a parent ───────────
+// ── Voice Refinement: derive a NEW voice from a parent ───────────
 // Continues training from an existing asset's checkpoints and publishes the result
 // as a brand-new derived Voice. The parent is NEVER modified or overwritten.
 //   * S1 (GPT) and S2 (SoVITS) are independent — refine s1 | s2 | s1+s2.
@@ -1948,13 +1948,13 @@ function pickLatestByEpoch(files, re) {
 // Reject a recipe whose role is not a known voice — keeps recipes anchored to
 // real assets and blocks typos from creating orphan presets.
 //
-// ⭐ 2026-08-23 补的一个既有的洞：底模（BASE_VOICE_ID）按设计**不在
+// 补的一个既有的洞：底模（BASE_VOICE_ID）按设计不在
 // voices.json 里**（见 isBaseVoice / baseVoiceReg，以及 synthesisService 里
 // 「resolve it in-memory so zero-shot inference on the pretrained weights works
 // without a fine-tuned asset」那段注释）。于是这个 hasOwnProperty 会把底模判成
-// unknown voice，`POST /api/recipes` 返回 400 ——
+// unknown voice，`POST /api/recipes` 返回 400。
 //
-//     底模零样本**能推理**，却**存不成配方**；存不成配方就出不了 broker。
+//     底模零样本能推理，却存不成配方；存不成配方就出不了 broker。
 //
 // 而「用底模 + 一段参考音频做零样本」正是 IndexTTS2 这类引擎的主力用法。
 // 配方是串联 webui/flow 到 broker 的调用单元，这个洞正好卡在那条主线上。
