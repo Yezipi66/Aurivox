@@ -306,14 +306,18 @@ def verify_level_a(spec):
                 "steps": out["steps"]}
     # 把音频写成文件带出来：Player.jsx 画波形需要 src 指向可 fetch 的音频，
     #   只回报字节数的话前端拿不到音频本体，波形无数据可画。
+    # 写到 engines/<id>/.wizard-verify-audio/：向导的音频端点从那里读，
+    #   两边必须同一处，否则文件在盘上而端点读不到。
     audio_path = None
     try:
-        out_dir = os.path.join(spec.get("root") or ".", ".wizard-verify-audio")
+        engine_id = spec.get("id") or "audio"
+        out_dir = os.path.join(spec.get("root") or ".", "engines",
+                               str(engine_id), ".wizard-verify-audio")
         os.makedirs(out_dir, exist_ok=True)
-        audio_path = os.path.join(out_dir, "verify-%s.wav" % spec.get("id", "audio"))
+        audio_path = os.path.join(out_dir, "verify-%s.wav" % engine_id)
         with open(audio_path, "wb") as f:
             f.write(audio)
-    except Exception as exc:
+    except Exception:
         audio_path = None
 
     return {"ok": True, "level": "A", "wav": wav, "steps": out["steps"],
