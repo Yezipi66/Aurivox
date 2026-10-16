@@ -3,39 +3,39 @@
 
 它是什么
 --------
-GPT-SoVITS 这台引擎在启动时检查自己那份**机器本地**的活动配置
+GPT-SoVITS 这台引擎在启动时检查自己那份机器本地的活动配置
 (lib/inference/tts_infer.yaml): 缺了、空了、或者里面的路径已经指向不存在
 的位置, 就从随包的模板 (tts_infer.yaml.example) 重新生成, 旧的先备份。
 
 为什么住在引擎这边, 而不是启动脚本里
 ---------------------------------------
 这段逻辑原先长在 tools/scripts/start.ps1 的 Repair-EngineConfig 里
-(76 行 PowerShell)。它是 **GPT-SoVITS 独有**的: 别的引擎没有 tts_infer.yaml,
+(76 行 PowerShell)。它是 GPT-SoVITS 独有的: 别的引擎没有 tts_infer.yaml,
 名片里也没有"修配置文件"这个概念。
 
 平台正在改成"按名片起引擎"(契约 v2 §5.1 / §9), 启动的人从 start.ps1 变成
 平台自己。引擎特有的收拾工作若留在平台脚本里, 就会变成第二个引擎接进来时
-没人敢删、也没人看得懂的残留：所以搬到引擎自己身上: **谁起它都一样修**。
+没人敢删、也没人看得懂的残留：所以搬到引擎自己身上: 谁起它都一样修。
 
 只用标准库
 -------------
-本模块跑在引擎自己的环境里, 且要能在**没有 torch / 没有 yaml 包**的情况下
+本模块跑在引擎自己的环境里, 且要能在没有 torch / 没有 yaml 包的情况下
 被测试直接调用 (lib/inference/configRepair.node.test.js 就是这么验它的)。
 所以不许 import 第三方包, 也不许 import infer_server。
 
 判据与 PowerShell 原版逐条对齐
 ------------------------------
-1. 模板不存在        -> 什么都不做 (没有可回退的东西, 别把用户的配置删了)
-2. 活动配置不存在    -> regen, reason='missing'
+1. 模板不存在 -> 什么都不做 (没有可回退的东西, 别把用户的配置删了)
+2. 活动配置不存在 -> regen, reason='missing'
 3. 内容空白/读不出来 -> regen, reason='empty or unreadable'
-4. 值里含 '?'        -> regen, reason='mangled path: ...'
+4. 值里含 '?' -> regen, reason='mangled path: ...'
    (GBK 控制台把中文路径写成了问号, 这是真实发生过的事故)
-5. 路径不存在        -> regen, reason='stale path: <原值> -> <探测到的绝对路径>'
-6. 以上都不中        -> 不动
+5. 路径不存在 -> regen, reason='stale path: <原值> -> <探测到的绝对路径>'
+6. 以上都不中 -> 不动
 
 第 5 条只检查两类值: 键名以 `_path` 结尾的, 或者值长得像 Windows 绝对路径
    (`^[A-Za-z]:[\\/]`)。PowerShell 版本注释里记着一个教训: 早期只看"长得像
-   绝对路径"的值, 于是**一份路径全是相对写法的死配置每次都被判成健康**。
+   绝对路径"的值, 于是一份路径全是相对写法的死配置每次都被判成健康。
    `_path` 结尾这条判据就是为补那个洞加的, 移植时一并搬过来。
 """
 
@@ -54,9 +54,9 @@ _DOT_SLASH_RE = re.compile(r"^\./")
 def _strip_quotes(value):
     """去掉首尾的引号。
 
-    对齐 PowerShell 的 `.Trim('"').Trim("'")`：它剥的是**首尾连续的**引号
+    对齐 PowerShell 的 `.Trim('"').Trim("'")`：它剥的是首尾连续的引号
     字符, 不是"配对的一对"。
-    """
+"""
     return value.strip().strip('"').strip("'")
 
 
@@ -66,7 +66,7 @@ def decide(live_cfg, example_cfg, project_root, exists=os.path.exists,
 
     这是纯判断, 不碰磁盘写入：测试直接调它。
     `exists` / `read_text` 可注入, 便于用假盘面验守卫自己会不会红。
-    """
+"""
     if read_text is None:
         def read_text(path):
             with open(path, "r", encoding="utf-8", errors="replace") as fh:

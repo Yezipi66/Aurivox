@@ -5,7 +5,7 @@ patch_infer_bootstrap.py
 这样 tts_infer.yaml 可被 .gitignore(运行时会被热加载回写改脏),
 仓库只跟踪 tts_infer.yaml.example 模板, 全新 clone 仍可一键启动。
 
-用法(项目根目录执行):  venv\\Scripts\\python.exe lib\\inference\\patch_infer_bootstrap.py
+用法(项目根目录执行): venv\\Scripts\\python.exe lib\\inference\\patch_infer_bootstrap.py
 幂等: 重复运行不会重复插入。
 """
 import os
