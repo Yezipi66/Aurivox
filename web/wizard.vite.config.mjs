@@ -63,7 +63,8 @@ function validatePlugin () {
     handleSpec, handleRead,
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
     wb.handleClone, wb.handleCloneCancel, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
-    wb.handleVerifyChecks, wb.handleVerify, wb.handleProfile, handleValidate, wb.handleCliArgs,
+    wb.handleVerifyChecks, wb.handleVerifyAudio, wb.handleVerify, wb.handleProfile,
+    handleValidate, wb.handleCliArgs,
     wb.handleDiscover,
     // install-state 报这一台装到哪了，reset-progress 是重装本步的逃生口。
     // 两者都同步返回 true/false，改成 async 会让中间件见到 Promise 就 break
