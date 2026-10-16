@@ -97,7 +97,25 @@ folderName.js 是本轮新建文件，7 行代码配 26 行注释，是代码文
 每一项开工前先归类，属于我的、别人在途的、还是环境导致的，分类数字写进当次提交
 说明。验收口径是分类后的我的部分为零，不是总 fail 数不变。
 
-测试命令的管道与重定向已可用，不必规避。
+### 可比的只有 fail 数，不是 tests 数
+
+tools/run_tests.cjs 扫的目录里有 engines/，而 engines/ 下是本机安装的引擎
+（该目录被 git 忽略，不属于仓库）。那里有多少测试文件取决于这台机器装了哪些
+引擎：本轮 engines/gpt-sovits 下就有四个测试文件、八条用例。
+
+所以 tests 总数逐轮会浮动（本计划前几轮分别记到 2390 与 2403）。拿它做基线会把
+环境差异算成回归。结论：
+
+  比基线时只看 fail 数，以及失败清单逐条比对。tests 数只用来判断
+  「测试有没有真的跑起来」，不用来判断有没有回归。
+
+### 管道与重定向
+
+管道与重定向都可用（管道能拿到三千多行完整输出）。
+
+退出码的含义要分清两种 1：run_tests.cjs 把子进程退出码透传出来，
+有失败测试就返回 1，这是真实结果。而「根本没跑起来」也会返回 1
+（输出只有个位数）。区分办法是看行数，不要只看退出码。
 
 ## D. 注释归位与工程债
 
@@ -418,6 +436,14 @@ sitePackagesNonEmpty 辅助函数都在，唯独主函数是桩。引入于 9d0e
 注意：操作说明按基准一写，不用符号不用破折号；
 每个可操作项要说明它是什么、拖到或点到哪、会发生什么。
 
+完成记录（已通过独立验收）：
+改动文件：editor/DragBind.jsx（新建）、editor/CliGenPanel.jsx、
+      test/dragBind.node.test.js、test/computeAutoFill.node.test.js。
+提交：f97678e（DragBind 组件 + CliGenPanel 集成）、
+      d8a6f91（13 条测试，点击/拖拽/python 参数不进 args）。
+状态：通过。三种操作方式齐全（拖动/点击/键盘），绑定不直接写盘
+      （内存态，显式保存才落盘），python 参数不进 args。
+
 ### B2 第 5 步验证不再留给占位
 
 第 4 步做完向导仍然不能出声，第 5 步此前只有占位说明，
@@ -433,6 +459,17 @@ StepVerify.jsx 现在 46 行、注释占 26 行，全是解释为什么没做。
 
 验收：三项各有实现或各有明确的未实现说明与卡点；
 ffprobe 一项能对一台已装引擎产出的音频给出真实信息。
+
+完成记录（子 Agent 两次陷循环，主 Agent 接手完成）：
+改动文件：lib/engines/verify_audio.py、tools/engine-wizard/core/verify.js、
+      tools/engine-wizard/core/wizardbridge.js、
+      tools/engine-wizard/editor/StepVerify.jsx、
+      tools/engine-wizard/editor/App.jsx。
+提交：48fc2c9（verify_audio.py 带出音频文件 + StepVerify 三项独立）、
+      5b2c637（音频 fetch 端点 + handleVerifyChecks 返回真实结果 +
+      StepVerify 接收 id prop + B1 注释破折号修正）。
+状态：待验收。三项独立验证（ffprobe 读信息 / 波形可视化 / ASR 可选），
+      音频文件通过 /wizard/verify/audio 端点送前端。
 
 ## 4. 文件归属锁（并行前先定，防撞车）
 
