@@ -544,7 +544,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     acc.raw += (a.raw?.file_count || 0)
     acc.rawDur += (a.raw?.total_duration || 0)
     acc.slices += (a.slices?.file_count || 0)
-    // 模型总数按**引擎**分开数，以前是写死的两格，第二台引擎的模型
+    // 模型总数按引擎分开数，以前是写死的两格，第二台引擎的模型
     // 在这排统计上一个数字都露不出来。
     for (const c of modelCountsByEngine(asset)) {
       acc.byEngine[c.engineId] = (acc.byEngine[c.engineId] || 0) + c.count
@@ -558,10 +558,10 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   // so states stay distinguishable without relying on color alone.
   const voiceHealth = (asset) => {
     const a = asset.assets || {}
-    // 判据从「有 GPT **且** 有 SoVITS」改成「**有没有任何模型**」。
+    // 判据从「有 GPT 且 有 SoVITS」改成「有没有任何模型」。
     //   那个「两份都要有」是第一台引擎的成套要求，照搬到别的引擎上，
     //   一个只有另一台引擎模型的角色会永远挂着红叉说自己缺模型，
-    //   而它完全能用。要不要成套是**那台引擎**的事，不是这排徽章的事。
+    //   而它完全能用。要不要成套是那台引擎的事，不是这排徽章的事。
     const hasModels = countModelsInMeta(asset) > 0
     const hasRaw = (a.raw?.file_count || 0) > 0
     const hasSlices = (a.slices?.file_count || 0) > 0
@@ -755,7 +755,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           const slices = a.slices || {}
           // 这个角色手上有哪几台引擎的模型、各几个（有几台就显示几格）。
           const modelCounts = modelCountsByEngine(asset)
-          // 「精修」是**那条训练管线**自己的事：它要继续训的正是它自己产的
+          // 「精修」是那条训练管线自己的事：它要继续训的正是它自己产的
           //   那两份权重 ⇒ 引擎名在这里是这个按钮自己的题目，不是平台写死一台引擎。
           const canRefine = modelsFromMeta(asset, 'gpt-sovits', 'gpt').length > 0
                          && modelsFromMeta(asset, 'gpt-sovits', 'sovits').length > 0

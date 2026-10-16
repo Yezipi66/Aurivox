@@ -1,22 +1,22 @@
 // ============================================================
 //  对比页（ReferenceCompareTab）必须按 manifest.json 长
-//  —— 读源码的守卫，同 generate/paramPanelFromManifest.node.test.js
+//：读源码的守卫，同 generate/paramPanelFromManifest.node.test.js
 // ============================================================
 //
-// ⚠ 为什么是读源码而不是渲染：
+// 为什么是读源码而不是渲染：
 //    JSX 在这个仓库里跑不了单元测试（测试是 `node --test` 直接跑的，不经过
-//    vite，也没有 jsdom）。真正的闸仍然是 `npm run build` 加真机点一遍。
+//    vite，也没有 jsdom）。真正的闸仍然是 `npm run build` 加实际界面点一遍。
 //    这里守的是三件只有源码里才看得见的事：
 //      1. 那 13 个写死的格子没有偷偷长回来
 //      2. 面板确实在按 param_schema 循环（不是换了个写法继续写死）
-//      3. ⭐ 接线是**真的接上了** —— engine 这个 prop 一路传到了画格子的地方
+//      3. 接线是真的接上了：engine 这个 prop 一路传到了画格子的地方
 //
-//  背景（2026-10-01）：这一页过去**一个引擎库函数都没 import**，超参是
+//  背景：这一页过去一个引擎库函数都没 import，超参是
 // 手抄进前端的 GPT-SoVITS 键名 ⇒ 换一台引擎，格子照常显示、填了发出去
-// 上游不认、**不报错**。那是平台第 2 条纪律「不静默忽略」的直接违反。
+// 上游不认、不报错。那是平台第 2 条纪律「不静默忽略」的直接违反。
 //
-// ⚠ web/ 是 ESM（web/package.json 的 "type": "module"），所以这里用 import
-//   而不是 require —— lib/ 下那些 .node.test.js 是 CommonJS，两边不一样。
+// web/ 是 ESM（web/package.json 的 "type": "module"），所以这里用 import
+//   而不是 require：lib/ 下那些 .node.test.js 是 CommonJS，两边不一样。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -34,13 +34,13 @@ const CODE = stripComments(SRC)
 
 // 这台引擎的参数表，曾经被逐条手抄进这个文件。
 //
-// ⚠ 2026-10-01 订正：这一份最初漏了 `top_p` 本身（只写了驼峰的 `topP`），
-//   变异测试立刻抓到 —— 把请求体改回 `top_p: 1.0` 守卫却没红。
-//   教训：snake_case 和 camelCase **两种写法都要列**，少一种守卫就漏一半。
+// 早期版本订正：这一份最初漏了 `top_p` 本身（只写了驼峰的 `topP`），
+//   变异测试立刻抓到：把请求体改回 `top_p: 1.0` 守卫却没红。
+//   教训：snake_case 和 camelCase 两种写法都要列，少一种守卫就漏一半。
 //
-// 这一页有一处用户可见的 tooltip 文案里**提到**了 `batch_size`
-//   （"…in parallel (batch_size)"）—— 那是给人看的解释，不是在发这个键。
-//   所以守的是**键出现的位置**：`键名:`（对象字面量）、`[键名]`（下标）、
+// 这一页有一处用户可见的 tooltip 文案里提到了 `batch_size`
+//   （"…in parallel (batch_size)"）：那是给人看的解释，不是在发这个键。
+//   所以守的是键出现的位置：`键名:`（对象字面量）、`[键名]`（下标）、
 //   `setXxx` / `[x, setX]`（本地 state），而不是「这个词出现在文件里」。
 const HARDCODED = [
   // snake_case（manifest.json 里就是这个名字）
@@ -56,9 +56,9 @@ const HARDCODED = [
 
 // 键「被用上」的两种位置。两种都要守：少一种，那一处就能偷偷长回来。
 //
-// ⛔ 刻意**不**写「`\btop_p\b\s*[,)\]]`」这种宽泛形态：它会命中用户可见的
-//   tooltip 文案里对某个参数的**提及**（"…in parallel (batch_size)."），
-//   那是给人看的解释，不是在发这个键 —— 守卫会一直红，而且红得没有道理。
+// 刻意不写「`\btop_p\b\s*[,)\]]`」这种宽泛形态：它会命中用户可见的
+//   tooltip 文案里对某个参数的提及（"…in parallel (batch_size)."），
+//   那是给人看的解释，不是在发这个键：守卫会一直红，而且红得没有道理。
 //   本地 state 的形态由下面那条单独的测试守（setXxx / [x, setX]）。
 const USED_AS = [
   n => new RegExp(`\\b${n}\\s*:`),                    // top_p: 1.0     对象字面量
@@ -75,14 +75,14 @@ test('⛔ 对比页里不许出现任何写死的引擎参数名', () => {
 
 test('⛔ 也不许用本地 state 把某个引擎参数名再抄一遍', () => {
   // 过去的形状：`const [topK, setTopK] = useState(...)` + `onUpdate(row.id,'top_k',topK)`。
-  // 键名已经在上一条守住了，这条守的是**本地 state 那一层**也不许复活。
+  // 键名已经在上一条守住了，这条守的是本地 state 那一层也不许复活。
   const found = HARDCODED.filter(name =>
     new RegExp(`\\b(set${name[0].toUpperCase()}${name.slice(1)}|${name}\\s*,\\s*set)`).test(CODE))
   assert.deepEqual(found, [],
     '这些参数名又作为本地 state 出现了。参数值应该整体住在 paramValues 这一个袋子里。')
 })
 
-test('⛔ cut0…cut5 这些选项值也不许写死 —— 它们是某台引擎的切分档位', () => {
+test('⛔ cut0…cut5 这些选项值也不许写死，它们是某台引擎的切分档位', () => {
   for (const v of ['cut0', 'cut1', 'cut2', 'cut3', 'cut4', 'cut5']) {
     assert.ok(!CODE.includes(v), `${v} 还写在对比页里。枚举选项要从 manifest.json 的 choices 来。`)
   }
@@ -97,13 +97,13 @@ test('⭐ 面板确实在按 param_schema 循环，而不是换了个写法继�
 })
 
 test('⭐ 接线判据：engine prop 一路传到了画格子的地方', () => {
-  // ⭐ 这条是 E1 判据：`npm run build` 绿**不**证明接线对。
+  // 这条是 E1 判据：`npm run build` 绿不证明接线对。
   //   只传 engineId 的话这一页能编译、能过 build，但格子拿不到形状，
-  //   会退化成「什么都没画」—— 而 build 一点话都不说。
+  //   会退化成「什么都没画」：而 build 一点话都不说。
   assert.ok(/function CompareRow\(\{[^}]*\bengine\b\s*[,}]/.test(SRC),
-    'CompareRow 的 props 里没有 engine —— 它拿不到 param_schema，画不出格子')
+    'CompareRow 的 props 里没有 engine，它拿不到 param_schema，画不出格子')
   assert.ok(/<CompareRow[\s\S]{0,600}?\bengine=\{engine\}/.test(SRC),
-    'CompareRow 的调用点没有把 engine 传下去 —— 整页能编译但格子是空的')
+    'CompareRow 的调用点没有把 engine 传下去，整页能编译但格子是空的')
 })
 
 test('⭐ 每行的方法下拉来自名片，不是写死一份方法表', () => {
@@ -119,7 +119,7 @@ test('⭐ 每行的方法下拉来自名片，不是写死一份方法表', () =
 test('⭐ 单方法引擎不许画方法下拉（没有第二个选项的下拉只是噪声）', () => {
   // 判据跟 schemaGap 一样：名片没说的东西，界面不许替它编一个。
   assert.ok(/engine\?\.methods\) && engine\.methods\.length > 0/.test(CODE),
-    '方法下拉没有按 methods.length > 0 判断 —— 单方法引擎也会被画一个只有一个选项的下拉')
+    '方法下拉没有按 methods.length > 0 判断，单方法引擎也会被画一个只有一个选项的下拉')
 })
 
 test('⛔ CMP_ENGINE 这个常量不许回来', () => {
@@ -129,14 +129,14 @@ test('⛔ CMP_ENGINE 这个常量不许回来', () => {
 })
 
 test('换引擎必须重建权重下拉（依赖数组里少了 engine.id 就是安静地错）', () => {
-  // buildModels 现在按**当前引擎**的位名取权重。少了依赖这一项 ⇒ 换引擎后
+  // buildModels 现在按当前引擎的位名取权重。少了依赖这一项 ⇒ 换引擎后
   // 下拉还是上一台引擎的权重，而界面上没有任何一处会提示它没跟着换。
   assert.ok(/setAvailableModels\(models\)[\s\S]{0,200}?\}, \[engine\?\.id\]\)/.test(CODE),
-    '拉权重的 useEffect 依赖里没有 engine.id —— 换引擎后下拉不会跟着换')
+    '拉权重的 useEffect 依赖里没有 engine.id，换引擎后下拉不会跟着换')
 })
 
 test('⭐ seed 是平台自己的开关，不属于任何一台引擎，要留在原地', () => {
-  // ⚠ 这条是防「收得太狠」：把面板改成名片驱动时很容易顺手把 seed 一起
+  // 这条是防「收得太狠」：把面板改成名片驱动时很容易顺手把 seed 一起
   //   收走，而它换哪台引擎含义都不变（GenerateTab:201 同一条纪律）。
   assert.ok(/\bconst \[seed, setSeed\] = useState/.test(CODE), 'seed state 在改造中被误删了')
   assert.ok(/Seed \(-1 = random\)/.test(CODE), 'seed 那一格不见了')
@@ -151,29 +151,29 @@ test('touched 必须跟着 params 一起存回 row（generateRow 在 tab 级读�
 })
 
 // ---------------------------------------------------------------------------
-//  ⭐ 2026-10-01 真机补的一条：不能只画 common 层
+//  不能只画 common 层
 //
-//  事实（不是推断）：实测两台 CosyVoice 的 param_schema **common 层是空的**
-//  —— cosyvoice2 六项、cosyvoice-300m-sft 两项，全在 advanced。
-//  ⇒ 这一页原来只取 common 时，选它们画出**零个格子**，而界面上看不出任何
+//  事实（不是推断）：实测两台 CosyVoice 的 param_schema common 层是空的
+//：cosyvoice2 六项、cosyvoice-300m-sft 两项，全在 advanced。
+//  ⇒ 这一页原来只取 common 时，选它们画出零个格子，而界面上看不出任何
 //  异常（折叠区照样能展开，里面就是空的）。
 //
 //  这条守卫防它回来。判据是「档位来自 TIERS 且两档都取」，不是「不许写
-//  common 这个词」—— 那样会误伤 GenerateTab 那种合理的地方。
+//  common 这个词」：那样会误伤 GenerateTab 那种合理的地方。
 // ---------------------------------------------------------------------------
 
 test('⭐⭐ 档位来自 TIERS，不许只画 common 一层', () => {
   assert.ok(/TIERS/.test(CODE),
-    '对比页没有引用 TIERS —— 档位名单被复制了一份，或者根本没做两档')
+    '对比页没有引用 TIERS，档位名单被复制了一份，或者根本没做两档')
   assert.ok(/fieldsForTier\(engine, tier\)/.test(CODE),
-    "fieldsForTier 收的不是变量 tier，而是写死的某一层 —— " +
+    "fieldsForTier 收的不是变量 tier，而是写死的某一层，" +
     '只画一层会让 common 层为空的引擎（两台 CosyVoice）画出零个格子')
-  // ⛔ 查「它做了什么」而不是「这个变量名在不在」：2026-10-01 第一版这条
+  // 查「它做了什么」而不是「这个变量名在不在」：第一版这条
   //   断言只测 /tiersWithFields/ 出现过，于是把
-  //   `const tiersWithFields = TIERS`（不做过滤）也放了过去 —— 变异测试
+  //   `const tiersWithFields = TIERS`（不做过滤）也放了过去：变异测试
   //   抓到那一刻才发现它是个空壳。变量名在 ≠ 判据在。
   assert.ok(/tiersWithFields\s*=\s*TIERS\.filter\(/.test(CODE),
-    "tiersWithFields 没有过滤掉空档位 —— 空档位按钮点开是空的，比不画更糟")
+    "tiersWithFields 没有过滤掉空档位，空档位按钮点开是空的，比不画更糟")
   assert.ok(/tiersWithFields\.length > 1/.test(CODE),
     '只有一个档有格子时也要画档位按钮（那一个按钮是噪声）')
 })

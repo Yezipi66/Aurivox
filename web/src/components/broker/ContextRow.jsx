@@ -135,7 +135,7 @@ export function ContextRow({ voices, selectedVoice, health, activeTaskId, activi
           引擎是用完即走的进程，"它现在在不在线"是一个不存在的问题；
           对命令行引擎这枚灯永远红，而红灯常亮 = 所有红灯失效。
           不许以任何形式重新加回来（包括改叫 "Ready" / "Idle"）。
-          这一行的状态由「Task」那一格说，它说的是**这一次操作**。 */}
+          这一行的状态由「Task」那一格说，它说的是这一次操作。 */}
       <span className="ctx-item">
         <span className="ctx-k">Task</span>
         <span className={`badge ${taskPlaceholder ? 'badge-neutral' : taskStatus?.status === 'failed' ? 'badge-danger' : taskBusy ? 'badge-accent' : 'badge-info'}`}>{taskLabel}</span>

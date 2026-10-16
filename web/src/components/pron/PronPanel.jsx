@@ -24,15 +24,15 @@ function tokIsPunct(tok) {
 
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-//   后端 /api/pron/preview 现在 **engine_id 必传**（lib/routes/pron.js:58-65），
+//   后端 /api/pron/preview 现在 engine_id 必传（lib/routes/pron.js:58-65），
 //   不传直接 400 `PRON_ENGINE_ID_MISSING`。
 //
 //   为什么不让后端挑一台兜底：判据在 `lib/inference/infer_server.py:574`
 //     的注释，「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。」
-//     ⇒ 换一台引擎去预览，读出来可能也对，但**它已经不再回答原来那个问题**。
+//     ⇒ 换一台引擎去预览，读出来可能也对，但它已经不再回答原来那个问题。
 //     给一个看起来对、和实际合成不一致、又不报错的读音，比没有这个功能更坏。
 //
-// 因此 engineId 缺席时这个面板**主动灰掉并说清原因**，不发那个必定 400
+// 因此 engineId 缺席时这个面板主动灰掉并说清原因，不发那个必定 400
 //   的请求（发了用户只会看到一句英文报错，不知道该去哪儿改）。
 function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedPositions, mutedLangLabel, mutedLangByPosition, engineId }) {
   const { t } = useT()

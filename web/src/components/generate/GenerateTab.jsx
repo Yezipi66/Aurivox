@@ -28,7 +28,7 @@ import { voiceOptionLabel, SeedBadge, SeedInline, CollapsibleSegments } from './
 import { VoiceSidebar } from './VoiceSidebar'
 
 function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, onActivity }) {
-  // 这里必须叫 uiLang，不能叫 lang：这个文件里 `lang` 早就是**音色的语言**
+  // 这里必须叫 uiLang，不能叫 lang：这个文件里 `lang` 早就是音色的语言
   //   （合成时发给引擎的 prompt_lang），跟「界面显示中文还是英文」是两件事。
   //   参数格子的名字取哪一种语言，问的是后者。
   const { t, lang: uiLang } = useT()
@@ -63,14 +63,14 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
   // 强制重新推理：跳过合成结果复用缓存的读。
   //
-  // 走 usePersistentState（浏览器本地），**不**进 /api/advanced-params。
-  //   那个端点存的是**引擎参数表**，而这是平台自己的开关（一台引擎都没装
+  // 走 usePersistentState（浏览器本地），不进 /api/advanced-params。
+  //   那个端点存的是引擎参数表，而这是平台自己的开关（一台引擎都没装
   //   的时候它依然有意义），混进去正是契约 C11 禁止的第二份参数表，
   //   而且 loadAdvancedParams 是「盘上赢」，会把它变成所有调用方的默认值。
   //
   // 默认 false：勾选是用户主动的动作，不勾就享受复用。
   //   面板默认折叠（下面 showAdvanced），所以勾上之后用户不一定看得见自己
-  //   勾着，Owner 已判定这可接受（勾是他自己动的手），此处留痕备查。
+  //   勾着。这可接受（勾是使用者自己动的手），此处说明取舍。
   const [forceResynth, setForceResynth] = usePersistentState('generate.forceResynth', false)
 
   // 读音校对（task6）：本次覆盖仅内存态。#4 起改用 Proof & language 弹窗，无需
@@ -127,13 +127,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     setTouchedParams(s => { const n = new Set(s); n.add(name); return n })
   }
 
-  // 这个页面走 /api/generate，它等的是一份**做完的**音频（runGenerate 读的是
+  // 这个页面走 /api/generate，它等的是一份做完的音频（runGenerate 读的是
   // audio_url），消费不了流。所以只对流式输出有意义的那几个参数，在这一页上
   // 长出来也是摆设，这就是它们被撤掉的原因（全文见下面 :145）。
-  // 这不是一份引擎名单，是**这个页面自己的能力声明**：换哪台引擎都成立。
+  // 这不是一份引擎名单，是这个页面自己的能力声明：换哪台引擎都成立。
   //    悬着的问题：这三个键名毕竟还是写在前端的。更干净的做法是让名片
   //      说清「这个参数只在流式路径上有意义」，但那要给 schema 加字段，
-  //      没有裁决之前不擅自加。
+  //      没有定论之前不擅自加。
   // 界面上要说出引擎名字的地方用它。不退到任何一台引擎的名字，
   // 「还没读出来」说成某台引擎的名字，就是在撒谎（同 App.jsx:210 那处）。
   const engineName = engine?.label || engine?.id || t('the engine', '引擎')
@@ -151,10 +151,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [mediaType, setMediaType] = usePersistentState('generate.mediaType', 'wav')
   // 这里原本还有 streamingMode / overlapLength / minChunkLength 三个 state。
   //
-  // 撤掉的理由不是「没用」，是**放错了地方**：
+  // 撤掉的理由不是「没用」，是放错了地方：
   //   1. Workbench 走 /api/generate，它拿到音频后是普通 JSON 响应（runGenerate
-  //      等的是 audio_url），**根本消费不了流**，这个界面上开「流式」开不出流式。
-  //   2. 这三个键写进 advanced_params.json 后，本组件挂载时**从来不读回来**
+  //      等的是 audio_url），根本消费不了流，这个界面上开「流式」开不出流式。
+  //   2. 这三个键写进 advanced_params.json 后，本组件挂载时从来不读回来
   //      （挂载时那段 useEffect 只读 7 个键：temperature / top_k / top_p /
   //      repetition_penalty / text_split_method / speed_factor / seed）
   //      ⇒ 拧一次、刷新即丢。
@@ -169,7 +169,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   //   overlap_length / min_chunk_length 只在 params.schema 里有 default（＝界面初值），
   //                   不在 defaults ⇒ 不再出现在 payload 里，与 OpenAI 口 / Flow 一致。
   //
-  // 撤的是**界面格子**，不是 API 能力：lib/services/synthesisService.js:107-109
+  // 撤的是界面格子，不是 API 能力：lib/services/synthesisService.js:107-109
   //   仍然解析这三个入参，第三方和 Flow 可以显式传（契约 §7 逃生门）。
   // A-1 engine-batch mode (1.0.6): hand the whole text to the engine in one call
   // so it splits + batches in parallel (batch_size), instead of the broker
@@ -183,11 +183,11 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   //
   // 这里不能是 `api('/api/advanced-params')`
   //   一个裸地址、依赖数组 `[]`（只在挂载时跑一次）。
-  //   后端删掉 legacyDefault 之后，**不带 engine_id 就不再回落到任何一台名片**
-  //   （`lib/routes/pron.js:17-22`）⇒ 不改这一行的后果是：真机上高级设置里
+  //   后端删掉 legacyDefault 之后，不带 engine_id 就不再回落到任何一台名片
+  //   （`lib/routes/pron.js:17-22`）⇒ 不改这一行的后果是：实际部署里高级设置里
   //   所有"用户没拧过"的格子全部变空，而且不报错。
   //
-  // 依赖数组从 `[]` 改成 `[engine?.id]`，这是**故意的行为变化**：
+  // 依赖数组从 `[]` 改成 `[engine?.id]`，这是故意的行为变化：
   //   默认值本来就属于该名片，换一台引擎就该重新问一次。
   //   不许改回 `[]`，挂载那一刻 engine 往往还没加载完，
   //     那会退化成"永远拿不到默认值"。
@@ -233,7 +233,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   }, [weightSlots, assetsWithModels, engine, selectedVoice])
   // 音色下拉里该出现谁：底模 ∪「在这台引擎下每个位都有自己模型」的角色。
   //
-  // 只筛**下拉**，不筛 voices 本身，底下那个「使用其他音色的参考音频」
+  // 只筛下拉，不筛 voices 本身，底下那个「使用其他音色的参考音频」
   //    要能挑到所有角色。筛掉一个角色的意思是"这台引擎没有它的模型"，
   //    不是"这个角色不存在"。
   const voiceOptions = useMemo(
@@ -253,7 +253,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [selWeights, setSelWeights] = useState({})
   // 持久化：每个 引擎 × 角色 各自记住上次每个位选了什么，刷新后只要还在候选里就恢复。
   // 存的时候按 引擎id → 角色 → 位名 分三层，否则换引擎会把上一台的路径捡回来。
-  // 换了名字（原来叫 generate.modelChoice）：老浏览器里存着的是**两个位的老形状**，
+  // 换了名字（原来叫 generate.modelChoice）：老浏览器里存着的是两个位的老形状，
   //   用同一个名字读出来会得到一坨不匹配的数据。换名 ⇒ 老的自然作废，
   //   最多是"上次选的没记住"，不会把一条别的形状的路径摆到下拉里。
   const [modelChoice, setModelChoice] = usePersistentState('generate.modelChoice.byEngine', {})
@@ -261,7 +261,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   modelChoiceRef.current = modelChoice
   const generateAbortRef = useRef(null)
 
-  // 平台已经扫到的所有模型文件，**不分位、不分引擎**，给 type: 'path' 的格子当候选。
+  // 平台已经扫到的所有模型文件，不分位、不分引擎，给 type: 'path' 的格子当候选。
   //
   // 为什么不分：位名是各家引擎自己的说法，平台在这里只回答「我知道盘上有
   //    哪些模型文件」。哪个文件该填进哪一格，是引擎自己在名片里说清楚的事
@@ -290,9 +290,9 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // `select + source` 那种格子的候选表（voices / weights / audio）。
   // 平台扫盘的结果在这里汇总一次，ParamField 只管画，它不知道这三个库
   //    是什么，也不该知道。
-  // 这一段**必须**放在 refVoiceId 声明之后。我第一版把它写在 :302，
+  // 这一段必须放在 refVoiceId 声明之后。我第一版把它写在 :302，
   //     而 refVoiceId 是 :318 的 const ⇒ 暂时性死区，一进这一页就 ReferenceError
-  //     白屏。沙箱里没有 node_modules，build 无法运行，这种错**只能靠读**。
+  //     白屏。沙箱里没有 node_modules，build 无法运行，这种错只能靠读。
   //     ⇒ 往这个函数体里插新的 const 时，先确认它依赖的每一个名字都在上面。
   const selectSources = useSelectSources({
     voices,
@@ -317,7 +317,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const modelNotes = useMemo(
     () => modelNotesFor(assetsWithModels, engine?.id, selectedVoice),
     [assetsWithModels, engine, selectedVoice])
-  // 选中的这几份里，有哪几份按名片点名的东西是**不齐**的。
+  // 选中的这几份里，有哪几份按名片点名的东西是不齐的。
   //   只收 false，null 是"说不出来"（单文件的候选／名片没写 required），
   //     不许把"说不出来"画成"有问题"。
   const incompleteItems = useMemo(
@@ -365,7 +365,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // 把每个位的选择跟候选对齐：还有效的留住，失效的换成默认/第一条。
   //
-  // 候选还没到齐（异步）时**不动**：否则清单从空变满的那一瞬间会把刚恢复的
+  // 候选还没到齐（异步）时不动：否则清单从空变满的那一瞬间会把刚恢复的
   //   选择弹回第一条。这是原来两条对齐 effect 就有的守卫，一个字都不能少。
   // 失效的必须换掉，换了引擎之后留着上一台的路径，等于把别人的权重发出去。
   useEffect(() => {
@@ -414,7 +414,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // 选中的模型如果带着版本号，就查一下那一版的底模在盘上齐不齐（缺了会出电流声）。
   //
-  // 判据从「SoVITS 那个位」改成「**任何一个**带版本号的选择」：版本号是扫盘
+  // 判据从「SoVITS 那个位」改成「任何一个带版本号的选择」：版本号是扫盘
   //   时认出来的一个可选属性，谁带就查谁。别的引擎的模型不带版本号 ⇒ 不查，
   //   也不需要为它写一条分支。这里不许再出现任何一个具体位的名字。
   const [genBaseWarn, setGenBaseWarn] = useState(null);
@@ -434,7 +434,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   useEffect(() => {
     if (!selectedVoice) return
-    // 点名当前引擎：问的是「**这台**引擎启动要的东西齐没齐」。
+    // 点名当前引擎：问的是「这台引擎启动要的东西齐没齐」。
     //   不点名会把装着的每一台都答一遍，那是给别的界面用的，不是这里。
     const q = engine?.id ? `?engine_id=${encodeURIComponent(engine.id)}` : ''
     api(`/api/voices/${selectedVoice}/validate${q}`).then(r => {
@@ -528,7 +528,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 引擎参数：只发这台引擎名片里有的键，且只有用户动过的才发。
       // 名片没写的键一个都不发，服务端会静默忽略，症状是
       //    「我明明调了却没效果」，最难查的那一类。
-      // 这一次要连哪台引擎，由**界面上选中的那台**说了算。
+      // 这一次要连哪台引擎，由界面上选中的那台说了算。
       // 少了这一句，请求不点名，服务端就去名片里找 legacy_default 那台
       //     认领（见 lib/engines/legacyDefault.js）。于是界面按 A 引擎画格子、
       //     按 A 引擎发参数、按 A 引擎选权重，请求却打到 B 引擎身上，
@@ -536,7 +536,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       //   也不许写成 `engine?.id || '某个默认值'`，引擎没选出来时
       //     要空着让服务端报「你没说连哪台」，而不是替用户挑一台。
       engine_id: engine?.id,
-      // 这台引擎的参数格子。点名了引擎，就把参数装进**它自己那一格**，
+      // 这台引擎的参数格子。点名了引擎，就把参数装进它自己那一格，
       //   服务端据此核对「你发的这袋参数是不是这台引擎的」。
       //   平铺那一份（下一行）是老路径还在读的形状，暂时并存。
       engine_params: engine?.id ? { [engine.id]: phasedEngineParams.call } : undefined,
@@ -547,7 +547,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       seed,
       engine_batch: engineBatch,
       media_type: mediaType,
-      // 选中的模型：用哪个参数名发，是**这台引擎的名片**说的。
+      // 选中的模型：用哪个参数名发，是这台引擎的名片说的。
       // 名片没说的位一个字节都不发，那台引擎运行中换不了权重，
       //    发一个它不读的键不会报错，只会让人以为换了而声音没变。
       ...weightsToSend(weightSlots, selWeights),
@@ -571,10 +571,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     if (data) {
       // 成功合成后回存「上次拧到哪」。
       //
-      // 只存**读得回来的键**。原来这里存 18 个，而全前端只读得回 7 个
+      // 只存读得回来的键。原来这里存 18 个，而全前端只读得回 7 个
       //    （本组件 :163 起、ReferenceCompareTab:737-743，两处用的正是同一组 7 个）。
-      //    另外 11 个是**只写不读**，它们唯一的去处是 /v1/audio/speech 的兜底
-      //，而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，**盘上赢**。
+      //    另外 11 个是只写不读，它们唯一的去处是 /v1/audio/speech 的兜底
+      //，而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，盘上赢。
       //
       //    后果是实测出来的：盘上文件盖掉了 6 个名片默认值，包括
       //      batch_size 名片 4 → 盘上 1     （用户从没在界面上碰过这一格，
@@ -582,13 +582,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       //      seed       名片 -1 → 盘上 2769901998
       //                                     （某次合成 resolve 出的一次性随机种子
       //                                      被回存成了永久默认值）
-      //      version v2Pro→v2 / is_half true→false（**启动期**设置被合成参数文件盖掉）
-      //    ⇒ 契约 C11 的默认值在真机上等于失效。收窄到 7 个之后，用户没拧过的键
+      //      version v2Pro→v2 / is_half true→false（启动期设置被合成参数文件盖掉）
+      //    ⇒ 契约 C11 的默认值在实际部署里等于失效。收窄到 7 个之后，用户没拧过的键
       //      盘上不再有，自动退回名片，名片才是默认值的唯一产地。
       //
       // 第 10 步（前端按 param_schema 循环渲染）会把这张表也改成名片驱动，
       //   届时判据是「这一格在界面上存在」，不再是写死的键名。
-      // 只回存用户**亲手动过**的格子 + seed。
+      // 只回存用户亲手动过的格子 + seed。
       // 不回存整份 paramValues：没动过的键回存下去就等于把名片默认值
       //    抄进盘上文件，从此名片改了也不生效（:460 那一段实测过的坑）。
       api('/api/advanced-params', {
@@ -689,7 +689,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     if (p.voice && p.voice !== selectedVoice) setSelectedVoice(p.voice)
     // 从那一次实际发出去的参数里，把每个位当时选的模型认回来。
     //
-    // 认的依据是**名片说这个位走哪个参数名**，反查一次即可，位有几个就
+    // 认的依据是名片说这个位走哪个参数名，反查一次即可，位有几个就
     //    认几个。没写参数名的位当时本来就没发出去，自然也认不回来（那台引擎
     //    的权重是启动时定的，重跑时装的是哪一份由它自己决定）。
     // 这里以前靠路径长相倒推「这份权重是谁的」来还原跨资产混搭。混搭没了，
@@ -821,7 +821,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               {/* 这句话以前写的是「在这里切换不会生效」，那是实话，但它
                   描述的是一个 bug，不是一个特性：能点、点完什么都不发生的下拉，
                   比不给选更糟。现在平台会带着选中的那一份把引擎重开一次，所以
-                  它**真的生效了**，代价是要等。⇒ 这里改成说清那个代价。
+                  它真的生效了，代价是要等。⇒ 这里改成说清那个代价。
                   别退回上一版文案：那等于把已经修好的功能重新说成坏的。 */}
               {relaunchSlots.length > 0 && (
                 <div className="field-hint" style={{ marginTop: 4 }}>
@@ -832,7 +832,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               {/* 盘上放了模型、下拉却是空的，而且没有一个字解释
                   为什么，「这个角色没有模型」「放错了一层」「目录名不是权重位名」
                   三件事在界面上长得一模一样。静默是这个仓库最难查的一种坏法。
-                  这里**不加指示灯**（顶栏那笔账刚清过）：话说在它出问题的
+                  这里不加指示灯（顶栏那笔账刚清过）：话说在它出问题的
                      那个下拉旁边，看完就没用了，不该占一个常驻格子。
                   前端不判断也不拼话：整句是后端生成的，它才知道名片写了什么。 */}
               {modelNotes.map((n, i) => (
@@ -953,7 +953,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   </div>
 
                   {/* 名片里一个参数都没描述时，说清是哪一种「没有」。
-                      静默画一个空面板会让人以为这台引擎调不了，真机上
+                      静默画一个空面板会让人以为这台引擎调不了，实际部署里
                          确实有 param_keys 有 12 个、params.schema 却是空的引擎。 */}
                   {(() => {
                     const gap = schemaGap(engine)
@@ -962,7 +962,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                     ) : null
                   })()}
 
-                  {/* ⬇ 这里原本是两档共 13 个写死的 <input>。全部换成按
+                  {/* 这里原本是两档共 13 个写死的 <input>。全部换成按
                       engine.param_schema 循环，装一台谁都没见过的引擎，
                       这段代码一个字都不用改（契约 §11 判据 9）。 */}
                   {TIERS.map(tier => advTier === tier && (
@@ -984,7 +984,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                       ))}
 
 
-                      {/* ⬇ 平台自己的开关。它们**不属于任何一台引擎**，所以不在
+                      {/* 平台自己的开关。它们不属于任何一台引擎，所以不在
                           param_schema 里，也就不能跟着上面那个循环长出来。
                           判据很简单：换一台引擎，这几格的含义一个字都不变。 */}
                       {tier === 'common' && (
@@ -996,13 +996,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                       {tier === 'common' && (
                         <div>
                           {/*
-                            强制重新推理。放 Common 档是 Owner 定的（"比较基础"）。
-                            它与同排其它格子**不是一类东西**：那些是引擎参数，会存进
+                            强制重新推理。放 Common 档的依据是它比其他格子更基础。
+                            它与同排其它格子不是一类东西：那些是引擎参数，会存进
                               /api/advanced-params；这一个是平台开关，存在浏览器本地
                               （generate.forceResynth），绝不进引擎参数表，详见
                               状态声明处的注释。
                           */}
-                          {/* 走 ToggleField，跟名片长出来的那些勾选框是**同一个组件**。
+                          {/* 走 ToggleField，跟名片长出来的那些勾选框是同一个组件。
                               不要在这儿手写 <input type="checkbox">：那正是
                                 「一个左上一个右下」的来历（见 ToggleField 的注释）。 */}
                           <ToggleField
@@ -1086,10 +1086,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                       This voice (Slices/Raw) · Another voice · Custom files, multi-select
                       + audio preview. Identical interaction to Compare Refs.
 
-                      这一格是**平台的词**（aux_reference_audio），不是引擎参数，
+                      这一格是平台的词（aux_reference_audio），不是引擎参数，
                         所以它不在 param_schema 里、不跟着上面那个循环长。它的开关
                         在名片 maps 上：铺了映射才发得出去。
-                      之前无条件画：真机上 indextts2 的 maps 没有这一条，用户
+                      之前无条件画：实际部署里有引擎的 maps 没有这一条，使用者
                         照样选得出一堆辅助参考音频，然后它们被静默丢掉。 */}
                   {hasMappedKey(engine, 'aux_reference_audio') && (
                   <div style={{ marginTop: 10 }}>
@@ -1159,7 +1159,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 params: {
                   // PA: pin the full inference contract so the recipe reproduces
                   // the exact audition when distributed via /v1/audio/speech.
-                  // 这一份是**给老配方和老前端留的兼容底**：后端仍按 v3 的键集
+                  // 这一份是给老配方和老前端留的兼容底：后端仍按 v3 的键集
                   //    往 params 里写一份。真正权威的是上面的 engine_params。
                   ...paramsToSend(engine, paramValues, touchedParams),
                   seed,

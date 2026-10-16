@@ -1,4 +1,4 @@
-// Regression guard for the stranded-override bug (2026-08-17).
+// Regression guard for the stranded-override bug.
 //
 // The bug: manual Han-language overrides are stored as absolute character
 // indices and persisted in localStorage, and nothing cleared them when the body
@@ -119,7 +119,7 @@ test('positions are code points, not UTF-16 code units', () => {
 test('the Han test used for pruning is the same one the picker draws with', () => {
   // Compatibility ideographs (U+F900-U+FAFF) are Han for HAN_RE, so the picker
   // offers them; pruning must agree or it would delete a selection the user can
-  // see. The engine-side regex was missing this block until 2026-08-17.
+  // see. The engine-side regex was missing this block.
   const compat = '\uF914'
   assert.ok(HAN_RE.test(compat))
   assert.ok(isLiveAssignment(compat, 0, 'zh'))

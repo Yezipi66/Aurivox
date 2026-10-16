@@ -12,7 +12,7 @@ import { voiceOptions, weightOptions, audioOptions } from './selectSources.pure'
 /**
  * 一个音色的参考音频（切片 + 原始）。
  *
- * 走的是 RefAudioList 用的**同两个口**，没有新开 API：多一个口就多一处
+ * 走的是 RefAudioList 用的同两个口，没有新开 API：多一个口就多一处
  *   会跟资产库漂开的地方。
  */
 export function useAudioOptions(voiceId) {

@@ -113,11 +113,11 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
   // 超参不手抄：键名与类型都来自当前引擎的 param_schema。
   //
-  // 换一台引擎 ⇒ 格子照常显示、填了发出去上游不认、**不报错**。
+  // 换一台引擎 ⇒ 格子照常显示、填了发出去上游不认、不报错。
   //
   // 形状跟 GenerateTab 完全一致：
   //   paramValues   这一行的格子值（从名片默认值起步）
-  //   touched       用户**明确动过**哪些，paramsToSend 只发这些
+  //   touched       用户明确动过哪些，paramsToSend 只发这些
   //   touched 不能省。没动过的键是「界面建议」，不是「用户选的」；
   //     全发过去等于平台替用户决定上游默认值。
   const [paramValues, setParamValues] = useState(() => ({
@@ -144,7 +144,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
   // 存回 row：只存用户动过的那些（GenerateTab:643 同一条纪律）
   // 存两样：params（发出去的形状）+ touched（哪些是用户真动过的）。
-  //   touched 必须是**能还原的**（数组），不能只活在本地 state 里，
+  //   touched 必须是能还原的（数组），不能只活在本地 state 里，
   //   generateRow 在 tab 级读的是 row，它拿不到这一行的本地 state。
   useEffect(() => {
     const explicit = paramsToSend(engine, paramValues, touched)
@@ -157,9 +157,9 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
   useEffect(() => { onUpdate(row.id, 'seed', seed) }, [seed])
 
-  // 真机查出：不能只取 common 一层。**实测两台
-  //   CosyVoice 的 param_schema 的 common 层是空的**（6 项和 2 项全在
-  //   advanced）⇒ 选它们时对比页画出**零个格子**，而界面上看不出任何异常。
+  // 不能只取 common 一层：实测两台
+  //   CosyVoice 的 param_schema 的 common 层是空的（6 项和 2 项全在
+  //   advanced）⇒ 选它们时对比页画出零个格子，而界面上看不出任何异常。
   //
   //   修法跟 GenerateTab 一样：跟着 TIERS 两档都画，档位按钮也是 TIERS.map
   //，不写死 ['common','advanced']，那份名单在 web/src/lib/engines.js
@@ -167,7 +167,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [advTier, setAdvTier] = useState('common')
   const visibleFields = (tier) => fieldsForTier(engine, tier)
     .filter(f => isFieldVisible(f, paramValues))
-  // 某档一个格子都没有 ⇒ **不画那个档位按钮**。画一个点开是空的标签页，
+  // 某档一个格子都没有 ⇒ 不画那个档位按钮。画一个点开是空的标签页，
   //    比不画更糟（用户以为这一档坏了）。判据跟方法下拉同一条：名片没给的
   //    界面不许替它编一个。
   const tiersWithFields = TIERS.filter(t => visibleFields(t).length > 0)
@@ -580,10 +580,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   GSV 的 common 层拿到的正是 temperature/top_k/top_p/
                   repetition_penalty/text_split_method/speed_factor 六项（Seed
                   见下面那段注释）。手写 <input> 的做法换一台引擎就会
-                  让格子照常显示、填了发出去**上游不认**、不报错。
+                  让格子照常显示、填了发出去上游不认、不报错。
 
-                  **两档都画**（跟着 TIERS），不是只画 common。实测两台
-                  CosyVoice 的 common 层是**空的** ⇒ 只画 common 时选它们
+                  两档都画（跟着 TIERS），不是只画 common。实测两台
+                  CosyVoice 的 common 层是空的 ⇒ 只画 common 时选它们
                   一个格子都没有，而界面上看不出任何异常。
 
                   options 故意不传：ParamField:197 只在 `select + source`
@@ -614,7 +614,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   t={t} />
               ))}
 
-              {/* Seed 不在 param_schema 里：它不是**任何一台引擎**的参数，
+              {/* Seed 不在 param_schema 里：它不是任何一台引擎的参数，
                   是平台自己的开关（GenerateTab:1030 同一条纪律）。
                   判据：换一台引擎，这一格的含义一个字都不变。 */}
               <div>
@@ -633,7 +633,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   交到了前端）。比如 CosyVoice2 的 zero_shot / instruct2 / vc，
                   同一段文本在同一个音色上走不同入口。
 
-                  只有一个方法（engine.methods 为 null）⇒ **不画这个下拉**：
+                  只有一个方法（engine.methods 为 null）⇒ 不画这个下拉：
                   没有第二个选项的下拉只是噪声。判据跟 schemaGap 一样，
                   名片没说的东西，界面不许替它编一个。 */}
               {Array.isArray(engine?.methods) && engine.methods.length > 0 && (

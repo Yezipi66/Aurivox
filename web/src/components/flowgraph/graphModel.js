@@ -78,13 +78,13 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
 // can be edited freely. The graph therefore stays self-contained: changing the
 // voice record later cannot silently change what a saved graph does.
 
-// 这里是一张**白名单**，
+// 这里是一张白名单，
 //     ['gpt_model','sovits_model','sample_steps','if_sr','batch_size', …]
 //   十一个键，一个不漏地是 GPT-SoVITS 的参数表被抄进了画布。它的坏法是静默的：
 //   换一台引擎，它的键一个都不在名单上 ⇒ 选了音色、什么都没被带进来，
 //   而界面不会说一个字。（这正是 `nodes.js` 写死 16 个 GSV 键那个 bug 的同族。）
 //
-// 换成**减法**：画布不认识任何引擎参数名，它只认识**平台自己的记账字段**。
+// 换成减法：画布不认识任何引擎参数名，它只认识平台自己的记账字段。
 //   剩下的残余，全都是引擎的东西 ⇒ 原样带进参数节点。
 //   ⇒ 新引擎带来的新键自动就在里面，这个文件一行都不用改。
 //

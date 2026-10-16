@@ -3,18 +3,18 @@ import assert from 'node:assert/strict'
 import { processPhase, engineControls, actionOutcome } from './engineActions.pure.js'
 
 // ---------------------------------------------------------------------------
-//  刀 F2：引擎管理页那两个按钮
+//  引擎管理页那两个按钮
 // ---------------------------------------------------------------------------
 //
-// ⭐⭐⭐ 这不是文本守卫。仓库里那 26 条前端守卫守的是"这个词出现在这个位置"，
-//   而这个文件真的把判断函数调起来看它返回什么 —— 判断本身被刻意挪出了 JSX，
+// 这不是文本守卫。仓库里那 26 条前端守卫守的是"这个词出现在这个位置"，
+//   而这个文件真的把判断函数调起来看它返回什么：判断本身被刻意挪出了 JSX，
 //   就是为了这件事（`npm run build` 绿 ≠ 接线对）。
 //
-// 每条测试问的都是同一类问题：**某种状态下按钮该不该按，理由说没说。**
+// 每条测试问的都是同一类问题：某种状态下按钮该不该按，理由说没说。
 
 test('⭐⭐⭐ 名片没写 runtime 段（managed:false）⇒ 两个按钮都不许亮', () => {
-  // 这是**合法状态**，不是错误：这台引擎由作者自己起。
-  // ⛔ 给一个按下去什么也不会发生的按钮，比没有按钮更坏。
+  // 这是合法状态，不是错误：这台引擎由作者自己起。
+  // 给一个按下去什么也不会发生的按钮，比没有按钮更坏。
   const c = engineControls({ id: 'x', managed: false, process: null })
   assert.equal(c.phase, 'not-ours')
   assert.equal(c.start.enabled, false)
@@ -37,8 +37,8 @@ test('⭐ 没在跑 ⇒ 能启动、不能关闭', () => {
 })
 
 test('⭐⭐⭐ 正在启动（running:false 但有 phase）⇒ 启动按钮必须灰掉', () => {
-  // ⚠ 这是整套东西里唯一会让人以为卡死的时刻：模型正在装进内存，几十秒到几分钟。
-  //   按 running 判会把它显示成"待命"，于是用户再点一次 —— 只会排得更久。
+  // 这是整套东西里唯一会让人以为卡死的时刻：模型正在装进内存，几十秒到几分钟。
+  //   按 running 判会把它显示成"待命"，于是用户再点一次：只会排得更久。
   const c = engineControls({ id: 'x', managed: true, process: { running: false, phase: 'launching' } })
   assert.equal(c.phase, 'starting')
   assert.equal(c.start.enabled, false)
@@ -49,7 +49,7 @@ test('⭐⭐⭐ 正在合成（busy）⇒ 关闭按钮必须灰掉，理由是"�
   const c = engineControls({ id: 'x', managed: true, process: { running: true, busy: true } })
   assert.equal(c.phase, 'busy')
   assert.equal(c.stop.enabled, false)
-  assert.match(c.stop.title, /不完整的音频/, '这里必须说清后果 —— 关掉它不是"操作失败"，是那次合成被腰斩')
+  assert.match(c.stop.title, /不完整的音频/, '这里必须说清后果，关掉它不是"操作失败"，是那次合成被腰斩')
 })
 
 test('在跑且不忙 ⇒ 能关，不能重复启动', () => {
@@ -68,7 +68,7 @@ test('⭐⭐ 引擎在跑但不是平台起的（external）⇒ 关闭必须灰�
   assert.match(c.stop.title, /不是本平台启动的/)
 })
 
-test('⛔ 每一个灰掉的按钮都必须带理由 —— 不说理由等于告诉用户"这儿坏了"', () => {
+test('⛔ 每一个灰掉的按钮都必须带理由，不说理由等于告诉用户"这儿坏了"', () => {
   const cases = [
     { id: 'a', managed: false, process: null },
     { id: 'b', managed: true, process: null },
@@ -90,10 +90,10 @@ test('⛔ 每一个灰掉的按钮都必须带理由 —— 不说理由等于�
   }
 })
 
-test('⛔ 前端不许自己判"内存够不够" —— 那条判据只有后端有一份', () => {
+test('⛔ 前端不许自己判"内存够不够"，那条判据只有后端有一份', () => {
   // 一台没在跑、平台管得着的引擎，无论内存多紧，按钮都必须是亮的：
   // 拦不拦由 residency.js 说了算。前端多一份判据的表现是
-  // "按钮灰着，其实能起" —— 而那不报错。
+  // "按钮灰着，其实能起"：而那不报错。
   const c = engineControls({ id: 'x', managed: true, process: { running: false }, mem_hint_free_mb: 1 })
   assert.equal(c.start.enabled, true)
 })
@@ -108,7 +108,7 @@ test('⭐⭐⭐ ENGINE_NEEDS_CONFIRM 是"要问人"，⛔ 不是报错', () => {
     data: { code: 'ENGINE_NEEDS_CONFIRM', error: '平台还没量过引擎 x 要占多少内存', mem: { freeMb: 6030 } },
   })
   assert.equal(r.kind, 'confirm', '当成普通报错弹出去，用户就只能看着一句没法推进的红字')
-  assert.equal(r.mem.freeMb, 6030, 'mem 必须带上 —— 那句文案里故意没有"预计要多少"，弹框除了 mem 没有别的来源')
+  assert.equal(r.mem.freeMb, 6030, 'mem 必须带上，那句文案里故意没有"预计要多少"，弹框除了 mem 没有别的来源')
   assert.ok(r.confirmLabel)
 })
 

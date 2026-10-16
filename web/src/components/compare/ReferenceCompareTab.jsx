@@ -104,7 +104,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       reference_text: row.promptText || '',
       language: row.textLang || defaultTextLang || rmVoiceLang || 'ja',
       params: {
-        // 参数只存当前引擎名片上、且这一行**用户明确动过**的那些
+        // 参数只存当前引擎名片上、且这一行用户明确动过的那些
         //   （跟请求体走的是同一个 paramsToSend，配方和实际发出去的东西
         //   形状一致）。硬编码键名的话，换一台引擎存下来的就是一堆
         //   上游不认的键，存的时候不报错，回放的时候也不报错。
@@ -113,7 +113,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         // (advanced group) fall back to the shared defaults so the recipe still
         // reproduces the audition.
         //
-        // 凡是在**当前引擎名片上**的参数（不论 common 还是 advanced 层），
+        // 凡是在当前引擎名片上的参数（不论 common 还是 advanced 层），
         //   都按「这行没动过 ⇒ 取共享默认 / 动过 ⇒ 取这一行的」补齐，
         //   这样配方仍然是「完整合同」（回放得出一模一样的结果），
         //   而键名一个都不写死。
@@ -165,8 +165,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   // Load default advanced params from backend
   // 当前用 `/api/advanced-params` 加上 engine_id，
   //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault）。那条路已经删了
-  //   ⇒ 现在**必须**带上 engine_id，且 engine 还没到就一个字节都不发。
-  //   不许在这里塞任何回落引擎，回落回来的默认值属于**另一台**引擎，
+  //   ⇒ 现在必须带上 engine_id，且 engine 还没到就一个字节都不发。
+  //   不许在这里塞任何回落引擎，回落回来的默认值属于另一台引擎，
   //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都不匹配的错。
   useEffect(() => {
     if (!engine?.id) return
@@ -193,22 +193,22 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // weights are selectable here for zero-shot reference comparison — it isn't in the
     // /api/assets roster (no folder on disk), so it must be fetched explicitly.
     // 这一页整页都是「两份权重两两组合去试听」的形状，它问的是那条特定的
-    //   合成链路，所以引擎名在这里是**这一页自己的题目**，不是平台写死了一台引擎。
+    //   合成链路，所以引擎名在这里是这一页自己的题目，不是平台写死了一台引擎。
     //   取值层级用新结构，形状原样不动。
     // 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
     //   混搭开关一起动。那是独立一件事，本轮不做。
     // 引擎名不写死成 `CMP_ENGINE = 'gpt-sovits'`，位名也不写死
     //   成 'gpt' / 'sovits'，否则连文件选择器的扩展名都会被钉成 .ckpt / .pth。
-    //   后果：一台别的引擎的资产在这页里**连一个模型位都列不出来**，
+    //   后果：一台别的引擎的资产在这页里连一个模型位都列不出来，
     //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
     //
-    //   **按当前引擎的两个位名取权重**：GSV 的位名就还叫 gpt/sovits，
+    //   按当前引擎的两个位名取权重：GSV 的位名就还叫 gpt/sovits，
     //   所以 GSV 用户看到的下拉一个字都没变；别的引擎名下名片给什么位名就取
     //   什么位名，取不到就只有 0 个组合，行自己退化成「用当前音色」，
     //   而不是画一个空下拉。
     //
     //   真正的「每行不同引擎并排」仍是计划里的遗留 L3（那要重画整行的
-    //   混搭开关，不是本刀）。这里只是**不再按引擎身份分叉**。
+    //   混搭开关，不是本刀）。这里只是不再按引擎身份分叉。
     const buildModels = (vid, meta, out) => {
       // 位名也来自名片，不写死 'gpt'/'sovits'
       // （weight_slots 是 [{name,label,param,applies_at}]，这里只要 name）。
@@ -253,8 +253,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
       setAvailableModels(models)
     }).catch(() => {})
-    // 依赖里必须有 engine.id：buildModels 现在按**当前引擎**的位名取权重。
-    //   少了这一项 ⇒ 换引擎后这个下拉还是上一台引擎的权重，而且是**安静地**
+    // 依赖里必须有 engine.id：buildModels 现在按当前引擎的位名取权重。
+    //   少了这一项 ⇒ 换引擎后这个下拉还是上一台引擎的权重，而且是安静地
     //   错，界面上没有任何一处会告诉你它没跟着换。
   }, [engine?.id])
 
@@ -333,7 +333,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   const loadRecipeIntoRow = (row, recipeId) => {
     const rec=recipes.find(r=>r.id===recipeId); if(!rec)return; const p=rec.params||{}
-    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',// 配方回放出来的键都标成**用户动过**（touched =
+    setRows(prev=>prev.map(r=>r.id===row.id?{...r,refAudio:recipePath(rec.reference_audio),promptText:rec.reference_text||'',auxRefPaths:(p.aux_ref_audio_paths||[]).map(recipePath).filter(Boolean),textLang:rec.language||'',// 配方回放出来的键都标成用户动过（touched =
       //   配方里出现的键名），配方回放本来就是用户显式存下来的选择。
       ...(() => {
         const known = new Set((engine?.param_schema || []).map(f => f && f.name))
@@ -379,14 +379,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         concat: true,
         ref_audio: row.refAudio || undefined,
         aux_ref_audio_paths: row.auxRefPaths.length > 0 ? row.auxRefPaths : undefined,
-        // 参数只发用户**明确动过**的那些。键名写死的话，换一台引擎这些键上游
-        //   **不认**，而请求**照发**，不报错，用户看到的是「参数调了没反应」。
+        // 参数只发用户明确动过的那些。键名写死的话，换一台引擎这些键上游
+        //   不认，而请求照发，不报错，用户看到的是「参数调了没反应」。
         //   键名和类型都来自当前引擎的 param_schema（paramsToSend 是
         //   web/src/lib/engines.js 的权威实现，GenerateTab 用的是同一个
         //   函数，不是新写一份）。
         ...paramsToSend(engine, row.params, row.touched),
         // 这一行走哪个推理方法（点 1：profile.methods 交到前端）。
-        //   只交**名字**：方法内部怎么绑参数、要不要参考音频，是 host.py 的事，
+        //   只交名字：方法内部怎么绑参数、要不要参考音频，是 host.py 的事，
         //   前端不复制那份规则（那是第二份会漂移的事实）。
         //   单方法引擎 methods 为 null ⇒ 不发这个键，让后端用名片上的固定入口。
         ...(row.method ? { method: row.method } : {}),

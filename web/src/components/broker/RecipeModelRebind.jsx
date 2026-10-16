@@ -11,7 +11,7 @@ import { modelCountsByEngine, paramsSummaryOf } from '../../lib/modelPickers.pur
 
 // 权重文件的扩展名，不写死成 .ckpt / .pth（那是 GPT-SoVITS 的形状）。
 // 一台非 GSV 引擎的权重可能是 .safetensors / .onnx / .pt / .bin，
-// 过滤太窄的后果是：自定义路径那一栏的「浏览」**看不到文件**，
+// 过滤太窄的后果是：自定义路径那一栏的「浏览」看不到文件，
 // 而界面上没有任何一句话解释为什么。
 const WEIGHT_EXTS = ['.ckpt', '.pt', '.pth', '.bin', '.safetensors', '.onnx', '.bin']
 
@@ -45,15 +45,15 @@ export function RecipeModelRebind({ recipe, onSaved }) {
   const modelCache = useRef({})
 
   // 这个「换模型」小面板改的是配方顶层那两个权重字段，配方格式不动，
-  //   所以它只装得下**两个**位。
+  //   所以它只装得下两个位。
   //
   // 引擎名和位名都不能写死（`REBIND_ENGINE = 'gpt-sovits'` / 'gpt' /
   //   'sovits'，连文件选择器的扩展名都钉成 .ckpt / .pth）。否则一台别的
-  //   引擎的资产在 Broker 里**连一个模型位都列不出来**，
+  //   引擎的资产在 Broker 里连一个模型位都列不出来，
   //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
   //
   //   引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
-  //   **已经有** engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
+  //   已经有 engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
   //   的 enginesInMeta 算出来的）和 models[<engineId>][<slot>]。
   //   前端不猜引擎有哪些位，后端给什么位就渲染什么位。
   const loadVoiceModels = async (voiceId) => {
@@ -68,7 +68,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
     return m
   }
 
-  // 这个配方现在正在用哪台引擎：配方自己**没有** engine_id（配方格式这轮不动），
+  // 这个配方现在正在用哪台引擎：配方自己没有 engine_id（配方格式这轮不动），
   //   所以身份是从它钉的那份权重反查出来的，那份权重属于谁，就是哪台引擎。
   //   找不到就 null，让调用方说人话，别默默退回第一台引擎（那等于把
   //   一台引擎的权重发给另一台）。
@@ -200,7 +200,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
             </div>
           )}
         </div>
-        {/* 只有一位的引擎（CosyVoice 的 model 位就是一个）**不画第二格**。
+        {/* 只有一位的引擎（CosyVoice 的 model 位就是一个）不画第二格。
             画一个标题写着「模型」、候选永远为空的下拉，比不画更糟：用户会以为
             「这个音色真的没有第二个模型」，而真相是「这台引擎只有一个位」。
             判据跟方法下拉一样：名片/后端没给的，界面不许替它编一个。 */}

@@ -5,11 +5,11 @@ import {
 import { recipePath } from '../../lib/recipes'
 
 // ---------------------------------------------------------------------------
-//  一个格子，五种预设样式的**唯一**渲染处
+//  一个格子，五种预设样式的唯一渲染处
 // ---------------------------------------------------------------------------
 //
 // 这个文件存在的理由：以后每台引擎都会有自己的一页（生成出来的
-//    `web/src/components/engines/<id>.jsx`）。那些页面**拼装**这个组件，
+//    `web/src/components/engines/<id>.jsx`）。那些页面拼装这个组件，
 //    不各自实现一遍控件，否则「五种样式」就变成了 N 份互相漂移的实现，
 //    而漂移的症状是「换一台引擎，同一种参数的格子长得不一样」。
 //
@@ -32,8 +32,8 @@ import { recipePath } from '../../lib/recipes'
 /**
  * 勾选框统一走这一个组件。
  *
- * 起因是一条报给 Owner 的「引擎详细日志和引擎批量并行都是勾选框，
- *    你一个左上一个右下」。根子在 `styles.css:575` 的 `.form-grid` 是两列
+ * 起因是一条使用者反馈：「引擎详细日志和引擎批量并行都是勾选框，
+ *    这两个一个左上一个右下」。根子在 `styles.css:575` 的 `.form-grid` 是两列
  *    `align-items: start`，别的格子是「标签在上、控件在下」占满一格高，
  *    而裸 `<input type=checkbox>` 只有一行高，于是它在自己那一格里贴着顶，
  *    邻格的输入框贴着底，两个勾选框就一个在左上一个在右下。
@@ -70,7 +70,7 @@ function choiceValue(c) {
 }
 
 /**
- * 一个格子的**标量**控件（不含 repeat / multi 的外壳）。
+ * 一个格子的标量控件（不含 repeat / multi 的外壳）。
  *
  * @param options 这一格的候选项。`select + source` 时由调用方扫盘给进来，
  *                这个组件不去扫盘，它不知道 voices/weights/audio 是什么。
@@ -126,7 +126,7 @@ function ScalarControl({ field, value, onChange, lang, options, t }) {
 
   if (type === 'file') {
     // custom file，平台不认识这个文件是什么。
-    // 这里**没有**候选列表：有候选的那种是 select + source。
+    // 这里没有候选列表：有候选的那种是 select + source。
     return (
       <input type="text" className="control"
         placeholder={t('empty = do not send this file', '留空 = 不发这个文件')}
@@ -190,7 +190,7 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
     )
   }
 
-  // multi：多选多，几项由**用户**定 ⇒ 用原生多选。
+  // multi：多选多，几项由用户定 ⇒ 用原生多选。
   // 不做成「一排固定几个」，那是 repeat，几格由名片定死，两者不能互相顶替。
   if (field.multi === true && type === 'select') {
     const source = selectSourceOf(field)
@@ -210,9 +210,9 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
     )
   }
 
-  // repeat：一排 N 个，格子数由**名片**定死。
+  // repeat：一排 N 个，格子数由名片定死。
   if (n > 1) {
-    // 值不是数组、或者长度不匹配时，补成 N 格再画，但**不改 values**：
+    // 值不是数组、或者长度不匹配时，补成 N 格再画，但不改 values：
     //   我们只是没法画一个长度不对的东西，不代表要替用户改他的值。
     const cur = Array.isArray(value) && value.length === n
       ? value
