@@ -101,10 +101,10 @@ const {
   vendoredFfmpegPath, ffmpegCmd, checkFfmpeg, AUDIO_FORMATS, transcodeAudio,
 } = require("./lib/audio/ffmpeg");
 const { concatWavFiles, concatWithFfmpeg } = require("./lib/audio/concat");
-// ⭐ 2026-10-05：`lib/system/cuda.js` → `lib/system/gpu.js`。
+// `lib/system/cuda.js` 改名为 `lib/system/gpu.js`。
 //   改名理由：它答的是「这台机器有什么显卡」，而「CUDA」在项目里另有一个含义
 //   （下面那个写死的 device:"cuda"）。两个「CUDA」指两件事，文件名只说了其一。
-//   ⭐ 实现也不再 spawn Python —— 理由见 gpu.js 文件头。
+//   实现也不再 spawn Python，理由见 gpu.js 文件头。
 const { startCudaProbe, detectCuda } = require("./lib/system/gpu");
 // Stage-2 extractions: generic async mutex + voices.json store (persistence +
 // write lock + rotating backups). These replace the two bare module-level
