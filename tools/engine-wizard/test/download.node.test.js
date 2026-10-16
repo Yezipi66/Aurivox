@@ -91,7 +91,7 @@ test('fetchRemoteManifest — API 失败时返回空列表', async () => {
 })
 
 // checkFileStatus — 三态判断
-test('checkFileStatus — 正式文件存在 + 大小匹配 + SHA-256 匹配 → ok', () => {
+test('checkFileStatus — 正式文件存在 + 大小匹配 + SHA-256 匹配 → ok', async () => {
   const root = mkdtemp()
   const id = 'test-ok'
   const dir = checkpointsDir(root, id)
@@ -101,12 +101,12 @@ test('checkFileStatus — 正式文件存在 + 大小匹配 + SHA-256 匹配 →
   const sha = crypto.createHash('sha256').update(content).digest('hex')
   fs.writeFileSync(path.join(dir, 'model.bin'), content)
 
-  const r = checkFileStatus('model.bin', content.length, root, id)
+  const r = await checkFileStatus('model.bin', content.length, root, id)
   assert.strictEqual(r.status, 'ok')
   assert.strictEqual(r.size, content.length)
 })
 
-test('checkFileStatus — 正式文件存在但大小不匹配 → partial', () => {
+test('checkFileStatus — 正式文件存在但大小不匹配 → partial', async () => {
   const root = mkdtemp()
   const id = 'test-size'
   const dir = checkpointsDir(root, id)
@@ -114,12 +114,12 @@ test('checkFileStatus — 正式文件存在但大小不匹配 → partial', () 
 
   fs.writeFileSync(path.join(dir, 'model.bin'), 'hello')
 
-  const r = checkFileStatus('model.bin', 9999, root, id)
+  const r = await checkFileStatus('model.bin', 9999, root, id)
   assert.strictEqual(r.status, 'partial')
   assert.strictEqual(r.size, 5)
 })
 
-test('checkFileStatus — 正式文件存在 + 大小匹配 → ok（不再用 SHA-256 校验）', () => {
+test('checkFileStatus — 正式文件存在 + 大小匹配 → ok（不再用 SHA-256 校验）', async () => {
   const root = mkdtemp()
   const id = 'test-sha'
   const dir = checkpointsDir(root, id)
@@ -128,12 +128,12 @@ test('checkFileStatus — 正式文件存在 + 大小匹配 → ok（不再用 S
   const content = 'hello world'
   fs.writeFileSync(path.join(dir, 'model.bin'), content)
 
-  const r = checkFileStatus('model.bin', content.length, root, id)
+  const r = await checkFileStatus('model.bin', content.length, root, id)
   assert.strictEqual(r.status, 'ok')
   assert.strictEqual(r.sha256, crypto.createHash('sha256').update(content).digest('hex'))
 })
 
-test('checkFileStatus — .tmp 文件存在 → partial', () => {
+test('checkFileStatus — .tmp 文件存在 → partial', async () => {
   const root = mkdtemp()
   const id = 'test-tmp'
   const dir = checkpointsDir(root, id)
@@ -141,16 +141,16 @@ test('checkFileStatus — .tmp 文件存在 → partial', () => {
 
   fs.writeFileSync(path.join(dir, 'model.bin.tmp'), 'partial data')
 
-  const r = checkFileStatus('model.bin', 100, root, id)
+  const r = await checkFileStatus('model.bin', 100, root, id)
   assert.strictEqual(r.status, 'partial')
   assert.strictEqual(r.size, 12)
 })
 
-test('checkFileStatus — 都不存在 → missing', () => {
+test('checkFileStatus — 都不存在 → missing', async () => {
   const root = mkdtemp()
   const id = 'test-missing'
 
-  const r = checkFileStatus('model.bin', 100, root, id)
+  const r = await checkFileStatus('model.bin', 100, root, id)
   assert.strictEqual(r.status, 'missing')
   assert.strictEqual(r.size, 0)
 })
@@ -160,21 +160,21 @@ test('checkFileStatus — 都不存在 → missing', () => {
 // 原来 `if (expectedSize && ...)` 只在给了大小的时候才比对。
 // 远端没给（0）时无条件报 'ok'，一个上次中断留下的半截文件
 // 会被当成「已下载完成」，界面上打绿勾。
-test('checkFileStatus — 远端没给大小，partial，不是 ok（不给假绿灯）', () => {
+test('checkFileStatus — 远端没给大小，partial，不是 ok（不给假绿灯）', async () => {
   const root = mkdtemp()
   const id = 'test-nosize'
   const dir = checkpointsDir(root, id)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'model.bin'), 'half a file')
 
-  const r = checkFileStatus('model.bin', 0, root, id)
+  const r = await checkFileStatus('model.bin', 0, root, id)
   assert.strictEqual(r.status, 'partial',
     '远端没给大小就等于无法确认完整性，报 ok 是假绿灯')
   assert.strictEqual(r.size, 11)
   assert.ok(r.note && r.noteZh, '要带上「为什么算不完整」的说明')
 })
 
-test('checkFileStatus — 远端没给大小也不给 undefined（三态不许糊）', () => {
+test('checkFileStatus — 远端没给大小也不给 undefined（三态不许糊）', async () => {
   const root = mkdtemp()
   const id = 'test-nosize-undefined'
   const dir = checkpointsDir(root, id)
@@ -182,7 +182,7 @@ test('checkFileStatus — 远端没给大小也不给 undefined（三态不许�
   fs.writeFileSync(path.join(dir, 'model.bin'), 'x')
 
   for (const missing of [undefined, null, 0]) {
-    const r = checkFileStatus('model.bin', missing, root, id)
+    const r = await checkFileStatus('model.bin', missing, root, id)
     assert.strictEqual(r.status, 'partial', `expectedSize=${missing} 时不许报 ok`)
   }
 })
@@ -193,14 +193,14 @@ test('checkFileStatus — 远端没给大小也不给 undefined（三态不许�
 // 而端点原来只映射 { name, size, sha256, status }，repo 不在里面，
 // 刷新后表里每一项的 repo 变 undefined，仓库列显示「未知」，
 // 重下/续传按钮也拿不到仓库。
-test('enrichManifestFiles — 每条都带上 repo 和 tool（刷新不抹来源）', () => {
+test('enrichManifestFiles — 每条都带上 repo 和 tool（刷新不抹来源）', async () => {
   const root = mkdtemp()
   const id = 'test-enrich'
   const files = [
     { name: 'config.yaml', size: 2860 },
     { name: 'nested/model.safetensors', size: 1234 },
   ]
-  const out = enrichManifestFiles(files, 'owner/repo', 'hf', root, id)
+  const out = await enrichManifestFiles(files, 'owner/repo', 'hf', root, id)
   assert.strictEqual(out.length, 2)
   for (const f of out) {
     assert.strictEqual(f.repo, 'owner/repo', '刷新响应里必须有 repo')
@@ -211,7 +211,7 @@ test('enrichManifestFiles — 每条都带上 repo 和 tool（刷新不抹来源
   assert.strictEqual(out[0].status, 'missing')
 })
 
-test('enrichManifestFiles — 已存在的文件报 ok，半截的报 partial', () => {
+test('enrichManifestFiles — 已存在的文件报 ok，半截的报 partial', async () => {
   const root = mkdtemp()
   const id = 'test-enrich-state'
   const dir = checkpointsDir(root, id)
@@ -219,7 +219,7 @@ test('enrichManifestFiles — 已存在的文件报 ok，半截的报 partial', 
   fs.writeFileSync(path.join(dir, 'good.bin'), 'hello world')
   fs.writeFileSync(path.join(dir, 'nested', 'short.bin'), 'hel')
 
-  const out = enrichManifestFiles([
+  const out = await enrichManifestFiles([
     { name: 'good.bin', size: 11 },
     { name: 'nested/short.bin', size: 999 },
   ], 'owner/repo', 'modelscope', root, id)
@@ -231,10 +231,10 @@ test('enrichManifestFiles — 已存在的文件报 ok，半截的报 partial', 
   assert.strictEqual(out[1].tool, 'modelscope')
 })
 
-test('enrichManifestFiles — 空列表返回空数组（不炸）', () => {
+test('enrichManifestFiles — 空列表返回空数组（不炸）', async () => {
   const root = mkdtemp()
-  assert.deepStrictEqual(enrichManifestFiles([], 'o/r', 'hf', root, 'x'), [])
-  assert.deepStrictEqual(enrichManifestFiles(null, 'o/r', 'hf', root, 'x'), [])
+  assert.deepStrictEqual(await enrichManifestFiles([], 'o/r', 'hf', root, 'x'), [])
+  assert.deepStrictEqual(await enrichManifestFiles(null, 'o/r', 'hf', root, 'x'), [])
 })
 
 // downloadFileFromUrl — 真跑一遍（本地 HTTP 服务器当远端）
