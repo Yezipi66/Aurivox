@@ -159,9 +159,9 @@ function buildClonePlan (input = {}) {
 /**
  * 杀进程树。
  *
- * Windows: taskkill /T 杀整个树 —— child.kill() 只杀 shell 不杀 git
+ * Windows: taskkill /T 杀整个树：child.kill() 只杀 shell 不杀 git
  *   （git 自己也是父进程，kill 了 shell 它还在跑）。
- * 非 Windows: kill 进程组（负 PID）—— git 起的子进程在同一组里。
+ * 非 Windows: kill 进程组（负 PID）：git 起的子进程在同一组里。
  *
  * @param {import('node:child_process').ChildProcess} child
  */
@@ -183,8 +183,8 @@ function killProcessTree (child) {
  *
  * 取消时：
  *   1. 杀进程树（Windows: taskkill /T；其他: kill 进程组）
- *   2. 删掉整个目标目录 —— 本步创建的，删除是撤销本步操作
- *      （⛔ 不是只删 .git —— 只删 .git 会留下残缺目录，下次卡在目录非空）
+ *   2. 删掉整个目标目录：本步创建的，删除是撤销本步操作
+ *      （⛔ 不是只删 .git：只删 .git 会留下残缺目录，下次卡在目录非空）
  *   3. 返回 CLONE_CANCELLED
  *
  * 凭据管理器弹框杀不掉时：5 秒安全网后如实报 CLONE_CANCEL_FAILED。
@@ -231,7 +231,7 @@ async function runClone (input = {}) {
 
     /**
      * 取消：杀进程树 + 删目录。
-     * 不在这里 resolve —— 等 child.on('close') 触发（进程真死了才算取消成功）。
+     * 不在这里 resolve：等 child.on('close') 触发（进程真死了才算取消成功）。
      * 安全网：进程杀不掉时（如凭据管理器弹框阻塞），5 秒后如实报无法取消。
      */
     const doCancel = (reason) => {
