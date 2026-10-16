@@ -460,16 +460,26 @@ StepVerify.jsx 现在 46 行、注释占 26 行，全是解释为什么没做。
 验收：三项各有实现或各有明确的未实现说明与卡点；
 ffprobe 一项能对一台已装引擎产出的音频给出真实信息。
 
-完成记录（子 Agent 两次陷循环，主 Agent 接手完成）：
-改动文件：lib/engines/verify_audio.py、tools/engine-wizard/core/verify.js、
+完成记录（三轮独立验收，第三轮通过；子 Agent 实现阶段两次陷循环，主 Agent 接手）：
+改动文件：lib/engines/verify_audio.py、lib/engines/verifyAudio.js、
       tools/engine-wizard/core/wizardbridge.js、
       tools/engine-wizard/editor/StepVerify.jsx、
-      tools/engine-wizard/editor/App.jsx。
-提交：48fc2c9（verify_audio.py 带出音频文件 + StepVerify 三项独立）、
-      5b2c637（音频 fetch 端点 + handleVerifyChecks 返回真实结果 +
-      StepVerify 接收 id prop + B1 注释破折号修正）。
-状态：待验收。三项独立验证（ffprobe 读信息 / 波形可视化 / ASR 可选），
-      音频文件通过 /wizard/verify/audio 端点送前端。
+      tools/engine-wizard/editor/App.jsx、web/wizard.vite.config.mjs。
+提交：
+      实现  48fc2c9（音频带出 + StepVerify 三项独立）
+            5b2c637（音频端点 + checks 返回真实结果 + id prop）
+      一轮修 17e8378（音频端点没注册进 HANDLERS 表）
+            371a027（Python 写项目根而端点读 engines/<id>/，两侧对齐）
+            6ab011a（端点越权防护、解析失败不再抛异常、支持 audio=A）
+            45f5a2c（A 级入口、第 1 项不再假称 ffprobe、ASR 卡点、破折号）
+      二轮修 6eb229c（junction 逃逸：realpath 守卫不能拿被检查对象当基准）
+            c55ca2d（ASR 卡点改成真的卡点）
+状态：通过。三项独立不绑成总门；音频端点越权防护经 junction、跨引擎、
+      名为 wav 的目录联接四种攻击均被拒，阳性对照未误伤；
+      前两轮的六条通过项未被改坏；零回归（tests 数随本机引擎目录浮动，
+      只看 fail 数与失败清单）。
+      遗留：第 1 项读音频信息用的是 stdlib wave 解析 WAV 头，不是 ffprobe；
+      ASR 一项仍未实现，卡点已如实写明。
 
 ## 4. 文件归属锁（并行前先定，防撞车）
 
