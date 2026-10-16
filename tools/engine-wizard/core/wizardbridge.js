@@ -912,7 +912,23 @@ function handleModels (req, res) {
 function handleVerifyChecks (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/verify/checks')) return false
-  json(res, 200, { ok: true, checks: verifyChecks() })
+  const url = new URL(req.url, 'http://localhost')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
+  const r = runChecks(id, { deep: true })
+  // 同时跑 audio B 级（只验宿主拿到合法响应，不合成）
+  const audio = runAudioCheck(id, { audio: 'B' })
+  // B 级不合成，没有 audio_path。检查磁盘上有没有 A 级留下的音频文件，
+  //   有的话把路径带出来，前端 Player.jsx 才能画波形。
+  const audioDir = path.join(projectRoot(), 'engines', id, '.wizard-verify-audio')
+  try {
+    if (fs.existsSync(audioDir)) {
+      const files = fs.readdirSync(audioDir).filter(f => f.endsWith('.wav'))
+      if (files.length > 0) audio.audio_path = path.join(audioDir, files[0])
+    }
+  } catch { /* 读不到就不带 */ }
+  r.checks.audio = audio
+  json(res, r.ok ? 200 : 400, r)
   return true
 }
 
@@ -920,6 +936,33 @@ function handleVerifyChecks (req, res) {
  * POST /wizard/verify  {id, deep?, audio?, request?}
  *  调平台的四道校验，不自己判断（见 core/verify.js 的头注）
  */
+// GET /wizard/verify/audio?id=<id>
+//   把 verify_audio.py 写出的音频文件送前端，供 Player.jsx 画波形。
+//   只允许读 .wizard-verify-audio/ 目录下的 wav 文件，不暴露其他路径。
+function handleVerifyAudio (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/audio')) return false
+  const url = new URL(req.url, 'http://localhost')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
+  const enginesDir = path.join(projectRoot(), 'engines')
+  const audioDir = path.join(enginesDir, id, '.wizard-verify-audio')
+  let audioFile = null
+  try {
+    if (fs.existsSync(audioDir)) {
+      const files = fs.readdirSync(audioDir).filter(f => f.endsWith('.wav'))
+      if (files.length > 0) audioFile = path.join(audioDir, files[0])
+    }
+  } catch { /* 读不到就如实报 */ }
+  if (!audioFile || !fs.existsSync(audioFile)) {
+    json(res, 404, { ok: false, error: 'no audio file found' }); return true
+  }
+  const data = fs.readFileSync(audioFile)
+  res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length })
+  res.end(data)
+  return true
+}
+
 function handleVerify (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/verify')) return false
@@ -1324,7 +1367,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile,
-  handleVerifyChecks, handleVerify, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。

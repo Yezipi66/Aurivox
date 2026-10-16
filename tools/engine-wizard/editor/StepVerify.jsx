@@ -12,15 +12,16 @@ import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { Player } from '../../../web/src/components/common/Player'
 
-export function StepVerify () {
+export function StepVerify ({ id }) {
   const { t } = useT()
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    if (!id) { setResults(null); setLoading(false); return }
     let cancelled = false
     setLoading(true)
-    fetch('/wizard/verify-checks')
+    fetch(`/wizard/verify/checks?id=${encodeURIComponent(id)}`)
       .then(r => r.json())
       .then(data => { if (!cancelled) { setResults(data); setLoading(false) } })
       .catch(() => { if (!cancelled) { setResults(null); setLoading(false) } })
@@ -75,7 +76,7 @@ export function StepVerify () {
           </h2>
         </div>
         {audio && audio.audio_path ? (
-          <Player src={audio.audio_path} />
+          <Player src={`/wizard/verify/audio?id=${encodeURIComponent(id)}`} />
         ) : (
           <div className="field-hint">
             {t('No audio file available. Run Tier A synthesis first.',

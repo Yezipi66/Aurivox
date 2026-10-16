@@ -210,8 +210,7 @@ export default function App () {
                 onSaved={() => addFacts({ manifestSaved: true })} />
             )}
             {page === 'verify' && (
-              // 不传 state/onChange：第 5 步尚未实现，且不上报 verified。
-              <StepVerify />
+              <StepVerify id={wz.id} />
             )}
                 </fieldset>
         </div>
