@@ -54,7 +54,7 @@ UPSTREAM_COMMIT = "13495845e3028f0bb6ca1462ad22aa0e76349e40"
 UPSTREAM_DATE = "2026-07-14 19:43:37 +0800"
 UPSTREAM_URL = "https://github.com/index-tts/index-tts"
 
-# batch16 的后态。看的是「新样子在不在」，不是「老样子还在不在」——
+# batch16 的后态。看的是「新样子在不在」，不是「老样子还在不在」：
 # 后者分不清「已经改过」和「文件本来就不一样」。
 REQUIRE_EXISTS = [
     (os.path.join(ENGINE_REL, "pyproject.toml"), "batch16 A1 配方"),
@@ -333,9 +333,9 @@ def do_apply(root, src, write, report, force=False):
     # ⭐⭐ 继承上一份清单的归属记录。
     #
     # 不继承会出一个很隐蔽的事故：第二次 --write 时所有文件都判「内容相同、
-    # 跳过」，于是 created 列表算出来是**空的**，清单被覆盖之后 --restore
-    # 就什么都删不掉了 —— 也就是「重跑一次，回滚能力就没了」。
-    # 清单记的是**归属**（这些文件是本批建的），不是「这一次动了谁」。
+# 跳过」，于是 created 列表算出来是空的，清单被覆盖之后 --restore
+# 就什么都删不掉了 ： 也就是「重跑一次，回滚能力就没了」。
+# 清单记的是归属（这些文件是本批建的），不是「这一次动了谁」。
     prev = {"created": [], "overwritten": []}
     _mp = os.path.join(root, ENGINE_REL, MANIFEST_NAME)
     if os.path.isfile(_mp):
@@ -369,7 +369,7 @@ def do_apply(root, src, write, report, force=False):
         else:
             shutil.copy2(item["src"], dst)
 
-    # B4 清单。记录的是**目标侧**的 sha256 —— 日后要复核的是我们盘上这份。
+# B4 清单。记录的是目标侧的 sha256 ： 日后要复核的是我们盘上这份。
     files = {}
     for item in plan:
         dst = os.path.join(root, item["rel"])
@@ -450,7 +450,7 @@ def do_restore(root, report):
 
     os.remove(mpath)
 
-    # 清空目录。只删空目录 —— 不属于本批的东西一律不碰。
+# 清空目录。只删空目录 ： 不属于本批的东西一律不碰。
     pkg_root = os.path.join(engine_dir, PKG_NAME)
     for cur, dirs, files in os.walk(pkg_root, topdown=False):
         try:

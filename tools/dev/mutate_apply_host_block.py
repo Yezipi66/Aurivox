@@ -157,7 +157,7 @@ def main():
         check("⭐ M4：名片本来就不是合法 JSON ⇒ 拒绝动手", rc == 2, "rc=%d" % rc)
         check("⭐ M4 连带：一个字节都没写", rb(MANIFEST) == snap)
 
-        # ---- M5：把脚本改坏，让它**删掉一行** ⇒ 写后自查必须抓到 ------
+# ---- M5：把脚本改坏，让它删掉一行 ⇒ 写后自查必须抓到 ------
         src = rt(APPLY)
         needle = 'new_body = stripped + insertion + tail.lstrip("\\n")'
         mutant = src.replace(

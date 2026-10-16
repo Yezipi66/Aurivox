@@ -464,7 +464,7 @@ def selftest():
             ".*/site-packages/", ".*/dist-packages/", ".*/node_modules/")),
             "⭐ 反例守卫：原有 9 条规则逐条还在")
 
-        # ⭐ 场景 2：再跑一次必须是**幂等**的（这正是不能直接重跑 16b 的原因）
+# ⭐ 场景 2：再跑一次必须是幂等的（这正是不能直接重跑 16b 的原因）
         before = c
         rc2, out2 = _quiet(run, root, True)
         after = open(os.path.join(root, COLL), encoding="utf-8").read()
@@ -472,7 +472,7 @@ def selftest():
             "⭐⭐ 场景2：重复 --write 幂等（内容逐字节不变，不会加第二遍）")
         chk("已经改过，跳过" in out2, "场景2：明说了是跳过，不假装做了")
 
-        # 场景 3：batch16 **没**生效 ⇒ 必须拒绝往下做
+# 场景 3：batch16 没生效 ⇒ 必须拒绝往下做
         root3 = _mktree(os.path.join(tmp, "s3"), FAKE_PACK_BEFORE, FAKE_COLL)
         rc3, out3 = _quiet(run, root3, True)
         chk(rc3 == 1, "⭐⭐ 场景3（batch16 未生效）：拒绝执行，返回 1")

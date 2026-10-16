@@ -52,12 +52,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 # ===========================================================================
-#  0) 引擎档案 —— 三台引擎各自的「说明文本可能藏在哪」
+#  0) 引擎档案 ： 三台引擎各自的「说明文本可能藏在哪」
 # ===========================================================================
-#  ⭐ 为什么要有这张表：说明文本**不在标准位置**。同一台引擎里，
+#  ⭐ 为什么要有这张表：说明文本不在标准位置。同一台引擎里，
 #     类 docstring / 方法 docstring / CLI help / dict 注释，四处都可能写，
 #     而平台无从得知该去哪读 ⇒ 接入时必须由人（名片作者）指路。
-#     ⭐ 这正是本次原型要暴露的**主要障碍**，见报告。
+#     ⭐ 这正是本次原型要暴露的主要障碍，见报告。
 PROFILES = {
     "index-tts": {
         "python": "engines/index-tts/.venv/Scripts/python.exe",
@@ -74,9 +74,9 @@ PROFILES = {
                  "sys_path": ["engines/cosyvoice2",
                               "engines/cosyvoice2/third_party/Matcha-TTS"]},
         "doc_files": ["engines/cosyvoice2/cosyvoice/cli/cosyvoice.py"],
-        # ⭐ 反例 2：cosyvoice2 的**推理方法本身没有 CLI**。带 argparse 的是
+# ⭐ 反例 2：cosyvoice2 的推理方法本身没有 CLI。带 argparse 的是
         #    它的 runtime 示例（fastapi client / webui）。开关名与 Python
-        #    参数名**部分一致**，且 CLI 只暴露了 7 个调用期参数里的 4 个。
+#    参数名部分一致，且 CLI 只暴露了 7 个调用期参数里的 4 个。
         "cli_files": ["engines/cosyvoice2/runtime/python/fastapi/client.py",
                       "engines/cosyvoice2/webui.py"],
     },
@@ -87,7 +87,7 @@ PROFILES = {
         "doc_files": ["engines/gpt-sovits/infer/TTS.py"],
         "cli_files": [],
         # ⭐ 反例 1：`TTS.run(inputs: dict)` 签名只有 configs/inputs，
-        #    真参数在 **dict 里**。说明写在 run() docstring 的 `Args:` 段，
+#    真参数在 dict 里。说明写在 run() docstring 的 `Args:` 段，
         #    形式是 `"key": default,  # comment`。
         "dict_params_in_docstring": True,
     },
@@ -95,7 +95,7 @@ PROFILES = {
 
 
 # ===========================================================================
-#  1) docstring 解析 —— Google `Args:` / Sphinx `:param:` / dict 注释
+#  1) docstring 解析 ： Google `Args:` / Sphinx `:param:` / dict 注释
 # ===========================================================================
 _GOOGLE_SECTION_HEAD = re.compile(
     r"^(Args|Arguments|Parameters|参数|参数说明)\s*:\s*$", re.I)
@@ -195,7 +195,7 @@ def parse_docstring(docstring):
 
 
 # ===========================================================================
-#  2) AST —— 类/方法 docstring、签名注解、Literal
+#  2) AST ： 类/方法 docstring、签名注解、Literal
 # ===========================================================================
 def _read(path):
     with io.open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -355,9 +355,9 @@ def parse_argparse_file(path):
 
 
 # ===========================================================================
-#  4) 别名表 —— CLI 开关名 / dict key  ->  Python 参数名
+#  4) 别名表 ： CLI 开关名 / dict key  ->  Python 参数名
 # ===========================================================================
-#  ⭐ 这是**唯一**需要人写的一张表。它不是「聪明」，是「知识」：
+#  ⭐ 这是唯一需要人写的一张表。它不是「聪明」，是「知识」：
 #    `--voice` 和 `spk_audio_prompt` 之间没有任何字符串或结构联系，
 #    只有读过代码的人知道它们指同一件事。
 #  ⛔ 命中就命中，不命中就报「未映射」，绝不猜。
@@ -374,7 +374,7 @@ ALIASES = {
     "device": "device",
     "verbose": "verbose",
     "text": "text",
-    # ⚠ 故意**不**把 --fp16 映到 use_bf16：cli_v2 的 --fp16 是给 infer_v2 的
+# ⚠ 故意不把 --fp16 映到 use_bf16：cli_v2 的 --fp16 是给 infer_v2 的
     #   use_fp16 用的，而 infer_v2_5 把它改名成了 use_bf16。名字对上、语义
     #   未必等价 ⇒ 按纪律只能映到字面同名的 use_fp16，让 use_bf16 落到
     #   「未映射」。（这条正是「自动映射会错」的活证据，见报告。）
@@ -440,7 +440,7 @@ def run_reflect(profile):
 
 
 # ===========================================================================
-#  6) 主流程 —— 一台引擎，三个源
+#  6) 主流程 ： 一台引擎，三个源
 # ===========================================================================
 def probe_engine(name, profile, reflect):
     spec = profile["spec"]

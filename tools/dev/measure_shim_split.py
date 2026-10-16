@@ -47,7 +47,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ENGINES_DIR = os.path.join(ROOT, "engines")
 
 # ---------------------------------------------------------------------------
-#  标准库清单 —— 优先用解释器自己的，拿不到才退回硬清单并明说
+#  标准库清单 ： 优先用解释器自己的，拿不到才退回硬清单并明说
 # ---------------------------------------------------------------------------
 _STDLIB_FALLBACK = frozenset("""
 abc argparse ast asyncio base64 binascii bisect builtins bz2 calendar collections
@@ -105,7 +105,7 @@ def home_of(*keys):
         return None
     return " + ".join(keys)
 
-# 平台自己认领、名片没资格声明的（§5.6）—— 落到这里也算「有家」
+# 平台自己认领、名片没资格声明的（§5.6）： 落到这里也算「有家」
 PLATFORM_OWNED = [
     ("§5.6-1 音频格式", "平台内部一律 16 位 PCM WAV，引擎给别的平台负责转"),
     ("§5.6-2 并发", "同一块显卡上的推理由平台排队，引擎不用自己加锁"),
@@ -346,7 +346,7 @@ def extract_facts(res):
                 kwargs = sorted(k.arg for k in node.keywords if k.arg)
 
                 if owner == fname and "." not in fname:
-                    # 直接构造上游的类 —— §5.2 有 call.class / call.init_args
+# 直接构造上游的类 ： §5.2 有 call.class / call.init_args
                     home = home_of("call.class", "call.init_args")
                 else:
                     # 在上游对象上调方法：只有「合成方法」那一个有家，
@@ -363,7 +363,7 @@ def extract_facts(res):
 
     # ⭐ import 有没有家，取决于它有没有被用来构造那个类。
     #   只为了「顺手调个全局函数」而 import 进来的（典型：torch / numpy），
-    #   名片上没有任何字段能表达 —— 它们必须和用它们的那几行一起算无家。
+#   名片上没有任何字段能表达 ： 它们必须和用它们的那几行一起算无家。
     constructed = {f["owner"] for f in facts
                    if f["home"] and "call.class" in f["home"]}
     used_by = {}

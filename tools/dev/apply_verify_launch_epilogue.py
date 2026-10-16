@@ -106,8 +106,8 @@ def main(argv=None):
         bad = False
         for i, h in enumerate(entry['hunks']):
             old, new = h['old'], h['new']
-            # ⛔⛔ 顺序很要紧：**先问「打过没有」，再问「锚点在不在」**。
-            #   很多 hunk 是纯插入 —— new 里**整段包含** old。要是先按
+# ⛔⛔ 顺序很要紧：先问「打过没有」，再问「锚点在不在」。
+#   很多 hunk 是纯插入 ： new 里整段包含 old。要是先按
             #   old 命中就打，第二次跑会再插一遍，把文件插烂。
             #   试打时这条真的翻车了（第二次跑又「写了 1 处」），才改成这样。
             if text.count(new) >= 1:

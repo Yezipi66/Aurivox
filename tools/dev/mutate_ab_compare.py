@@ -35,7 +35,7 @@ def check(name, ok, note=""):
 
 
 # ---------------------------------------------------------------------------
-# 合成音频 —— 要像人声：有基频有谐波有包络，而不是一根纯正弦
+# 合成音频 ： 要像人声：有基频有谐波有包络，而不是一根纯正弦
 # ---------------------------------------------------------------------------
 
 def _rng(seed):
@@ -49,7 +49,7 @@ def _rng(seed):
 
 
 BREATH = 0.02      # 气声底噪的幅度（约 −34 dB）
-BREATH_SEED = 999  # ⭐ 固定，于是它在每一段里**逐样本完全相同**
+# ⭐ 固定，于是它在每一段里逐样本完全相同
 
 
 def synth(f0=140.0, noise=0.0, seed=1, seconds=SECONDS, rate=RATE,
@@ -139,7 +139,7 @@ def main():
         write_wav(os.path.join(d, "a1.wav"), base)
         write_wav(os.path.join(d, "a2.wav"), synth(noise=0.0004, seed=2))
         write_wav(os.path.join(d, "host.wav"), synth(noise=0.0004, seed=7))
-        # 天花板：故意「改了个参数」—— 基频挪一截，听得出来的那种
+# 天花板：故意「改了个参数」： 基频挪一截，听得出来的那种
         write_wav(os.path.join(d, "alt.wav"), synth(f0=185.0, seed=1))
         # 其它夹具
         write_wav(os.path.join(d, "same.wav"), base)
@@ -205,7 +205,7 @@ def main():
               v_dur is False and v_mel is True,
               "时长=%s 梅尔=%s" % (v_dur, v_mel))
 
-        # ---- M4/M5：硬闸 —— 采样率、声道，不给容差 ----------------------
+# ---- M4/M5：硬闸 ： 采样率、声道，不给容差 ----------------------
         rc, out = run(["--shim-a", p("a1.wav"), "--shim-b", p("a2.wav"),
                        "--host", p("sr44.wav"), "--altered", p("alt.wav")])
         check("⭐⭐ M4：采样率不同 ⇒ 硬闸红（这不是精度问题，是接错线）",
@@ -251,11 +251,11 @@ def main():
               rc == 2 and "文件不在" in out and "Traceback" not in out,
               "rc=%d" % rc)
 
-        # ---- M11：地板闸 —— 地板超阈值时，必须说清红的是阈值不是 host ----
+# ---- M11：地板闸 ： 地板超阈值时，必须说清红的是阈值不是 host ----
         # ⭐⭐ 这条替代了原来的「top_db 承重」。原来那条量出来是 1.00~1.07 倍
         #   （甚至 0.66 倍，夹完反而更敏感）⇒ 那一刀的理由是错的，已删。
         #   兜住「静音格过敏」这件事的其实是地板闸：地板从真音频量出来，
-        #   过敏真咬人时它会先超阈值，并且**指向阈值而不是 host.py**。
+#   过敏真咬人时它会先超阈值，并且指向阈值而不是 host.py。
         write_wav(p("q1.wav"), synth(noise=0.0004, seed=11, breath=0.0))
         write_wav(p("q2.wav"), synth(noise=0.0004, seed=12, breath=0.0))
         rc, out = run(["--shim-a", p("q1.wav"), "--shim-b", p("q2.wav"),

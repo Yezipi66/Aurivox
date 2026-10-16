@@ -78,15 +78,15 @@ def node_err(raw):
                 if nxt.strip():
                     out.append(nxt.strip())
             return "\n".join(out)[:800]
-    # 没找到结构 ⇒ 退回取**头部**（消息总在前面），不是尾部
+# 没找到结构 ⇒ 退回取头部（消息总在前面），不是尾部
     return raw[:800]
 
 
 def real_profile(node, engine_id):
     """⭐ 不读源码猜，直接叫 profile.js 出货。"""
-    # ⭐⭐ 这里叫的是 buildHostProfile 而**不是** resolveEngineProfile。
+# ⭐⭐ 这里叫的是 buildHostProfile 而不是 resolveEngineProfile。
     #   量过：resolveEngineProfile 今天有 9 个 JS 消费方，碰 call / params /
-    #   output_formats 的是 0 个 —— 这四段只有 host.py 要。所以走加法：
+#   output_formats 的是 0 个 ： 这四段只有 host.py 要。所以走加法：
     #   hostProfile.js 在 profile.js 外面套一层，profile.js 一个字节不动。
     script = (
         "const {buildHostProfile} = require('./lib/engines/hostProfile');"
@@ -191,8 +191,8 @@ def main():
         # ⭐⭐ 先分辨托管模式，再决定拿什么判据去核。
         #   不是每台引擎都由通用宿主托管：有的自带服务端（gpt-sovits 的
         #   runtime.entry 指向 lib/inference/infer_server.py，目录下连 shim 都没有）。
-        #   对这种引擎要求 call 段是**判据用错了地方**，不是它有缺陷。
-        # ⛔ 但跳过必须是**看得见**的 —— 静默跳过会让「不该托管」和
+#   对这种引擎要求 call 段是判据用错了地方，不是它有缺陷。
+# ⛔ 但跳过必须是看得见的 ： 静默跳过会让「不该托管」和
         #   「该托管但名片忘了写 call」长得一模一样。所以这里把 entry 打出来。
         raw = raw_manifest(eid)
         if not isinstance(raw.get("call"), dict):

@@ -35,7 +35,7 @@ import sys
 
 BANNER = 'apply-r12c-batch14   [2026-08-20]  根目录收口'
 
-# 备份与 manifest 都不落项目根 —— 本轮新守卫的准入表里没有它们，
+# 备份与 manifest 都不落项目根 ： 本轮新守卫的准入表里没有它们，
 # 落在根上补丁会当场触红自己立的规矩（batch13 踩过一次，见 tools/dev/README.md）。
 WORK_DIR = 'cache/patch-backup/r12c-batch14'
 MANIFEST_REL = WORK_DIR + '/manifest.json'
@@ -64,7 +64,7 @@ SELF_DST = 'tools/dev'
 
 # ---------------------------------------------------------------- 归档表
 #
-# 落点在**项目之外**（与项目根同级的 junk\），沿用 Owner 处理顶层 GPT_SoVITS\
+# 落点在项目之外（与项目根同级的 junk\），沿用  处理顶层 GPT_SoVITS\
 # 时的办法：不用 rmdir /s /q，判据还能回来。
 
 JUNK_DIR = os.path.join(os.path.dirname(ROOT), 'junk', 'r12c-batch14')
@@ -83,7 +83,7 @@ ARCHIVE_DIRS = [
 ]
 
 # 有条件归档：扫到源码就不动。GPT_SoVITS/ 被 .gitignore:135 整棵 ignore，
-# 「源码包里零文件」只说明它不进包，**不说明盘上没有 .py**。
+# 「源码包里零文件」只说明它不进包，不说明盘上没有 .py。
 CONDITIONAL_ARCHIVE = [
     ('GPT_SoVITS',
      ('.py', '.js', '.jsx', '.cjs', '.mjs', '.ts'),
@@ -94,8 +94,8 @@ CONDITIONAL_ARCHIVE = [
 # ---------------------------------------------------------------- 搬家表
 
 FILE_MOVES = [
-    # batch13 的回滚材料。Owner 已在真机验收 batch13（独立测试 + 前端人工测试，
-    # 微调与推理均正常），不再需要从根目录回滚 —— 归档而不是删除。
+# batch13 的回滚材料。 已在验收 batch13（独立测试 + 前端人工测试，
+# 微调与推理均正常），不再需要从根目录回滚 ： 归档而不是删除。
     ('.r12c-batch13-manifest.json',
      'cache/patch-backup/r12c-batch13/.r12c-batch13-manifest.json'),
 ]
@@ -601,7 +601,7 @@ def selftest():
                 layout_names.add(cells[1].strip('`'))
     check('准入表解析出 ≥20 条', len(layout_names) >= 20, '实际 %d' % len(layout_names))
 
-    # 有条件归档被放弃时，留下来的条目必须进准入表 —— 否则补丁把树留在
+# 有条件归档被放弃时，留下来的条目必须进准入表 ： 否则补丁把树留在
     # 「守卫必红」的状态，而长期红的守卫等于没有守卫。
     fake_skip = [('GPT_SoVITS', ['inference_webui.py', 'a/b.py'])]
     doc2 = render_layout_doc(fake_skip)
@@ -638,7 +638,7 @@ def selftest():
     # `engines/gpt-sovits/gsv_code` 同名，而全树 106 处 `from gsv_code...`
     # 走的是 `infer_server.py:51` 的 `sys.path.insert(0, GSV_DIR)`，
     # 解析到的是 engines/ 那棵，vendor/ 从来不在 sys.path 上。
-    # 所以只认**带路径前缀**的引用。
+# 所以只认带路径前缀的引用。
     #（反过来说：正因为同名，vendor/gsv_code 留在盘上本身就是一个潜在的
     #  包遮蔽隐患，谁哪天把 vendor/ 加进 sys.path 就会导入错的那棵。）
     def _needles(rel):
@@ -656,7 +656,7 @@ def selftest():
             return False
         return any(nd in s for nd in needles)
 
-    # 正对照：这个检查必须**有能力**报警，否则「零命中」和「根本没扫」一样
+# 正对照：这个检查必须有能力报警，否则「零命中」和「根本没扫」一样
     check('正对照：伪造的活引用能被抓到',
           _ref_hit("const x = require('./vendor/gsv-tools/a.js')",
                    _needles('vendor/gsv-tools'))
@@ -735,7 +735,7 @@ def do_write(archives, conds, moves, edits, creates):
     os.makedirs(p(WORK_DIR), exist_ok=True)
 
     # 顺序：先编辑/新建（路径不受搬家影响），再搬家，最后归档。
-    # 回滚按**严格相反**的顺序做 —— batch13 的教训：回滚步骤的顺序能让还原
+# 回滚按严格相反的顺序做 ： batch13 的教训：回滚步骤的顺序能让还原
     # 静默失效（archived 的落点被 dir_moves 的回滚搬走了，if exists 不成立，
     # 什么都不做且不报错）。
     backed = set()
@@ -798,7 +798,7 @@ def restore():
             print('   ✔ 取回 %s' % rel)
             n += 1
         else:
-            # else 必须喊。`if exists(): move()` 天然静默 ——
+# else 必须喊。`if exists(): move()` 天然静默 ：
             # 「什么都没干」和「干成了」读数相同。
             print('   ⚠ 找不到归档物 %s，%s 未能搬回' % (dst, rel))
     for src, dst in man.get('moved', []):
@@ -828,7 +828,7 @@ def restore():
     os.remove(mf)
 
     # 收尾：把本轮自己造出来的空目录也收掉，否则「回滚干净」是打折的
-    # —— 下一轮做逐字节比对时这些空壳会一直冒出来当噪音。
+# ： 下一轮做逐字节比对时这些空壳会一直冒出来当噪音。
     for d in [p(WORK_DIR),
               p('cache/patch-backup/r12c-batch13'),
               man.get('junk'),

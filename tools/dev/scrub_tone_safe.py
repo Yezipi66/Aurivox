@@ -26,7 +26,7 @@ DASH1_CN = re.compile(r'(?<=[\u4e00-\u9fff])[ \t]*—[ \t]*(?=[\u4e00-\u9fff])')
 
 # 历史标记：日期 / 变更编号 / 历史叙述
 HIST_PATTERNS = [
-    re.compile(r'[ \t]*(?:Owner[ \t]*)?20\d\d-\d\d-\d\d(?=[ \t]（(：:，,)）]|$)'),   # 2026-08-30 后接标点或行尾
+#  后接标点或行尾
     re.compile(r'[ \t]*刀[ \t]*[A-Z0-9]+(?![A-Za-z0-9])'),
     re.compile(r'[ \t]*Patch[ \t]*#\d+'),
     re.compile(r'[ \t]*r12c-batch\d+'),

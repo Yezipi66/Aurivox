@@ -163,10 +163,10 @@ def main():
     row("⭐⭐ M4：名片不全也硬起 ⇒ [6] 六条**全部**红",
         rc != 0 and len([x for x in f if "拒绝启动" in x]) == 6,
         "拒绝启动红 %d 条" % len([x for x in f if "拒绝启动" in x]))
-    # ⭐ 六条红的**理由不一样**，这个差别本身就是结论：
+# ⭐ 六条红的理由不一样，这个差别本身就是结论：
     #   seed 那 4 条被 SeedPlan 在 Engine.__init__ 里二次拦下（rc=1，裸 traceback）
     #     ⇒ 有第二道防线，但退的不是「拒绝」而是「崩了」
-    #   bind 那 2 条**一道防线都没有** ⇒ 宿主真的起来并一直服务（超时）
+#   bind 那 2 条一道防线都没有 ⇒ 宿主真的起来并一直服务（超时）
     row("⭐⭐ M4：seed 有第二道防线（rc=1 崩掉），bind **一道都没有**（起来了没拒绝）",
         len([x for x in f if "rc=1" in x]) == 4
         and len([x for x in f if "起来了没拒绝" in x]) == 2,
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     finally:
-        # ⛔ 任何退法都要还原 —— 2026-08-25 教训：守卫只守成功路径等于没守
+# ⛔ 任何退法都要还原 ：  教训：守卫只守成功路径等于没守
         if BACKUPS:
             print("⛔ 异常退出，正在还原被改过的文件…")
             restore_all()

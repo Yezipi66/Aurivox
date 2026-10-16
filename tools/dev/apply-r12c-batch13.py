@@ -34,7 +34,7 @@ BANNER = 'apply-r12c-batch13   [2026-08-20]  根目录收尾（Batch 4）'
 MANIFEST = '.r12c-batch13-manifest.json'
 
 # 备份不落在原地。本轮要编辑 .gitignore，原地备份会在项目根留下
-# .gitignore.r12c-batch13.bak —— 而本轮新加的守卫正是「根目录不得残留 .bak」，
+# .gitignore..bak ： 而本轮新加的守卫正是「根目录不得残留 .bak」，
 # 补丁跑完测试立刻红。备份统一进 cache/patch-backup/，跟本轮的收纳原则一致。
 BAK_DIR = 'cache/patch-backup/r12c-batch13'
 
@@ -66,7 +66,7 @@ SELF_DST = 'tools/dev'
 
 # ---------------------------------------------------------------- 搬家表
 
-# (src, dst) —— 相对项目根，正斜杠
+# (src, dst) ： 相对项目根，正斜杠
 FILE_MOVES = [
     ('GUIDANCE.md', 'docs/GUIDANCE.md'),
     ('collect_repo_source_v4.1.py', 'tools/dev/collect_repo_source_v4.1.py'),
@@ -106,7 +106,7 @@ EDITS = [
 
     # --- 2. batch12 的反向补丁（自伤 #17） -----------------------------------
     # batch12 里这条 edit 的 old/new 整条写反了：old 写的是 sweep 之后的
-    # pipeline\uvr5，new 写的是搬家之前的 vendor\uvr5 —— 净效果是把 sweep 的
+# pipeline\uvr5，new 写的是搬家之前的 vendor\uvr5 ： 净效果是把 sweep 的
     # 正确结果又改回旧路径。Dump-Tree 对不存在的目录不报错、只输出空，
     # 于是「这两棵树是空的」和「这两棵树根本没扫」读数一模一样。
     # 这个脚本是认识盘面的诊断工具，它坏了等于看到的世界坏了。
@@ -127,8 +127,8 @@ EDITS = [
 
     # --- 3.5 采集器白名单漏收 engines/ 与 pipeline/ ---------------------------
     # batch12 搬家后，采集器旁边的注释被改成了「engines/ 和 pipeline/ 必须收」，
-    # 但 TOP_ALLOW 本身一个字没动 —— 注释改了、判据没改。后果不是报错：
-    # 采集器照跑照出包，只是包里没有 engines/ 和 pipeline/。真机跑一次就看得见：
+# 但 TOP_ALLOW 本身一个字没动 ： 注释改了、判据没改。后果不是报错：
+# 采集器照跑照出包，只是包里没有 engines/ 和 pipeline/。跑一次就看得见：
     #   自检 RED: engines/gpt-sovits/infer/TTS.py、pipeline/uvr5/uvr5_models.js
     #   闭合检查 RED: 4 条断链（server.js 和 lib/ 三处都 require pipeline/uvr5）
     # 角色给 "vendored"（1MB 上限）：它们和原 vendor/ 一样是我们改过的上游代码，
@@ -152,7 +152,7 @@ EDITS = [
     # --- 4. 搬走就静默失准之一：采集器 ---------------------------------------
     # ROOT = dirname(__file__) 在根目录时恰好等于项目根。搬进 tools/dev/ 之后
     # ROOT 变成 tools/dev/，于是它会去 tools/dev/lib、tools/dev/web 找源码,
-    # 全都不存在 —— 结果不是报错，是采集出一棵空树。
+# 全都不存在 ： 结果不是报错，是采集出一棵空树。
     # C7 原则：上溯找锚点 server.js，绝不数目录层数。
     # 锚点用 server.js 而不是 package.json：node_modules 里遍地 package.json。
     {
@@ -555,8 +555,8 @@ def restore():
             shutil.move(d, s)
             print('   \u642c\u56de  %s <- %s' % (src, dst))
             n += 1
-    # ⚠ 归档物必须在 dir_moves 之前搬回。归档落点是 cache/patch-backup/r12c-batch12/，
-    # 而 dir_moves 的回滚会把整个 cache/patch-backup/ 搬回 .patch-backup/ —— 一旦先跑
+# ⚠ 归档物必须在 dir_moves 之前搬回。归档落点是 cache/patch-backup//，
+# 而 dir_moves 的回滚会把整个 cache/patch-backup/ 搬回 .patch-backup/ ： 一旦先跑
     # dir_moves，这里的 exists() 就为假，静默跳过、一声不吭，归档物再也回不了根目录。
     for src, dst in reversed(man.get('archived', [])):
         s, d = p(src), p(dst)
@@ -698,7 +698,7 @@ def main():
     os.makedirs(p(BAK_DIR), exist_ok=True)
     # ⚠ 一个文件可能有多条 edit（采集器就有两条）。备份只能在第一次改之前做，
     # 否则第二条会把备份覆盖成「已经改过一次」的版本，--restore 永远回不到原始态，
-    # 而且回滚看上去是成功的 —— 又一个不报错的静默失效。
+# 而且回滚看上去是成功的 ： 又一个不报错的静默失效。
     backed_up = set()
     for e in edits:
         fp = p(e['file'])

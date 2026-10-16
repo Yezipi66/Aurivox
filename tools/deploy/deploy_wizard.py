@@ -129,7 +129,7 @@ def stage_license():
     if os.path.isfile(notice):
         pager(read_text(notice), "NOTICE")
     # MIT 是"授予你权利"的宽松许可, 无需你"接受"任何义务即可使用/安装本软件,
-    # 因此这里不设"同意"门槛 —— 仅展示。你随时可选择不安装 (输入 q 退出)。
+# 因此这里不设"同意"门槛 ： 仅展示。你随时可选择不安装 (输入 q 退出)。
     print("  本软件以 MIT 许可授权给你 —— 使用/安装无需接受任何附加义务, 以上仅供知情。")
     ans = ask("  回车继续安装 (无需接受) / 输入 q 退出: ").strip().lower()
     if ans == "q":
@@ -284,7 +284,7 @@ def build_platform_license_groups(sel):
     def add_bundled(lic, kind, name, detail, lfile=None):
         bundled.setdefault(lic, []).append((kind, name, detail, lfile))
 
-    # --- bundled: 随包运行时 / 引擎代码 (含 GPT-SoVITS) —— 读 runtime/INDEX.json ---
+# --- bundled: 随包运行时 / 引擎代码 (含 GPT-SoVITS) ： 读 runtime/INDEX.json ---
     try:
         idx = load_json(os.path.join(TPL, "runtime", "INDEX.json"))
         for c in idx.get("components", []):
@@ -369,7 +369,7 @@ def stage_licenses(sel, by_group):
     print("  阶段 3 / 4    第三方许可 (第二层=平台自身代码/依赖=告知, 第三层=下游模型=列出仓库自阅)")
     rule("#")
 
-    # --- 第二层 (3A): 平台自身用到的第三方代码/运行时/依赖 —— 仅告知, 不设门槛 ---
+# --- 第二层 (3A): 平台自身用到的第三方代码/运行时/依赖 ： 仅告知, 不设门槛 ---
     # 明确区分两类: (A) 真正随发行包内置分发的代码/运行时(合规义务在我们, 已附 NOTICE);
     #             (B) 部署时联网下载、我们并不再分发的依赖/工具(合规义务留在上游分发方)。
     # 两类都无需终端用户"接受"; 只按 license 分组告知。
@@ -383,7 +383,7 @@ def stage_licenses(sel, by_group):
     for name, pointer in fetched:
         print(f"        · {name}: {pointer}")
 
-    # --- 第三层 (3B): 下游模型权重 —— 按"下载组"列出仓库, 用户自行阅读后 READ ---
+# --- 第三层 (3B): 下游模型权重 ： 按"下载组"列出仓库, 用户自行阅读后 READ ---
     # 这些权重我们并不分发, 仅代为下载; 各自许可归其发布者所有, 由用户到仓库自行阅读。
     # 故此处不对许可做任何断言, 只列出该组要下载的模型及其仓库地址。
     mods = build_model_download_groups(sel, by_group)

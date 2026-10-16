@@ -201,9 +201,9 @@ def make_manifest(tmp, multi=True):
                 "requires_text": True,
                 "requires_ref_audio": True,
                 # ⭐ 假引擎的 upstream_instruct2(tts_text, instruct_text,
-                #   prompt_wav) **没有** prompt_text 参数 —— 参考文本在它那里
+#   prompt_wav) 没有 prompt_text 参数 ： 参考文本在它那里
                 #   是 prompt_wav，不是 prompt_text。名片写错引擎名会得到
-                #   TypeError（好过默默传错），但那是**探针自己**的错，不是平台的。
+#   TypeError（好过默默传错），但那是探针自己的错，不是平台的。
                 "call_time": ["instruct_text"],
             },
             # vc：不要 text，要两个音频。
@@ -215,7 +215,7 @@ def make_manifest(tmp, multi=True):
                 "call_time": ["source_wav"],
             },
         }
-        # 真机上栽过的两件事，在这里各有对应的一条：
+# 上栽过的两件事，在这里各有对应的一条：
         #   · 复用已存音色时不要参考音频 → ref_audio_optional_if
         #   · 签名必填但那条路不用的参数要填空串 → blank_when
         call["methods"]["reuse"] = {
@@ -393,7 +393,7 @@ def probe_multi(port):
             # 这条请求故意带上 ref_audio_path。理由：sft 不需要参考音频，
             #   但界面上参考音频那一栏是公共的（用户可能刚选了一个），
             #   请求里就会多带这一个键。宿主必须按方法裁掉它，
-            #   真机上正是这样炸的：
+#   上正是这样炸的：
             #     TypeError: inference_sft() got an unexpected keyword
             #               argument 'prompt_wav'
             #   上面那条不带 ref 的请求测不到这个 bug（不带就没有可裁的），
@@ -410,7 +410,7 @@ def probe_multi(port):
                 "该传的没漏）",
                 _kw == {"spk_id": "x"}, "kwargs=%s" % (_kw,))
 
-            # 真机抓到过（cosyvoice-300m-sft 的 sft）：上面那条
+# 抓到过（cosyvoice-300m-sft 的 sft）：上面那条
             #   只看 HTTP 200，没看 kwargs 里有什么，一个真 bug 从它
             #   底下过去了，
             #     sft 声明 requires_ref_audio=False（用内置音色），而顶层

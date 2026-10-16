@@ -102,8 +102,8 @@ MUTANTS = [
      "      for (const cand of [base, base + '.cjs', base + '.json',",
      "无后缀的 ./lib/sub/b 解析不出来 -> 自验必须红"),
 
-    # 对照组：这一条**期望 GREEN**。主守卫的断言在盘面干净时本就恒真，
-    # 单独把它挖空看不出来 —— 它的红由 B 组第一条（真把反选删掉）担保。
+# 对照组：这一条期望 GREEN。主守卫的断言在盘面干净时本就恒真，
+# 单独把它挖空看不出来 ： 它的红由 B 组第一条（真把反选删掉）担保。
     # 留着这条是为了让「RED 全中」这个读数不至于是因为随便改哪都红。
     ("B", "对照组：主守卫断言挖空（预期 GREEN，不是 bug）", TEST,
      "  assert.deepEqual(swallowedRequires(edges, rules), [],",

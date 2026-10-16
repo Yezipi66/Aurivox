@@ -107,24 +107,24 @@ def make_profile(engine_dir, ckpt_dir, seed_spec):
         #   本来就有；夹具早先没写，于是占位符那条路径整条没被走过。
         "dir": engine_dir,
         "runtime": {
-            # ⛔ 2026-08-27：sys_path 的真形状在 runtime.verify 下面
+# ⛔ ：sys_path 的真形状在 runtime.verify 下面
             #   （lib/engines/profile.js:286）。夹具早先写在顶层 ⇒ 29/29
             #   全绿证明的只是「host.py 和我的想象一致」。
             "verify": {"sys_path": [engine_dir]},
-            # 名片里 checkpoints 是**相对项目根**的，host.py 负责转绝对路径。
+# 名片里 checkpoints 是相对项目根的，host.py 负责转绝对路径。
             "checkpoints": os.path.relpath(
                 ckpt_dir, os.path.dirname(os.path.dirname(engine_dir))),
         },
         "call": {
             "kind": "python",
-            # ⭐ 契约 §5.3：调用的工作目录在 call.cwd，而且**用占位符**
-            #   （§5.3 的例子就是 "{engine_dir}"）—— 夹具跟真名片写法一致，
+# ⭐ 契约 §5.3：调用的工作目录在 call.cwd，而且用占位符
+#   （§5.3 的例子就是 "{engine_dir}"）： 夹具跟真名片写法一致，
             #   否则占位符那条路径又成盲区（同下面 init_args 的教训）。
             "cwd": "{engine_dir}",
             "module": "fake_engine",
             "class": "FakeTTS",
-            # ⛔⛔ 这里曾经是写死的绝对路径 —— 于是 init_args 的 {占位符} 展开
-            #   **一次都没被测到**，而 host.py 当时压根没实现展开：名片里写
+# ⛔⛔ 这里曾经是写死的绝对路径 ： 于是 init_args 的 {占位符} 展开
+#   一次都没被测到，而 host.py 当时压根没实现展开：名片里写
             #   "{checkpoints}/config.yaml" 会把大括号当字面量传给上游。
             #   真名片非用占位符不可（它不知道机器上的绝对路径），所以夹具
             #   也必须用占位符，否则这条路径永远是盲区。
@@ -137,8 +137,8 @@ def make_profile(engine_dir, ckpt_dir, seed_spec):
             "seed": seed_spec,
         },
         "params": {"load_time": ["use_fp16"], "call_time": ["loudness", "pace"]},
-        # ⛔ 曾经写成 "capabilities": {"requires_reference_audio": True} —— 那是我
-        #   凭空发明的形状。`resolveEngineProfile()` 真出的那份是**扁平顶层**。
+# ⛔ 曾经写成 "capabilities": {"requires_reference_audio": True} ： 那是我
+#   凭空发明的形状。`resolveEngineProfile()` 真出的那份是扁平顶层。
         #   夹具跟真身不一致时，全绿只证明「代码和我的想象一致」。
         "requires_reference_audio": True,
         "output_formats": ["wav"],
@@ -230,8 +230,8 @@ def main():
             out, err = p.communicate(timeout=5)
             print(err.decode("utf-8", "replace")[-2000:])
             return 1
-        # ⭐ 加载失败时必须把**原因**带出来。原先这里只报 load=0.0s device=None，
-        #   于是「为什么没加载上」得靠人去翻 stderr —— 红了却不知道红在哪，
+# ⭐ 加载失败时必须把原因带出来。原先这里只报 load=0.0s device=None，
+#   于是「为什么没加载上」得靠人去翻 stderr ： 红了却不知道红在哪，
         #   等于把排查成本从闸转嫁给人。这是第 10 条教训（闸要能自证）的同一条。
         load_note = "load=%ss device=%s" % (h.get("load_seconds"), h.get("device"))
         if h.get("ready") is not True:
@@ -363,7 +363,7 @@ def main():
             bp = os.path.join(work, "bad.json")
             with open(bp, "w") as f:
                 json.dump(d, f)
-            # ⛔ 名片不全时宿主**可能真的起来并一直服务** —— 那正是要抓的失败，
+# ⛔ 名片不全时宿主可能真的起来并一直服务 ： 那正是要抓的失败，
             #   但 subprocess.run(timeout=) 会抛 TimeoutExpired 把探针自己带走。
             #   超时 = 「它没拒绝启动」= 一条 FAIL，不是探针退场的理由。
             try:
@@ -375,7 +375,7 @@ def main():
             except subprocess.TimeoutExpired:
                 rc, err = None, ""
             # ⭐ 判据是 rc==2（契约里「名片不合格」的专用退出码），不是「非零」：
-            #   裸 traceback 也是非零，但那是崩了，不是**拒绝**。
+#   裸 traceback 也是非零，但那是崩了，不是拒绝。
             row("拒绝启动：%s" % name, rc == 2 and needle in err,
                 "起来了没拒绝（超时）" if rc is None else "rc=%d" % rc)
         print()

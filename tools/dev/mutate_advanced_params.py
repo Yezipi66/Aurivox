@@ -106,7 +106,7 @@ ok = (rc != 0
 record("突变 B：反向断言被删 ⇒ 自检红，且理由点名 DATA_KEEP 会失守", ok, out[-600:])
 restore(PROBE)
 
-# ---- 突变 C：⭐ 真身 —— 打包器 DATA_KEEP 把它加回去 ----------------------
+# ---- 突变 C：⭐ 真身 ： 打包器 DATA_KEEP 把它加回去 ----------------------
 # 这才是那个 bug 真正发生的地方：探针本身一个字没改，只是打包器又开始收它。
 backup(PACKER)
 txt = open(PACKER, encoding="utf-8").read()
@@ -141,8 +141,8 @@ ok = bool(line) and "⛔" in line[0]
 record("⭐⭐ 突变 D：拆掉 data/ 文件级白名单 ⇒ 探针报泄漏", ok,
        "该行：%s" % (line or "<无>"))
 # ⭐⭐ 这道闸真正的价值不是护住 advanced_params.json 这一个名字，而是让
-# 「以后新长出来的本机状态文件」默认进不去 —— 不必等它先漏一次才被人点名。
-# 所以造一个 EXCLUDE_FILES 里**没有**的新文件来量：
+# 「以后新长出来的本机状态文件」默认进不去 ： 不必等它先漏一次才被人点名。
+# 所以造一个 EXCLUDE_FILES 里没有的新文件来量：
 NEWCOMER = os.path.join(ROOT, "data", "_probe_newcomer_state.json")
 open(NEWCOMER, "w", encoding="utf-8").write("{}")
 try:

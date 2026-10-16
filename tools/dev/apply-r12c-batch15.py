@@ -266,7 +266,7 @@ E6_NEW = """  Info '   models\\tts\\gpt-sovits | models\\asr | models\\separatio
 
 # 每项第 5 个字段是「已应用标记」：只在 NEW 里出现、绝不在 OLD 里出现。
 # 为什么需要它：E3 的 OLD 是 NEW 的前缀（新条目插在 web/node_modules 之后），
-# 所以“应用完 OLD 就消失”这个朴素判据对 E3 不成立 —— 第一版就是这么误报的。
+# 所以“应用完 OLD 就消失”这个朴素判据对 E3 不成立 ： 第一版就是这么误报的。
 # 幂等一律以标记为准，不再靠 OLD 是否还在。
 EDITS = [
     (PACK, "E1 TOP_EXCLUDE +cache +.hermes", E1_OLD, E1_NEW,
@@ -305,19 +305,19 @@ REF_EXT = {".js", ".cjs", ".mjs", ".py", ".bat", ".ps1", ".json", ".md", ".txt"}
 
 # 命中分三类，只有第三类阻断归档：
 #
-#   [文档] .md/.txt —— 提及 != 调用。一棵没人调用的树不该被“某篇计划文档写到过
+#   [文档] .md/.txt ： 提及 != 调用。一棵没人调用的树不该被“某篇计划文档写到过
 #          它”挡住归档。但文档确实会因此过期，所以全部打印出来当待办。
 #
-#   [助手] tools/dev/ 下的任何文件 —— 这里放的是**已应用的补丁脚本**（它们是
+#   [助手] tools/dev/ 下的任何文件 ： 这里放的是已应用的补丁脚本（它们是
 #          --restore 的唯一凭据，属于历史记录，不该改）和只读探针。它们不是
 #          产品代码，E3 本来就把整个 tools/dev 排除出发行包，因此从这里指向
 #          tools/checks 的引用在物理上不可能影响用户拿到的东西。
 #          实测这一类的三处全是「排除名单/注释/内嵌计划表」而非调用：
-#            apply-r12c-batch14.py:22   注释「不修 tools/checks/check_*.py」
-#            apply-r12c-batch14.py:371  内嵌 SCOPE_MD 里的 Batch 5 表格行
-#            apply-r12c-batch14.py:681  它自己的扫描器 skip-list，跳过这三个目录
+#            apply-.py:22   注释「不修 tools/checks/check_*.py」
+#            apply-.py:371  内嵌 SCOPE_MD 里的 Batch 5 表格行
+#            apply-.py:681  它自己的扫描器 skip-list，跳过这三个目录
 #
-#   [代码] 其余任何位置的 .js/.cjs/.mjs/.py/.bat/.ps1/.json —— 一处命中即整条跳过。
+#   [代码] 其余任何位置的 .js/.cjs/.mjs/.py/.bat/.ps1/.json ： 一处命中即整条跳过。
 #          lib/ pipeline/ engines/ web/src/ 和项目根都落在这一类里。
 REF_DOC_EXT = {".md", ".txt"}
 REF_SOFT_PREFIX = ("tools/dev/",)
@@ -335,8 +335,8 @@ BENIGN_REFS = {
 
 def scan_references(root):
     """返回 [(相对路径, 行号, 命中 token, 行内容)]，不含 tools/checks 自身。"""
-    hits = []      # 代码引用 —— 阻断
-    docs = []      # 文档提及 —— 只报告
+# 代码引用 ： 阻断
+# 文档提及 ： 只报告
     benign = []    # 逐行白名单放行
     targets = []
     for fn in os.listdir(root):
@@ -441,7 +441,7 @@ def build_plan(root):
                 "⛔ 出现预期外的文件 %s —— 有条件归档：不动，只报告" % ", ".join(sorted(extra)[:5])))
         else:
             hits, docs, benign = scan_references(root)
-            # 无论拦不拦，命中明细一律全打出来 —— 只报“首处”等于让人没法判断
+# 无论拦不拦，命中明细一律全打出来 ： 只报“首处”等于让人没法判断
             plan.refhits.extend(hits)
             plan.refhits.extend(docs)
             if hits:

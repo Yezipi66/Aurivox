@@ -61,11 +61,11 @@ TOP_EXCLUDE = {
     # dev-time backups written by the apply-r12b-fix*.py patch scripts
     # (57 files, 1.8MB). Same category as .staging, which is already here.
     #
-    # r12c-batch15: this entry went STALE and silently stopped matching. It
+# : this entry went STALE and silently stopped matching. It
     # names a TOP-LEVEL ".patch-backup" (leading dot); the patch scripts have
     # since written to "cache/patch-backup/" (no dot, one level deeper). The
     # rule kept evaluating, kept matching nothing, and 73 backup files -- five
-    # r12b-era timestamped snapshots plus the r12c-batch12/13/14 backups,
+# r12b-era timestamped snapshots plus the /13/14 backups,
     # including their applied.patch diffs -- shipped to end users. Kept here
     # for machines that still carry the old top-level folder; the live catch
     # is now the "patch-backup" entry in NAME_EXCLUDE, which is anchored to the
@@ -134,7 +134,7 @@ NAME_EXCLUDE = {
     ".venv",
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".numba_cache", ".cache", ".gradio", ".ipynb_checkpoints",
-    # r12c-batch15: apply-*.py patch backups, by DIRECTORY NAME at any depth.
+# : apply-*.py patch backups, by DIRECTORY NAME at any depth.
     # TOP_EXCLUDE already drops "cache" and ".patch-backup", but both of those
     # are anchored to a specific location -- which is exactly how the original
     # ".patch-backup" rule died when the backups moved into cache/. This entry
@@ -153,9 +153,9 @@ NODE_RUNTIME_PREFIX = "tools/runtime/node/"
 # Specific subtrees (relative paths) to drop wherever they are anchored.
 PATH_EXCLUDE = {
     os.path.join("web", "node_modules"),
-    # r12c-batch15: tools/dev holds ASSISTANT-GENERATED dev tooling -- the
+# : tools/dev holds ASSISTANT-GENERATED dev tooling -- the
     # apply-r12c-batch*.py patch scripts, collect_repo_source*.py, and the
-    # read-only probes. r12c-batch13 moved them OUT of the repo root (the root
+# read-only probes.  moved them OUT of the repo root (the root
     # layout guard only inspects depth 1) and into tools/dev -- but tools/ is
     # shipped wholesale, so "tidying the root" quietly moved them INTO the
     # release. Caught by arithmetic: --dry-run reported 5908 files while the
@@ -380,11 +380,11 @@ def norm(p):
     return p.replace("\\", "/")
 
 
-# The ZIP format cannot represent a modification time before 1980-01-01; zipfile
+# The ZIP format cannot represent a modification time before ; zipfile
 # raises "ZIP does not support timestamps before 1980" and aborts the whole pack.
 # Some files legitimately carry a pre-1980 (or zeroed / epoch-0) mtime — e.g.
 # artifacts unpacked by tools that don't preserve dates, or files touched to a
-# bogus timestamp. Clamp any such time up to the ZIP epoch (1980-01-01) so the
+# bogus timestamp. Clamp any such time up to the ZIP epoch () so the
 # pack never crashes on one stray file. Returns a (Y,M,D,h,m,s) tuple.
 _ZIP_MIN_DATE = (1980, 1, 1, 0, 0, 0)
 
@@ -412,7 +412,7 @@ def in_excluded_tree(rel):
     # target machine.
     # 不要写成 `npm.cmd ci`：npm.cmd 靠 PATH 推断 npm 在哪，
     #   装过全局 Node 的机器上会跳到全局那份（版本对不上 → ERR_REQUIRE_ESM，
-    #   而错误信息里一个字都不提这回事）。实测踩过，根因与 Node 版本无关。
+#   而错误信息里一个字都不提这回事）。，根因与 Node 版本无关。
     if "node_modules" in r.split("/"):
         return not r.startswith(NODE_RUNTIME_PREFIX)
     # top-level data/ — allowlist, see DATA_KEEP

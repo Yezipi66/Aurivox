@@ -34,11 +34,11 @@ def check(good, label, extra=""):
     ROWS.append((bool(good), label, extra))
 
 
-# ⛔⛔ 备份/还原/改写一律走**二进制**。
-#   2026-08-25 真机事故：原来用 io.open(...,encoding="utf-8") 文本模式往返，
+# ⛔⛔ 备份/还原/改写一律走二进制。
+#    事故：原来用 io.open(...,encoding="utf-8") 文本模式往返，
 #   读时 universal newlines 把 CRLF 折成 \n，写时又把 \n 摊成 os.linesep。
 #   在 Linux 上 os.linesep="\n" ⇒ LF 文件往返恒等 ⇒ 沙箱里这个 bug 不存在；
-#   在 Windows 上 os.linesep="\r\n" ⇒ **LF 的 shim.py 被整体写成 CRLF**，
+#   在 Windows 上 os.linesep="\r\n" ⇒ LF 的 shim.py 被整体写成 CRLF，
 #   内容一个字没变，git 却报 M（523 行全改）。
 #   ⇒ 「还原」必须是字节级的，文本模式给不了这个保证。
 def read_bytes(path):
@@ -102,7 +102,7 @@ def patch(path, old, new, count=1):
     if src.count(old) != count:
         why = ""
         # ⭐ 命中 0 次 + 文件是 CRLF ⇒ 十有八九就是行尾，直接点名，
-        #   别让人对着一行锚点发呆。（2026-08-25 真机就是这么撞上的。）
+#   别让人对着一行锚点发呆。（ 就是这么撞上的。）
         if src.count(old) == 0 and b"\r\n" in raw:
             why = ("\n   ⚠ 这个文件是 CRLF（%d 行），而锚点是 LF —— 多半就是行尾。\n"
                    "     先 `git checkout -- %s` 把它还原成 LF 再跑。"
@@ -149,13 +149,13 @@ def main():
         return 2
 
     # ⭐⭐ 跑任何突变之前，先把两个被改写对象的字节指纹钉下来。
-    #    行为回到基线 ≠ 文件回到基线 —— 8-25 那次 shim.py 行为一模一样，
+#    行为回到基线 ≠ 文件回到基线 ： 8-25 那次 shim.py 行为一模一样，
     #    磁盘上却 523 行全变了行尾，而当时的断言一条都没抓到。
     sha_shim_0, sha_tool_0 = sha(SHIM), sha(TOOL)
 
     # ---- 备份/还原自身必须字节恒等（平台无关的夹具） --------------------
     #    ⭐ 夹具故意用 CRLF：文本模式往返在 Linux 上会把它折成 LF、
-    #      在 Windows 上会把 LF 摊成 CRLF —— 两个方向、同一个根因。
+#      在 Windows 上会把 LF 摊成 CRLF ： 两个方向、同一个根因。
     #      只用 LF 夹具的话，这条守卫在 Linux 上永远绿，等于没写。
     rt = os.path.join(HERE, "_mut_roundtrip.tmp")
     try:
@@ -189,7 +189,7 @@ def main():
 
     try:
         # ---- M1：改被测对象 -------------------------------------------
-        # ⛔ 锚点必须带**整行缩进**。第一版只写了 8 个空格，而真身是 12 个 ——
+# ⛔ 锚点必须带整行缩进。第一版只写了 8 个空格，而真身是 12 个 ：
         #   count 照样是 1（8 空格是 12 空格的后缀），替换后把行劈成两半，
         #   shim 变成语法错误。「命中 1 次」不等于「命中的是那一行」。
         patch(SHIM,
@@ -271,7 +271,7 @@ def main():
           "还原后回到基线（三个桶 + 两桶条目数逐字一致）",
           "%s / 有家%s / 没家%s" % (b1, housed(out1), homeless(out1)))
 
-    # ---- ⭐⭐ 被测对象必须**字节级**回到跑之前 --------------------------
+# ---- ⭐⭐ 被测对象必须字节级回到跑之前 --------------------------
     #    这就是 8-25 漏掉的那条。当时「还原后回到基线」只比了读数，
     #    读数一模一样，而 git 报 engines/indextts2/shim.py 已修改。
     check(sha(SHIM) == sha_shim_0,
@@ -294,7 +294,7 @@ def main():
           sha(SHIM)[:12])
 
     # ---- ⭐⭐ 进程级：半路死掉，现场必须是干净的 -----------------------
-    #    2026-08-25 真机留下 shim.py.mutbak 的那条路径，就在这儿被守住。
+#     留下 shim.py.mutbak 的那条路径，就在这儿被守住。
     proc = subprocess.run([sys.executable, os.path.abspath(__file__),
                            "--selfcheck-abort"],
                           cwd=ROOT, stdout=subprocess.PIPE,
@@ -315,7 +315,7 @@ def main():
 
     # ---- ⭐⭐ 还原失败时，备份必须留着 ---------------------------------
     #    上一条的连带发现：收尾网拦住了「文件被改坏」，却拦不住
-    #    「还原失败 + 备份照删」—— 那才是真正不可逆的一步。
+#    「还原失败 + 备份照删」： 那才是真正不可逆的一步。
     print("  （下面那条 ⛔「没还原成功」是这一步**故意造**的，不是事故）")
     backup(SHIM)
     write_bytes(SHIM, read_bytes(SHIM) + b"# restore-failed\n")
@@ -374,8 +374,8 @@ def selfcheck_abort():
       得有一次真的异常退出证明现场是干净的。"""
     patch(SHIM, "            _torch.manual_seed(seed)\n",
           "            pass  # selfcheck-abort\n")
-    # ⭐ 把改坏之后的指纹打出来。父进程要拿它证明**文件真的被改过**，
-    #   否则「跑完还是原样」这条断言在「patch 根本没生效」时也会绿 —— 那是假绿。
+# ⭐ 把改坏之后的指纹打出来。父进程要拿它证明文件真的被改过，
+#   否则「跑完还是原样」这条断言在「patch 根本没生效」时也会绿 ： 那是假绿。
     print("ABORT-MUTATED-SHA %s" % sha(SHIM))
     raise SystemExit("⛔ --selfcheck-abort：这是故意的，用来验收尾网")
 

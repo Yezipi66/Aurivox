@@ -105,7 +105,7 @@ def main():
         write(HOST, host_bak)
 
         # ---------- M2：名片里写了一个宿主不认识的占位符 ----------
-        # ⛔⛔ 这里原本是「把 raise 改成 pass」——**那条突变是空转的**：
+# ⛔⛔ 这里原本是「把 raise 改成 pass」：那条突变是空转的：
         #   夹具里的占位符全是认得的，missing 永远是空列表，那个 raise
         #   根本没机会执行，改不改都一样绿。
         #   ⇒ 要测「不认识的占位符」，就得真往夹具里塞一个不认识的。
@@ -124,7 +124,7 @@ def main():
 
         # ---------- M3：名片丢掉 call 段 ----------
         # ⛔ 这是新判据里最危险的一条：托管模式的判据就是「有没有 call 段」，
-        #   所以丢了 call 的引擎会被**跳过**而不是报错。必须确认 `if not hosted`
+#   所以丢了 call 的引擎会被跳过而不是报错。必须确认 `if not hosted`
         #   那道兜底真的兜住了，否则丢 call = 静默全绿。
         mf = json.loads(mf_bak)
         del mf["call"]
@@ -150,9 +150,9 @@ def main():
         del mf["call"]["bind"]["ref_audio"]
         write(MANIFEST, json.dumps(mf, ensure_ascii=False, indent=2) + "\n")
         rc, out = run(PROBE_CONTRACT)
-        # ⭐ 第 10 条教训：红了要能当场看出**为什么**红。这条判据里有「报文
+# ⭐ 第 10 条教训：红了要能当场看出为什么红。这条判据里有「报文
         #   得点名 ref_audio」一半，只报 rc 的话，报文那一半失败时看不出所以然
-        #   —— 真机上就正是这一半红的（node 栈被按字节截尾，消息被截没了）。
+#   ： 上就正是这一半红的（node 栈被按字节截尾，消息被截没了）。
         check("⭐⭐ M5：要参考音频却没有 bind.ref_audio ⇒ 拒绝装配"
               "（否则会 400 拦下没给的，再把给了的丢掉）",
               rc != 0 and "ref_audio" in out,
@@ -172,7 +172,7 @@ def main():
         check("还原后 probe_profile_contract 回到基线", rc == 0, "rc=%d" % rc)
 
     finally:
-        # ⛔ 无论中间怎么炸，被测文件必须回到原样 —— 它们是仓库里的真文件。
+# ⛔ 无论中间怎么炸，被测文件必须回到原样 ： 它们是仓库里的真文件。
         write(HOST, host_bak)
         write(MANIFEST, mf_bak)
 
