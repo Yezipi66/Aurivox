@@ -514,6 +514,8 @@ const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SY
 //  数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
 //  末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。
 const DEBT_LEDGER = {
+  'test/dragBind.node.test.js': 1,
+  'test/installCancel.node.test.js': 1,
   'core/env.js': 258,
   'core/wizardbridge.js': 155,
   'core/paramsFromReflect.js': 119,
@@ -578,15 +580,15 @@ const DEBT_LEDGER = {
   'editor/useInstalled.js': 4,
   'test/computeAutoFill.node.test.js': 4,
   'test/tierreview.node.test.js': 4,
-  'test/validate.node.test.js': 3,
+  'test/validate.node.test.js': 5,
   'editor/index.jsx': 2,
   'test/downloadState.test.js': 2,
   // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0。
   //   仍显式设键让它们进扫描范围 —— 不设键的文件只配报 newFiles。
-  'comment_ratio.cjs': 0,
-  'editor/CoreBindings.jsx': 0,
-  'editor/NestedSections.jsx': 0,
-  'editor/SaveBar.jsx': 0,
+  'comment_ratio.cjs': 1,
+  'editor/CoreBindings.jsx': 1,
+  'editor/NestedSections.jsx': 10,
+  'editor/SaveBar.jsx': 10,
 }
 
 // 注释抽取交给 @babel/parser（项目 Vite 校验用的就是它）。
@@ -693,6 +695,8 @@ function reasonsOf (body) {
   for (const w of ATTRIBUTION_WORDS) if (body.includes(w)) r.push('归属:' + w)
   for (const w of SCENE_WORDS) if (body.includes(w)) r.push('现场:' + w)
   if (EMPHASIS_SYMBOL_RE.test(body)) r.push('符号')
+  // 中文双破折号：注释里没有它存在的理由。英文单破折号（—）是正确标点，不在判据内。
+  if (body.includes('\u2014\u2014')) r.push('破折号')
   return r
 }
 
