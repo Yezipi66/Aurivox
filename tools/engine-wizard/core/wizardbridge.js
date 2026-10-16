@@ -1005,12 +1005,20 @@ function handleVerifyAudio (req, res) {
   if (!audioFile || !fs.existsSync(audioFile)) {
     json(res, 404, { ok: false, error: 'no audio file found' }); return true
   }
-  // 再确认一次读到的文件确实在白名单目录内：符号链接可能指向别处
+  // 读之前再确认一次：文件本身不能是符号链接，也不能经由 junction 指到别处。
+  // 基准必须是 enginesDir 自己，不能拿 dir 做基准：dir 与文件可以同时被同一个
+  // junction 穿过（engines/<id>/.wizard-verify-audio 整个是指向外面的联接），
+  // 那样 realFile.startsWith(realDir) 恒真，守卫自证为空。
   try {
-    const real = fs.realpathSync(audioFile)
-    const realDir = fs.realpathSync(dir)
-    if (!real.startsWith(realDir + path.sep)) {
-      json(res, 400, { ok: false, error: 'audio file is outside the allowed directory' }); return true
+    const enginesReal = fs.realpathSync(path.resolve(projectRoot(), 'engines'))
+    const fileReal = fs.realpathSync(audioFile)
+    if (!fileReal.startsWith(enginesReal + path.sep)) {
+      json(res, 400, { ok: false, error: 'audio file is outside the engines directory' }); return true
+    }
+    // 还要落在本引擎自己的目录下：跨引擎读同样不该允许
+    const idReal = fs.realpathSync(path.resolve(projectRoot(), 'engines', String(id)))
+    if (!fileReal.startsWith(idReal + path.sep)) {
+      json(res, 400, { ok: false, error: 'audio file belongs to another engine' }); return true
     }
   } catch (e) {
     json(res, 404, { ok: false, error: `cannot resolve audio file: ${e.message}` }); return true
