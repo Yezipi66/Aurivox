@@ -1,7 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-//  REQUIRED EIGHT —— L1 核心区的「真·必填 8 项」
+// REQUIRED EIGHT：L1 核心区的「真·必填 8 项」
 //
 //  为什么单独一个组件
 //  平台 profile.js 的 required() 调用一共 8 处，缺一个当场抛错、名片装不上。
@@ -50,7 +50,7 @@ export default function RequiredEight ({ manifest, onChange }) {
         <h2>{t('Required fields (8)', '必填字段（8 项）')}</h2>
       </div>
       <div className="section-body">
-        {/* 表单填写的必填 8 项 —— 平台当场抛错的那 8 个，
+        // 表单填写的必填 8 项：平台当场抛错的那 8 个，
             缺一个名片装不上，所以摆在最显眼处常驻展开。
             证据：profile.js 的 required() 调用。*/}
         <p className="field-hint" style={{ marginTop: 0 }}>

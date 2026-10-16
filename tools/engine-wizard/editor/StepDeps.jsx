@@ -105,7 +105,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
   // 只在执行中更新；done 之后保持最后状态让用户看到结果。
 
   // 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
-  //   不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
+  // 不能等 r.json()：那会把流缓冲到最后才一次性返回。
   const run = async () => {
     setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
     try {
@@ -127,7 +127,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
         } catch (e) { /* 端点不通时后端仍会照 done 事件如实报 */ }
       }
       cancelRef.current = cancel
-      // resp.body 是 ReadableStream —— 逐块读，按 \n\n 切 SSE 事件
+      // resp.body 是 ReadableStream：逐块读，按 \n\n 切 SSE 事件
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''

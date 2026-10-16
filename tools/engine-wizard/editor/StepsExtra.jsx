@@ -52,7 +52,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
 
   // 下载状态（SSE 流式）。
-  //   声明必须在使用之前 —— 下面的 useEffect 引用了 dlLive，
+  // 声明必须在使用之前：下面的 useEffect 引用了 dlLive，
   //   声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）。
   const [dlLive, setDlLive] = React.useState(null)
   const [dlTail, setDlTail] = React.useState([])
@@ -103,7 +103,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }, [id])
 
   // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
-  //   不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件。
+  //   不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
   //   三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 半截（大小为0）。
   const [fileList, setFileList] = React.useState(null)
   React.useEffect(() => {
@@ -115,7 +115,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }, [id, dlLive])
 
   // 远端文件列表：用户点击「嗅探仓库」按钮后加载。
-  //   不自动加载 —— 用户主动触发，避免不必要的网络请求。
+  // 不自动加载：用户主动触发，避免不必要的网络请求。
 
   const M = (r && r.manifest) || null
   const upstreamScripts = (probe && probe.downloader) || []
@@ -173,7 +173,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
 
   // manifest 刷新：把新状态合并回旧表，不整表覆盖。
-  //   刷新响应可能缺 repo/tool（旧后端），而旧表里每一项都带着来源 ——
+  // 刷新响应可能缺 repo/tool（旧后端），而旧表里每一项都带着来源：
   //   整表覆盖会把「这个文件属于哪个仓库」抹掉，重下/续传按钮随之失效。
   //   以「仓库 + 文件名」为键：命中就更新状态，不动其他仓库的行。
   const mergeManifest = (prev, fresh, repo, tool) => {
@@ -278,9 +278,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }
   }
 
-  // 下载是「发射后不管」的后台任务 —— 点击后启动下载，不阻塞 UI，
+  // 下载是「发射后不管」的后台任务：点击后启动下载，不阻塞 UI，
   //   用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
-  //   不用 await —— await 会阻塞 UI，用户要等下载完成才能做其他事。
+  // 不用 await：await 会阻塞 UI，用户要等下载完成才能做其他事。
   const setDlBusyBoth = (v) => { dlBusyRef.current = v; setDlBusy(v) }
   const runDownload = (c, file) => {
     setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
@@ -344,7 +344,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     //   原来硬编码 `engines/${id}/checkpoints` 正斜杠，在 Windows 上可能有问题。
     //   使用 buildCommand 统一构建，确保执行和展示一致。
     const { argv } = buildCommand(c)
-    // 不 await —— 下载在后台跑，用户可以随时进入第 4 步
+    // 不 await：下载在后台跑，用户可以随时进入第 4 步
     fetch('/wizard/download', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
@@ -373,7 +373,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             setDlBusyBoth(false)
             setDlProgress(null)
             // 下载完成后自动调 /wizard/download/files 逐文件校验。
-            //   不依赖 manifest —— 直接列 engines/<id>/checkpoints/ 下的文件。
+            //   不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
             if (ev.ok && id) {
               fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
                 .then((r) => r.json())
@@ -395,8 +395,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
 
   // 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/。
-  //   不删原目录 —— hf/modelscope 的缓存在那里，删了要重下。
-  //   不替用户决定路径 —— 这是平台统一落盘策略，不是用户可选的。
+  // 不删原目录：hf/modelscope 的缓存在那里，删了要重下。
+  // 不替用户决定路径：这是平台统一落盘策略，不是用户可选的。
 
 
   return (
@@ -539,7 +539,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </>
       )}
 
-      {/* ---- 下载命令展示：平台只打印，不代下载 ----
+      // 下载命令展示：平台只打印，不代下载
           用户可以看到上游 README 里的原始命令。
           平台不执行这些命令 —— 只是展示给用户参考。*/}
       {visibleCmds.length > 0 && (
@@ -670,7 +670,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* ── 上游附带的下载脚本（如果有）──
+      // 上游附带的下载脚本（如果有）
           平台不执行它们 —— 只是告诉用户「上游自己给了这个脚本」。
           执行是用户自己的事，平台只负责把命令摆出来。*/}
       {upstreamScripts.length > 0 && (
@@ -743,7 +743,7 @@ export { StepVerify } from './StepVerify'
 
 // ---------------------------------------------------------------------------
 //  流程条只有五步，不设「装完了怎么用」那一步。
-//  它属于文档，不占一个流程步骤 —— 一个只放说明、不执行任何动作的格子
+// 它属于文档，不占一个流程步骤：一个只放说明、不执行任何动作的格子
 //  是流程条上的一格空话，且它往往要把内部术语（engines/、Manifest、
 //  weights[]）摆到界面上。
 //  判据：新增步骤前先问它有没有执行任何动作；没有 ⇒ 那是文档。

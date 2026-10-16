@@ -1,7 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-//  NESTED SECTION —— 嵌套段的填表（runtime / call / models）
+// NESTED SECTION：嵌套段的填表（runtime / call / models）
 //
 //    为什么单独一个文件
 //  这三段不是「几个键」，而是嵌套结构：
@@ -10,7 +10,7 @@ import { useT } from '../../../web/src/lib/i18n'
 //    models.required[] / source.command[]
 //   一个键一个 input 画不出来。
 //
-//      但不照抄任何一张真名片 —— 真名片形状各不相同，
+// 但不照抄任何一张真名片：真名片形状各不相同，
 //  照抄 = 第二份事实，必然漂移。这里按形状分类，每种形状一个编辑器。
 //
 //    排版全部用项目类：.field / .field-label / .field-hint / .control /
@@ -73,7 +73,7 @@ function ArrayField ({ value, onChange, placeholder, t }) {
   )
 }
 
-//   ArgsField —— call.args 编辑器（cli 形态）：一张 {name:{flag,style}} 的表格。
+// ArgsField：call.args 编辑器（cli 形态），一张 {name:{flag,style}} 的表格。
 //     不能套 ArrayField（那是字符串数组）也不能套 ObjectField（value 是对象不是标量）。
 //   每行：name（键）/ flag（--flag）/ style（value|boolean）/ 删除。可新增行。
 function ArgsField ({ value, onChange, t }) {
@@ -145,7 +145,7 @@ function ArgsField ({ value, onChange, t }) {
   )
 }
 
-/** key → value 的浅对象（init_args 这类）——   用项目的 .table 画「键 值 ×」三列 */
+// * key → value 的浅对象（init_args 这类）：用项目的 .table 画「键 值 ×」三列
 function ObjectField ({ value, onChange, t }) {
   const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
   const rows = Object.entries(obj)
@@ -192,7 +192,7 @@ function ObjectField ({ value, onChange, t }) {
   )
 }
 
-/** 逐行字符串数组（args / command 这类）—— 同样用 .table：序号 值 × */
+// * 逐行字符串数组（args / command 这类）：同样用 .table，序号 值 ×
 function LinesField ({ value, onChange, t }) {
   const lines = Array.isArray(value) ? value : []
   const [line, setLine] = React.useState('')
@@ -235,7 +235,7 @@ function LinesField ({ value, onChange, t }) {
 }
 
 // ---------------------------------------------------------------------------
-// runtime.verify —— 装没装 / 起不来得来，就看它
+// runtime.verify：装没装 / 起不来得来，就看它
 // ---------------------------------------------------------------------------
 function VerifyField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
@@ -335,7 +335,7 @@ function VerifyField ({ value, onChange, t }) {
 }
 
 // ---------------------------------------------------------------------------
-// call.bind —— 槽位，对应平台的固定词表
+// call.bind：槽位，对应平台的固定词表
 // ---------------------------------------------------------------------------
 function BindField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
@@ -345,7 +345,7 @@ function BindField ({ value, onChange, t }) {
     else next[k] = val
     onChange(Object.keys(next).length ? next : undefined)
   }
-  // 平台词表是固定的那几个 ——   那属于平台，不属于名片，这里只提示不强制
+  // 平台词表是固定的那几个：那属于平台，不属于名片，这里只提示不强制
   const SLOTS = ['text', 'ref_audio', 'ref_text', 'ref_lang', 'text_lang', 'out']
   return (
     <>
@@ -373,7 +373,7 @@ function BindField ({ value, onChange, t }) {
   )
 }
 
-/** call.methods —— 每个方法一套 bind/时序 */
+// * call.methods：每个方法一套 bind/时序
 function MethodsField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const names = Object.keys(v)
@@ -429,7 +429,7 @@ function MethodsField ({ value, onChange, t }) {
           onClick={() => {
             //   第一个方法默认叫 zero_shot（零样本，最常用的合成方式）。
             //     纯 UX 默认：换了方法反射会当场重算参数，不影响任何判断。
-            //    只兜第一个（names 还空着）—— 之后让用户自己命名。
+            // 只兜第一个（names 还空着）：之后让用户自己命名。
             const k = (name.trim() || (names.length === 0 ? 'zero_shot' : '')).trim()
             if (!k || v[k]) return
             onChange({ ...v, [k]: {} }); setName('')

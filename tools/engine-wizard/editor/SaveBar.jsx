@@ -1,12 +1,12 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-//  SAVE BAR —— 存盘
+// SAVE BAR：存盘
 //
 //    三件事，按用户的真实需要排：
-//   1. 能不能存 —— 先看有没有错，有错就不给存（但如实说为什么）
-//   2. 会存到哪 —— 把完整路径摆出来，不让人猜
-//   3. 会不会覆盖 —— 已存在时明确问一次，不静默覆盖
+// 1. 能不能存：先看有没有错，有错就不给存（但如实说为什么）
+// 2. 会存到哪：把完整路径摆出来，不让人猜
+// 3. 会不会覆盖：已存在时明确问一次，不静默覆盖
 //
 //    用项目的 .summary-bar（就是项目给「一行摘要 + 徽标 + 按钮」准备的：
 //   flex-wrap / gap 8 / surface + border + radius-md），
@@ -31,11 +31,11 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
   const willCreate = !!id && !exists
 
   //   第 6 章 SaveBar 5 态可视（P3 补，基于 manifest 可推导的信息）：
-  //   ① 待扫描 —— call 段还没绑定/参数（bind 空且 args 空）
-  //   ② 已自动填 N 项 —— call.bind 有槽位或 call.args 有条目（扫描自动填的标志）
-  //   ③ 可保存 —— 有 id 且无硬错
-  //   ④ 硬错阻断 —— hasErrors（见下方红条）
-  //   ⑤ 扫描中 —— 需 CliGenPanel 的 busy 状态（跨组件），  不在此推断，标遗留。
+  // ① 待扫描：call 段还没绑定/参数（bind 空且 args 空）
+  // ② 已自动填 N 项：call.bind 有槽位或 call.args 有条目（扫描自动填的标志）
+  // ③ 可保存：有 id 且无硬错
+  // ④ 硬错阻断：hasErrors（见下方红条）
+  // ⑤ 扫描中：需 CliGenPanel 的 busy 状态（跨组件），不在此推断，标遗留。
   //   只从 manifest 现有字段推导，  不做跨组件状态提升（避免动 ManifestForm/
   //    ManifestPage 三处结构、引入回归）。bind 三槽位 + args 条数 = 自动填了多少。
   const call = (manifest && manifest.call) || {}
@@ -88,7 +88,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         )}
         <span style={{ flex: 1 }} />
 
-        {/* ---- 存 ----
+        // 存
               第 6 章：有硬错时禁用保存 + 说明原因，  不是让按钮消失。
               旧代码 hasErrors 时整块按钮 null（消失），用户找不到存盘入口
               也不知道为什么 —— 现在是灰置禁用 + 下方红条说明。 */}

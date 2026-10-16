@@ -23,14 +23,14 @@ export default function PanelPreview ({ manifest }) {
 /**
  * 为什么参数面板必须有自己的错误边界
  *   ParamField 是项目的组件，它内部出错会一路往上炸，把整页打白
- *   —— 用户看到的只是「页面坏了」，跟「是哪个引擎的名片不对」毫无关系。
+ *   用户看到的只是「页面坏了」，跟「是哪个引擎的名片不对」毫无关系。
  *   这里把爆炸关在预览区里：左边的填表、JSON、保存都还能用。
  */
 class ErrorBoundary extends React.Component {
   constructor (p) { super(p); this.state = { err: null } }
   static getDerivedStateFromError (err) { return { err } }
   componentDidCatch (err, info) {
-    // 打到控制台便于开发时定位，但不弹给用户 —— 提示里已经说清楚了
+    // 打到控制台便于开发时定位，但不弹给用户：提示里已经说清楚了
     if (typeof console !== 'undefined') console.error(this.props.label, err, info)
   }
   render () {
@@ -102,7 +102,7 @@ function PreviewInner ({ manifest }) {
         （{t('not a re-implementation', '不是另画一遍')}）。
       </p>
 
-      {/* 主区域 —— 真渲染 */}
+      {/* 主区域：真渲染 */}
       <MainArea manifest={manifest} />
 
       {/* `Advanced Settings` 保持英文、不翻译：
