@@ -135,11 +135,14 @@ export function StepVerify ({ id }) {
           </h2>
         </div>
         <div className="field-hint">
-          {t('Not implemented. Blocked on: the engine has no ASR endpoint declared, '
-            + 'and the platform has no ASR model to read the audio back with. '
+          {t('Not implemented. The platform has ASR models and a working transcription '
+            + 'step, but that step takes a directory of training material and a training '
+            + 'config. There is no entry point that reads back one arbitrary audio clip, '
+            + 'and no manifest field declares an ASR endpoint on the engine. '
             + 'This item is optional and does not block the other two.',
-            '尚未实现。卡在两处：名片没有声明 ASR 端点，平台也没有 ASR 模型'
-            + '可以把音频读回来。此项可选，不阻塞其余两项。')}
+            '尚未实现。平台有 ASR 模型与可用的转写步骤，但那个步骤要的是一段训练素材目录'
+            + '加一份训练配置，没有「把任意一段音频读回来」的入口，名片里也没有声明 ASR 端点的字段。'
+            + '此项可选，不阻塞其余两项。')}
         </div>
       </div>
     </div>
