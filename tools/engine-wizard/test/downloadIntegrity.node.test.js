@@ -138,9 +138,7 @@ test('删半截：只删 partial，ok 与 missing 不碰', async () => {
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ⛔ 缺信息不等于残缺：删 ok 会让使用者白下一遍，比漏删半截严重。
-// 这四条是独立验收子 Agent 漏掉的——它把「ok 被删」归因为自己的探针
-// 写错字节数，只验了参数正确那一种就下了「核心行为全部正确」的结论。
+// 缺信息不等于残缺：删 ok 会让使用者白下一遍，比漏删半截严重。
 test('删半截：size 与 sha 都正确 ⇒ 不删', async () => {
   const root = tmpRoot()
   const good = Buffer.from('good bytes')

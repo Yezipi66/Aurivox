@@ -660,7 +660,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                       : ''}
                 </span>
                 {state === 'partial' && (
-                  <button className="btn btn-mini" onClick={() => removePartial(f)}>
+                  <button className="btn btn-sm" onClick={() => removePartial(f)}>
                     {t('Delete partial and re-download', '删除半截并重下')}
                   </button>
                 )}
