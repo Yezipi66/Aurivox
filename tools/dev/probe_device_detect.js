@@ -2,20 +2,20 @@
 'use strict'
 
 // ============================================================================
-//  ⭐ 探针：这台机器上的各类计算设备，**从 Node 里能不能检测到**
+//   探针：这台机器上的各类计算设备，从 Node 里能不能检测到
 //
-//  为什么要写它（2026-10-05）：
+//  为什么要写它（）：
 //  「换一个不依赖 venv 的硬件探测」这句话听起来像小事，于是我先假设了
 //  「能检测到」。而 `docs/PLATFORM_CAPABILITY_REPORT.md` 已经证明，
-//  **「检测到设备」与「知道它能干什么」是两件事** ——
+//  「检测到设备」与「知道它能干什么」是两件事 ：
 //  同一块 Arc 140T：推理 f16 能跑但无优势、训练 f16 会 NaN、
 //  训练 fp32 快 4.6× 但要先编译 821 秒、NPU 干脆没有反向通路。
 //
 //  ⇒ 所以先量「检测」这一层能不能做到，再谈用它做什么决定。
-//  本文件**只做检测**，一律不下结论说「所以该怎么做」。
+//  本文件只做检测，一律不下结论说「所以该怎么做」。
 //
 // 用法：node tools/dev/probe_device_detect.js
-// ⛔ 纪律：不许出现任何具体引擎名；它探测的是机器，不是引擎。
+//  纪律：不许出现任何具体引擎名；它探测的是机器，不是引擎。
 // ============================================================================
 
 const { execFileSync, spawnSync } = require('node:child_process')
@@ -43,7 +43,7 @@ console.log('    但**它能不能跑 fp16/bf16 的反向**不在这里 —— �
 section('② CPU 指令集 —— 那才是「能不能训练」的决定项')
 // 报告 §四.4 的判据是 DNNL 报不报
 //   "does not support bf16/f16 backward on the platform with avx2_vnni_2"
-// ⇒ 也就是说**要问的是「有没有 avx512_bf16 / avx512_fp16」**，不是型号。
+// ⇒ 也就是说要问的是「有没有 avx512_bf16 / avx512_fp16」，不是型号。
 const isa = tryRun('powershell', ['-NoProfile', '-Command', `
   $f = Get-ItemProperty -Path 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0' -ErrorAction SilentlyContinue
   [pscustomobject]@{

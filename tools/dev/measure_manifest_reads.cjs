@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * measure_manifest_reads —— 量一张名片上，平台**真的读**了哪些键。
+ * measure_manifest_reads ： 量一张名片上，平台真的读了哪些键。
  *
- * ⛔ 为什么不用 grep：`grep -c upstream lib/` 报 60 —— 里面全是
+ *  为什么不用 grep：`grep -c upstream lib/` 报 60 ： 里面全是
  *    `upstreamResponse`、注释、别的模块的同名局部变量。用它当判据，
  *    「这个键有人读」和「这个串在别处出现过」会长得一模一样。
  *
- * ⭐ 量法：把名片包成一层记录用的 Proxy（递归到每个子对象），塞回
+ *  量法：把名片包成一层记录用的 Proxy（递归到每个子对象），塞回
  *    registry.requireEngine，然后推着平台把 5 个阶段全走一遍，
  *    记下每一次 get。读到的 = 活键；没读到的 = 死数据。
  *
- * ⚠ 这是**下界不是上界**：只覆盖本脚本走过的这几条路。某个键可能在
- *    安装脚本或界面里被读。所以判「死」之前还要人看一眼 —— 但判「活」
+ *  这是下界不是上界：只覆盖本脚本走过的这几条路。某个键可能在
+ *    安装脚本或界面里被读。所以判「死」之前还要人看一眼 ： 但判「活」
  *    是确凿的（真被读了）。
  *
  * 只读：不写任何产品文件；临时引擎目录跑完即删。
@@ -72,12 +72,12 @@ function stripComments(o) {
 
 const m = stripComments(JSON.parse(fs.readFileSync(TEMPLATE, 'utf8')))
 m.id = PROBE_ID
-// ⛔⛔ 只补**模板没给**的，绝不覆盖模板给了的。
-//    这里原本写死 `m.maps = { text: 'text' }` —— 模板里另外 9 个 map 键
-//    于是从头到尾没进过被测对象：既不在「活」里也不在「死」里，**凭空消失**。
+//  只补模板没给的，绝不覆盖模板给了的。
+//    这里原本写死 `m.maps = { text: 'text' }` ： 模板里另外 9 个 map 键
+//    于是从头到尾没进过被测对象：既不在「活」里也不在「死」里，凭空消失。
 //    量法把被测对象改掉，量出来的就不是被测对象的账。
 m.runtime = m.runtime || {}
-// ⚠ 2026-08-27 起模板自己就带 entry（指向通用宿主），这行兜底基本不会触发。
+//   起模板自己就带 entry（指向通用宿主），这行兜底基本不会触发。
 //   值跟着改是为了：万一它触发了，量出来的也不是一个已经不存在的形状。
 if (!m.runtime.entry) m.runtime.entry = '../../lib/engines/host.py'
 if (!m.runtime.ready_endpoint) m.runtime.ready_endpoint = '/ready'
@@ -89,7 +89,7 @@ fs.writeFileSync(path.join(PROBE_DIR, 'manifest.json'),
 
 let failed = false
 try {
-  // ⭐ 顺序要紧：profile.js:23 是**载入时解构** requireEngine，
+  //  顺序要紧：profile.js:23 是载入时解构 requireEngine，
   //   所以必须在 require('./profile') 之前把 registry 换掉。
   const registry = require(path.join(ROOT, 'lib', 'engines', 'registry.js'))
   const realRequire = registry.requireEngine
@@ -143,9 +143,9 @@ try {
   })(m, '')
 
   const live = [...all].filter(k => seen.has(k)).sort()
-  // ⭐ 第三桶：自己没被单独读，但**父块被整个取走了**（例如
-  //   `out.help = d.help` —— 平台拿走整个 help 对象交给界面，
-  //   从此再没碰过 help.zh）。这种键**不是死数据**，只是这套量法
+  //  第三桶：自己没被单独读，但父块被整个取走了（例如
+  //   `out.help = d.help` ： 平台拿走整个 help 对象交给界面，
+  //   从此再没碰过 help.zh）。这种键不是死数据，只是这套量法
   //   看不见它。混进「死」里会虚报，然后有人照着删掉真在用的东西。
   const opaque = [...all].filter(k => !seen.has(k) && k.includes('.')
     && seen.has(k.slice(0, k.lastIndexOf('.')))).sort()
@@ -160,15 +160,15 @@ try {
   console.log('[死数据] 模板写了、这 5 条路上一次都没读：' + dead.length + ' 个')
   for (const k of dead) console.log('   ⛔ ' + k)
   console.log('')
-  // ⛔⛔ 这一桶原来是**猜**的：「平台读过 ∧ 模板没有 ⇒ 作者会漏掉」。
-  //    那个推理有一整类反例 —— 平台读它，是为了判断你**有没有写它**，
+  //  这一桶原来是猜的：「平台读过 ∧ 模板没有 ⇒ 作者会漏掉」。
+  //    那个推理有一整类反例 ： 平台读它，是为了判断你有没有写它，
   //    而正确答案恰恰是「别写」：
-  //      · params.schema.<键>.default 与 defaults.<键> 是**二选一**
+  //      · params.schema.<键>.default 与 defaults.<键> 是二选一
   //        （profile.js:376-391，两处都写当场抛 ENGINE_MANIFEST_INVALID_VALUE）
-  //      · legacy_default 全平台**有且只有一张**名片能认领
+  //      · legacy_default 全平台有且只有一张名片能认领
   //        （legacyDefault.js:37-53，第二张出现抛 ..._AMBIGUOUS）
-  //    照着「⭐ 你漏了」去补，名片直接炸。
-  // ⇒ 不猜了：**把它加进去，看平台抛不抛**。加了还能跑 = 真该补；
+  //    照着「 你漏了」去补，名片直接炸。
+  // ⇒ 不猜了：把它加进去，看平台抛不抛。加了还能跑 = 真该补；
   //    加了就抛 = 别写，并把平台自己的错误码原样贴出来。
   const candidates = [...seen].filter(k => !all.has(k))
     .filter(k => !['dir', 'id'].includes(k))

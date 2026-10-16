@@ -3,7 +3,7 @@
 
 // 第三道校验的 CLI：node tools/verify-engine.cjs --engine <id> [--level A|B]
 //
-// ⭐ 默认 B 级。A 级要真跑一次合成（要模型、要显存、慢）——
+//  默认 B 级。A 级要真跑一次合成（要模型、要显存、慢）：
 //   那不是一个可以随手敲一下的默认值。
 
 const path = require('node:path')
@@ -43,7 +43,7 @@ try {
   process.exit(1)
 }
 
-// ⭐ 名片没写 runtime = 平台不负责起它 ⇒ 第三道无从谈起
+//  名片没写 runtime = 平台不负责起它 ⇒ 第三道无从谈起
 if (!profile.runtime) {
   process.stderr.write(
     `引擎 ${engineId} 的 manifest.json 没有 runtime 段 —— 平台不负责起它，\n` +

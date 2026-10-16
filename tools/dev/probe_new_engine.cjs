@@ -7,24 +7,24 @@
 // 为什么要有这个脚本：
 //
 // 平台的终局是「加一台 TTS 引擎 = 新建 engines/<id>/ + 写 manifest.json，
-// lib/ / server.js / web/ / 启动脚本一个字不改」。这句话一直**没有判据** ——
+// lib/ / server.js / web/ / 启动脚本一个字不改」。这句话一直没有判据 ：
 // 833 个测试全绿只证明老引擎没坏，证明不了新引擎变好进了。
 //
 // 这个脚本就是那个判据。它造一台叫 smoketest 的引擎，**只有名片、没有一行
 // 代码**，然后推着平台一路往前走，记录它在第几步倒下、报什么错。
 //
-// ⭐ 它不是一次性脚本。拆 lib/gsv/ 那个「房东的房间」之前跑一遍存成基线，
-//   拆完再跑一遍 —— **两次墙清单之差，就是「铺路铺了多少」的量化读数**。
+//  它不是一次性脚本。拆 lib/gsv/ 那个「房东的房间」之前跑一遍存成基线，
+//   拆完再跑一遍 ： 两次墙清单之差，就是「铺路铺了多少」的量化读数。
 //
-// ⭐⭐ 关键设计：**必填字段清单是问出来的，不是我抄文档抄来的。**
+//  关键设计：必填字段清单是问出来的，不是我抄文档抄来的。
 //    做法是循环：解析名片 → 平台喊「缺 X」→ 填上 X → 再解析。
 //    平台不喊了，那张填出来的表就是「上游作者必须写的全部字段」，
-//    而且它永远跟代码同步 —— 文档会过期，这个循环不会。
+//    而且它永远跟代码同步 ： 文档会过期，这个循环不会。
 //
-// ⛔ 本脚本会**临时创建 engines/smoketest/**，跑完在 finally 里删掉。
+//  本脚本会临时创建 engines/smoketest/，跑完在 finally 里删掉。
 //    留在盘上是有代价的：它会被 registry 当成真引擎列进下拉框，还会
 //    进发行包（data/ 那个洞刚修完，别在 engines/ 上再开一个）。
-//    所以清理失败必须**喊**，见文件末尾的 assertGone()。
+//    所以清理失败必须喊，见文件末尾的 assertGone()。
 //
 // 用法：
 //    node tools/dev/probe_new_engine.cjs
@@ -96,12 +96,12 @@ function setPath(obj, keyPath, value) {
 // ---------------------------------------------------------------------------
 //  猜一个「像样的值」填进去
 // ---------------------------------------------------------------------------
-// ⚠ 这里猜的值**不是建议值**，只是为了让循环能往下走一步。
-//   脚本最后打印的是**键名清单**，不是这些值 —— 别把占位值当成推荐配置。
+//  这里猜的值不是建议值，只是为了让循环能往下走一步。
+//   脚本最后打印的是键名清单，不是这些值 ： 别把占位值当成推荐配置。
 function guessValue(keyPath, wantNumber) {
   const leaf = keyPath.split('.').pop()
 
-  // ⚠ 认名字的规则要排在 wantNumber 前面。
+  //  认名字的规则要排在 wantNumber 前面。
   //   fillableFrom() 对 ENGINE_MANIFEST_INVALID_VALUE 一律给 wantNumber:true，
   //   可「这个值不合法」并不等于「它想要一个数字」。upstream.commit 要的是
   //   40 位十六进制 sha（profile.js:328），被填成数字 1 之后平台再问一次、
@@ -124,8 +124,8 @@ function guessValue(keyPath, wantNumber) {
   if (keyPath.startsWith('maps.')) return leaf
   if (keyPath.startsWith('capabilities.')) return false
   if (leaf === 'python') return '.venv/Scripts/python.exe'
-  // ⚠ 模板自己带 entry（指向通用宿主），这条兜底基本不会触发。
-  //   2026-08-27 值跟着改：别拿一个已经不存在的形状当占位。
+  //  模板自己带 entry（指向通用宿主），这条兜底基本不会触发。
+  //    值跟着改：别拿一个已经不存在的形状当占位。
   if (leaf === 'entry') return '../../lib/engines/host.py'
   if (leaf === 'ready_endpoint') return '/health'
   if (leaf === 'module') return 'os'
@@ -154,11 +154,11 @@ function freshRequire(rel) {
 // ---------------------------------------------------------------------------
 const MAX_ROUNDS = 60
 
-// ⭐⭐ 循环必须**跨越所有阶段**，不能只问名片解析那一关。
+//  循环必须跨越所有阶段，不能只问名片解析那一关。
 //    实测教训：`maps.text` 在 resolveEngineProfile 阶段一声不吭，直到拼请求体
-//    才喊出来。只问第一关的话，「上游作者必须写什么」这张表是残缺的 ——
+//    才喊出来。只问第一关的话，「上游作者必须写什么」这张表是残缺的 ：
 //    作者会以为名片写完了，等到真去合成才发现还差一段。
-//    所以这里的规矩是：**任何一个阶段喊「缺一行」，都算平台在开口要**，
+//    所以这里的规矩是：任何一个阶段喊「缺一行」，都算平台在开口要，
 //    填上以后从头再走一遍，直到从头到尾没人再开口。
 function fillableFrom(err) {
   const code = err && err.code
@@ -274,22 +274,22 @@ function walkStages(profile, manifest) {
   add('环境体检（checkEngineEnvShallow）', () => {
     const { checkEngineEnvShallow } = freshRequire('lib/engines/envCheck.js')
     const r = checkEngineEnvShallow(profile)
-    // 假引擎没装环境，**报「没装」是正确答案**，不是墙。
+    // 假引擎没装环境，报「没装」是正确答案，不是墙。
     return JSON.stringify(r).slice(0, 160)
   })
 
-  // ⭐⭐⭐ 刀 A1（2026-08-31）：这里过去是
+  //  （）：这里过去是
   //     add('老路兜底（findLegacyDefaultId）', () => freshRequire('lib/engines/legacyDefault.js'))
-  //   `lib\engines\legacyDefault.js` 已**整个删除**（平台不再替用户猜"用哪台引擎"）。
+  //   `lib\engines\legacyDefault.js` 已整个删除（平台不再替用户猜"用哪台引擎"）。
   //
-  // ⚠ 这一处是**整刀里唯一漏网的引用**，而且漏得很有代表性：
+  //  这一处是整刀里唯一漏网的引用，而且漏得很有代表性：
   //   `tools\dev\` 下没有任何 `.node.test.js` 盯着它 ⇒ 跑全量测试 1514 条全绿，
   //   它照样坏着；只有哪天真的有人跑这个探针，才会吃一个 MODULE_NOT_FOUND。
-  //   ⭐ 判据：**"删掉一个模块"这件事，测试套件只覆盖得到有测试的地方** ——
-  //     所以删模块之后必须全仓库找 require/import 形状，⛔ 不是只看测试绿不绿。
+  //    判据："删掉一个模块"这件事，测试套件只覆盖得到有测试的地方 ：
+  //     所以删模块之后必须全仓库找 require/import 形状， 不是只看测试绿不绿。
   //
-  // 现在把它翻面：探针改成**确认那个模块确实不在了**。
-  //   ⛔ 不许因为"这只是个 dev 脚本"就把这一格删空 —— 探针的价值就是把
+  // 现在把它翻面：探针改成确认那个模块确实不在了。
+  //    不许因为"这只是个 dev 脚本"就把这一格删空 ： 探针的价值就是把
   //     "接一台新引擎会经过哪些台阶"逐格摆出来，少一格就少一格看得见的历史。
   add('老路兜底已拆除（legacyDefault 必须不存在）', () => {
     const fsx = require('node:fs')
@@ -302,7 +302,7 @@ function walkStages(profile, manifest) {
 }
 
 // ---------------------------------------------------------------------------
-//  守卫自检 —— 判据自己得先立得住
+//  守卫自检 ： 判据自己得先立得住
 // ---------------------------------------------------------------------------
 function selftest() {
   const checks = []

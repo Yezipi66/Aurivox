@@ -1,10 +1,10 @@
 // =============================================================================
 //  install-torch.node.test.js — install-torch.js 的决策逻辑守卫
 //
-//  ⚠️ 这条脚本要做的是「选一个构建」，而**选错的后果是静默的**：装出一个
+//   这条脚本要做的是「选一个构建」，而选错的后果是静默的：装出一个
 //     永远用不上的 2.5 GB，或者在本机跑不动的构建。所以决策必须被测。
 //
-//  ⭐ 测法：**真的跑它**，读它打印的决策行 —— 不重新实现一遍决策。
+//   测法：真的跑它，读它打印的决策行 ： 不重新实现一遍决策。
 //     （重新实现一遍 = 两份逻辑 = 测的是那份副本，不是真脚本。）
 //     主体需要 --dry-run 才不下载 2.5 GB；它也正是为此才有的。
 // =============================================================================
@@ -21,8 +21,8 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const BODY = path.join(ROOT, 'tools', 'cli', 'install-torch.js')
 
 // 主体会 require lib/engines/platformPaths.js 和 lib/system/gpu.js，
-// 而它第一件事就是找 venv 解释器 —— 那个不存在就直接退出。
-// ⇒ 传一个**确实存在**的解释器路径，用平台根 venv（本仓库有）。
+// 而它第一件事就是找 venv 解释器 ： 那个不存在就直接退出。
+// ⇒ 传一个确实存在的解释器路径，用平台根 venv（本仓库有）。
 function venvPython () {
   const isWin = process.platform === 'win32'
   const p = path.join(ROOT, 'venv', isWin ? 'Scripts' : 'bin', isWin ? 'python.exe' : 'python')
@@ -53,7 +53,7 @@ test('显式指定 backend ⇒ 解析到正确的 index', () => {
     ['cpu', 'cpu'],   // PyTorch 官方 CPU 构建
     ['xpu', 'xpu'],   // PyTorch 官方 Intel XPU 构建
     ['cuda', 'cu121'], // 默认 cu121（原 .ps1 的默认值）
-    ['rocm', 'rocm6.1'], // ⭐ 注意：ROCm 的 index 是 rocm<ver>，不是 rocm<cuda>
+    ['rocm', 'rocm6.1'], //  注意：ROCm 的 index 是 rocm<ver>，不是 rocm<cuda>
   ]
   for (const [backend, wantSuffix] of cases) {
     const out = run(['--backend', backend])
@@ -66,7 +66,7 @@ test('显式指定 backend ⇒ 解析到正确的 index', () => {
   }
 })
 
-// ── 2. ⭐ ROCm 的 index 不能写成 rocmcu121（原 .ps1 没有这个分支，
+// ── 2.  ROCm 的 index 不能写成 rocmcu121（原 .ps1 没有这个分支，
 //       如果照抄 CUDA 那套拼法就会去请求一个不存在的 rocmcu121 源）──
 test('ROCm 的 index 不是把 CUDA 那套拼法照抄', () => {
   const out = run(['--backend', 'rocm'])
@@ -85,7 +85,7 @@ test('--cuda 与 TTS_TORCH_CUDA 都真的改 index', () => {
 })
 
 // ── 4. onnxruntime 的 GPU/CPU 拆分：只有 CUDA 用 GPU wheel ────────────────
-//       ⚠️ 这一点很容易被写错：Intel XPU / AMD ROCm 下**仍然**是 CPU 版
+//        这一点很容易被写错：Intel XPU / AMD ROCm 下仍然是 CPU 版
 //       onnxruntime，因为 onnxruntime-gpu 只认 CUDA ExecutionProvider。
 test('onnxruntime 只有在 CUDA 下才装 GPU wheel', () => {
   assert.match(field(run(['--backend', 'cuda']), 'onnx'), /^onnxruntime-gpu==/,
@@ -97,8 +97,8 @@ test('onnxruntime 只有在 CUDA 下才装 GPU wheel', () => {
   }
 })
 
-// ── 5. 自动探测在**本机**必须给出自洽的结果 ──────────────────────────────────
-//       ⛔ 不写死「应选 xpu」—— 那是这台机器的事实，换台机器就假绿。
+// ── 5. 自动探测在本机必须给出自洽的结果 ──────────────────────────────────
+//        不写死「应选 xpu」： 那是这台机器的事实，换台机器就假绿。
 //       只断言「探测到的设备与选出的 backend 自洽」。
 test('自动探测的结论与本机设备自洽', () => {
   const out = run([])
@@ -121,7 +121,7 @@ test('自动探测的结论与本机设备自洽', () => {
   }
 })
 
-// ── 6. ⭐ 两个薄壳必须调同一份主体（否则 Windows 与 macOS 会行为分叉）────────
+// ── 6.  两个薄壳必须调同一份主体（否则 Windows 与 macOS 会行为分叉）────────
 test('薄壳 .bat 与 .sh 都调同一份 Node 主体，且不含逻辑', () => {
   const bat = fs.readFileSync(path.join(ROOT, 'tools', 'deploy', 'install-torch.bat'), 'utf8')
   const sh = fs.readFileSync(path.join(ROOT, 'tools', 'deploy', 'install-torch.sh'), 'utf8')
@@ -129,7 +129,7 @@ test('薄壳 .bat 与 .sh 都调同一份 Node 主体，且不含逻辑', () => 
   for (const [name, src] of [['bat', bat], ['sh', sh]]) {
     assert.match(src, /install-torch\.js/,
       name + ' 薄壳必须调 Node 主体')
-    // ⛔ 薄壳里不许出现选构建的关键词 —— 那是主体的职责，
+    //  薄壳里不许出现选构建的关键词 ： 那是主体的职责，
     //   两边各有一份就一定会分叉。
     assert.ok(!/whl\/(cpu|xpu|cuda|rocm)/.test(src),
       name + ' 薄壳里出现了 index ⇒ 选构建的逻辑漏到薄壳里了')
@@ -138,7 +138,7 @@ test('薄壳 .bat 与 .sh 都调同一份 Node 主体，且不含逻辑', () => 
   }
 })
 
-// ── 7. ⚠️ .bat 必须是纯 ASCII（实测踩过的坑，写成守卫免得有人加回中文）────
+// ── 7.  .bat 必须是纯 ASCII（的坑，写成守卫免得有人加回中文）────
 test('install-torch.bat 是纯 ASCII', () => {
   const buf = fs.readFileSync(path.join(ROOT, 'tools', 'deploy', 'install-torch.bat'))
   const bad = [...buf].filter(b => b > 127)

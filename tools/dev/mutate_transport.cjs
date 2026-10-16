@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 'use strict'
 // 「连不上引擎也要点名」这一刀的突变验证：逐处把改动改坏，确认有测试变红。
-// GREEN = 那处改动没有任何测试盯着（或者突变本身写坏了 —— 先怀疑这个）。
+// GREEN = 那处改动没有任何测试盯着（或者突变本身写坏了 ： 先怀疑这个）。
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 // 突变要往盘上写，而某些环境（比如助手的沙箱）源码目录是只读的。
-// 一律先复制一份到临时目录里改 —— 顺带保证真正的工作区永远不会被留下脏文件，
+// 一律先复制一份到临时目录里改 ： 顺带保证真正的工作区永远不会被留下脏文件，
 // 哪怕脚本中途被 Ctrl-C 掐死。
 const SRC = path.resolve(__dirname, '..', '..')
 const root = process.env.MUTATE_IN_PLACE === '1'
@@ -69,7 +69,7 @@ const MUT = [
     '  err.engineId = (profile && profile.id) || null\n  err.engineLabel = engineName(profile)\n  err.baseUrl = where || null',
     '  err.engineId = profile.id\n  err.engineLabel = engineName(profile)\n  err.baseUrl = where || null'],
 
-  // ---- failureDetail.js：⛔ 脱敏正则吃地址 ----
+  // ---- failureDetail.js： 脱敏正则吃地址 ----
   ['⛔ 传输层早返回被删（地址会被脱敏正则吃掉）', F.fd,
     '  if (err && err.transport === true) {',
     '  if (false) {'],

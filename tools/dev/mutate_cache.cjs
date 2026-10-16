@@ -2,17 +2,17 @@
 'use strict'
 // 「合成结果复用缓存」这一刀的突变验证：逐处把改动改坏，确认有测试变红。
 //
-// GREEN = 那处改动没有任何测试盯着（或者突变本身写坏了 —— 先怀疑这个：
+// GREEN = 那处改动没有任何测试盯着（或者突变本身写坏了 ： 先怀疑这个：
 //         上一刀 3 个 GREEN 里有 2 个是突变脚本自己的锅）。
 //
-// ⚠ 这一刀比上一刀更需要突变验证：缓存算错了**不会报错**，只会让用户听到
-//   上一次的音频。没有任何一条真机日志会提示这件事。
+//  这一刀比上一刀更需要突变验证：缓存算错了不会报错，只会让用户听到
+//   上一次的音频。没有任何一条日志会提示这件事。
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 // 突变要往盘上写，而某些环境（比如助手的沙箱）源码目录是只读的。
-// 一律先复制一份到临时目录里改 —— 顺带保证真正的工作区永远不会被留下脏文件。
+// 一律先复制一份到临时目录里改 ： 顺带保证真正的工作区永远不会被留下脏文件。
 const SRC = path.resolve(__dirname, '..', '..')
 const root = process.env.MUTATE_IN_PLACE === '1'
   ? SRC
@@ -105,7 +105,7 @@ const MUT = [
     '        fsImpl.writeFileSync(tmp, bytes);\n        fsImpl.renameSync(tmp, entryPath(key));',
     '        fsImpl.writeFileSync(entryPath(key), bytes);'],
 
-  // ---- 目录自愈（r3：真机上每段写入 ENOENT，缓存静默退化成 0% 命中）----
+  // ---- 目录自愈（r3：上每段写入 ENOENT，缓存静默退化成 0% 命中）----
   ['⛔ 目录被删之后不自愈（闩锁钉死 ⇒ 余生每段都 ENOENT）', F.sc,
     "        if (e && e.code === 'ENOENT' && attempt === 0) {\n          forgetDir();\n          continue;\n        }",
     '        // 不自愈'],

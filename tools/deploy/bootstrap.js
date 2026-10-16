@@ -5,17 +5,17 @@
 //  步骤：
 //    1. 定位 Python 3.11（tools\runtime\python）
 //    2. 在项目根建 venv
-//    3. 装依赖：本地 wheel（tools\wheels）+ PyPI，**不含 torch**
+//    3. 装依赖：本地 wheel（tools\wheels）+ PyPI，不含 torch
 //    4. 装 torch / onnxruntime（委托 tools\cli\install-torch.js）
 //    4b. ffmpeg + ffprobe（项目内，不动全局）
-//    4c. 恢复后端 node 依赖（npm ci）—— node_modules **不随包分发**
+//    4c. 恢复后端 node 依赖（npm ci）： node_modules 不随包分发
 //    4d. 刷新 node 包许可清单
 //    5. 自检导入
 //    6. 模型下载（download_models.py）
 //
 //  关于「换壳」这件事的真实情况：实测原 .ps1 665 行里，
 //     真正锁死 Windows 的只有两处：
-//       · `venv\Scripts\python.exe`（6 处）—— macOS/Linux 是 `venv/bin/python`
+//       · `venv\Scripts\python.exe`（6 处）： macOS/Linux 是 `venv/bin/python`
 //       · `Join-Path` 的反斜杠（7 处）
 //     而 Get-NetTCPConnection / Get-CimInstance / Get-Process / netstat /
 //     nvidia-smi / Win32_ / taskkill / 注册表各 0 处。
@@ -27,7 +27,7 @@
 //        「PATH 上有没有 npm」回答 ⇒ 机器上一旦装过全局 Node（很常见），
 //        它就跳到全局那份，版本对不上，报 ERR_REQUIRE_ESM，
 //        而错误里一个字都不提这件事。
-//        升 Node 修不了——新版 Node 自带同一份 npm-prefix.js。
+//        升 Node 修不了：新版 Node 自带同一份 npm-prefix.js。
 //        解法：直接 `node node_modules/npm/bin/npm-cli.js`，绕开前缀推断。
 // =============================================================================
 
@@ -48,24 +48,24 @@ const { venvPython } = require(path.join(ROOT, 'lib', 'engines', 'platformPaths.
 // PowerShell 版是 `foreach ($a in $args)` 扫全部参数，而 deploy.bat 是
 //   用 `-File x.ps1 --platform-only` 调的 ⇒ 参数里可能带那个 `-File`。
 //   PowerShell 会把它自动剥掉；Node 不会 ⇒ 我们自己只认认识的开关，
-//   忽略其余（不做「不认识的参数就报错」——那是给 CLI 用的，不是给内部调用的）。
+//   忽略其余（不做「不认识的参数就报错」：那是给 CLI 用的，不是给内部调用的）。
 const argv = process.argv.slice(2)
 // --platform-only：只装平台自己的 3 个工具链包，不装 torch / 那 6.6GB。
-//   默认保持原样（false）——翻默认值会让老用户行为突变。
+//   默认保持原样（false）：翻默认值会让老用户行为突变。
 const PLATFORM_ONLY = argv.includes('--platform-only') || argv.includes('-PlatformOnly')
 
 // --dry-run：只走「找解释器 / 认 venv / 算清楚要装什么」这些只读的部分，
 //   然后把计划打出来就停。
-// 为什么需要它：这份脚本会重建 venv、装 6.6GB 依赖、改 node_modules——
+// 为什么需要它：这份脚本会重建 venv、装 6.6GB 依赖、改 node_modules：
 //   没有 dry-run 的话，验证它只能靠推理，而它有 6 个步骤、每一步都有分支。
-//   它不承诺「什么都没改」——步骤 2 那个 venv 健康检查若发现 venv 坏了，
+//   它不承诺「什么都没改」：步骤 2 那个 venv 健康检查若发现 venv 坏了，
 //   就会真的重建。所以 dry-run 在这一步之前就停。
 const DRY = argv.includes('--dry-run')
 
 // ── 日志 ────────────────────────────────────────────────────────────────────
 // 原版用 Start-Transcript 把整段会话抄进文件。Node 没有等价物，
 //   而我们要的那部分很简单：每个 [deploy] 消息都追加进日志文件。
-//        不要改成「只在出错时写」——原版正是靠这份 transcript 才能事后查
+//        不要改成「只在出错时写」：原版正是靠这份 transcript 才能事后查
 //     「uv 解析到四十多个包就闪退」这类问题。
 const LOG_DIR = path.join(ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR,
@@ -93,10 +93,10 @@ function raw (m) {
 }
 
 /**
- * 跑一个原生命令，**输出直接进终端**。
+ * 跑一个原生命令，输出直接进终端。
  *
- * ⚠️ 为什么用 stdio: 'inherit' 而不是 pipe 再转发：原 PowerShell 版用
- *   `Start-Process -NoNewWindow -Wait` 达到同样目的，注释里记着原因 ——
+ *  为什么用 stdio: 'inherit' 而不是 pipe 再转发：原 PowerShell 版用
+ *   `Start-Process -NoNewWindow -Wait` 达到同样目的，注释里记着原因 ：
  *   「走 PowerShell 的原生命令/错误管线（那个曾经把宿主搞崩）」。
  *   ⇒ 进度条要能实时看见，且不能经过任何中间层。
  * 第三个参数可传输出文件（要留档时用），此时 inherit 换成落盘。
@@ -137,7 +137,7 @@ async function main () {
   // =============================================================================
   //  0. 向导的旁白文件（deploy_wizard.py 写的）
   // =============================================================================
-  // deploy.bat 先跑 deploy_wizard.py（许可确认 + 选模型），向导在**本脚本旁边**
+  // deploy.bat 先跑 deploy_wizard.py（许可确认 + 选模型），向导在本脚本旁边
   // 放两个旁白文件：
   //   .deploy_models.txt  → 逗号分隔的模型组（"core,g2pw,asr"），或空
   //   .deploy_ffmpeg.txt  → "1" 下载 ffmpeg，"0" 跳过
@@ -179,7 +179,7 @@ async function main () {
     //   --dry-run 的报告要在真正开始部署之前就把「要动哪些东西」全打出来。
     //   我第一版把这些常量留在各自的步骤里 ⇒ dry-run 执行到那里时崩在
     //     TDZ（const 暂时性死区：`Cannot access 'WHEELS' before initialization`）。
-    //     而崩在一条只读路径上是最难查的那种错——你会以为部署坏了，其实是
+    //     而崩在一条只读路径上是最难查的那种错：你会以为部署坏了，其实是
     //     「验证部署的那个开关」坏了。
     //   所以下面第 2 / 3 / 4c 步复用同一批，不重新定义：
     //     报告与执行读的是同一批路径，不存在「报告说的」与「实际做的」不一致。
@@ -287,7 +287,7 @@ async function main () {
     Info('creating venv ...')
     const r = runNative(EMB_PY, ['-m', 'venv', VENV])
     if (!fs.existsSync(VENV_PY)) Die('venv creation failed.')
-    //   刚建出来的 venv 必须真的能跑——只看文件在不够
+    //   刚建出来的 venv 必须真的能跑：只看文件在不够
     const chk = spawnSync(VENV_PY, ['-c', 'import sys'], { encoding: 'utf8', windowsHide: true })
     if (chk.status !== 0) Die('venv was created but its python cannot run. Check the embedded runtime.')
     Ok('venv created.')
@@ -302,7 +302,7 @@ async function main () {
   // 装不上就静默退回 pip。
   // 给 uv 一个宽松的网络超时。刻意不关它的进度条、也不限制并行度：
   // 进度条实时显示在终端上（走 runNative 的 inherit，不过中间层），
-  // 而若某台机器的杀软/EDR 仍拦它，我们不阉割所有人——失败自动退回 pip。
+  // 而若某台机器的杀软/EDR 仍拦它，我们不阉割所有人：失败自动退回 pip。
   if (!process.env.UV_HTTP_TIMEOUT) process.env.UV_HTTP_TIMEOUT = '120'
   // uv 的全局缓存与 venv 常在不同盘（C: 缓存 vs D: venv）⇒ uv 不能 hardlink，
   //   会一边探测一边退回整份拷贝并打警告。直接让它拷贝：没有警告，行为确定。
@@ -325,8 +325,8 @@ async function main () {
   //  3. 装项目依赖（不含 torch）
   // =============================================================================
   // 两份 requirements 的分工（实测名单是 git grep 量出来的）：
-  //   requirements-gpt-sovits.txt   200 包 / 6.6 GB——它是 GPT-SoVITS 的依赖
-  //   requirements-platform.txt      3 包 / 62 MB——平台自己真正要的
+  //   requirements-gpt-sovits.txt   200 包 / 6.6 GB：它是 GPT-SoVITS 的依赖
+  //   requirements-platform.txt      3 包 / 62 MB：平台自己真正要的
   //
   // 默认不切到 platform-only：训练线要 torch（C3 暂不做），
   //   今天切默认 ⇒ 训练立刻坏掉。
@@ -355,7 +355,7 @@ async function main () {
   Info('installing project dependencies (this may take a while) ...')
   // requirements 是完整的 pip freeze 快照（每个传递依赖都被钉住）。用 --no-deps 装，
   // 让 pip 逐个按 pin 装而不跑依赖解析器。这是复现冻结环境的正确方式，
-  // 而且避开「纸面冲突」（比如新版 fsspec vs 旧 datasets 上界）——
+  // 而且避开「纸面冲突」（比如新版 fsspec vs 旧 datasets 上界）：
   // 那些冲突在冻结它的那台机器上根本不存在。
   if (UV_OK) {
     Info('installing with uv (parallel) ...')
@@ -372,7 +372,7 @@ async function main () {
     if (rc !== 0) {
       // 刻意不退回带解析器重试。requirements 是给 --no-deps 用的冻结快照；
       //   带解析器重跑只会翻出那些纸面冲突（accelerate 1.14 要 torch>2.2 vs
-      //   钉死的 torch==2.2.0+cu121），而它们在冻结环境里毫无影响——
+      //   钉死的 torch==2.2.0+cu121），而它们在冻结环境里毫无影响：
       //   那是红鲱鱼，会浪费几个钟头。
       //   --no-deps 失败意味着有一个包取不到或建不起来：看上面最后一条错误。
       Warn('pip --no-deps install FAILED.')
@@ -389,7 +389,7 @@ async function main () {
   Ok('project dependencies installed.')
 
   // ── 轻量自检：pip check ───────────────────────────────────────────────────
-  // --no-deps 相信冻结是完整的。做个轻量核对，让**漏掉的 pin** 在这里
+  // --no-deps 相信冻结是完整的。做个轻量核对，让漏掉的 pin 在这里
   // 带着明确提示冒出来，而不是变成后面某个莫名的 import 错误。
   Info('verifying dependency tree (pip check) ...')
   {
@@ -403,7 +403,7 @@ async function main () {
   }
 
   // =============================================================================
-  //  4. torch + onnxruntime —— 委托给跨平台主体
+  //  4. torch + onnxruntime ： 委托给跨平台主体
   // =============================================================================
   // 两者都不在 requirements 里（巨大 / 构建目标相关 / 独立 index / 按设备条件），
   // 由它们自己那个可重跑的安装器处理，它用一次设备探测
@@ -469,9 +469,9 @@ async function main () {
   // =============================================================================
   //  4c. 后端 node 依赖（npm ci）
   // =============================================================================
-  // node_modules **不随包分发**（04_pack_release.py 把它排除了：缩小 zip，
+  // node_modules 不随包分发（04_pack_release.py 把它排除了：缩小 zip，
   // 而且不物理再分发第三方 npm 包）。这里从随包的 package-lock.json 恢复
-  // 后端/根部的**生产**依赖。前端随包**已构建**（web\dist），
+  // 后端/根部的生产依赖。前端随包已构建（web\dist），
   // 所以它自己的 node_modules 运行时不需要，只有 server.js 用的那些。
   let NODE_OK = false
   const PKG_JSON = path.join(ROOT, 'package.json')
@@ -515,7 +515,7 @@ async function main () {
         Ok('backend node deps already present — skipping npm install (delete node_modules\\ to force).')
         NODE_OK = true
       } else {
-        // npm ci 可复现且严格照锁文件，但它**要求**锁文件存在。
+        // npm ci 可复现且严格照锁文件，但它要求锁文件存在。
         // 只有锁文件缺失时才退回 `npm install`（不该发生，打包脚本会带着它，
         // 缺了也会警告）。
         //
@@ -543,9 +543,9 @@ async function main () {
   //  4d. 刷新 node 包许可清单
   // =============================================================================
   // node_modules 不随包分发，所以它的逐包许可能只能在 npm ci 恢复之后才读。
-  // 从**权威的已安装元数据**重新生成 THIRD_PARTY_LICENSES/runtime/node_packages.json，
+  // 从权威的已安装元数据重新生成 THIRD_PARTY_LICENSES/runtime/node_packages.json，
   // 让许可中心（以及部署向导的第二层）反映真正装上了什么。
-  // 尽力而为：这里失败**从不**拦住部署。
+  // 尽力而为：这里失败从不拦住部署。
   if (NODE_OK) {
     const genNode = path.join(ROOT, 'tools', 'build', 'gen_node_licenses.py')
     if (fs.existsSync(genNode)) {
@@ -627,7 +627,7 @@ async function main () {
       runNative(VENV_PY, [dl, '--set', SEL_MODELS])
     }
   } else if (process.stdin.isTTY && process.env.TTS_NONINTERACTIVE !== '1') {
-    // 独立 bootstrap（没有向导旁白）且**真的有终端**：保留原来的交互提问。
+    // 独立 bootstrap（没有向导旁白）且真的有终端：保留原来的交互提问。
     // 两个前提缺一不可：
     //    · isTTY，否则在 CI / 管道里读 stdin 会一直等一个永远不会来的回答。
     //      （原版用 Read-Host，在那种环境里直接失败。）
@@ -646,7 +646,7 @@ async function main () {
   } else {
     // 没有终端（或明确要求非交互）：不问，直接说清怎么补跑。
     //   绝不在这里读 stdin，阻塞等一个不会来的回答，
-    //     那会让 CI 上的部署**挂到超时**，而它本来只需要跳过这一步。
+    //     那会让 CI 上的部署挂到超时，而它本来只需要跳过这一步。
     Info('No model selection available and no interactive terminal — skipping model download.')
     Info(`Run  ${pyRel} tools\\deploy\\download_models.py --wizard  to fetch them.`)
   }
@@ -708,7 +708,7 @@ async function main () {
   process.exit(0)
 }
 
-// ⭐ 顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），
+//  顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），
 //   所以整个主体在 main() 里跑。
 main().catch(e => {
   console.error('[deploy][FATAL] ' + (e && e.stack ? e.stack : e))

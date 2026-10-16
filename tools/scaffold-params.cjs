@@ -11,7 +11,7 @@
 //     反射拿不到的东西。草稿里那些 REPLACE_ME 是提醒你「这里要人来填」。
 //
 //  平台不替名片作者猜：猜错的表现是「参数在界面上有、点下去没反应」，
-//     或者更糟——静默用了一个错的值。所以每一处「我不知道」都显式写成
+//     或者更糟：静默用了一个错的值。所以每一处「我不知道」都显式写成
 //     REPLACE_ME，而不是填一个看着合理的默认。
 // ============================================================================
 
@@ -30,10 +30,10 @@ const { requireEngine } = require('../lib/engines/registry')
 const REFLECTOR = path.join(ROOT, 'lib', 'engines', 'reflect_params.py')
 
 // ---------------------------------------------------------------------------
-//  排除名单——生成器最核心的判断
+//  排除名单：生成器最核心的判断
 // ---------------------------------------------------------------------------
 //
-//  反射会看到**全部**参数，包括那些**根本不该做成界面格子**的。举例
+//  反射会看到全部参数，包括那些根本不该做成界面格子的。举例
 //  （下面是真数据，从 engines/indextts2 反射出来的）：
 //
 //    cfg_path   默认 'checkpoints/config.yaml'  ← 路径，由 init_args 固定
@@ -42,10 +42,10 @@ const REFLECTOR = path.join(ROOT, 'lib', 'engines', 'reflect_params.py')
 //
 //  这三个如果做成滑块/输入框，用户改了会怎样？
 //    cfg_path 改错 ⇒ 引擎起不来，报错指向一个跟根因无关的地方
-//    model_dir 改错 ⇒ 加载的不是那份底模，声音是**别人的**，且不报错
+//    model_dir 改错 ⇒ 加载的不是那份底模，声音是别人的，且不报错
 //    device     改错 ⇒ 可能 CPU 推理，慢 50 倍，没有任何提示
 //
-//  而 IndexTTS2 的真名片**正确地把这三个排除了**（它们在 call.init_args
+//  而 IndexTTS2 的真名片正确地把这三个排除了（它们在 call.init_args
 //  里作为固定值）。⇒ 生成器必须做同样的判断，否则它的产出比没有更糟：
 //  它会「热情地」建议用户把最不该暴露的三个参数做成旋钮。
 //
@@ -55,19 +55,19 @@ const REFLECTOR = path.join(ROOT, 'lib', 'engines', 'reflect_params.py')
 //     加进这份名单之前先问：改它，出的是「报错」还是「声音不对」？
 //       后者一律不许做成界面格子。
 const EXCLUDE = Object.freeze({
-  // 路径类 —— 归 call.init_args / {checkpoints} 占位符管
+  // 路径类 ： 归 call.init_args / {checkpoints} 占位符管
   // 这条正则被测试逼着收窄过一次。
   //   原版把 `prompt_path_ratio` 也排了，而它是一个正常的数值旋钮
   //   （prompt 音频的占比）。误排的代价与漏排一样重：界面上少一个真实
   //    存在的旋钮，而且没有任何报错。
   //   ⇒ 收紧成「整个参数名就是那个路径」才算 path：
-  //     cfg_path / model_dir / vocoder_file —— 排
-  //     prompt_path_ratio / dirichlet / directory_depth —— 不排
-  //   判据：路径参数一般是「名词 + _path/_dir」，而含 path 的**比率/开关**
+  //     cfg_path / model_dir / vocoder_file ： 排
+  //     prompt_path_ratio / dirichlet / directory_depth ： 不排
+  //   判据：路径参数一般是「名词 + _path/_dir」，而含 path 的比率/开关
   //   后面跟的是别的语义词。
   //   第二段覆盖「路径的复数/列表」：aux_paths / model_files / data_dirs
   path_like: /^(cfg|config|model|vocoder|ckpt|weight|output|input|ref|save|load|cache|tmp|temp|index|meta|aux|extra|add|secondary|speaker|spk|ref|refer|tokenizer|vocab)(_(path|dir|dirs|file|files|folder|paths|yaml|json|bin|pth|ckpt))?$|^_?(path|dir|dirs|file|files|folder|paths)$/i,
-  // 平台自己已经管的事 —— 重复暴露会出现两个真相
+  // 平台自己已经管的事 ： 重复暴露会出现两个真相
   platform_owned: /^(device|devices|use_cuda|cuda|gpu|world_size|local_rank|master_port|dist_url)$/i,
   // 宿主要用的内部槽位（与 host.py 的 BIND_SLOTS 同源）
   bind_slots: /^(text|ref_audio|output_path|output_dir)$/,
@@ -107,7 +107,7 @@ function inferType(entry) {
       //
       // 为什么不是「猜不动就丢掉」：实测 IndexTTS2 的 14 个真参数里 4 个
       // 默认值是 None（use_cuda_kernel / emo_audio_prompt / emo_vector /
-      // emo_text），人是按**参数名的语义**定的类型。丢掉它们的实际后果是
+      // emo_text），人是按参数名的语义定的类型。丢掉它们的实际后果是
       // 「界面上少了一个真实存在的旋钮」，而且没有任何报错，
       // 那是这个项目最贵的一类失败。
       //
@@ -169,7 +169,7 @@ function reflectParams(spec, opts = {}) {
       encoding: 'utf8',
       timeout: opts.timeoutMs || 120000,
       maxBuffer: 16 * 1024 * 1024,
-      //      cwd 用引擎自己声明的那个（如果有）——有些包按相对路径找资源
+      //      cwd 用引擎自己声明的那个（如果有）：有些包按相对路径找资源
       cwd: spec.cwd || process.cwd(),
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     })
@@ -247,7 +247,7 @@ function buildDraft(reflection, opts = {}) {
       }
       const t = inferType(entry)
       if (!t.type) {
-        // ⚔ 类型猜不出来的**也要列出来**，但标成「需要人来定」。
+        // ⚔ 类型猜不出来的也要列出来，但标成「需要人来定」。
         //   悄悄丢掉的话，用户会以为这个参数不存在，而它确实存在，
         //   只是平台不知道怎么在界面上表示它。
         excluded.push({
@@ -314,7 +314,7 @@ function buildDraft(reflection, opts = {}) {
 // ---------------------------------------------------------------------------
 //  CLI
 // ---------------------------------------------------------------------------
-//  默认只打印。写盘要 --write——覆盖别人的 manifest.json 不是一个
+//  默认只打印。写盘要 --write：覆盖别人的 manifest.json 不是一个
 //    好的默认值。
 function main(argv) {
   const arg = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : null }
