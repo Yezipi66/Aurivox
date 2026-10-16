@@ -3,22 +3,22 @@
 
 它是什么
 --------
-`engines/<id>/shim.py` 的替代品，**一份，所有引擎共用**。
+`engines/<id>/shim.py` 的替代品，一份，所有引擎共用。
 把「传话的」那 294 行样板（HTTP 服务、探活、四类 400 校验、wav 头解析、
 推理排队、洗 sys.path）从每台引擎的目录里收上来，只留下名片描述的那部分。
 
- `engines/indextts2/shim.py`（523 行）**已经删掉了**，
+ `engines/indextts2/shim.py`（523 行）已经删掉了，
 契约 §11 判据 8「shim.py 缩到零」结账。判据不是「看着能跑」：
 `tools/dev/run_ab.py` 采四段音频比梅尔差，跨路径 0.00% / 天花板 127.25%，
 5 条判据 5 过；`tools/dev/verify_launch.py` 照平台真实启动路径起了一次
 并真出了声，14 条 14 过。
-⇒ 下面凡是引 `shim.py:NNN` 的地方，都是**已删文件的存档引文**，
+⇒ 下面凡是引 `shim.py:NNN` 的地方，都是已删文件的存档引文，
   保留是因为那些行号是当初每一条设计的出处；别去那个路径找它。
 
 它怎么知道要跑哪台引擎
 ----------------------
- **它不读 `manifest.json`。**
-名片的语义只有一个实现：`lib/engines/profile.js`。宿主收的是**已经解析好**
+ 它不读 `manifest.json`。
+名片的语义只有一个实现：`lib/engines/profile.js`。宿主收的是已经解析好
 的 JSON。理由是（已删的）`shim.py` 第 106 行那句自白：
 
     #  2) 参数白名单：与 manifest.json 的 param_keys 必须一致
@@ -34,12 +34,12 @@
 
 三条硬纪律（继承自 shim.py，改这个文件前先读）
 ---------------------------------------------
-1. **只用标准库。** 这个进程跑在**引擎自己的 venv** 里，和 broker 的 venv
+1. 只用标准库。 这个进程跑在引擎自己的 venv 里，和 broker 的 venv
    没有任何共同依赖。装第三方包 = 给那个环境引入新的冲突面。
-2. **启动即加载，不许懒加载。** 冷启动可能 60 秒以上，而请求超时只有 300 秒。
+2. 启动即加载，不许懒加载。 冷启动可能 60 秒以上，而请求超时只有 300 秒。
    把加载挪到启动阶段，请求窗口才安全。代价是启动慢，所以有 /health。
-3. **洗 sys.path。** 宿主机上别的软件（如 Hermes）会把自己的 site-packages
-   注入并排在引擎 venv **前面**，把 tokenizers / numpy 换成它的版本。
+3. 洗 sys.path。 宿主机上别的软件（如 Hermes）会把自己的 site-packages
+   注入并排在引擎 venv 前面，把 tokenizers / numpy 换成它的版本。
    必须在 import 引擎之前剔除。
 """
 
@@ -127,11 +127,11 @@ def _seed_torch_cuda(seed):
 # init_args 里的 {占位符}
 # ---------------------------------------------------------------------------
 # `init_args` 里的 {占位符} 必须在传进构造函数之前替换掉：
-# 否则名片里写 "{checkpoints}/config.yaml" 会把**大括号本身**当字面量传给
+# 否则名片里写 "{checkpoints}/config.yaml" 会把大括号本身当字面量传给
 # 上游构造函数：上游拿到一个不存在的路径，报一个跟名片毫无关系的错。
 # ⇒ 又是「夹具比现实简单」造成的假绿，和 requires_reference_audio 同一类：
 # 探针里那台假引擎的 init_args 是写死的字面值，不带占位符。
-# 占位符表**故意和 launchPlan.js 的 PLACEHOLDERS 对齐**（那边是
+# 占位符表故意和 launchPlan.js 的 PLACEHOLDERS 对齐（那边是
 # host/port/root/engine_dir/checkpoints）。这里只认路径那三个：构造一个
 # 模型对象不需要知道自己监听在哪。两边同名同义，别让它们分叉。
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
@@ -160,7 +160,7 @@ def _placeholder_values(profile):
 def _expand_init_args(init_args, profile):
     """把 init_args 里的 {占位符} 换成真路径。
 
-     不认识的占位符**当场抛**，不是原样留着，原样留着会变成一个
+     不认识的占位符当场抛，不是原样留着，原样留着会变成一个
       长得像路径的字符串传进上游，错误信息里再也看不出是名片写错了。
     """
     if not init_args:
@@ -213,7 +213,7 @@ def _expand_word(raw, values, where):
 # ---------------------------------------------------------------------------
 # 1.5) kind="cli"：一个参数 → 命令行上的 0..N 个词
 # ---------------------------------------------------------------------------
-# 这一段是 `call.args` 那份表的**唯一**解释处，而且它必须穷举：没有
+# 这一段是 `call.args` 那份表的唯一解释处，而且它必须穷举：没有
 # 「其余情况看着办」的分支。看着办 = 宿主替名片作者猜，猜错不报错，
 # 只是那个开关没上命令行，声音悄悄变了。
 def _render_cli_arg(name, entry, value):
@@ -302,14 +302,14 @@ def _resolve_cwd(profile):
     """算出调用时该待在哪个目录（契约 §5.3 的 `call.cwd`）。
 
      上游代码里常有 `checkpoints/bpe.model` 这种相对 CWD 的硬编码，而且是
-      **调用实参**不是默认值：显式传参救不了，chdir 是唯一不改上游源码的解法。
-     但**目录名由名片说了算，不由宿主推**（契约 §5.2「全部是名字，没有一行逻辑」）。
+      调用实参不是默认值：显式传参救不了，chdir 是唯一不改上游源码的解法。
+     但目录名由名片说了算，不由宿主推（契约 §5.2「全部是名字，没有一行逻辑」）。
       曾经想过让宿主自己推 `dirname(checkpoints)`：那是 IndexTTS2 的巧合，
       焊进通用层就等着下一台引擎踩。推错了不报错，只是路径不对。
 
     写法两种，和 `runtime.checkpoints` 一个约定：
       - `{engine_dir}` / `{checkpoints}` / `{root}` 槽位（§5.3 的例子就是 `{engine_dir}`）
-      - 或者一条**相对项目根**的路径，如 `models/tts/indextts2`
+      - 或者一条相对项目根的路径，如 `models/tts/indextts2`
     没写 ⇒ 返回 None ⇒ 不 chdir，待在被拉起来的地方（诚实的默认值）。
     """
     raw = (profile.get("call") or {}).get("cwd")
@@ -354,7 +354,7 @@ class SeedPlan(object):
     三态（契约 §5.2.1）：
       {"arg": "seed"}                 引擎自己收：宿主把它塞进调用参数
       {"mode": "global", "rngs": [..]} 宿主播全局 RNG
-      "none"                          不可复现：宿主**显式拒收** seed
+      "none" 不可复现：宿主显式拒收 seed
     """
 
     def __init__(self, spec):
@@ -460,7 +460,7 @@ class Engine(object):
     def _load_cli(self):
         """cli 形态没有「加载」这一步：每次请求起一个新进程。
 
-         这里**不许**装出一副模型已驻留的样子：`/health` 上的 resident=False
+         这里不许装出一副模型已驻留的样子：`/health` 上的 resident=False
           是给上层看的诚实读数。模型每次重载的代价由驻留策略去解决，
           不该靠宿主谎报。
         """
@@ -529,7 +529,7 @@ class Engine(object):
             seed_info = {"applied": ["engine:%s" % self.seed_plan.arg_name],
                          "failed": []}
         else:
-            # mode="global" 在 cli 形态下**播不到**：种子要播的是子进程里的
+            # mode="global" 在 cli 形态下播不到：种子要播的是子进程里的
             # 全局 RNG，我们这个进程播了它也看不见。名片写了就当场喊，
             # 不许收下再默默无效。
             if seed is not None and self.seed_plan.mode == "global":
@@ -614,8 +614,8 @@ class Engine(object):
         # kwargs ⇒ 上游报
         # TypeError: inference_sft() got an unexpected keyword argument
         # 'prompt_wav'
-        # 剪在这里而不是在 resolve_method 里剪：bind 是**填充用的入口**，
-        # kwargs 才是**真发出去的东西**。剪错了地方会让 bind["text"] /
+        # 剪在这里而不是在 resolve_method 里剪：bind 是填充用的入口，
+        # kwargs 才是真发出去的东西。剪错了地方会让 bind["text"] /
         # bind["output_path"] 这些入口 KeyError。
         wants_ref = (method_cfg or {}).get("requires_ref_audio")
         if wants_ref is not False and bind.get("ref_audio") and ref_audio_path is not None:
@@ -625,13 +625,13 @@ class Engine(object):
         if not str(text or "").strip():
             kwargs.pop(bind["text"], None)
 
-        # 有些上游方法**签名上必填**、但在实际走的那条
-        # 路上**根本不用**。CosyVoice2 的 zero_shot 是典型：
+        # 有些上游方法签名上必填、但在实际走的那条
+        # 路上根本不用。CosyVoice2 的 zero_shot 是典型：
         # inference_zero_shot(tts_text, prompt_text, prompt_wav, zero_shot_spk_id='')
         # 复用已存音色时这两个传空串即可（上游 example.py 就是这么写的），
         # 但平台不给 ⇒ TypeError: missing 2 required positional arguments。
         # methods.<名>.blank_when = {"<平台侧名字>": "<触发参数名>"}
-        # 触发参数在请求里有值时，把那个平台侧名字对应的**上游**参数填空串。
+        # 触发参数在请求里有值时，把那个平台侧名字对应的上游参数填空串。
         # 键写平台侧的名字，值才是触发参数；宿主认得平台侧的名字，因为
         # bind 那个槽位（ref_audio_path）可能压根没进 kwargs（没给参考音频时）。
         blank_when = (method_cfg or {}).get("blank_when") or {}
@@ -640,7 +640,7 @@ class Engine(object):
                       if call_params.get(t) not in (None, "")]
             if active:
                 for slot in blank_when:
-                    # 平台侧的键 → 上游的参数名，走**已经验过**的那条映射：
+                    # 平台侧的键 → 上游的参数名，走已经验过的那条映射：
                     # text          → bind["text"]
                     # ref_audio_path→ bind["ref_audio"]（参考音频那个槽位）
                     # 其它           → 同名（call_time 参数本来就是平台侧词）
@@ -683,7 +683,7 @@ class Engine(object):
                 # CosyVoice2 五个推理方法都返回生成器。
                 # 采样率从 call.generator_sample_rate 取（名片声明）
                 # 不从 item 里猜：万一项里没有，它就该响亮地失败，
-                # 而默默塞一个 16000 会得到**变调**的音频，且不报错。
+                # 而默默塞一个 16000 会得到变调的音频，且不报错。
                 data = _collect_generator(
                     result,
                     self.call.get("generator_sample_rate"),
@@ -715,7 +715,7 @@ class Engine(object):
 
 
 def _collect_generator(result, sample_rate, call_desc):
-    """把上游的**生成器**收成一个 WAV 字节流。
+    """把上游的生成器收成一个 WAV 字节流。
 
      为什么要有第三种形态
 
@@ -723,12 +723,12 @@ def _collect_generator(result, sample_rate, call_desc):
         "file"   上游接受 output_path，自己写文件
         "bytes"  上游返回 bytes
       而 CosyVoice2 五个推理方法（inference_sft / zero_shot /
-      cross_lingual / instruct2 / vc）**全是生成器**：
+      cross_lingual / instruct2 / vc）全是生成器：
       `yield {"tts_speech": tensor, "sample_rate": 24000}`，
-      一次 yield 一块。非流式时也只是**攒完再 yield 一次**。
+      一次 yield 一块。非流式时也只是攒完再 yield 一次。
 
        这不是 CosyVoice 独有的怪癖：「流式合成」天然就是这个形状，
-        而 Owner 定的范围是「平台不应该损害对应模型的功能」
+        而平台的立场是「不应该损害对应模型的功能」
         （五个方法一个不落）⇒ 平台必须认这个形状，否则那五分之四的能力接不了。
 
        所以加这一种，而不是给 CosyVoice 单独写个 wrapper：
@@ -739,8 +739,8 @@ def _collect_generator(result, sample_rate, call_desc):
       - 每个 item 是 dict，取 `tts_speech`（torch tensor）与 `sample_rate`
       - 有几块就 torch.cat 起来（CosyVoice 的非流式路径只 yield 一块，
         但  不假设「只有一块」：上游改了就静默截断）
-      - 采样率取自**第一块**， 不信 item 之间的自相矛盾（那说明上游坏了）
-      - 落盘用标准库 `wave` + 手写 int16， **不 import torchaudio**
+      - 采样率取自第一块，不信 item 之间的自相矛盾（那说明上游坏了）
+      - 落盘用标准库 `wave` + 手写 int16， 不 import torchaudio
         宿主那条纪律是「只用标准库」（这个进程跑在引擎自己的 venv 里），
         而 torchaudio 有没有装、版本对不对，宿主说了不算。
     """
@@ -761,10 +761,10 @@ def _collect_generator(result, sample_rate, call_desc):
             raise RuntimeError(
                 "%s 吐出来的 item 里没有 tts_speech（键有：%s）"
                 % (call_desc, ", ".join(sorted(item)) or "空"))
-        # 采样率可以从两处来，**都不给才算缺**：
+        # 采样率可以从两处来，都不给才算缺：
         # 1) item 里的 sample_rate：有些引擎每块都带；
         # 2) 名片里的 call.generator_sample_rate：有些（[实测] CosyVoice2）
-        # 把采样率放在**模型对象**上，yield 出来的 dict 里压根没这个键。
+        # 把采样率放在模型对象上，yield 出来的 dict 里压根没这个键。
         # 只认 1) 会让「一整段合成成功的音频」在最后报
         # 「没给过 sample_rate」：而答案一直在名片里。
         r = item.get("sample_rate")
@@ -773,7 +773,7 @@ def _collect_generator(result, sample_rate, call_desc):
         if r is None:
             if rate is None:
                 # 一路都没有 ⇒ 响亮地失败，而不是默默塞一个 16000
-                # （那个会得到**变调**的音频，且不报错）
+                # （那个会得到变调的音频，且不报错）
                 raise RuntimeError(
                     "%s 既没在 item 里给 sample_rate，名片也没写 "
                     "call.generator_sample_rate：采样率猜错会得到变调的音频"
@@ -954,7 +954,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # 一次请求一个方法。请求带 method=… 就是切方法；
         # 不带就走名片写的 default_method。
-        # text 允许为空：vc 这类方法转换的是**已有音频**，不读文本。
+        # text 允许为空：vc 这类方法转换的是已有音频，不读文本。
         # （validate_request 已按方法判过要不要 text。）
         text = str(body.get("text") or "")
         ref = body.get("ref_audio_path")
@@ -1011,15 +1011,15 @@ CORE_KEYS = frozenset({"text", "ref_audio_path", "seed", "format", "media_type",
 def resolve_method(profile, requested):
     """决定这一次合成走哪个方法。
 
-     CosyVoice2 有**五个**推理方法（sft / zero_shot /
+     CosyVoice2 有五个推理方法（sft / zero_shot /
       cross_lingual / instruct2 / vc），它们要的参数互不相同
       （sft 要 spk_id，vc 要两个音频，instruct2 要 instruct_text…）。
       宿主一次只认 `getattr(self.obj, call["method"])` 这一个方法时，
       「换参数」就换不到方法：请求里写 spk_id 也好、写 instruct_text
       也好，跑的永远是 inference_zero_shot。
 
-       而那份要求在名片里是**真的写着**的（每个参数带 applies_to）。名片许
-      愿，平台不执行 ⇒ 用户传了正确的参数却被当成零值兜底，合成出**错的**
+       而那份要求在名片里是真的写着的（每个参数带 applies_to）。名片许
+      愿，平台不执行 ⇒ 用户传了正确的参数却被当成零值兜底，合成出错的
       声音而不报错。这是功能缺失，不是体验问题。
 
      现在的形状：
@@ -1049,34 +1049,34 @@ def resolve_method(profile, requested):
     if name not in methods:
         return None, None, requested
     cfg = methods[name] or {}
-    # 方法级 bind 是**整体替换**，不是逐键覆盖。
+    # 方法级 bind 是整体替换，不是逐键覆盖。
     # 逐键覆盖（顶层 bind 打底 + 方法级覆盖）在「方法只是换个别名」时对，
-    # 在「方法**不要**某个槽位」时**完全错**：
+    # 在「方法不要某个槽位」时完全错：
     # cosyvoice-300m-sft 名片（本身写对了）：
     # 顶层   bind = {text: tts_text, ref_audio: prompt_wav}
-    # sft    bind = {text: tts_text}            ← 故意**没有** ref_audio
+    # sft bind = {text: tts_text} ← 故意没有 ref_audio
     # 上游   inference_sft(tts_text, spk_id, …) ← 签名里没有 prompt_wav
     # merge 之后 merged 仍是 {text, ref_audio} ⇒ 宿主把参考音频塞进
     # kwargs ⇒ 上游报
     # TypeError: CosyVoice.inference_sft() got an unexpected keyword
     # argument 'prompt_wav'
     # 为什么「方法级没写」等于「这个方法不要」而不是「沿用顶层」：
-    # **requires_ref_audio: false 就是那个声明**（validate_request:1095-1098
+    # requires_ref_audio: false 就是那个声明（validate_request:1095-1098
     # 已经在读它）。bind 里没那个键 = 平台不知道往哪放 ⇒ 不该放。
     # 反过来「方法级显式写了 ref_audio」时它照旧生效。
     # 「方法只是换个别名」时逐键覆盖是对的，但整体替换会出错：
     # vc.bind 只写 {"ref_audio": "prompt_wav"}（它不读文本，所以没有 text
     # 键）。整体替换会把顶层 bind 里的 text 丢掉 ⇒ vc 那个槽位就没了。
     # 那 300M-SFT 的 sft 为什么还坏？它的 sft.bind = {"text": "tts_text"}
-    # （**故意不写 ref_audio**），而顶层 bind 有 ref_audio ⇒ merge 后
+    # （故意不写 ref_audio），而顶层 bind 有 ref_audio ⇒ merge 后
     # merged 仍带 ref_audio ⇒ 宿主塞了 prompt_wav ⇒ 上游
     # TypeError: inference_sft() got an unexpected keyword argument
-    # 关键：「方法级没写某个槽位」= **这个方法不要它**，而不是
+    # 关键：「方法级没写某个槽位」= 这个方法不要它，而不是
     # 「沿用顶层」。那个信息由 requires_ref_audio / requires_text 声明
     # 它们已经是这个意思（validate_request:1091-1098 在读）。
     # ⇒ 修法：merge 之后，按 requires_* 把「这个方法明确不要」的槽位删掉。
-    # 剪枝**不能**在这里做：bind["text"] / bind["output_path"] 是宿主
-    # **填充用的入口**（_synthesize_python:615 / :656 无条件用它们），
+    # 剪枝不能在这里做：bind["text"] / bind["output_path"] 是宿主
+    # 填充用的入口（_synthesize_python:615 / :656 无条件用它们），
     # 删了就 KeyError。剪枝发生在「往 kwargs 里放」那一步
     # 见 _synthesize_python 里那两处按 requires_* 的判断。
     merged = dict(call.get("bind") or {})
@@ -1089,7 +1089,7 @@ def resolve_method(profile, requested):
                   "call_time": cfg.get("call_time", None),
                   # blank_when 必须一起带下去：少了它，「签名必填但实际
                   # 那条路不用」的参数就永远填不上 ⇒ TypeError。
-                  # 它必须由 resolve_method 一起带下来：写在**下面**的函数里，
+                  # 它必须由 resolve_method 一起带下来：写在下面的函数里，
                   # 等于 resolve_method 已配置好、调用方拿到的却没有。
                   "blank_when": cfg.get("blank_when", None)}, requested
 
@@ -1104,9 +1104,9 @@ def validate_request(body, profile, seed_plan):
     call_time = set(profile["params"].get("call_time") or [])
     formats = set(f.lower() for f in (profile.get("output_formats") or ["wav"]))
     # 这里曾经写成 profile.get("capabilities", {}).get("requires_reference_audio")。
-    # `resolveEngineProfile()` 真出的那份里它是**扁平顶层**的，不在 capabilities 下
+    # `resolveEngineProfile()` 真出的那份里它是扁平顶层的，不在 capabilities 下
     # ⇒ 那个读法在真名片上恒为 None ⇒ needs_ref 恒为 False ⇒
-    # 「必须给参考音频」那道 400 **静默消失**（不报错、不告警，闸只是不存在了）。
+    # 「必须给参考音频」那道 400 静默消失（不报错、不告警，闸只是不存在了）。
     # 手写夹具测出力形漂移：见 tools/dev/probe_profile_contract.py.
     needs_ref = bool(profile.get("requires_reference_audio"))
 
@@ -1119,7 +1119,7 @@ def validate_request(body, profile, seed_plan):
                {"available_methods": [a for a in avail if a]}
 
     # 方法级覆盖全局：vc 不用 text（它转换已有音频），sft 不用参考音频
-    # （它用内置音色）。一刀切的全局要求会**误杀**这些方法：给 vc 传个
+    # （它用内置音色）。一刀切的全局要求会误杀这些方法：给 vc 传个
     # 空 text 会被「text 不能为空」拦下，而 vc 本来就不读 text。
     needs_text = mcfg.get("requires_text", True)
     if needs_text and not str(body.get("text") or "").strip():
@@ -1130,11 +1130,11 @@ def validate_request(body, profile, seed_plan):
     elif mcfg.get("requires_ref_audio") is False:
         needs_ref = False
 
-    # 参考音频**有时可选**。
+    # 参考音频有时可选。
     # CosyVoice2 的 zero_shot 有两种用法
     # ① 带参考音频，现场克隆音色（要 ref）
     # ② zero_shot_spk_id，复用以前存好的音色（ 不要 ref）
-    # 而 requires_ref_audio 是**静态**布尔 ⇒ ② 会被「必须给参考音频」
+    # 而 requires_ref_audio 是静态布尔 ⇒ ② 会被「必须给参考音频」
     # 那道 400 拦下，而它本来就不需要参考音频。
     # 更糟的是那条报错会把人带偏：它说「这台引擎从参考音频克隆音色」，
     # 而用户明明只是想复用一个已经存在的音色。
@@ -1146,17 +1146,17 @@ def validate_request(body, profile, seed_plan):
 
     # 方法可以自带 call_time 参数（sft 要 spk_id、instruct2 要 instruct_text）。
     # 不声明就沿用全局那份：多数方法就是全局的子集。
-    # call_time 白名单要**逐方法一份**：一份全局的，
+    # call_time 白名单要逐方法一份：一份全局的，
     # 属于别的方法的参数会被原样塞进 kwargs ⇒
     # `TypeError: upstream_instruct2() got an unexpected keyword argument
     # 'prompt_text'`：一个 500，把「你填错方法了」说成「引擎炸了」。
-    # 正确做法是**只放行这个方法自己认的参数**，别的一律在 validate 阶段
+    # 正确做法是只放行这个方法自己认的参数，别的一律在 validate 阶段
     # 就 400 掉（用户能在请求里看出来，而不是拿到一个 500）。
     m_call_time = mcfg.get("call_time")
     if m_call_time is not None:
         call_time = set(m_call_time)
     else:
-        # 没声明 = 沿用全局，但仍要把**全局里不被任何方法认的参数**挡掉吗？
+        # 没声明 = 沿用全局，但仍要把全局里不被任何方法认的参数挡掉吗？
         # 不挡：一份旧名片（call.method 单数）里 call_time 是它唯一的声明，
         # 挡了就等于让它什么都不传：那是破坏向后兼容。
         call_time = set(call_time)
@@ -1198,7 +1198,7 @@ def validate_request(body, profile, seed_plan):
 
     seed = body.get("seed")
     if seed is not None:
-        # 契约 §5.2.1：写了 "none" 就**显式拒收**，绝不收下扔掉。
+        # 契约 §5.2.1：写了 "none" 就显式拒收，绝不收下扔掉。
         if seed_plan.mode == "none":
             return 400, ("this engine declares call.seed = \"none\": it cannot "
                          "reproduce a previous run, so the broker must not record "
@@ -1242,7 +1242,7 @@ def validate_profile(profile):
 
     required = REQUIRED_CALL_PY if kind == "python" else REQUIRED_CALL_CLI
     # call.methods 存在时，call.method 不再必需：一个引擎
-    # 可以有**五个**推理入口，单数字段表达不了。两条路互斥：写了 methods
+    # 可以有五个推理入口，单数字段表达不了。两条路互斥：写了 methods
     # 就以它为准，没写才认 method（旧名片一个字不改照跑）。
     methods = call.get("methods")
     multi = isinstance(methods, dict) and bool(methods)
@@ -1291,7 +1291,7 @@ def validate_profile(profile):
         if "text" not in bind:
             problems.append("缺 call.bind.text：平台不知道该把正文放进哪个参数")
 
-    # returns=file 时要 output_path：多方法也得**各自**有，否则某个方法
+    # returns=file 时要 output_path：多方法也得各自有，否则某个方法
     # 合成完宿主找不到文件。多方法下顶层那个可被方法级覆盖。
     if call.get("returns", "file") == "file":
         owners = [("call", bind)]
@@ -1321,8 +1321,8 @@ def _finish_profile(problems, call):
 def _flag(name):
     """「有没有」型开关：只认 --name 单独出现（可 --name=true/false）。
 
-     **不能**用 _arg 读它：--stdio 是不带值的开关，而 _arg 遇到
-       "--stdio" 且后面还有参数时会把**下一个参数**当成它的值。
+     不能用 _arg 读它：--stdio 是不带值的开关，而 _arg 遇到
+       "--stdio" 且后面还有参数时会把下一个参数当成它的值。
        实测（管道那轮踩过）：--pipe 放最后时 _arg 返回 None
        ⇒ 传输模式静默失效，退回监听端口。
        症状是「我明明开了，怎么还在占端口」，而原因在两行之外。"""
@@ -1379,7 +1379,7 @@ def main():
         return 2
 
     runtime = profile.get("runtime") or {}
-    # stdio 传输：引擎**不监听任何 TCP 端口**，也没有 socket 可用。
+    # stdio 传输：引擎不监听任何 TCP 端口，也没有 socket 可用。
     # 管道那轮踩过：填 0 会让操作系统随机分配一个端口
     # （--pipe 模式下 host.py 若照常监听，就是「以为省了、实际又多一个」）。
     # 也不许回落成 127.0.0.1:<名片端口>：那个端口没人听，
@@ -1397,7 +1397,7 @@ def main():
     # 引擎源码目录进 sys.path（名片 runtime.verify.sys_path）
     # 必须读 runtime.verify.sys_path：名片里没有 runtime.sys_path 那个键，
     # 读它等于永远 += []，最后死在 ModuleNotFoundError。
-    # 用的是**校验块**的路径不是笔误：第一道校验（契约 §6）导入哪条路径，
+    # 用的是校验块的路径不是笔误：第一道校验（契约 §6）导入哪条路径，
     # 宿主就必须加载哪条路径：不同就等于验的和跑的不是同一个模块。
     sys_path_decl = (runtime.get("verify") or {}).get("sys_path") or []
     for p in sys_path_decl:
@@ -1407,9 +1407,9 @@ def main():
         sys.path.insert(0, ap)
 
     # 上游代码里常有 `checkpoints/xxx` 这种相对 CWD 的硬编码，而且是
-    # **调用实参**不是默认值：显式传参救不了。chdir 是唯一不改上游源码
+    # 调用实参不是默认值：显式传参救不了。chdir 是唯一不改上游源码
     # 的解法。 只在这里定一次，之后进程不再改。
-    # 读的是 **call.cwd**（契约 §5.3），不是 runtime.cwd。§9 把 runtime.cwd
+    # 读的是 call.cwd（契约 §5.3），不是 runtime.cwd。§9 把 runtime.cwd
     # 定义成「启动器从哪儿 spawn」，消费者是 launchPlan.js / start.ps1；
     # 同名不同义，混用会静默 chdir 到项目根，然后上游找不到 checkpoints/。
     try:
@@ -1454,10 +1454,10 @@ def main():
     threading.Thread(target=engine.load,
                      name="%s-load" % profile["id"], daemon=True).start()
 
-    # 两条路，**Handler 是同一个**。
+    # 两条路，Handler 是同一个。
     # 这是整件事的关键：Handler 一个字没改 ⇒ 请求格式、响应格式、
     # 错误形状、音频字节全部不变 ⇒ 上层 7 个调用方零改动。
-    # 端口该在模型加载**之前**就绪（HTTP 路线的老规矩：spawn 完立刻
+    # 端口该在模型加载之前就绪（HTTP 路线的老规矩：spawn 完立刻
     # 能连上 /health 拿 503 + load_seconds）。stdio 路线没有端口，
     # 但「立刻能问」这件事一样要成立：平台 spawn 完就写第一个 /health。
     if use_stdio:
