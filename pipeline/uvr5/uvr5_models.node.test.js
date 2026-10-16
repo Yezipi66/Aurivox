@@ -15,7 +15,7 @@ const uvr5 = require("./uvr5_models");
 
 // C7：项目根一路上溯找 server.js，绝不数目录层数（判定物与 lib/paths.js 的
 // detectAppDir、chinese2.py 的 _find_project_root 一致）。此前下面读
-// lib/routes/uvr5.js 用的是 path.join(__dirname, "..", "..", ...) —— 
+// lib/routes/uvr5.js 用的是 path.join(__dirname, "..", "..", ...)：
 // pipeline/uvr5 -> engines/uvr5 这种同深度改名没事，但这棵树的深度一变就会
 // 指向不存在的文件。找不到时显式抛错，不退回层数推导。
 function findProjectRoot(start) {

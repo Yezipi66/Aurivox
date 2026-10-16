@@ -23,7 +23,7 @@ from modelscope import snapshot_download as snapshot_download_ms
 from tqdm import tqdm
 
 # 项目内工具（替代 tools.my_utils 和 tools.asr.config）
-# C7 说明：这里要的是**包 asr 的父目录**，不是项目根。本文件就在 asr/ 包内，
+# C7 说明：这里要的是包 asr 的父目录，不是项目根。本文件就在 asr/ 包内，
 # 「自己目录的父目录」是自指的，跟着 asr/ 一起搬不会失准（pipeline/asr ->
 # engines/asr 无影响）。但它毕竟仍是一次层数推导，所以补一条存在性断言：
 # 万一本文件被挪出 asr/ 包，立刻报错，而不是 import 到别处的同名模块。
@@ -60,7 +60,7 @@ language_code_list = [
 # FunASR 中文模型缓存
 _funasr_models = {}
 
-# ── Patch #22：繁→简（简体中文强制）─────────────────────────────────────
+# 繁简转换（简体中文强制）
 # 本产品只面向简体中文，从不支持繁体。faster-whisper 对 zh/yue 可能混吐简/繁，
 # 这里在 ASR 源头统一转简体，使下游（.list / segments / 推理 / 前端）全链路一致。
 # 转换器优先级：OpenCC(t2s) → zhconv(zh-hans) → 原样透传并告警（绝不因此让 ASR 崩溃）。
@@ -110,7 +110,7 @@ def _to_simplified(text):
 _SIMPLIFY_LANGS = {"zh", "yue"}
 
 
-# ── Patch #23：ASR 置信度 ────────────────────────────────────────────────
+# ASR 置信度
 def _segment_confidence(avg_logprob, no_speech_prob, word_probs):
     """把 whisper 的对数概率折算成 [0,1] 置信度。
     优先用 word-level 概率均值；否则用 exp(avg_logprob)；再按 no_speech_prob 惩罚。"""
@@ -134,8 +134,8 @@ def _faster_whisper_dir() -> str:
     """faster-whisper 权重目录。
 
     首选 FASTER_WHISPER_DIR（由 lib/paths.js 经 getCleanEnv 下发）；
-    兜底一路上溯找 package.json 定位项目根，绝不数目录层数 —— 迁此之前
-    这里按 __file__ 数了两级，代码一搬层数就失准，且不报错（引擎契约 C7）。
+    兜底一路上溯找 package.json 定位项目根，绝不数目录层数：按 __file__ 数出的
+    层数会随搬迁失准，且不报错（引擎契约 C7）。
     """
     d = os.environ.get("FASTER_WHISPER_DIR")
     if d:
@@ -265,7 +265,7 @@ def execute_asr(input_folder, output_folder, model_path, language, precision,
     input_file_names = sorted(os.listdir(input_folder))
     output = []
     output_file_name = os.path.basename(input_folder)
-    # Patch #23：置信度旁车（sidecar），键为片段文件名（basename），绝不写入 .list 第 5 列。
+    # 置信度旁车（sidecar），键为片段文件名（basename），绝不写入 .list 第 5 列。
     conf_map = {}
 
     def _transcribe(fp, want_words):
@@ -371,7 +371,7 @@ if __name__ == "__main__":
                              "(override with FASTER_WHISPER_DIR).")
     parser.add_argument("-b", "--batch_size", type=int, default=8)
     parser.add_argument("--beam_size", type=int, default=1)
-    # Patch #22：强制简体中文（默认开）。--no-force-simplified 可关闭。
+    # 强制简体中文（默认开）。--no-force-simplified 可关闭。
     parser.add_argument("--force-simplified", dest="force_simplified",
                         action="store_true", default=True,
                         help="Convert zh/yue output to Simplified Chinese (default on)")
@@ -387,10 +387,9 @@ if __name__ == "__main__":
     # 模型路径。只有一条计算方式，见 _get_model_path()。
     #
     # 这里原本自己拼 "faster-whisper-<size>"，而 _get_model_path() 拼的是
-    # "<size>" —— 同一个脚本里两套算法，取决于有没有传 --model_dir。调用方传了
+    # "<size>"：同一个脚本里两套算法，取决于有没有传 --model_dir。调用方传了
     # 目录，脚本却在它下面找一个多带前缀的子目录，找不到就静默重下，于是硬盘上
-    # 出现了两份 large-v3，各 2.9 GB。这个失败模式在本项目已经发生三次
-    # （large-v3、FunASR、以及此处），成因每次都一样：同一个事实有两处实现。
+    # 出现了两份 large-v3，各 2.9 GB。成因是同一个事实有两处实现。
     asr_models_dir = cmd.model_dir or _faster_whisper_dir()
     model_path = _get_model_path(model_size, asr_models_dir)
 
