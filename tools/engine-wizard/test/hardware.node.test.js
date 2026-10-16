@@ -1,12 +1,12 @@
 'use strict'
-// hardware —— 逻辑照抄 StabilityMatrix 的 hardware-support.md
+// hardware ： 逻辑照抄 StabilityMatrix 的 hardware-support.md
 //
 // 守的是三条纪律（都是 StabilityMatrix 自己的说法）：
 //   1. 推荐 ≠ 决定（所有选项都要摆出来）
 //   2. 检测是 guidance 不是 guarantee（原文原话）
 //   3. 分不清就退 CPU
 //
-// 它必须能在没有 GPU 的机器上也跑通（CI 环境就是）——
+// 它必须能在没有 GPU 的机器上也跑通（CI 环境就是）：
 //   所以推荐逻辑与硬件探测是分开的两个函数，可独立测。
 
 const { test } = require('node:test')
@@ -19,11 +19,11 @@ const {
   judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, parseUvLock,
 } = require('../core/hardware.js')
 
-// 偏好顺序 —— StabilityMatrix 原文那个顺序
+// 偏好顺序 ： StabilityMatrix 原文那个顺序
 test('后端偏好顺序照 StabilityMatrix：CUDA → ZLUDA → IPEX → ROCm → DirectML → CPU', () => {
   assert.deepStrictEqual(BACKEND_PREFERENCE.map((b) => b.key),
     ['cuda', 'zluda', 'ipex', 'rocm', 'directml', 'cpu'])
-  // CPU 必须垫底 —— 原文：'finally CPU as a last resort'
+  // CPU 必须垫底 ： 原文：'finally CPU as a last resort'
   assert.strictEqual(BACKEND_PREFERENCE[BACKEND_PREFERENCE.length - 1].key, 'cpu')
 })
 
@@ -110,7 +110,7 @@ test('核显 + 独显并存 ⇒ 独显优先', () => {
   assert.strictEqual(recommendBackend([both[0]]).recommended, 'ipex')
 })
 
-// inspectHardware 的形状 —— 「推荐」只是 highlight，选项全在
+// inspectHardware 的形状 ： 「推荐」只是 highlight，选项全在
 test('inspectHardware 必须把所有选项都返回（推荐 ≠ 决定）', () => {
   const h = inspectHardware()
   assert.ok(Array.isArray(h.options), '⛔ 没有 options —— 用户就没得选了')
@@ -131,7 +131,7 @@ test('inspectHardware 不抛异常（CI 上没 GPU 也要能跑）', () => {
   assert.ok(typeof h.recommended === 'string')
 })
 
-// judgeTorchSpec —— 绿/黄/白的判据
+// judgeTorchSpec ： 绿/黄/白的判据
 test('lock 里的后端 == 本机推荐 ⇒ match', () => {
   assert.strictEqual(judgeTorchSpec('torch==2.14.1+xpu', 'ipex').verdict, 'match')
   assert.strictEqual(judgeTorchSpec('torch==2.2.0+cu121', 'cuda').verdict, 'match')
@@ -159,7 +159,7 @@ test('不认识的后缀 ⇒ unknown，不硬套成某个后端', () => {
   assert.strictEqual(j.kind, 'unknown')
   // 必须说清「装之前要用户确认」，不许断言某几个字。
   // why 已双语化：英文为主 + whyZh 中文。断言走 whyZh（它保留了原措辞），
-  //   不断言英文的具体用词 —— 措辞会调，实质才是重点。
+  //   不断言英文的具体用词 ： 措辞会调，实质才是重点。
   assert.ok(/确认/.test(j.whyZh), 'whyZh 应要求用户确认：' + j.whyZh)
   assert.ok(!/——/.test(j.whyZh), `⛔ 界面文案不许用破折号解释：${j.whyZh}`)
 })
@@ -209,7 +209,7 @@ test('文件头必须写清「照抄 StabilityMatrix 的哪一段」', () => {
   assert.ok(head.includes('guidance') || head.includes('建议'), '⛔ 没写「推荐不是保证」')
 })
 
-// parseUvLock —— 「lock 锁的是什么后端」不能只看 torch 那一行
+// parseUvLock ： 「lock 锁的是什么后端」不能只看 torch 那一行
 //
 //   torch==2.10.0            ← 没有 +cu 后缀
 //   nvidia-cudnn-cu12==…     ← 但同一份 lock 锁着 CUDA 全套

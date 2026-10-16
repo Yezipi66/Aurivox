@@ -1,12 +1,12 @@
 'use strict'
-// folderName 守的 bug：同一屏出现两个不同的 id ——
+// folderName 守的 bug：同一屏出现两个不同的 id ：
 //   「克隆到本地的 engines/<新名字>」（文案用输入框里的值）
 //   「engines/<旧名字>/ already has 25 item(s)」（克隆请求用 localStorage 里的旧值）
 // 根因：克隆请求体写的是 id: idInput || state.id，输入框一空就退化到
 // state.id，而它是上次安装遗留在持久段里的旧 id。
 //
 // 判据：目录名的唯一来源 = 输入框 + 仓库名。
-//       持久段里的旧 id 不是来源 —— 它只在解析/克隆成功后由响应写回。
+//       持久段里的旧 id 不是来源 ： 它只在解析/克隆成功后由响应写回。
 
 const { test } = require('node:test')
 const assert = require('node:assert')

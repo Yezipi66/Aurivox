@@ -1,9 +1,9 @@
 'use strict'
-// 名片校验层 —— 三台真引擎当压力用例
+// 名片校验层 ： 三台真引擎当压力用例
 //
 // 为什么用三台真引擎当用例（这是方法论，不是省事）
 // 骨架要形状完全不同的引擎都能过，才敢拿去装第四台。
-// 只按一台写，坑一定留在后面 —— 那是平台反复付过学费的同一种缺陷。
+// 只按一台写，坑一定留在后面 ： 那是平台反复付过学费的同一种缺陷。
 //
 //   形状            哪台            考什么
 //   无 call 段      无 call 的那台   骨架会不会写死「必须有 call」
@@ -43,7 +43,7 @@ for (const id of REAL_ENGINES) {
       `校验层判它有错，但平台一直在用它：\n` +
       diags.filter(d => d.level === 'error').map(d => '  ' + d.message).join('\n'))
 
-    // 反过来，也不能假装它完美 —— 三台都该报出「静默失效」那一类，
+    // 反过来，也不能假装它完美 ： 三台都该报出「静默失效」那一类，
     // 因为模板里的默认值（tier/phase 不写）本身就是静默项。
     assert.ok(Array.isArray(diags))
   })
@@ -140,7 +140,7 @@ test('validate.js / fieldmeta.js 里不许出现任何具体引擎名', () => {
     'cosy' + 'voice-300m-sft', 'gpt' + '_sovits']
   for (const f of FILES) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'core', f), 'utf-8')
-    // 去掉注释再看 —— 注释里提到历史是允许的，活代码里出现才是破纪律
+    // 去掉注释再看 ： 注释里提到历史是允许的，活代码里出现才是破纪律
     const code = src.split('\n')
       .filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l))
       .join('\n')
@@ -171,7 +171,7 @@ test('每个顶层段都有说明与危险等级', () => {
 })
 
 test('危险字段必须写了 warn（静默失效那一类要提醒）', () => {
-  // 平台管不到、填错不报错的那几个 —— 必须有 warn 文案
+  // 平台管不到、填错不报错的那几个 ： 必须有 warn 文案
   const MUST_WARN = ['weights', 'call']
   for (const k of MUST_WARN) {
     const s = SECTIONS_BY_KEY[k]

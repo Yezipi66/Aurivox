@@ -1,9 +1,9 @@
 'use strict'
-// install-state 端点 —— 按真实产物判每步完成
+// install-state 端点 ： 按真实产物判每步完成
 //
 // 直接打 HTTP（真起一个监听 127.0.0.1:0 的 http server，把 handler 挂上去），
 // 而不是只 require 函数。理由：handler 的返回值就是中间件的判据（同步
-// true/false），返回形状错了 vite 那边的 for 循环会静默失效 —— 那种 bug
+// true/false），返回形状错了 vite 那边的 for 循环会静默失效 ： 那种 bug
 // 只有真打一次才看得见。
 
 const { test } = require('node:test')

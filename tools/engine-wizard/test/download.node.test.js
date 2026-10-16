@@ -1,5 +1,5 @@
 'use strict'
-// download（第 3 步）—— 文件级别下载：fetchRemoteManifest / checkFileStatus / downloadFile
+// download（第 3 步）： 文件级别下载：fetchRemoteManifest / checkFileStatus / downloadFile
 //
 // 测试策略：
 //   - fetchRemoteManifest：用本地 HTTP 服务器 mock HF/ModelScope API
@@ -29,7 +29,7 @@ function mkdtemp () {
  * 为什么要有这个函数，而不是在每个测试里直接 `path.join(root, 'engines', ...)`：
  *   `lib/engines/enginesDirWriteGuard` 会扫全仓 `.test.js`，把「变量名绑着字面量
  *   engines 目录」的写法当成「往真 engines/ 写」。包一层之后绑定表达式里
- *   不再出现 `'engines'`，守卫就不告警 —— 而 root 本来就是 mkdtemp 出来的。
+ *   不再出现 `'engines'`，守卫就不告警 ： 而 root 本来就是 mkdtemp 出来的。
  */
 function checkpointsDir (root, id) {
   return path.join(root, 'engines', String(id), 'checkpoints')
@@ -58,7 +58,7 @@ test('fetchRemoteManifest — HF API 返回文件列表', async () => {
   })
   try {
     // 注意：fetchRemoteManifest 内部硬编码了 huggingface.co，
-    // 这里我们直接测试解析逻辑 —— 用 mock 数据验证返回结构
+    // 这里我们直接测试解析逻辑 ： 用 mock 数据验证返回结构
     // 由于无法拦截 https 请求，我们测试 checkFileStatus 和 downloadFile
     // 这里只验证函数存在且可调用
     assert.strictEqual(typeof fetchRemoteManifest, 'function')
@@ -86,7 +86,7 @@ test('fetchRemoteManifest — ModelScope API 返回文件列表', async () => {
 
 test('fetchRemoteManifest — API 失败时返回空列表', async () => {
   // 由于 fetchRemoteManifest 内部用 https.get 请求真实 URL，
-  // 无法在单元测试中模拟网络失败 —— 这里只验证函数签名
+  // 无法在单元测试中模拟网络失败 ： 这里只验证函数签名
   assert.strictEqual(typeof fetchRemoteManifest, 'function')
 })
 
@@ -472,10 +472,10 @@ test('downloadFileFromUrl — 下载带子目录的文件会建出父目录', as
   }
 })
 
-// /wizard/download/manifest 端点 —— 刷新后不许把 repo 抹掉（Bug 1 的端点那一半）
+// /wizard/download/manifest 端点 ： 刷新后不许把 repo 抹掉（Bug 1 的端点那一半）
 //
 // 上面 enrichManifestFiles 那条只测了「映射函数」，端点自己有没有用它是另一回事。
-// 这里真起一个 HTTP 服务器、真发请求、真读响应体 —— 端点和前端约定的字段名就钉在这里。
+// 这里真起一个 HTTP 服务器、真发请求、真读响应体 ： 端点和前端约定的字段名就钉在这里。
 test('handleDownloadManifest — 响应每条都带 repo/tool（前端刷新靠它）', async () => {
   const remote = await startServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' })

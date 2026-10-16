@@ -22,7 +22,7 @@ const { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv } =
 // 夹具与 clone.node.test.js 同款，两个约束见那里的完整说明：
 //   ① 路径变量名必须带 mkdtemp（守卫 enginesDirWriteGuard.node.test.js:148
 //     只看实参文本有没有临时痕迹）
-//   ② 必须返回项目根，不是 engines 层 —— buildEnvPlan 收的是根
+//   ② 必须返回项目根，不是 engines 层 ： buildEnvPlan 收的是根
 
 /** 造一个「项目根」，里面没有引擎目录 */
 function mkdtempRoot () {
@@ -89,7 +89,7 @@ test('argv 形式正常通过，前后空格被trim', () => {
   assert.deepStrictEqual(r.argv, ['uv', 'sync'])
 })
 
-// 依赖清单 —— 只报，不选装法
+// 依赖清单 ： 只报，不选装法
 test('一个依赖清单都没有 ⇒ 如实说「没有」，不退回任何默认', () => {
   const { root } = mkdtempRoot()
   const d = detectDependencyManifest(path.join(root, 'engines', 'e1'))
@@ -156,7 +156,7 @@ test('不给 execute:true ⇒ 一行命令都不跑', async () => {
 // 端到端：真的跑一条命令（无害的那种）
 test('真跑一条无害命令，验证 argv 真被执行、cwd 真是引擎目录', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('e6')
-  // 让「命令」把 cwd 写下来 —— 这样能证明它真的在引擎目录里跑
+  // 让「命令」把 cwd 写下来 ： 这样能证明它真的在引擎目录里跑
   const r = await runEnv({
     id: 'e6', root, execute: true,
     manifest: { install: {
@@ -206,7 +206,7 @@ test('命令不存在 ⇒ 说清「它装了没？平台不知道」', async () 
 
 test('装法的依据只能是清单文件名（不许猜版本）', () => {
   // 只保留一条真判据：版本号必须来自 lock 读出的变量，
-  //   不得硬编码 —— 硬编码会让上游改版本后装错，而那时没有任何报错。
+  //   不得硬编码 ： 硬编码会让上游改版本后装错，而那时没有任何报错。
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'env.js'), 'utf8')
   const fn = src.slice(src.indexOf('function suggestEnvCommand'),
     src.indexOf('function detectDependencyManifest'))
@@ -236,7 +236,7 @@ test('env.js 活代码里不许出现任何具体引擎名', () => {
 //      第 2 步必然卡在「名片里没有 install 段」。
 // 那等于向导逼用户先跳回去填名片才能装环境。
 //
-// 修法：名片优先，探测兜底 —— 第 1 步已经读到上游的清单文件名，
+// 修法：名片优先，探测兜底 ： 第 1 步已经读到上游的清单文件名，
 //   而文件名本身就决定装法（有 uv.lock ⇒ uv sync；有 requirements.txt ⇒ uv pip -r）。
 // 只根据文件存在与否，不猜包名、不猜版本。
 
@@ -316,7 +316,7 @@ test('名片的 install.env_command 仍然优先（名片作者知道特殊装�
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
 
   // 名片里 env_command 是裸数组（["uv","sync"] 那样），不是 {argv:[...]}
-  //   —— 第一版写错了形状，害得以为优先级反了。
+  //   ： 第一版写错了形状，害得以为优先级反了。
   const p = buildEnvPlan({ id: 'demo', root, manifest: {
     install: { env_command: ['conda', 'env', 'create', '-f', 'x.yml'] },
   } })
@@ -348,7 +348,7 @@ test('锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，且只�
   writeCudaLock(dir)
 
   const p = buildEnvPlan({ id: 'demo', root, manifest: {} })
-  // 主命令必须跳过 torch —— 否则点「安装」装的是 CUDA 版，
+  // 主命令必须跳过 torch ： 否则点「安装」装的是 CUDA 版，
   //   而 alternative 只作展示，等于让用户白装 3 GB。
   assert.deepStrictEqual(p.env_command,
     ['uv', 'sync', '--no-install-package', 'torch'],
@@ -452,7 +452,7 @@ test('execute 不为 true ⇒ 只出计划，stepsRun 为空', async () => {
 //   形状与平台自己的 lib/engines/platformPaths.js venvPythonRelPath 一致：
 //     win32        → Scripts/uv.exe
 //     linux/darwin → bin/uv
-//   不认识的平台返回 null —— 不猜（猜错比报「不支持」更难让人看懂）。
+//   不认识的平台返回 null ： 不猜（猜错比报「不支持」更难让人看懂）。
 test('uvRelPath 按平台给形状（win32 / linux / darwin / 其他）', () => {
   const env2 = require('../core/env.js')
   const norm = (s) => s.split(String.fromCharCode(92)).join('/')
@@ -467,7 +467,7 @@ test('uvRelPath 按平台给形状（win32 / linux / darwin / 其他）', () => 
 
 // resolveUv 必须真的解析到磁盘上存在的 uv（不挑平台形状）。
 //   判据是「返回的路径存在且可用」，不是「路径长什么样」
-//   —— 钉实质：只要这台机器上解析不到 uv，就报 UV_NOT_FOUND 而不是 ENOENT。
+//   ： 钉实质：只要这台机器上解析不到 uv，就报 UV_NOT_FOUND 而不是 ENOENT。
 test('resolveUv 在本机解析到平台自带的 uv（与 bootstrap 同一调法）', () => {
   const env2 = require('../core/env.js')
   const { projectRoot } = require('../core/clone.js')
@@ -475,7 +475,7 @@ test('resolveUv 在本机解析到平台自带的 uv（与 bootstrap 同一调�
   const got = env2.resolveUv(root)
   assert.ok(got && got.ok, '项目自带 uv 却没解析到：' + JSON.stringify(got))
   // 正路：用平台 venv 的 python 当解释器，`-m uv` 当模块调
-  //   —— 与 bootstrap.js:362 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
+  //   ： 与 bootstrap.js:362 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
   //   不再找 venv/Scripts/uv.exe 那个 console-script shim。
   assert.deepStrictEqual(got.argv.slice(1), ['-m', 'uv'],
     '不是 python -m uv 的调法：' + JSON.stringify(got.argv))

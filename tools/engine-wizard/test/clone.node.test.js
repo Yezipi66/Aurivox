@@ -1,5 +1,5 @@
 'use strict'
-// clone（第 2 步）—— 核心判据：动手之前证明目录是空的
+// clone（第 2 步）： 核心判据：动手之前证明目录是空的
 //
 // 为什么这条这么要紧：非空目录的 fatal 发生在流程后段
 //   （名片已写、环境已建），那时失败前面全要回滚。
@@ -34,7 +34,7 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
  * 三个约束同时要满足（守卫判过两次、真克隆跑过一次 120 秒才知道）：
  *
  * 一 lib/engines/enginesDirWriteGuard.node.test.js:148 扫所有测试文件里
- *    「往看起来像 engines 的目录写东西」的调用 —— 它只看实参文本，
+ *    「往看起来像 engines 的目录写东西」的调用 ： 它只看实参文本，
  *    判据是「提到 engines 但没有任何临时痕迹」。
  *    路径变量名必须带 mkdtemp；夹具内部不要手写
  *      path.join(x, 'engines')（那个实参含 'engines' 却不含 mkdtemp）。
@@ -68,7 +68,7 @@ function mkdtempRootWithEngine (id) {
   return { root, engineDir: mkdtempEngineDir }
 }
 
-// 目录空不空 —— 这条判据是这一步存在的全部理由
+// 目录空不空 ： 这条判据是这一步存在的全部理由
 test('目录不存在，可以克隆', () => {
   const { root } = mkdtempRoot()
   const r = checkClonable('newone', { root: root })
@@ -97,8 +97,8 @@ test('目录非空，动手之前就拦住，且理由要说清', () => {
   // 理由要说清「是 git clone 的限制，且目录必须为空」，不钉具体措辞。
   assert.ok(/git clone/i.test(r.error) || /git clone/.test(r.errorZh), r.error)
   assert.ok(/empty target directory|空目录|目录为空/i.test(r.error) || /目标目录为空/.test(r.errorZh), r.error)
-  // 平台不替用户删东西 —— 建议里不能出现「已删除」
-  // 不许说「已删除 / 已经帮你」——中文与英文两侧都要钉
+  // 平台不替用户删东西 ： 建议里不能出现「已删除」
+  // 不许说「已删除 / 已经帮你」：中文与英文两侧都要钉
   assert.ok(!/已删除|已经帮你/.test(r.errorZh) && !/deleted for you|removed for you/i.test(r.error), r.error)
 })
 
@@ -126,7 +126,7 @@ test('id 缺失/空/纯空格/非字符串，MISSING_ID，不许抛 Node path �
   // id 为 undefined 时 buildClonePlan 直接让
   //   path.join(root,'engines',undefined) 抛
   //   `The "path" argument must be of type string. Received undefined`，
-  //   界面把这句话原样渲染给用户 —— 那是 Node 内核报错，不是人话。
+  //   界面把这句话原样渲染给用户 ： 那是 Node 内核报错，不是人话。
   //   cloneUrl 那条已修过，id 这条漏了。判据：同规格。
   const { root } = mkdtempRoot()
   const GOOD_URL = 'https://github.com/a/b.git'
@@ -225,7 +225,7 @@ test('显式要浅克隆时给警告（之后没法 checkout 到历史版本）'
 
 // 原先的分支框是死控件：探测打 /wizard/probe {url} 压根没用它，
 // 用户点「重读」读的又是默认分支，填了分支，探测结果和真正克隆的代码对不上。
-// 所以 API 也一并删掉 branch —— 留一个前端碰不到的参数就是留陷阱。
+// 所以 API 也一并删掉 branch ： 留一个前端碰不到的参数就是留陷阱。
 test('传了 branch 也必须被忽略：argv 里不许出现 --branch', () => {
   const { root } = mkdtempRoot()
   const p = buildClonePlan({ id: 'n', cloneUrl: 'https://x/y.git',
@@ -245,7 +245,7 @@ test('不给 execute:true 就绝不动盘', () => {
 })
 
 test('非空目录时即使 execute:true 也不许跑 git', async () => {
-  // 这里用的是 mkdtempRootWithEngine('old') —— 它保证 root/engines/old 真的存在。
+  // 这里用的是 mkdtempRootWithEngine('old') ： 它保证 root/engines/old 真的存在。
   //   如果引擎目录没真造出来，checkClonable 会判成「目录空」，放行，
   //   真的去联网克隆。
   const { root, engineDir } = mkdtempRootWithEngine('old')
@@ -260,7 +260,7 @@ test('非空目录时即使 execute:true 也不许跑 git', async () => {
 
 test('git 成功后的话里不许出现「能用」「可用」', () => {
   const { root } = mkdtempRoot()
-  // 不真的联网克隆 —— 只验这句话的措辞
+  // 不真的联网克隆 ： 只验这句话的措辞
   const fake = buildClonePlan({ id: 'n', cloneUrl: 'https://x/y.git', root, execute: true })
   fake.note = 'git exited 0. That only means the files are in place — '
     + 'whether this engine actually works awaits the checks that come next.'
@@ -370,7 +370,7 @@ test('取消后目标目录不存在（spawn 建了目录的情况）', async ()
   ac.abort()
   await p
 
-  // 目录应该被删干净 —— 只删 .git 会留下残缺目录，下次卡在目录非空
+  // 目录应该被删干净 ： 只删 .git 会留下残缺目录，下次卡在目录非空
   assert.ok(!fs.existsSync(targetDir), '取消后目标目录应被删除')
 })
 

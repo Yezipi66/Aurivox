@@ -1,5 +1,5 @@
 'use strict'
-// useInstallSession —— 向导持久化收敩后的那一个模块
+// useInstallSession ： 向导持久化收敩后的那一个模块
 //
 // 守的两条纪律，各有一条能变红的断言：
 //   ① 探测结果不落 localStorage（只能进 sessionStorage）
@@ -73,7 +73,7 @@ test('探测结果一段都不许落 localStorage（只有 sessionStorage）', a
     probe: { secretOfProbe: 1 }, depsPlan: { x: 1 }, depsPreview: { y: 1 },
     manifest: [{ name: 'a.bin' }], probeError: 'boom',
   })
-  // localStorage 里一个字节都不许有 —— 探测结果是会话态，不是持久态
+  // localStorage 里一个字节都不许有 ： 探测结果是会话态，不是持久态
   assert.strictEqual(global.localStorage.size, 0,
     `⛔ 探测结果写进 localStorage 了：${[...global.localStorage.data.keys()].join(', ')}`)
   // 而 sessionStorage 里必须有

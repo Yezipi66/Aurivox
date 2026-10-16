@@ -1,6 +1,6 @@
 'use strict'
 //
-// DragBind 真行为测试 —— 从 DragBind.jsx 里取组件函数，mock React hooks
+// DragBind 真行为测试 ： 从 DragBind.jsx 里取组件函数，mock React hooks
 // 后直接调用，捕获 onChange 调用验证绑定逻辑。
 //
 // DragBind 是向导第 4 步「参数池与槽位绑定」的核心组件。绑定逻辑全在

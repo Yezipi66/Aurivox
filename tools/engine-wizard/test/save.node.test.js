@@ -1,5 +1,5 @@
 'use strict'
-// 落盘 —— 用临时目录测，绝不碰真实的 engines/
+// 落盘 ： 用临时目录测，绝不碰真实的 engines/
 //
 // 为什么全部用临时目录
 //   这份代码会 mkdir + writeFile + rename。真 engines/ 里有用户在用的引擎，
@@ -23,7 +23,7 @@ function readBack (dir, id) {
 }
 
 // ---------------------------------------------------------------------------
-// id 合法性 —— 这是最常错的一项，且错了平台会报 ID_MISMATCH
+// id 合法性 ： 这是最常错的一项，且错了平台会报 ID_MISMATCH
 // ---------------------------------------------------------------------------
 test('id 校验：空 / 带路径 / 保留名 / 前导空格 都要拦下', () => {
   assert.ok(validateId('') === 'id is required')
@@ -156,7 +156,7 @@ test('已装清单：只列有 manifest 的目录，且能看出 id 是否与目
 })
 
 // ---------------------------------------------------------------------------
-// 读名片 —— 上一轮验收时发现「读不了已装名片」，这里补上
+// 读名片 ： 上一轮验收时发现「读不了已装名片」，这里补上
 // ---------------------------------------------------------------------------
 test('读一张已装名片：内容原样回来', () => {
   const dir = tmpEngines()
@@ -205,7 +205,7 @@ test('注释键必须逐字保留（写盘时剥 = 读一次就永久删掉文�
     runtime: { args: ['--flag', '{checkpoints}'], ready_timeout_ms: 90000 },
   }
   saveManifest(m, { enginesDir: dir })
-  // 磁盘上就该有 —— 上游作者靠这些键写安装说明
+  // 磁盘上就该有 ： 上游作者靠这些键写安装说明
   const raw = fs.readFileSync(path.join(dir, 'wobble', 'manifest.json'), 'utf-8')
   assert.ok(raw.includes('_comment_note'), '注释键没写进磁盘')
   const back = readManifestById('wobble', { enginesDir: dir }).manifest

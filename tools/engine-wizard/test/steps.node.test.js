@@ -1,5 +1,5 @@
 'use strict'
-// steps（六步的顺序与状态）—— 核心判据是顺序本身
+// steps（六步的顺序与状态）： 核心判据是顺序本身
 //
 // 这份测试守的是 docs/ENGINE_WIZARD_PLAN_v2.md §二 那条硬约束：
 //   「第 2 步克隆时目录必须是空的」。
@@ -22,7 +22,7 @@ test('加载 steps.js', async () => {
   assert.ok(mod.STEPS, '⛔ 导不出 STEPS')
 })
 
-// 顺序 —— 这份测试存在的第一理由
+// 顺序 ： 这份测试存在的第一理由
 test('prepare 必须在 manifest 之前（目录空的硬约束）', () => {
   const { STEPS } = mod
   const prep = STEPS.find((s) => s.key === 'prepare')
@@ -38,7 +38,7 @@ test('prepare 那一步内部仍然声明 requiresEmptyDir（合并不许丢硬�
   assert.strictEqual(prep.requiresEmptyDir, true,
     '⛔ prepare 丢了 requiresEmptyDir —— 把 1/2/3 合成一步，'
     + '但「目录必须是空的」这条硬约束不能跟着合并掉')
-  // 并且要记下内部三小步 —— 界面上要能分开显示
+  // 并且要记下内部三小步 ： 界面上要能分开显示
   assert.deepStrictEqual(prep.phases, ['resolve', 'probe', 'clone'],
     '⛔ prepare 没声明 phases —— 探测（只读）与克隆（写盘）必须能分开显示')
 })
@@ -59,7 +59,7 @@ test('五步：1/2/3 合成一步，第 6 步已删', () => {
 })
 
 test('五个步骤名：中文位是中文、英文位是英文', () => {
-  // 之前这条断言要求 label[0] === label[1]（中英相同）——
+  // 之前这条断言要求 label[0] === label[1]（中英相同）：
   //   那正是「切到英文界面时步骤名不会变」的病根：t() 在英文界面取
   //   label[0]，两半都写中文 ⇒ 英文界面显示的还是中文。
   // 现在的规则：中文位是中文，英文位是英文，各说各话。
@@ -151,13 +151,13 @@ test('stepDone：weights 的 ready:null（说不出来）⇒ 不算做完', () =
 
 test('全做完 ⇒ currentStep 返回 null（没有下一步）', () => {
   const { currentStep } = mod
-  // 全部做完时没有下一步，之前这里返回 'ready' —— 一个已经不存在的步骤名，
+  // 全部做完时没有下一步，之前这里返回 'ready' ： 一个已经不存在的步骤名，
   //   流程条会去找一个空节点。现在必须是 null。
   assert.strictEqual(currentStep({ prepare: true, env: true, models: true,
     manifest: true, verify: true }), null)
 })
 
-// lanes —— 并发只发生在该并发的地方
+// lanes ： 并发只发生在该并发的地方
 test('起点只有一条线（models/manifest 在同一格里，并发）', () => {
   const l = mod.lanes({})
   assert.strictEqual(l.length, 1, '⛔ 起点只该有一条线')

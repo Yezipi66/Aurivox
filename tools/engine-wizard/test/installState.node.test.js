@@ -1,9 +1,9 @@
 'use strict'
-// installState —— ① 两份进度合并后的读写（env / models 两段互不干扰）
+// installState ： ① 两份进度合并后的读写（env / models 两段互不干扰）
 //              ② 「这台引擎装到哪了」的产物判据
 //
 // 守两件事，各有一条能变红的断言：
-//   ① env 写盘不许抹掉 models 的 done（反过来也是）—— 两段合住一个文件，
+//   ① env 写盘不许抹掉 models 的 done（反过来也是）： 两段合住一个文件，
 //      最容易犯的错就是整份重写。
 //   ② 对勾只由盘上的产物判：造出/删掉目录树 ⇒ 判据跟着变。
 
@@ -130,7 +130,7 @@ test('resetProgress 只清进度记录，不动引擎目录里的任何文件', 
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-// ② 「这台引擎装到哪了」—— 判据必须是盘上的产物
+// ② 「这台引擎装到哪了」： 判据必须是盘上的产物
 /** 假的 venv 探针（单测不许真 spawn python） */
 const venvOk = new Set()
 

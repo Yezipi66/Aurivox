@@ -1,5 +1,5 @@
 'use strict'
-// WIZARD BRIDGE —— 把六步挂到 HTTP 上
+// WIZARD BRIDGE ： 把六步挂到 HTTP 上
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -21,7 +21,7 @@ const https = require('node:https')
  *
  * 为什么走 https 直读而不是先 clone 下来再读：
  *   第 3 步才是克隆（PLAN_v2 §二的顺序）。如果探测就 clone，
- *   那目录会先变非空 —— 正好把第 3 步的前提破坏掉。
+ *   那目录会先变非空 ： 正好把第 3 步的前提破坏掉。
  *
  * 只读这几个文件，一个别的都不读：
  *   pyproject.toml / uv.lock / requirements.txt / environment.yml / setup.py
@@ -30,10 +30,10 @@ const https = require('node:https')
 /**
  * 从 README 原文里挑出模型下载命令（形态二：上游没脚本，只写了命令）
  *
- * 只认下载工具的固定前缀 —— 不做自然语言理解、不猜：
+ * 只认下载工具的固定前缀 ： 不做自然语言理解、不猜：
  *   hf download / huggingface-cli download / modelscope download
  *   这三个是 TTS 项目实际在用的。
- * 命令不完整（没带仓库名）也照样给出来 —— 平台不替它补全，
+ * 命令不完整（没带仓库名）也照样给出来 ： 平台不替它补全，
  *   补错了等于平台在编造上游的下载方式。
  *
  * @param {string} markdown README 原文
@@ -44,7 +44,7 @@ function extractDownloadCommands (markdown) {
   const OUT = []
   const seen = new Set()
   // 除了 CLI（hf/modelscope download），还认
-  //   Python API 形态 —— snapshot_download("repo", local_dir=...)
+  //   Python API 形态 ： snapshot_download("repo", local_dir=...)
   for (const m of markdown.matchAll(/^[ \t]*(?:\$|>|#{1,6}\s*)?((?:(?:uv tool install|pip install)[^\n]*\n[ \t]*)?(?:\b(?:hf|huggingface-cli|modelscope)[ \t]+download\b[^\n`]*|snapshot_download\s*\([^)\n]*\)))/gm)) {
     let cmd = m[1].trim().replace(/\s+/g, ' ')
     cmd = cmd.replace(/[`|]+$/, '').trim()
@@ -53,7 +53,7 @@ function extractDownloadCommands (markdown) {
     // 下载前可以让用户自选目标目录（--local-dir=path/set/by/user，
     //   modelscope 同理）。
     //
-    // 所以不能把整条命令原样丢出去 —— 原样就等于把目标目录
+    // 所以不能把整条命令原样丢出去 ： 原样就等于把目标目录
     //   写死成上游随手取的名（checkpoints / checkpoints_2）。
     // 拆成结构：① 用哪个工具 ② 下哪个模型 ③ 目标目录（可改）
     const parts = parseDownloadCmd(cmd)
@@ -74,7 +74,7 @@ function extractDownloadCommands (markdown) {
  */
 function parseDownloadCmd (cmd) {
   // 形态③ Python API：snapshot_download("repo", local_dir='...')
-  //   它包在 python 代码里，不是裸命令 —— 提取 repo + local_dir，
+  //   它包在 python 代码里，不是裸命令 ： 提取 repo + local_dir，
   //   向导负责把它包成一条可执行命令（python -c "..."）。
   const sd = cmd.match(/snapshot_download\s*\(\s*['"]([^'"]+)['"]/)
   if (sd) {
@@ -109,7 +109,7 @@ function parseDownloadCmd (cmd) {
 /**
  * 上游可能提供的模型下载入口文件名。
  *
- * 这是「探测清单」，不是「平台支持的下载方式」——
+ * 这是「探测清单」，不是「平台支持的下载方式」：
  *   平台不实现任何下载逻辑，只是告诉用户「上游自己有个脚本可以跑」。
  *   清单之外的（引擎自研的 downloader.py 等）读不到 ⇒ 如实说没找到。
  */
@@ -128,7 +128,7 @@ const DOWNLOAD_SCRIPTS = [
  *
  * 判据：这几种命名是老布局仓库的通行写法。只认「根目录有没有这个文件」，
  *   不读正文、不判类型、不猜是哪一种许可证。
- * 顺序即优先级（先到先得）—— 多数仓库只有其中一种。
+ * 顺序即优先级（先到先得）： 多数仓库只有其中一种。
  */
 const LICENSE_FILES = ['LICENSE', 'LICENSE.txt', 'LICENSE.md',
   'LICENCE', 'LICENCE.txt', 'COPYING', 'COPYING.txt']
@@ -219,7 +219,7 @@ async function fetchWithBranchFallback (owner, name, file, probed) {
   return null
 }
 
-/** POST /wizard/probe {url} —— 探测上游（只读文本文件） */
+/** POST /wizard/probe {url} ： 探测上游（只读文本文件） */
 function handleProbe (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/probe')) return false
@@ -237,7 +237,7 @@ function handleProbe (req, res) {
       notes.push(`未能从 GitHub 读到默认分支（${probeBranch.source}），按 main 与 master 依次尝试。`)
     }
 
-    // 候选清单固定 —— 一个都不多读
+    // 候选清单固定 ： 一个都不多读
     const CANDIDATES = ['pyproject.toml', 'uv.lock', 'requirements.txt',
       'environment.yml', 'setup.py']
     const texts = {}
@@ -247,7 +247,7 @@ function handleProbe (req, res) {
       if (t !== null) { found.push(f); texts[f] = t }
     }
 
-    // 许可证文件 —— 第 1 步的新候选。
+    // 许可证文件 ： 第 1 步的新候选。
     //   许可证不是 pyproject 的字段：老布局仓库根目录只有一个 LICENSE 文件。
     //   取到正文一并交给 probeProject，由它读头部识别是哪种许可证；
     //   识别不出就只报「有这个文件」，不猜。
@@ -263,7 +263,7 @@ function handleProbe (req, res) {
     //   用 hf 还是 modelscope，上游自己最清楚，所以这里只探测不代列。
     //   两种形态：
     //   ① 有脚本：根目录有 download_models.py / download_weights.py 之类
-    //   ② 写进 README：没有脚本，但 README 里直接给了命令 ——
+    //   ② 写进 README：没有脚本，但 README 里直接给了命令 ：
     //      例如 `hf download <org>/<repo> --local-dir=checkpoints`，
     //      根目录只有 tools/gpu_check.py，没有任何下载脚本。
     //   ⇒ 两种都要认，认不到才如实说「上游没给」。
@@ -303,7 +303,7 @@ function handleProbe (req, res) {
     json(res, 200, {
       ok: true,
       ...r,
-      // 没有 pyproject 时，如实说清「哪些还读不到」——
+      // 没有 pyproject 时，如实说清「哪些还读不到」：
       //   哪些读到了由 r.meta 自己说话，不在这里下结论。
       note: noPy
         ? 'No pyproject.toml in this repository. Package name and license are still '
@@ -326,9 +326,9 @@ function handleProbe (req, res) {
 }
 
 /**
- * GET /wizard/hardware —— 单独暴露硬件检测（排查用，也给界面复用）
+ * GET /wizard/hardware ： 单独暴露硬件检测（排查用，也给界面复用）
  *
- * 检测失败不能让端点挂掉 —— 退 CPU 是一个有意义的答案，
+ * 检测失败不能让端点挂掉 ： 退 CPU 是一个有意义的答案，
  *   而不是 500（这里抛出去，整个 /wizard/deps 也没了）。
  */
 function handleHardware (req, res) {
@@ -353,11 +353,11 @@ function handleHardware (req, res) {
 /**
  * POST /wizard/deps  {url}
  *  第 2 步的数据源：读上游的依赖清单 + uv.lock，跟本机比出绿/黄/白。
- *  不装任何东西 —— 只回答「要装哪些包」。
+ *  不装任何东西 ： 只回答「要装哪些包」。
  *
  * 依赖清单读 pyproject.toml 与 requirements.txt：
  *   只放 requirements.txt 的老布局，靠提示语「它可能在 requirements.txt 里」
- *   是读不到东西的 —— 所以这里真的去读。
+ *   是读不到东西的 ： 所以这里真的去读。
  */
 function handleDeps (req, res) {
   if (req.method !== 'POST') return false
@@ -390,14 +390,14 @@ function handleDeps (req, res) {
       return
     }
 
-    // 本机检测 —— 失败也不让整个请求失败（CI 上没 GPU 也要能跑）
+    // 本机检测 ： 失败也不让整个请求失败（CI 上没 GPU 也要能跑）
     let hardware = null
     try { hardware = inspectHardware() } catch { hardware = null }
 
     const base = planDependencies(py, { hardware, requirements: reqText })
     if (!base.ok) { json(res, 200, base); return }
 
-    // 把 lock 里的 torch 系并进去 —— pyproject 只写 torch>=2.5.0，
+    // 把 lock 里的 torch 系并进去 ： pyproject 只写 torch>=2.5.0，
     //   真正锁死 wheel 的是 lock（只看 pyproject 判不出后端）
     //   lock 只用来判 torch 后端，不当依赖列表来源：
     //     它锁的是全部传递依赖，拿它当清单会把传递依赖全列成顶层依赖。
@@ -450,7 +450,7 @@ function respondSafely (res, cb) {
     Promise.resolve()
       .then(() => cb(err, body))
       .catch((e) => {
-        // 已经写过响应头就不能再写 —— 只把连接收掉，否则前端会看到半截 JSON。
+        // 已经写过响应头就不能再写 ： 只把连接收掉，否则前端会看到半截 JSON。
         if (res.headersSent) { try { res.end() } catch { /* 已断开 */ } return }
         json(res, 500, { ok: false, code: 'BRIDGE_FAILED',
           error: (e && e.message) || String(e) })
@@ -458,7 +458,7 @@ function respondSafely (res, cb) {
   }
 }
 
-/** 读请求体 —— 有上限，超了就断（防止一个 manifest 把内存吃光） */
+/** 读请求体 ： 有上限，超了就断（防止一个 manifest 把内存吃光） */
 function readBody (req, cb, limit = 2 * 1024 * 1024) {
   let body = ''
   let tooBig = false
@@ -480,7 +480,7 @@ function handleState (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/state')) return false
 
-  // 这一层不 require 平台的 registry —— 那东西一 require 就去扫全盘，
+  // 这一层不 require 平台的 registry ： 那东西一 require 就去扫全盘，
   //   在一个「问问进度」的 GET 里做太重了。
   const url = new URL(req.url, 'http://x')
   const id = url.searchParams.get('id')
@@ -516,7 +516,7 @@ function handleResolve (req, res) {
 const cloneAbortControllers = new Map()
 
 // POST /wizard/clone        第 2 步
-// execute 必须显式 true —— 默认只回计划（跟 install-engine.cjs 一致）
+// execute 必须显式 true ： 默认只回计划（跟 install-engine.cjs 一致）
 // 显式排除 /wizard/clone/cancel：短前缀会把那个长前缀端点也一并匹配掉，
 //   于是同名的 cancel handler 永远拿不到请求。中间件是「第一个返回 true
 //   的赢」，光在表里调顺序挡不住这种前缀包含关系。
@@ -600,7 +600,7 @@ function handleEnv (req, res) {
       //   测试与夹具需要它（测试不许写真仓库的 engines/）。
       root: body.root,
     }
-    // 只出计划（execute:false）时走普通 JSON 响应 —— 快的请求不该用流。
+    // 只出计划（execute:false）时走普通 JSON 响应 ： 快的请求不该用流。
     if (!input.execute) {
       const r = buildEnvPlan(input)
       json(res, r.ok ? 200 : 400, r)
@@ -610,13 +610,13 @@ function handleEnv (req, res) {
     //   装依赖要几分钟到几十分钟，普通 JSON 响应的意思是「前端等到全部装完」。
     //   流式让前端边装边看：每步开始推一个 step 事件，每行输出推一个 line。
     //   浏览器 fetch 能读 SSE（resp.body.getReader()），
-    //      axios/XMLHttpRequest 读不了 —— 所以前端必须用 fetch。
+    //      axios/XMLHttpRequest 读不了 ： 所以前端必须用 fetch。
     //   格式：`data: {json}\n\n` 是标准 SSE；这里每一块都是完整 JSON 事件。
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
-      // 必须关掉中间层的缓冲 —— vite 的 dev 中间件若缓冲，前端就等不到行。
+      // 必须关掉中间层的缓冲 ： vite 的 dev 中间件若缓冲，前端就等不到行。
       //   'x-accel-buffering': 'no' 是 nginx 约定；vite/node 原生也认 no-cache。
     })
     const send = (event, data) => {
@@ -657,7 +657,7 @@ function handleEnv (req, res) {
 // POST /wizard/env/cancel  {id}  取消正在进行的装依赖
 //
 // 与 handleCloneCancel 同构，但语义不同：克隆取消后删掉整个目标目录，
-//   装依赖取消后引擎环境是半截的 —— 那个环境由重跑时先删 .venv 处理
+//   装依赖取消后引擎环境是半截的 ： 那个环境由重跑时先删 .venv 处理
 //   （见 env.js 的 hasPartialVenvMark / markPartialVenv），
 //   所以这里只 abort，不删目录。
 function handleEnvCancel (req, res) {
@@ -680,9 +680,9 @@ function handleEnvCancel (req, res) {
   return true
 }
 
-// GET /wizard/download/files?id=  第 3 步 —— 逐文件校验（不依赖 manifest）
+// GET /wizard/download/files?id=  第 3 步 ： 逐文件校验（不依赖 manifest）
 //   直接列 engines/<id>/checkpoints/ 下的文件，返回文件名 + 大小。
-//   不依赖 manifest —— 下载就是下载，和名片没有任何关系。
+//   不依赖 manifest ： 下载就是下载，和名片没有任何关系。
 //   前端据此显示三态：已下载 / 未下载 / 半截（大小为 0 或很小）
 function handleDownloadFiles (req, res) {
   if (req.method !== 'GET') return false
@@ -705,24 +705,24 @@ function handleDownloadFiles (req, res) {
   return true
 }
 
-// GET /wizard/download/manifest?id=&repo=&tool=  第 3 步 —— 获取远端文件列表
+// GET /wizard/download/manifest?id=&repo=&tool=  第 3 步 ： 获取远端文件列表
 //   调用 fetchRemoteManifest 获取文件列表，再用 enrichManifestFiles 补本地状态
 //   返回 { ok: true, files: [{ name, size, sha256, status, repo, tool, note, noteZh }] }
-//   必须带 repo/tool —— 前端单文件下载完成后会重新调本端点刷新，
+//   必须带 repo/tool ： 前端单文件下载完成后会重新调本端点刷新，
 //     刷新后整表覆盖。不带 repo 就等于把表里每一项的来源抹掉，
 //     重下/续传按钮和仓库列会一起变成「未知」。
 //
 // 这里不许写 async：
 //   中间件（web/wizard.vite.config.mjs 的 for 循环）拿到 handler 的返回值后
 //   只认两样东西：严格 true（已接管）或带 .then 的 Promise（队尾那个 async handler）。
-//   而 async function 无论匹不匹配都返回 Promise ——
+//   而 async function 无论匹不匹配都返回 Promise ：
 //   「GET 请求打到 /wizard/download/manifest」时本函数第一行就 `return false`，
 //   但中间件看到的是 Promise{false} ⇒ 命中 async 分支 ⇒ break 出循环 ⇒
 //   排在它前面的 handleParams（也是 async）先把这个请求吞掉，本函数根本轮不到。
 //   轮不到 ⇒ next() ⇒ 穿透到 vite 的 HTML fallback ⇒ 200 + text/html
 //   ⇒ 前端 StepsExtra.jsx:174 的 content-type 守卫报「嗅探失败：响应格式错误」。
 //   判据：凡是能被中间件调到的 handler，同步返回 true/false；
-//     异步活一律塞进 readBody 回调或 .then() 里 —— 那两处的中间件看不见。
+//     异步活一律塞进 readBody 回调或 .then() 里 ： 那两处的中间件看不见。
 //     同款正确写法就在本文件里：handleCliArgs、handleDiscover。
 function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
@@ -791,7 +791,7 @@ function handleDownloadFile (req, res) {
   return true
 }
 
-// DELETE /wizard/download/file —— 删掉半截文件
+// DELETE /wizard/download/file ： 删掉半截文件
 //   判据用后端的 checkFileStatus（大小 + 上游 sha），不在前端按大小猜。
 //   判为 ok 与 missing 的都不删：删 ok 会让使用者白下一遍。
 function handleDeletePartialFile (req, res) {
@@ -828,7 +828,7 @@ function handleDeletePartialFile (req, res) {
   })
 }
 
-// GET /wizard/download/progress?id=  第 3 步 —— 读断点续传进度
+// GET /wizard/download/progress?id=  第 3 步 ： 读断点续传进度
 //   前端刷新后恢复下载状态用。返回已完成的命令列表。
 function handleDownloadProgress (req, res) {
   if (req.method !== 'GET') return false
@@ -843,7 +843,7 @@ function handleDownloadProgress (req, res) {
   return true
 }
 
-// POST /wizard/download  {id, root, argv}  第 3 步 —— 执行下载（SSE 流式）
+// POST /wizard/download  {id, root, argv}  第 3 步 ： 执行下载（SSE 流式）
 //   统一落盘：调用方（前端）负责把命令里的 local_dir 替换成
 //     engines/<id>/checkpoints/，本端点只负责执行 + 透传输出。
 //   SSE 流式：下载要几分钟到几十分钟，普通 JSON 响应 = 前端等到全部下完。
@@ -859,7 +859,7 @@ function handleDownload (req, res) {
       argv: body.argv,
       timeoutMs: body.timeoutMs,
     }
-    // 只执行（没有 execute:false 的分支）—— 这个端点就是用来下载的
+    // 只执行（没有 execute:false 的分支）： 这个端点就是用来下载的
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
@@ -889,7 +889,7 @@ function handleDownload (req, res) {
   return true
 }
 
-// GET /wizard/models?id=    第 4 步 —— 只列，不下
+// GET /wizard/models?id=    第 4 步 ： 只列，不下
 function handleModels (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/models')) return false
@@ -897,7 +897,7 @@ function handleModels (req, res) {
   const id = url.searchParams.get('id')
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
 
-  // 不在这里 require profile —— describeModels 内部会用平台自己的
+  // 不在这里 require profile ： describeModels 内部会用平台自己的
   //   resolveEngineProfile（权威实现只有那一份）。这里再 require 一次
   //   只会多一份「我以为它怎么用」的猜测。
   const r = describeModels(id)
@@ -1049,7 +1049,7 @@ function handleVerify (req, res) {
   return true
 }
 
-// POST /wizard/params      第 4 步 —— 反射 → parameters[] 草稿 + 映射候选
+// POST /wizard/params      第 4 步 ： 反射 → parameters[] 草稿 + 映射候选
 // 这一步为什么能离线跑：第 4 步写名片时，源码（第 1 步克隆）、
 //   环境（第 2 步）、权重（第 3 步）全部已在磁盘上 ⇒ 不需要联网。
 //
@@ -1073,7 +1073,7 @@ function handleParams (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/params')) return false
   // 锚定：startsWith 会把 /wizard/paramsxyz、/wizard/params/extra 一起吃掉。
-  //   前缀必须整串匹配（后面只许跟 ? 查询串）—— 与 handleProfile 的
+  //   前缀必须整串匹配（后面只许跟 ? 查询串）： 与 handleProfile 的
   //      '/wizard/profile/' 同一类判据（长/短前缀互吃的坑）。
   const tail = req.url.slice('/wizard/params'.length)
   if (tail !== '' && tail[0] !== '?') return false
@@ -1086,16 +1086,16 @@ function handleParams (req, res) {
     if (!spec.ok) { json(res, 400, { ok: false, code: 'BAD_SPEC', error: spec.error }); return }
 
     // 第 2 步：上游 CLI 的官方原话（argparse help= 整份摊开）。
-    //   抓不到不影响反射 —— 那是一个答案（这台引擎的 CLI 不在盘上 /
+    //   抓不到不影响反射 ： 那是一个答案（这台引擎的 CLI 不在盘上 /
     //     没有 CLI），如实带 note 出去，不许让整个端点失败。
     //   扫描目录 = 这台引擎自己的目录，逐字取 spec.value.sys_path[0]。
     //     扫描它的上级（path.join(dirname(...), '..')）会递归扫遍
     //     engines/ 下每一台引擎、tools/、lib/ 的全部 argparse 文件
     //     （sys_path[0] 是 engines/<id>，上级正是项目根）。
-    //     后果不是报错，是别的引擎的 flag 被当成这台引擎的官方原话摊开 ——
+    //     后果不是报错，是别的引擎的 flag 被当成这台引擎的官方原话摊开 ：
     //     静默误导，且用户无从分辨哪条属于哪台。
     //   副产物：引擎自己目录下的其它 argparse 脚本（构建/导出脚本等）
-    //     仍会进来 —— 它们是这台引擎的源码，不是跨引擎污染。
+    //     仍会进来 ： 它们是这台引擎的源码，不是跨引擎污染。
     //     不在这里按目录名再筛一层：「哪个 CLI 才是用户会敲的那个」
     //     是人的判断，平台的活是摊开全部 + 标出来源文件
     //     （cli.flags[].source_file 已带）。
@@ -1112,7 +1112,7 @@ function handleParams (req, res) {
 
     // 反射失败（ok:false）是一个答案，不是端点出错 ⇒ 一律 200。
     //   反射器永远以 0 退出，正是为了这个区分（reflect_params.py 头注）。
-    //   opts.manifest：把名片原文传下去 —— 卡点 3 靠它补上
+    //   opts.manifest：把名片原文传下去 ： 卡点 3 靠它补上
     //     call.bind 指向的真实入参（反射器读不到 bind，而那是这台引擎
     //     真实必填的 text / output_path）。
     //     不传的后果不是报错，是「界面上少两格必填」，且没有任何信号。
@@ -1138,21 +1138,21 @@ function handleParams (req, res) {
   return true
 }
 
-// POST /wizard/cli-args —— 走命令行（cli 形态）的草稿生成
+// POST /wizard/cli-args ： 走命令行（cli 形态）的草稿生成
 // 与 /wizard/params（反射函数签名）并列的另一条路：
 //    这条路不 import 引擎、不读函数签名，直接以上游命令行的 --flag 为参数。
 //    ⇒ 卡点 6/7 自动解：flag 即参数，官方 help 直接挂它上面，不用猜对应。
 //    ⇒ 更通用：几乎每台引擎都有 CLI，不用管它内部是什么 Python 类。
 //
-// 入参：{id} —— 引擎目录名（ engines/<id>/ ）
+// 入参：{id} ： 引擎目录名（ engines/<id>/ ）
 // 出参：{ok, subcommands, args, suggested_call}
 //   subcommands   上游有哪些子命令（synth/infer/batch…），用户选一个
 //   args          该子命令的 flag 列表，每条 {name, flag, style, help, required, is_tool}
 //   suggested_call 建议的 cli 形态 call 段骨架（只是骨架，人确认后才落盘）
 //
-// 一条 flag 都不删、help 原样递出、不预设哪个子命令是对的 —— 全列出。
+// 一条 flag 都不删、help 原样递出、不预设哪个子命令是对的 ： 全列出。
 // 与 handleParams 同：同步返回 true（URL 匹配即接管），readBody 在回调里
-//   异步处理。不许返回 Promise —— 中间件见到 Promise 会 break 出循环，
+//   异步处理。不许返回 Promise ： 中间件见到 Promise 会 break 出循环，
 //   排在它后面的 handler 全灭（卡点1 的同款坑）。
 function handleCliArgs (req, res) {
   if (req.method !== 'POST') return false
@@ -1186,7 +1186,7 @@ function handleCliArgs (req, res) {
   return true
 }
 
-// POST /wizard/discover —— 自动探测引擎形态并发现参数
+// POST /wizard/discover ： 自动探测引擎形态并发现参数
 // 平台不假设引擎形态，先探测再决定：
 //   1. 读 engines/<id>/ 看有没有 argparse 源码 → 有则跑 cli 扫描
 //   2. 读名片看 call.kind 或看有没有 python class → 是 python 则跑反射
@@ -1337,10 +1337,10 @@ function handleDiscover (req, res) {
   return true
 }
 
-// GET /wizard/profile/<id> —— 第 4 步：从已有引擎导入
+// GET /wizard/profile/<id> ： 第 4 步：从已有引擎导入
 // 调用平台的 resolveEngineProfile(id)，返回解析后的 profile。
 //   前端把解析后的 profile 转换回 manifest 格式，自动填写核心字段。
-// 不自己解析 manifest —— 那是平台的事，这里只做转发。
+// 不自己解析 manifest ： 那是平台的事，这里只做转发。
 function handleProfile (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/profile/')) return false
@@ -1374,7 +1374,7 @@ function handleProfile (req, res) {
 function handleInstallState (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/install-state')) return false
-  // 前缀认的是整串（后面只许跟 ? 查询串）—— 与 handleParams 的 tail 检查同判据
+  // 前缀认的是整串（后面只许跟 ? 查询串）： 与 handleParams 的 tail 检查同判据
   const tail = req.url.slice('/wizard/install-state'.length)
   if (tail !== '' && tail[0] !== '?') return false
   const url = new URL(req.url, 'http://x')

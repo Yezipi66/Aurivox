@@ -1,5 +1,5 @@
 'use strict'
-// 档位复核 —— 拿真引擎的 tier 分布当基线
+// 档位复核 ： 拿真引擎的 tier 分布当基线
 //
 // 这个测试的设计意图
 //   复核规则是「名字启发」，听起来很玄。唯一的验法是：
@@ -20,7 +20,7 @@ const { paramSamples, allParamNames, fieldSamples, tierDistribution, listEngineI
 // ---------------------------------------------------------------------------
 test('真引擎里那些「明显是进阶」的参数，都被启发判成 advanced', () => {
   // 这些名字从真名片里取（见 instances.paramSamples），
-  //   但判定逻辑里不许出现引擎名 —— 那是 algorithms 的纪律。
+  //   但判定逻辑里不许出现引擎名 ： 那是 algorithms 的纪律。
   const CASES = [
     // 调试开关
     ['verbose', 'advanced'], ['use_random', 'advanced'],

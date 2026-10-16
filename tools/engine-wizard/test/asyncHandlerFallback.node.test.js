@@ -53,7 +53,7 @@ const HANDLERS = [
   specbridge.handleSpec, savebridge.handleRead,
   BRIDGE.handleProbe,
   BRIDGE.handleDownloadFiles,
-  // 这两个必须排在最后 —— 与 vite 配置里的纪律同款。
+  // 这两个必须排在最后 ： 与 vite 配置里的纪律同款。
   BRIDGE.handleParams, BRIDGE.handleDownloadManifest,
 ]
 
@@ -78,7 +78,7 @@ function startServer () {
 }
 
 // 超时兜底：async handler 会让请求既不响应也不报错（正是这个 bug 的本体）。
-// 没有它，一个挂死的请求会让 node --test 整个文件不退出 —— 挂死比断言失败难查。
+// 没有它，一个挂死的请求会让 node --test 整个文件不退出 ： 挂死比断言失败难查。
 const withTimeout = (p, ms, label) => Promise.race([
   p,
   new Promise((_, rej) => setTimeout(
@@ -119,7 +119,7 @@ test('P0 四个 wizard 端点全部回 application/json（不是 text/html）', 
   }
 })
 
-// false 是中间件 next() 的前提 —— 返回 Promise 会 break 出循环
+// false 是中间件 next() 的前提 ： 返回 Promise 会 break 出循环
 test('曾 async 的两个 handler 现在同步返回 false 且不写任何响应', async () => {
   const res = {
     headersSent: false,
@@ -208,7 +208,7 @@ test('manifest 端点端到端：真发真收，内容是 JSON 而不是 HTML', 
     const r = await get(base, `/wizard/download/manifest?id=zz&repo=owner%2Frepo&tool=hf&root=${encodeURIComponent(root)}`)
     assert.match(r.ct, /application\/json/, `⛔ content-type 是 ${r.ct}`)
     const j = JSON.parse(r.text)
-    // 远端多半不通（不联网），但不通也必须回 JSON —— 这才是本 bug 的判据。
+    // 远端多半不通（不联网），但不通也必须回 JSON ： 这才是本 bug 的判据。
     assert.ok(typeof j.ok === 'boolean', `响应不是约定形状: ${r.text.slice(0, 200)}`)
     if (!j.ok) assert.ok(j.error, '⛔ ok:false 必须带 error')
   } finally {

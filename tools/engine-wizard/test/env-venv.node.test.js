@@ -11,7 +11,7 @@
 //    ⇒ 所以装依赖那步必须把目标解释器的绝对路径写进 argv。
 //
 // uv sync 的 `-p/--python` 不是「装进哪个解释器」，
-//    而是「用哪个解释器当基准建项目环境」——
+//    而是「用哪个解释器当基准建项目环境」：
 //    `uv sync --python <某个已存在的 venv>` 会照锁装完、看着成功，
 //    但装进的是它在项目目录新建的 .venv，目标 venv 里根本没有那个包。
 //    ⇒ sync 那条路的正确写法是 `UV_PROJECT_ENVIRONMENT=<绝对路径>`。
@@ -230,7 +230,7 @@ test('sync 那步不得再靠 VIRTUAL_ENV（环境变量压不住 uv）', () => 
 // ⑦ 建完后的自检判据：能不能按绝对路径起起来，不是文件在不在
 test('自检判据是「能按绝对路径起起来」，不是「文件存在」', () => {
   // 空壳 .venv：只有目录 + 一个 0 字节的假 python
-  //   —— 文件存在，但起不来（lib/util/pythonResolve.js 的判据是
+  //   ： 文件存在，但起不来（lib/util/pythonResolve.js 的判据是
   //   「必须能按绝对路径 spawn」）。
   const { root } = mkdtempEngineWithManifest('shell1', 'requirements.txt')
   const p = planOf(root, 'shell1', {}, )
@@ -262,7 +262,7 @@ test('名片没有 python 版本声明 ⇒ 用平台根 venv 的 python（规范
 })
 
 test('名片里现在没有 python 版本这个字段（不许自己加一个）', () => {
-  // 规范是「有声明的就用声明的」——但名片 schema（lib/engines/profile.js
+  // 规范是「有声明的就用声明的」：但名片 schema（lib/engines/profile.js
   //   的 TOP_KEYS / install 段）现在没有声明 python 版本的字段。
   //   ⇒ 按规范只能退回平台自己的 python。
   //   这条测试的作用是：将来真有人加了字段，这条会红，提醒同步改实现。
@@ -278,7 +278,7 @@ test('名片里现在没有 python 版本这个字段（不许自己加一个）
 // ⑨ 每一条会装东西的命令：目标环境必须等于 engines/<id>/.venv
 //
 // 为什么这一段是本文件里最要紧的：上面 ③ 那条测试断言的是「argv 里有 -p」，
-//   而它在安装顺利时是绿的 —— 因为它只看主安装步。
+//   而它在安装顺利时是绿的 ： 因为它只看主安装步。
 //   上一次修复只给主步加了 -p，漏了 alt 那步（装 torch 的第②步）
 //   ⇒ 全绿，torch 却装进了平台根 venv，而引擎环境里 288 个包独缺 torch
 //     ⇒ 用户拿到的环境 import 失败。
@@ -300,7 +300,7 @@ function writeCudaLockTo (dir) {
 }
 
 /**
- * 判据核心：这一步装进哪儿 —— 统一成一个断言函数。
+ * 判据核心：这一步装进哪儿 ： 统一成一个断言函数。
  *
  * 两种合法形态（别混）：
  *   · `uv pip …`  ⇒ argv 里的 -p/--python 是「装进哪个环境」
@@ -700,7 +700,7 @@ test('alt 那步与主安装步的目标环境都必须等于该引擎的 .venv'
   assertTargetsEngineVenv(mainStep.argv, mainStep.env, want, wantVenv, '主安装步')
 })
 
-// ⑫ 断点续传的产物检查 —— 命令相同但产物没了 ⇒ 不许 SKIPPED
+// ⑫ 断点续传的产物检查 ： 命令相同但产物没了 ⇒ 不许 SKIPPED
 //
 // 用户删了 engines/<id>/.venv 后重跑，第 1 步「uv venv」命令与
 //   旧记录一字不差 ⇒ env.js 的判重把它 SKIPPED ⇒ 第 2/3 步找不到环境，报

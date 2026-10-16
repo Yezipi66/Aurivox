@@ -2,15 +2,15 @@
 //  cliHelp 上游官方原话抓取
 //
 //  判据：
-//    官方解释是上游原话 —— 能抓到 --emotion-vector 的
+//    官方解释是上游原话 ： 能抓到 --emotion-vector 的
 //      "Comma-separated 8-dimensional emotion vector"、--voice 的
 //      "Path to the speaker reference audio"
-//    不做名字匹配 —— emo_alpha 不许被配到 --emotion-weight 的说明上
+//    不做名字匹配 ： emo_alpha 不许被配到 --emotion-weight 的说明上
 //    直接同名的（text/device/verbose）被自动贴上官方 help
 //    三块分区不许丢参数（organizeDraft 的守恒律）
 //
 //  为什么这些测试真读盘（不用夹具）：要读的是上游 Python 源码，
-//    用夹具等于把「读源文本」这件事测没了 —— 夹具是抄来的，源码才是事实。
+//    用夹具等于把「读源文本」这件事测没了 ： 夹具是抄来的，源码才是事实。
 //    （这与 paramsFromReflect.node.test.js 用冻结夹具不矛盾：那一条测的是
 //     「反射出几十 GB torch」那条链，不能每次跑；这一条读的是纯文本。）
 
@@ -57,7 +57,7 @@ test('验收3：能抓到 --emotion-vector / --voice 的官方原话（逐字，
     `只抓到 ${r.flags.length} 个 flag，上游那份 CLI 明显不止这些 —— 解析器漏了`)
 
   // 判据是原话逐字，不是「含关键字」。含关键字的话，平台自己编一句
-  //   「8 维情绪向量」也能过 —— 那测的就不是「上游原话」了。
+  //   「8 维情绪向量」也能过 ： 那测的就不是「上游原话」了。
   const ev = r.by_dest.emotion_vector || []
   assert.ok(ev.length > 0, '没抓到 --emotion-vector')
   assert.ok(ev.some((f) => f.help === 'Comma-separated 8-dimensional emotion vector'),
@@ -117,7 +117,7 @@ test('每个 flag 都记着来自哪个文件（多个 CLI 并存时不许合并
 test('验收4：emo_alpha 不许被配到 --emotion-weight 的说明上', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
-  // 上游的 help 原话里确实写着 \"mapped to <Engine> emo_alpha\" ——
+  // 上游的 help 原话里确实写着 \"mapped to <Engine> emo_alpha\" ：
   //   那是上游自己声明的对应，不是平台猜的。但平台这一层仍然不许
   //   把 emo_alpha 和 --emotion-weight 接起来：接了就等于平台在维护
   //   名字对应表，换一台引擎又没有。
@@ -131,7 +131,7 @@ test('验收4：emo_alpha 不许被配到 --emotion-weight 的说明上', () => 
 test('验收4（全表）：反射出来的参数名，只有直接同名的才被贴', () => {
   const r = loadReal()
   if (!r) { console.log('  … 跳过：源码不在盘上'); return }
-  // 拿真反射结果的参数名当输入（不手工编一张表 —— 那会漏掉真名）。
+  // 拿真反射结果的参数名当输入（不手工编一张表 ： 那会漏掉真名）。
   const fixture = path.join(__dirname, 'reflect_indextts2.json')
   if (!fs.existsSync(fixture)) { console.log('  … 跳过：反射夹具不在'); return }
   const refl = JSON.parse(fs.readFileSync(fixture, 'utf8'))
@@ -259,7 +259,7 @@ test('分区守恒律：must + may 必须等于 parameters.length（反作弊）
 
 test('坏数据不许把整个分区搞失败（一条 null 也不许变成「一条都不显示」）', () => {
   // 判据：parameters 里混进 null / 缺 required 的行时，分区仍然成功，
-  //   那条坏行如实落到「选填」那一块 —— 而不是抛错让三块全空。
+  //   那条坏行如实落到「选填」那一块 ： 而不是抛错让三块全空。
   //   后果对比：抛错 = 用户一条参数都看不到（最坏的一类失败）；
   //             落进 may = 用户看得到，只是那条标成了选填。
   const bad = {
@@ -283,7 +283,7 @@ test('坏数据不许把整个分区搞失败（一条 null 也不许变成「�
 
 test('分区不新增校验：required 只来自反射结果，平台不自己判', () => {
   // 判据：参数名里带 lang / audio 这种「看着必填」的词，平台也不许
-  //   把它挪进 must —— 必填只有反射说了才算。
+  //   把它挪进 must ： 必填只有反射说了才算。
   const names = ['audio_path', 'lang_x', 'prompt_wav']
   const d = fakeDraft(names)
   const o = organizeDraft(d, null)
@@ -308,7 +308,7 @@ test('平台已映射的词进 auto 块，且带上中文人话要用的 platfor
   assert.strictEqual(auto.length, 1, '已映射的词没进 auto 块')
   assert.strictEqual(auto[0].name, 'text')
   assert.strictEqual(auto[0]._mapped_to, 'tts_text')
-  // 没映射的候选不许进 auto 块 —— 那是「还没定的事」，标成已做好是骗人
+  // 没映射的候选不许进 auto 块 ： 那是「还没定的事」，标成已做好是骗人
   assert.ok(!auto.some((x) => x.name === 'speed'), '未勾选的候选被算进「已自动填好」')
 })
 
@@ -338,7 +338,7 @@ test('目录不存在 / 没给 dir，如实说，不返回空结果冒充成功'
 })
 
 test('没有 CLI 的目录，ok:true + 空 flags + note（抓不到是一个答案）', () => {
-  // 找一个真没有 argparse CLI 的目录。不用 core/ 自己 ——
+  // 找一个真没有 argparse CLI 的目录。不用 core/ 自己 ：
   //   里面躺着一个 cli_help_extract.py，它自己就在用 add_argument（探测用），
   //   拿它当「没有 CLI」的样本会假红。
   const emptyDir = fs.mkdtempSync(path.join(ROOT, '.clihelp-empty-'))
@@ -400,7 +400,7 @@ test('Python 提取器存在且导出了 main（不许 Node 侧自己解析 Pyth
   const pyPath = path.join(__dirname, '..', 'core', 'cli_help_extract.py')
   assert.ok(fs.existsSync(pyPath), `找不到 ${pyPath}`)
   const src = fs.readFileSync(pyPath, 'utf8')
-  // `^def main\(` 只匹配行首 —— shebang 与 -*- coding -*- 在前面，
+  // `^def main\(` 只匹配行首 ： shebang 与 -*- coding -*- 在前面，
   //   所以用 m 标志逐行找，不用整个文件开头匹配。
   assert.match(src, /^def main\(/m, '提取器没有 main() 入口')
   assert.match(src, /^if __name__/m, '提取器没有 __main__ 守卫')
@@ -410,7 +410,7 @@ test('Python 提取器存在且导出了 main（不许 Node 侧自己解析 Pyth
 
 test('提取器真跑一遍：真 CLI 源码 → 官方原话（不 mock Python）', () => {
   if (!CLI_DIR_A) { console.log('  … 跳过：源码不在盘上'); return }
-  // 直接调 runExtractor（绕过 collectCliHelp 的文件发现）——
+  // 直接调 runExtractor（绕过 collectCliHelp 的文件发现）：
   //   这样测的是「Python 那一半」本身，而不是文件发现那一半。
   const r = runExtractor(CLI_DIR_A, CLI_CANDIDATES)
   assert.strictEqual(r.ok, true, `Python 提取器失败：${r.error}\n${r.detail || ''}`)
@@ -463,7 +463,7 @@ test('提取器拿不到 Python 时报「起不动」，不许假装抓到了 0 
 test('反射的 required 一路带到草稿上（否则「必须你填」那一块永远是空的）', () => {
   // buildDraftPackage 只把 required 写到 excluded（认不出类型的那批），
   //   parameters[] 里一条都没有。
-  //   后果不是报错，而是第 2 步的「必须你填的」那一块永远显示 0 条 ——
+  //   后果不是报错，而是第 2 步的「必须你填的」那一块永远显示 0 条 ：
   //   用户以为这台引擎没有必填参数，而它明明有一个（参考音频）。
   const fx = JSON.parse(fs.readFileSync(
     path.join(__dirname, 'reflect_indextts2.json'), 'utf8'))
@@ -485,7 +485,7 @@ test('反射的 required 一路带到草稿上（否则「必须你填」那一�
 })
 
 test('分区不许新增校验：required 只认 true（不认 "yes"/1 这种）', () => {
-  // reflect_params.py 给的是 JSON 布尔。字符串 "yes" 一律当选填 ——
+  // reflect_params.py 给的是 JSON 布尔。字符串 "yes" 一律当选填 ：
   //   平台自己判「这算不算必填」就是新增校验逻辑。
   const d = {
     ok: true,

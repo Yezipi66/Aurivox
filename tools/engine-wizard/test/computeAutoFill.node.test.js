@@ -1,6 +1,6 @@
 'use strict'
 //
-// computeAutoFill 真行为测试 —— 从 CliGenPanel.jsx 里 import 那个纯函数
+// computeAutoFill 真行为测试 ： 从 CliGenPanel.jsx 里 import 那个纯函数
 //
 // computeAutoFill 是向导「扫描参数后自动填名片」的全部判断所在：槽位认不认得出、来源混在一起时 kind 怎么算、args 里该写什么，三件事都在这一个函数里。它出错时不报任何错，只是名片被填成错的形状，保存之后才被平台拒。
 //

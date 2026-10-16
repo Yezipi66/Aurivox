@@ -411,7 +411,7 @@ test('没有值就不许声称来源：packageName / license 三个字段同进�
 
 test('老式布局（只有 requirements.txt + LICENSE）⇒ 包名与来源都不许撒谎', () => {
   // 上游根目录既没有 pyproject.toml 也没有 setup.py 的布局：
-  // 确实读不到包名 —— 那就如实留空，不许声称「来自 pyproject.toml」。
+  // 确实读不到包名 ： 那就如实留空，不许声称「来自 pyproject.toml」。
   const r = probeProject({
     requirements: REQ,
     licenseFile: 'LICENSE',

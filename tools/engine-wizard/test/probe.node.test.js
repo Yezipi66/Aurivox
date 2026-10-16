@@ -121,7 +121,7 @@ test('什么都没读到，全部进 unfilled，且 values 几乎是空的', () 
   }
 })
 
-// 依赖清单探测 —— 决定装法
+// 依赖清单探测 ： 决定装法
 test('依赖清单：pyproject 优先，锁文件次之', () => {
   const r = detectDependencyFile(['README.md', 'requirements.txt', 'pyproject.toml'])
   assert.strictEqual(r.found, true)
@@ -138,7 +138,7 @@ test('一个都没有，如实说「没有」，不猜', () => {
   const r = detectDependencyFile(['README.md', 'assets/logo.png'])
   assert.strictEqual(r.found, false)
   // 只钉实质：确实说了「没有清单」。
-  //   不钉「没找到 / 没有」这两个词 —— 措辞已统一成「未找到 / 未找到依赖清单」，
+  //   不钉「没找到 / 没有」这两个词 ： 措辞已统一成「未找到 / 未找到依赖清单」，
   //   断言跟着措辞变会无谓地红。
   // note 已双语化（英文为主 + noteZh 中文），断言走 noteZh，两边都要钉。
   assert.ok(/未找到|没找到|没有/.test(r.noteZh), r.noteZh)

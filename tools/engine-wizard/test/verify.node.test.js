@@ -1,5 +1,5 @@
 'use strict'
-// verify（第 7 步）—— 核心判据：平台四道校验，一个都不许重写。
+// verify（第 7 步）： 核心判据：平台四道校验，一个都不许重写。
 // envCheck 的真实签名是 (profile, {rootDir})，猜错签名 node 不会报错，只是读到一堆 undefined。
 
 const { test } = require('node:test')
@@ -12,7 +12,7 @@ const { checks, runChecks, runAudioCheck } = require('../core/verify.js')
 // 用一台真引擎（测试里只当字符串用，不 import 它的任何东西）
 const REAL = 'indextts2'
 
-// 清单 —— 四道，顺序照平台
+// 清单 ： 四道，顺序照平台
 test('四道校验都在，顺序是装→起→权重→出声', () => {
   const ks = checks().map((c) => c.key)
   assert.deepStrictEqual(ks,
@@ -32,11 +32,11 @@ test('「出声」那道要标成重的 —— 它会真的跑合成', () => {
     '必须标明这道要真跑合成，别让用户以为它跟查盘一样快')
 })
 
-// 真跑 —— 签名猜错只有这条路能发现
+// 真跑 ： 签名猜错只有这条路能发现
 test('真跑前 3 道（不跑出声那道）', () => {
   const r = runChecks(REAL, { deep: true })
   assert.strictEqual(r.id, REAL)
-  // 浅层必须返回了东西 —— 签名猜错的话这里会是 undefined
+  // 浅层必须返回了东西 ： 签名猜错的话这里会是 undefined
   assert.ok(r.checks.env_shallow, '浅层没返回结果 —— envCheck 签名可能又猜错了')
   assert.strictEqual(typeof r.checks.env_shallow.ok, 'boolean',
     `浅层没给 ok —— 拿到的是 ${JSON.stringify(r.checks.env_shallow).slice(0, 200)}`)
@@ -65,7 +65,7 @@ test('权重说不出来时，整轮不能报通过', () => {
   }
 })
 
-// 第 4 道「出声」—— A 级不给 request 就不许跑
+// 第 4 道「出声」： A 级不给 request 就不许跑
 test('A 级没给 request，不跑，并说清为什么不自己编一个', () => {
   const r = runAudioCheck(REAL, { audio: 'A' })
   assert.strictEqual(r.ok, false)
