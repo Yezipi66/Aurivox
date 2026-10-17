@@ -100,7 +100,7 @@
 
 ### 启动
 
-> 双击 **`start.bat`**
+> 双击 **`start.bat`**（macOS / Linux 用 `tools/scripts/start.sh`，两者调同一份主体）
 
 - 浏览器会自动打开 <http://127.0.0.1:9886>
 - 后端与推理引擎在后台运行,**关闭黑窗口不影响它们**。
@@ -110,7 +110,7 @@
 
 ### 停止
 
-> 双击 **`start.bat`**
+> 双击 **`stop.bat`**（macOS / Linux 用 `tools/scripts/stop.sh`，两者调同一份主体）
 
 ---
 
@@ -323,7 +323,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
     音色的参考音频可同时保持热，正是多音色 recipe 轮转想要的。容量 `AURIVOX_REF_CACHE`（默认 8，`0`=关）。
 
 > 环境变量小抄：`AURIVOX_TTS_BATCH_SIZE=4` · `AURIVOX_MAX_QUEUE=32` · `AURIVOX_RETRY_AFTER=3` · `AURIVOX_REF_CACHE=8`。
-> 详见 `BROKER_streaming_and_residency.md` 与最终用户向的 [FAQ · Q14](./docs/GUIDANCE.md#faq)。
+> 详见 [FAQ · Q14](./docs/GUIDANCE.md#faq)。
 
 ### 本地 Broker / 可信内网接口加固（v1.0.7）
 
@@ -337,7 +337,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
 - **文件日志**：`console.*` 同时 tee 到 `logs/aurivox-<日期>.log`（按天滚动）。`AURIVOX_LOG_DIR`（默认 `logs/`）、`AURIVOX_LOG_FILE=0` 关闭。
 
 > 环境变量小抄（v1.0.7 新增）：`AURIVOX_CORS_ORIGIN=http://127.0.0.1:5173` · `AURIVOX_SHUTDOWN_GRACE_MS=120000` · `AURIVOX_LOG_DIR=logs` · `AURIVOX_LOG_FILE=1`。
-> 详见 `CHANGES-1.0.7.md` 与最终用户向的 [FAQ · Q15](./docs/GUIDANCE.md#faq)。
+> 详见 [FAQ · Q15](./docs/GUIDANCE.md#faq)。
 
 ## 模型文件
 
