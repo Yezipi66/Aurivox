@@ -197,7 +197,7 @@ test('名片读不出来 ⇒ 如实报 NO_PROFILE', () => {
   //   「未安装 + 已装的是谁」，不指向任何步骤（下一步是第 1 步，
   //   但那由流程顺序保证，不需要文案再说一遍）。
   //   「已安装但解析失败」才指向第 4 步，见下一条测试。
-  assert.ok(/未安装/.test(r.error), r.error)
+  assert.ok(/没有装/.test(r.error), r.error)
   assert.ok(!r.error.includes('第 5 步'),
     `⛔ 不得指向第 5 步（此时 Manifest 还没写）：${r.error}`)
 })

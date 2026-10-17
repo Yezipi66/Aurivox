@@ -132,7 +132,11 @@ test('装依赖那步必须带 -p <该引擎 .venv 里 python 的绝对路径>',
 test('目标解释器不得是平台根 venv（否则装到平台自己身上）', () => {
   const { root } = mkdtempEngineWithManifest('demo4', 'requirements.txt')
   const p = planOf(root, 'demo4', {})
-  for (const s of envStepsOf(p)) {
+  // 只检查装依赖步骤的目标解释器。建环境步骤用平台 python 执行 uv venv 是合理的
+  // （uv 需要一个 python 来运行），测试不应当断言它指向引擎 .venv。
+  const installSteps = envStepsOf(p).filter((s) => /(pip|sync|env create|install)/i.test(s.argv.join(' ')))
+  assert.ok(installSteps.length > 0, '没有找到装依赖步骤')
+  for (const s of installSteps) {
     const got = targetPythonOf(s.argv)
     if (!got) continue
     const norm = got.split(/[\\/]/).join('/')
