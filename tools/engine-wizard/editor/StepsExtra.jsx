@@ -498,7 +498,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                         : t('(unknown)', '（未知）')}
                     </td>
                     <td>
-                      {f.status === 'ok' && <span title={t('Done', '已完成')}>✅</span>}
+                      {f.status === 'ok' && <span className="badge badge-ok" title={t('Done', '已完成')} />}
                       {f.status === 'partial' && (
                         <span title={
                           lang === 'zh'
@@ -506,7 +506,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                             : (f.note || 'The file is incomplete — resume or re-download it.')
                         }>⌛</span>
                       )}
-                      {f.status === 'missing' && <span title={t('Missing', '未下载')}>❌</span>}
+                      {f.status === 'missing' && <span className="badge badge-danger" title={t('Missing', '未下载')} />}
                     </td>
                     <td>
                       {f.status === 'partial' && (

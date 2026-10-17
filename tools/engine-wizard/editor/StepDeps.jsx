@@ -365,7 +365,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
           </div>
           {progress && (
             <div className="pf-row">
-              <span className="badge badge-sym">⬇</span>
+              <span className="badge badge-sym" aria-hidden="true" />
               <span className="pf-val">
                 <code>{progress.name}</code>
                 <span className="field-hint" style={{ marginTop: 0 }}>

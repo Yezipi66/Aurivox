@@ -640,7 +640,9 @@ test('⭐ 三张真名片都不再写那个引擎级的是非题，改成逐位�
   // 平台对别人的老名片仍然照装（不麻烦上游作者是硬约束）；这里管的是
   //   我们自己盘上这两张，它们必须做示范，不许留着一个已死的字段给人抄。
   //   _TEMPLATE 已在 c3f0ae8 随旧契约一起退役，不再遍历。
-  for (const id of ['gpt-sovits', 'indextts2']) {
+  // 从 listEngines() 动态获取已装引擎，不硬编码引擎 id
+  const { listEngines } = require_('../../../lib/engines/registry')
+  for (const id of listEngines().map((e) => e.id)) {
     const p = path.join(ENGINES_DIR, id, 'manifest.json')
     const m = JSON.parse(fs.readFileSync(p, 'utf8'))
     assert.ok(!('hot_swap_models' in (m.capabilities || {})),
