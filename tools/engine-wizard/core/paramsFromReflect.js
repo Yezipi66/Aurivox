@@ -403,7 +403,7 @@ function buildSpec (body, opts) {
     : null
   const pyFinal = pyExe && fs.existsSync(pyExe)
     ? pyExe
-    : (pyPath && /\.[a-z]+$/i.test(pyPath) ? pyPath : null)
+    : (pyPath && /\.[a-z]+$/i.test(pyPath) && fs.existsSync(pyPath) && fs.statSync(pyPath).isFile() ? pyPath : null)
   if (!forCli && !pyFinal) {
     return {
       ok: false,
