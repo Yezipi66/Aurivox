@@ -20,13 +20,14 @@ const fs = require('node:fs')
 
 const { diagnose, summarize } = require('../core/validate.js')
 const { SECTIONS, PARAM_FIELDS, SECTIONS_BY_KEY } = require('../core/fieldmeta')
+const { listEngines } = require('../../../lib/engines/registry')
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 
 // ---------------------------------------------------------------------------
 // 一、真引擎：三台都读得进去，且没有 error
 // ---------------------------------------------------------------------------
-const REAL_ENGINES = ['gpt-sovits', 'indextts2', 'cosyvoice2']
+const REAL_ENGINES = listEngines().map(e => e.id)
 
 for (const id of REAL_ENGINES) {
   test(`真引擎 ${id}：校验层读得进去，且不报 error`, () => {

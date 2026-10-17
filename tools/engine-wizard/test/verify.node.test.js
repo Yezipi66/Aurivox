@@ -8,9 +8,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { checks, runChecks, runAudioCheck } = require('../core/verify.js')
+const { listEngines } = require('../../../lib/engines/registry')
 
 // 用一台真引擎（测试里只当字符串用，不 import 它的任何东西）
-const REAL = 'indextts2'
+const REAL = listEngines()[0]?.id || 'gpt-sovits'
 
 // 清单 ： 四道，顺序照平台
 test('四道校验都在，顺序是装→起→权重→出声', () => {
