@@ -2141,43 +2141,50 @@ app.use((err, req, res, next) => {
 });
 
 // ---- Start ----
-const server = app.listen(PORT, HOST, () => {
-  console.log(`\n========================================`);
-  console.log(`  TTS Voice Asset Manager`);
-  console.log(`  http://${HOST}:${PORT}`);
-  console.log(`  ffmpeg: ${checkFfmpeg() ? "available" : "not found (using pure-Node concat)"}`);
-  // Warm the CUDA probe in the background so /api/health has a ready answer.
-  startCudaProbe();
-  if (!API_KEY) {
-    // This used to say "All write/delete/execute endpoints are BLOCKED", which
-    // is not true: requireApiKey lets every loopback request straight through
-    // (see the isLoopback branch above). On a local workstation nothing is
-    // blocked, and the old wording sent people hunting for a key they never
-    // needed. Say what is actually the case instead.
-    console.log(`\n  note: no API_KEY set — local use (127.0.0.1) is unrestricted.`);
-    console.log(`  A key is only needed for calls coming from another machine.`);
-  }
-  console.log(`========================================\n`);
-
-  // 扫描暂存目录中的未完成任务（断电恢复）
-  scanStagingTasks();
-
-  // 自动扫描资产:首次启动/缺少 meta.json 时生成元数据,
-  // 避免侧边栏 GPT/SoVITS 红叉与 "voice not found"(无需手动 scan all)。
-  (async () => {
-    try {
-      if (assetsNeedScan()) {
-        console.log("[ASSETS] some voices are missing meta.json/segments.json; auto-scanning at startup...");
-        const results = await runFullAssetScan();
-        console.log(`[ASSETS] auto-scan complete: ${Object.keys(results).length} voice(s) ready`);
-      } else {
-        console.log("[ASSETS] asset metadata is ready; skipping auto-scan");
-      }
-    } catch (e) {
-      console.error("[ASSETS] startup auto-scan failed:", e.message);
+// 只有直接运行（`node server.js`）才起监听。被 require 时（集成夹具、单元
+// 测试）只拿到这个模块的 app，绝不占端口 —— 过去这里没有守卫，require
+// 一次就把端口占了，这正是 server.js 进不了测试进程、从而没有任何直接
+// 单元测试覆盖的原因。
+let server = null;
+if (require.main === module) {
+  server = app.listen(PORT, HOST, () => {
+    console.log(`\n========================================`);
+    console.log(`  TTS Voice Asset Manager`);
+    console.log(`  http://${HOST}:${PORT}`);
+    console.log(`  ffmpeg: ${checkFfmpeg() ? "available" : "not found (using pure-Node concat)"}`);
+    // Warm the CUDA probe in the background so /api/health has a ready answer.
+    startCudaProbe();
+    if (!API_KEY) {
+      // This used to say "All write/delete/execute endpoints are BLOCKED", which
+      // is not true: requireApiKey lets every loopback request straight through
+      // (see the isLoopback branch above). On a local workstation nothing is
+      // blocked, and the old wording sent people hunting for a key they never
+      // needed. Say what is actually the case instead.
+      console.log(`\n  note: no API_KEY set — local use (127.0.0.1) is unrestricted.`);
+      console.log(`  A key is only needed for calls coming from another machine.`);
     }
-  })();
-});
+    console.log(`========================================\n`);
+
+    // 扫描暂存目录中的未完成任务（断电恢复）
+    scanStagingTasks();
+
+    // 自动扫描资产:首次启动/缺少 meta.json 时生成元数据,
+    // 避免侧边栏 GPT/SoVITS 红叉与 "voice not found"(无需手动 scan all)。
+    (async () => {
+      try {
+        if (assetsNeedScan()) {
+          console.log("[ASSETS] some voices are missing meta.json/segments.json; auto-scanning at startup...");
+          const results = await runFullAssetScan();
+          console.log(`[ASSETS] auto-scan complete: ${Object.keys(results).length} voice(s) ready`);
+        } else {
+          console.log("[ASSETS] asset metadata is ready; skipping auto-scan");
+        }
+      } catch (e) {
+        console.error("[ASSETS] startup auto-scan failed:", e.message);
+      }
+    })();
+  });
+}
 
 // ── Graceful shutdown (1.0.7) ────────────────────────────────────
 // Default: stop taking new requests, let in-flight synthesis finish, then exit.
