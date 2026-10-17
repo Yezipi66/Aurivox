@@ -176,8 +176,8 @@ test('变异④：目录在就算克隆完成 ⇒ 空目录守卫必须报', asy
 
 test('变异⑤：reset 改删整个文件 ⇒ 只清自己那段守卫必须报', async () => {
   await mutateAndProbe(ISTATE, (s) => s.replace(
-    /try \{\n    fs\.writeFileSync\(f, JSON\.stringify\(clear\(sec\), null, 2\), 'utf8'\)/,
-    'try {\n    fs.rmSync(f, { force: true }) // 变异：删整个文件'
+    /    fs\.writeFileSync\(f, JSON\.stringify\(clear\(sec\), null, 2\), 'utf8'\)/,
+    '    fs.rmSync(f, { force: true }) // 变异：删整个文件'
   ), async (IS) => {
     const root = mkdtempRoot()
     try {
