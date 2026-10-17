@@ -63,8 +63,16 @@ const app = express();
 // Environment-driven config with backward-compatible defaults
 const PORT = parseInt(process.env.BROKER_PORT || process.env.PORT || "9886", 10);
 const HOST = process.env.BROKER_HOST || process.env.HOST || "127.0.0.1";
-const API_KEY = process.env.API_KEY || process.env.BROKER_API_KEY || "";
 const GPT_SOVITS_BASE_URL = process.env.GPT_SOVITS_BASE_URL || "http://127.0.0.1:9880";
+
+// 请求来源校验 / API key / 错误脱敏 / 静态目录边界 + CORS 允许名单搬去了
+// lib/server/middleware.js（P0 拆分任务 1）。API_KEY 与
+// REQUIRE_KEY_FOR_DESTRUCTIVE 也一并搬过去：全仓只有那一处在读它们。
+const {
+  API_KEY, REQUIRE_KEY_FOR_DESTRUCTIVE,
+  isLoopback, validateHost, requireApiKey, clientError, localError,
+  safeStaticRoot, corsOptions,
+} = require("./lib/server/middleware");
 
 // 上述路径常量已全部迁至 lib/paths.js（见本文件顶部的解构导入）。
 // 此处仅保留一个语义别名，以及启动时的建目录动作。
@@ -193,72 +201,9 @@ const customRefUpload = multer({
 
 const crypto = require("crypto");
 
-function isLoopback(req) {
-  const ip = req.ip || req.connection?.remoteAddress || "";
-  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
-}
-
-function validateHost(req, res, next) {
-  const host = req.headers.host || "";
-  const hostname = host.split(":")[0];
-  if (hostname !== "localhost" && hostname !== "127.0.0.1" && !isLoopback(req)) {
-    return res.status(403).json({ error: "Forbidden: Invalid Host header" });
-  }
-  next();
-}
-
-const REQUIRE_KEY_FOR_DESTRUCTIVE = process.env.REQUIRE_KEY_FOR_DESTRUCTIVE === "1";
-
-function requireApiKey(req, res, next) {
-  // Local workstation (training/inference/asset management) — always allow loopback, never need key.
-  // Only external (distribution) calls require key.
-  if (isLoopback(req) && !REQUIRE_KEY_FOR_DESTRUCTIVE) {
-    return next();
-  }
-  if (!API_KEY) {
-    return res.status(401).json({ error: "API_KEY not configured for remote access." });
-  }
-  
-  // Support both 'x-api-key' and 'Authorization: Bearer ***'
-  let key = req.headers["x-api-key"] || "";
-  const authHeader = req.headers["authorization"] || "";
-  if (!key && authHeader.startsWith("Bearer ")) {
-    key = authHeader.slice(7).trim();
-  }
-
-  // Timing-safe comparison to prevent side-channel attacks
-  const a = Buffer.from(key);
-  const b = Buffer.from(API_KEY);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  next();
-}
-
-/**
- * Sanitize error for client response.
- * Logs the full error server-side; returns a safe generic message to the client.
- * @param {Error|string} err - The error object or message
- * @param {string} [fallback] - Optional context about what failed (e.g. "voices.json error")
- */
-function clientError(err, fallback) {
-  if (fallback === undefined) fallback = "Internal server error";
-  // Always log full error server-side
-  const errMsg = (err && err.message) || (err && err.toString()) || String(err);
-  console.error("[clientError]", errMsg, err && err.stack ? "\n" + err.stack : "");
-  // Return only the generic fallback to the client — never raw error details
-  return fallback;
-}
-
-// Like clientError but RETURNS THE REAL MESSAGE to the client. Use only for
-// local-workbench management endpoints (loopback-only: rename, config, fs browse)
-// where a meaningful message ("folder locked by X", "path not writable") is
-// essential for the user to act — the generic mask makes those unusable.
-function localError(err) {
-  const errMsg = (err && err.message) || (err && err.toString()) || String(err);
-  console.error("[localError]", errMsg, err && err.stack ? "\n" + err.stack : "");
-  return errMsg;
-}
+// isLoopback / validateHost / requireApiKey / clientError / localError
+// 已搬到 lib/server/middleware.js（P0 拆分任务 1），本文件在顶部 require 进来。
+// 这里过去那六段实现逐字搬走，一个字节都没改。
 
 // In-memory store of background assets-directory copy/move jobs, keyed by jobId.
 // Ephemeral by design: a server restart drops them (the UI degrades to a "job no
@@ -302,42 +247,14 @@ function pickBestCkpt(list) {
   return list.slice().sort((a, b) => score(a) - score(b)).pop();
 }
 
-// CORS (1.0.7): the browser origin(s) allowed to call this broker cross-origin.
-// Default is the Vite dev server (http://127.0.0.1:5173), used ONLY during
-// frontend development — in production the UI is served same-origin from
-// web/dist and needs no CORS at all. Set AURIVOX_CORS_ORIGIN to a comma-separated
-// allow-list (or "*" for any) to let an external OpenAI-compatible client call
-// /v1 from a web page.
-const CORS_ORIGIN = (process.env.AURIVOX_CORS_ORIGIN || "http://127.0.0.1:5173").trim();
-app.use(cors({ origin: CORS_ORIGIN === "*" ? true
-  : CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean) }));
+// CORS (1.0.7): 允许的浏览器来源读 AURIVOX_CORS_ORIGIN，规则与说明见
+// lib/server/middleware.js（那里是唯一读这个环境变量的地方）。
+app.use(cors(corsOptions()));
 app.use(express.json({ limit: "10mb" }));
 app.use(validateHost);
 
 // ---- Static: assets/ for audio playback ----
-function safeStaticRoot(rootDir) {
-  const root = path.resolve(rootDir);
-  return (req, res, next) => {
-    let rel;
-    try {
-      // decodeURIComponent can throw on malformed percent sequences; reject them.
-      rel = decodeURIComponent(req.path);
-    } catch (_) {
-      return res.status(400).end();
-    }
-    // Strip leading separators after URL decoding. Reject NUL bytes and
-    // absolute / drive paths before path.join() can interpret them.
-    rel = rel.replace(/^[\\/]+/, "");
-    if (rel.includes("\0") || path.isAbsolute(rel) || /^[a-zA-Z]:[\\/]/.test(rel)) {
-      return res.status(404).end();
-    }
-    const resolved = path.resolve(root, rel);
-    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-      return res.status(404).end();
-    }
-    next();
-  };
-}
+// safeStaticRoot（路径穿越防护）在 lib/server/middleware.js。
 
 app.use("/assets", safeStaticRoot(ASSETS_DIR), express.static(ASSETS_DIR));
 
