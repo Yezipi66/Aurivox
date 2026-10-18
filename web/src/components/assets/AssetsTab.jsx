@@ -335,7 +335,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   }
 
   const handleCancelTranscribe = async (id) => {
-    try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (_) {}
+    try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (e) { console.warn('[assets] cancel transcribe failed:', e.message) }
   }
 
   // Re-hydrate in-place transcribe jobs on mount. AssetsTab fully unmounts on page

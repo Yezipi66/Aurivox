@@ -1713,3 +1713,8 @@ function shutdown(signal) {
 }
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+// 未捕获的 Promise 拒绝：记下原因并优雅退出，不静默失败
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandledRejection:", reason);
+  shutdown("unhandledRejection");
+});
