@@ -89,7 +89,7 @@ const Die = m => { say('Red', m); process.exit(1) }
 /** 原样打印（不带 [deploy] 前缀），给自检那些第三方输出看 */
 function raw (m) {
   console.log(m)
-  try { fs.appendFileSync(LOG_FILE, m + '\n', 'utf8') } catch (_) {}
+  try { fs.appendFileSync(LOG_FILE, m + '\n', 'utf8') } catch (e) { console.warn('[deploy] 日志写不进去不该拦住部署：', e.message) }
 }
 
 /**

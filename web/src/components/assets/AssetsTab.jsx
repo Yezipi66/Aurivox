@@ -300,7 +300,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
               try {
                 const sr = await api(`/api/assets/${id}/segments`)
                 if (sr.ok) setSegments(s => ({ ...s, [id]: sr.data.segments }))
-              } catch (_) {}
+              } catch (e) {
+                console.warn('[assets] failed to refresh segments:', e.message)
+              }
             }
           } else if (job.status === 'cancelled') {
             setScanMsg({ type: 'info', text: `Transcription cancelled for ${id}` })
@@ -487,7 +489,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             if (loadVoices) loadVoices()
             setScanMsg({ type: 'success', text: `Deleted ${id}. Scan complete - ${r.data.scanned || 0} voice(s) found` })
           }
-        } catch (_) {}
+        } catch (e) {
+          console.warn('[assets] rescan failed:', e.message)
+        }
         setTimeout(() => setScanMsg(null), 4000)
       }, 500)
     } catch (e) {

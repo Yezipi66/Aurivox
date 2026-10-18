@@ -109,7 +109,10 @@ async function main () {
     fs.mkdirSync(LogDir, { recursive: true })
     fs.writeFileSync(StartupLog,
       `==== TTS Broker startup @ ${new Date().toISOString()} ====\n`, 'utf8')
-  } catch (_) {}
+  } catch (e) {
+    // 与上面的 Log() 同一处理原则：日志写不进去不该拦住启动，但要留下痕迹。
+    console.warn('[start] 启动日志写不进去，不影响启动：', e.message)
+  }
 
   Log('==================== TTS Broker Startup ====================', 'Cyan')
   Log(`root : ${ROOT}`, 'DarkGray')
