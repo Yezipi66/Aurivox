@@ -86,6 +86,7 @@ const {
 // lib/server/synthesis.js（P0 拆分任务 4）。它是个工厂：两个服务端单例
 // （权重切换器、分段缓存）在下面就近注入，构造时机一行都没动。
 const { createSynthesisModule } = require("./lib/server/synthesis");
+const { newGenId, genBaseName } = require("./lib/genUtils");
 
 // 上述路径常量已全部迁至 lib/paths.js（见本文件顶部的解构导入）。
 // 此处仅保留一个语义别名，以及启动时的建目录动作。
@@ -748,17 +749,6 @@ function normSource(source) {
 function outputRoot(source) { return OUTPUT_ROOTS[normSource(source)]; }
 
 function genAssetDir(genId, source) { return path.join(outputRoot(source), genId); }
-
-function newGenId() {
-  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 15);
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${ts}_${rand}`;
-}
-
-function genBaseName(p) {
-  if (!p || typeof p !== "string") return "";
-  return p.replace(/\\/g, "/").split("/").pop();
-}
 
 function writeGenMeta(genId, meta, source) {
   const dir = genAssetDir(genId, source || (meta && meta.source));
