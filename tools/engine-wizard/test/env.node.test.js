@@ -207,7 +207,7 @@ test('命令不存在 ⇒ 说清「它装了没？平台不知道」', async () 
 test('装法的依据只能是清单文件名（不许猜版本）', () => {
   // 只保留一条真判据：版本号必须来自 lock 读出的变量，
   //   不得硬编码 ： 硬编码会让上游改版本后装错，而那时没有任何报错。
-  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'env.js'), 'utf8')
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'envDetect.js'), 'utf8')
   const fn = src.slice(src.indexOf('function suggestEnvCommand'),
     src.indexOf('function detectDependencyManifest'))
   assert.ok(fn, '找不到 suggestEnvCommand')

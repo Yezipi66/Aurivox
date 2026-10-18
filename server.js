@@ -87,6 +87,34 @@ const {
 // （权重切换器、分段缓存）在下面就近注入，构造时机一行都没动。
 const { createSynthesisModule } = require("./lib/server/synthesis");
 const { newGenId, genBaseName } = require("./lib/genUtils");
+const {
+  pickBestCkpt,
+  firstMismatch,
+  RENAME_LOCK_CODES,
+  sleepSyncMs,
+  renameDirWithRetry,
+  renameVoiceFolder,
+  scanStagingTasks,
+} = require("./lib/server/fileOps");
+const {
+  BASE_VOICE_ID,
+  BASE_VOICE_DISPLAY,
+  isBaseVoice,
+  normModelVersion,
+  checkBaseModelsForVersion,
+  baseCheckpoints,
+  baseModelsAll,
+  baseVoiceMeta,
+  baseVoiceReg,
+  collectTakenVoiceIds,
+  normSource,
+  outputRoot,
+  genAssetDir,
+  writeGenMeta,
+  resolveGenDir,
+  genItemFromMeta,
+  assetsNeedScan,
+} = require("./lib/server/assets");
 
 // 上述路径常量已全部迁至 lib/paths.js（见本文件顶部的解构导入）。
 // 此处仅保留一个语义别名，以及启动时的建目录动作。
@@ -223,43 +251,6 @@ const crypto = require("crypto");
 // Ephemeral by design: a server restart drops them (the UI degrades to a "job no
 // longer available" message), which is fine for a local single-user tool.
 const migrationJobs = new Map();
-
-// Recursively verify that every file under `src` exists under `dst` with an
-// identical byte size (integrity check for the copy→verify→delete move flow).
-// Returns the first relative path that is missing or size-mismatched, or null
-// when the trees match. Size comparison avoids hashing huge model files while
-// still catching truncated/incomplete copies.
-async function firstMismatch(src, dst, rel = "") {
-  let sStat;
-  try { sStat = await fsp.lstat(src); } catch (e) { return rel || src; }
-  let dStat;
-  try { dStat = await fsp.lstat(dst); } catch (e) { return rel || path.basename(src); }
-  if (sStat.isDirectory()) {
-    if (!dStat.isDirectory()) return rel || path.basename(src);
-    const entries = await fsp.readdir(src);
-    for (const name of entries) {
-      const bad = await firstMismatch(path.join(src, name), path.join(dst, name), rel ? `${rel}/${name}` : name);
-      if (bad) return bad;
-    }
-    return null;
-  }
-  // regular file (or symlink): sizes must match
-  if (sStat.size !== dStat.size) return rel || path.basename(src);
-  return null;
-}
-
-// 从 checkpoint 列表里挑"训练量最大"的那个（避免字母序选到 e5/e4 这种最弱模型）
-function pickBestCkpt(list) {
-  if (!Array.isArray(list) || list.length === 0) return null;
-  const score = (item) => {
-    if (typeof item.steps === 'number') return item.steps;           // GPT: assetScanner 已解析
-    const name = item.name || item.path || '';
-    const s = name.match(/_s(\d+)/);   if (s) return parseInt(s[1], 10);  // SoVITS: _s288
-    const e = name.match(/[-_]e(\d+)/); if (e) return parseInt(e[1], 10);  // 退而用 epoch
-    return 0;
-  };
-  return list.slice().sort((a, b) => score(a) - score(b)).pop();
-}
 
 // CORS (1.0.7): 允许的浏览器来源读 AURIVOX_CORS_ORIGIN，规则与说明见
 // lib/server/middleware.js（那里是唯一读这个环境变量的地方）。
@@ -710,21 +701,6 @@ async function runFullAssetScan() {
   return results;
 }
 
-// 是否存在任何声音目录缺少 meta.json / segments.json(需要扫描)
-function assetsNeedScan() {
-  try {
-    if (!fs.existsSync(ASSETS_DIR)) return false;
-    const entries = fs.readdirSync(ASSETS_DIR, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const metaPath = path.join(ASSETS_DIR, e.name, "meta.json");
-      const segPath = path.join(ASSETS_DIR, e.name, "segments.json");
-      if (!fs.existsSync(metaPath) || !fs.existsSync(segPath)) return true;
-    }
-  } catch (e) { /* ignore */ }
-  return false;
-}
-
 // POST /api/assets/scan — trigger full directory scan
 
 // POST /api/assets/:id/open — open asset folder in system explorer
@@ -740,74 +716,8 @@ function assetsNeedScan() {
 // histories never mix. `normSource` maps client-supplied
 // source labels to a canonical folder key; unknown values fall back to generate.
 // OUTPUT_ROOTS 取自 lib/paths.js，新增产物来源只需在该文件加一行。
-function normSource(source) {
-  const s = String(source || "generate").toLowerCase();
-  if (s === "compare" || s === "comparerefs" || s === "compare_refs") return "comparerefs";
-  if (s === "broker" || s === "openai" || s === "speech") return "broker";
-  return "generate";
-}
-function outputRoot(source) { return OUTPUT_ROOTS[normSource(source)]; }
-
-function genAssetDir(genId, source) { return path.join(outputRoot(source), genId); }
-
-function writeGenMeta(genId, meta, source) {
-  const dir = genAssetDir(genId, source || (meta && meta.source));
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2));
-}
-
-// Resolve a client-supplied generation id to its asset folder within the given
-// source root, defending against traversal (basename collapse + containment
-// re-check). `source` defaults to generate for backward compatibility.
-function resolveGenDir(id, source) {
-  if (typeof id !== "string" || !id.trim()) return null;
-  const base = path.basename(id.replace(/\\/g, "/"));
-  if (!base || base === "." || base === "..") return null;
-  const root = outputRoot(source);
-  const full = path.join(root, base);
-  if (!full.startsWith(root + path.sep)) return null;
-  return { id: base, full, source: normSource(source) };
-}
-
-// Shape a stored meta.json into the client-facing Recent Generations item.
-function genItemFromMeta(meta) {
-  return {
-    id: meta.id,
-    source: meta.source || "generate",
-    text: meta.text || "",
-    voice: meta.voiceLabel || meta.voice || "",
-    lang: meta.lang || "",
-    // 这里以前是 gpt / sovits 两个写死的键，读回来的时候
-    // 把第一台引擎的位表又抄了一遍，所以哪怕上面写 meta 的那三处改好了,
-    // 这一行还是能把「GPT - / SoVITS -」重新变出来。四处必须一起改。
-    //
-    // 同一天的第二次订正：我第一版写的是
-    // 「老 meta 没有 weights ⇒ 空数组，不兜底」，还给它编了个理由。
-    // 原话：「那你这个元数据不就炸了？我都不知道是哪个模型生成的。
-    // 名片上不是有 engine_id 嘛？有没有可能我是想不用硬编码？」
-    // 去掉硬编码和扔掉数据是两件事，我做成了一件。老条目的 meta.recipe
-    // 是原样的请求体，里面本来就有 engine_id 和那次选的每一份模型，
-    // 拿它去查名片就能原样说清楚，一个位名都不必写在这里。
-    ...storedGeneration(meta, resolveEngineProfile),
-    segments: meta.segments || 1,
-    createdAt: meta.createdAt || 0,
-    audio_url: meta.audio_url || "",
-    recipe_id: meta.recipe_id || null,
-    // Batch membership (Compare Refs "Generate All"); null for one-off runs.
-    batch: meta.batch || null,
-    ref_audio: meta.ref_audio || "",
-    // Waveform preview: combined duration + per-segment [start,end] boundary offsets
-    // (seconds) so history/reloaded items can also render segment dividers. Null for
-    // single-segment or non-concatenated generations.
-    duration: (typeof meta.duration === "number") ? meta.duration : null,
-    segment_bounds: Array.isArray(meta.segment_bounds) ? meta.segment_bounds : null,
-    // Resolved (never -1) seed used for this generation, surfaced so the UI can
-    // display and copy it for reproduction. Falls back to the captured recipe.
-    seed: (typeof meta.seed === "number") ? meta.seed
-        : (meta.recipe && typeof meta.recipe.seed === "number" ? meta.recipe.seed : null),
-    params: meta.recipe || null,
-  };
-}
+// normSource / outputRoot / genAssetDir / writeGenMeta / resolveGenDir /
+// genItemFromMeta 已搬去 lib/server/assets.js（P0 拆分任务 6）。
 
 // GET /api/outputs — list every generation (newest first), read from meta.json.
 // `?source=` scopes to generate | comparerefs | broker (default generate, so the
@@ -827,67 +737,6 @@ function genItemFromMeta(meta) {
 
 // POST /api/outputs/clear-all — delete every generation folder under a source
 // root (default generate). Body/query `source` scopes it.
-
-// Windows file locks (model loaded in the inference server, an open Explorer
-// window from the Browse button, file watcher, AV, indexer) make a directory
-// rename fail with these transient codes. Retry a few times with backoff.
-const RENAME_LOCK_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY", "EACCES"]);
-function sleepSyncMs(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (_) {}
-}
-function renameDirWithRetry(src, dst, attempts = 5) {
-  let lastErr;
-  for (let i = 0; i < attempts; i++) {
-    try { fs.renameSync(src, dst); return; }
-    catch (e) {
-      lastErr = e;
-      if (!RENAME_LOCK_CODES.has(e.code)) throw e; // EXDEV / ENOENT / etc — fail fast
-      sleepSyncMs(200 * Math.pow(2, i));           // 200/400/800/1600/3200ms
-    }
-  }
-  throw lastErr;
-}
-
-// Robust voice-folder rename. Fast path is an atomic whole-directory rename.
-// If that is blocked by a lock on the CONTAINER directory (common on Windows
-// when an Explorer window is open on the folder itself), fall back to creating
-// the new folder and MOVING each entry individually — a viewer looking at the
-// PARENT usually does not lock individual child files, so per-file moves still
-// succeed. Returns { mode, locked } where locked lists any files that could not
-// be moved (so the caller can report exactly what to close).
-function renameVoiceFolder(oldDir, newDir) {
-  try {
-    renameDirWithRetry(oldDir, newDir);
-    return { mode: "atomic", locked: [] };
-  } catch (e) {
-    if (e.code === "EXDEV") throw e;                 // caller handles cross-device
-    if (!RENAME_LOCK_CODES.has(e.code)) throw e;     // genuine error — propagate
-  }
-  // --- per-file fallback ---
-  fs.mkdirSync(newDir, { recursive: true });
-  const locked = [];
-  const moveEntry = (name) => {
-    const from = path.join(oldDir, name);
-    const to = path.join(newDir, name);
-    for (let i = 0; i < 4; i++) {
-      try { fs.renameSync(from, to); return true; }
-      catch (err) {
-        if (!RENAME_LOCK_CODES.has(err.code)) throw err;
-        sleepSyncMs(150 * Math.pow(2, i));
-      }
-    }
-    // Last resort: copy then best-effort delete (leaves original if still locked).
-    try {
-      fs.cpSync(from, to, { recursive: true, force: true });
-      try { fs.rmSync(from, { recursive: true, force: true }); } catch (_) {}
-      return true;
-    } catch (_) { locked.push(name); return false; }
-  };
-  for (const entry of fs.readdirSync(oldDir)) moveEntry(entry);
-  // Try to remove the now-(hopefully)-empty old container.
-  try { fs.rmdirSync(oldDir); } catch (_) { /* left behind if still locked/nonempty */ }
-  return { mode: "per-file", locked };
-}
 
 // PATCH /api/assets/:id/rename — DISPLAY-ONLY rename (Option A).
 //
@@ -1193,187 +1042,15 @@ function sanitizeCustomParams(custom) {
 const TRAIN_DATA_ROOT = process.env.TRAIN_DATA_ROOT || "";
 
 // ===== task3 底模门禁：基础模型体检（与 download_models.py 布局对齐） =====
-// GSV_PRETRAINED_DIR 取自 lib/paths.js。
-function _mvFirstExisting(cands) {
-  for (const rel of cands) { const fp = path.join(GSV_PRETRAINED_DIR, rel); try { if (fs.existsSync(fp)) return fp; } catch (_) {} }
-  return null;
-}
-function normModelVersion(v) {
-  const s = String(v || '').toLowerCase().replace(/[\s_-]/g, '');
-  if (s === 'v2proplus') return 'v2ProPlus';
-  if (s === 'v2pro') return 'v2Pro';
-  return 'v2';
-}
-const _MV_BASE_REQ = {
-  v2: [
-    { label: 's2G', cands: ['v2/s2G2333k.pth', 'gsv-v2final/s2G2333k.pth', 'gsv-v2final-pretrained/s2G2333k.pth', 's2G2333k.pth', 'v1/s2G488k.pth', 'v2Pro/s2G488k.pth', 's2G488k.pth', 'gsv-v2final/s2G488k.pth'] },
-    { label: 's2D', cands: ['v2/s2D2333k.pth', 'gsv-v2final/s2D2333k.pth', 'gsv-v2final-pretrained/s2D2333k.pth', 's2D2333k.pth', 'v1/s2D488k.pth', 'v2Pro/s2D488k.pth', 's2D488k.pth', 'gsv-v2final/s2D488k.pth'] },
-  ],
-  v2Pro: [
-    { label: 's2G', cands: ['v2Pro/s2Gv2Pro.pth'] },
-    { label: 's2D', cands: ['v2Pro/s2Dv2Pro.pth'] },
-    { label: 'sv', cands: ['sv/pretrained_eres2netv2w24s4ep4.ckpt'] },
-  ],
-  v2ProPlus: [
-    { label: 's2G', cands: ['v2ProPlus/s2Gv2ProPlus.pth', 'v2Pro/s2Gv2ProPlus.pth'] },
-    { label: 's2D', cands: ['v2ProPlus/s2Dv2ProPlus.pth', 'v2Pro/s2Dv2ProPlus.pth'] },
-    { label: 'sv', cands: ['sv/pretrained_eres2netv2w24s4ep4.ckpt'] },
-  ],
-};
-// hard 版本(v2Pro/v2ProPlus)缺关键底模(s2G/s2D) → 训练必产电流声，属产品事故，必须拦。
-// v2 可回退(shape-safe)，永不拦，仅前端警告。sv 缺失仅退化(零向量)，警告不拦。
-const _MV_HARD = new Set(['v2Pro', 'v2ProPlus']);
-function checkBaseModelsForVersion(v) {
-  const version = normModelVersion(v);
-  const reqs = _MV_BASE_REQ[version] || _MV_BASE_REQ.v2;
-  const present = [], missing = [];
-  for (const r of reqs) { (_mvFirstExisting(r.cands) ? present : missing).push(r.label); }
-  const criticalMissing = missing.filter((m) => m === 's2G' || m === 's2D');
-  const hard = _MV_HARD.has(version);
-  const blocking = hard && criticalMissing.length > 0;
-  const degraded = !blocking && missing.includes('sv');
-  return { version, hard, ok: missing.length === 0, missing, present, criticalMissing, blocking, degraded };
-}
-// 前端管线在开训前调用它显示底模体检 / 警告（?version=v2Pro 或 ?versions=v2,v2Pro,v2ProPlus）。
-
-// ===========================
-//  BASE MODEL (底模) — virtual builtin voice for zero-shot inference
-// ===========================
-// A single reserved, in-memory "voice" that lets users synthesize directly on the
-// pretrained base weights WITHOUT fine-tuning first. Key properties:
-//   • NEVER written to voices.json and has NO asset dir on disk → it shows in the
-//     Generate voice dropdown (default) but NOT in the Assets management page
-//     (which only scans real folders under ASSETS_DIR).
-//   • GPT column: 1 entry (shared s1 base). SoVITS column: v2 / v2Pro (default) /
-//     v2ProPlus, each resolved from GSV_PRETRAINED_DIR — a version missing on disk
-//     is simply omitted so the dropdown only offers usable weights.
-//   • Reference audio: NONE. Users borrow one via the existing "Use reference from
-//     another voice" flow (base's own Slices/Raw are 0).
-// All mutation endpoints (delete/scan/rebuild/refine/transcribe/…) already gate on
-// fs.existsSync(voiceDir) or voices[id], so the dir-less base id is rejected there
-// automatically — no extra guards needed.
-const BASE_VOICE_ID = "__base__";
-const BASE_VOICE_DISPLAY = "Base model";
-function isBaseVoice(id) { return id === BASE_VOICE_ID; }
-
-// Absolute s1 (GPT) base checkpoint, or null when absent.
-function _baseS1Path() {
-  return _mvFirstExisting([
-    "v2/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
-    "v1/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-    "gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
-    "gsv-v2final/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
-    "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
-  ]);
-}
-// SoVITS base weights per version. Order = dropdown order; `default` = pre-selected.
-const _BASE_SOVITS_DEFS = [
-  // v2 的回退顺序必须与 _MV_BASE_REQ.v2 的 s2G 一致：先找 v2 自己的 2333k，找不到
-  // 才退到 v1 的 488k（shape-safe）。两张表若不一致，训练体检说"底模齐"而推理下拉
-  // 里却没有这个版本，同一台机器上两处各说各话。
-  { version: "v2",        cands: ["v2/s2G2333k.pth", "gsv-v2final/s2G2333k.pth", "gsv-v2final-pretrained/s2G2333k.pth", "s2G2333k.pth", "v1/s2G488k.pth", "v2Pro/s2G488k.pth", "s2G488k.pth", "gsv-v2final/s2G488k.pth"] },
-  { version: "v2Pro",     cands: ["v2Pro/s2Gv2Pro.pth"], default: true },
-  { version: "v2ProPlus", cands: ["v2ProPlus/s2Gv2ProPlus.pth", "v2Pro/s2Gv2ProPlus.pth"] },
-];
-// Build the { gpt:[], sovits:[] } checkpoint inventory the Generate dropdowns read.
-function baseCheckpoints() {
-  const s1 = _baseS1Path();
-  const gpt = s1
-    ? [{ name: `${BASE_VOICE_DISPLAY}_s1`, path: s1.replace(/\\/g, "/"), steps: null, builtin: true, default: true }]
-    : [];
-  const sovits = [];
-  for (const d of _BASE_SOVITS_DEFS) {
-    const fp = _mvFirstExisting(d.cands);
-    if (fp) sovits.push({ name: `${BASE_VOICE_DISPLAY}_${d.version}`, path: fp.replace(/\\/g, "/"), version: d.version, builtin: true, default: !!d.default });
-  }
-  return { gpt, sovits };
-}
-
-// 把上面这段登记成 GPT-SoVITS 的底模找法，而不是让平台
-// 直接调它。区别不是风格问题：
-//   · 上面那段是一台引擎的私货，上游把 s1 放一处、s2 按版本放好几处，
-//     既不按权重位分目录，也不是「整个目录算一份模型」，通用规则套不上。
-//   · 登记之后，平台侧（lib/assets/baseModels.js）一个引擎名都不认识，
-//     它对所有引擎只有两条通用规则：底模目录下有按权重位分的子目录就列子目录，
-//     没有就把整个底模目录当作那一份候选。
-//   IndexTTS2 走第二条，一行专属代码都不用写，它的底模就出现在下拉里了。
-//   将来 IndexTTS3/4/5 装上就能用；只有底模长得跟上面 GSV 一样怪的，
-//   才需要来这里登记一条。
-//
-// 这仍是一笔挂着的账（一台引擎的路径知识住在 server.js 里）。归宿是将来的
-// 扩展机制（现在不做）。但账已经被收进这一个地方了。
+// 底模检测/体检/登记/生成产物管理已搬去 lib/server/assets.js（P0 拆分任务 6）。
 try {
   const { registerBaseModelSource } = require("./lib/assets/baseModels");
   registerBaseModelSource("gpt-sovits", () => {
     const ck = baseCheckpoints();
-    // 名片里 GPT-SoVITS 的两个权重位就叫 gpt / sovits（engines/gpt-sovits/manifest.json）。
     return { gpt: ck.gpt, sovits: ck.sovits };
   });
 } catch (e) {
   console.warn(`[assets] 无法登记 GPT-SoVITS 底模找法: ${e && e.message}`);
-}
-
-// 平台侧通用的底模清单：所有已装引擎，按 { <引擎id>: { <权重位>: [...] } } 分组。
-// fail-open：某台引擎的名片坏了 / 底模没下，只影响它自己那一格，
-//    不许让整份底模清单变空（那会让所有引擎的下拉一起空掉）。
-function baseModelsAll() {
-  let profiles = [];
-  try {
-    const { listEngines } = require("./lib/engines/registry");
-    const { resolveEngineProfile } = require("./lib/engines/profile");
-    for (const e of (listEngines() || [])) {
-      try { profiles.push(resolveEngineProfile(e.id || e)); } catch (_) { /* 跳过这一台 */ }
-    }
-  } catch (_) { return {}; }
-  try {
-    const { baseModelsByEngine } = require("./lib/assets/baseModels");
-    return baseModelsByEngine(profiles, {});
-  } catch (_) { return {}; }
-}
-
-// Synthetic asset meta for the base voice: empty roster (0 slices / 0 raw / no
-// reference) + injected models so GET /api/assets/:id populates the dropdowns.
-//
-// assets.models 的形状跟真角色完全一致：{ <引擎id>: { <权重位>: [...] } }。
-//   界面把「底模」和「当前角色的微调模型」并成一个下拉时，两边共用一套拆包代码。
-function baseVoiceMeta() {
-  return {
-    id: BASE_VOICE_ID,
-    display_name: BASE_VOICE_DISPLAY,
-    language: "auto", text_lang: "auto", prompt_lang: "auto",
-    builtin: true,
-    assets: { models: baseModelsAll(), references: [] },
-    segment_total: 0, segment_matched: 0,
-  };
-}
-// voices.json-shaped registration record for voiceReg lookups (generate/validate).
-function baseVoiceReg() {
-  return { display_name: BASE_VOICE_DISPLAY, language: "auto", prompt_lang: "auto", text_lang: "auto", builtin: true };
-}
-
-// Collect every id that must be considered "taken" when allocating a new
-// canonical voice id: asset folders ∪ voices.json ∪ retained tasks ∪ pending
-// reservations. Also opportunistically prunes reservations already backed by a
-// folder/task so the registry can't grow unbounded.
-function collectTakenVoiceIds() {
-  const taken = new Set();
-  const backed = new Set();
-  // Reserve the built-in Base model id so no fine-tuned voice can ever collide with it.
-  taken.add(BASE_VOICE_ID);
-  try {
-    for (const e of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
-      if (e.isDirectory()) { taken.add(e.name); backed.add(e.name); }
-    }
-  } catch (_) {}
-  try { for (const k of Object.keys(loadVoices())) { taken.add(k); backed.add(k); } } catch (_) {}
-  try {
-    for (const t of (trainingPipeline.getAllTasks() || [])) {
-      if (t && t.voiceId) { taken.add(t.voiceId); backed.add(t.voiceId); }
-    }
-  } catch (_) {}
-  try { for (const id of assetId.listReservations()) taken.add(id); } catch (_) {}
-  try { assetId.prune(backed); } catch (_) {}
-  return taken;
 }
 
 // POST /api/assets/derive-id — return a PROPOSED (non-reserved) canonical id for
@@ -1485,34 +1162,6 @@ function knownVoice(role) {
 //  SERVE REACT FRONTEND
 // ===========================
 
-// ---- 断电恢复：扫描暂存目录中的未完成任务 ----
-function scanStagingTasks() {
-  const { STAGING_ROOT } = require('./lib/paths');
-  if (!fs.existsSync(STAGING_ROOT)) return;
-  try {
-    const entries = fs.readdirSync(STAGING_ROOT, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const taskJson = path.join(STAGING_ROOT, entry.name, 'task.json');
-      if (!fs.existsSync(taskJson)) continue;
-      try {
-        const data = JSON.parse(fs.readFileSync(taskJson, 'utf-8'));
-        if (data.status === 'running' || data.status === 'pending') {
-          data.status = 'interrupted';
-          data.finishedAt = new Date().toISOString();
-          fs.writeFileSync(taskJson, JSON.stringify(data, null, 2), 'utf-8');
-          console.log(`[RECOVERY] task ${data.id} (${data.voiceId}) marked as interrupted`);
-        }
-      } catch (e) {
-        // ignore corrupt task.json
-      }
-    }
-  } catch (e) {
-    console.error('[RECOVERY] failed to scan staging directory:', e.message);
-  }
-}
-
-
 // ===========================
 //  ROUTE MOUNTING (Stage-1 refactor)
 // ===========================
@@ -1520,7 +1169,7 @@ function scanStagingTasks() {
 // factories. They receive shared server-scope symbols via `ctx` and are
 // mounted here (paths unchanged). The static frontend + SPA catch-all are
 // registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _BASE_SOVITS_DEFS, _MV_BASE_REQ, _MV_HARD, _backupVoicesUnlocked, _baseS1Path, _mvFirstExisting, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _backupVoicesUnlocked, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/engines")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
@@ -1647,7 +1296,7 @@ if (require.main === module) {
     console.log(`========================================\n`);
 
     // 扫描暂存目录中的未完成任务（断电恢复）
-    scanStagingTasks();
+    scanStagingTasks({ STAGING_ROOT: PATHS.STAGING_ROOT, console });
 
     // 自动扫描资产:首次启动/缺少 meta.json 时生成元数据,
     // 避免侧边栏 GPT/SoVITS 红叉与 "voice not found"(无需手动 scan all)。
