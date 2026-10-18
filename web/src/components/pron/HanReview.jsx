@@ -100,7 +100,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
     })).then(rows => {
       if (cancelled) return
       setSuggestions(prev => ({ ...prev, ...Object.fromEntries(rows) }))
-    })
+    }).catch(err => console.error("[HanReadingReview] 预览请求失败:", err))
 
     return () => { cancelled = true }
   }, [selectionSignature])

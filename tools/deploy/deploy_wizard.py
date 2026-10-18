@@ -11,7 +11,7 @@ deploy_wizard.py — Aurivox 部署向导 (纯控制台 / 黑窗 TUI)。
           同时"只展示不选择"固定的运行环境: Python 依赖 / Node 模块 / 运行时组件。
           (依赖环境必须一致, 不可由用户增减, 仅供知情。)
   阶段 3  第三方许可, 分两类: 3A 平台自带依赖 (运行时 / Python / FFmpeg) 随软件分发,
-          仅告知、无需接受; 3B 上游模型权重是可选下载, 才是真正的"同意"环节 —— 用户
+          仅告知、无需接受; 3B 上游模型权重是可选下载, 才是真正的"同意"环节：用户
           可逐个许可组不同意, 不同意即不下载该许可下的模型 (平台仍照常部署)。
   阶段 4  最终确认将要执行的全部操作 (含裁剪后的最终下载清单)。
 
@@ -269,7 +269,7 @@ def _sort_licenses(keys):
 
 
 def build_platform_license_groups(sel):
-    """第二层许可分组 —— 分两类返回 (bundled, fetched):
+    """第二层许可分组：分两类返回 (bundled, fetched):
       bundled : 真正"内置于发行包"的第三方代码/运行时 (随包一并分发, 其许可文本随包携带于
                 THIRD_PARTY_LICENSES/runtime/): GPT-SoVITS 代码、CPython 运行时、Node.js
                 运行时、jieba_fast / pyopenjtalk 预编译 wheel。
@@ -340,7 +340,7 @@ def build_model_download_groups(sel, by_group):
 
 
 def _review_model_group(label, i, n, lines):
-    """审阅一个下游模型下载组 —— 只列出该组要下载的模型及其仓库, 请用户到仓库自行阅读其
+    """审阅一个下游模型下载组：只列出该组要下载的模型及其仓库, 请用户到仓库自行阅读其
     许可条款后输入 READ。也可输入 NO 不下载该组、q 退出安装。返回 'accept'/'decline'/'quit'。"""
     rule("-")
     print(f"  模型下载组 {i}/{n}:  {label}")
@@ -362,7 +362,7 @@ def _review_model_group(label, i, n, lines):
 
 def stage_licenses(sel, by_group):
     """阶段 3: 3A 平台自带依赖许可仅"告知"(随软件分发, 无需你接受); 3B 上游模型许可
-    才是真正的"同意"环节 —— 可逐组不同意, 不同意仅剔除该许可下要下载的模型组。返回更
+    才是真正的"同意"环节：可逐组不同意, 不同意仅剔除该许可下要下载的模型组。返回更
     新后的 sel (model_groups 可能被裁剪), 用户主动退出安装则返回 None。"""
     print("\n")
     rule("#")
