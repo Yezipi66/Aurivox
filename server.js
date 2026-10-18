@@ -6,9 +6,7 @@ const path = require("path");
 const http = require("http");
 const { execSync, spawn, execFileSync } = require("child_process");
 const os = require("os");
-const multer = require("multer");
 
-// 路径权威：所有业务目录/文件位置一律取自 lib/paths.js，本文件不再自行拼接目录名。
 const PATHS = require('./lib/paths');
 const {
   ASSETS_ROOT, ASSETS_ROOT_SOURCE, CONFIG_FILE, readConfig, writeConfig,
@@ -22,126 +20,51 @@ const {
 const { getPythonPath, getCleanEnv } = require('./lib/training/python_helper');
 
 // ── File logging (1.0.7) ──────────────────────────────────────────
-// Tee console.log/info/warn/error to a daily-rotating file under logs/ (or
-// AURIVOX_LOG_DIR) so a distributed/headless run leaves an audit trail without
-// touching any existing console call site. Disable with AURIVOX_LOG_FILE=0.
-(function setupFileLogging() {
-  if (process.env.AURIVOX_LOG_FILE === "0") return;
-  try {
-    const logDir = process.env.AURIVOX_LOG_DIR || path.join(__dirname, "logs");
-    fs.mkdirSync(logDir, { recursive: true });
-    let day = ""; let stream = null;
-    const openFor = (d) => {
-      if (stream && day === d) return stream;
-      if (stream) { try { stream.end(); } catch (_) {} }
-      day = d;
-      stream = fs.createWriteStream(path.join(logDir, `aurivox-${d}.log`), { flags: "a" });
-      stream.on("error", () => {}); // a log write must never crash the server
-      return stream;
-    };
-    const fmt = (a) => (typeof a === "string" ? a
-      : (a instanceof Error ? (a.stack || a.message)
-      : (() => { try { return JSON.stringify(a); } catch (_) { return String(a); } })()));
-    const write = (level, args) => {
-      try {
-        const now = new Date();
-        const line = `[${now.toISOString()}] [${level}] ` + args.map(fmt).join(" ") + "\n";
-        openFor(now.toISOString().slice(0, 10)).write(line);
-      } catch (_) { /* logging must never throw */ }
-    };
-    for (const level of ["log", "info", "warn", "error"]) {
-      const orig = console[level].bind(console);
-      console[level] = (...args) => { orig(...args); write(level.toUpperCase(), args); };
-    }
-    console.log(`[LOG] file logging -> ${logDir} (disable with AURIVOX_LOG_FILE=0)`);
-  } catch (e) {
-    try { console.error("[LOG] file logging disabled:", e.message); } catch (_) {}
-  }
-})();
+const { setupFileLogging } = require("./lib/server/fileLogging");
+setupFileLogging(console, process);
 
 const app = express();
-// Environment-driven config with backward-compatible defaults
 const PORT = parseInt(process.env.BROKER_PORT || process.env.PORT || "9886", 10);
 const HOST = process.env.BROKER_HOST || process.env.HOST || "127.0.0.1";
 const GPT_SOVITS_BASE_URL = process.env.GPT_SOVITS_BASE_URL || "http://127.0.0.1:9880";
 
-// 请求来源校验 / API key / 错误脱敏 / 静态目录边界 + CORS 允许名单搬去了
-// lib/server/middleware.js（P0 拆分任务 1）。API_KEY 与
-// REQUIRE_KEY_FOR_DESTRUCTIVE 也一并搬过去：全仓只有那一处在读它们。
 const {
   API_KEY, REQUIRE_KEY_FOR_DESTRUCTIVE,
   isLoopback, validateHost, requireApiKey, clientError, localError,
   safeStaticRoot, corsOptions,
 } = require("./lib/server/middleware");
-// 文本切分（splitJapaneseText / forceSplitLong）与占位符判定搬去了
-// lib/server/text.js（P0 拆分任务 2）。
 const { splitJapaneseText, forceSplitLong, isPlaceholder } = require("./lib/server/text");
-// 路径语义（项目相对 ⇄ 绝对、模型路径归一化、自定义参考音频入库、id 语法）
-// 搬去了 lib/server/paths.js（P0 拆分任务 3）。
 const {
   resolveRefPath, toProjectRelative, normalizeModelPath,
   importCustomRefToAsset, safeId,
 } = require("./lib/server/paths");
-// 合成核心（拼请求体 / 切权重 / 逐段推理 / 种子与参考音频解析）搬去了
-// lib/server/synthesis.js（P0 拆分任务 4）。它是个工厂：两个服务端单例
-// （权重切换器、分段缓存）在下面就近注入，构造时机一行都没动。
+const { classifyRecipeManagedFields } = require("./lib/server/recipeFields");
 const { createSynthesisModule } = require("./lib/server/synthesis");
 const { newGenId, genBaseName } = require("./lib/genUtils");
 const {
-  pickBestCkpt,
-  firstMismatch,
-  RENAME_LOCK_CODES,
-  sleepSyncMs,
-  renameDirWithRetry,
-  renameVoiceFolder,
-  scanStagingTasks,
+  pickBestCkpt, firstMismatch, RENAME_LOCK_CODES, sleepSyncMs,
+  renameDirWithRetry, renameVoiceFolder, scanStagingTasks,
 } = require("./lib/server/fileOps");
 const {
-  BASE_VOICE_ID,
-  BASE_VOICE_DISPLAY,
-  isBaseVoice,
-  normModelVersion,
-  checkBaseModelsForVersion,
-  baseCheckpoints,
-  baseModelsAll,
-  baseVoiceMeta,
-  baseVoiceReg,
-  collectTakenVoiceIds,
-  normSource,
-  outputRoot,
-  genAssetDir,
-  writeGenMeta,
-  resolveGenDir,
-  genItemFromMeta,
-  assetsNeedScan,
+  BASE_VOICE_ID, BASE_VOICE_DISPLAY, isBaseVoice, normModelVersion,
+  checkBaseModelsForVersion, baseCheckpoints, baseModelsAll,
+  baseVoiceMeta, baseVoiceReg, collectTakenVoiceIds, normSource,
+  outputRoot, genAssetDir, writeGenMeta, resolveGenDir,
+  genItemFromMeta, assetsNeedScan,
 } = require("./lib/server/assets");
 
-// 上述路径常量已全部迁至 lib/paths.js（见本文件顶部的解构导入）。
-// 此处仅保留一个语义别名，以及启动时的建目录动作。
 const ASSETS_DIR = ASSETS_ROOT;
-
 PATHS.ensureRuntimeDirs();
 
 const { createRecipeStore } = require("./lib/recipeStore");
 const recipeStore = createRecipeStore(RECIPES_DIR);
-
-// Asset scanner
 const assetScanner = require("./lib/assetScanner");
-// Canonical voice-id generation/reservation (Option A: display/id decoupling)
-// and version-aware managed-path resolver (recipe schema v3 portability).
 const assetId = require("./lib/assetId");
 const pathResolver = require("./lib/pathResolver");
-// Explicit, assisted v2→v3 recipe path migration (never runs at startup/scan).
 const { createMigrator } = require("./lib/recipeMigration");
 const recipeMigrator = createMigrator({ recipesDir: RECIPES_DIR, appDir: APP_DIR, assetsRoot: ASSETS_ROOT });
-// In-place ASR kernel (shared with the training pipeline) + training defaults, used
-// by the lightweight Assets "generate reference text" recovery (does NOT promote).
 const { runAsr } = require("./lib/training/steps/asr");
 const { loadTrainingConfig } = require("./lib/training/config");
-// Stage-0 extractions (behaviour-preserving): the local inference HTTP client,
-// WAV/ffmpeg audio utilities, audio concatenation, and the CUDA probe were
-// moved out of this file verbatim. They are re-imported here so every existing
-// call site in server.js keeps working unchanged.
 const { gsvRequest, gsvPost, gsvGet, gsvStream } = require("./lib/gsv/client");
 const {
   generateSilenceWav, findWavDataChunk, toPcm16Wav,
@@ -151,278 +74,60 @@ const {
   vendoredFfmpegPath, ffmpegCmd, checkFfmpeg, AUDIO_FORMATS, transcodeAudio,
 } = require("./lib/audio/ffmpeg");
 const { concatWavFiles, concatWithFfmpeg } = require("./lib/audio/concat");
-// `lib/system/cuda.js` 改名为 `lib/system/gpu.js`。
-//   改名理由：它答的是「这台机器有什么显卡」，而「CUDA」在项目里另有一个含义
-//   （下面那个写死的 device:"cuda"）。两个「CUDA」指两件事，文件名只说了其一。
-//   实现也不再 spawn Python，理由见 gpu.js 文件头。
 const { startCudaProbe, detectCuda } = require("./lib/system/gpu");
-// Stage-2 extractions: generic async mutex + voices.json store (persistence +
-// write lock + rotating backups). These replace the two bare module-level
-// `let` locks below with encapsulated instances; same-named wrappers keep all
-// existing call sites unchanged.
-const { Mutex } = require("./lib/util/mutex");
 const { HttpError } = require("./lib/http/http");
 const { VoicesStore } = require("./lib/voices/store");
-// 引擎抽象层（契约 v2）。名片是「加引擎不改代码」的唯一入口：
-//   profile.js  一张名片解析成引擎档案（地址/超时/分段/能力/映射/默认值）
-//   payload.js  按名片把一次调用拼成这台引擎认识的请求体
 const { resolveEngineProfile } = require("./lib/engines/profile");
 const { storedGeneration } = require("./lib/engines/weightSummary");
-// 契约 C11：任何「引擎有哪些参数 / 默认多少」的问题只问这一个地方。
 const { engineParamDefaults } = require("./lib/engines/paramTable");
 const { createAdvancedParamsStore } = require("./lib/advancedParams");
-const { createSegmentCache } = require("./lib/cache/segmentCache");
-// acceptsKey 这个符号在 server.js 里已经没有活引用（拆分前就如此）。
 const { acceptsKey } = require("./lib/engines/payload");
-// upstreamFailure / emptyAudioFailure / isTransportError / transportFailure
-// 随 _inferOneSegment 搬去了 lib/server/synthesis.js（P0 拆分任务 4）。
-// voiceId → { status, startedAt, finishedAt, sources, done, error, logs } for the
-// in-place transcribe jobs. In-memory only (best-effort progress, like training).
 const transcribeJobs = new Map();
 
 // ── Graceful-shutdown coordinator (1.0.7) ─────────────────────────
-// On SIGINT/SIGTERM we stop accepting NEW connections and, by default, WAIT for
-// in-flight synthesis to finish before exiting (no truncated audio). A request
-// may OPT IN to being aborted on shutdown by sending `interrupted:true` in its
-// body: those are cancelled immediately (client socket closed -> upstream engine
-// stream aborted) instead of holding the drain. A second signal, or exceeding
-// AURIVOX_SHUTDOWN_GRACE_MS (default 120000), forces exit.
-const _inflight = new Set(); // { interruptible:boolean, abort():void } per active request
+const _inflight = new Set();
 let _shuttingDown = false;
-const shutdownState = {
-  get active() { return _inflight.size; },
-  get shuttingDown() { return _shuttingDown; },
-  register(entry) { _inflight.add(entry); return () => _inflight.delete(entry); },
-};
+const { createShutdownManager } = require("./lib/server/shutdown");
 
 // ---- Multer ----
-const ALLOWED_EXT = new Set([".wav", ".mp3", ".flac", ".m4a", ".ogg", ".webm"]);
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, VOICES_DIR),
-  filename: (req, file, cb) => {
-    const id = req.params.id;
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${id}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ALLOWED_EXT.has(ext)) return cb(null, true);
-    cb(new Error(`Unsupported file type: ${ext}`));
-  },
-});
-
-// Cross-platform "custom reference audio" picker: an arbitrary clip uploaded from
-// the browser (no native OS dialog needed) and stored under voices/custom_refs so
-// it can serve as ref_audio for ANY voice. Kept separate from `storage` because
-// that names files by req.params.id, which custom refs don't have.
-// CUSTOM_REF_DIR 取自 lib/paths.js。
+const { ALLOWED_EXT, createUpload, createCustomRefUpload } = require("./lib/server/multer");
+const upload = createUpload(VOICES_DIR);
+const customRefUpload = createCustomRefUpload(CUSTOM_REF_DIR);
 try { fs.mkdirSync(CUSTOM_REF_DIR, { recursive: true }); } catch (_) {}
-const customRefStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, CUSTOM_REF_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const base = path.basename(file.originalname, path.extname(file.originalname))
-      .replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40) || "ref";
-    cb(null, `${Date.now()}_${base}${ext}`);
-  },
-});
-const customRefUpload = multer({
-  storage: customRefStorage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ALLOWED_EXT.has(ext)) return cb(null, true);
-    cb(new Error(`Unsupported file type: ${ext}`));
-  },
-});
 
 const crypto = require("crypto");
-
-// isLoopback / validateHost / requireApiKey / clientError / localError
-// 已搬到 lib/server/middleware.js（P0 拆分任务 1），本文件在顶部 require 进来。
-// 这里过去那六段实现逐字搬走，一个字节都没改。
-
-// In-memory store of background assets-directory copy/move jobs, keyed by jobId.
-// Ephemeral by design: a server restart drops them (the UI degrades to a "job no
-// longer available" message), which is fine for a local single-user tool.
 const migrationJobs = new Map();
 
-// CORS (1.0.7): 允许的浏览器来源读 AURIVOX_CORS_ORIGIN，规则与说明见
-// lib/server/middleware.js（那里是唯一读这个环境变量的地方）。
 app.use(cors(corsOptions()));
 app.use(express.json({ limit: "10mb" }));
 app.use(validateHost);
 
-// ---- Static: assets/ for audio playback ----
-// safeStaticRoot（路径穿越防护）在 lib/server/middleware.js。
-
-app.use("/assets", safeStaticRoot(ASSETS_DIR), express.static(ASSETS_DIR));
-
-// ---- Static: voices/ for reference-audio playback (uploaded + custom refs) ----
-app.use("/voices", safeStaticRoot(VOICES_DIR), express.static(VOICES_DIR));
-
-// ---- Static: outputs/ with Range support ----
-app.use("/outputs", safeStaticRoot(OUTPUT_DIR), (req, res, next) => {
-  const rel = decodeURIComponent(req.path).replace(/^[\\/]+/, "");
-  const filePath = path.resolve(OUTPUT_DIR, rel);
-  if (!filePath.startsWith(OUTPUT_DIR + path.sep) && filePath !== OUTPUT_DIR) {
-    return res.status(404).end();
-  }
-  if (!fs.existsSync(filePath)) return next();
-  const stat = fs.statSync(filePath);
-  const range = req.headers.range;
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-    const chunkSize = end - start + 1;
-    if (start >= stat.size || end >= stat.size) {
-      res.status(416).set("Content-Range", `bytes */${stat.size}`).end();
-      return;
-    }
-    const stream = fs.createReadStream(filePath, { start, end });
-    res.writeHead(206, {
-      "Content-Range": `bytes ${start}-${end}/${stat.size}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunkSize,
-      "Content-Type": "audio/wav",
-    });
-    stream.pipe(res);
-  } else {
-    next();
-  }
-}, express.static(OUTPUT_DIR));
+// ---- Static + Frontend + Error handling ----
+const { setupStatic, setupFrontend, setupErrorHandling, setupOptionalRoutes, startServer } = require("./lib/server/startup");
+setupStatic(app, { ASSETS_DIR, OUTPUT_DIR, VOICES_DIR, WEB_DIST, safeStaticRoot });
 
 // ===========================
 //  HELPERS
 // ===========================
 
-// Voices persistence, the write mutex, and rotating backups now live in
-// lib/voices/store.js; concurrent generation requests use a standalone Mutex.
-// This removes the two bare module-level `let` locks (Stage-2 refactor). The
-// same-named wrappers below preserve every existing call site verbatim.
 const MAX_BACKUPS = 20;
 const voicesStore = new VoicesStore({ voicesJson: VOICES_JSON, backupDir: BACKUP_DIR, maxBackups: MAX_BACKUPS });
-// A-2 (bounded admission): cap how many synthesis requests may QUEUE behind the
-// single-GPU engine. Beyond this, requests are rejected fast with 503 +
-// Retry-After instead of piling up unbounded latency. 0 = unbounded (legacy).
-// Tune via AURIVOX_MAX_QUEUE; Retry-After seconds via AURIVOX_RETRY_AFTER.
-const _GEN_MAX_QUEUE = (() => {
-  const n = parseInt(process.env.AURIVOX_MAX_QUEUE, 10);
-  return (Number.isInteger(n) && n >= 0) ? n : 32;
-})();
-const _GEN_RETRY_AFTER = (() => {
-  const n = parseInt(process.env.AURIVOX_RETRY_AFTER, 10);
-  return (Number.isInteger(n) && n >= 1) ? n : 3;
-})();
-const _generationMutex = new Mutex({ maxPending: _GEN_MAX_QUEUE });
-// Same-model request coalescing (point 4): remembers the engine's currently
-// resident GPT/SoVITS weights and skips the redundant /set_*_weights reload
-// when the next request wants the same pair. Safe because every switchModels
-// call runs under _generationMutex (serialised) — see lib/gsv/modelState.js.
-const { ModelSwitcher } = require("./lib/gsv/modelState");
-const _modelSwitcher = new ModelSwitcher(gsvGet);
-// Feed engine liveness into the switcher so an engine restart (offline->online)
-// invalidates the resident-weights cache; the /api/health route calls this.
+const { createSynthesisInstance } = require("./lib/server/synthesisInstance");
+const { _GEN_MAX_QUEUE, _GEN_RETRY_AFTER, _generationMutex, _modelSwitcher, segmentCache, synthesis } = createSynthesisInstance(process, PATHS);
+
 function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(online); }
 
-// ---------------------------------------------------------------------------
-//  引擎进程看管人：用到才起，不用就放
-// ---------------------------------------------------------------------------
-//
-// 为什么后端得管这件事，而不是启动脚本：一台把模型在开进程那一刻就
-// 吃进内存的引擎（6 GB 起步），开机就点着意味着装到第三、四台时，光是
-// 开机就把内存吃干净了，而其中大多数这一整天都不会被用到。
-// 起停必须跟着请求走，而请求只有后端看得见。
-//
-// 端口不归它管。每一台引擎监听哪儿仍然由启动脚本解出来、写进各自的
-// 环境变量；这里 spawn 时的端口是从那个结果里反解出来的。
-// （启动脚本里那套 Windows 端口冲突逻辑一行都不许搬过来重写。）
-const { EngineSupervisor } = require("./lib/engines/supervisor");
-const { spawnFromPlan, probeOnce } = require("./lib/engines/spawnEngine");
-const { buildLaunchPlan: _buildLaunchPlan } = require("./lib/engines/launchPlan");
+// ---- Engine supervisor ----
+const { createEngineSupervisor } = require("./lib/server/engineSupervisor");
+const _engineSupervisor = createEngineSupervisor(__dirname, process, { resolveEngineProfile, console });
 
-// 内存判据在这里插上。上限从「最多几台」改成「机器还剩多少」。
-// 「开了几台」是个代理指标，靠两个假设换算（一台大概吃多少、这机器上只有
-// 我们在跑），假设一破就答错而且不会有任何提示。真机上两个
-// 假设都打穿了：GSV 峰值 3547 MB，16 G 机器空着只剩 6230 MB。
-// 「还剩多少」这个数天然已经把别人吃掉的算进去了。
-//
-// 两个都是注入进去的，不是在 supervisor.js 顶上 require 的。
-// 那个文件那 57 条测试得能在一台没有引擎、不许写盘的机器上跑穷。
-const _memprobe = require("./lib/engines/memprobe");
-const _memledger = require("./lib/engines/memledger");
-const _engineSupervisor = new EngineSupervisor({
-  spawn: (plan) => spawnFromPlan(plan, { rootDir: __dirname }),
-  probe: (url, timeoutMs) => probeOnce(url, timeoutMs),
-  buildPlan: (profile, opts) => _buildLaunchPlan(profile, Object.assign({ rootDir: __dirname }, opts)),
-  loadProfile: (id) => resolveEngineProfile(id),
-  log: (line) => console.log(line),
-  env: process.env,
-  mem: {
-    freeMb: () => _memprobe.freeMb(),
-    sampleTree: (pid) => _memprobe.sampleTree(pid),
-  },
-  // 把 rootDir 绑上，supervisor 不该知道账本落在盘上的哪儿。
-  ledger: {
-    needMb: (id) => _memledger.needMb(__dirname, id),
-    record: (id, mb) => _memledger.record(__dirname, id, mb),
-    markAttempting: (id) => _memledger.markAttempting(__dirname, id),
-    reapAttempts: () => _memledger.reapAttempts(__dirname),
-    // 占用报告要能说「哪台上次没活着回来」。区分不了「被 OOM 杀了」
-    // 和「用户直接关掉」（memledger.markAttempting 自己就这么写着）。
-    // 两种都值得让人看见，所以不假装能分。
-    attemptingIds: () => Object.keys((_memledger.load(__dirname) || {}).attempting || {}),
-  },
-});
-// 开机结上一轮的账：还挂着「正在试」的，都是没活着回来的。
-// 被系统 OOM 杀掉的进程来不及让我们读峰值，这条是它唯一会留下的痕迹。
-// 不抛：结不了账不该拦住后端启动。
-try {
-  _engineSupervisor.reapCrashes();
-} catch (err) {
-  console.warn("[engine] 结上一轮的内存账时出错，忽略：" + ((err && err.message) || err));
-}
-// 定时把空闲够久的放掉。这件事和「有人来抢名额」无关，内存该吐就吐，
-// 不该等到下一个人来要位置才想起来。
-// unref：这个定时器不该单独把进程留住。少了它，Ctrl-C 之后后端不退出。
-const _engineSweepTimer = setInterval(() => {
-  try { _engineSupervisor.sweep(); } catch (err) { console.warn("[engine] 清扫出错：" + ((err && err.message) || err)); }
-}, 60000);
-if (_engineSweepTimer.unref) _engineSweepTimer.unref();
-
-// 后端退出时必须把引擎一起带走。留一堆吃着 6 GB 的孤儿进程比崩掉还糟：
-// 下次启动会被自己的残骸占住端口，而且看不出原因。
-//
-// 只挂 `exit`，绝不自己挂 SIGINT / SIGTERM。
-// 这个后端本来就有一套优雅退出（见文件末尾的 shutdown()）：收到信号后
-// 先不退，停止收新请求、让正在跑的合成做完（默认最多等 120 秒），
-// 然后才 process.exit。
-// 我第一版在这里自己挂了信号并当场 process.exit(0)，那会把那套东西整个
-// 架空：用户 Ctrl-C 一下，一个跑了两分钟、马上就要出音频的合成当场没了。
-// 这个错测试一条都不会红（没有任何测试在跑真的信号），
-//   语法检查是撞上重名变量才顺带把它逼出来的。
-// `exit` 是那套流程的最后一站：不管它是正常走完、超时强退、还是
-// 第二次信号强杀，都会经过这里。同步执行，正好够 kill 掉子进程。
-//
-// 自检句：往一个进程上挂信号处理之前，先查这个进程已经挂了什么。
 process.on("exit", () => {
-  // 第二个参数 exiting=true 是必须的：stopAll 靠它决定走同步那条路。
-  //   process.on('exit') 里没有事件循环再跑一轮，异步 taskkill 会被掐掉。
   try { _engineSupervisor.stopAll("后端退出", true); } catch { /* 退出路径上不许再抛 */ }
 });
 
 function loadVoices() { return voicesStore.load(); }
 function saveVoices(data) { return voicesStore.save(data); }
 function withVoicesLock(fn) { return voicesStore.withLock(fn); }
-// Translate a full-queue rejection (A-2) into an HTTP 503 the route layer
-// already serialises (asyncHandler applies err.headers, so Retry-After reaches
-// the client). Non-overflow errors propagate verbatim.
 async function withGenerationLock(fn) {
   try {
     return await _generationMutex.runExclusive(fn);
@@ -442,115 +147,12 @@ function _backupVoicesUnlocked() { return voicesStore._backupUnlocked(); }
 function backupVoices() { return voicesStore.backup(); }
 
 // ===========================
-//  HTTP HELPERS
-// ===========================
-// gsvRequest / gsvPost / gsvGet moved to ./lib/gsv/client.js (Stage-0 refactor).
-
-// resolveRefPath / toProjectRelative / normalizeModelPath / importCustomRefToAsset
-// 搬去了 lib/server/paths.js（P0 拆分任务 3），本文件在顶部 require 进来。
-// 这四段实现逐字搬走，一个字节都没改。
-
-// v3 recipe path classification. Rewrites the four managed fields on a recipe
-// create/update body into structured { base, path } objects with field-aware
-// external permissions (models honour allow_external_models; reference/aux audio
-// honour a SEPARATE allow_external_audio, default OFF — models never authorize
-// external audio). Legacy (v2) targets keep string paths so a v2 recipe is never
-// silently migrated to v3 on a plain edit/rebind. `targetV3` decides which.
-function classifyRecipeManagedFields(body, { targetV3, allowExternalModels, allowExternalAudio, role }) {
-  if (!targetV3) {
-    // Legacy string handling (unchanged): only models are normalized; audio
-    // strings are left for recipeStore's project-relative guard.
-    for (const key of ["gpt_ckpt", "sovits_pth"]) {
-      if (body[key] != null && body[key] !== "") {
-        const n = normalizeModelPath(body[key], { allowExternal: allowExternalModels });
-        if (!n.ok) return { ok: false, error: `${key}: ${n.error}`, code: n.code, field: key };
-        body[key] = n.value;
-      }
-    }
-    return { ok: true };
-  }
-  const model = { field: "model", allowExternalModels, allowExternalAudio };
-  const audio = { field: "audio", allowExternalModels, allowExternalAudio };
-  // R3: import any temp custom-ref uploads into the voice's managed assets before
-  // classifying, so they persist as portable { base:'asset' } references rather
-  // than mislabeled non-portable paths. Applies to the main reference and aux.
-  if (role) {
-    if (typeof body.reference_audio === "string") {
-      body.reference_audio = importCustomRefToAsset(body.reference_audio, role);
-    }
-    if (body.params && Array.isArray(body.params.aux_ref_audio_paths)) {
-      body.params.aux_ref_audio_paths = body.params.aux_ref_audio_paths
-        .map((p) => (typeof p === "string" ? importCustomRefToAsset(p, role) : p));
-    }
-  }
-  for (const [key, opts] of [["gpt_ckpt", model], ["sovits_pth", model], ["reference_audio", audio]]) {
-    if (body[key] != null && body[key] !== "") {
-      const c = pathResolver.classifyManagedPath(body[key], opts);
-      if (!c.ok) return { ok: false, error: `${key}: ${c.error}`, code: c.code, field: key };
-      body[key] = c.value;
-    }
-  }
-  // Auxiliary reference audio array (lives under params).
-  const aux = body.params && Array.isArray(body.params.aux_ref_audio_paths)
-    ? body.params.aux_ref_audio_paths : null;
-  if (aux) {
-    const out = [];
-    for (const p of aux) {
-      if (p == null || p === "") continue;
-      const c = pathResolver.classifyManagedPath(p, audio);
-      if (!c.ok) return { ok: false, error: `aux_ref_audio_paths: ${c.error}`, code: c.code, field: "aux_ref_audio_paths" };
-      out.push(c.value);
-    }
-    body.params.aux_ref_audio_paths = out;
-  }
-  return { ok: true };
-}
-
-// safeId / isPlaceholder / splitJapaneseText / forceSplitLong 搬去了
-// lib/server/{paths,text}.js（P0 拆分任务 2/3），本文件在顶部 require 进来。
-
-// ===========================
-//  AUDIO / FFMPEG / CUDA (extracted)
-// ===========================
-// The ffmpeg detection cache, OpenAI-format transcode table, WAV parsing/
-// synthesis/concatenation helpers, and the CUDA probe were moved verbatim to
-// ./lib/audio/ffmpeg.js, ./lib/audio/wav.js, ./lib/audio/concat.js and
-// ./lib/system/cuda.js (Stage-0 refactor). They are required at the top of
-// this file, so all call sites below are unchanged.
-
-// ===========================
 //  TTS PAYLOAD BUILDER / GENERATION CORE
 // ===========================
-// 契约 v2 第 1c 步那张 TTS_PASS_THROUGH_KEYS 的说明、resolveSeed、
-// resolveReference、buildTtsPayload、switchModels、generateOneSegment、
-// _inferOneSegment 全部搬去了 lib/server/synthesis.js（P0 拆分任务 4）。
-// 「engine 参数看起来可选」那两段历史注记也跟着搬走了。
-// 本文件在下面（分段缓存实例旁边）把两个服务端单例注入进去，拿回那几个函数。
-
-// ---------------------------------------------------------------------------
-//  合成结果复用缓存
-// ---------------------------------------------------------------------------
-// 全文说明在 lib/cache/segmentCache.js 顶部。这里只做实例化。
-//
-// AURIVOX_CACHE=0 整体关掉（出了怪声音时第一个该试的开关）。
-const segmentCache = createSegmentCache({
-  dir: PATHS.CACHE.segments,
-  enabled: process.env.AURIVOX_CACHE !== "0",
-});
-// 合成核心（拼请求体 / 切权重 / 逐段推理 / 种子与参考音频解析）搬去了
-// lib/server/synthesis.js（P0 拆分任务 4）。两个服务端单例注入进去：
-// 权重切换器（同模型复用）与上面这个分段缓存。两者仍然只在这里构造一次，
-// 构造时机与拆分前逐行相同。
-const synthesis = createSynthesisModule({ _modelSwitcher, segmentCache });
 const {
   resolveSeed, resolveReference, buildTtsPayload, switchModels, generateOneSegment,
 } = synthesis;
-// 命中/未命中计数与淘汰节奏都在 lib/cache/cachedInference.js 里。
-//
-// 把算出来的目录打在启动横幅里。PATHS.CACHE.segments 挂在 CACHE_DIR 环境变量
-// 下（lib/paths.js），而这个变量本来是为 Python 侧那批 numba/hf/torch 缓存
-// 设的。真机上一旦有人设过它，分段缓存就会跟着搬到别的盘，表现是
-//   "每段写入 ENOENT、命中率恒为 0、但合成一切正常"。一行日志换一次排障。
+
 if (segmentCache.enabled) {
   const from = process.env.CACHE_DIR ? "（跟随环境变量 CACHE_DIR）" : "";
   console.log(`[CACHE] 分段复用已开启 — 目录: ${segmentCache.dir}${from}`);
@@ -558,359 +160,34 @@ if (segmentCache.enabled) {
   console.log("[CACHE] 分段复用已关闭（AURIVOX_CACHE=0）");
 }
 
-// ---------------------------------------------------------------------------
-//  拼请求体 / 逐段推理 / 切权重
-// ---------------------------------------------------------------------------
-// buildTtsPayload / switchModels / generateOneSegment / _inferOneSegment
-// 搬去了 lib/server/synthesis.js（P0 拆分任务 4），上面已注入依赖并取回。
-// 取值点（inferWithCache 在 applyEngineKnobs 之后）整段原样搬走。
-
-// ===========================
-//  API ROUTES
-// ===========================
-
 // ===========================
 //  ADVANCED PARAMS (advanced_params.json)
 // ===========================
-
-// ADVANCED_PARAMS_FILE 取自 lib/paths.js（data/ 优先，回退项目根）。
-
-// 这三个是启动期设置：改了要重启引擎进程，不是一次合成的可调值。
-// 它们不在任何一张名片的 param_keys 上，因为契约 §2 明写平台不管引擎怎么
-// 起（那是逃生门那边的事）。留在这里是现状，不是设计，见挂账。
-const ENGINE_LAUNCH_DEFAULTS = {
-  version: "v2Pro",
-  is_half: true,
-  device: "cuda",
-};
-
-// 一次合成的可调值，全部来自名片（契约 C11：参数表只有一份）。
-//
-// 这里原本是一张写死的 18 键表。它是 batch_size 那四份副本里唯一正确
-// 的一份（写的是 _DEFAULT_TTS_BATCH_SIZE，跟着 AURIVOX_TTS_BATCH_SIZE 旋钮
-// 走），可惜前端无条件发 1 把它盖掉了，所以正确也没用上。
-//
-// 不再缓存成常量：已装哪些引擎、环境变量拧到几，都是运行时事实。
-// 存成模块级常量就等于在进程启动的那一瞬间又拍了一张快照，副本会从
-// 那一刻起重新开始漂。
-//
-// 三个函数的函数体搬去了 lib/advancedParams.js。
-// 原因不是整理代码，是它们在这里测不到，server.js 一被 require 就
-// listen，进不了测试进程。证据：把 save 从合并改成替换（一个真实的行为
-// 变更），全量 661 条测试一条没红。这里留下的三个薄壳只为不动 ctx 接线。
+const { ENGINE_LAUNCH_DEFAULTS } = require("./lib/server/engineLaunch");
 const advancedParamsStore = createAdvancedParamsStore({
   file: ADVANCED_PARAMS_FILE,
-  // 过去是 `() => engineParamDefaults(findLegacyDefaultId())`。
-  // 现在由调用方说是哪台；没说就一个默认值都不给。
   engineDefaults: (engineId) => (engineId ? engineParamDefaults(engineId) : {}),
   launchDefaults: ENGINE_LAUNCH_DEFAULTS,
 });
-
-function defaultAdvancedParams(engineId) {
-  return advancedParamsStore.defaults(engineId);
-}
-
-function loadAdvancedParams(engineId) {
-  return advancedParamsStore.load(engineId);
-}
-
-// 替换，不是合并。理由全文见 lib/advancedParams.js 顶部第 ② 条。
-function saveAdvancedParams(params) {
-  return advancedParamsStore.save(params);
-}
+function defaultAdvancedParams(engineId) { return advancedParamsStore.defaults(engineId); }
+function loadAdvancedParams(engineId) { return advancedParamsStore.load(engineId); }
+function saveAdvancedParams(params) { return advancedParamsStore.save(params); }
 
 // ============================================================
 // 读音校对 / Pronunciation proofing (task6)
-// 词典 = 用户运行时资产，不入 git（见 .gitignore: data/pron_lexicon/）
 // ============================================================
-// PRON_LEXICON_DIR 取自 lib/paths.js。
-
-function pronLexiconPath(lang) {
-  const safe = String(lang || "zh").toLowerCase().replace(/[^a-z_]/g, "") || "zh";
-  return path.join(PRON_LEXICON_DIR, safe + ".json");
-}
-
-function loadPronLexicon(lang) {
-  try {
-    const p = pronLexiconPath(lang);
-    if (!fs.existsSync(p)) return {};
-    const data = JSON.parse(fs.readFileSync(p, "utf-8"));
-    return (data && typeof data === "object" && !Array.isArray(data)) ? data : {};
-  } catch (e) {
-    console.error("[pron] load lexicon failed:", e.message);
-    return {};
-  }
-}
-
-function savePronLexicon(lang, data) {
-  fs.mkdirSync(PRON_LEXICON_DIR, { recursive: true });
-  const p = pronLexiconPath(lang);
-  const tmp = p + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-  fs.renameSync(tmp, p);
-  return data;
-}
-
-// 预览：文本 -> 逐词逐字读音 + 候选（代理到引擎 /pron/preview，复用已加载 g2pW）
-
-// 读词典
-
-// 写/更新一条词典项 {lang, word, pinyins:[...]}
-
-// 删除一条词典项（word/lang 支持 query 或 body）
+const { pronLexiconPath, loadPronLexicon, savePronLexicon } = require("./lib/server/pronLexicon");
 
 // ===========================
 //  VOICE ASSET MANAGER APIs
 // ===========================
-
-// POST /api/custom-ref-audio — upload an arbitrary reference clip (cross-platform
-// custom picker). Not tied to a voice; stored under voices/custom_refs and usable
-// as ref_audio for any voice. Returns an engine-resolvable path + a playback URL.
-
-// POST /api/voices/:id/aux-ref-audio — upload auxiliary reference audio
-
-// DELETE /api/voices/:id/aux-ref-audio/:index — remove an auxiliary reference
-
-// GET /api/audio-files — list available audio files for reference selection
-
-// ===========================
-//  ASSET API
-// ===========================
-
-// GET /api/assets — list all voice asset directories with meta
-
-// ---- 共享:全量资产扫描 + 同步 voices.json ----
-async function runFullAssetScan() {
-  const results = assetScanner.fullScan();
-  await withVoicesLock(async () => {
-    const voices = loadVoices();
-    const scannedIds = new Set(Object.keys(results));
-    for (const oldId of Object.keys(voices)) {
-      if (!scannedIds.has(oldId)) delete voices[oldId];
-    }
-    for (const [id, meta] of Object.entries(results)) {
-      voices[id] = {
-        display_name: meta?.display_name || id,
-        language: meta?.language || "ja",
-        prompt_lang: meta?.prompt_lang || meta?.language || "ja",
-        text_lang: meta?.text_lang || meta?.language || "ja",
-      };
-    }
-    saveVoices(voices);
-  });
-  return results;
-}
-
-// POST /api/assets/scan — trigger full directory scan
-
-// POST /api/assets/:id/open — open asset folder in system explorer
-
-// ===========================
-//  GENERATION ASSETS — folder + meta.json per generation (Generate page)
-// ===========================
-// One /api/generate call = one folder outputs/<source>/<genId>/ holding audio +
-// meta.json (audit + recipe for Rerun + source). Management operates by id, so
-// Delete removes the whole folder (all segments), not just the combined file.
-//
-// Outputs are physically separated by source so generate / compare-refs / broker
-// histories never mix. `normSource` maps client-supplied
-// source labels to a canonical folder key; unknown values fall back to generate.
-// OUTPUT_ROOTS 取自 lib/paths.js，新增产物来源只需在该文件加一行。
-// normSource / outputRoot / genAssetDir / writeGenMeta / resolveGenDir /
-// genItemFromMeta 已搬去 lib/server/assets.js（P0 拆分任务 6）。
-
-// GET /api/outputs — list every generation (newest first), read from meta.json.
-// `?source=` scopes to generate | comparerefs | broker (default generate, so the
-// existing Generate page Recent list is unchanged).
-
-// GET /api/outputs/batches — group generations into the batches they were
-// produced in. One "Generate All" in Compare Refs = one batch, so this answers
-// "how many audios did this comparison produce, and which reference did each
-// use". Reconstructed live from member meta.json (meta.batch), so it stays
-// correct as members are added or deleted — no manifest to keep in sync.
-// One-off generations (no meta.batch) are ignored. `?source=` scopes the root.
-
-// POST /api/outputs/reveal — highlight the generation folder (or its primary file).
-
-// DELETE /api/outputs/:id — permanently delete the WHOLE generation folder.
-// `?source=` scopes to the right root (default generate).
-
-// POST /api/outputs/clear-all — delete every generation folder under a source
-// root (default generate). Body/query `source` scopes it.
-
-// PATCH /api/assets/:id/rename — DISPLAY-ONLY rename (Option A).
-//
-// The canonical id (= folder name) is IMMUTABLE. Rename updates display_name
-// only; it never moves the folder, never re-derives the id, and never enforces
-// display-name uniqueness (duplicate display names are allowed because ids stay
-// unique). Training/publish/rebuild/delete/recipe-binding/Broker resolution all
-// key off the immutable folder id, so a display rename is inert to identity.
-//
-// This removes the old "display must equal sanitize(id)" clobber trap entirely:
-// with ids allocated once at creation (assetId.allocateVoiceId) and never
-// re-derived from display, drift is impossible.
-
-// GET /api/config — current app config surfaced to the UI (assets directory etc).
-
-// POST /api/config/assets-root { path, migration } — persist a new assets
-// directory to app-config.json. `migration` decides what happens to data that
-// already lives in the CURRENT assets directory:
-//   'switch' — just point at the new dir, leave old data where it is (default)
-//   'copy'   — copy existing voices into the new dir, keep the originals
-//   'move'   — copy existing voices into the new dir, then delete the originals
-// The new root takes effect after a server restart (paths.js resolves once at
-// startup); the migration itself is done here so the data is already in place.
-
-// Background copy/move runner. Updates the in-memory job so the UI pipeline can
-// show progress. Order is strictly copy → verify → delete; the config is only
-// written after data movement fully succeeds, so any failure leaves the source
-// and the active assets directory untouched.
-async function runMigrationJob(job, entries, doneNote) {
-  const sameName = (n) => n; // readability alias for entry name
-  try {
-    // Step 1: copy
-    for (const e of entries) {
-      job.currentName = sameName(e.name);
-      await fsp.cp(path.join(ASSETS_DIR, e.name), path.join(job.target, e.name), { recursive: true, force: true });
-      job.current += 1;
-    }
-    job.steps.copy = "done";
-
-    if (job.migration === "move") {
-      // Step 2: verify integrity before deleting anything
-      job.phase = "verifying"; job.steps.verify = "running"; job.current = 0; job.currentName = "";
-      for (const e of entries) {
-        job.currentName = e.name;
-        const bad = await firstMismatch(path.join(ASSETS_DIR, e.name), path.join(job.target, e.name));
-        if (bad) throw new Error(`integrity check failed for "${bad}" — source left intact, nothing deleted`);
-        job.current += 1;
-      }
-      job.steps.verify = "done";
-
-      // Step 3: delete sources (only now that the copy is verified complete)
-      job.phase = "deleting"; job.steps.delete = "running"; job.current = 0; job.currentName = "";
-      for (const e of entries) {
-        job.currentName = e.name;
-        await fsp.rm(path.join(ASSETS_DIR, e.name), { recursive: true, force: true });
-        job.current += 1;
-      }
-      job.steps.delete = "done";
-    }
-
-    writeConfig({ assetsRoot: job.target });
-    job.phase = "done"; job.done = true; job.note = doneNote; job.finishedAt = Date.now();
-  } catch (err) {
-    job.phase = "error"; job.done = true; job.error = localError(err); job.finishedAt = Date.now();
-    if (job.steps.copy === "running") job.steps.copy = "failed";
-    else if (job.steps.verify === "running") job.steps.verify = "failed";
-    else if (job.steps.delete === "running") job.steps.delete = "failed";
-  }
-}
-
-// GET /api/config/migrate-status/:id — poll a copy/move migration job.
-
-// GET /api/fs/browse?path=<abs> — server-side directory listing that powers an
-// IN-APP folder browser. Spawning a native OS dialog from this (headless, non-
-// interactive) server process is unreliable — it opens behind the browser or
-// not at all — so instead we list directories over HTTP and let the frontend
-// render a reliable, cross-platform, testable picker.
-//   - empty/absent path on Windows → returns the drive list (C:\, D:\, …)
-//   - otherwise → returns { path, parent, dirs:[{name, path}] }
-// Only directories are listed; unreadable entries are skipped.
-
-// POST /api/fs/mkdir { path } — create a directory (recursively) so the in-app
-// folder browser can make a new destination on the fly. Returns the resolved
-// absolute path; the frontend then navigates into it.
-
-// DELETE /api/assets/:id — delete an asset directory and its voice config
-
-// POST /api/assets/:id/scan — scan a single voice asset
-
-// POST /api/assets/import — import voice from GPT-SoVITS output using slicer_opt.list
-
-// GET /api/assets/:id — get meta.json for a voice
-
-// GET /api/assets/:id/segments — get segments.json for a voice
-
-// GET /api/assets/:id/raw-list — live listing of raw/ audio files (for the
-// non-sliced reference-audio column). Reads the directory NOW (not meta.json)
-// so deleted files never appear. Each entry is enriched with:
-//   - text:     aligned reference transcript from asr_opt/raw_opt.list (by basename)
-//   - duration: WAV header duration in seconds (0 when unknown, e.g. mp3 — the
-//               client then measures it via the <audio> element for the 3–10s guard)
-
-// POST /api/assets/generate-segments — parse name2text and generate segments.json
-
-// ── reference-transcript proofing (edit existing text, no ASR) ─────
-// The asset's reference transcript lives in asr_opt/<kind>.list as lines shaped
-// "<kind>/<file>|<speaker>|<LANG>|<text>". These endpoints let the Assets page
-// read and hand-edit that TEXT in place, reusing the existing Proofing UI. They
-// deliberately DO NOT run ASR, touch checkpoints, or start a pipeline.
-//
-// Pronunciation-level proofing is intentionally out of scope here: the .list can
-// only carry text, and pronunciation corrections persist in the global personal
-// lexicon (see /api/pron/lexicon), applied at inference time — not per-asset.
+const { runFullAssetScan } = require("./lib/server/assetScan");
+const { runMigrationJob } = require("./lib/server/migration");
 const TRANSCRIPT_KINDS = [
   { kind: "slicer_opt", listName: "slicer_opt.list", audioSub: "slicer_opt" },
   { kind: "raw", listName: "raw_opt.list", audioSub: "raw" },
 ];
-
-// Parse a .list file into editable rows, preserving every column so a later save
-// can round-trip path/speaker/lang untouched and only rewrite text.
-function readTranscriptListRows(listPath) {
-  const rows = [];
-  let content = "";
-  try { content = fs.readFileSync(listPath, "utf-8"); } catch { return rows; }
-  content.split("\n").forEach((line, i) => {
-    const t = line.replace(/\r$/, "");
-    if (!t.trim()) return;
-    const parts = t.split("|");
-    if (parts.length < 4) return;
-    rows.push({
-      index: i,
-      audio_path: parts[0] || "",
-      audio_filename: String(parts[0] || "").replace(/\\/g, "/").split("/").pop(),
-      speaker: parts[1] || "",
-      lang: parts[2] || "",
-      text: parts.slice(3).join("|"),
-    });
-  });
-  return rows;
-}
-
-// GET /api/assets/:id/transcript — return the asset's existing reference transcript
-// (one bucket per present .list) plus its provenance. No ASR, purely a read.
-
-// POST /api/assets/:id/transcript — persist hand-edited reference TEXT back to the
-// asset's .list, resync segments.json, and mark provenance as human-edited. Does
-// NOT run ASR or training. body: { kind, rows:[{audio_filename|audio_path, text}], verified? }
-
-// POST /api/assets/:id/transcribe — lightweight IN-PLACE ASR recovery.
-// One-click "generate reference text": runs the shared ASR kernel over the asset's
-// own raw/ and/or slicer_opt/ audio, writing asr_opt/<kind>.list + regenerating
-// segments.json + rescanning meta. It does NOT go through the training pipeline or
-// promote — the asset is edited in place. Reference TEXT is advisory (inference
-// works without it); this just makes recovery a single button.
-//   body.source: 'raw' | 'slices' | 'both' | 'missing'(default, fills absent lists)
-
-// GET /api/assets/:id/transcribe-status — poll the in-place transcribe job.
-// requireApiKey for consistency with the rest of the asset API; strip internal
-// child/cancel bookkeeping from the response.
-
-// GET /api/transcribe-jobs — list ALL non-idle in-place transcribe jobs so the
-// Assets UI can re-hydrate after navigating away and back (the AssetsTab component
-// unmounts on page switch, losing its local job state, while these jobs keep running
-// server-side). Distinct top-level path on purpose: anything under /api/assets/<x>
-// is captured by the GET /api/assets/:id route above. Strip internal bookkeeping.
-
-// DELETE /api/assets/:id/transcribe — cancel a running in-place transcribe job.
-
-// POST /api/assets/:id/rebuild — dependency-driven asset repair.
-// Computes the SHORTEST set of stages to fill missing artifacts (reusing what
-// exists). By default it only returns the PLAN (execute=false). With
-// execute=true it performs the repair: lightweight cases (only segments) run
-// inline; cases needing training are handed to the existing training pipeline
-// with inputDir pointed at the published asset dir and the computed stepOptions.
+const { readTranscriptListRows } = require("./lib/server/transcriptRows");
 
 // ===========================
 //  OPENAI-COMPATIBLE ENDPOINT
@@ -919,130 +196,12 @@ function readTranscriptListRows(listPath) {
 // ===========================
 //  TRAINING API
 // ===========================
-
 const trainingPipeline = require("./lib/training/pipeline");
 const _uvr5Models = require("./pipeline/uvr5/uvr5_models");
-
 const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko", "auto"]);
-
-// 白名单校验 + clamp customParams，防止脏参数进训练。
-// Train 页(/api/train/start)和资产重建(/api/assets/:id/rebuild)共用此函数，
-// 因为两者最终都走同一条 createPipeline；重建只是按依赖图跑更少的步骤(轻量
-// pipeline)，但参数安检必须完全一致。白名单覆盖前端暴露的全部参数(Advanced +
-// Expert + Slice + ASR)；任何不在白名单内、超范围或类型错误的字段一律丢弃。
-function sanitizeCustomParams(custom) {
-  if (!custom || typeof custom !== 'object') return {};
-  const safe = {};
-
-  // helpers — only assign when the value passes validation, otherwise drop it.
-  const num = (dst, key, v, min, max) => {
-    if (v == null) return;
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= min && n <= max) dst[key] = n;
-  };
-  const intNum = (dst, key, v, min, max) => {
-    if (v == null) return;
-    const n = Math.round(Number(v));
-    if (Number.isFinite(n) && n >= min && n <= max) dst[key] = n;
-  };
-  const bool = (dst, key, v) => { if (typeof v === 'boolean') dst[key] = v; };
-  const oneOf = (dst, key, v, allowed) => { if (allowed.includes(v)) dst[key] = v; };
-  // 'auto'/'default'-or-number fields (batch_size / learning_rate).
-  const word = (dst, key, v, keyword, min, max) => {
-    if (v == null) return;
-    if (v === keyword) { dst[key] = keyword; return; }
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= min && n <= max) dst[key] = n;
-  };
-
-  if (custom.training) {
-    const t = custom.training;
-    const s = (safe.training = {});
-    // common
-    intNum(s, 'gpt_epochs', t.gpt_epochs, 1, 100);
-    intNum(s, 'sovits_epochs', t.sovits_epochs, 1, 100);
-    word(s, 'batch_size', t.batch_size, 'auto', 1, 16);
-    word(s, 'learning_rate', t.learning_rate, 'default', 1e-7, 1);
-    // 训练目标版本（v2 / v2Pro / v2ProPlus），前端可在 customParams.training.version 覆盖
-    oneOf(s, 'version', t.version, ['v2', 'v2Pro', 'v2ProPlus']);
-    // 多版本并行训练（读法 B）：versions[] 白名单，每项 ∈ v2/v2Pro/v2ProPlus，去重保序。
-    if (Array.isArray(t.versions)) {
-      const _allowedV = ['v2', 'v2Pro', 'v2ProPlus'];
-      const _vs = [];
-      for (const v of t.versions) if (_allowedV.includes(v) && !_vs.includes(v)) _vs.push(v);
-      if (_vs.length) s.versions = _vs;
-    }
-    // S1 advanced / expert
-    intNum(s, 'seed', t.seed, 0, 999999);
-    intNum(s, 'save_every_n_epoch', t.save_every_n_epoch, 1, 50);
-    // split S1/S2 checkpoint save intervals (legacy save_every_n_epoch
-    // still honoured as a fallback in train.js). S1 default 4 (epoch 8 lands on a
-    // save), S2 default 5 (epoch 25 lands on a save).
-    intNum(s, 's1_save_every_n_epoch', t.s1_save_every_n_epoch, 1, 50);
-    intNum(s, 's2_save_every_n_epoch', t.s2_save_every_n_epoch, 1, 50);
-    oneOf(s, 'precision', t.precision, ['16-mixed', '16-true', 'bf16-mixed', 'bf16-true', '32-true', '32']);
-    num(s, 'gradient_clip', t.gradient_clip, 0.1, 10);
-    num(s, 'lr', t.lr, 1e-7, 1);
-    num(s, 'lr_init', t.lr_init, 1e-7, 0.1);
-    num(s, 'lr_end', t.lr_end, 1e-7, 0.1);
-    intNum(s, 'warmup_steps', t.warmup_steps, 0, 100000);
-    intNum(s, 'decay_steps', t.decay_steps, 1, 200000);
-    num(s, 'max_sec', t.max_sec, 1, 300);
-    intNum(s, 'num_workers', t.num_workers, 0, 16);
-    intNum(s, 'max_eval_sample', t.max_eval_sample, 1, 100);
-    // S2 advanced / expert
-    intNum(s, 's2_seed', t.s2_seed, 0, 999999);
-    intNum(s, 'log_interval', t.log_interval, 1, 10000);
-    intNum(s, 'eval_interval', t.eval_interval, 1, 10000);
-    bool(s, 'fp16_run', t.fp16_run);
-    num(s, 'lr_decay', t.lr_decay, 0.9, 1);
-    intNum(s, 'segment_size', t.segment_size, 1024, 65536);
-    num(s, 'c_mel', t.c_mel, 1, 100);
-    num(s, 'c_kl', t.c_kl, 0.1, 10);
-    num(s, 'text_low_lr_rate', t.text_low_lr_rate, 0.01, 1);
-    bool(s, 'grad_ckpt', t.grad_ckpt);
-  }
-  if (custom.steps) {
-    safe.steps = {};
-    if (custom.steps.slice && custom.steps.slice.params) {
-      const p = custom.steps.slice.params;
-      const sp = (safe.steps.slice = { params: {} }).params;
-      num(sp, 'min_duration_sec', p.min_duration_sec, 1, 30);
-      num(sp, 'max_duration_sec', p.max_duration_sec, 1, 60);
-      num(sp, 'silence_threshold_db', p.silence_threshold_db, -60, 0);
-      num(sp, 'min_silence_sec', p.min_silence_sec, 0.1, 5);
-    }
-    if (custom.steps.asr && custom.steps.asr.params) {
-      const p = custom.steps.asr.params;
-      const ap = (safe.steps.asr = { params: {} }).params;
-      oneOf(ap, 'engine', p.engine, ['auto', 'funasr', 'faster-whisper']);
-      oneOf(ap, 'model_size', p.model_size,
-        ['large-v3-turbo', 'large-v3', 'large', 'medium', 'small', 'tiny', 'distil-large-v3']);
-      oneOf(ap, 'precision', p.precision, ['float16', 'float32', 'int8']);
-      bool(ap, 'force_simplified_chinese', p.force_simplified_chinese);
-    }
-    if (custom.steps.denoise && custom.steps.denoise.params) {
-      // Vocal-extraction pipeline: normalise to a validated [{model,agg?}] array via
-      // the shared registry (drops unknown models, clamps agg, coerces the legacy
-      // {model:string} shape). Storing the canonical pipeline is what makes the step
-      // fingerprint diff correctly, so a changed chain always re-runs.
-      safe.steps.denoise = { params: {} };
-      const dp = custom.steps.denoise.params;
-      const pipeline = _uvr5Models.normalizePipeline(
-        Array.isArray(dp.pipeline) ? dp.pipeline : dp
-      );
-      if (pipeline.length) safe.steps.denoise.params.pipeline = pipeline;
-    }
-  }
-  return safe;
-}
-
-// Training data must live under this root (absolute path)
-// Must be configured in production — requests without it are rejected
+const { sanitizeCustomParams } = require("./lib/server/trainingParams");
 const TRAIN_DATA_ROOT = process.env.TRAIN_DATA_ROOT || "";
 
-// ===== task3 底模门禁：基础模型体检（与 download_models.py 布局对齐） =====
-// 底模检测/体检/登记/生成产物管理已搬去 lib/server/assets.js（P0 拆分任务 6）。
 try {
   const { registerBaseModelSource } = require("./lib/assets/baseModels");
   registerBaseModelSource("gpt-sovits", () => {
@@ -1053,123 +212,21 @@ try {
   console.warn(`[assets] 无法登记 GPT-SoVITS 底模找法: ${e && e.message}`);
 }
 
-// POST /api/assets/derive-id — return a PROPOSED (non-reserved) canonical id for
-// a display name, for live preview in the create form. NOT authoritative: the
-// final id is allocated atomically at task creation and may differ. The UI must
-// label this as "proposed".
-
-// ── Voice Refinement: derive a NEW voice from a parent ───────────
-// Continues training from an existing asset's checkpoints and publishes the result
-// as a brand-new derived Voice. The parent is NEVER modified or overwritten.
-//   * S1 (GPT) and S2 (SoVITS) are independent — refine s1 | s2 | s1+s2.
-//   * The refined step warm-starts from the parent's published checkpoint; the
-//     un-refined step is reused verbatim (seeded under the new id + carried forward).
-//   * A new canonical id is allocated via allocateVoiceId() (never the parent id).
-//   * Pipeline: preprocess → [train_s1] → [train_s2] → finalize → promote.
-const { versionFromName, normalizeVersion } = require("./lib/training/version");
-
-function pickLatestByEpoch(files, re) {
-  let best = null, bestE = -1;
-  for (const f of files) {
-    const m = f.match(re);
-    if (!m) continue;
-    const e = parseInt(m[1], 10);
-    if (e > bestE) { bestE = e; best = f; }
-  }
-  return best ? { file: best, epoch: bestE } : null;
-}
-
-// ── P6: 人工校对（ASR 后暂停）───────────────────────────────────────────────
-// GET  读取当前可校对的 .list（awaiting_review 时有效，其它状态也可只读预览）
-
-// GET 试听校对片段音频（Range 支持，供校对面板的播放/暂停按钮用）。
-// path 为 .list 里的资产内相对路径；解析与目录穿越防护由 task.resolveReviewAudioPath 负责。
-
-// POST 保存用户校对后的文本（写回 .list + segments.json）。可在 awaiting_review 期间反复保存。
-
-// POST 结束校对，放行管线继续（preprocess→train→…）。
-
-// GET /api/train/recoverable — 缓存里所有可恢复(failed + interrupted)的微调任务，
-// 含失败步、英文原因、原始参数，供"恢复训练"面板列出并回填。
-
-// POST /api/train/clear-staging — 清除训练暂存目录 (.staging) 中已结束的任务工作区。
-// 只删除非运行中的任务：内存里活跃的任务 + task.json 标记为 running/pending 的都会被保护。
+const { versionFromName, normalizeVersion, pickLatestByEpoch } = require("./lib/server/trainingVersion");
 
 // ===========================
 //  RECIPES API (P0 keystone)
 // ===========================
-//
-// Recipes are role-scoped, reusable inference presets. CRUD operates by
-// (role, name); the OpenAI /v1/audio/speech endpoint resolves them via the
-// `voice` field ("role/name"). Storage + validation live in lib/recipeStore.js.
+const { createKnownVoice } = require("./lib/server/recipeVoice");
+const knownVoice = createKnownVoice(isBaseVoice, loadVoices);
 
-// Reject a recipe whose role is not a known voice — keeps recipes anchored to
-// real assets and blocks typos from creating orphan presets.
-//
-// 补的一个既有的洞：底模（BASE_VOICE_ID）按设计不在
-// voices.json 里**（见 isBaseVoice / baseVoiceReg，以及 synthesisService 里
-// 「resolve it in-memory so zero-shot inference on the pretrained weights works
-// without a fine-tuned asset」那段注释）。于是这个 hasOwnProperty 会把底模判成
-// unknown voice，`POST /api/recipes` 返回 400。
-//
-//     底模零样本能推理，却存不成配方；存不成配方就出不了 broker。
-//
-// 而「用底模 + 一段参考音频做零样本」正是 IndexTTS2 这类引擎的主力用法。
-// 配方是串联 webui/flow 到 broker 的调用单元，这个洞正好卡在那条主线上。
-//
-// 放行底模不会放松「配方必须锚在真实资产上」这条规矩：底模是平台自带的内建
-// 音色（voices API 里也是 unshift 一条 builtin 进列表的），它比 voices.json
-// 里任何一条都更「真实存在」。
-function knownVoice(role) {
-  if (isBaseVoice(role)) return true;
-  try { return Object.prototype.hasOwnProperty.call(loadVoices(), role); }
-  catch (_) { return false; }
-}
-
-// GET /api/recipes — list all, or ?role= to scope to one voice.
-
-// GET /api/recipes/:role/:name — fetch one.
-
-// POST /api/recipes — create. Body carries the full recipe payload. Duplicate
-// (role,name) is rejected with 409 unless { force:true } (overwrite, keeps
-// created_at). The frontend uses 409 to raise the "already exists, overwrite?"
-// confirmation.
-
-// PUT /api/recipes/:role/:name — merge-update (Broker model re-bind + edits).
-
-// DELETE /api/recipes/:role/:name — remove one.
-
-// ── Recipe v2→v3 path migration (explicit, assisted; never auto/startup) ──────
-// GET preview — READ-ONLY. Classifies every v<3 recipe's managed paths into
-// convertible/external/missing/ambiguous. Writes nothing.
-
-// POST apply — backs up then rewrites ONE recipe to v3. Refuses when any field is
-// ambiguous/missing unless the body supplies explicit `resolutions`
-// (field → { base, path }). Ambiguous/missing are NEVER auto-selected.
-
-// POST revert — restore a recipe from its most recent (or named) backup.
-
-// GET /api/assets/voices-with-models — the first-level picker for the Broker
-// re-bind (PC). Lists every voice that owns at least one GPT ckpt or SoVITS pth,
-// with per-type flags so the GPT box only offers voices that have GPT models and
-// the SoVITS box only those with SoVITS models (PC-1).
-
-// GET /api/recipes-models/:role — list a voice's available GPT/SoVITS
-// checkpoints (from meta.json) for the Broker page "project query" model
-// re-bind path. Returns project-relative paths so recipes stay portable.
-
-// ===========================
-//  SERVE REACT FRONTEND
-// ===========================
+// ── Graceful shutdown (1.0.7) ────────────────────────────────────
+const { shutdown, shutdownState } = createShutdownManager(null, { _inflight, _shuttingDown, console });
 
 // ===========================
 //  ROUTE MOUNTING (Stage-1 refactor)
 // ===========================
-// All API routes now live in lib/routes/<domain>.js as express.Router
-// factories. They receive shared server-scope symbols via `ctx` and are
-// mounted here (paths unchanged). The static frontend + SPA catch-all are
-// registered LAST so specific API routes always win.
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _backupVoicesUnlocked, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefStorage, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, multer, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, storage, switchModels, toPcm16Wav, toProjectRelative, trainingPipeline, transcodeAudio, transcribeJobs, upload, validateHost, vendoredFfmpegPath, versionFromName, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, shutdownState };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _backupVoicesUnlocked, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, switchModels, toPcm16Wav, transcribeJobs, upload, validateHost, vendoredFfmpegPath, voicesStore, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, trainingPipeline, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/engines")(ctx));
 app.use(require("./lib/routes/pron")(ctx));
@@ -1183,176 +240,24 @@ app.use(require("./lib/routes/uvr5")(ctx));
 app.use(require("./lib/routes/recipes")(ctx));
 
 // ---- Aurivox Flow (FLOW-CORE-004 live wiring) ----
-// Opt-in ONLY. With FLOW_ENABLED unset the Flow kernel is never constructed and
-// never mounted, so the default server behaviour is unchanged from before the
-// wiring existed. The Flow routes are additive (/api/flow/*) and touch none of
-// the Workbench paths above.
-if (String(process.env.FLOW_ENABLED || "").trim() && process.env.FLOW_ENABLED !== "0") {
-  try {
-    const { createFlowRuntime } = require("./lib/workflow/runtime");
-    const { generateService } = require("./lib/services/synthesisService")(ctx);
-    ctx.flowRuntime = createFlowRuntime(ctx, { generateService });
-    app.use(require("./lib/routes/flow")(ctx));
-    console.log(`[flow] Aurivox Flow enabled — journal dir: ${ctx.flowRuntime.journalDir}`);
-  } catch (err) {
-    // Fail loudly but do not take the Workbench down with it: Flow is opt-in
-    // and experimental, the legacy surface must keep serving.
-    console.error(`[flow] FAILED to enable Aurivox Flow: ${err && err.message}`);
-  }
-}
-
-// ---- Aurivox 节点画布 (flowgraph) ----
-// Opt-in ONLY, and additive: every path is under /api/flowgraph/*, the generate
-// page is untouched, and with the switch off nothing here is even constructed.
-// The canvas borrows the SAME generate service the page calls, so the two can
-// not drift into producing different audio from the same settings.
-if (String(process.env.FLOWGRAPH_ENABLED || "").trim() && process.env.FLOWGRAPH_ENABLED !== "0") {
-  try {
-    const { createFlowgraphService } = require("./lib/flowgraph/service");
-    const { generateService } = require("./lib/services/synthesisService")(ctx);
-    // rootDir 显式取自 lib/paths.js，不再依赖 ctx 中是否存在 DATA_DIR 这一隐式条件。
-    ctx.flowgraphService = createFlowgraphService(ctx, {
-      generateService, concatWavFiles, rootDir: FLOWGRAPH_DIR,
-    });
-    app.use(require("./lib/routes/flowgraph")(ctx));
-    console.log(`[flowgraph] 画布已开启 — ${ctx.flowgraphService.nodeCatalogue().count} 个节点，输出目录: ${ctx.flowgraphService.outputDir}`);
-  } catch (err) {
-    // Loud, but never fatal: the canvas is experimental and the Workbench must
-    // keep serving even if it fails to come up.
-    console.error(`[flowgraph] 画布启动失败: ${err && err.message}`);
-  }
-}
+setupOptionalRoutes(app, ctx, { FLOWGRAPH_ENABLED: process.env.FLOWGRAPH_ENABLED, FLOW_ENABLED: process.env.FLOW_ENABLED, FLOWGRAPH_DIR, console });
 
 // ---- Serve React frontend (must stay after API routers) ----
-app.use(express.static(WEB_DIST));
-app.get("*", (req, res) => {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/outputs/") || req.path.startsWith("/v1/")) {
-    return res.status(404).json({ error: "Not found" });
-  }
-  // A request that looks like a static file (has a real extension, e.g. .js/.css/
-  // .map/.png) but reached this catch-all means express.static did NOT find it.
-  // Returning index.html (text/html) here makes browsers reject module scripts
-  // with a MIME error and shows a blank page. Return a clean 404 instead so a
-  // stale/mismatched web/dist surfaces as an obvious missing asset rather than a
-  // white screen. Only genuine SPA client routes (no file extension) get index.html.
-  if (/\.[a-zA-Z0-9]+$/.test(req.path)) {
-    return res.status(404).send("Not found: " + req.path);
-  }
-  const indexHtml = path.join(WEB_DIST, "index.html");
-  if (fs.existsSync(indexHtml)) {
-    res.sendFile(indexHtml);
-  } else {
-    res.status(404).send("Frontend not built. Run: cd web && npm install && npm run build");
-  }
-});
+setupFrontend(app, { WEB_DIST, path, fs });
 
-// ── Global JSON error handler (1.0.7) ───────────────────────────
-// Any error handed to next(err) — most importantly multer upload failures (file
-// too large / unsupported type) and body-parser JSON syntax errors — would
-// otherwise reach Express's default handler and return an HTML stack page.
-// Normalise them to a JSON body so API / OpenAI clients always get a
-// machine-readable error. MUST stay LAST, after all routes.
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err);
-  const MULTER_STATUS = { LIMIT_FILE_SIZE: 413, LIMIT_UNEXPECTED_FILE: 400,
-    LIMIT_PART_COUNT: 400, LIMIT_FILE_COUNT: 400, LIMIT_FIELD_KEY: 400,
-    LIMIT_FIELD_VALUE: 400, LIMIT_FIELD_COUNT: 400 };
-  let status = (err && Number.isInteger(err.status)) ? err.status : 500;
-  if (err && err.name === "MulterError") status = MULTER_STATUS[err.code] || 400;
-  else if (err && err.type === "entity.too.large") status = 413;
-  else if (err && (err.type === "entity.parse.failed" || err instanceof SyntaxError)) status = 400;
-  else if (err && /Unsupported file type/i.test(err.message || "")) status = 400;
-  const msg = status >= 500
-    ? clientError(err, "Internal server error")
-    : ((err && err.message) ? err.message : "Bad request");
-  const code = (err && err.code) || (err && err.extra && err.extra.code) ||
-    (status >= 500 ? "INTERNAL_ERROR" : "REQUEST_FAILED");
-  res.status(status).json({ code, message: msg, error: msg });
-});
+// ---- Global JSON error handler (1.0.7) ───────────────────────────
+setupErrorHandling(app, { clientError, localError });
 
 // ---- Start ----
-// 只有直接运行（`node server.js`）才起监听。被 require 时（集成夹具、单元
-// 测试）只拿到这个模块的 app，绝不占端口 —— 过去这里没有守卫，require
-// 一次就把端口占了，这正是 server.js 进不了测试进程、从而没有任何直接
-// 单元测试覆盖的原因。
-let server = null;
 if (require.main === module) {
-  server = app.listen(PORT, HOST, () => {
-    console.log(`\n========================================`);
-    console.log(`  TTS Voice Asset Manager`);
-    console.log(`  http://${HOST}:${PORT}`);
-    console.log(`  ffmpeg: ${checkFfmpeg() ? "available" : "not found (using pure-Node concat)"}`);
-    // Warm the CUDA probe in the background so /api/health has a ready answer.
-    startCudaProbe();
-    if (!API_KEY) {
-      // This used to say "All write/delete/execute endpoints are BLOCKED", which
-      // is not true: requireApiKey lets every loopback request straight through
-      // (see the isLoopback branch above). On a local workstation nothing is
-      // blocked, and the old wording sent people hunting for a key they never
-      // needed. Say what is actually the case instead.
-      console.log(`\n  note: no API_KEY set — local use (127.0.0.1) is unrestricted.`);
-      console.log(`  A key is only needed for calls coming from another machine.`);
-    }
-    console.log(`========================================\n`);
-
-    // 扫描暂存目录中的未完成任务（断电恢复）
-    scanStagingTasks({ STAGING_ROOT: PATHS.STAGING_ROOT, console });
-
-    // 自动扫描资产:首次启动/缺少 meta.json 时生成元数据,
-    // 避免侧边栏 GPT/SoVITS 红叉与 "voice not found"(无需手动 scan all)。
-    (async () => {
-      try {
-        if (assetsNeedScan()) {
-          console.log("[ASSETS] some voices are missing meta.json/segments.json; auto-scanning at startup...");
-          const results = await runFullAssetScan();
-          console.log(`[ASSETS] auto-scan complete: ${Object.keys(results).length} voice(s) ready`);
-        } else {
-          console.log("[ASSETS] asset metadata is ready; skipping auto-scan");
-        }
-      } catch (e) {
-        console.error("[ASSETS] startup auto-scan failed:", e.message);
-      }
-    })();
+  server = startServer(app, {
+    PORT, HOST, API_KEY, checkFfmpeg, startCudaProbe, scanStagingTasks,
+    assetsNeedScan, runFullAssetScan, console, PATHS,
   });
 }
 
-// ── Graceful shutdown (1.0.7) ────────────────────────────────────
-// Default: stop taking new requests, let in-flight synthesis finish, then exit.
-// interrupted:true requests are aborted at once; a 2nd signal / grace timeout
-// forces exit.
-function shutdown(signal) {
-  if (_shuttingDown) {
-    console.warn(`[shutdown] second ${signal} — forcing exit now.`);
-    return process.exit(1);
-  }
-  _shuttingDown = true;
-  const graceMs = Math.max(0, parseInt(process.env.AURIVOX_SHUTDOWN_GRACE_MS, 10) || 120000);
-  console.log(`[shutdown] ${signal} received — refusing new requests; ` +
-    `${_inflight.size} in-flight (grace ${graceMs}ms).`);
-  try { server.close(() => console.log("[shutdown] HTTP server closed to new connections.")); } catch (_) {}
-  // Abort only the requests that explicitly opted in via interrupted:true.
-  for (const entry of _inflight) {
-    if (entry && entry.interruptible && typeof entry.abort === "function") {
-      try { entry.abort(); } catch (_) {}
-    }
-  }
-  const started = Date.now();
-  const timer = setInterval(() => {
-    if (_inflight.size === 0) {
-      clearInterval(timer);
-      console.log("[shutdown] all in-flight work finished — exiting cleanly.");
-      process.exit(0);
-    } else if (Date.now() - started > graceMs) {
-      clearInterval(timer);
-      console.warn(`[shutdown] grace elapsed with ${_inflight.size} still running — forcing exit.`);
-      process.exit(0);
-    }
-  }, 250);
-  if (typeof timer.unref === "function") timer.unref();
-}
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-// 未捕获的 Promise 拒绝：记下原因并优雅退出，不静默失败
 process.on("unhandledRejection", (reason) => {
   console.error("[server] unhandledRejection:", reason);
   shutdown("unhandledRejection");
