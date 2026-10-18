@@ -5,7 +5,7 @@ deploy_wizard.py — Aurivox 部署向导 (纯控制台 / 黑窗 TUI)。
 
 在环境初始化 / 下载之前运行, 负责与用户交互的四个阶段:
 
-  阶段 1  展示本产品许可 (LICENSE + NOTICE) —— 仅供知情。本软件以 MIT 授权给用户,
+  阶段 1  展示本产品许可 (LICENSE + NOTICE)：仅供知情。本软件以 MIT 授权给用户,
           使用/安装无需接受任何附加义务, 因此这里不设"同意"门槛 (只可选择退出安装)。
   阶段 2  选择要下载的上游模型 (核心默认选中, 基座默认 v2Pro; 备用基座 / 可选项按需)。
           同时"只展示不选择"固定的运行环境: Python 依赖 / Node 模块 / 运行时组件。
@@ -120,7 +120,7 @@ def pager(text, title):
 def stage_license():
     print("\n")
     rule("#")
-    print("  阶段 1 / 4    第一层许可: 本软件 Aurivox 自身 (LICENSE + NOTICE) —— 仅供知情")
+    print("  阶段 1 / 4    第一层许可: 本软件 Aurivox 自身 (LICENSE + NOTICE)：仅供知情")
     rule("#")
     lic = os.path.join(ROOT, "LICENSE")
     notice = os.path.join(ROOT, "NOTICE")
@@ -130,7 +130,7 @@ def stage_license():
         pager(read_text(notice), "NOTICE")
     # MIT 是"授予你权利"的宽松许可, 无需你"接受"任何义务即可使用/安装本软件,
 # 因此这里不设"同意"门槛 ： 仅展示。你随时可选择不安装 (输入 q 退出)。
-    print("  本软件以 MIT 许可授权给你 —— 使用/安装无需接受任何附加义务, 以上仅供知情。")
+    print("  本软件以 MIT 许可授权给你：使用/安装无需接受任何附加义务, 以上仅供知情。")
     ans = ask("  回车继续安装 (无需接受) / 输入 q 退出: ").strip().lower()
     if ans == "q":
         print("\n  已退出: 你选择不安装。")
@@ -374,7 +374,7 @@ def stage_licenses(sel, by_group):
     #             (B) 部署时联网下载、我们并不再分发的依赖/工具(合规义务留在上游分发方)。
     # 两类都无需终端用户"接受"; 只按 license 分组告知。
     bundled, fetched = build_platform_license_groups(sel)
-    print("\n  [第二层] 平台自身用到的第三方代码 / 运行时 / 依赖 —— 仅供知悉, 无需签署或接受:")
+    print("\n  [第二层] 平台自身用到的第三方代码 / 运行时 / 依赖：仅供知悉, 无需签署或接受:")
     print(f"    (A) 随发行包内置分发 ({len(bundled)} 组; 许可文本随包携带于 THIRD_PARTY_LICENSES/runtime/):")
     for lic, items in bundled:
         names = ", ".join(name for _kind, name, _d, _f in items)
@@ -389,9 +389,9 @@ def stage_licenses(sel, by_group):
     mods = build_model_download_groups(sel, by_group)
     declined = set()
     if not mods:
-        print("\n  [第三层] 未选择任何下游模型 —— 跳过。")
+        print("\n  [第三层] 未选择任何下游模型：跳过。")
     else:
-        print(f"\n  [第三层] 下游模型权重 ({len(mods)} 组) —— 我们仅代为下载, 并不分发这些权重;")
+        print(f"\n  [第三层] 下游模型权重 ({len(mods)} 组)：我们仅代为下载, 并不分发这些权重;")
         print("           各权重的许可归其发布者所有。请到下方各自仓库自行阅读其许可条款。")
         print("           确认已阅读该组请输入 READ; 不想下载该组输入 NO (只跳过该组, 平台照常部署)。")
         for i, (g, label, comps) in enumerate(mods, 1):
@@ -462,7 +462,7 @@ def stage_confirm(sel, by_group):
         est += ap
         print(f"       - {label}   ~{human(ap)}")
     if not sel["model_groups"]:
-        print("       - (无 —— 仅部署平台, 不下载任何模型)")
+        print("       - (无：仅部署平台, 不下载任何模型)")
     if sel.get("ffmpeg"):
         print("  3) 下载 FFmpeg (ffmpeg/ffprobe, Windows x64, GPL-3.0) -> vendor\\ffmpeg\\")
     print(f"\n  预计模型下载总量: ~{human(est)} (实际以下载为准, 已存在的会跳过)")

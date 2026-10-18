@@ -213,7 +213,7 @@ def main():
         skip = {".git", "node_modules", "__pycache__", ".venv", "venv",
                 "dist", "logs", "outputs", "cache", ".hermes", ".staging"}
         entries = collect_from_tree(root, skip)
-        what = root + "   ⚠ 工作树模式跳过了 %s" % "/".join(sorted(skip))
+        what = root + "   工作树模式跳过了 %s" % "/".join(sorted(skip))
     print("   目标：%s" % what)
     print("   阈值：单文件 %sMB / 二级目录 %sMB / 总量 %sMB"
           % (a.max_file, a.max_dir, a.max_total))
