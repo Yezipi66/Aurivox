@@ -2,30 +2,28 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
-import { API_BASE, api } from '../../lib/api'
+import { api } from '../../lib/api'
 import { LANG_LABEL, TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides, parseLangOverrides, pruneForced } from '../pron/PronProofing'
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
-import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
-import { AudioPlayer, Player } from '../common/Player'
-import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, refMatches } from '../common/RefPickers'
+import { IconRerun, IconTrash } from '../common/Icons'
 import { useAssetsWithModels } from '../../lib/models'
 // 模型下拉的一切（有几个、里面装什么、选中的怎么发出去）都在这里。
 // 这个组件里不许再出现任何引擎名字或模型位名字。
 import { slotsOf, candidatesForSlot, flattenGroups, itemLabel,
          reconcileSelection, weightsToSend, launchWeightsToSend, weightsFromParams,
-         slotsNeedingRelaunch, voicesForEngine, modelNotesFor,
-         describeGeneration } from '../../lib/modelPickers.pure.js'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, VOICE_LANG_LABEL, basename, defaultTargetLang, effectiveBaseLang, fmtRecentTime, langLabel, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
+         slotsNeedingRelaunch, voicesForEngine, modelNotesFor } from '../../lib/modelPickers.pure.js'
+import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, VOICE_LANG_LABEL, basename, defaultTargetLang, effectiveBaseLang, normalizeLangFamily, outputsError, pickDefaultRef, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
 // fieldLabel / fieldHelp / recipePath 不在这里，三个写死的类型分支换成
 //   <ParamField> 之后它们只在 ParamField 里用了，留着就是空引用。
-import { fieldsForTier, schemaGap, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible, TIERS } from '../../lib/engines'
-import { ParamField, ToggleField } from '../common/ParamField'
+import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible } from '../../lib/engines'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
-import { voiceOptionLabel, SeedBadge, SeedInline, CollapsibleSegments } from './GenerateBits'
+import { voiceOptionLabel, CollapsibleSegments } from './GenerateBits'
 import { VoiceSidebar } from './VoiceSidebar'
+import { GenerationResult, RecentGenerations } from './RecentGenerations'
+import { AdvancedParamsPanel } from './AdvancedParamsPanel'
 
 function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, onActivity }) {
   // 这里必须叫 uiLang，不能叫 lang：这个文件里 `lang` 早就是音色的语言
@@ -935,184 +933,34 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
             </div>
 
             {/* Advanced Settings */}
-            <div className="collapsible" style={{ margin: '6px 0' }}>
-              <div className="collapsible-hdr" onClick={() => setShowAdvanced(!showAdvanced)}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAdvanced ? '▲' : '▼'}</span>
-              </div>
-              {showAdvanced && (
-                <div className="collapsible-body">
-                  {/* Tier tabs，档位也来自名片（TIERS），不是写死两个按钮 */}
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                    {TIERS.map(tier => (
-                      <button key={tier} type="button" className="btn btn-sm" onClick={() => setAdvTier(tier)}
-                        style={{ background: advTier === tier ? 'var(--accent)' : 'var(--surface)', color: advTier === tier ? '#fff' : 'var(--muted)', textTransform: 'capitalize' }}>
-                        {tier}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* 名片里一个参数都没描述时，说清是哪一种「没有」。
-                      静默画一个空面板会让人以为这台引擎调不了，实际部署里
-                         确实有 param_keys 有 12 个、params.schema 却是空的引擎。 */}
-                  {(() => {
-                    const gap = schemaGap(engine)
-                    return gap ? (
-                      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>{gap.message}</div>
-                    ) : null
-                  })()}
-
-                  {/* 这里原本是两档共 13 个写死的 <input>。全部换成按
-                      engine.param_schema 循环，装一台谁都没见过的引擎，
-                      这段代码一个字都不用改（契约 §11 判据 9）。 */}
-                  {TIERS.map(tier => advTier === tier && (
-                    <div className="form-grid" key={tier}>
-                      {/* 五种预设样式全部走同一个 <ParamField>。
-                          这里不许再出现 f.type === '...' 的分支：一旦分叉，
-                             「换一台引擎，同一种参数长得不一样」就会回来，而且
-                             以后生成出来的每台引擎的页面还会各自再抄一份。
-                          候选项（select + source）由 selectOptions 扫盘给进来，
-                          ParamField 不知道 voices/weights/audio 是什么。 */}
-                      {visibleFields(tier).map(f => (
-                        <ParamField key={f.name}
-                          field={f}
-                          values={paramValues}
-                          onChange={setParam}
-                          lang={uiLang}
-                          options={selectOptions(f)}
-                          t={t} />
-                      ))}
-
-
-                      {/* 平台自己的开关。它们不属于任何一台引擎，所以不在
-                          param_schema 里，也就不能跟着上面那个循环长出来。
-                          判据很简单：换一台引擎，这几格的含义一个字都不变。 */}
-                      {tier === 'common' && (
-                        <div>
-                          <label className="field-label">Seed (-1 = random)</label>
-                          <input type="number" className="control" value={seed} onChange={e => setSeed(parseInt(e.target.value) || -1)} />
-                        </div>
-                      )}
-                      {tier === 'common' && (
-                        <div>
-                          {/*
-                            强制重新推理。放 Common 档的依据是它比其他格子更基础。
-                            它与同排其它格子不是一类东西：那些是引擎参数，会存进
-                              /api/advanced-params；这一个是平台开关，存在浏览器本地
-                              （generate.forceResynth），绝不进引擎参数表，详见
-                              状态声明处的注释。
-                          */}
-                          {/* 走 ToggleField，跟名片长出来的那些勾选框是同一个组件。
-                              不要在这儿手写 <input type="checkbox">：那正是
-                                「一个左上一个右下」的来历（见 ToggleField 的注释）。 */}
-                          <ToggleField
-                            label={t('Force re-synthesis', '强制重新推理')}
-                            help={t('Ignore cached audio and re-run inference', '忽略缓存音频，重新执行推理')}
-                            checked={forceResynth}
-                            onChange={setForceResynth} />
-                        </div>
-                      )}
-                      {tier === 'advanced' && (
-                        <div title={t('Engine batch: send the whole text to the engine in ONE call and let the engine split and batch it itself, instead of the platform synthesising each segment one by one. Faster for long text; produces a single audio file with no per-segment files.', '引擎批量：整段文本一次性交给引擎，由引擎自己切分并批量推理，而不是由平台逐段合成。长文本更快；输出为单个音频、无分段文件。')}>
-                          <ToggleField
-                            label={t('Engine Batch (parallel)', '引擎批量并行')}
-                            checked={engineBatch}
-                            onChange={setEngineBatch} />
-                        </div>
-                      )}
-                      {tier === 'advanced' && (
-                        <div>
-                          <label className="field-label">Media Type</label>
-                          <Select className="control" value={mediaType} onChange={e => setMediaType(e.target.value)}>
-                            <option value="wav">WAV</option>
-                            <option value="ogg">OGG</option>
-                            <option value="aac">AAC</option>
-                            <option value="raw">RAW</option>
-                          </Select>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* Streaming Mode / Overlap Length / Min Chunk Length 三个格子
-                      已撤除，它们配的是 /v1/audio/speech 的行为，
-                      却长在一个消费不了流的界面上，且存了从不读回。理由全文见 :134。
-                      名片里仍然写着这三个参数（引擎确实支持），由上面的
-                      STREAM_ONLY 拦在这一页之外。 */}
-
-                  {/* Engine-level params - planned for future release */}
-                  {/*
-                  <details style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                    <summary style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', cursor: 'pointer' }}>
-                      Engine Settings (require restart)
-                    </summary>
-                    <div className="form-grid" style={{ marginTop: 6 }}>
-                      <div>
-                        <label className="field-label">Model Version</label>
-                        <Select className="control" value={modelVersion || 'v2Pro'} onChange={e => setModelVersion(e.target.value)}>
-                          <option value="v2Pro">v2Pro (recommended)</option>
-                          <option value="v2ProPlus">v2ProPlus</option>
-                          <option value="v2">v2</option>
-                          <option value="v3">v3</option>
-                          <option value="v4">v4</option>
-                        </Select>
-                      </div>
-                      <div>
-                        <label className="field-label">Half Precision</label>
-                        <input type="checkbox" checked={isHalf !== false} onChange={e => setIsHalf(e.target.checked)} />
-                      </div>
-                      <div>
-                        <label className="field-label">Device</label>
-                        <Select className="control" value={inferDevice || 'cuda'} onChange={e => setInferDevice(e.target.value)}>
-                          <option value="cuda">CUDA (GPU)</option>
-                          <option value="cpu">CPU</option>
-                        </Select>
-                      </div>
-                    </div>
-                    <p style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>
-                      Changing these requires restarting the GPT-SoVITS engine (port 9880) to take effect.
-                    </p>
-                  </details>
-                  */}
-
-                  {/* 这句话原本写死「发送给 GPT-SoVITS」。换一台引擎它还是那么说，
-                      界面公然告诉用户参数发去了一台他没选的引擎。名字问 engine 要。 */}
-                  <div className="field-hint" style={{ marginTop: 6 }}>
-                    {t(`These parameters are sent to ${engineName} for this generation only. They do not change the voice config.`,
-                       `这些参数仅用于本次生成并发送给 ${engineName}，不会更改语音配置。`)}
-                  </div>
-
-                  {/* Auxiliary Reference Audio — shared AuxReferencePicker ():
-                      This voice (Slices/Raw) · Another voice · Custom files, multi-select
-                      + audio preview. Identical interaction to Compare Refs.
-
-                      这一格是平台的词（aux_reference_audio），不是引擎参数，
-                        所以它不在 param_schema 里、不跟着上面那个循环长。它的开关
-                        在名片 maps 上：铺了映射才发得出去。
-                      之前无条件画：实际部署里有引擎的 maps 没有这一条，使用者
-                        照样选得出一堆辅助参考音频，然后它们被静默丢掉。 */}
-                  {hasMappedKey(engine, 'aux_reference_audio') && (
-                  <div style={{ marginTop: 10 }}>
-                    <label className="field-label">
-                      Auxiliary References
-                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
-                        {t(`(optional, multi-select${auxRefs.length > 0 ? ` · ${auxRefs.length} selected` : ''})`,
-                           `（可选，多选${auxRefs.length > 0 ? ` · 已选 ${auxRefs.length} 项` : ''}）`)}
-                      </span>
-                    </label>
-                    <AuxReferencePicker
-                      voiceId={refVoiceId}
-                      voices={voices}
-                      value={auxRefs}
-                      mainRef={currentRefAudio}
-                      onAdd={(p) => setAuxRefs(prev => prev.some(x => sameRefPath(x, p)) ? prev : [...prev, p])}
-                      onRemove={(i) => setAuxRefs(prev => prev.filter((_, idx) => idx !== i))}
-                    />
-                  </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <AdvancedParamsPanel
+              showAdvanced={showAdvanced}
+              onToggle={() => setShowAdvanced(!showAdvanced)}
+              advTier={advTier}
+              onTier={setAdvTier}
+              engine={engine}
+              engineName={engineName}
+              visibleFields={visibleFields}
+              paramValues={paramValues}
+              onParam={setParam}
+              uiLang={uiLang}
+              selectOptions={selectOptions}
+              seed={seed}
+              onSeed={setSeed}
+              forceResynth={forceResynth}
+              onForceResynth={setForceResynth}
+              engineBatch={engineBatch}
+              onEngineBatch={setEngineBatch}
+              mediaType={mediaType}
+              onMediaType={setMediaType}
+              hasAuxRefs={hasMappedKey(engine, 'aux_reference_audio')}
+              auxRefs={auxRefs}
+              currentRefAudio={currentRefAudio}
+              refVoiceId={refVoiceId}
+              voices={voices}
+              onAuxRefAdd={(p) => setAuxRefs(prev => prev.some(x => sameRefPath(x, p)) ? prev : [...prev, p])}
+              onAuxRefRemove={(i) => setAuxRefs(prev => prev.filter((_, idx) => idx !== i))}
+            />
 
             {genBaseWarn && (
               <div className="msg msg-warn" style={{ marginBottom: 8 }}>
@@ -1185,24 +1033,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         </div>
 
         {/* Result */}
-        {result && result.audio_url && (
-          <div className="section">
-            <div className="section-hdr">
-              <span>{result.split ? (result.concat ? `Combined (${result.segments?.length} segments)` : `Segments (${result.segments?.length})`) : 'Result'}</span>
-              <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                {result.silence_ms !== undefined && <span style={{ fontSize: 11, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
-                <SeedBadge seed={result.seed} />
-              </span>
-            </div>
-            <div className="section-body">
-              <Player src={`${API_BASE}${result.audio_url}`} bounds={result.segment_bounds} duration={result.duration} />
-              <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
-                <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 13 }}>Download WAV</a>
-              </div>
-              {result.warning && <div className="msg msg-warn" style={{ marginTop: 8 }}>{result.warning}</div>}
-            </div>
-          </div>
-        )}
+        <GenerationResult result={result} />
 
         {/* Segments */}
         {result && result.segments && result.segments.length > 1 && (
@@ -1210,59 +1041,18 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         )}
 
         {/* Recent Generations — persistent list with real file management */}
-        <div className="section">
-          <div className="section-hdr">
-            <span>Recent Generations</span>
-            {recent.length > 0 && (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-sm btn-ghost" onClick={askClearHistory}>Clear History</button>
-                <button className="btn btn-sm btn-danger" onClick={askCleanAll}>Clean All</button>
-              </div>
-            )}
-          </div>
-          <div className="section-body">
-            {recent.length === 0 ? (
-              <div className="empty-state" style={{ padding: 16 }}>
-                <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated audio will appear here.', '生成的音频将显示在这里。')}</div>
-              </div>
-            ) : (
-              (showAllRecent ? recent : recent.slice(0, 5)).map(item => (
-                <div key={item.id} className="recent-row">
-                  <div className="rr-main">
-                    <div className="rr-text" title={item.text}>{item.text || '(empty)'}</div>
-                    <div className="rr-meta">
-                      {/* 这里以前是写死的 `GPT {item.gpt} / SoVITS {item.sovits}`，
-                          跑 IndexTTS2 也照样印「GPT - / SoVITS -」，两个它没有的位。
-                          现在整段由 describeGeneration 按后端存下的位表拼，位名、
-                          位数、引擎名全部来自名片。这里不许再出现任何位名。 */}
-                      {item.voice} · {langLabel(item.lang)}
-                      {describeGeneration(item) ? ` · ${describeGeneration(item)}` : ''}
-                      {item.segments > 1 ? ` · ${item.segments} seg` : ''}
-                      {refBasename(item) ? ` · ref ${refBasename(item)}` : ''} · {fmtRecentTime(item.createdAt)}
-                      {(item.seed ?? item.params?.seed) !== undefined && (item.seed ?? item.params?.seed) !== null && (item.seed ?? item.params?.seed) !== -1 && (
-                        <> · <SeedInline seed={item.seed ?? item.params?.seed} /></>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" bounds={item.segment_bounds} duration={item.duration} /></div>
-                  </div>
-                  <div className="rr-actions">
-                    <button className="icon-btn" title={t('Show in file explorer', '在文件资源管理器中显示')} onClick={() => revealItem(item)}><IconFolder size={15} /></button>
-                    <button className="icon-btn" title={t('Reload these settings into the editor (voice, model, language, reference, text and all parameters) without generating', '将这些设置重新载入编辑器（音色、模型、语言、参考、文本及所有参数），但不生成')} onClick={() => handleReload(item)} disabled={loading}><IconRerun size={15} /></button>
-                    <button className="icon-btn" title={t('Rerun now with the original settings', '使用原始设置立即重新生成')} onClick={() => handleRerun(item)} disabled={loading}><IconPlay size={14} /></button>
-                    <button className="icon-btn icon-btn-danger" title={t('Delete this audio', '删除此音频')} onClick={() => askDeleteItem(item)}><IconTrash size={15} /></button>
-                  </div>
-                </div>
-              ))
-            )}
-            {recent.length > 5 && !showAllRecent && (
-              <div style={{ textAlign: "center", padding: "12px 0" }}>
-                <button className="btn btn-sm btn-ghost" onClick={() => setShowAllRecent(true)}>
-                  {t(`Show more (${recent.length - 5} items)`, `显示更多（还有 ${recent.length - 5} 条）`)}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <RecentGenerations
+          recent={recent}
+          showAll={showAllRecent}
+          onShowAll={() => setShowAllRecent(true)}
+          onClearHistory={askClearHistory}
+          onCleanAll={askCleanAll}
+          onReveal={revealItem}
+          onReload={handleReload}
+          onRerun={handleRerun}
+          onDelete={askDeleteItem}
+          loading={loading}
+        />
 
         <ConfirmDialog
           open={!!genConfirm}
