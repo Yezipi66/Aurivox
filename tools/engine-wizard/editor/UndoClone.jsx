@@ -7,7 +7,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-export function UndoClone ({ engineId, onUndone, label, children, stack }) {
+export function UndoClone ({ engineId, onUndone, label }) {
   const { t } = useT()
   const [busy, setBusy] = React.useState(false)
   const [err, setErr] = React.useState(null)
@@ -33,14 +33,8 @@ export function UndoClone ({ engineId, onUndone, label, children, stack }) {
     } finally { setBusy(false) }
   }
 
-  // stack：按钮在上、说明在下（与相邻按钮排成同一行时用）。
-  // 默认横排：按钮与说明并排。
-  const box = stack
-    ? { display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }
-    : { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }
-
   return (
-    <div style={box}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       {/* 红色：删掉整个引擎目录，不可撤回。 */}
       <button className="btn btn-sm btn-danger" type="button"
         disabled={busy}
@@ -49,7 +43,6 @@ export function UndoClone ({ engineId, onUndone, label, children, stack }) {
           ? t('Removing…', '正在清除…')
           : (label || t('Undo clone', '撤销克隆'))}
       </button>
-      {children}
       {err && <span className="msg msg-danger" style={{ margin: 0 }}>{err}</span>}
     </div>
   )

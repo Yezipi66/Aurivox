@@ -467,46 +467,64 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 
       {/* ---- 三个按钮同一列 ----
           从左到右：从头重装本步 → 撤销克隆 → 安装。
-          说明文字各自在按钮下方，不挤占按钮所在的这一行。
+          两个按钮的说明放在按钮行下方的分隔线里，作引注。
           RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
             不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。*/}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
-              （.wizard-install.json 的 env 段），
-              不删引擎目录里的源码、不删已装依赖。*/}
-          {!busy && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {/* RiskUnlock 把 children 放进 .confirm-actions（flex 行），
+            所以这里要自己竖着摞：按钮行一行，引注行一行。*/}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
+                （.wizard-install.json 的 env 段），
+                不删引擎目录里的源码、不删已装依赖。*/}
+            {!busy && (
               <button className="btn btn-sm" type="button"
                 onClick={() => resetThisStep()}>
                 {t('Reinstall this step from the start', '从头重装本步')}
               </button>
-              <span className="field-hint" style={{ maxWidth: 260 }}>
-                {t('Clears the record of finished steps in this step only. Source code '
-                  + 'and installed packages are kept, and cached wheels are reused.',
-                  '只清除本步的已完成记录。源码与已安装的依赖保留，已下载的依赖包会复用。')}
+            )}
+
+            {/* 撤销克隆：克隆完成后向导直接跳到第 2 步，
+                所以这条路也得在这儿给一份：
+                使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
+            {!busy && targetId && (
+              <UndoClone engineId={targetId} onUndone={() => {
+                if (onUndone) onUndone()
+              }} />
+            )}
+
+            <button className="btn btn-primary btn-sm" type="button"
+              disabled={busy} onClick={run}>
+              {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
+            </button>
+          </div>
+
+          {/* ---- 按钮的引注：分隔线之下 ----
+              说明与它上面那个按钮一一对应。*/}
+          {!busy && (
+            <div style={{
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              gap: 24,
+              flexWrap: 'wrap',
+            }}>
+              <span className="field-hint" style={{ maxWidth: 320 }}>
+                {t('Reinstall this step from the start: clears the record of finished '
+                  + 'steps in this step only. Source code and installed packages are kept, '
+                  + 'and cached wheels are reused.',
+                  '从头重装本步：只清除本步的已完成记录。源码与已安装的依赖保留，'
+                  + '已下载的依赖包会复用。')}
               </span>
+              {targetId && (
+                <span className="field-hint" style={{ maxWidth: 320 }}>
+                  {t('Undo clone: removes the cloned engine directory and returns to step 1.',
+                    '撤销克隆：删除刚克隆下来的引擎目录，回到第 1 步。')}
+                </span>
+              )}
             </div>
           )}
-
-          {/* 撤销克隆：克隆完成后向导直接跳到第 2 步，
-              所以这条路也得在这儿给一份：
-              使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
-          {!busy && targetId && (
-            <UndoClone engineId={targetId} stack onUndone={() => {
-              if (onUndone) onUndone()
-            }}>
-              <span className="field-hint" style={{ maxWidth: 260 }}>
-                {t('Removes the cloned engine directory and returns to step 1.',
-                  '删除刚克隆下来的引擎目录，回到第 1 步。')}
-              </span>
-            </UndoClone>
-          )}
-
-          <button className="btn btn-primary btn-sm" type="button"
-            disabled={busy} onClick={run}>
-            {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
-          </button>
         </div>
       </RiskUnlock>
     </div>
