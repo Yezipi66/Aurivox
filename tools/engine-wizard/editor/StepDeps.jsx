@@ -465,47 +465,50 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
 
-      {/* ---- 执行：显式解锁 ----
+      {/* ---- 三个按钮同一列 ----
+          从左到右：从头重装本步 → 撤销克隆 → 安装。
+          说明文字各自在按钮下方，不挤占按钮所在的这一行。
           RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
-            不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
+            不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。*/}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
-        <button className="btn btn-primary btn-sm" type="button"
-          disabled={busy} onClick={run}>
-          {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
-        </button>
-      </RiskUnlock>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
+              （.wizard-install.json 的 env 段），
+              不删引擎目录里的源码、不删已装依赖。*/}
+          {!busy && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <button className="btn btn-sm" type="button"
+                onClick={() => resetThisStep()}>
+                {t('Reinstall this step from the start', '从头重装本步')}
+              </button>
+              <span className="field-hint" style={{ maxWidth: 260 }}>
+                {t('Clears the record of finished steps in this step only. Source code '
+                  + 'and installed packages are kept, and cached wheels are reused.',
+                  '只清除本步的已完成记录。源码与已安装的依赖保留，已下载的依赖包会复用。')}
+              </span>
+            </div>
+          )}
 
-      {/* ---- 撤销克隆 ----
-          克隆完成后向导直接跳到第 2 步，所以这条路也得在这儿给一份：
-            使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
-      {!busy && targetId && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <UndoClone engineId={targetId} onUndone={() => {
-            if (onUndone) onUndone()
-          }} />
-          <span className="field-hint">
-            {t('Removes the cloned engine directory and returns to step 1.',
-              '删除刚克隆下来的引擎目录，回到第 1 步。')}
-          </span>
-        </div>
-      )}
+          {/* 撤销克隆：克隆完成后向导直接跳到第 2 步，
+              所以这条路也得在这儿给一份：
+              使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
+          {!busy && targetId && (
+            <UndoClone engineId={targetId} stack onUndone={() => {
+              if (onUndone) onUndone()
+            }}>
+              <span className="field-hint" style={{ maxWidth: 260 }}>
+                {t('Removes the cloned engine directory and returns to step 1.',
+                  '删除刚克隆下来的引擎目录，回到第 1 步。')}
+              </span>
+            </UndoClone>
+          )}
 
-      {/* ---- 从头重装本步 ----
-          只清「哪些步骤算做完了」这份记录（.wizard-install.json 的 env 段），
-          不删引擎目录里的源码、不删已装依赖。*/}
-      {!busy && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-sm" type="button"
-            onClick={() => resetThisStep()}>
-            {t('Reinstall this step from the start', '从头重装本步')}
+          <button className="btn btn-primary btn-sm" type="button"
+            disabled={busy} onClick={run}>
+            {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
           </button>
-          <span className="field-hint">
-            {t('Clears the record of finished steps in this step only. Source code '
-              + 'and installed packages are kept, and cached wheels are reused.',
-              '只清除本步的已完成记录。源码与已安装的依赖保留，已下载的依赖包会复用。')}
-          </span>
         </div>
-      )}
+      </RiskUnlock>
     </div>
   )
 }
