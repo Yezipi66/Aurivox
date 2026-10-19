@@ -121,6 +121,9 @@ test('cancel 端点不被同前缀的短端点吃掉', () => {
   const PAIRS = [
     ['/wizard/clone/cancel', 'handleCloneCancel', 'handleClone'],
     ['/wizard/env/cancel', 'handleEnvCancel', 'handleEnv'],
+    // remove 与 cancel 同理：/wizard/clone/remove 以 /wizard/clone 开头，
+    //   短端点不放行的话 remove 永远拿不到请求。
+    ['/wizard/clone/remove', 'handleCloneRemove', 'handleClone'],
   ]
 
   for (const [url, cancelName, shortName] of PAIRS) {

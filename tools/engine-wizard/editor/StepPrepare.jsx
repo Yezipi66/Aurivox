@@ -1,6 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
+import { UndoClone } from './UndoClone'
 // 目录名的唯一来源：输入框 + 仓库名。没有 state.id 这个来源。
 import { folderName } from './folderName'
 
@@ -169,6 +170,28 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     } finally { setBusy('') }
   }
 
+  // ---- ④ 目标目录已存在 ⇒ 提供清除选项 ----
+  // 后端拒绝往非空目录里克隆（git 的规矩），但拒绝不等于没有出路：
+  //   给出「清除并重试」，使用者点一下就能重来，不用自己去文件系统里删。
+  const dirNotEmpty = !!(cloneRes && !cloneRes.ok && cloneRes.code === 'DIR_NOT_EMPTY')
+  const [removing, setRemoving] = React.useState(false)
+  const removeDir = async () => {
+    setRemoving(true)
+    try {
+      const j = await post('/wizard/clone/remove', { id: curId })
+      if (j.ok) {
+        // 目录清掉了 ⇒ 之前的失败结果作废，重新解析一遍拿到新状态。
+        setCloneRes(null)
+        onPrep((w) => ({ ...w, cloneRes: null }))
+        if (res && res.ok) await resolve()
+      } else {
+        setCloneRes({ ok: false, code: j.code || 'REMOVE_FAILED', error: j.error || j.errorZh })
+      }
+    } catch (e) {
+      setCloneRes({ ok: false, code: 'REMOVE_FAILED', error: (e && e.message) || String(e) })
+    } finally { setRemoving(false) }
+  }
+
   // 目标目录由后端给（enginesDir + pathSep），前端不猜文件系统路径。
   // 拿不到 enginesDir ⇒ 不显示路径，绝不显示空的或假的绝对路径。
   // 命令与目标路径同源：改目录名时两者必须一起变。
@@ -305,8 +328,24 @@ const done = facts && facts.cloned === true
             </span>
           </div>
 
-          {cloneRes && !cloneRes.ok && (
+          {cloneRes && !cloneRes.ok && !dirNotEmpty && (
             <div className="msg msg-danger">{cloneRes.error}</div>
+          )}
+          {dirNotEmpty && (
+            <div className="msg msg-warn">
+              {t('The target directory already exists and is not empty:',
+                '目标目录已存在且不为空：')}
+              <code>engines/{curId}/</code>
+              <div style={{ marginTop: 8 }}>
+                <button className="btn btn-sm btn-danger" type="button"
+                  disabled={removing || !curId}
+                  onClick={removeDir}>
+                  {removing
+                    ? t('Removing…', '正在清除…')
+                    : t('Remove directory and retry', '清除该目录并重试')}
+                </button>
+              </div>
+            </div>
           )}
           {done && (
             <div className="msg msg-info">
@@ -324,28 +363,39 @@ const done = facts && facts.cloned === true
               name: curId || t('<name>', '<项目名>'),
               path: fullEngineDir || t('(computing…)', '（正在计算…）'),
             }}>
-            <button className="btn btn-primary btn-sm" type="button"
-              // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
-              disabled={busy === 'clone' || !curId}
-              onClick={() => doClone(true)}>
-              {busy === 'clone'
-                ? t('Cloning…', '正在克隆…')
-                : t('Next', '下一步')}
-            </button>
+            {/* 三个按钮同一行，flex 里先出现的排左边：
+                撤销克隆（仅克隆完成后）→ 下一步 → 取消（仅克隆进行中）。*/}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {done && (
+                <UndoClone engineId={curId} onUndone={() => {
+                  // 目录没了 ⇒ 第 1 步的完成状态作废，回到第 1 步重来。
+                  setCloneRes(null)
+                  onPrep((w) => ({ ...w, cloneRes: null }))
+                  onChange({ cloned: false })
+                }} />
+              )}
+              <button className="btn btn-primary btn-sm" type="button"
+                // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
+                disabled={busy === 'clone' || !curId}
+                onClick={() => doClone(true)}>
+                {busy === 'clone'
+                  ? t('Cloning…', '正在克隆…')
+                  : t('Next', '下一步')}
+              </button>
+              {/* 取消按钮：与「正在克隆」同一行、同一个 .btn 形状，
+                  颜色改成红色（它终止的是一次已经开始的写盘操作）。 */}
+              {busy === 'clone' && (
+                <button className="btn btn-sm btn-danger" type="button"
+                  onClick={async () => {
+                    try {
+                      await post('/wizard/clone/cancel', { id: curId })
+                    } catch (e) { /* 取消失败不阻断，后端会安全网兜底 */ }
+                  }}>
+                  {t('Cancel', '取消')}
+                </button>
+              )}
+            </div>
           </RiskUnlock>
-
-          {/* 取消按钮：仅克隆进行中显示。
-              复用 .btn 类，与项目现有一致。 */}
-          {busy === 'clone' && (
-            <button className="btn btn-sm" type="button"
-              onClick={async () => {
-                try {
-                  await post('/wizard/clone/cancel', { id: curId })
-                } catch (e) { /* 取消失败不阻断，后端会安全网兜底 */ }
-              }}>
-              {t('Cancel', '取消')}
-            </button>
-          )}
         </>
       )}
     </div>

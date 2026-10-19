@@ -187,13 +187,23 @@ export default function App () {
             {page === 'prepare' && (
               <StepPrepare state={wz} facts={facts}
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
-                onDone={() => addFacts({ cloned: true })}
+                onDone={() => {
+                  addFacts({ cloned: true })
+                  // 克隆完成 ⇒ 直接进第 2 步：使用者刚做完的事就是下一步要做的事，
+                  // 让他自己再点一次流程条上的「安装依赖」是多余的。
+                  setPage('env')
+                }}
                 prep={prep} onPrep={patchPrep} />
             )}
             {page === 'env' && (
               <StepDeps state={{ ...wz, manifest: manifest || {} }}
                 prep={prep}
-                onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))} />
+                onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
+                onUndone={() => {
+                  // 撤销克隆 ⇒ 目录没了 ⇒ 回到第 1 步重来。
+                  setWz((w) => ({ ...w, cloned: false }))
+                  setPage('prepare')
+                }} />
             )}
             {page === 'models' && (
               <StepModels state={wz} onChange={addFacts}

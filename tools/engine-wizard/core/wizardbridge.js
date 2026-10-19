@@ -5,7 +5,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { resolveEngine, parseRepoUrl } = require('./resolve')
-const { runClone, buildClonePlan, projectRoot } = require('./clone')
+const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
 const { runEnv, buildEnvPlan } = require('./env')
 const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile,
   removePartialFiles } = require('./download')
@@ -517,13 +517,14 @@ const cloneAbortControllers = new Map()
 
 // POST /wizard/clone        第 2 步
 // execute 必须显式 true ： 默认只回计划（跟 install-engine.cjs 一致）
-// 显式排除 /wizard/clone/cancel：短前缀会把那个长前缀端点也一并匹配掉，
-//   于是同名的 cancel handler 永远拿不到请求。中间件是「第一个返回 true
-//   的赢」，光在表里调顺序挡不住这种前缀包含关系。
+// 显式排除 /wizard/clone/cancel 与 /wizard/clone/remove：短前缀会把那两个
+//   长前缀端点也一并匹配掉，于是同名 handler 永远拿不到请求。中间件是
+//   「第一个返回 true 的赢」，光在表里调顺序挡不住这种前缀包含关系。
 function handleClone (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/clone')) return false
   if (req.url.startsWith('/wizard/clone/cancel')) return false
+  if (req.url.startsWith('/wizard/clone/remove')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const input = {
@@ -553,6 +554,25 @@ function handleClone (req, res) {
       json(res, 500, { ok: false, code: 'BRIDGE_FAILED',
         error: (e && e.message) || String(e) })
     })
+  })
+  return true
+}
+
+// POST /wizard/clone/remove  {id}  删掉目标目录
+//
+// 两个用途共用这一个端点：
+//   ① 目标目录已存在（之前克隆过），使用者要重来 ⇒ 清除后重试克隆。
+//   ② 克隆完成后悔了 ⇒ 撤销克隆。
+//
+// 显式排除 /wizard/clone/cancel：短前缀会把那个长前缀端点也一并匹配掉，
+//   理由同 handleClone。
+function handleCloneRemove (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/clone/remove')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const r = removeTargetDir(String(body.id || ''))
+    json(res, r.ok ? 200 : 400, r)
   })
   return true
 }
@@ -1435,7 +1455,7 @@ module.exports = {
   handleDownloadManifest, handleDownloadFile,
   handleVerifyChecks, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
-  handleInstallState, handleResetProgress, handleCloneCancel, handleEnvCancel,
+  handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们。
   //   不是给外部用的，是让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd,

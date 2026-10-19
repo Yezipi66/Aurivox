@@ -1,6 +1,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
+import { UndoClone } from './UndoClone'
 import { loadSession, saveSession } from './useInstallSession'
 
 
@@ -11,7 +12,7 @@ const VERDICT = {
   unknown: { mark: '?', en: 'Cannot determine', zh: '无法判断' },
 }
 
-export default function StepDeps ({ state, prep, onFixId }) {
+export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
@@ -472,6 +473,21 @@ export default function StepDeps ({ state, prep, onFixId }) {
           {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
         </button>
       </RiskUnlock>
+
+      {/* ---- 撤销克隆 ----
+          克隆完成后向导直接跳到第 2 步，所以这条路也得在这儿给一份：
+            使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
+      {!busy && targetId && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <UndoClone engineId={targetId} onUndone={() => {
+            if (onUndone) onUndone()
+          }} />
+          <span className="field-hint">
+            {t('Removes the cloned engine directory and returns to step 1.',
+              '删除刚克隆下来的引擎目录，回到第 1 步。')}
+          </span>
+        </div>
+      )}
 
       {/* ---- 从头重装本步 ----
           只清「哪些步骤算做完了」这份记录（.wizard-install.json 的 env 段），

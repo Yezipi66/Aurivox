@@ -62,7 +62,7 @@ function validatePlugin () {
   const HANDLERS = [
     handleSpec, handleRead,
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
-    wb.handleClone, wb.handleCloneCancel, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
+    wb.handleClone, wb.handleCloneCancel, wb.handleCloneRemove, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
     wb.handleVerifyChecks, wb.handleVerifyAudio, wb.handleVerify, wb.handleProfile,
     handleValidate, wb.handleCliArgs,
     wb.handleDiscover,

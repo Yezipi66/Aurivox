@@ -350,7 +350,54 @@ async function runClone (input = {}) {
   })
 }
 
+/**
+ * 删掉目标目录。
+ *
+ * 两个用途：
+ *   ① 目标目录已存在（之前克隆过），使用者要重来 ⇒ 清除后重试。
+ *   ② 克隆完成后悔了 ⇒ 撤销克隆。
+ *
+ * 判据：只删 engines/<id>/ 这一棵，不碰 engines/ 里的其他引擎。
+ *   路径由 id 拼出来，id 里带斜杠会越出 engines/ ⇒ 先按安全 id 校验。
+ *
+ * @returns {{ok:true, id, dir, removed:boolean, entries:number}}
+ *          | {ok:false, code, error}
+ */
+function removeTargetDir (id, opts = {}) {
+  if (typeof id !== 'string' || !id.trim()) {
+    return { ok: false, code: 'MISSING_ID',
+      error: 'No directory name given.',
+      errorZh: '还没有填目录名。' }
+  }
+  // id 会拼进路径：只允许字母数字、下划线、连字符。
+  // 允许斜杠的话 engines/../.. 就能删到 engines/ 外面去。
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    return { ok: false, code: 'BAD_ID',
+      error: `Invalid directory name: ${id}`,
+      errorZh: `目录名不合法：${id}。只允许字母、数字、下划线与连字符。` }
+  }
+  const root = opts.root || projectRoot(opts.from)
+  if (!root) {
+    return { ok: false, code: 'NO_ROOT',
+      error: 'Project root not found (no server.js above). The wizard must run inside the project directory.',
+      errorZh: '找不到项目根（向上没有 server.js）。向导需要在项目目录内运行。' }
+  }
+  const dir = engineDir(id, root)
+  if (!fs.existsSync(dir)) {
+    return { ok: true, id, dir, removed: false, entries: 0 }
+  }
+  const entries = fs.readdirSync(dir).length
+  try {
+    fs.rmSync(dir, { recursive: true, force: true })
+  } catch (e) {
+    return { ok: false, code: 'REMOVE_FAILED',
+      error: `Cannot remove ${dir}: ${(e && e.message) || e}`,
+      errorZh: `删不掉 ${dir}：${(e && e.message) || e}` }
+  }
+  return { ok: true, id, dir, removed: true, entries }
+}
+
 module.exports = {
   projectRoot, engineDir, inspectTarget, checkClonable, buildClonePlan, runClone,
-  killProcessTree,
+  killProcessTree, removeTargetDir,
 }
