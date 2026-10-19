@@ -1,26 +1,17 @@
 // AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
-import { Select } from '../common/Select'
 import { ConfirmDialog } from '../common/Dialogs'
 import { IconTrash } from '../common/Icons'
 import { useT } from '../../lib/i18n'
 import {
   REBUILD_PARAM_DEFAULTS,
-  AGG_DEFAULT,
-  VOCAL_PRESETS,
-  VOCAL_PRESET_BY_ID,
-  EXPERT_META,
-  EXPERT_KEYS,
-  expertKeysForArch,
   FSTEP_ORDER,
   LANGUAGES,
   TRAIN_PRESETS,
-  TRAIN_PRESET_FIELDS,
   pickTrainFields,
   SLICE_PRESET_VALUES,
-  TRAIN_STEPS,
 } from './trainConstants'
 import {
   resolveVocalPipeline,
