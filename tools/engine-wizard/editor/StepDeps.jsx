@@ -471,10 +471,22 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
             不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。*/}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
-        {/* RiskUnlock 把 children 放进 .confirm-actions（flex 行），
-            所以这里要自己竖着摞：按钮行一行，引注行一行。*/}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* RiskUnlock 把 children 放进 .confirm-actions（flex 行，右对齐），
+            所以只给它一个子节点：竖着摞的按钮列 + 下面的引注。
+            整块用 align-self:flex-start 拉回左边。*/}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          alignItems: 'flex-start',
+          alignSelf: 'flex-start',
+        }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            alignItems: 'flex-start',
+          }}>
             {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
                 （.wizard-install.json 的 env 段），
                 不删引擎目录里的源码、不删已装依赖。*/}
@@ -501,27 +513,28 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           </div>
 
           {/* ---- 按钮的引注：分隔线之下 ----
-              说明与它上面那个按钮一一对应。*/}
+              分隔线贯穿整个容器宽度，左右各留一点边距。
+              说明竖排，与上面三个按钮一一对应。*/}
           {!busy && (
             <div style={{
               paddingTop: 8,
               borderTop: '1px solid var(--border)',
-              display: 'flex',
-              gap: 24,
-              flexWrap: 'wrap',
+              marginLeft: 8,
+              marginRight: 8,
+              alignSelf: 'stretch',
             }}>
-              <span className="field-hint" style={{ maxWidth: 320 }}>
+              <div className="field-hint" style={{ maxWidth: 560 }}>
                 {t('Reinstall this step from the start: clears the record of finished '
                   + 'steps in this step only. Source code and installed packages are kept, '
                   + 'and cached wheels are reused.',
                   '从头重装本步：只清除本步的已完成记录。源码与已安装的依赖保留，'
                   + '已下载的依赖包会复用。')}
-              </span>
+              </div>
               {targetId && (
-                <span className="field-hint" style={{ maxWidth: 320 }}>
+                <div className="field-hint" style={{ maxWidth: 560, marginTop: 4 }}>
                   {t('Undo clone: removes the cloned engine directory and returns to step 1.',
                     '撤销克隆：删除刚克隆下来的引擎目录，回到第 1 步。')}
-                </span>
+                </div>
               )}
             </div>
           )}
