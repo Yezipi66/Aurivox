@@ -28,7 +28,7 @@ const SRC = readDirSources(import.meta.url, '.')
 // 注释里可以提这些名字（上面那段注释本身就在提），守的是代码。
 const CODE = stripComments(SRC)
 
-// 这台引擎的参数表，曾经被逐条手抄进这个文件。
+// 这台引擎的参数表不再逐条手抄进这个文件。
 const HARDCODED = [
   'temperature', 'top_k', 'topK', 'top_p', 'topP',
   'repetition_penalty', 'repPenalty',

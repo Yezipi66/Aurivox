@@ -18,7 +18,7 @@ import { slotsOf, candidatesForSlot, flattenGroups, itemLabel,
 import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, VOICE_LANG_LABEL, basename, defaultTargetLang, effectiveBaseLang, fmtRecentTime, langLabel, normalizeLangFamily, outputsError, pickDefaultRef, refBasename, refInRange, sameRefPath, statusBadge } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
-// fieldLabel / fieldHelp / recipePath 曾经在这里，三个写死的类型分支换成
+// fieldLabel / fieldHelp / recipePath 不在这里，三个写死的类型分支换成
 //   <ParamField> 之后它们只在 ParamField 里用了，留着就是空引用。
 import { fieldsForTier, schemaGap, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible, TIERS } from '../../lib/engines'
 import { ParamField, ToggleField } from '../common/ParamField'
@@ -576,7 +576,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       //    另外 11 个是只写不读，它们唯一的去处是 /v1/audio/speech 的兜底
       //，而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，盘上赢。
       //
-      //    后果是实测出来的：盘上文件盖掉了 6 个名片默认值，包括
+      //    后果：盘上文件盖掉了 6 个名片默认值，包括
       //      batch_size 名片 4 → 盘上 1     （用户从没在界面上碰过这一格，
       //                                      是这里后台悄悄写进去的）
       //      seed       名片 -1 → 盘上 2769901998
@@ -590,7 +590,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       //   届时判据是「这一格在界面上存在」，不再是写死的键名。
       // 只回存用户亲手动过的格子 + seed。
       // 不回存整份 paramValues：没动过的键回存下去就等于把名片默认值
-      //    抄进盘上文件，从此名片改了也不生效（:460 那一段实测过的坑）。
+      //    抄进盘上文件，从此名片改了也不生效（:460 那一段记过的坑）。
       api('/api/advanced-params', {
         method: 'POST',
         body: {
@@ -822,7 +822,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   描述的是一个 bug，不是一个特性：能点、点完什么都不发生的下拉，
                   比不给选更糟。现在平台会带着选中的那一份把引擎重开一次，所以
                   它真的生效了，代价是要等。⇒ 这里改成说清那个代价。
-                  别退回上一版文案：那等于把已经修好的功能重新说成坏的。 */}
+                  别退回旧文案：那等于把已经修好的功能重新说成坏的。 */}
               {relaunchSlots.length > 0 && (
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {t('Changing the model above restarts this engine with it — the first generation after a change takes longer while the model loads.',

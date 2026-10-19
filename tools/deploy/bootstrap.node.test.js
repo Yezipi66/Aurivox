@@ -9,7 +9,7 @@
 //     而错误里一个字都不提这件事。
 //      升 Node 修不了 ： 新版 Node 自带同一份 npm-prefix.js、同一套推断。
 //      解法：直接 `node node_modules/npm/bin/npm-cli.js`。
-//     （原实测日志：deploy_20260929_214808.log，整台机器起不来。）
+//     （日志：deploy_20260929_214808.log，整台机器起不来。）
 //
 //  2.  依赖安装失败时不退回带解析器重试。那份 requirements 是给
 //     --no-deps 用的冻结快照，带解析器重跑只会翻出纸面冲突

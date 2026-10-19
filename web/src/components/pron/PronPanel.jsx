@@ -353,7 +353,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                 </div>
               ) : (
                 // ja / en：逐词，直接改写读音（假名 / ARPABET）。en 的候选下拉 + 谐音改写默认收起，
-                // 由 ✎ 展开，避免纵向拥挤；en 逐次出现独立可改（item 19-C：同一词第 1/2/3 次互不影响）。
+                // 由展开按钮展开，避免纵向拥挤；en 逐次出现独立可改（item 19-C：同一词第 1/2/3 次互不影响）。
                 <div className={isKo ? 'ko-reading-grid' : undefined} style={{ textAlign: isKo ? 'left' : 'center', minWidth: 0, ...(isKo ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4 } : {}) }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 15, color: (isEn ? !overridden : tok.source === 'g2p') ? 'var(--text)' : 'var(--accent)' }}>
                     <span style={{ overflowWrap: 'anywhere' }}>{tok.word}

@@ -7,7 +7,7 @@
 //   它守不住语义，只守得住「有没有人把撤掉的东西又加回来、或者让存和读
 //   再次错位」。真正的闸是 `cd web && npm run build` 加实际界面点一遍。
 //
-// 值得写的原因：曾经有一版这个组件存 18 个键、读 7 个键，中间
+// 值得写的原因：这个组件出过存 18 个键、读 7 个键的版本，中间
 // 11 个只写不读。它们沉在 advanced_params.json 里，被当时的合并语义反复
 // 拓印，最终把名片默认值（batch_size=4）永久压住：而整件事没有一条测试会红。
 //
@@ -133,7 +133,7 @@ test('⭐⭐⭐ 读 advanced-params 必须带上 engine_id，且 engine 没到�
 
 test('⛔ 存回去的必须只是用户动过的那些，不能是整份参数值', () => {
   // 整份回存 = 把名片默认值抄进盘上文件。之后名片改了也不生效，
-  // 因为 loadAdvancedParams 是「盘上赢」（:460 那段实测）。
+  // 因为 loadAdvancedParams 是「盘上赢」（:460 那一段）。
   const save = CODE.slice(CODE.indexOf("api('/api/advanced-params', {"), CODE.indexOf("api('/api/advanced-params', {") + 500)
   assert.ok(!/\.\.\.paramValues\b/.test(save), '整份 paramValues 被回存了')
 })

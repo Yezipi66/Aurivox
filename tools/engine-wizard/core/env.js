@@ -10,9 +10,9 @@
 //  （见 suggestBackendAlternative）。
 //
 //  本文件是入口：导出保持向后兼容。职责已拆分为：
-//    · envDetect.js   —— 环境检测（解释器、venv 检查、装法探测）
-//    · envInstall.js  —— 依赖安装逻辑（计划组装、单步执行、自检）
-//    · envProgress.js —— 进度持久化（断点续传产物检查）
+//    · envDetect.js   环境检测（解释器、venv 检查、装法探测）
+//    · envInstall.js  依赖安装逻辑（计划组装、单步执行、自检）
+//    · envProgress.js 进度持久化（断点续传产物检查）
 
 const {
   readEnvCommand,

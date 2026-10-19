@@ -13,7 +13,7 @@
 //    5. 自检导入
 //    6. 模型下载（download_models.py）
 //
-//  关于「换壳」这件事的真实情况：实测原 .ps1 665 行里，
+//  关于「换壳」这件事的真实情况：原 .ps1 665 行里，
 //     真正锁死 Windows 的只有两处：
 //       · `venv\Scripts\python.exe`（6 处）： macOS/Linux 是 `venv/bin/python`
 //       · `Join-Path` 的反斜杠（7 处）
@@ -97,7 +97,7 @@ function raw (m) {
  *
  *  为什么用 stdio: 'inherit' 而不是 pipe 再转发：原 PowerShell 版用
  *   `Start-Process -NoNewWindow -Wait` 达到同样目的，注释里记着原因 ：
- *   「走 PowerShell 的原生命令/错误管线（那个曾经把宿主搞崩）」。
+ *   「走 PowerShell 的原生命令/错误管线」。
  *   ⇒ 进度条要能实时看见，且不能经过任何中间层。
  * 第三个参数可传输出文件（要留档时用），此时 inherit 换成落盘。
  */
@@ -324,7 +324,7 @@ async function main () {
   // =============================================================================
   //  3. 装项目依赖（不含 torch）
   // =============================================================================
-  // 两份 requirements 的分工（实测名单是 git grep 量出来的）：
+  // 两份 requirements 的分工（名单是 git grep 量出来的）：
   //   requirements-gpt-sovits.txt   200 包 / 6.6 GB：它是 GPT-SoVITS 的依赖
   //   requirements-platform.txt      3 包 / 62 MB：平台自己真正要的
   //
@@ -413,7 +413,7 @@ async function main () {
   let TORCH_OK = false
   if (PLATFORM_ONLY) {
     // torch 约 5-6GB，而平台（Node 进程）一个字节都用不到它，
-    // 实测 fastapi/uvicorn 只被 GSV 的 infer_server.py 用，routes/ 零重依赖。
+    // fastapi/uvicorn 只被 GSV 的 infer_server.py 用，routes/ 零重依赖。
     Info('skipping PyTorch (--platform-only). Engines install their own.')
     Info('training is NOT available under this flag.')
   } else if (fs.existsSync(TORCH_BODY)) {
@@ -482,7 +482,7 @@ async function main () {
     Warn(`package.json not found at project root: ${PKG_JSON} — skipping node deps.`)
   } else {
     // 优先 `node node_modules/npm/bin/npm-cli.js`，绝不调 npm.cmd。
-    //   理由见本文件头那段实测记录：npm.cmd 靠 PATH 推断 npm 在哪，
+    //   理由见本文件头那段记录：npm.cmd 靠 PATH 推断 npm 在哪，
     //   装过全局 Node 的机器上会跳到全局那份，报 ERR_REQUIRE_ESM 而不解释原因。
     let npmExe = null
     let npmArgs = null

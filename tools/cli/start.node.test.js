@@ -31,7 +31,7 @@ test('⛔ start.js 里不许出现任何一台具体引擎的名字', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm', 'fish' + '-speech', 'chat' + 'tts']
   //  只扫活代码：注释里说明来历的名字是文档，删了就没法解释为什么这么判。
-  //   （这里踩过一次：守卫按整份文本判，结果主体里那段「它读 health.engine_online」
+  //   （守卫按整份文本判是不行的：主体里那段「它读 health.engine_online」
   //   之类的说明性注释也能把它判红。）
   const code = read('tools/cli/start.js')
     .split('\n')

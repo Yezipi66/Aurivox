@@ -422,7 +422,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
       )}
 
       {/* 取消是用户自己的选择，不是失败：用 info 不用 danger。
-          步骤列表里那一条取消的步骤照实标 ✗（它确实没完成），
+          步骤列表里那一条取消的步骤照实标叉号（它确实没完成），
           但结论要说「已取消」，不许让用户以为装失败了。 */}
       {result && result.code === 'INSTALL_CANCELLED' && (
         <div className="msg msg-info">

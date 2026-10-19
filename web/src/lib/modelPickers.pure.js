@@ -356,7 +356,7 @@ export function slotsNeedingRelaunch(slots) {
 /**
  * 一条历史记录那一行上的「引擎 · 模型」怎么写。
  *
- * 曾经出现的形状：Recent Generations 里写着
+ * 一种形状：Recent Generations 里写着
  *     Base model · Auto · GPT - / SoVITS - · ref 交谈2_2.wav · seed 3788417817
  * 而这一次跑的是 IndexTTS2，它没有 GPT 位也没有 SoVITS 位，只有一个叫
  * `model` 的位。那一行是 GenerateTab.jsx:1217 写死的模板：

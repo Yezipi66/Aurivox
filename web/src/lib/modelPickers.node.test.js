@@ -60,7 +60,7 @@ test('位名缺失的条目被丢掉，label 缺省退回位名', () => {
   assert.deepEqual(s, [{ name: 'k', label: 'k', param: null, applies_at: 'launch' }])
 })
 
-// 回归守卫：slotsOf 曾经把 param 丢掉，于是 weightsToSend 对每一台引擎
+// 回归守卫：slotsOf 把 param 丢掉时，weightsToSend 对每一台引擎
 //    都返回空：下拉能点、请求体里一个键都没有，不报错只是换了没用。
 //    单元测试当时全绿，因为别处都是直接手写带 param 的位喂进去的。
 test('⭐⭐ slotsOf 必须把 param 原样带过来（丢了 = 选了不发）', () => {
@@ -410,7 +410,7 @@ test('顺序照抄音色清单，不重排', () => {
 
 // --- 历史记录那一行怎么写 -----------------------------------------------
 //
-// 曾经出现的形状：一条 IndexTTS2 的记录印着
+// 一种形状：一条 IndexTTS2 的记录印着
 //     Base model · Auto · GPT - / SoVITS - · ref 交谈2_2.wav · seed 3788417817
 // 那台引擎既没有 GPT 位也没有 SoVITS 位。原因是 GenerateTab.jsx 里写死的模板
 //     `GPT ${item.gpt} / SoVITS ${item.sovits}`
@@ -453,7 +453,7 @@ test('⚠ 老条目（这一版之前的 meta.json）没有 weights ⇒ 整段�
   assert.equal(describeGeneration({ voice: 'v1' }), '')
   assert.equal(describeGeneration({}), '')
   assert.equal(describeGeneration(null), '')
-  // 老条目里可能还留着上一版写下的那两个键：也不许用。
+  // 老条目里可能还留着旧版本写下的那两个键：也不许用。
   assert.equal(describeGeneration({ gpt: 'a.ckpt', sovits: 'b.pth' }), '')
 })
 

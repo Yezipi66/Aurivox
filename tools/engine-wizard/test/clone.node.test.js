@@ -337,7 +337,7 @@ test('取消：传 signal，abort 后返回 CLONE_CANCELLED，目录被删', asy
 
 test('取消后目标目录不存在（spawn 建了目录的情况）', async () => {
   const { root } = mkdtempRoot()
-  // ⛔ 不能在 spawn 之前就往目标目录里放东西：
+  // 不能在 spawn 之前就往目标目录里放东西：
   //    buildClonePlan 的「目录空不空」判据会先拒绝执行，取消逻辑根本走不到。
   //    真实场景是 git 自己在克隆过程中建目录，所以让 fake spawn 在建时建。
   const targetDir = path.join(root, 'engines', 'cancellable')

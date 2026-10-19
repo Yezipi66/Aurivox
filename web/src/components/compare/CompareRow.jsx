@@ -157,7 +157,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const [seed, setSeed] = useState(row.seed ?? defaultParams?.seed ?? -1)
   useEffect(() => { onUpdate(row.id, 'seed', seed) }, [seed])
 
-  // 不能只取 common 一层：实测两台
+  // 不能只取 common 一层：两台
   //   CosyVoice 的 param_schema 的 common 层是空的（6 项和 2 项全在
   //   advanced）⇒ 选它们时对比页画出零个格子，而界面上看不出任何异常。
   //
@@ -582,7 +582,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   见下面那段注释）。手写 <input> 的做法换一台引擎就会
                   让格子照常显示、填了发出去上游不认、不报错。
 
-                  两档都画（跟着 TIERS），不是只画 common。实测两台
+                  两档都画（跟着 TIERS），不是只画 common。两台
                   CosyVoice 的 common 层是空的 ⇒ 只画 common 时选它们
                   一个格子都没有，而界面上看不出任何异常。
 

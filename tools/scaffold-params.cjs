@@ -105,7 +105,7 @@ function inferType(entry) {
     default: {
       //  默认值给不出类型时，用参数名给一个建议，但标成 needs_review。
       //
-      // 为什么不是「猜不动就丢掉」：实测 IndexTTS2 的 14 个真参数里 4 个
+      // 为什么不是「猜不动就丢掉」：IndexTTS2 的 14 个真参数里 4 个
       // 默认值是 None（use_cuda_kernel / emo_audio_prompt / emo_vector /
       // emo_text），人是按参数名的语义定的类型。丢掉它们的实际后果是
       // 「界面上少了一个真实存在的旋钮」，而且没有任何报错，
@@ -247,7 +247,7 @@ function buildDraft(reflection, opts = {}) {
       }
       const t = inferType(entry)
       if (!t.type) {
-        // ⚔ 类型猜不出来的也要列出来，但标成「需要人来定」。
+        // 类型猜不出来的也要列出来，但标成「需要人来定」。
         //   悄悄丢掉的话，用户会以为这个参数不存在，而它确实存在，
         //   只是平台不知道怎么在界面上表示它。
         excluded.push({

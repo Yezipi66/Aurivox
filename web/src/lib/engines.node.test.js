@@ -452,7 +452,7 @@ test('文件格子的初值也来自 manifest，不是界面自己编的', () =>
 //   后者不是引擎参数，永远不会出现在 param_schema 里，所以「按 schema 循环长
 //   格子」这条路管不到它：这些格子此前是无条件画出来的。
 //
-//   实测：盘上两台引擎的 maps 一台 10 条、一台 4 条，后者没有辅助参考音频
+//   盘上两台引擎的 maps 一台 10 条、一台 4 条，后者没有辅助参考音频
 //   那一条。而界面照样画着那个多选器：用户选得出来，值在拼请求体时被静默丢掉，
 //   没有任何提示。
 const MAPPED = { id: 'mapped-fake', mapped_keys: ['text', 'reference_audio', 'aux_reference_audio'] }

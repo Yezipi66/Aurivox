@@ -37,7 +37,7 @@ test('接线：后端真实产物 → 机器级徽章（⛔ 手写对象不算�
     ],
     status: makeStatus(['a']),
     // occupancyReport 读的是 needMbOf 这个闭包，不是 ledger.needMb。
-    //   （实测：给 ledger.needMb 时 peak 恒为 null，而界面显示不报错。）
+    //   （给 ledger.needMb 时 peak 恒为 null，而界面显示不报错。）
     needMbOf: (id) => (id === 'a' ? 3000 : null),
     attempting: {},
     mem: { freeMb: 2048, totalMb: 8192 },

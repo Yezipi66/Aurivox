@@ -562,7 +562,7 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
 /**
  * 删掉半截文件，让它回到 missing 以便重下。
  *
- * ⛔ 只删确实残缺的，缺信息不等于残缺。
+ * 只删确实残缺的，缺信息不等于残缺。
  *    「删 ok 会让使用者白下一遍」比「漏删一个半截」严重得多：前者毁掉
  *    已经下完的数 GB，后者只是下次重下时多等一会儿。所以判据从严：
  *
@@ -604,7 +604,7 @@ async function removePartialFiles (files, root, id) {
 
     const stat = fs.statSync(finalPath)
     // 文件是空的，或比上游说的大小小 ⇒ 下载真中断了。
-    // ⛔ 只在没有 sha 可比对时才用大小判断：有 sha 就由 sha 说话，
+    // 只在没有 sha 可比对时才用大小判断：有 sha 就由 sha 说话，
     //    大小差一点更可能是上游给错、或单位/换算问题，不该因此毁掉文件。
     if (!sha && (stat.size === 0 || (size && stat.size < size))) {
       for (const p of [finalPath, tmpPath]) {

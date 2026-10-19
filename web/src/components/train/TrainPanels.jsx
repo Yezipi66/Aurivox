@@ -150,7 +150,7 @@ function confTier(c) {
   return 'lo'
 }
 // 色盲友好（A+C）：颜色仅作辅助，另用【符号】做冗余编码，不依赖红绿分辨也能读。
-// hi=✓（较为可信）/ mid=~（可疑）/ lo=!（存疑）。词级另叠加下划线（见 CSS .arr-w-*）。
+// hi 为对勾（较为可信）/ mid 为波浪号（可疑）/ lo 为感叹号（存疑）。词级另叠加下划线（见 CSS .arr-w-*）。
 const CONF_COLORS = {
   hi: { fg: '#2ecc71', bg: 'rgba(46,204,113,0.16)', sym: '✓' },
   mid: { fg: '#f1c40f', bg: 'rgba(241,196,15,0.18)', sym: '~' },

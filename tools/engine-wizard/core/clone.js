@@ -184,7 +184,7 @@ function killProcessTree (child) {
  * 取消时：
  *   1. 杀进程树（Windows: taskkill /T；其他: kill 进程组）
  *   2. 删掉整个目标目录：本步创建的，删除是撤销本步操作
- *      （⛔ 不是只删 .git：只删 .git 会留下残缺目录，下次卡在目录非空）
+ *      （不是只删 .git：只删 .git 会留下残缺目录，下次卡在目录非空）
  *   3. 返回 CLONE_CANCELLED
  *
  * 凭据管理器弹框杀不掉时：5 秒安全网后如实报 CLONE_CANCEL_FAILED。

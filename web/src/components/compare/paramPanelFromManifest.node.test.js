@@ -32,7 +32,7 @@ const SRC = readDirSources(import.meta.url, '.')
 // 注释里可以提这些名字（上面那段注释本身就在提），守的是代码。
 const CODE = stripComments(SRC)
 
-// 这台引擎的参数表，曾经被逐条手抄进这个文件。
+// 这台引擎的参数表不再逐条手抄进这个文件。
 //
 // 早期版本订正：这一份最初漏了 `top_p` 本身（只写了驼峰的 `topP`），
 //   变异测试立刻抓到：把请求体改回 `top_p: 1.0` 守卫却没红。
@@ -153,7 +153,7 @@ test('touched 必须跟着 params 一起存回 row（generateRow 在 tab 级读�
 // ---------------------------------------------------------------------------
 //  不能只画 common 层
 //
-//  事实（不是推断）：实测两台 CosyVoice 的 param_schema common 层是空的
+//  事实（不是推断）：两台 CosyVoice 的 param_schema common 层是空的
 //：cosyvoice2 六项、cosyvoice-300m-sft 两项，全在 advanced。
 //  ⇒ 这一页原来只取 common 时，选它们画出零个格子，而界面上看不出任何
 //  异常（折叠区照样能展开，里面就是空的）。
