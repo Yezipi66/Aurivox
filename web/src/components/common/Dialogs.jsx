@@ -126,7 +126,8 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
           </div>
           {error && <div className="msg msg-error">{error}</div>}
           {confirmOverwrite && (
-            <div className="msg msg-warn">
+            // 红色：覆盖已有 recipe，原内容被替换掉不可取回。
+            <div className="msg msg-danger">
               {t(<>A recipe named <strong>{previewId}</strong> already exists. Overwrite it?</>,
                  <>已存在名为 <strong>{previewId}</strong> 的 recipe。是否覆盖？</>)}
               <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>

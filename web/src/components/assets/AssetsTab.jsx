@@ -946,7 +946,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                             {hasRawAudio && hasSliceAudio && <option value="both">Both</option>}
                           </Select>
                           {running ? (
-                            <button className="btn btn-sm btn-ghost" onClick={() => handleCancelTranscribe(id)}>
+                            // 红色：终止一个已经开始的转写。
+                            <button className="btn btn-sm btn-danger" onClick={() => handleCancelTranscribe(id)}>
                               Cancel{(tx.done || []).length ? ` (${tx.done.join(', ')} done)` : ''}
                             </button>
                           ) : (

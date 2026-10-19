@@ -35,14 +35,15 @@ export function UndoClone ({ engineId, onUndone, label }) {
 
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button className="btn btn-sm" type="button"
+      {/* 红色：删掉整个引擎目录，不可撤回。 */}
+      <button className="btn btn-sm btn-danger" type="button"
         disabled={busy}
         onClick={undo}>
         {busy
           ? t('Removing…', '正在清除…')
           : (label || t('Undo clone', '撤销克隆'))}
       </button>
-      {err && <span className="msg msg-error" style={{ margin: 0 }}>{err}</span>}
+      {err && <span className="msg msg-danger" style={{ margin: 0 }}>{err}</span>}
     </div>
   )
 }

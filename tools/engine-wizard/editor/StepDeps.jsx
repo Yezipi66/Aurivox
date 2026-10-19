@@ -405,9 +405,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             </div>
           )}
           {/* 取消：只在真的 busy 时给。
-              它杀的是服务端那个进程，不是只让前端不再显示。 */}
+              它杀的是服务端那个进程，不是只让前端不再显示。
+              红色：终止一个已经开始的操作，且环境会停在不完整状态。 */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button className="btn btn-sm" type="button"
+            <button className="btn btn-sm btn-danger" type="button"
               disabled={!cancelRef.current}
               onClick={() => cancelRef.current && cancelRef.current()}>
               {t('Cancel', '取消')}

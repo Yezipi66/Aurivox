@@ -128,7 +128,8 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
         </div>
         <RecipeModelRebind recipe={recipe} onSaved={() => onChanged && onChanged()} />
         {confirmDel && (
-          <div className="msg msg-warn">
+          // 红色：删除不可撤回。
+          <div className="msg msg-danger">
             {t(<>Delete recipe <strong>{recipe.id}</strong>? This cannot be undone.</>,
                <>确定删除 recipe <strong>{recipe.id}</strong>？此操作无法撤销。</>)}
             <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>

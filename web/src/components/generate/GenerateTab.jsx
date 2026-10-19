@@ -922,7 +922,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 {loading ? 'Generating...' : 'Generate'}
               </button>
               {loading && (
-                <button className="btn btn-sm" onClick={handleCancelGenerate}>
+                // 红色：终止一个已经开始的合成。
+                <button className="btn btn-sm btn-danger" onClick={handleCancelGenerate}>
                   {t('Cancel', '取消')}
                 </button>
               )}

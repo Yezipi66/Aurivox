@@ -332,11 +332,12 @@ const done = facts && facts.cloned === true
             <div className="msg msg-danger">{cloneRes.error}</div>
           )}
           {dirNotEmpty && (
-            <div className="msg msg-warn">
+            <div className="msg msg-danger">
               {t('The target directory already exists and is not empty:',
                 '目标目录已存在且不为空：')}
               <code>engines/{curId}/</code>
               <div style={{ marginTop: 8 }}>
+                {/* 红色：删掉该目录下的全部内容，不可撤回。 */}
                 <button className="btn btn-sm btn-danger" type="button"
                   disabled={removing || !curId}
                   onClick={removeDir}>

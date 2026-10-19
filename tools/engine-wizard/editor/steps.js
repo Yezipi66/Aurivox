@@ -117,7 +117,13 @@ export function nodeStatus (stepKey, o = {}) {
   return 'pending'
 }
 
-/** 危险动作要显示的那段话：说清后果而且具体，不劝阻、不施压。 */
+/** 危险动作要显示的那段话：说清后果而且具体，不劝阻、不施压。
+ *
+ *  等级按配色语义分三档：
+ *    info   陈述：客观说明这一步会发生什么，不含风险判断。
+ *    warn   警告：低风险但要注意（耗时、量大、填错不报错）。
+ *    danger 危险：不可撤回，或会终止一个已经开始的操作。
+ */
 export function riskNotice (stepKey, t, vars) {
   const st = STEP_BY_KEY[stepKey]
   if (!st || !st.risk) return null
@@ -129,14 +135,16 @@ export function riskNotice (stepKey, t, vars) {
       .split('{' + k + '}').join(vars[k] == null ? '' : vars[k]), str)
   }
   if (st.risk === 'network-write') {
+    // 克隆是陈述：说清会写到哪里，不含风险判断。
     return {
-      level: 'warn',
+      level: 'info',
       text: fill(t(
         'This will clone the "{name}" project into "{path}" on this machine.',
         '本操作会将“{name}”项目克隆到本地的“{path}”')),
     }
   }
   if (st.risk === 'network-heavy') {
+    // 下载数 GB、耗时较长：低风险但值得提醒，黄色。
     return {
       level: 'warn',
       text: fill(t('This installs everything the engine needs to run. Several GB '

@@ -44,7 +44,8 @@ export function StepVerify ({ id }) {
   }
 
   if (!results) {
-    return <div className="msg msg-info">{t('Checks failed to load.', '校验加载失败。')}</div>
+    // 红色：加载校验结果本身失败了，这是错误而不是陈述。
+    return <div className="msg msg-danger">{t('Checks failed to load.', '校验加载失败。')}</div>
   }
 
   const checks = results.checks || {}

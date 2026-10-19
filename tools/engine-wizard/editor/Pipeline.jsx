@@ -50,9 +50,11 @@ export function RiskUnlock ({ stepKey, onUnlock, unlocked, children, vars }) {
   const { t } = useT()
   const notice = riskNotice(stepKey, t, vars)
   if (!notice) return children || null
+  // 配色语义：蓝=陈述，黄=警告（低风险），红=危险（不可撤回、终止进行中的操作）。
+  const LEVEL_CLS = { info: 'msg-info', warn: 'msg-warn', danger: 'msg-danger' }
   return (
     <>
-      <div className={`msg ${notice.level === 'warn' ? 'msg-warn' : 'msg-danger'}`}
+      <div className={`msg ${LEVEL_CLS[notice.level] || 'msg-info'}`}
         style={{ marginBottom: 0 }}>
         {notice.text}
       </div>
