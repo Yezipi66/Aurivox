@@ -117,7 +117,7 @@ export function ownerOfPath(groups, path) {
  *
  * 底模出现在每一个角色下面（底模是全局的）」是错的，代码里对应一句特判：
  *    `if (!a.builtin && a.voiceId !== voiceId)`。底模是一个正经的虚拟角色
- *    （`__base__`，Base model，lib/routes/assets.js:152 就是这么发出来的，
+ *    （`__base__`，Base model，lib/routes/assets/models.js:127 就是这么发出来的，
  *    它有自己的 voiceId、自己的 display_name、自己的模型表），它已经有地方去了。
  *    让它在每个角色下面再出现一次，等于同一份权重在界面上有两个入口，
  *    而这两个入口的语义还不一样：「选 Akafuyu，然后在位里挑底模」和
