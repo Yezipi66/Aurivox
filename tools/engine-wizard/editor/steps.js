@@ -89,7 +89,7 @@ export function stepStatus (s = {}) {
   })
 }
 
-/** 同一时刻有几条线在跑：只列还没做完的步骤。models ↔ manifest 并发，其余串行。 */
+/** 同一时刻有几条线在运行：只列还没做完的步骤。models ↔ manifest 并发，其余串行。 */
 export function lanes (done = {}) {
   const pending = STEPS.filter((s) => !done[s.key]).map((s) => s.key)
   const iM = pending.indexOf('models')

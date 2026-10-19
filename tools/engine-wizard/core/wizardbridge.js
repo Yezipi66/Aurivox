@@ -450,7 +450,7 @@ function respondSafely (res, cb) {
     Promise.resolve()
       .then(() => cb(err, body))
       .catch((e) => {
-        // 已经写过响应头就不能再写 ： 只把连接收掉，否则前端会看到半截 JSON。
+        // 已经写过响应头就不能再写 ： 只把连接收掉，否则前端会看到不完整的 JSON。
         if (res.headersSent) { try { res.end() } catch { /* 已断开 */ } return }
         json(res, 500, { ok: false, code: 'BRIDGE_FAILED',
           error: (e && e.message) || String(e) })
@@ -610,7 +610,7 @@ function handleEnv (req, res) {
     //   装依赖要几分钟到几十分钟，普通 JSON 响应的意思是「前端等到全部装完」。
     //   流式让前端边装边看：每步开始推一个 step 事件，每行输出推一个 line。
     //   浏览器 fetch 能读 SSE（resp.body.getReader()），
-    //      axios/XMLHttpRequest 读不了 ： 所以前端必须用 fetch。
+    //      axios/XMLHttpRequest 无法读取 ： 所以前端必须用 fetch。
     //   格式：`data: {json}\n\n` 是标准 SSE；这里每一块都是完整 JSON 事件。
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -657,7 +657,7 @@ function handleEnv (req, res) {
 // POST /wizard/env/cancel  {id}  取消正在进行的装依赖
 //
 // 与 handleCloneCancel 同构，但语义不同：克隆取消后删掉整个目标目录，
-//   装依赖取消后引擎环境是半截的 ： 那个环境由重跑时先删 .venv 处理
+//   装依赖取消后引擎环境是不完整的 ： 那个环境由重跑时先删 .venv 处理
 //   （见 env.js 的 hasPartialVenvMark / markPartialVenv），
 //   所以这里只 abort，不删目录。
 function handleEnvCancel (req, res) {
@@ -683,7 +683,7 @@ function handleEnvCancel (req, res) {
 // GET /wizard/download/files?id=  第 3 步 ： 逐文件校验（不依赖 manifest）
 //   直接列 engines/<id>/checkpoints/ 下的文件，返回文件名 + 大小。
 //   不依赖 manifest ： 下载就是下载，和名片没有任何关系。
-//   前端据此显示三态：已下载 / 未下载 / 半截（大小为 0 或很小）
+//   前端据此显示三态：已下载 / 未下载 / 不完整（大小为 0 或很小）
 function handleDownloadFiles (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/files')) return false
@@ -754,7 +754,7 @@ function handleDownloadManifest (req, res) {
 
 // /wizard/download/file  第 3 步单文件操作
 //   POST   { id, root, file } 下载单个文件，SSE 流式返回进度
-//   DELETE { id, root, name, size, sha256 } 删掉判为半截的那个文件
+//   DELETE { id, root, name, size, sha256 } 删掉判为不完整的那个文件
 function handleDownloadFile (req, res) {
   if (req.method !== 'POST' && req.method !== 'DELETE') return false
   if (!req.url || !req.url.startsWith('/wizard/download/file')) return false
@@ -791,7 +791,7 @@ function handleDownloadFile (req, res) {
   return true
 }
 
-// DELETE /wizard/download/file ： 删掉半截文件
+// DELETE /wizard/download/file ： 删掉不完整的文件
 //   判据用后端的 checkFileStatus（大小 + 上游 sha），不在前端按大小猜。
 //   判为 ok 与 missing 的都不删：删 ok 会让使用者白下一遍。
 function handleDeletePartialFile (req, res) {
@@ -815,7 +815,7 @@ function handleDeletePartialFile (req, res) {
             errorZh: needsVerify
               ? '无法证明这个文件是好的还是坏的：远端没有给出 SHA-256 可比对。'
                 + '未删除任何内容。请重下（用续传）让平台重新校验。'
-              : '这个文件不是半截，未删除任何内容。',
+              : '该文件是完整的，未删除任何内容。',
           })
           return
         }

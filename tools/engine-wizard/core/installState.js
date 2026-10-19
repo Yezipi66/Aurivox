@@ -18,7 +18,7 @@ function readProgress (root, id, section) {
     const data = JSON.parse(fs.readFileSync(f, 'utf8'))
     // 记录里写的引擎与本次要装的不是同一台 ⇒ 整段作废。
     //   目录被挪过、文件被复制过、id 改过名时会出现这种错配；
-    //   继承别人的完成记录会让本步被跳过，而产物其实不存在。
+    //   继承别人的完成记录会让本步被跳过，而产物并不存在。
     if (data && data.engine && String(data.engine) !== String(id)) return new Set()
     const list = data && data[sec] && data[sec].done
     if (Array.isArray(list)) return new Set(list.map((d) => d.key))
@@ -48,7 +48,7 @@ function writeProgress (root, id, section, doneKeys) {
   try {
     // 目录可能还没建（引擎目录被删过、或首次写入）：先建再写。
     //   不建的话 writeFileSync 抛 ENOENT，被下面的 catch 吞掉，
-    //   表现为「进度永远存不下来、每次都从头跑」。
+    //   表现为「进度永远无法写入、每次都从头执行」。
     fs.mkdirSync(path.dirname(f), { recursive: true })
     fs.writeFileSync(f, JSON.stringify(data, null, 2), 'utf8')
   } catch (e) { /* 进度文件写不进不该拦住安装 */ }
@@ -113,7 +113,7 @@ function weightsOnDisk (root, id) {
       try { return fs.statSync(path.join(dir, f)).isFile() } catch (e) { return false }
     })
     if (files.length === 0) return null
-    // 半截文件（大小 0）也算「有东西但不完整」⇒ 仍报 true（查过了），
+    // 不完整的文件（大小 0）也算「有东西但不完整」⇒ 仍报 true（查过了），
     // 完不完整由第 3 步自己的逐文件校验说，不在这里重复判一遍。
     return files.some((f) => {
       try { return fs.statSync(path.join(dir, f)).size > 0 } catch (e) { return false }

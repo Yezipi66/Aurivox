@@ -372,7 +372,7 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
             + 'The engine environment under engines/<id>/.venv is partial; '
             + 're-running this step rebuilds it.',
           errorZh: '安装已取消，进程树已终止。\n'
-            + 'engines/<id>/.venv 下的环境是半截的；重新执行本步骤会先重建它。',
+            + 'engines/<id>/.venv 下的环境是不完整的；重新执行本步骤会先重建它。',
           cancelled: true })
         return
       }
@@ -383,7 +383,7 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
             + 'The download may still be in progress — re-running this step resumes '
             + 'from the breakpoint; already-downloaded parts are not re-fetched.',
           errorZh: `命令超时（${Math.round(timeoutMs / 60000)} 分钟）被终止。\n`
-            + '下载可能仍在继续 —— 重新执行本步骤会从断点续传，不会重下已完成的部分。' })
+            + '下载可能仍在继续，重新执行本步骤会从断点续传，不会重下已完成的部分。' })
         return
       }
       safeResolve({
@@ -521,10 +521,10 @@ async function runEnv (input = {}) {
           + 'The engine environment under engines/<id>/.venv is partial; '
           + 're-running this step rebuilds it.',
         errorZh: '安装已取消，进程树已终止。\n'
-          + 'engines/<id>/.venv 下的环境是半截的；重新执行本步骤会先重建它。',
+          + 'engines/<id>/.venv 下的环境是不完整的；重新执行本步骤会先重建它。',
         note: 'Steps that already succeeded are still recorded — '
           + 're-running skips them and continues from where it stopped.',
-        noteZh: '已成功的步骤仍在断点记录里 —— 重跑会跳过它们、从未完成处继续。',
+        noteZh: '已成功的步骤仍在断点记录里，重跑会跳过它们、从未完成处继续。',
       }
     }
 
@@ -572,7 +572,7 @@ async function runEnv (input = {}) {
             : (r.stderr || r.stdout || '(no output)')),
         errorZh: isCancelled
           ? '安装已取消，进程树已终止。\n'
-            + 'engines/<id>/.venv 下的环境是半截的；重新执行本步骤会先重建它。'
+            + 'engines/<id>/.venv 下的环境是不完整的；重新执行本步骤会先重建它。'
           : (r.code === 'SPAWN_FAILED'
             ? `起不动「${step.argv[0]}」：${r.error}\n`
               + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。'
@@ -593,7 +593,7 @@ async function runEnv (input = {}) {
         noteZh: isCancelled
           ? `安装停在第 ${i + 1}/${steps.length} 步之前，此前已有 `
             + `${stepsRun.filter((s) => s.ok).length} 步完成。\n`
-            + '引擎环境停在半截状态。重新执行本步骤会先删掉 .venv 再重建，'
+            + '引擎环境停在不完整状态。重新执行本步骤会先删掉 .venv 再重建，'
             + '已下载的依赖包仍会复用。'
           : (steps.length > 1
             ? `第 ${i + 1}/${steps.length} 步失败。\n`
@@ -628,7 +628,7 @@ async function runEnv (input = {}) {
         + 'The absolute path of that interpreter is shown in the command list above.',
       errorZh: `所有命令都报告成功，但 ${v.missing.join('、')} 在该引擎自己的环境`
         + `（engines/${input.id}/.venv）里无法 import。\n`
-        + '这些包装到了别处，最可能装进了平台自己的虚拟环境。\n'
+        + '这些包装到了别处，通常是装进了平台自己的虚拟环境。\n'
         + '装进该引擎环境的做法：\n'
         + `  <平台 python> -m uv pip install -p <engines/${input.id}/.venv 的 python> `
         + `${v.missing.join(' ')}\n`

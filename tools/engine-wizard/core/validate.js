@@ -115,7 +115,7 @@ function diagnose (manifest) {
         `${segment}写了 ${key} 但没有 ${srcKey}：${key} 是跑过才知道的数，` +
         `写了就必须说明它怎么来的（${MEASURED_SOURCES.join(' / ')}），` +
         '否则半年后没人分得清这是量出来的还是拍出来的。' +
-        '（如果还没量过，把这一行删掉即可，平台会用保守值。）', where)
+        '（如果还未测量，把这一行删掉即可，平台会用保守值。）', where)
     } else if (!MEASURED_SOURCES.includes(obj[srcKey])) {
       // 值非法也是硬错：不认识的出处值会被平台拒绝（不能默默当成量出来的数）
       push('error', 'ENGINE_MANIFEST_INVALID_VALUE',

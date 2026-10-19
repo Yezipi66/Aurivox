@@ -160,7 +160,7 @@ function buildClonePlan (input = {}) {
  * 杀进程树。
  *
  * Windows: taskkill /T 杀整个树：child.kill() 只杀 shell 不杀 git
- *   （git 自己也是父进程，kill 了 shell 它还在跑）。
+ *   （git 自己也是父进程，kill 了 shell 后它仍在运行）。
  * 非 Windows: kill 进程组（负 PID）：git 起的子进程在同一组里。
  *
  * @param {import('node:child_process').ChildProcess} child
@@ -252,7 +252,7 @@ async function runClone (input = {}) {
             error: 'Cannot cancel clone: the process could not be killed.\n'
               + 'A credential manager dialog may be blocking it — close it manually.',
             errorZh: '无法取消克隆：进程杀不掉。\n'
-              + '可能被凭据管理器弹框阻塞 —— 请手动关闭弹框。',
+              + '可能被凭据管理器弹框阻塞，请手动关闭弹框。',
           })
         }
       }, safetyNetMs).unref()

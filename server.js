@@ -155,7 +155,7 @@ const {
 
 if (segmentCache.enabled) {
   const from = process.env.CACHE_DIR ? "（跟随环境变量 CACHE_DIR）" : "";
-  console.log(`[CACHE] 分段复用已开启 — 目录: ${segmentCache.dir}${from}`);
+  console.log(`[CACHE] 分段复用已开启：目录 ${segmentCache.dir}${from}`);
 } else {
   console.log("[CACHE] 分段复用已关闭（AURIVOX_CACHE=0）");
 }

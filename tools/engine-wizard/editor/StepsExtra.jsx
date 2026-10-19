@@ -104,7 +104,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
   //   不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-  //   三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 半截（大小为0）。
+  //   三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 不完整（大小为0）。
   const [fileList, setFileList] = React.useState(null)
   React.useEffect(() => {
     if (!id || !dlLive || dlLive.stage !== 'done') return
@@ -209,7 +209,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 下载全部：遍历所有 missing/partial 文件，逐个下载。
   //   用 ref 追踪下载状态，避免闭包读到旧的 state 值。
   const dlBusyRef = React.useRef(false)
-  // 暂停只停前端的逐个文件循环，不杀进程：当前文件下载中杀进程会留下半截，
+  // 暂停只停前端的逐个文件循环，不杀进程：当前文件下载中杀进程会留下不完整的文件，
   // 而 hf 自带缓存，重跑同一条命令只补缺的部分。
   // 所以界面上必须写清楚「当前文件下载中，暂停将在当前文件完成后生效」，
   // 不写清楚就是让使用者以为点了就停。
@@ -251,7 +251,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     setDlPaused(true)
   }
 
-  // 删掉一个半截文件，让它回到「未下载」。走同一个 checkFileStatus 判据
+  // 删掉一个不完整的文件，让它回到「未下载」。走同一个 checkFileStatus 判据
   //（后端），不在这里按大小猜；判为 ok 的不会被删。
   const removePartial = async (f) => {
     if (!f || !f.name) return
@@ -541,7 +541,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
       // 下载命令展示：平台只打印，不代下载
           用户可以看到上游 README 里的原始命令。
-          平台不执行这些命令 —— 只是展示给用户参考。*/}
+          平台不执行这些命令，只是展示给用户参考。*/}
       {visibleCmds.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
           <div className="section-hdr">
@@ -639,7 +639,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           <div className="layer-label">{t('Files on disk', '磁盘上的文件')}</div>
           {fileList.map((f, i) => {
             // 三态由后端判（大小 + 上游 sha），不在这里看大小猜：
-            // 大小对但 sha 不符的必须报半截，只看大小会当成好的。
+            // 大小对但 sha 不符的必须报不完整，只看大小会当成好的。
             // shaVerified 为 false 时不能声称「已校验」。
             const state = f.status === 'ok' ? 'ok' : 'partial'
             const checked = f.shaVerified === true
@@ -652,7 +652,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 <span className="field-hint" style={{ marginTop: 0 }}>
                   {f.size > 0
                     ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
-                    : t('(empty / partial)', '（空 / 半截）')}
+                    : t('(empty / partial)', '（空 / 不完整）')}
                   {state === 'ok' && checked
                     ? t(' (sha256 verified)', '（SHA-256 已校验）')
                     : state === 'ok'
@@ -661,7 +661,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 </span>
                 {state === 'partial' && (
                   <button className="btn btn-sm" onClick={() => removePartial(f)}>
-                    {t('Delete partial and re-download', '删除半截并重下')}
+                    {t('Delete partial and re-download', '删除不完整文件并重新下载')}
                   </button>
                 )}
               </div>
@@ -671,7 +671,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       )}
 
       // 上游附带的下载脚本（如果有）
-          平台不执行它们 —— 只是告诉用户「上游自己给了这个脚本」。
+          平台不执行它们，只是告诉用户「上游自己给了这个脚本」。
           执行是用户自己的事，平台只负责把命令摆出来。*/}
       {upstreamScripts.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>

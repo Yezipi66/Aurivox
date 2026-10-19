@@ -98,7 +98,7 @@ function RowAudio({ url }) {
 }
 
 // `engineId` 往下传给 TextPrepModal，用于 /api/pron/preview
-//   现在 engine_id 必传，平台不替你挑一台。
+//   现在 engine_id 必传，平台不代为选择。
 export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning, engineId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)

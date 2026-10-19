@@ -83,7 +83,7 @@ function saveManifest (manifest, opts = {}) {
   const clean = manifest
 
   //   这里必须兜住：不然异常一路冒到 HTTP 层变成 500，
-  //   而用户填的名片本身没问题：错的是「有一个字段存不下来」。
+  //   而用户填的名片本身没问题：错的是「有一个字段无法写入」。
   let text
   try {
     text = JSON.stringify(clean, null, 2) + '\n'
@@ -141,7 +141,7 @@ function listInstalled (opts = {}) {
     let has = false
     try {
       has = JSON.parse(fs.readFileSync(mf, 'utf-8')).id === n
-    } catch { /* 读不了就当不知道 */ }
+    } catch { /* 无法读取就当不知道 */ }
     return { id: n, manifestPresent: true, idMatchesDir: has }
   }
   if (opts.all) {
@@ -185,7 +185,7 @@ function readManifestById (id, opts = {}) {
   try {
     manifest = JSON.parse(text)
   } catch (e) {
-    // 坏掉的 JSON 要如实报「读不了」+ 为什么，
+    // 坏掉的 JSON 要如实报「无法读取」+ 为什么，
     //    不能返回空对象：那会让用户以为这是一张空名片。
     return { ok: false, code: 'BAD_JSON', path: file,
       error: `engines/${id}/manifest.json is not valid JSON: ${e.message}` }

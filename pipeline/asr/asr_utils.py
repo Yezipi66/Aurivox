@@ -1,5 +1,5 @@
 """
-ASR 工具函数 — 从 GPT-SoVITS 项目解耦
+ASR 工具函数（从 GPT-SoVITS 项目解耦）
 只保留训练+推理真正需要的函数，去掉 gradio/UI 依赖
 """
 import ctypes

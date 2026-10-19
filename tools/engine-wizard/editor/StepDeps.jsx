@@ -104,7 +104,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
 
   // 只在执行中更新；done 之后保持最后状态让用户看到结果。
 
-  // 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
+  // 读 SSE 流。fetch + ReadableStream（axios 无法读取流）。
   // 不能等 r.json()：那会把流缓冲到最后才一次性返回。
   const run = async () => {
     setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
@@ -117,7 +117,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
       // 取消：打取消端点，让服务端杀掉那个进程（进程树）。
-      //   断掉前端的流不杀进程，那只是看不见它在跑。
+      //   断掉前端的流不杀进程，那只是看不见它在运行。
       const cancel = async () => {
         try {
           await fetch('/wizard/env/cancel', {
@@ -211,7 +211,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
               + 'environment is left partial: the next run removes it and rebuilds '
               + 'it, and the downloaded wheels are still reused.',
               '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-              + '已下载的依赖不会重下。若中途取消，环境会停在半截状态：'
+              + '已下载的依赖不会重下。若中途取消，环境会停在不完整状态：'
               + '下次执行会先删掉它再重建，已下载的依赖包仍会复用。')}
           </p>
         </div>
@@ -307,7 +307,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
 
       {/* ---- 锁文件后端与本机不一致 ⇒ 主命令之后还有第②步 ----
           主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
-          这一块显示的是装 torch 那一步，不重复主命令。
+          此区域显示的是装 torch 那一步，不重复主命令。
           数据来自 preview（进入页面时取的 execute:false 计划），
           不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
       {preview && preview.alternative && (
@@ -414,7 +414,7 @@ export default function StepDeps ({ state, prep, onFixId }) {
             <span className="field-hint">
               {t('Stops the download on the server. The engine environment is left '
                 + 'partial; re-running rebuilds it.',
-                '会停掉服务器上正在进行的下载。引擎环境会停在半截状态；'
+                '会停掉服务器上正在进行的下载。引擎环境会停在不完整状态；'
                 + '重新执行本步骤会先重建它。')}
             </span>
           </div>

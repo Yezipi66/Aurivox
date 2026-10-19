@@ -25,7 +25,7 @@
 //  一条不能丢的 Windows 血泪教训（在第 4c 步，那段注释比代码重要）：
 //     绝不调 npm.cmd。它先跑 npm-prefix.js 问「npm 在哪」，而那个脚本靠
 //        「PATH 上有没有 npm」回答 ⇒ 机器上一旦装过全局 Node（很常见），
-//        它就跳到全局那份，版本对不上，报 ERR_REQUIRE_ESM，
+//        它就跳到全局那份，版本不匹配，报 ERR_REQUIRE_ESM，
 //        而错误里一个字都不提这件事。
 //        升 Node 修不了：新版 Node 自带同一份 npm-prefix.js。
 //        解法：直接 `node node_modules/npm/bin/npm-cli.js`，绕开前缀推断。
@@ -179,7 +179,7 @@ async function main () {
     //   --dry-run 的报告要在真正开始部署之前就把「要动哪些东西」全打出来。
     //   我第一版把这些常量留在各自的步骤里 ⇒ dry-run 执行到那里时崩在
     //     TDZ（const 暂时性死区：`Cannot access 'WHEELS' before initialization`）。
-    //     而崩在一条只读路径上是最难查的那种错：你会以为部署坏了，其实是
+    //     而崩在一条只读路径上是最难查的那种错：你会以为部署坏了，实际是
     //     「验证部署的那个开关」坏了。
     //   所以下面第 2 / 3 / 4c 步复用同一批，不重新定义：
     //     报告与执行读的是同一批路径，不存在「报告说的」与「实际做的」不一致。
@@ -248,15 +248,15 @@ async function main () {
   raw('')
   raw('  解释器      ' + EMB_PY + '  (' + pyver + ')')
   raw('  venv 目录   ' + VENV)
-  raw('  venv 解释器 ' + (vrDry.ok ? vrDry.python : '⛔ ' + vrDry.why))
+  raw('  venv 解释器 ' + (vrDry.ok ? vrDry.python : '缺失：' + vrDry.why))
   raw('  requirements ' + path.basename(reqPath) +
-      (fs.existsSync(reqPath) ? '' : '   ⛔ 不存在！'))
-  raw('  本地 wheel  ' + (wheels ? wheels + ' 个' : (fs.existsSync(WHEELS) ? '目录是空的' : '⛔ tools/wheels 不存在')))
+      (fs.existsSync(reqPath) ? '' : '   不存在！'))
+  raw('  本地 wheel  ' + (wheels ? wheels + ' 个' : (fs.existsSync(WHEELS) ? '目录是空的' : '缺失：tools/wheels 不存在')))
   raw('  uv          ' + (process.env.TTS_NO_UV === '1' ? '跳过（TTS_NO_UV=1）' : '装，装不上退回 pip'))
   raw('  torch       ' + (PLATFORM_ONLY ? '跳过（--platform-only）' : '委托 tools/cli/install-torch.js'))
-  raw('  ffmpeg      ' + (SEL_FFMPEG === '0' ? '跳过（向导没选）' : fs.existsSync(path.join(SCRIPT_DIR, 'download_ffmpeg.py')) ? '下载' : '⛔ download_ffmpeg.py 不存在'))
-  raw('  npm         ' + (npmCliOk ? 'node + npm-cli.js（⛔ 不走 npm.cmd）'
-    : fs.existsSync(path.join(ROOT, 'package.json')) ? '⚠️ 自带 npm 不在 → 退回 PATH 上的 npm' : '⛔ package.json 不存在'))
+  raw('  ffmpeg      ' + (SEL_FFMPEG === '0' ? '跳过（向导没选）' : fs.existsSync(path.join(SCRIPT_DIR, 'download_ffmpeg.py')) ? '下载' : '缺失：download_ffmpeg.py 不存在'))
+  raw('  npm         ' + (npmCliOk ? 'node + npm-cli.js（不走 npm.cmd）'
+    : fs.existsSync(path.join(ROOT, 'package.json')) ? '⚠️ 自带 npm 不在 → 退回 PATH 上的 npm' : '缺失：package.json 不存在'))
   raw('  模型        ' + (SEL_MODELS === null ? '没有旁白文件 → 看有没有终端' : SEL_MODELS === '' ? '向导没选 → 跳过' : '下：' + SEL_MODELS))
   raw('')
   raw('  去掉 --dry-run 即真正部署。')
@@ -685,7 +685,7 @@ async function main () {
     raw('     修复: 在项目根目录运行下面这条（不要用 npm.cmd，理由见下）:')
     raw('       tools\\runtime\\node\\node.exe tools\\runtime\\node\\node_modules\\npm\\bin\\npm-cli.js ci')
     raw('       npm.cmd 按 PATH 推断 npm 在哪 ⇒ 装过全局 Node 的机器上会跳到全局')
-    raw('       那份（版本对不上，报 ERR_REQUIRE_ESM，而错误里一个字都不提这回事）')
+    raw('       那份（版本不匹配，报 ERR_REQUIRE_ESM，而错误里一个字都不提这回事）')
     raw('           (需要 package-lock.json 与 node 运行时;详见部署日志)')
   }
   raw('============================================================')

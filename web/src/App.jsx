@@ -359,14 +359,14 @@ function AppShell() {
           )}
           {page === 'assets' && (
             /* `engine` 传下去，是给参考文本校对里的读音预览用的。
-               /api/pron/preview 现在 engine_id 必传，平台不替你挑一台
+               /api/pron/preview 现在 engine_id 必传，平台不代为选择
                （换一台预览出来的读音和实际合成不是一回事）。 */
             <AssetsTab engine={engine} voices={voices} selectedVoice={selectedVoice} setSelectedVoice={setSelectedVoice} setPage={setPage} loadVoices={loadVoices} setTrainPrefill={setTrainPrefill}
               setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
           {/* `engine` 传下去，是给参考文本校对里的 /api/pron/preview 用的，
-              它现在 engine_id 必传，平台不替你挑一台。判据 11 的另一半：页签藏了，
+              它现在 engine_id 必传，平台不代为选择。判据 11 的另一半：页签藏了，
               页面本身也得关上，否则上次停在 Tune 页的人刷新后照样进得来。
               同 flow 页的做法：说清为什么没有，不要给一个空白面板。engine 为 null
               时说的是「还在读」，跟「这台不支持」是两回事，不能合成一句话。 */}

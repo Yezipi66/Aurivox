@@ -8,7 +8,7 @@ import { useT } from '../../../web/src/lib/i18n'
 //    runtime.verify.sys_path[] / imports[].class …
 //    call.init_args{} / bind{三槽位} / methods{每个方法一套} / args[]
 //    models.required[] / source.command[]
-//   一个键一个 input 画不出来。
+//   一个键一个 input 无法显示。
 //
 // 但不照抄任何一张真名片：真名片形状各不相同，
 //  照抄 = 第二份事实，必然漂移。这里按形状分类，每种形状一个编辑器。

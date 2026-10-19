@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-CLI 官方原话提取器 —— Python 侧。
+CLI 官方原话提取器（Python 侧）。
 
 从上游引擎的 argparse CLI 源码里抓出**每一个** `add_argument` 的：
     flag / dest / help= 原话 / required= / default= / choices= / action= / type= / metavar=
@@ -11,22 +11,22 @@ stdout: 一行 JSON
     {"ok": true, "sources": [{file, ok, error, count}], "flags": [...]}
     {"ok": false, "error": "..."}
 
-⛔⛔ 三条纪律（违反即返工）
-————————————————————————————————————————————————————————————
+三条纪律（违反即返工）
+============================================================
 1. **不猜哪个 CLI 参数对应哪个函数签名参数。**
    [实测] 签名 `emo_vector` ⇔ CLI `--emotion-vector`、`spk_audio_prompt` ⇔ `--voice`、
-   `emo_alpha` ⇔ `--emotion-weight`。直接同名只对上 3/14，归一化后仍是 3/14 ——
+   `emo_alpha` ⇔ `--emotion-weight`。直接同名只对上 3/14，归一化后仍是 3/14。
    差异是整个词不同，不是连字符。⇒ 对应关系由**上游自己声明**（infer_kwargs 赋值
    或 help 里的 "mapped to X"）才算，平台一律不猜。
    ⇒ 本脚本只负责「整份摊开」，**不做任何配对**。配对那一半在 Node 侧
      （exactMatchFor：仅直接同名，归一化后逐字相同）。
 
-2. **help= 原话逐字递出，⛔ 不翻译、不改写、不缩写、不补标点。**
+2. **help= 原话逐字递出，不翻译、不改写、不缩写、不补标点。**
 
 3. **一条 flag 都不删。** 工具层的 `--batch-file` / `--concat` / `--dry-run`
-   照实列出（带 subcommand 名），让用户自己判断。⛔ 不许平台替他删。
+   照实列出（带 subcommand 名），让用户自己判断。不许平台替他删。
 
-⭐ 为什么用 Python 的 ast 而不是正则或 JS 的 AST（2026-10-09 实测）
+为什么用 Python 的 ast 而不是正则或 JS 的 AST（2026-10-09 实测）
     `help=` 常常换行写到 `add_argument(` 的下一行，单行正则只会看到第一个参数；
     而 @babel/parser 是 **JavaScript** 解析器，Python 的 `import argparse`
     它当成 ESM 语句，报 "Unexpected token, expected \"from\""。
@@ -42,14 +42,14 @@ import json
 import os
 import sys
 
-# ⛔ 与 reflect_params.py 同一条：退出码永远是 0。
-#   「抓不到」是一个**答案**（ok=false），不是探针出事 —— 调用方要能区分
+# 与 reflect_params.py 同一条：退出码永远是 0。
+#   「抓不到」是一个**答案**（ok=false），不是探针出事：调用方要能区分
 #   「这台引擎的 CLI 解析不了」和「探针自己没跑起来」。
 BANNER = "[clihelp]"
 
 
 # ---------------------------------------------------------------------------
-#  静态字面量求值 —— ⛔ 只求值，不猜测
+#  静态字面量求值：只求值，不猜测
 # ---------------------------------------------------------------------------
 def _literal(node):
     """把一个 AST 节点求成 Python 字面量；求不出来返回 None（不猜）。"""
@@ -76,7 +76,7 @@ def _literal(node):
                 return None
             out.append(v)
         return out
-    # ⛔ f-string（JoinedStr）/ Name / BinOp / 函数调用 ⇒ 一律不求值。
+    # f-string（JoinedStr）/ Name / BinOp / 函数调用 ⇒ 一律不求值。
     #    求不出来的东西填一个「看着合理」的值 = 平台替上游编内容。
     return None
 
@@ -108,7 +108,7 @@ def _callee_name(call):
 
 
 # ---------------------------------------------------------------------------
-#  dest —— 官方 argparse 的 dest 推导规则（⛔ 逐字照搬，不是平台发明）
+#  dest：官方 argparse 的 dest 推导规则（逐字照搬，不是平台发明）
 # ---------------------------------------------------------------------------
 def _dest_from(flags, is_option):
     """
@@ -120,12 +120,12 @@ def _dest_from(flags, is_option):
 
     ⚠⚠ 连字符转下划线这一步**必须做**（2026-10-09 实测踩过，两处都要）：
        `--emotion-vector` 的 dest 是 `emotion_vector`，不是 `emotion-vector`。
-       漏了它的后果不是报错，而是**静默错配** —— 反射出来的签名参数
-       `emo_vector` 与 `emotion-vector` 归一化后对不上，于是「直接同名」那条
+       漏了它的后果不是报错，而是**静默错配**：反射出来的签名参数
+       `emo_vector` 与 `emotion-vector` 归一化后不匹配，于是「直接同名」那条
        唯一允许的自动贴永远不生效，而看输出又像是「上游没给同名的」。
-       两道分支（long option 与 positional）都要转，⛔ 只转一道照样漏。
+       两道分支（long option 与 positional）都要转，只转一道照样漏。
     ⚠ `--no-foo`（BooleanOptionalAction）的 dest 仍是 `foo`，`--no-` 是动作
-       生成的反向开关，⛔ 不是另一个 dest。
+       生成的反向开关，不是另一个 dest。
     """
     if is_option:
         longs = [f for f in flags if f.startswith("--")]
@@ -142,11 +142,11 @@ def _dest_from(flags, is_option):
 
 
 def _one(call):
-    """把一个 add_argument(...) 调用转成一条记录。⛔ 求不出来的字段留 null。"""
+    """把一个 add_argument(...) 调用转成一条记录。求不出来的字段留 null。"""
     args = []
     for a in call.args:
         if isinstance(a, ast.Starred):
-            return None                      # ⛔ 摊开的参数列表不猜
+            return None                      # 摊开的参数列表不猜
         v = _literal(a)
         if v is None:
             return None                      # 变量名 / f-string ⇒ 整条跳过
@@ -175,7 +175,7 @@ def _one(call):
         choices = None
 
     # action= / type= 常是 Identifier（argparse.BooleanOptionalAction）或 Attribute，
-    # 但**最常见的是字符串常量**（action="store_true"）—— 漏了它，开关型 flag
+    # 但**最常见的是字符串常量**（action="store_true"）。漏了它，开关型 flag
     # 会被当成带值型，拼出来的命令行把 store_true 变成 "--force True"，上游报错。
     action_node = _kw(call, "action")
     action = None
@@ -201,7 +201,7 @@ def _one(call):
         "dest": dest,
         "flags": flags,
         "is_option": is_option,
-        # ⭐ 官方原话：逐字递出，⛔ 不改写不翻译
+        # 官方原话：逐字递出，不改写不翻译
         "help": help_text,
         "required": required is True,
         "default": default,
@@ -217,10 +217,10 @@ def _one(call):
 # ---------------------------------------------------------------------------
 class _Collector(ast.NodeVisitor):
     """
-    ⭐ 为什么要维护 subcommand 栈：上游 CLI 一个入口底下挂着好几个子命令
+    为什么要维护 subcommand 栈：上游 CLI 一个入口底下挂着好几个子命令
        （init / config / download / check / batch / concat / synth…），同一个
        `--device` 在不同子命令里的 help 可能不同。摊开给用户时不带子命令名，
-       用户不知道照哪条敲。⛔ 上游有几个就列几个，不合并去重。
+       用户不知道照哪条敲。上游有几个就列几个，不合并去重。
 
     ⚠ 两种写法都要认（2026-10-09 实测两种上游都有）：
        · `synth = subparsers.add_parser("synth", help=...)` 之后
@@ -262,7 +262,7 @@ class _Collector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _subcommand_of(self, call):
-        """这条 add_argument 挂在哪个子命令下（认不出就返回 null，⛔ 不猜）。"""
+        """这条 add_argument 挂在哪个子命令下（认不出就返回 null，不猜）。"""
         # ① 变量名认：`synth.add_argument(...)` ⇒ synth → 'synth'
         base = call.func
         if isinstance(base, ast.Attribute) and isinstance(base.value, ast.Name):
@@ -278,16 +278,16 @@ class _Collector(ast.NodeVisitor):
 
 def _scan_parser_vars(tree):
     """
-    ⭐ 预扫一遍：建立「变量名 → 子命令名」的表。
+    预扫一遍：建立「变量名 → 子命令名」的表。
 
     为什么需要（2026-10-09 实测）：上游最常这么写
         synth = subparsers.add_parser("synth", help="Synthesize one text input")
         synth.add_argument("--text", help="Text to synthesize")
-    这两条语句**在同一层**，靠栈跟踪根本接不上 —— add_parser 的栈在第二条
+    这两条语句**在同一层**，靠栈跟踪根本接不上：add_parser 的栈在第二条
     语句开始之前就 pop 了。⇒ 先把所有 `X = *.add_parser("name", ...)` 扫成表。
 
-    ⛔ 只认**字面量子命令名**。`add_parser(name_var)` 这种 ⇒ 不进表，
-       那条 flag 的 subcommand 就是 null（如实说认不出，⛔ 不猜）。
+    只认**字面量子命令名**。`add_parser(name_var)` 这种 ⇒ 不进表，
+       那条 flag 的 subcommand 就是 null（如实说认不出，不猜）。
     """
     out = {}
     for node in ast.walk(tree):
@@ -311,7 +311,7 @@ def _parse_file(path):
     """
     解析一份 Python 源码。
     ⚠ 读不到 / 语法不认（py3.10+ 的 match / walrus、上游用了老语法）⇒
-       如实报 ok:false，⛔ 不许正则硬抓出半份结果（那会把「抓全了」说成真的）。
+       如实报 ok:false，不许正则硬抓出半份结果（那会把「抓全了」说成真的）。
     """
     try:
         # ⚠ errors='replace'：上游源码里可能有 GBK 编码的中文注释，
@@ -440,7 +440,7 @@ def main(argv):
 
     rels = _find_cli_files(root, candidates)
     if not rels:
-        # ⭐ 「没找到 CLI」是一个**答案**，不是错误 ⇒ ok:true + 空 flags
+        # 「没找到 CLI」是一个**答案**，不是错误 ⇒ ok:true + 空 flags
         print(json.dumps({
             "ok": True,
             "sources": [],

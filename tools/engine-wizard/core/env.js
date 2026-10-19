@@ -58,6 +58,6 @@ module.exports = {
   stepArtifactExists, sitePackagesNonEmpty,
   // 单步执行（取消通道的载体，测试注入 spawn 不真跑）
   runOne,
-  // 取消/失败后留半截环境的标记（重跑先删 .venv 再建）
+  // 取消/失败后留不完整环境的标记（重跑先删 .venv 再建）
   partialVenvMarkAbs, hasPartialVenvMark, markPartialVenv,
 }

@@ -229,7 +229,7 @@ function buildDraftPackage (reflection, opts = {}) {
     if (requiredByName.get(p.name) === true) p.required = true
     if (isPlatformCanonical(p.name)) {
       p._platform_key = true
-      p._why = '这个名字是平台核心词在引擎那边的写法：它多半该走 maps，'
+      p._why = '这个名字是平台核心词在引擎那边的写法：它通常该走 maps，'
         + '而不是重复出现在 parameters[] 里。删不删由你定。'
     }
   }

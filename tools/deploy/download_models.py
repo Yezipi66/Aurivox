@@ -40,13 +40,13 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
     (旧名 uvr5 = 上面 4 个子组的全集, --set uvr5 仍可用)
 
 来源(HF 首选;FunASR 用 ModelScope。如与你的实际源不同,改 MANIFEST 里的 repo/id 即可):
-  * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta
-  * lj1995/VoiceConversionWebUI           —— uvr5 去人声/去混响权重 (HP/DeEcho/MDX)
-  * Eddycrack864/... , KimberleyJSN/...   —— BS-Roformer / Mel-Band Roformer
-  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  —— ASR (turbo, ~1.6GB)
-  * ModelScope iic/ (paraformer/vad/punc/UniASR) —— FunASR 中文/粤语 (ms 后端整目录)
-  * fasttext lid.176                      —— 语言检测直链
-  * XXXXRT/GPT-SoVITS-Pretrained          —— G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
+  * lj1995/GPT-SoVITS                     : 绝大多数底模 / hubert / roberta
+  * lj1995/VoiceConversionWebUI           : uvr5 去人声/去混响权重 (HP/DeEcho/MDX)
+  * Eddycrack864/... , KimberleyJSN/...   : BS-Roformer / Mel-Band Roformer
+  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  : ASR (turbo, ~1.6GB)
+  * ModelScope iic/ (paraformer/vad/punc/UniASR) : FunASR 中文/粤语 (ms 后端整目录)
+  * fasttext lid.176                      : 语言检测直链
+  * XXXXRT/GPT-SoVITS-Pretrained          : G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
 
 注: SR 音频超分(24k->48k, AP-BWE)与 BigVGAN 声码器仅 SoVITS v3 使用, 本项目不支持 v3, 已移除。
 """
@@ -479,7 +479,7 @@ def check(root, groups=None):
             log(f"       - {m}")
         all_ok = all_ok and not miss
     log("=" * 50)
-    log("  全部齐全 ✅" if all_ok else "  存在缺失, 运行  --wizard  或  --set <组>  下载。")
+    log("  全部齐全" if all_ok else "  存在缺失, 运行  --wizard  或  --set <组>  下载。")
     return 0 if all_ok else 1
 
 

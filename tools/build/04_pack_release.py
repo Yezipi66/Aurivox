@@ -411,7 +411,7 @@ def in_excluded_tree(rel):
     # `tools\runtime\node\node.exe ...\npm\bin\npm-cli.js ci` works on the
     # target machine.
     # 不要写成 `npm.cmd ci`：npm.cmd 靠 PATH 推断 npm 在哪，
-    #   装过全局 Node 的机器上会跳到全局那份（版本对不上 → ERR_REQUIRE_ESM，
+    #   装过全局 Node 的机器上会跳到全局那份（版本不匹配 → ERR_REQUIRE_ESM，
 #   而错误信息里一个字都不提这回事）。，根因与 Node 版本无关。
     if "node_modules" in r.split("/"):
         return not r.startswith(NODE_RUNTIME_PREFIX)

@@ -91,7 +91,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         // 存
               第 6 章：有硬错时禁用保存 + 说明原因，  不是让按钮消失。
               旧代码 hasErrors 时整块按钮 null（消失），用户找不到存盘入口
-              也不知道为什么 —— 现在是灰置禁用 + 下方红条说明。 */}
+              也不知道为什么，现在是灰置禁用 + 下方红条说明。 */}
         {!hasErrors && exists && !confirmOverwrite
           ? (
             <>

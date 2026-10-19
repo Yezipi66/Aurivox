@@ -85,7 +85,7 @@ export function computeAutoFill (params, currentCall) {
       if (p.source !== 'cli' || call.args[p.name]) continue
       const entry = { flag: p.target }
       // style 用参数自带的那个写法词。统一层的 kind 是类型名
-      //   （str / array），不是名片的写法词，写进去这张名片就存不下来。
+      //   （str / array），不是名片的写法词，写进去这张名片就无法写入。
       if (p.style) entry.style = p.style
       call.args[p.name] = entry
     }
@@ -94,7 +94,7 @@ export function computeAutoFill (params, currentCall) {
   // 三槽位：候选名对的是 name（不带横线的那个词），
   //  写进 bind 的是 target（cli 路是开关，python 路是参数名）。
   // 索引必须建在 name 上：建在 target 上时，cli 路的 target 是带横线的
-  //   开关，而候选名不带横线，两边永远对不上，三槽位恒空。
+  //   开关，而候选名不带横线，两边永远不匹配，三槽位恒空。
   const byName = {}
   const ambiguous = []
   for (const p of params) {

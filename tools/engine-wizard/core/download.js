@@ -82,7 +82,7 @@ function runDownload (input = {}) {
     const root = input.root || process.cwd()
     const id = input.id || ''
     const argvKey = argv.join(' ')
-    // 断点续传：这条命令上次已经成功跑完，跳过
+    // 断点续传：这条命令上次已经成功执行完成，跳过
     const doneKeys = readProgress(root, id)
     if (doneKeys.has(argvKey)) {
       resolve({ ok: true, code: 'SKIPPED', status: 0, stdout: '', stderr: '',
@@ -261,7 +261,7 @@ function base64ToHex (b64) {
 //  checkFileStatus：三态判断
 //  正式文件存在 + 大小匹配 + 有上游 sha 时比对通过 → 'ok'
 //  正式文件存在但远端没给大小 → 'partial'：无法确认完整性，
-//     默认报 'ok' 就是给假绿灯（文件可能是上次中断留下的半截）。
+//     默认报 'ok' 就是给假绿灯（文件可能是上次中断留下的不完整文件）。
 //  大小不符、或与上游 sha 不符 → 'partial'（磁盘文件是坏的，重下）
 //  正式文件不存在但 .tmp 存在 → 'partial'
 //  都不存在 → 'missing'
@@ -340,7 +340,7 @@ function sha256File (filePath) {
 //     刷新，而刷新是整表替换：不带来源就等于把每一项「属于哪个仓库」
 //     抹掉，仓库列、重下、续传按钮会一起失效。
 //  partial 时带上 note/noteZh 说明为什么不完整（远端没给大小 / 大小不符），
-//     不是笼统一句「半截」。
+//     不是笼统一句「不完整」。
 //  expectedSha 参与判断：上游给了 sha 就比对，两边都有才算校验过。
 //  结果里带 shaVerified 说明「这一条到底有没有真的校验过」，
 //  前端不许把它当成「已校验」来展示。
@@ -450,7 +450,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       const out = fs.createWriteStream(tmpPath, { flags })
       let downloaded = resumeFrom
 
-      // 任何失败都删掉半截的 .tmp：不留脏文件让下一次误判成 partial
+      // 任何失败都删掉不完整的 .tmp：不留脏文件让下一次误判成 partial
       const fail = (code, msg) => {
         try { out.destroy() } catch (e) { /* 已关闭 */ }
         try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
@@ -560,10 +560,10 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
 }
 
 /**
- * 删掉半截文件，让它回到 missing 以便重下。
+ * 删掉不完整的文件，让它回到 missing 以便重下。
  *
  * 只删确实残缺的，缺信息不等于残缺。
- *    「删 ok 会让使用者白下一遍」比「漏删一个半截」严重得多：前者毁掉
+ *    「删 ok 会让使用者白下一遍」比「漏删一个不完整的文件」严重得多：前者毁掉
  *    已经下完的数 GB，后者只是下次重下时多等一会儿。所以判据从严：
  *
  *    一、上游给了 sha 且与本地的相符 ⇒ 这个文件的内容是真的，不删

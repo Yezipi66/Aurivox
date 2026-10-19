@@ -58,7 +58,7 @@ export function purgeOrphanKeys () {
   const s = local()
   if (!s) return
   for (const k of ORPHAN_KEYS) {
-    try { if (s.getItem(k) !== null) s.removeItem(k) } catch (e) { /* 读不了就算了 */ }
+    try { if (s.getItem(k) !== null) s.removeItem(k) } catch (e) { /* 无法读取就算了 */ }
   }
 }
 
