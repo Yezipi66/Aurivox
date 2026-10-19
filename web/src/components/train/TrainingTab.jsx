@@ -33,7 +33,6 @@ import {
 } from './trainParams'
 import { TrainParamFields } from './ParamCols'
 import { PipelineMap, RebuildProgress, LiveLogs } from './TrainPanels'
-import { DenoiseReviewPanel, AsrReviewPanel } from './ReviewPanels'
 import { PresetNameModal, ConfirmModal, RestoreModal } from './trainModals'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { RecoveryBanner } from './RecoveryBanner'
@@ -41,6 +40,8 @@ import { RecoverableTasksPanel } from './RecoverableTasksPanel'
 import { PreflightSummary } from './PreflightSummary'
 import { EssentialsFields } from './EssentialsFields'
 import { TrainingPresetPicker } from './TrainingPresetPicker'
+import { TrainingStatusPanel } from './TrainingStatusPanel'
+import { TrainingGates } from './TrainingGates'
 
 function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId, trainPrefill, setTrainPrefill, health }) {
   const { t: tr } = useT()
@@ -810,173 +811,40 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             onCancel={() => setCacheConfirm(false)}
           />
 
-          {taskId && !status && (
-            <div className="msg" style={{ marginTop: 10 }}>{tr('Restoring training state…', '正在恢复训练状态…')}</div>
-          )}
-          {taskId && status && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>
-                  {status.status === 'completed' ? tr('Completed', '已完成')
-                   : status.status === 'failed' ? tr('Failed', '失败')
-                   : status.status === 'cancelled' ? tr('Cancelled', '已取消')
-                   : status.status === 'interrupted' ? tr('Interrupted', '已中断')
-                   : status.status === 'awaiting_review' ? (status.reviewStage === 'denoise' ? tr('Awaiting audition', '等待试听') : tr('Awaiting proofreading', '等待校对'))
-                   : tr('Tuning…', '微调中…')}
-                </span>
-                {(isRunning || isAwaitingReview) && (
-                  <button className="btn btn-sm btn-danger" onClick={handleCancel}>Cancel</button>
-                )}
-              </div>
-              {isAwaitingReview && status?.reviewStage === 'denoise' && (
-                <DenoiseReviewPanel taskId={taskId}
-                  onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)}
-                  onCancel={handleCancel} />
-              )}
-              {isAwaitingReview && status?.reviewStage !== 'denoise' && status?.reviewStage !== 'asr' && (
-                <div className="msg msg-warn" style={{ margin: '8px 0' }}>
-                  {tr('Paused for review. If this looks stuck, your web build is stale — rebuild the frontend (npm run build) so the audition/proofreading panel loads.',
-                      '已暂停等待校对。若卡住无法继续，说明前端构建是旧的：请重新构建前端（npm run build）以加载试听/校对面板。')}
-                </div>
-              )}
-              {isAwaitingReview && status?.reviewStage === 'asr' && (
-                <AsrReviewPanel taskId={taskId} engineId={engine?.id} lang={status?.language || form.language} onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)} />
-              )}
-              {isInterrupted && (
-                <div className="msg msg-error" style={{ marginBottom: 8 }}>
-                  {tr('Tuning was interrupted. Go Back, then use “Recover a failed run” to resume it from where it stopped.',
-                      '微调被中断。请点击“返回”，然后用“恢复失败的任务”从中断处继续。')}
-                </div>
-              )}
-              {isFinished && (
-                <button className="btn btn-sm btn-primary" style={{ marginTop: 4 }} onClick={handleReset}>{tr('Back', '返回')}</button>
-              )}
-            </div>
-          )}
+          <TrainingStatusPanel
+            taskId={taskId}
+            status={status}
+            form={form}
+            engineId={engine?.id}
+            isRunning={isRunning}
+            isAwaitingReview={isAwaitingReview}
+            isInterrupted={isInterrupted}
+            isFinished={isFinished}
+            onCancel={handleCancel}
+            onReset={handleReset}
+            onResumed={() => setStatus(s => s ? { ...s, status: 'running' } : s)}
+          />
         </div>
       </div>
 
       {/* Logs only appear once a task is running/finished — keeps the idle page clean */}
       {taskId && <LiveLogs logs={logs} />}
 
-      {/* Overwrite confirmation: target voice id already exists on disk. */}
-      {overwriteConfirm && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setOverwriteConfirm(null)}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 360, maxWidth: 460,
-            boxShadow: 'var(--shadow-soft)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: 20 }}>⚠️</span>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>Overwrite Existing Voice?</span>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-              The id <strong>{overwriteConfirm.existingId}</strong> already belongs to{' '}
-              <strong>&ldquo;{overwriteConfirm.existingDisplay}&rdquo;</strong>.
-            </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-              Training will publish into <code>assets/{overwriteConfirm.existingId}/</code> and
-              permanently replace the models and references of that voice. This cannot be undone.
-              If you meant to keep both, cancel and give this one a different name.
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-sm" onClick={() => setOverwriteConfirm(null)}>Cancel</button>
-              <button className="btn btn-sm btn-danger" onClick={confirmOverwriteTrain}>Overwrite &amp; Train</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* No-GPU pre-flight: CPU fine-tuning is allowed but must be acknowledged. */}
-      {/* 门控 G1：未开启 S1/S2，只跑切片/ASR，跳过 preprocess。 */}
-      <ConfirmDialog
-        open={gate?.type === 'g1'}
-        icon={<span style={{ fontSize: 18 }}>ⓘ</span>}
-        title={tr('No fine-tuning steps selected', '未选择微调步骤')}
-        confirmLabel={tr('Continue (skip preprocess)', '继续（跳过预处理）')}
-        onConfirm={confirmGate}
-        onCancel={cancelGate}
-        message={
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-            {tr(
-              'Neither S1 (GPT) nor S2 (SoVITS) training is enabled. This run will only slice / transcribe (with optional proofreading); the three preprocess steps will be skipped since there is nothing to train.',
-              '未启用 S1 (GPT) 或 S2 (SoVITS) 训练。本次将只执行切片 / 转写（含可选人工校对），由于没有要训练的模型，将跳过 preprocess 三步。')}
-          </div>
-        }
+      <TrainingGates
+        gate={gate}
+        gateGraceSec={gateGraceSec}
+        setGateGraceSec={setGateGraceSec}
+        onConfirmGate={confirmGate}
+        onCancelGate={cancelGate}
+        overwriteConfirm={overwriteConfirm}
+        onCancelOverwrite={() => setOverwriteConfirm(null)}
+        onConfirmOverwrite={confirmOverwriteTrain}
+        noGpuConfirm={noGpuConfirm}
+        noGpuAck={noGpuAck}
+        setNoGpuAck={setNoGpuAck}
+        onCancelNoGpu={() => setNoGpuConfirm(false)}
+        onProceedWithoutGpu={proceedWithoutGpu}
       />
-
-      {/* 门控 G2/G3：训练开启但未勾 ASR，强提醒不阻断 + 宽限期投放自备 .list。 */}
-      <ConfirmDialog
-        open={gate?.type === 'g2'}
-        danger
-        icon={<span style={{ fontSize: 18 }}>⚠️</span>}
-        title={tr('ASR is not enabled', '未启用 ASR')}
-        confirmLabel={tr('Continue anyway', '仍然继续')}
-        onConfirm={confirmGate}
-        onCancel={cancelGate}
-        message={
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-            <p style={{ marginTop: 0 }}>
-              {tr(
-                'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
-                '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
-            </p>
-            <p>
-              {tr(
-                'Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
-                '在预处理前，系统会等待下面设定的秒数，留出时间把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
-            </p>
-            <p style={{ color: 'var(--muted)', fontSize: 12 }}>
-              {tr(
-                'Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
-                '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
-            </p>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-              <span>{tr('Grace period (seconds)', '宽限期（秒）')}</span>
-              <input type="number" className="control" min={0} max={600} value={gateGraceSec}
-                     onChange={e => setGateGraceSec(e.target.value)}
-                     style={{ width: 90 }} />
-            </label>
-          </div>
-        }
-      />
-
-      {noGpuConfirm && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setNoGpuConfirm(false)}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 380, maxWidth: 480,
-            boxShadow: 'var(--shadow-soft)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: 20 }}>🐢</span>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>未检测到 NVIDIA GPU</span>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-              当前设备没有可用的 CUDA GPU。微调将在 <strong>CPU</strong> 上运行，
-              可能<strong>耗时数小时甚至数十倍</strong>，且<strong>人声分离（UVR5）不可用</strong>。
-            </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-              推理不受影响，可正常在 CPU 上使用。若只是想生成语音，无需在此训练。
-            </p>
-            <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 16 }}>
-              <input type="checkbox" checked={noGpuAck} onChange={e => setNoGpuAck(e.target.checked)} />
-              我知道 CPU 微调会非常慢，仍要继续
-            </label>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-sm" onClick={() => setNoGpuConfirm(false)}>取消</button>
-              <button className="btn btn-sm btn-primary" disabled={!noGpuAck} onClick={proceedWithoutGpu}>仍要开始</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {asrLangGate && (() => {
         const LANG_LABEL = {
