@@ -187,7 +187,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   useEffect(() => {
     api('/api/audio-files?dir=no_slice').then(r => { if (r.ok) setAllAudioFiles(r.data.files) })
+      .catch(err => console.error('audio-files?dir=no_slice 取不到，这一组参照音频留空：', err))
     api('/api/audio-files?dir=voices').then(r => { if (r.ok) setVoiceFiles(r.data.files) })
+      .catch(err => console.error('audio-files?dir=voices 取不到，这一组参照音频留空：', err))
     // Load models from assets/ meta.json (source of truth) instead of voices.json.
     // Also pull the built-in Base model (GET /api/assets/__base__) so its pretrained
     // weights are selectable here for zero-shot reference comparison — it isn't in the
