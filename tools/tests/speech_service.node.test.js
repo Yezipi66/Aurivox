@@ -10,6 +10,10 @@ const path = require("path");
 const Module = require("module");
 const ROOT = path.resolve(__dirname, "..", "..");
 
+const realResolveRefPath = require(path.join(ROOT, 'lib', 'server', 'paths')).resolveRefPath;
+const realPathResolver = require(path.join(ROOT, 'lib', 'pathResolver'));
+
+
 // ---- express shim that CAPTURES route handlers -----------------------------
 const captured = {};
 const expressShim = function () { const a = {}; for (const m of ["get","post","put","delete","patch","use","all"]) a[m] = () => a; return a; };
@@ -31,7 +35,41 @@ const AUDIO_FORMATS = {
   wav: { mime: "audio/wav", ext: "wav" },
   mp3: { mime: "audio/mpeg", ext: "mp3" },
 };
+// 假引擎：请求点名了哪台就返回哪台。位表是空的：
+// 这个文件测的是「请求 → 响应」的形状，不测模型位的挑选。
+const FAKE_ENGINE = {
+  id: "test-engine",
+  label: "Test Engine",
+  base_url: "http://127.0.0.1:1",
+  timeout_ms: 60000,
+  max_chars: 30,
+  requires_reference_audio: true,
+  reference_clip_seconds: null,
+  hot_swap_models: false,
+  param_keys: [],
+  maps: { text: "text", reference_audio: "ref_audio_path", seed: "seed", media_type: "media_type" },
+  payload_keys: [],
+  defaults: {},
+  param_schema: [],
+  weight_slots: [],
+};
+
 const ctx = {
+  resolveEngineProfile: (id) => {
+    if (id !== FAKE_ENGINE.id) throw new Error("这台服务器上没有装引擎 " + id);
+    return FAKE_ENGINE;
+  },
+  resolveRefPath: (raw) => realResolveRefPath(raw),
+  pathResolver: realPathResolver,
+  loadAdvancedParams: () => ({}),
+  pickBestCkpt: () => ({}),
+  buildTtsPayload: (text) => ({ text }),
+  // 参考音频解析：请求里给了就原样带出，没给就空。
+  resolveReference: (cfg) => ({
+    reference_audio: cfg.reference_audio || 'ref.wav',
+    reference_text: cfg.reference_text || 'hello',
+  }),
+  isBaseVoice: (v) => v === '__base__',
   requireApiKey: (q, s, n) => n && n(),
   path,
   fs: {
@@ -75,6 +113,8 @@ if (typeof handler !== "function") { console.error("FAIL: /v1/audio/speech handl
 
 // ---- mock req/res -----------------------------------------------------------
 function run(body) {
+  // 请求必须点名引擎（契约 §12 第 2 步）：平台不代为选择。
+  body = { engine_id: FAKE_ENGINE.id, ...body };
   return new Promise((resolve) => {
     const res = {
       headersSent: false,
@@ -100,7 +140,7 @@ function check(name, cond, detail) {
 
   reset();
   let r = await run({});
-  check("missing voice -> 400", r.status === 400 && r.body.error === "Missing 'voice' field", JSON.stringify(r));
+  check("missing voice -> 400", r.status === 400 && /Missing 'voice'|Missing 'model'/.test(r.body.error), JSON.stringify(r));
 
   reset();
   r = await run({ voice: "spk" });
@@ -126,7 +166,8 @@ function check(name, cond, detail) {
   reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t" };
   state.voices = { spk: {} }; state.refReject = true;
   r = await run({ voice: "role/name", input: "hi" });
-  check("recipe ref rejected -> 400+code", r.status === 400 && /reference_audio rejected/.test(r.body.error) && r.body.code === "path_escape", JSON.stringify(r));
+  // 配方必须自己写明用哪台引擎（契约 §12 第 2 步）：没写就 400 + RECIPE_NO_ENGINE。
+  check("recipe without engine -> 400+code", r.status === 400 && r.body.code === "RECIPE_NO_ENGINE", JSON.stringify(r));
 
   // --- whole-voice path ---
   reset(); state.voices = {};
@@ -157,12 +198,13 @@ function check(name, cond, detail) {
   // engine /tts >= 400
   reset(); state.voices = { spk: {} }; state.gsv = { statusCode: 500, body: Buffer.from("nope") };
   r = await run({ voice: "spk", input: "hi" });
-  check("engine /tts fail -> 502", r.status === 502 && /GPT-SoVITS \/tts failed \(500\)/.test(r.body.error), JSON.stringify(r));
+  // 报错文案点名的是这次真的在用的那台引擎（它的 label），不是写死的名字。
+  check("engine /tts fail -> 502", r.status === 502 && /Test Engine \/tts failed \(500\)/.test(r.body.error), JSON.stringify(r));
 
   // empty audio
   reset(); state.voices = { spk: {} }; state.gsv = { statusCode: 200, body: Buffer.alloc(0) };
   r = await run({ voice: "spk", input: "hi" });
-  check("empty audio -> 502", r.status === 502 && r.body.error === "GPT-SoVITS returned empty audio", JSON.stringify(r));
+  check("empty audio -> 502", r.status === 502 && r.body.error === "Test Engine returned empty audio", JSON.stringify(r));
 
   // transcode failure -> structured object body, 500
   reset(); state.voices = { spk: {} }; state.ffmpeg = true; state.transcodeThrows = true;
@@ -186,7 +228,8 @@ function check(name, cond, detail) {
     && !("X-Recipe-Id" in r.headers), JSON.stringify({ status: r.status, kind: r.kind, headers: r.headers }));
 
   // --- SUCCESS: mp3 transcode + recipe header ---
-  reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t", language: "ja" };
+  // 配方路径：配方自己写明用哪台引擎（契约 §12 第 2 步）。
+  reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t", language: "ja", engine_id: FAKE_ENGINE.id };
   state.voices = { spk: {} }; state.ffmpeg = true;
   r = await run({ voice: "role/name", input: "hi", response_format: "mp3" });
   check("mp3 success -> transcoded binary + recipe header", r.kind === "send" && r.status === 200

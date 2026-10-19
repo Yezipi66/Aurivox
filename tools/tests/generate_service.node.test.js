@@ -8,6 +8,10 @@ const path = require("path");
 const Module = require("module");
 const ROOT = path.resolve(__dirname, "..", "..");
 
+const realResolveRefPath = require(path.join(ROOT, 'lib', 'server', 'paths')).resolveRefPath;
+const realPathResolver = require(path.join(ROOT, 'lib', 'pathResolver'));
+
+
 // ---- express shim that CAPTURES route handlers -----------------------------
 const captured = {};
 const expressShim = function () { const a = {}; for (const m of ["get","post","put","delete","patch","use","all"]) a[m] = () => a; return a; };
@@ -25,10 +29,57 @@ Module._load = function (request) { if (request === "express") return expressShi
 
 // ---- stub ctx ---------------------------------------------------------------
 const state = {};
+// 假引擎：请求点名了哪台就返回哪台。位表是空的：
+// 这个文件测的是「请求 → 响应」的形状，不测模型位的挑选。
+const FAKE_ENGINE = {
+  id: "test-engine",
+  label: "Test Engine",
+  base_url: "http://127.0.0.1:1",
+  timeout_ms: 60000,
+  max_chars: 30,
+  requires_reference_audio: true,
+  reference_clip_seconds: null,
+  hot_swap_models: false,
+  param_keys: [],
+  maps: { text: "text", reference_audio: "ref_audio_path", seed: "seed", media_type: "media_type" },
+  payload_keys: [],
+  defaults: {},
+  param_schema: [],
+  // 一个位：switchModels 只在「这台引擎有可换的位」时才被调，
+  // 位表为空的话那个失败场景根本走不到。
+  weight_slots: [{ name: 'model', label: 'Model', param: 'model_path', applies_at: 'call' }],
+};
+
 const ctx = {
+  resolveEngineProfile: (id) => {
+    if (id !== FAKE_ENGINE.id) throw new Error("这台服务器上没有装引擎 " + id);
+    return FAKE_ENGINE;
+  },
+  resolveRefPath: (raw) => realResolveRefPath(raw),
+  pathResolver: realPathResolver,
+  loadAdvancedParams: () => ({}),
+  pickBestCkpt: () => ({}),
+  buildTtsPayload: (text) => ({ text }),
+  resolveReference: (cfg) => ({ reference_audio: cfg.reference_audio || 'ref.wav', reference_text: cfg.reference_text || 'hello' }),
   requireApiKey: (q, s, n) => n && n(),
+  // 路径常量：合成路径要从 ASSETS_DIR/<voice>/segments.json 读参考音频。
+  APP_DIR: ROOT,
+  ASSETS_DIR: path.join(ROOT, 'assets'),
+  ASSETS_ROOT: path.join(ROOT, 'assets'),
+  AUDIO_FORMATS: { wav: 'audio/wav' },
   path,
-  fs: { mkdirSync() {}, writeFileSync() {}, statSync: () => ({ size: 1234 }) },
+  // 参考音频从盘上读（ASSETS_DIR/<voice>/segments.json 的第一段已匹配音频），
+  // 所以 fs 桩要能应答这条路径。
+  fs: {
+    mkdirSync() {},
+    writeFileSync() {},
+    statSync: () => ({ size: 1234 }),
+    // segments.json 与参考音频文件都要在：路由先读前者，再查后者。
+    existsSync: () => true,
+    readFileSync: (p) => String(p).endsWith('segments.json')
+      ? JSON.stringify({ segments: [{ matched: true, audio: 'ref.wav', text: 'hello' }] })
+      : '',
+  },
   clientError: (err, label) => label ? `${label}: ${err.message}` : err.message,
   isBaseVoice: () => false,
   baseVoiceReg: () => ({}),
@@ -54,6 +105,8 @@ if (typeof handler !== "function") { console.error("FAIL: /api/generate handler 
 
 // ---- mock req/res -----------------------------------------------------------
 function run(body) {
+  // 请求必须点名引擎（契约 §12 第 2 步）：平台不代为选择。
+  body = { engine_id: FAKE_ENGINE.id, ...body };
   return new Promise((resolve) => {
     const res = {
       headersSent: false,
@@ -118,8 +171,10 @@ function check(name, cond, detail) {
 
   reset(); state.concatThrows = true;
   r = await run({ voice: "v", text: longText });
-  check("concat fail -> 200 ok:false", r.status === 200 && r.body.ok === false
-    && r.body.error === "Audio concatenation failed: boom" && /manual playback/.test(r.body.warning), JSON.stringify(r));
+  // 拼接失败是服务端错误：500 + ok:false + 已生成的段仍可试听。
+  check("concat fail -> 500 ok:false", r.status === 500 && r.body.ok === false
+    && /Audio concatenation failed: boom/.test(r.body.error) && /manual playback/.test(r.body.warning)
+    && Array.isArray(r.body.segments), JSON.stringify(r));
 
   reset(); state.switchThrows = true;
   r = await run({ voice: "v", text: "hi" });
