@@ -115,6 +115,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       {engines.map(engine => {
         const ctl = engineControls(engine)
         const badge = processBadge(engine)
+        const usage = engineUsageBadge(engine, occupancy)
         const busy = pending[engine.id] || null
         const res = outcome[engine.id] || null
         return (

@@ -1,5 +1,5 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
 import { API_BASE, api } from '../../lib/api'

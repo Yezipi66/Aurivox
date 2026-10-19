@@ -610,7 +610,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   field={f}
                   values={paramValues}
                   onChange={setParam}
-                  lang={lang}
+                  lang={voiceLang}
                   t={t} />
               ))}
 

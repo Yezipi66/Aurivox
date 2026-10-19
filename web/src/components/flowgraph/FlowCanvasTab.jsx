@@ -13,6 +13,7 @@ import {
 import {
   NODE_WIDTH, BORDER, MUTED, DEFAULT_LEFT, DEFAULT_RIGHT,
   clampDock, sheetSize, portY, curve, wireGeometry, describeFailure,
+  iconButtonStyle,
 } from './canvasShared'
 import { Dock, Rail, Splitter, Palette, Toolbar } from './canvasChrome'
 import { NodeBox, Inspector } from './canvasNodes'
