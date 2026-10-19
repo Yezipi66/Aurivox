@@ -332,7 +332,9 @@ const done = facts && facts.cloned === true
             <div className="msg msg-danger">{cloneRes.error}</div>
           )}
           {dirNotEmpty && (
-            <div className="msg msg-danger">
+            // 黄色：这是「目录已存在」这个状况的提醒，
+            // 危险的是下面那个按钮（它会删掉目录里的全部内容）。
+            <div className="msg msg-warn">
               {t('The target directory already exists and is not empty:',
                 '目标目录已存在且不为空：')}
               <code>engines/{curId}/</code>
