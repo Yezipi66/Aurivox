@@ -539,7 +539,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </>
       )}
 
-      // 下载命令展示：平台只打印，不代下载
+      {/* 下载命令展示：平台只打印，不代下载
           用户可以看到上游 README 里的原始命令。
           平台不执行这些命令，只是展示给用户参考。*/}
       {visibleCmds.length > 0 && (
@@ -670,7 +670,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      // 上游附带的下载脚本（如果有）
+      {/* 上游附带的下载脚本（如果有）
           平台不执行它们，只是告诉用户「上游自己给了这个脚本」。
           执行是用户自己的事，平台只负责把命令摆出来。*/}
       {upstreamScripts.length > 0 && (

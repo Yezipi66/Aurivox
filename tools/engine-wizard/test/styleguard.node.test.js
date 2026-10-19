@@ -449,6 +449,50 @@ test('每个 JSX 都必须真能编译（测试全绿 ≠ 前端能跑）', () =
     `\n有 ${bad.length} 个文件编译失败（页面会白屏）：\n  ${bad.join('\n  ')}`)
 })
 
+test('JSX 里的注释不许变成可见文本（vite 只报 warning，测试全绿也发现不了）', () => {
+  // 症状：注释写成  // xxx */}  而不是  {/* xxx */}，
+  //   那段注释就成了 JSX 文本，原样显示在页面上。
+  //   vite 把它当 warning（不是 error），编译照样过、node --test 也全绿。
+  let parse
+  try {
+    parse = require(require.resolve('@babel/parser', {
+      paths: [path.join(__dirname, '..', '..', '..', 'web')],
+    })).parse
+  } catch (e) {
+    throw new Error(`拿不到 @babel/parser，注释残留检查无法进行：${e.message}`)
+  }
+  const WIZ = path.join(__dirname, '..', 'editor')
+  const bad = []
+  for (const f of fs.readdirSync(WIZ)) {
+    if (!['.jsx', '.js'].includes(path.extname(f))) continue
+    const src = fs.readFileSync(path.join(WIZ, f), 'utf8')
+    let ast
+    try {
+      ast = parse(src, { sourceType: 'unambiguous', plugins: ['jsx'] })
+    } catch (e) {
+      continue // 编译失败由上一条用例负责报
+    }
+    // 走 AST：JSXText 里出现注释定界符残渣就是坏了
+    const visit = (n) => {
+      if (!n || typeof n !== 'object') return
+      if (Array.isArray(n)) { n.forEach(visit); return }
+      if (n.type === 'JSXText') {
+        const v = n.value || ''
+        if (/\*\/\}|\{\/\/|\/\/\s*\*\//.test(v) || /^\s*\*\/\s*\}$/.test(v)) {
+          bad.push(`${f}:${n.loc.start.line}  ${JSON.stringify(v.trim().slice(0, 70))}`)
+        }
+      }
+      for (const k of Object.keys(n)) {
+        if (k === 'loc' || k === 'start' || k === 'end') continue
+        visit(n[k])
+      }
+    }
+    visit(ast.program)
+  }
+  assert.deepStrictEqual(bad, [],
+    `\n有 ${bad.length} 处 JSX 注释变成了可见文本：\n  ${bad.join('\n  ')}`)
+})
+
 test('界面文案不许出现 emoji 或符号语气', () => {
   // 范围：JSX 文本节点 + t() 的第一个参数（界面可见字符串）。
   // 契约 5cdf33d 清的是界面文案。

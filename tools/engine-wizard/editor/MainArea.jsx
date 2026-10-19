@@ -22,7 +22,7 @@ export default function MainArea ({ manifest }) {
   return (
     /* 容器用项目现成的 .card，不自己画 */
     <div className="card">
-      // 这里原来有一行自造的标题，真界面里没有，已删。
+      {/* 这里原来有一行自造的标题，真界面里没有，已删。
              真界面里这段没有这个标题，预览里加一条只会让人多读一句话。*/}
       <div className="form-grid">
         // 音色：平台扫盘才有，这里显示形状
@@ -33,7 +33,7 @@ export default function MainArea ({ manifest }) {
           </Select>
         </div>
 
-        // 目标语言：语言名是平台词表里的固定内容，不是名片能改的
+        {/* 目标语言：语言名是平台词表里的固定内容，不是名片能改的
              ⇒ 两种语言都要给全，不能只翻一半。 */}
         <div>
           <label className="field-label">{t('Language', '目标合成语言')}</label>
