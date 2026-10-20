@@ -636,8 +636,12 @@ test('端点：缺 id / 目录不存在 / 名片没 call 段 ⇒ 各自说各自
     // 但若引擎 .venv 不存在，端点会先报 ENOENT，此时跳过 call 段断言。
     const noCall = await post(base, '/wizard/params', { id: 'index-tts' })
     if (!noCall.json.ok) {
+      // 引擎目录不存在（干净检出里引擎源码没进版本库）也是一个合法答案：
+      //   端点如实说「目录不存在，请先克隆」，而不是猜 module/class。
       if (/ENOENT|起不动解释器|找不到.*解释器/.test(noCall.json.error)) {
         console.log(`  · 引擎 .venv 不存在，跳过 call 段断言 → ${noCall.json.error}`)
+      } else if (/引擎目录.*不存在/.test(noCall.json.error)) {
+        console.log(`  · 引擎目录不存在，跳过 call 段断言 → ${noCall.json.error}`)
       } else {
         assert.match(noCall.json.error, /call\.module|runtime\.python/)
         console.log(`  · 名片缺 call 段 → ${noCall.json.error}`)
@@ -672,8 +676,11 @@ test('buildSpec 把 runtime.python 的目录补成真能起的可执行文件', 
   const { buildSpec } = require('../core/paramsFromReflect')
   const s = buildSpec({ id: 'cosyvoice2' })
   if (!s.ok) {
-    // 本机没有装好 .venv，验证点已达成：目录没有被当成可执行文件返回
-    assert.ok(/找不到.*解释器|not a file/i.test(s.error))
+    // 本机没有装好 .venv，验证点已达成：目录没有被当成可执行文件返回。
+    //   「引擎目录不存在」也是一个合法答案：干净检出里引擎源码没进版本库，
+    //   端点如实说「请先克隆」而不是拿一个假的路径糊弄。
+    assert.ok(/找不到.*解释器|not a file|引擎目录.*不存在/i.test(s.error),
+      `报错没说是哪一种：${s.error}`)
     return
   }
   // 名片里写的是 `engines/<id>/.venv`（一个目录），不是可执行文件。

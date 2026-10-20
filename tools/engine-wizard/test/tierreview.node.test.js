@@ -12,6 +12,11 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 const { reviewTier, reviewTiers, ADVANCED_HINTS } = require('../core/tierreview.js')
+// 挂上夹具引擎目录。
+//   为什么：这一组用例是「拿多台引擎的参数样本当基线」，
+//   而干净检出（CI）里 engines/ 只有一张真名片，样本不够当基线。
+//   ⇒ 夹具补足台数，真名片那份一份不少。
+require('../../../lib/testEngines.js').useFixtureEngines()
 const { paramSamples, allParamNames, fieldSamples, tierDistribution, listEngineIds } =
   require('../core/instances.js')
 
@@ -48,18 +53,19 @@ test('真引擎里那些「明显是进阶」的参数，都被启发判成 adva
 })
 
 test('phase=load 一律 advanced（强先验，三台真引擎全部如此）', () => {
-  // 拿真引擎的 load 参数逐个验
+  // 拿各引擎的 load 参数逐个验。
+  //   名片从 instances 读（它知道真目录与附加目录各在哪），
+  //   不自己拼 engines/<id> 路径：夹具那几台不在真 engines/ 下。
+  const { readManifest } = require('../core/instances.js')
   const loadNames = []
   for (const id of listEngineIds()) {
-    const m = JSON.parse(fs.readFileSync(
-      path.join(path.resolve(__dirname, '..', '..', '..'), 'engines', id, 'manifest.json'),
-      'utf-8'))
-    if (!Array.isArray(m.parameters)) continue
+    const m = readManifest(id)
+    if (!m || !Array.isArray(m.parameters)) continue
     for (const p of m.parameters) {
       if (p && p.phase === 'load') loadNames.push(p.name)
     }
   }
-  assert.ok(loadNames.length > 0, '三台真引擎里一个 phase=load 的参数都没有？')
+  assert.ok(loadNames.length > 0, '这些引擎里一个 phase=load 的参数都没有？')
   for (const n of loadNames) {
     const r = reviewTier({ name: n, phase: 'load' })
     assert.strictEqual(r.tier, 'advanced', `${n} 是 load 却没判成 advanced`)

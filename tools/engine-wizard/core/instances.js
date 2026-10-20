@@ -5,36 +5,52 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
-// 引擎目录可由 ENGINES_DIR 改，与 lib/paths/engines.js 是同一套覆盖口。
-//   为什么需要它：干净检出（CI）里 engines/ 只有模板与一张真名片，
-//   而「要几台引擎才够」的测试需要更多台。
-//   ⇒ 那几组测试把 ENGINES_DIR 指到测试自带的夹具目录上。
-const ENGINES_DIR = process.env.ENGINES_DIR
-  ? path.resolve(process.env.ENGINES_DIR)
-  : path.join(REPO_ROOT, 'engines')
+// 引擎目录有两处：真 engines/ 与附加目录。
+//   附加目录由 AURIVOX_EXTRA_ENGINES_DIR 给出（路径分隔符隔开多个），
+//   与 lib/engines/registry.js 是同一套覆盖口。
+//   为什么需要它：干净检出（CI）里 engines/ 只有一张真名片，
+//   而「拿多台引擎的样本当基线」那几组测试需要更多台。
+const ENGINE_DIRS = [
+  path.join(REPO_ROOT, 'engines'),
+  ...(process.env.AURIVOX_EXTRA_ENGINES_DIR || '')
+    .split(path.delimiter)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => path.resolve(s)),
+]
 
 /** 逐字读引擎目录：不写引擎名，靠目录自己说话 */
 function listEngineIds () {
   let names = []
-  try {
-    names = fs.readdirSync(ENGINES_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-  } catch {
-    return []
+  for (const dir of ENGINE_DIRS) {
+    try {
+      names = names.concat(fs.readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name))
+    } catch {
+      // 这个目录没有 ⇒ 跳过（真 engines/ 在别的机器上可能不存在）
+    }
   }
-  return names.filter((n) => !n.startsWith('_') && !n.startsWith('.'))
-    .filter((n) => fs.existsSync(path.join(ENGINES_DIR, n, 'manifest.json')))
+  const seen = new Set()
+  return names
+    .filter((n) => !n.startsWith('_') && !n.startsWith('.'))
+    .filter((n) => !seen.has(n) && seen.add(n))
+    .filter((n) => ENGINE_DIRS.some((dir) =>
+      fs.existsSync(path.join(dir, n, 'manifest.json'))))
 }
 
+/** 读一张名片：先在真目录找，找不到再在附加目录里找 */
 function readManifest (id) {
-  const f = path.join(ENGINES_DIR, id, 'manifest.json')
-  if (!fs.existsSync(f)) return null
-  try {
-    return JSON.parse(fs.readFileSync(f, 'utf-8'))
-  } catch {
-    return null
+  for (const dir of ENGINE_DIRS) {
+    const f = path.join(dir, id, 'manifest.json')
+    if (!fs.existsSync(f)) continue
+    try {
+      return JSON.parse(fs.readFileSync(f, 'utf-8'))
+    } catch {
+      return null
+    }
   }
+  return null
 }
 
 /** 剥掉 _ 开头的注释键（它们是给人看的，不算字段） */
@@ -137,6 +153,6 @@ module.exports = {
   paramSamples,
   allParamNames,
   tierDistribution,
-  ENGINES_DIR,
+  ENGINE_DIRS,
   REPO_ROOT,
 }
