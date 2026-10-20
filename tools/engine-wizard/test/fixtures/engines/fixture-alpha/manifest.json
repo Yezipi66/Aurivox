@@ -1,0 +1,433 @@
+{
+  "contract_version": 2,
+  "id": "fixture-alpha",
+  "label": "Fixture Alpha",
+  "upstream": {
+    "url": "https://github.com/example/fixture-alpha",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "license": "MIT"
+  },
+  "default_base_url": "http://127.0.0.1:19880",
+  "base_url_env": "FIXTURE_ALPHA_BASE_URL",
+  "timeout_ms": 300000,
+  "timeout_ms_source": "estimated",
+  "max_chars": 60,
+  "max_chars_source": "estimated",
+  "capabilities": {
+    "requires_reference_audio": true,
+    "reference_clip_seconds": [
+      3,
+      10
+    ],
+    "streaming": true,
+    "output_sample_rate": 32000,
+    "supports_finetune": false
+  },
+  "runtime": {
+    "python": "engines/fixture-alpha/.venv",
+    "entry": "../../lib/inference/infer_server.py",
+    "args": [
+      "-a",
+      "{host}",
+      "-p",
+      "{port}",
+      "-c",
+      "{root}/lib/inference/tts_infer.yaml"
+    ],
+    "cwd": ".",
+    "checkpoints": "models/tts/fixture-alpha",
+    "ready_endpoint": "/health",
+    "ready_timeout_ms": 180000,
+    "ready_timeout_ms_source": "estimated",
+    "preload": false,
+    "verify": {
+      "sys_path": [
+        "engines/fixture-alpha/infer",
+        "engines/fixture-alpha"
+      ],
+      "imports": [
+        {
+          "module": "TTS",
+          "class": "TTS",
+          "methods": [
+            "run",
+            "set_ref_audio"
+          ]
+        }
+      ]
+    }
+  },
+  "maps": {
+    "text": "text",
+    "text_lang": "text_lang",
+    "reference_audio": "ref_audio_path",
+    "reference_text": "prompt_text",
+    "seed": "seed"
+  },
+  "parameters": [
+    {
+      "name": "text_lang",
+      "phase": "call",
+      "tier": "common",
+      "type": "string",
+      "label": {
+        "en": "text_lang",
+        "zh": "text_lang"
+      },
+      "help": {
+        "en": "The text_lang option.",
+        "zh": "text_lang 这一项。"
+      }
+    },
+    {
+      "name": "reference_text",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "string",
+      "label": {
+        "en": "reference_text",
+        "zh": "reference_text"
+      },
+      "help": {
+        "en": "The reference_text option.",
+        "zh": "reference_text 这一项。"
+      }
+    },
+    {
+      "name": "aux_ref_audio_paths",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "file",
+      "label": {
+        "en": "aux_ref_audio_paths",
+        "zh": "aux_ref_audio_paths"
+      },
+      "help": {
+        "en": "The aux_ref_audio_paths option.",
+        "zh": "aux_ref_audio_paths 这一项。"
+      }
+    },
+    {
+      "name": "lang",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "string",
+      "label": {
+        "en": "lang",
+        "zh": "lang"
+      },
+      "help": {
+        "en": "The lang option.",
+        "zh": "lang 这一项。"
+      }
+    },
+    {
+      "name": "batch_size",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "integer",
+      "label": {
+        "en": "batch_size",
+        "zh": "batch_size"
+      },
+      "help": {
+        "en": "The batch_size option.",
+        "zh": "batch_size 这一项。"
+      }
+    },
+    {
+      "name": "batch_threshold",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "integer",
+      "label": {
+        "en": "batch_threshold",
+        "zh": "batch_threshold"
+      },
+      "help": {
+        "en": "The batch_threshold option.",
+        "zh": "batch_threshold 这一项。"
+      }
+    },
+    {
+      "name": "fragment_interval",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "number",
+      "label": {
+        "en": "fragment_interval",
+        "zh": "fragment_interval"
+      },
+      "help": {
+        "en": "The fragment_interval option.",
+        "zh": "fragment_interval 这一项。"
+      }
+    },
+    {
+      "name": "top_k",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "integer",
+      "label": {
+        "en": "top_k",
+        "zh": "top_k"
+      },
+      "help": {
+        "en": "The top_k option.",
+        "zh": "top_k 这一项。"
+      }
+    },
+    {
+      "name": "top_p",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "number",
+      "label": {
+        "en": "top_p",
+        "zh": "top_p"
+      },
+      "help": {
+        "en": "The top_p option.",
+        "zh": "top_p 这一项。"
+      }
+    },
+    {
+      "name": "temperature",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "number",
+      "label": {
+        "en": "temperature",
+        "zh": "temperature"
+      },
+      "help": {
+        "en": "The temperature option.",
+        "zh": "temperature 这一项。"
+      }
+    },
+    {
+      "name": "if_sr",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "if_sr",
+        "zh": "if_sr"
+      },
+      "help": {
+        "en": "The if_sr option.",
+        "zh": "if_sr 这一项。"
+      }
+    },
+    {
+      "name": "text_split_method",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "string",
+      "label": {
+        "en": "text_split_method",
+        "zh": "text_split_method"
+      },
+      "help": {
+        "en": "The text_split_method option.",
+        "zh": "text_split_method 这一项。"
+      }
+    },
+    {
+      "name": "repetition_penalty",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "number",
+      "label": {
+        "en": "repetition_penalty",
+        "zh": "repetition_penalty"
+      },
+      "help": {
+        "en": "The repetition_penalty option.",
+        "zh": "repetition_penalty 这一项。"
+      }
+    },
+    {
+      "name": "sample_steps",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "integer",
+      "label": {
+        "en": "sample_steps",
+        "zh": "sample_steps"
+      },
+      "help": {
+        "en": "The sample_steps option.",
+        "zh": "sample_steps 这一项。"
+      }
+    },
+    {
+      "name": "split_bucket",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "split_bucket",
+        "zh": "split_bucket"
+      },
+      "help": {
+        "en": "The split_bucket option.",
+        "zh": "split_bucket 这一项。"
+      }
+    },
+    {
+      "name": "parallel_infer",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "parallel_infer",
+        "zh": "parallel_infer"
+      },
+      "help": {
+        "en": "The parallel_infer option.",
+        "zh": "parallel_infer 这一项。"
+      }
+    },
+    {
+      "name": "pron_overrides",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "text",
+      "label": {
+        "en": "pron_overrides",
+        "zh": "pron_overrides"
+      },
+      "help": {
+        "en": "The pron_overrides option.",
+        "zh": "pron_overrides 这一项。"
+      }
+    },
+    {
+      "name": "emo_alpha",
+      "phase": "call",
+      "tier": "common",
+      "type": "number",
+      "label": {
+        "en": "emo_alpha",
+        "zh": "emo_alpha"
+      },
+      "help": {
+        "en": "The emo_alpha option.",
+        "zh": "emo_alpha 这一项。"
+      }
+    },
+    {
+      "name": "interval_silence",
+      "phase": "call",
+      "tier": "common",
+      "type": "number",
+      "label": {
+        "en": "interval_silence",
+        "zh": "interval_silence"
+      },
+      "help": {
+        "en": "The interval_silence option.",
+        "zh": "interval_silence 这一项。"
+      }
+    },
+    {
+      "name": "use_fp16",
+      "phase": "load",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "use_fp16",
+        "zh": "use_fp16"
+      },
+      "help": {
+        "en": "The use_fp16 option.",
+        "zh": "use_fp16 这一项。"
+      }
+    },
+    {
+      "name": "use_random",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "use_random",
+        "zh": "use_random"
+      },
+      "help": {
+        "en": "The use_random option.",
+        "zh": "use_random 这一项。"
+      }
+    },
+    {
+      "name": "verbose",
+      "phase": "call",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "verbose",
+        "zh": "verbose"
+      },
+      "help": {
+        "en": "The verbose option.",
+        "zh": "verbose 这一项。"
+      }
+    },
+    {
+      "name": "use_deepspeed",
+      "phase": "load",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "use_deepspeed",
+        "zh": "use_deepspeed"
+      },
+      "help": {
+        "en": "The use_deepspeed option.",
+        "zh": "use_deepspeed 这一项。"
+      }
+    },
+    {
+      "name": "use_cuda_kernel",
+      "phase": "load",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "use_cuda_kernel",
+        "zh": "use_cuda_kernel"
+      },
+      "help": {
+        "en": "The use_cuda_kernel option.",
+        "zh": "use_cuda_kernel 这一项。"
+      }
+    },
+    {
+      "name": "use_torch_compile",
+      "phase": "load",
+      "tier": "advanced",
+      "type": "boolean",
+      "label": {
+        "en": "use_torch_compile",
+        "zh": "use_torch_compile"
+      },
+      "help": {
+        "en": "The use_torch_compile option.",
+        "zh": "use_torch_compile 这一项。"
+      }
+    },
+    {
+      "name": "max_text_tokens_per_segment",
+      "phase": "load",
+      "tier": "advanced",
+      "type": "integer",
+      "label": {
+        "en": "max_text_tokens_per_segment",
+        "zh": "max_text_tokens_per_segment"
+      },
+      "help": {
+        "en": "The max_text_tokens_per_segment option.",
+        "zh": "max_text_tokens_per_segment 这一项。"
+      }
+    }
+  ]
+}

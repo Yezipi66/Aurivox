@@ -5,7 +5,13 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
-const ENGINES_DIR = path.join(REPO_ROOT, 'engines')
+// 引擎目录可由 ENGINES_DIR 改，与 lib/paths/engines.js 是同一套覆盖口。
+//   为什么需要它：干净检出（CI）里 engines/ 只有模板与一张真名片，
+//   而「要几台引擎才够」的测试需要更多台。
+//   ⇒ 那几组测试把 ENGINES_DIR 指到测试自带的夹具目录上。
+const ENGINES_DIR = process.env.ENGINES_DIR
+  ? path.resolve(process.env.ENGINES_DIR)
+  : path.join(REPO_ROOT, 'engines')
 
 /** 逐字读引擎目录：不写引擎名，靠目录自己说话 */
 function listEngineIds () {

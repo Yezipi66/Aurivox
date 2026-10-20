@@ -20,6 +20,13 @@ const fs = require('node:fs')
 
 const { diagnose, summarize } = require('../core/validate.js')
 const { SECTIONS, PARAM_FIELDS, SECTIONS_BY_KEY } = require('../core/fieldmeta')
+
+// 引擎目录指向「真名片 + 夹具」的合并目录。
+//   为什么：这一组用例是「拿形状各异的引擎当压力用例」，
+//   而形状各异的那些引擎在盘上的存在与否随机器而变
+//   （干净检出里只有一张真名片，缺了另几种形状）。
+//   ⇒ 合并目录让「真名片一份不少 + 夹具补足台数」在任何机器上都成立。
+require('../../../lib/testEngines.js').useFixtureEngines()
 const { listEngines } = require('../../../lib/engines/registry')
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
@@ -31,7 +38,9 @@ const REAL_ENGINES = listEngines().map(e => e.id)
 
 for (const id of REAL_ENGINES) {
   test(`真引擎 ${id}：校验层读得进去，且不报 error`, () => {
-    const file = path.join(REPO, 'engines', id, 'manifest.json')
+    // 名片从它实际所在的位置读：真名片在 engines/ 下，夹具在夹具目录下。
+    //   listEngines() 给的 dir 就是那个位置（registry.js 读的时候写进去的）。
+    const file = path.join(listEngines().find((e) => e.id === id).dir, 'manifest.json')
     assert.ok(fs.existsSync(file), `找不到名片：${file}`)
     const manifest = JSON.parse(fs.readFileSync(file, 'utf-8'))
 
@@ -62,15 +71,16 @@ test('无 call 段的引擎不被拒（骨架不能写死「必须有 call」）
 })
 
 test('零个权重位是合法的（空数组不是错）', () => {
-  const file = path.join(REPO, 'engines', 'cosyvoice2', 'manifest.json')
+  // 夹具那两台都没写 weights 段 ⇒ 考的是「没有权重位」这个形状。
+  const file = path.join(__dirname, 'fixtures', 'engines', 'fixture-alpha', 'manifest.json')
   const manifest = JSON.parse(fs.readFileSync(file, 'utf-8'))
   assert.deepStrictEqual(manifest.weights, undefined,
-    '前提变了：那台现在有 weights 了，测试要改')
+    '前提变了：夹具那台现在有 weights 了，测试要改')
   assert.strictEqual(summarize(diagnose(manifest)).errors, 0)
 })
 
 test('多方法的 applies_to 提示能落到具体第几项', () => {
-  const file = path.join(REPO, 'engines', 'cosyvoice2', 'manifest.json')
+  const file = path.join(__dirname, 'fixtures', 'engines', 'fixture-alpha', 'manifest.json')
   const manifest = JSON.parse(fs.readFileSync(file, 'utf-8'))
   assert.ok(Array.isArray(manifest.parameters) && manifest.parameters.length > 0)
   const diags = diagnose(manifest)
