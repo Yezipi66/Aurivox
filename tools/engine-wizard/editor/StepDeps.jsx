@@ -465,27 +465,26 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
 
-      {/* ---- 三个按钮同一列 ----
-          从左到右：从头重装本步 → 撤销克隆 → 安装。
-          两个按钮的说明放在按钮行下方的分隔线里，作引注。
+      {/* ---- 三个按钮一行，从左到右 ----
+          从头重装本步 → 撤销克隆 → 安装（主操作靠最右）。
+          两个按钮的说明放在按钮行下方的分隔线里，竖排作引注。
           RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
             不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。*/}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
         {/* RiskUnlock 把 children 放进 .confirm-actions（flex 行，右对齐），
-            所以只给它一个子节点：竖着摞的按钮列 + 下面的引注。
-            整块用 align-self:flex-start 拉回左边。*/}
+            所以这里给一个撑满宽度的子节点：
+            上面一行按钮（主操作靠最右），下面一块引注。*/}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           gap: 10,
-          alignItems: 'flex-start',
-          alignSelf: 'flex-start',
+          width: '100%',
         }}>
           <div style={{
             display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            alignItems: 'flex-start',
+            gap: 8,
+            alignItems: 'center',
+            justifyContent: 'flex-end',
           }}>
             {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
                 （.wizard-install.json 的 env 段），
@@ -521,7 +520,6 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               borderTop: '1px solid var(--border)',
               marginLeft: 8,
               marginRight: 8,
-              alignSelf: 'stretch',
             }}>
               <div className="field-hint" style={{ maxWidth: 560 }}>
                 {t('Reinstall this step from the start: clears the record of finished '
