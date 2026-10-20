@@ -423,11 +423,13 @@ test('每个 JSX 都必须真能编译（测试全绿 ≠ 前端能跑）', () =
   // 否则「我这能过」而 Vite 报错，等于没测。
   let parse
   try {
-    parse = require(require.resolve('@babel/parser', {
-      paths: [path.join(__dirname, '..', '..', '..', 'web')],
-    })).parse
+    parse = require('../../../lib/testDeps.js').babelParse()
   } catch (e) {
     // 拿不到 babel 就跳过而不是假装通过 ： 绝不能给假绿灯
+    return
+  }
+  if (!parse) {
+    // 拿不到就跳过而不是假装通过：绝不能给假绿灯
     return
   }
   const WIZ = path.join(__dirname, '..', 'editor')
@@ -455,9 +457,7 @@ test('JSX 里的注释不许变成可见文本（vite 只报 warning，测试全
   //   vite 把它当 warning（不是 error），编译照样过、node --test 也全绿。
   let parse
   try {
-    parse = require(require.resolve('@babel/parser', {
-      paths: [path.join(__dirname, '..', '..', '..', 'web')],
-    })).parse
+    parse = require('../../../lib/testDeps.js').babelParse()
   } catch (e) {
     throw new Error(`拿不到 @babel/parser，注释残留检查无法进行：${e.message}`)
   }
@@ -643,9 +643,7 @@ const DEBT_LEDGER = {
 // 正文的比法一律换成行对行、集合对集合。
 let babelParse = null
 try {
-  babelParse = require(require.resolve('@babel/parser', {
-    paths: [path.join(__dirname, '..', '..', '..', 'web')],
-  })).parse
+  babelParse = require('../../../lib/testDeps.js').babelParse()
 } catch (e) {
   babelParse = null
 }

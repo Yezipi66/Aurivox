@@ -25,7 +25,11 @@ const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
  */
 function loadDragBind () {
   const src = fs.readFileSync(DRAGBIND, 'utf8')
-  const code = require(path.join(WEB_DIR, 'node_modules', 'esbuild')).transformSync(src, {
+  const esbuild = require('../../../lib/testDeps.js').esbuild()
+  if (!esbuild) {
+    throw new Error('拿不到 esbuild，DragBind 的 JSX 编译测试无法运行')
+  }
+  const code = esbuild.transformSync(src, {
     loader: 'jsx',
     format: 'cjs',
     target: 'node18',

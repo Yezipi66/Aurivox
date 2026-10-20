@@ -1,0 +1,53 @@
+name: CI
+
+# 什么时候跑：推与 PR 都跑。
+#   这个仓库的测试只需要 Node 与一个 Python 解释器，不需要显卡，
+#   也不需要任何引擎的权重 ⇒ 每次提交都跑得起。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # 同一个分支的旧跑次还没完就取消它：省 CI 时间，且只留最后一次结果。
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: 装依赖
+        run: npm ci
+
+      # web/ 的依赖也要装：根目录的测试里有几条要从 web/node_modules 取编译依赖
+      #   （@babel/parser 与 esbuild 已在根 devDependencies 里声明，
+      #   但 web/ 自己那份 Vite 依赖树也要装，前端的构建与那条测试都要它）。
+      - name: 装前端依赖
+        run: npm ci --prefix web
+
+      # 平台根 venv：几组测试要它（buildVenvStep / resolveUv 都从
+      #   <root>/venv 找解释器与 uv）。它不进版本库（.gitignore 第 31 行），
+      #   所以 CI 上要现建。
+      - name: 建平台根 venv 并装 uv
+        run: |
+          python3 -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/python -m pip install uv
+
+      - name: 跑测试
+        run: npm test
+
+      - name: 构建前端
+        run: npm run build

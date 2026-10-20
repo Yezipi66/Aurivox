@@ -20,10 +20,8 @@ const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
  * 组件本身 import 了 react 和 i18n，两者都与这个纯函数无关，给替身即可。
  */
 function loadComputeAutoFill () {
-  let esbuild
-  try {
-    esbuild = require(require.resolve('esbuild', { paths: [WEB_DIR] }))
-  } catch (e) {
+  const esbuild = require('../../../lib/testDeps.js').esbuild()
+  if (!esbuild) {
     // 拿不到编译依赖就不跑，绝不给假绿灯：样式守卫那份 JSX 编译测试
     // 用的是同一个理由，缺依赖时同样只跳过并说明原因。
     return null
