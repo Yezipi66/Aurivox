@@ -135,6 +135,18 @@ export function riskNotice (stepKey, t, vars) {
       .split('{' + k + '}').join(vars[k] == null ? '' : vars[k]), str)
   }
   if (st.risk === 'network-write') {
+    // 目录里已经有内容 ⇒ 这一步是复用，不克隆。
+    //   说「会克隆到哪」就与实际做的事不符了。
+    if (vars && vars.reuse) {
+      return {
+        level: 'info',
+        text: fill(t(
+          'This step reuses what is already in "{path}". '
+          + 'Nothing is downloaded and nothing is deleted.',
+          '本步骤将复用“{path}”里已有的内容。'
+          + '既不下载，也不删除任何东西。')),
+      }
+    }
     // 克隆是陈述：说清会写到哪里，不含风险判断。
     return {
       level: 'info',

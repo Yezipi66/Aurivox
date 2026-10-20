@@ -21,6 +21,142 @@ function engineDir (id, root) {
 }
 
 /**
+ * 跑一条 git 命令，读它的标准输出。
+ * git 坏了、目录不是仓库、命令不存在，都归到「读不到」这一类，不当成错误抛出去。
+ */
+function gitOut (args, cwd) {
+  try {
+    const r = spawnSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    if (r.status !== 0) return null
+    const out = (r.stdout || '').trim()
+    return out || null
+  } catch (e) {
+    return null
+  }
+}
+
+/** 两个路径是不是同一个目录（Windows 上大小写不敏感，分隔符写法也可能不同） */
+function samePath (a, b) {
+  if (!a || !b) return false
+  const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  return norm(a) === norm(b)
+}
+
+/**
+ * 读一个目录的 git 身份：它自己是不是仓库根、来自哪个上游、停在哪个提交。
+ *
+ * 为什么要先确认「它自己是不是仓库根」：
+ *   git 会向上找 .git。engines/ 下的一个普通目录（不是仓库）向上找，
+ *   会找到 Aurivox 自己的 .git，于是 remote.origin.url 读出来是
+ *   Aurivox 的地址，而不是那个目录的来历。show-toplevel 认得出这个差别。
+ *
+ * HEAD 与分支是尽力而为：仓库损坏时（packed-refs 坏了、对象签名不对）
+ *   这两条读不到，如实给 null，不影响 origin 的判定。
+ *
+ * @returns {{isRepo:boolean, origin:string|null, head:string|null, branch:string|null, repoRoot:string|null}}
+ */
+function readGitIdentity (dir) {
+  const none = { isRepo: false, origin: null, head: null, branch: null, repoRoot: null }
+  if (!dir || !fs.existsSync(dir)) return none
+
+  const top = gitOut(['rev-parse', '--show-toplevel'], dir)
+  if (!top) return none
+  if (!samePath(top, dir)) return none
+
+  const origin = gitOut(['config', '--get', 'remote.origin.url'], dir)
+  const head = gitOut(['rev-parse', '--short', 'HEAD'], dir)
+  let branch = gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], dir)
+  if (branch === 'HEAD') branch = null
+
+  return { isRepo: true, origin, head, branch, repoRoot: top }
+}
+
+/**
+ * 把仓库地址归一化成 host/owner/repo，好让不同写法能对上。
+ *
+ * 要对上的写法：https 与 http、.git 后缀、git@ 与 ssh://、大小写。
+ * 路径大小写按不敏感处理：GitHub 的 owner/repo 本来就不区分大小写。
+ */
+function normalizeRepoUrl (url) {
+  if (!url) return null
+  let s = String(url).trim()
+  if (!s) return null
+  s = s.replace(/^git\+/i, '')
+  const m = s.match(/^(?:https?:\/\/|ssh:\/\/)?(?:[^@/]+@)?([^:/]+)[\/:](.+)$/i)
+  if (!m) return null
+  const host = m[1].toLowerCase()
+  const p = m[2]
+    .replace(/\.git$/i, '')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+  if (!host || !p) return null
+  return host + '/' + p.toLowerCase()
+}
+
+/**
+ * 判断目标目录跟上游是不是同一个仓库。
+ *
+ * 结论只有三档：
+ *   same       同一个上游：本地就是这个仓库克隆出来的。
+ *   different  另一个上游：本地来自别的仓库。
+ *   unknown    说不出来：目录不是 git 仓库，或仓库里没有 origin。
+ *
+ * @returns {{match:'same'|'different'|'unknown', local:string|null, upstream:string|null, reason:string}}
+ */
+function compareUpstream (dir, cloneUrl) {
+  const upstream = normalizeRepoUrl(cloneUrl)
+  const id = readGitIdentity(dir)
+
+  if (!id.isRepo) {
+    return {
+      match: 'unknown', local: null, upstream,
+      reason: 'The directory is not a git repository, so the platform cannot tell '
+      + 'where it came from.',
+      reasonZh: '该目录不是 git 仓库，平台无从判断它的来源。',
+    }
+  }
+  if (!id.origin) {
+    return {
+      match: 'unknown', local: null, upstream,
+      reason: 'The repository has no origin remote, so the platform cannot tell '
+      + 'where it came from.',
+      reasonZh: '该仓库没有 origin 远端，平台无从判断它的来源。',
+    }
+  }
+  const local = normalizeRepoUrl(id.origin)
+  if (!local) {
+    return {
+      match: 'unknown', local: id.origin, upstream,
+      reason: `The origin remote (${id.origin}) is not a URL the platform can compare.`,
+      reasonZh: `origin 远端（${id.origin}）不是平台能比对的地址。`,
+    }
+  }
+  if (!upstream) {
+    return {
+      match: 'unknown', local, upstream: null,
+      reason: 'No upstream URL was given, so the directory cannot be compared.',
+      reasonZh: '没有给上游地址，无从比对。',
+    }
+  }
+  return {
+    match: local === upstream ? 'same' : 'different',
+    local,
+    upstream,
+    reason: local === upstream
+      ? 'The directory was cloned from the same upstream.'
+      : 'The directory came from a different upstream.',
+    reasonZh: local === upstream
+      ? '该目录来自同一个上游。'
+      : '该目录来自另一个上游。',
+  }
+}
+
+/**
  * 动手之前先看目标目录。
  *
  * 判据来自 git 自己的行为（clone 拒绝非空目录），但提前查而不是等它报：
@@ -48,7 +184,22 @@ function inspectTarget (id, opts = {}) {
 /**
  * 决定能不能克隆：理由必须是用户看得懂的话，不是 git 的原话。
  *
- * @returns {{ok:true, dir} | {ok:false, code, error, entries?}}
+ * 目录非空时不是一律拦下，而是分情况说清楚：
+ *
+ *   same       目录来自同一个上游 ⇒ 复用它，不重新克隆。
+ *              上游可能有新版本，但本地那份是使用者已经装好环境的资产，
+ *              重新拉一遍会毁掉它，所以复用是默认行为。
+ *   different  目录来自另一个上游 ⇒ 复用它，但要说明「这不是你要的那个上游」。
+ *              仍然不拦：使用者可能故意把一个仓库放到另一个名字下。
+ *   unknown    说不出来（不是 git 仓库、仓库坏了、没有 origin）⇒ 复用它，
+ *   说明平台无从判断来源。
+ *
+ * 三种都复用，因为「重新克隆」要删掉使用者已经攒下的东西
+ *   （装好的环境、下载好的权重、装好的名片）。
+ *   平台没有断点续传，重新拉一遍等于从头再来。
+ *
+ * @returns {{ok:true, dir, state:'empty'|'reused', upstream?, git?}}
+ *          | {ok:false, code, error, entries?}}
  */
 function checkClonable (id, opts = {}) {
   // id 的校验在 buildClonePlan 里已做，但本函数可被单独调用，故此处同样兜底：
@@ -60,25 +211,20 @@ function checkClonable (id, opts = {}) {
   }
   const info = inspectTarget(id, opts)
   if (!info.ok) return info
-  if (info.entries.length === 0) return { ok: true, dir: info.dir }
+  if (info.entries.length === 0) {
+    return { ok: true, dir: info.dir, state: 'empty' }
+  }
 
-  // 非空，所以不许默默继续，也不许默默覆盖
-  const listed = info.entries.slice(0, 8)
+  // 非空：复用，不重克隆。查一下它来自哪个上游，好让使用者知道手上这份是什么。
+  const upstream = compareUpstream(info.dir, opts.cloneUrl)
+  const git = readGitIdentity(info.dir)
   return {
-    ok: false,
-    code: 'DIR_NOT_EMPTY',
+    ok: true,
     dir: info.dir,
+    state: 'reused',
     entries: info.entries,
-    error: `engines/${id}/ already has ${info.entries.length} item(s):`
-      + `${listed.join(', ')}${info.entries.length > 8 ? ' …' : ''}\n`
-      + 'git clone requires an empty target directory.\n'
-      + '  · Usually this means the engine was already cloned — check whether you need to reinstall.\n'
-      + '  · To reinstall, remove the directory first (the platform will not delete it for you).\n',
-    errorZh: `engines/${id}/ 里已经有 ${info.entries.length} 项：`
-      + `${listed.map((e) => e).join('、')}${info.entries.length > 8 ? ' …' : ''}\n`
-      + 'git clone 要求目标目录为空。\n'
-      + '  · 通常表示该引擎已克隆过，请确认是否需要重新安装\n'
-      + '  · 如需重新安装，请先移除该目录（平台不会自动删除）\n',
+    upstream,
+    git,
   }
 }
 
@@ -110,6 +256,33 @@ function buildClonePlan (input = {}) {
   }
 
   const depth = input.depth === 1 ? ['--depth', '1'] : []
+
+  // 目录里已经有东西 ⇒ 复用，不重新克隆。
+  //   重新克隆要删掉使用者已经装好的环境、下载好的权重、装好的名片，
+  //   而平台没有断点续传，重新拉一遍等于从头再来。
+  //   所以这一步在复用时不做任何写盘动作，只把现状说清楚。
+  if (clonable.state === 'reused') {
+    return {
+      ok: true,
+      id,
+      dir: clonable.dir,
+      cloneUrl: input.cloneUrl,
+      state: 'reused',
+      upstream: clonable.upstream,
+      git: clonable.git,
+      entries: clonable.entries,
+      steps: [
+        {
+          kind: 'reuse',
+          why: `engines/${id}/ already has content, so it is reused as it is. `
+            + 'Nothing is downloaded and nothing is deleted.',
+          whyZh: `engines/${id}/ 里已经有内容，直接复用。`
+            + '既不下载也不删除任何东西。',
+        },
+      ],
+      execute: input.execute === true,
+    }
+  }
 
   const steps = [
     {
@@ -197,6 +370,21 @@ function killProcessTree (child) {
 async function runClone (input = {}) {
   const plan = buildClonePlan(input)
   if (!plan.ok || !plan.execute) return plan
+
+  // 复用的情形：不跑 git，也不写盘。
+  //   目录里已有的东西是使用者的资产（装好的环境、下载好的权重），
+  //   重新克隆会先删掉它们，而平台没有断点续传。
+  if (plan.state === 'reused') {
+    return {
+      ...plan,
+      ok: true,
+      reused: true,
+      note: 'The engine directory already exists, so it was reused as it is. '
+        + 'Nothing was downloaded and nothing was deleted.',
+      noteZh: '引擎目录已存在，直接复用了。'
+        + '既没有下载，也没有删除任何东西。',
+    }
+  }
 
   const root = input.root || projectRoot()
   const argv = plan.steps[0].argv
@@ -400,4 +588,5 @@ function removeTargetDir (id, opts = {}) {
 module.exports = {
   projectRoot, engineDir, inspectTarget, checkClonable, buildClonePlan, runClone,
   killProcessTree, removeTargetDir,
+  readGitIdentity, normalizeRepoUrl, compareUpstream,
 }

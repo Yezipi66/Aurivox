@@ -81,34 +81,64 @@ test('目录存在但空，也可以（git 自己能放）', () => {
   assert.strictEqual(r.ok, true, r.error)
 })
 
-test('目录非空，动手之前就拦住，且理由要说清', () => {
+// 目录非空时不再拦：复用它。
+//   重新克隆要先删掉使用者已经装好的环境与权重，而平台没有断点续传。
+test('目录非空时不拦，改成复用，并说清它来自哪个上游', () => {
   // 文件要放在 root/engines/<id> 那一层（checkClonable 就查这里）。
   //   放错一层的话它查的是空目录，放行，这条测试就白写了。
   const { root, engineDir } = mkdtempRootWithEngine('old')
   fs.writeFileSync(path.join(engineDir, 'manifest.json'), '{}')
   fs.writeFileSync(path.join(engineDir, 'pyproject.toml'), '')
 
-  const r = checkClonable('old', { root })
-  assert.strictEqual(r.ok, false)
-  assert.strictEqual(r.code, 'DIR_NOT_EMPTY')
+  const r = checkClonable('old', { root, cloneUrl: 'https://github.com/a/b.git' })
+  assert.strictEqual(r.ok, true, '目录非空不该被拦：使用者装好的环境不能被毁掉')
+  assert.strictEqual(r.state, 'reused')
   assert.ok(r.entries.includes('manifest.json'), r.entries.join())
-  // 断言改钉实质：数量。中文措辞已双语化（error 英文 + errorZh 中文）
-  assert.ok(r.errorZh.includes('2 项') || /2 item/i.test(r.error), '要说清有几个')
-  // 理由要说清「是 git clone 的限制，且目录必须为空」，不钉具体措辞。
-  assert.ok(/git clone/i.test(r.error) || /git clone/.test(r.errorZh), r.error)
-  assert.ok(/empty target directory|空目录|目录为空/i.test(r.error) || /目标目录为空/.test(r.errorZh), r.error)
-  // 平台不替用户删东西 ： 建议里不能出现「已删除」
-  // 不许说「已删除 / 已经帮你」：中文与英文两侧都要钉
-  assert.ok(!/已删除|已经帮你/.test(r.errorZh) && !/deleted for you|removed for you/i.test(r.error), r.error)
+  // 不是 git 仓库 ⇒ 说不出来历，如实说 unknown，不许编一个上游。
+  assert.strictEqual(r.upstream.match, 'unknown')
 })
 
-test('「已克隆过」要能被认出来（这是最常见的那个非空）', () => {
+test('目录非空但来自同一个上游 ⇒ 认出来是同一个', () => {
   const { root, engineDir } = mkdtempRootWithEngine('old')
-  fs.writeFileSync(path.join(engineDir, 'manifest.json'), '{"id":"old"}')
-  const r = checkClonable('old', { root })
-  assert.strictEqual(r.ok, false)
-  // 钉实质：提示「已克隆过」这件事，不钉「已经克隆过」这五个字。
-  assert.ok(/already cloned|reinstall/.test(r.error) || /已克隆过|克隆过|重新安装/.test(r.errorZh), r.error)
+  fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
+  // 在目录里造一个仓库，origin 指向同一个上游
+  const { spawnSync } = require('node:child_process')
+  spawnSync('git', ['init', '-q'], { cwd: engineDir, encoding: 'utf8' })
+  spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/a/b.git'],
+    { cwd: engineDir, encoding: 'utf8' })
+
+  const r = checkClonable('old', { root, cloneUrl: 'https://github.com/a/b.git' })
+  assert.strictEqual(r.ok, true)
+  assert.strictEqual(r.state, 'reused')
+  assert.strictEqual(r.upstream.match, 'same')
+})
+
+test('目录非空但来自另一个上游 ⇒ 认出来是不同', () => {
+  const { root, engineDir } = mkdtempRootWithEngine('old')
+  fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
+  const { spawnSync } = require('node:child_process')
+  spawnSync('git', ['init', '-q'], { cwd: engineDir, encoding: 'utf8' })
+  spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/other/repo.git'],
+    { cwd: engineDir, encoding: 'utf8' })
+
+  const r = checkClonable('old', { root, cloneUrl: 'https://github.com/a/b.git' })
+  assert.strictEqual(r.ok, true, '不同上游也不拦：使用者可能故意换了名字')
+  assert.strictEqual(r.upstream.match, 'different')
+})
+
+test('非空目录时即使 execute:true 也不跑 git，目录里的东西不能被动', async () => {
+  // 这里用的是 mkdtempRootWithEngine('old') ： 它保证 root/engines/old 真的存在。
+  //   如果引擎目录没真造出来，checkClonable 会判成「目录空」，放行，
+  //   真的去联网克隆。
+  const { root, engineDir } = mkdtempRootWithEngine('old')
+  fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
+  const r = await runClone({ id: 'old', cloneUrl: 'https://github.com/a/b.git',
+    execute: true, root })
+  assert.strictEqual(r.ok, true)
+  assert.strictEqual(r.reused, true, '复用时不许跑 git')
+  // 目录里的东西不能被动
+  assert.strictEqual(fs.readdirSync(engineDir).length, 1)
+  assert.ok(fs.existsSync(path.join(engineDir, 'x.txt')))
 })
 
 test('cloneUrl 空，当场报，不生成 `git clone \'\'`（实测踩到）', () => {
@@ -242,20 +272,6 @@ test('不给 execute:true 就绝不动盘', () => {
   runClone({ id: 'newone', cloneUrl: 'https://github.com/a/b.git', root })
   assert.ok(!fs.existsSync(path.join(root, 'engines', 'newone')),
     '不该建目录')
-})
-
-test('非空目录时即使 execute:true 也不许跑 git', async () => {
-  // 这里用的是 mkdtempRootWithEngine('old') ： 它保证 root/engines/old 真的存在。
-  //   如果引擎目录没真造出来，checkClonable 会判成「目录空」，放行，
-  //   真的去联网克隆。
-  const { root, engineDir } = mkdtempRootWithEngine('old')
-  fs.writeFileSync(path.join(engineDir, 'x.txt'), '')
-  const r = await runClone({ id: 'old', cloneUrl: 'https://github.com/a/b.git',
-    execute: true, root })
-  assert.strictEqual(r.ok, false)
-  assert.strictEqual(r.code, 'DIR_NOT_EMPTY')
-  // 目录里的东西不能被动
-  assert.strictEqual(fs.readdirSync(engineDir).length, 1)
 })
 
 test('git 成功后的话里不许出现「能用」「可用」', () => {

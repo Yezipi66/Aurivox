@@ -128,6 +128,15 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     if (j.ok) {
       if (!idInput.trim()) setIdInput(j.id)
       onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
+      // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
+      //   等他点了「下一步」才说就来不及了。
+      //   这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
+      try {
+        const p = await post('/wizard/clone', {
+          id: resolvedName, cloneUrl: j.cloneUrl,
+        })
+        setPlan(p)
+      } catch (e) { /* 查不到就按普通克隆走，不阻断 */ }
     }
     setBusy('')
   }
@@ -170,9 +179,16 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     } finally { setBusy('') }
   }
 
-  // ---- ④ 目标目录已存在 ⇒ 提供清除选项 ----
-  // 后端拒绝往非空目录里克隆（git 的规矩），但拒绝不等于没有出路：
-  //   给出「清除并重试」，使用者点一下就能重来，不用自己去文件系统里删。
+  // ---- ④ 目标目录已有内容 ⇒ 复用，不重新克隆 ----
+  // 后端在目录非空时不再拦：重新克隆要删掉使用者已经装好的环境与权重，
+  //   而平台没有断点续传。所以这里把上游关系告诉使用者，让他知道手上这份是什么。
+  // 复用状态从 plan 读：解析完就做了一次只读检查，结果在 plan 里，
+  //   不必等使用者点了「下一步」才说。
+  // plan 是持久化的（sessionStorage），改了链接或目录名之后它可能还是上一次的
+  //   ⇒ 只认「跟当前目录名对得上」的那份，否则当没有。
+  const planForCur = (plan && plan.id && plan.id === curId) ? plan : null
+  const reused = !!(planForCur && planForCur.state === 'reused')
+  const upstream = (planForCur && planForCur.upstream) || null
   const dirNotEmpty = !!(cloneRes && !cloneRes.ok && cloneRes.code === 'DIR_NOT_EMPTY')
   const [removing, setRemoving] = React.useState(false)
   const removeDir = async () => {
@@ -319,14 +335,19 @@ const done = facts && facts.cloned === true
           判据：此区域里的命令必须与真正要执行的那条逐字相同。*/}
       {res && res.ok && (
         <>
-          <div className="plan-kv">
-            <span className="pk">{t('Command', '命令')}</span>
-            <span className="pv">
-              <code>
-                {`git clone ${(res && res.cloneUrl) || ''} engines/${curId}`}
-              </code>
-            </span>
-          </div>
+          {/* 命令区：复用时没有命令要跑。
+              复用是这一次的常态（目录已经在了），摆一条不会执行的 git clone
+                会让使用者以为下一步会去拉一遍。*/}
+          {!reused && (
+            <div className="plan-kv">
+              <span className="pk">{t('Command', '命令')}</span>
+              <span className="pv">
+                <code>
+                  {`git clone ${(res && res.cloneUrl) || ''} engines/${curId}`}
+                </code>
+              </span>
+            </div>
+          )}
 
           {cloneRes && !cloneRes.ok && !dirNotEmpty && (
             <div className="msg msg-danger">{cloneRes.error}</div>
@@ -350,7 +371,48 @@ const done = facts && facts.cloned === true
               </div>
             </div>
           )}
-          {done && (
+          {reused && (
+            <div className={upstream && upstream.match === 'different' ? 'msg msg-warn' : 'msg msg-info'}>
+              {upstream && upstream.match === 'same' && (
+                <>
+                  {t('This directory was cloned from the same upstream, so it is reused '
+                    + 'as it is. The upstream may have newer commits; the local copy is '
+                    + 'what the environment and the weights were installed against.',
+                    '该目录来自同一个上游，直接复用。'
+                    + '上游可能已有更新的提交，本地这份是环境与权重所对应的版本。')}
+                  {planForCur.git && planForCur.git.head && (
+                    <div className="field-hint">
+                      {t('Local copy', '本地版本')}：
+                      <code>{planForCur.git.head}</code>
+                      {planForCur.git.branch ? <> · {planForCur.git.branch}</> : null}
+                    </div>
+                  )}
+                </>
+              )}
+              {upstream && upstream.match === 'different' && (
+                <>
+                  {t('This directory came from a different upstream, so it is reused '
+                    + 'as it is. Check that this is the engine you meant to install.',
+                    '该目录来自另一个上游，仍按原样复用。'
+                    + '请确认这就是要装的引擎。')}
+                  <div className="field-hint">
+                    {t('Local origin', '本地来源')}：<code>{upstream.local}</code>
+                    <br />
+                    {t('Requested upstream', '请求的上游')}：<code>{upstream.upstream}</code>
+                  </div>
+                </>
+              )}
+              {(!upstream || upstream.match === 'unknown') && (
+                <>
+                  {t('This directory already has content, so it is reused as it is. '
+                    + 'The platform cannot tell which upstream it came from.',
+                    '该目录里已经有内容，直接复用。'
+                    + '平台无从判断来源。')}
+                </>
+              )}
+            </div>
+          )}
+          {done && !reused && (
             <div className="msg msg-info">
               {t('Cloned into engines/' + curId + '/.',
                 '已克隆到 engines/' + curId + '/。')}
@@ -365,6 +427,8 @@ const done = facts && facts.cloned === true
             vars={{
               name: curId || t('<name>', '<项目名>'),
               path: fullEngineDir || t('(computing…)', '（正在计算…）'),
+              // 复用时那句文案要跟着改：说「会克隆到哪」就与实际做的事不符了。
+              reuse: reused,
             }}>
             {/* 三个按钮同一行，flex 里先出现的排左边：
                 撤销克隆（仅克隆完成后）→ 下一步 → 取消（仅克隆进行中）。*/}
