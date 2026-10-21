@@ -1,19 +1,15 @@
 'use strict'
-// TIER REVIEW：复核名片参数该归「常用」还是「进阶」档。
+// 复核名片参数该归「常用」还是「进阶」档：只做名字与相位的启发式判断，不改参数本身，
+// 也不替作者拍板。写了的档位不动，留空的按规则落进进阶档（安全默认）。
 //
-// 只做名字与相位的启发式判断，不改参数本身，也不替作者拍板：
-//   写了的档位不动，留空的按规则落进进阶档（安全默认）。
-// 判据写进 _tier_review，让人能看出这一档是怎么来的。
+// 启发词表收的是「一般由平台/引擎自己处理」的开关：随机性、性能开关、分段与长度控制。
+// 只放作用词，不放具体参数名（某台引擎的参数全名放进来等于把词汇固化进平台）。
 
 const ADVANCED_HINTS = Object.freeze([
   'verbose', 'debug', 'log', 'log_level', 'quiet', 'trace',
-  // 随机性：影响可复现，普通用户不碰
   'seed', 'random', 'use_random', 'temperature_sched',
-  // 性能开关（装机器时考虑，不是每次调用）
   'use_fp16', 'use_cuda', 'cuda_kernel', 'deepspeed', 'accel',
   'torch_compile', 'batch', 'num_workers', 'n_jobs',
-  // 分段与长度控制（一般由平台/引擎自己处理）
-  // 只放作用词，不放具体参数名（某台引擎的参数全名放进来等于把词汇固化进平台：测试会抓）。
   'max_text', 'token_limit', 'chunk', 'segment',
   'use_emo_text', 'emo_text', 'emo_vector',
 ])
@@ -60,7 +56,6 @@ function reviewTiers (parameters) {
   for (const entry of parameters || []) {
     if (!entry || typeof entry !== 'object') continue
     const r = reviewTier(entry)
-    // 只在原来没写时才填：人已经填过的不覆盖
     if (entry.tier === undefined || entry.tier === null) {
       entry.tier = r.tier === null ? undefined : r.tier
       entry._tier_review = {

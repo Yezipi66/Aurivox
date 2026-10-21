@@ -1,10 +1,8 @@
 'use strict'
-// 档位复核 ： 拿真引擎的 tier 分布当基线
+// 档位复核：拿真引擎的 tier 分布当基线。
 //
-// 这个测试的设计意图
-//   复核规则是「名字启发」，听起来很玄。唯一的验法是：
-//   把真引擎的参数喂进去，看它判得对不对。
-//   对得上 ⇒ 启发命中了真规律；对不上 ⇒ 这层是噪声，该删。
+// 复核规则是「名字启发」，听起来很玄。唯一的验法是把真引擎的参数喂进去，看它判得对不对：
+// 对得上说明启发命中了真规律，对不上说明这层是噪声。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -12,20 +10,14 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 const { reviewTier, reviewTiers, ADVANCED_HINTS } = require('../core/tierreview.js')
-// 挂上夹具引擎目录。
-//   为什么：这一组用例是「拿多台引擎的参数样本当基线」，
-//   而干净检出（CI）里 engines/ 只有一张真名片，样本不够当基线。
-//   ⇒ 夹具补足台数，真名片那份一份不少。
+// 挂上夹具引擎目录：干净检出里 engines/ 只有一张真名片，样本不够当基线。夹具补足台数。
 require('../../../lib/testEngines.js').useFixtureEngines()
 const { paramSamples, allParamNames, fieldSamples, tierDistribution, listEngineIds } =
   require('../core/instances.js')
 
-// ---------------------------------------------------------------------------
 // 一、真引擎基线：常见度启发对不对得上
-// ---------------------------------------------------------------------------
 test('真引擎里那些「明显是进阶」的参数，都被启发判成 advanced', () => {
-  // 这些名字从真名片里取（见 instances.paramSamples），
-  //   但判定逻辑里不许出现引擎名 ： 那是 algorithms 的纪律。
+  // 这些名字从真名片里取（见 instances.paramSamples），判定逻辑里不许出现引擎名。
   const CASES = [
     // 调试开关
     ['verbose', 'advanced'], ['use_random', 'advanced'],
@@ -53,9 +45,8 @@ test('真引擎里那些「明显是进阶」的参数，都被启发判成 adva
 })
 
 test('phase=load 一律 advanced（强先验，三台真引擎全部如此）', () => {
-  // 拿各引擎的 load 参数逐个验。
-  //   名片从 instances 读（它知道真目录与附加目录各在哪），
-  //   不自己拼 engines/<id> 路径：夹具那几台不在真 engines/ 下。
+  // 拿各引擎的 load 参数逐个验。名片从 instances 读（它知道真目录与附加目录各在哪），
+  // 不自己拼 engines/<id> 路径：夹具那几台不在真 engines/ 下。
   const { readManifest } = require('../core/instances.js')
   const loadNames = []
   for (const id of listEngineIds()) {
@@ -77,16 +68,14 @@ test('真引擎里 phase=call 的 tier 分布确实是「少数 common」（启�
   const d = tierDistribution('call')
   const total = d.distribution.common + d.distribution.advanced
   assert.ok(total > 0, '没有可比的 call 参数')
-  // 这条是本层的前提假设：若真引擎其实都是 common，
-  //   那「按名字启发挑少数几个进common」就是错的策略。
+  // 本层的前提假设：若真引擎其实都是 common，那「按名字启发挑少数几个进 common」
+  // 就是错的策略。
   assert.ok(d.distribution.advanced > d.distribution.common,
     `真引擎的 call 参数里 advanced(${d.distribution.advanced}) ` +
     `应当多于 common(${d.distribution.common}) —— 若不是，启发的前提不成立`)
 })
 
-// ---------------------------------------------------------------------------
 // 二、最关键的一条：不得覆盖人已经填的
-// ---------------------------------------------------------------------------
 test('人已经写了 tier，复核不覆盖它', () => {
   const ps = [{ name: 'verbose', tier: 'common' }, { name: 'emo_alpha' }]
   const r = reviewTiers(ps)
@@ -106,9 +95,7 @@ test('没填的才被复核，且留空的标成「不定」而不是瞎填', ()
   assert.strictEqual(r.reviewed, 0)
 })
 
-// ---------------------------------------------------------------------------
 // 三、纪律守卫：算法侧不许出现引擎名
-// ---------------------------------------------------------------------------
 test('tierreview.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice']
   const src = fs.readFileSync(
@@ -130,9 +117,7 @@ test('启发词表是界面词汇，不是某台引擎的参数名', () => {
   }
 })
 
-// ---------------------------------------------------------------------------
 // 四、对照数据本身能用
-// ---------------------------------------------------------------------------
 test('对照实例：能按字段名查到各方怎么填', () => {
   for (const key of ['runtime', 'models', 'capabilities', 'call']) {
     const s = fieldSamples(key)

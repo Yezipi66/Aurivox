@@ -3,7 +3,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
 import DragBind from './DragBind'
 
-//  CLI GEN PANEL：扫描引擎参数并自动填进名片（cli 与 python 两条路共用）
+// 命令行生成名片面板：扫描引擎参数并自动填进名片（cli 与 python 两条路共用）。
 //
 // 操作流：
 //   进来 → [读取名片]（改已有引擎）或 [新建名片]（默认新建）
@@ -13,36 +13,21 @@ import DragBind from './DragBind'
 //   → 平台自动填一批进名片（bind 三槽位 + args，不要求用户逐个勾）
 //   → 用户手动编辑补改 → 最下面 [保存]
 //
-// mode 流转 idle → scan → read：
-//   · idle：两个入口（读取 / 新建）各自清晰
-//   · scan：选引擎 → 扫描；扫描控件行定高（group select 扫描前占位、
-//     扫描后填值，只换内容不换高度，禁止布局跳变）
-//   · read：读取磁盘原文后进编辑态（P0 成果，不许改回空壳）
-//   · 扫描成功 → 回调 onScanDone() 主组件展开核心绑定区并滚动定位
-//
-// 只填表单不落盘（落盘是 SaveBar 的事）；help 原样递出不改写；
-//   探不到时如实显示 notes，不假装。
+// mode 流转 idle → scan → read：idle 两个入口各自清晰；scan 选引擎后扫描，
+// 扫描控件行定高（group select 扫描前占位、扫描后填值，只换内容不换高度）；
+// read 是读取磁盘原文后进编辑态，不许改回空壳。扫描成功 → 回调 onScanDone()。
 
-// computeAutoFill：纯函数：把扫描到的参数转成 call 段建议值
-//
-// 为什么纯函数：
-//   旧实现 autoFill 读闭包里的 manifest.call，而 doScan 里 setScan(j) 是
-//   异步的。用户快速切子命令时 scan 还是上一次的旧值，用旧 args 填新子命令。
-//   现在：入参全部显式（params / currentCall），返回建议值 + 匹配记录，
-//    不读任何组件 state，不直接 onChange。
+// computeAutoFill：纯函数，把扫描到的参数转成 call 段建议值。
+// 入参全部显式（params / currentCall），返回建议值 + 匹配记录；
+// 不读任何组件 state，不直接 onChange。
 //
 // 入参 params：统一形状 [{source, name, target, kind, style, help, required, group, is_tool}]
 //   · cli 路：name 是开关去掉横线的部分，target 是开关本身，进 call.args
 //   · python 路：name 与 target 同名，都是上游方法的参数名，不进 call.args
-//   · 两路各有一张词表：kind 是给界面看的类型名（str/boolean/array），
-//     style 是名片的 args 段认的写法词（value/boolean/repeat）。两者不是一张表。
+//   · 两路各有一张词表：kind 是给界面看的类型名，style 是名片的 args 段认的写法词。
 //
-// 返回：
-//   { call,        // 建议的 call 段
-//     matched,     // { text, ref_audio, output_path } 扫描认出的参数（null=没认出）
-//     argList,     // 当前 group 下全部参数（区 3 渲染用）
-//     notes }      // 平台替名片做不了的决定，如实报给用户
-//   或 null（没有参数）
+// 返回 { call, matched, argList, notes } 或 null（没有参数）。matched 是
+// { text, ref_audio, output_path }（null = 没认出）。
 export function computeAutoFill (params, currentCall) {
   if (!params || !params.length) return null
 
@@ -51,14 +36,11 @@ export function computeAutoFill (params, currentCall) {
 
   // kind 是名片自己的权威，这里只在这条路单独成立时才改它。
   //   探测是同时扫两条路、再把结果合并成一张表的：表里混着两种来源，
-  //   「有 cli 参数就置 cli」于是对一张混合表恒真，
-  //   python 名片被改写成 cli 形态之后，它的参数名不再是带横线的开关，
-  //   存下去当场被拒。两种来源都在 ⇒ 保持名片原值并说明情况。
+  //   「有 cli 参数就置 cli」于是对一张混合表恒真，python 名片被改写成 cli 形态之后，
+  //   它的参数名不再是带横线的开关，存下去当场被拒。
   const hasCli = params.some((p) => p.source === 'cli')
   const hasPy = params.some((p) => p.source === 'python')
   if (hasCli && hasPy) {
-    // 返回两种语言而不是一句写死的中文：这两条会显示在界面上，
-    //   归一由组件按当前语言取，这个纯函数手上没有翻译表。
     notes.push({
       en: 'Both command line flags and Python signature parameters were found. The manifest kind was left as it is: confirm whether this engine runs through the command line or through the Python class.',
       zh: '同时发现了命令行开关和 Python 函数签名参数。名片里的 kind 保持原样：请确认这台引擎走命令行还是走 Python 类。',
@@ -69,11 +51,8 @@ export function computeAutoFill (params, currentCall) {
     call.kind = 'python'
   }
 
-  // args 是 cli 形态才有的那一段，python 名片里写它，存的时候直接被拒。
-  //   argv 同理（cli 形态的启动命令）。
+  // args 是 cli 形态才有的那一段，python 名片里写它，存的时候直接被拒。argv 同理。
   if (call.kind === 'cli') {
-    // argv 骨架每次从固定前缀重建（不累加旧子命令，否则切子命令会堆
-    // infer/synth 多个）。_MODULE_ 待用户补或来自 suggested_call。
     const oldArgv = call.argv || []
     const idxModule = oldArgv.indexOf('_MODULE_')
     const prefix = idxModule >= 0 ? oldArgv.slice(0, idxModule + 1) : oldArgv.slice(0, 3)
@@ -84,17 +63,14 @@ export function computeAutoFill (params, currentCall) {
     for (const p of params) {
       if (p.source !== 'cli' || call.args[p.name]) continue
       const entry = { flag: p.target }
-      // style 用参数自带的那个写法词。统一层的 kind 是类型名
-      //   （str / array），不是名片的写法词，写进去这张名片就无法写入。
       if (p.style) entry.style = p.style
       call.args[p.name] = entry
     }
   }
 
-  // 三槽位：候选名对的是 name（不带横线的那个词），
-  //  写进 bind 的是 target（cli 路是开关，python 路是参数名）。
-  // 索引必须建在 name 上：建在 target 上时，cli 路的 target 是带横线的
-  //   开关，而候选名不带横线，两边永远不匹配，三槽位恒空。
+  // 三槽位：候选名对的是 name（不带横线的那个词），写进 bind 的是 target
+  // （cli 路是开关，python 路是参数名）。索引必须建在 name 上：建在 target 上时，
+  // cli 路的 target 是带横线的开关，而候选名不带横线，两边永远不匹配。
   const byName = {}
   const ambiguous = []
   for (const p of params) {
@@ -119,10 +95,8 @@ export function computeAutoFill (params, currentCall) {
     })
   }
 
-  // 复制一份再填：浅拷贝出来的 call 里 bind 还是同一个对象，
-  //   就地写会把名片原稿也改了（用户取消编辑时撤不回去）。
+  // 复制一份再填：浅拷贝出来的 call 里 bind 还是同一个对象，就地写会把名片原稿也改了。
   call.bind = { ...(call.bind || {}) }
-  //  只填空，不覆盖用户已手填的值
   if (!call.bind.text && matched.text) call.bind.text = matched.text
   if (!call.bind.ref_audio && matched.ref_audio) call.bind.ref_audio = matched.ref_audio
   if (!call.bind.output_path && matched.output_path) call.bind.output_path = matched.output_path
@@ -133,7 +107,7 @@ export function computeAutoFill (params, currentCall) {
 export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFilled }) {
   const { t } = useT()
   const { installed, loadOne } = useInstalled()
-  const [allDirs, setAllDirs] = React.useState([])   // engines/ 下所有文件夹（含没名片）
+  const [allDirs, setAllDirs] = React.useState([])   // engines/ 下所有文件夹（含没名片的）
   const [mode, setMode] = React.useState(manifest.id ? 'scan' : 'idle')
   const [engineId, setEngineId] = React.useState(manifest.id || '')
   const [busy, setBusy] = React.useState(false)
@@ -143,12 +117,9 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
   const [readPick, setReadPick] = React.useState('')   // 「读取」入口选中的引擎
   const [newPick, setNewPick] = React.useState('')      // 「新建」入口选中的文件夹
   // 自动填阶段的说明（两种来源混在一起、同名参数指向不同值这类）。
-  // 单独一条通道，不并进 scan.notes：那是探测端点的说明，
-  //   两者一次扫描同时产生，并进去每切一次分组就会重复追加一遍。
+  // 单独一条通道，不并进 scan.notes：并进去每切一次分组就会重复追加一遍。
   const [autoNotes, setAutoNotes] = React.useState([])
 
-  // 拉 engines/ 下所有文件夹（含还没名片的）：「新建名片」入口靠它列出
-  // 第 1 步克隆来、还没写名片的引擎。与 installed（只有名片的）是两份数据。
   React.useEffect(() => {
     fetch('/wizard/installed?all=1').then((r) => r.json())
       .then((j) => setAllDirs(j.engines || []))
@@ -158,9 +129,8 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
   React.useEffect(() => { if (!engineId && manifest.id) setEngineId(engineId || manifest.id) }, [manifest.id])
 
   // 读取：选一台已有名片的引擎 → 先把磁盘名片原文灌进表单，再进编辑态。
-  //  绝对不许只进扫描空壳：那样表单里只剩 cli 扫描结果，
-  //    原有的 models / runtime / install / call 全被冲掉，点保存就是毁数据。
-  // 读取和新建是两条不同的路：读出来的是什么就是什么，不自动清空已有字段。
+  //  绝对不许只进扫描空壳：那样表单里只剩 cli 扫描结果，原有的 models / runtime /
+  //  install / call 全被冲掉，点保存就是毁数据。
   const startRead = async (id) => {
     if (!id) return
     setBusy(true); setErr(null); setScan(null); setSubcmd('')
@@ -171,18 +141,14 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
       try { parsed = JSON.parse(r.text) } catch (e) {
         setErr(t('The manifest on disk is not valid JSON', '磁盘上的名片不是合法 JSON')); return
       }
-      // 灌进表单：以磁盘原文为准（唯一真相），不在这里补默认值、不清字段。
       onChange(parsed)
       setEngineId(id)
       setReadPick(id)
-      // 进了编辑态（不是扫描）：用户想再扫可以自己点「扫描参数」。
       setMode('read')
     } finally { setBusy(false) }
   }
-  // 新建：选一台 engines/ 下的文件夹（含还没名片的），进扫描
   const startNew = (id) => { if (!id) return; setEngineId(id); setMode('scan'); setScan(null); setErr(null); setSubcmd('') }
 
-  // 应用一次自动填结果：写回名片 + 上报匹配记录（区 1 渲染用）
   const applyAutoFill = (params) => {
     const result = computeAutoFill(params, manifest.call)
     if (!result) { if (onAutoFilled) onAutoFilled({ matched: null, argList: [], notes: [] }); return }
@@ -191,14 +157,11 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
     if (!next.label && (next.id || engineId)) next.label = next.id || engineId
     if (next.contract_version === undefined) next.contract_version = 2
     onChange(next)
-    // 自动填过程中的说明走独立的一条通道：并进 scan.notes 的话，
-    // 每切一次分组就会把同一句话再并一遍。
     setAutoNotes(result.notes || [])
     if (onAutoFilled) onAutoFilled({ matched: result.matched, argList: result.argList, notes: result.notes })
   }
 
-  // 扫描 + 自动填：一步到位：调 /wizard/discover 自动探测形态，扫出参数表，
-  //  同时把能对应的填进名片 call 段
+  // 扫描 + 自动填：一步到位：调 /wizard/discover 自动探测形态，扫出参数表，同时把能对应的填进名片 call 段
   const doScan = async () => {
     if (!engineId) return
     setBusy(true); setErr(null); setScan(null); setAutoNotes([])
@@ -216,13 +179,12 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
       setSubcmd(pickedGroup)
       const params = (j.params || []).filter(p => !pickedGroup || p.group === pickedGroup)
       applyAutoFill(params)
-      // 扫描成功 → 回调主组件：展开核心绑定区 + 滚动定位（RFC 第 2 章）。
+      // 扫描成功 → 回调主组件：展开核心绑定区 + 滚动定位。
       // 回调放在自动填之后，让名片先填上再展开，绑定区一进来就有值。
       if (onScanDone) onScanDone()
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
-  // 切分组：用当前 scan 结果重算（ 不是闭包旧值）
   const changeSub = (sub) => {
     setSubcmd(sub)
     if (scan) {
@@ -242,7 +204,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
             '扫描引擎发现参数。列出 CLI flag 或 Python 函数签名参数及官方说明，能认出来的自动填进名片。')}
         </p>
 
-        {/* ① 两个入口：读取（改已有）/ 新建（接新引擎）：各自选自己的引擎，不共用下拉 */}
+        {/* 两个入口：读取（改已有）/ 新建（接新引擎）：各自选自己的引擎，不共用下拉 */}
         {mode === 'idle' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {/* 读取名片：改一台已有名片的引擎 */}
@@ -259,7 +221,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
                   onClick={() => startRead(readPick)}>{t('Read', '读取')}</button>
               </div>
             </div>
-            {/* 新建名片：接一台新引擎（engines/ 下还没名片的文件夹）*/}
+            {/* 新建名片：接一台新引擎（engines/ 下还没名片的文件夹） */}
             <div className="field">
               <label className="field-label">{t('New manifest (build one for an engine cloned in step 1)', '新建名片（给第 1 步克隆来的引擎建一张名片）')}</label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -278,7 +240,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
           </div>
         )}
 
-        {/* ② 扫描参数（自动填）：只走「新建」这条路。
+        {/* 扫描参数（自动填）：只走「新建」这条路。
             定高纪律：这一行固定 minHeight（一次布局），子命令 select
             扫描前是占位、扫描后填值，只换内容不换高度，禁止布局跳变。 */}
         {mode === 'scan' && (
@@ -313,7 +275,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
           </>
         )}
 
-        {/* ②′ 读取名片后：确认表单里是磁盘原文，需要的话也可以再扫一次。
+        {/* 读取名片后：确认表单里是磁盘原文，需要的话也可以再扫一次。
             定高纪律：与 scan 行同高（一次布局），返回/扫描按钮位置不变。 */}
         {mode === 'read' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -326,7 +288,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
           </div>
         )}
 
-        {/* ③ 参数表（扫出来给用户看，已自动填的标出来）
+        {/* 参数表（扫出来给用户看，已自动填的标出来）
             用项目的 .table（width/border-collapse/font-size/th/td 都齐），
             不用 className="control"（那是输入框类，不是表格类）。
             适配两种 source：cli 显示 flag，python 显示参数名。 */}
@@ -360,7 +322,7 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
           </div>
         )}
 
-        {/* ③″ 参数池与槽位绑定：三种操作方式（拖动/点击/键盘） */}
+        {/* 参数池与槽位绑定：三种操作方式（拖动/点击/键盘） */}
         {scan && scan.ok && args.length > 0 && (
           <DragBind call={manifest.call} params={args} onChange={(nextCall) => {
             const next = { ...manifest, call: nextCall }
@@ -368,14 +330,14 @@ export default function CliGenPanel ({ manifest, onChange, onScanDone, onAutoFil
           }} />
         )}
 
-        {/* ③′ notes：探测说明如实显示（如"引擎环境未就绪"），不假装 */}
+        {/* notes：探测说明如实显示（如「引擎环境未就绪」），不假装 */}
         {scan && scan.notes && scan.notes.length > 0 && (
           <div className="msg msg-info" style={{ marginTop: 10 }}>
             {scan.notes.map((n, i) => <div key={i}>{n}</div>)}
           </div>
         )}
 
-        {/* ③″ 自动填阶段的说明：平台替名片做不了决定的地方，如实告诉用户 */}
+        {/* 自动填阶段的说明：平台替名片做不了决定的地方，如实告诉用户 */}
         {autoNotes.length > 0 && (
           <div className="msg msg-warn" style={{ marginTop: 10 }}>
             {autoNotes.map((n, i) => <div key={i}>{t(n.en, n.zh)}</div>)}

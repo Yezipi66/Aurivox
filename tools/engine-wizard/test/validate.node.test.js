@@ -1,9 +1,7 @@
 'use strict'
-// 名片校验层 ： 三台真引擎当压力用例
+// 名片校验层：三台真引擎当压力用例。
 //
-// 为什么用三台真引擎当用例（这是方法论，不是省事）
-// 骨架要形状完全不同的引擎都能过，才敢拿去装第四台。
-// 只按一台写，坑一定留在后面 ： 那是平台反复付过学费的同一种缺陷。
+// 用真引擎当用例是方法论，不是省事：骨架要形状完全不同的引擎都能过，才敢拿去装第四台。
 //
 //   形状            哪台            考什么
 //   无 call 段      无 call 的那台   骨架会不会写死「必须有 call」
@@ -21,25 +19,19 @@ const fs = require('node:fs')
 const { diagnose, summarize } = require('../core/validate.js')
 const { SECTIONS, PARAM_FIELDS, SECTIONS_BY_KEY } = require('../core/fieldmeta')
 
-// 引擎目录指向「真名片 + 夹具」的合并目录。
-//   为什么：这一组用例是「拿形状各异的引擎当压力用例」，
-//   而形状各异的那些引擎在盘上的存在与否随机器而变
-//   （干净检出里只有一张真名片，缺了另几种形状）。
-//   ⇒ 合并目录让「真名片一份不少 + 夹具补足台数」在任何机器上都成立。
+// 引擎目录指向「真名片 + 夹具」的合并目录：形状各异的引擎在盘上的存在与否随机器而变，
+// 合并目录让「真名片一份不少 + 夹具补足台数」在任何机器上都成立。
 require('../../../lib/testEngines.js').useFixtureEngines()
 const { listEngines } = require('../../../lib/engines/registry')
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 
-// ---------------------------------------------------------------------------
 // 一、真引擎：三台都读得进去，且没有 error
-// ---------------------------------------------------------------------------
 const REAL_ENGINES = listEngines().map(e => e.id)
 
 for (const id of REAL_ENGINES) {
   test(`真引擎 ${id}：校验层读得进去，且不报 error`, () => {
-    // 名片从它实际所在的位置读：真名片在 engines/ 下，夹具在夹具目录下。
-    //   listEngines() 给的 dir 就是那个位置（registry.js 读的时候写进去的）。
+    // 名片从它实际所在的位置读：listEngines() 给的 dir 就是那个位置。
     const file = path.join(listEngines().find((e) => e.id === id).dir, 'manifest.json')
     assert.ok(fs.existsSync(file), `找不到名片：${file}`)
     const manifest = JSON.parse(fs.readFileSync(file, 'utf-8'))
@@ -47,21 +39,17 @@ for (const id of REAL_ENGINES) {
     const diags = diagnose(manifest)
     const sum = summarize(diags)
 
-    // 这是关键断言：一张已经在平台跑着的名片，校验层不能判它错。
-    //    判错 = 校验层比平台更严 ⇒ 那它就是个不合格的检查器。
+    // 关键断言：一张已经在平台跑着的名片，校验层不能判它错。判错 = 校验层比平台更严。
     assert.strictEqual(sum.errors, 0,
       `校验层判它有错，但平台一直在用它：\n` +
       diags.filter(d => d.level === 'error').map(d => '  ' + d.message).join('\n'))
 
-    // 反过来，也不能假装它完美 ： 三台都该报出「静默失效」那一类，
-    // 因为模板里的默认值（tier/phase 不写）本身就是静默项。
+    // 反过来也不能假装它完美：模板里的默认值（tier/phase 不写）本身就是静默项。
     assert.ok(Array.isArray(diags))
   })
 }
 
-// ---------------------------------------------------------------------------
 // 二、形状覆盖：三种「不一样」都必须被容下，而不是被拒
-// ---------------------------------------------------------------------------
 test('无 call 段的引擎不被拒（骨架不能写死「必须有 call」）', () => {
   const file = path.join(REPO, 'engines', 'gpt-sovits', 'manifest.json')
   const manifest = JSON.parse(fs.readFileSync(file, 'utf-8'))
@@ -92,9 +80,7 @@ test('多方法的 applies_to 提示能落到具体第几项', () => {
   }
 })
 
-// ---------------------------------------------------------------------------
 // 三、假引擎：判据是「装一台谁都没见过的引擎，这里一个字都不用改」
-// ---------------------------------------------------------------------------
 function fakeEngineManifest () {
   return {
     contract_version: 3,
@@ -141,9 +127,7 @@ test('假引擎也能吃到默认值的提示（tier 默认 advanced）', () => 
   assert.ok(tierInfo.every(d => d.field && typeof d.index === 'number'))
 })
 
-// ---------------------------------------------------------------------------
 // 四、纪律守卫：本层不许出现任何具体引擎名
-// ---------------------------------------------------------------------------
 test('validate.js / fieldmeta.js 里不许出现任何具体引擎名', () => {
   const FILES = ['validate.js', 'fieldmeta.js']
   // 用 split 拼，绕开「测试文件自己写着这些名字」的自指问题
@@ -151,7 +135,7 @@ test('validate.js / fieldmeta.js 里不许出现任何具体引擎名', () => {
     'cosy' + 'voice-300m-sft', 'gpt' + '_sovits']
   for (const f of FILES) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'core', f), 'utf-8')
-    // 去掉注释再看 ： 注释里提到历史是允许的，活代码里出现才是破纪律
+    // 去掉注释再看：注释里提到历史是允许的，活代码里出现才是破纪律
     const code = src.split('\n')
       .filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l))
       .join('\n')
@@ -162,9 +146,7 @@ test('validate.js / fieldmeta.js 里不许出现任何具体引擎名', () => {
   }
 })
 
-// ---------------------------------------------------------------------------
 // 五、元数据自检：字段说明要覆盖得住，且默认值与平台一致
-// ---------------------------------------------------------------------------
 test('参数元数据的默认值与平台一致（phase=call / tier=advanced）', () => {
   const byKey = Object.fromEntries(PARAM_FIELDS.map(f => [f.key, f]))
   assert.strictEqual(byKey.phase.default, 'call')

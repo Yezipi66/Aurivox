@@ -1,9 +1,9 @@
 'use strict'
 
 /**
- * 执行一条下载命令，把输出逐行透传给调用方。
+ * 引擎安装向导的下载层：执行下载命令、拉远端文件清单、续传与完整性核对。
  * 异步流式：下载要几分钟到几十分钟，同步 spawnSync 会阻塞到结束。
- * 统一落盘：调用方负责把命令里的 local_dir 替换成 engines/<id>/checkpoints/。
+ * 统一落盘：所有引擎的模型都下到 engines/<id>/checkpoints/。
  */
 
 const { spawn } = require('node:child_process')
@@ -12,32 +12,26 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const https = require('node:https')
 
-/**
- * 进度文件路径：每个引擎目录下记录已完成的下载命令。
- */
+/** 进度文件：每个引擎目录下记录已完成的下载命令。 */
 const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
   resetProgress: resetProgressOf } = require('./installState')
 
-/** 读进度文件，返回已完成的命令 key 集合（models 段） */
 function readProgress (root, id) {
   return readProgressOf(root, id, 'models')
 }
 
-/** 写进度文件（models 段） */
 function writeProgress (root, id, doneKeys) {
   writeProgressOf(root, id, 'models', doneKeys)
 }
 
-/** 清空这一段的进度：从头重下（不删已下载的文件） */
 function resetProgress (root, id) {
   resetProgressOf(root, id, 'models')
 }
 
-//  parseDownloadProgress / parseSize：解析 hf/modelscope tqdm 风格进度
-//  hf / modelscope CLI 的下载进度是 tqdm 风格：
-//     Downloading model.safetensors: 45%|████▌     | 1.2GB/2.7GB [00:30<00:45, 25.3MB/s]
-//  parseDownloadProgress 解析一行，返回 { file, percent, downloaded, total } 或 null
-//  parseSize 把 "1.2GB" 之类的字符串转成字节数（1.2GB → 1288490188）
+//  parseDownloadProgress / parseSize：解析 hf/modelscope 的 tqdm 风格进度，
+//  例如「Downloading model.safetensors: 45%|...| <已下>/<总量> [00:30<00:45, <速率>]」。
+//  parseDownloadProgress 解析一行，返回 { file, percent, downloaded, total } 或 null；
+//  parseSize 把 "1.2GB" 这种带单位的字符串转成字节数。
 function parseDownloadProgress (line) {
   const m = line.match(/Downloading (.+?): (\d+)%\|.*?\| ([\d.]+[KMG]?B?)\/([\d.]+[KMG]?B?) \[/)
   if (!m) return null
@@ -82,7 +76,6 @@ function runDownload (input = {}) {
     const root = input.root || process.cwd()
     const id = input.id || ''
     const argvKey = argv.join(' ')
-    // 断点续传：这条命令上次已经成功执行完成，跳过
     const doneKeys = readProgress(root, id)
     if (doneKeys.has(argvKey)) {
       resolve({ ok: true, code: 'SKIPPED', status: 0, stdout: '', stderr: '',
@@ -105,7 +98,6 @@ function runDownload (input = {}) {
       if (typeof input.onLine === 'function') {
         try { input.onLine(text, isErr) } catch (e) { /* 忽略 */ }
       }
-      // 解析 hf/modelscope tqdm 风格进度，触发 onProgress 回调
       if (!isErr && typeof input.onProgress === 'function') {
         const lines = text.split('\n')
         for (const line of lines) {
@@ -129,7 +121,6 @@ function runDownload (input = {}) {
           error: `Download timed out (${Math.round((input.timeoutMs || 7200000) / 60000)} min).` })
         return
       }
-      // 下载成功，写入进度文件（下次重跑会跳过）
       if (code === 0) {
         doneKeys.add(argvKey)
         writeProgress(root, id, doneKeys)
@@ -153,10 +144,8 @@ function runDownload (input = {}) {
 }
 
 /**
- * 把一条下载命令的 local_dir 替换成统一落盘路径。
- *
- * 统一落盘：所有引擎的模型都下到 engines/<id>/checkpoints/。
- *   不删原目录：hf/modelscope 的缓存在那里，删了要重下。
+ * 把一条下载命令的 local_dir 替换成统一落盘路径 engines/<id>/checkpoints/。
+ * 不删原目录：hf/modelscope 的缓存在那里，删了要重下。
  *
  * @param {string[]} argv     原始命令
  * @param {string} engineId   引擎 id
@@ -166,19 +155,16 @@ function runDownload (input = {}) {
 function unifyDest (argv, engineId, root) {
   const dest = path.join(root, 'engines', engineId, 'checkpoints')
   const out = argv.slice()
-  // hf: --local-dir=<dir> 或 --local-dir <dir>
   for (let i = 0; i < out.length; i++) {
     if (/^--local-dir[=\s]/.test(out[i])) {
       out[i] = out[i].replace(/^--local-dir[=\s]\S+/, `--local-dir=${dest}`)
     }
   }
-  // modelscope: --local_dir <dir>
   for (let i = 0; i < out.length; i++) {
     if (out[i] === '--local_dir' && i + 1 < out.length) {
       out[i + 1] = dest
     }
   }
-  // snapshot_download: local_dir='...' 或 local_dir="..."
   for (let i = 0; i < out.length; i++) {
     if (/local_dir\s*=/.test(out[i])) {
       out[i] = out[i].replace(/local_dir\s*=\s*['"][^'"]*['"]/, `local_dir='${dest}'`)
@@ -187,12 +173,12 @@ function unifyDest (argv, engineId, root) {
   return out
 }
 
-//  fetchRemoteManifest：请求 HF/ModelScope API 获取文件列表
-//  返回 { ok, files, error }，API 失败时 ok=false + error 信息
+//  fetchRemoteManifest：请求 HF/ModelScope API 获取文件列表。
+//  返回 { ok, files, error }，API 失败时 ok=false + error 信息。HF API 需要 ?blobs=true
+//  才返回 size 和 blobId。
 function fetchRemoteManifest (repo, tool, baseUrl) {
   return new Promise((resolve) => {
     const base = baseUrl || (tool === 'modelscope' ? 'https://modelscope.cn' : 'https://huggingface.co')
-    // HF API 需要 ?blobs=true 才返回 size 和 blobId
     const url = tool === 'modelscope'
       ? `${base}/api/v1/models/${repo}`
       : `${base}/api/models/${repo}?blobs=true`
@@ -212,8 +198,6 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
         try {
           const data = JSON.parse(body)
           const files = []
-          // HF API: data.siblings = [{ rfilename, size, blobId }]
-          // blobId 不是 SHA-256，是 HF 的内部 blob 标识
           if (data.siblings) {
             for (const s of data.siblings) {
               files.push({
@@ -223,7 +207,6 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
               })
             }
           }
-          // ModelScope API: data.Data.Files = [{ Name, Size, Sha256 }]
           if (data.Data && data.Data.Files) {
             for (const f of data.Data.Files) {
               files.push({
@@ -248,8 +231,8 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
 }
 
 /**
- * base64 → hex。
- * HF API 返回 hex 格式 SHA-256，ModelScope 可能返回 base64，统一转 hex 便于比对。
+ * base64 → hex。HF API 返回 hex 格式 SHA-256，ModelScope 可能返回 base64，
+ * 统一转 hex 便于比对。
  */
 function base64ToHex (b64) {
   try {
@@ -260,14 +243,13 @@ function base64ToHex (b64) {
 
 //  checkFileStatus：三态判断
 //  正式文件存在 + 大小匹配 + 有上游 sha 时比对通过 → 'ok'
-//  正式文件存在但远端没给大小 → 'partial'：无法确认完整性，
-//     默认报 'ok' 就是给假绿灯（文件可能是上次中断留下的不完整文件）。
+//  正式文件存在但远端没给大小 → 'partial'：无法确认完整性，默认报 'ok' 就是给假绿灯
+//     （文件可能是上次中断留下的不完整文件）。
 //  大小不符、或与上游 sha 不符 → 'partial'（磁盘文件是坏的，重下）
 //  正式文件不存在但 .tmp 存在 → 'partial'
 //  都不存在 → 'missing'
 //
-//  sha 只在两边都有时才比对：上游没给就只报实际算出的值，
-//  不声称校验过。本地算出 sha 与上游一致才算真校验。
+//  sha 只在两边都有时才比对：上游没给就只报实际算出的值。
 async function checkFileStatus (file, expectedSize, root, id, expectedSha) {
   const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
   const finalPath = path.join(dir, file)
@@ -337,13 +319,9 @@ function sha256File (filePath) {
 //  enrichManifestFiles：给远端文件列表补上本地状态 + 来源
 //  每条 = 远端给的事实（name/size）+ 本地查出来的状态（status/sha256）
 //  必须带 repo/tool：前端单文件下载完成后会重新调 /wizard/download/manifest
-//     刷新，而刷新是整表替换：不带来源就等于把每一项「属于哪个仓库」
-//     抹掉，仓库列、重下、续传按钮会一起失效。
-//  partial 时带上 note/noteZh 说明为什么不完整（远端没给大小 / 大小不符），
-//     不是笼统一句「不完整」。
-//  expectedSha 参与判断：上游给了 sha 就比对，两边都有才算校验过。
-//  结果里带 shaVerified 说明「这一条到底有没有真的校验过」，
-//  前端不许把它当成「已校验」来展示。
+//     刷新，而刷新是整表替换：不带来源就等于把每一项「属于哪个仓库」抹掉，
+//     仓库列、重下、续传按钮会一起失效。
+//  结果里带 shaVerified 说明「这一条到底有没有真的校验过」。
 async function enrichManifestFiles (files, repo, tool, root, id) {
   const results = []
   for (const f of (files || [])) {
@@ -358,14 +336,12 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
   return results
 }
 
-//  downloadFileFromUrl：从指定 URL 下载文件（支持重定向）
-//  写入 .tmp 文件，完成后原子重命名
-//  断点续传：检查 .tmp 文件大小，发送 Range: bytes=<size>- 请求
-//  SHA-256：下载完成后算实际哈希，不用远端 blobId（那不是真哈希）
-//  非 2xx 一律不写盘（原来 404 的 HTML 错误页会被当成模型文件落盘）
-//  content-type 是 text/html，判失败
-//  下载完比对 file.size（远端没给就退一步比对 content-length），
-//     不符即删掉脏文件并判失败
+//  downloadFileFromUrl：从指定 URL 下载文件（支持重定向）。
+//  写入 .tmp 文件，完成后原子重命名。
+//  断点续传：检查 .tmp 文件大小，发送 Range: bytes=<size>- 请求。
+//  SHA-256：下载完成后算实际哈希，不用远端 blobId（那不是真哈希）。
+//  非 2xx 一律不写盘（404 的 HTML 错误页会被当成模型文件落盘）。
+//  下载完比对 file.size（远端没给就退一步比对 content-length），不符即删掉脏文件并判失败。
 //  @param {boolean} [skipTmpDetect] 内部用：不许外部传。
 //    从零重来时置 true，否则下一跳又会探测到同一个 .tmp，无限递归。
 function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false) {
@@ -374,17 +350,14 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
     const finalPath = path.join(dir, file.name)
     const tmpPath = finalPath + '.tmp'
 
-    // 期望大小来自远端文件列表（file.size）：下载完按它逐字节校验。
-    //   没给（0）就退一步比对响应声明的 content-length。
     const expectedSize = Number(file && file.size ? file.size : 0)
 
-    // 确保目录存在（含子目录，如 qwen0.6bemo4-merge/）
     try { fs.mkdirSync(path.dirname(finalPath), { recursive: true }) } catch (e) {
       resolve({ ok: false, code: 'MKDIR_FAILED', status: null, error: e.message })
       return
     }
 
-    // 检查 .tmp 文件大小（断点续传）
+    // 检查 .tmp 文件大小（断点续传）。
     //   从零重来的那一跳不许再探测：否则又拿到同一个 size，无限递归
     if (!skipTmpDetect && resumeFrom === 0 && fs.existsSync(tmpPath)) {
       resumeFrom = fs.statSync(tmpPath).size
@@ -407,9 +380,9 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // 非 2xx，报错，不写盘
-      //   原来无论 404/403/500 都把响应体写盘、重命名、报 ok:true，
-      //   于是 404 的 HTML 错误页被当成模型文件落盘。
+      // 非 2xx，报错，不写盘。
+      //   把 404/403/500 的响应体写盘、重命名、报 ok:true 的话，
+      //   404 的 HTML 错误页会被当成模型文件落盘。
       if (status < 200 || status >= 300) {
         res.resume()
         resolve({
@@ -420,7 +393,6 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // content-type 是 HTML，这是错误页面，不是要下的文件
       const ctype = String(res.headers['content-type'] || '').toLowerCase()
       if (ctype.includes('text/html')) {
         res.resume()
@@ -432,7 +404,6 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // 服务器不支持 Range，从零重来（不再探测 .tmp，否则无限递归）
       if (resumeFrom > 0 && status !== 206) {
         resumeFrom = 0
         req.destroy()
@@ -440,17 +411,13 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         return
       }
 
-      // 本次响应声明的长度：带 Range 时它是剩余部分，不是整个文件。
-      //   不判 status !== 206 会怎样：hf 对 Range 请求仍返回 200 时会重下整份。
       const contentLength = Number(res.headers['content-length'] || 0)
       const startOffset = resumeFrom
 
-      // Range 续传时接着写（'a'），从零或不支持 Range 时从头写（'w'）
       const flags = resumeFrom > 0 ? 'a' : 'w'
       const out = fs.createWriteStream(tmpPath, { flags })
       let downloaded = resumeFrom
 
-      // 任何失败都删掉不完整的 .tmp：不留脏文件让下一次误判成 partial
       const fail = (code, msg) => {
         try { out.destroy() } catch (e) { /* 已关闭 */ }
         try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
@@ -479,7 +446,6 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       })
       res.on('end', () => {
         out.end(async () => {
-          // 大小校验：远端给了大小就逐字节比对，不符即判失败并删掉脏文件
           const sizeMismatch = (expected, source) => ({
             ok: false, code: 'SIZE_MISMATCH', status,
             size: downloaded, expected,
@@ -496,12 +462,10 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
               return
             }
           } else if (startOffset === 0 && contentLength > 0 && downloaded !== contentLength) {
-            // 远端没给大小，退一步比对响应声明的 content-length
             dropTmp()
             resolve(sizeMismatch(contentLength, 'the server'))
             return
           }
-          // 计算实际 SHA-256（不用远端 blobId，因为不是真实哈希）
           const actualSha256 = await sha256File(tmpPath)
           try {
             fs.renameSync(tmpPath, finalPath)
@@ -524,10 +488,10 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
   })
 }
 
-//  downloadFile：下载单个文件（入口函数，构建 URL 后调用 downloadFileFromUrl）
-//  URL 编码：对 file.name 的每个路径部分编码，但保留 / 作为路径分隔符
-//  分支名：优先使用传入的 branch，否则依次尝试 main、master
-//  404 重试：当前分支 404 时自动尝试下一个分支
+//  downloadFile：下载单个文件（入口函数，构建 URL 后调用 downloadFileFromUrl）。
+//  URL 编码：对 file.name 的每个路径部分编码，但保留 / 作为路径分隔符。
+//  分支名：优先使用传入的 branch，否则依次尝试 main、master。
+//  404 重试：当前分支 404 时自动尝试下一个分支。
 function encodeFilePath (filePath) {
   if (!filePath) return ''
   return filePath.split('/').map(encodeURIComponent).join('/')
@@ -562,17 +526,14 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
 /**
  * 删掉不完整的文件，让它回到 missing 以便重下。
  *
- * 只删确实残缺的，缺信息不等于残缺。
- *    「删 ok 会让使用者白下一遍」比「漏删一个不完整的文件」严重得多：前者毁掉
- *    已经下完的数 GB，后者只是下次重下时多等一会儿。所以判据从严：
+ * 只删确实残缺的，缺信息不等于残缺。「删 ok 会让使用者白下一遍」比「漏删一个不完整的
+ * 文件」严重得多：前者毁掉已经下完的数 GB，后者只是下次重下时多等一会儿。所以判据从严：
  *
- *    一、上游给了 sha 且与本地的相符 ⇒ 这个文件的内容是真的，不删
- *    二、没有 sha 可比对（上游没给、或调用方没传）时，只能用大小，
- *       而大小对得上不代表内容对（写入中断留下的文件大小也可能凑巧一致）。
- *       这种情况不删，报 NEEDS_VERIFY 让使用者自己确认。
- *    三、只有 .tmp、或文件中途断了（大小介于 0 与上游大小之间）、
- *       或大小为 0 ⇒ 明确残缺，删
- *    四、上游给了 sha 且不符 ⇒ 明确损坏，删
+ * 一、上游给了 sha 且与本地的相符 ⇒ 这个文件的内容是真的，不删
+ * 二、没有 sha 可比对（上游没给、或调用方没传）时，只能用大小，而大小对得上不代表内容对
+ * （写入中断留下的文件大小也可能凑巧一致）。这种情况不删，报 NEEDS_VERIFY 让使用者自己确认。
+ * 三、只有 .tmp、或文件中途断了（大小介于 0 与上游大小之间）、或大小为 0 ⇒ 明确残缺，删
+ * 四、上游给了 sha 且不符 ⇒ 明确损坏，删
  *
  * @param {Array<{name:string, size?:number, sha256?:string}>} files 要删的文件
  * @param {string} root 项目根
@@ -591,12 +552,10 @@ async function removePartialFiles (files, root, id) {
     const finalPath = path.join(dir, name)
     const tmpPath = finalPath + '.tmp'
 
-    // 正式文件不存在，只有 .tmp ⇒ 明确残缺
     const hasFinal = fs.existsSync(finalPath)
     const hasTmp = fs.existsSync(tmpPath)
     if (!hasFinal && !hasTmp) { skipped.push({ name, status: 'missing' }); continue }
     if (!hasFinal && hasTmp) {
-      // 只有临时文件，没有别的可判断
       try { bytes += fs.statSync(tmpPath).size; fs.rmSync(tmpPath, { force: true }) } catch (e) {}
       deleted.push(name)
       continue
@@ -616,7 +575,6 @@ async function removePartialFiles (files, root, id) {
       continue
     }
 
-    // 有 sha 可比对：不符就是坏了，删
     if (sha) {
       const actual = await sha256File(finalPath)
       if (actual !== sha) {
