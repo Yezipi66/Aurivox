@@ -5,6 +5,7 @@
 //  从 env.js 逐字搬来，不改逻辑。
 
 const fs = require('node:fs')
+const { applyInstallChoices } = require('./installChoices')
 const path = require('node:path')
 const { spawnSync, spawn } = require('node:child_process')
 const { projectRoot, engineDir } = require('./clone.js')
@@ -121,7 +122,14 @@ function buildEnvPlan (input = {}) {
       error: `engines/${id}/ 还不存在。请先执行第 2 步的克隆，或检查路径是否写错。` }
   }
   const cmd = readEnvCommand(input.manifest)
-  const guess = suggestEnvCommand(dir)
+  let guess = suggestEnvCommand(dir)
+  let choices = { supported: false, applied: false, reason: cmd.ok ? 'manifest' : null }
+  if (!cmd.ok && guess.argv) {
+    const picked = applyInstallChoices(dir, guess, input)
+    if (!picked.guess) return { ...picked, id }
+    guess = picked.guess
+    choices = picked.choices
+  }
   const effArgv = cmd.ok ? cmd.argv : guess.argv
   const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
   const venv = condaRoute ? null : buildVenvStep(root, id)
@@ -145,6 +153,7 @@ function buildEnvPlan (input = {}) {
     return {
       ok: true, id, from: 'probe', from_file: guess.from,
       guessed: true,
+      choices,
       env_command: withTargetPython(guess.argv, guessTarget),
       whatToDo: guess.why,
       whatToDoZh: guess.whyZh,
@@ -206,6 +215,7 @@ function buildEnvPlan (input = {}) {
     from_file: usingManifest ? 'manifest.json (install.env_command)' : guess.from,
     guessed: !usingManifest,
     whatToDo: guess.why,
+    choices,
     dependencies: deps,
     steps,
     execute: input.execute === true,

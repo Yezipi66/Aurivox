@@ -12,6 +12,11 @@ const VERDICT = {
   unknown: { mark: '?', en: 'Cannot determine', zh: '无法判断' },
 }
 
+// 与 core/installChoices.js 的 specName 同一口径（PEP 503 名字归一）
+function pkgName (spec) {
+  return String(spec || '').split(/[<>=!~\[;@\s]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
+}
+
 export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
   const engineId = state.id
@@ -37,6 +42,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const [result, setResult] = React.useState(saved?.depsResult || null)
   const [preview, setPreview] = React.useState(saved?.depsPreview || null)
   const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
+  const [skipped, setSkipped] = React.useState(saved?.skipped || [])
   const [busy, setBusy] = React.useState(false)
   const [live, setLive] = React.useState(null)   // 瞬态，不持久化
   const [tail, setTail] = React.useState([])      // 瞬态，不持久化
@@ -51,9 +57,16 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     if (!targetId) return
     saveSession(targetId, url, {
       depsPlan: plan, showNormal, backend, unlocked,
-      depsResult: result, depsPreview: preview, depsProgress: progress,
+      depsResult: result, depsPreview: preview, depsProgress: progress, skipped,
     })
-  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress])
+  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped])
+
+  const isSkipped = (spec) => skipped.includes(pkgName(spec))
+  const toggleSkip = (spec) => {
+    const n = pkgName(spec)
+    if (!n || busy) return
+    setSkipped((xs) => (xs.includes(n) ? xs.filter((x) => x !== n) : [...xs, n]))
+  }
 
   const reload = async () => {
     if (!url) return
@@ -92,12 +105,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id: targetId, manifest: state.manifest || {}, execute: false,
+        backend, exclude: skipped,
       }),
     }).then((r) => r.json())
       .then((j) => { if (alive) setPreview(j) })
       .catch(() => { if (alive) setPreview(null) })
     return () => { alive = false }
-  }, [targetId])
+  }, [targetId, backend, skipped.join('\n')])
+  const canSkip = !(preview && preview.choices && preview.choices.supported === false)
 
   React.useEffect(() => {
     if (hw && backend === null) setBackend(hw.recommended)
@@ -114,6 +129,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id: state.id, manifest: state.manifest || {}, execute: true, backend,
+          exclude: skipped,
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
@@ -233,14 +249,22 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           </p>
           {d.torch.packages.map((r) => {
             const V = VERDICT[r.verdict] || VERDICT.unknown
+            const off = isSkipped(r.spec)
             return (
-              <div key={r.name} className="pf-row">
-                <span className="badge badge-sym">{V.mark}</span>
+              <div key={r.name} className="pf-row"
+                role={canSkip ? 'button' : undefined}
+                tabIndex={canSkip ? 0 : undefined}
+                title={canSkip ? t('Click to toggle whether this package is installed',
+                  '点击切换是否安装此包') : undefined}
+                onClick={canSkip ? () => toggleSkip(r.spec) : undefined}
+                onKeyDown={canSkip ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSkip(r.spec) } } : undefined}
+                style={{ cursor: canSkip ? 'pointer' : undefined, opacity: off ? 0.5 : undefined }}>
+                <span className="badge badge-sym">{off ? '–' : V.mark}</span>
                 <span className="pf-val"><code>{r.spec}</code></span>
                 <span className="field-hint" style={{ marginTop: 0 }}>
-                  {lang === 'zh' ? V.zh : V.en}
+                  {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
                 </span>
-                {r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
+                {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
               </div>
             )
           })}
@@ -272,6 +296,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               + '不匹配，可改选其他后端，或自行安装 Torch。')}
           </p>
         </div>
+      )}
+
+      {preview && preview.ok === false && preview.code === 'BACKEND_NO_INDEX' && (
+        <div className="msg msg-danger">{t(preview.error, preview.errorZh)}</div>
       )}
 
       {/* ---- 命令来自 preview（execute:false 的计划），不是 plan ---- */}
@@ -334,6 +362,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             <span>{t('Other packages', '其它包')}</span>
             <span className="field-hint" style={{ marginTop: 0 }}>
               {showNormal ? '▾' : '▸'} {d.normal.count}
+              {d.normal.packages.some(isSkipped)
+                ? t(` (${d.normal.packages.filter(isSkipped).length} skipped)`,
+                  `（${d.normal.packages.filter(isSkipped).length} 个不安装）`)
+                : ''}
             </span>
           </div>
           {showNormal && (
@@ -343,13 +375,30 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 + ' works on every machine.',
                 '不含与显卡相关的依赖包，所有机器使用同一条安装命令。')}
               </p>
-              <div className="pf-chips">
-                {d.normal.packages.map((p) => (
-                  <span key={p} className="pf-chip"><code>{p}</code></span>
-                ))}
-              </div>
+              <PackageGroups packages={d.normal.packages} isSkipped={isSkipped}
+                onToggle={canSkip ? toggleSkip : null} t={t} />
             </div>
           )}
+        </div>
+      )}
+
+      {canSkip ? (
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('All packages are installed by default. Click a package to exclude it; click again to restore it.',
+            '默认安装全部依赖。点击某个包可设为不安装，再次点击恢复。')}
+        </p>
+      ) : (
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('The install method is declared by the Manifest, so individual packages cannot be excluded.',
+            '安装方式由 Manifest 指定，无法单独排除依赖。')}
+        </p>
+      )}
+      {canSkip && skipped.length > 0 && (
+        <div className="msg msg-warning">
+          {t('Excluded packages are not installed in this engine\'s environment, even when another package depends on them. '
+            + 'If the engine needs them at runtime, the check in step 5 will fail.',
+            '设为不安装的包不会装进该引擎的环境，即使其他包依赖它们。'
+            + '若引擎运行时需要这些包，第 5 步的检查将会失败。')}
         </div>
       )}
 
@@ -553,4 +602,32 @@ function fmtBytes (n) {
 function backendOf (options, key) {
   const o = (options || []).find((x) => x.key === key)
   return o ? o.label : key
+}
+
+function PackageGroups ({ packages, isSkipped, onToggle, t }) {
+  const on = packages.filter((p) => !isSkipped(p))
+  const off = packages.filter((p) => isSkipped(p))
+  const chips = (list, dim) => (
+    <div className="pf-chips">
+      {list.map((p) => (
+        <span key={p} className={dim ? 'pf-chip pf-chip-off' : 'pf-chip'}
+          role={onToggle ? 'button' : undefined}
+          tabIndex={onToggle ? 0 : undefined}
+          onClick={onToggle ? () => onToggle(p) : undefined}
+          onKeyDown={onToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(p) } } : undefined}
+          style={{ cursor: onToggle ? 'pointer' : undefined }}>
+          <code>{p}</code>
+        </span>
+      ))}
+    </div>
+  )
+  if (on.length === 0 || off.length === 0) return chips(packages, off.length > 0)
+  return (
+    <>
+      <div className="layer-label">{t('The following packages will be installed', '以下依赖将被安装')}</div>
+      {chips(on, false)}
+      <div className="layer-label">{t('The following packages will not be installed', '以下依赖将不会被安装')}</div>
+      {chips(off, true)}
+    </>
+  )
 }

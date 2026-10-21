@@ -615,7 +615,8 @@ function handleEnv (req, res) {
       id: body.id,
       manifest: body.manifest,
       execute: body.execute === true,
-      backend: body.backend,   // 前端 StepDeps 会传 backend（torch 后端选择）
+      backend: body.backend,
+      exclude: Array.isArray(body.exclude) ? body.exclude : [],
       // root 与其他端点同一口径：给了就用，没给走 projectRoot()。
       //   测试与夹具需要它（测试不许写真仓库的 engines/）。
       root: body.root,
