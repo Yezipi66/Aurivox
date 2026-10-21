@@ -1,13 +1,8 @@
 'use strict'
-//  样式守卫：向导不许重定义项目已有的类
-//
-//  同名不同义 + 同时加载 ⇒ 谁生效取决于 import 顺序。
-//  那不是「不规范」，是渲染结果不确定。
-//
-//  同理：不许重画项目已有的容器。
-//   项目的规范形状是 section 三件套 / collapsible / field / msg /
-//   form-grid / param-grid / workspace-container（居中）。
-//   向导自己再写一套同形状的，就是两套事实。
+// 样式守卫：向导不许重定义项目已有的类，也不许重画项目已有的容器。
+// 同名不同义 + 同时加载 ⇒ 谁生效取决于 import 顺序，那不是「不规范」而是渲染结果不确定。
+// 项目的规范形状是 section 三件套 / collapsible / field / msg / form-grid /
+// param-grid / workspace-container（居中）；向导自己再写一套同形状的，就是两套事实。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -264,7 +259,7 @@ test('JSX 用到的每个类都必须有定义（幽灵类守卫）', () => {
 
 // P0：界面文案的口吻守卫
 //
-// 文案把内部焦虑直接暴露给用户和下一个维护者不是措辞偏好，是产品缺陷 ：
+// 文案把内部焦虑直接暴露给用户和下一个维护者不是措辞偏好，是产品缺陷：
 // 用户看到的是我们的思考过程。
 //
 // 判据：凡是会显示在界面上的字符串（error/note/why/text/hint 以及 t() 的中文位），
@@ -383,7 +378,7 @@ test('JSX 里的字符串引号必须成对（改文案最容易破的地方）'
     if (!['.jsx', '.js'].includes(path.extname(f))) continue
     const lines = fs.readFileSync(path.join(WIZ, f), 'utf8').split('\n')
     lines.forEach((line, i) => {
-      // 先消掉双引号字符串 ： 它们里面合法地含单引号
+      // 先消掉双引号字符串：它们里面合法地含单引号
       // （t("The request body uses this engine's own dialect:") 会被误报成「引号不成对」）
       let code = line.replace(/\/\/.*$/, '')
       code = code.replace(/"(?:[^"\\]|\\.)*"/g, '""')
@@ -430,8 +425,8 @@ test('每个 JSX 都必须真能编译（测试全绿 ≠ 前端能跑）', () =
 
 test('JSX 里的注释不许变成可见文本（vite 只报 warning，测试全绿也发现不了）', () => {
   // 症状：注释写成  // xxx */}  而不是  {/* xxx */}，
-  //   那段注释就成了 JSX 文本，原样显示在页面上。
-  //   vite 把它当 warning（不是 error），编译照样过、node --test 也全绿。
+  // 那段注释就成了 JSX 文本，原样显示在页面上。
+  // vite 把它当 warning（不是 error），编译照样过、node --test 也全绿。
   let parse
   try {
     parse = require('../../../lib/testDeps.js').babelParse()
@@ -504,17 +499,17 @@ test('界面文案不许出现 emoji 或符号语气', () => {
     `\n有 ${bad.length} 处界面文案含 emoji 或符号语气，契约 5cdf33d 全禁：\n  ${bad.join('\n  ')}`)
 })
 
-//  注释归位守卫
+// 注释归位守卫
 //
-//  注释只解释文件本身、代码块、代码行：这段在做什么、为什么这样实现、
-//  什么输入会让它坏。四类归属性内容不进代码注释，判据来源见
-//  docs/WIZARD_FIX_PLAN_DCABD.md 第 0 节：现场经过、归属叙述、纪律宣告、情绪标记。
+// 注释只解释文件本身、代码块、代码行：这段在做什么、为什么这样实现、
+// 什么输入会让它坏。四类归属性内容不进代码注释，判据来源见
+// docs/WIZARD_FIX_PLAN_DCABD.md 第 0 节：现场经过、归属叙述、纪律宣告、情绪标记。
 //
-//  可执行判据取四条：日期体、归属类词、现场经过类词、强调符号。
-//  markdown 加粗只判 md 文档，代码注释里的乘号与指针语义不判。
+// 可执行判据取四条：日期体、归属类词、现场经过类词、强调符号。
+// markdown 加粗只判 md 文档，代码注释里的乘号与指针语义不判。
 //
-//  债务如实记账：DEBT_LEDGER 是 D1 时点的快照，只许变小不许变大。
-//  新写一条违规注释会让对应文件计数对不上，测试报出文件与行号。
+// 债务如实记账：DEBT_LEDGER 是 D1 时点的快照，只许变小不许变大。
+// 新写一条违规注释会让对应文件计数对不上，测试报出文件与行号。
 
 const WIZARD_ROOT = path.join(__dirname, '..')
 const PLAN_DOC = path.join(__dirname, '..', '..', '..', 'docs', 'WIZARD_FIX_PLAN_DCABD.md')
@@ -528,10 +523,10 @@ const EMPHASIS_SYMBOL_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BF
 const MARKDOWN_BOLD_RE = /\*\*[^*\n]+\*\*|__[^_\n]+__/
 const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SYMBOL_RE|MARKDOWN_BOLD_RE|CRITERIA_SELF_RE/
 
-//  D1 时点的债务快照，按文件记违规注释行数。
+// D1 时点的债务快照，按文件记违规注释行数。
 //
-//  数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
-//  末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。
+// 数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
+// 末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。
 const DEBT_LEDGER = {
   'test/dragBind.node.test.js': 1,
   'test/installCancel.node.test.js': 1,
@@ -603,7 +598,7 @@ const DEBT_LEDGER = {
   'editor/index.jsx': 2,
   'test/downloadState.test.js': 2,
   // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0。
-  //   仍显式设键让它们进扫描范围 ： 不设键的文件只配报 newFiles。
+  //   仍显式设键让它们进扫描范围：不设键的文件只配报 newFiles。
   'comment_ratio.cjs': 1,
   'editor/CoreBindings.jsx': 1,
   'editor/NestedSections.jsx': 10,
@@ -782,11 +777,11 @@ test('注释归位守卫：注释只解释代码，不新增四类归属性内�
   }
 })
 
-//  覆盖率自证：抽不出全部注释节点，「守卫自身干净」就是漏扫造成的假象
+// 覆盖率自证：抽不出全部注释节点，「守卫自身干净」就是漏扫造成的假象
 //
-//  旧状态机把本文件里的正则字面量与反引号当成字符串起点，于是恒等、永不变红。
-//  现在以 babel 的 ast.comments 为基准，逐文件断言抽出的每一行都落在节点区间内，
-//  且抽出的总条数等于所有节点按 loc 展开的条数之和（见下面第 ④ 条）。
+// 旧状态机把本文件里的正则字面量与反引号当成字符串起点，于是恒等、永不变红。
+// 现在以 babel 的 ast.comments 为基准，逐文件断言抽出的每一行都落在节点区间内，
+// 且抽出的总条数等于所有节点按 loc 展开的条数之和（见下面第 ④ 条）。
 test('注释抽取覆盖率自证：babel 节点数、逐行展开条数与抽出数逐文件一致', () => {
   const rel = path.relative(WIZARD_ROOT, __filename).replace(/\\/g, '/')
   const src = fs.readFileSync(__filename, 'utf8')
@@ -829,10 +824,10 @@ test('注释抽取覆盖率自证：babel 节点数、逐行展开条数与抽�
     + `（其中多行节点 ${multi} 个）；全树 ${checked} 个文件逐文件相等`)
 })
 
-//  注入冒烟：故意加一条带当日日期的违规注释，守卫必须报出文件与行号
+// 注入冒烟：故意加一条带当日日期的违规注释，守卫必须报出文件与行号
 //
-//  这是「判据真的拦得住」的唯一证明 ： 只有扫全树的断言变绿，也可能是判据
-//  本身失效。这里注入、断言命中、还原，三步都在一个 test 内完成。
+// 这是「判据真的拦得住」的唯一证明：只有扫全树的断言变绿，也可能是判据
+// 本身失效。这里注入、断言命中、还原，三步都在一个 test 内完成。
 test('注入带当日日期的违规注释，守卫必须报出文件与行号', () => {
   // 不就地改写源文件：node --test 多文件并行，就地改的窗口内别的进程可能
   // 正在扫这棵树。所以改为在内存里构造带注入行的源文本，只调用抽取与判据，不落盘。
@@ -861,13 +856,13 @@ test('注入带当日日期的违规注释，守卫必须报出文件与行号',
     '行号对上了但指的不是注入那一行')
 })
 
-//  不误报：合法的代码写法，一条都不许报
+// 不误报：合法的代码写法，一条都不许报
 //
-//  判据不能靠「什么都报」显得有效，需要证伪。下面每一条都是 probe.js 与
-//  styleguard 里真实出现过的反例：自增幂、指针记号、正则转义、模板串、
-//  箭头、按位取反、反引号模板、Windows 路径。
+// 判据不能靠「什么都报」显得有效，需要证伪。下面每一条都是 probe.js 与
+// styleguard 里真实出现过的反例：自增幂、指针记号、正则转义、模板串、
+// 箭头、按位取反、反引号模板、Windows 路径。
 test('不误报：幂/指针/正则/模板串/箭头/取反/路径，守卫全绿', () => {
-  // `a -> b` 与 `2~7` 不是合法 JS，babel 抽注释只认得能解析的源码 ：
+  // `a -> b` 与 `2~7` 不是合法 JS，babel 抽注释只认得能解析的源码：
   // 这正是换 babel 的理由：非法输入应当报错，而不是静默当成 0 违规。
   // 所以这里分两半：合法代码位置出现这些记号；注释里出现同样的记号。
   const code = [
@@ -898,7 +893,7 @@ test('不误报：幂/指针/正则/模板串/箭头/取反/路径，守卫全�
     assert.deepStrictEqual(bodies, [],
       `\n${name} 里的合法写法被误报成归属性注释（${bodies.length} 条）：\n  ${bodies.join('\n  ')}`)
   }
-  // 合法代码里一条注释都不该出现 ： 上述记号全在字符串与正则里
+  // 合法代码里一条注释都不该出现：上述记号全在字符串与正则里
   const nodes = commentNodes('inject-fp-code.cjs', code)
   assert.deepStrictEqual(nodes, [], '这段纯代码里不该有注释节点')
 })
