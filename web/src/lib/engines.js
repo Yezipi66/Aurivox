@@ -1,40 +1,12 @@
-// ============================================================
-//  引擎列表 + 参数面板的数据层（契约 §12 第 3 步）
-// ============================================================
-//
-// 这个文件回答一件事：界面上该长出什么，全部由 manifest.json 决定。
-//
-// 在它出现之前，`/api/engines` 已经把两台引擎的完整 param_schema 吐出来了，
-// 而 web/src 里 `api/engines` 出现 0 次，后端算好的东西没有任何消费者，
-// 界面上那排滑块是手写死的 GPT-SoVITS 参数（GenerateTab.jsx:127 起的
-// temperature / top_k / top_p …）。契约 §9 把这类叫「名片里已经写好、但平台
-// 还没读的字段」。
-//
-// 本文件里不允许出现任何具体引擎的名字、参数名、参数个数。
-//    规矩同 lib/engines/registry.js 和 lib/routes/engines.js，下面有守卫测试盯着。
-//    判据很简单：装一台谁都没见过的引擎，这里的代码一个字都不用改。
-//
-// 为什么这些函数全是纯函数、不碰 React：
-//    这个仓库跑单元测试的环境里没有 jsdom（web/package.json 声明了，但测试
-//    是 `node --test` 直接跑的，不经过 vite），JSX 渲染不了。把「界面长什么样」
-//    的判断全部挪进纯函数，才有可能真的写出会红的测试，否则只能写
-//    advancedParamsMemory.node.test.js 那种读源码的文本守卫。
+// 引擎列表、参数面板和状态徽章的前端数据层（契约 §12），界面内容全由 manifest.json 决定。
+// 不写具体引擎名或参数名（有守卫测试）。纯函数，便于 `node --test` 在无 DOM 环境下测试。
 
-// 这里带 `.js` 后缀，跟本目录其他文件的写法（`from './api'`）不一样，是故意的：
-//   不带后缀只有 vite 能解析，`node --test` 会直接 ERR_MODULE_NOT_FOUND，
-//   也就是说这个文件将永远无法被单元测试导入。带上后缀两边都认。
+// 必须带 .js 后缀：`node --test` 不能解析无后缀导入。
 import { api } from './api.js'
 
-/** 后端把参数分成两档，界面上就是两个页签。 */
 export const TIERS = ['common', 'advanced']
 
-/**
- * 拉引擎列表。
- *
- * probe=0：只问「装了哪几台」，不去挨个探活。挑引擎、长面板都不需要知道
- * 它现在活没活，而探活要打网络、一台超时就拖住整张列表。在线状态是另一件
- * 事，谁要谁自己带 probe 去问。
- */
+// 获取引擎列表。默认 probe=0，不逐台探活：探活要走网络，一台超时会拖住整个列表。
 export function fetchEngines({ probe = false } = {}) {
   return api(`/api/engines?probe=${probe ? 1 : 0}`).then(r => {
     if (!r.ok) {
@@ -44,8 +16,7 @@ export function fetchEngines({ probe = false } = {}) {
     return {
       ok: true,
       engines: Array.isArray(d.engines) ? d.engines : [],
-      // 名片坏掉的引擎在这里，不是在 engines 里。界面必须把它显示出来，
-      // 一台引擎因为少写一个键而从列表里消失，是最难查的那种症状。
+      // 名片解析失败的引擎在 errors 里，界面必须显示，不能让它从列表中消失。
       errors: Array.isArray(d.errors) ? d.errors : [],
       notice: d.notice || null,
       error: null,
@@ -53,14 +24,7 @@ export function fetchEngines({ probe = false } = {}) {
   })
 }
 
-/**
- * 选哪一台。
- *
- * 顺序：上次选的（如果还在） → 列表第一台 → null。
- *
- * 刻意不写「默认选 xxx」。那正是契约要消灭的东西，一旦这里点名一台，
- *    卸载那台引擎之后界面就会选中一个不存在的 id。
- */
+// 选择当前引擎：上次选的（仍存在时）→ 列表第一台 → null。不写死默认引擎 id。
 export function pickEngine(engines, savedId) {
   const list = Array.isArray(engines) ? engines : []
   if (savedId) {
@@ -70,38 +34,16 @@ export function pickEngine(engines, savedId) {
   return list.length ? list[0] : null
 }
 
-/**
- * 训练页显不显示（契约 §11 判据 11）。
- *
- * 这条判据是「藏得住」，不是「训练接得通」，微调不在版本 2 范围内。
- *
- * 故意 fail-closed：只有名片明写 `supports_finetune: true` 才显示。
- *    引擎还没加载出来（undefined / null）也不显示。
- *    理由是两边的坏法不对称：
- *      少显示一个页签 = 用户点不到一个他本来也用不了的东西，刷新一下就有了；
- *      多显示一个页签 = 用户点进去、填完表、执行一遍，才发现这台引擎根本不支持微调。
- */
+// 训练页仅在 supports_finetune === true 时显示（契约 §11 判据 11），未加载时也隐藏。
 export function showsTrainingTab(engine) {
   return !!(engine && engine.supports_finetune === true)
 }
 
-/**
- * ：起 / 停一台引擎。
- *
- * 这两个函数出现之前，`web/src/` 里请求 `/api/engines/*` 的写操作是
- *   0 次，后端 supervisor 的 ensure / stop 全都测穿了，界面上一个都够不着。
- *   起一台引擎唯一的办法是点一次合成。
- *
- * 这里不做任何"能不能起"的判断（那在 engineActions.pure.js 和后端
- *   residency.js）。这两个函数只负责发出去、把响应原样交回。
- * 也不许在这里 catch 掉错误再返回一个 ok，静默成功是最贵的那种坏法。
- */
+// 启动 / 停止只发请求并原样返回，不做可行性判断，也不吞掉错误。
 export function startEngine (id, { weights, confirmed } = {}) {
   const body = {}
   if (weights) body.weights = weights
-  // 只有显式说了才带上。后端靠 "有没有这个键" 区分
-  //   「没说」和「说了不同意」（lib/engines/supervisor.js:337）；
-  //   无脑带一个 false 会让每次手动启动都被拒。
+  // 后端用「有没有 confirmed 键」区分未表态和拒绝，所以只在显式传入时才带。
   if (confirmed !== undefined) body.confirmed = !!confirmed
   return api(`/api/engines/${encodeURIComponent(id)}/start`, { method: 'POST', body })
 }
@@ -110,30 +52,8 @@ export function stopEngine (id) {
   return api(`/api/engines/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {} })
 }
 
-// 候选永远列出来；选中的那一份发不发得出去，由名片在每个模型位
-//    上写没写「用哪个参数名发」决定；发不出去的时候界面必须写明为什么。
-//
-// 引擎级的 capabilities.hot_swap_models 已经退休，
-//    界面和后端都不许再读它。换一份模型走哪一步，逐位写在
-//    weight_slots[].applies_at 上：call = 发一次请求就换掉；
-//    launch = 平台带着新的那一份把引擎重开一次（第一次要多等）。
-//    ⇒ 「换不了」这个状态从此不存在，只剩「换法不同」。
-
-/**
- * 这台引擎认不认识某个平台的词（名片 maps 里有没有这一条）。
- *
- * 跟 param_schema 分工不同，别混：
- *     param_schema  引擎自己的参数，Advanced Settings 里那一袋，平台不认识
- *     mapped_keys   平台的词，文本 / 参考音频 / 参考转写 / 语种 / speed …
- *                   名片给它铺了映射，这一格才发得出去
- *
- * 名单没回来（旧后端、engine 还没读出来）时返回 true 而不是 false，
- *    fail-open。这里的坏法不对称：
- *      多画一格 = 跟今天一模一样，用户看到的东西没变；
- *      少画一格 = 一个本来能用的控件凭空消失，而且不报错，最难查。
- *    与 showsTrainingTab 的 fail-closed 相反是故意的：那边多显示会让人
- *      白填一整张表，这边多显示只是多一个格子。
- */
+// 名片 maps 是否映射了某个平台参数（文本、参考音频、语种等；引擎自有参数看 param_schema）。
+// mapped_keys 缺失时返回 true：多显示一个控件无害，漏显示不易察觉。
 export function hasMappedKey(engine, key) {
   if (!engine) return true
   const keys = engine.mapped_keys
@@ -141,30 +61,13 @@ export function hasMappedKey(engine, key) {
   return keys.includes(key)
 }
 
-/**
- * 把 manifest.json 的 params.schema 翻成「这一档要画哪几个格子」。
- *
- * 返回的是描述，不是组件，画成什么样是 JSX 的事，画哪些是这里的事。
- */
 export function fieldsForTier(engine, tier) {
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
-  // 没写 tier 的落进 advanced，跟后端 lib/engines/profile.js:556 同一条规则
-  // （`out.tier = d.tier === 'common' ? 'common' : 'advanced'`）。
-  // 不能写成 `f.tier === tier` 就完事：那样一个没写 tier 的参数会从两档里
-  //    同时消失，名片作者明明写了一格，界面上却怎么也找不到。
-  //    后端确实已经兜过一次底，但前端也吃得到手写/缓存的旧数据，
-  //    两边说同一句话才不会有「只在某条路径上消失」的格子。
+  // 未写 tier 归入 advanced，与后端 profile.js 一致；缓存数据可能未经后端规整。
   return schema.filter(f => f && (f.tier === 'common' ? 'common' : 'advanced') === tier)
 }
 
-/**
- * 面板该不该显示「这张 manifest.json 没写 params.schema」。
- *
- * `param_schema: []` 和「这台引擎没有参数」是两件事：已装的一台引擎
- *    param_schema 是空的，而它的 param_keys 有 12 个。空面板会让人以为
- *    这台引擎调不了，实际是名片作者还没写那一段。
- *    所以这里不能直接渲染一个空面板了事，要说出是哪一种。
- */
+// param_schema 为空但 param_keys 非空时提示补写 schema，避免空面板被误解为没有参数。
 export function schemaGap(engine) {
   if (!engine) return null
   const schema = Array.isArray(engine.param_schema) ? engine.param_schema : []
@@ -181,12 +84,7 @@ export function schemaGap(engine) {
   }
 }
 
-/**
- * 面板的初值：每个格子取名片里的 default。
- *
- * `default` 是界面初值，跟 `defaults.<键>`（每次都发的值）不是一回事，
- *    契约 C11 把这两者分得很开，这里只取前者。
- */
+// 面板初值，取各字段的 default。注意它不同于名片的 defaults.<键>（契约 C11）。
 export function initialParamValues(engine) {
   const out = {}
   for (const f of (engine && Array.isArray(engine.param_schema) ? engine.param_schema : [])) {
@@ -195,27 +93,10 @@ export function initialParamValues(engine) {
   return out
 }
 
-/**
- * 界面上收到的值（多数情况下是字符串）翻成这个格子该有的类型。
- *
- * 翻不动就返回名片里的 default，不返回 0 也不返回空字符串：
- * 输入框清空的一瞬间值是 ''，`parseFloat('')` 是 NaN，塞进请求体会变成 null，
- * 而那看起来跟「用户特意设成 0」一模一样。
- */
-/**
- * 五种预设样式，与后端 `lib/engines/paramTypes.js` 是同一张表。
- * 想在这儿加第六种之前，先去改那个文件；两边分叉的症状是
- *    「后端能收、前端不能渲染」，而不能渲染的格子不会报错。
- */
+// 五种参数样式，须与后端 lib/engines/paramTypes.js 保持一致，否则后端接受的字段前端无法渲染。
 export const PARAM_TYPES = ['text', 'number', 'select', 'boolean', 'file']
 
-/**
- * 老名字折成五种之一。
- *
- * 前端必须也认老名字：缓存下来的旧 `param_schema`、用户机器上没跟着
- *    升级的第三方名片，都会带着 `enum` / `path` 进来。认不出的下场是走到
- *    `default:` 分支原样返回，那正是「无声丢值」那类 bug 的入口。
- */
+// 旧类型名（integer、enum、path 等）归一为五种之一，兼容旧 schema 和第三方名片。
 export function canonicalType(t) {
   switch (t) {
     case 'integer': case 'int': case 'float': case 'number': return 'number'
@@ -227,24 +108,21 @@ export function canonicalType(t) {
   }
 }
 
-/** 这一格是不是「一排 N 个」。不写 / 写 1 ⇒ 标量，不是长度 1 的数组。 */
 export function repeatOf(field) {
   const n = field && field.repeat
   return Number.isInteger(n) && n > 1 ? n : 1
 }
 
-/** 这一格的值是不是数组：一排（repeat）或多选（multi）。 */
 export function wantsArray(field) {
   return repeatOf(field) > 1 || (field && field.multi === true)
 }
 
+// 把界面输入转为字段类型。失败时返回 default，不返回 0，以免清空输入框被当成设为 0。
 export function coerceParamValue(field, raw) {
   if (!field) return raw
   const fallback = field.default
 
-  // 一排 / 多选：整条都是数组，逐格按标量规则翻。
-  // 任何一格翻不动就整条退回 default，不半条半条地留：
-  //    发一条长度不匹配的数组给引擎，多数情况下不报错，只是声音不对。
+  // 数组字段逐项转换；任一项失败或长度不符，整体退回 default。
   if (wantsArray(field)) {
     if (!Array.isArray(raw)) return fallback
     const n = repeatOf(field)
@@ -260,8 +138,7 @@ function coerceScalarValue(field, raw) {
   const fallback = field.default
   switch (canonicalType(field.type)) {
     case 'number': {
-      // int 是数字的一味，不是另一种类型：丢了它，7.5 会悄悄发给
-      //    只吃整数的引擎，一路不报错。
+      // 整数字段用 parseInt，避免把 7.5 发给只接受整数的引擎。
       const n = (field.int === true || field.type === 'integer' || field.type === 'int')
         ? parseInt(raw, 10)
         : parseFloat(raw)
@@ -270,9 +147,7 @@ function coerceScalarValue(field, raw) {
     case 'boolean':
       return raw === true || raw === 'true'
     case 'select': {
-      // 选项来自平台扫盘（source）时一律放行：有哪些要运行时才知道，
-      //    拿一份可能过期的名单去卡，症状是「我明明选了它却没生效」。
-      //    allow_custom 同理，名片明说了库里没有的也让填。
+      // 选项来自运行时扫盘（source）或允许自定义（allow_custom）时不校验候选。
       if (field.source || field.allow_custom === true) {
         return raw === null || raw === undefined ? fallback : raw
       }
@@ -280,55 +155,30 @@ function coerceScalarValue(field, raw) {
       return choices.some(c => (c && typeof c === 'object' ? c.value : c) === raw) ? raw : fallback
     }
     case 'file': {
-      // 空 = 用户没选 / 特意清空了。这里不能退到 default：
-      // 「清空这一格」是用户表达「这一项不要」的唯一方式，退回默认值等于
-      // 他清不掉。空值到了 paramsToSend 那里会被拦下不发。
+      // 空值表示用户清空，不退回 default；paramsToSend 会跳过空路径。
       if (raw === '' || raw === null || raw === undefined) return ''
-      // 配方里存的托管路径是 { base, path } 这个形状，界面上显示的是字符串。
-      // 两种都原样收下，解析是 pathResolver 的活，不是这里的。
+      // 字符串路径和配方中的 { base, path } 对象都原样保留，由 pathResolver 解析。
       if (typeof raw === 'string' || typeof raw === 'object') return raw
       return String(raw)
     }
     case 'text':
-      // 不 trim、不截断、不改大小写：用户打的空格可能就是他要的。
       return raw === null || raw === undefined ? fallback : String(raw)
     default:
       return raw
   }
 }
 
-/**
- * 这一格要不要画成「挑一个文件」（custom file）。
- *
- * 平台不认识「权重」这个概念，只认识「这个参数的值是一个路径」。
- *    有几个、叫什么、是不是模型，那台引擎自己在 params.schema 里说；
- *    一个都不写，界面上就一个文件格子都不长。
- *
- * 「从平台的库里挑一个」不是 file，是 `select` + `source`，区别是候选
- *    列表从哪来。混了的后果：给 file 硬配候选 = 替引擎规定文件只能放我们
- *    指定的地方。
- */
+// 是否为文件路径字段。从平台库中选择是 select + source，不是 file。
 export function isPathField(field) {
   return !!(field && canonicalType(field.type) === 'file')
 }
 
-/**
- * 这一格的选项要不要平台去扫盘，扫哪一个库（voices / weights / audio）。
- * 不是就返回 null。
- */
 export function selectSourceOf(field) {
   if (!field || canonicalType(field.type) !== 'select') return null
   return typeof field.source === 'string' && field.source ? field.source : null
 }
 
-/**
- * 这一格现在该不该显示（`only_when`）。
- *
- * fail-open：`only_when` 引用一个面板上没有的键 ⇒ 照常显示。
- *    与 `showsTrainingTab` 的 fail-closed 相反，是故意的，
- *    名片作者拼错一个键名，多画一格他一眼看得见；少画一格他找不到，
- *    而且没有任何报错。少画一格是更坏的失败。
- */
+// only_when 引用的键不存在时照常显示，以免名片拼错键名导致字段消失。
 export function isFieldVisible(field, values) {
   const cond = field && field.only_when
   if (!cond || typeof cond !== 'object') return true
@@ -340,23 +190,13 @@ export function isFieldVisible(field, values) {
   return true
 }
 
-/** 这台引擎要挑几个文件。没有就是空数组，那是完全正常的一种引擎。 */
 export function pathFields(engine) {
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
   return schema.filter(isPathField)
 }
 
-/**
- * 面板上的值 → 请求体里 engine_params.<engine_id> 那一格。
- *
- * 只发名片认识的键。不做「不认识就原样带上」：服务端会静默忽略不认识的
- * 键，表现是「我明明调了却没效果」，极难查（这正是 param_keys 要列全白名单
- * 的理由，见 registry 那段）。
- *
- * `sends_always` 已退役（f68421f）：只有用户明确动过的键（touchedParams）
- * 才进入请求体。名片 defaults 里的值仍由后端 engineKnobs 循环填入 payload，
- * 前端不需要知道哪些键平台会替它填。
- */
+// 请求体 engine_params：只含 schema 中存在、当前可见、用户改过的字段，默认值由后端或引擎补。
+// 空路径不发，否则引擎会尝试打开空路径。
 export function paramsToSend(engine, values, touched) {
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
   const seen = touched instanceof Set ? touched : new Set(Array.isArray(touched) ? touched : [])
@@ -365,20 +205,15 @@ export function paramsToSend(engine, values, touched) {
     if (!f || f.name === undefined) continue
     const has = values && Object.prototype.hasOwnProperty.call(values, f.name)
     if (!has) continue
-    // Keep hidden values in UI memory, but never leak them into another mode.
+    // 隐藏字段的值保留在界面中，但不发送。
     if (!isFieldVisible(f, values)) continue
-    // 路径格子空着 = 用户没选这个文件 ⇒ 不发这个键。
-    // 不能发空字符串：引擎那边会当成「路径是空的」去打开文件而不是
-    //    「没给路径」，报出来的错跟用户做的事不匹配。
     if (isPathField(f) && (values[f.name] === '' || values[f.name] == null)) continue
-    // UI suggestions are not invocation defaults. Only explicit user choices
-    // cross the engine boundary; the upstream engine owns all omitted defaults.
     if (seen.has(f.name)) out[f.name] = values[f.name]
   }
   return out
 }
 
-/** 将用户明确设置的参数按作者声明的生命周期分流。 */
+// 按字段 phase 把 paramsToSend 的结果分成调用参数（call）和启动参数（load）。
 export function paramsByPhase(engine, values, touched) {
   const explicit = paramsToSend(engine, values, touched)
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
@@ -392,42 +227,21 @@ export function paramsByPhase(engine, values, touched) {
   return { call, load }
 }
 
-/**
- * 取当前语言的那一句。名片里 label / help 都是 { en, zh }。
- * 缺当前语言就退到英文，再缺就退到键名本身，不返回空字符串：
- * 一个没有名字的格子，用户既不知道它是什么，也没法搜。
- */
 export function textOf(node, lang, fallback = '') {
   if (node == null) return fallback
   if (typeof node === 'string') return node
   return node[lang] || node.en || fallback
 }
 
-/** 格子的显示名。 */
 export function fieldLabel(field, lang) {
   return textOf(field && field.label, lang, (field && field.name) || '')
 }
 
-/** 格子底下那行说明。名片没写就是空，说明可以没有，名字不行。 */
 export function fieldHelp(field, lang) {
   return textOf(field && field.help, lang, '')
 }
 
-// ---------------------------------------------------------------------------
-//  底模徽章
-// ---------------------------------------------------------------------------
-// 起因是一句使用者反馈：「读不到底模在哪里」。
-// 在这之前，底模在界面上是完全不存在的一个概念，放对了没有、放在哪，
-// 界面一个字都不说，只能靠引擎起不起得来事后倒推。
-//
-// 这里不做任何判断，判断在服务端（lib/engines/checkpoints.js）做完了。
-//   这个函数只把 checkpoints 那一段翻成"徽章上写什么、悬停显示什么"。
-//   ⇒ 前后端不会各判一次然后说出两种话。
-
-/**
- * @returns {null|{tone:'ok'|'bad'|'unknown', label:string, title:string}}
- *   null = 不显示这个徽章（列表还没回来，或者这台引擎没有 checkpoints 段）
- */
+// 底模徽章：判断在后端 checkpoints.js 完成，这里只转成文字。无 checkpoints 段时返回 null。
 export function checkpointBadge(engine, lang = 'zh') {
   const c = engine && engine.checkpoints
   if (!c) return null
@@ -436,8 +250,7 @@ export function checkpointBadge(engine, lang = 'zh') {
   const lines = []
 
   if (!c.declared) {
-    // "说不出来"必须和"缺"分开显示。名片没写路径不代表底模没放，
-    //   显示成红色会让一台好好的引擎永远挂着红灯。
+    // 名片未声明底模目录时显示「?」，不能显示成缺失。
     return {
       tone: 'unknown',
       label: zh ? '底模 ?' : 'weights ?',
@@ -447,7 +260,6 @@ export function checkpointBadge(engine, lang = 'zh') {
 
   lines.push((zh ? '底模目录：' : 'Checkpoints: ') + c.abs_path)
   if (c.path_source && c.path_source !== 'manifest') {
-    // 路径和名片写的不一样时，人第一个问题一定是"为什么"。
     lines.push((zh ? '（来自环境变量 ' : '(from env ') + c.path_source.replace(/^env:/, '') + '）')
   }
   if (c.reason) lines.push(c.reason)
@@ -460,7 +272,6 @@ export function checkpointBadge(engine, lang = 'zh') {
     }
     if (c.source.url) lines.push((zh ? '模型主页：' : 'Model page: ') + c.source.url)
     if (Array.isArray(c.source.command)) {
-      // 命令原样来自名片，界面不改写、不拼装。
       lines.push(zh
         ? `取回命令（在 ${c.source.cwd} 下执行）：`
         : `Fetch (run in ${c.source.cwd}):`)
@@ -482,44 +293,19 @@ export function checkpointBadge(engine, lang = 'zh') {
   return { tone: 'unknown', label: zh ? '底模 ?' : 'weights ?', title: lines.join('\n') }
 }
 
-// ---------------------------------------------------------------------------
-//  进程徽章（契约 §12 第 5 步）
-// ---------------------------------------------------------------------------
-// 来历：引擎从「开机全点着」改成「按需启动、空闲释放」之后，
-//   界面上出现了一个以前不存在的状态，这台引擎现在未运行，而这是正常的。
-//
-// 为什么非画不可，只有一个理由，但足够：
-//   一台把权重在开进程那一刻吃进内存的引擎（6 GB 起步），换模型 = 整个重开。
-//   第一次点下去要几十秒到几分钟没有任何声音出来。
-//   界面什么都不说的话，正常人的反应是「卡死了」⇒ 再点一次 ⇒ 再排一次队 ⇒
-//   更慢 ⇒ 更确信卡死了。⇒ `phase` 必须有个去处。
-//
-// 这里不做任何判断。跑没跑、在忙没忙、装的是哪一份，服务端都算完了，
-//   这个函数只负责翻成"徽章上写什么、悬停显示什么"。
-//
-// 三种「未运行」必须说成三句不同的话，不许合并：
-//   · process === null   → 本机不管进程（后端未装看管人）⇒ 不画徽章。
-//       报成"停着"会让人去点一个不存在的启动按钮。
-//   · running === false  → 确实没起，而这是正常的，下次要用会自己起。
-//       ⇒ 语气必须是中性的"待命"，不是红色的"离线/挂了"。
-//   · online 为真但 running 为假 → 引擎在运行，但不是本平台启动的
-//       （开发机上最常见）。⇒ 这两个字段有意不合并，见 /api/engines。
-
-/**
- * @returns {null|{tone:'ok'|'busy'|'idle'|'unknown', label:string, title:string}}
- *   null = 不画这个徽章（列表还没回来，或本机不管引擎进程）
- */
+// 进程徽章（契约 §12 第 5 步）。三种「未运行」分开显示：process 为 null（不管理，不显示）、
+// running 为 false（正常待命，灰色）、online 但非本平台启动（外部进程）。
+// 启动中要明确提示，载入模型可能需要几十秒到几分钟。
 export function processBadge (engine, lang = 'zh') {
   if (!engine) return null
   const p = engine.process
-  // null / undefined = 「不管」，不是「没跑」。这两个必须分开。
+  // null / undefined 表示不管理，不是未运行。
   if (p === null || p === undefined) return null
 
   const zh = lang !== 'en'
   const lines = []
 
   if (p.running !== true) {
-    // 引擎在运行但不是本平台启动的，这不是错误，是开发机的常态。
     if (engine.online === true) {
       return {
         tone: 'unknown',
@@ -544,13 +330,10 @@ export function processBadge (engine, lang = 'zh') {
 
   if (p.pid) lines.push((zh ? '进程号：' : 'PID: ') + p.pid)
   if (p.launch_key) {
-    // 这一行是 A 那件事唯一看得见的证据：
-    //   "我选的模型到底装进去了没有"，以前只能靠听声音猜。
+    // 显示进程当前载入的模型，便于核对选择是否生效。
     lines.push((zh ? '现在装的是：' : 'Loaded: ') + p.launch_key)
   }
 
-  // phase 优先于 busy：正在把权重装进内存的那几十秒，
-  //   是这整套东西里唯一会让人以为卡死的时刻。
   if (p.phase && p.phase !== 'ready') {
     lines.push('', zh
       ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，速度更慢。'
@@ -559,8 +342,7 @@ export function processBadge (engine, lang = 'zh') {
       tone: 'busy',
       label: zh ? '启动中…' : 'starting…',
       title: lines.join('\n'),
-      // 「正在装哪一份」是一条具体事实（launch_key），要单独交出来，
-      //   不能只埋在这一段的 title 里。
+      // 单独返回 launchKey，供 engineBadge 显示。
       launchKey: p.launch_key || null,
     }
   }
@@ -579,23 +361,8 @@ export function processBadge (engine, lang = 'zh') {
   }
 }
 
-/**
- * 把一份新拉到的引擎列表里的进程状态合并进手上这份。
- *
- * 为什么不能直接 setEngines(新列表)：
- *   引擎列表本身（名片、参数表、模型位）开页面时拉一次就够了，它只有
- *   装卸引擎时才变。但进程状态是每几秒都在变的东西。
- *   直接整份换掉的话，每一轮都会产出一个全新的数组，于是所有
- *   `useEffect([engines])` 每几秒重跑一次，包括那个"选中的引擎还在不在"，
- *   它会不停地 setState，把整棵树每 8 秒重画一遍。
- *
- * 所以这个函数的核心承诺是：什么都没变时，原样把旧数组还回去
- *   （连同每一个没变的引擎对象本身）。
- *   别改成"每次都 map 一份新的"，那样每个元素身份都变，等于没优化。
- *
- * 只合并 process 这一个字段。新拉到的名片/参数一概不采纳：那是另一件事，
- *   混进来会让用户填了一半的参数面板在轮询到的某一秒被换掉。
- */
+// 把轮询到的 process 合并进现有列表。无变化时返回原数组和原元素，避免 useEffect 每轮重跑；
+// 名片和参数不随轮询更新，以免覆盖正在编辑的面板。
 export function mergeProcessState (engines, fresh) {
   if (!Array.isArray(engines) || !Array.isArray(fresh)) return engines
   const byId = new Map()
@@ -605,8 +372,7 @@ export function mergeProcessState (engines, fresh) {
   const next = engines.map((e) => {
     if (!e || !e.id || !byId.has(e.id)) return e
     const p = byId.get(e.id).process
-    // 深比较，不用 !== ：服务端每次都吐一个新对象，
-    //   引用比较会让"没变"永远判成"变了"，这个函数就白写了。
+    // 按内容比较：服务端每次返回新对象，引用比较永远不等。
     if (JSON.stringify(p ?? null) === JSON.stringify(e.process ?? null)) return e
     changed = true
     return Object.assign({}, e, { process: p ?? null })
@@ -614,44 +380,8 @@ export function mergeProcessState (engines, fresh) {
   return changed ? next : engines
 }
 
-// ---------------------------------------------------------------------------
-//  引擎徽章，顶栏关于「当前这台引擎」的唯一一枚灯
-// ---------------------------------------------------------------------------
-// 起因是顶栏指示灯越加越多、彼此含义重叠：底模齐与 idle 各占一格，
-//   而两者都不需要使用者持续盯着。
-//
-// 底下压着一个真的坏掉的东西：
-//
-//   引擎改成「按需启动」之后，老那枚「Connected / Unreachable」持续报红。
-//   它报的是探活通不通；而现在"没起"是常态、是设计如此。
-//   ⇒ 一枚在正常状态下常亮红灯的指示灯，唯一的效果是训练人忽略所有红灯。
-//   这跟"少一枚灯好看一点"是两件事：并不是把三枚塞进一枚省地方，
-//   而是那三枚里有两枚在新世界里已经说错话了。
-//
-// 三枚合一之后，谁来当那一句话，按「谁最需要人动手」排：
-//
-//   ┌───┬──────────────┬──────┬────────────────────────────────────────┐
-//   │ 1 │ 底模缺       │ 红   │ 你不动手它永远起不来 ⇒ 唯一有资格红的   │
-//   │ 2 │ 启动中…      │ 橙   │ 唯一会让人以为卡死的时刻 ⇒ 见下         │
-//   │ 3 │ 合成中       │ 橙   │ 正在执行合成                          │
-//   │ 4 │ 运行中       │ 绿   │                                         │
-//   │ 5 │ 待命         │ 灰   │ 没起，而这是正常的 ⇒ 绝不许红     │
-//   └───┴──────────────┴──────┴────────────────────────────────────────┘
-//
-// 「底模齐」不占格子了，它是一次性的事实，放对了就永远绿，
-//   一枚永远绿的灯不携带任何信息。⇒ 降级进悬停。
-//   但「底模缺」必须留在灯面上：那是唯一一种"看不见就会被卡住一小时"的坏。
-//
-// 这个函数一个判断都不新加。底模齐没齐、进程跑没跑，服务端早算完了，
-//   上面两个函数已就绪，这里只决定谁上台和悬停里怎么排。
-//   ⇒ 不会出现"顶栏说一句、别处说另一句"。
-
-/**
- * @param {object|null} engine  当前选中的引擎（含 checkpoints / process / online）
- * @param {object|null} health  /api/health 的结果，只用它的 engine_online
- * @returns {null|{tone:'ok'|'busy'|'idle'|'bad'|'unknown', label:string, title:string}}
- *   null = 引擎列表还没读出来 ⇒ 不画（不画成"离线"）
- */
+// 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 > 合成中
+// > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。
 export function engineBadge (engine, health, lang = 'zh') {
   if (!engine) return null
 
@@ -660,21 +390,6 @@ export function engineBadge (engine, health, lang = 'zh') {
   const ck = checkpointBadge(engine, lang)
   const pr = processBadge(engine, lang)
 
-  // 悬停只留底模目录那一行。
-  //
-  // 进程状态那段被判「小学生」，
-  //   「现在未运行，这是正常的。⇒ 下一次使用时会自动启动；
-  //     起的那一下要等模型装进内存。」这类句子在回答一个用户没问的问题
-  //   （他没问「现在是否在运行」），却把真正要答的（底模在哪）挤到了第二段。
-  //
-  // 保留的：底模目录。它是「我该去哪儿放什么」的唯一答案，
-  //   而且它在底模缺的时候唯一能让人自己动手定位。
-  // 去掉：进程状态说明 / 取回命令 / 模型主页 / 许可提醒，那些是
-  //   `tools/engine-checkpoints.cjs` 与平台文档的事，不该挂在顶栏一枚灯上。
-  //
-  // 但有一条例外：启动中「正在装哪一份」（launch_key）必须留。
-  //   它不是「跑不跑」那种状态话，而是一条具体事实，人等着的时候
-  //   唯一能看见的就是「我在等哪一份权重进内存」。事实留，说明走。
   const dirLine = (() => {
     const t = ck && ck.title ? String(ck.title) : ''
     const m = t.match(/(?:^|\n)\s*(?:底模目录：|Checkpoints: )(.+)/)
@@ -689,7 +404,6 @@ export function engineBadge (engine, health, lang = 'zh') {
       : head
   })()
 
-  // ── 1. 底模缺，唯一有资格红的 ──────────────────────────────────
   if (ck && ck.tone === 'bad') {
     return {
       tone: 'bad',
@@ -698,55 +412,23 @@ export function engineBadge (engine, health, lang = 'zh') {
     }
   }
 
-  // ── 2..5. 进程状态 ───────────────────────────────────────────────
   if (pr) {
-    // 悬停与第 1 支同一个：只给底模目录。
-    // 原来这里是把 processBadge 的说明叠上去（那些被判「小学生」的句子）。
     return { tone: pr.tone, label: `${name} · ${pr.label}`, title }
   }
 
-  // ── 兜底：本机不管进程（process 为 null）──────────────────
-  // 这里原本是老那枚 Connected / Unreachable，
-  //   它读 `health.engine_online`，而 engine_online 是「往某个端口探一下活」。
-  //
-  //   端口是第六项。推理只需要 输入+参数+权重+环境；端口是我给引擎套的
-  //   HTTP 外壳产生的，不是引擎需要的东西。⇒ 一台用命令行跑的引擎（大多数）
-  //   在这枚灯下永远显示"连不上"，而它实际完好的。
-  //
-  //   更根本的：引擎是用完即走的进程，"常驻在线"这个概念对它不成立。
-  //   一枚回答"它现在在不在线"的灯，问的是一个不存在的问题。
-  //
-  // 只留三态，而且都由这一次操作驱动，不由轮询驱动：
-  //   准备中 / 生成中 / 完成或失败，那三态由上面的 processBadge 负责。
-  //   走到这里 = 平台不管这台的进程 ⇒ 平台对它此刻的状态一无所知，
-  //   而"一无所知"的诚实说法是不画状态，不是画一枚红灯。
+  // 本机不管理进程时，平台不知道引擎状态，显示中性灰色，不显示离线或红灯。
   return {
     tone: 'idle',
     label: name,
-    // 底模目录这一段对这一支同样有用：平台不管进程，但权重要放哪
-    //   仍然是这台引擎的事。
     title,
   }
 }
 
 
-// ============================================================================
-//  B5 占用透明度，「平台此刻占了你的什么」
-//
-//  数据全部由后端算好（lib/engines/occupancy.js + GET /api/engines 的
-//    `occupancy` 段）。这个文件一个判断都不新加，只决定「怎么显示」，
-//    理由与 engineBadge 完全一样：顶栏说一句、别处说另一句，是这个项目
-//    最贵的一类 bug（requires_reference_audio 那道 400 静默消失就是这么来的）。
-//
-//  三态必须分得开，不许糊成两态：
-//     number   这台引擎历史上最多吃过多少（memledger 只涨不落）
-//     null     从未测量过，不是 0。0 的意思是「它不消耗内存」，
-//              而那是最危险的说法。
-//     报的是历史峰值而不是实时读数：峰值才对应 OOM 风险，
-//       实时读数在 Linux OOM 之后读到的残值不可靠。
-// ============================================================================
+// 内存占用徽章（B5）：数据由后端 occupancy.js 计算，这里只负责显示。
+// 占用值是历史峰值；null 表示从未测量，不能显示成 0（0 意味着不占内存）。
 
-/** 把字节数/MB 变成人能读的样子。未知就说「?」，绝不显示 0。 */
+// 格式化 MB 数；未知或非正数显示「?」。
 export function fmtMemMb (mb) {
   if (mb === null || mb === undefined || !Number.isFinite(Number(mb))) return '?'
   const n = Number(mb)
@@ -755,20 +437,12 @@ export function fmtMemMb (mb) {
   return `${Math.round(n)} MB`
 }
 
-/**
- * 把后端那台机器的占用总览翻成一句话。
- *
- * @param {object|null} occ  /api/engines 回来的 occupancy 段
- * @param {string} [lang]
- * @returns {null|{tone:'ok'|'idle'|'unknown', label:string, detail:string[], title:string}}
- *   null = 后端没给（老 broker / 接口报错）⇒ 不画，不是画成「不占用」。
- */
+// 整机占用徽章。occ 为 { engines, summary, headline }，缺失或结构不符时返回 null。
 export function occupancyBadge (occ, lang = 'zh') {
   if (!occ || typeof occ !== 'object') return null
   const zh = lang !== 'en'
 
-  // 后端自己报错了 ⇒ 说「不知道」，不说「没占用」。
-  //   「没占用」是最贵的那种撒谎：用户会以为安全，于是开更多。
+  // 后端读取失败时显示「无法读取」，不能显示成没有占用。
   if (typeof occ.error === 'string' && occ.error) {
     return {
       tone: 'unknown',
@@ -778,15 +452,7 @@ export function occupancyBadge (occ, lang = 'zh') {
     }
   }
 
-  // 形状对不对，比字段空不空更要紧。
-  //
-  //   这一段是被接线测试逼出来的：occupancy.node.test.js 里我用的是
-  //   自己手写的 occ（running / residentPeakMb / freeMb …），全绿；
-  //   而后端 occupancyReport() 真正吐的是 `{engines, summary, headline}`，
-  //   数字全在 `summary` 里，键名还是 free_mb / total_mb。
-  //   照着手写的输入写实现 ⇒ 名字不匹配 ⇒ 每一项都显示不出来，
-  //     而界面看上去只是「空着」，不报错。
-  //   教训与 engineBadge 那段同源：输入必须来自真的那一头。
+  // 键名须与后端 occupancyReport() 一致（summary.free_mb 等）。
   const sum = occ.summary
   if (!Array.isArray(occ.engines) || !sum || typeof sum !== 'object') return null
 
@@ -802,8 +468,7 @@ export function occupancyBadge (occ, lang = 'zh') {
       ? `运行中引擎的峰值合计约 ${fmtMemMb(sum.resident_peak_mb)}`
       : `running peak ~${fmtMemMb(sum.resident_peak_mb)}`)
   }
-  // unknown_count 是风险最高的那一档（从没人量过它吃多少），
-  //   所以它排在余量前面，那是用户该先知道的事。
+  // 未测量的引擎风险最高，排在剩余内存之前。
   if (sum.unknown_count > 0) {
     detail.push(zh
       ? `⚠ ${sum.unknown_count} 台从未测量过占用`
@@ -819,18 +484,12 @@ export function occupancyBadge (occ, lang = 'zh') {
     ? `占用：${sum.running} 台运行中`
     : `usage: ${sum.running} running`
 
-  // 后端已经生成了一句说明文字（headline），优先使用它，
-  //   理由：那句话是后端跟 occupancy 同一份数据算出来的，
-  //     前端再措辞一次就多了一处「两边说法不一致」的可能。
+  // 优先使用后端生成的 headline，避免前后端措辞不一致。
   const title = (occ.headline || (zh ? '平台此刻占用了什么' : 'what the platform is using'))
     + '\n\n' + detail.join('\n')
 
   return {
-    // tone 只有三档：运行中 / 未运行 / 不可达。
-    //   不加「危险」档，危险是引擎级的（某台峰值高），
-    //     机器级只有一个诚实的问题：现在有几台在运行。
-    //   但 unknown_count > 0 时值得提一句，所以放进 detail 而不是 tone：
-    //     把它升成 tone 会让「有台未测量」看起来像「机器出问题了」。
+    // 未测量的提示只放 detail，不升级 tone。
     tone: sum.running ? 'ok' : 'idle',
     label,
     detail,
@@ -838,12 +497,7 @@ export function occupancyBadge (occ, lang = 'zh') {
   }
 }
 
-/**
- * 单台引擎的占用徽章（挂在每台引擎那一行）。
- *
- * 「未测量」是一个必须说出来的状态，不是「0」。
- * @returns {null|{tone:'ok'|'busy'|'unknown'|'bad', label:string, title:string}}
- */
+// 单台引擎占用徽章，优先级：上次启动失败 > 运行中 > 未运行但有峰值 > 未测量。
 export function engineUsageBadge (eng, occ, lang = 'zh') {
   if (!eng || !occ || typeof occ !== 'object') return null
   const zh = lang !== 'en'
@@ -852,8 +506,6 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
   if (!row) return null
   const name = eng.label || eng.id || (zh ? '引擎' : 'engine')
 
-  // 上次未正常退出 ⇒ 最高优先级的那一条警告。
-  //   它排在「未测量」前面：一次 OOM 比「不知道内存占用」更值得先说。
   if (row.last_attempt_unfinished) {
     return {
       tone: 'bad',
@@ -891,7 +543,6 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
         : `not running. last measured peak ${fmtMemMb(row.peak_mb)}.`,
     }
   }
-  // 从未测量：说「未测量」，绝不说「0」（0 = 它不消耗内存，最危险的说法）
   return {
     tone: 'unknown',
     label: zh ? `${name} · 占用未测量` : `${name} · usage unmeasured`,
