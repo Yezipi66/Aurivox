@@ -1,40 +1,22 @@
 #!/usr/bin/env node
-// tools/migrate-asset-models.cjs
-// ---------------------------------------------------------------------------
-//  把角色的模型搬进按引擎分层的新位置
-// ---------------------------------------------------------------------------
+// 把角色的模型搬进按引擎分层的新位置：
+//   老：assets/<角色>/gpt_checkpoints/*.ckpt、assets/<角色>/sovits_models/*.pth
+//   新：assets/<角色>/models/gpt-sovits/gpt/*.ckpt、assets/<角色>/models/gpt-sovits/sovits/*.pth
+// 新结构多的那两层（引擎 id / 权重位名）不是装饰：看一眼目录名就能回答
+// 「哪些角色有这台引擎的模型」，不用问名片、不用猜后缀、不用读文件头。
 //
-//  老：assets/<角色>/gpt_checkpoints/*.ckpt
-//      assets/<角色>/sovits_models/*.pth
-//  新：assets/<角色>/models/gpt-sovits/gpt/*.ckpt
-//      assets/<角色>/models/gpt-sovits/sovits/*.pth
+// 用法：node tools/migrate-asset-models.cjs [--apply]
+// 默认空跑（只说要做什么，不动盘）：权重动辄好几 GB，而且是训练几个小时的产物，
+// 一个默认就动手的工具不配碰它们。加 --apply 才真的搬。
 //
-//  为什么要搬：老结构把 GPT-SoVITS 的两个目录名写死在角色目录的第一层，
-//  于是第二台引擎的模型在磁盘上没有位置可放。新结构多的那两层
-//  （引擎 id / 权重位名）不是装饰，「哪些角色有这台引擎的模型」从此
-//  只要看一眼目录名就能回答，不用问名片、不用猜后缀、不用读文件头。
-//
-// ── 怎么用 ──────────────────────────────────────────────────────────────
-//
-//    node tools\migrate-asset-models.cjs            先看它打算做什么（不动盘）
-//    node tools\migrate-asset-models.cjs --apply    真的搬
-//
-//  默认空跑。权重动辄好几 GB，而且是训练几个小时的产物，
-//    一个默认就动手的工具不配碰它们。
-//
-// ── 规矩 ────────────────────────────────────────────────────────────────
-//
-//  · 移动，不复制。复制会让盘上出现两份几 GB 的东西，
-//    而且从此没人说得清哪一份是真的。
-//  · 目标已存在就停，绝不覆盖。同名不同内容的两份权重，
-//    覆盖掉的那一份可能是几个小时的训练。
-//  · 不删老目录。搬空之后那个空壳留在原地，你自己确认没问题了再删。
-//    工具替你删目录，是这类脚本最经典的一种伤害。
+// 规矩：
+//  · 移动，不复制。复制会让盘上出现两份几 GB 的东西，从此没人说得清哪一份是真的。
+//  · 目标已存在就停，绝不覆盖。同名不同内容的两份权重，被覆盖掉的那份可能是几个小时的训练。
+//  · 不删老目录。搬空之后那个空壳留在原地，工具替你删目录是这类脚本最经典的一种伤害。
 //  · 跨盘符也能搬：rename 失败（EXDEV）时退回「拷贝 + 校验大小 + 删源」。
 //  · 可以重复跑：已经搬好的角色第二次跑就是「没什么可做的」。
 //
-// 搬完之后 meta.json 里的模型清单会过时，不用管，它是扫盘缓存不是真相
-//   （lib/assetScanner.js 找不到就现场重扫）。下一次扫盘会自动对上。
+// 搬完之后 meta.json 里的模型清单会过时，不用管，它是扫盘缓存不是真相。
 
 const fs = require('fs');
 const path = require('path');
@@ -43,17 +25,14 @@ const { ASSETS_ROOT } = require('../lib/paths');
 const { slotDir, LEGACY_MODEL_DIRS } = require('../lib/assets/modelLayout');
 
 // 老目录名 → 它其实是哪台引擎的哪个权重位。
-//
-// 这张表是一次性的历史知识，写在搬家工具里正合适。它记录的是
-//   盘上过去的样子，而不是平台今后的规则。
-//   别把它挪进 lib/：那等于把一台引擎的形状又请回平台里。
+// 这张表是一次性的历史知识，写在搬家工具里正合适：它记录的是盘上过去的样子，
+// 不是平台今后的规则。别把它挪进 lib/：那等于把一台引擎的形状又请回平台里。
 const MOVES = [
   { from: 'gpt_checkpoints', engine: 'gpt-sovits', slot: 'gpt' },
   { from: 'sovits_models', engine: 'gpt-sovits', slot: 'sovits' },
 ];
 
-// 自检：这张表必须把 modelLayout 认得的老目录全部覆盖到。
-// 漏一个 ⇒ 扫盘会一直报「还没搬」，而工具说没什么可做的，死循环。
+// 自检：这张表必须把 modelLayout 认得的老目录全部覆盖到，漏一个就会死循环。
 {
   const covered = new Set(MOVES.map(m => m.from));
   const missing = LEGACY_MODEL_DIRS.filter(d => !covered.has(d));
@@ -84,7 +63,7 @@ function moveOne(src, dst, plan) {
     return 'moved';
   } catch (e) {
     if (e.code !== 'EXDEV') throw e;
-    // 跨盘符：拷完先核对大小，对得上才删源。 不校验就删是在拿权重赌 I/O。
+    // 跨盘符：拷完先核对大小，对得上才删源。不校验就删是在拿权重赌 I/O。
     const st = fs.statSync(src);
     if (st.isDirectory()) {
       fs.cpSync(src, dst, { recursive: true });
