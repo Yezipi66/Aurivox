@@ -81,9 +81,15 @@ if (!testFiles.length) {
 // 可用终端，所以要求 stdin 与 stdout 都是 tty 才用 inherit。
 const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true
 // 非交互时子进程输出会被收上来再原样转写，内存占用是测试输出的量级。
+// stdin 要给 'inherit' 而不是 'ignore'：
+//   Node 的 test runner 会检查子进程的 stdin 是不是 tty，不是就直接退出
+//   （报 stdin is not a tty、一条测试都不跑）。
+//   传 'ignore' 等于亲手把 stdin 换成非 tty ⇒ 触发它那个检查。
+//   传 'inherit' 则是把本进程拿到的 stdin 原样交给子进程：
+//   本进程的 stdin 是不是 tty 由此决定，行为与直接跑 node --test 一致。
 const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...testFiles], {
   cwd: root,
-  stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+  stdio: interactive ? 'inherit' : ['inherit', 'pipe', 'pipe'],
 })
 
 if (!interactive) {
