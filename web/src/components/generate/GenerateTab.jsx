@@ -1,5 +1,5 @@
 // 合成页：文本、音色与模型选择、参考音频、引擎参数面板、生成与最近生成。
-// 引擎参数与模型下拉都来自当前引擎的 manifest.json：这个文件里不许出现引擎名、参数名或位名。
+// 引擎参数与模型下拉都来自当前引擎的 manifest.json，文件里不写引擎名、参数名或位名。
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
@@ -89,7 +89,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // 这里只装引擎参数。平台自己的开关（force re-synthesis / engine batch /
   // media type / seed）不在这里，它们不属于任何一台引擎，见各自注释。
   const [paramValues, setParamValues] = useState({})
-  // 用户亲手动过哪些格子。只有动过才发出去：「没动」和「设成了跟默认值一样的数」
+  // 用户手动改过哪些格子。只有改过才发出去：「没改」和「设成了跟默认值一样的数」
   // 在请求体里必须长得不一样，否则平台无法区分「用户要这个值」和「用户没管」。
   const [touchedParams, setTouchedParams] = useState(() => new Set())
 
@@ -109,10 +109,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   }
 
   // 这个页面走 /api/generate，它等的是一份做完的音频（runGenerate 读的是 audio_url），
-  // 消费不了流。所以只对流式输出有意义的那几个参数，在这一页上长出来也是摆设：
-  // 这不是一份引擎名单，是这个页面自己的能力声明，换哪台引擎都成立。
-  // 界面上要说出引擎名字的地方用它，不退到任何一台引擎的名字，
-  // 「还没读出来」说成某台引擎的名字，就是在撒谎。
+  // 消费不了流。所以只对流式输出有意义的那几个参数，在这一页上长出来也是摆设。
+  // 引擎名取自当前选中的引擎；还没选出来时用泛称，不说任何一台引擎的名字。
   const engineName = engine?.label || engine?.id || t('the engine', '引擎')
 
   const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
@@ -164,8 +162,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     }).catch(() => {})
   }, [engine?.id])
 
-  // ══ 模型选择 ═══════════════════════════════════════════════════════════
-  //
+  // 模型选择。
   // 下拉有几个，是这台引擎的名片说的；每个下拉里装什么，是
   // 「这台引擎的底模 ∪ 当前角色下这台引擎的模型」这个二维筛选说的。
   // 候选只在当前角色里挑：挑别人的权重会把参考音频一起带走，用户看不见也管不着。
@@ -258,8 +255,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     () => modelNotesFor(assetsWithModels, engine?.id, selectedVoice),
     [assetsWithModels, engine, selectedVoice])
   // 选中的这几份里，有哪几份按名片点名的东西是不齐的。
-  // 只收 false，null 是「说不出来」（单文件的候选／名片没写 required），
-  // 不许把「说不出来」画成「有问题」。
+  // 只收 false；null 表示「说不出来」（单文件的候选或名片没写 required），
+  // 不把「说不出来」画成「有问题」。
   const incompleteItems = useMemo(
     () => selectedItems.filter(it => it && it.complete === false),
     [selectedItems])
@@ -346,7 +343,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   // 选中的模型如果带着版本号，就查一下那一版的底模在盘上齐不齐（缺了会出电流声）。
   // 判据是「任何一个带版本号的选择」：版本号是扫盘时认出来的一个可选属性，谁带就查谁。
-  // 这里不许再出现任何一个具体位的名字。
+  // 这里不出现任何具体的位名。
   const [genBaseWarn, setGenBaseWarn] = useState(null);
   const versionInUse = selectedItems.find(it => it && it.version)?.version || '';
   useEffect(() => {
@@ -456,7 +453,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 这一次要连哪台引擎，由界面上选中的那台说了算。少了这一句，请求不点名，
       // 服务端就去认领 legacy_default 那台：界面按 A 引擎画格子、按 A 引擎发参数、
       // 按 A 引擎选权重，请求却打到 B 引擎身上。
-      // 也不许写成 engine?.id || '某个默认值'：引擎没选出来时要空着，
+      // engine?.id 不给默认值：引擎没选出来时留空，
       // 让服务端报「你没说连哪台」，而不是替用户挑一台。
       engine_id: engine?.id,
       // 这台引擎的参数格子。点名了引擎，就把参数装进它自己那一格，
@@ -492,7 +489,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     }
     const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
     if (data) {
-      // 成功合成后回存「上次拧到哪」。只回存用户亲手动过的格子 + seed。
+      // 成功合成后回存「上次拧到哪」。只回存用户手动改过的格子 + seed。
       // 不回存整份 paramValues：没动过的键回存下去就等于把名片默认值抄进盘上文件，
       // 从此名片改了也不生效。而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，
       // 盘上赢：只写不读的键沉在盘上文件里会压住名片默认值，契约 C11 的默认值
