@@ -8,35 +8,10 @@
 //    node tools/engine-checkpoints.cjs <engine-id>        只看一台
 //    node tools/engine-checkpoints.cjs --json             给脚本吃
 //
-// ============================================================================
-//  为什么这个工具还在，而它的前身 install-engine.cjs 没了
-//
-//  `lib/engines/installPlan.js` 整体退役。
-//  理由不是「顺序排错了」，是它的前提被证伪：
-//
-//    「安装的前提是『名片已经写好了』，也就是 manifest.json
-//      已经躺在目标目录里，而 git clone 拒绝拉进一个非空目录。」
-//
-//  那个前提要求先有名片再克隆。而项目自己的工具证明它反了：
-//  · `tools/scaffold-params.cjs` 要在引擎自己的解释器里反射 __init__，
-//    源码和环境都还没到手 ⇒ 手册第 2 步需要第 3 步的产物；
-//  · `upstream.commit` 在「先有名片」的顺序里不可得（要先知道 sha，
-//    而 sha 在上游仓库里）。实证：gpt-sovits 至今 `commit: null`，
-//    于是在旧流程下它今天装不了；
-//  · 而 `init` + `remote add` + `fetch` 这三步存在的唯一理由
-//    就是绕开「clone 不进非空目录」。克隆先做 ⇒ 理由消失 ⇒ 三步全是死代码。
-//
-//  ⇒ 前身 `tools/install-engine.cjs` 劈成两半：
-//     · 安装那半（依赖 buildInstallPlan）随 installPlan.js 一起退役。
-//       拉源码现在由 `tools/engine-wizard/core/clone.js` 负责（顺序在前、
-//       目录必须空），建环境由 `core/env.js` 负责。
-//     · 底模这一半就是本文件，与安装计划无关，逻辑独立，
-//       依赖 `lib/engines/checkpoints.js`（那个模块仍然活着）。保留。
-//
-//  本工具不下模型。它只把名片说的话搬出来：该放哪、缺什么、
-//   名片给的取回命令长什么样。不下的理由不是懒：下模型要联网、要几个 GB、
-//   有的还要先去网站点同意，把它塞进「装源码」那一步，失败之后
-//   没人说得清是哪一半没成。
+//  本工具不下模型，只把名片说的话搬出来：该放哪、缺什么、名片给的取回命令长什么样。
+//  下模型要联网、要几个 GB，有的还要先去网站点同意；把它塞进「装源码」那一步，
+//  失败之后没人说得清是哪一半没成。
+//  底模状态取自 lib/engines/checkpoints.js。
 // ============================================================================
 
 const path = require('path')
@@ -52,9 +27,9 @@ function die (msg, code = 1) {
 /**
  * 打印一台引擎的底模状态。
  *
- * 三态是真的三态：不在 / 齐 / 说不出来（`null`）。
- * 「说不出来」≠「缺」，那是「名片没写 runtime.checkpoints 或 models.required，
- * 平台无从判断」，两件事的处置完全不同，压成一个词就会误导人。
+ * 三态是真的三态：不在 / 齐 / 说不出来（null）。
+ * 「说不出来」≠「缺」：那是「名片没写 runtime.checkpoints 或 models.required，
+ * 平台无从判断」，两件事的处置完全不同，压成一个词会误导人。
  */
 function reportOne (profile, out = process.stdout) {
   let st
@@ -125,7 +100,7 @@ function main (argv) {
   const rows = []
   for (const id of targets) {
     // 名片解析失败要单独报：这比「权重没下」靠前得多，
-    //   压成同一句话会让人去查错的东西（下面这条就是从 install-engine.cjs 继承的）
+    // 压成同一句话会让人去查错的东西。
     let profile
     try {
       profile = resolveEngineProfile(id)
