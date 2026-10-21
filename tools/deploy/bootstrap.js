@@ -1,35 +1,14 @@
 // =============================================================================
-//  bootstrap.js — 首次部署（跨平台主体）
-//  取代 tools\deploy\bootstrap.ps1（665 行 PowerShell）。
-//
-//  步骤：
-//    1. 定位 Python 3.11（tools\runtime\python）
-//    2. 在项目根建 venv
-//    3. 装依赖：本地 wheel（tools\wheels）+ PyPI，不含 torch
-//    4. 装 torch / onnxruntime（委托 tools\cli\install-torch.js）
-//    4b. ffmpeg + ffprobe（项目内，不动全局）
-//    4c. 恢复后端 node 依赖（npm ci）： node_modules 不随包分发
-//    4d. 刷新 node 包许可清单
-//    5. 自检导入
-//    6. 模型下载（download_models.py）
-//
-//  关于「换壳」这件事的真实情况：原 .ps1 665 行里，
-//     真正锁死 Windows 的只有两处：
-//       · `venv\Scripts\python.exe`（6 处）： macOS/Linux 是 `venv/bin/python`
-//       · `Join-Path` 的反斜杠（7 处）
-//     而 Get-NetTCPConnection / Get-CimInstance / Get-Process / netstat /
-//     nvidia-smi / Win32_ / taskkill / 注册表各 0 处。
-//     ⇒ 也就是说：那 600 行是平台无关的流程，只是用 PowerShell 的壳写着。
-//     所以这里是照搬 + 换壳，不是重新设计。
-//
-//  一条不能丢的 Windows 血泪教训（在第 4c 步，那段注释比代码重要）：
-//     绝不调 npm.cmd。它先跑 npm-prefix.js 问「npm 在哪」，而那个脚本靠
-//        「PATH 上有没有 npm」回答 ⇒ 机器上一旦装过全局 Node（很常见），
-//        它就跳到全局那份，版本不匹配，报 ERR_REQUIRE_ESM，
-//        而错误里一个字都不提这件事。
-//        升 Node 修不了：新版 Node 自带同一份 npm-prefix.js。
-//        解法：直接 `node node_modules/npm/bin/npm-cli.js`，绕开前缀推断。
+//  bootstrap.js : 首次部署（跨平台主体）
 // =============================================================================
+//  步骤：定位 Python 3.11、建 venv、装依赖（本地 wheel + PyPI）、装 torch / onnxruntime、
+//  装 ffmpeg、恢复后端 node 依赖（npm ci）、自检导入、下载模型。
+//  薄壳是 tools\deploy\bootstrap.bat 与 tools\deploy\bootstrap.sh，只调这份主体。
+//
+//  绝不调 npm.cmd：它靠 PATH 上有没有 npm 来推断前缀，机器上一旦装过全局 Node，
+//  它就跳到全局那份，版本不一致，报 ERR_REQUIRE_ESM 而错误里一个字都不提这件事。
+//  升 Node 修不了：新版 Node 自带同一份 npm-prefix.js。
+//  解法是直接 `node node_modules/npm/bin/npm-cli.js`，绕开前缀推断。
 
 'use strict'
 
@@ -45,28 +24,22 @@ const IS_WIN = process.platform === 'win32'
 const { venvPython } = require(path.join(ROOT, 'lib', 'engines', 'platformPaths.js'))
 
 // ── 参数 ────────────────────────────────────────────────────────────────────
-// PowerShell 版是 `foreach ($a in $args)` 扫全部参数，而 deploy.bat 是
-//   用 `-File x.ps1 --platform-only` 调的 ⇒ 参数里可能带那个 `-File`。
-//   PowerShell 会把它自动剥掉；Node 不会 ⇒ 我们自己只认认识的开关，
-//   忽略其余（不做「不认识的参数就报错」：那是给 CLI 用的，不是给内部调用的）。
+// deploy.bat 可能用 `-File x.ps1 --platform-only` 的形式调过来，参数里会带那个 `-File`。
+// 我们只认认识的开关，忽略其余：不认识的参数就报错是给 CLI 用的，不是给内部调用的。
 const argv = process.argv.slice(2)
-// --platform-only：只装平台自己的 3 个工具链包，不装 torch / 那 6.6GB。
+// --platform-only：只装平台自己的工具链包，不装 torch。
 //   默认保持原样（false）：翻默认值会让老用户行为突变。
 const PLATFORM_ONLY = argv.includes('--platform-only') || argv.includes('-PlatformOnly')
 
 // --dry-run：只走「找解释器 / 认 venv / 算清楚要装什么」这些只读的部分，
 //   然后把计划打出来就停。
-// 为什么需要它：这份脚本会重建 venv、装 6.6GB 依赖、改 node_modules：
-//   没有 dry-run 的话，验证它只能靠推理，而它有 6 个步骤、每一步都有分支。
-//   它不承诺「什么都没改」：步骤 2 那个 venv 健康检查若发现 venv 坏了，
-//   就会真的重建。所以 dry-run 在这一步之前就停。
+// 它停在 venv 健康检查之前：健康检查发现 venv 坏了会真的重建，
+//   所以 dry-run 不能承诺「什么都没改」。
 const DRY = argv.includes('--dry-run')
 
 // ── 日志 ────────────────────────────────────────────────────────────────────
-// 原版用 Start-Transcript 把整段会话抄进文件。Node 没有等价物，
-//   而我们要的那部分很简单：每个 [deploy] 消息都追加进日志文件。
-//        不要改成「只在出错时写」：原版正是靠这份 transcript 才能事后查
-//     「uv 解析到四十多个包就闪退」这类问题。
+// 每条 [deploy] 消息都追加进日志文件。不要改成「只在出错时写」：
+//   事后排查依赖这份日志。
 const LOG_DIR = path.join(ROOT, 'logs')
 const LOG_FILE = path.join(LOG_DIR,
   'deploy_' + new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15) + '.log')
@@ -94,11 +67,7 @@ function raw (m) {
 
 /**
  * 跑一个原生命令，输出直接进终端。
- *
- *  为什么用 stdio: 'inherit' 而不是 pipe 再转发：原 PowerShell 版用
- *   `Start-Process -NoNewWindow -Wait` 达到同样目的，注释里记着原因 ：
- *   「走 PowerShell 的原生命令/错误管线」。
- *   ⇒ 进度条要能实时看见，且不能经过任何中间层。
+ * 进度条要能实时看见且不经过中间层，所以用 stdio: 'inherit' 而不是 pipe 再转发。
  * 第三个参数可传输出文件（要留档时用），此时 inherit 换成落盘。
  */
 function runNative (exe, args, { cwd, capture = false, env } = {}) {
@@ -116,8 +85,7 @@ function runNative (exe, args, { cwd, capture = false, env } = {}) {
 }
 
 /** 跑一个 python 探针脚本。不把多词字符串塞进 `python -c`：
- *  Windows PowerShell 5.1 的原生参数重解析会把引号吃掉（原版第 357-359 行
- *  的注释记了这个坑：python 只收到 `import torch; print(` ⇒ SyntaxError）。
+ *  Windows 的原生参数重解析会把引号吃掉（python 只收到一段残缺代码，报 SyntaxError）。
  *  落一个临时文件再跑，跨平台且不依赖 shell 的引号规则。 */
 function runPyProbe (py, src, { cwd } = {}) {
   const tmp = path.join(os.tmpdir(),
@@ -141,8 +109,7 @@ async function main () {
   // 放两个旁白文件：
   //   .deploy_models.txt  → 逗号分隔的模型组（"core,g2pw,asr"），或空
   //   .deploy_ffmpeg.txt  → "1" 下载 ffmpeg，"0" 跳过
-  // 有就读（非交互：环境是固定的，只有「下载什么」是用户选的）；
-  // 没有就保留原来的交互行为。null = 「没这个文件 ⇒ 交互」。
+  // 有就读；没有就走交互。null = 「没这个文件 ⇒ 交互」。
   function readSidecar (name) {
     const p = path.join(SCRIPT_DIR, name)
     if (!fs.existsSync(p)) return null
@@ -153,8 +120,8 @@ async function main () {
   const SEL_FFMPEG = readSidecar('.deploy_ffmpeg.txt')
 
   // ── 0a. 非 ASCII 安装路径：警告，不拒绝 ────────────────────────────────────
-  // 硬拒绝（exit 7）已按用户要求移除。改成警告 + 继续：现代 Windows 一般
-  //    能处理 Unicode 路径，而下面给所有子进程强制了 UTF-8。
+  // 现代 Windows 一般能处理 Unicode 路径，而下面给所有子进程强制了 UTF-8，
+  // 所以这里只警告不拒绝。
   {
     const bad = [...ROOT].filter(ch => ch.charCodeAt(0) > 127)
     if (bad.length) {
@@ -174,15 +141,8 @@ async function main () {
 
     // =============================================================================
     //  0-1. 全部路径常量（集中在这里，因为 --dry-run 的报告要用它们）
-    // =============================================================================
-    // 为什么集中在 --dry-run 之前定义：
-    //   --dry-run 的报告要在真正开始部署之前就把「要动哪些东西」全打出来。
-    //   我第一版把这些常量留在各自的步骤里 ⇒ dry-run 执行到那里时崩在
-    //     TDZ（const 暂时性死区：`Cannot access 'WHEELS' before initialization`）。
-    //     而崩在一条只读路径上是最难查的那种错：你会以为部署坏了，实际是
-    //     「验证部署的那个开关」坏了。
-    //   所以下面第 2 / 3 / 4c 步复用同一批，不重新定义：
-    //     报告与执行读的是同一批路径，不存在「报告说的」与「实际做的」不一致。
+    // 常量集中在 dry-run 报告之前定义，第 2 / 3 / 4c 步复用同一批：
+    //   报告与执行读的是同一批路径，不存在「报告说的」与「实际做的」不一致。
     const VENV = path.join(ROOT, 'venv')
     const WHEELS = path.join(ROOT, 'tools', 'wheels')
     const REQ = path.join(ROOT,
@@ -230,8 +190,7 @@ async function main () {
   // =============================================================================
   //  2. 建 venv
   // =============================================================================
-  // VENV 在上面 0-1 集中定义（--dry-run 的报告要用它）。
-  // venv 的解释器路径按平台推导（原版硬编码 `Scripts\python.exe`）。
+  // venv 的解释器路径按平台推导：Windows 是 Scripts\python.exe，macOS/Linux 是 bin/python。
   const vr = venvPython(VENV, process.platform)
   if (!vr.ok) Die(vr.why)
   const VENV_PY = vr.python
@@ -265,12 +224,10 @@ async function main () {
   process.exit(0)
 }
 
-// venv 不可搬运：pyvenv.cfg 把建它的那个 base 解释器的绝对路径烤了进去。
-  //   项目目录被移动 / 改名（或首次部署时就在非英文路径下）之后，
-  //   现有 venv 的解释器仍是一个指向旧 base 路径的 trampoline，
-  //   每次调用都死在 `No Python at '...\python.exe'`。
-  //   ⇒ 所以我们不盲信现有 venv：先健康检查，坏了就对着当前内嵌运行时重建。
-  //   这正是「整个项目可以随便搬」这件事的实现方式。
+  // venv 不可搬运：pyvenv.cfg 把建它的那个 base 解释器的绝对路径烤了进去。
+  //   项目目录被移动或改名之后，现有 venv 的解释器仍是一个指向旧 base 路径的
+  //   trampoline，每次调用都死在 `No Python at '...\python.exe'`。
+  //   ⇒ 所以不盲信现有 venv：先健康检查，坏了就对着当前内嵌运行时重建。
   let venvOk = false
   if (fs.existsSync(VENV_PY)) {
     const r = spawnSync(VENV_PY, ['-c', 'import sys'], { encoding: 'utf8', windowsHide: true })
@@ -287,7 +244,7 @@ async function main () {
     Info('creating venv ...')
     const r = runNative(EMB_PY, ['-m', 'venv', VENV])
     if (!fs.existsSync(VENV_PY)) Die('venv creation failed.')
-    //   刚建出来的 venv 必须真的能跑：只看文件在不够
+    // 刚建出来的 venv 必须真的能跑：只看文件在不够
     const chk = spawnSync(VENV_PY, ['-c', 'import sys'], { encoding: 'utf8', windowsHide: true })
     if (chk.status !== 0) Die('venv was created but its python cannot run. Check the embedded runtime.')
     Ok('venv created.')
@@ -298,14 +255,13 @@ async function main () {
   runNative(VENV_PY, ['-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools<81', 'wheel'])
 
   // ── 装 uv ──────────────────────────────────────────────────────────────────
-  // uv 并行下载 + 全局缓存，比 pip 快 5-10 倍。它是个很小的无依赖 wheel；
-  // 装不上就静默退回 pip。
+  // uv 并行下载 + 全局缓存，比 pip 快很多。它是个很小的无依赖 wheel；装不上就退回 pip。
   // 给 uv 一个宽松的网络超时。刻意不关它的进度条、也不限制并行度：
   // 进度条实时显示在终端上（走 runNative 的 inherit，不过中间层），
-  // 而若某台机器的杀软/EDR 仍拦它，我们不阉割所有人：失败自动退回 pip。
+  // 而若本机的杀软或 EDR 仍拦它，失败就自动退回 pip。
   if (!process.env.UV_HTTP_TIMEOUT) process.env.UV_HTTP_TIMEOUT = '120'
-  // uv 的全局缓存与 venv 常在不同盘（C: 缓存 vs D: venv）⇒ uv 不能 hardlink，
-  //   会一边探测一边退回整份拷贝并打警告。直接让它拷贝：没有警告，行为确定。
+  // uv 的全局缓存与 venv 常在不同盘 ⇒ uv 不能 hardlink，会一边探测一边退回
+  //   整份拷贝并打警告。直接让它拷贝：没有警告，行为确定。
   process.env.UV_LINK_MODE = 'copy'
 
   let UV_OK = false
@@ -324,14 +280,11 @@ async function main () {
   // =============================================================================
   //  3. 装项目依赖（不含 torch）
   // =============================================================================
-  // 两份 requirements 的分工（名单是 git grep 量出来的）：
-  //   requirements-gpt-sovits.txt   200 包 / 6.6 GB：它是 GPT-SoVITS 的依赖
-  //   requirements-platform.txt      3 包 / 62 MB：平台自己真正要的
+  // 两份 requirements 的分工：
+  //   requirements-gpt-sovits.txt：推理栈的依赖，含 torch，体积很大
+  //   requirements-platform.txt：  平台自己要的几个工具链包，很小
   //
-  // 默认不切到 platform-only：训练线要 torch（C3 暂不做），
-  //   今天切默认 ⇒ 训练立刻坏掉。
-  //   这条路的终点：训练线也搬进 engines/<id>/.venv 之后，把默认翻过来，
-  //   「用户自己下引擎」才不再是一句空话（今天装平台必背那 5-6GB）。
+  // 默认装含 torch 的那份：训练线要 torch，切默认会让训练立刻不可用。
   if (PLATFORM_ONLY) {
     Info('using the platform-only requirements (no torch / no CUDA).')
     Info('the training line needs torch and will NOT work under this flag.')
@@ -356,7 +309,7 @@ async function main () {
   // requirements 是完整的 pip freeze 快照（每个传递依赖都被钉住）。用 --no-deps 装，
   // 让 pip 逐个按 pin 装而不跑依赖解析器。这是复现冻结环境的正确方式，
   // 而且避开「纸面冲突」（比如新版 fsspec vs 旧 datasets 上界）：
-  // 那些冲突在冻结它的那台机器上根本不存在。
+  // 那些冲突在冻结它的环境里根本不存在。
   if (UV_OK) {
     Info('installing with uv (parallel) ...')
     const rc = runNative(VENV_PY, ['-m', 'uv', 'pip', 'install', '--python', VENV_PY, '--no-deps',
@@ -371,7 +324,11 @@ async function main () {
     const rc = runNative(VENV_PY, ['-m', 'pip', 'install', '--no-deps', ...findLinks, '-r', REQ]).rc
     if (rc !== 0) {
       // 刻意不退回带解析器重试。requirements 是给 --no-deps 用的冻结快照；
-      //   带解析器重跑只会翻出那些纸面冲突（accelerate 1.14 要 torch>2.2 vs
+      //   带解析器重跑只会翻出那些纸面冲突（accelerate 要 torch>2.2 vs
+      //   钉死的 torch==2.2.0+cu121），而它们在冻结环境里毫无影响：
+      //   那是红鲱鱼，会浪费几个钟头。
+      //   --no-deps 失败意味着有一个包取不到或建不起来：看上面最后一条错误。
+      //   带解析器重跑只会翻出那些纸面冲突（accelerate 要 torch>2.2 vs
       //   钉死的 torch==2.2.0+cu121），而它们在冻结环境里毫无影响：
       //   那是红鲱鱼，会浪费几个钟头。
       //   --no-deps 失败意味着有一个包取不到或建不起来：看上面最后一条错误。
@@ -405,15 +362,15 @@ async function main () {
   // =============================================================================
   //  4. torch + onnxruntime ： 委托给跨平台主体
   // =============================================================================
-  // 两者都不在 requirements 里（巨大 / 构建目标相关 / 独立 index / 按设备条件），
+  // 两者都不在 requirements 里（体积大 / 构建目标相关 / 独立 index / 按设备条件），
   // 由它们自己那个可重跑的安装器处理，它用一次设备探测
   // 为两者选 CUDA / XPU / ROCm / CPU。
-  // 原来这里有一段「脚本缺失时的 inline 回退」，已随主体单点一起删掉。
+  // 脚本缺失时直接报错，不留 inline 回退：第二份安装逻辑迟早与主体漂开。
   const TORCH_BODY = path.join(ROOT, 'tools', 'cli', 'install-torch.js')
   let TORCH_OK = false
   if (PLATFORM_ONLY) {
-    // torch 约 5-6GB，而平台（Node 进程）一个字节都用不到它，
-    // fastapi/uvicorn 只被 GSV 的 infer_server.py 用，routes/ 零重依赖。
+    // torch 体积很大，而平台（Node 进程）一个字节都用不到它：
+    // fastapi/uvicorn 只被推理侧的 infer_server.py 用，routes/ 零重依赖。
     Info('skipping PyTorch (--platform-only). Engines install their own.')
     Info('training is NOT available under this flag.')
   } else if (fs.existsSync(TORCH_BODY)) {
@@ -430,9 +387,9 @@ async function main () {
   // 被杀软杀掉的 uv/pip（或一次网络错误）会留下「步骤完成了但 torch 根本没装」
   // 的状态。我们把它放进最后的小结里，让 torch 缺失无法被忽略。
   // --platform-only 时不跑这段：跳过安装之后若照旧跑 import torch，
-  //   它必然失败 ⇒ 会报「PyTorch 未装好」而真实原因是「按你的要求跳过了」。
+  //   它必然失败，报出来的是「PyTorch 未装好」而真实原因是「按开关跳过了」。
   //   那个症状极具欺骗性：它把「按开关跳过」说成「装失败了」，
-  //     而用户看到之后会去重跑 install-torch，正好装上那 5-6GB。
+  //     而用户看到之后会去重跑 install-torch，正好装上那几 GB。
   if (PLATFORM_ONLY) {
     Info('skipping the PyTorch import check (--platform-only: nothing to verify).')
   } else {
@@ -481,9 +438,9 @@ async function main () {
   if (!fs.existsSync(PKG_JSON)) {
     Warn(`package.json not found at project root: ${PKG_JSON} — skipping node deps.`)
   } else {
-    // 优先 `node node_modules/npm/bin/npm-cli.js`，绝不调 npm.cmd。
-    //   理由见本文件头那段记录：npm.cmd 靠 PATH 推断 npm 在哪，
-    //   装过全局 Node 的机器上会跳到全局那份，报 ERR_REQUIRE_ESM 而不解释原因。
+    // 优先 `node node_modules/npm/bin/npm-cli.js`，绝不调 npm.cmd：
+    //   npm.cmd 靠 PATH 推断 npm 在哪，装过全局 Node 的机器上会跳到全局那份，
+    //   版本不一致，报 ERR_REQUIRE_ESM 而错误里不提这件事。
     let npmExe = null
     let npmArgs = null
     if (fs.existsSync(NODE_EXE) && fs.existsSync(NPM_CLI)) {
@@ -516,8 +473,8 @@ async function main () {
         NODE_OK = true
       } else {
         // npm ci 可复现且严格照锁文件，但它要求锁文件存在。
-        // 只有锁文件缺失时才退回 `npm install`（不该发生，打包脚本会带着它，
-        // 缺了也会警告）。
+        // npm ci 可复现且严格照锁文件，但它要求锁文件存在。
+        // 只有锁文件缺失时才退回 `npm install`（打包脚本会带着锁文件，缺了会警告）。
         //
         // 刻意不带 --omit=dev：后端依赖（express / cors / multer / js-yaml /
         //   argparse 及其传递依赖）全是极小的运行时包，没有 dev-only 的臃肿可省，
@@ -627,11 +584,10 @@ async function main () {
       runNative(VENV_PY, [dl, '--set', SEL_MODELS])
     }
   } else if (process.stdin.isTTY && process.env.TTS_NONINTERACTIVE !== '1') {
-    // 独立 bootstrap（没有向导旁白）且真的有终端：保留原来的交互提问。
+    // 独立 bootstrap（没有向导旁白）且真的有终端：保留交互提问。
     // 两个前提缺一不可：
-    //    · isTTY，否则在 CI / 管道里读 stdin 会一直等一个永远不会来的回答。
-    //      （原版用 Read-Host，在那种环境里直接失败。）
-    //    · TTS_NONINTERACTIVE=1，让「人在场但不想被问」的场合能跳过。
+    //    isTTY，否则在 CI 或管道里读 stdin 会一直等一个永远不会来的回答。
+    //    TTS_NONINTERACTIVE=1，让「人在场但不想被问」的场合能跳过。
     //      交互式提问在自动化里是不可测的。
     Info('========================================================')
     Info(' Dependencies done. Models are NOT bundled (~9GB).')
@@ -661,7 +617,7 @@ async function main () {
   Ok('  依赖 (dependencies) : installed')
   if (PLATFORM_ONLY) {
     // 不是「缺失」，是按要求没装。不许报成 MISSING/FAILED，
-    //   那会让用户去补装那 5-6GB，正好把「平台瘦下来」这件事抵消掉。
+    //   那会让用户去补装那几 GB，正好把「平台瘦下来」这件事抵消掉。
     Info('  PyTorch             : 未安装（--platform-only；各引擎自带自己的环境）')
     Info('                        训练线不可用；每台引擎要装它自己那份 torch。')
   } else if (TORCH_OK) {

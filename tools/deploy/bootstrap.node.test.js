@@ -1,23 +1,20 @@
 // =============================================================================
-//  bootstrap.node.test.js — tools/deploy/bootstrap.js 的守卫
-//
-//  部署脚本的两条血泪教训各对应一条守卫。两条都是上赔过代价的：
+//  bootstrap.node.test.js : tools/deploy/bootstrap.js 的守卫
+// =============================================================================
+//  两条部署纪律各对应一条守卫：
 //
 //  1.  绝不调 npm.cmd。它先跑 npm-prefix.js 问「npm 在哪」，而那个脚本靠
-//     「PATH 上有没有 npm」回答 ⇒ 机器上一旦装过全局 Node（很常见），
-//     它就跳到全局那份，版本对不上，报 ERR_REQUIRE_ESM，
-//     而错误里一个字都不提这件事。
-//      升 Node 修不了 ： 新版 Node 自带同一份 npm-prefix.js、同一套推断。
+//     「PATH 上有没有 npm」回答 ⇒ 机器上一旦装过全局 Node，它就跳到全局那份，
+//     版本不一致，报 ERR_REQUIRE_ESM，而错误里一个字都不提这件事。
+//      升 Node 修不了：新版 Node 自带同一份 npm-prefix.js、同一套推断。
 //      解法：直接 `node node_modules/npm/bin/npm-cli.js`。
-//     （日志：deploy_20260929_214808.log，整台机器起不来。）
 //
-//  2.  依赖安装失败时不退回带解析器重试。那份 requirements 是给
-//     --no-deps 用的冻结快照，带解析器重跑只会翻出纸面冲突
-//     （accelerate 1.14 要 torch>2.2 vs 钉死的 torch==2.2.0+cu121），
-//     而它们在冻结环境里毫无影响 ： 那是红鲱鱼，会浪费几个钟头。
+//  2.  依赖安装失败时不退回带解析器重试。那份 requirements 是给 --no-deps 用的
+//     冻结快照，带解析器重跑只会翻出纸面冲突，而它们在冻结环境里毫无影响：
+//     那是红鲱鱼，会浪费几个钟头。
 //
-//   另外两条纪律：venv 不可搬运（所以要健康检查后重建）· 平台根 venv 与
-//  引擎 venv 的分工（A16 之后 requirements-gpt-sovits.txt 是引擎的依赖）。
+//   另外两条纪律：venv 不可搬运（所以要健康检查后重建）；平台根 venv 与引擎 venv
+//  的分工（requirements-gpt-sovits.txt 是引擎那一侧的依赖）。
 // =============================================================================
 
 'use strict'
@@ -32,7 +29,7 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const BODY_REL = 'tools/deploy/bootstrap.js'
 const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8')
 
-/** 只取活代码（剥掉注释）：  扫文本之前先问「注释会不会被算进去」。
+/** 只取活代码（剥掉注释）：扫文本之前先问「注释会不会被算进去」。
  *  本项目已经为这件事栽过四次；那条教训写在 lib/inference/configRepair.node.test.js 里。 */
 function liveCode (rel) {
   return read(rel).split('\n')
@@ -53,7 +50,7 @@ test('⛔ 绝不调 npm.cmd（它按 PATH 推断 npm，装过全局 Node 的机�
   // 主路径必须是 node + npm-cli.js
   assert.match(code, /npm-cli\.js/,
     '没有直调 npm-cli.js —— 那正是绕开前缀推断的写法')
-  //  活代码里不许把 npm.cmd 当成要执行的东西。
+  // 活代码里不许把 npm.cmd 当成要执行的东西。
   //    注意要剥掉注释：这个文件头里故意写了 npm.cmd 的来历，
   //     那段是文档，删了就没法解释为什么必须绕开它。
   assert.ok(!/npmExe\s*=\s*[^;\n]*npm\.cmd/i.test(code),
@@ -69,7 +66,7 @@ test('⛔ 绝不调 npm.cmd（它按 PATH 推断 npm，装过全局 Node 的机�
 test('⛔ 依赖安装失败时不退回带解析器重试（那只会翻出纸面冲突）', () => {
   const code = liveCode(BODY_REL)
   // 判据：凡是装那份冻结锁的命令，都必须带 --no-deps。
-  //  找的是「提到 REQ 的那些 install 调用」，而不是全文搜 --no-deps ：
+  //  找的是「提到 REQ 的那些 install 调用」，而不是全文搜 --no-deps：
   //   后者会因为「pip check」「hf_transfer」这些无关的 install 而失去意义。
   const reqInstalls = code.split('\n')
     .filter(l => /\b(REQ|reqPath)\b/.test(l) && /install/.test(l))
@@ -81,7 +78,7 @@ test('⛔ 依赖安装失败时不退回带解析器重试（那只会翻出纸�
       + '  带解析器会翻出「纸面冲突」（accelerate 1.14 要 torch>2.2 vs 钉死的 '
       + 'torch==2.2.0+cu121）—— 它们在冻结环境里毫无影响，是红鲱鱼。')
   }
-  //  而明确不许有「失败后再跑一次不带 --no-deps」的分支。
+  // 而明确不许有「失败后再跑一次不带 --no-deps」的分支。
   //   判据是「文件里不许同时出现 install 与 retry 两个词」：
   //    这条故意用粗判据：它拦的是「有人加了一行重试」，而那种改动
   //   本来就该被拦下讨论，不值得为它写一个精确的正则。
@@ -121,12 +118,11 @@ test('⭐ --platform-only 跳过 torch 时不许报成「装失败」', () => {
   assert.match(src, /未安装（--platform-only/,
     '跳过 torch 时没有明写「按要求没装」')
   // 而不是 MISSING / FAILED
-  //  必须剥掉注释再查 ： 这条守卫第一版栽在这里：
-  //   「按要求跳过」那一支上方的注释里就写着
-  //   「 不许报成 MISSING/FAILED」，而那句注释正好在 slice 范围内
-  //   ⇒ 守卫读到自己的说明书，然后判自己不合格。
-  //    本项目第四次为「文本扫描撞注释」栽倒（前三次见
-  //     lib/inference/configRepair.node.test.js 头部那段总结）。
+  // 必须剥掉注释再查：这条守卫第一版栽在这里，
+  //   「按要求跳过」那一支上方的注释里就写着「不许报成 MISSING/FAILED」，
+  //   而那句注释正好在 slice 范围内 ⇒ 守卫读到自己的说明书，然后判自己不合格。
+  //   本项目第四次为「文本扫描撞注释」栽倒（前三次见
+  //    lib/inference/configRepair.node.test.js 头部那段总结）。
   const summary = liveCode(BODY_REL).slice(
     liveCode(BODY_REL).indexOf('部署结果小结'))
   const skipBlock = summary.slice(0, summary.indexOf('else if (TORCH_OK)'))
@@ -156,8 +152,7 @@ test('bootstrap 的薄壳都调同一份 Node 主体，且不含逻辑', () => {
 })
 
 test('⛔ .bat 必须是纯 ASCII（.sh 不受这条约束）', () => {
-  //  第一版把这条也套到了 .sh 上，于是它红了 ： 而 .sh 可以含中文：
-  //   bash 按 UTF-8 读脚本，不存在 cmd.exe 那种 OEM 代码页问题。
+  // .sh 可以含中文：bash 按 UTF-8 读脚本，不存在 cmd.exe 那种 OEM 代码页问题。
   //    这条约束的成因只有一个：cmd.exe。把它套到 .sh 上就是
   //   「把判据与它的成因分开」，那样的守卫会逼下一个人去做无意义的改写。
   for (const rel of ['tools/deploy/bootstrap.bat',
