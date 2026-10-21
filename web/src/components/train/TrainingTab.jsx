@@ -1,4 +1,6 @@
-// AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
+// 训练页：训练参数表单、管线门控、失败任务恢复与训练状态。
+// 表单状态存在本地（usePersistentState），训练进度由 /api/train/status 轮询。
+// 恢复流程分两种：原地续跑（Continue）与改参分叉（Modify），由用户改动的步骤决定。
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
@@ -45,25 +47,25 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     preprocessReview: false,
     pauseAfterDenoise: true,
     keepStaging: false,
-    // Advanced params
+    // 高级参数
     gptEpochs: 8, sovitsEpochs: 25, batchSize: 'auto', learningRate: 'default',
     sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
     asrEngine: 'auto', denoiseModel: 'mdx-net',
     denoisePreset: 'bgm', denoisePipeline: [], denoisePresetParams: {}, denoiseAdvUnlocked: false, denoiseSavedPresets: [],
     asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
     modelVersion: 'v2Pro', modelVersions: ['v2Pro'], isHalf: true, inferDevice: 'cuda',
-    // S1 advanced
+    // S1 高级参数
     s1Seed: 1234, s1SaveEvery: 4, s2SaveEvery: 5, s1Precision: '16-mixed', s1GradClip: 1.0,
     s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
     s1MaxSec: 54, s1NumWorkers: 4, s1MaxEval: 8,
-    // S2 advanced
+    // S2 高级参数
     s2Seed: 1234, s2LogInterval: 100, s2EvalInterval: 500, s2Fp16: true,
     s2LrDecay: 0.999875, s2SegmentSize: 20480, s2CMel: 45, s2CKl: 1.0,
     s2TextLowLr: 0.4, s2GradCkpt: false,
   });
   const [localTaskId, setLocalTaskId] = useState(null);
   const [status, setStatus] = useState(null);
-  // Base-model availability for the selected training version (drives the gate warning).
+  // 所选训练版本的底模是否齐备（决定门控提醒）。
   const [baseModelStatus, setBaseModelStatus] = useState(null);
   const _selVersions = (Array.isArray(form.modelVersions) && form.modelVersions.length)
     ? form.modelVersions : [form.modelVersion || 'v2'];
@@ -79,9 +81,8 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
 
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
-  // Vocal-extraction weight availability, reported by VocalExtractionPanel (it owns
-  // the UVR5 catalogue fetch + the download job). The primary action below swaps to
-  // "Download model" while the enabled pipeline still needs uninstalled weights.
+  // 人声提取权重的可用情况，由 VocalExtractionPanel 汇报（它负责 UVR5 目录拉取与下载任务）。
+  // 当前启用的人声管线还缺权重时，下面的主按钮换成「下载模型」。
   const [vocalMissingIds, setVocalMissingIds] = useState([]);
   const [uvr5Download, setUvr5Download] = useState(null);
   const startUvr5Download = useCallback((ids) => {
@@ -108,10 +109,9 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     const iv = setInterval(tick, 1200); tick();
     return () => { stop = true; clearInterval(iv); };
   }, [uvr5Download?.jobId, uvr5Download?.status]);
-  const [selectedNode, setSelectedNode] = useState(null); // pipeline-map node being configured/inspected
-  // Advanced - Common
-  // (existing: temperature, topK, topP, repPenalty, splitMethod, speedFactor, seed)
-  // Advanced - Advanced
+  const [selectedNode, setSelectedNode] = useState(null); // 管线图上正在配置或查看的步骤
+  // 高级参数：common 档（temperature、topK、topP、repPenalty、splitMethod、
+  // speedFactor、seed）与 advanced 档分两组。
   const [batchSize, setBatchSize] = useState(1);
   const [batchThreshold, setBatchThreshold] = useState(0.75);
   const [splitBucket, setSplitBucket] = useState(true);
@@ -125,47 +125,45 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
   const [minChunkLength, setMinChunkLength] = useState(16);
   const pollRef = useRef(null);
   const failCountRef = useRef(0);
-  // Overwrite confirmation when the target voice id already exists (409 guard).
+  // 目标音色 id 已存在时的覆盖确认（服务端返回 409）。
   const [overwriteConfirm, setOverwriteConfirm] = useState(null); // { existingId, existingDisplay }
 
-  // ── GPU pre-flight (advisory only — we never auto-tune params) ──────────────
-  // No NVIDIA GPU → block the start behind an explicit acknowledgement (CPU
-  // fine-tuning is punishingly slow and UVR5 is unavailable). Low-VRAM (≤4GB)
-  // GPUs still work but risk OOM, so we warn ONCE (persisted) rather than nag.
-  const cuda = health?.cuda; // { available, device_name, vram_gb } | undefined until health loads
+  // GPU 预检（只提示，不自动改参数）：没有 NVIDIA GPU 时拦住启动，要用户显式确认，
+  // 因为 CPU 微调极慢且 UVR5 不可用。显存不足 4G 的卡仍可训练，只是有 OOM 风险，
+  // 所以只提醒一次（记在持久化状态里），不反复弹。
+  const cuda = health?.cuda; // { available, device_name, vram_gb }，health 加载前为 undefined
   const [noGpuConfirm, setNoGpuConfirm] = useState(false);
   const [noGpuAck, setNoGpuAck] = useState(false);
-  // ── 管线门控 (G1/G2) ────────────────────────────────────────────────────────
-  // G1: 未开启 S1/S2 → 只跑切片/ASR，preprocess 三步无意义，确认后跳过 preprocess。
-  // G2: 开启训练却未勾 ASR → 无转写会报错，但用户可能自备 .list：强提醒不阻断，
-  //     并给一段 preprocess 前宽限期（默认 30s）让用户投放 .list / segments.json。
+  // 管线门控：
+  // G1：未开启 S1/S2 时 preprocess 三步无意义，确认后跳过 preprocess。
+  // G2：开启训练却未勾 ASR 时没有转写会报错，但用户可能自备 .list：强提醒不阻断，
+  //     并给一段 preprocess 前的宽限期（默认 30 秒）让用户投放 .list / segments.json。
   const [gate, setGate] = useState(null);  // null | { type:'g1'|'g2' }
   const [gateGraceSec, setGateGraceSec] = useState(30);
-  // 门控放行标记 + 本次放行携带的覆盖项（preprocess 关 / 宽限期秒数）。
+  // 门控放行标记与本次放行携带的覆盖项（preprocess 关 / 宽限期秒数）。
   const gateAckRef = useRef({ g1: false, g2: false, preprocessOff: false, graceSec: 30 });
-  // FunASR 语言告知门：仅当选了 FunASR 但语言非中文/粤语时提醒（只告知，不阻断）。
+  // FunASR 语言告知门：仅当选了 FunASR 但语言非中文或粤语时提醒（只告知，不阻断）。
   const [asrLangGate, setAsrLangGate] = useState(null);  // null | { lang }
   const asrLangAckRef = useRef(false);
   const [lowVramWarned, setLowVramWarned] = usePersistentState('train.lowVramWarned', false);
   const [showLowVram, setShowLowVram] = useState(false);
   useEffect(() => {
-    // Fire the one-time low-VRAM notice only for a real ≤4GB CUDA device.
+    // 只对确实存在的 4G 及以下 CUDA 卡触发这次一次性提醒。
     if (cuda?.ready && cuda.available && typeof cuda.vram_gb === 'number' && cuda.vram_gb <= 4 && !lowVramWarned) {
       setShowLowVram(true);
     }
   }, [cuda?.available, cuda?.vram_gb, lowVramWarned]);
   const dismissLowVram = () => { setShowLowVram(false); setLowVramWarned(true); };
 
-  // ── Failure-resume (哪里跌倒哪里爬起来) ──────────────────────────────────────
-  // Cached failed/interrupted tasks the user can resume. Default-collapsed panel.
+  // 失败任务恢复：缓存里失败或中断的任务可以续跑，面板默认折叠。
   const [recoverList, setRecoverList] = useState([]);
   const [recoverOpen, setRecoverOpen] = useState(false);
   const [recoverLoading, setRecoverLoading] = useState(false);
-  // Active recovery context once the user clicks "Resume".
+  // 用户点「Resume」之后的恢复上下文。
   //   { sourceTaskId, failedStep, resumeStep, steps, hasInputDir }
   const [recovery, setRecovery] = useState(null);
-  // Baseline step-params captured when resume begins; live form is diffed against it
-  // so an upstream param change can auto-pull the restart point back (→ fork).
+  // 续跑开始时记下的步骤参数基线；实时表单与它对比，
+  // 上游参数一改就把重跑起点往前拉（变成分叉）。
   const paramSnapshotRef = useRef(null);
   const [restartFailedStep, setRestartFailedStep] = useState(false);
 
@@ -176,21 +174,20 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
       .catch(() => {})
       .finally(() => setRecoverLoading(false));
   };
-  // Load the list whenever the page is idle (no active task) so it stays fresh.
+  // 页面空闲（没有进行中的任务）时拉一次列表，保持新鲜。
   useEffect(() => { if (!activeTaskId && !localTaskId) loadRecoverable(); }, [activeTaskId, localTaskId]);
 
-  // 用 props 中的 activeTaskId，但在 handleStart 后也写一份本地（启动时用）
+  // 用 props 中的 activeTaskId，但 handleStart 之后也写一份本地（启动时用）
   const taskId = activeTaskId || localTaskId;
   const isAwaitingReview = status?.status === 'awaiting_review';
   const isRunning = status?.status === 'running';
   const isFinished = status && ['completed', 'failed', 'cancelled', 'interrupted'].includes(status.status);
   const isInterrupted = status?.status === 'interrupted';
 
-  // Fields owned by a training preset — editing any of them by hand means the
-  // current values no longer match the named preset, so flip the label to "Custom".
+  // 由训练预设独占的字段：手动改过其中任何一个，当前取值就不再等于那个预设，
+  // 于是把预设名改成「Custom」。
   const PRESET_KEYS = ['gptEpochs', 'sovitsEpochs', 'batchSize', 's1SaveEvery', 's2SaveEvery', 's2GradCkpt', 's2Fp16'];
 
-  // 便捷 form setter
   const setField = (key, val) => setForm(prev => {
     const next = { ...prev, [key]: val };
     if (PRESET_KEYS.includes(key) && prev.preset && prev.preset !== 'custom') {
@@ -199,23 +196,22 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     return next;
   });
 
-  // Consume a one-shot prefill handed over from the Assets "Rebuild" action:
-  // fill in the input folder + voice name, then clear the signal so it fires once.
+  // 消费资产页「重建」动作递过来的一次性预填：填入输入目录与音色名，
+  // 然后清掉信号，让它只生效一次。
   useEffect(() => {
     if (!trainPrefill) return;
     setForm(prev => ({ ...prev, ...trainPrefill }));
     if (setTrainPrefill) setTrainPrefill(null);
   }, [trainPrefill]);
 
-  // Slicing presets: convenience that fills the four slice fields (or disables slicing)
+  // 切片预设：一次性填好四个切片字段（或关掉切片）。
   const applySlicePreset = (name) => {
     if (name === 'none') { setField('slice', false); return; }
     const p = SLICE_PRESET_VALUES[name];
     if (p) setForm(prev => ({ ...prev, slice: true, ...p }));
   };
 
-  // Training preset (default-view convenience): overwrite the training fields in one go.
-  // Handles built-in presets and user-saved snapshots ("saved:<name>").
+  // 训练预设：一次性覆盖训练字段。既支持内置预设，也支持用户保存的快照（saved:<name>）。
   const applyPreset = (name) => {
     if (typeof name === 'string' && name.startsWith('saved:')) {
       const sname = name.slice(6);
@@ -229,12 +225,12 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     setForm(prev => ({ ...prev, preset: name, ...(p.fields || {}) }));
   };
 
-  // Second-level confirm for irreversible preset deletes. Holds the pending action.
+  // 不可逆的预设删除要二级确认，这里暂存待执行的动作。
   const [confirmState, setConfirmState] = useState(null);
   const askConfirm = (opts) => setConfirmState(opts);
   const closeConfirm = () => setConfirmState(null);
 
-  // Saved Training Preset management (parallel to the vocal-chain presets).
+  // 训练预设的保存与管理（与人声链路的预设并列）。
   const [trainPresetNameOpen, setTrainPresetNameOpen] = useState(false);
   const commitTrainPreset = (rawName) => {
     const name = (rawName || '').trim();
@@ -329,7 +325,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [taskId]);
 
-  // "Restoring training state…" 超时兜底：10s 后仍无 status 则回退表单
+  // 「Restoring training state…」超时兜底：10 秒后仍无 status 则回退表单
   const restoreTimeoutRef = useRef(null);
   useEffect(() => {
     if (taskId && !status) {
@@ -391,8 +387,8 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
         },
       },
     });
-    // Existing-voice guard: server refuses without explicit overwrite. Surface a
-    // confirm showing the DISPLAY NAME the id currently belongs to.
+    // 同名音色的保护：服务端在没有显式覆盖时拒绝启动，
+    // 这里弹确认框，并显示该 id 当前对应的显示名。
     if (!r.ok && r.status === 409 && r.data?.code === 'VOICE_EXISTS') {
       setOverwriteConfirm({ existingId: r.data.existingId, existingDisplay: r.data.existingDisplay });
       return;
@@ -402,13 +398,13 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     paramSnapshotRef.current = null;
     setRestartFailedStep(false);
     setLocalTaskId(r.data.taskId);
-    setActiveTaskId(r.data.taskId); // 写入持久化 + 触发 App 层重连
+    setActiveTaskId(r.data.taskId); // 写入持久化，并触发 App 层重连
     gateAckRef.current = { g1: false, g2: false, preprocessOff: false, graceSec: 30 }; // 重置门控，下次启动重新评估
   };
 
   const handleStart = async () => {
-    // In recovery mode the original audio folder is only needed when the rerun
-    // starts at denoise/slice; later steps resume from cached products.
+    // 恢复流程里，只有重跑起点是 denoise 或 slice 时才需要原始音频目录；
+    // 起点更靠后的步骤直接用缓存里的产物。
     const needsInput = !recovery || rerunStart === 'denoise' || rerunStart === 'slice';
     if (needsInput && !form.inputDir.trim()) {
       setError(recovery
@@ -437,10 +433,9 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
         return;
       }
     }
-    // GPU pre-flight: when health has loaded and reports no CUDA device, block
-    // behind an explicit acknowledgement instead of silently starting a CPU run.
-    // (We only block on a definitive false; while health is still loading we let
-    // it proceed rather than gate on unknown state.)
+    // GPU 预检：health 加载完成并报出没有 CUDA 设备时，拦住启动要用户显式确认，
+    // 而不是默默跑一次 CPU 训练。
+    // 只在明确为 false 时拦：health 还在加载时按未知放行，不拿未知状态当门控依据。
     if (cuda && cuda.ready && cuda.available === false) {
       setNoGpuAck(false);
       setNoGpuConfirm(true);
@@ -456,7 +451,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     }
   }
 
-  // Continue a fine-tune after the user acknowledged the no-GPU warning.
+  // 用户确认无 GPU 警告后继续微调。
   const proceedWithoutGpu = async () => {
     setNoGpuConfirm(false);
     setError(null);
@@ -523,13 +518,13 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     setError(null);
   };
 
-  // Enter recovery mode for a cached failed/interrupted task: prefill the form with
-  // the original params and pin the rerun start to the failed step (Continue mode).
+  // 进入恢复流程：把缓存里失败或中断的任务的原始参数填回表单，
+  // 并把重跑起点钉在失败的那一步（Continue 模式）。
   const beginResume = (task) => {
     const patch = archiveToForm(task);
     setForm(prev => {
       const next = { ...prev, ...patch };
-      // Snapshot the loaded params as the baseline for change detection.
+      // 把载入的参数记为检测改动用的基线。
       paramSnapshotRef.current = buildStepParams(next);
       return next;
     });
@@ -554,40 +549,39 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     setError(null);
   };
 
-  // Which upstream steps can be chosen as the rerun start: completed steps up to and
-  // including the failed step. Moving earlier than the failed step ⇒ Modify/fork.
+  // 可选作重跑起点的上游步骤：失败那一步及其之前已完成的步骤。
+  // 选到比失败步更早的位置就是 Modify（分叉）。
   const failedIdx = recovery ? FSTEP_ORDER.indexOf(recovery.failedStep) : -1;
   const resumeStepOptions = recovery
     ? FSTEP_ORDER.filter((s, i) => i <= failedIdx &&
         (s === recovery.failedStep || (recovery.steps[s] && recovery.steps[s].status === 'completed')))
     : [];
-  // Detect which steps' params the user changed since resume began. A change to an
-  // UPSTREAM step (before the failure point, and selectable/completed) can't be applied
-  // by an in-place resume — its cached output would be reused, silently ignoring the
-  // edit. So we auto-pull the restart point back to the earliest changed upstream step,
-  // which turns the run into a fork (new task) and re-runs from there.
+  // 检测续跑开始之后用户改过哪些步骤的参数。改的是上游步骤（在失败点之前、
+  // 且可选择、已完成）时原地续跑用不上这个改动：它的缓存产物会被直接复用，
+  // 改动被无声忽略。于是把重跑起点自动拉到最早被改动的上游步骤，
+  // 这一步把本次运行变成分叉（新任务）并从那里重跑。
   const changedSteps = recovery ? changedStepSet(buildStepParams(form), paramSnapshotRef.current) : new Set();
   const earliestChangedStep = recovery
     ? (FSTEP_ORDER.find(s => changedSteps.has(s) && resumeStepOptions.includes(s)) || null)
     : null;
   const userResumeStep = recovery ? recovery.resumeStep : null;
-  // Effective restart = the earlier of the user's chosen step and the earliest changed step.
+  // 实际重跑起点取「用户选的步骤」与「最早被改动的步骤」里更早的那个。
   const rerunStart = recovery
     ? ((earliestChangedStep && FSTEP_ORDER.indexOf(earliestChangedStep) < FSTEP_ORDER.indexOf(userResumeStep))
         ? earliestChangedStep : userResumeStep)
     : null;
   const rerunIdx = recovery ? FSTEP_ORDER.indexOf(rerunStart) : -1;
-  // A param change forced the fork (vs the user manually dragging the restart earlier).
+  // 分叉是参数改动造成的（区别于用户手动把重跑起点往前拖）。
   const forkByParamChange = !!(recovery && earliestChangedStep && FSTEP_ORDER.indexOf(earliestChangedStep) < failedIdx
     && FSTEP_ORDER.indexOf(earliestChangedStep) <= rerunIdx);
-  // Continue = restart exactly at the failed step (in place, same task). Modify =
-  // restart at an earlier completed step (fork → new task; only upstream products copied).
+  // Continue = 就在失败那一步重跑（原地，同一任务）。Modify =
+  // 在更早的已完成步骤重跑（分叉，新任务；只复制上游产物）。
   const recoveryMode = recovery ? (rerunIdx < failedIdx ? 'modify' : 'continue') : null;
   const failedIsTrain = recovery && (recovery.failedStep === 'train_s1' || recovery.failedStep === 'train_s2');
 
-  // Compute the step-enable overrides sent on a recovery run: upstream (< rerunStart)
-  // is reused (enabled=false → backend marks completed & skips); rerunStart..end run,
-  // respecting the user's own enable toggles for optional steps.
+  // 恢复运行要发给服务端的步骤开关：重跑起点之前的上游一律复用
+  //（enabled=false，服务端标成 completed 并跳过）；从重跑起点到末尾照跑，
+  // 可选步骤仍尊重用户自己的开关。
   const buildRecoverySteps = () => {
     const idx = FSTEP_ORDER.indexOf(rerunStart);
     const on = (k, formVal) => (FSTEP_ORDER.indexOf(k) >= idx) ? formVal : false;
@@ -628,13 +622,11 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     }
   };
 
-  const editable = !taskId; // inputs are editable only before a task starts
+  const editable = !taskId; // 任务开始前输入框才可编辑
 
-  // Option A: the input is a DISPLAY NAME (Chinese/Unicode allowed). The canonical
-  // ASCII id is decoupled and allocated by the server, once, atomically at task
-  // creation. We fetch a PROPOSED preview id here purely for display — it is
-  // explicitly non-reserved and the final id may differ. A slug/display-name
-  // collision NEVER implies overwrite; every new voice gets a distinct id.
+  // 表单里填的是显示名（允许中文等 Unicode）。规范化的 ASCII id 由服务端在创建任务时
+  // 一次性分配。这里只拉一个「预览 id」用于显示：它明确不是保留名，最终 id 可能不同。
+  // 显示名撞车绝不意味着覆盖：每个新音色都会拿到不同的 id。
   const displayName = (form.voiceName || '').trim();
   const [proposedId, setProposedId] = useState('');
   useEffect(() => {
@@ -646,7 +638,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
   }, [displayName]);
-  // Non-blocking notice: other voices already using this exact display name.
+  // 不阻断的提示：已有别的音色用了完全相同的显示名。
   const dupDisplay = displayName
     ? voices.filter(v => (v.display_name || v.id) === displayName)
     : [];
@@ -683,8 +675,8 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
       <div className="section">
         <div className="section-hdr"><h2>Train New Voice</h2></div>
         <div className="section-body">
-          {/* Recover a failed run — default-collapsed list of cached failed/interrupted
-              tasks. "Resume" restores the pipeline and continues from the failure point. */}
+          {/* 恢复失败的任务：默认折叠，列出缓存里失败或中断的任务。
+              点「Resume」恢复管线，从失败的那一步继续。 */}
           <RecoverableTasksPanel
             visible={!taskId}
             recoverOpen={recoverOpen}
@@ -695,7 +687,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             onResume={beginResume}
           />
 
-          {/* Essentials — one horizontal row so the page reads wide, not narrow */}
+          {/* 基础字段：排成一行，让页面读起来是宽的而不是窄的 */}
           <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             <EssentialsFields
               form={form}
@@ -704,10 +696,9 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
               dupDisplay={dupDisplay}
             />
 
-            {/* Training Preset — built-in presets + your own saved snapshots. Custom
-                lets you edit any parameter in the pipeline steps below; "Save as preset"
-                snapshots the current values into a named, reusable preset you can then
-                update or delete. Frontend-only: presets just fill existing form.* fields. */}
+            {/* 训练预设：内置预设与自己保存的快照。Custom 允许手动改下面管线各步的
+                任一参数；「存为预设」把当前取值存成一个具名、可复用的预设，之后能改也能删。
+                纯前端行为：预设只是填 form.* 里已有的字段。 */}
             <TrainingPresetPicker
               form={form}
               applyPreset={applyPreset}
@@ -717,7 +708,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             />
           </fieldset>
 
-          {/* Recovery banner — Continue (in place) vs Modify (fork → new task) */}
+          {/* 恢复横幅：Continue（原地续跑）与 Modify（分叉成新任务） */}
           <RecoveryBanner
             recovery={recovery}
             recoveryMode={recoveryMode}
@@ -732,7 +723,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             onCancelRecovery={cancelRecovery}
           />
 
-          {/* Pipeline map — click a step to configure it (or inspect its status during a run) */}
+          {/* 管线图：点某一步可配置它（运行中可查看该步状态） */}
           <div className="field" style={{ marginTop: 10 }}>
             <label className="field-label">{tr('Pipeline — click any step to configure', '流程：点击任意步骤进行配置')}</label>
             <PipelineMap
@@ -746,8 +737,8 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           </div>
           {renderNodeDetail()}
 
-          {/* Pre-flight summary — reflects live form.* values (advanced params edits flow
-              through here too). Shows what is NOT already visible in the dropdowns / map. */}
+          {/* 预检摘要：反映 form.* 的实时取值（高级参数的改动也流到这里）。
+              展示下拉框与管线图里看不到的那部分信息。 */}
           <PreflightSummary
             form={form}
             proposedId={proposedId}
@@ -763,8 +754,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           {!taskId && (
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               {form.denoise && vocalMissingIds.length > 0 ? (
-                // The enabled vocal pipeline needs weights that are not installed. The
-                // primary action becomes "Download model" until they are provisioned.
+                // 启用的人声管线还缺没装的权重。主按钮在这期间变成「下载模型」。
                 <button className="btn btn-primary"
                   onClick={() => startUvr5Download(vocalMissingIds)}
                   disabled={uvr5Download && uvr5Download.status === 'running'}
@@ -818,7 +808,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
         </div>
       </div>
 
-      {/* Logs only appear once a task is running/finished — keeps the idle page clean */}
+      {/* 日志只在任务开始或结束后出现，空闲时页面保持干净 */}
       {taskId && <LiveLogs logs={logs} />}
 
       <TrainingGates
@@ -886,8 +876,8 @@ export {
   RebuildProgress,
   TrainingTab,
   RestoreModal,
-  // — reused by the Refinement modal so it exposes the exact same training
-  // parameter fields / serialiser / defaults as the Training and Restore flows.
+  // 精修弹窗复用这些导出，好让它暴露与训练和恢复流程完全一样的训练参数字段、
+  // 序列化方式与默认值。
   TrainParamFields,
   buildTrainingParams,
   REBUILD_PARAM_DEFAULTS,
