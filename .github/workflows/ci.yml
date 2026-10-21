@@ -63,11 +63,28 @@ jobs:
       # 跑测试。
       #   输出要能看清：spec reporter 逐条打印两千多条测试名，GitHub 会把
       #   日志截断 ⇒ 失败原因正好在被截掉的那一段。
-      #   所以这里把完整输出写进文件，再只把失败摘要与末尾几行打出来。
+      #   所以这里把完整输出写进文件，再只把失败摘要与末尾几行打出来，
+      #   并把摘要写进 job summary（页面上直接能看到，不必翻日志）。
       - name: 跑测试
         run: |
           set -o pipefail
           npm test > test-output.log 2>&1 || {
+            {
+              echo "## 测试失败"
+              echo '```'
+              grep -E "^(✖|not ok)" test-output.log | head -40 || true
+              echo '```'
+              echo ""
+              echo "### 计数"
+              echo '```'
+              grep -E "^ℹ (tests|pass|fail|skipped)" test-output.log || true
+              echo '```'
+              echo ""
+              echo "### 日志末尾 40 行"
+              echo '```'
+              tail -40 test-output.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "::group::失败摘要"
             grep -E "^(✖|not ok|ℹ (tests|pass|fail|skipped))" test-output.log | head -80 || true
             echo "::endgroup::"
@@ -77,6 +94,15 @@ jobs:
             exit 1
           }
           grep -E "^ℹ (tests|pass|fail|skipped)" test-output.log
+
+      # 完整日志留档：日志页面会被截断，而失败原因常在最后。
+      - name: 留档测试日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: test-output.log
+          retention-days: 14
 
       - name: 构建前端
         run: npm run build
