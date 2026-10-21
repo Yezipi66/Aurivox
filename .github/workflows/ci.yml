@@ -134,10 +134,11 @@ jobs:
             echo "::endgroup::"
             # 失败详情打成一个注解（一条装全部）：
             #   逐行打注解会被 GitHub 折叠，而且多行消息在注解里会被截断。
-            #   ⇒ 把详情压成一行放进去。
-            DETAIL=$(awk '/^✖ /{p=1;print;next} /^[[:space:]]{2,}/{if(p)print;next} {p=0}' \
-              cache/test-output.log | head -40 | tr '\n' ' ' | cut -c1-900)
-            echo "::error title=测试失败::$DETAIL"
+            #   ⇒ 只取第一条失败的详情：Traceback 的第一行就够定位，
+            #   而把 40 条塞进一条注解会被截掉尾巴。
+            FIRST=$(awk '/^✖ /{p=1;print;next} /^[[:space:]]{2,}/{if(p)print;next} {p=0}' \
+              cache/test-output.log | head -12 | tr '\n' ' ' | cut -c1-800)
+            echo "::error title=测试失败::$FIRST"
             echo "::group::日志末尾 60 行"
             tail -60 cache/test-output.log
             echo "::endgroup::"
