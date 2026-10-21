@@ -1,35 +1,41 @@
 # -*- coding: utf-8 -*-
-"""引擎环境探针 —— 在**引擎自己的解释器**里跑，回答「这台引擎装没装」。
+"""引擎环境探针：在引擎自己的解释器里跑，回答「这台引擎装没装」。
 
-平台对引擎环境的立场是 **只验不建**（Owner 2026-08-24 拍板）：不装环境、
+平台对引擎环境的立场是 只验不建：不装环境、
 不装包、不管版本，只核对名片说的那个模块/类/方法在不在。核对不过 =
 这台引擎没装，平台不代劳也不背书。
 
-⛔ 只用标准库
+只用标准库
 -------------
-这个文件会被**任意引擎的 venv** 拿去跑（IndexTTS2 的 torch 2.8+cu128、
+这个文件会被任意引擎的 venv 拿去跑（IndexTTS2 的 torch 2.8+cu128、
 GPT-SoVITS 的 2.2+cu121，将来还有别的）。这些环境之间没有共同依赖，
-唯一能指望的就是标准库。这条纪律和 `lib/engines/host.py` 那份是同一条 ——
-⚠ 原文写的是「engines/_shim 那份」，那个路径**从来不存在**（是笔误，指的是
-  engines/indextts2/shim.py）；那个文件也已于 2026-08-27 随判据 8 删掉，
+唯一能指望的就是标准库。这条纪律和 `lib/engines/host.py` 那份是同一条，
+原文写的是「engines/_shim 那份」，那个路径从来不存在（是笔误，指的是
+  engines/indextts2/shim.py）；那个文件也已随判据 8 删掉，
   同一条纪律现在由通用宿主继承。
 
-⛔ 不许 import 名片没点名的东西
+不许 import 名片没点名的东西
 -------------------------------
 探针只 import `spec.imports` 里逐条列出的模块。不许"顺手 import torch
-看看有没有 GPU" —— 那会把平台的假设塞进本该由名片说了算的地方。
+看看有没有 GPU"：那会把平台的假设塞进本该由名片说了算的地方。
 
 输入/输出
 ---------
     python env_probe.py --spec-file <path>      # 或 --spec <json>
     stdout: 一行 JSON  {"ok": bool, "python": {...}, "checks": [...]}
 
-⭐ 退出码永远是 0（除非探针自己崩了）。「没装」是一个**答案**，不是探针
-   出错 —— 把它编码进 ok=false，调用方才能区分"引擎没装"和"探针没跑起来"。
+退出码永远是 0（除非探针自己崩了）。「没装」是一个答案，不是探针
+   出错：把它编码进 ok=false，调用方才能区分"引擎没装"和"探针没跑起来"。
 """
 
 import json
 import sys
+
+# 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp1252/cp936），
+#   而这里要吐中文（错误信息里有中文模块名）⇒ 编码不上就 UnicodeEncodeError，
+#   探针自己以非零码死掉，调用方分不清「引擎没装」与「探针崩了」。
+#   调用方按 utf-8 解码，这边就得按 utf-8 编码。
+sys.stdout.reconfigure(encoding='utf-8')
 
 
 def _describe_python():
@@ -54,7 +60,7 @@ def _check_one(item):
         import importlib
         mod = importlib.import_module(module_name)
     except BaseException as exc:
-        # ⛔ 这里必须抓 BaseException 而不是 Exception：native 扩展导入失败
+        # 这里必须抓 BaseException 而不是 Exception：native 扩展导入失败
         # 时抛的不一定是 Exception 的子类（见过 SystemExit 和裸 KeyboardInterrupt
         # 形状的东西），漏网的话探针自己会以非零码死掉，调用方就分不清
         # 「引擎没装」和「探针崩了」。
@@ -87,8 +93,8 @@ def _check_one(item):
             import inspect
             sig = inspect.signature(target.__init__)
             names = set(sig.parameters)
-            # **kwargs 的存在意味着"什么名字都收"，这时候按名字核对没有意义，
-            # 核对通过也说明不了什么 —— 老实记下来，别假装检查过了。
+            # kwargs 的存在意味着"什么名字都收"，这时候按名字核对没有意义，
+            # 核对通过也说明不了什么：老实记下来，别假装检查过了。
             has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD
                              for p in sig.parameters.values())
             if has_var_kw:

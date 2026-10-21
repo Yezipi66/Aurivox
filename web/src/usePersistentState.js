@@ -1,26 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 
-// Bump this prefix to invalidate ALL persisted state across a breaking release.
+// 破坏性升级时改这个前缀：全部持久化数据一起作废。
 const NS = 'tf.v1.';
 
-// Hardened localStorage-backed state.
-//
-// Improvements over the naive version:
-//  - namespaced + versioned keys (change NS to drop stale data safely)
-//  - tolerant of corrupt / legacy JSON (falls back to initial)
-//  - `initial` may be a value or a lazy factory function
-//  - optional `rehydrate(parsed)` runs on load to sanitise the stored value,
-//    e.g. reset transient flags (loading), cap arrays, or drop dead references.
-//
-// Usage:
-//   const [x, setX] = usePersistentState('compare.rows', [], {
-//     rehydrate: rows => rows.map(r => ({ ...r, loading: false, error: null })).slice(0, 24),
-//   });
+// localStorage 持久化 state：键带命名空间与版本号前缀。
+// 存的 JSON 损坏或解析失败时回退到 initial，不抛错。initial 可以是值或惰性工厂函数。
+// rehydrate(parsed) 在读回时清洗存下的值（重置瞬时标志、截断数组之类）。
 export function usePersistentState(key, initial, options = {}) {
   const { rehydrate } = options;
   const storageKey = NS + key;
 
-  // keep latest rehydrate without re-running the initializer
+  // 存最新的 rehydrate 引用：改了它不用重跑初始化函数。
   const rehydrateRef = useRef(rehydrate);
   rehydrateRef.current = rehydrate;
 
@@ -41,7 +31,7 @@ export function usePersistentState(key, initial, options = {}) {
     try {
       localStorage.setItem(storageKey, JSON.stringify(val));
     } catch {
-      // quota exceeded or storage unavailable — silently ignore
+    // 配额超了或存储不可用：忽略写入，不打断界面。
     }
   }, [storageKey, val]);
 

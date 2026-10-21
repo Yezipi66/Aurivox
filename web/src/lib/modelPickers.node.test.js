@@ -1,11 +1,11 @@
 // 模型下拉候选的守卫测试。
 //
 // 最要紧的三条（其余都是边界）：
-//   1. 二维筛选：别的角色的模型**不出现**在下拉里；
-//   2. 一个模型位的引擎，就长一个下拉 —— 不是两个里空一个；
+//   1. 二维筛选：别的角色的模型不出现在下拉里；
+//   2. 一个模型位的引擎，就长一个下拉：不是两个里空一个；
 //   3. 这个文件里不许出现任何引擎 id / 模型位名字。
 //
-// ⚠ 这些是 ESM，`node --test` 直接跑得动（import 带 .js 后缀，见 engines.js 顶部注释）。
+// 这些是 ESM，`node --test` 直接跑得动（import 带 .js 后缀，见 engines.js 顶部注释）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -24,7 +24,7 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 // --- 夹具：两台形状完全不同的引擎，名字都是编出来的 ----------------------
-// ⛔ 故意不用真机上那两台的 id：测试里写死真实 id，等于把"平台认识这台引擎"
+// 故意不用实际部署里那两台的 id：测试里写死真实 id，等于把"平台认识这台引擎"
 //    这件事偷偷带进守卫。
 const TWO_SLOT = { id: 'enj-two', weight_slots: [{ name: 'alpha', label: 'Alpha' }, { name: 'beta', label: 'Beta' }] }
 const ONE_SLOT = { id: 'enj-one', weight_slots: [{ name: 'solo', label: 'Solo' }] }
@@ -60,8 +60,8 @@ test('位名缺失的条目被丢掉，label 缺省退回位名', () => {
   assert.deepEqual(s, [{ name: 'k', label: 'k', param: null, applies_at: 'launch' }])
 })
 
-// ⚠⚠ 回归守卫：slotsOf 曾经把 param 丢掉，于是 weightsToSend 对**每一台**引擎
-//    都返回空 —— 下拉能点、请求体里一个键都没有，不报错只是换了没用。
+// 回归守卫：slotsOf 把 param 丢掉时，weightsToSend 对每一台引擎
+//    都返回空：下拉能点、请求体里一个键都没有，不报错只是换了没用。
 //    单元测试当时全绿，因为别处都是直接手写带 param 的位喂进去的。
 test('⭐⭐ slotsOf 必须把 param 原样带过来（丢了 = 选了不发）', () => {
   const slots = slotsOf({ weight_slots: [
@@ -76,7 +76,7 @@ test('⭐⭐ slotsOf 必须把 param 原样带过来（丢了 = 选了不发）'
   assert.equal(anySlotSwitchable(slots), true)
 })
 
-// ⭐⭐ 换一份要不要重开引擎，是**每个位各自的事** —— 一台引擎完全可以一个位
+// 换一份要不要重开引擎，是每个位各自的事：一台引擎完全可以一个位
 //    一次调用就能换、另一个位是开进程时吃进去的。原来那个引擎级的布尔位
 //    在这种引擎上没有正确答案，这两条就是它退休的判据。
 test('哪些位换了要重开引擎：按位算，不按引擎算', () => {
@@ -100,11 +100,9 @@ test('⭐ 一条规则：候选只来自当前选中的这个角色', () => {
   assert.ok(!g.some(x => x.voiceId === 'Bob'), 'Bob 的权重不该出现在 Alice 的下拉里')
 })
 
-// ⭐⭐ 2026-08-31 Owner：「为什么 voice 下面还是会有出现底模？都有 base model
-//    这种虚拟资产了」。原来这里钉的是「底模在每一个角色下面都出现」——
-//    那是底模还没有自己条目时的权宜。它现在是一个正经的虚拟角色，
-//    再在别人下面出现一次就是同一份权重的第二个入口，而且那个入口会让
-//    历史记录说「用的是 Alice」。
+// 底模是一个正经的虚拟角色（voiceId 为 __base__），不是任何角色的附属：
+//    它在别人的下拉里再出现一次，就是同一份权重的第二个入口，
+//    而且那个入口会让历史记录说「用的是 Alice」。
 test('⛔ 底模不出现在别的角色下面；选中它自己时照常出现且在最前', () => {
   for (const who of ['Alice', 'Bob']) {
     const g = candidatesForSlot(ASSETS, 'enj-two', 'alpha', who)
@@ -122,7 +120,7 @@ test('⭐ 一个模型位的引擎，就长一个下拉', () => {
   const flat = flattenGroups(g)
   assert.equal(flat.length, 1)                      // 只有 Alice 自己微调的
   assert.ok(!flat.some(i => i.name === 'base-solo'), '底模不在角色的下拉里')
-  // ⭐ 整个目录就是一份候选 —— 平台不筛后缀，目录也能当模型。
+  // 整个目录就是一份候选：平台不筛后缀，目录也能当模型。
   const base = flattenGroups(candidatesForSlot(ASSETS, 'enj-one', 'solo', '__base__'))
   assert.equal(base.find(i => i.name === 'base-solo').is_dir, true)
 })
@@ -145,7 +143,7 @@ test('从路径倒推角色：三层结构认，素材路径不认，底模不�
   assert.equal(assetIdFromModelPath('assets/Alice/models/enj-two/alpha/x.ckpt'), 'Alice')
   // 反斜杠（Windows）同样认
   assert.equal(assetIdFromModelPath('D:\\p\\assets\\Alice\\models\\enj-one\\solo\\d\\w.pth'), 'Alice')
-  // ⛔ 素材不分引擎，也不在 models/ 下 —— 不能被认成模型
+  // 素材不分引擎，也不在 models/ 下：不能被认成模型
   assert.equal(assetIdFromModelPath('assets/Alice/raw/a.wav'), '')
   assert.equal(assetIdFromModelPath('assets/Alice/models/enj-two/alpha'), '')  // 少一层，位下面没东西
   // 底模不在 assets/ 下
@@ -172,8 +170,8 @@ test('标签：有 steps / version 才贴，没有就只有名字', () => {
 })
 
 // --- 「这一份装不起来」要写在下拉那一行上 --------------------------------
-// ⭐ 后端按名片的 required 核对过，三态：true / false / null。
-//   ⛔ null 是"说不出来"（单文件的候选、名片没写 required），不许画成有问题。
+// 后端按名片的 required 核对过，三态：true / false / null。
+//   null 是"说不出来"（单文件的候选、名片没写 required），不许画成有问题。
 test('标签：候选不完整就在那一行上说，⛔ "说不出来"不许说成有问题', () => {
   assert.equal(itemLabel({ name: 'm', complete: false, missing: ['a', 'b'] }), 'm (⚠ 缺 2 项)')
   assert.equal(itemLabel({ name: 'm', complete: false }), 'm (⚠ 不完整)')
@@ -198,12 +196,12 @@ test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () =
   ]
   assert.deepEqual(modelNotesFor(assets, 'e1', 'Alice').map(n => n.text), ['第一句'])
   assert.deepEqual(modelNotesFor(assets, 'e2', 'Alice').map(n => n.text), ['别台引擎的'])
-  // 一条都没有 / 角色不在清单里 / 参数缺 ⇒ 空数组，⛔ 不是 undefined
+  // 一条都没有 / 角色不在清单里 / 参数缺 ⇒ 空数组，不是 undefined
   assert.deepEqual(modelNotesFor(assets, 'e1', 'Bob'), [])
   assert.deepEqual(modelNotesFor(assets, 'e1', 'Nobody'), [])
   assert.deepEqual(modelNotesFor(assets, '', 'Alice'), [])
   assert.deepEqual(modelNotesFor(null, 'e1', 'Alice'), [])
-  // ⛔ 底模那一条不是谁的资产，它的话不许被当成当前角色的
+  // 底模那一条不是谁的资产，它的话不许被当成当前角色的
   assert.deepEqual(modelNotesFor(assets, 'e1', 'base'), [])
 })
 
@@ -219,7 +217,7 @@ test('⛔ 失效的旧选择必须换掉（换引擎后不许把别人的权重�
   const groups = { solo: candidatesForSlot(ASSETS, 'enj-one', 'solo', 'Alice') }
   const out = reconcileSelection(slots, groups, { solo: 'assets/Alice/models/enj-two/alpha/alice-a.ckpt' })
   assert.notEqual(out.solo, 'assets/Alice/models/enj-two/alpha/alice-a.ckpt')
-  // 退回这个角色自己的第一条 —— ⛔ 不再退回底模（底模已经不在别人的下拉里）
+  // 退回这个角色自己的第一条：不再退回底模（底模已经不在别人的下拉里）
   assert.equal(out.solo, 'assets/Alice/models/enj-one/solo/alice-solo')
 })
 
@@ -233,7 +231,6 @@ test('default 标记优先于第一条', () => {
   assert.equal(reconcileSelection(slotsOf(ONE_SLOT), groups, null).solo, 'p2')
 })
 
-// --- 选中的模型怎么发出去 ------------------------------------------------
 const SEND_SLOTS = [
   { name: 'alpha', label: 'A', param: 'alpha_model' },
   { name: 'beta', label: 'B', param: 'beta_model' },
@@ -262,7 +259,7 @@ test('Rerun：从请求体把各个位的选择读回来', () => {
   assert.deepEqual(
     weightsFromParams(SEND_SLOTS, { alpha_model: '/p/a', frozen_model: '/p/f', 别的键: 1 }),
     { alpha: '/p/a' })
-  // 明确写了 null 的键 ⇒ 读成空字符串（"这次没带权重"），⛔ 不是丢掉不管
+  // 明确写了 null 的键 ⇒ 读成空字符串（"这次没带权重"），不是丢掉不管
   assert.deepEqual(weightsFromParams(SEND_SLOTS, { beta_model: null }), { beta: '' })
 })
 
@@ -273,7 +270,7 @@ test('一个位都没有 ⇒ 界面要说明"这台引擎不用选模型"', () =
 })
 
 test('⭐⭐ 开进程那一步吃进去的位，现在**也算能换**（平台会带着新的重开一次）', () => {
-  // ⚠ 这条以前是反过来断言的（没有参数名 ⇒ 换不了）。那时候确实换不了：
+  // 这条以前是反过来断言的（没有参数名 ⇒ 换不了）。那时候确实换不了：
   //   平台换模型只有"对活着的进程发一个换权重请求"这一条路。
   //   现在平台会把它关掉、带着选中的那一份重开，所以那句话不再成立。
   assert.equal(anySlotSwitchable([{ name: 'frozen', param: null, applies_at: 'launch' }]), true)
@@ -289,7 +286,7 @@ test('⭐⭐⭐ 没有参数名的位，选择走平台级的那一份（⛔ 不
   const sel = { alpha: '/p/a', frozen: '/p/f' }
   // 进请求体的那份：只有引擎认识的参数名
   assert.deepEqual(weightsToSend(MIXED_SLOTS, sel), { alpha_model: '/p/a' })
-  // 给平台的那份：键是**位名**，因为收件人是平台不是引擎
+  // 给平台的那份：键是位名，因为收件人是平台不是引擎
   assert.deepEqual(launchWeightsToSend(MIXED_SLOTS, sel), { frozen: '/p/f' })
 })
 
@@ -308,7 +305,7 @@ test('没选的位不发（空字符串是"还没选"，不是"选了空"）', (
 })
 
 test('⭐⭐ Rerun：开进程那一步吃进去的那份也要读得回来', () => {
-  // ⛔ 只读参数名那一份的话，Rerun 会**悄悄换回底模**：
+  // 只读参数名那一份的话，Rerun 会悄悄换回底模：
   //   参数一字不差、声音不是那个人，而且不报错。
   assert.deepEqual(
     weightsFromParams(MIXED_SLOTS, { alpha_model: '/p/a', launch_weights: { frozen: '/p/f' } }),
@@ -408,13 +405,12 @@ test('顺序照抄音色清单，不重排', () => {
   assert.deepEqual(got.map(v => v.id), ['base', 'alice', 'bob'])
 })
 
-// --- 历史记录那一行怎么写 -----------------------------------------------
 //
-// 病历：Owner 2026-08-31 00:42 在真机上看到一条 IndexTTS2 的记录印着
+// 一种形状：一条 IndexTTS2 的记录印着
 //     Base model · Auto · GPT - / SoVITS - · ref 交谈2_2.wav · seed 3788417817
 // 那台引擎既没有 GPT 位也没有 SoVITS 位。原因是 GenerateTab.jsx 里写死的模板
 //     `GPT ${item.gpt} / SoVITS ${item.sovits}`
-// —— 位名写死、位数写死成 2。
+//：位名写死、位数写死成 2。
 
 test('一个位的引擎写一格，⛔ 不是两格空一格', () => {
   assert.equal(
@@ -422,7 +418,7 @@ test('一个位的引擎写一格，⛔ 不是两格空一格', () => {
     'Enj One · Solo checkpoints')
 })
 
-test('三个位的引擎写三格 —— 位数不是常数 2', () => {
+test('三个位的引擎写三格，位数不是常数 2', () => {
   assert.equal(
     describeGeneration({ engine_label: 'Enj Three', weights: [
       { name: 'a', label: 'A', value: 'x.ckpt' },
@@ -453,7 +449,7 @@ test('⚠ 老条目（这一版之前的 meta.json）没有 weights ⇒ 整段�
   assert.equal(describeGeneration({ voice: 'v1' }), '')
   assert.equal(describeGeneration({}), '')
   assert.equal(describeGeneration(null), '')
-  // 老条目里可能还留着上一版写下的那两个键 —— 也不许用。
+  // 老条目里可能还留着旧版本写下的那两个键：也不许用。
   assert.equal(describeGeneration({ gpt: 'a.ckpt', sovits: 'b.pth' }), '')
 })
 
@@ -472,24 +468,22 @@ test('⛔ 这个文件里不许出现任何真实引擎 id 或模型位名字', 
     .join('\n')
   for (const banned of ['gpt', 'sovits', 'indextts', 'gpt-sovits']) {
     assert.ok(!code.toLowerCase().includes(banned),
-      `代码里出现了 "${banned}" —— 平台不许认识任何一台具体引擎`)
+      `代码里出现了 "${banned}"，平台不许认识任何一台具体引擎`)
   }
 })
 
-// ---------------------------------------------------------------------------
-//  paramsSummaryOf —— 配方的参数摘要（2026-10-01）
+//  paramsSummaryOf：配方的参数摘要
 //
-//  ⭐ 它取代的是 Broker 页里写死的 `top_k {…} · temperature {…} · speed {…}`。
+//  它取代的是 Broker 页里写死的 `top_k {…} · temperature {…} · speed {…}`。
 //     换一台引擎时，那三个键不存在 ⇒ 摘要显示一串 undefined，而配方里
 //     真带的参数（prompt_text / spk_id …）一个字都不显示。
-// ---------------------------------------------------------------------------
 
 test('⭐ 摘要显示配方里真有的键，不显示配方里没有的键', () => {
   const r = paramsSummaryOf({ prompt_text: '你好', spk_id: '中文女' }, null)
   assert.equal(r.count, 2)
   assert.match(r.short, /prompt_text 你好/)
   assert.match(r.short, /spk_id 中文女/)
-  // ⛔ 绝不能出现 undefined —— 那正是换引擎之后用户看到的东西。
+  // 绝不能出现 undefined：那正是换引擎之后用户看到的东西。
   assert.ok(!r.full.includes('undefined'), '摘要里出现了 undefined')
 })
 

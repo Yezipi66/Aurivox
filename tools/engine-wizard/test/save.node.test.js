@@ -1,7 +1,7 @@
 'use strict'
-// 落盘 —— 用**临时目录**测，绝不碰真实的 engines/
+// 落盘 ： 用临时目录测，绝不碰真实的 engines/
 //
-// ⭐ 为什么全部用临时目录
+// 为什么全部用临时目录
 //   这份代码会 mkdir + writeFile + rename。真 engines/ 里有用户在用的引擎，
 //   测试碰一下就是事故。
 //   ⇒ opts.enginesDir 存在的意义就在这里。
@@ -22,9 +22,7 @@ function readBack (dir, id) {
   return JSON.parse(fs.readFileSync(path.join(dir, id, 'manifest.json'), 'utf-8'))
 }
 
-// ---------------------------------------------------------------------------
-// id 合法性 —— 这是最常错的一项，且错了平台会报 ID_MISMATCH
-// ---------------------------------------------------------------------------
+// id 合法性 ： 这是最常错的一项，且错了平台会报 ID_MISMATCH
 test('id 校验：空 / 带路径 / 保留名 / 前导空格 都要拦下', () => {
   assert.ok(validateId('') === 'id is required')
   assert.ok(validateId('   ') === 'id is required')
@@ -38,9 +36,7 @@ test('id 校验：空 / 带路径 / 保留名 / 前导空格 都要拦下', () =
   assert.strictEqual(validateId('some-tts2'), null)
 })
 
-// ---------------------------------------------------------------------------
 // 基本落盘
-// ---------------------------------------------------------------------------
 test('存一张名片：目录 + 文件都建出来，内容对得上', () => {
   const dir = tmpEngines()
   const m = { id: 'wobble', label: 'Wobble', runtime: { python: 'engines/wobble/.venv' } }
@@ -59,10 +55,8 @@ test('文件末尾有换行（git 里更友好）', () => {
   assert.ok(raw.endsWith('}\n'), '应以 } + 换行 结尾')
 })
 
-// ---------------------------------------------------------------------------
-// ⛔ 不覆盖
-// ---------------------------------------------------------------------------
-test('⛔ 文件已存在时不静默覆盖', () => {
+// 不覆盖
+test('文件已存在时不静默覆盖', () => {
   const dir = tmpEngines()
   saveManifest({ id: 'wobble', label: 'first' }, { enginesDir: dir })
   const r = saveManifest({ id: 'wobble', label: 'second' }, { enginesDir: dir })
@@ -90,9 +84,7 @@ test('allowCreateDir:false 时不建目录，如实报 NO_DIR', () => {
   assert.ok(!fs.existsSync(path.join(dir, 'wobble')), '不该建目录')
 })
 
-// ---------------------------------------------------------------------------
 // 形状不对
-// ---------------------------------------------------------------------------
 test('不是对象的输入直接拒', () => {
   const dir = tmpEngines()
   for (const bad of [null, 'x', 42, [1, 2]]) {
@@ -110,19 +102,17 @@ test('id 不合法 ⇒ BAD_ID，且不建任何目录', () => {
   assert.strictEqual(fs.readdirSync(dir).length, 0, '临时目录应仍是空的')
 })
 
-// ---------------------------------------------------------------------------
-// ⛔ 写出去的 JSON 必须永远可解析（不许留半个文件）
-// ---------------------------------------------------------------------------
-test('⛔ 循环引用不产生半个文件', () => {
+// 写出去的 JSON 必须永远可解析（不许留半个文件）
+test('循环引用不产生半个文件', () => {
   const dir = tmpEngines()
   const m = { id: 'wobble', label: 'W' }
-  m.self = m                       // ⛔ JSON.stringify 会抛
+  m.self = m                       // JSON.stringify 会抛
   const r = saveManifest(m, { enginesDir: dir })
   assert.strictEqual(r.ok, false, '不可序列化的输入不该报成功')
   // 目录建了但不该留半个 JSON
   const p = path.join(dir, 'wobble', 'manifest.json')
   assert.ok(!fs.existsSync(p), '不该留下半个 manifest.json')
-  // ⛔ 临时文件也要清掉
+  // 临时文件也要清掉
   assert.ok(!fs.existsSync(p + '.tmp-wizard'), '临时文件没清掉')
 })
 
@@ -135,9 +125,7 @@ test('dryRun：只报不写', () => {
   assert.ok(!fs.existsSync(path.join(dir, 'wobble')), 'dryRun 不该建目录')
 })
 
-// ---------------------------------------------------------------------------
 // 已装清单
-// ---------------------------------------------------------------------------
 test('已装清单：只列有 manifest 的目录，且能看出 id 是否与目录名一致', () => {
   const dir = tmpEngines()
   fs.mkdirSync(path.join(dir, 'a'))
@@ -155,9 +143,7 @@ test('已装清单：只列有 manifest 的目录，且能看出 id 是否与目
     'id 与目录名不符要能看出来（平台会报 ID_MISMATCH）')
 })
 
-// ---------------------------------------------------------------------------
-// 读名片 —— 上一轮验收时发现「读不了已装名片」，这里补上
-// ---------------------------------------------------------------------------
+// 读名片 ： 上一轮验收时发现「读不了已装名片」，这里补上
 test('读一张已装名片：内容原样回来', () => {
   const dir = tmpEngines()
   const m = { id: 'wobble', label: 'Wobble', runtime: { python: 'engines/wobble/.venv' } }
@@ -168,7 +154,7 @@ test('读一张已装名片：内容原样回来', () => {
   assert.strictEqual(r.manifest.runtime.python, 'engines/wobble/.venv')
 })
 
-test('⛔ 读盘也要防路径穿越（写入拦了，读也必须拦）', () => {
+test('读盘也要防路径穿越（写入拦了，读也必须拦）', () => {
   const dir = tmpEngines()
   // 在 engines/ 外面放一个 manifest.json，试着用 ../ 读出来
   const outside = path.join(dir, '..', 'outside-secret.json')
@@ -184,7 +170,7 @@ test('⛔ 读盘也要防路径穿越（写入拦了，读也必须拦）', () =
   }
 })
 
-test('⛔ 坏掉的 JSON 如实报 BAD_JSON，不能返回空对象', () => {
+test('坏掉的 JSON 如实报 BAD_JSON，不能返回空对象', () => {
   const dir = tmpEngines()
   fs.mkdirSync(path.join(dir, 'broken'))
   fs.writeFileSync(path.join(dir, 'broken', 'manifest.json'), '{ "id": "broken", ')
@@ -194,7 +180,7 @@ test('⛔ 坏掉的 JSON 如实报 BAD_JSON，不能返回空对象', () => {
   assert.ok(r.error.includes('not valid JSON'), r.error)
 })
 
-test('⛔ ⭐ 注释键必须逐字保留（写盘时剥 = 读一次就永久删掉文档）', () => {
+test('注释键必须逐字保留（写盘时剥 = 读一次就永久删掉文档）', () => {
   const dir = tmpEngines()
   const m = {
     id: 'wobble',
@@ -205,7 +191,7 @@ test('⛔ ⭐ 注释键必须逐字保留（写盘时剥 = 读一次就永久删
     runtime: { args: ['--flag', '{checkpoints}'], ready_timeout_ms: 90000 },
   }
   saveManifest(m, { enginesDir: dir })
-  // 磁盘上就该有 —— 上游作者靠这些键写安装说明
+  // 磁盘上就该有 ： 上游作者靠这些键写安装说明
   const raw = fs.readFileSync(path.join(dir, 'wobble', 'manifest.json'), 'utf-8')
   assert.ok(raw.includes('_comment_note'), '注释键没写进磁盘')
   const back = readManifestById('wobble', { enginesDir: dir }).manifest
@@ -216,10 +202,8 @@ test('⛔ ⭐ 注释键必须逐字保留（写盘时剥 = 读一次就永久删
   assert.deepStrictEqual(back.runtime.args, m.runtime.args)
 })
 
-// ---------------------------------------------------------------------------
 // 纪律：本文件不许出现任何具体引擎名
-// ---------------------------------------------------------------------------
-test('⛔ save.js / savebridge.js 活代码里不许出现任何具体引擎名', () => {
+test('save.js / savebridge.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice']
   const path2 = require('node:path')
   for (const f of ['save.js', 'savebridge.js']) {

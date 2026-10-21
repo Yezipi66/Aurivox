@@ -2,19 +2,19 @@
 'use strict'
 
 // ---------------------------------------------------------------------------
-//  check-engine-env —— 「这台引擎装没装」，人可以自己问一遍
+//  check-engine-env ： 「这台引擎装没装」，人可以自己问一遍
 // ---------------------------------------------------------------------------
 //   node tools/dev/check-engine-env.cjs            浅层：只查盘，几毫秒
 //   node tools/dev/check-engine-env.cjs --deep     深层：起引擎的解释器去 import
 //   node tools/dev/check-engine-env.cjs --deep --engine gpt-sovits
 //   node tools/dev/check-engine-env.cjs --json     给脚本吃的
 //
-// ⭐ 平台只验不建。这个工具**不会**装任何东西、不会改任何文件、不会写盘
+//  平台只验不建。这个工具不会装任何东西、不会改任何文件、不会写盘
 //    （深层会在系统临时目录写一个规格 JSON 并当场删掉）。它只回答问题。
-//    答案是"没装"的时候，请按引擎作者的说明自己把环境装好 ——
-//    Owner 2026-08-24 定案：平台只维护 GPT-SoVITS 那一套环境。
+//    答案是"没装"的时候，请按引擎作者的说明自己把环境装好 ：
+//      定案：平台只维护 GPT-SoVITS 那一套环境。
 //
-// ⚠ 深层很慢（实测某引擎 import 34 秒），因为它真的把引擎的解释器起起来
+//  深层很慢（实测某引擎 import 34 秒），因为它真的把引擎的解释器起起来
 //   了。别把它接进任何请求路径。
 
 const path = require('node:path')
@@ -74,7 +74,7 @@ function main() {
     try {
       profile = resolveEngineProfile(m.id, process.env)
     } catch (err) {
-      // 名片本身就读不出来 —— 这比"环境没装"更靠前，要单独报，
+      // 名片本身就读不出来 ： 这比"环境没装"更靠前，要单独报，
       // 否则会被读成"环境有问题"，人就去查环境了。
       results.push({
         id: m.id, ok: false, level: 'manifest', problems: [err.message],
@@ -93,7 +93,7 @@ function main() {
     process.stdout.write(`引擎环境核对（${args.deep ? '深层' : '浅层'}）  项目根: ${ROOT}\n\n`)
     for (const r of results) {
       // ok 有三个值，不是两个：true 装了 / false 没装 / null 无从判断。
-      // ⛔ 别把 null 折成 false —— "名片没写 runtime" 和 "环境坏了" 是两回事。
+      //  别把 null 折成 false ： "名片没写 runtime" 和 "环境坏了" 是两回事。
       const mark = r.ok === true ? '  装了  ' : r.ok === null ? ' 无从判断 ' : ' 没装/不全 '
       process.stdout.write(`[${mark}] ${r.id}  (${r.level})\n`)
       if (r.info && r.info.python) {
@@ -102,8 +102,8 @@ function main() {
       for (const p of r.problems) {
         process.stdout.write('           ' + String(p).split('\n').join('\n           ') + '\n')
       }
-      // ⭐⭐ 权重单独一行，和「装没装」分开印。
-      //   压进上面那个结论会有两个后果，真机上都撞过：人去重装一遍已经
+      //  权重单独一行，和「装没装」分开印。
+      //   压进上面那个结论会有两个后果，上都撞过：人去重装一遍已经
       //   装好的环境；深层校验被浅层挡下，环境到底好不好根本没被问过。
       const a = r.assets || { ok: null, problems: [] }
       if (a.ok === true) {
@@ -121,9 +121,9 @@ function main() {
     }
   }
 
-  // 退出码：只有"确定没装"才算失败。无从判断（null）不算 ——
+  // 退出码：只有"确定没装"才算失败。无从判断（null）不算 ：
   // 它是一个待补的名片，不是一个坏掉的环境。
-  // ⭐ 权重缺**不**进退出码：这个工具回答的是"装没装"，而"环境装好了、
+  //  权重缺不进退出码：这个工具回答的是"装没装"，而"环境装好了、
   //   模型还没下"是正常中间状态。要按权重卡 CI，请另读 --json 的 assets。
   return results.some((r) => r.ok === false) ? 1 : 0
 }

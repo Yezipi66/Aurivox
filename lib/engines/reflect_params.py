@@ -1,32 +1,32 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-参数草稿生成器 —— Python 侧。
+参数草稿生成器：Python 侧。
 
-在**这台引擎自己的解释器**里反射出「有哪些参数、叫什么、默认是什么」，
+在这台引擎自己的解释器里反射出「有哪些参数、叫什么、默认是什么」，
 打成 JSON 交给 Node 侧组装成 manifest 的 parameters[] 段。
 
-⭐ 为什么必须跑在引擎的解释器里（而不是平台那个）：
+为什么必须跑在引擎的解释器里（而不是平台那个）：
    每台引擎一套 venv（C12 纪律）。平台的 Python 里没有 torch、transformers、
-   也没有任何一台引擎的模块 —— 在那儿 import 必然失败，而那个失败与
+   也没有任何一台引擎的模块：在那儿 import 必然失败，而那个失败与
    「这台引擎的参数长什么样」毫无关系。跟 env_probe.js 同一个道理。
 
-————————————————————————————————————————————————————————————————
+# ------------------------------------------------------------------
 它只回答「事实」，不做任何判断
-————————————————————————————————————————————————————————————————
+# ------------------------------------------------------------------
     参数叫什么      ← 反射
     默认值是什么    ← 反射
     类型线索        ← 反射（默认值的 Python 类型 + 注解）
     哪些是加载期    ← 出现在 __init__ 里
     哪些是调用期    ← 出现在目标方法里
 
-⛔ 它**不猜**这些（猜了就等于平台替名片作者做决定，而猜错不报错）：
+它不猜这些（猜了就等于平台替名片作者做决定，而猜错不报错）：
     这个参数的取值范围、它该是滑块还是下拉、它的中英文标签、
     它跟别的参数有什么条件依赖。
 
-————————————————————————————————————————————————————————————————
+# ------------------------------------------------------------------
 用法
-————————————————————————————————————————————————————————————————
+# ------------------------------------------------------------------
     python reflect_params.py --spec-file <path>
     python reflect_params.py --spec '{"module":"...","class":"...","method":"..."}'
 
@@ -36,7 +36,7 @@ stdout: 一行 JSON
     {"ok": true, "python": {...}, "load": [...], "call": [...], "warnings": [...]}
     {"ok": false, "error": "...", "detail": "..."}
 
-⭐ 退出码永远是 0。「反射不出来」是一个**答案**，不是探针出错 ——
+退出码永远是 0。「反射不出来」是一个答案，不是探针出错，
    把它编码进 ok=false，调用方才能区分「这台引擎反射不了」和
    「探针自己没跑起来」。跟 env_probe.py 同一条纪律。
 """
@@ -54,12 +54,12 @@ BANNER = "[reflect]"
 
 
 # ---------------------------------------------------------------------------
-#  0) 洗环境 —— 必须在 import 引擎之前
+#  0) 洗环境：必须在 import 引擎之前
 # ---------------------------------------------------------------------------
 #  为什么：平台的进程环境里可能带着别的 Python 的路径（开发机上尤其明显，
 #  Hermes 就把自己的 site-packages 塞在 sys.path 前面）。那些包一旦先被
-#  import 进来，这台引擎拿到的就是**别的那一份** torch —— 而症状是
-#  「版本对不上，报错却指向一个跟当前包无关的地方」。
+# import 进来，这台引擎拿到的就是别的那一份 torch：而症状是
+#  「版本不匹配，报错却指向一个跟当前包无关的地方」。
 def _scrub_sys_path():
     keep = []
     for p in sys.path:
@@ -72,20 +72,20 @@ def _scrub_sys_path():
 
 
 # ---------------------------------------------------------------------------
-#  1) 值的类型线索 —— 只给「线索」，不给结论
+#  1) 值的类型线索：只给「线索」，不给结论
 # ---------------------------------------------------------------------------
 def _kind_of(value):
     """从默认值推出类型线索。
 
-    ⭐ 返回的是**线索**不是判定：默认 0 可能是 int 也可能是 float 的 0，
+    返回的是线索不是判定：默认 0 可能是 int 也可能是 float 的 0，
     默认 None 什么都不说明（那正是最常见的情况）。所以下面每一条都带着
     「这条线索有多硬」一起出去，让调用方决定敢不敢用。
     """
     if value is None:
         return {"kind": "unknown", "confidence": "none",
-                "why": "默认值是 None —— 上游没给默认值，或默认就是空"}
+                "why": "默认值是 None：上游没给默认值，或默认就是空"}
     if isinstance(value, bool):
-        # ⚠ bool 必须排在 int 前面：Python 里 isinstance(True, int) 是 True
+        # bool 必须排在 int 前面：Python 里 isinstance(True, int) 是 True
         return {"kind": "boolean", "confidence": "strong",
                 "why": "默认值是 Python bool"}
     if isinstance(value, int):
@@ -108,8 +108,8 @@ def _kind_of(value):
             "type": type(value).__name__}
 
 
-# 参数名 → 类型线索。⛔ 全部是**弱线索**，只够用来排序和提醒，
-#   不足以替人决定 type —— 判据写在每一行后面。
+# 参数名 → 类型线索。全部是弱线索，只够用来排序和提醒，
+#   不足以替人决定 type：判据写在每一行后面。
 _NAME_HINTS = (
     (r"^(use_|has_|enable|disable|with_|allow_|force_|is_)", "boolean",
      "名字以 use_/has_/enable_ 开头"),
@@ -124,14 +124,14 @@ _NAME_HINTS = (
      r"interval|duration|length|steps|num_|max_|min_|silence)$", "number",
      "名字像数值旋钮"),
     (r"^seed$", "number", "种子"),
-    # ⚠ 这条只提醒「可能是路径」，不是让它进 parameters[] ——
+    # 这条只提醒「可能是路径」，不是让它进 parameters[]，
     #   路径类的正确归宿是 call.init_args / {checkpoints}。
-    (r"(_path|_dir|_file|_folder)$", "path?", "名字像路径 —— 确认它该不该做成界面格子"),
+    (r"(_path|_dir|_file|_folder)$", "path?", "名字像路径：确认它该不该做成界面格子"),
 )
 
 
 def _hint_from_name(name):
-    """从参数名推类型线索。⛔ 弱证据，只用于提醒与排序。"""
+    """从参数名推类型线索。弱证据，只用于提醒与排序。"""
     low = name.lower()
     for pattern, kind, why in _NAME_HINTS:
         if re.search(pattern, low):
@@ -140,7 +140,7 @@ def _hint_from_name(name):
 
 
 def _annotation_of(param):
-    """参数注解。⛔ 拿不到就说拿不到 —— 多数 TTS 上游没写注解。"""
+    """参数注解。拿不到就说拿不到：多数 TTS 上游没写注解。"""
     ann = param.annotation
     if ann is inspect.Parameter.empty:
         return None
@@ -164,21 +164,79 @@ def _literal_choices(text):
     return out or None
 
 
+def _extract_help(doc, name):
+    """从 docstring 里按参数名提取说明。
+
+    按优先级试三种风格，拿到就停：
+    1. numpy 风格 Parameters 段：name : type 下一行缩进说明
+    2. Google 风格 Args: 段：name (type): description 或 name: description
+    3. Sphinx 风格 :param name: description
+    拿不到返回 None。
+    """
+    if not doc:
+        return None
+
+    # numpy 风格 Parameters 段：`name : type` 换行后跟缩进的说明文字。
+    # 先于 Google 处理：否则 `spk_id : str` 会被 Google 的单行正则
+    # 误抓成说明 "str"（那是类型不是说明）。
+    m = re.search(
+        r'^[ \t]*' + re.escape(name) + r'[ \t]*:[ \t]*[^\n]*\n((?:[ \t]+[^\n]*\n?)+)',
+        doc, re.MULTILINE
+    )
+    if m:
+        text = ' '.join(line.strip() for line in m.group(1).split('\n') if line.strip())
+        if text:
+            return text
+
+    # Google 风格 Args: 段：`name (type): description` 或 `name: description`。
+    # 要求冒号后非空且同一行有内容：排除 numpy 的 `name : type` 单行形式
+    # （那种冒号后是类型，真说明在下一行，已由上面的 numpy 分支处理）。
+    m = re.search(
+        r'^[ \t]*' + re.escape(name) + r'[ \t]*(?:\([^)]*\))?[ \t]*:[ \t]*(\S.*)$',
+        doc, re.MULTILINE
+    )
+    if m:
+        return m.group(1).strip() or None
+
+    # Sphinx 风格 :param name:
+    m = re.search(
+        r'^[ \t]*:param[ \t]+' + re.escape(name) + r'[ \t]*:[ \t]*(\S.*)$',
+        doc, re.MULTILINE
+    )
+    if m:
+        return m.group(1).strip() or None
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 #  2) 反射一个函数
 # ---------------------------------------------------------------------------
-#  ⛔ 平台自己的三个 bind 槽位**不算引擎参数** —— 它们的归宿是 call.bind，
+# 平台自己的三个 bind 槽位不算引擎参数：它们的归宿是 call.bind，
 #    不是 parameters[]。混进去会造成「同一个概念声明两次」。
 BIND_SLOTS = ("self", "text", "ref_audio", "output_path")
 
 
-def _reflect_callable(fn, phase, skip):
-    """反射一个可调用对象，返回参数清单。"""
+def _reflect_callable(fn, phase, skip, fallback_doc=None):
+    """反射一个可调用对象，返回参数清单。
+
+    fallback_doc：fn 自己没 docstring 时的兜底（加载期用类 docstring，
+    Args: 段常写在类上，而 __init__ 没有自己的 docstring）。
+    """
     try:
         sig = inspect.signature(fn)
     except (ValueError, TypeError) as exc:
-        return [], "拿不到签名（%s）—— 有些 C 扩展或装饰器包装的函数是这样" % exc
-
+        return [], "拿不到签名（%s）：有些 C 扩展或装饰器包装的函数是这样" % exc
+    # docstring 提取：取一次，给每个参数用。
+    # __init__ 没有自己的 docstring 时，用类 docstring 兜底（Args: 常写在类上）。
+    # 注意：object.__init__ 的默认 docstring 是 "Initialize self. ..." 样板，
+    # 它不是空字符串：必须显式识别并当成「没有」，否则 fallback 永远用不上。
+    try:
+        doc = inspect.getdoc(fn)
+    except Exception:
+        doc = None
+    if not doc or doc.startswith('Initialize self.'):
+        doc = fallback_doc
     out = []
     for name, p in sig.parameters.items():
         if name in BIND_SLOTS:
@@ -187,7 +245,7 @@ def _reflect_callable(fn, phase, skip):
                       inspect.Parameter.VAR_KEYWORD):
             out.append({
                 "name": name, "phase": phase, "skipped": True,
-                "why": "变长参数（*args / **kwargs）—— 平台不替你猜怎么展开",
+                "why": "变长参数（*args / **kwargs）：平台不替用户猜测怎么展开",
             })
             continue
         if name in skip:
@@ -209,17 +267,19 @@ def _reflect_callable(fn, phase, skip):
             "default_repr": None if not has_default else repr(p.default)[:120],
             "kind": kind,
             "annotation": _annotation_of(p),
-            # ⭐⭐ 名字线索。
+            # 名字线索。
             #   为什么必须有（实测逼出来的）：IndexTTS2 的 14 个真参数里有
-            #   **4 个默认值是 None** —— use_cuda_kernel / emo_audio_prompt /
-            #   emo_vector / emo_text。人写的时候是按**参数名的语义**定的类型
+            #   4 个默认值是 None：use_cuda_kernel / emo_audio_prompt /
+            # emo_vector / emo_text。人写的时候是按参数名的语义定的类型
             #   （use_* ⇒ 开关，*_prompt ⇒ 音频，*_vector ⇒ 数字数组，*_text ⇒ 文本）。
-            #   ⇒ 只看默认值会把这 4 个**全部漏掉**，而漏掉的表现是
-            #   「界面上少了一个真实存在的旋钮」，**没有任何报错**。
-            #   ⚠ 它是线索不是结论：最终由人定，这里只是别把证据丢了。
+            # ⇒ 只看默认值会把这 4 个全部漏掉，而漏掉的表现是
+            # 「界面上少了一个真实存在的旋钮」，没有任何报错。
+            # 它是线索不是结论：最终由人定，这里只是别把证据丢了。
             "name_hint": _hint_from_name(name),
+            # docstring 提取：有就递原文，没有就 null。
+            "help": _extract_help(doc, name),
         }
-        # Literal[...] 里的选项是**上游自己说的**，可以直接用
+        # Literal[...] 里的选项是上游自己说的，可以直接用
         ann = entry.get("annotation") or {}
         if ann.get("literal_choices"):
             entry["upstream_choices"] = ann["literal_choices"]
@@ -278,22 +338,24 @@ def reflect(spec):
     skip = list(spec.get("skip") or [])
 
     # --- 加载期：__init__ 的参数（去掉 self）---
-    load, w = _reflect_callable(klass.__init__, "load", skip)
+    # 类 docstring 兜底：Args: 段常写在类上，__init__ 自己没 docstring。
+    class_doc = inspect.getdoc(klass)
+    load, w = _reflect_callable(klass.__init__, "load", skip, fallback_doc=class_doc)
     if w:
         warnings.append("加载期：%s" % w)
 
     # --- 调用期：目标方法的参数 ---
     call = []
-    # ⭐ partial：这个结果**不完整**。
+    # partial：这个结果不完整。
     #   方法名拼错 ⇒ 只反射到加载期 ⇒ 草稿少了整整一段调用期参数。
-    #   ⛔ 那不是「警告一下就行」—— 缺的那一段在界面上表现为
+    #   那不是「警告一下就行」：缺的那一段在界面上表现为
     #   「少了一批真实存在的旋钮」，且没有任何报错。
-    #   所以调用方要能据此**拒绝写盘**，而不是打个 log 继续。
+    # 所以调用方要能据此拒绝写盘，而不是打个 log 继续。
     partial = False
     if method_name:
         fn = getattr(klass, method_name, None)
         if fn is None:
-            warnings.append("调用期：%s 上没有 %s 这个方法 —— 只给了加载期"
+            warnings.append("调用期：%s 上没有 %s 这个方法：只给了加载期"
                             % (class_name, method_name))
             partial = True
         else:
@@ -303,16 +365,16 @@ def reflect(spec):
             if w:
                 warnings.append("调用期：%s" % w)
     else:
-        warnings.append("没给 method —— 只反射了加载期")
+        warnings.append("没给 method：只反射了加载期")
         partial = True
 
     return {
         "ok": True,
-        # ⭐ partial=true ⇒ 这个结果只覆盖了一部分，调用方必须说出来。
+        # partial=true ⇒ 这个结果只覆盖了一部分，调用方必须说出来。
         "partial": partial,
         "partial_reason": (("方法 %s 在 %s 上不存在" % (method_name, class_name))
                            if (partial and method_name) else
-                           ("没给 method —— 只反射了加载期" if partial else None)),
+                           ("没给 method：只反射了加载期" if partial else None)),
         "python": {
             "version": sys.version.split()[0],
             "executable": sys.executable,
@@ -341,7 +403,7 @@ def main(argv):
         out = {"ok": False, "stage": "reflect",
                "error": str(exc), "detail": traceback.format_exc()[-2000:]}
     print(json.dumps(out, ensure_ascii=False))
-    return 0  # ⭐ 永远是 0：ok=false 是一个答案
+    return 0  # 永远是 0：ok=false 是一个答案
 
 
 if __name__ == "__main__":

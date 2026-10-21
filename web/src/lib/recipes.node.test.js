@@ -1,10 +1,10 @@
-// 配方存取这条路，用一台**假引擎**走一遍。
+// 配方存取这条路，用一台假引擎走一遍。
 //
 // 要守的那句话（用户能观察到的）：
-//   「存一个配方，关掉，再打开 —— 每一格都还在原来的值上。」
+//   「存一个配方，关掉，再打开：每一格都还在原来的值上。」
 // 不管是哪台引擎。
 //
-// 这条路 2026-08-29 之前是断的，而且断得无声：存进去了，打开时读不回来，
+// 这条路断得无声：存进去了，打开时读不回来，
 // 界面上不报错，参数悄悄变回默认值。原因是这个模块当年把 GPT-SoVITS 的
 // 二十来个参数名写死在了一行里。
 
@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { recipeToGenerateParams, recipeParamBag, recipePath, recipeWeightPreview } from './recipes.js'
 
-// 一台假引擎。参数名故意跟盘上任何一台都不重合 —— 只要这些值能原样往返，
+// 一台假引擎。参数名故意跟盘上任何一台都不重合：只要这些值能原样往返，
 // 就说明这个模块真的不认识键名。
 const FAKE = 'silent-fake'
 const FAKE_PARAMS = {
@@ -45,7 +45,7 @@ function v4Recipe(extra = {}) {
 test('存进去的参数，打开配方时一个不少地回来', () => {
   const out = recipeToGenerateParams(v4Recipe(), '正文', FAKE)
   for (const [k, v] of Object.entries(FAKE_PARAMS)) {
-    assert.equal(out[k], v, `${k} 没有回来 —— 用户会看到这一格变回默认值，且没有任何提示`)
+    assert.equal(out[k], v, `${k} 没有回来，用户会看到这一格变回默认值，且没有任何提示`)
   }
 })
 
@@ -54,7 +54,7 @@ test('平台自己的通用键也回来（seed 存在 params 里，不在引擎�
   assert.equal(out.seed, 1234)
 })
 
-test('引擎格子压过 params —— 同一个键两边都有时以引擎格子为准', () => {
+test('引擎格子压过 params，同一个键两边都有时以引擎格子为准', () => {
   // 后端为兼容仍会往 params 里写一份。两份漂了的时候，权威是引擎格子。
   const r = v4Recipe({ params: { seed: 1234, wobble: 999 } })
   assert.equal(recipeToGenerateParams(r, '', FAKE).wobble, 0.42)
@@ -115,7 +115,7 @@ test('平台自己的键不会被当成引擎参数漏进袋子', () => {
   const r = v4Recipe({ params: { pron_overrides: { 行: 'xing' }, seed: 1 } })
   const out = recipeToGenerateParams(r, '', FAKE)
   assert.deepEqual(out.pron_overrides, { 行: 'xing' })
-  // 它只能以整形过的那一份出现，⛔ 不能再有第二份没整形的。
+  // 它只能以整形过的那一份出现，不能再有第二份没整形的。
   assert.equal(Object.keys(out).filter(k => k === 'pron_overrides').length, 1)
 })
 
@@ -146,8 +146,8 @@ const SRC = readFileSync(fileURLToPath(new URL('./recipes.js', import.meta.url))
 const CODE = SRC.split('\n').filter(l => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
 
 test('⛔ 这个模块的代码里不许再出现任何一台引擎的参数名', () => {
-  // 这一条就是 2026-08-29 之前那个洞的形状：一行写死二十来个 GSV 参数名。
-  // ⚠ speed / speed_factor 是例外，它们是 v3 老配方的兼容那一条，有注释说明。
+  // 这一条就是那个洞的形状：一行写死二十来个 GSV 参数名。
+  // speed / speed_factor 是例外，它们是 v3 老配方的兼容那一条，有注释说明。
   const banned = [
     'top_k', 'top_p', 'temperature', 'repetition_penalty', 'text_split_method',
     'sample_steps', 'if_sr', 'batch_size', 'batch_threshold', 'split_bucket',
@@ -158,7 +158,7 @@ test('⛔ 这个模块的代码里不许再出现任何一台引擎的参数名'
   assert.deepEqual(found, [], `这些引擎参数名又被写死进来了：${found.join(', ')}`)
 })
 
-// ⭐⭐ 「保存为配方」的预览。原来是写死的两行 ⇒ 换一台引擎就永远显示
+// 「保存为配方」的预览。原来是写死的两行 ⇒ 换一台引擎就永远显示
 //   「（无）（无）」，等于对用户说"你没有模型"，正是这一轮要消灭的那句谎话。
 test('⭐ 存进去了才列出来', () => {
   const p = recipeWeightPreview({ gpt_ckpt: 'a/b/x.ckpt', sovits_pth: 'a/b/y.pth' })

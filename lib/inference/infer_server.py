@@ -8,12 +8,12 @@ D:\\AI\\GPT-SoVITS-v2pro-20250604 引擎即可完成推理。
     <venv>\\python.exe lib\\inference\\infer_server.py -a 127.0.0.1 -p 9880 -c lib\\inference\\tts_infer.yaml
 
 接口 (与 server.js 调用 1:1 兼容):
-    GET  /                       健康检查 (返回 200)
-    POST /tts                    文本转语音, 返回 audio/wav 字节流
-    GET  /tts                    同上 (query 参数)
-    GET  /set_gpt_weights?weights_path=     热加载 GPT 权重
-    GET  /set_sovits_weights?weights_path=  热加载 SoVITS 权重
-    GET  /control?command=restart|exit      进程控制
+    GET / 健康检查 (返回 200)
+    POST /tts 文本转语音, 返回 audio/wav 字节流
+    GET /tts 同上 (query 参数)
+    GET /set_gpt_weights?weights_path= 热加载 GPT 权重
+    GET /set_sovits_weights?weights_path= 热加载 SoVITS 权重
+    GET /control?command=restart|exit 进程控制
 """
 
 import os
@@ -62,7 +62,7 @@ sys.path.append(os.path.join(GSV_DIR, "gsv_code"))
 os.chdir(PROJECT_ROOT)
 
 # numba (librosa 依赖) 缓存目录: 指向项目内可写目录, 避免 site-packages 只读导致的 PermissionError
-# r12c batch13: 落点统一到 cache/numba，与 lib/paths.js:396 的 CACHE.numba 对齐。
+# 落点统一到 cache/numba，与 lib/paths.js:396 的 CACHE.numba 对齐。
 # 这里只能把同一个位置再写成 Python（跟 download_models.py 一样），
 # 位置权威仍在 lib/paths.js。改那边就要同步改这里。
 os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(PROJECT_ROOT, "cache", "numba"))
@@ -71,8 +71,8 @@ os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
 # Windows 上 numpy/soundfile/sklearn 等各自捆绑 OpenMP/MKL 运行时, 若在 torch 之前加载,
 # 会与 torch 的 OpenMP 产生重复运行时冲突, 导致首次 torch 重运算 (加载/构建模型) 时
 # 静默访问冲突崩溃 (无 Python traceback)。两个措施规避:
-#   1) 允许重复 OpenMP 运行时共存 (官方推荐的兜底开关, 这一条已足以规避 OpenMP 冲突)
-#   2) 固定 native 库加载顺序: 先 librosa, 再 torch
+#  1) 允许重复 OpenMP 运行时共存 (官方推荐的兜底开关, 这一条已足以规避 OpenMP 冲突)
+#  2) 固定 native 库加载顺序: 先 librosa, 再 torch
 #
 # 注意 (2) 的方向: 早期版本是"抢先 import torch"。但在部分 Windows 机器上,
 # 若 torch 先于 librosa 加载, librosa 的 import 会触发 native 访问冲突
@@ -204,20 +204,20 @@ if config_path in [None, ""]:
 
 # 活动配置的自检与修复(活动 yaml 会被运行时热加载回写, 故不入库)。
 #
-# ⭐ 这段逻辑从 tools/scripts/start.ps1 的 Repair-EngineConfig 搬过来 ——
-#   它是 GPT-SoVITS 独有的收拾工作, 平台正在改成"按名片起引擎", 引擎特有的
-#   逻辑不该留在平台的启动脚本里。搬到这儿之后**谁起这个进程都一样修**:
-#   start.ps1 起、平台起、开发者手工敲命令起, 行为完全一致。
-#   判据比原先的"缺了才复制"严格: 空文件、被 GBK 控制台写坏的问号路径、
-#   指向已不存在位置的旧路径, 都会带备份地重建。
-#   ⛔ 这里显式把本文件所在目录放进 sys.path 再 import: :51-52 往 path 前面
-#   插了两个引擎目录, 不能指望"脚本目录一定还在最前面"。
+# 这段逻辑从 tools/scripts/start.ps1 的 Repair-EngineConfig 搬过来，
+#  它是 GPT-SoVITS 独有的收拾工作, 平台正在改成"按名片起引擎", 引擎特有的
+#  逻辑不该留在平台的启动脚本里。搬到这儿之后谁起这个进程都一样修:
+#  start.ps1 起、平台起、开发者手工敲命令起, 行为完全一致。
+#  判据比原先的"缺了才复制"严格: 空文件、被 GBK 控制台写坏的问号路径、
+#  指向已不存在位置的旧路径, 都会带备份地重建。
+#  这里显式把本文件所在目录放进 sys.path 再 import: :51-52 往 path 前面
+#  插了两个引擎目录, 不能指望"脚本目录一定还在最前面"。
 if THIS_DIR not in sys.path:
     sys.path.append(THIS_DIR)
 from config_repair import repair as _repair_engine_config  # noqa: E402
-# ⭐ 2026-10-01：请求别名折叠（if_sr → super_sampling）。判断本身在
-#   alias_fold.py —— 那儿有它的测试；这里只负责在 tts_handle 里调。
-#   ⚠️ 同目录 import 依赖上面那个 sys.path.append(THIS_DIR)。
+# 请求别名折叠（if_sr → super_sampling）。判断本身在
+#  alias_fold.py：那儿有它的测试；这里只负责在 tts_handle 里调。
+#  同目录 import 依赖上面那个 sys.path.append(THIS_DIR)。
 from alias_fold import fold_aliases  # noqa: E402
 
 _repair_engine_config(config_path, config_path + ".example", PROJECT_ROOT)
@@ -226,22 +226,22 @@ def _sweep_upstream_shell_dir():
     """收掉上游 TTS_Config 在项目根拉出来的那个空壳目录。
 
     上游 engines/gpt-sovits/infer/TTS.py 的 TTS_Config.__init__ (class 在 :248)
-    第 333 行有一句**无条件**的 os.makedirs("GPT_SoVITS/configs/"), 它是相对
+    第 333 行有一句无条件的 os.makedirs("GPT_SoVITS/configs/"), 它是相对
     当前工作目录的, 而本文件 :62 已经 chdir 到项目根 (yaml 里的相对底模路径靠
     这个基准解析, 不能改), 于是每次起引擎都会在项目根上新造一个空目录。
 
     它从头到尾没人读写: 本项目传给 TTS_Config 的是 lib/inference/tts_infer.yaml
     这条绝对路径, 上游那个"没给配置就用默认路径"的分支永远不会进。
 
-    ⭐ 为什么把清理放在这里而不是去改上游那一行:
+    为什么把清理放在这里而不是去改上游那一行:
        改上游是零功能价值的改动, 却要在每次升级上游时重新施加
        (见 engines/gpt-sovits/infer/LOCAL-CHANGES.md 的维护成本)。
        这个文件是本项目自己的, 收尾放这儿等于一行上游代码都不动。
 
-    ⛔ 只在**确实是空的**时候删: 只要底下有任何文件就原样留着 —— 那说明有人
+    只在确实是空的时候删: 只要底下有任何文件就原样留着：那说明有人
        把旧布局的权重树搬回来了, 那是 lib/root_layout.node.test.js 的活,
        轮不到这里悄悄删掉别人的东西。
-    """
+"""
     import shutil
 
     shell = os.path.join(PROJECT_ROOT, "GPT_SoVITS")
@@ -258,14 +258,14 @@ tts_config = TTS_Config(config_path)
 print(tts_config)
 tts_pipeline = TTS(tts_config)
 
-# ⭐ 必须放在 TTS_Config / TTS 都构造完之后 —— 空壳是 TTS_Config.__init__ 造的,
-#   提前删会被它随后重新造出来。
+# 必须放在 TTS_Config / TTS 都构造完之后：空壳是 TTS_Config.__init__ 造的,
+#  提前删会被它随后重新造出来。
 _sweep_upstream_shell_dir()
 
 # tts_pipeline 是模块级全局单例, 被所有请求共享。切换 GPT/SoVITS 权重
 # (init_t2s_weights / init_vits_weights) 与推理 (run) 会并发访问同一对象:
 # 若一次推理进行中另一请求切了权重, 推理会读到半加载状态而抛异常 (/tts 返回 400
-# -> server.js 返回 500), 刷新后 (权重已切完) 又正常 —— 典型竞态。
+# -> server.js 返回 500), 刷新后 (权重已切完) 又正常：典型竞态。
 # 用一把互斥锁把"切权重"与"推理"串行化: 切模型时新推理排队等待, 反之亦然。
 _model_lock = asyncio.Lock()
 
@@ -295,29 +295,29 @@ class TTS_Request(BaseModel):
     repetition_penalty: float = 1.35
     sample_steps: int = 32
     super_sampling: bool = False
-    # ⭐⭐ 2026-10-01 别名折叠 —— 「Super Sampling」那一格以前是**死的**。
+    # 别名折叠：「Super Sampling」那一格以前是死的。
     #
     # 事实（不是推断）：平台从 engines/gpt-sovits/manifest.json 的
     # param_schema 长出这一格，键名是 `if_sr`；assembleEnginePayload 也照
     # payload_keys 原样把它发过来。但这个宿主的 TTS_Request 只有
-    # super_sampling，**pydantic v2 静默忽略多余字段** ⇒ 用户在界面上打开
-    # 那一格、点生成，声音一点不变，**没有一处报错**。
+    # super_sampling，pydantic v2 静默忽略多余字段 ⇒ 用户在界面上打开
+    # 那一格、点生成，声音一点不变，没有一处报错。
     #
     # 为什么在这里折叠（而不是让平台各处去翻译）：
-    #   ⛔ `if_sr` 是磁盘上 v3 配方的历史键名，被 lib/recipeStore.js:84 的
-    #     V3_PARAM_KEYS 和 lib/recipeView.js:40 冻住了（C11 豁免表登记着，
-    #     理由是「v3 磁盘格式的历史事实，名片变了它也不能变」）。改名片会让
-    #     存量配方读错。
-    #   ⛔ 在平台侧加一张「历史键名对照表」就是 C11 明令禁止的**第二份参数名
-    #     清单**，而且必然漂移。
-    #   ⇒ 既成事实让**收件人**认，成本最低、漂移面最小。
+    #  `if_sr` 是磁盘上 v3 配方的历史键名，被 lib/recipeStore.js:84 的
+    #  V3_PARAM_KEYS 和 lib/recipeView.js:40 冻住了（C11 豁免表登记着，
+    #  理由是「v3 磁盘格式的历史事实，名片变了它也不能变」）。改名片会让
+    #  存量配方读错。
+    #  在平台侧加一张「历史键名对照表」就是 C11 明令禁止的**第二份参数名
+    #  清单**，而且必然漂移。
+    #  ⇒ 既成事实让收件人认，成本最低、漂移面最小。
     #
     # 真实消费点在下游 engines/gpt-sovits/infer/TTS.py:1229
     # （super_sampling = inputs.get("super_sampling", False)），宿主不翻译它
-    # 就永远读不到。
+    # 就永远无法读取。
     #
     # 优先级：`if_sr` 是平台唯一的规范键（没有任何生产代码发 super_sampling），
-    # 所以**两个都给时 if_sr 赢**。这样即使将来有人按下游的名字发，也不会
+    # 所以两个都给时 if_sr 赢。这样即使将来有人按下游的名字发，也不会
     # 把用户在界面上明确关掉的那一格又打开。
     if_sr: Optional[bool] = None
     overlap_length: int = 2
@@ -444,14 +444,14 @@ def check_params(req: dict):
 
 
 async def tts_handle(req: dict):
-    # ⭐⭐ 2026-10-01：把平台侧的 if_sr 折叠成下游认的 super_sampling。
+    # 把平台侧的 if_sr 折叠成下游认的 super_sampling。
     #
-    # 折叠点为什么在**这里**（tts_handle 的第一行）而不是端点上：GET 和 POST
-    # 两条路都汇到这个函数，在这儿折叠一处就够 —— 在端点上做就得写两遍，
+    # 折叠点为什么在这里（tts_handle 的第一行）而不是端点上：GET 和 POST
+    # 两条路都汇到这个函数，在这儿折叠一处就够：在端点上做就得写两遍，
     # 而两遍迟早会漂移成一处有、一处没有。
     #
     # 判断本身（哪两个键是别名、冲突时谁赢、为什么不能让平台各处去翻译）
-    # 全部在 lib/inference/alias_fold.py 的注释和测试里 —— 那儿才是这件事的
+    # 全部在 lib/inference/alias_fold.py 的注释和测试里：那儿才是这件事的
     # 产地，这里只负责调。
     fold_aliases(req)
 

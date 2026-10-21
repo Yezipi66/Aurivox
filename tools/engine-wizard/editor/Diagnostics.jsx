@@ -1,21 +1,14 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
-//  检查结果面板
+// 检查结果面板：三档，错误 / 警告 / 提示。
+// 警告那一档是本工具存在的理由，平台管不到「填了没效果」。
 //
-//  ⭐ 三档：错误 / 警告 / 提示
-//      —— 「警告」那一档是本工具存在的理由：平台管不到「填了没效果」。
+// 用项目的 .collapsible > .collapsible-hdr + .collapsible-body，默认展开：
+// 检查结果是这里的核心信息，藏起来等于没有。
+// 每档一条都用项目现成的 .msg 与 .badge，不自造 .dg-* 类，那是重画项目的 .msg。
 //
-//  ⭐ 形态：**项目的** .collapsible > .collapsible-hdr + .collapsible-body，
-//     默认展开 —— 检查结果是这里的核心信息，藏起来等于没有。
-//     ⛔ 每一档一条都用项目现成的 .msg + .badge，
-//        ⛔⛔ 不再自造一整套 .dg-*（那是重画项目的 .msg ⇒ 两套事实）。
-//
-//  ⛔⛔ 措辞纪律：不用口语。每句话只陈述**事实**：什么字段、缺什么、改成什么。
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
+// 每句话只陈述事实：什么字段、缺什么、改成什么。
 
 const LEVELS = {
   error: { zh: '错误', en: 'Error' },
@@ -36,7 +29,9 @@ function whereText (d) {
 
 export default function Diagnostics ({ result, loading }) {
   const { t } = useT()
-  const [open, setOpen] = React.useState(true)   // ⭐ 默认展开
+  // 默认折叠（RFC：右栏 Diagnostics 默认折叠，让位给 Preview）。
+  //   计数徽标仍常驻标题行，一眼看出有无问题；要细看点开。
+  const [open, setOpen] = React.useState(false)
 
   // 还没跑出结果：连标题都不占地方
   if (loading && !result) {
@@ -94,8 +89,8 @@ export default function Diagnostics ({ result, loading }) {
 
       {open && (
         <div className="collapsible-body">
-          {/* ⭐ 免责说明：它对**每一张名片**都成立，与当前填得好不好无关
-              ⇒ 常驻一行，⛔ 不混进错误/警告里冒充一条问题。 */}
+          {/* 免责说明：它对每一张名片都成立，与当前填得好不好无关
+              ⇒ 常驻一行，不混进错误/警告里冒充一条问题。 */}
           <p className="msg msg-info">
             {t('A passing check here means the schema is accepted. '
               + 'It does not mean the engine will run, and it does not mean '
@@ -133,7 +128,7 @@ export default function Diagnostics ({ result, loading }) {
 function Diag ({ d }) {
   const { t } = useT()
   const meta = LEVELS[d.level] || LEVELS.info
-  // ⛔ 回落也走 t()：直接写 meta.zh 会在英文界面里漏出中文
+  // 回落也走 t()：直接写 meta.zh 会在英文界面里漏出中文
   const tag = t(meta.en, meta.zh)
   const where = whereText(d)
   return (

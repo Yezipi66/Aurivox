@@ -40,13 +40,13 @@ download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
     (旧名 uvr5 = 上面 4 个子组的全集, --set uvr5 仍可用)
 
 来源(HF 首选;FunASR 用 ModelScope。如与你的实际源不同,改 MANIFEST 里的 repo/id 即可):
-  * lj1995/GPT-SoVITS                     —— 绝大多数底模 / hubert / roberta
-  * lj1995/VoiceConversionWebUI           —— uvr5 去人声/去混响权重 (HP/DeEcho/MDX)
-  * Eddycrack864/... , KimberleyJSN/...   —— BS-Roformer / Mel-Band Roformer
-  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  —— ASR (turbo, ~1.6GB)
-  * ModelScope iic/ (paraformer/vad/punc/UniASR) —— FunASR 中文/粤语 (ms 后端整目录)
-  * fasttext lid.176                      —— 语言检测直链
-  * XXXXRT/GPT-SoVITS-Pretrained          —— G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
+  * lj1995/GPT-SoVITS                     : 绝大多数底模 / hubert / roberta
+  * lj1995/VoiceConversionWebUI           : uvr5 去人声/去混响权重 (HP/DeEcho/MDX)
+  * Eddycrack864/... , KimberleyJSN/...   : BS-Roformer / Mel-Band Roformer
+  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  : ASR (turbo, ~1.6GB)
+  * ModelScope iic/ (paraformer/vad/punc/UniASR) : FunASR 中文/粤语 (ms 后端整目录)
+  * fasttext lid.176                      : 语言检测直链
+  * XXXXRT/GPT-SoVITS-Pretrained          : G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
 
 注: SR 音频超分(24k->48k, AP-BWE)与 BigVGAN 声码器仅 SoVITS v3 使用, 本项目不支持 v3, 已移除。
 """
@@ -109,7 +109,7 @@ URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve
 # 引擎源码位置（r12c 起：engines/<引擎名>/，见 retired engine-integration specification §2）。
 GSV_CODE = os.path.join("engines", "gpt-sovits", "gsv_code")
 
-# 权重位置。必须与 lib/paths.js 的常量逐条对应 —— 那里是全项目唯一的位置权威,
+# 权重位置。必须与 lib/paths.js 的常量逐条对应 ： 那里是全项目唯一的位置权威,
 # 这里只是把同一组位置写成 Python。守卫测试 lib/base_model_layout.node.test.js
 # 会逐条核对, 两边一旦分叉就红。
 #
@@ -134,7 +134,7 @@ LANGDETECT_DIR = os.path.join("models", "lang", "fast_langdetect")
 MANIFEST = {
     # ---- 核心底模 + 默认基座 v2Pro (必需) ----
     "core": [
-        # S1 GPT (AR) —— 每个版本都需要
+# S1 GPT (AR) ： 每个版本都需要
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"),
          os.path.join(PRE, "v2", "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"), 120_000_000),
         ("hf", (HF_REPO_GSV, "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"),
@@ -184,7 +184,7 @@ MANIFEST = {
     ],
     # FunASR 中文/粤语 ASR 引擎 (前端可选, 中文更准 + 自带标点)。模型在 ModelScope
     # 的 iic/, 用 "ms" 后端整目录下载到 models/asr/funasr/<name>/, 与 funasr_asr.py
-    # 运行时懒下载的落地路径一致 —— 预下载后离线首训即可用。
+# 运行时懒下载的落地路径一致 ： 预下载后离线首训即可用。
     "funasr": [
         ("ms", mid, os.path.join(FUNASR_DIR, name), 5_000_000)
         for mid, name in MS_FUNASR
@@ -479,7 +479,7 @@ def check(root, groups=None):
             log(f"       - {m}")
         all_ok = all_ok and not miss
     log("=" * 50)
-    log("  全部齐全 ✅" if all_ok else "  存在缺失, 运行  --wizard  或  --set <组>  下载。")
+    log("  全部齐全" if all_ok else "  存在缺失, 运行  --wizard  或  --set <组>  下载。")
     return 0 if all_ok else 1
 
 

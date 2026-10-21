@@ -1,0 +1,222 @@
+{
+  "ok": true,
+  "partial": false,
+  "partial_reason": null,
+  "python": {
+    "version": "3.11.9",
+    "module_file": "D:\\Project/tts_broker_openai_compat/engines/cosyvoice2\\cosyvoice\\__init__.py"
+  },
+  "class": "cosyvoice.cli.cosyvoice.CosyVoice2",
+  "method": "inference_zero_shot",
+  "load": [
+    {
+      "name": "model_dir",
+      "phase": "load",
+      "required": true,
+      "default": null,
+      "default_repr": null,
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "必填参数，没有默认值"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "path?",
+        "confidence": "weak",
+        "why": "名字像路径 —— 确认它该不该做成界面格子"
+      }
+    },
+    {
+      "name": "load_jit",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "load_trt",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "load_vllm",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "fp16",
+      "phase": "load",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "trt_concurrent",
+      "phase": "load",
+      "required": false,
+      "default": 1,
+      "default_repr": "1",
+      "kind": {
+        "kind": "integer",
+        "confidence": "medium",
+        "why": "默认值是 Python int（但 int 也可能是被当 bool 用的 0/1）"
+      },
+      "annotation": null,
+      "name_hint": null
+    }
+  ],
+  "call": [
+    {
+      "name": "tts_text",
+      "phase": "call",
+      "required": true,
+      "default": null,
+      "default_repr": null,
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "必填参数，没有默认值"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "text",
+        "confidence": "weak",
+        "why": "名字像文本"
+      }
+    },
+    {
+      "name": "prompt_text",
+      "phase": "call",
+      "required": true,
+      "default": null,
+      "default_repr": null,
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "必填参数，没有默认值"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "text",
+        "confidence": "weak",
+        "why": "名字像文本"
+      }
+    },
+    {
+      "name": "prompt_wav",
+      "phase": "call",
+      "required": true,
+      "default": null,
+      "default_repr": null,
+      "kind": {
+        "kind": "unknown",
+        "confidence": "none",
+        "why": "必填参数，没有默认值"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "audio",
+        "confidence": "weak",
+        "why": "名字像音频输入（值是文件路径）"
+      }
+    },
+    {
+      "name": "zero_shot_spk_id",
+      "phase": "call",
+      "required": false,
+      "default": "",
+      "default_repr": "''",
+      "kind": {
+        "kind": "text",
+        "confidence": "medium",
+        "why": "默认值是 Python str"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "stream",
+      "phase": "call",
+      "required": false,
+      "default": false,
+      "default_repr": "False",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": null
+    },
+    {
+      "name": "speed",
+      "phase": "call",
+      "required": false,
+      "default": 1,
+      "default_repr": "1.0",
+      "kind": {
+        "kind": "number",
+        "confidence": "medium",
+        "why": "默认值是 Python float"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "number",
+        "confidence": "weak",
+        "why": "名字像数值旋钮"
+      }
+    },
+    {
+      "name": "text_frontend",
+      "phase": "call",
+      "required": false,
+      "default": true,
+      "default_repr": "True",
+      "kind": {
+        "kind": "boolean",
+        "confidence": "strong",
+        "why": "默认值是 Python bool"
+      },
+      "annotation": null,
+      "name_hint": {
+        "kind": "text",
+        "confidence": "weak",
+        "why": "名字像文本"
+      }
+    }
+  ],
+  "warnings": []
+}

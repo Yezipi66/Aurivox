@@ -1,30 +1,35 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
-//  NESTED SECTION —— 嵌套段的填表（runtime / call / models）
+// NESTED SECTION：嵌套段的填表（runtime / call / models）
 //
-//  ⭐ 为什么单独一个文件
-//  这三段不是「几个键」，而是**嵌套结构**：
+//    为什么单独一个文件
+//  这三段不是「几个键」，而是嵌套结构：
 //    runtime.verify.sys_path[] / imports[].class …
 //    call.init_args{} / bind{三槽位} / methods{每个方法一套} / args[]
 //    models.required[] / source.command[]
-//  ⇒ 一个键一个 input 画不出来。
+//   一个键一个 input 无法显示。
 //
-//  ⛔⛔ 但**不照抄任何一张真名片** —— 真名片形状各不相同，
-//  照抄 = 第二份事实，必然漂移。⇒ 这里按**形状分类**，每种形状一个编辑器。
+// 但不照抄任何一张真名片：真名片形状各不相同，
+//  照抄 = 第二份事实，必然漂移。这里按形状分类，每种形状一个编辑器。
 //
-//  ⭐ 排版全部用项目类：.field / .field-label / .field-hint / .control /
+//    排版全部用项目类：.field / .field-label / .field-hint / .control /
 //    .plan-warn / .badge / .table / .expert-block / .expert-summary
-//    ⛔⛔ 之前自造的 .nx-row/.nx-label/.nx-ctl/.nx-obj/.nx-obj-row/.nx-lineno
-//      全项目 CSS 里一个定义都没有 ⇒ 那一大块是纯裸奔。
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
+//        之前自造的 .nx-row/.nx-label/.nx-ctl/.nx-obj/.nx-obj-row/.nx-lineno
+//      全项目 CSS 里一个定义都没有  那一大块是纯裸奔。
 
-// ---------------------------------------------------------------------------
 // 一行：键名 + 说明 + 控件
-// ---------------------------------------------------------------------------
+//   第 3 章警告三级（RFC）：按 danger 分色，不再一律拍成黄。
+//   BLOCK（平台会抛错、装不上）→ .msg-danger 红框
+//   SILENT（设了没效果、填错不报错）→ .msg-warn 黄框
+//   INFO（纯提示）→ .field-hint 灰字（不是框）
+//     只用平台现成类，不新增 class、不 inline style。
+// warn 文案按 danger 档位套不同的平台类（第 3 章）
+const WARN_BOX = {
+  block: 'msg-danger',   // 红框：真会阻断加载
+  silent: 'field-hint',  // 灰字 + 左边框：设了没效果
+  info: 'field-hint',    // 灰字：纯提示
+}
 function Row ({ label, hint, warn, children, danger }) {
   const { t } = useT()
   return (
@@ -36,9 +41,20 @@ function Row ({ label, hint, warn, children, danger }) {
             {t('no error if wrong', '填错不报错')}
           </span>
         )}
+        {danger === 'block' && (
+          <span className="badge badge-danger">
+            {t('blocks loading', '填错装不上')}
+          </span>
+        )}
       </div>
       {hint && <div className="field-hint">{hint}</div>}
-      {warn && <div className="plan-warn">⚠ {warn}</div>}
+      {/*   按 danger 分色：block 红框 / silent 黄框 / info 灰字 */}
+      {warn && (
+        <div className={danger === 'silent' ? 'field-hint' : (WARN_BOX[danger] || 'field-hint')}
+          style={danger === 'silent' ? { borderLeft: '2px solid var(--warning)', paddingLeft: 8 } : undefined}>
+          {warn}
+        </div>
+      )}
       {children}
     </div>
   )
@@ -57,7 +73,79 @@ function ArrayField ({ value, onChange, placeholder, t }) {
   )
 }
 
-/** key → value 的浅对象（init_args 这类）—— ⭐ 用项目的 .table 画「键 值 ×」三列 */
+// ArgsField：call.args 编辑器（cli 形态），一张 {name:{flag,style}} 的表格。
+//     不能套 ArrayField（那是字符串数组）也不能套 ObjectField（value 是对象不是标量）。
+//   每行：name（键）/ flag（--flag）/ style（value|boolean）/ 删除。可新增行。
+function ArgsField ({ value, onChange, t }) {
+  const v = (value && typeof value === 'object') ? value : {}
+  const rows = Object.entries(v).map(([name, a]) => ({
+    name,
+    flag: (a && a.flag) || '',
+    style: (a && a.style) || 'value',
+  }))
+  const emit = (next) => {
+    const obj = {}
+    for (const r of next) {
+      if (!r.name) continue
+      obj[r.name] = { flag: r.flag, style: r.style }
+    }
+    onChange(Object.keys(obj).length ? obj : undefined)
+  }
+  return (
+    <div>
+      {/*   用项目的 .table（与 ObjectField/LinesField 一致），  不再裸 table + inline style */}
+      <table className="table">
+        <thead>
+          <tr>
+            <th>name</th>
+            <th>flag</th>
+            <th>style</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>
+                <input className="control" type="text" value={r.name}
+                  onChange={(e) => {
+                    const next = rows.slice(); next[i] = { ...r, name: e.target.value }; emit(next)
+                  }} />
+              </td>
+              <td>
+                <input className="control" type="text" value={r.flag} placeholder="--flag"
+                  onChange={(e) => {
+                    const next = rows.slice(); next[i] = { ...r, flag: e.target.value }; emit(next)
+                  }} />
+              </td>
+              <td>
+                <select className="control" value={r.style}
+                  onChange={(e) => {
+                    const next = rows.slice(); next[i] = { ...r, style: e.target.value }; emit(next)
+                  }}>
+                  <option value="value">value</option>
+                  <option value="boolean">boolean</option>
+                </select>
+              </td>
+              <td>
+                <button className="btn btn-sm" type="button"
+                  onClick={() => emit(rows.filter((_, j) => j !== i))}>
+                  {t('del', '删')}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button className="btn btn-sm" type="button" style={{ marginTop: 4 }}
+        onClick={() => emit([...rows, { name: '', flag: '--', style: 'value' }])}>
+        {t('Add flag', '加一个参数')}
+      </button>
+    </div>
+  )
+}
+
+// * key → value 的浅对象（init_args 这类）：用项目的 .table 画「键 值 ×」三列
 function ObjectField ({ value, onChange, t }) {
   const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
   const rows = Object.entries(obj)
@@ -104,7 +192,7 @@ function ObjectField ({ value, onChange, t }) {
   )
 }
 
-/** 逐行字符串数组（args / command 这类）—— 同样用 .table：序号 值 × */
+// * 逐行字符串数组（args / command 这类）：同样用 .table，序号 值 ×
 function LinesField ({ value, onChange, t }) {
   const lines = Array.isArray(value) ? value : []
   const [line, setLine] = React.useState('')
@@ -146,9 +234,7 @@ function LinesField ({ value, onChange, t }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// runtime.verify —— 装没装 / 起不来得来，就看它
-// ---------------------------------------------------------------------------
+// runtime.verify：装没装 / 起不来得来，就看它
 function VerifyField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (patch) => onChange({ ...v, ...patch })
@@ -246,9 +332,7 @@ function VerifyField ({ value, onChange, t }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// call.bind —— 槽位，对应平台的固定词表
-// ---------------------------------------------------------------------------
+// call.bind：槽位，对应平台的固定词表
 function BindField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
@@ -257,7 +341,7 @@ function BindField ({ value, onChange, t }) {
     else next[k] = val
     onChange(Object.keys(next).length ? next : undefined)
   }
-  // 平台词表是固定的那几个 —— ⛔ 那属于平台，不属于名片，这里只提示不强制
+  // 平台词表是固定的那几个：那属于平台，不属于名片，这里只提示不强制
   const SLOTS = ['text', 'ref_audio', 'ref_text', 'ref_lang', 'text_lang', 'out']
   return (
     <>
@@ -274,16 +358,18 @@ function BindField ({ value, onChange, t }) {
             onChange={(e) => set(slot, e.target.value.trim())} />
         </Row>
       ))}
-      <p className="plan-warn">
-        {t('These are the platform\'s fixed input words. Each one maps to whatever '
-          + 'the engine calls that thing — a wrong mapping is not reported as an error.',
-          '以上为平台固定的输入词，每个词对应上游各自的名称，映射错误不会报错。')}>
+      {/*   映射错误不会报错 = 设了没效果  SILENT 黄框（第 3 章）*/}
+      <p className="field-hint" style={{ borderLeft: '2px solid var(--warning)', paddingLeft: 8 }}>
+        {t('Confirm which upstream argument each of the 3 core inputs goes to: '
+          + 'the text to synthesize / the reference audio / the output. '
+          + 'The platform has already matched them automatically; just check them.',
+          '确认 3 个核心输入对应上游哪个参数：要合成的文字 / 参考音频 / 输出。机器已自动匹配，核对即可。')}
       </p>
     </>
   )
 }
 
-/** call.methods —— 每个方法一套 bind/时序 */
+// * call.methods：每个方法一套 bind/时序
 function MethodsField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const names = Object.keys(v)
@@ -331,11 +417,16 @@ function MethodsField ({ value, onChange, t }) {
       })}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
         <input className="control" type="text" style={{ width: 'auto', minWidth: 180 }}
-          placeholder={t('method id', '方法 id')}
+          placeholder={names.length === 0
+            ? t('zero_shot (default)', 'zero_shot（默认）')
+            : t('method id', '方法 id')}
           value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn btn-sm" type="button"
           onClick={() => {
-            const k = name.trim()
+            //   第一个方法默认叫 zero_shot（零样本，最常用的合成方式）。
+            //     纯 UX 默认：换了方法反射会当场重算参数，不影响任何判断。
+            // 只兜第一个（names 还空着）：之后让用户自己命名。
+            const k = (name.trim() || (names.length === 0 ? 'zero_shot' : '')).trim()
             if (!k || v[k]) return
             onChange({ ...v, [k]: {} }); setName('')
           }}>+</button>
@@ -344,9 +435,7 @@ function MethodsField ({ value, onChange, t }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 // 三段的编辑器
-// ---------------------------------------------------------------------------
 export function RuntimeSection ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
@@ -358,10 +447,12 @@ export function RuntimeSection ({ value, onChange, t }) {
   return (
     <>
       <Row label="python"
-        hint={t('the engine\'s own environment directory (e.g. engines/<id>/.venv)',
+        hint={t('the engine’s own environment directory (e.g. engines/<id>/.venv)',
           '这台引擎自己的环境目录（如 engines/<id>/.venv）')}
-        warn={t('must be relative. An absolute path is rejected outright',
-          '必须为相对路径，绝对路径会被拒绝')}>
+        warn={t('use the engine’s own environment directory (e.g. engines/<id>/.venv). '
+          + 'An absolute path will not save.',
+          '填引擎自己的环境目录（如 engines/<id>/.venv），填绝对路径存不了。')}
+        danger="block">
         <input className="control" type="text" value={v.python || ''}
           placeholder="engines/xxx/.venv"
           onChange={(e) => set('python', e.target.value.trim())} />
@@ -392,9 +483,11 @@ export function RuntimeSection ({ value, onChange, t }) {
       </Row>
       <Row label="ready_timeout_ms_source"
         hint={t('required: where that number came from — measured or estimated',
-          '必填：需说明该数值的来源（实测或估算）')}>
-        warn={t('writing a number without saying where it came from is rejected',
-          '写了数却不说明出处会被拒绝')}>
+          '必填：需说明该数值的来源（实测或估算）')}
+        warn={t('saving is rejected: this number must say where it came from '
+          + '(measured / estimated / upstream).',
+          '保存时会被打回：这个数字必须说明来源（实测/估算/上游）。')}
+        danger="block">
         <select className="control" value={v.ready_timeout_ms_source || ''}
           onChange={(e) => set('ready_timeout_ms_source', e.target.value || undefined)}>
           <option value="">{t('(unset)', '（不写）')}</option>
@@ -436,9 +529,8 @@ export function CallSection ({ value, onChange, t }) {
           'python = 调一个类；cli = 跑一条命令')}>
         <select className="control" value={v.kind || ''}
           onChange={(e) => set('kind', e.target.value || undefined)}>
-          <option value="">{t('(unset)', '（不写）')}</option>
-          <option value="python">python</option>
-          <option value="cli">cli</option>
+          <option value="python">python（调一个类）</option>
+          <option value="cli">cli（跑一条命令）</option>
         </select>
       </Row>
       {v.kind !== 'cli' && (<>
@@ -466,11 +558,27 @@ export function CallSection ({ value, onChange, t }) {
           '平台的每个输入词对应上游哪个参数')}>
         <BindField value={v.bind} onChange={(b) => set('bind', b)} t={t} />
       </Row>
+      {v.kind === 'cli' && (
+        <>
+          <Row label="argv"
+            hint={t('the command to run, comma-separated. {engine_python} / {engine_dir} / {root} are filled by the platform',
+              '要跑的命令，逗号分隔。{engine_python} / {engine_dir} / {root} 由平台替换')}>
+            <ArrayField value={v.argv} onChange={(a) => set('argv', a)} t={t}
+              placeholder="{engine_python}, -m, module, synth" />
+          </Row>
+          <Row label="args"
+            hint={t('every command-line flag, one per row. name = key, flag = the --flag, style = value/boolean',
+              '每个命令行参数一行。name = 键，flag = --flag，style = value/boolean')}>
+            <ArgsField value={v.args} onChange={(a) => set('args', a)} t={t} />
+          </Row>
+        </>
+      )}
       <Row label="returns"
         hint={t('file / bytes / generator — what the method gives back',
-          'file / bytes / generator，方法的返回形式')}>
+          'file / bytes / generator，方法的返回形式')}
         warn={t('a wrong value here fails at call time, not at load time',
-          '此处填写错误将在调用时触发，而非加载时')}>
+          '此处填写错误将在调用时触发，而非加载时')}
+        danger="silent">
         <select className="control" value={v.returns || ''}
           onChange={(e) => set('returns', e.target.value || undefined)}>
           <option value="">{t('(unset)', '（不写）')}</option>
@@ -490,7 +598,7 @@ export function CallSection ({ value, onChange, t }) {
               + 'The platform has a single requires_reference_audio switch at the top '
               + 'level — per-method needs can only be expressed here.',
               '每个方法要各自的 bind 和 call_time。'
-              + '顶层的 requires_reference_audio 只有一个总开关，分方法的需求只能在此表达。')}>
+              + '顶层的 requires_reference_audio 只有一个总开关，分方法的需求只能在此表达。')}
           </p>
           <MethodsField value={v.methods} onChange={(m) => set('methods', m)} t={t} />
         </div>
@@ -513,10 +621,11 @@ export function ModelsSection ({ value, onChange, t }) {
       <Row label="required"
         hint={t('the files that count as «the weights are there» — the platform '
           + 'can only answer yes/no against this list',
-          '用于判断 Checkpoint 是否完整的文件清单，平台据此回答有无')}>
-        warn={t('without this the platform can only say the folder exists, '
-          + 'not whether it is complete',
-          '不写这个，平台只能说目录在不在，说不出齐不齐')}>
+          '用于判断 Checkpoint 是否完整的文件清单，平台据此回答有无')}
+        warn={t('this works without it, but then the platform cannot help you check '
+          + 'whether the weight files are all present. Listing the key files is recommended.',
+          '不填也能用，但平台没法帮你确认权重文件齐不齐。建议列出关键文件。')}
+        danger="silent">
         <ArrayField value={v.required} onChange={(a) => set('required', a)} t={t} />
       </Row>
       <Row label="hint" hint={t('shown to the user when the weights are missing',
@@ -536,10 +645,11 @@ export function ModelsSection ({ value, onChange, t }) {
         <LinesField value={src.command} t={t}
           onChange={(a) => set('source', { ...src, command: a })} />
       </Row>
-      <p className="plan-warn">
+      {/*   平台不代下载 = 纯行为说明  INFO 灰字（第 3 章）*/}
+      <p className="field-hint" style={{ marginTop: 6 }}>
         {t('The platform does not download anything. It only prints this command '
           + 'with the path filled in. Downloading is the user\'s job.',
-          '平台不执行下载，仅填入路径后显示该命令，下载需自行完成。')}>
+          '平台不执行下载，仅填入路径后显示该命令，下载需自行完成。')}
       </p>
     </>
   )

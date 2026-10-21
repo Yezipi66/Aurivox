@@ -20,16 +20,10 @@
 
 - 支持：Windows 10/11 x64、NVIDIA CUDA、GPT-SoVITS v2/v2Pro/v2ProPlus。
 - CPU：可用于部分推理，但速度明显较慢；不作为微调和 UVR5 的目标环境。
-- 暂不支持：Linux、macOS、Apple Silicon、AMD GPU。
-
-> ⚠️ **2026-10-04 订正**：「暂不支持 Intel GPU」这一条**已过时**。
-> 平台方向早已改成「多引擎 + 跨平台」（见 [`docs/ONBOARDING_PLAN.md`](./docs/ONBOARDING_PLAN.md) §0），
-> `lib/engines/platformPaths.js` 就是为此加的 —— 名片写的是**虚拟环境目录**，
-> 平台按 `process.platform` 推导 `Scripts/python.exe`（win32）还是 `bin/python`
-> （linux/darwin），⛔ 不做「三种都试，哪个存在用哪个」。
-> ⚠️ 但**「能跑起来」与「正式支持」是两件事**：Intel 核显上 XPU 可用
-> （[实测] fp16 matmul 比 CPU 快 15–24 倍），而 NVIDIA 之外的路径**未做回归测试**。
-> 微调线（UVR5 / S1 / S2）今天仍绑死 GSV + CUDA，见 ONBOARDING_PLAN C3。
+- 平台方向是「多引擎 + 跨平台」（见 [`docs/ONBOARDING_PLAN.md`](./docs/ONBOARDING_PLAN.md) §0），
+  `lib/engines/platformPaths.js` 按 `process.platform` 推导 `Scripts/python.exe`（win32）还是 `bin/python`（linux/darwin）。
+  但**「能跑起来」与「正式支持」是两件事**：NVIDIA 之外的路径未做回归测试。
+  微调线（UVR5 / S1 / S2）今天仍绑死 GSV + CUDA，见 ONBOARDING_PLAN C3。
 
 基于开源项目 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)（RVC-Boss，v2 / v2Pro / v2ProPlus）
 打造的 TTS 训练与推理一体化工作流：在其之上做工程化封装，自包含、可独立部署。
@@ -38,7 +32,7 @@
 
 - **训练**：人声提取 → 切片 → ASR → 预处理 → S1(GPT) → S2(SoVITS) 全链路管线，带失败恢复。
 - **推理**：内置 OpenAI 兼容的自包含推理服务（`lib/inference/infer_server.py`，引擎本体在 `engines/gpt-sovits/infer/`），完整 S1+S2 串联。
-- **分发**：`deploy.bat`（首次部署向导）+ `start.ps1`（启动），无需手工配环境。
+- **分发**：`deploy.bat`（首次部署向导）+ `start.bat`（启动），无需手工配环境。
 
 
 ## 顶层目录导览
@@ -144,7 +138,7 @@ start.bat
 
 后端运行在 `http://127.0.0.1:9886`，前端 `http://127.0.0.1:5173`。
 
-推理引擎由 `start.ps1` 拉起。**默认把 `engines/` 下装了的每一台都起起来**，
+推理引擎由 `start.bat` 拉起。**默认把 `engines/` 下装了的每一台都起起来**，
 每台听自己 `manifest.json` 里 `default_base_url` 声明的端口，日志各写一份：
 
 | 引擎 | 默认地址 | 日志 |
@@ -272,7 +266,7 @@ Python 依赖只有**一个** `requirements-gpt-sovits.txt` —— 一份**逐�
 文本 → S1 (GPT) → semantic tokens → S2 (SoVITS) → 音频
 ```
 
-由 `start.ps1` 随主服务一起拉起；前端「Generate」/「Compare Refs」页直接调用。
+由 `start.bat` 随主服务一起拉起；前端「Generate」/「Compare Refs」页直接调用。
 支持切换 GPT / SoVITS 权重、参考音频、逐词读音校准（`pron_overrides`）。
 
 ### 原生底模零样本推理（免微调）
@@ -329,7 +323,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
     音色的参考音频可同时保持热，正是多音色 recipe 轮转想要的。容量 `AURIVOX_REF_CACHE`（默认 8，`0`=关）。
 
 > 环境变量小抄：`AURIVOX_TTS_BATCH_SIZE=4` · `AURIVOX_MAX_QUEUE=32` · `AURIVOX_RETRY_AFTER=3` · `AURIVOX_REF_CACHE=8`。
-> 详见 `BROKER_streaming_and_residency.md` 与最终用户向的 [FAQ · Q14](./docs/GUIDANCE.md#faq)。
+> 详见 [FAQ · Q14](./docs/GUIDANCE.md#faq)。
 
 ### 本地 Broker / 可信内网接口加固（v1.0.7）
 
@@ -343,7 +337,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
 - **文件日志**：`console.*` 同时 tee 到 `logs/aurivox-<日期>.log`（按天滚动）。`AURIVOX_LOG_DIR`（默认 `logs/`）、`AURIVOX_LOG_FILE=0` 关闭。
 
 > 环境变量小抄（v1.0.7 新增）：`AURIVOX_CORS_ORIGIN=http://127.0.0.1:5173` · `AURIVOX_SHUTDOWN_GRACE_MS=120000` · `AURIVOX_LOG_DIR=logs` · `AURIVOX_LOG_FILE=1`。
-> 详见 `CHANGES-1.0.7.md` 与最终用户向的 [FAQ · Q15](./docs/GUIDANCE.md#faq)。
+> 详见 [FAQ · Q15](./docs/GUIDANCE.md#faq)。
 
 ## 模型文件
 

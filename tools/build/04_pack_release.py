@@ -61,11 +61,11 @@ TOP_EXCLUDE = {
     # dev-time backups written by the apply-r12b-fix*.py patch scripts
     # (57 files, 1.8MB). Same category as .staging, which is already here.
     #
-    # r12c-batch15: this entry went STALE and silently stopped matching. It
+# : this entry went STALE and silently stopped matching. It
     # names a TOP-LEVEL ".patch-backup" (leading dot); the patch scripts have
     # since written to "cache/patch-backup/" (no dot, one level deeper). The
     # rule kept evaluating, kept matching nothing, and 73 backup files -- five
-    # r12b-era timestamped snapshots plus the r12c-batch12/13/14 backups,
+# r12b-era timestamped snapshots plus the /13/14 backups,
     # including their applied.patch diffs -- shipped to end users. Kept here
     # for machines that still carry the old top-level folder; the live catch
     # is now the "patch-backup" entry in NAME_EXCLUDE, which is anchored to the
@@ -102,18 +102,18 @@ TOP_EXCLUDE_PREFIX = ("venv_", "venv-", ".venv_")
 # registry, its backups, recipes, canvas graphs and run state, the per-machine
 # app-config.json) is per-installation state and must never ship.
 #
-# ⛔⛔ 2026-08-25: advanced_params.json was REMOVED from this allowlist.
+# advanced_params.json was REMOVED from this allowlist.
 # It is not a shipped default — it is "what the UI was last set to" on ONE
-# machine (see lib/advancedParams.js, the boundary drawn on 2026-08-23:
+# machine (see lib/advancedParams.js, the boundary drawn:
 # 「它是界面状态的记忆，不是默认值表」). Defaults have exactly one home: the
 # engine manifest (contract C11).
 # Shipping it meant every fresh install inherited a dev machine's frozen
 # snapshot as its factory defaults — measured: batch_size 1 instead of the
 # manifest's 4, seed 2769901998, version v2, is_half false.
-# ⭐ Absent file is the CORRECT state: lib/advancedParams.js falls back to the
+# Absent file is the CORRECT state: lib/advancedParams.js falls back to the
 #    manifest for every key, and there is a test nailing that
 #    (「没有盘上文件时，每一个值都来自名片」).
-# ⭐ The reverse guard lives in tools/dev/probe_release_contents.py: that file
+# The reverse guard lives in tools/dev/probe_release_contents.py: that file
 #    now asserts advanced_params.json is NOT in the release. Putting it back
 #    here turns the probe red instead of silently shipping one machine's state.
 DATA_KEEP = {
@@ -125,16 +125,16 @@ DATA_KEEP = {
 NAME_EXCLUDE = {
     ".git", ".hg", ".svn",
     # r12c batch16: 每引擎自带一套 Python 环境（GSV 是 torch 2.2.0+cu121，
-    # IndexTTS2 是 2.8.0+cu128 —— 四个 minor 版本 + 两个 CUDA 大版本之差，
+    # IndexTTS2 是 2.8.0+cu128，四个 minor 版本 + 两个 CUDA 大版本之差，
     # 合并共享会把两个引擎的稳定性焊死，所以隔离是唯一解）。这些环境
     # 现在住在 engines\<id>\.venv\，在 deploy 时重建，绝不进发行包。
-    # ⭐ 放这里而不是 TOP_EXCLUDE：TOP_EXCLUDE 是给 data/assets/dist 这类
-    #    **通用词**用的（深层可能是依赖自己的合法目录，误删过 web/dist）。
+    # 放这里而不是 TOP_EXCLUDE：TOP_EXCLUDE 是给 data/assets/dist 这类
+    #    通用词用的（深层可能是依赖自己的合法目录，误删过 web/dist）。
     #    ".venv" 不是通用词，它是虚拟环境的约定名，和 __pycache__ 同类。
     ".venv",
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".numba_cache", ".cache", ".gradio", ".ipynb_checkpoints",
-    # r12c-batch15: apply-*.py patch backups, by DIRECTORY NAME at any depth.
+# : apply-*.py patch backups, by DIRECTORY NAME at any depth.
     # TOP_EXCLUDE already drops "cache" and ".patch-backup", but both of those
     # are anchored to a specific location -- which is exactly how the original
     # ".patch-backup" rule died when the backups moved into cache/. This entry
@@ -153,9 +153,9 @@ NODE_RUNTIME_PREFIX = "tools/runtime/node/"
 # Specific subtrees (relative paths) to drop wherever they are anchored.
 PATH_EXCLUDE = {
     os.path.join("web", "node_modules"),
-    # r12c-batch15: tools/dev holds ASSISTANT-GENERATED dev tooling -- the
+# : tools/dev holds ASSISTANT-GENERATED dev tooling -- the
     # apply-r12c-batch*.py patch scripts, collect_repo_source*.py, and the
-    # read-only probes. r12c-batch13 moved them OUT of the repo root (the root
+# read-only probes.  moved them OUT of the repo root (the root
     # layout guard only inspects depth 1) and into tools/dev -- but tools/ is
     # shipped wholesale, so "tidying the root" quietly moved them INTO the
     # release. Caught by arithmetic: --dry-run reported 5908 files while the
@@ -173,8 +173,8 @@ PATH_EXCLUDE = {
     # (12.9MB), cmake.exe (12.8MB) and CMake.qch (9.0MB) all shipped:
     # 4165 files, 92.8MB -- the single largest thing in the release.
     os.path.join("tools", "runtime", "python", "Lib", "site-packages", "cmake"),
-    # (removed 2026-08-25) The "vendor/micromamba" exclusion is gone.
-    # vendor\micromamba was deleted from disk on 2026-08-24 and contract clause
+    # The "vendor/micromamba" exclusion is gone.
+    # vendor\micromamba was deleted from disk and contract clause
     # C12.3 now forbids introducing a second package ecosystem (conda-forge) at
     # all -- the reason is licence-manifest boundaries, not technology.
     # So unlike the GPT_SoVITS/ rule in .gitignore (deliberately kept as an
@@ -188,7 +188,7 @@ PATH_EXCLUDE = {
     # anything imports -- BUT it used to hold four runtime *data* files
     # (namedict_cache.pickle, ja_userdic/{userdict.csv,user.dict,userdict.md5})
     # which are loaded by path, not by import, so "zero references" never
-    # applied to them. They were migrated into the live tree on 2026-08-19;
+    # applied to them. They were migrated into the live tree;
     # before that migration this exclusion silently shipped releases with an
     # empty English name dictionary and no Japanese user dictionary.
     # Do not re-derive "unused" for data files from import graphs.
@@ -225,13 +225,13 @@ PATH_EXCLUDE = {
     # r12c batch16: 四条 vendor/gsv-tools/* 排除已删（pretrained /
     # asr/faster-whisper-large-v3 / asr/models / uvr5/uvr5_weights）。
     # 权重自 r12b 起住在 models/ 下，vendor/gsv-tools 这棵树已不存在
-    # ⇒ 这四条一条也没在排除任何东西，是**冗余不是保险**。
-    # ⭐ 真正的保险是 EXCLUDE_EXT（已含全套权重扩展名）+ 新增的
+    # ⇒ 这四条一条也没在排除任何东西，是冗余不是保险。
+    # 真正的保险是 EXCLUDE_EXT（已含全套权重扩展名）+ 新增的
     #    tools/build/check_release_size.py（按体量兜底）。
-    #    按名字排除总会漏 —— 这四条本身就是漏掉的证据。
-    # （fix12 那段考古注释随三条陈旧路径一并删除。它记的教训——"规则
-    #   写错了不会报错，只会静默不生效"——已由 check_release_size.py
-    #   接管，那是**结构性**的接管，不是再写一条注释提醒下一个人。）
+    #    按名字排除总会漏，这四条本身就是漏掉的证据。
+    # （fix12 那段考古注释随三条陈旧路径一并删除。它记的教训
+    #   "规则写错了不会报错，只会静默不生效"已由 check_release_size.py
+    #   接管，那是结构性的接管，不是再写一条注释提醒下一个人。）
     # r12c: the GPT-SoVITS tree moved vendor/tts/gpt-sovits -> engines/gpt-sovits.
     # These two entries are written segment-by-segment, so the textual
     # "vendor/tts/gpt-sovits" -> "engines/gpt-sovits" sweep did NOT catch them.
@@ -336,7 +336,7 @@ EXCLUDE_FILES = {
 # accidentally drop legit same-named files that now live deeper, e.g. the real
 # launchers: tools\scripts\start.bat / start.sh / stop.bat / stop.sh are thin
 # shells; the bodies are tools\cli\start.js and tools\cli\stop.js.
-# (start.ps1 and stop.ps1 were deleted 2026-10-05 — cross-platform now.)
+# (start.ps1 and stop.ps1 were deleted — cross-platform now.)
 # tools\scripts\dump_tree.ps1 must still ship.
 ROOT_EXCLUDE_FILES = {
     "dump_tree.ps1",
@@ -346,7 +346,7 @@ ROOT_EXCLUDE_FILES = {
     # CURRENT user-facing stop launcher IS the root stop.bat (it calls
     # tools\scripts\stop.bat -> tools\cli\stop.js) and MUST ship — do not blacklist it here. Only the
     # truly obsolete root scripts below are dropped.
-    # ⭐ 2026-10-05 stop.ps1 已删（主体移到 tools\cli\stop.js，薄壳是 .bat/.sh）
+    # stop.ps1 已删（主体移到 tools\cli\stop.js，薄壳是 .bat/.sh）
     "start.vbs",
     "restart.bat", "run_start.bat",
     # superseded by download_models.py wizard
@@ -380,11 +380,11 @@ def norm(p):
     return p.replace("\\", "/")
 
 
-# The ZIP format cannot represent a modification time before 1980-01-01; zipfile
+# The ZIP format cannot represent a modification time before ; zipfile
 # raises "ZIP does not support timestamps before 1980" and aborts the whole pack.
 # Some files legitimately carry a pre-1980 (or zeroed / epoch-0) mtime — e.g.
 # artifacts unpacked by tools that don't preserve dates, or files touched to a
-# bogus timestamp. Clamp any such time up to the ZIP epoch (1980-01-01) so the
+# bogus timestamp. Clamp any such time up to the ZIP epoch () so the
 # pack never crashes on one stray file. Returns a (Y,M,D,h,m,s) tuple.
 _ZIP_MIN_DATE = (1980, 1, 1, 0, 0, 0)
 
@@ -410,9 +410,9 @@ def in_excluded_tree(rel):
     # own node_modules, which IS npm itself and must ship. Keeping it here means
     # `tools\runtime\node\node.exe ...\npm\bin\npm-cli.js ci` works on the
     # target machine.
-    # ⛔ 2026-09-29：**不要**写成 `npm.cmd ci` —— npm.cmd 靠 PATH 推断 npm 在哪，
-    #   装过全局 Node 的机器上会跳到全局那份（版本对不上 → ERR_REQUIRE_ESM，
-    #   而错误信息里一个字都不提这回事）。实测踩过，根因与 Node 版本无关。
+    # 不要写成 `npm.cmd ci`：npm.cmd 靠 PATH 推断 npm 在哪，
+    #   装过全局 Node 的机器上会跳到全局那份（版本不匹配 → ERR_REQUIRE_ESM，
+#   而错误信息里一个字都不提这回事）。，根因与 Node 版本无关。
     if "node_modules" in r.split("/"):
         return not r.startswith(NODE_RUNTIME_PREFIX)
     # top-level data/ — allowlist, see DATA_KEEP
@@ -477,24 +477,24 @@ def collect_included(root, out_abspath=None):
                 continue
             if rel_dir == "" and fn in ROOT_EXCLUDE_FILES:
                 continue
-            # ⛔⛔ 2026-08-25 修一个从来没生效过的白名单。
-            # in_excluded_tree() 里那段 data/ 的 DATA_KEEP 分支是**按文件名写的**
-            # （rest[1] not in DATA_KEEP），但那个函数在下面只被用来剪**目录**
+            # 修一个从来没生效过的白名单。
+            # in_excluded_tree() 里那段 data/ 的 DATA_KEEP 分支是按文件名写的
+            # （rest[1] not in DATA_KEEP），但那个函数在下面只被用来剪目录
             # （见上方 dns 剪枝与 rel_dir 判断），文件循环里一次都没调过。
-            # ⇒ DATA_KEEP 对 data/ 顶层的**文件**是一张废纸；只有子目录
+            # ⇒ DATA_KEEP 对 data/ 顶层的文件是一张废纸；只有子目录
             #   （voices/ backups/ recipes/ flowgraph/）走对了路。
             #
-            # 实测这个洞的形状（2026-08-25 在真实仓库树上跑 collect_included）：
+            # 实测这个洞的形状（在真实仓库树上跑 collect_included）：
             #   进包的 data/ 文件 = advanced_params.json / training_defaults.json
             #                      / pron_lexicon/zh.json
-            # app-config.json 和 voices.json **没有**漏 —— 但它们不是被这张白名单
-            # 拦住的，而是被 EXCLUDE_FILES 按文件名**逐个点名**拦住的（见上方注释）。
+            # app-config.json 和 voices.json 没有漏，但它们不是被这张白名单
+            # 拦住的，而是被 EXCLUDE_FILES 按文件名逐个点名拦住的（见上方注释）。
             # 那就是这个洞真正的代价：每漏一个本机状态文件，就手工补一个名字，
             # 而 advanced_params.json 因为一直被当成"出厂默认值"，谁也没去补它。
-            # 补上这一行之后，data/ 顶层就变成**白名单说了算**：以后新加的任何
+            # 补上这一行之后，data/ 顶层就变成白名单说了算：以后新加的任何
             # 本机状态文件默认不进包，不必等它先漏一次才被人点名。
             #
-            # ⭐ 这里不整个改调 in_excluded_tree(rel)：那个函数还管着
+            # 这里不整个改调 in_excluded_tree(rel)：那个函数还管着
             #    TOP_EXCLUDE / PATH_EXCLUDE / node_modules 等一大堆规则，
             #    突然套到每个文件上会改变发行包的整体形状。只补 data/ 这一处。
             if norm(rel_dir) == "data" and fn not in DATA_KEEP:
@@ -581,7 +581,7 @@ def main():
         ("THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json", "ffmpeg external-tool license inventory"),
         ("tools/deploy/deploy_wizard.py", "deploy wizard (license/select/confirm TUI)"),
         ("deploy.bat", "deploy launcher"),
-        # ⛔ 2026-08-25: data/advanced_params.json deliberately NOT listed here.
+        # data/advanced_params.json deliberately NOT listed here.
         #    It is per-machine UI state, not a shipped default — see DATA_KEEP.
         #    Its absence from the release is the desired outcome, so demanding
         #    it here would warn forever on a correct build.
@@ -599,7 +599,7 @@ def main():
     # the WARN entries above mentions engines/ or pipeline/, so a clean
     # "0 warnings" run proved only that the PRE-r12c files were still there.
     #
-    # Floors are set at roughly half the 2026-08-20 measured counts, so normal
+    # Floors are set at roughly half the measured counts, so normal
     # churn cannot trip them but "the tree moved / emptied" always does:
     #   engines/gpt-sovits 183   pipeline/uvr5 58   pipeline/asr 6
     #   pipeline/slicer 2        lib 135

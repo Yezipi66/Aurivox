@@ -1,12 +1,10 @@
-// ============================================================
-//  底模徽章 —— checkpointBadge()（2026-08-29）
-// ============================================================
+//  底模徽章：checkpointBadge()
 //
-// 来历是 Owner 的一句话：「你都读不到底模在哪里」。
-// 在这之前，「底模」在界面上是**完全不存在**的一个概念：放对了没有、放在哪，
+// 起因是底模路径查不到时，界面上没有任何提示。
+// 在这之前，「底模」在界面上是完全不存在的一个概念：放对了没有、放在哪，
 // 界面一个字都不说，只能靠引擎起不起得来事后倒推。
 //
-// ⛔ 这个函数不做任何判断 —— 判断在服务端 lib/engines/checkpoints.js 里做完了。
+// 这个函数不做任何判断：判断在服务端 lib/engines/checkpoints.js 里做完了。
 //   它只负责把 /api/engines 回来的 checkpoints 那一段翻成「徽章上写什么、
 //   悬停显示什么」。两边各判一次，迟早会对同一台引擎说出两种话。
 //   ⇒ 下面每一条用例都是「给什么状态，说什么话」，没有一条在验算法。
@@ -20,13 +18,13 @@ import { readFileSync } from 'node:fs'
 
 import { checkpointBadge } from './engines.js'
 
-test('列表还没回来 / 没有 checkpoints 段 —— 不显示徽章，也不显示空徽章', () => {
+test('列表还没回来 / 没有 checkpoints 段，不显示徽章，也不显示空徽章', () => {
   assert.equal(checkpointBadge(null), null)
   assert.equal(checkpointBadge({ id: 'x' }), null)
 })
 
 test('底模齐 = 绿，且标题里必须给绝对路径', () => {
-  // ⭐「在哪」比「齐不齐」更重要：Owner 问的原话就是「读不到底模在哪里」。
+  // 「在哪」比「齐不齐」更重要：底模路径查不到时，徽章标题必须给出绝对路径。
   const b = checkpointBadge({
     checkpoints: { declared: true, ready: true, abs_path: '/r/models/x', path_source: 'manifest', missing: [] },
   })
@@ -59,7 +57,7 @@ test('⛔ 「说不出来」画成灰的，不是红的', () => {
   assert.equal(b.tone, 'unknown')
 })
 
-test('名片压根没写底模路径 —— 也是灰的，并且把原因说出来', () => {
+test('名片压根没写底模路径，也是灰的，并且把原因说出来', () => {
   const b = checkpointBadge({
     checkpoints: { declared: false, ready: null, abs_path: null, reason: '名片没写 runtime.checkpoints' },
   })
@@ -84,7 +82,7 @@ test('⭐ 缺的时候，标题里要给出名片写的那条取回命令（照�
   assert.ok(b.title.includes('https://example.invalid/m'))
   assert.ok(b.title.includes('自己下'))
   // 「要先点同意」这件事必须说出来：它的失败长得像网络故障（401/403），
-  // 而真正的解法是去开一次浏览器 —— 猜不出来的。
+  // 而真正的解法是去开一次浏览器：猜不出来的。
   assert.match(b.title, /401|403|同意/)
 })
 

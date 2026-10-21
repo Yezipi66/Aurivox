@@ -46,6 +46,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `outputs` | 目录 | 合成产物 | 否 |
 | `state` | 目录 | 平台**自己量出来的**记录，只有这台机器算数（`engine_memory.json`：每台引擎最多吃过多少内存）。⛔ 不是缓存 —— 删了不会自动重算，只会退回「不知道」，下次启动那台引擎又是在赌。⚠ 不进 git：换台机器这些数就不成立了 | 否 |
 | `logs` | 目录 | 运行日志 | 否 |
+| `tmp` | 目录 | 临时产物（`.gitignore` 的 `/tmp/`，与 `/temp/`、`*.log` 同段）。会话与测试的中间文件，随时可删 | 否 |
 | `dist` | 目录 | `tools/build/04_pack_release.py` 的发行产物 | 否 |
 | `node_modules` | 目录 | npm 依赖，可重装 | 否 |
 | `venv` | 目录 | Python 虚拟环境，可重建 | 否 |
@@ -53,6 +54,7 @@ batch13 的第一版守卫列的是**坏名字的形状**（`apply-*` / `probe_*
 | `.git` | 目录 | git 自己 | 否 |
 | `GPT_SoVITS` | 目录 | **空壳，不是权重树**。上游 `engines/gpt-sovits/infer/TTS.py` 的 `TTS_Config.__init__` 有一句无条件的 `os.makedirs("GPT_SoVITS/configs/")`，相对引擎 CWD（= 项目根，`infer_server.py:62` 显式 chdir，`_aurivox_relativise_paths` 依赖它）。本项目走 `lib/inference/tts_infer.yaml` 这条绝对路径，「用默认配置」那个分支永远不进 ⇒ **这个目录从不被读写，删掉毫无影响，下次起引擎会自动重建**。⚠ 放行的只是空壳：`lib/root_layout.node.test.js` 盯着它，里面一旦出现**任何文件**就红（顶层这棵权重树已于 batch14 移出项目，权重归 `models/`） | 否 |
 | `.hermes` | 目录 | 已 ignore；`docs/SCOPE_r12c.md` §3 Batch 5 决定它是迁 `cache/hermes/` 还是留 | 否 |
+| `.github` | 目录 | GitHub Actions 的工作流定义（`.github/workflows/ci.yml`）。⭐ 丢了会怎样：CI 停止自动跑，回归只能靠人记得手动跑测试 —— 守卫会腐烂 | 是 |
 
 ## 改这张表的规矩
 

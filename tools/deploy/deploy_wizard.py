@@ -5,13 +5,13 @@ deploy_wizard.py — Aurivox 部署向导 (纯控制台 / 黑窗 TUI)。
 
 在环境初始化 / 下载之前运行, 负责与用户交互的四个阶段:
 
-  阶段 1  展示本产品许可 (LICENSE + NOTICE) —— 仅供知情。本软件以 MIT 授权给用户,
+  阶段 1  展示本产品许可 (LICENSE + NOTICE)：仅供知情。本软件以 MIT 授权给用户,
           使用/安装无需接受任何附加义务, 因此这里不设"同意"门槛 (只可选择退出安装)。
   阶段 2  选择要下载的上游模型 (核心默认选中, 基座默认 v2Pro; 备用基座 / 可选项按需)。
           同时"只展示不选择"固定的运行环境: Python 依赖 / Node 模块 / 运行时组件。
           (依赖环境必须一致, 不可由用户增减, 仅供知情。)
   阶段 3  第三方许可, 分两类: 3A 平台自带依赖 (运行时 / Python / FFmpeg) 随软件分发,
-          仅告知、无需接受; 3B 上游模型权重是可选下载, 才是真正的"同意"环节 —— 用户
+          仅告知、无需接受; 3B 上游模型权重是可选下载, 才是真正的"同意"环节：用户
           可逐个许可组不同意, 不同意即不下载该许可下的模型 (平台仍照常部署)。
   阶段 4  最终确认将要执行的全部操作 (含裁剪后的最终下载清单)。
 
@@ -120,7 +120,7 @@ def pager(text, title):
 def stage_license():
     print("\n")
     rule("#")
-    print("  阶段 1 / 4    第一层许可: 本软件 Aurivox 自身 (LICENSE + NOTICE) —— 仅供知情")
+    print("  阶段 1 / 4    第一层许可: 本软件 Aurivox 自身 (LICENSE + NOTICE)：仅供知情")
     rule("#")
     lic = os.path.join(ROOT, "LICENSE")
     notice = os.path.join(ROOT, "NOTICE")
@@ -129,8 +129,8 @@ def stage_license():
     if os.path.isfile(notice):
         pager(read_text(notice), "NOTICE")
     # MIT 是"授予你权利"的宽松许可, 无需你"接受"任何义务即可使用/安装本软件,
-    # 因此这里不设"同意"门槛 —— 仅展示。你随时可选择不安装 (输入 q 退出)。
-    print("  本软件以 MIT 许可授权给你 —— 使用/安装无需接受任何附加义务, 以上仅供知情。")
+# 因此这里不设"同意"门槛 ： 仅展示。你随时可选择不安装 (输入 q 退出)。
+    print("  本软件以 MIT 许可授权给你：使用/安装无需接受任何附加义务, 以上仅供知情。")
     ans = ask("  回车继续安装 (无需接受) / 输入 q 退出: ").strip().lower()
     if ans == "q":
         print("\n  已退出: 你选择不安装。")
@@ -269,7 +269,7 @@ def _sort_licenses(keys):
 
 
 def build_platform_license_groups(sel):
-    """第二层许可分组 —— 分两类返回 (bundled, fetched):
+    """第二层许可分组：分两类返回 (bundled, fetched):
       bundled : 真正"内置于发行包"的第三方代码/运行时 (随包一并分发, 其许可文本随包携带于
                 THIRD_PARTY_LICENSES/runtime/): GPT-SoVITS 代码、CPython 运行时、Node.js
                 运行时、jieba_fast / pyopenjtalk 预编译 wheel。
@@ -284,7 +284,7 @@ def build_platform_license_groups(sel):
     def add_bundled(lic, kind, name, detail, lfile=None):
         bundled.setdefault(lic, []).append((kind, name, detail, lfile))
 
-    # --- bundled: 随包运行时 / 引擎代码 (含 GPT-SoVITS) —— 读 runtime/INDEX.json ---
+# --- bundled: 随包运行时 / 引擎代码 (含 GPT-SoVITS) ： 读 runtime/INDEX.json ---
     try:
         idx = load_json(os.path.join(TPL, "runtime", "INDEX.json"))
         for c in idx.get("components", []):
@@ -340,7 +340,7 @@ def build_model_download_groups(sel, by_group):
 
 
 def _review_model_group(label, i, n, lines):
-    """审阅一个下游模型下载组 —— 只列出该组要下载的模型及其仓库, 请用户到仓库自行阅读其
+    """审阅一个下游模型下载组：只列出该组要下载的模型及其仓库, 请用户到仓库自行阅读其
     许可条款后输入 READ。也可输入 NO 不下载该组、q 退出安装。返回 'accept'/'decline'/'quit'。"""
     rule("-")
     print(f"  模型下载组 {i}/{n}:  {label}")
@@ -362,19 +362,19 @@ def _review_model_group(label, i, n, lines):
 
 def stage_licenses(sel, by_group):
     """阶段 3: 3A 平台自带依赖许可仅"告知"(随软件分发, 无需你接受); 3B 上游模型许可
-    才是真正的"同意"环节 —— 可逐组不同意, 不同意仅剔除该许可下要下载的模型组。返回更
+    才是真正的"同意"环节：可逐组不同意, 不同意仅剔除该许可下要下载的模型组。返回更
     新后的 sel (model_groups 可能被裁剪), 用户主动退出安装则返回 None。"""
     print("\n")
     rule("#")
     print("  阶段 3 / 4    第三方许可 (第二层=平台自身代码/依赖=告知, 第三层=下游模型=列出仓库自阅)")
     rule("#")
 
-    # --- 第二层 (3A): 平台自身用到的第三方代码/运行时/依赖 —— 仅告知, 不设门槛 ---
+# --- 第二层 (3A): 平台自身用到的第三方代码/运行时/依赖 ： 仅告知, 不设门槛 ---
     # 明确区分两类: (A) 真正随发行包内置分发的代码/运行时(合规义务在我们, 已附 NOTICE);
     #             (B) 部署时联网下载、我们并不再分发的依赖/工具(合规义务留在上游分发方)。
     # 两类都无需终端用户"接受"; 只按 license 分组告知。
     bundled, fetched = build_platform_license_groups(sel)
-    print("\n  [第二层] 平台自身用到的第三方代码 / 运行时 / 依赖 —— 仅供知悉, 无需签署或接受:")
+    print("\n  [第二层] 平台自身用到的第三方代码 / 运行时 / 依赖：仅供知悉, 无需签署或接受:")
     print(f"    (A) 随发行包内置分发 ({len(bundled)} 组; 许可文本随包携带于 THIRD_PARTY_LICENSES/runtime/):")
     for lic, items in bundled:
         names = ", ".join(name for _kind, name, _d, _f in items)
@@ -383,15 +383,15 @@ def stage_licenses(sel, by_group):
     for name, pointer in fetched:
         print(f"        · {name}: {pointer}")
 
-    # --- 第三层 (3B): 下游模型权重 —— 按"下载组"列出仓库, 用户自行阅读后 READ ---
+# --- 第三层 (3B): 下游模型权重 ： 按"下载组"列出仓库, 用户自行阅读后 READ ---
     # 这些权重我们并不分发, 仅代为下载; 各自许可归其发布者所有, 由用户到仓库自行阅读。
     # 故此处不对许可做任何断言, 只列出该组要下载的模型及其仓库地址。
     mods = build_model_download_groups(sel, by_group)
     declined = set()
     if not mods:
-        print("\n  [第三层] 未选择任何下游模型 —— 跳过。")
+        print("\n  [第三层] 未选择任何下游模型：跳过。")
     else:
-        print(f"\n  [第三层] 下游模型权重 ({len(mods)} 组) —— 我们仅代为下载, 并不分发这些权重;")
+        print(f"\n  [第三层] 下游模型权重 ({len(mods)} 组)：我们仅代为下载, 并不分发这些权重;")
         print("           各权重的许可归其发布者所有。请到下方各自仓库自行阅读其许可条款。")
         print("           确认已阅读该组请输入 READ; 不想下载该组输入 NO (只跳过该组, 平台照常部署)。")
         for i, (g, label, comps) in enumerate(mods, 1):
@@ -462,7 +462,7 @@ def stage_confirm(sel, by_group):
         est += ap
         print(f"       - {label}   ~{human(ap)}")
     if not sel["model_groups"]:
-        print("       - (无 —— 仅部署平台, 不下载任何模型)")
+        print("       - (无：仅部署平台, 不下载任何模型)")
     if sel.get("ffmpeg"):
         print("  3) 下载 FFmpeg (ffmpeg/ffprobe, Windows x64, GPL-3.0) -> vendor\\ffmpeg\\")
     print(f"\n  预计模型下载总量: ~{human(est)} (实际以下载为准, 已存在的会跳过)")

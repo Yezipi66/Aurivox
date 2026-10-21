@@ -22,7 +22,7 @@ lib/inference/tts_infer.yaml.bak-*
 # Node
 node_modules/
 dist/
-/build/ 
+/build/
 
 # Python
 __pycache__/

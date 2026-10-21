@@ -1,18 +1,18 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-// GPT-SoVITS engine hard constraint: reference audio must be 3~10s, else /tts 400.
+// 合成页与对比页共用的纯函数：参考音频时长、语种、配方命名与路径归一。
+// 参考音频的硬约束是 3 到 10 秒，超出时长后 /tts 返 400。
 const REF_MIN_SEC = 3
 
 const REF_MAX_SEC = 10
 
 const refInRange = (dur) => typeof dur === 'number' && dur >= REF_MIN_SEC && dur <= REF_MAX_SEC
 
-// Prefer an in-range slice as the auto-default so generation doesn't fail on a too-short first slice.
+// 默认参考音频优先选时长合规的那一条，否则第一段太短会直接合成失败。
 const pickDefaultRef = (segs) => {
   const usable = (segs || []).filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
   return usable.find(s => refInRange(s.duration)) || usable[0] || null
 }
 
-// ---- Language detection ----
+// 从文本猜语种。汉字数多于拉丁字母时按字符集细分，否则算英文。
 function detectLang(text) {
   const s = text.replace(/\s/g, '')
   const cjk = (s.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length
@@ -25,9 +25,8 @@ function detectLang(text) {
   return 'en'
 }
 
-// Build a helpful error for /api/outputs/* calls. A 404 here almost always means
-// the backend is running an older build without these routes; surface the HTTP
-// status so the fix (apply the server patch, then restart the backend) is obvious.
+// 给 /api/outputs/* 的调用拼一条能指路的错误。404 几乎总是因为后端跑的是
+// 旧构建、没有这些路由，所以把 HTTP 状态一起带出去。
 function outputsError(r, fallback) {
   if (r && r.data && typeof r.data === 'object' && r.data.error) return r.data.error
   const status = r ? r.status : 0
@@ -35,7 +34,7 @@ function outputsError(r, fallback) {
   return `${fallback} (HTTP ${status || '?'})`
 }
 
-// Status badge for a boolean backend check (e.g. /api/voices/:id/validate)
+// 布尔型后端检查的结果徽章（如 /api/voices/:id/validate）
 function statusBadge(ok, okLabel = 'Selected', missLabel = 'Missing') {
   return <span className={`badge ${ok ? 'badge-ok' : 'badge-danger'}`}>{ok ? okLabel : missLabel}</span>
 }
@@ -46,17 +45,11 @@ function basename(p) {
   return a[a.length - 1]
 }
 
-// ===========================
-//  SAVE AS RECIPE (P1)
-// ===========================
-// A recipe is a role-scoped, reusable inference preset (D1/D2). This modal is
-// shared by the Generate and Compare pages: it collects a name (emotion/label)
-// + notes and POSTs the current reference + params + pinned models to
-// /api/recipes. A 409 (already exists) raises an inline overwrite confirm that
-// re-POSTs with { force:true }.
+// 配方是按角色划分的可复用推理预设。这个弹窗由生成页与对比页共用：
+// 收一个名字（情绪/标签）加备注，把当前的参考音频、参数与钉住的模型
+// POST 到 /api/recipes。409（同名已存在）会就地弹覆盖确认，带 force:true 重发。
 
-// Client-side mirror of the server name rule: Unicode letters allowed, only
-// filesystem-dangerous symbols blacklisted (locked 2026-07-07).
+// 与服务端同名规则保持一致：允许 Unicode 字母，只禁文件系统里危险的符号。
 const RECIPE_NAME_BLACKLIST = /[\/\\:*?"<>|]/
 
 function recipeNameError(name) {
@@ -81,7 +74,7 @@ const TARGET_LANG_OPTIONS = [
   { value: 'all_ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
 ]
 
-// Human-readable labels for every text_lang value shown in Recent Generations etc.
+// 各个 text_lang 取值在「最近生成」等处的显示名。
 const LANG_LABEL_MAP = {
   auto_zh_ja_yue: 'Auto',
   auto_zh_ja: 'Auto',
@@ -97,23 +90,22 @@ function langLabel(code) {
   return LANG_LABEL_MAP[code] || String(code || '').toUpperCase()
 }
 
-// Voice-level bare language codes → human-readable label.
+// 音色级裸语言码的显示名。
 const VOICE_LANG_LABEL = { zh: 'Mandarin', yue: 'Cantonese', ja: 'Japanese', en: 'English', ko: 'Korean' }
 
-// Compute the effective kana-free CJK fallback language (zh/ja/yue/ko/en).
-// Mirrors synthesis.js generateService/speechService + engine _norm_base_lang:
-// "auto" / blank / anything non-concrete → "zh".
+// 算出有效的 CJK 回落语种（zh/ja/yue/ko/en）。
+// 与 synthesis.js 的 generateService/speechService 以及引擎的 _norm_base_lang 一致：
+// auto、空值、任何不具体的值都归到 zh。
 function effectiveBaseLang(voiceLanguage) {
   const raw = String(voiceLanguage || '').toLowerCase().replace(/^all_/, '').replace(/^auto.*/, '')
   return (['zh', 'ja', 'yue', 'ko', 'en'].includes(raw)) ? raw : 'zh'
 }
 
-// Cantonese (yue) and Korean (ko) are intentionally omitted from the selectable
-// targets (no yue/ko assets maintained). A legacy yue/ko voice degrades to
-// 'auto' rather than a missing option.
+// 粤语(yue)与韩语(ko)不在可选目标里（没有维护这两种语种的资产）。
+// 老的 yue/ko 音色退到 auto，而不是变成一个不存在的选项。
 const VOICE_TO_TARGET = { zh: 'all_zh', yue: 'all_yue', ja: 'all_ja', en: 'en', ko: 'all_ko' }
 
-// 把音色语言（裸码）映射到默认 text_lang 选项（== 微调源语言，保证零回归）。
+// 把音色语言（裸码）映射到默认 text_lang 选项（等于微调源语言，保证零回归）。
 function defaultTargetLang(voiceLang) {
   const raw = String(voiceLang || '')
   const base = raw.replace(/^all_/, '').replace(/^auto.*/, '')
@@ -127,8 +119,8 @@ function normalizeLangFamily(textLang) {
   return String(textLang).replace(/^all_/, '')
 }
 
-// PD: Recent items show a full local timestamp (YYYY-MM-DD HH:MM:SS) rather than
-// time-only, so entries generated on different days stay distinguishable.
+// 最近生成的条目显示完整的本地时间戳（YYYY-MM-DD HH:MM:SS），
+// 这样不同日期生成的条目仍然分得开。
 function fmtRecentTime(value) {
   const d = new Date(value)
   if (isNaN(d.getTime())) return ''
@@ -136,7 +128,7 @@ function fmtRecentTime(value) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-// PD: reference-audio basename for the Recent meta line.
+// 最近生成那一行的参考音频文件名。
 function refBasename(item) {
   const raw = item?.ref_audio || item?.params?.ref_audio || ''
   if (!raw) return ''
@@ -144,14 +136,13 @@ function refBasename(item) {
   return parts[parts.length - 1] || ''
 }
 
-// Reference-path identity (Patch #11). A managed reference is identified by its
-// FULL normalized path — never by basename alone — so `assets/A/raw/x.wav` and
-// `assets/B/raw/x.wav` are distinct references even though they share a filename.
-// Backslashes are normalized, a leading "./" or "/" and a legacy "assets/" prefix
-// are stripped so the string / v3-object / project-relative forms compare equal.
+// 参考路径的身份。托管的参考音频按【完整的归一路径】认定，绝不按文件名认定：
+// assets/A/raw/x.wav 与 assets/B/raw/x.wav 是两份不同的参考，尽管文件名相同。
+// 归一时统一反斜杠，并去掉开头的 "./" 或 "/" 以及旧的 "assets/" 前缀，
+// 让字符串、v3 对象、项目相对路径三种写法能比较相等。
 function normRefPath(p) {
   if (p == null) return ''
-  // Accept a v3 managed-reference object { base, path } as well as a plain string.
+  // 既接受 v3 的托管参考对象 { base, path }，也接受纯字符串。
   const raw = (typeof p === 'object') ? (p.path || '') : p
   return String(raw)
     .replace(/\\/g, '/')
@@ -159,7 +150,7 @@ function normRefPath(p) {
     .replace(/^assets\//, '')
 }
 
-// True when two references point at the same file (base + normalized path).
+// 两个参考是不是同一个文件（base + 归一后的路径）。
 function sameRefPath(a, b) {
   const na = normRefPath(a), nb = normRefPath(b)
   if (!na || !nb) return false

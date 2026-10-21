@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 //  What the canvas does to a graph, with no React in sight
-// ---------------------------------------------------------------------------
 // Everything here is a pure function on a plain graph object — the same shape
 // the server saves and the engine runs. Keeping it separate means the rules
 // about what may connect to what can be tested without a browser, and the
@@ -68,9 +66,7 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
   }
 }
 
-// ---------------------------------------------------------------------------
 //  Voice as a preset
-// ---------------------------------------------------------------------------
 // A voice belongs to the broker, not to this canvas: it is not a live binding
 // and nothing here writes back to it. What a voice is good for here is saving
 // someone from typing a dozen settings — pick one, its values are copied into
@@ -78,17 +74,17 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
 // can be edited freely. The graph therefore stays self-contained: changing the
 // voice record later cannot silently change what a saved graph does.
 
-// ⭐⭐⭐ 2026-08-30 刀 3：这里原本是一张**白名单** ——
+// 这里是一张白名单，
 //     ['gpt_model','sovits_model','sample_steps','if_sr','batch_size', …]
 //   十一个键，一个不漏地是 GPT-SoVITS 的参数表被抄进了画布。它的坏法是静默的：
 //   换一台引擎，它的键一个都不在名单上 ⇒ 选了音色、什么都没被带进来，
 //   而界面不会说一个字。（这正是 `nodes.js` 写死 16 个 GSV 键那个 bug 的同族。）
 //
-// ⭐ 换成**减法**：画布不认识任何引擎参数名，它只认识**平台自己的记账字段**。
+// 换成减法：画布不认识任何引擎参数名，它只认识平台自己的记账字段。
 //   剩下的残余，全都是引擎的东西 ⇒ 原样带进参数节点。
 //   ⇒ 新引擎带来的新键自动就在里面，这个文件一行都不用改。
 //
-// ⛔ 不许有人再往这里加引擎参数名。要排除的只能是平台自己造的字段。
+// 不许有人再往这里加引擎参数名。要排除的只能是平台自己造的字段。
 export const VOICE_BOOKKEEPING_KEYS = Object.freeze([
   'id', 'voiceId', 'name', 'display_name', 'label', 'description', 'tags',
   'created_at', 'updated_at', 'engine_id', 'language',
@@ -170,9 +166,7 @@ export function removeNode(graph, nodeId) {
   }
 }
 
-// ---------------------------------------------------------------------------
 //  Text, zoom and keyboard helpers — pure, so they can be tested without a DOM
-// ---------------------------------------------------------------------------
 
 // The catalogue carries every label and every sentence as { en, zh }. Older
 // fixtures (and any node whose server has not been updated) carry a plain

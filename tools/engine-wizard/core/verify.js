@@ -1,26 +1,20 @@
 'use strict'
-// ============================================================================
-//  VERIFY —— 第 7 步：校验
+// VERIFY：第 7 步：校验。
 //
-//  ⭐ 本文件**不判断任何事**。四道校验平台全都有实现，这里只做三件事：
-//    1. 按顺序调它们
-//    2. 如实把结果传出去（ok / problems / ready 三态）
-//    3. ⛔ 不把「说不出来」说成「齐了」或「缺了」
+// 本文件按顺序调平台自己的四道校验，如实把结果传出去：
+//   1. 结果带 ok / problems / ready 三态
+//   2. 不把「说不出来」说成「齐了」或「缺了」
 //
-//  ⭐ 四道校验各自的权威实现（⛔ 一个都不许在这里重写）：
-//    第 1 道 浅层「装没装」   lib/engines/envCheck.js:checkEngineEnvShallow
-//    第 2 道 深层「起不起来」 lib/engines/envCheck.js:checkEngineEnvDeep
-//    第 3 道 「齐不齐」       lib/engines/checkpoints.js:checkpointStatus
-//    第 4 道 「出不出声」     lib/engines/verifyAudio.js（verifyEngine）
+// 四道校验各自的权威实现（一个都不许在这里重写）：
+//   第 1 道 浅层「装没装」   lib/engines/envCheck.js:checkEngineEnvShallow
+//   第 2 道 深层「起不起来」 lib/engines/envCheck.js:checkEngineEnvDeep
+//   第 3 道 「齐不齐」       lib/engines/checkpoints.js:checkpointStatus
+//   第 4 道 「出不出声」     lib/engines/verifyAudio.js（verifyEngine）
 //
-//  ⛔⛔ 关于第 4 道（A 级）
-//   它要**真的合成一次**。tools/verify-engine.cjs:63 那段注释写着：
-//   「A 级要真的合成。请给一份请求体」——⛔ 平台要你交一份请求体，
+// 第 4 道（A 级）要真的合成一次。tools/verify-engine.cjs 的 A 级分支写着：
+//   「A 级要真的合成。请给一份请求体」：平台要你交一份请求体，
 //   它不会自己编一个（编出来的请求验不了「声音对不对」）。
-//   ⇒ 所以 A 级缺 request 时，本文件**如实说不给跑**，不糊一个假的上去。
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
+//   所以 A 级缺 request 时，本文件如实说不给跑，不糊一个假的上去。
 
 const path = require('node:path')
 
@@ -30,7 +24,7 @@ function platform (rel) {
   return require(path.join(ROOT, rel))
 }
 
-/** ⭐ 四道校验的清单 —— ⛔ 顺序与文案都照平台自己的说法 */
+/** 四道校验的清单：顺序与文案都照平台自己的说法 */
 function checks () {
   return [
     {
@@ -38,7 +32,6 @@ function checks () {
       n: 1,
       titleEn: 'Installed',
       titleZh: '装没装',
-      // 「纯查盘，几毫秒」
       cost: 'cheap',
       why: "Disk check only — whether the interpreter, the entrypoint and verify.sys_path exist.",
       whyZh: '纯查盘：解释器在不在、入口在不在、verify.sys_path 在不在',
@@ -48,7 +41,6 @@ function checks () {
       n: 2,
       titleEn: 'Starts',
       titleZh: '起不起来',
-      // 「慢（实测三十多秒）」
       cost: 'slow',
       why: "Boots the engine's own interpreter and imports the module/class/method named in the manifest.",
       whyZh: '起这台引擎自己的解释器去 import 名片点名的模块/类/方法',
@@ -75,7 +67,7 @@ function checks () {
 }
 
 /**
- * ⭐ 跑前几道（⛔ 默认 1–3，第 4 道要显式要）
+ * 跑前几道（默认 1–3，第 4 道要显式要）
  *
  * @param {string} id
  * @param {{audio?: 'B'|'A', request?:object}} opts
@@ -95,9 +87,9 @@ function runChecks (id, opts = {}) {
 
   const out = { ok: true, id, checks: {}, problems: [] }
 
-  // ⚠ envCheck 收的是 **profile + {rootDir}**（照 tools/dev/check-engine-env.cjs:86）
-  //   ⛔ 不是 (id, env) —— 那样传进去 node 不会报错，但读到的全是 undefined。
-  // ---- 第 1 道：浅层 ----
+  // envCheck 收的是 profile + {rootDir}（照 tools/dev/check-engine-env.cjs 的调用处），
+  //   不是 (id, env)：那样传进去 node 不会报错，但读到的全是 undefined。
+  // 第 1 道：浅层
   try {
     const r = checkEngineEnvShallow(profile, { rootDir: ROOT })
     out.checks.env_shallow = { key: 'env_shallow', ...r }
@@ -108,7 +100,7 @@ function runChecks (id, opts = {}) {
     out.ok = false
   }
 
-  // ---- 第 2 道：深层 ----
+  // 第 2 道：深层
   if (opts.deep !== false) {
     try {
       const r = checkEngineEnvDeep(profile, { rootDir: ROOT })
@@ -121,20 +113,19 @@ function runChecks (id, opts = {}) {
     }
   }
 
-  // ---- 第 3 道：权重（⛔ 三态不糊）----
+  // 第 3 道：权重（三态不糊）
   try {
     const st = checkpointStatus(profile, { appDir: ROOT })
     const ready = st.ready
     out.checks.checkpoints = {
       key: 'checkpoints',
-      // ⭐ ready 三态照抄 —— ⛔ 别把它压成布尔
       ready,
       ok: ready === true,
       note: ready === true
         ? '名片说的文件一个不少'
         : ready === false
           ? '目录不在，或名片点名的文件缺了'
-          // ⛔ null 的原话（checkpoints.js:84-91）
+          // 状态未知的说法（checkpoints.js 的 checkpointStatus 注释）
           : '状态未知：Manifest 未声明 runtime.checkpoints，'
             + '或未声明 models.required（用于判断哪些文件算完整）。'
             + '既不能视为完整，也不能视为缺失',
@@ -142,7 +133,7 @@ function runChecks (id, opts = {}) {
       missing: st.missing || [],
       abs_path: st.abs_path || null,
     }
-    // ⛔ ready:null 不算失败，但也**不许当成通过**
+    // ready:null 不算失败，但也不许当成通过
     if (ready === null) {
       out.problems.push('权重：说不出来（名片缺 checkpoints 或 required）')
     }
@@ -155,18 +146,16 @@ function runChecks (id, opts = {}) {
 }
 
 /**
- * ⭐ 第 4 道「出不出声」—— A 级要真的合成。
- *
- * ⛔⛔ **不给 request 就不跑**，并如实说明为什么。
- *   理由照 tools/verify-engine.cjs:63：请求体里的键名是**引擎方言**
- *   （照 manifest.json 的 maps 写）—— ⛔ 平台编不出一个对的。
+ * 第 4 道「出不出声」：A 级要真的合成。不给 request 就不跑，并如实说明为什么。
+ *   理由照 tools/verify-engine.cjs 的 A 级分支：请求体里的键名是引擎方言
+ *   （照 manifest.json 的 maps 写）：平台编不出一个对的。
  */
 function runAudioCheck (id, opts = {}) {
   const level = opts.audio === 'A' ? 'A' : 'B'
 
   let verifyAudio
   try {
-    // ⚠ 文件名是驼峰 verifyAudio.js，⛔ 不是 verify_audio.js（那是 .py）
+    // 文件名是驼峰 verifyAudio.js，不是 verify_audio.js（那是 .py）
     verifyAudio = platform('lib/engines/verifyAudio.js')
   } catch (e) {
     return { ok: false, code: 'NO_VERIFY_MODULE',
@@ -183,8 +172,8 @@ function runAudioCheck (id, opts = {}) {
     return { ok: false, code: 'NO_PROFILE', error: e.message, errorZh: e.message }
   }
 
-  // ⛔ 名片没写 runtime ⇒ 平台不负责起它 ⇒ 这一道无从谈起
-  //   （verify-engine.cjs:47 那段注释的原话）
+  // 名片没写 runtime，平台就不负责起它，这一道无从谈起
+  //   （同 tools/verify-engine.cjs 的做法：名片没写 runtime 就退出）
   if (!profile.runtime) {
     return { ok: false, code: 'NO_RUNTIME',
       error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`, errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`
@@ -192,7 +181,7 @@ function runAudioCheck (id, opts = {}) {
   }
 
   if (level === 'A' && !opts.request) {
-    // ⭐ A 级要真的合成 ⇒ 平台**不会编一个请求体**
+    // A 级要真的合成，所以平台不会编一个请求体
     return {
       ok: false, code: 'NO_REQUEST', level: 'A',
       error: 'Tier A requires a real synthesis. The request body needs these fields:\n'
@@ -200,7 +189,7 @@ function runAudioCheck (id, opts = {}) {
         + 'and a request the platform makes up cannot verify whether the voice is right.\n'
         + 'Provide the real request (text and reference audio) and retry.',
       errorZh: 'A 级要真的合成一次。请求体需要用户填写：\n'
-        + '里面的键名是**引擎方言**（照这张名片的 maps 写），'
+        + '里面的键名是引擎方言（照这张名片的 maps 写），'
         + '编出来的请求验不了「声音对不对」。\n'
         + '请提供真实的请求内容（文本与参考音频）后重试。',
       expected_shape: '照名片 call.bind 的槽位名：'
@@ -219,5 +208,4 @@ function runAudioCheck (id, opts = {}) {
       error: String((e && e.message) || e) }
   }
 }
-
 module.exports = { checks, runChecks, runAudioCheck }

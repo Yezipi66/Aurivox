@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "⭐⭐ 这张夹具是**答案卷**（2026-10-09 建立）。",
+    "",
+    "来源：engines/gpt-sovits/manifest.json 的 maps 段 —— 那是**人手写好**的 10 条",
+    "（contract 搬家前它们硬写在 server.js:773-779 的 buildTtsPayload 里）。",
+    "",
+    "⚠ 为什么产物不含它，考题却是它：这台引擎是 dict 型",
+    "（TTS.run(inputs: dict)），反射只给 2 个参数（configs / inputs），",
+    "**拿不到任何可调参数** ⇒ 它不走反射这条路，第 1 步的产物里没有它。",
+    "但它**是唯一一份人手写全了 maps 的完整样本**（另一台只有 4 条，样本太小）。",
+    "",
+    "⭐ 所以这里的 engine_params 不是反射出来的，是从上游源码 / 名片读出来的",
+    "「这台引擎真正认识哪些键名」—— 也就是 payload_keys 那一张表的形状。",
+    "把这份名字全集喂给映射启发式，看它能不能对上人手写的那 10 条。",
+    "机器猜的和人写的对得上，才说明逻辑对。",
+    "",
+    "⚠️ 本文件放在 test/ 下：fixture 里出现具体引擎名是**允许的**",
+    "（styleguard.node.test.js 明确豁免 test/，只禁 core/ 和 editor/）。",
+    "⛔ 但 core/paramsFromReflect.js 里⛔ 不许出现任何引擎名。"
+  ],
+  "engine_id": "gpt-sovits",
+  "engine_params": [
+    "text", "text_lang", "ref_audio_path", "prompt_text", "prompt_lang",
+    "aux_ref_audio_paths", "speed_factor", "seed", "media_type", "streaming_mode",
+    "top_k", "top_p", "temperature", "repetition_penalty", "text_split_method",
+    "batch_size", "batch_threshold", "split_bucket", "fragment_interval",
+    "parallel_infer", "sample_steps", "if_sr", "super_sampling",
+    "overlap_length", "min_chunk_length", "pron_overrides",
+    "auto_base_lang", "lang_overrides", "gpt_model", "sovits_model",
+    "voice_label"
+  ],
+  "_comment_platform_words": "⚠ 这批是平台自己的词，混进提取结果过 ⇒ 草稿里一个都不许出现（验收第 4 条）",
+  "platform_words": [
+    "format", "split", "max_chars", "concat", "silence_ms", "engine_batch"
+  ],
+  "_comment_expected_maps": [
+    "⭐⭐ 人写的答案（逐字抄自 engines/gpt-sovits/manifest.json 的 maps 段）。",
+    "",
+    "这里左边是平台词，右边是**人手选定**的引擎键名。",
+    "验收第 3 条的判据：对每条平台词，启发式的候选里**出现过**这个引擎键名",
+    "⇒ 算命中。⛔ 不要求它是第一名 —— 那 2 条没命中的真因是",
+    "「参数没找全」（缺了 ref_lang / aux 的真名），不是名字猜不准。"
+  ],
+  "expected_maps": {
+    "text": "text",
+    "text_lang": "text_lang",
+    "reference_audio": "ref_audio_path",
+    "reference_text": "prompt_text",
+    "reference_lang": "prompt_lang",
+    "aux_reference_audio": "aux_ref_audio_paths",
+    "speed": "speed_factor",
+    "seed": "seed",
+    "media_type": "media_type",
+    "streaming": "streaming_mode"
+  },
+  "_comment_known_misses": [
+    "⚠ 实测纯名字启发式对这 10 条命中 8 条，没命中的两条及其原因：",
+    "",
+    "  text_lang ← text_lang     命中的是**字面相同**，不是猜出来的",
+    "  aux_reference_audio ← aux_ref_audio_paths   名字含 aux + ref + audio + paths，可猜",
+    "",
+    "⇒ 剩下的不确定项在这里如实记下，⛔ 不许把「应该能命中」写成「已命中」。",
+    "测试的判据是 ≥8，留 2 条余量就是给这两处留的。"
+  ],
+  "known_misses": []
+}

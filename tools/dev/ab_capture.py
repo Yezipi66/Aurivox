@@ -68,7 +68,7 @@ except ImportError:                    # pragma: no cover - py2 不支持
 BANNER = "[ab_capture]"
 
 # ---------------------------------------------------------------------------
-#  身份识别 —— 两条路径的 /health 天然长得不一样，正好拿来防「端口认错」
+#  身份识别 ： 两条路径的 /health 天然长得不一样，正好拿来防「端口认错」
 # ---------------------------------------------------------------------------
 # ⭐ 两个独立判据一起用：banner 前缀 + seed_mode 字段在不在。
 #   任何一个对不上就拒采。用两个是因为 banner 里有日期，将来会改；
@@ -101,7 +101,7 @@ class Fail(Exception):
 
 
 # ---------------------------------------------------------------------------
-#  HTTP —— 只用标准库，且把响应头一起带回来（X-Seed-Applied 是承重的）
+#  HTTP ： 只用标准库，且把响应头一起带回来（X-Seed-Applied 是承重的）
 # ---------------------------------------------------------------------------
 def http_get_json(url, timeout):
     try:
@@ -142,7 +142,7 @@ def http_post_tts(url, payload, timeout):
 
 
 # ---------------------------------------------------------------------------
-#  WAV —— 只读元数据。真正的比对在 ab_compare 里，这里只确认「是段能听的」
+#  WAV ： 只读元数据。真正的比对在 ab_compare 里，这里只确认「是段能听的」
 # ---------------------------------------------------------------------------
 def wav_meta(path):
     with wave.open(path, "rb") as w:
@@ -238,7 +238,7 @@ def shoot(base_url, name, payload, out_dir, timeout):
 
     # ---- G4：播种真的生效了吗 ------------------------------------------
     # ⭐⭐ 这条不拦住，地板量的就是「两次随机」而不是「精度噪声」，
-    #    而地板一大，跨路径必然跟着红 —— 那个红指向的是错的地方。
+#    而地板一大，跨路径必然跟着红 ： 那个红指向的是错的地方。
     if payload.get("seed") is not None and not seed_applied.strip():
         raise Fail(
             "⛔ %s：请求里给了 seed=%r，但响应头 X-Seed-Applied 是空的 —— "
@@ -327,11 +327,11 @@ def main(argv=None):
     ap.add_argument("--out", default=os.path.join("outputs", "ab"))
     ap.add_argument("--timeout", type=float, default=600.0,
                     help="单次请求超时（秒）；TTS 慢，默认给 600")
-    # ⛔ 出厂默认原先是 emo_alpha=0.3，那是**坏的默认值**：真机实测天花板那段
-    #   和 shim-a **逐字节相同**（差 0%）。原因在上游 —— infer_v2.py:428-433
+# ⛔ 出厂默认原先是 emo_alpha=0.3，那是坏的默认值：实测天花板那段
+#   和 shim-a 逐字节相同（差 0%）。原因在上游 ： infer_v2.py:428-433
     #   无条件覆写 emo_alpha，名片传什么都不算数。
     #   天花板差 0% ⇒ 阈值在放行一切 ⇒ 全绿是空转。所以默认值必须换成一个
-    #   在当前配置下**真的起作用**的参数。max_text_tokens_per_segment=4 实测
+#   在当前配置下真的起作用的参数。max_text_tokens_per_segment=4 实测
     #   把 3.15s 变成 6.80s、梅尔差 127.25%，闸门当场证明自己有分辨力。
     ap.add_argument("--altered-param", default="max_text_tokens_per_segment",
                     help="天花板那段改哪个参数（默认 max_text_tokens_per_segment）")
@@ -356,11 +356,11 @@ def main(argv=None):
         "seed": args.seed,
     }
 
-    # ⭐⭐ 顺序是有讲究的：**先问「我连到的是谁」**，再管工作流。
+# ⭐⭐ 顺序是有讲究的：先问「我连到的是谁」，再管工作流。
     #   两者都会红的时候（比如端口敲错、而且还没采过 shim），身份那条才是
-    #   要先说的 —— 「你在跟另一条路径说话」是最根本的错，而「先跑 shim」
+#   要先说的 ： 「你在跟另一条路径说话」是最根本的错，而「先跑 shim」
     #   是把端口修对之后照样要做的下一步。
-    #   反过来先报工作流，Owner 会去补采 shim，然后**再一次**撞在同一个错端口上。
+#   反过来先报工作流， 会去补采 shim，然后再一次撞在同一个错端口上。
     health = check_identity(args.url, args.role, min(args.timeout, 30.0))
     print("  身份 ok   banner=%s  device=%s"
           % (health.get("banner"), health.get("device")))
@@ -374,7 +374,7 @@ def main(argv=None):
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
 
-    # 天花板那段：把一个参数**故意改掉**，用来证明阈值有分辨力
+# 天花板那段：把一个参数故意改掉，用来证明阈值有分辨力
     altered_val = args.altered_value
     for cast in (int, float):
         try:
@@ -410,7 +410,7 @@ def main(argv=None):
                 "它要是 0%，阈值就是在放行一切，全绿是空转。\n"
                 "   换一个在当前配置下真的起作用的参数（--altered-param / "
                 "--altered-value），别把这条关掉。")
-        # 地板那两段字节相同是**合法的**（说明这条路径完全确定），不拦。
+# 地板那两段字节相同是合法的（说明这条路径完全确定），不拦。
         if by["shim-a"]["sha256"] == by["shim-b"]["sha256"]:
             print("\n  ℹ 地板那两段逐字节相同 —— 这条路径是完全确定的，"
                   "地板会是 0%。这是好事，不是问题。")

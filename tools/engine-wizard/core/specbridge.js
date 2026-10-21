@@ -1,23 +1,10 @@
 'use strict'
-// ============================================================================
-//  SPEC BRIDGE —— 把字段元数据送到浏览器
-//
-//  ⭐ 为什么表单是「按规格自动长出来的」而不是手写一遍
-//  46 个键，手写表单 = 第二份清单，必然漂移（平台那条 C11 守卫的同一件事）。
-//  fieldmeta.js 已经是唯一权威 ⇒ 表单**照它长**，不重述。
-//
-//  ⛔ 不许出现任何具体引擎名。
-// ============================================================================
+//  SPEC BRIDGE：把字段元数据送到浏览器
+
 
 const path = require('node:path')
-const { SECTIONS, PARAM_FIELDS } = require('./fieldmeta')
+const { SECTIONS, PARAM_FIELDS, PLATFORM_WORDS } = require('./fieldmeta')
 
-/**
- * 表单要的全部信息，压成一个 JSON。
- * - sections：顶层段的分组、说明、危险等级
- * - paramFields：parameters[] 每一条有哪些格
- * ⚠ 只送**渲染需要的**，不把整个 fieldmeta 倒出去。
- */
 function buildSpec () {
   return {
     sections: SECTIONS.map((s) => ({
@@ -35,6 +22,15 @@ function buildSpec () {
       howto: f.howto,
       warn: f.warn || null,
       default: f.default === undefined ? null : f.default,
+    })),
+    // 第 2 步：平台词的中文人话。反射草稿里命中的行显示它，
+    //   表外的一个字都不翻译（只给上游原话）。
+    platformWords: PLATFORM_WORDS.map((w) => ({
+      key: w.key,
+      danger: w.danger,
+      label: w.label,
+      help: w.help,
+      warn: w.warn || null,
     })),
   }
 }

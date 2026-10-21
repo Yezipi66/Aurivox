@@ -1,73 +1,10 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
+import { UndoClone } from './UndoClone'
+import { loadSession, saveSession } from './useInstallSession'
 
-// ============================================================================
-//  STEP DEPS —— 第 2 步：读依赖 → 列出要装什么 → 用户选 → 才装
-//
-//  ⭐⭐ 这个页面只回答一个问题：**现在要装哪些包？**
-//
-//  ⭐ 三块，排版抄项目的 .preflight 那一档
-//    （.preflight + .layer-label + .pf-row/.pf-key/.pf-val/.pf-warn/.pf-chips）：
-//
-//   ① 普通依赖        「其他直接同步就行」—— ⛔ 不逐个列，只给个数 + 可展开
-//   ② torch 系（单独）三态：跟得上 / 不是给这台机器的 / 看不出来
-//   ③ 装法选择        所有后端都摆出来（推荐 ≠ 决定）
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
 
-/**
- * Torch 后端与本机的匹配结论 —— 三个可判定的状态。
- *
- * ⛔ 不写「对得上」「看不出来」这类对话里的说法：界面要的是可判定的结论。
- * ⛔ 状态只有三个，⛔ 不把「无法判断」混进「不匹配」——
- *   「读不出来」与「读出来是不匹配」要采取不同的动作。
- * ⛔ mark 用符号（✓ ! ?）是因为它要放进表格第一列，
- *   ⛔ 符号旁边永远跟着完整文字，不靠符号表意。
- */
-// ============================================================================
-// localStorage 持久化工具（照 downloadState.js 的模式）
-//   - 按引擎 ID 隔离状态
-//   - localStorage 不可用时静默失败
-//   - 不保存瞬态状态（busy、live、tail）
-// ============================================================================
-
-const STORAGE_KEY_PREFIX = 'wizard:deps:'
-
-function getStorage () {
-  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
-  if (typeof global !== 'undefined' && global.localStorage) return global.localStorage
-  return null
-}
-
-function getKey (id) {
-  return STORAGE_KEY_PREFIX + id
-}
-
-function loadDepsState (id) {
-  if (!id) return null
-  try {
-    const storage = getStorage()
-    if (!storage) return null
-    const raw = storage.getItem(getKey(id))
-    if (!raw) return null
-    return JSON.parse(raw)
-  } catch (e) {
-    return null
-  }
-}
-
-function saveDepsState (id, state) {
-  if (!id) return
-  try {
-    const storage = getStorage()
-    if (!storage) return
-    storage.setItem(getKey(id), JSON.stringify(state))
-  } catch (e) {
-    // localStorage 不可用时静默失败
-  }
-}
 
 const VERDICT = {
   match: { mark: '✓', en: 'Matches this machine', zh: '与本机匹配' },
@@ -75,33 +12,61 @@ const VERDICT = {
   unknown: { mark: '?', en: 'Cannot determine', zh: '无法判断' },
 }
 
-export default function StepDeps ({ state }) {
+// 与 core/installChoices.js 的 specName 同一口径（PEP 503 名字归一）
+function pkgName (spec) {
+  return String(spec || '').split(/[<>=!~\[;@\s]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
+}
+
+export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
+  // prep.res 是本次会话的解析结果（换 URL 即失效），
+  //   它比持久段更接近「用户此刻在装哪台」。
+  //   两者不一致时以会话段为准，并把持久段一起纠正过来。
+  const sessionId = (prep && prep.res && prep.res.id) || ''
+  React.useEffect(() => {
+    if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
+  }, [sessionId, state.id])
+  const targetId = sessionId || engineId
 
-  // 从 localStorage 恢复状态（懒初始化，避免首帧覆盖）
-  const saved = React.useMemo(() => loadDepsState(engineId), [engineId])
+  // 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）
+  //   懒初始化（useState 初值）而不是 useEffect：首帧就要用恢复值，
+  //   否则第 1 帧会把旧值覆盖回默认值再写盘，恢复就白做了。
+  const saved = React.useMemo(
+    () => loadSession(targetId, url), [targetId, url])
 
-  // ⛔ 数据自己取，不靠 App 往下传 —— 那条链路对不上。
-  const [plan, setPlan] = React.useState(saved?.plan || null)
+  const [plan, setPlan] = React.useState(saved?.depsPlan || null)
   const [showNormal, setShowNormal] = React.useState(saved?.showNormal || false)
   const [backend, setBackend] = React.useState(saved?.backend || null)
+  const [result, setResult] = React.useState(saved?.depsResult || null)
+  const [preview, setPreview] = React.useState(saved?.depsPreview || null)
   const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
+  const [skipped, setSkipped] = React.useState(saved?.skipped || [])
   const [busy, setBusy] = React.useState(false)
-  const [result, setResult] = React.useState(saved?.result || null)
-  const [preview, setPreview] = React.useState(saved?.preview || null)
   const [live, setLive] = React.useState(null)   // 瞬态，不持久化
   const [tail, setTail] = React.useState([])      // 瞬态，不持久化
-  const [progress, setProgress] = React.useState(saved?.progress || null)
+  const [progress, setProgress] = React.useState(saved?.depsProgress || null)
+  // 取消函数（run() 里挂上，finally 里摘掉）。用 ref 不用 state：
+  //   它是「这一次执行」的动作，不是界面状态，进了 state 会触发多余渲染。
+  const cancelRef = React.useRef(null)
 
-  // 保存到 localStorage（排除瞬态状态）
+  // 保存到会话段（排除瞬态状态：busy / live / tail 一段都不存）
+  //   键含 id 与 url ⇒ 换任一个，写的都是另一段会话，不会污染旧的。
   React.useEffect(() => {
-    if (!engineId) return
-    saveDepsState(engineId, {
-      plan, showNormal, backend, unlocked, result, preview, progress,
+    if (!targetId) return
+    saveSession(targetId, url, {
+      depsPlan: plan, showNormal, backend, unlocked,
+      depsResult: result, depsPreview: preview, depsProgress: progress, skipped,
     })
-  }, [engineId, plan, showNormal, backend, unlocked, result, preview, progress])
+  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped])
+
+  const isSkipped = (spec) => skipped.includes(pkgName(spec))
+  const toggleSkip = (spec) => {
+    const n = pkgName(spec)
+    if (!n || busy) return
+    setSkipped((xs) => (xs.includes(n) ? xs.filter((x) => x !== n) : [...xs, n]))
+  }
 
   const reload = async () => {
     if (!url) return
@@ -113,6 +78,17 @@ export default function StepDeps ({ state }) {
       setPlan(await r.json())
     } catch (e) { setPlan({ ok: false, error: e.message }) }
   }
+
+  // 只清记录，不删源码、不删已装依赖（那是另一回事）。
+  const resetThisStep = async () => {
+    if (!targetId) return
+    try {
+      await fetch('/wizard/reset-progress', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: targetId, section: 'env' }),
+      })
+    } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
+  }
   React.useEffect(() => {
     if (url && !plan) reload() /* eslint-disable-line */
   }, [url])
@@ -120,33 +96,32 @@ export default function StepDeps ({ state }) {
   const d = plan && plan.ok ? plan.deps : null
   const hw = plan ? plan.hardware : null
 
-  // ⭐⭐ 计划态：进入页面就取一次**不执行**的计划。
-  //   ⛔ 上一版只在点「安装」后才有 result，而 alternative 在 result 里
-  //   ⇒ 用户看计划时看不到第二条命令，那正是它该出现的地方。
-  //   ⛔ execute: false ⇒ 后端只出计划不执行（平台只验不建）。
+  // 计划态：进入页面就取一次不执行的计划。
+  //   execute: false ⇒ 后端只出计划不执行。
   React.useEffect(() => {
-    if (!engineId) return
+    if (!targetId) return
     let alive = true
     fetch('/wizard/env', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        id: engineId, manifest: state.manifest || {}, execute: false,
+        id: targetId, manifest: state.manifest || {}, execute: false,
+        backend, exclude: skipped,
       }),
     }).then((r) => r.json())
       .then((j) => { if (alive) setPreview(j) })
       .catch(() => { if (alive) setPreview(null) })
     return () => { alive = false }
-  }, [engineId])
+  }, [targetId, backend, skipped.join('\n')])
+  const canSkip = !(preview && preview.choices && preview.choices.supported === false)
 
   React.useEffect(() => {
     if (hw && backend === null) setBackend(hw.recommended)
   }, [hw])
 
-  // ⭐⭐ 实时安装状态 —— 进度条 / 当前步骤 / 最近输出
-  //   ⛔ 只在执行中更新；done 之后保持最后状态让用户看到结果。
+  // 只在执行中更新；done 之后保持最后状态让用户看到结果。
 
-  // ⛔ 读 SSE 流。fetch + ReadableStream（axios 读不了流）。
-  //   ⛔ 不能等 r.json() —— 那会把流缓冲到最后才一次性返回。
+  // 读 SSE 流。fetch + ReadableStream（axios 无法读取流）。
+  // 不能等 r.json()：那会把流缓冲到最后才一次性返回。
   const run = async () => {
     setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
     try {
@@ -154,10 +129,22 @@ export default function StepDeps ({ state }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id: state.id, manifest: state.manifest || {}, execute: true, backend,
+          exclude: skipped,
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
-      // ⛔ resp.body 是 ReadableStream —— 逐块读，按 \n\n 切 SSE 事件
+      // 取消：打取消端点，让服务端杀掉那个进程（进程树）。
+      //   断掉前端的流不杀进程，那只是看不见它在运行。
+      const cancel = async () => {
+        try {
+          await fetch('/wizard/env/cancel', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: state.id }),
+          })
+        } catch (e) { /* 端点不通时后端仍会照 done 事件如实报 */ }
+      }
+      cancelRef.current = cancel
+      // resp.body 是 ReadableStream：逐块读，按 \n\n 切 SSE 事件
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
@@ -192,12 +179,13 @@ export default function StepDeps ({ state }) {
       setResult(finalResult || { ok: false, error: '连接中断，未收到完成事件' })
     } catch (e) {
       setResult({ ok: false, error: e.message })
-    } finally { setBusy(false) }
+    } finally {
+      cancelRef.current = null
+      setBusy(false)
+    }
   }
 
   if (!plan) {
-    // ⛔ 陈述当前状态 + 下一步，⛔ 不写「需要先…」这类客服式引导
-    //   （「需要」是在解释为什么不能做，而 canStart 已经拦住了，解释给人听没有意义）
     return (
       <div className="msg msg-info" style={{ marginBottom: 0 }}>
         {t('The repository is not available yet. Complete step 1 to continue.',
@@ -236,9 +224,12 @@ export default function StepDeps ({ state }) {
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('Several GB are downloaded and it takes a while. If it stops midway, '
               + 'run this step again — the download continues from the breakpoint '
-              + 'and already-downloaded wheels are kept.',
+              + 'and already-downloaded wheels are kept. If you cancel it, the '
+              + 'environment is left partial: the next run removes it and rebuilds '
+              + 'it, and the downloaded wheels are still reused.',
               '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-              + '已下载的依赖不会重下。')}
+              + '已下载的依赖不会重下。若中途取消，环境会停在不完整状态：'
+              + '下次执行会先删掉它再重建，已下载的依赖包仍会复用。')}
           </p>
         </div>
       )}
@@ -249,9 +240,8 @@ export default function StepDeps ({ state }) {
           <div className="layer-label">
             {t('GPU-related packages', '与 GPU 相关的包')}
           </div>
-          {/* ⛔⛔ t() 只有两个参数（i18n.jsx:44 `t = (en, zh)`）。
-               这里曾传三个 ⇒ 第二段英文被当中文返回，
-               中文界面上直接显示 "a different Torch build."（实测截图）。 */}
+          {/* t() 只有两个参数（web/src/lib/i18n.jsx 的 LangProvider 里 t = (en, zh)）。
+               传三个 ⇒ 第二段英文被当中文返回。 */}
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('These packages only run on this kind of graphics card. '
               + 'Other cards need a different Torch build.',
@@ -259,14 +249,22 @@ export default function StepDeps ({ state }) {
           </p>
           {d.torch.packages.map((r) => {
             const V = VERDICT[r.verdict] || VERDICT.unknown
+            const off = isSkipped(r.spec)
             return (
-              <div key={r.name} className="pf-row">
-                <span className="badge badge-sym">{V.mark}</span>
+              <div key={r.name} className="pf-row"
+                role={canSkip ? 'button' : undefined}
+                tabIndex={canSkip ? 0 : undefined}
+                title={canSkip ? t('Click to toggle whether this package is installed',
+                  '点击切换是否安装此包') : undefined}
+                onClick={canSkip ? () => toggleSkip(r.spec) : undefined}
+                onKeyDown={canSkip ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSkip(r.spec) } } : undefined}
+                style={{ cursor: canSkip ? 'pointer' : undefined, opacity: off ? 0.5 : undefined }}>
+                <span className="badge badge-sym">{off ? '–' : V.mark}</span>
                 <span className="pf-val"><code>{r.spec}</code></span>
                 <span className="field-hint" style={{ marginTop: 0 }}>
-                  {lang === 'zh' ? V.zh : V.en}
+                  {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
                 </span>
-                {r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
+                {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
               </div>
             )
           })}
@@ -300,10 +298,11 @@ export default function StepDeps ({ state }) {
         </div>
       )}
 
-      {/* ---- ⭐ 执行计划：把真正要跑的命令**摆出来** ----
-          ⛔ 过去界面上只有「选哪个后端」的下拉，⛔ 没有任何地方显示
-          「将要执行的命令是什么」⇒ 用户点安装前看不到要跑什么。
-          ⛔ 命令来自 preview（execute:false 的计划），⛔ 不是 plan。*/}
+      {preview && preview.ok === false && preview.code === 'BACKEND_NO_INDEX' && (
+        <div className="msg msg-danger">{t(preview.error, preview.errorZh)}</div>
+      )}
+
+      {/* ---- 命令来自 preview（execute:false 的计划），不是 plan ---- */}
       {preview && preview.ok && (preview.env_command || []).length > 0 && (
         <div className="field">
           <label className="field-label" htmlFor="wz-cmd">
@@ -336,10 +335,10 @@ export default function StepDeps ({ state }) {
       )}
 
       {/* ---- 锁文件后端与本机不一致 ⇒ 主命令之后还有第②步 ----
-          ⛔ 主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
-             这一块显示的是**装 torch 那一步**，⛔ 不重复主命令。
-          ⚠️ 数据来自 **preview**（进入页面时取的 execute:false 计划），
-             ⛔ 不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
+          主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
+          此区域显示的是装 torch 那一步，不重复主命令。
+          数据来自 preview（进入页面时取的 execute:false 计划），
+          不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
       {preview && preview.alternative && (
         <div className="field">
           <label className="field-label" htmlFor="wz-alt">
@@ -363,6 +362,10 @@ export default function StepDeps ({ state }) {
             <span>{t('Other packages', '其它包')}</span>
             <span className="field-hint" style={{ marginTop: 0 }}>
               {showNormal ? '▾' : '▸'} {d.normal.count}
+              {d.normal.packages.some(isSkipped)
+                ? t(` (${d.normal.packages.filter(isSkipped).length} skipped)`,
+                  `（${d.normal.packages.filter(isSkipped).length} 个不安装）`)
+                : ''}
             </span>
           </div>
           {showNormal && (
@@ -372,17 +375,34 @@ export default function StepDeps ({ state }) {
                 + ' works on every machine.',
                 '不含与显卡相关的依赖包，所有机器使用同一条安装命令。')}
               </p>
-              <div className="pf-chips">
-                {d.normal.packages.map((p) => (
-                  <span key={p} className="pf-chip"><code>{p}</code></span>
-                ))}
-              </div>
+              <PackageGroups packages={d.normal.packages} isSkipped={isSkipped}
+                onToggle={canSkip ? toggleSkip : null} t={t} />
             </div>
           )}
         </div>
       )}
 
-      {/* ---- ⭐ 实时进度：busy 时显示 ---- */}
+      {canSkip ? (
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('All packages are installed by default. Click a package to exclude it; click again to restore it.',
+            '默认安装全部依赖。点击某个包可设为不安装，再次点击恢复。')}
+        </p>
+      ) : (
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('The install method is declared by the Manifest, so individual packages cannot be excluded.',
+            '安装方式由 Manifest 指定，无法单独排除依赖。')}
+        </p>
+      )}
+      {canSkip && skipped.length > 0 && (
+        <div className="msg msg-warning">
+          {t('Excluded packages are not installed in this engine\'s environment, even when another package depends on them. '
+            + 'If the engine needs them at runtime, the check in step 5 will fail.',
+            '设为不安装的包不会装进该引擎的环境，即使其他包依赖它们。'
+            + '若引擎运行时需要这些包，第 5 步的检查将会失败。')}
+        </div>
+      )}
+
+      {/* ---- 实时进度：busy 时显示 ---- */}
       {busy && (
         <div className="preflight" style={{ marginTop: 0 }}>
           <div className="layer-label">
@@ -395,7 +415,7 @@ export default function StepDeps ({ state }) {
           </div>
           {progress && (
             <div className="pf-row">
-              <span className="badge badge-sym">⬇</span>
+              <span className="badge badge-sym" aria-hidden="true" />
               <span className="pf-val">
                 <code>{progress.name}</code>
                 <span className="field-hint" style={{ marginTop: 0 }}>
@@ -433,17 +453,42 @@ export default function StepDeps ({ state }) {
               </pre>
             </div>
           )}
+          {/* 取消：只在真的 busy 时给。
+              它杀的是服务端那个进程，不是只让前端不再显示。
+              红色：终止一个已经开始的操作，且环境会停在不完整状态。 */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-sm btn-danger" type="button"
+              disabled={!cancelRef.current}
+              onClick={() => cancelRef.current && cancelRef.current()}>
+              {t('Cancel', '取消')}
+            </button>
+            <span className="field-hint">
+              {t('Stops the download on the server. The engine environment is left '
+                + 'partial; re-running rebuilds it.',
+                '会停掉服务器上正在进行的下载。引擎环境会停在不完整状态；'
+                + '重新执行本步骤会先重建它。')}
+            </span>
+          </div>
         </div>
       )}
 
-      {result && !result.ok && (
+      {/* 取消是用户自己的选择，不是失败：用 info 不用 danger。
+          步骤列表里那一条取消的步骤照实标叉号（它确实没完成），
+          但结论要说「已取消」，不许让用户以为装失败了。 */}
+      {result && result.code === 'INSTALL_CANCELLED' && (
+        <div className="msg msg-info">
+          {t(result.error, result.errorZh)}
+          {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
+        </div>
+      )}
+
+      {result && !result.ok && result.code !== 'INSTALL_CANCELLED' && (
         <div className="msg msg-danger">
           {t(result.error, result.errorZh)}
           {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
         </div>
       )}
-      {/* ⭐ 逐步结果：⛔ 过去只显示一段 note，⛔ 看不出「跑到第几步、
-          每步各自的输出」—— 装依赖要几十分钟，只有这一步才能让人知道进度。*/}
+
       {result && result.stepsRun && result.stepsRun.length > 0 && (
         <div className="preflight">
           {result.stepsRun.map((s) => (
@@ -469,14 +514,78 @@ export default function StepDeps ({ state }) {
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
 
-      {/* ---- 执行：显式解锁（照 TrainingTab 的 expert-unlock）----
-          ⚠ RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
-            ⛔ 不能再塞进一个 flex 行里（那会把提示拆成并排的两列）。*/}
+      {/* ---- 三个按钮一行，从左到右 ----
+          从头重装本步 → 撤销克隆 → 安装（主操作靠最右）。
+          两个按钮的说明放在按钮行下方的分隔线里，竖排作引注。
+          RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
+            不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。*/}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
-        <button className="btn btn-primary btn-sm" type="button"
-          disabled={busy} onClick={run}>
-          {busy ? t('Installing…', '正在装…') : t('Install', '安装')}
-        </button>
+        {/* RiskUnlock 把 children 放进 .confirm-actions（flex 行，右对齐），
+            所以这里给一个撑满宽度的子节点：
+            上面一行按钮（主操作靠最右），下面一块引注。*/}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          width: '100%',
+        }}>
+          <div style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+          }}>
+            {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
+                （.wizard-install.json 的 env 段），
+                不删引擎目录里的源码、不删已装依赖。*/}
+            {!busy && (
+              <button className="btn btn-sm" type="button"
+                onClick={() => resetThisStep()}>
+                {t('Reinstall this step from the start', '从头重装本步')}
+              </button>
+            )}
+
+            {/* 撤销克隆：克隆完成后向导直接跳到第 2 步，
+                所以这条路也得在这儿给一份：
+                使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
+            {!busy && targetId && (
+              <UndoClone engineId={targetId} onUndone={() => {
+                if (onUndone) onUndone()
+              }} />
+            )}
+
+            <button className="btn btn-primary btn-sm" type="button"
+              disabled={busy} onClick={run}>
+              {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
+            </button>
+          </div>
+
+          {/* ---- 按钮的引注：分隔线之下 ----
+              分隔线贯穿整个容器宽度，左右各留一点边距。
+              说明竖排，与上面三个按钮一一对应。*/}
+          {!busy && (
+            <div style={{
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
+              marginLeft: 8,
+              marginRight: 8,
+            }}>
+              <div className="field-hint" style={{ maxWidth: 560 }}>
+                {t('Reinstall this step from the start: clears the record of finished '
+                  + 'steps in this step only. Source code and installed packages are kept, '
+                  + 'and cached wheels are reused.',
+                  '从头重装本步：只清除本步的已完成记录。源码与已安装的依赖保留，'
+                  + '已下载的依赖包会复用。')}
+              </div>
+              {targetId && (
+                <div className="field-hint" style={{ maxWidth: 560, marginTop: 4 }}>
+                  {t('Undo clone: removes the cloned engine directory and returns to step 1.',
+                    '撤销克隆：删除刚克隆下来的引擎目录，回到第 1 步。')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </RiskUnlock>
     </div>
   )
@@ -493,4 +602,32 @@ function fmtBytes (n) {
 function backendOf (options, key) {
   const o = (options || []).find((x) => x.key === key)
   return o ? o.label : key
+}
+
+function PackageGroups ({ packages, isSkipped, onToggle, t }) {
+  const on = packages.filter((p) => !isSkipped(p))
+  const off = packages.filter((p) => isSkipped(p))
+  const chips = (list, dim) => (
+    <div className="pf-chips">
+      {list.map((p) => (
+        <span key={p} className={dim ? 'pf-chip pf-chip-off' : 'pf-chip'}
+          role={onToggle ? 'button' : undefined}
+          tabIndex={onToggle ? 0 : undefined}
+          onClick={onToggle ? () => onToggle(p) : undefined}
+          onKeyDown={onToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(p) } } : undefined}
+          style={{ cursor: onToggle ? 'pointer' : undefined }}>
+          <code>{p}</code>
+        </span>
+      ))}
+    </div>
+  )
+  if (on.length === 0 || off.length === 0) return chips(packages, off.length > 0)
+  return (
+    <>
+      <div className="layer-label">{t('The following packages will be installed', '以下依赖将被安装')}</div>
+      {chips(on, false)}
+      <div className="layer-label">{t('The following packages will not be installed', '以下依赖将不会被安装')}</div>
+      {chips(off, true)}
+    </>
+  )
 }

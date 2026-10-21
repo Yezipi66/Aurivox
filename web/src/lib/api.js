@@ -3,10 +3,11 @@ export const API_BASE = ''
 
 export function api(path, opts = {}) {
   const url = `${API_BASE}${path}`
-  const { method = 'GET', body, contentType, isRaw } = opts
+  const { method = 'GET', body, contentType, isRaw, signal } = opts
   const headers = contentType ? {} : { 'Content-Type': 'application/json' }
   const fetchOpts = { method, headers }
   if (body) fetchOpts.body = contentType ? body : JSON.stringify(body)
+  if (signal) fetchOpts.signal = signal
   return fetch(url, fetchOpts).then(async r => {
     if (isRaw || r.headers.get('content-type')?.includes('audio/')) {
       const buf = await r.arrayBuffer()

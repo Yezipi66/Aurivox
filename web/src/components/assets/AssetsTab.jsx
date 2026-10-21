@@ -10,10 +10,11 @@ import { RebuildProgress, RestoreModal } from '../train/TrainingTab'
 import ReferenceTranscriptProofing from './ReferenceTranscriptProofing'
 import RefineModal from './RefineModal'
 import { modelCountsByEngine, countModelsInMeta, modelsFromMeta } from '../../lib/modelPickers.pure.js'
+import { MigrateChoiceDialog, MigrateProgressDialog, FolderBrowser } from './AssetsDirManager'
+import { AssetsSummaryBar, AssetsToolbar } from './AssetsToolbar'
+import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
 
-// ============================
 //  ASSETS TAB
-// ============================
 function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
   const { t } = useT()
   const [assets, setAssets] = useState(null)
@@ -25,11 +26,12 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { id, displayName }
   const [deleting, setDeleting] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState(null) // { id, displayName }
-  // Patch #13: reference-transcript proofing modal target (edit existing text; no ASR).
+  // 参考文本校对弹窗目标（编辑已有文本，无 ASR）。
   const [proofTarget, setProofTarget] = useState(null) // { id }
-  // Patch #12: S2 acoustic refinement modal target (derive a new voice).
+  // S2 声学精修弹窗目标（衍生新音色）。
   const [refineTarget, setRefineTarget] = useState(null) // { id, displayName, baseVersion }
   const rebuildPollRef = useRef(null)
+  const scanAbortRef = useRef(null)
   // Live lightweight-pipeline progress for an in-flight Rebuild/Restore, so the
   // user can see which step (preprocess → S1/S2 → finalize → publish) is running
   // and read a clear error if one fails — instead of just listening to the fan.
@@ -225,8 +227,13 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
 
   const handleScan = async () => {
     setScanning(true); setScanMsg(null)
+    const ctrl = new AbortController()
+    scanAbortRef.current = ctrl
     try {
-      const r = await api('/api/assets/scan', { method: 'POST' })
+      const r = await fetch('/api/assets/scan', { method: 'POST', signal: ctrl.signal }).then(async r => {
+        const data = await r.json().catch(() => null)
+        return { ok: r.ok, status: r.status, data }
+      })
       if (r.ok) {
         setAssets(r.data.assets || {})
         setScanMsg({ type: 'success', text: `Scan complete - ${r.data.scanned || 0} voice(s) found` })
@@ -235,10 +242,22 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         setScanMsg({ type: 'error', text: r.data?.error || 'Scan failed' })
       }
     } catch (e) {
-      setScanMsg({ type: 'error', text: e.message })
+      if (e.name === 'AbortError') {
+        setScanMsg({ type: 'info', text: 'Scan cancelled' })
+      } else {
+        setScanMsg({ type: 'error', text: e.message })
+      }
     } finally {
+      scanAbortRef.current = null
       setScanning(false)
       setTimeout(() => setScanMsg(null), 4000)
+    }
+  }
+
+  const handleCancelScan = () => {
+    if (scanAbortRef.current) {
+      scanAbortRef.current.abort()
+      scanAbortRef.current = null
     }
   }
 
@@ -282,7 +301,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
               try {
                 const sr = await api(`/api/assets/${id}/segments`)
                 if (sr.ok) setSegments(s => ({ ...s, [id]: sr.data.segments }))
-              } catch (_) {}
+              } catch (e) {
+                console.warn('[assets] failed to refresh segments:', e.message)
+              }
             }
           } else if (job.status === 'cancelled') {
             setScanMsg({ type: 'info', text: `Transcription cancelled for ${id}` })
@@ -317,7 +338,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   }
 
   const handleCancelTranscribe = async (id) => {
-    try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (_) {}
+    try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (e) { console.warn('[assets] cancel transcribe failed:', e.message) }
   }
 
   // Re-hydrate in-place transcribe jobs on mount. AssetsTab fully unmounts on page
@@ -469,7 +490,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             if (loadVoices) loadVoices()
             setScanMsg({ type: 'success', text: `Deleted ${id}. Scan complete - ${r.data.scanned || 0} voice(s) found` })
           }
-        } catch (_) {}
+        } catch (e) {
+          console.warn('[assets] rescan failed:', e.message)
+        }
         setTimeout(() => setScanMsg(null), 4000)
       }, 500)
     } catch (e) {
@@ -526,7 +549,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     acc.raw += (a.raw?.file_count || 0)
     acc.rawDur += (a.raw?.total_duration || 0)
     acc.slices += (a.slices?.file_count || 0)
-    // 模型总数按**引擎**分开数 —— ⛔ 以前是写死的两格，第二台引擎的模型
+    // 模型总数按引擎分开数，以前是写死的两格，第二台引擎的模型
     // 在这排统计上一个数字都露不出来。
     for (const c of modelCountsByEngine(asset)) {
       acc.byEngine[c.engineId] = (acc.byEngine[c.engineId] || 0) + c.count
@@ -540,10 +563,10 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   // so states stay distinguishable without relying on color alone.
   const voiceHealth = (asset) => {
     const a = asset.assets || {}
-    // ⭐⭐ 判据从「有 GPT **且** 有 SoVITS」改成「**有没有任何模型**」。
-    //   那个「两份都要有」是第一台引擎的成套要求 —— 照搬到别的引擎上，
+    // 判据从「有 GPT 且 有 SoVITS」改成「有没有任何模型」。
+    //   那个「两份都要有」是第一台引擎的成套要求，照搬到别的引擎上，
     //   一个只有另一台引擎模型的角色会永远挂着红叉说自己缺模型，
-    //   而它其实完全能用。要不要成套是**那台引擎**的事，不是这排徽章的事。
+    //   而它完全能用。要不要成套是那台引擎的事，不是这排徽章的事。
     const hasModels = countModelsInMeta(asset) > 0
     const hasRaw = (a.raw?.file_count || 0) > 0
     const hasSlices = (a.slices?.file_count || 0) > 0
@@ -644,9 +667,15 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             </div>
           )}
           <button className="btn btn-sm" onClick={loadAssets} disabled={scanning}>Refresh</button>
-          <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>
-            {scanning ? 'Scanning...' : 'Scan All'}
-          </button>
+          {scanning ? (
+            <button className="btn btn-sm btn-danger" onClick={handleCancelScan}>
+              Cancel Scan
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-primary" onClick={handleScan}>
+              Scan All
+            </button>
+          )}
         </div>
       </div>
       <div className="section-body">
@@ -664,44 +693,22 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         )}
         <RebuildProgress job={rebuildJob} onDismiss={dismissRebuild} />
         {assetEntries.length > 0 && (
-          <div className="summary-bar">
-            <span className="stat-pill"><span className="sp-v">{totals.voices}</span><span className="sp-k">voices</span></span>
-            <span className="stat-pill"><span className="sp-v">{totals.raw}</span><span className="sp-k">raw files</span></span>
-            <span className="stat-pill"><span className="sp-v">{totals.rawDur.toFixed(1)}s</span><span className="sp-k">raw dur</span></span>
-            <span className="stat-pill"><span className="sp-v">{totals.slices}</span><span className="sp-k">slices</span></span>
-            {Object.keys(totals.byEngine).sort().map(eid => (
-              <span className="stat-pill" key={eid}><span className="sp-v">{totals.byEngine[eid]}</span><span className="sp-k">{eid} models</span></span>
-            ))}
-            <span className="stat-pill"><span className="sp-v">{totals.segments}</span><span className="sp-k">segments</span></span>
-            {/* Collapsed hint floats to the free space right of the stat pills */}
-            {!noteExpanded && <NamingNotePill className="nn-in-bar" onOpen={() => setNoteOpen(true)} />}
-          </div>
+          <AssetsSummaryBar
+            totals={totals}
+            noteExpanded={noteExpanded}
+            onOpenNote={() => setNoteOpen(true)}
+          />
         )}
         {assetEntries.length > 0 && (
-          <div className="assets-toolbar">
-            <input
-              className="control assets-search"
-              type="text"
-              placeholder="Search by voice name…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            <div className="filter-chips">
-              {filterChips.map(f => {
-                const count = f === 'Text Issues' ? textIssueCount : healthCounts[f]
-                const warn = f === 'Text Issues'
-                return (
-                  <button
-                    key={f}
-                    className={`chip ${warn ? 'chip-warn' : ''} ${filter === f ? 'chip-on' : ''}`}
-                    onClick={() => setFilter(f)}
-                  >
-                    {f}{f !== 'All' && count ? ` (${count})` : ''}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+          <AssetsToolbar
+            filterChips={filterChips}
+            healthCounts={healthCounts}
+            textIssueCount={textIssueCount}
+            filter={filter}
+            onFilter={setFilter}
+            search={search}
+            onSearch={setSearch}
+          />
         )}
         {assetEntries.length > 0 && filteredEntries.length === 0 && (
           <div className="msg" style={{ marginBottom: 10 }}>
@@ -710,14 +717,12 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           </div>
         )}
         {assetEntries.length === 0 && (
-          <div className="empty-state">
-            <div className="es-title">No voice assets yet</div>
-            <div className="es-sub">Scan your assets directory to detect voices, or fine-tune a new voice to get started.</div>
-            <div className="empty-actions">
-              <button className="btn btn-sm btn-primary" onClick={handleScan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan Dataset'}</button>
-              <button className="btn btn-sm" onClick={() => setPage('train')}>Start Tuning</button>
-            </div>
-          </div>
+          <AssetsEmptyState
+            scanning={scanning}
+            onCancelScan={handleCancelScan}
+            onScan={handleScan}
+            onStartTuning={() => setPage('train')}
+          />
         )}
         {filteredEntries.map(([id, asset]) => {
           const a = asset.assets || {}
@@ -725,7 +730,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           const slices = a.slices || {}
           // 这个角色手上有哪几台引擎的模型、各几个（有几台就显示几格）。
           const modelCounts = modelCountsByEngine(asset)
-          // ⚠ 「精修」是**那条训练管线**自己的事：它要继续训的正是它自己产的
+          // 「精修」是那条训练管线自己的事：它要继续训的正是它自己产的
           //   那两份权重 ⇒ 引擎名在这里是这个按钮自己的题目，不是平台写死一台引擎。
           const canRefine = modelsFromMeta(asset, 'gpt-sovits', 'gpt').length > 0
                          && modelsFromMeta(asset, 'gpt-sovits', 'sovits').length > 0
@@ -939,7 +944,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                             {hasRawAudio && hasSliceAudio && <option value="both">Both</option>}
                           </Select>
                           {running ? (
-                            <button className="btn btn-sm btn-ghost" onClick={() => handleCancelTranscribe(id)}>
+                            // 红色：终止一个已经开始的转写。
+                            <button className="btn btn-sm btn-danger" onClick={() => handleCancelTranscribe(id)}>
                               Cancel{(tx.done || []).length ? ` (${tx.done.join(', ')} done)` : ''}
                             </button>
                           ) : (
@@ -951,7 +957,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                               Generate reference text
                             </button>
                           )}
-                          {/* Patch #13: proofread the EXISTING transcript (no ASR). */}
+                          {/* 校对已有文本（无 ASR）。 */}
                           <button
                             className="btn btn-sm btn-ghost"
                             disabled={running}
@@ -971,7 +977,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                 <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                   {isLoadingSegs && <div className="msg">Loading segments...</div>}
                   {segData && segData.error && <div className="msg msg-error">{segData.error}</div>}
-                  {segData && segData.segments && segData.segments.length === 0 && <div className="msg">No segments found.</div>}
+                  {segData && segData.segments && segData.segments.length === 0 && <div className="msg msg-info">No segments found.</div>}
                   {segData && segData.segments && segData.segments.length > 0 && (
                     <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                       <table className="table" style={{ width: '100%', fontSize: 12 }}>
@@ -1011,36 +1017,12 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
       </div>
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setDeleteConfirm(null)}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 320, maxWidth: 420,
-            boxShadow: 'var(--shadow-soft)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <IconTrash size={20} color="var(--danger)" />
-              <span style={{ fontWeight: 600, fontSize: 14 }}>Delete Asset</span>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-              Are you sure you want to delete <strong>{deleteConfirm.displayName}</strong>?
-            </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-              This will permanently delete the asset folder and its voice configuration.
-              This action cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-sm" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</button>
-              <button className="btn btn-sm btn-danger" onClick={handleDeleteConfirm} disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteAssetDialog
+        target={deleteConfirm}
+        deleting={deleting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm(null)}
+      />
 
       {/* Restore Asset Modal (dependency-driven repair with user-chosen options) */}
       {restoreTarget && (
@@ -1052,7 +1034,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* Patch #13: proofread the existing reference transcript (no ASR). */}
+      {/* 校对已有参考文本（无 ASR）。 */}
       {proofTarget && (
         <ReferenceTranscriptProofing
           voiceId={proofTarget.id}
@@ -1067,7 +1049,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* Patch #12: S2 acoustic refinement → derive a new voice. */}
+      {/* S2 声学精修 → 衍生新音色。 */}
       {refineTarget && (
         <RefineModal
           voiceId={refineTarget.id}
@@ -1094,193 +1076,35 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
       )}
 
       {/* Assets-directory migration: current dir is non-empty, ask what to do. */}
-      {migrateTarget && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => { if (!configBusy) setMigrateTarget(null) }}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 380, maxWidth: 520,
-            boxShadow: 'var(--shadow-soft)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <IconFolder size={20} color="var(--accent)" />
-              <span style={{ fontWeight: 600, fontSize: 14 }}>Change Assets Directory</span>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-              New directory:
-            </p>
-            <div style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: 14 }}>
-              {migrateTarget}
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-              The current assets directory contains <strong>{Object.keys(assets).length}</strong> voice{Object.keys(assets).length === 1 ? '' : 's'}.
-              What should happen to that data? Changes take effect after a server restart.
-            </p>
-            <div className="migrate-advisory">
-              <strong>Recommended:</strong> choose <em>Switch only</em>, then copy the data yourself
-              in your file manager and restart. The built-in copy can stall or fail on files that are
-              in use (a loaded model, an open Explorer/audio window), and such locks are hard to
-              recover from. Use Copy/Move only when you're sure nothing here is open.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button className="btn btn-primary" disabled={configBusy} onClick={() => applyAssetsDir(migrateTarget, 'switch')}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
-                ➡️ Switch only (recommended) — point at the new directory, migrate the data yourself
-              </button>
-              <button className="btn" disabled={configBusy} onClick={() => applyAssetsDir(migrateTarget, 'copy')}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
-                📋 Copy — duplicate existing voices into the new directory (keep originals)
-              </button>
-              <button className="btn" disabled={configBusy} onClick={() => applyAssetsDir(migrateTarget, 'move')}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
-                ✂️ Move — copy, verify, then delete originals (skips locked files check → may fail)
-              </button>
-              <button className="btn btn-ghost" disabled={configBusy} onClick={() => setMigrateTarget(null)}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
-                ✕ Cancel
-              </button>
-            </div>
-            {configBusy && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>Starting…</div>}
-          </div>
-        </div>
-      )}
+      <MigrateChoiceDialog
+        migrateTarget={migrateTarget}
+        assetCount={Object.keys(assets || {}).length}
+        configBusy={configBusy}
+        onApply={applyAssetsDir}
+        onCancel={() => setMigrateTarget(null)}
+      />
 
       {/* Background copy/move progress — simple copy → verify → delete pipeline. */}
-      {migrateJob && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => { if (migrateJob.done) setMigrateJob(null) }}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 420, maxWidth: 560,
-            boxShadow: 'var(--shadow-soft)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <IconFolder size={20} color="var(--accent)" />
-              <span style={{ fontWeight: 600, fontSize: 14 }}>
-                {migrateJob.migration === 'move' ? 'Moving' : 'Copying'} assets
-              </span>
-            </div>
-            <div className="migrate-steps">
-              {['copy', ...(migrateJob.migration === 'move' ? ['verify', 'delete'] : [])].map(k => {
-                const label = k === 'copy' ? 'Copy' : k === 'verify' ? 'Verify integrity' : 'Delete originals'
-                const st = migrateJob.steps?.[k] || 'pending'
-                const mark = st === 'done' ? '✓' : st === 'running' ? '⋯' : st === 'failed' ? '✕' : '○'
-                return (
-                  <div key={k} className={`migrate-step migrate-step-${st}`}>
-                    <span className="migrate-step-mark">{mark}</span>
-                    <span className="migrate-step-label">{label}</span>
-                    {st === 'running' && migrateJob.total > 0 && (
-                      <span className="migrate-step-count">{migrateJob.current}/{migrateJob.total}</span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-            {!migrateJob.done && migrateJob.currentName && (
-              <div className="migrate-current" title={migrateJob.currentName}>
-                {migrateJob.phase}: {migrateJob.currentName}
-              </div>
-            )}
-            {migrateJob.done && migrateJob.error && (
-              <div className="msg msg-error" style={{ marginTop: 12 }}>
-                {migrateJob.error}
-                <div style={{ marginTop: 6, fontSize: 12 }}>
-                  Nothing was deleted from your current directory. Close anything using these files
-                  (loaded models, open Explorer/audio windows) and retry, or use Switch only and copy manually.
-                </div>
-              </div>
-            )}
-            {migrateJob.done && !migrateJob.error && (
-              <div className="msg msg-success" style={{ marginTop: 12 }}>{migrateJob.note || 'Done. Restart to apply.'}</div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button className="btn btn-sm" disabled={!migrateJob.done} onClick={() => setMigrateJob(null)}>
-                {migrateJob.done ? 'Close' : 'Working…'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <MigrateProgressDialog migrateJob={migrateJob} onClose={() => setMigrateJob(null)} />
 
       {/* In-app folder browser — pick an assets directory reliably on any OS. */}
-      {browseOpen && (
-        <div className="fs-browser-overlay" onClick={() => setBrowseOpen(false)}>
-          <div className="fs-browser" onClick={e => e.stopPropagation()}>
-            <div className="fs-browser-hdr">
-              <IconFolder size={18} color="var(--accent)" />
-              <span className="fs-browser-title">Choose assets directory</span>
-              <button className="btn-icon" title="Close" onClick={() => setBrowseOpen(false)}>✕</button>
-            </div>
-            <div className="fs-browser-path">
-              <button className="btn btn-sm"
-                title={browseData?.parent === '' ? 'Back to drive list' : 'Up one level'}
-                disabled={browseBusy || browseData?.isDriveList || browseData?.parent == null}
-                onClick={() => browseTo(browseData?.parent ?? '')}>
-                {browseData?.parent === '' ? '↑ Drives' : '↑ Up'}
-              </button>
-              <input className="assets-dir-input" style={{ flex: 1 }}
-                value={browseData?.isDriveList ? '' : (browseData?.path || '')}
-                placeholder={browseData?.isDriveList ? 'Select a drive…' : 'Path…'}
-                onChange={e => setBrowseData(d => ({ ...(d || {}), path: e.target.value }))}
-                onKeyDown={e => { if (e.key === 'Enter') browseTo(e.target.value) }}
-                title="Type a path and press Enter, or double-click a folder below" />
-              <button className="btn btn-sm" disabled={browseBusy}
-                onClick={() => browseTo(browseData?.path || '')}>Go</button>
-              <button className="btn btn-sm" title="Create a new sub-folder here"
-                disabled={browseBusy || browseData?.isDriveList || !browseData?.path}
-                onClick={createSubfolder}>+ New</button>
-            </div>
-            <div className="fs-browser-list">
-              {browseBusy && <div className="fs-browser-empty">Loading…</div>}
-              {!browseBusy && browseError && (
-                <div className="fs-browser-error">
-                  <div>{browseError}</div>
-                  {browseData?.path && !browseData?.isDriveList && (
-                    <button className="btn btn-sm" style={{ marginTop: 8 }}
-                      onClick={() => mkdirThenOpen(browseData.path)}>
-                      Create “{browseData.path}”
-                    </button>
-                  )}
-                </div>
-              )}
-              {!browseBusy && !browseError && browseData?.isDriveList && browseData.drives.map(d => (
-                <div key={d.path} className="fs-browser-item" onClick={() => browseTo(d.path)}>
-                  <IconFolder size={14} color="var(--muted)" /> <span>{d.name}</span>
-                </div>
-              ))}
-              {!browseBusy && !browseError && !browseData?.isDriveList && (browseData?.dirs?.length
-                ? browseData.dirs.map(d => (
-                    <div key={d.path} className="fs-browser-item" onClick={() => browseTo(d.path)}>
-                      <IconFolder size={14} color="var(--muted)" /> <span>{d.name}</span>
-                    </div>
-                  ))
-                : <div className="fs-browser-empty">No sub-folders here.</div>)}
-            </div>
-            <div className="fs-browser-ftr">
-              <span className="fs-browser-current" title={browseData?.path || ''}>
-                {browseData?.isDriveList ? 'Pick a drive to open' : (browseData?.path || '')}
-              </span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => setBrowseOpen(false)}>Cancel</button>
-                <button className="btn btn-primary btn-sm"
-                  disabled={browseBusy || browseData?.isDriveList || !browseData?.path}
-                  onClick={chooseBrowsedFolder}>Use this folder</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <FolderBrowser
+        open={browseOpen}
+        browseData={browseData}
+        browseBusy={browseBusy}
+        browseError={browseError}
+        onBrowseTo={browseTo}
+        onPathChange={p => setBrowseData(d => ({ ...(d || {}), path: p }))}
+        onCreateSubfolder={createSubfolder}
+        onMkdirThenOpen={mkdirThenOpen}
+        onChoose={chooseBrowsedFolder}
+        onClose={() => setBrowseOpen(false)}
+      />
     </div>
   )
 }
 
-// ===========================
 //  BROKER TAB (P4 — MVP)
-// ===========================
 // The distribution surface: recipes grouped by voice, the OpenAI-compatible
 // endpoint + a copyable example curl (voice = role/name), recipe deletion, and
 // model re-bind (two avenues: project-query dropdowns backed by

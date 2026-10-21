@@ -3,18 +3,18 @@
 FunASR 中文/粤语 ASR — 从 GPT-SoVITS 项目解耦
 模型下载到项目内的 gsv-tools/asr/models/ 目录
 
-置信度（Patch #26，对齐 faster-whisper 管线）
--------------------------------------------------
+置信度（对齐 faster-whisper 管线）
+-----------------------------------------
 faster-whisper 会在输出目录写一个 `<name>.conf.json` 旁车（sidecar），
 schema 为 `{ 片段文件名: {confidence, no_speech_prob?, words:[{w,p}]} }`，
 供前端校对面板做逐词/逐行置信度着色。FunASR 之前不产出该旁车，导致选用
 FunASR 引擎时校对面板没有置信度提示，两条引擎的体验不一致。
 
-这里补齐：FunASR 也写同名同 schema 的旁车。诚实原则——
+这里补齐：FunASR 也写同名同 schema 的旁车。诚实原则：
 FunASR/Paraformer 是非自回归 CIF 模型，默认并不像 whisper 那样暴露稳定的
-逐词后验概率。故本实现只在 FunASR 的返回里**真的**带有分数字段时才填充置信度，
-否则写 `confidence: null`（前端据此不着色），**绝不编造数值**——因为这是训练前
-的 GIGO 质量门，假的“高置信度”会误导校对、比没有更糟。
+逐词后验概率。故本实现只在 FunASR 的返回里真的带有分数字段时才填充置信度，
+否则写 `confidence: null`（前端据此不着色），绝不编造数值：因为这是训练前
+的 GIGO 质量门，假的「高置信度」会误导校对，比没有更糟。
 """
 import argparse
 import json
@@ -104,8 +104,9 @@ def create_model(language="zh"):
     return model
 
 
-# ── Patch #26：FunASR 置信度提取 ─────────────────────────────────────────
-# FunASR 各版本/各模型返回的字段并不统一，且默认多半不含分数。这里做**防御式**
+# FunASR 置信度提取
+#
+# FunASR 各版本/各模型返回的字段并不统一，且默认不含分数。这里做防御式
 # 探测：只有当返回里真的带有可解释为概率的分数时才采用，否则返回 (None, [])。
 _SCALAR_SCORE_KEYS = ("confidence", "score", "avg_score", "am_score")
 _LIST_SCORE_KEYS = ("scores", "token_score", "token_scores", "char_scores", "am_scores")
@@ -185,7 +186,7 @@ def execute_asr(input_folder, output_folder, language):
 
     model = create_model(language)
 
-    # Patch #26：置信度旁车（键=片段文件名，schema 与 faster-whisper 完全一致）。
+    # 置信度旁车（键=片段文件名，schema 与 faster-whisper 完全一致）。
     conf_map = {}
     have_any_conf = False
 

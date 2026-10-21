@@ -28,10 +28,10 @@ def read_snapshot_section(path, header_prefix):
     text = open(path, encoding='utf-8').read()
     out, inside = {}, False
     for line in text.splitlines():
-        # ⚠️ 段头只认「=== <名字> —— <说明>」这一种形状。
-        #   快照里还有一行「=== 共 N 个包」，它也以 '=== ' 开头 ——
+# ⚠️ 段头只认「=== <名字> ： <说明>」这一种形状。
+#   快照里还有一行「=== 共 N 个包」，它也以 '=== ' 开头 ：
         #   而它紧跟在段头后面第一行，用 startswith('=== ') 判会把段立刻关掉。
-        #   （2026-10-05 实测踩到：因此一度报「盘上 0 个包」。）
+#   （ 实测踩到：因此一度报「盘上 0 个包」。）
         if line.startswith('=== ') and '——' in line:
             inside = line.startswith('=== %s ' % header_prefix)
             continue

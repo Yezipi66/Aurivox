@@ -1,26 +1,4 @@
 'use strict'
-// ============================================================================
-//  PROJECT PROBE —— 从上游项目的元数据文件里**机械**提取事实
-//
-//  ⭐ 为什么这是「探测」而不是「猜」
-//  这些值在项目自己的配置文件里写着 —— 我们只是**读**它，不推断它：
-//    pyproject.toml → [project.scripts]  = 平台该起哪个命令
-//                   → [project.name]    = python 包叫什么
-//                   → [tool.setuptools.packages.find] where = src 布局
-//    requirements.txt / environment.yml  = 依赖从哪来（决定装法）
-//
-//  ⛔⛔ 判据：**只提取，不推理**
-//  · 提取到 → 给出值，并附上「在哪个文件哪一行」
-//  · 没提取到 → 如实说没找到，⛔ 绝不用「大概率是 X」填空
-//
-//  ⚠ 实测依据（2026-10-03，某上游试点）：
-//  我先前把 runtime.entry 和 call.module 记成「只有读过源码才知道」，
-//  ⛔ 那是我判据太保守 —— 它们就在 pyproject.toml 里，机械可读。
-//  这个纠正把自动填充率从 38% 提到了 53%。
-//
-//  ⛔⛔ 纪律：不许出现任何具体引擎名。
-// ============================================================================
-
 const TOML_LINE = {
   name: /^\s*name\s*=\s*["']([^"']+)["']/,
   scripts: /^\s*([\w-]+)\s*=\s*["']([\w.]+):(\w+)["']\s*$/,
@@ -30,14 +8,7 @@ const TOML_LINE = {
   deps: /^\s*["']([\w.\-]+)\s*(?:[<>=!~][^"']*)?["']\s*,?\s*$/,
 }
 
-/**
- * 解析 pyproject.toml —— ⛔ 只做「行 → 值」，不做 TOML 语义分析。
- * ⛔ 拿不到就返回空结构，由调用方如实报告「没读到」。
- */
 function probePyproject (text) {
-  // ⭐ dependencies 要收集起来 —— Owner 2026-10-04 的第 2 步：
-  //   「列出需要安装的大包，其中 torch 单独列出来」
-  //   ⛔ 之前这里 `if (inDeps) continue` 把依赖**整个丢掉了**。
   const out = { found: false, scripts: {}, srcRoot: null, dependencies: [] }
   if (typeof text !== 'string') return out
 
@@ -51,15 +22,10 @@ function probePyproject (text) {
 
     if (/^\[project\.scripts\]$/.test(line)) { inScripts = true; continue }
     if (/^\[project\.optional-dependencies\]/.test(line)) { inScripts = false; continue }
-    // ⚠⚠ 真实项目的写法是 `dependencies = [`（带 = ，在 [project] 段里），
-    //   ⛔ 不是 `[project.dependencies]` 那种section —— 我原来只认后者，
-    //   所以 2026-10-04 在真上游上读出 0 条依赖。
-    //   两种都认：inline 数组（真项目）与 section（规范写法）。
     if (/^dependencies\s*=\s*\[/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^\[project\.dependencies\]$/.test(line)) { inDeps = true; inProject = false; continue }
     if (/^optional-dependencies\s*=\s*\{/.test(line)) { inDeps = false; continue }
     if (/^\[/.test(line)) {
-      // 新的 section
       inScripts = false; inDeps = false
       if (/^\[project\]$/.test(line)) inProject = true
       out.found = true
@@ -72,7 +38,7 @@ function probePyproject (text) {
       continue
     }
     if (inDeps) {
-      // ⛔ 只取「包名 + 版本约束」这一行（"torch>=2.5.0", 这行 TOML 惯例是裸字符串）
+      // 只取「包名 + 版本约束」这一行（"torch>=2.5.0"，这行 TOML 惯例是裸字符串）
       const m = line.match(TOML_LINE.deps)
       if (m) out.dependencies.push(line.replace(/,$/, '').replace(/^["']|["']$/g, ''))
       continue
@@ -94,10 +60,150 @@ function probePyproject (text) {
   return out
 }
 
-/** 探测一个依赖清单文件名 —— 决定我们走 uv pip 还是上游脚本 */
+function parseRequirements (text) {
+  const out = { found: false, dependencies: [], specs: [], skipped: 0 }
+  if (typeof text !== 'string' || !text) return out
+  out.found = true
+
+  const seen = new Set()
+  let continued = false
+
+  for (const raw of text.split(/\r?\n/)) {
+    let line = raw.trim()
+
+    // 续行：上一行以 `\` 结尾 ⇒ 这一行是它的延续，不是独立依赖
+    if (continued) {
+      if (line.endsWith('\\')) continue
+      continued = false
+      if (!line) continue
+      // 续行落在新行之后：只有当它自己是一整条依赖时才收（`-r` 这类选项行不算）
+    }
+
+    if (!line || line.startsWith('#')) continue
+
+    // 行尾注释要剥掉：`包名==1.0  # 说明` ⇒ `包名==1.0`
+    const hash = line.indexOf('#')
+    if (hash >= 0) line = line.slice(0, hash).trim()
+    if (!line) continue
+
+    // 行尾续行标记：本行不是一条完整依赖，下一行才是它的延续
+    if (line.endsWith('\\')) { continued = true; continue }
+
+    // 选项行：-r / -e / -c / --index-url / --hash / --find-links
+    if (line.startsWith('-')) { out.skipped++; continue }
+
+    // 环境标记 `;` 之后是条件，只取分号前的依赖声明
+    const semi = line.indexOf(';')
+    if (semi >= 0) line = line.slice(0, semi).trim()
+    if (!line) { out.skipped++; continue }
+
+    // 直连来源：git+https / http(s) / file / 本地路径 ⇒ 不是普通依赖
+    if (/^(?:git\+|https?:|file:|\.{1,2}[\\/])/i.test(line)) { out.skipped++; continue }
+    // PEP 508 直引：`包名 @ https://…` ⇒ 同样不是普通依赖
+    if (/@\s*\S/.test(line)) { out.skipped++; continue }
+
+    const m = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(.*)$/)
+    if (!m) { out.skipped++; continue }
+    const name = m[1]
+    const tail = m[2]
+    // 名字后面只能跟两种东西（PEP 508 的形状）：
+    //   ① extras：fastapi[all]
+    //   ② 紧贴的版本约束：torch>=2.5.0 / torch == 2.5.0 里第二种不合法
+    //   ③ 或者什么都没有（裸包名）
+    //
+    //   关键：合法的比较算子必须是两个字符或单个 < >，
+    //   单个 `=` 不是算子：它是赋值。
+    //   这条规则同时挡住了 TOML 赋值行：
+    //     name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
+    //     license = "Apache-2.0"    ⇒ 同上
+    //     requires-python = ">=3.10" ⇒ 同上
+    //   （这条守卫挡住的是把 TOML 赋值行读成包名：那几个 TOML 键名
+    //     本来被读成了包名。）
+    if (tail && !/^(?:\[[^\]]*\])?(?:===|==|!=|<=|>=|~=|<|>)/.test(tail)) {
+      out.skipped++; continue
+    }
+
+    const key = name.toLowerCase().replace(/[-_.]+/g, '-')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.dependencies.push(name)
+    out.specs.push(name + tail.replace(/\s+/g, ''))
+  }
+  return out
+}
+
+/**
+ * 从 LICENSE 正文的头部识别许可证，返回 SPDX 标识或 null。
+ *
+ * 认的是标准许可证写在开头的自我声明短语，不是靠正文相似度猜：
+ *   Apache 的开头写着「Apache License / Version 2.0」；
+ *   MIT 的写着「MIT License」或「Permission is hereby granted, free of charge」；
+ *   BSD 的写着「Redistribution and use in source and binary forms」；
+ *   GPL 的写着「GNU GENERAL PUBLIC LICENSE / Version N」；
+ *   MPL 的写着「Mozilla Public License Version N」；
+ *   Unlicense 的写着「This is free and unencumbered software」。
+ * 认不出返回 null，调用方按「只看到文件」如实报，不编一个。
+ *
+ * 单行形态也认：整篇就是一行「MIT」或 SPDX 标识。
+ *
+ * @param {string} text LICENSE 文件正文
+ * @returns {string|null} SPDX 标识
+ */
+function recognizeLicenseText (text) {
+  if (typeof text !== 'string' || !text.trim()) return null
+  // 只看前 4KB：标准许可证的声明都在开头，正文后半段是条款
+  const head = text.slice(0, 4096)
+  const flat = head.replace(/\s+/g, ' ')
+
+  // 单行形态：整篇只有一行，内容是 SPDX 标识本身
+  const oneLine = text.trim()
+  if (!oneLine.includes('\n') && oneLine.length <= 64) {
+    const m = oneLine.match(/^\s*(?:SPDX-License-Identifier:\s*)?([A-Za-z0-9.\-+]+)\s*$/)
+    if (m && SPDX_KNOWN.has(m[1])) return m[1]
+  }
+
+  // SPDX 标识行（有些仓库在文件里直接写这一行）
+  const spdxLine = head.match(/SPDX-License-Identifier:\s*([A-Za-z0-9.\-+]+)/)
+  if (spdxLine && SPDX_KNOWN.has(spdxLine[1])) return spdxLine[1]
+
+  // 标准头部短语
+  if (/Apache License\s+Version 2\.0/i.test(flat)) return 'Apache-2.0'
+  if (/Apache License\s+Version 1\.1/i.test(flat)) return 'Apache-1.1'
+  if (/MIT License/i.test(flat)) return 'MIT'
+  if (/Permission is hereby granted, free of charge/i.test(flat)) return 'MIT'
+  if (/Redistribution and use in source and binary forms/i.test(flat)) {
+    if (/neither the name/i.test(flat)) return 'BSD-3-Clause'
+    return 'BSD-2-Clause'
+  }
+  if (/GNU GENERAL PUBLIC LICENSE\s+Version 3/i.test(flat)) return 'GPL-3.0'
+  if (/GNU GENERAL PUBLIC LICENSE\s+Version 2/i.test(flat)) return 'GPL-2.0'
+  if (/GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3/i.test(flat)) return 'LGPL-3.0'
+  if (/GNU LESSER GENERAL PUBLIC LICENSE\s+Version 2\.1/i.test(flat)) return 'LGPL-2.1'
+  if (/GNU AFFERO GENERAL PUBLIC LICENSE\s+Version 3/i.test(flat)) return 'AGPL-3.0'
+  if (/Mozilla Public License\s+Version 2\.0/i.test(flat)) return 'MPL-2.0'
+  if (/This is free and unencumbered software released into the public domain/i.test(flat)) return 'Unlicense'
+  if (/Creative Commons Attribution 4\.0/i.test(flat)) return 'CC-BY-4.0'
+  return null
+}
+
+// 单行形态认得的标识：只收常见的，不在表里的不认（避免把一句普通英文当标识）
+const SPDX_KNOWN = new Set([
+  'MIT', 'Apache-2.0', 'Apache-1.1', 'BSD-2-Clause', 'BSD-3-Clause',
+  'GPL-2.0', 'GPL-3.0', 'LGPL-2.1', 'LGPL-3.0', 'AGPL-3.0',
+  'MPL-2.0', 'ISC', 'Unlicense', 'CC0-1.0', 'CC-BY-4.0',
+])
+
+/** 从 setup.py 文本里读 `name=`：只正则读文本，绝不 import 它 */
+function parseSetupPyName (text) {
+  if (typeof text !== 'string' || !text) return null
+  const m = text.match(/^\s*name\s*=\s*["']([^"']+)["']/m)
+  return m ? m[1].trim() || null : null
+}
+
+/** 探测一个依赖清单文件名：决定我们走 uv pip 还是上游脚本 */
 function detectDependencyFile (filenames) {
-  // ⛔ note 是**用户可见**的（StepPrepare 的「依赖清单」那栏直接渲染它）⇒
-  //   只说「识别到哪个文件」，⛔ 不说「因此用哪种装法」——
+  // note 是用户可见的（StepPrepare 的「依赖清单」那栏直接渲染它）⇒
+  //   只说「识别到哪个文件」，不说「因此用哪种装法」，
   //   那是判据，属维护者的信息。装法由 suggestEnvCommand 单独产出。
   const order = [
     { f: 'pyproject.toml', kind: 'pyproject' },
@@ -120,41 +226,52 @@ function detectDependencyFile (filenames) {
     found: true,
     primary: hit[0],
     all: hit,
-    // ⛔ 只列识别到的文件名。⛔ 不说「因此用哪种装法」——
-    //   那是判据（装法由 suggestEnvCommand 单独产出），用户不需要看到。
     note: hit.map((h) => h.f).join('；'),
   }
 }
 
-/**
- * ⭐ 主入口：把探测结果变成可以直接填进名片的值。
- * @param {{pyproject?:string, filenames?:string[], pythonHint?:string}} input
- */
 function probeProject (input = {}) {
   const py = probePyproject(input.pyproject)
+  const req = parseRequirements(input.requirements)
   const files = input.filenames || []
   const deps = detectDependencyFile(files)
   const values = {}
-  const sources = {}     // ⭐ 每个值都要能说清「从哪来」
+  const sources = {}
   const unfilled = []
 
   // ---- 包名 ⇒ call.module ----
-  if (py.name) {
-    values['call.module'] = py.name
-    sources['call.module'] = 'pyproject.toml [project.name]'
-  } else if (Object.keys(py.scripts).length) {
+  // 来源优先级：pyproject 的 [project.name] → pyproject 的 scripts 模块名
+  //   → setup.py 的 name=。顺序与 detectDependencyFile 一致（pyproject 优先）。
+  let packageName = py.name || null
+  // 来源与值同进同出：没有值就没有来源。
+  //   不预写一个来源再等值来填：那样会出现「值是空的，来源却写得很确定」，
+  //     界面上读起来就成了「平台在 pyproject 里读到了包名」，那是假的。
+  let packageNameFrom = py.name ? 'pyproject.toml [project.name]' : null
+  if (!packageName && Object.keys(py.scripts).length) {
     // 没有 [project.name]？退一步用 console 脚本的模块名（还是读出来的，不是猜的）
-    const mod = Object.values(py.scripts)[0].module.split('.')[0]
-    values['call.module'] = mod
-    sources['call.module'] =
-      `pyproject.toml [project.scripts]（${Object.keys(py.scripts)[0]} = ${Object.values(py.scripts)[0].module}）`
+    packageName = Object.values(py.scripts)[0].module.split('.')[0]
+    const first = Object.keys(py.scripts)[0]
+    packageNameFrom =
+      `pyproject.toml [project.scripts]（${first} = ${Object.values(py.scripts)[0].module}）`
+  }
+  if (!packageName && input.setupPy) {
+    // setup.py 可能是 setuptools.setup(name=...)，也可能是 distutils.core.setup(name=...)，
+    //   两者都读 name 字段
+    const fromSetup = parseSetupPyName(input.setupPy)
+    if (fromSetup) { packageName = fromSetup; packageNameFrom = 'setup.py name=' }
+  }
+
+  if (packageName) {
+    values['call.module'] = packageName
+    sources['call.module'] = packageNameFrom
   } else {
     unfilled.push({
       key: 'call.module',
-      why: 'Neither [project.name] nor [project.scripts] in pyproject — '
-        + 'the python package name cannot be read; check the source directory.',
-      whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]：'
-        + 'python 包名读不出来，得看源码目录',
+      why: 'Neither [project.name] nor [project.scripts] in pyproject, and setup.py '
+        + 'declares no name; the python package name cannot be read from these files; '
+        + 'check the source directory.',
+      whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]，'
+        + 'setup.py 里也没写 name：python 包名读不出来，得看源码目录',
       example: 'my_tts',
     })
   }
@@ -190,59 +307,95 @@ function probeProject (input = {}) {
     sources.installMode = `pyproject.toml [tool.setuptools.packages.find].where = ${py.srcRoot}`
   }
 
+  // ---- 许可证 ⇒ license ----
+  // pyproject 写了 license 就用它（那是最精确的来源）。
+  // 没写时读 LICENSE 正文的头部：标准许可证会在开头写明自己是哪一种，
+  //   照它的原话转成 SPDX 标识，这不是平台在猜，是转录上游的自我声明。
+  //   正文认不出就只报「有这个文件」，不靠相似度猜。
+  //
+  // 值字段只装许可证标识（SPDX id 或 pyproject 里写的原文），不装句子。
+  //   这条字段是直接渲染到界面上的（StepPrepare.jsx 的 plan-kv）：
+  //     一旦在这里塞「LICENSE file detected (LICENSE)」这种句子，
+  //     界面上就会出现一句英文描述，而它本该是元数据。
+  //   ⇒ 「只看到许可证文件、读不出是哪一种」这个事实放在 licenseEvidence，
+  //     由界面翻译成人话（license + licenseFile + licenseEvidence 三者一起显示）。
+  let license = py.license || null
+  let licenseFrom = py.license ? 'pyproject.toml [project.license]' : null
+  // 事实字段（机器读）：'file-only' = 只看到许可证文件，没读出是哪一种。
+  let licenseEvidence = py.license ? 'identifier' : null
+  if (!license && input.licenseText) {
+    const recognized = recognizeLicenseText(input.licenseText)
+    if (recognized) {
+      license = recognized
+      licenseFrom = `LICENSE 文件正文（${input.licenseFile || 'LICENSE'}）`
+      licenseEvidence = 'identifier'
+    }
+  }
+  if (!license && input.licenseFile) {
+    licenseEvidence = 'file-only'
+  }
+
   return {
     values, sources, unfilled,
     meta: {
-      packageName: py.name || null,
+      packageName,
+      packageNameFrom,
       consoleScripts: py.scripts,
       srcRoot: py.srcRoot,
       requiresPython: py.requiresPython || null,
-      license: py.license || null,
+      license,
+      licenseFrom,
+      licenseEvidence,
+      licenseFile: input.licenseFile || null,
       dependencies: deps,
+      // 第 1 步顺手把 requirements 的包名也读出来（与第 2 步同一份解析器）
+      requirementPackages: req.dependencies,
     },
   }
 }
 
 
-/**
- * ⭐⭐ 第 2 步的核心：读依赖 → 拆出 torch 系 → 跟本机比对出绿/黄/白。
- *
- * ⭐ 判据来源：
- *   · 依赖列表 —— 上游 pyproject.toml 里写的（**不是我们猜的**）
- *   · torch 系怎么判 —— 包名（hardware.js 的 TORCH_FAMILY）
- *   · 绿/黄/白 —— 跟本机推荐后端比对（hardware.js 的 judgeTorchSpec）
- *
- * ⛔⛔ 纪律：不许出现任何具体引擎名。
- */
 function planDependencies (text, opts = {}) {
-  const { probePyproject: _p } = { probePyproject }
-  const parsed = probePyproject(text)
-  const hw = opts.hardware || null        // ⛔ 没检测就不判断（不猜）
-  const deps = parsed.dependencies || []
+  const pyDeps = probePyproject(text).dependencies || []
+  const reqParsed = parseRequirements(opts.requirements)
+  const fromPyproject = pyDeps.length > 0
+  const deps = fromPyproject ? pyDeps : reqParsed.specs
+  const source = fromPyproject ? 'pyproject.toml' : 'requirements.txt'
+
+  const hw = opts.hardware || null        // 没检测就不判断（不猜）
 
   if (deps.length === 0) {
+    // 两份清单都没有才说「读不到」，且只说读不到，不提换仓库。
+    const hadReq = typeof opts.requirements === 'string' && opts.requirements
     return {
       ok: false,
       code: 'NO_DEPENDENCIES',
-      error: 'The upstream pyproject.toml does not expose a dependency list.\n'
-        + 'That does not necessarily mean it has no dependencies (they may live in uv.lock / '
-        + 'requirements.txt / a subdirectory); try a repository that ships a manifest, or follow '
-        + 'the upstream instructions.',
-      errorZh: '上游的 pyproject.toml 里没读到依赖列表。\n'
-        + '这不一定说明它没依赖（可能在 uv.lock / requirements.txt / 子目录里），'
-        + '请换一份带依赖清单的仓库再来，或按上游说明自己安装。',
+      error: (hadReq
+        ? 'The upstream requirements.txt has no readable dependency line '
+          + '(every line may be an option, a direct link, or a continuation).\n'
+        : 'This repository has neither pyproject.toml with a dependency list '
+          + 'nor a readable requirements.txt, so the dependency list cannot be read.\n')
+        + 'It may live in uv.lock, a subdirectory, or a file named differently; '
+        + 'follow the upstream instructions to install.',
+      errorZh: (hadReq
+        ? '上游的 requirements.txt 里没有读到依赖行'
+          + '（每一行都是选项、直连来源或续行）。\n'
+        : '这个仓库既没有带依赖列表的 pyproject.toml，也没有能读的 '
+          + 'requirements.txt，读不到依赖列表。\n')
+        + '它可能放在 uv.lock、子目录里，或换了别的文件名；请按上游说明自行安装。',
+      dep_source: null,
     }
   }
 
-  // ⛔ 拆包：只有 torch 系需要单独处理（Owner 说的）
+  // 拆包：只有 torch 系需要单独处理
   const { splitTorchPackages } = require('./hardware')
   const { torchish, rest } = splitTorchPackages(deps)
 
-  // ⭐ torch 系：每一个都判一次绿/黄/白（⛔ 不只判一个就代表全部）
+  // torch 系：每一个都判一次绿/黄/白（不只判一个就代表全部）
   const torchGroup = torchish.map((spec) => {
     const name = spec.split(/[<>=!~\[]/)[0].trim().toLowerCase()
     const isMain = name === 'torch'
-    // ⭐ 只对 torch 本体做后端判断；torchvision/torchaudio 是跟着 torch 走的
+    // 只对 torch 本体做后端判断；torchvision/torchaudio 是跟着 torch 走的
     const j = isMain && hw
       ? require('./hardware').judgeTorchSpec(spec, hw.recommended)
       : null
@@ -252,7 +405,7 @@ function planDependencies (text, opts = {}) {
       verdict: j ? j.verdict : (hw ? 'unknown' : 'unknown'),
       why: j ? j.why
         : isMain ? 'This machine was not detected — cannot tell whether this package will work.'
-        // ⛔ 没锁定 torch 后端时无法判断，但 ⛔ 不给理由（那是判据）。
+        // 没锁定 torch 后端时无法判断，但 不给理由（那是判据）。
         //   后端由 torch 的版本决定，lock 里没写就说不出是哪个。
           : 'The backend is decided by the Torch version, which is not declared in the lock.'
       , whyZh: j ? j.whyZh
@@ -261,22 +414,22 @@ function planDependencies (text, opts = {}) {
     }
   })
 
-  // ⚠ 整体结论 = torch 本体那一行的判定
+  // 整体结论 = torch 本体那一行的判定
   const mainRow = torchGroup.find((r) => r.isMain) || null
   const overall = mainRow ? mainRow.verdict : (hw ? 'unknown' : 'unknown')
 
   return {
     ok: true,
+    // 这次依赖是从哪个文件读出来的：界面与维护者都要知道，
+    //   不然「怎么读到的」这件事就只能靠猜。
+    dep_source: source,
+    dep_count: deps.length,
     deps: {
       total: deps.length,
-      // ⭐ 其它依赖「直接同步就行」—— 原话照 Owner 的意思：
-      //   「其实除了 Torch 一般没有什么风险，其他直接同步都行」
+      // 除 torch 外的依赖直接同步即可，只有 torch 要先选定后端。
       normal: { count: rest.length, packages: rest, action: 'sync' },
       torch: { count: torchGroup.length, packages: torchGroup, action: 'choose-backend' },
     },
-    // ⭐ gpus 也要带上 —— 界面上要写「检测到 Intel(R) Arc(TM) 140T」
-    //   （2026-10-04 实测踩过：漏了它，界面只剩「推荐 ipex」，
-    //    用户看不到凭什么推荐 ipex）
     hardware: hw ? {
       gpus: hw.gpus || [],
       recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
@@ -287,4 +440,7 @@ function planDependencies (text, opts = {}) {
   }
 }
 
-module.exports = { probePyproject, probeProject, detectDependencyFile, planDependencies }
+module.exports = {
+  probePyproject, probeProject, detectDependencyFile, planDependencies,
+  parseRequirements, parseSetupPyName, recognizeLicenseText,
+}

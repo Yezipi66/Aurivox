@@ -1,4 +1,4 @@
-// Patch #13 — Reference Transcript Proofing.
+// 参考文本校对。
 // Lets the user hand-edit an asset's EXISTING reference transcript (the text that
 // will be used when this audio is picked as an inference reference) and, per line,
 // open the shared reading-proofing UI to fix pronunciations. Reading corrections are
@@ -12,7 +12,7 @@ import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { LANG_LABEL, TextPrepModal, hanOverrideDirection } from '../pron/PronProofing'
 
-// Patch #23 — ASR confidence coloring. faster-whisper 的 word/segment 概率折算成
+// ASR 置信度着色。faster-whisper 的 word/segment 概率折算成
 // [0,1] 置信度，映射到 绿(高)/黄(可疑)/红(可能识别错误) 三档，辅助用户校对。
 const CONF_HI = 0.85   // ≥ → green
 const CONF_MID = 0.6   // ≥ → yellow, else red
@@ -97,8 +97,8 @@ function RowAudio({ url }) {
   )
 }
 
-// ⭐ 刀 A1（2026-08-31）：`engineId` 往下传给 TextPrepModal —— /api/pron/preview
-//   现在 engine_id 必传，⛔ 平台不替你挑一台。
+// `engineId` 往下传给 TextPrepModal，用于 /api/pron/preview
+//   现在 engine_id 必传，平台不代为选择。
 export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning, engineId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -185,7 +185,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
           </div>
 
           {loading && <div className="field-hint">Loading transcript…</div>}
-          {error && <div className="field-hint" style={{ color: 'var(--danger)' }}>{error}</div>}
+          {error && <div className="msg msg-error">{error}</div>}
 
           {!loading && buckets.length === 0 && !error && (
             <div className="field-hint">

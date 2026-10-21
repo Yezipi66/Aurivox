@@ -1,30 +1,30 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-r"""check_release_size.py — 按**体量**兜底的发行包守卫  [r12c batch16 / 2026-08-21]
+r"""check_release_size.py：按体量兜底的发行包守卫  [r12c batch16 / 2026-08-21]
 
 === 为什么需要它 ===
 
-04_pack_release.py 的排除清单是**按名字**写的。名字会腐烂，而腐烂的表现
-不是报错，是**包大了没人发现**。这不是假设，是本仓库反复发生过的事：
+04_pack_release.py 的排除清单是按名字写的。名字会腐烂，而腐烂的表现
+不是报错，是包大了没人发现。这不是假设，是本仓库反复发生过的事：
 
-  * `vendor/gsv-tools/asr/faster-whisper-large-v3-turbo` —— 名字打错一个词，
+  * `vendor/gsv-tools/asr/faster-whisper-large-v3-turbo`：名字打错一个词，
     规则从来没匹配上，3.4MB sidecar json 一路发了出去。它的 model.bin 是被
-    EXCLUDE_EXT（兜底）挡住的，**不是被那条规则挡住的**。
+    EXCLUDE_EXT（兜底）挡住的，不是被那条规则挡住的。
   * `vendor/tts/gpt-sovits` → `engines/gpt-sovits` 那次迁移，两条用
-    os.path.join 分段拼的排除路径**没被文本替换扫到**，留下就会静默失效，
+    os.path.join 分段拼的排除路径没被文本替换扫到，留下就会静默失效，
     600MB 权重进包。
-  * `venv_idx241` —— 目录早被移到项目外，条目还留在清单里。
-  * ⭐ 本批的直接触发点：`.venv` 只被 TOP_EXCLUDE 挡在**顶层**，
-    `engines/<id>/.venv/`（8.1GB）规则**够不着**。
+  * `venv_idx241`：目录早被移到项目外，条目还留在清单里。
+  * 本批的直接触发点：`.venv` 只被 TOP_EXCLUDE 挡在顶层，
+    `engines/<id>/.venv/`（8.1GB）规则够不着。
 
-共同点：**每一次都是"按名字排除"漏了，而每一次都没有报错。**
+共同点：每一次都是"按名字排除"漏了，而每一次都没有报错。
 
-⇒ 结论不是"下次写仔细点"，是**换一种判据**：名字会变，体量不会说谎。
+⇒ 结论不是"下次写仔细点"，是换一种判据：名字会变，体量不会说谎。
    一个"extract-and-run"的发行包不该有 300MB 的单文件，也不该有某个
    目录独占半个包。这两条不依赖任何清单是否最新。
 
-⚠ 它是**兜底**不是**替代**：排除清单仍然是第一道，这里只负责在清单漏了
-   的时候把构建**拦下来**，而不是让它悄悄发出去。
+它是兜底不是替代：排除清单仍然是第一道，这里只负责在清单漏了
+   的时候把构建拦下来，而不是让它悄悄发出去。
 
 === 判据 ===
 
@@ -33,9 +33,9 @@ r"""check_release_size.py — 按**体量**兜底的发行包守卫  [r12c batch
   3. 总量 > --max-total MB           （默认 500，与 04_pack_release 的
                                        MAX_UNCOMPRESSED_MB 一致）
 
-  ⭐ 判据 2 用**二级**目录（engines/indextts2 而不是 engines）：一级太粗，
-     engines/ 底下多一个引擎就会超，那样守卫会因为**正常增长**而误报，
-     误报几次之后就没人看它了 —— 那才是守卫真正的死法。
+  判据 2 用二级目录（engines/indextts2 而不是 engines）：一级太粗，
+     engines/ 底下多一个引擎就会超，那样守卫会因为正常增长而误报，
+     误报几次之后就没人看它了，那才是守卫真正的死法。
 
 用法：
     python tools\build\check_release_size.py                 # 扫工作树
@@ -159,18 +159,18 @@ def selftest():
     r = chk(len(v) == 0, "反例守卫：未超限不误报")
     ok += r; fail += 1 - r
 
-    # ⭐ 本批的真实场景：8.1GB 的 engines/indextts2/.venv 必须被抓
+    # 本批的真实场景：8.1GB 的 engines/indextts2/.venv 必须被抓
     v, _, _ = judge([("engines/indextts2/.venv/lib/torch_cuda.dll", 1000 * MB)],
                     99999, 120, 99999)
     kinds = set(x[0] for x in v)
-    r = chk("dir" in kinds, "⭐ engines/<id>/.venv 体量超限被抓（本批的触发点）")
+    r = chk("dir" in kinds, "engines/<id>/.venv 体量超限被抓（本批的触发点）")
     ok += r; fail += 1 - r
 
-    # ⭐ 反例守卫：许多小文件累加超过目录阈值也要抓（不是只看单文件）
+    # 反例守卫：许多小文件累加超过目录阈值也要抓（不是只看单文件）
     many = [("engines/x/f%d.txt" % i, 2 * MB) for i in range(100)]
     v, _, _ = judge(many, 50, 120, 99999)
     r = chk(any(x[0] == "dir" for x in v) and not any(x[0] == "file" for x in v),
-            "⭐ 反例守卫：小文件累加超目录阈值要抓，且不误报成单文件超限")
+            "反例守卫：小文件累加超目录阈值要抓，且不误报成单文件超限")
     ok += r; fail += 1 - r
 
     # 总量
@@ -213,7 +213,7 @@ def main():
         skip = {".git", "node_modules", "__pycache__", ".venv", "venv",
                 "dist", "logs", "outputs", "cache", ".hermes", ".staging"}
         entries = collect_from_tree(root, skip)
-        what = root + "   ⚠ 工作树模式跳过了 %s" % "/".join(sorted(skip))
+        what = root + "   工作树模式跳过了 %s" % "/".join(sorted(skip))
     print("   目标：%s" % what)
     print("   阈值：单文件 %sMB / 二级目录 %sMB / 总量 %sMB"
           % (a.max_file, a.max_dir, a.max_total))
@@ -238,7 +238,7 @@ def main():
         print("      %-8s %10s  %s" % (label, human(sz), name))
     print()
     print("   ⇒ 要么补 04_pack_release.py 的排除清单，要么用 --max-* 显式放宽。")
-    print("     ⛔ 别默默调高阈值 —— 这个守卫存在的意义就是**逼你看一眼**。")
+    print("     别默默调高阈值，这个守卫存在的意义就是逼你看一眼。")
     return 1
 
 

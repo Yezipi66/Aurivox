@@ -214,9 +214,7 @@ test('moving a node and typing in a setting change nothing else', () => {
   assert.deepEqual(typed.nodes[0].position, { x: 300, y: 121 }, '改设置不该把节点弹回原位')
 })
 
-// ---------------------------------------------------------------------------
 //  Language, zoom and the delete key
-// ---------------------------------------------------------------------------
 
 test('labels come out in the chosen language, and a missing one never blanks the screen', () => {
   const label = { en: 'Seed', zh: '随机种子' }
@@ -290,9 +288,7 @@ test('Delete deletes a node, except while typing into a setting', () => {
   assert.equal(isTypingTarget(null), false)
 })
 
-// ---------------------------------------------------------------------------
 //  Voice as a preset
-// ---------------------------------------------------------------------------
 // The ruling these tests hold to: a voice belongs to the broker. Picking one
 // here copies its numbers in once and then lets go. Nothing stays bound, and
 // nothing is written back.

@@ -114,7 +114,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
       </Select>
       <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
         {t('Cross-voice reference — timbre and quality may differ from this model.',
-           '跨音色参考 — 音色和质量可能与本模型不同。')}
+           '跨音色参考：音色和质量可能与本模型不同。')}
       </div>
       <div className="ref-tabs">
         <span className={`ref-tab ${refTab === 'slices' ? 'active' : ''}`}
@@ -202,7 +202,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     setErr(null); setUploading(true)
     try {
       // Multi-select reuses the single-file endpoint, uploading sequentially and
-      // accumulating via onPick — no batch protocol (Patch #11 aux custom files).
+      // 通过 onPick 累积：无批处理协议（辅助自定义文件）。
       for (const f of files) {
         const fd = new FormData(); fd.append('audio', f)
         const r = await api('/api/custom-ref-audio', { method: 'POST', body: fd, contentType: 'multipart' })
@@ -220,14 +220,14 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     return (
       <div style={{ marginTop: 8 }}>
         <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
-        <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick one or more audio files from your computer', '从你的电脑选择一个或多个音频文件')}>
+        <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick one or more audio files from your computer', '从电脑选择一个或多个音频文件')}>
           {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom files\u2026', '自定义文件\u2026')}
         </button>
         <div className="field-hint" style={{ marginTop: 4 }}>
           {t("Custom files are imported into this voice's managed assets when you save a recipe.",
              '保存配方时，自定义文件会被导入到该音色的托管资产中。')}
         </div>
-        {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
+        {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}
       </div>
     )
   }
@@ -235,15 +235,15 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
   return (
     <div style={{ marginTop: 8 }}>
       <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
-      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from your computer', '从你的电脑选择任意音频文件')}>
+      <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from your computer', '从电脑选择任意音频文件')}>
         {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom file\u2026', '自定义文件\u2026')}
       </button>
-      {err && <div className="field-hint" style={{ color: 'var(--danger)', marginTop: 4 }}>{err}</div>}
+      {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}
       {custom && (
         <div style={{ marginTop: 6 }}>
           <div className="field-hint" style={{ color: 'var(--warning)' }}>
             {t('Custom reference — no aligned transcript. Add one below (optional).',
-               '自定义参考 — 没有对齐的文本。可在下方添加（可选）。')}
+               '自定义参考：没有对齐的文本。可在下方添加（可选）。')}
           </div>
           <div style={{ fontSize: 12, wordBreak: 'break-all', margin: '4px 0' }}>{custom.name}</div>
           <AudioPlayer src={custom.url} onDuration={d => setDur(d)} />
@@ -267,7 +267,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
 }
 
 // Single-voice reference list: Slices / Raw tabs + inline audition players.
-// Hoisted from Compare's RefAudioTabs and parameterized (Patch #11) so a single
+// 从 Compare 的 RefAudioTabs 提取并参数化，单个
 // implementation serves BOTH the main reference (selectMode="single") and the
 // auxiliary references (selectMode="multi"). onPick(path,text) for single;
 // onToggle(path,text) for multi. `selectedPaths` (multi) drives the checked/
@@ -383,7 +383,7 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
   )
 }
 
-// Auxiliary-reference picker (Patch #11): the ONE shared multi-select reference
+// 辅助参考选择器：唯一共享的多选参考
 // selector used by BOTH Generate and Compare. Sources: This voice's segments
 // (Slices/Raw, multi) · Another voice's segments (CrossRefPicker) · Custom files
 // (multi upload). Identity uses base+normalized path so the current main

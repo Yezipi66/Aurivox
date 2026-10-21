@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-verify_launch —— 照**平台真正的那条启动路径**起一次引擎，并让它出一段声
+verify_launch：照平台真正的那条启动路径起一次引擎，并让它出一段声
 
     python tools\\dev\\verify_launch.py
     python tools\\dev\\verify_launch.py --ref "D:\\...\\编入队伍.wav"
@@ -9,29 +9,29 @@ verify_launch —— 照**平台真正的那条启动路径**起一次引擎，�
 
 这个脚本存在的理由
 ────────────────────────────────────────────────────────────────────────
-A/B 判据（run_ab.py，5 条 5 过）证明的是：**host.py 出的音频和 shim.py 一样**。
-它是自己拼命令把引擎起起来的 —— 那条命令是脚本写的，不是平台算的。
+A/B 判据（run_ab.py，5 条 5 过）证明的是：host.py 出的音频和 shim.py 一样。
+它是自己拼命令把引擎起起来的，那条命令是脚本写的，不是平台算的。
 
-也就是说，到现在为止**没有任何一次验证走过 `engine-launch-plan.cjs`**。
+也就是说，到现在为止没有任何一次验证走过 `engine-launch-plan.cjs`。
 而那才是 start.ps1 真正用的东西（start.ps1:65-66 调它，:339-342 照它 spawn）。
 名片改了 entry、占位符表加了 {profile_json}，这条路上会不会翻车，没人验过。
 
-⇒ 本脚本把那一段补上：出计划 → **照计划原样 spawn** → /health → 真出一段声 → 停。
+⇒ 本脚本把那一段补上：出计划 → 照计划原样 spawn → /health → 真出一段声 → 停。
 
-⛔ 为什么不是「从界面点一下」
+为什么不是「从界面点一下」
 ────────────────────────────────────────────────────────────────────────
-界面上没有 indextts2 —— 这不是漏装，是 §12 第 2 步的**另一半还没做**：
+界面上没有 indextts2，这不是漏装，是 §12 第 2 步的另一半还没做：
 
   * start.ps1:57-58  起哪台引擎看环境变量 ENGINE_ID，默认写死 'gpt-sovits'
-  * lib/engines/legacyDefault.js  webui 那条合成路径**从来没有「引擎」这个参数**，
+  * lib/engines/legacyDefault.js  webui 那条合成路径从来没有「引擎」这个参数，
     它绑死在写了 legacy_default:true 的那张名片上。该文件自己的注释写明删除
     条件：「当合成路径的每一次调用都自带 engine_id 时（契约 §12 第 2 步）」。
 
 那一半和今天这一刀是两件事，今天这一刀不依赖它。所以验证绕开界面，
-直接走启动路径本身 —— 反而更准：界面那条路上还夹着后端和 legacy 绑定，
+直接走启动路径本身，反而更准：界面那条路上还夹着后端和 legacy 绑定，
 翻了车说不清是谁的锅。
 
-⭐⭐ 这里面有一条只能在真机上验的东西
+这里面有一条只能在真机上验的东西
 ────────────────────────────────────────────────────────────────────────
 start.ps1:178 认自家引擎是这么认的：
 
@@ -39,21 +39,21 @@ start.ps1:178 认自家引擎是这么认的：
                                           ↑ $hay = 进程 Path + CommandLine，全小写
 
 原先记号取「入口的绝对路径」，注释写明理由是「两台引擎的入口都叫 shim.py
-是完全可能的」。可是走通用宿主之后，**入口的绝对路径必然是同一个** ——
+是完全可能的」。可是走通用宿主之后，入口的绝对路径必然是同一个，
 从「可能撞」变成「必然撞」。撞了的后果就是那段注释自己写的：A 占着端口时
-start.ps1 认为「我的引擎已经在跑了」，B 永远起不来，**且不报任何错**。
+start.ps1 认为「我的引擎已经在跑了」，B 永远起不来，且不报任何错。
 
 改法是走宿主时改用 cache/engines/<id>.profile.json 当记号。但「它到底有没有
-出现在真起来的那个进程的命令行里」，沙箱里看不到 —— 只能在这里看。
+出现在真起来的那个进程的命令行里」，沙箱里看不到，只能在这里看。
 本脚本 [3] 就在看这个。
 
 判据（8 条）
 ────────────────────────────────────────────────────────────────────────
   [1] 平台算得出计划，且 entry 指向通用宿主
-  [2] 名片解析结果真落盘了，且**逐字节等于 emit_profile.cjs 的输出**
-      ⭐ 这条是防分叉：A/B 判据喂给 host.py 的是 emit_profile 的输出，
+  [2] 名片解析结果真落盘了，且逐字节等于 emit_profile.cjs 的输出
+      这条是防分叉：A/B 判据喂给 host.py 的是 emit_profile 的输出，
         正式启动喂的是这一份。两份不一样 ⇒ 判据证明的不是正在跑的东西。
-  [3] own_process_mark 一台一个，且**真的出现在命令行里**（见上）
+  [3] own_process_mark 一台一个，且真的出现在命令行里（见上）
   [4] 照计划起得来，/health ready
   [5] 引擎身份来自名片，不是写死的
   [6] 真出一段声，WAV 解析得开、时长不为零
@@ -76,10 +76,10 @@ from urllib.request import Request, urlopen
 
 BANNER = "[verify_launch]"
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# ⭐ 2026-10-01：改成可覆盖（--engine）。理由：这一份脚本原来只跑 indextts2
-#   （走通用宿主 host.py 那台），而 2026-10-01 修的那条别名折叠
-#   （if_sr → super_sampling）在 **gpt-sovits**（走自己的 infer_server.py）上。
-#   ⛔ 写死一台 ⇒ 每次想验别的引擎都得改源码，那这个脚本就废了。
+# 改成可覆盖（--engine）。理由：这一份脚本原来只跑 indextts2
+#   （走通用宿主 host.py 那台），而后来修的那条别名折叠
+#   （if_sr → super_sampling）在 gpt-sovits（走自己的 infer_server.py）上。
+#   写死一台 ⇒ 每次想验别的引擎都得改源码，那这个脚本就废了。
 ENGINE_ID = "indextts2"
 
 TOTAL = 0
@@ -99,7 +99,7 @@ def say(msg=""):
 
 
 def check(ok, title, detail="", hint=""):
-    """一条判据。⭐ 过与不过都印出实测值 —— 只印「ok」的报告是不能复核的。"""
+    """一条判据。过与不过都印出实测值，只印「ok」的报告是不能复核的。"""
     global TOTAL, PASSED
     TOTAL += 1
     if ok:
@@ -132,18 +132,18 @@ def port_is_open(port, host="127.0.0.1", timeout=0.35):
 
 
 def health(port, timeout=3.0, ready_url=None):
-    # ⭐⭐ 2026-10-01：地址问 launchPlan（ready_url），不再写死 /health。
+    # 地址问 launchPlan（ready_url），不再写死 /health。
     #
-    #   为什么原来那个写法是错的：**不是每台引擎的 ready 端点都叫 /health**。
+    #   为什么原来那个写法是错的：不是每台引擎的 ready 端点都叫 /health。
     #   实测（launchPlan 的 ready_url，两台引擎两个样）：
     #     gpt-sovits  → http://127.0.0.1:9883/          （它的 infer_server.py）
     #     indextts2   → http://127.0.0.1:9883/health    （通用宿主 host.py）
-    #   写死 /health 的后果不是「快一点失败」而是**满屏 404 然后干等到超时** ——
+    #   写死 /health 的后果不是「快一点失败」而是满屏 404 然后干等到超时，
     #   脚本对 GSV 这类引擎永远判不过，于是它只能验一台。
     #
-    #   ⛔ 端点写在**名片** runtime.ready_endpoint 里，launchPlan 已经把它拼成
+    #   端点写在名片 runtime.ready_endpoint 里，launchPlan 已经把它拼成
     #      完整 URL 交出来了（还替换了 {host}/{port}）。平台不许在前端/脚本里
-    #      另存一份「哪个引擎走哪个端点」—— 那正是这份名单会漂移的地方。
+    #      另存一份「哪个引擎走哪个端点」，那正是这份名单会漂移的地方。
     url = ready_url or ("http://127.0.0.1:%d/health" % port)
     try:
         resp = urlopen(Request(url, method="GET"), timeout=timeout)
@@ -156,11 +156,11 @@ def health(port, timeout=3.0, ready_url=None):
         data = json.loads(body.decode("utf-8", "replace"))
     except ValueError:
         return False, None
-    # ⚠ 「ready」这个字段也不是每台都写：
+    # 「ready」这个字段也不是每台都写：
     #   通用宿主 host.py 的 /health 返回 {"ready": true, ...}
     #   GSV 的 infer_server.py 的 /      返回 {"message": "... online", "version": "..."}
-    # 所以：**有 ready 字段就信它，没有就信 HTTP 200**（200 本身就说明它起来了
-    # 且愿意回答 —— 没起来的话那个端口上压根没人应答）。
+    # 所以：有 ready 字段就信它，没有就信 HTTP 200（200 本身就说明它起来了
+    # 且愿意回答，没起来的话那个端口上压根没人应答）。
     if "ready" in data:
         return bool(data.get("ready")) and code == 200, data
     return code == 200, data
@@ -175,7 +175,7 @@ def tail(path, n=40):
 
 
 def wav_info(raw):
-    """够用就好的 WAV 解析。⭐ 判据是字节，不是引擎的自述。"""
+    """够用就好的 WAV 解析。判据是字节，不是引擎的自述。"""
     if len(raw) < 44 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
         return None
     pos, fmt, data_len = 12, None, None
@@ -198,7 +198,7 @@ def wav_info(raw):
 
 
 def run_node(args, what):
-    """跑一条 node 命令，拿 stdout。⛔ 不吞错 —— 起不来要带着原因起不来。"""
+    """跑一条 node 命令，拿 stdout。不吞错，起不来要带着原因起不来。"""
     node = "node"
     bundled = os.path.join(ROOT, "tools", "runtime", "node", "node.exe")
     if os.path.isfile(bundled):
@@ -215,7 +215,7 @@ def run_node(args, what):
 
 
 # ---------------------------------------------------------------------------
-#  [1][2][3] 计划这一侧 —— 起引擎之前先把能量的都量了
+#  [1][2][3] 计划这一侧 ： 起引擎之前先把能量的都量了
 # ---------------------------------------------------------------------------
 def verify_plan(port):
     say("")
@@ -233,21 +233,21 @@ def verify_plan(port):
                    % (ENGINE_ID, plan.get("error")), 2,
                    "先跑 node tools\\run_tests.cjs，多半那边也是红的。")
 
-    # ⛔ 保留一份原样的 entry 给 [3] 的命令行匹配用（start.ps1 是拿 Windows
-    #   路径去 Contains 的）。另存一份正斜杠的**只**给 endswith 用 ——
-    #   2026-10-01 我把 entry 直接换成正斜杠版，结果 [3] 的 mark（反斜杠
+    # 保留一份原样的 entry 给 [3] 的命令行匹配用（start.ps1 是拿 Windows
+    #   路径去 Contains 的）。另存一份正斜杠的只给 endswith 用。
+    #   如果把 entry 直接换成正斜杠版，[3] 的 mark（反斜杠
     #   路径）在命令行里找不到，脚本对 GSV 判不过。
     entry_raw = plan.get("entry") or ""
     entry = entry_raw.replace("\\", "/")
 
-    # ⭐⭐ 2026-10-01：这里原来只有一条路 —— 判「entry 必须是通用宿主
-    #   host.py」。但**不是每台引擎都走通用宿主**：gpt-sovits 走的是它自己的
-    #   lib/inference/infer_server.py（那是它 2026-08 之前就在的老宿主，
-    #   名片 runtime.entry 如实写着）。写死判 host.py 等于**这台引擎永远
-    #   判不过**，于是脚本只能验 indextts2 一台。
+    # 这里原来只有一条路，判「entry 必须是通用宿主
+    #   host.py」。但不是每台引擎都走通用宿主：gpt-sovits 走的是它自己的
+    #   lib/inference/infer_server.py（那是它更早在的老宿主，
+    #   名片 runtime.entry 如实写着）。写死判 host.py 等于这台引擎永远
+    #   判不过，于是脚本只能验 indextts2 一台。
     #
-    #   正确的判据不是「像不像 host.py」，而是「**这台引擎声明的宿主**有没有
-    #   如实出现在计划里」。平台不许有第二份「哪些引擎走通用宿主」的清单 ——
+    #   正确的判据不是「像不像 host.py」，而是「这台引擎声明的宿主有没有
+    #   如实出现在计划里」。平台不许有第二份「哪些引擎走通用宿主」的清单，
     #   名片的 runtime.entry 就是那份清单。
     uses_common_host = entry.endswith("lib/engines/host.py")
     if uses_common_host:
@@ -263,7 +263,7 @@ def verify_plan(port):
               "args 里带 --profile-json（通用宿主的必填参数）",
               " ".join(args))
     else:
-        # ⛔ 别对非通用宿主要求 --profile-json：infer_server.py 没有这个参数
+        # 别对非通用宿主要求 --profile-json：infer_server.py 没有这个参数
         #   （它读 tts_infer.yaml），硬要它才是真错。
         check("--profile-json" not in args,
               "args 里**没有** --profile-json（这台宿主要的是自己的参数）",
@@ -272,7 +272,7 @@ def verify_plan(port):
               "两种都不该发生。")
 
     say("")
-    say("[2] 名片解析结果落盘了吗 —— 而且和判据用的是同一份吗")
+    say("[2] 名片解析结果落盘了吗，而且和判据用的是同一份吗")
 
     dest = plan.get("profile_json_path")
     if not uses_common_host:
@@ -292,11 +292,11 @@ def verify_plan(port):
         if not os.path.isfile(dest):
             raise Fail("文件不在，后面没法验", 2)
 
-    # ⭐⭐ 防分叉：A/B 判据喂给 host.py 的是 emit_profile.cjs 的输出；
+    # 防分叉：A/B 判据喂给 host.py 的是 emit_profile.cjs 的输出；
     #   正式启动喂的是上面这一份。两份要是不一样，那 5 条 5 过证明的
-    #   就不是正在跑的这个东西 —— 那种绿是空的。
+    #   就不是正在跑的这个东西，那种绿是空的。
     #
-    # ⛔ 只在通用宿主这一支上跑：非通用宿主根本没有 profile.json 可比
+    # 只在通用宿主这一支上跑：非通用宿主根本没有 profile.json 可比
     #   （[2] 那条已经判过 dest 是 None）。硬跑会 FileNotFound(None)。
     if dest:
       ref = os.path.join(ROOT, "cache", "engines", "_verify_ref.profile.json")
@@ -328,7 +328,7 @@ def verify_plan(port):
           "记号在命令行里找不到 ⇒ Test-IsOwnProcess 认不出自家引擎。\n"
           "后果不是报错，是端口每次往上挪一格 —— 静默的。")
 
-    # ⭐ 走宿主的引擎入口路径**必然相同** ⇒ 记号不能再取入口。
+# ⭐ 走宿主的引擎入口路径必然相同 ⇒ 记号不能再取入口。
     check(not mark.replace("\\", "/").endswith("lib/engines/host.py"),
           "⭐⭐ 记号不是宿主入口（否则两台引擎的记号会一模一样）", mark,
           "这正是本轮修掉的那个 bug 又回来了：\n"
@@ -347,7 +347,7 @@ def spawn(plan, port, log_path, wait_seconds):
                    "上一轮的窗口可能还开着。先关掉 —— 两台引擎同时活着"
                    "会吃满显存，Windows 上容易直接闪退。")
 
-    # ⭐⭐ 照计划原样拼，一个字都不自己加。
+    # 照计划原样拼，一个字都不自己加。
     #   自己加参数 = 验的就不是平台那条路径了，那才是这个脚本最容易白跑的方式。
     cmd = [plan["python"], plan["entry"]] + [str(a) for a in plan["args"]]
     cwd = plan.get("cwd") or ROOT
@@ -416,8 +416,8 @@ def shutdown(proc, fh, port):
 def _manifest():
     """这台引擎的名片（纯 stdlib 读文件；node 那边查不到）。
 
-    ⭐ 所有「这台引擎认不认 X」的判据都从这里出发 —— 名片是唯一产地。
-    ⛔ 不在本脚本里维护任何一张「引擎 → 它要什么」的表：那份表必然漂移，
+    所有「这台引擎认不认 X」的判据都从这里出发，名片是唯一产地。
+    不在本脚本里维护任何一张「引擎 → 它要什么」的表：那份表必然漂移，
     而漂移的报错是「静默忽略一个参数」（平台第 2 条纪律要消灭的那种）。
     """
     try:
@@ -429,7 +429,7 @@ def _manifest():
 
 
 def _seedable():
-    """这台引擎有没有随机源？—— 问名片 call.seed，不猜。"""
+    """这台引擎有没有随机源？问名片 call.seed，不猜。"""
     seed = (_manifest().get("call") or {}).get("seed")
     if seed is None:
         return True          # 没写 = 老形状（GSV 那样），照旧发
@@ -441,14 +441,14 @@ def _seedable():
 def _default_method_cfg():
     """这台引擎**默认**那个方法的配置（名片的 call.methods[default_method]）。
 
-    ⭐ 为什么需要它（2026-10-01 真机抓出来的）：cosyvoice2 的 zero_shot
-    方法级 call_time = ["prompt_text", "zero_shot_spk_id"] —— 而
-    `prompt_text` 是**必填**的（上游 inference_zero_shot() 的位置参数）。
+    为什么需要它：cosyvoice2 的 zero_shot
+    方法级 call_time = ["prompt_text", "zero_shot_spk_id"]，而
+    `prompt_text` 是必填的（上游 inference_zero_shot() 的位置参数）。
     只发 text + ref_audio ⇒
         TypeError: CosyVoice.inference_zero_shot() missing 1 required
                    positional argument: 'prompt_text'
     ⇒ 「这台引擎认哪些键」的完整答案 = 平台级 param_keys/payload_keys ∪
-       **方法级 call_time**。只看前者会漏掉方法级那几个。
+       方法级 call_time。只看前者会漏掉方法级那几个。
     """
     call = _manifest().get("call") or {}
     methods = call.get("methods")
@@ -467,19 +467,19 @@ def _method_param_names():
 
 
 def _wants(extra, key):
-    """这台引擎认不认这个键？—— 问名片，不猜。
+    """这台引擎认不认这个键？问名片，不猜。
 
-    ⭐ 为什么不能靠「试试看，发了会不会 400」：那是一次真机请求 50+ 秒
-    （IndexTTS2 光加载就 52 秒），而且**第一次尝试就用它当判据**等于让
+    为什么不能靠「试试看，发了会不会 400」：那是一次真机请求 50+ 秒
+    （IndexTTS2 光加载就 52 秒），而且第一次尝试就用它当判据等于让
     「能不能跑通」取决于「猜得对不对」。
 
-    ⛔ 这里刻意读 resolveEngineProfile 的 param_keys + payload_keys 两处 ——
+    这里刻意读 resolveEngineProfile 的 param_keys + payload_keys 两处，
        有些键写在 param_keys（宿主认的），有些只写在 payload_keys
        （平台可以透传的引擎原生键）。两边并起来才是「这台引擎认什么」。
     """
     try:
         # 直接读名片。这个脚本是纯 stdlib，node 那边查不到；而「这台引擎认
-        # 什么键」的**唯一产地**就是名片的 param_keys / payload_keys。
+# 什么键」的唯一产地就是名片的 param_keys / payload_keys。
         with io.open(os.path.join(ROOT, "engines", ENGINE_ID, "manifest.json"),
                      encoding="utf-8") as f:
             man = json.load(f)
@@ -492,33 +492,33 @@ def _wants(extra, key):
 def synth(port, text, ref, seed, timeout, extra=None, method_args=None):
     url = "http://127.0.0.1:%d/tts" % port
     payload = {"text": text, "ref_audio_path": ref, "media_type": "wav"}
-    # ⭐⭐ 2026-10-01 修正（第二次，真机又抓到一个）：seed 也不能无条件发。
-    #   cosyvoice2 的名片 call.seed = "none" —— 它**没有**随机源。宿主对此
+    # 修正：seed 也不能无条件发。
+    #   cosyvoice2 的名片 call.seed = "none"，它没有随机源。宿主对此
     #   明确 400，报错写得很清楚（该照它的）：
     #     "this engine declares call.seed = \"none\": it cannot reproduce a
     #      previous run, so the broker must not record a seed for it.
     #      Accepting the seed and ignoring it would put a seed in meta.json
     #      that never took effect."
-    #   ⇒ 平台的判据跟宿主一致：**不接受一个不会生效的值**。
+    #   ⇒ 平台的判据跟宿主一致：不接受一个不会生效的值。
     if _seedable():
         payload["seed"] = seed
-    # ⭐⭐ 2026-10-01 修正（第一版写错了，真机抓出来的）：
-    #   我第一版**无条件**加了 text_lang / prompt_lang / text_split_method。
-    #   那三个是 **GSV 老宿主** infer_server.py 的 check_params()（:388-414）
-    #   的校验要求 —— 缺一个就 400。⇒ 在 GSV 上必须发。
+    # 修正：
+    #   我第一版无条件加了 text_lang / prompt_lang / text_split_method。
+    #   那三个是 GSV 老宿主 infer_server.py 的 check_params()（:388-414）
+    #   的校验要求，缺一个就 400。⇒ 在 GSV 上必须发。
     #
-    #   ⛔⛔ 但通用宿主 host.py **明确拒收未知键**（:1147-1151，会逐个列出来
+    #   但通用宿主 host.py 明确拒收未知键（:1147-1151，会逐个列出来
     #      说「拼错了否则会被静默忽略」）。indextts2 实测：
     #        400 {"detail": "unknown parameter(s): prompt_lang, text_lang,
     #              text_split_method"}
-    #   ⇒ 无条件发这三个 = 把一台引擎的宿主契约漏给另一台。**这正是宿主那条
-    #      守卫要防的事，我自己犯了。**
+    #   ⇒ 无条件发这三个 = 把一台引擎的宿主契约漏给另一台。这正是宿主那条
+    #      守卫要防的事，我自己犯了。
     #
-    #   正确判据：**这台引擎认不认这些键** —— 问名片，不是猜。
+    #   正确判据：这台引擎认不认这些键，问名片，不是猜。
     #   GSV 的 param_keys 里有 text_lang / prompt_lang / text_split_method；
     #   indextts2 的没有（它的 param_keys 是情绪相关那九个）。
-    # 方法级参数（--method-arg）**原样进 payload**，平台不翻译它们。
-    #   ⛔ 键名必须是引擎原生的（prompt_text 而不是 reference_text）——
+    # 方法级参数（--method-arg）原样进 payload，平台不翻译它们。
+    #   键名必须是引擎原生的（prompt_text 而不是 reference_text），
     #      那份名单的唯一产地是名片的 call.methods[...].call_time。
     if method_args:
         payload.update(method_args)
@@ -559,24 +559,24 @@ def main(argv=None):
                     help="只验计划那三步，不起引擎（快，10 秒内出结果）")
     # ── 成对对比：验「平台有没有真的把这个参数送到引擎」 ──────────────
     #
-    # ⭐ 为什么要有这个模式（2026-10-01 加）：有一类 bug **只在真机上现形**，
-    #    而且症状是「参数调了没反应、也没有报错」。那次查出来的正是它 ——
+# 为什么要有这个模式：有一类 bug 只在上现形，
+    #    而且症状是「参数调了没反应、也没有报错」。那次查出来的正是它，
     #    界面上「Super Sampling」那一格，平台发的是 if_sr、引擎读的是
     #    super_sampling、pydantic 静默丢掉 ⇒ 用户打开它，声音一点不变。
     #
     #    为什么不能靠 build/单测发现：build 绿只证明代码能编译；单测证明不了
-    #    「这个键到了引擎进程里」。**只有真发一次、量两次音频才验得了。**
+    #    「这个键到了引擎进程里」。只有真发一次、量两次音频才验得了。
     #
-    # ⛔ 为什么必须固定 --seed：seed 随机的话两次音频本来就不一样，量出来的
+    # 为什么必须固定 --seed：seed 随机的话两次音频本来就不一样，量出来的
     #    差异全是 seed 的，跟参数毫无关系（第一次实测就踩了这个：看着像字节
     #    数差 25%，其实是随机数）。这个模式把 seed 写死在默认值里就是为了
     #    防这一脚。
     ap.add_argument("--engine", default=None,
                     help="要起哪台引擎（默认 indextts2；例：--engine gpt-sovits）")
-    # ⚠ 2026-10-01：多方法引擎（cosyvoice2）的**方法级参数**必须显式给。
+    # 多方法引擎（cosyvoice2）的方法级参数必须显式给。
     #   例：zero_shot 要 prompt_text（= 参考音频对应的原文），
     #        sft 要 spk_id，vc 要 source_wav。
-    #   ⛔ 刻意**不自动补** —— 「补什么值」是业务决定（prompt_text 该填这段
+    #   刻意不自动补，「补什么值」是业务决定（prompt_text 该填这段
     #      参考音频的原文，不是随便一句），脚本猜了就是造一个假成功。
     #      判据「哪些参数这个方法要」从名片读；「这些参数的值是什么」由人给。
     ap.add_argument("--method-arg", action="append", default=[], metavar="KEY=VALUE",
@@ -584,12 +584,12 @@ def main(argv=None):
     ap.add_argument("--ab-param", default=None,
                     help="成对对比这一个参数，形如 key=v1,v2（如 if_sr=true,false）")
     args = ap.parse_args(argv)
-    # ⛔ main 里改全局：check()/say() 好几处直接读 ENGINE_ID，而把它们
+    # main 里改全局：check()/say() 好几处直接读 ENGINE_ID，而把它们
     #   改成收参数会动到 500 行里十几处。用 global 是这里最省事、最不出错的做法。
     if args.engine:
         ENGINE_ID = args.engine
 
-    # --method-arg key=value → dict。⚠️ 值按字面量传（不做类型推断）：
+    # --method-arg key=value → dict。值按字面量传（不做类型推断）：
     #   猜「12345 是 int 还是 str」就是在替引擎做决定。
     margs = {}
     for _item in args.method_arg:
@@ -630,9 +630,9 @@ def main(argv=None):
 
         say("")
         say("[5] 它认为自己是谁 —— 得来自名片，不是写死的")
-        # ⭐ 2026-10-01：非通用宿主的 ready 端点**不报** engine id ——
+        # 非通用宿主的 ready 端点不报 engine id，
         #   GSV 的 infer_server.py 的 / 返回 {"message": ..., "version": ...}。
-        #   ⛔ 那不是「宿主把身份写死了」，只是这个宿主没这个概念。
+        #   那不是「宿主把身份写死了」，只是这个宿主没这个概念。
         #   对它硬要 engine 字段 ⇒ 这台引擎永远判不过（脚本只能验一台）。
         #   真正的身份判据在 [1]（entry 来自名片）和 [3]（own_process_mark）。
         if hdata.get("engine") is None:
@@ -644,22 +644,22 @@ def main(argv=None):
                   "宿主把引擎身份写死了，或者名片没递到。")
 
         say("")
-        # ⭐ 把「这台引擎（默认方法）要哪些引擎原生参数」打出来并对照本次
+        # 把「这台引擎（默认方法）要哪些引擎原生参数」打出来并对照本次
         #   给了哪些。少给了 → 上游 TypeError，报错还深埋在 traceback 里
-        #   （2026-10-01 实测：missing 1 required positional argument）。
-        # ⚠ 只**列出来**，不判定「少了」。cosyvoice2 的 zero_shot.call_time
+        #   （实测：missing 1 required positional argument）。
+        # 只列出来，不判定「少了」。cosyvoice2 的 zero_shot.call_time
         #   里有两个：prompt_text（必填，缺了上游 TypeError）和
-        #   zero_shot_spk_id（**可选**，留空就正常走参考音频）。
-        #   名片目前**没有**区分「call_time 里哪些必填」——
-        #   ⇒ 我第一版写「⛔ 少了」是**越权判据**：会把一个可选参数报成缺失，
+        #   zero_shot_spk_id（可选，留空就正常走参考音频）。
+        #   名片目前没有区分「call_time 里哪些必填」，
+        #   ⇒ 我第一版写「少了」是越权判据：会把一个可选参数报成缺失，
         #   误导人去补一个不该补的东西。
-        #   正确做法：列出来，让上游的 TypeError 当「必填」那个判据 ——
+        #   正确做法：列出来，让上游的 TypeError 当「必填」那个判据，
         #   它的报错比脚本猜的准（payload.js 注释里也是这条纪律）。
         _want = _method_param_names()
         if _want:
             say("      这台引擎默认方法的 call_time：%s" % ", ".join(_want))
             say("      这次给了：%s" % (", ".join(sorted(margs)) or "（无）"))
-        say("[6] 真出一段声（⭐ 契约 §11 判据 5：测试全绿不等于能出声）")
+        say("[6] 真出一段声（契约 §11 判据 5：测试全绿不等于能出声）")
         t0 = time.time()
         code, headers, body = synth(args.port, args.text, args.ref,
                                     args.seed, args.timeout, method_args=margs)
@@ -676,11 +676,11 @@ def main(argv=None):
               "%d 字节" % len(body))
         if info:
             check(info["seconds"] > 0.1,
-                  "⭐⭐ 真的有声音（时长不为零）",
+                  "真的有声音（时长不为零）",
                   "%.3fs  %dHz/%dch/%dbit" % (info["seconds"],
                                               info["sample_rate"],
                                               info["channels"], info["bits"]),
-                  "0 长度的 WAV 也是合法 WAV —— 不看时长就会把「静默失败」读成绿。")
+                  "0 长度的 WAV 也是合法 WAV，不看时长就会把「静默失败」读成绿。")
 
         out = os.path.join(ROOT, "outputs", "ab", "verify_launch.wav")
         d = os.path.dirname(out)
@@ -693,16 +693,16 @@ def main(argv=None):
         say("")
         say("[7] 播种还活着吗（判据是字节，不是自述）")
         if not _seedable():
-            # ⛔ 这台引擎没有随机源（名片 call.seed=none，宿主连 seed 都不收）
-            #   ⇒「同 seed 两次」这个判据**没有意义**，也不该跑 ——
+            # 这台引擎没有随机源（名片 call.seed=none，宿主连 seed 都不收）
+            #   ⇒「同 seed 两次」这个判据没有意义，也不该跑，
             #   照着判据硬跑只会得到一条永远红的假警报。
-            #   （2026-10-01 实测 cosyvoice2 就是这样被判红的。）
+            #   （实测 cosyvoice2 就是这样被判红的。）
             check(True, "这台引擎 call.seed=none ⇒ 跳过播种判据（无随机源）",
                   "见名片 call.seed", "")
         else:
-            # ⛔ 这一次的 HTTP 状态**必须查**。2026-10-01 实测：没查，于是第二次
+# ⛔ 这一次的 HTTP 状态必须查。 实测：没查，于是第二次
             #   返回 201644 字节（第一次 576044），判据读成「播种不可靠」
-            #   —— 而真相是「第二次根本没成」。
+#   ： 而真相是「第二次根本没成」。
             _c2, _h2, body2 = synth(args.port, args.text, args.ref,
                                      args.seed, args.timeout, method_args=margs)
             if _c2 != 200:
@@ -721,7 +721,7 @@ def main(argv=None):
         # ── [7b] 成对对比：这个参数真的到了引擎吗 ──────────────────────
         #
         # 只在显式点名时跑（--ab-param key=v1,v2）。不默认跑的理由：它是
-        # **提问**，不是**判据** —— 「两个值应该不同」只对某些参数成立
+# 提问，不是判据 ： 「两个值应该不同」只对某些参数成立
         # （对 v2ProPlus 那个 super_sampling 就不成立，引擎自己按 version
         # 挡掉了）。默认跑会把一条「预期不同」的红混进结论里。
         if args.ab_param:
@@ -741,7 +741,7 @@ def main(argv=None):
                 got.append((v, _b))
                 say("      %s=%-8s → %d 字节  sha=%s"
                     % (_k, v, len(_b), hashlib.sha256(_b).hexdigest()[:16]))
-            # 三个判据，三种结论，三个不同的「该怎么办」——
+# 三个判据，三种结论，三个不同的「该怎么办」：
             #   · 全同  ⇒ 平台压根没把这个键送出去，或引擎根本不用它
             #   · 有别  ⇒ 送到了，而且引擎真的用了
             #   · 播种基线不成立（上面的 [7] 已经红）⇒ 这次对比不作数
@@ -749,14 +749,14 @@ def main(argv=None):
             # ⭐⭐ 判据不是「两次跑出一样的东西」，而是「**这个参数的效应大于
             #   引擎自身的随机性**」。
             #
-            #   为什么必须这么做（2026-10-01 真机踩到）：GSV 默认
-            #   parallel_infer=True，会把文本切块**并行**处理 —— set_seed 之后
+#   为什么必须这么做（ 踩到）：GSV 默认
+#   parallel_infer=True，会把文本切块并行处理 ： set_seed 之后
             #   每块仍各开一个 RNG（同 seed 两次出来的音频数据确实不同，
-            #   [7] 那条因此判红，那是**真的**，不是脚本的错）。
+#   [7] 那条因此判红，那是真的，不是脚本的错）。
             #
             #   ⇒ 逐字节比大小会得到「怎么比都不对」或者「怎么比都对」，
             #      两个结论都是噪音。正确做法：每个档跑 N 次，量档内抖动和档间
-            #      距离 —— 档间明显大于档内才叫「这个参数有影响」。
+#      距离 ： 档间明显大于档内才叫「这个参数有影响」。
             N = 3
             per = {}
             for v in vals:
@@ -769,7 +769,7 @@ def main(argv=None):
                 per[v] = hs
                 say("      %s=%-8s 跑 %d 次，sha %s"
                     % (_k, v, N, " ".join(h[:8] for h in hs)))
-            # 档内：同档 N 次里有多少个**不同**的
+# 档内：同档 N 次里有多少个不同的
             within = {v: len(set(hs)) for v, hs in per.items()}
             # 档间：不同档之间有没有重叠
             overlap = set(per[vals[0]])
@@ -786,8 +786,8 @@ def main(argv=None):
                       "在 TTS.py:1583 里要求 version == \"v3\"，v2ProPlus 上永远 "
                       "走 else False）。查法：在 engines/<id> 里搜这个键，看有没有条件。")
             elif jitter:
-                # 引擎自身有随机性 —— 这时「字节不同」证明不了任何事。
-                # 诚实的结论是：**这个判据在这台引擎上不成立**，
+# 引擎自身有随机性 ： 这时「字节不同」证明不了任何事。
+# 诚实的结论是：这个判据在这台引擎上不成立，
                 # 而不是把差异解读成「参数生效了」。
                 check(False,
                       "⚠️ 这个对比**不成立** —— 引擎自身的随机性就足以让字节不同",

@@ -38,7 +38,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
 
   const nameErr = name ? recipeNameError(name) : null
   const previewId = role && name.trim() ? `${role}/${name.trim()}` : '—'
-  // 预览里权重那几行。⛔ 这个对话框不认识任何一个权重字段名 ——
+  // 预览里权重那几行。这个对话框不认识任何一个权重字段名，
   //   哪些字段、显示成什么，全在配方那个文件里一处说了算。
   const weightPreview = recipeWeightPreview(d)
 
@@ -56,7 +56,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
       language,
       params: d.params || {},
       // 这张配方是给哪台引擎存的，以及那台引擎自己的一袋参数。
-      // ⛔ 这个对话框不认识袋子里任何一个键，原样转发 —— 少转发的后果是
+      // 这个对话框不认识袋子里任何一个键，原样转发，少转发的后果是
       //    后端只能把参数收进 _unassigned 占位格，下次打开未必认得回来。
       engine_id: d.engine_id || '',
       engine_params: d.engine_params || {},
@@ -84,16 +84,16 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <label className="field-label">{t('Name (emotion / identifier)', '名称（emotion / 标识符）')}</label>
             <input className="control" value={name} autoFocus placeholder={t('e.g. calm, angry, cheerful', '例如 calm、angry、cheerful')}
               onChange={e => setName(e.target.value)} />
-            {nameErr && <div className="field-hint" style={{ color: 'var(--danger)' }}>{nameErr}</div>}
+            {nameErr && <div className="msg msg-error">{nameErr}</div>}
           </div>
           <div className="recipe-preview">
             <div><span className="rp-k">Voice</span><span className="rp-v">{role || '—'}</span></div>
             <div><span className="rp-k">OpenAI voice</span><code className="rp-code">{previewId}</code></div>
             <div><span className="rp-k">Reference</span><span className="rp-v" title={d.reference_audio}>{basename(d.reference_audio)}</span></div>
-            {/* ⭐⭐ 原来这里是写死的两行 ⇒ 换一台引擎就永远显示「GPT（无）/
+            {/* 原来这里是写死的两行 ⇒ 换一台引擎就永远显示「GPT（无）/
                 SoVITS（无）」，等于对用户说"你没有模型"。真实情况是：配方格式
                 还装不下这台引擎的模型选择（挂账见引擎契约 §9）。
-                ⇒ 存进去了就列出来，一个都存不进就把原因说出来。 */}
+                ⇒ 保存成功就列出来，一个都保存失败就把原因说出来。 */}
             {weightPreview.rows.map(r => (
               <div key={r.key}><span className="rp-k">{r.label}</span>
                 <span className="rp-v" title={r.path}>{basename(r.path)}</span></div>
@@ -101,7 +101,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             {!weightPreview.storable && (
               <div><span className="rp-k">{t('Model', '模型')}</span>
                 <span className="rp-v">{t('not stored in this recipe yet',
-                  '暂时存不进配方')}</span></div>
+                  '暂时无法写入配方')}</span></div>
             )}
           </div>
           <div className="field">
@@ -126,6 +126,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
           </div>
           {error && <div className="msg msg-error">{error}</div>}
           {confirmOverwrite && (
+            // 黄色：这是一条询问，不是错误也不是既成事实。
             <div className="msg msg-warn">
               {t(<>A recipe named <strong>{previewId}</strong> already exists. Overwrite it?</>,
                  <>已存在名为 <strong>{previewId}</strong> 的 recipe。是否覆盖？</>)}
@@ -149,9 +150,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
   )
 }
 
-// ===========================
 //  GENERATE TAB
-// ===========================
 
 // Reusable secondary-confirmation modal (replaces the browser's native
 // window.confirm, which is unstyled/ugly). Reuses .modal-overlay/.modal-card.

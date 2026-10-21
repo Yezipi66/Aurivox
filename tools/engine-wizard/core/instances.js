@@ -1,46 +1,61 @@
 'use strict'
-// ============================================================================
-//  INSTANCES —— 「别人是怎么填的」对照数据
-//
-//  ⭐ 这个文件是纯**数据**：把三台已经在跑的引擎的名片，按字段摘出来，
-//  让填名片的人有东西可对照。
-//
-//  为什么这样最省事
-//  46 个键、60 条校验规则 —— 靠读文档全记住不可能。
-//  但看一眼「同一字段别人怎么写」立刻就懂。参照实例是这个道理。
-//
-//  ⛔⛔ 纪律：算法代码里不许出现引擎名；**这里可以**，因为它就是数据源。
-//  test/ 里有一条测试守着「算法侧仍然干净」。
-// ============================================================================
+//  INSTANCES：按字段摘出各引擎名片的对照数据，供填名片的人参考
 
 const fs = require('node:fs')
 const path = require('node:path')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
-const ENGINES_DIR = path.join(REPO_ROOT, 'engines')
+// 引擎目录有两处：真 engines/ 与附加目录。
+//   附加目录由 AURIVOX_EXTRA_ENGINES_DIR 给出（路径分隔符隔开多个），
+//   与 lib/engines/registry.js 是同一套覆盖口。
+//   为什么需要它：干净检出（CI）里 engines/ 只有一张真名片，
+//   而「拿多台引擎的样本当基线」那几组测试需要更多台。
+const ENGINE_DIRS = [
+  // 真目录：与 lib/paths/engines.js 同一基准（可被 ENGINES_DIR 覆盖）。
+  //   两处读的不是同一个目录 ⇒ 「平台上装了哪些引擎」有两份答案。
+  process.env.ENGINES_DIR
+    ? path.resolve(process.env.ENGINES_DIR)
+    : path.join(REPO_ROOT, 'engines'),
+  // 附加目录：真目录之外还要看的地方（测试夹具挂在这儿）。
+  ...(process.env.AURIVOX_EXTRA_ENGINES_DIR || '')
+    .split(path.delimiter)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => path.resolve(s)),
+]
 
-/** 逐字读引擎目录 —— ⛔ 不写引擎名，靠目录自己说话 */
+/** 逐字读引擎目录：不写引擎名，靠目录自己说话 */
 function listEngineIds () {
   let names = []
-  try {
-    names = fs.readdirSync(ENGINES_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-  } catch {
-    return []
+  for (const dir of ENGINE_DIRS) {
+    try {
+      names = names.concat(fs.readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name))
+    } catch {
+      // 这个目录没有 ⇒ 跳过（真 engines/ 在别的机器上可能不存在）
+    }
   }
-  return names.filter((n) => !n.startsWith('_') && !n.startsWith('.'))
-    .filter((n) => fs.existsSync(path.join(ENGINES_DIR, n, 'manifest.json')))
+  const seen = new Set()
+  return names
+    .filter((n) => !n.startsWith('_') && !n.startsWith('.'))
+    .filter((n) => !seen.has(n) && seen.add(n))
+    .filter((n) => ENGINE_DIRS.some((dir) =>
+      fs.existsSync(path.join(dir, n, 'manifest.json'))))
 }
 
+/** 读一张名片：先在真目录找，找不到再在附加目录里找 */
 function readManifest (id) {
-  const f = path.join(ENGINES_DIR, id, 'manifest.json')
-  if (!fs.existsSync(f)) return null
-  try {
-    return JSON.parse(fs.readFileSync(f, 'utf-8'))
-  } catch {
-    return null
+  for (const dir of ENGINE_DIRS) {
+    const f = path.join(dir, id, 'manifest.json')
+    if (!fs.existsSync(f)) continue
+    try {
+      return JSON.parse(fs.readFileSync(f, 'utf-8'))
+    } catch {
+      return null
+    }
   }
+  return null
 }
 
 /** 剥掉 _ 开头的注释键（它们是给人看的，不算字段） */
@@ -85,7 +100,7 @@ function paramSamples (name) {
     const hit = m.parameters.find((p) => p && p.name === name)
     if (hit) {
       const c = withoutComments(hit)
-      // ⛔ 只留「用户真看得见」的键；_confidence/_why 这些是我们自己的注解
+      // 只留「用户真看得见」的键；_confidence/_why 这些是我们自己的注解
       samples.push({ engine: id, entry: c })
     }
   }
@@ -111,8 +126,7 @@ function allParamNames () {
 }
 
 /**
- * 某一类参数的真实 tier 分布 —— 拿来看「别人把它放哪档」。
- * ⭐ 这是档位复核的**经验基线**：向导建议 common 之前，先看看别人怎么分。
+ * 档位分布：向导建议 common 之前，先看看别人的分档作为基线。
  */
 function tierDistribution (phase) {
   const want = phase || 'call'
@@ -126,7 +140,7 @@ function tierDistribution (phase) {
     if (!rows.length) continue
     perEngine[id] = { common: 0, advanced: 0, unspecified: 0 }
     for (const p of rows) {
-      // ⛔ 平台规则：没写 tier ⇒落进 advanced（web/src/lib/engines.js:164）
+      // 平台规则：没写 tier ⇒落进 advanced（web/src/lib/engines.js 的 fieldsForTier）
       const t = p.tier === 'common' ? 'common' : 'advanced'
       dist[t] += 1
       perEngine[id][t] += 1
@@ -144,6 +158,6 @@ module.exports = {
   paramSamples,
   allParamNames,
   tierDistribution,
-  ENGINES_DIR,
+  ENGINE_DIRS,
   REPO_ROOT,
 }
