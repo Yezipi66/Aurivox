@@ -11,7 +11,12 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 //   为什么需要它：干净检出（CI）里 engines/ 只有一张真名片，
 //   而「拿多台引擎的样本当基线」那几组测试需要更多台。
 const ENGINE_DIRS = [
-  path.join(REPO_ROOT, 'engines'),
+  // 真目录：与 lib/paths/engines.js 同一基准（可被 ENGINES_DIR 覆盖）。
+  //   两处读的不是同一个目录 ⇒ 「平台上装了哪些引擎」有两份答案。
+  process.env.ENGINES_DIR
+    ? path.resolve(process.env.ENGINES_DIR)
+    : path.join(REPO_ROOT, 'engines'),
+  // 附加目录：真目录之外还要看的地方（测试夹具挂在这儿）。
   ...(process.env.AURIVOX_EXTRA_ENGINES_DIR || '')
     .split(path.delimiter)
     .map((s) => s.trim())

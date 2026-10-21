@@ -29,15 +29,19 @@ jobs:
           cache: npm
 
       # 平台根 venv：几组测试要它（buildVenvStep / resolveUv 都从
-      #   <root>/venv 找解释器与 uv）。它不进版本库（.gitignore 第 31 行），
-      #   所以 CI 上要现建。
+      # <root>/venv 找解释器与 uv）。它不进版本库（.gitignore 第 31 行），
+      # 所以 CI 上要现建。
       # 解释器版本固定成 3.11：内嵌解释器（tools/runtime/python）就是 3.11，
-      #   而几组测试要拿根 venv 的解释器去跑平台自己的 .py。
+      # 而几组测试要拿根 venv 的解释器去跑平台自己的 .py。
       - name: 装 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          # 缓存键要指准：默认的 **/requirements.txt 会匹配到
+          #   engines/gpt-sovits/infer/requirements.txt（某台引擎的依赖，
+          #   不是平台的），缓存跟着它变就等于没缓存。
           cache: pip
+          cache-dependency-path: requirements-platform.txt
 
       - name: 装依赖
         run: npm ci

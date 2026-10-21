@@ -425,12 +425,9 @@ test('每个 JSX 都必须真能编译（测试全绿 ≠ 前端能跑）', () =
   try {
     parse = require('../../../lib/testDeps.js').babelParse()
   } catch (e) {
-    // 拿不到 babel 就跳过而不是假装通过 ： 绝不能给假绿灯
-    return
-  }
-  if (!parse) {
-    // 拿不到就跳过而不是假装通过：绝不能给假绿灯
-    return
+    // 拿不到 babel 就当场喊出来：静默跳过等于没有这条守卫
+    //   （下面那条「注释不许变成可见文本」也是抛，两处口径要一致）。
+    throw new Error(`拿不到 @babel/parser，JSX 编译检查无法进行：${e.message}`)
   }
   const WIZ = path.join(__dirname, '..', 'editor')
   const bad = []
