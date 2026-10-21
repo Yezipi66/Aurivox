@@ -104,8 +104,28 @@ const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ..
 })
 
 if (!interactive) {
-  process.stdout.write(result.stdout || '')
+  // stdout 是 Buffer（encoding 没设）⇒ 先转成字符串。
+  const out = (result.stdout || '').toString()
+  process.stdout.write(out)
   process.stderr.write(result.stderr || '')
+  // 失败时再打一份摘要。
+  //   为什么需要：spec reporter 逐条打印两千多条测试名，
+  //   失败原因在很后面 ⇒ CI 上日志被截断时正好把原因截掉了。
+  //   而「CI 红了却看不到为什么」比「CI 没跑」更坏：
+  //   它让人以为 CI 坏了，而不是代码坏了。
+  if (result.status !== 0) {
+    const lines = out.split('\n')
+    const failed = lines.filter((l) => /^✖ /.test(l))
+    const counts = lines.filter((l) => /^ℹ (tests|pass|fail|skipped) /.test(l))
+    console.error('')
+    console.error('[tests] 失败摘要：')
+    for (const l of counts) console.error('  ' + l)
+    if (failed.length) {
+      console.error(`  失败 ${failed.length} 条：`)
+      for (const l of failed.slice(0, 40)) console.error('    ' + l)
+      if (failed.length > 40) console.error(`    …… 还有 ${failed.length - 40} 条`)
+    }
+  }
 }
 
 if (result.error) {
