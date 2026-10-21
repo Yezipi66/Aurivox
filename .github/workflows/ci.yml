@@ -126,14 +126,12 @@ jobs:
             echo "::group::失败摘要"
             cat cache/failure-summary.md
             echo "::endgroup::"
-            # 每条失败一行注解：job 页面的 Annotations 面板直接列出，
-            #   不用翻日志、不用下载 artifact（那两样都要登录）。
-            #   注解内容要带断言消息，不只是测试名 ——
-            #   只给名字的话，看到「某条失败」仍然不知道为什么。
-            awk '/^✖ /{p=1;print;next} /^[[:space:]]{2,}/{if(p)print;next} {p=0}' \
-              cache/test-output.log | head -60 | while IFS= read -r line; do
-              echo "::error title=测试失败::$(echo "$line" | tr '\n' ' ' | cut -c1-240)"
-            done
+            # 失败详情打成一个注解（一条装全部）：
+            #   逐行打注解会被 GitHub 折叠，而且多行消息在注解里会被截断。
+            #   ⇒ 把详情压成一行放进去。
+            DETAIL=$(awk '/^✖ /{p=1;print;next} /^[[:space:]]{2,}/{if(p)print;next} {p=0}' \
+              cache/test-output.log | head -40 | tr '\n' ' ' | cut -c1-900)
+            echo "::error title=测试失败::$DETAIL"
             echo "::group::日志末尾 60 行"
             tail -60 cache/test-output.log
             echo "::endgroup::"
