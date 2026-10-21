@@ -161,7 +161,7 @@ function findCliFiles (dir, opts = {}) {
 /**
  * 从引擎目录抓上游 CLI 的官方原话，整份摊开。
  *
- *    它只回答「上游在 CLI 上给了哪些 flag、官方原话是什么」。
+ *    它只回答「上游在 CLI 上给了哪些 flag」以及每个 flag 的官方说明文字。
  */
 function collectCliHelp (spec = {}) {
   const dir = spec.dir

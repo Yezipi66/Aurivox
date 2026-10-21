@@ -3,7 +3,7 @@
 const path = require('node:path')
 const fs = require('node:fs')
 
-// require 相对本文件解析（与 scaffold-params.cjs:24-26 同一条理由：
+// require 相对本文件解析（与 scaffold-params.cjs 的顶层 require 同一条理由：
 //   写成 '../scaffold-params.cjs' 会在 require 失败时被 catch 吞成
 //   「读不到名片」，把「我写错路径」说成「你的名片坏了」）。
 const SCAFFOLD = require(path.join(__dirname, '..', '..', 'scaffold-params.cjs'))

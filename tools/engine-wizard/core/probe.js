@@ -426,8 +426,7 @@ function planDependencies (text, opts = {}) {
     dep_count: deps.length,
     deps: {
       total: deps.length,
-      // 其它依赖「直接同步就行」：原话是
-      //   「除了 Torch 一般没有什么风险，其他直接同步都行」
+      // 除 torch 外的依赖直接同步即可，只有 torch 要先选定后端。
       normal: { count: rest.length, packages: rest, action: 'sync' },
       torch: { count: torchGroup.length, packages: torchGroup, action: 'choose-backend' },
     },

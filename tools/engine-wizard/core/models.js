@@ -94,7 +94,7 @@ function describeModels (id, appDir) {
       + '请在 Manifest 中补充该命令，或按上游说明自行下载。')
   }
 
-  // license_gate 是布尔（profile.js:613 `=== true`），
+  // license_gate 是布尔（profile/models.js 的 parseModelsSource 写的是 `=== true`），
   //   别把它的值当文字显示：那会是「true」两个字。
   if (src.license_gate) {
     notes.push('该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。'

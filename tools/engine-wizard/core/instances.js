@@ -140,7 +140,7 @@ function tierDistribution (phase) {
     if (!rows.length) continue
     perEngine[id] = { common: 0, advanced: 0, unspecified: 0 }
     for (const p of rows) {
-      // 平台规则：没写 tier ⇒落进 advanced（web/src/lib/engines.js:164）
+      // 平台规则：没写 tier ⇒落进 advanced（web/src/lib/engines.js 的 fieldsForTier）
       const t = p.tier === 'common' ? 'common' : 'advanced'
       dist[t] += 1
       perEngine[id][t] += 1
