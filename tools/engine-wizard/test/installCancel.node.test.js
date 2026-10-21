@@ -20,7 +20,7 @@ const { EventEmitter } = require('node:events')
 const envMod = require('../core/env.js')
 const IS = require('../core/installState.js')
 
-// 守卫（enginesDirWriteGuard.node.test.js:148）要求路径上带临时目录痕迹，
+// 守卫（enginesDirWriteGuard.node.test.js 的 offenders）要求路径上带临时目录痕迹，
 //   否则并行跑会污染真的 engines/。变量名必须带 mkdtemp。
 function mkdtempRoot () {
   const mkdtempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-instcancel-'))

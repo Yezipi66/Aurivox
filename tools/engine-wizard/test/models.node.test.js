@@ -1,7 +1,7 @@
 'use strict'
 // models（第 4 步）的两条判据：
-//   1. 一个字节都不下载（_TEMPLATE/README.md:101）
-//   2. ready 是三态，不许糊成布尔（checkpoints.js:84-91）
+//   1. 一个字节都不下载（engines/_TEMPLATE/README.md 的「平台不替你下载」）
+//   2. ready 是三态，不许糊成布尔（checkpoints.js 的 checkpointStatus）
 //
 // 这份测试跑在临时目录里，绝不碰真的 models/ 目录。
 
@@ -13,10 +13,10 @@ const path = require('node:path')
 
 const { describeModels, explainMissingInfo } = require('../core/models.js')
 
-// 平台 registry 认的是自己的 ENGINES_DIR（lib/paths.js:236）。
+// 平台 registry 认的是自己的 ENGINES_DIR（lib/paths.js 的 ENGINES_DIR）。
 //   所以这里必须先把整个夹具搬到临时目录，否则测试会去碰真的 engines/。
 //
-// 变量名里必须带 mkdtemp：lib/engines/enginesDirWriteGuard.node.test.js:148
+// 变量名里必须带 mkdtemp：lib/engines/enginesDirWriteGuard.node.test.js 的 offenders()
 //   只看写调用的实参文本有没有临时痕迹，不认环境变量。
 //   别把 ENGINES_DIR 换成别的名字。
 const mkdtempEnginesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-models-eng-'))
@@ -140,7 +140,7 @@ test('命令里的 {checkpoints} 由平台填成绝对路径', () => {
   assert.ok(joined.includes('tts'), joined)
 })
 
-// 本文件不许出现任何下载器名（checkpoints.js:23 同一条纪律）
+// 本文件不许出现任何下载器名（checkpoints.js 的文件头同一条纪律）
 test('models.js 活代码里不许出现下载器名（连注释都不许）', () => {
   const FORBIDDEN = ['modelscope', 'huggingface', 'hugging-face', 'git-lfs',
     'wget', 'aria2c', 'hf_hub', 'snapshot_download']
@@ -204,7 +204,7 @@ test('名片读不出来 ⇒ 如实报 NO_PROFILE', () => {
 
 // 两种失败原因必须分开说，且各自的「下一步」不同：
 //   · 未安装：下一步是第 1 步（流程顺序已保证，文案不必再说）
-//   · 已装但解析失败：下一步是第 4 步（保存 Manifest 时 validate() 当场报）
+//   · 已装但解析失败：下一步是第 4 步（保存 Manifest 时 validate.js 会报出来）
 // 混成一句话会让用户去一个还没写的 Manifest 上找问题。
 test('已安装但 Manifest 解析失败 ⇒ 指向第 4 步，不是第 5 步', () => {
   const { id } = manifestOk(['model.pt'])
@@ -248,7 +248,7 @@ test('许可门槛要显示出来（有的仓库要先去网站点同意）', ()
   const { id } = manifestOk(['model.pt'])
   const mkdtempEngineDir = path.join(mkdtempEnginesDir, id)
   const raw = JSON.parse(fs.readFileSync(path.join(mkdtempEngineDir, 'manifest.json'), 'utf-8'))
-  raw.models.source.license_gate = true   // 布尔，不是字符串（profile.js:613）
+  raw.models.source.license_gate = true   // 布尔，不是字符串（profile/models.js 的 parseModelsSource 用 === true 判）
   fs.writeFileSync(path.join(mkdtempEngineDir, 'manifest.json'), JSON.stringify(raw))
   const r = describeModels(id, mkdtempModelsDir)
   // 钉实质：必须提到许可协议 + 未接受时的症状，不钉「网站点同意」这个措辞。

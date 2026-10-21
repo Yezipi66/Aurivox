@@ -15,7 +15,7 @@ const path = require('node:path')
 
 const IS = require('../core/installState.js')
 
-// 守卫（lib/engines/enginesDirWriteGuard.node.test.js:148）要求路径上带临时
+// 守卫（lib/engines/enginesDirWriteGuard.node.test.js 的 offenders）要求路径上带临时
 //   目录痕迹，否则并行跑会污染真的 engines/ ⇒ 变量名必须带 mkdtemp。
 function mkdtempRoot () {
   const mkdtempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-install-'))

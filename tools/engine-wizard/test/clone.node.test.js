@@ -16,8 +16,8 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
 /**
  * 夹具造在 os.tmpdir() 里，绝不碰真的 engines/。
  *
- * 这个函数名和返回值这么别扭，是被守卫判过一次：
- *   lib/engines/enginesDirWriteGuard.node.test.js:148 扫所有测试文件里
+ * 这个函数名和返回值这么别扭，是守卫的硬要求：
+ *   lib/engines/enginesDirWriteGuard.node.test.js 的 offenders() 扫所有测试文件里
  *   「往看起来像 engines 的目录写东西」的调用，它区分真假只认实参里
  *   有没有临时目录的痕迹（/mkdtemp|tmpdir|TMPDIR|os\.tmp/i）。
  *
@@ -31,9 +31,9 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
 /**
  * 夹具：造一个「项目根」，里面已经有 engines/ 和 server.js。
  *
- * 三个约束同时要满足（守卫判过两次、真克隆跑过一次 120 秒才知道）：
+ * 三个约束同时要满足（守卫会判、真克隆会跑）：
  *
- * 一 lib/engines/enginesDirWriteGuard.node.test.js:148 扫所有测试文件里
+ * 一 lib/engines/enginesDirWriteGuard.node.test.js 的 offenders() 扫所有测试文件里
  *    「往看起来像 engines 的目录写东西」的调用 ： 它只看实参文本，
  *    判据是「提到 engines 但没有任何临时痕迹」。
  *    路径变量名必须带 mkdtemp；夹具内部不要手写

@@ -138,7 +138,7 @@ const PARAM_FIELDS_BY_KEY = Object.freeze(
 //    PARAM_FIELDS 说的是「parameters[] 这一条有哪些格」（name/type/tier…），
 //    这里说的是平台那 10 个概念分别是什么意思。两件事混在一张表里会有人以为改一个是改另一个。
 const PLATFORM_WORDS = Object.freeze([
-  // ── CORE：只要名片映射了就一定发，哪怕值是空字符串（payload.js:39-47）──
+  // ── CORE：只要名片映射了就一定发，哪怕值是空字符串（payload.js 的 assembleEnginePayload 里 CORE_KEYS 那一段）──
   { key: 'text', danger: DANGER.BLOCK,
     label: '要合成的文字',
     help: '念出来的那段话。用户每次合成都会改它。' },
@@ -156,7 +156,7 @@ const PLATFORM_WORDS = Object.freeze([
   { key: 'reference_lang', danger: DANGER.INFO,
     label: '参考音频的语言',
     help: '上面那段录音是什么语言。它和「要合成的文字的语言」是两件事。' },
-  // ── OPTIONAL：不填就不发，交给引擎自己的默认值（payload.js:44-47）──
+  // ── OPTIONAL：不填就不发，交给引擎自己的默认值（payload.js 的 assembleEnginePayload 里 OPTIONAL_KEYS 那一段）──
   { key: 'aux_reference_audio', danger: DANGER.INFO,
     label: '第二个参考音频',
     help: '再给一段录音，用来混合音色。多数引擎用不到。' },

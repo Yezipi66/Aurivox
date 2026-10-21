@@ -78,7 +78,7 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // ---- 6. 注释键原样保留 ----
-  //  平台是在读取时剥（lib/engines/registry.js:56 stripComments），不是写入时剥。
+  //  平台是在读取时剥（lib/engines/registry.js 的 stripComments），不是写入时剥。
   //    写盘时剥 ⇒「读回来再存一次」就把文档永久删了。
   const clean = manifest
 

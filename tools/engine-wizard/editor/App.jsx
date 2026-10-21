@@ -168,7 +168,7 @@ export default function App () {
         </div>
       )}
 
-      {/* ---- 展开的那一步：.node-detail 详情框，外壳照 TrainingTab.jsx:2338-2350 ---- */}
+      {/* ---- 展开的那一步：.node-detail 详情框，外壳照 NodeDetailPanel.jsx 的 NodeDetailPanel() ---- */}
       {page && (
         <div className="node-detail">
           <div className="node-detail-hdr">

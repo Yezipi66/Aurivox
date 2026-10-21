@@ -17,10 +17,10 @@ const path = require('node:path')
 const { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv } =
   require('../core/env.js')
 
-// 守卫（enginesDirWriteGuard.node.test.js:148）要求路径上带临时目录痕迹，
+// 守卫（lib/engines/enginesDirWriteGuard.node.test.js 的 offenders()）要求路径上带临时目录痕迹，
 //   否则并行跑会污染真的 engines/。
 // 夹具与 clone.node.test.js 同款，两个约束见那里的完整说明：
-//   ① 路径变量名必须带 mkdtemp（守卫 enginesDirWriteGuard.node.test.js:148
+//   ① 路径变量名必须带 mkdtemp（守卫 enginesDirWriteGuard.node.test.js 的 offenders()
 //     只看实参文本有没有临时痕迹）
 //   ② 必须返回项目根，不是 engines 层 ： buildEnvPlan 收的是根
 
@@ -475,7 +475,7 @@ test('resolveUv 在本机解析到平台自带的 uv（与 bootstrap 同一调�
   const got = env2.resolveUv(root)
   assert.ok(got && got.ok, '项目自带 uv 却没解析到：' + JSON.stringify(got))
   // 正路：用平台 venv 的 python 当解释器，`-m uv` 当模块调
-  //   ： 与 bootstrap.js:362 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
+  //   ： 与 tools/deploy/bootstrap.js 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
   //   不再找 venv/Scripts/uv.exe 那个 console-script shim。
   assert.deepStrictEqual(got.argv.slice(1), ['-m', 'uv'],
     '不是 python -m uv 的调法：' + JSON.stringify(got.argv))

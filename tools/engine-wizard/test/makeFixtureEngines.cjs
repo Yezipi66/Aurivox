@@ -15,7 +15,7 @@
 //   ③ 两台的 max_chars 必须不同（60 与 120）。
 //   ④ 一台要参考音频、一台不要：covers requires_reference_audio 这类分支。
 //   ⑤ 只用新写法 parameters[]：旧写法 param_keys/params/payload_keys
-//      与它并存会被 registry 拒绝（lib/engines/parameterDeclaration.js:47）。
+//      与它并存会被 registry 拒绝（lib/engines/parameterDeclaration.js 的 deriveParameterViews）。
 //
 // 跑法：node tools/engine-wizard/test/makeFixtureEngines.cjs
 

@@ -1,6 +1,6 @@
 'use strict'
 //  RESOLVE：第 1 步：GitHub 链接 → engines/<id> 的 id
-//  平台对「id」有硬约束：registry.js:83 跳过 `_`/`.` 开头；registry.js:59 要求 id 与目录名逐字相同。
+//  平台对「id」有硬约束：registry.js 的 listEngines 跳过 `_`/`.` 开头；registry.js 的 readManifest 要求 id 与目录名逐字相同。
 //  只做解析和校验，不下载、不克隆、不猜。
 
 const path = require('node:path')

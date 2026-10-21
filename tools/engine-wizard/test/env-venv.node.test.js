@@ -34,7 +34,7 @@ const ENGINES_DIR_NAME = 'engines'
 
 // 夹具
 //
-// 守卫（enginesDirWriteGuard.node.test.js:148）要求写盘路径上带临时目录痕迹，
+// 守卫（lib/engines/enginesDirWriteGuard.node.test.js 的 offenders）要求写盘路径上带临时目录痕迹，
 //   否则并行跑会污染真的 engines/。⇒ 变量名必须含 mkdtemp（守卫只看实参文本）。
 // 本文件不真建 venv、不联网装包：只断言 argv 与环境变量的形状。
 

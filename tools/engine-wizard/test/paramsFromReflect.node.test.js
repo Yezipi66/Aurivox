@@ -122,7 +122,7 @@ test('必填但类型反射不出的参数不许被静默丢掉 —— 出现在
   // 判据来自计划 §1.1 验收第 4 条：「反射读到的每个真参数都必须出现在草稿里，
   // 必填参数即使类型反射不出也要留，标 _needs_review」。
   // 落点在 excluded 而不是 parameters：平台强制 type ∈ 五种
-  // （lib/engines/profile.js:944-951），填一个假类型 = 整台引擎解析失败；
+  // （lib/engines/profile/paramSchema.js 的 schemaEntry，type 取 lib/engines/paramTypes.js 的 PARAM_TYPES），填一个假类型 = 整台引擎解析失败；
   // type 留空同样过不了那道校验。⇒ 认不出的只能进 excluded，
   // 但不许静默：必须标 needs_human 并说清「必填，请你确认这是什么类型」。
   const d = buildDraftPackage(REFLECT_INDEXTTS, { existing: [] })
@@ -338,7 +338,7 @@ test('排除名单就是 scaffold-params.cjs 那一份（不许复制成第二�
 
 test('平台词表与 lib/engines/payload.js 的 CANONICAL_KEYS 逐字一致', () => {
   // 这份表在向导里故意复制了一份（向导不 require 产品侧 lib/）。
-  // 代价是会漂 ⇒ 这条比对就是那个代价的护栏。漂了当场红。
+  // 代价是会漂 ⇒ 这条比对就是那个代价的护栏。漂了这条比对就红。
   const payloadSrc = fs.readFileSync(
     path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'payload.js'), 'utf8')
   const core = (payloadSrc.match(/const CORE_KEYS = \[([^\]]*)\]/) || [])[1] || ''
@@ -527,7 +527,7 @@ function withServer (fn) {
         const r = h(req, res)
         if (r === true) return
         if (r && typeof r.then === 'function') {
-          // 与 vite 中间件同一条纪律（web/wizard.vite.config.mjs:71-88）：
+          // 与 vite 中间件同一条纪律（web/wizard.vite.config.mjs 的 validatePlugin()）：
           // async handler 即使返回 false，返回的也是 Promise<false>，
           // Promise 是 truthy。必须等它 resolve 才知道有没有接管。
           r.then((ok) => { if (!ok) next() }).catch(() => next())

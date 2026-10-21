@@ -240,7 +240,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           <div className="layer-label">
             {t('GPU-related packages', '与 GPU 相关的包')}
           </div>
-          {/* t() 只有两个参数（i18n.jsx:44 `t = (en, zh)`）。
+          {/* t() 只有两个参数（web/src/lib/i18n.jsx 的 LangProvider 里 t = (en, zh)）。
                传三个 ⇒ 第二段英文被当中文返回。 */}
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('These packages only run on this kind of graphics card. '

@@ -11,7 +11,7 @@
 //   第 3 道 「齐不齐」       lib/engines/checkpoints.js:checkpointStatus
 //   第 4 道 「出不出声」     lib/engines/verifyAudio.js（verifyEngine）
 //
-// 第 4 道（A 级）要真的合成一次。tools/verify-engine.cjs:63 写着：
+// 第 4 道（A 级）要真的合成一次。tools/verify-engine.cjs 的 A 级分支写着：
 //   「A 级要真的合成。请给一份请求体」：平台要你交一份请求体，
 //   它不会自己编一个（编出来的请求验不了「声音对不对」）。
 //   所以 A 级缺 request 时，本文件如实说不给跑，不糊一个假的上去。
@@ -87,7 +87,7 @@ function runChecks (id, opts = {}) {
 
   const out = { ok: true, id, checks: {}, problems: [] }
 
-  // envCheck 收的是 profile + {rootDir}（照 tools/dev/check-engine-env.cjs:86），
+  // envCheck 收的是 profile + {rootDir}（照 tools/dev/check-engine-env.cjs 的调用处），
   //   不是 (id, env)：那样传进去 node 不会报错，但读到的全是 undefined。
   // 第 1 道：浅层
   try {
@@ -125,7 +125,7 @@ function runChecks (id, opts = {}) {
         ? '名片说的文件一个不少'
         : ready === false
           ? '目录不在，或名片点名的文件缺了'
-          // 状态未知的原话（checkpoints.js:84-91）
+          // 状态未知的说法（checkpoints.js 的 checkpointStatus 注释）
           : '状态未知：Manifest 未声明 runtime.checkpoints，'
             + '或未声明 models.required（用于判断哪些文件算完整）。'
             + '既不能视为完整，也不能视为缺失',
@@ -147,7 +147,7 @@ function runChecks (id, opts = {}) {
 
 /**
  * 第 4 道「出不出声」：A 级要真的合成。不给 request 就不跑，并如实说明为什么。
- *   理由照 tools/verify-engine.cjs:63：请求体里的键名是引擎方言
+ *   理由照 tools/verify-engine.cjs 的 A 级分支：请求体里的键名是引擎方言
  *   （照 manifest.json 的 maps 写）：平台编不出一个对的。
  */
 function runAudioCheck (id, opts = {}) {
@@ -173,7 +173,7 @@ function runAudioCheck (id, opts = {}) {
   }
 
   // 名片没写 runtime，平台就不负责起它，这一道无从谈起
-  //   （verify-engine.cjs:47 那段注释的原话）
+  //   （同 tools/verify-engine.cjs 的做法：名片没写 runtime 就退出）
   if (!profile.runtime) {
     return { ok: false, code: 'NO_RUNTIME',
       error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`, errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`

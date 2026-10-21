@@ -154,7 +154,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   // curId 是唯一的 id 来源；旧写法 `id: idInput || state.id` 会让输入框空时退化到旧 id。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
-    // 目录名为空 ⇒ 当场拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
+    // 目录名为空 ⇒ 在这里拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
     if (!curId) {
       setCloneRes({ ok: false, code: 'MISSING_ID',
         error: t('Fill in the directory name first.',
@@ -223,7 +223,7 @@ const done = facts && facts.cloned === true
 
   return (
     /* 第一步全部铺开：一个连续区域，从上到下直接排。
-       外层这行内联样式就是 TrainingTab.jsx:2355 的原话：
+       外层这行内联样式取自 TrainingTab.jsx 的 TrainingTab() 外层：
          display:flex / flexDirection:column / gap:8
        不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
