@@ -8,7 +8,7 @@
 //    manifest.json，也可能是它还在按 GPT-SoVITS 那套写死的知识渲染、而这台
 //    引擎恰好长得像。两种情况读数一模一样。
 //    假引擎的参数、档位、能力全都跟现有两台不一样，界面但凡有一处还写死，
-//    它当场就长歪。这是一个有可能失败的实验。
+//    这台假引擎就会长歪。这是一个有可能失败的实验。
 //
 // 这里测的是「面板里该有哪些格子、各自什么形状」，不是像素。
 //    jsdom 在这个测试环境里跑不起来（node --test 不经 vite），所以把这些判断
@@ -583,7 +583,7 @@ test('⛔⛔ 不许再有"换不了就把下拉藏掉"这个函数', async () =>
   const mod = await import('./engines.js')
   // 这个函数已删除。它拿「能不能热换」决定「给不给选」：
   //   这两件事没有关系。一台启动时装权重的引擎，盘上照样躺着好几个模型，
-  //   把清单藏掉等于对用户说"你没有模型"，而这正是要修的痛点本身。
+  //   把清单藏掉等于对界面宣称这台引擎没有模型，而这正是要修的痛点本身。
   //   现在的做法：候选照样列出来；选中的那一份发不发得出去，由名片
   //   在每个模型位上写没写"用哪个参数名发"来决定（见 modelPickers 那一层）。
   assert.equal(mod.showsModelPickers, undefined,
@@ -639,8 +639,7 @@ test('⭐⭐ 没在跑要说"待命"，⛔ 不许是红的', async () => {
   const { processBadge } = await import('./engines.js')
   const b = processBadge({ id: 'x', online: false, process: { running: false } })
   // 判据：这是新架构下的正常状态，不是故障。
-  //   tone 一旦是 'bad'，用户每天开机都会看见一排红灯，然后学会无视所有红灯：
-  //   包括真出事那次。
+  //   tone 一旦是 'bad'，用户每天开机都会看见一排红灯，然后学会无视所有红灯。
   assert.equal(b.tone, 'idle')
   assert.notEqual(b.tone, 'bad')
   assert.match(b.title, /正常/, '必须明说这是正常的，否则"待命"两个字还是像故障')
@@ -777,12 +776,11 @@ test('不管进程的机器：process 从有到 null 也算变化', async () => 
 
 // 合并成一枚的引擎徽章
 //
-// 顶栏指示灯越加越多、彼此含义重叠，三枚（底模齐 / 进程 / Connected）并成一枚。
+// 顶栏指示灯彼此含义重叠，三枚（底模齐 / 进程 / Connected）并成一枚。
 //
 // 下面第二条是这一组里唯一真正重要的：待命绝不许画成红的。
-//   引擎改成「用到才起」之后，「没在跑」是设计如此、是常态；老那枚
-//   Connected/Unreachable 在这个世界里天天红：而一枚天天红的灯的唯一效果
-//   是训练人忽略所有红灯，包括真的那次。
+//   「没在跑」是设计如此、是常态；而一枚天天红的灯的唯一效果
+//   是训练人忽略所有红灯，真红的那天也没人信。
 
 const CK_OK = { declared: true, ready: true, abs_path: 'D:/x/checkpoints' }
 const CK_BAD = { declared: true, ready: false, abs_path: 'D:/x/checkpoints', missing: ['config.yaml', 'bpe.model'] }
@@ -906,7 +904,7 @@ test('⛔ 顶栏关于当前引擎只许有一枚灯', async () => {
   const fs = await import('node:fs')
   const url = await import('node:url')
   const p = url.fileURLToPath(new URL('../App.jsx', import.meta.url))
-  // 先剥注释再找：这个仓库栽过两次「守卫在注释里为真」。
+  // 先剥注释再找：注释里出现的字样也算命中，不剥就是这条守卫恒真。
   const src = fs.readFileSync(p, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n')

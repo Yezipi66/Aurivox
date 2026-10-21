@@ -24,11 +24,11 @@ function tokIsPunct(tok) {
 
 // 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
 // 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-//   后端 /api/pron/preview 现在 engine_id 必传（lib/routes/pron.js:58-65），
+//   后端 /api/pron/preview 现在 engine_id 必传（lib/routes/pron.js 的 preview 路由），
 //   不传直接 400 `PRON_ENGINE_ID_MISSING`。
 //
-//   为什么不让后端挑一台兜底：判据在 `lib/inference/infer_server.py:574`
-//     的注释，「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。」
+//   为什么不让后端挑一台兜底：判据在 `lib/inference/infer_server.py` 的
+//     pron_preview 注释，「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。」
 //     ⇒ 换一台引擎去预览，读出来可能也对，但它已经不再回答原来那个问题。
 //     给一个看起来对、和实际合成不一致、又不报错的读音，比没有这个功能更坏。
 //
