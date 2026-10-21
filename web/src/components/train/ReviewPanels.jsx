@@ -5,7 +5,7 @@ import { api } from '../../lib/api'
 import { PronPanel } from '../pron/PronProofing'
 import { Player } from '../common/Player'
 import { Select } from '../common/Select'
-import { basename } from '../../lib/format'
+import { basename } from '../../lib/pathText'
 import { usePreviewMode } from '../../lib/previewMode'
 import { ReviewRowAudio, ConfBadge, WordConf, CONF_COLORS, confTierLabel } from './TrainPanels'
 

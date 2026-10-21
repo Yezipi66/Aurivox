@@ -12,7 +12,9 @@ import { useAssetsWithModels } from '../../lib/models'
 import { slotsOf, candidatesForSlot, flattenGroups, itemLabel,
          reconcileSelection, weightsToSend, launchWeightsToSend, weightsFromParams,
          slotsNeedingRelaunch, voicesForEngine, modelNotesFor } from '../../lib/modelPickers.pure.js'
-import { TARGET_LANG_OPTIONS, defaultTargetLang, normalizeLangFamily, outputsError, pickDefaultRef, sameRefPath } from '../../lib/format'
+import { TARGET_LANG_OPTIONS, defaultTargetLang, normalizeLangFamily } from '../../lib/langOptions'
+import { outputsError } from '../../lib/apiError'
+import { pickDefaultRef, sameRefPath } from '../../lib/refAudio'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
 // fieldLabel / fieldHelp / recipePath 不在这里：换成 <ParamField> 之后它们只在那边用了。

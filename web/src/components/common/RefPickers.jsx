@@ -3,7 +3,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Select } from './Select'
 import { api } from '../../lib/api'
 import { AudioPlayer } from './Player'
-import { REF_MAX_SEC, REF_MIN_SEC, basename, refInRange, sameRefPath } from '../../lib/format'
+import { REF_MAX_SEC, REF_MIN_SEC, refInRange, sameRefPath } from '../../lib/refAudio'
+import { basename } from '../../lib/pathText'
 import { useT } from '../../lib/i18n'
 
 // Build a static playback URL from a stored managed-reference path

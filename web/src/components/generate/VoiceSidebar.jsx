@@ -2,7 +2,9 @@
 import { useState, useEffect } from 'react'
 import { useT } from '../../lib/i18n'
 import { API_BASE, api } from '../../lib/api'
-import { basename, pickDefaultRef, refInRange, REF_MIN_SEC, REF_MAX_SEC, statusBadge } from '../../lib/format'
+import { basename } from '../../lib/pathText'
+import { pickDefaultRef, refInRange, REF_MIN_SEC, REF_MAX_SEC } from '../../lib/refAudio'
+import { statusBadge } from '../../lib/StatusBadge'
 import { AudioPlayer } from '../common/Player'
 import { CrossRefPicker, CustomRefPicker, refMatches } from '../common/RefPickers'
 

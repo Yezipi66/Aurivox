@@ -1,7 +1,9 @@
 // AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
-import { basename, recipeNameError, TARGET_LANG_OPTIONS, defaultTargetLang } from '../../lib/format'
+import { basename } from '../../lib/pathText'
+import { recipeNameError } from '../../lib/recipeName'
+import { TARGET_LANG_OPTIONS, defaultTargetLang } from '../../lib/langOptions'
 import { useT } from '../../lib/i18n'
 import { recipeWeightPreview } from '../../lib/recipes'
 

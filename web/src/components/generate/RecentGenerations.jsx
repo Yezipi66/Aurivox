@@ -4,7 +4,9 @@
 // （在文件管理器中显示、重新载入设置、立即重跑、删除）。
 // 条目里的位名与引擎名全部来自后端存下的名片，不在这里写死。
 import { API_BASE } from '../../lib/api'
-import { fmtRecentTime, langLabel, refBasename } from '../../lib/format'
+import { fmtRecentTime } from '../../lib/pathText'
+import { langLabel } from '../../lib/langOptions'
+import { refBasename } from '../../lib/refAudio'
 import { describeGeneration } from '../../lib/modelPickers.pure.js'
 import { Player } from '../common/Player'
 import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
