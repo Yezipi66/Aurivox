@@ -15,8 +15,25 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 发 PR 评论要用（写评论）。
+    #   只给 pull-requests: write，其余一律不给。
+    permissions:
+      contents: read
+      pull-requests: write
+
+    # 跑两个平台。
+    #   为什么是 Windows + Linux 两个，而不是只挑一个：
+    #     · Windows 是产品当前声明支持的平台（README「支持：Windows 10/11 x64」）。
+    #       只跑 Linux 会让 Windows 上的行为没人守。
+    #     · Linux 是产品正在铺的方向（lib/ 与 tools/ 下已有 40 多处 posix 分支）。
+    #       只跑 Windows 会让那些分支永远没人验证 —— 它们写错了也没人知道。
+    #   ⇒ 两个都跑，各守各的。
+    strategy:
+      fail-fast: false        # 一个平台红了，另一个照样跑完（两边的原因不同，都要看到）
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     steps:
       - name: 检出
@@ -25,7 +42,9 @@ jobs:
       - name: 装 Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 24：Node 20 在 actions runner 上已废弃（被强制跑在 Node 24），
+          #   显式写 24 免得每次跑都带一条 deprecation 警告。
+          node-version: '24'
           cache: npm
 
       # 平台根 venv：几组测试要它（buildVenvStep / resolveUv 都从
@@ -52,14 +71,111 @@ jobs:
       - name: 装前端依赖
         run: npm ci --prefix web
 
+      # 建平台根 venv 并装 uv。
+      #   解释器路径按平台来：Windows 是 venv\Scripts\python.exe，posix 是 venv/bin/python。
+      #   解释器名：Windows 上 setup-python 装的是 python.exe，
+      #   而 python3 那个名字在 Windows 上可能指向 Microsoft Store 的 stub
+      #   （那个会弹商店、打不开）⇒ Windows 上先试 python。
       - name: 建平台根 venv 并装 uv
+        shell: bash
         run: |
-          python3 -m venv venv
-          venv/bin/python -m pip install --upgrade pip
-          venv/bin/python -m pip install uv
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BOOTSTRAP=python
+          else
+            BOOTSTRAP=python3
+          fi
+          "$BOOTSTRAP" -m venv venv
+          if [ -x "venv/bin/python" ]; then
+            PY="venv/bin/python"
+          else
+            PY="venv/Scripts/python.exe"
+          fi
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install uv
+          # 打印出来：解释器到底在哪儿、能不能跑，
+          #   免得测试红的时候还要猜是哪一步没成。
+          echo "解释器: $PY"
+          "$PY" --version
+          "$PY" -c "import sys; print('sys.executable =', sys.executable)"
 
+      # cache/ 是 gitignore 的（可再生缓存的位置），
+      #   干净检出里没有 ⇒ 写日志前先建出来。
+      #   shell: bash 让两个平台用同一份脚本（Windows 上是 Git Bash）。
+      - name: 备好日志目录
+        shell: bash
+        run: mkdir -p cache
+
+      # 跑测试。
+      #   输出要能看清：spec reporter 逐条打印两千多条测试名，GitHub 会把
+      #   日志截断 ⇒ 失败原因正好在被截掉的那一段。
+      #   所以这里把完整输出写进文件，再把失败详情发成 PR 评论
+      #   （评论用 API 读不需要登录，日志页面要登录才能看）。
       - name: 跑测试
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test > cache/test-output.log 2>&1 || {
+            {
+              echo "## 测试失败"
+              echo ""
+              echo '```'
+              grep -E "^ℹ (tests|pass|fail|skipped)" cache/test-output.log || true
+              echo '```'
+              echo ""
+              echo "### 失败详情"
+              echo '```'
+              # 失败块长这样：✖ 名字 … 之后是断言消息（缩进 2 空格起）。
+              awk '/^✖ /{p=1;print;next} /^[[:space:]]{2,}/{if(p)print;next} {p=0}' \
+                cache/test-output.log | head -120
+              echo '```'
+            } > cache/failure-summary.md
+            echo "::group::失败摘要"
+            cat cache/failure-summary.md
+            echo "::endgroup::"
+            # 失败详情打成一个注解（一条装全部）：
+            #   逐行打注解会被 GitHub 折叠，而且多行消息在注解里会被截断。
+            #   ⇒ 只取第一条失败的详情：Traceback 的第一行就够定位，
+            #   而把 40 条塞进一条注解会被截掉尾巴。
+            FIRST=$(awk '/^✖ /{p=1;print;next} /^[[:space:]]{2,}/{if(p)print;next} {p=0}' \
+              cache/test-output.log | head -12 | tr '\n' ' ' | cut -c1-800)
+            echo "::error title=测试失败::$FIRST"
+            echo "::group::日志末尾 60 行"
+            tail -60 cache/test-output.log
+            echo "::endgroup::"
+            exit 1
+          }
+          grep -E "^ℹ (tests|pass|fail|skipped)" cache/test-output.log
+
+      # 失败详情发成 PR 评论：日志页面要登录才能看，PR 评论不用。
+      #   只在 PR 上发（push 到分支时没有 PR 可评论）。
+      - name: 把失败详情发成 PR 评论
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs')
+            const body = fs.readFileSync('cache/failure-summary.md', 'utf8')
+            const marker = '<!-- ci-failure-summary -->'
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number, per_page: 100,
+            })
+            const prev = comments.find((c) => c.body && c.body.includes(marker))
+            const payload = marker + '\n**CI 失败详情**（' + context.job.name + '）\n\n' + body
+            if (prev) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: prev.id, body: payload })
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body: payload })
+            }
+
+      # 完整日志留档：日志页面会被截断，而失败原因常在最后。
+      #   artifact 名字带平台：两个平台各留一份，下载下来不会互相覆盖。
+      - name: 留档测试日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.os }}
+          path: cache/test-output.log
+          retention-days: 14
 
       - name: 构建前端
         run: npm run build

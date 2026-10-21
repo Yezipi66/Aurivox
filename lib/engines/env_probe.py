@@ -31,6 +31,12 @@ GPT-SoVITS 的 2.2+cu121，将来还有别的）。这些环境之间没有共�
 import json
 import sys
 
+# 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp1252/cp936），
+#   而这里要吐中文（错误信息里有中文模块名）⇒ 编码不上就 UnicodeEncodeError，
+#   探针自己以非零码死掉，调用方分不清「引擎没装」与「探针崩了」。
+#   调用方按 utf-8 解码，这边就得按 utf-8 编码。
+sys.stdout.reconfigure(encoding='utf-8')
+
 
 def _describe_python():
     return {

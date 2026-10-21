@@ -40,10 +40,27 @@ function gitOut (args, cwd) {
   }
 }
 
-/** 两个路径是不是同一个目录（Windows 上大小写不敏感，分隔符写法也可能不同） */
+/**
+ * 两个路径是不是同一个目录。
+ *
+ * 为什么不能直接比字符串：
+ *   Windows 上同一个目录可以有多种写法：
+ *   短路径（C:\Users\RUNNER~1\AppData\Local\Temp）
+ *   与长路径（C:\Users\runneradmin\AppData\Local\Temp）指的是同一个地方，
+ *   而 git rev-parse --show-toplevel 返回的是长路径、Node 的 tmpdir() 给的是短路径。
+ *   直接比字符串 ⇒ 判定为「不是同一个目录」⇒ 误判成「这个目录不是 git 仓库」。
+ *   （CI 的 Windows runner 上 os.tmpdir() 就是短路径，所以这条在那里必现。）
+ *
+ * 做法：先 fs.realpathSync 把两边都展开成同一个形式再比。
+ *   拿不到（路径不存在）时退回「按字符串比」：
+ *   那时两边本来就该是同一个字符串。
+ */
 function samePath (a, b) {
   if (!a || !b) return false
-  const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  const norm = (p) => {
+    try { return fs.realpathSync.native(p).replace(/[\\/]+$/, '').toLowerCase() } catch (e) { /* 拿不到就用原样 */ }
+    return path.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  }
   return norm(a) === norm(b)
 }
 
@@ -338,17 +355,35 @@ function buildClonePlan (input = {}) {
  *
  * @param {import('node:child_process').ChildProcess} child
  */
-function killProcessTree (child) {
+/**
+ * 杀进程树。
+ *
+ * 两条实现路径完全不同（Windows 走 taskkill /T /F，posix 走信号），
+ * 而开发机只有 Windows ⇒ posix 那条长期没人跑过。
+ * 它在 Linux 上杀不掉任何进程：spawn 默认不设 detached
+ * ⇒ 子进程与父进程同组，负 PID 指的是「组 ID 等于 child.pid 的那个组」，
+ * 而它并不存在 ⇒ 那个进程一直跑，node --test 等它退出 ⇒ 整轮测试挂住。
+ *
+ * platform 显式传入（与 venvPythonRelPath / resolveUv 同一套做法）：
+ *   这样 posix 那条在任何机器上都能被测到。
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {string} [platform] process.platform
+ */
+function killProcessTree (child, platform) {
   if (!child || child.killed) return
-  if (process.platform === 'win32') {
+  const plat = platform || process.platform
+  if (plat === 'win32') {
     try {
       spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'],
         { windowsHide: true })
     } catch (e) { /* 进程可能已退出 */ }
-  } else {
-    // 负 PID = 进程组（spawn 默认不设 detached，子进程在同一个组里）
-    try { process.kill(-child.pid, 'SIGKILL') } catch (e) { /* 可能已退出 */ }
+    return
   }
+  // 先杀进程本身：这一条与组无关，任何平台都该做。
+  try { child.kill('SIGKILL') } catch (e) { /* 可能已退出 */ }
+  // 再尝试杀组：子进程自己建了组时（detached）这一条才有用。
+  try { process.kill(-child.pid, 'SIGKILL') } catch (e) { /* 没有那个组 */ }
 }
 
 /**
