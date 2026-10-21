@@ -34,9 +34,9 @@ const REFLECTOR = path.join(ROOT, 'lib', 'engines', 'reflect_params.py')
 // 出的是「报错」还是「声音不对」？后者一律不许做成界面格子。
 const EXCLUDE = Object.freeze({
   // 路径类：归 call.init_args / {checkpoints} 占位符管。
-  // 这条正则被测试逼着收窄过一次：原版把 `prompt_path_ratio` 也排了，而它是一个正常的
-  // 数值旋钮（prompt 音频的占比）。误排与漏排一样重：界面上少一个真实存在的旋钮，而且
-  // 没有任何报错。判据：参数名整体就是那个路径才算 path（cfg_path / model_dir /
+  // `prompt_path_ratio` 不排：它是一个正常的数值旋钮（prompt 音频的占比）。
+  // 误排与漏排一样重：界面上少一个真实存在的旋钮，而且没有任何报错。
+  // 判据：参数名整体就是那个路径才算 path（cfg_path / model_dir /
   // vocoder_file 排；prompt_path_ratio / dirichlet / directory_depth 不排）。路径参数
   // 一般是「名词 + _path/_dir」，含 path 的比率与开关后面跟的是别的语义词。
   // 第二段覆盖「路径的复数/列表」：aux_paths / model_files / data_dirs。
