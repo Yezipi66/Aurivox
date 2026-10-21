@@ -166,4 +166,8 @@ if __name__ == "__main__":
     ns = ap.parse_args()
 
     needs, why = decide(ns.live, ns.example, ns.root)
+    # 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp1252/cp936），
+    #   而 reason 里可能有中文路径 ⇒ 编码不上就 UnicodeEncodeError。
+    #   调用方按 utf-8 解码，这边就得按 utf-8 编码。
+    sys.stdout.reconfigure(encoding='utf-8')
     sys.stdout.write(json.dumps({"needs_regen": needs, "reason": why}, ensure_ascii=False))

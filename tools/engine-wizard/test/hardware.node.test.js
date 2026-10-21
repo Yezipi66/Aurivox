@@ -53,9 +53,18 @@ test('Intel（名字含 Arc）⇒ ipex', () => {
 })
 
 test('AMD + Windows ⇒ directml（三条路里最兼容的那条）', () => {
-  const r = recommendBackend([{ vendor: 'amd', name: 'Radeon RX 7900' }])
-  assert.strictEqual(r.recommended, 'directml')
-  assert.ok(/directml/i.test(r.reason), 'reason 应指向 DirectML：' + r.reason)
+  // platform 要显式设成 win32：这条量的是「Windows 上选哪条」，
+  // 而 recommendBackend 读的是 process.platform。
+  // 不设的话，在 Linux 上跑这条会走 Linux 那支（rocm）⇒ 假红。
+  const saved = process.platform
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+  try {
+    const r = recommendBackend([{ vendor: 'amd', name: 'Radeon RX 7900' }])
+    assert.strictEqual(r.recommended, 'directml')
+    assert.ok(/directml/i.test(r.reason), 'reason 应指向 DirectML：' + r.reason)
+  } finally {
+    Object.defineProperty(process, 'platform', { value: saved, configurable: true })
+  }
 })
 
 test('AMD + Linux ⇒ rocm', () => {

@@ -119,6 +119,10 @@ if __name__ == "__main__":
     import argparse
     import json
     import sys
+    # 输出走 UTF-8：Windows 上 stdout 默认是系统代码页（cp1252/cp936），
+    #   而折叠结果里可能有中文 ⇒ 编码不上就 UnicodeEncodeError。
+    #   调用方按 utf-8 解码，这边就得按 utf-8 编码。
+    sys.stdout.reconfigure(encoding='utf-8')
 
     ap = argparse.ArgumentParser(description="request alias folding probe")
     ap.add_argument(
