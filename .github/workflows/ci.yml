@@ -88,7 +88,9 @@ jobs:
 
       # cache/ 是 gitignore 的（可再生缓存的位置），
       #   干净检出里没有 ⇒ 写日志前先建出来。
+      #   shell: bash 让两个平台用同一份脚本（Windows 上是 Git Bash）。
       - name: 备好日志目录
+        shell: bash
         run: mkdir -p cache
 
       # 跑测试。
