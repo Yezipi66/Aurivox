@@ -325,7 +325,7 @@ async function main () {
 
   // 引擎自己的活动配置（tts_infer.yaml）由引擎自己自检自修：那是
   // lib/inference/config_repair.py 的活，由 infer_server.py 启动时调用。别把它搬回来：
-  // 平台已改成按 manifest.json 起引擎，启动脚本里不该再有引擎特例。
+  // 启动脚本按 manifest.json 起引擎，不该有引擎特例。
 
   // 5. 推理引擎：逐台起
   // 日志文件名一台一份：logs\<id>.log / logs\<id>.err.log。
