@@ -1,14 +1,8 @@
-// 对比页（ReferenceCompareTab）的参数面板必须按 manifest.json 长。读源码的守卫，
-// 与 generate/paramPanelFromManifest.node.test.js 同款。
-//
-// JSX 在这个仓库里没法通过单元测试（node --test 不经 vite，也没有 jsdom），所以这里
-// 读源码。守的是三件只有源码里才看得见的事：写死的格子没有偷偷长回来；面板确实在按
-// param_schema 循环；接线是真的接上了（engine 这个 prop 一路传到了画格子的地方）。
-// 这一页的代码里不许出现任何引擎的参数名：换一台引擎时格子照常显示、填了发出去
-// 上游不认、也不报错。
-//
-// web/ 是 ESM（web/package.json 的 "type": "module"），所以这里用 import 而不是
-// require：lib/ 下那些 .node.test.js 是 CommonJS，两边不一样。
+// 对比页（ReferenceCompareTab）的参数面板必须按 manifest.json 长。读源码的守卫，与
+// generate/paramPanelFromManifest.node.test.js 同款：JSX 在这个仓库里没法通过单元测试
+// （node --test 不经 vite，也没有 jsdom），所以这里守三件只有源码里才看得见的事：写死的
+// 格子没长回来、面板确实在按 param_schema 循环、engine prop 一路传到了画格子的地方。
+// 这一页的代码里不许出现任何引擎的参数名；web/ 是 ESM，这里用 import 而不是 require。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -17,17 +11,15 @@ import { fileURLToPath } from 'node:url'
 import { readDirSources, stripComments } from '../../__testsupport__/readDirSources.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-// 读本目录下全部源码：组件按功能拆成多个文件后，只读 ReferenceCompareTab.jsx
-// 会看不见拆出去的部分，守卫静默失效。
+// 读本目录下全部源码：组件拆成多个文件后，只读单个 .jsx 会看不见拆出去的部分，守卫静默失效。
 const SRC = readDirSources(import.meta.url, '.')
 
-// 注释里可以提这些名字（上面那段注释本身就在提），守的是代码。
+// 注释里可以提这些名字，守的是代码。
 const CODE = stripComments(SRC)
 
 // 这一页不许再出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
-// （旧代码里的本地 state 名）两种写法都要列，少一种守卫就漏一半。守的是键出现的
-// 位置：对象字面量里的 `键名:`、下标里的 `[键名]`。用户可见的 tooltip 文案里提到某个
-// 名字不算，那种是给人看的解释，不是在发这个键。
+// （旧代码里的本地 state 名）两种写法都要列。守的是键出现的位置：对象字面量里的
+// `键名:`、下标里的 `[键名]`。用户可见的 tooltip 文案里提到某个名字不算。
 const HARDCODED = [
   'temperature', 'top_k', 'top_p', 'repetition_penalty',
   'text_split_method', 'speed_factor', 'batch_size',
@@ -40,8 +32,8 @@ const HARDCODED = [
 
 // 键「被用上」的两种位置。两种都要守：少一种，那一处就能偷偷长回来。
 const USED_AS = [
-  n => new RegExp(`\\b${n}\\s*:`),                    // top_p: 1.0     对象字面量
-  n => new RegExp(`\\[\\s*['"\`]${n}['"\`]\\s*\\]`),   // row['top_p']   下标
+  n => new RegExp(`\\b${n}\\s*:`),                    // 对象字面量里的键，如 top_p: 1.0
+  n => new RegExp(`\\[\\s*['"\`]${n}['"\`]\\s*\\]`),   // 下标里的键，如 row['top_p']
 ]
 
 test('⛔ 对比页里不许出现任何写死的引擎参数名', () => {
@@ -53,8 +45,7 @@ test('⛔ 对比页里不许出现任何写死的引擎参数名', () => {
 })
 
 test('⛔ 也不许用本地 state 把某个引擎参数名再抄一遍', () => {
-  // 键名已经在上一条守住了，这条守的是本地 state 那一层也不许复活：过去的形状是
-  // const [topK, setTopK] = useState(...) 加 onUpdate(row.id,'top_k',topK)。
+  // 本地 state 那一层也不许有引擎参数名（形如 const [topK, setTopK] = useState(...)）。
   const found = HARDCODED.filter(name =>
     new RegExp(`\\b(set${name[0].toUpperCase()}${name.slice(1)}|${name}\\s*,\\s*set)`).test(CODE))
   assert.deepEqual(found, [],
@@ -76,8 +67,7 @@ test('⭐ 面板确实在按 param_schema 循环，而不是换了个写法继�
 })
 
 test('⭐ 接线判据：engine prop 一路传到了画格子的地方', () => {
-  // npm run build 绿不证明接线对：只传 engineId 的话这一页能编译、能过 build，
-  // 但格子拿不到形状，会退化成「什么都没画」，而 build 一点话都不说。
+  // 只传 engineId 的话这一页能编译、能过 build，但格子拿不到形状。
   assert.ok(/function CompareRow\(\{[^}]*\bengine\b\s*[,}]/.test(SRC),
     'CompareRow 的 props 里没有 engine，它拿不到 param_schema，画不出格子')
   assert.ok(/<CompareRow[\s\S]{0,600}?\bengine=\{engine\}/.test(SRC),
@@ -107,41 +97,33 @@ test('⛔ CMP_ENGINE 这个常量不许回来', () => {
 })
 
 test('换引擎必须重建权重下拉（依赖数组里少了 engine.id 就是安静地错）', () => {
-  // buildModels 现在按当前引擎的位名取权重。少了依赖这一项 ⇒ 换引擎后
-  // 下拉还是上一台引擎的权重，而界面上没有任何一处会提示它没跟着换。
+  // buildModels 按当前引擎的位名取权重：少了 engine.id 这项依赖，换引擎后下拉还是上一台的。
   assert.ok(/setAvailableModels\(models\)[\s\S]{0,200}?\}, \[engine\?\.id\]\)/.test(CODE),
     '拉权重的 useEffect 依赖里没有 engine.id，换引擎后下拉不会跟着换')
 })
 
 test('⭐ seed 是平台自己的开关，不属于任何一台引擎，要留在原地', () => {
-  // 这条是防「收得太狠」：把面板改成名片驱动时很容易顺手把 seed 一起收走，
-  // 而它换哪台引擎含义都不变（GenerateTab 同一条纪律）。
+  // seed 是平台自己的开关，换哪台引擎含义都不变，不许顺手收走。
   assert.ok(/\bconst \[seed, setSeed\] = useState/.test(CODE), 'seed state 在改造中被误删了')
   assert.ok(/Seed \(-1 = random\)/.test(CODE), 'seed 那一格不见了')
 })
 
 test('touched 必须跟着 params 一起存回 row（generateRow 在 tab 级读的是 row）', () => {
-  // 只存 params 是不够的：touched 决定了「哪些键是用户真动过的」。
-  // 它必须能还原（存数组），否则回放/重新渲染后 paramsToSend 会把所有键都丢掉。
+  // touched 必须能还原成数组，否则回放/重新渲染后 paramsToSend 会把所有键都丢掉。
   assert.ok(/onUpdate\(row\.id, 'params'/.test(CODE), 'params 没有存回 row')
   assert.ok(/onUpdate\(row\.id, 'touched'/.test(CODE), 'touched 没有存回 row')
   assert.ok(/Array\.from\(touched\)/.test(CODE), 'touched 存的是不可还原的形状（Set 序列化后为空）')
 })
 
-// 不能只画 common 层。
-//
-// 事实（不是推断）：两台 CosyVoice 的 param_schema common 层是空的，六项与两项全在
-// advanced。这一页原来只取 common 时，选它们画出零个格子，而界面上看不出任何异常
-//（折叠区照样能展开，里面就是空的）。这条守卫防它回来。判据是「档位来自 TIERS 且两
-// 档都取」，不是「不许写 common 这个词」：那样会误伤 GenerateTab 那种合理的地方。
+// 档位要两档都取，不能只画 common：有些引擎的 param_schema common 层是空的，只取
+// common 会画出零个格子而界面上看不出异常。判据是「档位来自 TIERS 且两档都取」。
 test('⭐⭐ 档位来自 TIERS，不许只画 common 一层', () => {
   assert.ok(/TIERS/.test(CODE),
     '对比页没有引用 TIERS，档位名单被复制了一份，或者根本没做两档')
   assert.ok(/fieldsForTier\(engine, tier\)/.test(CODE),
     "fieldsForTier 收的不是变量 tier，而是写死的某一层，" +
     '只画一层会让 common 层为空的引擎（两台 CosyVoice）画出零个格子')
-  // 查「它做了什么」而不是「这个变量名在不在」：只测 /tiersWithFields/ 出现过，会把
-  //   `const tiersWithFields = TIERS`（不做过滤）也放过去。变量名在 ≠ 判据在。
+  // 查「它做了什么」而不是「变量名在不在」：`const tiersWithFields = TIERS` 不做过滤，只测名字出现过会把它放过去。
   assert.ok(/tiersWithFields\s*=\s*TIERS\.filter\(/.test(CODE),
     "tiersWithFields 没有过滤掉空档位，空档位按钮点开是空的，比不画更糟")
   assert.ok(/tiersWithFields\.length > 1/.test(CODE),
