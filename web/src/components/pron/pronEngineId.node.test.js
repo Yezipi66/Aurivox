@@ -1,26 +1,12 @@
-/**
- * 前端守卫：读音预览这条路上，engine_id 必须一路穿到底。
- *
- * 这条守卫存在的理由：
- *   `legacyDefault` 删掉之后，后端 `/api/pron/preview` 在缺 engine_id 时返回
- *   400 `PRON_ENGINE_ID_MISSING`（lib/routes/pron.js:58-65），不再替调用方
- *   挑一台引擎顶上。前端这条链有 5 个渲染点、4 层组件，
- *   漏传任何一层的表现都是同一句话：
- *     「那个页面的读音预览安静地不工作」：没有报错、没有红字、没有日志。
- *   ⇒ 这种失败人眼验不出来（谁会挨个点开五个页面里的读音校对？），
- *     所以必须由一条逐个点名的守卫盯着。
- *
- * 禁令：不许把这条测试改成"检查存在 engineId 这个词"。
- *   它必须逐个点名到具体渲染点：泛化的检查在少了一个渲染点时照样绿。
- *
- * 预言（可证伪）：下一次有人新加一个渲染 <PronPanel> / <TextPrepModal> 的页面，
- *   他会忘了传 engineId。这条测试不会替他发现（它只认名单上的点）
- *   ⇒ 名单必须跟着新页面一起长。这是故意的取舍：
- *     宁可漏报新页面，也不要一条模糊到永远绿的守卫。
- */
-// `web/package.json` 是 `"type": "module"` ⇒ 这里只能用 import。
-//   （我第一版写成 require，`node --test` 报的是一句光秃秃的 'test failed'
-//：顶层加载失败时看不到任何子测试名，别以为是断言写错了。）
+// 前端守卫：读音预览这条路上，engine_id 必须一路穿到底。
+// 后端 /api/pron/preview 缺 engine_id 时返回 400 PRON_ENGINE_ID_MISSING，不再替调用方挑一台引擎顶上。
+// 前端这条链有多个渲染点、多层组件，漏传任何一层的表现都是同一句话：
+// 「那个页面的读音预览安静地不工作」：没有报错、没有红字、没有日志。
+// ⇒ 这种失败人眼验不出来，必须由一条逐个点名的守卫盯着。
+// 禁令：不许把这条测试改成「检查存在 engineId 这个词」。泛化的检查在少了一个渲染点时照样绿。
+// 名单必须跟着新页面一起长：宁可漏报新页面，也不要一条模糊到永远绿的守卫。
+// web/package.json 是 "type": "module" ⇒ 这里只能用 import；顶层加载失败时
+// node --test 报的是一句光秃秃的 'test failed'，看不到任何子测试名。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -32,14 +18,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SRC = path.join(HERE, '..', '..')
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8')
 
-// 读一个组件目录下的全部源码：组件按功能拆成多个文件后，只读原来那一个
-// .jsx 的守卫会看不见拆出去的部分，守卫静默失效。
-// 这里仍然「逐个点名」（SIGNATURES / RENDERS 表照旧），只是读取范围
-//    从单文件放宽到目录：泛化成「检查存在 engineId 这个词」是不许的。
+// 读一个组件目录下的全部源码：组件拆成多个文件后，只读原来那一个 .jsx 的守卫
+// 会看不见拆出去的部分，守卫静默失效。这里仍然逐个点名（SIGNATURES / RENDERS 表照旧），
+// 只是读取范围从单文件放宽到目录。
 const readDir = (relDir) => readDirSources(import.meta.url, path.join('..', '..', relDir))
 
-// 路径可能是文件也可能是目录：目录走 readDirSources（覆盖拆分后的兄弟文件），
-// 文件仍按单文件读。
+// 路径可能是文件也可能是目录：目录走 readDirSources（覆盖拆分后的兄弟文件），文件仍按单文件读。
 const readDirOrFile = (rel) => {
   const abs = path.join(SRC, rel)
   return fs.statSync(abs).isDirectory()
@@ -59,8 +43,7 @@ test('⭐⭐⭐ 三处 /api/pron/preview 调用都必须带 engine_id', () => {
 
 test('⛔ 缺引擎时不许发请求，三处都要有早退', () => {
   // 每一处调用前面 400 字符内必须有一句 `if (!engineId)`。
-  // 不检查它返回什么（三处返回形状不同：两处 setState 报错，一处返回错误项），
-  //   只检查它根本没发出去：那才是这条守卫在保的东西。
+  // 不检查它返回什么（三处返回形状不同），只检查它根本没发出去：那才是这条守卫在保的东西。
   const idxs = [...PRON.matchAll(/api\(\s*'\/api\/pron\/preview'/g)].map(m => m.index)
   assert.equal(idxs.length, 3)
   for (const i of idxs) {
@@ -77,10 +60,7 @@ test('⭐ engineId 必须进 HanReadingReview 的依赖签名', () => {
   assert.match(sig[0], /engineId/, 'selectionSignature 里没有 engineId，换引擎后读音建议不会刷新')
 })
 
-/**
- * 逐个点名：4 层组件签名 + 5 个渲染点。
- * 每一行都是一次真实的"我差点漏掉"。
- */
+// 逐个点名：4 层组件签名 + 5 个渲染点。每一行都是一次真实的漏传。
 const SIGNATURES = [
   ['components/pron', /function PronPanel\(\{[^}]*\bengineId\b/],
   ['components/pron', /function HanReadingReview\(\{[^}]*\bengineId\b/],
@@ -128,19 +108,17 @@ for (const [file, tag] of RENDERS) {
 }
 
 test('⭐⭐⭐ App.jsx 必须把 engine 传给这两个原本拿不到它的页签', () => {
-  // TrainingTab / AssetsTab 在这一刀之前根本没有 engine prop
-  //：它们里面的读音校对一直靠后端挑默认引擎，那条路已经删了。
+  // TrainingTab / AssetsTab 必须真的拿得到 engine prop：它们里面的读音校对不能靠后端挑默认引擎。
   const app = read('App.jsx')
   assert.match(app, /<TrainingTab\s+engine=\{engine\}/, 'App.jsx 没把 engine 传给 TrainingTab')
   assert.match(app, /<AssetsTab\s+engine=\{engine\}/, 'App.jsx 没把 engine 传给 AssetsTab')
 })
 
 test('⛔ 全仓库不许再有裸的 /api/advanced-params 读取', () => {
-  // 写入（POST）那一路是 `api('/api/advanced-params', {`：那个是对的，不在此列。
-  // 读取必须带 ?engine_id=。裸读会让后端无从判断该给哪台引擎的默认值。
-  // 必须先去掉注释：这一刀的注释里原样引用了旧写法
-  //   （「这里过去是 `api('/api/advanced-params')`」）：
-  //   不去注释的话，一条正确的守卫会被自己的说明文字咬红。
+  // 写入（POST）那一路是 api('/api/advanced-params', {：那个是对的，不在此列。
+  // 读取必须带 ?engine_id=，裸读会让后端无从判断该给哪台引擎的默认值。
+  // 必须先去掉注释：说明文字里原样引用了旧写法，不去注释的话，
+  // 一条正确的守卫会被自己的说明文字咬红。
   const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   for (const f of ['components/generate/GenerateTab.jsx', 'components/compare/ReferenceCompareTab.jsx']) {
     const code = stripComments(read(f))

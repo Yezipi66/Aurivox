@@ -1,19 +1,8 @@
-// ============================================================
-//  advanced_params.json 是「界面记忆」：存的和读的必须是同一组键
-// ============================================================
-//
-// 这是一条文本守卫，不是行为测试。JSX 在这个仓库里跑不了单元测试
-//   （没有 jsdom、也没有把 jsx 转译进 node --test），所以这里只能读源码。
-//   它守不住语义，只守得住「有没有人把撤掉的东西又加回来、或者让存和读
-//   再次错位」。真正的闸是 `cd web && npm run build` 加实际界面点一遍。
-//
-// 值得写的原因：这个组件出过存 18 个键、读 7 个键的版本，中间
-// 11 个只写不读。它们沉在 advanced_params.json 里，被当时的合并语义反复
-// 拓印，最终把名片默认值（batch_size=4）永久压住：而整件事没有一条测试会红。
-//
-// 这里刻意不写死那 7 个键的名字去比对（那就又是一份会漂的参数表，
-//    正是契约 C11 禁止的）。改为从源码里把「存的那一组」和「读的那一组」
-//    各自抠出来，比对两个集合相等：规则式，不点名。
+// advanced_params.json 是「界面记忆」：存的和读的必须是同一组键。
+// 这是一条文本守卫，不是行为测试：JSX 在这个仓库里跑不了单元测试，只能读源码。
+// 它守得住的是「有没有人把撤掉的东西又加回来、或者让存和读再次错位」。
+// 不写死那几个键的名字去比对（那又是一份会漂的参数表，契约 C11 禁止），
+// 改为从源码里把「存的那一组」和「读的那一组」各自抠出来，比对两个集合相等。
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -23,8 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { readDirSources, stripComments } from '../../__testsupport__/readDirSources.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-// 读本目录下全部源码：组件按功能拆成多个文件后，只读 GenerateTab.jsx
-// 会看不见拆出去的部分，守卫静默失效。
+// 读本目录下全部源码：组件拆成多个文件后，只读 GenerateTab.jsx 会看不见拆出去的部分，守卫静默失效。
 const SRC = readDirSources(import.meta.url, '.')
 
 const CODE = stripComments(SRC)
@@ -52,12 +40,9 @@ function writtenKeys() {
   return namedKeys(chunk)
 }
 
-/**
- * 读取的地址从裸 `/api/advanced-params` 变成
- *   带 `?engine_id=` 的模板串，依赖数组从 `[]` 变成 `[engine?.id]`。
- *   ⇒ 这两个锚点跟着改。不许改回去：后端不带 engine_id 就不回落到
- *     任何一台名片（pron.js:17-22），界面上表现为"格子全空、不报错"。
- */
+// 读取的地址从裸 /api/advanced-params 变成带 ?engine_id= 的模板串，
+// 依赖数组从 [] 变成 [engine?.id]。⇒ 这两个锚点跟着改。
+// 不许改回去：后端不带 engine_id 就不回落到任何一台名片，界面上表现为「格子全空、不报错」。
 const LOAD_ANCHOR = 'api(`/api/advanced-params?engine_id='
 
 /** 从 GET /api/advanced-params 回填的那一组键。 */
@@ -73,15 +58,12 @@ function restoredKeys() {
   return keys
 }
 
-// 这两条守卫守的形状：原因值得写清楚。
-//
-// 引擎参数这一大半，现在两边都不再逐个点名：
+// 这两条守卫守的形状：引擎参数这一大半，两边都不再逐个点名。
 //   存：paramValues 里用户动过的那些键
 //   读：GET 回来的键里，当前引擎名片有的那些
-// 也就是说「存的 ⊆ 名片」「读的 ⊆ 名片」，两个集合相等不再靠人肉对齐两张
-// 列表，而是由构造保证：这正是「存 18 读 7」那个坑的根治。
-// 但「逐个点名」的键还有（seed 就是一个，它不在任何名片里）。那部分仍然
-//    会漂，所以这两条守卫继续守它们。
+// 也就是「存的 ⊆ 名片」「读的 ⊆ 名片」，两个集合相等由构造保证，不靠人肉对齐两张列表。
+// 但「逐个点名」的键还有（seed 就是一个，它不在任何名片里），那部分仍然会漂，
+// 所以这两条守卫继续守它们。
 
 test('存进界面记忆的键，必须都读得回来，不许再出现只写不读的沉积', () => {
   const read = restoredKeys()
@@ -102,9 +84,8 @@ test('读得回来的键，也必须真的存过，否则「记忆」是假的',
 })
 
 test('引擎参数两边都按名片走，⛔ 不许退回逐个点名', () => {
-  // 这一条是上面两条的前提。一旦有人把 spread 改回一串写死的键名，
-  // 上面两条会继续通过（两张列表可以抄得一模一样），却又回到了「靠人对齐」
-  // 的老路：而那正是「存 18 读 7」那个坑的形状。
+  // 这一条是上面两条的前提：把 spread 改回一串写死的键名之后，上面两条照样会通过
+  // （两张列表可以抄得一模一样），却又回到了靠人对齐的老路。
   const save = CODE.slice(CODE.indexOf("api('/api/advanced-params', {"))
   assert.ok(
     /\.\.\.Object\.fromEntries/.test(save.slice(0, 500)),
@@ -133,17 +114,16 @@ test('⭐⭐⭐ 读 advanced-params 必须带上 engine_id，且 engine 没到�
 
 test('⛔ 存回去的必须只是用户动过的那些，不能是整份参数值', () => {
   // 整份回存 = 把名片默认值抄进盘上文件。之后名片改了也不生效，
-  // 因为 loadAdvancedParams 是「盘上赢」（:460 那一段）。
+  // 因为 loadAdvancedParams 是「盘上赢」。
   const save = CODE.slice(CODE.indexOf("api('/api/advanced-params', {"), CODE.indexOf("api('/api/advanced-params', {") + 500)
   assert.ok(!/\.\.\.paramValues\b/.test(save), '整份 paramValues 被回存了')
 })
 
 test('⛔ 强制重推是平台开关，绝不许混进引擎参数表', () => {
-  // advanced_params.json 是引擎参数的界面记忆。force_resynth 不是任何一台
-  // 引擎的参数（一台引擎都没装它也有意义），混进去有两个具体后果：
-  //   ① 它会沉进盘上文件，而 loadAdvancedParams 是「盘上赢」⇒ 变成所有调用方
-  //      （含 /v1/audio/speech）的默认值，用户在别处根本没勾过；
-  //   ② 一旦被当成引擎参数，它就会进 payload ⇒ 进缓存指纹 ⇒ 缓存全废。
+  // force_resynth 不是任何一台引擎的参数（一台引擎都没装它也有意义），混进引擎参数表
+  // 有两个具体后果：它会沉进盘上文件（loadAdvancedParams 是「盘上赢」），
+  // 变成所有调用方（含 /v1/audio/speech）的默认值，用户在别处根本没勾过；
+  // 一旦被当成引擎参数，它还会进 payload、进缓存指纹，缓存全废。
   // 它该待的地方是浏览器本地（usePersistentState），那是纯界面偏好。
   assert.ok(
     !writtenKeys().has('force_resynth'),
@@ -160,10 +140,10 @@ test('⛔ 强制重推是平台开关，绝不许混进引擎参数表', () => {
 })
 
 test('流式那三个格子没有被加回合成面板', () => {
-  // 它们配的是 /v1/audio/speech 的行为，而这个界面消费不了流（runGenerate 等的是
-  // audio_url）。要给端点配默认值，那是端点配置该干的事，不是合成格子。
+  // 它们配的是 /v1/audio/speech 的行为，而这个界面消费不了流（runGenerate 等的是 audio_url）。
+  // 要给端点配默认值，那是端点配置该干的事，不是合成格子。
   // 撤的是界面格子，不是 API 能力：synthesisService 仍然解析这三个入参，
-  //   第三方和 Flow 可以显式传（契约 §7 逃生门）。
+  // 第三方和 Flow 可以显式传（契约 §7 逃生门）。
   for (const gone of ['streamingMode', 'overlapLength', 'minChunkLength']) {
     assert.ok(
       !CODE.includes(gone),

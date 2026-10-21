@@ -1,13 +1,10 @@
-// Pure helpers for the per-position Han-language override workflow.
+// 逐字指定汉语言种的纯函数。
 //
-// The important distinction here is between automatic inference and an explicit
-// position selected in the Han-character picker. The fallback language may also
-// be explicitly selected: it is then visible and can be range-toggled off back to
-// automatic inference.
+// 要分清两件事：自动推断，与用户在汉字符选择器里显式选定的位置。
+// 回落语种也可以被显式选定：选定后它可见，并能再被整段切换关回自动推断。
 //
-// Only explicit positional selections are persisted and sent to the engine. A
-// character-name-only legacy value is deliberately ignored: applying it to every
-// occurrence would make one selection silently affect unrelated occurrences.
+// 只有带位置的显式选择会被持久化并发给引擎。只按字名的旧值一律忽略：
+// 把它套到每一次出现上，会让一次选择悄悄影响所有不相干的位置。
 
 export const HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/u
 export const HAN_LANGS = ['zh', 'yue', 'ja']
@@ -26,30 +23,26 @@ export function hanPositions(text) {
   return out
 }
 
-// Positions are code-point indices, matching Array.from() here, the engine's
-// Python string indexing, and the `@N` payload keys. Never use String.charAt /
-// str[i]: those are UTF-16 code-unit indices and would drift apart from the
-// engine on any astral-plane character.
+// 位置是码点下标，与这里的 Array.from()、引擎侧的 Python 字符串下标、
+// 以及请求体里的 @N 键一致。不能用 String.charAt / str[i]：那是 UTF-16
+// 码元下标，遇到星芒平面字符就会与引擎的编号错开。
 export function charAtPosition(text, index) {
   if (!Number.isInteger(index) || index < 0) return undefined
   const chars = Array.from(String(text ?? ''))
   return index < chars.length ? chars[index] : undefined
 }
 
-// An override is only meaningful while the position it names still holds a Han
-// character. Text is edited freely after a selection is made, and the stored
-// form is an absolute index, so the same index can end up over a kana, a Latin
-// letter, or past the end of the line. Such an entry must not survive: it is
-// invisible in the picker (which iterates hanPositions) yet would still be
-// counted, previewed and sent to the engine.
+// 覆盖只在它指的位置仍然是一个汉字时才成立。选定之后文本仍可随意编辑，
+// 而存下来的是绝对下标，同一个下标可能落到假名、拉丁字母或者行尾之外。
+// 这种条目必须消失：选择器里看不见它（选择器只遍历 hanPositions），
+// 却仍会被计数、预览，并发给引擎。
 export function isLiveAssignment(text, index, lang) {
   if (!HAN_LANGS.includes(lang)) return false
   const char = charAtPosition(text, index)
   return char !== undefined && HAN_RE.test(char)
 }
 
-// Drop every stored entry whose position no longer holds a Han character.
-// Used to heal persisted state (localStorage survives a text change).
+// 丢掉所有位置已不再对应汉字的条目。用于修复持久化状态（localStorage 活得比文本久）。
 export function pruneForced(forced, text) {
   return (forced || []).filter(item => (
     item && typeof item === 'object'
@@ -58,15 +51,12 @@ export function pruneForced(forced, text) {
   ))
 }
 
-// Read only the positional form. Old {char, lang} / string entries are not
-// allowed to become global character overrides, because repeated Han characters
-// may intentionally be assigned different languages.
+// 只读带位置的形式。旧的 {char, lang} / 字符串条目不许变成全局的字级覆盖：
+// 同一个汉字的多次出现可能本来就该读成不同语种。
 //
-// `text` is the body the indices refer to. It is mandatory in practice: without
-// it there is no way to tell a live override from one stranded by an edit, and
-// every consumer of this map (preview colouring, the counter, the engine
-// payload) would act on the stranded one. `tools/guard_han_text_arg.cjs`
-// enforces that every call site passes it.
+// text 是下标所指的那段正文。实践上必传：没有它就无法分辨一条覆盖是活的，
+// 还是被编辑落在空处的，而这张表的每个消费者（预览着色、计数器、引擎请求体）
+// 都会对后者照做。tools/guard_han_text_arg.cjs 守着每个调用点都传了它。
 export function normalizeAssignments(forced, direction, text) {
   const out = {}
   const checkText = text !== undefined && text !== null
@@ -74,9 +64,8 @@ export function normalizeAssignments(forced, direction, text) {
     if (!item || typeof item !== 'object') continue
     if (!Number.isInteger(item.index) || !HAN_LANGS.includes(item.lang)) continue
     if (checkText && !isLiveAssignment(text, item.index, item.lang)) continue
-    // The fallback language can still be explicitly selected: it is visible as
-    // a manual choice and may later be range-toggled off. Only a second gesture
-    // over an entirely same-language range clears it.
+    // 回落语种也可以被显式选定：它作为一次手动选择可见，之后能被整段切换关掉。
+    // 只有对整段同语种再做一次手势才会清掉它。
     out[item.index] = item.lang
   }
   return out
@@ -92,10 +81,9 @@ export function assignmentList(map, text) {
     .map(pos => ({ index: pos.index, char: pos.char, lang: assignmentAt(map, pos) }))
 }
 
-// Range gesture semantics: a mixed/unselected range is assigned as a whole;
-// a range whose every position already has the target language is cleared as a
-// whole. This is what makes overlapping selections additive while still allowing
-// an exact/sub-range re-selection to deselect it.
+// 整段手势的语义：混合或未选中的整段按目标语种整体赋值；
+// 整段已经是目标语种时整体清除。这样重叠选择是叠加的，
+// 而对同一段做一次完全相同的选择又能把它取消。
 export function applyHanRange(map, positions, target) {
   const current = map || {}
   const touched = positions || []
@@ -118,9 +106,8 @@ export function readingKey(itemOrIndex, char) {
 export function readingAt(readings, item) {
   const source = readings && typeof readings === 'object' ? readings : {}
   const key = readingKey(item)
-  // `String(index)` is a short-lived compatibility form from the broken
-  // pre-position UI. Never fall back to a bare character name: that would apply
-  // one reading to every repeated occurrence of the character.
+  // 裸字符串下标是早期按位置界面的兼容形式。绝不回落到只按字名取：
+  // 那会把一条读音套到该字的每一次出现上。
   return source[key] ?? source[String(item.index)] ?? ''
 }
 
@@ -135,7 +122,7 @@ export function hanOverrideDirection(textLang, voiceLang) {
   else if (['auto_zh_ja_yue', 'auto_zh_ja', 'auto'].includes(target)) {
     base = HAN_LANGS.includes(voiceBase) ? voiceBase : 'zh'
   } else if (target === 'all_ko') {
-    // The engine's all_ko path keeps shared Han in the Chinese pipeline.
+    // 引擎的 all_ko 路径仍把共用汉字留在中文管线里。
     base = 'zh'
   } else {
     return null

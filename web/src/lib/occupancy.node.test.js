@@ -1,12 +1,11 @@
-// B5 占用透明度：前端那两个翻函数的测试。
+// 占用透明度的两个前端函数（fmtMemMb / occupancyBadge / engineUsageBadge）的测试。
 //
 // 本项目的纪律：变异测试才算证明。所以下面每条都写了
 //    「改坏它，看测试会不会红」：只测「函数返回了东西」毫无意义。
-//    （规则见 real-test-vs-text-guard。）
 //
 // 最重要的一条：`0` 与「没量到过」必须分得开。
 //    0 的意思是「它不吃内存」，而那是最危险的说法（用户会以为可以多开）。
-//    memledger 在没量过时返回 null：那个 null 一路传到 UI。
+//    内存账本在没量过时返回 null：那个 null 一路传到 UI。
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -16,10 +15,6 @@ import {
   occupancyBadge,
   engineUsageBadge,
 } from './engines.js'
-
-// ---------------------------------------------------------------------------
-//  fmtMemMb
-// ---------------------------------------------------------------------------
 
 test('fmtMemMb: 没量到过是 ?，⛔ 绝不是 0', () => {
   assert.equal(fmtMemMb(null), '?')
@@ -43,15 +38,12 @@ test('fmtMemMb: MB 与 GB 两档', () => {
   assert.equal(fmtMemMb(512), '512 MB')
 })
 
-// ---------------------------------------------------------------------------
-//  occupancyBadge：机器级
-// ---------------------------------------------------------------------------
-
+// 机器级占用徽章用的样例数据。
 const OCC = {
   // 照后端 occupancyReport() 的真实产物写，不是照想象写。
   //   键名是 free_mb / total_mb / resident_peak_mb（snake_case），
   //   数字都在 summary 里：这是 occupancyWiring.node.test.js 用真后端
-  //   逼出来的（第一版照想象写，全绿但界面上什么都显示不出来）。
+  //   逼出来的（照想象写的那一版全绿，但界面上什么都显示不出来）。
   engines: [
     { id: 'a', label: 'A', running: true, peak_mb: 3000, measured: true, last_attempt_unfinished: false },
     { id: 'b', label: 'B', running: false, peak_mb: null, measured: false, last_attempt_unfinished: false },
@@ -100,10 +92,7 @@ test('occupancyBadge: 峰值与系统余量都进 detail', () => {
   assert.equal(b.detail.filter((d) => /GB/.test(d)).length, 2)
 })
 
-// ---------------------------------------------------------------------------
-//  engineUsageBadge：引擎级（三态 + 一次 OOM 警告）
-// ---------------------------------------------------------------------------
-
+// 引擎级占用徽章：三态（没量到过 / 运行中 / 未运行但有峰值）加一次启动失败警告。
 test('engineUsageBadge: 没量到过 ⇒ unknown，⛔ 绝不是 0/ok', () => {
   const b = engineUsageBadge({ id: 'b', label: 'B' }, OCC)
   assert.equal(b.tone, 'unknown')
@@ -140,10 +129,10 @@ test('engineUsageBadge: ⭐ 上次没起来 ⇒ bad，排在「没量到」前�
   const b = engineUsageBadge({ id: 'd', label: 'D' }, occ)
   assert.equal(b.tone, 'bad')
   assert.match(b.label, /上次启动失败/)
-  // 变异靶：把 last_attempt_unfinished 这一支删掉/挪到最后
+  // 变异靶：把 last_attempt_unfinished 这一支删掉或挪到最后
   //   ⇒ 它会掉进「没量到过」(unknown) ⇒ 必须红。
   //   这是本组测试存在的主要理由：attempting 有两种形状
-  //   （数组 / 对象），漏认的代价是「OOM 预警永远不出现，而且不报错」。
+  //   （数组 / 对象），漏认的代价是「启动失败预警永远不出现，而且不报错」。
   assert.notEqual(b.tone, 'unknown')
 })
 

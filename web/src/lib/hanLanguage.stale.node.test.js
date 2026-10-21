@@ -1,19 +1,12 @@
-// Regression guard for the stranded-override bug.
+// 「滞留覆盖」的回归守卫。
 //
-// The bug: manual Han-language overrides are stored as absolute character
-// indices and persisted in localStorage, and nothing cleared them when the body
-// of text changed. An override made on the old text landed on whatever now sits
-// at that index -- typically a kana. The picker never showed it (it iterates
-// hanPositions, so it only ever draws Han characters), but three consumers read
-// the index without checking the character, so the phantom override was
-// counted, coloured into the preview, and sent to the engine as @N:zh.
+// 覆盖以字符的绝对下标存进 localStorage，文本改动后没人清掉它们：
+// 在旧文本上做的覆盖会落到新文本的同一个下标上，而那里通常是一个假名。
+// 选择器里看不见它（它只遍历 hanPositions，只会画出汉字），
+// 但有三个消费者不检查字符就读那个下标，于是这条幽灵覆盖会被计数、
+// 被画进预览，并以 @N:zh 发给引擎。
 //
-// The visible symptom the user reported: "1 position(s) manually overridden"
-// with no character lit up anywhere in the picker.
-//
-// Every test below is written so that it FAILS on the pre-fix code. That is the
-// point: a guard that would pass either way guards nothing.
-
+// 下面每条测试在修好之前都是红的：一个两种情况下都绿的守卫什么也守不住。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -29,8 +22,7 @@ import {
 
 const jaDirection = hanOverrideDirection('auto_zh_ja_yue', 'ja')
 
-// The user's own case: an override made at index 0 of some earlier Chinese
-// text, then the text was replaced with a Japanese line starting in kana.
+// 一条在早先的中文文本上做的覆盖，随后文本被换成了以假名开头的日文。
 const OLD_TEXT = '你好世界'
 const NEW_TEXT = 'こんにちは。これはローカル'
 const STALE = [{ index: 0, char: '你', lang: 'zh' }]
@@ -39,8 +31,8 @@ test('an override stranded on a kana is not counted', () => {
   const map = normalizeAssignments(STALE, jaDirection, NEW_TEXT)
   assert.deepEqual(map, {}, 'index 0 of the new text is こ, not a Han character')
 
-  // Counter-proof: the same entry over the text it was made on is still live,
-  // so this is really checking the character and not just discarding input.
+  // 反证：同一条覆盖落在它被做出来的那段文本上时仍然有效，
+  // 所以这里验的确实是字符，而不是把输入一律丢掉。
   assert.deepEqual(normalizeAssignments(STALE, jaDirection, OLD_TEXT), { 0: 'zh' })
 })
 
@@ -54,9 +46,9 @@ test('an override stranded on a kana is not sent to the engine', () => {
 })
 
 test('the counter and the picker cannot disagree', () => {
-  // This is the exact inconsistency the user saw. assignmentList() was always
-  // filtered by hanPositions(text); the counter read the unfiltered map. Both
-  // now come from the same pruned map, so the two numbers are the same number.
+  // 这里要防的正是计数器与选择器不一致：assignmentList() 一直被
+  // hanPositions(text) 过滤，计数器读的却是未过滤的表。
+  // 现在两者都来自同一张剪过的表。
   const map = normalizeAssignments(STALE, jaDirection, NEW_TEXT)
   const litUp = assignmentList(map, NEW_TEXT)
   const counted = Object.keys(map).length
@@ -104,11 +96,9 @@ test('pruneForced heals the persisted list rather than only masking it', () => {
 })
 
 test('positions are code points, not UTF-16 code units', () => {
-  // A character outside the BMP occupies two UTF-16 code units. The engine
-  // indexes Python strings, which are code points, and the picker builds its
-  // indices with Array.from, which is also code points. Anything here that used
-  // text[i] would drift by one for every astral character earlier in the line
-  // and silently move the override onto the wrong character.
+  // BMP 以外的字符占两个 UTF-16 码元。引擎按 Python 字符串下标索引，
+  // 而那是码点；选择器用 Array.from 建下标，也是码点。
+  // 这里若用 text[i]，每出现一个星芒字符就会错开一位。
   const text = '\u{20BB7}好'          // one astral Han char, then 好
   assert.equal(charAtPosition(text, 0), '\u{20BB7}')
   assert.equal(charAtPosition(text, 1), '好')
@@ -117,9 +107,8 @@ test('positions are code points, not UTF-16 code units', () => {
 })
 
 test('the Han test used for pruning is the same one the picker draws with', () => {
-  // Compatibility ideographs (U+F900-U+FAFF) are Han for HAN_RE, so the picker
-  // offers them; pruning must agree or it would delete a selection the user can
-  // see. The engine-side regex was missing this block.
+  // 兼容汉字（U+F900-U+FAFF）对 HAN_RE 来说是汉字，选择器会提供它们；
+  // 剪枝必须与之一致，否则会把用户看得见的选择删掉。
   const compat = '\uF914'
   assert.ok(HAN_RE.test(compat))
   assert.ok(isLiveAssignment(compat, 0, 'zh'))
@@ -127,8 +116,7 @@ test('the Han test used for pruning is the same one the picker draws with', () =
 })
 
 test('omitting the text keeps the old permissive behaviour', () => {
-  // Deliberate: making the third argument mandatory at runtime would crash the
-  // page instead of degrading. The mandate is enforced statically instead, by
-  // tools/guard_han_text_arg.cjs, which is what the next test runs.
+  // 故意的：把第三个参数在运行时改成必填，会让页面直接崩掉，而不是降级。
+  // 必填这件事由 tools/guard_han_text_arg.cjs 在静态层面守。
   assert.deepEqual(normalizeAssignments(STALE, jaDirection), { 0: 'zh' })
 })

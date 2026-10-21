@@ -1,21 +1,9 @@
-// Lightweight, opt-in UI localisation (item 17).
-//
-// Scope by design: this ONLY localises descriptive / warning / helper prose and
-// secondary confirmation dialogs. Product terms stay in English everywhere
-// (Fine-tune, Refine, Infer, Checkpoint, Epoch, Batch, Dataset, Model, Voice,
-// CUDA / GPU / CPU, Generate, Compare, Train, Broker, …) — matching the GitHub /
-// Hugging Face style of a partially-localised console.
-//
-// Mechanism: a tiny React context holding the active UI language ('en' | 'zh'),
-// persisted in localStorage and defaulting to 'en' so nothing changes for
-// existing users unless they flip the nav toggle. Components read it via
-// `useT()`:
-//    const { lang, t } = useT()
-//    <p>{t('English text', '中文文案')}</p>          // simple strings
-//    {lang === 'zh' ? <ZhBlock/> : <EnBlock/>}       // rich JSX blocks
-//
-// `t(en, zh)` falls back to the English string when a Chinese one is missing, so
-// a partially-translated tree is always safe.
+// 可选的界面本地化。只翻译说明性文字、警告与次要确认弹窗；产品术语一律保留英文
+// （Fine-tune、Refine、Infer、Checkpoint、Epoch、Batch、Dataset、Model、Voice、CUDA、GPU、CPU、
+// Generate、Compare、Train、Broker 等），与部分本地化的控制台一致。
+// 实现是一个 React context，存当前界面语言（'en' | 'zh'），落在 localStorage，默认 'en'：
+// 用户不主动点导航栏上的开关，界面保持原样。
+// 组件用 useT() 读：const { lang, t } = useT()，t(en, zh) 在中文缺字时回退到英文。
 import { createContext, useContext, useEffect, useState } from 'react'
 
 const STORAGE_KEY = 'tf.v1.ui.lang'
@@ -53,7 +41,7 @@ export function useT() {
   return useContext(LangContext)
 }
 
-// Compact EN / 中文 switch for the nav bar.
+// 导航栏上的 EN / 中文切换。
 export function LangToggle() {
   const { lang, setLang } = useT()
   return (

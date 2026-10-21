@@ -1,15 +1,11 @@
 import { useState, useEffect } from 'react'
 
-// Global, persisted audio-preview mode shared by every result Player across the app.
-//
-// Why a bespoke store instead of usePersistentState: the toggle lives in the always-on
-// status bar (ContextRow) while the players live on other pages/subtrees. A plain
-// localStorage hook keeps per-instance state, so a toggle wouldn't re-render the
-// players. This store keeps ONE in-memory value + a listener set, so flipping the mode
-// updates every mounted player instantly (and persists + syncs across tabs).
-//
-//   'bar'      — compact seek bar (default; zero decode cost, zero regression)
-//   'waveform' — decoded waveform with segment-boundary dividers
+// 全局共享的音频预览模式，所有结果播放器共用一个值。
+// 自己存一份而不复用 usePersistentState：开关在常驻状态条上，播放器在别的页面，
+// localStorage hook 是按实例存状态的，改了开关不会让已挂载的播放器重绘。
+// 这里只存一份内存值加一组监听者，改模式时所有已挂载播放器立刻跟着变，并跨标签页同步。
+//   'bar'      紧凑进度条（默认，不解码，无回归）
+//   'waveform' 解码后的波形，带分段边界
 
 const KEY = 'tf.v1.ui.previewMode'
 
@@ -37,7 +33,7 @@ export function usePreviewMode() {
     listeners.add(fn)
     const onStorage = (e) => { if (e.key === KEY) { current = read(); setMode(current) } }
     window.addEventListener('storage', onStorage)
-    // Re-sync in case the value changed between initial render and mount.
+    // 挂载时重新对一次：初次渲染与挂载之间值可能已经变了。
     if (current !== mode) setMode(current)
     return () => { listeners.delete(fn); window.removeEventListener('storage', onStorage) }
   }, [])   // eslint-disable-line

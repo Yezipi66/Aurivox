@@ -1,9 +1,8 @@
 import { TARGET_LANG_OPTIONS } from '../../lib/format'
 
-// Compare Refs target-language options: the plain per-segment "auto" is dropped
-// here (this page is decoupled from the Generate voice — no per-voice auto-detect),
-// but the multilingual "auto_zh_ja_yue" is kept for zh+ja shared-Han comparison.
+// 对比页的目标语种选项：去掉逐段的「auto」（这一页与生成页的音色解耦），保留多语的
+// auto_zh_ja_yue，供中日汉字共享的对比用。
 export const CMP_LANG_OPTIONS = TARGET_LANG_OPTIONS.filter(o => o.value !== 'auto')
 
-// Reserved id of the built-in Base model (zero-shot pretrained-weights voice).
+// 内置底模在清单里的保留 id（零样本预训练权重音色）。
 export const BASE_VOICE_ID = '__base__'

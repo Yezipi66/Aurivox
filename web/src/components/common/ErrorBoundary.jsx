@@ -1,20 +1,12 @@
 import React from 'react'
 
-// ---------------------------------------------------------------------------
-// 错误边界：一个零件烧了，不要整屋断电。
+// 错误边界：某个组件渲染出错时只坏掉它那一块，顶栏与其他页面照常可用。
+// 没有这一层时 React 会卸载整棵组件树，用户只看到白屏，报错也指不出是哪一块。
 //
-// 为什么需要它：主应用里任何一个页面组件渲染出错（例如某台引擎的名片
-// 字段是它没见过的形状），React 会把整棵组件树卸载，用户看到的是白屏，
-// 报错也指不出是哪台引擎、哪个字段。包一层之后，出错的那一块显示
-// 「这块坏了 + 原因」，顶栏和其他页面照常可用。
+// 用 class 组件：componentDidCatch / getDerivedStateFromError 只有 class 才有。
 //
-// 为什么是 class：componentDidCatch / getDerivedStateFromError 只有
-// class 组件才有，函数组件拿不到这两个钩子。
-//
-// 不调 useT：出错时 React 上下文可能已经损坏，再去读语言设置会二次抛错。
-// 语言从 localStorage 直接读，无法读取就退回英文。
-// ---------------------------------------------------------------------------
-
+// 不读语言上下文：出错时上下文可能已经损坏，再去读会二次抛错。
+// 语言从 localStorage 直接读，读不到就退回英文。
 function readLang () {
   try {
     const raw = localStorage.getItem('tf.v1.ui.lang') || '"en"'
@@ -35,7 +27,7 @@ export class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch (err, info) {
-    // 打到控制台便于开发时定位，但不弹给用户。提示里已经说清楚了。
+    // 打到控制台便于开发时定位，不弹给用户：提示里已经说清楚了。
     if (typeof console !== 'undefined') console.error(this.props.label, err, info)
   }
 

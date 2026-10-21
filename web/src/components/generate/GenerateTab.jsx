@@ -1,4 +1,5 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// 合成页：文本、音色与模型选择、参考音频、引擎参数面板、生成与最近生成。
+// 引擎参数与模型下拉都来自当前引擎的 manifest.json：这个文件里不许出现引擎名、参数名或位名。
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
@@ -7,16 +8,14 @@ import { TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirecti
 import { ConfirmDialog, SaveRecipeModal } from '../common/Dialogs'
 import { IconRerun, IconTrash } from '../common/Icons'
 import { useAssetsWithModels } from '../../lib/models'
-// 模型下拉的一切（有几个、里面装什么、选中的怎么发出去）都在这里。
-// 这个组件里不许再出现任何引擎名字或模型位名字。
+// 模型下拉的算法都在 modelPickers.pure.js：这个组件只管画。
 import { slotsOf, candidatesForSlot, flattenGroups, itemLabel,
          reconcileSelection, weightsToSend, launchWeightsToSend, weightsFromParams,
          slotsNeedingRelaunch, voicesForEngine, modelNotesFor } from '../../lib/modelPickers.pure.js'
 import { TARGET_LANG_OPTIONS, defaultTargetLang, normalizeLangFamily, outputsError, pickDefaultRef, sameRefPath } from '../../lib/format'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
-// fieldLabel / fieldHelp / recipePath 不在这里，三个写死的类型分支换成
-//   <ParamField> 之后它们只在 ParamField 里用了，留着就是空引用。
+// fieldLabel / fieldHelp / recipePath 不在这里：换成 <ParamField> 之后它们只在那边用了。
 import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible } from '../../lib/engines'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
@@ -27,32 +26,30 @@ import { AdvancedParamsPanel } from './AdvancedParamsPanel'
 import { ModelPickRow } from './ModelPickRow'
 
 function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVoice, onSwitchToCompare, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, onActivity }) {
-  // 这里必须叫 uiLang，不能叫 lang：这个文件里 `lang` 早就是音色的语言
-  //   （合成时发给引擎的 prompt_lang），跟「界面显示中文还是英文」是两件事。
-  //   参数格子的名字取哪一种语言，问的是后者。
+  // 这里必须叫 uiLang，不能叫 lang：这个文件里 lang 是音色的语言（合成时发给引擎的
+  // prompt_lang），跟「界面显示中文还是英文」是两件事。参数格子的名字取后者。
   const { t, lang: uiLang } = useT()
   const [text, setText] = usePersistentState('generate.text', '')
   const [loading, setLoading] = useState(false)
   const [memoryRisk, setMemoryRisk] = useState(null)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
-  // result + recent are persisted: audio is referenced by a server URL (audio_url),
-  // not a blob, so the players keep working after a reload.
+  // result 与 recent 都持久化：音频引用的是服务端 URL（audio_url）而不是 blob，
+  // 刷新之后播放器照样能用。
   const [result, setResult] = usePersistentState('generate.result', null)
   const [validation, setValidation] = useState(null)
-  // Recent Generations — server-authoritative (GET /api/outputs). Each entry is
-  // a real asset folder (outputs/generate/<id>/ with meta.json), so Rerun / Show
-  // in Explorer / Delete all act on the backend by id. "Clear History" only hides
-  // entries locally (dismissed ids); the audio files stay on disk.
+  // Recent Generations 以服务端为准（GET /api/outputs）。每一项都是一个真实的资产目录
+  // （outputs/generate/<id>/ 带 meta.json），所以 Rerun、Show in Explorer、Delete all
+  // 都按 id 走后端。「Clear History」只在本地隐藏条目（dismissed ids），音频文件留在盘上。
   const [recentAll, setRecentAll] = useState([])
   const [dismissed, setDismissed] = usePersistentState('generate.dismissed', [], {
     rehydrate: r => (Array.isArray(r) ? r : []),
   })
   const recent = recentAll.filter(x => !dismissed.includes(x.id))
   const [showAllRecent, setShowAllRecent] = useState(false)
-  const [genConfirm, setGenConfirm] = useState(null)      // secondary-confirm modal payload
+  const [genConfirm, setGenConfirm] = useState(null)       // 二次确认弹窗的内容
   const [genConfirmBusy, setGenConfirmBusy] = useState(false)
-  const [showSaveRecipe, setShowSaveRecipe] = useState(false)  // P1: Save as recipe modal
+  const [showSaveRecipe, setShowSaveRecipe] = useState(false)   // 存为配方的弹窗
   const [recipes, setRecipes] = useState([])
   const [loadRecipeId, setLoadRecipeId] = useState('')
 
@@ -60,55 +57,38 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [maxChars, setMaxChars] = usePersistentState('generate.maxChars', 30)
   const [concatEnabled, setConcatEnabled] = usePersistentState('generate.concatEnabled', true)
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
-  // 强制重新推理：跳过合成结果复用缓存的读。
-  //
-  // 走 usePersistentState（浏览器本地），不进 /api/advanced-params。
-  //   那个端点存的是引擎参数表，而这是平台自己的开关（一台引擎都没装
-  //   的时候它依然有意义），混进去正是契约 C11 禁止的第二份参数表，
-  //   而且 loadAdvancedParams 是「盘上赢」，会把它变成所有调用方的默认值。
-  //
+  // 强制重新推理：跳过合成结果复用缓存的读。走 usePersistentState（浏览器本地），
+  // 不进 /api/advanced-params：那个端点存的是引擎参数表，而这是平台自己的开关
+  // （一台引擎都没装的时候它依然有意义），混进去正是契约 C11 禁止的第二份参数表，
+  // 而且 loadAdvancedParams 是「盘上赢」，会把它变成所有调用方的默认值。
   // 默认 false：勾选是用户主动的动作，不勾就享受复用。
-  //   面板默认折叠（下面 showAdvanced），所以勾上之后用户不一定看得见自己
-  //   勾着。这可接受（勾是使用者自己动的手），此处说明取舍。
   const [forceResynth, setForceResynth] = usePersistentState('generate.forceResynth', false)
 
-  // 读音校对（task6）：本次覆盖仅内存态。#4 起改用 Proof & language 弹窗，无需
-  // 单独的启用开关（弹窗内无条件渲染校对面板，overrides 直接进 payload）。
+  // 读音校对：本次覆盖仅内存态。走 Proof & language 弹窗，无需单独的启用开关
+  // （弹窗内无条件渲染校对面板，overrides 直接进 payload）。
   const [pronOverrides, setPronOverrides] = useState({})
-  // #4: per-character Han-character language overrides (list of chars forced to the
-  // reverse language). Persisted; converted to {char->lang} at request build time.
+  // 逐字强制反向语言的汉字列表。持久化；请求组装时转成 {char->lang}。
   const [hanForced, setHanForced] = usePersistentState('generate.hanForced', [])
-  // #4: reverse-language readings (kana / pinyin) for the forced characters, keyed
-  // by character. Merged into pron_overrides at request build time.
+  // 被强制汉字的反向语言读音（假名或拼音），按字索引。请求组装时并进 pron_overrides。
   const [hanReadings, setHanReadings] = usePersistentState('generate.hanReadings', {})
   const [showTextPrep, setShowTextPrep] = useState(false)
 
   const selected = voices.find(v => v.id === selectedVoice)
 
-  // Advanced settings — loaded from /api/advanced-params (global, not per-voice)
+  // 高级设置，从 /api/advanced-params 读（全局，不分音色）。
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showLongTextSplit, setShowLongTextSplit] = useState(false)
   const [advTier, setAdvTier] = useState('common')
 
-  // ============================================================
-  //  引擎参数：一份字典，键名来自当前引擎的 manifest.json
-  // ============================================================
+  // 引擎参数：一份字典，键名来自当前引擎的 manifest.json。
   //
-  // 这里原本是 13 个写死的 useState（temperature / topK / topP /
-  //    repPenalty / splitMethod / speedFactor / batchSize / batchThreshold /
-  //    splitBucket / fragmentInterval / parallelInfer / sampleSteps /
-  //    superSampling），下面还配着 13 段一模一样的 <input>，
-  //    那是一台引擎的参数表被手抄进了前端。装第二台引擎时，这 13 个名字
-  //    没有一个对得上，界面照样把它们发出去（服务端静默忽略），
-  //    真正该有的格子一个也长不出来。契约 §12 第 3 步要收的就是这个。
-  //
-  // 现在：面板长什么样、发哪些键，全部来自 engine.param_schema。
-  //   只装引擎参数。平台自己的开关（force re-synthesis / engine batch /
-  //     media type / seed）不在这里，它们不属于任何一台引擎，见各自注释。
+  // 面板长什么样、发哪些键，全部来自 engine.param_schema。写死的键名会让界面对
+  // 任何一台别的引擎都不对得上（服务端静默忽略），该长的格子也长不出来。
+  // 这里只装引擎参数。平台自己的开关（force re-synthesis / engine batch /
+  // media type / seed）不在这里，它们不属于任何一台引擎，见各自注释。
   const [paramValues, setParamValues] = useState({})
-  // 用户亲手动过哪些格子。只有动过才发出去，
-  // 「没动」和「设成了跟默认值一样的数」在请求体里必须长得不一样，否则
-  // 平台无法区分「用户要这个值」和「用户没管」。
+  // 用户亲手动过哪些格子。只有动过才发出去：「没动」和「设成了跟默认值一样的数」
+  // 在请求体里必须长得不一样，否则平台无法区分「用户要这个值」和「用户没管」。
   const [touchedParams, setTouchedParams] = useState(() => new Set())
 
   // 换引擎（或第一次拿到引擎）⇒ 面板整个换成新引擎的格子和默认值。
@@ -126,21 +106,17 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     setTouchedParams(s => { const n = new Set(s); n.add(name); return n })
   }
 
-  // 这个页面走 /api/generate，它等的是一份做完的音频（runGenerate 读的是
-  // audio_url），消费不了流。所以只对流式输出有意义的那几个参数，在这一页上
-  // 长出来也是摆设，这就是它们被撤掉的原因（全文见下面 :145）。
-  // 这不是一份引擎名单，是这个页面自己的能力声明：换哪台引擎都成立。
-  //    悬着的问题：这三个键名毕竟还是写在前端的。更干净的做法是让名片
-  //      说清「这个参数只在流式路径上有意义」，但那要给 schema 加字段，
-  //      没有定论之前不擅自加。
-  // 界面上要说出引擎名字的地方用它。不退到任何一台引擎的名字，
-  // 「还没读出来」说成某台引擎的名字，就是在撒谎（同 App.jsx:210 那处）。
+  // 这个页面走 /api/generate，它等的是一份做完的音频（runGenerate 读的是 audio_url），
+  // 消费不了流。所以只对流式输出有意义的那几个参数，在这一页上长出来也是摆设：
+  // 这不是一份引擎名单，是这个页面自己的能力声明，换哪台引擎都成立。
+  // 界面上要说出引擎名字的地方用它，不退到任何一台引擎的名字，
+  // 「还没读出来」说成某台引擎的名字，就是在撒谎。
   const engineName = engine?.label || engine?.id || t('the engine', '引擎')
 
   const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
-  // only_when 在这里就滤掉，不留一个空的 <div> 占着格子，否则
-  //    .form-grid 会在两列里留下一个洞，看起来像「有一格没画出来」。
-  //    isFieldVisible 是 fail-open：名片写了个不存在的键，照常显示。
+  // only_when 在这里就滤掉，不留一个空的 <div> 占着格子，否则 .form-grid 会在两列里
+  // 留下一个洞，看起来像「有一格没画出来」。isFieldVisible 是 fail-open：
+  // 名片写了个不存在的键，照常显示。
   const visibleFields = (tier) => fieldsForTier(engine, tier)
     .filter(f => !STREAM_ONLY.includes(f.name))
     .filter(f => isFieldVisible(f, paramValues))
@@ -148,56 +124,33 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // 平台自己的参数，不属于任何一台引擎，所以不进 param_schema。
   const [seed, setSeed] = useState(-1)
   const [mediaType, setMediaType] = usePersistentState('generate.mediaType', 'wav')
-  // 这里原本还有 streamingMode / overlapLength / minChunkLength 三个 state。
-  //
-  // 撤掉的理由不是「没用」，是放错了地方：
-  //   1. Workbench 走 /api/generate，它拿到音频后是普通 JSON 响应（runGenerate
-  //      等的是 audio_url），根本消费不了流，这个界面上开「流式」开不出流式。
-  //   2. 这三个键写进 advanced_params.json 后，本组件挂载时从来不读回来
-  //      （挂载时那段 useEffect 只读 7 个键：temperature / top_k / top_p /
-  //      repetition_penalty / text_split_method / speed_factor / seed）
-  //      ⇒ 拧一次、刷新即丢。
-  //   3. 它们唯一的真实去处是 /v1/audio/speech 的兜底（speechService 读 advParams）
-  //      ⇒ 等于「藏在合成界面里的另一个端点的配置项」，名字、位置、反馈全在骗人。
-  //   4. streaming_mode 还有真危害：/v1/audio/speech:84 判定要不要流式**只看
-  //      req.body**，但存盘的 true 照样会进 payload ⇒ broker 不流、却告诉引擎流。
-  //
-  // 撤掉后的落点（已核对名片）：
-  //   streaming_mode  在 manifest.defaults ⇒ 每次仍发 false（行为不变，且不再可能
-  //                   被盘上的陈年 true 污染）
-  //   overlap_length / min_chunk_length 只在 params.schema 里有 default（＝界面初值），
-  //                   不在 defaults ⇒ 不再出现在 payload 里，与 OpenAI 口 / Flow 一致。
-  //
-  // 撤的是界面格子，不是 API 能力：lib/services/synthesisService.js:107-109
-  //   仍然解析这三个入参，第三方和 Flow 可以显式传（契约 §7 逃生门）。
-  // A-1 engine-batch mode (1.0.6): hand the whole text to the engine in one call
-  // so it splits + batches in parallel (batch_size), instead of the broker
-  // synthesising each split segment sequentially. Produces a single audio (no
-  // per-segment files). Off by default to preserve the current segmented output.
+  // 这三个键（streaming_mode / overlap_length / min_chunk_length）不在这个界面上。
+  // 撤掉的是界面格子，不是 API 能力：lib/services/synthesisService.js 仍然解析这三个入参，
+  // 第三方和 Flow 可以显式传（契约 §7 逃生门）。
+  // streaming_mode 在 manifest.defaults 里 ⇒ 每次仍发 false，且不再可能被盘上的陈年 true 污染；
+  // overlap_length / min_chunk_length 只在 params.schema 里有 default（＝界面初值），
+  // 不在 defaults ⇒ 不再出现在 payload 里，与 OpenAI 口和 Flow 一致。
+  // 引擎批处理模式：把整段文本一次交给引擎，由它自己切分并按 batch_size 并行合成，
+  // 而不是 broker 逐段顺序合成。产出单个音频（没有分段文件）。默认关闭，
+  // 保持现有的分段输出。
   const [engineBatch, setEngineBatch] = useState(false)
 
   useEffect(() => { api('/api/recipes').then(r => { if (r.ok) setRecipes(r.data?.recipes || []) }).catch(() => {}) }, [])
 
-  // Load advanced params from backend.
-  //
-  // 这里不能是 `api('/api/advanced-params')`
-  //   一个裸地址、依赖数组 `[]`（只在挂载时跑一次）。
-  //   后端删掉 legacyDefault 之后，不带 engine_id 就不再回落到任何一台名片
-  //   （`lib/routes/pron.js:17-22`）⇒ 不改这一行的后果是：实际部署里高级设置里
-  //   所有"用户没拧过"的格子全部变空，而且不报错。
-  //
-  // 依赖数组从 `[]` 改成 `[engine?.id]`，这是故意的行为变化：
-  //   默认值本来就属于该名片，换一台引擎就该重新问一次。
-  //   不许改回 `[]`，挂载那一刻 engine 往往还没加载完，
-  //     那会退化成"永远拿不到默认值"。
+  // 读取高级参数。
+  // 这里不能是裸地址 api('/api/advanced-params') 配依赖数组 []（只在挂载时跑一次）：
+  // 后端不带 engine_id 就不回落到任何一台名片 ⇒ 实际部署里高级设置里所有
+  // 「用户没拧过」的格子全部变空，而且不报错。
+  // 依赖数组是 [engine?.id]，这是故意的行为变化：默认值本来就属于该名片，
+  // 换一台引擎就该重新问一次。不许改回 []，挂载那一刻 engine 往往还没加载完，
+  // 那会退化成永远拿不到默认值。
   useEffect(() => {
     if (!engine?.id) return
     api(`/api/advanced-params?engine_id=${encodeURIComponent(engine.id)}`).then(r => {
       if (r.ok && r.data) {
         const p = r.data
-        // 盘上存着的那份「上次拧到哪」。只认当前引擎名片里有的键，
-        // 这个文件是全局的（不分引擎），换引擎之后里面会留着上一台的键名，
-        // 原样灌进去就等于把别人的参数发给这台引擎。
+        // 盘上存着的那份「上次拧到哪」。只认当前引擎名片里有的键：盘上这份是全局的
+        // （不分引擎），换引擎之后里面留着上一台的键名，原样灌进去就等于把别人的参数发给这台引擎。
         setParamValues(prev => {
           const known = new Set((engine?.param_schema || []).map(f => f.name))
           const next = { ...prev }
@@ -212,15 +165,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // ══ 模型选择 ═══════════════════════════════════════════════════════════
   //
   // 下拉有几个，是这台引擎的名片说的；每个下拉里装什么，是
-  //   「这台引擎的底模 ∪ 当前角色下这台引擎的模型」这个二维筛选说的。
-  //
-  // 跨资产混搭没了（原来那个 "Mix models across assets" 开关）。挑别人的
-  //   权重会把参考音频一起带走，用户看不见也管不着；而且它天然只对两个位的
-  //   引擎成立。要用别人的模型，就切到那个角色去。
+  // 「这台引擎的底模 ∪ 当前角色下这台引擎的模型」这个二维筛选说的。
+  // 候选只在当前角色里挑：挑别人的权重会把参考音频一起带走，用户看不见也管不着。
+  // 要用别人的模型，就切到那个角色去。
   const assetsWithModels = useAssetsWithModels()
   // 这台引擎有几个模型位（名片说的）。名片没写 = 一个下拉都不长，不是两个。
   const weightSlots = useMemo(() => slotsOf(engine), [engine])
-  // 这几个位换一份就得让引擎带着它重开一次，界面要为此提醒一句"要多等"。
+  // 这几个位换一份就得让引擎带着它重开一次，界面要为此提醒一句「要多等」。
   const relaunchSlots = useMemo(() => slotsNeedingRelaunch(weightSlots), [weightSlots])
   // 每个位各自的候选（按角色分组，底模那一组永远在最前）。
   const groupsBySlot = useMemo(() => {
@@ -231,17 +182,14 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     return out
   }, [weightSlots, assetsWithModels, engine, selectedVoice])
   // 音色下拉里该出现谁：底模 ∪「在这台引擎下每个位都有自己模型」的角色。
-  //
-  // 只筛下拉，不筛 voices 本身，底下那个「使用其他音色的参考音频」
-  //    要能挑到所有角色。筛掉一个角色的意思是"这台引擎没有它的模型"，
-  //    不是"这个角色不存在"。
+  // 只筛下拉，不筛 voices 本身，底下那个「使用其他音色的参考音频」要能挑到所有角色。
+  // 筛掉一个角色的意思是「这台引擎没有它的模型」，不是「这个角色不存在」。
   const voiceOptions = useMemo(
     () => voicesForEngine(voices, assetsWithModels, engine?.id, weightSlots),
     [voices, assetsWithModels, engine, weightSlots])
 
-  // 换引擎之后，上一台引擎选中的角色可能已经不在下拉里了。
-  // 不收拾的话下拉会显示成空白，而 selectedVoice 还是老值，看着没选，
-  //   一按生成却按老角色发出去。回落到第一条（底模永远在）。
+  // 换引擎之后，上一台引擎选中的角色可能已经不在下拉里了。不收拾的话下拉会显示成空白，
+  // 而 selectedVoice 还是老值，看着没选，一按生成却按老角色发出去。回落到第一条。
   useEffect(() => {
     if (!voiceOptions.length) return
     if (voiceOptions.some(v => v.id === selectedVoice)) return
@@ -252,20 +200,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [selWeights, setSelWeights] = useState({})
   // 持久化：每个 引擎 × 角色 各自记住上次每个位选了什么，刷新后只要还在候选里就恢复。
   // 存的时候按 引擎id → 角色 → 位名 分三层，否则换引擎会把上一台的路径捡回来。
-  // 换了名字（原来叫 generate.modelChoice）：老浏览器里存着的是两个位的老形状，
-  //   用同一个名字读出来会得到一坨不匹配的数据。换名 ⇒ 老的自然作废，
-  //   最多是"上次选的没记住"，不会把一条别的形状的路径摆到下拉里。
   const [modelChoice, setModelChoice] = usePersistentState('generate.modelChoice.byEngine', {})
   const modelChoiceRef = useRef(modelChoice)
   modelChoiceRef.current = modelChoice
   const generateAbortRef = useRef(null)
 
   // 平台已经扫到的所有模型文件，不分位、不分引擎，给 type: 'path' 的格子当候选。
-  //
-  // 为什么不分：位名是各家引擎自己的说法，平台在这里只回答「我知道盘上有
-  //    哪些模型文件」。哪个文件该填进哪一格，是引擎自己在名片里说清楚的事
-  //    （靠那一格的 label / help），不是平台来配对。
-  // 这只是候选，不是限制，那一格可以直接打字填绝对路径。
+  // 为什么不分：位名是各家引擎自己的说法，平台在这里只回答「我知道盘上有哪些模型文件」。
+  // 哪个文件该填进哪一格，是引擎自己在名片里说清楚的事（靠那一格的 label / help），
+  // 不是平台来配对。这只是候选，不是限制，那一格可以直接打字填绝对路径。
   const knownModelPaths = useMemo(() => {
     const all = []
     for (const a of (assetsWithModels || [])) {
@@ -281,18 +224,14 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     return [...new Set(all)]
   }, [assetsWithModels])
 
-  // 参考音频跟着当前角色走。
-  // 这里以前是「跟着 SoVITS 那一侧的模型所属角色走」，跨资产混搭没了之后
-  //   这句话就不成立了，也不需要了：候选里根本不会出现别人的模型。
+  // 参考音频跟着当前角色走：候选里根本不会出现别人的模型。
   const refVoiceId = selectedVoice
 
   // `select + source` 那种格子的候选表（voices / weights / audio）。
-  // 平台扫盘的结果在这里汇总一次，ParamField 只管画，它不知道这三个库
-  //    是什么，也不该知道。
-  // 这一段必须放在 refVoiceId 声明之后。我第一版把它写在 :302，
-  //     而 refVoiceId 是 :318 的 const ⇒ 暂时性死区，一进这一页就 ReferenceError
-  //     白屏。沙箱里没有 node_modules，build 无法运行，这种错只能靠读。
-  //     ⇒ 往这个函数体里插新的 const 时，先确认它依赖的每一个名字都在上面。
+  // 平台扫盘的结果在这里汇总一次，ParamField 只管画，它不知道这三个库是什么。
+  // 这一段必须放在 refVoiceId 声明之后：refVoiceId 是 const，暂时性死区，
+  // 放在它前面会一进这一页就 ReferenceError 白屏。
+  // ⇒ 往这个函数体里插新的 const 时，先确认它依赖的每一个名字都在上面。
   const selectSources = useSelectSources({
     voices,
     knownModelPaths,
@@ -310,15 +249,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     ...selectedItems.map(it => it ? itemLabel(it) : null),
   ].filter(Boolean).join('  /  ') : ''
   // 后端对这个角色 × 这台引擎有没有话要说（放错了一层、目录名不是权重位名、
-  //    有文件没被列进来……）。前端不判断、不拼话：整句是后端生成的。
-  //    这句话存在的唯一理由是：在它之前，「没有模型」和「放错了」在界面上
-  //    长得一模一样，都是一个空下拉，且没有任何一处解释为什么。
+  // 有文件没被列进来等等）。前端不判断、不拼话，整句是后端生成的。
+  // 它存在的唯一理由是：在它之前，「没有模型」和「放错了」在界面上长得一模一样，
+  // 都是一个空下拉，且没有任何一处解释为什么。
   const modelNotes = useMemo(
     () => modelNotesFor(assetsWithModels, engine?.id, selectedVoice),
     [assetsWithModels, engine, selectedVoice])
   // 选中的这几份里，有哪几份按名片点名的东西是不齐的。
-  //   只收 false，null 是"说不出来"（单文件的候选／名片没写 required），
-  //     不许把"说不出来"画成"有问题"。
+  // 只收 false，null 是「说不出来」（单文件的候选／名片没写 required），
+  // 不许把「说不出来」画成「有问题」。
   const incompleteItems = useMemo(
     () => selectedItems.filter(it => it && it.complete === false),
     [selectedItems])
@@ -327,25 +266,22 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [textLang, setTextLang] = useState(() => defaultTargetLang(selected?.language || 'ja'))
   const _baseLangFam = String(lang || '').replace(/^all_/, '')
   const _targetFam = normalizeLangFamily(textLang)
-  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam   // 目标语言与微调语言不符
-  const panelLang = _targetFam || _baseLangFam                        // 读音校对面板跟随目标语言
-  const hanDir = hanOverrideDirection(textLang, lang)                 // #4: reverse-lang direction (or null)
-  // The overrides are persisted but stored as absolute character indices, so
-  // editing the text strands them: index 0 may now hold a kana. Prune on read
-  // (below) AND heal the stored copy (effect), so the badge, the picker and the
-  // request payload can never disagree about how many are in force.
+  const langMismatch = !!_targetFam && _targetFam !== _baseLangFam    // 目标语言与微调语言不符
+  const panelLang = _targetFam || _baseLangFam                         // 读音校对面板跟随目标语言
+  const hanDir = hanOverrideDirection(textLang, lang)                  // 反向语言的方向（或 null）
+  // 这些覆盖是持久化的，存的是绝对字符下标，所以改了文本就错位（下标 0 可能已经是一个假名）。
+  // 读的时候剪枝，同时把存的那份也治好，
+  // 于是徽章、选择器和请求体不会对「有几条生效」各说各话。
   const hanForcedLive = useMemo(() => pruneForced(hanForced, text), [hanForced, text])
   useEffect(() => {
     if (hanForcedLive.length !== (hanForced || []).length) setHanForced(hanForcedLive)
   }, [hanForcedLive, hanForced, setHanForced])
-  const langOverrides = buildLangOverrides(hanDir, hanForcedLive, text)   // #4: {char->lang} payload, pruned against the live text
-  const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForcedLive, hanReadings) // #4: base + reverse readings
-  const [auxRefs, setAuxRefs] = useState([])  // selected aux reference audio paths
-  const [segments, setSegments] = useState([])  // loaded from API for aux ref picker
+  const langOverrides = buildLangOverrides(hanDir, hanForcedLive, text)    // {char->lang} 请求体，按当前文本剪过枝
+  const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForcedLive, hanReadings)  // 基础读音 + 反向读音
+  const [auxRefs, setAuxRefs] = useState([])   // 选中的辅助参考音频路径
+  const [segments, setSegments] = useState([])   // 辅助参考选择器用的，从 API 读
 
   // 换角色 / 换引擎时，先把上次记住的选择摆上去（还有没有效，交给下面那条对齐）。
-  // 记的时候是按 引擎 → 角色 分开记的，否则换引擎会把上一台的路径捡回来，
-  //   那条路径在新引擎的候选里根本不存在，对齐时会被弹掉，看起来像"选择丢了"。
   useEffect(() => {
     if (!selectedVoice || !engine?.id) return
     const saved = (modelChoiceRef.current[engine.id] || {})[selectedVoice]
@@ -362,10 +298,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     }).catch(() => setSegments([]))
   }, [refVoiceId])
 
-  // 把每个位的选择跟候选对齐：还有效的留住，失效的换成默认/第一条。
-  //
-  // 候选还没到齐（异步）时不动：否则清单从空变满的那一瞬间会把刚恢复的
-  //   选择弹回第一条。这是原来两条对齐 effect 就有的守卫，一个字都不能少。
+  // 把每个位的选择跟候选对齐：还有效的留住，失效的换成默认或第一条。
+  // 候选还没到齐（异步）时不动：否则清单从空变满的那一瞬间会把刚恢复的选择弹回第一条。
   // 失效的必须换掉，换了引擎之后留着上一台的路径，等于把别人的权重发出去。
   useEffect(() => {
     if (!weightSlots.length) return
@@ -400,22 +334,17 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     })
   }, [selectedVoice, engine && engine.id, weightSlots, selWeights, groupsBySlot])
 
-  // 语言跟着当前角色。
-  // 这里以前还有第二条 effect，让 prompt_lang 跟着「SoVITS 那一侧模型所属的
-  //   角色」走，那是跨资产混搭的配套。混搭没了，模型必属当前角色，
-  //   refVoiceId 恒等于 selectedVoice，那条 effect 永远不会触发 ⇒ 删掉。
+  // 语言跟着当前角色：模型必属当前角色，refVoiceId 恒等于 selectedVoice。
   useEffect(() => {
     const v = voices.find(x => x.id === selectedVoice)
     if (v?.language) { setLang(v.language); setTextLang(defaultTargetLang(v.language)) }
   }, [selectedVoice, voices])
 
-  // Advanced params are global (from /api/advanced-params), not per-voice — no sync needed on voice change
+  // 高级参数是全局的（来自 /api/advanced-params），不分音色，换音色时不用同步。
 
   // 选中的模型如果带着版本号，就查一下那一版的底模在盘上齐不齐（缺了会出电流声）。
-  //
-  // 判据从「SoVITS 那个位」改成「任何一个带版本号的选择」：版本号是扫盘
-  //   时认出来的一个可选属性，谁带就查谁。别的引擎的模型不带版本号 ⇒ 不查，
-  //   也不需要为它写一条分支。这里不许再出现任何一个具体位的名字。
+  // 判据是「任何一个带版本号的选择」：版本号是扫盘时认出来的一个可选属性，谁带就查谁。
+  // 这里不许再出现任何一个具体位的名字。
   const [genBaseWarn, setGenBaseWarn] = useState(null);
   const versionInUse = selectedItems.find(it => it && it.version)?.version || '';
   useEffect(() => {
@@ -428,7 +357,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     return () => { cancelled = true; };
   }, [versionInUse]);
 
-  // Clear any live activity indicator when leaving the Generate tab.
+  // 离开 Generate 页时清掉活动指示。
   useEffect(() => () => onActivity?.(null), [])
 
   useEffect(() => {
@@ -441,37 +370,33 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     }).catch(() => setValidation(null))
   }, [selectedVoice, voices, engine?.id])
 
-  // Use user-selected ref (from VoiceSidebar) or fall back to an auto-picked slice
-  // that still exists on disk (server's live `exists` check) and preferably sits in
-  // the engine's 3~10s window, so default generation doesn't 400 on a too-short slice.
+  // 用用户选的参考（来自 VoiceSidebar），没有就退回自动挑的一段切片：
+  // 那段切片在盘上确实存在（服务端实时查 exists），且尽量落在引擎合适的时长区间里，
+  // 免得默认合成因为切片太短被 400。
   const defaultRef = segments.length > 0 ? pickDefaultRef(segments) : null
   const currentRefAudio = selectedRefAudio || (defaultRef ? (defaultRef.audio || defaultRef.audio_path || defaultRef.audio_filename) : '')
-  // Once the user explicitly picks a ref, honour its text verbatim — including the
-  // empty string for a raw clip (which has no aligned transcript). Only fall back to
-  // the auto-picked slice's text when nothing has been selected yet, otherwise a raw
-  // pick would silently keep sending the stale slice transcript.
+  // 用户明确选了参考之后，它的文本原样照用，包括原始片段的空串（它没有对齐过的转写）。
+  // 只有什么都没选时才退回自动挑的切片文本，否则选了一段原始素材还会继续发旧的转写。
   const currentRefText = selectedRefAudio ? selectedRefText : (defaultRef ? (defaultRef.text || '') : '')
 
-  // Reference-text override (THIS RUN ONLY). Lets the user tweak or add the prompt
-  // transcript sent to the engine without touching any file — raw_opt.list /
-  // segments.json stay intact (no save endpoint is ever called). null = follow the
-  // active reference's own text; a string (incl. '') = use it verbatim this session.
+  // 参考文本覆盖（只对这一次生效）。让用户改或补发给引擎的提示转写，不动任何文件：
+  // raw_opt.list / segments.json 原样保留（不调用任何保存端点）。
+  // null 表示跟随当前参考自己的文本；字符串（含空串）表示这次原样用它。
   const [refTextOverride, setRefTextOverride] = useState(null)
-  // Drop the override whenever the active reference or the voice changes, so an edit
-  // made for one reference never silently leaks onto a different one.
+  // 换参考或换音色时丢掉覆盖：为一段参考做的改动不会悄悄落到另一段上。
   useEffect(() => { setRefTextOverride(null) }, [selectedVoice, selectedRefAudio])
   const effectiveRefText = refTextOverride != null ? refTextOverride : currentRefText
 
-  // Load the server-authoritative Recent Generations list.
+  // 读服务端为准的 Recent Generations 列表。
   const loadRecent = async () => {
     const r = await api('/api/outputs')
     if (r.ok && r.data && Array.isArray(r.data.items)) setRecentAll(r.data.items)
   }
   useEffect(() => { loadRecent() }, [])
 
-  // Core generation runner shared by the Generate button and Recent → Rerun.
-  // The exact request body is captured into each recent item so Rerun can
-  // reproduce the audio with identical settings (not just reload the text).
+  // 生成按钮与 Recent → Rerun 共用的生成入口。
+  // 那一次请求体原样存进每条 recent 项，Rerun 才能用完全相同的设置复现音频，
+  // 而不只是把文字填回来。
   const runGenerate = async (body, meta) => {
     setLoading(true); setError(null); setResult(null)
     const t = typeof body.text === 'string' ? body.text : ''
@@ -513,8 +438,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   const handleGenerate = async () => {
     if (!selectedVoice) { setError('Select a voice first'); return }
-    // Only the truly empty string is invalid. Whitespace is meaningful to some
-    // TTS engines (for example as an intentional pause), so never trim here.
+    // 只有真正的空串算非法。空白对有些 TTS 引擎是有意义的（比如当停顿用），所以这里不 trim。
     if (text === '') { setError('Enter text to synthesize'); return }
     const explicitEngineParams = paramsToSend(engine, paramValues, touchedParams)
     const phasedEngineParams = paramsByPhase(engine, paramValues, touchedParams)
@@ -526,18 +450,16 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       concat: concatEnabled, silence_ms: silenceMs,
       // 引擎参数：只发这台引擎名片里有的键，且只有用户动过的才发。
       // 名片没写的键一个都不发，服务端会静默忽略，症状是
-      //    「我明明调了却没效果」，最难查的那一类。
-      // 这一次要连哪台引擎，由界面上选中的那台说了算。
-      // 少了这一句，请求不点名，服务端就去名片里找 legacy_default 那台
-      //     认领（见 lib/engines/legacyDefault.js）。于是界面按 A 引擎画格子、
-      //     按 A 引擎发参数、按 A 引擎选权重，请求却打到 B 引擎身上，
-      //     用户看到的是 B 引擎的原话「tts failed」。
-      //   也不许写成 `engine?.id || '某个默认值'`，引擎没选出来时
-      //     要空着让服务端报「你没说连哪台」，而不是替用户挑一台。
+      // 「我明明调了却没效果」，最难查的那一类。
+      // 这一次要连哪台引擎，由界面上选中的那台说了算。少了这一句，请求不点名，
+      // 服务端就去认领 legacy_default 那台：界面按 A 引擎画格子、按 A 引擎发参数、
+      // 按 A 引擎选权重，请求却打到 B 引擎身上。
+      // 也不许写成 engine?.id || '某个默认值'：引擎没选出来时要空着，
+      // 让服务端报「你没说连哪台」，而不是替用户挑一台。
       engine_id: engine?.id,
       // 这台引擎的参数格子。点名了引擎，就把参数装进它自己那一格，
-      //   服务端据此核对「你发的这袋参数是不是这台引擎的」。
-      //   平铺那一份（下一行）是老路径还在读的形状，暂时并存。
+      // 服务端据此核对「你发的这袋参数是不是这台引擎的」。
+      // 平铺那一份（下一行）是老路径还在读的形状，暂时并存。
       engine_params: engine?.id ? { [engine.id]: phasedEngineParams.call } : undefined,
       engine_load_params: engine?.id && Object.keys(phasedEngineParams.load).length
         ? { [engine.id]: phasedEngineParams.load }
@@ -548,15 +470,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       media_type: mediaType,
       // 选中的模型：用哪个参数名发，是这台引擎的名片说的。
       // 名片没说的位一个字节都不发，那台引擎运行中换不了权重，
-      //    发一个它不读的键不会报错，只会让人以为换了而声音没变。
+      // 发一个它不读的键不会报错，只会让人以为换了而声音没变。
       ...weightsToSend(weightSlots, selWeights),
       // 开进程那一刻才吃得进去的那些模型，选择走这一个平台级的键。
-      //   它不是引擎参数（引擎那道出门关也会把它拦下），收件人是平台：
-      //   平台拿它决定要不要带着这一份把引擎重开一次。
-      // 少了这一句，下拉能选、后端连"你选过"都看不见、声音没变、而且不报错。
+      // 它不是引擎参数（引擎那道出门关也会把它拦下），收件人是平台：
+      // 平台拿它决定要不要带着这一份把引擎重开一次。
+      // 少了这一句，下拉能选、后端连「你选过」都看不见、声音没变、而且不报错。
       launch_weights: launchWeightsToSend(weightSlots, selWeights),
       text_lang: textLang, prompt_lang: selectedPromptLang || lang,
-      // Auto (Multilingual): kana-free CJK falls back to the voice's metadata language.
+      // Auto（多语种）：不含假名的 CJK 回落到音色元数据里的语言。
       auto_base_lang: textLang === 'auto_zh_ja_yue' ? (selected?.language || lang || undefined) : undefined,
       aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : undefined,
       pron_overrides: pronPayload,
@@ -568,28 +490,11 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     }
     const data = await runGenerate(body, { voiceLabel: selected?.display_name || selectedVoice })
     if (data) {
-      // 成功合成后回存「上次拧到哪」。
-      //
-      // 只存读得回来的键。原来这里存 18 个，而全前端只读得回 7 个
-      //    （本组件 :163 起、ReferenceCompareTab:737-743，两处用的正是同一组 7 个）。
-      //    另外 11 个是只写不读，它们唯一的去处是 /v1/audio/speech 的兜底
-      //，而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，盘上赢。
-      //
-      //    后果：盘上文件盖掉了 6 个名片默认值，包括
-      //      batch_size 名片 4 → 盘上 1     （用户从没在界面上碰过这一格，
-      //                                      是这里后台悄悄写进去的）
-      //      seed       名片 -1 → 盘上 2769901998
-      //                                     （某次合成 resolve 出的一次性随机种子
-      //                                      被回存成了永久默认值）
-      //      version v2Pro→v2 / is_half true→false（启动期设置被合成参数文件盖掉）
-      //    ⇒ 契约 C11 的默认值在实际部署里等于失效。收窄到 7 个之后，用户没拧过的键
-      //      盘上不再有，自动退回名片，名片才是默认值的唯一产地。
-      //
-      // 第 10 步（前端按 param_schema 循环渲染）会把这张表也改成名片驱动，
-      //   届时判据是「这一格在界面上存在」，不再是写死的键名。
-      // 只回存用户亲手动过的格子 + seed。
-      // 不回存整份 paramValues：没动过的键回存下去就等于把名片默认值
-      //    抄进盘上文件，从此名片改了也不生效（:460 那一段记过的坑）。
+      // 成功合成后回存「上次拧到哪」。只回存用户亲手动过的格子 + seed。
+      // 不回存整份 paramValues：没动过的键回存下去就等于把名片默认值抄进盘上文件，
+      // 从此名片改了也不生效。而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，
+      // 盘上赢：只写不读的键沉在盘上文件里会压住名片默认值，契约 C11 的默认值
+      // 在实际部署里就等于失效。
       api('/api/advanced-params', {
         method: 'POST',
         body: {
@@ -601,14 +506,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     }
   }
 
-  // Recent Generations — real management (rerun / reveal / delete + bulk).
+  // Recent Generations 的真实管理（重跑、显示、删除、批量）。
   const handleRerun = async (item) => {
     if (loading) return
     if (!item) return
     if (!item.params) {
-      // Legacy history entry saved before generation settings were captured: we
-      // can only reload its text. The user then presses Generate to synthesize it
-      // with the currently selected voice and settings.
+      // 早期历史条目没有记录生成设置：只能把文字填回来，
+      // 用户自己再按 Generate 用当前的音色和设置合成。
       setText(item.text || '')
       setError('This entry was saved before settings capture, so only its text was loaded into the editor above. Press Generate to synthesize it with the current voice and settings. Newly generated items rerun automatically with their exact original settings.')
       return
@@ -617,23 +521,21 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     await runGenerate(item.params, { voiceLabel: item.voice })
   }
 
-  // PD: Reload recipe — overwrite ALL editor inputs from a recent item's captured
-  // request body (voice / model / language / reference / aux / text / every param /
-  // pron overrides) WITHOUT synthesizing. The user reviews/tweaks then presses
-  // Generate. Voice-dependent fields (model, language, reference) are applied on the
-  // next tick so they win over the voice-change effects that reset them.
+  // 重载配方：把历史条目里记录的请求体（音色、模型、语言、参考、辅助参考、文本、
+  // 每一个参数、读音覆盖）全部覆盖进编辑器，但不合成。用户核对或微调后再按 Generate。
+  // 依赖音色的字段（模型、语言、参考）在下一个 tick 才应用，
+  // 这样它们盖得住换音色时那些会重置它们的 effect。
   const handleReload = (item) => {
     if (!item) return
     if (!item.params) {
-      // PD-2: legacy history entry saved before settings capture — only the text
-      // is available. Reload it and tell the user the rest can't be restored.
+      // 早期历史条目没有记录设置：只有文字可用。填回文字，并告诉用户其余的恢复不了。
       setText(item.text || '')
       setError('This is an older history entry saved before full settings capture, so only its text was reloaded into the editor. Choose a voice and adjust settings, then press Generate.')
       return
     }
     const p = item.params
     setError(null)
-    // Fields with no voice-dependent reset effect can be applied immediately.
+    // 不依赖音色、不会被换音色的 effect 重置的字段可以立即应用。
     if (p.text !== undefined) setText(p.text)
     if (p.split !== undefined) setSplitEnabled(!!p.split)
     if (p.max_chars !== undefined) setMaxChars(p.max_chars)
@@ -657,10 +559,9 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       }
     }
     if (p.seed !== undefined) setSeed(p.seed)
-    // if_sr 原本在这里单独回填一次。现在它是名片里的普通一格，
-    //    上面那个循环已经收了，留着会写进一个不再存在的 state。
+    // if_sr 现在是名片里的普通一格，上面那个循环已经收了。
     if (p.media_type !== undefined) setMediaType(p.media_type)
-    // streaming_mode / overlap_length / min_chunk_length 的格子已撤（见 :134 注释）。
+    // streaming_mode / overlap_length / min_chunk_length 这三个格子不在这个界面上，
     // 老历史记录里可能还存着这三个键，回填时直接忽略，没有格子可以放它们了。
     if (p.engine_batch !== undefined) setEngineBatch(!!p.engine_batch)
     if (Array.isArray(p.aux_ref_audio_paths)) setAuxRefs(p.aux_ref_audio_paths)
@@ -670,29 +571,25 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     } else {
       setPronOverrides({})
     }
-    // #4: restore per-character Han-character language overrides (chars only; the
-    // reverse language is re-derived from the applied text_lang / voice).
+    // 回填逐字强制反向语言的汉字列表（只回填字，反向语言由 text_lang 与音色重新推）。
     if (p.lang_overrides && typeof p.lang_overrides === 'object' && !Array.isArray(p.lang_overrides)) {
       setHanForced(parseLangOverrides(p.lang_overrides))
     } else {
       setHanForced([])
     }
-    // #4: restore the forced characters' reverse-language readings (kana / pinyin).
+    // 回填被强制汉字的反向语言读音（假名或拼音）。
     if (p.han_readings && typeof p.han_readings === 'object' && !Array.isArray(p.han_readings)) {
       setHanReadings(p.han_readings)
     } else {
       setHanReadings({})
     }
-    // Switch voice first if needed; the voice-change effects will reset model /
-    // language / reference, so re-apply those (below) on the next tick.
+    // 需要时先切音色；换音色的 effect 会重置模型、语言、参考，
+    // 所以下面在下一个 tick 里再应用一遍。
     if (p.voice && p.voice !== selectedVoice) setSelectedVoice(p.voice)
     // 从那一次实际发出去的参数里，把每个位当时选的模型认回来。
-    //
-    // 认的依据是名片说这个位走哪个参数名，反查一次即可，位有几个就
-    //    认几个。没写参数名的位当时本来就没发出去，自然也认不回来（那台引擎
-    //    的权重是启动时定的，重跑时装的是哪一份由它自己决定）。
-    // 这里以前靠路径长相倒推「这份权重是谁的」来还原跨资产混搭。混搭没了，
-    //    倒推也一起没了，路径本身仍然是发给引擎的那个事实来源。
+    // 认的依据是名片说这个位走哪个参数名，反查一次即可，位有几个就认几个。
+    // 没写参数名的位当时本来就没发出去，自然也认不回来
+    // （那台引擎的权重是启动时定的，重跑时装的是哪一份由它自己决定）。
     const restored = weightsFromParams(weightSlots, p)
     setTimeout(() => {
       if (Object.keys(restored).length) setSelWeights(prev => ({ ...prev, ...restored }))
@@ -780,8 +677,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         <div className="section">
           <div className="section-hdr"><span>Generate</span></div>
           <div className="section-body">
-            {/* Item 14: Voice / GPT / SoVITS on a single compact row (Edit + Compare Refs
-                buttons removed); the model-stack summary stays on the line below. */}
+            {/* 音色与模型位排在同一行；模型栈的摘要留在下一行。 */}
             <ModelPickRow
               selectedVoice={selectedVoice}
               onSelectVoice={setSelectedVoice}
@@ -880,7 +776,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               )}
             </div>
 
-            {/* Advanced Settings */}
+            {/* 高级设置。 */}
             <AdvancedParamsPanel
               showAdvanced={showAdvanced}
               onToggle={() => setShowAdvanced(!showAdvanced)}
@@ -949,15 +845,14 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 // 一个叫 _unassigned 的占位格，下次开就未必认得回来。
                 engine_id: engine?.id || '',
                 // 引擎自己的参数存进它自己的格子，原样存原样取，平台不认识
-                //    里面任何一个键名。换一台引擎，这里存的就是那台的参数。
+                // 里面任何一个键名。换一台引擎，这里存的就是那台的参数。
                 engine_params: engine?.id
                   ? { [engine.id]: paramsToSend(engine, paramValues, touchedParams) }
                   : {},
                 params: {
-                  // PA: pin the full inference contract so the recipe reproduces
-                  // the exact audition when distributed via /v1/audio/speech.
-                  // 这一份是给老配方和老前端留的兼容底：后端仍按 v3 的键集
-                  //    往 params 里写一份。真正权威的是上面的 engine_params。
+                  // 把完整的推理契约钉住，配方经 /v1/audio/speech 分发时才能复现同一次试音。
+                  // 这一份是给老配方和老前端留的兼容底：后端仍按 v3 的键集往 params 里写一份。
+                  // 真正权威的是上面的 engine_params。
                   ...paramsToSend(engine, paramValues, touchedParams),
                   seed,
                   aux_ref_audio_paths: auxRefs.length > 0 ? auxRefs : [],
@@ -968,9 +863,9 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                     : {},
                   auto_base_lang: textLang === 'auto_zh_ja_yue' ? (selected?.language || lang) : undefined,
                 },
-                // 配方顶层那两个权重字段。配方格式这轮不动 ⇒ 这两个字段只装得下
-                //    两个位、而且名字是第一台引擎的形状。哪个位落进哪个字段的知识
-                //    收在配方那个文件里一处，这里不重复。配方升级时改那一处即可。
+                // 配方顶层那两个权重字段。配方格式不动 ⇒ 这两个字段只装得下两个位、
+                // 而且名字是第一台引擎的形状。哪个位落进哪个字段的知识收在配方那个文件里一处，
+                // 这里不重复：配方升级时改那一处即可。
                 ...weightsToRecipeFields(weightsToSend(weightSlots, selWeights)),
               }}
               onSaved={(rec) => setError(null)}
@@ -981,15 +876,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
           </div>
         </div>
 
-        {/* Result */}
+        {/* 合成结果。 */}
         <GenerationResult result={result} />
 
-        {/* Segments */}
+        {/* 分段。 */}
         {result && result.segments && result.segments.length > 1 && (
           <CollapsibleSegments segments={result.segments} />
         )}
 
-        {/* Recent Generations — persistent list with real file management */}
+        {/* 最近生成：持久化的列表，带真实的文件管理。 */}
         <RecentGenerations
           recent={recent}
           showAll={showAllRecent}
@@ -1016,7 +911,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         />
       </div>
 
-      {/* Right sidebar: voice info */}
+      {/* 右侧栏：音色信息。 */}
       <div className="workspace-right">
         {selected && <VoiceSidebar voice={selected} refVoiceId={refVoiceId} voices={voices} validation={validation} onVoiceUpdate={onVoiceUpdate} selectedRefAudio={selectedRefAudio} selectedRefText={selectedRefText} selectedPromptLang={selectedPromptLang} onSelectRef={onSelectRef} refTextOverride={refTextOverride} onRefTextOverride={setRefTextOverride} />}
       </div>

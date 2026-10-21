@@ -18,52 +18,44 @@ import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 import { CompareRow } from './CompareRow'
 import { CompareBatchCard } from './CompareBatchCard'
 
-// RefAudioTabs was hoisted to common/RefPickers.jsx as the shared RefAudioList
-// Compare 的主参考现在用 RefAudioList(single)；辅助
-// references use the shared AuxReferencePicker.
+// 参考音频对比页：每一行是一种参考音频配置，逐行或整批并排试听。
+// 参考音频的挑选与列表来自 common/RefPickers.jsx 的共享组件。
 
-// ===========================
-//  REFERENCE COMPARE TAB
-// ===========================
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()
-  // Persisted: a Compare Refs workspace must survive reloads / app restarts.
-  // Generated audio is referenced by a server URL (result.audio_url) — not a blob —
-  // so persisting results keeps the players working after a reload as long as the
-  // backend keeps the output file. Transient flags are reset on rehydrate, and the
-  // list is capped to avoid blowing the localStorage quota.
+  // 对比页的参考配置工作区要能扛住刷新与应用重启。
+  // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：
+  // 所以只要后端还留着输出文件，持久化结果就能让播放器在刷新后照常工作。
+  // 临时状态在重新载入时重置，列表设上限，避免撑爆 localStorage 配额。
   const [rows, setRows] = usePersistentState('compare.rows', [], {
-    // Legacy per-row target 'auto' (option removed) falls back to "use default".
+    // 旧的每行目标语种 'auto'（该选项已下线）落到「用默认」。
     rehydrate: r => Array.isArray(r)
       ? r.map(x => migrateRow(x)).slice(0, 24)
       : [],
   })  // [{ id, refAudio, auxRefPaths, text, params, touched, method, seed, loading, result, error }]
   const [allAudioFiles, setAllAudioFiles] = useState([])
   const [voiceFiles, setVoiceFiles] = useState([])
-  // PF-a: Compare's shared default text starts empty. An empty per-row Text means
-  // "use this voice's own default text" on the backend, so the comparison isolates
-  // the reference audio unless the user deliberately types a script.
+  // 共享的默认文本一开始是空的。一行文本为空时后端会理解成
+  // 「用这个音色自带的默认文本」，这样对比就只隔离参考音频，
+  // 除非用户特意写了脚本。
   const [defaultText, setDefaultText] = usePersistentState('compare.defaultText', '')
-  // Extra patch: the shared comparison text also supports reading proofing, applied to every row that doesn't override its own text.
-  // #4: shared comparison-text reading proofing overrides (base bucket). Applied via
-  // the Proof & language modal; no separate enable flag (removed with v5 cleanup).
+  // 共享的对比文本也支持读音校对，作用于所有没有自备文本的行。
+  // 通过读音与语种弹窗设置，没有单独的开关。
   const [defaultPronOverrides, setDefaultPronOverrides] = usePersistentState('compare.defaultPronOverrides', {})
-  // #4: per-character Han-character language overrides + reverse-language readings for
-  // the shared comparison text (mirrors the Generate tab). Applied to every row that
-  // doesn't override its own text.
+  // 共享对比文本的逐字汉语言种覆盖与反查读音（与生成页一致），
+  // 作用于所有没有自备文本的行。
   const [defaultHanForced, setDefaultHanForced] = usePersistentState('compare.defaultHanForced', [])
   const [defaultHanReadings, setDefaultHanReadings] = usePersistentState('compare.defaultHanReadings', {})
   const [showDefaultTextPrep, setShowDefaultTextPrep] = useState(false)
   const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
   const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
   const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
-  // A-1 engine-batch MASTER switch (1.0.6). Each row's own three-state control
-  // (inherit / on / off) resolves against this. Inherit => follow this master.
+  // 引擎批量推理的总开关。每行自己的三态（继承 / 开 / 关）都对着它解析，
+  // 「继承」就是跟着这个总开关走。
   const [cmpEngineBatch, setCmpEngineBatch] = usePersistentState('compare.engineBatch', false)
   const [segmentsCache, setSegmentsCache] = useState({})  // { voiceId: segments[] }
-  // Batch history — server-authoritative record of every "Generate All" run,
-  // reconstructed from member meta.json (GET /api/outputs/batches). Shows how many
-  // audios each comparison produced and which reference each member used.
+  // 批量历史：服务端记的每一次「全部生成」的记录，从成员 meta.json 重建
+  // （GET /api/outputs/batches）。它显示每次对比产出了几个音频、每个成员用了哪份参考。
   const [batches, setBatches] = useState([])
   const loadBatches = async () => {
     const r = await api('/api/outputs/batches?source=comparerefs')
@@ -71,32 +63,30 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   }
   useEffect(() => { loadBatches() }, [])
   useEffect(() => { api('/api/recipes').then(r => { if (r.ok) setRecipes(r.data?.recipes || []) }).catch(() => {}) }, [])
-  // Clear the status-bar activity indicator when leaving the Compare tab.
+  // 离开对比页时清掉状态栏的活动指示。
   useEffect(() => () => onActivity?.(null), [])
 
   const selected = voices.find(v => v.id === selectedVoice)
-  // Seed the row-id counter past any persisted rows so reloaded rows never collide.
+  // 行 id 计数器要越过任何已持久化的行，载入的行才不会撞号。
   const nextId = useRef(rows.reduce((m, r) => Math.max(m, r.id || 0), 0) + 1)
 
-  // P1: Save-as-recipe from a compare row. Builds the recipe defaults from the
-  // row's reference + params + its per-row model pick.
+  // 从对比页这一行另存为配方：用这一行的参考音频、参数与该行选的模型来建配方默认值。
   const [saveRecipeDefaults, setSaveRecipeDefaults] = useState(null)
   const [recipes, setRecipes] = useState([])
   const openSaveRecipe = (row) => {
     const rm = rowModels[row.id] || {}
     const dp = defaultParams || {}
-    // Row's own model language (decoupled from the shared selectedVoice).
-    // Reference + language follow the SoVITS (timbre) side when models are mixed (C3).
+    // 这一行自己的模型语种（与共享的 selectedVoice 无关）。
+    // 混搭时参考音频与语种跟随 SoVITS（音色）那一侧。
     const rmVoiceId = rm.sovitsVoiceId || rm.voiceId || selectedVoice
     const rmVoiceLang = availableModels.find(m => m.voiceId === rmVoiceId)?.language
       || voices.find(v => (v.id || v.voiceId) === rmVoiceId)?.language || 'ja'
-    // #4: pin this row's reading proofing exactly like the Generate recipe schema —
-    // flat base overrides + lang_overrides + han_readings (server.js merges them).
+    // 按生成页的配方结构钉住读音校对：
+    // 平铺的基础覆盖 + lang_overrides + han_readings（服务端负责合并）。
     const rEff = row.textLang || defaultTextLang || rmVoiceLang || 'ja'
     const rDir = hanOverrideDirection(rEff, rmVoiceLang)
-    // The row's own text when it has one, otherwise the shared default -- that is
-    // exactly the body this recipe will be replayed against, and the body the
-    // stored `@N` indices have to still line up with.
+    // 这一行自己的文本，没有就用共享的默认文本：
+    // 那正是这份配方回放时面对的正文，也是存下来的 @N 下标要对齐的正文。
     const rText = (row.text && row.text.trim()) ? row.text : defaultText
     const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [], rText)
     setSaveRecipeDefaults({
@@ -109,9 +99,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         //   形状一致）。硬编码键名的话，换一台引擎存下来的就是一堆
         //   上游不认的键，存的时候不报错，回放的时候也不报错。
         ...paramsToSend(engine, row.params, row.touched),
-        // PA: pin the full contract. Fields Compare does not expose per-row
-        // (advanced group) fall back to the shared defaults so the recipe still
-        // reproduces the audition.
+        // 对比页不逐行暴露的那些字段（advanced 层）回落到共享默认值，
+        // 这样配方仍能复现出同一次试听。
         //
         // 凡是在当前引擎名片上的参数（不论 common 还是 advanced 层），
         //   都按「这行没动过 ⇒ 取共享默认 / 动过 ⇒ 取这一行的」补齐，
@@ -132,7 +121,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         //   必须把它钉住，否则回放不是同一个结果。
         seed: row.seed,
         aux_ref_audio_paths: (row.auxRefPaths && row.auxRefPaths.length > 0) ? row.auxRefPaths : [],
-        // P1-1 / #4: pin this row's own reading overrides (not a shared, cross-row set).
+        // 钉住这一行自己的读音覆盖（不是跨行共享的那一套）。
         pron_overrides: (row.pronOverrides && Object.keys(row.pronOverrides).length > 0) ? row.pronOverrides : {},
         lang_overrides: rLangOverrides || {},
         han_readings: (rDir && row.hanReadings && Object.keys(row.hanReadings).length > 0)
@@ -144,27 +133,26 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     })
   }
 
-  // Shared default target language (text_lang) + reading proofing for empty/uncustomized
-  // rows — mirrors the Generate tab. Each row may still override its own target language.
-  // Decoupled from the Generate voice: the comparison text's target language is a
-  // free choice (default = multilingual auto), NOT auto-derived from the selected
-  // voice, and it never auto-switches when the voice changes. Legacy persisted
-  // 'auto' (removed here) migrates to the multilingual 'auto_zh_ja_yue'.
+  // 共享的默认目标语种（text_lang）与读音校对，供空行与未定制的行使用，
+  // 与生成页一致。每行仍可覆盖自己的目标语种。
+  // 它与生成页选中的音色解耦：对比文本的目标语种是自由选择（默认多语种 auto），
+  // 不由选中的音色推导，音色换了也不会自动跟着变。
+  // 旧的持久化值 'auto'（已下线）迁移到多语种的 'auto_zh_ja_yue'。
   const [defaultTextLang, setDefaultTextLang] = usePersistentState('compare.defaultTextLang', 'auto_zh_ja_yue', {
     rehydrate: v => (v === 'auto' || !v) ? 'auto_zh_ja_yue' : v,
   })
   const voiceLang = selected?.language || 'ja'
   const _cmpBaseFam = String(voiceLang || '').replace(/^all_/, '')
   const _cmpTargetFam = normalizeLangFamily(defaultTextLang)
-  // #4: shared comparison-text reading proofing + Han-character language payloads.
+  // 共享对比文本的读音校对与逐字汉语言种载荷。
   const defaultPanelLang = _cmpTargetFam || _cmpBaseFam || 'ja'
   const defaultHanDir = hanOverrideDirection(defaultTextLang, voiceLang)
   const defaultLangOverrides = buildLangOverrides(defaultHanDir, defaultHanForced, defaultText)
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
 
-  // Load default advanced params from backend
-  // 当前用 `/api/advanced-params` 加上 engine_id，
-  //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault）。那条路已经删了
+  // 从后端取默认的 advanced 参数。
+  // 当前用 `/api/advanced-params` 加上 engine_id：
+  //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault），那条路已经删了
   //   ⇒ 现在必须带上 engine_id，且 engine 还没到就一个字节都不发。
   //   不许在这里塞任何回落引擎，回落回来的默认值属于另一台引擎，
   //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都不匹配的错。
@@ -175,7 +163,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     }).catch(() => {})
   }, [engine?.id])
 
-  // Preload segments for selected voice
+  // 预加载选中音色的切片
   useEffect(() => {
     if (!selectedVoice || segmentsCache[selectedVoice]) return
     api(`/api/assets/${selectedVoice}/segments`).then(r => {
@@ -190,27 +178,23 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       .catch(err => console.error('audio-files?dir=no_slice 取不到，这一组参照音频留空：', err))
     api('/api/audio-files?dir=voices').then(r => { if (r.ok) setVoiceFiles(r.data.files) })
       .catch(err => console.error('audio-files?dir=voices 取不到，这一组参照音频留空：', err))
-    // Load models from assets/ meta.json (source of truth) instead of voices.json.
-    // Also pull the built-in Base model (GET /api/assets/__base__) so its pretrained
-    // weights are selectable here for zero-shot reference comparison — it isn't in the
-    // /api/assets roster (no folder on disk), so it must be fetched explicitly.
-    // 这一页整页都是「两份权重两两组合去试听」的形状，它问的是那条特定的
-    //   合成链路，所以引擎名在这里是这一页自己的题目，不是平台写死了一台引擎。
-    //   取值层级用新结构，形状原样不动。
+    // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
+    // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
+    // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
+    // 这一页整页都是「两份权重两两组合去试听」的形状，所以引擎名在这一页是
+    // 它自己的题目，不是平台写死了一台引擎。
     // 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
-    //   混搭开关一起动。那是独立一件事，本轮不做。
+    //   混搭开关一起动。那是独立一件事。
     // 引擎名不写死成 `CMP_ENGINE = 'gpt-sovits'`，位名也不写死
     //   成 'gpt' / 'sovits'，否则连文件选择器的扩展名都会被钉成 .ckpt / .pth。
     //   后果：一台别的引擎的资产在这页里连一个模型位都列不出来，
     //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
     //
-    //   按当前引擎的两个位名取权重：GSV 的位名就还叫 gpt/sovits，
-    //   所以 GSV 用户看到的下拉一个字都没变；别的引擎名下名片给什么位名就取
-    //   什么位名，取不到就只有 0 个组合，行自己退化成「用当前音色」，
-    //   而不是画一个空下拉。
+    //   按当前引擎的两个位名取权重：别的引擎名下名片给什么位名就取什么位名，
+    //   取不到就只有 0 个组合，行自己退化成「用当前音色」，而不是画一个空下拉。
     //
     //   真正的「每行不同引擎并排」仍是计划里的遗留 L3（那要重画整行的
-    //   混搭开关，不是本刀）。这里只是不再按引擎身份分叉。
+    //   混搭开关）。这里只是不再按引擎身份分叉。
     const buildModels = (vid, meta, out) => {
       // 位名也来自名片，不写死 'gpt'/'sovits'
       // （weight_slots 是 [{name,label,param,applies_at}]，这里只要 name）。
@@ -236,8 +220,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             gptSteps: gpt.steps || '',
             sovitsSteps: sovits.steps || '',
             sovitsVersion: sovits.version || '',
-            // Mark the recommended default combo (Base model → s1 + v2Pro) so the
-            // Voice-ID switch pre-selects it. Fine-tuned voices carry no flag → falsy.
+            // 标出推荐的默认组合（Base 模型 → s1 + v2Pro），让音色下拉预先选中它。
+            // 微调出来的音色不带这个标记，所以它是假值。
             default: !!(gpt.default && sovits.default),
             builtin: !!meta.builtin,
             label: `${meta.display_name || vid} / ${gpt.name}${gpt.steps ? ` (${gpt.steps})` : ''} / ${sovits.name}${sovits.version ? ` [${sovits.version}]` : ''}${sovits.steps ? ` (${sovits.steps})` : ''}`,
@@ -250,7 +234,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       api('/api/assets/__base__').catch(() => ({ ok: false })),
     ]).then(([r, rb]) => {
       const models = []
-      // Base model first so it sits at the top of the Voice-ID dropdown.
+      // Base 模型排在最前，让它在音色下拉里位于顶部。
       if (rb.ok && rb.data && rb.data.ok && rb.data.meta) buildModels(BASE_VOICE_ID, rb.data.meta, models)
       if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
       setAvailableModels(models)
@@ -262,25 +246,25 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   const addRow = (opts = {}) => {
     const rowId = nextId.current++
-    // Default model: first available model for the selected voice, or first overall
+    // 默认模型：选中音色的第一个可用模型，没有就取全局第一个。
     const defaultModel = availableModels.find(m => m.voiceId === selectedVoice && m.default)
       || availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
     const modelForRow = defaultModel
       ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel, gptVoiceId: '', sovitsVoiceId: '' }
       : { voiceId: '', gptCheckpoint: '', sovitsModel: '', gptVoiceId: '', sovitsVoiceId: '' }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
-    // Use first matched segment from selected voice as default ref (unless an empty row was requested)
+    // 选中音色的第一条匹配切片作为默认参考（除非这一行明确要空行）。
     const firstSeg = segmentsCache[selectedVoice]?.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     const defaultRef = (!opts.empty && firstSeg) ? (() => {
       const raw = firstSeg.audio || firstSeg.audio_path || firstSeg.audio_filename
       const fn = raw ? raw.replace(/\\/g, '/').split('/').pop() : ''
       return fn ? `assets/${selectedVoice}/slicer_opt/${fn}` : ''
     })() : ''
-    // The built-in Base model has no slices of its own — start such a row on the
-    // cross-voice reference picker so the user can immediately borrow a reference.
+    // 内置的 Base 模型自己没有切片：这样的行从跨音色参考选择器起步，
+    // 用户立刻就能借一条参考。
     const startSource = (defaultModel && defaultModel.voiceId === BASE_VOICE_ID) ? 'cross' : undefined
     const dp = defaultParams || {}
-    // 参数值和 touched 由 CompareRow 按当前引擎的 param_schema 自己起步
+    // 参数值与 touched 由 CompareRow 按当前引擎的 param_schema 自己起步
     //   （initialParamValues），行的诞生不再知道任何一台引擎的参数叫什么。
     //   method 用名片给的默认值，不许在这里「取第一个」。
     const methodDefault = (engine?.methods && engine.methods.length > 0)
@@ -296,9 +280,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       touched: [],
       ...(methodDefault ? { method: methodDefault } : {}),
       seed: dp.seed ?? -1,
-      // A-1 engine-batch three-state: 'inherit' (follow master) | 'on' | 'off'.
+      // 引擎批量三态：'inherit'（跟总开关）| 'on' | 'off'。
       engine_batch: 'inherit',
-      // P1-1 / #4: per-row reading proofing state (isolated from other rows).
+      // 这一行自己的读音校对状态（与其他行互不影响）。
       pronOverrides: {},
       hanForced: [],
       hanReadings: {},
@@ -353,18 +337,15 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   const generateRow = async (row, batch) => {
     setRows(prev => prev.map(r => r.id === row.id ? { ...r, loading: true, result: null, error: null } : r))
-    // Live status-bar activity (ContextRow). A batch run drives its own progress
-    // label ("Comparing · k/N") from generateAll; a lone Regenerate/Rerun shows a
-    // plain "Generating" (parity with the Generate page) and clears when it ends.
+    // 状态栏的实时活动提示。批量运行由 generateAll 自己推进进度文案
+    // （"Comparing · k/N"），单行重新生成显示普通的 "Generating"，结束后清掉。
     if (!batch) onActivity?.({ label: 'Generating' })
     const rowModel = rowModels[row.id] || {}
-    // Decoupled from the Generate page's shared selectedVoice: this row's voice,
-    // reference and every language default derive from THIS row's own model. Using
-    // the shared voice here was the root of the "Chinese model auto-routes to
-    // Chinese" bug (a JA reference was sent with prompt_lang=zh, mis-tokenising the
-    // prompt and producing garbled / truncated audio).
-    // Reference + language follow the SoVITS (timbre) side when models are mixed (C3);
-    // the GPT may be sourced from a different asset without moving the reference.
+    // 与生成页共享的 selectedVoice 解耦：这一行的音色、参考音频与所有语种默认值
+    // 都由这一行自己的模型决定。用共享音色会让中文模型被自动按中文路由：
+    // 送了 prompt_lang=zh 的日文参考音频，转写会错，声音也乱。
+    // 混搭时参考音频与语种跟随 SoVITS（音色）那一侧；
+    // GPT 可以来自另一个资产而不带走参考音频。
     const rowVoiceId = rowModel.sovitsVoiceId || rowModel.voiceId || selectedVoice
     const rowVoiceLang = availableModels.find(m => m.voiceId === rowVoiceId)?.language
       || voices.find(v => (v.id || v.voiceId) === rowVoiceId)?.language || 'ja'
@@ -373,7 +354,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         voice: rowVoiceId,
         text: row.text.trim() || defaultText,
         format: 'wav',
-        // 和 Generate 页同一件事：这一次要连哪台引擎，由界面上选中的那台
+        // 和生成页同一件事：这一次要连哪台引擎，由界面上选中的那台
         //   说了算，不让服务端去 legacy_default 里认领。
         engine_id: engine?.id,
         source: 'comparerefs',
@@ -384,23 +365,22 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         // 参数只发用户明确动过的那些。键名写死的话，换一台引擎这些键上游
         //   不认，而请求照发，不报错，用户看到的是「参数调了没反应」。
         //   键名和类型都来自当前引擎的 param_schema（paramsToSend 是
-        //   web/src/lib/engines.js 的权威实现，GenerateTab 用的是同一个
+        //   web/src/lib/engines.js 的权威实现，生成页用的是同一个
         //   函数，不是新写一份）。
         ...paramsToSend(engine, row.params, row.touched),
-        // 这一行走哪个推理方法（点 1：profile.methods 交到前端）。
+        // 这一行走哪个推理方法。
         //   只交名字：方法内部怎么绑参数、要不要参考音频，是 host.py 的事，
         //   前端不复制那份规则（那是第二份会漂移的事实）。
         //   单方法引擎 methods 为 null ⇒ 不发这个键，让后端用名片上的固定入口。
         ...(row.method ? { method: row.method } : {}),
         seed: row.seed,
-        // A-1: resolve this row's three-state engine-batch against the master.
+        // 这一行的引擎批量三态对着总开关解析。
         engine_batch: (row.engine_batch === 'on') ? true
           : (row.engine_batch === 'off') ? false
           : !!cmpEngineBatch,
       }
-      // Batch tagging: when this row is part of a "Generate All", stamp the shared
-      // batch id so the backend records all members as one comparison batch. A
-      // lone per-row Generate carries no batch (it's a standalone run).
+      // 批量打标：这一行属于「全部生成」时，盖上共享的批次 id，
+      // 让后端把全部成员记成同一个对比批次。单行生成没有批次（那是独立一次）。
       if (batch && batch.id) {
         body.batch_id = batch.id
         body.batch_seq = batch.seq
@@ -409,24 +389,23 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       }
       if (rowModel.gptCheckpoint) body.gpt_model = rowModel.gptCheckpoint
       if (rowModel.sovitsModel) body.sovits_model = rowModel.sovitsModel
-      // Per-row target text_lang (falls back to the shared default, then voice lang);
-      // prompt_lang / reference transcript come from a cross/custom reference pick.
+      // 每一行自己的目标语种（回落到共享默认，再回落到音色语种）；
+      // prompt_lang / 参考转写来自跨音色或自定义的参考选择。
       body.text_lang = row.textLang || defaultTextLang || rowVoiceLang || 'ja'
       body.prompt_lang = row.promptLang || rowVoiceLang || 'ja'
-      // Auto (Multilingual): kana-free CJK falls back to this row's model language.
+      // Auto（多语种）：不含假名的 CJK 回落到这一行模型的语种。
       if (body.text_lang === 'auto_zh_ja_yue') body.auto_base_lang = rowVoiceLang || 'zh'
       if (row.promptText) body.reference_text = row.promptText
-      // P1-1 / #4: reading proofing is per-row — each row carries its own base
-      // overrides + Han-character language forcing + reverse readings, so corrections
-      // never leak between rows. A row that keeps the shared comparison text (empty
-      // Text) and has no proofing of its own falls back to the shared comparison-text
-      // overrides. Row-level always wins.
+      // 读音校对是逐行的：每一行带自己的基础覆盖、逐字汉语言种强制与反查读音，
+      // 所以校对不会在行之间串味。
+      // 用共享对比文本（文本为空）且自己没做校对的行，回落到共享对比文本的覆盖，
+      // 行内的永远优先。
       const usingDefaultText = !(row.text && row.text.trim())
       const rEff = body.text_lang
       const rDir = hanOverrideDirection(rEff, rowVoiceLang)
       const rPanel = normalizeLangFamily(rEff) || String(rowVoiceLang || '').replace(/^all_/, '') || 'ja'
-      // body.text is the exact string this request will synthesise, so prune the
-      // stored `@N` indices against it and nothing else.
+      // body.text 就是这次请求要合成的那个字符串，所以存下来的 @N 下标
+      // 只按它来剪。
       const rLangOverrides = buildLangOverrides(rDir, row.hanForced || [], body.text)
       const rPronPayload = buildPronPayload(row.pronOverrides || {}, rPanel, rDir, row.hanForced || [], row.hanReadings || {})
       if (rPronPayload || rLangOverrides) {
@@ -442,14 +421,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     } catch (err) {
       setRows(prev => prev.map(row2 => row2.id === row.id ? { ...row2, loading: false, error: err.message } : row2))
     } finally {
-      // Batch runs are cleared by generateAll after the whole sequence.
+      // 批量运行的状态栏提示由 generateAll 在整批结束后清掉。
       if (!batch) onActivity?.(null)
     }
   }
 
   const generateAll = async () => {
-    // One "Generate All" = one recorded comparison batch. Mint a shared id up
-    // front so every member lands under the same batch, then run rows in order.
+    // 一次「全部生成」 = 一个被记录下来的对比批次。先生成共享 id，
+    // 让每个成员都落在同一个批次下，然后按顺序跑各行。
     const runnable = rows.filter(r => !r.loading)
     if (runnable.length === 0) return
     const batchId = `cmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -458,7 +437,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     let seq = 0
     try {
       for (const row of runnable) {
-        // Progress in the status bar: "Comparing · k/N" advances as each member runs.
+        // 状态栏进度："Comparing · k/N" 随每个成员推进。
         onActivity?.({ label: `Comparing · ${seq + 1}/${runnable.length}` })
         await generateRow(row, { ...batch, seq })
         seq++
@@ -485,8 +464,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           </p>
 
           <div className="field">
-            {/* Extra patch: this is the "comparison text" — every row uses it by default so
-                only the reference / model differs; a row can override it via its Text section. */}
+            {/* 这就是「对比文本」：每一行默认都用它，这样对比的是参考音频 / 模型；
+                某一行可以在自己的 Text 区域里改写。 */}
             <label className="field-label">{t('Comparison Text', '对比文本')}</label>
             <div className="field-hint" style={{ marginBottom: 4 }}>
               {t(
@@ -506,9 +485,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 </Select>
               </span>
             </div>
-            {/* #4: reading proofing + per-character Han language for the comparison text —
-                applied to every row that doesn't override its own text. A row's own
-                proofing takes precedence. Opens in the shared Text preparation modal. */}
+            {/* 对比文本的读音校对与逐字汉语言种，作用于所有没有自备文本的行；
+                某一行自己的校对优先。通过共享的读音与语种弹窗设置。 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-sm" onClick={() => setShowDefaultTextPrep(true)}>
                 Proof &amp; language{'\u2026'}
@@ -617,14 +595,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         </div>
       )}
 
-      {/* Comparison results area (Part 5) */}
+      {/* 对比结果区 */}
       {rows.length > 0 && !rows.some(r => r.result) && (
         <div className="empty-state" style={{ marginTop: 4, padding: 16 }}>
           <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated comparison results will appear here.', '生成的对比结果会显示在这里。')}</div>
         </div>
       )}
 
-      {/* Batch history — every "Generate All" recorded as one comparison batch. */}
+      {/* 批量历史：每一次「全部生成」记成一个对比批次。 */}
       {batches.length > 0 && (
         <div className="section" style={{ marginTop: 16 }}>
           <div className="section-hdr">

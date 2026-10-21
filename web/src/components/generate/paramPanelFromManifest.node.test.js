@@ -1,16 +1,13 @@
-// ============================================================
-//  参数面板必须按 manifest.json 长：读源码的守卫（契约 §12 第 3 步）
-// ============================================================
+// 参数面板必须按 manifest.json 长：读源码的守卫（契约 §12 第 3 步）。
 //
 // 为什么是读源码而不是渲染：
 //    JSX 在这个仓库里跑不了单元测试（测试是 `node --test` 直接跑的，不经过
 //    vite，也没有 jsdom）。真正的闸仍然是 `cd web && npm run build` 加实际界面
 //    点一遍。同 advancedParamsMemory.node.test.js 的做法和理由。
-//
 //    面板「长什么样」的判断已经全部搬进 web/src/lib/engines.js（纯函数，
-//    有真行为测试）。这里只守一件 JSX 里才看得见的事：
+//    有真行为测试），这里只守一件 JSX 里才看得见的事：
 //    那 13 个写死的格子没有偷偷长回来。
-
+//
 // web/ 是 ESM（web/package.json 的 "type": "module"），所以这里用 import 而不是
 //   require：lib/ 下那些 .node.test.js 是 CommonJS，两边写法不一样。
 import test from 'node:test'
@@ -68,8 +65,8 @@ test('档位按钮从 TIERS 来，不是写死两个', () => {
 })
 
 test('平台自己的开关留在原地，它们不属于任何引擎，不该被一起收走', () => {
-  // 这条是防「收得太狠」：把面板改成名片驱动的时候，很容易顺手把这几个
-  //   一起删掉，而它们换哪台引擎含义都不变。
+  // 这条是防「收得太狠」：把面板改成名片驱动时很容易顺手把这几个一起删掉，
+  // 而它们换哪台引擎含义都不变。
   for (const keep of ['forceResynth', 'engineBatch', 'mediaType', 'seed']) {
     assert.ok(new RegExp(`\\b${keep}\\b`).test(CODE), `平台开关 ${keep} 在改造中被误删了`)
   }
