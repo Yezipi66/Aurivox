@@ -63,31 +63,19 @@ jobs:
       # 跑测试。
       #   输出要能看清：spec reporter 逐条打印两千多条测试名，GitHub 会把
       #   日志截断 ⇒ 失败原因正好在被截掉的那一段。
-      #   所以这里把完整输出写进文件，再只把失败摘要与末尾几行打出来，
-      #   并把摘要写进 job summary（页面上直接能看到，不必翻日志）。
+      #   所以这里把完整输出写进文件，再把失败摘要用 ::error:: 注解打出来
+      #   （注解显示在页面上，不必翻日志、不必下载 artifact）。
       - name: 跑测试
         run: |
           set -o pipefail
           npm test > test-output.log 2>&1 || {
-            {
-              echo "## 测试失败"
-              echo '```'
-              grep -E "^(✖|not ok)" test-output.log | head -40 || true
-              echo '```'
-              echo ""
-              echo "### 计数"
-              echo '```'
-              grep -E "^ℹ (tests|pass|fail|skipped)" test-output.log || true
-              echo '```'
-              echo ""
-              echo "### 日志末尾 40 行"
-              echo '```'
-              tail -40 test-output.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
             echo "::group::失败摘要"
             grep -E "^(✖|not ok|ℹ (tests|pass|fail|skipped))" test-output.log | head -80 || true
             echo "::endgroup::"
+            # 每条失败一行注解：页面的 Annotations 面板直接列出，不用翻日志。
+            grep -E "^✖ " test-output.log | head -20 | while IFS= read -r line; do
+              echo "::error title=测试失败::${line#✖ }"
+            done
             echo "::group::日志末尾 60 行"
             tail -60 test-output.log
             echo "::endgroup::"
