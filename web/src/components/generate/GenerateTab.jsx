@@ -17,7 +17,7 @@ import { outputsError } from '../../lib/apiError'
 import { pickDefaultRef, sameRefPath } from '../../lib/refAudio'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
-// fieldLabel / fieldHelp / recipePath 不在这里：换成 <ParamField> 之后它们只在那边用了。
+// fieldLabel / fieldHelp / recipePath 只在 ParamField 里用了，这里不 import。
 import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible } from '../../lib/engines'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
@@ -362,7 +362,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   useEffect(() => {
     if (!selectedVoice) return
     // 点名当前引擎：问的是「这台引擎启动要的东西齐没齐」。
-    //   不点名会把装着的每一台都答一遍，那是给别的界面用的，不是这里。
+    // 不点名会把装着的每一台都答一遍，那是给别的界面用的，不是这里。
     const q = engine?.id ? `?engine_id=${encodeURIComponent(engine.id)}` : ''
     api(`/api/voices/${selectedVoice}/validate${q}`).then(r => {
       if (r.ok && r.data.ok) setValidation(r.data.checks)
@@ -451,7 +451,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 名片没写的键一个都不发，服务端会静默忽略，症状是
       // 「我明明调了却没效果」，最难查的那一类。
       // 这一次要连哪台引擎，由界面上选中的那台说了算。少了这一句，请求不点名，
-      // 服务端就去认领 legacy_default 那台：界面按 A 引擎画格子、按 A 引擎发参数、
+      // 服务端就会去挑一台默认引擎：界面按 A 引擎画格子、按 A 引擎发参数、
       // 按 A 引擎选权重，请求却打到 B 引擎身上。
       // engine?.id 不给默认值：引擎没选出来时留空，
       // 让服务端报「你没说连哪台」，而不是替用户挑一台。

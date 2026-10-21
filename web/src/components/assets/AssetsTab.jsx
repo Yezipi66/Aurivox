@@ -1,4 +1,5 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// 音色资产页：扫描与浏览磁盘上的音色资产、重命名、修复与重建、参考文本转写与校对、声学精修。
+// 判据全部来自 /api/assets 返回的资产清单与当前引擎的 manifest.json；页面不维护第二份事实。
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
@@ -14,7 +15,7 @@ import { MigrateChoiceDialog, MigrateProgressDialog, FolderBrowser } from './Ass
 import { AssetsSummaryBar, AssetsToolbar } from './AssetsToolbar'
 import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
 
-//  ASSETS TAB
+// 音色资产页
 function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
   const { t } = useT()
   const [assets, setAssets] = useState(null)
@@ -26,47 +27,44 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { id, displayName }
   const [deleting, setDeleting] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState(null) // { id, displayName }
-  // 参考文本校对弹窗目标（编辑已有文本，无 ASR）。
+  // 参考文本校对弹窗目标（编辑已有文本，不做 ASR）。
   const [proofTarget, setProofTarget] = useState(null) // { id }
   // S2 声学精修弹窗目标（衍生新音色）。
   const [refineTarget, setRefineTarget] = useState(null) // { id, displayName, baseVersion }
   const rebuildPollRef = useRef(null)
   const scanAbortRef = useRef(null)
-  // Live lightweight-pipeline progress for an in-flight Rebuild/Restore, so the
-  // user can see which step (preprocess → S1/S2 → finalize → publish) is running
-  // and read a clear error if one fails — instead of just listening to the fan.
+  // 正在进行的重建或修复任务的进度，显示当前跑到哪一步（预处理、S1/S2、收尾、发布）以及失败那一步的错误。
+  // 进度状态：{ id, phase, currentStep, steps, error, failedStep, stages }
   const [rebuildJob, setRebuildJob] = useState(null) // { id, phase, currentStep, steps, error, failedStep, stages }
-  // In-place ASR ("generate reference text") jobs, keyed by asset id. Advisory-only
-  // recovery: transcribes the asset's own raw/ and/or slicer_opt/ in place (no promote).
+  // 原地 ASR（生成参考文本）任务，按资产 id 记录。
+  // 只转写这个资产自己的 raw/ 与 slicer_opt/，不发布、不训练。
   const [transcribeJobs, setTranscribeJobs] = useState({}) // id -> { status, sources, done, error }
   const [txSource, setTxSource] = useState({}) // id -> 'missing'|'raw'|'slices'|'both'
-  const [txOpen, setTxOpen] = useState({}) // id -> bool: show the compact transcribe controls
+  const [txOpen, setTxOpen] = useState({}) // id -> bool: 是否显示紧凑的转写控件
   const transcribePollRef = useRef({})
   useEffect(() => () => { Object.values(transcribePollRef.current).forEach(t => clearTimeout(t)) }, [])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
-  // Naming-note notice: ack persists; `noteOpen` re-expands the collapsed pill.
+  // 命名说明的提示：确认状态持久化，noteOpen 用来重新展开折叠后的胶囊。
   const [noteAcked, setNoteAcked] = usePersistentState('assets.namingNoteAck', false)
   const [noteOpen, setNoteOpen] = useState(false)
   const noteExpanded = !noteAcked || noteOpen
-  // Inline rename — renames display name AND id/folder together (kept in sync to
-  // prevent the display≠id overwrite trap). Guarded server-side.
+  // 行内重命名：只改显示名。资产的 id 与目录不动，改名由服务端守卫。
   const [renamingId, setRenamingId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [renameBusy, setRenameBusy] = useState(false)
-  // Rename now changes id + folder too; sync selectedVoice if it was renamed.
-  // Assets-directory config (decoupling): current path + picker/migration state.
+  // 显示名改了不影响 id，选中音色仍然有效。
+  // 资产目录配置：当前路径与迁移状态。
   const [assetsConfig, setAssetsConfig] = useState(null) // { assetsRoot, assetsRootSource, envOverride, platform }
   const [configBusy, setConfigBusy] = useState(false)
-  const [dirInput, setDirInput] = useState('')          // editable path (manual entry)
-  const [migrateTarget, setMigrateTarget] = useState(null) // path pending copy/move/switch choice
-  // In-app folder browser (reliable cross-platform replacement for a native dialog,
-  // which cannot be launched reliably from the headless server process).
+  const [dirInput, setDirInput] = useState('')          // 可编辑的路径（手工输入）
+  const [migrateTarget, setMigrateTarget] = useState(null) // 等待用户选择复制、迁移或直接切换的路径
+  // 内置目录浏览器：服务端进程无法可靠拉起原生目录选择框，所以自带一个。
   const [browseOpen, setBrowseOpen] = useState(false)
   const [browseData, setBrowseData] = useState(null)    // { path, parent, isDriveList, drives, dirs }
   const [browseBusy, setBrowseBusy] = useState(false)
   const [browseError, setBrowseError] = useState(null)
-  // Background copy/move progress (copy → verify → delete pipeline).
+  // 后台复制或迁移的进度（复制、校验、删除三步）。
   const [migrateJob, setMigrateJob] = useState(null)
   const migratePollRef = useRef(null)
   useEffect(() => () => { if (migratePollRef.current) clearInterval(migratePollRef.current) }, [])
@@ -91,8 +89,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     try {
       const r = await api(`/api/assets/${id}/rename`, { method: 'PATCH', body: { display_name: name } })
       if (r.ok) {
-        // Option A: rename is DISPLAY-ONLY. The canonical id/folder never moves,
-        // so the selection stays valid; just refresh the display list.
+        // 重命名只改显示名：id 与目录不动，选中项因此仍然有效，只需刷新列表。
         loadAssets()
         if (loadVoices) loadVoices()
         const dupNote = Array.isArray(r.data.duplicates) && r.data.duplicates.length > 0
@@ -109,8 +106,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     } finally { setRenameBusy(false) }
   }
 
-  // A candidate directory was chosen (via picker or manual entry). Decide whether
-  // we need to ask about migrating existing data, or can switch directly.
+  // 用户选定了一个候选目录（选择器或手工输入）。判断是否需要先问迁移，还是可以直接切换。
   const requestChangeDir = (p) => {
     const next = (p || '').trim()
     if (!next) return
@@ -118,14 +114,13 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
       setScanMsg({ type: 'info', text: 'That is already the current assets directory.' }); return
     }
     if (Object.keys(assets).length > 0) {
-      setMigrateTarget(next) // non-empty → ask copy/move/switch/cancel
+      setMigrateTarget(next) // 非空 ⇒ 问复制、迁移、切换还是取消
     } else {
       applyAssetsDir(next, 'switch')
     }
   }
 
-  // Load a directory listing into the in-app browser. path==='' asks the server
-  // for the drive list (Windows) or filesystem root (POSIX).
+  // 读一份目录列表给内置浏览器。路径为空时服务端返回盘符列表（Windows）或文件系统根（POSIX）。
   const browseTo = async (p) => {
     setBrowseBusy(true); setBrowseError(null)
     try {
@@ -162,7 +157,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     }
   }
 
-  // Prompt for a name and create a sub-folder under the currently listed directory.
+  // 询问名称，在当前列出的目录下新建子目录。
   const createSubfolder = () => {
     const cur = browseData?.path || ''
     if (!cur) { setBrowseError('Open a drive or folder first.'); return }
@@ -182,13 +177,13 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         setConfigBusy(false); setMigrateTarget(null); return
       }
       if (r.data.async && r.data.jobId) {
-        // copy/move runs in the background → show the progress pipeline and poll.
+        // 复制或迁移在后台执行 ⇒ 显示进度面板并轮询。
         setMigrateTarget(null)
         setMigrateJob({ jobId: r.data.jobId, migration: r.data.migration, total: r.data.total || 0,
           phase: 'copying', current: 0, currentName: '', steps: { copy: 'running', verify: 'pending', delete: 'pending' }, done: false, error: null })
         pollMigration(r.data.jobId)
       } else {
-        // instant switch
+        // 直接切换
         setAssetsConfig(cfg => ({ ...(cfg || {}), assetsRoot: r.data.assetsRoot, pendingRestart: true }))
         setDirInput(r.data.assetsRoot)
         setScanMsg({ type: r.data.envOverride ? 'warning' : 'success', text: r.data.note || 'Saved. Restart to apply.' })
@@ -279,9 +274,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     }
   }
 
-  // In-place "generate reference text": run the shared ASR kernel over the asset's
-  // own audio (raw and/or slices) and rescan — no promote, no training. Polls the
-  // -status endpoint until done, then refreshes the asset so segments/text appear.
+  // 原地生成参考文本：对资产自己的音频（原始音频与切片）跑 ASR，然后重新扫描，不发布也不训练。
+  // 轮询状态端点直到完成，再刷新该资产，切片与文本才会出现。
   const pollTranscribe = (id) => {
     const tick = async () => {
       try {
@@ -295,7 +289,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           if (job.status === 'done') {
             setScanMsg({ type: 'success', text: `Reference text generated for ${id} (${(job.done || []).join(', ')})` })
             loadAssets()
-            // Invalidate the cached segments so a re-expand refetches the new text.
+            // 作废缓存的切片，重新展开时才会取到新文本。
             setSegments(s => { const n = { ...s }; delete n[id]; return n })
             if (expandedId === id) {
               try {
@@ -341,12 +335,10 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     try { await api(`/api/assets/${id}/transcribe`, { method: 'DELETE' }) } catch (e) { console.warn('[assets] cancel transcribe failed:', e.message) }
   }
 
-  // Re-hydrate in-place transcribe jobs on mount. AssetsTab fully unmounts on page
-  // switch, so a transcription started before navigating away would otherwise vanish
-  // from the UI (status pill resets to "none", progress banner disappears) even though
-  // the backend keeps running it. Pull the live jobs, seed state, resume polling for
-  // any still running, and restore the banner — backend is the source of truth, so
-  // this also survives a full page reload. Runs once per mount.
+  // 挂载时恢复进行中的转写任务。切换页面会让本组件整个卸载，
+  // 挂载前启动的转写否则会从界面上消失（状态胶囊回到 none、进度横幅不见），
+  // 而服务端仍在执行它。拉取服务端记录的实时任务，写回状态，对仍在执行的继续轮询，
+  // 并恢复进度横幅：服务端是事实来源，所以整页刷新后也照样恢复。每次挂载跑一次。
   useEffect(() => {
     let cancelled = false
     api('/api/transcribe-jobs').then(r => {
@@ -367,10 +359,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Rebuild = hand off to the Train tab with the input folder + voice name
-  // prefilled (raw preferred, else the slices folder). Pure front-end: the user
-  // confirms and starts training. Re-slicing / model rebuild happen in the
-  // existing pipeline; no new backend endpoint is used.
+  // 重建：把输入目录与音色名预填后交给训练页。
+  // 纯前端：训练由用户确认后开始，切分与模型重建走既有训练管线，不新增后端端点。
   const handleRebuild = (id, asset) => {
     const a = asset.assets || {}
     const inputDir = a.raw?.dir || a.slices?.dir || ''
@@ -378,9 +368,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     setPage('train')
   }
 
-  // Poll a rebuild pipeline task to completion, then auto-rescan ALL assets so
-  // the restored voice becomes usable without a manual "Scan All". The rebuild
-  // pipeline (slice/asr/finalize/promote) runs server-side; we watch its status.
+  // 轮询重建管线任务直到完成，随后自动重新扫描全部资产，这样修复好的音色不必再手动点一次扫描。重建管线（切片、ASR、收尾、发布）在服务端跑，这里只读它的状态。
   const pollRebuild = (id, taskId, stages) => {
     if (rebuildPollRef.current) { clearTimeout(rebuildPollRef.current); rebuildPollRef.current = null }
     let tries = 0
@@ -397,14 +385,14 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           }))
           if (st === 'completed') {
             setRebuildJob(prev => ({ ...(prev || {}), id, steps, phase: 'scanning', status: st }))
-            await handleScan() // full re-scan (Scan All) so the asset is immediately usable
+            await handleScan() // 全量重新扫描（Scan All），让该资产立刻可用
             setRebuildJob(prev => ({ ...(prev || {}), id, steps, phase: 'done', status: st }))
-            if (setRebuildTask) setRebuildTask(null) // finished — stop persisting/resuming
+            if (setRebuildTask) setRebuildTask(null) // 完成了，不再持久化或恢复
             setTimeout(() => setRebuildJob(cur => (cur && cur.id === id && cur.phase === 'done') ? null : cur), 6000)
             return
           }
           if (['failed', 'cancelled', 'interrupted'].includes(st)) {
-            // Surface the exact failing step + its error so the user knows what broke.
+            // 报出失败的那一步与它的错误，让用户知道坏在哪里。
             let failedStep = r.data.currentStep, error = ''
             for (const [k, v] of Object.entries(steps)) {
               if (v && v.status === 'failed') { failedStep = k; error = v.error || ''; break }
@@ -413,16 +401,15 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
               ...(prev || {}), id, taskId, stages, steps, phase: 'failed', status: st, failedStep,
               error: error || `Rebuild ${st} (no error detail reported).`,
             }))
-            // Keep the failure visible AND persisted across navigation until the
-            // user dismisses it (so they don't miss a failed repair).
+            // 失败信息保持可见并持久化，跨页面也不丢，直到用户手动关掉。
             return
           }
         } else if (!r.ok && (r.status === 404 || r.status === 400)) {
-          // Task no longer known to the server (e.g. process restarted) — stop.
+          // 服务端已不认识这个任务（例如进程重启过），停止轮询。
           setRebuildJob(prev => (prev && prev.id === id) ? { ...prev, phase: 'failed', error: 'Rebuild task is no longer available on the server (it may have been restarted). Re-run the rebuild.', failedStep: prev.currentStep } : prev)
           return
         }
-      } catch (_) { /* transient — keep polling */ }
+      } catch (_) { /* 暂时性故障，继续轮询 */ }
       if (tries < 1800) rebuildPollRef.current = setTimeout(tick, 2000)
     }
     rebuildPollRef.current = setTimeout(tick, 1200)
@@ -430,8 +417,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
 
   useEffect(() => () => { if (rebuildPollRef.current) clearTimeout(rebuildPollRef.current) }, [])
 
-  // Resume an in-flight rebuild after navigating back to Assets (or a reload):
-  // the pipeline keeps running server-side; we just re-attach the progress panel.
+  // 回到资产页或刷新后恢复进行中的重建：管线仍在服务端跑，这里只是把进度面板接回来。
   useEffect(() => {
     if (rebuildTask && rebuildTask.taskId && !rebuildPollRef.current) {
       setRebuildJob({ id: rebuildTask.id, taskId: rebuildTask.taskId, stages: rebuildTask.stages || [], phase: 'running', status: 'pending', currentStep: null, steps: {}, error: null })
@@ -440,18 +426,17 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Dismiss a finished/failed rebuild panel and stop persisting it.
+  // 关掉已完成或已失败的重建面板，并停止持久化它。
   const dismissRebuild = () => { setRebuildJob(null); if (setRebuildTask) setRebuildTask(null) }
 
-  // Called when the Restore modal kicks off a rebuild. A pipeline-backed rebuild
-  // returns a taskId (poll it); a lightweight segments-only rebuild is synchronous.
+  // 修复弹窗启动重建时调用。走训练管线的重建返回 taskId（轮询它），只重建切片的轻量重建是同步的。
   const handleRebuildStarted = (id, data) => {
     if (data && data.taskId) {
-      if (setRebuildTask) setRebuildTask({ id, taskId: data.taskId, stages: data.stages || [] }) // persist for resume
+      if (setRebuildTask) setRebuildTask({ id, taskId: data.taskId, stages: data.stages || [] }) // 持久化，供恢复用
       setRebuildJob({ id, taskId: data.taskId, stages: data.stages || [], phase: 'running', status: 'pending', currentStep: null, steps: {}, error: null })
       pollRebuild(id, data.taskId, data.stages || [])
     } else {
-      // Lightweight (segments-only) rebuild is synchronous server-side — just rescan.
+      // 轻量重建（只重建切片）在服务端同步完成，重新扫描即可。
       setScanMsg({ type: 'info', text: `Restored ${id} — scanning…` })
       handleScan()
     }
@@ -477,11 +462,10 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     setDeleteConfirm(null)
     try {
       await api(`/api/assets/${id}`, { method: 'DELETE' })
-      // Refresh the global voice registry immediately so the Generate page
-      // dropdown drops the deleted voice without waiting for the re-scan.
+      // 立即刷新全局音色表，生成页的下拉不必等重新扫描就摘掉被删的音色。
       if (loadVoices) loadVoices()
       setScanMsg({ type: 'success', text: `Deleted ${id}. Re-scanning...` })
-      // Auto re-scan after delete
+      // 删除后自动重新扫描
       setTimeout(async () => {
         try {
           const r = await api('/api/assets/scan', { method: 'POST' })
@@ -519,14 +503,14 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   }
 
   const handleSetAsVoice = (assetId) => {
-    // Scan all already syncs voices.json, so the voice should already be in the list.
+    // 扫描已经把音色同步进 voices.json，这个音色应当已经在列表里。
     setSelectedVoice(assetId)
     setPage('generate')
   }
 
   const handleUseAsReference = (audioPath, text) => {
-    // Switch to the expanded asset's voice and go to Generate page.
-    // Reference audio + text are auto-loaded from segments.json.
+    // 切到展开的资产所属的音色并转到生成页。
+    // 参考音频与文本从 segments.json 自动带过去。
     if (expandedId) setSelectedVoice(expandedId)
     setPage('generate')
   }
@@ -542,7 +526,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
 
   const assetEntries = Object.entries(assets).sort((a, b) => (a[1].display_name || a[0]).localeCompare(b[1].display_name || b[0]))
 
-  // Summary totals (Phase 1, Part 6) — derived entirely from existing /api/assets data
+  // 汇总统计，全部由 /api/assets 的资产清单推导。
   const totals = assetEntries.reduce((acc, [, asset]) => {
     const a = asset.assets || {}
     acc.voices += 1
@@ -557,15 +541,13 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     return acc
   }, { voices: 0, raw: 0, rawDur: 0, slices: 0, byEngine: {}, segments: 0 })
 
-  // Derive a health badge for a voice from its available assets.
-  // Color-blind friendly: every state carries a distinct shape glyph (sym),
-  // so states stay distinguishable without relying on color alone.
+  // 由资产现有的内容推导健康徽章。
+  // 每种状态配一个形状符号，状态不依赖颜色也能分辨。
   const voiceHealth = (asset) => {
     const a = asset.assets || {}
-    // 判据从「有 GPT 且 有 SoVITS」改成「有没有任何模型」。
-    //   那个「两份都要有」是第一台引擎的成套要求，照搬到别的引擎上，
-    //   一个只有另一台引擎模型的角色会永远挂着红叉说自己缺模型，
-    //   而它完全能用。要不要成套是那台引擎的事，不是这排徽章的事。
+    // 判据是「有没有任何模型」，不是「某两个位是不是都有」。
+    //   成套要求属于具体引擎，搬到别的引擎上，只有另一台引擎模型的角色会一直挂红叉，而它完全能用。
+    //   要不要成套由那台引擎的 manifest 决定，不由这排徽章决定。
     const hasModels = countModelsInMeta(asset) > 0
     const hasRaw = (a.raw?.file_count || 0) > 0
     const hasSlices = (a.slices?.file_count || 0) > 0
@@ -581,20 +563,17 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                  note: 'No raw / slices / segments — re-import audio to rebuild.' }
       }
       if (hasSlices) {
-        // Slices still present → segments can be regenerated cheaply (no re-slice).
+        // 切片还在 ⇒ 切片表可以重新生成，不必重新切分。
         return { key: 'noseg', label: 'No Segments', cls: 'badge-seg', sym: '▲',
                  note: 'Slices present — rebuild segments.json from them (no re-slicing, no training).' }
       }
-      // Models present (passed the model check above) + raw, but slices/segments gone.
-      // Still usable: raw works as reference audio. Restore text refs via ASR (no retrain).
+      // 模型与原始音频都在，切片与切片表没了。
+      // 仍然可用：原始音频可以当参考音频。文本参考用 ASR 补回，不必重新训练。
       return { key: 'rawrefs', label: 'Raw Refs', cls: 'badge-ok2', sym: '◑',
                note: 'Usable now — raw serves as reference audio. Run ASR to restore text refs (no re-slicing, no retraining).' }
     }
-    // "Complete" (green ●) is FULL health: models + segments + BOTH raw and slices.
-    // If either raw or slices is missing (but models + segments remain), the asset is
-    // still usable but not fully healthy → "Ready" (blue half ◐), with a source-aware
-    // note. This keeps the badge honest: a normally-imported asset that later had its
-    // slices removed no longer masquerades as green "Complete".
+    // 「Complete」是完好的状态：模型、切片表、原始音频与切片都在。
+    // 缺了原始音频或切片（模型与切片表仍在）时仍然可用但不算完好，标为「Ready」并按缺的是哪一项给出说明：这样导入正常的资产后来被删掉切片时，不会继续显示成绿色的「Complete」。
     if (!hasRaw || !hasSlices) {
       const note = !hasRaw && !hasSlices
         ? 'Models + segments present; raw and slices removed (still usable).'
@@ -606,23 +585,22 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     return { key: 'complete', label: 'Complete', cls: 'badge-ok', sym: '●' }
   }
 
-  // Search + filter (Part 6) — all derived from existing /api/assets data
+  // 搜索与筛选，全部由 /api/assets 的资产清单推导。
   const healthCounts = assetEntries.reduce((acc, [, asset]) => {
     const l = voiceHealth(asset).label
     acc[l] = (acc[l] || 0) + 1
     return acc
   }, {})
-  // Text Issues is an orthogonal axis (reference-text health, not model/segment health):
-  // an asset that can be transcribed but has no usable text (none) or stale/broken
-  // paths (invalid). Surfaced as its own chip so warnings live in the filter row
-  // instead of a resident per-card banner.
+  // 文本问题是另一根轴（参考文本的健康，不是模型或切片的健康）：
+  // 可以转写却没有可用文本（none），或者路径失效（invalid）。
+  // 单列成一个筛选项，警告留在筛选行里，不做成每张卡片上常驻的横幅。
   const hasTextIssue = (asset) => {
     const canTx = (asset.raw?.file_count || 0) > 0 || (asset.slices?.file_count || 0) > 0
     const st = asset.reference_text?.state
     return canTx && (st === 'none' || st === 'invalid')
   }
   const textIssueCount = assetEntries.reduce((n, [, a]) => n + (hasTextIssue(a) ? 1 : 0), 0)
-  // Keep a stable filter order; only show chips for states that actually occur
+  // 筛选顺序保持稳定，只显示实际出现过的状态。
   const FILTER_ORDER = ['Complete', 'Ready', 'Raw Refs', 'No Segments', 'Missing Models', 'Missing GPT', 'Missing SoVITS', 'No Refs', 'Needs Scan']
   const filterChips = ['All', ...FILTER_ORDER.filter(l => healthCounts[l]), ...(textIssueCount ? ['Text Issues'] : [])]
   const q = search.trim().toLowerCase()
@@ -686,7 +664,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             onCollapse={() => setNoteOpen(false)}
           />
         )}
-        {/* Collapsed pill with no summary bar to tuck into (empty asset list) */}
+        {/* 资产列表为空时，折叠的提示胶囊没有汇总栏可挂。 */}
         {!noteExpanded && assetEntries.length === 0 && (
           <NamingNotePill onOpen={() => setNoteOpen(true)} />
         )}
@@ -729,23 +707,22 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           const slices = a.slices || {}
           // 这个角色手上有哪几台引擎的模型、各几个（有几台就显示几格）。
           const modelCounts = modelCountsByEngine(asset)
-          // 「精修」是那条训练管线自己的事：它要继续训的正是它自己产的
-          //   那两份权重 ⇒ 引擎名在这里是这个按钮自己的题目，不是平台写死一台引擎。
+          // 「精修」是训练管线自己的事：它要继续训的正是它自己产出的那两份权重。
+          // 引擎名写死在这里，因此这一页只对那一种模型形状成立。
           const canRefine = modelsFromMeta(asset, 'gpt-sovits', 'gpt').length > 0
                          && modelsFromMeta(asset, 'gpt-sovits', 'sovits').length > 0
           const segCount = asset.segment_total || 0
           const h = voiceHealth(asset)
           const canRebuild = (raw.file_count || 0) > 0 || (slices.file_count || 0) > 0
-          // Restore via the dependency planner (shortest path). Both "Raw Refs" and
-          // "Missing Models" open the same modal: the planner reuses existing slices
-          // and ASR, so e.g. a missing-model voice that still has slices+list only
-          // runs preprocess+train — it never re-slices or re-transcribes.
-          // Also offered for a "Ready" asset whose slices were removed but raw remains:
-          // the same modal can re-slice from raw (sliceChoice='real') to restore full health.
+          // 修复走依赖规划器（取最短路径）。「Raw Refs」与「Missing Models」开同一个弹窗：
+          // 规划器复用已有的切片与 ASR 结果，所以只有切片与列表、缺模型的角色只跑预处理与训练，
+          // 既不重新切片也不重新转写。
+          // 切片被删但原始音频还在的「Ready」资产也开这个弹窗：
+          // 同一弹窗可以从原始音频重新切片（sliceChoice='real'），把健康度补回来。
           const canReslice = (raw.file_count || 0) > 0 && (slices.file_count || 0) === 0
           const showRestore = h.key === 'rawrefs' || h.key === 'nomodel' || (h.key === 'ready' && canReslice)
-          // No Refs is a dead end (no raw/slices); keep the Train-tab fallback so the
-          // user can re-import. No Segments is fixed by Scan alone (no training).
+          // 「No Refs」是死路（既没有原始音频也没有切片），保留训练页的入口让用户重新导入。
+          // 「No Segments」扫一次就能修好，不必训练。
           const showRebuild = h.key === 'norefs'
           const isExpanded = expandedId === id
           const segData = segments[id]
@@ -805,7 +782,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                   </div>
                 </div>
                 <div className="asset-actions">
-                  {/* Secondary actions */}
+                  {/* 次要操作。 */}
                   <div className="aa-group">
                     <button className="btn btn-sm btn-ghost" onClick={() => handleBrowse(id)}>
                       {isExpanded ? 'Collapse' : 'Browse'}
@@ -860,21 +837,20 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                       <IconFolderSearch size={14} color="var(--muted)" />
                     </button>
                   </div>
-                  {/* Danger action */}
+                  {/* 危险操作。 */}
                   <button className="btn btn-sm btn-ghost aa-danger" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
                     <IconTrash size={14} color="var(--danger)" />
                   </button>
-                  {/* Primary action */}
+                  {/* 主要操作。 */}
                   <button className="btn btn-sm btn-primary" onClick={() => handleSetAsVoice(id)}>
                     Set as Voice
                   </button>
                 </div>
               </div>
               {(() => {
-                // Reference-text status as a COMPACT pill in the stats row (no extra
-                // full-width row → cards stay short). Clicking it reveals the in-place
-                // transcribe controls on demand. Advisory-only: inference works without
-                // text; a real content check (not mere file existence) drives the state.
+                // 参考文本状态显示为统计行里的紧凑胶囊（不另占一行，卡片保持短）。
+                // 点它按需展开原地转写控件。
+                // 只是提示：推理不需要文本，状态由内容检查（不只是文件存在）决定。
                 const rt = asset.reference_text || {}
                 const hasRawAudio = (raw.file_count || 0) > 0
                 const hasSliceAudio = (slices.file_count || 0) > 0
@@ -887,7 +863,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                   invalid: { label: 'Invalid', cls: 'tp-bad',  sym: '!' },
                 }
                 const ts = TEXT_STATE[rt.state] || TEXT_STATE.none
-                // State-derived advisory so the tooltip never lies (backend may omit it).
+                // 提示文案由状态推导，服务端没给时也不写错。
                 const TEXT_ADVICE = {
                   both:    'Reference text present for raw and slices.',
                   slices:  'Reference text present for slices only — raw has none.',
@@ -943,7 +919,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                             {hasRawAudio && hasSliceAudio && <option value="both">Both</option>}
                           </Select>
                           {running ? (
-                            // 红色：终止一个已经开始的转写。
+                            // 终止一个已经开始的转写。
                             <button className="btn btn-sm btn-danger" onClick={() => handleCancelTranscribe(id)}>
                               Cancel{(tx.done || []).length ? ` (${tx.done.join(', ')} done)` : ''}
                             </button>
@@ -956,7 +932,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                               Generate reference text
                             </button>
                           )}
-                          {/* 校对已有文本（无 ASR）。 */}
+                          {/* 校对已有文本，不做 ASR。 */}
                           <button
                             className="btn btn-sm btn-ghost"
                             disabled={running}
@@ -1015,7 +991,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         })}
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* 删除确认弹窗。 */}
       <DeleteAssetDialog
         target={deleteConfirm}
         deleting={deleting}
@@ -1023,7 +999,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         onCancel={() => setDeleteConfirm(null)}
       />
 
-      {/* Restore Asset Modal (dependency-driven repair with user-chosen options) */}
+      {/* 修复弹窗（按依赖规划修复，修复方式由用户选择）。 */}
       {restoreTarget && (
         <RestoreModal
           id={restoreTarget.id}
@@ -1033,7 +1009,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* 校对已有参考文本（无 ASR）。 */}
+      {/* 校对已有参考文本，不做 ASR。 */}
       {proofTarget && (
         <ReferenceTranscriptProofing
           voiceId={proofTarget.id}
@@ -1048,7 +1024,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* S2 声学精修 → 衍生新音色。 */}
+      {/* S2 声学精修，衍生出新音色。 */}
       {refineTarget && (
         <RefineModal
           voiceId={refineTarget.id}
@@ -1062,10 +1038,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             setTimeout(() => setScanMsg(null), 6000)
             loadVoices && loadVoices()
             loadAssets()
-            // Adopt the refine task so its progress — and the ASR proofreading panel
-            // when "Pause after ASR" was requested — surface on the Train page (the
-            // only place the review UI renders). Without this the paused task would
-            // sit in awaiting_review with no way to proofread it.
+            // 接管精修任务，让它的进度以及请求过「ASR 后暂停」时的校对面板
+            //   出现在训练页（校对界面只在那里渲染）。不接管的话，暂停的任务会
+            //   停在 awaiting_review，没有办法校对。
             if (data && data.taskId && setActiveTaskId) {
               setActiveTaskId(data.taskId)
               setPage('train')
@@ -1074,7 +1049,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         />
       )}
 
-      {/* Assets-directory migration: current dir is non-empty, ask what to do. */}
+      {/* 资产目录迁移：当前目录非空，先问用户要做什么。 */}
       <MigrateChoiceDialog
         migrateTarget={migrateTarget}
         assetCount={Object.keys(assets || {}).length}
@@ -1083,10 +1058,10 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         onCancel={() => setMigrateTarget(null)}
       />
 
-      {/* Background copy/move progress — simple copy → verify → delete pipeline. */}
+      {/* 后台复制或迁移的进度：复制、校验、删除三步。 */}
       <MigrateProgressDialog migrateJob={migrateJob} onClose={() => setMigrateJob(null)} />
 
-      {/* In-app folder browser — pick an assets directory reliably on any OS. */}
+      {/* 内置目录浏览器：在任何系统上都能可靠地选资产目录。 */}
       <FolderBrowser
         open={browseOpen}
         browseData={browseData}
@@ -1103,12 +1078,6 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   )
 }
 
-//  BROKER TAB (P4 — MVP)
-// The distribution surface: recipes grouped by voice, the OpenAI-compatible
-// endpoint + a copyable example curl (voice = role/name), recipe deletion, and
-// model re-bind (two avenues: project-query dropdowns backed by
-// /api/recipes-models/:role, and a manual project-relative path field — the
-// folder-icon fallback; a native file browser is a later polish).
 
 export {
   AssetsTab,
