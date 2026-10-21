@@ -66,9 +66,7 @@ function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onClose }
   )
 }
 
-// ============================
 //  RESTORE ASSET MODAL
-// ============================
 // Secondary menu for dependency-driven asset repair. Instead of silently
 // executing the backend's shortest path, this lets the user choose HOW to
 // restore (re-slice vs. use raw as-is, transcribe or not, retrain or not) and

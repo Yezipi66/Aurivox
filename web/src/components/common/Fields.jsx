@@ -78,13 +78,11 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 //  Broker: OpenAI-compatible speech API notice (acknowledge-able, i18n).
 //  Mirrors the Assets naming-note pattern. Explains that the endpoint follows
 //  OpenAI's POST /v1/audio/speech shape but with a few Aurivox specifics
 //  (voice = recipe id, model ignored, server-side language resolution, etc.)
 //  and shows a couple of ready-to-run commands. Product terms stay English.
-// ---------------------------------------------------------------------------
 
 function BrokerApiNotePill({ onOpen, className = '' }) {
   const { t } = useT()
@@ -208,9 +206,7 @@ client.audio.speech.create(
   )
 }
 
-// ===========================
 //  TRAINING TAB
-// ===========================
 
 function NumField({ label, value, onChange, min, max, step = 1 }) {
   return (
@@ -245,12 +241,10 @@ function SelectField({ label, value, onChange, options = [] }) {
   );
 }
 
-// ===========================================================================
 //  Shared training-parameter source of truth
 //  Both the Training page and the Restore/Rebuild modal render the *same*
 //  parameter panels and serialise through the *same* builders, so whatever the
 //  formal training flow exposes, the rebuild flow exposes identically.
-// ===========================================================================
 
 export {
   NamingNotePill,

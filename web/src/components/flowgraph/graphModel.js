@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 //  What the canvas does to a graph, with no React in sight
-// ---------------------------------------------------------------------------
 // Everything here is a pure function on a plain graph object — the same shape
 // the server saves and the engine runs. Keeping it separate means the rules
 // about what may connect to what can be tested without a browser, and the
@@ -68,9 +66,7 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
   }
 }
 
-// ---------------------------------------------------------------------------
 //  Voice as a preset
-// ---------------------------------------------------------------------------
 // A voice belongs to the broker, not to this canvas: it is not a live binding
 // and nothing here writes back to it. What a voice is good for here is saving
 // someone from typing a dozen settings — pick one, its values are copied into
@@ -170,9 +166,7 @@ export function removeNode(graph, nodeId) {
   }
 }
 
-// ---------------------------------------------------------------------------
 //  Text, zoom and keyboard helpers — pure, so they can be tested without a DOM
-// ---------------------------------------------------------------------------
 
 // The catalogue carries every label and every sentence as { en, zh }. Older
 // fixtures (and any node whose server has not been updated) carry a plain

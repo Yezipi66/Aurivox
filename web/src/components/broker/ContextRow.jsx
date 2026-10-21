@@ -9,7 +9,6 @@ import { usePersistentState } from '../../usePersistentState'
 import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
 import { modelCountsByEngine, paramsSummaryOf } from '../../lib/modelPickers.pure.js'
 
-// ============================
 // Compact workbench context / status row (Phase 1, Part 1.1)
 // Frontend-only: derives from existing /api/assets, /api/health and the
 // active training task. Missing data degrades to graceful placeholders.

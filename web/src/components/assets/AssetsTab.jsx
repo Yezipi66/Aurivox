@@ -14,9 +14,7 @@ import { MigrateChoiceDialog, MigrateProgressDialog, FolderBrowser } from './Ass
 import { AssetsSummaryBar, AssetsToolbar } from './AssetsToolbar'
 import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
 
-// ============================
 //  ASSETS TAB
-// ============================
 function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
   const { t } = useT()
   const [assets, setAssets] = useState(null)
@@ -1106,9 +1104,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
   )
 }
 
-// ===========================
 //  BROKER TAB (P4 — MVP)
-// ===========================
 // The distribution surface: recipes grouped by voice, the OpenAI-compatible
 // endpoint + a copyable example curl (voice = role/name), recipe deletion, and
 // model re-bind (two avenues: project-query dropdowns backed by

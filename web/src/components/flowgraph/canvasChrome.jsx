@@ -5,9 +5,7 @@ import {
   clampDock, buttonStyle, iconButtonStyle, fieldStyle,
 } from './canvasShared'
 
-// ---------------------------------------------------------------------------
 //  Docks — laid out beside the sheet, not on top of it, and resizable.
-// ---------------------------------------------------------------------------
 
 export function Dock({ label, width, onClose, children }) {
   return (

@@ -1,7 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
 //  DragBind: 参数池与槽位绑定。
 //
 //  参数池：cli 扫出的 flag 与 python 反射出的参数名渲染成可操作项，
@@ -15,7 +14,6 @@ import { useT } from '../../../web/src/lib/i18n'
 //    键盘（combobox 保留，在 CoreBindings 里）
 //
 //  绑定不直接写盘：改为内存态，用户显式保存才落盘。
-// ============================================================================
 
 const BIND_SLOTS = [
   { key: 'text', labelEn: 'Text to synthesize', labelZh: '合成文本' },

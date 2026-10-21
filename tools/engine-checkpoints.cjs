@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict'
 
-// ============================================================================
 //  底模核对：这台引擎的权重齐不齐、该去哪儿下
 //
 //    node tools/engine-checkpoints.cjs                    全部在册引擎
@@ -12,7 +11,6 @@
 //  下模型要联网、要几个 GB，有的还要先去网站点同意；把它塞进「装源码」那一步，
 //  失败之后没人说得清是哪一半没成。
 //  底模状态取自 lib/engines/checkpoints.js。
-// ============================================================================
 
 const path = require('path')
 const { getEngine, listEngineIds } = require(path.join(__dirname, '..', 'lib/engines/registry'))

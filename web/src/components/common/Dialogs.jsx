@@ -150,9 +150,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
   )
 }
 
-// ===========================
 //  GENERATE TAB
-// ===========================
 
 // Reusable secondary-confirmation modal (replaces the browser's native
 // window.confirm, which is unstyled/ugly). Reuses .modal-overlay/.modal-card.

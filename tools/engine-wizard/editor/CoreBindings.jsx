@@ -1,7 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// ============================================================================
 // CORE BINDINGS：区 1 核心映射，平台三个输入对应引擎哪个参数
 //
 // 平台固定需要三个输入：合成文本、参考音频、输出。每个对应引擎的一个参数。
@@ -13,7 +12,6 @@ import { useT } from '../../../web/src/lib/i18n'
 // 数据：value = manifest.call.bind[槽位]
 //       candidates = 当前子命令的 flag 列表（区 3 扫描结果，来自 onAutoFilled）
 //       matched = 扫描认出的 flag（{text, ref_audio, output_path}，null=没认出）
-// ============================================================================
 
 const SLOTS = [
   { key: 'text', labelEn: 'Text to synthesize', labelZh: '合成文本' },

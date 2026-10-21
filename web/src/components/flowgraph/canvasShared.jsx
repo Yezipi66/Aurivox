@@ -1,8 +1,6 @@
 import { pickText, findDefinition, edgesOf, colourFor, describeValue } from './graphModel'
 
-// ---------------------------------------------------------------------------
 //  Shared constants and utilities
-// ---------------------------------------------------------------------------
 
 export const NODE_WIDTH = 252
 export const ROW_HEIGHT = 22

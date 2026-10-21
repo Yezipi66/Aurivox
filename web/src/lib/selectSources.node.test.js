@@ -4,9 +4,7 @@ import {
   SELECT_SOURCES, basenameOf, voiceOptions, weightOptions, audioOptions, optionsForField
 } from './selectSources.pure.js'
 
-// ---------------------------------------------------------------------------
 //  select + source 的候选表
-// ---------------------------------------------------------------------------
 
 test('平台只认三个库，而且和后端是同一张表', () => {
   // 两边分叉的症状：名片写 source:"audio"，后端收得下、前端递不出候选：

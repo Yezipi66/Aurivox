@@ -6,7 +6,6 @@ import RequiredEight from './RequiredEight'
 import CliGenPanel from './CliGenPanel'
 import CoreBindings from './CoreBindings'
 
-// ============================================================================
 //  MANIFEST FORM：名片填表（不是 JSON 编辑器）
 //
 //      这个组件存在的理由
@@ -20,14 +19,11 @@ import CoreBindings from './CoreBindings'
 //    .control / .param-grid / .plan-warn / .rc-cmd / .expert-block /
 //    .expert-summary / .badge / .msg：一个自造的 mf-*/pr-* 都不留。
 //
-// ============================================================================
 
-// ---------------------------------------------------------------------------
 // 分组标题：用平台的词汇，不自己造中文名
 //  为什么不是「怎么起进程」这种说法：平台自己的界面从不这么叫它。
 //   造一套「更friendly」的说法 = 造第二套词汇，用户学的是我的词、
 //   填的是平台的键，两边不匹配。 显示键名，说明放在 fieldmeta 的 howto 里。
-// ---------------------------------------------------------------------------
 const GROUP_LABELS = {
   basics: { en: 'Basics', zh: '基本信息' },
   source: { en: 'Source', zh: '源码与许可' },
@@ -129,9 +125,7 @@ function Field ({ sec, value, onChange }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 // 参数区：可增删的行
-// ---------------------------------------------------------------------------
 function ParamRow ({ entry, index, spec, onChange, onDelete }) {
   const { t } = useT()
   const set = (k, v) => {
@@ -276,17 +270,13 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 //   从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）
 //   只填表单，不直接写 manifest.json；映射候选只给候选，人点选之后才写 maps。
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 //   主组件操作流：
 //   ① 顶部：从 CLI 扫描生成（新建/读取名片 → 扫描参数 → 参数表 → 自动填）
 //   ② 中部：手工编辑（导入已有 / 核心字段 runtime+call+models / 反射生成）
 //   ③ 折叠：高级设置（source/capabilities/install/output）+ 参数区 parameters
-// ---------------------------------------------------------------------------
 export default function ManifestForm ({ manifest, onChange, spec }) {
   const { t } = useT()
   const { installed } = useInstalled()

@@ -233,7 +233,6 @@ test('default 标记优先于第一条', () => {
   assert.equal(reconcileSelection(slotsOf(ONE_SLOT), groups, null).solo, 'p2')
 })
 
-// --- 选中的模型怎么发出去 ------------------------------------------------
 const SEND_SLOTS = [
   { name: 'alpha', label: 'A', param: 'alpha_model' },
   { name: 'beta', label: 'B', param: 'beta_model' },
@@ -408,7 +407,6 @@ test('顺序照抄音色清单，不重排', () => {
   assert.deepEqual(got.map(v => v.id), ['base', 'alice', 'bob'])
 })
 
-// --- 历史记录那一行怎么写 -----------------------------------------------
 //
 // 一种形状：一条 IndexTTS2 的记录印着
 //     Base model · Auto · GPT - / SoVITS - · ref 交谈2_2.wav · seed 3788417817
@@ -476,13 +474,11 @@ test('⛔ 这个文件里不许出现任何真实引擎 id 或模型位名字', 
   }
 })
 
-// ---------------------------------------------------------------------------
 //  paramsSummaryOf：配方的参数摘要
 //
 //  它取代的是 Broker 页里写死的 `top_k {…} · temperature {…} · speed {…}`。
 //     换一台引擎时，那三个键不存在 ⇒ 摘要显示一串 undefined，而配方里
 //     真带的参数（prompt_text / spk_id …）一个字都不显示。
-// ---------------------------------------------------------------------------
 
 test('⭐ 摘要显示配方里真有的键，不显示配方里没有的键', () => {
   const r = paramsSummaryOf({ prompt_text: '你好', spk_id: '中文女' }, null)

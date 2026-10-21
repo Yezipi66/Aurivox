@@ -234,9 +234,7 @@ function LinesField ({ value, onChange, t }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 // runtime.verify：装没装 / 起不来得来，就看它
-// ---------------------------------------------------------------------------
 function VerifyField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (patch) => onChange({ ...v, ...patch })
@@ -334,9 +332,7 @@ function VerifyField ({ value, onChange, t }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 // call.bind：槽位，对应平台的固定词表
-// ---------------------------------------------------------------------------
 function BindField ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
@@ -439,9 +435,7 @@ function MethodsField ({ value, onChange, t }) {
   )
 }
 
-// ---------------------------------------------------------------------------
 // 三段的编辑器
-// ---------------------------------------------------------------------------
 export function RuntimeSection ({ value, onChange, t }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {

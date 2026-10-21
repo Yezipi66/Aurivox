@@ -2,7 +2,6 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 
-
 const buildCommand = (c) => {
   if (c.tool === 'snapshot') {
     return {
@@ -398,7 +397,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 不删原目录：hf/modelscope 的缓存在那里，删了要重下。
   // 不替用户决定路径：这是平台统一落盘策略，不是用户可选的。
 
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {err && <div className="msg msg-danger">{err}</div>}
@@ -735,13 +733,11 @@ async function resetThisStepOf (id) {
   } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
 }
 
-
 // StepVerify 已移出本文件：原实现（自动跑前三道 + 无条件上报 verified）
 //   会让第 5 步一进入就变成对勾，且形状与那块的三块独立结果不符。
 //   实现与理由见 ./StepVerify.jsx 头部。
 export { StepVerify } from './StepVerify'
 
-// ---------------------------------------------------------------------------
 //  流程条只有五步，不设「装完了怎么用」那一步。
 // 它属于文档，不占一个流程步骤：一个只放说明、不执行任何动作的格子
 //  是流程条上的一格空话，且它往往要把内部术语（engines/、Manifest、

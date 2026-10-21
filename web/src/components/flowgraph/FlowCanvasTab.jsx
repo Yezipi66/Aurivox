@@ -19,9 +19,7 @@ import { Dock, Rail, Splitter, Palette, Toolbar } from './canvasChrome'
 import { NodeBox, Inspector } from './canvasNodes'
 import { RunPanel } from './canvasRun'
 
-// ---------------------------------------------------------------------------
 //  The canvas
-// ---------------------------------------------------------------------------
 // Laid out like an editor: a dock on each side for the node list and the
 // settings/run report, the sheet in the middle taking every pixel that is left.
 // The docks sit beside the sheet rather than over it, can be dragged to any
@@ -85,8 +83,6 @@ export function FlowCanvasTab() {
   // Notices are held as a pair and translated at the moment they are drawn, so
   // switching language does not leave a stale sentence in the old one.
   const say = useCallback((en, zh, bad = false) => setNote({ bad, en, zh }), [])
-
-  // -- loading ---------------------------------------------------------------
 
   const reloadSaved = useCallback(() => {
     api('/api/flowgraph/graphs').then(r => { if (r.ok) setSaved(r.data.graphs || []) }).catch(() => {})
@@ -366,8 +362,6 @@ export function FlowCanvasTab() {
       setNote({ bad: true, en: result.reason_i18n?.en || result.reason, zh: result.reason_i18n?.zh || result.reason })
     } else { setGraph(result.graph); setNote(null) }
   }
-
-  // -- the buttons -----------------------------------------------------------
 
   const drop = definition => {
     setGraph(g => addNode(g, definition, { x: 120 + (g.nodes.length % 5) * 70, y: 90 + (g.nodes.length % 7) * 50 }))
