@@ -73,15 +73,16 @@ jobs:
 
       # 建平台根 venv 并装 uv。
       #   解释器路径按平台来：Windows 是 venv\Scripts\python.exe，posix 是 venv/bin/python。
-      #   python3 这个名字只在 posix 上稳；Windows 上 setup-python 装的是 python.exe
-      #   ⇒ 两个名字都试。
+      #   解释器名：Windows 上 setup-python 装的是 python.exe，
+      #   而 python3 那个名字在 Windows 上可能指向 Microsoft Store 的 stub
+      #   （那个会弹商店、打不开）⇒ Windows 上先试 python。
       - name: 建平台根 venv 并装 uv
         shell: bash
         run: |
-          if command -v python3 >/dev/null 2>&1; then
-            BOOTSTRAP=python3
-          else
+          if [ "$RUNNER_OS" = "Windows" ]; then
             BOOTSTRAP=python
+          else
+            BOOTSTRAP=python3
           fi
           "$BOOTSTRAP" -m venv venv
           if [ -x "venv/bin/python" ]; then
@@ -91,6 +92,11 @@ jobs:
           fi
           "$PY" -m pip install --upgrade pip
           "$PY" -m pip install uv
+          # 打印出来：解释器到底在哪儿、能不能跑，
+          #   免得测试红的时候还要猜是哪一步没成。
+          echo "解释器: $PY"
+          "$PY" --version
+          "$PY" -c "import sys; print('sys.executable =', sys.executable)"
 
       # cache/ 是 gitignore 的（可再生缓存的位置），
       #   干净检出里没有 ⇒ 写日志前先建出来。

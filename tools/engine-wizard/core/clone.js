@@ -40,10 +40,27 @@ function gitOut (args, cwd) {
   }
 }
 
-/** 两个路径是不是同一个目录（Windows 上大小写不敏感，分隔符写法也可能不同） */
+/**
+ * 两个路径是不是同一个目录。
+ *
+ * 为什么不能直接比字符串：
+ *   Windows 上同一个目录可以有多种写法 ——
+ *   短路径（C:\Users\RUNNER~1\AppData\Local\Temp）
+ *   与长路径（C:\Users\runneradmin\AppData\Local\Temp）指的是同一个地方，
+ *   而 git rev-parse --show-toplevel 返回的是长路径、Node 的 tmpdir() 给的是短路径。
+ *   直接比字符串 ⇒ 判定为「不是同一个目录」⇒ 误判成「这个目录不是 git 仓库」。
+ *   （CI 的 Windows runner 上 os.tmpdir() 就是短路径，所以这条在那里必现。）
+ *
+ * 做法：先 fs.realpathSync 把两边都展开成同一个形式再比。
+ *   拿不到（路径不存在）时退回「按字符串比」——
+ *   那时两边本来就该是同一个字符串。
+ */
 function samePath (a, b) {
   if (!a || !b) return false
-  const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  const norm = (p) => {
+    try { return fs.realpathSync.native(p).replace(/[\\/]+$/, '').toLowerCase() } catch (e) { /* 拿不到就用原样 */ }
+    return path.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  }
   return norm(a) === norm(b)
 }
 
