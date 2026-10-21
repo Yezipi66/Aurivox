@@ -138,9 +138,7 @@ test('薄壳 .bat 与 .sh 都调同一份 Node 主体，且不含逻辑', () => 
 })
 
 // ── 7.  .bat 必须是纯 ASCII（写成守卫免得有人加回中文）────
-//        cmd.exe 按系统 OEM 代码页读 .bat，而本文件是 UTF-8，GBK 解码会把行尾
-//        当双字节字符的后半截吃掉，换行错位，cmd 于是把注释碎片当命令执行。
-//        chcp 65001 救不了（只影响它之后的行）。
+//        原因写在断言消息里，不在这里重复一遍。
 test('install-torch.bat 是纯 ASCII', () => {
   const buf = fs.readFileSync(path.join(ROOT, 'tools', 'deploy', 'install-torch.bat'))
   const bad = [...buf].filter(b => b > 127)
