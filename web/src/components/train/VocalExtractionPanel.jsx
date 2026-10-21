@@ -67,7 +67,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
     : [];
 
   // 把「缺哪些权重 / 怎么下载」同步给外层主动作按钮：权重不齐时它要换成
-  // 「下载模型」，这是拆分前就有的行为。用 key 串判等，避免每次渲染都回调。
+  // 「下载模型」。用 key 串判等，避免每次渲染都回调。
   const missingKey = vocalMissingIds.join(',');
   useEffect(() => {
     onMissingChange?.(missingKey ? vocalMissingIds : []);

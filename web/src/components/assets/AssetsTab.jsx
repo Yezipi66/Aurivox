@@ -549,8 +549,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     acc.raw += (a.raw?.file_count || 0)
     acc.rawDur += (a.raw?.total_duration || 0)
     acc.slices += (a.slices?.file_count || 0)
-    // 模型总数按引擎分开数，以前是写死的两格，第二台引擎的模型
-    // 在这排统计上一个数字都露不出来。
+    // 模型总数按引擎分开数：每台引擎的模型在这排统计上各有一个数字。
     for (const c of modelCountsByEngine(asset)) {
       acc.byEngine[c.engineId] = (acc.byEngine[c.engineId] || 0) + c.count
     }
