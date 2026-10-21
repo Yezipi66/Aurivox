@@ -774,8 +774,13 @@ test('命令相同且产物还在 ⇒ 可以 SKIPPED（断点续传正常工作�
   // 这个测试在 Windows 上会真的 spawn python，所以只测非 venv 那步
   const installStep = { kind: 'env', argv: ['uv', 'pip', 'install', 'torch'] }
   // 装包那步的产物检查：site-packages 非空
-  //   这里造一个假的 site-packages 目录
-  const sitePackages = path.join(venvDir, 'Lib', 'site-packages')
+  //   这里造一个假的 site-packages 目录。
+  //   路径按平台来：Windows 是 Lib/site-packages，posix 是 lib/python3.x/site-packages
+  //   （sitePackagesNonEmpty 找的就是后者）⇒ 写死 Windows 那份在 Linux 上
+  //   造出一个它根本不看的地方，断言必然红。
+  const sitePackages = process.platform === 'win32'
+    ? path.join(venvDir, 'Lib', 'site-packages')
+    : path.join(venvDir, 'lib', 'python3.11', 'site-packages')
   fs.mkdirSync(sitePackages, { recursive: true })
   fs.writeFileSync(path.join(sitePackages, 'dummy.txt'), 'dummy')
   assert.strictEqual(envMod.sitePackagesNonEmpty(venvDir), true,
