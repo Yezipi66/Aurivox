@@ -1,8 +1,8 @@
-// 启动编排器（跨平台主体）。项目根靠上溯找持有 package.json 的那一层定位，不数目录
-// 层级。优先用仓库自带的可移植 Node，没有就退回 PATH。用部署好的 venv Python（由
-// lib/engines/platformPaths.js 按平台推导）。前端随包发布已构建好（web\dist），只在
-// dist 缺失时才兜底构建。「起哪台引擎、拿什么起」全部问 engine-launch-plan.cjs，
-// 这里不写具体引擎的知识；端口判定在 lib/system/portChoice.js。
+// 启动编排器（跨平台主体）。项目根取本文件上溯两级，即仓库根。
+// 优先用仓库自带的可移植 Node（tools/runtime/node），没有就退回 PATH。
+// 各台引擎的 Python 解释器用它们名片里声明的 venv，路径由 lib/engines/envCheck.js
+// 经 lib/engines/platformPaths.js 按平台推导。前端随包发布已构建好（web/dist），只在 dist 缺失时才兜底构建。
+// 「起哪台引擎、拿什么起」全部问 engine-launch-plan.cjs，这里不写具体引擎的知识；端口判定在 lib/system/portChoice.js。
 'use strict'
 
 const fs = require('node:fs')
@@ -16,7 +16,7 @@ const PC = require(path.join(ROOT, 'lib', 'system', 'portChoice.js'))
 const IS_WIN = process.platform === 'win32'
 const DRY = process.argv.includes('--dry-run')
 
-// 输出：既进终端也进 logs\startup.log
+// 输出：既进终端也进 logs/startup.log
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR
 const COL = { Cyan: 36, Gray: 90, Yellow: 33, Green: 32, Red: 31, DarkGray: 90 }
 
@@ -42,9 +42,8 @@ function WarnBox (lines, colorName = 'Yellow') {
 async function main () {
   // 0. 准备
 
-  // 非 ASCII 安装路径：警告，不拒绝。非英文路径在某些 Windows 配置下经由传统 GBK
-  // 控制台起子进程时会被弄成 `D:\??\`，那会让引擎/后端起不来。子进程已被强制 UTF-8，
-  // 而现代 Windows 一般能处理 Unicode 路径。
+  // 非 ASCII 安装路径：警告，不拒绝。非英文路径在某些 Windows 配置下经由传统 GBK 控制台起子进程时
+  // 会被弄成 `D:\??\`，那会让引擎与后端起不来。子进程已被强制 UTF-8，而现代 Windows 一般能处理 Unicode 路径。
   {
     const bad = [...ROOT].filter(c => c.charCodeAt(0) > 127)
     if (bad.length) {
@@ -61,8 +60,8 @@ async function main () {
     }
   }
 
-  // 强制所有子进程（后端 server.js、引擎、以及它们再起的）用 UTF-8。否则中文 Windows
-  // 的 GBK 控制台在引擎打出非 GBK 字符时抛 UnicodeEncodeError，/v1/audio/speech 直接 502。
+  // 强制所有子进程（后端 server.js、引擎、以及它们再起的）用 UTF-8。否则中文 Windows 的 GBK 控制台
+  // 在引擎打出非 GBK 字符时抛 UnicodeEncodeError，/v1/audio/speech 直接 502。
   process.env.PYTHONUTF8 = '1'
   process.env.PYTHONIOENCODING = 'utf-8'
   process.env.PYTHONUNBUFFERED = '1'
@@ -99,13 +98,12 @@ async function main () {
   Log(`node : ${NODE}`, 'DarkGray')
 
   // 1. 问 manifest.json：起哪几台
-  //   $ENGINE_IDS   逗号分隔的 id 列表，例：gpt-sovits,indextts2
+  //   $ENGINE_IDS   逗号分隔的 id 列表
   //   $ENGINE_ID    单台（老写法，继续认；两个都设时 ENGINE_IDS 说了算）
-  //   两个都不设     = engines\ 下装了的每一台
+  //   两个都不设     = engines/ 下装了的每一台
   //
-  // 默认起全部，是为了让「加一台引擎 = 克隆上游 + 写一张 manifest.json + 一行代码都
-  // 不写」这句话真的成立：默认值一旦写死某个 id，第三台引擎的作者就得改这个文件。
-  // 不限制同时起几台，也不在这里判断显存够不够。
+  // 默认起全部，是为了让「加一台引擎 = 克隆上游 + 写一张 manifest.json + 一行代码都不写」这句话真的成立：
+  // 默认值一旦写死某个 id，第三台引擎的作者就得改这个文件。不限制同时起几台，也不在这里判断显存够不够。
   const CLI = path.join(ROOT, 'lib', 'engines', 'engine-launch-plan.cjs')
 
   function askPlan (args) {
@@ -130,8 +128,7 @@ async function main () {
 
   /**
    * 问一次 manifest.json。给了 port 就按它算命令行，不给就用名片声明的默认端口。
-   * 纯函数、无副作用：可以放心问两次，第一次拿期望端口去解冲突，
-   * 解完带着定下来的端口再问一次要最终命令行。
+   * 纯函数、无副作用：可以放心问两次，第一次拿期望端口去解冲突，解完带着定下来的端口再问一次要最终命令行。
    */
   function enginePlan (id, port) {
     const args = ['--engine', id]
@@ -177,17 +174,16 @@ async function main () {
       OwnerPid: null,
       Skip: false,
       SkipReason: '',
-      // 开机到底点不点着它。这个答案由平台从名片推出来（lib\engines\residency.js）：
+      // 开机到底点不点着它。这个答案由平台从名片推出来（lib/engines/residency.js）：
       // 那台引擎的模型若是「开进程那一步吃进去」的，起着就等于占着内存，放掉真能吐出来，
       // 于是开机不点，第一次真有人要它时后端自己去起。
       Preload: plan0.preload === true,
       OnDemand: plan0.on_demand === true,
     }
     if (rec.Launchable) {
-      // 不能查死一个 venv 路径：每台引擎完全可能用别的解释器（自己的 venv、conda、系统
-      // python），查死一个路径等于规定所有引擎必须共用一个 venv。路径由名片给出
-      //（plan.python）。别在这儿再套一层 venvPython()：plan.python 已经是可执行文件本身，
-      // 再套一次会得到一个更短且必然不存在的路径。
+      // 不能查死一个 venv 路径：每台引擎完全可能用别的解释器（自己的 venv、conda、系统 python），
+      // 查死一个路径等于规定所有引擎必须共用一个 venv。路径由名片给出（plan.python）。
+      // 别在这儿再套一层 venvPython()：plan.python 已经是可执行文件本身，再套一次会得到一个更短且必然不存在的路径。
       if (!plan0.python || !fs.existsSync(plan0.python)) {
         Log(`[engine][ERROR] ${eid} 的解释器不存在: ${plan0.python}`, 'Red')
         Log('              这台引擎还没部署（跑一次首次部署）。跳过它，其余照常起。', 'Red')
@@ -195,8 +191,7 @@ async function main () {
         rec.SkipReason = '解释器不存在'
       }
     } else {
-      // 名片没写 runtime = 这台引擎由作者自己起。不是错误，但要说出来，
-      // 否则后面「引擎没上线」会看着像 bug。
+      // 名片没写 runtime 表示这台引擎由作者自己起。不是错误，但要说出来，否则后面「引擎没上线」会看着像 bug。
       Log(`[engine] ${eid} 不由平台启动（manifest.json 没有 runtime 段），只替它守住端口。`, 'Yellow')
     }
     ENGINES.push(rec)
@@ -235,8 +230,8 @@ async function main () {
   //     每台引擎在自己的名片里写 base_url_env，写死一个名字，第二台引擎起来后端也连不上。
   //   * 后端  : 读 BROKER_PORT；浏览器打开挪之后的那个端口。
   //   * 前端  : 由后端同源伺服，所以后端端口挪了不用往前端注入任何东西。
-  // 端口保护对不可启动的引擎同样生效：作者自己起的引擎照样占着它那个端口，别的程序就
-  // 不该占它。所以 host/port 这几样，计划在不可启动时也给。
+  // 端口保护对不可启动的引擎同样生效：作者自己起的引擎照样占着它那个端口，别的程序就不该占它。
+  // 所以 host/port 这几样，计划在不可启动时也给。
   for (const e of ENGINES) {
     Log(`[engine] ${e.Id} (${e.Label}) 期望监听 ${e.EHost}:${e.DesiredPort}`, 'DarkGray')
   }
@@ -323,13 +318,12 @@ async function main () {
   else Log(`      [WARN] Backend not ready in ${BACKEND_WAIT}s. Opening browser anyway. See logs\\backend*.log.`, 'Yellow')
   P.openUrl(backendUrl)
 
-  // 引擎自己的活动配置（tts_infer.yaml）由引擎自己自检自修：那是
-  // lib/inference/config_repair.py 的活，由 infer_server.py 启动时调用。别把它搬回来：
-  // 启动脚本按 manifest.json 起引擎，不该有引擎特例。
+  // 引擎自己的活动配置（tts_infer.yaml）由引擎自己自检自修：那是 lib/inference/config_repair.py 的活，
+  // 由 infer_server.py 启动时调用。别把它搬回来：启动脚本按 manifest.json 起引擎，不该有引擎特例。
 
   // 5. 推理引擎：逐台起
-  // 日志文件名一台一份：logs\<id>.log / logs\<id>.err.log。
-  // logs\inference.log 这个名字答不了「这是哪台的日志」，两台还会同时往它写。
+  // 日志文件名一台一份：logs/<id>.log 与 logs/<id>.err.log。
+  // logs/inference.log 这个名字答不了「这是哪台的日志」，两台还会同时往它写。
   const total = ENGINES.length
   let idx = 0
   for (const e of ENGINES) {
@@ -339,8 +333,8 @@ async function main () {
     if (!e.Launchable) { Log('      这台由作者自己起，平台只替它守住端口。', 'Yellow'); continue }
 
     // 按需档：现在不起它，等到第一次真有人要它的时候后端再起。端口仍然是这里定的
-    //（上面 resolvePort 已经跑过，结果写进了这台引擎自己的 base_url_env），后端起它时
-    // 用的就是这个端口，两边不会打架。已在运行的情况由下面那个分支处理，顺序不能反。
+    //（上面 resolvePort 已经跑过，结果写进了这台引擎自己的 base_url_env），后端起它时用的就是这个端口，
+    // 两边不会打架。已在运行的情况由下面那个分支处理，顺序不能反。
     if (e.Action !== 'own' && !e.Preload) {
       Log('      不预先启动：这台引擎的模型是开进程那一刻吃进内存的，起着就一直占着。', 'Yellow')
       Log('      第一次使用时后端会自动启动（首次需要等待加载，界面上会显示进度）。', 'DarkGray')
@@ -350,9 +344,8 @@ async function main () {
       Log(`      Port ${e.Port} already held by OUR engine. Treat engine as running.`, 'Yellow')
       continue
     }
-    // 端口可能被挪过，所以带着定下来的那个再问一次完整计划，
-    // 别用上面那份计划的 args：那里面的 -p 还是名片上的旧端口，
-    // 引擎会听在没人连的地方，表现成「引擎永远不上线」。
+    // 端口可能被挪过，所以带着定下来的那个再问一次完整计划，别用上面那份计划的 args：
+    // 那里面的 -p 还是名片上的旧端口，引擎会听在没人连的地方，表现成「引擎永远不上线」。
     const plan = enginePlan(e.Id, e.Port)
     let ok = plan !== null && plan.launchable
     if (ok && !fs.existsSync(plan.python)) {
@@ -374,9 +367,8 @@ async function main () {
       })
       if (!r.ok) Log('      [ERROR] 引擎起不来: ' + r.why, 'Red')
       else Log('      Inference service started in background.', 'Gray')
-      // 启动脚本不等引擎加载完：它起完就走。判断这台引擎上没上线的是后端：/api/engines
-      // 与 /api/health 会去请求下面这个地址。冷启动几十秒很正常，那段时间里显示成不在线
-      // 不是故障。
+      // 启动脚本不等引擎加载完：它起完就走。判断这台引擎上没上线的是后端：/api/engines 与 /api/health
+      // 会去请求下面这个地址。冷启动几十秒很正常，那段时间里显示成不在线不是故障。
       Log(`      上线检查地址 ${plan.ready_url}；冷启动预算 ${Math.round((plan.ready_timeout_ms || 0) / 1000)} 秒（本脚本不等它，看后端 /api/health）。`, 'DarkGray')
       Log(`      加载进度看 logs\\${e.Id}.log / logs\\${e.Id}.err.log`, 'DarkGray')
     }
@@ -396,8 +388,7 @@ async function main () {
   Log('========================================', 'Cyan')
 }
 
-// 顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），
-// 所以整个主体在 main() 里跑。
+// 顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），所以整个主体在 main() 里跑。
 main().catch(e => {
   console.error('[start][ERROR] ' + (e && e.stack ? e.stack : e))
   process.exit(1)

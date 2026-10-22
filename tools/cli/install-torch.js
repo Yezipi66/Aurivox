@@ -1,13 +1,12 @@
-// 把 PyTorch 装进一个 venv（跨平台主体）。
-// torch 不在 requirements-gpt-sovits.txt 里：wheel 巨大、构建目标跟本机的计算设备
-// 绑定、且走独立 index，写进那份锁就等于把「本机有什么」变成「所有机器有什么」。
-// onnxruntime 同理。torch 属于引擎层不属于平台层（平台根 venv 只装 3 个工具链包），
-// 但本脚本的默认目标仍是平台根 venv（bootstrap 的既有行为）。
-// 要装到引擎的 venv 请用 --python 显式指定。
+// 把 PyTorch 与 onnxruntime 装进一个 venv（跨平台主体）。
+// torch 与 onnxruntime 都不在 requirements-gpt-sovits.txt 里：wheel 巨大、构建目标跟本机的
+// 计算设备绑定、且走独立 index。写进那份锁，就等于把「本机有什么」变成「所有机器有什么」。
+// torch 属于引擎层不属于平台层，但本脚本的默认目标仍是平台根 venv；
+// 要装到引擎的 venv，用 --python 显式指定解释器。
 //
 // 用法：node tools/cli/install-torch.js [--backend cpu|cuda|xpu|rocm] [--cuda cu121]
 //       [--rocm 6.1] [--python <venv 解释器>] [--dry-run]
-//       薄壳 install-torch.bat / install-torch.sh 调的就是这个。
+// 薄壳 install-torch.bat / install-torch.sh 调的就是这个。
 // 环境变量（仅在没给 --backend 时生效）：TTS_TORCH_CPU=1、TTS_TORCH_BACKEND、
 //       TTS_TORCH_CUDA、TTS_NO_UV=1（跳过 uv，用 pip）。
 'use strict'
@@ -21,7 +20,7 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const { venvPython } = require(path.join(ROOT, 'lib', 'engines', 'platformPaths.js'))
 const gpu = require(path.join(ROOT, 'lib', 'system', 'gpu.js'))
 
-// ── 日志（沿用原脚本的 [torch] 前缀，日志习惯不改）──────────────────────────
+// 日志一律带 [torch] 前缀，沿用既有脚本的习惯。
 const C = { cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m', red: '\x1b[31m', dim: '\x1b[2m', off: '\x1b[0m' }
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR
 const paint = (c, m) => (useColor ? c + m + C.off : m)
@@ -30,7 +29,7 @@ const Ok = m => console.log(paint(C.green, '[torch] ' + m))
 const Warn = m => console.log(paint(C.yellow, '[torch] ' + m))
 const Die = m => { console.error(paint(C.red, '[torch][ERROR] ' + m)); process.exit(1) }
 
-// 参数
+// 参数解析
 const argv = process.argv.slice(2)
 function flag (name) { return argv.includes(name) }
 function opt (name, dflt) {
@@ -53,7 +52,7 @@ const WITH_DEPS = flag('--with-deps')
 
 // 硬编码 `venv\Scripts\python.exe` 是 Windows 布局；macOS/Linux 的 venv 是
 // `venv/bin/python`（无 .exe、无 Scripts）。用 platformPaths 推导。
-// venvPython 返回 {ok, python} / {ok:false, why}，不是字符串：
+// venvPython 返回 {ok, python} 或 {ok:false, why}，不是字符串：
 // 它对 FreeBSD 之类故意不猜，而是给一句用户能看懂的话。
 const explicitPy = opt('--python', null)
 let PY = null
@@ -99,7 +98,7 @@ function decideBackend () {
     return { backend: 'cuda', reason: 'TTS_TORCH_CUDA', devices: [] }
   }
 
-  // 自动：问操作系统。detectGpuNow() 返回的是一个对象不是数组：
+  // 自动探测：问操作系统。detectGpuNow() 返回的是一个对象不是数组：
   //   {ready, available, device_name, vendor, devices:[{name,vendor}], platform, probe}
   // `available` 的含义是「有没有 CUDA」，别拿它当「有没有 GPU」用。要问的是 vendor。
   let info = null
@@ -119,12 +118,12 @@ function decideBackend () {
     return { backend: 'cuda', reason: '本机有 NVIDIA 设备', devices }
   }
   if (has('intel')) {
-    // Intel 核显/独显走 XPU 构建，index 是 pytorch 官方给的。
+    // Intel 核显与独显走 XPU 构建，index 是 pytorch 官方给的。
     return { backend: 'xpu', reason: '本机有 Intel 设备（无 NVIDIA）', devices }
   }
   if (has('amd')) {
     // AMD 走 ROCm。PyTorch 官方的 ROCm wheel 只发 Linux，Windows 上没有：
-    // 与其装一个无法运行的，不如说明清楚。
+    // 与其装一个跑不起来的，不如说明清楚。
     if (process.platform === 'win32') {
       Warn('本机有 AMD 设备，但 PyTorch 官方 ROCm wheel **不发布 Windows 版**。')
       Warn('  ⇒ 落到 CPU 构建。若要用 AMD：装 Linux，或改用 DirectML 版 torch。')
@@ -154,8 +153,8 @@ const TORCH_INDEX = {
 }
 const index = TORCH_INDEX[decision.backend]
 
-// onnxruntime 的 CPU/GPU 拆分：它只有 CUDA 与 CPU 两种 wheel，所以 Intel XPU /
-// AMD ROCm 下仍然装 CPU 版 onnxruntime。那不是 bug：onnxruntime-gpu 只认
+// onnxruntime 的 CPU 与 GPU 拆分：它只有 CUDA 与 CPU 两种 wheel，所以 Intel XPU 与
+// AMD ROCm 下仍然装 CPU 版 onnxruntime。那不是缺陷：onnxruntime-gpu 只认
 // CUDA ExecutionProvider。影响面要说清楚：MDX-Net 分离人声、g2pW 多音字消歧会走 CPU。
 const ortPkg = decision.backend === 'cuda'
   ? 'onnxruntime-gpu==' + VER.ort
@@ -185,7 +184,7 @@ if (DRY) {
 }
 
 // torch 默认 --no-deps：它声明的依赖（fsspec / sympy / networkx 等）都已被
-// requirements-gpt-sovits.txt 锁定并装好。让 pip/uv 去解析 torch 的依赖，
+// requirements-gpt-sovits.txt 锁定并装好。让 pip 或 uv 去解析 torch 的依赖，
 // 它会按 torch 的版本区间把锁定的版本升掉或降掉，静悄悄破坏冻结环境。
 // 逃生口是 --with-deps（裸 venv 场景）。
 const depFlag = WITH_DEPS ? [] : ['--no-deps']
@@ -197,7 +196,7 @@ const env = Object.assign({}, process.env, {
   UV_LINK_MODE: 'copy',
 })
 
-// 优先 uv（并行下载），失败自动退回 pip
+// 优先 uv（并行下载），失败自动退回 pip。
 let useUv = process.env.TTS_NO_UV !== '1' && spawnSync(PY, ['-m', 'uv', '--version'], { env, stdio: 'ignore' }).status === 0
 if (process.env.TTS_NO_UV === '1') Warn('TTS_NO_UV=1：跳过 uv，用 pip。')
 
@@ -264,7 +263,7 @@ if (torchProbe.rc !== 0) {
 }
 
 // 两个 onnxruntime 包提供同一个 `onnxruntime` import，共存会打架：
-// 先卸掉两个，重跑（换机器搬 venv、CPU↔GPU 切换）最后只剩一种。
+// 先卸掉两个，重跑（换机器搬 venv、CPU 与 GPU 切换）最后只剩一种。
 Info('保证只留一种 onnxruntime 变体（先卸掉可能冲突的那个）。')
 spawnSync(PY, ['-m', 'pip', 'uninstall', '-y', 'onnxruntime', 'onnxruntime-gpu'], { env, stdio: 'ignore' })
 
@@ -280,7 +279,7 @@ if (ortIsGpuWheel) Info('onnxruntime GPU wheel 来源：' + ORT_GPU_INDEX)
 
 if (!install([ortPkg], ortIndexArgs)) Die('onnxruntime 安装失败。检查网络后重跑。')
 
-// ── 验证 onnxruntime（GPU 时真的把 provider 的 DLL 载一遍）──────────────────
+// 验证 onnxruntime：GPU 时真的把 provider 的 DLL 载一遍。
 // get_available_providers() 不算验证：onnxruntime 会按构建配置列出
 // CUDAExecutionProvider，不管那些 DLL 能不能载入。真的去载 DLL：那正是
 // error 126 会发生的操作，而且安装期不需要有 .onnx 文件。
