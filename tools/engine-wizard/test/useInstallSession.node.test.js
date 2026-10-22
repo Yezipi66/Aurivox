@@ -1,10 +1,7 @@
 'use strict'
-// useInstallSession ： 向导持久化收敩后的那一个模块
-//
-// 守的两条纪律，各有一条能变红的断言：
-//   ① 探测结果不落 localStorage（只能进 sessionStorage）
-//   ② 键里含 id 与 url ⇒ 换 URL / 换引擎 ⇒ 旧会话自动失效（防串号）
-//      + 同一 id + 同一 url（= 刷新）⇒ 恢复
+// useInstallSession 的持久化语义守卫：会话段与持久段各自存什么、什么时候失效。
+// 要盯住的两点：探测结果只进 sessionStorage；会话键含 id 与 url，
+// 换 URL 或换引擎即换键、旧会话自动失效，同一 id 加同一 url（刷新）则恢复。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -24,8 +21,8 @@ function freshStores () {
 }
 
 async function mod () {
-  // 每次都重新 import：mock storage 是新建的，模块内的函数每次调
-  // pick() 现取 global.localStorage / sessionStorage，所以不必清缓存。
+  // 每次重新 import：mock storage 是新建的，模块里的函数每次调用
+  // 都现取 global.localStorage / sessionStorage，所以不必清缓存。
   return await import('../editor/useInstallSession.js')
 }
 
@@ -36,7 +33,7 @@ test('刷新（同一 id + url）⇒ 会话段恢复', async () => {
   freshStores()
   const m = await mod()
   m.saveSession('alpha', URL_A, { probe: { meta: { packageName: 'alpha' } }, depsPlan: { ok: true } })
-  // 同一 id + 同一 url 再读 ⇒ 一模一样（这就是「刷新不丢」）
+  // 同一 id + 同一 url 再读 ⇒ 一模一样（这就是刷新不丢）
   const back = m.loadSession('alpha', URL_A)
   assert.deepStrictEqual(back.probe, { meta: { packageName: 'alpha' } })
   assert.deepStrictEqual(back.depsPlan, { ok: true })
@@ -73,7 +70,7 @@ test('探测结果一段都不许落 localStorage（只有 sessionStorage）', a
     probe: { secretOfProbe: 1 }, depsPlan: { x: 1 }, depsPreview: { y: 1 },
     manifest: [{ name: 'a.bin' }], probeError: 'boom',
   })
-  // localStorage 里一个字节都不许有 ： 探测结果是会话态，不是持久态
+  // localStorage 里一个字节都不许有：探测结果是会话态，不是持久态
   assert.strictEqual(global.localStorage.size, 0,
     `⛔ 探测结果写进 localStorage 了：${[...global.localStorage.data.keys()].join(', ')}`)
   // 而 sessionStorage 里必须有

@@ -1,10 +1,10 @@
 'use strict'
-// install-state 端点 ： 按真实产物判每步完成
-//
-// 直接打 HTTP（真起一个监听 127.0.0.1:0 的 http server，把 handler 挂上去），
-// 而不是只 require 函数。理由：handler 的返回值就是中间件的判据（同步
-// true/false），返回形状错了 vite 那边的 for 循环会静默失效 ： 那种 bug
-// 只有真打一次才看得见。
+// 向导的 install-state 与 reset-progress 两个端点。
+// install-state 按盘上的真实产物判断每一步有没有做完；reset-progress 只清某一步的
+// 完成记录，是重装本步的逃生口。
+// 测试直接打 HTTP：真起一个监听 127.0.0.1:0 的 http server，把 handler 挂上去。
+// 不用只调函数是因为 handler 的返回值就是中间件的接管判据（同步 true/false）：
+// 返回形状错了，vite 那边的 for 循环会静默失效，这类 bug 只有真打一次才看得见。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -18,7 +18,7 @@ const wb = require('../core/wizardbridge.js')
 /** 起一个只挂本 wizard bridge 的服务器，打一次请求返回 {status, json} */
 async function withServer (fn) {
   const server = http.createServer((req, res) => {
-    // 复刻 vite 中间件的判据：同步 true 才算接管
+    // 复刻 vite 中间件的接管判据：同步返回 true 才算接管
     const r = wb.handleInstallState(req, res)
     if (r === true) return
     const r2 = wb.handleResetProgress(req, res)
@@ -69,7 +69,7 @@ function mkdtempRoot () {
 }
 
 // installState 认的 root 由端点从 projectRoot() 推。这里不能改 engines/，
-//   所以用 root= 查询参数把夹具根传进去（端点本来就支持这个参数）。
+// 所以用 root= 查询参数把夹具根传进去（端点本来就支持这个参数）。
 const ISTATE = (id, root) =>
   `/wizard/install-state?id=${encodeURIComponent(id)}&root=${encodeURIComponent(root)}`
 
@@ -93,9 +93,9 @@ test('产物判据：伪造目录树 ⇒ 对勾跟着变（端到端 HTTP）', a
       assert.strictEqual(j.steps_done.prepare, true, '⛔ 克隆了却没打勾')
       assert.strictEqual(j.steps_done.manifest, true, '⛔ 名片在却没打勾')
       assert.strictEqual(j.steps_done.models, true, '⛔ 权重在却没打勾')
-      // env 不许凭目录猜：.venv 的 python 起不起来才算（这里 fixture 里没有）
+      // env 不许凭目录猜：.venv 的 python 起不起来才算（这里夹具里没有）
       assert.strictEqual(j.steps_done.env, false, '⛔ 没有可用的 venv 却打了勾')
-      // verify 恒 false（未实现）
+      // verify 恒为 false（检测逻辑尚未实现）
       assert.strictEqual(j.steps_done.verify, false)
 
       // 把名片删掉，那个勾必须消失（判据是产物，不是点过什么）
@@ -103,8 +103,8 @@ test('产物判据：伪造目录树 ⇒ 对勾跟着变（端到端 HTTP）', a
       j = (await get(port, ISTATE('e1', root))).json
       assert.strictEqual(j.steps_done.manifest, false, '⛔ 文件没了勾还在')
 
-      // 把权重清空，models 变成「查过了但缺了」仍是 done（steps.js 判据），
-      //   但把整个 checkpoints 删掉 ⇒ 说不出来 ⇒ 不算做完
+      // 把权重清空，models 变成「查过了但缺了」仍是 done（editor/steps.js 的判据）；
+      // 把整个 checkpoints 删掉则说不出来，不算做完
       fs.rmSync(path.join(d, 'checkpoints'), { recursive: true, force: true })
       j = (await get(port, ISTATE('e1', root))).json
       assert.strictEqual(j.steps_done.models, false, '⛔ 没有目录却算下好了')

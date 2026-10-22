@@ -1,19 +1,17 @@
 'use strict'
-//  buildCliDraft：走命令行（cli 形态）的草稿生成
-//  输入：cliHelp.collectCliHelp(dir) 的结果 {ok, flags, by_dest, sources}
-//  输出：{
-//    ok, subcommands,        // 上游有哪些子命令（synth/infer/…）
-//    args,                   // 每个 flag 一条 {name, flag, style, help, required, is_tool}
-//    suggested_call,         // 建议的 cli 形态 call 段骨架 {kind, argv, bind, args}
-//  }
+// 命令行形态（call.kind = "cli"）的草稿生成：把上游 CLI 的 flag 整理成名片能用的形状。
+// 判据是上游 argparse 的 action 名与开关形态；参数值一个也不替用户决定。
+// 边界：只产出草稿，落盘由 save.js 负责，命令行展开由 lib/engines/host.py 负责。
 
+// 工具类开关的名字清单：is_tool 为真的开关在界面上标「工具」，与合成内容参数分开。
 const TOOL_FLAGS = new Set([
   'model_dir', 'model-dir', 'device', 'fp16', 'deepspeed', 'cuda_kernel', 'cuda-kernel',
   'accel', 'torch_compile', 'torch-compile', 'verbose', 'force', 'dry_run', 'dry-run',
   'keep_temp', 'keep-temp', 'stdin', 'text_file', 'text-file', 'config', 'version',
 ])
 
-// argparse action → cli 形态名片的 style（host.py:_render_cli_arg 认这几种）
+// 上游 argparse 的 action 名 → 名片 args 段里的 style 写法。
+// 这几个词是 lib/engines/host.py 的 _render_cli_arg 认的，拼错它会在展开命令行时抛错。
 function styleOf (f) {
   const a = f.action
   if (a === 'store_true' || a === 'store_false') return 'boolean'
@@ -22,23 +20,30 @@ function styleOf (f) {
   return 'value'
 }
 
+/**
+ * 把上游 CLI 的官方说明整理成一份名片草稿。
+ * cliHelp 是 collectCliHelp(dir) 的返回值，flags 为上游 argparse 的 flag 列表。
+ * 返回 {ok, subcommands, args, suggested_call}：subcommands 是上游有哪些子命令（认不出的归到
+ * "(root)"）；args 每条一项，字段为 name / flag / style / help / required / default / choices /
+ * is_tool / subcommand / source_file，help 是上游原话；suggested_call 是 cli 形态 call 段骨架。
+ */
 function buildCliDraft (cliHelp, opts = {}) {
   if (!cliHelp || !cliHelp.ok || !Array.isArray(cliHelp.flags)) {
     return { ok: false, error: (cliHelp && cliHelp.error) || 'CLI 扫描失败', args: [], suggested_call: null }
   }
   const flags = cliHelp.flags
 
-  // 上游有哪些子命令（认不出的 subcommand=null 归到「(根)」）
+  // 上游有哪些子命令。上游没写 subcommand 的 flag 归到 "(root)"。
   const subcommands = [...new Set(flags.map((f) => f.subcommand || '(root)'))]
 
-  // 只取用户指定的子命令；没指定就全保留（标 subcommand）
+  // 只取用户指定的子命令；没指定就全保留（每条 flag 各带自己的 subcommand）
   const wantSub = opts.subcommand || null
   const picked = wantSub ? flags.filter((f) => (f.subcommand || '(root)') === wantSub) : flags
 
   const args = []
   for (const f of picked) {
     const flag = f.flags[f.flags.length - 1]
-    if (!flag || !flag.startsWith('--')) continue // 只要长开关
+    if (!flag || !flag.startsWith('--')) continue // 名片 args 段只放长开关
     const name = flag.slice(2)
     args.push({
       name,
@@ -55,7 +60,7 @@ function buildCliDraft (cliHelp, opts = {}) {
   }
 
   // 建议的 call 段骨架（只是骨架，人确认后才落盘）
-  // argv 第一词用 {engine_python}（host.py 认的占位符）
+  // argv 第一词用 {engine_python}（host.py 认的占位符），__MODULE__ 留给使用者填模块名。
   const suggested_call = wantSub && wantSub !== '(root)'
     ? {
         kind: 'cli',

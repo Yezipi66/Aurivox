@@ -1,7 +1,7 @@
 'use strict'
-//  ENV：环境检测模块。
-//  职责：解释器路径推导、venv 建/查、装法探测、名片 env_command 解析。
-//  从 env.js 逐字搬来，不改逻辑。
+// 引擎依赖环境的检测层：读名片里声明的 install.env_command、按上游的依赖清单推导装法、
+// 推导引擎虚拟环境的路径与解释器。全部是读盘与路径计算，不执行安装。
+// 判据是名片的 install 段与上游目录里的依赖清单文件；两者都没有就把选择权交回使用者。
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -12,7 +12,12 @@ const { venvPythonRelPath } = require(
 const { canSpawnPython } = require(
   path.join(__dirname, '..', '..', '..', 'lib', 'util', 'pythonResolve.js'))
 
-/** 读取并校验名片里的 install.env_command */
+/**
+ * 读名片里的 install.env_command 并校验。
+ * 返回 {ok:true, argv} 或 {ok:false, code, error}：code 分别是 NO_INSTALL_SECTION（名片没有
+ * install 段）、NO_ENV_COMMAND（有 install 段但没写 env_command）、BAD_ENV_COMMAND
+ * （env_command 不是非空字符串数组）。argv 是去空白后的命令与参数。
+ */
 function readEnvCommand (manifest) {
   const inst = manifest && manifest.install
   if (inst === undefined || inst === null) {
@@ -55,7 +60,10 @@ function readEnvCommand (manifest) {
 }
 
 /**
- * 锁文件装不了本机后端时，给出第二条命令（两条都给，平台不拍板）。
+ * 锁文件锁定的 torch 后端与本机推荐的后端不一致时，给出另一条安装命令。
+ * 两条命令都给，不替使用者选定其中一条。无法判定时返回 null。
+ * 判定成立时返回 {then, why, whyZh, needs, familyPins}：then 是补装 torch 系的命令，
+ * needs 是要补装的包名。
  */
 function suggestBackendAlternative (dir, lockRel) {
   let hw
@@ -101,7 +109,9 @@ function suggestBackendAlternative (dir, lockRel) {
 }
 
 /**
- * 按上游的依赖清单推导安装方式。
+ * 按上游目录里的依赖清单推导安装方式。
+ * 返回 {argv, from, cwd, why, whyZh}：argv 是安装命令，from 是依据的清单文件，cwd 是执行目录。
+ * 根目录与一层子目录都找不到依赖清单时 argv 为 null，交给使用者自己装。
  */
 function suggestEnvCommand (dir) {
   const NAMES = ['pyproject.toml', 'uv.lock', 'requirements.txt', 'environment.yml']
@@ -175,6 +185,11 @@ function suggestEnvCommand (dir) {
     whyZh: `上游是 ${req}（老项目）⇒ uv pip install -r ${req}。` }
 }
 
+/**
+ * 查这一层目录里有没有上游的依赖清单。
+ * 返回 {found, found_files, note, noteZh}：found 为 true 时 found_files 是清单文件名数组，
+ * 为 false 时 found_files 为空数组，note 与 noteZh 说明这一层没有清单。
+ */
 function detectDependencyManifest (dir) {
   const candidates = [
     'pyproject.toml', 'uv.lock', 'requirements.txt',
@@ -198,7 +213,7 @@ function detectDependencyManifest (dir) {
     noteZh: '上游的依赖清单：' + found.join('、') }
 }
 
-// ── 进度标记 ──────────────────────────────────────────────────────
+// 安装进度标记：装到一半被打断时，虚拟环境目录里留下这个标记文件。
 
 const PARTIAL_VENV_MARK = '.wizard-partial-venv'
 
@@ -210,6 +225,9 @@ function hasPartialVenvMark (root, id) {
   try { return fs.existsSync(partialVenvMarkAbs(root, id)) } catch (e) { return false }
 }
 
+/**
+ * 写或删安装进度标记。why 为 null 或 undefined 表示删掉标记。
+ */
 function markPartialVenv (root, id, why) {
   const f = partialVenvMarkAbs(root, id)
   try {
@@ -230,24 +248,34 @@ function markPartialVenv (root, id, why) {
   } catch (e) { /* 标记写不写都不该拦住安装本身 */ }
 }
 
-// ── 引擎 venv 路径推导 ────────────────────────────────────────────
+// 引擎虚拟环境的路径推导：每个引擎的环境放在 engines/<id>/.venv 下。
 
 function engineVenvDirAbs (root, id) {
   return path.join(root, 'engines', String(id), '.venv')
 }
 
+/**
+ * 引擎虚拟环境里的解释器路径。当前平台没有已知的虚拟环境布局时返回 null。
+ */
 function engineVenvPythonAbs (root, id) {
   const rel = venvPythonRelPath(process.platform)
   if (!rel) return null
   return path.join(engineVenvDirAbs(root, id), rel)
 }
 
+/**
+ * 这台引擎的虚拟环境能不能用。解释器路径算不出来，或该解释器起不来，都返回 false。
+ */
 function canUseEngineVenv (root, id) {
   const py = engineVenvPythonAbs(root, id)
   if (!py) return false
   return canSpawnPython(py)
 }
 
+/**
+ * 平台自己的解释器路径，用来建引擎的虚拟环境。
+ * 找的是项目根下的 venv/，不是引擎自己的 engines/<id>/.venv。找不到时返回 null。
+ */
 function platformPythonAbs (root) {
   const rel = venvPythonRelPath(process.platform)
   if (!rel) return null
@@ -260,6 +288,12 @@ function platformPythonAbs (root) {
   return null
 }
 
+/**
+ * 造出建虚拟环境这一步。
+ * 返回 {argv, python, venvDir, skipIfExists}：argv 是建环境的命令，python 是解释器路径，
+ * venvDir 是环境目录，skipIfExists 表示环境已存在时跳过这一步。
+ * 找不到可用的解释器时 argv 为 null。
+ */
 function buildVenvStep (root, id) {
   const venvDir = engineVenvDirAbs(root, id)
   const py = platformPythonAbs(root)
@@ -282,6 +316,10 @@ function buildVenvStep (root, id) {
   }
 }
 
+/**
+ * 在 uv 命令里补上目标解释器。
+ * 补上 -p <pyAbs> 后的命令。命令不是 uv pip，或者已经带了 -p / --python 时原样返回。
+ */
 function withTargetPython (argv, pyAbs) {
   if (!pyAbs) return argv
   const out = (argv || []).slice()
@@ -293,10 +331,17 @@ function withTargetPython (argv, pyAbs) {
   return out
 }
 
+/**
+ * 让 uv 把这个虚拟环境当作项目环境。
+ * 返回 {UV_PROJECT_ENVIRONMENT}，作为执行这条命令时传入的环境变量。
+ */
 function syncEnvFor (venvDirAbs) {
   return { UV_PROJECT_ENVIRONMENT: venvDirAbs }
 }
 
+/**
+ * 这一步是不是在建虚拟环境。命令是 uv venv 时返回 true。
+ */
 function isVenvCreateStep (step) {
   const argv = (step && step.argv) || []
   for (let i = 0; i + 1 < argv.length; i++) {

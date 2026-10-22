@@ -1,14 +1,8 @@
 'use strict'
-//
-// DragBind 真行为测试 ： 从 DragBind.jsx 里取组件函数，mock React hooks
-// 后直接调用，捕获 onChange 调用验证绑定逻辑。
-//
-// DragBind 是向导第 4 步「参数池与槽位绑定」的核心组件。绑定逻辑全在
-// 组件函数体内（闭包），不能直接测导出函数。但它是纯函数式的：给定输入
-// （call/params/onChange），看输出（onChange 调用）对不对。
-//
-// DragBind.jsx 是 JSX，node --test 不认。用项目 Vite 依赖的同一个 esbuild
-// 把它编译成 CJS 再取导出，测的是文件里那份实现，不是这里重抄的一份。
+// DragBind 的行为测试：调用组件函数，捕获 onChange 的入参来验证绑定逻辑。
+// 绑定逻辑写在组件函数体内（闭包），没有可单独导入的函数，只能这样驱动。
+// 被测代码是 tools/engine-wizard/editor/DragBind.jsx 里的那份实现，
+// 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出，不在此处重抄。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -21,7 +15,7 @@ const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
 
 /**
  * 加载 DragBind.jsx 里的组件函数。
- * 组件 import 了 react 和 i18n，两者都与绑定逻辑无关，给替身即可。
+ * 组件 import 的 react 与 i18n 与绑定逻辑无关，替换成替身即可。
  */
 function loadDragBind () {
   const src = fs.readFileSync(DRAGBIND, 'utf8')
@@ -39,7 +33,7 @@ function loadDragBind () {
     if (id === 'react') return {
       useState: () => [null, () => {}],
       useEffect: () => {},
-      // 组件渲染时调用 React.createElement，返回一个可递归的对象
+      // 组件渲染时调用 React.createElement，返回的对象可以递归遍历。
       createElement: (type, config, ...children) => ({
         type, props: config || {}, children,
         key: (config && config.key) || null,
@@ -56,7 +50,7 @@ function loadDragBind () {
 
 const DragBind = loadDragBind()
 
-// 夹具：/wizard/discover 返回的参数形状
+// 夹具：/wizard/discover 返回的参数形状。
 const PARAMS_CLI = [
   { name: 'voice', target: '--voice', source: 'cli', group: 'generate', style: 'value' },
   { name: 'speed', target: '--speed', source: 'cli', group: 'generate', style: 'value' },
@@ -73,7 +67,7 @@ const CALL_EMPTY = { kind: 'cli', bind: {}, args: {} }
 
 /**
  * 从 React 元素树中递归查找所有带 onClick 的子元素。
- * 返回数组，每项是 { onClick, type, props }。
+ * @returns {Array<{onClick: Function, type: any, props: any, key: any}>}
  */
 function findOnClick (node, results = []) {
   if (!node || typeof node !== 'object') return results
@@ -91,8 +85,8 @@ function findOnClick (node, results = []) {
 }
 
 /**
- * 调用组件函数，捕获 onChange 调用。
- * 返回 { calls, result }：calls 是 onChange 收到的所有参数，result 是组件返回值。
+ * 调用组件函数，捕获 onChange 的调用。
+ * @returns {{calls: any[], result: any}} calls 是 onChange 收到的所有入参。
  */
 function invoke (props) {
   const calls = []
@@ -100,8 +94,6 @@ function invoke (props) {
   const result = DragBind({ ...props, onChange })
   return { calls, result }
 }
-
-// ---- 测试 ----
 
 test('组件加载成功', () => {
   assert.strictEqual(typeof DragBind, 'function')
@@ -118,8 +110,8 @@ test('有参数但无操作：不产生 onChange 调用', () => {
 })
 
 test('点击选中再点槽位：建立 bind 绑定', () => {
-  // mock useState 让 selected 固定为第一个参数，再从渲染结果中提取
-  // 槽位 onClick 触发 clickSlot，验证 onChange 输出。
+  // 让 useState 的选中项固定为第一个参数，再从渲染结果里取出槽位上的
+  // onClick 并触发它，验证 onChange 的输出。
   const esbuild = require(path.join(WEB_DIR, 'node_modules', 'esbuild'))
   const src = fs.readFileSync(DRAGBIND, 'utf8')
   const code = esbuild.transformSync(src, { loader: 'jsx', format: 'cjs', target: 'node18' }).code
@@ -145,7 +137,7 @@ test('点击选中再点槽位：建立 bind 绑定', () => {
   const result = DragBindFixed({ call: CALL_EMPTY, params: PARAMS_CLI, onChange: (n) => calls.push(n) })
   const handlers = findOnClick(result)
 
-  // 槽位 div 有 key={slot.key}，args div 没有 key
+  // 槽位那一格有 key={slot.key}，args 那一格没有 key。
   const slotHandler = handlers.find(h => h.key === 'text')
   assert.ok(slotHandler, '应找到 text 槽位处理器')
   slotHandler.onClick()
@@ -155,10 +147,8 @@ test('点击选中再点槽位：建立 bind 绑定', () => {
 })
 
 test('拖拽参数到槽位：建立 bind 绑定', () => {
-  // 拖拽路径：onDragStart 设置 dataTransfer，onDropSlot 读取并绑定
-  // 我们模拟 onDropSlot 的行为：直接构造一个 param 对象传给 bindToSlot
-  // 由于 bindToSlot 是闭包内函数，我们只能通过组件渲染后的 DOM 事件触发
-  // 这里改为验证组件能正确渲染（不抛错）
+  // 拖拽路径要构造 dataTransfer 事件，组件渲染后拿不到真实的拖拽源，
+  // 这里只验证组件能正常渲染（不抛错）。
   const { result } = invoke({ call: CALL_EMPTY, params: PARAMS_CLI, onChange: () => {} })
   assert.ok(result, '组件应返回 React 元素')
 })
@@ -251,8 +241,8 @@ test('已有绑定的 call：不覆盖', () => {
 })
 
 test('onChange 被调用时传入完整的 call 对象', () => {
-  // 验证 onChange 收到的是 { ...call, bind: nextBind } 或 { ...call, args: nextArgs }
-  // 由于我们无法直接触发内部函数，这里只验证组件不报错
+  // onChange 收到的是 { ...call, bind: nextBind } 或 { ...call, args: nextArgs }。
+  // 内部函数无法直接触发，这里只验证组件不报错。
   const { calls } = invoke({ call: CALL_EMPTY, params: PARAMS_CLI, onChange: () => {} })
   assert.strictEqual(calls.length, 0)
 })

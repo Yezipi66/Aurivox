@@ -1,5 +1,7 @@
 'use strict'
-
+// 依赖清单解析的行为测试：覆盖 requirements.txt、pyproject.toml 与 setup.py 三种来源。
+// 判据：读出的包名与 spec 必须原样可用；读不出的东西不许被猜成包名或版本。
+// 解析与判定都在 tools/engine-wizard/core/probe.js，本文件只验证它的行为。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -8,7 +10,7 @@ const {
   parseRequirements, planDependencies, probeProject, parseSetupPyName,
 } = require('../core/probe.js')
 
-// 一份形状照真实老项目写的 requirements.txt（结构与内容都是常见形态）
+// 夹具：按真实项目的常见形态写的 requirements.txt。
 const REQ = [
   '--index-url https://pypi.org/simple',
   '',
@@ -52,13 +54,13 @@ test('parseRequirements：包名与版本串成对，第 2 步要的是版本不
   const r = parseRequirements(REQ)
   assert.strictEqual(r.dependencies.length, r.specs.length)
   const byName = new Map(r.dependencies.map((n, i) => [n.toLowerCase(), r.specs[i]]))
-  // 钉住版本的那条必须原样带出版本约束（判后端靠的就是这个）
+  // 钉住版本的那条必须原样带出版本约束（后端判定靠的就是这个）。
   assert.strictEqual(byName.get('torch'), 'torch==2.2.0')
   assert.strictEqual(byName.get('numpy'), 'numpy==1.24.0',
     '⛔ 行尾注释不许留在 spec 里')
-  // extras 与约束之间多写的空格要归一（判后端要的是规范形状）
+  // extras 与约束之间多写的空格要归一（后端要的是规范形状）。
   assert.strictEqual(byName.get('fastapi'), 'fastapi[all]>=0.100')
-  // 裸包名 ⇒ spec 就是包名（不许补一个假的版本号）
+  // 裸包名 ⇒ spec 就是包名，不许补一个假的版本号。
   assert.strictEqual(byName.get('onnxruntime-gpu'), 'onnxruntime-gpu')
 })
 
@@ -147,14 +149,14 @@ speechkit = "speechkit.cli:main"
   const r = parseRequirements(PYPROJECT)
   assert.deepStrictEqual(r.dependencies, [],
     `⛔ pyproject 不该被读出依赖：${JSON.stringify(r.dependencies)}`)
-  // project / name / license 这类行不是依赖声明
+  // project / name / license 这类行不是依赖声明。
   for (const wrong of ['project', 'name', 'license', 'speechkit', 'speechkit.cli']) {
     assert.ok(!r.dependencies.includes(wrong), `误报「${wrong}」`)
   }
 })
 
 test('不是依赖声明的行不许被猜成包名', () => {
-  // 一行里出现两个词、又不是版本约束 ⇒ 不是依赖声明，跳过
+  // 一行里出现两个词、又不是版本约束 ⇒ 不是依赖声明，跳过。
   const r = parseRequirements('foo bar\nthis is prose, not a dependency\npython3 setup.py\n')
   assert.deepStrictEqual(r.dependencies, [],
     `⛔ 把散文读成包名了：${JSON.stringify(r.dependencies)}`)
@@ -172,18 +174,18 @@ test('走 requirements 路径：出 torch 判定（hardware judge），不再是
   assert.strictEqual(plan.dep_count, 7)
   assert.strictEqual(plan.deps.total, 7)
 
-  // torch 系被摘出来单独判
-  //   torch / torchaudio / torchvision / onnxruntime-gpu 都在 TORCH_FAMILY 里
-  //   ⇒ 4 条；其余 3 条归「普通依赖」
+  // torch 系被摘出来单独判：
+  //   torch / torchaudio / torchvision / onnxruntime-gpu 都在 TORCH_FAMILY 里，
+  //   共 4 条；其余 3 条归「普通依赖」。
   assert.strictEqual(plan.deps.torch.count, 4)
   const main = plan.deps.torch.packages.find((p) => p.isMain)
   assert.ok(main, '⛔ 没有 isMain 的 torch 行')
   assert.strictEqual(main.spec, 'torch==2.2.0',
     '⛔ spec 必须是 requirements 里那行（带版本），不是裸包名')
-  // 钉死版本 ⇒ judgeTorchSpec 给出确定结论（cpu，与本机匹配）
+  // 钉死版本 ⇒ judgeTorchSpec 给出确定结论（cpu，与本机匹配）。
   assert.strictEqual(main.verdict, 'match', main.why)
   assert.strictEqual(plan.verdict, 'match')
-  // 其余依赖归「普通依赖」
+  // 其余依赖归「普通依赖」。
   assert.strictEqual(plan.deps.normal.count, 3)
 })
 
@@ -214,7 +216,7 @@ test('两份清单都没有 ⇒ 如实说读不到（不编造、不说「换仓
   assert.strictEqual(plan.dep_source, null)
   assert.ok(/requirements\.txt/.test(plan.errorZh), plan.errorZh)
   assert.ok(/requirements\.txt/.test(plan.error), plan.error)
-  // 旧文案那句「请换一份带依赖清单的仓库」已经不该出现
+  // 旧文案那句「请换一份带依赖清单的仓库」不该再出现。
   assert.ok(!/换一份/.test(plan.errorZh), plan.errorZh)
 })
 
@@ -358,12 +360,15 @@ test('pyproject 写了 license ⇒ 优先用它（比文件存在更精确）', 
   assert.strictEqual(r.values['call.module'], 'speechkit')
 })
 
-// 值与来源必须一致：StepPrepare.jsx 把 meta.packageName / meta.license
+// 值与来源必须一致：StepPrepare.jsx 把 meta.packageName 与 meta.license
 // 直接渲染到界面上，而 meta.*From 也在响应里。值字段一旦被塞进句子，
 // 那句话就会原样显示。判据：packageName / packageNameFrom / license / licenseFrom
 // 有值与有来源必须同进同出。
 
-/** 值字段不许装句子：它会被直接渲染到界面上。 */
+/**
+ * 判断一个值字段是不是被塞进了句子。
+ * @returns {string|null} 是句子就返回原值，否则返回 null。
+ */
 function sentenceIn (v) {
   if (v == null) return null
   return /\s/.test(String(v).trim()) && !/^[\w.+-]+$/.test(String(v).trim())
@@ -411,7 +416,7 @@ test('没有值就不许声称来源：packageName / license 三个字段同进�
 
 test('老式布局（只有 requirements.txt + LICENSE）⇒ 包名与来源都不许撒谎', () => {
   // 上游根目录既没有 pyproject.toml 也没有 setup.py 的布局：
-  // 确实读不到包名 ： 那就如实留空，不许声称「来自 pyproject.toml」。
+  // 确实读不到包名，那就如实留空，不许声称「来自 pyproject.toml」。
   const r = probeProject({
     requirements: REQ,
     licenseFile: 'LICENSE',

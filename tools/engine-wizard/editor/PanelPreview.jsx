@@ -6,9 +6,8 @@ import {
   fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, TIERS,
 } from '../../../web/src/lib/engines'
 
-// 名片面板预览：import 平台真在用的组件，不自己画一份。
-// 若自己画 HTML，平台改了真组件后预览会停在旧样子，预览就开始骗人。
-//
+// 名片面板预览：直接用平台在用的组件渲染，不另画一份。
+// 另画一份 HTML 的话，平台改了真组件之后预览仍停在旧样子，预览就开始骗人。
 // t 必须显式传给 ParamField：它自己不调 useT，t 是 props。
 // 漏传不报编译错，只在渲染到那一格时抛 "t is not a function"，整页白屏。
 
@@ -21,10 +20,10 @@ export default function PanelPreview ({ manifest }) {
 }
 
 /**
- * 为什么参数面板必须有自己的错误边界
- *   ParamField 是项目的组件，它内部出错会一路往上炸，把整页打白
- *   用户看到的只是「页面坏了」，跟「是哪个引擎的名片不对」毫无关系。
- *   这里把爆炸关在预览区里：左边的填表、JSON、保存都还能用。
+ * 参数面板要有自己的错误边界。
+ * ParamField 是项目的组件，它内部出错会一路往上炸，把整页打白，
+ * 用户看到的只是「页面坏了」，跟「是哪个引擎的名片不对」毫无关系。
+ * 这里把错误关在预览区里：左边的填表、JSON 与保存仍然可用。
  */
 class ErrorBoundary extends React.Component {
   constructor (p) { super(p); this.state = { err: null } }
@@ -50,7 +49,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// 小工具：错误边界不能调 useT（出错时上下文可能已坏）
+// 小工具：错误边界不能调 useT（出错时上下文可能已坏）。
 function t2 (en, zh) {
   try {
     const ctx = JSON.parse(localStorage.getItem('tf.v1.ui.lang') || '"en"')
@@ -61,13 +60,13 @@ function t2 (en, zh) {
 function PreviewInner ({ manifest }) {
   const { t, lang } = useT()
   const engine = useMemo(() => {
-    // 只喂给 ParamField 需要的形状，不改名片本身
+    // 只喂给 ParamField 需要的形状，不改名片本身。
     return { id: manifest.id, param_schema: manifest.parameters || [] }
   }, [manifest])
 
   const [values, setValues] = React.useState(() => initialParamValues(engine))
 
-  // 名片换了（用户改 JSON）⇒ 初始值重算
+  // 名片换了（用户改了 JSON）⇒ 初始值重算
   React.useEffect(() => {
     setValues(initialParamValues(engine))
   }, [engine])
@@ -77,8 +76,8 @@ function PreviewInner ({ manifest }) {
   }
 
   // 平台那三个硬编码过滤（STREAM_ONLY）在这里照抄一份，
-  // 因为它们写在 GenerateTab 里、没导出。
-  // 这是已知的一处重复：若平台改了这条名单，预览会不一致。
+  // 因为它们写在 GenerateTab 里，没有导出。
+  // 这是已知的一处重复：平台改了这条名单，预览就会与真界面不一致。
   const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
 
   const visible = (tier) =>
@@ -102,7 +101,7 @@ function PreviewInner ({ manifest }) {
         （{t('not a re-implementation', '不是另画一遍')}）。
       </p>
 
-      {/* 主区域：真渲染 */}
+      {/* 主区域：照真界面渲染 */}
       <MainArea manifest={manifest} />
 
       {/* `Advanced Settings` 保持英文、不翻译：
