@@ -32,7 +32,12 @@ const files = []
 for (const r of ROOTS) walk(r, files)
 for (const e of EXTRA) if (fs.existsSync(e)) files.push(e)
 
+// 历史叙事的词表。中文与英文都要覆盖：
+// 仓库里有一批文件的文件头是英文的（「Extracted from server.js (P0 refactor)」
+// 「AUTO-EXTRACTED from App.jsx」），只列中文会让它们全部漏过去。
+// 英文的判据同中文：讲「以前什么样」算命中，讲「现在什么样」不算。
 const HISTORY = /第一版|原版|原来(?:是|的|那)|以前(?:是|的|那|后)|曾经|一度|上一版|早先|最初(?:是|的)|起初|后来改|已改成|改之前|改前|迁移前|搬家前|拆分前|之前那|旧(?:的)?实现/gi
+const HISTORY_EN = /\b(?:Extracted|Refactored|Moved|Split|Renamed|AUTO-EXTRACTED)\s+(?:verbatim\s+)?from\b|\bpreviously\b|\bformerly\b|\bused\s+to\b|\bwas\s+(?:moved|split|renamed|changed|extracted)\b|\bno\s+longer\s+\w+\s+(?:in|from)\b|\bchanged\s+(?:this|the)\b|\bStage-?\d+\b|\bP\d\s+refactor\b|\bprior\s+to\b|\bonce\s+was\b|\bformerly\s+known\b/gi
 const IDENTIFIER = /legacy_default|legacyDefault|legacy[A-Z_]|_legacy_|最初的根(?:资产|角色)|最初的根/g
 const MEASURE = /[0-9]+(?:\.[0-9]+)?\s*(?:MB|GB|TB|KB)\b|[0-9]+\s*ms\b|[0-9]+\s*秒/gi
 const FIXTURE = /占\s*[0-9]|有\s*[0-9]|装\s*[0-9]|剩\s*[0-9]|放\s*[0-9]|用\s*[0-9]|默认\s*[0-9]|最多\s*[0-9]|至少\s*[0-9]|不超\s*[0-9]|不超过\s*[0-9]|个引擎|台引擎|轮询|间隔|退避|超时|硬约束|低显存|防抖|预算|上限|下限|阈值|每\s*[0-9]|每轮/g
@@ -73,11 +78,13 @@ for (const f of files) {
   for (const c of ast.comments || []) {
     const body = c.value || ''
     const h1 = findHits(body, HISTORY, IDENTIFIER)
+    const h1en = findHits(body, HISTORY_EN, IDENTIFIER)
     const h7 = []
-    if (!h1.length && !h7.length) continue
+    if (!h1.length && !h1en.length && !h7.length) continue
     const row = [
       rel + ':' + c.loc.start.line,
-      h1.length ? '历史[' + [...new Set(h1)].join(',') + ']' : '',
+      (h1.length || h1en.length)
+        ? '历史[' + [...new Set([...h1, ...h1en])].join(',') + ']' : '',
       h7.length ? '读数[' + [...new Set(h7)].join(',') + ']' : '',
       body.trim().replace(/\s+/g, ' ').slice(0, 100),
     ]
