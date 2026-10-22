@@ -1,12 +1,15 @@
-"""
-Task 6 复核: 检查训练产出的 GPT (-e<N>.ckpt) 是否含 init_t2s_weights 需要的
-{weight, config, info} 结构。
-用法: venv\Scripts\python.exe lib\inference\check_ckpt.py
+"""检查训练产出的 GPT 权重能否被推理侧直接加载。
 
- 角色的模型改按引擎和模型位分目录存放, 老的
-   assets/<角色>/gpt_checkpoints/ 变成 assets/<角色>/models/<引擎id>/<模型位>/。
-   这个脚本查的是这条训练管线自己产的那种 ckpt, 所以引擎名写在这里是
-   它自己的题目; 但仍然同时扫老目录, 因为还没搬家的机器上文件就在那儿。
+推理侧加载权重（engines/gpt-sovits/infer/TTS.py 的 init_t2s_weights）要求顶层
+同时有 config 与 weight 两个键，缺一个就报错；发布出去的权重还带 info。
+脚本读出每个候选文件的顶层键，逐个给出结论。
+
+候选文件取自两处：assets/<角色>/models/gpt-sovits/gpt/ 与
+assets/<角色>/gpt_checkpoints/，文件名要含 -e<N>.ckpt（训练产出的权重）。
+
+结论只打印到 stdout，退出码不随结论变化；一个候选文件都没找到时退出码为 1。
+
+用法：venv\\Scripts\\python.exe lib\\inference\\check_ckpt.py
 """
 import os
 import glob
@@ -15,7 +18,7 @@ import torch
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 patterns = [
     os.path.join(ROOT, "assets", "*", "models", "gpt-sovits", "gpt", "*-e*.ckpt"),
-    os.path.join(ROOT, "assets", "*", "gpt_checkpoints", "*-e*.ckpt"),  # 搬家前的老位置
+    os.path.join(ROOT, "assets", "*", "gpt_checkpoints", "*-e*.ckpt"),  # 同一角色的权重可能落在这两个位置，两处都扫
 ]
 pattern = " | ".join(patterns)
 files = sorted({f for p in patterns for f in glob.glob(p)})

@@ -1,12 +1,13 @@
-"""
-patch_infer_bootstrap.py
-为 lib/inference/infer_server.py 增加配置引导:
-活动 tts_infer.yaml 不存在时, 自动从 tts_infer.yaml.example 复制一份。
-这样 tts_infer.yaml 可被 .gitignore(运行时会被热加载回写改脏),
-仓库只跟踪 tts_infer.yaml.example 模板, 全新 clone 仍可一键启动。
+"""给 lib/inference/infer_server.py 注入活动配置的引导代码。
 
-用法(项目根目录执行): venv\\Scripts\\python.exe lib\\inference\\patch_infer_bootstrap.py
-幂等: 重复运行不会重复插入。
+注入的那段在活动配置 tts_infer.yaml 缺失时，从同名加 .example 后缀的模板
+（tts_infer.yaml.example）复制一份。活动配置会被运行时的热加载回写，所以不入库，
+仓库只跟踪模板。
+
+脚本按锚点就地改写 infer_server.py；目标文件里已有同样的引导时直接退出，
+重复运行不会重复插入。
+
+用法：venv\\Scripts\\python.exe lib\\inference\\patch_infer_bootstrap.py
 """
 import os
 import sys
@@ -14,7 +15,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TARGET = os.path.join(HERE, "infer_server.py")
 if not os.path.exists(TARGET):
-    # 允许放在项目根运行
+    # 本文件旁边没有 infer_server.py 时，改按当前工作目录下的 lib/inference/ 找。
     alt = os.path.join(os.getcwd(), "lib", "inference", "infer_server.py")
     if os.path.exists(alt):
         TARGET = alt
@@ -52,7 +53,7 @@ src = src.replace(ANCHOR, BOOTSTRAP + ANCHOR, 1)
 with open(TARGET, "w", encoding="utf-8") as f:
     f.write(src)
 
-# 语法自检
+# 写盘后做语法自检：解析失败只报错退出，不回滚已写入的文件。
 import ast
 try:
     ast.parse(src)

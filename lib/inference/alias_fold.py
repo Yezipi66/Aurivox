@@ -16,8 +16,8 @@
 from __future__ import annotations
 
 # 别名表。方向：左是平台/配方侧的规范键，右是下游引擎真正读的键。
-# 每一项都要能指着代码说「这两是同一件事」——
-# 别加「看起来像」的别名，那等于让某个参数静默变成另一个参数。
+# 每一项都要能指着代码说「这两是同一件事」。别加「看起来像」的别名，
+# 那等于让某个参数静默变成另一个参数。
 ALIASES = {
     # 依据：名片的 params.schema.if_sr（label "Super Sampling (v3)"）、
     # 引擎的 infer/TTS.py 里 super_sampling = inputs.get("super_sampling", False)、
@@ -63,7 +63,7 @@ def fold_aliases(req):
     return req
 
 
-# 给 inferAliasFold.node.test.js 用的 JSON 探针。
+# 给 lib/inference/aliasFold.node.test.js 用的 JSON 探针。
 # 只折叠、不合成：测试要在不加载任何模型的前提下问它「你会怎么折」。
 if __name__ == "__main__":
     import argparse
