@@ -113,9 +113,7 @@ def check(ok, title, detail="", hint=""):
     return ok
 
 
-# ---------------------------------------------------------------------------
 #  小工具
-# ---------------------------------------------------------------------------
 def port_is_open(port, host="127.0.0.1", timeout=0.35):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
@@ -214,9 +212,7 @@ def run_node(args, what):
     return out
 
 
-# ---------------------------------------------------------------------------
-#  [1][2][3] 计划这一侧 ： 起引擎之前先把能量的都量了
-# ---------------------------------------------------------------------------
+#  [1][2][3] 计划这一侧：起引擎之前先把能量的都量了
 def verify_plan(port):
     say("")
     say("[1] 平台算得出启动计划吗（这是 start.ps1:65 干的事）")
@@ -328,7 +324,7 @@ def verify_plan(port):
           "记号在命令行里找不到 ⇒ Test-IsOwnProcess 认不出自家引擎。\n"
           "后果不是报错，是端口每次往上挪一格 —— 静默的。")
 
-# ⭐ 走宿主的引擎入口路径必然相同 ⇒ 记号不能再取入口。
+    # 走宿主的引擎入口路径必然相同 ⇒ 记号不能再取入口。
     check(not mark.replace("\\", "/").endswith("lib/engines/host.py"),
           "⭐⭐ 记号不是宿主入口（否则两台引擎的记号会一模一样）", mark,
           "这正是本轮修掉的那个 bug 又回来了：\n"
@@ -338,9 +334,7 @@ def verify_plan(port):
     return plan
 
 
-# ---------------------------------------------------------------------------
 #  [4]-[8] 真起真出声
-# ---------------------------------------------------------------------------
 def spawn(plan, port, log_path, wait_seconds):
     if port_is_open(port):
         raise Fail("%d 端口上已经有人了" % port, 2,
@@ -540,7 +534,6 @@ def synth(port, text, ref, seed, timeout, extra=None, method_args=None):
         return exc.code, dict(exc.headers), exc.read()
 
 
-# ---------------------------------------------------------------------------
 def main(argv=None):
     global ENGINE_ID
     ap = argparse.ArgumentParser(
@@ -700,9 +693,9 @@ def main(argv=None):
             check(True, "这台引擎 call.seed=none ⇒ 跳过播种判据（无随机源）",
                   "见名片 call.seed", "")
         else:
-# ⛔ 这一次的 HTTP 状态必须查。 实测：没查，于是第二次
+            # 这一次的 HTTP 状态必须查。没查的话，第二次
             #   返回 201644 字节（第一次 576044），判据读成「播种不可靠」
-#   ： 而真相是「第二次根本没成」。
+            #   ，而真相是「第二次根本没成」。
             _c2, _h2, body2 = synth(args.port, args.text, args.ref,
                                      args.seed, args.timeout, method_args=margs)
             if _c2 != 200:
@@ -746,13 +739,13 @@ def main(argv=None):
             #   · 有别  ⇒ 送到了，而且引擎真的用了
             #   · 播种基线不成立（上面的 [7] 已经红）⇒ 这次对比不作数
             all_same = all(_b == got[0][1] for _v, _b in got)
-            # ⭐⭐ 判据不是「两次跑出一样的东西」，而是「**这个参数的效应大于
-            #   引擎自身的随机性**」。
+            # 判据不是「两次跑出一样的东西」，而是「这个参数的效应大于
+            #   引擎自身的随机性」。
             #
-#   为什么必须这么做（ 踩到）：GSV 默认
-#   parallel_infer=True，会把文本切块并行处理 ： set_seed 之后
+            #   为什么必须这么做：GSV 默认
+            #   parallel_infer=True，会把文本切块并行处理，set_seed 之后
             #   每块仍各开一个 RNG（同 seed 两次出来的音频数据确实不同，
-#   [7] 那条因此判红，那是真的，不是脚本的错）。
+            #   [7] 那条因此判红，那是真的，不是脚本的错）。
             #
             #   ⇒ 逐字节比大小会得到「怎么比都不对」或者「怎么比都对」，
             #      两个结论都是噪音。正确做法：每个档跑 N 次，量档内抖动和档间

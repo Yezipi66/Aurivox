@@ -41,19 +41,17 @@ MUST_SHIP = [
     ("data/training_defaults.json", "文件", "出厂默认参数（训练页）"),
     ("deploy.bat", "文件", "部署入口"),
 ]
-# ⛔⛔ ：data/advanced_params.json 从 MUST_SHIP 挪到了 MUST_NOT_SHIP。
+# data/advanced_params.json 归在 MUST_NOT_SHIP。
 #    它不是出厂默认值，是一台机器上界面最后拧到哪的记忆（见
-#    lib/advancedParams.js  划的界）。发出去等于把某台开发机的
+#    lib/advancedParams.js 划的界）。发出去等于把某台开发机的
 #    状态当成所有人的默认值。见下方 MUST_NOT_SHIP 里那一条。
 
 # 每项 = (前缀, 说明, 豁免前缀元组)
 #
-# ⚠  自我更正：models/ 那一条我原本写成整棵禁运，据此报了「6 个泄漏」，
-#   是我判错了。04_pack_release.py:139-141 的注释明写 models/ 刻意不整棵排除，
-#   因为 models/tts/gpt-sovits/G2PWModel/ 里的多音字词典 download_models.py
-#   不会重新下载（它只从官方 zip 里抽 g2pW.onnx），必须随包发。实测那 6 个
-#   6/6 全在 G2PWModel/ 下、零个权重文件 ⇒ 打包器是对的。
-#   改成带豁免的规则而不是整条删掉：这样将来真有 .pth 漏进 models/，照样报红。
+# models/ 只按例外放行，不整棵禁运：G2PWModel/ 里的多音字词典
+#   download_models.py 不会重新下载（它只从官方 zip 里抽 g2pW.onnx），
+#   必须随包发。
+#   改成带豁免的规则而不是整条删掉：这样真有 .pth 漏进 models/，照样报红。
 MUST_NOT_SHIP = [
     ("vendor/gsv-tools/", "batch14 已归档到 ..\\junk\\", ()),
     ("vendor/gsv_code/", "batch14 已归档到 ..\\junk\\", ()),
@@ -70,14 +68,14 @@ MUST_NOT_SHIP = [
     ("tools/dev/", "助手产出的开发工具（batch15 收口）", ()),
     (".hermes/", "开发期工具状态（batch15 收口）", ()),
     ("tools/checks/", "孤儿检查脚本（batch15 已归档）", ()),
-# ⭐⭐ 反向断言（）：这条不是"清理垃圾"，是**防止一个已经发生过的
-    #    bug 复发**。advanced_params.json 曾经在 MUST_SHIP 和打包器的 DATA_KEEP
-#    里，于是发行包里带着某台开发机  的界面状态，当所有新装机器的
-#    出厂默认值 ： 实测盖掉了 6 个名片默认值（batch_size 名片 4 → 盘上 1，
-    #    seed → 2769901998，version v2Pro → v2，is_half true → false）。
-    #    ⇒ 光把它从 MUST_SHIP 删掉是不够的：那样谁把 DATA_KEEP 那行加回去，
-#      不会有任何东西报红。必须翻成反向断言。
-    #    ⭐ 不发它是对的：盘上没有这个文件时，每个键都退回名片（契约 C11），
+    # 反向断言（data/advanced_params.json）：这条拦的是同类失败。
+    #    这个文件同时列进 MUST_SHIP 与打包器的 DATA_KEEP 时，发行包里就会带着
+    #    某台开发机的界面状态，当所有新机器的出厂默认值，把名片默认值整体盖掉
+    #    （batch_size 名片 4 变 1，seed 变 2769901998，version v2Pro 变 v2，
+    #    is_half true 变 false）。
+    #    光把它从 MUST_SHIP 删掉不够：那样谁把 DATA_KEEP 那行加回去，
+    #    不会有任何东西报红。必须翻成反向断言。
+    #    不发它是对的：盘上没有这个文件时，每个键都退回名片（契约 C11），
     #      lib/advancedParams.node.test.js 有一条测试钉着这件事。
     ("data/advanced_params.json",
      "界面记忆而非出厂默认值 —— 发出去会把一台机器的状态变成所有人的默认值", ()),
@@ -201,8 +199,8 @@ def selftest(included):
               "⛔ 豁免写太宽 ⇒ 整条 models/ 禁运形同虚设，权重泄漏将不再被发现")
 
     # ---- advanced_params.json 反向断言的验红 --------------------------------
-# ⛔⛔ 这条守卫拦的是已经发生过的 bug：那个文件曾经既在 MUST_SHIP 里、
-# 又在打包器的 DATA_KEEP 里，于是一台开发机  的界面状态被当成
+    # 这条守卫拦的是同类失败：advanced_params.json 同时列进 MUST_SHIP 与
+    # 打包器的 DATA_KEEP，于是一台开发机的界面状态被当成
     # 出厂默认值发给所有人。守卫不验红就是摆设，所以这里用假数据正反各验一次。
     AP = "data/advanced_params.json"
     check("advanced_params 已不在 MUST_SHIP",
