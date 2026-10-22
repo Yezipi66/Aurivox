@@ -1,18 +1,19 @@
-"""
-Static import-order auditor for the torch-before-librosa native-crash class.
+"""审计入口脚本的导入顺序，找出 torch 先于 librosa 加载的原生崩溃风险。
 
-For each entry script we DFS its LOCAL imports in textual order and record the
-first point at which `torch` and `librosa` become loaded (directly OR
-transitively). If torch loads strictly before librosa AND librosa is loaded at
-all in that process, the entry is FLAGGED as at-risk for the 0xC0000005 crash.
+在部分 Windows 机器上，先 import torch 再 import librosa 会触发原生访问违例
+（退出码 3221225477 / 0xC0000005，日志为空）。本脚本对每个入口脚本按文本顺序
+深度优先遍历它自己的本地导入，记录 torch 与 librosa 第一次被加载的位置
+（直接或经本地模块间接加载）。torch 早于 librosa，且该进程确实加载了
+librosa 的，记为有风险。
+
+用法：python tools/import_order_audit.py
 """
 import os, re
 
-# ROOT points at the project root (the directory holding server.js).
-# Order of resolution:
-#   1) env var  IMPORT_AUDIT_ROOT
-#   2) walk up from this script until server.js is found
-#   3) fall back to the parent of tools/
+# 项目根目录（带 server.js 的那一层）。定位顺序：
+#   1) 环境变量 IMPORT_AUDIT_ROOT
+#   2) 从本脚本向上找带 server.js 的目录
+#   3) 退回 tools/ 的上一级
 def _detect_root():
     env = os.environ.get("IMPORT_AUDIT_ROOT")
     if env and os.path.isdir(env):
@@ -42,6 +43,7 @@ THIRD_PARTY_LEAF = {
 }
 
 def find_local_module(modname, search_dirs):
+    """在搜索目录里找本地模块的 .py 文件或包的 __init__.py，找不到返回 None。"""
     rel = modname.replace(".", os.sep)
     for d in search_dirs:
         cand = os.path.join(d, rel + ".py")
@@ -53,6 +55,7 @@ def find_local_module(modname, search_dirs):
     return None
 
 def analyze(entry, search_dirs):
+    """遍历入口脚本的本地导入，返回 (种类, 文件, 行号, 原文) 列表。"""
     events = []
     visited = set()
 
@@ -85,8 +88,8 @@ def analyze(entry, search_dirs):
     walk(entry, search_dirs)
     return events
 
-# Paths below are relative to ROOT (the project root).
-# 第三方代码按工作流环节分类存放；GPT-SoVITS 一支的三部分同处一根之下。
+# 下面的路径都相对项目根。第三方代码按工作流环节分类存放，GPT-SoVITS 一支的
+# 三部分同在一根之下。
 GSV = "engines/gpt-sovits"
 GSV_CODE = GSV + "/gsv_code"
 GSV_INFER = GSV + "/infer"
@@ -96,19 +99,20 @@ ENTRIES = [
     ("engines/gpt-sovits/gsv_code/prepare_datasets/1-get-text.py", [GSV_CODE]),
     ("engines/gpt-sovits/gsv_code/prepare_datasets/2-get-hubert-wav32k.py", [GSV_CODE]),
     ("engines/gpt-sovits/gsv_code/prepare_datasets/3-get-semantic.py", [GSV_CODE]),
-    # 2-get-sv.py also imports ERes2NetV2 / kaldi from the inference runtime;
-    # this list mirrors the PYTHONPATH set in lib/training/steps/preprocess.js.
+    # 2-get-sv.py 还会从推理运行时导入 ERes2NetV2 与 kaldi；这里的搜索根与
+    # lib/training/steps/preprocess.js 设的 PYTHONPATH 一致。
     ("engines/gpt-sovits/gsv_code/prepare_datasets/2-get-sv.py",
      [GSV_CODE, GSV_INFER]),
     ("pipeline/slicer/slicer2.py", ["pipeline/slicer"]),
     ("pipeline/uvr5/webui.py", ["vendor", "pipeline/uvr5"]),
     ("pipeline/asr/funasr_asr.py", ["vendor", "pipeline/asr"]),
     ("pipeline/asr/fasterwhisper_asr.py", ["vendor", "pipeline/asr"]),
-    # inference server (launched by start.ps1) + its search roots
+    # 推理服务端（tools/cli/start.js 启动它）及其搜索根
     ("lib/inference/infer_server.py", [GSV_INFER]),
 ]
 
 def firstidx(events, kind):
+    """返回指定种类第一次出现的位置与事件，没有则返回 (None, None)。"""
     for i, e in enumerate(events):
         if e[0] == kind:
             return i, e
