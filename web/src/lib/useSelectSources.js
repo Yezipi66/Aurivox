@@ -3,7 +3,7 @@ import { api } from './api'
 import { voiceOptions, weightOptions, audioOptions } from './selectSources.pure'
 
 // `select + source` 的候选表，只管取数。
-// 挑选、去重、fail-open 全在 selectSources.pure.js，那边有判据；这里不要加规则。
+// 挑选、去重、fail-open 全在 selectSources.pure.js，那边有判据；这一层不加规则。
 
 // 一个音色的参考音频（切片 + 原始）。走 RefAudioList 用的同两个口，不另开 API。
 export function useAudioOptions(voiceId) {

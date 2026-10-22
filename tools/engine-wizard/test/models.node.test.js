@@ -140,7 +140,7 @@ test('命令里的 {checkpoints} 由平台填成绝对路径', () => {
   assert.ok(joined.includes('tts'), joined)
 })
 
-// 本文件不许出现任何下载器名（lib/engines/checkpoints.js 的文件头是同一条纪律）
+// 本文件不出现任何下载器名（lib/engines/checkpoints.js 的文件头是同一条纪律）
 test('models.js 活代码里不许出现下载器名（连注释都不许）', () => {
   const FORBIDDEN = ['modelscope', 'huggingface', 'hugging-face', 'git-lfs',
     'wget', 'aria2c', 'hf_hub', 'snapshot_download']

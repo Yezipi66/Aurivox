@@ -651,7 +651,7 @@ function handleDownloadFiles (req, res) {
 //   必须带 repo/tool：前端单文件下载完成后会重新调本端点刷新，刷新后整表覆盖。
 //   不带 repo 就等于把表里每一项的来源抹掉，重下/续传按钮和仓库列会一起变成「未知」。
 //
-// 这里不许写 async：理由同 handleParams 的头注。异步活一律塞进 readBody 回调或
+// 这里不写 async：理由同 handleParams 的头注。异步活一律塞进 readBody 回调或
 //   .then() 里，那两处的中间件看不见。
 function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
@@ -974,7 +974,7 @@ function handleVerify (req, res) {
 // 这条端点只产草稿，绝不写 manifest.json：parameters[] 与 map_candidates 都是候选，
 //   界面逐条确认后才可能进表单；落盘是 POST /wizard/save 的事。
 // 不新增任何平台侧校验逻辑：反射器报什么就传什么，partial / warnings / excluded 原样带出去。
-// 这里不许写 async：async function 无论 URL 匹不匹配都返回 Promise ⇒ 中间件一见到 Promise
+// 这里不写 async：async function 无论 URL 匹不匹配都返回 Promise ⇒ 中间件一见到 Promise
 //   就 break 出循环并 next() ⇒ 本函数对所有请求都被提前中断 ⇒ 请求穿透到 vite 的
 //   HTML fallback ⇒ 200 + text/html ⇒ 第 4 步参数反射永远拿不到 JSON。
 //   异步活全在 readBody 的回调里做；函数本身同步返回 true/false。

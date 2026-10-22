@@ -18,7 +18,7 @@ function realNames () {
   try { return fs.readdirSync(REAL_ENGINES).sort().join(',') } catch (e) { return '' }
 }
 
-// root 必须是 mkdtempSync 出来的临时根，本文件不许写真仓库的 engines/
+// root 必须是 mkdtempSync 出来的临时根，本文件不写真仓库的 engines/
 function tmpRoot () {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'a3-download-'))
 }

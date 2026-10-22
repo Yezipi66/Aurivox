@@ -14,7 +14,7 @@ const path = require('node:path')
 const envMod = require('../core/env.js')
 const { INSTALL_FILE } = require('../core/installState.js')
 // 守卫（lib/engines/enginesDirWriteGuard.node.test.js）只看实参文本里有没有临时痕迹，
-//   所以这里必须经 mkdtemp 中转，不许直接拼真 engines/ 路径。
+//   所以这里必须经 mkdtemp 中转，不直接拼真 engines/ 路径。
 const ENGINES_DIR_NAME = 'engines'
 
 // 夹具

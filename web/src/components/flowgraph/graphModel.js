@@ -376,7 +376,7 @@ export function missingInputs(graph, catalogue) {
   return missing
 }
 
-// 每种端口类型一个颜色，看一眼画布就知道哪里能接。圆点与连线用同一张表，
+// 每种端口类型一个颜色，由画布上的颜色就能看出哪里能接。圆点与连线用同一张表，
 // 是有意为之。
 const TYPE_COLOURS = {
   Text: '#7fb3ff', Audio: '#ffb86b', ReferenceAudio: '#ffcf8b', AudioList: '#ff9f43',

@@ -17,7 +17,7 @@ const SRC = readDirSources(import.meta.url, '.')
 // 注释里可以提这些名字，守的是代码。
 const CODE = stripComments(SRC)
 
-// 这一页不许再出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
+// 这一页不出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
 // （旧代码里的本地 state 名）两种写法都要列。守的是键出现的位置：对象字面量里的
 // `键名:`、下标里的 `[键名]`。用户可见的 tooltip 文案里提到某个名字不算。
 const HARDCODED = [

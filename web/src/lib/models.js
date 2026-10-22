@@ -1,5 +1,5 @@
 // 界面上「有哪些模型可用」的取数层。只做一件事：把后端算好的清单取回来。清单里有什么、
-// 按什么筛，一律在 modelPickers.pure.js 里（纯函数，可直接跑测试）。这里不许出现任何
+// 按什么筛，一律在 modelPickers.pure.js 里（纯函数，可直接跑测试）。这里不出现任何
 // 引擎的名字、任何模型位的名字、任何路径长相的判断。
 import { useState, useEffect } from 'react'
 import { api } from './api'

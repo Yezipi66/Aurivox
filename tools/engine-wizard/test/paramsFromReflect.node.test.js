@@ -22,7 +22,7 @@ const {
   PLATFORM_KEYS, EXCLUDE, exclusionReason,
 } = require('../core/paramsFromReflect')
 
-// 核心实现只允许一份：本文件不许有第二套排除名单、类型推断或草稿组装。
+// 核心实现只允许一份：本文件不写第二套排除名单、类型推断或草稿组装。
 const SCAFFOLD = require(path.join(__dirname, '..', '..', '..', 'tools', 'scaffold-params.cjs'))
 
 // 夹具
