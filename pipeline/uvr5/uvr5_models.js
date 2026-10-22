@@ -1,36 +1,29 @@
-// ===========================================================================
-// UVR5 model registry — single source of truth for vocal-separation models.
-// ===========================================================================
-// Consumed by:
-//   * lib/training/steps/denoise.js       — resolve a pipeline stage -> weight path
-//   * lib/routes/uvr5.js                  — availability (installed?) + download
-//   * server.js sanitizeCustomParams      — validate pipeline[].model ids
-//   * web (via GET /api/uvr5/models)       — labels/categories/availability
+// UVR5 人声分离模型的登记表，是这一类模型的唯一事实来源。
+// 消费方：lib/training/steps/denoise.js（把流水线阶段解析成权重路径）、lib/routes/uvr5.js
+// （是否已安装与下载）、lib/server/trainingParams.js（校验流水线里的模型 id）、
+// web 前端（经 GET /api/uvr5/models 取标签、分类与可用状态）。
 //
-// Design notes
-// ------------
-// * `id` is the STABLE key stored in the training recipe / step fingerprint.
-//   Never rename an id (it would break resume/rerun detection); add a new one.
-// * `arch` mirrors uvr5_cli.py::_build_separator selection:
-//     'vr'       -> AudioPre / AudioPreDeEcho (agg applies)
-//     'mdx'      -> MDXNetDereverb (onnx folder; agg ignored)
-//     'roformer' -> Roformer_Loader (ckpt + yaml; agg ignored)
-// * `files` are RELATIVE to the uvr5_weights/ dir. A model is "installed" iff
-//   every file exists. `weightArg` is what denoise.js passes as uvr5_cli --model
-//   (for onnx it is the FOLDER; uvr5_cli derives the model_name from its basename).
-// * agg (0..20) only makes sense for VR models; the UI hides it otherwise.
+// 约定：
+// * id 是训练配方与步骤指纹里存的稳定键。改 id 会让续跑与重跑的识别失效，要加模型就加新 id。
+// * arch 对应 uvr5_cli.py 的 _build_separator 分支：
+//   vr 走 AudioPre / AudioPreDeEcho（agg 有效）；mdx 走 MDXNetDereverb（onnx 目录，agg 无效）；
+//   roformer 走 Roformer_Loader（ckpt 加 yaml，agg 无效）。
+// * files 相对 uvr5_weights/ 目录。模型「已安装」的条件是每个文件都存在。
+//   weightArg 是 denoise.js 传给 uvr5_cli --model 的值（onnx 那一项传的是目录，
+//   uvr5_cli 从目录名推出模型名）。
+// * agg 取值 0 到 20，只对 VR 架构有意义，界面对其他架构不显示这个旋钮。
 
 const path = require('path');
 const fs = require('fs');
 
-// Category ids map 1:1 to the official webui grouping.
+// 分类 id 与官方 webui 的分组一一对应。
 const CATEGORIES = {
   keep_vocals: { en: 'Keep vocals', zh: '保留人声' },
   main_vocal: { en: 'Only main vocal', zh: '仅保留主人声' },
   dereverb: { en: 'De-reverb / de-echo', zh: '去混响 / 去延迟' },
 };
 
-// Ordered so the UI groups render naturally (keep -> main -> dereverb).
+// 顺序让界面的分组自然呈现：保留人声、仅主人声、去混响。
 const MODELS = [
   {
     id: 'HP2',
@@ -77,7 +70,7 @@ const MODELS = [
     category: 'dereverb',
     arch: 'mdx',
     aggApplicable: false,
-    // Folder model (onnx). MDXNetDereverb hardcodes vocals.onnx inside this dir.
+    // 目录型模型（onnx）。MDXNetDereverb 在这个目录里写死读 vocals.onnx。
     files: ['onnx_dereverb_By_FoxJoy/vocals.onnx'],
     weightArg: 'onnx_dereverb_By_FoxJoy',
     note: {
@@ -127,21 +120,18 @@ const MODELS = [
     category: 'dereverb',
     arch: 'roformer',
     aggApplicable: false,
-    // ckpt only — bsroformer.py detects the arch from the name and ships a
-    // built-in default config for exactly this ep_317 checkpoint, so no yaml.
+    // 只有 ckpt：bsroformer.py 从文件名识别架构，并为这一个 ep_317 权重内置默认配置，所以不需要 yaml。
     files: ['model_bs_roformer_ep_317_sdr_12.9755.ckpt'],
     weightArg: 'model_bs_roformer_ep_317_sdr_12.9755.ckpt',
-    heavy: true, // 304.9 MB weight; UI may warn.
+    heavy: true, // 权重约 305 MB，界面可能给出提示。
     note: {
       en: 'Roformer-based separation. Weight is about 305 MB; config auto (built-in default).',
       zh: '基于 Roformer 的分离。权重约 305 MB；配置自动选用内置默认值。',
     },
   },
   {
-    // Second Roformer the OFFICIAL GPT-SoVITS uvr5 exposes. bsroformer.py detects
-    // the arch from the filename ("melbandroformer") and ships a built-in default
-    // config for this checkpoint, so NO .yaml is needed. The canonical weight is
-    // KimberleyJSN/melbandroformer -> MelBandRoformer.ckpt (user-confirmed source).
+    // 官方 GPT-SoVITS 的 uvr5 提供的第二个 Roformer。bsroformer.py 从文件名（melbandroformer）
+    // 识别架构，并为这个权重内置默认配置，所以不需要 .yaml。
     id: 'Mel-Band-Roformer',
     label: { en: 'Mel-Band Roformer (large)', zh: 'Mel-Band Roformer（大模型）' },
     category: 'main_vocal',
@@ -149,7 +139,7 @@ const MODELS = [
     aggApplicable: false,
     files: ['MelBandRoformer.ckpt'],
     weightArg: 'MelBandRoformer.ckpt',
-    heavy: true, // 870.8 MB weight; UI may warn.
+    heavy: true, // 权重约 871 MB，界面可能给出提示。
     note: {
       en: 'Roformer-based main-vocal isolation. Weight is about 871 MB; config auto (built-in default).',
       zh: '基于 Roformer 的主人声分离。权重约 871 MB；配置自动选用内置默认值。',
@@ -159,9 +149,8 @@ const MODELS = [
 
 const BY_ID = new Map(MODELS.map((m) => [m.id, m]));
 
-// Legacy denoiseModel string values -> registry id. The pre-pipeline UI shipped a
-// single dropdown whose only value was 'mdx-net', which denoise.js mapped to the
-// HP2 weight. Preserve that behaviour when reading old recipes.
+// 旧 denoiseModel 字符串值到登记表 id 的映射。流水线之前的界面只有一个下拉项，
+// 取值是 'mdx-net'，denoise.js 把它映射到 HP2 权重。读旧配方时要保留这个行为。
 const LEGACY_MODEL_ALIASES = {
   'mdx-net': 'HP2',
   'HP2_all_vocals.pth': 'HP2',
@@ -178,57 +167,51 @@ function getModel(id) {
   return BY_ID.get(id) || null;
 }
 
-// Normalise a raw model reference (id OR legacy string) to a known id, or null.
+// 把一个模型引用（id 或旧字符串）归一成已知的 id，不是已知模型则返回 null。
 function normalizeModelId(ref) {
   if (!ref) return null;
   if (BY_ID.has(ref)) return ref;
   return LEGACY_MODEL_ALIASES[ref] || null;
 }
 
-// Weights live under <weightsDir>/<arch>/ so that the three architectures are
-// not piled into one flat directory. The sub-directory is DERIVED from the
-// model's own `arch` field -- it is never written into `files` / `weightArg`,
-// because repeating the same fact in ten places guarantees the eleventh entry
-// gets it wrong. Add a model, and it lands in the right place by construction.
+// 权重放在 <weightsDir>/<arch>/ 之下，免得三种架构堆在一个平铺目录里。子目录由模型自己的
+// arch 字段推导，绝不写进 files 与 weightArg：同一件事写十处，第十一处一定写错。
+// 加一个模型，它自然就落在正确的位置。
 //
-// Note the directory names are vr / roformer / mdx and nothing else: the
-// python loaders match substrings against the path they are handed, so a
-// directory called bs_roformer/ would make every Roformer weight underneath it
-// load as BS-Roformer -- silently, and with a forgiving state_dict loader, so
-// the result is audible garbage rather than an error.
+// 目录名只能是 vr / roformer / mdx：python 侧的载入器拿手到的路径做子串匹配，
+// 一个叫 bs_roformer/ 的目录会让它下面每一个 Roformer 权重都被当成 BS-Roformer 载入，
+// 而且是静默的，state_dict 载入器又很宽容，结果是听着不对而不是报错。
 function archDir(weightsDir, m) {
   return path.join(weightsDir, m.arch);
 }
 
-// Every declared file, relative to weightsDir, WITH the architecture directory
-// in front. This is the one place that knows the layout: installation checks,
-// error messages and test fixtures all read it, so they cannot drift apart.
+// 模型声明的全部文件，相对 weightsDir，带上架构目录。只有这一处知道目录布局：
+// 安装检查、错误消息与测试夹具都读它，所以它们不会各说各话。
 function modelFiles(id) {
   const m = getModel(id);
   if (!m) return [];
   return m.files.map((f) => path.join(m.arch, f));
 }
 
-// Absolute path of the primary weight arg passed to uvr5_cli --model.
+// 传给 uvr5_cli --model 的主权重参数的绝对路径。
 function resolveWeightArg(weightsDir, id) {
   const m = getModel(id);
   if (!m) return null;
   return path.join(archDir(weightsDir, m), m.weightArg);
 }
 
-// A model is installed iff every declared file exists under weightsDir.
+// 模型已安装的条件：声明的每个文件都在 weightsDir 之下。
 function isInstalled(weightsDir, id) {
   if (!getModel(id)) return false;
   return modelFiles(id).every((f) => fs.existsSync(path.join(weightsDir, f)));
 }
 
-// Which declared files are missing, relative to weightsDir and including the
-// architecture directory, so the message can be followed literally.
+// 哪些声明的文件缺失。路径相对 weightsDir 且带上架构目录，报错里的路径可以照着找。
 function missingFiles(weightsDir, id) {
   return modelFiles(id).filter((f) => !fs.existsSync(path.join(weightsDir, f)));
 }
 
-// Serialisable catalogue for the API (labels + availability), P3-Roformer included.
+// 给 API 用的可序列化清单：标签与可用状态，含两个 Roformer。
 function catalogue(weightsDir, { includeHeavy = true } = {}) {
   return MODELS.filter((m) => includeHeavy || !m.heavy).map((m) => ({
     id: m.id,
@@ -239,16 +222,15 @@ function catalogue(weightsDir, { includeHeavy = true } = {}) {
     aggApplicable: m.aggApplicable,
     heavy: !!m.heavy,
     note: m.note,
-    // Expert knobs this model actually supports (source-verified per arch).
+    // 这个模型真正支持的进阶旋钮（逐架构对着源码核过）。
     expertParams: expertParamsFor(m.arch).map((k) => ({ key: k, ...EXPERT_PARAMS[k] })),
     installed: weightsDir ? isInstalled(weightsDir, m.id) : false,
     missing: weightsDir ? missingFiles(weightsDir, m.id) : m.files.slice(),
   }));
 }
 
-// Default weights dir shipped with the training tools.
-// 权重位置由 lib/paths.js 统一定义，不再按本文件自身位置推断：代码已迁到
-// pipeline/uvr5/ 而权重仍在旧处，「权重就在我旁边」这个假设不再成立。
+// 训练工具自带的默认权重目录。权重位置由 lib/paths.js 统一定义，不按本文件自身位置推断：
+// 代码在 pipeline/uvr5/ 而权重在别处，「权重就在我旁边」这个假设不成立。
 function defaultWeightsDir() {
   return require('../../lib/paths').UVR5_WEIGHTS_DIR;
 }
@@ -258,15 +240,12 @@ const AGG_MIN = 0;
 const AGG_MAX = 20;
 const AGG_DEFAULT = 10;
 
-// ---------------------------------------------------------------------------
-// Expert parameters — the REAL, source-verified knobs each separator exposes.
-// (See vr.py / mdxnet.py / bsroformer.py.) They differ by architecture, so the
-// canonical stage carries only the params applicable to its model's arch.
-//   vr       : agg (normal) + tta, postprocess, highEnd, precision (expert)
-//   mdx      : chunks, precision (expert)  [no agg]
-//   roformer : overlap, batchSize, precision (expert)  [no agg]
-// `precision` is the only expert knob common to all archs.
-// ---------------------------------------------------------------------------
+// 进阶参数：每种分离器真正支持的旋钮（对着 vr.py / mdxnet.py / bsroformer.py 核过）。
+// 各架构不同，所以标准阶段只带该模型架构适用的那些参数：
+//   vr：agg（普通参数）与 tta、postprocess、highEnd、precision（进阶参数）
+//   mdx：chunks、precision（进阶参数），无 agg
+//   roformer：overlap、batchSize、precision（进阶参数），无 agg
+// precision 是三种架构都有的唯一进阶参数。
 const PRECISIONS = ['fp32', 'fp16'];
 const PRECISION_DEFAULT = 'fp32';
 const HIGH_END_MODES = ['mirroring', 'bypass', 'none'];
@@ -277,16 +256,15 @@ const EXPERT_PARAMS = {
   tta: { archs: ['vr'], type: 'bool', default: false },
   postprocess: { archs: ['vr'], type: 'bool', default: false },
   highEnd: { archs: ['vr'], type: 'enum', values: HIGH_END_MODES, default: HIGH_END_DEFAULT },
-  // MDX-Net is very OOM-prone; `chunks` is its segment length (seconds; the demix
-  // window fed per pass). The default (8) targets a 4 GB GPU — larger cards can
-  // safely raise it for more context/speed. Keep this default in sync with the UI
-  // spec in web/src/components/train/TrainingTab.jsx (EXPERT_META.chunks).
+  // MDX-Net 极易显存不足；chunks 是它的分段长度（秒，每次喂进分离器的窗口）。
+  // 默认值 8 以 4 GB 显存为基准，显存更大的卡可以安全调高，拿到更多上下文或更快。
+  // 这个默认值与 web/src/components/train/trainConstants.js 的 EXPERT_META.chunks 保持一致。
   chunks: { archs: ['mdx'], type: 'int', min: 5, max: 40, default: 8 },
   overlap: { archs: ['roformer'], type: 'int', min: 1, max: 8, default: 2 },
   batchSize: { archs: ['roformer'], type: 'int', min: 1, max: 16, default: 2 },
 };
 
-// Ordered param keys applicable to a given arch (normal 'agg' handled separately).
+// 某个架构适用的参数键，按表里的顺序（普通参数 agg 单独处理）。
 function expertParamsFor(arch) {
   return Object.keys(EXPERT_PARAMS).filter((k) => EXPERT_PARAMS[k].archs.includes(arch));
 }
@@ -303,7 +281,7 @@ function clampInt(v, min, max, def) {
   return Math.min(max, Math.max(min, n));
 }
 
-// Resolve one expert param value against its spec (coerce + clamp + fallback).
+// 按参数规格解析一个进阶参数的值：转换、夹到范围、回落默认值。
 function resolveExpertValue(key, raw) {
   const spec = EXPERT_PARAMS[key];
   if (!spec) return undefined;
@@ -314,11 +292,10 @@ function resolveExpertValue(key, raw) {
   return spec.default;
 }
 
-// Normalise arbitrary input (new pipeline array OR legacy {model} string) into a
-// clean, validated pipeline. Each stage carries: { model, [agg], <expert params
-// applicable to that arch> }. Unknown/empty models are dropped. Returns [] when
-// nothing usable (caller treats as "off"). Shared by the server validator and
-// denoise.js so both agree on the canonical shape (fingerprint stability).
+// 把任意输入（新流水线数组或旧的 {model} 字符串）归一成一份干净、已校验的流水线。
+// 每个阶段带 { model, [agg], <该架构适用的进阶参数> }。未知或空的模型被丢掉。
+// 没有可用阶段时返回空数组（调用方当成「关闭」）。
+// 服务端的校验与 denoise.js 共用它，两边才对得上同一份形状（指纹才稳定）。
 function normalizePipeline(input) {
   let stages = [];
   if (Array.isArray(input)) {
