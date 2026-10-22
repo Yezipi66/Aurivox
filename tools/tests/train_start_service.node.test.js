@@ -1,8 +1,7 @@
-// Stage-2 behavioral test for POST /api/train/start (giant handler #3 sunk to a
-// service). Builds the training router with a fully stubbed ctx (no engine/GPU/
-// fs), captures the registered handler and drives it through EVERY response exit,
-// asserting HTTP status + body (incl. error `code`s). 1:1 proof the service/
-// HttpError refactor preserved the original inline handler's behavior.
+// Behavioral test for POST /api/train/start in lib/routes/training.js. Builds
+// the training router with a fully stubbed ctx (no engine/GPU/fs), captures the
+// registered handler and drives it through EVERY response exit, asserting HTTP
+// status + body (incl. error `code`s).
 // Run from project root:  node tools/tests/train_start_service_test.js
 const path = require("path");
 const Module = require("module");

@@ -1,4 +1,4 @@
-// Stage-1 smoke test. Loads server.js with npm deps (express/cors/multer)
+// Smoke test: loads server.js with npm deps (express/cors/multer)
 // shimmed and app.listen stubbed, executing all top-level module code. This:
 //   1) builds `const ctx = { ...allNames }` — throws ReferenceError if any ctx
 //      name is undefined (i.e. a router dependency was not wired);
