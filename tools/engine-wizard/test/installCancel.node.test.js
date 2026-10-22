@@ -1,13 +1,12 @@
 'use strict'
-// A2：装依赖可以取消，取消如实报，断点续传不撒谎。
-//
+// 装依赖的取消路径：取消要如实报出来，断点续传不能撒谎。
 // 本文件守五件事，各有一条能变红的断言：
 //   ① 取消时进程树被杀，且不新起进程
 //   ② 取消的返回码是 INSTALL_CANCELLED，不是成功也不是 ENV_FAILED
 //   ③ 杀不掉进程时如实报 INSTALL_CANCEL_FAILED（不假装取消成功）
-//   ④ 取消后未完成的那一步不写 done ： 断点续传只记真成功的步骤
+//   ④ 取消后未完成的那一步不写 done：断点续传只记真成功的步骤
 //   ⑤ 不取消的正常流程不受影响（回归保护）
-//
+// 另外两条验的是真实路径：真进程被杀、真 HTTP 端点能停掉在跑的安装。
 // 本文件不真装包：每一步都用可注入的 runStep 换掉。
 
 const { test } = require('node:test')
@@ -21,7 +20,7 @@ const envMod = require('../core/env.js')
 const IS = require('../core/installState.js')
 
 // 守卫（enginesDirWriteGuard.node.test.js 的 offenders）要求路径上带临时目录痕迹，
-//   否则并行跑会污染真的 engines/。变量名必须带 mkdtemp。
+// 否则并行跑会污染真的 engines/。变量名必须带 mkdtemp。
 function mkdtempRoot () {
   const mkdtempRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-instcancel-'))
   fs.mkdirSync(path.join(mkdtempRootDir, 'engines'), { recursive: true })
@@ -60,7 +59,7 @@ function fakeChild () {
   return fake
 }
 
-// ① 取消：进程树被杀 + 如实返回 INSTALL_CANCELLED
+// 取消：进程树被杀，且如实返回 INSTALL_CANCELLED
 test('取消：杀进程树，返回 INSTALL_CANCELLED（如实报，不伪装成功）', async () => {
   const { root } = mkdtempEngine('c1')
   const spawnCalls = []
@@ -120,7 +119,7 @@ test('取消的退出码不冒充安装结论（进程被杀 ≠ 装失败）', 
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ② 进程杀不掉 ⇒ 如实报杀不掉（不假装取消成功）
+// 进程杀不掉：如实报杀不掉，不假装取消成功
 test('进程杀不掉 ⇒ 如实报 INSTALL_CANCEL_FAILED，不假装取消成功', async () => {
   const { root } = mkdtempEngine('c3')
   const ac = new AbortController()
@@ -145,7 +144,7 @@ test('进程杀不掉 ⇒ 如实报 INSTALL_CANCEL_FAILED，不假装取消成�
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ③ runEnv：取消时留下的 done 只含真成功的步骤
+// runEnv：取消时留下的 done 只含真成功的步骤
 test('runEnv 取消：未完成的那一步不写 done（断点续传不撒谎）', async () => {
   const { root } = mkdtempEngine('c4')
   const ac = new AbortController()
@@ -190,7 +189,7 @@ test('步骤之间点了取消 ⇒ 不新起进程，如实报已取消', async 
   const ac2 = new AbortController()
   void ac
 
-  // 两步都注入假的；第一步跑完就 abort，第二步不许被起
+  // 两步都注入假的；第一步结束就 abort，第二步不被起
   let n = 0
   const r = await envMod.runEnv({
     id: 'c5', root, execute: true, manifest: {},
@@ -210,7 +209,7 @@ test('步骤之间点了取消 ⇒ 不新起进程，如实报已取消', async 
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ④ 半截环境：取消后留标记，重跑先删 .venv
+// 半截环境：取消后留标记，重跑先删 .venv
 test('取消后 .venv 有「不完整」标记，重跑先删半截环境', async () => {
   const { root } = mkdtempEngine('c6')
   // 造一个半截 .venv（装到一半取消的真实形状：目录在、site-packages 一半）
@@ -308,7 +307,7 @@ test('装依赖失败 ⇒ 未完成的步骤不写 done，已成功的仍在（�
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ⑤ 回归保护：不取消的正常流程不受影响
+// 回归保护：不取消的正常流程不受影响
 test('不取消的正常流程不受影响（回归保护）', async () => {
   const { root } = mkdtempEngine('c8')
   const ac = new AbortController()
@@ -357,7 +356,7 @@ test('给了 cancel 对象但没注入 spawn ⇒ 仍然走真实 spawn（缺省�
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ⑥ 真进程：取消真的杀掉了进程树（taskkill /T 那条路）
+// 真进程：取消真的杀掉了进程树（taskkill /T 那条路）
 test('真进程：取消后那个进程真死了，不新起进程', async () => {
   const { root } = mkdtempEngine('c12')
   const ac = new AbortController()
@@ -399,7 +398,7 @@ test('真进程：取消后那个进程真死了，不新起进程', async () =>
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-// ⑦ HTTP 层：取消端点真的能停掉正在跑的安装（不只是断前端流）
+// HTTP 层：取消端点真的能停掉正在跑的安装（不只是断前端流）
 test('HTTP 层：/wizard/env/cancel 能停掉正在跑的安装并如实回 INSTALL_CANCELLED', async () => {
   const http = require('node:http')
   const wb = require('../core/wizardbridge.js')
@@ -414,7 +413,7 @@ test('HTTP 层：/wizard/env/cancel 能停掉正在跑的安装并如实回 INST
   })
   await new Promise((r) => srv.listen(0, r))
   const port = srv.address().port
-  // markbot 测试结束必须关掉这个服务，否则 node --test 挂住不退出
+  // 测试结束必须关掉这个服务，否则 node --test 挂住不退出
   try {
     const resp = await fetch(`http://127.0.0.1:${port}/wizard/env`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -466,7 +465,7 @@ test('HTTP 层：/wizard/env/cancel 能停掉正在跑的安装并如实回 INST
     assert.strictEqual(doneJson.code, 'INSTALL_CANCELLED', doneJson.code)
     assert.strictEqual(doneJson.ok, false, '⛔ 取消被报成了成功')
     assert.strictEqual(doneJson.cancelled, true, '结果要标 cancelled')
-    // 文案要说「已取消」，不许说「第 N 步失败」（那是失败的解释，不是取消）
+    // 文案要说「已取消」，不能写成「第 N 步失败」（那是失败的解释，不是取消）
     assert.ok(/取消/.test(doneJson.errorZh), doneJson.errorZh)
     assert.ok(!/失败/.test(doneJson.errorZh),
       `⛔ 取消的文案说成了失败：${doneJson.errorZh}`)

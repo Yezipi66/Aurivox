@@ -1,18 +1,15 @@
 'use strict'
-// 变异测试 ： 把「修好的写法」退回「旧写法」，验证守卫断言真的会红
-//
-// 为什么必须做：新写的测试全绿，不等于这条路径被守住了。判据只有一条：
-//    把实现改回旧写法，守卫它的那条断言必须失败。红了 ⇒ 守卫活着；
-//    没红 ⇒ 那条断言是个摆设（比没有更坏，它给人安全感）。
-//
+// 变异测试：把「修好的写法」退回「旧写法」，验证守卫断言真的会红。
+// 新写的测试全绿，不等于这条路径被守住了。判据只有一条：
+//   把实现改回旧写法，守卫它的那条断言必须失败。红了 ⇒ 守卫活着；
+//   没红 ⇒ 那条断言是个摆设（比没有更坏，它给人安全感）。
 // 做法：把源文件复制到本进程私有的临时目录、改成旧写法，然后在进程内
-//    重新加载那份副本，当场跑守卫断言。
-//    不许 spawn 子进程 ： 从 node --test 内部
-//      spawnSync('node --test <file>') 拿到的是「status=0 且空输出」，
-//      子进程一条测试都没跑 ⇒ 每次变异都假绿。子进程这条路不通。
-//    不许就地改写源文件 ： node --test 是多文件并行的，就地改的那几百
-//      毫秒里另一个进程正好读到变异版，它自己的用例会假红。
-//      复制到私有沙盒目录，真实源文件一个字节都不动。
+//   重新加载那份副本，当场跑守卫断言。
+//   不 spawn 子进程：从 node --test 内部 spawnSync('node --test <file>')
+//     拿到的是「status=0 且空输出」，子进程一条测试都没跑 ⇒ 每次变异都假绿。
+//   不就地改写源文件：node --test 是多文件并行的，就地改的那几百毫秒里
+//     另一个进程正好读到变异版，它自己的用例会假红。复制到私有沙盒目录，
+//     真实源文件一个字节都不动。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -25,7 +22,7 @@ const ROOT = path.resolve(__dirname, '..', '..', '..')
 const SESS = path.join(ROOT, 'tools', 'engine-wizard', 'editor', 'useInstallSession.js')
 const ISTATE = path.join(ROOT, 'tools', 'engine-wizard', 'core', 'installState.js')
 const DLSTATE = path.join(ROOT, 'tools', 'engine-wizard', 'editor', 'downloadState.js')
-// id 校验（MISSING_ID）与目录名单源（folderName）也要变异
+// id 校验（MISSING_ID）与目录名单源（folderName）也在变异范围内。
 const CLONE = path.join(ROOT, 'tools', 'engine-wizard', 'core', 'clone.js')
 const FOLDER_NAME = path.join(ROOT, 'tools', 'engine-wizard', 'editor', 'folderName.js')
 
@@ -46,11 +43,10 @@ let bump = 0
 /**
  * 把源文件复制到本进程私有的临时目录、改成旧写法、重新加载，交给 probe
  * 跑守卫断言。真实源文件一个字节都不动。
- *
- * 为什么必须复制而不是就地改：`node --test` 是多文件并行的。
- *    就地改写 useInstallSession.js 的那几百毫秒里，另一个进程里的
- *    useInstallSession.node.test.js 刚好读到变异版 ⇒ 它自己的用例会假红。
- *    那是把「变异测试」自己变成污染源，比没有变异更坏。
+ * 必须复制而不能就地改：`node --test` 是多文件并行的，就地改写
+ * useInstallSession.js 的那几百毫秒里，另一个进程里的
+ * useInstallSession.node.test.js 刚好读到变异版 ⇒ 它自己的用例会假红，
+ * 那等于把「变异测试」自己变成污染源。
  *
  * @param {string} src 源文件
  * @param {(s:string)=>string} patchFn 变异：原文 ⇒ 旧写法
@@ -81,7 +77,7 @@ async function mutateAndProbe (src, patchFn, probe) {
     }
     let m
     if (isEsm) {
-      // ESM：查询串绕开模块缓存（不能删 require.cache）
+      // ESM：查询串绕开模块缓存（不能删 require.cache）。
       //   Windows 上绝对路径必须先转 file:// URL，否则报
       //     ERR_UNSUPPORTED_ESM_URL_SCHEME（'d:' 不是协议）。
       m = await import(pathToFileURL(copy).href + '?mut=' + bump)

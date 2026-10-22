@@ -4,7 +4,10 @@ import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { loadSession, saveSession } from './useInstallSession'
 
-
+// 向导第 2 步：给这台引擎装 Python 依赖。
+// 本机检测、装法与将要执行的命令都来自 /wizard/env 的计划（execute:false）；
+// 真正执行时读同一端点的 SSE 流，进度与日志逐条显示。
+// 会话状态存在 sessionStorage，键含引擎 id 与仓库 URL：刷新不丢，换 URL 即失效。
 
 const VERDICT = {
   match: { mark: '✓', en: 'Matches this machine', zh: '与本机匹配' },
@@ -21,18 +24,17 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
-  // prep.res 是本次会话的解析结果（换 URL 即失效），
-  //   它比持久段更接近「用户此刻在装哪台」。
-  //   两者不一致时以会话段为准，并把持久段一起纠正过来。
+  // 会话段里的解析结果比持久段更贴近「用户此刻在装哪台」：换 URL 后持久段还有旧值，
+  // 会话段已经失效。两者不一致时以会话段为准，并把持久段一起纠正过来。
   const sessionId = (prep && prep.res && prep.res.id) || ''
   React.useEffect(() => {
     if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
   }, [sessionId, state.id])
   const targetId = sessionId || engineId
 
-  // 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）
-  //   懒初始化（useState 初值）而不是 useEffect：首帧就要用恢复值，
-  //   否则第 1 帧会把旧值覆盖回默认值再写盘，恢复就白做了。
+  // 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）。
+  //   懒初始化而不是 useEffect：首帧就要用恢复值，否则第 1 帧会把旧值覆盖回默认值再写盘，
+  //   恢复就白做了。
   const saved = React.useMemo(
     () => loadSession(targetId, url), [targetId, url])
 
@@ -51,8 +53,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   //   它是「这一次执行」的动作，不是界面状态，进了 state 会触发多余渲染。
   const cancelRef = React.useRef(null)
 
-  // 保存到会话段（排除瞬态状态：busy / live / tail 一段都不存）
-  //   键含 id 与 url ⇒ 换任一个，写的都是另一段会话，不会污染旧的。
+  // 保存到会话段。瞬态状态（busy / live / tail）不持久化。
+  //   键含 id 与 url ⇒ 换任一个，写到的都是另一段会话，不会污染旧的。
   React.useEffect(() => {
     if (!targetId) return
     saveSession(targetId, url, {
@@ -79,7 +81,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     } catch (e) { setPlan({ ok: false, error: e.message }) }
   }
 
-  // 只清记录，不删源码、不删已装依赖（那是另一回事）。
+  // 只清记录，不删源码，也不删已装依赖（那是另一回事）。
   const resetThisStep = async () => {
     if (!targetId) return
     try {
@@ -96,8 +98,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const d = plan && plan.ok ? plan.deps : null
   const hw = plan ? plan.hardware : null
 
-  // 计划态：进入页面就取一次不执行的计划。
-  //   execute: false ⇒ 后端只出计划不执行。
+  // 计划态：进入页面就取一次不执行的计划。execute:false ⇒ 后端只出计划不执行。
   React.useEffect(() => {
     if (!targetId) return
     let alive = true
@@ -118,9 +119,9 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     if (hw && backend === null) setBackend(hw.recommended)
   }, [hw])
 
-  // 只在执行中更新；done 之后保持最后状态让用户看到结果。
+  // 只在执行中更新；执行结束后保持最后的状态，让用户看到结果。
 
-  // 读 SSE 流。fetch + ReadableStream（axios 无法读取流）。
+  // 读 SSE 流。用 fetch 加 ReadableStream，axios 无法读取流。
   // 不能等 r.json()：那会把流缓冲到最后才一次性返回。
   const run = async () => {
     setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
@@ -134,7 +135,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
       // 取消：打取消端点，让服务端杀掉那个进程（进程树）。
-      //   断掉前端的流不杀进程，那只是看不见它在运行。
+      //   只断前端的流不杀进程，那只是看不见它在运行。
       const cancel = async () => {
         try {
           await fetch('/wizard/env/cancel', {
@@ -210,7 +211,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ---- 本机检测 ---- */}
+      {/* 本机检测结果与推荐的安装后端。 */}
       {hw && (
         <div className="msg msg-info">
           <b>{t('This machine', '本机')}：</b>
@@ -234,13 +235,13 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         </div>
       )}
 
-      {/* ---- ② torch 系：三态 ---- */}
+      {/* 与显卡相关的依赖包，三态：匹配、不匹配、无法判断。 */}
       {d && d.torch.count > 0 && (
         <div className="preflight" style={{ marginTop: 0 }}>
           <div className="layer-label">
             {t('GPU-related packages', '与 GPU 相关的包')}
           </div>
-          {/* t() 只有两个参数（web/src/lib/i18n.jsx 的 LangProvider 里 t = (en, zh)）。
+          {/* t() 只接两个参数（web/src/lib/i18n.jsx 的 LangProvider 里 t = (en, zh)），
                传三个 ⇒ 第二段英文被当中文返回。 */}
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('These packages only run on this kind of graphics card. '
@@ -271,7 +272,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         </div>
       )}
 
-      {/* ---- ③ 装法：全摆出来 ---- */}
+      {/* 安装后端：全部选项都列出来，推荐值只是默认值。 */}
       {hw && hw.options && (
         <div className="field">
           <label className="field-label" htmlFor="wz-backend">
@@ -302,7 +303,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         <div className="msg msg-danger">{t(preview.error, preview.errorZh)}</div>
       )}
 
-      {/* ---- 命令来自 preview（execute:false 的计划），不是 plan ---- */}
+      {/* 将要执行的命令来自 preview（execute:false 的计划），不是 plan。 */}
       {preview && preview.ok && (preview.env_command || []).length > 0 && (
         <div className="field">
           <label className="field-label" htmlFor="wz-cmd">
@@ -334,11 +335,11 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         </div>
       )}
 
-      {/* ---- 锁文件后端与本机不一致 ⇒ 主命令之后还有第②步 ----
+      {/* 锁文件的后端与本机不一致，主命令之后还要再装一次 torch。
           主命令已带 --no-install-package torch（照锁装其余、跳过 torch），
-          此区域显示的是装 torch 那一步，不重复主命令。
+          这一段显示的是装 torch 那一步，不重复主命令。
           数据来自 preview（进入页面时取的 execute:false 计划），
-          不是 plan（/wizard/deps 从 GitHub 拉 lock）。*/}
+          不是 plan（/wizard/deps 从 GitHub 拉 lock）。 */}
       {preview && preview.alternative && (
         <div className="field">
           <label className="field-label" htmlFor="wz-alt">
@@ -355,7 +356,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         </div>
       )}
 
-      {/* ---- ① 普通依赖：只给个数，可展开 ---- */}
+      {/* 与显卡无关的依赖包：只显示个数，展开后列出。 */}
       {d && d.normal.count > 0 && (
         <div className="collapsible">
           <div className="collapsible-hdr" onClick={() => setShowNormal(!showNormal)}>
@@ -402,7 +403,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         </div>
       )}
 
-      {/* ---- 实时进度：busy 时显示 ---- */}
+      {/* 实时进度：执行期间显示。 */}
       {busy && (
         <div className="preflight" style={{ marginTop: 0 }}>
           <div className="layer-label">
@@ -430,7 +431,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               <span className="pf-val"><code>{live.argv}</code></span>
             </div>
           )}
-          {/* 进度条：有字节进度时按字节显示，有总步数时按步数显示，单步时用不确定动画 */}
+          {/* 进度条：有字节进度时按字节显示，有总步数时按步数显示，单步时用不确定动画。 */}
           {progress && progress.total > 0 ? (
             <div className="wz-progress">
               <div className="wz-progress-bar"
@@ -453,7 +454,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               </pre>
             </div>
           )}
-          {/* 取消：只在真的 busy 时给。
+          {/* 取消按钮：只在执行期间显示。
               它杀的是服务端那个进程，不是只让前端不再显示。
               红色：终止一个已经开始的操作，且环境会停在不完整状态。 */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -474,7 +475,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 
       {/* 取消是用户自己的选择，不是失败：用 info 不用 danger。
           步骤列表里那一条取消的步骤照实标叉号（它确实没完成），
-          但结论要说「已取消」，不许让用户以为装失败了。 */}
+          但结论要说「已取消」，不让用户以为装失败了。 */}
       {result && result.code === 'INSTALL_CANCELLED' && (
         <div className="msg msg-info">
           {t(result.error, result.errorZh)}
@@ -514,15 +515,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
       )}
 
-      {/* ---- 三个按钮一行，从左到右 ----
-          从头重装本步 → 撤销克隆 → 安装（主操作靠最右）。
+      {/* 三个按钮一行，从左到右：从头重装本步、撤销克隆、安装（主操作靠最右）。
           两个按钮的说明放在按钮行下方的分隔线里，竖排作引注。
           RiskUnlock 自己就是「提示 + 勾选 + 按钮」三块，
-            不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。*/}
+            不能再把三块各自塞成并排的列（那会把提示拆成并排的两列）。 */}
       <RiskUnlock stepKey="env" unlocked={unlocked} onUnlock={setUnlocked}>
         {/* RiskUnlock 把 children 放进 .confirm-actions（flex 行，右对齐），
             所以这里给一个撑满宽度的子节点：
-            上面一行按钮（主操作靠最右），下面一块引注。*/}
+            上面一行按钮（主操作靠最右），下面一块引注。 */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
@@ -537,7 +537,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           }}>
             {/* 从头重装本步：只清「哪些步骤算做完了」这份记录
                 （.wizard-install.json 的 env 段），
-                不删引擎目录里的源码、不删已装依赖。*/}
+                不删引擎目录里的源码，也不删已装依赖。 */}
             {!busy && (
               <button className="btn btn-sm" type="button"
                 onClick={() => resetThisStep()}>
@@ -547,7 +547,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 
             {/* 撤销克隆：克隆完成后向导直接跳到第 2 步，
                 所以这条路也得在这儿给一份：
-                使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。*/}
+                使用者在这儿才真正看到「下一步该做什么」，想反悔时手边要有路。 */}
             {!busy && targetId && (
               <UndoClone engineId={targetId} onUndone={() => {
                 if (onUndone) onUndone()
@@ -560,9 +560,9 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             </button>
           </div>
 
-          {/* ---- 按钮的引注：分隔线之下 ----
+          {/* 按钮的引注：分隔线之下。
               分隔线贯穿整个容器宽度，左右各留一点边距。
-              说明竖排，与上面三个按钮一一对应。*/}
+              说明竖排，与上面三个按钮一一对应。 */}
           {!busy && (
             <div style={{
               paddingTop: 8,

@@ -1,4 +1,7 @@
 'use strict'
+
+// 探测上游仓库的声明：读 pyproject.toml / requirements.txt / LICENSE，产出平台的引擎名片草稿。
+// 只读文本不执行上游代码；认不出的字段如实留空，由界面提示使用者补齐。
 const TOML_LINE = {
   name: /^\s*name\s*=\s*["']([^"']+)["']/,
   scripts: /^\s*([\w-]+)\s*=\s*["']([\w.]+):(\w+)["']\s*$/,
@@ -106,19 +109,16 @@ function parseRequirements (text) {
     if (!m) { out.skipped++; continue }
     const name = m[1]
     const tail = m[2]
-    // 名字后面只能跟两种东西（PEP 508 的形状）：
+    // 名字后面只能跟三种东西（PEP 508 的形状）：
     //   ① extras：fastapi[all]
     //   ② 紧贴的版本约束：torch>=2.5.0 / torch == 2.5.0 里第二种不合法
     //   ③ 或者什么都没有（裸包名）
-    //
-    //   关键：合法的比较算子必须是两个字符或单个 < >，
-    //   单个 `=` 不是算子：它是赋值。
-    //   这条规则同时挡住了 TOML 赋值行：
-    //     name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
-    //     license = "Apache-2.0"    ⇒ 同上
-    //     requires-python = ">=3.10" ⇒ 同上
-    //   （这条守卫挡住的是把 TOML 赋值行读成包名：那几个 TOML 键名
-    //     本来被读成了包名。）
+    // 关键：合法的比较算子必须是两个字符或单个 < >，单个 `=` 不是算子：它是赋值。
+    // 这条规则同时挡住了 TOML 赋值行：
+    //   name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
+    //   license = "Apache-2.0"    ⇒ 同上
+    //   requires-python = ">=3.10" ⇒ 同上
+    // （这条守卫挡住的是把 TOML 赋值行读成包名：那几个 TOML 键名本来被读成了包名。）
     if (tail && !/^(?:\[[^\]]*\])?(?:===|==|!=|<=|>=|~=|<|>)/.test(tail)) {
       out.skipped++; continue
     }
@@ -135,7 +135,7 @@ function parseRequirements (text) {
 /**
  * 从 LICENSE 正文的头部识别许可证，返回 SPDX 标识或 null。
  *
- * 认的是标准许可证写在开头的自我声明短语，不是靠正文相似度猜：
+ * 认的是标准许可证写在开头的自我声明短语，不是靠正文相似度推断：
  *   Apache 的开头写着「Apache License / Version 2.0」；
  *   MIT 的写着「MIT License」或「Permission is hereby granted, free of charge」；
  *   BSD 的写着「Redistribution and use in source and binary forms」；
@@ -239,16 +239,16 @@ function probeProject (input = {}) {
   const sources = {}
   const unfilled = []
 
-  // ---- 包名 ⇒ call.module ----
-  // 来源优先级：pyproject 的 [project.name] → pyproject 的 scripts 模块名
-  //   → setup.py 的 name=。顺序与 detectDependencyFile 一致（pyproject 优先）。
+  // 包名 ⇒ call.module
+  // 来源优先级：pyproject 的 [project.name] → pyproject 的 scripts 模块名 → setup.py 的 name=。
+  // 顺序与 detectDependencyFile 一致（pyproject 优先）。
   let packageName = py.name || null
   // 来源与值同进同出：没有值就没有来源。
-  //   不预写一个来源再等值来填：那样会出现「值是空的，来源却写得很确定」，
-  //     界面上读起来就成了「平台在 pyproject 里读到了包名」，那是假的。
+  // 不预写一个来源再等值来填：那样会出现「值是空的，来源却写得很确定」，
+  // 界面上读起来就成了「平台在 pyproject 里读到了包名」，那是假的。
   let packageNameFrom = py.name ? 'pyproject.toml [project.name]' : null
   if (!packageName && Object.keys(py.scripts).length) {
-    // 没有 [project.name]？退一步用 console 脚本的模块名（还是读出来的，不是猜的）
+    // 没有 [project.name]？退一步用 console 脚本的模块名（还是读出来的，不是推断的）
     packageName = Object.values(py.scripts)[0].module.split('.')[0]
     const first = Object.keys(py.scripts)[0]
     packageNameFrom =
@@ -276,7 +276,7 @@ function probeProject (input = {}) {
     })
   }
 
-  // ---- console 脚本 ⇒ runtime.entry ----
+  // console 脚本 ⇒ runtime.entry
   const scriptNames = Object.keys(py.scripts)
   if (scriptNames.length === 1) {
     values['runtime.entry'] = scriptNames[0]
@@ -301,24 +301,23 @@ function probeProject (input = {}) {
     })
   }
 
-  // ---- src 布局 ⇒ 装法 ----
+  // src 布局 ⇒ 装法
   if (py.srcRoot) {
     values.installMode = 'pyproject-src-layout'
     sources.installMode = `pyproject.toml [tool.setuptools.packages.find].where = ${py.srcRoot}`
   }
 
-  // ---- 许可证 ⇒ license ----
+  // 许可证 ⇒ license
   // pyproject 写了 license 就用它（那是最精确的来源）。
-  // 没写时读 LICENSE 正文的头部：标准许可证会在开头写明自己是哪一种，
-  //   照它的原话转成 SPDX 标识，这不是平台在猜，是转录上游的自我声明。
-  //   正文认不出就只报「有这个文件」，不靠相似度猜。
-  //
-  // 值字段只装许可证标识（SPDX id 或 pyproject 里写的原文），不装句子。
+  //   没写时读 LICENSE 正文的头部：标准许可证会在开头写明自己是哪一种，
+  //   照它的原话转成 SPDX 标识，这不是平台在推断，是转录上游的自我声明。
+  //   正文认不出就只报「有这个文件」，不靠相似度推断。
+  //   值字段只装许可证标识（SPDX id 或 pyproject 里写的原文），不装句子。
   //   这条字段是直接渲染到界面上的（StepPrepare.jsx 的 plan-kv）：
   //     一旦在这里塞「LICENSE file detected (LICENSE)」这种句子，
   //     界面上就会出现一句英文描述，而它本该是元数据。
   //   ⇒ 「只看到许可证文件、读不出是哪一种」这个事实放在 licenseEvidence，
-  //     由界面翻译成人话（license + licenseFile + licenseEvidence 三者一起显示）。
+  //   由界面翻译成人话（license + licenseFile + licenseEvidence 三者一起显示）。
   let license = py.license || null
   let licenseFrom = py.license ? 'pyproject.toml [project.license]' : null
   // 事实字段（机器读）：'file-only' = 只看到许可证文件，没读出是哪一种。
@@ -362,7 +361,7 @@ function planDependencies (text, opts = {}) {
   const deps = fromPyproject ? pyDeps : reqParsed.specs
   const source = fromPyproject ? 'pyproject.toml' : 'requirements.txt'
 
-  const hw = opts.hardware || null        // 没检测就不判断（不猜）
+  const hw = opts.hardware || null        // 没检测就不判断（不推断）
 
   if (deps.length === 0) {
     // 两份清单都没有才说「读不到」，且只说读不到，不提换仓库。
@@ -405,7 +404,7 @@ function planDependencies (text, opts = {}) {
       verdict: j ? j.verdict : (hw ? 'unknown' : 'unknown'),
       why: j ? j.why
         : isMain ? 'This machine was not detected — cannot tell whether this package will work.'
-        // 没锁定 torch 后端时无法判断，但 不给理由（那是判据）。
+        // 没锁定 torch 后端时无法判断，但不给理由（那是判据）。
         //   后端由 torch 的版本决定，lock 里没写就说不出是哪个。
           : 'The backend is decided by the Torch version, which is not declared in the lock.'
       , whyZh: j ? j.whyZh
@@ -421,7 +420,7 @@ function planDependencies (text, opts = {}) {
   return {
     ok: true,
     // 这次依赖是从哪个文件读出来的：界面与维护者都要知道，
-    //   不然「怎么读到的」这件事就只能靠猜。
+    //   不然「怎么读到的」这件事就只能靠推断。
     dep_source: source,
     dep_count: deps.length,
     deps: {

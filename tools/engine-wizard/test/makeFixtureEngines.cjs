@@ -1,20 +1,17 @@
 'use strict'
 // 生成测试用的夹具引擎名片。
-//
-// 为什么用脚本生成而不是手写两个 JSON：
-//   夹具的参数名必须恰好覆盖 C11 豁免清单登记的那批键
-//   （lib/engines/c11ParamTable.node.test.js 的 EXEMPT），
-//   否则那条守卫会判「豁免已腐烂」。
-//   键名一变就要改两个 JSON，脚本改一处就够。
+// 夹具的参数名必须恰好覆盖 C11 豁免清单登记的那批键
+// （lib/engines/c11ParamTable.node.test.js 的 EXEMPT），否则那条守卫会判「豁免已腐烂」。
+// 键名一变就要改两个 JSON，脚本改一处就够。
 //
 // 约束（改参数名时必须一起看）：
 //   ① 夹具的参数名不许出现在 lib/ 里，除非那个键在 EXEMPT 里登记了。
-//   否则 C11 守卫会报「lib/ 写死了引擎参数名」，那是真判据，不是误报。
+//      否则 C11 守卫会报「lib/ 写死了引擎参数名」，那是真判据，不是误报。
 //   ② 两台的 ready_endpoint 必须不同（"/health" 与 "/ready"）：
-//      「两台引擎的探活地址要不同」是 launchPlan 那条守卫的判据。
+//      「各台引擎的探活地址要不同」是 launchPlan 那条守卫的判据，两台都一样时那条断言钉不住任何东西。
 //   ③ 两台的 max_chars 必须不同（60 与 120）。
-//   ④ 一台要参考音频、一台不要：covers requires_reference_audio 这类分支。
-//   ⑤ 只用新写法 parameters[]：旧写法 param_keys/params/payload_keys
+//   ④ 一台要参考音频、一台不要：覆盖 requires_reference_audio 这类分支。
+//   ⑤ 只用新写法 parameters[]：旧写法 param_keys / params / payload_keys
 //      与它并存会被 registry 拒绝（lib/engines/parameterDeclaration.js 的 deriveParameterViews）。
 //
 // 跑法：node tools/engine-wizard/test/makeFixtureEngines.cjs
@@ -24,12 +21,10 @@ const path = require('node:path')
 
 const OUT_DIR = path.join(__dirname, 'fixtures', 'engines')
 
-/**
- * 参数名清单。
- * 每个键带 phase（load/call）与 tier（common/advanced）：
- *   phase=load 的键用来验「load 参数一律 advanced」那条先验；
- *   tier=common 的键要够多，否则「call 参数里 advanced 多于 common」那条不成立。
- */
+// 参数名清单。
+// 每个键带 phase（load/call）与 tier（common/advanced）：
+//   phase=load 的键用来验「load 参数一律 advanced」那条先验；
+//   tier=common 的键要够多，否则「call 参数里 advanced 多于 common」那条不成立。
 const ALPHA_PARAMS = [
   // 平台概念名与资产字段：EXEMPT 里登记过，必须出现在夹具里
   ['text_lang', 'call', 'common', 'string'],
@@ -38,7 +33,7 @@ const ALPHA_PARAMS = [
   ['lang', 'call', 'advanced', 'string'],
   // 训练侧配置：EXEMPT 里登记过
   ['batch_size', 'call', 'advanced', 'integer'],
-  // 历史事实清单：EXEMPT 里登记过
+  // 存量配方冻结的键名：EXEMPT 里登记过
   ['batch_threshold', 'call', 'advanced', 'integer'],
   ['fragment_interval', 'call', 'advanced', 'number'],
   ['top_k', 'call', 'advanced', 'integer'],
@@ -93,7 +88,7 @@ const BETA_PARAMS = [
   ['lang', 'call', 'advanced', 'string'],
 ]
 
-/** 参数名 → 界面标签（用名字本身，中英文各一份） */
+// 参数名到界面标签的映射（用名字本身，中英文各一份）。
 function labelOf (name) {
   return { en: name, zh: name }
 }

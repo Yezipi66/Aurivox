@@ -1,13 +1,12 @@
+// 接入流程第 1 步：解析链接 → 只读探测 → 克隆到 engines/<id>/。
+// 目录名的唯一来源：输入框 + 仓库名（folderName.js）。state.id 不作来源。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
-// 目录名的唯一来源：输入框 + 仓库名。没有 state.id 这个来源。
 import { folderName } from './folderName'
 
-//  STEP PREPARE：第 1 步：链接 → 探测 → 克隆
-
-/** 从链接里猜项目名：目录名留空时做灰字预览；真 id 永远来自 resolve 端点。 */
+/** 从链接里推断项目名：目录名留空时做灰字预览；真正的 id 来自 resolve 端点。 */
 /** 后端错误的双语文案表：键名 = 后端 code；新增错误时先放 core，再来这里加两行。 */
 const ERR_TEXT = {
   // 不是错误，是「我们把你的链接改了」的告知
@@ -86,7 +85,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const [busy, setBusy] = React.useState('')
   const [unlocked, setUnlocked] = React.useState(false)
 
-  // 上次解析成功时链接框里的值，用于判「用户是否改了链接」；必须在 res 之后声明（TDZ）。
+  // 上次解析成功时链接框里的值，用于判「使用者是否改了链接」；必须在 res 之后声明（TDZ）。
   const lastResolved = (res && res.input) || ''
 
   // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
@@ -105,12 +104,12 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     return r.json()
   }
 
-  // 不填目录名时的默认值 = 仓库根链接的最后一段；没有 state.id 来源（旧 id 会造成双 id）。
-  //   这一行同时喂给克隆请求 / 命令文案 / 目标路径 / 风险文案。
+  // 不填目录名时的默认值 = 仓库根链接的最后一段。state.id 不作来源（旧 id 会造成双 id）。
+  // 这一行同时喂给克隆请求、命令文案、目标路径与风险文案。
   const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
   const curId = folderName({ typed: idInput, suggested: autoId })
 
-  // ---- ① 解析（本地，不联网）+ 紧接着只读探测 ----
+  // ① 解析（本地，不联网），紧接着做一次只读探测
   const resolve = async () => {
     setBusy('link')
     // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
@@ -129,8 +128,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       if (!idInput.trim()) setIdInput(j.id)
       onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
       // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
-      //   等他点了「下一步」才说就来不及了。
-      //   这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
+      // 等使用者点了「下一步」才说就来不及了。
+      // 这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
       try {
         const p = await post('/wizard/clone', {
           id: resolvedName, cloneUrl: j.cloneUrl,
@@ -141,7 +140,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     setBusy('')
   }
 
-  // ---- ② 探测（只读，不写盘）----
+  // ② 探测（只读，不写盘）
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
     const j = await post('/wizard/probe',
@@ -150,11 +149,11 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     setBusy('')
   }
 
-  // ---- ③ 克隆（这一步才写盘）----
-  // curId 是唯一的 id 来源；旧写法 `id: idInput || state.id` 会让输入框空时退化到旧 id。
+  // ③ 克隆（这一步才写盘）
+  // curId 是唯一的 id 来源；写成 `id: idInput || state.id` 会在输入框空时退化到旧 id。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
-    // 目录名为空 ⇒ 在这里拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
+    // 目录名为空时在这里拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
     if (!curId) {
       setCloneRes({ ok: false, code: 'MISSING_ID',
         error: t('Fill in the directory name first.',
@@ -166,26 +165,26 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     try {
       // cloneUrl 同时从 res 和 state 取，只读 props 会在解析刚完成时拿到空值。
       const cloneUrl = (res && res.cloneUrl) || state.cloneUrl
-      // 与文案/只读预览同一个 curId：后端按它算 engines/<id>，
-      //   前端不另拼一份。
+      // 与文案、只读预览用同一个 curId：后端按它算 engines/<id>，
+      // 前端不另拼一份。
       const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
       if (j.ok && execute) {
-        // 克隆成功时写回 id，否则用户改过目录名后第 2/3 步会拿到旧 id。
+        // 克隆成功时写回 id，否则使用者改过目录名后第 2/3 步会拿到旧 id。
         onChange({ cloned: true, id: curId })
         onDone && onDone()
       }
     } finally { setBusy('') }
   }
 
-  // ---- ④ 目标目录已有内容 ⇒ 复用，不重新克隆 ----
+  // ④ 目标目录已有内容 ⇒ 复用，不重新克隆
   // 后端在目录非空时不再拦：重新克隆要删掉使用者已经装好的环境与权重，
-  //   而平台没有断点续传。所以这里把上游关系告诉使用者，让他知道手上这份是什么。
+  // 而平台没有断点续传。所以这里把上游关系告诉使用者，让使用者知道手上这份是什么。
   // 复用状态从 plan 读：解析完就做了一次只读检查，结果在 plan 里，
-  //   不必等使用者点了「下一步」才说。
+  // 不必等使用者点了「下一步」才说。
   // plan 是持久化的（sessionStorage），改了链接或目录名之后它可能还是上一次的
-  //   ⇒ 只认「跟当前目录名对得上」的那份，否则当没有。
+  // ⇒ 只认「跟当前目录名对得上」的那份，否则当没有。
   const planForCur = (plan && plan.id && plan.id === curId) ? plan : null
   const reused = !!(planForCur && planForCur.state === 'reused')
   const upstream = (planForCur && planForCur.upstream) || null
@@ -208,8 +207,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
     } finally { setRemoving(false) }
   }
 
-  // 目标目录由后端给（enginesDir + pathSep），前端不猜文件系统路径。
-  // 拿不到 enginesDir ⇒ 不显示路径，绝不显示空的或假的绝对路径。
+  // 目标目录由后端给（enginesDir + pathSep），前端不推断文件系统路径。
+  // 拿不到 enginesDir ⇒ 不显示路径，不显示空的或假的绝对路径。
   // 命令与目标路径同源：改目录名时两者必须一起变。
   const enginesDir = (res && res.enginesDir) || null
   const pathSep = (res && res.pathSep) || null
@@ -228,7 +227,7 @@ const done = facts && facts.cloned === true
        不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ── 两个输入框，一行 ─────────────────────────────
+      {/* 两个输入框，一行。
           目录名留空 = 自动取仓库根最后一段（tree/main 会被剥掉）
           解析跟着失焦 / 回车自动跑，不需要「下一步」*/}
       <div className="form-grid">
@@ -240,13 +239,13 @@ const done = facts && facts.cloned === true
             placeholder="https://github.com/owner/name"
             onChange={(e) => {
               setUrl(e.target.value)
-              // 每次输入都写回父组件：否则收起/展开这一步时链接就没了
-              //   （state 只在解析成功时才被写入，见 resolve()里的 onChange）。
-              //   写回父组件的是原始输入，不含解析产物
-              //   （res/probe/cloneUrl 仍只在解析成功时写）。
+              // 每次输入都写回父组件：否则收起、展开这一步时链接就没了
+              // （state 只在解析成功时才被写入，见 resolve() 里的 onChange）。
+              // 写回父组件的是原始输入，不含解析产物
+              // （res/probe/cloneUrl 仍只在解析成功时写）。
               onChange({ url: e.target.value })
               // 只在真的变了时才清结果；
-              //   只清这四个键，别整体替换 prep（会把别的键一起抹掉）
+              // 只清这四个键，别整体替换 prep（会把别的键一起抹掉）
               if (e.target.value !== lastResolved) {
                 onPrep((w) => ({ ...w, res: null, probe: null, plan: null, cloneRes: null }))
               }
@@ -300,7 +299,7 @@ const done = facts && facts.cloned === true
         </div>
       )}
 
-      {/* ── 项目信息（只读，不写盘）────────────────────────────
+      {/* 项目信息（只读，不写盘）。
           标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。
@@ -326,7 +325,7 @@ const done = facts && facts.cloned === true
         </>
       )}
 
-      {/* ── 下一步（这一步才写盘）──────────────────────────────
+      {/* 下一步（这一步才写盘）。
           标题说「下一步会发生什么」，不说实现步骤（「克隆」），
             使用者关心的是流程往前走，不是内部动作名。
           这里给真正的 git clone 命令，不只显示 engines/<name>/
@@ -419,9 +418,9 @@ const done = facts && facts.cloned === true
             </div>
           )}
 
-          {/* vars：把项目名和完整路径喂给风险文案
-              （原来只说「写进 engines/」，而那目录里已经有好几个引擎了，
-                用户分不清这一步要动的是哪一个）
+          {/* vars：把项目名和完整路径喂给风险文案。
+              只说「写进 engines/」时使用者分不清这一步要动的是哪一个，
+              那目录里已经有好几个引擎了。
               name/path 都取自 curId 这一个值 ⇒ 与上面那条命令同源。*/}
           <RiskUnlock stepKey="prepare" unlocked={unlocked} onUnlock={setUnlocked}
             vars={{

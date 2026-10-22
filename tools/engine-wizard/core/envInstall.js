@@ -1,8 +1,8 @@
 'use strict'
-//  ENV：依赖安装模块。
-//  职责：计划组装（buildSteps / buildEnvPlan）、单步执行（runOne / runEnv）、
-//  uv 解析（resolveUv）、装完自检（verifyEngineEnvImports）。
-//  从 env.js 逐字搬来，不改逻辑。
+
+// 引擎依赖环境的安装：组装执行计划、逐条执行、装完自检。
+// 装法由名片的 install.env_command 决定；名片的 uv 命令需要替换时，uv 的位置由 resolveUv 解析。
+// 进度与断点续传由 envProgress.js 负责，本文件只管「执行哪条命令、执行结果是什么」。
 
 const fs = require('node:fs')
 const { applyInstallChoices } = require('./installChoices')
@@ -30,18 +30,15 @@ const {
 } = require('./envDetect')
 const { stepArtifactExists } = require('./envProgress')
 
-/**
- * uv 的可执行文件，相对平台虚拟环境目录。
- */
+// uv 可执行文件相对于平台虚拟环境目录的位置。平台不认识这个布局时返回 null。
 function uvRelPath (platform) {
   if (platform === 'win32') return path.join('Scripts', 'uv.exe')
   if (platform === 'linux' || platform === 'darwin') return path.join('bin', 'uv')
   return null
 }
 
-/**
- * 解析 uv 的两段：与平台 bootstrap 同一套调用方式。
- */
+// 解析 uv 的调用方式：先找平台虚拟环境里自带的 uv，再找 PATH 上的 uv。
+// 返回 { ok, argv, via }：argv 是可直接 spawn 的参数数组，两种来源的调用方式一致。
 function resolveUv (root, platform) {
   const plat = platform || process.platform
   const pyRel = venvPythonRelPath(plat)
@@ -57,7 +54,7 @@ function resolveUv (root, platform) {
         timeout: 20000, windowsHide: true, shell: false,
       })
       if (chk.status === 0) return { ok: true, argv: [py, '-m', 'uv'], via: 'venv 自带 uv（' + v + '）' }
-    } catch (e) { /* 下一个 */ }
+    } catch (e) { /* 换下一个候选 */ }
   }
   const p = spawnSync('uv', ['--version'], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
@@ -68,9 +65,7 @@ function resolveUv (root, platform) {
     whyZh: '未找到 uv（平台 venv 里没有，PATH 上也没有）' }
 }
 
-/**
- * 组装执行步骤。
- */
+// 组装要执行的步骤：建环境、照上游锁文件装依赖、按需另装与本机后端匹配的 torch。
 function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython }) {
   const steps = []
   if (venv && Array.isArray(venv.argv)) {
@@ -222,9 +217,7 @@ function buildEnvPlan (input = {}) {
   }
 }
 
-/**
- * 装完自检：这个环境能不能 import 引擎的核心依赖。
- */
+// 装完自检：这个引擎自己的环境能不能 import 核心依赖。
 function verifyEngineEnvImports (root, id, steps, alt, opts = {}) {
   const builtHere = steps.some(isVenvCreateStep)
   if (!builtHere) {
@@ -255,9 +248,7 @@ function verifyEngineEnvImports (root, id, steps, alt, opts = {}) {
   return { checked: true, mods: list, missing, results }
 }
 
-/**
- * 在该引擎自己的环境里 import 一个模块。
- */
+// 在该引擎自己的环境里 import 一个模块，返回 { ok, mod, code, detail }。
 function probeImportInEngineVenv (root, id, mod, timeoutMs) {
   const py = engineVenvPythonAbs(root, id)
   if (!py) {
@@ -285,9 +276,7 @@ function probeImportInEngineVenv (root, id, mod, timeoutMs) {
   return { ok: true, mod, code: 'OK', detail: '' }
 }
 
-/**
- * 解析 uv/pip 的下载进度行。
- */
+// 解析 uv/pip 的下载进度行，返回 { file, size, status } 数组。
 function parseProgress (text) {
   if (!text || typeof text !== 'string') return []
   const results = []
@@ -306,9 +295,7 @@ function parseProgress (text) {
   return results
 }
 
-/**
- * 跑一步（异步流式）。
- */
+// 跑一步（异步流式）。取消通道 cancel 带 signal 与 spawn 时按它取消，否则用默认实现。
 function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cancel) {
   return new Promise((resolve) => {
     const argv = Array.isArray(argvOverride) && argvOverride.length > 0 ? argvOverride : step.argv
@@ -335,13 +322,13 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
       if (resolved) return
       resolved = true
       if (safetyNetId) { clearTimeout(safetyNetId); safetyNetId = null }
-      if (signal) { try { signal.removeEventListener('abort', onAbort) } catch (e) { /* 兼容 */ } }
+      if (signal) { try { signal.removeEventListener('abort', onAbort) } catch (e) { /* 监听器已经移除 */ } }
       resolve(r)
     }
     const doCancel = () => {
       if (cancelled) return
       cancelled = true
-      try { killFn(child) } catch (e) { /* 已退出 */ }
+      try { killFn(child) } catch (e) { /* 进程已经退出 */ }
       if (safetyNetId) clearTimeout(safetyNetId)
       safetyNetId = setTimeout(() => {
         safeResolve({ ok: false, code: 'INSTALL_CANCEL_FAILED', status: null,
@@ -359,12 +346,12 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
       if (isErr) stderrTail = (stderrTail + text).slice(-16000)
       else stdoutTail = (stdoutTail + text).slice(-16000)
       if (typeof onLine === 'function') {
-        try { onLine(text, isErr) } catch (e) { /* 忽略 */ }
+        try { onLine(text, isErr) } catch (e) { /* 回调抛错不打断安装 */ }
       }
       const progress = parseProgress(text)
       for (const p of progress) {
         if (typeof send === 'function') {
-          try { send('progress', p) } catch (e) { /* 忽略 */ }
+          try { send('progress', p) } catch (e) { /* 回调抛错不打断安装 */ }
         }
       }
     }
@@ -406,18 +393,20 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
     })
     if (signal) {
       if (signal.aborted) { doCancel() }
-      else { try { signal.addEventListener('abort', onAbort, { once: true }) } catch (e) { /* 兼容 */ } }
+      else { try { signal.addEventListener('abort', onAbort, { once: true }) } catch (e) { /* 监听器已经移除 */ } }
     }
     if (timeoutMs > 0) {
       setTimeout(() => {
         killedByTimeout = true
-        try { child.kill('SIGKILL') } catch (e) { /* 已退出 */ }
+        try { child.kill('SIGKILL') } catch (e) { /* 进程已经退出 */ }
       }, timeoutMs).unref()
     }
   })
 }
 
 /**
+ * 按计划逐条执行安装步骤，装完再做一次 import 自检。
+ *
  * @param {object} input {id, manifest, execute, root, timeoutMs, onStep}
  * @param {(i:number,total:number,step:object,argv:string[])=>void} [input.onStep]
  * @param {(line:string, isErr:boolean)=>void} [input.onLine]
@@ -461,7 +450,7 @@ async function runEnv (input = {}) {
     try {
       const built = fs.existsSync(engineVenvDirAbs(root, id))
       if (built) markPartialVenv(root, id, why)
-    } catch (e) { /* 标记失败不该盖掉真正的错误 */ }
+    } catch (e) { /* 标记失败不掩盖真正的错误 */ }
   }
 
   for (let i = 0; i < steps.length; i++) {
@@ -514,7 +503,7 @@ async function runEnv (input = {}) {
     }
 
     if (typeof input.onStep === 'function') {
-      try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调不影响安装 */ }
+      try { input.onStep(i, steps.length, step, argv) } catch (e) { /* 回调抛错不打断安装 */ }
     }
 
     if (signal && signal.aborted) {
