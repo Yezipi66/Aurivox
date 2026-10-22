@@ -84,7 +84,7 @@ def node_err(raw):
 
 def real_profile(node, engine_id):
     """⭐ 不读源码猜，直接叫 profile.js 出货。"""
-# ⭐⭐ 这里叫的是 buildHostProfile 而不是 resolveEngineProfile。
+# 这里叫的是 buildHostProfile 而不是 resolveEngineProfile。
     #   量过：resolveEngineProfile 今天有 9 个 JS 消费方，碰 call / params /
 #   output_formats 的是 0 个 ： 这四段只有 host.py 要。所以走加法：
     #   hostProfile.js 在 profile.js 外面套一层，profile.js 一个字节不动。
@@ -127,7 +127,7 @@ def engine_ids(node):
 
 
 # host.py 里每一处读 profile 的地方，逐条列成「路径 → 为什么要它」。
-# ⛔ 这张表必须和 host.py 的实际读法一致；下面 [0] 那一节会去核对，
+# 这张表必须和 host.py 的实际读法一致；下面 [0] 那一节会去核对，
 #    免得 host.py 改了而这里没跟着改（那样探针会变成安慰剂）。
 NEEDS = [
     ("id", "报 X-Engine / 错误信息里点名是哪台引擎"),
@@ -188,11 +188,11 @@ def main():
     for eid in ids:
         print("[%s] 宿主要的字段在不在" % eid)
 
-        # ⭐⭐ 先分辨托管模式，再决定拿什么判据去核。
+        # 先分辨托管模式，再决定拿什么判据去核。
         #   不是每台引擎都由通用宿主托管：有的自带服务端（gpt-sovits 的
         #   runtime.entry 指向 lib/inference/infer_server.py，目录下连 shim 都没有）。
 #   对这种引擎要求 call 段是判据用错了地方，不是它有缺陷。
-# ⛔ 但跳过必须是看得见的 ： 静默跳过会让「不该托管」和
+# 但跳过必须是看得见的 ： 静默跳过会让「不该托管」和
         #   「该托管但名片忘了写 call」长得一模一样。所以这里把 entry 打出来。
         raw = raw_manifest(eid)
         if not isinstance(raw.get("call"), dict):
@@ -227,7 +227,7 @@ def main():
     print("结账：%d 条，%d 过，%d 没过" % (len(ROWS), len(ROWS) - len(bad), len(bad)))
     print("     由通用宿主托管：%s" % (", ".join(hosted) or "（一台都没有）"))
     print("     自带服务端跳过：%s" % (", ".join(skipped) or "（无）"))
-    # ⛔ 一台都没托管 ⇒ 上面全绿是空转出来的，不是真通过。
+    # 一台都没托管 ⇒ 上面全绿是空转出来的，不是真通过。
     if not hosted:
         print()
         print("⛔ 没有任何一台引擎由通用宿主托管 —— 这轮全绿什么也没证明。")
