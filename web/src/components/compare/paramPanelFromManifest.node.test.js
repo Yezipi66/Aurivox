@@ -2,7 +2,7 @@
 // generate/paramPanelFromManifest.node.test.js 同款：JSX 在这个仓库里没法通过单元测试
 // （node --test 不经 vite，也没有 jsdom），所以这里守三件只有源码里才看得见的事：写死的
 // 格子没长回来、面板确实在按 param_schema 循环、engine prop 一路传到了画格子的地方。
-// 这一页的代码里不许出现任何引擎的参数名；web/ 是 ESM，这里用 import 而不是 require。
+// 这一页的代码里不出现任何引擎的参数名；web/ 是 ESM，这里用 import 而不是 require。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
