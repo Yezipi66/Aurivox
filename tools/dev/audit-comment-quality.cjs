@@ -17,6 +17,7 @@
 const { parse } = require('@babel/parser')
 const fs = require('fs')
 const path = require('path')
+const { execFileSync } = require('child_process')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 
@@ -24,7 +25,8 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const VAGUE = /^(这|那)?(个|些)?(文件|模块|脚本|工具)$/
 
 // ② 装饰横幅
-const RE_BANNER = /^\s*[-─═=]{8,}\s*(\/\/\s*)?$/
+// 尾部可能还带一个 //（形如「// ------ //」），两种都要认。
+const RE_BANNER = /^\s*[-─═=]{8,}\s*(\/\/\s*)?(\/\/\s*)?$|^-{8,}\s*$/
 // ③ 双破折号
 const RE_DASH = /——/
 // ④ 加粗
@@ -69,6 +71,26 @@ for (const rel of process.argv.slice(2)) {
     bad++
     continue
   }
+  // Python 文件：@babel/parser 不认，用 Python 侧的脚本查。
+  if (rel.endsWith('.py')) {
+    try {
+      const out = execFileSync('python',
+        [path.join(ROOT, 'tools/dev/audit-comment-quality-py.py'), rel],
+        { cwd: ROOT, encoding: 'utf-8' })
+      const line = out.trim().split('\n').pop() || ''
+      if (line.includes('OK')) {
+        console.log(`${rel}\tOK`)
+      } else {
+        bad++
+        console.log(`${rel}\t${out.trim()}`)
+      }
+    } catch (e) {
+      bad++
+      console.log(`${rel}\t检查失败\t${String(e.stdout || e.message).slice(0, 200)}`)
+    }
+    continue
+  }
+
   let ast
   try { ast = parse(src, { sourceType: 'unambiguous', plugins: ['jsx'], tokens: true }) } catch (e) {
     console.log(`${rel}\t解析失败\t${e}`)
