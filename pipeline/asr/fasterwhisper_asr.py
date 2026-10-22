@@ -1,6 +1,8 @@
-"""
-Faster Whisper ASR — 从 GPT-SoVITS 项目解耦
-移除 tools.* 依赖，改为使用项目内的 asr_utils
+"""faster-whisper 语音识别：把一个目录的音频转成转写清单与置信度旁车。
+
+输出两个文件：<目录名>.list，每行「音频路径|来源目录|语种|文本」；
+<目录名>.conf.json，键是片段文件名，值是 {confidence, no_speech_prob, words}，
+供前端校对面板做逐词着色。
 """
 import argparse
 import json
@@ -22,11 +24,11 @@ from huggingface_hub import snapshot_download as snapshot_download_hf
 from modelscope import snapshot_download as snapshot_download_ms
 from tqdm import tqdm
 
-# 项目内工具（替代 tools.my_utils 和 tools.asr.config）
-# C7 说明：这里要的是包 asr 的父目录，不是项目根。本文件就在 asr/ 包内，
-# 「自己目录的父目录」是自指的，跟着 asr/ 一起搬不会失准（pipeline/asr ->
-# engines/asr 无影响）。但它毕竟仍是一次层数推导，所以补一条存在性断言：
-# 万一本文件被挪出 asr/ 包，立刻报错，而不是 import 到别处的同名模块。
+# 项目内工具在 asr 包里，import 前把包的父目录放进 sys.path。
+# 要的是包的父目录，不是项目根：本文件就在 asr/ 包内，「自己目录的父目录」
+# 是自指的，跟着 asr/ 一起搬不会失准。
+# 但它仍是一次层数推导，所以补一条存在性断言：本文件被挪出 asr/ 包时立刻报错，
+# 而不是 import 到别处的同名模块。
 _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if not os.path.exists(os.path.join(_PKG_PARENT, "asr", "asr_utils.py")):
     raise RuntimeError(
@@ -36,9 +38,8 @@ if not os.path.exists(os.path.join(_PKG_PARENT, "asr", "asr_utils.py")):
 sys.path.insert(0, _PKG_PARENT)
 from asr.asr_utils import load_cudnn, get_asr_models
 
-# FunASR / DAMO Chinese post-processing is intentionally disabled: on Windows
-# it repeatedly hangs/crashes for zh/yue, which was the sole reason Chinese ASR
-# failed while ja/en worked. All languages now use faster-whisper only.
+# FunASR 与 DAMO 的中文后处理已停用：在 Windows 上它对 zh/yue 反复挂起或崩溃。
+# 所有语种一律只用 faster-whisper。
 HAS_FUNASR = False
 
 # fmt: off
@@ -57,13 +58,12 @@ language_code_list = [
 ]
 # fmt: on
 
-# FunASR 中文模型缓存
 _funasr_models = {}
 
-# 繁简转换（简体中文强制）
-# 本产品只面向简体中文，从不支持繁体。faster-whisper 对 zh/yue 可能混吐简/繁，
-# 这里在 ASR 源头统一转简体，使下游（.list / segments / 推理 / 前端）全链路一致。
-# 转换器优先级：OpenCC(t2s) → zhconv(zh-hans) → 原样透传并告警（绝不因此让 ASR 崩溃）。
+# 繁简转换（简体中文强制）。产品只面向简体中文，不支持繁体；faster-whisper 对
+# zh/yue 可能混吐简/繁，所以在 ASR 源头统一转简体，下游（.list / segments /
+# 推理 / 前端）拿到的文本才一致。转换器优先级：OpenCC(t2s) → zhconv(zh-hans)
+# → 原样透传并告警，不因转换失败让 ASR 中断。
 _t2s_fn = None
 _t2s_ready = False
 
@@ -106,20 +106,27 @@ def _to_simplified(text):
         return text
 
 
-# 仅对中文族语言做繁→简（日文汉字简化规则不同，绝不动 ja）。
+# 繁简转换只作用于中文族语言：日文汉字的简化规则不同，ja 一律不动。
 _SIMPLIFY_LANGS = {"zh", "yue"}
 
 
-# ASR 置信度
 def _segment_confidence(avg_logprob, no_speech_prob, word_probs):
     """把 whisper 的对数概率折算成 [0,1] 置信度。
-    优先用 word-level 概率均值；否则用 exp(avg_logprob)；再按 no_speech_prob 惩罚。"""
+
+    优先用 word-level 概率均值；否则用 exp(avg_logprob)；再按 no_speech_prob 惩罚。
+    没有可用概率时返回 None。
+
+    :param avg_logprob: 片段的平均对数概率
+    :param no_speech_prob: 片段的无语音概率
+    :param word_probs: 逐词概率列表
+    :returns: [0,1] 内的置信度，没有可用概率时为 None
+    """
     base = None
     if word_probs:
         base = sum(word_probs) / len(word_probs)
     elif avg_logprob is not None:
         try:
-            base = math.exp(avg_logprob)  # logprob<=0 → (0,1]
+            base = math.exp(avg_logprob)  # logprob 不大于 0 ⇒ 结果落在 (0, 1]
         except Exception:
             base = None
     if base is None:
@@ -133,9 +140,11 @@ def _segment_confidence(avg_logprob, no_speech_prob, word_probs):
 def _faster_whisper_dir() -> str:
     """faster-whisper 权重目录。
 
-    首选 FASTER_WHISPER_DIR（由 lib/paths.js 经 getCleanEnv 下发）；
-    兜底一路上溯找 package.json 定位项目根，绝不数目录层数：按 __file__ 数出的
-    层数会随搬迁失准，且不报错（引擎契约 C7）。
+    首选 FASTER_WHISPER_DIR（由 lib/paths.js 经 getCleanEnv 下发）；未设置时
+    一路上溯找 package.json 定位项目根，不按目录层数倒推：层数会随搬迁失准，
+    且不会报错。
+
+    :returns: 权重根目录；找不到项目根时抛 RuntimeError
     """
     d = os.environ.get("FASTER_WHISPER_DIR")
     if d:
@@ -150,7 +159,13 @@ def _faster_whisper_dir() -> str:
 
 
 def _download_model(model_size: str, model_dir: str):
-    """下载模型到指定目录"""
+    """把权重下载到指定目录。
+
+    先探测 HuggingFace 是否可达，不可达时改用 ModelScope。
+
+    :param model_size: 权重规格，例如 large-v3
+    :param model_dir: 权重目录
+    """
     url = "https://huggingface.co/api/models/gpt2"
     try:
         requests.get(url, timeout=3)
@@ -182,9 +197,9 @@ def _download_model(model_size: str, model_dir: str):
         files = [f"faster-whisper-{model_size}/{f}" for f in
                  ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt", "vocabulary.json",
                   "preprocessor_config.json"]]
-        # ModelScope 仓库把权重放在 faster-whisper-<size>/ 前缀下。若直接 local_dir=model_dir,
-        # 会落成 model_dir/faster-whisper-<size>/...(双层嵌套, ASR 找不到 model.bin)。
-        # 故下载到 model_dir 的父目录, 让该前缀正好落成 model_dir 本身。
+        # ModelScope 仓库把权重放在 faster-whisper-<size>/ 前缀下。直接下到
+        # model_dir 会落成 model_dir/faster-whisper-<size>/（双层嵌套，ASR 找不到
+        # model.bin），所以下到 model_dir 的父目录，让该前缀正好落成 model_dir。
         parent = os.path.dirname(os.path.abspath(model_dir)) or "."
         print(f"Downloading from ModelScope: {repo_id} -> {parent}")
         snapshot_download_ms(
@@ -192,8 +207,8 @@ def _download_model(model_size: str, model_dir: str):
             allow_patterns=files,
         )
 
-    # 安全兜底: 无论何种来源, 若权重意外落到 model_dir/faster-whisper-<size>/ 里,
-    # 把该嵌套目录内容上移一层, 保证 model.bin 直接位于 model_dir 根下。
+    # 兜底：权重若落在 model_dir/faster-whisper-<size>/ 里，把这层内容上移，
+    # 保证 model.bin 直接位于 model_dir 根下。
     nested = os.path.join(model_dir, f"faster-whisper-{model_size}")
     if os.path.isdir(nested) and os.path.exists(os.path.join(nested, "model.bin")):
         for fn in os.listdir(nested):
@@ -211,12 +226,16 @@ def _get_model_path(model_size: str, asr_models_dir: str) -> str:
     """权重目录 = <权重根>/<model_size>。这是全脚本唯一一处计算它的地方。
 
     以 model.bin 是否存在为准，而不是目录是否存在：一次被中断的下载会留下一个
-    有目录、没权重的空壳，那时"目录存在"是真的，"权重可用"是假的。
+    有目录、没权重的空壳，那时「目录存在」是真的，「权重可用」是假的。
+
+    :param model_size: 权重规格，例如 large-v3
+    :param asr_models_dir: 权重根目录
+    :returns: 权重目录；权重缺失时先下载再返回
     """
     model_dir = os.path.join(asr_models_dir, model_size)
     if not os.path.exists(os.path.join(model_dir, "model.bin")):
-        # 静默重下是本项目已发生过两次的事故：路径一错就悄悄再拉几个 GB，
-        # 不报错、不提示，只是很慢，硬盘上多出一份。此处必须先喊出来。
+        # 权重缺失时重新下载是静默的：不报错，只是很慢，硬盘上多出一份。
+        # 所以下载前先把期望路径打印出来。
         print(
             f"[faster-whisper] weights not found at {model_dir}; downloading {model_size}. "
             f"Set FASTER_WHISPER_DIR if they live elsewhere.",
@@ -228,7 +247,7 @@ def _get_model_path(model_size: str, asr_models_dir: str) -> str:
 
 
 def _funasr_only_asr(input_file: str, language: str) -> str:
-    """FunASR 中文后处理（可选）"""
+    """FunASR 中文后处理。HAS_FUNASR 为假时直接返回空串。"""
     if not HAS_FUNASR:
         return ""
     try:
@@ -248,28 +267,43 @@ def _funasr_only_asr(input_file: str, language: str) -> str:
 
 def execute_asr(input_folder, output_folder, model_path, language, precision,
                 batch_size=8, beam_size=1, force_simplified=True):
+    """对输入目录里的每个音频做识别，写出转写清单与置信度旁车。
+
+    :param input_folder: 输入音频目录
+    :param output_folder: 输出目录，.list 与 .conf.json 都写在这里
+    :param model_path: faster-whisper 权重目录
+    :param language: 语种，auto 表示交给模型自行判断
+    :param precision: 计算精度，例如 float16
+    :param batch_size: 批量推理的批大小，小于 1 时不用批量管线
+    :param beam_size: beam 搜索宽度
+    :param force_simplified: 是否把 zh/yue 的输出统一转成简体中文
+    :returns: 写出的 .list 文件路径
+    """
     if language == "auto":
         language = None
     print(f"Loading model: {model_path}", flush=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = WhisperModel(model_path, device=device, compute_type=precision)
 
-    # 批量推理管线（可用则用，否则降级为普通 model）
+    # 批量推理管线：faster-whisper 版本支持、在 CUDA 上、batch_size 大于 1 时用它，
+    # 否则用普通 model。
     use_batched = HAS_BATCHED and device == "cuda" and batch_size > 1
     asr_engine = BatchedInferencePipeline(model=model) if use_batched else model
     if use_batched:
         print(f"Using BatchedInferencePipeline, batch_size={batch_size}", flush=True)
     if force_simplified:
-        _get_t2s()  # 预热转换器并在日志中暴露可用性
+        _get_t2s()  # 预热转换器，并在日志里体现转换器是否可用
 
     input_file_names = sorted(os.listdir(input_folder))
     output = []
     output_file_name = os.path.basename(input_folder)
-    # 置信度旁车（sidecar），键为片段文件名（basename），绝不写入 .list 第 5 列。
+    # 置信度旁车：键是片段文件名（basename）。不写进 .list，那份清单是 4 列，
+    # 文本在第 4 列，多一列会并进文本里。
     conf_map = {}
 
     def _transcribe(fp, want_words):
-        # 片段已是 VAD 切好的短音频：关闭冗余 vad_filter；beam_size=1 贪心。
+        # 输入片段是流水线切片出的短音频：关掉冗余的 vad_filter。beam_size 默认 1，
+        # 即贪心解码。
         kw = dict(audio=fp, beam_size=beam_size, vad_filter=False, language=language)
         if use_batched:
             kw["batch_size"] = batch_size
@@ -277,14 +311,14 @@ def execute_asr(input_folder, output_folder, model_path, language, precision,
             kw["word_timestamps"] = True
         return asr_engine.transcribe(**kw)
 
-    # 部分 BatchedInferencePipeline 版本不支持 word_timestamps；探测一次后决定，
-    # 失败则整轮降级为 segment-level 置信度（绝不因可选特性丢文本）。
+    # 部分 BatchedInferencePipeline 版本不支持 word_timestamps：探测一次，失败就整轮
+    # 降级为 segment 级置信度，不因可选特性丢文本。
     want_words = True
 
     for file_name in tqdm(input_file_names):
         try:
             file_path = os.path.join(input_folder, file_name)
-            # word_timestamps=True 以拿到 word-level 概率（置信度着色用）。
+            # 打开 word_timestamps 才能拿到逐词概率，供置信度着色使用。
             try:
                 segments, info = _transcribe(file_path, want_words)
             except TypeError as te:
@@ -300,7 +334,7 @@ def execute_asr(input_folder, output_folder, model_path, language, precision,
             logprob_sum = 0.0
             logprob_n = 0
             no_speech_min = None
-            # Pure faster-whisper for every language (zh/yue included).
+            # 所有语种（含 zh/yue）一律走 faster-whisper。
             for segment in segments:
                 text += segment.text
                 alp = getattr(segment, "avg_logprob", None)
@@ -360,7 +394,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input_folder", type=str, required=True)
     parser.add_argument("-o", "--output_folder", type=str, required=True)
     parser.add_argument("-s", "--model_size", type=str, default="large-v3",
-                        choices=get_asr_models() + ["large"])  # "large" 兼容别名 -> 下方归一化为 large-v3
+                        choices=get_asr_models() + ["large"])  # "large" 是兼容别名，下面统一归一化为 large-v3
     parser.add_argument("-l", "--language", type=str, default="ja",
                         choices=language_code_list)
     parser.add_argument("-p", "--precision", type=str, default="float16",
@@ -384,12 +418,10 @@ if __name__ == "__main__":
     if model_size == "large":
         model_size = "large-v3"
 
-    # 模型路径。只有一条计算方式，见 _get_model_path()。
-    #
-    # 这里原本自己拼 "faster-whisper-<size>"，而 _get_model_path() 拼的是
-    # "<size>"：同一个脚本里两套算法，取决于有没有传 --model_dir。调用方传了
-    # 目录，脚本却在它下面找一个多带前缀的子目录，找不到就静默重下，于是硬盘上
-    # 出现了两份 large-v3，各 2.9 GB。成因是同一个事实有两处实现。
+    # 模型路径只有一种算法，在 _get_model_path() 里：权重目录是 <权重根>/<model_size>，
+    # 不带 "faster-whisper-" 前缀（那个前缀只属于 HuggingFace / ModelScope 的仓库名）。
+    # 两处各算一套的后果是静默的：脚本在调用方给的目录下找一个多带前缀的子目录，
+    # 找不到就重新下载一份同一份权重。
     asr_models_dir = cmd.model_dir or _faster_whisper_dir()
     model_path = _get_model_path(model_size, asr_models_dir)
 
