@@ -1,3 +1,8 @@
+// Broker 页的一张配方卡片：展示配方自身的键（参考音频、语言、参数、来源），
+// 并给出可直接复制的调用示例、语言内联保存与删除入口。
+// 凭据是配方自己带的字段：参数摘要按配方里的键渲染，不按引擎身份过滤（配方不带 engine_id）。
+// 边界：只改配方顶层字段，权重文件由 RecipeModelRebind 负责。
+
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'

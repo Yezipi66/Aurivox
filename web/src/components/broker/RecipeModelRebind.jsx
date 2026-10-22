@@ -1,3 +1,7 @@
+// Broker 页的「换模型」面板：两级联动选择器，第一级选角色，第二级选该角色在当前引擎下的模型位。
+// 位名与可选引擎都取自 /api/recipes-models/:role 的返回体，前端不写死引擎名与位名。
+// 边界：只改配方顶层那两个权重字段，模型文件本身的合法性与归属由服务端判定。
+
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'

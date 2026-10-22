@@ -1,3 +1,7 @@
+// 流程图编辑器页：按侧栏布局画布（左边节点列表，右边属性与运行报告），中间画布占满剩余宽度。
+// 画出来的一切都取自 /api/flowgraph/nodes 对该节点的描述（端口、类型、设置与解释文案），
+// 所以后端新增节点后前端无需改代码；本页只负责布局、手势与本地草稿的存取。
+
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../../lib/api'
 import { ConfirmDialog } from '../common/Dialogs'
@@ -18,12 +22,6 @@ import {
 import { Dock, Rail, Splitter, Palette, Toolbar } from './canvasChrome'
 import { NodeBox, Inspector } from './canvasNodes'
 import { RunPanel } from './canvasRun'
-
-// 流程图画布：按编辑器布局，两侧各一个侧栏（左边节点列表，右边属性与运行报告），
-// 中间的画布占满剩下的每一像素。侧栏摆在画布旁边而不是盖在它上面，宽度可拖动，也可以收成窄条。
-// 这一页要守住的规则：后端有的节点都能直接拖出来用，不需要为每个节点写代码。
-// 画出来的一切都取自后端对该节点的描述（端口、类型、设置，以及解释每一项的那句话），
-// 所以后端新加一个节点，下次刷新它就带着中英两种界面的说明出现在这里。
 
 export function FlowCanvasTab() {
   const { lang, t } = useT()

@@ -1,3 +1,7 @@
+// 参考音频对比页：每一行是一种参考音频配置，逐行或整批并排试听。
+// 参考音频的挑选与列表来自共享组件 common/RefPickers.jsx；每一行能用的模型、参数与语种都取自当前引擎的名单。
+// 行数据经 usePersistentState 持久化（rehydrate 时做迁移与截断），生成结果引用服务端 URL 而不是 blob，所以刷新后仍可播放。
+
 import { useState, useEffect, useRef } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
@@ -19,9 +23,6 @@ import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 import { CompareRow } from './CompareRow'
 import { CompareBatchCard } from './CompareBatchCard'
-
-// 参考音频对比页：每一行是一种参考音频配置，逐行或整批并排试听。
-// 参考音频的挑选与列表来自共享组件 common/RefPickers.jsx；每一行能用的模型、参数与语种都取自当前引擎的名单。
 
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()

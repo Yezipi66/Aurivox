@@ -7,13 +7,7 @@
  *   node tools/dev/emit_profile.cjs indextts2 --out outputs/ab/indextts2.profile.json
  *   node tools/dev/emit_profile.cjs indextts2 | python lib/engines/host.py --profile-json - --port 9882
  *
- *  为什么要有这个文件：
- *   `lib/engines/host.py` 起不来的时候，它自己的报错里写着
- *       node tools/dev/emit_profile.cjs <引擎id> | python lib/engines/host.py --profile-json -
- *   ： 但这个文件当时并不存在。报错指向一个不存在的命令，比不报错更糟：
- *   照着敲的人会以为是自己环境的问题。这一笔就是来还这个账的。
- *
- *  这里不重新实现任何解析逻辑，只是 lib/engines/hostProfile.js 的一层
+ *   这里不重新实现任何解析逻辑，只是 lib/engines/hostProfile.js 的一层
  *   命令行皮。解析写两遍迟早分叉，而分叉出来的症状是「探针全绿但起不来」。
  */
 

@@ -1,3 +1,6 @@
+// 后端入口：拼装 express 应用、装中间件与各路由模块，并托管前台静态文件。
+// 业务实现在 lib/server/ 与 lib/routes/ 下，这个文件只做依赖注入与装配；
+// 路由上下文 ctx 集中了所有共享依赖，新增路由只往 ctx 加字段。
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
