@@ -1,4 +1,7 @@
-// AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
+// Both training review gates — DenoiseReviewPanel (audition the separated stems
+// after vocal extraction) and AsrReviewPanel (per-line transcript correction with
+// reading proofing and confidence). engineId is threaded down to every
+// /pron/preview request; omitting it makes reading proofing fail silently.
 import { useState, useEffect } from 'react'
 import { useT } from '../../lib/i18n'
 import { api } from '../../lib/api'

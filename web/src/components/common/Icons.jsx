@@ -1,5 +1,5 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-//  SVG ICONS
+// Inline SVG icons used by the Train and Assets pages. Every icon takes size and
+// color and defaults color to the inherited text colour.
 function IconFolderSearch({ size = 16, color = 'currentColor' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

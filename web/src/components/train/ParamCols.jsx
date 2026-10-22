@@ -1,4 +1,6 @@
-// AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
+// Slice / ASR / training parameter field panels, shared by the Training page and
+// the restore modal so both expose the same fields. TrainParamFields takes part:
+// 's1' | 's2' | 'both' to select which model's columns to render.
 import { useT } from '../../lib/i18n'
 import { Select } from '../common/Select'
 import { NumField, TextField, SelectField } from '../common/Fields'

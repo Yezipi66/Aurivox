@@ -1,4 +1,7 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// Shared modal dialogs: SaveRecipeModal (pins language explicitly, because shared
+// Han-character reading depends on it), ConfirmDialog (in-app secondary
+// confirmation), FsFilePicker (in-app file picker over /api/fs/browse that hands
+// back an absolute path). Product terms stay English.
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { basename } from '../../lib/pathText'

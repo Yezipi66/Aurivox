@@ -1,4 +1,6 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// Small presentational bits for the Generate page: voice-option labels plus the
+// seed display and the per-segment collapsible list. Seed badges show the RESOLVED
+// seed the engine actually used (never -1) with one-click copy.
 import { useState } from 'react'
 import { API_BASE } from '../../lib/api'
 import { Player } from '../common/Player'
