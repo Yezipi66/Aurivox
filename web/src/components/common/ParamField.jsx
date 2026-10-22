@@ -1,31 +1,28 @@
+// 引擎参数格子的统一渲染：一个格子按五种预设样式之一画成控件。
+// 每台引擎的面板都用这一个组件，否则同一个参数在不同引擎下会长成不同的样子。
+// 键名、类型与候选全部取自名片的 param_schema，这里不写任何引擎的参数名。
+
 import { Select } from './Select'
 import {
   canonicalType, repeatOf, isFieldVisible, selectSourceOf, fieldLabel, fieldHelp, textOf
 } from '../../lib/engines'
 import { recipePath } from '../../lib/recipes'
 
-// 一个格子，五种预设样式的唯一渲染处。
-// 每台引擎的页面拼装这个组件，不各自实现一遍控件，否则五种样式会变成 N 份互相漂移的实现，
-// 漂移的症状是「换一台引擎，同一种参数的格子长得不一样」。
-// 这里不许出现任何引擎的参数名、引擎 id 或业务身份（权重、参考音频、情绪），它只认得五种样式。
+// 五种预设样式：
 //   text     <input type="text">
 //   number   <input type="number">（min/max/step/unit 只是刻度，不是校验）
 //   select   <Select>（choices 写死 / source 平台扫盘；multi 多选；
-//                      allow_custom ⇒ 变成「可打字的下拉」= input + datalist）
-//   boolean  <ToggleField>（统一的一行，见下面那段注释）
+//                      allow_custom 时是「可打字的下拉」= input + datalist）
+//   boolean  <ToggleField>
 //   file     input + datalist（custom file，没有候选就是没有候选）
 // 修饰：repeat N 一排 N 个，dim_labels 给每格起名；only_when 条件显示，fail-open。
 
-// 勾选框统一走这一个组件。
-// .form-grid 是两列 align-items: start，别的格子是「标签在上、控件在下」占满一格高，
-// 而裸 <input type=checkbox> 只有一行高，于是它在自己那一格里贴着顶、邻格的输入框贴着底，
-// 两个勾选框就一个在左上一个在右下。
-// ⇒ 勾选框不再自己排版：标签和方框放同一行，整行占满格子的高度，同一排里几个勾选框永远对齐。
-// 不要再在别处手写 <input type=checkbox>。
+// 勾选框统一走这一个组件。.form-grid 是两列 align-items: start，别的格子「标签在上、控件在下」
+// 占满一格高，而裸 <input type=checkbox> 只有一行高，同一排的勾选框就会一个在左上一个在右下。
+// 这里把标签和方框放同一行、整行占满格子的高度，同一排里几个勾选框永远对齐。
 export function ToggleField({ label, help, checked, onChange, disabled }) {
   return (
-    // 排版全部在 styles.css 的 .toggle-field 里，别写回内联：
-    // 共享组件的样式散在 JSX 里，下一个人调对齐时根本找不到它。
+    // 排版在 styles.css 的 .toggle-field 里：共享组件的样式散在 JSX 里就找不到它。
     <label className={`toggle-field${disabled ? ' is-disabled' : ''}`} title={help || undefined}>
       <input
         type="checkbox"

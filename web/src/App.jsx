@@ -1,3 +1,6 @@
+// 前端的顶层外壳：导航栏、页签切换与各页面的数据接线。
+// 引擎相关的判断都读 web/src/lib/engines.js 的纯函数，界面本身不另建一份事实。
+
 import { useState, useEffect, useCallback } from 'react'
 import './styles.css'
 import { usePersistentState } from './usePersistentState'
@@ -19,7 +22,7 @@ import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessSt
 // /api/health 的 device_name 是系统原样报上来的字符串，混着商标符号、用途后缀
 // 和一段不可信的显存（WMI 的 AdapterRAM 在核显上会报出一个远小于真实共享内存的数）。
 // 界面上不该出现一个我们自己都不信的数字，所以这三样一起去掉。
-// 只做「去掉」，不猜、不改写：万一名里没有 GPU 这类词，就原样保留。
+// 只做「去掉」，不推断、不改写：万一名里没有 GPU 这类词，就原样保留。
 function prettyDevice(raw) {
   if (!raw) return '未知设备';
   return String(raw)
@@ -48,17 +51,17 @@ function AppShell() {
   const [selectedVoice, setSelectedVoice] = usePersistentState('ui.selectedVoice', '')
   const [selectedRefAudio, setSelectedRefAudio] = useState('')
   const [selectedRefText, setSelectedRefText] = useState('')
-  // 跨音色或自定义参考带来的 prompt_lang 覆盖。空串表示跟随当前音色的语言（默认，无回归）。
+  // 跨音色或自定义参考带来的 prompt_lang 覆盖。空串表示跟随当前音色的语言。
   const [selectedPromptLang, setSelectedPromptLang] = useState('')
   const [health, setHealth] = useState(null)
   // 画布是可选功能（服务端 FLOWGRAPH_ENABLED）。先问一次它有没有，
   // 没开过的部署就不在导航栏上摆一个点下去只会让人失望的按钮。
   const [flowReady, setFlowReady] = useState(false)
   // 装了哪几台引擎，以及现在用的是哪一台。
-  // 初值是空列表 + null，不是「先假设有一台叫某某的」：在列表回来之前，
+  // 初值是空列表 + null，不先假设有一台：在列表回来之前，
   // 界面对「有哪些引擎」这件事应当一无所知，凡是需要引擎信息才能决定的东西先不显示。
   const [engines, setEngines] = useState([])
-  // 占用透明度：后端算好的那一份（lib/engines/occupancy.js）。
+  // 内存占用：后端算好的那一份（lib/engines/occupancy.js）。
   // 默认 null 而不是 {}，occupancyBadge 判的是「字段在不在」，
   // {} 会让「后端没给」和「真装了 0 台」长得一样，而那两句的含义相反。
   const [occupancy, setOccupancy] = useState(null)
@@ -128,14 +131,14 @@ function AppShell() {
   }, [])
 
   // 起 / 停之后立刻重拉一次，不等那个 8 秒轮询。
-  // 等 8 秒的表现是「按钮点了没反应」，然后用户再点一次，而第二次点的是
+  // 等 8 秒的表现是「按钮点了没反应」，使用者再点一次，而第二次点的是
   // 一台正在启动的引擎（要等几十秒到几分钟），只会排得更久。
   const refreshEngines = useCallback(() => {
     return fetchEngines({ probe: false })
       .then(r => {
         setEngines(prev => mergeProcessState(prev, r.engines))
         setOccupancy(r.occupancy ?? null)
-        // 起 / 停之后连名片坏掉的那几台一起刷新：用户在引擎页看到「读不出来」，
+        // 起 / 停之后连名片坏掉的那几台一起刷新：使用者在引擎页看到「读不出来」，
         // 去改完 manifest.json 再回来点一下，就该少一条。
         setEngineErrors(r.errors || [])
       })
@@ -146,7 +149,7 @@ function AppShell() {
   // 上面那次是一次性的，名片和参数表只有装卸引擎时才变，
   // 但「这台引擎现在是否在运行、在装模型没有」是每几秒都在变的东西。
   // 不轮询的话，那个进程徽章会永远停在开页面那一刻：换模型时它照样写着待命，
-  // 而人正对着一个要等几分钟的重启在猜是不是卡死了，那个徽章存在的唯一理由就没了。
+  // 而使用者正对着一个要等几分钟的重启在猜是不是卡死了，那个徽章存在的唯一理由就没了。
   // 合并只动 process 一个字段，且没变化时原样还回旧数组，
   // 否则每一轮都产出新数组 ⇒ 下面那些 useEffect([engines]) 每 8 秒重跑。
   useEffect(() => {
