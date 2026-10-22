@@ -1,21 +1,16 @@
-// 参考文本校对。
-// Lets the user hand-edit an asset's EXISTING reference transcript (the text that
-// will be used when this audio is picked as an inference reference) and, per line,
-// open the shared reading-proofing UI to fix pronunciations. Reading corrections are
-// saved to the GLOBAL personal lexicon (applied at inference), while text edits are
-// written back to the asset's .list. This never runs ASR, never touches checkpoints.
-//
-// "Re-run ASR" is a deliberately SECONDARY action here: it backs up the current
-// transcript first and replaces it with a fresh machine-generated one.
+// 参考文本校对：逐行修改角色已有的参考转写，并按行打开读音校对界面修正发音。
+// 转写文本写回角色的 .list 文件；读音修正在「保存到词典」时写进全局个人词典，推理时按它取读音。
+// 本组件不直接跑 ASR（重新识别交给父组件），也不碰 S1/S2 的 checkpoint。
+// 「重新跑 ASR」是次要操作：先把当前转写备份一份，再换成机器重新识别的结果。
 import { useState, useEffect, useRef } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { LANG_LABEL, TextPrepModal, hanOverrideDirection } from '../pron/PronProofing'
 
-// ASR 置信度着色。faster-whisper 的 word/segment 概率折算成
-// [0,1] 置信度，映射到 绿(高)/黄(可疑)/红(可能识别错误) 三档，辅助用户校对。
-const CONF_HI = 0.85   // ≥ → green
-const CONF_MID = 0.6   // ≥ → yellow, else red
+// ASR 置信度着色：把 whisper 的词级与片段级概率折算成 [0,1] 的置信度，
+// 映射到绿（高）/ 黄（可疑）/ 红（可能识别错误）三档，辅助用户校对。
+const CONF_HI = 0.85   // 大于等于此值判为高
+const CONF_MID = 0.6   // 大于等于此值判为可疑，否则判为可能识别错误
 function confTier(c) {
   if (typeof c !== 'number') return null
   if (c >= CONF_HI) return 'hi'
@@ -42,7 +37,7 @@ function ConfidenceBadge({ conf }) {
   )
 }
 
-// 词级置信度预览：把每个词按其概率着色（只读，不影响可编辑文本框）。
+// 词级置信度预览：按每个词的概率着色，只读，不影响可编辑的文本框。
 function WordConfidence({ words }) {
   if (!Array.isArray(words) || words.length === 0) return null
   return (
@@ -62,8 +57,8 @@ function WordConfidence({ words }) {
   )
 }
 
-// Compact dark-theme audio play/pause control — replaces the raw <audio controls>
-// widget (which clashes with the app's styling). One <audio> per row, lazily loaded.
+// 紧凑的深色主题播放控件，替代原生的 <audio controls> 控件（样式与页面不协调）。
+// 每行一个 <audio> 元素，音频按需加载。
 function RowAudio({ url }) {
   const ref = useRef(null)
   const [playing, setPlaying] = useState(false)
@@ -97,8 +92,8 @@ function RowAudio({ url }) {
   )
 }
 
-// `engineId` 往下传给 TextPrepModal，用于 /api/pron/preview
-//   现在 engine_id 必传，平台不代为选择。
+// engineId 传给 TextPrepModal，用于 /api/pron/preview。
+// 该接口的 engine_id 必传，平台不代为选择引擎。
 export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning, engineId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -111,7 +106,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
   const [savedMsg, setSavedMsg] = useState(null)
   const [confirmAsr, setConfirmAsr] = useState(false)
 
-  // Reading-proofing modal (reuse TextPrepModal) for one focused line at a time.
+  // 读音校对弹窗（复用 TextPrepModal），一次只校对一行。
   const [proofIdx, setProofIdx] = useState(null)
   const [pronOverrides, setPronOverrides] = useState({})
   const [hanForced, setHanForced] = useState([])
@@ -160,7 +155,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
     setConfirmAsr(false)
   }
 
-  // Reading-proofing wiring for the focused line (text edits round-trip to the row).
+  // 校对中的那一行：文本改动直接写回该行。
   const proofText = proofIdx != null ? (rows[proofIdx]?.text || '') : ''
   const setProofText = (t) => { if (proofIdx != null) setRowText(proofIdx, t) }
   const panelLang = language
@@ -175,7 +170,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
       <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 860, width: '94%' }}>
         <div className="modal-hdr">Reference Transcript Proofing</div>
         <div className="modal-body">
-          {/* Required scope notices (English, per product decision). */}
+          {/* 作用范围提示，按产品要求用英文显示。 */}
           <div className="field-note" style={{ marginBottom: 8 }}>
             This edit does not modify or retrain existing S1/S2 checkpoints.
           </div>
@@ -251,7 +246,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
 
               {savedMsg && <div className="field-hint" style={{ color: 'var(--success)', marginTop: 8 }}>{savedMsg}</div>}
 
-              {/* Secondary, explicit Re-run ASR action with a backup warning. */}
+              {/* 次要操作：重新跑 ASR，先备份再替换。 */}
               <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 {!confirmAsr ? (
                   <button className="btn btn-sm btn-ghost" disabled={asrRunning} onClick={() => setConfirmAsr(true)}>

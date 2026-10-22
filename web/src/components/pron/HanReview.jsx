@@ -17,10 +17,9 @@ import {
 } from '../../lib/hanLanguage'
 import { NO_ENGINE_MSG, langName } from './PronProofing'
 
-// --- Per-character Han-character language override (task #4) ------------------
-// The picker is intentionally position-based. A raw character key is not enough:
-// the same Han character may occur several times and each occurrence can have a
-// different language/reading.
+// 汉字按位置指定语种与读音：框选汉字定语种，逐字校对读音，最后预览分段结果。
+// 覆盖以「位置」为键而不是「字」为键：同一个汉字可能出现多次，每次的语种与读音可以不同。
+// 读音由当前选中的那台引擎给出（/api/pron/preview 必带 engine_id），本文件不自己算。
 const HAN_VISUAL = {
   zh: { background: '#26735f', borderColor: '#62d4b2', borderRadius: 10, color: '#fff' },
   yue: { background: '#8a5b16', borderColor: '#f0b85a', borderRadius: 3, color: '#fff', clipPath: 'polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)' },
@@ -42,15 +41,13 @@ function previewReading(data, lang) {
   }
 }
 
-// Review the characters that were explicitly assigned above. This is the missing
-// bridge in the old UI: it calls the already-existing /api/pron/preview endpoint
-// for the selected language, displays the returned reading, and writes the edited
-// value into the position-keyed han_readings payload used by inference.
+// 校对被显式指定过的汉字：调 /api/pron/preview 取回读音，写进按位置索引的
+// han_readings 负载。自动判定的汉字不在这里出现。
 function HanReadingReview({ text, direction, assignments, readings, setReadings, engineId }) {
   const { t } = useT()
   const selected = assignmentList(assignments, text)
-  // ：engineId 进签名，换一台引擎 g2p 就换了一套，
-  //   这一批建议读音必须重新问。不许把它从签名里移除。
+  // engineId 进签名：换一台引擎就是换一套 g2p，这一批建议读音必须重新问。
+  // 把它从签名里移除，换引擎后界面会一直显示上一台引擎给的读音。
   const selectionSignature = selected.map(item => `${readingKey(item)}=${item.lang}`).join('|') + `#${engineId || ''}`
   const [suggestions, setSuggestions] = useState({})
 
@@ -67,8 +64,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
       return () => { cancelled = true }
     }
 
-    // Drop readings for positions no longer selected. Manual values for the active
-    // positions are kept; changing the language in the picker clears them there.
+    // 丢掉已取消选中的位置的读音；仍被选中的位置保留人工填写的值。
     if (typeof setReadings === 'function') setReadings(prev => {
       const next = { ...(prev || {}) }
       for (const key of Object.keys(next)) {
@@ -84,8 +80,8 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
     Promise.all(selected.map(async item => {
       const key = readingKey(item)
       try {
-        // ：engine_id 必传。缺了不发，见下面 selectionSignature 那一支，
-        //   engineId 已经进了依赖签名，选上引擎之后这一批会自己重来。
+        // engine_id 必传：缺了不发。engineId 已经进了依赖签名，选上引擎之后
+        // 这一批会自己重来。
         if (!engineId) return [key, { reading: '', candidates: [], loading: false, error: NO_ENGINE_MSG(t) }]
         const r = await api('/api/pron/preview', {
           method: 'POST',
@@ -205,12 +201,9 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
     if (direction && !direction.choices.includes(target)) setTarget(direction.choices[0] || 'zh')
   }, [direction?.base, direction?.choices, target])
 
-  // A coloured box means ONLY a manual position override. Automatic language
-  // inference deliberately stays invisible. The gesture is a range toggle:
-  //   * if every position in the range already has `target`, clear the range;
-  //   * otherwise assign `target` to the whole range (union/incremental select).
-  // This gives the desired behaviour for overlapping selections such as
-  // "这是一段" then "一段测试" -> "这是一段测试".
+  // 有色方块只表示「这里有手动指定」。自动判定刻意不着色。
+  // 手势是整段切换：整段都已经是 target 就清掉整段，否则把 target 加到整段上。
+  // 这样重叠选择是叠加的：「这是一段」再选「一段测试」得到「这是一段测试」。
   const finish = useCallback(() => {
     if (!ref.current.length || !direction) return
     const touched = ref.current.slice()
@@ -322,11 +315,9 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
 }
 
 function charLang(ch, direction, assignments, index, inferredHan) {
-  // A manual override only ever applies to a Han character. Checking the actual
-  // character here (rather than trusting the index) keeps the preview honest
-  // even if a stale entry reaches this far: a Han-language override sitting on
-  // a kana or a Latin letter is meaningless by definition. The engine's
-  // _apply_lang_overrides enforces the same rule on its side.
+  // 手动指定只对汉字有意义。这里查的是字符本身而不是位置：位置可能因文本被编辑而错位，
+  // 落到假名或拉丁字母上的汉字语种指定没有意义。引擎那侧同样按这条规则丢弃
+  // （引擎源码 TextPreprocessor.py 的 _apply_lang_overrides）。
   const positional = HAN_RE.test(ch) ? assignments?.[index] : undefined
   if (positional) return positional
   if (/[\uac00-\ud7a3]/.test(ch)) return 'ko'
