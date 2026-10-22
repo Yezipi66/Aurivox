@@ -342,7 +342,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       return
     }
     // 路径由后端 unifyDest 统一处理，前端只传原始命令。
-    // 原来硬编码 `engines/${id}/checkpoints` 正斜杠，在 Windows 上可能有问题。
+    // buildCommand 返回原始命令：local_dir='checkpoints' 是 Windows 上会按 cwd 解析的相对正斜杠路径，
+    //   落盘位置仍由后端按 path.join 拼，不依赖前端给的这一段。
     // 用 buildCommand 统一构建，确保执行和展示一致。
     const { argv } = buildCommand(c)
     // 不 await：下载在后台跑，用户可以随时进入第 4 步

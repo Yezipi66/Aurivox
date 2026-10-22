@@ -42,7 +42,7 @@ const { inspectTarget, checkClonable, buildClonePlan, runClone, engineDir } =
  *
  * 三 最要紧的一条：测试里那个「引擎目录」必须正好是被测代码会去查的
  *   那一层（root/engines/<id>）。写错一层，代码判成「目录空」，
- *   放行，真的去联网克隆（一条就是 120 秒）。
+ *   放行，真的去联网克隆（白等几分钟）。
  *   所以 mkdtempRootWithEngine 返回 engineDir 那一层，
  *   调用方直接往它里面写文件，不需要自己拼路径（拼错就是第三条）。
  *
