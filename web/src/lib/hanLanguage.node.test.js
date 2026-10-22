@@ -1,3 +1,6 @@
+// 汉语言种覆盖纯函数的守卫测试。
+// 覆盖三类行为：显式选定的位置、只按字名的旧形式一律忽略、整段手势的叠加与取消。
+// 下标用 Unicode 码点，与 hanLanguage.js 的口径一致。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {

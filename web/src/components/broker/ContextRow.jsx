@@ -1,3 +1,7 @@
+// 上下文行：当前角色、语种、各引擎模型数与一个 Task 状态格。数据来自 /api/assets、
+// /api/health、/api/transcribe-jobs 与 /api/train/*，取不到就显示占位。
+// Task 那一格按优先级取：正式训练页的任务 > 依赖触发的重建/修复 > 就地生成参考文本
+// > 合成活动 > 上一次训练结果 > 空闲；因此不另设引擎在线灯。
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'

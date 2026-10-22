@@ -1,3 +1,6 @@
+// 名片编辑器（引擎安装向导）的顶层组件：持有向导状态，只渲染 page 指向的那一步。
+// manifest 是唯一真相，text 只在 JSON 视图当编辑缓冲（单向 text → manifest）；
+// 完成状态由 GET /wizard/install-state 返回的真实产物判定，不读 localStorage。
 import React from 'react'
 import Pipeline from './Pipeline'
 import ManifestPage from './ManifestPage'

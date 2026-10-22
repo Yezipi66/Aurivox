@@ -172,7 +172,7 @@ test('models 完成之后 ⇒ 剩下的是各自一条线', () => {
   assert.ok(l[0].includes('manifest'), 'manifest 还该在')
 })
 
-// 纪律：活代码里不许出现具体引擎名
+// 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。
 test('steps.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm']

@@ -196,7 +196,7 @@ test('判据是包名，不看版本、不猜', () => {
   }
 })
 
-// 纪律：hardware.js 的活代码里不许出现任何具体引擎名
+// 这条断言对应 hardware.js 的性质：其活代码里不出现任何具体引擎名
 test('hardware.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice', 'vox' + 'cpm']
   const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'hardware.js'), 'utf-8')

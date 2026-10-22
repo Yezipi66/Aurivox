@@ -1,5 +1,8 @@
 'use strict'
 
+// probe.js 的行为守卫：上游项目读得出什么、读不出什么都如实上报，不替上游挑入口。
+// 覆盖 pyproject 解析、入口与依赖清单探测、README 下载命令的三段拆分。
+// 另有一条守卫钉住被测文件：具体引擎名只以拼接串出现在本测试里，不进实现。
 
 const { test } = require('node:test')
 const { extractDownloadCommands, parseDownloadCmd } = require('../core/wizardbridge')

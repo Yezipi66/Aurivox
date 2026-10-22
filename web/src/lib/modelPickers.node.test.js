@@ -1,7 +1,7 @@
 // 模型下拉候选的守卫测试。
 //
 // 三条最要紧的：二维筛选（别的角色的模型不出现在下拉里）、
-// 一个模型位就长一个下拉（不是两个里空一个）、代码里不许出现任何引擎 id 或模型位名字。
+// 一个模型位就长一个下拉（不是两个里空一个）、代码不出现任何引擎 id 或模型位名字。
 // 这些是 ESM，`node --test` 直接跑得动（import 带 .js 后缀，见 engines.js 顶部注释）。
 import test from 'node:test'
 import assert from 'node:assert/strict'

@@ -1,7 +1,7 @@
 'use strict'
 // 下载（第 3 步）的文件级接口测试：fetchRemoteManifest / checkFileStatus / enrichManifestFiles / downloadFile。
 // fetchRemoteManifest 与 downloadFile 用本地 HTTP 服务器冒充远端，checkFileStatus 用临时目录里的真实文件。
-// 纪律：活代码里不许出现任何具体引擎名。
+// 夹具一律只用抽象 id，不写具体引擎名与下载器名：命令是名片写的，平台只填占位符。
 
 const { test } = require('node:test')
 const assert = require('node:assert')

@@ -248,7 +248,7 @@ test('平台核心词的同名变体只标记不排除（硬排除会连带干�
 test('验收5：本模块不写盘 —— 产物是纯数据，没有任何 fs 调用', () => {
   // 判据不是「看代码里有没有写盘的注释」，而是真跑一遍然后查盘：
   // 跑之前记下 engines/ 下每个 manifest.json 的 mtime 与大小，
-  // 跑完之后逐一比对。有一个变了就是自动落盘。
+  // 执行完之后逐一比对。有一个变了就是自动落盘。
   const enginesDir = path.join(__dirname, '..', '..', '..', 'engines')
   const before = new Map()
   for (const id of fs.readdirSync(enginesDir)) {

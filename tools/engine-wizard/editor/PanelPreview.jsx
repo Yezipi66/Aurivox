@@ -1,4 +1,7 @@
 import React, { useMemo } from 'react'
+// 名片参数面板的预览：用平台在用的 ParamField 渲染名片的参数，不另画一份表单。
+// 复用真组件 ⇒ 平台改了字段行为，预览跟着变；另画一份 HTML 会停在旧样子并骗人。
+// 预览只读，改不动名片：值存在本地 state 里，回写由保存按钮触发。
 import { useT } from '../../../web/src/lib/i18n'
 import { ParamField } from '../../../web/src/components/common/ParamField'
 import MainArea from './MainArea'

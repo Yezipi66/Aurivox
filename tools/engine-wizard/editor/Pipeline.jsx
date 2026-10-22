@@ -2,6 +2,10 @@ import React from 'react'
 import { STEPS, riskNotice } from './steps'
 import { useT } from '../../../web/src/lib/i18n'
 
+// 接入向导的五步流程图：按 STEPS 的顺序渲染步骤圆点、连线和锁定状态。
+// 解锁判据是 done.prepare：克隆未完成时除第 1 步外全部禁用，禁用态附一句说明。
+// 同时导出 RiskUnlock：把 steps.js 给当前步的风险提示包在子元素上方。
+
 const GLYPH = { completed: '✓', running: '●', failed: '✗', pending: null }
 
 function unlockedSteps (done) {

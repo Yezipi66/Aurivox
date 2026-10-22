@@ -1,5 +1,9 @@
 'use strict'
 
+// 引擎名片的落盘读写：保存、校验 id、列已装引擎、按 id 读回。
+// 写入一律走 engines/<id>/manifest.json，路径穿越先用 validateId 再用 path.relative 挡两次；
+// 注释键写盘时原样保留，剥注释只发生在读取侧（lib/engines/registry.js 的 stripComments）。
+
 const fs = require('node:fs')
 const path = require('node:path')
 

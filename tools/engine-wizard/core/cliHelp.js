@@ -1,5 +1,10 @@
 'use strict'
 
+// 上游 CLI 原话的提取与比对：在引擎源码里找 argparse 文件，跑 Python 提取器取 flag
+// 与官方 help，再把「签名参数名」与「上游 dest」逐个比对。
+// 判据是逐字相同的 dest（连字符归一成下划线后）：同名即认为已对上，不同名的一律不猜。
+// 只读源码，不装环境、不起引擎。
+
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')

@@ -1,11 +1,8 @@
 'use strict'
 
-/**
- * 引擎安装向导的下载层：执行下载命令、拉远端文件清单、续传与完整性核对。
- * 下载走异步流式：一次下载要几分钟到几十分钟，同步调用会阻塞到结束。
- * 统一落盘到 engines/<id>/checkpoints/；只负责下载，不管装环境。
- */
-
+// 引擎安装向导的下载层：执行下载命令、拉远端文件清单、续传与完整性核对。
+// 下载走异步流式：一次下载要几分钟到几十分钟，同步调用会阻塞到结束。
+// 统一落盘到 engines/<id>/checkpoints/；只负责下载，不管装环境。
 const { spawn } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
