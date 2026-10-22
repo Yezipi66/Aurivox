@@ -2,7 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { processPhase, engineControls, actionOutcome } from './engineActions.pure.js'
 
-//  引擎管理页那两个按钮
+// engineActions.pure.js 的守卫：引擎管理页那两个按钮该不该按，以及后端拒绝之后界面该怎么接。
+// 判断函数被刻意挪出了 JSX，所以这里真的把它调起来看它返回什么，而不是数文本里有没有某个词。
+// 覆盖范围只看名片解析出来的字段（managed / process / online），内存与名额由后端单独判定。
 //
 // 这不是文本守卫。仓库里那 26 条前端守卫守的是"这个词出现在这个位置"，
 //   而这个文件真的把判断函数调起来看它返回什么：判断本身被刻意挪出了 JSX，

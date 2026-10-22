@@ -1,3 +1,7 @@
+// 汉字语种指定与读音校对：按位置覆盖语种，逐字预览读音，最后给出按语种分段的整体预览。
+// 覆盖以位置为键而不以字为键：同一个汉字可能出现多次，每次的语种与读音可以不同。
+// 读音全部由当前选中的那台引擎给出（/api/pron/preview 必带 engine_id），本文件不自己算。
+
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'

@@ -1,3 +1,6 @@
+// engines.js 的守卫：参数按 phase 分流，显式填过的才进启动配置。
+// 未触碰的 load 段参数不发送，所以 load 段不会在启动时把用户没碰过的建议值悄悄改掉。
+
 import test from "node:test"
 import assert from "node:assert/strict"
 import { paramsByPhase } from "./engines.js"
