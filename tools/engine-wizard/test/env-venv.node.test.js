@@ -413,9 +413,8 @@ function mkdtempTorchEngine (id) {
 
 /**
  * 将每一步的执行替换为假的（退出码 0），并保留真实 argv。
- * 该段测试的关键在于：自检需要在全部步骤执行完之后才判定结果。
- * 其中若干 uv 命令会产生数 GB 的实际下载/安装，因此仅替换实际执行阶段。
- * 计划本身仍保持真实（argv / env 的形状用于校验）。
+ * 自检在全部步骤完成后形成结论；其中 uv 命令会产生数 GB 的实际下载量，
+ * 因此只替换执行本身，但仍保留 argv / env 的形状用于校验。
  */
 const fakeRunAllOk = (ran) => async (step, root, timeoutMs, argv) => {
   ran.push({ argv: argv.slice(), env: step.env })

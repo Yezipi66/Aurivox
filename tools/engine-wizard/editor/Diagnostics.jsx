@@ -25,7 +25,8 @@ function whereText (d) {
 
 export default function Diagnostics ({ result, loading }) {
   const { t } = useT()
-  // 面板默认折叠，让预览区获得更多空间；计数徽标始终显示在标题行，可用于判断是否存在问题。
+  // 面板默认折叠，给预览区腾出空间；计数徽标常驻标题行，
+  // 用于快速判断是否存在问题。
   const [open, setOpen] = React.useState(false)
 
   // 还没跑出结果：连标题都不占地方
@@ -65,7 +66,7 @@ export default function Diagnostics ({ result, loading }) {
   const warns = diagnostics.filter((d) => d.level === 'warn')
   const infos = diagnostics.filter((d) => d.level === 'info')
 
-  // 标题上的计数：用于区分问题类别的数量。
+  // 标题上的计数：用于显示当前诊断的类别数量。
   const chips = []
   if (errors.length) chips.push({ cls: 'badge-danger', n: errors.length, label: t('Error', '错误') })
   if (warns.length) chips.push({ cls: 'badge-warn', n: warns.length, label: t('Warning', '警告') })

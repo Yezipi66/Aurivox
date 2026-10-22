@@ -1,6 +1,6 @@
-// 名片表单编辑器：根据 fieldmeta 分组渲染输入项，并在需要时挂载嵌套编辑器。
-// 本文件只负责界面结构与表单字段组织；校验与语义由字段定义承担。
-// 边界：不实现引擎逻辑，也不修改字段来源（仍以 /wizard/spec 为准）。
+// 名片表单编辑器：根据 fieldmeta 分组渲染字段输入，并把值交给调用方处理。
+// 渲染只依赖项目现有的 UI 组件与类名，不自造字段含义。
+// 本文件不负责合成逻辑，只负责界面层的输入与结构。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RuntimeSection, CallSection, ModelsSection } from './NestedSections'
@@ -356,7 +356,7 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
   const l2Flat = L2_GROUPS.filter((g) => byGroup[g])
   const l3Flat = L3_GROUPS.filter((g) => byGroup[g])
 
-  // 「有值时提示」：L2/L3 折叠标题上挂徽标，用于显示该折叠内是否已有内容。
+  // 「有值时提示」：L2/L3 折叠标题上挂徽标，表示该折叠内已有内容。
   // 键路径要取对：args/cwd 在 runtime 下、streaming 在 capabilities 下，不是顶层键，
   // 取顶层会永远取空，徽标永不出现。
   const hasVal = (paths) => paths.some((path) => {
