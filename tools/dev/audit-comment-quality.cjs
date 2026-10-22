@@ -107,7 +107,13 @@ for (const rel of process.argv.slice(2)) {
   // 文件头若是空话也要报
   const headComment = comments.find((c) => c.loc.start.line <= 8)
   if (headComment) {
-    const first = String(headComment.value || '').trim().split('\n')[0].trim()
+    // JSDoc 块注释（/** ... */）的 value 以 '*' 开头，后面每行也是 ' * xxx'。
+    // 直接取第一行只会得到 '*'，长度 1 ⇒ 误报「文件头过短」。
+    // ⇒ 先剥掉每行行首的 '*' 与空白，再取第一条有文字的。
+    const first = String(headComment.value || '')
+      .split('\n')
+      .map((l) => l.replace(/^\s*\*\s*/, '').trim())
+      .find((l) => l.length > 0) || ''
     if (first.length < 12 && !VAGUE.test(first)) {
       hits.push({ name: '文件头过短', line: headComment.loc.start.line, body: first })
     }
