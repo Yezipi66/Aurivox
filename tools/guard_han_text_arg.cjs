@@ -1,15 +1,10 @@
-// Static guard: every call to normalizeAssignments() / buildLangOverrides()
-// must pass the body of text the @N indices refer to.
+// 静态守卫：normalizeAssignments() 与 buildLangOverrides() 的每个调用点都必须传入正文。
+// 正文就是 @N 下标所指的那段文本。第三个参数在运行时是可选的：缺了它，覆盖项会被
+// 计数、预览并发给引擎，而选择器里看不见，失败是静默的。运行时断言挡不住这种静默失效，
+// 所以约束在这里检查。
 //
-// Why a static guard and not a runtime assertion: the third argument is
-// optional at runtime on purpose, because refusing to work without it would
-// turn a stale-override bug into a crash in front of the user. That makes
-// forgetting it silent -- exactly the failure mode this whole fix is about
-// (an override that is invisible in the picker yet still counted, previewed
-// and sent to the engine). So the enforcement lives here, at check time.
-//
-// Usage:  node tools/guard_han_text_arg.cjs
-// Exit 0 = every call site passes the text. Exit 1 = offending sites listed.
+// 用法：node tools/guard_han_text_arg.cjs
+// 退出码 0 = 全部调用点都传了正文；1 = 列出不合规的调用点。
 
 const fs = require('fs')
 const path = require('path')
@@ -17,7 +12,7 @@ const path = require('path')
 const ROOT = path.resolve(__dirname, '..')
 const SCAN_DIR = path.join(ROOT, 'web', 'src')
 const GUARDED = ['normalizeAssignments', 'buildLangOverrides']
-// Definition and re-export lines are not call sites.
+// 定义行与转出声明不是调用点。
 const NOT_A_CALL = /^\s*(export\s+)?function\s/
 
 function walk(dir, out) {
@@ -33,8 +28,10 @@ function walk(dir, out) {
   return out
 }
 
-// Split the argument list of a call that starts at `open` (index of "(").
-// Returns null when the parentheses are unbalanced (truncated file etc).
+/**
+ * 拆开从 open（左括号的下标）开始的参数列表。
+ * 返回各参数（已去掉首尾空白）；括号不配对时返回 null。
+ */
 function topLevelArgs(src, open) {
   let depth = 0
   let start = open + 1
@@ -68,6 +65,10 @@ function topLevelArgs(src, open) {
   return null
 }
 
+/**
+ * 扫出全部不合规的调用点。
+ * 每条是「相对路径:行号  说明」，空数组表示没有不合规的调用点。
+ */
 function scan(dir) {
   const problems = []
   for (const file of walk(dir || SCAN_DIR, [])) {
