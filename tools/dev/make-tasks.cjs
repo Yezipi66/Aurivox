@@ -4,8 +4,8 @@
 //   node tools/dev/make-tasks.cjs <输出目录> <模式> [清单文件...]
 //
 // 模式：
-//   rewrite —— 按「注释量」重写：文件清单 + 判据 + 六件事
-//   clean   —— 清「验收器报出的未清项」：文件清单 + 具体线索 + 两道闸
+//   rewrite ⇒ 按「注释量」重写：文件清单 + 判据 + 六件事
+//   clean   ⇒ 清「验收器报出的未清项」：文件清单 + 具体线索 + 两道闸
 //
 // 这个脚本存在的原因（本项目踩过三次坑）：
 //   ① 拿「已生成好的任务书」当模板用 ⇒ 里面的 {FILES} 占位符早被替换掉，
@@ -50,7 +50,7 @@ const REWRITE_BODY = `## 你的任务
 
 **它们定形态**：文件头几行、函数注释几行、哪些该留哪些该删。
 
-⛔ 只看结果看不到刀法。**看示范的同时看它的 diff**：
+ 只看结果看不到刀法。**看示范的同时看它的 diff**：
 
 \`\`\`bash
 cd {WT}
@@ -118,7 +118,7 @@ diff /tmp/af_before.py lib/inference/alias_fold.py
 
 写清三件：**这文件负责什么、它凭什么这么判断、边界在哪**。2 至 5 行。
 
-⛔ 不要写成纪律宣告（「这里不许出现任何引擎名」⇒ 改成「不写具体引擎名」）。
+ 不要写成纪律宣告（「这里不许出现任何引擎名」⇒ 改成「不写具体引擎名」）。
 
 ### ② 句子要通顺、完整、用书面语
 
@@ -147,9 +147,9 @@ const pickDefaultRef = (segs) => {
 
 ### ⑥ 逐条核对注释与代码的事实
 
-⛔ **注释说的与代码做的相反时，代码赢。**
+ **注释说的与代码做的相反时，代码赢。**
 
-⛔ **注释里的死链要清。** 注释引用的文件/函数可能早就不存在了，
+ **注释里的死链要清。** 注释引用的文件/函数可能早就不存在了，
 先 \`find . -name "<名字>" -not -path "*/node_modules/*"\` 核实，
 再用 \`git log --all --oneline --diff-filter=A -- "*<名字>*"\` 查历史。
 死链改成描述当前行为。
@@ -165,7 +165,7 @@ const pickDefaultRef = (segs) => {
 
    每个文件都必须报 \`same\`。报 \`DIFF\` 说明你动了代码，必须改回去。
 
-   ⚠️ token 比对**不保证空白没变**。改完再跑一次 \`git diff\` 逐行看，
+    token 比对**不保证空白没变**。改完再跑一次 \`git diff\` 逐行看，
    确认非注释行没被动过。
 
 2. **不要 commit、不要 push、不要建分支，不要改别的文件。**
@@ -229,7 +229,7 @@ Hark 的示范文件把这类改成了正面说法。
   改前：本文件里不许出现任何引擎名、任何下载器名：命令是名片写的，平台只填占位符。
   改后：命令是名片写的，平台只填占位符；本文件不写具体引擎名与下载器名。
 
-⛔ **但不是所有「不许」都要改。** 判据（skill 的 references/rewrite-cuts.md）：
+ **但不是所有「不许」都要改。** 判据（skill 的 references/rewrite-cuts.md）：
 
 - 句子描述的是**代码里真实存在的一次取舍** ⇒ 保留（例：「不许发成空串：空串会被滤掉」）
 - 句子是**给未来人的行为规范** ⇒ 改成事实陈述（例：「本文件里不许出现引擎名」）
@@ -248,7 +248,7 @@ Hark 的示范文件把这类改成了正面说法。
 换成书面语：看着办 → 按规则处理；指路 → 带诊断信息；跑完 → 执行完；
 一眼看出 → 看得出来；扛下来 → 承担。
 
-⛔ 「猜」在「猜错」这种语境里是正当的技术说法（推断错），**不要改**。
+ 「猜」在「猜错」这种语境里是正当的技术说法（推断错），**不要改**。
 
 ## 硬约束
 
@@ -363,12 +363,17 @@ for (let i = 0; i < files.length; i += PER) batches.push(files.slice(i, i + PER)
 const template = MODE === 'clean' ? CLEAN_BODY : REWRITE_BODY
 batches.forEach((b, i) => {
   const wt = `D:/tmp/g${String(i + 1).padStart(2, '0')}`
+  //  顺序要紧：{FILESLINE} 必须先替换。
+  // 否则 .replace('{FILES}', ...) 会把 '{FILESLINE}' 里的 '{FILES}' 一并吃掉，
+  // 剩下 'LINE'，命令变成「audit-comment-quality.cjs LINE」。
+  //  必须用 replaceAll：模板里同一个占位符出现多次，
+  // 用 replace 只换第一处 ⇒ 任务书里残留 {FILESLINE}，子 Agent 照着敲命令必错。
   const body = template
-    .replace('{FILES}', b.map((x) => '- ' + x).join('\n'))
-    .replace('{FILESLINE}', b.join(' '))
-    .replace('{DETAIL}', rows ? buildDetails(rows.filter((r) => b.includes(r.file))) : '')
-    .replace('{WT}', wt)
-    .replace('{SKILL}', SKILL)
+    .replaceAll('{FILESLINE}', b.join(' '))
+    .replaceAll('{FILES}', b.map((x) => '- ' + x).join('\n'))
+    .replaceAll('{DETAIL}', rows ? buildDetails(rows.filter((r) => b.includes(r.file))) : '')
+    .replaceAll('{WT}', wt)
+    .replaceAll('{SKILL}', SKILL)
   const out = path.join(OUT, `batch${String(i + 1).padStart(2, '0')}.md`)
   fs.writeFileSync(out, body)
   console.log(`${out}  (${b.length} 个文件, worktree ${wt})`)
