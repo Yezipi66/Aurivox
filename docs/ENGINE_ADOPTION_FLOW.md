@@ -1,6 +1,6 @@
 # 引擎接入流程 —— 当前设计
 
-> **2026-10-04 会话产出。取代 `ENGINE_WIZARD_PLAN_v2.md`（v1 已删）。**
+> **2026-10-04 会话产出。取代 `archive/ENGINE_WIZARD_PLAN_v2.md`（v1 已删）。**
 > 进度与欠账看 [`ONBOARDING_PLAN.md`](./ONBOARDING_PLAN.md) —— **那才是状态的唯一真相**。
 > 本文件只回答「流程长什么样、为什么这么定」，**不记进度**。
 >

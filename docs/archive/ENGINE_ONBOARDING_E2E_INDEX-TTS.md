@@ -3,7 +3,7 @@
 > 分支：`research/engine-onboarding-complexity`
 > 日期：2026-10-10
 > 口径：`[实测]` = 在本机跑出来的，附命令与输出。⛔ 全文不含「应该能」。
-> 计划见 [`ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md`](./ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md) 的「第 3 步」。
+> 计划见 [`ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md`](../ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md) 的「第 3 步」。
 
 ---
 

@@ -3,7 +3,7 @@
 > ## ⛔ 本文件已被取代，**不再是实现依据**
 >
 > 唯一实现依据是
-> [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)（R1，已冻结）。
+> [`FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md`](../FLOW-D27-JOURNAL-PLAINTEXT-CONTRACT.md)（R1，已冻结）。
 >
 > 本文件保留为**发现过程与实测记录**。阅读时注意以下三处已在 R1 中被修正：
 >

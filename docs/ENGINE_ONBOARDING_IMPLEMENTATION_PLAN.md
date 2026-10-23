@@ -318,7 +318,7 @@ media_type       ← media_type    streaming        ← streaming_mode
 ### 要动的文件
 
 ⛔ **不写新功能代码。** 这一步是**验证 + 记录**。
-产物：`docs/ENGINE_ONBOARDING_E2E_INDEX-TTS.md`
+产物：`docs/archive/ENGINE_ONBOARDING_E2E_INDEX-TTS.md`
 
 ### 预期效果
 

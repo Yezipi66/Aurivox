@@ -165,7 +165,7 @@ Flow 内核现在可从运行进程到达，一条 text→tts→gate→output �
 ③ `GATE_CREATED.gate.input_artifacts`；
 ④ Flow 之外：`writeGenMeta()` 早已把原文写进 `outputs/generate/<id>/meta.json`。
 **只改 adapter 不解决 D27**；**只抹 Journal 得到的是看起来脱敏的系统**。
-完整暴露面、方案对比与七问见 [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md)。
+完整暴露面、方案对比与七问见 [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./archive/FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md)。
 
 #### 2026-08-13 阶段 0：R1 契约已冻结
 

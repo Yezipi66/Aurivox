@@ -1,6 +1,6 @@
 # 安装向导（Engine Wizard）计划 · v2
 
-> ⛔⛔ **本文件已作废，被 [`ENGINE_ADOPTION_FLOW.md`](./ENGINE_ADOPTION_FLOW.md) 取代。**
+> ⛔⛔ **本文件已作废，被 [`ENGINE_ADOPTION_FLOW.md`](../ENGINE_ADOPTION_FLOW.md) 取代。**
 > 2026-10-04 那一轮把接入流程推翻重推了一遍，本文件的**结论部分大半已不成立**。
 > （v1 更早作废删除。）
 >
