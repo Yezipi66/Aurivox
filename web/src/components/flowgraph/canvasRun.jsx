@@ -1,3 +1,7 @@
+// 流程图运行面板：渲染一次运行的暂停/选择请求、中间结果驻留提示与事件流。
+// 事件类型由后端下发（preview / table / saved / released / recipe 等），本文件只按 type 分发渲染，
+// 不认识具体是哪台引擎；EventView 是它的事件渲染分支。
+
 import { useState, useEffect } from 'react'
 import { pickText } from './graphModel'
 import {

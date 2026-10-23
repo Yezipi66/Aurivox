@@ -1,28 +1,25 @@
 'use strict'
-// steps（六步的顺序与状态）： 核心判据是顺序本身
-//
-// 这份测试守的是 docs/ENGINE_WIZARD_PLAN_v2.md §二 那条硬约束：
-//   「第 2 步克隆时目录必须是空的」。
-// 如果有人把 clone 和 manifest 的顺序调换，测试必须红。
+// editor/steps.js 的测试：五步的顺序、依赖、并发关系与完成判据。
+// 核心判据是顺序本身：克隆那一步必须在写名片之前，
+// 因为克隆时 engines/<id>/ 必须是空目录。顺序一旦调换，测试必须红。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 
-// editor/ 是 .jsx/.js 混编的目录，node --test 直接跑不了 ESM+JSX。
-//   所以这里改成：只测不依赖 JSX 的部分，
-//      并且用「真跑一遍 steps.js」的方式（见下面的加载器）。
+// editor/ 是 .jsx 与 .js 混编的目录，node --test 直接跑不了其中的 JSX。
+// 这里只测不依赖 JSX 的部分，并且用「真跑一遍 steps.js」的方式加载（见下面的加载器）。
 const STEPS_PATH = path.join(__dirname, '..', 'editor', 'steps.js')
 
-// steps.js 是 ESM export，用 node 的 ESM 加载器读；这里用动态 import 包装成 CJS
+// steps.js 是 ESM 导出，用 node 的 ESM 加载器读；这里用动态 import 包装成 CJS
 let mod
 test('加载 steps.js', async () => {
   mod = await import('file:///' + STEPS_PATH.replace(/\\/g, '/'))
   assert.ok(mod.STEPS, '⛔ 导不出 STEPS')
 })
 
-// 顺序 ： 这份测试存在的第一理由
+// 顺序：这份测试存在的第一理由
 test('prepare 必须在 manifest 之前（目录空的硬约束）', () => {
   const { STEPS } = mod
   const prep = STEPS.find((s) => s.key === 'prepare')
@@ -38,7 +35,7 @@ test('prepare 那一步内部仍然声明 requiresEmptyDir（合并不许丢硬�
   assert.strictEqual(prep.requiresEmptyDir, true,
     '⛔ prepare 丢了 requiresEmptyDir —— 把 1/2/3 合成一步，'
     + '但「目录必须是空的」这条硬约束不能跟着合并掉')
-  // 并且要记下内部三小步 ： 界面上要能分开显示
+  // 并且要记下内部三小步：界面上要能分开显示
   assert.deepStrictEqual(prep.phases, ['resolve', 'probe', 'clone'],
     '⛔ prepare 没声明 phases —— 探测（只读）与克隆（写盘）必须能分开显示')
 })
@@ -54,21 +51,19 @@ test('prepare 内部顺序：探测必须在克隆之前（只读优先）', () 
 test('五步：1/2/3 合成一步，第 6 步已删', () => {
   assert.deepStrictEqual(mod.STEPS.map((s) => s.key),
     ['prepare', 'env', 'models', 'manifest', 'verify'])
-  // 删干净了：任何地方都不许再引用 ready 这一步
+  // 不许再引用 ready 这一步
   assert.ok(!mod.STEPS.some((s) => s.key === 'ready'))
 })
 
 test('五个步骤名：中文位是中文、英文位是英文', () => {
-  // 之前这条断言要求 label[0] === label[1]（中英相同）：
-  //   那正是「切到英文界面时步骤名不会变」的病根：t() 在英文界面取
-  //   label[0]，两半都写中文 ⇒ 英文界面显示的还是中文。
-  // 现在的规则：中文位是中文，英文位是英文，各说各话。
+  // 规则：中文位是中文，英文位是英文，各说各话。
+  // t() 在英文界面取 label[0]，两半都写中文的话英文界面显示的还是中文。
   for (const s of mod.STEPS) {
     assert.ok(/[\u4e00-\u9fa5]/.test(s.label[1]),
       `${s.key} 的中文标签不是中文：${s.label[1]}`)
     assert.ok(/[A-Za-z]/.test(s.label[0]),
       `${s.key} 的英文标签没有英文（切英文界面会显示中文）：${s.label[0]}`)
-    // 中文位不许夹半截英文（那正是「Weights 权重」式拼接）
+    // 中文位不许夹半截英文（「Weights 权重」式拼接）
     assert.ok(!/[A-Za-z]{3,}/.test(s.label[1]),
       `${s.key} 的中文标签夹了英文单词：${s.label[1]}`)
   }
@@ -85,7 +80,7 @@ test('名字说「要做什么」而不是只给名词', () => {
       `${s.key} 缺 does（界面要说清这一步做什么）`)
   }
   const models = mod.STEPS.find((s) => s.key === 'models')
-  // 断言改钉实质：必须说清平台代为下载，不许断言某几个字。
+  // 断言钉实质：必须说清平台代为下载，不许断言某几个字。
   assert.ok(/勾选后点「下载」即可|平台执行下载|代为下载/i.test(models.does[1]),
     `第 3 步的说明必须说清「平台代为下载」：${models.does[1]}`)
 })
@@ -106,7 +101,7 @@ test('除 models↔manifest 外，其余不许声明并发', () => {
 })
 
 
-// env 那一步：数据来自 probe，不依赖 manifest
+// env 那一步：数据来自探测结果，不依赖名片
 test('env 步骤不依赖 manifest', () => {
   const env = mod.STEPS.find((s) => s.key === 'env')
   assert.ok(!env.requiresManifestField,
@@ -122,7 +117,7 @@ test('env 步骤只需要引擎目录存在就能开始', () => {
   assert.strictEqual(c.ok, true)
 })
 
-// 下一步
+// 下一步是哪一步
 test('currentStep 看的是「做完没」，不是「有值没」', () => {
   const { currentStep } = mod
   assert.strictEqual(currentStep({}), 'prepare')
@@ -151,13 +146,12 @@ test('stepDone：weights 的 ready:null（说不出来）⇒ 不算做完', () =
 
 test('全做完 ⇒ currentStep 返回 null（没有下一步）', () => {
   const { currentStep } = mod
-  // 全部做完时没有下一步，之前这里返回 'ready' ： 一个已经不存在的步骤名，
-  //   流程条会去找一个空节点。现在必须是 null。
+  // 全部做完时没有下一步，返回 null：流程条没有空节点可找。
   assert.strictEqual(currentStep({ prepare: true, env: true, models: true,
     manifest: true, verify: true }), null)
 })
 
-// lanes ： 并发只发生在该并发的地方
+// lanes：并发只发生在该并发的地方
 test('起点只有一条线（models/manifest 在同一格里，并发）', () => {
   const l = mod.lanes({})
   assert.strictEqual(l.length, 1, '⛔ 起点只该有一条线')
@@ -178,7 +172,7 @@ test('models 完成之后 ⇒ 剩下的是各自一条线', () => {
   assert.ok(l[0].includes('manifest'), 'manifest 还该在')
 })
 
-// 纪律
+// 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。
 test('steps.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm']

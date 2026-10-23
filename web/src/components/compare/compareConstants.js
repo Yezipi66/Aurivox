@@ -1,4 +1,4 @@
-import { TARGET_LANG_OPTIONS } from '../../lib/format'
+import { TARGET_LANG_OPTIONS } from '../../lib/langOptions'
 
 // 对比页的目标语种选项：去掉逐段的「auto」（这一页与生成页的音色解耦），保留多语的
 // auto_zh_ja_yue，供中日汉字共享的对比用。

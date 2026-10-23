@@ -1,4 +1,7 @@
-// AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
+// Modals for the Train and asset pages: PresetNameModal (in-app input dialog for
+// naming a UVR5 preset), ConfirmModal (secondary confirmation for destructive
+// actions), RestoreModal (pick the rebuild path and its parameters; re-plans on
+// every option change so the PLAN preview stays truthful).
 import { useState, useEffect, useRef } from 'react'
 import { useT } from '../../lib/i18n'
 import { api } from '../../lib/api'

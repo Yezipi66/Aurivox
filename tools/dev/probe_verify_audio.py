@@ -19,7 +19,7 @@ import socketserver
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROBE = os.path.join(ROOT, "lib", "engines", "verify_audio.py")
 
-PORT_BASE = 19960  # ⭐ 每次换端口：TCPServer 关闭有延迟，同端口连上前一个会「连不上」
+PORT_BASE = 19960  # 每次换端口：TCPServer 关闭有延迟，同端口连上前一个会「连不上」
 
 
 def make_handler(health_body, health_status, post_status, post_body,
@@ -50,7 +50,7 @@ def make_handler(health_body, health_status, post_status, post_body,
             except Exception:
                 body = {}
             if no_text_validation:
-# ⭐ 这个宿主根本不验 ： 缺 text 也放行。
+                # 这个宿主根本不验：缺 text 也放行。
                 #   B 级必须抓它：那种宿主会让拼错的参数静默生效。
                 self._send(200, b"RIFF....WAVEfmt ", "audio/wav")
                 return
@@ -84,7 +84,7 @@ def run_case(name, expect_ok, **kw):
         return False
     got = bool(out.get("ok"))
     good = (got == expect_ok)
-# ⭐ 额外要求：失败时必须说清是哪一步。一个「连不上」不算抓到了契约问题。
+    # 额外要求：失败时必须说清是哪一步。一个「连不上」不算抓到了契约问题。
     if not expect_ok and got is False:
         stage = out.get("stage")
         want_stage = kw.pop("_want_stage", None) if False else None

@@ -1,3 +1,7 @@
+// graphModel.js 的守卫：增删节点、改设置、连断线、多语言文案、缩放与删除键、音色预设。
+// 这些操作全是纯函数，所以能脱离浏览器单独跑；断言盯的是规则本身，不是渲染结果。
+// 边界：只覆盖模型层，渲染与指针交互不在这个文件的范围内。
+
 import test from 'node:test'
 import assert from 'node:assert/strict'
 

@@ -52,9 +52,7 @@ def wav_bytes(seconds=0.1, rate=16000):
     return buf.getvalue()
 
 
-# ---------------------------------------------------------------------------
 #  一台假引擎：只有一个命令行，没有 python 类，没有端口
-# ---------------------------------------------------------------------------
 FAKE_CLI = r'''#!/usr/bin/env python3
 # 假引擎：把收到的 argv 原样记进 --output 旁边的 .argv.json，再写一段静音 wav。
 import io, json, os, struct, sys, wave

@@ -1,7 +1,7 @@
 // advanced_params.json 是「界面记忆」：存的和读的必须是同一组键。
 // 这是一条文本守卫，不是行为测试：JSX 在这个仓库里跑不了单元测试，只能读源码。
 // 它守得住的是「有没有人把撤掉的东西又加回来、或者让存和读再次错位」。
-// 不写死那几个键的名字去比对（那又是一份会漂的参数表，契约 C11 禁止），
+// 不写死那几个键的名字去比对（那又是一份名片之外、会漂移的参数表），
 // 改为从源码里把「存的那一组」和「读的那一组」各自抠出来，比对两个集合相等。
 
 import test from 'node:test'
@@ -143,7 +143,7 @@ test('流式那三个格子没有被加回合成面板', () => {
   // 它们配的是 /v1/audio/speech 的行为，而这个界面消费不了流（runGenerate 等的是 audio_url）。
   // 要给端点配默认值，那是端点配置该干的事，不是合成格子。
   // 撤的是界面格子，不是 API 能力：synthesisService 仍然解析这三个入参，
-  // 第三方和 Flow 可以显式传（契约 §7 逃生门）。
+  // 第三方和 Flow 可以显式传。
   for (const gone of ['streamingMode', 'overlapLength', 'minChunkLength']) {
     assert.ok(
       !CODE.includes(gone),

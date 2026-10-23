@@ -1,5 +1,6 @@
-// Stage-2 unit tests: Mutex mutual-exclusion/ordering/exception-safety and
-// VoicesStore load/save/backup round-trip + rotation. No deps, no server.
+// Unit tests for lib/util/mutex and lib/voices/store: Mutex mutual-exclusion,
+// FIFO ordering and exception-safety, plus VoicesStore load/save/backup
+// round-trip and backup rotation. No deps, no server.
 // Run:  node tools/tests/voices_store_test.js
 const os = require("os");
 const path = require("path");

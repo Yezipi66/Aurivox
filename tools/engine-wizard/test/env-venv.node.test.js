@@ -1,24 +1,9 @@
 'use strict'
-// 第 2 步的隔离环境（engines/<id>/.venv）
-//
-// 为什么单开一个文件：env.node.test.js 守的是「装法有据可依」，
-//    本文件守的是装之前先把环境建出来。
-//    两者是同一个步骤的两件事，混在一个文件里会让失败名看不出是哪件。
-//
-// uv 选目标环境的唯一可靠方式是 `-p/--python <绝对路径>`。
-//    设 VIRTUAL_ENV 环境变量无效（uv 认自己所在的那个环境，环境变量压不住）。
-//    `--python <相对路径>` 也无效，uv 报「No virtual environment ... for path」。
-//    ⇒ 所以装依赖那步必须把目标解释器的绝对路径写进 argv。
-//
-// uv sync 的 `-p/--python` 不是「装进哪个解释器」，
-//    而是「用哪个解释器当基准建项目环境」：
-//    `uv sync --python <某个已存在的 venv>` 会照锁装完、看着成功，
-//    但装进的是它在项目目录新建的 .venv，目标 venv 里根本没有那个包。
-//    ⇒ sync 那条路的正确写法是 `UV_PROJECT_ENVIRONMENT=<绝对路径>`。
-//    这个陷阱静默成功（退出码 0），比报错更难发现。
-//
-// conda env create 自己会建环境 ⇒ 不许再塞一步 uv venv 过去，
-//    否则同一个环境被建两遍。
+// 第 2 步的隔离环境（engines/<id>/.venv）：本文件只断言装依赖计划的形状（argv 与环境变量），
+// env.node.test.js 守的是「装法有据可依」，两者是同一个步骤的两件事。
+// uv 选目标环境只有一条可靠办法：argv 里写 `-p/--python <绝对路径>`：VIRTUAL_ENV 压不住 uv，
+// `--python <相对路径>` 也不认（uv 报「No virtual environment ... for path」）。
+// uv sync 是例外：它的 -p 是「用哪个解释器当基准建项目环境」，会装进它自己新建的 .venv，那条路只能用 UV_PROJECT_ENVIRONMENT=<绝对路径>；conda env create 自己建环境，不加 uv venv。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -28,8 +13,8 @@ const path = require('node:path')
 
 const envMod = require('../core/env.js')
 const { INSTALL_FILE } = require('../core/installState.js')
-// 守卫（lib/engines/enginesDirWriteGuard.node.test.js）只看实参文本里有没有
-//   临时痕迹，所以这里必须经 mkdtemp 中转，不许直接拼真 engines/ 路径。
+// 守卫（lib/engines/enginesDirWriteGuard.node.test.js）只看实参文本里有没有临时痕迹，
+//   所以这里必须经 mkdtemp 中转，不直接拼真 engines/ 路径。
 const ENGINES_DIR_NAME = 'engines'
 
 // 夹具
@@ -132,8 +117,8 @@ test('装依赖那步必须带 -p <该引擎 .venv 里 python 的绝对路径>',
 test('目标解释器不得是平台根 venv（否则装到平台自己身上）', () => {
   const { root } = mkdtempEngineWithManifest('demo4', 'requirements.txt')
   const p = planOf(root, 'demo4', {})
-  // 只检查装依赖步骤的目标解释器。建环境步骤用平台 python 执行 uv venv 是合理的
-  // （uv 需要一个 python 来运行），测试不应当断言它指向引擎 .venv。
+  // 只检查装依赖步骤的目标解释器：建环境步骤用平台 python 执行 uv venv 是合理的
+  //   （uv 需要一个 python 来运行），测试不应当断言它指向引擎 .venv。
   const installSteps = envStepsOf(p).filter((s) => /(pip|sync|env create|install)/i.test(s.argv.join(' ')))
   assert.ok(installSteps.length > 0, '没有找到装依赖步骤')
   for (const s of installSteps) {
@@ -197,9 +182,8 @@ test('conda 那条路不许混进 uv venv（conda 自己会建环境）', () => 
 
 // ⑥ 锁文件那条路：sync 的目标环境必须是该引擎的 .venv
 //
-// 这条是最容易做错的一条：`uv sync -p <某个已存在的 venv>`
-//   会照锁装完、退出码 0，但装进的是它在项目目录新建的 .venv，
-//   指定的那个 venv 里根本没有。⇒ 必须用 UV_PROJECT_ENVIRONMENT。
+// sync 的 -p 指向一个已存在的 venv 时会照锁装完、退出码 0，装进的却是它自己
+// 新建的 .venv ⇒ 必须用 UV_PROJECT_ENVIRONMENT。
 test('锁文件那条路：sync 的目标环境必须是该引擎的 .venv（不是平台根）', () => {
   const { root } = mkdtempEngineWithManifest('demo8', 'uv.lock')
   const p = planOf(root, 'demo8', {})
@@ -233,9 +217,8 @@ test('sync 那步不得再靠 VIRTUAL_ENV（环境变量压不住 uv）', () => 
 
 // ⑦ 建完后的自检判据：能不能按绝对路径起起来，不是文件在不在
 test('自检判据是「能按绝对路径起起来」，不是「文件存在」', () => {
-  // 空壳 .venv：只有目录 + 一个 0 字节的假 python
-  //   ： 文件存在，但起不来（lib/util/pythonResolve.js 的判据是
-  //   「必须能按绝对路径 spawn」）。
+  // 空壳 .venv：只有目录 + 一个 0 字节的假 python。文件存在，但起不来
+  //   （lib/util/pythonResolve.js 的判据是「必须能按绝对路径 spawn」）。
   const { root } = mkdtempEngineWithManifest('shell1', 'requirements.txt')
   const p = planOf(root, 'shell1', {}, )
   assert.strictEqual(p.ok, true, p.error)
@@ -266,8 +249,8 @@ test('名片没有 python 版本声明 ⇒ 用平台根 venv 的 python（规范
 })
 
 test('名片里现在没有 python 版本这个字段（不许自己加一个）', () => {
-  // 规范是「有声明的就用声明的」：但名片 schema（lib/engines/profile.js
-  //   的 TOP_KEYS / install 段）现在没有声明 python 版本的字段。
+  // 规范是「有声明的就用声明的」：但名片 schema（lib/engines/profile/topkeys.js 的
+  //   TOP_KEYS 表）现在没有声明 python 版本的字段。
   //   ⇒ 按规范只能退回平台自己的 python。
   //   这条测试的作用是：将来真有人加了字段，这条会红，提醒同步改实现。
   const src = fs.readFileSync(
@@ -281,13 +264,9 @@ test('名片里现在没有 python 版本这个字段（不许自己加一个）
 
 // ⑨ 每一条会装东西的命令：目标环境必须等于 engines/<id>/.venv
 //
-// 为什么这一段是本文件里最要紧的：上面 ③ 那条测试断言的是「argv 里有 -p」，
-//   而它在安装顺利时是绿的 ： 因为它只看主安装步。
-//   上一次修复只给主步加了 -p，漏了 alt 那步（装 torch 的第②步）
-//   ⇒ 全绿，torch 却装进了平台根 venv，而引擎环境里 288 个包独缺 torch
-//     ⇒ 用户拿到的环境 import 失败。
-//   ⇒ 所以这里的判据一律是「目标环境等于那个绝对路径」，
-//     不接受「参数存在」这种弱判据。
+// 判据一律是「目标环境等于那个绝对路径」，不接受「参数存在」这种弱判据：
+//   只断言「argv 里有 -p」时，主安装步对了而 alt 那步（装 torch 的第②步）漏了，
+//   测试照样全绿，而 torch 装进了平台根 venv ⇒ 引擎环境 import 失败。
 
 /** 造一份「torch 锁在 CUDA 线上」的 uv.lock（形状照真实 lock） */
 function writeCudaLockTo (dir) {
@@ -304,7 +283,7 @@ function writeCudaLockTo (dir) {
 }
 
 /**
- * 判据核心：这一步装进哪儿 ： 统一成一个断言函数。
+ * 判据核心：这一步装进哪儿。统一成一个断言函数。
  *
  * 两种合法形态（别混）：
  *   · `uv pip …`  ⇒ argv 里的 -p/--python 是「装进哪个环境」
@@ -418,13 +397,12 @@ test('alt 那一步在 sync 与非 sync 两条路上都要有目标环境', () =
 
 // ⑩ 装完自检：命令全退 0 不等于环境能用
 //
-// alt 那步装错地方之后，三步退出码全是 0、界面显示「安装完成」，
-//   而 engines/<id>/.venv 里 288 个包独缺 torch ⇒ import torch 失败。
-//   ⇒ 必须有一条真的去 import 引擎环境的自检，
-//     不许只看退出码就说「完成」。
+// alt 那步装错地方之后，各步退出码全是 0、界面显示「安装完成」，
+// 而 engines/<id>/.venv 里独缺 torch ⇒ import torch 失败。
+// ⇒ 必须有一条真的去 import 引擎环境的自检，不许只看退出码就说「完成」。
 //
 // 本段不真建 venv、不真装包：探针可注入（runEnv 的 input.probeImport），
-//   只断言「self-check 该跑的时候跑了、结论怎么传给界面」。
+// 只断言「self-check 该跑的时候跑了、结论怎么传给界面」。
 
 /** 造一条会触发 alt（装 torch）那一步的计划所需的上游目录 */
 function mkdtempTorchEngine (id) {
@@ -434,10 +412,9 @@ function mkdtempTorchEngine (id) {
 }
 
 /**
- * 把每一步的执行换成假的（退出码 0），并留下真实 argv。
- * 这是本段测试的关键：自检在全部步骤跑完之后才算，
- *   而计划里那几条 uv 命令一跑就是几个 GB ⇒ 只能换掉「跑」，
- *   但计划必须是真的（argv / env 的形状正是要验的东西）。
+ * 将每一步的执行替换为假的（退出码 0），并保留真实 argv。
+ * 自检在全部步骤完成后形成结论；其中 uv 命令会产生数 GB 的实际下载量，
+ * 因此只替换执行本身，但仍保留 argv / env 的形状用于校验。
  */
 const fakeRunAllOk = (ran) => async (step, root, timeoutMs, argv) => {
   ran.push({ argv: argv.slice(), env: step.env })
@@ -568,7 +545,7 @@ test('conda 那条路不自检（平台压根没参与建那个环境）', async
 
 test('自检探针的判据是「能按绝对路径起起来」（不是「文件存在」）', () => {
   // 空壳 .venv：只有目录 + 0 字节的假 python。
-  //   文件在但起不来（lib/util/pythonResolve.js 那个坑）。
+  // 文件在但起不来（lib/util/pythonResolve.js 那个坑）。
   const { root } = mkdtempEngineWithManifest('chk5', 'requirements.txt')
   const r = envMod.probeImportInEngineVenv(root, 'chk5', 'torch')
   assert.strictEqual(r.ok, false)
@@ -592,12 +569,10 @@ test('不涉及 torch 的装法不硬验 torch（不替用户猜它需要什么�
 
 // ⑪ alt 那步必须装 torch 系整族（不是只装 torch）
 //
-// alt 那步只装 torch ⇒ torchaudio 留在 CUDA 版
-//     torch       2.8.0+xpu    能 import
-//     torchaudio  2.8.0+cu128  import 报 FileNotFoundError: libtorchaudio.pyd
-//   而 torchaudio 是引擎代码里 import 了 20 处的必需依赖 ⇒ 引擎跑不起来。
-//   xpu 索引上 torchaudio==2.8.0 解析出来就是 2.8.0+xpu
-//     （同一版本号、同一个索引自动配对），所以整族一起装是对的。
+// alt 那步只装 torch ⇒ torchaudio 留在 CUDA 版，与 torch 版本不配对，
+//   import 报 FileNotFoundError: libtorchaudio.pyd ⇒ 引擎跑不起来。
+//   xpu 索引上 torchaudio==2.8.0 解析出来就是 2.8.0+xpu（同一版本号、同一个索引自动配对），
+//   所以整族一起装是对的。
 //
 // 判据是「目标环境」与「配对」，不是「参数存在」：
 //   · alt 那步装的是 torch + torchaudio（版本号与 lock 一致）且同一个 --index-url
@@ -704,12 +679,10 @@ test('alt 那步与主安装步的目标环境都必须等于该引擎的 .venv'
   assertTargetsEngineVenv(mainStep.argv, mainStep.env, want, wantVenv, '主安装步')
 })
 
-// ⑫ 断点续传的产物检查 ： 命令相同但产物没了 ⇒ 不许 SKIPPED
+// ⑫ 断点续传的产物检查：命令相同但产物没了 ⇒ 不许 SKIPPED
 //
-// 用户删了 engines/<id>/.venv 后重跑，第 1 步「uv venv」命令与
-//   旧记录一字不差 ⇒ env.js 的判重把它 SKIPPED ⇒ 第 2/3 步找不到环境，报
-//   `No virtual environment found for path .venv\Scripts\python.exe`，
-//   而前两步却显示「安装完成」。
+// 用户删了 engines/<id>/.venv 后重跑，第 1 步「uv venv」命令与旧记录一字不差
+//   ⇒ env.js 的判重把它 SKIPPED ⇒ 后面的步骤找不到环境，而前两步仍显示「安装完成」。
 //   根因：判据只有 argvKey（命令文本），没有「那一步的产物还在吗」。
 //
 // 判据：每一步声明「做完应该留下什么」。产物不在 ⇒ 不许 SKIPPED，重新跑。
@@ -762,7 +735,7 @@ test('命令相同且产物还在 ⇒ 可以 SKIPPED（断点续传正常工作�
   const venvArgv = ['python', '-m', 'uv', 'venv', path.join(root, 'engines', 'bp2', '.venv'), '--no-project']
   writeProgressFile(root, 'bp2', [venvArgv.join(' ')])
 
-  // 造一个「产物还在」的假 .venv（python 能 spawn 的假象）
+  // 造一个「产物还在」的假 .venv（python 能 spawn 的假象）。
   //   这里不真建 venv，只造一个空目录让 canUseEngineVenv 返回 false
   //   （因为 canUseEngineVenv 会真的 spawn python，测试里不能真跑）
   //   ⇒ 所以这条测试验证的是「产物检查函数本身的行为」
@@ -773,8 +746,7 @@ test('命令相同且产物还在 ⇒ 可以 SKIPPED（断点续传正常工作�
   const step = { skipIfExists: true, argv: venvArgv }
   // 这个测试在 Windows 上会真的 spawn python，所以只测非 venv 那步
   const installStep = { kind: 'env', argv: ['uv', 'pip', 'install', 'torch'] }
-  // 装包那步的产物检查：site-packages 非空
-  //   这里造一个假的 site-packages 目录。
+  // 装包那步的产物检查：site-packages 非空。这里造一个假的 site-packages 目录。
   //   路径按平台来：Windows 是 Lib/site-packages，posix 是 lib/python3.x/site-packages
   //   （sitePackagesNonEmpty 找的就是后者）⇒ 写死 Windows 那份在 Linux 上
   //   造出一个它根本不看的地方，断言必然红。

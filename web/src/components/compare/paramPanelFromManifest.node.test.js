@@ -2,7 +2,7 @@
 // generate/paramPanelFromManifest.node.test.js 同款：JSX 在这个仓库里没法通过单元测试
 // （node --test 不经 vite，也没有 jsdom），所以这里守三件只有源码里才看得见的事：写死的
 // 格子没长回来、面板确实在按 param_schema 循环、engine prop 一路传到了画格子的地方。
-// 这一页的代码里不许出现任何引擎的参数名；web/ 是 ESM，这里用 import 而不是 require。
+// 这一页的代码里不出现任何引擎的参数名；web/ 是 ESM，这里用 import 而不是 require。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -17,7 +17,7 @@ const SRC = readDirSources(import.meta.url, '.')
 // 注释里可以提这些名字，守的是代码。
 const CODE = stripComments(SRC)
 
-// 这一页不许再出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
+// 这一页不出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
 // （旧代码里的本地 state 名）两种写法都要列。守的是键出现的位置：对象字面量里的
 // `键名:`、下标里的 `[键名]`。用户可见的 tooltip 文案里提到某个名字不算。
 const HARDCODED = [

@@ -1,11 +1,11 @@
 'use strict'
 
-// 参数草稿生成器（Node 侧）
-//  反射（Python 侧 lib/engines/reflect_params.py）回答「有哪些参数、叫什么、默认是什么」，
-//  这一层回答「哪些该进 parameters[]、写成什么形状」。
-//  它生成的是草稿，不是成品：min/max/choices/中英文标签反射拿不到，要人核对，
-//  草稿里的 REPLACE_ME 就是提醒「这里要人来填」。平台不替名片作者猜：猜错的表现是
-//  「参数在界面上有、点下去没反应」，或者更糟，静默用了一个错的值。
+// 参数草稿生成器：把上游反射到的参数整理成 engines/<id>/manifest.json 的 parameters[] 草稿。
+// 反射（Python 侧 lib/engines/reflect_params.py）回答「有哪些参数、叫什么、默认是什么」，
+// 这一层回答「哪些该进 parameters[]、写成什么形状」。
+// 生成的是草稿不是成品：min/max/choices/中英文标签反射拿不到，要人核对，
+// 草稿里的 REPLACE_ME 就是提醒「这里要人来填」。平台不替名片作者推断：推断错的表现是
+// 「参数在界面上有、点下去没反应」，或者更糟，静默用了一个错的值。
 
 const fs = require('node:fs')
 const os = require('node:os')
@@ -15,45 +15,46 @@ const { spawnSync } = require('node:child_process')
 const ROOT = path.join(__dirname, '..')
 // require 相对本文件解析（不是 cwd）。写成 main() 里再 require '../lib/...' 也对，
 // 但那样解析失败的报错会被下面的 catch 吞成「读不到名片」，
-// 把「路径写错了」说成「名片坏了」，是最难查的一类误导。
+// 把「路径写错了」说成「名片坏了」，是最难排查的一类误导。
 const { resolveEngineProfile } = require('../lib/engines/profile')
 const { requireEngine } = require('../lib/engines/registry')
 
 const REFLECTOR = path.join(ROOT, 'lib', 'engines', 'reflect_params.py')
 
 // 排除名单：生成器最核心的判断。
-// 反射会看到全部参数，包括那些不该做成界面格子的。举例（真数据，从 engines/indextts2
-// 反射出来的）：cfg_path 默认 'checkpoints/config.yaml'（路径，由 init_args 固定）、
-// model_dir 默认 'checkpoints'（路径，由 {checkpoints} 顶替）、device 默认 None
-// （设备选择，平台自己探测过）。这三个做成旋钮会怎样：cfg_path 改错 ⇒ 引擎起不来，
-// 报错指向跟根因无关的地方；model_dir 改错 ⇒ 加载的不是那份底模，声音是别人的且不报错；
-// device 改错 ⇒ 可能 CPU 推理，慢很多且没有任何提示。而 IndexTTS2 的真名片正确地把这
-// 三个排除了（它们在 call.init_args 里作为固定值）。
-// 这里用显式名单而不是自动推断：判据「这个参数名像不像个路径」是猜的，猜错不报错。
-// 一份可以逐条审阅的名单是能被检查的；一个启发式不是。加进这份名单之前先问：改它，
-// 出的是「报错」还是「声音不对」？后者一律不许做成界面格子。
+// 反射会看到全部参数，包括那些不该做成界面格子的。举例（真实反射数据）：
+//   cfg_path 默认 'checkpoints/config.yaml'（路径，由 init_args 固定）、
+//   model_dir 默认 'checkpoints'（路径，由 {checkpoints} 顶替）、
+//   device 默认 None（设备选择，平台自己探测过）。
+// 这三个做成旋钮会怎样：cfg_path 改错 ⇒ 引擎起不来，报错指向跟根因无关的地方；
+//   model_dir 改错 ⇒ 加载的不是那份底模，声音是别人的且不报错；
+//   device 改错 ⇒ 可能 CPU 推理，慢很多且没有任何提示。
+// 名片里正确的做法是把这三个排除（它们在 call.init_args 里作为固定值）。
+// 这里用显式名单而不是自动推断：判据「这个参数名像不像个路径」是推断出来的，推断错不报错。
+// 一份可以逐条审阅的名单是能被检查的；一个启发式不是。
+// 加进这份名单之前先问：改它，出的是「报错」还是「声音不对」？后者一律不许做成界面格子。
 const EXCLUDE = Object.freeze({
   // 路径类：归 call.init_args / {checkpoints} 占位符管。
-  // 这条正则被测试逼着收窄过一次：原版把 `prompt_path_ratio` 也排了，而它是一个正常的
-  // 数值旋钮（prompt 音频的占比）。误排与漏排一样重：界面上少一个真实存在的旋钮，而且
-  // 没有任何报错。判据：参数名整体就是那个路径才算 path（cfg_path / model_dir /
-  // vocoder_file 排；prompt_path_ratio / dirichlet / directory_depth 不排）。路径参数
-  // 一般是「名词 + _path/_dir」，含 path 的比率与开关后面跟的是别的语义词。
-  // 第二段覆盖「路径的复数/列表」：aux_paths / model_files / data_dirs。
+  // `prompt_path_ratio` 不排：它是一个正常的数值旋钮（prompt 音频的占比）。
+  // 误排与漏排一样重：界面上少一个真实存在的旋钮，而且没有任何报错。
+  // 判据：参数名整体就是那个路径才算 path（cfg_path / model_dir /
+  //   vocoder_file 排；prompt_path_ratio / dirichlet / directory_depth 不排）。路径参数
+  //   一般是「名词 + _path/_dir」，含 path 的比率与开关后面跟的是别的语义词。
+  //   第二段覆盖「路径的复数/列表」：aux_paths / model_files / data_dirs。
   path_like: /^(cfg|config|model|vocoder|ckpt|weight|output|input|ref|save|load|cache|tmp|temp|index|meta|aux|extra|add|secondary|speaker|spk|ref|refer|tokenizer|vocab)(_(path|dir|dirs|file|files|folder|paths|yaml|json|bin|pth|ckpt))?$|^_?(path|dir|dirs|file|files|folder|paths)$/i,
   // 平台自己已经管的事：重复暴露会出现两个真相。
   platform_owned: /^(device|devices|use_cuda|cuda|gpu|world_size|local_rank|master_port|dist_url)$/i,
-  // 宿主要用的内部槽位（与 host.py 的 BIND_SLOTS 同源）。
+  // 宿主要用的内部槽位（与 lib/engines/hostProfile.js、lib/engines/reflect_params.py 的 BIND_SLOTS 同源）。
   bind_slots: /^(text|ref_audio|output_path|output_dir)$/,
 })
 
 // 类型推断：把「反射给的线索」翻译成「平台的五种 type」
-//  每条都带一个 confidence，界面必须显示它：
-//  「这是从默认值猜的」和「这是上游自己声明的」不是一回事。
+//   每条都带一个 confidence，界面必须显示它：
+//   「这是从默认值推断的」和「这是上游自己声明的」不是一回事。
 function inferType(entry) {
   const up = entry.upstream_choices
   if (up && up.length) {
-    // 上游自己写了 Literal['a','b']，这是它说的，不是我们猜的。
+    // 上游自己写了 Literal['a','b']，这是它说的，不是我们推断的。
     return { type: 'select', confidence: 'strong', why: '上游签名的 Literal[...] 里列了这些值', choices: up }
   }
   const k = entry.kind || {}
@@ -61,8 +62,8 @@ function inferType(entry) {
     case 'boolean':
       return { type: 'boolean', confidence: k.confidence, why: k.why }
     case 'integer':
-      // 保留 integer 这个写法：paramTypes.js 认它，且降级成 number 之后
-      // 仍单独记住「要整数」，7.5 悄悄发给只吃整数的引擎是最难查的。
+      // 保留 integer 这个写法：lib/engines/paramTypes.js 认它，且降级成 number 之后
+      //   仍单独记住「要整数」，7.5 悄悄发给只吃整数的引擎是最难排查的。
       return { type: 'integer', confidence: k.confidence, why: k.why }
     case 'number':
       return { type: 'number', confidence: k.confidence, why: k.why }
@@ -75,15 +76,15 @@ function inferType(entry) {
     case 'object':
       return { type: 'text', confidence: 'weak', why: k.why }
     default: {
-      // 默认值给不出类型时，用参数名给一个建议，但标成 needs_review。不选「猜不动就丢掉」：
-      // 有一批引擎的不少真参数默认值是 None，类型是人按参数名的语义定的。丢掉它们的实际
-      // 后果是「界面上少了一个真实存在的旋钮」，而且不报错。但它必须 needs_review：名字是
-      // 弱证据。`use_fast` 可能是开关，也可能是「用快速模式的那个路径」。
+      // 默认值给不出类型时，用参数名给一个建议，但标成 needs_review。不选「推断不出就丢掉」：
+      //   有一批引擎的不少真参数默认值是 None，类型是人按参数名的语义定的。丢掉它们的实际
+      //   后果是「界面上少了一个真实存在的旋钮」，而且不报错。但它必须 needs_review：名字是
+      //   弱证据。`use_fast` 可能是开关，也可能是「用快速模式的那个路径」。
       const h = entry.name_hint
       if (!h) return { type: null, confidence: 'none', why: k.why || '反射不出类型，名字也没线索' }
       const guess = { boolean: 'boolean', number: 'number', 'number[]': 'number', text: 'text', audio: 'text' }[h.kind]
       // 名字线索是「路径」时不给类型，但标 needs_human=true：它确实需要人定（这个路径该不该
-      // 暴露？归不归 init_args？），名字已经说了它是路径。
+      //   暴露？归不归 init_args？），名字已经说了它是路径。
       if (!guess) {
         return {
           type: null, confidence: 'none', needs_human: true,
@@ -119,7 +120,7 @@ function exclusionReason(name) {
  */
 function reflectParams(spec, opts = {}) {
   // 规格走临时文件而不是命令行参数：模块名里出现引号或中文时，
-  // 命令行在 Windows 上会被二次解析（与 envCheck.js 同一条理由）。
+  //   命令行在 Windows 上会被二次解析（与 lib/engines/envCheck.js 同一条理由）。
   const specFile = path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-reflect-')), 'spec.json')
   fs.writeFileSync(specFile, JSON.stringify(spec), 'utf8')
@@ -137,7 +138,7 @@ function reflectParams(spec, opts = {}) {
   } catch (err) {
     return { ok: false, stage: 'spawn', error: `起不动解释器 ${spec.python}：${err.message}` }
   } finally {
-    try { fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) } catch { /* 清不掉就算了 */ }
+    try { fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) } catch { /* 临时目录清不掉就算了 */ }
   }
 
   if (proc.error) {
@@ -145,7 +146,7 @@ function reflectParams(spec, opts = {}) {
   }
   if (proc.status !== 0) {
     // 反射器永远以 0 退出（ok=false 是一个答案）。非零说明反射器自己出事了，
-    // 与「这台引擎反射不出来」是两回事，必须分开说。
+    //   与「这台引擎反射不出来」是两回事，必须分开说。
     return {
       ok: false, stage: 'crash',
       error: `反射器非零退出（code=${proc.status}），这是反射器自己出事，不是「这台引擎没参数」`,
@@ -169,21 +170,22 @@ function reflectParams(spec, opts = {}) {
 const TITLE = (s) => String(s).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
 
 /**
- * 把反射结果变成 parameters[] 草稿。
- * @returns {{parameters: object[], excluded: object[], warnings: string[]}}
+ * 把反射结果变成 parameters[] 草稿。reflection 是反射器的返回，opts.existing 是
+ * 名片里已有的参数名数组。返回 parameters（草稿条目）、excluded（被排除的条目与原因）、
+ * warnings（反射器的告警）、partial 与 partialReason（反射结果是否完整）。
  */
 function buildDraft(reflection, opts = {}) {
   const parameters = []
   const excluded = []
   const warnings = [...(reflection.warnings || [])]
   // 不完整的反射结果不带 needs_review 之外的任何免责：它就是少了一段。buildDraft 不阻止
-  // 写盘（那是 CLI 的判断），但 partial 必须一路传出去，让调用方能拒绝。
+  //   写盘（那是 CLI 的判断），但 partial 必须一路传出去，让调用方能拒绝。
   const partial = reflection.partial === true
   const partialReason = reflection.partial_reason || null
   // opts.existing 是名字数组（['emo_alpha']），不是对象数组。写成 .map(e => e.name) 时，
-  // 对字符串取 .name 得到 undefined ⇒ 集合永远是空 ⇒ _already_in_manifest 永远不设
-  // ⇒ 「不覆盖别人已有的参数」这条形同虚设。两种都收：字符串或 {name} 都行，
-  // 但不许只收其中一种。
+  //   对字符串取 .name 得到 undefined ⇒ 集合永远是空 ⇒ _already_in_manifest 永远不设
+  //   ⇒ 「不覆盖别人已有的参数」这条形同虚设。两种都收：字符串或 {name} 都行，
+  //   但不许只收其中一种。
   const existing = new Set((opts.existing || []).map((e) =>
     (typeof e === 'string' ? e : (e && e.name))))
 
@@ -204,7 +206,7 @@ function buildDraft(reflection, opts = {}) {
       }
       const t = inferType(entry)
       if (!t.type) {
-        // 类型猜不出来的也要列出来，但标成「需要人来定」。悄悄丢掉的话，用户会以为这个
+        // 类型推断不出来的也要列出来，但标成「需要人来定」。悄悄丢掉的话，使用者会以为这个
         // 参数不存在，而它确实存在。
         excluded.push({
           name: entry.name, phase, reason: `类型反射不出（${t.why}），需要人工指定 type`,
@@ -228,7 +230,7 @@ function buildDraft(reflection, opts = {}) {
         _confidence: t.confidence,
         _why: t.why,
       }
-      // 按名字猜出来的条目：留在草稿里，但逐条标出来。删掉它等于界面上少一个真实存在的
+      // 按名字推断出来的条目：留在草稿里，但逐条标出来。删掉它等于界面上少一个真实存在的
       // 旋钮（且不报错）；不标出来则人会以为那是反射得来的事实。
       if (t.needs_review) {
         draft._needs_review = true
@@ -237,8 +239,8 @@ function buildDraft(reflection, opts = {}) {
       if (t.path_suspect) {
         draft._path_suspect = true
       }
-      // default 只在「反射拿得到且拿得准」时才填：None 或猜出来的类型不填，
-      // 填了就是「平台替你决定默认值」，而那正是 C11 要杀的那类「设了没效果」。
+      // default 只在「反射拿得到且拿得准」时才填：None 或推断出来的类型不填，
+      //   填了就是「平台替引擎作者决定默认值」，默认值只该由名片给出，否则会出现「设了没效果」。
       if (entry.default !== null && entry.default !== undefined
           && t.confidence !== 'weak' && !t.needs_review) {
         draft.default = entry.default
@@ -249,8 +251,8 @@ function buildDraft(reflection, opts = {}) {
       if (t.repeat && t.repeat > 1) {
         draft.repeat = t.repeat
       }
-      // 名片里已经有的参数：标出来，不静默覆盖。直接盖掉别人写好的那一条，而草稿里那条的
-      // help/label 是 REPLACE_ME，那是「把已完成的工作退回占位符」。宁可两条都在。
+      // 名片里已经有的参数：标出来，不静默覆盖。直接盖掉名片里写好的那一条，而草稿里那条的
+      //   help/label 是 REPLACE_ME，那是「把已完成的工作退回占位符」。宁可两条都在。
       if (existing.has(entry.name)) {
         draft._already_in_manifest = true
       }
@@ -271,8 +273,8 @@ function main(argv) {
   const methodName = arg('--method')
   const write = flag('--write')
 
-  // 只要求 --engine。module/class 名片里有，让它自己读；要求命令行也传一遍等于逼用户把
-  // 名片里的内容重打一次，而打错的那份不会被验证。
+  // 只要求 --engine。module/class 名片里有，让它自己读；要求命令行也传一遍等于逼使用者把
+  //   名片里的内容重打一次，而打错的那份不会被验证。
   if (!engineId) {
     process.stdout.write(
       '参数草稿生成器 —— 反射出上游有哪些参数，生成 parameters[] 草稿\n\n' +
@@ -286,9 +288,9 @@ function main(argv) {
     return 1
   }
 
-  // 这两件事失败的原因完全不同，必须分开说：requireEngine 失败 = 名片有问题（它会告诉
-  // 你是哪个键）；resolveEngineProfile 失败 = 名片能读但内容不合法。合成一句话报出去 =
-  // 用户会去改名片，而真正的问题在别处。
+  // 这两件事失败的原因完全不同，必须分开说：requireEngine 失败 = 名片有问题（它会指出
+  //   是哪个键）；resolveEngineProfile 失败 = 名片能读但内容不合法。合成一句话报出去 =
+  //   使用者会去改名片，而真正的问题在别处。
   let manifest
   try {
     manifest = requireEngine(engineId)
@@ -349,8 +351,8 @@ function main(argv) {
   for (const w of warnings) process.stdout.write(`  ⚠ ${w}\n`)
 
   // 不完整的反射不许写盘。方法名拼错 ⇒ 草稿少了整整一段调用期参数 ⇒ 并进名片后，
-  // 界面上就是「少了一批真实存在的旋钮」，没有任何报错。这属于「设了它但什么都没发生」
-  // 那一类失败，宁可拒绝。
+  //   界面上就是「少了一批真实存在的旋钮」，没有任何报错。这属于「设了它但什么都没发生」
+  //   那一类失败，宁可拒绝。
   if (partial) {
     process.stderr.write(
       `\n⛔ 反射结果不完整：${partialReason}\n` +

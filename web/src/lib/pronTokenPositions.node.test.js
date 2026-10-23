@@ -1,3 +1,8 @@
+// Guard tests for the Reading preview position helpers.
+//
+// Han overrides index positions by Unicode code point (@0, @1, ...), while JS
+// string offsets are UTF-16 code units, so a token that follows an emoji has
+// to be located in code-point space to stay aligned with the Han picker.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useT } from '../../lib/i18n'
 import { API_BASE, api } from '../../lib/api'
-import { basename, fmtRecentTime } from '../../lib/format'
+import { basename, fmtRecentTime } from '../../lib/pathText'
 import { IconFolder, IconTrash } from '../common/Icons'
 import { Player } from '../common/Player'
 

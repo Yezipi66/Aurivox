@@ -1,9 +1,8 @@
-// Stage-2b behavioral test for POST /api/generate.
-// Builds the synthesis router with a fully stubbed ctx (no engine/GPU/fs), then
-// captures the registered handler and drives it through EVERY response exit,
-// asserting HTTP status + body shape. This is the 1:1 proof that the
-// service/HttpError refactor preserved the original inline handler's behavior.
-// Run from project root:  node tools/tests/generate_service_test.js
+// POST /api/generate 的行为测试。
+// 用一份全部替身化的 ctx 搭出合成路由（不碰引擎、GPU 与文件系统），截下注册的
+// handler，把每一条响应出口都走一遍，断言 HTTP 状态码与响应体形状。
+// 覆盖的是「请求进、响应出」的形状：缺字段、超长、引擎报错、分段与拼接的成败。
+// 跑法：node --test tools/tests/generate_service.node.test.js
 const path = require("path");
 const Module = require("module");
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -12,7 +11,7 @@ const realResolveRefPath = require(path.join(ROOT, 'lib', 'server', 'paths')).re
 const realPathResolver = require(path.join(ROOT, 'lib', 'pathResolver'));
 
 
-// ---- express shim that CAPTURES route handlers -----------------------------
+// 替身 express：把注册进来的路由 handler 截下来
 const captured = {};
 const expressShim = function () { const a = {}; for (const m of ["get","post","put","delete","patch","use","all"]) a[m] = () => a; return a; };
 expressShim.Router = function () {
@@ -27,7 +26,7 @@ expressShim.urlencoded = () => (q, s, n) => n && n();
 const orig = Module._load;
 Module._load = function (request) { if (request === "express") return expressShim; return orig.apply(this, arguments); };
 
-// ---- stub ctx ---------------------------------------------------------------
+// 替身 ctx
 const state = {};
 // 假引擎：请求点名了哪台就返回哪台。位表是空的：
 // 这个文件测的是「请求 → 响应」的形状，不测模型位的挑选。
@@ -45,7 +44,7 @@ const FAKE_ENGINE = {
   payload_keys: [],
   defaults: {},
   param_schema: [],
-  // 一个位：switchModels 只在「这台引擎有可换的位」时才被调，
+  // 给一个位：switchModels 只在「这台引擎有可换的位」时才被调，
   // 位表为空的话那个失败场景根本走不到。
   weight_slots: [{ name: 'model', label: 'Model', param: 'model_path', applies_at: 'call' }],
 };
@@ -69,7 +68,7 @@ const ctx = {
   AUDIO_FORMATS: { wav: 'audio/wav' },
   path,
   // 参考音频从盘上读（ASSETS_DIR/<voice>/segments.json 的第一段已匹配音频），
-  // 所以 fs 桩要能应答这条路径。
+  // 所以 fs 替身要能应答这条路径。
   fs: {
     mkdirSync() {},
     writeFileSync() {},
@@ -103,9 +102,9 @@ require(path.join(ROOT, "lib", "routes", "synthesis.js"))(ctx);
 const handler = captured["/api/generate"];
 if (typeof handler !== "function") { console.error("FAIL: /api/generate handler not captured"); process.exit(1); }
 
-// ---- mock req/res -----------------------------------------------------------
+// 替身 req/res
 function run(body) {
-  // 请求必须点名引擎（契约 §12 第 2 步）：平台不代为选择。
+  // 请求必须点名引擎：平台不代为选择。
   body = { engine_id: FAKE_ENGINE.id, ...body };
   return new Promise((resolve) => {
     const res = {
@@ -125,7 +124,7 @@ function check(name, cond, detail) {
 }
 
 (async () => {
-  // reset helper
+  // 重置替身状态
   const reset = () => Object.keys(state).forEach(k => delete state[k]);
 
   reset();
@@ -149,23 +148,23 @@ function check(name, cond, detail) {
   check("unknown voice -> 404", r.status === 404 && r.body.error === "Unknown voice: v", JSON.stringify(r));
 
   reset();
-  r = await run({ voice: "v", text: "hi" }); // short -> single
+  r = await run({ voice: "v", text: "hi" }); // 短文本 ⇒ 不分段
   check("single success -> 200", r.status === 200 && r.body.ok === true && r.body.split === false
     && r.body.concat === false && r.body.audio_url === "/outputs/api/gen_test/audio.wav" && r.body.seed === 12345, JSON.stringify(r));
 
-  const longText = "z".repeat(60); // > softLimit(45) -> split branch
+  const longText = "z".repeat(60); // 超过 softLimit（引擎名片的 max_chars 是 30）⇒ 走分段分支
   reset(); state.genThrows = true;
   r = await run({ voice: "v", text: longText });
   check("segment fail -> 502", r.status === 502 && r.body.ok === false
     && r.body.error === "Segment 0 failed: boom" && Array.isArray(r.body.segments) && r.body.segments.length === 0, JSON.stringify(r));
 
   reset();
-  r = await run({ voice: "v", text: longText, concat: false }); // split, no concat
+  r = await run({ voice: "v", text: longText, concat: false }); // 分段但不拼接
   check("split no-concat -> 200", r.status === 200 && r.body.ok === true && r.body.split === true
     && r.body.concat === false && Array.isArray(r.body.segments), JSON.stringify(r));
 
   reset();
-  r = await run({ voice: "v", text: longText }); // split + concat success
+  r = await run({ voice: "v", text: longText }); // 分段并拼接成功
   check("concat success -> 200", r.status === 200 && r.body.ok === true && r.body.split === true
     && r.body.concat === true && r.body.concat_method === "ffmpeg" && r.body.duration === 2, JSON.stringify(r));
 

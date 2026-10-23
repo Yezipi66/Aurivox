@@ -1,40 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-download_ffmpeg.py — project-local ffmpeg provisioning (Windows-only, no global footprint).
+"""为项目下载自带的 ffmpeg 与 ffprobe（仅 Windows，不动全局环境）。
 
-Purpose (PH): the broker transcodes the engine's WAV output to mp3/opus/aac/flac
-via ffmpeg. In addition, the training pipeline's UVR5 step (pipeline/uvr5/webui.py)
-probes/reformats inputs with ffprobe + ffmpeg. Rather than requiring the user to
-install ffmpeg system-wide (which touches PATH / package managers / admin rights),
-this script downloads a static ffmpeg build and unpacks BOTH executables INTO the
-project at:
+平台用 ffmpeg 把引擎的 WAV 转成 mp3/opus/aac/flac，训练流水线的 UVR5 步骤
+（pipeline/uvr5/webui.py）用 ffprobe 与 ffmpeg 探测、重整输入。脚本把静态构建
+解压到项目内的 vendor/ffmpeg/windows-x86_64/，不修改系统 PATH、环境变量与
+注册表。服务端优先用项目内这份，没有才退回 PATH 上的系统 ffmpeg；两者都没有时，
+非 WAV 的响应格式直接报错，不按 WAV 交付。
 
-    vendor/ffmpeg/windows-x86_64/ffmpeg.exe
-    vendor/ffmpeg/windows-x86_64/ffprobe.exe
+下载地址与许可分类以 THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json 为准，读不到该
+文件时用内置默认值。ffmpeg 不随发行包分发：GPL 文本与源码义务随这次下载走，
+落在上游分发者（BtbN）身上，不落在这个项目身上。
 
-The Node server (server.js -> vendoredFfmpegPath()) prefers this project-local
-binary, falls back to a system ffmpeg on PATH, and finally degrades to WAV.
-Nothing here modifies the global PATH, environment variables, or the registry.
-
-Aurivox is a Windows-only distribution, so ONLY the Windows x86_64 build is
-provisioned. The download URL and license classification are the single source
-of truth in THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json (falls back to a built-in
-default if that file is unavailable). FFmpeg is NOT bundled/redistributed by
-Aurivox — the GPL license text and corresponding-source obligations travel with
-this upstream download and rest with the distributor (BtbN), not with Aurivox.
-
-Design principles (mirrors download_models.py):
-  * No hardcoded absolute paths; project root is auto-detected, override with --dest.
-  * Idempotent: already-present, runnable binaries are skipped unless --force.
-  * Stdlib-only download (urllib) with a streamed write; no third-party deps.
-  * Verifies each extracted binary actually runs (`<bin> -version`).
-
-Usage:
-    python download_ffmpeg.py            # provision ffmpeg + ffprobe
-    python download_ffmpeg.py --check    # report status only, download nothing
-    python download_ffmpeg.py --force    # re-download even if present
-    python download_ffmpeg.py --dest /path/to/project
+用法：python download_ffmpeg.py [--check | --force] [--dest <项目根>]
 """
 
 import argparse
@@ -49,13 +27,13 @@ import tempfile
 import urllib.request
 import zipfile
 
-# Windows-only distribution: a single platform key (matches server.js
-# vendoredFfmpegPath(), which pushes "windows-x86_64" on win32).
+# 分发只面向 Windows，因此只有一个平台键，与 lib/audio/ffmpeg.js 的
+# vendoredFfmpegPath() 一致。
 PLATFORM_KEY = "windows-x86_64"
 MEMBERS = ["ffmpeg.exe", "ffprobe.exe"]
 
-# Built-in default source (BtbN win64-gpl static build). Overridden at runtime by
-# THIRD_PARTY_LICENSES/EXTERNAL_TOOLS.json when present (single source of truth).
+# 内置默认下载地址（BtbN 的 win64-gpl 静态构建）。EXTERNAL_TOOLS.json 里有条目时
+# 以那份为唯一事实来源。
 DEFAULT_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
     "ffmpeg-master-latest-win64-gpl.zip"
@@ -65,8 +43,8 @@ DEFAULT_URL = (
 def project_root(dest):
     if dest:
         return os.path.abspath(dest)
-    # This script lives under tools/deploy/. Resolve the PROJECT ROOT by walking
-    # up to the folder that contains server.js; fall back to two levels up.
+    # 本脚本在 tools/deploy/ 下。向上找带 server.js 的目录来定位项目根，
+    # 找不到就退回上两级。
     here = os.path.dirname(os.path.abspath(__file__))
     cur = here
     for _ in range(5):
@@ -80,7 +58,7 @@ def project_root(dest):
 
 
 def source_url(root):
-    """Read the Windows download URL from EXTERNAL_TOOLS.json; fall back to DEFAULT_URL."""
+    """从 EXTERNAL_TOOLS.json 读 Windows 下载地址，读不到时用 DEFAULT_URL。"""
     candidates = [
         os.path.join(root, "THIRD_PARTY_LICENSES", "EXTERNAL_TOOLS.json"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -109,7 +87,7 @@ def target_path(root, member_basename):
 
 
 def is_runnable(binary):
-    """True if `binary` exists and `<binary> -version` succeeds."""
+    """文件存在且 `<binary> -version` 能跑通时返回 True。"""
     if not (binary and os.path.isfile(binary)):
         return False
     try:
@@ -170,7 +148,10 @@ def _make_executable(dest_binary):
 
 
 def _extract_members(archive, member_basenames, dest_dir):
-    """Extract the requested executables out of the (zip) archive into dest_dir."""
+    """把压缩包里指定的可执行文件解压到 dest_dir。
+
+    压缩包里没有的成员会告警，解压结果里就没有它。
+    """
     os.makedirs(dest_dir, exist_ok=True)
     wanted = set(member_basenames)
     found = []
@@ -193,6 +174,11 @@ def _extract_members(archive, member_basenames, dest_dir):
 
 
 def provision(root, force):
+    """把 ffmpeg 与 ffprobe 装到 root 下，返回安装目录。
+
+    已经装好且能跑的两个文件会被跳过，除非 force 为真。
+    解压出来的二进制跑不起来时抛 RuntimeError。
+    """
     dest_dir = platform_dir(root)
     missing = [m for m in MEMBERS if force or not is_runnable(target_path(root, m))]
     if not missing:

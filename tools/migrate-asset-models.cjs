@@ -2,7 +2,7 @@
 // 把角色的模型搬进按引擎分层的新位置：
 //   老：assets/<角色>/gpt_checkpoints/*.ckpt、assets/<角色>/sovits_models/*.pth
 //   新：assets/<角色>/models/gpt-sovits/gpt/*.ckpt、assets/<角色>/models/gpt-sovits/sovits/*.pth
-// 新结构多的那两层（引擎 id / 权重位名）不是装饰：看一眼目录名就能回答
+// 新结构多的那两层（引擎 id / 权重位名）不是装饰：由目录名就能回答
 // 「哪些角色有这台引擎的模型」，不用问名片、不用猜后缀、不用读文件头。
 //
 // 用法：node tools/migrate-asset-models.cjs [--apply]

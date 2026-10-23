@@ -1,10 +1,7 @@
 'use strict'
-// download（第 3 步）： 文件级别下载：fetchRemoteManifest / checkFileStatus / downloadFile
-//
-// 测试策略：
-//   - fetchRemoteManifest：用本地 HTTP 服务器 mock HF/ModelScope API
-//   - checkFileStatus：用临时目录 + 真实文件
-//   - downloadFile：用本地 HTTP 服务器 mock 文件下载
+// 下载（第 3 步）的文件级接口测试：fetchRemoteManifest / checkFileStatus / enrichManifestFiles / downloadFile。
+// fetchRemoteManifest 与 downloadFile 用本地 HTTP 服务器冒充远端，checkFileStatus 用临时目录里的真实文件。
+// 夹具一律只用抽象 id，不写具体引擎名与下载器名：命令是名片写的，平台只填占位符。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -22,20 +19,18 @@ function mkdtemp () {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-dl-'))
 }
 
-// 辅助：checkpoints 目录
 /**
  * 造出「项目根 + engines/<id>/checkpoints/」的夹具路径。
  *
- * 为什么要有这个函数，而不是在每个测试里直接 `path.join(root, 'engines', ...)`：
- *   `lib/engines/enginesDirWriteGuard` 会扫全仓 `.test.js`，把「变量名绑着字面量
- *   engines 目录」的写法当成「往真 engines/ 写」。包一层之后绑定表达式里
- *   不再出现 `'engines'`，守卫就不告警 ： 而 root 本来就是 mkdtemp 出来的。
+ * 包一层是因为 lib/engines/enginesDirWriteGuard.node.test.js 会扫全仓 .test.js，
+ * 把「变量名绑着字面量 engines 目录」当成「往真 engines/ 写」。
+ * root 本来就是 mkdtemp 出来的临时目录。
  */
 function checkpointsDir (root, id) {
   return path.join(root, 'engines', String(id), 'checkpoints')
 }
 
-// 辅助：启动本地 HTTP 服务器（mock 远端）
+// 辅助：启动本地 HTTP 服务器（冒充远端）
 function startServer (handler) {
   return new Promise((resolve) => {
     const server = http.createServer(handler)
@@ -57,10 +52,8 @@ test('fetchRemoteManifest — HF API 返回文件列表', async () => {
     res.end(JSON.stringify({ siblings: files }))
   })
   try {
-    // 注意：fetchRemoteManifest 内部硬编码了 huggingface.co，
-    // 这里我们直接测试解析逻辑 ： 用 mock 数据验证返回结构
-    // 由于无法拦截 https 请求，我们测试 checkFileStatus 和 downloadFile
-    // 这里只验证函数存在且可调用
+    // fetchRemoteManifest 内部硬编码了 huggingface.co，无法拦截 https 请求，
+    // 这里用 mock 数据验证解析逻辑，只确认函数存在且可调用。
     assert.strictEqual(typeof fetchRemoteManifest, 'function')
   } finally {
     server.close()
@@ -85,8 +78,7 @@ test('fetchRemoteManifest — ModelScope API 返回文件列表', async () => {
 })
 
 test('fetchRemoteManifest — API 失败时返回空列表', async () => {
-  // 由于 fetchRemoteManifest 内部用 https.get 请求真实 URL，
-  // 无法在单元测试中模拟网络失败 ： 这里只验证函数签名
+  // fetchRemoteManifest 内部用 https.get 请求真实 URL，单元测试里模拟不了网络失败，只验证函数签名。
   assert.strictEqual(typeof fetchRemoteManifest, 'function')
 })
 
@@ -157,8 +149,7 @@ test('checkFileStatus — 都不存在 → missing', async () => {
 
 // checkFileStatus — 远端没给大小，不许报 ok
 //
-// 原来 `if (expectedSize && ...)` 只在给了大小的时候才比对。
-// 远端没给（0）时无条件报 'ok'，一个上次中断留下的半截文件
+// 远端没给大小（0）时无法确认完整性，报 ok 是假绿灯：一个上次中断留下的半截文件
 // 会被当成「已下载完成」，界面上打绿勾。
 test('checkFileStatus — 远端没给大小，partial，不是 ok（不给假绿灯）', async () => {
   const root = mkdtemp()
@@ -187,12 +178,11 @@ test('checkFileStatus — 远端没给大小也不给 undefined（三态不许�
   }
 })
 
-// enrichManifestFiles — 刷新后不许把 repo 抹掉（Bug 1 回归守卫）
+// enrichManifestFiles — 刷新后不许把 repo 抹掉
 //
 // 前端单文件下载完成后会重新调 /wizard/download/manifest 刷新，用响应整表覆盖。
-// 而端点原来只映射 { name, size, sha256, status }，repo 不在里面，
-// 刷新后表里每一项的 repo 变 undefined，仓库列显示「未知」，
-// 重下/续传按钮也拿不到仓库。
+// 端点映射的字段里没有 repo，刷新后表里每一项的 repo 变 undefined，
+// 仓库列显示「未知」，重下与续传按钮也拿不到仓库。
 test('enrichManifestFiles — 每条都带上 repo 和 tool（刷新不抹来源）', async () => {
   const root = mkdtemp()
   const id = 'test-enrich'
@@ -237,12 +227,10 @@ test('enrichManifestFiles — 空列表返回空数组（不炸）', async () =>
   assert.deepStrictEqual(await enrichManifestFiles(null, 'o/r', 'hf', root, 'x'), [])
 })
 
-// downloadFileFromUrl — 真跑一遍（本地 HTTP 服务器当远端）
+// downloadFileFromUrl — 真跑一遍（本地 HTTP 服务器冒充远端）
 //
-// 原来只断言 `typeof downloadFile === 'function'`，所以下面这些 bug 在 228 条全绿的测试下活着：
-//   · 404/403/500 的响应体照写盘、照重命名、照报 ok:true（HTML 当模型文件）
-//   · 下完不比对 file.size
-// 现在每条都真发请求、真落盘、真查文件。
+// 每条都真发请求、真落盘、真查文件：404/403/500 的响应体不许照写盘，
+// 下完也要比对 file.size。
 
 test('downloadFileFromUrl — 正常下载：落盘 + 原子重命名 + 大小对得上', async () => {
   const content = 'hello world'
@@ -357,10 +345,9 @@ test('downloadFileFromUrl — 远端没给大小时，响应被截断也必须�
   const root = mkdtemp()
   const file = { name: 'model.bin', size: 0 }
   const { server, url } = await startServer((req, res) => {
-    // 声明 4096 但只发 11 字节，截断
-    //   node 的 http 客户端自己就会把这种响应判成中断，
-    //     在 SIZE_MISMATCH 之前先报 DOWNLOAD_ERROR。
-    //     两个码都算「判失败」，但绝不许报 ok。
+    // 声明 4096 但只发 11 字节，响应被截断。
+    //   node 的 http 客户端自己就会把这种响应判成中断，在 SIZE_MISMATCH 之前先报 DOWNLOAD_ERROR。
+    //   两个码都算「判失败」，但绝不许报 ok。
     res.writeHead(200, {
       'content-type': 'application/octet-stream',
       'content-length': '4096',
@@ -472,10 +459,10 @@ test('downloadFileFromUrl — 下载带子目录的文件会建出父目录', as
   }
 })
 
-// /wizard/download/manifest 端点 ： 刷新后不许把 repo 抹掉（Bug 1 的端点那一半）
+// /wizard/download/manifest 端点：刷新后不许把 repo 抹掉（端点那一半）
 //
 // 上面 enrichManifestFiles 那条只测了「映射函数」，端点自己有没有用它是另一回事。
-// 这里真起一个 HTTP 服务器、真发请求、真读响应体 ： 端点和前端约定的字段名就钉在这里。
+// 这里真起一个 HTTP 服务器、真发请求、真读响应体：端点和前端约定的字段名就钉在这里。
 test('handleDownloadManifest — 响应每条都带 repo/tool（前端刷新靠它）', async () => {
   const remote = await startServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' })
@@ -490,9 +477,8 @@ test('handleDownloadManifest — 响应每条都带 repo/tool（前端刷新靠�
   fs.writeFileSync(path.join(dir, 'config.yaml'), 'hello world')
 
   // 把远端 API 换成本地服务器：端点内部把 baseUrl 交给 fetchRemoteManifest，
-  //   而 fetchRemoteManifest 只接受 baseUrl 形参，用 require 缓存替换。
-  //   必须在首次 require wizardbridge 之前换掉，否则它顶部解构到的
-  //     还是原来那个。清一次缓存把这件事变成不依赖执行顺序。
+  // 而 fetchRemoteManifest 只接受 baseUrl 形参，用 require 缓存替换。
+  // 必须在首次 require wizardbridge 之前换掉，清一次缓存把这件事变成不依赖执行顺序。
   const dl = require('../core/download.js')
   const realFetch = dl.fetchRemoteManifest
   dl.fetchRemoteManifest = (repo, tool, baseUrl) => realFetch(repo, tool, baseUrl || remote.url)
@@ -590,8 +576,8 @@ test('downloadFileFromUrl — 服务器忽略 Range，从零重来，不许无�
 })
 
 test('downloadFile — 构建 HF URL 并走通下载', async () => {
-  // downloadFile 内部拼 https://huggingface.co/...，单元测试里不碰真网络。
-  //   这里只钉它确实是 downloadFileFromUrl 的薄封装。
+  // downloadFile 内部拼 https://huggingface.co/...，单元测试里不碰真网络，
+  // 这里只钉它确实是 downloadFileFromUrl 的薄封装。
   assert.strictEqual(typeof downloadFile, 'function')
   assert.strictEqual(typeof downloadFileFromUrl, 'function')
 })
@@ -645,8 +631,7 @@ test('fetchRemoteManifest — API 返回 500 时返回 ok:false', async () => {
 test('fetchRemoteManifest — 网络错误时返回 ok:false', async () => {
   // 连接一个不存在的端口，模拟网络错误
   const result = await fetchRemoteManifest('owner/repo', 'hf')
-  // fetchRemoteManifest 内部用 https.get，连接 huggingface.co
-  // 在测试环境中可能超时或失败，这里只验证返回格式
+  // fetchRemoteManifest 内部用 https.get 连 huggingface.co，在测试环境里可能超时或失败，这里只验证返回格式。
   assert.strictEqual(typeof result.ok, 'boolean')
   assert.ok(Array.isArray(result.files))
 })

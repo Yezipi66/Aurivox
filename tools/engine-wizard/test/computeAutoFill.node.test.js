@@ -1,10 +1,8 @@
 'use strict'
-//
-// computeAutoFill 真行为测试 ： 从 CliGenPanel.jsx 里 import 那个纯函数
-//
-// computeAutoFill 是向导「扫描参数后自动填名片」的全部判断所在：槽位认不认得出、来源混在一起时 kind 怎么算、args 里该写什么，三件事都在这一个函数里。它出错时不报任何错，只是名片被填成错的形状，保存之后才被平台拒。
-//
-// CliGenPanel.jsx 是 JSX，node --test 不认。用项目 Vite 依赖的同一个 esbuild 把它编译成 CJS 再取导出，测的是文件里那份实现，不是这里重抄的一份。
+// computeAutoFill 的行为测试：覆盖槽位匹配、kind 判定与 args 写法三件事。
+// computeAutoFill 不抛异常，填错的名片要等平台保存时才被拒，所以只能靠测试守住。
+// 被测代码是 tools/engine-wizard/editor/CliGenPanel.jsx 里的那份实现，
+// 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出，不在此处重抄。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -17,13 +15,13 @@ const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
 
 /**
  * 加载 CliGenPanel.jsx 里的 computeAutoFill。
- * 组件本身 import 了 react 和 i18n，两者都与这个纯函数无关，给替身即可。
+ * 组件 import 的 react 与 i18n 与这个纯函数无关，替换成替身即可。
+ * @returns {Function|null} 拿不到编译依赖时返回 null，由守卫用例报错，不静默跳过。
  */
 function loadComputeAutoFill () {
   const esbuild = require('../../../lib/testDeps.js').esbuild()
   if (!esbuild) {
-    // 拿不到编译依赖就不跑，绝不给假绿灯：样式守卫那份 JSX 编译测试
-    // 用的是同一个理由，缺依赖时同样只跳过并说明原因。
+    // 拿不到编译依赖就返回 null，由下面的守卫用例报错，不静默跳过。
     return null
   }
   const src = fs.readFileSync(PANEL, 'utf8')
@@ -37,7 +35,7 @@ function loadComputeAutoFill () {
     if (id === 'react') return {}
     if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en }) }
     if (/useInstalled/.test(id)) return { useInstalled: () => ({}) }
-    // DragBind 是 CliGenPanel 集成进来的子组件，本测试不需要它真的渲染
+    // DragBind 是 CliGenPanel 引入的子组件，本测试不需要它渲染。
     if (/DragBind/.test(id)) return { default: () => null }
     throw new Error('computeAutoFill 的依赖不该被求值：' + id)
   }
@@ -49,12 +47,10 @@ function loadComputeAutoFill () {
 
 const computeAutoFill = loadComputeAutoFill()
 
-// 夹具：/wizard/discover 返回的两种形状
-//
-// 形状照 paramDigest 的统一层写：
+// 夹具：/wizard/discover 的返回，形状取自 paramDigest 的统一层。
 //   cli 路    name 是命令行开关去掉横线的部分，target 是开关本身，
-//             style 是名片 args 段认的写法词，kind 是界面显示的类型名
-//   python 路 name 与 target 同名，都是上游方法的参数名
+//             style 是名片 args 段认的写法词，kind 是界面显示的类型名。
+//   python 路 name 与 target 同名，都是上游方法的参数名。
 const cliParams = [
   { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', help: null, required: true, group: 'infer', is_tool: false },
   { source: 'cli', name: 'voice', target: '--voice', kind: 'str', style: 'value', help: null, required: false, group: 'infer', is_tool: false },
@@ -67,17 +63,15 @@ const pythonParams = [
   { source: 'python', name: 'save_path', target: 'save_path', kind: 'str', help: null, required: true, group: 'call', is_tool: false },
 ]
 
-/** 探测同时扫出两条路时的合并表 */
 const mixedParams = [...cliParams, ...pythonParams]
 
-// 守卫：这份测试本身不许变成空跑
 test('守卫：这份测试真的拿到了活代码里的那个纯函数', () => {
   assert.equal(typeof computeAutoFill, 'function',
     '没拿到 computeAutoFill。缺 esbuild 依赖时这一条会红，'
     + '那是环境问题，不要连同下面那些一起跳过。')
 })
 
-// 1. 槽位匹配：候选名对的是 name，写进 bind 的必须是 target
+// 槽位匹配：候选名对的是 name，写进 bind 的必须是 target。
 test('cli 参数：按 dest 名认槽位，认出来的是命令行开关', () => {
   const r = computeAutoFill(cliParams, { kind: 'cli' })
   assert.deepStrictEqual(r.matched, {
@@ -120,7 +114,7 @@ test('两条路混在一张表里：两个来源各自的候选名都要认得�
     'python 路参数名的候选没被认出来')
 })
 
-// 2. call.kind：来源混在一起时不许替名片做决定
+// call.kind：来源混在一起时保持名片原来的 kind。
 test('python 名片 + 混有 cli 参数：kind 保持 python 不被改写', () => {
   const r = computeAutoFill(mixedParams, { kind: 'python', module: 'm', class: 'C' })
   assert.equal(r.call.kind, 'python',
@@ -166,7 +160,7 @@ test('同名参数在两种来源里指向不同值时，如实报出来而不�
     '同一个名字在两种来源里指向不同的值，这件事要报给用户')
 })
 
-// 3. args 段：python 名片不该长出 args
+// args 段：python 名片不该长出 args。
 test('纯 python 参数：不写 args 段', () => {
   const r = computeAutoFill(pythonParams, { kind: 'python', module: 'm', class: 'C' })
   assert.equal(r.call.args, undefined,
@@ -181,10 +175,9 @@ test('python 名片 + 混有 cli 参数：args 里只准有 cli 来源的参数'
 })
 
 test('cli 名片 + 混有 python 参数：args 里仍只准有 cli 来源的参数', () => {
-  // 这条是「按 source 分流」真正承重的那一条：
-  //   名片是 cli 形态（于是 args 段会走），而这一组参数里混着 python 参数。
-  //   少了 source 判断，python 的参数名会带着 flag 键进 args 段，
-  //   那是一条上游根本不认识的命令行开关。
+  // 这条是按 source 分流的判据：名片是 cli 形态（于是 args 段会走），
+  // 这一组参数里却混着 python 参数。少了 source 判断，python 的参数名会带着
+  // flag 键进 args 段，而那是一条上游不认识的命令行开关。
   const r = computeAutoFill(mixedParams, { kind: 'cli' })
   assert.deepStrictEqual(Object.keys(r.call.args || {}).sort(),
     ['output', 'text', 'voice'],
@@ -205,8 +198,8 @@ test('纯 cli 参数：args 里是 dest 名到开关的映射，且 style 是宿
 })
 
 test('args 里的 style 必须是宿主认得的词（统一层的类型名不是 style）', () => {
-  // 统一层把类型归成了 str / boolean / array 这些词，
-  // 宿主的 args 段认的是 value / boolean / repeat 这些词，两张表不是一个。
+  // 统一层把类型归成 str / boolean / array，宿主的 args 段认的是
+  // value / boolean / repeat，两张表不是一个。
   const { ARG_STYLES } = require(path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'hostProfile'))
   const r = computeAutoFill(cliParams, { kind: 'cli' })
   for (const [name, entry] of Object.entries(r.call.args || {})) {
@@ -216,7 +209,7 @@ test('args 里的 style 必须是宿主认得的词（统一层的类型名不�
   }
 })
 
-// 4. 不许盖掉用户已经手填的东西
+// 用户手填的值不被扫描结果覆盖。
 test('用户已手填的 bind 不被扫描结果覆盖', () => {
   const r = computeAutoFill(cliParams, {
     kind: 'cli',
@@ -238,7 +231,7 @@ test('用户已手填的 args 不被扫描结果覆盖', () => {
   assert.equal(r.call.args.voice.flag, '--voice')
 })
 
-// 5. 没有参数就没有建议
+// 没有参数就没有建议。
 test('参数为空/null/空数组：返回 null', () => {
   assert.equal(computeAutoFill([], { kind: 'cli' }), null)
   assert.equal(computeAutoFill(null, { kind: 'cli' }), null)

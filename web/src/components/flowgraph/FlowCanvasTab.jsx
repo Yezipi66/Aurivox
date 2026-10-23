@@ -1,3 +1,7 @@
+// 流程图编辑器页：按侧栏布局画布（左边节点列表，右边属性与运行报告），中间画布占满剩余宽度。
+// 画出来的一切都取自 /api/flowgraph/nodes 对该节点的描述（端口、类型、设置与解释文案），
+// 所以后端新增节点后前端无需改代码；本页只负责布局、手势与本地草稿的存取。
+
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../../lib/api'
 import { ConfirmDialog } from '../common/Dialogs'
@@ -19,48 +23,31 @@ import { Dock, Rail, Splitter, Palette, Toolbar } from './canvasChrome'
 import { NodeBox, Inspector } from './canvasNodes'
 import { RunPanel } from './canvasRun'
 
-//  The canvas
-// Laid out like an editor: a dock on each side for the node list and the
-// settings/run report, the sheet in the middle taking every pixel that is left.
-// The docks sit beside the sheet rather than over it, can be dragged to any
-// width, and collapse to a rail — the sheet is the subject of this page and
-// nothing is allowed to cover it.
-//
-// The rule this page is built to keep: a node that exists on the server can be
-// dragged out and used here without any per-node code. Everything drawn below
-// comes from what the server says the node has (ports, types, settings, and the
-// sentence that explains each of them), so a new node on the back end shows up
-// here — explained, in both interface languages — on the next reload.
-
 export function FlowCanvasTab() {
   const { lang, t } = useT()
   const [catalogue, setCatalogue] = useState(null)
   const [status, setStatus] = useState(null)
-  // The graph you are working on survives leaving the page and reloading the
-  // browser. It uses the same store every other tab in this app uses, so it
-  // is cleared by the same version bump as everything else.
+  // 正在编辑的这张图在离开页面与刷新浏览器之后仍然保留。它用的是本应用其他页面共用的那份存储，
+  // 所以版本号一升，它与其他内容一起被清掉。
   const [graph, setGraph] = usePersistentState('flowgraph.draft', () => emptyGraph(), {
     rehydrate: value => (value && Array.isArray(value.nodes) ? value : emptyGraph()),
   })
   const [saved, setSaved] = useState([])
   const [selected, setSelected] = useState(null)
   const [run, setRun] = useState(null)
-  // Which node the last failure landed on. A failed run comes back as an error
-  // rather than a report, so without this the canvas shows no state at all for
-  // the one case where you most need to see it.
+  // 上一次失败落在哪个节点上。失败的运行返回的是错误而不是报告，没有这一项，
+  // 画布在最需要看结果的那种情况下什么状态都不显示。
   const [failedNode, setFailedNode] = useState(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const runAbortRef = useRef(null)
   const [search, setSearch] = useState('')
-  // The voices saved on this machine. Loaded once so the voice setting can be a
-  // list to pick from instead of an id to remember and type correctly.
+  // 本机保存的音色。读一次就好，这样音色这项是一个可以挑选的列表，而不是要记准确才能填的 id。
   const [voices, setVoices] = useState([])
   const [dragWire, setDragWire] = useState(null)
   const [pointer, setPointer] = useState({ x: 0, y: 0 })
-  // The two docks: open/closed and how wide. Widths are yours to drag and they
-  // are remembered, because a fixed width is only ever right for one screen.
+  // 两侧侧栏：开合与宽度。宽度可以拖动并被记住，因为固定宽度只对一种屏幕是对的。
   const [docks, setDocks] = usePersistentState('flowgraph.docks', () => ({
     leftOpen: true, rightOpen: true, leftWidth: DEFAULT_LEFT, rightWidth: DEFAULT_RIGHT,
   }), {
@@ -80,8 +67,7 @@ export function FlowCanvasTab() {
   const zoomRef = useRef(zoom)
   zoomRef.current = zoom
 
-  // Notices are held as a pair and translated at the moment they are drawn, so
-  // switching language does not leave a stale sentence in the old one.
+  // 提示成对保存，在画出来的那一刻才翻译，所以切换语言不会留下上一种语言的旧句子。
   const say = useCallback((en, zh, bad = false) => setNote({ bad, en, zh }), [])
 
   const reloadSaved = useCallback(() => {
@@ -92,8 +78,7 @@ export function FlowCanvasTab() {
     api('/api/flowgraph/nodes').then(r => { if (r.ok) setCatalogue(r.data) })
       .catch(() => say('Cannot reach the canvas service.', '无法连接画布服务。', true))
     api('/api/flowgraph/status').then(r => { if (r.ok) setStatus(r.data) }).catch(() => {})
-    // The voice list is the broker's, read only. If it cannot be reached the
-    // voice setting falls back to a plain text box rather than blocking the page.
+    // 音色清单取自 broker，只读。取不到时音色这项退回普通输入框，不阻塞整个页面。
     api('/api/voices').then(r => { if (r.ok) setVoices(r.data.voices || r.data || []) }).catch(() => {})
     reloadSaved()
   }, [reloadSaved, say])
@@ -113,12 +98,10 @@ export function FlowCanvasTab() {
     return map
   }, [run, failedNode])
 
-  // -- voice as a preset ------------------------------------------------------
+  // 音色作为预设
 
-  // Copies a voice's settings into an engine-parameters node, once. There is no
-  // link afterwards: the values become this graph's own and can be edited, and
-  // editing them never touches the voice. If the graph has no parameters node
-  // yet, one is placed next to the engine node rather than asking for it first.
+  // 把一个音色的设置一次性复制进引擎参数节点，之后不再有链接：这些值成为本图自己的，可以逐项修改，
+  // 改它们不会影响那个音色。图形还没有参数节点时，就在引擎节点旁边放一个，而不是先问用户要不要。
   const importVoicePreset = useCallback(async (engineNodeId, voiceId) => {
     if (!voiceId) return
     let record = null
@@ -162,10 +145,9 @@ export function FlowCanvasTab() {
     })
   }, [catalogue, say])
 
-  // -- dragging nodes and wires ----------------------------------------------
+  // 拖动节点与连线
 
-  // Screen point -> point on the sheet. Dividing by the zoom is what keeps a
-  // node under the pointer when the sheet is not at 100%.
+  // 屏幕坐标换算成画布坐标。除以缩放倍数是关键：画布不在 100% 时，节点才会停在指针下面。
   const canvasPoint = useCallback(event => {
     const box = canvasRef.current?.getBoundingClientRect()
     const z = zoomRef.current || 1
@@ -175,21 +157,17 @@ export function FlowCanvasTab() {
     }
   }, [])
 
-  // Every gesture ends here, and it ends *completely*. The bug this replaces:
-  // clicking an input port stopped the event, so the node-drag started by the
-  // same mousedown was never cleared and the node stayed glued to the pointer
-  // with no button held down. Nothing may cancel a gesture only halfway.
+  // 每一次手势都在这里结束，而且结束得彻底。手势只能被取消一半的话，
+  // 会出现这种情况：点输入端口时事件被吃掉，同一次按下开始的拖动没有被清掉，
+  // 节点就粘在指针上，而按钮已经松开了。
   const endGesture = useCallback(() => {
     dragNode.current = null
     panRef.current = null
-    // Releasing over empty space cancels the connection rather than leaving a
-    // line hanging around waiting for a click nobody expects.
+    // 在空白处松手取消这次连线，而不是留下一根等着谁来点的线。
     setDragWire(null)
   }, [])
 
-  // Esc undoes whatever is in progress — including putting a half-dragged node
-  // back where it started. Before this, Esc during a drag did nothing visible,
-  // which read as "Esc does not work".
+  // Esc 撤销当前进行中的操作，包括把拖了一半的节点放回原处。
   const cancelGesture = useCallback(() => {
     const dragged = dragNode.current
     const hadWire = !!dragWire
@@ -231,8 +209,7 @@ export function FlowCanvasTab() {
   }, [say, selected])
 
   const onCanvasMove = useCallback(event => {
-    // Panning is read straight off the scroll box, so it composes with the
-    // scrollbars instead of fighting them.
+    // 平移直接读滚动容器的位置，这样它与滚动条配合而不是与滚动条较劲。
     if (panRef.current) {
       const box = canvasRef.current
       if (box) {
@@ -251,7 +228,7 @@ export function FlowCanvasTab() {
 
   const onCanvasUp = useCallback(() => { endGesture() }, [endGesture])
 
-  // Middle button (1) or right button (2) grabs the sheet and drags the view.
+  // 中键（1）或右键（2）抓住画布拖动视野。
   const onCanvasDown = useCallback(event => {
     if (event.button !== 1 && event.button !== 2) return
     event.preventDefault()
@@ -262,11 +239,9 @@ export function FlowCanvasTab() {
     }
   }, [])
 
-  // The wheel zooms. It has to be attached by hand with { passive: false }:
-  // React attaches wheel listeners as passive, so an onWheel prop cannot stop
-  // the page from scrolling underneath and the sheet would slide away while
-  // zooming. The listener is on the scroll box only, so a wheel over one of the
-  // docks scrolls that dock instead.
+  // 滚轮缩放必须手动以 { passive: false } 挂监听：React 把 wheel 监听默认当成 passive，
+  // onWheel 属性拦不住页面跟着滚动，画布会在缩放时滑走。监听只挂在滚动容器上，
+  // 所以在侧栏上滚滚轮时滚的是那个侧栏。
   useEffect(() => {
     const box = canvasRef.current
     if (!box) return undefined
@@ -287,7 +262,7 @@ export function FlowCanvasTab() {
     return () => box.removeEventListener('wheel', onWheel)
   }, [setZoom, catalogue])
 
-  // Zoom from the buttons keeps the middle of the visible area still.
+  // 用按钮缩放时，可见区域的中点保持不动。
   const zoomBy = useCallback(factor => {
     const box = canvasRef.current
     const rect = box?.getBoundingClientRect()
@@ -301,9 +276,8 @@ export function FlowCanvasTab() {
     if (box) { box.scrollLeft = next.left; box.scrollTop = next.top }
   }, [setZoom])
 
-  // Esc, Delete and Backspace. Listened for on the way down and in the capture
-  // phase, so a key press is acted on while the gesture is still running rather
-  // than after something else has swallowed it.
+  // Esc、Delete 与 Backspace。在冒泡阶段与捕获阶段都监听，
+  // 所以按键在手势还在进行时就被处理，而不是等别的东西先把它吃掉。
   useEffect(() => {
     const onKey = event => {
       if (event.key === 'Escape') {
@@ -311,9 +285,8 @@ export function FlowCanvasTab() {
         return
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
-        // Backspace inside a text box must still delete a character — losing a
-        // node while editing the text about to be synthesised would be an
-        // unacceptable way to lose work.
+        // 文本框里的 Backspace 必须照常删字符：编辑要合成的文本时顺手删掉节点，
+        // 是不可接受的工作丢失方式。
         if (isTypingTarget(event.target)) return
         if (!selected) return
         event.preventDefault()
@@ -325,14 +298,14 @@ export function FlowCanvasTab() {
   }, [cancelGesture, deleteSelected, selected])
 
   const startNodeDrag = (event, node) => {
-    if (event.button !== 0) return   // middle/right belong to the canvas pan
+    if (event.button !== 0) return   // 中键与右键归画布平移
     event.stopPropagation()
     const point = canvasPoint(event)
     dragNode.current = {
       id: node.id,
       offsetX: point.x - node.position.x,
       offsetY: point.y - node.position.y,
-      // Remembered so Esc can restore it.
+      // 记住位置，Esc 才能还原。
       origin: { x: node.position.x, y: node.position.y },
     }
     setSelected(node.id)
@@ -348,12 +321,10 @@ export function FlowCanvasTab() {
   const finishWire = (event, nodeId, port, wired) => {
     event.stopPropagation()
     const pending = dragWire
-    // Clear first, unconditionally. Whatever happens below, no gesture survives
-    // this function.
+    // 先无条件清掉。不管下面发生什么，都不会有手势活过这个函数。
     endGesture()
     if (!pending) {
-      // Clicking a connected input port with nothing in hand disconnects it.
-      // One click, the same click that connected it — no hidden double-click.
+      // 点一个已连接的输入端口（手上没东西）就断开它。一次点击，连上它的那一次点击，不需要双击。
       if (wired) { setGraph(g => disconnect(g, { node: nodeId, port }, null)); setNote(null) }
       return
     }
@@ -470,10 +441,8 @@ export function FlowCanvasTab() {
         docks={docks} setDocks={setDocks}
       />
 
-      {/* Editor layout: a dock on each side, the sheet in the middle, a drag
-          handle between them. The docks are laid out beside the sheet rather
-          than floating over it — a panel that covers the node you are editing
-          is worse than no panel. */}
+      {/* 编辑器布局：两侧各一个侧栏，中间是画布，侧栏之间有一条可拖动的分隔条。
+          侧栏摆在画布旁边而不是浮在它上面：盖住正在编辑的节点的面板，比没有面板更糟。 */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 0 }}>
         {docks.leftOpen
           ? (
@@ -496,7 +465,7 @@ export function FlowCanvasTab() {
           onMouseMove={onCanvasMove}
           onMouseUp={onCanvasUp}
           onMouseLeave={onCanvasUp}
-          // Without this the right button opens the browser menu mid-pan.
+            // 不拦住的话，平移途中右键会弹出浏览器菜单。
           onContextMenu={e => e.preventDefault()}
           onClick={() => setSelected(null)}
           style={{
@@ -506,10 +475,8 @@ export function FlowCanvasTab() {
             backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
           }}
         >
-          {/* The outer box is the sheet at its zoomed size, so the scrollbars
-              know how far there is to go; the inner one is the sheet at its own
-              size, scaled. Two boxes, because a CSS transform does not change
-              how much room an element takes up. */}
+          {/* 外层盒子是缩放后的画布大小，滚动条据此知道能滚多远；内层盒子是画布自身的大小，再做缩放。
+              要两个盒子，因为 CSS 的 transform 不改变元素占的空间。 */}
           <div style={{ position: 'relative', width: sheet.width * zoom, height: sheet.height * zoom }}>
             <div style={{
               position: 'absolute', top: 0, left: 0, width: sheet.width, height: sheet.height,

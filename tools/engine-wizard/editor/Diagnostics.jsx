@@ -1,14 +1,10 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// 检查结果面板：三档，错误 / 警告 / 提示。
-// 警告那一档是本工具存在的理由，平台管不到「填了没效果」。
-//
-// 用项目的 .collapsible > .collapsible-hdr + .collapsible-body，默认展开：
-// 检查结果是这里的核心信息，藏起来等于没有。
-// 每档一条都用项目现成的 .msg 与 .badge，不自造 .dg-* 类，那是重画项目的 .msg。
-//
-// 每句话只陈述事实：什么字段、缺什么、改成什么。
+// 名片检查结果面板：把检查器给出的诊断按错误、警告、提示三档展示。
+// 警告这一档是本工具存在的理由：平台校验只管「装不装得上」，管不到「填了没效果」。
+// 用项目的 .collapsible > .collapsible-hdr + .collapsible-body 与 .msg、.badge，
+// 不另造容器与类名。每句话只陈述事实：什么字段、缺什么、改成什么。
 
 const LEVELS = {
   error: { zh: '错误', en: 'Error' },
@@ -29,8 +25,8 @@ function whereText (d) {
 
 export default function Diagnostics ({ result, loading }) {
   const { t } = useT()
-  // 默认折叠（RFC：右栏 Diagnostics 默认折叠，让位给 Preview）。
-  //   计数徽标仍常驻标题行，一眼看出有无问题；要细看点开。
+  // 面板默认折叠，给预览区腾出空间；计数徽标常驻标题行，
+  // 用于快速判断是否存在问题。
   const [open, setOpen] = React.useState(false)
 
   // 还没跑出结果：连标题都不占地方
@@ -39,7 +35,7 @@ export default function Diagnostics ({ result, loading }) {
   }
   if (!result) return null
 
-  // ---- 输入本身坏了：如实说，不装作「没有诊断 = 通过」----
+  // 输入本身坏了：如实说，不装作「没有诊断等于通过」。
   const broken = result.parse_error || result.error
   if (broken) {
     return (
@@ -70,7 +66,7 @@ export default function Diagnostics ({ result, loading }) {
   const warns = diagnostics.filter((d) => d.level === 'warn')
   const infos = diagnostics.filter((d) => d.level === 'info')
 
-  // ---- 标题上的计数：一眼看出有几类问题 ----
+  // 标题上的计数：用于显示当前诊断的类别数量。
   const chips = []
   if (errors.length) chips.push({ cls: 'badge-danger', n: errors.length, label: t('Error', '错误') })
   if (warns.length) chips.push({ cls: 'badge-warn', n: warns.length, label: t('Warning', '警告') })
@@ -89,8 +85,8 @@ export default function Diagnostics ({ result, loading }) {
 
       {open && (
         <div className="collapsible-body">
-          {/* 免责说明：它对每一张名片都成立，与当前填得好不好无关
-              ⇒ 常驻一行，不混进错误/警告里冒充一条问题。 */}
+          {/* 免责说明：它对每一张名片都成立，与当前填得好不好无关，
+              所以常驻一行，不混进错误与警告里冒充一条问题。 */}
           <p className="msg msg-info">
             {t('A passing check here means the schema is accepted. '
               + 'It does not mean the engine will run, and it does not mean '
@@ -128,7 +124,7 @@ export default function Diagnostics ({ result, loading }) {
 function Diag ({ d }) {
   const { t } = useT()
   const meta = LEVELS[d.level] || LEVELS.info
-  // 回落也走 t()：直接写 meta.zh 会在英文界面里漏出中文
+  // 回落档位也走 t()：直接写 meta.zh 会在英文界面里漏出中文。
   const tag = t(meta.en, meta.zh)
   const where = whereText(d)
   return (

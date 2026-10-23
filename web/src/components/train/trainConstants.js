@@ -1,24 +1,24 @@
-// AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
-// --- Constants ---
+// 训练页的常量表：表单默认值、ASR 选项、人声分离预设、专家参数、训练预设与步骤顺序。
+// 这里的值只供界面使用；后端另有 lib/server/trainingParams.js 的白名单，不符的值会被丢弃。
 
-// Default values for every editable training/slice/asr field. The Training page
-// keeps its own persistent form; the Restore modal seeds a fresh copy of these.
+// 训练、切片、ASR 各字段的可编辑默认值。训练页自己保存一份持久表单，
+// 「恢复」弹窗则用这些值初始化一份新的副本。
 const REBUILD_PARAM_DEFAULTS = {
   expertUnlocked: false,
-  // training (common)
+  // 训练常用项
   modelVersion: 'v2Pro',
   gptEpochs: 8, sovitsEpochs: 8, batchSize: 'auto', learningRate: 'default',
-  // slice
+  // 切片
   sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5,
-  // asr
+  // ASR
   asrEngine: 'auto', asrModelSize: 'large-v3-turbo', asrPrecision: 'float16',
-  // vocal extraction (denoise)
+  // 人声提取（去背景）
   denoisePreset: 'bgm', denoisePipeline: [], denoisePresetParams: {}, denoiseAdvUnlocked: false, denoiseSavedPresets: [],
-  // S1 advanced/expert
+  // S1 高级项
   s1Seed: 1234, s1SaveEvery: 4, s1Precision: '16-mixed', s1GradClip: 1.0,
   s1Lr: 0.01, s1LrInit: 0.00001, s1LrEnd: 0.0001, s1Warmup: 2000, s1Decay: 40000,
   s1MaxSec: 54, s1NumWorkers: 4, s1MaxEval: 8,
-  // S2 advanced/expert
+  // S2 高级项
   s2Seed: 1234, s2LogInterval: 100, s2EvalInterval: 500, s2Fp16: true,
   s2LrDecay: 0.999875, s2SegmentSize: 20480, s2CMel: 45, s2CKl: 1.0,
   s2TextLowLr: 0.4, s2GradCkpt: false,
@@ -34,12 +34,10 @@ const ASR_PRECISIONS = [
   ['float16', 'float16 (fast)'], ['float32', 'float32 (best)'], ['int8', 'int8 (low VRAM)'],
 ]
 
-// --- Vocal extraction presets (encode the official UVR5 domain knowledge) ------
-// Each preset maps a human intent ("what is my material like?") to a concrete
-// separation pipeline [{model, agg?}]. `agg` (0-20) only applies to VR models and
-// is user-tunable in Expert mode. ids MUST match pipeline/uvr5/
-// uvr5_models.js (and the backend validator). `custom` opens the second-level
-// chain editor. The authoritative labels/availability come from GET /api/uvr5/models.
+// 人声分离预设：把「素材是什么样子」映射到一条具体的分离链 [{model, agg?}]。
+// agg（0-20）只对 VR 架构有意义，在专家模式下可调。
+// 分离链里每一级的 model 必须是 pipeline/uvr5/uvr5_models.js 里的模型 id，后端按同一套 id 校验；
+// custom 表示由用户自建分离链。模型名称与是否已安装由 GET /api/uvr5/models 给出。
 const AGG_DEFAULT = 10
 const VOCAL_PRESETS = [
   { id: 'bgm', label: ['Remove background music (HP2)', '去背景乐（HP2）'],
@@ -68,10 +66,10 @@ const VOCAL_PRESETS = [
 ]
 const VOCAL_PRESET_BY_ID = Object.fromEntries(VOCAL_PRESETS.map(p => [p.id, p]))
 
-// --- Expert parameters (mirror pipeline/uvr5 EXPERT_PARAMS) ----------------
-// Source-verified knobs, tiered per architecture. `agg` is the only NORMAL knob
-// (VR); everything below is EXPERT. The authoritative applicability comes from
-// GET /api/uvr5/models (model.expertParams); this table only supplies labels/UI.
+// 专家参数：与 pipeline/uvr5/uvr5_models.js 的 EXPERT_PARAMS 对应，按架构分层。
+// agg 是唯一属于常规档的旋钮（且只对 VR 架构），其余都是专家档。
+// 某个参数适用于哪些架构由 GET /api/uvr5/models 的 model.expertParams 给出，
+// 这张表只提供名称与说明文案。
 const EXPERT_META = {
   precision: { archs: ['vr', 'mdx', 'roformer'], type: 'enum', options: ['fp32', 'fp16'], default: 'fp32',
     label: ['Precision', '精度'],
@@ -100,32 +98,33 @@ const EXPERT_META = {
 const EXPERT_KEYS = Object.keys(EXPERT_META)
 const expertKeysForArch = (arch) => EXPERT_KEYS.filter(k => EXPERT_META[k].archs.includes(arch))
 
-// S1 (GPT / Lightning) trainer precision. Values MUST match the server-side
-// whitelist (server.js validatePayload `precision` oneOf) or they are dropped.
+// S1（GPT / Lightning）训练器的精度。取值必须与后端白名单
+// （lib/server/trainingParams.js 的 sanitizeCustomParams 中 precision 那一项）一致，
+// 不在白名单里的值会被丢弃。
 const S1_PRECISIONS = [
   ['16-mixed', '16-mixed (recommended)'], ['bf16-mixed', 'bf16-mixed'],
   ['16-true', '16-true'], ['bf16-true', 'bf16-true'],
   ['32-true', '32-true (most stable / slowest)'],
 ]
 
-// S2 (SoVITS) uses manual AMP (GradScaler + autocast) driven by a single
-// `fp16_run` boolean — there is no bf16 code path in s2_train.py. So the S2
-// precision selector is intentionally just two options mapped to that bool:
+// S2（SoVITS）用手动 AMP（GradScaler + autocast），由单个 fp16_run 布尔量驱动，
+// s2_train.py 里没有 bf16 代码路径。所以 S2 的精度选项只有两个，映射到那个布尔量：
 //   'fp16' -> fp16_run=true   'fp32' -> fp16_run=false
 const S2_PRECISIONS = [
   ['fp16', 'fp16 (fast, default)'], ['fp32', 'fp32 (stable, slow)'],
 ]
 
-// Which buildTrainingParams() keys belong to S1 (GPT) vs S2 (SoVITS). Shared keys
-// (version/versions/batch_size/learning_rate) affect both, so they are attributed to
-// the EARLIER step (train_s1) — changing them re-runs from S1, which also re-runs S2.
+// buildTrainingParams() 的哪些键归 S1（GPT）、哪些归 S2（SoVITS）。
+// 两个步骤共用的键（version/versions/batch_size/learning_rate）记在前一步 train_s1 上，
+// 因为改它们要从 S1 重跑，S1 重跑必然连 S2 一起重跑。
 const S1_PARAM_KEYS = ['version', 'versions', 'batch_size', 'learning_rate',
   'gpt_epochs', 'seed', 'save_every_n_epoch', 's1_save_every_n_epoch', 'precision', 'gradient_clip',
   'lr', 'lr_init', 'lr_end', 'warmup_steps', 'decay_steps', 'max_sec', 'num_workers', 'max_eval_sample'];
 const S2_PARAM_KEYS = ['sovits_epochs', 's2_save_every_n_epoch', 's2_seed', 'log_interval', 'eval_interval', 'fp16_run',
   'lr_decay', 'segment_size', 'c_mel', 'c_kl', 'text_low_lr_rate', 'grad_ckpt'];
 
-// Pipeline step order shared by the failure-resume UI (mirrors backend STEP_ORDER).
+// 流程步骤顺序，与后端的 STEP_ORDER（lib/training/pipeline/steps.js）一致，
+// 失败重跑的界面按它显示。
 const FSTEP_ORDER = ['denoise', 'slice', 'asr', 'preprocess', 'train_s1', 'train_s2', 'finalize', 'promote'];
 
 const FSTEP_LABELS = {
@@ -142,9 +141,9 @@ const LANGUAGES = [
   { code: 'ko', label: 'Korean' },
 ]
 
-// Training presets — frontend-only convenience. Selecting one writes a bundle of
-// training-form fields; "custom" leaves whatever the user has set. No backend change:
-// handleStart already serialises these same form.* fields into customParams.training.
+// 训练预设：只在前端方便用户，不改后端行为。选一个就把一组训练表单字段写进去，
+// 选 custom 则保持用户当前填的值。
+// 后端参数不变：handleStart 本来就把这些 form.* 字段序列化进 customParams.training。
 const TRAIN_PRESETS = [
   { key: 'smoke',    label: 'Quick Smoke Test',     hint: 'Tiny run to verify the pipeline end-to-end (~2 epochs).',
     hintZh: '极小规模的试运行，用于端到端验证整条流程（约 2 个 epoch）。',
@@ -160,10 +159,9 @@ const TRAIN_PRESETS = [
     fields: null },
 ]
 
-// The training-form fields a saved Training Preset captures/restores. A saved preset
-// is a named snapshot of these; selecting it loads them, "Update" re-snapshots the
-// current form back into it, "Delete" removes it. Kept in sync with the values the
-// built-in TRAIN_PRESETS and the S1/S2 advanced-parameter steps can set.
+// 训练预设能保存与恢复哪些表单字段。一个保存的预设就是这些字段的一份命名快照：
+// 选中它会载入这些字段，「更新」把当前表单重新存回它，「删除」移除它。
+// 这张表要与内置 TRAIN_PRESETS 以及 S1/S2 高级参数步骤能设置的字段保持一致。
 const TRAIN_PRESET_FIELDS = [
   'gptEpochs', 'sovitsEpochs', 'batchSize', 'learningRate',
   's1SaveEvery', 's2SaveEvery', 's2GradCkpt', 's2Fp16',
@@ -178,15 +176,15 @@ const pickTrainFields = (src) => {
   return out
 }
 
-// Slicing preset field values, used by the Slicing-step preset dropdown.
+// 切片预设的字段值，供切片步骤的预设下拉使用。
 const SLICE_PRESET_VALUES = {
   default:    { sliceMinSec: 3, sliceMaxSec: 15, sliceSilenceDb: -40, sliceMinSilenceSec: 0.5 },
   aggressive: { sliceMinSec: 2, sliceMaxSec: 10, sliceSilenceDb: -34, sliceMinSilenceSec: 0.3 },
   longer:     { sliceMinSec: 5, sliceMaxSec: 25, sliceSilenceDb: -45, sliceMinSilenceSec: 0.8 },
 }
 
-// Real backend pipeline steps (lib/training/pipeline.js). S1/GPT and S2/SoVITS are
-// now independent steps (train_s1 / train_s2); 'promote' publishes the asset.
+// 后端真实存在的流程步骤（lib/training/pipeline/steps.js 的 STEP_ORDER）。
+// S1/GPT 与 S2/SoVITS 是两个独立步骤（train_s1 / train_s2），promote 负责发布产物。
 const TRAIN_STEPS = [
   { key: 'denoise',    label: 'Vocal Extraction', labelZh: '人声提取' },
   { key: 'slice',      label: 'Slicing',          labelZh: '切片' },

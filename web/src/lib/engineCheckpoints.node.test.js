@@ -10,7 +10,7 @@
 //   ⇒ 下面每一条用例都是「给什么状态，说什么话」，没有一条在验算法。
 //
 // 单独一个文件而不是并进 engines.node.test.js：那个文件测的是「面板按名片长」
-// （契约 §11 判据 9/11），这一件事跟参数面板没有关系。
+// 与训练页显隐，这一件事跟参数面板没有关系。
 
 import test from 'node:test'
 import assert from 'node:assert/strict'

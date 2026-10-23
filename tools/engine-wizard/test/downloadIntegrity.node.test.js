@@ -1,5 +1,5 @@
 'use strict'
-// A3：下载完整性校验与半截文件处理。
+// 下载完整性校验与半截文件处理。
 //
 // 判据是「不假装」：上游给了 sha 就真比对；没给就如实报「未校验」，
 // 不许把没校验过的文件说成好的。删半截只删判为 partial 的，
@@ -18,7 +18,7 @@ function realNames () {
   try { return fs.readdirSync(REAL_ENGINES).sort().join(',') } catch (e) { return '' }
 }
 
-// root 必须是 mkdtempSync 出来的临时根，本文件不许写真仓库的 engines/
+// root 必须是 mkdtempSync 出来的临时根，本文件不写真仓库的 engines/
 function tmpRoot () {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'a3-download-'))
 }

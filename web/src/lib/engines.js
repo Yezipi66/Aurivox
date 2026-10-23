@@ -1,4 +1,4 @@
-// 引擎列表、参数面板和状态徽章的前端数据层（契约 §12），界面内容全由 manifest.json 决定。
+// 引擎列表、参数面板和状态徽章的前端数据层，界面内容全由 manifest.json 决定。
 // 不写具体引擎名或参数名（有守卫测试）。纯函数，便于 `node --test` 在无 DOM 环境下测试。
 
 // 必须带 .js 后缀：`node --test` 不能解析无后缀导入。
@@ -34,7 +34,7 @@ export function pickEngine(engines, savedId) {
   return list.length ? list[0] : null
 }
 
-// 训练页仅在 supports_finetune === true 时显示（契约 §11 判据 11），未加载时也隐藏。
+// 训练页仅在 supports_finetune === true 时显示，未加载时也隐藏。
 export function showsTrainingTab(engine) {
   return !!(engine && engine.supports_finetune === true)
 }
@@ -84,7 +84,7 @@ export function schemaGap(engine) {
   }
 }
 
-// 面板初值，取各字段的 default。注意它不同于名片的 defaults.<键>（契约 C11）。
+// 面板初值，取各字段的 default。注意它不同于名片的 defaults.<键>。
 export function initialParamValues(engine) {
   const out = {}
   for (const f of (engine && Array.isArray(engine.param_schema) ? engine.param_schema : [])) {
@@ -293,7 +293,7 @@ export function checkpointBadge(engine, lang = 'zh') {
   return { tone: 'unknown', label: zh ? '底模 ?' : 'weights ?', title: lines.join('\n') }
 }
 
-// 进程徽章（契约 §12 第 5 步）。三种「未运行」分开显示：process 为 null（不管理，不显示）、
+// 进程徽章。三种「未运行」分开显示：process 为 null（不管理，不显示）、
 // running 为 false（正常待命，灰色）、online 但非本平台启动（外部进程）。
 // 启动中要明确提示，载入模型可能需要几十秒到几分钟。
 export function processBadge (engine, lang = 'zh') {
@@ -425,7 +425,7 @@ export function engineBadge (engine, health, lang = 'zh') {
 }
 
 
-// 内存占用徽章（B5）：数据由后端 occupancy.js 计算，这里只负责显示。
+// 内存占用徽章：数据由后端 occupancy.js 计算，这里只负责显示。
 // 占用值是历史峰值；null 表示从未测量，不能显示成 0（0 意味着不占内存）。
 
 // 格式化 MB 数；未知或非正数显示「?」。

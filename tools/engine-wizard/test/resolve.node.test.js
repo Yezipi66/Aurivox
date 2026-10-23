@@ -1,5 +1,8 @@
 'use strict'
 
+// resolve.js 的行为守卫：仓库链接解析、引擎 id 的推断与校验、克隆地址推导。
+// 判据是「读得出来的才填，读不出来的如实进 unfilled」，各类非法输入各自带独立 code。
+// 另有一条守卫钉住被测文件：具体引擎名只以拼接串出现在本测试里，不进实现。
 
 const { test } = require('node:test')
 const assert = require('node:assert')

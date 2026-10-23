@@ -1,3 +1,7 @@
+// 参考音频对比页：每一行是一种参考音频配置，逐行或整批并排试听。
+// 参考音频的挑选与列表来自共享组件 common/RefPickers.jsx；每一行能用的模型、参数与语种都取自当前引擎的名单。
+// 行数据经 usePersistentState 持久化（rehydrate 时做迁移与截断），生成结果引用服务端 URL 而不是 blob，所以刷新后仍可播放。
+
 import { useState, useEffect, useRef } from 'react'
 import { Select } from '../common/Select'
 import { usePersistentState } from '../../usePersistentState'
@@ -7,7 +11,9 @@ import { SaveRecipeModal } from '../common/Dialogs'
 import { IconFolder, IconRerun, IconTrash } from '../common/Icons'
 import { AudioPlayer, Player } from '../common/Player'
 import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } from '../common/RefPickers'
-import { REF_MAX_SEC, REF_MIN_SEC, TARGET_LANG_OPTIONS, basename, fmtRecentTime, langLabel, normalizeLangFamily, refInRange, sameRefPath } from '../../lib/format'
+import { REF_MAX_SEC, REF_MIN_SEC, refInRange, sameRefPath } from '../../lib/refAudio'
+import { TARGET_LANG_OPTIONS, langLabel, normalizeLangFamily } from '../../lib/langOptions'
+import { basename, fmtRecentTime } from '../../lib/pathText'
 import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, TIERS } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
 import { migrateRow } from '../../lib/compareRowMigrate'
@@ -17,9 +23,6 @@ import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 import { CompareRow } from './CompareRow'
 import { CompareBatchCard } from './CompareBatchCard'
-
-// 参考音频对比页：每一行是一种参考音频配置，逐行或整批并排试听。
-// 参考音频的挑选与列表来自 common/RefPickers.jsx 的共享组件。
 
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()
@@ -49,7 +52,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const [showDefaultTextPrep, setShowDefaultTextPrep] = useState(false)
   const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
   const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
-  const [defaultParams, setDefaultParams] = useState(null)  // loaded from /api/advanced-params
+  const [defaultParams, setDefaultParams] = useState(null)  // 从 /api/advanced-params 读
   // 引擎批量推理的总开关。每行自己的三态（继承 / 开 / 关）都对着它解析，
   // 「继承」就是跟着这个总开关走。
   const [cmpEngineBatch, setCmpEngineBatch] = usePersistentState('compare.engineBatch', false)
@@ -151,11 +154,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const defaultPronPayload = buildPronPayload(defaultPronOverrides, defaultPanelLang, defaultHanDir, defaultHanForced, defaultHanReadings)
 
   // 从后端取默认的 advanced 参数。
-  // 当前用 `/api/advanced-params` 加上 engine_id：
-  //   后端在没有 engine_id 时会挑一台"默认引擎"顶上（legacyDefault），那条路已经删了
-  //   ⇒ 现在必须带上 engine_id，且 engine 还没到就一个字节都不发。
-  //   不许在这里塞任何回落引擎，回落回来的默认值属于另一台引擎，
-  //     它会安静地写进这一页的默认参数里，直到某次合成报出一个谁都不匹配的错。
+  // 请求必须带 engine_id：后端不带 engine_id 时不回落到任何一台引擎，
+  //   拿回来的默认值就可能属于另一台引擎，它会安静地写进这一页的默认参数里，
+  //   直到某次合成报出一个谁都不匹配的错。engine 还没到就一个字节都不发。
   useEffect(() => {
     if (!engine?.id) return
     api(`/api/advanced-params?engine_id=${encodeURIComponent(engine.id)}`).then(r => {
@@ -181,20 +182,13 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
     // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
     // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
-    // 这一页整页都是「两份权重两两组合去试听」的形状，所以引擎名在这一页是
-    // 它自己的题目，不是平台写死了一台引擎。
-    // 挂账：这一页要变成通用的，得按「当前引擎有几个位」重画，连带整行的
-    //   混搭开关一起动。那是独立一件事。
-    // 引擎名不写死成 `CMP_ENGINE = 'gpt-sovits'`，位名也不写死
-    //   成 'gpt' / 'sovits'，否则连文件选择器的扩展名都会被钉成 .ckpt / .pth。
-    //   后果：一台别的引擎的资产在这页里连一个模型位都列不出来，
-    //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
+    // 引擎名与位名都不写死：位名取自当前引擎的 weight_slots，别的引擎给什么位名就取什么位名，
+    //   否则连文件选择器的扩展名都会被钉死，别的引擎的资产在这页里一个模型位都列不出来，
+    //   而界面上只显示「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
     //
-    //   按当前引擎的两个位名取权重：别的引擎名下名片给什么位名就取什么位名，
-    //   取不到就只有 0 个组合，行自己退化成「用当前音色」，而不是画一个空下拉。
+    //   按当前引擎的两个位名取权重：取不到就只有 0 个组合，行自己退化成「用当前音色」，而不是画一个空下拉。
     //
-    //   真正的「每行不同引擎并排」仍是计划里的遗留 L3（那要重画整行的
-    //   混搭开关）。这里只是不再按引擎身份分叉。
+    //   真正的「每行不同引擎并排」仍未实现（那要重画整行的混搭开关）。这里只是不再按引擎身份分叉。
     const buildModels = (vid, meta, out) => {
       // 位名也来自名片，不写死 'gpt'/'sovits'
       // （weight_slots 是 [{name,label,param,applies_at}]，这里只要 name）。
@@ -464,8 +458,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           </p>
 
           <div className="field">
-            {/* 这就是「对比文本」：每一行默认都用它，这样对比的是参考音频 / 模型；
-                某一行可以在自己的 Text 区域里改写。 */}
+            {/* 对比文本：每一行默认都用它，这样对比的是参考音频与模型；某一行可以在自己的 Text 区域里改写。 */}
             <label className="field-label">{t('Comparison Text', '对比文本')}</label>
             <div className="field-hint" style={{ marginBottom: 4 }}>
               {t(
@@ -485,8 +478,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 </Select>
               </span>
             </div>
-            {/* 对比文本的读音校对与逐字汉语言种，作用于所有没有自备文本的行；
-                某一行自己的校对优先。通过共享的读音与语种弹窗设置。 */}
+            {/* 对比文本的读音校对与逐字汉语言种，作用于所有没有自备文本的行；某一行自己的校对优先。通过共享的读音与语种弹窗设置。 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-sm" onClick={() => setShowDefaultTextPrep(true)}>
                 Proof &amp; language{'\u2026'}
@@ -536,7 +528,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         </div>
       </div>
 
-      {/* Rows */}
+      {/* 行列表。 */}
       {rows.map((row, rowIdx) => (
         <CompareRow
           key={row.id}
@@ -595,7 +587,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         </div>
       )}
 
-      {/* 对比结果区 */}
+      {/* 对比结果区。 */}
       {rows.length > 0 && !rows.some(r => r.result) && (
         <div className="empty-state" style={{ marginTop: 4, padding: 16 }}>
           <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated comparison results will appear here.', '生成的对比结果会显示在这里。')}</div>

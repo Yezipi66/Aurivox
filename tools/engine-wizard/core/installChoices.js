@@ -3,7 +3,7 @@
 // 只改写平台从上游清单推出的装法；名片自己写的 env_command 与 conda 不改。
 // 跳过用 uv 自带的排除：锁文件走 --no-install-package，其余走 --excludes，
 //   被排除的包连同「被别的包间接依赖」的情况一起不装。
-// 用户什么都没改（不跳包、后端等于推荐）时原样返回，装法与原来完全一致。
+// 用户什么都没改（不跳包、后端等于推荐）时原样返回，装法逐项不改动。
 
 const fs = require('node:fs')
 const path = require('node:path')

@@ -67,10 +67,8 @@ except ImportError:                    # pragma: no cover - py2 不支持
 
 BANNER = "[ab_capture]"
 
-# ---------------------------------------------------------------------------
 #  身份识别 ： 两条路径的 /health 天然长得不一样，正好拿来防「端口认错」
-# ---------------------------------------------------------------------------
-# ⭐ 两个独立判据一起用：banner 前缀 + seed_mode 字段在不在。
+# 两个独立判据一起用：banner 前缀 + seed_mode 字段在不在。
 #   任何一个对不上就拒采。用两个是因为 banner 里有日期，将来会改；
 #   seed_mode 是 host.py 独有的结构，不会因为改版本号就没了。
 ROLE_SPEC = {
@@ -100,9 +98,7 @@ class Fail(Exception):
         self.hint = hint
 
 
-# ---------------------------------------------------------------------------
 #  HTTP ： 只用标准库，且把响应头一起带回来（X-Seed-Applied 是承重的）
-# ---------------------------------------------------------------------------
 def http_get_json(url, timeout):
     try:
         resp = urlopen(Request(url, method="GET"), timeout=timeout)
@@ -141,9 +137,7 @@ def http_post_tts(url, payload, timeout):
     return code, headers, body
 
 
-# ---------------------------------------------------------------------------
 #  WAV ： 只读元数据。真正的比对在 ab_compare 里，这里只确认「是段能听的」
-# ---------------------------------------------------------------------------
 def wav_meta(path):
     with wave.open(path, "rb") as w:
         n = w.getnframes()
@@ -165,9 +159,7 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-# ---------------------------------------------------------------------------
 #  G1：这一侧到底是谁
-# ---------------------------------------------------------------------------
 def check_identity(base_url, role, timeout):
     spec = ROLE_SPEC[role]
     code, health = http_get_json(base_url.rstrip("/") + "/health", timeout)
@@ -181,7 +173,7 @@ def check_identity(base_url, role, timeout):
     ok_shape = (has_seed_mode == spec["has_seed_mode"])
 
     if not (ok_banner and ok_shape):
-        # ⭐ 报文要能一眼看出「我连到的其实是另一条路径」
+        # 报文要把「我连到的其实是另一条路径」点出来
         other = "host" if role == "shim" else "shim"
         looks_like_other = (
             banner.startswith(ROLE_SPEC[other]["banner_startswith"])
@@ -208,9 +200,7 @@ def check_identity(base_url, role, timeout):
     return health
 
 
-# ---------------------------------------------------------------------------
 #  采一发
-# ---------------------------------------------------------------------------
 def shoot(base_url, name, payload, out_dir, timeout):
     url = base_url.rstrip("/") + "/tts"
     t0 = time.time()
@@ -237,7 +227,7 @@ def shoot(base_url, name, payload, out_dir, timeout):
     seed_applied = headers.get("x-seed-applied") or ""
 
     # ---- G4：播种真的生效了吗 ------------------------------------------
-    # ⭐⭐ 这条不拦住，地板量的就是「两次随机」而不是「精度噪声」，
+    # 这条不拦住，地板量的就是「两次随机」而不是「精度噪声」，
 #    而地板一大，跨路径必然跟着红 ： 那个红指向的是错的地方。
     if payload.get("seed") is not None and not seed_applied.strip():
         raise Fail(
@@ -260,9 +250,7 @@ def shoot(base_url, name, payload, out_dir, timeout):
     }
 
 
-# ---------------------------------------------------------------------------
 #  主流程
-# ---------------------------------------------------------------------------
 def sidecar_path(out_dir, role):
     return os.path.join(out_dir, "capture-%s.json" % role)
 
@@ -327,8 +315,8 @@ def main(argv=None):
     ap.add_argument("--out", default=os.path.join("outputs", "ab"))
     ap.add_argument("--timeout", type=float, default=600.0,
                     help="单次请求超时（秒）；TTS 慢，默认给 600")
-# ⛔ 出厂默认原先是 emo_alpha=0.3，那是坏的默认值：实测天花板那段
-#   和 shim-a 逐字节相同（差 0%）。原因在上游 ： infer_v2.py:428-433
+# 出厂默认原先是 emo_alpha=0.3，那是坏的默认值：实测天花板那段
+    #   和 shim-a 逐字节相同（差 0%）。原因在上游：上游无条件覆写 emo_alpha，名片传什么都不算数。
     #   无条件覆写 emo_alpha，名片传什么都不算数。
     #   天花板差 0% ⇒ 阈值在放行一切 ⇒ 全绿是空转。所以默认值必须换成一个
 #   在当前配置下真的起作用的参数。max_text_tokens_per_segment=4 实测
@@ -356,7 +344,7 @@ def main(argv=None):
         "seed": args.seed,
     }
 
-# ⭐⭐ 顺序是有讲究的：先问「我连到的是谁」，再管工作流。
+# 顺序是有讲究的：先问「我连到的是谁」，再管工作流。
     #   两者都会红的时候（比如端口敲错、而且还没采过 shim），身份那条才是
 #   要先说的 ： 「你在跟另一条路径说话」是最根本的错，而「先跑 shim」
     #   是把端口修对之后照样要做的下一步。

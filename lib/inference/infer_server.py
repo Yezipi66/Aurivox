@@ -1,19 +1,20 @@
-"""
-本地自包含推理 HTTP 服务 (infer_server.py)
+"""GPT-SoVITS 引擎的本地推理服务，平台与它之间只有 HTTP。
 
-由 GPT-SoVITS 的 api_v2.py 本地化移植而来,使本项目不再依赖外部
-D:\\AI\\GPT-SoVITS-v2pro-20250604 引擎即可完成推理。
+服务只认这台引擎自己的依赖：推理栈（TTS、BigVGAN、训练脚本）都在
+engines/gpt-sovits 下，import 之前先把这几个目录挂到 sys.path 上。
 
-启动:
+接口：
+    GET  /                     健康检查，返回 200 与引擎版本
+    POST /tts                  文本转语音，返回 audio/wav 字节流
+    GET  /tts                  同上，参数走 query
+    GET  /set_gpt_weights      热加载 GPT 权重
+    GET  /set_sovits_weights   热加载 SoVITS 权重
+    GET  /control              进程控制，command 取 restart 或 exit
+
+启动：
     <venv>\\python.exe lib\\inference\\infer_server.py -a 127.0.0.1 -p 9880 -c lib\\inference\\tts_infer.yaml
 
-接口 (与 server.js 调用 1:1 兼容):
-    GET / 健康检查 (返回 200)
-    POST /tts 文本转语音, 返回 audio/wav 字节流
-    GET /tts 同上 (query 参数)
-    GET /set_gpt_weights?weights_path= 热加载 GPT 权重
-    GET /set_sovits_weights?weights_path= 热加载 SoVITS 权重
-    GET /control?command=restart|exit 进程控制
+端口与配置文件由名片给出，平台侧只负责把参数传进来。
 """
 
 import os
@@ -21,14 +22,10 @@ import sys
 import traceback
 from typing import Generator, Optional, Union
 
-# ------------------------------------------------------------------
-# Force UTF-8 I/O. On a Chinese Windows console the default stdout/stderr
-# encoding is GBK (cp936); when the engine logs text containing characters GBK
-# cannot represent (e.g. the U+FFFD replacement char), Python raises
-# UnicodeEncodeError inside the request path and the whole /v1/audio/speech call
-# fails with a 502. Reconfiguring to UTF-8 with errors="replace" makes logging
-# lossless-enough and never crash, regardless of how the process is launched
-# (start.ps1 launches this directly, bypassing server.js's clean env).
+# 强制 UTF-8 输出。中文 Windows 控制台的默认编码是 GBK，而引擎日志里会出现
+# GBK 表示不了的字符（U+FFFD 替换符就是其中一种）：此时 Python 在请求处理
+# 途中抛 UnicodeEncodeError，整个 /v1/audio/speech 调用以 502 收场。
+# 改成 UTF-8 并配 errors="replace"，日志不再因此中断，进程怎么被拉起来都一样。
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 for _stream in (sys.stdout, sys.stderr):
@@ -37,20 +34,18 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-# ============================================================
-# 路径与环境初始化 (必须在 import TTS / librosa 之前)
-# ============================================================
+# 路径与环境初始化，必须在 import TTS / librosa 之前完成。
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))      # .../lib/inference
 LIB_DIR = os.path.dirname(THIS_DIR)                         # .../lib
 PROJECT_ROOT = os.path.dirname(LIB_DIR)                     # 项目根
 
-# 推理运行时 (TTS/sv/BigVGAN/sr/TTS_infer_pack) 属第三方代码, 位于
-# engines/gpt-sovits/infer; gsv_code 作为包导入需要它的上级目录在 path 上。
+# 推理运行时（TTS/sv/BigVGAN/sr/TTS_infer_pack）属第三方代码，位于
+# engines/gpt-sovits/infer；gsv_code 作为包导入需要它的上级目录在 path 上。
 GSV_DIR = os.environ.get("GSV_DIR") or os.path.join(PROJECT_ROOT, "engines", "gpt-sovits")
 GSV_INFER_DIR = os.environ.get("GSV_INFER_DIR") or os.path.join(GSV_DIR, "infer")
 sys.path.insert(0, GSV_DIR)
 sys.path.insert(0, GSV_INFER_DIR)
-# 训练脚本以裸名 `import utils` 引用 gsv_code/utils.py, 训练出的 SoVITS 权重把 hps
+# 训练脚本以裸名 `import utils` 引用 gsv_code/utils.py，训练出的 SoVITS 权重把 hps
 # (utils.HParams 对象) pickle 进 checkpoint["config"], 其模块引用记为裸名 `utils`。
 # 反序列化 (load_sovits_new -> torch.load) 需要裸 `import utils` 能解析, 否则报
 # "No module named 'utils'" 导致 set_sovits_weights 400、训练模型无法加载。
@@ -62,25 +57,22 @@ sys.path.append(os.path.join(GSV_DIR, "gsv_code"))
 os.chdir(PROJECT_ROOT)
 
 # numba (librosa 依赖) 缓存目录: 指向项目内可写目录, 避免 site-packages 只读导致的 PermissionError
-# 落点统一到 cache/numba，与 lib/paths.js:396 的 CACHE.numba 对齐。
+# 落点统一到 cache/numba，与 lib/paths.js 的 CACHE.numba 对齐。
 # 这里只能把同一个位置再写成 Python（跟 download_models.py 一样），
 # 位置权威仍在 lib/paths.js。改那边就要同步改这里。
 os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(PROJECT_ROOT, "cache", "numba"))
 os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
 
-# Windows 上 numpy/soundfile/sklearn 等各自捆绑 OpenMP/MKL 运行时, 若在 torch 之前加载,
-# 会与 torch 的 OpenMP 产生重复运行时冲突, 导致首次 torch 重运算 (加载/构建模型) 时
-# 静默访问冲突崩溃 (无 Python traceback)。两个措施规避:
-#  1) 允许重复 OpenMP 运行时共存 (官方推荐的兜底开关, 这一条已足以规避 OpenMP 冲突)
-#  2) 固定 native 库加载顺序: 先 librosa, 再 torch
+# Windows 上 numpy/soundfile/sklearn 各自捆绑 OpenMP/MKL 运行时，若在 torch 之前加载，
+# 会与 torch 的 OpenMP 产生重复运行时冲突，首次 torch 重运算（加载/构建模型）时
+# 静默访问冲突崩溃（无 Python traceback）。两个措施规避：
+#  1) 允许重复 OpenMP 运行时共存（官方推荐的兜底开关）
+#  2) 固定 native 库加载顺序：先 librosa，再 torch
 #
-# 注意 (2) 的方向: 早期版本是"抢先 import torch"。但在部分 Windows 机器上,
-# 若 torch 先于 librosa 加载, librosa 的 import 会触发 native 访问冲突
-# (进程以 3221225477 / 0xC0000005 退出, 且无任何 Python traceback / 空日志),
-# 经逐库 bisect 确认崩溃点正是 "torch-then-librosa" 这个顺序。librosa 会连带
-# 加载 numpy/soundfile/numba 等; 有了上面的 KMP_DUPLICATE_LIB_OK 兜底,
-# 让 librosa 先加载不会重新引入当初的 OpenMP 重复运行时崩溃, 反而能同时避开
-# torch-then-librosa 崩溃。因此这里改为先 import librosa, 再 import torch。
+# 第 2 条的方向是「先 import librosa」：torch 先于 librosa 加载时，librosa 的 import
+# 会触发 native 访问冲突，进程以 3221225477 / 0xC0000005 退出，且没有任何 Python
+# traceback。有了上面的 KMP_DUPLICATE_LIB_OK 兜底，先加载 librosa 不会重新引入
+# OpenMP 重复运行时崩溃，反而同时避开了 torch-then-librosa 崩溃。
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 import librosa  # noqa: F401  # 必须在 torch 之前, 规避 torch-then-librosa native 崩溃
 import torch  # noqa: F401
@@ -100,25 +92,18 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 from pydantic import BaseModel
 
-# ------------------------------------------------------------------
-# English g2p (g2p_en) depends on two NLTK data packages —
-# `averaged_perceptron_tagger` (POS tagging) and `cmudict` (pronunciations).
-# They are downloaded to the user's nltk_data dir on first use, NOT shipped in
-# the release. If they are missing — or worse, half-downloaded/corrupt (a common
-# outcome when a download manager like IDM sniffs and truncates the .zip) —
-# English synthesis fails deep inside g2p_en with the cryptic
-# `BadZipFile: File is not a zip file`, while Chinese/Japanese (which never touch
-# NLTK) keep working. That is exactly what surfaces to the user as
-# "any English text -> Internal Server Error".
+# 英文 g2p（g2p_en）依赖两个 NLTK 数据包：averaged_perceptron_tagger（词性标注）
+# 与 cmudict（发音词典）。两者首次使用时才下载到用户的 nltk_data 目录，不随发行包
+# 分发。缺失或下载残缺时，英文合成会在 g2p_en 内部报 BadZipFile，而中日文不走
+# NLTK 仍然正常：外部看到的是只有英文合成失败，引擎这一侧返回 400，
+# broker 再把它报成上游失败。
 #
-# Self-heal at startup: for each required package, actually exercise it; on ANY
-# failure (missing OR corrupt) re-download it, print a clear message, and never
-# crash the engine. Must run BEFORE importing TTS (which imports english.py and
-# constructs g2p_en at module load).
+# 启动时自愈：对每个包真正调用一次，缺或损坏都重下，打印明确信息，不让引擎起不来。
+# 必须在 import TTS 之前执行（TTS 会 import english.py，并在模块加载时构造 g2p_en）。
 def _ensure_nltk_data():
     try:
         import nltk
-    except Exception as e:  # nltk itself unavailable — nothing we can do here
+    except Exception as e:  # nltk 本身装不上，这里无能为力
         print(f"[nltk] WARNING: nltk import failed ({e!r}); English TTS unavailable.")
         return
 
@@ -147,11 +132,9 @@ def _ensure_nltk_data():
         from nltk.corpus import cmudict
         cmudict.dict()
 
-    # POS tagger — verify by actually tagging. nltk>=3.9 renamed the default tagger
-    # package to `averaged_perceptron_tagger_eng` (confirmed: on nltk 3.9.x English
-    # fails until `_eng` is present); g2p_en 2.1.0 references the classic name. Some
-    # setups also need `punkt`/`punkt_tab`. Download the full set the working config
-    # required, then RE-PROBE to confirm the heal actually took.
+    # 词性标注包：用真正标注一次来验证。nltk 3.9 起默认包名改为
+    # averaged_perceptron_tagger_eng，而 g2p_en 2.1.0 引用的仍是经典名；部分环境
+    # 还需要 punkt / punkt_tab。下载完整集合后再探一次，确认修复确实生效。
     if not _probe("averaged_perceptron_tagger", _pos_tag_probe):
         _redownload(
             "averaged_perceptron_tagger_eng",
@@ -166,7 +149,7 @@ def _ensure_nltk_data():
                   "English TTS will error. Check network / disable download managers "
                   "(e.g. IDM) that truncate localhost downloads, then restart the engine.")
 
-    # CMU pronouncing dictionary — force a real load so a truncated zip is caught.
+    # 发音词典：强制真正加载一次，下载残缺的 zip 才会当场露出来。
     if not _probe("cmudict", _cmudict_probe):
         _redownload("cmudict")
         if _probe("cmudict (after download)", _cmudict_probe):
@@ -202,22 +185,21 @@ argv = sys.argv
 if config_path in [None, ""]:
     config_path = os.path.join(THIS_DIR, "tts_infer.yaml")
 
-# 活动配置的自检与修复(活动 yaml 会被运行时热加载回写, 故不入库)。
+# 活动配置的自检与修复（活动 yaml 会被运行时热加载回写，故不入库）。
 #
-# 这段逻辑从 tools/scripts/start.ps1 的 Repair-EngineConfig 搬过来，
-#  它是 GPT-SoVITS 独有的收拾工作, 平台正在改成"按名片起引擎", 引擎特有的
-#  逻辑不该留在平台的启动脚本里。搬到这儿之后谁起这个进程都一样修:
-#  start.ps1 起、平台起、开发者手工敲命令起, 行为完全一致。
-#  判据比原先的"缺了才复制"严格: 空文件、被 GBK 控制台写坏的问号路径、
-#  指向已不存在位置的旧路径, 都会带备份地重建。
-#  这里显式把本文件所在目录放进 sys.path 再 import: :51-52 往 path 前面
-#  插了两个引擎目录, 不能指望"脚本目录一定还在最前面"。
+# 这段逻辑原本在启动脚本的 Repair-EngineConfig 里，是 GPT-SoVITS 独有的收拾工作：
+# 引擎特有的逻辑不该留在平台的启动脚本里，搬到这儿之后无论谁起这个进程都一样修。
+# 判据比「缺了才复制」严格：空文件、被 GBK 控制台写坏的问号路径、指向已不存在
+# 位置的旧路径，都会带备份地重建。判断与修复的实现都在 lib/inference/config_repair.py。
+#
+# 这里显式把本文件所在目录放进 sys.path 再 import：上面往 path 前面插了两个引擎
+# 目录，不能指望「脚本目录一定还在最前面」。
 if THIS_DIR not in sys.path:
     sys.path.append(THIS_DIR)
 from config_repair import repair as _repair_engine_config  # noqa: E402
 # 请求别名折叠（if_sr → super_sampling）。判断本身在
-#  alias_fold.py：那儿有它的测试；这里只负责在 tts_handle 里调。
-#  同目录 import 依赖上面那个 sys.path.append(THIS_DIR)。
+# alias_fold.py：那儿有它的测试；这里只负责在 tts_handle 里调。
+# 同目录 import 依赖上面那个 sys.path.append(THIS_DIR)。
 from alias_fold import fold_aliases  # noqa: E402
 
 _repair_engine_config(config_path, config_path + ".example", PROJECT_ROOT)
@@ -225,23 +207,21 @@ _repair_engine_config(config_path, config_path + ".example", PROJECT_ROOT)
 def _sweep_upstream_shell_dir():
     """收掉上游 TTS_Config 在项目根拉出来的那个空壳目录。
 
-    上游 engines/gpt-sovits/infer/TTS.py 的 TTS_Config.__init__ (class 在 :248)
-    第 333 行有一句无条件的 os.makedirs("GPT_SoVITS/configs/"), 它是相对
-    当前工作目录的, 而本文件 :62 已经 chdir 到项目根 (yaml 里的相对底模路径靠
-    这个基准解析, 不能改), 于是每次起引擎都会在项目根上新造一个空目录。
+    上游 engines/gpt-sovits/infer/TTS.py 的 TTS_Config.__init__ 里有一句无条件的
+    os.makedirs("GPT_SoVITS/configs/")，它是相对当前工作目录的，而本文件已经
+    chdir 到项目根（yaml 里的相对底模路径靠这个基准解析，不能改），于是每次起
+    引擎都会在项目根上新造一个空目录。
 
-    它从头到尾没人读写: 本项目传给 TTS_Config 的是 lib/inference/tts_infer.yaml
-    这条绝对路径, 上游那个"没给配置就用默认路径"的分支永远不会进。
+    它从头到尾没人读写：本项目传给 TTS_Config 的是 lib/inference/tts_infer.yaml
+    这条绝对路径，上游那个「没给配置就用默认路径」的分支永远不会进。
 
-    为什么把清理放在这里而不是去改上游那一行:
-       改上游是零功能价值的改动, 却要在每次升级上游时重新施加
-       (见 engines/gpt-sovits/infer/LOCAL-CHANGES.md 的维护成本)。
-       这个文件是本项目自己的, 收尾放这儿等于一行上游代码都不动。
+    清理放在本文件而不是去改上游那一行：改上游是零功能价值的改动，却要在每次
+    升级上游时重新施加（见 engines/gpt-sovits/infer/LOCAL-CHANGES.md 的维护成本）。
 
-    只在确实是空的时候删: 只要底下有任何文件就原样留着：那说明有人
-       把旧布局的权重树搬回来了, 那是 lib/root_layout.node.test.js 的活,
-       轮不到这里悄悄删掉别人的东西。
-"""
+    只在确实是空的时候删：只要底下有任何文件就原样留着，那说明有人把旧布局的
+    权重树搬回来了，那是 lib/root_layout.node.test.js 的活，轮不到这里悄悄删掉
+    别人的东西。
+    """
     import shutil
 
     shell = os.path.join(PROJECT_ROOT, "GPT_SoVITS")
@@ -258,15 +238,15 @@ tts_config = TTS_Config(config_path)
 print(tts_config)
 tts_pipeline = TTS(tts_config)
 
-# 必须放在 TTS_Config / TTS 都构造完之后：空壳是 TTS_Config.__init__ 造的,
-#  提前删会被它随后重新造出来。
+# 必须放在 TTS_Config / TTS 都构造完之后：空壳是 TTS_Config.__init__ 造的，
+# 提前删会被它随后重新造出来。
 _sweep_upstream_shell_dir()
 
-# tts_pipeline 是模块级全局单例, 被所有请求共享。切换 GPT/SoVITS 权重
-# (init_t2s_weights / init_vits_weights) 与推理 (run) 会并发访问同一对象:
-# 若一次推理进行中另一请求切了权重, 推理会读到半加载状态而抛异常 (/tts 返回 400
-# -> server.js 返回 500), 刷新后 (权重已切完) 又正常：典型竞态。
-# 用一把互斥锁把"切权重"与"推理"串行化: 切模型时新推理排队等待, 反之亦然。
+# tts_pipeline 是模块级全局单例，被所有请求共享。切换 GPT/SoVITS 权重
+# (init_t2s_weights / init_vits_weights) 与推理 (run) 会并发访问同一对象：
+# 若一次推理进行中另一请求切了权重，推理会读到半加载状态而抛异常（/tts 返回 400
+# -> server.js 返回 500），刷新后（权重已切完）又正常：典型竞态。
+# 用一把互斥锁把「切权重」与「推理」串行化：切模型时新推理排队等待，反之亦然。
 _model_lock = asyncio.Lock()
 
 APP = FastAPI()
@@ -295,34 +275,13 @@ class TTS_Request(BaseModel):
     repetition_penalty: float = 1.35
     sample_steps: int = 32
     super_sampling: bool = False
-    # 别名折叠：「Super Sampling」那一格以前是死的。
-    #
-    # 事实（不是推断）：平台从 engines/gpt-sovits/manifest.json 的
-    # param_schema 长出这一格，键名是 `if_sr`；assembleEnginePayload 也照
-    # payload_keys 原样把它发过来。但这个宿主的 TTS_Request 只有
-    # super_sampling，pydantic v2 静默忽略多余字段 ⇒ 用户在界面上打开
-    # 那一格、点生成，声音一点不变，没有一处报错。
-    #
-    # 为什么在这里折叠（而不是让平台各处去翻译）：
-    #  `if_sr` 是磁盘上 v3 配方的历史键名，被 lib/recipeStore.js:84 的
-    #  V3_PARAM_KEYS 和 lib/recipeView.js:40 冻住了（C11 豁免表登记着，
-    #  理由是「v3 磁盘格式的历史事实，名片变了它也不能变」）。改名片会让
-    #  存量配方读错。
-    #  在平台侧加一张「历史键名对照表」就是 C11 明令禁止的**第二份参数名
-    #  清单**，而且必然漂移。
-    #  ⇒ 既成事实让收件人认，成本最低、漂移面最小。
-    #
-    # 真实消费点在下游 engines/gpt-sovits/infer/TTS.py:1229
-    # （super_sampling = inputs.get("super_sampling", False)），宿主不翻译它
-    # 就永远无法读取。
-    #
-    # 优先级：`if_sr` 是平台唯一的规范键（没有任何生产代码发 super_sampling），
-    # 所以两个都给时 if_sr 赢。这样即使将来有人按下游的名字发，也不会
-    # 把用户在界面上明确关掉的那一格又打开。
+    # 别名折叠用的规范键。平台从名片长出这一格时用的键名是 if_sr，而宿主的
+    # TTS_Request 只有 super_sampling，pydantic v2 静默忽略多余字段。
+    # 折叠规则、优先级与依据都在 lib/inference/alias_fold.py。
     if_sr: Optional[bool] = None
     overlap_length: int = 2
     min_chunk_length: int = 16
-    # 读音校对（task6）：本次合成的词粒度读音覆盖，形如 {"乐句": ["yue4","ju4"]}
+    # 读音校对：本次合成的词粒度读音覆盖，形如 {"乐句": ["yue4","ju4"]}
     pron_overrides: dict = None
     # Auto (Multilingual)：kana-free CJK 片段的兜底语言（取自音色元数据语言）
     auto_base_lang: str = None
@@ -370,8 +329,8 @@ def pack_wav(io_buffer: BytesIO, data: np.ndarray, rate: int):
 
 
 def pack_aac(io_buffer: BytesIO, data: np.ndarray, rate: int):
-    # 注意: aac 依赖系统 ffmpeg 二进制。本项目已解耦 ffmpeg, 故 aac 默认不可用。
-    # server.js 默认 media_type=wav, 不会走到这里。如需 aac 请自行安装 ffmpeg。
+    # aac 依赖系统 ffmpeg 二进制。本项目已解耦 ffmpeg，故 aac 默认不可用。
+    # 平台侧默认 media_type=wav，不会走到这里。如需 aac 请自行安装 ffmpeg。
     process = subprocess.Popen(
         ["ffmpeg", "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "pipe:0",
          "-c:a", "aac", "-b:a", "192k", "-vn", "-f", "adts", "pipe:1"],
@@ -451,8 +410,7 @@ async def tts_handle(req: dict):
     # 而两遍迟早会漂移成一处有、一处没有。
     #
     # 判断本身（哪两个键是别名、冲突时谁赢、为什么不能让平台各处去翻译）
-    # 全部在 lib/inference/alias_fold.py 的注释和测试里：那儿才是这件事的
-    # 产地，这里只负责调。
+    # 全部在 lib/inference/alias_fold.py：那儿才是这件事的产地，这里只负责调。
     fold_aliases(req)
 
     streaming_mode = req.get("streaming_mode", False)
@@ -481,7 +439,7 @@ async def tts_handle(req: dict):
 
     streaming_mode = streaming_mode or return_fragment
 
-    # 读音校对（task6）：设置本次合成的词粒度读音覆盖上下文；缺模块时静默降级。
+    # 读音校对：设置本次合成的词粒度读音覆盖上下文；缺模块时静默降级。
     pron_overrides = req.pop("pron_overrides", None)
     _pron_active = False
     if pron_overrides:
@@ -502,10 +460,10 @@ async def tts_handle(req: dict):
             except Exception:
                 pass
 
-    # 与切权重互斥: 整个推理期间持锁, 防止 run() 读到半加载权重。
-    # 非流式路径全程在事件循环线程上 (next() 同步阻塞), 直接 release 即可;
-    # 流式路径下生成器在 starlette 线程池里迭代, 故用 call_soon_threadsafe
-    # 把 release 调度回事件循环线程, 避免跨线程操作 asyncio.Lock。
+    # 与切权重互斥：整个推理期间持锁，防止 run() 读到半加载权重。
+    # 非流式路径全程在事件循环线程上（next() 同步阻塞），直接 release 即可；
+    # 流式路径下生成器在 starlette 线程池里迭代，故用 call_soon_threadsafe
+    # 把 release 调度回事件循环线程，避免跨线程操作 asyncio.Lock。
     _loop = asyncio.get_running_loop()
     await _model_lock.acquire()
     _lock_state = {"released": False}
@@ -517,9 +475,9 @@ async def tts_handle(req: dict):
         try:
             _loop.call_soon_threadsafe(_model_lock.release)
         except RuntimeError:
-            # 兜底: 事件循环已关闭/停止时 call_soon_threadsafe 会抛 RuntimeError
-            # (例如进程正在退出、请求被中断)。此时无法再调度回事件循环线程,
-            # 只能就地直接 release, 确保锁不会因崩溃路径而永久泄漏, 阻塞后续请求。
+            # 兜底：事件循环已关闭/停止时 call_soon_threadsafe 会抛 RuntimeError
+            # （例如进程正在退出、请求被中断）。此时无法再调度回事件循环线程，
+            # 只能就地直接 release，确保锁不会因崩溃路径而永久泄漏，阻塞后续请求。
             try:
                 _model_lock.release()
             except Exception:
@@ -564,7 +522,7 @@ async def tts_handle(req: dict):
 
 @APP.get("/")
 async def health():
-    # server.js (line 722) 用 GET / 做健康检查, 返回 200 即视为 online
+    # 探活地址是 GET /：名片的 runtime.ready_endpoint 就是它，返回 200 即视为 online。
     return JSONResponse(status_code=200, content={"message": "infer_server online", "version": tts_config.version})
 
 
@@ -610,7 +568,7 @@ async def tts_post_endpoint(request: TTS_Request):
 
 @APP.post("/pron/preview")
 async def pron_preview(request: PronPreviewRequest):
-    # 读音校对（task6）：文本 -> 逐词逐字读音 + 候选 + 多音标记。
+    # 读音校对：文本 -> 逐词逐字读音 + 候选 + 多音标记。
     # 复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。
     try:
         from gsv_code.text import pron_correction

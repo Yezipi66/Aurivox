@@ -1,11 +1,8 @@
-// Stage-2 behavioral test for POST /v1/audio/speech (giant handler #2 sunk to a
-// service). Builds the synthesis router with a fully stubbed ctx (no engine/GPU/
-// fs), captures the registered handler and drives it through EVERY response exit,
-// asserting HTTP status + body/binary + headers. This is the 1:1 proof that the
-// service/HttpError/RawResponse refactor preserved the original inline handler's
-// behavior — including the two structured-object error bodies (ffmpeg_unavailable
-// / transcode_failed) and the binary success with its response headers.
-// Run from project root:  node tools/tests/speech_service_test.js
+// POST /v1/audio/speech 的行为测试：用一套全替身的 ctx 建出合成路由，
+// 抓取注册好的 handler，把每一条响应出口都走一遍，断言状态码、响应体与响应头。
+// 覆盖的是把 handler 从路由里搬进服务层之后行为没有变：两个结构化错误体
+// （ffmpeg_unavailable / transcode_failed）与带响应头的二进制成功响应。
+// 运行方式（在项目根）：node tools/tests/speech_service.node.test.js
 const path = require("path");
 const Module = require("module");
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -14,7 +11,7 @@ const realResolveRefPath = require(path.join(ROOT, 'lib', 'server', 'paths')).re
 const realPathResolver = require(path.join(ROOT, 'lib', 'pathResolver'));
 
 
-// ---- express shim that CAPTURES route handlers -----------------------------
+// 冒充 express：Router.post 把注册的 handler 抓下来，供本文件直接调用。
 const captured = {};
 const expressShim = function () { const a = {}; for (const m of ["get","post","put","delete","patch","use","all"]) a[m] = () => a; return a; };
 expressShim.Router = function () {
@@ -29,14 +26,14 @@ expressShim.urlencoded = () => (q, s, n) => n && n();
 const orig = Module._load;
 Module._load = function (request) { if (request === "express") return expressShim; return orig.apply(this, arguments); };
 
-// ---- mutable test state driving the stub ctx --------------------------------
+// 可变的测试状态：下面的替身靠它切换分支（缺文件、抛错、引擎返回码等）。
 const state = {};
 const AUDIO_FORMATS = {
   wav: { mime: "audio/wav", ext: "wav" },
   mp3: { mime: "audio/mpeg", ext: "mp3" },
 };
 // 假引擎：请求点名了哪台就返回哪台。位表是空的：
-// 这个文件测的是「请求 → 响应」的形状，不测模型位的挑选。
+// 这个文件测的是「请求到响应」的形状，不测模型位的挑选。
 const FAKE_ENGINE = {
   id: "test-engine",
   label: "Test Engine",
@@ -73,12 +70,11 @@ const ctx = {
   requireApiKey: (q, s, n) => n && n(),
   path,
   fs: {
-    // Cross-platform: resolve BOTH sides to an absolute OS path so POSIX-style
-    // expected paths (e.g. "/assets/spk/segments.json", "/root/in") match whatever
-    // production passes — whether via path.join (drive-relative "\\assets\\...") or
-    // path.resolve (drive-absolute "D:\\root\\in"). path.normalize alone does NOT
-    // convert separators / add a drive, so it fails for path.resolve output. This
-    // is a test-stub-only concern; production uses one OS path convention end-to-end.
+    // 跨平台：把两边都解析成绝对路径，这样 POSIX 风格的预期路径
+    // （如 "/assets/spk/segments.json"）既能对上 path.join 出来的
+    // 盘符相对路径，也能对上 path.resolve 出来的盘符绝对路径。
+    // 只做 path.normalize 既不统一分隔符也不补盘符，path.resolve 的输出对不上。
+    // 这只是测试替身要考虑的事；生产代码全程只用一种路径写法。
     existsSync: (p) => (state.missingPaths ? !state.missingPaths.some((m) => path.resolve(m) === path.resolve(p)) : true),
     readFileSync: () => JSON.stringify(state.segments || { segments: [{ matched: true, audio: "ref.wav", text: "hello" }] }),
     mkdirSync() {},
@@ -111,9 +107,9 @@ require(path.join(ROOT, "lib", "routes", "synthesis.js"))(ctx);
 const handler = captured["/v1/audio/speech"];
 if (typeof handler !== "function") { console.error("FAIL: /v1/audio/speech handler not captured"); process.exit(1); }
 
-// ---- mock req/res -----------------------------------------------------------
+// 冒充 req / res：res 把状态码、响应头与响应体记下来，交回一个可判定形状。
 function run(body) {
-  // 请求必须点名引擎（契约 §12 第 2 步）：平台不代为选择。
+  // 请求必须点名引擎：平台不代为选择。
   body = { engine_id: FAKE_ENGINE.id, ...body };
   return new Promise((resolve) => {
     const res = {
@@ -154,7 +150,7 @@ function check(name, cond, detail) {
   r = await run({ voice: "spk", input: "hi" });
   check("voices.json error -> 500", r.status === 500 && r.body.error === "voices.json error: boom", JSON.stringify(r));
 
-  // --- recipe path ---
+  // 配方路径
   reset(); state.recipe = { role: "spk", id: "rec1" }; state.voices = {}; // voices lacks role
   r = await run({ voice: "role/name", input: "hi" });
   check("recipe unknown role -> 404", r.status === 404 && /references unknown voice/.test(r.body.error), JSON.stringify(r));
@@ -166,10 +162,10 @@ function check(name, cond, detail) {
   reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t" };
   state.voices = { spk: {} }; state.refReject = true;
   r = await run({ voice: "role/name", input: "hi" });
-  // 配方必须自己写明用哪台引擎（契约 §12 第 2 步）：没写就 400 + RECIPE_NO_ENGINE。
+  // 配方必须自己写明用哪台引擎：没写就 400 + RECIPE_NO_ENGINE。
   check("recipe without engine -> 400+code", r.status === 400 && r.body.code === "RECIPE_NO_ENGINE", JSON.stringify(r));
 
-  // --- whole-voice path ---
+  // 裸音色路径
   reset(); state.voices = {};
   r = await run({ voice: "spk", input: "hi" });
   check("unknown voice -> 404", r.status === 404 && r.body.error === "Unknown voice: spk", JSON.stringify(r));
@@ -183,41 +179,41 @@ function check(name, cond, detail) {
   r = await run({ voice: "spk", input: "hi" });
   check("no matched ref -> 400", r.status === 400 && /no matched reference audio/.test(r.body.error), JSON.stringify(r));
 
-  // format validation (inside lock)
+  // 响应格式校验（在锁内）
   reset(); state.voices = { spk: {} };
   r = await run({ voice: "spk", input: "hi", response_format: "flac" });
   check("unsupported format -> 400", r.status === 400 && /Unsupported response_format 'flac'/.test(r.body.error), JSON.stringify(r));
 
-  // ffmpeg unavailable -> structured object body
+  // ffmpeg 不可用：结构化错误体
   reset(); state.voices = { spk: {} }; state.ffmpeg = false;
   r = await run({ voice: "spk", input: "hi", response_format: "mp3" });
   check("ffmpeg unavailable -> 400 object", r.status === 400 && r.body.error && typeof r.body.error === "object"
     && r.body.error.code === "ffmpeg_unavailable" && r.body.error.type === "invalid_request_error"
     && r.body.error.requested_format === "mp3", JSON.stringify(r));
 
-  // engine /tts >= 400
+  // 引擎 /tts 返回 >= 400
   reset(); state.voices = { spk: {} }; state.gsv = { statusCode: 500, body: Buffer.from("nope") };
   r = await run({ voice: "spk", input: "hi" });
   // 报错文案点名的是这次真的在用的那台引擎（它的 label），不是写死的名字。
   check("engine /tts fail -> 502", r.status === 502 && /Test Engine \/tts failed \(500\)/.test(r.body.error), JSON.stringify(r));
 
-  // empty audio
+  // 引擎返回空音频
   reset(); state.voices = { spk: {} }; state.gsv = { statusCode: 200, body: Buffer.alloc(0) };
   r = await run({ voice: "spk", input: "hi" });
   check("empty audio -> 502", r.status === 502 && r.body.error === "Test Engine returned empty audio", JSON.stringify(r));
 
-  // transcode failure -> structured object body, 500
+  // 转码失败：结构化错误体，500
   reset(); state.voices = { spk: {} }; state.ffmpeg = true; state.transcodeThrows = true;
   r = await run({ voice: "spk", input: "hi", response_format: "mp3" });
   check("transcode fail -> 500 object", r.status === 500 && r.body.error && typeof r.body.error === "object"
     && r.body.error.code === "transcode_failed" && r.body.error.requested_format === "mp3", JSON.stringify(r));
 
-  // engine throw (switchModels) -> 500 clientError via format500
+  // 引擎抛错（switchModels）：经 clientError 变成 500
   reset(); state.voices = { spk: {} }; state.switchThrows = true;
   r = await run({ voice: "spk", input: "hi" });
   check("engine throw -> 500 clientError", r.status === 500 && r.body.error === "kaboom", JSON.stringify(r));
 
-  // --- SUCCESS: WAV binary ---
+  // 成功：WAV 二进制
   reset(); state.voices = { spk: {} };
   r = await run({ voice: "spk", input: "hi" });
   check("wav success -> binary send", r.kind === "send" && r.status === 200
@@ -227,8 +223,8 @@ function check(name, cond, detail) {
     && r.headers["X-Voice-Id"] === "spk" && r.headers["X-Audio-Format"] === "wav"
     && !("X-Recipe-Id" in r.headers), JSON.stringify({ status: r.status, kind: r.kind, headers: r.headers }));
 
-  // --- SUCCESS: mp3 transcode + recipe header ---
-  // 配方路径：配方自己写明用哪台引擎（契约 §12 第 2 步）。
+  // 成功：mp3 转码 + 配方响应头
+  // 配方路径：配方自己写明用哪台引擎。
   reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t", language: "ja", engine_id: FAKE_ENGINE.id };
   state.voices = { spk: {} }; state.ffmpeg = true;
   r = await run({ voice: "role/name", input: "hi", response_format: "mp3" });

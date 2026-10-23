@@ -1,11 +1,12 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// 音频播放器：AudioPlayer 是紧凑进度条，Player 是可定位的完整播放器。
+// 波形需要解码音频，所以只在预览模式为 waveform 且该源尚未解码时才解码，结果按源缓存。
+// 解码失败时退回进度条，不显示空白画布。
 import { useState, useEffect, useRef } from 'react'
 import { usePreviewMode } from '../../lib/previewMode'
 import { useT } from '../../lib/i18n'
 
-// ---- Waveform decode + peaks cache (shared across every Player) ----
-// Decoding is done once per src and memoised, so flipping preview mode or
-// re-rendering a list never re-decodes the same audio.
+// 波形解码与峰值缓存，所有播放器共用。
+// 同一个 src 只解码一次，所以切换预览模式或重渲染列表都不会重复解码。
 const PEAK_RES = 500
 const _peaksCache = new Map()   // src -> { peaks: number[], duration: number }
 const _peaksInflight = new Map() // src -> Promise
@@ -56,8 +57,7 @@ function themeColors() {
   }
 }
 
-// Draw the waveform (played/unplayed split) plus segment-boundary dividers and
-// inter-segment silence shading onto a canvas.
+// 在画布上绘制波形（已播放与未播放分色）、分段边界竖线与段间静音的底色。
 function drawWaveform(canvas, peaksObj, curTime, totalDur, bounds) {
   if (!canvas || !peaksObj) return
   const w = canvas.clientWidth, h = canvas.clientHeight
@@ -76,7 +76,7 @@ function drawWaveform(canvas, peaksObj, curTime, totalDur, bounds) {
   const pct = dur ? Math.min(1, Math.max(0, curTime / dur)) : 0
   const hasBounds = Array.isArray(bounds) && bounds.length > 1 && dur > 0
 
-  // Inter-segment silence shading.
+  // 段间静音的底色。
   if (hasBounds) {
     ctx.save()
     ctx.globalAlpha = 0.18
@@ -91,7 +91,7 @@ function drawWaveform(canvas, peaksObj, curTime, totalDur, bounds) {
     ctx.restore()
   }
 
-  // Waveform bars, split at the playback position.
+  // 波形柱，按播放位置分成已播放与未播放两色。
   const barW = w / n
   for (let i = 0; i < n; i++) {
     const bh = Math.max(1, peaks[i] * h * 0.92)
@@ -102,7 +102,7 @@ function drawWaveform(canvas, peaksObj, curTime, totalDur, bounds) {
   }
   ctx.globalAlpha = 1
 
-  // Segment-boundary dividers (mid-gap).
+  // 分段边界竖线，画在段间空隙的中点。
   if (hasBounds) {
     ctx.save()
     ctx.strokeStyle = accent
@@ -119,6 +119,11 @@ function drawWaveform(canvas, peaksObj, curTime, totalDur, bounds) {
   }
 }
 
+/**
+ * 紧凑进度条播放器：播放键、进度条与时长显示，不可定位。
+ * @param src 音频地址。
+ * @param onDuration 可选回调，收到解码出的时长（秒）。时长量不出来时不调用。
+ */
 function AudioPlayer({ src, onDuration }) {
   const [playing, setPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
@@ -151,8 +156,8 @@ function AudioPlayer({ src, onDuration }) {
     if (audioRef.current) {
       const d = audioRef.current.duration
       setDuration(d)
-      // Report the decoded duration up so callers can range-check any format
-      // (WAV header parsing on the server can't measure mp3/flac/etc).
+      // 把解码出的时长报给调用方，让它能按格式做区间检查：
+      // 服务端只能读 WAV 头，量不出 mp3/flac 等格式的长度。
       if (onDuration && isFinite(d) && d > 0) onDuration(d)
     }
   }
@@ -212,13 +217,14 @@ function AudioPlayer({ src, onDuration }) {
   )
 }
 
-// Full dark-themed, seekable audio player that matches the app UI.
-// Replaces the native <audio controls> chrome (which renders as a light
-// pill that clashes with the dark/purple theme).
-// `bounds` (optional): per-segment [{start,end}] offsets (seconds) in the combined
-// timeline — when present in waveform mode, segment dividers + silence shading are
-// drawn. `duration` (optional): server-reported combined duration used as a fallback
-// before the audio metadata / decode resolves it.
+/**
+ * 与界面配色一致的可定位播放器，取代浏览器原生的 audio 控件（原生控件是浅色样式）。
+ * @param src 音频地址。
+ * @param size 尺寸档位，决定 class 名里的尺寸后缀。
+ * @param bounds 可选：合并时间轴上各段的 [{start,end}] 偏移（秒），波形模式下据此画
+ *   分段竖线与段间静音底色。
+ * @param duration 可选：服务端给出的合并时长，在音频元数据或解码结果出来之前先用它兜底。
+ */
 function Player({ src, size = 'md', bounds = null, duration = null }) {
   const audioRef = useRef(null)
   const trackRef = useRef(null)
@@ -233,9 +239,8 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
   const [previewMode] = usePreviewMode()
   const { t } = useT()
   const waveform = previewMode === 'waveform'
-  // Some engine-direct WAVs (e.g. 32-bit float / WAVE_FORMAT_EXTENSIBLE, produced
-  // when ffmpeg is unavailable) can't be decoded by the browser's decodeAudioData.
-  // In that case fall back to the bar track instead of rendering a blank canvas.
+  // 引擎直接产出的部分 WAV（例如没有 ffmpeg 时的 32 位浮点或 WAVE_FORMAT_EXTENSIBLE）
+  // 浏览器 decodeAudioData 解不出来，这种情况下退回进度条，不显示空白画布。
   const showWave = waveform && !waveErr
 
   const fmt = (t) => {
@@ -291,7 +296,7 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
   useEffect(() => { setPlaying(false); setCur(0); setDur(0); setPeaks(null); setWaveErr(false) }, [src])
 
-  // Lazy decode: only when the waveform mode is active and we don't have peaks yet.
+  // 按需解码：只在波形模式生效且该源还没有峰值时进行。
   useEffect(() => {
     if (!waveform || !src || peaks) return
     let cancelled = false
@@ -299,14 +304,14 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
     return () => { cancelled = true }
   }, [waveform, src, peaks])
 
-  // Redraw the waveform whenever peaks / progress / duration / bounds change.
+  // 峰值、播放进度、时长或分段边界变化时重绘波形。
   const effDur = dur || duration || (peaks && peaks.duration) || 0
   useEffect(() => {
     if (!waveform || !peaks) return
     drawWaveform(canvasRef.current, peaks, cur, effDur, bounds)
   }, [waveform, peaks, cur, effDur, bounds])
 
-  // Redraw on container resize (canvas is sized from its clientWidth).
+  // 容器尺寸变化时重绘：画布尺寸取自 clientWidth。
   useEffect(() => {
     if (!waveform) return
     const el = canvasRef.current
@@ -318,8 +323,7 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
 
   const pct = dur ? (cur / dur * 100) : 0
 
-  // Segment-boundary dividers for the compact bar track (mid-gap of each inter-
-  // segment silence), mirroring the waveform-mode dividers.
+  // 紧凑进度条上的分段竖线，取每段空隙的中点，与波形模式的竖线一致。
   const barDividers = (!showWave && Array.isArray(bounds) && bounds.length > 1 && effDur > 0)
     ? bounds.slice(1).map((b, i) => {
         const mid = (bounds[i].end + b.start) / 2
@@ -389,15 +393,6 @@ function Player({ src, size = 'md', bounds = null, duration = null }) {
     </div>
   )
 }
-
-// Acknowledge-able naming/metadata notice for the Assets tab.
-//
-// Split into two pieces so the collapsed hint lives OUTSIDE the content flow
-// (in the summary-bar's free space, right of the stat pills) and takes zero
-// density from the asset list:
-//   - <NamingNotePill/>  the one-line pill (shown when acked & collapsed)
-//   - <NamingNoteCard/>  the full card (first visit, or re-opened)
-// Ack/open state is lifted into AssetsTab so both pieces stay in sync.
 
 export {
   AudioPlayer,

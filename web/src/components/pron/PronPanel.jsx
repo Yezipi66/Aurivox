@@ -1,3 +1,5 @@
+// 读音校对：文本编辑、逐字逐词读音预览与人工改读音，都在这个面板里。
+// 读音由当前选中的那台引擎给出（g2pW），面板不自己算。
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
@@ -5,12 +7,12 @@ import { useT } from '../../lib/i18n'
 import { mutedTokenPositions, previewTokenStarts, previewTokenText } from '../../lib/pronTokenPositions'
 import { NO_ENGINE_MSG, nestedOverrides, countOverrides, langName } from './PronProofing'
 
-// --- Token visual helpers (reading-proofing grid) ---------------------------
-// Punctuation tokens carry no editable reading; they are rendered as a faint
-// inline glyph (not a card) so the grid stays clean while keeping reading order.
+// 读音校对网格的显示辅助
+// 标点没有可编辑的读音，用淡色字形内联占位（不做成卡片），
+// 既保住朗读顺序，又不把网格弄花。
 const PUNCT_RE = /^[\s\p{P}\p{S}]+$/u
-// Small per-language accent (colored dot + short code) replaces the repeated
-// uppercase language label so mixed-language rows read at a glance.
+// 每种语言一个小圆点加短代码，替掉反复出现的大写语种名，
+// 混合语种的行一眼就能分辨。
 const SEG_COLORS = { zh: '#3fb98f', yue: '#3fb98f', ja: '#e0a26a', en: '#6fa8dc', ko: '#c08bd6' }
 const SEG_SHORT = { zh: 'ZH', yue: 'YUE', ja: 'JA', en: 'EN', ko: 'KO' }
 function tokIsPunct(tok) {
@@ -22,18 +24,18 @@ function tokIsPunct(tok) {
   return PUNCT_RE.test(tok.word || '')
 }
 
-// 读音校对面板（task6）：勾选后展开的二级面板，兼作文本编辑器 + 逐字读音校对。
-// 中文(zh)/粤语(yue) 走真实 g2pW 预览；其它语言为契约占位（ko 未经测试）。
-//   后端 /api/pron/preview 现在 engine_id 必传（lib/routes/pron.js 的 preview 路由），
-//   不传直接 400 `PRON_ENGINE_ID_MISSING`。
-//
-//   为什么不让后端挑一台兜底：判据在 `lib/inference/infer_server.py` 的
-//     pron_preview 注释，「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音。」
-//     ⇒ 换一台引擎去预览，读出来可能也对，但它已经不再回答原来那个问题。
-//     给一个看起来对、和实际合成不一致、又不报错的读音，比没有这个功能更坏。
-//
-// 因此 engineId 缺席时这个面板主动灰掉并说清原因，不发那个必定 400
-//   的请求（发了用户只会看到一句英文报错，不知道该去哪儿改）。
+// 读音校对面板：勾选后展开的二级面板，兼作文本编辑器与逐字读音校对。
+// 中文（zh）与粤语（yue）走真实 g2pW 预览；其它语言是契约占位（ko 未经测试）。
+// 后端 /api/pron/preview 的 engine_id 必传（lib/routes/pron.js 的 preview 路由），
+// 不传直接 400 PRON_ENGINE_ID_MISSING。
+// 组件的 props：text / setText（被编辑的文本）、lang（语种）、overrides / setOverrides（读音覆盖，
+// 按语言分桶）、layout（wide 或默认）、mutedPositions 与 mutedLangByPosition（已交给别的语言朗读的位置），
+// 以及 engineId（读音预览要用哪台引擎）。
+// 不让后端挑一台兜底的理由：判据在 lib/inference/infer_server.py 的 pron_preview 注释，
+// 「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音」。
+// 换一台引擎去预览，读出来可能也对，但它回答的不是当前选中那台引擎的读音。
+// 给一个看起来对、与实际合成不一致、又不报错的读音，比没有这个功能更坏。
+// engineId 缺席时这个面板主动灰掉并说清原因，不发那个必定 400 的请求（发了用户只会看到一句英文报错，不知道该去哪儿改）。
 function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedPositions, mutedLangLabel, mutedLangByPosition, engineId }) {
   const { t } = useT()
   const wide = layout === 'wide'
@@ -41,7 +43,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  // item 19-A: 词典按语言存储 {lang: entries}（混合文本可能涉及多种语言）。
+  // 词典按语言存储 {lang: entries}（混合文本可能涉及多种语言）。
   const [lexicons, setLexicons] = useState({})
   // 逐词编辑缓冲（ja 假名 / en ARPABET），键含 segLang 以避免跨语言同形词冲突。
   const [wordEdits, setWordEdits] = useState({})
@@ -49,11 +51,11 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   const [respellEdits, setRespellEdits] = useState({})
   // en 每个 token 的「候选 / 谐音」详情默认收起，键为 token 索引，避免纵向拥挤。
   const [openDetail, setOpenDetail] = useState({})
-  // item 19-A：覆盖始终按语言分桶；旧的扁平形态自动归入面板基础语系。
+  // 覆盖始终按语言分桶；旧的扁平形态自动归入面板基础语系。
   const nested = nestedOverrides(overrides, lang)
   // zh/yue：逐字选候选；ja：逐词改假名；en：逐词改音标；其它语言契约占位。
-  // `auto` is a real multilingual review mode. The engine preview endpoint
-  // segments its response into ZH/JA/EN/KO tokens; it is not a placeholder.
+  // auto 是真正的多语种校对模式：引擎预览端点把响应切成 ZH/JA/EN/KO 若干 token，
+  // 不是占位。
   const supported = ['zh', 'yue', 'ja', 'en', 'ko', 'auto'].includes(lang)
   const isCharUnit = lang === 'zh' || lang === 'yue'
   const [showAllKo, setShowAllKo] = useState(false)
@@ -98,7 +100,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
     })
   }
 
-  // Change a single character's reading -> record a word-level override (per segLang).
+  // 改单个字的读音：记成该语言的词级覆盖。
   const changeReading = (segLang, word, charIndex, newReading) => {
     const token = (preview?.tokens || []).find(t => t.segLang === segLang && t.word === word && (t.unit === 'char' || t.chars))
     if (!token) return
@@ -110,13 +112,13 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
       : t) }))
   }
 
-  // item 19-C: English overrides are per-occurrence. bucket[word] for en is a dict
-  // { "<occ>": [readings], "*": [readings] } ("*" = word-level default); ja/zh stay
-  // list-form. A legacy list is auto-migrated to { "*": list } on first per-occ edit.
+  // en 的覆盖按每次出现分别记：bucket[word] 是 { "<occ>": [读音], "*": [读音] }，
+  // "*" 表示词级默认值；ja/zh 仍是列表形态。
+  // 老式的列表在第一次按次编辑时自动迁移成 { "*": 列表 }。
   const editKey = (segLang, word, occ) => `${segLang}::${word}::${occ ?? ''}`
-  // Resolve the reading array a given occurrence currently shows (override first).
+  // 某一次出现当前显示的读音：先看覆盖，没有才用回退值。
   const enReadingFor = (bWord, occ, fallback) => {
-    if (Array.isArray(bWord)) return bWord                          // legacy word-level list
+    if (Array.isArray(bWord)) return bWord                          // 老式的词级列表
     if (bWord && typeof bWord === 'object') {
       const k = String(occ)
       if (bWord[k]) return bWord[k]
@@ -130,7 +132,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
     return false
   }
 
-  // Word-level edit for ja (occ undefined) / per-occurrence edit for en.
+  // 词级编辑：ja 逐词，en 逐次出现。
   const changeWordReading = (segLang, word, occ, str) => {
     const isEn = segLang === 'en'
     const isKo = segLang === 'ko'
@@ -141,7 +143,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
       const n = { ...b }
       if (perOccurrence && occ != null) {
         let cur = n[word]
-        if (Array.isArray(cur)) cur = { '*': cur }   // migrate legacy list -> word-level default
+        if (Array.isArray(cur)) cur = { '*': cur }   // 老式列表迁移成词级默认值
         cur = { ...(cur || {}) }
         if (arr.length) cur[String(occ)] = arr; else delete cur[String(occ)]
         if (Object.keys(cur).length) n[word] = cur; else delete n[word]
@@ -152,13 +154,13 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
     })
     setPreview(pv => ({ ...pv, tokens: pv.tokens.map(tk => {
       if (tk.segLang !== segLang || tk.word !== word) return tk
-      if (perOccurrence && occ != null && tk.occ !== occ) return tk          // only this occurrence
+      if (perOccurrence && occ != null && tk.occ !== occ) return tk          // 只改这一次出现
       return isEn ? { ...tk, readings: arr, source: arr.length ? 'override' : 'g2p' }
                   : { ...tk, reading: arr[0] || '', source: arr.length ? 'override' : 'g2p' }
     }) }))
   }
 
-  // item 19-B: 谐音改写，用另一个英文词的读音替换本词的这一次出现（复用 /pron/preview）。
+  // 谐音改写：用另一个英文词的读音替换本词的这一次出现（复用 /pron/preview）。
   const respellEn = async (word, occ) => {
     const src = String(respellEdits[editKey('en', word, occ)] || '').trim()
     if (!src) return
@@ -200,16 +202,15 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   const overrideCount = countOverrides(overrides)
   const showNorm = preview && preview.norm_text && preview.norm_text.trim() && preview.norm_text.trim() !== text.trim()
   const multiLang = !!(preview && preview.multilingual)
-  // item 19-C: how many times each English word occurs (to show #n badges only when repeated).
+  // 每个英文词出现了几次（只有重复出现时才显示 #n 角标）。
   const enWordCounts = {}
   const koWordCounts = {}
   for (const tk of (preview?.tokens || [])) {
     if (tk.segLang === 'en' && tk.unit === 'word') enWordCounts[tk.word] = (enWordCounts[tk.word] || 0) + 1
     if (tk.segLang === 'ko' && tk.unit === 'word') koWordCounts[tk.word] = (koWordCounts[tk.word] || 0) + 1
   }
-  // Preview payloads from older engines do not contain offsets. Resolve each
-  // token monotonically against the exact editor text so muting remains POSITION
-  // based, including repeated Han characters (never a global character set).
+  // 老引擎返回的预览不带偏移。逐个 token 按编辑器原文单调对齐，
+  // 这样静音始终按位置算，重复的汉字也不会算成全局字符集。
   const tokenStarts = previewTokenStarts(text, preview?.tokens || [])
 
   return (
@@ -270,10 +271,9 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             const occurrenceBased = isEn || isKo
             const occ = occurrenceBased ? tok.occ : undefined
             const koDimmed = isKo && tok.editable && !showAllKo && !tok.needsReview && !enHasOverride(bucket[tok.word], occ)
-            // A word token can contain Han characters even when the preview
-            // segmenter classified the whole word as Japanese (for example
-            // 今日 -> JA). Use source positions, not the preview language, to
-            // determine whether the Han-language picker has taken ownership.
+            // 一个词形 token 里可能含汉字，即使预览端点把整个词判成日语（例如
+            // 今日 -> JA）。是否已被汉字语言区接管，要看源文本位置，
+            // 不能看预览给出的语种。
             const mutedPositionsForToken = mutedTokenPositions(tokenStart, tokenText, mutePositionSet)
             const tokenMuted = mutedPositionsForToken.length > 0
             const mutedLangs = [...new Set(mutedPositionsForToken.map(position => mutedLangByPosition?.[position]).filter(Boolean))]
@@ -352,8 +352,8 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                   })}
                 </div>
               ) : (
-                // ja / en：逐词，直接改写读音（假名 / ARPABET）。en 的候选下拉 + 谐音改写默认收起，
-                // 由展开按钮展开，避免纵向拥挤；en 逐次出现独立可改（item 19-C：同一词第 1/2/3 次互不影响）。
+                // ja / en：逐词，直接改写读音（假名 / ARPABET）。en 的候选下拉与谐音改写默认收起，
+                // 由展开按钮展开，避免纵向拥挤；en 每次出现独立可改，同一词第 1/2/3 次互不影响。
                 <div className={isKo ? 'ko-reading-grid' : undefined} style={{ textAlign: isKo ? 'left' : 'center', minWidth: 0, ...(isKo ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4 } : {}) }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 15, color: (isEn ? !overridden : tok.source === 'g2p') ? 'var(--text)' : 'var(--accent)' }}>
                     <span style={{ overflowWrap: 'anywhere' }}>{tok.word}

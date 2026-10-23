@@ -1,7 +1,12 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// Shared modal dialogs: SaveRecipeModal (pins language explicitly, because shared
+// Han-character reading depends on it), ConfirmDialog (in-app secondary
+// confirmation), FsFilePicker (in-app file picker over /api/fs/browse that hands
+// back an absolute path). Product terms stay English.
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
-import { basename, recipeNameError, TARGET_LANG_OPTIONS, defaultTargetLang } from '../../lib/format'
+import { basename } from '../../lib/pathText'
+import { recipeNameError } from '../../lib/recipeName'
+import { TARGET_LANG_OPTIONS, defaultTargetLang } from '../../lib/langOptions'
 import { useT } from '../../lib/i18n'
 import { recipeWeightPreview } from '../../lib/recipes'
 
@@ -90,10 +95,8 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <div><span className="rp-k">Voice</span><span className="rp-v">{role || '—'}</span></div>
             <div><span className="rp-k">OpenAI voice</span><code className="rp-code">{previewId}</code></div>
             <div><span className="rp-k">Reference</span><span className="rp-v" title={d.reference_audio}>{basename(d.reference_audio)}</span></div>
-            {/* 原来这里是写死的两行 ⇒ 换一台引擎就永远显示「GPT（无）/
-                SoVITS（无）」，等于对用户说"你没有模型"。真实情况是：配方格式
-                还装不下这台引擎的模型选择（挂账见引擎契约 §9）。
-                ⇒ 保存成功就列出来，一个都保存失败就把原因说出来。 */}
+            {/* 模型行按这台引擎能存进配方的模型逐行列出，不写死行名。配方格式装不下这台
+                引擎的模型选择时（storable 为 false）说出原因，不显示「（无）」让人以为没有模型。 */}
             {weightPreview.rows.map(r => (
               <div key={r.key}><span className="rp-k">{r.label}</span>
                 <span className="rp-v" title={r.path}>{basename(r.path)}</span></div>

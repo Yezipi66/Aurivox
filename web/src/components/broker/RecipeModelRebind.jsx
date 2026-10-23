@@ -1,37 +1,42 @@
+// Broker 页的「换模型」面板：两级联动选择器，第一级选角色，第二级选该角色在当前引擎下的模型位。
+// 位名与可选引擎都取自 /api/recipes-models/:role 的返回体，前端不写死引擎名与位名。
+// 边界：只改配方顶层那两个权重字段，模型文件本身的合法性与归属由服务端判定。
+
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { FsFilePicker } from '../common/Dialogs'
-import { basename, TARGET_LANG_OPTIONS } from '../../lib/format'
+import { basename } from '../../lib/pathText'
+import { TARGET_LANG_OPTIONS } from '../../lib/langOptions'
 import { usePreviewMode } from '../../lib/previewMode'
 import { useT } from '../../lib/i18n'
 import { usePersistentState } from '../../usePersistentState'
 import { BrokerApiNoteCard, BrokerApiNotePill } from '../common/Fields'
 import { modelCountsByEngine, paramsSummaryOf } from '../../lib/modelPickers.pure.js'
 
-// 权重文件的扩展名，不写死成 .ckpt / .pth（那是 GPT-SoVITS 的形状）。
-// 一台非 GSV 引擎的权重可能是 .safetensors / .onnx / .pt / .bin，
+// 权重文件的扩展名，不写死成 .ckpt / .pth（那是某台引擎的形状）。
+// 一台别的引擎的权重可能是 .safetensors / .onnx / .pt / .bin，
 // 过滤太窄的后果是：自定义路径那一栏的「浏览」看不到文件，
 // 而界面上没有任何一句话解释为什么。
 const WEIGHT_EXTS = ['.ckpt', '.pt', '.pth', '.bin', '.safetensors', '.onnx', '.bin']
 
-// PC — Broker model re-bind with a two-level selector:
-//   1. primary  = every voice that owns a model of this type (voices-with-models)
-//   2. secondary = that voice's GPT ckpts / SoVITS pths (recipes-models/:voiceId)
-// plus a "— custom path below —" escape hatch that opens the file picker.
+// Broker 页的「换模型」：两级联动选择器。
+// 第一级是拥有这类模型的角色（来自 /api/assets/voices-with-models），
+// 第二级是该角色在当前引擎下的模型位（来自 /api/recipes-models/:role）。
+// 每个模型位另留一条「自定义路径」的路，用文件选择器指定。
 export function RecipeModelRebind({ recipe, onSaved }) {
   const { t } = useT()
   const [open, setOpen] = useState(false)
   const [voicesList, setVoicesList] = useState(null)   // [{voiceId, displayName, engines, models}]
   const [gpt, setGpt] = useState(recipe.gpt_ckpt || '')
   const [sovits, setSovits] = useState(recipe.sovits_pth || '')
-  // 7.1: a single shared Voice ID drives both the GPT and SoVITS model lists (one row, three dropdowns).
-  // Cross-voice mixing is still possible via each model slot's "custom path" escape hatch (D2).
+  // 一个共享的角色 id 驱动两个模型位下拉（一行，三个下拉）。
+  // 跨角色混搭仍可走每个模型位的「自定义路径」。
   const [voice, setVoice] = useState(recipe.role || '')
   // 这两个下拉渲染的是「这台引擎在这个资产上有的前两个模型位」，
-  //   位名由后端给出（slotNames），不写死成 'gpt' / 'sovits'。
-  //   变量名 gpt*/sovits* 留着是为了不碰配方那两个字段名（gpt_ckpt /
-  //   sovits_pth，格式这轮不动），但它们现在只是「第 0 位 / 第 1 位」。
+  // 位名由后端给出（slotNames），不写死成 'gpt' / 'sovits'。
+  // 变量名 gpt* / sovits* 留着是为了不碰配方那两个字段名（gpt_ckpt /
+  // sovits_pth，格式这轮不动），但它们现在只是「第 0 位 / 第 1 位」。
   const [slotNames, setSlotNames] = useState([])
   const [gptModels, setGptModels] = useState([])
   const [sovitsModels, setSovitsModels] = useState([])
@@ -45,17 +50,13 @@ export function RecipeModelRebind({ recipe, onSaved }) {
   const modelCache = useRef({})
 
   // 这个「换模型」小面板改的是配方顶层那两个权重字段，配方格式不动，
-  //   所以它只装得下两个位。
-  //
-  // 引擎名和位名都不能写死（`REBIND_ENGINE = 'gpt-sovits'` / 'gpt' /
-  //   'sovits'，连文件选择器的扩展名都钉成 .ckpt / .pth）。否则一台别的
-  //   引擎的资产在 Broker 里连一个模型位都列不出来，
-  //   而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
-  //
-  //   引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
-  //   已经有 engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
-  //   的 enginesInMeta 算出来的）和 models[<engineId>][<slot>]。
-  //   前端不猜引擎有哪些位，后端给什么位就渲染什么位。
+  // 所以它只装得下两个位。
+  // 引擎名与位名都不写死：否则一台别的引擎的资产在 Broker 里连一个模型位都列不出来，
+  // 而界面上看起来只是「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
+  // 引擎和位名都问后端要：/api/recipes-models/:role 的返回体里
+  // 已经有 engines（这个资产实际有模型的引擎，lib/assets/modelLayout.js
+  // 的 enginesInMeta 算出来的）和 models[<engineId>][<slot>]。
+  // 前端不猜引擎有哪些位，后端给什么位就渲染什么位。
   const loadVoiceModels = async (voiceId) => {
     if (!voiceId) return { engines: [], slots: {}, bySlot: {} }
     if (modelCache.current[voiceId]) return modelCache.current[voiceId]
@@ -69,9 +70,9 @@ export function RecipeModelRebind({ recipe, onSaved }) {
   }
 
   // 这个配方现在正在用哪台引擎：配方自己没有 engine_id（配方格式这轮不动），
-  //   所以身份是从它钉的那份权重反查出来的，那份权重属于谁，就是哪台引擎。
-  //   找不到就 null，让调用方说人话，别默默退回第一台引擎（那等于把
-  //   一台引擎的权重发给另一台）。
+  // 所以身份是从它钉的那份权重反查出来的，那份权重属于谁，就是哪台引擎。
+  // 找不到就 null，让调用方说人话，别默默退回第一台引擎（那等于把
+  // 一台引擎的权重发给另一台）。
   const engineOfRecipe = (voiceId) => {
     const m = modelCache.current[voiceId]
     if (!m) return null
@@ -85,22 +86,22 @@ export function RecipeModelRebind({ recipe, onSaved }) {
     return null
   }
 
-  // 这台引擎在这个资产上到底有哪几个位，由后端给的列表决定，不猜。
-  //   （GSV ⇒ ['gpt','sovits']；CosyVoice ⇒ ['model']；别的形状就按它的来。）
+  // 这台引擎在这个资产上到底有哪几个位，由后端给的列表决定，不猜：
+  //   位名与位数都可能不同，界面上有什么就画什么。
   const slotNamesOf = (m, engineId) => Object.keys((m && m.slots && m.slots[engineId]) || {})
 
   const load = async () => {
     if (voicesList) return
     const r = await api('/api/assets/voices-with-models')
     setVoicesList(r.ok ? (r.data.voices || []) : [])
-    // Seed both slots from the recipe's own voice; if the pinned file isn't one
-    // of that voice's known models, start in custom mode.
+    // 两个位都从配方自己的角色起步；钉住的文件不在该角色的已知模型里时，
+    // 进入自定义路径模式。
     const m = await loadVoiceModels(recipe.role)
     const eid = engineOfRecipe(recipe.role)
     const slots = slotNamesOf(m, eid)
     const slotMap = (m.slots && m.slots[eid]) || {}
     // 配方顶层只有 gpt_ckpt / sovits_pth 两个字段（格式这轮不动），所以这里
-    //   取的是「这台引擎的前两个位」，按后端给的顺序，不按名字猜。
+    // 取的是「这台引擎的前两个位」，按后端给的顺序，不按名字猜。
     const [s0, s1] = slots
     setSlotNames([s0, s1].filter(Boolean))
     const list0 = (s0 && slotMap[s0]) || []
@@ -113,8 +114,8 @@ export function RecipeModelRebind({ recipe, onSaved }) {
     setSovitsCustom(!pinned[1] || !list1.some(x => x.path === pinned[1]))
   }
 
-  // Selecting a Voice ID refreshes both the GPT and SoVITS lists, each defaulting to its first entry
-  // (kept if the current path still belongs to this voice). Leaves custom mode.
+  // 选定角色后刷新两个模型位的列表，各自默认落在第一条候选上
+  // （当前路径仍属于该角色时保留当前路径），并退出自定义路径模式。
   const onVoiceChange = async (v) => {
     setVoice(v)
     const m = await loadVoiceModels(v)
@@ -131,10 +132,10 @@ export function RecipeModelRebind({ recipe, onSaved }) {
     if (list1.length > 0 && !list1.some(x => x.path === sovits)) setSovits(list1[0].path)
   }
 
-  // PC-3: when a picked model lives outside the project the server refuses with
-  // code:"external". We surface a strong warning and require a second, explicit
-  // confirmation before re-sending with allow_external_models:true.
-  const [extConfirm, setExtConfirm] = useState(null) // { field } | null
+  // 选中的模型在项目目录之外时，服务端以 code:"external" 拒绝。
+  // 这里显示醒目警告，并要求用户再明确确认一次，
+  // 才带 allow_external_models:true 重发。
+  const [extConfirm, setExtConfirm] = useState(null) // extConfirm 的形状：{ field } 或 null。
 
   const save = async (allowExternal) => {
     setBusy(true); setError(null); setMsg(null)
@@ -146,7 +147,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
       })
       if (!r.ok) {
         if (r.data && r.data.code === 'external') {
-          // Pause and ask for an explicit confirmation instead of failing.
+          // 停下来请用户明确确认，而不是直接失败。
           setExtConfirm({ field: r.data.field || 'model' })
           return
         }
@@ -162,18 +163,18 @@ export function RecipeModelRebind({ recipe, onSaved }) {
     return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>{t('Change models', '更换模型')}</button>
   }
 
-  // 有任何模型的角色都可以挑，以前问的是「有没有 GPT 或有没有 SoVITS」，
-  // 那两个字段已经不存在了，留着会让这个下拉永远是空的。
+  // 有任何模型的角色都可以挑：判据是 models 非空，不按字段名挑。
+  // 模型位名是后端按引擎给的（上方已按引擎读进 slotNames），写死成某两个固定字段，
+  // 匹配不上的引擎在这个下拉里永远是空的。
   const modelVoices = (voicesList || []).filter(v => Object.keys(v.models || {}).length > 0)
 
   return (
     <div className="rebind">
-      {/* 7.1: one row, three dropdowns — Voice ID (shared) · model slot 0 · model slot 1.
+      {/* 一行三个下拉：角色 id（共用）、模型位 0、模型位 1。
           两个位下拉的标签不能写死成「GPT checkpoint」「SoVITS model」，
-             文件选择器的扩展名也不能写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
-             连标题都不匹配。标题取后端给的真实位名（slotNames），扩展名放开。
-             Each model slot keeps a "custom path…" escape hatch (cross-voice /
-             outside the project) (D2/D4). */}
+          文件选择器的扩展名也不能写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
+          连标题都不匹配。标题取后端给的真实位名（slotNames），扩展名放开。
+          每个模型位都留一条「自定义路径」的路（跨角色、项目目录之外都走它）。 */}
       <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div className="field" style={{ flex: '0 1 170px', minWidth: 130 }}>
           <label className="field-label">Voice ID</label>
@@ -200,10 +201,10 @@ export function RecipeModelRebind({ recipe, onSaved }) {
             </div>
           )}
         </div>
-        {/* 只有一位的引擎（CosyVoice 的 model 位就是一个）不画第二格。
+        {/* 只有一位的引擎不画第二格。
             画一个标题写着「模型」、候选永远为空的下拉，比不画更糟：用户会以为
             「这个音色真的没有第二个模型」，而真相是「这台引擎只有一个位」。
-            判据跟方法下拉一样：名片/后端没给的，界面不许替它编一个。 */}
+            判据跟方法下拉一样：名片与后端没给的，界面不许替它编一个。 */}
         {slotNames.length > 1 && (
         <div className="field" style={{ flex: '1 1 260px', minWidth: 200 }}>
           <label className="field-label">{slotNames[1]}</label>

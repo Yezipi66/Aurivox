@@ -1,8 +1,10 @@
 'use strict'
 // 引擎克隆：看目标目录、比对上游、生成克隆计划、执行克隆与取消。
 // 默认只出计划，不动盘；execute 为 true 才真跑 git。
-// 目录非空一律复用而不重克隆：重克隆要删掉使用者已装好的环境与已下好的权重，
-// 而平台没有断点续传。复用理由用用户看得懂的话给出，不是 git 的原话。
+// 目录非空一律复用而不重新克隆：git clone 拒绝非空目录，要重新克隆就得先把目录删干净，
+// 那会连同已装好的环境与已下好的权重一起删掉，而平台没有断点续传。
+// 复用理由用用户看得懂的话给出，不是 git 的原话。
+// 边界：只管克隆本身，环境搭建、权重下载与名片写入是别的步骤的事。
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -26,7 +28,7 @@ function engineDir (id, root) {
 
 /**
  * 跑一条 git 命令，读它的标准输出。
- * git 坏了、目录不是仓库、命令不存在，都归到「读不到」这一类，不当成错误抛出去。
+ * git 坏了、目录不是仓库、命令不存在，都归到「读不到」这一类，返回 null 而不是抛错。
  */
 function gitOut (args, cwd) {
   try {
@@ -46,10 +48,9 @@ function gitOut (args, cwd) {
 
 /**
  * 两个路径是不是同一个目录。
- * 不能直接比字符串：Windows 上同一目录可以有多种写法（短路径与长路径），
+ * 不能直接比字符串：Windows 上同一目录可以有短路径与长路径两种写法，
  * 而 git rev-parse --show-toplevel 返回长路径、Node 的 tmpdir() 给的是短路径，
- * 直接比字符串就会误判成「这个目录不是 git 仓库」。
- * 做法：先 realpathSync 把两边展开成同一个形式再比。
+ * 直接比字符串就会误判成「这个目录不是 git 仓库」。做法：先 realpathSync 展开再比。
  */
 function samePath (a, b) {
   if (!a || !b) return false
@@ -180,7 +181,7 @@ function inspectTarget (id, opts = {}) {
     return { ok: true, dir, exists: false, entries: [] }
   }
   const entries = fs.readdirSync(dir)
-  // 空目录 git 能直接往里放，等于没问题；目录不存在也一样，git 会自己建
+  // 空目录 git 能直接往里放，等于没问题；目录不存在也一样，git 会自己建。
   return { ok: true, dir, exists: true, entries }
 }
 
@@ -218,9 +219,9 @@ function checkClonable (id, opts = {}) {
 }
 
 /**
- * 真正的克隆。默认只打印计划，不动盘。
- *
- * 理由：克隆要联网、要写盘，「敲错一个字就开始下载」不是一个好的默认值。
+ * 生成克隆计划：默认只返回计划，不动盘也不联网。
+ * 计划里的步骤要联网、要写盘，「敲错一个字就开始下载」不是一个好的默认值，
+ * 所以真正执行要调用方显式传 execute: true。
  */
 function buildClonePlan (input = {}) {
   const id = input.id
@@ -245,7 +246,7 @@ function buildClonePlan (input = {}) {
 
   const depth = input.depth === 1 ? ['--depth', '1'] : []
 
-  // 目录里已经有东西 ⇒ 复用，不重新克隆，这一步不做任何写盘动作，只把现状说清楚。
+  // 目录里已经有东西，复用而不重新克隆；这一步不做任何写盘动作，只把现状说清楚。
   if (clonable.state === 'reused') {
     return {
       ok: true,
@@ -320,8 +321,7 @@ function buildClonePlan (input = {}) {
  * posix 走信号，两条路径完全不同。
  * posix 那条必须先杀进程本身再杀组：spawn 默认不设 detached，子进程与父进程同组，
  * 负 PID 指的是「组 ID 等于 child.pid 的那个组」，而它并不存在。
- * platform 显式传入（与 venvPythonRelPath / resolveUv 同一套做法），
- * 这样 posix 那条在任何机器上都能被测到。
+ * platform 显式传入，这样 posix 那条在任何机器上都能被测到。
  *
  * @param {import('node:child_process').ChildProcess} child
  * @param {string} [platform] process.platform
@@ -344,9 +344,9 @@ function killProcessTree (child, platform) {
 
 /**
  * 执行克隆（异步，支持取消）。
- * 取消时：杀进程树（Windows: taskkill /T；其他: kill 进程组），
- *   删掉整个目标目录（本步创建的，删除是撤销本步操作；不是只删 .git，
- *   只删 .git 会留下残缺目录，下次卡在目录非空），然后返回 CLONE_CANCELLED。
+ * 取消时：杀进程树（Windows 用 taskkill /T，其他平台杀进程组），
+ *   删掉整个目标目录（撤销本步创建的东西；不能只删 .git，只删 .git 会留下残缺目录，
+ *   下次卡在目录非空），然后返回 CLONE_CANCELLED。
  * 凭据管理器弹框杀不掉时：5 秒安全网后如实报 CLONE_CANCEL_FAILED。
  *
  * @param {object} input - 同 buildClonePlan，另加 signal（AbortSignal）
@@ -411,7 +411,7 @@ async function runClone (input = {}) {
       cancelReason = reason
       if (child) killFn(child)
       try { fs.rmSync(targetDir, { recursive: true, force: true }) } catch (e) { }
-      // 安全网：进程杀不掉 ⇒ 不假装成功。
+      // 安全网：进程杀不掉就不假装成功。
       // 不分原因兜底：用户取消与超时都会走到这里，只要有一步没 resolve
       // 就必须收尾，否则调用方永远等不到结果。
       const safetyNetMs = typeof input.safetyNetMs === 'number' ? input.safetyNetMs : 5000
@@ -503,7 +503,8 @@ async function runClone (input = {}) {
         })
         return
       }
-      // 只报「git 说成功了」，不报「克隆好了」：那要等第 4 步的自检（import 探针）才能下结论。
+      // 只报「git 说成功了」，不报「克隆好了」：这台引擎能不能用，要等自检的深层校验
+      // 真起一次解释器、import 名片点名的模块之后才下结论。
       safeResolve({
         ...plan, ok: true, gitStatus: code,
         note: 'git exited 0. That only means the files are in place — '
@@ -522,10 +523,10 @@ async function runClone (input = {}) {
 
 /**
  * 删掉目标目录。
- * 两个用途：目标目录已存在（之前克隆过），使用者要重来 ⇒ 清除后重试；
- *   克隆完成后悔了 ⇒ 撤销克隆。
+ * 两个用途：目标目录已存在（之前克隆过），使用者要重来时清除后重试；
+ *   克隆完成后悔了时撤销克隆。
  * 判据：只删 engines/<id>/ 这一棵，不碰 engines/ 里的其他引擎。
- *   路径由 id 拼出来，id 里带斜杠会越出 engines/ ⇒ 先按安全 id 校验。
+ *   路径由 id 拼出来，id 里带斜杠会越出 engines/，所以先按安全 id 校验。
  *
  * @returns {{ok:true, id, dir, removed:boolean, entries:number}}
  *          | {ok:false, code, error}

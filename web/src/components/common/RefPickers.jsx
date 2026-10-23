@@ -1,24 +1,25 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// 参考音频的选择与列表：跨音色选取、自备文件上传、单音色的切片与原始音频列表、以及多选辅助参考。
+// 参考身份按「基础名 + 归一后的完整路径」认定，不按文件名：assets/A/raw/x.wav 与 assets/B/raw/x.wav 是两份不同的参考。
+// 各组件只做选择与试听，实际合成用的参考路径由调用方保存。
+
 import { useState, useEffect, useRef } from 'react'
 import { Select } from './Select'
 import { api } from '../../lib/api'
 import { AudioPlayer } from './Player'
-import { REF_MAX_SEC, REF_MIN_SEC, basename, refInRange, sameRefPath } from '../../lib/format'
+import { REF_MAX_SEC, REF_MIN_SEC, refInRange, sameRefPath } from '../../lib/refAudio'
+import { basename } from '../../lib/pathText'
 import { useT } from '../../lib/i18n'
 
-// Build a static playback URL from a stored managed-reference path
-// ("assets/<voice>/…" or "voices/custom_refs/…"). The server serves both roots
-// statically, so a leading slash + per-segment encoding is all that's needed.
+// 由托管参考路径拼出播放地址。托管参考有两种落点：assets/<voice>/… 与 voices/custom_refs/…，
+// 服务端对这两个根目录都提供静态文件，所以加一个前导斜杠并逐段编码即可。
 function refPlaybackUrl(p) {
   const s = String(p == null ? '' : (typeof p === 'object' ? (p.path || '') : p)).replace(/\\/g, '/').replace(/^\/+/, '')
   if (!s) return ''
   return '/' + s.split('/').map(encodeURIComponent).join('/')
 }
 
-// Shared reference-audio search matcher (Patch: ref search box).
-// Case-insensitive substring match against BOTH the display name (slice
-// "<scene> #<index>" or raw filename) AND the aligned transcript text.
-// Empty / whitespace-only query matches everything (behaviour unchanged).
+// 参考音频的搜索匹配：不分大小写地子串匹配显示名（切片是「<scene> #<index>」，原始音频是文件名）
+// 与对齐转写文本两处。查询为空或只有空白时匹配全部。
 function refMatches(query, name, text) {
   const s = String(query == null ? '' : query).trim().toLowerCase()
   if (!s) return true
@@ -35,8 +36,8 @@ const REF_PROMPT_LANG_OPTIONS = [
   { value: 'ko', label: 'Korean (\ud55c\uad6d\uc5b4)' },
 ]
 
-// 跨资产参考音频选择器：列出「其他音色」并读取其全部 slices/raw，点选即用。
-// 复用现有 /api/assets/<id>/segments + /raw-list。onPick(path, text)。
+// 跨资产参考音频选择器：列出「其他音色」并读取其全部切片与原始音频，点选即用。
+// 复用现有 /api/assets/<id>/segments 与 /raw-list。onPick(path, text)。
 // 独立组件，便于后续 Compare Refs 页复用（预留接口）。
 function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const { t } = useT()
@@ -46,15 +47,12 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const [raws, setRaws] = useState(null)
   const [loading, setLoading] = useState(false)
   const [rawDur, setRawDur] = useState({})
-  const [vq, setVq] = useState('')   // voice-dropdown filter
-  const [q, setQ] = useState('')     // reference-list search
-  // Slices / Raw tab for the cross-voice reference list. Declared with the other
-  // hooks ABOVE the early return below. It used to be declared AFTER
-  // `if (others.length === 0) return`, so the number of hooks this component
-  // called changed when the async `voices` list populated (others went from []
-  // to non-empty). React detected the count mismatch and crashed the whole tree
-  // with #310 "Rendered more hooks than during the previous render" -> white
-  // screen. Hooks must never be called conditionally; move them above the return.
+  const [vq, setVq] = useState('')   // 音色下拉的过滤词
+  const [q, setQ] = useState('')     // 参考列表的搜索词
+  // 跨音色参考列表的切片 / 原始音频页签。它与其他 hook 一起声明在下面的提前 return 之前：
+  // 放在 return 之后时，voices 异步到齐会让这个组件调用的 hook 数量发生变化，
+  // React 报「Rendered more hooks than during the previous render」并让整棵树白屏。
+  // hook 不能条件调用，所以它必须在 return 之前。
   const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
   useEffect(() => { setRefTab('slices') }, [vid])
 
@@ -81,7 +79,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
   const availRaw = Array.isArray(raws) ? raws : []
   const shownSlices = availSlices.filter(s => refMatches(q, `${s.scene} #${s.index}`, s.text))
   const shownRaw = availRaw.filter(rf => refMatches(q, rf.filename, rf.text))
-  // Voice-dropdown filter: match display name, id, or language.
+  // 音色下拉的过滤：匹配显示名、id 或语言。
   const shownOthers = others.filter(o => {
     const s = vq.trim().toLowerCase()
     if (!s) return true
@@ -201,8 +199,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     if (files.length === 0) return
     setErr(null); setUploading(true)
     try {
-      // Multi-select reuses the single-file endpoint, uploading sequentially and
-      // 通过 onPick 累积：无批处理协议（辅助自定义文件）。
+      // 多选复用单文件上传接口，逐个上传并通过 onPick 累积：没有批处理协议（辅助自定义文件）。
       for (const f of files) {
         const fd = new FormData(); fd.append('audio', f)
         const r = await api('/api/custom-ref-audio', { method: 'POST', body: fd, contentType: 'multipart' })
@@ -214,8 +211,8 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
     finally { setUploading(false) }
   }
 
-  // Audio-only multi-select variant (auxiliary references): just a picker button.
-  // No transcript/prompt-lang editor — auxiliary refs are audio-only (inp_refs).
+  // 只上传音频的多选变体（辅助参考）：只有一个选择按钮，没有转写与 prompt_lang 编辑器。
+  // 辅助参考只有音频（inp_refs）。
   if (multiple) {
     return (
       <div style={{ marginTop: 8 }}>
@@ -266,13 +263,8 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
   )
 }
 
-// Single-voice reference list: Slices / Raw tabs + inline audition players.
-// 从 Compare 的 RefAudioTabs 提取并参数化，单个
-// implementation serves BOTH the main reference (selectMode="single") and the
-// auxiliary references (selectMode="multi"). onPick(path,text) for single;
-// onToggle(path,text) for multi. `selectedPaths` (multi) drives the checked/
-// highlighted state; `mainRef` (multi) disables the row already used as the main
-// reference. Identity is base+normalized-path (sameRefPath), never basename.
+// 同一个实现同时服务主参考（selectMode="single"）与辅助参考（selectMode="multi"）。
+// single 走 onPick(path,text)，multi 走 onToggle(path,text)。
 function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths = [], mainRef, onPick, onToggle, maxHeight = 260 }) {
   const { t } = useT()
   const [segs, setSegs] = useState(null)
@@ -298,7 +290,7 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
   const multi = selectMode === 'multi'
   const availSlices = Array.isArray(segs) ? segs.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename)) : []
   const availRaw = Array.isArray(raws) ? raws : []
-  // Filtered views driven by the search box (name + transcript match).
+  // 搜索框过滤后的两份视图（按名称与转写文本匹配）。
   const shownSlices = availSlices.filter(s => refMatches(q, `${s.scene} #${s.index}`, s.text))
   const shownRaw = availRaw.filter(rf => refMatches(q, rf.filename, rf.text))
 
@@ -383,16 +375,14 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
   )
 }
 
-// 辅助参考选择器：唯一共享的多选参考
-// selector used by BOTH Generate and Compare. Sources: This voice's segments
-// (Slices/Raw, multi) · Another voice's segments (CrossRefPicker) · Custom files
-// (multi upload). Identity uses base+normalized path so the current main
-// reference is excluded and duplicates across voices are distinguished.
-// Props: voiceId, voices, value(array of stored paths), onAdd(path),
-//        onRemove(index), mainRef(optional, excluded from selection).
+// 辅助参考选择器：生成页与对比页共用的唯一多选参考入口。来源有三个：本音色的片段
+// （切片 / 原始音频，多选）、别的音色的片段（CrossRefPicker）、自定义文件（多选上传）。
+// 参考身份按基础名加归一后的路径认定，因此当前主参考会被排除，跨音色的同名文件也分得开。
+// props：voiceId、voices、value（已存路径的数组）、onAdd(path)、
+// onRemove(index)、mainRef（可选，排除在选择之外）。
 function AuxReferencePicker({ voiceId, voices, value = [], onAdd, onRemove, mainRef }) {
   const { t } = useT()
-  const [source, setSource] = useState('this') // 'this' | 'cross' | 'custom'
+  const [source, setSource] = useState('this') // 来源选择：'this'（本音色）、'cross'（别的音色）、'custom'（自备文件）
   const has = (p) => value.some(v => sameRefPath(v, p))
   const add = (p) => { if (p && !has(p) && !(mainRef && sameRefPath(mainRef, p))) onAdd && onAdd(p) }
 

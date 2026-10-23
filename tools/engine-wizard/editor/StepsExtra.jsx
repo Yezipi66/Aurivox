@@ -2,6 +2,10 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 
+// 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
+// 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
+// 落盘路径统一由后端决定（engines/<id>/checkpoints/），前端只传原始命令。
+
 const buildCommand = (c) => {
   if (c.tool === 'snapshot') {
     return {
@@ -33,8 +37,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const id = sessionId || state.id
 
   // 下载清单来自 probe（第 1 步），不依赖 manifest。
-  //   /wizard/models 内部调 describeModels → resolveEngineProfile → 需要 manifest，
-  //   而 manifest 第 4 步才写。
+  // /wizard/models 内部要调 describeModels → resolveEngineProfile，而它需要 manifest，
+  // manifest 却要到第 4 步才写。
   const load = async () => {
     if (!id) return
     setBusy(true); setErr(null)
@@ -52,7 +56,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 下载状态（SSE 流式）。
   // 声明必须在使用之前：下面的 useEffect 引用了 dlLive，
-  //   声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）。
+  // 声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）。
   const [dlLive, setDlLive] = React.useState(null)
   const [dlTail, setDlTail] = React.useState([])
   const [dlBusy, setDlBusy] = React.useState(false)
@@ -67,7 +71,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const [dedup, setDedup] = React.useState(true)
 
   // 持久化：从会话段恢复状态（sessionStorage，键含 id 与 url）。
-  //   懒初始化读一次；换 URL / 换引擎 ⇒ 键变 ⇒ 恢复到的是另一段会话。
+  // 懒初始化读一次；换 URL / 换引擎 ⇒ 键变 ⇒ 恢复到的是另一段会话。
   React.useEffect(() => {
     if (!id) return
     const saved = loadDownloadState(id, state.repoUrl || '')
@@ -86,8 +90,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
-  // 断点续传：页面加载时读进度文件，恢复「已下载」状态。
-  //   不依赖 manifest。
+  // 断点续传：页面加载时读进度文件，恢复「已下载」状态。不依赖 manifest。
   React.useEffect(() => {
     if (!id) return
     fetch(`/wizard/download/progress?id=${encodeURIComponent(id)}`)
@@ -102,8 +105,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }, [id])
 
   // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
-  //   不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-  //   三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 不完整（大小为0）。
+  // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
+  // 三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 不完整（大小为0）。
   const [fileList, setFileList] = React.useState(null)
   React.useEffect(() => {
     if (!id || !dlLive || dlLive.stage !== 'done') return
@@ -129,9 +132,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   })
 
   // 嗅探仓库：调 /wizard/download/manifest 获取文件列表。
-  //   追加不覆盖：点击某个仓库的按钮，显示该仓库的文件；
-  //   再点击另一个仓库的按钮，追加其文件到列表后面。
-  //   同仓库去重：同一个仓库重复点击按钮，忽略。
+  // 追加不覆盖：点某个仓库的按钮显示该仓库的文件，再点另一个仓库的按钮追加到列表后面。
+  // 同仓库去重：同一个仓库重复点击按钮，忽略。
   const loadManifest = async (c) => {
     if (!id || !c || !c.repo) {
       setProbeError(t('Repository information is missing. Please check the upstream README.',
@@ -173,8 +175,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // manifest 刷新：把新状态合并回旧表，不整表覆盖。
   // 刷新响应可能缺 repo/tool（旧后端），而旧表里每一项都带着来源：
-  //   整表覆盖会把「这个文件属于哪个仓库」抹掉，重下/续传按钮随之失效。
-  //   以「仓库 + 文件名」为键：命中就更新状态，不动其他仓库的行。
+  // 整表覆盖会把「这个文件属于哪个仓库」抹掉，重下与续传按钮随之失效。
+  // 以「仓库 + 文件名」为键：命中就更新状态，不动其他仓库的行。
   const mergeManifest = (prev, fresh, repo, tool) => {
     const freshList = (fresh || []).map((f) => ({
       ...f,
@@ -206,7 +208,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
 
   // 下载全部：遍历所有 missing/partial 文件，逐个下载。
-  //   用 ref 追踪下载状态，避免闭包读到旧的 state 值。
+  // 用 ref 追踪下载状态，避免闭包读到旧的 state 值。
   const dlBusyRef = React.useRef(false)
   // 暂停只停前端的逐个文件循环，不杀进程：当前文件下载中杀进程会留下不完整的文件，
   // 而 hf 自带缓存，重跑同一条命令只补缺的部分。
@@ -250,8 +252,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     setDlPaused(true)
   }
 
-  // 删掉一个不完整的文件，让它回到「未下载」。走同一个 checkFileStatus 判据
-  //（后端），不在这里按大小猜；判为 ok 的不会被删。
+  // 删掉一个不完整的文件，让它回到「未下载」。走同一个 checkFileStatus 判据（后端），
+  // 不在这里按大小猜；判为 ok 的不会被删。
   const removePartial = async (f) => {
     if (!f || !f.name) return
     try {
@@ -278,7 +280,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
 
   // 下载是「发射后不管」的后台任务：点击后启动下载，不阻塞 UI，
-  //   用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
+  // 用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
   // 不用 await：await 会阻塞 UI，用户要等下载完成才能做其他事。
   const setDlBusyBoth = (v) => { dlBusyRef.current = v; setDlBusy(v) }
   const runDownload = (c, file) => {
@@ -340,8 +342,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       return
     }
     // 路径由后端 unifyDest 统一处理，前端只传原始命令。
-    //   原来硬编码 `engines/${id}/checkpoints` 正斜杠，在 Windows 上可能有问题。
-    //   使用 buildCommand 统一构建，确保执行和展示一致。
+    // buildCommand 返回原始命令：local_dir='checkpoints' 是 Windows 上会按 cwd 解析的相对正斜杠路径，
+    //   落盘位置仍由后端按 path.join 拼，不依赖前端给的这一段。
+    // 用 buildCommand 统一构建，确保执行和展示一致。
     const { argv } = buildCommand(c)
     // 不 await：下载在后台跑，用户可以随时进入第 4 步
     fetch('/wizard/download', {
@@ -372,7 +375,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             setDlBusyBoth(false)
             setDlProgress(null)
             // 下载完成后自动调 /wizard/download/files 逐文件校验。
-            //   不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
+            // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
             if (ev.ok && id) {
               fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
                 .then((r) => r.json())
@@ -394,7 +397,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
 
   // 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/。
-  // 不删原目录：hf/modelscope 的缓存在那里，删了要重下。
+  // 不删原目录：hf / modelscope 的缓存在那里，删了要重下。
   // 不替用户决定路径：这是平台统一落盘策略，不是用户可选的。
 
   return (
@@ -407,9 +410,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* ---- 下载清单表格：按文件列出 ----
-          每个文件一行，显示大小/SHA-256/状态。
-          emoji：已完成 / 下载中 / 未下载。*/}
+      {/* 下载清单表格：按文件列出，每个文件一行，显示大小 / SHA-256 / 状态 */}
       {manifest && manifest.length > 0 && (
         <>
           <div className="plan-kv">
@@ -537,9 +538,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </>
       )}
 
-      {/* 下载命令展示：平台只打印，不代下载
-          用户可以看到上游 README 里的原始命令。
-          平台不执行这些命令，只是展示给用户参考。*/}
+      {/* 下载命令展示：平台只打印，不代下载。
+          用户可以看到上游 README 里的原始命令，平台不执行它们，只是展示给用户参考。*/}
       {visibleCmds.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
           <div className="section-hdr">
@@ -668,8 +668,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* 上游附带的下载脚本（如果有）
-          平台不执行它们，只是告诉用户「上游自己给了这个脚本」。
+      {/* 上游附带的下载脚本（如果有）。
+          平台不执行它们，只是告诉用户「上游自己给了这个脚本」，
           执行是用户自己的事，平台只负责把命令摆出来。*/}
       {upstreamScripts.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>
@@ -691,18 +691,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* ---- 命令：平台只填好占位符打印出来，不代下载 ----
-          原来这里有 {M && M.commands && ...} 和 {M && (!M.commands || ...)} 两个块，
-          但 M 恒为 null（load 里 manifest: null），所以这些块永远不会执行。
-          而且 {M.state === null && ...} 会抛 TypeError（M 是 null）。
-          现在下载清单来自 probe，不依赖 manifest，所以这些死代码全部删除。*/}
+      {/* 命令：平台只填好占位符打印出来，不代下载。
+          下载清单来自 probe，不依赖 manifest。*/}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-sm" type="button" onClick={load} disabled={busy || !id}>
           {busy ? t('Checking…', '正在查…') : t('Check again', '再查一次')}
         </button>
-        {/* ---- 从头重装本步 ----
-            只清「哪些下载算做完了」这份记录（models 段），
+        {/* 从头重装本步：只清「哪些下载算做完了」这份记录（models 段），
             不删已下载的模型文件、不删源码与依赖。*/}
         {id && (
           <>
@@ -733,13 +729,10 @@ async function resetThisStepOf (id) {
   } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
 }
 
-// StepVerify 已移出本文件：原实现（自动跑前三道 + 无条件上报 verified）
-//   会让第 5 步一进入就变成对勾，且形状与那块的三块独立结果不符。
-//   实现与理由见 ./StepVerify.jsx 头部。
+// StepVerify 已移出本文件：它现在自己管三项独立验证，各报各的状态。
 export { StepVerify } from './StepVerify'
 
-//  流程条只有五步，不设「装完了怎么用」那一步。
-// 它属于文档，不占一个流程步骤：一个只放说明、不执行任何动作的格子
-//  是流程条上的一格空话，且它往往要把内部术语（engines/、Manifest、
-//  weights[]）摆到界面上。
-//  判据：新增步骤前先问它有没有执行任何动作；没有 ⇒ 那是文档。
+// 流程条只有五步，不设「装完了怎么用」那一步。
+// 它属于文档，不占一个流程步骤：一个只放说明、不执行任何动作的格子是流程条上的一格空话，
+// 而且它往往要把内部术语（engines/、Manifest、weights[]）摆到界面上。
+// 判据：新增步骤前先问它有没有执行任何动作；没有 ⇒ 那是文档。

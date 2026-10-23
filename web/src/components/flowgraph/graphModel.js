@@ -1,15 +1,13 @@
-//  What the canvas does to a graph, with no React in sight
-// Everything here is a pure function on a plain graph object — the same shape
-// the server saves and the engine runs. Keeping it separate means the rules
-// about what may connect to what can be tested without a browser, and the
-// component stays about pixels.
+// 画布对流程图做的全部改动，都是纯函数：输入是普通对象，输出是新对象。
+// 对象形状与服务端保存的、引擎运行的是同一种，连线规则因此可以脱离浏览器单独测试，
+// 组件那一侧只管画。
+//
+// 端口类型决定哪些口能接在一起，Any 通吃：接线规则是用来提前发现错误的，不是用来刁难人的。
 
-// A port type that accepts anything. Wiring rules exist to catch mistakes early,
-// not to be clever, so anything involving Any is allowed through.
+// 接受任意类型的端口类型。
 const WILDCARD = 'Any'
 
-// Where a type is genuinely usable in another slot. Deliberately short: a rule
-// nobody can predict is worse than no rule.
+// 真正可用的类型对应关系。故意写短：没人能预料的规则比没有规则更糟。
 const ACCEPTS = {
   Number: ['Score'],
   Score: ['Number'],
@@ -37,8 +35,8 @@ export function definitionList(catalogue) {
   return (catalogue?.categories || []).flatMap(c => c.nodes || [])
 }
 
-// A node id a person can read, because it is what every error message will
-// name: "第 3 轮节点 tts 出错" is only useful if the box on screen says tts.
+// 节点 id 用人能读懂的写法，因为每条报错都会点名它：
+// 「第 3 轮节点 tts 出错」只有屏幕上的方框也写着 tts 才有用。
 export function makeNodeId(graph, type) {
   const base = String(type).split('.').pop() || 'node'
   const used = new Set(graph.nodes.map(n => n.id))
@@ -66,33 +64,24 @@ export function addNode(graph, definition, position = { x: 60, y: 60 }) {
   }
 }
 
-//  Voice as a preset
-// A voice belongs to the broker, not to this canvas: it is not a live binding
-// and nothing here writes back to it. What a voice is good for here is saving
-// someone from typing a dozen settings — pick one, its values are copied into
-// the parameter node once, and from that moment they are ordinary values that
-// can be edited freely. The graph therefore stays self-contained: changing the
-// voice record later cannot silently change what a saved graph does.
+// 音色当作预设用。音色属于 broker，不属于画布：它不是活的绑定，这里也不会回写它。
+// 音色在这页的用处是省掉手工填一屏参数：选一个，它的值被复制进参数节点一次，
+// 从此它们就是普通值，可以随意改。流程图因此是自包含的：事后改动音色记录，
+// 不会悄悄改变一张已保存的流程图的行为。
 
-// 这里是一张白名单，
-//     ['gpt_model','sovits_model','sample_steps','if_sr','batch_size', …]
-//   十一个键，一个不漏地是 GPT-SoVITS 的参数表被抄进了画布。它的坏法是静默的：
-//   换一台引擎，它的键一个都不在名单上 ⇒ 选了音色、什么都没被带进来，
-//   而界面不会说一个字。（这正是 `nodes.js` 写死 16 个 GSV 键那个 bug 的同族。）
-//
-// 换成减法：画布不认识任何引擎参数名，它只认识平台自己的记账字段。
-//   剩下的残余，全都是引擎的东西 ⇒ 原样带进参数节点。
-//   ⇒ 新引擎带来的新键自动就在里面，这个文件一行都不用改。
-//
-// 不许有人再往这里加引擎参数名。要排除的只能是平台自己造的字段。
+// 白名单里只列平台自己的记账字段。引擎参数名一个都不列：
+// 换一台引擎，它的键都不在名单上，于是选了音色却什么都没带进来，而界面不会说一个字。
+// 换成减法：画布不认识引擎参数名，只认识平台自己的记账字段；
+// 剩下的残余全是引擎的东西，原样带进参数节点，新引擎带来的新键自动就在里面。
+// 白名单只许增加平台自己造的字段，不许增加引擎参数名。
 export const VOICE_BOOKKEEPING_KEYS = Object.freeze([
   'id', 'voiceId', 'name', 'display_name', 'label', 'description', 'tags',
   'created_at', 'updated_at', 'engine_id', 'language',
   'ref_audio', 'reference_text', 'segments', 'meta',
 ])
 
-// voice record -> the values to write into an engine-parameters node. Empty and
-// absent fields are skipped so a preset never overwrites something with null.
+// 把音色记录转成要写进引擎参数节点的键值。空值与缺失的字段跳过，
+// 免得预设用 null 覆盖掉原有设置。
 export function voicePreset(record) {
   const out = {}
   if (!record || typeof record !== 'object') return out
@@ -105,9 +94,8 @@ export function voicePreset(record) {
   return out
 }
 
-// Writes a preset into one node's params. Only keys the node actually has are
-// written: a setting the node does not declare would be rejected by the engine
-// parameter whitelist at run time, which is a confusing way to learn about it.
+// 把预设写进某个节点的 params。只写节点声明过的键：
+// 节点没声明的设置会在运行时被引擎的参数白名单挡下，那样报错很难看懂。
 export function applyPreset(graph, nodeId, preset) {
   const node = graph.nodes.find(n => n.id === nodeId)
   if (!node) return { graph, applied: [], skipped: Object.keys(preset || {}) }
@@ -145,8 +133,8 @@ export function setParam(graph, nodeId, name, value) {
   }
 }
 
-// Deleting a node must also delete every wire that pointed at it, or the graph
-// saves fine and then refuses to run with "接不上" about a node that is gone.
+// 删节点必须连带删掉指向它的每一根连线，否则流程图能存下，
+// 运行时却对着一个已经不存在的节点报「接不上」。
 export function removeNode(graph, nodeId) {
   return {
     ...graph,
@@ -166,11 +154,10 @@ export function removeNode(graph, nodeId) {
   }
 }
 
-//  Text, zoom and keyboard helpers — pure, so they can be tested without a DOM
+// 文本、缩放与键盘辅助函数：纯函数，不依赖 DOM。
 
-// The catalogue carries every label and every sentence as { en, zh }. Older
-// fixtures (and any node whose server has not been updated) carry a plain
-// string, so both shapes have to work or one stale field blanks the canvas.
+// 目录里的标签与文案都是 { en, zh }。旧夹具与尚未更新的服务端节点给的是纯字符串，
+// 两种形状都得能用，否则一个过期字段就会让画布上一片空白。
 export function pickText(value, lang = 'en', fallback = '') {
   if (value === null || value === undefined) return fallback
   if (typeof value === 'string') return value || fallback
@@ -191,10 +178,8 @@ export function clampZoom(zoom) {
 }
 
 /**
- * Zoom while keeping whatever is under the pointer under the pointer.
- * `pointer` is measured from the top-left of the visible box, `scroll` is where
- * the box is scrolled to. Zooming towards the middle of the screen instead is
- * the thing that makes a canvas feel like it is fighting you.
+ * 缩放时保持指针下的东西仍在指针下。pointer 是相对可见区域左上角量的，
+ * scroll 是可见区域滚动到的位置。改成以屏幕中心缩放，会让画布显得在跟人较劲。
  */
 export function zoomAround({ zoom, factor, pointer, scroll }) {
   const from = clampZoom(zoom)
@@ -208,9 +193,8 @@ export function zoomAround({ zoom, factor, pointer, scroll }) {
   }
 }
 
-// Delete / Backspace must delete a node — unless the cursor is in a text box, in
-// which case it must delete a character. Getting this wrong means someone loses
-// a node while editing the text they are about to synthesise.
+// 删除键与退格键要删节点，但光标在输入框里时必须删字符：
+// 弄错的后果是有人一边改要合成的文字，一边把节点删掉了。
 export function isTypingTarget(element) {
   if (!element) return false
   const tag = String(element.tagName || '').toLowerCase()
@@ -219,9 +203,8 @@ export function isTypingTarget(element) {
   return false
 }
 
-// What a setting's current value looks like on the node itself. The point is
-// that a graph can be read at a glance: "seed -1 (random)" on the box beats
-// having to click every node to find out what it is set to.
+// 设置的当前值在节点上显示成什么样。目的是让流程图一眼能读：
+// 方框上写着「seed -1（随机）」，比逐个点开节点查设置省事。
 export function describeValue(value, lang = 'en') {
   if (value === null || value === undefined || value === '') {
     return lang === 'zh' ? '未设置' : '(empty)'
@@ -243,8 +226,8 @@ export function typesFit(fromType, toType) {
   return (ACCEPTS[fromType] || []).includes(toType)
 }
 
-// Would this wire make a ring? A ring is not a loop: loops are made with the two
-// loop nodes, and a ring is just a graph that can never start.
+// 这根连线会不会连成一个圈。圈不是循环：循环由两个循环节点搭，
+// 圈只是一个永远无法开始的流程图。
 export function wouldCycle(graph, fromNodeId, toNodeId) {
   if (fromNodeId === toNodeId) return true
   const upstream = new Map()
@@ -267,18 +250,17 @@ export function wouldCycle(graph, fromNodeId, toNodeId) {
   return false
 }
 
-/**
- * Try to make a wire. Returns { ok: true, graph } or { ok: false, reason } — a
- * sentence, because the canvas shows it to a person who is mid-drag.
- */
-// Refusals are shown to a person who is mid-drag, so they are sentences — and
-// since the interface ships in two languages, every one of them is a pair. The
-// plain `reason` stays Chinese so nothing that already reads it breaks; the
-// canvas reads `reason_i18n`.
+// 拒绝理由要显示给正在拖线的人，所以写成句子；界面有中英两种语言，
+// 每条理由都是一对。reason 保持中文，已有读它的代码不受影响，
+// 画布读的是 reason_i18n。
 function refuse(zh, en) {
   return { ok: false, reason: zh, reason_i18n: { zh, en } }
 }
 
+/**
+ * 尝试接线。成功返回 { ok: true, graph }，失败返回 { ok: false, reason }：
+ * reason 是一句话，因为画布要把它显示给正在拖线的人。
+ */
 export function connect(graph, catalogue, from, to) {
   const fromNode = graph.nodes.find(n => n.id === from.node)
   const toNode = graph.nodes.find(n => n.id === to.node)
@@ -315,8 +297,7 @@ export function connect(graph, catalogue, from, to) {
     }
     next = [...list, { node: from.node, port: from.port }]
   } else {
-    // A single-slot input takes the new wire and drops the old one, which is
-    // what dragging onto an occupied port obviously means.
+    // 单入口的输入口接新线、丢掉旧线：往已占的口上拖线就是这个意思。
     next = { node: from.node, port: from.port }
   }
 
@@ -348,8 +329,7 @@ export function disconnect(graph, to, source = null) {
   }
 }
 
-// Every wire in the graph, flattened — what the canvas draws and what a click on
-// a line has to be able to identify.
+// 流程图里的每一根连线，摊平成列表：画布要画它们，点击一根线也要能认出它。
 export function edgesOf(graph) {
   const edges = []
   for (const node of graph.nodes) {
@@ -362,8 +342,8 @@ export function edgesOf(graph) {
   return edges
 }
 
-// Which required inputs are still empty. Shown while wiring, so a graph that
-// cannot run says so on the canvas instead of at the moment you press go.
+// 哪些必填输入还空着。接线时就显示出来，跑不起来的流程图在画布上就看得出来，
+// 而不是按下运行才知道。
 export function missingInputs(graph, catalogue) {
   const missing = []
   for (const node of graph.nodes) {
@@ -396,8 +376,8 @@ export function missingInputs(graph, catalogue) {
   return missing
 }
 
-// A colour per port type, so a glance at the canvas shows what fits where. The
-// same map is used for the dot and for the wire, on purpose.
+// 每种端口类型一个颜色，由画布上的颜色就能看出哪里能接。圆点与连线用同一张表，
+// 是有意为之。
 const TYPE_COLOURS = {
   Text: '#7fb3ff', Audio: '#ffb86b', ReferenceAudio: '#ffcf8b', AudioList: '#ff9f43',
   Number: '#9ee37d', Score: '#6cd97e', Boolean: '#ff7b7b', Engine: '#c99bff',

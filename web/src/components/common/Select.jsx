@@ -1,18 +1,11 @@
-// Drop-in replacement for the native <select>.
-//
-// WHY THIS EXISTS
-// A native <select> renders its option list as an OS-level, top-most popup
-// window that floats ABOVE page content *and* above in-window browser chrome
-// (e.g. Edge's vertical-tab flyout). We want the opposite: the menu must be
-// ordinary in-page DOM so the app fully controls its stacking/theme AND so
-// browser chrome correctly paints over it. So the menu is rendered into
-// document.body via a portal (never clipped by overflow ancestors) as a plain
-// <div> — which, being page content, always sits below browser chrome.
-//
-// API is intentionally identical to <select>: pass `value`/`defaultValue`,
-// `onChange` (receives `{ target: { value } }`), `className`, `style`,
-// `disabled`, `title`, and <option> children (mapped, conditional or inline).
-// Business logic at every call site stays byte-for-byte the same.
+// 原生 <select> 的替代组件：选项菜单渲染成页面内的普通 DOM，样式与层级由本应用掌控。
+// 原生下拉的选项列表是操作系统级的置顶弹窗，会盖住页面内容，也会盖住浏览器自身的界面
+// （例如浏览器侧边栏），而且不受页面样式控制。改成挂到 document.body 上的普通 <div>，
+// 它属于页面内容，永远在浏览器界面之下，也不会被祖先的 overflow 裁掉。
+// 接口与原生 <select> 一致：value / defaultValue、onChange（收到 { target: { value } }）、
+// className、style、disabled、title，以及 <option> 子元素（映射、条件或内联写法都认）；
+// 另加一个 placeholder，在没有选项匹配上时显示它。
+// 调用点的业务逻辑不需要改。
 
 import {
   useState, useRef, useEffect, useCallback, useLayoutEffect,
@@ -22,8 +15,7 @@ import { createPortal } from 'react-dom'
 
 const norm = (v) => (v === undefined || v === null) ? '' : String(v)
 
-// Extract plain text from an <option>'s children (for typeahead + display),
-// recursing through arrays and nested elements.
+// 取 <option> 子元素的纯文本，供输入前缀匹配用；数组与嵌套元素都递归展开。
 function nodeText(node) {
   if (node == null || typeof node === 'boolean') return ''
   if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -32,9 +24,9 @@ function nodeText(node) {
   return ''
 }
 
-// Flatten children into option descriptors. Children.forEach already flattens
-// arrays (e.g. from .map) and drops null/false (e.g. from `cond && <option/>`);
-// we additionally recurse through <Fragment> and unknown wrappers defensively.
+// 把子元素摊平成选项描述。Children.forEach 已经摊平了数组（例如 .map 的结果），
+// 也会丢掉 null / false（例如 cond && <option/> 的结果）；这里再递归处理 <Fragment>
+// 与未知的包裹元素。
 function collectOptions(children, out) {
   Children.forEach(children, (child) => {
     if (child == null || typeof child === 'boolean') return
@@ -140,8 +132,9 @@ export function Select({
     triggerRef.current && triggerRef.current.focus()
   }, [isControlled, onChange])
 
-  // Reposition before paint + keep aligned while open (scroll/resize).
+  // 绘制前先算好位置，菜单展开时也不会错位。
   useLayoutEffect(() => { if (open) computePos() }, [open, computePos])
+  // 展开期间跟随滚动与窗口缩放重新定位；点击菜单与触发器之外的位置则关闭菜单。
   useEffect(() => {
     if (!open) return
     const reflow = () => computePos()
@@ -160,7 +153,7 @@ export function Select({
     }
   }, [open, computePos])
 
-  // Keep the highlighted option in view.
+  // 让高亮的那一项保持在可视区域内。
   useEffect(() => {
     if (!open || !menuRef.current) return
     const node = menuRef.current.querySelector(`[data-idx="${hi}"]`)

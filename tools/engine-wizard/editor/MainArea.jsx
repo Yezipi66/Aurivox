@@ -1,18 +1,16 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { Select } from '../../../web/src/components/common/Select'
-// 名片字段的本地化必须走平台的 textOf/fieldLabel/fieldHelp（web/src/lib/engines.js）：
-// 名片里 label/help 有两种写法，{en,zh} 对象或纯字符串。
-// 自己写 `w.label || w.id` 会在对象写法下渲染出 [object Object]。
+// 名片字段的本地化走平台的 fieldLabel/fieldHelp（web/src/lib/engines.js）。
+// 名片里 label 与 help 有两种写法：{en,zh} 对象或纯字符串，自己拼 `w.label || w.id`
+// 会在对象写法下渲染出 [object Object]。
 import { fieldLabel, fieldHelp } from '../../../web/src/lib/engines'
 
-// 主区域的预览：照 GenerateTab 的结构画，不 import 它。
-// GenerateTab 是整页（音色库、参考音频切片、缓存、活动日志），要后端数据才能跑，
-// 而预览没有后端，强行 import 会把整个 web 的数据依赖拖进来。
-// 形状照它的真实结构：音色下拉、文本、权重下拉（每个模型位一格）、语言，
-// 控件用平台的 Select，样式用项目的类名。
-// 硬边界：主区域的形状由平台定，不由名片定，换一台引擎它一个字都不变。
-// 所以这里只能预览，不能拿来推断名片该填什么。
+// 合成页主区域的无数据预览：按 GenerateTab 的真实结构画出同样的格子。
+// 不 import GenerateTab：它是整页组件（音色库、参考音频切片、缓存、活动日志），
+// 依赖后端数据，预览没有后端，import 它会把整个 web 的数据层拖进来。
+// 形状由平台定，不由名片定：换一台引擎，这几行一个字都不变。
+// 所以它只能预览，不能拿来推断名片该填什么。
 
 export default function MainArea ({ manifest }) {
   const { t, lang } = useT()
@@ -22,8 +20,8 @@ export default function MainArea ({ manifest }) {
   return (
     /* 容器用项目现成的 .card，不自己画 */
     <div className="card">
-      {/* 这里原来有一行自造的标题，真界面里没有，已删。
-             真界面里这段没有这个标题，预览里加一条只会让人多读一句话。*/}
+      {/* 真界面里这一段没有标题，预览也不加：
+             加一条只会让人多读一句话。*/}
       <div className="form-grid">
         // 音色：平台扫盘才有，这里显示形状
         <div>
@@ -33,8 +31,8 @@ export default function MainArea ({ manifest }) {
           </Select>
         </div>
 
-        {/* 目标语言：语言名是平台词表里的固定内容，不是名片能改的
-             ⇒ 两种语言都要给全，不能只翻一半。 */}
+        {/* 目标语言：语言名是平台词表里的固定内容，名片改不了，
+             中英文两套都要给全，不能只翻一半。 */}
         <div>
           <label className="field-label">{t('Language', '目标合成语言')}</label>
           <Select className="control" value="auto" onChange={() => {}} disabled>

@@ -1,15 +1,17 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
+// 生成页的音色侧栏：列出参考音频（切片与原始音频）、显示当前参考与时长警告、编辑参考转写文本。
+// 参考音频取自音色（SoVITS）那一侧；用户手动选定的参考与转写文本只对本次生成有效。
 import { useState, useEffect } from 'react'
 import { useT } from '../../lib/i18n'
 import { API_BASE, api } from '../../lib/api'
-import { basename, pickDefaultRef, refInRange, REF_MIN_SEC, REF_MAX_SEC, statusBadge } from '../../lib/format'
+import { basename } from '../../lib/pathText'
+import { pickDefaultRef, refInRange, REF_MIN_SEC, REF_MAX_SEC } from '../../lib/refAudio'
+import { statusBadge } from '../common/StatusBadge'
 import { AudioPlayer } from '../common/Player'
 import { CrossRefPicker, CustomRefPicker, refMatches } from '../common/RefPickers'
 
 function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, selectedRefAudio, selectedRefText, selectedPromptLang, onSelectRef, refTextOverride, onRefTextOverride }) {
   const { t } = useT()
-  // Reference clips are loaded from the timbre (SoVITS) voice (C3); it equals the
-  // primary voice unless the SoVITS model was sourced from another asset.
+  // 参考音频取自音色（SoVITS）那一侧；除非 SoVITS 模型来自另一份资产，否则它就是当前音色。
   const rvid = refVoiceId || voice.id
   const refVoice = voices.find(v => v.id === rvid)
   const mixedRef = rvid !== voice.id
@@ -17,12 +19,12 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
   const [rawRefs, setRawRefs] = useState(null)
   const [segLoading, setSegLoading] = useState(false)
   const [refTab, setRefTab] = useState('slices') // 'slices' | 'raw'
-  const [refSearch, setRefSearch] = useState('') // main reference search box
-  // Client-measured raw durations (filename -> seconds). Raw clips are often mp3,
-  // whose length the server can't read from a WAV header, so the <audio> element
-  // reports it on loadedmetadata — used for the same 3–10s guard as slices.
+  const [refSearch, setRefSearch] = useState('') // 主参考的搜索框
+  // 客户端量出的原始音频时长（文件名 -> 秒数）。原始音频常是 mp3，
+  // 服务端读 WAV 头拿不到长度，由 audio 元素在 loadedmetadata 时报出来，
+  // 用来与切片走同一套 3 到 10 秒检查。
   const [rawDurations, setRawDurations] = useState({})
-  // 跨选/自选参考音频（本次会话内有效，切换音色时重置；不写入音色配置）。
+  // 跨选与自选的参考音频：只在本次会话内有效，切换音色时重置，不写进音色配置。
   const [crossMode, setCrossMode] = useState(false)
   const [customRef, setCustomRef] = useState(null) // { path, url, name } | null
 
@@ -50,33 +52,31 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
     onSelectRef(`assets/${rvid}/slicer_opt/${filename}`, seg.text || '')
   }
   const pickRaw = (rf) => {
-    // Reference text comes from asr_opt/raw_opt.list (server-enriched rf.text);
-    // may be empty if the raw list hasn't been transcribed yet.
+    // 参考文本取自 asr_opt/raw_opt.list（服务端补进了 rf.text）；
+    // 原始音频还没转写时它可能是空的。
     onSelectRef(`assets/${rvid}/raw/${rf.filename}`, rf.text || '')
   }
-  // Cross-voice pick: prompt_lang stays = current voice language (decision: do NOT
-  // switch it), just warn. Custom pick: carries an optional prompt_lang override.
+  // 跨选：prompt_lang 保持当前音色的语种不变，只做提示。自选：可带一个 prompt_lang 覆盖值。
   const handleCrossPick = (path, text) => onSelectRef(path, text)
   const handleCustomPick = (path, text, plang, obj) => { if (obj) setCustomRef(obj); onSelectRef(path, text, plang) }
   const handleCustomClear = () => { setCustomRef(null); onSelectRef('', '', '') }
-  // Effective duration for a raw clip: server WAV-header value, else client-measured.
+  // 原始音频的有效时长：优先用服务端从 WAV 头读出的值，否则用客户端量出的值。
   const rawDur = (rf) => (rf.duration && rf.duration > 0 ? rf.duration : rawDurations[rf.filename])
 
-  // Privacy: only offer slices whose .wav still exists on disk right now
-  // (server sets `exists` via a live re-check; deleted slices are excluded).
+  // 只提供盘上还存在的切片：服务端实时复查并给出 exists 字段，已删除的切片被排除。
   const availableRefs = segments && Array.isArray(segments)
     ? segments.filter(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
     : []
   const availableRaw = Array.isArray(rawRefs) ? rawRefs : []
-  // Search-filtered views (name + transcript). Empty query => unchanged lists.
+  // 按名称与转写文本过滤后的视图。搜索词为空时列表不变。
   const shownRefs = availableRefs.filter(s => refMatches(refSearch, `${s.scene} #${s.index}`, s.text))
   const shownRaw = availableRaw.filter(rf => refMatches(refSearch, rf.filename, rf.text))
 
-  // Active ref: user selection (from App) > auto-picked in-range slice
+  // 当前参考：用户在父组件选定的优先于自动挑出的合规切片。
   const firstRef = pickDefaultRef(availableRefs)
   const activeRef = selectedRefAudio || (firstRef ? (firstRef.audio || firstRef.audio_path || firstRef.audio_filename) : '')
-  // Explicit selection wins verbatim (empty for raw); only auto-fill from the picked
-  // slice when the user hasn't chosen anything, so raw picks clear the transcript.
+  // 用户显式选的参考原样生效（原始音频时为空）；只有在用户还没选过时才用挑出的切片补上，
+  // 这样选原始音频会把转写文本清空。
   const activeRefText = selectedRefAudio ? selectedRefText : (firstRef?.text || '')
   const activeFilename = activeRef ? activeRef.replace(/\\/g, '/').split('/').pop() : ''
   const activeIsRaw = /\/raw\//.test(activeRef)
@@ -97,7 +97,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           </div>
         )}
 
-        {/* Reference Audio selector — Slices (default) / Raw as tabs to avoid crowding */}
+        {/* 参考音频选择器：切片（默认）与原始音频分两个页签，避免挤在一处 */}
         <div className="field">
           <div className="ref-hdr">
             <label className="field-label" style={{ margin: 0 }}>Reference Audio</label>
@@ -118,8 +118,8 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
             <input type="checkbox" checked={crossMode} onChange={e => {
               const on = e.target.checked
               setCrossMode(on)
-              // PE-1: leaving cross-voice mode drops any cross/custom selection so the
-              // reference falls back to this voice's own slices, avoiding a stale ref.
+              // 退出跨选模式时清掉跨选与自选的参考，参考回到本音色自己的切片，
+              // 免得留下一条已经失效的参考。
               if (!on) { setCustomRef(null); onSelectRef('', '', '') }
             }} />
             {t('Use reference from another voice', '使用其他音色的参考音频')}
@@ -130,8 +130,8 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
             </div>
           )}
           {(() => {
-            // Out-of-range warning for the ACTIVE ref — works for both a slice and
-            // a raw clip (raw duration may be client-measured, so only warn once known).
+            // 当前参考的时长警告：切片与原始音频都适用（原始音频的时长可能是客户端量的，
+            // 所以量出来才警告）。
             let dur = null
             if (activeIsRaw) {
               const rf = availableRaw.find(r => r.filename === activeFilename)
@@ -154,9 +154,8 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
             return null
           })()}
           {activeRef ? (
-            // Editable reference transcript (THIS RUN ONLY): edits change the prompt
-            // text sent to the engine but never modify the source file. Seeded with the
-            // active ref's own text; the override lives in the parent (effectiveRefText).
+            // 可编辑的参考转写文本，只对本次生成有效：改的是发给引擎的提示文本，
+            // 不会改动源文件。初始值取当前参考自带的文本，覆盖值由父组件持有（effectiveRefText）。
             <div style={{ marginBottom: 6 }}>
               <textarea
                 className="control"
@@ -249,9 +248,8 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           {crossMode && (
             <CrossRefPicker voices={voices} currentVoiceId={rvid} onPick={handleCrossPick} activeRef={selectedRefAudio} />
           )}
-          {/* PE: the custom-file picker only makes sense as a cross-voice/external
-              reference, so it is shown only while "Use reference from another voice"
-              is checked. Unchecking clears any custom pick (see checkbox handler). */}
+          {/* 自选文件只对跨选或外部参考有意义，所以只在「使用其他音色的参考音频」勾上时显示。
+              取消勾选会清掉自选的参考（见上面的复选框处理）。 */}
           {crossMode && (
             <CustomRefPicker custom={customRef} onPick={handleCustomPick} onClear={handleCustomClear} />
           )}
@@ -260,13 +258,9 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
         {validation && (
           <div className="field" style={{ marginTop: 8 }}>
             <label className="field-label">Model Validity</label>
-            {/* ：这里过去写死两行「GPT Model / SoVITS Model」，
-                那是一台引擎的零件清单被抄进了平台。换一台引擎，这两行要么
-                恒为红叉（它实际什么都不缺），要么答非所问（IndexTTS2 只有
-                一个位，界面却追问它 SoVITS 在不在）。
-                现在：几行、叫什么，是这台引擎的名片说的，前端一个位名
-                都不认识，后端 /api/voices/:id/validate 直接给 slots[]。
-                别再往这里加任何具体名字。 */}
+            {/* 显示几行、每行叫什么，由当前引擎的名片决定：
+                后端 /api/voices/:id/validate 直接给 slots[]，前端不认识任何位名。
+                前端不写死任何具体引擎的零件名，换一台引擎照样显示它自己的位。 */}
             <div className="validity-list">
               {(validation.slots || []).map(s => (
                 <div className="validity-row" key={`${s.engine_id}:${s.name}`}>

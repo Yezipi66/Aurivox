@@ -1,6 +1,9 @@
-// Minimal, dependency-free smoke test for the Stage-0 audio extraction.
+// Dependency-free smoke test for lib/audio/wav, lib/audio/ffmpeg and
+// lib/gsv/client: asserts every exported function is present, then exercises
+// the WAV helpers (silence generation, duration, segment bounds, 32-bit-float
+// to 16-bit PCM conversion, pure-node concat) on a small generated fixture.
 // Run:  node tools/tests/audio_wav_test.js
-// Exits non-zero on failure. This is the seed for a real test suite.
+// Exits non-zero on failure.
 
 const os = require("os");
 const path = require("path");

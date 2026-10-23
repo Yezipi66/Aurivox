@@ -1,13 +1,10 @@
 'use strict'
-// 上游比对（compareUpstream）：核心判据是「这个目录自己是不是仓库根」
-//
-// 为什么这条这么要紧：git 会向上找 .git。
-//   engines/ 下一个普通目录（不是仓库）向上找，会找到 Aurivox 自己的 .git，
-//   于是 remote.origin.url 读出来是 Aurivox 的地址，不是那个目录的来历。
-//   读之前必须先确认 show-toplevel 就是这个目录本身。
-//
-// 另一条要守的：仓库坏了的时候（packed-refs 损坏、对象签名不对），
-//   origin 仍要能读出来：那是配置文件里的字，不依赖对象库。
+// 上游比对（compareUpstream）：核心判据是「这个目录自己是不是仓库根」。
+// 判据要严是因为 git 会向上找 .git：engines/ 下一个普通目录（不是仓库）向上找，
+// 会找到 Aurivox 自己的 .git，于是 remote.origin.url 读出来是 Aurivox 的地址，
+// 而不是那个目录的来历。读之前必须先确认 show-toplevel 就是这个目录本身。
+// 另一条要守的：仓库损坏时（packed-refs 损坏、对象签名不对），origin 仍要能读出来，
+// 因为那是配置文件里的字，不依赖对象库。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -19,8 +16,8 @@ const { spawnSync } = require('node:child_process')
 const { compareUpstream, normalizeRepoUrl, readGitIdentity } =
   require('../core/clone.js')
 
-/** 夹具造在 os.tmpdir() 里，绝不碰真的 engines/。
- *  名字里带 mkdtemp 是给 lib/engines/enginesDirWriteGuard.node.test.js 看的：
+/** 夹具造在 os.tmpdir() 里，不碰真的 engines/。
+ *  变量名里带 mkdtemp 是给 lib/engines/enginesDirWriteGuard.node.test.js 看的：
  *  那个守卫区分真假只认实参里有没有临时目录的痕迹。 */
 function makeRoot (mkdtempDir) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-upstream-'))
@@ -105,8 +102,7 @@ test('没有给上游地址 ⇒ unknown', () => {
   assert.strictEqual(r.match, 'unknown')
 })
 
-// ---- 父仓库陷阱 --------------------------------------------------------
-// 目录不是仓库，但它在另一个仓库里面：git 向上找会找到那个仓库。
+// 父仓库陷阱：目录不是仓库，但它在另一个仓库里面，git 向上找会找到那个仓库。
 // 判据必须用 show-toplevel 认出「这个目录自己不是仓库根」。
 
 test('目录嵌在别的仓库里 ⇒ 当成不是仓库，不许读到父仓库的 origin', () => {
@@ -134,9 +130,8 @@ test('父仓库陷阱：readGitIdentity 也要认出来', () => {
   assert.strictEqual(id.origin, null)
 })
 
-// ---- 仓库坏了 ----------------------------------------------------------
-// 真实的 engines/index-tts 就是这个状态：packed-refs 损坏。
-// origin 在 .git/config 里，是纯文本，不依赖对象库 ⇒ 仍要读得出来。
+// 仓库损坏：refs 坏了不代表 origin 读不出来。
+// origin 在 .git/config 里，是纯文本，不依赖对象库。
 
 test('仓库的 refs 坏了，origin 仍要能读出来', () => {
   const { engines } = makeRoot()

@@ -1,3 +1,7 @@
+// autoLanguage.js 的守卫：汉字语种的自动判定。判据只有三个：假名指向日语、粤字把分值推过阈值、
+// 否则取调用方给的兜底语种；显式的按位置覆盖始终优先。
+// 与 Python 侧 TextPreprocessor.py 的 auto_zh_ja_yue 同一条分句边界，所以证据不会越过逗号串到别处。
+
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { inferAutoHanLanguages } from './autoLanguage.js'

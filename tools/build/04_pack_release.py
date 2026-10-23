@@ -106,7 +106,7 @@ TOP_EXCLUDE_PREFIX = ("venv_", "venv-", ".venv_")
 # It is not a shipped default — it is "what the UI was last set to" on ONE
 # machine (see lib/advancedParams.js, the boundary drawn:
 # 「它是界面状态的记忆，不是默认值表」). Defaults have exactly one home: the
-# engine manifest (contract C11).
+# engine manifest.
 # Shipping it meant every fresh install inherited a dev machine's frozen
 # snapshot as its factory defaults — measured: batch_size 1 instead of the
 # manifest's 4, seed 2769901998, version v2, is_half false.
@@ -124,10 +124,8 @@ DATA_KEEP = {
 # Dev/VCS/cache junk safe to drop at ANY depth.
 NAME_EXCLUDE = {
     ".git", ".hg", ".svn",
-    # r12c batch16: 每引擎自带一套 Python 环境（GSV 是 torch 2.2.0+cu121，
-    # IndexTTS2 是 2.8.0+cu128，四个 minor 版本 + 两个 CUDA 大版本之差，
-    # 合并共享会把两个引擎的稳定性焊死，所以隔离是唯一解）。这些环境
-    # 现在住在 engines\<id>\.venv\，在 deploy 时重建，绝不进发行包。
+    # 每台引擎自带一套 Python 环境（各引擎的 torch / CUDA 版本互不兼容，不能共享），
+    # 住在 engines\<id>\.venv\，在 deploy 时重建，不进发行包。
     # 放这里而不是 TOP_EXCLUDE：TOP_EXCLUDE 是给 data/assets/dist 这类
     #    通用词用的（深层可能是依赖自己的合法目录，误删过 web/dist）。
     #    ".venv" 不是通用词，它是虚拟环境的约定名，和 __pycache__ 同类。
@@ -153,15 +151,9 @@ NODE_RUNTIME_PREFIX = "tools/runtime/node/"
 # Specific subtrees (relative paths) to drop wherever they are anchored.
 PATH_EXCLUDE = {
     os.path.join("web", "node_modules"),
-# : tools/dev holds ASSISTANT-GENERATED dev tooling -- the
-    # apply-r12c-batch*.py patch scripts, collect_repo_source*.py, and the
-# read-only probes.  moved them OUT of the repo root (the root
-    # layout guard only inspects depth 1) and into tools/dev -- but tools/ is
-    # shipped wholesale, so "tidying the root" quietly moved them INTO the
-    # release. Caught by arithmetic: --dry-run reported 5908 files while the
-    # probe reported 5909, and the one extra file was the probe itself, which
-    # had just been dropped into tools/dev. Same failure mode as the stale
-    # ".patch-backup" rule above: a depth-anchored guard vs. content that moved.
+    # tools/dev holds dev-only tooling (one-off patch scripts, source collectors,
+    # read-only probes). tools/ is shipped wholesale, so this subtree must be
+    # excluded explicitly or it silently lands in the release.
     os.path.join("tools", "dev"),
     # ffmpeg is OPTIONAL (only vocal separation / UVR5 needs it) and ~275MB.
     # Users fetch it on demand via download_ffmpeg.py, so keep it out of source.
@@ -173,13 +165,10 @@ PATH_EXCLUDE = {
     # (12.9MB), cmake.exe (12.8MB) and CMake.qch (9.0MB) all shipped:
     # 4165 files, 92.8MB -- the single largest thing in the release.
     os.path.join("tools", "runtime", "python", "Lib", "site-packages", "cmake"),
-    # The "vendor/micromamba" exclusion is gone.
-    # vendor\micromamba was deleted from disk and contract clause
-    # C12.3 now forbids introducing a second package ecosystem (conda-forge) at
-    # all -- the reason is licence-manifest boundaries, not technology.
-    # So unlike the GPT_SoVITS/ rule in .gitignore (deliberately kept as an
-    # anti-regression guard, because weights CAN get re-downloaded into place),
-    # this tree will not come back. A rule pointing at a dead end is worse than
+    # No vendor/micromamba rule: the project uses no second package ecosystem
+    # (conda / micromamba), because the hand-kept licence manifest only covers
+    # pip. Unlike the GPT_SoVITS/ rule in .gitignore (kept because weights CAN be
+    # re-downloaded into place), this tree cannot come back. A rule pointing at a dead end is worse than
     # no rule: it tells the next reader we still use conda.
     # Engine virtualenvs live in engines\<id>\.venv\ and are already covered by
     # NAME_EXCLUDE above.
@@ -222,22 +211,12 @@ PATH_EXCLUDE = {
     os.path.join("models", "vocoder"),
     os.path.join("models", "sr"),
     os.path.join("models", "lang"),
-    # r12c batch16: 四条 vendor/gsv-tools/* 排除已删（pretrained /
-    # asr/faster-whisper-large-v3 / asr/models / uvr5/uvr5_weights）。
-    # 权重自 r12b 起住在 models/ 下，vendor/gsv-tools 这棵树已不存在
-    # ⇒ 这四条一条也没在排除任何东西，是冗余不是保险。
-    # 真正的保险是 EXCLUDE_EXT（已含全套权重扩展名）+ 新增的
-    #    tools/build/check_release_size.py（按体量兜底）。
-    #    按名字排除总会漏，这四条本身就是漏掉的证据。
-    # （fix12 那段考古注释随三条陈旧路径一并删除。它记的教训
-    #   "规则写错了不会报错，只会静默不生效"已由 check_release_size.py
-    #   接管，那是结构性的接管，不是再写一条注释提醒下一个人。）
-    # r12c: the GPT-SoVITS tree moved vendor/tts/gpt-sovits -> engines/gpt-sovits.
-    # These two entries are written segment-by-segment, so the textual
-    # "vendor/tts/gpt-sovits" -> "engines/gpt-sovits" sweep did NOT catch them.
-    # Left stale they would silently stop excluding, and the weights would be
-    # packed into the release — the failure mode is a 600MB-larger zip, not an
-    # error, which is exactly the kind that ships unnoticed.
+    # 按目录名排除权重总会漏；真正的兜底是 EXCLUDE_EXT（含全套权重扩展名）
+    # 加 tools/build/check_release_size.py（按体量报警）。
+    # The two entries below are written segment-by-segment, so a textual search for
+    # "engines/gpt-sovits" does not find them: update them by hand when that tree
+    # moves. Left stale they silently stop excluding and the weights get packed
+    # into the release (a much larger zip, no error).
     os.path.join("engines", "gpt-sovits", "gsv_code", "pretrained_models"),
     # SR (24k->48k bandwidth-extension) weights: user-downloaded, not source
     os.path.join("engines", "gpt-sovits", "infer", "sr", "AP_BWE_main", "24kto48k"),
@@ -591,13 +570,11 @@ def main():
         if not any(norm(r) == norm(need) or norm(r).startswith(norm(need)) for r, _, _ in included):
             print(f"  [WARN] missing {need}  -> {hint}")
 
-    # ---- HARD preflight: the r12c relocation targets ------------------------
+    # ---- HARD preflight: engines/, pipeline/ and lib/ must be present ----------
     # Everything above is a [WARN]: it prints and packs anyway. That is fine for
-    # "you forgot to build the frontend" but wrong for the trees r12c MOVED,
-    # because the failure mode there is a zip that extracts and then cannot
-    # synthesise anything -- with no error at pack time. Note that not one of
-    # the WARN entries above mentions engines/ or pipeline/, so a clean
-    # "0 warnings" run proved only that the PRE-r12c files were still there.
+    # "you forgot to build the frontend" but wrong for these trees, because a
+    # release missing them extracts fine and then cannot synthesise anything,
+    # with no error at pack time. None of the WARN entries above covers them.
     #
     # Floors are set at roughly half the measured counts, so normal
     # churn cannot trip them but "the tree moved / emptied" always does:

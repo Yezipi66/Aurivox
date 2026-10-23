@@ -1,4 +1,7 @@
 'use strict'
+// 向导的名片读写接口：列出已装引擎、写入名片、按 id 读回一张名片。
+// 三个 handler 都是 Vite 中间件：URL 匹配就接管并返回 true，不匹配返回 false 让下一个 handler 接。
+// 落盘与校验由 save.js 负责，本文件只做 HTTP 这一层。
 
 const path = require('node:path')
 const { saveManifest, validateId, listInstalled } = require('./save')
@@ -8,14 +11,16 @@ function json (res, code, body) {
   res.end(JSON.stringify(body))
 }
 
-/** GET /wizard/installed */
+/**
+ * GET /wizard/installed：列出已装引擎。URL 与方法都匹配才返回 true。
+ */
 function handleInstalled (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/installed')) return false
   try {
-    // ?all=1：列出 engines/ 下所有文件夹（含还没名片的），
-    //   「新建名片」入口靠它列出第 1 步克隆来、还没写名片的引擎。
-    //   默认仍只列有 manifest 的（不改老行为）。
+    // ?all=1 时列出 engines/ 下的全部目录（含还没写名片的），
+    // 「新建名片」入口靠它列出第 1 步克隆来、还没写名片的引擎。
+    // 不带这个参数时只列有 manifest.json 的那些。
     const all = /[?&]all=1/.test(req.url)
     json(res, 200, { engines: listInstalled({ all }) })
   } catch (e) {
@@ -24,7 +29,9 @@ function handleInstalled (req, res) {
   return true
 }
 
-/** POST /wizard/save */
+/**
+ * POST /wizard/save：写入一张名片。URL 与方法都匹配才返回 true。
+ */
 function handleSave (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/save')) return false
@@ -65,13 +72,14 @@ function handleSave (req, res) {
 }
 
 /**
- * GET /wizard/manifest/<id>：读一张已装引擎的名片
+ * GET /wizard/manifest/<id>：读回一张已装引擎的名片。
  *
- * 平台无按 id 取原始 manifest 的端点（见 lib/routes/engines.js），故此处直接读盘。
- * 安全：只读 engines/ 之内，且 id 必须先过 validateId（拦掉 ../escape 这类）。
+ * 平台没有按 id 取原始名片的端点（lib/routes/engines.js 只提供列表与启停），
+ * 所以这里直接读盘。id 先过 validateId，再由 readManifestById 保证只读 engines/ 之内。
  *
- * 必须用 req.url，不是 req.path：Vite 的 connect 给的 req.url 是带查询串的原文，
- *   req.path 有时是 undefined（传下去会 500 "path argument must be of type string"）。
+ * 必须用 req.url 而不是 req.path：Vite 的 connect 给的 req.url 是带查询串的原文，
+ * req.path 有时是 undefined（传下去会 500 "path argument must be of type string"）。
+ * URL 与方法都匹配才返回 true。
  */
 function handleRead (req, res) {
   if (req.method !== 'GET') return false

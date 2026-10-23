@@ -8,9 +8,8 @@ export const HEADER_HEIGHT = 32
 export const PARAM_ROW = 18
 export const PORT_TOP = 16
 
-// How far the sheet extends. It used to be a fixed 4000 x 3000, which cut the
-// drawing off for anyone who dragged a node past it; now it always reaches well
-// past the furthest node.
+// Sheet sizing: the drawing area is grown past the furthest node, so dragging a
+// node out of the initial viewport never gets cut off.
 export const MIN_SHEET_W = 2600
 export const MIN_SHEET_H = 1600
 

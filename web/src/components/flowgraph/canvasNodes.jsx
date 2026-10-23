@@ -1,3 +1,6 @@
+// 流程图画布上的节点与右侧检视面板：NodeBox 画节点本体，PortList 列端口，Inspector 编辑选中项。
+// 三个组件都只负责呈现，不持有流程状态：拖动、连线、改值一律通过 props 回调交给上层画布。
+// 尺寸与配色取 canvasShared 与 graphModel，不在这里另算一套。
 import { pickText, colourFor, describeValue } from './graphModel'
 import {
   NODE_WIDTH, ROW_HEIGHT, HEADER_HEIGHT, PARAM_ROW, PORT_TOP,

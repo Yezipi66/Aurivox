@@ -1,3 +1,6 @@
+// 后端入口：拼装 express 应用、装中间件与各路由模块，并托管前台静态文件。
+// 业务实现在 lib/server/ 与 lib/routes/ 下，这个文件只做依赖注入与装配；
+// 路由上下文 ctx 集中了所有共享依赖，新增路由只往 ctx 加字段。
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -207,7 +210,7 @@ const knownVoice = createKnownVoice(isBaseVoice, loadVoices);
 // ── Graceful shutdown (1.0.7) ────────────────────────────────────
 const { shutdown, shutdownState } = createShutdownManager(null, { _inflight, _shuttingDown, console });
 
-//  ROUTE MOUNTING (Stage-1 refactor)
+//  ROUTE MOUNTING
 const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _backupVoicesUnlocked, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, switchModels, toPcm16Wav, transcribeJobs, upload, validateHost, vendoredFfmpegPath, voicesStore, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, trainingPipeline, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/engines")(ctx));
@@ -221,7 +224,7 @@ app.use(require("./lib/routes/training")(ctx));
 app.use(require("./lib/routes/uvr5")(ctx));
 app.use(require("./lib/routes/recipes")(ctx));
 
-// ---- Aurivox Flow (FLOW-CORE-004 live wiring) ----
+// ---- Aurivox Flow routes (mounted only when FLOW_ENABLED / FLOWGRAPH_ENABLED is set) ----
 setupOptionalRoutes(app, ctx, { FLOWGRAPH_ENABLED: process.env.FLOWGRAPH_ENABLED, FLOW_ENABLED: process.env.FLOW_ENABLED, FLOWGRAPH_DIR, console });
 
 // ---- Serve React frontend (must stay after API routers) ----

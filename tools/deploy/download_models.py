@@ -1,54 +1,55 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-download_models.py — 一键下载 / 校验 TTS Broker 所需的全部模型。
+"""按需下载并校验 TTS Broker 需要的模型权重。
 
-模型不随发行包分发(约 9GB),由本脚本引导下载到项目内的真实路径:
-    models/tts/gpt-sovits/v1|v2|v2Pro|v2ProPlus/  底模, 一个版本一个目录
+模型不随发行包分发（整套十 GB 量级），由本脚本引导下载到项目内的真实位置：
+
+    models/tts/gpt-sovits/v1|v2|v2Pro|v2ProPlus/   底模，一个版本一个目录
     models/tts/gpt-sovits/sv|chinese-hubert-base|chinese-roberta-wwm-ext-large/
-    models/tts/gpt-sovits/G2PWModel/          G2PW 多音字 (g2pW.onnx)
-    models/asr/faster-whisper/large-v3-turbo/ ASR (faster-whisper large-v3-turbo)
-    models/asr/funasr/                        ASR (FunASR, 中文/粤语)
-    models/separation/uvr5/vr|mdx|roformer/   人声分离, 按架构分目录
-    models/lang/fast_langdetect/              语言检测 (lid.176.bin)
+    models/tts/gpt-sovits/G2PWModel/               G2PW 多音字（g2pW.onnx）
+    models/asr/faster-whisper/large-v3-turbo/      ASR
+    models/asr/funasr/                             ASR（FunASR，中文与粤语）
+    models/separation/uvr5/vr|mdx|roformer/        人声分离，按架构分目录
+    models/lang/fast_langdetect/                   语言检测（lid.176.bin）
 
-用法:
+用法：
     python download_models.py --wizard          # 交互式菜单
-    python download_models.py --check           # 只体检本地是否齐全, 不下载
-    python download_models.py --set default      # 默认集(core+g2pw+langdetect+asr, 基座 v2Pro)
-    python download_models.py --set core         # 只下核心底模(含 v2Pro 默认基座)
-    python download_models.py --set all          # 全部(含 alt 基座 + funasr + uvr5 全子组)
-    python download_models.py --set core,asr,funasr,uvr5_roformer  # 多选(逗号分隔)
-    python download_models.py --set all --mirror # 走 hf-mirror.com 加速(国内)
-    python download_models.py --set all --jobs 8 # 8 路并行下载(默认 4, 1=串行)
+    python download_models.py --check           # 只体检本地是否齐全，不下载
+    python download_models.py --set default      # 默认集（core + g2pw + langdetect + asr，基座 v2Pro）
+    python download_models.py --set core         # 只下核心底模（含 v2Pro 默认基座）
+    python download_models.py --set all          # 全部（含备用基座、funasr 与 uvr5 全子组）
+    python download_models.py --set core,asr,funasr,uvr5_roformer  # 多选（逗号分隔）
+    python download_models.py --set all --mirror # 走 hf-mirror.com 加速
+    python download_models.py --set all --jobs 8 # 8 路并行下载（默认 4，1 为串行）
 
-加速: 若 venv 里装了 hf_transfer, 单文件走 rust 并行分块下载(自动启用);
-      --jobs N 控制同一组内多个文件的并行数。二者叠加显著缩短下载时间。
+可下载组与 THIRD_PARTY_LICENSES/models/MODEL_SOURCES.json 的 download_group 对齐：
+    core          核心底模 + 默认基座 v2Pro（sv / hubert / roberta 等）  [默认]
+    asr           ASR faster-whisper large-v3-turbo（训练用）             [默认]
+    funasr        FunASR 中文与粤语 ASR（Paraformer + VAD + 标点，可选）   [按需]
+    g2pw          G2PW 多音字（g2pW.onnx）                              [默认]
+    langdetect    语言检测 lid.176                                       [默认]
+    alt_v2        备用基座 v2（G+D）                                     [按需]
+    alt_v2proplus 备用基座 v2ProPlus（G+D）                             [按需]
+    uvr5_hp       UVR5 去伴奏 HP（HP2/HP3/HP5）                          [按需]
+    uvr5_deecho   UVR5 去混响与去回声 DeEcho ×3                          [按需]
+    uvr5_mdx      UVR5 MDX 去混响（FoxJoy onnx）                         [按需]
+    uvr5_roformer UVR5 Roformer 高质量分离（BS + Mel-Band）              [按需]
+    uvr5 是上面 4 个子组的全集，--set uvr5 仍可用
 
-可下载组(与 THIRD_PARTY_LICENSES/models/MODEL_SOURCES.json 的 download_group 对齐):
-    core          核心底模 + 默认基座 v2Pro (sv / hubert / roberta 等)  [默认]
-    asr           ASR faster-whisper large-v3-turbo (~1.6GB, 训练用)     [默认]
-    funasr        FunASR 中文/粤语 ASR (Paraformer+VAD+标点, ~2.4GB, 可选)  [按需]
-    g2pw          G2PW 多音字 (g2pW.onnx)                                 [默认]
-    langdetect    语言检测 lid.176                                        [默认]
-    alt_v2        备用基座 v2 (G+D)                                       [按需]
-    alt_v2proplus 备用基座 v2ProPlus (G+D)                                [按需]
-    uvr5_hp       UVR5 去伴奏 HP (HP2/HP3/HP5, ~0.35GB)                    [按需]
-    uvr5_deecho   UVR5 去混响/去回声 DeEcho ×3 (~0.2GB)                     [按需]
-    uvr5_mdx      UVR5 MDX 去混响 (FoxJoy onnx, ~0.06GB)                   [按需]
-    uvr5_roformer UVR5 Roformer 高质量分离 (BS + Mel-Band, ~1.6GB)          [按需]
-    (旧名 uvr5 = 上面 4 个子组的全集, --set uvr5 仍可用)
+来源以 Hugging Face 为主，FunASR 走 ModelScope。改源只需改 MANIFEST 里的 repo 与 id：
+  * lj1995/GPT-SoVITS                     大部分底模、hubert、roberta
+  * lj1995/VoiceConversionWebUI           uvr5 去人声与去混响权重（HP / DeEcho / MDX）
+  * Eddycrack864/... 与 KimberleyJSN/...  BS-Roformer 与 Mel-Band Roformer
+  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  ASR（turbo）
+  * ModelScope iic/（paraformer/vad/punc/UniASR）  FunASR 中文与粤语（整目录下载）
+  * fasttext lid.176                      语言检测直链
+  * XXXXRT/GPT-SoVITS-Pretrained          G2PW 官方整包（下载 zip 后抽出 g2pW.onnx）
 
-来源(HF 首选;FunASR 用 ModelScope。如与你的实际源不同,改 MANIFEST 里的 repo/id 即可):
-  * lj1995/GPT-SoVITS                     : 绝大多数底模 / hubert / roberta
-  * lj1995/VoiceConversionWebUI           : uvr5 去人声/去混响权重 (HP/DeEcho/MDX)
-  * Eddycrack864/... , KimberleyJSN/...   : BS-Roformer / Mel-Band Roformer
-  * mobiuslabsgmbh/faster-whisper-large-v3-turbo  : ASR (turbo, ~1.6GB)
-  * ModelScope iic/ (paraformer/vad/punc/UniASR) : FunASR 中文/粤语 (ms 后端整目录)
-  * fasttext lid.176                      : 语言检测直链
-  * XXXXRT/GPT-SoVITS-Pretrained          : G2PW 官方整包(下载 zip 抽出 g2pW.onnx)
+单文件走 Hugging Face 时若装了 hf_transfer，会自动启用 rust 并行分块下载；
+--jobs N 控制同一组内多个文件的并行数。
 
-注: SR 音频超分(24k->48k, AP-BWE)与 BigVGAN 声码器仅 SoVITS v3 使用, 本项目不支持 v3, 已移除。
+SR 音频超分与 BigVGAN 声码器只服务 SoVITS v3，本项目不支持 v3，因此没有对应的
+下载项。
 """
 
 import argparse
@@ -60,7 +61,7 @@ import tempfile
 import urllib.request
 import zipfile
 
-# 若装了 hf_transfer(HF 官方 rust 并行分块下载), 自动启用, 单文件下载显著提速。
+# 若装了 hf_transfer（HF 官方 rust 并行分块下载），自动启用，单文件下载显著提速。
 try:
     import hf_transfer  # noqa: F401
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
@@ -68,25 +69,27 @@ except Exception:
     pass
 
 HF_REPO_GSV = "lj1995/GPT-SoVITS"
-# UVR5 去人声权重不在 GPT-SoVITS 仓库, 而在原 RVC 仓库 lj1995/VoiceConversionWebUI
-# 的 uvr5_weights/ 下(GPT-SoVITS 官方 README 亦指向此处)。用错仓库会 404。
+# UVR5 去人声权重不在 GPT-SoVITS 仓库，而在原 RVC 仓库 lj1995/VoiceConversionWebUI
+# 的 uvr5_weights/ 下（GPT-SoVITS 官方 README 亦指向此处）。用错仓库会 404。
 HF_REPO_UVR5 = "lj1995/VoiceConversionWebUI"
-# Mel-Band Roformer 权重的官方 HF 仓库(HF 标注 MIT)。文件名即 MelBandRoformer.ckpt;
-# 分离器按文件名自动识别架构并用内置默认配置, 故无需下载配套 yaml。
+# Mel-Band Roformer 权重的官方 HF 仓库（HF 标注 MIT）。文件名即 MelBandRoformer.ckpt；
+# 分离器按文件名自动识别架构并用内置默认配置，故无需下载配套 yaml。
 HF_REPO_MELBAND = "KimberleyJSN/melbandroformer"
-# BS-Roformer ep_317 权重: MSST(Music-Source-Separation-Training) 模型库 HF 镜像
-# (HF 标注 MIT)。同样无需 yaml(分离器内置该 checkpoint 的默认配置)。
+# BS-Roformer ep_317 权重：MSST（Music-Source-Separation-Training）模型库的 HF 镜像
+# （HF 标注 MIT）。同样无需 yaml（分离器内置该 checkpoint 的默认配置）。
 HF_REPO_BSROFORMER = "Eddycrack864/Music-Source-Separation-Training"
-# ASR 运行时(asr.js 传 --model_dir=FASTER_WHISPER_DIR, -s large-v3-turbo)期望模型位于
-# models/asr/faster-whisper/<size>/, 即 large-v3-turbo/。turbo 权重在 mobiuslabsgmbh 仓库,
-# 非 Systran 的 large-v3。用错仓库/路径会导致运行时 "Unable to open file 'model.bin'"。
+# ASR 运行时（lib/training/steps/asr.js 传 --model_dir=FASTER_WHISPER_DIR，
+# -s large-v3-turbo）期望模型位于 models/asr/faster-whisper/<size>/，即
+# large-v3-turbo/。turbo 权重在 mobiuslabsgmbh 仓库，非 Systran 的 large-v3。
+# 用错仓库或路径会导致运行时 "Unable to open file 'model.bin'"。
 HF_REPO_ASR = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
 MIRROR = "https://hf-mirror.com"
 
-# FunASR (前端可选的中文/粤语 ASR 引擎; asr.js -> funasr_asr.py) 的模型来自 ModelScope
-# 的 iic/。运行时首次使用会经 modelscope.snapshot_download 懒下载到 funasr_asr.py 的
-# MODELS_DIR, 即 models/asr/funasr/<name>/。这里把它们纳入"部署期可选下载", 让前端的 FunASR
-# 引擎有对应的离线下载路径 (否则首次训练必须联网、且许可从未在部署同意里披露)。
+# FunASR（前端可选的中文与粤语 ASR 引擎）的模型来自 ModelScope 的 iic/。运行时
+# 首次使用会经 modelscope.snapshot_download 懒下载到 pipeline/asr/funasr_asr.py 的
+# MODELS_DIR，即 models/asr/funasr/<name>/。这里把它们纳入「部署期可选下载」，
+# 让前端的 FunASR 引擎有对应的离线下载路径（否则首次训练必须联网，且许可从未
+# 在部署同意里披露）。
 # 每条: (modelscope_model_id, 本地目录名)。
 MS_FUNASR = [
     ("iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
@@ -99,27 +102,25 @@ MS_FUNASR = [
      "speech_UniASR_asr_2pass-cantonese-CHS-16k-common-vocab1468-tensorflow1-online"),
 ]
 
-# 直链(如失效, 更新为你的可用源)
+# 直链（失效时更新为可用的源）
 URL_LID176 = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
-# G2PW: 官方以整包 zip 分发(含 g2pW.onnx + 配套字典/字表)。发行包已内置配套文件,
-# 只缺权重 g2pW.onnx, 故这里下载官方 zip 后仅抽出 g2pW.onnx 写入既有 G2PWModel/ 目录。
+# G2PW: 官方以整包 zip 分发（含 g2pW.onnx 与配套字典字表）。发行包已内置配套文件，
+# 只缺权重 g2pW.onnx，故这里下载官方 zip 后仅抽出 g2pW.onnx 写入既有 G2PWModel/ 目录。
 URL_G2PWMODEL_ZIP = "https://huggingface.co/XXXXRT/GPT-SoVITS-Pretrained/resolve/main/G2PWModel.zip"
 
 # 相对项目根的目录
-# 引擎源码位置（r12c 起：engines/<引擎名>/，见 retired engine-integration specification §2）。
+# 引擎源码位置：engines/<引擎名>/gsv_code/。
 GSV_CODE = os.path.join("engines", "gpt-sovits", "gsv_code")
 
-# 权重位置。必须与 lib/paths.js 的常量逐条对应 ： 那里是全项目唯一的位置权威,
+# 权重位置。必须与 lib/paths.js 的常量逐条对应：那里是全项目唯一的位置权威，
 # 这里只是把同一组位置写成 Python。守卫测试 lib/base_model_layout.node.test.js
-# 会逐条核对, 两边一旦分叉就红。
+# 会逐条核对，两边一旦分叉就红。
 #
-# 这几行此前仍停在 r12a 之前的 vendor/gsv-tools/ 下(注释还写着"下一轮迁入
-# models/"), 而权重早在 r12b 就已迁入 models/。于是这个下载器把约 9GB 文件下到了
-# 没有任何代码会去读的目录: 下载成功、校验通过、结果全不生效。
+# 落点写错的后果是静默的：下载成功、校验通过，但没有任何代码会去读那个目录。
 PRE = os.path.join("models", "tts", "gpt-sovits")            # = paths.js GSV_PRETRAINED_DIR
 ASR = os.path.join("models", "asr", "faster-whisper", "large-v3-turbo")  # = FASTER_WHISPER_DIR/<size>
-# 分离权重按架构分子目录 vr / roformer / mdx (见 pipeline/uvr5/uvr5_models.js 的
-# archDir())。扁平放在 uvr5/ 下的权重, 注册表一律判定为"未安装"。
+# 分离权重按架构分子目录 vr / roformer / mdx（见 pipeline/uvr5/uvr5_models.js 的
+# archDir()）。扁平放在 uvr5/ 下的权重，注册表一律判定为「未安装」。
 UVR = os.path.join("models", "separation", "uvr5")           # = paths.js UVR5_WEIGHTS_DIR
 # FunASR 模型的落地目录 (= paths.js FUNASR_MODELS_DIR)。
 FUNASR_DIR = os.path.join("models", "asr", "funasr")
@@ -128,24 +129,26 @@ LANGDETECT_DIR = os.path.join("models", "lang", "fast_langdetect")
 
 # 每条: (backend, source, local_relpath, min_bytes[, extra_copies])
 #   backend = "hf"  -> source=(repo, path_in_repo)
+#   backend = "ms"  -> source=ModelScope model id
 #   backend = "url" -> source=direct_url
+#   backend = "g2pzip" -> source=G2PWModel.zip，只从中抽出 g2pW.onnx
 #
-# 分组按 MODEL_SOURCES.json 的 download_group 对齐, 以支持"默认 v2Pro + 备用基座按需"。
+# 分组按 MODEL_SOURCES.json 的 download_group 对齐，以支持「默认 v2Pro + 备用基座按需」。
 MANIFEST = {
-    # ---- 核心底模 + 默认基座 v2Pro (必需) ----
+    # 核心底模与默认基座 v2Pro（必需）
     "core": [
-# S1 GPT (AR) ： 每个版本都需要
+        # S1 GPT（AR），每个版本都需要
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"),
          os.path.join(PRE, "v2", "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"), 120_000_000),
         ("hf", (HF_REPO_GSV, "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"),
          os.path.join(PRE, "v1", "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"), 120_000_000),
-        # v1/v2 base 488k (推理回退基座, 保留)
+        # v1/v2 base 488k（推理回退基座，保留）
         ("hf", (HF_REPO_GSV, "s2G488k.pth"), os.path.join(PRE, "v1", "s2G488k.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "s2D488k.pth"), os.path.join(PRE, "v1", "s2D488k.pth"), 80_000_000),
-        # v2Pro (默认基座)
+        # v2Pro（默认基座）
         ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2Pro.pth"), os.path.join(PRE, "v2Pro", "s2Gv2Pro.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2Pro.pth"), os.path.join(PRE, "v2Pro", "s2Dv2Pro.pth"), 80_000_000),
-        # SV (说话人验证)
+        # SV（说话人验证）
         ("hf", (HF_REPO_GSV, "sv/pretrained_eres2netv2w24s4ep4.ckpt"),
          os.path.join(PRE, "sv", "pretrained_eres2netv2w24s4ep4.ckpt"), 20_000_000),
         # cnhubert
@@ -163,14 +166,14 @@ MANIFEST = {
         ("hf", (HF_REPO_GSV, "chinese-roberta-wwm-ext-large/pytorch_model.bin"),
          os.path.join(PRE, "chinese-roberta-wwm-ext-large", "pytorch_model.bin"), 600_000_000),
     ],
-    # ---- 备用基座 v2 (G+D) 按需 ----
+    # 备用基座 v2（G+D），按需
     "alt_v2": [
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2G2333k.pth"),
          os.path.join(PRE, "v2", "s2G2333k.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "gsv-v2final-pretrained/s2D2333k.pth"),
          os.path.join(PRE, "v2", "s2D2333k.pth"), 80_000_000),
     ],
-    # ---- 备用基座 v2ProPlus (G+D) 按需 ----
+    # 备用基座 v2ProPlus（G+D），按需
     "alt_v2proplus": [
         ("hf", (HF_REPO_GSV, "v2Pro/s2Gv2ProPlus.pth"), os.path.join(PRE, "v2ProPlus", "s2Gv2ProPlus.pth"), 80_000_000),
         ("hf", (HF_REPO_GSV, "v2Pro/s2Dv2ProPlus.pth"), os.path.join(PRE, "v2ProPlus", "s2Dv2ProPlus.pth"), 80_000_000),
@@ -182,18 +185,17 @@ MANIFEST = {
         ("hf", (HF_REPO_ASR, "vocabulary.json"), os.path.join(ASR, "vocabulary.json"), 500_000),
         ("hf", (HF_REPO_ASR, "model.bin"), os.path.join(ASR, "model.bin"), 1_500_000_000),
     ],
-    # FunASR 中文/粤语 ASR 引擎 (前端可选, 中文更准 + 自带标点)。模型在 ModelScope
-    # 的 iic/, 用 "ms" 后端整目录下载到 models/asr/funasr/<name>/, 与 funasr_asr.py
-# 运行时懒下载的落地路径一致 ： 预下载后离线首训即可用。
+    # FunASR 中文与粤语 ASR 引擎（前端可选，中文更准且自带标点）。模型在 ModelScope
+    # 的 iic/，用 "ms" 后端整目录下载到 models/asr/funasr/<name>/，与
+    # pipeline/asr/funasr_asr.py 运行时懒下载的落地路径一致：预下载后离线首训即可用。
     "funasr": [
         ("ms", mid, os.path.join(FUNASR_DIR, name), 5_000_000)
         for mid, name in MS_FUNASR
     ],
-    # UVR5 人声分离全套 (与 lib/.../uvr5/uvr5_models.js 目录一致)。VR 家族 (HP/DeEcho)
-    # 与 onnx_dereverb 都在 lj1995/VoiceConversionWebUI; Mel-Band 在 KimberleyJSN;
-    # BS-Roformer 的 ep_317 权重在 MSST 模型库 HF 镜像 (Eddycrack864/..., MIT);
-    # Mel-Band 在 KimberleyJSN。二者均无需 yaml (分离器内置默认配置)。
-    # 去伴奏 HP 家族 (VR)
+    # UVR5 人声分离（落点目录与 pipeline/uvr5/uvr5_models.js 一致）。VR 家族与
+    # onnx_dereverb 在 lj1995/VoiceConversionWebUI，Roformer 两家在 MSST 镜像与
+    # KimberleyJSN。分离器内置这些权重的默认配置，无需额外的 yaml。
+    # 去伴奏 HP 家族（VR）
     "uvr5_hp": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP2_all_vocals.pth"),
          os.path.join(UVR, "vr", "HP2_all_vocals.pth"), 50_000_000),
@@ -202,7 +204,7 @@ MANIFEST = {
         ("hf", (HF_REPO_UVR5, "uvr5_weights/HP5_only_main_vocal.pth"),
          os.path.join(UVR, "vr", "HP5_only_main_vocal.pth"), 50_000_000),
     ],
-    # 去混响/去回声 DeEcho ×3 (VR)
+    # 去混响与去回声 DeEcho ×3（VR）
     "uvr5_deecho": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoNormal.pth"),
          os.path.join(UVR, "vr", "VR-DeEchoNormal.pth"), 30_000_000),
@@ -211,50 +213,46 @@ MANIFEST = {
         ("hf", (HF_REPO_UVR5, "uvr5_weights/VR-DeEchoDeReverb.pth"),
          os.path.join(UVR, "vr", "VR-DeEchoDeReverb.pth"), 30_000_000),
     ],
-    # MDX 去混响 (FoxJoy onnx, 2 文件)
+    # MDX 去混响（FoxJoy onnx，2 文件）
     "uvr5_mdx": [
         ("hf", (HF_REPO_UVR5, "uvr5_weights/onnx_dereverb_By_FoxJoy/vocals.onnx"),
          os.path.join(UVR, "mdx", "onnx_dereverb_By_FoxJoy", "vocals.onnx"), 20_000_000),
         ("hf", (HF_REPO_UVR5, "uvr5_weights/onnx_dereverb_By_FoxJoy/other.onnx"),
          os.path.join(UVR, "mdx", "onnx_dereverb_By_FoxJoy", "other.onnx"), 20_000_000),
     ],
-    # Roformer 高质量分离 (体积大头): BS-Roformer + Mel-Band, 均无需 yaml (内置默认配置)。
+    # Roformer 高质量分离（体积大头）：BS-Roformer 与 Mel-Band。
     "uvr5_roformer": [
-        # BS-Roformer (MSST zoo mirror, MIT).
+        # BS-Roformer（MSST 模型库镜像，MIT）
         ("hf", (HF_REPO_BSROFORMER, "model_bs_roformer_ep_317_sdr_12.9755.ckpt"),
          os.path.join(UVR, "roformer", "model_bs_roformer_ep_317_sdr_12.9755.ckpt"), 200_000_000),
-        # Mel-Band Roformer (KimberleyJSN, MIT).
+        # Mel-Band Roformer（KimberleyJSN，MIT）
         ("hf", (HF_REPO_MELBAND, "MelBandRoformer.ckpt"),
          os.path.join(UVR, "roformer", "MelBandRoformer.ckpt"), 200_000_000),
     ],
     "g2pw": [
-        # 下载官方 G2PWModel.zip, 仅抽出 g2pW.onnx。落点只有一个:
+        # 下载官方 G2PWModel.zip，仅抽出 g2pW.onnx。落点只有一个：
         # models/tts/gpt-sovits/G2PWModel/ (= paths.js MODEL_ASSETS.g2pw)。
-        # 原先写的 GPT_SoVITS/text/G2PWModel/ 这个目录在本项目里根本不存在,
-        # 那份副本从来没被任何代码读到过。
         ("g2pzip", URL_G2PWMODEL_ZIP,
          os.path.join(PRE, "G2PWModel", "g2pW.onnx"), 50_000_000),
     ],
     "langdetect": [
-        # 落点只有一个: models/lang/fast_langdetect/ (= paths.js MODEL_ASSETS.langdetect)。
-        # 原先那份写进 gsv_code/pretrained_models/ 的副本同样无人读取。
+        # 落点只有一个：models/lang/fast_langdetect/ (= paths.js MODEL_ASSETS.langdetect)。
         ("url", URL_LID176,
          os.path.join(LANGDETECT_DIR, "lid.176.bin"), 100_000_000),
     ],
 }
 GROUPS = ["core", "alt_v2", "alt_v2proplus", "asr", "funasr",
           "uvr5_hp", "uvr5_deecho", "uvr5_mdx", "uvr5_roformer", "g2pw", "langdetect"]
-# UVR5 全套 = 4 个子组 (供 "仅 UVR5" 快捷项与 all 集展开)。
+# UVR5 全套 = 4 个子组（供「仅 UVR5」快捷项与 all 集展开）。
 UVR5_ALL = ["uvr5_hp", "uvr5_deecho", "uvr5_mdx", "uvr5_roformer"]
-# 默认集: 与 MODEL_SOURCES.json 中 default_selected=true 的 download_group 一致
-# (核心底模 + 默认基座 v2Pro + g2pw + langdetect + asr)。备用基座与 uvr5 需显式选择。
+# 默认集：与 MODEL_SOURCES.json 中 default_selected=true 的 download_group 一致
+# （核心底模 + 默认基座 v2Pro + g2pw + langdetect + asr）。备用基座与 uvr5 需显式选择。
 DEFAULT_SET = ["core", "g2pw", "langdetect", "asr"]
 
 
 def root_dir():
-    # This script lives under tools/deploy/. Resolve the PROJECT ROOT by walking
-    # up to the folder that contains server.js; fall back to two levels up
-    # (tools/deploy -> tools -> root). Override with --dest.
+    # 定位项目根：从本脚本所在目录往上找带 server.js 的那一层，找不到就退两级
+    # （tools/deploy -> tools -> 根）。--dest 可以直接指定别的根目录。
     here = os.path.dirname(os.path.abspath(__file__))
     cur = here
     for _ in range(5):
@@ -302,13 +300,13 @@ def dir_size(d):
 
 
 def dir_ok(root, local, minb):
-    """ModelScope 整目录下载的存在性判断: 目录存在且累计体积达标。"""
+    """ModelScope 整目录下载的存在性判断：目录存在且累计体积达标。"""
     p = os.path.join(root, local)
     return os.path.isdir(p) and dir_size(p) >= minb
 
 
 def ok_entry(root, entry):
-    """按 backend 分派: ms=目录级校验, 其余=单文件校验。"""
+    """按 backend 分派：ms 为目录级校验，其余为单文件校验。"""
     backend, _source, local, minb, _copies = _entry_parts(entry)
     if backend == "ms":
         return dir_ok(root, local, minb)
@@ -356,11 +354,11 @@ def apply_mirror(url, mirror):
 
 
 def fetch_g2pw_zip(zip_url, dest_onnx, minb, mirror, quiet=False):
-    """下载 G2PWModel.zip, 仅抽出 g2pW.onnx 写到 dest_onnx。"""
+    """下载 G2PWModel.zip，仅抽出 g2pW.onnx 写到 dest_onnx。"""
     url = apply_mirror(zip_url, mirror)
     with tempfile.TemporaryDirectory() as td:
         zpath = os.path.join(td, "G2PWModel.zip")
-        # zip 本身较大, 用 1 作下限(真正的大小校验落在抽出的 onnx 上)
+        # zip 本身较大，下限取 1，真正的大小校验落在抽出的 onnx 上。
         download_url(url, zpath, 1, mirror, quiet)
         with zipfile.ZipFile(zpath) as zf:
             member = None
@@ -382,7 +380,7 @@ def fetch_g2pw_zip(zip_url, dest_onnx, minb, mirror, quiet=False):
 
 
 def try_hf_download(repo, path, dest, mirror, quiet=False):
-    """优先 huggingface_hub, 缺失则回退纯 HTTP。"""
+    """优先用 huggingface_hub，缺失则回退纯 HTTP。"""
     try:
         from huggingface_hub import hf_hub_download
         if mirror:
@@ -397,7 +395,7 @@ def try_hf_download(repo, path, dest, mirror, quiet=False):
 
 
 def try_ms_download(model_id, dest_dir, quiet=False):
-    """ModelScope 整目录快照下载 (FunASR 模型)。与 funasr_asr.py 运行时一致。"""
+    """ModelScope 整目录快照下载（FunASR 模型），与 pipeline/asr/funasr_asr.py 运行时一致。"""
     from modelscope import snapshot_download
     os.makedirs(dest_dir, exist_ok=True)
     if not quiet:
@@ -407,7 +405,7 @@ def try_ms_download(model_id, dest_dir, quiet=False):
 
 
 def _fetch_one(root, entry, mirror, force, quiet):
-    """下载单条 + 写副本。返回日志行列表(并行时统一收集后打印, 避免交错)。"""
+    """下载单条并写副本。返回日志行列表（并行时统一收集后打印，避免交错）。"""
     backend, source, local, minb, copies = _entry_parts(entry)
     dest = os.path.join(root, local)
     lines = []
@@ -416,7 +414,7 @@ def _fetch_one(root, entry, mirror, force, quiet):
     else:
         try:
             if backend == "ms":
-                # source = ModelScope model id; dest = 整个模型目录
+                # source 是 ModelScope model id，dest 是整个模型目录。
                 size = try_ms_download(source, dest, quiet)
             elif backend == "hf":
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -453,7 +451,7 @@ def fetch_group(root, group, mirror, force, jobs=4):
             for ln in _fetch_one(root, entry, mirror, force, quiet=False):
                 log(ln)
         return
-    # 并行下载: 各线程静默进度, 完成后统一打印该文件的结果
+    # 并行下载：各线程静默打印进度，完成后统一打印该文件的结果。
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(_fetch_one, root, e, mirror, force, True) for e in entries]
         for fut in concurrent.futures.as_completed(futs):
@@ -470,7 +468,7 @@ def check(root, groups=None):
             backend, _s, local, minb, copies = _entry_parts(entry)
             if not ok_entry(root, entry):
                 miss.append(local)
-            for path in copies:  # 副本一律单文件校验 (ms 无副本)
+            for path in copies:  # 副本一律单文件校验（ms 无副本）
                 if not ok_local(root, path, minb):
                     miss.append(path)
         status = "齐全" if not miss else f"缺 {len(miss)} 项"

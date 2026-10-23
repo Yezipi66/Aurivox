@@ -18,7 +18,7 @@ function tmpRoot () {
   return r
 }
 
-// 真仓库的 engines/ 是用户资产，本文件的测试一个字节都不许写进去。
+// 真仓库的 engines/ 是用户资产，本文件的测试一个字节都不写进去。
 // 每次用例前后各查一次目录清单，多出条目就当场失败。
 const REAL_ENGINES = path.join(__dirname, '..', '..', '..', 'engines')
 function realEngineNames () {

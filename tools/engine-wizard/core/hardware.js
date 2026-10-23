@@ -1,5 +1,7 @@
 'use strict'
-//  HARDWARE：检测本机 GPU，给出 torch 后端建议
+// 硬件检测：识别本机 GPU，给出 torch 后端建议。
+// 偏好顺序照 StabilityMatrix 的原文顺序，推荐只是建议（guidance），不是保证。
+// 本文件不识别具体引擎，只按显卡厂商与 uv.lock 里写的后端判断。
 
 const os = require('node:os')
 const { execFileSync } = require('node:child_process')
@@ -44,14 +46,14 @@ function run (cmd, args, timeoutMs) {
   } catch (e) { return null }
 }
 
-// 检测结果缓存：WMI 每次都要十几秒，5 分钟缓存。
+// 检测结果缓存：WMI 每次都要十几秒，缓存 5 分钟。
 let _cache = null
 let _cacheAt = 0
 const CACHE_MS = 5 * 60 * 1000
 
 /**
  * 检测本机 GPU。任何一步失败都不抛，分不清就交给调用方退 CPU。
- * @returns {{vendor:string, name:string|null, detail:string|null}[]}
+ * @returns {{vendor:string, name:string|null, via:string}[]}
  */
 function detectGpus () {
   const now = Date.now()
@@ -122,7 +124,7 @@ function fs_ () {
 /**
  * 按 StabilityMatrix 的偏好顺序，为本机选一个推荐后端。
  * @param {{vendor:string}[]} gpus
- * @returns {{recommended:string, reason:string, confidence:'guidance'|'unknown'}}
+ * @returns {{recommended:string, reason:string, reasonZh:string, confidence:'guidance'|'fallback'}}
  */
 function recommendBackend (gpus) {
   const has = (v) => gpus.some((g) => g.vendor === v)
@@ -186,7 +188,7 @@ function inspectHardware () {
  * 而是看 lock 里写的后端与本机能不能用对不对得上。
  *
  * @param {string} spec lock 里那行，比如 'torch==2.2.0+cu121'
- * @returns {{kind:string, verdict:'match'|'mismatch'|'unknown', why:string}}
+ * @returns {{kind:string, verdict:'match'|'mismatch'|'unknown', why:string, whyZh:string}}
  */
 function judgeTorchSpec (spec, detected, ctx = {}) {
   const s = String(spec || '')
@@ -244,6 +246,7 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
 /**
  * 把 torch 系包从依赖清单里摘出来，其余归普通依赖。
  * 判定用包名，不看版本、不猜。
+ * @returns {{torchish:string[], rest:string[]}}
  */
 const TORCH_FAMILY = new Set([
   'torch', 'torchvision', 'torchaudio', 'pytorch-triton',
@@ -267,7 +270,7 @@ function splitTorchPackages (deps) {
  * 解析 uv.lock 里锁定的 torch 系包。
  *
  * 只做「行 → 值」，不解析整个 lock 语法。
- * @param {string} text uv.lock 原文
+ * @returns {{name:string, version:string, source:string|null, marker:string|null, spec:string}[]}
  * @returns {{name:string, version:string, source:string|null, spec:string}[]}
  */
 function parseUvLock (text) {

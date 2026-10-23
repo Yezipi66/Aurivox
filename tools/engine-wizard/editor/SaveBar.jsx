@@ -1,16 +1,9 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// SAVE BAR：存盘
-//
-//    三件事，按用户的真实需要排：
-// 1. 能不能存：先看有没有错，有错就不给存（但如实说为什么）
-// 2. 会存到哪：把完整路径摆出来，不让人猜
-// 3. 会不会覆盖：已存在时明确问一次，不静默覆盖
-//
-//    用项目的 .summary-bar（就是项目给「一行摘要 + 徽标 + 按钮」准备的：
-//   flex-wrap / gap 8 / surface + border + radius-md），
-//       不再自造 .sv-bar/.sv-path/.sv-blocked/.sv-result。
+// 存盘栏：把名片的存盘动作摆在编辑页底部，含存盘路径、状态徽标、存盘按钮与结果。
+// 状态全部从 manifest 与诊断结果推导：能不能存看有没有硬错，会不会覆盖看目录里有没有同名名片。
+// 样式用项目现成的 .summary-bar 与 .badge-*，不新造类名。
 
 export default function SaveBar ({ manifest, diag, onSaved }) {
   const { t } = useT()
@@ -30,14 +23,10 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
   const exists = !!installed.find((e) => e.id === id)
   const willCreate = !!id && !exists
 
-  //   第 6 章 SaveBar 5 态可视（P3 补，基于 manifest 可推导的信息）：
-  // ① 待扫描：call 段还没绑定/参数（bind 空且 args 空）
-  // ② 已自动填 N 项：call.bind 有槽位或 call.args 有条目（扫描自动填的标志）
-  // ③ 可保存：有 id 且无硬错
-  // ④ 硬错阻断：hasErrors（见下方红条）
-  // ⑤ 扫描中：需 CliGenPanel 的 busy 状态（跨组件），不在此推断，标遗留。
-  //   只从 manifest 现有字段推导，  不做跨组件状态提升（避免动 ManifestForm/
-  //    ManifestPage 三处结构、引入回归）。bind 三槽位 + args 条数 = 自动填了多少。
+  // 状态徽标：还没扫描（call 段既没绑定也没参数）、已自动填 N 项。
+  // 全部从 manifest 现有字段推导，不做跨组件状态提升：
+  // 已填项数 = call.bind 里三个槽位填上的个数 + call.args 的条目数。
+  // 扫描中的状态在 CliGenPanel 那边，这里拿不到，也不推断。
   const call = (manifest && manifest.call) || {}
   const bindSlots = Object.keys(call.bind || {}).filter((k) => call.bind[k])
   const argCount = Object.keys(call.args || {}).length
@@ -64,7 +53,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
   return (
     <>
       <div className="summary-bar">
-        {/* ---- 会存到哪 ---- */}
+        {/* 存盘路径 */}
         <code>{`engines/${id || '<id>'}/manifest.json`}</code>
         {willCreate && (
           <span className="badge badge-info">
@@ -74,8 +63,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         {exists && (
           <span className="badge badge-warn">{t('already exists', '已存在')}</span>
         )}
-        {/*   第 6 章 5 态徽标：待扫描 / 已自动填 N 项。
-              只用平台 .badge-*，不新增 class。 */}
+        {/* 状态徽标：还没扫描 / 已自动填 N 项 */}
         {id && notScanned && (
           <span className="badge badge-neutral">
             {t('not scanned yet', '还没扫描')}
@@ -88,10 +76,8 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         )}
         <span style={{ flex: 1 }} />
 
-        {/* 存
-              第 6 章：有硬错时禁用保存 + 说明原因，  不是让按钮消失。
-              旧代码 hasErrors 时整块按钮 null（消失），用户找不到存盘入口
-              也不知道为什么，现在是灰置禁用 + 下方红条说明。 */}
+        {/* 有硬错时禁用存盘按钮并说明原因，按钮不消失：
+            消失的话使用者找不到存盘入口，也不知道为什么存不了。 */}
         {!hasErrors && exists && !confirmOverwrite
           ? (
             <>
@@ -116,7 +102,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
             )}
       </div>
 
-      {/*   有错误：整块 msg-danger 列出具体哪几条（  不再横挤在顶栏，像第二步那样占整行）*/}
+      {/* 有硬错时列出具体哪几条，最多显示 5 条 */}
       {hasErrors && (
         <div className="msg msg-danger" style={{ marginTop: 6 }}>
           <strong>{t(`${diag.summary.errors} problem(s) must be fixed before saving:`,
@@ -132,7 +118,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
         </div>
       )}
 
-      {/* ---- 结果 ---- */}
+      {/* 存盘结果 */}
       {result && (
         <div className={`msg ${result.ok ? 'msg-info' : 'msg-danger'}`}>
           {result.ok

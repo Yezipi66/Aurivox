@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-// ---------------------------------------------------------------------------
 //  check-engine-env ： 「这台引擎装没装」，人可以自己问一遍
-// ---------------------------------------------------------------------------
 //   node tools/dev/check-engine-env.cjs            浅层：只查盘，几毫秒
 //   node tools/dev/check-engine-env.cjs --deep     深层：起引擎的解释器去 import
 //   node tools/dev/check-engine-env.cjs --deep --engine gpt-sovits

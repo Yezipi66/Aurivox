@@ -1,4 +1,7 @@
-// Reading-proofing / multilingual module. Extracted verbatim from App.jsx (no logic change).
+// Reading-proofing / multilingual module: re-exports the pronunciation panel
+// and the text-prep modal, and provides the override-normalisation helpers
+// (per-language nested buckets, forced position readings, counts) that the
+// generate page's proofing UI drives with.
 import { useT } from '../../lib/i18n'
 import { readingAt, readingKey } from '../../lib/hanLanguage'
 import {

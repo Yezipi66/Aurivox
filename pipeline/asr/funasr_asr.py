@@ -1,20 +1,13 @@
 # -*- coding:utf-8 -*-
-"""
-FunASR 中文/粤语 ASR — 从 GPT-SoVITS 项目解耦
-模型下载到项目内的 gsv-tools/asr/models/ 目录
+"""FunASR 中文与粤语语音识别：把一个目录的音频转成转写清单与置信度旁车。
 
-置信度（对齐 faster-whisper 管线）
------------------------------------------
-faster-whisper 会在输出目录写一个 `<name>.conf.json` 旁车（sidecar），
-schema 为 `{ 片段文件名: {confidence, no_speech_prob?, words:[{w,p}]} }`，
-供前端校对面板做逐词/逐行置信度着色。FunASR 之前不产出该旁车，导致选用
-FunASR 引擎时校对面板没有置信度提示，两条引擎的体验不一致。
+输出两个文件：<目录名>.list，每行「音频路径|来源目录|语种|文本」；
+<目录名>.conf.json，键是片段文件名，值是 {confidence, no_speech_prob, words}，
+schema 与 faster-whisper 那条管线一致，前端校对面板因此能逐词着色。
 
-这里补齐：FunASR 也写同名同 schema 的旁车。诚实原则：
-FunASR/Paraformer 是非自回归 CIF 模型，默认并不像 whisper 那样暴露稳定的
-逐词后验概率。故本实现只在 FunASR 的返回里真的带有分数字段时才填充置信度，
-否则写 `confidence: null`（前端据此不着色），绝不编造数值：因为这是训练前
-的 GIGO 质量门，假的「高置信度」会误导校对，比没有更糟。
+FunASR 与 Paraformer 是非自回归 CIF 模型，默认不暴露稳定的逐词后验概率。
+所以只有返回值里真的带分数字段时才填置信度，否则写 confidence: null，
+前端据此不着色：不编造数值，假的「高置信度」比没有更糟。
 """
 import argparse
 import json
@@ -27,8 +20,9 @@ from funasr import AutoModel
 from modelscope import snapshot_download
 from tqdm import tqdm
 
-# FunASR 权重目录。首选 FUNASR_MODELS_DIR（由 lib/paths.js 经 getCleanEnv
-# 下发）；兜底一路上溯找 package.json，绝不数目录层数（引擎契约 C7）。
+# FunASR 权重目录。首选 FUNASR_MODELS_DIR（由 lib/paths.js 经 getCleanEnv 下发）；
+# 未设置时一路上溯找 package.json 定位项目根，不按目录层数倒推：层数会随搬迁
+# 失准，且不会报错。
 def _funasr_models_dir() -> str:
     d = os.environ.get("FUNASR_MODELS_DIR")
     if d:
@@ -44,17 +38,20 @@ def _funasr_models_dir() -> str:
 
 MODELS_DIR = _funasr_models_dir()
 
-# 模型缓存
 _funasr_models = {}
 
 
 def _download_model(model_id: str, local_name: str) -> str:
-    """下载模型到项目内的 models/ 目录"""
+    """把模型下载到 MODELS_DIR 下的 local_name 目录，已存在则直接复用。
+
+    :param model_id: ModelScope 上的模型 id
+    :param local_name: 本地目录名
+    :returns: 本地目录路径
+    """
     local_path = os.path.join(MODELS_DIR, local_name)
     if not os.path.exists(local_path):
-        # 权重不在预期位置时，此处会从 ModelScope 重新下载约 1.5 GB。
-        # 迁此之前路径一旦算错就会静默触发，用户只觉得「这次特别慢」，
-        # 事后硬盘上多出一整份。所以先把期望路径喊出来再下。
+        # 权重不在预期位置时会从 ModelScope 重新下载一份（数 GB），过程是静默的：
+        # 不报错，只是慢，事后硬盘上多出一整份。所以下载前先把期望路径打印出来。
         print(
             f"[FunASR] weights not found at {local_path}; downloading {model_id} "
             f"(this can take a while). Set FUNASR_MODELS_DIR if they live elsewhere.",
@@ -66,7 +63,12 @@ def _download_model(model_id: str, local_name: str) -> str:
 
 
 def create_model(language="zh"):
-    """创建 FunASR 模型（带缓存）"""
+    """创建 FunASR 模型并按语种缓存。zh 用 Paraformer 加 VAD 加标点，yue 用
+    UniASR，其余语种抛 ValueError。
+
+    :param language: 语种，zh 或 yue
+    :returns: AutoModel 实例
+    """
     if language in _funasr_models:
         return _funasr_models[language]
 
@@ -104,21 +106,24 @@ def create_model(language="zh"):
     return model
 
 
-# FunASR 置信度提取
-#
-# FunASR 各版本/各模型返回的字段并不统一，且默认不含分数。这里做防御式
-# 探测：只有当返回里真的带有可解释为概率的分数时才采用，否则返回 (None, [])。
+# FunASR 置信度提取。各版本与各模型返回的字段并不统一，默认不含分数，
+# 所以逐个候选字段探测：只有真的带有可解释为概率的分数时才采用，
+# 否则返回 (None, [])。
 _SCALAR_SCORE_KEYS = ("confidence", "score", "avg_score", "am_score")
 _LIST_SCORE_KEYS = ("scores", "token_score", "token_scores", "char_scores", "am_scores")
-# 中文/粤语按“字”切词（paraformer 对 zh 不输出空格）；其余语言按空白切词。
+# 中文与粤语按「字」切词（paraformer 对 zh 不输出空格），其余语言按空白切词。
 _CJK_LANGS = {"zh", "yue"}
 
 
 def _coerce_prob(v):
     """把一个原始分数折算到 [0,1]。
-    - 已在 [0,1] → 原样（钳制）。
-    - <=0 视作 logprob → exp()。
-    - 其他区间无法可靠解释 → None（不编造）。"""
+
+    已在 [0,1] 的原样保留；负值视作对数概率，取指数；大于 1 的值无法可靠
+    解释，返回 None。
+
+    :param v: 原始分数
+    :returns: [0,1] 内的概率，或 None
+    """
     try:
         x = float(v)
     except (TypeError, ValueError):
@@ -134,23 +139,34 @@ def _coerce_prob(v):
 
 
 def _tokenize_text(text, language):
-    """按语言把识别文本切成用于逐词着色的 token 列表。"""
+    """按语言把识别文本切成用于逐词着色的 token 列表。
+
+    中文与粤语逐个非空白字符切分，其余语言按空白切分；空文本返回空列表。
+
+    :param text: 识别文本
+    :param language: 语种
+    :returns: token 列表
+    """
     if not text:
         return []
     if str(language).lower() in _CJK_LANGS:
-        # 逐“非空白字符”，跳过标点后仍保留标点便于对齐（校对可读）。
+        # 中文与粤语逐个非空白字符切分，标点也保留，便于与原文对齐校对。
         return [ch for ch in text if not ch.isspace()]
     return [w for w in text.split() if w]
 
 
 def _extract_confidence(res, text, language):
-    """从 FunASR 单条结果 dict 里尽力提取置信度。
-    返回 (confidence: float|None, words: list[{w,p}])。
-    只有 res 真带分数才非空；否则 (None, [])。"""
+    """从 FunASR 单条结果 dict 里提取置信度。
+
+    :param res: FunASR 返回的单条结果
+    :param text: 对应的识别文本
+    :param language: 语种
+    :returns: (confidence, words)；confidence 为 None 且 words 为空表示没有可用分数
+    """
     if not isinstance(res, dict):
         return None, []
 
-    # 1) 逐 token 分数数组：与文本 token 数对齐时 → 真·逐词置信度。
+    # 1) 逐 token 分数数组：数组长度与文本 token 数一致时，给出逐词置信度。
     for key in _LIST_SCORE_KEYS:
         arr = res.get(key)
         if isinstance(arr, (list, tuple)) and arr and all(
@@ -169,7 +185,7 @@ def _extract_confidence(res, text, language):
             conf = round(sum(probs) / len(probs), 4)
             return conf, words
 
-    # 2) 标量分数 → 整行置信度（无逐词着色）。
+    # 2) 标量分数：只给整行置信度，没有逐词着色。
     for key in _SCALAR_SCORE_KEYS:
         if key in res:
             p = _coerce_prob(res.get(key))
@@ -180,6 +196,13 @@ def _extract_confidence(res, text, language):
 
 
 def execute_asr(input_folder, output_folder, language):
+    """对输入目录里的每个音频做识别，写出转写清单与置信度旁车。
+
+    :param input_folder: 输入音频目录
+    :param output_folder: 输出目录，.list 与 .conf.json 都写在这里
+    :param language: 语种，zh 或 yue；auto 会被 create_model 拒绝
+    :returns: 写出的 .list 文件路径
+    """
     input_file_names = sorted(os.listdir(input_folder))
     output = []
     output_file_name = os.path.basename(input_folder)
@@ -221,8 +244,8 @@ def execute_asr(input_folder, output_folder, language):
         if have_any_conf:
             print(f"ASR confidence -> {conf_path}", flush=True)
         else:
-            # 诚实告知：本次 FunASR 返回未携带可用分数，旁车里 confidence 均为 null，
-            # 前端不会着色（不编造置信度）。
+            # 明确说明：本次返回没有可用的分数字段，旁车里的 confidence 都是 null，
+            # 前端据此不着色。
             print(
                 "ASR confidence: FunASR returned no usable score fields; "
                 f"sidecar written with null confidence -> {conf_path}",

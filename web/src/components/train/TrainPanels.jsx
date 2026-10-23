@@ -1,10 +1,11 @@
-// AUTO-EXTRACTED from TrainingTab.jsx (pure mechanical, zero logic change).
+// 训练页与资产页共用的面板组件：流水线图、重建进度、实时日志、试听与置信度标注。
+// 组件只负责显示与交互，训练任务的真实状态由后端接口给出。
+// 置信度着色只作辅助，颜色之外另用符号冗余编码，不依赖红绿分辨也能读。
 import { useState, useEffect, useRef } from 'react'
 import { useT } from '../../lib/i18n'
 import { TRAIN_STEPS } from './trainConstants'
 
-// Clickable pipeline map — doubles as navigation (click a node to configure it)
-// and as live status (during a run the node reflects /api/train/status state).
+// 流水线图。既是导航（点节点去配置那一步），也是状态（节点反映任务当前的状态）。
 function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect, readOnly }) {
   const { t, lang } = useT()
   return (
@@ -16,8 +17,7 @@ function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect, readOnly
         else st = off ? 'skipped' : 'pending'
         const glyph = st === 'completed' ? '\u2713' : st === 'running' ? '\u25CF' : st === 'failed' ? '\u2717' : st === 'skipped' ? '\u2013' : i + 1
         const isSel = selectedNode === s.key
-        // The connector segment to the LEFT of this node turns green once the
-        // previous step has completed, so the rail reads as a progress bar.
+        // 节点左侧的连接段在上一步完成后转绿，整条轨道因此读起来像进度条。
         const prevDone = i > 0 && statusSteps && statusSteps[TRAIN_STEPS[i - 1].key] &&
           statusSteps[TRAIN_STEPS[i - 1].key].status === 'completed'
         return (
@@ -39,10 +39,9 @@ function PipelineMap({ statusSteps, enabledMap, selectedNode, onSelect, readOnly
   )
 }
 
-// Live lightweight-pipeline panel for an in-flight Rebuild/Restore on the Assets
-// page. Reuses the same PipelineMap (read-only) so the repair flow reads exactly
-// like the formal training flow — irrelevant steps show greyed/skipped, the
-// active step pulses, and a failure surfaces the exact step + error message.
+// 资产页上正在进行的重建作业的进度面板。
+// 复用同一个 PipelineMap（只读），因此修复流程与正式训练流程长得一样：
+// 不相关的步骤显示为灰掉或跳过，进行中的步骤有动画，失败时给出失败的那一步与错误信息。
 function RebuildProgress({ job, onDismiss }) {
   if (!job) return null
   const stepLabel = (k) => (TRAIN_STEPS.find(s => s.key === k) || {}).label || k
@@ -73,7 +72,7 @@ function RebuildProgress({ job, onDismiss }) {
   )
 }
 
-// Live logs viewer with auto-scroll / pause / copy / clear (Part 2)
+// 实时日志：自动滚动、暂停、复制、清空。
 function LiveLogs({ logs }) {
   const [autoScroll, setAutoScroll] = useState(true)
   const boxRef = useRef(null)
@@ -112,8 +111,8 @@ function LiveLogs({ logs }) {
   )
 }
 
-// 极简播放/暂停（无进度条），校对每行试听 ASR 切片。src 指向后端 Range 路由，
-// preload="none" 惰性加载，一次只播一行。
+// 校对用的播放控件：只有播放与暂停，没有进度条，一次只播一行。
+// src 指向后端的 Range 路由，preload="none" 惰性加载。
 function ReviewRowAudio({ taskId, relPath }) {
   const ref = useRef(null)
   const [playing, setPlaying] = useState(false)
@@ -139,8 +138,8 @@ function ReviewRowAudio({ taskId, relPath }) {
   )
 }
 
-// — ASR 置信度着色。faster-whisper 的 word/segment 概率折算成 [0,1]，
-// 映射到 绿(有把握)/黄(可疑)/红(存疑) 三档，辅助人工校对。
+// ASR 置信度着色。faster-whisper 的 word 与 segment 概率折算成 [0,1]，
+// 映射到可信、可疑、存疑三档，辅助人工校对。
 const CONF_HI = 0.85
 const CONF_MID = 0.6
 function confTier(c) {
@@ -149,14 +148,15 @@ function confTier(c) {
   if (c >= CONF_MID) return 'mid'
   return 'lo'
 }
-// 色盲友好（A+C）：颜色仅作辅助，另用【符号】做冗余编码，不依赖红绿分辨也能读。
-// hi 为对勾（较为可信）/ mid 为波浪号（可疑）/ lo 为感叹号（存疑）。词级另叠加下划线（见 CSS .arr-w-*）。
+// 三档的颜色与符号。符号是色觉冗余编码：颜色只作辅助，不依赖红绿分辨也能读。
+// hi 为对勾（较为可信）/ mid 为波浪号（可疑）/ lo 为感叹号（存疑）。
+// 词级另叠加下划线（见 CSS .arr-w-*）。
 const CONF_COLORS = {
   hi: { fg: '#2ecc71', bg: 'rgba(46,204,113,0.16)', sym: '✓' },
   mid: { fg: '#f1c40f', bg: 'rgba(241,196,15,0.18)', sym: '~' },
   lo: { fg: '#e74c3c', bg: 'rgba(231,76,60,0.18)', sym: '!' },
 }
-// 三档标签（i18n）：调用处传入 tr。
+// 三档的显示名。调用处传入 tr 做双语。
 function confTierLabel(tier, tr) {
   if (tier === 'hi') return tr('Confident', '较为可信')
   if (tier === 'mid') return tr('Uncertain', '可疑')
@@ -164,7 +164,7 @@ function confTierLabel(tier, tr) {
   return ''
 }
 
-// 行级置信度徽标：符号 + 色点 + 百分比（符号为色盲冗余编码）。
+// 行级置信度徽标：符号、色点与百分比。符号是色觉冗余编码。
 function ConfBadge({ conf, tr }) {
   const tier = confTier(conf)
   if (!tier) return null
@@ -179,7 +179,8 @@ function ConfBadge({ conf, tr }) {
   )
 }
 
-// 词级置信度预览：逐词按概率着色 + 下划线冗余编码（只读，textarea 无法富文本，故独立成一条预览）。
+// 词级置信度预览：逐词着色并叠加下划线。
+// 只读：textarea 无法富文本，所以另起一条预览。
 function WordConf({ words, tr }) {
   if (!Array.isArray(words) || words.length === 0) return null
   return (

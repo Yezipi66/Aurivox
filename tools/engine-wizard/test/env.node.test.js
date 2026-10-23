@@ -1,5 +1,5 @@
 'use strict'
-// env（第 2 步）：装法的依据是上游自己的依赖清单文件名，不凭空猜。
+// env 的装法依据：上游自己的依赖清单文件名，不凭空猜。
 // 按上游自己的依赖清单推：
 //   有 uv.lock         ⇒ uv sync                （版本已定死）
 //   有 environment.yml ⇒ conda env create -f …
@@ -17,12 +17,12 @@ const path = require('node:path')
 const { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv } =
   require('../core/env.js')
 
+// 夹具造在 os.tmpdir() 里，不碰真的 engines/。
 // 守卫（lib/engines/enginesDirWriteGuard.node.test.js 的 offenders()）要求路径上带临时目录痕迹，
-//   否则并行跑会污染真的 engines/。
+// 否则并行跑会污染真的 engines/。
 // 夹具与 clone.node.test.js 同款，两个约束见那里的完整说明：
-//   ① 路径变量名必须带 mkdtemp（守卫 enginesDirWriteGuard.node.test.js 的 offenders()
-//     只看实参文本有没有临时痕迹）
-//   ② 必须返回项目根，不是 engines 层 ： buildEnvPlan 收的是根
+//   ① 路径变量名必须带 mkdtemp（守卫只看实参文本有没有临时痕迹）
+//   ② 必须返回项目根，不是 engines 层：buildEnvPlan 收的是根
 
 /** 造一个「项目根」，里面没有引擎目录 */
 function mkdtempRoot () {
@@ -41,17 +41,16 @@ function mkdtempRootWithEngine (id) {
   return { root, engineDir: mkdtempEngineDir }
 }
 
-// 最重要的一条：没有 env_command 就报，不许猜
+// 最重要的一条：没有 env_command 就报，不猜装法
 test('readEnvCommand：没有 install 段就报错（装法由 suggestEnvCommand 兜底）', () => {
   const r = readEnvCommand({})
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_INSTALL_SECTION')
   // 错误信息里不该出现任何「我们就用 uv」的意思
   assert.ok(!/用 ?uv|退回|fallback|默认用/i.test(r.error), r.error)
-  // 现在只要求：说清缺什么 + 给两条可执行的路。
+  // 只要求：说清缺什么 + 给两条可执行的路。
   assert.ok(/env_command/.test(r.error), r.error)
-  // 钉实质：必须给两条可执行的路（第 4 步填 Manifest / 自行安装），
-  //   不钉「自己」这个具体词。
+  // 钉实质：必须给两条可执行的路（第 4 步填 Manifest / 自行安装），不钉「自己」这个具体词。
   assert.ok(/第 4 步/.test(r.error), `必须提到第 4 步：${r.error}`)
   assert.ok(/自行|自己/.test(r.error),
     `必须提到自行安装这条路：${r.error}`)
@@ -89,14 +88,14 @@ test('argv 形式正常通过，前后空格被trim', () => {
   assert.deepStrictEqual(r.argv, ['uv', 'sync'])
 })
 
-// 依赖清单 ： 只报，不选装法
+// 依赖清单：只报，不选装法
 test('一个依赖清单都没有 ⇒ 如实说「没有」，不退回任何默认', () => {
   const { root } = mkdtempRoot()
   const d = detectDependencyManifest(path.join(root, 'engines', 'e1'))
   assert.strictEqual(d.found, false)
   assert.ok(!/uv sync|pip install/i.test(d.note), d.note)
   // note 已双语化（英文为主 + noteZh 中文）⇒ 两条都要钉。
-  //   不断言具体措辞，只钉实质：必须说清「这一层没有清单」。
+  // 不断言具体措辞，只钉实质：必须说清「这一层没有清单」。
   assert.ok(/no dependency manifest/i.test(d.note), 'note（英文）：' + d.note)
   assert.ok(/没有依赖清单|清单/.test(d.noteZh), 'noteZh（中文）：' + d.noteZh)
   assert.ok(!/平台不替你猜|平台不会替你|——/.test(d.noteZh),
@@ -114,7 +113,7 @@ test('找到了就如实列出来', () => {
 
 // 计划
 test('引擎目录不存在 ⇒ 报 NO_ENGINE_DIR（克隆没做完就别建环境）', () => {
-  // 关键：用 mkdtempRoot()（不建引擎那一层），否则目录存在 ⇒ 不会报这个错
+  // 关键：用 mkdtempRoot()（不建引擎那一层），否则目录存在就不会报这个错
   const { root } = mkdtempRoot()
   const p = buildEnvPlan({ id: 'nope', root, manifest: { install: { env_command: ['uv','sync'] } } })
   assert.strictEqual(p.ok, false)
@@ -230,15 +229,10 @@ test('env.js 活代码里不许出现任何具体引擎名', () => {
   }
 })
 
-// 第 2 步的死结：buildEnvPlan 原来只认名片的 install.env_command：
-//   `if (!cmd.ok) return { ...cmd, id }`
-// 而名片是第 4 步才写的 ⇒ 用户从第 1 步一路走过来，
-//      第 2 步必然卡在「名片里没有 install 段」。
-// 那等于向导逼用户先跳回去填名片才能装环境。
-//
-// 修法：名片优先，探测兜底 ： 第 1 步已经读到上游的清单文件名，
-//   而文件名本身就决定装法（有 uv.lock ⇒ uv sync；有 requirements.txt ⇒ uv pip -r）。
-// 只根据文件存在与否，不猜包名、不猜版本。
+// 装法有两个来源：名片优先，探测兜底。
+// 探测这一路靠第 1 步读到的上游清单文件名，而文件名本身就决定装法
+// （有 uv.lock ⇒ uv sync；有 requirements.txt ⇒ uv pip -r）。只根据文件存在与否，不猜包名、不猜版本。
+// 名片是第 4 步才写的，所以兜底这一路不能没有：没有它，用户走到装环境这一步就被卡住。
 
 test('名片是空的（第 4 步还没写）⇒ 也能推出装法，不卡住', () => {
   const { root } = mkdtempRoot()
@@ -263,9 +257,7 @@ test('探测兜底那条也必须带 steps（否则命令根本不跑却显示�
   const p = buildEnvPlan({ id: 'demo', manifest: {}, root })
   assert.ok(Array.isArray(p.steps) && p.steps.length > 0,
     '兜底路径没带 steps ⇒ runEnv 拿到 undefined，命令没跑却显示成功')
-  // steps[0] 现在是建隔离环境那一步（平台原来压根不建，
-  //   装依赖那步必然报 No virtual environment found）。
-  //   ⇒ 断言装依赖那步要按 argv 内容找，不许钉下标（它已经不是 0 了）。
+  // steps[0] 是建隔离环境那一步，装依赖那步要按 argv 内容找，不钉下标。
   const install = p.steps.filter((s) => s.kind === 'env')
     .find((s) => /sync/i.test(s.argv.join(' ')))
   assert.ok(install, `找不到装依赖那一步：`
@@ -288,8 +280,7 @@ test('清单在子目录里也要找得到（如 infer/requirements.txt）', () 
   const venvPy = p.env_command[4]
   assert.ok(path.isAbsolute(venvPy) && /engines[\\/]demo[\\/]\.venv/.test(venvPy),
     `-p 必须指向该引擎的 .venv：${venvPy}`)
-  // cwd 必须是清单所在的那个目录，不是引擎根
-  //   （steps[0] 现在是建环境那一步 ⇒ 按内容找装依赖那步，不钉下标）
+  // cwd 必须是清单所在的那个目录，不是引擎根。装依赖那步按内容找，不钉下标。
   const install = p.steps.filter((s) => s.kind === 'env')
     .find((s) => /pip/.test(s.argv.join(' ')))
   assert.ok(install.cwd.endsWith('demo' + path.sep + 'infer'),
@@ -315,8 +306,7 @@ test('名片的 install.env_command 仍然优先（名片作者知道特殊装�
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
 
-  // 名片里 env_command 是裸数组（["uv","sync"] 那样），不是 {argv:[...]}
-  //   ： 第一版写错了形状，害得以为优先级反了。
+  // 名片里 env_command 是裸数组（["uv","sync"] 那样），不是 {argv:[...]}。
   const p = buildEnvPlan({ id: 'demo', root, manifest: {
     install: { env_command: ['conda', 'env', 'create', '-f', 'x.yml'] },
   } })
@@ -348,8 +338,8 @@ test('锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，且只�
   writeCudaLock(dir)
 
   const p = buildEnvPlan({ id: 'demo', root, manifest: {} })
-  // 主命令必须跳过 torch ： 否则点「安装」装的是 CUDA 版，
-  //   而 alternative 只作展示，等于让用户白装 3 GB。
+  // 主命令必须跳过 torch：否则点「安装」装的是 CUDA 版，而 alternative 只作展示，
+  // 等于让用户白装几 GB。
   assert.deepStrictEqual(p.env_command,
     ['uv', 'sync', '--no-install-package', 'torch'],
     '主命令应跳过 torch（--no-install-package），而不是照锁装 CUDA 版')
@@ -376,13 +366,10 @@ test('锁文件锁了 CUDA + 本机不是 CUDA ⇒ 给第二条命令，且只�
   // 不得含 +cu128（那是 CUDA 后缀，换后端后必须剥掉）
   assert.ok(!alt.then.some((a) => /\+cu/.test(a)),
     `换后端后不得保留 CUDA 后缀：${alt.then.join(' ')}`)
-  // alternative 不得混进 steps（自动执行等于替使用者拍板）
-  // 两步都要进 steps：走完向导就该有可用环境。
-  //   过去第②步只作展示，而 runEnv 只跑 steps[0]
-  //   ⇒ 装出一个没有 torch 的环境，界面却显示「完成」。
+  // 两步都要进 steps：走完向导就该有可用环境。第二步只作展示而 runEnv 只跑 steps[0]，
+  // 会装出一个没有 torch 的环境，界面却显示「完成」。
   const envSteps = p.steps.filter((s) => s.kind === 'env')
-  // 现在是 3 步（建隔离环境 + 装其余 + 装本机 torch）。
-  //   平台原来压根不建环境 ⇒ 装依赖那步必然报 No virtual environment found。
+  // 3 步：建隔离环境 + 装其余 + 装本机 torch。
   assert.strictEqual(envSteps.length, 3,
     `应有 3 个可执行步骤（建环境 + 装其余 + 装本机 torch），实际 ${envSteps.length}`)
   assert.ok(JSON.stringify(envSteps).includes('--no-install-package'),
@@ -415,14 +402,13 @@ function targetPythonOf (argv) {
 }
 
 // execute:true 时必须真的执行，不许静默返回 ok:true。
-//   症状：runEnv 判的是 plan.execute，而 buildEnvPlan 从不设置它
-//   ⇒ 永远 undefined ⇒ 第一行就 return，一条命令都没跑，
-//   而 plan.ok 是 true ⇒ 界面显示「完成」。
+// runEnv 判的是 plan.execute，而 buildEnvPlan 从不设置它，
+// 于是永远 undefined，第一行就 return，一条命令都没跑，而 plan.ok 是 true，界面显示「完成」。
 test('execute:true ⇒ 真的去跑（不许静默返回 ok:true）', async () => {
   const { root, engineDir: dir } = mkdtempRootWithEngine('exe')
   fs.writeFileSync(path.join(dir, 'uv.lock'), 'version = 1\n')
   // 用一条一定不存在的命令：不看它跑不跑得起来，
-  //   只看有没有真的去跑（stepsRun 有内容 + 如实报失败）。
+  // 只看有没有真的去跑（stepsRun 有内容 + 如实报失败）。
   const r = await runEnv({
     id: 'exe', root, execute: true,
     manifest: { install: { env_command: ['definitely-not-a-real-cmd-abc'] } },
@@ -441,18 +427,17 @@ test('execute 不为 true ⇒ 只出计划，stepsRun 为空', async () => {
   const r = await runEnv({ id: 'noop', root, manifest: {} })
   assert.deepStrictEqual(r.stepsRun, [], '未要求执行时不得有 stepsRun')
   assert.ok(r.ok, '出计划本身应当 ok')
-  // 本夹具的 uv.lock 里没有 torch ⇒ 不触发后端不一致的分支
-  //   ⇒ 命令就是纯 uv sync（不带 --no-install-package）。
+  // 本夹具的 uv.lock 里没有 torch ⇒ 不触发后端不一致的分支，命令就是纯 uv sync。
   assert.deepStrictEqual(r.env_command, ['uv', 'sync'])
   assert.ok(r.alternative == null,
     '锁里没有 torch 时不应给出替代命令')
 })
 
-// 跨平台：uv 的可执行文件布局按平台推导，不是写死的。
-//   形状与平台自己的 lib/engines/platformPaths.js venvPythonRelPath 一致：
-//     win32        → Scripts/uv.exe
-//     linux/darwin → bin/uv
-//   不认识的平台返回 null ： 不猜（猜错比报「不支持」更难让人看懂）。
+// uv 的可执行文件布局按平台推导，不是写死的。
+// 形状与平台自己的 lib/engines/platformPaths.js venvPythonRelPath 一致：
+//   win32        → Scripts/uv.exe
+//   linux/darwin → bin/uv
+// 不认识的平台返回 null：不猜，猜错比报「不支持」更难让人看懂。
 test('uvRelPath 按平台给形状（win32 / linux / darwin / 其他）', () => {
   const env2 = require('../core/env.js')
   const norm = (s) => s.split(String.fromCharCode(92)).join('/')
@@ -465,18 +450,17 @@ test('uvRelPath 按平台给形状（win32 / linux / darwin / 其他）', () => 
   assert.strictEqual(env2.uvRelPath(''), null)
 })
 
-// resolveUv 必须真的解析到磁盘上存在的 uv（不挑平台形状）。
-//   判据是「返回的路径存在且可用」，不是「路径长什么样」
-//   ： 钉实质：只要这台机器上解析不到 uv，就报 UV_NOT_FOUND 而不是 ENOENT。
+// resolveUv 必须真的解析到磁盘上存在的 uv，不挑平台形状。
+// 判据是「返回的路径存在且可用」，不是「路径长什么样」：
+// 只要这台机器上解析不到 uv，就报 UV_NOT_FOUND 而不是 ENOENT。
 test('resolveUv 在本机解析到平台自带的 uv（与 bootstrap 同一调法）', () => {
   const env2 = require('../core/env.js')
   const { projectRoot } = require('../core/clone.js')
   const root = projectRoot()
   const got = env2.resolveUv(root)
   assert.ok(got && got.ok, '项目自带 uv 却没解析到：' + JSON.stringify(got))
-  // 正路：用平台 venv 的 python 当解释器，`-m uv` 当模块调
-  //   ： 与 tools/deploy/bootstrap.js 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
-  //   不再找 venv/Scripts/uv.exe 那个 console-script shim。
+  // 正路：用平台 venv 的 python 当解释器，`-m uv` 当模块调，
+  // 与 tools/deploy/bootstrap.js 的 runNative(VENV_PY, ['-m','uv',...]) 一致。
   assert.deepStrictEqual(got.argv.slice(1), ['-m', 'uv'],
     '不是 python -m uv 的调法：' + JSON.stringify(got.argv))
   // 分发的保证：解释器必须在项目根下面（运行时算出，不是写死字符串）

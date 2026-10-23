@@ -1,6 +1,7 @@
-// AUTO-EXTRACTED from App.jsx (pure mechanical, zero logic change).
-// Item 17: descriptive prose is localised via useT(); product terms
-// (meta.json, GPT, SoVITS, id, v2/v2Pro/v2ProPlus, ckpt, pth, epoch, step) stay English.
+// Field primitives plus the two acknowledge-able note cards: NumField / TextField
+// / SelectField, and the NamingNote + BrokerApiNote pill+card pairs. Chinese prose
+// is localised via useT(); product terms (meta.json, GPT, SoVITS, ckpt, pth,
+// epoch, step) stay English.
 import { useT } from '../../lib/i18n'
 import { Select } from './Select'
 

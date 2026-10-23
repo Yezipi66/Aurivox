@@ -1,18 +1,15 @@
 'use strict'
-//  反射 → parameters[] 草稿 + 平台词候选 ： 真行为测试
-//
-//  判据来自 7 条验收（docs/ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md 第 1 步）：
-//    1. 对签名型引擎 A 反射 → 草稿 ≥17 条
-//    2. 对多方法引擎 B 反射 → 草稿 ≥13 条
-//    3. 映射候选拿人手写好的 10 条 maps 当考题，命中 ≥8 条
-//    4. 真参数一个都不能少（含「类型反射不出」的必填参数）
-//    5. 不自动落盘：按钮只填表单
-//    6. 变异测试：把映射启发式去掉 ⇒ 第 3 条必须变红
-//    7. npm test 不退化
-//
-//  为什么用冻结的反射夹具而不是真跑 venv：
-//    真跑要 import 几个 GB 的 torch，34 秒起，换台机器就红。夹具是从
-//    lib/engines/reflect_params.py 实跑得到的原始输出，未经手工编辑。
+// 反射 → parameters[] 草稿 + 平台词候选：真行为测试。
+// 判据是引擎接入计划第 1 步的 7 条验收（docs/ENGINE_ONBOARDING_IMPLEMENTATION_PLAN.md）：
+//   1. 对签名型引擎 A 反射 → 草稿 ≥17 条
+//   2. 对多方法引擎 B 反射 → 草稿 ≥13 条
+//   3. 映射候选拿人手写好的 10 条 maps 当考题，命中 ≥8 条
+//   4. 真参数一个都不能少（含「类型反射不出」的必填参数）
+//   5. 不自动落盘：按钮只填表单
+//   6. 变异测试：把映射启发式去掉，第 3 条必须变红
+//   7. npm test 不退化
+// 用冻结的反射夹具而不真跑 venv：真跑要 import 几个 GB 的 torch，几十秒起，换台机器就红。
+// 夹具是 lib/engines/reflect_params.py 实跑得到的原始输出，未经手工编辑。
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -25,10 +22,10 @@ const {
   PLATFORM_KEYS, EXCLUDE, exclusionReason,
 } = require('../core/paramsFromReflect')
 
-// 核心实现只允许一份：本文件不许有第二套排除名单 / 类型推断 / 草稿组装。
+// 核心实现只允许一份：本文件不写第二套排除名单、类型推断或草稿组装。
 const SCAFFOLD = require(path.join(__dirname, '..', '..', '..', 'tools', 'scaffold-params.cjs'))
 
-//  夹具
+// 夹具
 const loadFixture = (name) => JSON.parse(
   fs.readFileSync(path.join(__dirname, name), 'utf8'))
 
@@ -37,7 +34,7 @@ const REFLECT_COSYVOICE = loadFixture('reflect_cosyvoice2.json')
 const REFLECT_COSYVOICE_METHODS = loadFixture('reflect_cosyvoice2_methods.json')
 const ANSWER_SHEET = loadFixture('fixture_gsv_answer_sheet.json')
 
-//  验收 1 / 2：草稿条数
+// 验收 1 / 2：草稿条数
 test('验收1：index-tts 反射 → 草稿 ≥17 条', () => {
   const d = buildDraftPackage(REFLECT_INDEXTTS, { existing: [] })
   assert.strictEqual(d.ok, true)
@@ -51,7 +48,7 @@ test('验收1：index-tts 反射 → 草稿 ≥17 条', () => {
 test('验收2：cosyvoice2 反射 → 草稿 ≥13 条', () => {
   // 这台引擎的 call.methods 里声明了 5 个推理方法（每方法 4~7 个参数）。
   // 「反射这台引擎」= 逐个方法反射 + 按参数名合并（见 mergeReflections）。
-  // 单方法只有 7 个具名参数，合并后 16 个 ： 计划里的 ≥13 就是按全方法算的。
+  // 单方法只有 7 个具名参数，合并后 16 个：计划里的 ≥13 就是按全方法算的。
   const d = buildDraftPackage(mergeReflections(REFLECT_COSYVOICE_METHODS), { existing: [] })
   assert.strictEqual(d.ok, true)
   assert.strictEqual(d.partial, false,
@@ -60,7 +57,7 @@ test('验收2：cosyvoice2 反射 → 草稿 ≥13 条', () => {
     `⛔ 草稿只有 ${d.counts.parameters} 条，要求 ≥13`
     + `（合并 ${d.counts.reflected} 个具名参数，排除了 ${d.counts.excluded} 条）`)
   // 五个方法独有的参数必须都在：sft 的 spk_id、instruct2 的 instruct_text、
-  // vc 的 source_wav ： 漏掉任何一个 = 界面上少一个真实存在的旋钮，且不报错。
+  // vc 的 source_wav：漏掉任何一个 = 界面上少一个真实存在的旋钮，且不报错。
   for (const n of ['spk_id', 'instruct_text', 'source_wav', 'prompt_wav', 'prompt_text']) {
     assert.ok(d.parameters.some((p) => p.name === n),
       `⛔ 草稿里没有 ${n} —— 某个推理方法的参数被合并丢了`)
@@ -69,7 +66,7 @@ test('验收2：cosyvoice2 反射 → 草稿 ≥13 条', () => {
 
 test('验收2（单方法基线）：只反射 zero_shot 一个方法时是 12 条，不许靠重复计数凑数', () => {
   // 这一条是反作弊的：合并必须按参数名去重。五个方法都有
-  // tts_text / stream / speed / text_frontend ⇒ 不去重就会凭空多出十几条。
+  // tts_text / stream / speed / text_frontend，不去重就会凭空多出十几条。
   const d = buildDraftPackage(REFLECT_COSYVOICE, { existing: [] })
   assert.strictEqual(d.counts.reflected, 13, '单方法夹具变了？')
   assert.strictEqual(d.counts.parameters, 12, '单方法草稿条数变了（model_dir 应被排除）')
@@ -77,7 +74,7 @@ test('验收2（单方法基线）：只反射 zero_shot 一个方法时是 12 �
   assert.strictEqual(new Set(names).size, names.length, '⛔ 草稿里有重名参数')
 })
 
-//  草稿形状
+// 草稿形状
 test('草稿每条都有 name/type/phase/label/help（可直接并进 manifest.parameters）', () => {
   for (const fx of [REFLECT_INDEXTTS, REFLECT_COSYVOICE]) {
     const d = buildDraftPackage(fx, { existing: [] })
@@ -96,7 +93,7 @@ test('反射拿不到的东西一律写成 REPLACE_ME（不许填一个看着合
     for (const p of buildDraftPackage(fx, { existing: [] }).parameters) {
       assert.strictEqual(p.label.zh, 'REPLACE_ME', `${p.name} 的 zh 标签不是 REPLACE_ME`)
       assert.strictEqual(p.help.zh, 'REPLACE_ME', `${p.name} 的 zh 说明不是 REPLACE_ME`)
-      // min/max/step 反射拿不到 ⇒ 不许出现（出现就是平台替人定了范围）
+      // min/max/step 反射拿不到，不许出现（出现就是平台替人定了范围）
       assert.ok(p.min === undefined && p.max === undefined && p.step === undefined,
         `⛔ ${p.name} 出现了 min/max/step —— 那是平台替名片作者定的取值范围`)
     }
@@ -104,7 +101,7 @@ test('反射拿不到的东西一律写成 REPLACE_ME（不许填一个看着合
 })
 
 test('按名字猜出来的类型必须标 _needs_review（名字线索是弱证据）', () => {
-  // 16 个 call 参数里 8 个默认值是 None ⇒ 类型只能靠名字猜，
+  // 16 个 call 参数里 8 个默认值是 None，类型只能靠名字猜，
   // 而那 8 个每一条都必须带着「请人工确认」的标记出去。
   const d = buildDraftPackage(REFLECT_INDEXTTS, { existing: [] })
   const byName = Object.fromEntries(d.parameters.map((p) => [p.name, p]))
@@ -119,12 +116,13 @@ test('按名字猜出来的类型必须标 _needs_review（名字线索是弱证
 })
 
 test('必填但类型反射不出的参数不许被静默丢掉 —— 出现在 excluded 并标 needs_human', () => {
-  // 判据来自计划 §1.1 验收第 4 条：「反射读到的每个真参数都必须出现在草稿里，
+  // 判据是计划第 1 步验收第 4 条：「反射读到的每个真参数都必须出现在草稿里，
   // 必填参数即使类型反射不出也要留，标 _needs_review」。
   // 落点在 excluded 而不是 parameters：平台强制 type ∈ 五种
-  // （lib/engines/profile/paramSchema.js 的 schemaEntry，type 取 lib/engines/paramTypes.js 的 PARAM_TYPES），填一个假类型 = 整台引擎解析失败；
-  // type 留空同样过不了那道校验。⇒ 认不出的只能进 excluded，
-  // 但不许静默：必须标 needs_human 并说清「必填，请你确认这是什么类型」。
+  // （lib/engines/profile/paramSchema.js 的 schemaEntry，type 取 lib/engines/paramTypes.js 的 PARAM_TYPES），
+  // 填一个假类型等于整台引擎解析失败；type 留空同样过不了那道校验。
+  // 认不出的只能进 excluded，但不许静默：必须标 needs_human
+  // 并说清「必填，请你确认这是什么类型」。
   const d = buildDraftPackage(REFLECT_INDEXTTS, { existing: [] })
   const lang = d.excluded.find((e) => e.name === 'lang')
   assert.ok(lang, '⛔ lang（必填、无默认值、无名字线索）没出现在 excluded 里 —— 真参数被丢了')
@@ -163,7 +161,7 @@ test('排除的每条都带理由（不许静默丢弃）', () => {
   }
 })
 
-//  验收 3：映射候选拿答案卷对
+// 验收 3：映射候选拿答案卷对
 test('验收3：映射候选对人手写好的 10 条 maps 命中 ≥8 条', () => {
   const params = ANSWER_SHEET.engine_params.map((n) => ({ name: n, phase: 'call' }))
   const rows = mapCandidatesFor(params)
@@ -192,7 +190,7 @@ test('映射候选只给候选 —— 绝不返回「已写入」的 maps', () =
     assert.ok(Array.isArray(row.candidates) && row.candidates.length >= 1,
       `${row.platform_key} 没有候选`)
     for (const c of row.candidates) {
-      // 候选必须说清「为什么猜它」： 人是在做决定，不是在点确认
+      // 候选必须说清「为什么猜它」：人是在做决定，不是在点确认
       assert.ok(typeof c.why === 'string' && c.why.length > 2, `${row.platform_key} 的候选缺理由`)
     }
   }
@@ -212,9 +210,9 @@ test('已经有人手写映射的词：候选照样列，但标 already_mapped�
   assert.ok(!d.maps)
 })
 
-//  验收 4：反射读到的每个真参数都必须出现在草稿里
+// 验收 4：反射读到的每个真参数都必须出现在草稿里
 test('验收4：反射读到的每个真参数都出现在草稿或排除清单里（不许凭空消失）', () => {
-  // 计划 §1.1 验收第 4 条的判据：反射只读签名，压根不会把平台词混进来 ：
+  // 计划第 1 步验收第 4 条的判据：反射只读签名，压根不会把平台词混进来，
   // 所以这里守的是反向那条：反射报上来的每个参数，要么进草稿、要么进 excluded
   // 并说清理由，不许两条都不在（那是「真参数凭空消失，且不报错」）。
   for (const fx of [REFLECT_INDEXTTS, REFLECT_COSYVOICE]) {
@@ -236,7 +234,7 @@ test('验收4：反射读到的每个真参数都出现在草稿或排除清单�
 test('平台核心词的同名变体只标记不排除（硬排除会连带干掉映射候选）', () => {
   // speed / seed / media_type 这类是平台的词，但也就是某台引擎的参数名：
   // 人手写的 maps 里 speed←speed_factor、media_type←media_type 全是这种。
-  // 硬排除它们 = 验收 3 永远拿不到候选。
+  // 硬排除它们，验收 3 就永远拿不到候选。
   assert.strictEqual(isPlatformCanonical('speed'), true)
   assert.strictEqual(isPlatformCanonical('media_type'), true)
   // 并且草稿里出现时挂 _platform_key 提醒，不删
@@ -246,11 +244,11 @@ test('平台核心词的同名变体只标记不排除（硬排除会连带干�
   assert.strictEqual(speed._platform_key, true)
 })
 
-//  验收 5：不自动落盘
+// 验收 5：不自动落盘
 test('验收5：本模块不写盘 —— 产物是纯数据，没有任何 fs 调用', () => {
   // 判据不是「看代码里有没有写盘的注释」，而是真跑一遍然后查盘：
-  // 跑之前记下 engines/ 下每个 manifest.json 的 mtime 与内容 hash，
-  // 跑完之后逐一比对。有一个变了就是自动落盘。
+  // 跑之前记下 engines/ 下每个 manifest.json 的 mtime 与大小，
+  // 执行完之后逐一比对。有一个变了就是自动落盘。
   const enginesDir = path.join(__dirname, '..', '..', '..', 'engines')
   const before = new Map()
   for (const id of fs.readdirSync(enginesDir)) {
@@ -274,12 +272,12 @@ test('验收5：本模块不写盘 —— 产物是纯数据，没有任何 fs �
 
 test('端到端：真跑反射 → 草稿（默认跳过，不假装通过）', () => {
   // 这一条真跑要 import 两台引擎的 venv（各几十秒、几个 GB 依赖）。
-  // 它不进 npm test 的默认路径 ： 默认跑会把全量测试从 ~40s 拖到 ~2min。
-  // 要真跑：`AURIVOX_REFLECT_E2E=1 npm test`
+  // 它不进 npm test 的默认路径：默认跑会把全量测试从几十秒拖到两分钟。
+  // 要真跑：AURIVOX_REFLECT_E2E=1 npm test
   //
   // 跳过时必须打印「未执行」，不许静默通过。
   // 理由：一条「守卫」存在、被 review、被写进契约，却从不执行，
-  // 是最坏的一种失败 ： 它给人安全感。
+  // 是最坏的一种失败：它给人安全感。
   if (process.env.AURIVOX_REFLECT_E2E !== '1') {
     console.log('  … 未执行：本机真反射耗时 ~80s（import 两个 venv），'
       + '默认不进 npm test。要跑：AURIVOX_REFLECT_E2E=1 npm test')
@@ -289,7 +287,7 @@ test('端到端：真跑反射 → 草稿（默认跳过，不假装通过）', 
   const cases = [
     { id: 'index-tts', py: path.join(enginesDir, 'index-tts', '.venv', 'Scripts', 'python.exe'),
       spec: { module: 'indextts.infer_v2_5', class: 'IndexTTS2', method: 'infer' }, min: 17 },
-    // 这台声明了 5 个推理方法 ⇒ 真跑就要逐个反射再合并（与验收 2 同一条路）
+    // 这台声明了 5 个推理方法，真跑就要逐个反射再合并（与验收 2 同一条路）
     { id: 'cosyvoice2', py: path.join(enginesDir, 'cosyvoice2', '.venv', 'Scripts', 'python.exe'),
       spec: { module: 'cosyvoice.cli.cosyvoice', class: 'CosyVoice2' },
       methods: ['inference_sft', 'inference_zero_shot', 'inference_cross_lingual',
@@ -310,7 +308,7 @@ test('端到端：真跑反射 → 草稿（默认跳过，不假装通过）', 
       skip: [],
     }, { methods: c.methods, timeoutMs: 180000 })
     if (!d.ok) {
-      // 反射失败是一个答案，不是测试通过 ⇒ 这条测试照样要红
+      // 反射失败是一个答案，不是测试通过，这条测试照样要红
       assert.fail(`反射 ${c.id} 失败（${d.stage}）：${d.error}`)
     }
     assert.strictEqual(d.partial, false,
@@ -324,7 +322,7 @@ test('端到端：真跑反射 → 草稿（默认跳过，不假装通过）', 
   if (ran === 0) console.log('  … 本机没有引擎 venv，本条未执行真反射（不是通过）')
 })
 
-//  复用纪律：不许另起一套
+// 复用纪律：不许另起一套
 test('排除名单就是 scaffold-params.cjs 那一份（不许复制成第二份）', () => {
   assert.strictEqual(EXCLUDE, SCAFFOLD.EXCLUDE,
     '⛔ EXCLUDE 不是同一个对象 —— 复制了一份名单，它会漂移且漂了不报错')
@@ -338,7 +336,7 @@ test('排除名单就是 scaffold-params.cjs 那一份（不许复制成第二�
 
 test('平台词表与 lib/engines/payload.js 的 CANONICAL_KEYS 逐字一致', () => {
   // 这份表在向导里故意复制了一份（向导不 require 产品侧 lib/）。
-  // 代价是会漂 ⇒ 这条比对就是那个代价的护栏。漂了这条比对就红。
+  // 代价是会漂，这条比对就是那个代价的护栏：漂了这条比对就红。
   const payloadSrc = fs.readFileSync(
     path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'payload.js'), 'utf8')
   const core = (payloadSrc.match(/const CORE_KEYS = \[([^\]]*)\]/) || [])[1] || ''
@@ -349,11 +347,11 @@ test('平台词表与 lib/engines/payload.js 的 CANONICAL_KEYS 逐字一致', (
     '⛔ 平台词表与 payload.js 漂了 —— 加词只改一份，另一份要跟着改')
 })
 
-//  验收 6：变异测试 ： 启发式拿掉，第 3 条必须变红
+// 验收 6：变异测试，启发式拿掉时验收 3 必须变红
 test('验收6（变异）：把映射启发式去掉 ⇒ 验收3 的判据必须红', () => {
   // 这一条守的是「验收 3 真的在测映射启发式」。
   // 做法：用空规则表重建一套候选（等价于把启发式删掉），
-  // 然后跑与验收 3 完全相同的判据 ： 它必须失败。
+  // 然后跑与验收 3 完全相同的判据：它必须失败。
   const MAP_RULES_PATH = path.join(__dirname, '..', 'core', 'paramsFromReflect.js')
   const src = fs.readFileSync(MAP_RULES_PATH, 'utf8')
 
@@ -367,7 +365,7 @@ test('验收6（变异）：把映射启发式去掉 ⇒ 验收3 的判据必须
   const m = new Module(MAP_RULES_PATH, null)
   m.filename = MAP_RULES_PATH
   m.paths = Module._nodeModulePaths(path.dirname(MAP_RULES_PATH))
-  // 变异体里 require('../scaffold-params.cjs') 必须仍指向真文件 ⇒ 保持 __dirname 语义
+  // 变异体里 require('../scaffold-params.cjs') 必须仍指向真文件，所以保持 __dirname 语义
   const wrapper = Module.wrap(mutated)
   const compiled = vm.runInThisContext(wrapper, { filename: MAP_RULES_PATH })
   compiled.call(m.exports, m.exports, require, m, MAP_RULES_PATH,
@@ -400,7 +398,7 @@ test('变异（对照）：同一条判据在未变异的模块上必须 ≥8', 
   assert.ok(hits >= 8, `⛔ 未变异只命中 ${hits}/10 —— 验收 3 的判据本身有问题`)
 })
 
-//  杂项：几个容易写错的边角
+// 杂项：几个容易写错的边角
 test('partial=true 必须一路传出去（不许静默当完整结果）', () => {
   const partialFixture = JSON.parse(JSON.stringify(REFLECT_INDEXTTS))
   partialFixture.partial = true
@@ -411,7 +409,7 @@ test('partial=true 必须一路传出去（不许静默当完整结果）', () =
   assert.ok(String(d.partial_reason).includes('infer'))
 })
 
-//  多方法合并的纪律
+// 多方法合并的纪律
 test('合并按参数名去重（不许把五个方法共有的 tts_text 数成五条）', () => {
   const merged = mergeReflections(REFLECT_COSYVOICE_METHODS)
   assert.deepStrictEqual(merged.methods,
@@ -427,14 +425,14 @@ test('合并按参数名去重（不许把五个方法共有的 tts_text 数成�
     assert.ok(merged.call.some((e) => e.name === n),
       `⛔ 合并丢了 ${n} —— 那等于界面上少一个真实存在的旋钮，且不报错`)
   }
-  // 构造期五个方法都一样 ⇒ 也该去重成 6 条
+  // 构造期五个方法都一样，也该去重成 6 条
   assert.strictEqual(merged.load.length, 6)
 })
 
 test('合并时有一个方法反射失败：不许假装成功（partial 必须立起来）', () => {
   const withFailure = [...REFLECT_COSYVOICE_METHODS,
     { ok: false, stage: 'get-class', error: '方法名对不上上游' }]
-  // 失败的那一条 partial=true，合并结果必须带着这个标记出去 ：
+  // 失败的那一条 partial=true，合并结果必须带着这个标记出去：
   // 少了它，草稿会「安静地」少一个方法的参数。
   const broken = JSON.parse(JSON.stringify(REFLECT_COSYVOICE_METHODS[0]))
   broken.partial = true
@@ -472,7 +470,7 @@ test('本文件（core/）活代码里不许出现任何具体引擎名', () => 
 })
 
 test('平台词表全表只该有 payload.js 那 10 个（不在这里扩词）', () => {
-  // 扩充平台词是契约变更（计划 §4.1 明确「未定」）⇒ 这一条盯着
+  // 扩充平台词是契约变更（引擎接入计划里标为「未定」），这一条盯着
   // 有人在向导里偷偷加词。
   assert.deepStrictEqual([...PLATFORM_KEYS], [
     'text', 'text_lang', 'reference_audio', 'reference_text', 'reference_lang',
@@ -480,8 +478,8 @@ test('平台词表全表只该有 payload.js 那 10 个（不在这里扩词）'
   ])
 })
 
-//  端点：POST /wizard/params
-// 真起一个 http server、真发一次请求 ： 不 mock 业务逻辑。
+// 端点：POST /wizard/params
+// 真起一个 http server、真发一次请求，不 mock 业务逻辑。
 // 理由：端点要验的是「路由 + 读盘 + 反射 + 组装」这一整条链，
 // 而这条链上最容易错的地方（前缀没匹配上、buildSpec 读错了名片、
 // 反射结果被静默吞掉）只有真发请求才暴露得出来。
@@ -490,8 +488,8 @@ const BRIDGE = require('../core/wizardbridge')
 /** 起一个只挂 wizardbridge 全部 handler 的临时 server */
 function withServer (fn) {
   const http = require('node:http')
-  // 按 web/wizard.vite.config.mjs 里 HANDLERS 的顺序逐个试 ：
-  // 不能简单遍历导出表：那张表是有顺序的（长前缀在前），
+  // 按 web/wizard.vite.config.mjs 里 HANDLERS 的顺序逐个试：
+  // 不能简单遍历导出表，那张表是有顺序的（长前缀在前），
   // 导出表的顺序与之无关。顺序错了长前缀永远匹配不上。
   const ORDER = ['handleState', 'handleResolve',
     'handleProbe', 'handleDeps', 'handleHardware', 'handleClone', 'handleEnv',
@@ -501,7 +499,7 @@ function withServer (fn) {
     assert.strictEqual(typeof BRIDGE[name], 'function', `⛔ wizardbridge 没有导出 ${name}`)
   }
   // 另两个 handler 不在 wizardbridge 里（specbridge / savebridge），
-  // 但它们排在 HANDLERS 最前面 ： 不挂上就验不到「前缀会不会被它们吃掉」。
+  // 但它们排在 HANDLERS 最前面：不挂上就验不到「前缀会不会被它们吃掉」。
   const specbridge = require('../core/specbridge')
   const savebridge = require('../core/savebridge')
   const handlers = [
@@ -511,9 +509,9 @@ function withServer (fn) {
   ]
 
   // 兜底超时：handler 返回 Promise 时 for 循环会提前 break
-  // （Promise 是 truthy ⇒ 请求永远不 next 不响应，node --test 整个文件不退出）。
+  //（Promise 是 truthy，请求永远不 next 不响应，node --test 整个文件不退出）。
   // deep 模式（AURIVOX_REFLECT_E2E=1）会真跑反射：5 个方法要 import 5 次
-  // torch ⇒ 超时要跟着放大，不能拿默认档去判它挂死。
+  // torch，超时要跟着放大，不能拿默认档去判它挂死。
   const deep = process.env.AURIVOX_REFLECT_E2E === '1'
   const budgetMs = deep ? 300000 : 20000
   const timer = new Promise((_, rej) => setTimeout(
@@ -567,7 +565,7 @@ test('验收5（端点层）：POST /wizard/params 只回草稿，盘上的 mani
   const deep = process.env.AURIVOX_REFLECT_E2E === '1'
   return withServer(async (base) => {
     if (deep) {
-      // 真反射：这一台有 call 段和 runtime.python ⇒ spec 建得起来
+      // 真反射：这一台有 call 段和 runtime.python，spec 建得起来
       const r = await post(base, '/wizard/params', {
         id: 'cosyvoice2',
         methods: ['inference_sft', 'inference_zero_shot', 'inference_cross_lingual',
@@ -607,7 +605,7 @@ test('端点：缺 id / 目录不存在 / 名片没 call 段 ⇒ 各自说各自
     assert.match(noDir.json.error, /不存在/)
     console.log(`  · 目录不存在 → ${noDir.json.error}`)
 
-    // 这台引擎克隆了源码但还没写名片 ⇒ 正确行为是「说清缺 call 段」，
+    // 这台引擎克隆了源码但还没写名片，正确行为是「说清缺 call 段」，
     // 不许自己猜 module/class（猜错的表现是反射一堆别的东西）。
     // 但若引擎 .venv 不存在，端点会先报 ENOENT，此时跳过 call 段断言。
     const noCall = await post(base, '/wizard/params', { id: 'index-tts' })
@@ -630,8 +628,8 @@ test('端点：缺 id / 目录不存在 / 名片没 call 段 ⇒ 各自说各自
 })
 
 test('端点：非 POST / 路径不对 ⇒ 不接管（别把别的请求吃掉）', async () => {
-  // handleParams 是 async：它返回的是 Promise<false>，不能再断言同步返回值
-  // ： 那永远不成立。本意没变：路径/方法不对时，它必须 resolve 成 false（=不接管），
+  // handleParams 是 async，它返回的是 Promise<false>，不能再断言同步返回值，
+  // 那永远不成立。本意没变：路径或方法不对时，它必须 resolve 成 false（不接管），
   // 让请求继续走下一个 handler。await 后判值才对。
   const fake = { method: 'GET', url: '/wizard/params', on () {}, destroy () {} }
   assert.strictEqual(await BRIDGE.handleParams(fake, { writeHead () {}, end () {} }), false,
@@ -660,7 +658,7 @@ test('buildSpec 把 runtime.python 的目录补成真能起的可执行文件', 
     return
   }
   // 名片里写的是 `engines/<id>/.venv`（一个目录），不是可执行文件。
-  // 直接 spawn 那个路径 = ENOENT，而报错说的是「起不动解释器」：
+  // 直接 spawn 那个路径会得到 ENOENT，而报错说的是「起不动解释器」：
   // 把「路径少了一截」说成「解释器坏了」，是最难查的一类误导。
   assert.ok(fs.existsSync(s.value.python), `解释器路径不存在：${s.value.python}`)
   assert.ok(/python(\.exe)?$/i.test(s.value.python),

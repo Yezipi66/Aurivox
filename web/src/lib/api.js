@@ -1,4 +1,8 @@
-// Shared network helper + base URL. Extracted verbatim from App.jsx (no logic change).
+// Shared network helper + base URL. `API_BASE` is '' (same-origin); callers pass
+// already-prefixed paths like `/api/...` and the dev server proxies `/api` to the
+// backend, so no build-time URL switch is needed. `api` returns { ok, status, data }:
+// Uint8Array for raw/audio bodies, the parsed object for application/json, text
+// otherwise.
 export const API_BASE = ''
 
 export function api(path, opts = {}) {

@@ -1,4 +1,4 @@
-// 注释比例统计器：口径由 docs/WIZARD_FIX_PLAN_DCABD.md 第 6 节固定
+// 注释比例统计器：本目录下 js/jsx/cjs/mjs 的注释行占非空行的比例，口径以 commentLines() 为准。
 const fs = require('node:fs')
 const path = require('node:path')
 

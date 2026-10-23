@@ -1,9 +1,16 @@
+// 引擎接入向导的持久化：两段存储，两种生命周期。
+// 持久段（localStorage）放用户的输入与选择：仓库地址、目录名、当前展开哪一步。
+// 会话段（sessionStorage）放各步的探测结果与瞬态状态。
+// 会话键含目录名与仓库地址的摘要，换一个地址或换一台引擎，旧会话自动失效。
+// 存储不可用时静默失败：向导不能因为浏览器不给 storage 就崩掉。
+
 const NS = 'tf.v1.wizard.'
+// 早期版本写下的键，代码里已无人读取，每次启动仍要清掉。
 const ORPHAN_KEYS = [NS + 'repo']
 
 export { NS }
 
-/** 浏览器 / Node 测试两侧都能拿到的 storage（没有就静默失败，不抛） */
+/** 浏览器与 Node 测试两侧都能拿到的 storage；没有就返回 null（不抛）。 */
 function pick (store) {
   if (typeof window !== 'undefined' && window[store]) return window[store]
   if (typeof global !== 'undefined' && global[store]) return global[store]
@@ -13,9 +20,7 @@ function pick (store) {
 const local = () => pick('localStorage')
 const session = () => pick('sessionStorage')
 
-/**
- * url 摘要：会话键的第二段。只用摘要不用原文，换一个 url 就换一把键。
- */
+/** 仓库地址的摘要，用作会话键的一段；只存摘要不存原文。 */
 function hashUrl (url) {
   const s = String(url || '')
   let h = 5381
@@ -23,7 +28,7 @@ function hashUrl (url) {
   return h.toString(36)
 }
 
-/** 会话键：含 id 与 url，换任一个旧会话自动失效 */
+/** 会话键：含目录名与仓库地址摘要。 */
 function sessionKey (id, url) {
   return NS + 'sess:' + String(id || '') + ':' + hashUrl(url)
 }
@@ -73,13 +78,13 @@ export function loadPersist () {
     cloneUrl: v.cloneUrl || '', repoUrl: v.repoUrl || '' }
 }
 
-/** 写持久段 */
+/** 写持久段。patch 只写给出的键，其余沿用已存的值。 */
 export function savePersist (patch) {
   if (!patch || typeof patch !== 'object') return
   write('localStorage', PERSIST_KEY, { ...loadPersist(), ...patch })
 }
 
-/** 当前展开哪一步：也在持久段里（刷新后还在原步骤） */
+/** 当前展开哪一步，也放在持久段里；读不到时返回 'prepare'（第一步）。 */
 export function loadPage () {
   const v = read('localStorage', NS + 'step')
   return typeof v === 'string' ? v : 'prepare'
@@ -90,10 +95,8 @@ export function savePage (page) {
 }
 
 /**
- * 读会话段。换 URL 或换引擎 ⇒ 键就换了 ⇒ 这里返回 null。
- *
- * @param {string} id
- * @param {string} url
+ * 读会话段。id 是引擎目录名，url 是仓库地址。
+ * 返回各步的探测结果与瞬态状态；键不对（读到的会话段属于别的引擎）时为 null。
  */
 export function loadSession (id, url) {
   if (!id) return null
@@ -120,11 +123,8 @@ export function loadSession (id, url) {
 }
 
 /**
- * 写会话段（局部 patch，不整份覆盖：各组件各自写自己那几个键）。
- *
- * @param {string} id
- * @param {string} url
- * @param {object} patch 只写给出的键；值为 undefined 的键不动
+ * 写会话段。局部 patch，不整份覆盖：各组件各自写自己那几个键。
+ * patch 只写给出的键；值为 undefined 的键不动。
  */
 export function saveSession (id, url, patch) {
   if (!id || !patch || typeof patch !== 'object') return
@@ -143,7 +143,7 @@ export function clearSession (id, url) {
   drop('sessionStorage', sessionKey(id, url))
 }
 
-/** derive：调用方放进 useEffect 依赖里，换 URL / 换引擎会重新读会话段。 */
+/** 派生值：调用方放进 useEffect 的依赖里，换了地址或引擎这个值就变。 */
 export function sessionStamp (id, url) {
   return String(id || '') + '|' + String(url || '')
 }

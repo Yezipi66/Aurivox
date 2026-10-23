@@ -202,7 +202,7 @@ test('注释键必须逐字保留（写盘时剥 = 读一次就永久删掉文�
   assert.deepStrictEqual(back.runtime.args, m.runtime.args)
 })
 
-// 纪律：本文件不许出现任何具体引擎名
+// 这一条钉住被测的两个文件：它们不写任何具体引擎名，名字一律来自名片。
 test('save.js / savebridge.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice']
   const path2 = require('node:path')

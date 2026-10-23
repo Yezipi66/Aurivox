@@ -1,33 +1,24 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
-// REQUIRED EIGHT：L1 核心区的「真·必填 8 项」
-//
-//  为什么单独一个组件
-//  平台 profile.js 的 required() 调用一共 8 处，缺一个当场抛错、名片装不上。
-//  这是第 4 步用户必须过目的最小集合，所以常驻展开摆在 L1。
-//  依据（profile.js 行号）：runtime.python / runtime.entry /
-//  runtime.ready_endpoint / runtime.ready_timeout_ms / timeout_ms /
-//  max_chars / capabilities.requires_reference_audio /
-//  capabilities.output_sample_rate。
-//
-//  为什么不直接用 RuntimeSection / CallSection
-//  那两个段是「一个键一个 Row」的全量编辑器（含 verify / checkpoints /
-//  ready_timeout_ms_source 等 L2/L3 内容）。L1 只取其中必填的那 8 格，
-//  全量编辑器下沉到 L2/L3 折叠区，避免两处同源维护漂移。
-//
-//  只用平台现成类（.section/.section-hdr/.section-body/.field/
-//    .field-label/.field-hint/.control/.form-grid），不许出现具体引擎名。
+// 名片必填项的编辑器：只填平台当场校验的那 8 个键，常驻展开在 L1 核心区。
+// 这 8 个键缺失或类型不对时，lib/engines/profile.js 加载名片就会抛错，名片装不上。
+// 键清单：runtime.python、runtime.entry、runtime.ready_endpoint、runtime.ready_timeout_ms、
+// timeout_ms、max_chars、capabilities.requires_reference_audio、capabilities.output_sample_rate。
+// runtime 段的全量编辑器（NestedSections 的 RuntimeSection）在 L2 折叠区，verify、checkpoints
+// 等可选键也在那里；这里只重复必填的那几格，两处写的是同一张名片。
+// 排版用项目已有的类（.section / .section-hdr / .section-body / .field / .field-label /
+// .field-hint / .control / .form-grid），不新增 class；不写具体引擎名（有守卫测试）。
 
 export default function RequiredEight ({ manifest, onChange }) {
   const { t } = useT()
   const runtime = (manifest && manifest.runtime) || {}
   const caps = (manifest && manifest.capabilities) || {}
 
-  // 嵌套段（runtime / capabilities）改一格：只动该段，别处不动
+  // 改 runtime / capabilities 段里的一个键：只改该段，别处不动。
   const setRuntime = (patch) => {
     const next = { ...runtime, ...patch }
-    // 删空键：值 === undefined 时剔掉，别把 undefined 写进名片
+    // 值为 undefined 时删掉这个键，别把 undefined 写进名片。
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k]
     onChange({ ...manifest, runtime: Object.keys(next).length ? next : undefined })
   }
@@ -36,7 +27,7 @@ export default function RequiredEight ({ manifest, onChange }) {
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k]
     onChange({ ...manifest, capabilities: Object.keys(next).length ? next : undefined })
   }
-  // 顶层键改一格
+  // 改名片顶层的一个键。
   const setTop = (key, v) => {
     const next = { ...manifest }
     if (v === undefined || v === '') delete next[key]
@@ -50,9 +41,9 @@ export default function RequiredEight ({ manifest, onChange }) {
         <h2>{t('Required fields (8)', '必填字段（8 项）')}</h2>
       </div>
       <div className="section-body">
-        {/* 表单填写的必填 8 项：平台当场抛错的那 8 个，
-            缺一个名片装不上，所以摆在最显眼处常驻展开。
-            证据：profile.js 的 required() 调用。*/}
+        {/* 平台当场校验的那 8 个必填项，缺一项名片就装不上，
+            所以摆在最显眼处常驻展开。
+            判据见 lib/engines/profile.js 的 required 与 requiredBool 调用。*/}
         <p className="field-hint" style={{ marginTop: 0 }}>
           {t('These are the fields the platform rejects the manifest without. '
             + 'The scan fills what it can; check the rest and correct anything off.',

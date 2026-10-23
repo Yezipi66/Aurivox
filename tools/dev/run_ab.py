@@ -58,17 +58,17 @@ OUT_DIR = os.path.join("outputs", "ab")
 LOG_DIR = os.path.join(OUT_DIR, "logs")
 PROFILE_JSON = os.path.join(OUT_DIR, "%s.profile.json" % ENGINE_ID)
 
-# 采集会产出的东西。⭐ 每轮开跑前全清 ： 见 clean_outputs() 的注释。
+# 采集会产出的东西。每轮开跑前全清，理由见 clean_outputs() 的注释。
 CAPTURE_ARTIFACTS = (
     "shim-a.wav", "shim-b.wav", "altered.wav", "host.wav",
     "capture-shim.json", "capture-host.json",
 )
 
-# ⭐⭐ 天花板参数的默认值不是 emo_alpha。
-#    上游 infer_v2.py:428-433：没传 emo_audio_prompt 时 emo_alpha 被无条件
+# 天花板参数的默认值不是 emo_alpha。
+#    上游 infer_v2 的推理入口：没传 emo_audio_prompt 时 emo_alpha 被无条件
 #    覆写成 1.0 ⇒ 传 0.3 等于没传 ⇒ altered 和 shim-a 逐字节相同 ⇒ G5 判红。
-#    max_text_tokens_per_segment 默认 120，改小会真的多切段（infer_v2.py:512），
-#    切完还会插 interval_silence 静音（:685）⇒ 连音频长度都变。
+#    max_text_tokens_per_segment 默认 120，改小会真的多切段，
+#    切完还会插 interval_silence 静音 ⇒ 连音频长度都变。
 DEFAULT_ALTERED_PARAM = "max_text_tokens_per_segment"
 DEFAULT_ALTERED_VALUE = "4"
 
@@ -85,9 +85,7 @@ class Fail(Exception):
         self.hint = hint
 
 
-# ---------------------------------------------------------------------------
 #  小工具
-# ---------------------------------------------------------------------------
 def say(msg=""):
     sys.stdout.write(msg + "\n")
     sys.stdout.flush()
@@ -152,9 +150,7 @@ def tail(path, n=40):
     return "".join(lines[-n:]).rstrip()
 
 
-# ---------------------------------------------------------------------------
-#  引擎的起与停 ： ⭐ 同一时刻只有一台活着，这是本脚本存在的第一个理由
-# ---------------------------------------------------------------------------
+#  引擎的起与停：同一时刻只有一台活着，这是本脚本存在的第一个理由
 class Engine(object):
     def __init__(self, name, cmd, port, log_path):
         self.name = name
@@ -252,9 +248,7 @@ class Engine(object):
         say("  ✅ %s 已停，%d 端口空出来了" % (self.name, self.port))
 
 
-# ---------------------------------------------------------------------------
 #  各步骤
-# ---------------------------------------------------------------------------
 def preflight(args):
     """先量再走：所有前置文件都得在，缺了当场说清缺哪个。"""
     py = engine_python()
@@ -327,8 +321,8 @@ def capture(role, port, args):
            "--out", args.out,
            "--timeout", str(args.capture_timeout)]
     if role == "shim":
-        # ⭐ 天花板只在 shim 那一侧采（HOST_SHOTS 只有一段），
-#   所以这两个参数只能加在这里。
+        # 天花板只在 shim 那一侧采（HOST_SHOTS 只有一段），
+        # 所以这两个参数只能加在这里。
         cmd += ["--altered-param", args.altered_param,
                 "--altered-value", args.altered_value]
     say("  " + " ".join(cmd))
@@ -353,9 +347,7 @@ def compare(args):
     return subprocess.call(cmd, cwd=ROOT)
 
 
-# ---------------------------------------------------------------------------
 #  主流程
-# ---------------------------------------------------------------------------
 def build_parser():
     ap = argparse.ArgumentParser(
         prog="run_ab",
@@ -432,7 +424,7 @@ def main(argv=None):
         try:
             capture("shim", args.shim_port, args)
         finally:
-# ⭐ 采完立刻停 ： 从这里到 host 起来之间，一台引擎都不占显存。
+            # 采完立刻停：从这里到 host 起来之间，一台引擎都不占显存。
             shim.stop()
 
         stage(4, total, "只起 host，采第四段（host）")

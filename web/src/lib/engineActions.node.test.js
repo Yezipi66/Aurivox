@@ -2,12 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { processPhase, engineControls, actionOutcome } from './engineActions.pure.js'
 
-//  引擎管理页那两个按钮
+// engineActions.pure.js 的守卫：引擎管理页那两个按钮该不该按，以及后端拒绝之后界面该怎么接。
+// 覆盖范围只看名片解析出来的字段（managed / process / online），内存与名额由后端单独判定。
 //
-// 这不是文本守卫。仓库里那 26 条前端守卫守的是"这个词出现在这个位置"，
-//   而这个文件真的把判断函数调起来看它返回什么：判断本身被刻意挪出了 JSX，
-//   就是为了这件事（`npm run build` 绿 ≠ 接线对）。
-//
+// 这不是文本守卫：判断函数被刻意挪出了 JSX，就是为了在这里真的调起来看它返回
+// 什么。文本匹配类守卫绿着只说明字串在位，不说明接线对（`npm run build` 绿 ≠ 接线对）。
 // 每条测试问的都是同一类问题：某种状态下按钮该不该按，理由说没说。
 
 test('⭐⭐⭐ 名片没写 runtime 段（managed:false）⇒ 两个按钮都不许亮', () => {

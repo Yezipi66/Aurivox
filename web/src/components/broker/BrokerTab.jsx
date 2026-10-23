@@ -1,8 +1,12 @@
+// Broker 分发页：展示 /v1/audio/speech 这个兼容 OpenAI 的入口，以及按 role 分组的配方列表。
+// 判据全在接口返回里（配方自带的模型、参考音频与参数），界面不判断能不能合成；
+// 单个配方由 RecipeCard 渲染，顶部上下文状态行是 ContextRow。
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { FsFilePicker } from '../common/Dialogs'
-import { basename, TARGET_LANG_OPTIONS } from '../../lib/format'
+import { basename } from '../../lib/pathText'
+import { TARGET_LANG_OPTIONS } from '../../lib/langOptions'
 import { usePreviewMode } from '../../lib/previewMode'
 import { useT } from '../../lib/i18n'
 import { usePersistentState } from '../../usePersistentState'

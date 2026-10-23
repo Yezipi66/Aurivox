@@ -1,9 +1,7 @@
-// Stage-2 behavioral test for POST /api/assets/:id/refine (giant handler #4 sunk
-// to a service). Builds the assets router with a fully stubbed ctx (no engine/
-// GPU/real fs), captures the registered handler and drives it through EVERY
-// response exit, asserting HTTP status + body (incl. error `code`s and the
-// success payload). 1:1 proof the service/HttpError refactor preserved behavior.
-// Run from project root:  node tools/tests/refine_service_test.js
+// POST /api/assets/:id/refine 的行为测试。
+// 用一份全部替身化的 ctx 搭出资产路由（不碰引擎、GPU 与文件系统），截下注册的
+// handler，把每一条响应出口都走一遍，断言 HTTP 状态码与响应体（含错误码与成功负载）。
+// 跑法：node --test tools/tests/refine_service.node.test.js
 const path = require("path");
 const Module = require("module");
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -23,23 +21,21 @@ const orig = Module._load;
 Module._load = function (request) { if (request === "express") return expressShim; return orig.apply(this, arguments); };
 
 const state = {};
-// Default: parent has published S1/S2 checkpoints so the happy path resolves.
+// 默认：父角色已发布 S1/S2 权重，成功路径才走得通。
 const ctx = {
   requireApiKey: (q, s, n) => n && n(),
   path, crypto: require("crypto"),
   fs: {
-    // Cross-platform: resolve BOTH sides to an absolute OS path so POSIX-style
-    // expected paths match production output from either path.join or path.resolve.
-    // path.normalize alone doesn't convert separators / add a drive. Test-stub-only.
+    // 跨平台：两边都解析成绝对路径，POSIX 写法的期望路径才能与生产里的输出对上，
+    // 无论它是用 path.join 还是 path.resolve 拼出来的。path.normalize 不会换分隔符、
+    // 也不会补盘符，只有 path.resolve 会。
     existsSync: (p) => (state.missingPaths ? !state.missingPaths.some((m) => path.resolve(m) === path.resolve(p)) : true),
     readFileSync: () => JSON.stringify(state.meta || { display_name: "Parent", language: "ja", base_version: "v2" }),
     readdirSync: (p, opt) => {
       if (opt && opt.withFileTypes) return [];
-      // A published model now lives at  <asset>/models/<engine>/<slot>/ , so the
-      // stub keys off the LAST path segment (the slot), not off a directory name
-      // that used to carry the engine's shape. Note "gpt-sovits" contains both
-      // "gpt" and "sovits" as substrings, so a substring test would match the
-      // engine segment too -- compare the final segment exactly.
+      // 已发布的模型放在 <asset>/models/<引擎id>/<权重位>/ 下，所以替身按最后一段
+      // （权重位）判断，而不是按某个目录名。引擎段的名字里含有两个权重位名作为子串，
+      // 用子串包含去匹配会连引擎段一起命中，所以每一段都要精确比较。
       const parts = String(p).replace(/\\/g, "/").split("/").filter(Boolean);
       const slot = parts[parts.length - 1];
       const engine = parts[parts.length - 2];
@@ -82,7 +78,7 @@ const check = (n, c, d) => { if (c) { pass++; console.log(`  ok   ${n}`); } else
 (async () => {
   const reset = () => Object.keys(state).forEach(k => delete state[k]);
 
-  reset(); state.invalidId = true; // safeId stub reads it
+  reset(); state.invalidId = true; // safeId 的替身读这个标志
   let r = await run("!!bad", {});
   check("invalid id -> 400", r.status === 400 && r.body.error === "Invalid id", JSON.stringify(r));
 
@@ -106,7 +102,7 @@ const check = (n, c, d) => { if (c) { pass++; console.log(`  ok   ${n}`); } else
   r = await run("spk", { use_own_data: true, input_dir: "/root/in" });
   check("input_dir not exist -> 400", r.status === 400 && r.body.code === "INPUT_DIR_MISSING", JSON.stringify(r));
 
-  reset(); state.gptFiles = []; // no checkpoints
+  reset(); state.gptFiles = []; // 父角色没有任何权重
   r = await run("spk", {});
   check("no checkpoints -> 400", r.status === 400 && r.body.code === "NO_CHECKPOINTS", JSON.stringify(r));
 

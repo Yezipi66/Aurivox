@@ -1,9 +1,9 @@
 'use strict'
-// models（第 4 步）的两条判据：
+// models 这一步（向导流程里的「下载模型」）的两条判据：
 //   1. 一个字节都不下载（engines/_TEMPLATE/README.md 的「平台不替你下载」）
-//   2. ready 是三态，不许糊成布尔（checkpoints.js 的 checkpointStatus）
+//   2. ready 是三态，不许糊成布尔（lib/engines/checkpoints.js 的 checkpointStatus）
 //
-// 这份测试跑在临时目录里，绝不碰真的 models/ 目录。
+// 这份测试跑在临时目录里，不碰真的 models/ 目录。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -13,12 +13,12 @@ const path = require('node:path')
 
 const { describeModels, explainMissingInfo } = require('../core/models.js')
 
-// 平台 registry 认的是自己的 ENGINES_DIR（lib/paths.js 的 ENGINES_DIR）。
+// 平台 registry 认的是自己的 ENGINES_DIR（lib/paths.js 的 ENGINES_DIR），
 //   所以这里必须先把整个夹具搬到临时目录，否则测试会去碰真的 engines/。
 //
 // 变量名里必须带 mkdtemp：lib/engines/enginesDirWriteGuard.node.test.js 的 offenders()
 //   只看写调用的实参文本有没有临时痕迹，不认环境变量。
-//   别把 ENGINES_DIR 换成别的名字。
+//   所以 ENGINES_DIR 这个名字不能换。
 const mkdtempEnginesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-models-eng-'))
 const mkdtempModelsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-models-ck-'))
 process.env.ENGINES_DIR = mkdtempEnginesDir
@@ -40,7 +40,7 @@ function writeEngine (manifest, files) {
 }
 
 // 一张「说得清齐不齐」的最小名片。必须补齐平台的其它必填段
-//   （contract_version / maps / max_chars 等），否则 resolveEngineProfile 会抛。
+//   （contract_version / maps / max_chars 等），否则 resolveEngineProfile 会抛错。
 let SEQ = 0
 function manifestOk (files, opts = {}) {
   const id = `probe${++SEQ}`
@@ -80,7 +80,7 @@ function manifestOk (files, opts = {}) {
   return { id, m }
 }
 
-// 三态不许糊成布尔（全部走平台自己的 resolveEngineProfile + checkpointStatus）
+// 三态不许糊成布尔（全部走平台自己的 resolveEngineProfile 与 checkpointStatus）
 test('ready:true ⇒ 文件齐了', () => {
   const { id } = manifestOk(['model.pt'])
   const r = describeModels(id, mkdtempModelsDir)
@@ -140,7 +140,7 @@ test('命令里的 {checkpoints} 由平台填成绝对路径', () => {
   assert.ok(joined.includes('tts'), joined)
 })
 
-// 本文件不许出现任何下载器名（checkpoints.js 的文件头同一条纪律）
+// 本文件不出现任何下载器名（lib/engines/checkpoints.js 的文件头是同一条纪律）
 test('models.js 活代码里不许出现下载器名（连注释都不许）', () => {
   const FORBIDDEN = ['modelscope', 'huggingface', 'hugging-face', 'git-lfs',
     'wget', 'aria2c', 'hf_hub', 'snapshot_download']
@@ -165,7 +165,7 @@ test('缺 checkpoints / required 要分别说清后果', () => {
   assert.strictEqual(gaps.length, 2)
   const byKey = Object.fromEntries(gaps.map((g) => [g.key, g]))
   // 钉实质：checkpoints 缺失时只能说「目录在不在」，不钉字面。
-  // why 已双语化（英文为主 + whyZh 中文），所以断言走 whyZh，两边都要钉。
+  // why 与 whyZh 都是双语的（英文为主 + whyZh 中文），所以断言走 whyZh，两边都要钉。
   assert.ok(/只能.*目录|无法判断是否完整/.test(byKey['runtime.checkpoints'].whyZh),
     byKey['runtime.checkpoints'].whyZh)
   assert.ok(/can only tell whether the directory exists/i.test(byKey['runtime.checkpoints'].why),
@@ -189,22 +189,18 @@ test('名片读不出来 ⇒ 如实报 NO_PROFILE', () => {
   const r = describeModels('definitely-not-installed-xyz', process.env.MODELS_DIR)
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_PROFILE')
-  // 原断言要求「指向第 5 步」，那是错的：
-  //   describeModels 跑在第 3 步，而 Manifest 第 4 步才写，
-  //   让用户「去第 5 步检查」指向一个还不存在的 Manifest。
-  //
   // 本测试用的引擎未安装，走的是「未安装」分支，所以该分支只说
   //   「未安装 + 已装的是谁」，不指向任何步骤（下一步是第 1 步，
   //   但那由流程顺序保证，不需要文案再说一遍）。
-  //   「已安装但解析失败」才指向第 4 步，见下一条测试。
+  //   「已安装但解析失败」才指向保存 Manifest 的那一步，见下一条测试。
   assert.ok(/没有装/.test(r.error), r.error)
   assert.ok(!r.error.includes('第 5 步'),
     `⛔ 不得指向第 5 步（此时 Manifest 还没写）：${r.error}`)
 })
 
-// 两种失败原因必须分开说，且各自的「下一步」不同：
+// 两种失败原因必须分开说，且各自指向的下一步不同：
 //   · 未安装：下一步是第 1 步（流程顺序已保证，文案不必再说）
-//   · 已装但解析失败：下一步是第 4 步（保存 Manifest 时 validate.js 会报出来）
+//   · 已装但解析失败：指向第 4 步保存 Manifest 时（validate.js 会当场报出来）
 // 混成一句话会让用户去一个还没写的 Manifest 上找问题。
 test('已安装但 Manifest 解析失败 ⇒ 指向第 4 步，不是第 5 步', () => {
   const { id } = manifestOk(['model.pt'])
