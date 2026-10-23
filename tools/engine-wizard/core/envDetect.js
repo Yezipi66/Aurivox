@@ -379,7 +379,7 @@ function platformPythonAbs (root, opts = {}) {
  *     仓库内嵌的解释器是裸解释器、没装 uv）。
  *   · --python 给的是**新环境该用哪个版本**：引擎声明了就用声明的版本号，
  *     没声明就用平台基座版本号。给版本号而不是路径 ⇒ 本机没有那个版本时，
- *     uv 会自己下载一个（实测 3.10 / 3.11.13 / 3.12 都能拉下来）。
+ *     uv 会自己下载一个（3.10 / 3.11.13 / 3.12 都拉得下来）。
  *
  * 返回 {argv, python, venvDir, skipIfExists, pythonVersion, pythonVersionSource}：
  * argv 是建环境的命令，python 是跑 uv 的解释器路径，venvDir 是环境目录，
