@@ -104,7 +104,7 @@ if (typeof handler !== "function") { console.error("FAIL: /api/generate handler 
 
 // 替身 req/res
 function run(body) {
-  // 请求必须点名引擎（契约 §12 第 2 步）：平台不代为选择。
+  // 请求必须点名引擎：平台不代为选择。
   body = { engine_id: FAKE_ENGINE.id, ...body };
   return new Promise((resolve) => {
     const res = {
