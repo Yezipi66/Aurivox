@@ -7,7 +7,7 @@
 打成 JSON 交给 Node 侧组装成 manifest 的 parameters[] 段。
 
 为什么必须跑在引擎的解释器里（而不是平台那个）：
-   每台引擎一套 venv（C12 纪律）。平台的 Python 里没有 torch、transformers、
+   每台引擎一套 venv，平台只核对、不代装。平台的 Python 里没有 torch、transformers、
    也没有任何一台引擎的模块：在那儿 import 必然失败，而那个失败与
    「这台引擎的参数长什么样」毫无关系。跟 env_probe.js 同一个道理。
 

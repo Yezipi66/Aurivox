@@ -502,13 +502,13 @@ test('界面文案不许出现 emoji 或符号语气', () => {
 // 注释归位守卫
 //
 // 注释只解释文件本身、代码块、代码行：这段在做什么、为什么这样实现、
-// 什么输入会让它坏。四类归属性内容不进代码注释，判据来源见
-// docs/WIZARD_FIX_PLAN_DCABD.md 第 0 节：现场经过、归属叙述、纪律宣告、情绪标记。
+// 什么输入会让它坏。四类内容不进代码注释：现场经过、归属叙述、纪律宣告、情绪标记
+// （见 docs/COMMENT_GUIDELINE.md）。
 //
 // 可执行判据取四条：日期体、归属类词、现场经过类词、强调符号。
 // markdown 加粗只判 md 文档，代码注释里的乘号与指针语义不判。
 //
-// 债务如实记账：DEBT_LEDGER 是 D1 时点的快照，只许变小不许变大。
+// 债务如实记账：DEBT_LEDGER 是守卫建立时的存量快照，只许变小不许变大。
 // 新写一条违规注释会让对应文件计数对不上，测试报出文件与行号。
 
 const WIZARD_ROOT = path.join(__dirname, '..')
@@ -523,7 +523,7 @@ const EMPHASIS_SYMBOL_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BF
 const MARKDOWN_BOLD_RE = /\*\*[^*\n]+\*\*|__[^_\n]+__/
 const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SYMBOL_RE|MARKDOWN_BOLD_RE|CRITERIA_SELF_RE/
 
-// D1 时点的债务快照，按文件记违规注释行数。
+// 守卫建立时的存量债务快照，按文件记违规注释行数。
 //
 // 数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
 // 末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。

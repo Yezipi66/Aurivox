@@ -78,7 +78,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
         ⚠ 同时启动多台引擎会占用大量内存：平台会按实测峰值拦截，拦截时此处会写明原因。
       </p>
 
-      {/* B5 占用透明度：机器级总览。
+      {/* 内存占用：机器级总览。
           null = 后端没给这一段 ⇒ 不画（不是画「没占用」）。
           判据是「字段在不在」而不是「数组空不空」，两者都长得像 []，
             但一个是「真装了 0 台」、另一个是「平台不知道」，含义相反。 */}
@@ -133,7 +133,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                 </span>
               )}
 
-              {/* B5 引擎级占用。null = 后端没报这台 ⇒ 不画。
+              {/* 内存占用：引擎级。null = 后端没报这台 ⇒ 不画。
                   绝不为「未测量」画一枚写着 0 的徽章，那等于说
                     「它不吃内存」，而那是最危险的说法（用户会以为能多开）。
                   tone=bad 那一枚是「上次启动未正常退出」⇒ 通常 OOM，
@@ -175,8 +175,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
             {/* 唯一一个需要人来回答的分支。
                 不许把它当普通报错红字弹出去，那会让"平台尚未测量过这台引擎
                   要多少内存"变成一句没法推进的话，而用户只需点击一次即可。
-                §12 开放问题 ② 记的就是这个形状：一个必须有人回答的问题，
-                下游那条路上没有人，这个页面上有。 */}
+                这个问题必须由人回答：下游那条调用路径上没有人，这个页面上有。 */}
             {res && res.kind === 'confirm' && (
               <div className="card" style={{ marginTop: 8 }}>
                 <div style={{ whiteSpace: 'pre-wrap' }}>{res.message}</div>

@@ -217,7 +217,7 @@ export default function App () {
             {page === 'manifest' && (
               <ManifestPage manifest={manifest} spec={spec}
                 text={text} err={err} setText={setText}
-                // 只 setManifest，绝不 setText（A4 竞态来源）。
+                // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
                 onManifest={(m) => { setManifest(m); setErr(null) }}
                 diag={vresult} loading={vloading}
                 onSaved={() => addFacts({ manifestSaved: true })} />

@@ -10,7 +10,7 @@ Single source of truth for:
   * version.json assembly                     ->  build_version()
   * pinned runtime version lookup             ->  read_runtime_versions()
 
-Layer model (see 分发方案与实施计划 §1):
+Layer model:
   R  runtime      tools/runtime/**            (embedded python + node)  -> full pkg only
   W  wheels       tools/wheels/**  (*.whl)                              -> full pkg only
   N  node_modules node_modules/**             (backend prod deps)       -> full pkg only

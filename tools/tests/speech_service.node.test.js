@@ -109,7 +109,7 @@ if (typeof handler !== "function") { console.error("FAIL: /v1/audio/speech handl
 
 // 冒充 req / res：res 把状态码、响应头与响应体记下来，交回一个可判定形状。
 function run(body) {
-  // 请求必须点名引擎（契约 §12 第 2 步）：平台不代为选择。
+  // 请求必须点名引擎：平台不代为选择。
   body = { engine_id: FAKE_ENGINE.id, ...body };
   return new Promise((resolve) => {
     const res = {
@@ -162,7 +162,7 @@ function check(name, cond, detail) {
   reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t" };
   state.voices = { spk: {} }; state.refReject = true;
   r = await run({ voice: "role/name", input: "hi" });
-  // 配方必须自己写明用哪台引擎（契约 §12 第 2 步）：没写就 400 + RECIPE_NO_ENGINE。
+  // 配方必须自己写明用哪台引擎：没写就 400 + RECIPE_NO_ENGINE。
   check("recipe without engine -> 400+code", r.status === 400 && r.body.code === "RECIPE_NO_ENGINE", JSON.stringify(r));
 
   // 裸音色路径
@@ -224,7 +224,7 @@ function check(name, cond, detail) {
     && !("X-Recipe-Id" in r.headers), JSON.stringify({ status: r.status, kind: r.kind, headers: r.headers }));
 
   // 成功：mp3 转码 + 配方响应头
-  // 配方路径：配方自己写明用哪台引擎（契约 §12 第 2 步）。
+  // 配方路径：配方自己写明用哪台引擎。
   reset(); state.recipe = { role: "spk", id: "rec1", reference_audio: "r.wav", reference_text: "t", language: "ja", engine_id: FAKE_ENGINE.id };
   state.voices = { spk: {} }; state.ffmpeg = true;
   r = await run({ voice: "role/name", input: "hi", response_format: "mp3" });

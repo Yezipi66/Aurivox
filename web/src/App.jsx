@@ -145,7 +145,7 @@ function AppShell() {
       .catch(() => {})  // 拉不到就保持原样，不许把徽章翻成「停着」
   }, [])
 
-  // 引擎进程状态的轮询（契约 §12 第 5 步）。
+  // 引擎进程状态的轮询。
   // 上面那次是一次性的，名片和参数表只有装卸引擎时才变，
   // 但「这台引擎现在是否在运行、在装模型没有」是每几秒都在变的东西。
   // 不轮询的话，那个进程徽章会永远停在开页面那一刻：换模型时它照样写着待命，
@@ -222,7 +222,7 @@ function AppShell() {
         <button className={`nav-btn ${page === 'generate' ? 'active' : ''}`} onClick={() => setPage('generate')}>Generate</button>
         <button className={`nav-btn ${page === 'compare' ? 'active' : ''}`} onClick={() => setPage('compare')}>Compare Refs</button>
         <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
-        {/* 契约 §11 判据 11：训练页只对 supports_finetune: true 的引擎显示。showsTrainingTab 是 fail-closed 的：列表还没回来（engine 是 null）或名片没写这一格都不显示。少显示一个页签刷新一下就有；多显示会让人对一台根本不能微调的引擎填完一整张表，最后才发现白填。 */}
+        {/* 训练页只对 supports_finetune: true 的引擎显示。showsTrainingTab 是 fail-closed 的：列表还没回来（engine 是 null）或名片没写这一格都不显示。少显示一个页签刷新一下就有；多显示会让人对一台根本不能微调的引擎填完一整张表，最后才发现白填。 */}
         {showsTrainingTab(engine) && (
           <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
         )}
