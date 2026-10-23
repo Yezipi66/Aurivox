@@ -1,5 +1,7 @@
 # 引擎接入 —— 现状台账
 
+> **最后核对：2026-10-23**（§3c 三笔环境事实逐句复核，X1/X2/X3 全部过期，已在原处标注）
+>
 > **本文件是进度的唯一真相。** 做完一刀，当场改下面那张表的「状态」格。
 > ⛔ 不许把状态记在别处（记忆、聊天、口头）——那些地方与仓库分叉过一次，
 > 代价是整节契约被自己推翻重推。
@@ -304,14 +306,21 @@ GPT-SoVITS 的项目」。**根环境里住着一台引擎，本身就是后者�
 
 ---
 
-## 3c. ⭐ 开发验证平台已换成 Arc（2026-10-04）
+## 3c. ⭐ 开发验证平台已换成 Arc（2026-10-04 立，**2026-10-23 逐句复核**）
 
 > 这条**不是**一笔设计决策，是**环境事实**。记在这里是因为它改变了
 > 「在这台机器上跑测试/跑引擎」这件事的每一个读数。
+>
+> ⚠️ **2026-10-23 复核结论：本节的三笔「环境事实」X1/X2/X3 已全部过期**，
+> 逐句核对过程与今天的读数见下。过期原因是没有持续同步 —— 代码与测试改了，
+> 这一节留在 10-04。**教训：环境事实类的段落必须跟着改动当天复核。**
 
 **Owner 2026-10-04 指示**：开发验证平台换成 **Arc**（本机：ERYING B860，
 Intel Arc 140T 核显 32GB 共享 + NPU 3720，**无 NVIDIA**），且为避免环境交叉污染，
 **环境放 `C:\Aurivox`**（仓库外）。
+
+> ✅ **2026-10-23 复核：这两句仍成立。** [实测] `inspectHardware()` 返回
+> `{vendor:'intel', name:'Intel(R) Arc(TM) 140T GPU (32GB)'}`，`recommended: 'ipex'`。
 
 ### 可用的 XPU 环境（全部在仓库外）
 
@@ -321,25 +330,49 @@ Intel Arc 140T 核显 32GB 共享 + NPU 3720，**无 NVIDIA**），且为避免�
 （GSV 4.43 / CosyVoice2 4.51.3 / IndexTTS2 4.52.1）。
 完整实测记录（含踩坑表、性能、JIT 警告）：**`C:\Aurivox\ENV-XPU-REPORT.md`**。
 
-### ⛔ 三笔必须知道的环境事实
+> ✅ **2026-10-23 复核：仍成立，且多一个 `gpt-sovits`。**
+> [实测] `C:\Aurivox\envs\` 下五个目录（`platform` / `gpt-sovits` /
+> `gpt-sovits311` / `indextts2` / `cosyvoice2`）都有 `Scripts\python.exe`。
 
-| # | 事实 | 证据 |
+### ⛔ 三笔必须知道的环境事实 —— ⚠️ **以下三笔已于 2026-10-23 复核为过期，保留原文是为了让「当时这么记」可追**
+
+| # | 2026-10-04 原文（已过期） | 2026-10-23 实测 |
 |---|---|---|
-| **X1** | **`venv/`、`engines/gpt-sovits/.venv`、`engines/indextts2/.venv` 在本机是死的** —— `pyvenv.cfg` 的 home 指向 `C:\Users\MECHREVO X10 Pro\...\cpython-3.11`（**旧机**），起 interpreter 报 `uv trampoline failed to spawn Python child process` | [实测] 2026-10-04 逐个起 interpreters |
-| **X2** | ⇒ **`npm test` 的 22 条失败全部是这一个根因**（`lib/inference/configRepair.*`、`aliasFold.*`、`envCheck` 深层 —— 它们 shell out 到根 `venv/Scripts/python.exe`）。读数：`1982 tests / 1959 pass / 22 fail / 1 skipped`。⛔ **不是代码回归**，别去改代码 | [实测] 2026-10-04，失败清单逐条对得上 X1 |
-| **X3** | **浅层 `check-engine-env.cjs` 会报假绿灯**：它只查 `python.exe` 文件在不在 ⇒ 四台全报「装了」，而 gpt-sovits / indextts2 根本起不来 | [实测] 2026-10-04，四台全绿 + X1 同时成立 |
+| **X1** | `venv/`、`engines/gpt-sovits/.venv`、`engines/indextts2/.venv` **是死的**：`pyvenv.cfg` 的 home 指向旧机 `MECHREVO X10 Pro`，起 interpreter 报 `uv trampoline failed to spawn Python child process` | ❌ **三句都不成立**。根 `.venv` 与 `engines/gpt-sovits/.venv` **连 `pyvenv.cfg` 与 `python.exe` 都没有**；`engines/indextts2/.venv` **是活的**（`--version` → Python 3.11.13，退出码 0），其 `pyvenv.cfg` 的 home 指向**本机** `C:\Users\User\AppData\Roaming\uv\python\cpython-3.11.13-...`。⚠️ 原文还漏了 `engines/cosyvoice2/.venv`（今天同样没有 `python.exe`） |
+| **X2** | ⇒ `npm test` 的 22 条失败全是这一个根因，读数 `1982/1959/22/1`，⛔ 不是代码回归 | ❌ **已修**（Owner 2026-10-23 确认）。[实测] 今天 `2751 tests / 2748 pass / 0 fail / 3 skipped` |
+| **X3** | 浅层 `check-engine-env.cjs` 会报假绿灯：只查 `python.exe` 在不在 ⇒ 四台全报「装了」 | ❌ **不再复现**。[实测] 今天四台（`cosyvoice-300m-sft` / `cosyvoice2` / `gpt-sovits` / `index-tts`）**全部如实报「没装/不全」**，退出码 1 |
 
 ### 后端本身不依赖 Python
 
-`server.js` 是纯 Node ⇒ 即使三个 venv 全死，`node server.js` 照常起
-（[实测] 2026-10-04 后端在 9886 正常服务，`/api/health` 返回四台引擎
-`online:false`）。⚠️ 但日志会打 `[cuda] not available — inference will run on CPU`
-—— 那是 CUDA 探测，**平台今天没有 XPU 分支**，XPU 只活在引擎自己的环境里。
+`server.js` 是纯 Node ⇒ 即使引擎环境全缺，`node server.js` 照常起。
+⚠️ 但日志会打 `[cuda] not available — inference will run on CPU`。
 
-### ⬜ 待 Owner 裁定：外部环境怎么接进平台（**未做**）
+> ✅ **2026-10-23 复核：比 10-04 更成立。** [实测] `server.js` 已有
+> `require.main === module` 守卫（P0 计划任务 0 已兑现），`app.listen` 已不在
+> 该文件里（拆到 `lib/server/`）—— 现在 require 它不会再起监听。
+>
+> ❌ **但「平台今天没有 XPU 分支」这句已过期**：[实测] `tools/cli/install-torch.js`
+> 有 8 处 `xpu` / 4 处 `XPU` / 6 处 `Intel`；`tools/engine-wizard/core/hardware.js`
+> 有 18 处 `xpu` + 12 处 `ipex`。**平台侧已经有 XPU 分支了。**
+
+### ⬜ 待 Owner 裁定：外部环境怎么接进平台（**2026-10-23 复核：仍未做，但实况比原文更细**）
 
 名片路径**必须相对项目根**（`profile.js:503` `relPath` 拒绝绝对路径，C3 契约），
 所以「把 venv 放 `C:\Aurivox`」这件事本身与契约冲突。两条路：
+
+> **2026-10-23 [实测] 四张名片的 `runtime.python` 与 `.venv` 实况**
+> （这条不裁，下面这笔账就一直挂着）：
+>
+> | 引擎 | 名片 `runtime.python` | `.venv` 实况 |
+> |---|---|---|
+> | `cosyvoice2` | `engines/cosyvoice2/.venv` | 真目录，**里面没有 `python.exe`** |
+> | `cosyvoice-300m-sft` | `engines/cosyvoice2/.venv` | **自己没有 `.venv` —— 借 cosyvoice2 的环境** |
+> | `gpt-sovits` | `engines/gpt-sovits/.venv` | 不存在 |
+> | `index-tts` | `engines/index-tts/.venv` | 不存在（⚠️ `engines/indextts2/.venv` 是**另一台**，那个活着） |
+>
+> ⚠️ **`cosyvoice-300m-sft` 借 cosyvoice2 的环境**这件事，契约与文档里都没有记载
+> —— 它让 `check-engine-env.cjs` 对这一台报出的解释器路径是 cosyvoice2 的，
+> 看着像串号。是有意共享还是历史遗留，**待确认**。
 
 | | 方案 | 代价 |
 |---|---|---|
