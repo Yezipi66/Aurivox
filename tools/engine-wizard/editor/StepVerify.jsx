@@ -137,6 +137,7 @@ export function StepVerify ({ id }) {
         </button>
       </div>
 
+      {/* 时长/采样率/声道由后端解 WAV 头给出，这里不引 ffmpeg。 */}
       <div className="section">
         <div className="section-hdr">
           <h2 style={{ fontSize: 13 }}>{t('Audio information', '音频信息')}</h2>
@@ -161,6 +162,7 @@ export function StepVerify ({ id }) {
         )}
       </div>
 
+      {/* 复用主界面那个 Player，不另画播放器。 */}
       <div className="section">
         <div className="section-hdr">
           <h2 style={{ fontSize: 13 }}>{t('Waveform', '波形')}</h2>
