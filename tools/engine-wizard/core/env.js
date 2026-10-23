@@ -21,6 +21,8 @@ const {
   partialVenvMarkAbs,
   hasPartialVenvMark,
   markPartialVenv,
+  readEnginePythonVersion,
+  PLATFORM_BASE_PYTHON,
 } = require('./envDetect')
 const {
   buildSteps,
@@ -51,4 +53,6 @@ module.exports = {
   runOne,
   // 取消/失败后留不完整环境的标记，重跑先删 .venv 再建
   partialVenvMarkAbs, hasPartialVenvMark, markPartialVenv,
+  // 引擎声明的 Python 版本：声明了用声明的，没声明用平台基座
+  readEnginePythonVersion, PLATFORM_BASE_PYTHON,
 }

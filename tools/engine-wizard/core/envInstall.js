@@ -128,6 +128,15 @@ function buildEnvPlan (input = {}) {
   const effArgv = cmd.ok ? cmd.argv : guess.argv
   const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
   const venv = condaRoute ? null : buildVenvStep(root, id)
+  // 建环境那一步拿不到解释器 ⇒ 计划不完整，如实报出来。
+  //   不静默产出一个 argv 为 null 的步骤：那会让执行期报 Node 内部错误，
+  //   使用者看不出是「这个 Python 版本本机没有」。
+  if (venv && !venv.argv) {
+    return { ok: false, code: 'NO_PYTHON_FOR_VERSION', id,
+      error: venv.why, whatToDo: venv.whyZh,
+      pythonVersion: venv.pythonVersion,
+      pythonVersionSource: venv.pythonVersionSource }
+  }
   const syncRoute = Array.isArray(effArgv) && effArgv[1] === 'sync'
   const sync = (syncRoute && !cmd.ok)
     ? syncEnvFor(engineVenvDirAbs(root, id)) : null
@@ -150,6 +159,8 @@ function buildEnvPlan (input = {}) {
       guessed: true,
       choices,
       env_command: withTargetPython(guess.argv, guessTarget),
+      pythonVersion: venv ? venv.pythonVersion : null,
+      pythonVersionSource: venv ? venv.pythonVersionSource : null,
       whatToDo: guess.why,
       whatToDoZh: guess.whyZh,
       alternative: guess.alternative || null,
@@ -209,6 +220,8 @@ function buildEnvPlan (input = {}) {
     from: usingManifest ? 'manifest' : 'probe',
     from_file: usingManifest ? 'manifest.json (install.env_command)' : guess.from,
     guessed: !usingManifest,
+    pythonVersion: venv ? venv.pythonVersion : null,
+    pythonVersionSource: venv ? venv.pythonVersionSource : null,
     whatToDo: guess.why,
     choices,
     dependencies: deps,
