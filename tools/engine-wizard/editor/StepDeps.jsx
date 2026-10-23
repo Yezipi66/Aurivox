@@ -20,6 +20,29 @@ function pkgName (spec) {
   return String(spec || '').split(/[<>=!~\[;@\s]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
 }
 
+// 点「安装」时该怎么走。
+//
+// 纯函数：输入当前状态，输出「要不要先弹窗」与「执行时带什么参数」。
+//   规则：探测出「上游钉的 torch 版本在本机后端上不可用」且使用者还没答过 ⇒ 先弹窗；
+//   答过了（true / false）⇒ 直接按那个答案执行，不再拦。
+//
+// @param {object|null} suggestion 后端探测出的建议
+// @param {boolean|null} answered 使用者已给的答复（null = 还没问）
+// @returns {{ask:boolean, upgradeTorch:boolean, torchSuggestion:object|null}}
+function installDecision (suggestion, answered) {
+  const has = !!(suggestion && suggestion.suggested)
+  if (has && answered === null) {
+    return { ask: true, upgradeTorch: false, torchSuggestion: suggestion }
+  }
+  return {
+    ask: false,
+    upgradeTorch: answered === true,
+    torchSuggestion: suggestion || null,
+  }
+}
+
+export { installDecision }
+
 export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
   const engineId = state.id
@@ -82,11 +105,9 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   //   弹窗只问一次：答过之后（upgradeTorch 有值）不再拦。
   const [askUpgrade, setAskUpgrade] = React.useState(false)
   const onInstallClick = () => {
-    if (suggestion && suggestion.suggested && upgradeTorch === null) {
-      setAskUpgrade(true)
-      return
-    }
-    run({ upgradeTorch: upgradeTorch === true, torchSuggestion: suggestion })
+    const d = installDecision(suggestion, upgradeTorch)
+    if (d.ask) { setAskUpgrade(true); return }
+    run({ upgradeTorch: d.upgradeTorch, torchSuggestion: d.torchSuggestion })
   }
   const answerUpgrade = (accept) => {
     setAskUpgrade(false)
