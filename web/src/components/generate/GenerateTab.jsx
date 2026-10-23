@@ -61,7 +61,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [silenceMs, setSilenceMs] = usePersistentState('generate.silenceMs', 300)
   // 强制重新推理：跳过合成结果复用缓存的读。走 usePersistentState（浏览器本地），
   // 不进 /api/advanced-params：那个端点存的是引擎参数表，而这是平台自己的开关
-  // （一台引擎都没装的时候它依然有意义），混进去正是契约 C11 禁止的第二份参数表，
+  // （一台引擎都没装的时候它依然有意义），混进去就成了名片之外的第二份参数表，
   // 而且 loadAdvancedParams 是「盘上赢」，会把它变成所有调用方的默认值。
   // 默认 false：勾选是用户主动的动作，不勾就享受复用。
   const [forceResynth, setForceResynth] = usePersistentState('generate.forceResynth', false)
@@ -126,7 +126,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const [mediaType, setMediaType] = usePersistentState('generate.mediaType', 'wav')
   // 这三个键（streaming_mode / overlap_length / min_chunk_length）不在这个界面上。
   // 撤掉的是界面格子，不是 API 能力：lib/services/synthesisService.js 仍然解析这三个入参，
-  // 第三方和 Flow 可以显式传（契约 §7 逃生门）。
+  // 第三方和 Flow 可以显式传。
   // streaming_mode 在 manifest.defaults 里 ⇒ 每次仍发 false，且不再可能被盘上的陈年 true 污染；
   // overlap_length / min_chunk_length 只在 params.schema 里有 default（＝界面初值），
   // 不在 defaults ⇒ 不再出现在 payload 里，与 OpenAI 口和 Flow 一致。
@@ -492,8 +492,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       // 成功合成后回存「上次拧到哪」。只回存用户手动改过的格子 + seed。
       // 不回存整份 paramValues：没动过的键回存下去就等于把名片默认值抄进盘上文件，
       // 从此名片改了也不生效。而 loadAdvancedParams() 是 { ...名片默认值, ...盘上文件 }，
-      // 盘上赢：只写不读的键沉在盘上文件里会压住名片默认值，契约 C11 的默认值
-      // 在实际部署里就等于失效。
+      // 盘上赢：只写不读的键沉在盘上文件里会压住名片默认值，名片上的默认值
+      // 在实际部署里就失效了。
       api('/api/advanced-params', {
         method: 'POST',
         body: {

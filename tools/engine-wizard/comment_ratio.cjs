@@ -1,4 +1,5 @@
-// 注释比例统计器：口径由 docs/WIZARD_FIX_PLAN_DCABD.md 第 6 节固定
+// 注释比例统计器：注释行数 ÷ 非空行数（跨行注释整段计入，单独的右括号行计入分母），
+// 只统计本目录下的 js/jsx/cjs/mjs，跳过 .bak 与 node_modules。
 const fs = require('node:fs')
 const path = require('node:path')
 

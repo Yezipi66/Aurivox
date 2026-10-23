@@ -224,7 +224,7 @@ app.use(require("./lib/routes/training")(ctx));
 app.use(require("./lib/routes/uvr5")(ctx));
 app.use(require("./lib/routes/recipes")(ctx));
 
-// ---- Aurivox Flow (FLOW-CORE-004 live wiring) ----
+// ---- Aurivox Flow routes (mounted only when FLOW_ENABLED / FLOWGRAPH_ENABLED is set) ----
 setupOptionalRoutes(app, ctx, { FLOWGRAPH_ENABLED: process.env.FLOWGRAPH_ENABLED, FLOW_ENABLED: process.env.FLOW_ENABLED, FLOWGRAPH_DIR, console });
 
 // ---- Serve React frontend (must stay after API routers) ----

@@ -104,7 +104,7 @@ function diagnose (manifest) {
     ['ready_timeout_ms', 'ready_timeout_ms_source', manifest.runtime, 'runtime 段'],
   ])
   for (const [key, srcKey, obj, segment] of MEASURED_PAIRS) {
-    // C13.1：数可以不写（留空合法），不校验；写了就必须说明出处
+    // 实测类的数可以不写（留空合法），不校验；写了就必须同时写明出处
     if (!obj || !(key in obj)) continue
     const srcMeta = SECTIONS_BY_KEY[srcKey] || null
     const where = {

@@ -240,7 +240,7 @@ function buildDraft(reflection, opts = {}) {
         draft._path_suspect = true
       }
       // default 只在「反射拿得到且拿得准」时才填：None 或推断出来的类型不填，
-      //   填了就是「平台替你决定默认值」，而那正是契约 C11 要消灭的那类「设了没效果」。
+      //   填了就是「平台替引擎作者决定默认值」，默认值只该由名片给出，否则会出现「设了没效果」。
       if (entry.default !== null && entry.default !== undefined
           && t.confidence !== 'weak' && !t.needs_review) {
         draft.default = entry.default
