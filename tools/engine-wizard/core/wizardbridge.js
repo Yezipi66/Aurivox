@@ -8,7 +8,7 @@ const path = require('node:path')
 
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
-const { runEnv, buildEnvPlan } = require('./env')
+const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
 const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile,
   removePartialFiles } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
@@ -543,14 +543,28 @@ function handleEnv (req, res) {
       execute: body.execute === true,
       backend: body.backend,
       exclude: Array.isArray(body.exclude) ? body.exclude : [],
+      // 使用者接受「升级 torch 到本机后端上可用版本」这条建议。
+      //   torchSuggestion 由前端回传（它来自上一次计划里的那份建议），
+      //   后端不自己重新探测来决定版本。
+      upgradeTorch: body.upgradeTorch === true,
+      torchSuggestion: body.torchSuggestion || null,
       // root 与其他端点同一口径：给了就用，没给走 projectRoot()。
       //   测试与夹具需要它（测试不许写真仓库的 engines/）。
       root: body.root,
     }
     // 只出计划（execute:false）时走普通 JSON 响应：快的请求不该用流。
     if (!input.execute) {
-      const r = buildEnvPlan(input)
-      json(res, r.ok ? 200 : 400, r)
+      // 计划里带上 torch 版本探测的结果（上游钉的版本在本机后端上能不能用）。
+      //   探测是联网的，失败或查不到都不影响计划本身。
+      //   已经接受升级时不重复探测：建议前端已经拿着（它在执行请求里回传）。
+      suggestTorchUpgrade(input.upgradeTorch === true ? null : input).then((suggestion) => {
+        const r = buildEnvPlan(input)
+        if (suggestion && r.ok) r.torchSuggestion = suggestion
+        json(res, r.ok ? 200 : 400, r)
+      }).catch(() => {
+        const r = buildEnvPlan(input)
+        json(res, r.ok ? 200 : 400, r)
+      })
       return
     }
     // 执行（execute:true）走 SSE 流式：装依赖要几分钟到几十分钟，普通 JSON 响应

@@ -6,6 +6,8 @@
 // 跳过 torch 系包，另给一条装本机后端的命令（envDetect.js 的 suggestBackendAlternative）。
 // 实现拆在 envDetect.js（检测）、envInstall.js（安装）、envProgress.js（断点续传）三处。
 
+const fs = require('node:fs')
+const { projectRoot, engineDir } = require('./clone.js')
 const {
   readEnvCommand,
   detectDependencyManifest,
@@ -39,6 +41,53 @@ const {
   sitePackagesNonEmpty,
   stepArtifactExists,
 } = require('./envProgress')
+const { probeTorchVersion } = require('./torchVersionProbe')
+
+/**
+ * 探测「上游钉的 torch 版本在本机后端上能不能用」，给出升级建议。
+ *
+ * 判据只有两样：上游声明的版本 + 本机后端官方 index 上有哪些轮子。
+ *   查不出来（没声明 / 后端没 index / 抓不到）⇒ 返回 null，
+ *   不猜、不给假建议。
+ *
+ * @param {object} input {id, root, backend}
+ * @returns {Promise<object|null>} 建议对象，或 null
+ */
+async function suggestTorchUpgrade (input = {}) {
+  if (!input) return null
+  const root = input.root || projectRoot()
+  if (!root) return null
+  const id = String(input.id || '')
+  if (!id) return null
+  const dir = engineDir(id, root)
+  if (!fs.existsSync(dir)) return null
+  // 引擎环境用哪个 Python 版本：声明了就用声明的，没声明用平台基座。
+  const declared = readEnginePythonVersion(dir)
+  const pythonVersion = declared ? declared.version : PLATFORM_BASE_PYTHON
+  let backend = input.backend
+  if (!backend) {
+    try {
+      const hw = require('./hardware')
+      const rec = hw.recommendBackend(hw.detectGpus())
+      backend = rec && rec.recommended
+    } catch (e) { backend = null }
+  }
+  if (!backend) return null
+  try {
+    const r = await probeTorchVersion({
+      dir, backend, pythonVersion,
+      platform: process.platform, arch: process.arch,
+      timeoutMs: 15000,
+    })
+    if (!r || r.ok) return null
+    // 只在「上游钉的版本在这个后端上不可用」时给建议。
+    if (r.reason !== 'version-not-on-this-backend') return null
+    return r
+  } catch (e) {
+    // 探测失败不是安装失败：不给建议，让计划照常出。
+    return null
+  }
+}
 
 module.exports = {
   readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv,
@@ -55,4 +104,6 @@ module.exports = {
   partialVenvMarkAbs, hasPartialVenvMark, markPartialVenv,
   // 引擎声明的 Python 版本：声明了用声明的，没声明用平台基座
   readEnginePythonVersion, PLATFORM_BASE_PYTHON,
+  // torch 版本与本机后端的匹配探测（异步，给出升级建议）
+  suggestTorchUpgrade,
 }

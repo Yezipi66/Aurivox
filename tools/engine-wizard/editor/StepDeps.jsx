@@ -49,6 +49,12 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const [live, setLive] = React.useState(null)   // 瞬态，不持久化
   const [tail, setTail] = React.useState([])      // 瞬态，不持久化
   const [progress, setProgress] = React.useState(saved?.depsProgress || null)
+  // 使用者是否接受「把 torch 升到本机后端上可用版本」这条建议。
+  //   null = 还没问（点安装时弹窗问）；true/false = 已答。
+  const [upgradeTorch, setUpgradeTorch] = React.useState(saved?.upgradeTorch ?? null)
+  // 后端探测出的建议（上游钉的版本在本机后端上不可用时给出）。
+  //   单独存：计划请求要用它，但计划结果本身也会带它 ⇒ 放在一起会绕成循环依赖。
+  const [suggestion, setSuggestion] = React.useState(saved?.torchSuggestion || null)
   // 取消函数（run() 里挂上，finally 里摘掉）。用 ref 不用 state：
   //   它是「这一次执行」的动作，不是界面状态，进了 state 会触发多余渲染。
   const cancelRef = React.useRef(null)
@@ -60,14 +66,33 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     saveSession(targetId, url, {
       depsPlan: plan, showNormal, backend, unlocked,
       depsResult: result, depsPreview: preview, depsProgress: progress, skipped,
+      upgradeTorch, torchSuggestion: suggestion,
     })
-  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped])
+  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped, upgradeTorch, suggestion])
 
   const isSkipped = (spec) => skipped.includes(pkgName(spec))
   const toggleSkip = (spec) => {
     const n = pkgName(spec)
     if (!n || busy) return
     setSkipped((xs) => (xs.includes(n) ? xs.filter((x) => x !== n) : [...xs, n]))
+  }
+
+  // 点「安装」：若探测出「上游钉的 torch 版本在本机后端上不可用」，
+  //   先弹窗问要不要升级。取消 ⇒ 不装（使用者自己想办法）。
+  //   弹窗只问一次：答过之后（upgradeTorch 有值）不再拦。
+  const [askUpgrade, setAskUpgrade] = React.useState(false)
+  const onInstallClick = () => {
+    if (suggestion && suggestion.suggested && upgradeTorch === null) {
+      setAskUpgrade(true)
+      return
+    }
+    run({ upgradeTorch: upgradeTorch === true, torchSuggestion: suggestion })
+  }
+  const answerUpgrade = (accept) => {
+    setAskUpgrade(false)
+    setUpgradeTorch(accept)
+    if (accept) run({ upgradeTorch: true, torchSuggestion: suggestion })
+    // 取消 ⇒ 不装：使用者可以改后端、改排除项，或自己装。
   }
 
   const reload = async () => {
@@ -99,6 +124,11 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const hw = plan ? plan.hardware : null
 
   // 计划态：进入页面就取一次不执行的计划。execute:false ⇒ 后端只出计划不执行。
+  //   upgradeTorch 一起传：接受升级后，计划要反映出「跳过 torch 系 + 装建议版本」两步。
+  //   建议不放在依赖里：它来自计划的响应，放进去会自己触发自己 ⇒ 无限请求。
+  //   用 ref 存最新的一份，闭包里读得到又不参与依赖。
+  const suggestionRef = React.useRef(suggestion)
+  suggestionRef.current = suggestion
   React.useEffect(() => {
     if (!targetId) return
     let alive = true
@@ -107,12 +137,22 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       body: JSON.stringify({
         id: targetId, manifest: state.manifest || {}, execute: false,
         backend, exclude: skipped,
+        upgradeTorch: upgradeTorch === true,
+        // 已经接受升级时不再回传：建议已经在本地存着（suggestionRef）。
+        torchSuggestion: upgradeTorch === true ? null : suggestionRef.current,
       }),
     }).then((r) => r.json())
-      .then((j) => { if (alive) setPreview(j) })
+      .then((j) => {
+        if (!alive) return
+        setPreview(j)
+        // 后端探测到的建议存下来：弹窗要读它，执行请求也要回传它。
+        //   探到「可用」时不带建议字段 ⇒ 清掉旧的那份，避免拿过期建议去问。
+        if (j && j.torchSuggestion) setSuggestion(j.torchSuggestion)
+        else if (upgradeTorch !== true) setSuggestion(null)
+      })
       .catch(() => { if (alive) setPreview(null) })
     return () => { alive = false }
-  }, [targetId, backend, skipped.join('\n')])
+  }, [targetId, backend, skipped.join('\n'), upgradeTorch])
   const canSkip = !(preview && preview.choices && preview.choices.supported === false)
 
   React.useEffect(() => {
@@ -123,7 +163,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 
   // 读 SSE 流。用 fetch 加 ReadableStream，axios 无法读取流。
   // 不能等 r.json()：那会把流缓冲到最后才一次性返回。
-  const run = async () => {
+  const run = async (opts = {}) => {
     setBusy(true); setResult(null); setTail([]); setLive({ stage: 'start' })
     try {
       const resp = await fetch('/wizard/env', {
@@ -131,6 +171,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         body: JSON.stringify({
           id: state.id, manifest: state.manifest || {}, execute: true, backend,
           exclude: skipped,
+          upgradeTorch: opts.upgradeTorch === true,
+          torchSuggestion: opts.torchSuggestion || null,
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
@@ -356,6 +398,45 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         </div>
       )}
 
+      {/* torch 版本与本机后端不一致：提前说清，不等装到一半才炸。
+          装依赖那一步失败时，uv 的报错是「No solution found when resolving
+          dependencies」，看不出真因是 torch 版本与后端/ABI 不匹配。 */}
+      {suggestion && suggestion.suggested && (
+        <div className="msg msg-warning">
+          <b>{t('The Torch version pinned by the upstream is not available on this machine',
+            '上游锁定的 Torch 版本在本机不可用')}</b>
+          <div className="field-hint" style={{ marginTop: 4 }}>
+            {t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
+              + `wheel for Python ${suggestion.pythonVersion} on the `
+              + `${backendOf(hw && hw.options, backend)} backend. `
+              + `Version ${suggestion.suggested} is available there.`,
+              `上游把 Torch 钉在 ${suggestion.declared}，而该版本在`
+              + `${backendOf(hw && hw.options, backend)} 后端上`
+              + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+              + `该后端上可用的版本是 ${suggestion.suggested}。`)}
+          </div>
+          {upgradeTorch === null && (
+            <div className="field-hint" style={{ marginTop: 4 }}>
+              {t('Pressing Install will ask whether to upgrade Torch to that version.',
+                '点「安装」时会询问是否把 Torch 升到那个版本。')}
+            </div>
+          )}
+          {upgradeTorch === true && (
+            <div className="field-hint" style={{ marginTop: 4 }}>
+              {t(`Torch will be installed at version ${suggestion.suggested}.`,
+                `Torch 将以版本 ${suggestion.suggested} 安装。`)}
+            </div>
+          )}
+          {upgradeTorch === false && (
+            <div className="field-hint" style={{ marginTop: 4 }}>
+              {t('The upgrade was declined. Installing continues with the upstream version, '
+                + 'which is expected to fail on this machine.',
+                '已拒绝升级。安装会继续用上游那个版本，在本机预计会失败。')}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 与显卡无关的依赖包：只显示个数，展开后列出。 */}
       {d && d.normal.count > 0 && (
         <div className="collapsible">
@@ -555,7 +636,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             )}
 
             <button className="btn btn-primary btn-sm" type="button"
-              disabled={busy} onClick={run}>
+              disabled={busy} onClick={onInstallClick}>
               {busy ? t('Installing…', '正在安装…') : t('Install', '安装')}
             </button>
           </div>
@@ -587,6 +668,58 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           )}
         </div>
       </RiskUnlock>
+      {askUpgrade && suggestion && suggestion.suggested && (
+        <TorchUpgradeDialog
+          suggestion={suggestion}
+          backendLabel={backendOf(hw && hw.options, backend)}
+          onAccept={() => answerUpgrade(true)}
+          onDecline={() => answerUpgrade(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// 升级 Torch 的确认弹窗。
+// 形态复用主界面的 .modal-overlay / .modal-card（web/src/styles.css 里已有）。
+// 两条路都给：接受 ⇒ 按建议版本装；取消 ⇒ 不装，由使用者自己决定。
+function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) {
+  const { t } = useT()
+  return (
+    <div className="modal-overlay" onClick={onDecline}>
+      <div className="modal-card confirm-card"
+        style={{ maxWidth: 520, padding: 20 }}
+        onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-hdr">
+          <span>{t('Upgrade Torch?', '升级 Torch？')}</span>
+        </div>
+        <div className="confirm-body">
+          <p style={{ marginTop: 0 }}>
+            {t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
+              + `wheel for Python ${suggestion.pythonVersion} on the ${backendLabel} backend. `
+              + `Installing the upstream version as declared will fail.`,
+              `上游把 Torch 钉在 ${suggestion.declared}，而该版本在 ${backendLabel} 后端上`
+              + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+              + `照上游声明的版本安装会失败。`)}
+          </p>
+          <p>
+            {t(`Version ${suggestion.suggested} is available on that backend. `
+              + `The upstream version is left aside, and Torch is installed at `
+              + `${suggestion.suggested} from the official ${backendLabel} index.`,
+              `该后端上可用的版本是 ${suggestion.suggested}。`
+              + `上游那个版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
+              + `${suggestion.suggested}。`)}
+          </p>
+        </div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" type="button" onClick={onDecline}>
+            {t('Cancel', '取消')}
+          </button>
+          <button className="btn btn-sm btn-primary" type="button" onClick={onAccept}>
+            {t(`Install Torch ${suggestion.suggested}`, `安装 Torch ${suggestion.suggested}`)}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
