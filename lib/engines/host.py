@@ -1,19 +1,11 @@
 # -*- coding: utf-8 -*-
-"""通用引擎宿主：契约 §12 第 2 步
+"""通用引擎宿主：一份，所有引擎共用，按名片调用上游。
 
 它是什么
 --------
-`engines/<id>/shim.py` 的替代品，一份，所有引擎共用。
-把「传话的」那 294 行样板（HTTP 服务、探活、四类 400 校验、wav 头解析、
+把「传话的」样板（HTTP 服务、探活、四类 400 校验、wav 头解析、
 推理排队、洗 sys.path）从每台引擎的目录里收上来，只留下名片描述的那部分。
-
- `engines/indextts2/shim.py`（523 行）已经删掉了，
-契约 §11 判据 8「shim.py 缩到零」结账。判据不是「看着能跑」：
-`tools/dev/run_ab.py` 采四段音频比梅尔差，跨路径 0.00% / 天花板 127.25%，
-5 条判据 5 过；`tools/dev/verify_launch.py` 照平台真实启动路径起了一次
-并真出了声，14 条 14 过。
-⇒ 下面凡是引 `shim.py:NNN` 的地方，都是已删文件的存档引文，
-  保留是因为那些行号是当初每一条设计的出处；别去那个路径找它。
+引擎目录里不该再出现自带的 shim.py：需要它，说明通用宿主漏了东西。
 
 它怎么知道要跑哪台引擎
 ----------------------
@@ -92,11 +84,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E40
 
 
 # ---------------------------------------------------------------------------
-# 1) 播种：契约 §5.2.1
+# 1) 播种：call.seed（"none" / 引擎自己收 / 宿主播全局 RNG）
 # ---------------------------------------------------------------------------
 # 每个 RNG 一个独立函数，返回「真的播到了吗」。
 # 不许 try/except: pass 吞掉：那会让播种失败变成静默的，
-# 而静默失效正是 §1 点名的那个坑。播不到就照实说，由调用方决定怎么办。
+# 而静默失效最难查。播不到就照实说，由调用方决定怎么办。
 def _seed_python(seed):
     import random
     random.seed(seed)
@@ -299,16 +291,16 @@ def build_cli_argv(call, profile, slots, params):
 
 
 def _resolve_cwd(profile):
-    """算出调用时该待在哪个目录（契约 §5.3 的 `call.cwd`）。
+    """算出调用时该待在哪个目录（名片的 `call.cwd`）。
 
      上游代码里常有 `checkpoints/bpe.model` 这种相对 CWD 的硬编码，而且是
       调用实参不是默认值：显式传参救不了，chdir 是唯一不改上游源码的解法。
-     但目录名由名片说了算，不由宿主推（契约 §5.2「全部是名字，没有一行逻辑」）。
+     但目录名由名片说了算，不由宿主推：名片里只写名字，不写逻辑。
       曾经想过让宿主自己推 `dirname(checkpoints)`：那是 IndexTTS2 的巧合，
       焊进通用层就等着下一台引擎踩。推错了不报错，只是路径不对。
 
     写法两种，和 `runtime.checkpoints` 一个约定：
-      - `{engine_dir}` / `{checkpoints}` / `{root}` 槽位（§5.3 的例子就是 `{engine_dir}`）
+      - `{engine_dir}` / `{checkpoints}` / `{root}` 槽位（最常见的是 `{engine_dir}`）
       - 或者一条相对项目根的路径，如 `models/tts/indextts2`
     没写 ⇒ 返回 None ⇒ 不 chdir，待在被拉起来的地方（诚实的默认值）。
     """
@@ -351,7 +343,7 @@ SEEDERS = {
 class SeedPlan(object):
     """把名片里的 call.seed 变成一个可执行的计划。
 
-    三态（契约 §5.2.1）：
+    三态，必须显式写出其中一种：
       {"arg": "seed"}                 引擎自己收：宿主把它塞进调用参数
       {"mode": "global", "rngs": [..]} 宿主播全局 RNG
       "none" 不可复现：宿主显式拒收 seed
@@ -363,7 +355,7 @@ class SeedPlan(object):
         self.mode = None
 
         if spec is None:
-            # 没写 = 今天的行为 = 静默忽略。契约 §5.2.1 要求必须写出来。
+            # 没写就拒绝启动：否则「不支持」和「忘了写」无法区分，seed 会被静默忽略。
             raise ValueError(
                 "call.seed 没写。契约 §5.2.1 要求它必须显式写出来："
                 '{"arg":"<参数名>"} / {"mode":"global","rngs":[...]} / "none"'
@@ -416,7 +408,7 @@ class SeedPlan(object):
                 got = SEEDERS[name](seed)
             except Exception as exc:
                 # 照实记下来。名片列了却播不到 = 环境和名片不匹配，
-                # 该由 §6 第一道校验在注册时拦掉，不是运行时假装没事。
+                # 该由注册时的第一道校验（核对引擎环境）拦掉，不是运行时假装没事。
                 failed.append("%s(%s)" % (name, exc.__class__.__name__))
                 continue
             if got:
@@ -1198,7 +1190,7 @@ def validate_request(body, profile, seed_plan):
 
     seed = body.get("seed")
     if seed is not None:
-        # 契约 §5.2.1：写了 "none" 就显式拒收，绝不收下扔掉。
+        # 名片写了 "none" 就显式拒收，绝不收下扔掉。
         if seed_plan.mode == "none":
             return 400, ("this engine declares call.seed = \"none\": it cannot "
                          "reproduce a previous run, so the broker must not record "
@@ -1397,8 +1389,8 @@ def main():
     # 引擎源码目录进 sys.path（名片 runtime.verify.sys_path）
     # 必须读 runtime.verify.sys_path：名片里没有 runtime.sys_path 那个键，
     # 读它等于永远 += []，最后死在 ModuleNotFoundError。
-    # 用的是校验块的路径不是笔误：第一道校验（契约 §6）导入哪条路径，
-    # 宿主就必须加载哪条路径：不同就等于验的和跑的不是同一个模块。
+    # 用的是校验块的路径不是笔误：注册时的第一道校验导入哪条路径，
+    # 宿主就必须加载哪条路径，否则验的和跑的不是同一个模块。
     sys_path_decl = (runtime.get("verify") or {}).get("sys_path") or []
     for p in sys_path_decl:
         ap = os.path.abspath(p)
@@ -1409,8 +1401,7 @@ def main():
     # 上游代码里常有 `checkpoints/xxx` 这种相对 CWD 的硬编码，而且是
     # 调用实参不是默认值：显式传参救不了。chdir 是唯一不改上游源码
     # 的解法。 只在这里定一次，之后进程不再改。
-    # 读的是 call.cwd（契约 §5.3），不是 runtime.cwd。§9 把 runtime.cwd
-    # 定义成「启动器从哪儿 spawn」，消费者是 launchPlan.js / start.ps1；
+    # 读的是 call.cwd，不是 runtime.cwd。runtime.cwd 是「启动器从哪儿 spawn」，消费者是 launchPlan.js / start.ps1；
     # 同名不同义，混用会静默 chdir 到项目根，然后上游找不到 checkpoints/。
     try:
         cwd = _resolve_cwd(profile)
