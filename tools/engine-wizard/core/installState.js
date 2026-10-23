@@ -153,8 +153,8 @@ function installState (root, id, deps = {}) {
     env: { done: envOk, why: hasClone ? (envOk ? 'venv-spawns' : 'venv-unusable') : 'missing' },
     // models 是三态：true=齐了 · false=缺了 · null=说不出来。
     //   done（喂给 editor/steps.js 的 stepDone）在 true 与 false 两种下都为真：
-    //   stepDone('models') 判的就是 weightsReady===true || weightsReady===false，
-    //   「确实缺了」也算查过了；null（说不出来）才不算做完。
+    //   stepDone('models') 判的就是这个 done，「确实缺了」也算查过了；
+    //   null（说不出来）才不算做完。
     models: {
       done: weights !== null,
       ready: weights,

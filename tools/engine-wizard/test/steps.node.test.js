@@ -131,17 +131,17 @@ test('stepDone：prepare 解析成功但没克隆 ⇒ 不算做完', () => {
   assert.strictEqual(stepDone('prepare', {}), false)
   assert.strictEqual(stepDone('prepare', { id: 'x', probed: true }), false,
     '⛔ 只解析+探测就当克隆做完了 —— 那个目录还是空的')
-  assert.strictEqual(stepDone('prepare', { cloned: true }), true)
+  assert.strictEqual(stepDone('prepare', { prepare: true }), true)
 })
 
-test('stepDone：weights 的 ready:null（说不出来）⇒ 不算做完', () => {
+test('stepDone：models 的 done 来自后端三态结论', () => {
   const { stepDone } = mod
   assert.strictEqual(stepDone('models', {}), false)
-  assert.strictEqual(stepDone('models', { weightsReady: null }), false,
-    '⛔ ready=null 意味着「说不出来」⇒ 那是要人补名片的信号')
-  assert.strictEqual(stepDone('models', { weightsReady: true }), true)
-  assert.strictEqual(stepDone('models', { weightsReady: false }), true,
-    '⛔ false（确实缺了）也算查过了 —— 那是一条结论')
+  // 后端在「齐了」与「缺了」两种下都给 done=true，「说不出来」才给 false。
+  //   这里只判那个结论，不自己再判一次盘上有几个文件。
+  assert.strictEqual(stepDone('models', { models: true }), true)
+  assert.strictEqual(stepDone('models', { models: false }), false,
+    '⛔ 后端说没查出来（ready=null）时不该亮勾 —— 那是要人补名片的信号')
 })
 
 test('全做完 ⇒ currentStep 返回 null（没有下一步）', () => {
@@ -149,6 +149,24 @@ test('全做完 ⇒ currentStep 返回 null（没有下一步）', () => {
   // 全部做完时没有下一步，返回 null：流程条没有空节点可找。
   assert.strictEqual(currentStep({ prepare: true, env: true, models: true,
     manifest: true, verify: true }), null)
+})
+
+// 这一条钉住前端判据与后端产出的对应关系：installState 的 steps_done 有哪五个键，
+// stepDone 就必须认哪五个键。改一个名字，五个步骤一起失灵。
+test('stepDone 认的键与 installState 的 steps_done 逐字相同', () => {
+  const { stepDone, STEPS } = mod
+  const installStateSrc = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'installState.js'), 'utf-8')
+  const keys = STEPS.map((s) => s.key)
+  const missing = keys.filter((k) => !installStateSrc.includes(`${k}: {`))
+  assert.deepStrictEqual(missing, [],
+    `⛔ installState 的 steps 里找不到这些键：${missing.join(', ')}`)
+  for (const k of keys) {
+    assert.strictEqual(stepDone(k, { [k]: true }), true,
+      `⛔ stepDone('${k}', {${k}: true}) 该是 true —— 键名对不上后端`)
+    assert.strictEqual(stepDone(k, {}), false,
+      `⛔ stepDone('${k}', {}) 该是 false`)
+  }
 })
 
 // lanes：并发只发生在该并发的地方

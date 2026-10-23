@@ -114,13 +114,6 @@ export default function App () {
   }, [wz.id])
   React.useEffect(reloadFacts, [reloadFacts])
 
-  // 克隆成功：本地即时反馈；名片保存成功：重新问端点。
-  const addFacts = (patch) => {
-    if (!patch || typeof patch !== 'object') return
-    if (patch.cloned === true) { setFacts((f) => ({ ...f, cloned: true })); return }
-    if (patch.manifestSaved === true) reloadFacts()
-  }
-
   const done = Object.fromEntries(
     STEPS.map((st) => [st.key, stepDone(st.key, facts)]))
 
@@ -191,7 +184,7 @@ export default function App () {
               <StepPrepare state={wz} facts={facts}
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
                 onDone={() => {
-                  addFacts({ cloned: true })
+                  reloadFacts()
                   // 克隆完成 ⇒ 直接进第 2 步：使用者刚做完的事就是下一步要做的事，
                   // 让他自己再点一次流程条上的「安装依赖」是多余的。
                   setPage('env')
@@ -204,12 +197,13 @@ export default function App () {
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 onUndone={() => {
                   // 撤销克隆 ⇒ 目录没了 ⇒ 回到第 1 步重来。
-                  setWz((w) => ({ ...w, cloned: false }))
+                  // 不写 wz.cloned：完成状态只由端点读盘判，持久段里没有它的位置。
+                  reloadFacts()
                   setPage('prepare')
                 }} />
             )}
             {page === 'models' && (
-              <StepModels state={wz} onChange={addFacts}
+              <StepModels state={wz} onChange={reloadFacts}
                 prep={prep}
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 probe={prep.probe || null} />
@@ -220,7 +214,7 @@ export default function App () {
                 // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
                 onManifest={(m) => { setManifest(m); setErr(null) }}
                 diag={vresult} loading={vloading}
-                onSaved={() => addFacts({ manifestSaved: true })} />
+                onSaved={reloadFacts} />
             )}
             {page === 'verify' && (
               <StepVerify id={wz.id} />
