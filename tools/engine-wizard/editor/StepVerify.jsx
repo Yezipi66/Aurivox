@@ -1,18 +1,5 @@
-//  第 5 步（verify）：四项独立验证，各自报状态。
-//
-//  四项互不依赖，不绑成一个必须全过的门：
-//    1. 环境浅层「装没装」：lib/engines/envCheck.js:checkEngineEnvShallow
-//    2. 环境深层「起得起来」：lib/engines/envCheck.js:checkEngineEnvDeep
-//    3. 权重完整「齐不齐」：lib/engines/checkpoints.js:checkpointStatus
-//    4. 能否合成：lib/engines/verifyAudio.js（verifyEngine）
-//
-//  前三项有真实产物就能判断；第 4 项需要一份音频样本，
-//  所以页面给一个「跑 A 级合成」的入口：
-//  A 级要用户填合成文本与参考音频，平台不编请求体（编出来的验不了
-//  声音对不对）。没跑过 A 级时第 4 项如实说「还没有音频」。
-//
-//  每一项有自己的 ok / fail / unknown 状态，任何一项未通过都不影响其余三项。
-//  做不到的项如实写未实现并说明卡在哪一项，不用占位注释糊弄。
+//  第 5 步（verify）：渲染平台四道校验的结果，互不依赖，不绑成一个必须全过的门。
+//  每项各自报 ok / fail / unknown，缺素材时如实说还没有，不用占位文案糊弄。
 
 import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
@@ -46,7 +33,6 @@ export function StepVerify ({ id }) {
   }
 
   if (!results) {
-    // 红色：加载校验结果本身失败了，这是错误而不是陈述。
     return <div className="msg msg-danger">{t('Checks failed to load.', '校验加载失败。')}</div>
   }
 
@@ -59,7 +45,6 @@ export function StepVerify ({ id }) {
     audio: t('Audio: playable', '音频：可播放'),
   }
 
-  // 一个块的状态文本：ok / fail / unknown
   const statusFor = (check) => {
     if (check === undefined || check === null) return 'unknown'
     return check.ok === true ? 'ok' : 'fail'
@@ -114,19 +99,12 @@ export function StepVerify ({ id }) {
 
   return (
     <div>
-      {/* 第 1 项：环境浅层：装没装 */}
       {renderCheckBlock('env_shallow')}
 
-      {/* 第 2 项：环境深层：起得起来 */}
       {renderCheckBlock('env_deep')}
 
-      {/* 第 3 项：权重完整：齐不齐 */}
       {renderCheckBlock('checkpoints')}
 
-      {/* 第 4 项：能否合成（音频信息 + 波形，由 A 级产出） */}
-      {/* 前两项要有一份真实音频才有内容。给一个跑 A 级合成的入口： */}
-      {/* A 级要用户填合成文本与参考音频，平台不编请求体（编出来的验不了 */}
-      {/* 声音对不对）。没跑过 A 级时第 4 项如实说「还没有音频」。 */}
       <div className="section">
         <div className="section-hdr">
           <h2 style={{ fontSize: 13 }}>
@@ -159,7 +137,6 @@ export function StepVerify ({ id }) {
         </button>
       </div>
 
-      {/* 音频信息：由 A 级产出的 WAV 头解析 */}
       <div className="section">
         <div className="section-hdr">
           <h2 style={{ fontSize: 13 }}>{t('Audio information', '音频信息')}</h2>
@@ -184,7 +161,6 @@ export function StepVerify ({ id }) {
         )}
       </div>
 
-      {/* 波形可视化：复用 Player.jsx */}
       <div className="section">
         <div className="section-hdr">
           <h2 style={{ fontSize: 13 }}>{t('Waveform', '波形')}</h2>
@@ -199,7 +175,6 @@ export function StepVerify ({ id }) {
         )}
       </div>
 
-      {/* 第 5 项：ASR 反向识别（可选） */}
       <div className="section">
         <div className="section-hdr">
           <h2 style={{ fontSize: 13 }}>{t('ASR read-back (optional)', 'ASR 反向识别（可选）')}</h2>
