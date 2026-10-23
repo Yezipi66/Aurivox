@@ -1,5 +1,4 @@
-// 注释比例统计器：注释行数 ÷ 非空行数（跨行注释整段计入，单独的右括号行计入分母），
-// 只统计本目录下的 js/jsx/cjs/mjs，跳过 .bak 与 node_modules。
+// 注释比例统计器：本目录下 js/jsx/cjs/mjs 的注释行占非空行的比例，口径以 commentLines() 为准。
 const fs = require('node:fs')
 const path = require('node:path')
 
