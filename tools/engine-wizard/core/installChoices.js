@@ -336,6 +336,9 @@ function versionOverrideRoute (dir, guess, ch, recommended, route, write, python
       torchRewritten = tr.torchRewritten
     }
   }
+  // 改写之后每个包的最终 spec：界面照这份显示，
+  //   就不必自己拿「上游原文 + 手写版本」拼一条出来（那份会和这里分叉）。
+  const finalSpecs = specsFromManifestText(finalText)
 
   // 清单副本：执行期才写盘。计划阶段也写（它是平台自己的辅助文件，
   //   与 .wizard-excludes.txt 同一性质），这样计划里显示的命令就是真命令。
@@ -398,7 +401,29 @@ function versionOverrideRoute (dir, guess, ch, recommended, route, write, python
     alt = ta.alt
   }
 
-  return { guess: { ...guess, argv, alternative: alt } }
+  return { guess: { ...guess, argv, alternative: alt }, specs: finalSpecs }
+}
+
+/**
+ * 从改写后的清单文本里抽出每个包的最终 spec。
+ *
+ * 为什么界面要这个：pill 上显示的那条 spec 必须与真正装进去的那条一致。
+ *   界面自己拿「上游原文 + 手写版本」拼一条出来，就会与后端写进清单副本的
+ *   那条分叉（约束形式不同：上游写 >= 的时候拼出来的是 ==）。
+ *   所以界面只渲染后端算好的这一份，不自己拼。
+ *
+ * @param {string} text 清单全文（改写后的）
+ * @returns {string[]} 每个包的 spec，按清单里的顺序
+ */
+function specsFromManifestText (text) {
+  const out = []
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const t = line.trim()
+    if (!t || t.startsWith('#') || t.startsWith('-')) continue
+    if (/^(?:git\+|https?:|file:|\.{1,2}[\\/])/i.test(t)) continue
+    out.push(t)
+  }
+  return out
 }
 
 /**
@@ -452,19 +477,41 @@ function applyInstallChoices (dir, guess, input = {}) {
     const r = versionOverrideRoute(dir, guess, ch, recommended, route, input.execute === true,
       input.pythonVersion)
     if (!r.guess) return r
-    return { guess: r.guess, choices: { ...summary, applied: true } }
+    return { guess: r.guess, choices: { ...summary, applied: true }, specs: r.specs }
   }
   const changed = ch.exclude.size > 0 || reroutesTorch(ch, recommended)
-  if (!summary.supported || !changed) return { guess, choices: { ...summary, applied: false } }
+  if (!summary.supported || !changed) {
+    // 没有要改的版本时，界面照样要显示「最终要装的那条 spec」。
+    //   这一份就是上游原文（没改过就是它），但仍由后端给，
+    //   免得界面与后端各认一份、各拼一条出来。
+    return { guess, choices: { ...summary, applied: false }, specs: upstreamSpecs(dir, guess) }
+  }
 
   const r = route === 'lock' ? lockRoute(dir, guess, ch, recommended)
     : pipRoute(dir, guess, ch, recommended, route, input.execute === true)
   if (!r.guess) return r
-  return { guess: r.guess, choices: { ...summary, applied: true } }
+  return { guess: r.guess, choices: { ...summary, applied: true }, specs: upstreamSpecs(dir, guess) }
+}
+
+/**
+ * 读上游清单里每个包的 spec（没改过版本时的那一份）。
+ *
+ * @param {string} dir 引擎目录
+ * @param {object} guess suggestEnvCommand 的结果
+ * @returns {string[]} 每个包的 spec；读不到清单时返回 null
+ */
+function upstreamSpecs (dir, guess) {
+  const from = guess && guess.from
+  if (!from) return null
+  let text = ''
+  try { text = fs.readFileSync(path.join(dir, from), 'utf8') } catch (e) { return null }
+  const specs = specsFromManifestText(text)
+  return specs.length ? specs : null
 }
 
 module.exports = {
   applyInstallChoices, normName, specName, EXCLUDES_FILE,
   declaredTorchFamily,
   versionOverrideRoute,
+  specsFromManifestText,
 }

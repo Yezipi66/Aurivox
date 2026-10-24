@@ -119,6 +119,9 @@ function buildEnvPlan (input = {}) {
   const cmd = readEnvCommand(input.manifest)
   let guess = suggestEnvCommand(dir)
   let choices = { supported: false, applied: false, reason: cmd.ok ? 'manifest' : null }
+  // 改写之后每个包的最终 spec：界面照这份显示。
+  //   界面自己拼会与真正写进清单副本的那份分叉（约束形式可能不同）。
+  let specs = null
   // conda 路线（上游给的是 environment.yml，或 manifest 指定 conda 命令）
   //   没有 Python 解释器这一步。
   const cmdIsConda = cmd.ok && Array.isArray(cmd.argv) && cmd.argv[0] === 'conda'
@@ -136,6 +139,7 @@ function buildEnvPlan (input = {}) {
     if (!picked.guess) return { ...picked, id }
     guess = picked.guess
     choices = picked.choices
+    if (picked.specs) specs = picked.specs
   }
   const effArgv = cmd.ok ? cmd.argv : guess.argv
   const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
@@ -170,6 +174,7 @@ function buildEnvPlan (input = {}) {
       ok: true, id, from: 'probe', from_file: guess.from,
       guessed: true,
       choices,
+      specs,
       env_command: withTargetPython(guess.argv, guessTarget),
       pythonVersion: venv ? venv.pythonVersion : null,
       pythonVersionSource: venv ? venv.pythonVersionSource : null,
@@ -236,6 +241,7 @@ function buildEnvPlan (input = {}) {
     pythonVersionSource: venv ? venv.pythonVersionSource : null,
     whatToDo: guess.why,
     choices,
+    specs,
     dependencies: deps,
     steps,
     execute: input.execute === true,

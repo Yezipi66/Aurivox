@@ -21,17 +21,51 @@ function pkgName (spec) {
   return String(spec || '').split(/[<>=!~\[;@\s]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
 }
 
+/**
+ * 按包名找出后端算好的那条最终 spec。
+ *
+ * 为什么界面要问后端要：pill 上显示的那条 spec 必须与真正装进去的那条一致。
+ *   界面自己拿「上游原文 + 手写版本」拼一条出来，会与后端写进清单副本的那条
+ *   分叉（约束形式不同：上游写 >= 的时候，界面拼出来的是 ==，
+ *   而后端保留上游的约束形式）。两处显示不一致 ⇒ 使用者看到的不是装进去的。
+ *
+ * @param {string[]} specs 后端返回的最终 spec 列表（没选版本时是上游原文）
+ * @param {string} name 包名（归一化后）
+ * @param {string} fallback 找不到时用它（上游原文那条）
+ * @returns {string} 该包最终要装的那条 spec
+ */
+function finalSpec (specs, name, fallback) {
+  const key = pkgName(name)
+  const hit = (specs || []).find((s) => pkgName(s) === key)
+  return hit || fallback
+}
+
+/**
+ * 把一条 spec 拆成三段：包名与约束、版本号、其余（注释 / marker）。
+ *
+ * 为什么拆：pill 上要显示的是整条 spec，而笔要改的只是版本号那一段。
+ *   不拆的话，笔旁边的控件就得把版本号再显示一遍 ⇒ 同一个版本号出现两次，
+ *   两处还可能不一致（一个是上游原文，一个是手写值）。
+ *
+ * @param {string} spec 一条 spec
+ * @returns {{head:string, version:string, tail:string}}
+ *   head：包名与约束（`einops==` / `einops>=` / `einops`）
+ *   version：版本号（`0.8.1`；上游没钉时是空串）
+ *   tail：其余部分（marker、注释）
+ */
+function splitSpec (spec) {
+  const s = String(spec || '').trim()
+  const m = s.match(
+    /^([A-Za-z0-9._-]+\s*(?:\[[^\]]*\])?\s*(?:[<>=!~]{1,3})?)\s*([0-9][0-9A-Za-z]*(?:[.\-][0-9A-Za-z]+)*(?:\.\*)?)?(.*)$/s)
+  if (!m) return { head: s, version: '', tail: '' }
+  return { head: m[1] || '', version: m[2] || '', tail: m[3] || '' }
+}
+
 // 从一条 spec 里取出声明的版本号。
 //   einops==0.8.1 ⇒ 0.8.1；einops>=0.8.1 ⇒ 0.8.1（区间取下界那一端）；
 //   einops ⇒ 空串（上游没钉版本）。
-// 纯函数：界面拿它当下拉框的默认选项。
 function declaredVersion (spec) {
-  const s = String(spec || '').trim()
-  // 版本号形如 1.2.3、2.5.1.post1、0.8.1rc1：数字开头，
-  //   允许出现点、字母、连字符，但末尾不能是点（那是范围写法 1.2.*）。
-  const m = s.match(/[<>=!~]*\s*([0-9][0-9A-Za-z]*(?:[.\-][0-9A-Za-z]+)*)/)
-  if (!m) return ''
-  return m[1].replace(/\.$/, '')
+  return splitSpec(spec).version
 }
 
 // 点「安装」时该怎么走。
@@ -76,7 +110,10 @@ function installDecision (suggestion, answered) {
   }
 }
 
-export { installDecision, TorchUpgradeDialog, PackageGroups, VersionSelect, declaredVersion }
+export {
+  installDecision, TorchUpgradeDialog, PackageGroups, SpecPill, VersionSelect,
+  declaredVersion, splitSpec, finalSpec,
+}
 
 export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
@@ -388,31 +425,46 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             const V = VERDICT[r.verdict] || VERDICT.unknown
             const off = isSkipped(r.spec)
             const name = pkgName(r.spec)
+            // 整行是「切换是否安装这个包」的点击区，
+            //   所以行内的笔必须自己断掉冒泡，否则点笔等于把它设为不安装。
+            const rowClick = (e) => {
+              if (e && e.stopPropagation) e.stopPropagation()
+              if (canSkip) toggleSkip(r.spec)
+            }
+            const rowKey = (e) => {
+              if (!canSkip) return
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                toggleSkip(r.spec)
+              }
+            }
+            // pill 上显示的那条 spec：后端算好的最终那条。
+            const spec = finalSpec(preview && preview.specs, name, r.spec)
             return (
               <div key={r.name} className="pf-row"
                 role={canSkip ? 'button' : undefined}
                 tabIndex={canSkip ? 0 : undefined}
                 title={canSkip ? t('Click to toggle whether this package is installed',
                   '点击切换是否安装此包') : undefined}
-                onClick={canSkip ? () => toggleSkip(r.spec) : undefined}
-                onKeyDown={canSkip ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSkip(r.spec) } } : undefined}
+                onClick={canSkip ? rowClick : undefined}
+                onKeyDown={canSkip ? rowKey : undefined}
                 style={{ cursor: canSkip ? 'pointer' : undefined, opacity: off ? 0.5 : undefined }}>
                 <span className="badge badge-sym">{off ? '–' : V.mark}</span>
-                <span className="pf-val"><code>{r.spec}</code></span>
-                <span className="field-hint" style={{ marginTop: 0 }}>
-                  {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
-                </span>
-                {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
-                {!off && canSkip && (
-                  <VersionSelect
+                <span className="pf-val">
+                  <SpecPill
                     name={name}
-                    spec={r.spec}
+                    spec={spec}
                     value={(versionOverrides || {})[name] || ''}
                     onChange={(v) => setVersion(name, v)}
                     t={t}
                     disabled={busy}
+                    editable={!off && canSkip}
                   />
-                )}
+                </span>
+                <span className="field-hint" style={{ marginTop: 0 }}>
+                  {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
+                </span>
+                {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
               </div>
             )
           })}
@@ -584,6 +636,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 onToggle={canSkip ? toggleSkip : null}
                 versionOverrides={versionOverrides}
                 onVersion={canSkip ? setVersion : null}
+                specs={preview && preview.specs}
                 t={t}
                 disabled={busy} />
             </div>
@@ -904,61 +957,132 @@ function backendOf (options, key) {
 }
 
 /**
- * 改一个包的版本。
+ * pill 里的一条 spec：包名与约束、版本号、笔、其余。
  *
- * 形态：包名后面跟一支铅笔。点铅笔才进入编辑态，此时才出现输入框。
- *   没点铅笔时只显示上游声明的版本；编辑态里输入的版本号覆盖它。
- *   点了铅笔再点一次（或清空输入）就回到上游声明的版本。
+ * 为什么要这个组件：pill 上那一条 spec 与笔是同一件事的两面
+ *   （笔改的就是这条 spec 里的版本号）。分开放会出现两个毛病：
+ *   ① 版本号显示两遍（pill 一遍、笔旁边一遍），两处还可能不一致；
+ *   ② 笔跑到 pill 外面，看起来像管别的东西。
+ *   所以 pill 与笔必须一起渲染。
+ *
+ * 未编辑态时整条 spec 是一个连续的 <code>：
+ *   拆成「头 + 版本」两个元素的话，DOM 文本就不连续了
+ *   （复制粘贴会断，元素之间的缝隙也会让眼睛看到断开的地方）。
+ *
+ * @param {object} props
+ *   name 包名（归一化后）
+ *   spec 最终要装的那条 spec（后端给的）
+ *   value 当前覆盖的版本（空串表示按上游声明的装）
+ *   onChange 改完回调（版本号；空串表示回到上游声明）
+ *   editable 是否可编辑
+ *   pillProps pill 自己要的属性（点击切换是否安装等）
+ */
+function SpecPill ({ name, spec, value, onChange, t, disabled, editable = true, pillProps }) {
+  const parts = splitSpec(spec)
+  // 手写的版本优先：改了之后 pill 上要立刻看到改后的那个号。
+  const shown = value || parts.version
+  // 编辑态：只有版本号那一位变成输入框。
+  //   头（包名与约束）与尾（marker / 注释）照旧显示。
+  const [editing, setEditing] = React.useState(false)
+
+  // 点笔不许冒泡到整行：整行是「切换是否安装这个包」的点击区，
+  //   笔一点就冒泡 ⇒ 点笔等于把这个包设为不安装。
+  const stop = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation()
+  }
+  const startEdit = (e) => {
+    stop(e)
+    setEditing(true)
+  }
+
+  const body = editing
+    ? (
+      <span className="pkg-version">
+        <code>{parts.head}</code>
+        <VersionSelect
+          name={name}
+          version={shown}
+          onChange={onChange}
+          t={t}
+          disabled={disabled}
+          onCancelEdit={() => setEditing(false)}
+        />
+        {parts.tail ? <code>{parts.tail}</code> : null}
+      </span>
+    )
+    : (
+      <code>{parts.head}{shown}{parts.tail}</code>
+    )
+
+  return (
+    <span {...(pillProps || {})}>
+      {body}
+      {editable && !editing && (
+        <button type="button" className="icon-btn pkg-pencil" disabled={disabled}
+          aria-label={t(`Change the version of ${name}`, `修改 ${name} 的版本`)}
+          title={t(`Change the version of ${name}`, `修改 ${name} 的版本`)}
+          onPointerDown={stop}
+          onClick={startEdit}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') stop(e) }}>
+          <IconPencil size={13} />
+        </button>
+      )}
+    </span>
+  )
+}
+
+/**
+ * 编辑态下的版本号输入框。
+ *
+ * 形态：pill 里，包名与约束照旧显示，版本号那一位变成输入框，
+ *   右边一个取消按钮。
  *
  * 为什么是「铅笔 + 手写」而不是下拉框：
  *   下拉框里的每个选项都是平台给出的候选，而候选意味着平台替使用者挑版本。
  *   版本本是上游声明的事，平台手上没有「这个包有哪些版本」这份事实，
  *   列出来的每个非上游版本都是平台编的。所以这里只留一个手写入口。
  *
+ * 为什么只管版本号那一段：pill 上要显示的是整条 spec，而版本号本来
+ *   就在那条 spec 里面。这个组件要是再显示一遍整条 spec，
+ *   同一个版本号就出现两次（一个是上游原文，一个是手写值），
+ *   两处还会不一致。所以调用方负责头与尾，这里只负责版本号。
+ *
  * @param {object} props
  *   name 包名（归一化后）
- *   spec 上游声明的整条 spec
- *   value 当前覆盖的版本（空串表示按上游声明的装）
+ *   version 当前显示的版本号（后端给的那条 spec 里拆出来的）
  *   onChange 改完回调（版本号；空串表示回到上游声明）
- *   editable 是否可编辑（设为不安装的包不可编辑）
+ *   t 翻译函数
+ *   disabled 不可用时置灰
+ *   onCancelEdit 取消编辑（回到只读态）
  */
-function VersionSelect ({ name, spec, value, onChange, t, disabled, editable = true }) {
-  const upstream = declaredVersion(spec)
-  const current = value || ''
-  const [editing, setEditing] = React.useState(false)
+function VersionSelect ({ name, version, onChange, t, disabled, onCancelEdit }) {
+  const current = version || ''
   const [draft, setDraft] = React.useState(current)
 
   React.useEffect(() => {
     setDraft(current)
   }, [current])
 
-  // 已经覆盖了上游版本时，直接显示覆盖后的版本号（不必再点铅笔）。
-  const shown = current || upstream
-
-  if (!editable) {
-    return <span className="pkg-version">{shown}</span>
+  // 点这里不许冒泡到整行：整行是「切换是否安装这个包」的点击区。
+  const stop = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation()
   }
 
-  if (!editing) {
-    return (
-      <span className="pkg-version">
-        <span className="pkg-version-text">{shown || t('not pinned', '未声明')}</span>
-        <button type="button" className="icon-btn" disabled={disabled}
-          aria-label={t(`Change the version of ${name}`, `修改 ${name} 的版本`)}
-          title={t(`Change the version of ${name}`, `修改 ${name} 的版本`)}
-          onClick={() => { setDraft(current); setEditing(true) }}>
-          <IconPencil size={13} />
-        </button>
-      </span>
-    )
+  const cancel = (e) => {
+    stop(e)
+    setDraft(current)
+    onChange(current)
+    if (onCancelEdit) onCancelEdit(e)
   }
 
   return (
     <span className="pkg-version">
       <input className="control" type="text" value={draft} autoFocus
-        placeholder={upstream || t('Version number', '版本号')}
+        placeholder={t('Version number', '版本号')}
         aria-label={t(`Version number of ${name}`, `${name} 的版本号`)}
         disabled={disabled}
+        onPointerDown={stop}
+        onClick={stop}
         onChange={(e) => {
           setDraft(e.target.value)
           onChange(e.target.value.trim())
@@ -966,53 +1090,66 @@ function VersionSelect ({ name, spec, value, onChange, t, disabled, editable = t
         onBlur={() => {
           // 清空输入 = 回到上游声明的版本。
           if (!draft.trim()) onChange('')
-          setEditing(false)
+          if (onCancelEdit) onCancelEdit()
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') { e.currentTarget.blur() }
-          if (e.key === 'Escape') {
-            setDraft(current)
-            onChange(current)
-            setEditing(false)
-          }
+          if (e.key === 'Escape') { cancel(e) }
         }} />
-      <button type="button" className="icon-btn" disabled={disabled}
+      <button type="button" className="icon-btn pkg-pencil" disabled={disabled}
         aria-label={t('Cancel', '取消')}
         title={t('Cancel', '取消')}
-        onClick={() => { setDraft(current); onChange(current); setEditing(false) }}>
+        onPointerDown={stop}
+        onClick={cancel}>
         ×
       </button>
     </span>
   )
 }
 
-function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVersion, t, disabled }) {
+function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVersion, specs, t, disabled }) {
   const on = packages.filter((p) => !isSkipped(p))
   const off = packages.filter((p) => isSkipped(p))
   const row = (p, dim) => {
     const name = pkgName(p)
+    // pill 上显示的那条 spec：后端算好的最终那条（与真正装进去的一致）。
+    //   后端没给（还没重新算计划）时退回上游原文。
+    const spec = finalSpec(specs, name, p)
+    // pill 本身是「切换是否安装这个包」的点击区。
+    //   笔在 pill 里面 ⇒ 笔自己的点击必须断掉冒泡（VersionSelect 里做了），
+    //   否则点笔等于把这个包设为不安装。
+    const pillProps = {
+      className: 'pf-chip',
+      role: onToggle ? 'button' : undefined,
+      tabIndex: onToggle ? 0 : undefined,
+      onClick: onToggle ? () => onToggle(p) : undefined,
+      onKeyDown: onToggle
+        ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(p) }
+        }
+        : undefined,
+      style: { cursor: onToggle ? 'pointer' : undefined },
+    }
     return (
       <div key={p} className="pkg-row" style={dim ? { opacity: 0.5 } : undefined}>
-        <span className="pf-chip" role={onToggle ? 'button' : undefined}
-          tabIndex={onToggle ? 0 : undefined}
-          onClick={onToggle ? () => onToggle(p) : undefined}
-          onKeyDown={onToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(p) } } : undefined}
-          style={{ cursor: onToggle ? 'pointer' : undefined }}>
-          <code>{p}</code>
-        </span>
-        {onVersion && (
-          // 设为不安装的包不提供改版本：它根本不装，
-          //   给它一个版本号没有意义。
-          <VersionSelect
-            name={name}
-            spec={p}
-            value={(versionOverrides || {})[name] || ''}
-            onChange={(v) => onVersion(name, v)}
-            t={t}
-            disabled={disabled || dim}
-            editable={!dim}
-          />
-        )}
+        {onVersion
+          ? (
+            // 笔在 pill 里面：版本号是 pill 内容的一部分，笔是改它的入口。
+            //   设为不安装的包不给笔：它根本不装，给它版本号没有意义。
+            <SpecPill
+              name={name}
+              spec={spec}
+              value={(versionOverrides || {})[name] || ''}
+              onChange={(v) => onVersion(name, v)}
+              t={t}
+              disabled={disabled || dim}
+              editable={!dim}
+              pillProps={pillProps}
+            />
+          )
+          : (
+            <span {...pillProps}><code>{spec}</code></span>
+          )}
       </div>
     )
   }

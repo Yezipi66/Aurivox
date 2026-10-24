@@ -1157,6 +1157,11 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .pf-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .pf-chip {
+  /* pill 里面要放笔（改版本的入口）⇒ 自己是 inline-flex，
+     笔才能跟着 pill 内容排布，而不是被挤到 pill 外面。 */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--accent-soft);
@@ -1176,12 +1181,20 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   font-weight: 500;
 }
 
-/* 依赖包那一行：包名 + 版本选择。
+/* 依赖包那一行：pill 里面是包名与版本号，笔在版本号右边。
    .pf-chips 是 flex 换行容器，所以每一行自己是一个 flex 容器。 */
 .pkg-row {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+/* pill 内部容纳笔：pill 自己是 inline-flex，
+   所以笔是 pill 的子节点时跟着 pill 排布，不会跑到 pill 外面。 */
+.pf-chip .pkg-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
 }
 .pkg-version {
   display: inline-flex;
@@ -1194,20 +1207,28 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   font-weight: 500;
   max-width: 190px;
 }
-/* 版本号文字：跟在包名后面，点铅笔才进编辑态。 */
+/* pill 里的那条 spec（包名与版本号）：跟 pill 同一套颜色与字重，
+   它就是 pill 的正文，不是附注。 */
 .pkg-version-text {
   font-size: 11px;
-  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-/* 列表里的铅笔按钮：比通用的 .icon-btn 小一圈，紧挨着版本号。 */
-.pkg-version .icon-btn {
+/* 列表里的铅笔按钮：比通用的 .icon-btn 小一圈，紧挨着版本号。
+   笔在 pill 里面，所以按钮本身不能撑大 pill，也不能有边框。 */
+.pkg-pencil {
   width: 18px;
   height: 18px;
+  padding: 0;
   border-color: transparent;
   border-radius: var(--radius-sm);
   font-size: 13px;
   line-height: 1;
+  color: inherit;
+}
+.pkg-pencil:hover {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--border);
 }
 
 .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
