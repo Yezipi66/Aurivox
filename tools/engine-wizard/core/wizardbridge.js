@@ -715,18 +715,75 @@ function handleDownloadFile (req, res) {
       res.write(`event: ${event}\n`)
       res.write(`data: ${JSON.stringify(data)}\n\n`)
     }
+    // 取消通道：同一台引擎的每一轮下载共用一个 AbortController。
+    //   挂在 id 上而不是每个请求各自一份：并发下载时「取消」要停掉整轮，
+    //   只停一个请求、其余照跑，界面上看着像没取消。
+    //
+    //   用引用计数而不是「建了就一直挂着」：一轮下载全部完成后要把 controller 摘掉，
+    //   否则下一轮下载会捡上一个已经结束那一轮的 controller，
+    //   语义上就乱了（那一轮已经结束，abort 它没有意义）。
+    const dlId = String(id)
+    let entry = downloadAbortControllers.get(dlId)
+    if (!entry) {
+      entry = { ac: new AbortController(), count: 0 }
+      downloadAbortControllers.set(dlId, entry)
+    }
+    entry.count += 1
+    const ac = entry.ac
+    // 本次请求结束（无论成功失败）就把计数减一；这一轮没有在途请求了才摘掉 controller。
+    //   被取消时 controller 已经 aborted，此时直接删掉是对的：
+    //   取消后不应该再有新的下载挂到这个 id 上（前端会重新开一轮）。
+    const forget = () => {
+      const cur = downloadAbortControllers.get(dlId)
+      if (!cur) return
+      cur.count = Math.max(0, cur.count - 1)
+      if (cur.count === 0 || cur.ac.signal.aborted) {
+        downloadAbortControllers.delete(dlId)
+      }
+    }
     downloadFile(file, repo, root, id, (text, isErr) => {
       send('line', { text, err: !!isErr })
     }, (p) => {
       send('progress', { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total })
-    }).then((r) => {
+    }, undefined, ac.signal).then((r) => {
+      forget()
       send('done', r)
       res.end()
     }).catch((e) => {
+      forget()
       send('done', { ok: false, code: 'BRIDGE_FAILED',
         error: (e && e.message) || String(e) })
       res.end()
     })
+  })
+  return true
+}
+
+// 第 3 步的取消通道：按引擎 id 挂 AbortController。
+//   一台引擎的一轮下载（可能同时有好几个文件在途）共用一个 controller，
+//   取消一次就停掉这一轮的全部请求。
+const downloadAbortControllers = new Map()
+
+// POST /wizard/download/cancel  {id}  取消正在进行的下载
+// 与 handleEnvCancel 同构，语义不同：取消下载不删任何东西，
+//   已经下载完成的文件保留，未完成的文件由下载侧自己删除（download.js 的 abort 处理）。
+//   「暂停」是另一层：它只停前端的派单，不终止在途的请求。
+function handleDownloadCancel (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/cancel')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return true }
+    const entry = downloadAbortControllers.get(id)
+    if (!entry) {
+      json(res, 200, { ok: true, id, cancelled: false,
+        note: 'No active download found for this id.' })
+      return
+    }
+    entry.ac.abort()
+    downloadAbortControllers.delete(id)
+    json(res, 200, { ok: true, id, cancelled: true })
   })
   return true
 }
@@ -789,6 +846,10 @@ function handleDownloadProgress (req, res) {
 function handleDownload (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/download')) return false
+  // 显式排除 /wizard/download/cancel，理由同 handleEnv：短前缀会吃掉长前缀端点。
+  //   把 cancel 排在 handleDownload 前面还不够：这个中间件是「第一个返回 true 的赢」，
+  //   handleDownload 对 cancel 也会返回 true，抢在前面就把它吃掉了。
+  if (req.url.startsWith('/wizard/download/cancel')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const input = {
@@ -1330,7 +1391,7 @@ function handleResetProgress (req, res) {
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
-  handleDownloadManifest, handleDownloadFile,
+  handleDownloadManifest, handleDownloadFile, handleDownloadCancel,
   handleVerifyChecks, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
