@@ -26,7 +26,7 @@ export default function SaveBar ({ manifest, diag, onSaved }) {
   // 状态徽标：还没扫描（call 段既没绑定也没参数）、已自动填 N 项。
   // 全部从 manifest 现有字段推导，不做跨组件状态提升：
   // 已填项数 = call.bind 里三个槽位填上的个数 + call.args 的条目数。
-  // 扫描中的状态在 CliGenPanel 那边，这里拿不到，也不推断。
+  // 扫描中的状态在左栏那边，这里拿不到，也不推断。
   const call = (manifest && manifest.call) || {}
   const bindSlots = Object.keys(call.bind || {}).filter((k) => call.bind[k])
   const argCount = Object.keys(call.args || {}).length

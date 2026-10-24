@@ -574,7 +574,6 @@ const DEBT_LEDGER = {
   'test/installState.node.test.js': 11,
   'editor/Pipeline.jsx': 10,
   'core/savebridge.js': 9,
-  'editor/CliGenPanel.jsx': 9,
   'test/bridge.node.test.js': 9,
   'test/useInstallSession.node.test.js': 9,
   'core/bridge.js': 8,

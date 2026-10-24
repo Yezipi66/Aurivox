@@ -1,8 +1,9 @@
 'use strict'
 // computeAutoFill 的行为测试：覆盖槽位匹配、kind 判定与 args 写法三件事。
 // computeAutoFill 不抛异常，填错的名片要等平台保存时才被拒，所以只能靠测试守住。
-// 被测代码是 tools/engine-wizard/editor/CliGenPanel.jsx 里的那份实现，
+// 被测代码是 tools/engine-wizard/editor/scanAutofill.js 里的那份实现，
 // 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出，不在此处重抄。
+// 它是纯函数文件，不 import react 与任何组件。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -10,12 +11,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const PANEL = path.join(EDITOR_DIR, 'CliGenPanel.jsx')
-const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
+const SOURCE = path.join(EDITOR_DIR, 'scanAutofill.js')
 
 /**
- * 加载 CliGenPanel.jsx 里的 computeAutoFill。
- * 组件 import 的 react 与 i18n 与这个纯函数无关，替换成替身即可。
+ * 加载 scanAutofill.js 里的 computeAutoFill。
  * @returns {Function|null} 拿不到编译依赖时返回 null，由守卫用例报错，不静默跳过。
  */
 function loadComputeAutoFill () {
@@ -24,24 +23,19 @@ function loadComputeAutoFill () {
     // 拿不到编译依赖就返回 null，由下面的守卫用例报错，不静默跳过。
     return null
   }
-  const src = fs.readFileSync(PANEL, 'utf8')
+  const src = fs.readFileSync(SOURCE, 'utf8')
   const code = esbuild.transformSync(src, {
-    loader: 'jsx',
+    loader: 'js',
     format: 'cjs',
     target: 'node18',
   }).code
   const mod = { exports: {} }
   const stub = (id) => {
-    if (id === 'react') return {}
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en }) }
-    if (/useInstalled/.test(id)) return { useInstalled: () => ({}) }
-    // DragBind 是 CliGenPanel 引入的子组件，本测试不需要它渲染。
-    if (/DragBind/.test(id)) return { default: () => null }
     throw new Error('computeAutoFill 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
   const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
-  run(mod.exports, stub, mod, PANEL, EDITOR_DIR)
+  run(mod.exports, stub, mod, SOURCE, EDITOR_DIR)
   return mod.exports.computeAutoFill
 }
 

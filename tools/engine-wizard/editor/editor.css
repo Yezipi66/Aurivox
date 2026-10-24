@@ -88,3 +88,132 @@
   0% { margin-left: -40%; }
   100% { margin-left: 100%; }
 }
+
+/* ---- 三栏（第 4 步：左栏扫到的参数 / 中栏名片内容 / 右栏预览） ---- */
+/* 三栏容器：项目的 .workspace-grid 写死两列，三栏要多一列，
+   所以这里另起一个网格。栏宽：左栏窄（参数名不长），中栏最宽，
+   右栏与项目的 .workspace-right 同宽（380px）。 */
+.wz-three-zone {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 380px;
+  gap: 0.5rem;
+  align-items: start;
+}
+/* 窄屏降级成单列：与项目 .workspace-grid 的降级口径一致（960px）。 */
+@media (max-width: 960px) {
+  .wz-three-zone {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wz-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* 栏头：标题 + 收起按钮。收起时这一栏只剩标题与按钮。 */
+.wz-zone-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+}
+.wz-zone-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wz-zone-body {
+  min-width: 0;
+}
+
+/* ---- 左栏参数池 ---- */
+.wz-param-count {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.wz-param-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+/* 参数卡片：可拖的源。cursor:grab 表示能拖走。 */
+.wz-param-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  cursor: grab;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wz-param-item:hover {
+  border-color: var(--accent);
+}
+/* 选中的参数：左边一道强调色，与拖拽路径并存（触屏与无鼠标环境用点击路径）。 */
+.wz-param-item-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.wz-param-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wz-param-name {
+  font-size: 12px;
+  word-break: break-all;
+}
+.wz-param-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wz-param-group {
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 上游原话说明：两行截断，完整内容在 title 里。 */
+.wz-param-help {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- 中栏落点 ---- */
+/* 拖拽落点：虚线框。鼠标在上方时边框变强调色。 */
+.wz-dropzone {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  margin-bottom: 10px;
+  text-align: center;
+  cursor: default;
+}
+.wz-dropzone-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
