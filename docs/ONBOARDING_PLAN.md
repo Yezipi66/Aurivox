@@ -82,7 +82,7 @@
 | **A5** | `input.text.parameter` 落地 | ⛔ **实测不可做** | [实测] `deriveTextBinding` 实现是 `{...m, maps:{text:p}}` ⇒ **maps 被整体替换** | 只能表达「只有一个输入概念」的引擎。GSV 有 10 个映射、IndexTTS2 有 4 个，**两台都无法用 input 表达**。要么扩语法，要么承认为死胡同 |
 | **A4''** | ⭐ **向导补「钉版本 + 删 `.git`」**（A4' 退役的**直接后果**）| ⬜ **待开** · 🔴 `core/pin.js`（wizard） | [读码] 2026-10-04 通读 `tools/engine-wizard/core/clone.js`：它 `git clone` 后**不删 `.git`、不 pin**；`core/env.js` 也不碰版本 | ⛔ **这是 A4' 之后唯一挡在「版本可追溯」前面的东西**。今天的状态是「版本有两个来源（`.git` 里的分支名 + 名片里可能为 null 的 `commit`），且都不权威」。⚠️ 与 §6.1「commit 必不填」是同一笔账的两面：**commit 在第 4 步才产生 ⇒ pin 必须能被推迟到第 4 步之后**，而旧 `installPlan.js:78` 的硬拦时机是「装之前」，对不上 |
 | **A6** | ⭐ **权重路径搬迁**：`models/tts/`（20G）→ `engines/<id>/checkpoints/` | ⬜ **待开** · 🟢 仅 A6①（改 3 张名片，跳过 GSV） | [实测] `models/` 各支归属：`tts/` 20G = 四台引擎专属；`asr/` 5.9G · `separation/` 1.7G · `vocoder|sr|lang/` 455M = **训练线/校验线共用，不动**。✅ `.gitignore:213-221` **已有 `engines/*/checkpoints/`**；✅ C3 不破（仍相对项目根，名片只改一个字符串）；✅ 顺带闭环 `engines/cosyvoice2/` 那个嵌套 `.git` | ⛔ **必须分两步**：先搬三台非训练线引擎（17.6G），**GSV 那 2.8G 要等 C3** —— `lib/paths.js` 有 5 处以上硬编码（`GSV_PRETRAINED_DIR:301` / `BASE_DIRS:343-351` / `S1_V2_FILE:362` / `BASE_WEIGHTS_*:376-393` 带 legacy/canonical 双读），而 `lib/training/` 读的就是它，**一次全搬 = 立刻弄坏训练**。⚠️ 过渡期三台在新路径、GSV 留旧路径 —— **不违反任何契约**（`runtime.checkpoints` 逐台声明） |
-| **A7** | ⭐ **第 3 步真下载**（现在只打印命令）| 🟡 **2/3 已做**（2026-10-23 复核）· 🔴 `core/download.js` | [读码] `models.source.command` **已经是名片声明的 argv**，平台已会填占位符（`{checkpoints}`→绝对路径）、已知道 `license_gate`。⇒ **执行它不违反「只验不建」** —— 规则禁的是「平台**生成**命令」，不是「平台**执行**** | ✅ **已有**：断点续传（`Range` + `.tmp` 探测）· 进度（tqdm 解析）· sha256 核对 · 超时 · 取消。⛔ **缺并发**：`runDownload` 一次只 spawn 一个进程，`llm.pt` 那种 2GB 单文件仍是串行瓶颈。⚠️ **规则没被写全**：「不替你下载」的准确含义是「**不替你决定从哪儿下**」，要回写进 `_TEMPLATE/README.md`。⚠️ `[待裁]` 是否加 SHA 字段（会动磁盘格式） |
+| **A7** | ⭐ **第 3 步真下载**（断点续传 + 并发 + 进度 + 取消） | ✅ **3/3 已做**（2026-10-24 补齐并发与真取消）· 🔴 `core/download.js` · `editor/downloadQueue.js` · `editor/downloadRunner.js` | [读码] `models.source.command` **已经是名片声明的 argv**，平台已会填占位符（`{checkpoints}`→绝对路径）、已知道 `license_gate`。⇒ **执行它不违反「只验不建」** —— 规则禁的是「平台**生成**命令」，不是「平台**执行** | ✅ **三件已齐**（2026-10-24）：**断点续传**（`Range` + `.tmp` 探测）· **进度**（tqdm 解析 + 按文件分槽显示）· **并发**（默认 **6**，一文件一请求，`editor/downloadQueue.js` 调度 + `editor/downloadRunner.js` 执行）。⭐ **取消已从「后端函数级」补到「使用者能按」**：`POST /wizard/download/cancel` + 界面取消按钮（此前只有 `downloadFileFromUrl` 的 `signal` 参数，前端根本没有能按的取消，界面上也按不了）。⚠️ **订正旧记**：「已有取消」指的是上游命令那条路径的参数级取消，**不是使用者能取消**。⛔ **未做**：① 验收点 ①「拿 `cosyvoice-300m-sft` 当真实样本（2.2G）下完」未跑（2026-10-24 验的是 huggingface 上 144MB 的 `openai/whisper-tiny`，真机取消 ⇒ `CANCELLED`、无残留 `.tmp`、可重下）② 验收点 ② `license_gate: true` 的 401/403 提示未接（`core/models.js` 文案已有，尚未接上）⚠️ **规则没被写全**：「不替你下载」的准确含义是「**不替你决定从哪儿下**」，要回写进 `_TEMPLATE/README.md`。⚠️ `[待裁]` 是否加 SHA 字段（会动磁盘格式） |
 | **A8** | ⭐ **权重下完对一次名**（缺/多/后缀不符三态）| ⬜ **待开** · 🔴 `core/checkpoints-audit.js` | [实测] **这个不一致真的发生过**：`indextts2/checkpoints/config.yaml` 写 `gpt.pt` / `s2mel.pt`，盘上是 **`gpt.pth` / `s2mel.pth`**；而 config 还漏了 `bpe.model` / `pinyin.vocab` / `qwen0.6bemo4-merge/` | 零成本（只列两个目录），比 hash 可靠 —— 上游不一定给 hash，而 config 名字本身不可信。⚠️ 「多出来」的一类里有 `.cache/` 和 `hf_cache/`，那是**运行期产物不是权重**，别误报 |
 | **A9** | ⭐ **权重候选探针**（自动发现，多源交叉）| ⬜ **待开** · 🔴 `core/weight-discovery.js` | [实测] **三源都不完全可靠**：① IndexTTS2 的 `config.yaml` 点名 5 个但**后缀错 + 漏 3 项**；② **CosyVoice2 的 `cosyvoice2.yaml` 里一个权重文件名都没有** ⇒ 钩子完全失效；③ 代码里的下载调用只覆盖第三方包拉的（`models.external[]` 为它留了形状） | ⛔ **`models.required` 永远要人确认** —— 自动判定会把好引擎报成「缺文件」。⭐ 复用的形状是 A1 的 `reflect_params.py`（实测：漏 0 / 误排 0 / 类型 13/14），**维护的是探针不是清单** |
 | **A10** | ⭐ **名片表单三件套 + 三段分组** | ⬜ **待开** · 🔴 `editor/ManifestForm.jsx` | [读码] `fieldmeta.js` + `NestedSections.jsx` 已有中文标签，但**没说格式、也没说填错报什么** | ⭐ **第三件几乎零成本**：`profile.js` 每个键的抛错消息**本身写了「应该写什么」** ⇒ 把已有消息提到字段下面即可。三段 = 必须人填 / 能反射 / 有先例。⭐ 顺序上正好成立（第 2 步建环境 → 反射 → 第 4 步落盘） |
@@ -104,6 +104,7 @@
 | **A24** | ⭐⭐ **断点续传只看命令文本，产物版本变了也判成「已完成」** | ✅ **2026-10-24 已做**（`8c956e2`） | [实测 2026-10-24] 做 A23 的端到端闭环时撞到：引擎环境里手工把 torch 从 `2.6.0+xpu` 降回上游钉的 `2.5.1`（`uv pip install -p <引擎venv> torch==2.5.1 torchaudio==2.5.1`），盘上 torch 变成 `2.5.1`（CPU 版，不带 XPU 后端）。此时 `.wizard-install.json` 里那三条命令的 key **一字未变** ⇒ 重跑第 2 步时**三步全部 SKIPPED**（`"Previously completed successfully — skipped"`），装依赖那步没跑、装 torch 2.6.0 那步也没跑 ⇒ 界面报「完成」、`envCheck` 也报 torch 与 torchaudio 都 `OK`（**import 成功不等于版本对**），而实际装出来的是**用不上加速的 CPU 版** | ⛔ **这是断点续传判据的第二种形态**（第一种是「产物没了」，见 `stepArtifactExists` 原本只判「site-packages 非空」那种空壳场景）：**产物在、但已经不是命令要装的那一版** ⇒ 命令文本判重判成已完成 ⇒ 静默跳过。⇒ 产物判据要加第三层：**这步命令里声明了 `<包>==<版本>` 时，引擎 venv 里那个包当前装的就是那一版**（后端后缀也要对：`2.6.0+xpu` 与 `2.6.0+cpu` 版本号相同但**后端不同**，那是另一个产物）。⭐ 读已装版本**不 spawn python**：读 site-packages 下 `<包名>-<版本>[+后缀].dist-info` 的**目录名**（快、无进程、不会失败）；⚠️ 包名匹配不许用前缀（`torch` 不该匹配 `torchgen`）。⚠️ **清单形式的装包步（`-r requirements.txt`）解析不出逐个版本 ⇒ 不做版本核对**（只能判 site-packages 非空）⇒ 不许因为解析不出就判成「产物不在」，那会让每次都重装。⚠️ **`envCheck` 救不了这一类** ⇒ 它只验 `import` 成不成功，**不验版本与后端后缀**（`2.5.1+cpu` 能 import 成功）。⇒ 验「装对了」必须是**版本 + 后端后缀 + 设备层实算**三件一起看 | |
 | **A25** | ⭐⭐ **第 2 步要能选依赖版本（含 torch）** | ✅ **2026-10-24 已做**（`7c7a513` + `178e11a` + `74cf184`） | [2026-10-24] 使用者诉求：第 2 步的依赖清单只能点「不安装」，不能选版本；连 torch 的版本也定死在上游声明的那一版 | ⛔ **改版本不能靠排除实现**：uv 的排除语义（`--excludes` / `--no-install-package`）是「这个包连同依赖它的其它包一起不装」⇒ 排除 `einops` 会把 `fugashi`、`descript-audiotools` 这些依赖它的包一起弄掉，环境装不完整。⇒ **改版本要改清单本身**：让 uv 在一次解析里装对版本，依赖关系不受影响。⭐ **写清单副本不改上游文件**（`.wizard-requirements.local.txt`，与 `.wizard-excludes.txt` 同一性质）：克隆下来的引擎目录要与上游一致。⚠️ 上游清单有两种写法（精确钉住 `einops==0.8.1` 与区间 `einops>=0.8.1`）⇒ 改写时**保留约束形式**（`>=0.8.1` 改成 `>=0.7.0`），原本没钉版本的才钉住。⚠️ **torch 换版本 ⇒ index 也要跟着换**（index 是命令级参数，清单表达不了）⇒ 主安装步跳过 torch 系，追加一步从该后端官方 index 装。⭐ **改任何一个包的版本都不许让 torch 静默降级**：清单副本里 torch 那几行也要按本机后端上可用的版本改（否则选一个普通包的版本就会把 torch 装成 CPU 版）；使用者显式选了 torch 就照他选的。⚠️ 锁文件路线（`uv.lock`）版本已锁死 ⇒ 如实报 `VERSION_OVERRIDE_ON_LOCK`，平台不替上游改 lock。⚠️ pyproject 路线（`uv pip install -e .`）读的是 pyproject 本身，改副本无效 ⇒ 拆成「按副本装依赖」+「装项目本体（--no-deps）」两步。⚠️ 判 torch 可用版本要**先知道引擎环境用哪个 Python**（判据要 ABI）⇒ `buildEnvPlan` 里要把 `buildVenvStep` 的结果提前算出来 | |
 | **A26** | ⭐ **「不安装的包」那两个分区要一直在，全部安装时写明没有不安装的包** | ✅ **2026-10-24 已做**（`74cf184`） | [2026-10-24] 使用者看到依赖清单里的「要安装的包」/「设为不安装的包」两个分区**时有时无** | ⛔ 旧逻辑是「两个分区里有一个是空的就只渲染包名那一排、两个标题都不显示」⇒ 分组会随使用者的点击而变，看不出这两个分区本来就在。⇒ **两个分区一直都在**：全装时「设为不安装的包」那里写「没有设为不安装的包」，全不装时「要安装的包」那里写「没有要安装的包」。⚠️ 文案从「以下依赖将不会被安装」改成「设为不安装的包」：前者是绕口的被动句，后者说清了这是个**可切换的选择**（点一下就变） | |
+| **A27** | ⭐ **CLI 扫描把引擎目录里的非推理脚本也扫进来，参数表混进部署工具参数** | ⬜ **待开** · 🔴 `core/cli_help_extract.py` · `core/cliDraft.js` · `editor/CliGenPanel.jsx` | [实测 2026-10-24] 用 `spark-tts` 试 `/wizard/discover` ⇒ 扫出 **35 个 flag，其中约 20 个是噪音**：来自 `engines/spark-tts/runtime/triton_trtllm/` 的部署脚本（`client_http.py` / `convert_checkpoint.py` / `fill_template.py`），参数是 `--tp_size` `--pp_size` `--use_weight_only` `--calib_dataset` `--embedding_sharding_dim` `--moe_tp_size` 等（help 原文写着「The path to save the TensorRT-LLM checkpoint」「triton model_repo module name」）—— 那是**部署推理服务**的工具参数，与「合成一段语音」无关 | ⛔ **不是阻塞项**（实测：`required:true` 只有 2 个真参数 `--text` 与 `--model_dir`，那 20 个噪音**全是选填**）⇒ 不挡任何人走完第 4 步。⭐ **根因是通用的，不是给某台引擎开的后门**：① `cli_help_extract.py:318` 的固定清单（`cli.py`/`inference.py`/`main.py`…）在 spark-tts **根目录一个都没命中**（它的 `inference.py` 在 `cli/` 子目录里）⇒ 走兜底递归，把**目录树里所有含 `add_argument(` 的 py 文件**都扫了 ② `cliDraft.js:7` 的 `is_tool` 靠**硬编码名字清单** `TOOL_FLAGS`，那 20 个噪音一个都不在清单里 ⇒ 全部标成「非工具」，与真参数混在一张表 ③ 界面 `CliGenPanel.jsx:287-306` 的参数表**平铺无折叠**；`groups` 只有 `["(root)"]` ⇒ 已有的「分组」下拉框对这种布局**不起作用**。⚠️ 另有**同名 flag 重复**：`--model_dir` 出现两次（`cli/inference.py` 与 `client_http.py` 各定义一次，后者 help=null），用户会看到两个 model_dir。⭐ **修法方向（待定）**：收紧兜底递归（清单命中优先 + 找不到就如实报「没找到 CLI 源码」而不是全收）· 同一来源的同名 flag 合并（保留有 help 的那份）· 「工具/非工具」的判据不靠名字清单 | |
 
 ---
 
@@ -685,15 +686,15 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 
 ---
 
-#### **A7** · 真下载（续传 / 并发 / 进度）
+#### ~~**A7**~~ · 真下载（续传 / 并发 / 进度） —— ✅ **2026-10-24 三件已齐**（并发 + 真取消 + 按文件分槽进度）
 
 | | |
 |---|---|
 | **scope** | 执行名片里的 `models.source.command`（⛔ **不生成**，只执行） |
 | **为什么不算破「只验不建」** | 规则禁的是「**平台生成**命令」（HF/ModelScope/直链/网盘各家不同，生成就把那一家写进 `lib/`）。而 `models.source.command` **已经是名片声明的 argv**，平台已经会填占位符、已经知道 `license_gate`。**执行 ≠ 生成** |
-| **必须有的三件** | **断点续传**（5.49GB 断一次很难受）· **并发**（`llm.pt` 单文件 2GB 是串行瓶颈）· **进度显示**（前端要显示「3/8 完成」） |
-| **文件** | 新建 `tools/engine-wizard/core/download.js` · 新建 `tools/engine-wizard/test/download.node.test.js` · `wizardbridge.js`（加端点，⛔ 走流式/轮询回进度） |
-| **验收** | ① ⭐ **拿 `cosyvoice-300m-sft` 当真实样本**（2.2G，最小的那台）：能下完、能中断续传、能报进度<br>② `license_gate: true` 的引擎在点同意之前 ⇒ **报出 401/403 并说清「那看着像网络故障，其实不是」**（这句话 `core/models.js` 已经写好了，要接上）<br>③ ⛔ **不生成任何命令** —— 测试要断言执行的 argv 与名片里写的**逐字相同**（占位符替换除外）<br>④ 下完自动接 **A8** 复核，缺/多/后缀不符如实报 |
+| **必须有的三件** | ✅ **断点续传**（5.49GB 断一次很难受）· ✅ **并发**（`llm.pt` 单文件 2GB 是串行瓶颈）· ✅ **进度显示**（前端要显示「3/8 完成」）—— **2026-10-24 全部落地** |
+| **文件** | ✅ `tools/engine-wizard/core/download.js` · ✅ `tools/engine-wizard/test/download.node.test.js` · ✅ `wizardbridge.js`（加端点，走 SSE 回进度）· 🆕 `editor/downloadQueue.js`（调度，默认并发 6）· 🆕 `editor/downloadRunner.js`（执行 + SSE 归并）· 🆕 `test/downloadCancel.node.test.js` · 🆕 `test/downloadConcurrency.node.test.js` · 🆕 `test/stepModelsWiring.node.test.js`（三份守卫都带变异检查） |
+| **验收** | ① ⭐ **拿 `cosyvoice-300m-sft` 当真实样本**（2.2G，最小的那台）：能下完、能中断续传、能报进度 —— ⛔ **未跑**（2026-10-24 验的是 huggingface 上 144MB 的 `openai/whisper-tiny`：真下 ⇒ 中途取消 ⇒ `CANCELLED`、无正式文件、无残留 `.tmp`、可重下）<br>② `license_gate: true` 的引擎在点同意之前 ⇒ **报出 401/403 并说清「那看着像网络故障，其实不是」**（这句话 `core/models.js` 已经写好了，要接上）—— ⛔ **未接**<br>③ ⛔ **不生成任何命令** —— 测试要断言执行的 argv 与名片里写的**逐字相同**（占位符替换除外）<br>④ 下完自动接 **A8** 复核，缺/多/后缀不符如实报 —— ⛔ **A8 未做**，此项随之未做<br>⑤ 🆕 **2026-10-24 加**：使用者能按的**取消**（此前只有后端函数级参数，前端按不了）—— ✅ 已做 |
 
 ---
 
@@ -820,7 +821,7 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 |---|---|---|
 | **A4** | GSV 迁新版声明 | `engines/gpt-sovits/**` |
 | **A4''** | 向导补「钉版本 + 删 `.git`」 | `core/pin.js` |
-| **A7** | 第 3 步真下载（现在只打印命令） | `core/download.js` |
+| ~~**A7**~~ | ~~第 3 步真下载~~ ✅ **2026-10-24 三件已齐**（并发 6 + 使用者能按的取消 + 按文件分槽进度）| `core/download.js` · `editor/downloadQueue.js` · `editor/downloadRunner.js` |
 | **A8** | 权重下完对一次名（缺/多/后缀不符） | `core/checkpoints-audit.js` |
 | **A9** | 权重候选探针（自动发现，多源交叉） | `core/weight-discovery.js` |
 | **A10** | 名片表单三件套 + 三段分组 | `editor/ManifestForm.jsx` |
@@ -854,6 +855,25 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 其中 3 笔是另一个会话的（`b6f233e` / `52f08d4` / `c93fe65`）—— 两人在同一条历史上。
 
 ## §5.12 ⭐ 向导第 3 步：下载模型（统一落盘，2026-10-06 Owner 定方向）
+
+> ⚠️ **2026-10-24 落地订正 —— 本节是 2026-10-06 的原始计划，实际落地走的是另一条路。**
+> 保留原文是为了让「当时这么记」可追，**以订正为准**。
+>
+> | # | 2026-10-06 原计划 | 2026-10-24 实际落地 |
+> |---|---|---|
+> | 路线 | **spawn CLI**（`hf download` / `modelscope download` / `snapshot_download`），靠解析 stderr 的 tqdm 出进度 | ❌ **没走这条**。实际走**文件级 HTTP**：`POST /wizard/download/file`，一文件一个请求（`Range` 续传 + sha256 核对）。⭐ 理由：`spawn` 路线下「并发」没法做（一次只 spawn 一个进程），而文件级 HTTP 一文件一请求天然并发。⚠️ 原计划里那条 `fetch('/wizard/download')`（跑上游命令）在前端**从来走不到**（`runDownload` 的调用点全传文件对象，条件恒真）⇒ 是死代码，2026-10-24 已删 |
+> | 三件套 | 断点续传 · 并发 · 进度 | ✅ **全部落地**：断点续传（`Range` + `.tmp` 探测）· **并发（默认 6）** · 进度（按文件分槽显示） |
+> | 取消 | 计划里没写 | ✅ **2026-10-24 补上**（计划外但必要）：`POST /wizard/download/cancel` + 界面取消按钮。⭐ **暂停 ≠ 取消**：暂停只停前端派单（在途继续跑完，这是有意设计，界面已写明「当前文件完成后生效」）；取消才终止在途请求（落点在后端 `AbortController`，前端 abort fetch 只会断 SSE、**后端照跑到底**） |
+> | 验收点 ①②（提取命令 / snapshot_download） | 要跑 | ⛔ **未跑**：文件级 HTTP 路线不需要「提取下载命令」，但 README 提取那条路（`downloader_cmds`）仍在 `wizardbridge.js:270` 供展示 |
+> | 验收点 ③④⑥⑦ | 下完 / 落盘替换 / 半截续传 / 表格 UI | ✅ **已验**：真下 huggingface 144MB 文件 ⇒ 落盘 `engines/<id>/checkpoints/`、续传可用、取消后无残留 `.tmp`、可重下；界面按文件分槽显示进度 + 取消按钮 |
+> | 验收点 ⑤（`checkpointStatus` 三态） | 已下载/未下载/半截 | ✅ **已有**（`lib/engines/checkpoints.js:117` 的 `missing[]` + `ready` 三态） |
+> | 验收点 ⑧ | `npm test` 不新增失败 | ✅ **已验**：2026-10-24 读数 `2893 pass / 0 fail / 3 skipped`（3 skipped 是原有的） |
+> | ⛔ **仍未做** | — | ① **A7 验收点 ①**：拿 `cosyvoice-300m-sft` 当真实样本（2.2G）真下完 —— 本轮验的是 144MB 的 `openai/whisper-tiny`，**2.2G 那个没跑** ② **A7 验收点 ②**：`license_gate: true` 的引擎在点同意之前要报 401/403 并说清「那看着像网络故障，其实不是」—— `core/models.js` 文案已有，**尚未接上** |
+>
+> ⭐ **新增文件**（原计划的 scope 表里没有）：`editor/downloadQueue.js`（调度，默认并发 6）·
+> `editor/downloadRunner.js`（执行 + SSE 归并）·
+> `test/downloadCancel.node.test.js` · `test/downloadConcurrency.node.test.js` · `test/stepModelsWiring.node.test.js`
+> （三份守卫都带**变异检查** —— 改坏实现后守卫必须变红）。
 
 > **Owner 定的分法**：「统一的是落到引擎下面的目录」—— 落盘路径平台统一
 > （`engines/<id>/checkpoints/`），下载方式跟随上游（hf / modelscope /
