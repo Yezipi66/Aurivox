@@ -95,10 +95,13 @@ function parseTorchIndex (html, abi, platformTag) {
   const tags = new Set()
   if (typeof html !== 'string' || !html) return { versions: [], tags: [] }
   // wheel 文件名：torch-<版本>[+后缀]-<abi>-<abi2>-<平台>.whl
-  const re = /torch-([\d.]+)(?:\+[A-Za-z0-9.]+)?-(cp\d+)-cp\d+-([A-Za-z0-9_.]+)\.whl/g
+  //   后缀分隔符在 index 页面上有两种写法：链接文本里是字面 `+`，
+  //   href 属性里是 URL 编码的 `%2B`。两种都要认，
+  //   否则哪天页面只留一种，探测会静默地认为「没有可用版本」。
+  const re = /torch-([\d.]+)(?:\+|%2B)([A-Za-z0-9.]+)-(cp\d+)-cp\d+-([A-Za-z0-9_.]+)\.whl/gi
   let m
   while ((m = re.exec(html)) !== null) {
-    const [, ver, tag, plat] = m
+    const [, ver, , tag, plat] = m
     tags.add(tag)
     if (tag === abi && plat === platformTag) versions.add(ver)
   }
@@ -177,6 +180,11 @@ async function probeTorchVersion (opts = {}) {
   const parsed = parseTorchIndex(html, abi, plat)
   if (!parsed.versions.length) {
     // 索引抓到了，但没有匹配这个 ABI 与平台的轮子。
+    //   这个结论本身就是「上游钉的版本装不上」：整个 index 在这个 Python 上
+    //   一个轮子都没有，上游声明的版本必然不在其中。
+    //   要给建议就得从「这个 index 上有哪些版本」里挑一个能配这个 ABI 的，
+    //   而那要求换 ABI 或换 Python 版本，不是换 torch 版本能解决的。
+    //   所以这里不给 suggested，只如实报出「一个轮子都没有」。
     return {
       ok: false,
       backend,
@@ -187,6 +195,7 @@ async function probeTorchVersion (opts = {}) {
       declared: declared.version,
       declaredSource: declared.source,
       available: [],
+      availableTags: parsed.tags,
       reason: 'no-wheel-for-this-python',
     }
   }

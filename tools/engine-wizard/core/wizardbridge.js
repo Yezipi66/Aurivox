@@ -8,7 +8,7 @@ const path = require('node:path')
 
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
-const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
+const { runEnv, buildEnvPlan, probeTorchAvailability } = require('./env')
 const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile,
   removePartialFiles } = require('./download')
 const { describeModels, explainMissingInfo } = require('./models')
@@ -557,7 +557,10 @@ function handleEnv (req, res) {
       // 计划里带上 torch 版本探测的结果（上游钉的版本在本机后端上能不能用）。
       //   探测是联网的，失败或查不到都不影响计划本身。
       //   已经接受升级时不重复探测：建议前端已经拿着（它在执行请求里回传）。
-      suggestTorchUpgrade(input.upgradeTorch === true ? null : input).then((suggestion) => {
+      //   用完整版探测：连「没能确认」也报出来。
+      //   探测不到就静默放行的话，使用者会撞上 uv 的原始报错，
+      //   而那个报错看不出真因是版本与后端/ABI 不匹配。
+      probeTorchAvailability(input.upgradeTorch === true ? null : input).then((suggestion) => {
         const r = buildEnvPlan(input)
         if (suggestion && r.ok) r.torchSuggestion = suggestion
         json(res, r.ok ? 200 : 400, r)
