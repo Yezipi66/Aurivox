@@ -278,6 +278,52 @@ function canUseEngineVenv (root, id) {
 }
 
 /**
+ * 从 requires-python 的区间里挑一个具体的主次版本。
+ *
+ * 规则：**优先选区间内最高的版本**。
+ *   `>=3.10,<3.12` ⇒ 3.11（上界排他，所以取上界减一）
+ *   `>=3.10,<3.13` ⇒ 3.12
+ *   `>=3.10,<=3.12` ⇒ 3.12（上界包容，取上界本身）
+ *   `>=3.10` ⇒ 3.10（没有上界就没有「最高」可取，取下界）
+ *   `==3.11.*` / `~=3.11` / `3.11` ⇒ 3.11
+ *
+ * 为什么取最高而不是最低：区间表达的是「这一族都能跑」，而上游通常是在
+ * 较新的 Python 上测试的。取区间内最高的版本，才落在上游真正测过的那一档；
+ * 取下界反而可能撞上上游没测过的旧版本。
+ * Python 的 wheel ABI 按主次版本分，所以只需要主次版本。
+ *
+ * @param {string} spec requires-python 的原始值
+ * @returns {string|null} '3.11' 这样的主次版本；解析不出来返回 null
+ */
+function pickFromRequiresPython (spec) {
+  const s = String(spec || '').trim()
+  if (!s) return null
+
+  // 单版本形态：==3.11 / ==3.11.* / ~=3.11 / 3.11
+  const eq = s.match(/^(?:==|~=)?\s*(\d+)\.(\d+)/)
+  if (eq && !s.includes('>') && !s.includes('<')) {
+    return `${eq[1]}.${eq[2]}`
+  }
+
+  // 上界：<3.12（排他）要减一；<=3.12（包容）取本值
+  const upper = s.match(/<=\s*(\d+)\.(\d+)/)
+  const upperExclusive = upper || s.match(/<\s*(\d+)\.(\d+)/)
+  if (upperExclusive) {
+    const [, maj, min] = upperExclusive
+    if (upper) return `${maj}.${min}`
+    // 排他上界：最高可选是上界的前一个次版本
+    const m = Number(min)
+    return m > 0 ? `${maj}.${m - 1}` : `${Number(maj) - 1}.0`
+  }
+
+  // 只有下界：取下界
+  const lower = s.match(/>=\s*(\d+)\.(\d+)/)
+  if (lower) return `${lower[1]}.${lower[2]}`
+
+  return null
+}
+
+/**
  * 读这台引擎自己声明的 Python 版本。
  *
  * 两个来源，同一优先级：根目录的 .python-version 文件（上游钉死的那个版本），
@@ -295,17 +341,13 @@ function readEnginePythonVersion (dir) {
     if (m) return { version: `${m[1]}.${m[2]}`, source: 'python-version' }
   } catch (e) { /* 没有这个文件就往下看 */ }
 
-  // 来源二：pyproject.toml 的 requires-python。
-  // 区间形态（>=3.10,<3.12）取下界的主次版本：那是上游声明的最低可用版本，
-  // 而 Python 的 wheel ABI 只按主次版本分。
+  // 来源二：pyproject.toml 的 requires-python。区间取区内最高的那个版本。
   try {
     const raw = fs.readFileSync(path.join(dir, 'pyproject.toml'), 'utf8')
     const m = raw.match(/^\s*requires-python\s*=\s*["']([^"']+)["']/m)
     if (m) {
-      const lo = m[1].match(/>=\s*(\d+)\.(\d+)/)
-      if (lo) return { version: `${lo[1]}.${lo[2]}`, source: 'requires-python' }
-      const eq = m[1].match(/^==\s*(\d+)\.(\d+)/)
-      if (eq) return { version: `${eq[1]}.${eq[2]}`, source: 'requires-python' }
+      const picked = pickFromRequiresPython(m[1])
+      if (picked) return { version: picked, source: 'requires-python' }
     }
   } catch (e) { /* 没有 pyproject 就往下看 */ }
 
@@ -369,6 +411,7 @@ function platformPythonAbs (root, opts = {}) {
  *
  * 解释器的选法（规范，不猜）：
  *   ① 引擎自己声明了 Python 版本（.python-version 或 requires-python）⇒ 用它；
+ *     requires-python 是区间时取**区间内最高的那个版本**（见 pickFromRequiresPython）。
  *   ② 引擎没声明 ⇒ 用平台基座（3.11）；
  *   ③ 连平台基座都拿不到 ⇒ 报出来，不回落去任意版本的解释器。
  * 第③条是硬的：回落等于把「版本不匹配」这个错误推迟到装依赖那一步，
@@ -466,6 +509,7 @@ module.exports = {
   platformPythonAbs,
   supportsVersion,
   readEnginePythonVersion,
+  pickFromRequiresPython,
   PLATFORM_BASE_PYTHON,
   buildVenvStep,
   withTargetPython,

@@ -279,12 +279,51 @@ test('引擎声明了 Python 版本 ⇒ 环境用声明的那个（pyproject 的
     '[project]\nname = "x"\nrequires-python = ">=3.10,<3.12"\n')
   const p = planOf(root, 'demo12', {})
   assert.strictEqual(p.ok, true, p.error)
-  assert.strictEqual(p.pythonVersion, '3.10',
-    `区间形态取下界的主次版本：${JSON.stringify(p.pythonVersion)}`)
+  assert.strictEqual(p.pythonVersion, '3.11',
+    `区间形态取区内最高的版本（<3.12 排他 ⇒ 3.11）：${JSON.stringify(p.pythonVersion)}`)
   assert.strictEqual(p.pythonVersionSource, 'requires-python')
   const build = envStepsOf(p)[0]
-  assert.strictEqual(build.argv[build.argv.indexOf('--python') + 1], '3.10',
+  assert.strictEqual(build.argv[build.argv.indexOf('--python') + 1], '3.11',
     `建环境那步必须带上声明的版本：${build.argv.join(' ')}`)
+})
+
+// requires-python 区间的取值规则：取区内最高的版本。
+test('requires-python 区间取区内最高的版本', () => {
+  const { pickFromRequiresPython } = require('../core/envDetect.js')
+  const cases = [
+    // 上界排他：取上界减一
+    ['>=3.10,<3.12', '3.11'],
+    ['>=3.10,<3.13', '3.12'],
+    ['>=3.9,<3.11', '3.10'],
+    // 上界包容：取上界本身
+    ['>=3.10,<=3.12', '3.12'],
+    ['>=3.10,<=3.13', '3.13'],
+    // 只有下界：没有「最高」可取，取下界
+    ['>=3.10', '3.10'],
+    ['>=3.11', '3.11'],
+    // 单版本形态
+    ['==3.11', '3.11'],
+    ['==3.11.*', '3.11'],
+    ['~=3.11', '3.11'],
+    ['3.12', '3.12'],
+    // 上界减一要跨主版本时
+    ['>=3.9,<3.10', '3.9'],
+  ]
+  for (const [spec, want] of cases) {
+    assert.strictEqual(pickFromRequiresPython(spec), want,
+      `${spec} ⇒ 应当是 ${want}`)
+  }
+})
+
+test('requires-python 解析不出来 ⇒ 返回 null（不猜版本）', () => {
+  const { pickFromRequiresPython } = require('../core/envDetect.js')
+  for (const spec of ['', '   ', '>=3.10', null, undefined, 'garbage']) {
+    const r = pickFromRequiresPython(spec)
+    assert.ok(r === null || r === '3.10',
+      `${JSON.stringify(spec)} ⇒ 要么解析不出，要么是明确的下界，实际 ${r}`)
+  }
+  assert.strictEqual(pickFromRequiresPython(''), null)
+  assert.strictEqual(pickFromRequiresPython('garbage'), null)
 })
 
 test('引擎没声明版本 ⇒ 计划里说清用的是平台基座版本', () => {
