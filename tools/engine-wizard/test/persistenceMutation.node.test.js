@@ -65,13 +65,25 @@ async function mutateAndProbe (src, patchFn, probe) {
   const copy = path.join(sandbox, path.basename(src))
   try {
     fs.writeFileSync(copy, mutated, 'utf8')
-    // 它 import 的兄弟模块也要复制过去（相对 import 按副本所在目录解析）
-    for (const rel of [/from '\.\/([\w.-]+\.js)'/g]) {
+    // 它引用的兄弟模块也要复制过去（相对引用按副本所在目录解析）。
+    //   ESM：import ... from './x.js'
+    //   CJS：require('./x.js') 与 require('./x')
+    //   两种都要复制：CommonJS 的模块顶层 require 一旦缺文件就直接炸，
+    //   而这类依赖以前多半藏在函数体内的 try/catch 里，缺了也不报错。
+    //   依赖名不带扩展名时，落盘的文件名要补 .js：require('./x') 解析的是 x.js。
+    const relRefs = [
+      /from '\.\/([\w.-]+\.js)'/g,
+      /require\('\.\/([\w.-]+)'\)/g,
+    ]
+    for (const rel of relRefs) {
       let mm
       while ((mm = rel.exec(mutated)) !== null) {
         const dep = path.join(path.dirname(src), mm[1])
-        if (fs.existsSync(dep)) {
-          fs.copyFileSync(dep, path.join(sandbox, mm[1]))
+        const depJs = path.join(path.dirname(src), mm[1] + '.js')
+        const real = fs.existsSync(dep) ? dep
+          : (fs.existsSync(depJs) ? depJs : null)
+        if (real) {
+          fs.copyFileSync(real, path.join(sandbox, path.basename(real)))
         }
       }
     }
