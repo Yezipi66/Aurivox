@@ -41,7 +41,7 @@ function installDecision (suggestion, answered) {
   }
 }
 
-export { installDecision }
+export { installDecision, TorchUpgradeDialog }
 
 export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
