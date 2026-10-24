@@ -91,8 +91,12 @@ export default function ManifestPage ({
   }
 
   return (
-    // SaveBar 用内联 sticky 定位，一次性布局定位是样式铁律允许的唯一 inline 场景。
-    <div className="workspace-grid">
+    // 容器用 .wz-manifest-layout（editor.css），不用项目的 .workspace-grid：
+    // .workspace-grid 自己就是两列 grid（minmax(0,1fr) 380px），
+    // 三栏容器放进去会被塞进它的第一列 ⇒ 中栏只剩 958px 里的 302px，
+    // 剩下那一大片是右栏的空位。三个栏自己排版，不需要外层再来一列。
+    // SaveBar 跨栏 sticky bottom，永远可见。
+    <div className="wz-manifest-layout">
       <ThreeZone
         left={
           <EngineScanZone
@@ -138,9 +142,8 @@ export default function ManifestPage ({
         }
         right={
           <div className="workspace-right">
-            {/* props 名必须是 result：组件签名是 ({ result, loading })，
-                 传成 diag= 的话诊断面板永远不显示 */}
-            <Diagnostics result={diag} loading={loading} />
+            {/* 预览在前：右栏是「当前项目的前端预览」这一栏，
+                诊断是附带的说明，不该把首屏占住。 */}
             {manifest
               ? <PanelPreview manifest={manifest} />
               : (
@@ -154,23 +157,17 @@ export default function ManifestPage ({
                   </div>
                 </div>
                 )}
+            {/* props 名必须是 result：组件签名是 ({ result, loading })，
+                 传成 diag= 的话诊断面板永远不显示 */}
+            <Diagnostics result={diag} loading={loading} />
           </div>
         } />
 
       {/* SaveBar：跨栏 sticky bottom，永远可见。
-          跨栏做法：sticky 容器放在 workspace-grid 之后、独立成行，
+          跨栏做法：sticky 容器放在三栏之后、独立成行，
             position:sticky + bottom:0 ⇒ 滚动到底部时吸底常驻。
           不放进任何一栏内部：那会让它只跟着那一栏滚。 */}
-      <div style={{
-        gridColumn: '1 / -1',
-        position: 'sticky',
-        bottom: 0,
-        zIndex: 5,
-        background: 'var(--panel)',
-        borderTop: '1px solid var(--border)',
-        padding: '8px 0',
-        marginTop: 4,
-      }}>
+      <div className="wz-savebar-row">
         <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
       </div>
     </div>

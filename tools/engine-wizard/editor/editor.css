@@ -90,8 +90,29 @@
 }
 
 /* ---- 三栏（第 4 步：左栏扫到的参数 / 中栏名片内容 / 右栏预览） ---- */
-/* 三栏容器：项目的 .workspace-grid 写死两列，三栏要多一列，
-   所以这里另起一个网格。栏宽：左栏窄（参数名不长），中栏最宽，
+/* 名片页的外层：只做一件事——让三栏占满整行，SaveBar 另起一行吸底。
+   不能用项目的 .workspace-grid：那本身就是两列 grid
+   （minmax(0,1fr) 380px），三栏容器放进去会被塞进它的第一列，
+   中栏只剩第一列宽度里的一部分，右侧空出一大片。 */
+.wz-manifest-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* SaveBar 那一行：跨栏 sticky bottom，滚动到底时仍可见。 */
+.wz-savebar-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+  margin-top: 4px;
+}
+
+/* 三栏容器：栏宽左窄（参数名不长）、中栏最宽（表单最挤）、
    右栏与项目的 .workspace-right 同宽（380px）。 */
 .wz-three-zone {
   display: grid;
