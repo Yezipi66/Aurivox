@@ -356,7 +356,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
     const expectedSize = Number(file && file.size ? file.size : 0)
 
     // 取消：信号在请求发出前就被触发 ⇒ 什么都不做，直接报取消。
-    //   不留半截文件，也不把半截文件当成续传起点。
+    //   不留下未完成的文件，也不把未完成的文件当成续传起点。
     if (signal && signal.aborted) {
       resolve({ ok: false, code: 'CANCELLED', status: null,
         error: 'Download was cancelled.', errorZh: '下载已取消。' })
@@ -496,9 +496,9 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       resolve({ ok: false, code: 'TIMEOUT', status: null, error: 'Download timed out' })
     })
 
-    // 取消：中断 HTTP 请求，删掉半截文件，报 CANCELLED。
-    //   删掉 .tmp 而不是留着：留着会被下一次下载当成续传起点，
-    //   而使用者按下取消的意思是「这个文件别下了」，不是「下到一半留着」。
+    // 取消：中断 HTTP 请求，删掉未完成的文件，报 CANCELLED。
+    //   删掉未完成的文件而不是保留：保留的文件会被下一次下载当成续传起点，
+    //   而使用者按下取消的意思是「这个文件别下了」，不是「下到一半保留」。
     if (signal) {
       const onAbort = () => {
         try { req.destroy() } catch (e) { /* 已结束 */ }
@@ -509,11 +509,10 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       signal.addEventListener('abort', onAbort, { once: true })
       // 请求自己结束时摘掉监听：否则 signal 上会一直挂着一个闭包，
       //   而 signal 本身要活到整轮下载结束，闭包越挂越多。
-      const cleanup = () => {
+      //   只挂 req：res 是 client.get 回调里的参数，在这一层拿不到。
+      req.on('close', () => {
         try { signal.removeEventListener('abort', onAbort) } catch (e) { /* 忽略 */ }
-      }
-      req.on('close', cleanup)
-      res.on('close', cleanup)
+      })
     }
   })
 }
