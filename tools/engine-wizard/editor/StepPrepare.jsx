@@ -5,6 +5,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { folderName } from './folderName'
+import { postJson } from './postJson'
 
 /** 从链接里推断项目名：目录名留空时做灰字预览；真正的 id 来自 resolve 端点。 */
 /** 后端错误的双语文案表：键名 = 后端 code；新增错误时先放 core，再来这里加两行。 */
@@ -40,6 +41,16 @@ const ERR_TEXT = {
   RESERVED_NAME: [
     '"{name}" is reserved by the platform — pick another name.',
     '"{name}" 是平台保留的目录名，换一个。'],
+  // 请求本身未走通（服务未能启动、连接被拒、响应不是 JSON）。
+  // 这两种过去会让界面停在「正在读…」且不显示任何原因。
+  REQUEST_FAILED: [
+    'Could not reach the platform service ({path}). Check that it is running, then try again.',
+    '连不上平台服务（{path}）。请检查平台服务是否在运行，然后重试。'],
+  BAD_RESPONSE: [
+    'The platform service ({path}) returned a response that is not JSON (HTTP {status}). '
+      + 'Check that it is running normally, then try again.',
+    '平台服务（{path}）返回的不是 JSON 响应（HTTP {status}）。'
+      + '请检查平台服务是否正常，然后重试。'],
 }
 
 /** 取后端错误的文案。查不到就退回它自带的 error（兜底，不是常规路径）。 */
@@ -95,14 +106,18 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const setPlan = (v) => patch('plan', v)
   const setCloneRes = (v) => patch('cloneRes', v)
 
-  const post = async (path_, body) => {
-    const r = await fetch(path_, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return r.json()
-  }
+  /**
+   * 发一个 POST 请求，把失败也变成**可读的结论**。
+   *
+   * 失败分两类，都要在这里收口，不允许让异常冒出去：
+   *   ① 网络层失败（连接被拒、DNS 失败、请求超时）⇒ fetch 抛。
+   *   ② 响应不是 JSON（服务端返回 HTML 错误页、网关返回纯文本）⇒ r.json() 抛。
+   * 这两类过去会让调用方的 `setBusy('')` 执行不到 ⇒ 界面停在「正在读…」，
+   *   而且一个字的错误提示都没有 ⇒ 使用者看不出出了什么事。
+   *
+   * 判据放在 editor/postJson.js（可单测），这里只做转发。
+   */
+  const post = (path_, body) => postJson(path_, body)
 
   // 不填目录名时的默认值 = 仓库根链接的最后一段。state.id 不作来源（旧 id 会造成双 id）。
   // 这一行同时喂给克隆请求、命令文案、目标路径与风险文案。
@@ -112,41 +127,52 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   // ① 解析（本地，不联网），紧接着做一次只读探测
   const resolve = async () => {
     setBusy('link')
-    // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
-    const j = await post('/wizard/resolve', {
-      url, id: (idInput.trim() || undefined),
-    })
-    // 必须打 /wizard/probe（返回 meta）；/wizard/deps 只返回 deps。
-    let probeJ = null
-    if (j.ok) {
-      try { probeJ = await post('/wizard/probe', { url: j.url }) }
-      catch (e) { /* 探测失败不阻断：克隆那步照样能看 */ }
+    try {
+      // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
+      const j = await post('/wizard/resolve', {
+        url, id: (idInput.trim() || undefined),
+      })
+      // 解析失败（链接不合法、服务未能启动）⇒ 如实报出来，不往下走。
+      if (!j.ok) {
+        onPrep((w) => ({ ...w, res: { ...j, input: url } }))
+        return
+      }
+      // 必须打 /wizard/probe（返回 meta）；/wizard/deps 只返回 deps。
+      //   探测失败不阻断：克隆那步照样能看。
+      let probeJ = null
+      try { probeJ = await post('/wizard/probe', { url: j.url }) } catch (e) { /* 探测失败不阻断 */ }
+      const resolvedName = folderName({ typed: idInput, suggested: j.id })
+      onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
+      if (j.ok) {
+        if (!idInput.trim()) setIdInput(j.id)
+        onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
+        // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
+        // 等使用者点了「下一步」才说就来不及了。
+        // 这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
+        try {
+          const p = await post('/wizard/clone', {
+            id: resolvedName, cloneUrl: j.cloneUrl,
+          })
+          setPlan(p)
+        } catch (e) { /* 查不到就按普通克隆走，不阻断 */ }
+      }
+    } finally {
+      // 这一行必须在 finally 里：请求失败时也要把「正在读…」撤掉，
+      //   否则界面会永远停在那个提示上，而使用者看不到任何原因。
+      setBusy('')
     }
-    const resolvedName = j.ok ? folderName({ typed: idInput, suggested: j.id }) : ''
-    onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
-    if (j.ok) {
-      if (!idInput.trim()) setIdInput(j.id)
-      onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
-      // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
-      // 等使用者点了「下一步」才说就来不及了。
-      // 这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
-      try {
-        const p = await post('/wizard/clone', {
-          id: resolvedName, cloneUrl: j.cloneUrl,
-        })
-        setPlan(p)
-      } catch (e) { /* 查不到就按普通克隆走，不阻断 */ }
-    }
-    setBusy('')
   }
 
   // ② 探测（只读，不写盘）
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
-    const j = await post('/wizard/probe',
-      { url: state.repoUrl || (res && res.url) || url })
-    setProbe(j)
-    setBusy('')
+    try {
+      const j = await post('/wizard/probe',
+        { url: state.repoUrl || (res && res.url) || url })
+      setProbe(j)
+    } finally {
+      setBusy('')
+    }
   }
 
   // ③ 克隆（这一步才写盘）
