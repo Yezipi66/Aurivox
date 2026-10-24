@@ -1,6 +1,8 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
+import { DEFAULT_CONCURRENCY } from './downloadQueue'
+import { downloadFiles } from './downloadRunner'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -57,10 +59,27 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 下载状态（SSE 流式）。
   // 声明必须在使用之前：下面的 useEffect 引用了 dlLive，
   // 声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）。
-  const [dlLive, setDlLive] = React.useState(null)
-  const [dlTail, setDlTail] = React.useState([])
+  //
+  // 下载活动按文件分槽记在 dlFiles 里：一个文件名对应一条。
+  //   为什么不记成一条全局的进度：同时下几个文件时，全局那条会被后到的进度盖掉，
+  //   界面上只剩最后一个文件的进度，其余几个看着像没动。
+  //   单文件下载也走这张表（只有一个条目），两处逻辑因此是同一套。
+  const [dlFiles, setDlFiles] = React.useState({})
   const [dlBusy, setDlBusy] = React.useState(false)
-  const [dlProgress, setDlProgress] = React.useState(null)
+  const [dlSummary, setDlSummary] = React.useState(null)
+
+  // 整轮下载的汇总（单文件下载时是那一个文件的结果）。
+  // dlLive 是它的旧名字，保留是为了少改调用点：内容仍是一句话的状态。
+  const dlLive = dlSummary
+
+  // 进行中的文件条目：每个文件一条进度。
+  //   同时下几个文件时，只有一条全局进度的话，界面上只剩最后一个文件的进度，
+  //   其余几个看着像没动。所以进度按文件名分槽，各占一行。
+  const dlEntries = Object.entries(dlFiles)
+
+  // 取消：前端只发取消信号，真正的中断由后端做。
+  //   前端自己 abort fetch 是不够的：SSE 断了不代表后端的请求停了。
+  const dlCancelRef = React.useRef(false)
 
   // 远端文件列表（来自 /wizard/download/manifest）
   const [manifest, setManifest] = React.useState(null)
@@ -98,7 +117,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       .then((j) => {
         if (j.ok && Array.isArray(j.done) && j.done.length > 0) {
           // 有已完成的命令 → 标记为「已下载」
-          setDlLive({ stage: 'done', ok: true })
+          setDlSummary({ stage: 'done', ok: true })
         }
       })
       .catch(() => { /* 读不到进度文件 ⇒ 没有已下载的 */ })
@@ -207,49 +226,95 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     return merged
   }
 
-  // 下载全部：遍历所有 missing/partial 文件，逐个下载。
-  // 用 ref 追踪下载状态，避免闭包读到旧的 state 值。
+  // 下载全部：把没下载完的文件一次性交给执行器，它按并发上限分批派。
+  //   用 ref 追踪下载状态，避免闭包读到旧的 state 值。
   const dlBusyRef = React.useRef(false)
-  // 暂停只停前端的逐个文件循环，不杀进程：当前文件下载中杀进程会留下不完整的文件，
-  // 而 hf 自带缓存，重跑同一条命令只补缺的部分。
+  // 暂停只停前端的派单，不终止在途的请求：当前文件下载中杀进程会留下不完整的文件，
+  // 而远端下载器自带缓存，重跑同一条命令只补缺的部分。
   // 所以界面上必须写清楚「当前文件下载中，暂停将在当前文件完成后生效」，
   // 不写清楚就是让使用者以为点了就停。
   const dlPausedRef = React.useRef(false)
   const [dlPaused, setDlPaused] = React.useState(false)
+
+  // 某个文件的进度：按文件名分槽，同时下几个文件时互不覆盖。
+  const setFileProgress = (name, ev) => {
+    setDlFiles((prev) => ({
+      ...prev,
+      [name]: { ...(prev[name] || {}), percent: ev.percent, downloaded: ev.downloaded, total: ev.total },
+    }))
+  }
+
+  // 某个文件结束：记下结果，成功就把这一行的状态改成「已下载」。
+  const setFileDone = (name, result) => {
+    setDlFiles((prev) => ({
+      ...prev,
+      [name]: { ...(prev[name] || {}), done: true, ok: result && result.ok === true, error: result && result.error },
+    }))
+    if (result && result.ok && id) {
+      // 下载完成后自动刷新清单（合并刷新，不整表覆盖）
+      fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
+        .then((r) => r.json())
+        .then((j) => { if (j.ok) setFileList(j.files) })
+        .catch(() => { /* 读不到 ⇒ 空列表 */ })
+    }
+  }
+
   const downloadAll = () => {
     if (!manifest || manifest.length === 0) return
     const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
     if (filesToDownload.length === 0) return
     dlBusyRef.current = true
     dlPausedRef.current = false
+    dlCancelRef.current = false
     setDlPaused(false)
-    setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
-    let idx = 0
-    const downloadNext = () => {
-      if (idx >= filesToDownload.length || dlPausedRef.current) {
-        dlBusyRef.current = false
-        setDlLive(dlPausedRef.current ? { stage: 'paused' } : { stage: 'done', ok: true })
-        setDlBusyBoth(false)
-        return
+    setDlBusyBoth(true)
+    setDlSummary({ stage: 'start' })
+    setDlFiles({})
+    runDownloads(filesToDownload)
+  }
+
+  // 执行一批下载：单文件与「下载全部」共用这一条路，界面逻辑因此是同一套。
+  const runDownloads = (files) => {
+    downloadFiles({
+      id,
+      root: window.__PROJECT_ROOT__ || '',
+      files,
+      concurrency: DEFAULT_CONCURRENCY,
+      shouldStop: () => dlPausedRef.current || dlCancelRef.current,
+      onProgress: setFileProgress,
+      onDone: setFileDone,
+    }).then((r) => {
+      dlBusyRef.current = false
+      setDlBusyBoth(false)
+      if (dlCancelRef.current) {
+        setDlSummary({ stage: 'cancelled' })
+      } else if (dlPausedRef.current) {
+        setDlSummary({ stage: 'paused' })
+      } else if (r.ok) {
+        setDlSummary({ stage: 'done', ok: true })
+      } else {
+        setDlSummary({ stage: 'done', ok: false, error: r.firstError, errorZh: r.firstErrorZh })
       }
-      const f = filesToDownload[idx]
-      const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
-      idx++
-      runDownload(cmd, f)
-      // 等待当前文件下载完成后再下载下一个
-      const checkDone = setInterval(() => {
-        if (!dlBusyRef.current) {
-          clearInterval(checkDone)
-          downloadNext()
-        }
-      }, 500)
-    }
-    downloadNext()
+    })
   }
 
   const pauseDownload = () => {
     dlPausedRef.current = true
     setDlPaused(true)
+  }
+
+  // 取消：停掉整轮下载。
+  //   前端只负责不再派新任务并通知后端；真正的中断由后端做
+  //   （前端 abort fetch 只是断了 SSE，后端的请求照跑）。
+  const cancelDownload = () => {
+    dlCancelRef.current = true
+    dlPausedRef.current = true
+    setDlPaused(true)
+    fetch('/wizard/download/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).catch(() => { /* 取消信号发不出去也不影响界面状态 */ })
   }
 
   // 删掉一个不完整的文件，让它回到「未下载」。走同一个 checkFileStatus 判据（后端），
@@ -283,117 +348,18 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
   // 不用 await：await 会阻塞 UI，用户要等下载完成才能做其他事。
   const setDlBusyBoth = (v) => { dlBusyRef.current = v; setDlBusy(v) }
+  // 单文件下载：表格里的「下载 / 续传 / 重下」按钮走这里。
+  //   与「下载全部」共用 runDownloads，因此进度分槽、取消、收口是同一套逻辑。
   const runDownload = (c, file) => {
-    setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
-    // 如果有文件信息，使用文件级下载端点（支持断点续传）
-    if (file && file.name) {
-      fetch('/wizard/download/file', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id,
-          root: window.__PROJECT_ROOT__ || '',
-          repo: c.repo,
-          file: { name: file.name, size: file.size, sha256: file.sha256 },
-        }),
-      }).then((resp) => {
-        if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusyBoth(false); return }
-        const reader = resp.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        const pump = () => reader.read().then(({ done, value }) => {
-          if (done) { setDlBusyBoth(false); return }
-          buf += decoder.decode(value, { stream: true })
-          let sep
-          while ((sep = buf.indexOf('\n\n')) >= 0) {
-            const raw = buf.slice(0, sep); buf = buf.slice(sep + 2)
-            const dl = raw.split('\n').find((l) => l.startsWith('data: '))
-            if (!dl) continue
-            let ev
-            try { ev = JSON.parse(dl.slice(6)) } catch (e) { continue }
-            if ('text' in ev) {
-              setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
-              setDlTail((t) => [...t.slice(-39), ev.text])
-            } else if ('percent' in ev) {
-              setDlProgress({ file: ev.file || '', percent: ev.percent || 0, downloaded: ev.downloaded || '', total: ev.total || '' })
-            } else if ('ok' in ev || 'error' in ev) {
-              setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
-              setDlBusyBoth(false)
-              setDlProgress(null)
-              // 下载完成后自动刷新 manifest（合并刷新，不整表覆盖）
-              if (ev.ok && id) {
-                const refreshTool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
-                fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${refreshTool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
-                  .then((r) => r.json())
-                  .then((j) => { if (j.ok) setManifest((prev) => mergeManifest(prev, j.files, c.repo, refreshTool)) })
-                  .catch(() => { /* 读不到 ⇒ 保留旧表 */ })
-              }
-            }
-          }
-          pump()
-        }).catch((e) => {
-          setDlLive({ stage: 'error', error: e.message })
-          setDlBusyBoth(false)
-        })
-        pump()
-      }).catch((e) => {
-        setDlLive({ stage: 'error', error: e.message })
-        setDlBusyBoth(false)
-      })
-      return
-    }
-    // 路径由后端 unifyDest 统一处理，前端只传原始命令。
-    // buildCommand 返回原始命令：local_dir='checkpoints' 是 Windows 上会按 cwd 解析的相对正斜杠路径，
-    //   落盘位置仍由后端按 path.join 拼，不依赖前端给的这一段。
-    // 用 buildCommand 统一构建，确保执行和展示一致。
-    const { argv } = buildCommand(c)
-    // 不 await：下载在后台跑，用户可以随时进入第 4 步
-    fetch('/wizard/download', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
-    }).then((resp) => {
-      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusyBoth(false); return }
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      const pump = () => reader.read().then(({ done, value }) => {
-        if (done) { setDlBusyBoth(false); return }
-        buf += decoder.decode(value, { stream: true })
-        let sep
-        while ((sep = buf.indexOf('\n\n')) >= 0) {
-          const raw = buf.slice(0, sep); buf = buf.slice(sep + 2)
-          const dl = raw.split('\n').find((l) => l.startsWith('data: '))
-          if (!dl) continue
-          let ev
-          try { ev = JSON.parse(dl.slice(6)) } catch (e) { continue }
-          if ('text' in ev) {
-            setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
-            setDlTail((t) => [...t.slice(-39), ev.text])
-          } else if ('percent' in ev) {
-            setDlProgress({ file: ev.file || '', percent: ev.percent || 0, downloaded: ev.downloaded || '', total: ev.total || '' })
-          } else if ('ok' in ev || 'error' in ev) {
-            setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
-            setDlBusyBoth(false)
-            setDlProgress(null)
-            // 下载完成后自动调 /wizard/download/files 逐文件校验。
-            // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-            if (ev.ok && id) {
-              fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
-                .then((r) => r.json())
-                .then((j) => { if (j.ok) setFileList(j.files) })
-                .catch(() => { /* 读不到 ⇒ 空列表 */ })
-            }
-          }
-        }
-        pump()
-      }).catch((e) => {
-        setDlLive({ stage: 'error', error: e.message })
-        setDlBusyBoth(false)
-      })
-      pump()
-    }).catch((e) => {
-      setDlLive({ stage: 'error', error: e.message })
-      setDlBusyBoth(false)
-    })
+    if (!file || !file.name) return
+    dlBusyRef.current = true
+    dlPausedRef.current = false
+    dlCancelRef.current = false
+    setDlPaused(false)
+    setDlBusyBoth(true)
+    setDlSummary({ stage: 'start' })
+    setDlFiles({})
+    runDownloads([{ ...file, repo: file.repo || c.repo, tool: file.tool || c.tool }])
   }
 
   // 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/。
@@ -425,10 +391,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               type="button"
               disabled={dlBusy}
               onClick={downloadAll}
+              style={{ flexShrink: 0 }}
             >
               {t('Download all', '下载全部')}
             </button>
-            {/* 暂停只停前端的逐个文件循环，不杀进程。文案必须写清楚
+            {/* 暂停只停前端的派单，不终止在途的请求。文案必须写清楚
                 「当前文件下载中，暂停将在当前文件完成后生效」，不写就是欺骗。 */}
             {dlBusy && (
               <button
@@ -436,24 +403,47 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 type="button"
                 disabled={dlPaused}
                 onClick={pauseDownload}
+                style={{ flexShrink: 0 }}
               >
                 {t('Pause', '暂停')}
+              </button>
+            )}
+            {/* 取消与暂停是两件事：取消会终止在途的请求，
+                已经下载完成的文件保留，未完成的文件不保留。 */}
+            {dlBusy && (
+              <button
+                className="btn btn-sm btn-danger"
+                type="button"
+                disabled={dlCancelRef.current}
+                onClick={cancelDownload}
+                style={{ flexShrink: 0 }}
+              >
+                {t('Cancel', '取消')}
               </button>
             )}
           </div>
           {dlBusy && (
             <div className="field-hint" style={{ marginBottom: 8 }}>
-              {t('A file is downloading now. Pausing takes effect after the '
-                + 'current file finishes — the download process is not killed, '
-                + 'so resuming reuses what has already been fetched.',
-                '当前文件下载中，暂停将在当前文件完成后生效。'
-                + '暂停不会杀掉下载进程，因此续跑时会复用已下载的部分。')}
+              {t(`Downloading up to ${DEFAULT_CONCURRENCY} files at a time. `
+                + 'Pausing takes effect after the current files finish — '
+                + 'the download requests are not terminated, so resuming reuses '
+                + 'what has already been fetched.',
+                `同时最多下载 ${DEFAULT_CONCURRENCY} 个文件。`
+                + '暂停将在当前这些文件下载完成后生效。'
+                + '暂停不会终止下载请求，因此续跑时会复用已下载的部分。')}
             </div>
           )}
           {dlLive && dlLive.stage === 'paused' && (
             <div className="msg msg-info">
               {t('Paused. The remaining files are still marked as not downloaded.',
                 '已暂停。剩余文件仍标记为未下载。')}
+            </div>
+          )}
+          {dlLive && dlLive.stage === 'cancelled' && (
+            <div className="msg msg-info">
+              {t('Cancelled. Files that finished downloading are kept; '
+                + 'the ones that did not are marked as not downloaded.',
+                '已取消。已下载完成的文件保留，未完成的文件标记为未下载。')}
             </div>
           )}
           <table className="table">
@@ -590,37 +580,37 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </label>
       )}
 
-      {/* 进度条 */}
+      {/* 进度条：每个文件一条。同时下几个文件时，一条全局进度
+          会让其余几个看着像没动，所以这里按文件名分槽。 */}
       {dlBusy && (
         <div className="preflight" style={{ marginTop: 8 }}>
           <div className="layer-label">
-            {dlProgress
-              ? t(`Downloading ${dlProgress.file} (${dlProgress.percent}%)`, `正在下载 ${dlProgress.file} (${dlProgress.percent}%)`)
-              : (dlLive && dlLive.stage === 'line'
-                ? t('Downloading…', '下载中…')
-                : t('Starting…', '启动中…'))}
+            {dlEntries.length > 0
+              ? t(`Downloading ${dlEntries.length} file(s)…`, `正在下载 ${dlEntries.length} 个文件…`)
+              : t('Starting…', '启动中…')}
           </div>
-          {dlProgress ? (
-            <>
-              <div className="wz-progress">
-                <div className="wz-progress-bar" style={{ width: `${dlProgress.percent}%` }} />
+          {dlEntries.length > 0
+            ? dlEntries.map(([name, p]) => (
+              <div key={name} style={{ marginTop: 6 }}>
+                <div className="field-hint" style={{ marginTop: 0 }}>
+                  {p.done
+                    ? (p.ok
+                      ? t(`${name} — done`, `${name} — 完成`)
+                      : t(`${name} — failed: ${p.error || ''}`, `${name} — 失败：${p.error || ''}`))
+                    : t(`Downloading ${name} (${p.percent || 0}%)`, `正在下载 ${name} (${p.percent || 0}%)`)}
+                </div>
+                {!p.done && (
+                  <div className="wz-progress">
+                    <div className="wz-progress-bar" style={{ width: `${p.percent || 0}%` }} />
+                  </div>
+                )}
               </div>
-              <div className="field-hint" style={{ marginTop: 4 }}>
-                {dlProgress.downloaded}{dlProgress.total ? ` / ${dlProgress.total}` : ''}
+            ))
+            : (
+              <div className="wz-progress wz-progress-indeterminate">
+                <div className="wz-progress-bar" />
               </div>
-            </>
-          ) : (
-            <div className="wz-progress wz-progress-indeterminate">
-              <div className="wz-progress-bar" />
-            </div>
-          )}
-          {dlTail.length > 0 && (
-            <div className="rc-cmd-body" style={{ marginTop: 4, maxHeight: 120, overflowY: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                {dlTail.join('\n')}
-              </pre>
-            </div>
-          )}
+            )}
         </div>
       )}
       {dlLive && dlLive.stage === 'done' && (
