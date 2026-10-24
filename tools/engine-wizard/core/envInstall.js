@@ -119,23 +119,35 @@ function buildEnvPlan (input = {}) {
   const cmd = readEnvCommand(input.manifest)
   let guess = suggestEnvCommand(dir)
   let choices = { supported: false, applied: false, reason: cmd.ok ? 'manifest' : null }
+  // conda 路线（上游给的是 environment.yml，或 manifest 指定 conda 命令）
+  //   没有 Python 解释器这一步。
+  const cmdIsConda = cmd.ok && Array.isArray(cmd.argv) && cmd.argv[0] === 'conda'
+  const guessIsConda = !cmd.ok && Array.isArray(guess.argv) && guess.argv[0] === 'conda'
+  // 引擎环境要用的 Python 版本要先算出来：选依赖版本时要按它判断
+  //   torch 哪个版本在本机后端上可用（判据要 Python 的 ABI）。
+  //   manifest 指定了安装命令时照样要建环境：那只是装依赖的命令，
+  //   Python 环境本身仍然是引擎要用的。
+  const venv = (cmdIsConda || guessIsConda) ? null : buildVenvStep(root, id)
   if (!cmd.ok && guess.argv) {
-    const picked = applyInstallChoices(dir, guess, input)
+    const picked = applyInstallChoices(dir, guess, {
+      ...input,
+      pythonVersion: venv ? venv.pythonVersion : null,
+    })
     if (!picked.guess) return { ...picked, id }
     guess = picked.guess
     choices = picked.choices
   }
   const effArgv = cmd.ok ? cmd.argv : guess.argv
   const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
-  const venv = condaRoute ? null : buildVenvStep(root, id)
+  const venvStep = condaRoute ? null : (venv || buildVenvStep(root, id))
   // 建环境那一步拿不到解释器 ⇒ 计划不完整，如实报出来。
-  //   不静默产出一个 argv 为 null 的步骤：那会让执行期报 Node 内部错误，
-  //   使用者看不出是「这个 Python 版本本机没有」。
-  if (venv && !venv.argv) {
+  // 不静默产出一个 argv 为 null 的步骤：那会让执行期报 Node 内部错误，
+  // 使用者看不出是「这个 Python 版本本机没有」。
+  if (venvStep && !venvStep.argv) {
     return { ok: false, code: 'NO_PYTHON_FOR_VERSION', id,
-      error: venv.why, whatToDo: venv.whyZh,
-      pythonVersion: venv.pythonVersion,
-      pythonVersionSource: venv.pythonVersionSource }
+      error: venvStep.why, whatToDo: venvStep.whyZh,
+      pythonVersion: venvStep.pythonVersion,
+      pythonVersionSource: venvStep.pythonVersionSource }
   }
   const syncRoute = Array.isArray(effArgv) && effArgv[1] === 'sync'
   const sync = (syncRoute && !cmd.ok)

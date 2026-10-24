@@ -548,6 +548,10 @@ function handleEnv (req, res) {
       //   后端不自己重新探测来决定版本。
       upgradeTorch: body.upgradeTorch === true,
       torchSuggestion: body.torchSuggestion || null,
+      // 使用者为某些包选定的版本（包名⇒版本号）。
+      //   改版本要改清单本身，所以这一步不能靠排除实现。
+      versionOverrides: (body.versionOverrides && typeof body.versionOverrides === 'object')
+        ? body.versionOverrides : {},
       // root 与其他端点同一口径：给了就用，没给走 projectRoot()。
       //   测试与夹具需要它（测试不许写真仓库的 engines/）。
       root: body.root,

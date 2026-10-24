@@ -34,7 +34,16 @@ function readChoices (input) {
   // torchSuggestion：探测层给出的建议（{declared, suggested, pythonVersion, ...}）。
   //   没有建议时是 null；接受升级却没有建议 ⇒ 如实报出来，不闷头改版本。
   const torchSuggestion = input.torchSuggestion || null
-  return { exclude, backend, upgradeTorch, torchSuggestion }
+  // versionOverrides：使用者为某个包选定的版本（包名⇒版本号）。
+  //   改版本要改清单本身：uv 的排除语义是「这个包连同依赖它的其它包一起不装」，
+  //   所以不能靠排除来实现改版本（依赖它的那些包会一起装不上）。
+  const versionOverrides = {}
+  for (const [name, ver] of Object.entries(input.versionOverrides || {})) {
+    const k = normName(name)
+    const v = String(ver == null ? '' : ver).trim()
+    if (k && v) versionOverrides[k] = v
+  }
+  return { exclude, backend, upgradeTorch, torchSuggestion, versionOverrides }
 }
 
 function backendOption (key) {
@@ -237,10 +246,167 @@ function pipRoute (dir, guess, ch, recommended, route, write) {
 }
 
 /**
+ * 「选依赖版本」这条路线：使用者为某些包选了别的版本。
+ *
+ * 产出两件事：
+ *   ① 主安装步指向改写过的清单副本（上游文件保持原样）；
+ *   ② torch 被改版本时，主安装步跳过 torch 系，追加一步从该后端的官方
+ *      index 装所选版本（index 是命令级参数，不能靠清单表达）。
+ *
+ * 为什么不用排除来实现改版本：uv 的排除语义是「这个包连同依赖它的其它包
+ *   一起不装」，排除 einops 会把 fugashi 这些依赖它的包也弄掉。
+ *
+ * @param {string} dir 引擎目录
+ * @param {object} guess suggestEnvCommand 的结果
+ * @param {object} ch readChoices 的结果
+ * @param {string} recommended 本机推荐的后端 key
+ * @param {string} route 装法路线
+ * @param {boolean} write 是否写清单副本（执行期才写）
+ * @returns {{guess:object}|{ok:false, code:string, error:string, errorZh:string}}
+ */
+function versionOverrideRoute (dir, guess, ch, recommended, route, write, pythonVersion) {
+  const vo = require('./versionOverrides')
+  const overrides = ch.versionOverrides || {}
+  const names = Object.keys(overrides)
+  if (!names.length) return { guess }
+
+  // 锁文件路线不做：版本已经锁死，改它等于改 lock 的内容，平台不替上游改。
+  if (route === 'lock') {
+    return {
+      ok: false,
+      code: 'VERSION_OVERRIDE_ON_LOCK',
+      error: 'The upstream provides a lock file, so the versions are already pinned. '
+        + 'The platform cannot change a pinned version without editing the lock file.',
+      errorZh: '上游提供了锁文件，版本已经定死。'
+        + '平台无法在不改动锁文件的前提下更改已锁定的版本。',
+    }
+  }
+
+  const from = guess.from
+  const isPyproject = route === 'pyproject'
+  const upstreamPath = path.join(dir, from || '')
+
+  // 先在内存里改一遍：计划阶段（execute 不带）不能写盘。
+  let text = ''
+  try { text = fs.readFileSync(upstreamPath, 'utf8') } catch (e) { text = '' }
+  if (!text) {
+    return {
+      ok: false,
+      code: 'MANIFEST_UNREADABLE',
+      error: `Cannot read the dependency manifest (${from}).`,
+      errorZh: `读不到依赖清单（${from}）。`,
+    }
+  }
+  const r = isPyproject
+    ? vo.rewritePyproject(text, overrides)
+    : vo.rewriteManifest(text, overrides)
+  if (!r.changed.length) {
+    return {
+      ok: false,
+      code: 'NO_VERSION_OVERRIDE_APPLIED',
+      error: `None of the chosen versions match a package in ${from}: ${r.missing.join(', ')}`,
+      errorZh: `所选版本没有一项对得上 ${from} 里的包：${r.missing.join('、')}`,
+    }
+  }
+
+  // torch 系那几行：上游钉的版本在本机后端上可能装不上。
+  //   改写清单时它们也要一起改，否则选一个普通包的版本就会把 torch
+  //   静默降级成装不上的那一版。
+  //   使用者显式选了 torch 就照他选的来；没选就取本机后端上可用的版本。
+  const target = ch.backend || recommended
+  let torchTarget = ''
+  const torchPicked = names.filter((n) => TORCH_TRIO.includes(normName(n)))
+  if (!torchPicked.length && pythonVersion) {
+    try {
+      const { judgeTorchVersion } = require('./torchVersionProbe')
+      const j = judgeTorchVersion({ dir, backend: target, pythonVersion })
+      // 只有在「上游那版装不上」时才换：装得上就照上游的版本。
+      if (j && j.ok === false && j.suggested) torchTarget = j.suggested
+    } catch (e) { /* 判不出来 ⇒ 照上游的版本装，不闷头换 */ }
+  }
+  let finalText = r.text
+  let torchRewritten = []
+  if (torchTarget && !isPyproject) {
+    const tr = vo.rewriteTorchFamily(text, overrides, {
+      torchVersion: torchTarget,
+      torchNames: TORCH_TRIO,
+    })
+    if (tr.changed.length || tr.torchRewritten.length) {
+      finalText = tr.text
+      torchRewritten = tr.torchRewritten
+    }
+  }
+
+  // 清单副本：执行期才写盘。计划阶段也写（它是平台自己的辅助文件，
+  //   与 .wizard-excludes.txt 同一性质），这样计划里显示的命令就是真命令。
+  const localName = vo.LOCAL_MANIFEST
+  if (write) {
+    fs.writeFileSync(path.join(dir, guess.cwd || '.', localName), finalText, 'utf8')
+  }
+
+  let argv = [...(guess.argv || [])]
+  let alt = null
+  // torch 系里被改过的：使用者显式选的，或按本机后端自动改的。
+  const torchChanged = [...new Set([
+    ...names.filter((n) => TORCH_TRIO.includes(normName(n))),
+    ...torchRewritten,
+  ])]
+  // 自动改写时用的是本机后端上可用的那个版本。
+  const torchVersions = {}
+  for (const n of torchChanged) {
+    const k = normName(n)
+    torchVersions[k] = overrides[n] || overrides[k] || torchTarget
+  }
+
+  if (isPyproject) {
+    // uv pip install -e . 读的是 pyproject 本身，改副本没用。
+    // 所以拆成两步：先按副本装依赖，再装项目本体（-e 不带依赖）。
+    const rel = argv[argv.indexOf('-e') + 1]
+    const base = ['uv', 'pip', 'install', '-r', localName]
+    const project = ['uv', 'pip', 'install', '-e', rel, '--no-deps']
+    argv = base
+    alt = { then: project, needs: [] }
+  } else {
+    // requirements 路线：把 -r 指到副本。
+    const i = argv.indexOf('-r')
+    if (i >= 0) argv[i + 1] = localName
+    else argv = [...argv, '-r', localName]
+  }
+
+  if (torchChanged.length) {
+    // torch 换版本 ⇒ index 也要跟着换（index 是命令级参数）。
+    const target = ch.backend || recommended
+    const opt = backendOption(target)
+    if (!opt || !opt.index) {
+      const err = noIndexError(target)
+      return { ok: false, code: err.code, error: err.error, errorZh: err.errorZh }
+    }
+    // 主命令跳过 torch 系（清单里改过的那几行装不了：index 不同）。
+    const skipNames = [...new Set([...ch.exclude, ...torchChanged.map(normName)])]
+    const skipFile = EXCLUDES_FILE
+    if (write) {
+      fs.writeFileSync(path.join(dir, guess.cwd || '.', skipFile),
+        skipNames.join('\n') + '\n')
+    }
+    if (argv.includes('-r')) argv = [...argv, '--excludes', skipFile]
+    else argv = [...argv, ...skipNames.flatMap((n) => ['--no-install-package', n])]
+    // 追加一步：按所选版本从该后端的官方 index 装。
+    const specs = torchChanged.map((n) => `${normName(n)}==${torchVersions[normName(n)]}`)
+    const names2 = torchChanged.map(normName)
+    const ta = torchAlt(specs, names2, target)
+    if (ta.error) return ta.error
+    alt = ta.alt
+  }
+
+  return { guess: { ...guess, argv, alternative: alt } }
+}
+
+/**
  * @param {string} dir 引擎目录
  * @param {object} guess suggestEnvCommand 的结果
  * @param {{backend?:string, exclude?:string[], recommendedBackend?:string,
  *          upgradeTorch?:boolean, torchSuggestion?:object,
+ *          versionOverrides?:object,
  *          execute?:boolean}} input
  * @returns {{guess:object, choices:object}|{ok:false, code:string}}
  */
@@ -253,7 +419,8 @@ function applyInstallChoices (dir, guess, input = {}) {
         : argv.includes('-r') ? 'requirements' : 'other'
   const summary = { supported: route !== 'conda' && route !== 'other',
     backend: ch.backend, excluded: [...ch.exclude],
-    upgradeTorch: ch.upgradeTorch }
+    upgradeTorch: ch.upgradeTorch,
+    versionOverrides: { ...ch.versionOverrides } }
   const recommended = input.recommendedBackend || (ch.backend ? detectRecommended() : null)
   // 接受升级建议 ⇒ 走升级路线（它自带「跳过 torch 系 + 追加装建议版本」两步）。
   //   它排在换后端那条路线前面：升级是使用者明确表达的一次选择，
@@ -271,6 +438,22 @@ function applyInstallChoices (dir, guess, input = {}) {
     if (!r.guess) return r
     return { guess: r.guess, choices: { ...summary, applied: true } }
   }
+  // 选依赖版本 ⇒ 走改写清单那条路线（改清单，不是排除）。
+  //   它排在换后端那条路线前面：选版本是使用者明确表达的一次选择。
+  if (Object.keys(ch.versionOverrides).length) {
+    if (!summary.supported) {
+      return {
+        ok: false, code: 'VERSION_OVERRIDE_UNSUPPORTED',
+        error: 'The install method is declared by the Manifest, so the platform '
+          + 'cannot change a dependency version.',
+        errorZh: '安装方式由 Manifest 指定，平台无法改动依赖版本。',
+      }
+    }
+    const r = versionOverrideRoute(dir, guess, ch, recommended, route, input.execute === true,
+      input.pythonVersion)
+    if (!r.guess) return r
+    return { guess: r.guess, choices: { ...summary, applied: true } }
+  }
   const changed = ch.exclude.size > 0 || reroutesTorch(ch, recommended)
   if (!summary.supported || !changed) return { guess, choices: { ...summary, applied: false } }
 
@@ -283,4 +466,5 @@ function applyInstallChoices (dir, guess, input = {}) {
 module.exports = {
   applyInstallChoices, normName, specName, EXCLUDES_FILE,
   declaredTorchFamily,
+  versionOverrideRoute,
 }
