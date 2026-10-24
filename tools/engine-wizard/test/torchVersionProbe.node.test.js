@@ -109,22 +109,19 @@ test('版本比较：按主次补丁逐段比', () => {
   assert.ok(probe.cmpVersion('2.6.0', '2.5.1') > 0)
 })
 
-test('探测：上游钉的版本在 index 上 ⇒ 可用', async () => {
+test('探测：上游钉的版本 >= 这个后端的下界 ⇒ 可用（不打扰使用者）', async () => {
   const { engineDir } = mkdtempEngine('p1', {
     'requirements.txt': 'torch==2.6.0\ntorchaudio==2.6.0\n',
   })
-  // 用真实的 index（联网）。只查 torch 一个包，页面不大。
+  // 判据是离线查表，不联网。
   const r = await probe.probeTorchVersion({
     dir: engineDir, backend: 'ipex', pythonVersion: '3.11',
     platform: 'win32', arch: 'x64', timeoutMs: 20000,
   })
-  assert.ok(r, '应当探测出结果')
-  assert.strictEqual(r.ok, true, `XPU 上 2.6.0 应当可用：${JSON.stringify(r)}`)
-  assert.strictEqual(r.declared, '2.6.0')
-  assert.ok(r.available.includes('2.6.0'))
+  assert.strictEqual(r, null, '2.6.0 正好是 XPU 的下界 ⇒ 装得上，不弹窗')
 })
 
-test('探测：上游钉的版本在 XPU index 上不存在 ⇒ 报不可用并给建议版本', async () => {
+test('探测：上游钉的版本低于这个后端的下界 ⇒ 报不可用并给建议版本', async () => {
   const { engineDir } = mkdtempEngine('p2', {
     'requirements.txt': 'torch==2.5.1\ntorchaudio==2.5.1\n',
   })
@@ -137,10 +134,8 @@ test('探测：上游钉的版本在 XPU index 上不存在 ⇒ 报不可用并�
   assert.strictEqual(r.reason, 'version-not-on-this-backend')
   assert.strictEqual(r.declared, '2.5.1')
   assert.ok(r.suggested, '必须给出建议版本')
-  assert.ok(probe.cmpVersion(r.suggested, '2.5.1') >= 0,
-    `建议版本不应低于上游钉的版本：${r.suggested}`)
-  assert.ok(r.available.includes(r.suggested),
-    `建议版本必须在可用列表里：${r.suggested} / ${r.available.join(',')}`)
+  assert.ok(probe.cmpVersion(r.suggested, '2.5.1') > 0,
+    `建议版本必须高于上游钉的版本：${r.suggested}`)
 })
 
 test('探测：上游没声明 torch ⇒ 不给结论（返回 null，不编）', async () => {

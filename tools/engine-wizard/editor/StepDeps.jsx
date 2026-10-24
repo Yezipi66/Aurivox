@@ -471,11 +471,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           <b>{suggestion.suggested
             ? t('The Torch version pinned by the upstream is not available on this machine',
               '上游锁定的 Torch 版本在本机不可用')
-            : suggestion.reason === 'could-not-check'
-              ? t('Could not check the Torch version pinned by the upstream',
-                '没能确认上游锁定的 Torch 版本')
-              : t('Torch cannot be installed on this backend',
-                '这个后端上装不了 Torch')}</b>
+            : t('Torch cannot be installed on this backend',
+              '这个后端上装不了 Torch')}</b>
           <div className="field-hint" style={{ marginTop: 4 }}>
             {suggestion.suggested
               ? t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
@@ -486,21 +483,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 + `${backendOf(hw && hw.options, backend)} 后端上`
                 + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
                 + `该后端上可用的版本是 ${suggestion.suggested}。`)
-              : suggestion.reason === 'could-not-check'
-                ? t(`The upstream pins Torch ${suggestion.declared}. The platform could not `
-                  + `reach the official ${backendOf(hw && hw.options, backend)} index to check `
-                  + `whether that version fits this machine.`,
-                  `上游把 Torch 钉在 ${suggestion.declared}。平台没能连上 `
-                  + `${backendOf(hw && hw.options, backend)} 官方 index，`
-                  + `没能确认这个版本在本机能不能用。`)
-                : t(`The upstream pins Torch ${suggestion.declared}, and the `
-                  + `${backendOf(hw && hw.options, backend)} backend has no wheel for `
-                  + `Python ${suggestion.pythonVersion}. No other version fits either, `
-                  + `so there is nothing to switch to.`,
-                  `上游把 Torch 钉在 ${suggestion.declared}，而`
-                  + `${backendOf(hw && hw.options, backend)} 后端上`
-                  + `没有适配 Python ${suggestion.pythonVersion} 的轮子，`
-                  + `也没有别的版本能适配，没有可替换的版本。`)}
+              : t(`The upstream pins Torch ${suggestion.declared}, and the `
+                + `${backendOf(hw && hw.options, backend)} backend has no wheel for `
+                + `Python ${suggestion.pythonVersion}. No other version fits either, `
+                + `so there is nothing to switch to.`,
+                `上游把 Torch 钉在 ${suggestion.declared}，而`
+                + `${backendOf(hw && hw.options, backend)} 后端上`
+                + `没有适配 Python ${suggestion.pythonVersion} 的轮子，`
+                + `也没有别的版本能适配，没有可替换的版本。`)}
           </div>
           {upgradeTorch === null && (
             <div className="field-hint" style={{ marginTop: 4 }}>
@@ -781,14 +771,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) {
   const { t } = useT()
   const hasVersion = !!(suggestion && suggestion.suggested)
-  // 没有可替换的版本时有两种情况：
-  //   ① no-wheel-for-this-python：这个后端在本机 Python 上一个轮子都没有
-  //      ⇒ 换 torch 版本解决不了（得换 Python 版本或换后端）。
-  //   ② could-not-check：没联网确认过（网络不通、index 抓不到）
-  //      ⇒ 不知道能不能装，如实说「没确认」，不编结论。
-  // 两种都只如实说明，不给「装 Torch X」那个按钮。
+  // 没有可替换的版本 = 这个后端 + 这个 Python 的组合没有官方轮子
+  //   （reason = no-wheel-for-this-python）。换 torch 版本解决不了，
+  //   所以只如实说明，不给「装 Torch X」那个按钮。
   const noVersion = !hasVersion
-  const unchecked = suggestion && suggestion.reason === 'could-not-check'
   return (
     <div className="modal-overlay" onClick={onDecline}>
       <div className="modal-card confirm-card"
@@ -796,33 +782,14 @@ function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) 
         onClick={(e) => e.stopPropagation()}>
         <div className="confirm-hdr">
           <span>
-            {unchecked
-              ? t('Could not check the Torch version',
-                '没能确认 Torch 版本')
-              : noVersion
-                ? t('Torch is not available on this backend',
-                  '这个后端上装不了 Torch')
-                : t('Upgrade Torch?', '升级 Torch？')}
+            {noVersion
+              ? t('Torch is not available on this backend',
+                '这个后端上装不了 Torch')
+              : t('Upgrade Torch?', '升级 Torch？')}
           </span>
         </div>
         <div className="confirm-body">
-          {unchecked ? (
-            <>
-              <p style={{ marginTop: 0 }}>
-                {t(`The upstream pins Torch ${suggestion.declared}. The platform could not `
-                  + `reach the official ${backendLabel} index to check whether that version `
-                  + `fits this machine.`,
-                  `上游把 Torch 钉在 ${suggestion.declared}。平台没能连上 ${backendLabel} `
-                  + `官方 index，没能确认这个版本在本机能不能用。`)}
-              </p>
-              <p>
-                {t('Installing now may fail with a dependency error that does not say why. '
-                  + 'Check the network, or install Torch yourself and skip it in this step.',
-                  `现在就装可能会失败，报错也不会说清原因。可以先检查网络，`
-                  + `或自行安装 Torch 并在这一步跳过它。`)}
-              </p>
-            </>
-          ) : noVersion ? (
+          {noVersion ? (
             <>
               <p style={{ marginTop: 0 }}>
                 {t(`The upstream pins Torch ${suggestion.declared}, and the ${backendLabel} `
