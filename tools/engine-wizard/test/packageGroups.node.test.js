@@ -11,67 +11,24 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert')
-const fs = require('node:fs')
-const path = require('node:path')
-
-const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const PANEL = path.join(EDITOR_DIR, 'StepDeps.jsx')
-const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
+const { renderStepDeps } = require('./stepDepsRender')
 
 const PKGS = ['einops==0.8.1', 'transformers==4.44.0', 'soundfile==0.12.1']
-
-/**
- * 把 StepDeps.jsx 编译成 CJS 并取其导出的 PackageGroups。
- * react / react-dom/server / i18n 走 web/node_modules 的真货，
- * 只有跟本测试无关的旁支模块给替身。
- */
-function loadGroups () {
-  const esbuild = require('../../../lib/testDeps.js').esbuild()
-  if (!esbuild) return null
-  const src = fs.readFileSync(PANEL, 'utf8')
-  const code = esbuild.transformSync(src, {
-    loader: 'jsx',
-    format: 'cjs',
-    target: 'node18',
-    jsx: 'automatic',
-  }).code
-  const mod = { exports: {} }
-  const stub = (id) => {
-    if (id === 'react') return require(path.join(WEB_DIR, 'node_modules', 'react'))
-    if (id === 'react/jsx-runtime') {
-      return require(path.join(WEB_DIR, 'node_modules', 'react', 'jsx-runtime.js'))
-    }
-    if (id === 'react-dom/server') return require(path.join(WEB_DIR, 'node_modules', 'react-dom', 'server.js'))
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) }
-    if (/\.\/(Pipeline|UndoClone|useInstallSession)/.test(id)) return { default: () => null }
-    throw new Error('PackageGroups 的依赖不该被求值：' + id)
-  }
-  // eslint-disable-next-line no-new-func
-  const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
-  run(mod.exports, stub, mod, PANEL, EDITOR_DIR)
-  return mod.exports
-}
 
 /**
  * 渲染依赖分组，返回 HTML 字符串。
  * @param {string[]} skipped 被设为不安装的包
  */
 function renderGroups (skipped) {
-  const mod = loadGroups()
-  if (!mod) return null
-  const Groups = mod.PackageGroups
-  if (!Groups) return null
-  const React = require(path.join(WEB_DIR, 'node_modules', 'react'))
-  const server = require(path.join(WEB_DIR, 'node_modules', 'react-dom', 'server.js'))
   const off = new Set(skipped || [])
-  return server.renderToStaticMarkup(
-    React.createElement(Groups, {
-      packages: PKGS,
-      isSkipped: (p) => off.has(p),
-      onToggle: () => {},
-      t: (en, zh) => zh || en,
-    })
-  )
+  return renderStepDeps('PackageGroups', {
+    packages: PKGS,
+    isSkipped: (p) => off.has(p),
+    onToggle: () => {},
+    onVersion: () => {},
+    versionOverrides: {},
+    t: (en, zh) => zh || en,
+  })
 }
 
 test('守卫：这份测试真的渲染出了依赖分组', () => {

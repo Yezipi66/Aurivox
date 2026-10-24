@@ -9,12 +9,7 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert')
-const fs = require('node:fs')
-const path = require('node:path')
-
-const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const PANEL = path.join(EDITOR_DIR, 'StepDeps.jsx')
-const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
+const { renderStepDeps } = require('./stepDepsRender')
 
 const SUGGESTION = {
   ok: false,
@@ -36,57 +31,17 @@ const NO_WHEEL = {
 }
 
 /**
- * 把 StepDeps.jsx 编译成 CJS 并取其导出的 TorchUpgradeDialog。
- * react / react-dom/server / i18n 走 web/node_modules 的真货，
- * 只有跟本测试无关的旁支模块给替身。
- */
-function loadDialog () {
-  const esbuild = require('../../../lib/testDeps.js').esbuild()
-  if (!esbuild) return null
-  const src = fs.readFileSync(PANEL, 'utf8')
-  const code = esbuild.transformSync(src, {
-    loader: 'jsx',
-    format: 'cjs',
-    target: 'node18',
-    jsx: 'automatic',
-  }).code
-  const mod = { exports: {} }
-  const stub = (id) => {
-    if (id === 'react') return require(path.join(WEB_DIR, 'node_modules', 'react'))
-    if (id === 'react/jsx-runtime') {
-      return require(path.join(WEB_DIR, 'node_modules', 'react', 'jsx-runtime.js'))
-    }
-    if (id === 'react-dom/server') return require(path.join(WEB_DIR, 'node_modules', 'react-dom', 'server.js'))
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) }
-    if (/\.\/(Pipeline|UndoClone|useInstallSession)/.test(id)) return { default: () => null }
-    throw new Error('TorchUpgradeDialog 的依赖不该被求值：' + id)
-  }
-  // eslint-disable-next-line no-new-func
-  const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
-  run(mod.exports, stub, mod, PANEL, EDITOR_DIR)
-  return mod.exports
-}
-
-/**
  * 渲染弹窗，返回 HTML 字符串。
  * @param {object} suggestion 探测出的建议
  * @param {string} backendLabel 后端名（给人看的）
  */
 function renderDialog (suggestion, backendLabel) {
-  const mod = loadDialog()
-  if (!mod) return null
-  const Dialog = mod.TorchUpgradeDialog
-  if (!Dialog) return null
-  const React = require(path.join(WEB_DIR, 'node_modules', 'react'))
-  const server = require(path.join(WEB_DIR, 'node_modules', 'react-dom', 'server.js'))
-  return server.renderToStaticMarkup(
-    React.createElement(Dialog, {
-      suggestion,
-      backendLabel: backendLabel || 'XPU',
-      onAccept: () => {},
-      onDecline: () => {},
-    })
-  )
+  return renderStepDeps('TorchUpgradeDialog', {
+    suggestion,
+    backendLabel: backendLabel || 'XPU',
+    onAccept: () => {},
+    onDecline: () => {},
+  })
 }
 
 test('守卫：这份测试真的渲染出了弹窗组件', () => {

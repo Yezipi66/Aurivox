@@ -7,38 +7,16 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert')
-const fs = require('node:fs')
-const path = require('node:path')
-
-const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const PANEL = path.join(EDITOR_DIR, 'StepDeps.jsx')
-const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
+const { loadStepDeps } = require('./stepDepsRender')
 
 /**
- * 加载 StepDeps.jsx 里的 installDecision。
- * 组件 import 的 react 与 i18n 与这个纯函数无关，替换成替身即可。
+ * 取活代码里的 installDecision。
+ * 这个纯函数与组件的渲染无关，所以共享加载器照样能用。
  */
 function loadInstallDecision () {
-  const esbuild = require('../../../lib/testDeps.js').esbuild()
-  if (!esbuild) return null
-  const src = fs.readFileSync(PANEL, 'utf8')
-  const code = esbuild.transformSync(src, {
-    loader: 'jsx',
-    format: 'cjs',
-    target: 'node18',
-  }).code
-  const mod = { exports: {} }
-  const stub = (id) => {
-    if (id === 'react') return {}
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en, lang: 'en' }) }
-    // 子组件与旁支模块本测试不需要它们渲染。
-    if (/\.\/(Pipeline|UndoClone|useInstallSession)/.test(id)) return { default: () => null }
-    throw new Error('installDecision 的依赖不该被求值：' + id)
-  }
-  // eslint-disable-next-line no-new-func
-  const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
-  run(mod.exports, stub, mod, PANEL, EDITOR_DIR)
-  return mod.exports.installDecision
+  const mod = loadStepDeps()
+  if (!mod) return null
+  return mod.installDecision
 }
 
 const installDecision = loadInstallDecision()

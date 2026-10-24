@@ -1138,6 +1138,13 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--muted);
 }
 .pf-val { color: var(--text); }
+/* 命令文本占满剩余宽度：状态标签（完成 / 失败）因此落在同一行的最右端，
+   不因命令太长而换到下一行。 */
+.pf-val-grow { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.pf-warn-end { margin-left: auto; flex: 0 0 auto; white-space: nowrap; }
+/* 这一行的状态标签：成功用绿色，失败用警告色。 */
+.pf-status-ok   { color: var(--success); }
+.pf-status-fail { color: var(--warning); }
 .pf-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--accent);
@@ -1186,6 +1193,21 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 11px;
   font-weight: 500;
   max-width: 190px;
+}
+/* 版本号文字：跟在包名后面，点铅笔才进编辑态。 */
+.pkg-version-text {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* 列表里的铅笔按钮：比通用的 .icon-btn 小一圈，紧挨着版本号。 */
+.pkg-version .icon-btn {
+  width: 18px;
+  height: 18px;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1;
 }
 
 .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }

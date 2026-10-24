@@ -1,5 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import { IconPencil } from '../../../web/src/components/common/Icons'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { loadSession, saveSession } from './useInstallSession'
@@ -147,18 +148,6 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       else next[n] = v
       return next
     })
-  }
-
-  // 下拉框里除了上游声明的版本，还能列哪些。
-  //   torch：本机后端上建议的那个版本（探测层给的）。
-  //   其它包：没有可依据的版本列表 ⇒ 只给上游声明的那个与手写入口。
-  //   平台不替使用者猜「有哪些版本可用」。
-  const suggestionsFor = (name) => {
-    const n = pkgName(name)
-    if (!['torch', 'torchaudio', 'torchvision'].includes(n)) return []
-    const s = suggestion
-    if (!s || !s.suggested) return []
-    return [s.suggested]
   }
 
   // 点「安装」：若探测出「上游钉的 torch 版本在本机后端上不可用」，
@@ -419,7 +408,6 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                     name={name}
                     spec={r.spec}
                     value={(versionOverrides || {})[name] || ''}
-                    suggestions={suggestionsFor(name)}
                     onChange={(v) => setVersion(name, v)}
                     t={t}
                     disabled={busy}
@@ -483,8 +471,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               {preview.stepsRun.map((s) => (
                 <div key={s.n} className="pf-row">
                   <span className="badge badge-sym">{s.ok ? '✓' : '✗'}</span>
-                  <span className="pf-val"><code>{s.argv.join(' ')}</code></span>
-                  <span className="field-hint" style={{ marginTop: 0 }}>
+                  <span className="pf-val pf-val-grow"><code>{s.argv.join(' ')}</code></span>
+                  <span className={`pf-warn-end ${s.ok ? 'pf-status-ok' : 'pf-status-fail'}`}>
                     {s.ok ? t('done', '完成') : t('failed', '失败')}
                   </span>
                 </div>
@@ -596,7 +584,6 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 onToggle={canSkip ? toggleSkip : null}
                 versionOverrides={versionOverrides}
                 onVersion={canSkip ? setVersion : null}
-                suggestionsFor={suggestionsFor}
                 t={t}
                 disabled={busy} />
             </div>
@@ -716,11 +703,11 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           {result.stepsRun.map((s) => (
             <div key={s.n} className="pf-row">
               <span className="badge badge-sym">{s.ok ? '✓' : '✗'}</span>
-              <span className="pf-val">
+              <span className="pf-val pf-val-grow">
                 {t(`Step ${s.n}/${s.of}`, `第 ${s.n}/${s.of} 步`)}
                 {' '}<code>{s.argv.join(' ')}</code>
               </span>
-              <span className={`pf-warn${s.ok ? '' : ''}`}>
+              <span className={`pf-warn-end ${s.ok ? 'pf-status-ok' : 'pf-status-fail'}`}>
                 {s.ok ? t('done', '完成') : t('failed', '失败')}
               </span>
               {!s.ok && s.output && (
@@ -917,72 +904,89 @@ function backendOf (options, key) {
 }
 
 /**
- * 选一个包的版本。
+ * 改一个包的版本。
  *
- * 下拉框里只列**拿得到**的版本：上游声明的那个，加上本机后端上建议的那个
- *   （torch 有这个建议，普通包没有）。列不出来的版本走「手写版本号」，
- *   平台不替使用者猜有哪些版本可用。
+ * 形态：包名后面跟一支铅笔。点铅笔才进入编辑态，此时才出现输入框。
+ *   没点铅笔时只显示上游声明的版本；编辑态里输入的版本号覆盖它。
+ *   点了铅笔再点一次（或清空输入）就回到上游声明的版本。
+ *
+ * 为什么是「铅笔 + 手写」而不是下拉框：
+ *   下拉框里的每个选项都是平台给出的候选，而候选意味着平台替使用者挑版本。
+ *   版本本是上游声明的事，平台手上没有「这个包有哪些版本」这份事实，
+ *   列出来的每个非上游版本都是平台编的。所以这里只留一个手写入口。
  *
  * @param {object} props
  *   name 包名（归一化后）
  *   spec 上游声明的整条 spec
- *   value 当前所选版本（空串表示按上游声明的装）
- *   suggestions 额外可选项（版本号数组）
- *   onChange 选完回调（版本号；空串表示回到上游声明）
+ *   value 当前覆盖的版本（空串表示按上游声明的装）
+ *   onChange 改完回调（版本号；空串表示回到上游声明）
+ *   editable 是否可编辑（设为不安装的包不可编辑）
  */
-function VersionSelect ({ name, spec, value, suggestions, onChange, t, disabled }) {
+function VersionSelect ({ name, spec, value, onChange, t, disabled, editable = true }) {
   const upstream = declaredVersion(spec)
-  const current = value || upstream
-  const extra = (suggestions || []).filter((v) => v && v !== upstream)
-  const CUSTOM = '__custom__'
-  const isCustom = current && current !== upstream && !extra.includes(current)
-  const [custom, setCustom] = React.useState(isCustom ? current : '')
+  const current = value || ''
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(current)
+
   React.useEffect(() => {
-    setCustom(isCustom ? current : '')
-  }, [current, upstream, extra.join(',')])
+    setDraft(current)
+  }, [current])
+
+  // 已经覆盖了上游版本时，直接显示覆盖后的版本号（不必再点铅笔）。
+  const shown = current || upstream
+
+  if (!editable) {
+    return <span className="pkg-version">{shown}</span>
+  }
+
+  if (!editing) {
+    return (
+      <span className="pkg-version">
+        <span className="pkg-version-text">{shown || t('not pinned', '未声明')}</span>
+        <button type="button" className="icon-btn" disabled={disabled}
+          aria-label={t(`Change the version of ${name}`, `修改 ${name} 的版本`)}
+          title={t(`Change the version of ${name}`, `修改 ${name} 的版本`)}
+          onClick={() => { setDraft(current); setEditing(true) }}>
+          <IconPencil size={13} />
+        </button>
+      </span>
+    )
+  }
 
   return (
     <span className="pkg-version">
-      <select className="control"
-        aria-label={t(`Version of ${name}`, `${name} 的版本`)}
-        value={isCustom ? CUSTOM : current}
+      <input className="control" type="text" value={draft} autoFocus
+        placeholder={upstream || t('Version number', '版本号')}
+        aria-label={t(`Version number of ${name}`, `${name} 的版本号`)}
         disabled={disabled}
         onChange={(e) => {
-          const v = e.target.value
-          if (v === CUSTOM) {
-            // 切到「手写版本号」：先给个空框，不预设任何版本。
-            setCustom('')
-            onChange('')
-            return
+          setDraft(e.target.value)
+          onChange(e.target.value.trim())
+        }}
+        onBlur={() => {
+          // 清空输入 = 回到上游声明的版本。
+          if (!draft.trim()) onChange('')
+          setEditing(false)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.currentTarget.blur() }
+          if (e.key === 'Escape') {
+            setDraft(current)
+            onChange(current)
+            setEditing(false)
           }
-          setCustom('')
-          onChange(v === upstream ? '' : v)
-        }}>
-        <option value={upstream || CUSTOM}>
-          {upstream
-            ? t(`Version ${upstream} (upstream)`, `版本 ${upstream}（上游声明）`)
-            : t('Version not pinned by upstream', '上游未声明版本')}
-        </option>
-        {extra.map((v) => (
-          <option key={v} value={v}>{t(`Version ${v}`, `版本 ${v}`)}</option>
-        ))}
-        <option value={CUSTOM}>{t('Enter another version…', '手写版本号…')}</option>
-      </select>
-      {isCustom && (
-        <input className="control" type="text" value={custom}
-          placeholder={t('Version number', '版本号')}
-          aria-label={t(`Version number of ${name}`, `${name} 的版本号`)}
-          disabled={disabled}
-          onChange={(e) => {
-            setCustom(e.target.value)
-            onChange(e.target.value.trim())
-          }} />
-      )}
+        }} />
+      <button type="button" className="icon-btn" disabled={disabled}
+        aria-label={t('Cancel', '取消')}
+        title={t('Cancel', '取消')}
+        onClick={() => { setDraft(current); onChange(current); setEditing(false) }}>
+        ×
+      </button>
     </span>
   )
 }
 
-function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVersion, suggestionsFor, t, disabled }) {
+function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVersion, t, disabled }) {
   const on = packages.filter((p) => !isSkipped(p))
   const off = packages.filter((p) => isSkipped(p))
   const row = (p, dim) => {
@@ -997,14 +1001,16 @@ function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVer
           <code>{p}</code>
         </span>
         {onVersion && (
+          // 设为不安装的包不提供改版本：它根本不装，
+          //   给它一个版本号没有意义。
           <VersionSelect
             name={name}
             spec={p}
             value={(versionOverrides || {})[name] || ''}
-            suggestions={suggestionsFor ? suggestionsFor(name) : []}
             onChange={(v) => onVersion(name, v)}
             t={t}
-            disabled={disabled}
+            disabled={disabled || dim}
+            editable={!dim}
           />
         )}
       </div>
