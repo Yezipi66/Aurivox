@@ -11,7 +11,7 @@ import PanelPreview from './PanelPreview'
 // 窄屏下 .workspace-right 的 sticky 由项目自己降级成单列。
 
 export default function ManifestPage ({
-  manifest, spec, text, err, setText, onManifest, diag, loading, onSaved,
+  manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
@@ -45,7 +45,8 @@ export default function ManifestPage ({
         </div>
 
         {view === 'form'
-          ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest} />
+          ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest}
+            checkpointsPath={checkpointsPath} />
           : (
             // JSON 逃生口直接用项目的 `textarea.control`。
             // text 为 null（还没切进来过）时用 manifest 现算兜底，

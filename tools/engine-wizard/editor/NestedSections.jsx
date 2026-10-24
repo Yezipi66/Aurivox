@@ -425,7 +425,7 @@ function MethodsField ({ value, onChange, t }) {
 }
 
 // 三段的编辑器。
-export function RuntimeSection ({ value, onChange, t }) {
+export function RuntimeSection ({ value, onChange, t, checkpointsPath }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
     const next = { ...v }
@@ -484,10 +484,19 @@ export function RuntimeSection ({ value, onChange, t }) {
           <option value="estimated">estimated</option>
         </select>
       </Row>
-      <Row label="checkpoints" hint={t('where the weights live (relative to project root)',
-        '权重放在哪（相对项目根）')} danger="silent">
+      <Row label="checkpoints"
+        hint={t('where the weights live (relative to project root). '
+          + 'Step 3 downloads them to this engine’s own directory, '
+          + 'so this is filled in automatically.',
+        '权重放在哪（相对项目根）。第 3 步把权重下到这台引擎自己的目录，'
+        + '所以这一格是自动填好的。')}
+        warn={t('this path must match where step 3 actually put the files, '
+          + 'otherwise the platform reports the weights as missing.',
+        '这个路径必须与第 3 步实际落盘的位置一致，'
+        + '否则平台会报权重不存在。')}
+        danger="silent">
         <input className="control" type="text" value={v.checkpoints || ''}
-          placeholder="models/tts/xxx"
+          placeholder={checkpointsPath || 'engines/<id>/checkpoints'}
           onChange={(e) => set('checkpoints', e.target.value.trim())} />
       </Row>
       <details className="expert-block">

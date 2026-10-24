@@ -8,6 +8,7 @@ import { useInstalled } from './useInstalled'
 import RequiredEight from './RequiredEight'
 import CliGenPanel from './CliGenPanel'
 import CoreBindings from './CoreBindings'
+import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 
 // 名片填表：按分组渲染每一项，高危字段当场挂徽标，参数区是可增删的行。
 // 分组与字段清单来自 /wizard/spec（fieldmeta 是唯一权威），不手写清单。
@@ -270,7 +271,7 @@ function ParamRow ({ entry, index, spec, onChange, onDelete }) {
 // ① 顶部：从 CLI 扫描生成（新建/读取名片 → 扫描参数 → 参数表 → 自动填）
 // ② 中部：手工编辑（导入已有 / 核心字段 runtime+call+models / 反射生成）
 // ③ 折叠：高级设置（source/capabilities/install/output）+ 参数区 parameters
-export default function ManifestForm ({ manifest, onChange, spec }) {
+export default function ManifestForm ({ manifest, onChange, spec, checkpointsPath }) {
   const { t } = useT()
   const { installed } = useInstalled()
 
@@ -293,6 +294,23 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
       bindRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [scanDone])
+
+  // runtime.checkpoints 自动填成第 3 步的下载落点。
+  //
+  // 为什么自动填：第 3 步把权重下到哪儿是后端定的（core/checkpointsPath.js），
+  //   第 4 步的名片要声明同一处。不自动填的话，使用者得自己把这两个界面里的
+  //   路径对上，而两个路径长得极像（engines/<id>/checkpoints 与 models/tts/<id>），
+  //   填错时当场没有报错，症状是「第 3 步说下好了、第 5 步说目录不存在」。
+  //
+  // 只在两个条件下填：引擎 id 已经定了（否则算不出路径），且这一格还是空的
+  //   （使用者填过就不动他填的）。落盘路径由后端送来，前端不自己拼。
+  // 判定与填值在 manifestAutoFill.js 里，是纯函数，可以单独测。
+  React.useEffect(() => {
+    if (!shouldAutoFillCheckpoints(manifest, checkpointsPath)) return
+    onChange(withAutoFilledCheckpoints(manifest, checkpointsPath))
+    // onChange 不进依赖：它每次渲染都是新函数，进了就变成一直触发。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkpointsPath, manifest && manifest.id, manifest && manifest.runtime && manifest.runtime.checkpoints])
 
   if (!spec) {
     return <p className="field-hint" style={{ margin: 0 }}>
@@ -413,7 +431,8 @@ export default function ManifestForm ({ manifest, onChange, spec }) {
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
             <div className="section-body">
-              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t} />
+              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t}
+                checkpointsPath={checkpointsPath} />
             </div>
           </div>
           {/* L2 嵌套段：call 其余字段（kind/module/class/method/init_args/returns）。

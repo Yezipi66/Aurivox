@@ -122,15 +122,23 @@ export default function App () {
 
   // ---- 完成状态只由真实产物判（GET /wizard/install-state），不读 localStorage ----
   const [facts, setFacts] = React.useState({})
+  // 权重落盘的相对路径（相对项目根）。第 3 步写盘到这里，第 4 步的名片
+  //   runtime.checkpoints 填的也是这个值：两处同源，改一处不会出现「下好了却找不到」。
+  //   路径由后端算（core/checkpointsPath.js），前端不自己拼。
+  const [checkpointsPath, setCheckpointsPath] = React.useState(null)
   // id 可由调用方传入：刚克隆完时 wz.id 的 setState 还没生效，
   //   读闭包里的旧值会拿到空 id，一个勾都不亮。
   const reloadFacts = React.useCallback((idArg) => {
     const id = factsQueryId(idArg, wz.id)
-    if (!id) { setFacts({}); return }
+    if (!id) { setFacts({}); setCheckpointsPath(null); return }
     let alive = true
     fetch(`/wizard/install-state?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
-      .then((j) => { if (alive && j && j.ok && j.steps_done) setFacts(j.steps_done) })
+      .then((j) => {
+        if (!alive) return
+        if (j && j.ok && j.steps_done) setFacts(j.steps_done)
+        setCheckpointsPath((j && j.checkpoints_path) || null)
+      })
       .catch(() => { /* 端点调不通 ⇒ 一个勾都没有，不猜 */ })
     return () => { alive = false }
   }, [wz.id])
@@ -236,7 +244,8 @@ export default function App () {
                 // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
                 onManifest={(m) => { setManifest(m); setErr(null) }}
                 diag={vresult} loading={vloading}
-                onSaved={reloadFacts} />
+                onSaved={reloadFacts}
+                checkpointsPath={checkpointsPath} />
             )}
             {page === 'verify' && (
               <StepVerify id={wz.id} />
