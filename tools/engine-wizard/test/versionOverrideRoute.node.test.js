@@ -32,7 +32,12 @@ const REQ_GUESS = {
 test('普通包改版本：主命令指向清单副本，不是排除', () => {
   const dir = tmpDir({ 'requirements.txt': 'einops==0.8.1\ntorch==2.5.1\n' })
   const r = applyInstallChoices(dir, REQ_GUESS, {
-    versionOverrides: { einops: '0.7.0' }, execute: true,
+    versionOverrides: { einops: '0.7.0' },
+    // 后端给 cpu：CPU 上 torch 2.5.1 装得上（Python 3.11 的下界是 2.0.0）
+    //   ⇒ torch 那行保持原样，这条测试要守的就是「没改的包要原样保留」。
+    //   不给后端的话，torch 会不会被改写要看本机 GPU（各台机器结果不同）。
+    recommendedBackend: 'cpu',
+    execute: true,
   })
   assert.ok(r.guess, '要有结果')
   const argv = r.guess.argv

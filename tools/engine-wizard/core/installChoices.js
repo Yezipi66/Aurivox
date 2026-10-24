@@ -330,10 +330,22 @@ function versionOverrideRoute (dir, guess, ch, recommended, route, write, python
   const target = ch.backend || recommended
   let torchTarget = ''
   const torchPicked = names.filter((n) => TORCH_TRIO.includes(normName(n)))
-  if (!torchPicked.length && pythonVersion) {
+  // 判 torch 版本要 Python 的 ABI。调用方没给时自己算：
+  //   引擎声明了就用声明的，没声明用平台基座（与 suggestTorchUpgrade 同口径）。
+  //   不自己算的话，缺了这一项就静默不改 torch ⇒ 界面显示上游那个版本、
+  //   实际装进去的是另一个版本（两处不一致）。
+  let pyVer = pythonVersion
+  if (!pyVer) {
+    try {
+      const { readEnginePythonVersion, PLATFORM_BASE_PYTHON } = require('./envDetect')
+      const declared = readEnginePythonVersion(dir)
+      pyVer = declared ? declared.version : PLATFORM_BASE_PYTHON
+    } catch (e) { pyVer = null }
+  }
+  if (!torchPicked.length && pyVer) {
     try {
       const { judgeTorchVersion } = require('./torchVersionProbe')
-      const j = judgeTorchVersion({ dir, backend: target, pythonVersion })
+      const j = judgeTorchVersion({ dir, backend: target, pythonVersion: pyVer })
       // 只有在「上游那版装不上」时才换：装得上就照上游的版本。
       if (j && j.ok === false && j.suggested) torchTarget = j.suggested
     } catch (e) { /* 判不出来 ⇒ 照上游的版本装，不闷头换 */ }
@@ -460,7 +472,11 @@ function applyInstallChoices (dir, guess, input = {}) {
     backend: ch.backend, excluded: [...ch.exclude],
     upgradeTorch: ch.upgradeTorch,
     versionOverrides: { ...ch.versionOverrides } }
-  const recommended = input.recommendedBackend || (ch.backend ? detectRecommended() : null)
+  // 本机推荐的后端：使用者没选后端时也要知道是哪一个。
+  //   否则判 torch 版本那一步没有后端可比 ⇒ 判不出来 ⇒ torch 系不被改写
+  //   ⇒ 界面显示的是上游那个版本、实际装进去的是另一个版本（两处不一致）。
+  //   探测口径与 suggestTorchUpgrade 相同（本机 GPU 推出来的推荐后端）。
+  const recommended = input.recommendedBackend || detectRecommended()
   // 接受升级建议 ⇒ 走升级路线（它自带「跳过 torch 系 + 追加装建议版本」两步）。
   //   它排在换后端那条路线前面：升级是使用者明确表达的一次选择，
   //   换后端只是「选了哪个 index」。
