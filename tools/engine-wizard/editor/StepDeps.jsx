@@ -529,30 +529,26 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               '这个后端上装不了 Torch')}</b>
           <div className="field-hint" style={{ marginTop: 4 }}>
             {suggestion.suggested
-              ? t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
-                + `wheel for Python ${suggestion.pythonVersion} on the `
-                + `${backendOf(hw && hw.options, backend)} backend. `
+              ? t(`The upstream declares Torch version ${suggestion.declared}, but that version has no `
+                + `wheel on the ${backendOf(hw && hw.options, backend)} backend. `
                 + `Version ${suggestion.suggested} is available there.`,
-                `上游把 Torch 钉在 ${suggestion.declared}，而该版本在`
+                `上游声明 Torch 版本为 ${suggestion.declared}，而该版本在`
                 + `${backendOf(hw && hw.options, backend)} 后端上`
-                + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+                + `没有适配的 wheel。`
                 + `该后端上可用的版本是 ${suggestion.suggested}。`)
-              : t(`The upstream pins Torch ${suggestion.declared}, and the `
+              : t(`The upstream declares Torch version ${suggestion.declared}, and the `
                 + `${backendOf(hw && hw.options, backend)} backend has no wheel for `
-                + `Python ${suggestion.pythonVersion}. No other version fits either, `
+                + `it at all. No other version fits either, `
                 + `so there is nothing to switch to.`,
-                `上游把 Torch 钉在 ${suggestion.declared}，而`
+                `上游声明 Torch 版本为 ${suggestion.declared}，而`
                 + `${backendOf(hw && hw.options, backend)} 后端上`
-                + `没有适配 Python ${suggestion.pythonVersion} 的轮子，`
+                + `没有适配的 wheel，`
                 + `也没有别的版本能适配，没有可替换的版本。`)}
           </div>
-          {upgradeTorch === null && (
+          {upgradeTorch === null && !suggestion.suggested && (
             <div className="field-hint" style={{ marginTop: 4 }}>
-              {suggestion.suggested
-                ? t('Pressing Install will ask whether to upgrade Torch to that version.',
-                  '点「安装」时会询问是否把 Torch 升到那个版本。')
-                : t('Pressing Install will ask whether to install anyway.',
-                  '点「安装」时会询问是否继续。')}
+              {t('Pressing Install will ask whether to install anyway.',
+                '点「安装」时会询问是否继续。')}
             </div>
           )}
           {upgradeTorch === true && suggestion.suggested && (
@@ -851,29 +847,29 @@ function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) 
           {noVersion ? (
             <>
               <p style={{ marginTop: 0 }}>
-                {t(`The upstream pins Torch ${suggestion.declared}, and the ${backendLabel} `
-                  + `backend has no wheel for Python ${suggestion.pythonVersion}. `
+                {t(`The upstream declares Torch version ${suggestion.declared}, and the ${backendLabel} `
+                  + `backend has no wheel for it at all. `
                   + `Installing the upstream version as declared will fail.`,
-                  `上游把 Torch 钉在 ${suggestion.declared}，而 ${backendLabel} 后端上`
-                  + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+                  `上游声明 Torch 版本为 ${suggestion.declared}，而 ${backendLabel} 后端上`
+                  + `没有适配的 wheel。`
                   + `照上游声明的版本安装会失败。`)}
               </p>
               <p>
-                {t('No other Torch version fits this Python either, so there is nothing '
+                {t('No other Torch version fits either, so there is nothing '
                   + 'to switch to. Choose another backend, use a different Python version, '
                   + 'or install Torch yourself.',
-                  `这个 Python 上也没有别的 Torch 版本能装，所以没有可替换的版本。`
+                  `也没有别的版本能适配，没有可替换的版本。`
                   + `可以改选其他后端、换 Python 版本，或自行安装 Torch。`)}
               </p>
             </>
           ) : (
             <>
               <p style={{ marginTop: 0 }}>
-                {t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
-                  + `wheel for Python ${suggestion.pythonVersion} on the ${backendLabel} backend. `
+                {t(`The upstream declares Torch version ${suggestion.declared}, but that version has no `
+                  + `wheel on the ${backendLabel} backend. `
                   + `Installing the upstream version as declared will fail.`,
-                  `上游把 Torch 钉在 ${suggestion.declared}，而该版本在 ${backendLabel} 后端上`
-                  + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+                  `上游声明 Torch 版本为 ${suggestion.declared}，而该版本在 ${backendLabel} 后端上`
+                  + `没有适配的 wheel。`
                   + `照上游声明的版本安装会失败。`)}
               </p>
               <p>

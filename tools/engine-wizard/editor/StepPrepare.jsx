@@ -306,7 +306,7 @@ const done = facts && facts.cloned === true
       </p>
 
       {busy === 'link' && (
-        <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读…')}</p>
+        <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读取…')}</p>
       )}
 
             {/* 告知「我们把你的链接改了」：不是错误，是修正

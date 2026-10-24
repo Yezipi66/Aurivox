@@ -101,16 +101,23 @@ test('弹窗出现在遮罩上，不是藏在页面里', () => {
   assert.ok(html.includes('modal-card'), '弹窗本体用 modal-card')
 })
 
-test('弹窗把上游钉的版本与建议版本都写出来', () => {
+test('弹窗把建议版本写出来', () => {
   const html = renderDialog(SUGGESTION, 'XPU')
-  assert.ok(html.includes('2.5.1'), '要说明上游钉的是哪个版本')
+  assert.ok(html.includes('2.5.1'), '要说明上游声明的是哪个版本')
   assert.ok(html.includes('2.6.0'), '要说明建议装的是哪个版本')
 })
 
-test('弹窗把 Python 版本与后端名写出来（使用者据此判断）', () => {
+test('弹窗把后端名写出来（使用者据此判断）', () => {
   const html = renderDialog(SUGGESTION, 'XPU')
-  assert.ok(html.includes('3.11'), '要写 Python 版本')
   assert.ok(html.includes('XPU'), '要写后端名')
+})
+
+test('原因不写成 Python 版本的问题：版本与后端的组合没有可用 wheel', () => {
+  const html = renderDialog(SUGGESTION, 'XPU')
+  // 上游声明的版本在这个后端上根本发过没有，与 Python 版本无关。
+  assert.ok(html.includes('没有适配的 wheel'), '要说清是这个组合没有可用 wheel')
+  assert.ok(!html.includes('没有适配 Python'), '不许把原因写成 Python 版本不匹配')
+  assert.ok(!/没有适配 Python/.test(html), '不许出现「没有适配 Python」这种说法')
 })
 
 test('弹窗给两条路：装建议版本 与 取消', () => {
@@ -130,10 +137,11 @@ test('两个按钮都是 type=button，不误触表单提交', () => {
 
 test('这个后端一个轮子都没有 ⇒ 说清装不了，且不给假的版本选项', () => {
   const html = renderDialog(NO_WHEEL, 'XPU')
-  assert.ok(html.includes('2.5.1'), '要说明上游钉的是哪个版本')
-  assert.ok(html.includes('3.11'), '要写 Python 版本')
+  assert.ok(html.includes('2.5.1'), '要说明上游声明的是哪个版本')
   assert.ok(html.includes('XPU'), '要写后端名')
   assert.ok(html.includes('这个后端上装不了 Torch'), '要说清这个后端上装不了')
+  assert.ok(html.includes('没有适配的 wheel'), '要说清是这个组合没有可用 wheel')
+  assert.ok(!/没有适配 Python/.test(html), '不许把原因写成 Python 版本不匹配')
   // 按钮文案里不该出现「装 Torch <版本>」（正文里提到 Torch 是正常的）。
   assert.ok(!/安装 Torch \d/.test(html), '没有可替换版本时不该出现「装 Torch X」这个按钮')
   assert.ok(html.includes('照原样装'), '要留一条「照原样装」的路，由使用者承担结果')
