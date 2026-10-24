@@ -347,13 +347,21 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
  *   非 2xx 一律不写盘：把 404 的 HTML 错误页当成模型文件落盘是最难查的一类坏法。
  *   下载完比对大小：远端没给大小就退一步比对 content-length，不符即删掉脏文件并判失败。
  */
-function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false) {
+function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null) {
   return new Promise((resolve) => {
     const dir = checkpointsAbsPath(root, id)
     const finalPath = path.join(dir, file.name)
     const tmpPath = finalPath + '.tmp'
 
     const expectedSize = Number(file && file.size ? file.size : 0)
+
+    // 取消：信号在请求发出前就被触发 ⇒ 什么都不做，直接报取消。
+    //   不留半截文件，也不把半截文件当成续传起点。
+    if (signal && signal.aborted) {
+      resolve({ ok: false, code: 'CANCELLED', status: null,
+        error: 'Download was cancelled.', errorZh: '下载已取消。' })
+      return
+    }
 
     try { fs.mkdirSync(path.dirname(finalPath), { recursive: true }) } catch (e) {
       resolve({ ok: false, code: 'MKDIR_FAILED', status: null, error: e.message })
@@ -379,7 +387,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         req.destroy()
         // Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
         const redirectUrl = new URL(res.headers.location, url).href
-        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom).then(resolve)
+        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom, skipTmpDetect, signal).then(resolve)
         return
       }
 
@@ -487,6 +495,26 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       req.destroy()
       resolve({ ok: false, code: 'TIMEOUT', status: null, error: 'Download timed out' })
     })
+
+    // 取消：中断 HTTP 请求，删掉半截文件，报 CANCELLED。
+    //   删掉 .tmp 而不是留着：留着会被下一次下载当成续传起点，
+    //   而使用者按下取消的意思是「这个文件别下了」，不是「下到一半留着」。
+    if (signal) {
+      const onAbort = () => {
+        try { req.destroy() } catch (e) { /* 已结束 */ }
+        try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
+        resolve({ ok: false, code: 'CANCELLED', status: null,
+          error: 'Download was cancelled.', errorZh: '下载已取消。' })
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      // 请求自己结束时摘掉监听：否则 signal 上会一直挂着一个闭包，
+      //   而 signal 本身要活到整轮下载结束，闭包越挂越多。
+      const cleanup = () => {
+        try { signal.removeEventListener('abort', onAbort) } catch (e) { /* 忽略 */ }
+      }
+      req.on('close', cleanup)
+      res.on('close', cleanup)
+    }
   })
 }
 
@@ -497,7 +525,7 @@ function encodeFilePath (filePath) {
 }
 
 // 依次尝试给定的分支：当前分支返回 404 才换下一个分支，其它结果原样返回。
-function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, branches) {
+function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, branches, signal = null) {
   if (!branches || branches.length === 0) {
     return Promise.resolve({
       ok: false,
@@ -510,19 +538,19 @@ function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, bran
   const [currentBranch, ...rest] = branches
   const encodedName = encodeFilePath(file.name)
   const url = `https://huggingface.co/${repo}/resolve/${currentBranch}/${encodedName}`
-  return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0).then((result) => {
+  return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, false, signal).then((result) => {
     if (result.ok || !result.status || result.status !== 404) {
       return result
     }
-    return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, rest)
+    return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, rest, signal)
   })
 }
 
 // 下载单个文件：拼好 URL 后交给 downloadFileFromUrl。
 // 分支优先用传入的 branch，否则依次尝试 main 与 master。
-function downloadFile (file, repo, root, id, onLine, onProgress, branch) {
+function downloadFile (file, repo, root, id, onLine, onProgress, branch, signal = null) {
   const branches = branch ? [branch] : ['main', 'master']
-  return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches)
+  return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches, signal)
 }
 
 /**
