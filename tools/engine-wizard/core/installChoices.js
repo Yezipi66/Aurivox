@@ -197,6 +197,17 @@ function upgradeTorchRoute (dir, guess, ch, recommended, route, write) {
 
   // 主安装步：跳过 torch 系（被排除的包连同依赖它的其它包一起不装）。
   const skipNames = [...new Set([...ch.exclude, ...names])]
+  // 界面显示的那条 spec：torch 系换成升级后的版本，其余包照上游原文。
+  //   界面显示的必须与真正装进去的那条一致，
+  //   而 torch 系是被排除后单独装的（清单里那几行不算数）。
+  const upstream = declaredSpecs(dir, guess, route)
+  const finalSpecs = upstream.length
+    ? upstream.map((s) => {
+      const n = normName(String(s).split(/[<>=!~\s]/)[0])
+      const hit = specs.find((x) => normName(String(x).split(/[<>=!~\s]/)[0]) === n)
+      return hit || s
+    })
+    : specs
   if (route === 'lock') {
     return {
       guess: {
@@ -204,6 +215,7 @@ function upgradeTorchRoute (dir, guess, ch, recommended, route, write) {
         argv: ['uv', 'sync', ...skipNames.flatMap((n) => ['--no-install-package', n])],
         alternative: alt,
       },
+      specs: finalSpecs,
     }
   }
   if (write) {
@@ -212,6 +224,7 @@ function upgradeTorchRoute (dir, guess, ch, recommended, route, write) {
   }
   return {
     guess: { ...guess, argv: [...guess.argv, '--excludes', EXCLUDES_FILE], alternative: alt },
+    specs: finalSpecs,
   }
 }
 
@@ -268,7 +281,8 @@ function versionOverrideRoute (dir, guess, ch, recommended, route, write, python
   const vo = require('./versionOverrides')
   const overrides = ch.versionOverrides || {}
   const names = Object.keys(overrides)
-  if (!names.length) return { guess }
+  // 没有要改的版本 ⇒ 最终 spec 就是上游原文。
+  if (!names.length) return { guess, specs: upstreamSpecs(dir, guess) }
 
   // 锁文件路线不做：版本已经锁死，改它等于改 lock 的内容，平台不替上游改。
   if (route === 'lock') {
@@ -461,7 +475,7 @@ function applyInstallChoices (dir, guess, input = {}) {
     }
     const r = upgradeTorchRoute(dir, guess, ch, recommended, route, input.execute === true)
     if (!r.guess) return r
-    return { guess: r.guess, choices: { ...summary, applied: true } }
+    return { guess: r.guess, choices: { ...summary, applied: true }, specs: r.specs }
   }
   // 选依赖版本 ⇒ 走改写清单那条路线（改清单，不是排除）。
   //   它排在换后端那条路线前面：选版本是使用者明确表达的一次选择。
