@@ -528,7 +528,6 @@ const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SY
 // 数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
 // 末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。
 const DEBT_LEDGER = {
-  'test/dragBind.node.test.js': 1,
   'test/installCancel.node.test.js': 1,
   'core/env.js': 258,
   'core/wizardbridge.js': 155,

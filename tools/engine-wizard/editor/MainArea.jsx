@@ -23,7 +23,7 @@ export default function MainArea ({ manifest }) {
       {/* 真界面里这一段没有标题，预览也不加：
              加一条只会让人多读一句话。*/}
       <div className="form-grid">
-        // 音色：平台扫盘才有，这里显示形状
+        {/* 音色：平台扫盘才有，这里显示形状 */}
         <div>
           <label className="field-label">{t('Voice', '音色')}</label>
           <Select className="control" value="" onChange={() => {}} disabled>
@@ -52,7 +52,7 @@ export default function MainArea ({ manifest }) {
               '（平台固定，不来自名片）')} />
         </div>
 
-        // 权重位：这一格的数量真的来自名片
+        {/* 权重位：这一格的数量真的来自名片 */}
         {weights.length > 0
           ? weights.map((w, i) => (
             <div key={i}>
@@ -90,7 +90,7 @@ export default function MainArea ({ manifest }) {
             </div>
             )}
 
-        // 参考音频：只有声明了才出现
+        {/* 参考音频：只有声明了才出现 */}
         {caps.requires_reference_audio && (
           <div style={{ gridColumn: '1 / -1' }}>
             <label className="field-label">{t('Reference audio', '参考音频')}</label>
