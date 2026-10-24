@@ -98,6 +98,8 @@
 
 > **2026-10-05 结项（部分）**：③ **已完成**，且顺手把主体从 372 行 PowerShell 移到 `tools/cli/install-torch.js`（跨平台；薄壳 `install-torch.bat` / `install-torch.sh`）。构建分支现按本机设备选：**NVIDIA→cu121 · Intel→xpu · AMD/Linux→rocm · 其余→CPU**（原文件第 12 行写着「no AMD / DirectML」）。8 条守卫（`tools/cli/install-torch.node.test.js`）。⛔ **本项剩下的**：①② 启动器拆两段 + ③ 的「CPU 版构建后自检」还没做 —— 也就是说**训练线不可用这件事仍然没有任何自检会告诉用户**。
 | **A21** | ⭐ **项目探测器只认 `pyproject.toml`，读不出老式布局仓库的包名与许可证** | ⬜ **待开** · 🔴 `wizardbridge.js:200-215`（`/wizard/probe`） | [实测 2026-10-12] 用 `QwenAudio/CosyVoice` 触发：GitHub API 确认上游根目录**确实没有** `pyproject.toml`（只有 `requirements.txt` / `setup.py` / `LICENSE`），所以 `texts['pyproject.toml']` 为空 ⇒ 走 `:200` 那条「如实报读不到」的分支，`meta` 里只剩 `dependencies`，包名/许可证/PYTHON 三个字段全是 `—`。⚠️ **同一响应里它已经扫到了 `requirements.txt`**（`meta.dependencies.primary.f`），于是形成荒唐局面：**依赖清单读到了，却因为另一种文件缺失而拒绝报告其余事实** | ⛔ **不是回归**：该段代码最后改动是 `0b12be3`（2026-10-06 i18n），早于 python 参数发现那条线（2026-10-11 起）。⛔ **「如实报读不到」这个纪律本身没错**，错的是「认」的范围太窄 —— 把「`pyproject.toml` 里没有」当成了「上游没给」。⚠️ 三个字段的真实来源都**不需要** pyproject：包名在 `setup.py` 的 `name=`、许可证在根目录 `LICENSE` 文件、Python 版本在 `.python-version`。⚠️ 后果是**劝退级**的：CosyVoice 是最主流的开源 TTS 之一，探测器对它给出一片空白加一句「请改用带依赖清单的仓库」，而它自己刚读到那份依赖清单。⚠️ 与 P4 的关系：**P4 的验收目标之一（CosyVoice python 路端到端）在第 1 步就会断**，但这是**范围扩张**，Owner 2026-10-12 裁决选 C（先记台账，专心做完 P4）。⭐ 修的时候要分清边界：探测器的「认哪些文件」与参数发现的「读哪些参数」是两件事，别混进 P4 | |
+| **A22** | ⭐⭐ **建引擎环境时用哪个 Python 版本** | ✅ **2026-10-24 已做**（`9a4db17`） | [实测 2026-10-24] 平台根 `venv/` 被外部工具换成了 **CPython 3.14.7**（2026-10-21 建的，base 在 Hermes 的工具目录里）。`envDetect.js` 的 `platformPythonAbs()` 只查文件存不存在、不查版本，`buildVenvStep()` 把这个路径塞进 `--python` ⇒ 引擎环境成了 cp314 ⇒ 上游钉的 `torch==2.5.1` 在 PyPI 只有 cp39/cp310/cp311/cp312 轮子 ⇒ 第 2 步报 `Because torch==2.5.1 has no wheels with a matching Python ABI tag (e.g., cp314)` | ⛔ **规则（Owner 定的，写进代码）**：**引擎声明了 Python 版本就用声明的，没声明就用平台基座 3.11** —— 引擎声明的来源是 `.python-version`（取主次）或 `pyproject.toml` 的 `requires-python`（取下界主次）。⛔ **绝不回落任意版本**：拿不到就报 `NO_PYTHON_FOR_VERSION`，不静默换一个能跑的版本。⚠️ **两个 Python 角色要分开**：`argv[0]` 是「跑 uv 的那个解释器」，它**必须带 uv**（平台根 venv / `cache/slim-venv`）；`--python` 后面那个才是「新环境用哪个版本」，给**版本号而不是路径** ⇒ 本机没有那个版本时 uv 自己下载（实测 3.10 / 3.11.13 / 3.12 都拉得下来）。⚠️ **平台基座 = 仓库内嵌解释器 `tools/runtime/python/python.exe`（3.11.9）**，而**不是**平台根 venv —— 后者的版本由本机历史决定（已被换成 3.14.7），不作权威。⚠️ 内嵌解释器**没有 uv**，只能当目标解释器，不能当跑 uv 的那个。✅ [实测] `spark-tts`（无声明）建成 **Python 3.11.15**，`torch==2.5.1` + `torchaudio==2.5.1` 全部装上且能 import。⚠️ **平台根 venv 仍是 3.14.7**（本轮没动它，属平台环境变更）；`tools/wheels/jieba_fast-0.53-cp311-cp311-win_amd64.whl` 只认 3.11 ⇒ 根 venv 若是 3.14，GSV 线也会坏 |
+| **A23** | ⭐⭐ **上游钉的 torch 版本在本机后端上不可用时，平台应当先说清而不是装到一半才炸** | ✅ **2026-10-24 已做**（`3e40c75` + `66f3aed`） | [实测 2026-10-24] XPU/ROCm 的官方 index 起步比 PyPI 晚：`torch==2.5.1` 在 **xpu index 上根本没有**，xpu 的 cp311/cp312 从 **2.6.0** 才有。⇒ 上游按 PyPI 钉版本，装到 XPU 机器上必然失败，而 uv 的报错（`No solution found when resolving dependencies`）看不出真因是「torch 版本与后端/ABI 对不上」 | ⛔ **判据只读两样事实**：① 上游声明的 torch 版本（requirements / pyproject / lock 里读出来的事实）② 本机推荐后端的官方 index 上有哪些版本、覆盖哪些 Python ABI。**查不出就不猜、不给假建议。** 后端映射 `cuda→cu121` / `ipex→xpu` / `rocm→rocm6.4` / `cpu→cpu`；无 index 的后端（ZLUDA / DirectML）不探测。✅ **界面给两条路**：先显示警告，点「安装」时弹窗说清「上游钉的是哪个版本、建议装哪个版本、为什么」，**使用者可以取消**（取消 ⇒ 保持上游版本安装，装法原样返回，平台不替使用者改版本）。✅ 接受 ⇒ 主安装步跳过 torch 系整族（`--excludes`），追加一步从本机后端官方 index 装建议版本，**整族版本配对**（上游声明了哪些就升哪些，不凭空加没声明的兄弟包）。⚠️ 判据是**通用后端规则**，不是围绕本机（Intel Arc / XPU）写的。⚠️ `.wizard-excludes.txt` 是**执行期才写**的（`input.execute === true`），计划阶段盘上没有这个文件是正常的。⚠️ `suggestion.ok` 的语义是「**上游钉的版本可用**」⇒ 探测成功但结论是「不可用」时 `ok` 恰为 `false`，前端判「有没有建议」要看 `suggested` 字段，不要看 `ok` | |
 
 ---
 
@@ -336,11 +338,33 @@ Intel Arc 140T 核显 32GB 共享 + NPU 3720，**无 NVIDIA**），且为避免�
 
 ### ⛔ 三笔必须知道的环境事实 —— ⚠️ **以下三笔已于 2026-10-23 复核为过期，保留原文是为了让「当时这么记」可追**
 
-| # | 2026-10-04 原文（已过期） | 2026-10-23 实测 |
+| # | 2026-10-04 原文（已过期） | 2026-10-24 实测（今日） |
 |---|---|---|
-| **X1** | `venv/`、`engines/gpt-sovits/.venv`、`engines/indextts2/.venv` **是死的**：`pyvenv.cfg` 的 home 指向旧机 `MECHREVO X10 Pro`，起 interpreter 报 `uv trampoline failed to spawn Python child process` | ❌ **三句都不成立**。根 `.venv` 与 `engines/gpt-sovits/.venv` **连 `pyvenv.cfg` 与 `python.exe` 都没有**；`engines/indextts2/.venv` **是活的**（`--version` → Python 3.11.13，退出码 0），其 `pyvenv.cfg` 的 home 指向**本机** `C:\Users\User\AppData\Roaming\uv\python\cpython-3.11.13-...`。⚠️ 原文还漏了 `engines/cosyvoice2/.venv`（今天同样没有 `python.exe`） |
-| **X2** | ⇒ `npm test` 的 22 条失败全是这一个根因，读数 `1982/1959/22/1`，⛔ 不是代码回归 | ❌ **已修**（Owner 2026-10-23 确认）。[实测] 今天 `2751 tests / 2748 pass / 0 fail / 3 skipped` |
-| **X3** | 浅层 `check-engine-env.cjs` 会报假绿灯：只查 `python.exe` 在不在 ⇒ 四台全报「装了」 | ❌ **不再复现**。[实测] 今天四台（`cosyvoice-300m-sft` / `cosyvoice2` / `gpt-sovits` / `index-tts`）**全部如实报「没装/不全」**，退出码 1 |
+| **X1** | `venv/`、`engines/gpt-sovits/.venv`、`engines/indextts2/.venv` **是死的**：`pyvenv.cfg` 的 home 指向旧机 `MECHREVO X10 Pro`，起 interpreter 报 `uv trampoline failed to spawn Python child process` | ❌ **三句都不成立**。⚠️ **但根 `venv/` 现在换了毛病**：它**是活的**（Python 3.14.7，退出码 0），只是**版本不对** —— base 在 Hermes 的工具目录里、2026-10-21 由外部工具建成，不是平台自己那份。⇒ 它曾被 `platformPythonAbs()` 当成「平台版本权威」塞进 `--python`，引擎环境就成了 cp314（见 A22）。✅ `engines/indextts2/.venv` 仍**是活的**（Python 3.11.13 · torch 2.8.0+xpu）；✅ `engines/spark-tts/.venv` 现在也**是活的**（Python 3.11.15 · torch 2.6.0+xpu，2026-10-24 由 A22/A23 重建）。⚠️ `engines/gpt-sovits/.venv` 与 `engines/cosyvoice2/.venv` **仍没有 `python.exe`** |
+| **X2** | ⇒ `npm test` 的 22 条失败全是这一个根因，读数 `1982/1959/22/1`，⛔ 不是代码回归 | ❌ **已修**（Owner 2026-10-23 确认）。[实测] 2026-10-23 读数 `2751 tests / 2748 pass / 0 fail / 3 skipped`；2026-10-24 为 `2785 tests / 2782 pass / 0 fail / 3 skipped`（本轮新增 34 条） |
+| **X3** | 浅层 `check-engine-env.cjs` 会报假绿灯：只查 `python.exe` 在不在 ⇒ 四台全报「装了」 | ❌ **不再复现**。[实测] 2026-10-23 四台（`cosyvoice-300m-sft` / `cosyvoice2` / `gpt-sovits` / `index-tts`）**全部如实报「没装/不全」**，退出码 1。⚠️ **但「装了」现在也不等于「能用」**：`engines/spark-tts/.venv` 现在 python.exe 在、torch 也在，但**版本对不对、装的是哪个后端的轮子、XPU 设备能不能真跑**，只有 A22/A23 那条链才查（见 A23） |
+
+### ⬜ 待 Owner 裁定：平台根 `venv/` 要不要重建（2026-10-24 新增）
+
+[实测 2026-10-24] 平台根 `venv/` 现在是 **CPython 3.14.7**，base 指向
+`C:\Users\User\AppData\Local\hermes\tools\python-3.14.7+...`，
+**2026-10-21 由外部工具建成**（不是平台自己那份内嵌解释器）。
+它仍然很薄（**4 个包**：pip / uv / packaging / hf_transfer），这点没问题。
+
+⚠️ **但它的版本与平台基座（3.11）不符**，而 `tools/wheels/` 里的
+`jieba_fast-0.53-cp311-cp311-win_amd64.whl` **只认 cp311** ⇒ 根 venv 若是 3.14，
+GSV 训练线装那个轮子会失败。
+
+✅ **引擎侧已经不受它影响了**（A22）：建引擎环境时 `--python` 给的是
+**版本号**（引擎声明的，或平台基座 3.11），根 venv 只当「跑 uv 的那个解释器」。
+
+⚠️ **要不要把根 venv 重建为 3.11**，本轮**没动**（属平台环境变更，且会牵动
+训练线与 A15/A19 的账）。两条路：
+
+| | 方案 | 代价 |
+|---|---|---|
+| **A** | 用内嵌解释器 `tools/runtime/python/python.exe`（3.11.9）重建根 venv | 根 venv 的 base 回到仓库内 ⇒ 版本由平台自己定，不再随外部工具漂移。⚠️ 要重装那 4 个包 |
+| **B** | 保持 3.14.7 不动 | 引擎侧无影响（A22 已解耦）。⚠️ `tools/wheels` 的 cp311 轮子对 GSV 训练线不可用 |
 
 ### 后端本身不依赖 Python
 
