@@ -1,3 +1,61 @@
+/**
+ * 这个 venv 是不是从当前内嵌解释器部署出来的。
+ *
+ * 判据读 `pyvenv.cfg` 里的 `executable`（建它时用的 base 解释器绝对路径）
+ * 与当前内嵌解释器比。
+ *
+ * 为什么比 base 而不是比版本号：
+ *   venv 不可搬运，`pyvenv.cfg` 把 base 的绝对路径烤进去了。
+ *   项目目录被移动 / 改名，或本机的 Python 被外部工具换过版本之后，
+ *   现有 venv 仍指向那个旧 base。而 `tools/wheels/` 里的轮子按 ABI 钉死
+ *   （例如 jieba_fast 只认 cp311）⇒ base 换了版本，轮子就装不上。
+ *   所以「能不能跑」不够，要「是不是从这个 base 来的」。
+ *
+ * @param {string} venvDir venv 目录
+ * @param {string} embeddedPython 当前内嵌解释器的绝对路径
+ * @returns {{ok:boolean, reason:string, base:string|null, embedded:string}}
+ */
+function venvBaseMatches (venvDir, embeddedPython) {
+  const embedded = path.resolve(embeddedPython)
+  let cfg = ''
+  try { cfg = fs.readFileSync(path.join(venvDir, 'pyvenv.cfg'), 'utf8') } catch (_) { /* 读不到当没有 */ }
+  const m = cfg.match(/^executable\s*=\s*(.+)$/m)
+  const base = m ? m[1].trim() : null
+  if (!base) {
+    return { ok: false, reason: 'no-base-in-pyvenv-cfg', base: null, embedded }
+  }
+  if (path.resolve(base).toLowerCase() !== embedded.toLowerCase()) {
+    return { ok: false, reason: 'base-differs', base, embedded }
+  }
+  return { ok: true, reason: 'base-matches', base, embedded }
+}
+
+/**
+ * 现有 venv 能不能用。
+ *
+ * 两道判据，都要过：
+ *   ① 解释器能跑（`import sys` 退出码 0）；
+ *   ② base 是当前内嵌解释器（见 venvBaseMatches）。
+ *
+ * ② 是后补的：原来只有 ①，于是「外部工具把本机 Python 换成了 3.14」
+ * 这类变化完全看不见。venv 照样能跑，bootstrap 就说「already exists and works」，
+ * 而它带的 ABI 与平台基座不同（见 docs/ONBOARDING_PLAN.md A22）。
+ */
+function inspectExistingVenv (venvDir, venvPythonExe, embeddedPython) {
+  if (!fs.existsSync(venvPythonExe)) {
+    return { ok: false, reason: 'no-interpreter', base: null }
+  }
+  const r = spawnSync(venvPythonExe, ['-c', 'import sys'], { encoding: 'utf8', windowsHide: true })
+  if (r.status !== 0) {
+    return { ok: false, reason: 'cannot-run', base: null }
+  }
+  const base = venvBaseMatches(venvDir, embeddedPython)
+  if (!base.ok) {
+    return { ok: false, reason: base.reason, base: base.base }
+  }
+  return { ok: true, reason: 'healthy', base: base.base }
+}
+
 // 首次部署的主体（跨平台）：定位 Python 3.11、建 venv、装依赖、装 torch / onnxruntime、
 // 装 ffmpeg、恢复后端 node 依赖、自检导入、下载模型。bootstrap.bat 与 bootstrap.sh 是薄壳，只调这份主体。
 // 恢复 node 依赖走 `node node_modules/npm/bin/npm-cli.js`，不调 npm.cmd：npm.cmd 按 PATH 推断前缀，
@@ -25,6 +83,14 @@ const PLATFORM_ONLY = argv.includes('--platform-only') || argv.includes('-Platfo
 // --dry-run：只走「找解释器 / 认 venv / 算清楚要装什么」这些只读的部分，然后把计划打出来就停。
 // 它停在 venv 健康检查之前：健康检查发现 venv 坏了会真的重建，所以 dry-run 不承诺「什么都没改」。
 const DRY = argv.includes('--dry-run')
+
+// --venv-only：只做「把根 venv 部署成当前内嵌解释器」这一件事，即建/重建 venv 与装平台工具链包，
+//   然后就停。不装 torch、不下 ffmpeg、不恢复 node 依赖、不问模型。
+//   为什么单独一个入口：根 venv 的 base 会被外部工具换掉（见 docs/ONBOARDING_PLAN.md A22），
+//   「重建根 venv」这件事本身要能独立、无人值守地重复做。
+//   它固定走平台瘦版那份 requirements（--platform-only 的语义）：
+//   根 venv 是平台的环境，引擎依赖归各引擎自己的 .venv（见台账 A16 / A17）。
+const VENV_ONLY = argv.includes('--venv-only') || argv.includes('-VenvOnly')
 
 // 每条 [deploy] 消息都追加进日志文件。事后排查依赖这份日志。
 const LOG_DIR = path.join(ROOT, 'logs')
@@ -121,8 +187,9 @@ async function main () {
     // 报告与执行不会不一致。
     const VENV = path.join(ROOT, 'venv')
     const WHEELS = path.join(ROOT, 'tools', 'wheels')
+    // --venv-only 固定走瘦版：根 venv 是平台的环境，引擎依赖归各引擎自己的 .venv。
     const REQ = path.join(ROOT,
-      PLATFORM_ONLY ? 'requirements-platform.txt' : 'requirements-gpt-sovits.txt')
+      (PLATFORM_ONLY || VENV_ONLY) ? 'requirements-platform.txt' : 'requirements-gpt-sovits.txt')
     const NODE_DIR = path.join(ROOT, 'tools', 'runtime', 'node')
     const NODE_EXE = path.join(NODE_DIR, IS_WIN ? 'node.exe' : 'node')
     const NPM_CLI = path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js')
@@ -168,7 +235,7 @@ async function main () {
 
   if (DRY) {
   // 只读的那一半到此为止
-  const reqPath = path.join(ROOT, PLATFORM_ONLY ? 'requirements-platform.txt' : 'requirements-gpt-sovits.txt')
+  const reqPath = REQ
   const vrDry = venvPython(VENV, process.platform)
   const wheels = fs.existsSync(WHEELS)
     ? fs.readdirSync(WHEELS).filter(f => f.endsWith('.whl')).length : 0
@@ -183,11 +250,18 @@ async function main () {
       (fs.existsSync(reqPath) ? '' : '   不存在！'))
   raw('  本地 wheel  ' + (wheels ? wheels + ' 个' : (fs.existsSync(WHEELS) ? '目录是空的' : '缺失：tools/wheels 不存在')))
   raw('  uv          ' + (process.env.TTS_NO_UV === '1' ? '跳过（TTS_NO_UV=1）' : '装，装不上退回 pip'))
-  raw('  torch       ' + (PLATFORM_ONLY ? '跳过（--platform-only）' : '委托 tools/cli/install-torch.js'))
-  raw('  ffmpeg      ' + (SEL_FFMPEG === '0' ? '跳过（向导没选）' : fs.existsSync(path.join(SCRIPT_DIR, 'download_ffmpeg.py')) ? '下载' : '缺失：download_ffmpeg.py 不存在'))
-  raw('  npm         ' + (npmCliOk ? 'node + npm-cli.js（不走 npm.cmd）'
-    : fs.existsSync(path.join(ROOT, 'package.json')) ? '⚠️ 自带 npm 不在 → 退回 PATH 上的 npm' : '缺失：package.json 不存在'))
-  raw('  模型        ' + (SEL_MODELS === null ? '没有旁白文件 → 看有没有终端' : SEL_MODELS === '' ? '向导没选 → 跳过' : '下：' + SEL_MODELS))
+  if (VENV_ONLY) {
+    raw('  torch       跳过（--venv-only）')
+    raw('  ffmpeg      跳过（--venv-only）')
+    raw('  npm         跳过（--venv-only）')
+    raw('  模型        跳过（--venv-only）')
+  } else {
+    raw('  torch       ' + (PLATFORM_ONLY ? '跳过（--platform-only）' : '委托 tools/cli/install-torch.js'))
+    raw('  ffmpeg      ' + (SEL_FFMPEG === '0' ? '跳过（向导没选）' : fs.existsSync(path.join(SCRIPT_DIR, 'download_ffmpeg.py')) ? '下载' : '缺失：download_ffmpeg.py 不存在'))
+    raw('  npm         ' + (npmCliOk ? 'node + npm-cli.js（不走 npm.cmd）'
+      : fs.existsSync(path.join(ROOT, 'package.json')) ? '⚠️ 自带 npm 不在 → 退回 PATH 上的 npm' : '缺失：package.json 不存在'))
+    raw('  模型        ' + (SEL_MODELS === null ? '没有旁白文件 → 看有没有终端' : SEL_MODELS === '' ? '向导没选 → 跳过' : '下：' + SEL_MODELS))
+  }
   raw('')
   raw('  去掉 --dry-run 即真正部署。')
   raw('')
@@ -198,16 +272,23 @@ async function main () {
   // venv 不可搬运：pyvenv.cfg 把建它的那个 base 解释器的绝对路径烤了进去。项目目录被移动或改名之后，
   // 现有 venv 的解释器仍指向旧 base 路径，每次调用都死在 `No Python at '...\python.exe'`。
   // 所以不盲信现有 venv：先健康检查，坏了就对着当前内嵌运行时重建。
-  let venvOk = false
-  if (fs.existsSync(VENV_PY)) {
-    const r = spawnSync(VENV_PY, ['-c', 'import sys'], { encoding: 'utf8', windowsHide: true })
-    venvOk = r.status === 0
-  }
+  // 健康检查有两道判据（inspectExistingVenv）：解释器能跑，且 base 就是当前内嵌解释器。
+  //   只判「能跑」会漏掉「外部工具把本机的 Python 换成了别的版本」：
+  //   venv 照样能跑，但它的 ABI 与平台基座不同，tools/wheels 里的 cp311 轮子装不上。
+  const existing = inspectExistingVenv(VENV, VENV_PY, EMB_PY)
+  let venvOk = existing.ok
   if (venvOk) {
     Ok(`venv already exists and works: ${VENV}`)
   } else {
     if (fs.existsSync(VENV)) {
-      Warn(`existing venv is broken or was moved from another path; rebuilding it: ${VENV}`)
+      const why = existing.reason === 'base-differs'
+        ? `its base interpreter is ${existing.base}, not the embedded runtime ${EMB_PY}`
+        : existing.reason === 'cannot-run'
+          ? 'its interpreter cannot run'
+          : existing.reason === 'no-interpreter'
+            ? 'its interpreter is missing'
+            : 'its pyvenv.cfg does not name a base interpreter'
+      Warn(`existing venv is broken or was moved from another path (${why}); rebuilding it: ${VENV}`)
       try { fs.rmSync(VENV, { recursive: true, force: true }) }
       catch (e) { Die(`删不掉坏掉的 venv（${VENV}）：${e.message}\n        可能有进程正占着它。`) }
     }
@@ -217,6 +298,13 @@ async function main () {
     // 刚建出来的 venv 必须真的能跑：只看文件在不够。
     const chk = spawnSync(VENV_PY, ['-c', 'import sys'], { encoding: 'utf8', windowsHide: true })
     if (chk.status !== 0) Die('venv was created but its python cannot run. Check the embedded runtime.')
+    // 而且它的 base 必须就是当前内嵌解释器，否则装的是另一个 ABI 的轮子。
+    const built = venvBaseMatches(VENV, EMB_PY)
+    if (!built.ok) {
+      Die(`venv was created but its base is not the embedded runtime `
+        + `(pyvenv.cfg says ${built.base || 'nothing'}, expected ${EMB_PY}). `
+        + 'The embedded runtime may be incomplete.')
+    }
     Ok('venv created.')
   }
 
@@ -248,7 +336,8 @@ async function main () {
   // 3. 装项目依赖（不含 torch）。两份 requirements 的分工：requirements-gpt-sovits.txt 是推理栈的依赖
   // （含 torch，体积很大），requirements-platform.txt 是平台自己要的几个工具链包（很小）。
   // 默认装含 torch 的那份：训练线要 torch，切默认会让训练立刻不可用。
-  if (PLATFORM_ONLY) {
+  // REQ 已在上面按开关选好了（--venv-only 固定走瘦版）。
+  if (PLATFORM_ONLY || VENV_ONLY) {
     Info('using the platform-only requirements (no torch / no CUDA).')
     Info('the training line needs torch and will NOT work under this flag.')
   }
@@ -312,6 +401,19 @@ async function main () {
       Warn('frozen env), you can ignore them. If a package is MISSING, add it to the')
       Warn('requirements file and re-run deploy.')
     }
+  }
+
+  // --venv-only：根 venv 部署完毕，到此为止。
+  //   不装 torch、不下 ffmpeg、不恢复 node 依赖、不问模型：
+  //   那些是「平台其余部分」，与「根 venv 用哪个 base 部署」是两件事。
+  if (VENV_ONLY) {
+    const ver = spawnSync(VENV_PY, ['--version'], { encoding: 'utf8', windowsHide: true })
+    const vtxt = ((ver.stdout || '') + (ver.stderr || '')).trim()
+    Ok(`venv deployed from the embedded runtime: ${VENV}`)
+    Ok(`  interpreter : ${VENV_PY} (${vtxt})`)
+    Ok(`  base        : ${EMB_PY}`)
+    say('DarkCyan', `full log: ${LOG_FILE}`)
+    process.exit(0)
   }
 
   // 4. torch + onnxruntime：委托给跨平台主体。两者都不在 requirements 里（体积大、构建目标相关、
@@ -586,8 +688,14 @@ async function main () {
 }
 
 // 顶层 await 与 require 不能共存（ERR_AMBIGUOUS_MODULE_SYNTAX），所以整个主体在 main() 里跑。
-main().catch(e => {
-  console.error('[deploy][FATAL] ' + (e && e.stack ? e.stack : e))
-  try { say('DarkCyan', `full log: ${LOG_FILE}`) } catch (_) {}
-  process.exit(1)
-})
+// require.main 守卫：测试要 require 这份文件取里面的纯函数，
+// 不能一 require 就把整个部署执行一遍。
+if (require.main === module) {
+  main().catch(e => {
+    console.error('[deploy][FATAL] ' + (e && e.stack ? e.stack : e))
+    try { say('DarkCyan', `full log: ${LOG_FILE}`) } catch (_) {}
+    process.exit(1)
+  })
+}
+
+module.exports = { venvBaseMatches, inspectExistingVenv }

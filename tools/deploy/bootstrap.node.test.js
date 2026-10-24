@@ -90,9 +90,13 @@ test('⭐ --platform-only 切的是 requirements，而默认不切', () => {
   assert.match(code, /requirements-platform\.txt/, '--platform-only 没有切到平台那份')
   assert.match(code, /requirements-gpt-sovits\.txt/,
     '默认那份不在 —— 它现在是**引擎**的依赖（A16 更名）')
-  //  默认必须装引擎那份（保持原样），只有开关才切
-  assert.match(code, /PLATFORM_ONLY\s*\?\s*'requirements-platform\.txt'\s*:\s*'requirements-gpt-sovits\.txt'/,
-    '默认与开关的对应关系变了 —— ⭐ 默认必须是「不切」，否则老用户行为突变')
+  //  默认必须装引擎那份（保持原样），只有开关才切。
+  //  判据看「哪个条件为真时选瘦版」：开关列在左边、引擎那份在 else 分支。
+  //  别把它改回「默认切瘦版」，那会让老用户的行为突变。
+  const m = code.match(/\(?\s*([A-Z_]+\s*(?:\|\|\s*[A-Z_]+\s*)*)\)?\s*\?\s*'requirements-platform\.txt'\s*:\s*'requirements-gpt-sovits\.txt'/)
+  assert.ok(m, '选 requirements 的那个条件表达式变了 —— 默认必须是「不切」，否则老用户行为突变')
+  assert.match(m[1], /PLATFORM_ONLY/, '瘦版必须由开关触发，不能无条件选')
+  assert.ok(!/^\s*true/.test(m[1]), '条件不能恒真')
 })
 
 // 5. torch 不可用必须明写，且不误报成「装失败」
