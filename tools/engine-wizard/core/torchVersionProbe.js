@@ -1,33 +1,37 @@
 'use strict'
 
-// Torch 版本与本机后端的匹配探测。
+// Torch 版本与本机后端的匹配判断。
 //
 // 问题形状：上游把 torch 钉在某个版本（比如 2.5.1），而那个版本在本机推荐后端
-//   的官方 index 上没有匹配本机 Python ABI 的轮子 ⇒ 装依赖必然失败，
-//   报错是 uv 的「No solution found when resolving dependencies」。
-//   典型场景：XPU 与 ROCm 的轮子起步比 CPU/CUDA 晚，torch 2.5.1 在 xpu 上不存在。
+//   上**不可能**用上 ⇒ 装依赖必然失败，报错是 uv 的
+//   「No solution found when resolving dependencies」。
+//
+// 关键：这个判断**不需要联网**。
+//   XPU、ROCm 这类加速后端对 torch 版本有明确的下界
+//   （XPU 的官方二进制轮子从 2.6.0 起才有），方向是单向的：
+//   后端只往更高的版本扩，不回头兼容更老的。
+//   所以「这个版本在这个后端上有没有」是确定的事实，查表比大小即可。
+//   事实表在 backendTorchSupport.js。
 //
 // 判据只读两样东西，不猜：
 //   ① 上游声明的 torch 版本（requirements / pyproject / lock 里读出来的事实）；
-//   ② 本机推荐后端的官方 index 上有哪些版本、覆盖哪些 Python ABI。
+//   ② 该后端与该 Python ABI 的版本下界（表里的事实）。
 // 两者不一致 ⇒ 如实报出「上游钉的版本在本机后端上不可用」与「可用的最低版本是什么」，
 //   由使用者决定升不升级。平台不替使用者改上游钉的版本。
 
 const fs = require('node:fs')
 const https = require('node:https')
 const path = require('node:path')
+const {
+  minTorchFor, cmpVersion, platformFamily, BACKEND_INDEX,
+} = require('./backendTorchSupport')
 
 // PyTorch 官方 index 的地址形态：https://download.pytorch.org/whl/<后端>
 const INDEX_ROOT = 'https://download.pytorch.org/whl/'
 
 // 只有这些后端有官方 wheel index。没有 index 的后端（ZLUDA / DirectML）
-//   不做版本探测：平台上没有可比对的版本清单。
-const BACKENDS_WITH_INDEX = {
-  cuda: 'cu121',
-  ipex: 'xpu',
-  rocm: 'rocm6.4',
-  cpu: 'cpu',
-}
+//   不做版本判断：平台上没有可比对的版本清单。
+const BACKENDS_WITH_INDEX = BACKEND_INDEX
 
 // Python 主次版本 → wheel 文件名里的 ABI tag
 function abiTag (version) {
@@ -152,7 +156,85 @@ function fetchIndexHtml (indexUrl, timeoutMs) {
 }
 
 /**
- * 探测「上游钉的 torch 版本在本机后端上能不能用」。
+ * 同步判「上游钉的 torch 版本在本机后端上能不能用」。
+ *
+ * 判据是**离线查表比大小**（backendTorchSupport.js）：
+ *   这个 (官方 index, 平台族, Python ABI) 组合从哪个 torch 版本起才有轮子。
+ *   上游声明的版本低于那个下界 ⇒ 一定装不上，且**永远不会**装得上
+ *   （后端只往更高的版本扩，不回头兼容更老的）。
+ *
+ * 所以「这个版本有没有」是确定的事实，不需要联网去查。
+ *
+ * @param {object} opts
+ *   dir 引擎目录（读上游声明）
+ *   backend 本机推荐的后端 key（cuda / ipex / rocm / cpu）
+ *   pythonVersion 引擎环境用的 Python 版本（形如 '3.11'）
+ *   platform 目标平台，默认当前平台
+ * @returns {object|null} null 表示「没有需要提示的情况」
+ */
+function judgeTorchVersion (opts = {}) {
+  const backend = opts.backend
+  const indexKey = BACKENDS_WITH_INDEX[backend]
+  if (!indexKey) return null
+  const declared = readDeclaredTorchVersion(opts.dir)
+  if (!declared) return null
+  const abi = abiTag(opts.pythonVersion)
+  if (!abi) return null
+  const family = platformFamily(opts.platform || process.platform)
+  if (!family) return null
+
+  // 声明带后缀（2.5.1+cu128）时按纯版本号比：后端由使用者选的决定，
+  //   不由文件名后缀决定。
+  const declaredPlain = declared.version.replace(/\+.*$/, '')
+
+  // ---- 离线判据 ----
+  const minVersion = minTorchFor(backend, abi, family)
+  if (!minVersion) {
+    // 这个后端 + 平台 + ABI 的组合没有官方轮子（表里查不到）。
+    //   如实报出来，但不编建议版本。
+    return {
+      ok: false,
+      backend,
+      index: `${INDEX_ROOT}${indexKey}/torch/`,
+      pythonVersion: opts.pythonVersion,
+      abi,
+      platformFamily: family,
+      declared: declared.version,
+      declaredSource: declared.source,
+      available: [],
+      reason: 'no-wheel-for-this-python',
+    }
+  }
+  if (cmpVersion(declaredPlain, minVersion) >= 0) {
+    // 上游钉的版本在这个后端上装得上 ⇒ 不需要提示。
+    //   （下界是充分条件：高于下界的版本官方一定发过轮子。）
+    return null
+  }
+
+  // ---- 低于下界 ⇒ 不兼容，给出建议版本 = 下界 ----
+  return {
+    ok: false,
+    backend,
+    index: `${INDEX_ROOT}${indexKey}/torch/`,
+    pythonVersion: opts.pythonVersion,
+    abi,
+    platformFamily: family,
+    declared: declared.version,
+    declaredSource: declared.source,
+    minVersion,
+    available: [],
+    // 建议版本就是下界本身：那是该组合上第一个有官方轮子的版本。
+    suggested: minVersion,
+    reason: 'version-not-on-this-backend',
+  }
+}
+
+/**
+ * 判「上游钉的 torch 版本在本机后端上能不能用」，并补充该后端上可用的版本列表。
+ *
+ * 判断部分在 judgeTorchVersion 里，纯查表、不联网。
+ * 这里额外联网只为补充「这个后端上还有哪些版本可用」这份信息，
+ *   失败不影响判断（判断已经成立），只是少了一份补充信息。
  *
  * @param {object} opts
  *   dir 引擎目录（读上游声明）
@@ -161,82 +243,29 @@ function fetchIndexHtml (indexUrl, timeoutMs) {
  *   platform 目标平台，默认当前平台
  *   arch 目标架构，默认当前架构
  *   timeoutMs 单次抓取超时
- * @returns {Promise<object|null>} null 表示查不出来（没有声明 / 没 index / 抓不到）
+ *   offline true ⇒ 完全不联网（只给判断与建议版本）
+ * @returns {Promise<object|null>} null 表示「没有需要提示的情况」
  */
 async function probeTorchVersion (opts = {}) {
-  const backend = opts.backend
-  const indexKey = BACKENDS_WITH_INDEX[backend]
-  if (!indexKey) return null
-  const declared = readDeclaredTorchVersion(opts.dir)
-  if (!declared) return null
-  const abi = abiTag(opts.pythonVersion)
-  if (!abi) return null
+  const result = judgeTorchVersion(opts)
+  if (!result || result.ok) return result
+  if (opts.offline) return result
   const plat = wheelPlatformTag(opts.platform || process.platform, opts.arch || process.arch)
-  if (!plat) return null
-
-  const url = `${INDEX_ROOT}${indexKey}/torch/`
-  const html = await fetchIndexHtml(url, opts.timeoutMs)
-  if (!html) return null
-  const parsed = parseTorchIndex(html, abi, plat)
-  if (!parsed.versions.length) {
-    // 索引抓到了，但没有匹配这个 ABI 与平台的轮子。
-    //   这个结论本身就是「上游钉的版本装不上」：整个 index 在这个 Python 上
-    //   一个轮子都没有，上游声明的版本必然不在其中。
-    //   要给建议就得从「这个 index 上有哪些版本」里挑一个能配这个 ABI 的，
-    //   而那要求换 ABI 或换 Python 版本，不是换 torch 版本能解决的。
-    //   所以这里不给 suggested，只如实报出「一个轮子都没有」。
-    return {
-      ok: false,
-      backend,
-      index: url,
-      pythonVersion: opts.pythonVersion,
-      abi,
-      platformTag: plat,
-      declared: declared.version,
-      declaredSource: declared.source,
-      available: [],
-      availableTags: parsed.tags,
-      reason: 'no-wheel-for-this-python',
+  if (!plat) return result
+  try {
+    const html = await fetchIndexHtml(result.index, opts.timeoutMs)
+    if (html) {
+      const parsed = parseTorchIndex(html, result.abi, plat)
+      result.available = parsed.versions
+      result.availableTags = parsed.tags
     }
-  }
-
-  // 上游钉的版本是不是在可用列表里？
-  //   声明带后缀（2.5.1+cu128）时按纯版本号比：后端由 index 决定，不由文件名后缀决定。
-  const declaredPlain = declared.version.replace(/\+.*$/, '')
-  const usable = parsed.versions.includes(declaredPlain)
-  const result = {
-    ok: usable,
-    backend,
-    index: url,
-    pythonVersion: opts.pythonVersion,
-    abi,
-    platformTag: plat,
-    declared: declared.version,
-    declaredSource: declared.source,
-    available: parsed.versions,
-    availableTags: parsed.tags,
-  }
-  if (!usable) {
-    // 建议版本 = 可用列表里第一个不低于上游钉的版本。
-    //   没有更高的就取最高的那个（上游钉的比所有可用版本都新）。
-    const higher = parsed.versions.filter((v) => cmpVersion(v, declaredPlain) >= 0)
-    result.suggested = higher.length ? higher[0] : parsed.versions[parsed.versions.length - 1]
-    result.reason = 'version-not-on-this-backend'
-  }
+  } catch (e) { /* 抓不到就只留判据 */ }
   return result
-}
-
-function cmpVersion (a, b) {
-  const pa = String(a).split('.').map(Number)
-  const pb = String(b).split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0)
-  }
-  return 0
 }
 
 module.exports = {
   probeTorchVersion,
+  judgeTorchVersion,
   readDeclaredTorchVersion,
   parseTorchIndex,
   abiTag,

@@ -42,22 +42,27 @@ const {
   stepArtifactExists,
 } = require('./envProgress')
 const {
-  probeTorchVersion,
-  readDeclaredTorchVersion,
-  BACKENDS_WITH_INDEX,
+  judgeTorchVersion,
 } = require('./torchVersionProbe')
 
 /**
- * 探测「上游钉的 torch 版本在本机后端上能不能用」，给出升级建议。
+ * 判「上游钉的 torch 版本在本机后端上能不能用」，给出升级建议。
  *
- * 判据只有两样：上游声明的版本 + 本机后端官方 index 上有哪些轮子。
- *   查不出来（没声明 / 后端没 index / 抓不到）⇒ 返回 null，
- *   不猜、不给假建议。
+ * 判据只有两样，都是确定的事实：
+ *   ① 上游声明的 torch 版本（requirements / pyproject / lock 里读出来的）；
+ *   ② 该 (官方 index, 平台, Python ABI) 组合的版本下界
+ *      （backendTorchSupport.js 的事实表）。
+ *
+ * **全程不联网**：后端对 torch 版本的支持有下界且方向单向
+ *   （XPU 从 2.6.0 起才有官方轮子，不会回头兼容 2.5），
+ *   所以查表比大小就能定论。
+ *
+ * 与 torch 无关的情形（没声明 / 后端没官方 index）⇒ 返回 null，不打扰使用者。
  *
  * @param {object} input {id, root, backend}
- * @returns {Promise<object|null>} 建议对象，或 null
+ * @returns {object|null} 建议对象，或 null
  */
-async function suggestTorchUpgrade (input = {}) {
+function suggestTorchUpgrade (input = {}) {
   if (!input) return null
   const root = input.root || projectRoot()
   if (!root) return null
@@ -78,16 +83,12 @@ async function suggestTorchUpgrade (input = {}) {
   }
   if (!backend) return null
   try {
-    const r = await probeTorchVersion({
-      dir, backend, pythonVersion,
-      platform: process.platform, arch: process.arch,
-      timeoutMs: 15000,
-    })
+    const r = judgeTorchVersion({ dir, backend, pythonVersion })
     if (!r || r.ok) return null
     // 「上游钉的版本在这个后端上不可用」有两种形态，两种都要报给使用者：
-    //   ① version-not-on-this-backend：这个 index 上有这个版本，但配不了本机 Python
+    //   ① version-not-on-this-backend：低于这个组合的下界
     //      ⇒ 可以给出「换一个可用的版本」的建议，由使用者决定升不升级。
-    //   ② no-wheel-for-this-python：这个 index 在本机 Python 上一个轮子都没有
+    //   ② no-wheel-for-this-python：这个组合没有官方轮子
     //      ⇒ 换 torch 版本解决不了（得换 Python 版本或换后端），不给版本建议，
     //      但仍然要如实告诉使用者「这个后端上装不了上游钉的版本」。
     if (r.reason !== 'version-not-on-this-backend' && r.reason !== 'no-wheel-for-this-python') {
@@ -95,72 +96,8 @@ async function suggestTorchUpgrade (input = {}) {
     }
     return r
   } catch (e) {
-    // 探测失败不是安装失败：不给建议，让计划照常出。
+    // 判断本身出错（不该发生，判据是纯查表）：不给建议，让计划照常出。
     return null
-  }
-}
-
-/**
- * 探测「能不能确认上游钉的 torch 版本在本机后端上可用」。
- *
- * 与 suggestTorchUpgrade 的区别：那个只报「确定不可用」，
- * 这个把「没能确认」也报出来。两者一起用，界面才能区分：
- *   ① 确认不可用 ⇒ 弹窗问要不要升级（或者说明换版本也解决不了）；
- *   ② 没能确认（网络不通、index 抓不到）⇒ 如实说「没确认」，
- *      并告诉使用者「装 Torch 那一项可以先跳过、自己装」。
- * ② 这一条不能省：探测不到就静默放行，使用者会撞上 uv 的原始报错，
- *   而那个报错看不出真因是版本与后端/ABI 不匹配。
- *
- * @param {object} input 与 suggestTorchUpgrade 相同
- * @returns {Promise<object|null>} null 表示「确认可用」或「与 torch 无关」
- */
-async function probeTorchAvailability (input = {}) {
-  const root = input.root || projectRoot()
-  if (!root) return null
-  const id = String(input.id || '')
-  if (!id) return null
-  const dir = engineDir(id, root)
-  if (!fs.existsSync(dir)) return null
-
-  // 上游没声明 torch 版本 ⇒ 与 torch 版本无关，不打扰使用者。
-  const declaredTorch = readDeclaredTorchVersion(dir)
-  if (!declaredTorch) return null
-
-  const pythonVersion = readEnginePythonVersion(dir)
-    ? readEnginePythonVersion(dir).version
-    : PLATFORM_BASE_PYTHON
-  let backend = input.backend
-  if (!backend) {
-    try {
-      const hw = require('./hardware')
-      const rec = hw.recommendBackend(hw.detectGpus())
-      backend = rec && rec.recommended
-    } catch (e) { backend = null }
-  }
-  if (!backend) return null
-  // 没有官方 index 的后端无从比对，交给别处的检查报「这个后端装不了」。
-  if (!BACKENDS_WITH_INDEX[backend]) return null
-
-  let r = null
-  try {
-    r = await probeTorchVersion({
-      dir, backend, pythonVersion,
-      platform: process.platform, arch: process.arch,
-      timeoutMs: 15000,
-    })
-  } catch (e) { r = null }
-  if (r && r.ok) return null
-  if (r && r.reason === 'version-not-on-this-backend') return r
-  if (r && r.reason === 'no-wheel-for-this-python') return r
-  // 到这里就是「没能确认」：抓不到 index 或抓到的内容没法判断。
-  return {
-    ok: false,
-    backend,
-    pythonVersion,
-    declared: declaredTorch.version,
-    declaredSource: declaredTorch.source,
-    available: [],
-    reason: 'could-not-check',
   }
 }
 
@@ -179,8 +116,6 @@ module.exports = {
   partialVenvMarkAbs, hasPartialVenvMark, markPartialVenv,
   // 引擎声明的 Python 版本：声明了用声明的，没声明用平台基座
   readEnginePythonVersion, PLATFORM_BASE_PYTHON,
-  // torch 版本与本机后端的匹配探测（异步，给出升级建议）
+  // torch 版本与本机后端的匹配判断（离线查表，给出升级建议）
   suggestTorchUpgrade,
-  // 同一件事的完整版：连「没能确认」也报出来（探测失败时不静默放行）
-  probeTorchAvailability,
 }
