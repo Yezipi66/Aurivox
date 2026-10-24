@@ -7,8 +7,16 @@
 const { test } = require('node:test')
 const assert = require('node:assert')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 
-const { postJson } = require(path.join(__dirname, '..', 'editor', 'postJson.js'))
+// editor/ 下的 .js 是 ESM（编辑器打包成浏览器模块），要用 ESM 加载器读。
+const MOD_PATH = path.join(__dirname, '..', 'editor', 'postJson.js')
+let postJson
+test('加载 postJson.js', async () => {
+  const mod = await import(pathToFileURL(MOD_PATH).href)
+  postJson = mod.postJson
+  assert.strictEqual(typeof postJson, 'function', 'postJson 要导出成函数')
+})
 
 // 网络层失败：fetch 自己抛（连接被拒、DNS 失败、超时）
 test('网络层失败：返回可读的失败结论，不抛异常', async () => {

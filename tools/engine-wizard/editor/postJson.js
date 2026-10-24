@@ -16,7 +16,7 @@
  * @param {function} [fetchImpl] 注入的 fetch（测试用）
  * @returns {Promise<object>} 成功=>后端那个 JSON；失败=>{ok:false, code, ...}
  */
-async function postJson (path_, body, fetchImpl) {
+export async function postJson (path_, body, fetchImpl) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null)
   if (!doFetch) {
     return {
@@ -61,5 +61,3 @@ async function postJson (path_, body, fetchImpl) {
     }
   }
 }
-
-module.exports = { postJson }
