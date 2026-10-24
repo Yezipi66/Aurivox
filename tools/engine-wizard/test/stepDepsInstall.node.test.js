@@ -44,11 +44,32 @@ function loadInstallDecision () {
 const installDecision = loadInstallDecision()
 
 const SUGGESTION = {
+  ok: false,
   backend: 'ipex',
   pythonVersion: '3.11',
   declared: '2.5.1',
   suggested: '2.6.0',
   reason: 'version-not-on-this-backend',
+}
+
+// 这个后端在本机 Python 上一个轮子都没有：换 torch 版本解决不了。
+const NO_WHEEL = {
+  ok: false,
+  backend: 'ipex',
+  pythonVersion: '3.11',
+  declared: '2.5.1',
+  available: [],
+  reason: 'no-wheel-for-this-python',
+}
+
+// 没能联网确认（index 抓不到）。
+const UNCHECKED = {
+  ok: false,
+  backend: 'ipex',
+  pythonVersion: '3.11',
+  declared: '2.5.1',
+  available: [],
+  reason: 'could-not-check',
 }
 
 test('守卫：这份测试真的拿到了活代码里的那个纯函数', () => {
@@ -63,8 +84,20 @@ test('探测出建议且还没答过 ⇒ 先弹窗，不直接装', () => {
   assert.strictEqual(d.upgradeTorch, false, '弹窗阶段不擅自升级')
 })
 
-test('没有建议 ⇒ 直接装，不弹窗', () => {
-  for (const s of [null, {}, { suggested: null }]) {
+test('确认不可用但没有可替换的版本 ⇒ 照样弹窗（不能静默放行）', () => {
+  // 这一条是「不要让使用者撞原始报错」的关键：
+  //   弹窗前就说出「这个后端上装不了」，而不是装到一半炸。
+  for (const s of [NO_WHEEL, UNCHECKED]) {
+    const d = installDecision(s, null)
+    assert.strictEqual(d.ask, true,
+      `不可用/没确认时必须弹窗：${s.reason}`)
+    assert.strictEqual(d.upgradeTorch, false, '弹窗阶段不擅自升级')
+    assert.deepStrictEqual(d.torchSuggestion, s, '结论要一起带上去')
+  }
+})
+
+test('没有建议也没有不可用的结论 ⇒ 直接装，不弹窗', () => {
+  for (const s of [null, {}, { suggested: null }, { ok: true, suggested: null }]) {
     const d = installDecision(s, null)
     assert.strictEqual(d.ask, false, `没有建议不该弹窗：${JSON.stringify(s)}`)
     assert.strictEqual(d.upgradeTorch, false)
@@ -76,6 +109,16 @@ test('使用者已接受升级 ⇒ 直接按升级装，不再弹窗', () => {
   assert.strictEqual(d.ask, false, '答过就不该再拦')
   assert.strictEqual(d.upgradeTorch, true, '按接受执行')
   assert.deepStrictEqual(d.torchSuggestion, SUGGESTION)
+})
+
+test('没有可替换的版本时，「接受」不能走升级路线', () => {
+  // 后端的升级路线要求 torchSuggestion.suggested 存在，
+  //   没有就报 NO_TORCH_SUGGESTION，整个计划失败。
+  for (const s of [NO_WHEEL, UNCHECKED]) {
+    const d = installDecision(s, true)
+    assert.strictEqual(d.upgradeTorch, false,
+      `没有可替换的版本就不该走升级路线：${s.reason}`)
+  }
 })
 
 test('使用者已拒绝升级 ⇒ 直接按原样装，不再弹窗', () => {

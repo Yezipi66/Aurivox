@@ -26,17 +26,38 @@ function pkgName (spec) {
 //   规则：探测出「上游钉的 torch 版本在本机后端上不可用」且使用者还没答过 ⇒ 先弹窗；
 //   答过了（true / false）⇒ 直接按那个答案执行，不再拦。
 //
-// @param {object|null} suggestion 后端探测出的建议
-// @param {boolean|null} answered 使用者已给的答复（null = 还没问）
-// @returns {{ask:boolean, upgradeTorch:boolean, torchSuggestion:object|null}}
+/**
+ * 点「安装」时该怎么走。
+ *
+ * @param {object|null} suggestion 后端探测的结论
+ * @param {boolean|null} answered 使用者的回答（null = 还没问过）
+ * @returns {{ask:boolean, upgradeTorch:boolean, torchSuggestion:object|null}}
+ *
+ * 三种情况：
+ *   ① 上游钉的版本不可用，且这个后端上有可替换的版本
+ *      ⇒ 问使用者要不要升级。接受 ⇒ 装建议版本；取消 ⇒ 不装。
+ *   ② 上游钉的版本不可用，但换 torch 版本也解决不了
+ *      （这个后端在本机 Python 上一个轮子都没有）
+ *      ⇒ 照样要问，但只能问「装不装」，不给假的升级选项。
+ *   ③ 没能确认（网络不通、index 抓不到）
+ *      ⇒ 也问，但要说清「只是没确认」。使用者可以选择照原样装，
+ *      这一路不是「不可用」，所以照原样装是允许的。
+ *   ④ 上游钉的版本可用 ⇒ 直接装，不问。
+ */
 function installDecision (suggestion, answered) {
-  const has = !!(suggestion && suggestion.suggested)
-  if (has && answered === null) {
-    return { ask: true, upgradeTorch: false, torchSuggestion: suggestion }
+  const unusable = !!(suggestion && suggestion.ok === false)
+  const hasVersion = !!(suggestion && suggestion.suggested)
+  if (unusable && answered === null) {
+    return {
+      ask: true,
+      // 只有真有可替换的版本时，「升级」这条路才存在。
+      upgradeTorch: false,
+      torchSuggestion: suggestion,
+    }
   }
   return {
     ask: false,
-    upgradeTorch: answered === true,
+    upgradeTorch: answered === true && hasVersion,
     torchSuggestion: suggestion || null,
   }
 }
@@ -104,16 +125,32 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   //   先弹窗问要不要升级。取消 ⇒ 不装（使用者自己想办法）。
   //   弹窗只问一次：答过之后（upgradeTorch 有值）不再拦。
   const [askUpgrade, setAskUpgrade] = React.useState(false)
+  //   使用者取消后的说明。取消是「知道了，但这次不装」，
+  //   界面上要有一句交代，不能点了没反应。
+  const [upgradeDeclined, setUpgradeDeclined] = React.useState(false)
   const onInstallClick = () => {
     const d = installDecision(suggestion, upgradeTorch)
-    if (d.ask) { setAskUpgrade(true); return }
+    if (d.ask) { setAskUpgrade(true); setUpgradeDeclined(false); return }
     run({ upgradeTorch: d.upgradeTorch, torchSuggestion: d.torchSuggestion })
   }
   const answerUpgrade = (accept) => {
     setAskUpgrade(false)
     setUpgradeTorch(accept)
-    if (accept) run({ upgradeTorch: true, torchSuggestion: suggestion })
+    if (accept) {
+      setUpgradeDeclined(false)
+      // 有可替换的版本 ⇒ 走升级路线（后端会跳过 torch 系、从后端 index 装建议版本）。
+      // 没有可替换的版本 ⇒ 照原样装上游声明的版本：
+      //   此时不能传 upgradeTorch=true，后端会报「没有提出可用的 Torch 版本」。
+      const hasVersion = !!(suggestion && suggestion.suggested)
+      run({
+        upgradeTorch: hasVersion,
+        torchSuggestion: hasVersion ? suggestion : null,
+      })
+      return
+    }
     // 取消 ⇒ 不装：使用者可以改后端、改排除项，或自己装。
+    //   但要说清楚「这次什么都没装」，不能点了取消就没下文。
+    setUpgradeDeclined(true)
   }
 
   const reload = async () => {
@@ -153,14 +190,19 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   React.useEffect(() => {
     if (!targetId) return
     let alive = true
+    // 走升级路线的前提是「真有可替换的版本」。
+    //   没有可替换的版本时不能传 upgradeTorch=true，
+    //   后端会报「没有提出可用的 Torch 版本」而整个计划失败。
+    const hasVersion = !!(suggestionRef.current && suggestionRef.current.suggested)
+    const useUpgrade = upgradeTorch === true && hasVersion
     fetch('/wizard/env', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id: targetId, manifest: state.manifest || {}, execute: false,
         backend, exclude: skipped,
-        upgradeTorch: upgradeTorch === true,
+        upgradeTorch: useUpgrade,
         // 已经接受升级时不再回传：建议已经在本地存着（suggestionRef）。
-        torchSuggestion: upgradeTorch === true ? null : suggestionRef.current,
+        torchSuggestion: useUpgrade ? null : suggestionRef.current,
       }),
     }).then((r) => r.json())
       .then((j) => {
@@ -421,28 +463,55 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 
       {/* torch 版本与本机后端不一致：提前说清，不等装到一半才炸。
           装依赖那一步失败时，uv 的报错是「No solution found when resolving
-          dependencies」，看不出真因是 torch 版本与后端/ABI 不匹配。 */}
-      {suggestion && suggestion.suggested && (
+          dependencies」，看不出真因是 torch 版本与后端/ABI 不匹配。
+          两种不可用都要显示：① 这个后端上有可替换的版本（可以问要不要升级）；
+          ② 这个后端在本机 Python 上一个轮子都没有（换版本也解决不了）。 */}
+      {suggestion && suggestion.ok === false && (
         <div className="msg msg-warning">
-          <b>{t('The Torch version pinned by the upstream is not available on this machine',
-            '上游锁定的 Torch 版本在本机不可用')}</b>
+          <b>{suggestion.suggested
+            ? t('The Torch version pinned by the upstream is not available on this machine',
+              '上游锁定的 Torch 版本在本机不可用')
+            : suggestion.reason === 'could-not-check'
+              ? t('Could not check the Torch version pinned by the upstream',
+                '没能确认上游锁定的 Torch 版本')
+              : t('Torch cannot be installed on this backend',
+                '这个后端上装不了 Torch')}</b>
           <div className="field-hint" style={{ marginTop: 4 }}>
-            {t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
-              + `wheel for Python ${suggestion.pythonVersion} on the `
-              + `${backendOf(hw && hw.options, backend)} backend. `
-              + `Version ${suggestion.suggested} is available there.`,
-              `上游把 Torch 钉在 ${suggestion.declared}，而该版本在`
-              + `${backendOf(hw && hw.options, backend)} 后端上`
-              + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
-              + `该后端上可用的版本是 ${suggestion.suggested}。`)}
+            {suggestion.suggested
+              ? t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
+                + `wheel for Python ${suggestion.pythonVersion} on the `
+                + `${backendOf(hw && hw.options, backend)} backend. `
+                + `Version ${suggestion.suggested} is available there.`,
+                `上游把 Torch 钉在 ${suggestion.declared}，而该版本在`
+                + `${backendOf(hw && hw.options, backend)} 后端上`
+                + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+                + `该后端上可用的版本是 ${suggestion.suggested}。`)
+              : suggestion.reason === 'could-not-check'
+                ? t(`The upstream pins Torch ${suggestion.declared}. The platform could not `
+                  + `reach the official ${backendOf(hw && hw.options, backend)} index to check `
+                  + `whether that version fits this machine.`,
+                  `上游把 Torch 钉在 ${suggestion.declared}。平台没能连上 `
+                  + `${backendOf(hw && hw.options, backend)} 官方 index，`
+                  + `没能确认这个版本在本机能不能用。`)
+                : t(`The upstream pins Torch ${suggestion.declared}, and the `
+                  + `${backendOf(hw && hw.options, backend)} backend has no wheel for `
+                  + `Python ${suggestion.pythonVersion}. No other version fits either, `
+                  + `so there is nothing to switch to.`,
+                  `上游把 Torch 钉在 ${suggestion.declared}，而`
+                  + `${backendOf(hw && hw.options, backend)} 后端上`
+                  + `没有适配 Python ${suggestion.pythonVersion} 的轮子，`
+                  + `也没有别的版本能适配，没有可替换的版本。`)}
           </div>
           {upgradeTorch === null && (
             <div className="field-hint" style={{ marginTop: 4 }}>
-              {t('Pressing Install will ask whether to upgrade Torch to that version.',
-                '点「安装」时会询问是否把 Torch 升到那个版本。')}
+              {suggestion.suggested
+                ? t('Pressing Install will ask whether to upgrade Torch to that version.',
+                  '点「安装」时会询问是否把 Torch 升到那个版本。')
+                : t('Pressing Install will ask whether to install anyway.',
+                  '点「安装」时会询问是否继续。')}
             </div>
           )}
-          {upgradeTorch === true && (
+          {upgradeTorch === true && suggestion.suggested && (
             <div className="field-hint" style={{ marginTop: 4 }}>
               {t(`Torch will be installed at version ${suggestion.suggested}.`,
                 `Torch 将以版本 ${suggestion.suggested} 安装。`)}
@@ -450,9 +519,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           )}
           {upgradeTorch === false && (
             <div className="field-hint" style={{ marginTop: 4 }}>
-              {t('The upgrade was declined. Installing continues with the upstream version, '
-                + 'which is expected to fail on this machine.',
-                '已拒绝升级。安装会继续用上游那个版本，在本机预计会失败。')}
+              {upgradeDeclined
+                ? t('The upgrade was declined and nothing was installed. Choose another '
+                  + 'backend, use a different Python version, or install Torch yourself.',
+                  '已拒绝升级，这次什么都没装。可以改选其他后端、换 Python 版本，'
+                  + '或自行安装 Torch。')
+                : t('The upgrade was declined. Installing continues with the upstream version, '
+                  + 'which is expected to fail on this machine.',
+                  '已拒绝升级。安装会继续用上游那个版本，在本机预计会失败。')}
             </div>
           )}
         </div>
@@ -689,7 +763,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           )}
         </div>
       </RiskUnlock>
-      {askUpgrade && suggestion && suggestion.suggested && (
+      {askUpgrade && suggestion && suggestion.ok === false && (
         <TorchUpgradeDialog
           suggestion={suggestion}
           backendLabel={backendOf(hw && hw.options, backend)}
@@ -706,39 +780,101 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
 // 两条路都给：接受 ⇒ 按建议版本装；取消 ⇒ 不装，由使用者自己决定。
 function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) {
   const { t } = useT()
+  const hasVersion = !!(suggestion && suggestion.suggested)
+  // 没有可替换的版本时有两种情况：
+  //   ① no-wheel-for-this-python：这个后端在本机 Python 上一个轮子都没有
+  //      ⇒ 换 torch 版本解决不了（得换 Python 版本或换后端）。
+  //   ② could-not-check：没联网确认过（网络不通、index 抓不到）
+  //      ⇒ 不知道能不能装，如实说「没确认」，不编结论。
+  // 两种都只如实说明，不给「装 Torch X」那个按钮。
+  const noVersion = !hasVersion
+  const unchecked = suggestion && suggestion.reason === 'could-not-check'
   return (
     <div className="modal-overlay" onClick={onDecline}>
       <div className="modal-card confirm-card"
         style={{ maxWidth: 520, padding: 20 }}
         onClick={(e) => e.stopPropagation()}>
         <div className="confirm-hdr">
-          <span>{t('Upgrade Torch?', '升级 Torch？')}</span>
+          <span>
+            {unchecked
+              ? t('Could not check the Torch version',
+                '没能确认 Torch 版本')
+              : noVersion
+                ? t('Torch is not available on this backend',
+                  '这个后端上装不了 Torch')
+                : t('Upgrade Torch?', '升级 Torch？')}
+          </span>
         </div>
         <div className="confirm-body">
-          <p style={{ marginTop: 0 }}>
-            {t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
-              + `wheel for Python ${suggestion.pythonVersion} on the ${backendLabel} backend. `
-              + `Installing the upstream version as declared will fail.`,
-              `上游把 Torch 钉在 ${suggestion.declared}，而该版本在 ${backendLabel} 后端上`
-              + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
-              + `照上游声明的版本安装会失败。`)}
-          </p>
-          <p>
-            {t(`Version ${suggestion.suggested} is available on that backend. `
-              + `The upstream version is left aside, and Torch is installed at `
-              + `${suggestion.suggested} from the official ${backendLabel} index.`,
-              `该后端上可用的版本是 ${suggestion.suggested}。`
-              + `上游那个版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
-              + `${suggestion.suggested}。`)}
-          </p>
+          {unchecked ? (
+            <>
+              <p style={{ marginTop: 0 }}>
+                {t(`The upstream pins Torch ${suggestion.declared}. The platform could not `
+                  + `reach the official ${backendLabel} index to check whether that version `
+                  + `fits this machine.`,
+                  `上游把 Torch 钉在 ${suggestion.declared}。平台没能连上 ${backendLabel} `
+                  + `官方 index，没能确认这个版本在本机能不能用。`)}
+              </p>
+              <p>
+                {t('Installing now may fail with a dependency error that does not say why. '
+                  + 'Check the network, or install Torch yourself and skip it in this step.',
+                  `现在就装可能会失败，报错也不会说清原因。可以先检查网络，`
+                  + `或自行安装 Torch 并在这一步跳过它。`)}
+              </p>
+            </>
+          ) : noVersion ? (
+            <>
+              <p style={{ marginTop: 0 }}>
+                {t(`The upstream pins Torch ${suggestion.declared}, and the ${backendLabel} `
+                  + `backend has no wheel for Python ${suggestion.pythonVersion}. `
+                  + `Installing the upstream version as declared will fail.`,
+                  `上游把 Torch 钉在 ${suggestion.declared}，而 ${backendLabel} 后端上`
+                  + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+                  + `照上游声明的版本安装会失败。`)}
+              </p>
+              <p>
+                {t('No other Torch version fits this Python either, so there is nothing '
+                  + 'to switch to. Choose another backend, use a different Python version, '
+                  + 'or install Torch yourself.',
+                  `这个 Python 上也没有别的 Torch 版本能装，所以没有可替换的版本。`
+                  + `可以改选其他后端、换 Python 版本，或自行安装 Torch。`)}
+              </p>
+            </>
+          ) : (
+            <>
+              <p style={{ marginTop: 0 }}>
+                {t(`The upstream pins Torch ${suggestion.declared}, but that version has no `
+                  + `wheel for Python ${suggestion.pythonVersion} on the ${backendLabel} backend. `
+                  + `Installing the upstream version as declared will fail.`,
+                  `上游把 Torch 钉在 ${suggestion.declared}，而该版本在 ${backendLabel} 后端上`
+                  + `没有适配 Python ${suggestion.pythonVersion} 的轮子。`
+                  + `照上游声明的版本安装会失败。`)}
+              </p>
+              <p>
+                {t(`Version ${suggestion.suggested} is available on that backend. `
+                  + `The upstream version is left aside, and Torch is installed at `
+                  + `${suggestion.suggested} from the official ${backendLabel} index.`,
+                  `该后端上可用的版本是 ${suggestion.suggested}。`
+                  + `上游那个版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
+                  + `${suggestion.suggested}。`)}
+              </p>
+            </>
+          )}
         </div>
         <div className="confirm-actions">
           <button className="btn btn-sm" type="button" onClick={onDecline}>
             {t('Cancel', '取消')}
           </button>
-          <button className="btn btn-sm btn-primary" type="button" onClick={onAccept}>
-            {t(`Install Torch ${suggestion.suggested}`, `安装 Torch ${suggestion.suggested}`)}
-          </button>
+          {hasVersion ? (
+            <button className="btn btn-sm btn-primary" type="button" onClick={onAccept}>
+              {t(`Install Torch ${suggestion.suggested}`, `安装 Torch ${suggestion.suggested}`)}
+            </button>
+          ) : (
+            // 没有可替换的版本：照原样装也是一个选择（由使用者承担结果）。
+            <button className="btn btn-sm btn-primary" type="button" onClick={onAccept}>
+              {t('Install anyway', '照原样装')}
+            </button>
+          )}
         </div>
       </div>
     </div>

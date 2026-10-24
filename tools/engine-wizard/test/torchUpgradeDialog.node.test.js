@@ -17,11 +17,32 @@ const PANEL = path.join(EDITOR_DIR, 'StepDeps.jsx')
 const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
 
 const SUGGESTION = {
+  ok: false,
   backend: 'ipex',
   pythonVersion: '3.11',
   declared: '2.5.1',
   suggested: '2.6.0',
   reason: 'version-not-on-this-backend',
+}
+
+// 这个后端在本机 Python 上一个轮子都没有：换 torch 版本解决不了。
+const NO_WHEEL = {
+  ok: false,
+  backend: 'ipex',
+  pythonVersion: '3.11',
+  declared: '2.5.1',
+  available: [],
+  reason: 'no-wheel-for-this-python',
+}
+
+// 没能联网确认（index 抓不到）。
+const UNCHECKED = {
+  ok: false,
+  backend: 'ipex',
+  pythonVersion: '3.11',
+  declared: '2.5.1',
+  available: [],
+  reason: 'could-not-check',
 }
 
 /**
@@ -114,5 +135,33 @@ test('两个按钮都是 type=button，不误触表单提交', () => {
   assert.ok(buttons.length >= 2, `至少两个按钮，实际 ${buttons.length} 个`)
   for (const b of buttons) {
     assert.ok(b.includes('type="button"'), `按钮要声明 type=button：${b}`)
+  }
+})
+
+test('这个后端一个轮子都没有 ⇒ 说清装不了，且不给假的版本选项', () => {
+  const html = renderDialog(NO_WHEEL, 'XPU')
+  assert.ok(html.includes('2.5.1'), '要说明上游钉的是哪个版本')
+  assert.ok(html.includes('3.11'), '要写 Python 版本')
+  assert.ok(html.includes('XPU'), '要写后端名')
+  assert.ok(html.includes('这个后端上装不了 Torch'), '要说清这个后端上装不了')
+  // 按钮文案里不该出现「装 Torch <版本>」（正文里提到 Torch 是正常的）。
+  assert.ok(!/安装 Torch \d/.test(html), '没有可替换版本时不该出现「装 Torch X」这个按钮')
+  assert.ok(html.includes('照原样装'), '要留一条「照原样装」的路，由使用者承担结果')
+})
+
+test('没能确认 ⇒ 说清是没确认，不是说「装不了」', () => {
+  const html = renderDialog(UNCHECKED, 'XPU')
+  assert.ok(html.includes('没能确认'), '要说清是「没确认」，不能断言装不了')
+  assert.ok(html.includes('2.5.1'), '要说明上游钉的是哪个版本')
+  assert.ok(!/安装 Torch \d/.test(html), '没确认时不该编一个版本出来')
+  assert.ok(html.includes('照原样装'), '要留一条「照原样装」的路')
+})
+
+test('没有可替换版本时，弹窗仍然给两条路（取消 与 照原样装）', () => {
+  for (const s of [NO_WHEEL, UNCHECKED]) {
+    const html = renderDialog(s, 'XPU')
+    const buttons = html.match(/<button[^>]*>/g) || []
+    assert.strictEqual(buttons.length, 2,
+      `两条路两个按钮，实际 ${buttons.length} 个：${s.reason}`)
   }
 })
