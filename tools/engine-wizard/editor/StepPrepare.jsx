@@ -171,9 +171,12 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
       if (j.ok && execute) {
-        // 克隆成功时写回 id，否则使用者改过目录名后第 2/3 步会拿到旧 id。
-        onChange({ cloned: true, id: curId })
-        onDone && onDone()
+        // 写回 id：使用者改过目录名时，第 2/3 步要拿到刚克隆用的那个。
+        //   不写 cloned：完成状态由端点读盘判，持久段里没有它的位置。
+        // id 一并交给 onDone：App 那边要立刻重问完成状态，而 onChange 的
+        //   setState 是异步的，紧接着同步调用会读到上一个渲染的旧 id（空）。
+        onChange({ id: curId })
+        onDone && onDone(curId)
       }
     } finally { setBusy('') }
   }

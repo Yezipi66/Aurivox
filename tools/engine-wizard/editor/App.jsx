@@ -20,6 +20,25 @@ import { loadPersist, savePersist, loadPage, savePage,
 //  「展开」指该步骤内部不再套盒子，不是五步同时渲染。
 //   所有类都借自 web/src/styles.css，不在这里定义任何容器。
 
+/**
+ * 问完成状态时该用哪个引擎 id。
+ *
+ * 克隆刚完成时 `wz.id` 的 setState 还没生效，此刻读闭包里的 `wz.id`
+ * 拿到的是**上一个渲染的旧值**（刚进向导时是空）⇒ 请求会带空 id，
+ * 后端返回空结果 ⇒ 流程条一个勾都不亮。
+ *
+ * 所以调用方把「刚克隆用的那个 id」显式传进来，优先用它。
+ *
+ * @param {string} idArg 调用方传的 id（刚克隆完时传它）
+ * @param {string} stateId 当前 state 里的 id
+ * @returns {string|null} 要用的 id；两个都没有则 null
+ */
+function factsQueryId (idArg, stateId) {
+  return idArg || stateId || null
+}
+
+export { factsQueryId }
+
 export default function App () {
   const { t, lang } = useT()
 
@@ -103,10 +122,13 @@ export default function App () {
 
   // ---- 完成状态只由真实产物判（GET /wizard/install-state），不读 localStorage ----
   const [facts, setFacts] = React.useState({})
-  const reloadFacts = React.useCallback(() => {
-    if (!wz.id) { setFacts({}); return }
+  // id 可由调用方传入：刚克隆完时 wz.id 的 setState 还没生效，
+  //   读闭包里的旧值会拿到空 id，一个勾都不亮。
+  const reloadFacts = React.useCallback((idArg) => {
+    const id = factsQueryId(idArg, wz.id)
+    if (!id) { setFacts({}); return }
     let alive = true
-    fetch(`/wizard/install-state?id=${encodeURIComponent(wz.id)}`)
+    fetch(`/wizard/install-state?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
       .then((j) => { if (alive && j && j.ok && j.steps_done) setFacts(j.steps_done) })
       .catch(() => { /* 端点调不通 ⇒ 一个勾都没有，不猜 */ })
@@ -183,8 +205,8 @@ export default function App () {
             {page === 'prepare' && (
               <StepPrepare state={wz} facts={facts}
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
-                onDone={() => {
-                  reloadFacts()
+                onDone={(clonedId) => {
+                  reloadFacts(clonedId)
                   // 克隆完成 ⇒ 直接进第 2 步：使用者刚做完的事就是下一步要做的事，
                   // 让他自己再点一次流程条上的「安装依赖」是多余的。
                   setPage('env')
