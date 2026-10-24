@@ -55,6 +55,9 @@ function validatePlugin () {
     wb.handleInstallState, wb.handleResetProgress,
     handleInstalled, handleSave,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
+    // cancel 必须排在 handleDownload 之前：handleDownload 认的是 /wizard/download 整串前缀，
+    // 会把 download/cancel 一起吃掉（它自己也会显式排除，但注册顺序不能依赖那个）。
+    wb.handleDownloadCancel,
     // handleDownload 认的是 /wizard/download 这个前缀，会把 download/file、
     // download/files、download/manifest、download/progress 全部吃掉，
     // 所以它必须排在所有 download 子端点之后（具体优先于前缀）。
