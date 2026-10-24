@@ -1169,6 +1169,25 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   font-weight: 500;
 }
 
+/* 依赖包那一行：包名 + 版本选择。
+   .pf-chips 是 flex 换行容器，所以每一行自己是一个 flex 容器。 */
+.pkg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pkg-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pkg-version .control {
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  max-width: 190px;
+}
+
 .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
 .toggle-row input { accent-color: var(--accent); }
 

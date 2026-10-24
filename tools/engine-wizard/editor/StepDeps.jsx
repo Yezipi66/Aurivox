@@ -20,6 +20,19 @@ function pkgName (spec) {
   return String(spec || '').split(/[<>=!~\[;@\s]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
 }
 
+// 从一条 spec 里取出声明的版本号。
+//   einops==0.8.1 ⇒ 0.8.1；einops>=0.8.1 ⇒ 0.8.1（区间取下界那一端）；
+//   einops ⇒ 空串（上游没钉版本）。
+// 纯函数：界面拿它当下拉框的默认选项。
+function declaredVersion (spec) {
+  const s = String(spec || '').trim()
+  // 版本号形如 1.2.3、2.5.1.post1、0.8.1rc1：数字开头，
+  //   允许出现点、字母、连字符，但末尾不能是点（那是范围写法 1.2.*）。
+  const m = s.match(/[<>=!~]*\s*([0-9][0-9A-Za-z]*(?:[.\-][0-9A-Za-z]+)*)/)
+  if (!m) return ''
+  return m[1].replace(/\.$/, '')
+}
+
 // 点「安装」时该怎么走。
 //
 // 纯函数：输入当前状态，输出「要不要先弹窗」与「执行时带什么参数」。
@@ -62,7 +75,7 @@ function installDecision (suggestion, answered) {
   }
 }
 
-export { installDecision, TorchUpgradeDialog }
+export { installDecision, TorchUpgradeDialog, PackageGroups, VersionSelect, declaredVersion }
 
 export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const { t, lang } = useT()
@@ -89,6 +102,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   const [preview, setPreview] = React.useState(saved?.depsPreview || null)
   const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
   const [skipped, setSkipped] = React.useState(saved?.skipped || [])
+  // 使用者为某些包选定的版本（包名⇒版本号）。空对象表示「都按上游声明的装」。
+  const [versionOverrides, setVersionOverrides] = React.useState(saved?.versionOverrides || {})
   const [busy, setBusy] = React.useState(false)
   const [live, setLive] = React.useState(null)   // 瞬态，不持久化
   const [tail, setTail] = React.useState([])      // 瞬态，不持久化
@@ -110,15 +125,40 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     saveSession(targetId, url, {
       depsPlan: plan, showNormal, backend, unlocked,
       depsResult: result, depsPreview: preview, depsProgress: progress, skipped,
-      upgradeTorch, torchSuggestion: suggestion,
+      upgradeTorch, torchSuggestion: suggestion, versionOverrides,
     })
-  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped, upgradeTorch, suggestion])
+  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped, upgradeTorch, suggestion, versionOverrides])
 
   const isSkipped = (spec) => skipped.includes(pkgName(spec))
   const toggleSkip = (spec) => {
     const n = pkgName(spec)
     if (!n || busy) return
     setSkipped((xs) => (xs.includes(n) ? xs.filter((x) => x !== n) : [...xs, n]))
+  }
+
+  // 选版本：空字符串表示「按上游声明的装」，把这一项从覆盖表里去掉。
+  const setVersion = (name, ver) => {
+    const n = pkgName(name)
+    if (!n || busy) return
+    setVersionOverrides((xs) => {
+      const next = { ...xs }
+      const v = String(ver || '').trim()
+      if (!v) delete next[n]
+      else next[n] = v
+      return next
+    })
+  }
+
+  // 下拉框里除了上游声明的版本，还能列哪些。
+  //   torch：本机后端上建议的那个版本（探测层给的）。
+  //   其它包：没有可依据的版本列表 ⇒ 只给上游声明的那个与手写入口。
+  //   平台不替使用者猜「有哪些版本可用」。
+  const suggestionsFor = (name) => {
+    const n = pkgName(name)
+    if (!['torch', 'torchaudio', 'torchvision'].includes(n)) return []
+    const s = suggestion
+    if (!s || !s.suggested) return []
+    return [s.suggested]
   }
 
   // 点「安装」：若探测出「上游钉的 torch 版本在本机后端上不可用」，
@@ -203,6 +243,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         upgradeTorch: useUpgrade,
         // 已经接受升级时不再回传：建议已经在本地存着（suggestionRef）。
         torchSuggestion: useUpgrade ? null : suggestionRef.current,
+        versionOverrides,
       }),
     }).then((r) => r.json())
       .then((j) => {
@@ -215,7 +256,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       })
       .catch(() => { if (alive) setPreview(null) })
     return () => { alive = false }
-  }, [targetId, backend, skipped.join('\n'), upgradeTorch])
+  }, [targetId, backend, skipped.join('\n'), upgradeTorch, JSON.stringify(versionOverrides)])
   const canSkip = !(preview && preview.choices && preview.choices.supported === false)
 
   React.useEffect(() => {
@@ -236,6 +277,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           exclude: skipped,
           upgradeTorch: opts.upgradeTorch === true,
           torchSuggestion: opts.torchSuggestion || null,
+          versionOverrides,
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
@@ -356,6 +398,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           {d.torch.packages.map((r) => {
             const V = VERDICT[r.verdict] || VERDICT.unknown
             const off = isSkipped(r.spec)
+            const name = pkgName(r.spec)
             return (
               <div key={r.name} className="pf-row"
                 role={canSkip ? 'button' : undefined}
@@ -371,6 +414,17 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                   {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
                 </span>
                 {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
+                {!off && canSkip && (
+                  <VersionSelect
+                    name={name}
+                    spec={r.spec}
+                    value={(versionOverrides || {})[name] || ''}
+                    suggestions={suggestionsFor(name)}
+                    onChange={(v) => setVersion(name, v)}
+                    t={t}
+                    disabled={busy}
+                  />
+                )}
               </div>
             )
           })}
@@ -543,7 +597,12 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 '不含与显卡相关的依赖包，所有机器使用同一条安装命令。')}
               </p>
               <PackageGroups packages={d.normal.packages} isSkipped={isSkipped}
-                onToggle={canSkip ? toggleSkip : null} t={t} />
+                onToggle={canSkip ? toggleSkip : null}
+                versionOverrides={versionOverrides}
+                onVersion={canSkip ? setVersion : null}
+                suggestionsFor={suggestionsFor}
+                t={t}
+                disabled={busy} />
             </div>
           )}
         </div>
@@ -861,30 +920,118 @@ function backendOf (options, key) {
   return o ? o.label : key
 }
 
-function PackageGroups ({ packages, isSkipped, onToggle, t }) {
+/**
+ * 选一个包的版本。
+ *
+ * 下拉框里只列**拿得到**的版本：上游声明的那个，加上本机后端上建议的那个
+ *   （torch 有这个建议，普通包没有）。列不出来的版本走「手写版本号」，
+ *   平台不替使用者猜有哪些版本可用。
+ *
+ * @param {object} props
+ *   name 包名（归一化后）
+ *   spec 上游声明的整条 spec
+ *   value 当前所选版本（空串表示按上游声明的装）
+ *   suggestions 额外可选项（版本号数组）
+ *   onChange 选完回调（版本号；空串表示回到上游声明）
+ */
+function VersionSelect ({ name, spec, value, suggestions, onChange, t, disabled }) {
+  const upstream = declaredVersion(spec)
+  const current = value || upstream
+  const extra = (suggestions || []).filter((v) => v && v !== upstream)
+  const CUSTOM = '__custom__'
+  const isCustom = current && current !== upstream && !extra.includes(current)
+  const [custom, setCustom] = React.useState(isCustom ? current : '')
+  React.useEffect(() => {
+    setCustom(isCustom ? current : '')
+  }, [current, upstream, extra.join(',')])
+
+  return (
+    <span className="pkg-version">
+      <select className="control"
+        aria-label={t(`Version of ${name}`, `${name} 的版本`)}
+        value={isCustom ? CUSTOM : current}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v === CUSTOM) {
+            // 切到「手写版本号」：先给个空框，不预设任何版本。
+            setCustom('')
+            onChange('')
+            return
+          }
+          setCustom('')
+          onChange(v === upstream ? '' : v)
+        }}>
+        <option value={upstream || CUSTOM}>
+          {upstream
+            ? t(`Version ${upstream} (upstream)`, `版本 ${upstream}（上游声明）`)
+            : t('Version not pinned by upstream', '上游未声明版本')}
+        </option>
+        {extra.map((v) => (
+          <option key={v} value={v}>{t(`Version ${v}`, `版本 ${v}`)}</option>
+        ))}
+        <option value={CUSTOM}>{t('Enter another version…', '手写版本号…')}</option>
+      </select>
+      {isCustom && (
+        <input className="control" type="text" value={custom}
+          placeholder={t('Version number', '版本号')}
+          aria-label={t(`Version number of ${name}`, `${name} 的版本号`)}
+          disabled={disabled}
+          onChange={(e) => {
+            setCustom(e.target.value)
+            onChange(e.target.value.trim())
+          }} />
+      )}
+    </span>
+  )
+}
+
+function PackageGroups ({ packages, isSkipped, onToggle, versionOverrides, onVersion, suggestionsFor, t, disabled }) {
   const on = packages.filter((p) => !isSkipped(p))
   const off = packages.filter((p) => isSkipped(p))
-  const chips = (list, dim) => (
-    <div className="pf-chips">
-      {list.map((p) => (
-        <span key={p} className={dim ? 'pf-chip pf-chip-off' : 'pf-chip'}
-          role={onToggle ? 'button' : undefined}
+  const row = (p, dim) => {
+    const name = pkgName(p)
+    return (
+      <div key={p} className="pkg-row" style={dim ? { opacity: 0.5 } : undefined}>
+        <span className="pf-chip" role={onToggle ? 'button' : undefined}
           tabIndex={onToggle ? 0 : undefined}
           onClick={onToggle ? () => onToggle(p) : undefined}
           onKeyDown={onToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(p) } } : undefined}
           style={{ cursor: onToggle ? 'pointer' : undefined }}>
           <code>{p}</code>
         </span>
-      ))}
-    </div>
-  )
-  if (on.length === 0 || off.length === 0) return chips(packages, off.length > 0)
+        {onVersion && (
+          <VersionSelect
+            name={name}
+            spec={p}
+            value={(versionOverrides || {})[name] || ''}
+            suggestions={suggestionsFor ? suggestionsFor(name) : []}
+            onChange={(v) => onVersion(name, v)}
+            t={t}
+            disabled={disabled}
+          />
+        )}
+      </div>
+    )
+  }
+  // 两个分区一直都在：全部安装时「不安装」那栏写明没有不安装的包，
+  //   全部不安装时「安装」那栏写明没有要安装的包。
+  //   过去只在一半被排除时才显示这两个标题 ⇒ 使用者看到的分组会随点击而变，
+  //   看不出这两个分区本来就在。
   return (
     <>
-      <div className="layer-label">{t('The following packages will be installed', '以下依赖将被安装')}</div>
-      {chips(on, false)}
-      <div className="layer-label">{t('The following packages will not be installed', '以下依赖将不会被安装')}</div>
-      {chips(off, true)}
+      <div className="layer-label">{t('Packages to install', '要安装的包')}</div>
+      {on.length > 0
+        ? <div className="pf-chips">{on.map((p) => row(p, false))}</div>
+        : <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('No package will be installed.', '没有要安装的包。')}
+        </p>}
+      <div className="layer-label">{t('Packages not to install', '设为不安装的包')}</div>
+      {off.length > 0
+        ? <div className="pf-chips">{off.map((p) => row(p, true))}</div>
+        : <p className="field-hint" style={{ marginTop: 0 }}>
+          {t('No package is excluded.', '没有设为不安装的包。')}
+        </p>}
     </>
   )
 }
