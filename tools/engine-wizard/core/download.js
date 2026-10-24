@@ -12,6 +12,8 @@ const https = require('node:https')
 /** 进度文件：每个引擎目录下记录已完成的下载命令，本文件只操作 models 段。 */
 const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
   resetProgress: resetProgressOf } = require('./installState')
+// 落盘路径只有一处答案：core/checkpointsPath.js。
+const { checkpointsAbsPath } = require('./checkpointsPath')
 
 function readProgress (root, id) {
   return readProgressOf(root, id, 'models')
@@ -149,7 +151,7 @@ function runDownload (input = {}) {
  * @returns {string[]}        替换后的 argv
  */
 function unifyDest (argv, engineId, root) {
-  const dest = path.join(root, 'engines', engineId, 'checkpoints')
+  const dest = checkpointsAbsPath(root, engineId)
   const out = argv.slice()
   for (let i = 0; i < out.length; i++) {
     if (/^--local-dir[=\s]/.test(out[i])) {
@@ -250,7 +252,7 @@ function base64ToHex (b64) {
  *   SHA-256 只在两边都有时才比对：上游没给就只报实际算出的值。
  */
 async function checkFileStatus (file, expectedSize, root, id, expectedSha) {
-  const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
+  const dir = checkpointsAbsPath(root, id)
   const finalPath = path.join(dir, file)
   const tmpPath = finalPath + '.tmp'
 
@@ -347,7 +349,7 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
  */
 function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false) {
   return new Promise((resolve) => {
-    const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
+    const dir = checkpointsAbsPath(root, id)
     const finalPath = path.join(dir, file.name)
     const tmpPath = finalPath + '.tmp'
 
@@ -543,7 +545,7 @@ async function removePartialFiles (files, root, id) {
   const deleted = []
   const skipped = []
   let bytes = 0
-  const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
+  const dir = checkpointsAbsPath(root, id)
   for (const f of (files || [])) {
     const name = f && typeof f === 'object' ? f.name : f
     const size = f && typeof f === 'object' ? (f.size || null) : null

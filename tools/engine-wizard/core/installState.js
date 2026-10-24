@@ -7,6 +7,9 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+// 权重落盘路径只有一处答案：core/checkpointsPath.js。
+const { checkpointsAbsPath, checkpointsRelPath } = require('./checkpointsPath')
+
 // 进度文件名。
 const INSTALL_FILE = '.wizard-install.json'
 
@@ -105,7 +108,7 @@ function manifestPresent (dir) {
 
 // engines/<id>/checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
 function weightsOnDisk (root, id) {
-  const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
+  const dir = checkpointsAbsPath(root, id)
   try {
     if (!fs.existsSync(dir)) return null          // 目录都没有 ⇒ 说不出来
     const files = fs.readdirSync(dir).filter((f) => {
@@ -165,7 +168,24 @@ function installState (root, id, deps = {}) {
   }
   const steps_done = Object.fromEntries(
     Object.entries(steps).map(([k, v]) => [k, v.done === true]))
-  return { ok: true, id, steps, steps_done, artifacts: { engineDir: dir, hasClone, envOk, weights, manifestOk } }
+  // 权重落盘的相对路径（相对项目根）：第 4 步的名片要填 runtime.checkpoints，
+  //   填的就是这个值。第 3 步写盘、第 5 步判断、第 4 步声明，三处同源。
+  const checkpointsPath = checkpointsRelPath(id)
+  return {
+    ok: true,
+    id,
+    steps,
+    steps_done,
+    checkpoints_path: checkpointsPath,
+    artifacts: {
+      engineDir: dir,
+      hasClone,
+      envOk,
+      weights,
+      manifestOk,
+      checkpointsDir: checkpointsAbsPath(root, id),
+    },
+  }
 }
 
 module.exports = {
