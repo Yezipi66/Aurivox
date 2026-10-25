@@ -12,6 +12,7 @@ import { paramTypeOf } from './paramType'
 //   name    命令行开关去掉横线的部分（cli 路）；上游方法参数名（python 路）
 //   target  命令行开关本身（cli 路）；参数名（python 路）
 //   kind    统一层归出来的类型名（str / number / boolean / array）
+//   kind_certain 类型是上游写明的（true）还是猜的（false）
 //   style   名片 args 段认的写法词（value / boolean / repeat）
 //   help    上游原话说明
 //   required 是否必填
@@ -48,7 +49,14 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
           : null}
       </div>
       <div className="wz-param-meta">
-        <span className="badge badge-muted">{type}</span>
+        {/* 类型上色：绿 = 上游自己写明的（argparse type= / action=、python 注解）；
+            灰 = 我们按默认值或参数名猜的，拖进中栏后要人确认。 */}
+        <span className={`badge ${param.kind_certain ? 'badge-ok' : 'badge-muted'}`}
+          title={param.kind_certain
+            ? t('Type declared by upstream', '类型由上游声明')
+            : t('Type guessed: confirm it after dropping', '类型是猜的：拖进去后请确认')}>
+          {type}
+        </span>
         {param.group && param.group !== '(root)'
           ? <span className="wz-param-group">{param.group}</span>
           : null}
