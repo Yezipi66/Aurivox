@@ -113,7 +113,9 @@
 }
 
 /* 三栏容器：栏宽左窄（参数名不长）、中栏最宽（表单最挤）、
-   右栏与项目的 .workspace-right 同宽（380px）。 */
+   右栏与项目的 .workspace-right 同宽（380px）。
+   列宽的初值在这里；收起某一栏时由 ThreeZone.jsx 改成 0px
+   （那一栏的宽度归中栏），所以这里只管初值。 */
 .wz-three-zone {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 380px;
@@ -132,6 +134,31 @@
   flex-direction: column;
   gap: 0.5rem;
   min-width: 0;
+}
+/* 收起的栏：宽度由 gridTemplateColumns 给成一条窄轨（COLLAPSED_W）。
+   这一条轨上只留一个展开按钮：宽度让给中栏，但按钮还得看得见，
+   否则收起来就再也展不开了。
+   窄轨 40px 是项目自己的做法（web/src/components/flowgraph/canvasChrome.jsx
+   的 Rail 用 26px，方向相反但同样只留一条能点回来的轨）。 */
+.wz-zone.is-collapsed {
+  overflow: hidden;
+}
+.wz-zone.is-collapsed .wz-zone-hdr {
+  padding: 6px 0;
+  justify-content: center;
+}
+.wz-zone.is-collapsed .wz-zone-title {
+  display: none;
+}
+
+/* 收起按钮：项目现成的 .btn .btn-sm .btn-ghost 已经有了外观，
+   这里只调它在这一行里的对齐（栏头是 flex，justify-content: space-between，
+   按钮自然贴右；收起态要居中）。 */
+.wz-zone-toggle {
+  flex-shrink: 0;
+}
+.wz-zone.is-collapsed .wz-zone-toggle {
+  margin: 0 auto;
 }
 
 /* 栏头：标题 + 收起按钮。收起时这一栏只剩标题与按钮。 */

@@ -119,7 +119,7 @@ test('三栏骨架：左栏扫到的参数、中栏名片内容、右栏预览�
   assert.ok(html.includes('>L<') && html.includes('>C<') && html.includes('>R<'), '栏里的内容没渲染')
 })
 
-test('三栏都能收起，收起后内容不再渲染，展开后回来', async () => {
+test('左右两栏能收起，收起后内容不再渲染，展开后回来', async () => {
   const { dom, container, root } = mount()
   root.render(React.createElement(ThreeZone, {
     left: React.createElement('div', { id: 'left' }, 'L'),
@@ -128,12 +128,15 @@ test('三栏都能收起，收起后内容不再渲染，展开后回来', async
   }))
   await settle()
 
+  // 只有左右两栏能收起：中栏是填名片的地方，收起它等于关掉这一页。
   const buttons = [...container.querySelectorAll('button[aria-expanded]')]
-  assert.equal(buttons.length, 3, '三栏各要有一个收起按钮')
+  assert.equal(buttons.length, 2, '只有左右两栏该有收起按钮')
 
   const leftBtn = buttons.find((b) => b.closest('.wz-zone-left'))
   assert.ok(leftBtn, '左栏没有收起按钮')
   assert.equal(leftBtn.getAttribute('aria-expanded'), 'true')
+  assert.ok(!container.querySelector('.wz-zone-center button[aria-expanded]'),
+    '中栏不该有收起按钮')
 
   leftBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await settle()
@@ -145,6 +148,52 @@ test('三栏都能收起，收起后内容不再渲染，展开后回来', async
   await settle()
   assert.ok(container.querySelector('.wz-zone-left').innerHTML.includes('>L<'),
     '展开后左栏内容没回来')
+})
+
+test('收起的栏把宽度让给中栏，留一条能点回来的窄轨', async () => {
+  const { dom, container, root } = mount()
+  root.render(React.createElement(ThreeZone, {
+    left: React.createElement('div', { id: 'left' }, 'L'),
+    center: React.createElement('div', { id: 'center' }, 'C'),
+    right: React.createElement('div', { id: 'right' }, 'R'),
+  }))
+  await settle()
+
+  const grid = container.querySelector('.wz-three-zone')
+  const cols = () => grid.style.gridTemplateColumns
+  assert.match(cols(), /^260px minmax\(0, 1fr\) 380px$/, '三栏展开时的列宽不对')
+
+  const leftBtn = [...container.querySelectorAll('button[aria-expanded]')]
+    .find((b) => b.closest('.wz-zone-left'))
+  leftBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await settle()
+
+  // 收起后不是 0：0 宽会把展开按钮一起藏掉，那一栏就再也展不开。
+  assert.match(cols(), /^40px minmax\(0, 1fr\) 380px$/, '收起左栏后列宽没让出来')
+  assert.ok(container.querySelector('.wz-zone-left').className.includes('is-collapsed'),
+    '收起的那一栏没有 is-collapsed 标记')
+  // 展开按钮还在，才能点回来。
+  assert.ok(container.querySelector('.wz-zone-left button[aria-expanded]'),
+    '收起后展开按钮不见了，这一栏再也展不开')
+})
+
+test('收起箭头用项目的 ▸ / ▾，不用 < 和 >', async () => {
+  const { container, root } = mount()
+  root.render(React.createElement(ThreeZone, {
+    left: React.createElement('div', { id: 'left' }, 'L'),
+    center: React.createElement('div', { id: 'center' }, 'C'),
+    right: React.createElement('div', { id: 'right' }, 'R'),
+  }))
+  await settle()
+
+  const btn = container.querySelector('.wz-zone-left button[aria-expanded]')
+  assert.equal(btn.textContent.trim(), '▾',
+    '展开态的箭头应当是 ▾（项目现成的符号），不用 < 和 >')
+  // 只看按钮里的文字：整份 innerHTML 里 React 自己会写 <!-- --> 与属性，
+  // 那些 < > 与图标无关。
+  const label = btn.textContent.trim()
+  assert.ok(!label.includes('<') && !label.includes('>'),
+    '按钮里还有 < 或 > 当图标：' + JSON.stringify(label))
 })
 
 test('拖一个 cli 参数进落点：parameters[] 多一条，call.args 同时写上 flag', async () => {
