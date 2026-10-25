@@ -407,6 +407,41 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   flex-wrap: wrap;
   margin-top: 8px;
 }
+/* 展开开关：卡片右下角一枚三角形。它属于卡片本身，不进动作组。
+   三角形用边框画，不依赖字体里的符号，旋转 180° 表示已展开。 */
+.asset-card { position: relative; }
+.asset-disclose {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.asset-disclose::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 0.15s;
+}
+.asset-disclose.is-open::before { transform: rotate(180deg); }
+.asset-disclose:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--panel);
+}
 
 /* ===== Nav ===== */
 /* 两组：.nav-tabs 靠左、.nav-status 靠右。两组各自可换行。

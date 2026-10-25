@@ -729,7 +729,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           const isLoadingSegs = segmentsLoading[id]
 
           return (
-            <div key={id} className="card" style={{ marginBottom: 10 }}>
+            <div key={id} className="card asset-card" style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -784,9 +784,6 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                 <div className="asset-actions">
                   {/* 次要操作。 */}
                   <div className="aa-group">
-                    <button className="btn btn-sm btn-ghost" onClick={() => handleBrowse(id)}>
-                      {isExpanded ? 'Collapse' : 'Browse'}
-                    </button>
                     {showRestore ? (
                       <button
                         className="btn btn-sm btn-warn"
@@ -947,6 +944,17 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                   </>
                 )
               })()}
+
+              {/* 展开这一行看原始文件 / 切片 / 模型。它是个披露开关，不是动作，
+                  所以从动作组里拿出来，放到卡片右下角，用一枚三角形指代。 */}
+              <button
+                type="button"
+                className={`asset-disclose${isExpanded ? ' is-open' : ''}`}
+                onClick={() => handleBrowse(id)}
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? t('Collapse', '收起') : t('Show raw files, slices and models', '展开查看原始文件、切片与模型')}
+                title={isExpanded ? t('Collapse', '收起') : t('Show raw files, slices and models', '展开查看原始文件、切片与模型')}
+              />
 
               {isExpanded && (
                 <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
