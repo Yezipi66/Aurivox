@@ -32,10 +32,25 @@ const progress = require(path.join(CORE_DIR, 'envProgress.js'))
  * 夹具之前写死 Windows 那种形状，于是同一份夹具跑到 posix 上就找不到
  * site-packages，读版本读成 null，断言拿不到值就红。
  * 夹具得跟被测代码按同一口径找目录，两个平台上才都能验同一条判据。
+ *
+ * posix 那一段不写死次版本：被测代码是扫 `lib` 下所有 `python3.*` 目录，
+ * 夹具也扫一遍 ⇒ 解释器是 3.11 还是 3.12 都对得上。
+ *
+ * @param {string} venvDir 引擎 venv 目录
+ * @returns {string} site-packages 的绝对路径
  */
-function sitePackagesRelPath () {
-  if (process.platform === 'win32') return path.join('Lib', 'site-packages')
-  return path.join('lib', 'python3.11', 'site-packages')
+function sitePackagesAbs (venvDir) {
+  if (process.platform === 'win32') return path.join(venvDir, 'Lib', 'site-packages')
+  const libDir = path.join(venvDir, 'lib')
+  let entries = []
+  try { entries = fs.readdirSync(libDir, { withFileTypes: true }) } catch (e) { entries = [] }
+  for (const e of entries) {
+    if (e.isDirectory() && /^python3\./.test(e.name)) {
+      return path.join(libDir, e.name, 'site-packages')
+    }
+  }
+  // 目录还没建 ⇒ 按 3.11 摆（平台基座就是 3.11）
+  return path.join(libDir, 'python3.11', 'site-packages')
 }
 
 /**
@@ -46,7 +61,7 @@ function sitePackagesRelPath () {
 function makeVenv (distInfoNames) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-progress-'))
   const venvDir = path.join(root, 'engines', 'myeng', '.venv')
-  const sp = path.join(venvDir, sitePackagesRelPath())
+  const sp = sitePackagesAbs(venvDir)
   fs.mkdirSync(sp, { recursive: true })
   for (const n of distInfoNames) fs.mkdirSync(path.join(sp, n), { recursive: true })
   return root
@@ -170,7 +185,7 @@ test('清单形式的装包步（-r requirements.txt）⇒ 不做版本核对，
 test('site-packages 空 ⇒ 判产物不在', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-progress-'))
   const venvDir = path.join(root, 'engines', 'myeng', '.venv')
-  fs.mkdirSync(path.join(venvDir, sitePackagesRelPath()), { recursive: true })
+  fs.mkdirSync(sitePackagesAbs(venvDir), { recursive: true })
   const step = { argv: TORCH_260_XPU }
   assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), false)
   fs.rmSync(root, { recursive: true, force: true })

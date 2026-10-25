@@ -63,19 +63,54 @@ function makeCfg (dir, executable) {
  * 问错布局 ⇒ 找不到解释器 ⇒ 那几条测试变成在验「路径猜对没有」，
  * 而它们要验的是「base 判据对不对」。
  *
- * 问的是「解释器所在环境的布局」，建 venv 用的就是同一个解释器 ⇒ 布局相同。
+ * 做法是真的建一个临时 venv，让 Python 报出里面那个可执行文件的路径
+ * （sys.executable 在 venv 里指向 venv 自己的解释器）：
+ * 布局由 Python 自己定，两边平台都对得上。
+ * sysconfig 的 scheme 名在两个平台上不统一（Windows 是 Scripts，
+ * posix 是 bin），从建出来的 venv 里读最省事，也不必猜哪个变量是准的。
+ *
+ * 问一次就够：同一个解释器建出来的 venv 布局一样 ⇒ 结果缓存起来。
  *
  * @param {string} python 建 venv 用的解释器
- * @param {string} venvDir venv 目录
+ * @param {string} venvDir venv 目录（用来拼出该 venv 里解释器的位置）
  * @returns {string|null} venv 里的解释器绝对路径；问不出来 ⇒ null
  */
+const venvLayoutCache = new Map()
 function venvInterpreterPath (python, venvDir) {
-  const { spawnSync } = require('node:child_process')
-  // 报「可执行文件相对环境根的那一段」（Scripts/python.exe 或 bin/python）
-  const code = 'import sys,os;print(os.path.relpath(sys.executable, sys.prefix))'
-  const r = spawnSync(python, ['-c', code], { encoding: 'utf8', timeout: 60000 })
-  if (r.status !== 0) return null
-  const rel = (r.stdout || '').trim()
+  let rel = venvLayoutCache.get(python)
+  if (rel === undefined) {
+    const { spawnSync } = require('node:child_process')
+    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-venvlayout-'))
+    const probe = path.join(probeDir, 'probe')
+    try {
+      const build = spawnSync(python, ['-m', 'venv', probe], { encoding: 'utf8', timeout: 180000 })
+      if (build.status !== 0) {
+        venvLayoutCache.set(python, null)
+        return null
+      }
+      // 在这个 venv 里跑 ⇒ sys.executable 就是这个 venv 自己的解释器
+      let got = ''
+      for (const exe of [path.join(probe, 'bin', 'python'), path.join(probe, 'Scripts', 'python.exe')]) {
+        const ask = spawnSync(exe, ['-c', 'import sys;print(sys.executable)'], {
+          encoding: 'utf8', timeout: 60000,
+        })
+        if (ask.status === 0) {
+          got = (ask.stdout || '').trim()
+          if (got) break
+        }
+      }
+      if (!got) {
+        venvLayoutCache.set(python, null)
+        return null
+      }
+      // 探针 venv 与目标 venv 同布局 ⇒ 只留相对位置
+      rel = path.relative(probe, got)
+      if (!rel || rel.startsWith('..')) rel = null
+    } finally {
+      fs.rmSync(probeDir, { recursive: true, force: true })
+    }
+    venvLayoutCache.set(python, rel)
+  }
   if (!rel) return null
   return path.join(venvDir, rel)
 }
