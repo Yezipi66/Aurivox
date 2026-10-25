@@ -54,6 +54,32 @@ function makeCfg (dir, executable) {
   return dir
 }
 
+/**
+ * venv 里的解释器叫什么。
+ *
+ * 问 Python 自己，不按 platform 猜：venv 库建目录时用的是它自己的 sys.platform
+ * （CPython 的 venv 模块按 sys.platform 选 Scripts 还是 bin），
+ * 与 JS 层的 process.platform 不是一回事。
+ * 问错布局 ⇒ 找不到解释器 ⇒ 那几条测试变成在验「路径猜对没有」，
+ * 而它们要验的是「base 判据对不对」。
+ *
+ * 问的是「解释器所在环境的布局」，建 venv 用的就是同一个解释器 ⇒ 布局相同。
+ *
+ * @param {string} python 建 venv 用的解释器
+ * @param {string} venvDir venv 目录
+ * @returns {string|null} venv 里的解释器绝对路径；问不出来 ⇒ null
+ */
+function venvInterpreterPath (python, venvDir) {
+  const { spawnSync } = require('node:child_process')
+  // 报「可执行文件相对环境根的那一段」（Scripts/python.exe 或 bin/python）
+  const code = 'import sys,os;print(os.path.relpath(sys.executable, sys.prefix))'
+  const r = spawnSync(python, ['-c', code], { encoding: 'utf8', timeout: 60000 })
+  if (r.status !== 0) return null
+  const rel = (r.stdout || '').trim()
+  if (!rel) return null
+  return path.join(venvDir, rel)
+}
+
 function tmpDir (name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-venvchk-' + name + '-'))
 }
@@ -126,7 +152,8 @@ test('解释器能跑但 base 不是这个解释器 ⇒ 不通过（这是 3.14 
   const cfg = fs.readFileSync(cfgPath, 'utf8')
     .replace(/^executable\s*=.*$/m, 'executable = C:\\other\\python.exe')
   fs.writeFileSync(cfgPath, cfg, 'utf8')
-  const vpy = path.join(dir, process.platform === 'win32' ? 'Scripts\\python.exe' : 'bin/python')
+  const vpy = venvInterpreterPath(py, dir)
+  assert.ok(vpy, '问不出 venv 里的解释器叫什么')
   const rr = inspectExistingVenv(dir, vpy, py)
   assert.strictEqual(rr.ok, false, 'base 不对就必须重建，哪怕解释器能跑')
   assert.strictEqual(rr.reason, 'base-differs')
@@ -138,7 +165,8 @@ test('解释器能跑且 base 是这个解释器 ⇒ 通过', () => {
   const { spawnSync } = require('node:child_process')
   const r = spawnSync(py, ['-m', 'venv', dir], { encoding: 'utf8', timeout: 180000 })
   assert.strictEqual(r.status, 0, '造不出测试用的 venv')
-  const vpy = path.join(dir, process.platform === 'win32' ? 'Scripts\\python.exe' : 'bin/python')
+  const vpy = venvInterpreterPath(py, dir)
+  assert.ok(vpy, '问不出 venv 里的解释器叫什么')
   const rr = inspectExistingVenv(dir, vpy, py)
   assert.strictEqual(rr.ok, true, `应通过，实际 ${rr.reason}`)
 })
@@ -156,15 +184,26 @@ test('base 是指向同一个文件的 symlink ⇒ 算同一个解释器', () =>
   // 只比字符串的话，posix 上根 venv 每次都被判不健康 ⇒ bootstrap 每次重建。
   //
   // 夹具用「链接一个目录」而不是「链接解释器文件」：
-  // Windows 上建文件级 symlink 要管理员权限（EPERM），目录级 junction 不要。
+  // 建文件级 symlink 在 Windows 上要管理员权限（EPERM），目录级 junction 不要。
+  // 链接类型不按平台挑而是逐个试：哪种能成就用哪种
+  // （junction 只在 Windows 上有效，posix 上普通目录 symlink 免权限）。
   const py = positivePython()
   const d = tmpDir('link')
   const linkDir = path.join(d, 'linked-python-dir')
-  try {
-    fs.symlinkSync(path.dirname(py), linkDir, process.platform === 'win32' ? 'junction' : 'dir')
-  } catch (e) {
+  let linked = false
+  let lastErr = null
+  for (const type of ['junction', 'dir']) {
+    try {
+      fs.symlinkSync(path.dirname(py), linkDir, type)
+      linked = true
+      break
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  if (!linked) {
     // 建不出链接的机器上这条验不了，但不许假装通过。
-    assert.fail(`造不出目录链接：${e.message}`)
+    assert.fail(`造不出目录链接：${lastErr && lastErr.message}`)
   }
   const linkedPy = path.join(linkDir, path.basename(py))
   assert.strictEqual(fs.existsSync(linkedPy), true, '链接里的解释器要能访问')
