@@ -845,8 +845,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                     </button>
                   </div>
                   {/* 危险操作。 */}
-                  <button className="btn btn-sm btn-ghost aa-danger" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
-                    <IconTrash size={14} color="var(--bg)" />
+                  <button className="btn btn-sm btn-danger" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
+                    <IconTrash size={14} />
                   </button>
                   {/* 主要操作。 */}
                   <button className="btn btn-sm btn-primary" onClick={() => handleSetAsVoice(id)}>

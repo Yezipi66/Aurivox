@@ -374,17 +374,6 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   gap: 4px;
   align-items: center;
 }
-/* 删除：危险写在底色上，图标用中性色，不再让图标自己再红一遍。
-   红底上的图标不能是浅灰（对比度只有 2:1），用深色到约 6:1。 */
-.aa-danger {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: var(--bg);
-}
-.aa-danger:hover {
-  background: #b9566a;
-  border-color: #b9566a;
-}
 .asset-stats {
   display: flex;
   gap: 6px;
