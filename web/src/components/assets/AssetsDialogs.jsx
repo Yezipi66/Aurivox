@@ -17,12 +17,12 @@ export function DeleteAssetDialog({ target, deleting, onConfirm, onCancel }) {
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <IconTrash size={20} color="var(--danger)" />
-          <span style={{ fontWeight: 600, fontSize: 14 }}>Delete Asset</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>Delete Asset</span>
         </div>
-        <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+        <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
           Are you sure you want to delete <strong>{target.displayName}</strong>?
         </p>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 16 }}>
           This will permanently delete the asset folder and its voice configuration.
           This action cannot be undone.
         </p>

@@ -47,8 +47,8 @@ export function AdvancedParamsPanel({
   return (
     <div className="collapsible" style={{ margin: '6px 0' }}>
       <div className="collapsible-hdr" onClick={onToggle}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
-        <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAdvanced ? '▲' : '▼'}</span>
+        <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
+        <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showAdvanced ? '▲' : '▼'}</span>
       </div>
       {showAdvanced && (
         <div className="collapsible-body">
@@ -68,7 +68,7 @@ export function AdvancedParamsPanel({
           {(() => {
             const gap = schemaGap(engine)
             return gap ? (
-              <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>{gap.message}</div>
+              <div style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', padding: '8px 0' }}>{gap.message}</div>
             ) : null
           })()}
 
@@ -153,7 +153,7 @@ export function AdvancedParamsPanel({
             <div style={{ marginTop: 10 }}>
               <label className="field-label">
                 Auxiliary References
-                <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
                   {t(`(optional, multi-select${auxRefs.length > 0 ? ` · ${auxRefs.length} selected` : ''})`,
                      `（可选，多选${auxRefs.length > 0 ? ` · 已选 ${auxRefs.length} 项` : ''}）`)}
                 </span>

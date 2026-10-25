@@ -792,8 +792,8 @@ test('⭐⭐⭐ 待命是灰的，⛔ 绝不许是红的（按需起停之后「
     { engine_online: false },
   )
   assert.equal(b.tone, 'idle', '待命画成 bad ⇒ 每天一排红灯 ⇒ 学会无视所有红灯')
-  assert.ok(b.label.includes('IndexTTS2'))
-  assert.ok(b.label.includes('待命'))
+  assert.equal(b.label, '待命', '灯面上只有状态：名字在选择器里，不在灯上')
+  assert.ok(b.title.includes('IndexTTS2'), '但名字必须还在悬停第一行')
   // 契约是：底模齐时悬停一律给底模目录（那是「我该去哪儿放什么」的唯一答案），
   // 而不是「现在跑不跑」：后者已经由 label 里的「待命」两个字回答了。
   assert.ok(b.title.includes('D:/x/checkpoints'),
@@ -809,8 +809,10 @@ test('底模缺 ⇒ 红，且盖过进程状态（使用者不动手它永远起
     { engine_online: false },
   )
   assert.equal(b.tone, 'bad')
-  assert.ok(b.label.includes('底模缺 2'))
+  assert.equal(b.label, '缺底模', '灯面只回答能不能用，不报「缺几项」')
   assert.ok(b.title.includes('D:/x/checkpoints'), '悬停必须给出该往哪儿放')
+  assert.ok(/缺 2 项/.test(b.title) && b.title.includes('bpe.model'),
+    '缺几项、缺哪几个进悬停，一个字都不许丢')
 })
 
 test('⭐ 底模齐不再占灯面，但必须还在悬停里', async () => {
@@ -858,6 +860,37 @@ test('不是本平台起的 ⇒ 说出来，⛔ 不合并成「在跑」', async
   assert.ok(b.label.includes('外部进程'))
 })
 
+// 灯是灯，不是一句话。
+// 名字来自名片，长度不受平台控制（有的名片把能力说明也写进了 label）；
+// 一旦拼到灯面上，顶栏在常见宽度下就装不下，而且一个徽章里塞了两个结论。
+// 这条守卫钉的是「结构」而不是某个具体文案：任何分支、任何语言都不许把名字拼回来。
+// 12 字上限不是排版余量，是「一枚灯只报一类状态」的可执行形式：
+// 「缺 3 项」这种程度词一进来，下一步就会有人开始往里塞理由。
+test('⛔ 灯面上只写状态：不许拼名字、不许带数字、不超过 12 字', async () => {
+  const { engineBadge } = await import('./engines.js')
+  const NAME = 'Some Engine 300M（带预训练音色，支持 sft）'
+  const variants = [
+    { process: { running: false } },
+    { process: { running: true, pid: 1 } },
+    { process: { running: true, busy: true } },
+    { process: { running: true, phase: 'loading', launch_key: 'k/v2' } },
+    { process: null },
+    { process: { running: false }, online: true },
+    { process: { running: false }, checkpoints: CK_BAD },
+  ]
+  for (const v of variants) {
+    for (const lang of ['zh', 'en']) {
+      const b = engineBadge(Object.assign({ id: 'e', label: NAME, checkpoints: CK_OK }, v), {}, lang)
+      assert.ok(b, `${lang} 下每一种状态都得有话说`)
+      assert.ok(!b.label.includes(NAME), `${lang} 灯面上又拼了引擎名：${b.label}`)
+      assert.ok(!b.label.includes('·'), `${lang} 灯面上出现了拼接用的分隔符：${b.label}`)
+      assert.ok(!/\d/.test(b.label), `${lang} 灯面上带了数字（程度不是状态）：${b.label}`)
+      assert.ok(b.label.length <= 12, `${lang} 灯面文案 ${b.label.length} 字，已经是一句话了：${b.label}`)
+      assert.ok(b.title.startsWith(NAME), `${lang} 悬停第一行必须是引擎名`)
+    }
+  }
+})
+
 // 下面两条钉的不是「老那套 Connected/Unreachable 一个字没丢」，而是它
 // 钉住的那个错形状：
 // engine_online = 往某个端口探一下活。端口是第六项：推理只需要
@@ -870,7 +903,8 @@ test('⭐⭐⭐ 不管进程的机器：⛔ 不许画在线/离线，那问的�
   for (const health of [{ engine_online: true }, { engine_online: false }, null]) {
     const b = engineBadge({ id: 'e', label: 'E', checkpoints: CK_OK, process: null }, health)
     assert.equal(b.tone, 'idle', '⛔ 平台不知道 ≠ 引擎坏了；不知道就别画红也别画绿')
-    assert.equal(b.label, 'E', '⛔ 灯面上不许出现"已连接/连不上"这类探活结论')
+    assert.equal(b.label, '不管理进程', '⛔ 灯面上不许出现"已连接/连不上"这类探活结论')
+    assert.ok(b.title.includes('E'), '名字进悬停第一行，灯面上不再重复')
     assert.ok(!/已连接|连不上|connected|unreachable/i.test(b.label + b.title))
   }
 })

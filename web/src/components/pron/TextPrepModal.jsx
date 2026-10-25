@@ -46,7 +46,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
         <div className="modal-hdr">{t('Text preparation', '文本预处理')}</div>
         <div className="modal-body">
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('Han character language', '汉字语言')}</div>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 6 }}>{t('Han character language', '汉字语言')}</div>
             <HanLangPicker
               text={text}
               direction={hanDirection}
@@ -59,7 +59,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
             />
           </div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('Reading proofing', '读音校对')}</div>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 6 }}>{t('Reading proofing', '读音校对')}</div>
             {forcedInText.length > 0 && (
               <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 8 }}>
                 {t(

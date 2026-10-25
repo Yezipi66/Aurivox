@@ -218,79 +218,91 @@ function AppShell() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <h1 className="sr-only">Aurivox</h1>
+      {/* 顶栏分两组：#nav-tabs 靠左、.nav-status 靠右。
+          之前所有元素平铺在一条不换行的 flex 里，装了两台引擎之后右侧状态一多，
+          窗口一窄就把最后一个徽章顶出屏幕（横向还能滚，滚过去的正是要看的那些灯）。 */}
       <nav className="nav">
-        <button className={`nav-btn ${page === 'generate' ? 'active' : ''}`} onClick={() => setPage('generate')}>Generate</button>
-        <button className={`nav-btn ${page === 'compare' ? 'active' : ''}`} onClick={() => setPage('compare')}>Compare Refs</button>
-        <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
-        {/* 训练页只对 supports_finetune: true 的引擎显示。showsTrainingTab 是 fail-closed 的：列表还没回来（engine 是 null）或名片没写这一格都不显示。少显示一个页签刷新一下就有；多显示会让人对一台根本不能微调的引擎填完一整张表，最后才发现白填。 */}
-        {showsTrainingTab(engine) && (
-          <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
-        )}
-        {/* 引擎管理页。不做成「装了两台以上才显示」：装一台的时候一样要能起停它，而「起不来」恰恰是只装了一台时最要紧的事。 */}
-        <button className={`nav-btn ${page === 'engines' ? 'active' : ''}`} onClick={() => setPage('engines')}>Engines</button>
-        <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
-        {flowReady && (
-          <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
-        )}
-        <div style={{ flex: 1 }} />
-        {/* 引擎选择器只在装了两台以上时出现，一台的时候它是个只有一个选项的下拉框，占地方还让人以为自己漏装了什么。 */}
-        {/* 这里用 components/common/Select.jsx，与全站其余下拉一致；它的 onChange 也发 { target: { value } }，调用方一个字不用改。 */}
-        {engines.length > 1 && (
-          <Select className="control nav-select" value={engine?.id || ''} onChange={e => setSelectedEngineId(e.target.value)}
-            title="切换引擎：参数面板和页签会跟着这台引擎的 manifest.json 变">
-            {engines.map(en => (
-              <option key={en.id} value={en.id}>{en.label || en.id}</option>
-            ))}
-          </Select>
-        )}
-        {/* 名片坏掉的引擎不在列表里。不说的话，它就是「凭空少了一台」。 */}
-        {engineErrors.length > 0 && (
-          <span className="badge badge-danger" title={engineErrors.map(e => `${e.id}: ${e.error || e.message}`).join('\n')}
-            style={{ alignSelf: 'center' }}>
-            {engineErrors.length} 张 manifest.json 无法读取
-          </span>
-        )}
-        <LangToggle />
-        {health?.ffmpeg_available && <span className="badge badge-ok" style={{ alignSelf: 'center' }}>ffmpeg</span>}
-        {health && (() => {
-          // 探测机制：问操作系统（lib/system/gpu.js），不问任何 venv 里的 torch，
-          // 根 venv 瘦身之后那条路必然答「无 CUDA」，而那不是事实。
-          // 标签语义一个字没动：README 定义的就是
-          // 「CUDA <显存>（绿=检测到 N 卡）/ CPU only（红=未检测到 N 卡）」，
-          // 而「未检测到 N 卡」是准确的，不该因为本机有别的 GPU 就去改标签的既定义。
-          // 唯一补的是 tooltip：那里可以把话说完而不动标签语义。
-          // 「有没有这块卡」是平台知道的，「引擎用不用得上它」是引擎层的事，
-          // 而名片里没有 supported_backends ⇒ 这里不断言引擎，只陈述探测结果。
-          const c = health.cuda;
-          const probing = !c || c.ready === false;
-          const ok = !!c?.available;
-          // 非 NVIDIA 的 GPU：不看 vram_gb（WMI 的 AdapterRAM 在核显上
-          // 报的数字远小于真实共享内存，那个数字不可信）
-          const otherGpu = !probing && !ok && !!c?.device_name;
-          const tone = probing ? 'neutral' : ok ? 'ok' : 'danger';
-          const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'No CUDA';
-          const title = probing ? '正在探测本机的计算设备…'
-            : ok ? `CUDA 可用：${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
-            // 只有一行。不写「无权威显存读数」「取决于引擎后端支持」这类
-            // 给排障人看的话，也不把内部取值（intel/amd）露到界面上。
-            : otherGpu ? `本机 GPU：${prettyDevice(c.device_name)}。`
-            : '未检测到 CUDA 设备。推理将在 CPU 上运行。';
-          return (
-            <span className={`badge badge-${tone}`} title={title} style={{ alignSelf: 'center' }}>{label}</span>
-          );
-        })()}
-        {/* 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 > 合成中 > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。底模缺失留在灯面上，那是唯一一种看不见就会被卡住一小时的坏；「底模齐」永远绿，降级进悬停。引擎改成按需启动后 Unreachable 成了常态，常亮红灯的指示灯只会训练人忽略所有红灯。这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定。 */}
-        {(() => {
-          const b = engineBadge(engine, health, lang);
-          if (!b) return null;
-          const tone = b.tone === 'ok' ? 'ok'
-            : b.tone === 'busy' ? 'warn'
-            : b.tone === 'bad' ? 'danger'
-            : 'neutral';
-          return (
-            <span className={`badge badge-${tone}`} title={b.title} style={{ alignSelf: 'center', whiteSpace: 'nowrap' }}>{b.label}</span>
-          );
-        })()}
+        <div className="nav-tabs">
+          <button className={`nav-btn ${page === 'generate' ? 'active' : ''}`} onClick={() => setPage('generate')}>Generate</button>
+          <button className={`nav-btn ${page === 'compare' ? 'active' : ''}`} onClick={() => setPage('compare')}>Compare Refs</button>
+          <button className={`nav-btn ${page === 'assets' ? 'active' : ''}`} onClick={() => setPage('assets')}>Assets</button>
+          {/* 训练页只对 supports_finetune: true 的引擎显示。showsTrainingTab 是 fail-closed 的：列表还没回来（engine 是 null）或名片没写这一格都不显示。少显示一个页签刷新一下就有；多显示会让人对一台根本不能微调的引擎填完一整张表，最后才发现白填。 */}
+          {showsTrainingTab(engine) && (
+            <button className={`nav-btn ${page === 'train' ? 'active' : ''}`} onClick={() => setPage('train')}>Tune</button>
+          )}
+          {/* 引擎管理页。不做成「装了两台以上才显示」：装一台的时候一样要能起停它，而「起不来」恰恰是只装了一台时最要紧的事。 */}
+          <button className={`nav-btn ${page === 'engines' ? 'active' : ''}`} onClick={() => setPage('engines')}>Engines</button>
+          <button className={`nav-btn ${page === 'broker' ? 'active' : ''}`} onClick={() => setPage('broker')}>Broker</button>
+          {flowReady && (
+            <button className={`nav-btn ${page === 'flow' ? 'active' : ''}`} onClick={() => setPage('flow')}>Flow</button>
+          )}
+        </div>
+        <div className="nav-status">
+          {/* 引擎选择器只在装了两台以上时出现，一台的时候它是个只有一个选项的下拉框，占地方还让人以为自己漏装了什么。 */}
+          {/* 这里用 components/common/Select.jsx，与全站其余下拉一致；它的 onChange 也发 { target: { value } }，调用方一个字不用改。 */}
+          {engines.length > 1 && (
+            <Select className="control nav-select" value={engine?.id || ''} onChange={e => setSelectedEngineId(e.target.value)}
+              title="切换引擎：参数面板和页签会跟着这台引擎的 manifest.json 变">
+              {engines.map(en => (
+                <option key={en.id} value={en.id}>{en.label || en.id}</option>
+              ))}
+            </Select>
+          )}
+          {/* 名片坏掉的引擎不在列表里。不说的话，它就是「凭空少了一台」。 */}
+          {engineErrors.length > 0 && (
+            <span className="badge badge-danger" title={engineErrors.map(e => `${e.id}: ${e.error || e.message}`).join('\n')}>
+              {engineErrors.length} 张 manifest.json 无法读取
+            </span>
+          )}
+          <LangToggle />
+          {/* ffmpeg 只在缺的时候占位。它是静态能力，装了就永远在，
+              常亮的绿灯不携带信息，白占一格顶栏宽度。 */}
+          {health && health.ffmpeg_available === false && (
+            <span className="badge badge-warn" title="本机没找到 ffmpeg：切片、波形与部分格式转换会失败。">
+              no ffmpeg
+            </span>
+          )}
+          {health && (() => {
+            // 探测机制：问操作系统（lib/system/gpu.js），不问任何 venv 里的 torch，
+            // 根 venv 瘦身之后那条路必然答「无 CUDA」，而那不是事实。
+            // 标签语义一个字没动：README 定义的就是
+            // 「CUDA <显存>（绿=检测到 N 卡）/ CPU only（红=未检测到 N 卡）」，
+            // 而「未检测到 N 卡」是准确的，不该因为本机有别的 GPU 就去改标签的既定义。
+            // 唯一补的是 tooltip：那里可以把话说完而不动标签语义。
+            // 「有没有这块卡」是平台知道的，「引擎用不用得上它」是引擎层的事，
+            // 而名片里没有 supported_backends ⇒ 这里不断言引擎，只陈述探测结果。
+            const c = health.cuda;
+            const probing = !c || c.ready === false;
+            const ok = !!c?.available;
+            // 非 NVIDIA 的 GPU：不看 vram_gb（WMI 的 AdapterRAM 在核显上
+            // 报的数字远小于真实共享内存，那个数字不可信）
+            const otherGpu = !probing && !ok && !!c?.device_name;
+            const tone = probing ? 'neutral' : ok ? 'ok' : 'danger';
+            const label = probing ? 'GPU: detecting…' : ok ? `CUDA${c.vram_gb ? ` ${c.vram_gb}GB` : ''}` : 'No CUDA';
+            const title = probing ? '正在探测本机的计算设备…'
+              : ok ? `CUDA 可用：${c.device_name || 'NVIDIA GPU'}${c.vram_gb ? ` · ${c.vram_gb}GB` : ''}`
+              // 只有一行。不写「无权威显存读数」「取决于引擎后端支持」这类
+              // 给排障人看的话，也不把内部取值（intel/amd）露到界面上。
+              : otherGpu ? `本机 GPU：${prettyDevice(c.device_name)}。`
+              : '未检测到 CUDA 设备。推理将在 CPU 上运行。';
+            return (
+              <span className={`badge badge-${tone}`} title={title}>{label}</span>
+            );
+          })()}
+          {/* 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 > 合成中 > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。底模缺失留在灯面上，那是唯一一种看不见就会被卡住一小时的坏；「底模齐」永远绿，降级进悬停。引擎改成按需启动后 Unreachable 成了常态，常亮红灯的指示灯只会训练人忽略所有红灯。这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定。 */}
+          {(() => {
+            const b = engineBadge(engine, health, lang);
+            if (!b) return null;
+            const tone = b.tone === 'ok' ? 'ok'
+              : b.tone === 'busy' ? 'warn'
+              : b.tone === 'bad' ? 'danger'
+              : 'neutral';
+            return (
+              <span className={`badge badge-${tone}`} title={b.title} style={{ whiteSpace: 'nowrap' }}>{b.label}</span>
+            );
+          })()}
+        </div>
       </nav>
 
       {(page === 'generate' || page === 'compare') && (

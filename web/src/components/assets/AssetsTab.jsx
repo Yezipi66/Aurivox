@@ -729,15 +729,15 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           const isLoadingSegs = segmentsLoading[id]
 
           return (
-            <div key={id} className="card" style={{ marginBottom: 10 }}>
+            <div key={id} className="card asset-card" style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--fs-14)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {renamingId === id ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <input
                           className="control"
-                          style={{ fontSize: 13, padding: '3px 8px', width: 200 }}
+                          style={{ fontSize: 'var(--fs-13)', padding: '3px 8px', width: 200 }}
                           value={renameValue}
                           autoFocus
                           disabled={renameBusy}
@@ -777,19 +777,18 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                       </>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 2 }}>
                     Mode: {asset.mode || 'N/A'} &middot; ID: {id} &middot; Language: {String(asset.language || asset.text_lang || asset.lang || 'unknown').replace(/^all_/, '')}
                   </div>
                 </div>
                 <div className="asset-actions">
                   {/* 次要操作。 */}
                   <div className="aa-group">
-                    <button className="btn btn-sm btn-ghost" onClick={() => handleBrowse(id)}>
-                      {isExpanded ? 'Collapse' : 'Browse'}
-                    </button>
+                    {/* 这一格要么 Scan，要么这一行缺东西时的修复动作，两者互斥、同一种样式：
+                        缺什么由左边的健康徽章说，按钮不负责催。 */}
                     {showRestore ? (
                       <button
-                        className="btn btn-sm btn-primary"
+                        className="btn btn-sm btn-ghost"
                         onClick={() => setRestoreTarget({ id, displayName: asset.display_name || id })}
                         disabled={scanning}
                         title={h.key === 'nomodel'
@@ -798,11 +797,11 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                             ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless you opt into retraining.'
                             : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
                       >
-                        {h.key === 'nomodel' ? 'Rebuild…' : h.key === 'ready' ? 'Rebuild slices…' : 'Restore…'}
+                        {h.key === 'nomodel' ? 'Rebuild' : h.key === 'ready' ? 'Rebuild slices' : 'Restore'}
                       </button>
                     ) : (
                       <button
-                        className={`btn btn-sm ${h.key === 'noseg' ? 'btn-primary' : 'btn-ghost'}`}
+                        className="btn btn-sm btn-ghost"
                         onClick={() => handleScanOne(id)}
                         disabled={scanning}
                         title={h.key === 'noseg'
@@ -838,8 +837,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                     </button>
                   </div>
                   {/* 危险操作。 */}
-                  <button className="btn btn-sm btn-ghost aa-danger" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
-                    <IconTrash size={14} color="var(--danger)" />
+                  <button className="btn btn-sm btn-danger" onClick={() => handleDeleteRequest(id, asset.display_name || id)} title="Delete Asset" style={{ display: 'inline-flex', alignItems: 'center', padding: '4px 8px' }}>
+                    <IconTrash size={14} />
                   </button>
                   {/* 主要操作。 */}
                   <button className="btn btn-sm btn-primary" onClick={() => handleSetAsVoice(id)}>
@@ -948,6 +947,17 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                 )
               })()}
 
+              {/* 展开这一行看原始文件 / 切片 / 模型。它是个披露开关，不是动作，
+                  所以从动作组里拿出来，放到卡片右下角，用一枚三角形指代。 */}
+              <button
+                type="button"
+                className={`asset-disclose${isExpanded ? ' is-open' : ''}`}
+                onClick={() => handleBrowse(id)}
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? t('Collapse', '收起') : t('Show raw files, slices and models', '展开查看原始文件、切片与模型')}
+                title={isExpanded ? t('Collapse', '收起') : t('Show raw files, slices and models', '展开查看原始文件、切片与模型')}
+              />
+
               {isExpanded && (
                 <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                   {isLoadingSegs && <div className="msg">Loading segments...</div>}
@@ -955,7 +965,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                   {segData && segData.segments && segData.segments.length === 0 && <div className="msg msg-info">No segments found.</div>}
                   {segData && segData.segments && segData.segments.length > 0 && (
                     <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                      <table className="table" style={{ width: '100%', fontSize: 12 }}>
+                      <table className="table" style={{ width: '100%', fontSize: 'var(--fs-12)' }}>
                         <thead>
                           <tr>
                             <th style={{ textAlign: 'left', padding: '4px 6px' }}>Scene</th>
@@ -979,7 +989,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                           ))}
                         </tbody>
                       </table>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
                         Showing {segData.matched || segData.segments.length} of {segData.total} segments
                       </div>
                     </div>

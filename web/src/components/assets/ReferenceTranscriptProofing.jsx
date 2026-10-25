@@ -32,7 +32,7 @@ function ConfidenceBadge({ conf }) {
     <div style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
          title={`识别置信度 ${(conf * 100).toFixed(0)}%（绿=高 / 黄=可疑 / 红=可能识别错误）`}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.fg, display: 'inline-block' }} />
-      <span style={{ fontSize: 10, color: c.fg }}>{(conf * 100).toFixed(0)}%</span>
+      <span style={{ fontSize: 'var(--fs-11)', color: c.fg }}>{(conf * 100).toFixed(0)}%</span>
     </div>
   )
 }
@@ -48,7 +48,7 @@ function WordConfidence({ words }) {
         const c = tier ? CONF_COLORS[tier] : null
         return (
           <span key={j} style={{
-            fontSize: 12, padding: '0 2px', borderRadius: 3,
+            fontSize: 'var(--fs-12)', padding: '0 2px', borderRadius: 3,
             color: c ? c.fg : 'var(--muted)', background: c ? c.bg : 'transparent',
           }}>{(w && w.w != null ? String(w.w) : '').trim() || '␠'}</span>
         )
@@ -76,8 +76,8 @@ function RowAudio({ url }) {
         title={playing ? 'Pause' : 'Play'}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 10px', height: 26 }}
       >
-        <span style={{ fontSize: 11, lineHeight: 1 }}>{playing ? '❚❚' : '▶'}</span>
-        <span style={{ fontSize: 11 }}>{playing ? 'Pause' : 'Play'}</span>
+        <span style={{ fontSize: 'var(--fs-11)', lineHeight: 1 }}>{playing ? '❚❚' : '▶'}</span>
+        <span style={{ fontSize: 'var(--fs-11)' }}>{playing ? 'Pause' : 'Play'}</span>
       </button>
       <audio
         ref={ref}
@@ -201,11 +201,11 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                     {buckets.map(b => <option key={b.kind} value={b.kind}>{b.kind === 'raw' ? 'Raw' : 'Slices'} ({(b.rows || []).length})</option>)}
                   </Select>
                 )}
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>
                   Source: {provLabel}{provenance && provenance.revision ? ` · rev ${provenance.revision}` : ''} · {rows.length} line(s) · {LANG_LABEL[language] || language}
                 </span>
                 {rows.some(r => typeof r.confidence === 'number') && (
-                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     置信度：
                     <span style={{ color: CONF_COLORS.hi.fg }}>● 高</span>
                     <span style={{ color: CONF_COLORS.mid.fg }}>● 可疑</span>
@@ -218,7 +218,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                 {rows.map((row, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ width: 150, flexShrink: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', wordBreak: 'break-all' }}>{row.audio_filename}</div>
+                      <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', wordBreak: 'break-all' }}>{row.audio_filename}</div>
                       {row.url && <RowAudio url={row.url} />}
                       <ConfidenceBadge conf={row.confidence} />
                     </div>
@@ -228,7 +228,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                         value={row.text}
                         onChange={e => setRowText(i, e.target.value)}
                         rows={2}
-                        style={{ resize: 'vertical', fontSize: 13 }}
+                        style={{ resize: 'vertical', fontSize: 'var(--fs-13)' }}
                       />
                       <WordConfidence words={row.words} />
                     </div>

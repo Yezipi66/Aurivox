@@ -524,9 +524,9 @@ export function FlowCanvasTab() {
         {graph.nodes.length === 0 && (
           <div style={{
             position: 'absolute', left: 28, top: 24, maxWidth: 520,
-            color: MUTED, fontSize: 13, lineHeight: 2, pointerEvents: 'none',
+            color: MUTED, fontSize: 'var(--fs-13)', lineHeight: 2, pointerEvents: 'none',
           }}>
-            <div style={{ fontSize: 14, color: 'var(--text, #d8dbe2)', marginBottom: 6 }}>
+            <div style={{ fontSize: 'var(--fs-14)', color: 'var(--text, #d8dbe2)', marginBottom: 6 }}>
               {t('Getting started', '使用方法')}
             </div>
             {t('1. Choose a node from the list on the left to place it on the sheet.', '1. 在左侧列表中选择节点，即可放入画布。')}<br />
@@ -541,7 +541,7 @@ export function FlowCanvasTab() {
         {note && (
           <div style={{
             position: 'absolute', left: '50%', top: 12, transform: 'translateX(-50%)',
-            maxWidth: '58%', padding: '7px 12px', borderRadius: 8, fontSize: 12, zIndex: 5,
+            maxWidth: '58%', padding: '7px 12px', borderRadius: 8, fontSize: 'var(--fs-12)', zIndex: 5,
             background: note.bad ? 'rgba(50,24,29,0.96)' : 'rgba(22,40,26,0.96)',
             color: note.bad ? 'var(--danger, #e08a95)' : 'var(--success, #7bc47f)',
             border: `1px solid ${note.bad ? 'rgba(207,102,121,0.45)' : 'rgba(76,175,80,0.45)'}`,
@@ -562,7 +562,7 @@ export function FlowCanvasTab() {
         </div>
 
         <div style={{
-          position: 'absolute', left: 12, bottom: 12, fontSize: 11, color: MUTED,
+          position: 'absolute', left: 12, bottom: 12, fontSize: 'var(--fs-11)', color: MUTED,
           pointerEvents: 'none',
         }}>
           {t(

@@ -80,7 +80,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
       <div className="rc-hdr">
         <div className="rc-title" onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
           title={open ? t('Collapse', '收起') : t('Expand', '展开')}>
-          <span style={{ marginRight: 6, fontSize: 11, color: 'var(--muted)' }}>{open ? '▼' : '▶'}</span>
+          <span style={{ marginRight: 6, fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{open ? '▼' : '▶'}</span>
           <span className="rc-display">{recipe.display_name}</span>
           <code className="rc-id">{recipe.id}</code>
         </div>
@@ -96,13 +96,13 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
           <div>
             <span className="rc-k">{t('Language', '语言')}</span>
             <span className="rc-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Select className="control" style={{ height: 30, fontSize: 12, minWidth: 220 }}
+              <Select className="control" style={{ height: 30, fontSize: 'var(--fs-12)', minWidth: 220 }}
                 value={recipe.language || ''} disabled={langBusy}
                 onChange={e => saveLang(e.target.value)}>
                 <option value="">{t('(follow asset → auto)', '（跟随资产 → 自动）')}</option>
                 {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </Select>
-              {langMsg && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{langMsg}</span>}
+              {langMsg && <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{langMsg}</span>}
             </span>
           </div>
           <div><span className="rc-k">{t('Model slot 1', '模型位 1')}</span><span className="rc-v" title={recipe.gpt_ckpt}>{recipe.gpt_ckpt ? basename(recipe.gpt_ckpt) : t('(none)', '（无）')}</span></div>
@@ -123,7 +123,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
           <div className="rc-cmd-hdr">
             <span onClick={() => setCmdOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
               title={cmdOpen ? t('Collapse', '收起') : t('Expand full multi-line command', '展开完整的多行命令')}>
-              <span style={{ marginRight: 6, fontSize: 11, color: 'var(--muted)' }}>{cmdOpen ? '▼' : '▶'}</span>
+              <span style={{ marginRight: 6, fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{cmdOpen ? '▼' : '▶'}</span>
               {t('Example call (OpenAI-compatible)', '调用示例（兼容 OpenAI）')}
             </span>
             <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? t('Copied', '已复制') : t('Copy command', '复制命令')}</button>

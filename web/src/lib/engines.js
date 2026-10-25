@@ -284,9 +284,15 @@ export function checkpointBadge(engine, lang = 'zh') {
   }
   if (c.ready === false) {
     const n = Array.isArray(c.missing) ? c.missing.length : 0
+    // 灯面回答的是「能不能用」，所以只写「缺底模」。
+    // 缺几项、缺哪几个说的是严重程度和去哪儿补，不改变答案，也不改变动作，进悬停。
+    if (n > 0) {
+      lines.push('', (zh ? `缺 ${n} 项：` : `Missing ${n}: `)
+        + c.missing.join(zh ? '、' : ', '))
+    }
     return {
       tone: 'bad',
-      label: n > 0 ? (zh ? `底模缺 ${n} 项` : `weights: ${n} missing`) : (zh ? '底模缺失' : 'weights missing'),
+      label: zh ? '缺底模' : 'no weights',
       title: lines.join('\n'),
     }
   }
@@ -381,7 +387,11 @@ export function mergeProcessState (engines, fresh) {
 }
 
 // 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 > 合成中
-// > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。
+// > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停里放底模那一段与正在载入的模型。
+//
+// 灯面上只写状态，不写引擎名。名字在多台引擎时已经在下拉选择器里，
+// 拼成「名字 · 状态」之后这枚灯变成一句话：名字来自名片，可能长到三十几个字，
+// 一拼就把顶栏撑爆，而读起来还像两个并列的结论。名字进悬停第一行，任何状态下都查得到。
 export function engineBadge (engine, health, lang = 'zh') {
   if (!engine) return null
 
@@ -390,36 +400,32 @@ export function engineBadge (engine, health, lang = 'zh') {
   const ck = checkpointBadge(engine, lang)
   const pr = processBadge(engine, lang)
 
-  const dirLine = (() => {
-    const t = ck && ck.title ? String(ck.title) : ''
-    const m = t.match(/(?:^|\n)\s*(?:底模目录：|Checkpoints: )(.+)/)
-    if (m) return (zh ? '底模目录：' : 'Checkpoints: ') + m[1].trim()
-    return t.trim()
-  })()
+  // 底模那一段整段收进悬停，不再只挑出目录那一行：
+  // 缺几项、缺哪几个、名片写的取回命令都在里面，灯面省下的字一个都不能丢在这儿。
+  const ckText = ck && ck.title ? String(ck.title).trim() : ''
   const launching = pr && pr.launchKey
-  const title = (() => {
-    const head = dirLine || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir')
+  const body = (() => {
+    const head = ckText || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir')
     return launching
       ? [head, '', (zh ? `正在装：${pr.launchKey}` : `Loading: ${pr.launchKey}`)].join('\n')
       : head
   })()
+  // 名字单独占第一行：灯面越短，这个位置越需要能一眼确认「说的是哪台」。
+  const title = `${name}\n${body}`
 
   if (ck && ck.tone === 'bad') {
-    return {
-      tone: 'bad',
-      label: `${name} · ${ck.label}`,
-      title,
-    }
+    return { tone: 'bad', label: ck.label, title }
   }
 
   if (pr) {
-    return { tone: pr.tone, label: `${name} · ${pr.label}`, title }
+    return { tone: pr.tone, label: pr.label, title }
   }
 
   // 本机不管理进程时，平台不知道引擎状态，显示中性灰色，不显示离线或红灯。
+  // 灯面上仍要有字，但只能写我们知道的那件事：这台的进程不归平台管。
   return {
     tone: 'idle',
-    label: name,
+    label: zh ? '不管理进程' : 'unmanaged',
     title,
   }
 }

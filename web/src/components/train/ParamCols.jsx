@@ -36,7 +36,7 @@ function AsrParamFields({ form, setField }) {
           <option value="funasr">{t('FunASR (zh/yue — better Chinese)', 'FunASR (中文/粤语，中文更准)')}</option>
         </Select>
         {form.asrEngine === 'funasr' && (
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
             {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
               'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
           </p>
@@ -171,7 +171,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
           one SoVITS trained per checked version). Otherwise a single select (asset rebuild). */}
       {showS2 && (versionMode === 'multi' ? (
         <div className="train-version-row" style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('SoVITS Version(s) — one model trained per checked version', 'SoVITS 版本：每勾选一个版本训练一个模型')}</label>
+          <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{t('SoVITS Version(s) — one model trained per checked version', 'SoVITS 版本：每勾选一个版本训练一个模型')}</label>
           <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
             {[
               { v: 'v2', label: 'v2' },
@@ -196,20 +196,20 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
               );
             })}
           </div>
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
             {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before you start.',
                '每个勾选的版本会在一次运行中训练各自的 SoVITS 模型。v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)；缺失的模型会在开始前于流程下方列出。')}
           </p>
         </div>
       ) : (
         <div className="train-version-row" style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)' }}>{t('Base Model Version', 'Base 模型版本')}</label>
+          <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{t('Base Model Version', 'Base 模型版本')}</label>
           <Select className="control" value={form.modelVersion || 'v2'} onChange={e => setField('modelVersion', e.target.value)}>
             <option value="v2">{t('v2 — general base (s2G2333k)', 'v2：通用 base (s2G2333k)')}</option>
             <option value="v2Pro">{t('v2Pro — needs v2Pro base + SV model', 'v2Pro：需要 v2Pro base + SV 模型')}</option>
             <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus：需要 v2ProPlus base + SV 模型')}</option>
           </Select>
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
             {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before you start.',
                'v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)。缺失的 base 模型会在开始前于流程下方列出。')}
           </p>
@@ -219,7 +219,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
         {showS1 && <S1BasicCol form={form} setField={setField} />}
         {showS2 && <S2BasicCol form={form} setField={setField} />}
       </div>
-      {hint && <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>{hint}</p>}
+      {hint && <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>{hint}</p>}
 
       <details className="expert-block" style={{ marginTop: 14 }}>
         <summary className="expert-summary">{t('Expert Parameters — training pipeline internals', '专家参数：训练管线内部设置')}</summary>

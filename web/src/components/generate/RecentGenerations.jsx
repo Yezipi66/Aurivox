@@ -20,14 +20,14 @@ export function GenerationResult({ result }) {
       <div className="section-hdr">
         <span>{result.split ? (result.concat ? `Combined (${result.segments?.length} segments)` : `Segments (${result.segments?.length})`) : 'Result'}</span>
         <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {result.silence_ms !== undefined && <span style={{ fontSize: 11, color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
+          {result.silence_ms !== undefined && <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
           <SeedBadge seed={result.seed} />
         </span>
       </div>
       <div className="section-body">
         <Player src={`${API_BASE}${result.audio_url}`} bounds={result.segment_bounds} duration={result.duration} />
         <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
-          <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 13 }}>Download WAV</a>
+          <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-13)' }}>Download WAV</a>
         </div>
         {result.warning && <div className="msg msg-warn" style={{ marginTop: 8 }}>{result.warning}</div>}
       </div>
@@ -55,8 +55,10 @@ export function RecentGenerations({
         <span>Recent Generations</span>
         {recent.length > 0 && (
           <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-sm btn-ghost" onClick={onClearHistory}>Clear History</button>
-            <button className="btn btn-sm btn-danger" onClick={onCleanAll}>Clean All</button>
+            {/* 两个按钮的差别是「只清列表」和「连文件一起删」，而 Clean All
+                听起来和 Clear History 是一档的。按确认框里已经在用的词命名。 */}
+            <button className="btn btn-sm btn-ghost" onClick={onClearHistory}>Clear history</button>
+            <button className="btn btn-sm btn-danger" onClick={onCleanAll}>Delete all files</button>
           </div>
         )}
       </div>

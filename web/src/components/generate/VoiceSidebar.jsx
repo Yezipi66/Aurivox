@@ -83,11 +83,11 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
 
   return (
     <div className="section">
-      <div className="section-hdr"><span>{voice.display_name}</span><span style={{ fontSize: 11, color: 'var(--muted)' }}>{voice.id}</span></div>
+      <div className="section-hdr"><span>{voice.display_name}</span><span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{voice.id}</span></div>
       <div className="section-body">
         <div className="field">
           <label className="field-label">Language</label>
-          <div style={{ fontSize: 13 }}>{voice.language || '?'}</div>
+          <div style={{ fontSize: 'var(--fs-13)' }}>{voice.language || '?'}</div>
         </div>
 
         {mixedRef && (
@@ -114,7 +114,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
               </div>
             )}
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, margin: '4px 0 6px', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', margin: '4px 0 6px', cursor: 'pointer' }}>
             <input type="checkbox" checked={crossMode} onChange={e => {
               const on = e.target.checked
               setCrossMode(on)
@@ -125,7 +125,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
             {t('Use reference from another voice', '使用其他音色的参考音频')}
           </label>
           {activeRef && (
-            <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: activeRefText ? 2 : 6 }}>
+            <div style={{ fontSize: 'var(--fs-12)', color: 'var(--text)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: activeRefText ? 2 : 6 }}>
               {basename(activeRef)}
             </div>
           )}
@@ -160,12 +160,12 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
               <textarea
                 className="control"
                 rows={2}
-                style={{ fontSize: 11, width: '100%', fontStyle: refTextOverride != null ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}
+                style={{ fontSize: 'var(--fs-11)', width: '100%', fontStyle: refTextOverride != null ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}
                 value={refTextOverride != null ? refTextOverride : activeRefText}
                 onChange={e => onRefTextOverride?.(e.target.value)}
                 placeholder={activeIsRaw ? t('No aligned transcript — type a reference text for this run (optional)…', '没有对齐的转写文本：可为本次生成输入一段参考文本（可选）…') : t('Reference text…', '参考文本…')}
               />
-              <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
                 <span>
                   {refTextOverride != null
                     ? t('✎ Edited for this run only — the source file is unchanged.', '✎ 仅对本次生成有效，源文件不会被修改。')
@@ -174,15 +174,15 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
                         : t('Reference transcript — edits here affect only this run, not the file.', '参考转写文本：此处的修改仅影响本次生成，不会改动文件。'))}
                 </span>
                 {refTextOverride != null && (
-                  <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 10, flex: '0 0 auto' }}
+                  <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 'var(--fs-11)', flex: '0 0 auto' }}
                     onClick={() => onRefTextOverride?.(null)}>Reset</button>
                 )}
               </div>
             </div>
           ) : null}
-          {!crossMode && segLoading && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('Loading reference audio…', '正在加载参考音频…')}</div>}
+          {!crossMode && segLoading && <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{t('Loading reference audio…', '正在加载参考音频…')}</div>}
           {!crossMode && !segLoading && availableRefs.length === 0 && availableRaw.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('No reference audio available', '没有可用的参考音频')}</div>
+            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{t('No reference audio available', '没有可用的参考音频')}</div>
           )}
           {!crossMode && !segLoading && (availableRefs.length > 0 || availableRaw.length > 0) && (
             <input
@@ -190,7 +190,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
               value={refSearch}
               onChange={e => setRefSearch(e.target.value)}
               placeholder={t('Search reference audio (name or transcript)…', '搜索参考音频（文件名或文本）…')}
-              style={{ margin: '4px 0 6px', fontSize: 12 }}
+              style={{ margin: '4px 0 6px', fontSize: 'var(--fs-12)' }}
             />
           )}
           {!crossMode && !segLoading && refTab === 'slices' && (

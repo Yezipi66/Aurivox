@@ -201,7 +201,7 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
   useEffect(() => { if (open) { setData(null); go(startPath || '') } }, [open]) // eslint-disable-line
   if (!open) return null
 
-  const rowStyle = { padding: '4px 10px', fontSize: 12, cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }
+  const rowStyle = { padding: '4px 10px', fontSize: 'var(--fs-12)', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>

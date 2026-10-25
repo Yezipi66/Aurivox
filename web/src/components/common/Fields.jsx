@@ -156,10 +156,10 @@ client.audio.speech.create(
               ② <strong>模型留驻</strong>：同一音色连续合成不重载权重；<strong>换参考音频</strong>也走缓存（最近用过的免重新提取），多音色 recipe 轮转各自保持缓存，容量由 <code>AURIVOX_REF_CACHE</code> 控制（默认 8）。
               ③ <strong>过载保护</strong>：推理为单卡串行，请求排队积压超上限时立即返回 <code>503</code>（<code>code: generation_queue_full</code>）并带 <code>Retry-After</code> 头，请客户端据此重试；上限 <code>AURIVOX_MAX_QUEUE</code>（默认 32，0=不限）、<code>AURIVOX_RETRY_AFTER</code>（默认 3 秒）。
             </p>
-            <p>常见命令：</p>
+            <p className="nn-cap">{t('Common commands:', '常见命令：')}</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
             <pre className="nn-pre"><code>{py}</code></pre>
-            <p style={{ marginTop: 8 }}>{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
+            <p className="nn-cap">{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
             <pre className="nn-pre"><code>{streamCurl}</code></pre>
           </>
         ) : (
@@ -191,10 +191,10 @@ client.audio.speech.create(
               (2) <strong>Model residency</strong> — consecutive calls to the same voice don't reload weights, and <strong>switching reference audio</strong> is cached too (recently-used refs skip re-extraction), so multi-voice recipe rotation stays warm. Capacity via <code>AURIVOX_REF_CACHE</code> (default 8).
               (3) <strong>Overload protection</strong> — inference is single-GPU serial; when the queue backs up past the limit the server returns <code>503</code> (<code>code: generation_queue_full</code>) with a <code>Retry-After</code> header for the client to honor. Limits: <code>AURIVOX_MAX_QUEUE</code> (default 32, 0 = unbounded), <code>AURIVOX_RETRY_AFTER</code> (default 3s).
             </p>
-            <p>Common commands:</p>
+            <p className="nn-cap">Common commands:</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
             <pre className="nn-pre"><code>{py}</code></pre>
-            <p style={{ marginTop: 8 }}>{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
+            <p className="nn-cap">{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
             <pre className="nn-pre"><code>{streamCurl}</code></pre>
           </>
         )}
@@ -212,7 +212,7 @@ client.audio.speech.create(
 function NumField({ label, value, onChange, min, max, step = 1 }) {
   return (
     <div>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+      <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{label}</label>
       <input className="control" type="number" value={value} min={min} max={max} step={step}
              onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))} />
     </div>
@@ -222,7 +222,7 @@ function NumField({ label, value, onChange, min, max, step = 1 }) {
 function TextField({ label, value, onChange }) {
   return (
     <div>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+      <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{label}</label>
       <input className="control" value={value} onChange={e => onChange(e.target.value)} />
     </div>
   );
@@ -234,7 +234,7 @@ function TextField({ label, value, onChange }) {
 function SelectField({ label, value, onChange, options = [] }) {
   return (
     <div>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+      <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{label}</label>
       <Select className="control" value={value} onChange={e => onChange(e.target.value)}>
         {options.map(([v, l]) => <option key={v} value={v}>{l ?? v}</option>)}
       </Select>

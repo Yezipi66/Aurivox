@@ -21,12 +21,12 @@ export function Dock({ label, width, onClose, children }) {
     >
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
-        borderBottom: `1px solid ${BORDER}`, fontSize: 11, fontWeight: 600,
+        borderBottom: `1px solid ${BORDER}`, fontSize: 'var(--fs-11)', fontWeight: 600,
         letterSpacing: 0.5, color: MUTED, textTransform: 'uppercase',
       }}>
         <span>{label}</span>
         <button onClick={onClose} title={label} style={{
-          marginLeft: 'auto', ...iconButtonStyle, width: 20, height: 18, fontSize: 11,
+          marginLeft: 'auto', ...iconButtonStyle, width: 20, height: 18, fontSize: 'var(--fs-11)',
         }}>✕</button>
       </div>
       {/* One scroll area for the whole dock. Panels inside must not scroll on
@@ -48,7 +48,7 @@ export function Rail({ side, label, onOpen }) {
       style={{
         flex: '0 0 26px', width: 26, alignSelf: 'stretch', padding: '8px 0',
         display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6,
-        writingMode: 'vertical-rl', letterSpacing: 2, fontSize: 11, cursor: 'pointer',
+        writingMode: 'vertical-rl', letterSpacing: 2, fontSize: 'var(--fs-11)', cursor: 'pointer',
         borderRadius: 8, border: `1px solid ${BORDER}`, background: PANEL, color: MUTED,
         marginRight: side === 'left' ? 6 : 0, marginLeft: side === 'right' ? 6 : 0,
       }}
@@ -128,7 +128,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
           <div key={category.id}>
             <div
               title={pickText(category.help, lang)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: MUTED, margin: '10px 0 5px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', color: MUTED, margin: '10px 0 5px' }}
             >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: colour }} />
               {pickText(category.label, lang, category.id)}
@@ -143,7 +143,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
                 title={`${pickText(definition.help, lang)}\n(${definition.type})`}
                 style={{
                   display: 'block', width: '100%', textAlign: 'left', marginBottom: 3,
-                  padding: '6px 9px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                  padding: '6px 9px', fontSize: 'var(--fs-12)', borderRadius: 6, cursor: 'pointer',
                   borderLeft: `2px solid ${colour}`, border: `1px solid ${BORDER}`,
                   borderLeftWidth: 3, borderLeftColor: colour,
                   background: 'rgba(27,31,39,0.9)', color: 'inherit',
@@ -151,7 +151,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
               >
                 {pickText(definition.label, lang, definition.type)}
                 {definition.suspends && (
-                  <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn, #e0b341)' }}>
+                  <span style={{ marginLeft: 6, fontSize: 'var(--fs-11)', color: 'var(--warn, #e0b341)' }}>
                     {t('needs input', '需人工介入')}
                   </span>
                 )}
@@ -200,7 +200,7 @@ export function Toolbar({
       >{t('Properties', '属性面板')}</button>
       <div style={{ flex: 1 }} />
       {problems.length > 0 && (
-        <span style={{ fontSize: 11, color: 'var(--warn, #e0b341)' }}>
+        <span style={{ fontSize: 'var(--fs-11)', color: 'var(--warn, #e0b341)' }}>
           {t(`${problems.length} required inputs not connected`, `${problems.length} 处必填输入未连接`)}
         </span>
       )}
@@ -235,7 +235,7 @@ export function Panel({ title, children }) {
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{
-        fontSize: 12, fontWeight: 600, marginBottom: 7, paddingBottom: 5,
+        fontSize: 'var(--fs-12)', fontWeight: 600, marginBottom: 7, paddingBottom: 5,
         borderBottom: `1px solid ${BORDER}`, wordBreak: 'break-all',
       }}>{title}</div>
       {children}

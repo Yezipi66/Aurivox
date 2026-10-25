@@ -697,7 +697,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 className="control" rows={5} placeholder={t('Enter text to synthesize...', '输入要合成的文本…')}
                 value={text} onChange={e => { setText(e.target.value); }}
               />
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <span>Characters: <span style={{ color: 'var(--text)' }}>{text.length}</span></span>
                 {splitEnabled && (
                   <span>Estimated chunks: <span style={{ color: 'var(--text)' }}>{Math.max(1, Math.ceil(text.length / Math.max(1, maxChars)))}</span></span>
@@ -705,7 +705,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   Target language:
                   <Select
-                    className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
+                    className="control" style={{ height: 22, fontSize: 'var(--fs-11)', padding: '0 4px', width: 'auto', minWidth: 0 }}
                     value={textLang} onChange={e => setTextLang(e.target.value)}
                   >
                     {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -722,10 +722,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   Proof &amp; language{'…'}
                 </button>
                 {hanDir && hanForcedLive.length > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{hanForcedLive.length} Han override(s)</span>
+                  <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{hanForcedLive.length} Han override(s)</span>
                 )}
                 {countOverrides(pronOverrides) > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>{countOverrides(pronOverrides)} reading override(s)</span>
+                  <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{countOverrides(pronOverrides)} reading override(s)</span>
                 )}
               </div>
               {showTextPrep && (
@@ -742,27 +742,27 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
             <div className="collapsible" style={{ margin: '6px 0' }}>
               <div className="collapsible-hdr" onClick={() => setShowLongTextSplit(!showLongTextSplit)}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Long-Text Splitting</span>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showLongTextSplit ? '▲' : '▼'}</span>
+                <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>Long-Text Splitting</span>
+                <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showLongTextSplit ? '▲' : '▼'}</span>
               </div>
               {showLongTextSplit && (
                 <div className="collapsible-body">
                   <div className="form-grid">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: 'var(--muted)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={splitEnabled} onChange={e => setSplitEnabled(e.target.checked)} />
                       Split long text
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Max chars:</span>
-                      <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 12 }} value={maxChars} min={10} max={200} onChange={e => setMaxChars(parseInt(e.target.value) || 30)} />
+                      <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>Max chars:</span>
+                      <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 'var(--fs-12)' }} value={maxChars} min={10} max={200} onChange={e => setMaxChars(parseInt(e.target.value) || 30)} />
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: 'var(--muted)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={concatEnabled} onChange={e => setConcatEnabled(e.target.checked)} disabled={!splitEnabled} />
                       Concatenate
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Silence (ms):</span>
-                      <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 12 }} value={silenceMs} min={0} max={2000} step={50} onChange={e => setSilenceMs(parseInt(e.target.value) || 300)} />
+                      <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>Silence (ms):</span>
+                      <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 'var(--fs-12)' }} value={silenceMs} min={0} max={2000} step={50} onChange={e => setSilenceMs(parseInt(e.target.value) || 300)} />
                     </div>
                   </div>
                   {splitEnabled && text.length > maxChars && (

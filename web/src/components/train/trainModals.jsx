@@ -58,7 +58,7 @@ function ConfirmModal({ open, title, message, confirmLabel, onConfirm, onClose }
       <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
         <div className="confirm-hdr"><span>{title}</span></div>
         <div className="confirm-body">
-          <p style={{ fontSize: 13, margin: 0 }}>{message}</p>
+          <p style={{ fontSize: 'var(--fs-13)', margin: 0 }}>{message}</p>
         </div>
         <div className="confirm-actions">
           <button className="btn btn-sm" onClick={onClose}>{tr('Cancel', '取消')}</button>
@@ -228,8 +228,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             {realSliceInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowSliceParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{tr('Slice Parameters', '切片参数')}</span>
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSliceParams ? '▲' : '▼'}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{tr('Slice Parameters', '切片参数')}</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showSliceParams ? '▲' : '▼'}</span>
                 </div>
                 {showSliceParams && (
                   <div className="collapsible-body" style={{ padding: 12 }}>
@@ -258,8 +258,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             {asrInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowAsrParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{tr('ASR Parameters', 'ASR 参数')}</span>
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAsrParams ? '▲' : '▼'}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{tr('ASR Parameters', 'ASR 参数')}</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showAsrParams ? '▲' : '▼'}</span>
                 </div>
                 {showAsrParams && (
                   <div className="collapsible-body" style={{ padding: 12 }}>
@@ -299,8 +299,8 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             {trainInPlan && (
               <div className="collapsible" style={{ marginTop: 10 }}>
                 <div className="collapsible-hdr" onClick={() => setShowTrainParams(v => !v)}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{tr('Training Parameters', '训练参数')}</span>
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showTrainParams ? '▲' : '▼'}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{tr('Training Parameters', '训练参数')}</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showTrainParams ? '▲' : '▼'}</span>
                 </div>
                 {showTrainParams && (
                   <div className="collapsible-body" style={{ padding: 12 }}>

@@ -203,7 +203,7 @@ function AudioPlayer({ src, onDuration }) {
           background: 'var(--accent)', borderRadius: 2,
         }}/>
       </div>
-      <span style={{ fontSize: 11, color: 'var(--muted)', width: 28, textAlign: 'right', flexShrink: 0 }}>
+      <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', width: 28, textAlign: 'right', flexShrink: 0 }}>
         {durStr}
       </span>
       <audio

@@ -14,7 +14,7 @@ import { Panel } from './canvasChrome'
 export function NodeBox({ node, definition, selected, runStatus, lang, t, onDragStart, onStartWire, onFinishWire, onDisconnect }) {
   if (!definition) {
     return (
-      <div style={{ position: 'absolute', left: node.position.x, top: node.position.y, width: NODE_WIDTH, padding: 8, borderRadius: 8, border: '1px dashed var(--danger, #cf6679)', color: 'var(--danger, #cf6679)', fontSize: 12 }}>
+      <div style={{ position: 'absolute', left: node.position.x, top: node.position.y, width: NODE_WIDTH, padding: 8, borderRadius: 8, border: '1px dashed var(--danger, #cf6679)', color: 'var(--danger, #cf6679)', fontSize: 'var(--fs-12)' }}>
         {t(`Unrecognised node type: ${node.type}`, `未识别的节点类型：${node.type}`)}
       </div>
     )
@@ -40,7 +40,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
     >
       <div style={{
         height: HEADER_HEIGHT, padding: '0 9px', display: 'flex', alignItems: 'center', gap: 7,
-        borderBottom: `1px solid ${BORDER}`, fontSize: 12, fontWeight: 600,
+        borderBottom: `1px solid ${BORDER}`, fontSize: 'var(--fs-12)', fontWeight: 600,
         borderTop: `2px solid ${accent}`, borderTopLeftRadius: 9, borderTopRightRadius: 9,
       }}>
         <span
@@ -50,14 +50,14 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         {runStatus
           ? (
             <span style={{
-              marginLeft: 'auto', fontSize: 10, fontWeight: 500, padding: '1px 6px', borderRadius: 9,
+              marginLeft: 'auto', fontSize: 'var(--fs-11)', fontWeight: 500, padding: '1px 6px', borderRadius: 9,
               whiteSpace: 'nowrap', color: RUN_TEXT[runStatus] || MUTED,
               border: `1px solid ${RUN_COLOURS[runStatus] || BORDER}`,
             }}>{pickText(RUN_LABELS[runStatus], lang, runStatus)}</span>
           )
           : (
             <span style={{
-              marginLeft: 'auto', fontSize: 10, color: MUTED, padding: '1px 6px', borderRadius: 9,
+              marginLeft: 'auto', fontSize: 'var(--fs-11)', color: MUTED, padding: '1px 6px', borderRadius: 9,
               background: 'rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
             }}>{node.id}</span>
           )}
@@ -72,7 +72,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         const help = pickText(portDef.help, lang)
         const typeHelp = pickText(portDef.type_help, lang, portDef.type)
         return (
-          <div key={portDef.name} style={{ position: 'absolute', left: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, maxWidth: NODE_WIDTH / 2 + 26 }}>
+          <div key={portDef.name} style={{ position: 'absolute', left: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 26 }}>
             <span
               // Pressing a port must never start dragging the node behind it.
               // That was the whole cause of the stuck-node bug.
@@ -100,7 +100,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
               }}>
                 {label}{portDef.multiple ? ' ⋯' : ''}{portDef.required && !wired ? ' *' : ''}
               </span>
-              <span style={{ display: 'block', color: MUTED, fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span style={{ display: 'block', color: MUTED, fontSize: 'var(--fs-11)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {wired ? `← ${wired}` : typeHelp}
               </span>
             </span>
@@ -112,10 +112,10 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         const label = pickText(portDef.label, lang, portDef.name)
         const typeHelp = pickText(portDef.type_help, lang, portDef.type)
         return (
-          <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, maxWidth: NODE_WIDTH / 2 + 12 }}>
+          <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 12 }}>
             <span style={{ minWidth: 0, textAlign: 'right' }}>
               <span style={{ color: 'var(--text, #d8dbe2)', whiteSpace: 'nowrap' }}>{label}</span>
-              <span style={{ display: 'block', color: MUTED, fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span style={{ display: 'block', color: MUTED, fontSize: 'var(--fs-11)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {typeHelp}
               </span>
             </span>
@@ -149,7 +149,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
             const value = node.params?.[param.name]
             const shown = value === undefined ? param.default : value
             return (
-              <div key={param.name} style={{ display: 'flex', gap: 6, fontSize: 10, height: PARAM_ROW, alignItems: 'center' }}>
+              <div key={param.name} style={{ display: 'flex', gap: 6, fontSize: 'var(--fs-11)', height: PARAM_ROW, alignItems: 'center' }}>
                 <span style={{ color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '52%' }}>
                   {pickText(param.label, lang, param.name)}
                 </span>
@@ -172,11 +172,11 @@ export function PortList({ title, ports, lang, t, describe }) {
   if (!ports.length) return null
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 'var(--fs-11)', color: MUTED, marginBottom: 4 }}>{title}</div>
       {ports.map(port => {
         const state = describe(port)
         return (
-          <div key={port.name} style={{ fontSize: 11, marginBottom: 6, lineHeight: 1.6 }}>
+          <div key={port.name} style={{ fontSize: 'var(--fs-11)', marginBottom: 6, lineHeight: 1.6 }}>
             <span style={{
               display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6,
               background: colourFor(port.type),
@@ -204,7 +204,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
   if (!node || !definition) {
     return (
       <Panel title={t('Node settings', '节点设置')}>
-        <div style={{ fontSize: 12, color: MUTED }}>
+        <div style={{ fontSize: 'var(--fs-12)', color: MUTED }}>
           {t('Select a node to edit its settings here.', '选中节点后，在此编辑其设置。')}
         </div>
       </Panel>
@@ -212,9 +212,9 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
   }
   return (
     <Panel title={`${pickText(definition.label, lang, definition.type)}　${node.id}`}>
-      <div style={{ fontSize: 12, color: MUTED, marginBottom: 10, lineHeight: 1.7 }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: MUTED, marginBottom: 10, lineHeight: 1.7 }}>
         {pickText(definition.help, lang)}
-        <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>{definition.type}</div>
+        <div style={{ fontSize: 'var(--fs-11)', marginTop: 4, opacity: 0.8 }}>{definition.type}</div>
       </div>
 
       <PortList
@@ -237,9 +237,9 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
         describe={port => ({ text: usesOf(graph, catalogue, node.id, port.name, t), warn: false })}
       />
 
-      <div style={{ fontSize: 11, color: MUTED, margin: '12px 0 6px' }}>{t('Settings', '设置')}</div>
+      <div style={{ fontSize: 'var(--fs-11)', color: MUTED, margin: '12px 0 6px' }}>{t('Settings', '设置')}</div>
       {definition.params.length === 0 && (
-        <div style={{ color: MUTED, fontSize: 12 }}>
+        <div style={{ color: MUTED, fontSize: 'var(--fs-12)' }}>
           {t('This node has no configurable settings.', '该节点没有可配置项。')}
         </div>
       )}
@@ -261,10 +261,10 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
         // the broker is unreachable; either way a text box is still usable.
         const asDropdown = choices.length > 0
         return (
-          <label key={param.name} style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+          <label key={param.name} style={{ display: 'block', marginBottom: 12, fontSize: 'var(--fs-12)' }}>
             <div style={{ marginBottom: 3 }}>{pickText(param.label, lang, param.name)}</div>
             {pickText(param.help, lang) && (
-              <div style={{ color: MUTED, fontSize: 11, marginBottom: 5, lineHeight: 1.6 }}>
+              <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginBottom: 5, lineHeight: 1.6 }}>
                 {pickText(param.help, lang)}
               </div>
             )}
@@ -296,7 +296,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
                 style={fieldStyle}
               />
             )}
-            <div style={{ color: MUTED, fontSize: 10, marginTop: 4 }}>
+            <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 4 }}>
               {t(`default: ${describeValue(param.default, 'en')}`, `默认值：${describeValue(param.default, 'zh')}`)}
             </div>
             {param.source === 'voices' && (
@@ -309,7 +309,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
                 >
                   {t('Fill engine parameters from this voice', '按该音色填充引擎参数')}
                 </button>
-                <div style={{ color: MUTED, fontSize: 10, marginTop: 4, lineHeight: 1.6 }}>
+                <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 4, lineHeight: 1.6 }}>
                   {t(
                     'A voice is a preset: its values are copied into the engine-parameters node once and stay editable. Nothing is written back to the voice.',
                     '音色是一份预设：其参数值会一次性复制到引擎参数节点，之后仍可手动修改；修改不会写回音色。',

@@ -78,6 +78,23 @@ test('⛔ 这个页面里不许出现任何一台引擎的名字', () => {
   }
 })
 
+test('⛔ 这个页面的文案必须走 t()，不许写死任何一种语言', () => {
+  // 语言开关只翻译说明性文字（见 lib/i18n.jsx 顶部）。这一页此前整页写死中文，
+  // 切到 EN 一个字都不变。守卫抓两种写法：
+  //   1) JSX 文本子节点里直接写汉字（>引擎<）
+  //   2) 字符串属性里直接写汉字（title="……"）。走 t() 的写法是 title={t(...)}，带花括号，不会命中
+  const jsx = read('components/engines/EnginesTab.jsx')
+  const bareText = [...jsx.matchAll(/>[^<>{}]*[\u4e00-\u9fa5][^<>{}]*</g)].map((m) => m[0].slice(0, 40))
+  assert.deepEqual(bareText, [], `JSX 文本子节点里写死了中文：${bareText.join(' | ')}`)
+  const bareAttr = [...jsx.matchAll(/\b(?:title|label|message|placeholder|aria-label)="[^"]*[\u4e00-\u9fa5][^"]*"/g)].map((m) => m[0].slice(0, 60))
+  assert.deepEqual(bareAttr, [], `字符串属性里写死了中文：${bareAttr.join(' | ')}`)
+  // lib 层的文案函数全收 lang；这一页不传，EN 下它们按默认值回中文。
+  assert.match(jsx, /engineControls\(engine, lang\)/)
+  assert.match(jsx, /actionOutcome\(resp, lang\)/)
+  assert.match(jsx, /occupancyBadge\(occupancy, lang\)/)
+  assert.match(jsx, /engineUsageBadge\(engine, occupancy, lang\)/)
+})
+
 // 真测试：把 startEngine / stopEngine 当普通函数调，用 fetch 替身接住请求。
 // 接线断掉（URL 写错路径、或改用 GET）⇒ 下面这两条红。
 

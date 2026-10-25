@@ -30,13 +30,13 @@ export function TrainingGates({
       {/* 门控 G1：未开启 S1/S2，只跑切片/ASR，跳过 preprocess。 */}
       <ConfirmDialog
         open={gate?.type === 'g1'}
-        icon={<span style={{ fontSize: 18 }}>ⓘ</span>}
+        icon={<span style={{ fontSize: 'var(--fs-18)' }}>ⓘ</span>}
         title={tr('No fine-tuning steps selected', '未选择微调步骤')}
         confirmLabel={tr('Continue (skip preprocess)', '继续（跳过预处理）')}
         onConfirm={onConfirmGate}
         onCancel={onCancelGate}
         message={
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 'var(--fs-13)', lineHeight: 1.6 }}>
             {tr(
               'Neither S1 (GPT) nor S2 (SoVITS) training is enabled. This run will only slice / transcribe (with optional proofreading); the three preprocess steps will be skipped since there is nothing to train.',
               '未启用 S1 (GPT) 或 S2 (SoVITS) 训练。本次将只执行切片 / 转写（含可选人工校对），由于没有要训练的模型，将跳过 preprocess 三步。')}
@@ -48,13 +48,13 @@ export function TrainingGates({
       <ConfirmDialog
         open={gate?.type === 'g2'}
         danger
-        icon={<span style={{ fontSize: 18 }}>⚠️</span>}
+        icon={<span style={{ fontSize: 'var(--fs-18)' }}>⚠️</span>}
         title={tr('ASR is not enabled', '未启用 ASR')}
         confirmLabel={tr('Continue anyway', '仍然继续')}
         onConfirm={onConfirmGate}
         onCancel={onCancelGate}
         message={
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 'var(--fs-13)', lineHeight: 1.6 }}>
             <p style={{ marginTop: 0 }}>
               {tr(
                 'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
@@ -65,7 +65,7 @@ export function TrainingGates({
                 'Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
                 '在预处理前，系统会等待下面设定的秒数，留出时间把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
-            <p style={{ color: 'var(--muted)', fontSize: 12 }}>
+            <p style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>
               {tr(
                 'Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
                 '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
@@ -93,13 +93,13 @@ export function TrainingGates({
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <span style={{ fontSize: 20 }}>⚠️</span>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>Overwrite Existing Voice?</span>
+              <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>Overwrite Existing Voice?</span>
             </div>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+            <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
               The id <strong>{overwriteConfirm.existingId}</strong> already belongs to{' '}
               <strong>&ldquo;{overwriteConfirm.existingDisplay}&rdquo;</strong>.
             </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+            <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 16 }}>
               Training will publish into <code>assets/{overwriteConfirm.existingId}/</code> and
               permanently replace the models and references of that voice. This cannot be undone.
               If you meant to keep both, cancel and give this one a different name.
@@ -124,16 +124,16 @@ export function TrainingGates({
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <span style={{ fontSize: 20 }}>🐢</span>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>未检测到 NVIDIA GPU</span>
+              <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>未检测到 NVIDIA GPU</span>
             </div>
-            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+            <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
               当前设备没有可用的 CUDA GPU。微调将在 <strong>CPU</strong> 上运行，
               可能<strong>耗时数小时甚至数十倍</strong>，且<strong>人声分离（UVR5）不可用</strong>。
             </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+            <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 14 }}>
               推理不受影响，可正常在 CPU 上使用。若只是想生成语音，无需在此训练。
             </p>
-            <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 16 }}>
+            <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 16 }}>
               <input type="checkbox" checked={noGpuAck} onChange={e => setNoGpuAck(e.target.checked)} />
               我知道 CPU 微调会非常慢，仍要继续
             </label>
