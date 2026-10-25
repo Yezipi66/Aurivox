@@ -11,7 +11,7 @@ import { manifestForEngineSwitch } from './manifestAutoFill'
 //
 // 动作按钮只有一个，文字随状态变：
 //   没名片的引擎           ⇒ 「扫描参数」：从源码里扫出参数，进左栏。
-//   有名片、还没读进来      ⇒ 「读取参数」：把磁盘上那张名片读进表单。
+//   有名片、还没读进来      ⇒ 「读取参数」：把磁盘上这份名片读进表单。
 //   读进来之后             ⇒ 回到「扫描参数」：有了名片里的 call.module / runtime.python，
 //                            python 反射这时才扫得动（/wizard/discover 依赖它们）。
 // 路径在名片「就位」之后才出现：读取成功，或新引擎扫过一次。

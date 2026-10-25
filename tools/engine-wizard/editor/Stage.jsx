@@ -34,8 +34,22 @@ import { useT } from '../../../web/src/lib/i18n'
 const RAIL_W = '32px'
 /** 展开时抽屉占的宽度。 */
 const DRAWER_W = '360px'
-/** 右边条放大后的宽度：平台前端主容器的宽度，窄屏时让出中栏的最小宽度。 */
-const DRAWER_W_WIDE = 'min(1400px, calc(100vw - 32px - 480px))'
+/** 右边条放大后的宽度上限：平台前端主容器的宽度。 */
+const WIDE_MAX = '1400px'
+/**
+ * 右边条放大后，中栏至少要留的宽度。
+ * 中栏是填表的地方，压到这么窄表单就没法用了。
+ */
+const CENTER_MIN = '480px'
+/**
+ * 右边条放大后的宽度。
+ *
+ * 要给中栏留够宽度，而中栏剩多少取决于左栏此刻占多宽：
+ * 左栏收着是 32px 的边条，展开是 360px 的抽屉。
+ * 只按 32px 算 ⇒ 左抽屉开着时中栏会被压到 152px，表单没法用。
+ * 所以这个宽度由 CSS 按实际占位算（见 editor.css 的 --wz-drawer-w-wide）。
+ */
+const DRAWER_W_WIDE = `min(${WIDE_MAX}, calc(100vw - var(--wz-left-w, 32px) - ${CENTER_MIN}))`
 
 /**
  * 第 4 步的三根骨头。
@@ -55,7 +69,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
   React.useEffect(() => { if (!rightOpen) setWide(false) }, [rightOpen])
 
   return (
-    <div className="wz-stage">
+    <div className={`wz-stage${leftOpen ? ' wz-stage-left-open' : ''}`}>
       <Drawer
         side="left"
         open={leftOpen}

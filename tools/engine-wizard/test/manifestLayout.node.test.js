@@ -181,6 +181,29 @@ test('三栏铺满页面：第 4 步不在 .workspace-container 里', () => {
   assert.ok(/className="wz-manifest-shell"/.test(branch))
 })
 
+test('右边条放大时，中栏的宽度要按左栏的实际占位算', () => {
+  // 放大后的宽度式子里，减去的是左边条当前占的宽度。
+  // 写死 32px（边条收着的宽度）⇒ 左抽屉展开时中栏被压到 152px，
+  // 表单没法用 ⇒ 这个式子必须读左栏的实际占位。
+  const stage = fs.readFileSync(path.join(EDITOR, 'Stage.jsx'), 'utf8')
+  assert.ok(/wz-stage-left-open/.test(stage),
+    '左栏开合要写进类名，放大后的宽度才知道左边条占多宽')
+  const wide = ruleBody('.wz-drawer.is-open.is-wide')
+  assert.ok(wide, 'editor.css 里没有 .wz-drawer.is-open.is-wide')
+  assert.ok(/var\(--wz-left-w/.test(wide),
+    '放大后的宽度必须按 --wz-left-w（左边条实际占位）算，不能写死 32px')
+  assert.ok(!/100vw\s*-\s*32px\s*-\s*480px/.test(wide),
+    '放大后的宽度还写死着 32px，左抽屉开着时中栏会被压成一条缝')
+  // 变量得有两档：左栏收着是边条宽，展开是抽屉宽。
+  const rail = ruleBody('.wz-stage')
+  assert.ok(/--wz-left-w:\s*var\(--wz-rail-w/.test(rail),
+    '.wz-stage 上要定义 --wz-left-w 的收着那一档')
+  const open = ruleBody('.wz-stage-left-open')
+  assert.ok(open, 'editor.css 里没有 .wz-stage-left-open')
+  assert.ok(/--wz-left-w:\s*var\(--wz-drawer-w/.test(open),
+    '.wz-stage-left-open 上要把 --wz-left-w 换成抽屉那一档')
+})
+
 test('两根边条 sticky 跟着页面滚动', () => {
   const body = ruleBody('.wz-drawer')
   assert.ok(/position:\s*sticky/.test(body), '边条要 sticky')

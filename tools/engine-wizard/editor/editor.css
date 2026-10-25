@@ -125,6 +125,9 @@
   align-items: stretch;
   min-height: 0;
   flex: 1;
+  /* 左边条当前占多宽：收着时是边条宽，展开时由 .wz-stage-left-open 换成抽屉宽。
+     右边条放大后要按它算宽度，否则中栏会被压成一条缝。 */
+  --wz-left-w: var(--wz-rail-w, 32px);
 }
 
 /* 一根边条。收着时是一条窄边 + 一个箭头按钮，
@@ -153,10 +156,19 @@
   align-items: stretch;
   box-shadow: var(--shadow-soft);
 }
+/* 左边条当前占多宽，要算进右边条放大后的宽度里。
+   收着时是 32px 的边条，展开时是 360px 的抽屉。
+   右边条放大时读这个变量，中栏才不会被压成一条缝。
+   左栏开没开由 Stage.jsx 写在类名上（wz-stage-left-open），
+   不用 :has() 挑后代：那条选择器本项目没用过，也没有 browserslist
+   声明最低浏览器版本。 */
+.wz-stage-left-open {
+  --wz-left-w: var(--wz-drawer-w, 360px);
+}
 /* 右边条放大到平台前端宽度：预览按真实尺寸排版。
    宽度与 Stage.jsx 的 DRAWER_W_WIDE 同一个式子。 */
 .wz-drawer.is-open.is-wide {
-  width: var(--wz-drawer-w-wide, min(1400px, calc(100vw - 32px - 480px)));
+  width: var(--wz-drawer-w-wide, min(1400px, calc(100vw - var(--wz-left-w, 32px) - 480px)));
 }
 /* 收起 / 放大两个按钮并排在抽屉顶上。 */
 .wz-drawer-handles {
@@ -221,6 +233,10 @@
 @media (max-width: 960px) {
   .wz-drawer.is-open {
     width: var(--wz-drawer-w-narrow, 280px);
+  }
+  /* 窄屏下左栏抽屉是 280px，不是 360px ⇒ 右边条放大时要按 280 算。 */
+  .wz-stage-left-open {
+    --wz-left-w: var(--wz-drawer-w-narrow, 280px);
   }
 }
 
