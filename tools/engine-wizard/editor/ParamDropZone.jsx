@@ -1,8 +1,14 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { applyParamDrop } from './paramDrop'
+import { applyParamDrop, paramNameOf } from './paramDrop'
 
-// 中栏的落点：界面参数区（parameters[]）。
+// 中栏的落点：参数区（parameters[]）。
+//
+// 原来的「parameters（界面参数）」与「常用可选」合成这一个区：
+//   parameters[] 本来就涵盖这台引擎对外的全部参数，拖拽填参的核心就在这里。
+//   「常用可选」里真正属于「参数」的那部分（换值要不要重启 = phase、
+//   常用还是高级 = tier）成了每一行最上面的「去向」，拖进来就能定；
+//   不属于参数的（runtime 全量、call 其余字段、capabilities 开关）挪进「高级」。
 //
 // 左栏扫到的参数拖到这里，就变成名片的一条界面参数。
 // 名片里 parameters[] 的每一项都有 name / type 等字段；拖进来时按
@@ -22,6 +28,7 @@ import { applyParamDrop } from './paramDrop'
  */
 export default function ParamDropZone ({
   manifest, onChange, params, selectedParam, spec, ParamRow,
+  guessed, onParamDropped, onTypeConfirmed,
 }) {
   const { t } = useT()
   const [over, setOver] = React.useState(false)
@@ -59,21 +66,23 @@ export default function ParamDropZone ({
     let param
     try { param = JSON.parse(raw) } catch { return }
     onChange(applyParamDrop(manifest, param))
+    if (onParamDropped) onParamDropped(param, paramNameOf(param))
   }
 
   // 点击选中路径：左栏选中的参数，点这个落点直接加进去。
   const onClick = () => {
     if (!selectedParam) return
     onChange(applyParamDrop(manifest, selectedParam))
+    if (onParamDropped) onParamDropped(selectedParam, paramNameOf(selectedParam))
   }
 
   return (
     <div className="section">
-      <div className="section-hdr"><h2>{t('parameters', 'parameters（界面参数）')}</h2></div>
+      <div className="section-hdr"><h2>{t('Parameters', '参数')}</h2></div>
       <div className="section-body">
         <p className="field-hint" style={{ marginTop: 0 }}>
-          {t('Drag a scanned parameter here to make it a parameter of this engine.',
-            '把左栏扫到的参数拖到这里，它就成为这台引擎的一个界面参数。')}
+          {t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
+            '把左栏的参数拖到这里：参数名、类型、说明会自动填好，右边预览同步更新。标黄的是猜的，请确认。')}
         </p>
 
         {/* 落点区：高亮表示鼠标正在上方，落下即写进 parameters[] */}
@@ -102,6 +111,8 @@ export default function ParamDropZone ({
         {/* 已声明的参数：每一项可改字段，也可删 */}
         {list.map((p, i) => (
           <ParamRow key={i} entry={p || {}} index={i} spec={spec}
+            typeGuessed={!!(guessed && p && guessed.has(p.name))}
+            onTypeConfirmed={onTypeConfirmed}
             onChange={setParam} onDelete={delParam} />
         ))}
 
