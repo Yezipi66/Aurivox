@@ -4,7 +4,10 @@
   --panel: #242424;
   --border: #333;
   --text: #e0e0e0;
-  --muted: #888;
+  /* 次要文字。旧值 #888 落在 --panel 上只有 4.38:1，低于正文要求的 4.5:1，
+     而 .field-label / .field-hint 恰好是 10px 且常出现在 panel 底色上。
+     #9a9a9a 在 --panel 上 5.5:1、在 --surface 上 6.2:1，两处都过线。 */
+  --muted: #9a9a9a;
   --accent: #bb86fc;
   --accent-soft: rgba(187, 134, 252, 0.15);
   --accent2: #9c64e8;
@@ -77,6 +80,28 @@ a {
 }
 a:hover {
   text-decoration: underline;
+}
+
+/* 键盘焦点：全站一种，accent 一色的 2px 描边、外扩 2px。
+   原先只有 .control 有焦点态，页签 / 按钮 / 下拉 / chip 都交给浏览器默认
+   ring，深色底上粗细与颜色不一致，用 Tab 走位时看不出停在哪。
+   :where() 权重为零，组件自己的焦点写法仍然优先。 */
+:where(button, a, [role="button"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 只给读屏与文档大纲，不占版面。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ===== Field ===== */
@@ -353,12 +378,34 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 }
 
 /* ===== Nav ===== */
+/* 两组：.nav-tabs 靠左、.nav-status 靠右。两组各自可换行。
+   之前所有元素平铺在一条 nowrap 的 flex 里，装了两台引擎之后右侧状态
+   多起来，窗口一窄就把最后一枚徽章顶出屏幕。 */
 .nav {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 0.75rem;
+  padding: 0.6rem 1.25rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+}
+.nav-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.nav-status {
+  display: flex;
+  /* 整组可换行：窗口实在放不下时整组掉到第二行，而不是把最后一枚灯挤出屏幕。 */
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 0;
 }
 .nav-btn {
   background: transparent;
@@ -391,7 +438,9 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   align-self: center;
   width: auto;
   min-width: 132px;
-  max-width: 220px;
+  /* 名片里的名字可能很长（有的把能力说明也写在 label 里），这里给个上限，
+     超出的部分由下拉自带的省略号收掉。 */
+  max-width: 280px;
   height: auto;
   padding: 0.4rem 0.7rem;
   font-size: 12px;
@@ -410,7 +459,6 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  margin-right: 8px;
 }
 .lang-opt {
   background: transparent;
