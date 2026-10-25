@@ -177,7 +177,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
         </p>
 
         {/* 派生关系：抽象的代数链，Gen 0 是最初那版录音。 */}
-        <div className="asset-lineage" style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 10px' }}>
+        <div className="asset-lineage" style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', margin: '2px 0 10px' }}>
           <span className="badge" style={{ marginRight: 8 }}>Gen {lineage.generation}</span>
           {t('This derived Voice will become', '本次派生音色将成为第')}{' '}
           <strong style={{ color: 'var(--text)' }}>Gen {lineage.generation + 1}</strong>{' '}
@@ -285,7 +285,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           </label>
           {refineS1 && ckpts.gpt.length > 0 && (
             <div className="field-row" style={{ margin: '2px 0 6px 26px' }}>
-              <label style={{ fontSize: 12, color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S1', 'S1 起点')}</label>
+              <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S1', 'S1 起点')}</label>
               <select className="control" value={selS1} onChange={e => setSelS1(e.target.value)} style={{ flex: 1 }}>
                 {ckpts.gpt.map(c => (
                   <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}{c.default ? ' ★' : ''}</option>
@@ -302,7 +302,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           </label>
           {refineS2 && ckpts.sovits.length > 0 && (
             <div className="field-row" style={{ margin: '2px 0 6px 26px' }}>
-              <label style={{ fontSize: 12, color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S2', 'S2 起点')}</label>
+              <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S2', 'S2 起点')}</label>
               <select className="control" value={selS2} onChange={e => setSelS2(e.target.value)} style={{ flex: 1 }}>
                 {ckpts.sovits.map(c => (
                   <option key={c.path} value={c.path}>{c.name}{c.version ? ` [${c.version}]` : ''}{c.default ? ' ★' : ''}</option>
@@ -325,8 +325,8 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
 
           <div className="collapsible" style={{ marginTop: 10 }}>
             <div className="collapsible-hdr" onClick={() => setShowParams(v => !v)}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{t('Training Parameters', '训练参数')}</span>
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showParams ? '▲' : '▼'}</span>
+              <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{t('Training Parameters', '训练参数')}</span>
+              <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showParams ? '▲' : '▼'}</span>
             </div>
             {showParams && (
               <div className="collapsible-body" style={{ padding: 12 }}>
@@ -384,13 +384,13 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
       <ConfirmDialog
         open={gate === 'g2'}
         danger
-        icon={<span style={{ fontSize: 18 }}>⚠️</span>}
+        icon={<span style={{ fontSize: 'var(--fs-18)' }}>⚠️</span>}
         title={t('ASR is not enabled', '未启用 ASR')}
         confirmLabel={t('Continue anyway', '仍然继续')}
         onCancel={() => setGate(null)}
         onConfirm={() => { setGate(null); doStart(graceSec) }}
         message={
-          <div style={{ fontSize: 13, lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 'var(--fs-13)', lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
             <p style={{ marginTop: 0 }}>
               {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
                  '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
@@ -399,7 +399,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
               {t('Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
                  '在预处理前，系统会等待下面设定的秒数，以便将文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
-            <p style={{ color: 'var(--muted)', fontSize: 12 }}>
+            <p style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>
               {t('Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
                  '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
             </p>

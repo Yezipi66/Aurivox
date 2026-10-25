@@ -29,15 +29,15 @@ export function MigrateChoiceDialog({
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <IconFolder size={20} color="var(--accent)" />
-          <span style={{ fontWeight: 600, fontSize: 14 }}>Change Assets Directory</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>Change Assets Directory</span>
         </div>
-        <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
+        <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
           New directory:
         </p>
-        <div style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: 14 }}>
+        <div style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: 14 }}>
           {migrateTarget}
         </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 12 }}>
           The current assets directory contains <strong>{assetCount}</strong> voice{assetCount === 1 ? '' : 's'}.
           What should happen to that data? Changes take effect after a server restart.
         </p>
@@ -65,7 +65,7 @@ export function MigrateChoiceDialog({
             ✕ Cancel
           </button>
         </div>
-        {configBusy && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>Starting…</div>}
+        {configBusy && <div style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginTop: 12 }}>Starting…</div>}
       </div>
     </div>
   )
@@ -85,7 +85,7 @@ export function MigrateProgressDialog({ migrateJob, onClose }) {
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <IconFolder size={20} color="var(--accent)" />
-          <span style={{ fontWeight: 600, fontSize: 14 }}>
+          <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>
             {migrateJob.migration === 'move' ? 'Moving' : 'Copying'} assets
           </span>
         </div>
@@ -113,7 +113,7 @@ export function MigrateProgressDialog({ migrateJob, onClose }) {
         {migrateJob.done && migrateJob.error && (
           <div className="msg msg-error" style={{ marginTop: 12 }}>
             {migrateJob.error}
-            <div style={{ marginTop: 6, fontSize: 12 }}>
+            <div style={{ marginTop: 6, fontSize: 'var(--fs-12)' }}>
               Nothing was deleted from your current directory. Close anything using these files
               (loaded models, open Explorer/audio windows) and retry, or use Switch only and copy manually.
             </div>

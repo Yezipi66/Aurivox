@@ -775,7 +775,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                 title={tr('Delete finished task workspaces from the .staging cache (running tasks are never touched)', '从 .staging 缓存中删除已完成的任务工作区（运行中的任务永远不会被动到）')}>
                 {clearing ? tr('Cleaning…', '清理中…') : 'Clean Cache'}
               </button>
-              {clearMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{clearMsg}</span>}
+              {clearMsg && <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{clearMsg}</span>}
             </div>
           )}
 
@@ -838,7 +838,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
               <div className="confirm-hdr"><span>{tr('ASR engine / language mismatch', 'ASR 引擎与语言不匹配')}</span></div>
               <div className="confirm-body">
-                <p style={{ fontSize: 13, margin: 0, color: 'var(--warning, #e0b341)', fontWeight: 500 }}>
+                <p style={{ fontSize: 'var(--fs-13)', margin: 0, color: 'var(--warning, #e0b341)', fontWeight: 500 }}>
                   {tr(`FunASR only supports Chinese / Cantonese. The current language is ${langName}; continuing may produce errors.`,
                       `FunASR 仅支持中文/粤语，当前语言是${langName}，继续运行可能出错。`)}
                 </p>

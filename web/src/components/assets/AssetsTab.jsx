@@ -732,12 +732,12 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
             <div key={id} className="card asset-card" style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--fs-14)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {renamingId === id ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <input
                           className="control"
-                          style={{ fontSize: 13, padding: '3px 8px', width: 200 }}
+                          style={{ fontSize: 'var(--fs-13)', padding: '3px 8px', width: 200 }}
                           value={renameValue}
                           autoFocus
                           disabled={renameBusy}
@@ -777,7 +777,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                       </>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 2 }}>
                     Mode: {asset.mode || 'N/A'} &middot; ID: {id} &middot; Language: {String(asset.language || asset.text_lang || asset.lang || 'unknown').replace(/^all_/, '')}
                   </div>
                 </div>
@@ -965,7 +965,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                   {segData && segData.segments && segData.segments.length === 0 && <div className="msg msg-info">No segments found.</div>}
                   {segData && segData.segments && segData.segments.length > 0 && (
                     <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                      <table className="table" style={{ width: '100%', fontSize: 12 }}>
+                      <table className="table" style={{ width: '100%', fontSize: 'var(--fs-12)' }}>
                         <thead>
                           <tr>
                             <th style={{ textAlign: 'left', padding: '4px 6px' }}>Scene</th>
@@ -989,7 +989,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                           ))}
                         </tbody>
                       </table>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
                         Showing {segData.matched || segData.segments.length} of {segData.total} segments
                       </div>
                     </div>

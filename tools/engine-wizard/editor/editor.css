@@ -43,7 +43,7 @@
 .wz-root {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-8);
 }
 
 .wz-root input:-webkit-autofill,
@@ -109,7 +109,7 @@
   background: var(--panel);
   border-top: 1px solid var(--border);
   padding: 8px 0;
-  margin-top: 4px;
+  margin-top: var(--sp-4);
 }
 
 /* 三栏容器：栏宽左窄（参数名不长）、中栏最宽（表单最挤）、
@@ -166,12 +166,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-8);
   padding: 6px 10px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 500;
 }
 .wz-zone-title {
@@ -186,17 +186,17 @@
 
 /* ---- 左栏参数池 ---- */
 .wz-param-count {
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--muted);
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-6);
 }
 .wz-param-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-6);
   max-height: 60vh;
   overflow-y: auto;
-  padding-right: 2px;
+  padding-right: var(--sp-2);
 }
 /* 参数卡片：可拖的源。cursor:grab 表示能拖走。 */
 .wz-param-item {
@@ -207,7 +207,7 @@
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-4);
 }
 .wz-param-item:hover {
   border-color: var(--accent);
@@ -220,20 +220,20 @@
 .wz-param-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   flex-wrap: wrap;
 }
 .wz-param-name {
-  font-size: 12px;
+  font-size: var(--fs-12);
   word-break: break-all;
 }
 .wz-param-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
 }
 .wz-param-group {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -241,7 +241,7 @@
 }
 /* 上游原话说明：两行截断，完整内容在 title 里。 */
 .wz-param-help {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--muted);
   line-height: 1.4;
   display: -webkit-box;
@@ -255,8 +255,8 @@
 .wz-dropzone {
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
-  padding: 10px;
-  margin-bottom: 10px;
+  padding: var(--sp-10);
+  margin-bottom: var(--sp-10);
   text-align: center;
   cursor: default;
 }

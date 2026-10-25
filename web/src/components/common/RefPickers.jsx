@@ -102,7 +102,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
           value={vq}
           onChange={e => setVq(e.target.value)}
           placeholder={t('Search voices (name, id, language)…', '搜索音色（名称、ID、语言）…')}
-          style={{ marginBottom: 6, fontSize: 12 }}
+          style={{ marginBottom: 6, fontSize: 'var(--fs-12)' }}
         />
       )}
       <Select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 6 }}>
@@ -130,7 +130,7 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder={t('Search reference audio (name or transcript)…', '搜索参考音频（文件名或文本）…')}
-          style={{ margin: '6px 0', fontSize: 12 }}
+          style={{ margin: '6px 0', fontSize: 'var(--fs-12)' }}
         />
       )}
       {loading && <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>}
@@ -242,7 +242,7 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
             {t('Custom reference — no aligned transcript. Add one below (optional).',
                '自定义参考：没有对齐的文本。可在下方添加（可选）。')}
           </div>
-          <div style={{ fontSize: 12, wordBreak: 'break-all', margin: '4px 0' }}>{custom.name}</div>
+          <div style={{ fontSize: 'var(--fs-12)', wordBreak: 'break-all', margin: '4px 0' }}>{custom.name}</div>
           <AudioPlayer src={custom.url} onDuration={d => setDur(d)} />
           {typeof dur === 'number' && dur > 0 && !refInRange(dur) && (
             <div className="ref-range-warn">{'\u26a0'} {dur.toFixed(1)}s &mdash; {t(`the engine requires ${REF_MIN_SEC}–${REF_MAX_SEC}s.`, `引擎要求 ${REF_MIN_SEC}–${REF_MAX_SEC} 秒。`)}</div>
@@ -318,7 +318,7 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
           {multi && <input type="checkbox" checked={selected} disabled={!!main} readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11, marginRight: 4 }} />}
           <span className="ref-item-name">
             {name}
-            {main && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 4 }}>(main)</span>}
+            {main && <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-11)', marginLeft: 4 }}>(main)</span>}
             {oor && <span title={`Outside the ${REF_MIN_SEC}\u2013${REF_MAX_SEC}s range`} style={{ color: 'var(--warning)', marginLeft: 4 }}>{'\u26a0'}</span>}
           </span>
           {known && <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s</span>}
@@ -345,7 +345,7 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder={t('Search reference audio (name or transcript)…', '搜索参考音频（文件名或文本）…')}
-          style={{ margin: '6px 0', fontSize: 12 }}
+          style={{ margin: '6px 0', fontSize: 'var(--fs-12)' }}
         />
       )}
       {loading && <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>}
@@ -423,11 +423,11 @@ function AuxReferencePicker({ voiceId, voices, value = [], onAdd, onRemove, main
           {value.map((p, i) => (
             <div key={i} className="ref-item" style={{ marginBottom: 4 }}>
               <div className="ref-item-row">
-                <span style={{ color: 'var(--muted)', minWidth: 14, fontSize: 11 }}>{i + 1}.</span>
+                <span style={{ color: 'var(--muted)', minWidth: 14, fontSize: 'var(--fs-11)' }}>{i + 1}.</span>
                 <span className="ref-item-name" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{basename(p)}</span>
                 <button
                   onClick={() => onRemove && onRemove(i)}
-                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 'var(--fs-14)', padding: '0 2px', lineHeight: 1 }}
                   title={t('Remove', '移除')}>{'\u00d7'}</button>
               </div>
               <AudioPlayer src={refPlaybackUrl(p)} />

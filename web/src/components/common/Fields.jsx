@@ -212,7 +212,7 @@ client.audio.speech.create(
 function NumField({ label, value, onChange, min, max, step = 1 }) {
   return (
     <div>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+      <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{label}</label>
       <input className="control" type="number" value={value} min={min} max={max} step={step}
              onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))} />
     </div>
@@ -222,7 +222,7 @@ function NumField({ label, value, onChange, min, max, step = 1 }) {
 function TextField({ label, value, onChange }) {
   return (
     <div>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+      <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{label}</label>
       <input className="control" value={value} onChange={e => onChange(e.target.value)} />
     </div>
   );
@@ -234,7 +234,7 @@ function TextField({ label, value, onChange }) {
 function SelectField({ label, value, onChange, options = [] }) {
   return (
     <div>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</label>
+      <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{label}</label>
       <Select className="control" value={value} onChange={e => onChange(e.target.value)}>
         {options.map(([v, l]) => <option key={v} value={v}>{l ?? v}</option>)}
       </Select>

@@ -29,7 +29,7 @@ export function TrainingStatusPanel({
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>
+        <span style={{ fontSize: 'var(--fs-14)', fontWeight: 600 }}>
           {status.status === 'completed' ? tr('Completed', '已完成')
            : status.status === 'failed' ? tr('Failed', '失败')
            : status.status === 'cancelled' ? tr('Cancelled', '已取消')

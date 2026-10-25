@@ -710,7 +710,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           )}
           {tail.length > 0 && (
             <div className="rc-cmd-body" style={{ marginTop: 4, maxHeight: 160, overflowY: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              <pre style={{ margin: 0, fontSize: 'var(--fs-12)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                 {tail.join('\n')}
               </pre>
             </div>

@@ -65,18 +65,18 @@ export function sheetSize(nodes, catalogue) {
 }
 
 export const buttonStyle = {
-  padding: '5px 11px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+  padding: '5px 11px', fontSize: 'var(--fs-12)', borderRadius: 6, cursor: 'pointer',
   border: `1px solid ${BORDER}`, background: PANEL, color: 'inherit',
 }
 
 export const iconButtonStyle = {
   width: 26, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 13, borderRadius: 6, cursor: 'pointer',
+  fontSize: 'var(--fs-13)', borderRadius: 6, cursor: 'pointer',
   border: `1px solid ${BORDER}`, background: PANEL, color: 'inherit',
 }
 
 export const fieldStyle = {
-  width: '100%', padding: '6px 8px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box',
+  width: '100%', padding: '6px 8px', borderRadius: 6, fontSize: 'var(--fs-12)', boxSizing: 'border-box',
   border: `1px solid ${BORDER}`, background: 'rgba(17,20,26,0.9)', color: 'inherit',
 }
 
@@ -212,4 +212,4 @@ export function formatValue(value) {
 }
 
 export const cellStyle = { border: `1px solid ${BORDER}`, padding: '3px 7px', textAlign: 'left' }
-export const preStyle = { margin: 0, fontSize: 11, maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }
+export const preStyle = { margin: 0, fontSize: 'var(--fs-11)', maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }

@@ -483,7 +483,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                     </td>
                     <td>
                       {f.sha256
-                        ? <code style={{ fontSize: 11 }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
+                        ? <code style={{ fontSize: 'var(--fs-11)' }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
                         : t('(unknown)', '（未知）')}
                     </td>
                     <td>
@@ -533,7 +533,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       {visibleCmds.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 13 }}>
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
               {t('Download commands', '下载命令')}
             </h2>
           </div>
@@ -664,7 +664,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       {upstreamScripts.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 13 }}>
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
               {t('Scripts the project ships', '上游附带脚本')}
             </h2>
           </div>
