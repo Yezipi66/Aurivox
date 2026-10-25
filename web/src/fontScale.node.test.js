@@ -24,10 +24,9 @@ function walk (d, acc = []) {
   return acc
 }
 
-const FILES = [
-  ...walk(path.join(webSrc)),
-  ...walk(path.join(repo, 'tools/engine-wizard/editor')),
-]
+// 只扫 web/src。向导（tools/engine-wizard）的字号归它自己那份守卫管
+// （tools/engine-wizard/test/fontScale.node.test.js），两份守卫各管各的地盘。
+const FILES = [...walk(path.join(webSrc))]
 
 test('字号下限 11px：CSS 与内联都不许再低于它', () => {
   const bad = []

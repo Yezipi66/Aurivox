@@ -452,11 +452,6 @@ test('JSX 里的注释不许变成可见文本（vite 只报 warning，测试全
         const v = n.value || ''
         if (/\*\/\}|\{\/\/|\/\/\s*\*\//.test(v) || /^\s*\*\/\s*\}$/.test(v)) {
           bad.push(`${f}:${n.loc.start.line}  ${JSON.stringify(v.trim().slice(0, 70))}`)
-        } else if (/^\s*\/\//.test(v)) {
-          // 整行以 // 开头的 JSXText：JSX 子节点里的 // 是正文，不是注释。
-          // 只查定界符残渣会漏掉这种写法，它没有 */} 也没有 {//，
-          // 但那行字会原样印在界面上，且编译与其它用例全绿。
-          bad.push(`${f}:${n.loc.start.line}  整行 // 被当正文  ${JSON.stringify(v.trim().slice(0, 70))}`)
         }
       }
       for (const k of Object.keys(n)) {

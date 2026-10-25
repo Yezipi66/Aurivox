@@ -30,17 +30,19 @@ export default function Pipeline ({ done, selected, onSelect }) {
           <button key={st.key} type="button"
             className={`pipe-step${selected === st.key ? ' selected' : ''}${locked ? ' disabled-step' : ''}`}
             aria-pressed={selected === st.key}
-            // 已经展开在下面那一步不该同时标成「锁着」：两者是矛盾的。
-            aria-disabled={locked && selected !== st.key ? 'true' : undefined}
-            // 锁的原因放悬停里。原先四枚锁着的步骤各挂一句一模一样的话，
-            // 流程条被四行重复文案撑高，读起来也像是四个不同的毛病。
-            title={locked ? t('Locked until the repository is cloned.', '克隆完成后解锁。') : undefined}
+            aria-disabled={locked ? 'true' : undefined}
             onClick={() => onSelect(selected === st.key ? null : st.key, locked)}>
             {i > 0 && <span className={`pipe-seg${prevDone ? ' done' : ''}`} />}
             <span className={`pipe-dot ${status}`}>{glyph}</span>
             <span className={`pipe-label${status === 'running' ? ' running' : ''}`}>
               {lang === 'zh' ? st.label[1] : st.label[0]}
             </span>
+            {locked && (
+              <span className="field-hint">
+                {t('Locked until the repository is cloned.',
+                  '克隆完成后解锁。')}
+              </span>
+            )}
           </button>
         )
       })}

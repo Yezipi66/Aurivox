@@ -190,7 +190,7 @@ function LinesField ({ value, onChange, t }) {
       <tbody>
         {lines.map((l, i) => (
           <tr key={i}>
-            <td style={{ width: 48, color: 'var(--muted)', fontSize: 'var(--fs-11)' }}>{i + 1}</td>
+            <td style={{ width: 48, color: 'var(--muted)', fontSize: 11 }}>{i + 1}</td>
             <td>
               <input className="control" type="text" value={String(l)}
                 onChange={(e) => {
