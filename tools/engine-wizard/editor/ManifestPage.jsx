@@ -147,15 +147,20 @@ export default function ManifestPage ({
             {manifest
               ? <PanelPreview manifest={manifest} />
               : (
-                <div className="empty-state">
-                  <div className="es-title">
-                    {t('Nothing to preview yet', '还没有可预览的内容')}
-                  </div>
-                  <div className="es-sub">
-                    {t('Fill in the form on the left to see the preview.',
-                      '在左侧填表，右侧会实时显示界面。')}
-                  </div>
-                </div>
+                /* 还没有名片时不留白：渲染一份空名片的预览。
+                     平台固定的三个格子（音色 / 语言 / 文本）与空名片下都照常出现，
+                     Advanced Settings 显示「这一档还没有参数」⇒ 用户从第一秒就看得见
+                     「哪些来自平台、哪些来自我正在填的表」，而不是一句提示配三分之二空白。 */
+                <>
+                  <p className="field-hint" style={{ margin: '0 0 8px' }}>
+                    {t('Nothing to preview yet — this is the page with an empty manifest. '
+                      + 'The three fields above are fixed by the platform; the parameters under '
+                      + 'Advanced Settings come from the form on the left, one per field as you fill it in.',
+                      '还没有可预览的名片，下面是空名片的样子：上方三个格子由平台固定，'
+                      + 'Advanced Settings 里的参数来自左侧表单，每填一格这里就多一格。')}
+                  </p>
+                  <PanelPreview manifest={{}} />
+                </>
                 )}
             {/* props 名必须是 result：组件签名是 ({ result, loading })，
                  传成 diag= 的话诊断面板永远不显示 */}
