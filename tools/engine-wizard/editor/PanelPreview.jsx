@@ -14,10 +14,10 @@ import {
 // t 必须显式传给 ParamField：它自己不调 useT，t 是 props。
 // 漏传不报编译错，只在渲染到那一格时抛 "t is not a function"，整页白屏。
 
-export default function PanelPreview ({ manifest }) {
+export default function PanelPreview ({ manifest, children }) {
   return (
     <ErrorBoundary label="preview">
-      <PreviewInner manifest={manifest} />
+      <PreviewInner manifest={manifest}>{children}</PreviewInner>
     </ErrorBoundary>
   )
 }
@@ -60,7 +60,7 @@ function t2 (en, zh) {
   } catch { return en }
 }
 
-function PreviewInner ({ manifest }) {
+function PreviewInner ({ manifest, children }) {
   const { t, lang } = useT()
   const engine = useMemo(() => {
     // 只喂给 ParamField 需要的形状，不改名片本身。
@@ -89,6 +89,11 @@ function PreviewInner ({ manifest }) {
       .filter((f) => isFieldVisible(f, values))
 
   const [tier, setTier] = React.useState('common')
+  // Advanced 默认折叠：用 state 而不是 <details>。
+  // 项目的 .collapsible 是给 div 用的（web/src/styles.css:534-556），
+  // 折叠靠 onClick 切 state（参考 RefineModal.jsx:326-330）。
+  // <details> 自带浏览器箭头，会和标题里的 ▼ 叠在一起。
+  const [showAdvanced, setShowAdvanced] = React.useState(false)
 
   const cols = visible(tier)
   const other = visible(tier === 'common' ? 'advanced' : 'common').length
@@ -97,27 +102,29 @@ function PreviewInner ({ manifest }) {
     /* 这里不写死 maxWidth:760 + margin:'0 auto'：
        宽度由外层 .workspace-right 决定。 */
     <div>
-      <p className="msg msg-info" style={{ marginBottom: 8 }}>
-        <b>{t('This is a preview', '这是预览')}</b>：
-        {t('it renders with the platform’s own components',
-          '它用的是平台自己的组件')}
-        （{t('not a re-implementation', '不是另画一遍')}）。
-      </p>
-
-      {/* 主区域：照真界面渲染 */}
-      <MainArea manifest={manifest} />
-
-      {/* `Advanced Settings` 保持英文、不翻译：
-           主界面 GenerateTab.jsx 里就是硬编码的英文（没走 t()）。
-           这里若单独翻成中文，预览就跟真界面长得不一样。 */}
-      <div className="collapsible" style={{ marginTop: 8 }}>
-        <div className="collapsible-hdr">
-          <span>Advanced Settings</span>
-          <span className="field-hint" style={{ marginTop: 0 }}>
-            ▼ {t('(collapsed by default)', '（默认折叠）')}
-          </span>
+      {/* 外壳用项目的 .section（.section-hdr + .section-body）。
+         预览栏也是一节内容，不自造栏头：主界面里每一块都是这么长的。 */}
+      <div className="section">
+        <div className="section-hdr">
+          <h2>{t('Preview', '预览')}</h2>
+          {children}
         </div>
-        <div className="collapsible-body">
+        <div className="section-body">
+          {/* 主区域：照真界面渲染 */}
+          <MainArea manifest={manifest} />
+
+          {/* `Advanced Settings` 保持英文、不翻译：
+               主界面 GenerateTab.jsx 里就是硬编码的英文（没走 t()）。
+               这里若单独翻成中文，预览就跟真界面长得不一样。 */}
+          <div className="collapsible" style={{ marginTop: 8 }}>
+            <div className="collapsible-hdr" onClick={() => setShowAdvanced((v) => !v)}>
+              <span>Advanced Settings</span>
+              <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                {showAdvanced ? '▲' : '▼'}
+              </span>
+            </div>
+            {showAdvanced && (
+            <div className="collapsible-body">
           {/* 档位切换用项目的 .chip / .chip-on（就是给「几档里选一档」用的）*/}
           <div className="filter-chips" style={{ marginBottom: 12 }}>
             {TIERS.map((x) => {
@@ -151,6 +158,9 @@ function PreviewInner ({ manifest }) {
                 `另一档还有 ${other} 个，切换标签即可查看`)}
             </p>
           )}
+            </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
