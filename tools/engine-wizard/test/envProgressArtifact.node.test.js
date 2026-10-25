@@ -24,6 +24,21 @@ const CORE_DIR = path.join(__dirname, '..', 'core')
 const progress = require(path.join(CORE_DIR, 'envProgress.js'))
 
 /**
+ * 引擎 venv 里 site-packages 的相对路径。
+ *
+ * 被测代码（tools/engine-wizard/core/envProgress.js 的 sitePackagesDir）
+ * 按运行平台找目录：Windows 是 `Lib/site-packages`，
+ * posix 是 `lib/python3.<次版本>/site-packages`。
+ * 夹具之前写死 Windows 那种形状，于是同一份夹具跑到 posix 上就找不到
+ * site-packages，读版本读成 null，断言拿不到值就红。
+ * 夹具得跟被测代码按同一口径找目录，两个平台上才都能验同一条判据。
+ */
+function sitePackagesRelPath () {
+  if (process.platform === 'win32') return path.join('Lib', 'site-packages')
+  return path.join('lib', 'python3.11', 'site-packages')
+}
+
+/**
  * 造一个假的引擎 venv：site-packages 下放几个 `<包>-<版本>.dist-info` 目录。
  * @param {string[]} distInfoNames 要造的 dist-info 目录名
  * @returns {string} 引擎 venv 目录
@@ -31,7 +46,7 @@ const progress = require(path.join(CORE_DIR, 'envProgress.js'))
 function makeVenv (distInfoNames) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-progress-'))
   const venvDir = path.join(root, 'engines', 'myeng', '.venv')
-  const sp = path.join(venvDir, 'Lib', 'site-packages')
+  const sp = path.join(venvDir, sitePackagesRelPath())
   fs.mkdirSync(sp, { recursive: true })
   for (const n of distInfoNames) fs.mkdirSync(path.join(sp, n), { recursive: true })
   return root
@@ -155,7 +170,7 @@ test('清单形式的装包步（-r requirements.txt）⇒ 不做版本核对，
 test('site-packages 空 ⇒ 判产物不在', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-progress-'))
   const venvDir = path.join(root, 'engines', 'myeng', '.venv')
-  fs.mkdirSync(path.join(venvDir, 'Lib', 'site-packages'), { recursive: true })
+  fs.mkdirSync(path.join(venvDir, sitePackagesRelPath()), { recursive: true })
   const step = { argv: TORCH_260_XPU }
   assert.strictEqual(progress.stepArtifactExists(step, root, 'myeng'), false)
   fs.rmSync(root, { recursive: true, force: true })
