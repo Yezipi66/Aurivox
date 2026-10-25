@@ -795,7 +795,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                           ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless you opt into retraining.'
                           : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
                     >
-                      {h.key === 'nomodel' ? 'Rebuild…' : h.key === 'ready' ? 'Rebuild slices…' : 'Restore…'}
+                      {h.key === 'nomodel' ? 'Rebuild' : h.key === 'ready' ? 'Rebuild slices' : 'Restore'}
                     </button>
                   ) : h.key === 'noseg' ? (
                     <button

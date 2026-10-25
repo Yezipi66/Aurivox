@@ -365,32 +365,15 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   align-items: center;
   gap: 12px;
 }
-/* 一行里的动作分三层：次要动作合成一个分段控件、危险动作单独一枚图标、
-   主要动作一枚实心。之前每一枚都自带边框，四枚次要动作读起来像四个并列的按钮，
-   而「Set as Voice」旁边还可能再站一枚同为实心的修复按钮。 */
+/* 次要动作各自独立，不合并成分段控件：分段控件意味着「一组同类选项」，
+   而 Scan / Refine / 在 Explorer 打开 是三条互不相干的命令，
+   塞进同一个框只是为了看起来整齐，语义是错的。
+   层次靠颜色与形状拉开，不靠把它们粘在一起。 */
 .aa-group {
   display: flex;
+  gap: 4px;
   align-items: center;
-  gap: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
 }
-.aa-group > .btn {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-}
-/* 用内阴影画分隔，不用 border-left：后者会让每一格多出 1px 宽度。 */
-.aa-group > .btn + .btn { box-shadow: inset 1px 0 0 var(--border); }
-.aa-group > .btn:hover { background: var(--panel); color: var(--text); }
-/* 这一行需要修的时候，修复那一格是黄的，其余仍然是次要动作的灰。 */
-.aa-group > .btn.btn-warn {
-  background: rgba(255, 183, 77, 0.14);
-  color: var(--warning);
-}
-.aa-group > .btn.btn-warn:hover { background: rgba(255, 183, 77, 0.22); }
 /* 删除是图标动作，不该再占一个「按钮」的形状：边框留 1px 透明保住占位，
    悬停时才泛红。这样一行里只剩一个方框（次要动作组）和一个实心（主要动作）。 */
 .aa-danger {
