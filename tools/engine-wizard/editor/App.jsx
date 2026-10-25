@@ -144,6 +144,30 @@ export default function App () {
   }, [wz.id])
   React.useEffect(reloadFacts, [reloadFacts])
 
+  // 第 4 步的名片可以编辑的引擎，不一定是第 1 步克隆的那一台：
+  //   左栏的统一入口能选 engines/ 下的任意一台。
+  // 名片里的 runtime.checkpoints 要跟着「正在编辑的那台」走，
+  //   否则换成另一台时，权重路径还指着上一台。
+  // 判据：manifest.id 定了就用它，没定才回落到 wz.id。
+  const [manifestEngineId, setManifestEngineId] = React.useState(null)
+  React.useEffect(() => {
+    const id = (manifest && manifest.id) || wz.id || null
+    setManifestEngineId(id)
+  }, [manifest && manifest.id, wz.id])
+
+  React.useEffect(() => {
+    if (!manifestEngineId) { setCheckpointsPath(null); return }
+    let alive = true
+    fetch(`/wizard/install-state?id=${encodeURIComponent(manifestEngineId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return
+        setCheckpointsPath((j && j.checkpoints_path) || null)
+      })
+      .catch(() => { if (alive) setCheckpointsPath(null) })
+    return () => { alive = false }
+  }, [manifestEngineId])
+
   const done = Object.fromEntries(
     STEPS.map((st) => [st.key, stepDone(st.key, facts)]))
 

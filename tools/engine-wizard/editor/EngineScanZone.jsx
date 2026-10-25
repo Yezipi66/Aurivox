@@ -2,6 +2,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
 import ParamPool from './ParamPool'
+import { manifestForEngineSwitch } from './manifestAutoFill'
 
 // 左栏容器：统一入口 + 扫描 + 扫到的参数。
 //
@@ -66,6 +67,13 @@ export default function EngineScanZone ({
 
   // 选中一台引擎：有名片的先把磁盘原文灌进表单，没名片的直接进扫描态。
   // 两件事都是「打开这台引擎的名片」，区别只在平台已知的那一个判据。
+  //
+  // 换引擎时上一台的内容要清干净：
+  //   磁盘上有名片的 ⇒ 整张换成磁盘上有的（上一台的残留自然没了）。
+  //   磁盘上没名片的 ⇒ 用 manifestForEngineSwitch 清掉上一台的段。
+  //     不能只改 id：只改 id 会把上一台的 runtime（python 路径、checkpoints、
+  //     verify 里的类名）与 call（kind/module/class/method）整段带过去，
+  //     存下去就是一张「id 写着新引擎、里面跑上一台」的名片。
   const openEngine = async (id) => {
     if (!id) return
     setEngineId(id)
@@ -74,8 +82,10 @@ export default function EngineScanZone ({
     try {
       const target = dirs.find((d) => d.id === id)
       if (!target || target.manifestPresent !== true) {
-        // 没名片：把 id 定下来，其余交给扫描。
-        onChange({ ...manifest, id, label: manifest.label || id })
+        // 没名片：清掉上一台的段，只留 id 与 label，其余交给扫描。
+        // label 用新 id：上一台的 label 描述的是上一台，
+        //   留着就是一张「id 是新引擎、label 写着上一台」的名片。
+        onChange(manifestForEngineSwitch(manifest, id, id))
         return
       }
       const r = await loadOne(id)

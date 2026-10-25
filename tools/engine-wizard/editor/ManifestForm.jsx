@@ -131,8 +131,10 @@ export default function ManifestForm ({
   //   路径对上，而两个路径长得极像（engines/<id>/checkpoints 与 models/tts/<id>），
   //   填错时当场没有报错，症状是「第 3 步说下好了、第 5 步说目录不存在」。
   //
-  // 只在两个条件下填：引擎 id 已经定了（否则算不出路径），且这一格还是空的
-  //   （使用者填过就不动他填的）。落盘路径由后端送来，前端不自己拼。
+  // 只在两个条件下填：引擎 id 已经定了（否则算不出路径），且这一格要么空着，
+  //   要么指着一台别的引擎（换引擎时留下的上一台残留）。
+  //   使用者填过、指的又是当前这台，就不动他填的。
+  //   落盘路径由后端送来，前端不自己拼。
   // 判定与填值在 manifestAutoFill.js 里，是纯函数，可以单独测。
   React.useEffect(() => {
     if (!shouldAutoFillCheckpoints(manifest, checkpointsPath)) return
