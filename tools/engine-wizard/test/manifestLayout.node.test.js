@@ -97,3 +97,23 @@ test('窄屏降级成单列（960px，与项目口径一致）', () => {
   assert.ok(/grid-template-columns:\s*1fr/.test(media[1]),
     '960px 以下没有降级成单列')
 })
+
+test('三栏那一层不画自己的栏头（栏头由内容的 .section 带）', () => {
+  // 主界面里每一块内容都是 .section（.section-hdr + .section-body），
+  // 而 .workspace-left / .workspace-right 本身没有边框也没有背景，
+  // 只是定位用的列（web/src/styles.css:431-469、:578-587）。
+  //
+  // 三栏这一层若自己造栏头（wz-zone-hdr 之类），
+  // 页面就变成三块互不相干的板子，而不是主界面那种「内容自然铺开」。
+  const zone = fs.readFileSync(path.join(EDITOR, 'ThreeZone.jsx'), 'utf8')
+  assert.ok(!/wz-zone-hdr|wz-zone-title|wz-zone-body/.test(zone),
+    '三栏那一层又造了自己的栏头：栏头该由内容的 .section-hdr 带')
+  assert.ok(!/\.wz-zone/.test(css),
+    'editor.css 里还有 .wz-zone 系列的样式：那套自制栏头已经退役了')
+})
+
+test('三栏那一层用项目现成的列容器，不自己画边框', () => {
+  const zone = fs.readFileSync(path.join(EDITOR, 'ThreeZone.jsx'), 'utf8')
+  assert.ok(zone.includes('workspace-left'), '左栏与中栏该用项目的 .workspace-left')
+  assert.ok(zone.includes('workspace-right'), '右栏该用项目的 .workspace-right')
+})
