@@ -14,30 +14,16 @@ import { useT, LangToggle } from '../../../web/src/lib/i18n'
 //   会话段（sessionStorage）= 探测结果；完成状态由 GET /wizard/install-state 判定。
 import { loadPersist, savePersist, loadPage, savePage,
   loadSession, saveSession, purgeOrphanKeys } from './useInstallSession'
+import { factsQueryId } from './factsQueryId'
 
 // 向导骨架照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()：
 //   只渲染 page 指向的那一步；流程条是唯一导航。
 //  「展开」指该步骤内部不再套盒子，不是五步同时渲染。
 //   所有类都借自 web/src/styles.css，不在这里定义任何容器。
 
-/**
- * 问完成状态时该用哪个引擎 id。
- *
- * 克隆刚完成时 `wz.id` 的 setState 还没生效，此刻读闭包里的 `wz.id`
- * 拿到的是**上一个渲染的旧值**（刚进向导时是空）⇒ 请求会带空 id，
- * 后端返回空结果 ⇒ 流程条一个勾都不亮。
- *
- * 所以调用方把「刚克隆用的那个 id」显式传进来，优先用它。
- *
- * @param {string} idArg 调用方传的 id（刚克隆完时传它）
- * @param {string} stateId 当前 state 里的 id
- * @returns {string|null} 要用的 id；两个都没有则 null
- */
-function factsQueryId (idArg, stateId) {
-  return idArg || stateId || null
-}
-
-export { factsQueryId }
+// factsQueryId（问完成状态时该用哪个引擎 id）在 editor/factsQueryId.js：
+// 这个文件是组件模块，而 vite 的 react 插件要求组件模块只导出组件，
+// 导出普通函数会坏掉 Fast Refresh（改这个文件变成整页 reload）。
 
 export default function App () {
   const { t, lang } = useT()

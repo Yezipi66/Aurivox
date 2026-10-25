@@ -125,11 +125,22 @@ test('pyvenv.cfg 里没有 executable 那一行 ⇒ 不通过', () => {
   assert.strictEqual(r.reason, 'no-base-in-pyvenv-cfg')
 })
 
-test('base 路径大小写不同也算同一个（Windows 不区分大小写）', () => {
+test('base 路径大小写不同：Windows 上算同一个，posix 上算不同', () => {
+  // Windows 的文件系统不区分大小写，`C:\Python\python.exe` 与
+  // `c:\python\python.exe` 是同一个文件 ⇒ 不能误判成「base 不是它」。
+  // posix 的文件系统区分大小写 ⇒ 那两条路径是两个不同的东西
+  // （而且大写那个通常压根不存在）⇒ 判否才是对的。
+  // 把 Windows 的归一规则套到 posix 上，会把「不是同一个文件」判成「是」
+  // ⇒ 坏掉的 venv 被当成好的。
   const py = positivePython()
   const dir = makeCfg(tmpDir('case'), py.toUpperCase())
   const r = venvBaseMatches(dir, py)
-  assert.strictEqual(r.ok, true, 'Windows 上路径不区分大小写，不该误判')
+  if (process.platform === 'win32') {
+    assert.strictEqual(r.ok, true, 'Windows 上路径不区分大小写，不该误判')
+  } else {
+    assert.strictEqual(r.ok, false, 'posix 上路径区分大小写，大写那个是另一个东西')
+    assert.strictEqual(r.reason, 'base-differs')
+  }
 })
 
 test('解释器缺失 ⇒ 不通过', () => {
@@ -225,4 +236,18 @@ test('路径不存在时按绝对路径比 ⇒ 不同的路径仍判否', () => 
   const d = tmpDir('gone')
   const missing = path.join(d, 'no-such-python')
   assert.strictEqual(sameInterpreterPath(missing, path.join(d, 'other')), false)
+})
+
+test('大小写不同的路径：只有 Windows 上算同一个', () => {
+  // 这条直接验路径比较这一层，不经过 pyvenv.cfg。
+  // posix 的文件系统区分大小写，大写那个路径不存在 ⇒ 判否。
+  // Windows 的文件系统不区分大小写 ⇒ 那个大写路径就是同一个文件 ⇒ 判是。
+  const py = positivePython()
+  const upper = py.toUpperCase()
+  const same = sameInterpreterPath(upper, py)
+  if (process.platform === 'win32') {
+    assert.strictEqual(same, true, 'Windows 上大小写不同的两条路径是同一个文件')
+  } else {
+    assert.strictEqual(same, false, 'posix 上大小写不同的两条路径不是同一个文件')
+  }
 })

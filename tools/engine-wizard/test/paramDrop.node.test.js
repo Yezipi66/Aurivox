@@ -11,18 +11,23 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const SOURCE = path.join(EDITOR_DIR, 'ParamDropZone.jsx')
+const SOURCE = path.join(EDITOR_DIR, 'paramDrop.js')
 const TYPE_SOURCE = path.join(EDITOR_DIR, 'paramType.js')
 
 /**
- * 加载 ParamDropZone.jsx 里的 applyParamDrop 与 paramNameOf。
+ * 加载 editor/paramDrop.js 里的 applyParamDrop 与 paramNameOf。
  * 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出。
  * paramType 是真的那一份（不是替身）：类型映射错在这里，落点的类型就错。
+ *
+ * 这两个函数原先在 ParamDropZone.jsx 里。那个文件是组件模块，
+ * 而 vite 的 react 插件要求组件模块只导出组件：
+ * 导出别的函数 ⇒ Fast Refresh 失效，改那个文件会整页 reload。
+ * 纯函数搬到了自己的文件，这个测试也跟着改指新位置。
  */
 function loadDrop () {
   const esbuild = require('../../../lib/testDeps.js').esbuild()
   if (!esbuild) {
-    throw new Error('拿不到 esbuild，拖拽落点的 JSX 编译测试无法运行')
+    throw new Error('拿不到 esbuild，拖拽落点的编译测试无法运行')
   }
   const typeSrc = fs.readFileSync(TYPE_SOURCE, 'utf8')
   const typeCode = esbuild.transformSync(typeSrc, {
@@ -36,14 +41,12 @@ function loadDrop () {
 
   const src = fs.readFileSync(SOURCE, 'utf8')
   const code = esbuild.transformSync(src, {
-    loader: 'jsx',
+    loader: 'js',
     format: 'cjs',
     target: 'node18',
   }).code
   const mod = { exports: {} }
   const stub = (id) => {
-    if (id === 'react') return {}
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en }) }
     if (/paramType/.test(id)) return typeMod.exports
     throw new Error('拖拽落点的依赖不该被求值：' + id)
   }

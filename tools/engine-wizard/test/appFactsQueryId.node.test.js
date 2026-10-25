@@ -6,8 +6,12 @@
 // 拿到的是上一个渲染的旧值（刚进向导时是空）⇒ 请求带空 id ⇒ 流程条一个勾都不亮。
 // 所以 onDone 把刚克隆的 id 传出来，reloadFacts 优先用它。
 //
-// 被测代码是 tools/engine-wizard/editor/App.jsx 里的那份实现，
-// 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出。
+// 被测代码是 tools/engine-wizard/editor/factsQueryId.js 里的那份实现。
+//
+// 它原先放在 App.jsx 里并从那儿导出。App.jsx 是组件模块，
+// 而 vite 的 react 插件要求组件模块只导出组件：
+// 导出别的函数 ⇒ Fast Refresh 失效，改 App.jsx 会整页 reload。
+// 所以纯函数搬到了自己的文件，这个测试也跟着改指新位置。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -15,33 +19,20 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const PANEL = path.join(EDITOR_DIR, 'App.jsx')
+const SOURCE = path.join(EDITOR_DIR, 'factsQueryId.js')
 
 function loadFactsQueryId () {
-  const { esbuild, resolveFromRoot } = require('../../../lib/testDeps.js')
-  const src = fs.readFileSync(PANEL, 'utf8')
+  const { esbuild } = require('../../../lib/testDeps.js')
+  const src = fs.readFileSync(SOURCE, 'utf8')
   const code = esbuild().transformSync(src, {
-    loader: 'jsx',
+    loader: 'js',
     format: 'cjs',
     target: 'node18',
   }).code
   const mod = { exports: {} }
-  const reactPath = resolveFromRoot('react')
-  const jsxRuntimePath = resolveFromRoot('react/jsx-runtime')
-  if (!reactPath || !jsxRuntimePath) {
-    throw new Error('拿不到 react / react/jsx-runtime：根与 web/ 的 node_modules 里都没有它')
-  }
-  const stub = (id) => {
-    if (id === 'react') return require(reactPath)
-    if (id === 'react/jsx-runtime') return require(jsxRuntimePath)
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en, lang: 'en' }), LangToggle: () => null }
-    // 子组件本测试不需要渲染。
-    if (/\.\//.test(id)) return { default: () => null, STEPS: [], stepDone: () => false }
-    throw new Error('factsQueryId 的依赖不该被求值：' + id)
-  }
   // eslint-disable-next-line no-new-func
   const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
-  run(mod.exports, stub, mod, PANEL, EDITOR_DIR)
+  run(mod.exports, require, mod, SOURCE, EDITOR_DIR)
   return mod.exports.factsQueryId
 }
 

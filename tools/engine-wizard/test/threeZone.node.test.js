@@ -47,10 +47,15 @@ const Stage = loadJsx('Stage.jsx', {
   'web/src/lib/i18n': i18nStub,
 }).default
 
+// ParamDropZone 现在从 ./paramDrop 取那两个纯函数（原先在它自己文件里）。
+// 那是组件模块不许导出普通函数的缘故：vite 的 react 插件要求组件模块
+// 只导出组件，否则 Fast Refresh 失效。
+const paramDrop = require(path.join(EDITOR_DIR, 'paramDrop.js'))
+
 const ParamDropZone = loadJsx('ParamDropZone.jsx', {
   react: React,
   'web/src/lib/i18n': i18nStub,
-  'paramType': require(path.join(EDITOR_DIR, 'paramType.js')),
+  './paramDrop': paramDrop,
 }).default
 
 /** 起一个 jsdom 页面，返回容器与 React 根。 */

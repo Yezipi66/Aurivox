@@ -10,6 +10,11 @@
  * 所以只比字符串的话，posix 上永远判成「base 不是它」⇒ 根 venv 每次都被判不健康
  * （bootstrap.js 的健康检查与建完后的复核都会误判）。
  *
+ * 大小写只在 Windows 上归一：那边文件系统不区分大小写，
+ * `C:\Python\python.exe` 与 `c:\python\python.exe` 是同一个文件。
+ * posix 上文件系统区分大小写，把两条不同路径强行归一成一个
+ * 会把「不是同一个文件」判成「是」⇒ 那是把坏 venv 当成好的。
+ *
  * 路径不存在时 realpathSync 会抛（base 指向的旧解释器已被删掉正是要抓的场景）
  * ⇒ 退回按解析后的绝对路径比：路径不同仍然判否，不会把坏 venv 当成好的。
  *
@@ -18,9 +23,12 @@
  * @returns {boolean}
  */
 function sameInterpreterPath (a, b) {
+  const fold = process.platform === 'win32'
   const norm = (p) => {
-    try { return fs.realpathSync.native(p).toLowerCase() }
-    catch (_) { return path.resolve(p).toLowerCase() }
+    let out
+    try { out = fs.realpathSync.native(p) }
+    catch (_) { out = path.resolve(p) }
+    return fold ? out.toLowerCase() : out
   }
   return norm(a) === norm(b)
 }

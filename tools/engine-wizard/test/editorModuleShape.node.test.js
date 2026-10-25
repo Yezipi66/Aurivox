@@ -85,6 +85,37 @@ test('向导前端：没有模块既导出组件又导出 hook', () => {
   assert.deepStrictEqual(bad, [], '这些模块把 hook 和组件混在一起，Fast Refresh 会失效：\n' + bad.join('\n'))
 })
 
+test('向导前端：组件模块不许导出普通函数（Fast Refresh 的真实规则）', () => {
+  // vite 的 react 插件要求：组件模块只导出组件（常量可以）。
+  // 导出任何别的函数都会让 Fast Refresh 失效：
+  //   Could not Fast Refresh ("xxx" export is incompatible)
+  // 改那个文件会整页 reload，不是热更新。
+  //
+  // 之前那条守卫只查「既导出组件又导出 hook」，漏掉了普通函数：
+  // factsQueryId 是个普通函数（不是 hook），所以照不出来，
+  // 而 vite 照样报 incompatible。
+  //
+  // 判据：模块里有 default 导出（组件出口）时，
+  //   其余的函数导出都不许有（组件本身另算）。
+  const bad = []
+  for (const f of sourceFiles()) {
+    const src = fs.readFileSync(path.join(EDITOR, f), 'utf8')
+    const decls = exportDecls(src)
+    const hasDefault = decls.some((d) => /^export\s+default\b/.test(d))
+    if (!hasDefault) continue
+    const fns = decls.filter((d) => !/^export\s+default\b/.test(d))
+      .filter((d) => /^export\s+(?:async\s+)?function\s/.test(d))
+      // 组件是大写开头：小写的具名函数是普通函数，坏了 Fast Refresh。
+      .filter((d) => !/^export\s+(?:async\s+)?function\s+[A-Z]/.test(d))
+    if (fns.length) {
+      bad.push(f + '（普通函数: ' + fns.map((d) => d.slice(0, 40)).join(' | ') + '）')
+    }
+  }
+  assert.deepStrictEqual(bad, [],
+    '这些组件模块导出了普通函数，Fast Refresh 会失效：\n' + bad.join('\n')
+    + '\n把纯函数挪到自己的 .js 文件（像 factsQueryId.js 那样）')
+})
+
 test('向导前端：hook 单独一个文件', () => {
   // hook 住在自己的文件里，且那个文件不导出组件。
   const bad = []
@@ -128,6 +159,27 @@ test('大写 const 导出：常量不算组件，函数才算', () => {
   for (const [decl, want] of cases) {
     assert.strictEqual(isComponentExport(decl), want,
       `${decl} 判成了 ${isComponentExport(decl)}，应为 ${want}`)
+  }
+})
+
+test('变异检查：把普通函数塞回组件模块会被上面那条抓住', () => {
+  // 判据本身的有效性自证：造一个组件模块（default 导出）
+  // 加一个普通函数导出，看它被不被判成违规。
+  const cases = [
+    ['export default function App () { return null }\nexport function factsQueryId (a) { return a }', true],
+    ['export default function App () { return null }\nexport function AppRow () { return null }', false],
+    ['export function factsQueryId (a) { return a }', false], // 不是组件模块，不归这条管
+  ]
+  for (const [src, wantBad] of cases) {
+    const decls = exportDecls(src)
+    const hasDefault = decls.some((d) => /^export\s+default\b/.test(d))
+    const fns = hasDefault
+      ? decls.filter((d) => !/^export\s+default\b/.test(d))
+        .filter((d) => /^export\s+(?:async\s+)?function\s/.test(d))
+        .filter((d) => !/^export\s+(?:async\s+)?function\s+[A-Z]/.test(d))
+      : []
+    assert.strictEqual(fns.length > 0, wantBad,
+      `判据在 ${JSON.stringify(src.slice(0, 60))} 上判成了 ${fns.length > 0}，应为 ${wantBad}`)
   }
 })
 
