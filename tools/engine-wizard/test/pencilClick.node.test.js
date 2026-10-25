@@ -14,10 +14,11 @@
 const { test } = require('node:test')
 const assert = require('node:assert')
 const path = require('node:path')
-const { JSDOM } = require(path.join(
-  'D:/Project/tts_broker_openai_compat', 'web', 'node_modules', 'jsdom'))
+// web 目录按本文件的位置推算，不能写死绝对路径：写死了换个检出目录就找不到依赖，
+// CI 上（干净检出到别处）会直接报 MODULE_NOT_FOUND。
+const { WEB_DIR, webRequire } = require('./stepDepsRender')
+const { JSDOM } = require(path.join(WEB_DIR, 'node_modules', 'jsdom'))
 
-const WEB_DIR = path.join('D:/Project/tts_broker_openai_compat', 'web')
 const { loadStepDeps } = require('./stepDepsRender')
 
 // React 的 concurrent root 是异步渲染的（commit 在微任务之后），
@@ -53,7 +54,9 @@ async function withDom (fn) {
 // 挂一个「第 2 步真实结构」：整行是点击区（切换是否安装），
 //   行里面是 pill，pill 里面是版本号与笔。
 async function mount (dom, Comp, props) {
-  const React = require(path.join(WEB_DIR, 'node_modules', 'react'))
+  // React 与 react-dom 要与被测组件用的是同一份（组件那边的 react 是 webRequire 取的）。
+  //   取两份不同的 React 会触发 Invalid hook call。
+  const React = webRequire('react')
   const ReactDOM = require(path.join(WEB_DIR, 'node_modules', 'react-dom', 'client'))
   const state = { toggled: 0 }
   const root = dom.window.document.getElementById('root')
