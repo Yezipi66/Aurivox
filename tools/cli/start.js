@@ -298,7 +298,11 @@ async function main () {
   if (backendRes.action === 'own') {
     Log(`      Port ${backendPortFinal} already held by OUR backend. Treat backend as running.`, 'Yellow')
   } else {
-    const r = P.spawnDetached(NODE, ['server.js'], {
+    // 脚本参数必须给绝对路径：后端身份靠「命令行里含安装根」来认（见 portChoice.js
+    // 的 testIsOwnProcess）。用相对参数时，命令行里只有 server.js 这几个字，
+    // 安装根一个字都没有；若本机的 node 又是 PATH 上的（不在仓库内），
+    // 两段判据就都不成立，后端会被判成陌生进程 ⇒ 重复起第二个后端。
+    const r = P.spawnDetached(NODE, [path.join(ROOT, 'server.js')], {
       cwd: ROOT,
       outFile: path.join(LogDir, 'backend.log'),
       errFile: path.join(LogDir, 'backend.err.log'),
