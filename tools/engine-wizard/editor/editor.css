@@ -44,6 +44,17 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+}
+
+/* 第 4 步的外壳：只把名片页从 .node-detail 里放出来，
+   自己不画任何边框、圆角或底色。
+   它要撑满 .wz-root 剩下的高度，中栏才能自己滚动。 */
+.wz-manifest-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .wz-root input:-webkit-autofill,
@@ -90,15 +101,17 @@
 }
 
 /* ---- 三栏（第 4 步：左栏扫到的参数 / 中栏名片内容 / 右栏预览） ---- */
-/* 名片页的外层：只做一件事——让三栏占满整行，SaveBar 另起一行吸底。
+/* 名片页的外层：让三根骨头占满整行，SaveBar 另起一行吸底。
    不能用项目的 .workspace-grid：那本身就是两列 grid
-   （minmax(0,1fr) 380px），三栏容器放进去会被塞进它的第一列，
+   （minmax(0,1fr) 380px），三根骨头放进去会被塞进它的第一列，
    中栏只剩第一列宽度里的一部分，右侧空出一大片。 */
 .wz-manifest-layout {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   min-width: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 /* SaveBar 那一行：跨栏 sticky bottom，滚动到底时仍可见。 */
@@ -112,38 +125,104 @@
   margin-top: 4px;
 }
 
-/* 三栏容器：栏宽左窄（参数名不长）、中栏最宽（表单最挤）、
-   右栏与项目的 .workspace-right 同宽（380px）。
-   列宽的初值在这里；收起某一栏时由 ThreeZone.jsx 改成 40px 的窄轨
-   （那一栏的宽度归中栏），所以这里只管初值。 */
-.wz-three-zone {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 380px;
-  gap: 0.5rem;
-  align-items: start;
-}
-/* 窄屏降级成单列：与项目 .workspace-grid 的降级口径一致（960px）。 */
-@media (max-width: 960px) {
-  .wz-three-zone {
-    grid-template-columns: 1fr;
-  }
+/* 第 4 步的骨架：左边条、中栏、右边条，三根平级的骨头。
+   外层只有一个 flex 行，没有任何边框、圆角或背景把三栏套起来。
+   边条默认 32px 只露一个箭头；展开时是抽屉，宽度 DRAWER_W。
+   抽屉与遮罩的宽度/位置在 Stage.jsx 里以 CSS 变量给出。 */
+.wz-stage {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  flex: 1;
 }
 
-/* 收起的栏留下的窄轨：宽度让给中栏，但还得留一个能点回来的按钮，
-   否则收起来就再也展不开了。
-   窄轨 40px 是项目自己的做法（web/src/components/flowgraph/canvasChrome.jsx
-   的 Rail 用 26px，方向相反但同样只留一条能点回来的轨）。 */
-.wz-rail {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 4px;
-}
-.wz-rail-toggle {
+/* 一根边条。收着时是一条窄边 + 一个箭头按钮，
+   展开时变宽成抽屉，内容从箭头下方流下来。 */
+.wz-drawer {
   flex-shrink: 0;
-  width: 28px;
-  padding-left: 0;
-  padding-right: 0;
+  width: var(--wz-rail-w, 32px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: width 160ms ease;
+  overflow: hidden;
+}
+.wz-drawer.is-open {
+  width: var(--wz-drawer-w, 360px);
+  align-items: stretch;
+  box-shadow: var(--shadow-soft);
+}
+
+/* 边条上的箭头按钮：收着时是整根边条上唯一能点的东西。 */
+.wz-drawer-handle {
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 32px;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wz-drawer-handle:hover {
+  color: var(--text);
+}
+
+/* 抽屉里的内容：可滚动，不把中栏顶高。 */
+.wz-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  padding: 0 12px 12px;
+}
+
+/* 抽屉里的内容纵向堆叠（预览在前、诊断在后）。 */
+.wz-drawer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 遮罩：抽屉开着时盖住中栏，点它收回去。
+   z-index 在抽屉之下 ⇒ 抽屉本身仍然可点。 */
+.wz-stage-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  background: var(--overlay-scrim, rgba(0, 0, 0, 0.14));
+}
+
+/* 中栏：这页的主角。撑满左右两根边条之外的宽度，
+   里面的内容另有宽度上限，超宽屏上不至于把字段拉得太开。 */
+.wz-stage-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 0;
+}
+.wz-stage-main-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* 窄屏降级：960px 以下抽屉改成盖在中栏上面，
+   而不是把中栏挤成一条缝。与项目 .workspace-grid 的降级口径一致。 */
+@media (max-width: 960px) {
+  .wz-drawer.is-open {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 9;
+  }
+  .wz-drawer-left.is-open { left: 0; }
+  .wz-drawer-right.is-open { right: 0; }
+  .wz-stage {
+    position: relative;
+  }
 }
 
 /* 名片身份条：一行说清「这是哪台」与「平台现在知道它什么状况」。 */

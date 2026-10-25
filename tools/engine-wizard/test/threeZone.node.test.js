@@ -1,5 +1,5 @@
 'use strict'
-// 三栏工作台的运行时行为：界面长什么样、拖拽落下后名片真的变了。
+// 第 4 步骨架的运行时行为：界面长什么样、拖拽落下后名片真的变了。
 //
 // 这一层测的是「组件跑起来对不对」，和 paramDrop.node.test.js 测的
 // 「纯函数算得对不对」是两回事：那个函数算对了但没人把它的结果接到
@@ -42,7 +42,7 @@ function loadJsx (file, stubMap) {
 
 const i18nStub = { useT: () => ({ t: (en) => en }) }
 
-const ThreeZone = loadJsx('ThreeZone.jsx', {
+const Stage = loadJsx('Stage.jsx', {
   react: React,
   'web/src/lib/i18n': i18nStub,
 }).default
@@ -99,10 +99,10 @@ const CLI_PARAM = {
   source: 'cli', name: 'speed', target: '--speed', kind: 'number', style: 'value',
 }
 
-test('三栏骨架：三列都排出来了，内容各自在自己的列里', async () => {
+test('骨架：三根骨头是平级的容器，不在一个大盒子里', async () => {
   const { container, root } = mount()
-  root.render(React.createElement(ThreeZone, {
-    collapsed: { left: false, right: false },
+  root.render(React.createElement(Stage, {
+    open: { left: false, right: false },
     onToggle: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
@@ -111,24 +111,46 @@ test('三栏骨架：三列都排出来了，内容各自在自己的列里', as
   await settle()
 
   const html = container.innerHTML
-  assert.ok(html.includes('wz-three-zone'), '三栏容器没渲染出来')
-  // 这一层不画栏头：栏头是内容自己带的（主界面里每一块内容都是 .section）。
-  assert.ok(!html.includes('wz-zone-hdr'), '这一层不该造栏头，栏头由内容的 .section 带')
-  assert.ok(!html.includes('wz-zone-title'), '这一层不该造栏标题')
-  // 三列各用项目现成的列容器：左栏与中栏是 .workspace-left，右栏是 .workspace-right。
-  assert.equal(container.querySelectorAll('.workspace-left').length, 2,
-    '左栏与中栏该各用 .workspace-left')
-  assert.equal(container.querySelectorAll('.workspace-right').length, 1,
-    '右栏该用 .workspace-right')
-  assert.ok(html.includes('>L<') && html.includes('>C<') && html.includes('>R<'), '栏里的内容没渲染')
+  assert.ok(html.includes('wz-stage'), '骨架容器没渲染出来')
+  // 两根边条是 aside，中栏是 main：三者平级，不是一个容器里的三格。
+  assert.equal(container.querySelectorAll('aside.wz-drawer').length, 2,
+    '左右两根边条该是 aside')
+  assert.equal(container.querySelectorAll('main.wz-stage-main').length, 1,
+    '中栏该是 main')
+  // 骨架层不许有任何带边框的容器：边框套边框就是套娃。
+  assert.ok(!html.includes('node-detail'), '骨架里混进了平台的详情框（紫框）')
+  assert.ok(!html.includes('wz-three-zone'), '旧的三列 grid 骨架还在')
 })
 
-test('收起的栏：内容不渲染，留一条能点回来的窄轨', async () => {
+test('默认两边都收着：边条只露一个箭头，内容不渲染', async () => {
+  const { container, root } = mount()
+  root.render(React.createElement(Stage, {
+    open: { left: false, right: false },
+    onToggle: () => {},
+    left: React.createElement('div', { id: 'left' }, 'L'),
+    center: React.createElement('div', { id: 'center' }, 'C'),
+    right: React.createElement('div', { id: 'right' }, 'R'),
+  }))
+  await settle()
+
+  // 两边收着 ⇒ 两边的内容都不渲染，首屏只剩中栏。
+  assert.ok(!container.innerHTML.includes('>L<'), '左边收着但内容还在渲染')
+  assert.ok(!container.innerHTML.includes('>R<'), '右边收着但内容还在渲染')
+  assert.ok(container.innerHTML.includes('>C<'), '中栏内容没渲染')
+
+  // 两根边条各有一个箭头按钮。
+  const handles = container.querySelectorAll('.wz-drawer-handle')
+  assert.equal(handles.length, 2, '两根边条上各该有一个箭头按钮')
+  assert.equal(handles[0].textContent.trim(), '→', '左边条该露出 →')
+  assert.equal(handles[1].textContent.trim(), '←', '右边条该露出 ←')
+})
+
+test('点箭头：抽屉滑出来，带半透明遮罩，再点收回去', async () => {
   const { dom, container, root } = mount()
   const toggled = []
-  const render = (collapsed) => {
-    root.render(React.createElement(ThreeZone, {
-      collapsed,
+  const render = (open) => {
+    root.render(React.createElement(Stage, {
+      open,
       onToggle: (k) => toggled.push(k),
       left: React.createElement('div', { id: 'left' }, 'L'),
       center: React.createElement('div', { id: 'center' }, 'C'),
@@ -138,35 +160,32 @@ test('收起的栏：内容不渲染，留一条能点回来的窄轨', async ()
   render({ left: false, right: false })
   await settle()
 
-  const grid = container.querySelector('.wz-three-zone')
-  const cols = () => grid.style.gridTemplateColumns
-  assert.match(cols(), /^260px minmax\(0, 1fr\) 380px$/, '三栏展开时的列宽不对')
-
-  // 收起左栏。
+  // 展开左边抽屉。
   render({ left: true, right: false })
   await settle()
-  assert.match(cols(), /^40px minmax\(0, 1fr\) 380px$/, '收起左栏后列宽没让出来')
-  assert.ok(!container.innerHTML.includes('>L<'), '收起后左栏内容还在渲染')
-  assert.ok(container.innerHTML.includes('>C<'), '收起左栏不该影响中栏')
+  assert.ok(container.innerHTML.includes('>L<'), '左边抽屉展开后内容没渲染')
+  assert.ok(!container.innerHTML.includes('>R<'), '右边不该跟着展开')
+  const leftDrawer = container.querySelector('.wz-drawer-left')
+  assert.ok(leftDrawer.classList.contains('is-open'), '左边抽屉没标成展开态')
+  // 展开时盖一层遮罩。
+  assert.ok(container.querySelector('.wz-stage-scrim'), '抽屉展开时没有遮罩')
 
-  // 窄轨上那个按钮点得回来。
-  const railBtn = container.querySelector('.wz-rail button[aria-expanded]')
-  assert.ok(railBtn, '窄轨上没有展开按钮，这一栏再也展不开')
-  railBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  // 点遮罩收回去。
+  const scrim = container.querySelector('.wz-stage-scrim')
+  scrim.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await settle()
-  assert.deepStrictEqual(toggled, ['left'], '窄轨按钮没把 left 这个键传出去')
+  assert.deepStrictEqual(toggled, ['left'], '点遮罩没收左边抽屉')
 
-  // 收起右栏。
-  render({ left: false, right: true })
+  // 收起时遮罩没有。
+  render({ left: false, right: false })
   await settle()
-  assert.match(cols(), /^260px minmax\(0, 1fr\) 40px$/, '收起右栏后列宽没让出来')
-  assert.ok(!container.innerHTML.includes('>R<'), '收起后右栏内容还在渲染')
+  assert.ok(!container.querySelector('.wz-stage-scrim'), '抽屉收着时还挂着遮罩')
 })
 
-test('窄轨按钮用项目的 ▸，不用 < 和 >', async () => {
+test('箭头按钮用的是方向箭头，不是项目的 ▸', async () => {
   const { container, root } = mount()
-  root.render(React.createElement(ThreeZone, {
-    collapsed: { left: true, right: false },
+  root.render(React.createElement(Stage, {
+    open: { left: false, right: false },
     onToggle: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
@@ -174,12 +193,15 @@ test('窄轨按钮用项目的 ▸，不用 < 和 >', async () => {
   }))
   await settle()
 
-  const btn = container.querySelector('.wz-rail button[aria-expanded]')
-  assert.equal(btn.textContent.trim(), '▸',
-    '窄轨上的箭头应当是 ▸（项目现成的符号），不用 < 和 >')
-  const label = btn.textContent.trim()
-  assert.ok(!label.includes('<') && !label.includes('>'),
-    '按钮里还有 < 或 > 当图标：' + JSON.stringify(label))
+  const handles = container.querySelectorAll('.wz-drawer-handle')
+  const labels = [...handles].map((h) => h.textContent.trim())
+  assert.deepStrictEqual(labels, ['→', '←'],
+    '两根边条的箭头应当是 → 与 ←（Owner 指定的符号）')
+  // 不用 < 和 > 当图标：那两个在 HTML 里是标签，会被解析成别的意思。
+  for (const l of labels) {
+    assert.ok(!l.includes('<') && !l.includes('>'),
+      '按钮里还有 < 或 > 当图标：' + JSON.stringify(l))
+  }
 })
 
 test('拖一个 cli 参数进落点：parameters[] 多一条，call.args 同时写上 flag', async () => {

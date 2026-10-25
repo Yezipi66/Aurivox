@@ -4,15 +4,17 @@ import ManifestForm from './ManifestForm'
 import SaveBar from './SaveBar'
 import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
-import ThreeZone from './ThreeZone'
+import Stage from './Stage'
 import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
 
-// 名片编辑页：三栏。
+// 名片编辑页：左边条、中栏、右边条，三根平级的骨头。
 //
-// 左栏是扫到的参数，中栏是当前名片内容，右栏是当前项目的前端预览。
-// 三栏都能收起。SaveBar 跨栏吸底常驻。
+// 左边条里是扫到的参数，中栏是当前名片内容，右边条里是当前项目的前端预览。
+// 左右两根边条默认收成 32px 的窄边，只露一个方向箭头；
+// 点一下那根边条滑出成抽屉，抽屉上盖着半透明遮罩。
+// 中栏是主角，占满剩下的宽度。SaveBar 吸底常驻。
 //
 // 视图切换（填表 / JSON）留在中栏里：JSON 是名片的同一份内容的另一种写法，
 // 不是第四栏。切到 JSON 时中栏的内容换掉，左栏与右栏不动。
@@ -26,11 +28,11 @@ export default function ManifestPage ({
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
-  // 哪几栏收起了。存在这一层（不在 ThreeZone 里）：
-  //   收起按钮在内容自己的 .section-hdr 上，内容需要知道收起了没有，
-  //   才能把按钮画成「▾ 收起」还是「▸ 展开」。
-  const [collapsed, setCollapsed] = React.useState({ left: false, right: false })
-  const toggleZone = (key) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
+  // 哪边的抽屉开着。默认两边都收着：
+  //   第 4 步进来时左边还没扫过参数、右边还没选引擎，
+  //   两个空盒子摆在首屏上只是噪音。点边条上的箭头才滑出来。
+  const [drawer, setDrawer] = React.useState({ left: false, right: false })
+  const toggleDrawer = (key) => setDrawer((prev) => ({ ...prev, [key]: !prev[key] }))
 
   // ---- 扫描状态 ----
   const [scan, setScan] = React.useState(null)       // /wizard/discover 的完整返回
@@ -104,9 +106,9 @@ export default function ManifestPage ({
     // 剩下那一大片是右栏的空位。三个栏自己排版，不需要外层再来一列。
     // SaveBar 跨栏 sticky bottom，永远可见。
     <div className="wz-manifest-layout">
-      <ThreeZone
-        collapsed={collapsed}
-        onToggle={toggleZone}
+      <Stage
+        open={drawer}
+        onToggle={toggleDrawer}
         left={
           <EngineScanZone
             params={params} selected={selected}
@@ -114,18 +116,10 @@ export default function ManifestPage ({
             groups={(scan && scan.groups) || []} group={group}
             onGroupChange={setGroup}
             busy={busy} err={scanErr} onScan={doScan}
-            canScan={!!((manifest && manifest.id) || '')}>
-            <button className="btn btn-sm btn-ghost" type="button"
-              onClick={() => toggleZone('left')}
-              title={t('Collapse', '收起')}
-              aria-label={t('Collapse the parameters column', '收起参数栏')}
-              aria-expanded={true}>
-              ▾
-            </button>
-          </EngineScanZone>
+            canScan={!!((manifest && manifest.id) || '')} />
         }
         center={
-          <div className="workspace-left">
+          <div className="wz-stage-main-inner">
             {/* 身份条在最上面：这是哪台引擎的名片、平台现在知道它什么状况。 */}
             <EngineIdentity
               manifest={manifest || {}} onChange={onManifest}
@@ -163,42 +157,24 @@ export default function ManifestPage ({
           </div>
         }
         right={
-          <div className="workspace-right">
-            {/* 预览在前：右栏是「当前项目的前端预览」这一栏，
+          <div className="wz-drawer-stack">
+            {/* 预览在前：右边条是「当前项目的前端预览」这一栏，
                 诊断是附带的说明，不该把首屏占住。 */}
             {manifest
-              ? <PanelPreview manifest={manifest}>
-                <button className="btn btn-sm btn-ghost" type="button"
-                  onClick={() => toggleZone('right')}
-                  title={t('Collapse', '收起')}
-                  aria-label={t('Collapse the preview column', '收起预览栏')}
-                  aria-expanded={true}>
-                  ▾
-                </button>
-              </PanelPreview>
+              ? <PanelPreview manifest={manifest} />
               : (
-                // 还没选引擎时右栏是空的，但空栏也要有栏头与收起按钮：
-                // 三栏的收起入口得在同一处，不能因为内容空了就少一个。
-                // 栏头与有预览时长得一样（.section + .section-hdr）。
+                // 还没选引擎时右边条是空的。空的时候画一个空态就够了，
+                // 不必再套一层带栏头的 .section：
+                // 边条自己就是这栏的入口，栏头里的收起按钮是多余的。
                 <div className="section">
-                  <div className="section-hdr">
-                    <h2>{t('Preview', '预览')}</h2>
-                    <button className="btn btn-sm btn-ghost" type="button"
-                      onClick={() => toggleZone('right')}
-                      title={t('Collapse', '收起')}
-                      aria-label={t('Collapse the preview column', '收起预览栏')}
-                      aria-expanded={true}>
-                      ▾
-                    </button>
-                  </div>
                   <div className="section-body">
                     <div className="empty-state">
                       <div className="es-title">
                         {t('Nothing to preview yet', '还没有可预览的内容')}
                       </div>
                       <div className="es-sub">
-                        {t('Pick an engine on the left to see the preview.',
-                          '在左侧选一台引擎，右侧会实时显示界面。')}
+                        {t('Pick an engine to see the preview.',
+                          '选一台引擎，这里会实时显示界面。')}
                       </div>
                     </div>
                   </div>
@@ -210,8 +186,8 @@ export default function ManifestPage ({
           </div>
         } />
 
-      {/* SaveBar：跨栏 sticky bottom，永远可见。
-          跨栏做法：sticky 容器放在三栏之后、独立成行，
+      {/* SaveBar：吸底常驻。
+          做法：sticky 容器放在三根骨头之后、独立成行，
             position:sticky + bottom:0 ⇒ 滚动到底部时吸底常驻。
           不放进任何一栏内部：那会让它只跟着那一栏滚。 */}
       <div className="wz-savebar-row">

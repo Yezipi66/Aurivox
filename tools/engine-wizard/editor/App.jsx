@@ -234,8 +234,27 @@ export default function App () {
         </div>
       )}
 
+      {/* ---- 第 4 步：名片页有自己的骨架，不套 .node-detail ----
+          .node-detail 是平台训练页的详情框（紫色描边 + 圆角 + 底色）。
+          第 4 步的骨架是三根平级的骨头（左边条 / 中栏 / 右边条），
+          套进那张详情框里等于把页面骨架当卡片内容塞：
+          边框套边框、圆角套圆角，页面还多出一层内缩。
+          所以第 4 步直接进 .wz-stage，不经过 .node-detail。 */}
+      {page === 'manifest' && (
+        <div className="wz-manifest-shell">
+          <ManifestPage manifest={manifest} spec={spec}
+            text={text} err={err} setText={setText}
+            // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
+            onManifest={(m) => { setManifest(m); setErr(null) }}
+            diag={vresult} loading={vloading}
+            onSaved={reloadFacts}
+            checkpointsPath={checkpointsPath}
+            engineState={engineState} />
+        </div>
+      )}
+
       {/* ---- 展开的那一步：.node-detail 详情框，外壳照 NodeDetailPanel.jsx 的 NodeDetailPanel() ---- */}
-      {page && (
+      {page && page !== 'manifest' && (
         <div className="node-detail">
           <div className="node-detail-hdr">
             <span className="node-detail-title">{title}</span>
@@ -277,16 +296,6 @@ export default function App () {
                 prep={prep}
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 probe={prep.probe || null} />
-            )}
-            {page === 'manifest' && (
-              <ManifestPage manifest={manifest} spec={spec}
-                text={text} err={err} setText={setText}
-                // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
-                onManifest={(m) => { setManifest(m); setErr(null) }}
-                diag={vresult} loading={vloading}
-                onSaved={reloadFacts}
-                checkpointsPath={checkpointsPath}
-                engineState={engineState} />
             )}
             {page === 'verify' && (
               <StepVerify id={wz.id} />
