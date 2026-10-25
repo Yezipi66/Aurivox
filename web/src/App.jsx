@@ -256,7 +256,13 @@ function AppShell() {
             </span>
           )}
           <LangToggle />
-          {health?.ffmpeg_available && <span className="badge badge-ok">ffmpeg</span>}
+          {/* ffmpeg 只在缺的时候占位。它是静态能力，装了就永远在，
+              常亮的绿灯不携带信息，白占一格顶栏宽度。 */}
+          {health && health.ffmpeg_available === false && (
+            <span className="badge badge-warn" title="本机没找到 ffmpeg：切片、波形与部分格式转换会失败。">
+              no ffmpeg
+            </span>
+          )}
           {health && (() => {
             // 探测机制：问操作系统（lib/system/gpu.js），不问任何 venv 里的 torch，
             // 根 venv 瘦身之后那条路必然答「无 CUDA」，而那不是事实。
