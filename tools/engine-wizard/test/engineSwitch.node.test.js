@@ -11,10 +11,13 @@
 //
 // 为什么纯函数测试抓不到：manifestAutoFill.node.test.js 验的是
 // manifestForEngineSwitch 这个函数算得对不对；这里验的是
-// EngineScanZone 真的调了它。接线漏了（比如改回 { ...manifest, id }），
+// EngineIdentity 真的调了它。接线漏了（比如改回 { ...manifest, id }），
 // 纯函数测试照样全绿。
 //
 // 所以这一层要真渲染组件、真选下拉、真看 onChange 拿到什么。
+//
+// 引擎下拉在中栏的身份条上（EngineIdentity.jsx），不在左栏：
+// 身份跟着名片走，左栏只是扫到的参数。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -50,10 +53,9 @@ function loadJsx (file, stubMap) {
 
 const i18nStub = { useT: () => ({ t: (en) => en }) }
 
-// EngineScanZone 的三个数据源：
+// EngineIdentity 的两个数据源：
 //   useInstalled  → 读磁盘上的名片
-//   useEngineDirs → 列出 engines/ 下的目录（它就在 EngineScanZone.jsx 里导出）
-//   ParamPool     → 左栏的参数池（这里只需要它不报错）
+//   useEngineDirs → 列出 engines/ 下的目录（单独一个文件，Fast Refresh 要求）
 const DIRS = [
   { id: 'cosyvoice2', manifestPresent: true },
   { id: 'spark-tts', manifestPresent: false },
@@ -71,7 +73,7 @@ const PREV_MANIFEST = {
   call: { kind: 'python', module: 'cosyvoice.cli.cosyvoice', class: 'CosyVoice2' },
 }
 
-const EngineScanZone = loadJsx('EngineScanZone.jsx', {
+const EngineIdentity = loadJsx('EngineIdentity.jsx', {
   react: React,
   'web/src/lib/i18n': i18nStub,
   'useInstalled': {
@@ -85,7 +87,11 @@ const EngineScanZone = loadJsx('EngineScanZone.jsx', {
       }),
     }),
   },
-  'ParamPool': { default: () => null, __esModule: true },
+  'useEngineDirs': {
+    useEngineDirs: () => ({ dirs: DIRS, reload: () => {} }),
+    default: () => ({ dirs: DIRS, reload: () => {} }),
+    __esModule: true,
+  },
   'manifestAutoFill': require(path.join(EDITOR_DIR, 'manifestAutoFill.js')),
 }).default
 
@@ -131,12 +137,10 @@ test('换到没名片的引擎：上一台的 runtime 与 call 整段清掉', as
   const { dom, container, root } = mount()
   let manifest = { ...PREV_MANIFEST }
   const changes = []
-  root.render(React.createElement(EngineScanZone, {
+  root.render(React.createElement(EngineIdentity, {
     manifest,
     onChange: (m) => { manifest = m; changes.push(m) },
-    params: [], selected: null, onSelect: () => {},
-    onDragStart: () => {}, groups: [], group: '', onGroupChange: () => {},
-    busy: false, err: null, onScan: () => {},
+    facts: { env: true, models: true },
   }))
   await settle()
 
@@ -165,12 +169,10 @@ test('换到没名片的引擎：label 也换成新的', async () => {
   stubFetch(DIRS)
   const { dom, container, root } = mount()
   let manifest = { ...PREV_MANIFEST }
-  root.render(React.createElement(EngineScanZone, {
+  root.render(React.createElement(EngineIdentity, {
     manifest,
     onChange: (m) => { manifest = m },
-    params: [], selected: null, onSelect: () => {},
-    onDragStart: () => {}, groups: [], group: '', onGroupChange: () => {},
-    busy: false, err: null, onScan: () => {},
+    facts: { env: true, models: true },
   }))
   await settle()
 
@@ -190,12 +192,10 @@ test('换到磁盘上有名片的引擎：整张换成磁盘上那张', async ()
   const { dom, container, root } = mount()
   let manifest = { id: 'spark-tts', label: 'spark-tts', contract_version: 2 }
   const changes = []
-  root.render(React.createElement(EngineScanZone, {
+  root.render(React.createElement(EngineIdentity, {
     manifest,
     onChange: (m) => { manifest = m; changes.push(m) },
-    params: [], selected: null, onSelect: () => {},
-    onDragStart: () => {}, groups: [], group: '', onGroupChange: () => {},
-    busy: false, err: null, onScan: () => {},
+    facts: { env: true, models: true },
   }))
   await settle()
 
