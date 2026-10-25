@@ -99,9 +99,11 @@ const CLI_PARAM = {
   source: 'cli', name: 'speed', target: '--speed', kind: 'number', style: 'value',
 }
 
-test('三栏骨架：左栏扫到的参数、中栏名片内容、右栏预览都在', async () => {
+test('三栏骨架：三列都排出来了，内容各自在自己的列里', async () => {
   const { container, root } = mount()
   root.render(React.createElement(ThreeZone, {
+    collapsed: { left: false, right: false },
+    onToggle: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
     right: React.createElement('div', { id: 'right' }, 'R'),
@@ -110,87 +112,71 @@ test('三栏骨架：左栏扫到的参数、中栏名片内容、右栏预览�
 
   const html = container.innerHTML
   assert.ok(html.includes('wz-three-zone'), '三栏容器没渲染出来')
-  assert.ok(html.includes('Scanned parameters'), '左栏标题不对')
-  assert.ok(html.includes('Manifest'), '中栏标题不对')
-  assert.ok(html.includes('Preview'), '右栏标题不对')
-  for (const cls of ['wz-zone-left', 'wz-zone-center', 'wz-zone-right']) {
-    assert.ok(html.includes(cls), '少了 ' + cls)
-  }
+  // 这一层不画栏头：栏头是内容自己带的（主界面里每一块内容都是 .section）。
+  assert.ok(!html.includes('wz-zone-hdr'), '这一层不该造栏头，栏头由内容的 .section 带')
+  assert.ok(!html.includes('wz-zone-title'), '这一层不该造栏标题')
+  // 三列各用项目现成的列容器：左栏与中栏是 .workspace-left，右栏是 .workspace-right。
+  assert.equal(container.querySelectorAll('.workspace-left').length, 2,
+    '左栏与中栏该各用 .workspace-left')
+  assert.equal(container.querySelectorAll('.workspace-right').length, 1,
+    '右栏该用 .workspace-right')
   assert.ok(html.includes('>L<') && html.includes('>C<') && html.includes('>R<'), '栏里的内容没渲染')
 })
 
-test('左右两栏能收起，收起后内容不再渲染，展开后回来', async () => {
+test('收起的栏：内容不渲染，留一条能点回来的窄轨', async () => {
   const { dom, container, root } = mount()
-  root.render(React.createElement(ThreeZone, {
-    left: React.createElement('div', { id: 'left' }, 'L'),
-    center: React.createElement('div', { id: 'center' }, 'C'),
-    right: React.createElement('div', { id: 'right' }, 'R'),
-  }))
-  await settle()
-
-  // 只有左右两栏能收起：中栏是填名片的地方，收起它等于关掉这一页。
-  const buttons = [...container.querySelectorAll('button[aria-expanded]')]
-  assert.equal(buttons.length, 2, '只有左右两栏该有收起按钮')
-
-  const leftBtn = buttons.find((b) => b.closest('.wz-zone-left'))
-  assert.ok(leftBtn, '左栏没有收起按钮')
-  assert.equal(leftBtn.getAttribute('aria-expanded'), 'true')
-  assert.ok(!container.querySelector('.wz-zone-center button[aria-expanded]'),
-    '中栏不该有收起按钮')
-
-  leftBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-  await settle()
-  assert.equal(leftBtn.getAttribute('aria-expanded'), 'false', '收起后状态没变')
-  assert.ok(!container.querySelector('.wz-zone-left').innerHTML.includes('>L<'),
-    '收起后左栏内容还在渲染')
-
-  leftBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-  await settle()
-  assert.ok(container.querySelector('.wz-zone-left').innerHTML.includes('>L<'),
-    '展开后左栏内容没回来')
-})
-
-test('收起的栏把宽度让给中栏，留一条能点回来的窄轨', async () => {
-  const { dom, container, root } = mount()
-  root.render(React.createElement(ThreeZone, {
-    left: React.createElement('div', { id: 'left' }, 'L'),
-    center: React.createElement('div', { id: 'center' }, 'C'),
-    right: React.createElement('div', { id: 'right' }, 'R'),
-  }))
+  const toggled = []
+  const render = (collapsed) => {
+    root.render(React.createElement(ThreeZone, {
+      collapsed,
+      onToggle: (k) => toggled.push(k),
+      left: React.createElement('div', { id: 'left' }, 'L'),
+      center: React.createElement('div', { id: 'center' }, 'C'),
+      right: React.createElement('div', { id: 'right' }, 'R'),
+    }))
+  }
+  render({ left: false, right: false })
   await settle()
 
   const grid = container.querySelector('.wz-three-zone')
   const cols = () => grid.style.gridTemplateColumns
   assert.match(cols(), /^260px minmax\(0, 1fr\) 380px$/, '三栏展开时的列宽不对')
 
-  const leftBtn = [...container.querySelectorAll('button[aria-expanded]')]
-    .find((b) => b.closest('.wz-zone-left'))
-  leftBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  // 收起左栏。
+  render({ left: true, right: false })
   await settle()
-
-  // 收起后不是 0：0 宽会把展开按钮一起藏掉，那一栏就再也展不开。
   assert.match(cols(), /^40px minmax\(0, 1fr\) 380px$/, '收起左栏后列宽没让出来')
-  assert.ok(container.querySelector('.wz-zone-left').className.includes('is-collapsed'),
-    '收起的那一栏没有 is-collapsed 标记')
-  // 展开按钮还在，才能点回来。
-  assert.ok(container.querySelector('.wz-zone-left button[aria-expanded]'),
-    '收起后展开按钮不见了，这一栏再也展不开')
+  assert.ok(!container.innerHTML.includes('>L<'), '收起后左栏内容还在渲染')
+  assert.ok(container.innerHTML.includes('>C<'), '收起左栏不该影响中栏')
+
+  // 窄轨上那个按钮点得回来。
+  const railBtn = container.querySelector('.wz-rail button[aria-expanded]')
+  assert.ok(railBtn, '窄轨上没有展开按钮，这一栏再也展不开')
+  railBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await settle()
+  assert.deepStrictEqual(toggled, ['left'], '窄轨按钮没把 left 这个键传出去')
+
+  // 收起右栏。
+  render({ left: false, right: true })
+  await settle()
+  assert.match(cols(), /^260px minmax\(0, 1fr\) 40px$/, '收起右栏后列宽没让出来')
+  assert.ok(!container.innerHTML.includes('>R<'), '收起后右栏内容还在渲染')
 })
 
-test('收起箭头用项目的 ▸ / ▾，不用 < 和 >', async () => {
+test('窄轨按钮用项目的 ▸，不用 < 和 >', async () => {
   const { container, root } = mount()
   root.render(React.createElement(ThreeZone, {
+    collapsed: { left: true, right: false },
+    onToggle: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
     right: React.createElement('div', { id: 'right' }, 'R'),
   }))
   await settle()
 
-  const btn = container.querySelector('.wz-zone-left button[aria-expanded]')
-  assert.equal(btn.textContent.trim(), '▾',
-    '展开态的箭头应当是 ▾（项目现成的符号），不用 < 和 >')
-  // 只看按钮里的文字：整份 innerHTML 里 React 自己会写 <!-- --> 与属性，
-  // 那些 < > 与图标无关。
+  const btn = container.querySelector('.wz-rail button[aria-expanded]')
+  assert.equal(btn.textContent.trim(), '▸',
+    '窄轨上的箭头应当是 ▸（项目现成的符号），不用 < 和 >')
   const label = btn.textContent.trim()
   assert.ok(!label.includes('<') && !label.includes('>'),
     '按钮里还有 < 或 > 当图标：' + JSON.stringify(label))
