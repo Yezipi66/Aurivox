@@ -605,7 +605,6 @@ const DEBT_LEDGER = {
   'comment_ratio.cjs': 1,
   'editor/CoreBindings.jsx': 1,
   'editor/NestedSections.jsx': 10,
-  'editor/SaveBar.jsx': 10,
 }
 
 // 注释抽取交给 @babel/parser（项目 Vite 校验用的就是它）。

@@ -19,7 +19,21 @@ import { useT } from '../../../web/src/lib/i18n'
  * @param {Function} onChange 改这一条（传索引与新内容）
  * @param {Function} onDelete 删这一条（传索引）
  */
-export default function ParamRow ({ entry, index, spec, onChange, onDelete }) {
+// 「去向」：把 tier 与 phase 合成一个选择。
+//   原来 tier 在行内、phase 在行内、而「常用可选」又是另一个折叠区，
+//   用户要在三个地方回答同一个问题：这个参数放在界面哪里、改了要不要重启。
+// TODO(骨架)：再加一档「固定值」（不上界面，写进 call.args / init_args 的定值）。
+const PLACEMENTS = [
+  { key: 'common', tier: 'common', phase: undefined, en: 'UI · common', zh: '界面 · 常用' },
+  { key: 'advanced', tier: 'advanced', phase: undefined, en: 'UI · advanced', zh: '界面 · 高级' },
+  { key: 'load', tier: 'advanced', phase: 'load', en: 'On load (restart to change)', zh: '加载时（改了要重启引擎）' },
+]
+function placementOf (entry) {
+  if (entry.phase === 'load') return 'load'
+  return entry.tier === 'common' ? 'common' : 'advanced'
+}
+
+export default function ParamRow ({ entry, index, spec, onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
   const { t } = useT()
   const set = (k, v) => {
     const next = { ...entry }
@@ -29,6 +43,15 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete }) {
   }
   const type = entry.type || 'text'
   void spec
+
+  const setPlacement = (key) => {
+    const p = PLACEMENTS.find((x) => x.key === key)
+    if (!p) return
+    const next = { ...entry, tier: p.tier }
+    if (p.phase) next.phase = p.phase
+    else delete next.phase
+    onChange(index, next)
+  }
 
   return (
     <div className="card">
@@ -41,12 +64,29 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete }) {
             onChange={(e) => set('name', e.target.value)} />
         </div>
         <div className="field">
-          <label className="field-label">type</label>
-          <select className="control" value={type}
-            onChange={(e) => set('type', e.target.value)}>
+          <label className="field-label">
+            type
+            {typeGuessed && (
+              <span className="badge badge-warn" style={{ marginLeft: 6 }}>
+                {t('guessed, confirm', '猜的，请确认')}
+              </span>
+            )}
+          </label>
+          <select className={`control${typeGuessed ? ' wz-field-guess' : ''}`} value={type}
+            onChange={(e) => {
+              set('type', e.target.value)
+              if (onTypeConfirmed) onTypeConfirmed(entry.name)
+            }}>
             {['text', 'number', 'select', 'boolean', 'file'].map((x) => (
               <option key={x} value={x}>{x}</option>
             ))}
+          </select>
+        </div>
+        <div className="field">
+          <label className="field-label">{t('Placement', '去向')}</label>
+          <select className="control" value={placementOf(entry)}
+            onChange={(e) => setPlacement(e.target.value)}>
+            {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.en, p.zh)}</option>)}
           </select>
         </div>
       </div>
@@ -58,22 +98,6 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete }) {
           <input className="control" value={entry.label?.zh || entry.label || ''}
             placeholder={t('shown in the UI', '界面上显示的名字')}
             onChange={(e) => set('label', e.target.value)} /></label>
-
-        <label><span>tier</span>
-          <select className="control" value={entry.tier || ''}
-            onChange={(e) => set('tier', e.target.value || undefined)}>
-            <option value="">{t('(unset → advanced)', '（不写 → advanced）')}</option>
-            <option value="common">common</option>
-            <option value="advanced">advanced</option>
-          </select></label>
-
-        <label><span>phase</span>
-          <select className="control" value={entry.phase || ''}
-            onChange={(e) => set('phase', e.target.value || undefined)}>
-            <option value="">{t('(unset → call)', '（不写 → call）')}</option>
-            <option value="call">call</option>
-            <option value="load">load</option>
-          </select></label>
 
         <label><span>default</span>
           <input className="control" value={entry.suggested_value ?? ''}

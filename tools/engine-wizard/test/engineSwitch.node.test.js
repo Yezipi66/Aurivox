@@ -93,7 +93,16 @@ const EngineIdentity = loadJsx('EngineIdentity.jsx', {
     __esModule: true,
   },
   'manifestAutoFill': require(path.join(EDITOR_DIR, 'manifestAutoFill.js')),
+  // 保存走 /wizard/save，这里只验按钮的有无与可用，不真的存。
+  'useSaveManifest': {
+    useSaveManifest: () => ({ save: () => {}, busy: false, result: null }),
+  },
 }).default
+
+/** 按文字找按钮（i18n stub 回的是英文）。 */
+function buttonByText (container, text) {
+  return [...container.querySelectorAll('button')].find((b) => b.textContent.trim() === text) || null
+}
 
 /** 起一个 jsdom 页面。 */
 function mount () {
@@ -187,7 +196,7 @@ test('换到没名片的引擎：label 也换成新的', async () => {
     'label 描述的是上一台，留着就是「id 是 spark-tts、label 写着上一台」')
 })
 
-test('换到磁盘上有名片的引擎：整张换成磁盘上那张', async () => {
+test('换到磁盘上有名片的引擎：先显示「读取参数」，点了才整张换成磁盘上那张', async () => {
   stubFetch(DIRS)
   const { dom, container, root } = mount()
   let manifest = { id: 'spark-tts', label: 'spark-tts', contract_version: 2 }
@@ -206,8 +215,47 @@ test('换到磁盘上有名片的引擎：整张换成磁盘上那张', async ()
   sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
   await settle()
 
-  assert.ok(changes.length >= 1, '换引擎后名片没变')
+  // 选中不读盘：有名片的引擎要用户点「读取参数」。
+  assert.ok(!buttonByText(container, 'Scan parameters'), '有名片的引擎没读进来之前不该显示「扫描参数」')
+  const read = buttonByText(container, 'Read parameters')
+  assert.ok(read, '有名片的引擎应当显示「读取参数」')
+  assert.ok(!container.querySelector('.wz-identity-path'), '名片还没读进来，路径不该出现')
+
+  read.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await settle()
+
+  assert.ok(changes.length >= 1, '读取后名片没变')
   assert.strictEqual(manifest.id, 'cosyvoice2', '磁盘上那张名片没灌进来')
   assert.strictEqual(manifest.runtime.python, 'engines/cosyvoice2/.venv',
     '磁盘上那张名片的 runtime 没灌进来')
+  // 读进来之后回到「扫描参数」，路径出现，保存可用。
+  assert.ok(buttonByText(container, 'Scan parameters'), '读取成功后应当回到「扫描参数」')
+  const pathEl = container.querySelector('.wz-identity-path')
+  assert.ok(pathEl && /engines\/cosyvoice2\/manifest\.json/.test(pathEl.textContent), '读取成功后路径应当出现')
+  assert.strictEqual(buttonByText(container, 'Save').disabled, false, '读取成功后「保存」应当可点')
+})
+
+test('没名片的引擎：显示「扫描参数」，没扫过之前「保存」不可点', async () => {
+  stubFetch(DIRS)
+  const { dom, container, root } = mount()
+  let manifest = { ...PREV_MANIFEST }
+  root.render(React.createElement(EngineIdentity, {
+    manifest,
+    onChange: (m) => { manifest = m },
+    facts: { env: true, models: true },
+    onScan: () => {}, scanBusy: false, scanned: false,
+  }))
+  await settle()
+
+  const sel = container.querySelector('select')
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.window.HTMLSelectElement.prototype, 'value').set
+  setter.call(sel, 'spark-tts')
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  await settle()
+
+  assert.ok(buttonByText(container, 'Scan parameters'), '没名片的引擎应当显示「扫描参数」')
+  assert.ok(!buttonByText(container, 'Read parameters'), '没名片的引擎不该有「读取参数」')
+  assert.strictEqual(buttonByText(container, 'Save').disabled, true, '没扫过的新名片不该能保存')
+  assert.ok(!buttonByText(container, 'Save manifest'), '按钮叫「保存」，不叫「存盘」')
 })

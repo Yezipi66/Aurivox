@@ -4,8 +4,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { RuntimeSection, CallSection, ModelsSection } from './NestedSections'
-import RequiredEight from './RequiredEight'
-import CoreBindings from './CoreBindings'
+import RequiredFields from './RequiredFields'
 import ParamDropZone from './ParamDropZone'
 import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
@@ -112,15 +111,17 @@ function Field ({ sec, value, onChange }) {
 // 从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）。
 // 只填表单，不直接写 manifest.json；映射候选只给候选，人点选之后才写 maps。
 
-// 主组件操作流：
-// ① 核心绑定区：平台三个输入对应引擎哪个参数
-// ② 必填 8 项：平台当场校验的那几个键
-// ③ 界面参数区：左栏扫到的参数拖到这里，成为名片的一条界面参数
-// ④ 折叠：常用可选（runtime/capabilities）与审计高级（source/models/install/output）
+// 主组件操作流（三个区）：
+// ① 必填字段：核心输入（平台三个输入 → 引擎参数）+ 平台当场校验的 8 个键。
+//    原来「核心映射」单独一个区，可它本来就是必填的，语义重复，合进来。
+// ② 参数：左栏扫到的参数拖到这里，成为名片的一条参数（parameters[]）。
+//    原来的「常用可选」里属于参数的那部分（tier / phase）成了每一行的「去向」。
+// ③ 高级（折叠）：runtime 全量、call 其余字段、capabilities、source/models/install/output。
 //
 // 扫描发生在左栏（EngineScanZone），扫描结果由页面层持有并传进来。
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
+  guessed, onParamDropped, onTypeConfirmed,
 }) {
   const { t } = useT()
 
@@ -172,27 +173,15 @@ export default function ManifestForm ({
     return L ? t(L.en, L.zh) : g
   }
 
-  // 三级分组：
-  // L1 核心（常驻展开）：核心绑定区 + 必填 8 项 + 界面参数区
-  // L2 常用可选（折叠，有值时提示）：runtime 嵌套编辑器 + capabilities 平铺键 + call 其余字段
-  // L3 审计高级（永远折叠）：models 嵌套编辑器 + source/install/output 平铺键
-  // 首屏只出 L1。
-  //
-  // call 段的归属：CoreBindings 只管 bind 三槽位，call 的其余字段在 L2 的
-  // CallSection 里编辑。一个 call 两处编辑，但管的是不同的字段，不冲突。
-  const L2_GROUPS = ['runtime', 'capabilities']
-  const L3_GROUPS = ['source', 'models', 'install', 'output']
+  // 两级：常驻展开的「必填字段」+「参数」，与永远折叠的「高级」。
+  // call 段的归属：bind 三槽位在「必填字段」里，call 的其余字段在「高级」的 CallSection。
+  const L3_GROUPS = ['runtime', 'capabilities', 'source', 'models', 'install', 'output']
 
-  // L2/L3 的嵌套段（runtime / models）用 NestedSections 的全量编辑器，
-  // 平铺键（upstream / max_chars_source / base_url_env / output_formats 等）用 Field。
-  // 一个组可能既有嵌套段又有平铺键，分开渲染。
-  // 嵌套段无条件渲染，不依赖 byGroup[g] 判空：嵌套段写死在 JSX 里
-  // （L2=RuntimeSection、L3=ModelsSection，call 的 CallSection 在 L1 常驻），
-  // 与 spec 有没有平铺字段无关。平铺字段仍走 byGroup 判空。
-  const l2Flat = L2_GROUPS.filter((g) => byGroup[g])
+  // 「高级」里的嵌套段（runtime / call / models）用 NestedSections 的全量编辑器，无条件渲染；
+  // 平铺键（upstream / max_chars_source / base_url_env / output_formats 等）走 byGroup 判空。
   const l3Flat = L3_GROUPS.filter((g) => byGroup[g])
 
-  // 「有值时提示」：L2/L3 折叠标题上挂徽标，表示该折叠内已有内容。
+  // 「有值时提示」：「高级」折叠标题上挂徽标，表示折叠里已有内容。
   // 键路径要取对：args/cwd 在 runtime 下、streaming 在 capabilities 下，不是顶层键，
   // 取顶层会永远取空，徽标永不出现。
   const hasVal = (paths) => paths.some((path) => {
@@ -200,73 +189,25 @@ export default function ManifestForm ({
     return v !== undefined && v !== null && v !== ''
   })
 
-  // 核心绑定区（call.bind）在 L1 常驻展开。扫描成功不改变其开合，只触发滚动定位
-  // （见上方 useEffect）。不用 bindOpen 变量控制 details：绑定区是 L1，不是折叠项。
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* L1 ① 核心绑定区：核心映射（combobox + 匹配状态） */}
-      <CoreBindings call={manifest.call} onChange={(x) => set('call', x)}
-        candidates={autofill && autofill.argList || []}
-        matched={autofill && autofill.matched || null}
-        scanned={!!autofill} />
+      {/* ① 必填字段：核心输入 + 8 项 */}
+      <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill} />
 
-      {/* L1 ② 必填 8 项（平台当场抛错的那 8 个） */}
-      <RequiredEight manifest={manifest} onChange={onChange} />
-
-      {/* L1 ③ 界面参数区：左栏扫到的参数拖到这里，成为名片的一条界面参数 */}
+      {/* ② 参数：左栏扫到的参数拖到这里 */}
       <ParamDropZone manifest={manifest} onChange={onChange}
         params={manifest.parameters || []} selectedParam={selectedParam}
-        spec={spec} ParamRow={ParamRow} />
+        spec={spec} ParamRow={ParamRow}
+        guessed={guessed} onParamDropped={onParamDropped}
+        onTypeConfirmed={onTypeConfirmed} />
 
-      {/* ---- L2 常用可选（折叠，有值时提示）---- */}
+      {/* ---- ③ 高级（折叠）---- */}
       <details className="expert-block" open={false}>
         <summary className="expert-summary">
-          {t('Common options (optional)', '常用可选')}
-          {hasVal(['runtime.args', 'runtime.cwd', 'capabilities.streaming']) && (
-            <span className="badge badge-info" style={{ marginLeft: 6 }}>
-              {t('has values', '已有内容')}
-            </span>
-          )}
-        </summary>
-        <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {l2Flat.map((g) => (
-            <div className="section" key={g}>
-              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
-              <div className="section-body">
-                {byGroup[g].map((s) => (
-                  <Field key={s.key} sec={s} value={manifest[s.key]} onChange={(v) => set(s.key, v)} />
-                ))}
-              </div>
-            </div>
-          ))}
-          {/* L2 嵌套段：runtime（全量嵌套编辑器）。
-              无条件渲染 RuntimeSection：嵌套字段（python/entry/args/
-              ready_endpoint/ready_timeout_ms/verify…）都要能改。 */}
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
-            <div className="section-body">
-              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t}
-                checkpointsPath={checkpointsPath} />
-            </div>
-          </div>
-          {/* L2 嵌套段：call 其余字段（kind/module/class/method/init_args/returns）。
-              CoreBindings 只负责 bind 三槽位，call 的其它字段在这里编辑。 */}
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
-            <div className="section-body">
-              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
-            </div>
-          </div>
-        </div>
-      </details>
-
-      {/* ---- L3 审计高级（永远折叠）---- */}
-      <details className="expert-block" open={false}>
-        <summary className="expert-summary">
-          {t('Audit / advanced (rarely needed)', '审计与高级（多数用不到）')}
-          {hasVal(['upstream', 'install', 'models', 'weights', 'base_url_env']) && (
+          {t('Advanced', '高级')}
+          {hasVal(['runtime.args', 'runtime.cwd', 'capabilities.streaming',
+            'upstream', 'install', 'models', 'weights', 'base_url_env']) && (
             <span className="badge badge-info" style={{ marginLeft: 6 }}>
               {t('has values', '已有内容')}
             </span>
@@ -283,6 +224,24 @@ export default function ManifestForm ({
               </div>
             </div>
           ))}
+          {/* runtime 全量嵌套编辑器（python/entry/args/ready_endpoint/verify…）。
+              TODO(骨架)：与「必填字段」里的 runtime.* 是同一份数据的两处编辑，
+              这里应只留必填之外的键。 */}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
+            <div className="section-body">
+              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t}
+                checkpointsPath={checkpointsPath} />
+            </div>
+          </div>
+          {/* call 其余字段（kind/module/class/method/init_args/returns）。
+              核心输入 bind 三格在「必填字段」里。 */}
+          <div className="section">
+            <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
+            <div className="section-body">
+              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
+            </div>
+          </div>
           {/* L3 嵌套段：models（全量嵌套编辑器）。
               无条件渲染 ModelsSection：嵌套字段（required/hint/
               source.url/source.command）都要能改。 */}

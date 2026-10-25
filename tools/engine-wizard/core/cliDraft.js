@@ -53,6 +53,9 @@ function buildCliDraft (cliHelp, opts = {}) {
       required: f.required === true,
       default: f.default !== undefined ? f.default : null,
       choices: f.choices || null,
+      // argparse 的 type= 原样递出（int / float / str / Path…）。
+      //   没有它，value 形态的 flag 只能一律当 str，界面上的类型就是猜的。
+      type: f.type || null,
       is_tool: TOOL_FLAGS.has(name),
       subcommand: f.subcommand || null,
       source_file: f.source_file || null,

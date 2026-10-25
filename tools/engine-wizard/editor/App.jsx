@@ -192,7 +192,12 @@ export default function App () {
   const isDone = !!step && done[step.key]
 
   return (
-    <div className="wz-root workspace-container">
+    // 外层不再整个套 .workspace-container：第 4 步的三栏要铺满页面宽度，
+    //   套在 1400px 的居中容器里，边条就只能贴着主容器两边，
+    //   左栏参数被挤窄、右栏预览放不到平台前端的尺寸。
+    //   顶栏、流程条与其余四步照旧在容器里；第 4 步自己全宽，中栏内容再对齐容器。
+    <div className="wz-root">
+      <div className="workspace-container wz-root">
 
       {/* ---- 顶栏：项目的 section 三件套（照 TrainingTab 的骨架）---- */}
       <div className="section">
@@ -220,6 +225,8 @@ export default function App () {
         </div>
       )}
 
+      </div>
+
       {/* ---- 第 4 步：名片页有自己的骨架，不套 .node-detail ----
           .node-detail 是平台训练页的详情框（紫色描边 + 圆角 + 底色）。
           第 4 步的骨架是三根平级的骨头（左边条 / 中栏 / 右边条），
@@ -239,6 +246,8 @@ export default function App () {
         </div>
       )}
 
+      {page !== 'manifest' && (
+      <div className="workspace-container wz-root">
       {/* ---- 展开的那一步：.node-detail 详情框，外壳照 NodeDetailPanel.jsx 的 NodeDetailPanel() ---- */}
       {page && page !== 'manifest' && (
         <div className="node-detail">
@@ -306,6 +315,8 @@ export default function App () {
               '已收起。选择上方任一步骤即可继续配置。')}
           </p>
         </div>
+      )}
+      </div>
       )}
     </div>
   )
