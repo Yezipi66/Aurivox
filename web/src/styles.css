@@ -275,15 +275,6 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 }
 /* 「该修了」这一档：既不是主要动作（那不是使用它），也不是普通次要动作。
    只在真的需要动手的行上出现，所以不必和 primary 抢目光。 */
-.btn-warn {
-  background: rgba(255, 183, 77, 0.14);
-  color: var(--warning);
-  border-color: rgba(255, 183, 77, 0.5);
-}
-.btn-warn:hover {
-  background: rgba(255, 183, 77, 0.22);
-  border-color: var(--warning);
-}
 .btn-sm {
   padding: 4px 10px;
   font-size: 11px;

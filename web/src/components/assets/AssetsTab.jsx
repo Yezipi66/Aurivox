@@ -782,41 +782,33 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                   </div>
                 </div>
                 <div className="asset-actions">
-                  {/* 需要修的那一枚单独站在组外：它是一整句话（Rebuild slices… / Restore…），
-                      而组里只有 Scan / Refine 这种短动词，混在一起会把节奏打断。 */}
-                  {showRestore ? (
-                    <button
-                      className="btn btn-sm btn-warn"
-                      onClick={() => setRestoreTarget({ id, displayName: asset.display_name || id })}
-                      disabled={scanning}
-                      title={h.key === 'nomodel'
-                        ? 'Rebuild the missing model. Existing slices and transcripts are reused — only preprocess+train run (no re-slicing, no re-ASR).'
-                        : h.key === 'ready'
-                          ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless you opt into retraining.'
-                          : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
-                    >
-                      {h.key === 'nomodel' ? 'Rebuild' : h.key === 'ready' ? 'Rebuild slices' : 'Restore'}
-                    </button>
-                  ) : h.key === 'noseg' ? (
-                    <button
-                      className="btn btn-sm btn-warn"
-                      onClick={() => handleScanOne(id)}
-                      disabled={scanning}
-                      title="Rebuild segments.json from existing slices — no re-training"
-                    >
-                      Rebuild Segments
-                    </button>
-                  ) : null}
                   {/* 次要操作。 */}
                   <div className="aa-group">
-                    {!showRestore && h.key !== 'noseg' && (
+                    {/* 这一格要么 Scan，要么这一行缺东西时的修复动作，两者互斥、同一种样式：
+                        缺什么由左边的健康徽章说，按钮不负责催。 */}
+                    {showRestore ? (
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => setRestoreTarget({ id, displayName: asset.display_name || id })}
+                        disabled={scanning}
+                        title={h.key === 'nomodel'
+                          ? 'Rebuild the missing model. Existing slices and transcripts are reused — only preprocess+train run (no re-slicing, no re-ASR).'
+                          : h.key === 'ready'
+                            ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless you opt into retraining.'
+                            : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
+                      >
+                        {h.key === 'nomodel' ? 'Rebuild' : h.key === 'ready' ? 'Rebuild slices' : 'Restore'}
+                      </button>
+                    ) : (
                       <button
                         className="btn btn-sm btn-ghost"
                         onClick={() => handleScanOne(id)}
                         disabled={scanning}
-                        title="Re-scan this voice and refresh its assets"
+                        title={h.key === 'noseg'
+                          ? 'Rebuild segments.json from existing slices — no re-training'
+                          : 'Re-scan this voice and refresh its assets'}
                       >
-                        Scan
+                        {h.key === 'noseg' ? 'Rebuild Segments' : 'Scan'}
                       </button>
                     )}
                     {showRebuild && (
