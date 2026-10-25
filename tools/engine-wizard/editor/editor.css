@@ -137,8 +137,14 @@
 }
 
 /* 一根边条。收着时是一条窄边 + 一个箭头按钮，
-   展开时变宽成抽屉，内容从箭头下方流下来。 */
+   展开时变宽成抽屉，内容从箭头下方流下来。
+
+   position:relative + z-index 是必须的：遮罩是 position:fixed 的
+   fixed 层，不给它 z-index 的边条会被遮罩盖住，
+   点抽屉里的按钮点到的是遮罩（抽屉看着开着，却点不动）。 */
 .wz-drawer {
+  position: relative;
+  z-index: 10;
   flex-shrink: 0;
   width: var(--wz-rail-w, 32px);
   display: flex;
@@ -187,7 +193,7 @@
 }
 
 /* 遮罩：抽屉开着时盖住中栏，点它收回去。
-   z-index 在抽屉之下 ⇒ 抽屉本身仍然可点。 */
+   z-index 在抽屉之下（抽屉是 10）⇒ 抽屉本身仍然可点。 */
 .wz-stage-scrim {
   position: fixed;
   inset: 0;
@@ -216,7 +222,8 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    z-index: 9;
+    /* 遮罩是 8，这里必须比它高，否则抽屉里的按钮点不动。 */
+    z-index: 10;
   }
   .wz-drawer-left.is-open { left: 0; }
   .wz-drawer-right.is-open { right: 0; }

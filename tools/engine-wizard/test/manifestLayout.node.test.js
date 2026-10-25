@@ -98,6 +98,26 @@ test('中栏占满剩下的宽度，内容另有上限', () => {
   assert.ok(/margin:\s*0 auto/.test(inner), '中栏内容应当居中')
 })
 
+test('遮罩不许盖住抽屉（抽屉里的按钮要能点）', () => {
+  // 遮罩是 position:fixed 的固定层。边条若不自己抬 z-index，
+  // 就会被遮罩盖住：抽屉看着开着，里面的按钮却点不动
+  // （点到的其实是遮罩 ⇒ 抽屉立刻收回去）。
+  const scrim = ruleBody('.wz-stage-scrim')
+  assert.ok(scrim, 'editor.css 里没有 .wz-stage-scrim')
+  const scrimZ = Number((scrim.match(/z-index:\s*(\d+)/) || [])[1])
+  assert.ok(Number.isFinite(scrimZ), '.wz-stage-scrim 没写 z-index')
+
+  const drawer = ruleBody('.wz-drawer')
+  assert.ok(drawer, 'editor.css 里没有 .wz-drawer')
+  const drawerZ = Number((drawer.match(/z-index:\s*(\d+)/) || [])[1])
+  assert.ok(Number.isFinite(drawerZ), '.wz-drawer 没写 z-index')
+  assert.ok(drawerZ > scrimZ,
+    `边条的 z-index（${drawerZ}）必须大于遮罩的（${scrimZ}），`
+    + '否则抽屉里的按钮点到的是遮罩')
+  assert.ok(/position:\s*relative/.test(drawer),
+    '.wz-drawer 要 position:relative，z-index 才有意义')
+})
+
 test('第 4 步不套平台的紫框详情框（.node-detail）', () => {
   // .node-detail 是平台训练页的详情框：border + border-radius + background。
   // 第 4 步的骨架是页面自己的三根骨头，套进去就是「拿页面骨架当卡片内容塞」：
