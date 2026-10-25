@@ -50,14 +50,14 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         {runStatus
           ? (
             <span style={{
-              marginLeft: 'auto', fontSize: 10, fontWeight: 500, padding: '1px 6px', borderRadius: 9,
+              marginLeft: 'auto', fontSize: 11, fontWeight: 500, padding: '1px 6px', borderRadius: 9,
               whiteSpace: 'nowrap', color: RUN_TEXT[runStatus] || MUTED,
               border: `1px solid ${RUN_COLOURS[runStatus] || BORDER}`,
             }}>{pickText(RUN_LABELS[runStatus], lang, runStatus)}</span>
           )
           : (
             <span style={{
-              marginLeft: 'auto', fontSize: 10, color: MUTED, padding: '1px 6px', borderRadius: 9,
+              marginLeft: 'auto', fontSize: 11, color: MUTED, padding: '1px 6px', borderRadius: 9,
               background: 'rgba(255,255,255,0.04)', whiteSpace: 'nowrap',
             }}>{node.id}</span>
           )}
@@ -72,7 +72,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         const help = pickText(portDef.help, lang)
         const typeHelp = pickText(portDef.type_help, lang, portDef.type)
         return (
-          <div key={portDef.name} style={{ position: 'absolute', left: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, maxWidth: NODE_WIDTH / 2 + 26 }}>
+          <div key={portDef.name} style={{ position: 'absolute', left: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, maxWidth: NODE_WIDTH / 2 + 26 }}>
             <span
               // Pressing a port must never start dragging the node behind it.
               // That was the whole cause of the stuck-node bug.
@@ -112,7 +112,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         const label = pickText(portDef.label, lang, portDef.name)
         const typeHelp = pickText(portDef.type_help, lang, portDef.type)
         return (
-          <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, maxWidth: NODE_WIDTH / 2 + 12 }}>
+          <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, maxWidth: NODE_WIDTH / 2 + 12 }}>
             <span style={{ minWidth: 0, textAlign: 'right' }}>
               <span style={{ color: 'var(--text, #d8dbe2)', whiteSpace: 'nowrap' }}>{label}</span>
               <span style={{ display: 'block', color: MUTED, fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -149,7 +149,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
             const value = node.params?.[param.name]
             const shown = value === undefined ? param.default : value
             return (
-              <div key={param.name} style={{ display: 'flex', gap: 6, fontSize: 10, height: PARAM_ROW, alignItems: 'center' }}>
+              <div key={param.name} style={{ display: 'flex', gap: 6, fontSize: 11, height: PARAM_ROW, alignItems: 'center' }}>
                 <span style={{ color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '52%' }}>
                   {pickText(param.label, lang, param.name)}
                 </span>
@@ -214,7 +214,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
     <Panel title={`${pickText(definition.label, lang, definition.type)}　${node.id}`}>
       <div style={{ fontSize: 12, color: MUTED, marginBottom: 10, lineHeight: 1.7 }}>
         {pickText(definition.help, lang)}
-        <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>{definition.type}</div>
+        <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>{definition.type}</div>
       </div>
 
       <PortList
@@ -296,7 +296,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
                 style={fieldStyle}
               />
             )}
-            <div style={{ color: MUTED, fontSize: 10, marginTop: 4 }}>
+            <div style={{ color: MUTED, fontSize: 11, marginTop: 4 }}>
               {t(`default: ${describeValue(param.default, 'en')}`, `默认值：${describeValue(param.default, 'zh')}`)}
             </div>
             {param.source === 'voices' && (
@@ -309,7 +309,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
                 >
                   {t('Fill engine parameters from this voice', '按该音色填充引擎参数')}
                 </button>
-                <div style={{ color: MUTED, fontSize: 10, marginTop: 4, lineHeight: 1.6 }}>
+                <div style={{ color: MUTED, fontSize: 11, marginTop: 4, lineHeight: 1.6 }}>
                   {t(
                     'A voice is a preset: its values are copied into the engine-parameters node once and stay editable. Nothing is written back to the voice.',
                     '音色是一份预设：其参数值会一次性复制到引擎参数节点，之后仍可手动修改；修改不会写回音色。',

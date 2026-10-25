@@ -128,8 +128,8 @@ function ReviewRowAudio({ taskId, relPath }) {
       <button type="button" className="btn btn-sm btn-ghost" onClick={toggle}
               title={playing ? 'Pause' : 'Play'}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '1px 8px', height: 22 }}>
-        <span style={{ fontSize: 10, lineHeight: 1 }}>{playing ? '❚❚' : '▶'}</span>
-        <span style={{ fontSize: 10 }}>{playing ? 'Pause' : 'Play'}</span>
+        <span style={{ fontSize: 11, lineHeight: 1 }}>{playing ? '❚❚' : '▶'}</span>
+        <span style={{ fontSize: 11 }}>{playing ? 'Pause' : 'Play'}</span>
       </button>
       <audio ref={ref} src={src} preload="none"
              onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
@@ -172,9 +172,9 @@ function ConfBadge({ conf, tr }) {
   const pct = (conf * 100).toFixed(0)
   return (
     <span className="arr-conf" title={`${tr('Confidence', '置信度')} ${pct}% · ${confTierLabel(tier, tr)}`}>
-      <span aria-hidden="true" style={{ fontSize: 10, fontWeight: 700, color: c.fg, lineHeight: 1 }}>{c.sym}</span>
+      <span aria-hidden="true" style={{ fontSize: 11, fontWeight: 700, color: c.fg, lineHeight: 1 }}>{c.sym}</span>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.fg, display: 'inline-block' }} />
-      <span style={{ fontSize: 10, color: c.fg }}>{pct}%</span>
+      <span style={{ fontSize: 11, color: c.fg }}>{pct}%</span>
     </span>
   )
 }

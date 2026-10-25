@@ -32,7 +32,7 @@ function ConfidenceBadge({ conf }) {
     <div style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
          title={`识别置信度 ${(conf * 100).toFixed(0)}%（绿=高 / 黄=可疑 / 红=可能识别错误）`}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.fg, display: 'inline-block' }} />
-      <span style={{ fontSize: 10, color: c.fg }}>{(conf * 100).toFixed(0)}%</span>
+      <span style={{ fontSize: 11, color: c.fg }}>{(conf * 100).toFixed(0)}%</span>
     </div>
   )
 }

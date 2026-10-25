@@ -331,7 +331,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                     <div key={ci} style={{ textAlign: 'center', opacity: muted ? 0.45 : 1 }}>
                       <div style={{ fontSize: 15, color: muted ? 'var(--muted)' : (c.polyphonic ? 'var(--warning)' : 'var(--text)') }}>{c.char}</div>
                       {muted ? (
-                        <div style={{ fontSize: 10, color: 'var(--muted)' }} title={t('This character is set to read in another language; correct its reading in the Han character language section.', '该字已设为按另一种语言朗读；请在“汉字语言”区修改其读音。')}>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }} title={t('This character is set to read in another language; correct its reading in the Han character language section.', '该字已设为按另一种语言朗读；请在“汉字语言”区修改其读音。')}>
                           {'\u2192'} {mutedLang ? langName(t, mutedLang) : (mutedLangLabel || t('other', '其它'))}
                         </div>
                       ) : c.polyphonic && c.candidates.length > 1 ? (
@@ -381,7 +381,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                     spellCheck={false}
                     onChange={e => changeWordReading(seg, tok.word, occ, e.target.value)}
                   />
-                  {isKo && tok.editable && <div style={{marginTop:4}}><button type="button" className="btn btn-sm btn-ghost" disabled={tokenInactive} title={tokenMuted ? tokenMutedTip : koDimmed ? t('Turn on “Show all Korean words” above to inspect this word.', '请先开启上方“显示全部韩语词”再查看这个词。') : undefined} onClick={()=>setExpandedKo(x=>({...x,[ti]:!x[ti]}))}>{expandedKo[ti]?t('Hide syllables','收起音节'):t('Expand syllables','展开音节')}</button>{tok.unresolved&&<span style={{fontSize:10,color:'var(--danger)',marginLeft:6}}>{t('Unresolved','未解析')}</span>}{expandedKo[ti]&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:5}}>{(tok.syllables||[]).map((sy,i)=><div key={i} style={{border:`1px solid ${sy.changed?'var(--warning)':'var(--border)'}`,borderRadius:4,padding:'3px 6px',textAlign:'center'}}><div>{sy.written||'·'}</div><div style={{fontSize:10,color:sy.changed?'var(--warning)':'var(--muted)'}}>{sy.spoken||'?'}</div></div>)}</div>}</div>}
+                  {isKo && tok.editable && <div style={{marginTop:4}}><button type="button" className="btn btn-sm btn-ghost" disabled={tokenInactive} title={tokenMuted ? tokenMutedTip : koDimmed ? t('Turn on “Show all Korean words” above to inspect this word.', '请先开启上方“显示全部韩语词”再查看这个词。') : undefined} onClick={()=>setExpandedKo(x=>({...x,[ti]:!x[ti]}))}>{expandedKo[ti]?t('Hide syllables','收起音节'):t('Expand syllables','展开音节')}</button>{tok.unresolved&&<span style={{fontSize: 11,color:'var(--danger)',marginLeft:6}}>{t('Unresolved','未解析')}</span>}{expandedKo[ti]&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:5}}>{(tok.syllables||[]).map((sy,i)=><div key={i} style={{border:`1px solid ${sy.changed?'var(--warning)':'var(--border)'}`,borderRadius:4,padding:'3px 6px',textAlign:'center'}}><div>{sy.written||'·'}</div><div style={{fontSize: 11,color:sy.changed?'var(--warning)':'var(--muted)'}}>{sy.spoken||'?'}</div></div>)}</div>}</div>}
                   {isEn && openDetail[ti] && (
                     <>
                       {(tok.candidates || []).length > 0 && (
@@ -417,7 +417,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                 </div>
               )}
               {overridden && !tokenMuted && (
-                <button className="btn btn-sm btn-ghost" style={{ marginTop: 4, fontSize: 10 }} onClick={() => saveToLexicon(seg, tok.word, occ)}>
+                <button className="btn btn-sm btn-ghost" style={{ marginTop: 4, fontSize: 11 }} onClick={() => saveToLexicon(seg, tok.word, occ)}>
                   {t('Save to lexicon', '保存到词典')}
                 </button>
               )}

@@ -110,7 +110,7 @@ a:hover {
 }
 .field-label {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -118,12 +118,12 @@ a:hover {
   margin-bottom: 4px;
 }
 .field-hint {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   margin-top: 3px;
 }
 .field-note {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   opacity: 0.8;
   margin-top: 3px;
@@ -197,7 +197,7 @@ button.ui-select[aria-expanded="true"] {
 .ui-select-arrow {
   flex: 0 0 auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   transition: transform 0.15s;
 }
@@ -485,7 +485,7 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 .section-hdr {
   background: var(--panel);
   padding: 6px 12px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -706,7 +706,7 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 .ctx-item .ctx-v {
@@ -750,7 +750,7 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   gap: 4px;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.3px;
   border: 1px solid transparent;
@@ -782,7 +782,7 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   border: 1px solid var(--border);
   font-size: 12px;
 }
-.stat-pill .sp-k { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
+.stat-pill .sp-k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; }
 .stat-pill .sp-v { color: var(--text); font-weight: 700; }
 
 /* Reference-text status pill (Assets) — compact, lives in the stat-pill row so it
@@ -984,7 +984,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 12px; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.recent-row .rr-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.recent-row .rr-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 .recent-row .rr-actions { display: flex; gap: 4px; align-items: center; }
 .icon-btn {
@@ -1004,7 +1004,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Plan card key/value */
 .plan-kv { display: grid; grid-template-columns: 120px 1fr; gap: 4px 10px; font-size: 12px; }
-.plan-kv .pk { color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; font-weight: 700; padding-top: 1px; }
+.plan-kv .pk { color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; font-size: 11px; font-weight: 700; padding-top: 1px; }
 .plan-kv .pv { color: var(--text); word-break: break-word; }
 
 .form-narrow { max-width: 720px; }
@@ -1179,7 +1179,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .pf-row { display: flex; align-items: center; gap: 10px; min-height: 20px; }
 .pf-key {
   flex: 0 0 76px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1393,7 +1393,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 /* Category sub-heading inside an expert column (e.g. "LR Scheduler"). */
 .param-subgroup-title {
-  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--muted); margin: 14px 0 6px;
 }
 .param-subgroup-title:first-of-type { margin-top: 4px; }
@@ -1410,7 +1410,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: var(--radius-sm);
 }
 .plan-preview-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 1px;
   color: var(--muted);
@@ -1471,7 +1471,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .assets-dir-input:disabled { color: var(--muted); cursor: not-allowed; }
 .assets-dir-pick { flex-shrink: 0; }
 .assets-dir-flag {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--warning);
   border: 1px solid var(--warning);
   border-radius: 4px;
@@ -1501,7 +1501,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .pron-muted-hint {
   margin: -2px 0 3px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.25;
   text-align: center;
   font-style: italic;
@@ -1556,7 +1556,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--accent-soft);
 }
 .ref-tab-count {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   background: var(--panel);
   border-radius: 8px;
@@ -1650,7 +1650,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   font-style: italic;
   flex-shrink: 0;
@@ -2001,7 +2001,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .cmp-status {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
@@ -2029,7 +2029,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 10px;
 }
 .cmp-result-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -2235,7 +2235,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Seed badge — reproducibility affordance (Generate result header).
    Shows the RESOLVED seed with click-to-copy. */
 .seed-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
-.seed-badge-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+.seed-badge-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
 .seed-badge-val {
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   background: var(--accent-soft); color: var(--accent);
@@ -2272,7 +2272,7 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .cmp-batch-label { flex: 1; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmp-batch-partial {
-  font-size: 10px; color: var(--warning); border: 1px solid var(--warning);
+  font-size: 11px; color: var(--warning); border: 1px solid var(--warning);
   border-radius: 4px; padding: 0 5px; white-space: nowrap;
 }
 .cmp-batch-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -2287,6 +2287,6 @@ input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .cmp-batch-seed {
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 10px; color: var(--accent); background: var(--accent-soft);
+  font-size: 11px; color: var(--accent); background: var(--accent-soft);
   border-radius: 4px; padding: 0 5px; white-space: nowrap;
 }

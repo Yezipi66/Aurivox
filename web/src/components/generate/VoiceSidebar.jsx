@@ -165,7 +165,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
                 onChange={e => onRefTextOverride?.(e.target.value)}
                 placeholder={activeIsRaw ? t('No aligned transcript — type a reference text for this run (optional)…', '没有对齐的转写文本：可为本次生成输入一段参考文本（可选）…') : t('Reference text…', '参考文本…')}
               />
-              <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
                 <span>
                   {refTextOverride != null
                     ? t('✎ Edited for this run only — the source file is unchanged.', '✎ 仅对本次生成有效，源文件不会被修改。')
@@ -174,7 +174,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
                         : t('Reference transcript — edits here affect only this run, not the file.', '参考转写文本：此处的修改仅影响本次生成，不会改动文件。'))}
                 </span>
                 {refTextOverride != null && (
-                  <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 10, flex: '0 0 auto' }}
+                  <button type="button" className="btn btn-sm" style={{ padding: '0 6px', height: 18, fontSize: 11, flex: '0 0 auto' }}
                     onClick={() => onRefTextOverride?.(null)}>Reset</button>
                 )}
               </div>

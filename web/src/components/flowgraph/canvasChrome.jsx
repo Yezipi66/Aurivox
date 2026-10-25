@@ -151,7 +151,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
               >
                 {pickText(definition.label, lang, definition.type)}
                 {definition.suspends && (
-                  <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn, #e0b341)' }}>
+                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--warn, #e0b341)' }}>
                     {t('needs input', '需人工介入')}
                   </span>
                 )}

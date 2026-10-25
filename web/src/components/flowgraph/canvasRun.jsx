@@ -120,7 +120,7 @@ export function EventView({ event, t }) {
       <div style={{ fontSize: 11, marginBottom: 6 }}>
         <div style={{ color: MUTED }}>{t('Generation record (recipe)', '生成记录（配方）')}</div>
         <pre style={preStyle}>{JSON.stringify(event.recipe, null, 1)}</pre>
-        <div style={{ color: MUTED, fontSize: 10, marginTop: 3, lineHeight: 1.6 }}>
+        <div style={{ color: MUTED, fontSize: 11, marginTop: 3, lineHeight: 1.6 }}>
           {t(
             'To keep these settings, connect the recipe output to a Save as Voice node.',
             '如需保留这组参数，请将配方输出连接到「保存为音色」节点。',
