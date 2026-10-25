@@ -6,6 +6,7 @@ import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
 import ThreeZone from './ThreeZone'
 import EngineScanZone from './EngineScanZone'
+import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
 
 // 名片编辑页：三栏。
@@ -21,9 +22,15 @@ import { computeAutoFill } from './scanAutofill'
 
 export default function ManifestPage ({
   manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
+  engineState,
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
+  // 哪几栏收起了。存在这一层（不在 ThreeZone 里）：
+  //   收起按钮在内容自己的 .section-hdr 上，内容需要知道收起了没有，
+  //   才能把按钮画成「▾ 收起」还是「▸ 展开」。
+  const [collapsed, setCollapsed] = React.useState({ left: false, right: false })
+  const toggleZone = (key) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
 
   // ---- 扫描状态 ----
   const [scan, setScan] = React.useState(null)       // /wizard/discover 的完整返回
@@ -98,17 +105,32 @@ export default function ManifestPage ({
     // SaveBar 跨栏 sticky bottom，永远可见。
     <div className="wz-manifest-layout">
       <ThreeZone
+        collapsed={collapsed}
+        onToggle={toggleZone}
         left={
           <EngineScanZone
-            manifest={manifest || {}} onChange={onManifest}
             params={params} selected={selected}
             onSelect={setSelected} onDragStart={onDragStart}
             groups={(scan && scan.groups) || []} group={group}
             onGroupChange={setGroup}
-            busy={busy} err={scanErr} onScan={doScan} />
+            busy={busy} err={scanErr} onScan={doScan}
+            canScan={!!((manifest && manifest.id) || '')}>
+            <button className="btn btn-sm btn-ghost" type="button"
+              onClick={() => toggleZone('left')}
+              title={t('Collapse', '收起')}
+              aria-label={t('Collapse the parameters column', '收起参数栏')}
+              aria-expanded={true}>
+              ▾
+            </button>
+          </EngineScanZone>
         }
         center={
           <div className="workspace-left">
+            {/* 身份条在最上面：这是哪台引擎的名片、平台现在知道它什么状况。 */}
+            <EngineIdentity
+              manifest={manifest || {}} onChange={onManifest}
+              facts={engineState} />
+
             <div className="ref-tabs">
               <button type="button"
                 className={`ref-tab${view === 'form' ? ' active' : ''}`}
@@ -145,15 +167,40 @@ export default function ManifestPage ({
             {/* 预览在前：右栏是「当前项目的前端预览」这一栏，
                 诊断是附带的说明，不该把首屏占住。 */}
             {manifest
-              ? <PanelPreview manifest={manifest} />
+              ? <PanelPreview manifest={manifest}>
+                <button className="btn btn-sm btn-ghost" type="button"
+                  onClick={() => toggleZone('right')}
+                  title={t('Collapse', '收起')}
+                  aria-label={t('Collapse the preview column', '收起预览栏')}
+                  aria-expanded={true}>
+                  ▾
+                </button>
+              </PanelPreview>
               : (
-                <div className="empty-state">
-                  <div className="es-title">
-                    {t('Nothing to preview yet', '还没有可预览的内容')}
+                // 还没选引擎时右栏是空的，但空栏也要有栏头与收起按钮：
+                // 三栏的收起入口得在同一处，不能因为内容空了就少一个。
+                // 栏头与有预览时长得一样（.section + .section-hdr）。
+                <div className="section">
+                  <div className="section-hdr">
+                    <h2>{t('Preview', '预览')}</h2>
+                    <button className="btn btn-sm btn-ghost" type="button"
+                      onClick={() => toggleZone('right')}
+                      title={t('Collapse', '收起')}
+                      aria-label={t('Collapse the preview column', '收起预览栏')}
+                      aria-expanded={true}>
+                      ▾
+                    </button>
                   </div>
-                  <div className="es-sub">
-                    {t('Fill in the form on the left to see the preview.',
-                      '在左侧填表，右侧会实时显示界面。')}
+                  <div className="section-body">
+                    <div className="empty-state">
+                      <div className="es-title">
+                        {t('Nothing to preview yet', '还没有可预览的内容')}
+                      </div>
+                      <div className="es-sub">
+                        {t('Pick an engine on the left to see the preview.',
+                          '在左侧选一台引擎，右侧会实时显示界面。')}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 )}
