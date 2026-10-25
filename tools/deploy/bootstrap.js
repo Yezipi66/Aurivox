@@ -1,4 +1,31 @@
 /**
+ * 两个路径是不是同一个可执行文件。
+ *
+ * 比的是 realpath，不是路径字符串：CPython 建 venv 时往 pyvenv.cfg 里写的
+ * `executable` 是 `os.path.realpath(sys.executable)`（Lib/venv/__init__.py 的
+ * create_configuration），已经把 symlink 解析掉了。
+ *   · posix 上 venv 的 bin/python 是指向 base 的 symlink ⇒ 记进去的是真 base 路径，
+ *     与「建 venv 时用的那个入口路径」字符串不同，但指向同一个文件。
+ *   · Windows 上 venv 的 Scripts\python.exe 是复制 ⇒ realpath 不变，字符串相同。
+ * 所以只比字符串的话，posix 上永远判成「base 不是它」⇒ 根 venv 每次都被判不健康
+ * （bootstrap.js 的健康检查与建完后的复核都会误判）。
+ *
+ * 路径不存在时 realpathSync 会抛（base 指向的旧解释器已被删掉正是要抓的场景）
+ * ⇒ 退回按解析后的绝对路径比：路径不同仍然判否，不会把坏 venv 当成好的。
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function sameInterpreterPath (a, b) {
+  const norm = (p) => {
+    try { return fs.realpathSync.native(p).toLowerCase() }
+    catch (_) { return path.resolve(p).toLowerCase() }
+  }
+  return norm(a) === norm(b)
+}
+
+/**
  * 这个 venv 是不是从当前内嵌解释器部署出来的。
  *
  * 判据读 `pyvenv.cfg` 里的 `executable`（建它时用的 base 解释器绝对路径）
@@ -24,7 +51,7 @@ function venvBaseMatches (venvDir, embeddedPython) {
   if (!base) {
     return { ok: false, reason: 'no-base-in-pyvenv-cfg', base: null, embedded }
   }
-  if (path.resolve(base).toLowerCase() !== embedded.toLowerCase()) {
+  if (!sameInterpreterPath(base, embedded)) {
     return { ok: false, reason: 'base-differs', base, embedded }
   }
   return { ok: true, reason: 'base-matches', base, embedded }
@@ -698,4 +725,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { venvBaseMatches, inspectExistingVenv }
+module.exports = { venvBaseMatches, inspectExistingVenv, sameInterpreterPath }
