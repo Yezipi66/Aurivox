@@ -68,7 +68,7 @@ export function StepVerify ({ id }) {
     return (
       <div className="section" key={key}>
         <div className="section-hdr">
-          <h2 style={{ fontSize: 13 }}>
+          <h2 style={{ fontSize: 'var(--fs-13)' }}>
             {labelFor[key]}
             <span className={`badge badge-${status}`}>{badge}</span>
           </h2>
@@ -109,7 +109,7 @@ export function StepVerify ({ id }) {
 
       <div className="section">
         <div className="section-hdr">
-          <h2 style={{ fontSize: 13 }}>
+          <h2 style={{ fontSize: 'var(--fs-13)' }}>
             {t('Audio: playable', '音频：可播放')}
             <span className={`badge badge-${statusFor(checks.audio)}`}>
               {statusFor(checks.audio) === 'ok' ? t('Done', '已完成') : statusFor(checks.audio) === 'fail' ? t('Failed', '失败') : t('Unknown', '未知')}
@@ -145,7 +145,7 @@ export function StepVerify ({ id }) {
       {/* 时长/采样率/声道由后端解 WAV 头给出，这里不引 ffmpeg。 */}
       <div className="section">
         <div className="section-hdr">
-          <h2 style={{ fontSize: 13 }}>{t('Audio information', '音频信息')}</h2>
+          <h2 style={{ fontSize: 'var(--fs-13)' }}>{t('Audio information', '音频信息')}</h2>
         </div>
         <div className="section-body">
           {checks.audio && checks.audio.wav ? (
@@ -172,7 +172,7 @@ export function StepVerify ({ id }) {
       {/* 复用主界面那个 Player，不另画播放器。 */}
       <div className="section">
         <div className="section-hdr">
-          <h2 style={{ fontSize: 13 }}>{t('Waveform', '波形')}</h2>
+          <h2 style={{ fontSize: 'var(--fs-13)' }}>{t('Waveform', '波形')}</h2>
         </div>
         <div className="section-body">
           {checks.audio && checks.audio.audio_path ? (
@@ -188,7 +188,7 @@ export function StepVerify ({ id }) {
 
       <div className="section">
         <div className="section-hdr">
-          <h2 style={{ fontSize: 13 }}>{t('ASR read-back (optional)', 'ASR 反向识别（可选）')}</h2>
+          <h2 style={{ fontSize: 'var(--fs-13)' }}>{t('ASR read-back (optional)', 'ASR 反向识别（可选）')}</h2>
         </div>
         <div className="section-body">
           <div className="field-hint">
