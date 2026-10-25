@@ -55,8 +55,10 @@ export function RecentGenerations({
         <span>Recent Generations</span>
         {recent.length > 0 && (
           <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-sm btn-ghost" onClick={onClearHistory}>Clear History</button>
-            <button className="btn btn-sm btn-danger" onClick={onCleanAll}>Clean All</button>
+            {/* 两个按钮的差别是「只清列表」和「连文件一起删」，而 Clean All
+                听起来和 Clear History 是一档的。按确认框里已经在用的词命名。 */}
+            <button className="btn btn-sm btn-ghost" onClick={onClearHistory}>Clear history</button>
+            <button className="btn btn-sm btn-danger" onClick={onCleanAll}>Delete all files</button>
           </div>
         )}
       </div>
