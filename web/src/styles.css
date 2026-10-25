@@ -22,6 +22,24 @@
      page DOM — i.e. always below browser chrome. Change here to retune all
      dropdowns at once. */
   --z-dropdown: 1200;
+  /* 字号标度。档名就是值，不假装它是语义档（xs/sm 那套在这份 CSS 里没人对得上号）。
+     11px 是下限：更小的中文在暗色底上要靠猜。离群值（11.5 / 12.5 / 15 / 17 / 20）
+     还没收编，收编时就近归档，不许再写新的 px 字面量。 */
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  /* 间距标度。档名同样就是值。2px 只留给图标对齐这类微调。 */
+  --sp-2: 2px;
+  --sp-4: 4px;
+  --sp-6: 6px;
+  --sp-8: 8px;
+  --sp-10: 10px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-24: 24px;
 }
 
 *, *::before, *::after {

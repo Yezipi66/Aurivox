@@ -43,7 +43,7 @@
 .wz-root {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-8);
   min-height: 0;
 }
 
@@ -122,7 +122,7 @@
   background: var(--panel);
   border-top: 1px solid var(--border);
   padding: 8px 0;
-  margin-top: 4px;
+  margin-top: var(--sp-4);
 }
 
 /* 第 4 步的骨架：左边条、中栏、右边条，三根平级的骨头。
@@ -168,7 +168,7 @@
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 1;
   cursor: pointer;
 }
@@ -222,11 +222,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--sp-8);
+  margin-top: var(--sp-8);
 }
 .wz-identity-path {
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--muted);
 }
 /* 状态标记直接用项目的 .badge（badge-ok / badge-warn / badge-neutral）：
@@ -234,17 +234,17 @@
 
 /* ---- 左栏参数池 ---- */
 .wz-param-count {
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--muted);
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-6);
 }
 .wz-param-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-6);
   max-height: 60vh;
   overflow-y: auto;
-  padding-right: 2px;
+  padding-right: var(--sp-2);
 }
 /* 参数卡片：可拖的源。cursor:grab 表示能拖走。 */
 .wz-param-item {
@@ -255,7 +255,7 @@
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-4);
 }
 .wz-param-item:hover {
   border-color: var(--accent);
@@ -268,20 +268,20 @@
 .wz-param-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
   flex-wrap: wrap;
 }
 .wz-param-name {
-  font-size: 12px;
+  font-size: var(--fs-12);
   word-break: break-all;
 }
 .wz-param-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-6);
 }
 .wz-param-group {
-  font-size: 10px;
+  font-size: var(--fs-11);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -289,7 +289,7 @@
 }
 /* 上游原话说明：两行截断，完整内容在 title 里。 */
 .wz-param-help {
-  font-size: 10px;
+  font-size: var(--fs-11);
   color: var(--muted);
   line-height: 1.4;
   display: -webkit-box;
@@ -303,8 +303,8 @@
 .wz-dropzone {
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
-  padding: 10px;
-  margin-bottom: 10px;
+  padding: var(--sp-10);
+  margin-bottom: var(--sp-10);
   text-align: center;
   cursor: default;
 }
