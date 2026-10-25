@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { startEngine, stopEngine, processBadge, occupancyBadge, engineUsageBadge } from '../../lib/engines'
 import { engineControls, actionOutcome } from '../../lib/engineActions.pure.js'
 import { ConfirmDialog } from '../common/Dialogs.jsx'
+import { useT } from '../../lib/i18n'
 
 const TONE_CLASS = {
   ok: 'badge-ok',
@@ -44,8 +45,12 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
   // 停止确认对话框状态：记录待确认停止的引擎 id（null 表示未在确认流程）。
   const [confirmStopId, setConfirmStopId] = useState(null)
 
+  // 文案都在 lib 层 bilingual（engineControls / actionOutcome / 三个 badge 都收 lang），
+  // 这里把界面语言一路传下去；组件自己的说明文字走 t(en, zh)。
+  const { t, lang } = useT()
+
   // 两个翻函数都是纯的（web/src/lib/engines.js），这里只调一次。
-  const occBadge = occupancyBadge(occupancy)
+  const occBadge = occupancyBadge(occupancy, lang)
 
   const setBusy = (id, what) => setPending(p => ({ ...p, [id]: what }))
   const clearBusy = (id) => setPending(p => { const n = { ...p }; delete n[id]; return n })
@@ -55,7 +60,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
     setOutcome(o => ({ ...o, [id]: null }))
     try {
       const resp = await fn()
-      const res = actionOutcome(resp)
+      const res = actionOutcome(resp, lang)
       setOutcome(o => ({ ...o, [id]: res }))
       // 成功之后要求上层重拉一次：进程状态那个 8 秒轮询会自己追上，
       //   但等 8 秒会让人以为按钮没反应，然后再点一次。
@@ -70,12 +75,14 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
 
   return (
     <div className="section">
-      <div className="section-hdr"><h2>引擎</h2></div>
+      <div className="section-hdr"><h2>{t('Engines', '引擎')}</h2></div>
       <div className="section-body">
       <p className="msg msg-info">
-        本机安装了哪些引擎、各自是否在运行，以及无需点击合成即可启动。
+        {t('Which engines are installed on this machine, whether each is running, and start one without running a synthesis first.',
+          '本机安装了哪些引擎、各自是否在运行，以及无需点击合成即可启动。')}
         <br />
-        ⚠ 同时启动多台引擎会占用大量内存：平台会按实测峰值拦截，拦截时此处会写明原因。
+        {t('⚠ Starting several engines at once uses a lot of memory. The platform blocks it based on measured peak usage and explains the reason here.',
+          '⚠ 同时启动多台引擎会占用大量内存：平台会按实测峰值拦截，拦截时此处会写明原因。')}
       </p>
 
       {/* 内存占用：机器级总览。
@@ -97,7 +104,8 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
           一台引擎因为少写一个键就从列表里静默消失，是最难查的那种症状。 */}
       {engineErrors.length > 0 && (
         <div className="msg msg-danger">
-          <strong>这些引擎的配置信息无法读取，因此未出现在下方列表中：</strong>
+          <strong>{t('These engines could not be read and are missing from the list below:',
+            '这些引擎的配置信息无法读取，因此未出现在下方列表中：')}</strong>
           <ul>
             {engineErrors.map(e => (
               <li key={e.id}><code>{e.id}</code>{e.code ? ` [${e.code}]` : ''}：{e.error || e.message}</li>
@@ -107,13 +115,14 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       )}
 
       {engines.length === 0 && (
-        <div className="card">本机未安装任何引擎（或列表尚未加载完成）。</div>
+        <div className="card">{t('No engine is installed on this machine (or the list has not loaded yet).',
+          '本机未安装任何引擎（或列表尚未加载完成）。')}</div>
       )}
 
       {engines.map(engine => {
-        const ctl = engineControls(engine)
-        const badge = processBadge(engine)
-        const usage = engineUsageBadge(engine, occupancy)
+        const ctl = engineControls(engine, lang)
+        const badge = processBadge(engine, lang)
+        const usage = engineUsageBadge(engine, occupancy, lang)
         const busy = pending[engine.id] || null
         const res = outcome[engine.id] || null
         return (
@@ -128,8 +137,9 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
               )}
               {/* null = 这台部署不管进程，不是"未运行"。两者必须分开显示。 */}
               {badge === null && (
-                <span className="badge badge-muted" title="本部署不管理引擎进程，或由作者自行启动。">
-                  平台不管
+                <span className="badge badge-muted" title={t('This deployment does not manage the engine process; it was started by its author.',
+                  '本部署不管理引擎进程，或由作者自行启动。')}>
+                  {t('unmanaged', '平台不管')}
                 </span>
               )}
 
@@ -154,7 +164,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                 title={ctl.start.title}
                 onClick={() => run(engine.id, 'start', () => startEngine(engine.id))}
               >
-                {busy === 'start' ? '启动中…' : ctl.start.label}
+                {busy === 'start' ? t('Starting…', '启动中…') : ctl.start.label}
               </button>
               <button
                 className="btn"
@@ -162,7 +172,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                 title={ctl.stop.title}
                 onClick={() => setConfirmStopId(engine.id)}
               >
-                {busy === 'stop' ? '关闭中…' : ctl.stop.label}
+                {busy === 'stop' ? t('Stopping…', '关闭中…') : ctl.stop.label}
               </button>
             </div>
 
@@ -180,7 +190,10 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
               <div className="card" style={{ marginTop: 8 }}>
                 <div style={{ whiteSpace: 'pre-wrap' }}>{res.message}</div>
                 {res.mem && res.mem.freeMb != null && (
-                  <div className="msg msg-info">当前可用内存约 {res.mem.freeMb} MB。</div>
+                  <div className="msg msg-info">
+                    {t(`About ${res.mem.freeMb} MB of memory is available now.`,
+                      `当前可用内存约 ${res.mem.freeMb} MB。`)}
+                  </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button
@@ -191,7 +204,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                     {res.confirmLabel}
                   </button>
                   <button className="btn" onClick={() => setOutcome(o => ({ ...o, [engine.id]: null }))}>
-                    取消
+                    {t('Cancel', '取消')}
                   </button>
                 </div>
               </div>
@@ -201,11 +214,12 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
               <div className="msg msg-success" style={{ marginTop: 8 }}>
                 {/* action 四种各自说人话。不压成"成功"，
                     "本来就在运行"和"刚为你启动"对用户不是一回事。 */}
-                {res.action === 'reuse' && '该引擎已在运行，直接复用。'}
-                {res.action === 'start' && '已启动。'}
-                {res.action === 'relaunch' && '为更换模型，已重新启动该引擎。'}
-                {res.action === 'not-ours' && '该引擎由作者自行启动，平台未对其执行操作。'}
-                {res.action == null && '操作完成。'}
+                {res.action === 'reuse' && t('This engine is already running; reusing it.', '该引擎已在运行，直接复用。')}
+                {res.action === 'start' && t('Started.', '已启动。')}
+                {res.action === 'relaunch' && t('Restarted this engine to switch models.', '为更换模型，已重新启动该引擎。')}
+                {res.action === 'not-ours' && t('This engine was started by its author; the platform did not touch it.',
+                  '该引擎由作者自行启动，平台未对其执行操作。')}
+                {res.action == null && t('Done.', '操作完成。')}
               </div>
             )}
           </div>
@@ -214,10 +228,11 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
       </div>
       <ConfirmDialog
         open={confirmStopId !== null}
-        title="停止引擎"
-        message="停止引擎会中断所有正在进行的推理请求，确认继续吗？"
-        confirmLabel="停止"
-        cancelLabel="取消"
+        title={t('Stop engine', '停止引擎')}
+        message={t('Stopping interrupts all in-flight inference requests. Continue?',
+          '停止引擎会中断所有正在进行的推理请求，确认继续吗？')}
+        confirmLabel={t('Stop', '停止')}
+        cancelLabel={t('Cancel', '取消')}
         danger={true}
         busy={pending[confirmStopId] === 'stop'}
         onConfirm={() => {
