@@ -20,13 +20,22 @@ import { useT } from '../../../web/src/lib/i18n'
 // 抽屉上面不盖遮罩：遮罩会把中栏挡住，点中栏就收抽屉，
 // 等于一打开抽屉表单就废了。再点箭头才收。
 //
-// 中栏是这页的主角：flex 撑满剩下的宽度，里面的内容另有宽度上限，
-// 免得在超宽屏上字段拉得太开、读起来要来回扫视。
+// 中栏是这页的主角：flex 撑满剩下的宽度，里面的内容对齐平台的大容器
+// （max-width 1400px），免得在超宽屏上字段拉得太开。
+//
+// 整个骨架铺满页面宽度，不受 .workspace-container 的 1400px 限制：
+//   边条贴着视口两边，不是贴着主容器两边。
+// 两根边条 sticky 在视口里：页面往下滚，边条跟着走，
+//   拖拽的源（左）和预览（右）任何时候都在眼前。
+// 右边条可以再放大一档到平台前端的宽度：预览要按平台真实尺寸看才有意义，
+//   360px 的抽屉里看到的是被挤坏的版式。
 
 /** 收着时边条占的宽度。 */
 const RAIL_W = '32px'
 /** 展开时抽屉占的宽度。 */
 const DRAWER_W = '360px'
+/** 右边条放大后的宽度：平台前端主容器的宽度，窄屏时让出中栏的最小宽度。 */
+const DRAWER_W_WIDE = 'min(1400px, calc(100vw - 32px - 480px))'
 
 /**
  * 第 4 步的三根骨头。
@@ -41,6 +50,9 @@ export default function Stage ({ left, center, right, open, onToggle }) {
   const { t } = useT()
   const leftOpen = !!open.left
   const rightOpen = !!open.right
+  // 放大只是界面状态，收起右边条时一并还原。
+  const [wide, setWide] = React.useState(false)
+  React.useEffect(() => { if (!rightOpen) setWide(false) }, [rightOpen])
 
   return (
     <div className="wz-stage">
@@ -62,6 +74,16 @@ export default function Stage ({ left, center, right, open, onToggle }) {
         onToggle={() => onToggle('right')}
         title={t('Preview', '预览')}
         arrow="←"
+        wide={wide}
+        extra={(
+          <button className="wz-drawer-handle" type="button"
+            onClick={() => setWide((w) => !w)}
+            aria-pressed={wide}
+            title={wide ? t('Back to drawer width', '还原为抽屉宽度') : t('Expand to the platform width', '放大到平台前端尺寸')}
+            aria-label={wide ? t('Back to drawer width', '还原为抽屉宽度') : t('Expand to the platform width', '放大到平台前端尺寸')}>
+            {wide ? '⇥' : '⇤'}
+          </button>
+        )}
       >
         {right}
       </Drawer>
@@ -78,28 +100,33 @@ export default function Stage ({ left, center, right, open, onToggle }) {
  * @param {Function} onToggle 开合
  * @param {string} title 抽屉的标题与无障碍标签
  * @param {string} arrow 收着时露出的箭头
+ * @param {boolean} wide 是否放大到平台前端宽度（只有右边条用）
+ * @param {React.ReactNode} extra 展开时箭头旁的额外按钮
  * @param {React.ReactNode} children 抽屉里的内容
  */
-function Drawer ({ side, open, onToggle, title, arrow, children }) {
+function Drawer ({ side, open, onToggle, title, arrow, wide, extra, children }) {
   const { t } = useT()
   return (
     <aside
-      className={`wz-drawer wz-drawer-${side}${open ? ' is-open' : ''}`}
+      className={`wz-drawer wz-drawer-${side}${open ? ' is-open' : ''}${open && wide ? ' is-wide' : ''}`}
       aria-label={title}
     >
-      <button
-        className="wz-drawer-handle"
-        type="button"
-        onClick={onToggle}
-        title={open ? t('Close', '收起') : title}
-        aria-label={open ? t('Close', '收起') : title}
-        aria-expanded={open}
-      >
-        {open ? '×' : arrow}
-      </button>
+      <div className="wz-drawer-handles">
+        <button
+          className="wz-drawer-handle"
+          type="button"
+          onClick={onToggle}
+          title={open ? t('Close', '收起') : title}
+          aria-label={open ? t('Close', '收起') : title}
+          aria-expanded={open}
+        >
+          {open ? '×' : arrow}
+        </button>
+        {open && extra}
+      </div>
       {open && <div className="wz-drawer-body">{children}</div>}
     </aside>
   )
 }
 
-export { RAIL_W, DRAWER_W }
+export { RAIL_W, DRAWER_W, DRAWER_W_WIDE }

@@ -49,12 +49,14 @@
 
 /* 第 4 步的外壳：只把名片页从 .node-detail 里放出来，
    自己不画任何边框、圆角或底色。
-   它要撑满 .wz-root 剩下的高度，中栏才能自己滚动。 */
+   它在 App.jsx 里不进 .workspace-container：三栏要铺满整个页面宽度，
+   边条贴视口两边，中栏内容再自己对齐 1400px 的大容器。 */
 .wz-manifest-shell {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 
 .wz-root input:-webkit-autofill,
@@ -101,7 +103,7 @@
 }
 
 /* ---- 三栏（第 4 步：左栏扫到的参数 / 中栏名片内容 / 右栏预览） ---- */
-/* 名片页的外层：让三根骨头占满整行，SaveBar 另起一行吸底。
+/* 名片页的外层：让三根骨头占满整行。
    不能用项目的 .workspace-grid：那本身就是两列 grid
    （minmax(0,1fr) 380px），三根骨头放进去会被塞进它的第一列，
    中栏只剩第一列宽度里的一部分，右侧空出一大片。 */
@@ -112,17 +114,6 @@
   min-width: 0;
   flex: 1;
   min-height: 0;
-}
-
-/* SaveBar 那一行：跨栏 sticky bottom，滚动到底时仍可见。 */
-.wz-savebar-row {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  background: var(--panel);
-  border-top: 1px solid var(--border);
-  padding: 8px 0;
-  margin-top: var(--sp-4);
 }
 
 /* 第 4 步的骨架：左边条、中栏、右边条，三根平级的骨头。
@@ -139,11 +130,15 @@
 /* 一根边条。收着时是一条窄边 + 一个箭头按钮，
    展开时变宽成抽屉，内容从箭头下方流下来。
 
-   position:relative + z-index 是必须的：遮罩是 position:fixed 的
-   fixed 层，不给它 z-index 的边条会被遮罩盖住，
-   点抽屉里的按钮点到的是遮罩（抽屉看着开着，却点不动）。 */
+   sticky + 视口高度：页面往下滚，边条跟着走（左边是拖拽的源，
+   右边是预览，两样都得一直在眼前）。抽屉自己内部滚动。
+   align-self:flex-start 是 sticky 在 flex 行里生效的前提：
+   默认 stretch 会把边条拉成整页高，sticky 就没有可移动的余地。 */
 .wz-drawer {
-  position: relative;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
   z-index: 10;
   flex-shrink: 0;
   width: var(--wz-rail-w, 32px);
@@ -157,6 +152,17 @@
   width: var(--wz-drawer-w, 360px);
   align-items: stretch;
   box-shadow: var(--shadow-soft);
+}
+/* 右边条放大到平台前端宽度：预览按真实尺寸排版。
+   宽度与 Stage.jsx 的 DRAWER_W_WIDE 同一个式子。 */
+.wz-drawer.is-open.is-wide {
+  width: var(--wz-drawer-w-wide, min(1400px, calc(100vw - 32px - 480px)));
+}
+/* 收起 / 放大两个按钮并排在抽屉顶上。 */
+.wz-drawer-handles {
+  display: flex;
+  width: 100%;
+  flex-shrink: 0;
 }
 
 /* 边条上的箭头按钮：收着时是整根边条上唯一能点的东西。 */
@@ -194,16 +200,17 @@
 
 /* 中栏：这页的主角。撑满左右两根边条之外的宽度，
    里面的内容另有宽度上限，超宽屏上不至于把字段拉得太开。 */
+/* 中栏不自己滚：滚的是整页，两根边条 sticky 跟着走。 */
 .wz-stage-main {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
-  padding: 24px 0;
+  padding: var(--sp-16) 0;
 }
+/* 内容对齐平台的大容器（.workspace-container 的 max-width 与左右内边距）。 */
 .wz-stage-main-inner {
-  max-width: 960px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 0.75rem;
 }
 
 /* 窄屏降级：960px 以下抽屉改成盖在中栏上面，
@@ -215,6 +222,30 @@
   .wz-drawer.is-open {
     width: var(--wz-drawer-w-narrow, 280px);
   }
+}
+
+/* 名片身份条：引擎 / 扫描或读取 / 路径 / 状态 …… 保存，一行。 */
+.wz-identity-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-8);
+}
+.wz-identity-engine {
+  width: auto;
+  min-width: 220px;
+}
+.wz-identity-spacer {
+  flex: 1;
+}
+
+/* 字段的「来源确定性」：扫描认准了 = 绿边；是猜的 / 要人确认 = 黄边。
+   CoreBindings 以前写了 .matched / .unmatched，但这两个类从来没有样式。 */
+.control.wz-field-matched {
+  border-color: var(--success);
+}
+.control.wz-field-guess {
+  border-color: var(--warning);
 }
 
 /* 名片身份条：一行说清「这是哪台」与「平台现在知道它什么状况」。 */
@@ -313,3 +344,15 @@
   background: var(--accent-soft);
 }
 
+
+/* 区内小标题：必填字段里「核心输入 / 运行与能力」两小段，参数区里的分段。
+   不再套一层 .section：一个区里只该有一层外壳。 */
+.wz-subhead {
+  margin: var(--sp-12) 0 var(--sp-6);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--muted);
+}
+.wz-subhead:first-child {
+  margin-top: 0;
+}

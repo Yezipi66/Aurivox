@@ -4,7 +4,7 @@ import ParamPool from './ParamPool'
 
 // 左栏：扫到的参数。
 //
-// 这一栏只放「扫到的参数」与「怎么扫」两件事。
+// 这一栏只放「扫到的参数」。扫描按钮在中栏身份条上。
 // 引擎身份不在这里：身份跟着名片走，放在中栏顶部
 // （EngineIdentity.jsx）。左栏是外部输入，中栏是这张名片本身。
 //
@@ -16,7 +16,7 @@ import ParamPool from './ParamPool'
 // 不自造栏头：主界面里每一块内容都是这么长的。
 
 /**
- * 左栏：分组选择 + 扫描 + 参数池。
+ * 左栏：分组选择 + 参数池。
  *
  * @param {Array} params 扫到的参数（当前分组的）
  * @param {object|null} selected 当前选中的参数
@@ -27,13 +27,11 @@ import ParamPool from './ParamPool'
  * @param {Function} onGroupChange 切分组回调
  * @param {boolean} busy 扫描中
  * @param {string|null} err 扫描错误
- * @param {Function} onScan 扫描回调
- * @param {boolean} canScan 现在能不能扫（引擎选了没）
  * @param {React.ReactNode} children 额外内容（收起按钮等）
  */
 export default function EngineScanZone ({
   params, selected, onSelect, onDragStart,
-  groups, group, onGroupChange, busy, err, onScan, canScan, children,
+  groups, group, onGroupChange, busy, err, children,
 }) {
   const { t } = useT()
 
@@ -44,28 +42,19 @@ export default function EngineScanZone ({
         {children}
       </div>
       <div className="section-body">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          {groups && groups.length > 1 && (
-            <div className="field" style={{ flex: 1, minWidth: 0 }}>
-              <label className="field-label">{t('Group', '分组')}</label>
-              <select className="control" value={group}
-                disabled={!params || !params.length}
-                onChange={(e) => onGroupChange && onGroupChange(e.target.value)}>
-                <option value="">{t('— pick a group —', '— 选一个分组 —')}</option>
-                {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
-          )}
-          <div style={{ flexShrink: 0, paddingBottom: 2 }}>
-            <button className="btn btn-sm btn-primary" type="button"
-              disabled={busy || !canScan}
-              onClick={onScan}>
-              {busy
-                ? t('Scanning…', '扫描中…')
-                : t('Scan parameters', '扫描参数')}
-            </button>
+        {/* 扫描按钮在中栏身份条上（和选引擎、读取、保存是同一串动作），
+            这里只留分组切换与扫描结果。 */}
+        {groups && groups.length > 1 && (
+          <div className="field">
+            <label className="field-label">{t('Group', '分组')}</label>
+            <select className="control" value={group}
+              disabled={busy}
+              onChange={(e) => onGroupChange && onGroupChange(e.target.value)}>
+              <option value="">{t('— all groups —', '— 全部分组 —')}</option>
+              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
           </div>
-        </div>
+        )}
 
         {err && <div className="msg msg-danger">{err}</div>}
 

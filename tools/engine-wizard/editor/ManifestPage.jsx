@@ -1,7 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ManifestForm from './ManifestForm'
-import SaveBar from './SaveBar'
 import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
 import Stage from './Stage'
@@ -9,12 +8,14 @@ import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
 
-// 名片编辑页：左边条、中栏、右边条，三根平级的骨头。
+// 名片编辑页：左边条、中栏、右边条，三根平级的骨头，铺满整个页面宽度。
 //
 // 左边条里是扫到的参数，中栏是当前名片内容，右边条里是当前项目的前端预览。
-// 左右两根边条默认收成 32px 的窄边，只露一个方向箭头；
-// 点一下那根边条滑出成抽屉，抽屉上盖着半透明遮罩。
-// 中栏是主角，占满剩下的宽度。SaveBar 吸底常驻。
+// 左右两根边条默认收成 32px 的窄边，只露一个方向箭头；点一下滑出成抽屉，
+// 两根边条都 sticky 在视口里，跟着页面滚动。右边条还能放大到平台前端的宽度。
+// 中栏内容对齐平台的大容器（max-width 1400px）。
+//
+// 没有吸底的存盘栏：选引擎 / 扫描或读取 / 保存都在中栏顶部的身份条上。
 //
 // 视图切换（填表 / JSON）留在中栏里：JSON 是名片的同一份内容的另一种写法，
 // 不是第四栏。切到 JSON 时中栏的内容换掉，左栏与右栏不动。
@@ -41,6 +42,16 @@ export default function ManifestPage ({
   const [scanErr, setScanErr] = React.useState(null)  // 扫描错误
   const [selected, setSelected] = React.useState(null) // 左栏选中的参数
   const [autofill, setAutofill] = React.useState(null) // 扫描认出的槽位与候选
+  // 拖进来时类型是猜的那些参数名：中栏那一行的类型下拉标黄，提醒人确认。
+  //   只是界面状态，不写进名片。
+  const [guessed, setGuessed] = React.useState(() => new Set())
+
+  // 换引擎：上一台的扫描结果全部作废。
+  const engineKey = (manifest && manifest.id) || ''
+  React.useEffect(() => {
+    setScan(null); setGroup(''); setSelected(null); setAutofill(null); setScanErr(null)
+    setGuessed(new Set())
+  }, [engineKey])
 
   // 扫描到的参数按当前分组过滤。没有分组时给全部。
   const scanned = (scan && scan.params) || []
@@ -75,6 +86,8 @@ export default function ManifestPage ({
       const j = await r.json()
       if (!j.ok) { setScanErr(j.error || `HTTP ${r.status}`); return }
       setScan(j)
+      // 扫到了就把左边条打开：参数是这一步接下来要拖的东西。
+      setDrawer((prev) => ({ ...prev, left: true }))
       const inferGroups = (j.groups || []).filter((s) => /synth|infer|tts|generate|call/i.test(s))
       const picked = inferGroups[0] || (j.groups || [])[0] || ''
       setGroup(picked)
@@ -93,6 +106,20 @@ export default function ManifestPage ({
     } catch (e) { setScanErr(e.message) } finally { setBusy(false) }
   }
 
+  // 拖进来一个参数：类型是猜的就记下来，中栏那一行要提醒确认。
+  const onParamDropped = (param, name) => {
+    if (!param || !name) return
+    setGuessed((prev) => {
+      const next = new Set(prev)
+      if (param.kind_certain) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+  const onTypeConfirmed = (name) => {
+    setGuessed((prev) => { const next = new Set(prev); next.delete(name); return next })
+  }
+
   // 左栏拖拽开始：把参数放进 dataTransfer，中栏的落点读它。
   const onDragStart = (e, param) => {
     e.dataTransfer.setData('text/plain', JSON.stringify(param))
@@ -104,7 +131,6 @@ export default function ManifestPage ({
     // .workspace-grid 自己就是两列 grid（minmax(0,1fr) 380px），
     // 三栏容器放进去会被塞进它的第一列 ⇒ 中栏只剩 958px 里的 302px，
     // 剩下那一大片是右栏的空位。三个栏自己排版，不需要外层再来一列。
-    // SaveBar 跨栏 sticky bottom，永远可见。
     <div className="wz-manifest-layout">
       <Stage
         open={drawer}
@@ -115,15 +141,16 @@ export default function ManifestPage ({
             onSelect={setSelected} onDragStart={onDragStart}
             groups={(scan && scan.groups) || []} group={group}
             onGroupChange={setGroup}
-            busy={busy} err={scanErr} onScan={doScan}
-            canScan={!!((manifest && manifest.id) || '')} />
+            busy={busy} err={scanErr} />
         }
         center={
           <div className="wz-stage-main-inner">
-            {/* 身份条在最上面：这是哪台引擎的名片、平台现在知道它什么状况。 */}
+            {/* 身份条在最上面：选引擎、扫描或读取、路径、保存，一行说完。 */}
             <EngineIdentity
               manifest={manifest || {}} onChange={onManifest}
-              facts={engineState} />
+              facts={engineState}
+              onScan={doScan} scanBusy={busy} scanned={!!scan}
+              diag={diag} onSaved={onSaved} />
 
             <div className="ref-tabs">
               <button type="button"
@@ -141,7 +168,9 @@ export default function ManifestPage ({
             {view === 'form'
               ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest}
                 checkpointsPath={checkpointsPath}
-                autofill={autofill} selectedParam={selected} />
+                autofill={autofill} selectedParam={selected}
+                guessed={guessed} onParamDropped={onParamDropped}
+                onTypeConfirmed={onTypeConfirmed} />
               : (
                 // JSON 逃生口直接用项目的 `textarea.control`。
                 // text 为 null（还没切进来过）时用 manifest 现算兜底，
@@ -186,13 +215,6 @@ export default function ManifestPage ({
           </div>
         } />
 
-      {/* SaveBar：吸底常驻。
-          做法：sticky 容器放在三根骨头之后、独立成行，
-            position:sticky + bottom:0 ⇒ 滚动到底部时吸底常驻。
-          不放进任何一栏内部：那会让它只跟着那一栏滚。 */}
-      <div className="wz-savebar-row">
-        <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
-      </div>
     </div>
   )
 }
