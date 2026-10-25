@@ -126,6 +126,11 @@ export default function App () {
   //   runtime.checkpoints 填的也是这个值：两处同源，改一处不会出现「下好了却找不到」。
   //   路径由后端算（core/checkpointsPath.js），前端不自己拼。
   const [checkpointsPath, setCheckpointsPath] = React.useState(null)
+  // 第 4 步要显示的现状：第 2 步的环境与第 3 步的权重。
+  //   权重是三态（齐了 / 缺了 / 说不出来），布尔装不下 ⇒ 单独存。
+  //   第 2 步与第 3 步和第 4 步是并行的，所以这两个状态会自己变，
+  //   第 4 步开着不动也能看到第 3 步下完了没有。
+  const [engineState, setEngineState] = React.useState({ env: null, models: null })
   // id 可由调用方传入：刚克隆完时 wz.id 的 setState 还没生效，
   //   读闭包里的旧值会拿到空 id，一个勾都不亮。
   const reloadFacts = React.useCallback((idArg) => {
@@ -138,6 +143,11 @@ export default function App () {
         if (!alive) return
         if (j && j.ok && j.steps_done) setFacts(j.steps_done)
         setCheckpointsPath((j && j.checkpoints_path) || null)
+        const st = j && j.steps
+        setEngineState({
+          env: st && st.env ? st.env.done : null,
+          models: st && st.models ? st.models.ready : null,
+        })
       })
       .catch(() => { /* 端点调不通 ⇒ 一个勾都没有，不猜 */ })
     return () => { alive = false }
@@ -163,6 +173,12 @@ export default function App () {
       .then((j) => {
         if (!alive) return
         setCheckpointsPath((j && j.checkpoints_path) || null)
+        // 现状也跟着换引擎换：第 4 步编辑的这台可能不是第 1 步克隆的那台。
+        const st = j && j.steps
+        setEngineState({
+          env: st && st.env ? st.env.done : null,
+          models: st && st.models ? st.models.ready : null,
+        })
       })
       .catch(() => { if (alive) setCheckpointsPath(null) })
     return () => { alive = false }
@@ -269,7 +285,8 @@ export default function App () {
                 onManifest={(m) => { setManifest(m); setErr(null) }}
                 diag={vresult} loading={vloading}
                 onSaved={reloadFacts}
-                checkpointsPath={checkpointsPath} />
+                checkpointsPath={checkpointsPath}
+                engineState={engineState} />
             )}
             {page === 'verify' && (
               <StepVerify id={wz.id} />
