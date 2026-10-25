@@ -145,7 +145,7 @@ test('默认两边都收着：边条只露一个箭头，内容不渲染', async
   assert.equal(handles[1].textContent.trim(), '←', '右边条该露出 ←')
 })
 
-test('点箭头：抽屉滑出来，带半透明遮罩，再点收回去', async () => {
+test('点箭头：抽屉滑出来；没有遮罩，中栏照常能点', async () => {
   const { dom, container, root } = mount()
   const toggled = []
   const render = (open) => {
@@ -167,19 +167,22 @@ test('点箭头：抽屉滑出来，带半透明遮罩，再点收回去', async
   assert.ok(!container.innerHTML.includes('>R<'), '右边不该跟着展开')
   const leftDrawer = container.querySelector('.wz-drawer-left')
   assert.ok(leftDrawer.classList.contains('is-open'), '左边抽屉没标成展开态')
-  // 展开时盖一层遮罩。
-  assert.ok(container.querySelector('.wz-stage-scrim'), '抽屉展开时没有遮罩')
 
-  // 点遮罩收回去。
-  const scrim = container.querySelector('.wz-stage-scrim')
-  scrim.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-  await settle()
-  assert.deepStrictEqual(toggled, ['left'], '点遮罩没收左边抽屉')
+  // 抽屉上面不许有遮罩：遮罩会把中栏挡住，点中栏还会收抽屉。
+  assert.ok(!container.querySelector('.wz-stage-scrim'), '抽屉展开时又盖上遮罩了')
 
-  // 收起时遮罩没有。
-  render({ left: false, right: false })
+  // 中栏照常能点：点它不该收起抽屉。
+  const center = container.querySelector('.wz-stage-main')
+  center.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await settle()
-  assert.ok(!container.querySelector('.wz-stage-scrim'), '抽屉收着时还挂着遮罩')
+  assert.deepStrictEqual(toggled, [], '点中栏不该收起抽屉')
+  assert.ok(leftDrawer.classList.contains('is-open'), '点中栏后抽屉被收起来了')
+
+  // 点箭头才收得回去。
+  const handle = container.querySelector('.wz-drawer-left .wz-drawer-handle')
+  handle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await settle()
+  assert.deepStrictEqual(toggled, ['left'], '点箭头没收左边抽屉')
 })
 
 test('箭头按钮用的是方向箭头，不是项目的 ▸', async () => {

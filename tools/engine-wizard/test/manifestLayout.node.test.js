@@ -98,24 +98,27 @@ test('中栏占满剩下的宽度，内容另有上限', () => {
   assert.ok(/margin:\s*0 auto/.test(inner), '中栏内容应当居中')
 })
 
-test('遮罩不许盖住抽屉（抽屉里的按钮要能点）', () => {
-  // 遮罩是 position:fixed 的固定层。边条若不自己抬 z-index，
-  // 就会被遮罩盖住：抽屉看着开着，里面的按钮却点不动
-  // （点到的其实是遮罩 ⇒ 抽屉立刻收回去）。
-  const scrim = ruleBody('.wz-stage-scrim')
-  assert.ok(scrim, 'editor.css 里没有 .wz-stage-scrim')
-  const scrimZ = Number((scrim.match(/z-index:\s*(\d+)/) || [])[1])
-  assert.ok(Number.isFinite(scrimZ), '.wz-stage-scrim 没写 z-index')
+test('抽屉上面不许盖遮罩（中栏要照常能点、能填表、能接拖拽）', () => {
+  // 遮罩的作用是盖住中栏、点它就收起抽屉。
+  // 但这三样东西是同时用着的：左边扫参、中间填表、右边看预览。
+  // 遮罩一盖上，中栏就点不动了，点中栏还会把抽屉收回去
+  // ⇒ 一打开抽屉，表单就废了，参数也没法拖到中栏。
+  //
+  // 抽屉的开合只由边条上的箭头（开）与 ×（收）控制。
+  assert.ok(!ruleBody('.wz-stage-scrim'),
+    'editor.css 里还有 .wz-stage-scrim：遮罩会挡住中栏，'
+    + '打开抽屉后中栏点不动，点中栏还会收起抽屉')
+  assert.ok(!/wz-stage-scrim/.test(stage),
+    'Stage.jsx 里还在渲染遮罩：中栏会被挡住，点中栏还会收起抽屉')
+  assert.ok(!/wz-stage-scrim/.test(page),
+    'ManifestPage.jsx 里还有遮罩')
 
-  const drawer = ruleBody('.wz-drawer')
-  assert.ok(drawer, 'editor.css 里没有 .wz-drawer')
-  const drawerZ = Number((drawer.match(/z-index:\s*(\d+)/) || [])[1])
-  assert.ok(Number.isFinite(drawerZ), '.wz-drawer 没写 z-index')
-  assert.ok(drawerZ > scrimZ,
-    `边条的 z-index（${drawerZ}）必须大于遮罩的（${scrimZ}），`
-    + '否则抽屉里的按钮点到的是遮罩')
-  assert.ok(/position:\s*relative/.test(drawer),
-    '.wz-drawer 要 position:relative，z-index 才有意义')
+  // 窄屏降级里也不许把抽屉变成盖住中栏的浮层：
+  // 那样中栏被盖掉一半，也点不到。
+  const media = css.match(/@media\s*\(max-width:\s*960px\)\s*\{([\s\S]*?)\n\}/)
+  assert.ok(media, 'editor.css 里没有 960px 的降级规则')
+  assert.ok(!/position:\s*absolute/.test(media[1]),
+    '960px 以下抽屉不该浮在中栏上面：那样中栏被盖掉一半，也点不到')
 })
 
 test('第 4 步不套平台的紫框详情框（.node-detail）', () => {

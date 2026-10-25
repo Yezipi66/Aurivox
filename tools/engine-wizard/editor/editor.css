@@ -192,15 +192,6 @@
   gap: 0.5rem;
 }
 
-/* 遮罩：抽屉开着时盖住中栏，点它收回去。
-   z-index 在抽屉之下（抽屉是 10）⇒ 抽屉本身仍然可点。 */
-.wz-stage-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 8;
-  background: var(--overlay-scrim, rgba(0, 0, 0, 0.14));
-}
-
 /* 中栏：这页的主角。撑满左右两根边条之外的宽度，
    里面的内容另有宽度上限，超宽屏上不至于把字段拉得太开。 */
 .wz-stage-main {
@@ -217,18 +208,12 @@
 
 /* 窄屏降级：960px 以下抽屉改成盖在中栏上面，
    而不是把中栏挤成一条缝。与项目 .workspace-grid 的降级口径一致。 */
+/* 窄屏降级：抽屉窄一点，但还是推开中栏，不浮在上面。
+   浮在上面（position:absolute）会把中栏盖掉一半，
+   盖住的那部分点不到 ⇒ 表单又废了。 */
 @media (max-width: 960px) {
   .wz-drawer.is-open {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    /* 遮罩是 8，这里必须比它高，否则抽屉里的按钮点不动。 */
-    z-index: 10;
-  }
-  .wz-drawer-left.is-open { left: 0; }
-  .wz-drawer-right.is-open { right: 0; }
-  .wz-stage {
-    position: relative;
+    width: var(--wz-drawer-w-narrow, 280px);
   }
 }
 
