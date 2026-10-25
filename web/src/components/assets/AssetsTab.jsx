@@ -789,7 +789,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                     </button>
                     {showRestore ? (
                       <button
-                        className="btn btn-sm btn-primary"
+                        className="btn btn-sm btn-warn"
                         onClick={() => setRestoreTarget({ id, displayName: asset.display_name || id })}
                         disabled={scanning}
                         title={h.key === 'nomodel'
@@ -802,7 +802,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                       </button>
                     ) : (
                       <button
-                        className={`btn btn-sm ${h.key === 'noseg' ? 'btn-primary' : 'btn-ghost'}`}
+                        className={`btn btn-sm ${h.key === 'noseg' ? 'btn-warn' : 'btn-ghost'}`}
                         onClick={() => handleScanOne(id)}
                         disabled={scanning}
                         title={h.key === 'noseg'
