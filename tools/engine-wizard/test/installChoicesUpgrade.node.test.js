@@ -86,9 +86,35 @@ test('不接受升级 ⇒ 装法原样返回（不闷头改版本）', () => {
   const g = guessOf()
   const r = applyInstallChoices(engineDir, g, {
     backend: 'ipex', upgradeTorch: false, torchSuggestion: SUGGESTION,
+    // 本机推荐后端显式给成 ipex（与所选后端一致）⇒ 不该改写装法。
+    //   不显式给的话，这一条会去探本机 GPU：探出来的后端与所选的不一致时，
+    //   判据会把 torch 换到所选后端的 index ⇒ 装法被改写。
+    //   那样这条测试的结果就取决于跑它的机器有没有 Intel 显卡（CI 上没有）。
+    recommendedBackend: 'ipex',
   })
   assert.deepStrictEqual(r.guess, g, '装法必须原样返回')
   assert.strictEqual(r.choices.applied, false)
+})
+
+test('不接受升级且所选后端与本机推荐不同 ⇒ 版本号不许变（只换 index）', () => {
+  // 换后端那条路线会重排装法（torch 挪到追加步、用所选后端的 index 装），
+  //   但版本号必须还是上游那个：使用者没接受升级，不许闷头把版本换掉。
+  // recommendedBackend 显式给成与所选不同的后端，不靠本机 GPU 决定结果。
+  const { engineDir } = mkdtempEngine('u3b',
+    'einops==0.8.1\ntorch==2.5.1\ntorchaudio==2.5.1\n')
+  const r = applyInstallChoices(engineDir, guessOf(), {
+    backend: 'ipex', upgradeTorch: false, torchSuggestion: SUGGESTION,
+    recommendedBackend: 'cuda',
+  })
+  assert.ok(r.guess, JSON.stringify(r))
+  const alt = r.guess.alternative
+  assert.ok(alt && Array.isArray(alt.then), 'torch 应当被挪到追加步')
+  const torchLine = alt.then.find((x) => String(x).startsWith('torch=='))
+  assert.equal(torchLine, 'torch==2.5.1',
+    `版本号不许变（上游 2.5.1）：${JSON.stringify(alt.then)}`)
+  const audioLine = alt.then.find((x) => String(x).startsWith('torchaudio=='))
+  assert.equal(audioLine, 'torchaudio==2.5.1',
+    `torchaudio 的版本也不许变：${JSON.stringify(alt.then)}`)
 })
 
 test('接受升级但没有建议 ⇒ 如实报错，不闷头改版本', () => {
