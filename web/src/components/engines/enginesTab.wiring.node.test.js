@@ -93,6 +93,9 @@ test('⛔ 这个页面的文案必须走 t()，不许写死任何一种语言', 
   assert.match(jsx, /actionOutcome\(resp, lang\)/)
   assert.match(jsx, /occupancyBadge\(occupancy, lang\)/)
   assert.match(jsx, /engineUsageBadge\(engine, occupancy, lang\)/)
+  // processBadge 也是 lib 层的文案函数，同样收 lang。
+  // 漏断言它的话，这一页多一个不传 lang 的调用也不会被守卫发现。
+  assert.match(jsx, /processBadge\(engine, lang\)/)
 })
 
 // 真测试：把 startEngine / stopEngine 当普通函数调，用 fetch 替身接住请求。

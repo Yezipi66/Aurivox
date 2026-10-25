@@ -61,7 +61,7 @@ test('.wz-manifest-layout 是单列 flex，不是 grid', () => {
   assert.ok(!/display:\s*grid/.test(body),
     '.wz-manifest-layout 要是 grid，就会重新引入外层列 ⇒ 三栏又被挤')
   assert.ok(/flex-direction:\s*column/.test(body),
-    '.wz-manifest-layout 必须是竖排：三栏一行，SaveBar 另起一行')
+    '.wz-manifest-layout 必须是竖排：三栏一行，各栏自己带头')
 })
 
 test('骨架层是 flex 行：两根边条 + 中栏，三者平级', () => {
@@ -211,11 +211,19 @@ test('两根边条 sticky 跟着页面滚动', () => {
   assert.ok(/align-self:\s*flex-start/.test(body), 'flex 行里 sticky 要 align-self:flex-start 才生效')
 })
 
-test('窄屏降级：960px 以下抽屉改成覆盖式中栏', () => {
+test('窄屏降级：960px 以下抽屉仍推开中栏，宽度收到 280px', () => {
+  // 窄屏的降级是「收窄」，不是「盖住」。
+  // 盖住（position:absolute）会让中栏被盖掉一半、点不到，
+  // 上面那条守卫已经明确不许这件事。
+  // 这条守卫原来写的是「覆盖式」，判据却只查 `.wz-drawer.is-open` 这个子串，
+  // 而推开式的那条规则里也有这个子串 ⇒ 判据碰巧绿，等于没守。
+  // 现在钉住真正的行为：窄屏把抽屉宽度收到 280px。
   const media = css.match(/@media\s*\(max-width:\s*960px\)\s*\{([\s\S]*?)\n\}/)
   assert.ok(media, 'editor.css 里没有 960px 的降级规则')
-  assert.ok(/\.wz-drawer\.is-open/.test(media[1]),
-    '960px 以下抽屉应当改成覆盖式中栏（position:absolute），不然会把它挤没')
+  assert.ok(!/position:\s*absolute/.test(media[1]),
+    '960px 以下抽屉不该盖住中栏：那会让中栏点不到')
+  assert.match(media[1], /\.wz-drawer\.is-open\s*\{[^}]*width:\s*var\(--wz-drawer-w-narrow/,
+    '960px 以下抽屉应当收窄到 var(--wz-drawer-w-narrow)（默认 280px），而不是盖住中栏')
 })
 
 test('骨架那一层不画自己的栏头与外壳', () => {
