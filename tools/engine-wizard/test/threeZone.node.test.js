@@ -45,6 +45,7 @@ const i18nStub = { useT: () => ({ t: (en) => en }) }
 const Stage = loadJsx('Stage.jsx', {
   react: React,
   'web/src/lib/i18n': i18nStub,
+  './drawerWidth': require(path.join(EDITOR_DIR, 'drawerWidth.js')),
 }).default
 
 // ParamDropZone 现在从 ./paramDrop 取那两个纯函数（原先在它自己文件里）。

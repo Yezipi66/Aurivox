@@ -1,5 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import { clampPreviewWidth, PREVIEW_DEFAULT } from './drawerWidth'
 
 // 第 4 步的页面骨架：左侧边条、中栏、右侧边条，三根平级的骨头。
 //
@@ -27,30 +28,17 @@ import { useT } from '../../../web/src/lib/i18n'
 //   边条贴着视口两边，不是贴着主容器两边。
 // 两根边条 sticky 在视口里：页面往下滚，边条跟着走，
 //   拖拽的源（左）和预览（右）任何时候都在眼前。
-// 右边条可以再放大一档到平台前端的宽度：预览要按平台真实尺寸看才有意义，
-//   360px 的抽屉里看到的是被挤坏的版式。
+// 右边条（预览）的宽度由人定：
+//   · 拖它左边缘的分隔条改宽（键盘：聚焦分隔条后 ← / → 每次 32px，双击还原）。
+//     上限给中栏留 320px，按左边条「此刻」的实际宽度算。
+//   · 「全屏」按钮把预览铺满整个视口，盖在页面上面；再点一次或按 Esc 退出。
+//   预览要按平台真实尺寸看才有意义，固定的 360px 抽屉里看到的是被挤坏的版式；
+//   以前那档「放大」被中栏最小宽度卡住，到不了全屏。
 
 /** 收着时边条占的宽度。 */
 const RAIL_W = '32px'
 /** 展开时抽屉占的宽度。 */
 const DRAWER_W = '360px'
-/** 右边条放大后的宽度上限：平台前端主容器的宽度。 */
-const WIDE_MAX = '1400px'
-/**
- * 右边条放大后，中栏至少要留的宽度。
- * 中栏是填表的地方，压到这么窄表单就没法用了。
- */
-const CENTER_MIN = '480px'
-/**
- * 右边条放大后的宽度。
- *
- * 要给中栏留够宽度，而中栏剩多少取决于左栏此刻占多宽：
- * 左栏收着是 32px 的边条，展开是 360px 的抽屉。
- * 只按 32px 算 ⇒ 左抽屉开着时中栏会被压到 152px，表单没法用。
- * 所以这个宽度由 CSS 按实际占位算（见 editor.css 的 --wz-drawer-w-wide）。
- */
-const DRAWER_W_WIDE = `min(${WIDE_MAX}, calc(100vw - var(--wz-left-w, 32px) - ${CENTER_MIN}))`
-
 /**
  * 第 4 步的三根骨头。
  *
@@ -64,18 +52,67 @@ export default function Stage ({ left, center, right, open, onToggle }) {
   const { t } = useT()
   const leftOpen = !!open.left
   const rightOpen = !!open.right
-  // 放大只是界面状态，收起右边条时一并还原。
-  const [wide, setWide] = React.useState(false)
-  React.useEffect(() => { if (!rightOpen) setWide(false) }, [rightOpen])
+
+  const stageRef = React.useRef(null)
+  const leftRef = React.useRef(null)
+  // 预览宽度（px）与全屏只是界面状态，不写进名片。收起预览时退出全屏，宽度保留。
+  //   null = 没拖过，用 CSS 的默认宽度（窄屏降级规则才管得到它）。
+  const [rightW, setRightW] = React.useState(null)
+  const [full, setFull] = React.useState(false)
+  const [resizing, setResizing] = React.useState(false)
+  React.useEffect(() => { if (!rightOpen) setFull(false) }, [rightOpen])
+
+  // 全屏时 Esc 退出。
+  React.useEffect(() => {
+    if (!full) return undefined
+    const onKey = (e) => { if (e.key === 'Escape') setFull(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [full])
+
+  const geometry = () => ({
+    stageW: stageRef.current ? stageRef.current.getBoundingClientRect().width : window.innerWidth,
+    leftW: leftRef.current ? leftRef.current.getBoundingClientRect().width : 32,
+  })
+  const resizeTo = (want) => setRightW(clampPreviewWidth(want, geometry()))
+
+  // 拖分隔条：往左拖变宽。用 pointer capture，拖出分隔条之外也跟手。
+  const onResizeStart = (e) => {
+    if (e.button !== undefined && e.button !== 0) return
+    e.preventDefault()
+    const startX = e.clientX
+    const el = e.currentTarget
+    const startW = rightW || el.parentElement.getBoundingClientRect().width || PREVIEW_DEFAULT
+    if (el.setPointerCapture && e.pointerId !== undefined) el.setPointerCapture(e.pointerId)
+    setResizing(true)
+    const move = (ev) => resizeTo(startW + (startX - ev.clientX))
+    const up = () => {
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerup', up)
+      el.removeEventListener('pointercancel', up)
+      setResizing(false)
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerup', up)
+    el.addEventListener('pointercancel', up)
+  }
+  const onResizeKey = (e) => {
+    const cur = rightW || e.currentTarget.parentElement.getBoundingClientRect().width || PREVIEW_DEFAULT
+    if (e.key === 'ArrowLeft') { e.preventDefault(); resizeTo(cur + 32) }
+    if (e.key === 'ArrowRight') { e.preventDefault(); resizeTo(cur - 32) }
+  }
+
+  const fullLabel = full ? t('Exit full screen', '退出全屏') : t('Full screen', '全屏')
 
   return (
-    <div className={`wz-stage${leftOpen ? ' wz-stage-left-open' : ''}`}>
+    <div className="wz-stage" ref={stageRef}>
       <Drawer
         side="left"
         open={leftOpen}
         onToggle={() => onToggle('left')}
         title={t('Scanned parameters', '扫到的参数')}
         arrow="→"
+        asideRef={leftRef}
       >
         {left}
       </Drawer>
@@ -85,17 +122,30 @@ export default function Stage ({ left, center, right, open, onToggle }) {
       <Drawer
         side="right"
         open={rightOpen}
-        onToggle={() => onToggle('right')}
+        onToggle={() => { setFull(false); onToggle('right') }}
         title={t('Preview', '预览')}
         arrow="←"
-        wide={wide}
+        full={full}
+        resizing={resizing}
+        width={rightOpen && !full ? rightW : null}
+        resizer={rightOpen && !full
+          ? (
+            <div className="wz-drawer-resizer" role="separator" aria-orientation="vertical"
+              tabIndex={0}
+              aria-label={t('Resize the preview', '拖动改变预览宽度')}
+              aria-valuenow={rightW || undefined}
+              title={t('Drag to resize, double-click to reset', '拖动改宽，双击还原')}
+              onPointerDown={onResizeStart}
+              onKeyDown={onResizeKey}
+              onDoubleClick={() => setRightW(null)} />
+            )
+          : null}
         extra={(
           <button className="wz-drawer-handle" type="button"
-            onClick={() => setWide((w) => !w)}
-            aria-pressed={wide}
-            title={wide ? t('Back to drawer width', '还原为抽屉宽度') : t('Expand to the platform width', '放大到平台前端尺寸')}
-            aria-label={wide ? t('Back to drawer width', '还原为抽屉宽度') : t('Expand to the platform width', '放大到平台前端尺寸')}>
-            {wide ? '⇥' : '⇤'}
+            onClick={() => setFull((f) => !f)}
+            aria-pressed={full}
+            title={fullLabel} aria-label={fullLabel}>
+            {full ? '⤡' : '⤢'}
           </button>
         )}
       >
@@ -114,17 +164,28 @@ export default function Stage ({ left, center, right, open, onToggle }) {
  * @param {Function} onToggle 开合
  * @param {string} title 抽屉的标题与无障碍标签
  * @param {string} arrow 收着时露出的箭头
- * @param {boolean} wide 是否放大到平台前端宽度（只有右边条用）
+ * @param {boolean} full 是否全屏（只有右边条用）
+ * @param {boolean} resizing 正在拖宽（拖的时候关掉宽度动画，否则不跟手）
+ * @param {number|null} width 人拖出来的宽度（px）；null 用 CSS 的默认宽度
+ * @param {React.ReactNode} resizer 左边缘的分隔条（只有右边条用）
+ * @param {object} asideRef 外层 aside 的 ref（量左边条此刻的宽度）
  * @param {React.ReactNode} extra 展开时箭头旁的额外按钮
  * @param {React.ReactNode} children 抽屉里的内容
  */
-function Drawer ({ side, open, onToggle, title, arrow, wide, extra, children }) {
+function Drawer ({
+  side, open, onToggle, title, arrow, full, resizing, width, resizer, asideRef, extra, children,
+}) {
   const { t } = useT()
+  const cls = `wz-drawer wz-drawer-${side}${open ? ' is-open' : ''}`
+    + `${open && full ? ' is-full' : ''}${resizing ? ' is-resizing' : ''}`
   return (
     <aside
-      className={`wz-drawer wz-drawer-${side}${open ? ' is-open' : ''}${open && wide ? ' is-wide' : ''}`}
+      ref={asideRef}
+      className={cls}
+      style={width ? { width: `${width}px` } : undefined}
       aria-label={title}
     >
+      {resizer}
       <div className="wz-drawer-handles">
         <button
           className="wz-drawer-handle"
@@ -143,4 +204,4 @@ function Drawer ({ side, open, onToggle, title, arrow, wide, extra, children }) 
   )
 }
 
-export { RAIL_W, DRAWER_W, DRAWER_W_WIDE }
+export { RAIL_W, DRAWER_W }
