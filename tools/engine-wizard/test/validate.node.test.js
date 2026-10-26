@@ -88,6 +88,15 @@ function fakeEngineManifest () {
     label: 'Wobble',
     upstream: { repo: 'https://example.invalid/wobble', commit: 'deadbeef' },
     local_changes: 'none',
+    timeout_ms: 30000,
+    timeout_ms_source: 'estimated',
+    max_chars: 500,
+    max_chars_source: 'estimated',
+    capabilities: {
+      requires_reference_audio: false,
+      reference_clip_seconds: null,
+      output_sample_rate: 22050,
+    },
     runtime: {
       python: 'engines/wobblecaster/.venv',
       entry: 'serve.py',

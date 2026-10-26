@@ -7,6 +7,14 @@ const { deriveParameterViews } = require(
   path.resolve(__dirname, '..', '..', '..', 'lib', 'engines', 'parameterDeclaration.js')
 )
 
+// 平台的字段判据原语：required / requiredBool / positiveInt / parseClipSeconds。
+// 「这个键缺了算不算缺」不重写在这里，直接问平台自己：
+// 三个函数判「缺」的方式各不相同（空串算不算缺、null 算不算缺），
+// 抄一遍就会漂。
+const platform = require(
+  path.resolve(__dirname, '..', '..', '..', 'lib', 'engines', 'profile', 'fields.js')
+)
+
 // 平台的解析器。路径从向导自己的位置算回去：向导是独立工具，
 // 不假定自己被放在哪（可以被拷走单独用）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
@@ -89,9 +97,88 @@ function diagnose (manifest) {
     if (manifest[key] === undefined) {
       push('error', 'ENGINE_MANIFEST_INCOMPLETE',
         `少了顶层必填项「${key}」。`, {
-          section: key, field: key, sectionMeta: SECTIONS_BY_KEY[key] || null,
-          danger: DANGER.BLOCK,
-        })
+        section: key, field: key, sectionMeta: SECTIONS_BY_KEY[key] || null,
+        danger: DANGER.BLOCK,
+      })
+    }
+  }
+
+  // ---- 3b. 平台当场校验的那几个键（缺一个就装不上）----------------
+  //
+  // 判据不重写：直接调平台自己的那三个函数（required / requiredBool / positiveInt），
+  // 它们判「缺」的方式并不一样，重写一遍就会漂：
+  //   required      缺 = undefined / null / ''（空串也当缺）
+  //   requiredBool  缺 = undefined；null 与 '' 是「写了但类型错」
+  //   positiveInt   先判缺，再判正整数
+  // 本文件自己写的「缺 = undefined || null」两处都判错：
+  //   空串被放过，而平台当它缺（runtime.python 写成 '' 平台直接抛）。
+  //   requiredBool 的 null 被当成缺，而平台当它是「写了但不是布尔」。
+  //
+  // 平台抛什么，这里就报什么码：判据同源 ⇒ 校验层不会比平台宽，也不会比平台严。
+  const REQUIRED_KEYS = [
+    { path: 'runtime.python', get: (m) => (m.runtime || {}).python, section: 'runtime' },
+    { path: 'runtime.entry', get: (m) => (m.runtime || {}).entry, section: 'runtime' },
+    { path: 'runtime.ready_endpoint', get: (m) => (m.runtime || {}).ready_endpoint, section: 'runtime' },
+    { path: 'runtime.ready_timeout_ms', get: (m) => (m.runtime || {}).ready_timeout_ms, section: 'runtime' },
+    { path: 'timeout_ms', get: (m) => m.timeout_ms, section: 'timeout_ms' },
+    { path: 'max_chars', get: (m) => m.max_chars, section: 'max_chars' },
+    { path: 'capabilities.requires_reference_audio',
+      get: (m) => (m.capabilities || {}).requires_reference_audio, section: 'capabilities',
+      kind: 'bool' },
+    { path: 'capabilities.output_sample_rate',
+      get: (m) => (m.capabilities || {}).output_sample_rate, section: 'capabilities' },
+  ]
+  for (const req of REQUIRED_KEYS) {
+    const v = req.get(manifest)
+    const where = {
+      section: req.section, field: req.path, sectionMeta: SECTIONS_BY_KEY[req.section] || null,
+      danger: DANGER.BLOCK,
+    }
+    // 必填Bool 只在「缺」时报缺；类型不对是另一类错，交给平台那句原文。
+    if (req.kind === 'bool') {
+      if (v === undefined) {
+        push('error', 'ENGINE_MANIFEST_INCOMPLETE',
+          `少了必填项「${req.path}」。缺这一项平台加载名片时直接报错，这张名片装不上。`, where)
+      } else if (typeof v !== 'boolean') {
+        push('error', 'ENGINE_MANIFEST_INVALID_VALUE',
+          `「${req.path}」必须是 true 或 false，现在写的是 ${JSON.stringify(v)}。`, where)
+      }
+      continue
+    }
+    // 其余几个走平台那两个函数：它们抛了就是平台会抛的。
+    try {
+      platform.required({ id: manifest.id }, req.path, v, '')
+      if (req.path === 'runtime.ready_timeout_ms' || req.path === 'timeout_ms' ||
+          req.path === 'max_chars' || req.path === 'capabilities.output_sample_rate') {
+        platform.positiveInt({ id: manifest.id }, req.path, v)
+      }
+    } catch (e) {
+      push('error', e.code || 'ENGINE_MANIFEST_INVALID_VALUE',
+        `「${req.path}」的值不成立：${e.message}`, where)
+    }
+  }
+
+  // reference_clip_seconds：缺键与「写 null（不限制）」是两件事。
+  // 平台要能区分「忘了写」和「不限制」，所以缺键要报错，写 null 不报。
+  const caps = manifest.capabilities || {}
+  if (!('reference_clip_seconds' in caps)) {
+    push('error', 'ENGINE_MANIFEST_INCOMPLETE',
+      '少了必填项「capabilities.reference_clip_seconds」。'
+      + '这一项要写明参考音频的时长范围，不限制时显式写 null。'
+      + '缺这一项平台加载名片时直接报错，这张名片装不上。', {
+      section: 'capabilities', field: 'capabilities.reference_clip_seconds',
+      sectionMeta: SECTIONS_BY_KEY.capabilities || null, danger: DANGER.BLOCK,
+    })
+  } else if (caps.reference_clip_seconds !== null) {
+    // 形状对不对：平台只收 null 或 [最短秒, 最长秒]（profile/fields.js 的 parseClipSeconds）。
+    try {
+      platform.parseClipSeconds({ id: manifest.id }, caps.reference_clip_seconds)
+    } catch (e) {
+      push('error', e.code || 'ENGINE_MANIFEST_INVALID_VALUE',
+        `「capabilities.reference_clip_seconds」的值不成立：${e.message}`, {
+        section: 'capabilities', field: 'capabilities.reference_clip_seconds',
+        sectionMeta: SECTIONS_BY_KEY.capabilities || null, danger: DANGER.BLOCK,
+      })
     }
   }
 
