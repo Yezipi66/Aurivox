@@ -30,7 +30,8 @@ import { clampPreviewWidth, PREVIEW_DEFAULT } from './drawerWidth'
 //   拖拽的源（左）和预览（右）任何时候都在眼前。
 // 右边条（预览）的宽度由人定：
 //   · 拖它左边缘的分隔条改宽（键盘：聚焦分隔条后 ← / → 每次 32px，双击还原）。
-//     上限给中栏留 320px，按左边条「此刻」的实际宽度算。
+//     拖的那一刻在 JS 里夹一次；之后左抽屉开合、视口变化由 CSS 的 max-width 每帧兜住，
+//     中栏始终留 320px（见 editor.css 的 .wz-drawer-right.is-open）。
 //   · 「全屏」按钮把预览铺满整个视口，盖在页面上面；再点一次或按 Esc 退出。
 //   预览要按平台真实尺寸看才有意义，固定的 360px 抽屉里看到的是被挤坏的版式；
 //   以前那档「放大」被中栏最小宽度卡住，到不了全屏。
@@ -62,12 +63,18 @@ export default function Stage ({ left, center, right, open, onToggle }) {
   const [resizing, setResizing] = React.useState(false)
   React.useEffect(() => { if (!rightOpen) setFull(false) }, [rightOpen])
 
-  // 全屏时 Esc 退出。
+  // 全屏时 Esc 退出；背后的页面锁住不滚，退出后回到进入时的位置。
   React.useEffect(() => {
     if (!full) return undefined
     const onKey = (e) => { if (e.key === 'Escape') setFull(false) }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const root = document.documentElement
+    const prevOverflow = root.style.overflow
+    root.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      root.style.overflow = prevOverflow
+    }
   }, [full])
 
   const geometry = () => ({
@@ -82,7 +89,9 @@ export default function Stage ({ left, center, right, open, onToggle }) {
     e.preventDefault()
     const startX = e.clientX
     const el = e.currentTarget
-    const startW = rightW || el.parentElement.getBoundingClientRect().width || PREVIEW_DEFAULT
+    // 从「看到的」宽度起拖：存下的 rightW 可能正被 CSS 的 max-width 压着
+    // （左抽屉后开的情况），从它起拖会让抽屉一下跳一截。
+    const startW = el.parentElement.getBoundingClientRect().width || rightW || PREVIEW_DEFAULT
     if (el.setPointerCapture && e.pointerId !== undefined) el.setPointerCapture(e.pointerId)
     setResizing(true)
     const move = (ev) => resizeTo(startW + (startX - ev.clientX))
@@ -97,7 +106,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
     el.addEventListener('pointercancel', up)
   }
   const onResizeKey = (e) => {
-    const cur = rightW || e.currentTarget.parentElement.getBoundingClientRect().width || PREVIEW_DEFAULT
+    const cur = e.currentTarget.parentElement.getBoundingClientRect().width || rightW || PREVIEW_DEFAULT
     if (e.key === 'ArrowLeft') { e.preventDefault(); resizeTo(cur + 32) }
     if (e.key === 'ArrowRight') { e.preventDefault(); resizeTo(cur - 32) }
   }
@@ -105,7 +114,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
   const fullLabel = full ? t('Exit full screen', '退出全屏') : t('Full screen', '全屏')
 
   return (
-    <div className="wz-stage" ref={stageRef}>
+    <div className={`wz-stage${leftOpen ? ' wz-stage-left-open' : ''}`} ref={stageRef}>
       <Drawer
         side="left"
         open={leftOpen}

@@ -202,6 +202,27 @@ test('预览可拖动改宽，也能全屏', () => {
   assert.ok(!/is-wide/.test(css), '旧的「放大」那一档到不了全屏，应当去掉')
 })
 
+test('预览的实际宽度由 CSS 按当前几何封顶：左抽屉后开也给中栏留 320px', () => {
+  // 只在拖的那一刻用 JS 夹一次 ⇒ 先拖到最宽、再开左抽屉，中栏被压成 0px（#12 review）。
+  // 上限必须写在 CSS 里，按「骨架宽 − 左边条此刻宽 − 中栏最小宽」每帧算。
+  const cap = ruleBody('.wz-drawer-right.is-open')
+  assert.ok(cap, 'editor.css 里没有 .wz-drawer-right.is-open 的上限')
+  assert.ok(/max-width:[^;]*100%\s*-\s*var\(--wz-left-w/.test(cap),
+    '预览 max-width 要减去 --wz-left-w（左边条此刻的宽度）')
+  assert.ok(/var\(--wz-center-min/.test(cap), '预览 max-width 要减去中栏最小宽')
+  const stage = ruleBody('.wz-stage')
+  assert.ok(/--wz-left-w:\s*var\(--wz-rail-w/.test(stage), '.wz-stage 上要有 --wz-left-w 收着那一档')
+  const m = /--wz-center-min:\s*(\d+)px/.exec(stage)
+  assert.ok(m, '.wz-stage 上要定义 --wz-center-min')
+  const { CENTER_MIN } = require(path.join(EDITOR, 'drawerWidth.js'))
+  assert.strictEqual(Number(m[1]), CENTER_MIN, 'CSS 的 --wz-center-min 与 drawerWidth.js 的 CENTER_MIN 不一致')
+  const open = ruleBody('.wz-stage-left-open')
+  assert.ok(open && /--wz-left-w:\s*var\(--wz-drawer-w/.test(open),
+    '.wz-stage-left-open 上要把 --wz-left-w 换成抽屉那一档')
+  const full = ruleBody('.wz-drawer.is-open.is-full')
+  assert.ok(/max-width:\s*none/.test(full), '全屏不受预览上限约束')
+})
+
 test('两根边条 sticky 跟着页面滚动', () => {
   const body = ruleBody('.wz-drawer')
   assert.ok(/position:\s*sticky/.test(body), '边条要 sticky')
