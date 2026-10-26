@@ -181,27 +181,46 @@ test('三栏铺满页面：第 4 步不在 .workspace-container 里', () => {
   assert.ok(/className="wz-manifest-shell"/.test(branch))
 })
 
-test('右边条放大时，中栏的宽度要按左栏的实际占位算', () => {
-  // 放大后的宽度式子里，减去的是左边条当前占的宽度。
-  // 写死 32px（边条收着的宽度）⇒ 左抽屉展开时中栏被压到 152px，
-  // 表单没法用 ⇒ 这个式子必须读左栏的实际占位。
+test('顶栏、流程条与其余四步撑满容器宽度（不被 flex 收缩压窄）', () => {
+  // .wz-root 是竖排 flex，.workspace-container 带 margin: 0 auto；
+  // 不显式 width:100% 的话它按内容收缩，整个向导被压成一条窄栏（#11 的回归）。
+  assert.ok(/className="wz-root"/.test(app), '最外层是 .wz-root')
+  const body = ruleBody('.wz-root > .workspace-container')
+  assert.ok(body, 'editor.css 里没有 .wz-root > .workspace-container')
+  assert.ok(/width:\s*100%/.test(body), '.wz-root 里的 .workspace-container 必须 width:100%')
+})
+
+test('预览可拖动改宽，也能全屏', () => {
   const stage = fs.readFileSync(path.join(EDITOR, 'Stage.jsx'), 'utf8')
-  assert.ok(/wz-stage-left-open/.test(stage),
-    '左栏开合要写进类名，放大后的宽度才知道左边条占多宽')
-  const wide = ruleBody('.wz-drawer.is-open.is-wide')
-  assert.ok(wide, 'editor.css 里没有 .wz-drawer.is-open.is-wide')
-  assert.ok(/var\(--wz-left-w/.test(wide),
-    '放大后的宽度必须按 --wz-left-w（左边条实际占位）算，不能写死 32px')
-  assert.ok(!/100vw\s*-\s*32px\s*-\s*480px/.test(wide),
-    '放大后的宽度还写死着 32px，左抽屉开着时中栏会被压成一条缝')
-  // 变量得有两档：左栏收着是边条宽，展开是抽屉宽。
-  const rail = ruleBody('.wz-stage')
-  assert.ok(/--wz-left-w:\s*var\(--wz-rail-w/.test(rail),
-    '.wz-stage 上要定义 --wz-left-w 的收着那一档')
+  assert.ok(/className="wz-drawer-resizer"/.test(stage), '预览左边缘要有分隔条')
+  assert.ok(/role="separator"/.test(stage), '分隔条要是 separator，键盘能聚焦')
+  assert.ok(/onPointerDown=\{onResizeStart\}/.test(stage), '分隔条要能拖')
+  assert.ok(ruleBody('.wz-drawer-resizer'), 'editor.css 里没有 .wz-drawer-resizer')
+  const full = ruleBody('.wz-drawer.is-open.is-full')
+  assert.ok(full, 'editor.css 里没有全屏规则')
+  assert.ok(/position:\s*fixed/.test(full) && /inset:\s*0/.test(full), '全屏要铺满视口')
+  assert.ok(!/is-wide/.test(css), '旧的「放大」那一档到不了全屏，应当去掉')
+})
+
+test('预览的实际宽度由 CSS 按当前几何封顶：左抽屉后开也给中栏留 320px', () => {
+  // 只在拖的那一刻用 JS 夹一次 ⇒ 先拖到最宽、再开左抽屉，中栏被压成 0px（#12 review）。
+  // 上限必须写在 CSS 里，按「骨架宽 − 左边条此刻宽 − 中栏最小宽」每帧算。
+  const cap = ruleBody('.wz-drawer-right.is-open')
+  assert.ok(cap, 'editor.css 里没有 .wz-drawer-right.is-open 的上限')
+  assert.ok(/max-width:[^;]*100%\s*-\s*var\(--wz-left-w/.test(cap),
+    '预览 max-width 要减去 --wz-left-w（左边条此刻的宽度）')
+  assert.ok(/var\(--wz-center-min/.test(cap), '预览 max-width 要减去中栏最小宽')
+  const stage = ruleBody('.wz-stage')
+  assert.ok(/--wz-left-w:\s*var\(--wz-rail-w/.test(stage), '.wz-stage 上要有 --wz-left-w 收着那一档')
+  const m = /--wz-center-min:\s*(\d+)px/.exec(stage)
+  assert.ok(m, '.wz-stage 上要定义 --wz-center-min')
+  const { CENTER_MIN } = require(path.join(EDITOR, 'drawerWidth.js'))
+  assert.strictEqual(Number(m[1]), CENTER_MIN, 'CSS 的 --wz-center-min 与 drawerWidth.js 的 CENTER_MIN 不一致')
   const open = ruleBody('.wz-stage-left-open')
-  assert.ok(open, 'editor.css 里没有 .wz-stage-left-open')
-  assert.ok(/--wz-left-w:\s*var\(--wz-drawer-w/.test(open),
+  assert.ok(open && /--wz-left-w:\s*var\(--wz-drawer-w/.test(open),
     '.wz-stage-left-open 上要把 --wz-left-w 换成抽屉那一档')
+  const full = ruleBody('.wz-drawer.is-open.is-full')
+  assert.ok(/max-width:\s*none/.test(full), '全屏不受预览上限约束')
 })
 
 test('两根边条 sticky 跟着页面滚动', () => {

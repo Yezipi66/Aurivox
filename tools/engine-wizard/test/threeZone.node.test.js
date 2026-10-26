@@ -45,6 +45,7 @@ const i18nStub = { useT: () => ({ t: (en) => en }) }
 const Stage = loadJsx('Stage.jsx', {
   react: React,
   'web/src/lib/i18n': i18nStub,
+  './drawerWidth': require(path.join(EDITOR_DIR, 'drawerWidth.js')),
 }).default
 
 // ParamDropZone 现在从 ./paramDrop 取那两个纯函数（原先在它自己文件里）。
@@ -188,6 +189,41 @@ test('点箭头：抽屉滑出来；没有遮罩，中栏照常能点', async ()
   handle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await settle()
   assert.deepStrictEqual(toggled, ['left'], '点箭头没收左边抽屉')
+})
+
+test('左抽屉开合写进骨架类名：预览的上限靠它跟着重算，中栏才不会被压成 0', async () => {
+  const { root, container } = mount()
+  const render = (open) => root.render(React.createElement(Stage, {
+    open, onToggle: () => {}, left: 'L', center: 'C', right: 'R',
+  }))
+  render({ left: false, right: true })
+  await settle()
+  const stage = container.querySelector('.wz-stage')
+  assert.ok(!stage.classList.contains('wz-stage-left-open'), '左栏收着时不该带 wz-stage-left-open')
+  render({ left: true, right: true })
+  await settle()
+  assert.ok(stage.classList.contains('wz-stage-left-open'), '左抽屉开了，骨架上没写 wz-stage-left-open')
+  render({ left: false, right: true })
+  await settle()
+  assert.ok(!stage.classList.contains('wz-stage-left-open'), '左抽屉收起后类名没摘掉')
+})
+
+test('全屏时锁住背后的页面滚动，退出时还原', async () => {
+  const { dom, root, container } = mount()
+  root.render(React.createElement(Stage, {
+    open: { left: false, right: true }, onToggle: () => {}, left: 'L', center: 'C', right: 'R',
+  }))
+  await settle()
+  const html = dom.window.document.documentElement
+  const fullBtn = container.querySelectorAll('.wz-drawer-right .wz-drawer-handle')[1]
+  fullBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await settle()
+  assert.ok(container.querySelector('.wz-drawer-right').classList.contains('is-full'), '没进全屏')
+  assert.strictEqual(html.style.overflow, 'hidden', '全屏时背后的页面还能滚')
+  dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
+  await settle()
+  assert.ok(!container.querySelector('.wz-drawer-right').classList.contains('is-full'), 'Esc 没退出全屏')
+  assert.strictEqual(html.style.overflow, '', '退出全屏后页面滚动没还原')
 })
 
 test('箭头按钮用的是方向箭头，不是项目的 ▸', async () => {
