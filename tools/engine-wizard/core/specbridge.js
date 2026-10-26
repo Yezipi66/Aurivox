@@ -5,6 +5,12 @@
 const path = require('node:path')
 const { SECTIONS, PARAM_FIELDS, PLATFORM_WORDS } = require('./fieldmeta')
 
+// bind 槽位是平台的固定词表，不许在界面里手抄一份：
+// 手抄的那份与平台不同步时，向导会给出平台根本不认的槽位，
+// 而平台是在加载名片时才拒（不是填的时候拒）⇒ 使用者填完才发现。
+// 这里直接取平台那份。
+const { BIND_SLOTS } = require('../../../lib/engines/hostProfile')
+
 function buildSpec () {
   return {
     sections: SECTIONS.map((s) => ({
@@ -32,6 +38,8 @@ function buildSpec () {
       help: w.help,
       warn: w.warn || null,
     })),
+    // call.bind 的槽位：平台的固定词表，界面照它给输入框。
+    bindSlots: BIND_SLOTS.slice(),
   }
 }
 

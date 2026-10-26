@@ -322,7 +322,12 @@ function VerifyField ({ value, onChange, t }) {
 }
 
 // call.bind：槽位，取值是平台的固定词表。
-function BindField ({ value, onChange, t }) {
+//
+// 槽位清单来自 /wizard/spec 的 bindSlots（那是平台 lib/engines/hostProfile.js 的
+// BIND_SLOTS 原样），不在这里手抄：手抄的那份给出过平台根本不认的四个槽位
+// （ref_text / ref_lang / text_lang / out），而平台是在加载名片时才拒
+// （hostProfile.js:230 抛 ENGINE_HOST_CONTRACT_INVALID）⇒ 使用者填完才发现。
+function BindField ({ value, onChange, t, slots }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
     const next = { ...v }
@@ -330,8 +335,8 @@ function BindField ({ value, onChange, t }) {
     else next[k] = val
     onChange(Object.keys(next).length ? next : undefined)
   }
-  // 槽位名是平台的固定词表，不属于名片：这里只提示，不强制。
-  const SLOTS = ['text', 'ref_audio', 'ref_text', 'ref_lang', 'text_lang', 'out']
+  // 平台的那三个槽位：text 必填，另两个看这台引擎要不要。
+  const SLOTS = (slots && slots.length) ? slots : ['text', 'ref_audio', 'output_path']
   return (
     <>
       {SLOTS.map((slot) => (
@@ -359,7 +364,7 @@ function BindField ({ value, onChange, t }) {
 }
 
 // call.methods：每个方法一套 bind 与调用时序。
-function MethodsField ({ value, onChange, t }) {
+function MethodsField ({ value, onChange, t, bindSlots }) {
   const v = (value && typeof value === 'object') ? value : {}
   const names = Object.keys(v)
   const [name, setName] = React.useState('')
@@ -397,7 +402,8 @@ function MethodsField ({ value, onChange, t }) {
                 '只在这个方法里生效的槽位绑定')}>
                 <div style={{ paddingLeft: 8 }}>
                   <BindField value={m.bind}
-                    onChange={(b) => onChange({ ...v, [n]: { ...m, bind: b } })} t={t} />
+                    onChange={(b) => onChange({ ...v, [n]: { ...m, bind: b } })}
+                    t={t} slots={bindSlots} />
                 </div>
               </Row>
             </div>
@@ -425,6 +431,15 @@ function MethodsField ({ value, onChange, t }) {
 }
 
 // 三段的编辑器。
+// runtime 段的编辑器：只管必填网格之外的那几个键。
+//
+// python / entry / ready_endpoint / ready_timeout_ms / ready_timeout_ms_source
+// 这五格在必填区里（它们是平台当场校验的），这里不再重复一份：
+//   同一份数据有两个编辑入口时，两处的徽标与提示不一样
+//   （高级那处标「填错装不上」，必填那处不标），
+//   而两边改的是同一个键 ⇒ 看的人会以为什么都不一样。
+//
+// 这里留的是：args / cwd / checkpoints / preload / verify。
 export function RuntimeSection ({ value, onChange, t, checkpointsPath }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
@@ -435,54 +450,10 @@ export function RuntimeSection ({ value, onChange, t, checkpointsPath }) {
   }
   return (
     <>
-      <Row label="python"
-        hint={t('the engine’s own environment directory (e.g. engines/<id>/.venv)',
-          '这台引擎自己的环境目录（如 engines/<id>/.venv）')}
-        warn={t('use the engine’s own environment directory (e.g. engines/<id>/.venv). '
-          + 'An absolute path will not save.',
-          '填引擎自己的环境目录（如 engines/<id>/.venv），填绝对路径存不了。')}
-        danger="block">
-        <input className="control" type="text" value={v.python || ''}
-          placeholder="engines/xxx/.venv"
-          onChange={(e) => set('python', e.target.value.trim())} />
-      </Row>
-      <Row label="entry" hint={t('the script that starts the engine (relative to the engine dir)',
-        '启动引擎的脚本（相对引擎目录）')}>
-        <input className="control" type="text" value={v.entry || ''}
-          onChange={(e) => set('entry', e.target.value.trim())} />
-      </Row>
       <Row label="args" hint={t('command-line arguments; {placeholders} are filled by the platform',
         '命令行参数；{占位符} 由平台替换')}
         danger="silent">
         <LinesField value={v.args} onChange={(a) => set('args', a)} t={t} />
-      </Row>
-      <Row label="ready_endpoint"
-        hint={t('the path polled to decide the engine is up (must start with /)',
-          '轮询哪个路径判断引擎已就绪（必须以 / 开头）')}>
-        <input className="control" type="text" value={v.ready_endpoint || ''}
-          placeholder="/health"
-          onChange={(e) => set('ready_endpoint', e.target.value.trim())} />
-      </Row>
-      <Row label="ready_timeout_ms"
-        hint={t('how long to wait before giving up', '等多久算超时')}
-        danger="silent">
-        <input className="control" type="number" value={v.ready_timeout_ms ?? ''}
-          onChange={(e) => set('ready_timeout_ms',
-            e.target.value === '' ? undefined : Number(e.target.value))} />
-      </Row>
-      <Row label="ready_timeout_ms_source"
-        hint={t('required: where that number came from — measured or estimated',
-          '必填：需说明该数值的来源（实测或估算）')}
-        warn={t('saving is rejected: this number must say where it came from '
-          + '(measured / estimated / upstream).',
-          '保存时会被打回：这个数字必须说明来源（实测/估算/上游）。')}
-        danger="block">
-        <select className="control" value={v.ready_timeout_ms_source || ''}
-          onChange={(e) => set('ready_timeout_ms_source', e.target.value || undefined)}>
-          <option value="">{t('(unset)', '（不写）')}</option>
-          <option value="measured">measured</option>
-          <option value="estimated">estimated</option>
-        </select>
       </Row>
       <Row label="checkpoints"
         hint={t('where the weights live (relative to project root). '
@@ -512,7 +483,7 @@ export function RuntimeSection ({ value, onChange, t, checkpointsPath }) {
   )
 }
 
-export function CallSection ({ value, onChange, t }) {
+export function CallSection ({ value, onChange, t, bindSlots }) {
   const v = (value && typeof value === 'object') ? value : {}
   const set = (k, val) => {
     const next = { ...v }
@@ -554,7 +525,7 @@ export function CallSection ({ value, onChange, t }) {
       <Row label="bind"
         hint={t('which upstream argument each platform input word goes to',
           '平台的每个输入词对应上游哪个参数')}>
-        <BindField value={v.bind} onChange={(b) => set('bind', b)} t={t} />
+        <BindField value={v.bind} onChange={(b) => set('bind', b)} t={t} slots={bindSlots} />
       </Row>
       {v.kind === 'cli' && (
         <>
@@ -598,7 +569,8 @@ export function CallSection ({ value, onChange, t }) {
               '每个方法要各自的 bind 和 call_time。'
               + '顶层的 requires_reference_audio 只有一个总开关，分方法的需求只能在此表达。')}
           </p>
-          <MethodsField value={v.methods} onChange={(m) => set('methods', m)} t={t} />
+          <MethodsField value={v.methods} onChange={(m) => set('methods', m)} t={t}
+            bindSlots={bindSlots} />
         </div>
       </details>
     </>

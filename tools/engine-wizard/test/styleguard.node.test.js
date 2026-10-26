@@ -593,17 +593,15 @@ const DEBT_LEDGER = {
   'core/specbridge.js': 5,
   'editor/folderName.js': 5,
   'test/save.node.test.js': 5,
-  'editor/RequiredEight.jsx': 4,
   'editor/useInstalled.js': 4,
   'test/computeAutoFill.node.test.js': 4,
   'test/tierreview.node.test.js': 4,
   'test/validate.node.test.js': 5,
   'editor/index.jsx': 2,
   'test/downloadState.test.js': 2,
-  // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0。
+  // 旧口径漏扫、从未进过台账的文件，真值逐个为 0。
   //   仍显式设键让它们进扫描范围：不设键的文件只配报 newFiles。
   'comment_ratio.cjs': 1,
-  'editor/CoreBindings.jsx': 1,
   'editor/NestedSections.jsx': 10,
 }
 

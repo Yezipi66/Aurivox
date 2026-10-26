@@ -112,11 +112,12 @@ function Field ({ sec, value, onChange }) {
 // 只填表单，不直接写 manifest.json；映射候选只给候选，人点选之后才写 maps。
 
 // 主组件操作流（三个区）：
-// ① 必填字段：核心输入（平台三个输入 → 引擎参数）+ 平台当场校验的 8 个键。
-//    原来「核心映射」单独一个区，可它本来就是必填的，语义重复，合进来。
+// ① 必填字段：平台三个输入（call.bind 三槽位）+ 平台当场校验的那些键，
+//    合成一个两列网格，每格是「中文人话 + 键名徽标」。
+//    原来分「核心输入」与「运行与能力」两小段，语义重复，已合成一个网格。
 // ② 参数：左栏扫到的参数拖到这里，成为名片的一条参数（parameters[]）。
 //    原来的「常用可选」里属于参数的那部分（tier / phase）成了每一行的「去向」。
-// ③ 高级（折叠）：runtime 全量、call 其余字段、capabilities、source/models/install/output。
+// ③ 高级（折叠）：runtime 其余字段、call 其余字段、source/models/install/output。
 //
 // 扫描发生在左栏（EngineScanZone），扫描结果由页面层持有并传进来。
 export default function ManifestForm ({
@@ -192,8 +193,9 @@ export default function ManifestForm ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* ① 必填字段：核心输入 + 8 项 */}
-      <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill} />
+      {/* ① 必填字段：平台三个输入槽位 + 平台当场校验的那些键，一个两列网格 */}
+      <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill}
+        bindSlots={spec && spec.bindSlots} />
 
       {/* ② 参数：左栏扫到的参数拖到这里 */}
       <ParamDropZone manifest={manifest} onChange={onChange}
@@ -224,9 +226,9 @@ export default function ManifestForm ({
               </div>
             </div>
           ))}
-          {/* runtime 全量嵌套编辑器（python/entry/args/ready_endpoint/verify…）。
-              TODO(骨架)：与「必填字段」里的 runtime.* 是同一份数据的两处编辑，
-              这里应只留必填之外的键。 */}
+          {/* runtime 段的其余字段（args / checkpoints / verify）。
+              必填的那几格（python / entry / ready_endpoint / ready_timeout_ms
+              与它的出处）在上面的必填网格里，这里不再重复一份。 */}
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
             <div className="section-body">
@@ -239,7 +241,8 @@ export default function ManifestForm ({
           <div className="section">
             <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
             <div className="section-body">
-              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t} />
+              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t}
+              bindSlots={spec && spec.bindSlots} />
             </div>
           </div>
           {/* L3 嵌套段：models（全量嵌套编辑器）。
