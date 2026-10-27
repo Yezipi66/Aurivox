@@ -76,6 +76,17 @@ function writeRoot (opts = {}) {
   return overrideRoot(opts) || checkoutRoot(opts)
 }
 
+// 两个根是否同一目录的判据。必须用 realpathSync.native：Windows 上 JS 版不展开 8.3 短名、
+// 不纠正大小写，而 git 写的 gitdir 是长名，否则同一个根会重复进 readRoots。win32 再转小写。
+function rootKey (p, platform = process.platform) {
+  let real = p
+  try { real = fs.realpathSync.native(p) } catch (e) {
+    try { real = fs.realpathSync(p) } catch (e2) { /* 拿不到就用原样 */ }
+  }
+  if (platform === 'win32') return path.win32.resolve(real).toLowerCase()
+  return path.resolve(real)
+}
+
 /** 读操作依次查找的根（去重，先到先得）。 */
 function readRoots (opts = {}) {
   const local = checkoutRoot(opts)
@@ -83,8 +94,7 @@ function readRoots (opts = {}) {
   const seen = new Set()
   const out = []
   for (const r of list) {
-    let key = r
-    try { key = fs.realpathSync(r) } catch (e) { /* 拿不到就用原样 */ }
+    const key = rootKey(r)
     if (seen.has(key)) continue
     seen.add(key)
     out.push(r)
@@ -122,6 +132,6 @@ function engineRoot (id, opts = {}) {
 }
 
 module.exports = {
-  findWithServerJs, mainRepoOf, checkoutRoot, overrideRoot,
+  findWithServerJs, mainRepoOf, checkoutRoot, overrideRoot, rootKey,
   writeRoot, readRoots, engineDirForRead, manifestPathForRead, engineRoot,
 }
