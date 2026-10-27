@@ -93,7 +93,10 @@ function diagnose (manifest) {
   })
 
   // ---- 3. 顶层必填（平台会抛，这里只是提前说）----------------------
-  for (const key of ['id', 'label', 'runtime']) {
+  // 注意：runtime 不在这一列。平台对整段缺失的 runtime 不报错
+  // （lib/engines/profile.js 的 parseRuntime 返回 null，视为「引擎不由平台起」的合法态），
+  // 只有 runtime 段在（哪怕空对象）时才要求它的子键齐全。
+  for (const key of ['id', 'label']) {
     if (manifest[key] === undefined) {
       push('error', 'ENGINE_MANIFEST_INCOMPLETE',
         `少了顶层必填项「${key}」。`, {
@@ -129,6 +132,9 @@ function diagnose (manifest) {
       get: (m) => (m.capabilities || {}).output_sample_rate, section: 'capabilities' },
   ]
   for (const req of REQUIRED_KEYS) {
+    // runtime 整段缺失时平台视为「引擎不由平台起」的合法态（parseRuntime 返回 null，不报错），
+    // 这里与平台一致：runtime 段不在就不查它的子键；runtime 段在（哪怕空对象 {}）则照常查。
+    if (req.section === 'runtime' && !manifest.runtime) continue
     const v = req.get(manifest)
     const where = {
       section: req.section, field: req.path, sectionMeta: SECTIONS_BY_KEY[req.section] || null,

@@ -165,8 +165,14 @@ test('换到没名片的引擎：上一台的 runtime 与 call 整段清掉', as
 
   assert.ok(changes.length >= 1, '换引擎后名片没变')
   assert.strictEqual(manifest.id, 'spark-tts')
-  assert.strictEqual(manifest.runtime, undefined,
-    'runtime 是上一台的，整段留着就是「id 写着 spark-tts、路径却指上一台」')
+  // runtime 不再是 undefined：切换时代填了平台惯例的启动三件套（withLaunchDefaults）。
+  // 防残留的判据不变：值必须是 spark-tts 自己的惯例路径，deepStrictEqual
+  // 同时钉住「上一台的段清掉了」与「代填的路径按新 id 推」。
+  assert.deepStrictEqual(manifest.runtime, {
+    python: 'engines/spark-tts/.venv',
+    entry: '../../lib/engines/host.py',
+    ready_endpoint: '/health',
+  })
   assert.strictEqual(manifest.call, undefined, 'call 是上一台的，整段留着就装着上一台的类')
   const dumped = JSON.stringify(manifest)
   assert.ok(!dumped.includes('cosyvoice'),

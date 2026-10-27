@@ -1,5 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import { runtimeLaunchDefaults } from './manifestAutoFill'
 
 // 必填区：平台当场会校验的那些格子，全在一个两列网格里。
 //
@@ -27,12 +28,34 @@ import { useT } from '../../../web/src/lib/i18n'
 // 一格：中文人话 + 键名徽标 + 说明 + 控件。
 // 徽标是键名，标签是人话，两者同一个 flex 行里，不靠颜色区分。
 // wide：这一格占满一行（格子里的控件不止一个，放半行里挤）。
-function Cell ({ label, code, hint, wide, children }) {
+// inline：标签、徽标、控件、说明全部同行（控件的值本身要占几个控件的格子，
+// 竖着排就是三行，没必要）。说明放行尾，挤不下时整段折到下一行，不打散控件。
+// auto：值为平台惯例代填时挂一枚灰徽标，说明「这格不用自己想，但可以改」。
+function Cell ({ label, code, hint, wide, inline, auto, children }) {
+  const { t } = useT()
+  const autoBadge = auto && (
+    <span className="badge badge-muted">
+      {t('prefilled by the platform, editable', '平台代填，可改')}
+    </span>
+  )
+  if (inline) {
+    return (
+      <div className={`field${wide ? ' form-grid-wide' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <label className="field-label" style={{ margin: 0, whiteSpace: 'nowrap' }}>{label}</label>
+          <span className="badge badge-accent">{code}</span>
+          {children}
+          {hint && <span className="field-hint" style={{ margin: 0 }}>{hint}</span>}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className={`field${wide ? ' form-grid-wide' : ''}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <label className="field-label" style={{ margin: 0 }}>{label}</label>
         <span className="badge badge-accent">{code}</span>
+        {autoBadge}
       </div>
       {hint && <div className="field-hint">{hint}</div>}
       {children}
@@ -113,6 +136,10 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     onChange({ ...manifest, capabilities: next })
   }
 
+  // runtime 4 项恒渲染：向导只产出平台启动形态的名片（「由平台启动」开关已移除，
+  // 向导的接入流 clone/建 venv/下权重本身就都是平台启动）。平台对缺整段 runtime
+  // 的名片另有「自行启动」合法态（lib/engines/profile.js 的 parseRuntime 返回 null），
+  // 那是手写名片的自由，不在向导里表达。
   const listId = 'core-bind-flaglist'
 
   // 三个输入槽位：平台的 bind 槽位。每一格也是拖拽落点。
@@ -134,10 +161,20 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   }))
 
   // reference_clip_seconds 那一格的值：null（不限制）或 [最短, 最长]。
+  //   键缺失（新名片还没有 capabilities 段）与 null 同样按「不限制」显示：
+  //   默认答案就是 null（App 的 withClipAnswered 会在名片进状态时补写），
+  //   使用者只在要限长度时才碰这一格，永远不需要找「设为 null」的入口。
   const clip = caps.reference_clip_seconds
-  const clipUnlimited = clip === null
+  const clipUnlimited = clip === null || clip === undefined
   const clipMin = Array.isArray(clip) ? clip[0] : ''
   const clipMax = Array.isArray(clip) ? clip[1] : ''
+
+  // 平台代填的启动三件套惯例值：值与惯例一致时挂「平台代填，可改」徽标，
+  // 使用者一眼分得清「平台替我答的」和「得自己想的」。
+  const launchDefaults = (manifest && manifest.id)
+    ? runtimeLaunchDefaults(manifest.id)
+    : null
+  const isDefaulted = (v, key) => !!(launchDefaults && v && v === launchDefaults[key])
 
   return (
     <div className="section">
@@ -150,6 +187,9 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
             const guessed = matched && matched[slot.key] || null
             const isMatched = !!guessed
             const isScanned = scanned && !guessed
+            // 红框只标「扫过但还没填」的格子，用户任意键入就解除：
+            // 持续红着是催促，填了东西还红着是羞辱。
+            const unset = isScanned && !val
             return (
               <Cell key={slot.key}
                 label={t(slot.labelEn, slot.labelZh)} code={slot.key}
@@ -159,7 +199,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
                   : null}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input
-                    className={`control${isMatched ? ' wz-field-matched' : (isScanned ? ' wz-field-guess' : '')}${overSlot === slot.key ? ' wz-dropzone-over' : ''}`}
+                    className={`control${isMatched ? ' wz-field-matched' : (unset ? ' wz-field-unset' : '')}${overSlot === slot.key ? ' wz-dropzone-over' : ''}`}
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOverSlot(slot.key) }}
                     onDragLeave={() => setOverSlot(null)}
                     onDrop={dropOn(slot.key)}
@@ -172,15 +212,17 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
                     <span className="badge badge-ok">{t('matched by scan', '扫描已匹配')}</span>
                   )}
                   {isScanned && (
-                    <span className="badge badge-warn">{t('not matched, specify', '未匹配，需指定')}</span>
+                    <span className="badge badge-danger">{t('not matched, specify', '未匹配，需指定')}</span>
                   )}
                 </div>
               </Cell>
             )
           })}
 
+          <React.Fragment>
           <Cell label={t('Environment directory', '环境目录')}
             code="runtime.python"
+            auto={isDefaulted(runtime.python, 'python')}
             hint={t('this engine’s own environment directory, e.g. engines/<id>/.venv',
               '这台引擎自己的环境目录，如 engines/<id>/.venv')}>
             <input className="control" type="text" placeholder="engines/xxx/.venv"
@@ -190,7 +232,9 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
           <Cell label={t('Start script', '启动脚本')}
             code="runtime.entry"
-            hint={t('relative to the engine directory', '相对引擎目录')}>
+            auto={isDefaulted(runtime.entry, 'entry')}
+            hint={t('the platform’s shared host; change it only if the engine ships its own server script',
+              '平台通用宿主；引擎自带服务脚本时才需要改')}>
             <input className="control" type="text"
               value={runtime.entry || ''}
               onChange={(e) => setRuntime({ entry: e.target.value.trim() })} />
@@ -198,6 +242,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
           <Cell label={t('Ready endpoint', '就绪端点')}
             code="runtime.ready_endpoint"
+            auto={isDefaulted(runtime.ready_endpoint, 'ready_endpoint')}
             hint={t('the path polled to decide the engine is up; must start with /',
               '轮询哪个路径判断引擎已就绪，必须以 / 开头')}>
             <input className="control" type="text" placeholder="/health"
@@ -207,15 +252,18 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
           <Cell label={t('Ready timeout (ms)', '就绪等待（毫秒）')}
             code="runtime.ready_timeout_ms"
-            hint={t('how long to wait before deciding the engine is not ready',
-              '等多久算引擎没就绪')}>
-            <input className="control" type="number"
+            hint={t('how long to wait before deciding the engine is not ready; too short and the platform kills a still-loading engine, so it is not prefilled',
+              '等多久算引擎没就绪。猜短了平台会杀掉还在加载的引擎，按模型加载耗时估')}>
+            <input className="control" type="number" placeholder="180000"
               value={runtime.ready_timeout_ms ?? ''}
               onChange={(e) => setRuntime({
                 ready_timeout_ms: e.target.value === '' ? undefined : Number(e.target.value),
               })} />
           </Cell>
 
+          {/* 出处跟着值走：值没写，出处格就不出现（平台也只在值写了时才查出处，
+              validate.js 的 MEASURED_PAIRS 是同一口径）。值在格子在，语义才成立。 */}
+          {runtime.ready_timeout_ms !== undefined && (
           <Cell label={t('Where that number came from', '那个数的出处')}
             code="runtime.ready_timeout_ms_source"
             hint={t('required once the timeout is written', '填了等待时间就必填')}>
@@ -227,16 +275,21 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Cell>
+          )}
+          </React.Fragment>
 
           <Cell label={t('Request timeout (ms)', '单次请求超时（毫秒）')}
             code="timeout_ms"
-            hint={t('counted per segment, not per whole piece', '按每一段计，不是整篇')}>
+            hint={t('counted per segment, not per whole piece; a wrong guess fails silently, so the platform does not fill this',
+              '按每一段计，不是整篇。猜错是静默故障（请求莫名超时），平台不代填')}>
             <input className="control" type="number"
               value={manifest.timeout_ms ?? ''}
               onChange={(e) => setTop('timeout_ms',
                 e.target.value === '' ? undefined : Number(e.target.value))} />
           </Cell>
 
+          {/* 出处跟着值走（与 validate.js 的 MEASURED_PAIRS 同一口径） */}
+          {manifest.timeout_ms !== undefined && (
           <Cell label={t('Where that number came from', '那个数的出处')}
             code="timeout_ms_source"
             hint={t('required once the timeout is written', '填了超时时间就必填')}>
@@ -247,16 +300,20 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Cell>
+          )}
 
           <Cell label={t('Longest text per request', '单次请求最长字符数')}
             code="max_chars"
-            hint={t('slow engines need a smaller number', '慢引擎要调小，否则单段就撑爆超时')}>
+            hint={t('slow engines need a smaller number; a wrong guess fails silently, so the platform does not fill this',
+              '慢引擎要调小，否则单段就撑爆超时。填错不报错、直接切坏文本，必须自己定')}>
             <input className="control" type="number"
               value={manifest.max_chars ?? ''}
               onChange={(e) => setTop('max_chars',
                 e.target.value === '' ? undefined : Number(e.target.value))} />
           </Cell>
 
+          {/* 出处跟着值走（与 validate.js 的 MEASURED_PAIRS 同一口径） */}
+          {manifest.max_chars !== undefined && (
           <Cell label={t('Where that number came from', '那个数的出处')}
             code="max_chars_source"
             hint={t('required once the limit is written', '填了上限就必填')}>
@@ -267,11 +324,13 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Cell>
+          )}
 
           <Cell label={t('Needs reference audio', '是否需要参考音频')}
             code="capabilities.requires_reference_audio"
-            hint={t('whether a request without a reference recording is rejected',
-              '没有参考音频的请求要不要被拦下来')}>
+            auto={caps.requires_reference_audio === true && !!(matched && matched.ref_audio)}
+            hint={t('whether a request without a reference recording is rejected; prefilled when the scan recognizes a reference-audio parameter',
+              '没有参考音频的请求要不要被拦下来。扫描认出参考音频参数时平台代填')}>
             <select className="control"
               value={String(caps.requires_reference_audio ?? '')}
               onChange={(e) => setCaps({
@@ -285,8 +344,8 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
           <Cell label={t('Output sample rate (Hz)', '输出采样率（Hz）')}
             code="capabilities.output_sample_rate"
-            hint={t('the platform uses it to build the silence between segments',
-              '平台靠它生成段间静音与拼接')}>
+            hint={t('the platform uses it to build the silence between segments; a wrong guess means wrong-pitch silence, so it must come from the engine',
+              '平台靠它生成段间静音与拼接。猜错=变调或长度不匹配的静音，必须以引擎实测为准')}>
             <input className="control" type="number"
               value={caps.output_sample_rate ?? ''}
               onChange={(e) => setCaps({
@@ -294,33 +353,38 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               })} />
           </Cell>
 
-          <Cell label={t('Reference audio duration (s)', '参考音频时长（秒）')}
+          <Cell inline wide
+            label={t('Reference audio duration (s)', '参考音频时长（秒）')}
             code="capabilities.reference_clip_seconds"
-            hint={t('write null for no limit; otherwise the shortest and the longest',
-              '不限制就写 null，否则填最短与最长')}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input className="control" type="number" placeholder={t('shortest', '最短')}
-                value={clipMin}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? 0 : Number(e.target.value)
-                  const max = Array.isArray(clip) ? clip[1] : 0
-                  setClip([v, max])
-                }} />
-              <input className="control" type="number" placeholder={t('longest', '最长')}
-                value={clipMax}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? 0 : Number(e.target.value)
-                  const min = Array.isArray(clip) ? clip[0] : 0
-                  setClip([min, v])
-                }} />
-              {clipUnlimited && (
-                <span className="badge badge-muted">null</span>
-              )}
-              <button className="btn btn-sm" type="button"
-                onClick={() => setClip(clipUnlimited ? [3, 10] : null)}>
-                {clipUnlimited ? t('set a range', '设一个范围') : t('no limit', '不限制')}
-              </button>
-            </div>
+            hint={t('defaults to "no limit"; set a range only if the engine cares about reference audio length',
+              '默认「不限制」；只有引擎对参考音频长度有要求时才设范围')}>
+            {!clipUnlimited && (
+              <React.Fragment>
+                <input className="control" type="number" placeholder={t('shortest', '最短')}
+                  style={{ width: 84, flexShrink: 0 }}
+                  value={clipMin}
+                  onChange={(e) => {
+                    const v = e.target.value === '' ? 0 : Number(e.target.value)
+                    const max = Array.isArray(clip) ? clip[1] : 0
+                    setClip([v, max])
+                  }} />
+                <input className="control" type="number" placeholder={t('longest', '最长')}
+                  style={{ width: 84, flexShrink: 0 }}
+                  value={clipMax}
+                  onChange={(e) => {
+                    const v = e.target.value === '' ? 0 : Number(e.target.value)
+                    const min = Array.isArray(clip) ? clip[0] : 0
+                    setClip([min, v])
+                  }} />
+              </React.Fragment>
+            )}
+            {clipUnlimited && (
+              <span className="badge badge-muted" style={{ flexShrink: 0 }}>null</span>
+            )}
+            <button className="btn btn-sm" type="button" style={{ flexShrink: 0 }}
+              onClick={() => setClip(clipUnlimited ? [3, 10] : null)}>
+              {clipUnlimited ? t('set a range', '设一个范围') : t('no limit', '不限制')}
+            </button>
           </Cell>
 
         </div>

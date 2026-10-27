@@ -78,6 +78,12 @@ export function shouldAutoFillCheckpoints (manifest, checkpointsPath) {
   if (!checkpointsPath) return false
   // 引擎 id 还没定 ⇒ 算不出这一台引擎的落盘路径
   if (!manifest || !manifest.id) return false
+  // runtime 段不在 ⇒ 不填。checkpoints 是「由平台启动」的配置：
+  //   磁盘上读进来的名片可能整段没有 runtime（引擎自行起，平台 parseRuntime
+  //   视为合法态），这里若替他把段造出来，等于把一张自行启动的名片悄悄改成
+  //   平台启动形态。平台启动的路径上，换引擎时代填已把 runtime 段建好，
+  //   这里照样填得进。
+  if (!manifest.runtime) return false
   const rt = manifest.runtime || {}
   const current = rt.checkpoints
   // 这一格空着 ⇒ 填。
@@ -119,5 +125,83 @@ export function withAutoFilledCheckpoints (manifest, checkpointsPath) {
   return {
     ...manifest,
     runtime: { ...rt, checkpoints: checkpointsPath },
+  }
+}
+
+// 平台代填的启动三件套。值不是拍的，是本仓库自己的惯例：
+//   环境目录 = engines/<id>/.venv（envDetect 建环境用的同一个推导，现有名片全同款）；
+//   启动脚本 = ../../lib/engines/host.py（平台通用宿主，一份对所有引擎，模板同款；
+//              引擎自带服务脚本的才改，比如老引擎自己的 infer_server）；
+//   就绪端点 = /health（宿主自带，lib/engines/host.py 的路由表里有）。
+// 就绪等待（ready_timeout_ms）故意不代填：各引擎 180s~240s 不等，冷启动快慢是
+// 引擎自己的特性，猜了就得改；而且它是「写了就必须写出处」的数，代填等于编来源。
+export function runtimeLaunchDefaults (id) {
+  return {
+    python: `engines/${id}/.venv`,
+    entry: '../../lib/engines/host.py',
+    ready_endpoint: '/health',
+  }
+}
+
+/**
+ * 新名片代填启动三件套。只在 runtime 段缺着时填：
+ * 磁盘上读进来的名片（包括自行启动、整段没有 runtime 的）一律不动，
+ * 使用者已经填过的段也不动。只在「换引擎刚清出一张新名片」这一刻用。
+ *
+ * @param {object} manifest 刚清干净的新名片
+ * @returns {object} 代填后的名片（原对象不动；没 id 或已有 runtime 时原样返回）
+ */
+export function withLaunchDefaults (manifest) {
+  if (!manifest || !manifest.id) return manifest
+  if (manifest.runtime) return manifest
+  return { ...manifest, runtime: runtimeLaunchDefaults(manifest.id) }
+}
+
+/**
+ * capabilities.reference_clip_seconds 的默认答案：没表态就当「不限制」。
+ *
+ * 平台要求这个键必须存在，漏写会被拒（lib/engines/profile.js 的
+ * 「忘了写」和「不限制」必须能区分开）。但那是给手写名片的护栏：
+ * 向导的立场是替使用者把默认答案写明，表单里那一格开局就显示
+ * 「不限制」，使用者不需要去找 null，只有要限长度的引擎才动它。
+ *
+ * 只在 capabilities 段已存在且键缺失时补 null；没有 capabilities 段的
+ * 名片不动：那段的其他必填项（requires_reference_audio 等）会先被
+ * 校验拦下，等使用者填第一格 capabilities 时会重新过这里。
+ *
+ * @param {object} manifest 当前名片
+ * @returns {object} 补了默认答案的名片（原对象不动；无需补时原样返回）
+ */
+export function withClipAnswered (manifest) {
+  if (!manifest || !manifest.capabilities) return manifest
+  if ('reference_clip_seconds' in manifest.capabilities) return manifest
+  return {
+    ...manifest,
+    capabilities: { ...manifest.capabilities, reference_clip_seconds: null },
+  }
+}
+
+/**
+ * 扫描认出了参考音频参数 ⇒ 推断这台引擎需要参考音频。
+ *
+ * 为什么敢推断：requires_reference_audio 的含义是「没有参考音频的请求要不要拦」，
+ * 而扫描认出 ref_audio 槽位（voice / ref_audio / prompt_wav / spk 这族参数名）
+ * 本身就是「这台引擎的合成入口要一份参考录音」的证据。现有名片全数印证：
+ * maps 里提到参考音频的引擎，capabilities.requires_reference_audio 都是 true。
+ *
+ * 只在值没写时填：名片里已经写了（哪怕是 false）一律不动，
+ * 那是使用者或已有名片的明确表态，扫描无权推翻。
+ *
+ * @param {object} manifest 当前名片
+ * @param {string|null} matchedRefAudio 扫描认出的参考音频参数名（scanAutofill 的 matched.ref_audio）
+ * @returns {object} 推断后的名片（原对象不动；无证据或已表态时原样返回）
+ */
+export function withInferredRefAudio (manifest, matchedRefAudio) {
+  if (!manifest || !matchedRefAudio) return manifest
+  const caps = manifest.capabilities || {}
+  if (caps.requires_reference_audio !== undefined) return manifest
+  return {
+    ...manifest,
+    capabilities: { ...caps, requires_reference_audio: true },
   }
 }

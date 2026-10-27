@@ -299,13 +299,17 @@
   flex: 1;
 }
 
-/* 字段的「来源确定性」：扫描认准了 = 绿边；是猜的 / 要人确认 = 黄边。
+/* 字段的「来源确定性」：扫描认准了 = 绿边；是猜的 / 要人确认 = 黄边；
+   扫过但还没填 = 红边，用户任意键入即解除（RequiredFields 里按值是否为空切换）。
    CoreBindings 以前写了 .matched / .unmatched，但这两个类从来没有样式。 */
 .control.wz-field-matched {
   border-color: var(--success);
 }
 .control.wz-field-guess {
   border-color: var(--warning);
+}
+.control.wz-field-unset {
+  border-color: var(--danger);
 }
 
 /* 名片身份条：一行说清「这是哪台」与「平台现在知道它什么状况」。 */

@@ -10,6 +10,9 @@ import { StepModels } from './StepsExtra'
 import { StepVerify } from './StepVerify'
 import { STEPS, stepDone } from './steps'
 import { useT, LangToggle } from '../../../web/src/lib/i18n'
+// 名片进状态的唯一闸门在下面两个 setManifest 调用点，都过 withClipAnswered：
+// capabilities 缺 reference_clip_seconds 时补 null（默认「不限制」），见该函数注释。
+import { withClipAnswered } from './manifestAutoFill'
 // 持久段（localStorage）= 用户输入与选择 + 展开步骤；
 //   会话段（sessionStorage）= 探测结果；完成状态由 GET /wizard/install-state 判定。
 import { loadPersist, savePersist, loadPage, savePage,
@@ -48,7 +51,7 @@ export default function App () {
   React.useEffect(() => {
     if (text === null) return          // 没进过 JSON 视图：不解析
     const h = setTimeout(() => {
-      try { setManifest(JSON.parse(text)); setErr(null) }
+      try { setManifest(withClipAnswered(JSON.parse(text))); setErr(null) }
       catch (e) { setErr(e.message) }
     }, 300)
     return () => clearTimeout(h)
@@ -238,7 +241,7 @@ export default function App () {
           <ManifestPage manifest={manifest} spec={spec}
             text={text} err={err} setText={setText}
             // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
-            onManifest={(m) => { setManifest(m); setErr(null) }}
+            onManifest={(m) => { setManifest(withClipAnswered(m)); setErr(null) }}
             diag={vresult} loading={vloading}
             onSaved={reloadFacts}
             checkpointsPath={checkpointsPath}

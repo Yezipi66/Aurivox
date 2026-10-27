@@ -7,6 +7,7 @@ import Stage from './Stage'
 import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
+import { withInferredRefAudio } from './manifestAutoFill'
 
 // 名片编辑页：左边条、中栏、右边条，三根平级的骨头，铺满整个页面宽度。
 //
@@ -29,6 +30,12 @@ export default function ManifestPage ({
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
+
+  // 「由平台启动」开关已移除：向导的接入流（clone → 建 venv →
+  // 下权重）本身就是奔着本地平台启动去的，5 张现有名片全部有 runtime 段，
+  // 「自行启动」在向导里没有用户。runtime 段恒写：换引擎时 withLaunchDefaults
+  // 代填启动三件套。手写名片想自行启动，自己删 runtime 段（平台合同不动：
+  // parseRuntime 整段缺失返回 null，校验不报）。
   // 哪边的抽屉开着。默认两边都收着：
   //   第 4 步进来时左边还没扫过参数、右边还没选引擎，
   //   两个空盒子摆在首屏上只是噪音。点边条上的箭头才滑出来。
@@ -94,11 +101,14 @@ export default function ManifestPage ({
       const pickedParams = (j.params || []).filter((p) => !picked || p.group === picked)
       const result = computeAutoFill(pickedParams, (manifest && manifest.call) || null)
       if (result) {
-        const next = { ...manifest, call: result.call }
-        if (!next.id && id) next.id = id
-        if (!next.label && id) next.label = id
-        if (next.contract_version === undefined) next.contract_version = 2
-        onManifest(next)
+        // 扫描认出参考音频参数 ⇒ 顺带推断 requires_reference_audio（只在没写时填）
+        const inferred = withInferredRefAudio(
+          { ...manifest, call: result.call },
+          result.matched && result.matched.ref_audio)
+        if (!inferred.id && id) inferred.id = id
+        if (!inferred.label && id) inferred.label = id
+        if (inferred.contract_version === undefined) inferred.contract_version = 2
+        onManifest(inferred)
         setAutofill({ matched: result.matched, argList: result.argList })
       } else {
         setAutofill({ matched: null, argList: [] })

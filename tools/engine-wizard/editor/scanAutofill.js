@@ -59,14 +59,26 @@ export function computeAutoFill (params, currentCall) {
   // 三个槽位：候选名对的是 name（不带横线的那个词），写进 bind 的是 target
   // （cli 路是开关，python 路是参数名）。索引必须建在 name 上：建在 target 上时，
   // cli 路的 target 是带横线的开关，而候选名不带横线，两边永远不匹配。
+  // 名字匹配不做精确要求：引擎侧的参数命名三种形态都有（reference_audio /
+  // reference-audio / reference.audio 指同一个词），先按原文匹配，miss 再按
+  // 归一化（小写、分隔符统一成下划线）兜一次，认不出的名字不再漏认。
+  const normKey = (s) => String(s).toLowerCase().replace(/[-_.]+/g, '_')
   const byName = {}
+  const byNorm = {}
   const ambiguous = []
   for (const p of params) {
-    if (byName[p.name] === undefined) { byName[p.name] = p; continue }
-    if (byName[p.name].target !== p.target) ambiguous.push(p.name)
+    if (byName[p.name] === undefined) { byName[p.name] = p }
+    else if (byName[p.name].target !== p.target) ambiguous.push(p.name)
+    const k = normKey(p.name)
+    if (byNorm[k] === undefined) { byNorm[k] = p }
+    else if (byNorm[k].target !== p.target) ambiguous.push(k)
   }
   const findSlot = (...names) => {
-    for (const n of names) if (byName[n]) return byName[n].target
+    for (const n of names) {
+      if (byName[n]) return byName[n].target
+      const hit = byNorm[normKey(n)]
+      if (hit) return hit.target
+    }
     return null
   }
 

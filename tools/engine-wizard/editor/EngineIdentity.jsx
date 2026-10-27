@@ -3,7 +3,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
 import { useEngineDirs } from './useEngineDirs'
 import { useSaveManifest } from './useSaveManifest'
-import { manifestForEngineSwitch } from './manifestAutoFill'
+import { manifestForEngineSwitch, withLaunchDefaults } from './manifestAutoFill'
 
 // 名片身份条：中栏最上面一行，第 4 步的全部动作都在这一行。
 //
@@ -43,6 +43,10 @@ export default function EngineIdentity ({
   const [reading, setReading] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)   // 磁盘上的名片已读进表单
   const [localErr, setLocalErr] = React.useState(null)
+  // 错误清单只在用户点了保存之后才展开：用户是来新建名片的，
+  // 一进页面就对着「还有 N 处问题」是吓人，不是提醒。
+  const [triedSave, setTriedSave] = React.useState(false)
+  React.useEffect(() => { setTriedSave(false) }, [engineId])
 
   React.useEffect(() => {
     if (!engineId && manifest.id) setEngineId(manifest.id)
@@ -62,11 +66,14 @@ export default function EngineIdentity ({
   //   上一台的内容一律清掉（manifestForEngineSwitch），
   //   不能只改 id：那会把上一台的 runtime 与 call 整段带过去。
   //   有名片的引擎要用户点「读取参数」才读进来。
+  //   清完顺手代填启动三件套（环境目录/启动脚本/就绪端点，withLaunchDefaults）：
+  //   这三格平台按惯例答得出，不该让人对着空格子猜；值可见可改，
+  //   与平台「不提供无声默认值」的纪律不冲突。
   const pickEngine = (id) => {
     setEngineId(id)
     setLoaded(false)
     setLocalErr(null)
-    if (id) onChange(manifestForEngineSwitch(manifest, id, id))
+    if (id) onChange(withLaunchDefaults(manifestForEngineSwitch(manifest, id, id)))
   }
 
   const readManifest = async () => {
@@ -130,6 +137,20 @@ export default function EngineIdentity ({
               </button>
               )}
 
+          {/* 保存紧跟在扫描/读取后面：填完就存，是同一组动作，不该隔一条路径杵在最右边。 */}
+          <button className="btn btn-sm btn-primary" type="button"
+            disabled={!ready || saving}
+            title={hasErrors
+              ? t('Some required fields are still empty — click to see the list',
+                  '还有必填项没填，点这里看清单')
+              : undefined}
+            onClick={() => {
+              if (hasErrors) { setTriedSave(true); return }
+              save()
+            }}>
+            {saving ? t('Saving…', '保存中…') : t('Save', '保存')}
+          </button>
+
           {ready && (
             <code className="wz-identity-path">{`engines/${engineId}/manifest.json`}</code>
           )}
@@ -138,19 +159,13 @@ export default function EngineIdentity ({
           )}
 
           <span className="wz-identity-spacer" />
-
-          <button className="btn btn-sm btn-primary" type="button"
-            disabled={!ready || saving || hasErrors}
-            title={hasErrors ? t('Fix the errors below first', '先修完下面的错误再保存') : undefined}
-            onClick={save}>
-            {saving ? t('Saving…', '保存中…') : t('Save', '保存')}
-          </button>
         </div>
 
         {localErr && <div className="msg msg-danger">{localErr}</div>}
 
-        {/* 有硬错时列出前 5 条：保存按钮是灰的，得让人知道为什么。 */}
-        {hasErrors && (
+        {/* 有硬错时列出前 5 条，但只在用户点过保存之后：
+            建名片途中报错是吓人，点保存被拦下才需要知道卡在哪。 */}
+        {triedSave && hasErrors && (
           <div className="msg msg-danger">
             <strong>{t(`${diag.summary.errors} problem(s) must be fixed before saving:`,
               `还有 ${diag.summary.errors} 处问题，修完才能保存：`)}</strong>

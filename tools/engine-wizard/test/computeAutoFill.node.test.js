@@ -94,6 +94,32 @@ test('python 参数：按参数名认槽位，填进 bind 的就是那个参数�
   })
 })
 
+// 引擎侧的命名三种分隔符都有：spark-tts 的参考音频参数就叫 reference-audio
+// （连字符）。候选名单里只有下划线形态时，这台引擎的槽位永远认不出，
+// 连带的 requires_reference_audio 推断也拿不到证据。
+test('连字符/点号的参数名也要认得出（与下划线同义）', () => {
+  const r = computeAutoFill(
+    [
+      { source: 'cli', name: 'reference-audio', target: '--reference-audio', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+      { source: 'cli', name: 'prompt-text', target: '--prompt-text', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+      { source: 'cli', name: 'output.audio', target: '--output-audio', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+    ],
+    { kind: 'cli' })
+  assert.equal(r.matched.ref_audio, '--reference-audio',
+    'reference-audio 与候选名 reference_audio 同义，没认出就是漏认')
+  assert.equal(r.matched.text, '--prompt-text',
+    'prompt-text 与候选名 prompt_text 同义，没认出就是漏认')
+  assert.equal(r.matched.output_path, null,
+    'output.audio 归一化后是 output_audio，不在 output_path 槽的候选里，认不出是应当的')
+  // 点号形态对 output 槽不成立正好反向钉住了归一化的边界：
+  // 归一化只统一分隔符，不放宽候选名单本身。换一个真正同义的：
+  const r2 = computeAutoFill(
+    [{ source: 'cli', name: 'save.path', target: '--save-path', kind: 'str', help: null, required: true, group: 'infer', is_tool: false }],
+    { kind: 'cli' })
+  assert.equal(r2.matched.output_path, '--save-path',
+    'save.path 与候选名 save_path 同义，没认出就是漏认')
+})
+
 test('两条路混在一张表里：两个来源各自的候选名都要认得出', () => {
   const r = computeAutoFill(mixedParams, { kind: 'cli' })
   // --text 与 --voice 先被认走；save_path 这种 python 参数名也要认得出

@@ -17,6 +17,10 @@ let shouldAutoFillCheckpoints
 let withAutoFilledCheckpoints
 let manifestForEngineSwitch
 let checkpointOwner
+let runtimeLaunchDefaults
+let withLaunchDefaults
+let withInferredRefAudio
+let withClipAnswered
 
 test('加载 manifestAutoFill.js', async () => {
   const m = await import(pathToFileURL(AUTO_FILL).href)
@@ -24,18 +28,33 @@ test('加载 manifestAutoFill.js', async () => {
   withAutoFilledCheckpoints = m.withAutoFilledCheckpoints
   manifestForEngineSwitch = m.manifestForEngineSwitch
   checkpointOwner = m.checkpointOwner
+  runtimeLaunchDefaults = m.runtimeLaunchDefaults
+  withLaunchDefaults = m.withLaunchDefaults
+  withInferredRefAudio = m.withInferredRefAudio
+  withClipAnswered = m.withClipAnswered
   assert.strictEqual(typeof shouldAutoFillCheckpoints, 'function')
   assert.strictEqual(typeof withAutoFilledCheckpoints, 'function')
   assert.strictEqual(typeof manifestForEngineSwitch, 'function')
   assert.strictEqual(typeof checkpointOwner, 'function')
+  assert.strictEqual(typeof runtimeLaunchDefaults, 'function')
+  assert.strictEqual(typeof withLaunchDefaults, 'function')
+  assert.strictEqual(typeof withInferredRefAudio, 'function')
+  assert.strictEqual(typeof withClipAnswered, 'function')
 })
 
 const CP = 'engines/index-tts/checkpoints'
 
 // ① 该填
-test('引擎 id 定了、这一格空着、路径拿得到 ⇒ 该填', () => {
+test('runtime 段在、这一格空着、路径拿得到 ⇒ 该填', () => {
   assert.strictEqual(
-    shouldAutoFillCheckpoints({ id: 'index-tts' }, CP), true)
+    shouldAutoFillCheckpoints({ id: 'index-tts', runtime: {} }, CP), true)
+})
+
+test('runtime 段不在 ⇒ 不填（不替「由平台启动」已关的名片把段造回来）', () => {
+  // checkpoints 属于平台启动的配置。使用者关掉开关（runtime 整段删掉）后，
+  // 这里若再造段，开关永远关不上；平台启动路径上切引擎时代填已把段建好。
+  assert.strictEqual(
+    shouldAutoFillCheckpoints({ id: 'index-tts' }, CP), false)
 })
 
 test('runtime 段在但没有 checkpoints 这一格 ⇒ 该填', () => {
@@ -237,4 +256,109 @@ test('换引擎：清完的名片不会指向上一台的路径（整条链查�
   assert.ok(!dumped.includes('cosyvoice'),
     '清完的名片里还有上一台的名字：' + dumped)
   assert.ok(!dumped.includes('CosyVoice'), '清完的名片里还有上一台的类名：' + dumped)
+})
+
+// ---- 启动三件套的代填（withLaunchDefaults）----
+// 惯例值与 envDetect 建环境的推导、平台宿主 host.py、现有名片全对得上；
+// 这里钉住行为，防止有人把「代填」改成「无声默认值」或把已有值覆盖掉。
+
+test('代填：新名片填上启动三件套，路径按引擎 id 推', () => {
+  const next = withLaunchDefaults({ id: 'spark-tts', label: 'spark-tts' })
+  assert.deepStrictEqual(next.runtime, {
+    python: 'engines/spark-tts/.venv',
+    entry: '../../lib/engines/host.py',
+    ready_endpoint: '/health',
+  })
+})
+
+test('代填：不碰使用者的 runtime 段（已有值一律不动）', () => {
+  const src = { id: 'x', runtime: { python: 'my/own/venv' } }
+  const next = withLaunchDefaults(src)
+  assert.deepStrictEqual(next.runtime, { python: 'my/own/venv' },
+    '已有 runtime 被代填覆盖了：代填只服务刚清出来的新名片')
+})
+
+test('代填：runtime 段缺着但 id 也没定 ⇒ 原样返回', () => {
+  const src = { label: 'no id yet' }
+  assert.strictEqual(withLaunchDefaults(src), src,
+    '没有 id 就代填，路径会写成 engines/undefined/.venv')
+})
+
+test('代填：原对象不动（React 靠引用变化判断要不要重渲染）', () => {
+  const src = { id: 'x' }
+  const before = JSON.parse(JSON.stringify(src))
+  withLaunchDefaults(src)
+  assert.deepStrictEqual(src, before, '原名片被就地改了')
+})
+
+test('代填：就绪等待不在三件套里（引擎特性，写了还得编出处）', () => {
+  const next = withLaunchDefaults({ id: 'x' })
+  assert.strictEqual(next.runtime.ready_timeout_ms, undefined,
+    '代填了 ready_timeout_ms 等于平台替引擎编了一个它没说过的数')
+})
+
+// ---- requires_reference_audio 的扫描推断（withInferredRefAudio）----
+// 证据链：扫描认出 ref_audio 槽位（voice/ref_audio/prompt_wav/spk 这族参数名）
+// ⇒ 合成入口要一份参考录音 ⇒ requires_reference_audio 是 true。
+// 现有 5 张名片全部印证：maps 提到参考音频的引擎，这个值都是 true。
+
+test('推断：扫描认出参考音频参数、值没写 ⇒ 填 true', () => {
+  const next = withInferredRefAudio({ id: 'x' }, 'prompt_wav')
+  assert.strictEqual(next.capabilities.requires_reference_audio, true)
+})
+
+test('推断：名片已经表态（哪怕 false）⇒ 不动', () => {
+  const src = { id: 'x', capabilities: { requires_reference_audio: false } }
+  const next = withInferredRefAudio(src, 'ref_audio')
+  assert.strictEqual(next.capabilities.requires_reference_audio, false,
+    '扫描无权推翻名片上的明确表态')
+  const src2 = { id: 'x', capabilities: { requires_reference_audio: true } }
+  assert.strictEqual(withInferredRefAudio(src2, 'ref_audio'), src2,
+    '值已在时应当原样返回，不该重建对象')
+})
+
+test('推断：扫描没认出参考音频 ⇒ 原样返回（没有证据就不猜 false）', () => {
+  const src = { id: 'x' }
+  assert.strictEqual(withInferredRefAudio(src, null), src)
+  assert.strictEqual(withInferredRefAudio(src, ''), src)
+  assert.strictEqual(withInferredRefAudio(null, 'ref_audio'), null)
+  // 没认出不等于 false：单说话人引擎可能没有 ref 参数但也确实不需要，
+  // 也可能参数名不在识别清单里。false 只能使用者自己表态。
+  const next = withInferredRefAudio(src, null)
+  assert.strictEqual(next.capabilities, undefined)
+})
+
+// ---- reference_clip_seconds 的默认答案（withClipAnswered）----
+// 平台拒「缺键」但收 null；向导的默认答案就是 null（不限制），
+// 使用者只在要限长度时才碰那一格，不需要找「设为 null」的入口。
+
+test('clip 默认答案：capabilities 已存在但缺键 ⇒ 补 null', () => {
+  const src = { id: 'x', capabilities: { requires_reference_audio: true } }
+  const next = withClipAnswered(src)
+  assert.strictEqual(next.capabilities.reference_clip_seconds, null,
+    '默认答案必须写明，缺键会被平台当场拒绝')
+  assert.strictEqual(next.capabilities.requires_reference_audio, true,
+    '补默认答案不许动别的键')
+})
+
+test('clip 默认答案：键已在（null 或区间）⇒ 原样返回，不重建对象', () => {
+  const answeredNull = { id: 'x', capabilities: { reference_clip_seconds: null } }
+  assert.strictEqual(withClipAnswered(answeredNull), answeredNull)
+  const answeredRange = { id: 'x', capabilities: { reference_clip_seconds: [3, 10] } }
+  assert.strictEqual(withClipAnswered(answeredRange), answeredRange,
+    '使用者限了长度，默认答案无权覆盖')
+})
+
+test('clip 默认答案：没有 capabilities 段 / 没有名片 ⇒ 原样返回', () => {
+  const bare = { id: 'x' }
+  assert.strictEqual(withClipAnswered(bare), bare,
+    'capabilities 段的其他必填项会先拦下空名片，这里不凭空造段')
+  assert.strictEqual(withClipAnswered(null), null)
+})
+
+test('clip 默认答案：原对象不动（React 靠引用变化判断要不要重渲染）', () => {
+  const src = { id: 'x', capabilities: { requires_reference_audio: true } }
+  const before = JSON.parse(JSON.stringify(src))
+  withClipAnswered(src)
+  assert.deepStrictEqual(src, before, '原名片被就地改了')
 })
