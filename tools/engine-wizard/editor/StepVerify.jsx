@@ -11,6 +11,35 @@ export function StepVerify ({ id }) {
   const [loading, setLoading] = useState(false)
   const [audioLevel, setAudioLevel] = useState('B')
   const [synthText, setSynthText] = useState('')
+  // 参考音频与参考文本：要参考音频的引擎，A 级与试跑都得带上，否则宿主当场 400。
+  //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
+  const [refAudio, setRefAudio] = useState('')
+  const [refText, setRefText] = useState('')
+  const [measuring, setMeasuring] = useState(false)
+  const [measured, setMeasured] = useState(null)
+
+  const synthRequest = () => {
+    const r = { text: synthText.trim() }
+    if (refAudio.trim()) r.reference_audio = refAudio.trim()
+    if (refText.trim()) r.reference_text = refText.trim()
+    return r
+  }
+
+  // 试跑：真起一次引擎，量冷启动与合成一段的耗时，按余量写回名片（出处 measured）。
+  const runMeasure = () => {
+    if (!id || !synthText.trim()) return
+    setMeasuring(true)
+    setMeasured(null)
+    fetch('/wizard/verify/measure', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, request: synthRequest() }),
+    })
+      .then(r => r.json())
+      .then(setMeasured)
+      .catch((e) => setMeasured({ ok: false, error: String(e) }))
+      .finally(() => setMeasuring(false))
+  }
 
   const runChecks = React.useCallback((level, request) => {
     if (!id) return
@@ -135,10 +164,63 @@ export function StepVerify ({ id }) {
             type="button"
             disabled={loading || !synthText.trim()}
             style={{ marginTop: 6 }}
-            onClick={() => runChecks('A', { text: synthText.trim() })}
+            onClick={() => runChecks('A', synthRequest())}
           >
             {loading ? t('Running...', '正在运行...') : t('Run tier A', '跑 A 级')}
           </button>
+          <input
+            className="control"
+            type="text"
+            value={refAudio}
+            onChange={(e) => setRefAudio(e.target.value)}
+            placeholder={t('Reference audio path (if the engine needs one)', '参考音频路径（引擎需要时填）')}
+            style={{ marginTop: 6 }}
+          />
+          <input
+            className="control"
+            type="text"
+            value={refText}
+            onChange={(e) => setRefText(e.target.value)}
+            placeholder={t('What the reference audio says (if the engine reads it)', '参考音频说的话（引擎要时填）')}
+            style={{ marginTop: 6 }}
+          />
+          <button
+            className="btn btn-sm"
+            type="button"
+            disabled={measuring || !synthText.trim()}
+            style={{ marginTop: 6, marginLeft: 6 }}
+            onClick={runMeasure}
+          >
+            {measuring
+              ? t('Starting the engine and measuring...', '正在起引擎并实测...')
+              : t('Trial run and write measured values', '试跑并写回实测值')}
+          </button>
+          {measured && (
+            <div style={{ marginTop: 6 }}>
+              {(measured.written || []).map((w) => (
+                <div key={w.key} className="field-hint">
+                  {t('Written', '已写回')} {w.key} = {w.value}（measured）
+                </div>
+              ))}
+              {(measured.kept || []).map((k) => (
+                <div key={k.key} className="field-hint">
+                  {t('Kept your value', '保留你写的值')} {k.key} = {String(k.value)}（{k.source}），
+                  {t('measured', '实测')} {k.measured}
+                </div>
+              ))}
+              {measured.measurement && Number.isFinite(measured.measurement.readyMs) && (
+                <div className="field-hint">
+                  {t('Cold start to ready', '冷启动到就绪')} {Math.round(measured.measurement.readyMs / 1000)}s
+                  {Number.isFinite(measured.measurement.synthMs) && measured.measurement.synthOk
+                    ? `，${t('one segment', '一段')}（${measured.measurement.chars} ${t('chars', '字')}）${Math.round(measured.measurement.synthMs / 1000)}s`
+                    : ''}
+                </div>
+              )}
+              {measured.ok === false && measured.error && (
+                <div className="msg msg-danger">{String(measured.error)}</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

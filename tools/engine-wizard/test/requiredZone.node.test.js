@@ -118,3 +118,16 @@ test('引擎配置的增删：加一项带上出处，删一项连出处一起�
   const ep = OPTIONAL_KEYS.find((k) => k.path === 'runtime.ready_endpoint')
   assert.ok(rowVisible({ runtime: { entry: 'serve.py' } }, ep), '自带服务脚本时就绪端点平台答不出，要显示')
 })
+
+test('引擎配置：平台默认答了、表单里也没写的项挂「平台默认」，读的是 profile.defaulted', () => {
+  const { platformDefaultedRows } = loadOptionalKeys()
+  const defaulted = ['timeout_ms', 'max_chars', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint']
+  const rows = platformDefaultedRows({ id: 'x', max_chars: 40, max_chars_source: 'measured' }, defaulted)
+  assert.deepStrictEqual(rows.map((r) => r.path),
+    ['timeout_ms', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint'],
+    '表单里写了的 max_chars 不能再算平台默认')
+  assert.deepStrictEqual(platformDefaultedRows({}, null), [], '读不到 profile 就不标')
+  assert.ok(/platformDefaultedRows\(/.test(optional) && /\/wizard\/profile\//.test(optional),
+    'OptionalConfig 要读平台的 profile.defaulted，不在界面里自己推')
+  assert.ok(optional.includes("'平台默认'"), '徽标文案是「平台默认」')
+})

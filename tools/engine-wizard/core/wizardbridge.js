@@ -1030,6 +1030,9 @@ function handleVerifyAudio (req, res) {
 function handleVerify (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/verify')) return false
+  // 锚定：/wizard/verify/measure 也以 /wizard/verify 开头，不锚定就被这里吃掉。
+  const vtail = req.url.slice('/wizard/verify'.length)
+  if (vtail !== '' && vtail[0] !== '?') return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const id = body.id
@@ -1043,6 +1046,30 @@ function handleVerify (req, res) {
     const r = runChecks(id, { deep: body.deep !== false })
     json(res, 200, r)
   })
+  return true
+}
+
+// POST /wizard/verify/measure  {id, request}  第 5 步：试跑并把实测值写回名片
+//   真起一次引擎（照平台启动计划），量冷启动到就绪、合成一段 max_chars 长文本的耗时，
+//   留余量写回 runtime.ready_timeout_ms / timeout_ms / max_chars，出处记 measured。
+//   人写的值（出处不是 estimated、也不是没写）不覆盖，见 core/measure.js。
+//   request 是引擎方言的请求体（text、ref_audio_path、call_time 参数），平台不编。
+function handleVerifyMeasure (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/measure')) return false
+  const tail = req.url.slice('/wizard/verify/measure'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  readBody(req, respondSafely(res, async (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (!body.id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    if (!body.request || !body.request.text) {
+      json(res, 400, { ok: false, error: 'request.text is required（试跑要真合成一段）' }); return
+    }
+    const { measureAndPersist } = require('./measure')
+    const r = await measureAndPersist(body.id, { request: body.request })
+    // 量不出来也是一个答案（哪一步卡住、卡在哪），一律 200，与 /wizard/params 同口径。
+    json(res, 200, r)
+  }))
   return true
 }
 
@@ -1399,7 +1426,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadCancel,
-  handleVerifyChecks, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerifyMeasure, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，

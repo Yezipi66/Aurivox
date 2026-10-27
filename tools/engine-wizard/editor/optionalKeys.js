@@ -127,3 +127,11 @@ export function removeItem (m, item) {
   if (item.source) next = setPath(next, item.source, undefined)
   return next
 }
+
+// 平台替名片答了的那几项（lib/engines/profile.js 产出的 profile.defaulted），
+//   且表单里此刻也没写：界面给它们挂「平台默认」。defaulted 是盘上那张名片的读数，
+//   表单里已经写了值的以表单为准，不再算平台默认。
+export function platformDefaultedRows (m, defaulted) {
+  const set = new Set(Array.isArray(defaulted) ? defaulted : [])
+  return OPTIONAL_KEYS.filter((it) => set.has(it.path) && get(m, it.path) === undefined)
+}
