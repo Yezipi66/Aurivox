@@ -3,7 +3,7 @@
 //   ① 类枚举：每一个「短前缀 + /cancel」的端点对，都必须在自己的短前缀 handler 里
 //      显式排除子路径。短前缀 handler 对 cancel 也会返回 true，中间件是第一个赢的，
 //      所以「把 cancel 排在前面」修不好这个问题，只有显式 return false 能修。
-//   ② 真机路由：POST /wizard/download/cancel 必须经过中间件链拿到 JSON，
+//   ② 真实路由：POST /wizard/download/cancel 必须经过中间件链拿到 JSON，
 //      而不是掉进 vite 的 HTML fallback（200 + text/html）。
 //   ③ 真下载取消：真的在下载中途取消，验证 HTTP 请求被中断、半截文件被删掉。
 //
@@ -151,7 +151,7 @@ test('变异检查：去掉排除后上面的断言会变红', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ② 真机路由：cancel 端点必须经过中间件链拿到 JSON
+// ② 真实路由：cancel 端点必须经过中间件链拿到 JSON
 // ---------------------------------------------------------------------------
 
 test('真机路由：POST /wizard/download/cancel 经过中间件拿到 JSON，不是 HTML fallback', async () => {

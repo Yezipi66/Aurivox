@@ -139,7 +139,7 @@ def hits(included, prefix):
 
 
 def selftest(included):
-    """探针必须先证明自己会失败。⛔ 没有反例守卫的探针不算探针。"""
+# 探针必须先证明自己会失败：没有反例守卫的探针不算探针。
     ok = fail = 0
 
     def check(name, cond, why=""):

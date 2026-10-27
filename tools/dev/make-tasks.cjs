@@ -9,7 +9,7 @@
 //
 // 这个脚本存在的原因（本项目踩过三次坑）：
 //   ① 拿「已生成好的任务书」当模板用 ⇒ 里面的 {FILES} 占位符早被替换掉，
-//      替换不生效 ⇒ 任务书里没有文件清单 ⇒ 子 Agent 跑偏改了别的文件。
+//      替换不生效 ⇒ 任务书里没有文件清单 ⇒ 执行方跑偏改了别的文件。
 //   ② 「按注释量」与「验收器报问题」两个集合有交集 ⇒ 同一批文件被派两遍。
 //   ③ 文件清单与「具体线索」段可能对不上（换了底但没换线索）。
 //
@@ -323,7 +323,7 @@ function selfCheck (files, rows, tag) {
     // 线索是清单的子集：有些文件可能已被别的批次改好了，验收器不再报它。
     for (const f of b) if (!a.has(f)) errs.push('线索里有清单外的文件：' + f)
     // 清单里有、但验收器不报的文件：说明它已经合格（别的批次改过），
-    // 从这一批里去掉，别让子 Agent 在已合格的文件上重复劳动。
+    // 从这一批里去掉，避免在已合格的文件上重复劳动。
     const noClue = files.filter((f) => !b.has(f))
     if (noClue.length) {
       console.log('  · 这几个已合格，从本批去掉：' + noClue.join(', '))
@@ -367,7 +367,7 @@ batches.forEach((b, i) => {
   // 否则 .replace('{FILES}', ...) 会把 '{FILESLINE}' 里的 '{FILES}' 一并吃掉，
   // 剩下 'LINE'，命令变成「audit-comment-quality.cjs LINE」。
   //  必须用 replaceAll：模板里同一个占位符出现多次，
-  // 用 replace 只换第一处 ⇒ 任务书里残留 {FILESLINE}，子 Agent 照着敲命令必错。
+  // 用 replace 只换第一处 ⇒ 任务书里残留 {FILESLINE}，照着敲命令必错。
   const body = template
     .replaceAll('{FILESLINE}', b.join(' '))
     .replaceAll('{FILES}', b.map((x) => '- ' + x).join('\n'))

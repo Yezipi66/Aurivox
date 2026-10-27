@@ -1,4 +1,4 @@
-"""⭐ 对账：盘上那个 venv 与 git 里记录的那份锁是否一致。
+# 对账：盘上那个 venv 与 git 里记录的那份锁是否一致。
 
 ⚠️ 2026-10-04：那份锁已由 requirements.txt 更名为
 requirements-gpt-sovits.txt（A16 —— 它是 GPT-SoVITS 的依赖，不是平台的）。

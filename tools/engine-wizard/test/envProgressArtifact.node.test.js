@@ -1,6 +1,6 @@
 'use strict'
 
-// 断点续传的产物检查：命令文本之外，还要核对**产物的版本与后端**。
+// 断点续传的产物检查：命令文本之外，还要核对产物的版本与后端。
 //
 // 被测代码：tools/engine-wizard/core/envProgress.js
 //   （stepArtifactExists / installedPackageVersion / parseDeclaredSpecs

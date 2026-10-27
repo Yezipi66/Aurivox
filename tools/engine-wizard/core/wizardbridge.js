@@ -559,7 +559,7 @@ function handleEnv (req, res) {
     // 只出计划（execute:false）时走普通 JSON 响应：快的请求不该用流。
     if (!input.execute) {
       // 计划里带上 torch 版本与本机后端的匹配结论。
-      //   判断是**离线查表**（后端对 torch 版本有下界，方向单向），
+      //   判断是离线查表（后端对 torch 版本有下界，方向单向），
       //   不依赖网络 ⇒ 计划响应不会被网络拖慢，也不会因网络不通而漏掉提示。
       //   已经接受升级时不重复判断：建议前端已经拿着（它在执行请求里回传）。
       const suggestion = suggestTorchUpgrade(input.upgradeTorch === true ? null : input)
