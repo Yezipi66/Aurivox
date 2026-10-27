@@ -356,7 +356,9 @@ function reflectAndBuild (spec, opts = {}) {
 }
 
 // 端点入参 → 反射 spec。只做搬运：从盘上读名片，把事实抄进 spec。
-const ROOT = path.join(__dirname, '..', '..', '..')
+// 根不钉死在本 checkout：引擎可能在主仓库（worktree 场景），按 id 找到
+// 引擎所在的那份 checkout，解释器与相对路径都按它算（wizardRoot.engineRoot）。
+const { engineRoot } = require('./wizardRoot')
 
 /** 把 POST /wizard/params 的 body 变成反射 spec。 */
 function buildSpec (body, opts) {
@@ -365,7 +367,8 @@ function buildSpec (body, opts) {
   if (!b.id || typeof b.id !== 'string') {
     return { ok: false, error: 'id is required（反射要知道去读哪个引擎目录）' }
   }
-  const dir = path.join(ROOT, 'engines', b.id)
+  const root = engineRoot(b.id)
+  const dir = path.join(root, 'engines', b.id)
   if (!fs.existsSync(dir)) {
     return {
       ok: false,
@@ -395,7 +398,7 @@ function buildSpec (body, opts) {
   if (!forCli && !py) {
     return { ok: false, error: '名片里没有 runtime.python。反射必须在引擎自己的解释器里跑' }
   }
-  const pyPath = py ? path.resolve(ROOT, py) : null
+  const pyPath = py ? path.resolve(root, py) : null
   const pyExe = pyPath
     ? (process.platform === 'win32'
         ? path.join(pyPath, 'Scripts', 'python.exe')
@@ -407,7 +410,7 @@ function buildSpec (body, opts) {
   if (!forCli && !pyFinal) {
     return {
       ok: false,
-      error: `找不到 ${py} 里的解释器（期望 ${path.relative(ROOT, pyExe)}）。`
+      error: `找不到 ${py} 里的解释器（期望 ${pyExe}）。`
         + '请确认第 2 步已经给这台引擎建好环境。',
     }
   }
@@ -416,17 +419,17 @@ function buildSpec (body, opts) {
     ok: true,
     value: {
       python: pyFinal,
-      cwd: rt.cwd ? path.resolve(ROOT, rt.cwd) : ROOT,
+      cwd: rt.cwd ? path.resolve(root, rt.cwd) : root,
       module: mod,
       class: cls,
       method: b.method !== undefined ? b.method : (call.method || null),
       sys_path: ((rt.verify && rt.verify.sys_path) || [path.join('engines', b.id)])
-        .map((p) => path.resolve(ROOT, p)),
+        .map((p) => path.resolve(root, p)),
       skip: Array.isArray(b.skip) ? b.skip : [],
     },
     manifest,
     engineDir: ((rt.verify && rt.verify.sys_path) || [path.join('engines', b.id)])
-      .map((p) => path.resolve(ROOT, p))[0],
+      .map((p) => path.resolve(root, p))[0],
   }
 }
 

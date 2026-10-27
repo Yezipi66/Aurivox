@@ -365,10 +365,15 @@ test('验收6（变异）：把映射启发式去掉 ⇒ 验收3 的判据必须
   const m = new Module(MAP_RULES_PATH, null)
   m.filename = MAP_RULES_PATH
   m.paths = Module._nodeModulePaths(path.dirname(MAP_RULES_PATH))
-  // 变异体里 require('../scaffold-params.cjs') 必须仍指向真文件，所以保持 __dirname 语义
+  // 变异体里 require('../scaffold-params.cjs') 必须仍指向真文件，所以保持 __dirname 语义。
+  // paramsFromReflect 还 require('./wizardRoot')（引擎定位）：
+  // 传进来的 require 是本测试文件的，相对路径按 test/ 解析会扑空，重定向回 core/。
+  const mutatedRequire = (id) => (id === './wizardRoot'
+    ? require(path.join(__dirname, '..', 'core', 'wizardRoot.js'))
+    : require(id))
   const wrapper = Module.wrap(mutated)
   const compiled = vm.runInThisContext(wrapper, { filename: MAP_RULES_PATH })
-  compiled.call(m.exports, m.exports, require, m, MAP_RULES_PATH,
+  compiled.call(m.exports, m.exports, mutatedRequire, m, MAP_RULES_PATH,
     path.dirname(MAP_RULES_PATH))
   const mutatedApi = m.exports
 

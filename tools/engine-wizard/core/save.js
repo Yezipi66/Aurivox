@@ -6,9 +6,12 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { wizardRoot } = require('./wizardRoot')
 
+// 名片落盘的根：与 clone.js 的 projectRoot 同一口径，在 git worktree 里跑向导时
+// 归位主仓库，否则「保存成功」写进的是 worktree 的空 engines/，平台上根本看不到。
 function repoRoot () {
-  return path.resolve(__dirname, '..', '..', '..')
+  return wizardRoot() || path.resolve(__dirname, '..', '..', '..')
 }
 
 /** 合法的引擎 id：能当目录名，且不是平台保留的那些 */

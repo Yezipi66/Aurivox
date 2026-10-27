@@ -9,17 +9,26 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
+const { wizardRoot } = require('./wizardRoot')
 
-/** 定位项目根：用 server.js 作锚点 */
+/**
+ * 定位项目根：用 server.js 作锚点。
+ * 显式给 from 时照旧从 from 向上找（调用方自己控制起点，测试常用）；
+ * 不给 from 时走 wizardRoot()：在 git worktree 里跑时会归位到主仓库，
+ * 否则环境、权重、其他引擎都会照 worktree 的空目录去找。
+ */
 function projectRoot (from) {
-  let dir = from || __dirname
-  for (let i = 0; i < 12; i++) {
-    if (fs.existsSync(path.join(dir, 'server.js'))) return dir
-    const up = path.dirname(dir)
-    if (up === dir) break
-    dir = up
+  if (from) {
+    let dir = from
+    for (let i = 0; i < 12; i++) {
+      if (fs.existsSync(path.join(dir, 'server.js'))) return dir
+      const up = path.dirname(dir)
+      if (up === dir) break
+      dir = up
+    }
+    return null
   }
-  return null
+  return wizardRoot()
 }
 
 function engineDir (id, root) {
