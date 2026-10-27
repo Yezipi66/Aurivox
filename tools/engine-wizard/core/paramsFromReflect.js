@@ -356,7 +356,10 @@ function reflectAndBuild (spec, opts = {}) {
 }
 
 // 端点入参 → 反射 spec。只做搬运：从盘上读名片，把事实抄进 spec。
-const ROOT = path.join(__dirname, '..', '..', '..')
+// 根不钉死在本 checkout：按 id 找到引擎所在的那份 checkout（本 checkout 优先、主仓库兜底），
+//   解释器与相对路径都按它算。这里只读，不写（wizardRoot.js）。
+//   用绝对路径 require：变异测试会把本文件放进别的 require 上下文里编译。
+const { engineRoot } = require(path.join(__dirname, 'wizardRoot.js'))
 
 /** 把 POST /wizard/params 的 body 变成反射 spec。 */
 function buildSpec (body, opts) {
@@ -365,6 +368,7 @@ function buildSpec (body, opts) {
   if (!b.id || typeof b.id !== 'string') {
     return { ok: false, error: 'id is required（反射要知道去读哪个引擎目录）' }
   }
+  const ROOT = engineRoot(b.id)
   const dir = path.join(ROOT, 'engines', b.id)
   if (!fs.existsSync(dir)) {
     return {
