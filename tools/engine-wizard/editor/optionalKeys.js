@@ -46,9 +46,8 @@ export const OPTIONAL_KEYS = [
   { path: 'capabilities.reference_clip_seconds', kind: 'range',
     en: 'Reference audio duration (s)', zh: '参考音频时长（秒）',
     fallbackEn: 'no limit', fallbackZh: '不限制' },
-  { path: 'capabilities.output_sample_rate', kind: 'number',
-    en: 'Output sample rate (Hz)', zh: '输出采样率（Hz）',
-    fallbackEn: 'read from the actual output', fallbackZh: '按实际输出读取' },
+  // capabilities.output_sample_rate 不在这里：它只是声明，平台不读（拼接按每段 wav 头）。
+  // 引擎若能调采样率，那是它自己的入参，拖进「合成参数」当旋钮。
   { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'],
     en: 'How the engine returns audio', zh: '音频怎么交回来',
     fallbackEn: 'writes a file', fallbackZh: '写成文件' },
