@@ -243,17 +243,18 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
     whyZh: '无法判断该包适用的后端，请自行确认。' }
 }
 
-/**
- * 把 torch 系包从依赖清单里摘出来，其余归普通依赖。
- * 判定用包名，不看版本、不猜。
- * @returns {{torchish:string[], rest:string[]}}
- */
+// 认作 torch 系的包名。判定只看包名，不看版本、不猜。
 const TORCH_FAMILY = new Set([
   'torch', 'torchvision', 'torchaudio', 'pytorch-triton',
   'onnxruntime', 'onnxruntime-gpu', 'onnxruntime-directml',
   'triton', 'xformers', 'nvidia-cublas-cu12', 'nvidia-cudnn-cu12',
 ])
 
+/**
+ * 把 torch 系包从依赖清单里摘出来，其余归普通依赖。
+ * 判定用包名，不看版本、不猜。
+ * @returns {{torchish:string[], rest:string[]}}
+ */
 function splitTorchPackages (deps) {
   const torchish = []
   const rest = []
@@ -301,15 +302,6 @@ function parseUvLock (text) {
 }
 
 /**
- * 从 uv.lock 读出 torch 的纯版本号（剥掉 +cu128 / +xpu 这类后缀）。
- *
- * @param {string} text uv.lock 全文
- * @param {string} [platform] process.platform，默认取当前平台
- * @returns {{version:string, plain:string, backend:string|null}|null}
- *   version = lock 里的原样版本（含后缀）· plain = 剥掉后缀
- *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
- */
-/**
  * 锁文件里挑 torch 那一行的判据（readTorchPin 与 readTorchFamilyPins 共用）。
  * 优先级：带后缀且 marker 匹配本机 > 带后缀 > 匹配本机 > 第一条
  */
@@ -332,6 +324,15 @@ function preferLockRow (cands, plat) {
     || cands[0]
 }
 
+/**
+ * 从 uv.lock 读出 torch 的纯版本号（剥掉 +cu128 / +xpu 这类后缀）。
+ *
+ * @param {string} text uv.lock 全文
+ * @param {string} [platform] process.platform，默认取当前平台
+ * @returns {{version:string, plain:string, backend:string|null}|null}
+ *   version = lock 里的原样版本（含后缀）· plain = 剥掉后缀
+ *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
+ */
 function readTorchPin (text, platform) {
   const plat = platform || process.platform
   const rows = parseUvLock(text)

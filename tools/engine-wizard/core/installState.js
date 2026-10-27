@@ -148,16 +148,14 @@ function installState (root, id, deps = {}) {
   const envOk = hasClone ? !!probe(id) : false
   const weights = hasClone ? weightsOnDisk(root, id) : null
   const manifestOk = hasClone ? manifestPresent(dir) : false
-  // verify 恒为 false：这一步的检测逻辑尚未实现（见 editor/StepVerify.jsx 的文件头），
-  // 而「没有实现」不能被伪装成对勾。
+  // verify 恒为 false：这一步没有对应的产物判据，未实现不能算做过。
   const verified = false
   const steps = {
     prepare: { done: hasClone, why: hasClone ? 'cloned' : 'missing' },
     env: { done: envOk, why: hasClone ? (envOk ? 'venv-spawns' : 'venv-unusable') : 'missing' },
     // models 是三态：true=齐了 · false=缺了 · null=说不出来。
-    //   done（喂给 editor/steps.js 的 stepDone）在 true 与 false 两种下都为真：
-    //   stepDone('models') 判的就是这个 done，「确实缺了」也算查过了；
-    //   null（说不出来）才不算做完。
+    //   done 在 true 与 false 两种下都为真：「确实缺了」也算查过了；
+    //   只有 null（说不出来）不算做完。
     models: {
       done: weights !== null,
       ready: weights,

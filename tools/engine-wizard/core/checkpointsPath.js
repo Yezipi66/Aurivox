@@ -22,7 +22,7 @@ function checkpointsRelPath (engineId) {
   return `engines/${id}/checkpoints`
 }
 
-/** 权重目录的绝对路径（相对项目根）。 */
+/** 权重目录的绝对路径：由传入的项目根与引擎 id 拼出。 */
 function checkpointsAbsPath (root, engineId) {
   const rel = checkpointsRelPath(engineId)
   if (!rel) return null

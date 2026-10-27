@@ -355,10 +355,9 @@ function reflectAndBuild (spec, opts = {}) {
   return pkg
 }
 
-// 端点入参 → 反射 spec。只做搬运：从盘上读名片，把事实抄进 spec。
 const ROOT = path.join(__dirname, '..', '..', '..')
 
-/** 把 POST /wizard/params 的 body 变成反射 spec。 */
+/** 把 POST /wizard/params 的 body 变成反射 spec。只做搬运：从盘上读 Manifest，把事实抄进 spec。 */
 function buildSpec (body, opts) {
   const b = body || {}
   const forCli = opts && opts.forCli  // cli 路线：只定位目录+python，不要 call.module/class

@@ -666,8 +666,8 @@ function handleDownloadFiles (req, res) {
 //   必须带 repo/tool：前端单文件下载完成后会重新调本端点刷新，刷新后整表覆盖。
 //   不带 repo 就等于把表里每一项的来源抹掉，重下/续传按钮和仓库列会一起变成「未知」。
 //
-// 这里不写 async：理由同 handleParams 的头注。异步活一律塞进 readBody 回调或
-//   .then() 里，那两处的中间件看不见。
+// 这里不写 async：async 函数对不匹配的请求也返回 Promise，中间件会据此当成已处理。
+// 异步活一律塞进 readBody 回调或 .then() 里。
 function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
@@ -1023,7 +1023,7 @@ function handleVerifyAudio (req, res) {
 
 /**
  * POST /wizard/verify  {id, deep?, audio?, request?}
- *  调平台的四道校验，不自己判断（见 core/verify.js 的头注）
+ *  调平台的四道校验，本文件不自己做判断
  */
 function handleVerify (req, res) {
   if (req.method !== 'POST') return false
@@ -1088,8 +1088,8 @@ function handleParams (req, res) {
       cli = { ok: false, error: `抓 CLI 原话失败：${e.message}`, sources: [], flags: [], by_dest: {} }
     }
 
-    // 反射失败（ok:false）是一个答案，不是端点出错 ⇒ 一律 200。反射器永远以 0 退出
-    //   （reflect_params.py 的头注），正是为了这个区分。
+    // 反射失败（ok:false）是一个答案，不是端点出错 ⇒ 一律 200。反射器永远以 0 退出，
+    //   正是为了让「跑完了但没结果」与「跑挂了」能分开。
     // opts.manifest：把名片原文传下去，靠它补上 call.bind 指向的真实入参（反射器读不到
     //   bind，而那是这台引擎真实必填的 text / output_path）。不传的后果不是报错，
     //   是「界面上少两格必填」，且没有任何信号。
@@ -1253,7 +1253,7 @@ function handleDiscover (req, res) {
 
     if (hasPython && pythonSpec && pythonSpec.ok) {
       const pyExe = pythonSpec.value.python
-      // pyFinal 可能是目录（buildSpec 对 .venv 路径的兜底），需检查是否可执行
+      // pyExe 可能指向目录而非可执行文件，必须确认是文件后再用
       const pyReady = pyExe && fs.existsSync(pyExe) && fs.statSync(pyExe).isFile()
       if (!pyReady) {
         notes.push('引擎环境未就绪，先完成第 2 步')
