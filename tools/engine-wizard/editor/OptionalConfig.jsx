@@ -117,6 +117,9 @@ export default function OptionalConfig ({ manifest, onChange }) {
                 </select>
               )}
             </div>
+            {it.noteZh && (
+              <div className="field-note">{t(it.noteEn, it.noteZh)}</div>
+            )}
           </div>
         ))}
         {addable.length > 0 && (

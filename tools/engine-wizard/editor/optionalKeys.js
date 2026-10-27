@@ -45,7 +45,10 @@ export const OPTIONAL_KEYS = [
     fallbackEn: 'yes if the reference audio input is bound', fallbackZh: '绑了参考音频就是需要' },
   { path: 'capabilities.reference_clip_seconds', kind: 'range',
     en: 'Reference audio duration (s)', zh: '参考音频时长（秒）',
-    fallbackEn: 'no limit', fallbackZh: '不限制' },
+    fallbackEn: 'no limit', fallbackZh: '不限制',
+    // 这一项的提示说明「为什么值得填」：不填时平台不拦，填了才拦。
+    noteEn: 'A longer reference recording means slower feature extraction, higher memory usage, and a longer wait for the first audio byte.',
+    noteZh: '参考音频越长，特征提取越慢，内存占用越高，首字节延迟也越高。' },
   // capabilities.output_sample_rate 不在这里：它只是声明，平台不读（拼接按每段 wav 头）。
   // 引擎若能调采样率，那是它自己的入参，拖进「合成参数」当旋钮。
   { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'],
