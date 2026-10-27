@@ -144,3 +144,45 @@ test('wizardRoot：主仓库里跑时读写同根；worktree 里写根是 worktr
     fs.rmSync(base, { recursive: true, force: true })
   }
 })
+
+test('worktree 里试跑只在主仓库的引擎：按引擎所在的根解析与起进程，本机记录落 worktree', { skip: !hasGit() }, async () => {
+  const { base, main, wt } = makeRepoWithWorktree()
+  try {
+    // 一张平台解析得了的名片，只放主仓库（worktree 里删掉，模拟「引擎只装在主仓库」）。
+    const card = {
+      id: 'mainonly', label: '只在主仓库',
+      runtime: { python: 'engines/mainonly/.venv', entry: '../../lib/engines/host.py', args: [] },
+    }
+    fs.writeFileSync(path.join(main, 'engines', 'mainonly', 'manifest.json'), JSON.stringify(card, null, 2) + '\n')
+    git(main, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qam', 'card'])
+    fs.rmSync(path.join(wt, 'engines', 'mainonly'), { recursive: true })
+
+    const M = require(path.join(CORE, 'measure.js'))
+    const rootOpts = { from: wt, env: {} }
+    const seen = {}
+    let clock = 0
+    const deps = {
+      now: () => clock,
+      // 名片解析与启动计划走真的平台代码；只把起进程、探活、发请求换成假的。
+      spawnFromPlan: (plan, o) => { seen.plan = plan; seen.spawn = o; return { on () {}, killTree: async () => {} } },
+      probeOnce: async () => { clock += 1000; return true },
+      post: async () => { clock += 2000; return { status: 200, headers: {}, body: Buffer.alloc(0) } },
+    }
+    const r = await M.measureAndPersist('mainonly', { request: { text: 'hello' }, rootOpts, deps, pollMs: 0 })
+    assert.equal(r.measurement.stage, undefined, JSON.stringify(r.measurement))
+    assert.equal(r.measurement.ok, true, r.measurement.error)
+    assert.equal(r.measurement.engine_root, main, '引擎在主仓库，就按主仓库解析')
+    assert.equal(seen.spawn.rootDir, main)
+    assert.equal(seen.spawn.enginesDir, path.join(main, 'engines'))
+    assert.ok(seen.plan.python.startsWith(path.join(main, 'engines', 'mainonly', '.venv')), seen.plan.python)
+    assert.ok(seen.plan.profile_json_path === null || seen.plan.profile_json_path.startsWith(wt),
+      `宿主 profile_json 要落写根：${seen.plan.profile_json_path}`)
+    assert.equal(seen.spawn.logDir, path.join(wt, 'logs'))
+    assert.equal(r.path, path.join(wt, 'state', 'engine-timings', 'mainonly.json'))
+    assert.ok(fs.existsSync(r.path))
+    assert.ok(!fs.existsSync(path.join(main, 'state')), '本机记录不许写进主仓库')
+    assert.equal(porcelain(main), '', '主仓库工作区被写脏了')
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true })
+  }
+})

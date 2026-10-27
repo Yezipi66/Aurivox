@@ -1,5 +1,6 @@
 'use strict'
-// 第 5 步试跑写回：量到的值按余量写回名片，出处改 measured；人写的值不覆盖。
+// 第 5 步试跑：量到的两项超时按余量存进本机记录（state/ 下），名片一个字都不动；
+//   max_chars 不由试跑定；采样率从返回的 wav 头读。
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -8,26 +9,22 @@ const os = require('node:os')
 const path = require('node:path')
 
 const M = require('../core/measure')
-
-test('canOverwrite：没写 / estimated / 写了却没出处 ⇒ 能写；measured / upstream ⇒ 不能', () => {
-  assert.equal(M.canOverwrite({}, 'timeout_ms', 'timeout_ms_source'), true)
-  assert.equal(M.canOverwrite({ timeout_ms: 1, timeout_ms_source: 'estimated' }, 'timeout_ms', 'timeout_ms_source'), true)
-  assert.equal(M.canOverwrite({ timeout_ms: 1 }, 'timeout_ms', 'timeout_ms_source'), true)
-  assert.equal(M.canOverwrite({ timeout_ms: 1, timeout_ms_source: 'measured' }, 'timeout_ms', 'timeout_ms_source'), false)
-  assert.equal(M.canOverwrite({ timeout_ms: 1, timeout_ms_source: 'upstream' }, 'timeout_ms', 'timeout_ms_source'), false)
-  assert.equal(M.canOverwrite({ runtime: { ready_timeout_ms: 5, ready_timeout_ms_source: 'upstream' } },
-    'runtime.ready_timeout_ms', 'runtime.ready_timeout_ms_source'), false)
-})
+const { generateSilenceWav } = require('../../../lib/audio/wav.js')
+const { readTimings } = require('../../../lib/engines/localTimings.js')
 
 test('deriveValues：就绪 2 倍且至少 +30s，单段 3 倍且至少 +60s，都向上取整到 10s', () => {
   assert.deepEqual(M.deriveValues({ readyMs: 12000, synthMs: 8000, synthOk: true, chars: 48 }), {
     'runtime.ready_timeout_ms': 50000, // max(24000, 42000) → 50000
     timeout_ms: 70000, // max(24000, 68000) → 70000
-    max_chars: 48,
   })
   assert.deepEqual(M.deriveValues({ readyMs: 100000, synthMs: 100000, synthOk: true, chars: 50 }), {
-    'runtime.ready_timeout_ms': 200000, timeout_ms: 300000, max_chars: 50,
+    'runtime.ready_timeout_ms': 200000, timeout_ms: 300000,
   })
+})
+
+test('deriveValues：不给 max_chars（引擎自身的属性，试跑量不出上限）', () => {
+  const v = M.deriveValues({ readyMs: 1, synthMs: 1, synthOk: true, chars: 50 })
+  assert.ok(!('max_chars' in v), JSON.stringify(v))
 })
 
 test('deriveValues：合成没成功 ⇒ 只给就绪那一项（没量到的不编）', () => {
@@ -36,31 +33,14 @@ test('deriveValues：合成没成功 ⇒ 只给就绪那一项（没量到的不
   assert.deepEqual(M.deriveValues({}), {})
 })
 
-test('applyMeasurements：缺的与 estimated 写回并改出处 measured，人写的原样保留', () => {
-  const before = {
-    id: 'x',
-    max_chars: 80, max_chars_source: 'upstream',
-    timeout_ms: 300000, timeout_ms_source: 'estimated',
-    runtime: { python: 'engines/x/.venv', entry: '../../lib/engines/host.py' },
+test('measure.js 不再有写回名片的出口', () => {
+  for (const k of ['applyMeasurements', 'canOverwrite', 'MEASURED_FIELDS']) {
+    assert.ok(!(k in M), `${k} 还在导出`)
   }
-  const r = M.applyMeasurements(before, { 'runtime.ready_timeout_ms': 50000, timeout_ms: 70000, max_chars: 48 })
-  assert.equal(r.manifest.timeout_ms, 70000)
-  assert.equal(r.manifest.timeout_ms_source, 'measured')
-  assert.equal(r.manifest.runtime.ready_timeout_ms, 50000)
-  assert.equal(r.manifest.runtime.ready_timeout_ms_source, 'measured')
-  assert.equal(r.manifest.runtime.python, 'engines/x/.venv', '同段其它键不能丢')
-  assert.equal(r.manifest.max_chars, 80, '出处 upstream 的人写值不许覆盖')
-  assert.equal(r.manifest.max_chars_source, 'upstream')
-  assert.deepEqual(r.written.map((w) => w.key).sort(), ['runtime.ready_timeout_ms', 'timeout_ms'])
-  assert.deepEqual(r.kept.map((k) => k.key), ['max_chars'])
-  assert.equal(before.timeout_ms, 300000, '原对象不动')
-})
-
-test('写回后的名片过得了平台的出处守卫（checkMeasuredSources）', () => {
-  const { checkMeasuredSources } = require('../../../lib/engines/profile/topkeys.js')
-  const r = M.applyMeasurements({ id: 'x', runtime: {} },
-    { 'runtime.ready_timeout_ms': 50000, timeout_ms: 70000, max_chars: 48 })
-  assert.doesNotThrow(() => checkMeasuredSources(r.manifest))
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'measure.js'), 'utf8')
+  assert.ok(!/saveManifest/.test(src), '试跑不许写名片')
+  assert.ok(!/x-sample-rate/.test(src), '采样率不读响应头')
+  assert.ok(!/__dirname,\s*'\.\.',\s*'\.\.',\s*'\.\.'/.test(src), '根不许写死成 __dirname 上三级')
 })
 
 test('textOfLength：短了重复、长了在词边界截，不超过 n', () => {
@@ -72,27 +52,40 @@ test('textOfLength：短了重复、长了在词边界截，不超过 n', () => 
   assert.ok(zh.length <= 20, zh)
 })
 
+// 一段真 wav（24000 Hz），合成请求就回它。
+function wavOf (rate) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiz-wav-'))
+  const f = path.join(dir, 's.wav')
+  generateSilenceWav(50, rate, f)
+  const buf = fs.readFileSync(f)
+  fs.rmSync(dir, { recursive: true, force: true })
+  return buf
+}
+
 // 假引擎：注入启动/探活/请求，验证测的是「起进程 → 就绪」与「发一段 /tts」两段时间。
-function fakeDeps ({ readyAfterMs = 3000, synthMs = 2000, status = 200, failLoad = false } = {}) {
+function fakeDeps ({ readyAfterMs = 3000, synthMs = 2000, status = 200, failLoad = false,
+  body = wavOf(24000), headers = { 'x-sample-rate': '16000' }, onPost } = {}) {
   let clock = 0
   const killed = { n: 0 }
   const posted = []
+  const calls = {}
   return {
-    killed, posted,
+    killed, posted, calls,
     deps: {
       now: () => clock,
       resolveProfile: (id) => ({ id, max_chars: 50, runtime: { ready_endpoint: '/health' } }),
-      buildLaunchPlan: () => ({ launchable: true, base_url: 'http://127.0.0.1:1', ready_url: 'http://127.0.0.1:1/health' }),
-      spawnFromPlan: () => ({ on () {}, killTree: async () => { killed.n++ } }),
+      buildLaunchPlan: (profile, o) => { calls.plan = o; return { launchable: true, base_url: 'http://127.0.0.1:1', ready_url: 'http://127.0.0.1:1/health' } },
+      spawnFromPlan: (plan, o) => { calls.spawn = o; return { on () {}, killTree: async () => { killed.n++ } } },
       probeOnce: async () => {
         if (failLoad) { const e = new Error('boom'); e.engineFailed = true; e.detail = { error: 'x' }; return e }
         clock += 1000
         return clock >= readyAfterMs
       },
-      post: async (url, body) => {
-        posted.push({ url, body })
+      post: async (url, b, budget, signal) => {
+        posted.push({ url, body: b, signal })
+        if (onPost) await onPost()
         clock += synthMs
-        return { status, headers: { 'x-sample-rate': '24000' }, body: Buffer.alloc(status === 200 ? 100 : 0) }
+        return { status, headers, body: status === 200 ? body : Buffer.alloc(0) }
       },
     },
   }
@@ -100,22 +93,58 @@ function fakeDeps ({ readyAfterMs = 3000, synthMs = 2000, status = 200, failLoad
 
 test('measureEngine：量出就绪与单段耗时，文本凑到 max_chars，结束时把进程收掉', async () => {
   const f = fakeDeps({ readyAfterMs: 3000, synthMs: 2000 })
+  const stages = []
   const r = await M.measureEngine('x', { request: { text: 'Hello there.', ref_audio_path: '/a.wav' },
-    deps: f.deps, pollMs: 0 })
+    deps: f.deps, pollMs: 0, rootDir: '/eng', writeRoot: '/w', onStage: (s) => stages.push(s) })
   assert.equal(r.ok, true, r.error)
   assert.equal(r.readyMs, 3000)
   assert.equal(r.synthMs, 2000)
-  assert.equal(r.sampleRate, 24000)
-  assert.equal(f.posted[0].url, 'http://127.0.0.1:1/tts')
+  assert.equal(f.posted[0].url, 'http://127.0.0.1:1/tts', '合成路由与平台正式合成一致，写死 /tts')
   assert.equal(f.posted[0].body.ref_audio_path, '/a.wav', '请求体其余字段原样带上')
   assert.ok(f.posted[0].body.text.length <= 50 && f.posted[0].body.text.length > 30)
   assert.equal(r.chars, f.posted[0].body.text.length)
+  assert.equal(f.killed.n, 1)
+  assert.deepEqual(stages, ['starting', 'synth'])
+})
+
+test('measureEngine：采样率从 wav 头读，不信 x-sample-rate 响应头', async () => {
+  const f = fakeDeps({ body: wavOf(24000), headers: { 'x-sample-rate': '16000' } })
+  const r = await M.measureEngine('x', { request: { text: 'hi' }, deps: f.deps, pollMs: 0, rootDir: '/eng', writeRoot: '/w' })
+  assert.equal(r.ok, true, r.error)
+  assert.equal(r.sampleRate, 24000)
+  const g = fakeDeps({ body: Buffer.from('not a wav at all, just bytes'), headers: { 'x-sample-rate': '16000' } })
+  const r2 = await M.measureEngine('x', { request: { text: 'hi' }, deps: g.deps, pollMs: 0, rootDir: '/eng', writeRoot: '/w' })
+  assert.equal(r2.sampleRate, null, '读不出 wav 头就是 null，不拿响应头顶替')
+})
+
+test('measureEngine：启动计划与 spawn 用引擎所在的根；profile_json 与日志落写根', async () => {
+  const f = fakeDeps()
+  const eng = path.join(os.tmpdir(), 'eng-root')
+  const w = path.join(os.tmpdir(), 'write-root')
+  await M.measureEngine('x', { request: { text: 'hi' }, deps: f.deps, pollMs: 0, rootDir: eng, writeRoot: w })
+  assert.equal(f.calls.plan.rootDir, eng)
+  assert.equal(f.calls.plan.profileJsonPath, path.join(w, 'cache', 'engines', 'x.profile.json'))
+  assert.equal(f.calls.spawn.rootDir, eng)
+  assert.equal(f.calls.spawn.logDir, path.join(w, 'logs'))
+  assert.equal(f.calls.spawn.enginesDir, path.join(eng, 'engines'))
+  assert.equal(f.calls.spawn.localRoot, w)
+})
+
+test('measureEngine：中止信号 ⇒ 不再等、断开请求、收掉进程，如实报已中止', async () => {
+  const ac = new AbortController()
+  const f = fakeDeps({ onPost: async () => { ac.abort() } })
+  const r = await M.measureEngine('x', { request: { text: 'hi' }, deps: f.deps, pollMs: 0,
+    rootDir: '/eng', writeRoot: '/w', signal: ac.signal })
+  assert.equal(r.ok, false)
+  assert.equal(r.cancelled, true)
+  assert.equal(r.stage, 'synth')
+  assert.equal(f.posted[0].signal, ac.signal, '信号要交给合成请求，才断得开')
   assert.equal(f.killed.n, 1)
 })
 
 test('measureEngine：加载失败如实报，不发合成请求，也收掉进程', async () => {
   const f = fakeDeps({ failLoad: true })
-  const r = await M.measureEngine('x', { request: { text: 'hi' }, deps: f.deps, pollMs: 0 })
+  const r = await M.measureEngine('x', { request: { text: 'hi' }, deps: f.deps, pollMs: 0, rootDir: '/eng', writeRoot: '/w' })
   assert.equal(r.ok, false)
   assert.equal(r.stage, 'ready')
   assert.equal(f.posted.length, 0)
@@ -124,39 +153,78 @@ test('measureEngine：加载失败如实报，不发合成请求，也收掉进�
 
 test('measureEngine：没有文本不起进程', async () => {
   const f = fakeDeps()
-  const r = await M.measureEngine('x', { request: {}, deps: f.deps })
+  const r = await M.measureEngine('x', { request: {}, deps: f.deps, rootDir: '/eng', writeRoot: '/w' })
   assert.equal(r.ok, false)
   assert.equal(r.stage, 'spec')
   assert.equal(f.killed.n, 0)
 })
 
-test('measureAndPersist：写回落盘（写根由 WIZARD_PROJECT_ROOT 指定），人写的项不动', async () => {
+function tempRoot (manifest) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wiz-measure-')))
   fs.writeFileSync(path.join(root, 'server.js'), '')
   fs.mkdirSync(path.join(root, 'engines', 'demo'), { recursive: true })
   const file = path.join(root, 'engines', 'demo', 'manifest.json')
-  fs.writeFileSync(file, JSON.stringify({
+  const text = JSON.stringify(manifest, null, 2)
+  fs.writeFileSync(file, text)
+  return { root, file, text }
+}
+
+test('measureAndPersist：两项超时写进写根的本机记录，名片一个字都不动', async () => {
+  const { root, file, text } = tempRoot({
     id: 'demo', label: 'Demo', max_chars: 30, max_chars_source: 'measured',
+    timeout_ms: 1000, timeout_ms_source: 'estimated',
     runtime: { python: 'engines/demo/.venv', entry: '../../lib/engines/host.py' },
-  }, null, 2))
-  const old = process.env.WIZARD_PROJECT_ROOT
-  process.env.WIZARD_PROJECT_ROOT = root
+  })
+  const rootOpts = { from: root, env: { WIZARD_PROJECT_ROOT: root } }
   try {
-    const r = await M.measureAndPersist('demo', {
-      measure: async () => ({ ok: true, readyMs: 12000, synthMs: 8000, synthOk: true, chars: 50 }),
+    const r = await M.measureAndPersist('demo', { rootOpts,
+      measure: async () => ({ ok: true, readyMs: 12000, synthMs: 8000, synthOk: true, chars: 30 }),
     })
     assert.equal(r.ok, true, r.error)
-    assert.equal(r.path, file)
-    const after = JSON.parse(fs.readFileSync(file, 'utf8'))
-    assert.equal(after.runtime.ready_timeout_ms, 50000)
-    assert.equal(after.runtime.ready_timeout_ms_source, 'measured')
-    assert.equal(after.timeout_ms, 70000)
-    assert.equal(after.timeout_ms_source, 'measured')
-    assert.equal(after.max_chars, 30, 'measured 的旧值不覆盖')
-    assert.deepEqual(r.kept.map((k) => k.key), ['max_chars'])
+    assert.equal(r.path, path.join(root, 'state', 'engine-timings', 'demo.json'))
+    assert.equal(fs.readFileSync(file, 'utf8'), text, '名片不许被改')
+    const t = readTimings(root, 'demo')
+    assert.deepEqual(t.values, { 'runtime.ready_timeout_ms': 50000, timeout_ms: 70000 })
+    assert.deepEqual(r.values, { 'runtime.ready_timeout_ms': 50000, timeout_ms: 70000 })
+
+    // 再跑一次：整份覆盖。这次合成失败 ⇒ 只剩就绪那一项，单段退回名片或平台默认。
+    const r2 = await M.measureAndPersist('demo', { rootOpts,
+      measure: async () => ({ ok: false, readyMs: 2000, synthOk: false, error: 'x' }),
+    })
+    assert.equal(r2.ok, false)
+    assert.deepEqual(readTimings(root, 'demo').values, { 'runtime.ready_timeout_ms': 40000 })
+
+    // 一项都没量到 ⇒ 不碰旧记录。
+    const r3 = await M.measureAndPersist('demo', { rootOpts,
+      measure: async () => ({ ok: false, stage: 'ready', error: '起不来' }),
+    })
+    assert.equal(r3.ok, false)
+    assert.deepEqual(readTimings(root, 'demo').values, { 'runtime.ready_timeout_ms': 40000 })
+    assert.equal(fs.readFileSync(file, 'utf8'), text)
   } finally {
-    if (old === undefined) delete process.env.WIZARD_PROJECT_ROOT
-    else process.env.WIZARD_PROJECT_ROOT = old
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('平台读名片时本机记录优先：试跑之后 profile 的超时取本机值，来源记 local', async () => {
+  const { root } = tempRoot({
+    id: 'demo', label: 'Demo', timeout_ms: 1000, timeout_ms_source: 'estimated',
+    runtime: { python: 'engines/demo/.venv', entry: '../../lib/engines/host.py', args: [] },
+  })
+  const rootOpts = { from: root, env: { WIZARD_PROJECT_ROOT: root } }
+  try {
+    await M.measureAndPersist('demo', { rootOpts,
+      measure: async () => ({ ok: true, readyMs: 12000, synthMs: 8000, synthOk: true, chars: 30 }),
+    })
+    const { resolveEngineProfile } = require('../../../lib/engines/profile.js')
+    const p = resolveEngineProfile('demo', {}, { enginesDir: path.join(root, 'engines'), localRoot: root })
+    assert.equal(p.timeout_ms, 70000)
+    assert.equal(p.runtime.ready_timeout_ms, 50000)
+    assert.equal(p.value_sources.timeout_ms, 'local')
+    assert.equal(p.value_sources['runtime.ready_timeout_ms'], 'local')
+    assert.ok(!p.defaulted.includes('runtime.ready_timeout_ms'), '本机测得的不算平台默认')
+    assert.ok(p.defaulted.includes('max_chars'), 'max_chars 名片没写 ⇒ 仍是平台默认')
+  } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })

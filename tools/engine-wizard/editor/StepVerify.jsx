@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { Player } from '../../../web/src/components/common/Player'
+import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 
 export function StepVerify ({ id }) {
   const { t } = useT()
@@ -11,12 +12,14 @@ export function StepVerify ({ id }) {
   const [loading, setLoading] = useState(false)
   const [audioLevel, setAudioLevel] = useState('B')
   const [synthText, setSynthText] = useState('')
-  // 参考音频与参考文本：要参考音频的引擎，A 级与试跑都得带上，否则宿主当场 400。
+  // 参考音频与参考文本：要参考音频的引擎，A 级与试运行都得带上，否则宿主当场 400。
   //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
   const [refAudio, setRefAudio] = useState('')
   const [refText, setRefText] = useState('')
-  const [measuring, setMeasuring] = useState(false)
-  const [measured, setMeasured] = useState(null)
+  // 试运行是后台任务：job 是服务端的任务快照（阶段、已用时间、结束后的结果），轮询刷新。
+  const [job, setJob] = useState(null)
+  const [measureError, setMeasureError] = useState(null)
+  const measuring = measureRunning(job)
 
   const synthRequest = () => {
     const r = { text: synthText.trim() }
@@ -25,21 +28,64 @@ export function StepVerify ({ id }) {
     return r
   }
 
-  // 试跑：真起一次引擎，量冷启动与合成一段的耗时，按余量写回名片（出处 measured）。
+  // 试运行：真起一次引擎，量冷启动与合成一段的耗时，按余量定本机上的超时。
+  //   存在本机（state/ 下），不写名片：名片要能分享，「本机多快」不该跟着走。
+  //   POST 只起任务，进度靠 GET /wizard/verify/measure/progress 轮询。
   const runMeasure = () => {
     if (!id || !synthText.trim()) return
-    setMeasuring(true)
-    setMeasured(null)
+    setMeasureError(null)
     fetch('/wizard/verify/measure', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, request: synthRequest() }),
     })
       .then(r => r.json())
-      .then(setMeasured)
-      .catch((e) => setMeasured({ ok: false, error: String(e) }))
-      .finally(() => setMeasuring(false))
+      .then((j) => {
+        if (j && j.job) setJob(j.job)
+        if (!j || !j.ok) setMeasureError((j && j.error) || t('Could not start the trial run', '试运行未能启动'))
+      })
+      .catch((e) => setMeasureError(String(e)))
   }
+
+  const cancelMeasure = () => {
+    if (!id) return
+    fetch('/wizard/verify/measure/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+      .then(r => r.json())
+      .then((j) => { if (j && j.job) setJob(j.job) })
+      .catch((e) => setMeasureError(String(e)))
+  }
+
+  // 换引擎或刚进这一步：先读一次，接上可能还进行中的任务（刷新页面不丢进度）。
+  useEffect(() => {
+    setJob(null)
+    setMeasureError(null)
+    if (!id) return undefined
+    let live = true
+    fetch(`/wizard/verify/measure/progress?id=${encodeURIComponent(id)}`)
+      .then(r => r.json())
+      .then((j) => { if (live && j && j.ok) setJob(j.job) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [id])
+
+  // 任务进行中就按固定间隔轮询；结束（done / failed）即停。
+  useEffect(() => {
+    if (!id || !measuring) return undefined
+    let live = true
+    const timer = setInterval(() => {
+      fetch(`/wizard/verify/measure/progress?id=${encodeURIComponent(id)}`)
+        .then(r => r.json())
+        .then((j) => { if (live && j && j.ok && j.job) setJob(j.job) })
+        .catch(() => {})
+    }, MEASURE_POLL_MS)
+    return () => { live = false; clearInterval(timer) }
+  }, [id, measuring])
+
+  const measured = job && !measuring ? job.result : null
 
   const runChecks = React.useCallback((level, request) => {
     if (!id) return
@@ -191,29 +237,41 @@ export function StepVerify ({ id }) {
             style={{ marginTop: 6, marginLeft: 6 }}
             onClick={runMeasure}
           >
-            {measuring
-              ? t('Starting the engine and measuring...', '正在起引擎并实测...')
-              : t('Trial run and write measured values', '试跑并写回实测值')}
+            {t('Trial run and set timeouts for this machine', '试运行并更新本机超时')}
           </button>
+          {measuring && (
+            <button className="btn btn-sm" type="button" style={{ marginTop: 6, marginLeft: 6 }}
+              onClick={cancelMeasure}>
+              {t('Cancel', '取消')}
+            </button>
+          )}
+          {job && (
+            <div className="field-hint" style={{ marginTop: 6 }}>
+              <span className="badge">{measureStageLabel(job.stage, t)}</span>
+              {' '}{t('elapsed', '已用时间')} {formatElapsed(job.elapsed_ms)}
+            </div>
+          )}
+          {measureError && <div className="msg msg-danger" style={{ marginTop: 6 }}>{String(measureError)}</div>}
           {measured && (
             <div style={{ marginTop: 6 }}>
-              {(measured.written || []).map((w) => (
-                <div key={w.key} className="field-hint">
-                  {t('Written', '已写回')} {w.key} = {w.value}（measured）
+              {measured.values && Object.keys(measured.values).map((k) => (
+                <div key={k} className="field-hint">
+                  {t('This machine', '本机')} {k} = {Math.round(measured.values[k] / 1000)}s
                 </div>
               ))}
-              {(measured.kept || []).map((k) => (
-                <div key={k.key} className="field-hint">
-                  {t('Kept your value', '保留你写的值')} {k.key} = {String(k.value)}（{k.source}），
-                  {t('measured', '实测')} {k.measured}
+              {measured.values && Object.keys(measured.values).length > 0 && (
+                <div className="field-hint">
+                  {t('Kept on this machine only, not written into the manifest; it overrides the manifest value here.',
+                    '只存在本机上，不写进名片；在本机上优先于名片里写的值。')}
                 </div>
-              ))}
+              )}
               {measured.measurement && Number.isFinite(measured.measurement.readyMs) && (
                 <div className="field-hint">
                   {t('Cold start to ready', '冷启动到就绪')} {Math.round(measured.measurement.readyMs / 1000)}s
                   {Number.isFinite(measured.measurement.synthMs) && measured.measurement.synthOk
                     ? `，${t('one segment', '一段')}（${measured.measurement.chars} ${t('chars', '字')}）${Math.round(measured.measurement.synthMs / 1000)}s`
                     : ''}
+                  {measured.measurement.sampleRate ? `，${measured.measurement.sampleRate} Hz` : ''}
                 </div>
               )}
               {measured.ok === false && measured.error && (

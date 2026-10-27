@@ -1049,27 +1049,60 @@ function handleVerify (req, res) {
   return true
 }
 
-// POST /wizard/verify/measure  {id, request}  第 5 步：试跑并把实测值写回名片
+// POST /wizard/verify/measure  {id, request}  第 5 步：起一个后台试运行任务，立即返回
 //   真起一次引擎（照平台启动计划），量冷启动到就绪、合成一段 max_chars 长文本的耗时，
-//   留余量写回 runtime.ready_timeout_ms / timeout_ms / max_chars，出处记 measured。
-//   人写的值（出处不是 estimated、也不是没写）不覆盖，见 core/measure.js。
-//   request 是引擎方言的请求体（text、ref_audio_path、call_time 参数），平台不编。
+//   留余量定本机上的 runtime.ready_timeout_ms / timeout_ms，存进本机记录（state/ 下），
+//   不写名片，见 core/measure.js。任务、阶段、整体超时见 core/measureJob.js。
+//   request 是合成请求体（text、reference_audio 等平台的词，或引擎方言），平台不编。
+//   回 202 + 任务快照；同一台引擎已有任务进行中 ⇒ 409。
+//   锚定整串：/wizard/verify/measure/progress 与 /cancel 有各自的 handler。
 function handleVerifyMeasure (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/verify/measure')) return false
   const tail = req.url.slice('/wizard/verify/measure'.length)
   if (tail !== '' && tail[0] !== '?') return false
-  readBody(req, respondSafely(res, async (err, body) => {
+  readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    if (body.tooBig) { json(res, 413, { ok: false, error: 'body too big' }); return }
     if (!body.id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     if (!body.request || !body.request.text) {
-      json(res, 400, { ok: false, error: 'request.text is required（试跑要真合成一段）' }); return
+      json(res, 400, { ok: false, error: 'request.text is required（试运行要真合成一段）' }); return
     }
-    const { measureAndPersist } = require('./measure')
-    const r = await measureAndPersist(body.id, { request: body.request })
-    // 量不出来也是一个答案（哪一步卡住、卡在哪），一律 200，与 /wizard/params 同口径。
-    json(res, 200, r)
-  }))
+    const { startMeasureJob } = require('./measureJob')
+    const r = startMeasureJob(String(body.id), body.request)
+    json(res, r.ok ? 202 : (r.code === 'MEASURE_RUNNING' ? 409 : 400), r)
+  })
+  return true
+}
+
+// GET /wizard/verify/measure/progress?id=  第 5 步：读试运行任务的阶段与已用时间
+//   从没跑过 ⇒ 200 + job:null（「没有任务」是一个答案，不是找不到端点）。
+function handleVerifyMeasureProgress (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/measure/progress')) return false
+  const tail = req.url.slice('/wizard/verify/measure/progress'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const { getMeasureJob } = require('./measureJob')
+  json(res, 200, { ok: true, job: getMeasureJob(id) })
+  return true
+}
+
+// POST /wizard/verify/measure/cancel  {id}  取消正在进行的试运行：abort ⇒ 收掉引擎进程
+function handleVerifyMeasureCancel (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/measure/cancel')) return false
+  const tail = req.url.slice('/wizard/verify/measure/cancel'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    const { cancelMeasureJob } = require('./measureJob')
+    json(res, 200, { id, ...cancelMeasureJob(id) })
+  })
   return true
 }
 
@@ -1346,7 +1379,13 @@ function handleProfile (req, res) {
   try {
     const { resolveEngineProfile } = require(
       path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'profile.js'))
-    const profile = resolveEngineProfile(id)
+    // 名片按读根找（本 checkout 优先、主仓库兜底），本机记录按写根读：
+    //   与第 5 步试运行写本机记录的位置是同一个根（core/measure.js）。
+    const { writeRoot } = require('./wizardRoot')
+    const profile = resolveEngineProfile(id, process.env, {
+      enginesDir: /^[A-Za-z0-9._-]+$/.test(id) ? path.dirname(engineDirForRead(id)) : undefined,
+      localRoot: writeRoot() || undefined,
+    })
     json(res, 200, { ok: true, profile })
   } catch (e) {
     json(res, 404, { ok: false, error: e.message, code: e.code })
@@ -1426,7 +1465,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadCancel,
-  handleVerifyChecks, handleVerifyMeasure, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，

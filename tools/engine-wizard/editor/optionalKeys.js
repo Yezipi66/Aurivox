@@ -1,8 +1,9 @@
 // 「引擎配置」那一段的清单与纯函数（OptionalConfig.jsx 渲染；文件名不叫 optionalConfig.js，大小写不敏感的文件系统上会和组件撞名，可单独测）。
 //
 // 每一项缺着时平台都有答案（推断或保守默认，见 lib/engines/profile.js 的 DEFAULTS）。
-// 写了数就必须写出处（平台 checkMeasuredSources 的规矩）：添加时出处先记 estimated，
-// 第 5 步量出来之后可改成 measured。
+// 写了数就必须写出处（平台 checkMeasuredSources 的规矩）：添加时出处先记 estimated。
+// 第 5 步试运行不改这里：量到的两项超时只存在本机（lib/engines/localTimings.js），
+// 名片里写的值原样留着，平台在本机上按本机的值用。
 
 // 不填时平台的答案。数值与 lib/engines/profile.js 的 DEFAULTS 一致（有守卫测试钉住）。
 export const PLATFORM_DEFAULTS = Object.freeze({
@@ -132,9 +133,17 @@ export function removeItem (m, item) {
 }
 
 // 平台替名片答了的那几项（lib/engines/profile.js 产出的 profile.defaulted），
-//   且表单里此刻也没写：界面给它们挂「平台默认」。defaulted 是盘上那张名片的读数，
+//   且表单里此刻也没写：界面给它们挂「平台默认」。defaulted 是盘上这张名片的读数，
 //   表单里已经写了值的以表单为准，不再算平台默认。
 export function platformDefaultedRows (m, defaulted) {
   const set = new Set(Array.isArray(defaulted) ? defaulted : [])
   return OPTIONAL_KEYS.filter((it) => set.has(it.path) && get(m, it.path) === undefined)
+}
+
+// 本机上第 5 步试运行量过的那几项（profile.value_sources 里记成 local 的）：
+//   不在名片里、不算平台默认，界面单独挂「本机测得」，并说明它在本机优先于名片。
+//   表单里写没写都列出来：名片写了也照样被本机的值盖过，要让人看见。
+export function localMeasuredRows (sources) {
+  const src = sources && typeof sources === 'object' ? sources : {}
+  return OPTIONAL_KEYS.filter((it) => src[it.path] === 'local')
 }
