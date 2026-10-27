@@ -301,6 +301,13 @@
 
 /* 字段的「来源确定性」：扫描认准了 = 绿边；是猜的 / 要人确认 = 黄边。
    CoreBindings 以前写了 .matched / .unmatched，但这两个类从来没有样式。 */
+/* 必填区一行：项目的 .form-grid 是写死两列，这里第 1 行要三格、第 2 行两格，
+   且中栏被拖窄（最窄 320px）时要折成单列，所以改成 auto-fit。 */
+.form-grid.wz-required-row {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin-bottom: var(--sp-8, 8px);
+}
+
 .control.wz-field-matched {
   border-color: var(--success);
 }
