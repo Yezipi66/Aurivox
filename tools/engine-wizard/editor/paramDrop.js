@@ -1,28 +1,15 @@
-// 拖一个参数落进名片时，纯计算那部分。
-//
-// 为什么单独一个文件：这两个函数原先在 ParamDropZone.jsx 里并从那儿导出。
-// ParamDropZone.jsx 是组件模块，而 vite 的 react 插件要求组件模块只导出组件
-// （导出别的函数 ⇒ Fast Refresh 失效，改那个文件会整页 reload，
-// 日志里报 Could not Fast Refresh ("..." export is incompatible)）。
-// 纯函数放自己的文件，组件模块就干净了。
-//
-// 这个项目里纯函数都是这么放的：manifestAutoFill.js / scanAutofill.js / paramType.js。
+// 拖一个参数落进 Manifest 时，纯计算那部分。
+// 纯函数放自己的文件：组件模块只导出组件，导出别的会让 Fast Refresh 失效。
 
 import { paramTypeOf } from './paramType.js'
 
-// 中栏的落点：界面参数区（parameters[]）。
+// 中栏的落点：界面参数区（parameters[]）。扫到的参数拖进来，按扫到的信息预填，接入者再改。
 //
-// 左栏扫到的参数拖到这里，就变成名片的一条界面参数。
-// 名片里 parameters[] 的每一项都有 name / type 等字段；拖进来时按
-// 扫到的信息预填，用户再改。
-//
-// 参数名从哪来：扫到的 cli 参数是命令行开关（--speed），
-// 界面参数的名字是平台侧的名字，去掉开头的横线（speed）。
+// 参数名：扫到的 cli 参数是命令行开关（--speed），界面参数名去掉开头的横线（speed）；
 // python 参数本身就是方法参数名，原样用。
 //
-// 拖进来的 cli 参数还要写 call.args：宿主在命令行形态下只认 call.args 里
-// 声明过的名字（host.py 的 args_table），参数名没在那儿声明就被拒。
-// 这里写的是用户刚刚拖进来的那个开关，不是平台猜的对应关系。
+// cli 参数拖进来还要写进 call.args：命令行形态下只认声明过的名字，没声明就被拒。
+// 写的是刚刚拖进来的那个开关，不是平台猜的对应关系。
 
 /**
  * 去掉开关前面的横线，得到界面参数名。
