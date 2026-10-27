@@ -647,3 +647,34 @@ test('download.js 活代码里不许出现任何具体引擎名', () => {
     assert.ok(!code.toLowerCase().includes(bad), `出现了「${bad}」`)
   }
 })
+
+// 端到端验收（NeuTTS Air）发现：ModelScope 的清单与下载地址都按 HF 拼，镜像形同虚设。
+test('fileUrl：来源是 modelscope 的文件走 ModelScope 的 resolve 地址，其余走 HF', () => {
+  const { fileUrl } = require('../core/download')
+  assert.strictEqual(fileUrl({ name: 'a.gguf', tool: 'modelscope' }, 'o/r', 'master', 'a.gguf'),
+    'https://modelscope.cn/models/o/r/resolve/master/a.gguf')
+  assert.strictEqual(fileUrl({ name: 'a.gguf', tool: 'hf' }, 'o/r', 'main', 'a.gguf'),
+    'https://huggingface.co/o/r/resolve/main/a.gguf')
+  assert.strictEqual(fileUrl({ name: 'a.gguf' }, 'o/r', 'main', 'a.gguf'),
+    'https://huggingface.co/o/r/resolve/main/a.gguf')
+})
+
+test('fetchRemoteManifest(modelscope)：读 /repo/files 清单，只要文件不要目录', async () => {
+  const http = require('node:http')
+  const { fetchRemoteManifest } = require('../core/download')
+  let seen = null
+  const srv = http.createServer((req, res) => {
+    seen = req.url
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ Code: 200, Data: { Files: [
+      { Name: 'sub', Path: 'sub', Type: 'tree', Size: 0 },
+      { Name: 'm.gguf', Path: 'm.gguf', Type: 'blob', Size: 12, Sha256: 'ab' },
+    ] } }))
+  })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  try {
+    const r = await fetchRemoteManifest('o/r', 'modelscope', `http://127.0.0.1:${srv.address().port}`)
+    assert.strictEqual(seen, '/api/v1/models/o/r/repo/files?Recursive=true')
+    assert.deepStrictEqual(r.files, [{ name: 'm.gguf', size: 12, sha256: 'ab' }])
+  } finally { srv.close() }
+})

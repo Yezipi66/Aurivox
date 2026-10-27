@@ -180,8 +180,10 @@ function unifyDest (argv, engineId, root) {
 function fetchRemoteManifest (repo, tool, baseUrl) {
   return new Promise((resolve) => {
     const base = baseUrl || (tool === 'modelscope' ? 'https://modelscope.cn' : 'https://huggingface.co')
+    // ModelScope 的文件清单在 /repo/files 下：/api/v1/models/<repo> 只回模型简介，
+    //   没有 Data.Files，清单永远是空的（端到端验收时 neuphonic 的镜像就是这样「没有文件」）。
     const url = tool === 'modelscope'
-      ? `${base}/api/v1/models/${repo}`
+      ? `${base}/api/v1/models/${repo}/repo/files?Recursive=true`
       : `${base}/api/models/${repo}?blobs=true`
     const client = url.startsWith('http:') ? require('node:http') : https
     const req = client.get(url, {
@@ -210,6 +212,8 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
           }
           if (data.Data && data.Data.Files) {
             for (const f of data.Data.Files) {
+              // 递归清单里有目录项（Type: tree），只要文件
+              if (f.Type && f.Type !== 'blob') continue
               files.push({
                 name: f.Name || f.Path,
                 size: f.Size || 0,
@@ -536,7 +540,7 @@ function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, bran
   }
   const [currentBranch, ...rest] = branches
   const encodedName = encodeFilePath(file.name)
-  const url = `https://huggingface.co/${repo}/resolve/${currentBranch}/${encodedName}`
+  const url = fileUrl(file, repo, currentBranch, encodedName)
   return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, false, signal).then((result) => {
     if (result.ok || !result.status || result.status !== 404) {
       return result
@@ -545,10 +549,21 @@ function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, bran
   })
 }
 
+// 单个文件的下载地址。file.tool 是清单那一步带下来的来源（enrichManifestFiles 写的）：
+//   modelscope 走它自己的 resolve 地址，其余一律 HF。不看来源全拼成 HF 的话，
+//   ModelScope 镜像的文件会去 HF 下，HF 上要授权的仓库（gated）就是 401。
+function fileUrl (file, repo, branch, encodedName) {
+  if (file && file.tool === 'modelscope') {
+    return `https://modelscope.cn/models/${repo}/resolve/${branch}/${encodedName}`
+  }
+  return `https://huggingface.co/${repo}/resolve/${branch}/${encodedName}`
+}
+
 // 下载单个文件：拼好 URL 后交给 downloadFileFromUrl。
-// 分支优先用传入的 branch，否则依次尝试 main 与 master。
+// 分支优先用传入的 branch，否则依次尝试 main 与 master（ModelScope 的默认分支是 master）。
 function downloadFile (file, repo, root, id, onLine, onProgress, branch, signal = null) {
-  const branches = branch ? [branch] : ['main', 'master']
+  const branches = branch ? [branch]
+    : (file && file.tool === 'modelscope' ? ['master'] : ['main', 'master'])
   return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches, signal)
 }
 
@@ -625,4 +640,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
