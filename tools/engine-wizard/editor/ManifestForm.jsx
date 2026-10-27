@@ -3,121 +3,23 @@
 // 本文件不负责合成逻辑，只负责界面层的输入与结构。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { RuntimeSection, CallSection, ModelsSection } from './NestedSections'
+import OptionalConfig from './OptionalConfig'
 import RequiredFields from './RequiredFields'
 import ParamDropZone from './ParamDropZone'
 import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 
-// 名片填表：按分组渲染每一项，高危字段当场挂徽标，参数区是可增删的行。
-// 分组与字段清单来自 /wizard/spec（fieldmeta 是唯一权威），不手写清单。
-// 渲染只用项目已有的类（.section / .field / .field-label / .field-hint / .control /
-// .param-grid / .plan-warn / .rc-cmd / .expert-block / .expert-summary / .badge / .msg），
-// 不自造 mf-* / pr-*。
-
-// 分组标题：用平台的词汇，不自己造中文名。
-// 不用「怎么起进程」这种说法：平台自己的界面从不这么叫它。
-// 造一套「更friendly」的说法等于造第二套词汇，用户学的是这边的词、填的是平台的键，两边不匹配。
-// 显示键名，说明放在 fieldmeta 的 howto 里。
-const GROUP_LABELS = {
-  basics: { en: 'Basics', zh: '基本信息' },
-  source: { en: 'Source', zh: '源码与许可' },
-  models: { en: 'Models', zh: '模型权重' },
-  runtime: { en: 'runtime', zh: 'runtime（启动引擎进程）' },
-  call: { en: 'call', zh: 'call（调用引擎接口）' },
-  parameters: { en: 'parameters', zh: 'parameters（界面参数）' },
-  capabilities: { en: 'capabilities', zh: 'capabilities（能力声明）' },
-  install: { en: 'install', zh: 'install（怎么装）' },
-  output: { en: 'output', zh: 'output（输出格式）' },
-}
-
-// 彻底不渲染的键：id / label / contract_version。
-// autoFill 已经自动填好（id=目录名、label 默认=id、contract_version=2），
-// 摆在用户脸上纯属噪音。从 byGroup 构建时直接过滤掉，任何层级都不出现。
-const HIDDEN_KEYS = ['id', 'label', 'contract_version']
-
-// 段容器键本身：这些键的值是对象或数组（不是标量），
-// 绝不能走平铺 Field（input 会把对象渲染成 [object Object]，改了就毁数据）。
-// runtime/call/models 有专门嵌套编辑器（NestedSections）；
-// capabilities/weights/upstream/install 是嵌套对象或数组，各有归属区或专门处理；
-// parameters/maps 归「界面参数区」（下方单独渲染，不进这里）。
-// 这些键跳过平铺渲染，但它们组内的平铺子字段（runtime 组的
-// max_chars/base_url_env、capabilities 组的开关等）照常渲染。
-const CONTAINER_KEYS = [
-  'runtime', 'call', 'models', 'weights', 'capabilities',
-  'upstream', 'install', 'parameters', 'maps',
-]
-
-// 顶层哪些键是「简单值」 直接给个输入框；哪些是对象/数组  展开写
-const SIMPLE_KEYS = {
-  id: 'text', label: 'text', local_changes: 'text',
-  max_chars: 'number', max_chars_source: 'text',
-  timeout_ms: 'number', timeout_ms_source: 'text',
-  base_url_env: 'text', contract_version: 'number',
-}
-
-function Field ({ sec, value, onChange }) {
-  const { t } = useT()
-  const kind = SIMPLE_KEYS[sec.key] || 'text'
-  return (
-    <div className="field">
-      {/* 键名 + 填错不报错徽标同一行（内联 flex，照 TrainingTab 的写法）*/}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <label className="field-label" style={{ margin: 0 }} title={sec.howto}>
-          <code>{sec.key}</code>
-        </label>
-        {sec.danger === 'silent' && (
-          <span className="badge badge-warn">
-            {t('no error if wrong', '填错不报错')}
-          </span>
-        )}
-        {sec.danger === 'block' && (
-          <span className="badge badge-danger">
-            {t('blocks loading', '填错装不上')}
-          </span>
-        )}
-      </div>
-      <div className="field-hint">{sec.howto}</div>
-      {/* 警告按 sec.danger 分三档：block→msg-danger 红框 / silent→msg-warn 黄框 / info→field-hint 灰字 */}
-      {sec.warn && (
-        <div className={
-          sec.danger === 'block' ? 'msg msg-danger'
-            : sec.danger === 'silent' ? 'msg msg-warn'
-              : 'field-hint'
-        }> {sec.warn}</div>
-      )}
-      {kind === 'number'
-        ? (
-          <input className="control" type="number" value={value ?? ''}
-            onChange={(e) => onChange(e.target.value === ''
-              ? undefined
-              : Number(e.target.value))} />
-          )
-        : (
-          <input className="control" type="text" value={value ?? ''}
-            onChange={(e) => onChange(e.target.value === undefined
-              ? ''
-              : e.target.value)} />
-          )}
-      {sec.structure && (
-        <div className="rc-cmd">
-          <pre className="rc-cmd-body">{sec.structure}</pre>
-        </div>
-      )}
-    </div>
-  )
-}
+// 名片填表：两个区。
+//   ① 必填字段：5 格（RequiredFields）。
+//   ② 可选参数：合成参数（ParamDropZone）+ 引擎配置（OptionalConfig）。
+// 渲染只用项目已有的类，不自造 mf-* / pr-*。
 
 // 从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）。
 // 只填表单，不直接写 manifest.json；映射候选只给候选，人点选之后才写 maps。
 
-// 主组件操作流（三个区）：
-// ① 必填字段：平台三个输入（call.bind 三槽位）+ 平台当场校验的那些键，
-//    合成一个两列网格，每格是「中文人话 + 键名徽标」。
-//    原来分「核心输入」与「运行与能力」两小段，语义重复，已合成一个网格。
-// ② 参数：左栏扫到的参数拖到这里，成为名片的一条参数（parameters[]）。
-//    原来的「常用可选」里属于参数的那部分（tier / phase）成了每一行的「去向」。
-// ③ 高级（折叠）：runtime 其余字段、call 其余字段、source/models/install/output。
+// 主组件操作流：
+// ① 必填字段：call.bind 三槽位 + 引擎目录 + 启动脚本，两行。
+// ② 可选参数：左栏扫到的参数拖进来成为 parameters[]；下面是平台有默认的引擎配置。
 //
 // 扫描发生在左栏（EngineScanZone），扫描结果由页面层持有并传进来。
 export default function ManifestForm ({
@@ -151,111 +53,24 @@ export default function ManifestForm ({
     </p>
   }
 
-  const set = (k, v) => {
-    const next = { ...manifest }
-    if (v === undefined || v === '') delete next[k]
-    else next[k] = v
-    onChange(next)
-  }
-
-  // byGroup 构建：嵌套段（runtime/call/models）保留在 byGroup 里，嵌套编辑器无条件渲染。
-  // 但「段容器键本身」（runtime/call/models/weights/capabilities…值非标量）
-  // 要从平铺渲染里剔除，否则 Field 会把对象渲染成 [object Object]。
-  const byGroup = {}
-  for (const s of spec.sections) {
-    if (s.group === 'parameters') continue
-    if (HIDDEN_KEYS.includes(s.key)) continue
-    if (CONTAINER_KEYS.includes(s.key)) continue
-    ;(byGroup[s.group] = byGroup[s.group] || []).push(s)
-  }
-
-  const gLabel = (g) => {
-    const L = GROUP_LABELS[g]
-    return L ? t(L.en, L.zh) : g
-  }
-
-  // 两级：常驻展开的「必填字段」+「参数」，与永远折叠的「高级」。
-  // call 段的归属：bind 三槽位在「必填字段」里，call 的其余字段在「高级」的 CallSection。
-  const L3_GROUPS = ['runtime', 'capabilities', 'source', 'models', 'install', 'output']
-
-  // 「高级」里的嵌套段（runtime / call / models）用 NestedSections 的全量编辑器，无条件渲染；
-  // 平铺键（upstream / max_chars_source / base_url_env / output_formats 等）走 byGroup 判空。
-  const l3Flat = L3_GROUPS.filter((g) => byGroup[g])
-
-  // 「有值时提示」：「高级」折叠标题上挂徽标，表示折叠里已有内容。
-  // 键路径要取对：args/cwd 在 runtime 下、streaming 在 capabilities 下，不是顶层键，
-  // 取顶层会永远取空，徽标永不出现。
-  const hasVal = (paths) => paths.some((path) => {
-    const v = path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), manifest)
-    return v !== undefined && v !== null && v !== ''
-  })
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* ① 必填字段：平台三个输入槽位 + 平台当场校验的那些键，一个两列网格 */}
+      {/* ① 必填字段：三个输入槽位一行，引擎目录与启动脚本一行 */}
       <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill}
         bindSlots={spec && spec.bindSlots} />
 
-      {/* ② 参数：左栏扫到的参数拖到这里 */}
+      {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
+          + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。
+          以前的「高级」折叠区整段去掉：前面几步已经定下的不再在这里重复一份，
+          要改它们走 JSON 视图。 */}
       <ParamDropZone manifest={manifest} onChange={onChange}
         params={manifest.parameters || []} selectedParam={selectedParam}
         spec={spec} ParamRow={ParamRow}
         guessed={guessed} onParamDropped={onParamDropped}
-        onTypeConfirmed={onTypeConfirmed} />
-
-      {/* ---- ③ 高级（折叠）---- */}
-      <details className="expert-block" open={false}>
-        <summary className="expert-summary">
-          {t('Advanced', '高级')}
-          {hasVal(['runtime.args', 'runtime.cwd', 'capabilities.streaming',
-            'upstream', 'install', 'models', 'weights', 'base_url_env']) && (
-            <span className="badge badge-info" style={{ marginLeft: 6 }}>
-              {t('has values', '已有内容')}
-            </span>
-          )}
-        </summary>
-        <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {l3Flat.map((g) => (
-            <div className="section" key={g}>
-              <div className="section-hdr"><h2>{gLabel(g)}</h2></div>
-              <div className="section-body">
-                {byGroup[g].map((s) => (
-                  <Field key={s.key} sec={s} value={manifest[s.key]} onChange={(v) => set(s.key, v)} />
-                ))}
-              </div>
-            </div>
-          ))}
-          {/* runtime 段的其余字段（args / checkpoints / verify）。
-              必填的那几格（python / entry / ready_endpoint / ready_timeout_ms
-              与它的出处）在上面的必填网格里，这里不再重复一份。 */}
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('runtime')}</h2></div>
-            <div className="section-body">
-              <RuntimeSection value={manifest.runtime} onChange={(x) => set('runtime', x)} t={t}
-                checkpointsPath={checkpointsPath} />
-            </div>
-          </div>
-          {/* call 其余字段（kind/module/class/method/init_args/returns）。
-              核心输入 bind 三格在「必填字段」里。 */}
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('call')}</h2></div>
-            <div className="section-body">
-              <CallSection value={manifest.call} onChange={(x) => set('call', x)} t={t}
-              bindSlots={spec && spec.bindSlots} />
-            </div>
-          </div>
-          {/* L3 嵌套段：models（全量嵌套编辑器）。
-              无条件渲染 ModelsSection：嵌套字段（required/hint/
-              source.url/source.command）都要能改。 */}
-          <div className="section">
-            <div className="section-hdr"><h2>{gLabel('models')}</h2></div>
-            <div className="section-body">
-              <ModelsSection value={manifest.models} onChange={(x) => set('models', x)} t={t} />
-            </div>
-          </div>
-        </div>
-      </details>
+        onTypeConfirmed={onTypeConfirmed}>
+        <OptionalConfig manifest={manifest} onChange={onChange} />
+      </ParamDropZone>
     </div>
   )
 }

@@ -28,7 +28,7 @@ import { applyParamDrop, paramNameOf } from './paramDrop'
  */
 export default function ParamDropZone ({
   manifest, onChange, params, selectedParam, spec, ParamRow,
-  guessed, onParamDropped, onTypeConfirmed,
+  guessed, onParamDropped, onTypeConfirmed, children,
 }) {
   const { t } = useT()
   const [over, setOver] = React.useState(false)
@@ -78,8 +78,9 @@ export default function ParamDropZone ({
 
   return (
     <div className="section">
-      <div className="section-hdr"><h2>{t('Parameters', '参数')}</h2></div>
+      <div className="section-hdr"><h2>{t('Optional parameters', '可选参数')}</h2></div>
       <div className="section-body">
+        <div className="wz-subhead">{t('Synthesis parameters', '合成参数')}</div>
         <p className="field-hint" style={{ marginTop: 0 }}>
           {t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
             '把左栏的参数拖到这里：参数名、类型、说明会自动填好，右边预览同步更新。标黄的是猜的，请确认。')}
@@ -121,6 +122,9 @@ export default function ParamDropZone ({
             + {t('Add a parameter', '添加一个参数')}
           </button>
         </div>
+
+        {/* 同一个「可选参数」区里的第二段（ManifestForm 传进来的引擎配置）。 */}
+        {children}
       </div>
     </div>
   )

@@ -111,7 +111,7 @@ function fakeEngineManifest () {
       module: 'wobble',
       class: 'Wobble',
       init_args: {},
-      bind: { text: 'the_words' },
+      bind: { text: 'the_words', ref_audio: 'the_voice' },
       returns: 'bytes',
       seed: 'none',
     },

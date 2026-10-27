@@ -18,6 +18,11 @@ const platform = require(
 // 平台的解析器。路径从向导自己的位置算回去：向导是独立工具，
 // 不假定自己被放在哪（可以被拷走单独用）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
+let _profile = null
+function platformProfile () {
+  if (!_profile) _profile = require(path.join(REPO_ROOT, 'lib', 'engines', 'profile.js'))
+  return _profile
+}
 let _registry = null
 function registry () {
   if (!_registry) {
@@ -103,74 +108,75 @@ function diagnose (manifest) {
     }
   }
 
-  // ---- 3b. 平台当场校验的那几个键（缺一个就装不上）----------------
+  // ---- 3b. 必填 5 项（缺一个就接不上平台）---------------------------
   //
-  // 判据不重写：直接调平台自己的那三个函数（required / requiredBool / positiveInt），
-  // 它们判「缺」的方式并不一样，重写一遍就会漂：
-  //   required      缺 = undefined / null / ''（空串也当缺）
-  //   requiredBool  缺 = undefined；null 与 '' 是「写了但类型错」
-  //   positiveInt   先判缺，再判正整数
-  // 本文件自己写的「缺 = undefined || null」两处都判错：
-  //   空串被放过，而平台当它缺（runtime.python 写成 '' 平台直接抛）。
-  //   requiredBool 的 null 被当成缺，而平台当它是「写了但不是布尔」。
+  // 平台只要求人答这 5 项（lib/engines/profile.js 的 DEFAULTS 上方）：
+  //   call.bind 的 text / ref_audio / output_path（output_path 只在 call.returns 是 file 时要）
+  //   runtime.python / runtime.entry
+  // 其余各项缺了平台推断或用保守默认，这里不报缺；写了值才校验值本身。
   //
-  // 平台抛什么，这里就报什么码：判据同源 ⇒ 校验层不会比平台宽，也不会比平台严。
+  // 判据不重写：缺不缺、值成不成立，直接调平台自己的 required / positiveInt / parseClipSeconds。
+  const rt = manifest.runtime || {}
+  const callObj = (manifest.call && typeof manifest.call === 'object') ? manifest.call : {}
+  const bindObj = callObj.bind || {}
+  const returns = callObj.returns || 'file'
+  const isSharedHost = platformProfile().isSharedHost
+  // 三个输入槽位是通用宿主读的（lib/engines/hostProfile.js）。引擎自带服务脚本、
+  // 又没写 call 段的（老引擎自己起 HTTP），平台不经宿主调它，槽位无处可去，不要求。
+  const needsBind = !!manifest.call || (!!rt.entry && isSharedHost(rt.entry))
   const REQUIRED_KEYS = [
-    { path: 'runtime.python', get: (m) => (m.runtime || {}).python, section: 'runtime' },
-    { path: 'runtime.entry', get: (m) => (m.runtime || {}).entry, section: 'runtime' },
-    { path: 'runtime.ready_endpoint', get: (m) => (m.runtime || {}).ready_endpoint, section: 'runtime' },
-    { path: 'runtime.ready_timeout_ms', get: (m) => (m.runtime || {}).ready_timeout_ms, section: 'runtime' },
-    { path: 'timeout_ms', get: (m) => m.timeout_ms, section: 'timeout_ms' },
-    { path: 'max_chars', get: (m) => m.max_chars, section: 'max_chars' },
-    { path: 'capabilities.requires_reference_audio',
-      get: (m) => (m.capabilities || {}).requires_reference_audio, section: 'capabilities',
-      kind: 'bool' },
-    { path: 'capabilities.output_sample_rate',
-      get: (m) => (m.capabilities || {}).output_sample_rate, section: 'capabilities' },
+    { path: 'call.bind.text', v: bindObj.text, section: 'call', when: needsBind },
+    { path: 'call.bind.ref_audio', v: bindObj.ref_audio, section: 'call', when: needsBind },
+    { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call', when: needsBind && returns === 'file' },
+    { path: 'runtime.python', v: rt.python, section: 'runtime' },
+    { path: 'runtime.entry', v: rt.entry, section: 'runtime' },
+    // 启动脚本不是平台通用宿主 ⇒ 平台不知道就绪端点，照旧必填。
+    { path: 'runtime.ready_endpoint', v: rt.ready_endpoint, section: 'runtime',
+      when: !!rt.entry && !isSharedHost(rt.entry) },
   ]
   for (const req of REQUIRED_KEYS) {
-    const v = req.get(manifest)
-    const where = {
-      section: req.section, field: req.path, sectionMeta: SECTIONS_BY_KEY[req.section] || null,
-      danger: DANGER.BLOCK,
-    }
-    // 必填Bool 只在「缺」时报缺；类型不对是另一类错，交给平台那句原文。
-    if (req.kind === 'bool') {
-      if (v === undefined) {
-        push('error', 'ENGINE_MANIFEST_INCOMPLETE',
-          `少了必填项「${req.path}」。缺这一项平台加载名片时直接报错，这张名片装不上。`, where)
-      } else if (typeof v !== 'boolean') {
-        push('error', 'ENGINE_MANIFEST_INVALID_VALUE',
-          `「${req.path}」必须是 true 或 false，现在写的是 ${JSON.stringify(v)}。`, where)
-      }
-      continue
-    }
-    // 其余几个走平台那两个函数：它们抛了就是平台会抛的。
+    if (req.when === false) continue
     try {
-      platform.required({ id: manifest.id }, req.path, v, '')
-      if (req.path === 'runtime.ready_timeout_ms' || req.path === 'timeout_ms' ||
-          req.path === 'max_chars' || req.path === 'capabilities.output_sample_rate') {
-        platform.positiveInt({ id: manifest.id }, req.path, v)
-      }
+      platform.required({ id: manifest.id }, req.path, req.v, '')
     } catch (e) {
-      push('error', e.code || 'ENGINE_MANIFEST_INVALID_VALUE',
-        `「${req.path}」的值不成立：${e.message}`, where)
+      push('error', e.code || 'ENGINE_MANIFEST_INCOMPLETE',
+        `少了必填项「${req.path}」。`, {
+          section: req.section, field: req.path, sectionMeta: SECTIONS_BY_KEY[req.section] || null,
+          danger: DANGER.BLOCK,
+        })
     }
   }
 
-  // reference_clip_seconds：缺键与「写 null（不限制）」是两件事。
-  // 平台要能区分「忘了写」和「不限制」，所以缺键要报错，写 null 不报。
+  // 可选的数：写了才查值（正整数）。
   const caps = manifest.capabilities || {}
-  if (!('reference_clip_seconds' in caps)) {
-    push('error', 'ENGINE_MANIFEST_INCOMPLETE',
-      '少了必填项「capabilities.reference_clip_seconds」。'
-      + '这一项要写明参考音频的时长范围，不限制时显式写 null。'
-      + '缺这一项平台加载名片时直接报错，这张名片装不上。', {
-      section: 'capabilities', field: 'capabilities.reference_clip_seconds',
-      sectionMeta: SECTIONS_BY_KEY.capabilities || null, danger: DANGER.BLOCK,
-    })
-  } else if (caps.reference_clip_seconds !== null) {
-    // 形状对不对：平台只收 null 或 [最短秒, 最长秒]（profile/fields.js 的 parseClipSeconds）。
+  const OPTIONAL_INTS = [
+    ['runtime.ready_timeout_ms', rt.ready_timeout_ms, 'runtime'],
+    ['timeout_ms', manifest.timeout_ms, 'timeout_ms'],
+    ['max_chars', manifest.max_chars, 'max_chars'],
+    ['capabilities.output_sample_rate', caps.output_sample_rate, 'capabilities'],
+  ]
+  for (const [keyPath, v, section] of OPTIONAL_INTS) {
+    if (v === undefined || v === null) continue
+    try {
+      platform.positiveInt({ id: manifest.id }, keyPath, v)
+    } catch (e) {
+      push('error', e.code || 'ENGINE_MANIFEST_INVALID_VALUE',
+        `「${keyPath}」的值不成立：${e.message}`, {
+          section, field: keyPath, sectionMeta: SECTIONS_BY_KEY[section] || null, danger: DANGER.BLOCK,
+        })
+    }
+  }
+  if (caps.requires_reference_audio !== undefined && typeof caps.requires_reference_audio !== 'boolean') {
+    push('error', 'ENGINE_MANIFEST_INVALID_VALUE',
+      `「capabilities.requires_reference_audio」必须是 true 或 false，现在写的是 ${JSON.stringify(caps.requires_reference_audio)}。`, {
+        section: 'capabilities', field: 'capabilities.requires_reference_audio',
+        sectionMeta: SECTIONS_BY_KEY.capabilities || null, danger: DANGER.BLOCK,
+      })
+  }
+
+  // reference_clip_seconds：缺 = 不限制（平台按 null 处理）；写了才查形状。
+  if (caps.reference_clip_seconds !== undefined && caps.reference_clip_seconds !== null) {
+    // 平台只收 null 或 [最短秒, 最长秒]（profile/fields.js 的 parseClipSeconds）。
     try {
       platform.parseClipSeconds({ id: manifest.id }, caps.reference_clip_seconds)
     } catch (e) {

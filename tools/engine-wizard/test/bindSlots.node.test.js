@@ -19,13 +19,11 @@ const path = require('node:path')
 const ROOT = path.join(__dirname, '..', '..', '..')
 const EDITOR = path.join(ROOT, 'tools/engine-wizard/editor')
 const SPEC = path.join(ROOT, 'tools/engine-wizard/core/specbridge.js')
-const NESTED = path.join(ROOT, 'tools/engine-wizard/editor/NestedSections.jsx')
 const REQUIRED = path.join(ROOT, 'tools/engine-wizard/editor/RequiredFields.jsx')
 
 const { BIND_SLOTS } = require(path.join(ROOT, 'lib/engines/hostProfile'))
 
 const specSrc = fs.readFileSync(SPEC, 'utf8')
-const nestedSrc = fs.readFileSync(NESTED, 'utf8')
 const requiredSrc = fs.readFileSync(REQUIRED, 'utf8')
 
 function stripComments (text) {
@@ -61,28 +59,9 @@ test('界面里不许出现平台不认的槽位名', () => {
   const NOT_PLATFORM = ['ref_text', 'ref_lang', 'text_lang', 'out']
   for (const name of NOT_PLATFORM) {
     // 只看活代码：注释里提一嘴「平台不认它」是解释，不算。
-    const liveNested = stripComments(nestedSrc)
-    assert.ok(!new RegExp(`'${name}'`).test(liveNested),
-      `NestedSections.jsx 里还有槽位 '${name}'：平台不认它`)
     const liveRequired = stripComments(requiredSrc)
     assert.ok(!new RegExp(`'${name}'`).test(liveRequired),
       `RequiredFields.jsx 里还有槽位 '${name}'：平台不认它`)
-  }
-})
-
-test('高级段的 bind 编辑器照 spec 给的槽位清单渲染', () => {
-  const live = stripComments(nestedSrc)
-  assert.ok(/slots=\{bindSlots\}/.test(live),
-    'BindField 没有接 slots：高级段还在用自己那份')
-  assert.ok(/function BindField \(\{ value, onChange, t, slots \}\)/.test(live),
-    'BindField 的入参里没有 slots')
-  // CallSection → BindField 与 MethodsField → BindField 两处都要传
-  const bindCalls = live.match(/<BindField[\s\S]*?\/>/g) || []
-  assert.ok(bindCalls.length >= 2,
-    `BindField 只有 ${bindCalls.length} 处调用：分方法的 bind 也得照同一份清单`)
-  for (const call of bindCalls) {
-    assert.ok(/slots=\{bindSlots\}/.test(call),
-      '有一处 BindField 没传 slots')
   }
 })
 
@@ -141,7 +120,7 @@ test('变异检查：手抄一份 6 槽位的清单必须被抓住', () => {
   assert.notDeepStrictEqual(widened, BIND_SLOTS,
     '前提变了：加宽后与平台一样，测试要改')
   // 界面照这份加宽的清单渲染 ⇒ 平台不认的槽位名就出现在界面上了
-  const liveNested = stripComments(nestedSrc)
+  const liveNested = stripComments(requiredSrc)
   const NOT_PLATFORM = ['ref_text', 'ref_lang', 'text_lang', 'out']
   for (const name of widened.filter((s) => !BIND_SLOTS.includes(s))) {
     assert.ok(NOT_PLATFORM.includes(name),
