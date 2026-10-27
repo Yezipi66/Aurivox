@@ -43,7 +43,9 @@ function readChoices (input) {
     const v = String(ver == null ? '' : ver).trim()
     if (k && v) versionOverrides[k] = v
   }
-  return { exclude, backend, upgradeTorch, torchSuggestion, versionOverrides }
+  // platform：测试注入点（默认 process.platform），判「PyPI 的 torch 是不是 CUDA 版」用。
+  const platform = typeof input.platform === 'string' && input.platform ? input.platform : null
+  return { exclude, backend, upgradeTorch, torchSuggestion, versionOverrides, platform }
 }
 
 function backendOption (key) {
@@ -125,6 +127,15 @@ function lockRoute (dir, guess, ch, recommended) {
 
 function reroutesTorch (ch, recommended) {
   return Boolean(ch.backend && recommended && ch.backend !== recommended)
+}
+
+// 目标后端是 CPU、而上游的 torch 会从 PyPI 装：Linux 上 PyPI 的 torch 是 CUDA 版
+//   （x86_64 与 aarch64 都是），会连带几个 GB 的 nvidia-* 包，没有显卡的机器用不上，
+//   磁盘小的机器直接装不下。所以哪怕「选的就是推荐的」也得改走 CPU 官方 index。
+//   Windows / macOS 上 PyPI 的 torch 本来就是 CPU 版，不用改。
+function pypiTorchIsWrongFor (ch, recommended, platform) {
+  const target = ch.backend || recommended
+  return target === 'cpu' && (platform || process.platform) === 'linux'
 }
 
 /**
@@ -239,7 +250,8 @@ function declaredSpecs (dir, guess, route) {
 
 function pipRoute (dir, guess, ch, recommended, route, write) {
   const torch = []
-  if (reroutesTorch(ch, recommended)) {
+  const target = ch.backend || recommended
+  if (reroutesTorch(ch, recommended) || pypiTorchIsWrongFor(ch, recommended, ch.platform)) {
     for (const s of declaredSpecs(dir, guess, route)) {
       const n = specName(s)
       if (TORCH_TRIO.includes(n) && !ch.exclude.has(n)) torch.push(s.replace(/\+[\w.]+/, ''))
@@ -247,7 +259,7 @@ function pipRoute (dir, guess, ch, recommended, route, write) {
   }
   let alt = null
   if (torch.length) {
-    const r = torchAlt(torch, torch.map(specName), ch.backend)
+    const r = torchAlt(torch, torch.map(specName), target)
     if (r.error) return r.error
     alt = r.alt
   }
@@ -510,6 +522,7 @@ function applyInstallChoices (dir, guess, input = {}) {
     return { guess: r.guess, choices: { ...summary, applied: true }, specs: r.specs }
   }
   const changed = ch.exclude.size > 0 || reroutesTorch(ch, recommended)
+    || (route !== 'lock' && pypiTorchIsWrongFor(ch, recommended, ch.platform))
   if (!summary.supported || !changed) {
     // 没有要改的版本时，界面照样要显示「最终要装的那条 spec」。
     //   这一份就是上游原文（没改过就是它），但仍由后端给，

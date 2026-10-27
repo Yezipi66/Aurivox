@@ -122,7 +122,9 @@ test('计划阶段（execute 不带）：不写盘，命令照样指向副本', 
 
 test('什么都没选：命令原样返回', () => {
   const dir = tmpDir({ 'requirements.txt': 'einops==0.8.1\n' })
-  const r = applyInstallChoices(dir, REQ_GUESS, {})
+  // 钉住推荐后端：本测试只管「没选就不动」，与本机有没有显卡无关
+  //   （Linux + CPU 时 torch 要改走 CPU index，见下面 pypiTorch 那两条）。
+  const r = applyInstallChoices(dir, REQ_GUESS, { recommendedBackend: 'cuda' })
   assert.strictEqual(r.choices.applied, false)
   assert.deepStrictEqual(r.guess.argv, REQ_GUESS.argv)
   fs.rmSync(dir, { recursive: true, force: true })
@@ -142,5 +144,29 @@ test('pyproject 路线：拆成「按副本装依赖」与「装项目本体」�
   assert.ok(r.guess.alternative.then.includes('--no-deps'), '第二步装项目本体时不带依赖')
   const local = fs.readFileSync(path.join(dir, VO.LOCAL_MANIFEST), 'utf8')
   assert.ok(local.includes('einops==0.7.0'), '副本里要是所选版本')
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('Linux 上目标是 CPU：哪怕没选后端，torch 也改走 CPU 官方 index（PyPI 的是 CUDA 版）', () => {
+  const dir = tmpDir({
+    'pyproject.toml': '[project]\nname = "x"\ndependencies = [\n  "einops==0.8.1",\n  "torch>=2.8.0",\n  "torchaudio>=2.8.0",\n]\n',
+  })
+  const guess = { argv: ['uv', 'pip', 'install', '-e', '.'], from: 'pyproject.toml', cwd: '.' }
+  const r = applyInstallChoices(dir, guess, { recommendedBackend: 'cpu', platform: 'linux' })
+  assert.strictEqual(r.choices.applied, true)
+  assert.ok(r.guess.argv.includes('--excludes'), r.guess.argv.join(' '))
+  const then = r.guess.alternative.then
+  assert.deepStrictEqual(then.slice(0, 5), ['uv', 'pip', 'install', 'torch>=2.8.0', 'torchaudio>=2.8.0'])
+  assert.strictEqual(then[then.indexOf('--index-url') + 1], 'https://download.pytorch.org/whl/cpu')
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('Windows / macOS 上目标是 CPU：PyPI 的 torch 本来就是 CPU 版，命令原样', () => {
+  const dir = tmpDir({ 'requirements.txt': 'torch>=2.8.0\n' })
+  for (const platform of ['win32', 'darwin']) {
+    const r = applyInstallChoices(dir, REQ_GUESS, { recommendedBackend: 'cpu', platform })
+    assert.strictEqual(r.choices.applied, false, platform)
+    assert.deepStrictEqual(r.guess.argv, REQ_GUESS.argv)
+  }
   fs.rmSync(dir, { recursive: true, force: true })
 })
