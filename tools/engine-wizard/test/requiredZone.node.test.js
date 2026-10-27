@@ -92,10 +92,12 @@ test('引擎配置的清单覆盖平台有默认的那几项，且每项写明�
   const { OPTIONAL_KEYS } = loadOptionalKeys()
   const paths = OPTIONAL_KEYS.map((k) => k.path)
   for (const k of ['timeout_ms', 'max_chars', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint',
-    'capabilities.requires_reference_audio', 'capabilities.output_sample_rate',
+    'capabilities.requires_reference_audio',
     'capabilities.reference_clip_seconds']) {
     assert.ok(paths.includes(k), `引擎配置里少了「${k}」：缺了它就没地方改`)
   }
+  assert.ok(!paths.includes('capabilities.output_sample_rate'),
+    '输出采样率只是声明、平台不读，不该摆进引擎配置；引擎能调采样率就拖进合成参数')
   for (const k of OPTIONAL_KEYS) assert.ok(k.fallbackZh && k.fallbackEn, `「${k.path}」没写不填时平台怎么办`)
   assert.ok(/rowVisible\(/.test(optional), '引擎配置要按「写了才显示」过滤，不能一上来全摆出来')
 })
