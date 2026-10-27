@@ -29,6 +29,10 @@ const {
   markPartialVenv,
 } = require('./envDetect')
 const { stepArtifactExists } = require('./envProgress')
+const {
+  uvCacheDirFor,
+} = require(
+  path.join(__dirname, '..', '..', '..', 'lib', 'paths', 'cache.js'))
 
 // uv 可执行文件相对于平台虚拟环境目录的位置。平台不认识这个布局时返回 null。
 function uvRelPath (platform) {
@@ -341,7 +345,7 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
       cwd: step.absCwd || step.cwd,
       windowsHide: true,
       shell: false,
-      env: envOverride ? { ...process.env, ...envOverride } : undefined,
+      env: { ...process.env, ...envOverride, UV_CACHE_DIR: uvCacheDirFor(root) },
     })
     let stdoutTail = ''
     let stderrTail = ''

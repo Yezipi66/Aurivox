@@ -18,6 +18,7 @@ const { spawnSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 const { venvPython } = require(path.join(ROOT, 'lib', 'engines', 'platformPaths.js'))
+const { UV_CACHE_DIR } = require(path.join(ROOT, 'lib', 'paths', 'cache.js'))
 const gpu = require(path.join(ROOT, 'lib', 'system', 'gpu.js'))
 
 // 日志一律带 [torch] 前缀，沿用既有脚本的习惯。
@@ -193,7 +194,10 @@ else Warn('--with-deps：会连依赖一起装，可能改动已锁定的版本�
 
 const env = Object.assign({}, process.env, {
   UV_HTTP_TIMEOUT: process.env.UV_HTTP_TIMEOUT || '120',
-  UV_LINK_MODE: 'copy',
+  // 缓存放项目里（cache/uv），不写当前用户的 %LOCALAPPDATA%。跟项目同盘时
+  // uv 能用硬链接把文件链进目标环境，省掉一份完整拷贝。
+  UV_CACHE_DIR,
+  UV_LINK_MODE: process.env.UV_LINK_MODE || 'hardlink',
 })
 
 // 优先 uv（并行下载），失败自动退回 pip。

@@ -108,6 +108,7 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const SCRIPT_DIR = __dirname
 const IS_WIN = process.platform === 'win32'
 const { venvPython } = require(path.join(ROOT, 'lib', 'engines', 'platformPaths.js'))
+const { UV_CACHE_DIR } = require(path.join(ROOT, 'lib', 'paths', 'cache.js'))
 
 // deploy.bat 可能用 `-File x.ps1 --platform-only` 的形式调过来，参数里会带那个 `-File`。
 // 只认认识的开关，其余忽略：不认识的参数就报错是给 CLI 用的，不是给内部调用的。
@@ -351,9 +352,10 @@ async function main () {
   // 不关它的进度条、也不限制并行度：进度条实时显示在终端上（走 runNative 的 inherit），
   // 而若本机的杀软或 EDR 仍拦它，失败就自动退回 pip。
   if (!process.env.UV_HTTP_TIMEOUT) process.env.UV_HTTP_TIMEOUT = '120'
-  // uv 的全局缓存与 venv 常在不同盘，hardlink 不可用时它会一边探测一边退回整份拷贝并打警告。
-  // 直接让它拷贝：没有警告，行为确定。
-  process.env.UV_LINK_MODE = 'copy'
+  // uv 的缓存放项目里（cache/uv），不写当前用户的 %LOCALAPPDATA%：跟着项目走，
+  // 换台机器部署时不会在那边留下几十 GB 的残留。缓存与 venv 同盘时 uv 能用硬链接。
+  process.env.UV_CACHE_DIR = UV_CACHE_DIR
+  if (!process.env.UV_LINK_MODE) process.env.UV_LINK_MODE = 'hardlink'
 
   let UV_OK = false
   // 逃生口：TTS_NO_UV=1 完全跳过 uv。
