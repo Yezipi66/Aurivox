@@ -116,3 +116,11 @@ test('引擎配置的增删：加一项带上出处，删一项连出处一起�
   const ep = OPTIONAL_KEYS.find((k) => k.path === 'runtime.ready_endpoint')
   assert.ok(rowVisible({ runtime: { entry: 'serve.py' } }, ep), '自带服务脚本时就绪端点平台答不出，要显示')
 })
+
+test('加时长区间时起始值是不限制，不许写死某台引擎的范围', () => {
+  const { OPTIONAL_KEYS, addItem } = loadOptionalKeys()
+  const clip = OPTIONAL_KEYS.find((k) => k.path === 'capabilities.reference_clip_seconds')
+  const added = addItem({ id: 'x' }, clip)
+  assert.strictEqual(added.capabilities.reference_clip_seconds, null,
+    '加一项就写一个时长范围，等于替这台引擎凭空造了一条约束；缺着时平台不检查，填了才拦')
+})

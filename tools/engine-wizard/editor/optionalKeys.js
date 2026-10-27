@@ -2,7 +2,7 @@
 //
 // 每一项缺着时平台都有答案（推断或保守默认，见 lib/engines/profile.js 的 DEFAULTS）。
 // 写了数就必须写出处（平台 checkMeasuredSources 的规矩）：添加时出处先记 estimated，
-// 第 5 步试跑后可改成 measured。
+// 第 5 步量出来之后可改成 measured。
 
 // 不填时平台的答案。数值与 lib/engines/profile.js 的 DEFAULTS 一致（有守卫测试钉住）。
 export const PLATFORM_DEFAULTS = Object.freeze({
@@ -109,7 +109,9 @@ function initialValue (item) {
     return PLATFORM_DEFAULTS[k] !== undefined ? PLATFORM_DEFAULTS[k] : 24000
   }
   if (item.kind === 'bool') return true
-  if (item.kind === 'range') return [3, 10]
+  // 时长区间默认不限制：这一项缺着时平台不检查，填了才拦。
+  // 起点值不许写死某台引擎的范围（某台引擎的区间是它自己的约束，不是通用默认）。
+  if (item.kind === 'range') return null
   if (item.kind === 'select') return item.options[0]
   if (item.kind === 'list') return []
   if (item.kind === 'json') return {}
