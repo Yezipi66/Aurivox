@@ -381,7 +381,9 @@ function supportsVersion (exe, want) {
  */
 function platformPythonAbs (root, opts = {}) {
   const prj = (() => { try { return projectRoot() } catch (e) { return null } })()
-  const bases = [prj, root].filter((b) => typeof b === 'string' && b)
+  // 平台解释器是只读资产：本 checkout 没有时可以用主仓库的（worktree 场景，见 wizardRoot.js）。
+  const { readRoots } = require('./wizardRoot')
+  const bases = [prj, root, ...readRoots()].filter((b, i, a) => typeof b === 'string' && b && a.indexOf(b) === i)
   const candidates = [
     // 带 uv 的平台环境：跑 uv 得用它。
     ...bases.flatMap((b) => {

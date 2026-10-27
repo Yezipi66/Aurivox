@@ -16,6 +16,7 @@ const { probeProject, planDependencies, probePyproject } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
 const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
 const { reflectAndBuild } = require('./paramsFromReflect')
+const { engineDirForRead } = require('./wizardRoot')
 const https = require('node:https')
 
 /**
@@ -426,7 +427,8 @@ function handleState (req, res) {
   // 只报「这一步能不能走」，具体判定交给各步自己的模块
   let state = 'start'
   try {
-    const dir = path.join(__dirname, '..', '..', '..', 'engines', id)
+    // 读侧：本 checkout 优先，主仓库兜底（wizardRoot.js）
+    const dir = engineDirForRead(id)
     state = fs.existsSync(path.join(dir, 'manifest.json'))
       ? 'manifest_done' : 'cloned_or_empty'
   } catch { state = 'start' }
@@ -1179,7 +1181,8 @@ function handleDiscover (req, res) {
       return
     }
 
-    const dir = path.join(__dirname, '..', '..', '..', 'engines', id)
+    // 读侧：本 checkout 优先，主仓库兜底（wizardRoot.js）
+    const dir = engineDirForRead(id)
     if (!fs.existsSync(dir)) {
       json(res, 404, { ok: false, error: `引擎目录不存在：${id}` })
       return
