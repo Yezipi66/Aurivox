@@ -124,3 +124,16 @@ test('加时长区间时起始值是不限制，不许写死某台引擎的范�
   assert.strictEqual(added.capabilities.reference_clip_seconds, null,
     '加一项就写一个时长范围，等于替这台引擎凭空造了一条约束；缺着时平台不检查，填了才拦')
 })
+
+test('引擎配置：平台默认答了、表单里也没写的项挂「平台默认」，读的是 profile.defaulted', () => {
+  const { platformDefaultedRows } = loadOptionalKeys()
+  const defaulted = ['timeout_ms', 'max_chars', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint']
+  const rows = platformDefaultedRows({ id: 'x', max_chars: 40, max_chars_source: 'measured' }, defaulted)
+  assert.deepStrictEqual(rows.map((r) => r.path),
+    ['timeout_ms', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint'],
+    '表单里写了的 max_chars 不能再算平台默认')
+  assert.deepStrictEqual(platformDefaultedRows({}, null), [], '读不到 profile 就不标')
+  assert.ok(/platformDefaultedRows\(/.test(optional) && /\/wizard\/profile\//.test(optional),
+    'OptionalConfig 要读平台的 profile.defaulted，不在界面里自己推')
+  assert.ok(optional.includes("'平台默认'"), '徽标文案是「平台默认」')
+})

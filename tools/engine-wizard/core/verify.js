@@ -198,9 +198,12 @@ function runAudioCheck (id, opts = {}) {
     }
   }
 
+  // 界面给的是平台的词（reference_audio / reference_text），换成宿主与引擎的词再发。
+  const request = opts.request
+    ? require('./measure').toEngineWords(profile, { ...opts.request }) : null
   try {
     const r = verifyAudio.verifyEngine({
-      profile, manifest, level, request: opts.request || null, root: ROOT,
+      profile, manifest, level, request, root: ROOT,
     })
     return { ok: r.ok !== false, level, ...r }
   } catch (e) {
