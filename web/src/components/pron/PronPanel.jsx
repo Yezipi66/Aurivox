@@ -370,7 +370,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                   <input
                     className="control"
                     disabled={enHasRespell || tokenInactive}
-                    title={tokenMuted ? tokenMutedTip : respellTip || (koDimmed ? t('Turn on “Show all Korean words” above to edit this reading.', '请先开启“显示全部韩语词”再编辑这个读音。') : undefined)}
+                    title={tokenMuted ? tokenMutedTip : respellTip || (koDimmed ? t('Turn on “Show all Korean words” above to edit this reading.', '请先开启“显示全部韩语词”再编辑该读音。') : undefined)}
                     style={{ height: 24, fontSize: 'var(--fs-12)', padding: '0 6px', width: '100%', boxSizing: 'border-box', marginTop: 3,
                       ...(enHasRespell || tokenInactive ? { color: 'var(--muted)', fontStyle: 'italic', opacity: 0.7 } : {}) }}
                     value={isEn

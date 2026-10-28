@@ -176,9 +176,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   useEffect(() => {
     api('/api/audio-files?dir=no_slice').then(r => { if (r.ok) setAllAudioFiles(r.data.files) })
-      .catch(err => console.error('audio-files?dir=no_slice 取不到，这一组参照音频留空：', err))
+      .catch(err => console.error('audio-files?dir=no_slice 读取失败，该组参考音频留空：', err))
     api('/api/audio-files?dir=voices').then(r => { if (r.ok) setVoiceFiles(r.data.files) })
-      .catch(err => console.error('audio-files?dir=voices 取不到，这一组参照音频留空：', err))
+      .catch(err => console.error('audio-files?dir=voices 读取失败，该组参考音频留空：', err))
     // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
     // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
     // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
@@ -454,7 +454,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
               <>Add as many rows as you like. Each row = a different reference audio configuration.
               Click <strong>Generate All</strong> to hear every combination side by side.
               The best one can be saved as the voice config.</>,
-              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，最满意的一个可保存为该音色的配置。</>)}
+              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，效果最佳的一项可保存为该音色的配置。</>)}
           </p>
 
           <div className="field">
