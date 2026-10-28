@@ -4,11 +4,11 @@ import { applyParamDrop, paramNameOf } from './paramDrop'
 
 // 中栏的落点：参数区（parameters[]）。
 //
-// 原来的「parameters（界面参数）」与「常用可选」合成这一个区：
+// 这一个区同时收「parameters（界面参数）」与「常用可选」：
 //   parameters[] 本来就涵盖这台引擎对外的全部参数，拖拽填参的核心就在这里。
 //   「常用可选」里真正属于「参数」的那部分（换值要不要重启 = phase、
-//   常用还是高级 = tier）成了每一行最上面的「去向」，拖进来就能定；
-//   不属于参数的（runtime 全量、call 其余字段、capabilities 开关）挪进「高级」。
+//   常用还是高级 = tier）落在每一行最上面的「去向」，拖进来就能定；
+//   不属于参数的（runtime 全量、call 其余字段、capabilities 开关）在「高级」。
 //
 // 左栏扫到的参数拖到这里，就变成名片的一条界面参数。
 // 名片里 parameters[] 的每一项都有 name / type 等字段；拖进来时按

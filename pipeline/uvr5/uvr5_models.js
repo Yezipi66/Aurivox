@@ -149,8 +149,8 @@ const MODELS = [
 
 const BY_ID = new Map(MODELS.map((m) => [m.id, m]));
 
-// 旧 denoiseModel 字符串值到登记表 id 的映射。流水线之前的界面只有一个下拉项，
-// 取值是 'mdx-net'，denoise.js 把它映射到 HP2 权重。读旧配方时要保留这个行为。
+// 旧 denoiseModel 字符串值到登记表 id 的映射：'mdx-net' 就是 HP2 权重。
+// denoise.js 至今只认这一个旧值，读旧配方时要保留这个行为。
 const LEGACY_MODEL_ALIASES = {
   'mdx-net': 'HP2',
   'HP2_all_vocals.pth': 'HP2',

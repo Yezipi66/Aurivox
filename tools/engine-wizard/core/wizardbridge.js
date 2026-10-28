@@ -889,7 +889,7 @@ function handleModels (req, res) {
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
 
   // 不在这里 require profile：describeModels 内部用平台自己的 resolveEngineProfile，
-  //   权威实现只有那一份，这里再 require 一次只会多一份「我以为它怎么用」的猜测。
+  //   权威实现只有那一份，这里再 require 一次只会多一份想当然的猜测。
   const r = describeModels(id)
   if (!r.ok) { json(res, r.code === 'NO_PROFILE' ? 404 : 400, r); return true }
   const { resolveEngineProfile } = require(

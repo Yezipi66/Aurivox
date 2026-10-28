@@ -20,9 +20,8 @@ import { useT } from '../../../web/src/lib/i18n'
  * @param {Function} onDelete 删这一条（传索引）
  */
 // 「去向」：把 tier 与 phase 合成一个选择。
-//   原来 tier 在行内、phase 在行内、而「常用可选」又是另一个折叠区，
-//   用户要在三个地方回答同一个问题：这个参数放在界面哪里、改了要不要重启。
-// TODO(骨架)：再加一档「固定值」（不上界面，写进 call.args / init_args 的定值）。
+//   三者分开会让同一个问题被问三遍：这个参数放在界面哪里、改了要不要重启。
+//   固定值那一档（不上界面，写进 call.args / init_args 的定值）不在这一列里。
 const PLACEMENTS = [
   { key: 'common', tier: 'common', phase: undefined, en: 'UI · common', zh: '界面 · 常用' },
   { key: 'advanced', tier: 'advanced', phase: undefined, en: 'UI · advanced', zh: '界面 · 高级' },

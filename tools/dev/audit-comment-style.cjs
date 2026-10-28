@@ -1,17 +1,23 @@
 'use strict';
 
-// 注释「风格与可读性」检查器。
-// 配套 docs/COMMENT_GUIDELINE.md 的「风格与可读性」一节，把可机械判定的几条规则落地成报告。
-// 与 commentDiscipline.node.test.js（判「归属性内容零违规」）不同，本脚本判「可读、统一」：
-//   A. 填充词：说白了 / 简单来说 / 总的来说 / 也就是说 / 换句话说 / 顺便 / 老实说 /
-//              注意一下 / 说实在的 / 换言之 / 讲白了 / 说穿了 / 总之
-//      （「其实 / 这里 / 这个」语义常合法，不在此列，避免误报）
-//   B. 同一注释行里半角逗号与全角逗号混用（, 与 ，同现）
-//   C. 单行过长（全角字符 > 62，仅作提示，不强制）
+// 注释「不放飞自我」检查器。
+// 配套 docs/COMMENT_GUIDELINE.md 的「注释不是草稿纸」一节。
+//
+// 只盯注释有没有越过「注释该干的活」那条线——把不属于代码事实的东西写进注释：
+//   A. 归属与决策：谁定的、谁拍板的、用户怎么反馈的。决定写进 docs/ 的决策文档，
+//      注释里只留结论性的约束。
+//   B. 变更史：以前长什么样、什么时候改的、改之前是什么样。那是 changelog，跟着提交信息走。
+//   C. 备忘待办：TODO / FIXME / 下一步要。那是 backlog，进 issue；留在注释里只会烂在里面。
+//   D. 人称与口吻：我以为 / 我觉得 / 「不是用来刁难人的」。注释陈述事实，不发表感想。
+//   E. 行过长（>80 全角字符）：仅作提示。长句未必有错，交给改的人自己判断。
+//
+// 标点混用不查：半角逗号出现在 {a, b} 里是代码不是散文，机器判不准，抓死了只有噪音。
+// 测试文件默认不查：按当前口径，测试的注释不在这一轮范围内（--include-tests 可打开）。
+//
 // 本脚本只产出报告、不阻断构建（exit 0）。需要当门槛时由调用方决定。
 //
 // 抽取交给 @babel/parser（与 commentDiscipline 同源），不手写逐字符状态机——
-// 后者会把正则字面量当成字符串起点，两个引号之间整段吞掉。
+// 后者会把正则字面量当成字符串起点，把两个引号之间整段吞掉。
 
 const fs = require('fs');
 const path = require('path');
@@ -24,11 +30,37 @@ const SKIP_RELS = [
   'engines', 'cache', 'tools/dev', 'tools/runtime',
 ];
 
-const FULL_COMMA = '，';
-const HALF_COMMA = ',';
-const FILLER_WORDS = [
-  '说白了', '简单来说', '总的来说', '也就是说', '换句话说',
-  '顺便', '老实说', '注意一下', '说实在的', '换言之', '讲白了', '说穿了', '总之',
+const INCLUDE_TESTS = process.argv.includes('--include-tests');
+const LONG_LINE_LIMIT = 80;
+
+const RULES = [
+  {
+    cat: '归属与决策',
+    words: [
+      'Owner', '裁决', '拍板', '裁定', '亲自', '前任', '老板',
+      '产品要求', '由产品决定', '用户反馈', '使用者反馈', '口头', '当面交代',
+      '我们决定', '经讨论', '需求方要求',
+    ],
+  },
+  {
+    cat: '变更史',
+    // 「原来」单字也收：漏掉它就会放过「原来 tier 在行内、phase 在行内」这种 changelog。
+    words: [
+      '原来', '原先', '以前是', '以前只有', '早先', '历史上', '历史遗留',
+      '后补', '改前', '改之前', '拆分前', '迁移前', '搬家前',
+      '第一版', '上一版', '一度', '曾经有', '后来改', '已改成', '现改为',
+    ],
+  },
+  {
+    // 只收明确的任务标记。「下一步 / 将来」在流程类注释里是合法说法，不收。
+    cat: '备忘待办',
+    words: ['TODO', 'FIXME', 'XXX', 'HACK', '待实现', '待办', '待补'],
+  },
+  {
+    // 「才发现」不收：写失败在哪个环节暴露是合法叙述，不是主观感想。
+    cat: '人称与口吻',
+    words: ['我以为', '我觉得', '我认为', '我猜', '我发现', '刁难'],
+  },
 ];
 
 function loadParser() {
@@ -38,7 +70,7 @@ function loadParser() {
     try {
       return require('@babel/parser').parse;
     } catch (e2) {
-      throw new Error(`拿不到 @babel/parser，风格检查无法抽取注释：${e2.message}`);
+      throw new Error(`拿不到 @babel/parser，检查器无法抽取注释：${e2.message}`);
     }
   }
 }
@@ -82,6 +114,7 @@ function collectFiles(p, out) {
     const full = path.join(p, e.name);
     const rel = path.relative(ROOT, full).replace(/\\/g, '/');
     if (SKIP_RELS.some((s) => rel === s || rel.startsWith(s + '/'))) continue;
+    if (!INCLUDE_TESTS && /(\.test|Test)\.(js|jsx)$/.test(e.name)) continue;
     if (e.isDirectory()) collectFiles(full, out);
     else if (SCAN_EXTS.has(path.extname(e.name)) && !e.name.endsWith('.bak')) out.push(full);
   }
@@ -99,16 +132,13 @@ function scanOne(rel, src) {
   for (const c of commentLines(rel, src)) {
     const b = c.body;
     if (!b.trim()) continue;
-    for (const w of FILLER_WORDS) {
-      if (b.includes(w)) hits.push({ line: c.line, cat: '填充词', token: w, body: b.trim() });
-    }
-    // 真·不一致：半角逗号夹在两个中文之间（散文停顿误用半角），且同行还有全角逗号。
-    // 代码对象字面量 {a, b} 里的半角逗号两侧是 ASCII，不命中。
-    if (b.includes(FULL_COMMA) && /[一-鿿],[一-鿿]/.test(b)) {
-      hits.push({ line: c.line, cat: '混用逗号', token: ',夹中文', body: b.trim() });
+    for (const rule of RULES) {
+      for (const w of rule.words) {
+        if (b.includes(w)) hits.push({ line: c.line, cat: rule.cat, token: w, body: b.trim() });
+      }
     }
     const fw = fullwidthLen(b);
-    if (fw > 62) hits.push({ line: c.line, cat: '行过长', token: String(fw), body: b.trim() });
+    if (fw > LONG_LINE_LIMIT) hits.push({ line: c.line, cat: '行过长', token: String(fw), body: b.trim() });
   }
   return hits;
 }
@@ -133,13 +163,12 @@ function main() {
   }
   perFile.sort((a, b) => a.rel.localeCompare(b.rel));
   const lines = [];
-  lines.push(`扫描文件数: ${files.length}`);
+  lines.push(`扫描文件数: ${files.length}${INCLUDE_TESTS ? '' : '（已跳过测试文件）'}`);
   lines.push(`命中总数: ${total}`);
   lines.push(`分类: ${JSON.stringify(byCat)}`);
   lines.push('');
   for (const { rel, hits } of perFile) {
-    const isTest = /\.test\.(js|jsx)$/.test(rel) || /node\.test\.(js|jsx)$/.test(rel);
-    lines.push(`### ${rel}${isTest ? '  [测试]' : ''}`);
+    lines.push(`### ${rel}`);
     for (const h of hits) {
       lines.push(`  L${h.line}  [${h.cat}:${h.token}]  ${h.body.slice(0, 90)}`);
     }

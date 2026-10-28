@@ -220,8 +220,8 @@ function AppShell() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <h1 className="sr-only">Aurivox</h1>
       {/* 顶栏分两组：#nav-tabs 靠左、.nav-status 靠右。
-          之前所有元素平铺在一条不换行的 flex 里，装了两台引擎之后右侧状态一多，
-          窗口一窄就把最后一个徽章顶出屏幕（横向还能滚，滚过去的正是要看的那些灯）。 */}
+          右侧状态多时必须分组：全都平铺在一条不换行的 flex 里，窗口一窄
+          就把最后一个徽章顶出屏幕（横向还能滚，滚过去的正是要看的那些灯）。 */}
       <nav className="nav">
         <div className="nav-tabs">
           <button className={`nav-btn ${page === 'generate' ? 'active' : ''}`} onClick={() => setPage('generate')}>Generate</button>

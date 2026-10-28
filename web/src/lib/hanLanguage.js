@@ -106,7 +106,7 @@ export function readingKey(itemOrIndex, char) {
 export function readingAt(readings, item) {
   const source = readings && typeof readings === 'object' ? readings : {}
   const key = readingKey(item)
-  // 裸字符串下标是早期按位置界面的兼容形式。绝不回落到只按字名取：
+  // 下标除字名外也可以是位置数字，两种形状都要认。绝不回落到只按字名取：
   // 那会把一条读音套到该字的每一次出现上。
   return source[key] ?? source[String(item.index)] ?? ''
 }

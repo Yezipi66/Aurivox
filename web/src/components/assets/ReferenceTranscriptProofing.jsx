@@ -170,7 +170,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
       <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 860, width: '94%' }}>
         <div className="modal-hdr">Reference Transcript Proofing</div>
         <div className="modal-body">
-          {/* 作用范围提示，按产品要求用英文显示。 */}
+          {/* 作用范围提示固定用英文显示。 */}
           <div className="field-note" style={{ marginBottom: 8 }}>
             This edit does not modify or retrain existing S1/S2 checkpoints.
           </div>

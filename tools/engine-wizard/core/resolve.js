@@ -128,7 +128,7 @@ function parseRepoUrl (input) {
 /**
  * 从仓库名猜一个 id：只是建议，必须让用户确认。
  * 规则只有一条：仓库名去掉 `.git` 后缀、压成合法目录名。
- * 不改大小写风格、不加前缀、不做去重，那些由产品决定。
+ * 不改大小写风格、不加前缀、不做去重，那些不在这里定。
  */
 function suggestId (repo) {
   if (typeof repo !== 'string') return null

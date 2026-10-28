@@ -96,7 +96,7 @@ function cliKindAndCertainty (a) {
   if (a.style === 'repeat') return { kind: 'array', certain: !!a.type }
   if (a.type && ARGPARSE_TYPE[a.type]) return { kind: ARGPARSE_TYPE[a.type], certain: true }
   if (Array.isArray(a.choices) && a.choices.length) return { kind: 'str', certain: true }
-  // TODO(骨架)：没写 type= 时 argparse 实际收到的就是 str，但界面类型往往是 number
+  // 没写 type= 时 argparse 实际收到的就是 str，但界面类型往往是 number
   //   （--speed 1.0）。这里先按默认值给个猜测，标成不确定，让人在中栏确认。
   if (typeof a.default === 'number') return { kind: 'number', certain: false }
   return { kind: kindFromStyle(a.style), certain: false }
@@ -107,8 +107,8 @@ function pythonCertainty (p) {
   if (p.upstream_choices && p.upstream_choices.length) return true
   const k = p.kind
   if (k && typeof k === 'object' && k.confidence === 'strong') return true
-  // TODO(骨架)：经 paramsFromReflect 草稿过来的条目已经丢了 confidence / annotation，
-  //   这里拿到的只有 type 字符串 ⇒ 一律算不确定。要在草稿里把这两个字段带过来。
+  // 经 paramsFromReflect 草稿过来的条目没有 confidence / annotation，
+  //   这里拿到的只有 type 字符串 ⇒ 一律算不确定。
   return false
 }
 
