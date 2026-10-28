@@ -40,12 +40,12 @@ const ERR_TEXT = {
     '目录名含有不能放进文件夹名的字符：{chars}'],
   RESERVED_NAME: [
     '"{name}" is reserved by the platform — pick another name.',
-    '"{name}" 是平台保留的目录名，换一个。'],
+    '"{name}" 是平台保留的目录名，请改用其他目录名。'],
   // 请求本身未走通（服务未能启动、连接被拒、响应不是 JSON）。
   // 这两种过去会让界面停在「正在读…」且不显示任何原因。
   REQUEST_FAILED: [
     'Could not reach the platform service ({path}). Check that it is running, then try again.',
-    '连不上平台服务（{path}）。请检查平台服务是否在运行，然后重试。'],
+    '无法连接平台服务（{path}）。请检查平台服务是否在运行，然后重试。'],
   BAD_RESPONSE: [
     'The platform service ({path}) returned a response that is not JSON (HTTP {status}). '
       + 'Check that it is running normally, then try again.',

@@ -164,7 +164,7 @@ function validateId (id) {
   }
   if (PLATFORM_NAMES.has(s)) {
     return { ok: false, code: 'RESERVED_NAME',
-      error: `"${s}" is a name reserved by the platform; choose another.`, errorZh: `"${s}" 是平台保留的目录名，换一个。`,
+      error: `"${s}" is a name reserved by the platform; choose another.`, errorZh: `"${s}" 是平台保留的目录名，请改用其他目录名。`,
       params: { name: s } }
   }
   return { ok: true, id: s }

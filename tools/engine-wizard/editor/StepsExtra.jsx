@@ -556,7 +556,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                       {f.status === 'partial' && (
                         <span title={
                           lang === 'zh'
-                            ? (f.noteZh || '文件不完整，需要续传或重下。')
+                            ? (f.noteZh || '文件不完整，需要续传或重新下载。')
                             : (f.note || 'The file is incomplete — resume or re-download it.')
                         }>⌛</span>
                       )}
@@ -581,7 +581,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                         <button className="btn btn-sm" type="button"
                           disabled={dlBusy}
                           onClick={() => runDownload(cmd, f)}>
-                          {t('Re-download', '重下')}
+                          {t('Re-download', '重新下载')}
                         </button>
                       )}
                     </td>

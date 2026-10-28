@@ -402,7 +402,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               + 'environment is left partial: the next run removes it and rebuilds '
               + 'it, and the downloaded wheels are still reused.',
               '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-              + '已下载的依赖不会重下。若中途取消，环境会停在不完整状态：'
+              + '已下载的依赖不会重新下载。若中途取消，环境会停在不完整状态：'
               + '下次执行会先删掉它再重建，已下载的依赖包仍会复用。')}
           </p>
         </div>
