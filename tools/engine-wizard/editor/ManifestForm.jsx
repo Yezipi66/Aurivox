@@ -1,7 +1,7 @@
 // Manifest 表单编辑器：按 fieldmeta 分组渲染输入，值交给调用方。只做界面层的输入与
 // 结构，不做合成逻辑、不写 manifest.json；渲染只用项目已有的类与组件，不自造 mf-* / pr-*。
 //
-// 两区：① 必填字段 5 格（RequiredFields）；② 可选参数：合成参数（ParamDropZone）+
+// 两区：① 必填字段 6 格（RequiredFields）；② 可选参数：合成参数（ParamDropZone）+
 // 引擎配置（OptionalConfig）。扫描发生在左栏 EngineScanZone，结果由页面层传进来。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'

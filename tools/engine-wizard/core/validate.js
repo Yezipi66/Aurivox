@@ -23,6 +23,11 @@ function platformProfile () {
   if (!_profile) _profile = require(path.join(REPO_ROOT, 'lib', 'engines', 'profile.js'))
   return _profile
 }
+let _hostProfile = null
+function hostProfile () {
+  if (!_hostProfile) _hostProfile = require(path.join(REPO_ROOT, 'lib', 'engines', 'hostProfile.js'))
+  return _hostProfile
+}
 let _registry = null
 function registry () {
   if (!_registry) {
@@ -108,9 +113,9 @@ function diagnose (manifest) {
     }
   }
 
-  // ---- 3b. 必填 5 项（缺一个就接不上平台）---------------------------
+  // ---- 3b. 必填 6 项（缺一个就接不上平台）---------------------------
   //
-  // 平台只要求人答这 5 项（lib/engines/profile.js 的 DEFAULTS 上方）：
+  // 平台只要求人答这 6 项（第 6 项模型权重见下面 weightsProblem 那段）（lib/engines/profile.js 的 DEFAULTS 上方）：
   //   call.bind 的 text / ref_audio / output_path（output_path 只在 call.returns 是 file 时要）
   //   runtime.python / runtime.entry
   // 其余各项缺了平台推断或用保守默认，这里不报缺；写了值才校验值本身。
@@ -144,6 +149,21 @@ function diagnose (manifest) {
           section: req.section, field: req.path, sectionMeta: SECTIONS_BY_KEY[req.section] || null,
           danger: DANGER.BLOCK,
         })
+    }
+  }
+
+  // 模型权重：写了权重放在哪（runtime.checkpoints），还得说引擎从哪个参数收它。
+  //   判据是平台的 weightsProblem（hostProfile.js），这里只把它翻成一条诊断。
+  //   只在要过通用宿主时查：自带服务脚本的引擎，权重由它自己的启动参数决定。
+  if (needsBind) {
+    const wp = hostProfile().weightsProblem({ ...manifest, call: callObj })
+    if (wp) {
+      push('error', 'ENGINE_MANIFEST_INCOMPLETE',
+        wp.field === 'call.weights'
+          ? `「call.weights」的值不成立：${wp.why}。`
+          : '少了必填项「模型权重」：引擎不知道从哪个参数读权重。',
+        { section: 'call', field: wp.field, sectionMeta: SECTIONS_BY_KEY.call || null,
+          danger: DANGER.BLOCK })
     }
   }
 

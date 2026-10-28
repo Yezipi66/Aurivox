@@ -1,14 +1,19 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { launchConventions } from './optionalKeys'
+import { readWeights, writeWeights, TOKEN } from './weightsField'
 
-// 必填区：名片里只有这 5 格必须人答，其余平台推得出或有保守默认
+// 必填区：名片里只有这 6 格必须人答（模型权重是 2026-10 补的第 6 格），其余平台推得出或有保守默认
 // （lib/engines/profile.js 的 DEFAULTS 与 defaulted）。
 //
 // 两行，按「值从哪来」分：
 //   第 1 行  合成文本 / 参考音频 / 输出：平台的三个输入槽位（call.bind），
 //            扫描通常认得出，用户确认即可；也是拖拽落点。
 //   第 2 行  引擎目录 / 启动脚本：按本仓库惯例代填，可改。
+//            模型权重：引擎从哪个参数读权重。值默认 {checkpoints}（第 3 步的下载落点），
+//            参数名要人指定（可从左栏拖构造参数进来）；引擎自己找权重就勾「引擎自己找」。
+//            名片里写进 call.init_args（cli 形态写进 call.argv），不另起一个键，
+//            读写见 weightsField.js，缺没缺由平台 hostProfile.js 的 weightsProblem 判。
 // 网格用 auto-fit，中栏被拖窄时自动折成单列，不写死列数。
 //
 // 每格是「中文人话 + 键名徽标」。槽位格的徽标写槽位名（text / ref_audio / output_path），
@@ -71,6 +76,20 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     setRuntime({ python: conv.python, entry: conv.entry })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  // 模型权重这一格
+  const weights = readWeights(call)
+  const isCli = (call.kind || 'python') === 'cli'
+  const setWeights = (patch) => {
+    onChange({ ...manifest, call: writeWeights(call, { ...weights, ...patch }) })
+  }
+  const dropWeights = (e) => {
+    e.preventDefault()
+    setOverSlot(null)
+    let param
+    try { param = JSON.parse(e.dataTransfer.getData('text/plain') || 'null') } catch { return }
+    if (param && param.target) setWeights({ name: param.target, self: false })
+  }
 
   const listId = 'core-bind-flaglist'
 
@@ -146,6 +165,38 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
             <input className="control" type="text" placeholder={conv ? conv.entry : ''}
               value={runtime.entry || ''}
               onChange={(e) => setRuntime({ entry: e.target.value.trim() })} />
+          </Cell>
+          <Cell label={t('Model weights', '模型权重')} code={isCli ? 'call.argv' : 'call.init_args'}
+            hint={weights.self
+              ? t('the engine finds its weights on its own; nothing is passed',
+                '引擎自己找权重，平台不传')
+              : t(`parameter that receives the weights; ${TOKEN} is the step 3 download folder`,
+                `引擎从哪个参数读权重；${TOKEN} 就是第 3 步的下载目录`)}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                className={`control${overSlot === '__weights' ? ' wz-dropzone-over' : ''}`}
+                style={{ flex: 1, minWidth: 0 }}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOverSlot('__weights') }}
+                onDragLeave={() => setOverSlot(null)}
+                onDrop={dropWeights}
+                list={listId}
+                disabled={weights.self}
+                placeholder={isCli ? '--model_dir' : t('parameter name', '参数名')}
+                aria-label={t('Weights parameter', '权重参数名')}
+                value={weights.name}
+                onChange={(e) => setWeights({ name: e.target.value })} />
+              <input className="control" style={{ flex: 1, minWidth: 0 }}
+                disabled={weights.self || !weights.name}
+                placeholder={TOKEN}
+                aria-label={t('Weights path', '权重路径')}
+                value={weights.name ? weights.value : ''}
+                onChange={(e) => setWeights({ value: e.target.value })} />
+            </div>
+            <label className="field-hint" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="checkbox" checked={weights.self}
+                onChange={(e) => setWeights({ self: e.target.checked })} />
+              {t('The engine finds its own weights', '引擎自己找权重')}
+            </label>
           </Cell>
         </div>
 
