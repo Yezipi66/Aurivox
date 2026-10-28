@@ -328,6 +328,9 @@ SKIP_DIRS = {
 }
 MAX_DEPTH = 4
 MAX_FILES = 4000
+# 判「像不像 argparse CLI」读多少字节：与 cliHelp.js 的 SNIFF_BYTES 同值。
+# 只读 4KB 会漏掉 parser 写在文件后半段的 CLI（[实测] 有上游的 parser 从第 399 行才开始）。
+SNIFF_BYTES = 256 * 1024
 
 
 def _find_cli_files(root, candidates):
@@ -359,7 +362,7 @@ def _find_cli_files(root, candidates):
     if found:
         return found
 
-    # 兜底：只在浅层找，且只读文件头 4KB 判「像不像 argparse CLI」
+    # 兜底：只在浅层找，且只读文件头 SNIFF_BYTES 判「像不像 argparse CLI」
     counter = [0]
 
     def rec(rel, depth):
@@ -384,7 +387,7 @@ def _find_cli_files(root, candidates):
                 counter[0] += 1
                 try:
                     with open(child_full, "r", encoding="utf-8", errors="replace") as fh:
-                        head = fh.read(4096)
+                        head = fh.read(SNIFF_BYTES)
                 except OSError:
                     continue
                 if "add_argument(" in head:

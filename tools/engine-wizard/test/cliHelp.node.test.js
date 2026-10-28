@@ -319,6 +319,31 @@ test('findCliFiles 在真目录里找得到 CLI 源码', () => {
   console.log(`  找到：${rels.join(', ')}`)
 })
 
+test('parser 写在文件后半段（4KB 之后）的 CLI 也找得到，提取器也认（[实测] VoxCPM 的 cli.py）', () => {
+  // 只读文件头 4KB 时，这种 CLI 被漏掉，扫到的只剩 scripts/ 下的测试脚本。
+  //   JS 的 findCliFiles 与 Python 提取器各有一份发现逻辑，两边都要认。
+  const dir = fs.mkdtempSync(path.join(ROOT, '.clihelp-late-'))
+  try {
+    fs.mkdirSync(path.join(dir, 'src', 'pkg'), { recursive: true })
+    const filler = Array.from({ length: 400 }, (_, i) => `# line ${i} ${'x'.repeat(40)}`).join('\n')
+    fs.writeFileSync(path.join(dir, 'src', 'pkg', 'cli.py'), [
+      'import argparse', filler,
+      'def build():',
+      '    p = argparse.ArgumentParser()',
+      '    p.add_argument("--late-flag", help="defined far down the file")',
+      '    return p', '',
+    ].join('\n'), 'utf8')
+    assert.ok(fs.statSync(path.join(dir, 'src', 'pkg', 'cli.py')).size > 4096, '夹具没超过 4KB，测不到这条')
+    const rels = findCliFiles(dir)
+    assert.deepStrictEqual(rels, [path.join('src', 'pkg', 'cli.py')])
+    const r = collectCliHelp({ dir })
+    assert.strictEqual(r.ok, true, r.error)
+    assert.ok(r.flags.some((f) => f.dest === 'late_flag'), `提取器没认出文件后半段的开关：${JSON.stringify(r.sources)}`)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('目录不存在 / 没给 dir，如实说，不返回空结果冒充成功', () => {
   const noDir = collectCliHelp({ dir: path.join(ROOT, 'definitely-not-an-engine-xyz') })
   assert.strictEqual(noDir.ok, false)

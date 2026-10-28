@@ -26,6 +26,12 @@ const SKIP_DIRS = Object.freeze(new Set([
 
 const MAX_DEPTH = 4
 const MAX_FILES = 4000
+// 判「像不像 argparse CLI」读多少字节。只读文件头 4KB 会漏掉把 parser 写在文件后半段的
+//   CLI（[实测] 有上游的 CLI 把 add_argument 写在第 399 行之后），
+//   漏掉之后扫到的只剩 scripts/ 下的测试脚本，参数池里全是别的脚本的开关。
+//   256KB 盖得住正常的 CLI 源文件，又不至于去读一个巨大的生成文件。
+//   与 cli_help_extract.py 的 SNIFF_BYTES 同值（两处判据不能分叉）。
+const SNIFF_BYTES = 256 * 1024
 
 // spec 走临时文件而不是命令行参数：路径里出现引号/中文时，命令行在 Windows 上
 //   解析不了。
@@ -149,8 +155,8 @@ function findCliFiles (dir, opts = {}) {
           let head = ''
           try {
             const fd = fs.openSync(path.join(dir, childRel), 'r')
-            const buf = Buffer.alloc(4096)
-            const bytes = fs.readSync(fd, buf, 0, 4096, 0)
+            const buf = Buffer.alloc(SNIFF_BYTES)
+            const bytes = fs.readSync(fd, buf, 0, SNIFF_BYTES, 0)
             head = buf.slice(0, bytes).toString('utf8')
             fs.closeSync(fd)
           } catch { continue }
