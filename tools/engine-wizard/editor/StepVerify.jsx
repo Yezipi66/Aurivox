@@ -104,7 +104,7 @@ export function StepVerify ({ id }) {
   }, [runChecks])
 
   if (loading) {
-    return <div className="msg msg-info">{t('Running checks...', '正在校验...')}</div>
+    return <div className="msg msg-info">{t('Running checks...', '正在校验…')}</div>
   }
 
   if (!results) {
@@ -114,7 +114,7 @@ export function StepVerify ({ id }) {
   const checks = results.checks || {}
 
   const labelFor = {
-    env_shallow: t('Environment: installed', '环境：已装'),
+    env_shallow: t('Environment: installed', '环境：已安装'),
     env_deep: t('Environment: startable', '环境：可启动'),
     checkpoints: t('Weights: complete', '权重：完整'),
     audio: t('Audio: playable', '音频：可播放'),
@@ -195,7 +195,7 @@ export function StepVerify ({ id }) {
           <div className="field-hint">
             {t('The audio information and the waveform both need a real sample. ' +
               'Fill in the text to synthesise, then run tier A.',
-              '音频信息与波形都需要一份真实样本。填入要合成的文本，然后跑 A 级。')}
+              '音频信息与波形都需要一份真实样本。填入要合成的文本，然后执行 A 级校验。')}
           </div>
           <textarea
             className="control"
@@ -212,7 +212,7 @@ export function StepVerify ({ id }) {
             style={{ marginTop: 6 }}
             onClick={() => runChecks('A', synthRequest())}
           >
-            {loading ? t('Running...', '正在运行...') : t('Run tier A', '跑 A 级')}
+            {loading ? t('Running...', '正在运行…') : t('Run tier A', '执行 A 级校验')}
           </button>
           <input
             className="control"
