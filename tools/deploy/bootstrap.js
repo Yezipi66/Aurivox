@@ -72,9 +72,8 @@ function venvBaseMatches (venvDir, embeddedPython) {
  *   ① 解释器能跑（`import sys` 退出码 0）；
  *   ② base 是当前内嵌解释器（见 venvBaseMatches）。
  *
- * ② 是后补的：原来只有 ①，于是「外部工具把本机 Python 换成了 3.14」
- * 这类变化完全看不见。venv 照样能跑，bootstrap 就说「already exists and works」，
- * 而它带的 ABI 与平台基座不同（见 docs/ONBOARDING_PLAN.md A22）。
+ * 只判「能跑」会漏掉一类情况：外部工具把本机 Python 换成了别的版本，
+ * venv 照样能跑，但它的 ABI 与平台基座不同，轮子会装不上。
  */
 function inspectExistingVenv (venvDir, venvPythonExe, embeddedPython) {
   if (!fs.existsSync(venvPythonExe)) {
@@ -121,10 +120,10 @@ const DRY = argv.includes('--dry-run')
 
 // --venv-only：只做「把根 venv 部署成当前内嵌解释器」这一件事，即建/重建 venv 与装平台工具链包，
 //   然后就停。不装 torch、不下 ffmpeg、不恢复 node 依赖、不问模型。
-//   为什么单独一个入口：根 venv 的 base 会被外部工具换掉（见 docs/ONBOARDING_PLAN.md A22），
+//   为什么单独一个入口：根 venv 的 base 会被外部工具换掉，
 //   「重建根 venv」这件事本身要能独立、无人值守地重复做。
 //   它固定走平台瘦版那份 requirements（--platform-only 的语义）：
-//   根 venv 是平台的环境，引擎依赖归各引擎自己的 .venv（见台账 A16 / A17）。
+//   根 venv 是平台的环境，引擎依赖归各引擎自己的 .venv。
 const VENV_ONLY = argv.includes('--venv-only') || argv.includes('-VenvOnly')
 
 // 每条 [deploy] 消息都追加进日志文件。事后排查依赖这份日志。

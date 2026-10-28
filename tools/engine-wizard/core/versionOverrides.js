@@ -2,7 +2,7 @@
 // 第 2 步「选依赖版本」的后端判据：把上游清单里某几行换成指定的版本。
 // 改版本不能靠 uv 的排除（--excludes / --no-install-package）：排除的语义是「这个包连同
 //   依赖它的其它包一起不装」，会把依赖它的包一起弄掉 ⇒ 环境装不完整。改版本要改清单本身。
-// 上游文件保持原样，改写结果写进平台自己的清单副本（与 .wizard-excludes.txt 同一性质）。
+// 上游文件保持原样，改写结果写进平台自己的清单副本。
 // 改写保留原约束形式（einops>=0.8.1 选 0.7.0 ⇒ einops>=0.7.0；原本没钉版本的钉住）；
 //   换不出一个合法 spec 就如实报出来，不闷头改。
 
@@ -12,7 +12,7 @@ const path = require('node:path')
 // 平台自己的清单副本文件名。放在引擎目录里，与上游文件并列。
 const LOCAL_MANIFEST = '.wizard-requirements.local.txt'
 
-/** 归一化包名：大小写、-_. 视作同一个（与 installChoices.normName 一致）。 */
+/** 归一化包名：大小写、-_. 视作同一个。 */
 function normName (name) {
   return String(name || '').trim().toLowerCase().replace(/[-_.]+/g, '-')
 }

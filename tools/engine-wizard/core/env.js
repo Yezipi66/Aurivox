@@ -3,8 +3,8 @@
 // 装法由名片的 install.env_command 决定，没有「没声明就默认 uv sync」这类分支：
 // uv / poetry / pip -r / conda 各家不同，猜错的表现是装到一半失败、磁盘留一半。
 // torch 系包体积大且与显卡绑定，上游通常单独装；锁文件锁的后端与本机不一致时
-// 跳过 torch 系包，另给一条装本机后端的命令（envDetect.js 的 suggestBackendAlternative）。
-// 实现拆在 envDetect.js（检测）、envInstall.js（安装）、envProgress.js（断点续传）三处。
+// 跳过 torch 系包，另给一条装本机后端的命令。
+// 实现分检测、安装、断点续传三层。
 
 const fs = require('node:fs')
 const { projectRoot, engineDir } = require('./clone.js')
@@ -47,7 +47,7 @@ const {
 
 /**
  * 判「上游钉的 torch 版本在本机后端上能不能用」，给出升级建议。
- * 判据是离线查表（torchVersionProbe.js 的 judgeTorchVersion），全程不联网。
+ * 判据是离线查表，全程不联网。
  *
  * 与 torch 无关的情形（没声明 / 后端没官方 index）⇒ 返回 null，不打扰使用者。
  *
