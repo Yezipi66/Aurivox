@@ -10,7 +10,7 @@ import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 
 // 名片填表：两个区。
-//   ① 必填字段：5 格（RequiredFields）。
+//   ① 必填字段：6 格（RequiredFields）。
 //   ② 可选参数：合成参数（ParamDropZone）+ 引擎配置（OptionalConfig）。
 // 渲染只用项目已有的类，不自造 mf-* / pr-*。
 

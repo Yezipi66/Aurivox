@@ -30,7 +30,7 @@ const BADGE_TONE = { ok: 'ok', warn: 'warn', muted: 'neutral' }
  * @param {Function} onScan 扫描参数（页面层持有扫描状态）
  * @param {boolean} scanBusy 扫描中
  * @param {boolean} scanned 这台引擎扫过至少一次
- * @param {object|null} diag 校验结果（有硬错时保存禁用）
+ * @param {object|null} diag 校验结果（有硬错时点保存只列问题、不存）
  * @param {Function} onSaved 保存成功回调
  */
 export default function EngineIdentity ({
@@ -43,6 +43,11 @@ export default function EngineIdentity ({
   const [reading, setReading] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)   // 磁盘上的名片已读进表单
   const [localErr, setLocalErr] = React.useState(null)
+  // 点过「保存」才列出挡着保存的错误。
+  //   进第 4 步时名片还是空的，检查器必然报「少了必填项」；
+  //   人还什么都没做就先看到一片红，只会加重心智负担。
+  //   计数照常在「检查结果」面板里，想看随时能看；这里只在人要保存时说为什么存不了。
+  const [triedSave, setTriedSave] = React.useState(false)
 
   React.useEffect(() => {
     if (!engineId && manifest.id) setEngineId(manifest.id)
@@ -66,6 +71,7 @@ export default function EngineIdentity ({
     setEngineId(id)
     setLoaded(false)
     setLocalErr(null)
+    setTriedSave(false)
     if (id) onChange(manifestForEngineSwitch(manifest, id, id))
   }
 
@@ -139,18 +145,19 @@ export default function EngineIdentity ({
 
           <span className="wz-identity-spacer" />
 
+          {/* 有错时按钮照样能点：点了不存，只把挡着的问题列出来。
+              灰掉的按钮不告诉人缺什么，而提前列出来又是进门就一片红。 */}
           <button className="btn btn-sm btn-primary" type="button"
-            disabled={!ready || saving || hasErrors}
-            title={hasErrors ? t('Fix the errors below first', '先修完下面的错误再保存') : undefined}
-            onClick={save}>
+            disabled={!ready || saving}
+            onClick={() => { if (hasErrors) { setTriedSave(true); return } save() }}>
             {saving ? t('Saving…', '保存中…') : t('Save', '保存')}
           </button>
         </div>
 
         {localErr && <div className="msg msg-danger">{localErr}</div>}
 
-        {/* 有硬错时列出前 5 条：保存按钮是灰的，得让人知道为什么。 */}
-        {hasErrors && (
+        {/* 点了保存但有硬错：列出前 5 条，说清为什么没存。修完一条少一条，修完就消失。 */}
+        {triedSave && hasErrors && (
           <div className="msg msg-danger">
             <strong>{t(`${diag.summary.errors} problem(s) must be fixed before saving:`,
               `还有 ${diag.summary.errors} 处问题，修完才能保存：`)}</strong>
