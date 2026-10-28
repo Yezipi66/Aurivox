@@ -101,10 +101,10 @@ export default function EngineIdentity ({
   const weights = models === true
     ? { tone: 'ok', text: t('Weights ready', '权重已就绪') }
     : models === false
-      ? { tone: 'warn', text: t('Weights missing', '权重还没下好') }
-      : { tone: 'muted', text: t('Weights not checked', '权重还没查过') }
+      ? { tone: 'warn', text: t('Weights missing', '权重未下载完整') }
+      : { tone: 'muted', text: t('Weights not checked', '权重未检查') }
   const envOk = !!(facts && facts.env === true)
-  const engineState = envOk ? weights : { tone: 'muted', text: t('Engine environment not ready', '引擎环境还没建好') }
+  const engineState = envOk ? weights : { tone: 'muted', text: t('Engine environment not ready', '引擎环境未就绪') }
 
   return (
     <div className="section">
@@ -114,10 +114,10 @@ export default function EngineIdentity ({
             aria-label={t('Engine', '引擎')}
             disabled={reading || saving}
             onChange={(e) => pickEngine(e.target.value)}>
-            <option value="">{t('— pick an engine —', '— 选一台引擎 —')}</option>
+            <option value="">{t('— pick an engine —', '请选择一台引擎')}</option>
             {dirs.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.id}{d.manifestPresent ? '' : `（${t('no manifest yet', '还没名片')}）`}
+                {d.id}{d.manifestPresent ? '' : `（${t('no manifest yet', '尚无名片')}）`}
               </option>
             ))}
           </select>
@@ -160,7 +160,7 @@ export default function EngineIdentity ({
         {triedSave && hasErrors && (
           <div className="msg msg-danger">
             <strong>{t(`${diag.summary.errors} problem(s) must be fixed before saving:`,
-              `还有 ${diag.summary.errors} 处问题，修完才能保存：`)}</strong>
+              `还有 ${diag.summary.errors} 处问题，修正后才能保存：`)}</strong>
             {(diag.diagnostics || []).filter((d) => d.level === 'error').slice(0, 5).map((d, i) => {
               const where = d.section || d.field || (d.index !== undefined ? `parameters[${d.index}]` : '')
               return (

@@ -196,7 +196,7 @@ export function canStart (stepKey, s = {}) {
     return { ok: false,
       reason: st2.missing.length
         ? `还差：${st2.missing.join('、')}`
-        : 'Manifest 里还没写 install.env_command' }
+        : 'Manifest 中未声明 install.env_command' }
   }
   return { ok: true }
 }

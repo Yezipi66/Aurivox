@@ -45,7 +45,7 @@ function Control ({ item, value, onValue, t }) {
           </React.Fragment>
         )}
         <button className="btn btn-sm" type="button" onClick={() => onValue(unlimited ? [3, 10] : null)}>
-          {unlimited ? t('set a range', '设一个范围') : t('no limit', '不限制')}
+          {unlimited ? t('set a range', '设置范围') : t('no limit', '不限制')}
         </button>
       </div>
     )
@@ -105,7 +105,7 @@ export default function OptionalConfig ({ manifest, onChange }) {
         {visible.length === 0 && (
           <div className="field-hint">
             {t('Nothing to set: the platform answers all of these by default.',
-              '都不用填：不填时平台按默认处理。')}
+              '均可留空：留空时平台按默认处理。')}
           </div>
         )}
         {visible.map((it) => (
@@ -127,7 +127,7 @@ export default function OptionalConfig ({ manifest, onChange }) {
                 onValue={(v) => onChange(setPath(m, it.path, v))} />
               {it.source && get(m, it.path) !== undefined && (
                 <select className="control" style={{ width: 120 }} value={get(m, it.source) || 'estimated'}
-                  title={t('where that number came from', '这个数的出处')}
+                  title={t('where that number came from', '该数值的来源')}
                   onChange={(e) => onChange(setPath(m, it.source, e.target.value))}>
                   {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
