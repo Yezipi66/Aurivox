@@ -83,7 +83,7 @@ export default function ParamDropZone ({
         <div className="wz-subhead">{t('Synthesis parameters', '合成参数')}</div>
         <p className="field-hint" style={{ marginTop: 0 }}>
           {t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
-            '把左栏的参数拖到这里：参数名、类型、说明会自动填好，右边预览同步更新。标黄的是猜的，请确认。')}
+            '将左侧扫描到的参数拖至此处：参数名、类型与说明会自动填入，右侧预览同步更新。标记为推测值的项请核对。')}
         </p>
 
         {/* 落点区：高亮表示鼠标正在上方，落下即写进 parameters[] */}
@@ -98,13 +98,13 @@ export default function ParamDropZone ({
               <span className="field-hint">
                 {selectedParam
                   ? t('Click to add the selected parameter', '点击把选中的参数加进来')
-                  : t('No parameters yet. Drag one here.', '还没有参数。把一个拖到这里。')}
+                  : t('No parameters yet. Drag one here.', '尚无参数。请从左侧拖入一项。')}
               </span>
               )
             : (
               <span className="field-hint">
                 {t(`Drop here to add another one (${list.length} already added)`,
-                  `拖到这里再加一个（已加 ${list.length} 个）`)}
+                  `拖至此处可继续添加（已添加 ${list.length} 项）`)}
               </span>
               )}
         </div>
