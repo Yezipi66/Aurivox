@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""kind="cli" 这条路的**在场证明**：不要 GPU、不要上游包、不要 HTTP。
+# kind="cli" 这条路的在场证明：不要 GPU、不要上游包、不要 HTTP。
 
 为什么是一个 probe 而不是 *.node.test.js：run_tests.cjs 只收 node 测试，
 而这段逻辑在 host.py 里 —— 用 node 去测它只能测到「文件里有这几个字」，

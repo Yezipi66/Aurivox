@@ -2,10 +2,8 @@ import React from 'react'
 
 // 列出 engines/ 下的全部目录，并标出哪些已经有名片。
 //
-// 单独一个文件：Fast Refresh 要求一个模块要么只导出组件、要么只导出 hook，
-//   组件与 hook 混在一个文件里（EngineScanZone.jsx）时，改组件会让整个模块
-//   失效重新加载，编辑时的状态全丢。项目的约定也是每个 hook 一个文件
-//   （useInstalled.js、useInstallSession.js）。
+// 单独一个文件：组件与 hook 混在一个模块里，改组件会让整个模块重新加载，
+// 编辑时的状态全丢。
 
 /**
  * 统一的引擎下拉的数据源。

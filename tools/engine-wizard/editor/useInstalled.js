@@ -22,9 +22,8 @@ export function useInstalled () {
       if (!r.ok || j.error) {
         return { ok: false, error: j.error || `HTTP ${r.status}`, code: j.code }
       }
-      // 原文可能带 _comment_*；回填给表单时保留它们，
-      //    存盘那一步会剥掉（save.js 的第 6 步）。
-      //    ⇒ 不能在这里剥，否则「读回来再存」会把注释吃掉。
+      // 原文可能带 _comment_*；回填给表单时保留它们：在这里剥掉，
+      // 「读回来再存一次」就会把注释吃掉。
       return { ok: true, text: JSON.stringify(j.manifest, null, 2), path: j.path }
     } catch (e) {
       return { ok: false, error: e.message }

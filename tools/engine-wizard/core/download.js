@@ -9,10 +9,10 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const https = require('node:https')
 
-/** 进度文件：每个引擎目录下记录已完成的下载命令，本文件只操作 models 段。 */
+// 进度按段记：本文件只操作 models 段，别段的进度不在这里读写。
 const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
   resetProgress: resetProgressOf } = require('./installState')
-// 落盘路径只有一处答案：core/checkpointsPath.js。
+// 落盘路径不在这里拼：一律走 checkpointsAbsPath。
 const { checkpointsAbsPath } = require('./checkpointsPath')
 // 授权错误时的许可门槛说明，与第 4 步同一段文案。
 const { LICENSE_GATE_NOTE } = require('./models')
@@ -117,7 +117,7 @@ function resetProgress (root, id) {
 }
 
 // 解析 hf / modelscope 的 tqdm 风格进度行，返回 { file, percent, downloaded, total }，
-// 不是进度行返回 null。parseSize 把「1.2GB」这类带单位的字符串转成字节数。
+// 不是进度行返回 null。
 function parseDownloadProgress (line) {
   const m = line.match(/Downloading (.+?): (\d+)%\|.*?\| ([\d.]+[KMG]?B?)\/([\d.]+[KMG]?B?) \[/)
   if (!m) return null
@@ -129,6 +129,7 @@ function parseDownloadProgress (line) {
   }
 }
 
+// 带单位的大小字符串转成字节数，认不出单位返回 0。
 function parseSize (s) {
   if (!s) return 0
   const m = String(s).trim().match(/^([\d.]+)\s*([KMG]?B?)$/i)

@@ -1,7 +1,6 @@
 'use strict'
 //  ENV：进度持久化模块。
 //  职责：断点续传产物检查（stepArtifactExists / sitePackagesNonEmpty）。
-//  从 env.js 逐字搬来，不改逻辑。
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -39,7 +38,7 @@ function sitePackagesDir (venvDir) {
  *
  * 读法：site-packages 下 `<包名>-<版本>[+后缀].dist-info` 的目录名。
  * 不 spawn python 去问，那要起进程，慢且可能失败。
- * dist-info 目录名带后缀（`torch-2.6.0+xpu`），后缀是**后端标记**，
+ * dist-info 目录名带后缀（`torch-2.6.0+xpu`），后缀是后端标记，
  *   要与命令里那个 index 对得上才算装的是这一版。
  *
  * @param {string} venvDir 引擎 venv 目录
@@ -104,7 +103,7 @@ function parseIndexName (argv) {
  * 已装版本与命令要装的版本是否一致。
  *
  * 后缀必须一起比：`torch==2.6.0` 从 xpu index 装出来是 `2.6.0+xpu`，
- *   从 cpu index 装出来是 `2.6.0+cpu` ⇒ 版本号相同但**后端不同**，
+ *   从 cpu index 装出来是 `2.6.0+cpu` ⇒ 版本号相同但后端不同，
  *   那是另一个产物（XPU 机器上装了 CPU 版 ⇒ 用不上加速）。
  *   命令没带 index 时不比对后缀（装什么后端由 pip 当时选的源决定）。
  *
@@ -160,8 +159,8 @@ function sitePackagesNonEmpty (venvDir) {
  * 三层判据（缺一层就会静默跳过）：
  *   ① 建环境步：引擎 venv 的 python 能 spawn（`canUseEngineVenv`）。
  *   ② 装包步：目标 site-packages 非空。
- *   ③ **版本核对**：这步命令里声明了 `<包>==<版本>` 时，
- *      引擎 venv 里那个包当前装的就是**那一版**（后端后缀也要对）。
+ *   ③ 版本核对：这步命令里声明了 `<包>==<版本>` 时，
+ *      引擎 venv 里那个包当前装的就是那一版（后端后缀也要对）。
  *      这一层不能省：产物在、但已经不是命令要装的那一版时
  *      （例如手工把 torch 降回上游钉的版本），命令文本一字未变 ⇒
  *      只看命令文本会判「已完成」而跳过 ⇒ 装出来的环境是错的，

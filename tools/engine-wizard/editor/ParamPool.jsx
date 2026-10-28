@@ -50,7 +50,7 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
       </div>
       <div className="wz-param-meta">
         {/* 类型上色：绿 = 上游自己写明的（argparse type= / action=、python 注解）；
-            灰 = 我们按默认值或参数名猜的，拖进中栏后要人确认。 */}
+            灰 = 按默认值或参数名推断的，拖进中栏后需人工确认。 */}
         <span className={`badge ${param.kind_certain ? 'badge-ok' : 'badge-muted'}`}
           title={param.kind_certain
             ? t('Type declared by upstream', '类型由上游声明')

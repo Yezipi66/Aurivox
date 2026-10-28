@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""probe_host —— 让通用宿主带一台**假引擎**真的跑起来
+# probe_host：让通用宿主带一台假引擎真的跑起来
 
 为什么要假引擎
 --------------
@@ -37,7 +37,7 @@ def row(name, ok, note=""):
 
 
 def detail_of(raw):
-    """⛔ 绝不能让「被测对象返回了意料之外的东西」把这支探针自己搞崩。
+# 绝不能让「被测对象返回了意料之外的东西」把这支探针自己搞崩。
 
     2026-08-26 验红实测：宿主一旦把该拒的请求放行，它回的是 **WAV 字节**；
     这里原本直接 json.loads(raw.decode("utf-8")) ⇒ UnicodeDecodeError ⇒
@@ -70,7 +70,7 @@ import os, random, struct, wave
 
 class FakeTTS(object):
     def __init__(self, cfg_path, model_dir, use_fp16=False):
-        # ⭐ 真上游拿到没展开的 "{checkpoints}/config.yaml" 只会报一个
+        #  真上游拿到没展开的 "{checkpoints}/config.yaml" 只会报一个
         #   「文件不存在」，看不出是名片写错还是宿主没展开。这里当场点名，
         #   让「占位符没展开」这件事本身可取证。
         for name, val in (("cfg_path", cfg_path), ("model_dir", model_dir)):

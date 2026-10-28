@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""probe_profile_contract —— 宿主要的字段，profile.js 到底给不给
+# probe_profile_contract：宿主要的字段，profile.js 到底给不给
 
 为什么要有这支
 --------------
 `probe_host.py` 里那份 profile JSON 是**手写的**。我发明了一个形状，
 再拿它去测我自己的发明 —— 于是 29/29 全绿证明的是「host.py 和我的想象一致」，
-**不是**「host.py 和平台一致」。
+不是「host.py 和平台一致」。
 
 这支探针改成让 **node 真的跑一遍 `resolveEngineProfile()`**，拿真身来对。
 ⭐ 判据不是我读代码读出来的印象，是两边各跑一次的结果。
@@ -32,7 +32,7 @@ def row(name, ok, note=""):
 
 
 def find_node():
-    """真机用仓库自带的 node，Linux 上用 PATH 里的。"""
+# 用仓库自带的 node，Linux 上用 PATH 里的。
     cand = os.path.join(ROOT, "tools", "runtime", "node", "node.exe")
     if os.path.isfile(cand):
         return cand
@@ -44,7 +44,7 @@ def find_node():
 
 
 def node_err(raw):
-    """从 node 的 stderr 里把**错误消息本身**捞出来。
+# 从 node 的 stderr 里把错误消息本身捞出来。
 
     ⛔⛔ 这里原来写的是 `raw[-800:]` —— **取尾巴**。而 node 的 stderr 长这样：
 
@@ -83,7 +83,7 @@ def node_err(raw):
 
 
 def real_profile(node, engine_id):
-    """⭐ 不读源码猜，直接叫 profile.js 出货。"""
+# 不读源码猜，直接叫 profile.js 出货。
 # 这里叫的是 buildHostProfile 而不是 resolveEngineProfile。
     #   量过：resolveEngineProfile 今天有 9 个 JS 消费方，碰 call / params /
 #   output_formats 的是 0 个 ： 这四段只有 host.py 要。所以走加法：

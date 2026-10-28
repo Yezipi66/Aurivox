@@ -44,7 +44,7 @@ function reportOne (profile, out = process.stdout) {
     // 不写 ≠ 不需要。这里只能说「我不知道」，并且把该补的那一行指出来。
     out.write(
       `  ？ ${st.reason}\n` +
-      `     要让平台替你查，在 engines/${st.id}/manifest.json 里补一行\n` +
+      `     要让平台代为查询，在 engines/${st.id}/manifest.json 里补一行\n` +
       '     runtime.checkpoints（相对项目根的目录），再写一段 models.required。\n')
     return st
   }
@@ -65,11 +65,11 @@ function reportOne (profile, out = process.stdout) {
   if (st.source && st.source.license_gate) {
     out.write(
       '\n  ⚠ 这个模型要**先去网站上点同意**才能下。\n' +
-      '     不点就下，会得到 401/403 —— 那看着像网络故障，其实不是。\n')
+      '     不点就下，会得到 401/403 —— 那看着像网络故障，实际并非如此。\n')
   }
   if (st.source && st.source.url) out.write(`  模型主页：${st.source.url}\n`)
   if (st.source && st.source.command) {
-    out.write('\n  名片写的取回命令（⛔ 本工具不替你跑，请自己在引擎环境里执行）：\n')
+    out.write('\n  名片写的取回命令（⛔ 本工具不代为执行，请在引擎环境里自行执行）：\n')
     out.write(`     位置：${st.source.cwd}\n`)
     out.write(`     ${st.source.command.join(' ')}\n`)
   } else {

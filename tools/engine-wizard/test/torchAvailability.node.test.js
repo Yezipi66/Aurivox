@@ -7,7 +7,7 @@
 //   tools/engine-wizard/core/torchVersionProbe.js   （judgeTorchVersion）
 //   tools/engine-wizard/core/env.js                 （suggestTorchUpgrade）
 //
-// 判据是**离线查表比大小**：后端对 torch 版本的支持有下界，方向单向
+// 判据是离线查表比大小：后端对 torch 版本的支持有下界，方向单向
 //   （XPU 从 2.6.0 起才有官方轮子，不会回头兼容 2.5）。
 //   所以「这个版本在这个后端上有没有」是确定的事实，不该联网去问。
 //
@@ -16,7 +16,7 @@
 //   ② 上游钉的版本 < 下界 ⇒ 报不可用，并给出下界作为建议版本。
 //   ③ 这个 (index, 平台, ABI) 组合一个轮子都没有 ⇒ 如实报，不给建议版本。
 //   ④ 上游没声明 torch / 后端没有官方 index ⇒ 与 torch 版本无关，返回 null。
-//   ⑤ **判断过程不联网**：把 https.get 换成会抛异常的假实现，
+//   ⑤ 判断过程不联网：把 https.get 换成会抛异常的假实现，
 //      结论仍要成立。这条是这一版实现的核心承诺。
 
 const { test } = require('node:test')

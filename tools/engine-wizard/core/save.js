@@ -92,9 +92,7 @@ function saveManifest (manifest, opts = {}) {
       errorZh: `engines/${id}/manifest.json 已存在，且未请求覆盖` }
   }
 
-  // ---- 6. 注释键原样保留 ----
-  //  平台是在读取时剥（lib/engines/registry.js 的 stripComments），不是写入时剥。
-  //    写盘时剥 ⇒「读回来再存一次」就把文档永久删了。
+  // 写盘原样保留注释：在这里剥掉，读回来再存一次就会把说明永久删掉。
   const clean = manifest
 
   //   这里必须兜住：不然异常一路冒到 HTTP 层变成 500，

@@ -107,7 +107,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   const setCloneRes = (v) => patch('cloneRes', v)
 
   /**
-   * 发一个 POST 请求，把失败也变成**可读的结论**。
+   * 发一个 POST 请求，把失败也变成可读的结论。
    *
    * 失败分两类，都要在这里收口，不允许让异常冒出去：
    *   ① 网络层失败（连接被拒、DNS 失败、请求超时）⇒ fetch 抛。

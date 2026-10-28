@@ -1,6 +1,6 @@
 'use strict'
 
-// 根 venv 的健康检查判据：能不能跑 **且** base 是不是当前内嵌解释器。
+// 根 venv 的健康检查判据：能不能跑 且 base 是不是当前内嵌解释器。
 //
 // 背景（docs/ONBOARDING_PLAN.md A22）：平台根 venv 被外部工具换成了 CPython 3.14.7，
 // 它照样能跑，于是旧的健康检查说「already exists and works」。

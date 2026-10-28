@@ -1,6 +1,8 @@
-// 名片表单编辑器：根据 fieldmeta 分组渲染字段输入，并把值交给调用方处理。
-// 渲染只依赖项目现有的 UI 组件与类名，不自造字段含义。
-// 本文件不负责合成逻辑，只负责界面层的输入与结构。
+// Manifest 表单编辑器：按 fieldmeta 分组渲染输入，值交给调用方。只做界面层的输入与
+// 结构，不做合成逻辑、不写 manifest.json；渲染只用项目已有的类与组件，不自造 mf-* / pr-*。
+//
+// 两区：① 必填字段 5 格（RequiredFields）；② 可选参数：合成参数（ParamDropZone）+
+// 引擎配置（OptionalConfig）。扫描发生在左栏 EngineScanZone，结果由页面层传进来。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import OptionalConfig from './OptionalConfig'
@@ -9,19 +11,7 @@ import ParamDropZone from './ParamDropZone'
 import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 
-// 名片填表：两个区。
-//   ① 必填字段：5 格（RequiredFields）。
-//   ② 可选参数：合成参数（ParamDropZone）+ 引擎配置（OptionalConfig）。
-// 渲染只用项目已有的类，不自造 mf-* / pr-*。
-
-// 从源码反射生成 parameters[] 草稿 + 映射候选（第 4 步）。
-// 只填表单，不直接写 manifest.json；映射候选只给候选，人点选之后才写 maps。
-
-// 主组件操作流：
-// ① 必填字段：call.bind 三槽位 + 引擎目录 + 启动脚本，两行。
-// ② 可选参数：左栏扫到的参数拖进来成为 parameters[]；下面是平台有默认的引擎配置。
-//
-// 扫描发生在左栏（EngineScanZone），扫描结果由页面层持有并传进来。
+// 反射生成的 parameters[] 草稿与映射候选只填表单，映射候选要人点选之后才写进 maps。
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
   guessed, onParamDropped, onTypeConfirmed,

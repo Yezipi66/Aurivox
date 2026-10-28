@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""run_ab —— 一条命令跑完整个 shim vs host 的 A/B 验收
+# run_ab：一条命令跑完整个 shim 与 host 的 A/B 验收
 
 ⛔⛔ 2026-08-27：**这个脚本已经跑不了了，而且是故意的。**
    它比的是 engines/indextts2/shim.py 和 lib/engines/host.py，而 shim.py
@@ -31,7 +31,7 @@
      ② 把两侧的 text / ref / seed 用**同一个变量**发出去
         —— 手工两条命令各打一遍，是 G6 每次拦人的根本原因。
      ③ 引擎的 stdout/stderr 落盘成日志；进程要是中途没了，
-        **把日志尾巴打出来**，而不是只留一句 10061。
+        把日志尾巴打出来，而不是只留一句 10061。
 
 ⛔ 它不替代那两把尺子，也不给它们加开关：ab_compare 永远走 --preset gate-v1。
 
@@ -58,7 +58,7 @@ OUT_DIR = os.path.join("outputs", "ab")
 LOG_DIR = os.path.join(OUT_DIR, "logs")
 PROFILE_JSON = os.path.join(OUT_DIR, "%s.profile.json" % ENGINE_ID)
 
-# 采集会产出的东西。每轮开跑前全清，理由见 clean_outputs() 的注释。
+# 采集会产出的东西。每轮开始前全清，理由见 clean_outputs() 的注释。
 CAPTURE_ARTIFACTS = (
     "shim-a.wav", "shim-b.wav", "altered.wav", "host.wav",
     "capture-shim.json", "capture-host.json",
@@ -99,7 +99,7 @@ def stage(n, total, title):
 
 
 def engine_python():
-    """引擎自己的 venv —— ⛔ 不是跑本脚本的这个解释器。"""
+# 引擎自己的 venv，不是跑本脚本的这个解释器。
     if os.name == "nt":
         p = os.path.join(ROOT, "engines", ENGINE_ID, ".venv", "Scripts", "python.exe")
     else:
@@ -213,7 +213,7 @@ class Engine(object):
             time.sleep(1.0)
 
     def stop(self):
-        """⭐ 停干净才算停 —— 端口还开着就等于下一台起不来。"""
+# 停干净才算停：端口还开着就等于下一台起不来。
         if self.proc is None:
             return
         if self.proc.poll() is None:
@@ -276,7 +276,7 @@ def preflight(args):
 
 
 def clean_outputs(out_dir):
-    """G7 的正解：**两侧一起清**。
+# G7 的正解：两侧一起清。
 
     ⭐ ab_capture 的 G7 拦的是「只重采一半，拿这一轮和上一轮对着比」。
       本脚本每次都把两侧完整重采一遍，那个前提结构上不成立 ⇒ 清是安全的。

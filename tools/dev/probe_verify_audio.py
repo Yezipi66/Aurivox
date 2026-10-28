@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""C1 探针的实测台：起一个**行为已知**的假宿主，看 verify_audio.py 判得对不对。
+# C1 探针的实测台：起一个行为已知的假宿主，看 verify_audio.py 判得对不对。
 
 ⛔ 为什么不写在 node --test 里：那些要起 HTTP 服务、要 spawn python，
    塞进 npm test 会让 1675 条测试里多两条慢的、且依赖 python 在 PATH 上。

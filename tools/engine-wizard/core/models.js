@@ -27,13 +27,6 @@ function platformProfile (id) {
   return resolveEngineProfile(id)
 }
 
-/**
- * 一台引擎的权重现状：只查，不下。
- *
- * @param {string} id 引擎 id（走平台 registry 拿 profile）
- * @returns {{ok:true, status:object, commands:string[], notes:string[]}
- *          | {ok:false, code, error, example?}}
- */
 function t_missingHint (status) {
   if (!status.declared) {
     return 'Manifest 未声明 runtime.checkpoints，无法确定 Checkpoint 的存放位置'
@@ -41,6 +34,13 @@ function t_missingHint (status) {
   return 'Manifest 未声明具体文件（models.required 为空），无法判断是否完整'
 }
 
+/**
+ * 一台引擎的权重现状：只查，不下。
+ *
+ * @param {string} id 引擎 id（走平台 registry 拿 profile）
+ * @returns {{ok:true, status:object, commands:string[], notes:string[]}
+ *          | {ok:false, code, error, example?}}
+ */
 function describeModels (id, appDir) {
   let cp
   try {

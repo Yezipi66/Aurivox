@@ -1,30 +1,13 @@
-// 名片表单的自动填：判定与填值都是纯函数，好测。
-//
-// 这一份从 ManifestForm.jsx 里抽出来，因为自动填的判定有四条分支，
-// 塞在 React effect 里就只能靠点界面来验，而点界面验不到「不该填的时候没填」。
+// 名片表单的自动填：判定与填值都是纯函数。
+// 抽出来是因为自动填有四条分支，塞在 React effect 里只能靠点界面验，
+// 而点界面验不到「不该填的时候没填」。
 
-// 名片里哪些段是「这台引擎自己的」。
-//
-// 为什么要按段分：换引擎时，上一台引擎的名片内容必须清干净，
-// 但清干净不等于清空。id、label、contract_version 这些是「这张名片长什么样」，
-// 与哪台引擎无关；runtime、call、models、maps、parameters 这些是「这台引擎怎么跑」，
-// 换引擎就得清掉。
-//
-// 判据依据：平台验的是 runtime / call / capabilities / models / maps / parameters
-// 这些段（lib/engines/profile.js 的 profileTopKeys）。id / label / contract_version
-// 是名片自身的声明（lib/engines/profileTopKeys.node.test.js 单独断言过它们是顶层键）。
-//
-// 不按「逐个键名硬编码要清的字段」来清：那清单会漏，漏一个就是上一台引擎的
-//   残留混进这一台的名片。按「段」分，清一次就清全。
+// 换引擎时要清掉哪些段：「这台引擎怎么跑」的那部分（runtime / call / models…）。
+// id / label / contract_version 是名片自身的声明，留着：清干净不等于清空。
 const ENGINE_SPECIFIC_KEYS = [
   'runtime', 'call', 'models', 'maps', 'parameters', 'output_formats',
   'capabilities', 'install', 'upstream',
-  // 下面这几个是顶层的单值字段，同样是「这台引擎怎么跑」的参数：
-  //   max_chars / timeout_ms 是这台引擎的预算；
-  //   base_url_env / default_base_url 是这台引擎的地址；
-  //   weights 是这台引擎的模型位；
-  //   local_changes 是这台引擎相对上游改了什么。
-  // 漏掉它们的后果与漏掉 runtime 一样：换引擎后表单里留着上一台的值。
+  // 下面这几个是顶层的单值字段，同样属于「这台引擎怎么跑」，漏掉与漏掉 runtime 同后果。
   'max_chars', 'max_chars_source', 'timeout_ms', 'timeout_ms_source',
   'base_url_env', 'default_base_url', 'weights', 'local_changes',
   'payload_keys', 'defaults', 'defaults_env', 'param_keys', 'params', 'input',
@@ -82,10 +65,7 @@ export function shouldAutoFillCheckpoints (manifest, checkpointsPath) {
   const current = rt.checkpoints
   // 这一格空着 ⇒ 填。
   if (!current) return true
-  // 这一格已经指着一台别的引擎 ⇒ 改掉。
-  //   落盘路径是 engines/<id>/checkpoints 这一族，路径里的引擎名与当前
-  //   名片的 id 不一致 ⇒ 这一格是换引擎时留下的上一台的残留。
-  //   换成当前 id 对应的那一份，否则表单里留着上一台的权重路径。
+  // 这一格已经指着别的引擎（路径里的引擎名与当前 id 不一致）⇒ 换引擎留下的残留，改掉。
   const owner = checkpointOwner(current)
   if (owner && owner !== manifest.id) return true
   // 这一格指的就是当前这台 ⇒ 使用者填过或是自动填的，不动它。

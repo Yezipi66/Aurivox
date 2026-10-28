@@ -89,10 +89,9 @@ function PreviewInner ({ manifest, children }) {
       .filter((f) => isFieldVisible(f, values))
 
   const [tier, setTier] = React.useState('common')
-  // Advanced 默认折叠：用 state 而不是 <details>。
-  // 项目的 .collapsible 是给 div 用的（web/src/styles.css:534-556），
-  // 折叠靠 onClick 切 state（参考 RefineModal.jsx:326-330）。
-  // <details> 自带浏览器箭头，会和标题里的 ▼ 叠在一起。
+  // Advanced 默认折叠用 state 而不是 <details>：折叠要靠 onClick 切 state
+  // （项目的 .collapsible 是给 div 用的），而 <details> 自带浏览器箭头，
+  // 会和标题里的 ▼ 叠在一起。
   const [showAdvanced, setShowAdvanced] = React.useState(false)
 
   const cols = visible(tier)

@@ -74,8 +74,8 @@ function handleSave (req, res) {
 /**
  * GET /wizard/manifest/<id>：读回一张已装引擎的名片。
  *
- * 平台没有按 id 取原始名片的端点（lib/routes/engines.js 只提供列表与启停），
- * 所以这里直接读盘。id 先过 validateId，再由 readManifestById 保证只读 engines/ 之内。
+ * 原始名片直接读盘，不经过管理层。id 先过 validateId，
+ * 再由 readManifestById 保证只读 engines/ 之内。
  *
  * 必须用 req.url 而不是 req.path：Vite 的 connect 给的 req.url 是带查询串的原文，
  * req.path 有时是 undefined（传下去会 500 "path argument must be of type string"）。

@@ -280,7 +280,7 @@ function canUseEngineVenv (root, id) {
 /**
  * 从 requires-python 的区间里挑一个具体的主次版本。
  *
- * 规则：**优先选区间内最高的版本**。
+ * 规则：优先选区间内最高的版本。
  *   `>=3.10,<3.12` ⇒ 3.11（上界排他，所以取上界减一）
  *   `>=3.10,<3.13` ⇒ 3.12
  *   `>=3.10,<=3.12` ⇒ 3.12（上界包容，取上界本身）
@@ -413,16 +413,16 @@ function platformPythonAbs (root, opts = {}) {
  *
  * 解释器的选法（规范，不猜）：
  *   ① 引擎自己声明了 Python 版本（.python-version 或 requires-python）⇒ 用它；
- *     requires-python 是区间时取**区间内最高的那个版本**（见 pickFromRequiresPython）。
+ *     requires-python 是区间时取区间内最高的那个版本（见 pickFromRequiresPython）。
  *   ② 引擎没声明 ⇒ 用平台基座（3.11）；
  *   ③ 连平台基座都拿不到 ⇒ 报出来，不回落去任意版本的解释器。
  * 第③条是硬的：回落等于把「版本不匹配」这个错误推迟到装依赖那一步，
  * 症状变成「No solution found when resolving dependencies」，看不出真因。
  *
  * 两个 python 各自的角色（别混）：
- *   · argv[0] 是**跑 uv 的那个**解释器：它必须有 uv（平台根 venv / slim-venv 有，
+ *   · argv[0] 是跑 uv 的那个解释器：它必须有 uv（平台根 venv / slim-venv 有，
  *     仓库内嵌的解释器是裸解释器、没装 uv）。
- *   · --python 给的是**新环境该用哪个版本**：引擎声明了就用声明的版本号，
+ *   · --python 给的是新环境该用哪个版本：引擎声明了就用声明的版本号，
  *     没声明就用平台基座版本号。给版本号而不是路径 ⇒ 本机没有那个版本时，
  *     uv 会自己下载一个（3.10 / 3.11.13 / 3.12 都拉得下来）。
  *

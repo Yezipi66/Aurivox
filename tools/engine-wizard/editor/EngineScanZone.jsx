@@ -2,18 +2,13 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ParamPool from './ParamPool'
 
-// 左栏：扫到的参数。
+// 左栏：扫到的参数。扫描按钮在中栏身份条上；引擎身份也跟着 Manifest 放在中栏顶部，
+// 左栏只放外部输入。
 //
-// 这一栏只放「扫到的参数」。扫描按钮在中栏身份条上。
-// 引擎身份不在这里：身份跟着名片走，放在中栏顶部
-// （EngineIdentity.jsx）。左栏是外部输入，中栏是这张名片本身。
+// 扫描不覆盖已有内容：扫到的参数进池子，池子只是可拖的源，往中栏落点拖才会改 Manifest；
+// 已有 Manifest 的引擎扫完之后，里面原有的 call.args 保持原样。
 //
-// 扫描不覆盖已有内容：扫到的参数进池子，池子只是可拖的源，
-// 往中栏落点拖才会改名片。已有名片的引擎扫完之后，
-// 名片里原有的 call.args 保持原样。
-//
-// 视觉外壳用项目的 .section（.section-hdr + .section-body），
-// 不自造栏头：主界面里每一块内容都是这么长的。
+// 视觉外壳用项目的 .section（.section-hdr + .section-body），不自造栏头。
 
 /**
  * 左栏：分组选择 + 参数池。
