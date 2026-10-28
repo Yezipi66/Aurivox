@@ -272,7 +272,6 @@ function splitTorchPackages (deps) {
  *
  * 只做「行 → 值」，不解析整个 lock 语法。
  * @returns {{name:string, version:string, source:string|null, marker:string|null, spec:string}[]}
- * @returns {{name:string, version:string, source:string|null, spec:string}[]}
  */
 function parseUvLock (text) {
   if (typeof text !== 'string' || !text.includes('name =')) return []
