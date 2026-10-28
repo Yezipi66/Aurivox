@@ -1,20 +1,9 @@
 'use strict'
-// VERIFY：第 7 步：校验。
-//
-// 本文件按顺序调平台自己的四道校验，如实把结果传出去：
-//   1. 结果带 ok / problems / ready 三态
-//   2. 不把「说不出来」说成「齐了」或「缺了」
-//
-// 四道校验各自的权威实现（一个都不许在这里重写）：
-//   第 1 道 浅层「装没装」   lib/engines/envCheck.js:checkEngineEnvShallow
-//   第 2 道 深层「起不起来」 lib/engines/envCheck.js:checkEngineEnvDeep
-//   第 3 道 「齐不齐」       lib/engines/checkpoints.js:checkpointStatus
-//   第 4 道 「出不出声」     lib/engines/verifyAudio.js（verifyEngine）
-//
-// 第 4 道（A 级）要真的合成一次。tools/verify-engine.cjs 的 A 级分支写着：
-//   「A 级要真的合成。请给一份请求体」：平台要你交一份请求体，
-//   它不会自己编一个（编出来的请求验不了「声音对不对」）。
-//   所以 A 级缺 request 时，本文件如实说不给跑，不糊一个假的上去。
+// VERIFY：第 7 步：校验。按顺序调平台自己的四道校验（envCheck 的两道、checkpointStatus、
+//   verifyAudio 的 verifyEngine），本文件一道都不自己实现。
+// 结果带 ok / problems / ready 三态：不把「说不出来」说成「齐了」或「缺了」。
+// 第 4 道 A 级要真的合成一次 ⇒ 缺 request 时如实说不给跑：请求体的键名是引擎方言，
+//   平台编不出一个能验「声音对不对」的请求。
 
 const path = require('node:path')
 
@@ -146,9 +135,7 @@ function runChecks (id, opts = {}) {
 }
 
 /**
- * 第 4 道「出不出声」：A 级要真的合成。不给 request 就不跑，并如实说明为什么。
- *   理由照 tools/verify-engine.cjs 的 A 级分支：请求体里的键名是引擎方言
- *   （照 manifest.json 的 maps 写）：平台编不出一个对的。
+ * 第 4 道「出不出声」：A 级缺 request 就不跑，并如实说明为什么。
  */
 function runAudioCheck (id, opts = {}) {
   const level = opts.audio === 'A' ? 'A' : 'B'
@@ -172,8 +159,7 @@ function runAudioCheck (id, opts = {}) {
     return { ok: false, code: 'NO_PROFILE', error: e.message, errorZh: e.message }
   }
 
-  // 名片没写 runtime，平台就不负责起它，这一道无从谈起
-  //   （同 tools/verify-engine.cjs 的做法：名片没写 runtime 就退出）
+  // 名片没写 runtime，平台就不负责起它，这一道无从谈起。
   if (!profile.runtime) {
     return { ok: false, code: 'NO_RUNTIME',
       error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`, errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`

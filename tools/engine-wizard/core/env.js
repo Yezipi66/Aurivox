@@ -47,15 +47,7 @@ const {
 
 /**
  * 判「上游钉的 torch 版本在本机后端上能不能用」，给出升级建议。
- *
- * 判据只有两样，都是确定的事实：
- *   ① 上游声明的 torch 版本（requirements / pyproject / lock 里读出来的）；
- *   ② 该 (官方 index, 平台, Python ABI) 组合的版本下界
- *      （backendTorchSupport.js 的事实表）。
- *
- * 全程不联网：后端对 torch 版本的支持有下界且方向单向
- *   （XPU 从 2.6.0 起才有官方轮子，不会回头兼容 2.5），
- *   所以查表比大小就能定论。
+ * 判据是离线查表（torchVersionProbe.js 的 judgeTorchVersion），全程不联网。
  *
  * 与 torch 无关的情形（没声明 / 后端没官方 index）⇒ 返回 null，不打扰使用者。
  *

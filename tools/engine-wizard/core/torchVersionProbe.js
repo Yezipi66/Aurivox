@@ -1,23 +1,11 @@
 'use strict'
 
 // Torch 版本与本机后端的匹配判断。
-//
-// 问题形状：上游把 torch 钉在某个版本（比如 2.5.1），而那个版本在本机推荐后端
-//   上不可能用上 ⇒ 装依赖必然失败，报错是 uv 的
-//   「No solution found when resolving dependencies」。
-//
-// 关键：这个判断不需要联网。
-//   XPU、ROCm 这类加速后端对 torch 版本有明确的下界
-//   （XPU 的官方二进制轮子从 2.6.0 起才有），方向是单向的：
-//   后端只往更高的版本扩，不回头兼容更老的。
-//   所以「这个版本在这个后端上有没有」是确定的事实，查表比大小即可。
-//   事实表在 backendTorchSupport.js。
-//
-// 判据只读两样东西，不猜：
-//   ① 上游声明的 torch 版本（requirements / pyproject / lock 里读出来的事实）；
-//   ② 该后端与该 Python ABI 的版本下界（表里的事实）。
-// 两者不一致 ⇒ 如实报出「上游钉的版本在本机后端上不可用」与「可用的最低版本是什么」，
+// 判断是离线查表比大小（下界表在 backendTorchSupport.js），不需要联网。
+// 判据只读两样事实：上游声明的 torch 版本、该后端与该 Python ABI 的版本下界。
+// 两者不一致 ⇒ 报出「上游钉的版本在本机后端上不可用」与可用的最低版本，
 //   由使用者决定升不升级。平台不替使用者改上游钉的版本。
+// 联网只用于补充「这个后端上还有哪些版本可用」，失败不影响判断，只少一份补充信息。
 
 const fs = require('node:fs')
 const https = require('node:https')
@@ -156,14 +144,7 @@ function fetchIndexHtml (indexUrl, timeoutMs) {
 }
 
 /**
- * 同步判「上游钉的 torch 版本在本机后端上能不能用」。
- *
- * 判据是离线查表比大小（backendTorchSupport.js）：
- *   这个 (官方 index, 平台族, Python ABI) 组合从哪个 torch 版本起才有轮子。
- *   上游声明的版本低于那个下界 ⇒ 一定装不上，且永远不会装得上
- *   （后端只往更高的版本扩，不回头兼容更老的）。
- *
- * 所以「这个版本有没有」是确定的事实，不需要联网去查。
+ * 同步判「上游钉的 torch 版本在本机后端上能不能用」（离线查表，见文件头）。
  *
  * @param {object} opts
  *   dir 引擎目录（读上游声明）
@@ -231,10 +212,7 @@ function judgeTorchVersion (opts = {}) {
 
 /**
  * 判「上游钉的 torch 版本在本机后端上能不能用」，并补充该后端上可用的版本列表。
- *
- * 判断部分在 judgeTorchVersion 里，纯查表、不联网。
- * 这里额外联网只为补充「这个后端上还有哪些版本可用」这份信息，
- *   失败不影响判断（判断已经成立），只是少了一份补充信息。
+ * 判断部分在 judgeTorchVersion 里，纯查表、不联网；这里额外联网只补版本列表。
  *
  * @param {object} opts
  *   dir 引擎目录（读上游声明）

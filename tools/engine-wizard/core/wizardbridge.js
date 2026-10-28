@@ -1,7 +1,10 @@
 'use strict'
 // 向导的 HTTP 桥：把探测、克隆、装依赖、下模型、校验、参数反射挂到 /wizard/* 上。
 // 探测阶段只读上游的文本文件，不 clone、不建目录；克隆在探测之后。
-// 每个 handler 同步返回 true/false 表示是否接管，异步活放进 readBody 回调。
+// 每个 handler 同步返回 true/false 表示是否接管，异步活放进 readBody 回调；
+//   handler 不许写成 async：async 对不匹配的 URL 也返回 Promise，中间件会当成已处理并中断。
+// 前缀端点必须显式排除被它包含的长前缀端点：中间件是「第一个返回 true 的赢」，
+//   调表里的顺序挡不住前缀包含关系。
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -451,9 +454,6 @@ const cloneAbortControllers = new Map()
 
 // POST /wizard/clone        第 2 步
 // execute 必须显式 true：默认只回计划。
-// 显式排除 /wizard/clone/cancel 与 /wizard/clone/remove：短前缀会把那两个长前缀端点
-//   一并匹配掉，于是同名 handler 永远拿不到请求。中间件是「第一个返回 true 的赢」，
-//   调表里的顺序挡不住前缀包含关系。
 function handleClone (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/clone')) return false
@@ -492,7 +492,7 @@ function handleClone (req, res) {
 
 // POST /wizard/clone/remove  {id}  删掉目标目录
 // 两个用途共用这一个端点：目标目录已存在（之前克隆过）要重来 ⇒ 清除后重试克隆；
-//   克隆完成后悔了 ⇒ 撤销克隆。显式排除 /wizard/clone/cancel，理由同 handleClone。
+//   克隆完成后悔了 ⇒ 撤销克隆。
 function handleCloneRemove (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/clone/remove')) return false
@@ -530,7 +530,6 @@ function handleCloneCancel (req, res) {
 const envAbortControllers = new Map()
 
 // POST /wizard/env          第 3 步
-// 显式排除 /wizard/env/cancel，理由同 handleClone：短前缀会吃掉长前缀端点。
 function handleEnv (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/env')) return false
@@ -558,9 +557,7 @@ function handleEnv (req, res) {
     }
     // 只出计划（execute:false）时走普通 JSON 响应：快的请求不该用流。
     if (!input.execute) {
-      // 计划里带上 torch 版本与本机后端的匹配结论。
-      //   判断是离线查表（后端对 torch 版本有下界，方向单向），
-      //   不依赖网络 ⇒ 计划响应不会被网络拖慢，也不会因网络不通而漏掉提示。
+      // 计划里带上 torch 版本与本机后端的匹配结论；判断是离线查表，不依赖网络。
       //   已经接受升级时不重复判断：建议前端已经拿着（它在执行请求里回传）。
       const suggestion = suggestTorchUpgrade(input.upgradeTorch === true ? null : input)
       const r = buildEnvPlan(input)
@@ -665,9 +662,6 @@ function handleDownloadFiles (req, res) {
 //   返回 { ok: true, files: [{ name, size, sha256, status, repo, tool, note, noteZh }] }
 //   必须带 repo/tool：前端单文件下载完成后会重新调本端点刷新，刷新后整表覆盖。
 //   不带 repo 就等于把表里每一项的来源抹掉，重下/续传按钮和仓库列会一起变成「未知」。
-//
-// 这里不写 async：async 函数对不匹配的请求也返回 Promise，中间件会据此当成已处理。
-// 异步活一律塞进 readBody 回调或 .then() 里。
 function handleDownloadManifest (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/manifest')) return false
@@ -850,9 +844,6 @@ function handleDownloadProgress (req, res) {
 function handleDownload (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/download')) return false
-  // 显式排除 /wizard/download/cancel，理由同 handleEnv：短前缀会吃掉长前缀端点。
-  //   把 cancel 排在 handleDownload 前面还不够：这个中间件是「第一个返回 true 的赢」，
-  //   handleDownload 对 cancel 也会返回 true，抢在前面就把它吃掉了。
   if (req.url.startsWith('/wizard/download/cancel')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
@@ -1050,16 +1041,10 @@ function handleVerify (req, res) {
 // 这条端点只产草稿，绝不写 manifest.json：parameters[] 与 map_candidates 都是候选，
 //   界面逐条确认后才可能进表单；落盘是 POST /wizard/save 的事。
 // 不新增任何平台侧校验逻辑：反射器报什么就传什么，partial / warnings / excluded 原样带出去。
-// 这里不写 async：async function 无论 URL 匹不匹配都返回 Promise ⇒ 中间件一见到 Promise
-//   就 break 出循环并 next() ⇒ 本函数对所有请求都被提前中断 ⇒ 请求穿透到 vite 的
-//   HTML fallback ⇒ 200 + text/html ⇒ 第 4 步参数反射永远拿不到 JSON。
-//   异步活全在 readBody 的回调里做；函数本身同步返回 true/false。
 function handleParams (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/params')) return false
-  // 锚定：startsWith 会把 /wizard/paramsxyz、/wizard/params/extra 一起吃掉。
-  //   前缀必须整串匹配（后面只许跟 ? 查询串）：与 handleProfile 的
-  //      '/wizard/profile/' 同一类判据（长/短前缀互吃的坑）。
+  // 前缀必须整串匹配（后面只许跟 ? 查询串）：startsWith 会把 /wizard/params/extra 一起吃掉。
   const tail = req.url.slice('/wizard/params'.length)
   if (tail !== '' && tail[0] !== '?') return false
   readBody(req, respondSafely(res, async (err, body) => {
@@ -1124,7 +1109,6 @@ function handleParams (req, res) {
 //   flag 列表，每条 {name, flag, style, help, required, is_tool}；suggested_call
 //   建议的 cli 形态 call 段骨架（只是骨架，人确认后才落盘）。
 // 一条 flag 都不删、help 原样递出、不预设哪个子命令是对的：全列出。
-// 与 handleParams 同：同步返回 true（URL 匹配即接管），readBody 在回调里异步处理。
 function handleCliArgs (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/cli-args')) return false
@@ -1332,12 +1316,9 @@ function handleProfile (req, res) {
 // 判据全部是盘上的东西，不写死任何引擎名。
 // 与 GET /wizard/installed（返回引擎列表那一个）不冲突：那个回答「装过哪些」，
 //   这个回答「这一台装到哪了」。
-// 不许写成 async handler：中间件见到 Promise 就 break + next()，排在本函数后面的
-//   handler 会全部静默失效（同 handleParams 的头注）。
 function handleInstallState (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/install-state')) return false
-  // 前缀认的是整串（后面只许跟 ? 查询串）：与 handleParams 的 tail 检查同判据
   const tail = req.url.slice('/wizard/install-state'.length)
   if (tail !== '' && tail[0] !== '?') return false
   const url = new URL(req.url, 'http://x')

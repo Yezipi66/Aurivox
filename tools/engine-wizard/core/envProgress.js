@@ -1,7 +1,6 @@
 'use strict'
 //  ENV：进度持久化模块。
 //  职责：断点续传产物检查（stepArtifactExists / sitePackagesNonEmpty）。
-//  从 env.js 逐字搬来，不改逻辑。
 
 const fs = require('node:fs')
 const path = require('node:path')

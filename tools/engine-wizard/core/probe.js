@@ -118,7 +118,6 @@ function parseRequirements (text) {
     //   name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
     //   license = "Apache-2.0"    ⇒ 同上
     //   requires-python = ">=3.10" ⇒ 同上
-    // （这条守卫挡住的是把 TOML 赋值行读成包名：那几个 TOML 键名本来被读成了包名。）
     if (tail && !/^(?:\[[^\]]*\])?(?:===|==|!=|<=|>=|~=|<|>)/.test(tail)) {
       out.skipped++; continue
     }

@@ -1,9 +1,7 @@
 'use strict'
-// 第 2 步「装哪些包」的选择：用户可以跳过任意包，也可以换 torch 后端，
-// 还可以接受「升级 torch 到本机后端上可用版本」的建议。
+// 第 2 步「装哪些包」的选择：跳过任意包、换 torch 后端、或接受「升级 torch」的建议。
 // 只改写平台从上游清单推出的装法；名片自己写的 env_command 与 conda 不改。
-// 跳过用 uv 自带的排除：锁文件走 --no-install-package，其余走 --excludes，
-//   被排除的包连同「被别的包间接依赖」的情况一起不装。
+// 跳过用 uv 的排除实现：锁文件走 --no-install-package，其余走 --excludes。
 // 用户什么都没改（不跳包、后端等于推荐）时原样返回，装法逐项不改动。
 
 const fs = require('node:fs')
@@ -35,8 +33,7 @@ function readChoices (input) {
   //   没有建议时是 null；接受升级却没有建议 ⇒ 如实报出来，不闷头改版本。
   const torchSuggestion = input.torchSuggestion || null
   // versionOverrides：使用者为某个包选定的版本（包名⇒版本号）。
-  //   改版本要改清单本身：uv 的排除语义是「这个包连同依赖它的其它包一起不装」，
-  //   所以不能靠排除来实现改版本（依赖它的那些包会一起装不上）。
+  //   改版本要改清单本身，不能靠排除（见 versionOverrides.js 文件头）。
   const versionOverrides = {}
   for (const [name, ver] of Object.entries(input.versionOverrides || {})) {
     const k = normName(name)
@@ -195,7 +192,7 @@ function upgradeTorchRoute (dir, guess, ch, recommended, route, write) {
       + `改为从 ${opt.label} 官方 index 安装版本 ${version}。`,
   }
 
-  // 主安装步：跳过 torch 系（被排除的包连同依赖它的其它包一起不装）。
+  // 主安装步：跳过 torch 系。
   const skipNames = [...new Set([...ch.exclude, ...names])]
   // 界面显示的那条 spec：torch 系换成升级后的版本，其余包照上游原文。
   //   界面显示的必须与真正装进去的那条一致，
@@ -266,8 +263,6 @@ function pipRoute (dir, guess, ch, recommended, route, write) {
  *   ② torch 被改版本时，主安装步跳过 torch 系，追加一步从该后端的官方
  *      index 装所选版本（index 是命令级参数，不能靠清单表达）。
  *
- * 为什么不用排除来实现改版本：uv 的排除语义是「这个包连同依赖它的其它包
- *   一起不装」，排除 einops 会把 fugashi 这些依赖它的包也弄掉。
  *
  * @param {string} dir 引擎目录
  * @param {object} guess suggestEnvCommand 的结果
