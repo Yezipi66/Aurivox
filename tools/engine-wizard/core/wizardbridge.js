@@ -10,7 +10,8 @@ const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
 const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
 const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile,
-  removePartialFiles } = require('./download')
+  removePartialFiles, normalizeSource, gatedResult } = require('./download')
+const hfToken = require('./hfToken')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, planDependencies, probePyproject } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
@@ -25,25 +26,78 @@ const https = require('node:https')
  * 命令不完整也照样给出来：平台不替它补全，补错了等于平台在编造上游的下载方式。
  *
  * @param {string} markdown README 原文
- * @returns {Array<{tool:string,repo:string,dir:(string|null),raw:string}>} 去重后的命令，按 README 里的顺序
+ * @returns {Array<{tool:string,source:string,repo:string,dir:(string|null),raw:string}>}
+ *   去重后的命令，按 README 里的顺序。source 是下载来源（hf / modelscope / unknown），见 parseDownloadCmd。
  */
 function extractDownloadCommands (markdown) {
   if (!markdown || typeof markdown !== 'string') return []
   const OUT = []
   const seen = new Set()
-  // 除了 CLI 形态，还认 Python API 形态：snapshot_download("repo", local_dir=...)
-  for (const m of markdown.matchAll(/^[ \t]*(?:\$|>|#{1,6}\s*)?((?:(?:uv tool install|pip install)[^\n]*\n[ \t]*)?(?:\b(?:hf|huggingface-cli|modelscope)[ \t]+download\b[^\n`]*|snapshot_download\s*\([^)\n]*\)))/gm)) {
+  const blocks = fencedBlocks(markdown)
+  // 除了 CLI 形态，还认 Python API 形态：snapshot_download("repo", local_dir=...)，
+  //   前面可以有赋值（model_dir = ...）与库名前缀（huggingface_hub.snapshot_download）。
+  for (const m of markdown.matchAll(/^[ \t]*(?:\$|>|#{1,6}\s*)?((?:(?:uv tool install|pip install)[^\n]*\n[ \t]*)?(?:\b(?:hf|huggingface-cli|modelscope)[ \t]+download\b[^\n`]*|(?:\w+\s*=\s*)?(?:\w+\.)*snapshot_download\s*\([^)\n]*\)))/gm)) {
     let cmd = m[1].trim().replace(/\s+/g, ' ')
     cmd = cmd.replace(/[`|]+$/, '').trim()
     if (!cmd || seen.has(cmd)) continue
     seen.add(cmd)
     // 目标目录由用户自选（--local-dir 之类），所以整条命令不能原样丢出去：
     // 原样就等于把目录写死成上游随手取的名字。拆成「工具 / 模型 / 目标目录」三段。
-    const parts = parseDownloadCmd(cmd)
+    const parts = parseDownloadCmd(cmd, contextOf(markdown, blocks, m.index))
     if (!parts) continue
     OUT.push(parts)
   }
   return OUT
+}
+
+// README 里每个围栏代码块（``` 或 ~~~）的起止下标。没闭合的块延伸到文末。
+function fencedBlocks (markdown) {
+  const out = []
+  let open = null
+  for (const m of markdown.matchAll(/^[ \t]*(```|~~~)[^\n]*$/gm)) {
+    if (open === null) { open = m.index; continue }
+    out.push([open, m.index + m[0].length])
+    open = null
+  }
+  if (open !== null) out.push([open, markdown.length])
+  return out
+}
+
+// 一条命令的「同一段代码」：落在围栏代码块里就是整个块，否则是它所在的那一行。
+//   snapshot_download 的来源要看 import，而 import 通常写在同一个代码块的前几行。
+function contextOf (markdown, blocks, index) {
+  for (const [a, b] of blocks) {
+    if (index >= a && index < b) return markdown.slice(a, b)
+  }
+  const lineStart = markdown.lastIndexOf('\n', index) + 1
+  const lineEnd = markdown.indexOf('\n', index)
+  return markdown.slice(lineStart, lineEnd < 0 ? markdown.length : lineEnd)
+}
+
+/**
+ * snapshot_download 属于哪个库：同名函数 modelscope 与 huggingface_hub 都有，
+ * 只能看同一段代码里是从哪个库导入的。
+ *   认得的写法：from <库>[.子模块] import ... snapshot_download（含括号换行的写法），
+ *   以及 <库>.snapshot_download(...)。
+ *   两个库都出现、或都没出现 ⇒ 'unknown'，交给使用者选：猜错的代价是去另一个站点下同名仓库。
+ *
+ * @param {string} code 同一段代码
+ * @returns {'hf'|'modelscope'|'unknown'}
+ */
+function snapshotSourceOf (code) {
+  const text = String(code || '')
+  const imports = (lib) => {
+    const re = new RegExp(`\\bfrom\\s+${lib}(?:\\.[\\w.]+)?\\s+import\\s+(\\([^)]*\\)|[^\\n]*)`, 'g')
+    for (const m of text.matchAll(re)) {
+      if (/\bsnapshot_download\b/.test(m[1])) return true
+    }
+    return new RegExp(`\\b${lib}(?:\\.\\w+)*\\.snapshot_download\\s*\\(`).test(text)
+  }
+  const ms = imports('modelscope')
+  const hf = imports('huggingface_hub')
+  if (ms && !hf) return 'modelscope'
+  if (hf && !ms) return 'hf'
+  return 'unknown'
 }
 
 /**
@@ -52,8 +106,14 @@ function extractDownloadCommands (markdown) {
  *   modelscope download --model <org>/<repo> --local_dir <dir>
  *   snapshot_download("<org>/<repo>", local_dir=...)
  * 认不出来的写法返回 null，界面上如实说「看不懂这条」：猜错等于平台替上游编了一个下载方式。
+ *
+ * 返回值的 source 是下载来源：hf / modelscope 两种 CLI 自带来源；snapshot_download
+ *   按 context（同一段代码）里的 import 判，判不出是 'unknown'（见 snapshotSourceOf）。
+ *
+ * @param {string} cmd 一条命令
+ * @param {string} [context] 命令所在的那段代码，缺省只看命令本身
  */
-function parseDownloadCmd (cmd) {
+function parseDownloadCmd (cmd, context) {
   // Python API 形态：snapshot_download("repo", local_dir='...')。
   //   它包在 python 代码里不是裸命令：这里只提取 repo 与 local_dir。
   const sd = cmd.match(/snapshot_download\s*\(\s*['"]([^'"]+)['"]/)
@@ -62,7 +122,8 @@ function parseDownloadCmd (cmd) {
     const dir = (cmd.match(/local_dir\s*=\s*['"]?([^'",\s)]+)['"]?/) || [])[1]
     // 只有 modelscope / huggingface 形状的 repo 才认
     if (!/^[^/]+[\/][^/]+/.test(repo)) return null
-    return { tool: 'snapshot', repo, dir: dir || null, raw: cmd }
+    const source = snapshotSourceOf(`${context || ''}\n${cmd}`)
+    return { tool: 'snapshot', source, repo, dir: dir || null, raw: cmd }
   }
   const ms = cmd.match(/^modelscope\s+download\b(.*)$/)
   if (ms) {
@@ -70,7 +131,7 @@ function parseDownloadCmd (cmd) {
     if (!repo) return null
     const dir = (ms[1].match(/--local_dir\s+([^\s]+)/)
       || ms[1].match(/--local-dir[=\s]+([^\s]+)/) || [])[1]
-    return { tool: 'modelscope', repo, dir: dir || null, raw: cmd }
+    return { tool: 'modelscope', source: 'modelscope', repo, dir: dir || null, raw: cmd }
   }
   // 先排掉以 `-` 开头的 token（那是参数不是位置参数）：否则
   // `hf download --local-dir=x` 会把参数当成模型名，等于替上游编了一个不存在的模型。
@@ -80,7 +141,7 @@ function parseDownloadCmd (cmd) {
   if (!repo || !/^[^\s/]+\/[^\s/]+/.test(repo)) return null
   const tail = rest.slice(rest.indexOf(repo) + repo.length)
   const dir = (tail.match(/--local-dir[=\s]+([^\s]+)/) || [])[1]
-  return { tool: 'hf', repo, dir: dir || null, raw: cmd }
+  return { tool: 'hf', source: 'hf', repo, dir: dir || null, raw: cmd }
 }
 
 // 上游可能提供的模型下载入口文件名。这是探测清单，不是平台支持的下载方式：
@@ -676,12 +737,25 @@ function handleDownloadManifest (req, res) {
   const url = new URL(req.url, 'http://x')
   const id = url.searchParams.get('id')
   const repo = url.searchParams.get('repo')
-  const tool = url.searchParams.get('tool') || 'hf'
+  const rawTool = url.searchParams.get('tool')
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   if (!repo) { json(res, 400, { ok: false, error: '?repo= is required' }); return true }
+  // 来源必须明说：缺省当成 HF 的话，魔搭镜像会被列成 HF 的清单，下载时再去 HF 下。
+  const tool = normalizeSource(rawTool)
+  if (!tool) {
+    json(res, 400, { ok: false, code: 'UNKNOWN_SOURCE',
+      error: `?tool= must be hf or modelscope (got ${JSON.stringify(rawTool || '')}).`,
+      errorZh: '下载来源未知，请选择 Hugging Face 或魔搭（ModelScope）。' })
+    return true
+  }
   const root = url.searchParams.get('root') || projectRoot() || ''
-  fetchRemoteManifest(repo, tool).then(async (result) => {
+  const token = tool === 'hf' ? hfToken.readToken() : null
+  fetchRemoteManifest(repo, tool, undefined, { token }).then(async (result) => {
     if (!result.ok) {
+      if (tool === 'hf' && (result.status === 401 || result.status === 403)) {
+        json(res, 200, gatedResult(result.status, repo, !!token, null))
+        return
+      }
       json(res, 200, { ok: false, error: result.error || 'Failed to fetch remote manifest' })
       return
     }
@@ -699,7 +773,9 @@ function handleDownloadManifest (req, res) {
 }
 
 // /wizard/download/file  第 3 步单文件操作
-//   POST   { id, root, file } 下载单个文件，SSE 流式返回进度
+//   POST   { id, root, repo, file:{name,size,sha256,tool} } 下载单个文件，SSE 流式返回进度。
+//          repo 为空、来源认不出都在开流之前回 400：开了流再报错，前端只看到一个失败的文件，
+//          看不出是请求本身就缺了东西。
 //   DELETE { id, root, name, size, sha256 } 删掉判为不完整的那个文件
 function handleDownloadFile (req, res) {
   if (req.method !== 'POST' && req.method !== 'DELETE') return false
@@ -711,7 +787,21 @@ function handleDownloadFile (req, res) {
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     if (!file || !file.name) { json(res, 400, { ok: false, error: 'file.name is required' }); return }
     const root = body.root || projectRoot() || ''
-    const repo = body.repo || ''
+    const repo = typeof body.repo === 'string' ? body.repo.trim() : ''
+    if (!repo) {
+      json(res, 400, { ok: false, code: 'MISSING_REPO', error: 'repo is required',
+        errorZh: '请求里缺少仓库（repo），无法下载。' })
+      return
+    }
+    const source = normalizeSource(file.tool)
+    if (!source) {
+      json(res, 400, { ok: false, code: 'UNKNOWN_SOURCE',
+        error: `file.tool must be hf or modelscope (got ${JSON.stringify(file.tool || '')}).`,
+        errorZh: '下载来源未知，请选择 Hugging Face 或魔搭（ModelScope）。' })
+      return
+    }
+    // 令牌在这里读、只交给下载层，不进 SSE 事件，也不进任何日志。
+    const token = source === 'hf' ? hfToken.readToken() : null
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
@@ -751,7 +841,7 @@ function handleDownloadFile (req, res) {
       send('line', { text, err: !!isErr })
     }, (p) => {
       send('progress', { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total })
-    }, undefined, ac.signal).then((r) => {
+    }, undefined, ac.signal, { token }).then((r) => {
       forget()
       send('done', r)
       res.end()
@@ -762,6 +852,34 @@ function handleDownloadFile (req, res) {
       res.end()
     })
   })
+  return true
+}
+
+// /wizard/hf-token  第 3 步的 HF 访问令牌
+//   GET    回 { ok, configured }：只说配置了没有，令牌本身永远不出这个进程。
+//   POST   { token } 保存；DELETE 清除。两者都只回 { ok, configured }。
+//   请求体解析失败时不回 err.message：新版 Node 的 JSON 报错会带上原文片段，原文里就是令牌。
+function handleHfToken (req, res) {
+  if (!req.url || !/^\/wizard\/hf-token(?:\?|$)/.test(req.url)) return false
+  if (req.method === 'GET') {
+    json(res, 200, { ok: true, configured: hfToken.hasToken() })
+    return true
+  }
+  if (req.method === 'DELETE') {
+    const r = hfToken.clearToken()
+    json(res, r.ok ? 200 : 500, { ...r, configured: hfToken.hasToken() })
+    return true
+  }
+  if (req.method !== 'POST') return false
+  readBody(req, (err, body) => {
+    if (err || !body || body.tooBig) {
+      json(res, 400, { ok: false, code: 'BAD_JSON', error: 'The request body is not valid JSON.',
+        errorZh: '请求格式错误。', configured: hfToken.hasToken() })
+      return
+    }
+    const r = hfToken.writeToken(body.token)
+    json(res, r.ok ? 200 : 400, { ...r, configured: hfToken.hasToken() })
+  }, 16 * 1024)
   return true
 }
 
@@ -1464,13 +1582,13 @@ function handleResetProgress (req, res) {
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
-  handleDownloadManifest, handleDownloadFile, handleDownloadCancel,
+  handleDownloadManifest, handleDownloadFile, handleDownloadCancel, handleHfToken,
   handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
-  extractDownloadCommands, parseDownloadCmd,
+  extractDownloadCommands, parseDownloadCmd, snapshotSourceOf,
   // 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。
   respondSafely,
   // 导给守卫测试：分支探测的缓存命中路径要能直接验（命中与未命中必须同形状）。

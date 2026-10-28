@@ -54,6 +54,8 @@ function validatePlugin () {
     // 认的都是整串前缀、tail 只能跟 ?，与本表其它前缀无一互为前缀，
     // 所以在表里的位置不影响路由。
     wb.handleInstallState, wb.handleResetProgress,
+    // hf-token 认的是 /wizard/hf-token 整串，后面只能跟 ?，与本表其它前缀无一互为前缀。
+    wb.handleHfToken,
     handleInstalled, handleSave,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
     // cancel 必须排在 handleDownload 之前：handleDownload 认的是 /wizard/download 整串前缀，

@@ -47,15 +47,19 @@ export async function readSse (resp, onEvent) {
  * @param {object} opts
  * @param {string} opts.id 引擎 id
  * @param {string} opts.root 项目根
- * @param {string} opts.repo 仓库
- * @param {string} opts.tool 下载器（hf / modelscope）
- * @param {object} opts.file 文件信息（name / size / sha256）
+ * @param {string} [opts.repo] 仓库，文件自己没带 repo 时用它
+ * @param {string} [opts.tool] 来源（hf / modelscope），文件自己没带 tool 时用它
+ * @param {object} opts.file 文件信息（name / size / sha256 / repo / tool）
  * @param {(name: string, progress: object) => void} opts.onProgress 进度回调
  * @param {(name: string, result: object) => void} opts.onDone 单个文件结束回调
  * @returns {Promise<object>} 该文件的结果
  */
 export async function downloadOneFile (opts) {
-  const { id, root, repo, file, onProgress, onDone } = opts
+  const { id, root, file, onProgress, onDone } = opts
+  // 仓库与来源以文件自己带的为准：「下载全部」一批里可能混着几个仓库、两个来源，
+  //   只用 opts 上的一份会把它们全发到同一个仓库去。
+  const repo = file.repo || opts.repo || ''
+  const tool = file.tool || opts.tool || ''
   const finish = (result) => {
     if (onDone) onDone(file.name, result)
     return result
@@ -67,11 +71,22 @@ export async function downloadOneFile (opts) {
       body: JSON.stringify({
         id,
         root: root || '',
-        repo: repo || '',
-        file: { name: file.name, size: file.size, sha256: file.sha256 },
+        repo,
+        file: { name: file.name, size: file.size, sha256: file.sha256, tool },
       }),
     })
-    if (!resp.ok) return finish({ ok: false, error: 'HTTP ' + resp.status })
+    if (!resp.ok) {
+      // 后端在开流之前拒绝（缺仓库、来源未知）时回的是 JSON，把它的原因带出来。
+      let j = null
+      try { j = await resp.json() } catch (e) { /* 不是 JSON 就只报状态码 */ }
+      return finish({
+        ok: false,
+        code: (j && j.code) || ('HTTP_' + resp.status),
+        status: resp.status,
+        error: (j && j.error) || ('HTTP ' + resp.status),
+        errorZh: (j && j.errorZh) || null,
+      })
+    }
     let result = { ok: false, error: 'Download ended without a result.' }
     await readSse(resp, (ev) => {
       if (!ev) return

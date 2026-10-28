@@ -3,29 +3,14 @@ import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
 import { downloadFiles } from './downloadRunner'
+import { sourceOf, buildCommand, choiceKey, repoPageUrl, SOURCES, SOURCE_LABELS } from './downloadSource'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
 // 落盘路径统一由后端决定（engines/<id>/checkpoints/），前端只传原始命令。
 
-const buildCommand = (c) => {
-  if (c.tool === 'snapshot') {
-    return {
-      display: `python -c "from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')"`,
-      argv: ['python', '-c', `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')`]
-    }
-  } else if (c.tool === 'modelscope') {
-    return {
-      display: `modelscope download --model ${c.repo} --local_dir checkpoints`,
-      argv: ['modelscope', 'download', '--model', c.repo, '--local_dir', 'checkpoints']
-    }
-  } else {
-    return {
-      display: `hf download ${c.repo} --local-dir=checkpoints`,
-      argv: ['hf', 'download', c.repo, '--local-dir=checkpoints']
-    }
-  }
-}
+// 下载来源（HF / 魔搭）的判定只有一处：downloadSource.js 的 sourceOf。
+//   显示的命令、列清单用的 tool、清单逐行回写的 tool 都从它取。
 
 export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const { t, lang } = useT()
@@ -88,6 +73,24 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
+
+  // 来源判不出的命令（snapshot_download 且同一段代码里看不出是哪个库）由使用者手选。
+  //   键见 downloadSource.js 的 choiceKey。
+  const [sourceChoices, setSourceChoices] = React.useState({})
+  const pickSource = (c, source) => {
+    setSourceChoices((prev) => ({ ...prev, [choiceKey(c)]: source }))
+  }
+
+  // HF 访问令牌：只知道配置了没有（null = 还没问过后端），令牌本身不进前端状态。
+  //   tokenDialog 不为 null 时显示弹窗：{ info: 后端的 GATED 结果或 null, retry: 保存后要重做的事 }。
+  const [hfConfigured, setHfConfigured] = React.useState(null)
+  const [tokenDialog, setTokenDialog] = React.useState(null)
+  React.useEffect(() => {
+    fetch('/wizard/hf-token')
+      .then((r) => r.json())
+      .then((j) => { if (j && j.ok) setHfConfigured(!!j.configured) })
+      .catch(() => { /* 端点不通 ⇒ 状态未知，弹窗里照样能填 */ })
+  }, [])
 
   // 持久化：从会话段恢复状态（sessionStorage，键含 id 与 url）。
   // 懒初始化读一次；换 URL / 换引擎 ⇒ 键变 ⇒ 恢复到的是另一段会话。
@@ -159,10 +162,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         '仓库信息缺失，请检查上游 README。'))
       return
     }
+    const tool = sourceOf(c, sourceChoices)
+    if (tool === 'unknown') {
+      setProbeError(t('Choose where this command downloads from first (Hugging Face or ModelScope).',
+        '请先选择这条命令的下载来源（Hugging Face 或魔搭）。'))
+      return
+    }
     setProbeLoading(true)
     setProbeError(null)
     try {
-      const tool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
@@ -179,10 +187,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         setManifest((prev) => {
           // 同仓库去重：如果已经嗅探过这个仓库，忽略
           if (prev && prev.some((f) => f.repo === c.repo)) return prev
-          // 追加：把新文件加到列表后面，带上 repo 字段
-          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool: c.tool }))
+          // 追加：把新文件加到列表后面，带上 repo 与来源。来源写判定后的 hf / modelscope，
+          //   不写命令形态（snapshot）：下载时后端只认这两个值。
+          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool }))
           return [...(prev || []), ...newFiles]
         })
+      } else if (j.code === 'GATED') {
+        // 私有仓库不带令牌连清单都列不出：弹窗填令牌，保存后重新列。
+        setTokenDialog({ info: j, retry: () => loadManifest(c) })
       } else {
         // 显示错误信息，让用户知道嗅探失败
         setProbeError(j.error || t('Probe failed', '嗅探失败'))
@@ -263,6 +275,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     if (!manifest || manifest.length === 0) return
     const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
     if (filesToDownload.length === 0) return
+    startDownloads(filesToDownload)
+  }
+
+  // 开一轮下载：清掉上一轮的状态再交给 runDownloads。下载全部、单文件、令牌保存后的重试都走这里。
+  const startDownloads = (files) => {
     dlBusyRef.current = true
     dlPausedRef.current = false
     dlCancelRef.current = false
@@ -270,7 +287,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     setDlBusyBoth(true)
     setDlSummary({ stage: 'start' })
     setDlFiles({})
-    runDownloads(filesToDownload)
+    runDownloads(files)
   }
 
   // 执行一批下载：单文件与「下载全部」共用这一条路，界面逻辑因此是同一套。
@@ -286,6 +303,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }).then((r) => {
       dlBusyRef.current = false
       setDlBusyBoth(false)
+      // HF 以授权错误拒绝的文件：弹窗让使用者填令牌（或去接受许可协议），之后只重下这几个。
+      const gated = (r.results || []).filter((x) => x && x.code === 'GATED')
+      if (gated.length > 0 && !dlCancelRef.current) {
+        const names = new Set(gated.map((x) => x.name))
+        const again = files.filter((f) => names.has(f.name))
+        setTokenDialog({ info: gated[0], retry: () => startDownloads(again) })
+      }
       if (dlCancelRef.current) {
         setDlSummary({ stage: 'cancelled' })
       } else if (dlPausedRef.current) {
@@ -352,14 +376,45 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   //   与「下载全部」共用 runDownloads，因此进度分槽、取消、收口是同一套逻辑。
   const runDownload = (c, file) => {
     if (!file || !file.name) return
-    dlBusyRef.current = true
-    dlPausedRef.current = false
-    dlCancelRef.current = false
-    setDlPaused(false)
-    setDlBusyBoth(true)
-    setDlSummary({ stage: 'start' })
-    setDlFiles({})
-    runDownloads([{ ...file, repo: file.repo || c.repo, tool: file.tool || c.tool }])
+    startDownloads([{ ...file, repo: file.repo || c.repo, tool: file.tool || c.tool }])
+  }
+
+  // 令牌弹窗的三个动作。后端只回 { ok, configured }，令牌不回传，前端也不留副本。
+  const [tokenBusy, setTokenBusy] = React.useState(false)
+  const [tokenErr, setTokenErr] = React.useState(null)
+  const closeTokenDialog = () => { setTokenDialog(null); setTokenErr(null) }
+  const retryAfterToken = () => {
+    const retry = tokenDialog && tokenDialog.retry
+    closeTokenDialog()
+    if (retry) retry()
+  }
+  const saveToken = async (token) => {
+    setTokenBusy(true); setTokenErr(null)
+    try {
+      const resp = await fetch('/wizard/hf-token', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      const j = await resp.json()
+      if (j && typeof j.configured === 'boolean') setHfConfigured(j.configured)
+      if (!j || !j.ok) {
+        setTokenErr(lang === 'zh' ? ((j && j.errorZh) || '令牌保存失败。') : ((j && j.error) || 'Could not save the token.'))
+        return
+      }
+      retryAfterToken()
+    } catch (e) {
+      setTokenErr(lang === 'zh' ? '令牌保存失败。' : 'Could not save the token.')
+    } finally { setTokenBusy(false) }
+  }
+  const clearToken = async () => {
+    setTokenBusy(true); setTokenErr(null)
+    try {
+      const resp = await fetch('/wizard/hf-token', { method: 'DELETE' })
+      const j = await resp.json()
+      if (j && typeof j.configured === 'boolean') setHfConfigured(j.configured)
+    } catch (e) {
+      setTokenErr(lang === 'zh' ? '令牌清除失败。' : 'Could not remove the token.')
+    } finally { setTokenBusy(false) }
   }
 
   // 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/。
@@ -385,6 +440,21 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               <code>engines/{id}/checkpoints/</code>
             </span>
           </div>
+          {manifest.some((f) => f.tool === 'hf') && (
+            <div className="plan-kv">
+              <span className="pk">{t('HF token', 'HF 令牌')}</span>
+              <span className="pv">
+                {hfConfigured === true
+                  ? t('Configured', '已配置')
+                  : hfConfigured === false ? t('Not configured', '未配置') : t('Unknown', '未知')}
+                {' '}
+                <button className="btn btn-sm" type="button"
+                  onClick={() => setTokenDialog({ info: null, retry: null })}>
+                  {hfConfigured ? t('Change or clear', '更换或清除') : t('Set', '设置')}
+                </button>
+              </span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
             <button
               className="btn btn-sm"
@@ -459,22 +529,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </thead>
             <tbody>
               {manifest.map((f, i) => {
-                const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
+                const cmd = { repo: f.repo || '', tool: f.tool || '' }
+                const page = repoPageUrl(f.tool, f.repo)
                 return (
                   <tr key={i}>
                     <td><code>{f.name || ''}</code></td>
                     <td>
-                      {f.repo ? (
-                        <a
-                          href={f.tool === 'modelscope'
-                            ? `https://modelscope.cn/models/${f.repo}`
-                            : `https://huggingface.co/${f.repo}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
+                      {page ? (
+                        <a href={page} target="_blank" rel="noreferrer">
                           {f.repo}
                         </a>
-                      ) : t('(unknown)', '（未知）')}
+                      ) : (f.repo || t('(unknown)', '（未知）'))}
                     </td>
                     <td>
                       {f.size > 0
@@ -547,16 +612,30 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               </div>
             )}
             {visibleCmds.map((c, i) => {
-              const { display } = buildCommand(c)
+              const { display, source } = buildCommand(c, sourceChoices)
+              // 来源是从 import 判出来的就不给选；判不出（或使用者手选过）才显示选择框。
+              const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
               return (
               <div key={i} className="rc-cmd" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>
                   {display}
                 </pre>
+                {pickable && (
+                  <select className="control" value={source === 'unknown' ? '' : source}
+                    title={t('The upstream code does not say which library this snapshot_download comes from.',
+                      '上游代码里看不出这个 snapshot_download 来自哪个库，请选择下载来源。')}
+                    onChange={(e) => pickSource(c, e.target.value)}
+                    style={{ flexShrink: 0 }}>
+                    <option value="">{t('Choose source', '选择来源')}</option>
+                    {SOURCES.map((s) => (
+                      <option key={s} value={s}>{SOURCE_LABELS[s][lang === 'zh' ? 'zh' : 'en']}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   className="btn btn-sm"
                   type="button"
-                  disabled={probeLoading}
+                  disabled={probeLoading || source === 'unknown'}
                   onClick={() => loadManifest(c)}
                   style={{ flexShrink: 0 }}
                 >
@@ -681,6 +760,20 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
+      {tokenDialog && (
+        <HfTokenDialog
+          info={tokenDialog.info}
+          canRetry={!!tokenDialog.retry}
+          configured={hfConfigured}
+          busy={tokenBusy}
+          error={tokenErr}
+          onSave={saveToken}
+          onClear={clearToken}
+          onRetry={retryAfterToken}
+          onClose={closeTokenDialog}
+        />
+      )}
+
       {/* 命令：平台只填好占位符打印出来，不代下载。
           下载清单来自 probe，不依赖 manifest。*/}
 
@@ -704,6 +797,86 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </span>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// HF 访问令牌弹窗。形态复用主界面的 .modal-overlay / .modal-card。
+//   info 是后端的 GATED 结果（reason 三种，见 core/download.js 的 gatedResult），手动打开时为 null。
+//   输入框是受控的局部状态，弹窗关掉就丢；保存走父组件的 onSave，父组件不留副本。
+function HfTokenDialog ({ info, canRetry, configured, busy, error, onSave, onClear, onRetry, onClose }) {
+  const { t, lang } = useT()
+  const [token, setToken] = React.useState('')
+  const zh = lang === 'zh'
+  const reason = info && info.reason
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card confirm-card"
+        style={{ maxWidth: 560, padding: 20 }}
+        onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-hdr">
+          <span>{t('Hugging Face authorization', 'Hugging Face 授权')}</span>
+        </div>
+        <div className="confirm-body">
+          {info && (
+            <p style={{ marginTop: 0 }}>{zh ? (info.errorZh || info.error) : info.error}</p>
+          )}
+          {reason === 'LICENSE_NOT_ACCEPTED' && info.repoPage && (
+            <p>
+              <a href={info.repoPage} target="_blank" rel="noreferrer">
+                {t('Open the repository page', '打开仓库页面')}
+              </a>
+              {t(' to accept the license, then retry. Or download the ModelScope mirror instead.',
+                '，登录并接受许可协议后点「重试」。也可以改用魔搭（ModelScope）上的镜像。')}
+            </p>
+          )}
+          {reason !== 'LICENSE_NOT_ACCEPTED' && (
+            <p style={info ? undefined : { marginTop: 0 }}>
+              {t('Create a read token at ', '在 ')}
+              <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
+                huggingface.co/settings/tokens
+              </a>
+              {t('. You only need to enter it once; failed files are retried after it is saved.',
+                ' 创建一个只读令牌。只需填写一次，保存后会自动重试失败的文件。')}
+            </p>
+          )}
+          <div className="field-hint" style={{ marginTop: 0 }}>
+            {t('The token is stored only on this computer and is never written to the manifest.',
+              '令牌只保存在本机，不会写进名片。')}
+            {' '}
+            {configured === true
+              ? t('Status: configured.', '状态：已配置。')
+              : configured === false ? t('Status: not configured.', '状态：未配置。') : ''}
+          </div>
+          <input className="control" type="password" autoComplete="off" spellCheck={false}
+            placeholder={configured ? t('Enter a new token to replace the saved one', '填写新令牌以更换已保存的令牌')
+              : t('hf_…', 'hf_…')}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            style={{ width: '100%', marginTop: 8 }} />
+          {error && <div className="msg msg-danger" style={{ marginTop: 8 }}>{error}</div>}
+        </div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" type="button" onClick={onClose} disabled={busy}>
+            {t('Close', '关闭')}
+          </button>
+          {configured && (
+            <button className="btn btn-sm btn-danger" type="button" onClick={onClear} disabled={busy}>
+              {t('Clear token', '清除令牌')}
+            </button>
+          )}
+          {canRetry && reason === 'LICENSE_NOT_ACCEPTED' && (
+            <button className="btn btn-sm" type="button" onClick={onRetry} disabled={busy}>
+              {t('Retry', '重试')}
+            </button>
+          )}
+          <button className="btn btn-sm btn-primary" type="button"
+            disabled={busy || !token.trim()}
+            onClick={() => onSave(token.trim())}>
+            {canRetry ? t('Save and retry', '保存并重试') : t('Save', '保存')}
+          </button>
+        </div>
       </div>
     </div>
   )

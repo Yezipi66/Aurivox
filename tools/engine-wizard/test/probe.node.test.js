@@ -223,3 +223,41 @@ test('不是下载命令的（pip install）不许被当模型下载', () => {
   assert.strictEqual(extractDownloadCommands('pip install -r requirements.txt').length, 0)
   assert.strictEqual(extractDownloadCommands('uv sync --all-extras').length, 0)
 })
+
+// snapshot_download 在 modelscope 与 huggingface_hub 里同名，来源只能看同一段代码里的 import
+test('snapshot_download：同一个代码块里的 import 决定来源', () => {
+  const fence = (body) => '```python\n' + body + '\n```\n'
+  const md = [
+    fence("from modelscope import snapshot_download\nsnapshot_download('org/ms-repo', local_dir='ckpt')"),
+    fence("from huggingface_hub import (\n    hf_hub_download,\n    snapshot_download,\n)\nsnapshot_download('org/hf-repo')"),
+    fence("import huggingface_hub\nhuggingface_hub.snapshot_download('org/hf-dotted')"),
+    fence("from modelscope.hub.snapshot_download import snapshot_download\nsnapshot_download('org/ms-sub')"),
+    fence("snapshot_download('org/no-import')"),
+    fence("from modelscope import snapshot_download\nfrom huggingface_hub import snapshot_download\nsnapshot_download('org/both')"),
+  ].join('\n')
+  const got = Object.fromEntries(extractDownloadCommands(md).map((c) => [c.repo, c]))
+  assert.strictEqual(got['org/ms-repo'].tool, 'snapshot')
+  assert.strictEqual(got['org/ms-repo'].source, 'modelscope')
+  assert.strictEqual(got['org/ms-repo'].dir, 'ckpt')
+  assert.strictEqual(got['org/hf-repo'].source, 'hf')
+  assert.strictEqual(got['org/hf-dotted'].source, 'hf')
+  assert.strictEqual(got['org/ms-sub'].source, 'modelscope')
+  assert.strictEqual(got['org/no-import'].source, 'unknown', '看不出 import 的不许猜')
+  assert.strictEqual(got['org/both'].source, 'unknown', '两个库都导入时不许挑一个')
+})
+
+test('snapshot_download：别的代码块里的 import 不算数', () => {
+  const md = '```python\nfrom modelscope import snapshot_download\n```\n\n'
+    + '```python\nsnapshot_download("org/other-block")\n```\n'
+  const [c] = extractDownloadCommands(md)
+  assert.strictEqual(c.repo, 'org/other-block')
+  assert.strictEqual(c.source, 'unknown')
+})
+
+test('CLI 形态自带来源；parseDownloadCmd 不给上下文时只看命令本身', () => {
+  assert.strictEqual(parseDownloadCmd('hf download org/a --local-dir=x').source, 'hf')
+  assert.strictEqual(parseDownloadCmd('modelscope download --model org/b --local_dir x').source, 'modelscope')
+  assert.strictEqual(parseDownloadCmd("snapshot_download('org/c')").source, 'unknown')
+  assert.strictEqual(
+    parseDownloadCmd("snapshot_download('org/d')", 'from huggingface_hub import snapshot_download').source, 'hf')
+})

@@ -5,6 +5,14 @@
 
 const path = require('node:path')
 
+// 许可门槛的说明：名片声明了 license_gate 时第 4 步显示它，
+//   第 3 步下载时远端以授权错误拒绝（已带令牌仍被拒）也显示同一段，两处说法一致。
+const LICENSE_GATE_NOTE = Object.freeze({
+  en: 'This model requires accepting its license on the release page first; '
+    + 'otherwise downloads return 401 or 403.',
+  zh: '该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。',
+})
+
 function platformCheckpoints () {
   return require(path.join(__dirname, '..', '..', '..',
     'lib', 'engines', 'checkpoints.js'))
@@ -97,7 +105,7 @@ function describeModels (id, appDir) {
   // license_gate 是布尔（profile/models.js 的 parseModelsSource 写的是 `=== true`），
   //   别把它的值当文字显示：那会是「true」两个字。
   if (src.license_gate) {
-    notes.push('该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。'
+    notes.push(LICENSE_GATE_NOTE.zh
       + '（Manifest 中 models.source.license_gate = true 即表示此意）')
   }
 
@@ -158,4 +166,4 @@ function explainMissingInfo (profile) {
   return gaps
 }
 
-module.exports = { describeModels, explainMissingInfo }
+module.exports = { describeModels, explainMissingInfo, LICENSE_GATE_NOTE }
