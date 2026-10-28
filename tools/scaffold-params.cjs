@@ -72,7 +72,7 @@ function inferType(entry) {
     case 'list':
       return { type: 'number', confidence: k.confidence, why: k.why + `（长度 ${k.len}）`, repeat: k.len || 1 }
     case 'dict':
-      return { type: 'text', confidence: 'weak', why: k.why + ' —— 界面能编辑文本，但结构需自行核对' }
+      return { type: 'text', confidence: 'weak', why: k.why + '：界面能编辑文本，但结构需自行核对' }
     case 'object':
       return { type: 'text', confidence: 'weak', why: k.why }
     default: {
@@ -107,8 +107,8 @@ function inferType(entry) {
 // 排除判定
 function exclusionReason(name) {
   if (EXCLUDE.bind_slots.test(name)) return '宿主 bind 槽位（归 call.bind，不是引擎参数）'
-  if (EXCLUDE.path_like.test(name)) return '路径类 —— 归 call.init_args / {checkpoints}，做成格子改了会「声音不对且不报错」'
-  if (EXCLUDE.platform_owned.test(name)) return '平台自己已经管的事（设备探测等）—— 暴露会出现两个真相'
+  if (EXCLUDE.path_like.test(name)) return '路径类：归 call.init_args / {checkpoints}，做成格子改了会「声音不对且不报错」'
+  if (EXCLUDE.platform_owned.test(name)) return '平台自己已经管的事（设备探测等）：暴露会出现两个真相'
   return null
 }
 
@@ -277,7 +277,7 @@ function main(argv) {
   //   名片里的内容重打一次，而打错的那份不会被验证。
   if (!engineId) {
     process.stdout.write(
-      '参数草稿生成器 —— 反射出上游有哪些参数，生成 parameters[] 草稿\n\n' +
+      '参数草稿生成器：反射出上游有哪些参数，生成 parameters[] 草稿\n\n' +
       '用法：\n' +
       '  node tools/scaffold-params.cjs --engine <id> [--method <name>] [--write]\n' +
       '  node tools/scaffold-params.cjs --engine <id> --module <m> --class <c> [--method <n>]\n\n' +

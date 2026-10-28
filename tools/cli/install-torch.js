@@ -304,7 +304,7 @@ if is_win and os.path.isdir(capi):
     try: os.add_dll_directory(capi)
     except Exception: pass
 
-# 跨平台的一处：原来只有 ctypes.WinDLL（Windows 专用）
+# 跨平台的一处：Windows 走 ctypes.WinDLL，其它平台走 dlopen。
 name = "onnxruntime_providers_cuda.dll" if is_win else "libonnxruntime_providers_cuda.so"
 dll = os.path.join(capi, name)
 if not os.path.isfile(dll):
