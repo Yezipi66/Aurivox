@@ -318,7 +318,7 @@ export function processBadge (engine, lang = 'zh') {
         label: zh ? '外部进程' : 'external',
         launchKey: null,
         title: zh
-          ? '该引擎正在运行，但并非由本平台启动（通常是作者在另一个窗口中手动启动）。\n' +
+          ? '该引擎正在运行，但并非由本平台启动（通常是在另一个终端中手动启动）。\n' +
             '⇒ 不会去停它，更换模型时也不会重新启动它。'
           : 'Engine is up but was not started by this app; it will not be stopped or relaunched here.',
       }
@@ -342,7 +342,7 @@ export function processBadge (engine, lang = 'zh') {
 
   if (p.phase && p.phase !== 'ready') {
     lines.push('', zh
-      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，速度更慢。'
+      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，耗时更长。'
       : 'Loading the model into memory; this can take a while. No need to click again.')
     return {
       tone: 'busy',
@@ -405,7 +405,7 @@ export function engineBadge (engine, health, lang = 'zh') {
   const ckText = ck && ck.title ? String(ck.title).trim() : ''
   const launching = pr && pr.launchKey
   const body = (() => {
-    const head = ckText || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir')
+    const head = ckText || (zh ? '该引擎的名片未声明底模目录' : 'manifest does not declare a checkpoints dir')
     return launching
       ? [head, '', (zh ? `正在装：${pr.launchKey}` : `Loading: ${pr.launchKey}`)].join('\n')
       : head
@@ -491,7 +491,7 @@ export function occupancyBadge (occ, lang = 'zh') {
     : `usage: ${sum.running} running`
 
   // 优先使用后端生成的 headline，避免前后端措辞不一致。
-  const title = (occ.headline || (zh ? '平台此刻占用了什么' : 'what the platform is using'))
+  const title = (occ.headline || (zh ? '平台当前占用情况' : 'what the platform is using'))
     + '\n\n' + detail.join('\n')
 
   return {

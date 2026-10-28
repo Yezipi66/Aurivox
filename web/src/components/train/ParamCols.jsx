@@ -229,7 +229,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
         </div>
         <label className="toggle-row expert-unlock">
           <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
-          {t('I understand the risks — let me edit expert parameters', '我了解风险，允许我编辑专家参数')}
+          {t('I understand the risks — let me edit expert parameters', '已知晓风险，允许编辑高级参数')}
         </label>
         <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
           <div className={colsClass}>

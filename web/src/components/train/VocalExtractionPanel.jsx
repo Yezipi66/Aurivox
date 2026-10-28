@@ -310,7 +310,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
             {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
-                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。音质清晰则继续，质量差就取消本次任务：这是决定成败的第一道 GIGO 门。')}
+                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。音质清晰则继续，质量差则取消本次任务：分离质量直接影响后续训练效果。')}
           </p>
 
           {/* 提取后，分离出的人声才是真正的 raw（切片/ASR/训练都用它）。提取前的原始混音
@@ -367,9 +367,9 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, marginBottom: 6 }}>
                 {isSaved
                   ? tr(`Editing saved preset “${savedName}”${savedDirty ? ' (unsaved changes)' : ''} — runs top to bottom (each stage feeds the next).`,
-                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}，从上到下逐级串联（上一级输出喂给下一级）。`)
+                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}，从上到下逐级串联（上一级的输出作为下一级的输入）。`)
                   : tr('Custom separation chain — runs top to bottom (each stage feeds the next).',
-                      '自定义分离链：从上到下逐级串联（上一级输出喂给下一级）。')}
+                      '自定义分离链：从上到下逐级串联（上一级的输出作为下一级的输入）。')}
               </div>
               {chain.length === 0 && (
                 <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '尚未分级，请在下方添加。')}</p>
@@ -408,7 +408,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
                 {isSaved
                   ? tr('Up to 3 stages. Edits are a draft — press “Update preset” to save them back, “Save as new preset” to branch a copy, or “Delete preset” to remove it.',
-                      '最多 3 级。改动仅为草稿：点“更新预设”才会写回，点“另存为新预设”另存副本，点“删除预设”移除。')
+                      '最多 3 级。改动仅为草稿：点击“更新预设”才会写回，点击“另存为新预设”另存副本，点击“删除预设”移除。')
                   : tr('Up to 3 stages. Saved presets are kept on this page only.', '最多 3 级。已保存预设仅保留在本页面。')}
               </p>
             </div>
@@ -421,11 +421,11 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               <div className="msg msg-danger expert-warning">
                 <strong>{tr('⚠ Advanced.', '⚠ 高级参数。')}</strong>{' '}
                 {tr('These change speed/precision. fp16 makes HP models emit NaN on many GPUs; TTA roughly doubles time. Most users should leave the defaults.',
-                  '这些会影响速度/精度。fp16 会让 HP 系列在很多显卡上出 NaN；TTA 大致会让耗时翻倍。多数用户保持默认即可。')}
+                  '这些会影响速度/精度。fp16 会让 HP 系列在很多显卡上产生 NaN；TTA 约使耗时翻倍。多数用户保持默认即可。')}
               </div>
               <label className="toggle-row expert-unlock">
                 <input type="checkbox" checked={!!form.denoiseAdvUnlocked} onChange={e => setField('denoiseAdvUnlocked', e.target.checked)} />
-                {tr('I understand — let me edit advanced parameters', '我了解，允许我编辑高级参数')}
+                {tr('I understand — let me edit advanced parameters', '已知晓风险，允许编辑高级参数')}
               </label>
               <fieldset disabled={!form.denoiseAdvUnlocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
                 {advStages.map(({ stage, apply, i }) => {
