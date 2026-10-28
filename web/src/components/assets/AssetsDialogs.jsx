@@ -1,6 +1,6 @@
 // AssetsDialogs.jsx — 资源页的独立弹窗与空状态
 //
-// 从 AssetsTab.jsx 搬出：删除确认的遮罩弹窗，以及没有任何资源时的空状态引导。
+// 删除确认的遮罩弹窗，以及没有任何资源时的空状态引导。
 import { IconTrash } from '../common/Icons'
 
 export function DeleteAssetDialog({ target, deleting, onConfirm, onCancel }) {

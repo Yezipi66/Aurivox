@@ -1,6 +1,6 @@
 // TrainingGates.jsx — 训练前置门控与遮罩弹窗
 //
-// 从 TrainingTab.jsx 搬出：开始训练前的几道确认。
+// 开始训练前的几道确认。
 // G1：没勾 S1/S2，只跑切片 / ASR，跳过 preprocess。
 // G2：开了训练但没勾 ASR，没有转写预处理会失败。提醒并留宽限期让用户自备 .list。
 // 另外两个是整页遮罩弹窗：id 已存在（覆盖确认）与没有 NVIDIA GPU（CPU 训练确认）。

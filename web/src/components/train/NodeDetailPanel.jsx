@@ -1,6 +1,6 @@
 // NodeDetailPanel.jsx — 流程图节点详情面板
 //
-// 从 TrainingTab.jsx 搬出的纯渲染块：流程图里点开某个步骤后展开的配置区。
+// 纯渲染块：流程图里点开某个步骤后展开的配置区。
 // 每个步骤（人声提取 / 切片 / ASR / S1 / S2 / 预处理 / 打包 / 发布）
 // 各有各的开关与参数，此处按 selectedNode 分派。
 import { SliceParamFields, AsrParamFields, TrainParamFields } from './ParamCols'

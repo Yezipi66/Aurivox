@@ -16,8 +16,7 @@ import { loadPersist, savePersist, loadPage, savePage,
   loadSession, saveSession, purgeOrphanKeys } from './useInstallSession'
 import { factsQueryId } from './factsQueryId'
 
-// 向导骨架照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()：
-//   只渲染 page 指向的那一步；流程条是唯一导航。
+// 只渲染 page 指向的那一步；流程条是唯一导航。
 //  「展开」指该步骤内部不再套盒子，不是五步同时渲染。
 //   所有类都借自 web/src/styles.css，不在这里定义任何容器。
 
@@ -199,7 +198,7 @@ export default function App () {
     <div className="wz-root">
       <div className="workspace-container wz-root">
 
-      {/* ---- 顶栏：项目的 section 三件套（照 TrainingTab 的骨架）---- */}
+      {/* ---- 顶栏：项目的 section 三件套 ---- */}
       <div className="section">
         <div className="section-hdr">
           <h2>{t('Engine Wizard', '安装向导')}</h2>
@@ -248,7 +247,7 @@ export default function App () {
 
       {page !== 'manifest' && (
       <div className="workspace-container wz-root">
-      {/* ---- 展开的那一步：.node-detail 详情框，外壳照 NodeDetailPanel.jsx 的 NodeDetailPanel() ---- */}
+      {/* ---- 展开的那一步：.node-detail 详情框 ---- */}
       {page && page !== 'manifest' && (
         <div className="node-detail">
           <div className="node-detail-hdr">

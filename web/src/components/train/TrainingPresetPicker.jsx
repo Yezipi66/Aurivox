@@ -1,6 +1,6 @@
 // TrainingPresetPicker.jsx — 训练预设选择
 //
-// 从 TrainingTab.jsx 搬出：内置预设 + 用户自存快照的选择器。
+// 内置预设 + 用户自存快照的选择器。
 // 预设只是往 form.* 里填值（纯前端），不落服务端。
 // 自存预设可以「另存为新预设 / 更新 / 删除」。
 import { Select } from '../common/Select'

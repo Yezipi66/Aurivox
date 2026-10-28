@@ -1,6 +1,6 @@
 // AssetsToolbar.jsx — 资源列表的汇总条与筛选工具栏
 //
-// 从 AssetsTab.jsx 搬出：顶部的统计条（音色数 / 原始文件 / 切片 / 分段 / 各引擎模型数）
+// 顶部的统计条（音色数 / 原始文件 / 切片 / 分段 / 各引擎模型数）
 // 与下方的搜索框 + 状态筛选芯片。
 import { NamingNotePill } from '../common/Fields'
 

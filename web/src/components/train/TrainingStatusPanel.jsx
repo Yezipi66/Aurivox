@@ -1,6 +1,6 @@
 // TrainingStatusPanel.jsx — 训练运行状态区
 //
-// 从 TrainingTab.jsx 搬出：任务运行中 / 已完成 / 被中断时的状态显示。
+// 任务运行中 / 已完成 / 被中断时的状态显示。
 // 等待人工审阅时挂对应的审阅面板（人声试听 / ASR 校对），
 // 审阅面板认为前端版本旧时给一句重建提示。
 import { DenoiseReviewPanel, AsrReviewPanel } from './ReviewPanels'

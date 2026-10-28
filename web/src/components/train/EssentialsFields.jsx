@@ -1,6 +1,6 @@
 // EssentialsFields.jsx — 训练页三要素
 //
-// 从 TrainingTab.jsx 搬出：显示名称、语言、音频文件夹路径。
+// 显示名称、语言、音频文件夹路径。
 // 显示名称带两个派生信息：服务器分配的 id 建议（创建时才最终确定）、
 // 以及同名音色提醒（同名不会覆盖，会新建一个独立音色）。
 import { Select } from '../common/Select'
