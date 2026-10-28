@@ -372,7 +372,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                       '自定义分离链：从上到下逐级串联（上一级输出喂给下一级）。')}
               </div>
               {chain.length === 0 && (
-                <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '还没有分级，请在下方添加。')}</p>
+                <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '尚未分级，请在下方添加。')}</p>
               )}
               {chain.map((stage, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>

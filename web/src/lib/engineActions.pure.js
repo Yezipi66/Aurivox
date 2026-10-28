@@ -74,7 +74,7 @@ export function engineControls (engine, lang = 'zh') {
   const stopLabel = zh ? '关闭' : 'Stop'
 
   if (hard) {
-    const why = reason(phase, lang) || (zh ? '还没拿到这台引擎的状态。' : 'Engine state not loaded yet.')
+    const why = reason(phase, lang) || (zh ? '尚未获取该引擎的状态。' : 'Engine state not loaded yet.')
     return {
       phase,
       start: { enabled: false, label: startLabel, title: why },

@@ -38,7 +38,7 @@ function AsrParamFields({ form, setField }) {
         {form.asrEngine === 'funasr' && (
           <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
             {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
-              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
+              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准且自动添加标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
           </p>
         )}
       </div>
