@@ -33,7 +33,7 @@ const SECTIONS = Object.freeze([
     howto: '怎么装这台引擎的环境。平台不代劳，只照这里打印命令。' },
   { key: 'models', group: 'models', danger: DANGER.INFO,
     howto: '底模放在哪、哪几个文件算齐、从哪取。',
-    warn: '只写 checkpoints 而不写 required，平台就没法帮你确认权重文件齐不齐（不填也能用）。' },
+    warn: '只写 checkpoints 而不写 required，平台则无法确认权重文件是否齐全（不填也能用）。' },
   { key: 'weights', group: 'models', danger: DANGER.SILENT,
     howto: '用户要选几个模型位、各叫什么。',
     warn: 'applies_at 填错 ⇒ 不报错，下拉能选、声音不变。' },

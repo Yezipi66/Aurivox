@@ -133,7 +133,7 @@ function main() {
   if (!APPLY) {
     console.log('[migrate] 以上一个字节都没动。要真的搬：node tools/migrate-asset-models.cjs --apply');
   } else {
-    console.log('[migrate] 老目录**没有删**（空壳留在原地）。你确认过再自己删。');
+    console.log('[migrate] 老目录**没有删**（空壳留在原地）。确认无误后再删除。');
     console.log('[migrate] 下一次扫盘会自动更新 meta.json —— 那只是缓存，不用手动改。');
   }
   if (failedTotal) process.exitCode = 1;
