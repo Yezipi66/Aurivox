@@ -1,6 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { OPTIONAL_KEYS, SOURCES, get, setPath, rowVisible, addItem, removeItem } from './optionalKeys'
+import { OPTIONAL_KEYS, SOURCES, get, setPath, rowVisible, addItem, removeItem, platformDefaultedRows, localMeasuredRows } from './optionalKeys'
 
 // 可选参数里的「引擎配置」：除了 5 项必填之外、平台有默认、要改才填的那几项。
 //
@@ -79,6 +79,22 @@ export default function OptionalConfig ({ manifest, onChange }) {
   const { t } = useT()
   const m = manifest || {}
   const visible = OPTIONAL_KEYS.filter((it) => rowVisible(m, it))
+  // 平台对盘上这张名片的读数：哪些项是平台默认答的（profile.defaulted）。
+  //   名片还没落盘时读不到，就不标（不猜）。
+  //   本机测得的项（profile.value_sources 为 local）不在 defaulted 里，另列一行。
+  const [profile, setProfile] = React.useState(null)
+  React.useEffect(() => {
+    if (!m.id) { setProfile(null); return undefined }
+    let live = true
+    fetch(`/wizard/profile/${encodeURIComponent(m.id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (live) setProfile(j && j.ok && j.profile ? j.profile : null) })
+      .catch(() => { if (live) setProfile(null) })
+    return () => { live = false }
+  }, [m.id])
+  const defaulted = profile ? profile.defaulted || [] : null
+  const byDefault = platformDefaultedRows(m, defaulted)
+  const byLocal = profile ? localMeasuredRows(profile.value_sources) : []
   const addable = OPTIONAL_KEYS.filter((it) => !rowVisible(m, it) && (!it.when || it.when(m)))
 
   return (
@@ -120,6 +136,23 @@ export default function OptionalConfig ({ manifest, onChange }) {
             {it.noteZh && (
               <div className="field-note">{t(it.noteEn, it.noteZh)}</div>
             )}
+          </div>
+        ))}
+        {byLocal.map((it) => (
+          <div className="field-hint" key={`l-${it.path}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span className="badge">{t('this machine', '本机测得')}</span>
+            <span>
+              {t(it.en, it.zh)}：{Math.round(Number(get(profile, it.path)) / 1000)}s
+              {t('(only on this machine, overrides the manifest here)', '（只在本机上，优先于名片）')}
+            </span>
+          </div>
+        ))}
+        {byDefault.map((it) => (
+          <div className="field-hint" key={`d-${it.path}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span className="badge">{t('platform default', '平台默认')}</span>
+            <span>{t(it.en, it.zh)}：{t(it.fallbackEn, it.fallbackZh)}</span>
           </div>
         ))}
         {addable.length > 0 && (

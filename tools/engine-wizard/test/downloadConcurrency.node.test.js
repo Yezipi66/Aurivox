@@ -242,3 +242,55 @@ test('并发执行器：停止后能收口，没派出的任务也有结果', as
   assert.ok(r.failed >= 1, '没派出的任务应算失败')
   assert.strictEqual(r.results.length, 4, '每个文件都要有结果，否则界面不知道发生了什么')
 })
+
+// ---------------------------------------------------------------------------
+// ③ 请求体：每个文件都带上自己的仓库与来源
+// ---------------------------------------------------------------------------
+
+test('请求体：repo 取文件自己的（没有才用 opts.repo），file 里带 tool', async () => {
+  const state = installFakeFetch()
+  const bodies = []
+  const inner = global.fetch
+  global.fetch = (url, init) => { bodies.push(JSON.parse(init.body)); return inner(url, init) }
+  const { downloadFiles } = await loadEsm('downloadRunner.js')
+  const p = downloadFiles({
+    id: 'demo',
+    root: '/tmp',
+    repo: 'fallback/repo',
+    tool: 'hf',
+    files: [
+      { name: 'a.bin', size: 1, repo: 'org/ms-mirror', tool: 'modelscope' },
+      { name: 'b.bin', size: 1, repo: 'org/hf-repo', tool: 'hf' },
+      { name: 'c.bin', size: 1 },
+    ],
+    concurrency: 3,
+  })
+  await new Promise((r) => setTimeout(r, 30))
+  await drainFakeFetch(state)
+  await p
+  const byName = Object.fromEntries(bodies.map((b) => [b.file.name, b]))
+  assert.strictEqual(bodies.length, 3)
+  for (const b of bodies) {
+    assert.ok(typeof b.repo === 'string' && b.repo.length > 0, `repo 不许为空：${JSON.stringify(b)}`)
+    assert.ok(b.file.tool, `file 里要带 tool：${JSON.stringify(b)}`)
+  }
+  assert.strictEqual(byName['a.bin'].repo, 'org/ms-mirror')
+  assert.strictEqual(byName['a.bin'].file.tool, 'modelscope')
+  assert.strictEqual(byName['b.bin'].repo, 'org/hf-repo')
+  assert.strictEqual(byName['b.bin'].file.tool, 'hf')
+  assert.strictEqual(byName['c.bin'].repo, 'fallback/repo', '文件没带 repo 时退回 opts.repo')
+  assert.strictEqual(byName['c.bin'].file.tool, 'hf', '文件没带 tool 时退回 opts.tool')
+})
+
+test('后端在开流前拒绝（400 + JSON）时，结果带出后端的 code 与原因', async () => {
+  global.fetch = async () => ({
+    ok: false,
+    status: 400,
+    json: async () => ({ ok: false, code: 'MISSING_REPO', error: 'repo is required', errorZh: '缺少仓库' }),
+  })
+  const { downloadOneFile } = await loadEsm('downloadRunner.js')
+  const r = await downloadOneFile({ id: 'demo', root: '/tmp', file: { name: 'a.bin', size: 1, tool: 'hf' } })
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'MISSING_REPO')
+  assert.strictEqual(r.errorZh, '缺少仓库')
+})

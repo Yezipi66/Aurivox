@@ -381,7 +381,9 @@ function supportsVersion (exe, want) {
  */
 function platformPythonAbs (root, opts = {}) {
   const prj = (() => { try { return projectRoot() } catch (e) { return null } })()
-  const bases = [prj, root].filter((b) => typeof b === 'string' && b)
+  // 平台解释器是只读资产：本 checkout 没有时可以用主仓库的（worktree 场景，见 wizardRoot.js）。
+  const { readRoots } = require('./wizardRoot')
+  const bases = [prj, root, ...readRoots()].filter((b, i, a) => typeof b === 'string' && b && a.indexOf(b) === i)
   const candidates = [
     // 带 uv 的平台环境：跑 uv 得用它。
     ...bases.flatMap((b) => {
@@ -429,6 +431,16 @@ function platformPythonAbs (root, opts = {}) {
  * skipIfExists 表示环境已存在时跳过这一步。
  * 找不到可用的解释器时 argv 为 null。
  */
+// PATH 上有没有能跑的 uv。只问一次版本号，跑不起来就当没有。
+function uvOnPath () {
+  try {
+    const r = spawnSync('uv', ['--version'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000, windowsHide: true, shell: false,
+    })
+    return !r.error && r.status === 0
+  } catch (e) { return false }
+}
+
 function buildVenvStep (root, id) {
   const venvDir = engineVenvDirAbs(root, id)
   const declared = readEnginePythonVersion(engineDir(id, root))
@@ -436,6 +448,23 @@ function buildVenvStep (root, id) {
   //   两条路都拿不到 ⇒ 不用任意版本顶上：见本函数的注释第③条。
   const wantVersion = declared ? declared.version : PLATFORM_BASE_PYTHON
   const uvPy = platformPythonAbs(root)
+  // 平台 venv 里没有带 uv 的解释器，但 PATH 上有 uv（开发机、CI、Linux 服务器常见）：
+  //   用 PATH 上的 uv 建环境。执行期 runEnv 对 argv[0]==='uv' 的步骤本来就走 resolveUv
+  //   （平台 venv → PATH），这里与它同一口径；否则计划阶段报「找不到 uv」、执行期却找得到。
+  if (!uvPy && uvOnPath()) {
+    return {
+      argv: ['uv', 'venv', venvDir, '--python', wantVersion, '--no-project'],
+      python: null,
+      venvDir,
+      skipIfExists: true,
+      pythonVersion: wantVersion,
+      pythonVersionSource: declared ? declared.source : 'platform-base',
+      why: 'Create an isolated Python environment for this engine under engines/'
+        + `${id}/.venv with the uv found on PATH (Python ${wantVersion}).`,
+      whyZh: `用 PATH 上的 uv 为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境`
+        + `（Python ${wantVersion}）。依赖装进这个环境，不装进平台自己的环境。`,
+    }
+  }
   if (!uvPy) {
     return {
       argv: null, python: null,

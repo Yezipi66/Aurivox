@@ -126,3 +126,47 @@ test('加时长区间时起始值是不限制，不许写死某台引擎的范�
   assert.strictEqual(added.capabilities.reference_clip_seconds, null,
     '加一项就写一个时长范围，等于替这台引擎凭空造了一条约束；缺着时平台不检查，填了才拦')
 })
+
+test('引擎配置：平台默认答了、表单里也没写的项挂「平台默认」，读的是 profile.defaulted', () => {
+  const { platformDefaultedRows } = loadOptionalKeys()
+  const defaulted = ['timeout_ms', 'max_chars', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint']
+  const rows = platformDefaultedRows({ id: 'x', max_chars: 40, max_chars_source: 'measured' }, defaulted)
+  assert.deepStrictEqual(rows.map((r) => r.path),
+    ['timeout_ms', 'runtime.ready_timeout_ms', 'runtime.ready_endpoint'],
+    '表单里写了的 max_chars 不能再算平台默认')
+  assert.deepStrictEqual(platformDefaultedRows({}, null), [], '读不到 profile 就不标')
+  assert.ok(/platformDefaultedRows\(/.test(optional) && /\/wizard\/profile\//.test(optional),
+    'OptionalConfig 要读平台的 profile.defaulted，不在界面里自己推')
+  assert.ok(optional.includes("'平台默认'"), '徽标文案是「平台默认」')
+})
+
+test('引擎配置：本机测得的项另列「本机测得」，不混进「平台默认」', () => {
+  const { platformDefaultedRows, localMeasuredRows } = loadOptionalKeys()
+  // 平台解析的结果：timeout_ms 本机测过，ready 名片没写也没测过，max_chars 名片写了。
+  const sources = { timeout_ms: 'local', 'runtime.ready_timeout_ms': 'default', max_chars: 'manifest' }
+  const defaulted = ['runtime.ready_timeout_ms']
+  assert.deepStrictEqual(localMeasuredRows(sources).map((r) => r.path), ['timeout_ms'])
+  assert.deepStrictEqual(platformDefaultedRows({ id: 'x' }, defaulted).map((r) => r.path), ['runtime.ready_timeout_ms'],
+    '本机测得的 timeout_ms 不能再挂「平台默认」')
+  assert.deepStrictEqual(localMeasuredRows(null), [])
+  assert.ok(/localMeasuredRows\(/.test(optional) && optional.includes('value_sources'),
+    'OptionalConfig 要读平台的 profile.value_sources')
+})
+
+test('第 5 步进度文案：阶段四种，已用时间 mm:ss', () => {
+  const esbuild = require('../../../lib/testDeps.js').esbuild()
+  const code = esbuild.transformSync(fs.readFileSync(path.join(EDITOR, 'measureProgress.js'), 'utf8'),
+    { loader: 'js', format: 'cjs', target: 'node18' }).code
+  const mod = { exports: {} }
+  // eslint-disable-next-line no-new-func
+  new Function('exports', 'require', 'module', code)(mod.exports, () => { throw new Error('不该有依赖') }, mod)
+  const P = mod.exports
+  const t = (en, zh) => zh
+  assert.deepStrictEqual(['starting', 'synth', 'done', 'failed'].map((s) => P.measureStageLabel(s, t)),
+    ['启动中', '合成中', '完成', '失败'])
+  assert.equal(P.formatElapsed(65000), '01:05')
+  assert.equal(P.formatElapsed(3725000), '1:02:05')
+  assert.equal(P.measureRunning({ state: 'running' }), true)
+  assert.equal(P.measureRunning({ state: 'done' }), false)
+  assert.equal(P.measureRunning(null), false)
+})

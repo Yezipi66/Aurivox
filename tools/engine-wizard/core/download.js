@@ -14,6 +14,94 @@ const { progressFile, readProgress: readProgressOf, writeProgress: writeProgress
   resetProgress: resetProgressOf } = require('./installState')
 // 落盘路径只有一处答案：core/checkpointsPath.js。
 const { checkpointsAbsPath } = require('./checkpointsPath')
+// 授权错误时的许可门槛说明，与第 4 步同一段文案。
+const { LICENSE_GATE_NOTE } = require('./models')
+
+// 两个来源的站点根。测试把它换成本地服务器，生产代码不改它。
+const ENDPOINTS = { hf: 'https://huggingface.co', modelscope: 'https://modelscope.cn' }
+
+/**
+ * 把调用方给的来源归一成 'hf' 或 'modelscope'；认不出返回 null。
+ *   认不出不许默认成 HF：同一个仓库名在两边可能都存在，下错来源时
+ *   症状是 401 或文件内容不一致，查起来比当场报「来源未知」难得多。
+ *   'snapshot' 只是命令形态（snapshot_download），本身不说明来源，同样返回 null。
+ */
+function normalizeSource (tool) {
+  const t = String(tool || '').trim().toLowerCase()
+  if (t === 'hf' || t === 'huggingface' || t === 'huggingface_hub') return 'hf'
+  if (t === 'modelscope') return 'modelscope'
+  return null
+}
+
+function unknownSourceResult (tool) {
+  return {
+    ok: false, code: 'UNKNOWN_SOURCE', status: null,
+    error: `Unknown download source ${JSON.stringify(tool || '')}: choose Hugging Face or ModelScope.`,
+    errorZh: `下载来源未知（${tool || '空'}），请选择 Hugging Face 或魔搭（ModelScope）。`,
+  }
+}
+
+function missingRepoResult () {
+  return {
+    ok: false, code: 'MISSING_REPO', status: null,
+    error: 'The repository is missing for this file.',
+    errorZh: '这个文件缺少所属仓库，无法下载。',
+  }
+}
+
+/** HF 仓库的网页地址：授权失败时给使用者去登录、接受许可协议的地方。 */
+function hfRepoPage (repo) {
+  return `${ENDPOINTS.hf}/${repo}`
+}
+
+/**
+ * HF 以 401 / 403 拒绝时的结果。三种情形分开说，因为使用者要做的事不同：
+ *   没配令牌            ⇒ 填令牌
+ *   配了令牌但 401      ⇒ 令牌无效或过期，换一个
+ *   配了令牌但 403      ⇒ 令牌有效但这个账号没有权限，通常是还没在仓库页接受许可协议
+ * 结果里只有 tokenConfigured（布尔），没有令牌本身。
+ */
+function gatedResult (status, repo, tokenConfigured, fileName) {
+  const repoPage = hfRepoPage(repo)
+  let reason = 'NO_TOKEN'
+  if (tokenConfigured) reason = status === 401 ? 'TOKEN_REJECTED' : 'LICENSE_NOT_ACCEPTED'
+  const name = fileName ? `${fileName}: ` : ''
+  const nameZh = fileName ? `${fileName}：` : ''
+  const msg = {
+    NO_TOKEN: [
+      `${name}this Hugging Face repository requires authorization. Enter your HF access token.`,
+      `${nameZh}这个 Hugging Face 仓库需要授权，请填写 HF 访问令牌。`,
+    ],
+    TOKEN_REJECTED: [
+      `${name}Hugging Face rejected the saved token (HTTP 401). It may be invalid or expired; replace it.`,
+      `${nameZh}Hugging Face 拒绝了已保存的令牌（HTTP 401），令牌可能无效或已过期，请更换。`,
+    ],
+    LICENSE_NOT_ACCEPTED: [
+      `${name}${LICENSE_GATE_NOTE.en} The saved token is valid but has no access yet: `
+        + `open ${repoPage}, sign in and accept the license, then retry. `
+        + 'You can also download the ModelScope mirror instead, if there is one.',
+      `${nameZh}${LICENSE_GATE_NOTE.zh}已保存的令牌有效，但这个账号还没有访问权限：`
+        + `请打开 ${repoPage} 登录并接受许可协议后重试。也可以改用魔搭（ModelScope）上的镜像（如有）。`,
+    ],
+  }[reason]
+  return {
+    ok: false, code: 'GATED', status, reason, tokenConfigured: !!tokenConfigured,
+    repo, repoPage,
+    licenseNote: LICENSE_GATE_NOTE.en, licenseNoteZh: LICENSE_GATE_NOTE.zh,
+    error: msg[0], errorZh: msg[1],
+  }
+}
+
+/**
+ * 只对同源请求带令牌：HF 的 resolve 地址会 302 到 CDN（另一个域名，自带签名），
+ *   把令牌跟着重定向发过去等于把它交给第三方，而且 CDN 见到两套鉴权会直接拒绝。
+ */
+function authHeaders (url, auth) {
+  if (!auth || !auth.token || !auth.origin) return {}
+  let origin
+  try { origin = new URL(url).origin } catch { return {} }
+  return origin === auth.origin ? { authorization: `Bearer ${auth.token}` } : {}
+}
 
 function readProgress (root, id) {
   return readProgressOf(root, id, 'models')
@@ -177,19 +265,30 @@ function unifyDest (argv, engineId, root) {
  *   HF 的接口要带 ?blobs=true 才返回 size 与 blobId；ModelScope 的接口直接给 size 与 sha256。
  *   请求失败、超时都返回 ok=false 与 error，不抛。
  */
-function fetchRemoteManifest (repo, tool, baseUrl) {
+function fetchRemoteManifest (repo, tool, baseUrl, opts = {}) {
   return new Promise((resolve) => {
-    const base = baseUrl || (tool === 'modelscope' ? 'https://modelscope.cn' : 'https://huggingface.co')
+    const source = normalizeSource(tool)
+    if (!source) {
+      const r = unknownSourceResult(tool)
+      resolve({ ok: false, files: [], code: r.code, status: null, error: r.error, errorZh: r.errorZh })
+      return
+    }
+    tool = source
+    const base = baseUrl || ENDPOINTS[source]
+    // ModelScope 的文件清单在 /repo/files 下：/api/v1/models/<repo> 只回模型简介，
+    //   没有 Data.Files，清单永远是空的（端到端验收时 neuphonic 的镜像就是这样「没有文件」）。
     const url = tool === 'modelscope'
-      ? `${base}/api/v1/models/${repo}`
+      ? `${base}/api/v1/models/${repo}/repo/files?Recursive=true`
       : `${base}/api/models/${repo}?blobs=true`
     const client = url.startsWith('http:') ? require('node:http') : https
+    // 令牌只给 HF 的清单请求：私有仓库不带令牌连清单都列不出来。
+    const auth = source === 'hf' && opts.token ? { token: opts.token, origin: new URL(base).origin } : null
     const req = client.get(url, {
-      headers: { 'user-agent': 'aurivox-engine-wizard' },
+      headers: { 'user-agent': 'aurivox-engine-wizard', ...authHeaders(url, auth) },
     }, (res) => {
       if (res.statusCode !== 200) {
         res.resume()
-        resolve({ ok: false, files: [], error: `API returned HTTP ${res.statusCode}` })
+        resolve({ ok: false, files: [], status: res.statusCode, error: `API returned HTTP ${res.statusCode}` })
         return
       }
       let body = ''
@@ -210,6 +309,8 @@ function fetchRemoteManifest (repo, tool, baseUrl) {
           }
           if (data.Data && data.Data.Files) {
             for (const f of data.Data.Files) {
+              // 递归清单里有目录项（Type: tree），只要文件
+              if (f.Type && f.Type !== 'blob') continue
               files.push({
                 name: f.Name || f.Path,
                 size: f.Size || 0,
@@ -347,7 +448,7 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
  *   非 2xx 一律不写盘：把 404 的 HTML 错误页当成模型文件落盘是最难查的一类坏法。
  *   下载完比对大小：远端没给大小就退一步比对 content-length，不符即删掉脏文件并判失败。
  */
-function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null) {
+function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null, auth = null) {
   return new Promise((resolve) => {
     const dir = checkpointsAbsPath(root, id)
     const finalPath = path.join(dir, file.name)
@@ -374,7 +475,8 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       resumeFrom = fs.statSync(tmpPath).size
     }
 
-    const headers = { 'user-agent': 'aurivox-engine-wizard' }
+    // auth 为 { token, origin }：只对 origin 同源的地址带 Authorization（见 authHeaders）。
+    const headers = { 'user-agent': 'aurivox-engine-wizard', ...authHeaders(url, auth) }
     if (resumeFrom > 0) {
       headers.range = `bytes=${resumeFrom}-`
     }
@@ -387,7 +489,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         req.destroy()
         // Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
         const redirectUrl = new URL(res.headers.location, url).href
-        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom, skipTmpDetect, signal).then(resolve)
+        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom, skipTmpDetect, signal, auth).then(resolve)
         return
       }
 
@@ -417,7 +519,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       if (resumeFrom > 0 && status !== 206) {
         resumeFrom = 0
         req.destroy()
-        downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true).then(resolve)
+        downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true, signal, auth).then(resolve)
         return
       }
 
@@ -524,7 +626,7 @@ function encodeFilePath (filePath) {
 }
 
 // 依次尝试给定的分支：当前分支返回 404 才换下一个分支，其它结果原样返回。
-function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, branches, signal = null) {
+function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, branches, signal = null, auth = null) {
   if (!branches || branches.length === 0) {
     return Promise.resolve({
       ok: false,
@@ -536,20 +638,67 @@ function tryDownloadWithBranches (file, repo, root, id, onLine, onProgress, bran
   }
   const [currentBranch, ...rest] = branches
   const encodedName = encodeFilePath(file.name)
-  const url = `https://huggingface.co/${repo}/resolve/${currentBranch}/${encodedName}`
-  return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, false, signal).then((result) => {
+  let url
+  try { url = fileUrl(file, repo, currentBranch, encodedName) } catch (e) {
+    return Promise.resolve(e.result || { ok: false, code: 'BAD_URL', status: null, error: e.message })
+  }
+  return downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, false, signal, auth).then((result) => {
     if (result.ok || !result.status || result.status !== 404) {
       return result
     }
-    return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, rest, signal)
+    return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, rest, signal, auth)
   })
 }
 
-// 下载单个文件：拼好 URL 后交给 downloadFileFromUrl。
-// 分支优先用传入的 branch，否则依次尝试 main 与 master。
-function downloadFile (file, repo, root, id, onLine, onProgress, branch, signal = null) {
-  const branches = branch ? [branch] : ['main', 'master']
-  return tryDownloadWithBranches(file, repo, root, id, onLine, onProgress, branches, signal)
+// 单个文件的下载地址。file.tool 是清单那一步带下来的来源（enrichManifestFiles 写的）。
+//   来源认不出、仓库为空都直接抛错（错误对象带 result，供调用方原样回给前端），
+//   不拼一个 HF 地址碰运气：仓库为空时拼出的 huggingface.co//resolve/... 只会 404，
+//   来源错了则是去另一个站点下同名仓库。
+function fileUrl (file, repo, branch, encodedName) {
+  const source = normalizeSource(file && file.tool)
+  if (!source) {
+    const r = unknownSourceResult(file && file.tool)
+    const e = new Error(r.error)
+    e.code = r.code
+    e.result = r
+    throw e
+  }
+  if (!repo) {
+    const r = missingRepoResult()
+    const e = new Error(r.error)
+    e.code = r.code
+    e.result = r
+    throw e
+  }
+  if (source === 'modelscope') {
+    return `${ENDPOINTS.modelscope}/models/${repo}/resolve/${branch}/${encodedName}`
+  }
+  return `${ENDPOINTS.hf}/${repo}/resolve/${branch}/${encodedName}`
+}
+
+/**
+ * 下载单个文件：拼好 URL 后交给 downloadFileFromUrl。
+ * 分支优先用传入的 branch，否则 HF 依次尝试 main 与 master，ModelScope 用 master。
+ *
+ * @param {object} [opts]
+ * @param {string|null} [opts.token] HF 令牌。只用于 HF 来源，且只发给 HF 站点本身。
+ * @returns {Promise<object>} 与 downloadFileFromUrl 同形；HF 回 401 / 403 时改报 GATED（见 gatedResult）。
+ */
+function downloadFile (file, repo, root, id, onLine, onProgress, branch, signal = null, opts = {}) {
+  const source = normalizeSource(file && file.tool)
+  if (!source) return Promise.resolve(unknownSourceResult(file && file.tool))
+  if (!repo) return Promise.resolve(missingRepoResult())
+  const token = source === 'hf' ? (opts.token || null) : null
+  const auth = token ? { token, origin: new URL(ENDPOINTS.hf).origin } : null
+  const branches = branch ? [branch]
+    : (source === 'modelscope' ? ['master'] : ['main', 'master'])
+  return tryDownloadWithBranches({ ...file, tool: source }, repo, root, id, onLine, onProgress, branches, signal, auth)
+    .then((r) => {
+      if (source === 'hf' && r && !r.ok && (r.status === 401 || r.status === 403)) {
+        return gatedResult(r.status, repo, !!token, file.name)
+      }
+      return r
+    })
 }
 
 /**
@@ -625,4 +774,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }

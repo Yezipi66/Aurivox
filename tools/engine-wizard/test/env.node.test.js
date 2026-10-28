@@ -272,7 +272,8 @@ test('清单在子目录里也要找得到（如 infer/requirements.txt）', () 
   fs.mkdirSync(path.join(dir, 'infer'), { recursive: true })
   fs.writeFileSync(path.join(dir, 'infer', 'requirements.txt'), 'torch\n')
 
-  const p = buildEnvPlan({ id: 'demo', manifest: {}, root })
+  // 钉住推荐后端：本测试只管清单定位（Linux + CPU 时 torch 另走 CPU index，命令会多 --excludes）
+  const p = buildEnvPlan({ id: 'demo', manifest: {}, root, recommendedBackend: 'cuda' })
   assert.strictEqual(p.ok, true, `子目录有清单却判定「没有」：${p.error}`)
   assert.deepStrictEqual(p.env_command,
     ['uv', 'pip', 'install', '-p', p.env_command[4], '-r', 'infer/requirements.txt'])

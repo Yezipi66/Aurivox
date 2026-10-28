@@ -81,13 +81,14 @@ test('建环境走 uv（不是 python -m venv），且目标路径是该引擎�
   const p = planOf(root, 'demo2', {})
   const first = envStepsOf(p)[0]
 
-  // 建法：<某个 python> -m uv venv <绝对路径>
-  assert.ok(first.argv.includes('-m') && first.argv.includes('uv')
-    && first.argv.includes('venv'),
-    `建环境必须走「<python> -m uv venv」：${first.argv.join(' ')}`)
-  // 绝对不许 python -m venv：平台统一走 uv（resolveUv 同一条路）
-  assert.ok(!/^(?:-m\s+venv)?$/.test('') && !first.argv.every((a) => a !== 'venv')
-    || first.argv.includes('-m'),
+  // 建法：<某个 python> -m uv venv <绝对路径>；平台 venv 里没有 uv 时是 PATH 上的 uv venv
+  //   （执行期 runEnv 对 argv[0]==='uv' 一律走 resolveUv，两种来源同一条路）
+  const viaModule = first.argv.includes('-m') && first.argv.includes('uv')
+  const viaPath = first.argv[0] === 'uv'
+  assert.ok((viaModule || viaPath) && first.argv.includes('venv'),
+    `建环境必须走「<python> -m uv venv」或「uv venv」：${first.argv.join(' ')}`)
+  // 绝对不许 python -m venv：平台统一走 uv
+  assert.ok(!(first.argv.includes('-m') && first.argv[first.argv.indexOf('-m') + 1] === 'venv'),
     `不许裸 python -m venv：${first.argv.join(' ')}`)
 
   // 目标是 engines/<id>/.venv 的绝对路径
@@ -247,6 +248,8 @@ test('名片没有 python 版本声明 ⇒ 环境用平台基座版本（3.11）
   // --python 后面必须是 3.11（平台基座），不是某个具体路径
   assert.strictEqual(build.argv[build.argv.indexOf('--python') + 1], '3.11',
     `建环境那步应当用平台基座版本 3.11：${build.argv.join(' ')}`)
+  // PATH 上的 uv 直接跑（平台 venv 里没有带 uv 的解释器时），没有解释器可查。
+  if (build.argv[0] === 'uv') return
   // 跑 uv 的那个解释器：绝对路径，且不能是引擎自己的（那时它还不存在）
   const interp = build.argv[0]
   assert.ok(path.isAbsolute(interp), `建环境要用绝对路径的解释器：${interp}`)
