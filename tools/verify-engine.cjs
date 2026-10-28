@@ -24,7 +24,7 @@ if (!engineId) {
     '用法：\n' +
     '  node tools/verify-engine.cjs --engine <id> [--level A|B] [--json]\n\n' +
     '  B 级（默认）宿主拿到合法响应。快，不吃显存，不出声。\n' +
-    '        ⛔ 验不到「声音对不对」—— 只验到「宿主与引擎谈得拢」。\n' +
+    '        ⛔ 验不到「声音对不对」：只验到「宿主与引擎谈得拢」。\n' +
     '  A 级              真跑一次合成，要模型要显存（IndexTTS2 实测 import 34s）。\n' +
     '        需要 A 级时给一份请求体：--request <json文件>\n\n' +
     '⚠ 前两道校验用 node tools/dev/check-engine-env.cjs --engine <id> [--deep]\n')
@@ -46,7 +46,7 @@ try {
 //  名片没写 runtime = 平台不负责起它 ⇒ 第三道无从谈起
 if (!profile.runtime) {
   process.stderr.write(
-    `引擎 ${engineId} 的 manifest.json 没有 runtime 段 —— 平台不负责起它，\n` +
+    `引擎 ${engineId} 的 manifest.json 没有 runtime 段：平台不负责起它，\n` +
     '也就无从替它验「出不出得了声」。那一道要由起它的人自己做。\n')
   process.exit(1)
 }

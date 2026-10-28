@@ -124,7 +124,7 @@ function main() {
 
   console.log('─'.repeat(60));
   if (voicesTouched === 0) {
-    console.log('[migrate] 没有需要搬的角色 —— 要么已经搬完了，要么本来就没有老结构。');
+    console.log('[migrate] 没有需要搬的角色：要么已经搬完了，要么本来就没有老结构。');
     return;
   }
   console.log(`[migrate] ${voicesTouched} 个角色，${APPLY ? '已搬' : '待搬'} ${movedTotal} 项`

@@ -56,7 +56,7 @@ function reportOne (profile, out = process.stdout) {
   if (st.reason) out.write(`     ${st.reason}\n`)
 
   if (st.ready === true) {
-    out.write('     ⛔ 齐了不等于「能出声」—— 那要跑三道校验里的第三道：\n' +
+    out.write('     ⛔ 齐了不等于「能出声」：那要跑三道校验里的第三道：\n' +
       `        node tools/verify-engine.cjs --engine ${st.id} --level A --request req.json\n`)
     return st
   }
@@ -65,7 +65,7 @@ function reportOne (profile, out = process.stdout) {
   if (st.source && st.source.license_gate) {
     out.write(
       '\n  ⚠ 这个模型要**先去网站上点同意**才能下。\n' +
-      '     不点就下，会得到 401/403 —— 那看着像网络故障，实际并非如此。\n')
+      '     不点就下，会得到 401/403：那看着像网络故障，实际并非如此。\n')
   }
   if (st.source && st.source.url) out.write(`  模型主页：${st.source.url}\n`)
   if (st.source && st.source.command) {
@@ -73,7 +73,7 @@ function reportOne (profile, out = process.stdout) {
     out.write(`     位置：${st.source.cwd}\n`)
     out.write(`     ${st.source.command.join(' ')}\n`)
   } else {
-    out.write('\n  这张名片没写取回命令 —— 按上面的说明手动放，放完再回来跑一次这个工具就能复核。\n')
+    out.write('\n  这张名片没写取回命令：按上面的说明手动放，放完再回来跑一次这个工具就能复核。\n')
   }
   return st
 }
