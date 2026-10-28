@@ -20,7 +20,7 @@ const PLATFORM_OWNED = new Set([
 // 取出这张配方里、属于某台引擎的那一袋参数。两个来源合并，engine_params 优先：
 // recipe.params（v3 老配方全在这里，是底）与 recipe.engine_params[id]（v4 每台引擎自己
 // 的格子）。找不到对应格子时依次退到「配方自己记的引擎」和 "_unassigned"（后端在引擎
-// 未知时用的占位格，见 recipeStore 的兜底），不猜、不填默认值。
+// 未知时也会用这个占位格），不猜、不填默认值。
 export function recipeParamBag(recipe, engineId = '') {
   const boxes = (recipe && typeof recipe.engine_params === 'object' && recipe.engine_params) || {}
   const box =

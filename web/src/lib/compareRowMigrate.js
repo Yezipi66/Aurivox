@@ -3,8 +3,8 @@
 // 的 top_k 一个都读不出来（touched 是空集 ⇒ 一个键都不发），而格子显示的是名片默认值。
 // 两条判据：只搬认得的老键；搬进来的都算 touched。
 
-// 这一页历史上摊平在行对象上的引擎参数键。历史事实，不是「引擎有哪些参数」：答案被
-// 存量 localStorage 冻住了，和 lib/recipeStore.js 的 V3_PARAM_KEYS 同一个道理。
+// 这一页摊平在行对象上的引擎参数键，不是「引擎有哪些参数」：键集合被存量
+//   localStorage 的形状冻住，不能随便改。
 const LEGACY_ROW_PARAM_KEYS = [
   'temperature', 'top_k', 'top_p', 'repetition_penalty',
   'text_split_method', 'speed_factor',

@@ -6,7 +6,7 @@
 // 这里不做校验：候选是候选，不是限制。拿一份可能过期的名单去卡，症状是「我明明
 // 选了它却没生效」，而且不报错。
 
-/** 平台认识的库。与后端 lib/engines/paramTypes.js 的 SELECT_SOURCES 必须一致。 */
+/** 平台认识的库，必须与后端的来源清单保持一致。 */
 export const SELECT_SOURCES = ['voices', 'weights', 'audio']
 
 export function basenameOf(p) {
