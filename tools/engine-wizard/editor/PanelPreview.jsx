@@ -146,7 +146,7 @@ function PreviewInner ({ manifest, children }) {
               ))
               : (
                 <div className="field-hint" style={{ gridColumn: '1 / -1' }}>
-                  {t('(no parameters in this tier)', '（这一档还没有参数）')}
+                  {t('(no parameters in this tier)', '（该档暂无参数）')}
                 </div>
                 )}
           </div>

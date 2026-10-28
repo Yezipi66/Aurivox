@@ -45,7 +45,7 @@ export default function EngineScanZone ({
             <select className="control" value={group}
               disabled={busy}
               onChange={(e) => onGroupChange && onGroupChange(e.target.value)}>
-              <option value="">{t('— all groups —', '— 全部分组 —')}</option>
+              <option value="">{t('— all groups —', '全部分组')}</option>
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>

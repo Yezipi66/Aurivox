@@ -179,7 +179,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
         <button className="btn btn-sm btn-danger" type="button"
           onClick={() => onDelete(index)}>
-          {t('Delete this parameter', '删掉这个参数')}
+          {t('Delete this parameter', '删除该参数')}
         </button>
       </div>
     </div>
