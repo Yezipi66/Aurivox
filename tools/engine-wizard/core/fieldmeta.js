@@ -88,7 +88,7 @@ const PARAM_FIELDS = Object.freeze([
       '⚠ parameters[] 里的参数全部住在折叠容器里，主区域一个都不渲染。\n' +
       '   所以 tier 不是「常用 vs 冷门」，而是「折叠层里再分两排」。\n' +
       '   ⚠ 想让某个参数出现在主区域：名片做不到，那是平台的固定区域。',
-    warn: '⚠ 没写 tier ⇒ 落进 advanced（见 web/src/lib/engines.js 的 fieldsForTier）。' },
+    warn: '⚠ 没写 tier ⇒ 落进 advanced（按字段分层规则归类）。' },
   { key: 'applies_to', danger: DANGER.INFO,
     howto: '只在这些方法名下显示。多方法引擎的必备字段。' },
   { key: 'label', danger: DANGER.INFO,

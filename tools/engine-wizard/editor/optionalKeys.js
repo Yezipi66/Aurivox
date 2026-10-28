@@ -1,10 +1,10 @@
 // 「引擎配置」那一段的清单与纯函数（OptionalConfig.jsx 渲染；文件名不叫 optionalConfig.js，大小写不敏感的文件系统上会和组件撞名，可单独测）。
 //
-// 每一项缺着时平台都有答案（推断或保守默认，见 lib/engines/profile.js 的 DEFAULTS）。
+// 每一项缺着时平台都有答案（推断或保守默认，规则记在名片的默认集里）。
 // 写了数就必须写出处（平台 checkMeasuredSources 的规矩）：添加时出处先记 estimated，
 // 第 5 步量出来之后可改成 measured。
 
-// 不填时平台的答案。数值与 lib/engines/profile.js 的 DEFAULTS 一致（有守卫测试钉住）。
+// 不填时平台的答案。数值与名片的默认集一致（有守卫测试钉住）。
 export const PLATFORM_DEFAULTS = Object.freeze({
   timeout_ms: 300000,
   max_chars: 50,

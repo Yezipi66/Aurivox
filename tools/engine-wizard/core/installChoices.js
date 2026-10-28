@@ -33,7 +33,7 @@ function readChoices (input) {
   //   没有建议时是 null；接受升级却没有建议 ⇒ 如实报出来，不闷头改版本。
   const torchSuggestion = input.torchSuggestion || null
   // versionOverrides：使用者为某个包选定的版本（包名⇒版本号）。
-  //   改版本要改清单本身，不能靠排除（见 versionOverrides.js 文件头）。
+  //   改版本要改清单本身，不能靠排除（排除会漏掉未列出的版本）。
   const versionOverrides = {}
   for (const [name, ver] of Object.entries(input.versionOverrides || {})) {
     const k = normName(name)

@@ -411,7 +411,7 @@ function platformPythonAbs (root, opts = {}) {
  *
  * 解释器的选法（规范，不猜）：
  *   ① 引擎自己声明了 Python 版本（.python-version 或 requires-python）⇒ 用它；
- *     requires-python 是区间时取区间内最高的那个版本（见 pickFromRequiresPython）。
+ *     requires-python 是区间时取区间内最高的那个版本（取最高兼容版本）。
  *   ② 引擎没声明 ⇒ 用平台基座（3.11）；
  *   ③ 连平台基座都拿不到 ⇒ 报出来，不回落去任意版本的解释器。
  * 第③条是硬的：回落等于把「版本不匹配」这个错误推迟到装依赖那一步，

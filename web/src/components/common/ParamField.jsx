@@ -148,7 +148,7 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
   const type = canonicalType(field.type)
   const wide = field.width === 'full' || n > 1 || field.multi === true
 
-  // 勾选：整格换成一行对齐的开关（见 ToggleField 的注释）。
+  // 勾选：整格换成一行对齐的开关，与同类开关对齐方式一致。
   if (type === 'boolean' && n === 1) {
     return (
       <div style={wide ? { gridColumn: '1 / -1' } : undefined}>

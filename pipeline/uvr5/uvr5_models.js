@@ -295,7 +295,7 @@ function resolveExpertValue(key, raw) {
 // 把任意输入（新流水线数组或旧的 {model} 字符串）归一成一份干净、已校验的流水线。
 // 每个阶段带 { model, [agg], <该架构适用的进阶参数> }。未知或空的模型被丢掉。
 // 没有可用阶段时返回空数组（调用方当成「关闭」）。
-// 服务端的校验与 denoise.js 共用它，两边才对得上同一份形状（指纹才稳定）。
+// 服务端与去噪步骤共用同一份形状定义，两边指纹才对得上、才稳定。
 function normalizePipeline(input) {
   let stages = [];
   if (Array.isArray(input)) {

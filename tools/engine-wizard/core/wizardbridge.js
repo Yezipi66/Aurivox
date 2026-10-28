@@ -969,7 +969,7 @@ function audioDirFor (id) {
 // GET /wizard/verify/audio?id=<id>
 //   把 verify_audio.py 写出的音频文件送前端，供 Player.jsx 画波形。
 //   只允许读 engines/<id>/.wizard-verify-audio/ 下的 wav，
-//   越权路径一律拒（见 audioDirFor）。
+//   越权路径一律拒（按允许的音频目录判定）。
 function handleVerifyAudio (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/verify/audio')) return false

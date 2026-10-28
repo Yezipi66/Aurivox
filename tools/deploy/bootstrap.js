@@ -70,7 +70,7 @@ function venvBaseMatches (venvDir, embeddedPython) {
  *
  * 两道判据，都要过：
  *   ① 解释器能跑（`import sys` 退出码 0）；
- *   ② base 是当前内嵌解释器（见 venvBaseMatches）。
+ *   ② base 是当前内嵌解释器（由 venvBaseMatches 判定）。
  *
  * 只判「能跑」会漏掉一类情况：外部工具把本机 Python 换成了别的版本，
  * venv 照样能跑，但它的 ABI 与平台基座不同，轮子会装不上。

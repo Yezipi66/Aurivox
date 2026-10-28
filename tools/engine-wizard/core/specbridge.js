@@ -45,7 +45,7 @@ function buildSpec () {
 
 /**
  * Vite 中间件：GET /wizard/spec → 字段规格
- * （与 bridge.js 的 /wizard/validate 同源，分开是因为一个 GET 一个 POST）
+ * （与 /wizard/validate 同源，这里走 GET、那边走 POST，所以拆成两个中间件）
  */
 function handleSpec (req, res, coreDir) {
   if (req.method !== 'GET') return false

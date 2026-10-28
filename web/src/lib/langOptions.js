@@ -30,7 +30,7 @@ function langLabel(code) {
 const VOICE_LANG_LABEL = { zh: 'Mandarin', yue: 'Cantonese', ja: 'Japanese', en: 'English', ko: 'Korean' }
 
 // 计算有效的 CJK 回落语种（zh/ja/yue/ko/en）：auto、空值与不具体的值都归到 zh。
-// 取值与 synthesis.js 的 generateService/speechService 以及引擎的 _norm_base_lang 一致。
+// 取值口径须与合成服务的 base lang 归一逻辑保持一致。
 function effectiveBaseLang(voiceLanguage) {
   const raw = String(voiceLanguage || '').toLowerCase().replace(/^all_/, '').replace(/^auto.*/, '')
   return (['zh', 'ja', 'yue', 'ko', 'en'].includes(raw)) ? raw : 'zh'

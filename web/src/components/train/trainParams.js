@@ -47,7 +47,7 @@ function resolveVocalPipeline(form) {
 }
 
 // 训练参数序列化器：把表单值转成后端 customParams.training 用的字段。
-// @param form 表单值，字段名见 trainConstants.js 的 REBUILD_PARAM_DEFAULTS。
+// @param form 表单值，字段名与重建参数默认值表一致。
 // @returns {object} 训练参数字段。数值字段取不到值时用这里的兜底数，
 //   batch_size 与 learning_rate 保留 'auto' 与 'default' 两个字面量交后端解释。
 function buildTrainingParams(form) {
