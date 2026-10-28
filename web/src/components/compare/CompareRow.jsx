@@ -529,7 +529,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         {showAdvanced && (
           <div className="collapsible-body">
             <div className="form-grid">
-              {/* 按 engine.param_schema 循环，与生成页共用同一个 ParamField，这里不再分叉出按类型写死的输入框：那样换一台引擎会让格子照样显示、填了发出去上游不认且不报错。两档都画（跟着 TIERS），因为有些引擎的 common 层是空的，只画 common 时选它们一个格子都没有。不传 options：ParamField 只在 select 加 source 时用它（候选项要扫盘），写死 choices 的格子自取 field.choices。这一页不扫权重、音色与音频，那是生成页的职责。 */}
+              {/* 按 engine.param_schema 循环，与生成页共用同一个 ParamField，这里不再分叉出按类型写死的输入框：那样换一台引擎会让格子照样显示、填了发出去上游不认且不报错。
+                  两档都画（跟着 TIERS），因为有些引擎的 common 层是空的，只画 common 时选它们一个格子都没有。
+                  不传 options：ParamField 只在 select 加 source 时用它（候选项要扫盘），写死 choices 的格子自取 field.choices。
+                  这一页不扫权重、音色与音频，那是生成页的职责。 */}
               {/* 档位按钮取自 TIERS。写死两档就是第二份「有几档」的事实。 */}
               {tiersWithFields.length > 1 && (
                 <div style={{ display: 'flex', gap: 6, gridColumn: '1 / -1' }}>

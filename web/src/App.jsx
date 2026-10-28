@@ -290,7 +290,11 @@ function AppShell() {
               <span className={`badge badge-${tone}`} title={title}>{label}</span>
             );
           })()}
-          {/* 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 > 合成中 > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。底模缺失留在灯面上，那是唯一一种看不见就会被卡住一小时的坏；「底模齐」永远绿，降级进悬停。引擎改成按需启动后 Unreachable 成了常态，常亮红灯的指示灯只会训练人忽略所有红灯。这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定。 */}
+          {/* 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 >
+              合成中 > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。
+              底模缺失留在灯面上，那是唯一一种看不见就会被卡住一小时的坏；「底模齐」永远绿，降级进悬停。
+              引擎改成按需启动后 Unreachable 成了常态，常亮红灯的指示灯只会训练人忽略所有红灯。
+              这里一个 if 都不许加：谁上台、悬停里怎么排，engineBadge 决定。 */}
           {(() => {
             const b = engineBadge(engine, health, lang);
             if (!b) return null;
@@ -335,7 +339,10 @@ function AppShell() {
               setActiveTaskId={setActiveTaskId}
               rebuildTask={rebuildTask} setRebuildTask={setRebuildTask} />
           )}
-          {/* engine 传下去，是给参考文本校对里的 /api/pron/preview 用的，它现在 engine_id 必传，平台不代为选择。判据 11 的另一半：页签藏了，页面本身也得关上，否则上次停在 Tune 页的人刷新后照样进得来。同 flow 页的做法：说清为什么没有，不要给一个空白面板。engine 为 null 时说的是「还在读」，跟「这台不支持」是两回事，不能合成一句话。 */}
+          {/* engine 传下去，是给参考文本校对里的 /api/pron/preview 用的，它现在 engine_id 必传，平台不代为选择。
+              判据 11 的另一半：页签藏了，页面本身也得关上，否则上次停在 Tune 页的人刷新后照样进得来。
+              同 flow 页的做法：说清为什么没有，不要给一个空白面板。engine 为 null 时说的是「还在读」，
+              跟「这台不支持」是两回事，不能合成一句话。 */}
           {page === 'train' && (showsTrainingTab(engine)
             ? <TrainingTab engine={engine} voices={voices} loadVoices={loadVoices}
                 activeTaskId={activeTaskId} setActiveTaskId={setActiveTaskId}
