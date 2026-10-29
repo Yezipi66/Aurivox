@@ -10,7 +10,8 @@
  *   python 路的 name 与 target 同名，都是上游方法的参数名，不进 call.args。
  * @param currentCall 现有的 call 段，作基底；用户手填的值不被覆盖。
  * @returns {{call, matched, argList, notes}} 或 null（没有参数）；
- *   matched 是 { text, ref_audio, output_path }，认不出时为 null。
+ *   matched 是 { text, ref_audio, ref_text, output_path }，认不出时为 null。
+ *   ref_text 是可选槽位：认不出不算缺，由用户自己拖进去。
  */
 export function computeAutoFill (params, currentCall) {
   if (!params || !params.length) return null
@@ -52,7 +53,7 @@ export function computeAutoFill (params, currentCall) {
     }
   }
 
-  // 三个槽位：候选名对的是 name（不带横线的那个词），写进 bind 的是 target
+  // 槽位：候选名对的是 name（不带横线的那个词），写进 bind 的是 target
   // （cli 路是开关，python 路是参数名）。索引必须建在 name 上：建在 target 上时，
   // cli 路的 target 是带横线的开关，而候选名不带横线，两边永远不匹配。
   const byName = {}
@@ -68,9 +69,11 @@ export function computeAutoFill (params, currentCall) {
 
   // prompt_text 不进「合成文本」的候选：零样本引擎里它几乎都是参考音频里说的那句话
   //   （参考文本），认成合成文本，念出来的就是参考音频的原话，而且不报错。
+  //   它在参考文本的候选里排第一。参考文本只是尽量认：认不出就空着，不当成缺项。
   const matched = {
     text: findSlot('text', 'tts_text', 'gen_text'),
     ref_audio: findSlot('voice', 'ref_audio', 'prompt_wav', 'ref_wav', 'spk', 'speaker', 'reference_audio'),
+    ref_text: findSlot('prompt_text', 'ref_text', 'prompt-text', 'reference_text', 'ref-text'),
     output_path: findSlot('output', 'output_path', 'out', 'save_path'),
   }
 
@@ -85,6 +88,7 @@ export function computeAutoFill (params, currentCall) {
   call.bind = { ...(call.bind || {}) }
   if (!call.bind.text && matched.text) call.bind.text = matched.text
   if (!call.bind.ref_audio && matched.ref_audio) call.bind.ref_audio = matched.ref_audio
+  if (!call.bind.ref_text && matched.ref_text) call.bind.ref_text = matched.ref_text
   if (!call.bind.output_path && matched.output_path) call.bind.output_path = matched.output_path
 
   return { call, matched, argList: params, notes }

@@ -261,14 +261,17 @@ def verify_level_a(spec):
 
     # 参考音频必须真的存在，不许造一个假路径，
     # 那会得到一个「文件不存在」的 400，而它长得像「校验失败」。
-    ref = payload.get("ref_audio_path")
-    if ref:
+    # 通用宿主收平台的词 reference_audio；旧名片照名片发 ref_audio_path，两个都认。
+    for key in ("reference_audio", "ref_audio_path"):
+        ref = payload.get(key)
+        if not ref:
+            continue
         rp = ref if os.path.isabs(ref) else os.path.join(spec.get("root") or ".", ref)
         if not os.path.isfile(rp):
             return {"ok": False, "level": "A", "stage": "spec",
                     "error": "参考音频不存在：%s" % rp,
                     "why": "平台不替你造一个假路径：那样验的是 404，不是引擎"}
-        payload["ref_audio_path"] = rp
+        payload[key] = rp
 
     status, body, err, raw, ctype = http_json(base + "/tts", payload=payload,
                                      timeout=spec.get("synth_timeout", 180))

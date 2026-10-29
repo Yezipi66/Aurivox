@@ -71,6 +71,7 @@ test('cli 参数：按 dest 名认槽位，认出来的是命令行开关', () =
   assert.deepStrictEqual(r.matched, {
     text: '--text',
     ref_audio: '--voice',
+    ref_text: null,
     output_path: '--output',
   }, '槽位没认出：候选名不带横线，填进 bind 的必须是带横线的开关')
   assert.deepStrictEqual(r.call.bind, {
@@ -85,6 +86,7 @@ test('python 参数：按参数名认槽位，填进 bind 的就是那个参数�
   assert.deepStrictEqual(r.matched, {
     text: 'tts_text',
     ref_audio: 'ref_audio',
+    ref_text: null,
     output_path: 'save_path',
   })
   assert.deepStrictEqual(r.call.bind, {
@@ -236,7 +238,7 @@ test('认不出槽位时 matched 是空值，不许瞎猜一个', () => {
   const r = computeAutoFill(
     [{ source: 'cli', name: 'speed', target: '--speed', kind: 'number', help: null, required: false, group: 'infer', is_tool: false }],
     { kind: 'cli' })
-  assert.deepStrictEqual(r.matched, { text: null, ref_audio: null, output_path: null })
+  assert.deepStrictEqual(r.matched, { text: null, ref_audio: null, ref_text: null, output_path: null })
 })
 
 test('不改传进来的名片：入参不被就地改写', () => {
@@ -252,4 +254,37 @@ test('prompt_text 是参考文本，不许被认成合成文本', () => {
   ], { kind: 'cli' })
   assert.equal(r.matched.text, null)
   assert.equal(r.call.bind.text, undefined)
+})
+
+// 参考文本：可选槽位，扫描尽量认，认不出就空着。
+test('参考文本：候选名认得出就填进 bind.ref_text，cli 写开关、python 写参数名', () => {
+  const cases = [
+    ['prompt_text', '--prompt_text', 'cli'],
+    ['ref_text', '--ref_text', 'cli'],
+    ['prompt-text', '--prompt-text', 'cli'],
+    ['reference_text', 'reference_text', 'python'],
+    ['ref-text', '--ref-text', 'cli'],
+  ]
+  for (const [name, target, source] of cases) {
+    const r = computeAutoFill([
+      { source, name: 'text', target: source === 'cli' ? '--text' : 'text', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+      { source, name, target, kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
+    ], {})
+    assert.equal(r.matched.ref_text, target, `${name} 没被认成参考文本`)
+    assert.equal(r.call.bind.ref_text, target)
+    assert.notEqual(r.matched.text, target, `${name} 被认成了合成文本`)
+  }
+})
+
+test('参考文本：认不出不瞎猜，bind 里也不出现 ref_text', () => {
+  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  assert.equal(r.matched.ref_text, null)
+  assert.ok(!('ref_text' in r.call.bind))
+})
+
+test('参考文本：名片里已经绑了的不被扫描覆盖', () => {
+  const r = computeAutoFill([
+    { source: 'cli', name: 'prompt_text', target: '--prompt_text', kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
+  ], { kind: 'cli', bind: { ref_text: '--transcript' } })
+  assert.equal(r.call.bind.ref_text, '--transcript')
 })

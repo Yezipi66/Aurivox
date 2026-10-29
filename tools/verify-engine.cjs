@@ -62,7 +62,7 @@ if (level === 'A') {
       'A 级要真的合成。请给一份请求体：\n' +
       '  node tools/verify-engine.cjs --engine ' + engineId + ' --level A --request req.json\n\n' +
       'req.json 长这样（键名是**引擎方言**，照 engines/' + engineId + '/manifest.json 的 maps 写）：\n' +
-      JSON.stringify({ text: '你好', ref_audio_path: '<一段真实参考音频的路径>' }, null, 2) + '\n')
+      JSON.stringify({ text: '你好', reference_audio: '<一段真实参考音频的路径>' }, null, 2) + '\n')
     process.exit(1)
   }
 }

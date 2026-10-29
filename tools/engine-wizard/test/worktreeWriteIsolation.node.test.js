@@ -199,6 +199,9 @@ test('worktree 里试跑只在主仓库的引擎：按引擎所在的根解析�
       spawnFromPlan: (plan, o) => { seen.plan = plan; seen.spawn = o; return { on () {}, killTree: async () => {} } },
       probeOnce: async () => { clock += 1000; return true },
       post: async () => { clock += 2000; return { status: 200, headers: {}, body: Buffer.alloc(0) } },
+      // 这张名片启动脚本是通用宿主、没写地址 ⇒ 平台推出 stdio，探活与合成走管道那一对。
+      probeStdio: async () => { clock += 1000; return true },
+      postStdio: async () => { clock += 2000; return { status: 200, body: Buffer.alloc(0) } },
     }
     const r = await M.measureAndPersist('mainonly', { request: { text: 'hello' }, rootOpts, deps, pollMs: 0 })
     assert.equal(r.measurement.stage, undefined, JSON.stringify(r.measurement))
