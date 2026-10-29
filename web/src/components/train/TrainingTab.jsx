@@ -772,7 +772,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
                     : ''}>{recovery ? (recoveryMode === 'modify' ? 'Fork & Resume' : 'Resume Tuning') : 'Start Tuning'}</button>
               )}
               <button className="btn btn-ghost" onClick={() => setCacheConfirm(true)} disabled={clearing}
-                title={tr('Delete finished task workspaces from the .staging cache (running tasks are never touched)', '从 .staging 缓存中删除已完成的任务工作区（运行中的任务永远不会被动到）')}>
+                title={tr('Delete finished task workspaces from the .staging cache (running tasks are never touched)', '从 .staging 缓存中删除已完成的任务工作区（运行中的任务不会被处理）')}>
                 {clearing ? tr('Cleaning…', '清理中…') : 'Clean Cache'}
               </button>
               {clearMsg && <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{clearMsg}</span>}

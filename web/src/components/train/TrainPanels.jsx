@@ -158,8 +158,8 @@ const CONF_COLORS = {
 }
 // 三档的显示名。调用处传入 tr 做双语。
 function confTierLabel(tier, tr) {
-  if (tier === 'hi') return tr('Confident', '较为可信')
-  if (tier === 'mid') return tr('Uncertain', '可疑')
+  if (tier === 'hi') return tr('Confident', '可信')
+  if (tier === 'mid') return tr('Uncertain', '不确定')
   if (tier === 'lo') return tr('Doubtful', '存疑')
   return ''
 }

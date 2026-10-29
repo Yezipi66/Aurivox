@@ -145,7 +145,7 @@ client.audio.speech.create(
             </ul>
             <p>
               <strong>语言优先级：请求 <code>language</code> → recipe.language → 资产语言 → auto。</strong>
-              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展（<strong>不传则行为与以前完全一致</strong>）。
+              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展（<strong>不传则行为保持不变</strong>）。
               响应头始终返回 <code>X-Text-Lang</code>（最终解析结果）；仅当<strong>既没传 <code>language</code>、
               recipe 也未固定语言</strong>而兜底到 <code>auto</code> 时（或请求了不支持的语言），才带 <code>X-Language-Warning</code>。
               想要确定性输出，请求里显式带 <code>language</code>，或在 recipe 上设置语言。
