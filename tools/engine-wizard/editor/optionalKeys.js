@@ -23,6 +23,23 @@ export function launchConventions (id) {
   }
 }
 
+// 给名片的 runtime 打补丁：空串与 undefined 视为删除，删光了整段去掉。纯函数，基于传入的最新名片。
+export function withRuntimePatch (manifest, patch) {
+  const cur = manifest || {}
+  const next = { ...(cur.runtime || {}), ...patch }
+  for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === '') delete next[k]
+  const out = { ...cur, runtime: Object.keys(next).length ? next : undefined }
+  if (out.runtime === undefined) delete out.runtime
+  return out
+}
+
+// 引擎目录与启动脚本两格都没写 ⇒ 填惯例值；写过任何一格 ⇒ 原样返回同一个对象（不触发重渲染）。
+export function withLaunchConventions (manifest, conv) {
+  const rt = (manifest && manifest.runtime) || {}
+  if (!conv || rt.python !== undefined || rt.entry !== undefined) return manifest
+  return withRuntimePatch(manifest, { python: conv.python, entry: conv.entry })
+}
+
 export function get (obj, keyPath) {
   return keyPath.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj)
 }
