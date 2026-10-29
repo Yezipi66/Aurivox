@@ -245,3 +245,11 @@ test('不改传进来的名片：入参不被就地改写', () => {
   computeAutoFill(mixedParams, card)
   assert.equal(JSON.stringify(card), snapshot, 'computeAutoFill 就地改了入参')
 })
+test('prompt_text 是参考文本，不许被认成合成文本', () => {
+  const r = computeAutoFill([
+    { source: 'cli', name: 'prompt_text', target: '--prompt-text', kind: 'str', style: 'value', help: null, required: false, group: 'infer', is_tool: false },
+    { source: 'cli', name: 'output', target: '--output', kind: 'str', style: 'value', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'cli' })
+  assert.equal(r.matched.text, null)
+  assert.equal(r.call.bind.text, undefined)
+})

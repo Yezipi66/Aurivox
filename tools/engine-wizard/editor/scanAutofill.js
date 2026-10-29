@@ -66,8 +66,10 @@ export function computeAutoFill (params, currentCall) {
     return null
   }
 
+  // prompt_text 不进「合成文本」的候选：零样本引擎里它几乎都是参考音频里说的那句话
+  //   （参考文本），认成合成文本，念出来的就是参考音频的原话，而且不报错。
   const matched = {
-    text: findSlot('text', 'tts_text', 'prompt_text', 'gen_text'),
+    text: findSlot('text', 'tts_text', 'gen_text'),
     ref_audio: findSlot('voice', 'ref_audio', 'prompt_wav', 'ref_wav', 'spk', 'speaker', 'reference_audio'),
     output_path: findSlot('output', 'output_path', 'out', 'save_path'),
   }
