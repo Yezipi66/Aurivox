@@ -303,7 +303,7 @@ export function StepVerify ({ id }) {
           ) : (
             <div className="field-hint">
               {t('No sample yet. Synthesise one above to see the audio information.',
-                '还没有样本。在上方合成一段就能看到音频信息。')}
+                '暂无样本。在上方合成一段即可查看音频信息。')}
             </div>
           )}
         </div>
@@ -320,7 +320,7 @@ export function StepVerify ({ id }) {
           ) : (
             <div className="field-hint">
               {t('No sample yet. The waveform appears here once one exists.',
-                '还没有样本。有样本后这里会显示波形。')}
+                '暂无样本。有样本后此处会显示波形。')}
             </div>
           )}
         </div>

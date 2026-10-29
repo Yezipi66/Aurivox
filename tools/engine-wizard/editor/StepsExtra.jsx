@@ -674,8 +674,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 <div className="field-hint" style={{ marginTop: 0 }}>
                   {p.done
                     ? (p.ok
-                      ? t(`${name} — done`, `${name} — 完成`)
-                      : t(`${name} — failed: ${p.error || ''}`, `${name} — 失败：${p.error || ''}`))
+                      ? t(`${name} — done`, `${name}：完成`)
+                      : t(`${name} — failed: ${p.error || ''}`, `${name}：失败（${p.error || ''}）`))
                     : t(`Downloading ${name} (${p.percent || 0}%)`, `正在下载 ${name} (${p.percent || 0}%)`)}
                 </div>
                 {!p.done && (

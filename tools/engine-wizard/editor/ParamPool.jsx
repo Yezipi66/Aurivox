@@ -86,7 +86,7 @@ export default function ParamPool ({ params, selected, onSelect, onDragStart, ch
       <div>
         <div className="empty-state">
           <div className="es-title">
-            {t('No parameters scanned yet', '还没有扫到参数')}
+            {t('No parameters scanned yet', '尚未扫到参数')}
           </div>
           <div className="es-sub">
             {t('Pick an engine and scan it. The parameters show up here.',
