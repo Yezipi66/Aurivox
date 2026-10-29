@@ -129,6 +129,17 @@ def _seed_torch_cuda(seed):
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 
 
+def _venv_python(venv_dir):
+    """runtime.python 写的是虚拟环境目录，这里落到它的解释器。
+
+    规则与 lib/engines/platformPaths.js 的 venvPythonRelPath 同一份：按平台拼，不去盘上探测。
+    直接把目录当命令执行，子进程报的是 PermissionError，看不出是名片哪一项的事。
+    """
+    if os.name == "nt":
+        return os.path.join(venv_dir, "Scripts", "python.exe")
+    return os.path.join(venv_dir, "bin", "python")
+
+
 def _placeholder_values(profile):
     engine_dir = os.path.abspath(profile.get("dir") or ".")
     # engines/<id>/ 的上两级 = 项目根
@@ -142,7 +153,7 @@ def _placeholder_values(profile):
     return {
         "root": root,
         "engine_dir": engine_dir,
-        "engine_python": os.path.abspath(os.path.join(root, py)) if py else None,
+        "engine_python": _venv_python(os.path.abspath(os.path.join(root, py))) if py else None,
         # 名片里 checkpoints 是相对项目根的，这里转成绝对路径再给上游
         # 上游不该关心我们的目录约定。
         "checkpoints": os.path.abspath(os.path.join(root, ckpt)) if ckpt else None,

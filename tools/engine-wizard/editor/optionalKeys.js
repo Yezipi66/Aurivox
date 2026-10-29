@@ -60,7 +60,7 @@ export const OPTIONAL_KEYS = [
     fallbackEn: 'required for generator output', fallbackZh: '生成器形态必填' },
   { path: 'runtime.args', kind: 'list',
     en: 'Extra start arguments', zh: '额外启动参数',
-    fallbackEn: 'none', fallbackZh: '无' },
+    fallbackEn: 'shared host: --profile-json / --host / --port', fallbackZh: '通用宿主默认 --profile-json / --host / --port' },
   { path: 'runtime.cwd', kind: 'text',
     en: 'Working directory', zh: '工作目录',
     fallbackEn: 'engine directory', fallbackZh: '引擎目录' },
