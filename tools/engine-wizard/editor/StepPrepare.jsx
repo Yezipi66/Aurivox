@@ -420,7 +420,7 @@ const done = facts && facts.cloned === true
               {upstream && upstream.match === 'different' && (
                 <>
                   {t('This directory came from a different upstream, so it is reused '
-                    + 'as it is. Check that this is the engine you meant to install.',
+                    + 'as it is. Check that this is the engine to be installed.',
                     '该目录来自另一个上游，仍按原样复用。'
                     + '请确认这就是要装的引擎。')}
                   <div className="field-hint">

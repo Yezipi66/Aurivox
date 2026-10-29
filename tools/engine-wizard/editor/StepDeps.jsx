@@ -398,7 +398,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('Several GB are downloaded and it takes a while. If it stops midway, '
               + 'run this step again — the download continues from the breakpoint '
-              + 'and already-downloaded wheels are kept. If you cancel it, the '
+              + 'and already-downloaded wheels are kept. If cancelled, the '
               + 'environment is left partial: the next run removes it and rebuilds '
               + 'it, and the downloaded wheels are still reused.',
               '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'

@@ -51,7 +51,7 @@ export default function Diagnostics ({ result, loading }) {
               {result.parse_error
                 ? t('Invalid JSON — the preview on the right is the previous version',
                     'JSON 无法解析，右侧显示的是上一次的结果')
-                : t('The checker itself failed. This says nothing about your manifest.',
+                : t('The checker itself failed. This says nothing about the manifest.',
                     '检查器自身出错，与 Manifest 是否正确无关。')}
               <div className="field-hint">{broken}</div>
             </div>
