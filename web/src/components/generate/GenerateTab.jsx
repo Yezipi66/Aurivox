@@ -615,7 +615,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
 
   const askClearHistory = () => setGenConfirm({
     title: 'Clear history',
-    message: 'Remove all entries from this list? Your generated audio files stay on disk — only the history shown here is cleared.',
+    message: 'Remove all entries from this list? The generated audio files stay on disk — only the history shown here is cleared.',
     confirmLabel: 'Clear history',
     danger: false,
     icon: <IconRerun size={18} color="var(--accent)" />,

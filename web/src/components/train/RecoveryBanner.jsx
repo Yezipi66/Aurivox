@@ -37,14 +37,14 @@ export function RecoveryBanner({
         {recoveryMode === 'modify'
           ? <>{forkByParamChange
                 ? tr(
-                  <>You changed <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> settings. That step runs <strong>before</strong> the failure point,
+                  <>The <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> settings were changed. That step runs <strong>before</strong> the failure point,
                    so its output must be regenerated — an in-place resume would reuse the old cache and silently ignore the change made.
                    This therefore launches a <strong>brand-new task</strong> (fork) and re-runs from <strong>{FSTEP_LABELS[rerunStart]}</strong>.</>,
                   <>已修改 <strong>{FSTEP_LABELS[earliestChangedStep]}</strong> 的设置。该步骤在失败点<strong>之前</strong>运行，
                    因此它的输出必须重新生成：原地恢复会复用旧缓存并忽略该修改。
                    所以这里会启动一个<strong>全新任务</strong>（分叉），并从 <strong>{FSTEP_LABELS[rerunStart]}</strong> 重新运行。</>)
                 : tr(
-                  <>You moved the restart point to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
+                  <>The restart point was moved to an earlier, already-completed step (<strong>{FSTEP_LABELS[rerunStart]}</strong>).
                    Changing a completed step means it must be re-run, so this launches a <strong>brand-new task</strong> (fork).</>,
                   <>重启点已移到一个更早、已完成的步骤（<strong>{FSTEP_LABELS[rerunStart]}</strong>）。
                    修改已完成的步骤意味着必须重新运行，因此这里会启动一个<strong>全新任务</strong>（分叉）。</>)}

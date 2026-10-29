@@ -782,7 +782,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           <ConfirmDialog
             open={cacheConfirm}
             title={tr('Clean training cache', '清理训练缓存')}
-            message={tr('Delete all finished task workspaces from the training cache (.staging)? Running tasks are never deleted. Your published models and assets are not affected.',
+            message={tr('Delete all finished task workspaces from the training cache (.staging)? Running tasks are never deleted. Published models and assets are not affected.',
               '要从训练缓存（.staging）中删除所有已完成的任务工作区吗？运行中的任务永远不会被删除。已发布的模型和资源不受影响。')}
             confirmLabel={tr('Clean cache', '清理缓存')}
             danger

@@ -268,7 +268,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     if (c.source.license_gate) {
       lines.push('', zh
         ? '⚠ 需先在模型主页接受许可才能下载（否则会返回 401/403，表现为网络故障）'
-        : '⚠ You must accept the license on the model page first (otherwise 401/403)')
+        : '⚠ Accept the license on the model page first (otherwise 401/403)')
     }
     if (c.source.url) lines.push((zh ? '模型主页：' : 'Model page: ') + c.source.url)
     if (Array.isArray(c.source.command)) {

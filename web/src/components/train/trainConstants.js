@@ -61,7 +61,7 @@ const VOCAL_PRESETS = [
            '基于 Roformer 的人声分离。大模型（约 700MB），需下载。'],
     pipeline: [{ model: 'Mel-Band-Roformer' }] },
   { id: 'custom', label: ['Custom…', '自定义…'],
-    hint: ['Build your own separation chain (advanced).', '自建分离链（高级）。'],
+    hint: ['Build a custom separation chain (advanced).', '自建分离链（高级）。'],
     pipeline: null },
 ]
 const VOCAL_PRESET_BY_ID = Object.fromEntries(VOCAL_PRESETS.map(p => [p.id, p]))
@@ -154,7 +154,7 @@ const TRAIN_PRESETS = [
   { key: 'lowvram',  label: 'Low VRAM Safe',         hint: 'Batch size 1 + gradient checkpoint for 8GB GPUs. Same S1 8 / S2 25 epoch split.',
     hintZh: 'batch size 1 + gradient checkpoint，适合 8GB 显存的 GPU。epoch 划分同样为 S1 8 / S2 25。',
     fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 1,      s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: true,  s2Fp16: true } },
-  { key: 'custom',   label: 'Custom',               hint: 'Your own values — edit anything in the pipeline steps below.',
+  { key: 'custom',   label: 'Custom',               hint: 'Custom values — edit anything in the pipeline steps below.',
     hintZh: '使用自定义参数，可在下方各流程步骤中任意修改。',
     fields: null },
 ]

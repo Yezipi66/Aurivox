@@ -503,7 +503,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             )}
             <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>
               {t(
-                <>You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
+                <>To proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
                 <>也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
             </div>
           </div>

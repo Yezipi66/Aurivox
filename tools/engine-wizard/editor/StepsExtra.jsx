@@ -837,7 +837,7 @@ function HfTokenDialog ({ info, canRetry, configured, busy, error, onSave, onCle
               <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
                 huggingface.co/settings/tokens
               </a>
-              {t('. You only need to enter it once; failed files are retried after it is saved.',
+              {t('. Enter it only once; failed files are retried after it is saved.',
                 ' 创建一个只读令牌。只需填写一次，保存后会自动重试失败的文件。')}
             </p>
           )}

@@ -69,7 +69,7 @@ function gatedResult (status, repo, tokenConfigured, fileName) {
   const nameZh = fileName ? `${fileName}：` : ''
   const msg = {
     NO_TOKEN: [
-      `${name}this Hugging Face repository requires authorization. Enter your HF access token.`,
+      `${name}this Hugging Face repository requires authorization. Enter the HF access token.`,
       `${nameZh}这个 Hugging Face 仓库需要授权，请填写 HF 访问令牌。`,
     ],
     TOKEN_REJECTED: [
@@ -79,7 +79,7 @@ function gatedResult (status, repo, tokenConfigured, fileName) {
     LICENSE_NOT_ACCEPTED: [
       `${name}${LICENSE_GATE_NOTE.en} The saved token is valid but has no access yet: `
         + `open ${repoPage}, sign in and accept the license, then retry. `
-        + 'You can also download the ModelScope mirror instead, if there is one.',
+        + 'The ModelScope mirror can also be downloaded instead, if there is one.',
       `${nameZh}${LICENSE_GATE_NOTE.zh}已保存的令牌有效，但这个账号还没有访问权限：`
         + `请打开 ${repoPage} 登录并接受许可协议后重试。也可以改用魔搭（ModelScope）上的镜像（如有）。`,
     ],
