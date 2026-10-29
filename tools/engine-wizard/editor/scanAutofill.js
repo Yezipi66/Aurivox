@@ -75,7 +75,7 @@ export function computeAutoFill (params, currentCall) {
   if (ambiguous.length) {
     notes.push({
       en: `The same name appeared in both sources with different values: ${ambiguous.join(', ')}. The first one was used: confirm each slot by hand.`,
-      zh: `同名参数在两种来源里指向的值不一样：${ambiguous.join('、')}。已按先出现的那个填，请逐项确认。`,
+      zh: `同名参数在两种来源里指向的值不一样：${ambiguous.join('、')}。已按先出现的项填，请逐项确认。`,
     })
   }
 

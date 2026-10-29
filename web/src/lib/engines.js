@@ -253,7 +253,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     // 名片未声明底模目录时显示「?」，不能显示成缺失。
     return {
       tone: 'unknown',
-      label: zh ? '底模 ?' : 'weights ?',
+      label: zh ? '底模？' : 'weights ?',
       title: c.reason || (zh ? '该引擎的清单未声明底模目录' : 'manifest does not declare a checkpoints dir'),
     }
   }
@@ -296,7 +296,7 @@ export function checkpointBadge(engine, lang = 'zh') {
       title: lines.join('\n'),
     }
   }
-  return { tone: 'unknown', label: zh ? '底模 ?' : 'weights ?', title: lines.join('\n') }
+  return { tone: 'unknown', label: zh ? '底模？' : 'weights ?', title: lines.join('\n') }
 }
 
 // 进程徽章。三种「未运行」分开显示：process 为 null（不管理，不显示）、
@@ -464,7 +464,7 @@ export function occupancyBadge (occ, lang = 'zh') {
 
   const detail = []
   detail.push(zh
-    ? `装了 ${sum.installed} 台引擎`
+    ? `已安装 ${sum.installed} 台引擎`
     : `${sum.installed} engine(s) installed`)
   detail.push(zh
     ? (sum.running ? `${sum.running} 台运行中` : '当前无引擎在运行（按需启动）')

@@ -337,7 +337,7 @@ export function StepVerify ({ id }) {
               'config. There is no entry point that reads back one arbitrary audio clip, ' +
               'and no manifest field declares an ASR endpoint on the engine. ' +
               'This item is optional and does not block the other two.',
-              '尚未实现。平台有 ASR 模型与可用的转写步骤，但那个步骤要的是一段训练素材目录' +
+              '尚未实现。平台有 ASR 模型与可用的转写步骤，但该步骤要的是一段训练素材目录' +
               '加一份训练配置，没有「把任意一段音频读回来」的入口，名片里也没有声明 ASR 端点的字段。' +
               '此项可选，不阻塞其余两项。')}
           </div>

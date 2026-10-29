@@ -222,9 +222,9 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
       {hint && <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>{hint}</p>}
 
       <details className="expert-block" style={{ marginTop: 14 }}>
-        <summary className="expert-summary">{t('Expert Parameters — training pipeline internals', '专家参数：训练管线内部设置')}</summary>
+        <summary className="expert-summary">{t('Expert Parameters — training pipeline internals', '高级参数：训练管线内部设置')}</summary>
         <div className="msg msg-danger expert-warning">
-          <strong>{t('⚠ Expert Parameters.', '⚠ 专家参数。')}</strong> {t('Changing these can make training unstable, waste hours of GPU time, or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.',
+          <strong>{t('⚠ Expert Parameters.', '⚠ 高级参数。')}</strong> {t('Changing these can make training unstable, waste hours of GPU time, or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.',
             '修改这些参数可能导致训练不稳定、浪费数小时 GPU 时间，或训练出更差的模型。大多数用户不应改动它们。默认值针对 8GB 显存 GPU 调优。')}
         </div>
         <label className="toggle-row expert-unlock">

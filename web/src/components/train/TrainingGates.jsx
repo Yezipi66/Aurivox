@@ -135,7 +135,7 @@ export function TrainingGates({
             </p>
             <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 16 }}>
               <input type="checkbox" checked={noGpuAck} onChange={e => setNoGpuAck(e.target.checked)} />
-              我知道 CPU 微调会非常慢，仍要继续
+              已知 CPU 微调会非常慢，仍要继续
             </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-sm" onClick={onCancelNoGpu}>取消</button>

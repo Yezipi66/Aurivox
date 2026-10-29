@@ -245,7 +245,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
             <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => save(true)}>
-              {busy ? t('Saving…', '保存中…') : t('I understand — pin absolute path', '我已了解：固定为绝对路径')}
+              {busy ? t('Saving…', '保存中…') : t('I understand — pin absolute path', '已了解风险：固定为绝对路径')}
             </button>
             <button className="btn btn-sm" disabled={busy} onClick={() => setExtConfirm(null)}>{t('Cancel', '取消')}</button>
           </div>

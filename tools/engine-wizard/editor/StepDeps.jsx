@@ -606,7 +606,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                   + '或自行安装 Torch。')
                 : t('The upgrade was declined. Installing continues with the upstream version, '
                   + 'which is expected to fail on this machine.',
-                  '已拒绝升级。安装会继续用上游那个版本，在本机预计会失败。')}
+                  '已拒绝升级。安装会继续用上游声明的版本，在本机预计会失败。')}
             </div>
           )}
         </div>
@@ -917,7 +917,7 @@ function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) 
                   + `The upstream version is left aside, and Torch is installed at `
                   + `${suggestion.suggested} from the official ${backendLabel} index.`,
                   `该后端上可用的版本是 ${suggestion.suggested}。`
-                  + `上游那个版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
+                  + `上游声明的版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
                   + `${suggestion.suggested}。`)}
               </p>
             </>

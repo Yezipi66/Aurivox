@@ -142,7 +142,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
     if (reuseBlocked) {
       setError(t(
         `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” above.`,
-        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入我自己的新音频」。`))
+        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入自备的新音频」。`))
       return
     }
     if (useOwnData && !inputDir.trim()) { setError(t('Please provide the source audio folder for own-data refinement.', '请填写自备数据精修的源音频文件夹。')); return }
@@ -204,7 +204,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <label className="toggle-row">
             <input type="checkbox" checked={useOwnData} onChange={e => setUseOwnData(e.target.checked)} />
             <span>
-              {t('Bring my own new audio (full pipeline)', '导入我自己的新音频（完整管线）')}
+              {t('Bring my own new audio (full pipeline)', '导入自备的新音频（完整管线）')}
               <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹运行切片/ASR/预处理；仅用新数据，不做合并。')}</span>
             </span>
           </label>
@@ -212,7 +212,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             <div className="hint-warn" style={{ marginTop: 8, color: 'var(--warning)' }}>
               {t(
                 `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” to train from a fresh corpus.`,
-                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入我自己的新音频」以用全新语料训练。`)}
+                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入自备的新音频」以用全新语料训练。`)}
             </div>
           )}
           {useOwnData && (
