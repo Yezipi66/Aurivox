@@ -794,8 +794,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                         title={h.key === 'nomodel'
                           ? 'Rebuild the missing model. Existing slices and transcripts are reused — only preprocess+train run (no re-slicing, no re-ASR).'
                           : h.key === 'ready'
-                            ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless you opt into retraining.'
-                            : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless you opt into retraining.'}
+                            ? 'Slices were removed. Re-slice from raw (choose "Re-slice") and transcribe to restore full health — models are kept unless retraining is selected.'
+                            : 'Choose how to restore: use raw as reference clips or re-slice, transcribe or not — models are kept unless retraining is selected.'}
                       >
                         {h.key === 'nomodel' ? 'Rebuild' : h.key === 'ready' ? 'Rebuild slices' : 'Restore'}
                       </button>

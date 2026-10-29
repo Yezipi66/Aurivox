@@ -197,7 +197,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
             })}
           </div>
           <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
-            {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before you start.',
+            {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before starting.',
                '每个勾选的版本会在一次运行中训练各自的 SoVITS 模型。v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)；缺失的模型会在开始前于流程下方列出。')}
           </p>
         </div>
@@ -210,7 +210,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
             <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus：需要 v2ProPlus base + SV 模型')}</option>
           </Select>
           <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
-            {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before you start.',
+            {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before starting.',
                'v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)。缺失的 base 模型会在开始前于流程下方列出。')}
           </p>
         </div>
@@ -229,7 +229,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
         </div>
         <label className="toggle-row expert-unlock">
           <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
-          {t('I understand the risks — let me edit expert parameters', '已知晓风险，允许编辑高级参数')}
+          {t('Understood — edit advanced parameters', '已知晓风险，允许编辑高级参数')}
         </label>
         <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
           <div className={colsClass}>

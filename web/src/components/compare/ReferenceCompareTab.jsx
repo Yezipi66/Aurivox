@@ -451,7 +451,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         <div className="section-body">
           <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 10 }}>
             {t(
-              <>Add as many rows as you like. Each row = a different reference audio configuration.
+              <>Add as many rows as needed. Each row = a different reference audio configuration.
               Click <strong>Generate All</strong> to hear every combination side by side.
               The best one can be saved as the voice config.</>,
               <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，效果最佳的一项可保存为该音色的配置。</>)}
@@ -462,7 +462,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             <label className="field-label">{t('Comparison Text', '对比文本')}</label>
             <div className="field-hint" style={{ marginBottom: 4 }}>
               {t(
-                <>Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
+                <>Every row uses this text by default, so references / models are compared on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
                 <>默认所有行都使用这段文本，以便在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
             </div>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}

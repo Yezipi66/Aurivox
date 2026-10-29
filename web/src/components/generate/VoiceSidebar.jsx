@@ -196,7 +196,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           {!crossMode && !segLoading && refTab === 'slices' && (
             <div className="ref-list">
               {availableRefs.length === 0 && <div className="ref-col-empty">{t('No slices available', '没有可用的切片')}</div>}
-              {availableRefs.length > 0 && shownRefs.length === 0 && <div className="ref-col-empty">{t('No slices match your search', '没有匹配搜索的切片')}</div>}
+              {availableRefs.length > 0 && shownRefs.length === 0 && <div className="ref-col-empty">{t('No slices match the search', '没有匹配搜索的切片')}</div>}
               {shownRefs.map((seg, i) => {
                 const rawPath = seg.audio || seg.audio_path || seg.audio_filename
                 const segFilename = rawPath ? rawPath.replace(/\\/g, '/').split('/').pop() : ''
@@ -218,7 +218,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           {!crossMode && !segLoading && refTab === 'raw' && (
             <div className="ref-list">
               {availableRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio available', '没有可用的原始音频')}</div>}
-              {availableRaw.length > 0 && shownRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio matches your search', '没有匹配搜索的原始音频')}</div>}
+              {availableRaw.length > 0 && shownRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio matches the search', '没有匹配搜索的原始音频')}</div>}
               {shownRaw.map((rf, i) => {
                 const isActive = activeFilename === rf.filename && !!activeRef
                 const dur = rawDur(rf)

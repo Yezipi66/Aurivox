@@ -309,7 +309,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
             {tr('Pause after vocal extraction to audition', '人声提取后暂停以试听校对')}
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
-            {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
+            {tr('When enabled the pipeline stops right after separation so the extracted vocals can be listened to. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
                 '启用后，流程会在分离完成后立即停止，供试听提取出的人声。音质清晰则继续，质量差则取消本次任务：分离质量直接影响后续训练效果。')}
           </p>
 
@@ -321,7 +321,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
             {tr('Keep pre-extraction originals (raw_b4_extraction/)', '保留提取前的原始音频（raw_b4_extraction/）')}
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
-            {tr('After extraction the separated vocals become the asset\u2019s raw/ (they are what slicing, ASR and training use). The original pre-extraction mixdown is archived to raw_b4_extraction/ so the voice folder stays self-contained and can be reconstructed. Turn this off to save disk if you only need the final vocals.',
+            {tr('After extraction the separated vocals become the asset\u2019s raw/ (they are what slicing, ASR and training use). The original pre-extraction mixdown is archived to raw_b4_extraction/ so the voice folder stays self-contained and can be reconstructed. Turn this off to save disk if only the final vocals are needed.',
                 '提取完成后，分离出的人声会成为资产的 raw/（切片、ASR、训练都用它）。提取前的原始混音则归档到 raw_b4_extraction/，让音色目录自包含、可随时重构或换参重跑。若只需最终人声、希望节省磁盘空间，可关闭此项。')}
           </p>
 
@@ -425,7 +425,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               </div>
               <label className="toggle-row expert-unlock">
                 <input type="checkbox" checked={!!form.denoiseAdvUnlocked} onChange={e => setField('denoiseAdvUnlocked', e.target.checked)} />
-                {tr('I understand — let me edit advanced parameters', '已知晓风险，允许编辑高级参数')}
+                {tr('Understood — edit advanced parameters', '已知晓风险，允许编辑高级参数')}
               </label>
               <fieldset disabled={!form.denoiseAdvUnlocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
                 {advStages.map(({ stage, apply, i }) => {

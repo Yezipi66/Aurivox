@@ -224,7 +224,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             : lang === 'auto' ? t('Preview actual multilingual reading units. ZH / JA / YUE characters selected above are reviewed there; the remaining text stays available below.', '预览实际的多语言读音单元。上方已选择 ZH / JA / YUE 的汉字在上方校对；其余文本在下方校对。')
             : isCharUnit ? t('Edit text, preview readings, fix polyphonic characters.', '编辑文本、预览读音、修正多音字。')
             : lang === 'ja' ? t('Edit text, preview readings, fix a word\u2019s kana reading.', '编辑文本、预览读音、修正单词的 kana 读音。')
-            : lang === 'ko' ? t('Review changed or unresolved Korean readings; expand only the word you need.', '优先检查发生音变或未解析的韩语词；按需展开单个词的音节。')
+            : lang === 'ko' ? t('Review changed or unresolved Korean readings; expand only the needed word.', '优先检查发生音变或未解析的韩语词；按需展开单个词的音节。')
             : t('Edit text, preview readings, fix each English word\u2019s pronunciation (each occurrence separately).', '编辑文本、预览读音，逐个（可逐次）修正英文单词的发音。')}
         </span>
       </div>

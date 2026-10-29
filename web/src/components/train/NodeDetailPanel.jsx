@@ -140,7 +140,7 @@ export function NodeDetailPanel({
           {tr('Pause after ASR for manual proofreading', 'ASR 之后暂停以进行人工校对')}
         </label>
         <p className="field-hint" style={{ marginTop: 4 }}>
-          {tr('When enabled the pipeline stops right after transcription so you can correct the recognised text and pronunciation before preprocessing/training continue.',
+          {tr('When enabled the pipeline stops right after transcription so the recognised text and pronunciation can be corrected before preprocessing/training continue.',
               '启用后，流程会在转写完成后立即停止，以便在继续预处理 / 训练之前修正识别出的文本和读音。')}
         </p>
       </>
@@ -162,17 +162,17 @@ export function NodeDetailPanel({
           {tr(
             <>By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
             intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
-            the voice is published, since the finished asset no longer needs it. Enable this only when you
-            want to <strong>keep</strong> those intermediates for inspection or debugging. It will
-            count against your disk space.</>,
+            the voice is published, since the finished asset no longer needs it. Enable this only to
+            <strong>keep</strong> <strong>keep</strong> those intermediates for inspection or debugging. It will
+            count against the available disk space.</>,
             <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>，内含中间预处理特征与 checkpoint）
             会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有想<strong>保留</strong>
             这些中间产物用于检查或调试时才开启。它会占用磁盘空间。</>)}
         </p>
         <p className="field-hint">
           {tr(
-            <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so you
-            can inspect it. Delete it later from the Train page&rsquo;s cache manager when you no longer need it.</>,
+            <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so it
+            can be inspected. Delete it later from the Train page&rsquo;s cache manager when no longer needed.</>,
             <>保留的工作区<strong>绝不会</strong>被后续任务复用：仅供检查之用。不再需要时，可在 Train 页面的缓存管理器中删除。</>)}
         </p>
       </>

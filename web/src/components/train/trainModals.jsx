@@ -196,7 +196,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
         </div>
 
         <p className="modal-desc">
-          {tr('Choose how to rebuild the missing artifacts. The shortest safe path is preselected; existing models are always kept unless you opt into retraining.',
+          {tr('Choose how to rebuild the missing artifacts. The shortest safe path is preselected; existing models are always kept unless retraining is selected.',
               '选择如何重建缺失的产物。已默认选中最短的安全路径；除非主动选择重新训练，否则始终保留现有模型。')}
         </p>
 

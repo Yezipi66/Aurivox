@@ -239,13 +239,13 @@ export function RecipeModelRebind({ recipe, onSaved }) {
                      <>原始文件<strong>不能被移动或重命名</strong>：否则每个使用该 recipe 的请求都会失败。</>)}</li>
               <li>{t(<>The path is tied to <strong>this machine</strong>; the recipe is no longer self-contained.</>,
                      <>该路径与<strong>本机</strong>绑定；此 recipe 不再是自包含的。</>)}</li>
-              <li>{t('To distribute it you must ship these model files to the other machine as well (just like the voice assets).',
+              <li>{t('To distribute it, these model files must also be shipped to the other machine (as with the voice assets).',
                      '若要分发，必须把这些模型文件一并拷贝到目标机器（与音色资源一样）。')}</li>
             </ul>
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
             <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => save(true)}>
-              {busy ? t('Saving…', '保存中…') : t('I understand — pin absolute path', '已了解风险：固定为绝对路径')}
+              {busy ? t('Saving…', '保存中…') : t('Understood — pin absolute path', '已了解风险：固定为绝对路径')}
             </button>
             <button className="btn btn-sm" disabled={busy} onClick={() => setExtConfirm(null)}>{t('Cancel', '取消')}</button>
           </div>
