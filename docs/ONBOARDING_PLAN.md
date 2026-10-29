@@ -998,3 +998,5 @@ C3 说的是「不做第二个可微调引擎的训练抽象」，而这里是�
 | **乙** | 承认它是**手工的、不受平台管的**历史环境 | ⛔ 与「`runtime.python` 是活键」矛盾 —— 平台会一直报「没装」而人不知道为什么 |
 
 ⚠️ **这落在 E1（重建引擎 venv）上**，而 E1 是引擎层的事。**等第 2 批开工时再定。**
+
+| **A53** | ⭐⭐ **PR #19 手动合入研究分支（前端文案规范化：去口语、消歧义、术语统一，向导与主应用全量通读中英文一致）** | ✅ **2026-10-29 已合入**（合并提交 `4299da01`，分支本地 `audit/wizard-ui-copy` → `research/engine-onboarding-complexity`）· 🔴 `web/src/**`（52 文件） | [读码 + dry-run 冲突预检 + GitHub 自动标 merged 2026-10-29] **纯文案层，+166/-166 字符串字面量替换，无逻辑改动**：去口语动词、去歧义指代、术语统一、中英文一致；英文 UI 文案去除第一/二人称（`I/you` → 无主语或 `the`）、`Expert → Advanced Parameters`、`Got it → Understood`、省略号统一全角、第三人称/被动语态。⚠️ **笔误已修**：PR 原版 `NodeDetailPanel.jsx` 里 `<strong>keep</strong> <strong>keep</strong>` 重复；Owner 在最后一提交 `1392b9fa` 修掉 ⇒ 合入时 diff 已是单个 `keep`。⭐ **回归验证**：合并无冲突（merge-tree dry-run `ea72445f`）；PR base 与研究分支 HEAD 同源（`b150425a`），52 文件全文案替换。GitHub 自动标 merged（state=MERGED），无需 `gh pr close`。 |
