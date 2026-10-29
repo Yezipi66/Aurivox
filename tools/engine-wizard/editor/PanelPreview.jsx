@@ -41,7 +41,7 @@ class ErrorBoundary extends React.Component {
         <div className="msg msg-danger">
           <b>{`preview crashed: ${this.state.err.message}`}</b>
           <div className="field-hint">
-            {t2('This is a bug in the preview, not in your manifest — '
+            {t2('This is a bug in the preview, not in the manifest — '
               + 'the form on the left and saving still work.',
               '这是预览的缺陷，与 Manifest 填写无关，左侧的填表与存盘仍可使用。')}
           </div>
@@ -146,7 +146,7 @@ function PreviewInner ({ manifest, children }) {
               ))
               : (
                 <div className="field-hint" style={{ gridColumn: '1 / -1' }}>
-                  {t('(no parameters in this tier)', '（这一档还没有参数）')}
+                  {t('(no parameters in this tier)', '（该档暂无参数）')}
                 </div>
                 )}
           </div>

@@ -139,7 +139,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
               {badge === null && (
                 <span className="badge badge-muted" title={t('This deployment does not manage the engine process; it was started by its author.',
                   '本部署不管理引擎进程，或由作者自行启动。')}>
-                  {t('unmanaged', '平台不管')}
+                  {t('unmanaged', '平台不管理')}
                 </span>
               )}
 

@@ -161,7 +161,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
           <Cell label={t('Start script', '启动脚本')} code="runtime.entry"
             badge={defaultedBadge(runtime.entry, conv && conv.entry)}
             hint={t('change it only if the engine ships its own server script',
-              '引擎自带服务脚本时才需要改')}>
+              '仅当引擎附带服务脚本时才需修改')}>
             <input className="control" type="text" placeholder={conv ? conv.entry : ''}
               value={runtime.entry || ''}
               onChange={(e) => setRuntime({ entry: e.target.value.trim() })} />

@@ -54,7 +54,7 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
         <span className={`badge ${param.kind_certain ? 'badge-ok' : 'badge-muted'}`}
           title={param.kind_certain
             ? t('Type declared by upstream', '类型由上游声明')
-            : t('Type guessed: confirm it after dropping', '类型是猜的：拖进去后请确认')}>
+            : t('Type guessed: confirm it after dropping', '类型为推测值：拖入后请核对')}>
           {type}
         </span>
         {param.group && param.group !== '(root)'
@@ -86,7 +86,7 @@ export default function ParamPool ({ params, selected, onSelect, onDragStart, ch
       <div>
         <div className="empty-state">
           <div className="es-title">
-            {t('No parameters scanned yet', '还没有扫到参数')}
+            {t('No parameters scanned yet', '尚未扫到参数')}
           </div>
           <div className="es-sub">
             {t('Pick an engine and scan it. The parameters show up here.',

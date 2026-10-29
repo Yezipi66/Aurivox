@@ -24,7 +24,7 @@ export async function postJson (path_, body, fetchImpl) {
       code: 'REQUEST_FAILED',
       path: path_,
       error: `Could not reach the platform service (${path_}): fetch is unavailable`,
-      errorZh: `连不上平台服务（${path_}）：当前环境没有可用的请求接口。`
+      errorZh: `无法连接平台服务（${path_}）：当前环境没有可用的请求接口。`
         + '请检查平台服务是否在运行，然后重试。',
     }
   }
@@ -42,7 +42,7 @@ export async function postJson (path_, body, fetchImpl) {
       code: 'REQUEST_FAILED',
       path: path_,
       error: `Could not reach the platform service (${path_}): ${msg}`,
-      errorZh: `连不上平台服务（${path_}）：${msg}。`
+      errorZh: `无法连接平台服务（${path_}）：${msg}。`
         + '请检查平台服务是否在运行，然后重试。',
     }
   }

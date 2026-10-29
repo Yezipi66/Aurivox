@@ -20,7 +20,7 @@ import { TextPrepModal } from './TextPrepModal'
 //   缺引擎时说的是「去哪儿能补上」，不是一句 "Preview failed (400)"。
 //   也不许改成"帮你挑一台"，理由写在 PronPanel 的文件内注释里。
 const NO_ENGINE_MSG = (t) => t(
-  'Reading preview follows the engine you picked on the Generate page. Pick an engine there first.',
+  'Reading preview follows the engine selected on the Generate page. Select an engine there first.',
   '读音预览取决于「合成」页选中的那台引擎（换一台引擎读音可能就不一样了）。请先在那里选一台引擎。',
 )
 

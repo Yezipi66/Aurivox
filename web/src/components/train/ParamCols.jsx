@@ -38,7 +38,7 @@ function AsrParamFields({ form, setField }) {
         {form.asrEngine === 'funasr' && (
           <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
             {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
-              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准并自带标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
+              'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准且自动添加标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
           </p>
         )}
       </div>
@@ -197,7 +197,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
             })}
           </div>
           <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
-            {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before you start.',
+            {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before starting.',
                '每个勾选的版本会在一次运行中训练各自的 SoVITS 模型。v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)；缺失的模型会在开始前于流程下方列出。')}
           </p>
         </div>
@@ -210,7 +210,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
             <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus：需要 v2ProPlus base + SV 模型')}</option>
           </Select>
           <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
-            {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before you start.',
+            {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before starting.',
                'v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)。缺失的 base 模型会在开始前于流程下方列出。')}
           </p>
         </div>
@@ -222,14 +222,14 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
       {hint && <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>{hint}</p>}
 
       <details className="expert-block" style={{ marginTop: 14 }}>
-        <summary className="expert-summary">{t('Expert Parameters — training pipeline internals', '专家参数：训练管线内部设置')}</summary>
+        <summary className="expert-summary">{t('Advanced Parameters — training pipeline internals', '高级参数：训练管线内部设置')}</summary>
         <div className="msg msg-danger expert-warning">
-          <strong>{t('⚠ Expert Parameters.', '⚠ 专家参数。')}</strong> {t('Changing these can make training unstable, waste hours of GPU time, or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.',
+          <strong>{t('⚠ Advanced Parameters.', '⚠ 高级参数。')}</strong> {t('Changing these can make training unstable, waste hours of GPU time, or produce a worse model. Most users should never touch them. Defaults are tuned for an 8GB GPU.',
             '修改这些参数可能导致训练不稳定、浪费数小时 GPU 时间，或训练出更差的模型。大多数用户不应改动它们。默认值针对 8GB 显存 GPU 调优。')}
         </div>
         <label className="toggle-row expert-unlock">
           <input type="checkbox" checked={!!form.expertUnlocked} onChange={e => setField('expertUnlocked', e.target.checked)} />
-          {t('I understand the risks — let me edit expert parameters', '我了解风险，允许我编辑专家参数')}
+          {t('Understood — edit advanced parameters', '已知晓风险，允许编辑高级参数')}
         </label>
         <fieldset disabled={expertLocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
           <div className={colsClass}>

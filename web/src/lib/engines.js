@@ -253,7 +253,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     // 名片未声明底模目录时显示「?」，不能显示成缺失。
     return {
       tone: 'unknown',
-      label: zh ? '底模 ?' : 'weights ?',
+      label: zh ? '底模？' : 'weights ?',
       title: c.reason || (zh ? '该引擎的清单未声明底模目录' : 'manifest does not declare a checkpoints dir'),
     }
   }
@@ -268,7 +268,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     if (c.source.license_gate) {
       lines.push('', zh
         ? '⚠ 需先在模型主页接受许可才能下载（否则会返回 401/403，表现为网络故障）'
-        : '⚠ You must accept the license on the model page first (otherwise 401/403)')
+        : '⚠ Accept the license on the model page first (otherwise 401/403)')
     }
     if (c.source.url) lines.push((zh ? '模型主页：' : 'Model page: ') + c.source.url)
     if (Array.isArray(c.source.command)) {
@@ -296,7 +296,7 @@ export function checkpointBadge(engine, lang = 'zh') {
       title: lines.join('\n'),
     }
   }
-  return { tone: 'unknown', label: zh ? '底模 ?' : 'weights ?', title: lines.join('\n') }
+  return { tone: 'unknown', label: zh ? '底模？' : 'weights ?', title: lines.join('\n') }
 }
 
 // 进程徽章。三种「未运行」分开显示：process 为 null（不管理，不显示）、
@@ -318,7 +318,7 @@ export function processBadge (engine, lang = 'zh') {
         label: zh ? '外部进程' : 'external',
         launchKey: null,
         title: zh
-          ? '该引擎正在运行，但并非由本平台启动（通常是作者在另一个窗口中手动启动）。\n' +
+          ? '该引擎正在运行，但并非由本平台启动（通常是在另一个终端中手动启动）。\n' +
             '⇒ 不会去停它，更换模型时也不会重新启动它。'
           : 'Engine is up but was not started by this app; it will not be stopped or relaunched here.',
       }
@@ -342,7 +342,7 @@ export function processBadge (engine, lang = 'zh') {
 
   if (p.phase && p.phase !== 'ready') {
     lines.push('', zh
-      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，速度更慢。'
+      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，耗时更长。'
       : 'Loading the model into memory; this can take a while. No need to click again.')
     return {
       tone: 'busy',
@@ -405,7 +405,7 @@ export function engineBadge (engine, health, lang = 'zh') {
   const ckText = ck && ck.title ? String(ck.title).trim() : ''
   const launching = pr && pr.launchKey
   const body = (() => {
-    const head = ckText || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir')
+    const head = ckText || (zh ? '该引擎的名片未声明底模目录' : 'manifest does not declare a checkpoints dir')
     return launching
       ? [head, '', (zh ? `正在装：${pr.launchKey}` : `Loading: ${pr.launchKey}`)].join('\n')
       : head
@@ -464,7 +464,7 @@ export function occupancyBadge (occ, lang = 'zh') {
 
   const detail = []
   detail.push(zh
-    ? `装了 ${sum.installed} 台引擎`
+    ? `已安装 ${sum.installed} 台引擎`
     : `${sum.installed} engine(s) installed`)
   detail.push(zh
     ? (sum.running ? `${sum.running} 台运行中` : '当前无引擎在运行（按需启动）')
@@ -491,7 +491,7 @@ export function occupancyBadge (occ, lang = 'zh') {
     : `usage: ${sum.running} running`
 
   // 优先使用后端生成的 headline，避免前后端措辞不一致。
-  const title = (occ.headline || (zh ? '平台此刻占用了什么' : 'what the platform is using'))
+  const title = (occ.headline || (zh ? '平台当前占用情况' : 'what the platform is using'))
     + '\n\n' + detail.join('\n')
 
   return {

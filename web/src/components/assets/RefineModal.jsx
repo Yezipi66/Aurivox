@@ -141,8 +141,8 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
     // 复用路径的健康门：父音色冻结的数据集不完整时拦下。
     if (reuseBlocked) {
       setError(t(
-        `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” above.`,
-        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入我自己的新音频」。`))
+        `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Use a new audio corpus” above.`,
+        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入自备的新音频」。`))
       return
     }
     if (useOwnData && !inputDir.trim()) { setError(t('Please provide the source audio folder for own-data refinement.', '请填写自备数据精修的源音频文件夹。')); return }
@@ -204,15 +204,15 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <label className="toggle-row">
             <input type="checkbox" checked={useOwnData} onChange={e => setUseOwnData(e.target.checked)} />
             <span>
-              {t('Bring my own new audio (full pipeline)', '导入我自己的新音频（完整管线）')}
+              {t('Use a new audio corpus (full pipeline)', '导入自备的新音频（完整管线）')}
               <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹运行切片/ASR/预处理；仅用新数据，不做合并。')}</span>
             </span>
           </label>
           {reuseBlocked && (
             <div className="hint-warn" style={{ marginTop: 8, color: 'var(--warning)' }}>
               {t(
-                `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” to train from a fresh corpus.`,
-                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入我自己的新音频」以用全新语料训练。`)}
+                `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Use a new audio corpus” to train from a fresh corpus.`,
+                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入自备的新音频」以用全新语料训练。`)}
             </div>
           )}
           {useOwnData && (
@@ -234,7 +234,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                 </select>
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {language === ''
-                    ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language if you want to declare one for the new corpus.',
+                    ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language to declare one for the new corpus.',
                         '未声明：本分支继承父级音色的语言。仅当需要为新语料指定语言时才需选择。')
                     : language === (parentLanguage || 'auto')
                       ? t('Same as the parent Voice — this is equivalent to inheriting; no separate language branch is created.',
@@ -392,11 +392,11 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
         message={
           <div style={{ fontSize: 'var(--fs-13)', lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
             <p style={{ marginTop: 0 }}>
-              {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
+              {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless a transcript is supplied.',
                  '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
             </p>
             <p>
-              {t('Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
+              {t('Before preprocessing, the system will wait for the seconds below so the file can be copied into the staging folder (its absolute path is printed in the logs).',
                  '在预处理前，系统会等待下面设定的秒数，以便将文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>

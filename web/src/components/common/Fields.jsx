@@ -72,7 +72,7 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
         )}
       </div>
       <div className="naming-note-ft">
-        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '已知晓')}</button>
+        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Understood', '已知晓')}</button>
         {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认，之后将保持折叠。')}</span>}
       </div>
     </div>
@@ -145,7 +145,7 @@ client.audio.speech.create(
             </ul>
             <p>
               <strong>语言优先级：请求 <code>language</code> → recipe.language → 资产语言 → auto。</strong>
-              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展（<strong>不传则行为与以前完全一致</strong>）。
+              OpenAI 本身没有语言字段，故此项为 Aurivox 可选扩展（<strong>不传则行为保持不变</strong>）。
               响应头始终返回 <code>X-Text-Lang</code>（最终解析结果）；仅当<strong>既没传 <code>language</code>、
               recipe 也未固定语言</strong>而兜底到 <code>auto</code> 时（或请求了不支持的语言），才带 <code>X-Language-Warning</code>。
               想要确定性输出，请求里显式带 <code>language</code>，或在 recipe 上设置语言。
@@ -159,7 +159,7 @@ client.audio.speech.create(
             <p className="nn-cap">{t('Common commands:', '常见命令：')}</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
             <pre className="nn-pre"><code>{py}</code></pre>
-            <p className="nn-cap">{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
+            <p className="nn-cap">{t('Streaming (chunked; no server-side file unless persist:true is added):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
             <pre className="nn-pre"><code>{streamCurl}</code></pre>
           </>
         ) : (
@@ -187,20 +187,20 @@ client.audio.speech.create(
             </p>
             <p>
               <strong>Performance &amp; concurrency (v1.0.6):</strong>
-              (1) <strong>Within-request parallelism</strong> — a single long request is split and synthesized in parallel to cut latency; default <code>batch_size=4</code>. On low VRAM or long-text OOM, set the server env var <code>AURIVOX_TTS_BATCH_SIZE</code> to <code>1</code> (or lower it in the recipe's advanced params); raise it (1–16) if you have headroom.
+              (1) <strong>Within-request parallelism</strong> — a single long request is split and synthesized in parallel to cut latency; default <code>batch_size=4</code>. On low VRAM or long-text OOM, set the server env var <code>AURIVOX_TTS_BATCH_SIZE</code> to <code>1</code> (or lower it in the recipe's advanced params); raise it (1–16) if headroom allows.
               (2) <strong>Model residency</strong> — consecutive calls to the same voice don't reload weights, and <strong>switching reference audio</strong> is cached too (recently-used refs skip re-extraction), so multi-voice recipe rotation stays warm. Capacity via <code>AURIVOX_REF_CACHE</code> (default 8).
               (3) <strong>Overload protection</strong> — inference is single-GPU serial; when the queue backs up past the limit the server returns <code>503</code> (<code>code: generation_queue_full</code>) with a <code>Retry-After</code> header for the client to honor. Limits: <code>AURIVOX_MAX_QUEUE</code> (default 32, 0 = unbounded), <code>AURIVOX_RETRY_AFTER</code> (default 3s).
             </p>
             <p className="nn-cap">Common commands:</p>
             <pre className="nn-pre"><code>{curl}</code></pre>
             <pre className="nn-pre"><code>{py}</code></pre>
-            <p className="nn-cap">{t('Streaming (chunked; no server-side file unless you add persist:true):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
+            <p className="nn-cap">{t('Streaming (chunked; no server-side file unless persist:true is added):','流式调用（分块；默认不落盘，加 persist:true 才存档）：')}</p>
             <pre className="nn-pre"><code>{streamCurl}</code></pre>
           </>
         )}
       </div>
       <div className="naming-note-ft">
-        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '已知晓')}</button>
+        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Understood', '已知晓')}</button>
         {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认，之后将保持折叠。')}</span>}
       </div>
     </div>

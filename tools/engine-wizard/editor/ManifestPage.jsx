@@ -199,7 +199,7 @@ export default function ManifestPage ({
                   <div className="section-body">
                     <div className="empty-state">
                       <div className="es-title">
-                        {t('Nothing to preview yet', '还没有可预览的内容')}
+                        {t('Nothing to preview yet', '暂无可预览的内容')}
                       </div>
                       <div className="es-sub">
                         {t('Pick an engine to see the preview.',

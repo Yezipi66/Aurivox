@@ -254,7 +254,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                   </button>
                 ) : (
                   <div className="field-hint" style={{ color: 'var(--warning)' }}>
-                    Re-running ASR will create a new machine-generated transcript. Your current transcript will be backed up before replacement.
+                    Re-running ASR will create a new machine-generated transcript. The current transcript will be backed up before replacement.
                     <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                       <button className="btn btn-sm btn-danger" disabled={asrRunning} onClick={startRerunAsr}>Back Up and Re-run ASR</button>
                       <button className="btn btn-sm btn-ghost" onClick={() => setConfirmAsr(false)}>Cancel</button>

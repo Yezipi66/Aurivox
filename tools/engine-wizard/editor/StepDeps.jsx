@@ -215,7 +215,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       return
     }
     // 取消 ⇒ 不装：使用者可以改后端、改排除项，或自己装。
-    //   但要说清楚「这次什么都没装」，不能点了取消就没下文。
+    //   但要说清楚「本次未安装任何依赖」，不能点了取消就没下文。
     setUpgradeDeclined(true)
   }
 
@@ -398,12 +398,12 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('Several GB are downloaded and it takes a while. If it stops midway, '
               + 'run this step again — the download continues from the breakpoint '
-              + 'and already-downloaded wheels are kept. If you cancel it, the '
+              + 'and already-downloaded wheels are kept. If cancelled, the '
               + 'environment is left partial: the next run removes it and rebuilds '
               + 'it, and the downloaded wheels are still reused.',
               '需下载数 GB，耗时较长。若中途停止，重新执行本步骤会从断点续传，'
-              + '已下载的依赖不会重下。若中途取消，环境会停在不完整状态：'
-              + '下次执行会先删掉它再重建，已下载的依赖包仍会复用。')}
+              + '已下载的依赖不会重新下载。若中途取消，环境会停在不完整状态：'
+              + '下次执行会先删除它再重建，已下载的依赖包仍会复用。')}
           </p>
         </div>
       )}
@@ -419,7 +419,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           <p className="field-hint" style={{ marginTop: 0 }}>
             {t('These packages only run on this kind of graphics card. '
               + 'Other cards need a different Torch build.',
-              '这些包只能在这种显卡上使用。更换显卡后需要安装其他版本的 Torch。')}
+              '这些包仅适用于此类显卡。更换显卡后需要安装其他版本的 Torch。')}
           </p>
           {d.torch.packages.map((r) => {
             const V = VERDICT[r.verdict] || VERDICT.unknown
@@ -566,7 +566,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             ? t('The Torch version pinned by the upstream is not available on this machine',
               '上游锁定的 Torch 版本在本机不可用')
             : t('Torch cannot be installed on this backend',
-              '这个后端上装不了 Torch')}</b>
+              '此后端无法安装 Torch')}</b>
           <div className="field-hint" style={{ marginTop: 4 }}>
             {suggestion.suggested
               ? t(`The upstream declares Torch version ${suggestion.declared}, but that version has no `
@@ -588,7 +588,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
           {upgradeTorch === null && !suggestion.suggested && (
             <div className="field-hint" style={{ marginTop: 4 }}>
               {t('Pressing Install will ask whether to install anyway.',
-                '点「安装」时会询问是否继续。')}
+                '点击「安装」时会询问是否继续。')}
             </div>
           )}
           {upgradeTorch === true && suggestion.suggested && (
@@ -602,11 +602,11 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               {upgradeDeclined
                 ? t('The upgrade was declined and nothing was installed. Choose another '
                   + 'backend, use a different Python version, or install Torch yourself.',
-                  '已拒绝升级，这次什么都没装。可以改选其他后端、换 Python 版本，'
+                  '已拒绝升级，本次未安装任何依赖。可以改选其他后端、换 Python 版本，'
                   + '或自行安装 Torch。')
                 : t('The upgrade was declined. Installing continues with the upstream version, '
                   + 'which is expected to fail on this machine.',
-                  '已拒绝升级。安装会继续用上游那个版本，在本机预计会失败。')}
+                  '已拒绝升级。安装会继续用上游声明的版本，在本机预计会失败。')}
             </div>
           )}
         </div>
@@ -659,7 +659,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
         <div className="msg msg-warning">
           {t('Excluded packages are not installed in this engine\'s environment, even when another package depends on them. '
             + 'If the engine needs them at runtime, the check in step 5 will fail.',
-            '设为不安装的包不会装进该引擎的环境，即使其他包依赖它们。'
+            '设为不安装的包不会安装到该引擎的环境中，即使其他包依赖它们。'
             + '若引擎运行时需要这些包，第 5 步的检查将会失败。')}
         </div>
       )}
@@ -727,7 +727,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
             <span className="field-hint">
               {t('Stops the download on the server. The engine environment is left '
                 + 'partial; re-running rebuilds it.',
-                '会停掉服务器上正在进行的下载。引擎环境会停在不完整状态；'
+                '将中止服务器上正在进行的下载。引擎环境会停在不完整状态；'
                 + '重新执行本步骤会先重建它。')}
             </span>
           </div>
@@ -879,7 +879,7 @@ function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) 
           <span>
             {noVersion
               ? t('Torch is not available on this backend',
-                '这个后端上装不了 Torch')
+                '此后端无法安装 Torch')
               : t('Upgrade Torch?', '升级 Torch？')}
           </span>
         </div>
@@ -917,7 +917,7 @@ function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) 
                   + `The upstream version is left aside, and Torch is installed at `
                   + `${suggestion.suggested} from the official ${backendLabel} index.`,
                   `该后端上可用的版本是 ${suggestion.suggested}。`
-                  + `上游那个版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
+                  + `上游声明的版本会被跳过，改从 ${backendLabel} 官方 index 安装 `
                   + `${suggestion.suggested}。`)}
               </p>
             </>

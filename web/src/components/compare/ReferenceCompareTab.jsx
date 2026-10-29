@@ -176,9 +176,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   useEffect(() => {
     api('/api/audio-files?dir=no_slice').then(r => { if (r.ok) setAllAudioFiles(r.data.files) })
-      .catch(err => console.error('audio-files?dir=no_slice 取不到，这一组参照音频留空：', err))
+      .catch(err => console.error('audio-files?dir=no_slice 读取失败，该组参考音频留空：', err))
     api('/api/audio-files?dir=voices').then(r => { if (r.ok) setVoiceFiles(r.data.files) })
-      .catch(err => console.error('audio-files?dir=voices 取不到，这一组参照音频留空：', err))
+      .catch(err => console.error('audio-files?dir=voices 读取失败，该组参考音频留空：', err))
     // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
     // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
     // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
@@ -451,10 +451,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         <div className="section-body">
           <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 10 }}>
             {t(
-              <>Add as many rows as you like. Each row = a different reference audio configuration.
+              <>Add as many rows as needed. Each row = a different reference audio configuration.
               Click <strong>Generate All</strong> to hear every combination side by side.
               The best one can be saved as the voice config.</>,
-              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，最满意的一个可保存为该音色的配置。</>)}
+              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，效果最佳的一项可保存为该音色的配置。</>)}
           </p>
 
           <div className="field">
@@ -462,7 +462,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             <label className="field-label">{t('Comparison Text', '对比文本')}</label>
             <div className="field-hint" style={{ marginBottom: 4 }}>
               {t(
-                <>Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
+                <>Every row uses this text by default, so references / models are compared on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
                 <>默认所有行都使用这段文本，以便在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
             </div>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}
@@ -503,7 +503,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             )}
             <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>
               {t(
-                <>You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
+                <>To proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
                 <>也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
             </div>
           </div>

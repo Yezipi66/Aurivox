@@ -122,7 +122,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
               tabIndex={0}
               aria-label={t('Resize the preview', '拖动改变预览宽度')}
               aria-valuenow={rightW || undefined}
-              title={t('Drag to resize, double-click to reset', '拖动改宽，双击还原')}
+              title={t('Drag to resize, double-click to reset', '拖动调整宽度，双击还原')}
               onPointerDown={onResizeStart}
               onKeyDown={onResizeKey}
               onDoubleClick={() => setRightW(null)} />

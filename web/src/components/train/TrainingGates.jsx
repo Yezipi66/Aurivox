@@ -57,12 +57,12 @@ export function TrainingGates({
           <div style={{ fontSize: 'var(--fs-13)', lineHeight: 1.6 }}>
             <p style={{ marginTop: 0 }}>
               {tr(
-                'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
+                'Training is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless a transcript is supplied.',
                 '已启用训练但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
             </p>
             <p>
               {tr(
-                'Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
+                'Before preprocessing, the system will wait for the seconds below so the file can be copied into the staging folder (its absolute path is printed in the logs).',
                 '在预处理前，系统会等待下面设定的秒数，留出时间把文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>
@@ -102,7 +102,7 @@ export function TrainingGates({
             <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 16 }}>
               Training will publish into <code>assets/{overwriteConfirm.existingId}/</code> and
               permanently replace the models and references of that voice. This cannot be undone.
-              If you meant to keep both, cancel and give this one a different name.
+              To keep both, cancel and give this one a different name.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-sm" onClick={onCancelOverwrite}>Cancel</button>
@@ -135,7 +135,7 @@ export function TrainingGates({
             </p>
             <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 16 }}>
               <input type="checkbox" checked={noGpuAck} onChange={e => setNoGpuAck(e.target.checked)} />
-              我知道 CPU 微调会非常慢，仍要继续
+              已知 CPU 微调会非常慢，仍要继续
             </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-sm" onClick={onCancelNoGpu}>取消</button>

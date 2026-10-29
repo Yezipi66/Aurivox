@@ -27,8 +27,8 @@ export const STEPS = [
     key: 'models',
     n: 3,
     label: ['Download models', '下载模型'],
-    does: ['列出上游项目自带的下载方式与存放位置，勾选后点「下载」即可。下载在后台进行，可随时进入下一步。',
-        '列出上游项目自带的下载方式与存放位置，勾选后点「下载」即可。下载在后台进行，可随时进入下一步。'],
+    does: ['列出上游项目附带的下载方式与存放位置，勾选后点击「下载」即可。下载在后台进行，可随时进入下一步。',
+        '列出上游项目附带的下载方式与存放位置，勾选后点击「下载」即可。下载在后台进行，可随时进入下一步。'],
     parallelWith: 'manifest',
   },
   {
@@ -196,7 +196,7 @@ export function canStart (stepKey, s = {}) {
     return { ok: false,
       reason: st2.missing.length
         ? `还差：${st2.missing.join('、')}`
-        : 'Manifest 里还没写 install.env_command' }
+        : 'Manifest 中未声明 install.env_command' }
   }
   return { ok: true }
 }

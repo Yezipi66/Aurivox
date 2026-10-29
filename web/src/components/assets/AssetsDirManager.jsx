@@ -43,9 +43,9 @@ export function MigrateChoiceDialog({
         </p>
         <div className="migrate-advisory">
           <strong>Recommended:</strong> choose <em>Switch only</em>, then copy the data yourself
-          in your file manager and restart. The built-in copy can stall or fail on files that are
+          in the file manager and restart. The built-in copy can stall or fail on files that are
           in use (a loaded model, an open Explorer/audio window), and such locks are hard to
-          recover from. Use Copy/Move only when you're sure nothing here is open.
+          recover from. Use Copy/Move only when nothing here is open.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button className="btn btn-primary" disabled={configBusy} onClick={() => onApply(migrateTarget, 'switch')}
@@ -114,7 +114,7 @@ export function MigrateProgressDialog({ migrateJob, onClose }) {
           <div className="msg msg-error" style={{ marginTop: 12 }}>
             {migrateJob.error}
             <div style={{ marginTop: 6, fontSize: 'var(--fs-12)' }}>
-              Nothing was deleted from your current directory. Close anything using these files
+              Nothing was deleted from the current directory. Close anything using these files
               (loaded models, open Explorer/audio windows) and retry, or use Switch only and copy manually.
             </div>
           </div>

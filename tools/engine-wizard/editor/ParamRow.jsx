@@ -68,7 +68,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
             type
             {typeGuessed && (
               <span className="badge badge-warn" style={{ marginLeft: 6 }}>
-                {t('guessed, confirm', '猜的，请确认')}
+                {t('guessed, confirm', '推测值，请核对')}
               </span>
             )}
           </label>
@@ -143,7 +143,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
           （不用裸 <details>：那个没有边框和间距，跟整页其它折叠长得不一样）*/}
       <details className="expert-block" style={{ marginTop: 8 }}>
         <summary className="expert-summary">
-          {t('More (rarely needed)', '更多（多数用不到）')}
+          {t('More (rarely needed)', '更多（多数场景无需配置）')}
         </summary>
         <div className="param-grid" style={{ marginTop: 8 }}>
           <label><span>repeat</span>
@@ -179,7 +179,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
         <button className="btn btn-sm btn-danger" type="button"
           onClick={() => onDelete(index)}>
-          {t('Delete this parameter', '删掉这个参数')}
+          {t('Delete this parameter', '删除该参数')}
         </button>
       </div>
     </div>

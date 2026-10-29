@@ -243,7 +243,7 @@ function AppShell() {
           {/* 这里用 components/common/Select.jsx，与全站其余下拉一致；它的 onChange 也发 { target: { value } }，调用方一个字不用改。 */}
           {engines.length > 1 && (
             <Select className="control nav-select" value={engine?.id || ''} onChange={e => setSelectedEngineId(e.target.value)}
-              title="切换引擎：参数面板和页签会跟着这台引擎的 manifest.json 变">
+              title="切换引擎：参数面板和页签会随该引擎的 manifest.json 变化">
               {engines.map(en => (
                 <option key={en.id} value={en.id}>{en.label || en.id}</option>
               ))}
@@ -259,7 +259,7 @@ function AppShell() {
           {/* ffmpeg 只在缺的时候占位。它是静态能力，装了就永远在，
               常亮的绿灯不携带信息，白占一格顶栏宽度。 */}
           {health && health.ffmpeg_available === false && (
-            <span className="badge badge-warn" title="本机没找到 ffmpeg：切片、波形与部分格式转换会失败。">
+            <span className="badge badge-warn" title="本机未找到 ffmpeg：切片、波形与部分格式转换会失败。">
               no ffmpeg
             </span>
           )}
@@ -344,7 +344,7 @@ function AppShell() {
                 <div className="es-sub" style={{ marginBottom: 0 }}>
                   {engine === null
                     ? '正在读引擎列表…'
-                    : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。换一台引擎，或者去修改该 manifest.json。`}
+                    : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。请改用其他引擎，或修改该 manifest.json。`}
                 </div>
                 {engine !== null && (
                   <div style={{ marginTop: 12 }}>
@@ -365,7 +365,7 @@ function AppShell() {
             // 而不是摆一个空白面板。
             : <div className="empty-state">
                 <div className="es-sub" style={{ marginBottom: 0 }}>
-                  这台服务器上没有开画布。启动时加上 FLOWGRAPH_ENABLED=1 再刷新这一页。
+                  本服务器未启用画布。启动时设置 FLOWGRAPH_ENABLED=1 后刷新本页。
                 </div>
               </div>
           )}
