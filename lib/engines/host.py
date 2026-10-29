@@ -266,7 +266,8 @@ def _render_cli_arg(name, entry, value):
 def build_cli_argv(call, profile, slots, params):
     """拼出要执行的完整命令。
 
-    slots：bind 槽位的实参：{"text": ..., "ref_audio": ..., "output_path": ...}
+    slots：bind 槽位的实参：{"text": ..., "ref_audio": ..., "ref_text": ..., "output_path": ...}
+      值是 None 或空串的槽位不上命令行：没给参考文本时不该出现一个空的 --开关。
     params：引擎私有参数（call_time），键必须在 call.args 里有一条形状。
 
      抽成纯函数是有意的：不起进程、不装上游、没有 GPU 也能逐条测到
@@ -278,12 +279,12 @@ def build_cli_argv(call, profile, slots, params):
         raise ValueError('call.kind = "cli" 但 call.argv 是空的')
 
     bind = call.get("bind") or {}
-    for slot in ("text", "ref_audio", "output_path"):
+    for slot in BIND_SLOTS:
         flag = bind.get(slot)
         if not flag:
             continue
         val = slots.get(slot)
-        if val is None:
+        if val is None or (slot == "ref_text" and val == ""):
             continue
         argv.extend([flag, str(val)])
 
@@ -515,16 +516,18 @@ class Engine(object):
                              % (BANNER, self.load_seconds, self.error))
 
     # -- 合成 ---------------------------------------------------------------
-    def synthesize(self, text, ref_audio_path, call_params, seed=None, method_cfg=None):
-        """返回 (wav_bytes, meta)。"""
+    def synthesize(self, text, ref_audio_path, call_params, seed=None, method_cfg=None,
+                   ref_text=None):
+        """返回 (wav_bytes, meta)。ref_text 是参考音频里念的那句话，没给就是 None。"""
         if self.kind == "cli":
             # cli 形态不接 call.methods：命令行只有一个入口，「切方法」要
             # 的是另一套 argv 模板，没写就不许假装支持。
-            return self._synthesize_cli(text, ref_audio_path, call_params, seed)
+            return self._synthesize_cli(text, ref_audio_path, call_params, seed,
+                                        ref_text=ref_text)
         return self._synthesize_python(text, ref_audio_path, call_params, seed,
-                                       method_cfg)
+                                       method_cfg, ref_text=ref_text)
 
-    def _synthesize_cli(self, text, ref_audio_path, call_params, seed=None):
+    def _synthesize_cli(self, text, ref_audio_path, call_params, seed=None, ref_text=None):
         returns = self.call.get("returns", "file")
         params = dict(call_params)
         if seed is not None and self.seed_plan.mode == "arg":
@@ -550,7 +553,7 @@ class Engine(object):
             argv = build_cli_argv(
                 self.call, self.profile,
                 {"text": text, "ref_audio": ref_audio_path,
-                 "output_path": out_path},
+                 "ref_text": ref_text, "output_path": out_path},
                 params)
 
             t0 = time.time()
@@ -596,7 +599,8 @@ class Engine(object):
                 except OSError:
                     pass
 
-    def _synthesize_python(self, text, ref_audio_path, call_params, seed=None, method_cfg=None):
+    def _synthesize_python(self, text, ref_audio_path, call_params, seed=None, method_cfg=None,
+                           ref_text=None):
         bind = self.call["bind"]
         returns = self.call.get("returns", "file")
         # 一次请求一个方法。call.methods 里每个方法可以带自己
@@ -623,6 +627,10 @@ class Engine(object):
         wants_ref = (method_cfg or {}).get("requires_ref_audio")
         if wants_ref is not False and bind.get("ref_audio") and ref_audio_path is not None:
             kwargs[bind["ref_audio"]] = ref_audio_path
+        # 参考文本跟着参考音频走：方法说了不要参考音频，它那句原话也不该进去。
+        #   没绑 ref_text ⇒ 平台不知道往哪放 ⇒ 不放；值是空串同样不放。
+        if wants_ref is not False and bind.get("ref_text") and ref_text not in (None, ""):
+            kwargs[bind["ref_text"]] = ref_text
         # vc 这类方法不读 text（它转换已有音频）：硬塞一个空串会让上游
         # 以为「有个空文本要念」而多产出几秒静音，或直接报错。
         if not str(text or "").strip():
@@ -644,13 +652,16 @@ class Engine(object):
             if active:
                 for slot in blank_when:
                     # 平台侧的键 → 上游的参数名，走已经验过的那条映射：
-                    # text          → bind["text"]
-                    # ref_audio_path→ bind["ref_audio"]（参考音频那个槽位）
-                    # 其它           → 同名（call_time 参数本来就是平台侧词）
+                    # text            → bind["text"]
+                    # reference_audio → bind["ref_audio"]（参考音频那个槽位；旧写法 ref_audio_path 同义）
+                    # reference_text  → bind["ref_text"]（参考文本那个槽位）
+                    # 其它             → 同名（call_time 参数本来就是平台侧词）
                     if slot == "text":
                         up = bind.get("text")
-                    elif slot in ("ref_audio_path", "ref_audio"):
+                    elif slot in ("reference_audio", "ref_audio_path", "ref_audio"):
                         up = bind.get("ref_audio") or slot
+                    elif slot in ("reference_text", "ref_text"):
+                        up = bind.get("ref_text") or slot
                     else:
                         up = slot
                     if up:
@@ -960,7 +971,9 @@ class Handler(BaseHTTPRequestHandler):
         # text 允许为空：vc 这类方法转换的是已有音频，不读文本。
         # （validate_request 已按方法判过要不要 text。）
         text = str(body.get("text") or "")
-        ref = body.get("ref_audio_path")
+        ref = request_ref_audio(body)
+        ref_text = body.get(REQUEST_REF_TEXT_KEY)
+        ref_text = None if ref_text in (None, "") else str(ref_text)
         seed = int(body["seed"]) if body.get("seed") is not None else None
         method_name, method_cfg, _ = resolve_method(prof, body.get("method"))
         call_time = set(prof["params"].get("call_time") or [])
@@ -972,7 +985,7 @@ class Handler(BaseHTTPRequestHandler):
             eng.busy = True
             try:
                 data, meta = eng.synthesize(text, ref, call_params, seed=seed,
-                                            method_cfg=method_cfg)
+                                            method_cfg=method_cfg, ref_text=ref_text)
                 eng.served += 1
             except Exception:
                 tb = traceback.format_exc()
@@ -1006,9 +1019,28 @@ class Handler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 # 4) 请求校验：抽成纯函数，才能不起进程就测
 # ---------------------------------------------------------------------------
+# 请求体里的三个输入用平台自己的词（lib/engines/payload.js 的 CORE_KEYS）：
+#   text / reference_audio / reference_text。启动脚本是本宿主时，平台的 maps 因此是恒等映射，
+#   由 profile.js 的 inferMaps 补上，名片不用写；profile.node.test.js 直接读本文件核对这几个键。
 # "method"：请求用它切推理方法（call.methods）。
-CORE_KEYS = frozenset({"text", "ref_audio_path", "seed", "format", "media_type",
-                      "method"})
+REQUEST_TEXT_KEY = "text"
+REQUEST_REF_AUDIO_KEY = "reference_audio"
+REQUEST_REF_TEXT_KEY = "reference_text"
+# 旧名片显式写过 maps.reference_audio = "ref_audio_path"（平台照名片发这个键）。
+#   宿主照收，与 reference_audio 同义；两者都给时以 reference_audio 为准。
+LEGACY_REF_AUDIO_KEY = "ref_audio_path"
+CORE_KEYS = frozenset({REQUEST_TEXT_KEY, REQUEST_REF_AUDIO_KEY, REQUEST_REF_TEXT_KEY,
+                      LEGACY_REF_AUDIO_KEY, "seed", "format", "media_type", "method"})
+# call.bind 的槽位，与 lib/engines/hostProfile.js 的 BIND_SLOTS 同一张表。
+BIND_SLOTS = ("text", "ref_audio", "ref_text", "output_path")
+
+
+def request_ref_audio(body):
+    """请求里的参考音频路径；没给或给了空串都是 None。"""
+    ref = body.get(REQUEST_REF_AUDIO_KEY)
+    if ref in (None, ""):
+        ref = body.get(LEGACY_REF_AUDIO_KEY)
+    return None if ref in (None, "") else ref
 
 
 def resolve_method(profile, requested):
@@ -1164,11 +1196,11 @@ def validate_request(body, profile, seed_plan):
         # 挡了就等于让它什么都不传：那是破坏向后兼容。
         call_time = set(call_time)
 
-    ref = body.get("ref_audio_path")
+    ref = request_ref_audio(body)
     if needs_ref:
         if not ref:
-            return 400, ("'ref_audio_path' is required (%s clones from a "
-                         "reference clip)" % profile["id"]), {}
+            return 400, ("'%s' is required (%s clones from a "
+                         "reference clip)" % (REQUEST_REF_AUDIO_KEY, profile["id"])), {}
         if not os.path.isfile(ref):
             return 400, ("reference audio not found on the engine host: %s"
                          % ref), {}

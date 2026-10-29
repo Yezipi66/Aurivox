@@ -249,7 +249,7 @@ def main():
         # ---------------- 2) 真的出音频 ----------------
         print("[2] 真的能出一段音频")
         code, raw, hdr = http("POST", base + "/tts",
-                              {"text": "你好", "ref_audio_path": ref,
+                              {"text": "你好", "reference_audio": ref,
                                "seed": 12345, "loudness": 0.4})
         row("POST /tts 返回 200", code == 200, "code=%d" % code)
         ok_wav = False
@@ -270,11 +270,11 @@ def main():
         # ---------------- 3) 播种是不是真的生效 ----------------
         print("[3] 播种到底生效没有（判据是字节，不是自述）")
         _, a, _ = http("POST", base + "/tts",
-                       {"text": "你好", "ref_audio_path": ref, "seed": 999})
+                       {"text": "你好", "reference_audio": ref, "seed": 999})
         _, b, _ = http("POST", base + "/tts",
-                       {"text": "你好", "ref_audio_path": ref, "seed": 999})
+                       {"text": "你好", "reference_audio": ref, "seed": 999})
         _, c, _ = http("POST", base + "/tts",
-                       {"text": "你好", "ref_audio_path": ref, "seed": 1000})
+                       {"text": "你好", "reference_audio": ref, "seed": 1000})
         row("⭐⭐ 同 seed 两次 ⇒ 字节完全相同", a == b, "%d vs %d 字节" % (len(a), len(b)))
         row("⭐⭐ 换 seed ⇒ 字节不同（不然上一条是假绿）", a != c)
         print()
@@ -282,19 +282,19 @@ def main():
         # ---------------- 4) 四类 400 ----------------
         print("[4] 四类 400 —— 名片错了要当场喊，不许静默")
         cases = [
-            ("空 text", {"text": "  ", "ref_audio_path": ref}, "text"),
-            ("缺参考音频", {"text": "x"}, "ref_audio_path"),
-            ("参考音频不存在", {"text": "x", "ref_audio_path": ref + ".nope"},
+            ("空 text", {"text": "  ", "reference_audio": ref}, "text"),
+            ("缺参考音频", {"text": "x"}, "reference_audio"),
+            ("参考音频不存在", {"text": "x", "reference_audio": ref + ".nope"},
              "not found"),
             ("不认识的参数（拼错）",
-             {"text": "x", "ref_audio_path": ref, "loudnes": 1}, "loudnes"),
+             {"text": "x", "reference_audio": ref, "loudnes": 1}, "loudnes"),
             ("加载期参数出现在调用里",
-             {"text": "x", "ref_audio_path": ref, "use_fp16": True}, "use_fp16"),
-            ("要 mp3", {"text": "x", "ref_audio_path": ref, "format": "mp3"},
+             {"text": "x", "reference_audio": ref, "use_fp16": True}, "use_fp16"),
+            ("要 mp3", {"text": "x", "reference_audio": ref, "format": "mp3"},
              "mp3"),
-            ("seed 是负数", {"text": "x", "ref_audio_path": ref, "seed": -1},
+            ("seed 是负数", {"text": "x", "reference_audio": ref, "seed": -1},
              ">= 0"),
-            ("seed 不是整数", {"text": "x", "ref_audio_path": ref, "seed": "abc"},
+            ("seed 不是整数", {"text": "x", "reference_audio": ref, "seed": "abc"},
              "integer"),
         ]
         for name, body, needle in cases:
@@ -325,13 +325,13 @@ def main():
         row("起得来", h2 is not None and h2.get("ready"))
         if h2:
             code, raw, _ = http("POST", base2 + "/tts",
-                                {"text": "x", "ref_audio_path": ref, "seed": 1})
+                                {"text": "x", "reference_audio": ref, "seed": 1})
             detail = detail_of(raw)
             row("⭐⭐ 带 seed 的请求被 400 拒收，不是收下扔掉",
                 code == 400 and "cannot" in detail,
                 "code=%d detail=%.60s" % (code, detail))
             code, _, _ = http("POST", base2 + "/tts",
-                              {"text": "x", "ref_audio_path": ref})
+                              {"text": "x", "reference_audio": ref})
             row("不带 seed 的请求照常 200", code == 200, "code=%d" % code)
         p2.terminate(); p2.wait(timeout=10)
         print()

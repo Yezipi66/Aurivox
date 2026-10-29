@@ -1,8 +1,8 @@
 'use strict'
-// 第 4 步的表单形状：必填 5 格两行，其余进「可选参数」，没有「高级」折叠区。
+// 第 4 步的表单形状：必填 5 格两行（第 1 行另有一个可选的参考文本格），其余进「可选参数」，没有「高级」折叠区。
 //
 // 守的形状：
-//   ① 必填区只有 5 格：三个输入槽位一行（text / ref_audio / output_path），
+//   ① 必填区只有 5 格：三个输入槽位一行（text / ref_audio / output_path，参考音频旁边是可选的 ref_text），
 //      引擎目录与启动脚本一行。平台其余的键缺了有默认（lib/engines/profile.js 的 DEFAULTS），
 //      不许再摆进必填区让人猜。
 //   ② 两行都用 auto-fit 网格，中栏被拖窄时折成单列，不写死列数。
@@ -50,9 +50,10 @@ function slotCodes (text) {
   return [...m[1].matchAll(/(\w+):\s*\{/g)].map((k) => k[1])
 }
 
-test('必填区恰好 5 格：三个槽位 + 引擎目录 + 启动脚本', () => {
+test('必填区恰好 5 格：三个槽位 + 引擎目录 + 启动脚本（参考文本是可选格，挨着参考音频）', () => {
   const live = stripComments(src)
-  assert.deepStrictEqual(slotCodes(live), ['text', 'ref_audio', 'output_path'])
+  assert.deepStrictEqual(slotCodes(live), ['text', 'ref_audio', 'ref_text', 'output_path'])
+  assert.ok(/ref_text: \{[^}]*optional: true/.test(live), '参考文本要标成可选格，不能和必填格一个待遇')
   assert.deepStrictEqual(badgeCodes(live).sort(), ['runtime.entry', 'runtime.python'])
 })
 
@@ -169,4 +170,24 @@ test('第 5 步进度文案：阶段四种，已用时间 mm:ss', () => {
   assert.equal(P.measureRunning({ state: 'running' }), true)
   assert.equal(P.measureRunning({ state: 'done' }), false)
   assert.equal(P.measureRunning(null), false)
+})
+
+test('参考文本格：可拖、可清，空着只给提示，不挂「需指定」', () => {
+  const live = stripComments(src)
+  assert.ok(/onDrop=\{dropOn\(slot\.key\)\}/.test(live), '槽位格（含参考文本）要能拖进参数')
+  assert.ok(/onClick=\{\(\) => setSlot\(slot\.key, ''\)\}/.test(live), '可选格要有清除按钮，清掉就是从 bind 里删')
+  assert.ok(/&& !slot\.optional/.test(live), '可选格空着不该算「未匹配，需指定」')
+  assert.ok(live.includes('平台只能尽量匹配，不一定认得出'), '空着时给一句提示')
+})
+
+test('参考文本没绑不是校验错误', () => {
+  const { diagnose } = require('../core/validate.js')
+  const m = {
+    contract_version: 2, id: 'x', label: 'x',
+    runtime: { python: 'engines/x/.venv', entry: '../../lib/engines/host.py' },
+    call: { kind: 'cli', argv: ['{engine_python}', '-m', 'm'], bind: { text: '--text', ref_audio: '--ref', output_path: '--out' }, seed: 'none' },
+  }
+  const all = diagnose(m)
+  assert.ok(!all.some((d) => /ref_text/.test(String(d.field || '') + String(d.message || ''))),
+    '没绑参考文本不该出现在诊断里：' + JSON.stringify(all))
 })

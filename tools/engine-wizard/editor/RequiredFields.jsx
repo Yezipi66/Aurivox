@@ -7,8 +7,10 @@ import { readWeights, writeWeights, TOKEN } from './weightsField'
 // （lib/engines/profile.js 的 DEFAULTS 与 defaulted）。
 //
 // 两行，按「值从哪来」分：
-//   第 1 行  合成文本 / 参考音频 / 输出：平台的三个输入槽位（call.bind），
+//   第 1 行  合成文本 / 参考音频 / 参考文本 / 输出：平台的输入槽位（call.bind），
 //            扫描通常认得出，用户确认即可；也是拖拽落点。
+//            参考文本是可选格：扫描只能尽量认，认不出时给一句提示、由用户拖进来，不算缺项；
+//            格子右侧的清除按钮把它从 bind 里删掉（宿主收到参考文本也不往上游传）。
 //   第 2 行  引擎目录 / 启动脚本：按本仓库惯例代填，可改。
 //            模型权重：引擎从哪个参数读权重。值默认 {checkpoints}（第 3 步的下载落点），
 //            参数名要人指定（可从左栏拖构造参数进来）；引擎自己找权重就勾「引擎自己找」。
@@ -16,8 +18,8 @@ import { readWeights, writeWeights, TOKEN } from './weightsField'
 //            读写见 weightsField.js，缺没缺由平台 hostProfile.js 的 weightsProblem 判。
 // 网格用 auto-fit，中栏被拖窄时自动折成单列，不写死列数。
 //
-// 每格是「中文人话 + 键名徽标」。槽位格的徽标写槽位名（text / ref_audio / output_path），
-// 平台固定认这三个词，格子里填的是引擎那边的参数名；第 2 行的徽标写名片键路径。
+// 每格是「中文人话 + 键名徽标」。槽位格的徽标写槽位名（text / ref_audio / ref_text / output_path），
+// 平台固定认这几个词，格子里填的是引擎那边的参数名；第 2 行的徽标写名片键路径。
 // 排版用项目已有的类；不写具体引擎名（有守卫测试）。
 
 function Cell ({ label, code, hint, badge, children }) {
@@ -97,6 +99,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   const SLOT_LABELS = {
     text: { labelEn: 'Text to synthesize', labelZh: '合成文本' },
     ref_audio: { labelEn: 'Reference audio', labelZh: '参考音频' },
+    ref_text: { labelEn: 'Reference text', labelZh: '参考文本', optional: true },
     output_path: { labelEn: 'Output', labelZh: '输出' },
   }
   const SLOT_KEYS = (bindSlots && bindSlots.length)
@@ -106,6 +109,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     key,
     labelEn: (SLOT_LABELS[key] || {}).labelEn || key,
     labelZh: (SLOT_LABELS[key] || {}).labelZh || key,
+    optional: !!(SLOT_LABELS[key] || {}).optional,
   }))
 
   // 输出槽位只在「引擎把音频写进文件」时才要（call.returns 缺省就是 file，hostProfile.js 同口径）。
@@ -124,28 +128,54 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
           {slots.map((slot) => {
             const val = bind[slot.key] || ''
             const guessed = matched && matched[slot.key] || null
-            const isMatched = !!guessed
-            const unset = scanned && !guessed && !val && slotNeeded(slot.key)
+            // 可选格清空后不再挂「扫描已匹配」：格子是空的，徽标不能说它匹配上了。
+            const isMatched = !!guessed && (!slot.optional || !!val)
+            // 可选格空着不算缺：不挂「需指定」，只在格子下面给一句提示。
+            const unset = scanned && !guessed && !val && slotNeeded(slot.key) && !slot.optional
+            const optionalEmpty = slot.optional && !val
+            const input = (
+              <input
+                className={`control${isMatched ? ' wz-field-matched' : (unset ? ' wz-field-guess' : '')}${overSlot === slot.key ? ' wz-dropzone-over' : ''}`}
+                style={slot.optional ? { flex: 1, minWidth: 0 } : undefined}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOverSlot(slot.key) }}
+                onDragLeave={() => setOverSlot(null)}
+                onDrop={dropOn(slot.key)}
+                list={listId}
+                value={val}
+                disabled={!slotNeeded(slot.key)}
+                aria-label={t(slot.labelEn, slot.labelZh)}
+                placeholder={unset || optionalEmpty
+                  ? t('Pick from candidates or type a parameter name', '从候选选择，或输入参数名') : ''}
+                onChange={(e) => setSlot(slot.key, e.target.value)}
+              />
+            )
             return (
               <Cell key={slot.key}
                 label={t(slot.labelEn, slot.labelZh)} code={slot.key}
                 badge={isMatched
                   ? <span className="badge badge-ok">{t('matched by scan', '扫描已匹配')}</span>
-                  : (unset ? <span className="badge badge-warn">{t('not matched, specify', '未匹配，需指定')}</span> : null)}
+                  : (unset
+                    ? <span className="badge badge-warn">{t('not matched, specify', '未匹配，需指定')}</span>
+                    : (slot.optional ? <span className="badge badge-muted">{t('optional', '可选')}</span> : null))}
                 hint={slot.key === 'output_path' && !slotNeeded(slot.key)
                   ? t('not needed: the engine returns the audio directly', '不需要：引擎直接返回音频')
-                  : null}>
-                <input
-                  className={`control${isMatched ? ' wz-field-matched' : (unset ? ' wz-field-guess' : '')}${overSlot === slot.key ? ' wz-dropzone-over' : ''}`}
-                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOverSlot(slot.key) }}
-                  onDragLeave={() => setOverSlot(null)}
-                  onDrop={dropOn(slot.key)}
-                  list={listId}
-                  value={val}
-                  disabled={!slotNeeded(slot.key)}
-                  placeholder={unset ? t('Pick from candidates or type a parameter name', '从候选选择，或输入参数名') : ''}
-                  onChange={(e) => setSlot(slot.key, e.target.value)}
-                />
+                  : (optionalEmpty
+                    ? t('The platform matches this as best it can and may not recognize it. If it stays empty, drag the matching parameter here.',
+                      '平台只能尽量匹配，不一定认得出。空着的话，把对应的参数拖到这里。')
+                    : null)}>
+                {slot.optional
+                  ? (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {input}
+                      <button type="button" className="btn btn-sm"
+                        disabled={!val}
+                        title={t('Clear this slot', '清除这一格')}
+                        onClick={() => setSlot(slot.key, '')}>
+                        {t('Clear', '清除')}
+                      </button>
+                    </div>
+                  )
+                  : input}
               </Cell>
             )
           })}

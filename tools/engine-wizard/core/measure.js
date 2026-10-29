@@ -115,19 +115,17 @@ function postJson (url, body, timeoutMs, signal) {
   })
 }
 
-// 界面给的是平台的词（reference_audio / reference_text），宿主收的是 ref_audio_path
-//   和引擎自己的参数名（名片 maps 说它叫什么，与合成服务 payload.js 同一张表）。
-//   已经是引擎方言的键原样留着。就地改 request。
+// 界面给的是平台的词（reference_audio / reference_text），换成名片 maps 说的键
+//   （与合成服务 payload.js 同一张表）。启动脚本是通用宿主时平台把 maps 推成恒等映射，
+//   这两个词原样发出去。名片没映射的词不发；已经是引擎方言的键原样留着。就地改 request。
 function toEngineWords (profile, request) {
   const maps = (profile && profile.maps) || {}
-  if (request.reference_audio !== undefined) {
-    if (request.ref_audio_path === undefined) request.ref_audio_path = request.reference_audio
-    delete request.reference_audio
-  }
-  if (request.reference_text !== undefined) {
-    const k = maps.reference_text
-    if (k && request[k] === undefined) request[k] = request.reference_text
-    delete request.reference_text
+  for (const word of ['reference_audio', 'reference_text']) {
+    if (request[word] === undefined) continue
+    const v = request[word]
+    delete request[word]
+    const k = maps[word]
+    if (k && request[k] === undefined) request[k] = v
   }
   for (const k of Object.keys(request)) {
     if (request[k] === '' || request[k] === null) delete request[k]

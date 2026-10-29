@@ -267,8 +267,12 @@ test('/wizard/verify/measure 不被 /wizard/verify 吃掉', () => {
 
 test('toEngineWords：平台的词换成宿主与引擎的词（照名片 maps），空值不发', () => {
   const req = { text: 'hi', reference_audio: '/a.wav', reference_text: 'hello', seed: '' }
-  M.toEngineWords({ maps: { reference_text: 'ref_text' } }, req)
-  assert.deepEqual(req, { text: 'hi', ref_audio_path: '/a.wav', ref_text: 'hello' })
+  M.toEngineWords({ maps: { reference_audio: 'ref_wav', reference_text: 'ref_words' } }, req)
+  assert.deepEqual(req, { text: 'hi', ref_wav: '/a.wav', ref_words: 'hello' })
+  const shared = { text: 'hi', reference_audio: '/a.wav', reference_text: 'hello' }
+  M.toEngineWords({ maps: { text: 'text', reference_audio: 'reference_audio', reference_text: 'reference_text' } }, shared)
+  assert.deepEqual(shared, { text: 'hi', reference_audio: '/a.wav', reference_text: 'hello' },
+    '通用宿主的 maps 是恒等映射：平台的词原样发')
   const req2 = { text: 'hi', reference_text: 'x' }
   M.toEngineWords({ maps: {} }, req2)
   assert.deepEqual(req2, { text: 'hi' }, '名片没映射参考文本 ⇒ 不发')
