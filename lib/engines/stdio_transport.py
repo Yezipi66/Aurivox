@@ -147,10 +147,15 @@ class _StdioFile(object):
             #   在一个「读全部」的调用里把整个连接读干。
             out = self._buf
             self._buf = b""
+            self._body_left = max(0, self._body_left - len(out))
             return out
         while len(self._buf) < size and not self._eof:
             self._fill(size - len(self._buf))
         out, self._buf = self._buf[:size], self._buf[size:]
+        # 读走的就是请求体，欠账跟着减。不减，drain_unread_body() 会把已经读过的长度
+        #   再从流里吃一遍：下一个请求还没来时它就卡在那里等，来了又吞掉它的开头，
+        #   表现是每个 POST 之后的那个请求都超时。
+        self._body_left = max(0, self._body_left - len(out))
         return out
 
     def readline(self, limit=-1):
@@ -239,17 +244,45 @@ class _StdioFile(object):
 # ---------------------------------------------------------------------------
 #  引擎这一侧：serve_forever
 # ---------------------------------------------------------------------------
-def serve(handler_factory, engine_id=None, on_ready=None):
+def claim_stdout():
+    """把 stdout 收归协议专用，返回协议要写的那条流；之后 fd 1 与 sys.stdout 都指向 stderr。
+
+    必须在加载上游之前调用。上游代码、它依赖的库、它再起的子进程都可能往 stdout 打字
+      （print、进度条、os.system 里的命令），这些字节落进管道就会夹在 HTTP 帧中间。
+      Windows 的文本模式还会把一个空 print 写成 \r\n，两次就凑出一个帧头结尾，
+      平台把它当成一个响应交给排在前面的请求，后面每个请求都拿到上一个的响应。
+    只换 sys.stdout 不够：子进程继承的是 fd 1，所以要在 fd 这一层改。
+    """
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+    proto_fd = os.dup(1)
+    os.dup2(2, 1)
+    # 带缓冲的写端：原始 fd 写一次可能只写出一部分，几 MB 的音频必须写满；sendall 每次都会 flush。
+    proto = os.fdopen(proto_fd, "wb")
+    if hasattr(sys.stdout, "reconfigure"):
+        # sys.stdout 仍包着 fd 1（现在是 stderr），行缓冲免得日志攒在缓冲里迟迟不出。
+        try:
+            sys.stdout.reconfigure(line_buffering=True)
+        except Exception:
+            pass
+    return proto
+
+
+def serve(handler_factory, engine_id=None, on_ready=None, writer=None):
     """在当前进程上跑 Handler，读 stdin 写 stdout，直到 stdin 关掉。
 
     这个函数阻塞。宿主（host.py）调它，然后就没有然后了，
       进程活着的全部意义就是「有人在跟我说话」。
+    writer：claim_stdout() 交出来的协议流。不给就用 sys.stdout.buffer，
+      那样进程里任何往 stdout 打的字都会混进帧里，只适合不加载上游代码的场合。
     """
     # 协议走 stdout，日志一律走 stderr。
     #   两者混在一起会把 HTTP 帧搅坏：而症状是「客户端解析失败」，
     #   排查方向会跑去查协议实现，而协议实现是好的。
     # 所以这个模块绝不能往 stdout 写任何别的东西。
-    sock = _StdioSocket(sys.stdin.buffer, sys.stdout.buffer)
+    sock = _StdioSocket(sys.stdin.buffer, writer if writer is not None else sys.stdout.buffer)
 
     if on_ready:
         on_ready(engine_id)

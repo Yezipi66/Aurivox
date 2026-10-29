@@ -1444,6 +1444,18 @@ def main():
                          % (BANNER, len(_DROPPED),
                             "y" if len(_DROPPED) == 1 else "ies", _DROPPED))
 
+    # stdio：先把 stdout 收归协议，再碰上游代码（见 stdio_transport.claim_stdout）。
+    #   加载在后台线程里跑，一边加载一边答 /health，晚一步收就会有上游的输出落进管道。
+    proto_out = None
+    if use_stdio:
+        try:
+            import stdio_transport
+        except ImportError as exc:
+            sys.stderr.write("%s FATAL: --stdio 需要 stdio_transport.py（%s）\n"
+                             % (BANNER, exc))
+            return 2
+        proto_out = stdio_transport.claim_stdout()
+
     engine = Engine(profile)
     STATE["engine"] = engine
     STATE["profile"] = profile
@@ -1463,18 +1475,12 @@ def main():
     # 能连上 /health 拿 503 + load_seconds）。stdio 路线没有端口，
     # 但「立刻能问」这件事一样要成立：平台 spawn 完就写第一个 /health。
     if use_stdio:
-        try:
-            import stdio_transport
-        except ImportError as exc:
-            sys.stderr.write("%s FATAL: --stdio 需要 stdio_transport.py（%s）\n"
-                             % (BANNER, exc))
-            return 2
         sys.stderr.write("%s stdio 就绪（引擎 %s，零 TCP 端口）\n"
                          % (BANNER, profile["id"]))
         sys.stderr.flush()
         return stdio_transport.serve(
             Handler, profile["id"],
-            on_ready=lambda eid: None)
+            on_ready=lambda eid: None, writer=proto_out)
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
