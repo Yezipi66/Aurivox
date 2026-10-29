@@ -94,7 +94,8 @@ test('这个后端一个轮子都没有 ⇒ 说清装不了，且不给假的版
   const html = renderDialog(NO_WHEEL, 'XPU')
   assert.ok(html.includes('2.5.1'), '要说明上游声明的是哪个版本')
   assert.ok(html.includes('XPU'), '要写后端名')
-  assert.ok(html.includes('这个后端上装不了 Torch'), '要说清这个后端上装不了')
+  // 钉意思不钉字眼：文案按书面语改过（「装不了」→「无法安装」），这条不该因措辞变化而红。
+  assert.ok(/后端(上)?(无法安装|装不了) Torch/.test(html), '要说清这个后端上装不了')
   assert.ok(html.includes('没有适配的 wheel'), '要说清是这个组合没有可用 wheel')
   assert.ok(!/没有适配 Python/.test(html), '不许把原因写成 Python 版本不匹配')
   // 按钮文案里不该出现「装 Torch <版本>」（正文里提到 Torch 是正常的）。

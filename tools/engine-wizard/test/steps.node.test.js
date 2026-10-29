@@ -81,7 +81,7 @@ test('名字说「要做什么」而不是只给名词', () => {
   }
   const models = mod.STEPS.find((s) => s.key === 'models')
   // 断言钉实质：必须说清平台代为下载，不许断言某几个字。
-  assert.ok(/勾选后点「下载」即可|平台执行下载|代为下载/i.test(models.does[1]),
+  assert.ok(/勾选后点(击)?「下载」即可|平台执行下载|代为下载/i.test(models.does[1]),
     `第 3 步的说明必须说清「平台代为下载」：${models.does[1]}`)
 })
 
