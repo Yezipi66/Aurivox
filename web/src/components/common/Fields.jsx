@@ -72,7 +72,7 @@ function NamingNoteCard({ acked, onAck, onCollapse }) {
         )}
       </div>
       <div className="naming-note-ft">
-        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '已知晓')}</button>
+        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Understood', '已知晓')}</button>
         {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认，之后将保持折叠。')}</span>}
       </div>
     </div>
@@ -200,7 +200,7 @@ client.audio.speech.create(
         )}
       </div>
       <div className="naming-note-ft">
-        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Got it', '已知晓')}</button>
+        <button type="button" className="btn btn-sm btn-primary" onClick={onAck}>{t('Understood', '已知晓')}</button>
         {acked && <span className="nn-hint">{t('Acknowledged — kept collapsed from now on.', '已确认，之后将保持折叠。')}</span>}
       </div>
     </div>
