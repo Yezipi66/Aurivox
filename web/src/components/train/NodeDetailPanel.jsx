@@ -163,7 +163,7 @@ export function NodeDetailPanel({
             <>By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
             intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
             the voice is published, since the finished asset no longer needs it. Enable this only to
-            <strong>keep</strong> <strong>keep</strong> those intermediates for inspection or debugging. It will
+            <strong>keep</strong> those intermediates for inspection or debugging. It will
             count against the available disk space.</>,
             <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>，内含中间预处理特征与 checkpoint）
             会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有想<strong>保留</strong>
