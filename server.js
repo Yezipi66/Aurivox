@@ -174,7 +174,9 @@ function saveAdvancedParams(params) { return advancedParamsStore.save(params); }
 const { pronLexiconPath, loadPronLexicon, savePronLexicon } = require("./lib/server/pronLexicon");
 
 //  VOICE ASSET MANAGER APIs
-const { runFullAssetScan } = require("./lib/server/assetScan");
+const { runFullAssetScan: _runFullAssetScan } = require("./lib/server/assetScan");
+// 路由与启动扫描都是无参调用：依赖在这里接好，别让调用方各自去凑四个参数。
+function runFullAssetScan() { return _runFullAssetScan(assetScanner, withVoicesLock, loadVoices, saveVoices); }
 const { runMigrationJob } = require("./lib/server/migration");
 const TRANSCRIPT_KINDS = [
   { kind: "slicer_opt", listName: "slicer_opt.list", audioSub: "slicer_opt" },
