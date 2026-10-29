@@ -135,6 +135,17 @@ function toEngineWords (profile, request) {
   return request
 }
 
+// stdio 那条路的 POST：回的形状与 postJson 一致（{ status, body } 或 { status: null, error }）。
+async function postStdio (conn, payload, timeoutMs, signal) {
+  if (!conn) return { status: null, error: '引擎进程没有 stdio 管道' }
+  try {
+    const r = await conn.request({ method: 'POST', path: '/tts', payload, timeoutMs, signal })
+    return { status: r.statusCode, body: r.body }
+  } catch (e) {
+    return { status: null, error: e.message }
+  }
+}
+
 // 采样率从 wav 头读（lib/audio/wav.js）。不是 wav 就是 null，不拿响应头顶替。
 function sampleRateOf (body, readFormat) {
   const fmt = readFormat(body)
@@ -179,7 +190,9 @@ async function measureEngine (id, opts = {}) {
   const buildLaunchPlan = deps.buildLaunchPlan || platform('lib/engines/launchPlan.js').buildLaunchPlan
   const spawnFromPlan = deps.spawnFromPlan || platform('lib/engines/spawnEngine.js').spawnFromPlan
   const probeOnce = deps.probeOnce || platform('lib/engines/spawnEngine.js').probeOnce
+  const probeStdio = deps.probeStdio || platform('lib/engines/spawnEngine.js').probeStdio
   const post = deps.post || postJson
+  const postPipe = deps.postStdio || postStdio
   const readWavFormat = deps.readWavFormat || platform('lib/audio/wav.js').readWavFormatFromBuffer
   const onStage = typeof opts.onStage === 'function' ? opts.onStage : () => {}
   const signal = opts.signal || null
@@ -202,7 +215,10 @@ async function measureEngine (id, opts = {}) {
   const logDir = path.join(roots.write, 'logs')
   let plan
   try {
-    const port = profile.default_base_url ? undefined : (opts.port || await freePort())
+    // 走 stdio 的引擎（平台按名片推出，见 lib/engines/profile.js 的 inferTransport）不要端口：
+    //   试运行与正式合成同一条路，经子进程管道说话。
+    const port = (profile.transport === 'stdio' || profile.default_base_url)
+      ? undefined : (opts.port || await freePort())
     plan = buildLaunchPlan(profile, {
       rootDir: roots.engine,
       port,
@@ -218,8 +234,9 @@ async function measureEngine (id, opts = {}) {
   const synthBudgetMs = opts.synthBudgetMs || BUDGET.synthMs
   const text = textOfLength(request.text, profile.max_chars)
 
-  const out = { ok: false, id, base_url: plan.base_url, chars: text.length, text,
-    engine_root: roots.engine }
+  const stdio = plan.transport === 'stdio'
+  const out = { ok: false, id, base_url: plan.base_url, transport: stdio ? 'stdio' : 'http',
+    chars: text.length, text, engine_root: roots.engine }
   const cancelled = (stage) => ({ ...out, stage, cancelled: true, error: '试运行已中止' })
   let child = null
   const t0 = now()
@@ -234,7 +251,9 @@ async function measureEngine (id, opts = {}) {
     let ready = false
     while (now() - t0 < readyBudgetMs) {
       if (aborted()) return cancelled('ready')
-      const r = await probeOnce(plan.ready_url, 2000)
+      const r = stdio
+        ? await probeStdio(child && child.stdioTransport, plan.ready_endpoint, 2000)
+        : await probeOnce(plan.ready_url, 2000)
       if (r instanceof Error && r.engineFailed) {
         return { ...out, stage: 'ready', error: '宿主报加载失败', detail: r.detail }
       }
@@ -252,7 +271,9 @@ async function measureEngine (id, opts = {}) {
     // ---- 2. 合成一段 max_chars 那么长的 ----
     onStage('synth')
     const t1 = now()
-    const r = await post(plan.base_url + '/tts', { ...request, text }, synthBudgetMs, signal)
+    const r = stdio
+      ? await postPipe(child && child.stdioTransport, { ...request, text }, synthBudgetMs, signal)
+      : await post(plan.base_url + '/tts', { ...request, text }, synthBudgetMs, signal)
     if (aborted()) return cancelled('synth')
     out.synthMs = now() - t1
     if (r.status !== 200) {

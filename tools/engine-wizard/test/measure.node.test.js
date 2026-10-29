@@ -107,6 +107,35 @@ test('measureEngine：量出就绪与单段耗时，文本凑到 max_chars，结
   assert.deepEqual(stages, ['starting', 'synth'])
 })
 
+test('measureEngine：stdio 的引擎不要端口，探活与 /tts 都经子进程的管道发，与正式合成同一条路', async () => {
+  let clock = 0
+  const seen = { probes: [], posts: [] }
+  const pipe = { id: 'pipe' }
+  const wav = wavOf(24000)
+  const deps = {
+    now: () => clock,
+    resolveProfile: (id) => ({ id, max_chars: 50, transport: 'stdio', runtime: { ready_endpoint: '/health' } }),
+    buildLaunchPlan: (profile, o) => {
+      seen.port = o.port
+      return { launchable: true, transport: 'stdio', base_url: null, ready_url: null, ready_endpoint: '/health' }
+    },
+    spawnFromPlan: () => ({ stdioTransport: pipe, on () {}, killTree: async () => {} }),
+    probeOnce: async () => assert.fail('stdio 的引擎不许按地址探活'),
+    post: async () => assert.fail('stdio 的引擎不许按地址发请求'),
+    probeStdio: async (conn, endpoint) => { seen.probes.push({ conn, endpoint }); clock += 1000; return true },
+    postStdio: async (conn, payload) => { seen.posts.push({ conn, payload }); clock += 2000; return { status: 200, body: wav } },
+  }
+  const r = await M.measureEngine('x', { request: { text: 'Hello there.' }, deps, pollMs: 0, rootDir: '/eng', writeRoot: '/w' })
+  assert.equal(r.ok, true, r.error)
+  assert.equal(r.transport, 'stdio')
+  assert.equal(r.base_url, null)
+  assert.equal(seen.port, undefined, '不给 stdio 的引擎找空闲端口')
+  assert.equal(seen.probes[0].conn, pipe)
+  assert.equal(seen.probes[0].endpoint, '/health')
+  assert.equal(seen.posts[0].conn, pipe)
+  assert.equal(r.sampleRate, 24000)
+})
+
 test('measureEngine：采样率从 wav 头读，不信 x-sample-rate 响应头', async () => {
   const f = fakeDeps({ body: wavOf(24000), headers: { 'x-sample-rate': '16000' } })
   const r = await M.measureEngine('x', { request: { text: 'hi' }, deps: f.deps, pollMs: 0, rootDir: '/eng', writeRoot: '/w' })

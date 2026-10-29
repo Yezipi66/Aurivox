@@ -179,6 +179,8 @@ async function main () {
       // 于是开机不点，第一次真有人要它时后端自己去起。
       Preload: plan0.preload === true,
       OnDemand: plan0.on_demand === true,
+      // 走 stdio：不监听端口，管道只在拉起它的后端手里，启动脚本既不替它守端口，也不预先起它。
+      Stdio: plan0.transport === 'stdio',
     }
     if (rec.Launchable) {
       // 不能查死一个 venv 路径：每台引擎完全可能用别的解释器（自己的 venv、conda、系统 python），
@@ -233,7 +235,8 @@ async function main () {
   // 端口保护对不可启动的引擎同样生效：作者自己起的引擎照样占着它那个端口，别的程序就不该占它。
   // 所以 host/port 这几样，计划在不可启动时也给。
   for (const e of ENGINES) {
-    Log(`[engine] ${e.Id} (${e.Label}) 期望监听 ${e.EHost}:${e.DesiredPort}`, 'DarkGray')
+    if (e.Stdio) Log(`[engine] ${e.Id} (${e.Label}) 走 stdio，不占端口`, 'DarkGray')
+    else Log(`[engine] ${e.Id} (${e.Label}) 期望监听 ${e.EHost}:${e.DesiredPort}`, 'DarkGray')
   }
 
   // 本次已经许出去的端口。必须一路带着：两台引擎默认端口撞车时，
@@ -244,6 +247,7 @@ async function main () {
   const portResults = []
   P.clearProcsCache()
   for (const e of ENGINES) {
+    if (e.Stdio) continue
     // 只传这一台自己的记号：理由见 portChoice.js 的 testIsOwnProcess。
     const r = PC.resolvePort('engine ' + e.Id, e.DesiredPort, ROOT,
       { marks: e.Mark ? [e.Mark] : [], exclude: claimed })
@@ -272,6 +276,8 @@ async function main () {
   process.env.BROKER_PORT = String(backendPortFinal)
   Log(`[port] backend -> ${backendPortFinal}  (BROKER_PORT=${process.env.BROKER_PORT})`, 'DarkGray')
   for (const e of ENGINES) {
+    // stdio 的引擎没有地址：写了 base_url_env 也不能填，填了后端就会把它当成一台按地址连的引擎。
+    if (e.Stdio) continue
     const url = `http://${e.EHost}:${e.Port}`
     if (e.BaseUrlEnv) {
       process.env[e.BaseUrlEnv] = url
@@ -335,6 +341,10 @@ async function main () {
     Log(`[2/2] 引擎 ${idx}/${total}: ${e.Id} on port ${e.Port} ...`, 'Green')
     if (e.Skip) { Log(`      跳过这一台：${e.SkipReason}。其余照常。`, 'Red'); continue }
     if (!e.Launchable) { Log('      这台由作者自己起，平台只替它守住端口。', 'Yellow'); continue }
+    if (e.Stdio) {
+      Log('      不预先启动：这台引擎走 stdio，第一次合成时由后端启动，不占端口。', 'DarkGray')
+      continue
+    }
 
     // 按需档：现在不起它，等到第一次真有人要它的时候后端再起。端口仍然是这里定的
     //（上面 resolvePort 已经跑过，结果写进了这台引擎自己的 base_url_env），后端起它时用的就是这个端口，
