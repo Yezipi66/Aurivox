@@ -142,6 +142,22 @@ function suggestEnvCommand (dir) {
     }
   }
   if (found.length === 0) {
+    // 标准清单一个都没有，但根目录有 setup.py / setup.cfg：这是可 pip 安装的包。
+    //   平台不解析 setup.py（那是任意 Python，读不完也读不全），改用平台自己的
+    //   装法 uv pip install -e .，依赖由 pip 从包构建配置（setup.py / setup.cfg）
+    //   自己解析。判据与 pre-flight 的 isPipInstallable 同一口径。
+    const legacy = ['setup.py', 'setup.cfg'].find((f) => fs.existsSync(path.join(dir, f)))
+    if (legacy) {
+      return { argv: ['uv', 'pip', 'install', '-e', '.'], from: legacy, cwd: '.',
+        why: 'The upstream provides no pyproject.toml / requirements.txt / '
+          + `environment.yml, but ships ${legacy}. The platform installs the `
+          + 'package editable (`uv pip install -e .`); pip resolves the dependencies '
+          + 'from the package build configuration itself, which the platform does not parse.',
+        whyZh: `上游没有 pyproject.toml / requirements.txt / environment.yml，`
+          + `但有 ${legacy}。平台用自己的装法 uv pip install -e . 安装，`
+          + '依赖由 pip 从包自身的构建配置（setup.py / setup.cfg）解析，'
+          + '平台不解析 setup.py。' }
+    }
     return { argv: null, from: null,
       why: '这一层里没有找到依赖清单（pyproject.toml / uv.lock / '
         + 'requirements.txt / environment.yml，根目录和一层子目录都找过了）\n'

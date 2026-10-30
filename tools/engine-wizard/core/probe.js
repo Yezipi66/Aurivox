@@ -353,6 +353,18 @@ function probeProject (input = {}) {
 }
 
 
+// 这个仓库能不能照「pip 安装包本体」装：有 pyproject 的构建段（build-system / project）
+// 或根目录有 setup.py / setup.cfg，pip install -e . 就能装，且 pip 自己会读
+// setup.py 的 install_requires。平台不解析 setup.py，让 pip 去读（那是它的事）。
+// 没有这些就说不清装法，交回给使用者。
+function isPipInstallable (pyprojectText, opts = {}) {
+  if (typeof pyprojectText === 'string' && pyprojectText) {
+    if (/^\s*\[build-system\]/m.test(pyprojectText)) return true
+    if (/^\s*\[project\]/m.test(pyprojectText)) return true
+  }
+  return Boolean(opts.setupPy || opts.setupCfg)
+}
+
 function planDependencies (text, opts = {}) {
   const pyDeps = probePyproject(text).dependencies || []
   const reqParsed = parseRequirements(opts.requirements)
@@ -363,6 +375,37 @@ function planDependencies (text, opts = {}) {
   const hw = opts.hardware || null        // 没检测就不判断（不推断）
 
   if (deps.length === 0) {
+    // 标准清单读不出依赖，但仓库是 pip 安装包（有构建段或 setup.py / setup.cfg）：
+    //   不硬挡。平台用自己的装法 uv pip install -e .，pip 自己读 setup.py 的
+    //   install_requires，一行都不用平台解析。依赖数标 0，界面照「装包本体」走。
+    if (isPipInstallable(text, opts)) {
+      return {
+        ok: true,
+        dep_source: 'package',
+        dep_count: 0,
+        deps: {
+          total: 0,
+          normal: { count: 0, packages: [], action: 'sync' },
+          torch: { count: 0, packages: [], action: 'choose-backend' },
+        },
+        hardware: hw ? {
+          gpus: hw.gpus || [],
+          recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
+          confidence: hw.confidence, caveat: hw.caveat, caveatZh: hw.caveatZh,
+          options: hw.options,
+        } : null,
+        verdict: 'unknown',
+        note: 'The dependency list is not readable from pyproject.toml or '
+          + 'requirements.txt, but this repository is a pip-installable package. '
+          + 'The platform installs it with `uv pip install -e .`; pip resolves '
+          + 'the dependencies from the package build configuration itself '
+          + '(setup.py / setup.cfg), which the platform does not parse.',
+        noteZh: 'pyproject.toml 或 requirements.txt 里读不出依赖列表，'
+          + '但这个仓库是可 pip 安装的包。平台用自己的装法 uv pip install -e . '
+          + '安装，依赖由 pip 从包自身的构建配置（setup.py / setup.cfg）解析，'
+          + '平台不解析 setup.py。',
+      }
+    }
     // 两份清单都没有才说「读不到」，且只说读不到，不提换仓库。
     const hadReq = typeof opts.requirements === 'string' && opts.requirements
     return {
@@ -440,5 +483,5 @@ function planDependencies (text, opts = {}) {
 
 module.exports = {
   probePyproject, probeProject, detectDependencyFile, planDependencies,
-  parseRequirements, parseSetupPyName, recognizeLicenseText,
+  parseRequirements, parseSetupPyName, recognizeLicenseText, isPipInstallable,
 }

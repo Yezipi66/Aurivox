@@ -236,7 +236,14 @@ function upgradeTorchRoute (dir, guess, ch, recommended, route, write) {
   }
 }
 
+// 平台不解析 setup.py / setup.cfg（那是任意 Python，读不完也读不全），
+// 依赖由 pip 从包构建配置自己解析。这两个文件因此不能当「清单」读 spec。
+function isOpaqueBuildConfig (from) {
+  return from === 'setup.py' || from === 'setup.cfg'
+}
+
 function declaredSpecs (dir, guess, route) {
+  if (isOpaqueBuildConfig(guess && guess.from)) return []
   let text = ''
   try { text = fs.readFileSync(path.join(dir, guess.from), 'utf8') } catch (e) { return [] }
   if (route === 'pyproject') return require('./probe').probePyproject(text).dependencies || []
@@ -305,6 +312,17 @@ function versionOverrideRoute (dir, guess, ch, recommended, route, write, python
 
   const from = guess.from
   const isPyproject = route === 'pyproject'
+  // setup.py / setup.cfg 不是可改写的清单：平台不解析它，也就没法替使用者改版本。
+  if (isOpaqueBuildConfig(from)) {
+    return {
+      ok: false,
+      code: 'VERSION_OVERRIDE_UNSUPPORTED',
+      error: 'The dependency list is declared by the package build configuration '
+        + `(${from}), which the platform does not parse, so a version cannot be chosen.`,
+      errorZh: '依赖列表由包构建配置（' + from + '）声明，平台不解析该文件，'
+        + '无法为某个包选定版本。',
+    }
+  }
   const upstreamPath = path.join(dir, from || '')
 
   // 先在内存里改一遍：计划阶段（execute 不带）不能写盘。
@@ -541,6 +559,7 @@ function applyInstallChoices (dir, guess, input = {}) {
 function upstreamSpecs (dir, guess) {
   const from = guess && guess.from
   if (!from) return null
+  if (isOpaqueBuildConfig(from)) return null
   let text = ''
   try { text = fs.readFileSync(path.join(dir, from), 'utf8') } catch (e) { return null }
   const specs = specsFromManifestText(text)

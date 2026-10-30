@@ -16,6 +16,7 @@ const path = require('node:path')
 
 const { readEnvCommand, detectDependencyManifest, buildEnvPlan, runEnv } =
   require('../core/env.js')
+const { suggestEnvCommand } = require('../core/envDetect.js')
 
 // 夹具造在 os.tmpdir() 里，不碰真的 engines/。
 // 守卫（lib/engines/enginesDirWriteGuard.node.test.js 的 offenders()）要求路径上带临时目录痕迹，
@@ -109,6 +110,34 @@ test('找到了就如实列出来', () => {
   const d = detectDependencyManifest(dir)
   assert.strictEqual(d.found, true)
   assert.deepStrictEqual(d.found_files, ['pyproject.toml', 'uv.lock'])
+})
+
+// 只有 setup.py / setup.cfg、没有任何标准清单 ⇒ 平台自己的装法 uv pip install -e .
+// 由 pip 读包构建配置，平台不解析 setup.py。
+test('只有 setup.py 的仓库：suggestEnvCommand 退回 uv pip install -e .', () => {
+  const { engineDir: dir } = mkdtempRootWithEngine('e-setup')
+  fs.writeFileSync(path.join(dir, 'setup.py'), 'setup(install_requires=["numpy>=1.24"])\n')
+  const g = suggestEnvCommand(dir)
+  assert.strictEqual(g.argv[0], 'uv')
+  assert.ok(g.argv.includes('-e'), `应为可编辑安装：${g.argv.join(' ')}`)
+  assert.strictEqual(g.from, 'setup.py')
+  assert.ok(/pip install/i.test(g.argv.join(' ')), g.argv.join(' '))
+})
+
+test('只有 setup.cfg 的仓库：同样退回 uv pip install -e .', () => {
+  const { engineDir: dir } = mkdtempRootWithEngine('e-cfg')
+  fs.writeFileSync(path.join(dir, 'setup.cfg'), '[options]\ninstall_requires = numpy\n')
+  const g = suggestEnvCommand(dir)
+  assert.strictEqual(g.argv[0], 'uv')
+  assert.ok(g.argv.includes('-e'), g.argv.join(' '))
+  assert.strictEqual(g.from, 'setup.cfg')
+})
+
+test('什么清单都没有：如实说「没有」，不猜装法', () => {
+  const { engineDir: dir } = mkdtempRootWithEngine('e-none')
+  const g = suggestEnvCommand(dir)
+  assert.strictEqual(g.argv, null)
+  assert.strictEqual(g.from, null)
 })
 
 // 计划
