@@ -1,0 +1,49 @@
+{
+  "note": "第一刀之前的 GSV payload 与缓存指纹快照；fixture.ref 是临时文件，已归一为 <REF>。",
+  "request": {
+    "voice": "v1",
+    "text": "你好，世界。",
+    "engine_id": "gpt-sovits",
+    "split": false,
+    "concat": true,
+    "seed": 42,
+    "ref_audio": "<REF>",
+    "reference_text": "参考文本",
+    "text_lang": "zh",
+    "prompt_lang": "zh",
+    "media_type": "wav",
+    "top_k": 20,
+    "speed_factor": 1.25,
+    "temperature": 0.8,
+    "engine_params": {
+      "gpt-sovits": {
+        "temperature": 0.8
+      }
+    },
+    "gpt_model": "models/gpt.ckpt",
+    "sovits_model": "models/sovits.pth"
+  },
+  "payload": {
+    "text": "你好，世界。",
+    "text_lang": "zh",
+    "ref_audio_path": "<REF>",
+    "prompt_text": "参考文本",
+    "prompt_lang": "zh",
+    "aux_ref_audio_paths": [],
+    "speed_factor": 1.25,
+    "seed": 42,
+    "media_type": "wav",
+    "top_k": 20,
+    "top_p": 1,
+    "temperature": 0.8,
+    "repetition_penalty": 1.35,
+    "text_split_method": "cut5",
+    "batch_size": 4,
+    "batch_threshold": 0.75,
+    "split_bucket": true,
+    "fragment_interval": 0.3,
+    "streaming_mode": false,
+    "parallel_infer": true
+  },
+  "fingerprint": "88a697ab34b21dccab4425240fe6723f8cfe81dfe1b222b26c3571462d751b49"
+}
