@@ -1,6 +1,6 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { launchConventions } from './optionalKeys'
+import { launchConventions, withRuntimePatch, withLaunchConventions } from './optionalKeys'
 import { readWeights, writeWeights, TOKEN } from './weightsField'
 
 // 必填区：名片里只有这 6 格必须人答（模型权重是 2026-10 补的第 6 格），其余平台推得出或有保守默认
@@ -58,33 +58,35 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     if (param && param.target) setSlot(key, param.target)
   }
 
-  const setRuntime = (patch) => {
-    const next = { ...runtime, ...patch }
-    for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === '') delete next[k]
-    onChange({ ...manifest, runtime: Object.keys(next).length ? next : undefined })
-  }
-  const setSlot = (key, value) => {
-    const nextBind = { ...bind }
+  // 写名片一律交函数（基于最新值合并），不交整份对象：
+  //   同一次提交里别的自动填（如 ManifestForm 的权重路径）也在写名片，
+  //   各自拿渲染时的快照整份写回，后写的会把先写的整段冲掉。
+  const setRuntime = (patch) => onChange((cur) => withRuntimePatch(cur, patch))
+  const setSlot = (key, value) => onChange((cur) => {
+    const c = (cur && cur.call) || {}
+    const nextBind = { ...(c.bind || {}) }
     if (value === '') delete nextBind[key]
     else nextBind[key] = value
-    onChange({ ...manifest, call: { ...call, bind: nextBind } })
-  }
+    return { ...cur, call: { ...c, bind: nextBind } }
+  })
 
-  // 引擎目录与启动脚本两格都空着 ⇒ 按惯例代填一次。
+  // 引擎目录与启动脚本两格都空着 ⇒ 按惯例代填。
   // 只在两格都没写时填：读进来的名片写过任何一格就不动；值可见可改。
+  //   依赖里带上两格本身：只盯 id 时，代填一旦被别处冲掉就再也补不回来。
+  //   使用者只清空一格不会重填（另一格还在）；两格都清空就按惯例再填回来。
   React.useEffect(() => {
     if (!conv) return
-    if (runtime.python !== undefined || runtime.entry !== undefined) return
-    setRuntime({ python: conv.python, entry: conv.entry })
+    onChange((cur) => withLaunchConventions(cur, conv))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id, runtime.python === undefined && runtime.entry === undefined])
 
   // 模型权重这一格
   const weights = readWeights(call)
   const isCli = (call.kind || 'python') === 'cli'
-  const setWeights = (patch) => {
-    onChange({ ...manifest, call: writeWeights(call, { ...weights, ...patch }) })
-  }
+  const setWeights = (patch) => onChange((cur) => {
+    const c = (cur && cur.call) || {}
+    return { ...cur, call: writeWeights(c, { ...readWeights(c), ...patch }) }
+  })
   const dropWeights = (e) => {
     e.preventDefault()
     setOverSlot(null)

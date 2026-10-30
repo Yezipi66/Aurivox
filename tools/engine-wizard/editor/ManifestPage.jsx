@@ -73,6 +73,9 @@ export default function ManifestPage ({
   //
   // 已有名片的引擎：自动填只填空缺，不覆盖名片里已有的内容。
   // 名片里原有的 call.args 原样保留，扫到的参数只是列在左栏让用户自己挑。
+  // 扫描要跨一次 await：回来时用这个读最新名片，不用闭包里点按钮那一刻的旧值。
+  const latestManifest = React.useRef(manifest)
+  latestManifest.current = manifest
   const doScan = async () => {
     const id = (manifest && manifest.id) || ''
     if (!id) return
@@ -92,13 +95,21 @@ export default function ManifestPage ({
       const picked = inferGroups[0] || (j.groups || [])[0] || ''
       setGroup(picked)
       const pickedParams = (j.params || []).filter((p) => !picked || p.group === picked)
-      const result = computeAutoFill(pickedParams, (manifest && manifest.call) || null)
+      // 扫描回来时名片可能已经变了（等结果期间的代填、使用者的编辑）：
+      //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
+      const latest = latestManifest.current || {}
+      if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
+      const result = computeAutoFill(pickedParams, latest.call || null)
       if (result) {
-        const next = { ...manifest, call: result.call }
-        if (!next.id && id) next.id = id
-        if (!next.label && id) next.label = id
-        if (next.contract_version === undefined) next.contract_version = 2
-        onManifest(next)
+        onManifest((cur) => {
+          const base = cur || {}
+          if ((base.id || '') !== id) return cur
+          const merged = computeAutoFill(pickedParams, base.call || null) || result
+          const next = { ...base, call: merged.call }
+          if (!next.label && id) next.label = id
+          if (next.contract_version === undefined) next.contract_version = 2
+          return next
+        })
         setAutofill({ matched: result.matched, argList: result.argList })
       } else {
         setAutofill({ matched: null, argList: [] })

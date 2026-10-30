@@ -32,7 +32,10 @@ export default function ManifestForm ({
   // 判定与填值在 manifestAutoFill.js 里，是纯函数，可以单独测。
   React.useEffect(() => {
     if (!shouldAutoFillCheckpoints(manifest, checkpointsPath)) return
-    onChange(withAutoFilledCheckpoints(manifest, checkpointsPath))
+    // 交函数，基于最新名片合并：同一次提交里 RequiredFields 也在代填 runtime，
+    //   拿快照整份写回会把它刚写的引擎目录与启动脚本冲掉。
+    onChange((cur) => (shouldAutoFillCheckpoints(cur, checkpointsPath)
+      ? withAutoFilledCheckpoints(cur, checkpointsPath) : cur))
     // onChange 不进依赖：它每次渲染都是新函数，进了就变成一直触发。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkpointsPath, manifest && manifest.id, manifest && manifest.runtime && manifest.runtime.checkpoints])
