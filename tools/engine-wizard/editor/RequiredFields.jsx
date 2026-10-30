@@ -118,6 +118,13 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   const returns = call.returns || 'file'
   const slotNeeded = (key) => key !== 'output_path' || returns === 'file'
 
+  // 必填优先展示：还没填上的必填槽位排到最前面。
+  //   平台能自动填的（扫描已匹配 / 按惯例代填）已经填上了，剩下的那一格才是真需要人的；
+  //   让它排第一，而不是混在已经填好的格子中间被略过。
+  //   可选格不参与（空着不算缺项，别把它顶到前面去）。
+  const needsHuman = (s) => slotNeeded(s.key) && !s.optional && !bind[s.key]
+  const orderedSlots = [...slots].sort((a, b) => Number(needsHuman(b)) - Number(needsHuman(a)))
+
   const defaultedBadge = (v, conventional) => (v && conventional && v === conventional)
     ? <span className="badge badge-muted">{t('prefilled, editable', '平台代填，可改')}</span>
     : null
@@ -127,7 +134,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
       <div className="section-hdr"><h2>{t('Required fields', '必填字段')}</h2></div>
       <div className="section-body">
         <div className="form-grid wz-required-row">
-          {slots.map((slot) => {
+          {orderedSlots.map((slot) => {
             const val = bind[slot.key] || ''
             const guessed = matched && matched[slot.key] || null
             // 可选格清空后不再挂「扫描已匹配」：格子是空的，徽标不能说它匹配上了。

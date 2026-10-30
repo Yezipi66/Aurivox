@@ -1454,6 +1454,9 @@ function handleDiscover (req, res) {
       source,
       params,
       groups,
+      // python 反射剔掉的 bind 槽位候选（text / output_path / output_dir）：
+      //   交给前端自动填写去认 call.bind，output_path 才填得出来。
+      bind_candidates: (pythonDraft && pythonDraft.ok && pythonDraft.bind_candidates) || [],
       suggested_call: cliDraft && cliDraft.ok ? cliDraft.suggested_call : null,
       notes,
       counts: {

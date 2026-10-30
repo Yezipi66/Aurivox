@@ -279,6 +279,9 @@ function buildDraftPackage (reflection, opts = {}) {
     parameters: allParameters,
     excluded,
     map_candidates: mapCandidates,
+    // 反射器从 parameters[] 剔掉的 bind 槽位候选（text / output_path / output_dir）。
+    //   交给自动填写去认 call.bind；不进 parameters[]（进了就是同一概念声明两次）。
+    bind_candidates: reflection.bind_candidates || [],
     warnings: draft.warnings || [],
     partial: draft.partial,
     partial_reason: draft.partialReason || null,
@@ -286,6 +289,7 @@ function buildDraftPackage (reflection, opts = {}) {
       parameters: allParameters.length,
       excluded: excluded.length,
       map_candidates: mapCandidates.length,
+      bind_candidates: (reflection.bind_candidates || []).length,
       reflected: allParams.length,
       from_bind: bindParams.length,
     },
@@ -310,13 +314,23 @@ function mergeReflections (list) {
     partial_reason: oks.map((r) => r.partial_reason).filter(Boolean).join('；') || null,
     load: [],
     call: [],
+    // bind 槽位候选：反射器从 parameters[] 里剔掉、但自动填写认槽位要靠的那些名字
+    //   （text / output_path / output_dir）。透传它，output_path 才填得出来。
+    bind_candidates: [],
     warnings: [],
     methods: oks.map((r) => r.method).filter(Boolean),
   }
   const seenLoad = new Set()
   const seenCall = new Set()
+  const seenBind = new Set()
   for (const r of oks) {
     for (const w of (r.warnings || [])) out.warnings.push(w)
+    for (const c of (r.bind_candidates || [])) {
+      const key = `${c && c.bind_slot}:${c && c.name}`
+      if (seenBind.has(key)) continue
+      seenBind.add(key)
+      out.bind_candidates.push(c)
+    }
     for (const phase of ['load', 'call']) {
       for (const entry of (r[phase] || [])) {
         const seen = phase === 'load' ? seenLoad : seenCall

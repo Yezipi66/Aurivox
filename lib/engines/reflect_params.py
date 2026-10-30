@@ -216,6 +216,42 @@ def _extract_help(doc, name):
 #    不是 parameters[]。混进去会造成「同一个概念声明两次」。
 BIND_SLOTS = ("self", "text", "ref_audio", "output_path")
 
+# 被上面这条剔除掉的名字，按「它对应哪个 bind 槽位」另记一份。
+#   为什么需要（实测逼出来的）：自动填写（scanAutofill）认槽位靠的就是参数名
+#   （output_path / output / out / save_path…）。而反射器为了不让同一概念被
+#   声明两次，把这些名字从 parameters[] 里剔掉，于是要找的名字在源头就没了，
+#   output_path 永远填不出来，表现为「名片里那一格始终空着、且没有任何报错」。
+#   ⇒ 这里不把它们塞回 parameters[]（那才是重复声明），只作为**候选**单独递出去，
+#     交由自动填写消费。output_dir 与 output_path 指的是同一个槽位。
+BIND_SLOT_NAMES = {
+    "text": "text",
+    "ref_audio": "ref_audio",
+    "output_path": "output_path",
+    "output_dir": "output_path",
+}
+
+
+def _bind_candidates(fn, phase):
+    """把会被 BIND_SLOTS 剔掉的参数作为 bind 槽位候选递出去。
+
+    只递名字，不改 parameters[]：归宿仍然是 call.bind，不是 parameters[]。
+    """
+    if fn is None:
+        return []
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return []
+    out = []
+    for name in sig.parameters:
+        slot = BIND_SLOT_NAMES.get(name)
+        if not slot:
+            continue
+        # python 路：参数名即 target（与 _reflect_callable 里 python 源的口径一致）
+        out.append({"name": name, "target": name, "phase": phase,
+                    "bind_slot": slot})
+    return out
+
 
 def _reflect_callable(fn, phase, skip, fallback_doc=None):
     """反射一个可调用对象，返回参数清单。
@@ -343,6 +379,7 @@ def reflect(spec):
     load, w = _reflect_callable(klass.__init__, "load", skip, fallback_doc=class_doc)
     if w:
         warnings.append("加载期：%s" % w)
+    bind_candidates = _bind_candidates(klass.__init__, "load")
 
     # --- 调用期：目标方法的参数 ---
     call = []
@@ -364,6 +401,7 @@ def reflect(spec):
             call, w = _reflect_callable(fn, "call", skip)
             if w:
                 warnings.append("调用期：%s" % w)
+            bind_candidates += _bind_candidates(fn, "call")
     else:
         warnings.append("没给 method：只反射了加载期")
         partial = True
@@ -384,6 +422,9 @@ def reflect(spec):
         "method": method_name,
         "load": load,
         "call": call,
+        # 自动填写认 bind 槽位的候选（被 parameters[] 剔除的那几个名字）。
+        #   纯新增：load / call 两个列表一个字没动，老调用方不受影响。
+        "bind_candidates": bind_candidates,
         "warnings": warnings,
     }
 

@@ -95,16 +95,19 @@ export default function ManifestPage ({
       const picked = inferGroups[0] || (j.groups || [])[0] || ''
       setGroup(picked)
       const pickedParams = (j.params || []).filter((p) => !picked || p.group === picked)
+      // 反射器剔掉的 bind 槽位候选（text / output_path / output_dir）：不在 params 里，
+      //   但认 call.bind 的槽位靠的就是这些名字。传进去，output_path 才填得出来。
+      const bindCands = j.bind_candidates || []
       // 扫描回来时名片可能已经变了（等结果期间的代填、使用者的编辑）：
       //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
       const latest = latestManifest.current || {}
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
-      const result = computeAutoFill(pickedParams, latest.call || null)
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands)
       if (result) {
         onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands) || result
           const next = { ...base, call: merged.call }
           if (!next.label && id) next.label = id
           if (next.contract_version === undefined) next.contract_version = 2

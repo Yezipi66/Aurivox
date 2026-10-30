@@ -288,3 +288,58 @@ test('参考文本：名片里已经绑了的不被扫描覆盖', () => {
   ], { kind: 'cli', bind: { ref_text: '--transcript' } })
   assert.equal(r.call.bind.ref_text, '--transcript')
 })
+
+// ---- bind 槽位候选 ----
+// 反射器为了让「同一概念不声明两次」，按 BIND_SLOTS 把 text / output_path 这些名字
+// 从 parameters[] 里剔掉；而认槽位靠的就是名字，剔了等于把要找的名字先删了，
+// output_path 于是永远填不出来（表现为「名片里那一格始终空着，且不报错」）。
+// 候选由第三个参数单独递进来：只用于认槽位，不进 parameters[]。
+
+test('bind 候选：output_path 从候选里认出来并写进 call.bind', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'python' }, [
+    { name: 'output_path', target: 'output_path', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.equal(r.matched.output_path, 'output_path')
+  assert.equal(r.call.bind.output_path, 'output_path')
+})
+
+test('bind 候选：引擎那边叫 output_dir 也算输出槽位', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'python' }, [
+    { name: 'output_dir', target: 'output_dir', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.equal(r.call.bind.output_path, 'output_dir')
+})
+
+// 回归守卫：不给候选时必须和加这个功能之前一模一样，认不出就是认不出，不瞎猜。
+test('bind 候选：不给候选时行为不变，output_path 仍认不出', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'python' })
+  assert.equal(r.matched.output_path, null)
+  assert.ok(!('output_path' in r.call.bind))
+})
+
+test('bind 候选：params 里已有的同名参数优先，不被候选覆盖', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'output_path', target: 'real_one', kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
+  ], { kind: 'python' }, [
+    { name: 'output_path', target: 'from_candidate', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.equal(r.call.bind.output_path, 'real_one')
+})
+
+// 候选只用于认槽位：它混进参数清单就等于「同一概念声明两次」。
+test('bind 候选：只用于认槽位，不进参数清单', () => {
+  const params = [
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ]
+  const before = computeAutoFill([...params], { kind: 'python' })
+  const after = computeAutoFill([...params], { kind: 'python' }, [
+    { name: 'output_path', target: 'output_path', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.deepEqual(after.argList, before.argList)
+})

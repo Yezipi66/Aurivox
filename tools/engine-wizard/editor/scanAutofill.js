@@ -9,11 +9,13 @@
  *   cli 路的 name 是开关去掉横线的部分、target 是开关本身，进 call.args；
  *   python 路的 name 与 target 同名，都是上游方法的参数名，不进 call.args。
  * @param currentCall 现有的 call 段，作基底；用户手填的值不被覆盖。
+ * @param bindCandidates 反射器剔掉的 bind 槽位候选 [{name, target, bind_slot}]，
+ *   认槽位用（它们不在 parameters[] 里）。
  * @returns {{call, matched, argList, notes}} 或 null（没有参数）；
  *   matched 是 { text, ref_audio, ref_text, output_path }，认不出时为 null。
  *   ref_text 是可选槽位：认不出不算缺，由用户自己拖进去。
  */
-export function computeAutoFill (params, currentCall) {
+export function computeAutoFill (params, currentCall, bindCandidates = []) {
   if (!params || !params.length) return null
 
   const call = { ...(currentCall || {}) }
@@ -62,6 +64,16 @@ export function computeAutoFill (params, currentCall) {
     if (byName[p.name] === undefined) { byName[p.name] = p; continue }
     if (byName[p.name].target !== p.target) ambiguous.push(p.name)
   }
+  // bind 槽位候选：反射器按 BIND_SLOTS 剔掉的那几个名字（text / output_path /
+  //   output_dir），它们不在 parameters[] 里，而认槽位靠的就是名字。
+  //   少了这一段，output_path 永远认不出来，表现为「名片里那一格始终空着」。
+  //   params 里已有的同名参数优先，不覆盖它自己的判断。
+  for (const c of (bindCandidates || [])) {
+    if (!c || !c.name) continue
+    if (byName[c.name] === undefined) {
+      byName[c.name] = { name: c.name, target: c.target || c.name }
+    }
+  }
   const findSlot = (...names) => {
     for (const n of names) if (byName[n]) return byName[n].target
     return null
@@ -74,7 +86,9 @@ export function computeAutoFill (params, currentCall) {
     text: findSlot('text', 'tts_text', 'gen_text'),
     ref_audio: findSlot('voice', 'ref_audio', 'prompt_wav', 'ref_wav', 'spk', 'speaker', 'reference_audio'),
     ref_text: findSlot('prompt_text', 'ref_text', 'prompt-text', 'reference_text', 'ref-text'),
-    output_path: findSlot('output', 'output_path', 'out', 'save_path'),
+    // output_dir 与 output_path 指同一个槽位：引擎那边的落点参数叫哪个都认。
+    //   追加在末尾，不改变原有候选的优先级。
+    output_path: findSlot('output', 'output_path', 'out', 'save_path', 'output_dir'),
   }
 
   if (ambiguous.length) {
