@@ -15,6 +15,7 @@ import { useT, LangToggle } from '../../../web/src/lib/i18n'
 import { loadPersist, savePersist, loadPage, savePage,
   loadSession, saveSession, purgeOrphanKeys } from './useInstallSession'
 import { factsQueryId } from './factsQueryId'
+import { useEngineDirs } from './useEngineDirs'
 
 // 向导骨架照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()：
 //   只渲染 page 指向的那一步；流程条是唯一导航。
@@ -86,6 +87,14 @@ export default function App () {
     savePersist(next)
     return next
   })
+
+  // ---- 逃生口：直接指定对 engines/ 下的哪一台操作 ----
+  // 流程条不再锁步骤（锁的判据是「第 1 步完成」，而完成状态由真实产物判，
+  //   它与界面上看到的不一致时人会被卡在第 1 步且无从自救）。
+  //   改成让使用者自己挑目录：完成状态、权重路径、会话段都以 wz.id 为键，
+  //   所以这里只改 id，其余会自己跟着换，不各自回写一遍（免得两处漂移）。
+  const { dirs: engineDirs } = useEngineDirs()
+  const pickEngine = (id) => setWz((cur) => ({ ...cur, id: id || '' }))
 
   // 换 URL / 换引擎 ⇒ 会话段键变了 ⇒ 整段丢掉，防止串号。
   const lastStamp = React.useRef(null)
@@ -184,8 +193,6 @@ export default function App () {
   // 孤儿键一次性清理，不留长期清理代码。
   React.useEffect(() => { purgeOrphanKeys() }, [])
 
-  const [gateMsg, setGateMsg] = React.useState(false)
-
   const step = STEPS.find((x) => x.key === page)
   const title = step ? (lang === 'zh' ? step.label[1] : step.label[0]) : ''
   // 完成状态由真实产物判定（steps.js 的 stepDone），不看用户点过什么
@@ -207,23 +214,41 @@ export default function App () {
         </div>
       </div>
 
+      {/* ---- 引擎选择（每一步的逃生口）----
+          五步不再互相锁：锁的判据是「第 1 步完成」，而完成状态由真实产物判，
+            它与界面上看到的不一致时人会被卡在第 1 步，且无从自救。
+          改成由这里决定「现在操作的是哪一台」：默认落在刚克隆的那台（wz.id），
+            也可以直接挑 engines/ 下的任意目录。*/}
+      <div className="section">
+        <div className="section-body">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label className="field-label" style={{ margin: 0 }} htmlFor="wz-engine-pick">
+              {t('Engine', '当前引擎')}
+            </label>
+            <select id="wz-engine-pick" className="control" style={{ minWidth: 240 }}
+              value={wz.id || ''}
+              onChange={(e) => pickEngine(e.target.value)}>
+              <option value="">
+                {t('Pick a directory under engines/', '选择 engines/ 下的目录')}
+              </option>
+              {engineDirs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.id}
+                  {d.manifestPresent ? ` · ${t('manifest', '有名片')}` : ''}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint" style={{ margin: 0 }}>
+              {t('Every step works on this directory.',
+                '每一步都在这个目录上进行。')}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* ---- 流程条 ---- */}
       <Pipeline done={done} selected={page}
-        onSelect={(k, locked) => {
-          // 克隆未完成时后面四步不可点。
-          if (locked && k !== page) { setGateMsg(true); return }
-          setGateMsg(false)
-          setPage((cur) => (cur === k ? null : k))
-        }} />
-
-      {/* ---- 门槛说明 ---- */}
-      {gateMsg && page !== 'prepare' && (
-        <div className="msg msg-info">
-          {t('The repository is not cloned yet. Finish step 1 to continue: '
-            + 'the remaining steps work on the cloned engine directory.',
-            '仓库尚未克隆完成。请先完成第 1 步，后续步骤都在克隆下来的引擎目录上进行。')}
-        </div>
-      )}
+        onSelect={(k) => setPage((cur) => (cur === k ? null : k))} />
 
       </div>
 

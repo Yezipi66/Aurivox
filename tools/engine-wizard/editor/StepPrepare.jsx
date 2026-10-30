@@ -260,8 +260,11 @@ const done = facts && facts.cloned === true
     : !probe
       ? t('Not sniffed yet', '尚未嗅探')
       : readSomething
-        ? t('Repository reachable', '够得到这个仓库')
-        : t('Nothing readable from this repository', '这个仓库读不到东西')
+        ? t('Repository information read', '已读取仓库信息')
+        : t('No repository information read', '未读取到仓库信息')
+  // 嗅探成了就交给「下一步」那一行里的「重新嗅探」，右下角这个入口收起来：
+  //   两处都摆同一个动作，使用者会以为它们是两件事。
+  const sniffedOk = !!(probe && readSomething)
 
   return (
     /* 第一步全部铺开：一个连续区域，从上到下直接排。
@@ -484,6 +487,16 @@ const done = facts && facts.cloned === true
                   onChange({ cloned: false })
                 }} />
               )}
+              {/* 重新嗅探：嗅探成了之后这个动作收进按钮行，不再单独占右下角。
+                  放在「下一步」左边：它是「再确认一次仓库」，发生在往下走之前。
+                  与右下角那个入口是同一个 doProbe，不另写一份。*/}
+              <button className="btn btn-sm" type="button"
+                disabled={busy === 'probe' || !url.trim()}
+                onClick={doProbe}>
+                {busy === 'probe'
+                  ? t('Sniffing…', '正在嗅探…')
+                  : t('Sniff again', '重新嗅探')}
+              </button>
               <button className="btn btn-primary btn-sm" type="button"
                 // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
                 disabled={busy === 'clone' || !curId}
@@ -516,17 +529,19 @@ const done = facts && facts.cloned === true
             使用者既看不到原因，也没法自己再探一次。
           手动触发 + 把状态与探测原话摆出来，「现在到底认出了什么」才一眼可见。
           它在 res.ok 之外：解析成功之前恰恰最需要回答「仓库在不在」。*/}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-        gap: 8, marginTop: 12 }}>
-        <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
-        <button className="btn btn-sm" type="button"
-          disabled={busy === 'probe' || !url.trim()}
-          onClick={doProbe}>
-          {busy === 'probe'
-            ? t('Sniffing…', '正在嗅探…')
-            : t('Sniff repository', '嗅探仓库')}
-        </button>
-      </div>
+      {!sniffedOk && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          gap: 8, marginTop: 12 }}>
+          <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+          <button className="btn btn-sm" type="button"
+            disabled={busy === 'probe' || !url.trim()}
+            onClick={doProbe}>
+            {busy === 'probe'
+              ? t('Sniffing…', '正在嗅探…')
+              : t('Sniff repository', '嗅探仓库')}
+          </button>
+        </div>
+      )}
 
       {/* 探测过程的原话：读不到默认分支、HTTP_404 之类都在这。
           这是判断「仓库在不在」唯一可见的信号，不摆出来就等于没探。*/}

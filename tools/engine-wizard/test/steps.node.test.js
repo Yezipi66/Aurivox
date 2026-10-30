@@ -191,6 +191,28 @@ test('models 完成之后 ⇒ 剩下的是各自一条线', () => {
 })
 
 // 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。
+// 逃生口：五步互相上锁这件事已经拆掉。
+// 锁的判据曾是「第 1 步完成」，而完成状态由真实产物判（GET /wizard/install-state），
+//   它与界面上看到的不一致时（界面显示已克隆、后端判未克隆）人会被卡在第 1 步，
+//   且无从自救。逃生口改成顶部的引擎下拉：对哪台引擎操作由使用者自己挑。
+const EDITOR_DIR = path.join(__dirname, '..', 'editor')
+
+test('流程条不许再按「第 1 步完成」上锁', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'Pipeline.jsx'), 'utf8')
+  assert.ok(!/unlockedSteps/.test(src),
+    'Pipeline 又在按 done.prepare 上锁：完成状态判错时会把人卡在第 1 步')
+  assert.ok(!/disabled-step/.test(src),
+    'Pipeline 还在渲染禁用态步骤：五步应当一律可点')
+})
+
+test('App 必须给出引擎下拉（每一步的逃生口）', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
+  assert.ok(/useEngineDirs/.test(src), 'App 没接入 engines/ 目录列表')
+  assert.ok(/<select[\s\S]{0,400}?onChange/.test(src),
+    '没有可切换引擎的下拉：换引擎只能靠重新克隆')
+})
+
+// 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。
 test('steps.js 活代码里不许出现任何具体引擎名', () => {
   const FORBIDDEN = ['gpt' + '-sovits', 'index' + 'tts2', 'cosy' + 'voice',
     'vox' + 'cpm']
