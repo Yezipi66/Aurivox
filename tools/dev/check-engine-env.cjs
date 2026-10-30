@@ -7,10 +7,12 @@
 //   node tools/dev/check-engine-env.cjs --deep --engine gpt-sovits
 //   node tools/dev/check-engine-env.cjs --json     给脚本吃的
 //
-//  平台只验不建。这个工具不会装任何东西、不会改任何文件、不会写盘
+//  本工具只验不建：不会装任何东西、不会改任何文件、不会写盘
 //    （深层会在系统临时目录写一个规格 JSON 并当场删掉）。它只回答问题。
-//    答案是"没装"的时候，请按引擎作者的说明自己把环境装好 ：
-//      定案：平台只维护 GPT-SoVITS 那一套环境。
+//    答案"没装"时，去向导第二步把环境建起来（core/env.js + envInstall.js：建 .venv、
+//    跑名片 install.env_command、按本机后端选 torch 源、失败断点续传），别手搓。
+//    ⚠ 旧注释"平台只验不建 / 只维护 GPT-SoVITS"已过时：推理线早已多引擎，
+//    建环境是向导职责；GSV 只是训练线目前绑死的那一台。
 //
 //  深层很慢（实测某引擎 import 34 秒），因为它真的把引擎的解释器起起来
 //   了。别把它接进任何请求路径。
@@ -47,7 +49,7 @@ function main() {
       '  --engine  只查这一台',
       '  --json    输出 JSON',
       '',
-      '平台只验不建：这个工具不装任何东西，只回答「装没装」。',
+      '本工具只验不建：不装任何东西，只回答「装没装」。环境真要建，去向导第二步（core/env.js + envInstall.js）。',
       '',
     ].join('\n'))
     return 0
