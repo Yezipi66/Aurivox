@@ -60,3 +60,19 @@ test('导入 postJson（判据收口只有一处）', () => {
   assert.ok(/import\s*\{\s*postJson\s*\}\s*from\s*'\.\/postJson'/.test(src),
     'postJson 没被导入')
 })
+
+// 嗅探手动化：以前第 1 步的探测只跟着失焦自动跑，而探测对 404 同样返回 ok:true，
+//   它的原话放在 notes（数组）里，界面却只渲染 note（单数）⇒ 仓库不存在时界面
+//   停在一个「进行中」，既不报原因，也没法自己再探一次。
+
+test('doProbe 必须接在按钮上（手动嗅探的入口）', () => {
+  assert.ok(/onClick=\{doProbe\}/.test(src),
+    'doProbe 没有接在任何按钮上：探测只能跟着失焦自动跑，失败时使用者无从再探一次')
+})
+
+test('探测的 notes（数组）必须渲染出来（404 只出现在那里）', () => {
+  // 判据不是「存在 notes 这个字段」，是它真的进了渲染：
+  //   读不到默认分支、HTTP_404 这些信号只在 notes 里，不摆出来等于没探。
+  const m = src.match(/probe\.notes[\s\S]{0,240}?\.map\(/)
+  assert.ok(m, 'notes（数组）没被渲染成列表：仓库不存在这类信号会静默消失')
+})

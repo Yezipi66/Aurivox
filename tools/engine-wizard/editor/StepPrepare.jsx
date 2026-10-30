@@ -249,6 +249,20 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
 const done = facts && facts.cloned === true
   const meta = (probe && probe.meta) || null
 
+  // 嗅探状态（给卡片底部那个手动按钮用）。
+  //   判据不能用 ok：解析是纯本地的（不联网，地址写错也返回 ok），
+  //   探测对 404 同样返回 ok:true，真正的信号在 probe.notes 里。
+  //   「够不够得到这个仓库」只看 meta 里有没有真读到东西。
+  const readSomething = !!(meta && (meta.packageName || meta.requiresPython
+    || meta.srcRoot || meta.license || (meta.dependencies && meta.dependencies.found)))
+  const sniffStatus = busy === 'probe'
+    ? t('Sniffing…', '正在嗅探…')
+    : !probe
+      ? t('Not sniffed yet', '尚未嗅探')
+      : readSomething
+        ? t('Repository reachable', '够得到这个仓库')
+        : t('Nothing readable from this repository', '这个仓库读不到东西')
+
   return (
     /* 第一步全部铺开：一个连续区域，从上到下直接排。
        外层这行内联样式取自 TrainingTab.jsx 的 TrainingTab() 外层：
@@ -332,7 +346,8 @@ const done = facts && facts.cloned === true
           标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。
-          不放「重读」按钮：解析跟着失焦自动跑，探测结果刷新页面就在。*/}
+          重嗅探的按钮在卡片底部：那里在解析成功之前也看得到，
+            而「仓库到底在不在」恰恰是解析成功之前最该回答的问题。*/}
       {res && res.ok && (
         <>
           <div className="layer-label">{t('Project information', '项目信息')}</div>
@@ -492,6 +507,35 @@ const done = facts && facts.cloned === true
             </div>
           </RiskUnlock>
         </>
+      )}
+
+      {/* 嗅探仓库（手动，卡片右下角）。
+          为什么要有这个手动按钮：解析是纯本地的（不联网），地址写错它照样说 ok；
+            探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
+            以前从来没渲染过，于是仓库不存在时界面只停在一个「进行中」，
+            使用者既看不到原因，也没法自己再探一次。
+          手动触发 + 把状态与探测原话摆出来，「现在到底认出了什么」才一眼可见。
+          它在 res.ok 之外：解析成功之前恰恰最需要回答「仓库在不在」。*/}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+        gap: 8, marginTop: 12 }}>
+        <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+        <button className="btn btn-sm" type="button"
+          disabled={busy === 'probe' || !url.trim()}
+          onClick={doProbe}>
+          {busy === 'probe'
+            ? t('Sniffing…', '正在嗅探…')
+            : t('Sniff repository', '嗅探仓库')}
+        </button>
+      </div>
+
+      {/* 探测过程的原话：读不到默认分支、HTTP_404 之类都在这。
+          这是判断「仓库在不在」唯一可见的信号，不摆出来就等于没探。*/}
+      {probe && Array.isArray(probe.notes) && probe.notes.length > 0 && (
+        <div className="msg msg-warn" style={{ marginTop: 8 }}>
+          {probe.notes.map((n, i) => (
+            <div key={i}>{typeof n === 'string' ? n : String(n)}</div>
+          ))}
+        </div>
       )}
     </div>
   )
