@@ -368,6 +368,30 @@ function handleHardware (req, res) {
  * 依赖清单读 pyproject.toml 与 requirements.txt：只放 requirements.txt 的仓库
  *   只靠提示语是读不到东西的，所以这里真的去读。
  */
+/**
+ * 从 setup.py 文本里读 install_requires 的列表。
+ *
+ * 只正则读文本，绝不 import / exec 它：setup.py 是任意 Python，
+ *   执行它等于在装引擎之前先运行上游代码，那是平台不替使用者做的事。
+ *   这里只认最常见的 install_requires=[...] 字面量，读不出来就交回给人。
+ *
+ * @param {string|null} text setup.py 原文
+ * @returns {Array<string>} 依赖说明符（形如 "numpy>=1.24"）；读不到时为空数组
+ */
+function parseSetupInstallRequires (text) {
+  if (!text) return []
+  const block = /install_requires\s*=\s*\[([\s\S]*?)\]/.exec(text)
+  if (!block) return []
+  const out = []
+  const re = /['"]([^'"]+)['"]/g
+  let m
+  while ((m = re.exec(block[1])) !== null) {
+    const spec = String(m[1] || '').trim()
+    if (spec && !spec.startsWith('#')) out.push(spec)
+  }
+  return out
+}
+
 function handleDeps (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/deps')) return false
@@ -382,18 +406,29 @@ function handleDeps (req, res) {
       const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
       return t
     }
-    // 三个来源一起读：依赖列表两个（pyproject 优先）+ lock（只锁 torch 版本）
-    const [py, reqText, lockText] = await Promise.all([
-      get('pyproject.toml'), get('requirements.txt'), get('uv.lock')])
+    // 依赖来源四个：pyproject.toml 优先，其次 requirements.txt，再其次 setup.py
+    //   的 install_requires，外加 lock（lock 只锁 torch 版本，不当依赖列表）。
+    //   setup.py 必须算进来：不少上游（piper 就是）只把依赖写在 setup.py 里，
+    //   pyproject.toml 里只有 [build-system]。漏掉它就会报「读不到依赖清单」，
+    //   而使用者打开文件一看，pyproject.toml 明明在。
+    const [py, reqText, lockText, setupText] = await Promise.all([
+      get('pyproject.toml'), get('requirements.txt'), get('uv.lock'), get('setup.py')])
 
-    // 两份依赖清单都没有 ⇒ 确实读不到，如实说。
+    const setupDeps = parseSetupInstallRequires(setupText)
+    // 拼成 requirements.txt 的同款文本，好走同一条解析，不另开一条路。
+    const setupReqText = setupDeps.length ? setupDeps.join('\n') : null
     const pyHasDeps = py ? probePyproject(py).dependencies.length > 0 : false
-    if (!pyHasDeps && !reqText) {
+    // 三处都没读到 ⇒ 确实读不到，如实说。
+    //   但要分清「文件压根不在」和「文件在、里面没写依赖」：两者表象一样，
+    //   处理方式却不同（后者往往换个文件就有了），说混了会让人白查。
+    if (!pyHasDeps && !reqText && !setupReqText) {
       json(res, 200, { ok: false, code: 'NO_DEPENDENCY_MANIFEST',
-        error: 'This repository has no dependency list: no pyproject.toml and no '
-          + 'requirements.txt.\nIt may live in uv.lock, a subdirectory, or a file named '
-          + 'differently. Follow the upstream instructions to install.',
-        errorZh: '这个仓库读不到依赖列表：既没有 pyproject.toml，也没有 requirements.txt。\n'
+        error: 'No dependency list in pyproject.toml, requirements.txt or setup.py.\n'
+          + (py ? 'pyproject.toml was found, but it declares no dependencies. ' : '')
+          + 'It may live in uv.lock, a subdirectory, or a file named differently. '
+          + 'Follow the upstream instructions to install.',
+        errorZh: 'pyproject.toml、requirements.txt、setup.py 三处都没有依赖声明。\n'
+          + (py ? '（pyproject.toml 在，但里面没有写依赖列表。）\n' : '')
           + '它可能放在 uv.lock、子目录里，或换了别的文件名；请按上游说明自行安装。' })
       return
     }
@@ -402,7 +437,9 @@ function handleDeps (req, res) {
     let hardware = null
     try { hardware = inspectHardware() } catch { hardware = null }
 
-    const base = planDependencies(py, { hardware, requirements: reqText })
+    // requirements 这一路：有 requirements.txt 就用它，没有就退到 setup.py 的
+    //   install_requires（已拼成同款文本，走同一条解析）。
+    const base = planDependencies(py, { hardware, requirements: reqText || setupReqText })
     if (!base.ok) { json(res, 200, base); return }
 
     // 把 lock 里的 torch 系并进去：pyproject 只写版本区间，真正锁死 wheel 的是 lock。
@@ -1575,6 +1612,8 @@ module.exports = {
   extractDownloadCommands, parseDownloadCmd, snapshotSourceOf,
   // 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。
   respondSafely,
+  // 导给守卫测试：setup.py 也是依赖清单来源，只读文本不执行它这条要能直接验。
+  parseSetupInstallRequires,
   // 导给守卫测试：分支探测的缓存命中路径要能直接验（命中与未命中必须同形状）。
   __test__: { readDefaultBranch, resolveProbeBranch, _branchCache },
 }
