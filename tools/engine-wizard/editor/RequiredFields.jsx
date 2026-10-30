@@ -13,7 +13,7 @@ import { readWeights, writeWeights, TOKEN } from './weightsField'
 //            格子右侧的清除按钮把它从 bind 里删掉（宿主收到参考文本也不往上游传）。
 //   第 2 行  引擎目录 / 启动脚本：按本仓库惯例代填，可改。
 //            模型权重：引擎从哪个参数读权重。值默认 {checkpoints}（第 3 步的下载落点），
-//            参数名要人指定（可从左栏拖构造参数进来）；引擎自己找权重就勾「引擎自己找」。
+//            参数名要人指定（可从左栏拖构造参数进来）；引擎自行定位权重就勾下方复选框。
 //            名片里写进 call.init_args（cli 形态写进 call.argv），不另起一个键，
 //            读写见 weightsField.js，缺没缺由平台 hostProfile.js 的 weightsProblem 判。
 // 网格用 auto-fit，中栏被拖窄时自动折成单列，不写死列数。
@@ -200,8 +200,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
           </Cell>
           <Cell label={t('Model weights', '模型权重')} code={isCli ? 'call.argv' : 'call.init_args'}
             hint={weights.self
-              ? t('the engine finds its weights on its own; nothing is passed',
-                '引擎自己找权重，平台不传')
+              ? null
               : t(`parameter that receives the weights; ${TOKEN} is the step 3 download folder`,
                 `引擎从哪个参数读权重；${TOKEN} 就是第 3 步的下载目录`)}>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -227,7 +226,8 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
             <label className="field-hint" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <input type="checkbox" checked={weights.self}
                 onChange={(e) => setWeights({ self: e.target.checked })} />
-              {t('The engine finds its own weights', '引擎自己找权重')}
+              {t('The engine locates its own weights; the platform passes none',
+                '引擎自行定位权重，平台不传入')}
             </label>
           </Cell>
         </div>

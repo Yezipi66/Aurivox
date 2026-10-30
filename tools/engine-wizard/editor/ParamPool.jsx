@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { paramTypeOf } from './paramType'
 
@@ -36,8 +36,16 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
       onDragStart={(e) => onDragStart(e, param)}
       onClick={() => onSelect(param)}
       title={param.help || ''}>
+      {/* 所有元信息收进同一行：类型徽标与「必填」同行，省掉独占一行的类型行，
+          提高信息密度。group 仍保留（它是子命令分组，并非每个参数都有）。 */}
       <div className="wz-param-top">
         <code className="wz-param-name">{param.target}</code>
+        <span className={`badge ${param.kind_certain ? 'badge-ok' : 'badge-muted'}`}
+          title={param.kind_certain
+            ? t('Type declared by upstream', '类型由上游声明')
+            : t('Type guessed: confirm it after dropping', '类型为推测值：拖入后请核对')}>
+          {type}
+        </span>
         {param.source === 'python'
           ? <span className="badge badge-neutral">py</span>
           : null}
@@ -47,16 +55,6 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
         {param.required
           ? <span className="badge badge-warn">{t('required', '必填')}</span>
           : null}
-      </div>
-      <div className="wz-param-meta">
-        {/* 类型上色：绿 = 上游自己写明的（argparse type= / action=、python 注解）；
-            灰 = 按默认值或参数名推断的，拖进中栏后需人工确认。 */}
-        <span className={`badge ${param.kind_certain ? 'badge-ok' : 'badge-muted'}`}
-          title={param.kind_certain
-            ? t('Type declared by upstream', '类型由上游声明')
-            : t('Type guessed: confirm it after dropping', '类型为推测值：拖入后请核对')}>
-          {type}
-        </span>
         {param.group && param.group !== '(root)'
           ? <span className="wz-param-group">{param.group}</span>
           : null}
@@ -80,6 +78,14 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
 export default function ParamPool ({ params, selected, onSelect, onDragStart, children }) {
   const { t } = useT()
   const list = params || []
+  const [q, setQ] = useState('')
+  const kw = q.trim().toLowerCase()
+  const filtered = kw
+    ? list.filter((p) =>
+        (p.target || '').toLowerCase().includes(kw) ||
+        (p.name || '').toLowerCase().includes(kw) ||
+        (p.help || '').toLowerCase().includes(kw))
+    : list
 
   if (!list.length) {
     return (
@@ -101,16 +107,26 @@ export default function ParamPool ({ params, selected, onSelect, onDragStart, ch
   return (
     <div>
       <div className="wz-param-count">
-        {t(`Scanned parameters (${list.length})`, `扫到的参数（${list.length} 个）`)}
+        {t(`Scanned parameters (${filtered.length}${kw ? ` / ${list.length}` : ''})`,
+          `扫到的参数（${filtered.length}${kw ? ` / 共 ${list.length}` : ''} 个）`)}
+      </div>
+      <div className="wz-param-filter">
+        <input className="control" type="search"
+          placeholder={t('Filter by name or description…', '按参数名或说明筛选…')}
+          value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="wz-param-list">
-        {list.map((p) => (
-          <ParamItem key={`${p.source}-${p.name}-${p.target}`}
-            param={p}
-            selected={!!selected && selected.name === p.name && selected.source === p.source}
-            onSelect={onSelect}
-            onDragStart={onDragStart} />
-        ))}
+        {filtered.length
+          ? filtered.map((p) => (
+            <ParamItem key={`${p.source}-${p.name}-${p.target}`}
+              param={p}
+              selected={!!selected && selected.name === p.name && selected.source === p.source}
+              onSelect={onSelect}
+              onDragStart={onDragStart} />
+          ))
+          : <div className="empty-state"><div className="es-sub">
+              {t('No matching parameters', '没有匹配的参数')}
+            </div></div>}
       </div>
       {children}
     </div>

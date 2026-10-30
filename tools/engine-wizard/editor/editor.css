@@ -336,6 +336,14 @@
   color: var(--muted);
   margin-bottom: var(--sp-6);
 }
+/* 参数池上方的筛选框：满宽，与下方列表间距一致。复用项目的 .control。 */
+.wz-param-filter {
+  margin-bottom: var(--sp-6);
+}
+.wz-param-filter .control {
+  width: 100%;
+  box-sizing: border-box;
+}
 .wz-param-list {
   display: flex;
   flex-direction: column;
