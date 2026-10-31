@@ -71,10 +71,13 @@ test('每一处调用 uv 的地方都把缓存指向项目内', () => {
       check: (src) => /const\s+env\s*=\s*Object\.assign\([^)]*\{[\s\S]*?UV_CACHE_DIR[\s\S]*?\}\)/.test(src),
       why: '装 torch 没有把 uv 的缓存指向项目内的 cache/uv/',
     },
-    // 向导：拼环境变量时带上
+    // 向导：拼环境变量时带上。env 已经收进 childEnvFor()，形状变了，
+    // 守卫跟着改：runOne 把 childEnvFor 的结果喂给 spawn，且该助手确实把
+    // 缓存指进项目。只看「UV_CACHE_DIR 字样」不够，那行 require 也写着它。
     {
       rel: 'tools/engine-wizard/core/envInstall.js',
-      check: (src) => /env:\s*\{[^}]*UV_CACHE_DIR/.test(src),
+      check: (src) => /env:\s*childEnvFor\(/.test(src)
+        && /UV_CACHE_DIR:\s*uvCacheDirFor\(root\)/.test(src),
       why: '向导装依赖没有把 uv 的缓存指向项目内的 cache/uv/',
     },
   ]
@@ -108,6 +111,15 @@ test('向导装依赖时，子进程拿到的 uv 缓存路径在项目里', asyn
   }
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-wizard-uv-'))
+  // 宿主环境里这两样会污染 uv 的构建子进程，装依赖时必须剥掉：
+  //   ① PYTHONPATH：装着 WorkBuddy 沙箱的 sitecustomize.py（它劫持 shutil.rmtree
+  //     改走回收站 SHFileOperationW）。uv 构建隔离子进程加载它后，setuptools
+  //     构建 wheel 清临时目录就 SHFileOperationW 失败(0x2) ⇒ 构建失败。
+  //   ② VIRTUAL_ENV：指向平台根 venv，会与引擎自己的 .venv 冲突（mismatch 警告）。
+  const prevPP = process.env.PYTHONPATH
+  const prevVE = process.env.VIRTUAL_ENV
+  process.env.PYTHONPATH = 'C:/host/shim'
+  process.env.VIRTUAL_ENV = 'D:/project/venv'
   try {
     await envInstall.runOne(
       { argv: ['uv', 'sync'], cwd: root, absCwd: root },
@@ -124,7 +136,19 @@ test('向导装依赖时，子进程拿到的 uv 缓存路径在项目里', asyn
       path.join(root, 'cache', 'uv'),
       '向导装依赖时 uv 的缓存没有落在被操作项目的 cache/uv/ 下',
     )
+    assert.strictEqual(
+      seen.PYTHONPATH, undefined,
+      'PYTHONPATH 泄漏进了 uv 子进程：sitecustomize 劫持 rmtree 会让 setuptools 构建失败',
+    )
+    assert.strictEqual(
+      seen.VIRTUAL_ENV, undefined,
+      'VIRTUAL_ENV 泄漏进了 uv 子进程：会与引擎自己的 .venv 冲突',
+    )
   } finally {
+    if (prevPP === undefined) delete process.env.PYTHONPATH
+    else process.env.PYTHONPATH = prevPP
+    if (prevVE === undefined) delete process.env.VIRTUAL_ENV
+    else process.env.VIRTUAL_ENV = prevVE
     fs.rmSync(root, { recursive: true, force: true })
   }
 })

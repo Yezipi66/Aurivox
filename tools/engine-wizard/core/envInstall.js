@@ -299,6 +299,7 @@ function probeImportInEngineVenv (root, id, mod, timeoutMs) {
     r = spawnSync(py, ['-c', `import ${mod}`], {
       encoding: 'utf8', timeout: timeoutMs || 120000,
       windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
+      env: childEnvFor(root, undefined),
     })
   } catch (e) {
     return { ok: false, mod, code: 'PROBE_FAILED', detail: e.message }
@@ -330,6 +331,21 @@ function parseProgress (text) {
   return results
 }
 
+// 子进程环境：继承宿主，但剥掉两样会污染 Python 子进程的变量。
+//   ① PYTHONPATH：WorkBuddy 沙箱把 sitecustomize.py 塞在这里（它劫持
+//     shutil.rmtree、把删除改走回收站 SHFileOperationW）。uv 的构建隔离子进程
+//     会加载它，setuptools 构建 wheel 时清理临时目录就 SHFileOperationW 失败
+//     (0x2) ⇒ 构建失败。剥掉它，构建子进程才恢复正常的 rmtree。
+//   ② VIRTUAL_ENV：指向平台根 venv，会与引擎自己的 .venv 冲突，uv 会报
+//     "does not match the project environment path" 的警告。
+//   sync 步骤用的 UV_PROJECT_ENVIRONMENT 是独立键，不在这里，不受影响。
+function childEnvFor (root, envOverride) {
+  const env = { ...process.env, ...envOverride, UV_CACHE_DIR: uvCacheDirFor(root) }
+  delete env.PYTHONPATH
+  delete env.VIRTUAL_ENV
+  return env
+}
+
 // 跑一步（异步流式）。取消通道 cancel 带 signal 与 spawn 时按它取消，否则用默认实现。
 function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cancel) {
   return new Promise((resolve) => {
@@ -345,7 +361,7 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
       cwd: step.absCwd || step.cwd,
       windowsHide: true,
       shell: false,
-      env: { ...process.env, ...envOverride, UV_CACHE_DIR: uvCacheDirFor(root) },
+      env: childEnvFor(root, envOverride),
     })
     let stdoutTail = ''
     let stderrTail = ''
@@ -710,6 +726,7 @@ module.exports = {
   verifyEngineEnvImports,
   probeImportInEngineVenv,
   parseProgress,
+  childEnvFor,
   runOne,
   runEnv,
 }
