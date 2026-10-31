@@ -346,6 +346,24 @@ function childEnvFor (root, envOverride) {
   return env
 }
 
+// 执行前清掉 uv 构建缓存里被中断构建留下的 .tmp* 目录。
+//   被中断的 uv sdist 构建（例如上次因环境问题失败的构建）会留下
+//   builds-v0/.tmp* 的半成品；下次重跑 uv 复用这些残留时，setuptools 重写
+//   egg-info 可能撞上残留的只读/锁定状态，报 [WinError 5] 拒绝访问。
+//   清掉 .tmp* 后 uv 从头构建，不再复用半成品。只删被中断的临时目录，
+//   正常完成的构建缓存（wheel/sdist）不动。
+function cleanStaleUvBuilds (root) {
+  const uvCache = uvCacheDirFor(root)
+  const buildsDir = path.join(uvCache, 'builds-v0')
+  let entries
+  try { entries = fs.readdirSync(buildsDir) } catch (e) { return }
+  for (const name of entries) {
+    if (!name.startsWith('.tmp')) continue
+    const p = path.join(buildsDir, name)
+    try { fs.rmSync(p, { recursive: true, force: true }) } catch (e) { /* 删不掉 ⇒ uv 会如实报 */ }
+  }
+}
+
 // 跑一步（异步流式）。取消通道 cancel 带 signal 与 spawn 时按它取消，否则用默认实现。
 function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cancel) {
   return new Promise((resolve) => {
@@ -470,6 +488,9 @@ async function runEnv (input = {}) {
 
   const root = input.root || projectRoot()
   const timeoutMs = input.timeoutMs || 60 * 60 * 1000
+  // 执行前清掉被中断构建留下的 .tmp* 构建目录（见 cleanStaleUvBuilds 注释）。
+  //   只在真正执行时清：只出计划（execute:false）时不碰缓存。
+  cleanStaleUvBuilds(root)
   const steps = (plan.steps || []).filter((s) => s && s.kind === 'env' && s.argv)
   const stepsRun = []
   const probe = typeof input.probeImport === 'function' ? input.probeImport : null
@@ -727,6 +748,7 @@ module.exports = {
   probeImportInEngineVenv,
   parseProgress,
   childEnvFor,
+  cleanStaleUvBuilds,
   runOne,
   runEnv,
 }

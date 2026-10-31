@@ -160,3 +160,56 @@ test('uv 缓存目录不会被 git 收进去', () => {
     { cwd: ROOT, stdio: 'ignore' },
   )
 })
+
+// 被中断的 uv 构建会在 builds-v0/.tmp* 留下半成品。下次重跑复用这些残留
+// 时，setuptools 重写 egg-info 可能撞上残留的只读/锁定状态，报
+// [WinError 5] 拒绝访问。cleanStaleUvBuilds 只清被中断的 .tmp* 临时目录，
+// 正常完成的构建缓存（wheel/sdist）不动。
+test('cleanStaleUvBuilds 清掉被中断的 .tmp* 构建，保留正常缓存', () => {
+  const { cleanStaleUvBuilds } = require(
+    path.join(ROOT, 'tools', 'engine-wizard', 'core', 'envInstall.js'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-uv-builds-'))
+  try {
+    const builds = path.join(root, 'cache', 'uv', 'builds-v0')
+    const sdists = path.join(root, 'cache', 'uv', 'sdists-v9', 'pypi', 'pkg')
+    fs.mkdirSync(path.join(builds, '.tmppartial1'), { recursive: true })
+    fs.mkdirSync(path.join(builds, '.tmppartial2'), { recursive: true })
+    fs.mkdirSync(path.join(builds, 'otherdir'), { recursive: true })
+    fs.mkdirSync(path.join(sdists, 'pkg-4.9.3'), { recursive: true })
+    cleanStaleUvBuilds(root)
+    assert.ok(!fs.existsSync(path.join(builds, '.tmppartial1')),
+      '.tmp* 残留没被清：下次复用会撞 WinError 5')
+    assert.ok(!fs.existsSync(path.join(builds, '.tmppartial2')),
+      '.tmp* 残留没被清：下次复用会撞 WinError 5')
+    assert.ok(fs.existsSync(path.join(builds, 'otherdir')),
+      '正常目录也被清了：只该动 .tmp* 临时目录')
+    assert.ok(fs.existsSync(path.join(sdists, 'pkg-4.9.3')),
+      '正常 sdist 缓存被清了：已下载的 wheel 不该重下')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// 缓存目录不存在时（全新机器、还没装过依赖）cleanStaleUvBuilds 要安静返回，
+// 不抛错：没缓存就没什么可清的。
+test('cleanStaleUvBuilds 在缓存目录不存在时不抛错', () => {
+  const { cleanStaleUvBuilds } = require(
+    path.join(ROOT, 'tools', 'engine-wizard', 'core', 'envInstall.js'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-uv-nocache-'))
+  try {
+    assert.doesNotThrow(() => cleanStaleUvBuilds(root),
+      '缓存目录不存在时抛错：全新机器首次装依赖会挂')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// 守卫：runEnv 执行前必须清 .tmp*（只在真正执行时清，出计划不碰缓存）。
+test('runEnv 执行前调用 cleanStaleUvBuilds（不清残留会撞 WinError 5）', () => {
+  const src = readSrc('tools', 'engine-wizard', 'core', 'envInstall.js')
+  assert.ok(/cleanStaleUvBuilds\(root\)/.test(src),
+    'runEnv 没在执行前清 .tmp*：被中断构建的残留会让下次 uv 构建报 WinError 5')
+  assert.ok(src.includes('if (input.execute !== true) return')
+    && src.indexOf('cleanStaleUvBuilds(root)') > src.indexOf("if (input.execute !== true) return"),
+    'cleanStaleUvBuilds 的位置在 execute 早退之前：只出计划时不该动缓存')
+})
