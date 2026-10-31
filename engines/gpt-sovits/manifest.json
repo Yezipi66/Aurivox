@@ -229,6 +229,22 @@
     "seed": -1
   },
 
+  "_comment_voice_defaults": [
+    "「保存为音色」写进 voices.json 的参数键；名单的顺序就是记录里的键序。",
+    "值只在上面的 defaults 一处写，这里只挑键，所以名片不会有第二份默认值。",
+    "",
+    "音色记录会跟着「导入音色为预设」进图里的 io.engine_params，再发进之后的每一次",
+    "合成，所以这里只装「这条音色要钉住的旋钮」，不是 defaults 的整张副本：多写的键",
+    "会把那次保存那一刻的值永久钉在预设上。"
+  ],
+  "voice_defaults": [
+    "text_split_method",
+    "top_k",
+    "top_p",
+    "temperature",
+    "repetition_penalty"
+  ],
+
   "_comment_params_schema": [
     "⭐ 契约 §5.4「每个参数长什么样 —— 界面按这个长出面板，不再写死一套",
     "GPT-SoVITS 的」。这一节是在还 C11（§8:590 参数表只有一份）的账。",
