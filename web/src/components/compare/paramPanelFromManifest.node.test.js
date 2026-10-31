@@ -91,9 +91,9 @@ test('⭐ 单方法引擎不许画方法下拉（没有第二个选项的下拉�
 })
 
 test('⛔ CMP_ENGINE 这个常量不许回来', () => {
-  // 它是「这一页写死一台引擎」的全部证据。位名现在来自 weight_slots。
+  // 它是「这一页写死一台引擎」的全部证据。位名现在经 slotsOf 从 weight_slots 读。
   assert.ok(!/\bCMP_ENGINE\b/.test(CODE), 'CMP_ENGINE 又回来了')
-  assert.ok(CODE.includes('weight_slots'), '权重位名没有从名片读')
+  assert.ok(CODE.includes('slotsOf('), '权重位名没有从名片读（应经 slotsOf 读 weight_slots）')
 })
 
 test('换引擎必须重建权重下拉（依赖数组里少了 engine.id 就是安静地错）', () => {
