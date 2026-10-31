@@ -255,6 +255,22 @@ A 级跑一次真合成出非空 WAV，B 级只验证宿主拿到合法响应）
 声音没变、**不报错**。反过来只是多重开一次，慢但不撒谎。
 所以解析时兜底取 `launch`。
 
+#### call 位怎么换：`weights[].switch`
+
+call 位本身只保证「选中的值随请求体送到」。有的引擎还要求先单独发一次换权重请求，
+这一步由名片声明：
+
+```json
+{ "name": "gpt", "param": "gpt_model", "applies_at": "call",
+  "switch": { "endpoint": "/set_gpt_weights", "query": "weights_path" } }
+```
+
+平台在每次合成前按声明发 `GET <endpoint>?<query>=<选中的值>`；同一个值已驻留就跳过。
+
+- 不写 `switch` = 平台不发额外请求，值只随请求体送。
+- ⛔ 走 stdio 的引擎不许写：值随请求体进宿主，声明了也发不出去（解析期拒绝）。
+- ⛔ 写了 `switch` 就必须有地址（`default_base_url` 或 `base_url_env`），否则解析期拒绝。
+
 ⭐ 这二分法**不问你**，从名片推：有 launch 位 ⇒ 进程=模型 ⇒ 按需起、空闲放；
 只有 call 位 ⇒ 进程是壳 ⇒ 可预热、不释放。
 

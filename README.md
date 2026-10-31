@@ -316,7 +316,7 @@ Auto（自动多语言）。底模自身无参考音频，勾选「Use reference
   `AURIVOX_MAX_QUEUE`（默认 32，`0`=不限＝旧行为）、`AURIVOX_RETRY_AFTER`（默认 3 秒）。
 
 - **模型留驻（同模型换参考音频免重载）**：
-  - **权重留驻**：`ModelSwitcher` 对**连续同音色**跳过 `/set_*_weights` 冗余重载（v1.0.4 起）。
+  - **权重留驻**：`WeightSwitch` 按名片 `weight_slots` 记住每个权重位已驻留的那一份，连续同音色跳过重复的切换请求（v1.0.4 起）。
   - **参考音频留驻**：`TTS.py` 内置**带戳参考音频 LRU**，缓存最近 N 个参考音频的
     `prompt_semantic / refer_spec`，命中即恢复、**零重抽零权重重载**。每条缓存戳上当时的
     SoVITS 权重路径 + `is_v2pro`（语义依赖 SoVITS 码本），**切 SoVITS 不清空整表**——不同常驻
