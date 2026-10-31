@@ -96,3 +96,20 @@ test('resolve 用截断后的 j.url 写回状态（不用原始输入）', () =>
   assert.ok(/if \(resolvedUrl !== url\) setUrl\(resolvedUrl\)/.test(body),
     '输入框没有更新为截断后的 resolvedUrl：使用者看到的是带尾巴的原始链接')
 })
+
+// 嗅探手动化：探测只从「嗅探仓库」按钮走，不跟着解析自动跑。
+//   解析是纯本地的（不联网、地址写错也说 ok），自动探一次会让按钮形同虚设，
+//   而且使用者分不清「探的是哪一步」。resolve 必须清掉 probe（界面回到「尚未嗅探」），
+//   把「仓库在不在」的回答留给按钮。
+test('resolve 不再自动嗅探（探测只从按钮走）', () => {
+  const body = functionBody('resolve')
+  assert.ok(body, 'resolve 函数不见了')
+  assert.ok(!/wizard\/probe/.test(body),
+    'resolve 还在自动调 /wizard/probe：探测跟着解析跑，手动按钮形同虚设')
+  assert.ok(/probe: null/.test(body),
+    'resolve 没把 probe 清掉：嗅探状态会残留上一次的，界面不回到「尚未嗅探」')
+  // /wizard/probe 全文件只出现一次，且只在一个函数里：就是 doProbe（按钮）。
+  const probeCalls = src.match(/wizard\/probe/g) || []
+  assert.strictEqual(probeCalls.length, 1,
+    '/wizard/probe 不止一处：探测入口不唯一，使用者会看到两个动作做同一件事')
+})

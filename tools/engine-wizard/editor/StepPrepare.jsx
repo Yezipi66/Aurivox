@@ -137,16 +137,15 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
         onPrep((w) => ({ ...w, res: { ...j, input: url } }))
         return
       }
-      // 必须打 /wizard/probe（返回 meta）；/wizard/deps 只返回 deps。
-      //   探测失败不阻断：克隆那步照样能看。
-      let probeJ = null
-      try { probeJ = await post('/wizard/probe', { url: j.url }) } catch (e) { /* 探测失败不阻断 */ }
       const resolvedName = folderName({ typed: idInput, suggested: j.id })
       // 后端已把 /tree/... /blob/... 剥掉，界面必须反映截断后的仓库根：
       //   输入框与 wz.url 若还留原始链接，显示的是带尾巴的 URL，
       //   克隆/探测却用截断后的，显示与使用不一致，心智模型对不上。
       const resolvedUrl = j.url || url
-      onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: probeJ }))
+      // 嗅探不在这里自动跑：它是「嗅探仓库」按钮的专属动作（手动、有意图）。
+      //   解析只做本地 URL 规范化与目录名推断，不联网；「仓库在不在」交给按钮回答，
+      //   解析成功就顺带探一次会让按钮形同虚设，使用者也不知道探的是哪一步。
+      onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: null }))
       if (j.ok) {
         if (!idInput.trim()) setIdInput(j.id)
         if (resolvedUrl !== url) setUrl(resolvedUrl)
@@ -267,9 +266,6 @@ const done = facts && facts.cloned === true
       : readSomething
         ? t('Repository information read', '已读取仓库信息')
         : t('No repository information read', '未读取到仓库信息')
-  // 嗅探成了就交给「下一步」那一行里的「重新嗅探」，右下角这个入口收起来：
-  //   两处都摆同一个动作，使用者会以为它们是两件事。
-  const sniffedOk = !!(probe && readSomething)
 
   return (
     /* 第一步全部铺开：一个连续区域，从上到下直接排。
@@ -492,16 +488,8 @@ const done = facts && facts.cloned === true
                   onChange({ cloned: false })
                 }} />
               )}
-              {/* 重新嗅探：嗅探成了之后这个动作收进按钮行，不再单独占右下角。
-                  放在「下一步」左边：它是「再确认一次仓库」，发生在往下走之前。
-                  与右下角那个入口是同一个 doProbe，不另写一份。*/}
-              <button className="btn btn-sm" type="button"
-                disabled={busy === 'probe' || !url.trim()}
-                onClick={doProbe}>
-                {busy === 'probe'
-                  ? t('Sniffing…', '正在嗅探…')
-                  : t('Sniff again', '重新嗅探')}
-              </button>
+              {/* 下一步：这一步才写盘（克隆）。嗅探由右下角「嗅探仓库」单独负责，
+                  不在这里再放一个：同一动作摆两处，使用者会以为是两件事。 */}
               <button className="btn btn-primary btn-sm" type="button"
                 // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
                 disabled={busy === 'clone' || !curId}
@@ -527,26 +515,24 @@ const done = facts && facts.cloned === true
         </>
       )}
 
-      {/* 嗅探仓库（手动，卡片右下角）。
-          为什么要有这个手动按钮：解析是纯本地的（不联网），地址写错它照样说 ok；
-            探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
-            以前从来没渲染过，于是仓库不存在时界面只停在一个「进行中」，
-            使用者既看不到原因，也没法自己再探一次。
+      {/* 嗅探仓库（手动，卡片右下角，常驻）。
+          这是嗅探的唯一入口：解析只做本地 URL 规范化（不联网、地址写错也说 ok），
+          探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
+          以前从来没渲染过，于是仓库不存在时界面只停在一个「进行中」，
+          使用者既看不到原因，也没法自己再探一次。
           手动触发 + 把状态与探测原话摆出来，「现在到底认出了什么」才一眼可见。
           它在 res.ok 之外：解析成功之前恰恰最需要回答「仓库在不在」。*/}
-      {!sniffedOk && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-          gap: 8, marginTop: 12 }}>
-          <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
-          <button className="btn btn-sm" type="button"
-            disabled={busy === 'probe' || !url.trim()}
-            onClick={doProbe}>
-            {busy === 'probe'
-              ? t('Sniffing…', '正在嗅探…')
-              : t('Sniff repository', '嗅探仓库')}
-          </button>
-        </div>
-      )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+        gap: 8, marginTop: 12 }}>
+        <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+        <button className="btn btn-sm" type="button"
+          disabled={busy === 'probe' || !url.trim()}
+          onClick={doProbe}>
+          {busy === 'probe'
+            ? t('Sniffing…', '正在嗅探…')
+            : t('Sniff repository', '嗅探仓库')}
+        </button>
+      </div>
 
       {/* 探测过程的原话：读不到默认分支、HTTP_404 之类都在这。
           这是判断「仓库在不在」唯一可见的信号，不摆出来就等于没探。*/}
