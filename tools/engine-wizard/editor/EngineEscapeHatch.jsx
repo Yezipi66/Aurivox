@@ -39,10 +39,7 @@ export default function EngineEscapeHatch ({ id, dirs, onSwitch }) {
             {t('Pick a directory under engines/', '选择 engines/ 下的目录')}
           </option>
           {(dirs || []).map((d) => (
-            <option key={d.id} value={d.id}
-              style={d.usable ? { color: '#4caf50', fontWeight: 600 } : undefined}>
-              {d.usable ? '✓ ' : ''}{d.id}
-            </option>
+            <option key={d.id} value={d.id}>{d.id}</option>
           ))}
         </select>
       </div>

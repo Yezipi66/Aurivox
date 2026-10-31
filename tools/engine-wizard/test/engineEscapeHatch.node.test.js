@@ -272,23 +272,3 @@ test('EngineIdentity 换引擎回调 onEngineTarget（同步全局目标）', ()
   assert.ok(/onEngineTarget/.test(identity),
     'EngineIdentity 没接 onEngineTarget：第 4 步换引擎不同步全局目标')
 })
-
-// ---- 「能用」打绿勾：usable 引擎的 option 带勾号前缀 ----
-test('usable 引擎的 option 带 ✓ 前缀，不可用不带', async () => {
-  const { container, root } = mount()
-  const dirs = [
-    { id: 'piper', manifestPresent: false, usable: false },
-    { id: 'gsv-like', manifestPresent: true, usable: true },
-  ]
-  root.render(React.createElement(EngineEscapeHatch, {
-    id: '', dirs, onSwitch: () => {},
-  }))
-  await settle()
-  const sel = container.querySelector('select')
-  const byId = {}
-  for (const o of sel.options) byId[o.value] = o.textContent
-  assert.ok(byId['gsv-like'].startsWith('✓ '),
-    'usable 引擎的 option 该以 ✓ 开头：' + JSON.stringify(byId['gsv-like']))
-  assert.ok(!byId['piper'].startsWith('✓ '),
-    '不可用引擎的 option 不该有 ✓：' + JSON.stringify(byId['piper']))
-})
