@@ -1,0 +1,53 @@
+{
+  "_comment_scan": [
+    "平台扫描角色模型目录时怎么读文件名。这里只写命名约定，不写模型放在哪 ——",
+    "位置由平台约定：assets/<角色>/models/<引擎 id>/<权重位>/。",
+    "没有 scan.json 的引擎 = 平台不推断：模型照样列出来，但不从文件名贴语种、轮数或版本。",
+    "",
+    "language_from_name：从这个角色的权重文件名反推语种（找回丢失的 meta.language 用）。",
+    "  正则用 JS 语法，必须带命名捕获组 (?<lang>...)；命中后取该组并转小写。",
+    "steps_from_name：从文件名取训练轮数，命名捕获组固定叫 step。",
+    "version：只给 version.slot 这个权重位里的文件贴版本，判定顺序是",
+    "  版本头 → 文件名 → 大小兜底。version 段整段不写 = 不贴版本。",
+    "  version.header_bytes 不写时读前 2 个字节当版本头。",
+    "",
+    "写错会当场报错：正则编译不过、组名不对、from_size 最后一项不是兜底，都会被拦下。"
+  ],
+  "language_from_name": [
+    "_(?<lang>[a-zA-Z]{2,3})-e\\d+\\.ckpt$",
+    "_(?<lang>[a-zA-Z]{2,3})_e\\d+_s\\d+\\.pth$"
+  ],
+  "steps_from_name": [
+    "-e(?<step>\\d+)\\.ckpt$"
+  ],
+  "version": {
+    "_comment_version": [
+      "版本头取文件前 2 字节（与官方 process_ckpt 的判定一致）。",
+      "头不是官方标记时先看文件名里的版本 token，再看文件大小：",
+      "  小于 82,978 KiB 判 v1，小于 700 MiB 判 v2，其余判 v3。",
+      "这里的版本只是扫盘时给人看的标签。",
+      "训练管线自己那套版本判定在 lib/training/version.js，问的是「这一版要加载哪些底模」，",
+      "与「界面上显示哪个版本」不是一回事，两处各自独立。"
+    ],
+    "slot": "sovits",
+    "header_map": {
+      "00": "v1",
+      "01": "v2",
+      "02": "v3",
+      "03": "v3",
+      "04": "v4",
+      "05": "v2Pro",
+      "06": "v2ProPlus"
+    },
+    "from_name": [
+      { "pattern": "_v2ProPlus_", "flags": "i", "value": "v2ProPlus" },
+      { "pattern": "_v2Pro_", "flags": "i", "value": "v2Pro" },
+      { "pattern": "_v2_", "flags": "i", "value": "v2" }
+    ],
+    "from_size": [
+      { "below_bytes": 84969472, "value": "v1" },
+      { "below_bytes": 734003200, "value": "v2" },
+      { "value": "v3" }
+    ]
+  }
+}
