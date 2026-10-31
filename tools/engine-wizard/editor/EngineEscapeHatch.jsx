@@ -29,7 +29,6 @@ export default function EngineEscapeHatch ({ id, dirs, onPick }) {
           <option key={d.id} value={d.id}
             style={d.usable ? { color: '#4caf50', fontWeight: 600 } : undefined}>
             {d.usable ? '✓ ' : ''}{d.id}
-            {d.manifestPresent ? ` · ${t('manifest', '有名片')}` : ''}
           </option>
         ))}
       </select>
