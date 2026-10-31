@@ -72,6 +72,25 @@ export function StepVerify ({ id }) {
     return () => { live = false }
   }, [id])
 
+  // 预填：平台能代填的就不让使用者从零开始。
+  //   默认试音文本与 web/src/components/common/Fields.jsx 的示例文本同句（平台已有，不另造）。
+  //   参考音频与文本问后端要（资产的第一个可用切片，与合成主链路同一个取法），有才填，没有留空。
+  //   只在进这一步与换引擎时填一次：填过之后这三个输入框由使用者持有，不会被覆盖。
+  useEffect(() => {
+    if (!id) return undefined
+    setSynthText(t('Hello! This is a sample line.', '你好，这是一段示例文本。'))
+    setRefAudio('')
+    setRefText('')
+    fetch(`/wizard/verify/ref?id=${encodeURIComponent(id)}`)
+      .then(r => r.json())
+      .then((j) => {
+        if (j && j.ok && j.reference_audio) setRefAudio(j.reference_audio)
+        if (j && j.ok && j.reference_text) setRefText(j.reference_text)
+      })
+      .catch(() => {})
+    return undefined
+  }, [id])
+
   // 任务进行中就按固定间隔轮询；结束（done / failed）即停。
   useEffect(() => {
     if (!id || !measuring) return undefined
@@ -120,11 +139,6 @@ export function StepVerify ({ id }) {
     audio: t('Audio: playable', '音频：可播放'),
   }
 
-  const statusFor = (check) => {
-    if (check === undefined || check === null) return 'unknown'
-    return check.ok === true ? 'ok' : 'fail'
-  }
-
   const renderProblem = (p) => {
     if (typeof p === 'string') return p
     if (p && typeof p.message === 'string') return p.message
@@ -132,11 +146,43 @@ export function StepVerify ({ id }) {
     return t('Unknown problem', '未知问题')
   }
 
+  // 每道的标题与「这道在查什么」都从后端结果里取（平台四道的原话），前端不再另造标签：
+  //   「装没装」「起不起来」若贴上自己造的「环境：已安装」「环境：可启动」，
+  //   使用者会把它们当成第 2 步「装依赖」的结论，而它们查的是名片的声明与引擎的入口。
+  const titleOf = (key, check) => (check && check.titleZh)
+    ? t(check.titleEn, check.titleZh)
+    : labelFor[key]
+
+  // 状态三态：权重道按 ready（null 是「说不出来」，不是「失败」），其余按 ok。
+  const statusOf = (key, check) => {
+    if (!check) return 'unknown'
+    if (key === 'checkpoints') {
+      return check.ready === true ? 'ok' : check.ready === false ? 'fail' : 'unknown'
+    }
+    return check.ok === true ? 'ok' : check.ok === false ? 'fail' : 'unknown'
+  }
+
   const renderCheckBlock = (key) => {
     const check = checks[key]
-    const status = statusFor(check)
+    const status = statusOf(key, check)
     const problems = Array.isArray(check && check.problems) ? check.problems : []
-    const hasProblem = problems.length > 0
+    // 权重道不吃 problems：平台给它的是 note / missing / abs_path。
+    //   目录不在、缺哪些文件、目录在哪，平台都查明了，读出来给使用者看，
+    //   不让这些落成一句「未知问题」。
+    const weightLines = []
+    if (key === 'checkpoints' && check) {
+      if (typeof check.note === 'string' && check.note) weightLines.push(check.note)
+      if (Array.isArray(check.missing) && check.missing.length) {
+        weightLines.push(t('Missing: ', '缺：') + check.missing.join(', '))
+      }
+      if (typeof check.abs_path === 'string' && check.abs_path) {
+        weightLines.push(t('Weights directory: ', '权重目录：') + check.abs_path)
+      }
+    }
+    const shown = status === 'fail' || status === 'unknown'
+      ? [...weightLines, ...problems.map(renderProblem)]
+      : []
+    const hasShown = shown.length > 0
 
     const badge = status === 'ok' ? t('Done', '已完成') : status === 'fail' ? t('Failed', '失败') : t('Unknown', '未知')
 
@@ -144,30 +190,27 @@ export function StepVerify ({ id }) {
       <div className="section" key={key}>
         <div className="section-hdr">
           <h2 style={{ fontSize: 'var(--fs-13)' }}>
-            {labelFor[key]}
+            {titleOf(key, check)}
             <span className={`badge badge-${status}`}>{badge}</span>
           </h2>
         </div>
         <div className="section-body">
-          {status === 'unknown' ? (
-            <div className="field-hint">{t('Not checked yet.', '尚未检查。')}</div>
-          ) : status === 'ok' ? (
+          {check && check.whyZh && (
+            <div className="field-hint">{t(check.why, check.whyZh)}</div>
+          )}
+          {status === 'ok' ? (
             <div className="field-hint">{t('No problems found.', '未发现问题。')}</div>
+          ) : hasShown ? (
+            shown.map((line, i) => (
+              <div key={i} className="field-hint">{line}</div>
+            ))
+          ) : status === 'fail' ? (
+            <div className="field-hint">{t('Unknown problem.', '未知问题。')}</div>
           ) : (
-            <>
-              {hasProblem ? (
-                <>
-                  {problems.map((p, i) => (
-                    <div key={i} className="field-hint">{renderProblem(p)}</div>
-                  ))}
-                </>
-              ) : (
-                <div className="field-hint">{t('Unknown problem.', '未知问题。')}</div>
-              )}
-              {check && check.info && (
-                <div className="field-hint">{String(check.info)}</div>
-              )}
-            </>
+            <div className="field-hint">{t('Not checked yet.', '尚未检查。')}</div>
+          )}
+          {check && check.info && (
+            <div className="field-hint">{String(check.info)}</div>
           )}
         </div>
       </div>
@@ -323,24 +366,6 @@ export function StepVerify ({ id }) {
                 '暂无样本。有样本后此处会显示波形。')}
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="section">
-        <div className="section-hdr">
-          <h2 style={{ fontSize: 'var(--fs-13)' }}>{t('ASR read-back (optional)', 'ASR 反向识别（可选）')}</h2>
-        </div>
-        <div className="section-body">
-          <div className="field-hint">
-            {t('Not implemented. The platform has ASR models and a working transcription ' +
-              'step, but that step takes a directory of training material and a training ' +
-              'config. There is no entry point that reads back one arbitrary audio clip, ' +
-              'and no manifest field declares an ASR endpoint on the engine. ' +
-              'This item is optional and does not block the other two.',
-              '尚未实现。平台有 ASR 模型与可用的转写步骤，但该步骤要的是一段训练素材目录' +
-              '加一份训练配置，没有「把任意一段音频读回来」的入口，名片里也没有声明 ASR 端点的字段。' +
-              '此项可选，不阻塞其余两项。')}
-          </div>
         </div>
       </div>
     </div>

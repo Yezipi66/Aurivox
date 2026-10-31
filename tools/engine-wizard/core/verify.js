@@ -76,16 +76,22 @@ function runChecks (id, opts = {}) {
 
   const out = { ok: true, id, checks: {}, problems: [] }
 
+  // 标题与说明从 checks() 的清单并入每道结果：界面直接用平台的词
+  //   （装没装 / 起不起来 / 权重齐不齐），不自己另造一套标签。
+  //   第 2 步装完依赖后界面若另造标签，使用者会把这里与"装没装"认成同一件事。
+  const meta = Object.fromEntries(checks().map((c) => [c.key, c]))
+  const withMeta = (key, r) => ({ ...meta[key], ...r })
+
   // envCheck 收的是 profile + {rootDir}（照 tools/dev/check-engine-env.cjs 的调用处），
   //   不是 (id, env)：那样传进去 node 不会报错，但读到的全是 undefined。
   // 第 1 道：浅层
   try {
     const r = checkEngineEnvShallow(profile, { rootDir: ROOT })
-    out.checks.env_shallow = { key: 'env_shallow', ...r }
+    out.checks.env_shallow = withMeta('env_shallow', { key: 'env_shallow', ...r })
     if (!r.ok) out.ok = false
   } catch (e) {
-    out.checks.env_shallow = { key: 'env_shallow', ok: false,
-      problems: [String(e.message)] }
+    out.checks.env_shallow = withMeta('env_shallow',
+      { key: 'env_shallow', ok: false, problems: [String(e.message)] })
     out.ok = false
   }
 
@@ -93,11 +99,11 @@ function runChecks (id, opts = {}) {
   if (opts.deep !== false) {
     try {
       const r = checkEngineEnvDeep(profile, { rootDir: ROOT })
-      out.checks.env_deep = { key: 'env_deep', ...r }
+      out.checks.env_deep = withMeta('env_deep', { key: 'env_deep', ...r })
       if (!r.ok) out.ok = false
     } catch (e) {
-      out.checks.env_deep = { key: 'env_deep', ok: false,
-        problems: [String(e.message)] }
+      out.checks.env_deep = withMeta('env_deep',
+        { key: 'env_deep', ok: false, problems: [String(e.message)] })
       out.ok = false
     }
   }
@@ -106,7 +112,7 @@ function runChecks (id, opts = {}) {
   try {
     const st = checkpointStatus(profile, { appDir: ROOT })
     const ready = st.ready
-    out.checks.checkpoints = {
+    out.checks.checkpoints = withMeta('checkpoints', {
       key: 'checkpoints',
       ready,
       ok: ready === true,
@@ -121,14 +127,14 @@ function runChecks (id, opts = {}) {
       required: st.required || [],
       missing: st.missing || [],
       abs_path: st.abs_path || null,
-    }
+    })
     // ready:null 不算失败，但也不许当成通过
     if (ready === null) {
       out.problems.push('权重：说不出来（名片缺 checkpoints 或 required）')
     }
   } catch (e) {
-    out.checks.checkpoints = { key: 'checkpoints', ok: false,
-      problems: [String(e.message)] }
+    out.checks.checkpoints = withMeta('checkpoints',
+      { key: 'checkpoints', ok: false, problems: [String(e.message)] })
   }
 
   return out

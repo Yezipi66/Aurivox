@@ -114,3 +114,29 @@ test('不许自己重写四道校验的判据（那等于两份事实）', () =>
   assert.ok(!/spawnSync.*verify_audio|exec.*import /.test(code),
     '发现自己实现校验逻辑的痕迹')
 })
+
+// 界面直接用平台四道的词，不自己另造标签：标题与「这道查什么」必须随结果下来，
+//   不然第 5 步会把「装没装」显示成「环境：已安装」，与第 2 步「装依赖」混成一件事。
+test('每道结果带着平台自己的标题与说明，前端不再另造标签', () => {
+  const r = runChecks(REAL, { deep: true })
+  for (const k of ['env_shallow', 'env_deep', 'checkpoints']) {
+    const c = r.checks[k]
+    assert.ok(c && typeof c.titleZh === 'string' && c.titleZh.length > 0,
+      `${k} 没带平台的 titleZh：界面拿不到平台词汇，只能自己造`)
+    assert.ok(c && typeof c.whyZh === 'string' && c.whyZh.length > 4,
+      `${k} 没带 whyZh：使用者看不出这道在查什么`)
+  }
+})
+
+// 权重道不吃 problems：note / missing / abs_path 是平台查明的细节，
+//   界面读它们才不会把「目录不在、缺哪些文件」显示成一句「未知问题」。
+test('权重道结果带着 note / missing / abs_path，界面不该只会读 problems', () => {
+  const r = runChecks(REAL, { deep: false })
+  const c = r.checks.checkpoints
+  assert.ok(c, '没有权重道结果')
+  assert.ok(typeof c.note === 'string' && c.note.length > 4,
+    'note 缺失：平台查明了什么，没传给界面')
+  assert.ok(Array.isArray(c.missing), 'missing 得是数组')
+  assert.ok(c.abs_path === null || typeof c.abs_path === 'string',
+    'abs_path 形状不对')
+})

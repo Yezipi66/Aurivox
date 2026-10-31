@@ -1177,6 +1177,32 @@ function handleVerifyAudio (req, res) {
   return true
 }
 
+// GET /wizard/verify/ref?id=<id>  第 5 步：平台能替使用者代填的试运行素材。
+//   只回本机数据：参考音频与参考文本（从资产 segments.json 取第一条可用切片，
+//   与合成主链路走同一个 firstRefAudio，不另造一套取法）。没有素材就如实回空，
+//   由使用者自己填。默认试音文本是纯展示文案，归前端的 i18n，不在这里回。
+function handleVerifyRef (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/ref')) return false
+  const tail = req.url.slice('/wizard/verify/ref'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const { validateId } = require('./save')
+  const idErr = validateId(id)
+  if (idErr) { json(res, 400, { ok: false, error: idErr }); return true }
+  const { firstRefAudio } = require(
+    path.join(__dirname, '..', '..', '..', 'lib', 'server', 'refAudio.js'))
+  const seg = firstRefAudio(id)
+  json(res, 200, {
+    ok: true,
+    reference_audio: seg ? seg.reference_audio : '',
+    reference_text: seg ? seg.reference_text : '',
+  })
+  return true
+}
+
 /**
  * POST /wizard/verify  {id, deep?, audio?, request?}
  *  调平台的四道校验，本文件不自己做判断
@@ -1612,7 +1638,7 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadCancel, handleHfToken,
-  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
