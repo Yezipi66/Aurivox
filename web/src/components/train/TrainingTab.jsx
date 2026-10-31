@@ -7,6 +7,7 @@ import { api } from '../../lib/api'
 import { ConfirmDialog } from '../common/Dialogs'
 import { IconTrash } from '../common/Icons'
 import { useT } from '../../lib/i18n'
+import { hasPronPreview } from '../../lib/engines'
 import {
   REBUILD_PARAM_DEFAULTS,
   FSTEP_ORDER,
@@ -797,6 +798,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             status={status}
             form={form}
             engineId={engine?.id}
+            pronPreview={hasPronPreview(engine)}
             isRunning={isRunning}
             isAwaitingReview={isAwaitingReview}
             isInterrupted={isInterrupted}

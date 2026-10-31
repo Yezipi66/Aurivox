@@ -18,7 +18,7 @@ import { pickDefaultRef, sameRefPath } from '../../lib/refAudio'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
 // fieldLabel / fieldHelp / recipePath 只在 ParamField 里用了，这里不 import。
-import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible } from '../../lib/engines'
+import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, hasPronPreview, isFieldVisible } from '../../lib/engines'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
 import { CollapsibleSegments } from './GenerateBits'
@@ -736,6 +736,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   hanDirection={hanDir} hanForced={hanForcedLive} setHanForced={setHanForced}
                   hanReadings={hanReadings} setHanReadings={setHanReadings}
                   engineId={engine?.id}
+                  pronPreview={hasPronPreview(engine)}
                 />
               )}
             </div>
