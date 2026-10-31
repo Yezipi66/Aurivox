@@ -128,6 +128,19 @@ test('App.jsx 渲染逃生口，且门控排除第 1 步', () => {
     '逃生口没排除第 1 步：第 1 步是克隆，不该出现「选已有引擎」')
 })
 
+// ---- 克隆完成 ⇒ 下拉数据源要刷新 ----
+// useEngineDirs 只在挂载时 fetch 一次；克隆新引擎后不刷新的话，第 2 步起逃生口里
+//   看不到刚克隆的那台（状态一致性问题）。判据：App 解构出 reload，并在 onDone 里调用。
+test('App.jsx 解构 useEngineDirs 的 reload，克隆完成时刷新下拉', () => {
+  const app = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
+  assert.ok(/const \{ dirs: engineDirs, reload: reloadDirs \} = useEngineDirs\(\)/.test(app),
+    'App 只解构了 dirs，没解构 reload：克隆完成后下拉数据源不刷新，看不到刚克隆的引擎')
+  // onDone 里必须调用 reloadDirs()（克隆完成后立刻让新引擎进下拉）
+  const onDone = (app.match(/onDone=\{\(clonedId\) => \{[\s\S]*?\}\}/) || [''])[0]
+  assert.ok(onDone.includes('reloadDirs()'),
+    'onDone 里没调 reloadDirs()：克隆完成后逃生口下拉不会出现刚克隆的引擎')
+})
+
 // ---- EngineIdentity 换引擎时同步全局目标 ----
 test('EngineIdentity 换引擎回调 onEngineTarget（同步全局目标）', () => {
   const identity = fs.readFileSync(path.join(EDITOR_DIR, 'EngineIdentity.jsx'), 'utf8')
@@ -135,7 +148,7 @@ test('EngineIdentity 换引擎回调 onEngineTarget（同步全局目标）', ()
     'EngineIdentity 没接 onEngineTarget：第 4 步换引擎不同步全局目标')
 })
 
-// ---- 「能用」打绿勾：usable 引擎的 option 带 ✓ 前缀 ----
+// ---- 「能用」打绿勾：usable 引擎的 option 带勾号前缀 ----
 test('usable 引擎的 option 带 ✓ 前缀，不可用不带', async () => {
   const { container, root } = mount()
   const dirs = [

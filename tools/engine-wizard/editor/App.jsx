@@ -94,7 +94,7 @@ export default function App () {
   //   它与界面上看到的不一致时人会被卡在第 1 步且无从自救）。
   //   改成让使用者自己挑目录：完成状态、权重路径、会话段都以 wz.id 为键，
   //   所以这里只改 id，其余会自己跟着换，不各自回写一遍（免得两处漂移）。
-  const { dirs: engineDirs } = useEngineDirs()
+  const { dirs: engineDirs, reload: reloadDirs } = useEngineDirs()
   const pickEngine = (id) => setWz((cur) => ({ ...cur, id: id || '' }))
 
   // 换 URL / 换引擎 ⇒ 会话段键变了 ⇒ 整段丢掉，防止串号。
@@ -278,6 +278,9 @@ export default function App () {
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
                 onDone={(clonedId) => {
                   reloadFacts(clonedId)
+                  // 克隆完成 ⇒ 下拉里要有刚克隆的那台：useEngineDirs 只在挂载时取一次，
+                  // 不刷新的话第 2 步起逃生口里看不到刚克隆的引擎（状态一致性问题）。
+                  reloadDirs()
                   // 克隆完成 ⇒ 直接进第 2 步：使用者刚做完的事就是下一步要做的事，
                   // 让他自己再点一次流程条上的「安装依赖」是多余的。
                   setPage('env')

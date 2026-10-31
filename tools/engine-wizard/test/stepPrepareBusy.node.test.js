@@ -76,3 +76,23 @@ test('探测的 notes（数组）必须渲染出来（404 只出现在那里）'
   const m = src.match(/probe\.notes[\s\S]{0,240}?\.map\(/)
   assert.ok(m, 'notes（数组）没被渲染成列表：仓库不存在这类信号会静默消失')
 })
+
+// 截断一致化：后端 /wizard/resolve 已把 /tree/... /blob/... 剥掉，返回截断后的 j.url。
+//   前端若把原始输入（带尾巴）写回 wz.url / 输入框，使用者看到的是一串带尾巴的链接，
+//   而克隆/探测实际用的是截断后，显示与使用不一致，心智模型对不上。
+//   所以 resolve 必须用截断后的 j.url 覆盖输入框与状态，且 res.input 也同步。
+
+test('resolve 用截断后的 j.url 写回状态（不用原始输入）', () => {
+  const body = functionBody('resolve')
+  assert.ok(body, 'resolve 函数不见了')
+  // 状态写回：onChange({ url: resolvedUrl, ... })，resolvedUrl = j.url || url
+  assert.ok(/const resolvedUrl = j\.url \|\| url/.test(body),
+    'resolve 没算截断后的 resolvedUrl：输入框会留着带尾巴的原始链接')
+  assert.ok(/onChange\(\{\s*url: resolvedUrl,/.test(body),
+    "onChange 写回的是原始 url 而非截断后的 resolvedUrl：wz.url 与 wz.repoUrl 会分叉")
+  assert.ok(/input: resolvedUrl/.test(body),
+    "res.input 没同步成截断后的 resolvedUrl：改一个字符就会误判为「改了链接」")
+  // 输入框：截断后 ≠ 原始输入时，setUrl(resolvedUrl) 让显示跟着变
+  assert.ok(/if \(resolvedUrl !== url\) setUrl\(resolvedUrl\)/.test(body),
+    '输入框没有更新为截断后的 resolvedUrl：使用者看到的是带尾巴的原始链接')
+})

@@ -142,10 +142,15 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       let probeJ = null
       try { probeJ = await post('/wizard/probe', { url: j.url }) } catch (e) { /* 探测失败不阻断 */ }
       const resolvedName = folderName({ typed: idInput, suggested: j.id })
-      onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
+      // 后端已把 /tree/... /blob/... 剥掉，界面必须反映截断后的仓库根：
+      //   输入框与 wz.url 若还留原始链接，显示的是带尾巴的 URL，
+      //   克隆/探测却用截断后的，显示与使用不一致，心智模型对不上。
+      const resolvedUrl = j.url || url
+      onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: probeJ }))
       if (j.ok) {
         if (!idInput.trim()) setIdInput(j.id)
-        onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
+        if (resolvedUrl !== url) setUrl(resolvedUrl)
+        onChange({ url: resolvedUrl, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
         // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
         // 等使用者点了「下一步」才说就来不及了。
         // 这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。

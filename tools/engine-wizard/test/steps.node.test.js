@@ -207,9 +207,13 @@ test('流程条不许再按「第 1 步完成」上锁', () => {
 
 test('App 必须给出引擎下拉（每一步的逃生口）', () => {
   const src = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
+  const hatch = fs.readFileSync(path.join(EDITOR_DIR, 'EngineEscapeHatch.jsx'), 'utf8')
   assert.ok(/useEngineDirs/.test(src), 'App 没接入 engines/ 目录列表')
-  assert.ok(/<select[\s\S]{0,400}?onChange/.test(src),
-    '没有可切换引擎的下拉：换引擎只能靠重新克隆')
+  // 逃生口组件才是下拉本体：App 渲染它，组件里有可切换的 <select>。
+  assert.ok(/<EngineEscapeHatch/.test(src),
+    'App 没渲染逃生口：换引擎只能靠重新克隆')
+  assert.ok(/<select[\s\S]{0,400}?onChange/.test(hatch),
+    '逃生口里没有可切换引擎的下拉：换引擎只能靠重新克隆')
 })
 
 // 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。
