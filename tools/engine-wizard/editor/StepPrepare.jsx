@@ -85,7 +85,7 @@ function licenseText (meta, t) {
   return '—'
 }
 
-export default function StepPrepare ({ state, facts, onChange, onDone, prep, onPrep }) {
+export default function StepPrepare ({ state, facts, onChange, onDone, onNext, prep, onPrep }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
   const [idInput, setIdInput] = React.useState(state.id || '')
@@ -346,13 +346,14 @@ const done = facts && facts.cloned === true
         </div>
       )}
 
-      {/* 项目信息（只读，不写盘）。
+      {/* 项目信息（只读，不写盘）。只在嗅探成功后显示：没嗅探时读不到任何信息，
+          摆一排「—」占位只会让人觉得仓库是空的；「嗅探到了才显示具体信息」
+          正是使用者的操作心智——先确认仓库在不在、读没读到，再往下走。
           标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。
-          重嗅探的按钮在卡片底部：那里在解析成功之前也看得到，
-            而「仓库到底在不在」恰恰是解析成功之前最该回答的问题。*/}
-      {res && res.ok && (
+          嗅探（及嗅探失败后的重试）是右下角那个按钮的专属动作。*/}
+      {res && res.ok && readSomething && (
         <>
           <div className="layer-label">{t('Project information', '项目信息')}</div>
           <div className="plan-kv">
@@ -373,14 +374,14 @@ const done = facts && facts.cloned === true
         </>
       )}
 
-      {/* 下一步（这一步才写盘）。
-          标题说「下一步会发生什么」，不说实现步骤（「克隆」），
-            使用者关心的是流程往前走，不是内部动作名。
+      {/* 命令区 + 克隆结果提示（只在嗅探成功、且还没克隆时显示）。
+          没嗅探时读不到仓库，摆一条 git clone 是「还没确认仓库就让人往下走」；
+          克隆完成后命令过时，交给下面的「已克隆」提示。
           这里给真正的 git clone 命令，不只显示 engines/<name>/
             这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
           不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
           判据：此区域里的命令必须与真正要执行的那条逐字相同。*/}
-      {res && res.ok && (
+      {res && res.ok && readSomething && !done && (
         <>
           {/* 命令区：复用时没有命令要跑。
               复用是这一次的常态（目录已经在了），摆一条不会执行的 git clone
@@ -459,12 +460,6 @@ const done = facts && facts.cloned === true
               )}
             </div>
           )}
-          {done && !reused && (
-            <div className="msg msg-info">
-              {t('Cloned into engines/' + curId + '/.',
-                '已克隆到 engines/' + curId + '/。')}
-            </div>
-          )}
 
           {/* vars：把项目名和完整路径喂给风险文案。
               只说「写进 engines/」时使用者分不清这一步要动的是哪一个，
@@ -477,26 +472,26 @@ const done = facts && facts.cloned === true
               // 复用时那句文案要跟着改：说「会克隆到哪」就与实际做的事不符了。
               reuse: reused,
             }}>
-            {/* 三个按钮同一行，flex 里先出现的排左边：
-                撤销克隆（仅克隆完成后）→ 下一步 → 取消（仅克隆进行中）。*/}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {done && (
-                <UndoClone engineId={curId} onUndone={() => {
-                  // 目录没了 ⇒ 第 1 步的完成状态作废，回到第 1 步重来。
-                  setCloneRes(null)
-                  onPrep((w) => ({ ...w, cloneRes: null }))
-                  onChange({ cloned: false })
-                }} />
-              )}
-              {/* 下一步：这一步才写盘（克隆）。嗅探由右下角「嗅探仓库」单独负责，
-                  不在这里再放一个：同一动作摆两处，使用者会以为是两件事。 */}
+            {/* 嗅探成功后、未克隆：一行靠右下，重新嗅探在左、克隆在右。
+                克隆是这一步才写盘的动作；嗅探成功后「嗅探仓库」才变成「重新嗅探」，
+                同一动作不再摆两处，免得使用者以为是两件事。
+                克隆中时旁边出现红色的「取消」。*/}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+              <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+              <button className="btn btn-sm" type="button"
+                disabled={busy === 'probe'}
+                onClick={doProbe}>
+                {busy === 'probe'
+                  ? t('Sniffing…', '正在嗅探…')
+                  : t('Resniff repository', '重新嗅探')}
+              </button>
               <button className="btn btn-primary btn-sm" type="button"
                 // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
                 disabled={busy === 'clone' || !curId}
                 onClick={() => doClone(true)}>
                 {busy === 'clone'
                   ? t('Cloning…', '正在克隆…')
-                  : t('Next', '下一步')}
+                  : t('Clone', '克隆')}
               </button>
               {/* 取消按钮：与「正在克隆」同一行、同一个 .btn 形状，
                   颜色改成红色（它终止的是一次已经开始的写盘操作）。 */}
@@ -515,24 +510,52 @@ const done = facts && facts.cloned === true
         </>
       )}
 
-      {/* 嗅探仓库（手动，卡片右下角，常驻）。
+      {/* 克隆完成：右下角 [撤销克隆] [下一步]。
+          下一步只负责跳到第 2 步（安装依赖），不再克隆；克隆已经完成了。
+          跳转是使用者自己的决定，不自动跳（onDone 不再 setPage）。
+          撤销克隆删掉 engines/<id>/ 整棵，回到第 1 步重来。*/}
+      {res && res.ok && done && (
+        <>
+          <div className="msg msg-info">
+            {t('Cloned into engines/' + curId + '/.',
+              '已克隆到 engines/' + curId + '/。')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center',
+            justifyContent: 'flex-end', marginTop: 12 }}>
+            <UndoClone engineId={curId} onUndone={() => {
+              // 目录没了 ⇒ 第 1 步的完成状态作废，回到第 1 步重来。
+              setCloneRes(null)
+              onPrep((w) => ({ ...w, cloneRes: null }))
+              onChange({ cloned: false })
+            }} />
+            <button className="btn btn-primary btn-sm" type="button"
+              onClick={onNext}>
+              {t('Next', '下一步')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* 嗅探仓库（手动，右下角；只在还没嗅探 / 嗅探失败时显示）。
           这是嗅探的唯一入口：解析只做本地 URL 规范化（不联网、地址写错也说 ok），
           探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
           以前从来没渲染过，于是仓库不存在时界面只停在一个「进行中」，
           使用者既看不到原因，也没法自己再探一次。
-          手动触发 + 把状态与探测原话摆出来，「现在到底认出了什么」才一眼可见。
-          它在 res.ok 之外：解析成功之前恰恰最需要回答「仓库在不在」。*/}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-        gap: 8, marginTop: 12 }}>
-        <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
-        <button className="btn btn-sm" type="button"
-          disabled={busy === 'probe' || !url.trim()}
-          onClick={doProbe}>
-          {busy === 'probe'
-            ? t('Sniffing…', '正在嗅探…')
-            : t('Sniff repository', '嗅探仓库')}
-        </button>
-      </div>
+          嗅探成功后这个按钮就交给上面那行的「重新嗅探」，不再重复摆：
+          同一动作摆两处，使用者会以为是两件事。*/}
+      {res && res.ok && !done && !readSomething && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          gap: 8, marginTop: 12 }}>
+          <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+          <button className="btn btn-sm" type="button"
+            disabled={busy === 'probe' || !url.trim()}
+            onClick={doProbe}>
+            {busy === 'probe'
+              ? t('Sniffing…', '正在嗅探…')
+              : t('Sniff repository', '嗅探仓库')}
+          </button>
+        </div>
+      )}
 
       {/* 探测过程的原话：读不到默认分支、HTTP_404 之类都在这。
           这是判断「仓库在不在」唯一可见的信号，不摆出来就等于没探。*/}
