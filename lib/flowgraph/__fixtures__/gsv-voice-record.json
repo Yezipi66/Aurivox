@@ -1,0 +1,80 @@
+{
+  "note": "GSV「保存为音色」写进 voices.json 的整条记录，基线取提交 0f70e6be（按名片写之前）。每组 *Recipe 对应一份 *Record。键的顺序就是记录里的顺序：这条基线要逐字节比，所以这里不重排。emptySplit 锁的是假值：空串按「配方没填」回落，0 是填了值。",
+  "recipe": {
+    "id": "narrator_v2",
+    "engine_id": "gpt-sovits",
+    "display_name": "旁白 · 第二版",
+    "language": "zh",
+    "reference_audio": "/refs/narrator.wav",
+    "overwrite": true,
+    "params": {
+      "gpt_model": "/models/a.ckpt",
+      "sovits_model": "/models/a.pth",
+      "reference_text": "原文",
+      "top_k": 20,
+      "seed": 7,
+      "batch_size": 8
+    }
+  },
+  "record": {
+    "display_name": "旁白 · 第二版",
+    "language": "zh",
+    "prompt_lang": "zh",
+    "text_lang": "zh",
+    "gpt_model": "/models/a.ckpt",
+    "sovits_model": "/models/a.pth",
+    "reference_audio": "/refs/narrator.wav",
+    "reference_text": "原文",
+    "text_split_method": "cut5",
+    "top_k": 20,
+    "top_p": 1,
+    "temperature": 1,
+    "repetition_penalty": 1.35
+  },
+  "emptyRecipe": {
+    "id": "narrator_v4",
+    "engine_id": "gpt-sovits",
+    "overwrite": true,
+    "params": {}
+  },
+  "emptyRecipeRecord": {
+    "display_name": "narrator_v4",
+    "language": "auto",
+    "prompt_lang": "auto",
+    "text_lang": "auto",
+    "gpt_model": "",
+    "sovits_model": "",
+    "reference_audio": "",
+    "reference_text": "",
+    "text_split_method": "cut5",
+    "top_k": 15,
+    "top_p": 1,
+    "temperature": 1,
+    "repetition_penalty": 1.35
+  },
+  "emptySplitRecipe": {
+    "id": "b_split",
+    "engine_id": "gpt-sovits",
+    "overwrite": true,
+    "params": {
+      "text_split_method": "",
+      "gpt_model": "",
+      "top_p": 0
+    }
+  },
+  "emptySplitRecord": {
+    "display_name": "b_split",
+    "language": "auto",
+    "prompt_lang": "auto",
+    "text_lang": "auto",
+    "gpt_model": "",
+    "sovits_model": "",
+    "reference_audio": "",
+    "reference_text": "",
+    "text_split_method": "cut5",
+    "top_k": 15,
+    "top_p": 0,
+    "temperature": 1,
+    "repetition_penalty": 1.35
+  }
+}
