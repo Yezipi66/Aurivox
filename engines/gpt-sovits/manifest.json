@@ -120,6 +120,28 @@
       "switch": { "endpoint": "/set_sovits_weights", "query": "weights_path" } }
   ],
 
+  "_comment_languages": [
+    "平台语种码 → 这台引擎 text_lang / prompt_lang 的取值。左边是平台的词，",
+    "右边只能是 GPT-SoVITS 认的原话；表里没有的语种平台原样发，不猜。",
+    "⛔ auto 必须映射成 auto，不能收成 auto_zh_ja_yue：没有语言信息的音色默认就是 auto，",
+    "  换了写法会让默认请求走的分支变掉，输出不再逐字节相同。",
+    "ja / zh / ko 这三个平台码换算成严格语种分支（all_ja / all_zh / all_ko）。",
+    "裸码 ja / zh / ko 在引擎里是另一条分支（混说段落按语种归并）：音色登记的值不经换算，",
+    "那条分支照旧可达。历史写法 all_ja 归一成平台码 ja，换算回来还是 all_ja，走的分支不变。",
+    "auto_zh_ja 与 auto_zh_ja_yue 是 /v1 两种都收的多语写法，这里收成同一个：引擎里这两条同分支",
+    "（TextPreprocessor.py 的 `language == \"auto_zh_ja_yue\" or language == \"auto_zh_ja\"`）。"
+  ],
+  "languages": {
+    "zh": "all_zh",
+    "yue": "all_yue",
+    "ja": "all_ja",
+    "en": "en",
+    "ko": "all_ko",
+    "auto": "auto",
+    "auto_zh_ja": "auto_zh_ja_yue",
+    "auto_zh_ja_yue": "auto_zh_ja_yue"
+  },
+
   "_comment_param_keys": [
     "合成服务认识的参数名。不在这张表上的键会被拦下而不是丢掉 ——",
     "服务端本来就会忽略它，静默放行会让一个拼错的参数名看起来像生效了。",
