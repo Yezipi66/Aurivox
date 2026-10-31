@@ -50,11 +50,12 @@ const {
 } = require("./lib/server/fileOps");
 const {
   BASE_VOICE_ID, BASE_VOICE_DISPLAY, isBaseVoice, normModelVersion,
-  checkBaseModelsForVersion, baseCheckpoints, baseModelsAll,
+  checkBaseModelsForVersion, baseModelsAll,
   baseVoiceMeta, baseVoiceReg, collectTakenVoiceIds, normSource,
   outputRoot, genAssetDir, writeGenMeta, resolveGenDir,
   genItemFromMeta, assetsNeedScan,
 } = require("./lib/server/assets");
+const { baseModelsByEngine } = require("./lib/assets/baseModels");
 
 const ASSETS_DIR = ASSETS_ROOT;
 PATHS.ensureRuntimeDirs();
@@ -197,16 +198,6 @@ const ALLOWED_LANGUAGES = new Set(["zh", "yue", "ja", "en", "ko", "auto"]);
 const { sanitizeCustomParams } = require("./lib/server/trainingParams");
 const TRAIN_DATA_ROOT = process.env.TRAIN_DATA_ROOT || "";
 
-try {
-  const { registerBaseModelSource } = require("./lib/assets/baseModels");
-  registerBaseModelSource("gpt-sovits", () => {
-    const ck = baseCheckpoints();
-    return { gpt: ck.gpt, sovits: ck.sovits };
-  });
-} catch (e) {
-  console.warn(`[assets] 无法登记 GPT-SoVITS 底模找法: ${e && e.message}`);
-}
-
 const { versionFromName, normalizeVersion, pickLatestByEpoch } = require("./lib/server/trainingVersion");
 
 //  RECIPES API (P0 keystone)
@@ -217,7 +208,7 @@ const knownVoice = createKnownVoice(isBaseVoice, loadVoices);
 const { shutdown, shutdownState } = createShutdownManager(null, { _inflight, _shuttingDown, console });
 
 //  ROUTE MOUNTING
-const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _backupVoicesUnlocked, assetId, assetScanner, assetsNeedScan, backupVoices, baseCheckpoints, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, switchModels, toPcm16Wav, transcribeJobs, upload, validateHost, vendoredFfmpegPath, voicesStore, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, trainingPipeline, shutdownState };
+const ctx = { ADVANCED_PARAMS_FILE, ALLOWED_EXT, ALLOWED_LANGUAGES, API_KEY, APP_DIR, ASSETS_DIR, ASSETS_ROOT, ASSETS_ROOT_SOURCE, AUDIO_FORMATS, BACKUP_DIR, BASE_VOICE_DISPLAY, BASE_VOICE_ID, BROKER_DIR, COMPARE_DIR, CONFIG_FILE, CUSTOM_REF_DIR, defaultAdvancedParams, GENERATE_DIR, GPT_SOVITS_BASE_URL, GSV_PRETRAINED_DIR, HOST, MAX_BACKUPS, OUTPUT_DIR, OUTPUT_ROOTS, PORT, PRON_LEXICON_DIR, RECIPES_DIR, RENAME_LOCK_CODES, REQUIRE_KEY_FOR_DESTRUCTIVE, TRAIN_DATA_ROOT, TRANSCRIPT_KINDS, VOICES_DIR, VOICES_JSON, WEB_DIST, _backupVoicesUnlocked, assetId, assetScanner, assetsNeedScan, backupVoices, baseModelsByEngine, baseVoiceMeta, baseVoiceReg, buildTtsPayload, resolveReference, checkBaseModelsForVersion, checkFfmpeg, classifyRecipeManagedFields, clientError, collectTakenVoiceIds, computeSegmentBounds, concatWavFiles, concatWavPureNode, concatWithFfmpeg, cors, createMigrator, createRecipeStore, crypto, customRefUpload, detectCuda, engineSupervisor: _engineSupervisor, execFileSync, execSync, ffmpegCmd, findWavDataChunk, firstMismatch, forceSplitLong, fs, fsp, genAssetDir, genBaseName, genItemFromMeta, generateOneSegment, generateSilenceWav, getCleanEnv, getPythonPath, gsvGet, gsvPost, gsvRequest, gsvStream, http, importCustomRefToAsset, isBaseVoice, isLoopback, isPlaceholder, knownVoice, loadAdvancedParams, loadPronLexicon, loadTrainingConfig, loadVoices, localError, migrationJobs, newGenId, normModelVersion, normSource, noteEngineHealth, normalizeModelPath, normalizeVersion, os, outputRoot, path, pathResolver, pickBestCkpt, pickLatestByEpoch, pronLexiconPath, readConfig, readTranscriptListRows, recipeMigrator, recipeStore, renameDirWithRetry, renameVoiceFolder, requireApiKey, resolveGenDir, resolveRefPath, resolveSeed, runAsr, runFullAssetScan, runMigrationJob, safeId, sanitizeCustomParams, saveAdvancedParams, savePronLexicon, saveVoices, scanStagingTasks, sleepSyncMs, spawn, splitJapaneseText, startCudaProbe, switchModels, toPcm16Wav, transcribeJobs, upload, validateHost, vendoredFfmpegPath, voicesStore, wavDurationSec, withGenerationLock, withVoicesLock, writeConfig, writeGenMeta, trainingPipeline, shutdownState };
 app.use(require("./lib/routes/system")(ctx));
 app.use(require("./lib/routes/engines")(ctx));
 app.use(require("./lib/routes/pron")(ctx));

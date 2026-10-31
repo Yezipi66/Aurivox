@@ -11,7 +11,10 @@
     "  版本头 → 文件名 → 大小兜底。version 段整段不写 = 不贴版本。",
     "  version.header_bytes 不写时读前 2 个字节当版本头。",
     "",
-    "写错会当场报错：正则编译不过、组名不对、from_size 最后一项不是兜底，都会被拦下。"
+    "写错会当场报错：正则编译不过、组名不对、from_size 最后一项不是兜底，都会被拦下。",
+    "",
+    "下面还有一段 base_models：那说的不是角色目录，是这台引擎的全局底模目录，",
+    "见它自己的 _comment_base_models。"
   ],
   "language_from_name": [
     "_(?<lang>[a-zA-Z]{2,3})-e\\d+\\.ckpt$",
@@ -49,5 +52,62 @@
       { "below_bytes": 734003200, "value": "v2" },
       { "value": "v3" }
     ]
-  }
+  },
+  "_comment_base_models": [
+    "底模下拉里有哪些候选：每条写一个权重位、显示名和候选路径（按优先顺序，取第一个存在的）。",
+    "候选路径相对 runtime.checkpoints 指的目录；文件名带版本时用 version 标注，",
+    "没有训练轮数的用 steps: null 明说不适用。default: true 是界面上的初始选择。",
+    "name 是界面显示的整串，平台不拿它跟任何常量拼接；slot 必须是名片 weights 里有的位，",
+    "写了没有的位当场报错，不会因为「下拉里少一条」而静默过去。",
+    "不写这一段 = 走通用规则：底模目录下按权重位分目录，或整个目录算一份模型。",
+    "写了的那一段是白名单：目录里另外躺着的东西不算候选。"
+  ],
+  "base_models": [
+    {
+      "slot": "gpt",
+      "name": "Base model_s1",
+      "steps": null,
+      "default": true,
+      "candidates": [
+        "v2/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+        "v1/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "gsv-v2final/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
+        "gsv-v2final/s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt",
+        "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"
+      ]
+    },
+    {
+      "slot": "sovits",
+      "name": "Base model_v2",
+      "version": "v2",
+      "candidates": [
+        "v2/s2G2333k.pth",
+        "gsv-v2final/s2G2333k.pth",
+        "gsv-v2final-pretrained/s2G2333k.pth",
+        "s2G2333k.pth",
+        "v1/s2G488k.pth",
+        "v2Pro/s2G488k.pth",
+        "s2G488k.pth",
+        "gsv-v2final/s2G488k.pth"
+      ]
+    },
+    {
+      "slot": "sovits",
+      "name": "Base model_v2Pro",
+      "version": "v2Pro",
+      "default": true,
+      "candidates": [
+        "v2Pro/s2Gv2Pro.pth"
+      ]
+    },
+    {
+      "slot": "sovits",
+      "name": "Base model_v2ProPlus",
+      "version": "v2ProPlus",
+      "candidates": [
+        "v2ProPlus/s2Gv2ProPlus.pth",
+        "v2Pro/s2Gv2ProPlus.pth"
+      ]
+    }
+  ]
 }
