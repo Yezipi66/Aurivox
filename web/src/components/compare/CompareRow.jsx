@@ -12,6 +12,11 @@ import { REF_MAX_SEC, REF_MIN_SEC, refInRange } from '../../lib/refAudio'
 import { basename } from '../../lib/pathText'
 import { langLabel, normalizeLangFamily } from '../../lib/langOptions'
 import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, TIERS } from '../../lib/engines'
+import { slotsOf } from '../../lib/modelPickers.pure.js'
+import {
+  defaultPicksOf, modelItem, normalizeRowModel, ownerOfModel, referenceSlotOf, referenceVoiceOf,
+  slotHeaderText, slotItemText, slotOptions,
+} from './compareModelPicks.pure.js'
 import { ParamField } from '../common/ParamField'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 
@@ -32,8 +37,12 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // 删除本行结果音频前的二次确认状态。
   const [cmpDelConfirm, setCmpDelConfirm] = useState(false)
 
-  // 这一行用哪个音色。参考音频、切片与语种都跟随 SoVITS（音色）那一侧，所以混搭 A 的 GPT 与 B 的 SoVITS 时，参考取自 B；GPT 那一侧只影响 GPT 权重下拉。
-  const voiceId = rowModel.sovitsVoiceId || rowModel.voiceId || selectedVoice
+  // 这一行的权重位与选择。位名、位标签与个数都来自当前引擎的名片。
+  const slots = slotsOf(engine)
+  const rm = normalizeRowModel(rowModel, slots)
+  // 参考音频、切片与语种跟随第一个能换的位，所以混搭别的位的权重时参考仍取自该位归属的角色。
+  const refSlot = referenceSlotOf(slots)
+  const voiceId = referenceVoiceOf(rm, slots, selectedVoice)
   // 这一行自己的模型语种。读音校对面板按这一行的模型取，不取生成页共享的音色，这样汉字方向与默认读音与实际发出去的请求一致。
   const rowVoiceLang = availableModels.find(m => m.voiceId === voiceId)?.language
     || voices.find(v => (v.id || v.voiceId) === voiceId)?.language || voiceLang || 'ja'
@@ -157,29 +166,33 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   const cmpStatus = row.loading ? 'running' : row.error ? 'error' : (row.result && row.result.audio_url) ? 'done' : 'idle'
   const cmpStatusLabel = cmpStatus === 'running' ? 'Generating…' : cmpStatus === 'done' ? 'Ready' : cmpStatus === 'error' ? 'Failed' : 'Not run'
   const cmpRefName = row.refAudio ? basename(row.refAudio) : null
-  // 同一资产内的组合直接用预置标签；跨资产混搭时分别取 GPT 与 SoVITS 两项拼出标签，表头因此读作「A / gpt.ckpt  ×  B / sovits.pth」。
-  const _gptEntry = availableModels.find(m => m.gptCheckpoint === rowModel.gptCheckpoint)
-  const _sovEntry = availableModels.find(m => m.sovitsModel === rowModel.sovitsModel)
-  const cmpModelLabel = (availableModels.find(m => m.voiceId === rowModel.voiceId && m.gptCheckpoint === rowModel.gptCheckpoint && m.sovitsModel === rowModel.sovitsModel) || {}).label
-    || ([
-        _gptEntry ? `${_gptEntry.voiceName} / ${_gptEntry.gptName}${_gptEntry.gptSteps ? ` (${_gptEntry.gptSteps})` : ''}` : null,
-        _sovEntry ? `${_sovEntry.voiceName} / ${_sovEntry.sovitsName}${_sovEntry.sovitsVersion ? ` [${_sovEntry.sovitsVersion}]` : ''}` : null,
-       ].filter(Boolean).join('  ×  ') || null)
-  // 参考音频来自哪个角色：从 row.refAudio 的 assets/<voiceId>/ 路径推出，本音色与跨音色都适用。自备上传不在 assets/ 下，标为 Custom；没有参考时回落到模型音色。
-  const _refAssetVid = (() => {
-    const s = String(row.refAudio || '').replace(/\\/g, '/')
-    const m = s.match(/(?:^|\/)assets\/([^/]+)\//)
-    return m ? m[1] : null
-  })()
+  // 角色名：候选清单里查得到就用它的显示名，其次音色名单，最后原样。
   const nameForVoiceId = (vid) => vid
     ? ((availableModels.find(m => m.voiceId === vid) || {}).voiceName
        || (voices || []).find(v => (v.id || v.voiceId) === vid)?.display_name
        || (voices || []).find(v => (v.id || v.voiceId) === vid)?.displayName
        || vid)
     : null
+  // 表头摘要：同一角色内的组合按位拼完整标注；跨角色混搭时逐段取归属角色与该位的文字。
+  const _sameVoice = rm.voiceId && slots.length > 0
+    && slots.every(s => modelItem(availableModels, rm.voiceId, s.name, rm.picks[s.name]))
+  const cmpModelLabel = _sameVoice
+    ? `${nameForVoiceId(rm.voiceId)} / ${slots.map(s => slotItemText(modelItem(availableModels, rm.voiceId, s.name, rm.picks[s.name]))).join(' / ')}`
+    : (slots.map(s => {
+        const p = rm.picks[s.name]
+        const owner = ownerOfModel(availableModels, s.name, p)
+        if (!p || !owner) return null
+        return `${nameForVoiceId(owner)} / ${slotHeaderText(modelItem(availableModels, owner, s.name, p)) || p}`
+      }).filter(Boolean).join('  ×  ') || null)
+  // 参考音频来自哪个角色：从 row.refAudio 的 assets/<voiceId>/ 路径推出，本音色与跨音色都适用。自备上传不在 assets/ 下，标为 Custom；没有参考时回落到模型音色。
+  const _refAssetVid = (() => {
+    const s = String(row.refAudio || '').replace(/\\/g, '/')
+    const m = s.match(/(?:^|\/)assets\/([^/]+)\//)
+    return m ? m[1] : null
+  })()
   const refVoiceName = _refAssetVid
     ? nameForVoiceId(_refAssetVid)
-    : (row.refAudio ? 'Custom' : nameForVoiceId(rowModel.voiceId || selectedVoice))
+    : (row.refAudio ? 'Custom' : nameForVoiceId(rm.voiceId || selectedVoice))
   // 生成之后编辑区折叠为只显示音频，便于并排试听；点标题重新展开。
   const [editorOpen, setEditorOpen] = useState(() => !(row.result && row.result.audio_url))
   const lastResultUrlRef = useRef(row.result && row.result.audio_url)
@@ -259,127 +272,93 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         </Select>
       </div>
 
-      {/* 模型拆成三级联动下拉：角色、GPT、SoVITS。角色同时决定下面两个候选列表与切片来源。 */}
-      {availableModels.length > 0 && (() => {
+      {/* 模型拆成「角色 + 每个权重位一个下拉」：角色决定非混搭时的候选与切片来源，
+          每个下拉的标签与候选都来自名片。 */}
+      {availableModels.length > 0 && slots.length > 0 && (() => {
         const voiceOpts = []
         const seenV = new Set()
         availableModels.forEach(m => { if (!seenV.has(m.voiceId)) { seenV.add(m.voiceId); voiceOpts.push({ voiceId: m.voiceId, voiceName: m.voiceName }) } })
-        // 跨资产混搭开关：打开后 GPT 与 SoVITS 两个下拉列出所有资产的模型（按角色分组），可以把 A 的 GPT 与 B 的 SoVITS 配在一起；关闭时两个下拉只显示主角色自己的权重。
-        // 参考音频与语种跟随 SoVITS（音色）那一侧。
-        // 已经是跨资产的组合（来自配方或旧行）自动进入混搭状态，保留原有选择。
-        const mix = !!rowModel.mix
-          || (rowModel.gptVoiceId && rowModel.gptVoiceId !== rowModel.voiceId)
-          || (rowModel.sovitsVoiceId && rowModel.sovitsVoiceId !== rowModel.voiceId)
-        // 非混搭模式：按角色列出该角色自己的权重。
-        const gptOpts = []
-        const seenG = new Set()
-        availableModels.filter(m => m.voiceId === rowModel.voiceId).forEach(m => {
-          if (!seenG.has(m.gptCheckpoint)) { seenG.add(m.gptCheckpoint); gptOpts.push({ path: m.gptCheckpoint, name: m.gptName, steps: m.gptSteps }) }
-        })
-        const sovOpts = []
-        const seenS = new Set()
-        availableModels.filter(m => m.voiceId === rowModel.voiceId).forEach(m => {
-          if (!seenS.has(m.sovitsModel)) { seenS.add(m.sovitsModel); sovOpts.push({ path: m.sovitsModel, name: m.sovitsName, steps: m.sovitsSteps, version: m.sovitsVersion }) }
-        })
-        // 混搭模式：每个角色一个分组，分组内列出它的全部权重。
-        const gptGroupsC = voiceOpts.map(v => {
-          const seen = new Set(); const items = []
-          availableModels.filter(m => m.voiceId === v.voiceId).forEach(m => {
-            if (!seen.has(m.gptCheckpoint)) { seen.add(m.gptCheckpoint); items.push({ path: m.gptCheckpoint, name: m.gptName, steps: m.gptSteps }) }
-          })
-          return { voiceId: v.voiceId, voiceName: v.voiceName, items }
-        }).filter(g => g.items.length)
-        const sovGroupsC = voiceOpts.map(v => {
-          const seen = new Set(); const items = []
-          availableModels.filter(m => m.voiceId === v.voiceId).forEach(m => {
-            if (!seen.has(m.sovitsModel)) { seen.add(m.sovitsModel); items.push({ path: m.sovitsModel, name: m.sovitsName, steps: m.sovitsSteps, version: m.sovitsVersion }) }
-          })
-          return { voiceId: v.voiceId, voiceName: v.voiceName, items }
-        }).filter(g => g.items.length)
-        const ownerOfGpt = (p) => (availableModels.find(m => m.gptCheckpoint === p) || {}).voiceId || ''
-        const ownerOfSov = (p) => (availableModels.find(m => m.sovitsModel === p) || {}).voiceId || ''
-        const modelsMixed = (rowModel.gptVoiceId && rowModel.gptVoiceId !== rowModel.voiceId)
-          || (rowModel.sovitsVoiceId && rowModel.sovitsVoiceId !== rowModel.voiceId)
-        const firstGptOf = (vid) => (availableModels.find(m => m.voiceId === vid && m.default) || availableModels.find(m => m.voiceId === vid) || {}).gptCheckpoint || ''
-        const firstSovOf = (vid) => (availableModels.find(m => m.voiceId === vid && m.default) || availableModels.find(m => m.voiceId === vid) || {}).sovitsModel || ''
+        const groupsFor = (slotName) => voiceOpts.map(v => ({
+          voiceId: v.voiceId, voiceName: v.voiceName, items: slotOptions(availableModels, slotName, v.voiceId),
+        })).filter(g => g.items.length)
+        // 跨角色混搭：打开后每个位的下拉列出所有角色的权重（按角色分组），关闭时只列主角色的。
+        // 已经是跨角色的组合（来自配方或旧行）自动进入混搭状态，保留原有选择。
+        const mix = !!rm.mix || slots.some(s => rm.owners[s.name] && rm.owners[s.name] !== rm.voiceId)
+        const picksOf = (vid) => defaultPicksOf(slots, availableModels.find(m => m.voiceId === vid))
         const pickVoice = (vid) => {
-          if (!vid) { onModelChange({ voiceId: '', gptCheckpoint: '', sovitsModel: '', gptVoiceId: '', sovitsVoiceId: '', mix }); return }
-          // 优先选该角色推荐的默认组合；微调出来的音色不带这个标记，回落到第一个组合。
-          // 换主角色会清掉已有的跨资产覆盖。
-          const first = availableModels.find(m => m.voiceId === vid && m.default)
-            || availableModels.find(m => m.voiceId === vid)
-          onModelChange({ voiceId: vid, gptCheckpoint: first ? first.gptCheckpoint : '', sovitsModel: first ? first.sovitsModel : '', gptVoiceId: '', sovitsVoiceId: '', mix })
+          if (!vid) { onModelChange({ voiceId: '', picks: {}, owners: {}, mix }); return }
+          // 换主角色会清掉已有的跨角色覆盖。
+          onModelChange({ voiceId: vid, picks: picksOf(vid), owners: {}, mix })
           // 底模自己没有切片：选它时直接切到跨角色参考选择器，用户立刻就能借一条参考。
           if (vid === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
         }
-        // 混搭模式下选 GPT 权重：推出它归属的角色，混搭标记与参考跟随逻辑才对得上。
-        const pickGptModel = (p) => {
-          const owner = ownerOfGpt(p)
-          onModelChange({ ...rowModel, gptCheckpoint: p, gptVoiceId: owner && owner !== rowModel.voiceId ? owner : '' })
-        }
-        // 混搭模式下选 SoVITS 权重。参考与语种跟随这一侧，下面的选择器据此改挂到它归属的角色。
-        const pickSovModel = (p) => {
-          const owner = ownerOfSov(p)
-          onModelChange({ ...rowModel, sovitsModel: p, sovitsVoiceId: owner && owner !== rowModel.voiceId ? owner : '' })
-          if (owner === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
+        // 选某个位的权重：推出它归属的角色，混搭标记与参考跟随逻辑才对得上。
+        const pickSlot = (slotName, path) => {
+          const owner = ownerOfModel(availableModels, slotName, path)
+          const owners = { ...rm.owners }
+          if (owner && owner !== rm.voiceId) owners[slotName] = owner
+          else delete owners[slotName]
+          onModelChange({ ...rm, picks: { ...rm.picks, [slotName]: path }, owners })
+          // 混搭下参考位换到没有切片的角色时，切到跨角色参考选择器。
+          if (mix && slotName === refSlot && owner === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
         }
         const toggleMix = (on) => {
-          if (on) { onModelChange({ ...rowModel, mix: true }); return }
+          if (on) { onModelChange({ ...rm, mix: true }); return }
           // 退出混搭模式时，组合收回到主角色上。
-          onModelChange({ ...rowModel, mix: false, gptVoiceId: '', sovitsVoiceId: '', gptCheckpoint: firstGptOf(rowModel.voiceId), sovitsModel: firstSovOf(rowModel.voiceId) })
+          onModelChange({ ...rm, mix: false, picks: picksOf(rm.voiceId), owners: {} })
         }
+        const modelsMixed = slots.some(s => rm.owners[s.name] && rm.owners[s.name] !== rm.voiceId)
+        const refSlotLabel = refSlot ? ((slots.find(s => s.name === refSlot) || {}).label || refSlot) : ''
+        // 混搭示例用名片上的位名。
+        const _ex = slots.slice(0, 2)
+        const mixExampleZh = _ex.length === 2 ? `（例如 A 的 ${_ex[0].label} + B 的 ${_ex[1].label}）` : ''
+        const mixExampleEn = _ex.length === 2 ? ` (e.g. A’s ${_ex[0].label} + B’s ${_ex[1].label})` : ''
         return (
           <div className="cmp-model-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="field" style={{ flex: '0 1 170px', minWidth: 130, marginBottom: 0 }}>
               <label className="field-label">Voice ID</label>
-              <Select className="control" value={rowModel.voiceId || ''} onChange={e => pickVoice(e.target.value)}
-                title={rowModel.voiceId || ''}>
+              <Select className="control" value={rm.voiceId || ''} onChange={e => pickVoice(e.target.value)}
+                title={rm.voiceId || ''}>
                 <option value="">— default —</option>
                 {voiceOpts.map(v => <option key={v.voiceId} value={v.voiceId}>{v.voiceName}</option>)}
               </Select>
             </div>
-            <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
-              <label className="field-label">GPT{rowModel.gptVoiceId && rowModel.gptVoiceId !== rowModel.voiceId ? ' *' : ''}</label>
-              <Select className="control" value={rowModel.gptCheckpoint || ''} disabled={!mix && !rowModel.voiceId}
-                title={rowModel.gptCheckpoint || ''}
-                onChange={e => (mix ? pickGptModel(e.target.value) : onModelChange({ ...rowModel, gptCheckpoint: e.target.value }))}>
-                {mix
-                  ? gptGroupsC.map(g => (
-                      <optgroup key={g.voiceId} label={g.voiceName}>
-                        {g.items.map(c => <option key={c.path} value={c.path}>{c.name}{c.steps ? ` (${c.steps})` : ''}</option>)}
-                      </optgroup>
-                    ))
-                  : (gptOpts.length === 0
-                      ? <option value="">—</option>
-                      : gptOpts.map(g => <option key={g.path} value={g.path}>{g.name}{g.steps ? ` (${g.steps})` : ''}</option>))}
-              </Select>
-            </div>
-            <div className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
-              <label className="field-label">SoVITS{rowModel.sovitsVoiceId && rowModel.sovitsVoiceId !== rowModel.voiceId ? ' *' : ''}</label>
-              <Select className="control" value={rowModel.sovitsModel || ''} disabled={!mix && !rowModel.voiceId}
-                title={rowModel.sovitsModel || ''}
-                onChange={e => (mix ? pickSovModel(e.target.value) : onModelChange({ ...rowModel, sovitsModel: e.target.value }))}>
-                {mix
-                  ? sovGroupsC.map(g => (
-                      <optgroup key={g.voiceId} label={g.voiceName}>
-                        {g.items.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>)}
-                      </optgroup>
-                    ))
-                  : (sovOpts.length === 0
-                      ? <option value="">—</option>
-                      : sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>))}
-              </Select>
-            </div>
+            {slots.map(s => {
+              const picked = rm.picks[s.name] || ''
+              const cross = rm.owners[s.name] && rm.owners[s.name] !== rm.voiceId
+              return (
+                <div key={s.name} className="field" style={{ flex: '1 1 240px', minWidth: 180, marginBottom: 0 }}>
+                  <label className="field-label">{s.label}{cross ? ' *' : ''}</label>
+                  <Select className="control" value={picked} disabled={!mix && !rm.voiceId}
+                    title={picked}
+                    onChange={e => pickSlot(s.name, e.target.value)}>
+                    {mix
+                      ? groupsFor(s.name).map(g => (
+                          <optgroup key={g.voiceId} label={g.voiceName}>
+                            {g.items.map(it => <option key={it.path} value={it.path}>{slotItemText(it)}</option>)}
+                          </optgroup>
+                        ))
+                      : (() => {
+                          // 未选角色时没有「本角色的候选」，画空占位而不是把全部角色的权重列出来。
+                          const opts = slotOptions(availableModels, s.name, rm.voiceId)
+                          return opts.length === 0
+                            ? <option value="">—</option>
+                            : opts.map(it => <option key={it.path} value={it.path}>{slotItemText(it)}</option>)
+                        })()}
+                  </Select>
+                </div>
+              )
+            })}
             <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', marginBottom: 0, cursor: 'pointer' }}
-              title={t('Mix models across assets — pick the GPT and SoVITS models from any voice independently (e.g. A’s GPT + B’s SoVITS).',
-                       '跨资产混搭模型：GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
+              title={t(`Mix models across assets — pick each weight slot from any voice independently${mixExampleEn}.`,
+                       `跨资产混搭模型：每个权重位可分别从任意音色中独立选择${mixExampleZh}。`)}>
               <input type="checkbox" checked={mix} onChange={e => toggleMix(e.target.checked)} />
               <span>{t('Mix models across assets', '跨资产混搭模型')}</span>
             </label>
-            {modelsMixed && (
+            {modelsMixed && refSlotLabel && (
               <div className="field-hint" style={{ flexBasis: '100%', color: 'var(--warning)', marginBottom: 0 }}>
-                {t('Mixed stack across assets — reference audio & language follow the SoVITS (timbre) side.',
-                   '跨资产混搭：参考音频与语言跟随 SoVITS（音色）侧。')}
+                {t(`Mixed stack across assets — reference audio & language follow the ${refSlotLabel} side.`,
+                   `跨资产混搭：参考音频与语言跟随 ${refSlotLabel} 侧。`)}
               </div>
             )}
           </div>

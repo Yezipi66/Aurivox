@@ -19,7 +19,7 @@ const CODE = stripComments(SRC)
 
 // 这一页不出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
 // （旧代码里的本地 state 名）两种写法都要列。守的是键出现的位置：对象字面量里的
-// `键名:`、下标里的 `[键名]`。用户可见的 tooltip 文案里提到某个名字不算。
+// `键名:`、下标里的 `[键名]`、成员赋值 `.键名 =`。用户可见的 tooltip 文案里提到某个名字不算。
 const HARDCODED = [
   'temperature', 'top_k', 'top_p', 'repetition_penalty',
   'text_split_method', 'speed_factor', 'batch_size',
@@ -28,20 +28,24 @@ const HARDCODED = [
   'topK', 'topP', 'repPenalty', 'splitMethod', 'speedFactor',
   'batchSize', 'batchThreshold', 'splitBucket',
   'fragmentInterval', 'parallelInfer', 'sampleSteps',
+  'gpt_model', 'sovits_model', 'gptCheckpoint', 'sovitsModel',
 ]
 
-// 键「被用上」的两种位置。两种都要守：少一种，那一处就能偷偷长回来。
+// 键「被用上」的三种位置。三种都要守：少一种，那一处就能偷偷长回来。
 const USED_AS = [
   n => new RegExp(`\\b${n}\\s*:`),                    // 对象字面量里的键，如 top_p: 1.0
   n => new RegExp(`\\[\\s*['"\`]${n}['"\`]\\s*\\]`),   // 下标里的键，如 row['top_p']
+  n => new RegExp(`\\.\\s*${n}\\s*(=|\\+=)`),          // 成员赋值，如 body.top_p = 1.0
 ]
 
 test('⛔ 对比页里不许出现任何写死的引擎参数名', () => {
   const found = HARDCODED.filter(name => USED_AS.some(rx => rx(name).test(CODE)))
   assert.deepEqual(found, [],
-    '这些参数名又回到对比页的代码里了（作为对象的键或下标）。' +
+    '这些参数名又回到对比页的代码里了（作为对象的键、下标或成员赋值）。' +
     '它们属于某一台引擎的 manifest.json，写在这里意味着换一台引擎时界面还在发这些键、' +
-    '而该长的格子长不出来。（注意：只作为**文案**提到某个名字不算。）')
+    '而该长的格子长不出来。（注意：只作为**文案**提到某个名字不算。）' +
+    '权重位名和旧界面为它们发明的字段名也算：请求体、配方、旧行数据都按位名读，' +
+    '这一页的代码里再出现一次就是第二份写死。')
 })
 
 test('⛔ 也不许用本地 state 把某个引擎参数名再抄一遍', () => {
@@ -91,9 +95,10 @@ test('⭐ 单方法引擎不许画方法下拉（没有第二个选项的下拉�
 })
 
 test('⛔ CMP_ENGINE 这个常量不许回来', () => {
-  // 它是「这一页写死一台引擎」的全部证据。位名现在来自 weight_slots。
-  assert.ok(!/\bCMP_ENGINE\b/.test(CODE), 'CMP_ENGINE 又回来了')
-  assert.ok(CODE.includes('weight_slots'), '权重位名没有从名片读')
+  assert.ok(!/\bCMP_ENGINE\b/.test(CODE), 'CMP_ENGINE 又回来了：它是「这一页写死一台引擎」的全部证据')
+  assert.ok(CODE.includes('slotsOf('), '权重位名没有从名片读（位名现在经 slotsOf 从 weight_slots 读）')
+  assert.ok(/compareWeightBody\(/.test(CODE),
+    'generateRow 没有用 compareWeightBody 组权重字段：请求体的权重字段由纯函数按名片拼，这一页自己再拼一次就是第二条装配线')
 })
 
 test('换引擎必须重建权重下拉（依赖数组里少了 engine.id 就是安静地错）', () => {

@@ -50,6 +50,16 @@ export function weightsToRecipeFields(weightParams) {
   return out
 }
 
+// 配方顶层那两个字段 → 引擎参数名，与 weightsToRecipeFields 同表反向查。
+// 两个键总是出现（缺失时为空串）：读回时「空」也要盖掉编辑器里上一次的选择。
+export function recipeWeightParams(recipe) {
+  const out = {}
+  for (const [param, field] of Object.entries(RECIPE_WEIGHT_FIELDS)) {
+    out[param] = recipePath(recipe && recipe[field])
+  }
+  return out
+}
+
 // 这两个字段在界面上显示成什么。同样是上面那笔账的一部分，名字是第一台引擎的形状，
 // 所以标签也是。
 const RECIPE_WEIGHT_LABELS = { gpt_ckpt: 'GPT', sovits_pth: 'SoVITS' }
@@ -94,8 +104,7 @@ export function recipeToGenerateParams(recipe, currentText = '', engineId = '') 
     ref_audio: recipePath(recipe && recipe.reference_audio),
     reference_text: (recipe && recipe.reference_text) || '',
     text_lang: (recipe && recipe.language) || '',
-    gpt_model: recipePath(recipe && recipe.gpt_ckpt),
-    sovits_model: recipePath(recipe && recipe.sovits_pth),
+    ...recipeWeightParams(recipe),
     aux_ref_audio_paths: (bag.aux_ref_audio_paths || []).map(recipePath).filter(Boolean),
     pron_overrides: bag.pron_overrides || {},
     lang_overrides: bag.lang_overrides || {},
