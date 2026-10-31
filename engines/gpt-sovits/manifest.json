@@ -103,13 +103,21 @@
     "    launch —— 开进程那一步吃进去的，换一份 = 带着它重开一次（不许配 param）。",
     "  GPT-SoVITS 两个位都是 call：进程起着就能把权重换掉。",
     "",
+    "⭐ switch = 换这一份时**平台额外发的那个请求**（可选）。只许写在 call 位，",
+    "  且只对走 HTTP 的引擎有意义：",
+    "     { \"endpoint\": \"/set_gpt_weights\", \"query\": \"weights_path\" }",
+    "  平台发 GET endpoint?query=<选中的路径>。不写 = 这个位的值随请求体一起送到",
+    "  （stdio 宿主走这条路），平台不额外发请求。写了 switch 却没发出去 = 骗人。",
+    "",
     "⚠ 不写 applies_at 平台按有没有 param 推（有=call，没有=launch）；",
     "  写了就必须和 param 对得上，否则当场装不上。",
     "⛔ 绝不许为了让界面好看而填一个引擎根本不读的键。"
   ],
   "weights": [
-    { "name": "gpt", "label": "GPT", "param": "gpt_model", "applies_at": "call" },
-    { "name": "sovits", "label": "SoVITS", "param": "sovits_model", "applies_at": "call" }
+    { "name": "gpt", "label": "GPT", "param": "gpt_model", "applies_at": "call",
+      "switch": { "endpoint": "/set_gpt_weights", "query": "weights_path" } },
+    { "name": "sovits", "label": "SoVITS", "param": "sovits_model", "applies_at": "call",
+      "switch": { "endpoint": "/set_sovits_weights", "query": "weights_path" } }
   ],
 
   "_comment_param_keys": [
