@@ -85,7 +85,7 @@ function licenseText (meta, t) {
   return '—'
 }
 
-export default function StepPrepare ({ state, facts, onChange, onDone, onNext, prep, onPrep }) {
+export default function StepPrepare ({ state, facts, onChange, onDone, onNext, prep, onPrep, onUndone }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
   const [idInput, setIdInput] = React.useState(state.id || '')
@@ -106,8 +106,9 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   const resForCur = (res && res.input === url) ? res : null
 
   // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
+  // setRes 不再单独列出：res 的写入都走 onPrep（resolve 里要同时清 probe，
+  //   单独 setRes 表达不了这种成组写，删掉免得误用）。
   const patch = (k, v) => onPrep((w) => ({ ...w, [k]: v }))
-  const setRes = (v) => patch('res', v)
   const setProbe = (v) => patch('probe', v)
   const setPlan = (v) => patch('plan', v)
   const setCloneRes = (v) => patch('cloneRes', v)
@@ -177,11 +178,11 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
     try {
-      // 嗅探针对「使用者此刻在输入框里看到的地址」，不是 state.repoUrl：
-      //   state.repoUrl 是持久段里上一次解析的产物，换了链接就过期，
-      //   留着它会让「输入 A 却嗅探 B」。
-      const j = await post('/wizard/probe',
-        { url: url || state.repoUrl })
+      // 嗅探针对「使用者此刻在输入框里看到的地址」。
+      //   url 就是输入框的值（初始 state.url，之后每次输入都 setUrl）；
+      //   不要退到 state.repoUrl：它是持久段里上一次解析的产物，换了链接
+      //   就过期，留着会让「输入 A 却嗅探 B」。
+      const j = await post('/wizard/probe', { url })
       setProbe(j)
     } finally {
       setBusy('')
@@ -257,12 +258,16 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   // 命令与目标路径同源：改目录名时两者必须一起变。
   const enginesDir = (resForCur && resForCur.enginesDir) || null
   const pathSep = (resForCur && resForCur.pathSep) || null
-  const relEngineDir = `engines/${curId}/`
   const fullEngineDir = (enginesDir && pathSep && curId)
     ? enginesDir + pathSep + curId
     : null
 
-const done = facts && facts.cloned === true
+  // 第 1 步完成 = 后端判的「目录已克隆」，键是 steps_done.prepare。
+  //   facts 的键与 core/installState.js 的 steps 逐字相同，只有
+  //   prepare/env/models/manifest/verify 五个，没有 cloned。
+  //   用 facts.cloned 会恒为 undefined ⇒ done 恒 false ⇒ 克隆完成后
+  //   「撤销克隆 / 下一步」永远不会出现，使用者被卡在第 1 步。
+  const done = facts && facts.prepare === true
   const meta = (probe && probe.meta) || null
 
   // 嗅探状态（给卡片底部那个手动按钮用）。
@@ -343,7 +348,7 @@ const done = facts && facts.cloned === true
         <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读取…')}</p>
       )}
 
-            {/* 告知「我们把你的链接改了」：不是错误，是修正
+      {/* 告知「我们把你的链接改了」：不是错误，是修正
           （文案查表，不走后端的中文句子）*/}
       {resForCur && resForCur.ok && resForCur.noteCode && (
         <p className="plan-warn" style={{ margin: 0 }}>
@@ -351,7 +356,7 @@ const done = facts && facts.cloned === true
         </p>
       )}
 
-{resForCur && !resForCur.ok && (
+      {resForCur && !resForCur.ok && (
         <div className="msg msg-danger">
           {errText(resForCur, t)}
           {resForCur.example && (
@@ -539,10 +544,12 @@ const done = facts && facts.cloned === true
           <div style={{ display: 'flex', gap: 8, alignItems: 'center',
             justifyContent: 'flex-end', marginTop: 12 }}>
             <UndoClone engineId={curId} onUndone={() => {
-              // 目录没了 ⇒ 第 1 步的完成状态作废，回到第 1 步重来。
+              // 目录没了 ⇒ 第 1 步的完成状态作废：清掉失败结果（cloneRes），
+              // 并让 App 重新读完成状态（facts 由端点判，撤销后 prepare 应为 false）。
+              // 不写 wz.cloned：完成状态只由端点判，持久段里没有它的位置。
               setCloneRes(null)
               onPrep((w) => ({ ...w, cloneRes: null }))
-              onChange({ cloned: false })
+              onUndone && onUndone()
             }} />
             <button className="btn btn-primary btn-sm" type="button"
               onClick={onNext}>

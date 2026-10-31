@@ -60,7 +60,7 @@ test('App 把 onNext 传给 StepPrepare（下一步按钮负责跳第 2 步）',
 //   而输入框 onChange 只更新 wz.url 不清这两个持久段字段。
 test('换链接后嗅探用当前输入、克隆用对应当前输入的 res（不用残留旧值）', () => {
   // doProbe 的请求地址必须取当前输入框的 url，不是 state.repoUrl（残留旧值）。
-  assert.ok(/const j = await post\('\/wizard\/probe',\s*\{\s*url: url \|\| state\.repoUrl\s*\}\)/.test(prepSrc),
+  assert.ok(/const j = await post\('\/wizard\/probe',\s*\{\s*url\s*\}\)/.test(prepSrc),
     'doProbe 没取当前输入框的 url：换链接后嗅探会用上一次解析的残留地址')
   // doClone 的 cloneUrl 只能从「对应当前输入」的 res 里取，不留 state.cloneUrl 退路。
   assert.ok(/const resForCur = \(res && res\.input === url\) \? res : null/.test(prepSrc),
@@ -101,4 +101,35 @@ test('显示区全部用对应当前输入的 resForCur，不用裸 res', () => 
   // 失焦/回车重新解析的条件也必须是 !resForCur（res 过期非空时也要能重解析）
   assert.ok(/onBlur=\{\(\) => \{ if \(url\.trim\(\) && !resForCur\) resolve\(\) \}\}/.test(prepSrc),
     'onBlur 还在判 !res：res 过期非空时不会重新解析，界面卡在过期状态')
+})
+
+// 第 1 步完成状态必须用后端真正提供的键：facts 是 /wizard/install-state 的
+// steps_done，只有 prepare/env/models/manifest/verify 五个键，没有 cloned。
+// 判据失守时 done 恒 false，克隆完成后「撤销克隆 / 下一步」永远不会出现，
+// 使用者被卡在第 1 步；而流程条（steps.js 的 stepDone）用 facts.prepare 判，
+// 同一份 facts 两处判据打架，界面自相矛盾。
+test('第 1 步完成状态用 facts.prepare，不用不存在的 facts.cloned', () => {
+  assert.ok(/const done = facts && facts\.prepare === true/.test(prepSrc),
+    'done 用了 facts.cloned：steps_done 没有这个键，done 恒 false，克隆后「下一步」永不出现')
+  // 只查代码用法（facts.cloned ===），注释里提到这个键名是允许的。
+  assert.ok(!/facts\.cloned\s*===/.test(prepSrc),
+    '代码里还有 facts.cloned ===：后端只提供五个步骤键，cloned 是死键')
+})
+
+// 换链接修复之后不该留下孤儿：声明了没人用 / 与注释矛盾的，都得清掉，
+// 免得误导下一个接手的人（以为还能用，实际是死代码）。
+test('无孤儿：setRes、relEngineDir 已删，撤销克隆不写孤儿键', () => {
+  assert.ok(!/const setRes = /.test(prepSrc),
+    'setRes 是孤儿函数（声明了没有任何调用），应删')
+  assert.ok(!/const relEngineDir = /.test(prepSrc),
+    'relEngineDir 是孤儿变量（声明了没有任何使用），应删')
+  assert.ok(!/onChange\(\{ cloned: false \}\)/.test(prepSrc),
+    '还写 wz.cloned：持久段没有这个键，是孤儿写入，完成状态只由端点判')
+})
+
+// 撤销克隆（第 1 步）后必须重新判完成状态：目录删了 ⇒ facts.prepare 变 false，
+// 「已克隆」区收起、回到命令区。判据失守时界面仍停在「已克隆」，下一步还能走。
+test('撤销克隆后重新判完成状态（App 把 reloadFacts 交给 StepPrepare）', () => {
+  assert.ok(/onUndone=\{\(\) => reloadFacts\(\)\}/.test(appSrc),
+    'App 没把 reloadFacts 给 StepPrepare：撤销后 facts 不刷新，「已克隆」区不收起')
 })

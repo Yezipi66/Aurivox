@@ -286,6 +286,9 @@ export default function App () {
                   // 来不及看到「已克隆」的确认，心智模型也对不上。
                 }}
                 onNext={() => setPage('env')}
+                // 撤销克隆 ⇒ 目录没了 ⇒ 重新判完成状态（facts.prepare 变 false，
+                // 「已克隆」区收起，回到命令区）。不跳页：第 1 步撤销后留在第 1 步重来。
+                onUndone={() => reloadFacts()}
                 prep={prep} onPrep={patchPrep} />
             )}
             {page === 'env' && (
