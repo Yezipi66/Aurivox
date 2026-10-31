@@ -45,15 +45,6 @@ export default function EngineEscapeHatch ({ id, dirs, onSwitch }) {
             </option>
           ))}
         </select>
-        <span className="field-hint" style={{ margin: 0 }}>
-          {t('Pick a directory under engines/, then submit it with the "Switch engine" button. '
-            + 'Submitting discards everything on this page and reloads that engine.',
-            '选择 engines/ 下的目录后，点右下的「切换引擎」提交。'
-            + '提交会放弃当前页面的所有操作，按新引擎重新读取。')}
-          {' '}
-          {t('A green check marks an engine that is usable (has a valid manifest and weights ready).',
-            '绿勾 = 这台能用（有名片且底模就绪）。')}
-        </span>
       </div>
 
       {/* 选了与当前不同的引擎，才出现提交按钮（右对齐） */}
