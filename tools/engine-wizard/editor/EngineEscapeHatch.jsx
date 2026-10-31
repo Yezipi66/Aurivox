@@ -26,8 +26,9 @@ export default function EngineEscapeHatch ({ id, dirs, onPick }) {
           {t('Pick a directory under engines/', '选择 engines/ 下的目录')}
         </option>
         {(dirs || []).map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.id}
+          <option key={d.id} value={d.id}
+            style={d.usable ? { color: '#4caf50', fontWeight: 600 } : undefined}>
+            {d.usable ? '✓ ' : ''}{d.id}
             {d.manifestPresent ? ` · ${t('manifest', '有名片')}` : ''}
           </option>
         ))}
@@ -35,6 +36,9 @@ export default function EngineEscapeHatch ({ id, dirs, onPick }) {
       <span className="field-hint" style={{ margin: 0 }}>
         {t('Escape hatch: switch to any engine under engines/. Every step follows this target.',
           '逃生口：可切到 engines/ 下的任意一台，向导每一步都作用于这台。')}
+        {' '}
+        {t('A green check marks an engine that is usable (has a valid manifest and weights ready).',
+          '绿勾 = 这台能用（有名片且底模就绪）。')}
       </span>
     </div>
   )
