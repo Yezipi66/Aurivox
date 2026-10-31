@@ -171,8 +171,11 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
     try {
+      // 嗅探针对「使用者此刻在输入框里看到的地址」，不是 state.repoUrl：
+      //   state.repoUrl 是持久段里上一次解析的产物，换了链接就过期，
+      //   留着它会让「输入 A 却嗅探 B」。
       const j = await post('/wizard/probe',
-        { url: state.repoUrl || (res && res.url) || url })
+        { url: url || state.repoUrl })
       setProbe(j)
     } finally {
       setBusy('')
@@ -193,8 +196,13 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
       return
     }
     try {
-      // cloneUrl 同时从 res 和 state 取，只读 props 会在解析刚完成时拿到空值。
-      const cloneUrl = (res && res.cloneUrl) || state.cloneUrl
+      // cloneUrl 只能从「对应当前输入框」的 res 里取：
+      //   res 是上一次解析的产物，换了链接它就过期（input 是解析时的输入）。
+      //   用过期 res 的 cloneUrl（或持久段里残留的 state.cloneUrl）去克隆，
+      //   会把上一个仓库拉进当前目录——输入 Spark-TTS 却克隆出 piper 那种。
+      //   两者都对不上当前输入时，让后端报「请先解析链接」，不猜一个。
+      const resForCur = (res && res.input === url) ? res : null
+      const cloneUrl = (resForCur && resForCur.cloneUrl) || ''
       // 与文案、只读预览用同一个 curId：后端按它算 engines/<id>，
       // 前端不另拼一份。
       const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
@@ -290,7 +298,11 @@ const done = facts && facts.cloned === true
               // （state 只在解析成功时才被写入，见 resolve() 里的 onChange）。
               // 写回父组件的是原始输入，不含解析产物
               // （res/probe/cloneUrl 仍只在解析成功时写）。
-              onChange({ url: e.target.value })
+              // repoUrl/cloneUrl 一起清：换了一个链接，之前解析出的上游地址就是旧的。
+              //   若留着，嗅探（doProbe 读 state.repoUrl）与克隆（doClone 读
+              //   state.cloneUrl）会用上一个仓库的值，出现「输入 A 却嗅探/克隆 B」，
+              //   而 B 恰好没有依赖清单时，就表现为「这个仓库没有声明依赖」。
+              onChange({ url: e.target.value, repoUrl: '', cloneUrl: '' })
               // 只在真的变了时才清结果；
               // 只清这四个键，别整体替换 prep（会把别的键一起抹掉）
               if (e.target.value !== lastResolved) {

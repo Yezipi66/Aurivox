@@ -52,3 +52,22 @@ test('App 把 onNext 传给 StepPrepare（下一步按钮负责跳第 2 步）',
   assert.ok(/onNext=\{\(\) => setPage\('env'\)\}/.test(appSrc),
     'App 没把 onNext 传给 StepPrepare：克隆完成后「下一步」无处可去')
 })
+
+// 换链接后的嗅探与克隆必须针对当前输入框，不能用上一次解析的残留：
+//   输入 A 却嗅探/克隆 B，且 B 恰好没有依赖清单时，界面表现为
+//   「这个仓库没有任何声明依赖」，而用户明明贴的是有清单的仓库。
+//   判据失守的根因是 doProbe/doClone 优先读 state.repoUrl/state.cloneUrl，
+//   而输入框 onChange 只更新 wz.url 不清这两个持久段字段。
+test('换链接后嗅探用当前输入、克隆用对应当前输入的 res（不用残留旧值）', () => {
+  // doProbe 的请求地址必须取当前输入框的 url，不是 state.repoUrl（残留旧值）。
+  assert.ok(/const j = await post\('\/wizard\/probe',\s*\{\s*url: url \|\| state\.repoUrl\s*\}\)/.test(prepSrc),
+    'doProbe 没取当前输入框的 url：换链接后嗅探会用上一次解析的残留地址')
+  // doClone 的 cloneUrl 只能从「对应当前输入」的 res 里取，不留 state.cloneUrl 退路。
+  assert.ok(/const resForCur = \(res && res\.input === url\) \? res : null/.test(prepSrc),
+    'doClone 没按 res.input === url 过滤：会用过期 res 的 cloneUrl 克隆错仓库')
+  assert.ok(/const cloneUrl = \(resForCur && resForCur\.cloneUrl\) \|\| ''/.test(prepSrc),
+    'doClone 的 cloneUrl 还有 state.cloneUrl 退路：残留旧地址会把上一个仓库拉进来')
+  // 输入框 onChange 改 URL 时必须同时清 repoUrl/cloneUrl。
+  assert.ok(/onChange\(\{\s*url: e\.target\.value,\s*repoUrl: '',\s*cloneUrl: ''\s*\}\)/.test(prepSrc),
+    'onChange 只写 url 不清 repoUrl/cloneUrl：持久段残留旧上游，嗅探与克隆会用错')
+})
