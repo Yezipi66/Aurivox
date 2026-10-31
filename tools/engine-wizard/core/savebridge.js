@@ -30,7 +30,7 @@ function handleInstalled (req, res) {
 }
 
 // 「能用」打绿勾的判据：用平台已有的两段，不发明新的。
-//   ① 平台认可：有有效 manifest.json（id 与目录名一致）——registry 就靠这个认引擎；
+//   ① 平台认可：有有效 manifest.json（id 与目录名一致），registry 就靠这个认引擎；
 //   ② 权重就绪：checkpointStatus(profile).ready === true（纯 fs 检查，不 spawn、不联网）。
 //   环境不放进判据：GSV 这类平台底座引擎按名片声明查 .venv 会判 false（它走平台基座），
 //   而它实际能用；拿 env 当门会把真实能用的引擎标成不能用。
