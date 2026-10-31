@@ -71,3 +71,34 @@ test('换链接后嗅探用当前输入、克隆用对应当前输入的 res（�
   assert.ok(/onChange\(\{\s*url: e\.target\.value,\s*repoUrl: '',\s*cloneUrl: ''\s*\}\)/.test(prepSrc),
     'onChange 只写 url 不清 repoUrl/cloneUrl：持久段残留旧上游，嗅探与克隆会用错')
 })
+
+// 显示与使用必须同源：命令区、项目信息区、克隆、路径全从「对应当前输入框」的
+// resForCur 取，不许再用裸 res。裸 res 是上次解析的产物，换过链接就过期；
+// 用它显示命令会出现「命令是上一个仓库、识别信息是当前仓库」（用户先前见过的
+// 现象：命令显示 piper，识别信息却是 Spark TTS）。克隆已按 resForCur 走，
+// 显示也必须跟它一致。
+test('显示区全部用对应当前输入的 resForCur，不用裸 res', () => {
+  // 命令文本：git clone ${resForCur.cloneUrl}，不许是 res.cloneUrl
+  assert.ok(/git clone \$\{\(resForCur && resForCur\.cloneUrl\) \|\| ''\}/.test(prepSrc),
+    '命令文本用了裸 res.cloneUrl：命令与克隆不同源，会出现「命令是上一个仓库」')
+  // 项目信息区门控
+  assert.ok(/resForCur && resForCur\.ok && readSomething && \(/.test(prepSrc),
+    '项目信息区门控没走 resForCur：会显示过期仓库的信息')
+  // 命令区门控
+  assert.ok(/resForCur && resForCur\.ok && readSomething && !done/.test(prepSrc),
+    '命令区门控没走 resForCur：会显示过期仓库的命令')
+  // 已克隆区门控
+  assert.ok(/resForCur && resForCur\.ok && done && \(/.test(prepSrc),
+    '已克隆区门控没走 resForCur：会显示过期仓库的完成状态')
+  // 嗅探按钮门控
+  assert.ok(/resForCur && resForCur\.ok && !done && !readSomething/.test(prepSrc),
+    '嗅探按钮门控没走 resForCur：换链接后按钮会用过期状态')
+  // 目录名与路径
+  assert.ok(/const autoId = \(resForCur && resForCur\.ok && resForCur\.repo\) \|\| guessRepoFromUrl\(url\)/.test(prepSrc),
+    'autoId 没走 resForCur：换链接后默认目录名取自过期仓库')
+  assert.ok(/const enginesDir = \(resForCur && resForCur\.enginesDir\) \|\| null/.test(prepSrc),
+    'enginesDir 没走 resForCur：目标路径会拼出过期仓库的目录')
+  // 失焦/回车重新解析的条件也必须是 !resForCur（res 过期非空时也要能重解析）
+  assert.ok(/onBlur=\{\(\) => \{ if \(url\.trim\(\) && !resForCur\) resolve\(\) \}\}/.test(prepSrc),
+    'onBlur 还在判 !res：res 过期非空时不会重新解析，界面卡在过期状态')
+})

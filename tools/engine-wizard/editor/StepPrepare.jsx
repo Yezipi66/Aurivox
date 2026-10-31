@@ -99,6 +99,12 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   // 上次解析成功时链接框里的值，用于判「使用者是否改了链接」；必须在 res 之后声明（TDZ）。
   const lastResolved = (res && res.input) || ''
 
+  // 只认「对应当前输入框」的那份 res：res 是上次解析的产物，换过链接就过期
+  //   （input 是解析时的输入）。命令区、项目信息区、克隆、目录名、路径都从
+  //   这一个值取，显示与克隆同源，不会出现「命令是上一个仓库、信息是当前仓库」。
+  //   对不上当前输入时（null）让界面回到未解析状态，等失焦/回车重新解析。
+  const resForCur = (res && res.input === url) ? res : null
+
   // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
   const patch = (k, v) => onPrep((w) => ({ ...w, [k]: v }))
   const setRes = (v) => patch('res', v)
@@ -121,7 +127,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
 
   // 不填目录名时的默认值 = 仓库根链接的最后一段。state.id 不作来源（旧 id 会造成双 id）。
   // 这一行同时喂给克隆请求、命令文案、目标路径与风险文案。
-  const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
+  const autoId = (resForCur && resForCur.ok && resForCur.repo) || guessRepoFromUrl(url)
   const curId = folderName({ typed: idInput, suggested: autoId })
 
   // ① 解析（本地，不联网），紧接着做一次只读探测
@@ -196,12 +202,10 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
       return
     }
     try {
-      // cloneUrl 只能从「对应当前输入框」的 res 里取：
-      //   res 是上一次解析的产物，换了链接它就过期（input 是解析时的输入）。
+      // cloneUrl 从顶部那份 resForCur 取（只认对应当前输入框的 res）：
       //   用过期 res 的 cloneUrl（或持久段里残留的 state.cloneUrl）去克隆，
-      //   会把上一个仓库拉进当前目录——输入 Spark-TTS 却克隆出 piper 那种。
-      //   两者都对不上当前输入时，让后端报「请先解析链接」，不猜一个。
-      const resForCur = (res && res.input === url) ? res : null
+      //   会把上一个仓库拉进当前目录。两者都对不上当前输入时，让后端
+      //   报「请先解析链接」，不猜一个。
       const cloneUrl = (resForCur && resForCur.cloneUrl) || ''
       // 与文案、只读预览用同一个 curId：后端按它算 engines/<id>，
       // 前端不另拼一份。
@@ -239,7 +243,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
         // 目录清掉了 ⇒ 之前的失败结果作废，重新解析一遍拿到新状态。
         setCloneRes(null)
         onPrep((w) => ({ ...w, cloneRes: null }))
-        if (res && res.ok) await resolve()
+        if (resForCur && resForCur.ok) await resolve()
       } else {
         setCloneRes({ ok: false, code: j.code || 'REMOVE_FAILED', error: j.error || j.errorZh })
       }
@@ -251,8 +255,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   // 目标目录由后端给（enginesDir + pathSep），前端不推断文件系统路径。
   // 拿不到 enginesDir ⇒ 不显示路径，不显示空的或假的绝对路径。
   // 命令与目标路径同源：改目录名时两者必须一起变。
-  const enginesDir = (res && res.enginesDir) || null
-  const pathSep = (res && res.pathSep) || null
+  const enginesDir = (resForCur && resForCur.enginesDir) || null
+  const pathSep = (resForCur && resForCur.pathSep) || null
   const relEngineDir = `engines/${curId}/`
   const fullEngineDir = (enginesDir && pathSep && curId)
     ? enginesDir + pathSep + curId
@@ -309,8 +313,8 @@ const done = facts && facts.cloned === true
                 onPrep((w) => ({ ...w, res: null, probe: null, plan: null, cloneRes: null }))
               }
             }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !res) resolve() }}
-            onBlur={() => { if (url.trim() && !res) resolve() }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !resForCur) resolve() }}
+            onBlur={() => { if (url.trim() && !resForCur) resolve() }} />
         </div>
         <div className="field">
           <label className="field-label" htmlFor="wz-engine-id">
@@ -341,18 +345,18 @@ const done = facts && facts.cloned === true
 
             {/* 告知「我们把你的链接改了」：不是错误，是修正
           （文案查表，不走后端的中文句子）*/}
-      {res && res.ok && res.noteCode && (
+      {resForCur && resForCur.ok && resForCur.noteCode && (
         <p className="plan-warn" style={{ margin: 0 }}>
-          {errText({ code: res.noteCode, params: res.noteParams }, t)}
+          {errText({ code: resForCur.noteCode, params: resForCur.noteParams }, t)}
         </p>
       )}
 
-{res && !res.ok && (
+{resForCur && !resForCur.ok && (
         <div className="msg msg-danger">
-          {errText(res, t)}
-          {res.example && (
+          {errText(resForCur, t)}
+          {resForCur.example && (
             <div className="field-hint">
-              {t('Example:', '例如：')} <code>{res.example}</code>
+              {t('Example:', '例如：')} <code>{resForCur.example}</code>
             </div>
           )}
         </div>
@@ -365,7 +369,7 @@ const done = facts && facts.cloned === true
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。
           嗅探（及嗅探失败后的重试）是右下角那个按钮的专属动作。*/}
-      {res && res.ok && readSomething && (
+      {resForCur && resForCur.ok && readSomething && (
         <>
           <div className="layer-label">{t('Project information', '项目信息')}</div>
           <div className="plan-kv">
@@ -393,7 +397,7 @@ const done = facts && facts.cloned === true
             这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
           不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
           判据：此区域里的命令必须与真正要执行的那条逐字相同。*/}
-      {res && res.ok && readSomething && !done && (
+      {resForCur && resForCur.ok && readSomething && !done && (
         <>
           {/* 命令区：复用时没有命令要跑。
               复用是这一次的常态（目录已经在了），摆一条不会执行的 git clone
@@ -403,7 +407,7 @@ const done = facts && facts.cloned === true
               <span className="pk">{t('Command', '命令')}</span>
               <span className="pv">
                 <code>
-                  {`git clone ${(res && res.cloneUrl) || ''} engines/${curId}`}
+                  {`git clone ${(resForCur && resForCur.cloneUrl) || ''} engines/${curId}`}
                 </code>
               </span>
             </div>
@@ -526,7 +530,7 @@ const done = facts && facts.cloned === true
           下一步只负责跳到第 2 步（安装依赖），不再克隆；克隆已经完成了。
           跳转是使用者自己的决定，不自动跳（onDone 不再 setPage）。
           撤销克隆删掉 engines/<id>/ 整棵，回到第 1 步重来。*/}
-      {res && res.ok && done && (
+      {resForCur && resForCur.ok && done && (
         <>
           <div className="msg msg-info">
             {t('Cloned into engines/' + curId + '/.',
@@ -555,7 +559,7 @@ const done = facts && facts.cloned === true
           使用者既看不到原因，也没法自己再探一次。
           嗅探成功后这个按钮就交给上面那行的「重新嗅探」，不再重复摆：
           同一动作摆两处，使用者会以为是两件事。*/}
-      {res && res.ok && !done && !readSomething && (
+      {resForCur && resForCur.ok && !done && !readSomething && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
           gap: 8, marginTop: 12 }}>
           <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
