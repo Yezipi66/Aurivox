@@ -18,10 +18,10 @@ import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, pa
 import { ParamField } from '../common/ParamField'
 import { migrateRow } from '../../lib/compareRowMigrate'
 import { useT } from '../../lib/i18n'
-import { recipePath, weightsToRecipeFields } from '../../lib/recipes'
-import { modelsFromMeta, slotsOf, weightsFromParams, weightsToSend } from '../../lib/modelPickers.pure.js'
+import { recipePath, recipeWeightParams, weightsToRecipeFields } from '../../lib/recipes'
+import { slotsOf, weightsFromParams, weightsToSend } from '../../lib/modelPickers.pure.js'
 import {
-  MODEL_COMBO_LIMIT, modelCombos, normalizeRowModel, referenceVoiceOf, weightRequestFields, slotItemText,
+  candidatePathsBySlot, compareWeightBody, defaultPicksOf, normalizeRowModel, referenceVoiceOf, voiceEntry,
 } from './compareModelPicks.pure.js'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 import { CompareRow } from './CompareRow'
@@ -29,10 +29,8 @@ import { CompareBatchCard } from './CompareBatchCard'
 
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()
-  // 对比页的参考配置工作区要能扛住刷新与应用重启。
-  // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：
-  // 所以只要后端还留着输出文件，持久化结果就能让播放器在刷新后照常工作。
-  // 临时状态在重新载入时重置，列表设上限，避免撑爆 localStorage 配额。
+  // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：后端还留着输出
+  // 文件，刷新后播放器就能照常工作。临时状态在重新载入时重置，行数上限是 localStorage 配额。
   const [rows, setRows] = usePersistentState('compare.rows', [], {
     // 旧的每行目标语种 'auto'（该选项已下线）落到「用默认」。
     rehydrate: r => Array.isArray(r)
@@ -53,19 +51,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const [defaultHanForced, setDefaultHanForced] = usePersistentState('compare.defaultHanForced', [])
   const [defaultHanReadings, setDefaultHanReadings] = usePersistentState('compare.defaultHanReadings', {})
   const [showDefaultTextPrep, setShowDefaultTextPrep] = useState(false)
-  const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, picks, items, label }]
+  const [availableModels, setAvailableModels] = useState([])  // 每个角色一项：{ voiceId, voiceName, itemsBySlot, default, language, builtin }
   // 每行的模型选择按位名索引：picks 存路径，owners 存跨角色选择时那一侧的角色。
-  const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {}, {
-    // 旧形状把两个位写死成 gptCheckpoint/sovitsModel，读回时搬进 picks。
-    rehydrate: v => {
-      if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
-      const out = {}
-      for (const [rowId, rm] of Object.entries(v)) out[rowId] = normalizeRowModel(rm)
-      return out
-    },
-  })
-  // 模型组合超过上限时被丢弃的数量，用于界面提示。
-  const [modelComboDropped, setModelComboDropped] = useState(0)
+  // 旧形状在读取时按当前位迁移，persist 的值原样留着。
+  const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})
   const [defaultParams, setDefaultParams] = useState(null)  // 从 /api/advanced-params 读
   // 引擎批量推理的总开关。每行自己的三态（继承 / 开 / 关）都对着它解析，
   // 「继承」就是跟着这个总开关走。
@@ -92,10 +81,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const [recipes, setRecipes] = useState([])
   const openSaveRecipe = (row) => {
     const slots = slotsOf(engine)
-    const rm = normalizeRowModel(rowModels[row.id])
+    const rm = normalizeRowModel(rowModels[row.id], slots)
     const dp = defaultParams || {}
-    // 这一行自己的模型语种（与共享的 selectedVoice 无关）。
-    // 混搭时参考音频与语种跟随名片里第一个能换的位（GSV 是 SoVITS）。
+    // 这一行自己的模型语种（与共享的 selectedVoice 无关），参考侧跟随第一个能换的位。
     const rmVoiceId = referenceVoiceOf(rm, slots, selectedVoice)
     const rmVoiceLang = availableModels.find(m => m.voiceId === rmVoiceId)?.language
       || voices.find(v => (v.id || v.voiceId) === rmVoiceId)?.language || 'ja'
@@ -117,13 +105,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         //   形状一致）。硬编码键名的话，换一台引擎存下来的就是一堆
         //   上游不认的键，存的时候不报错，回放的时候也不报错。
         ...paramsToSend(engine, row.params, row.touched),
-        // 对比页不逐行暴露的那些字段（advanced 层）回落到共享默认值，
-        // 这样配方仍能复现出同一次试听。
-        //
-        // 凡是在当前引擎名片上的参数（不论 common 还是 advanced 层），
-        //   都按「这行没动过 ⇒ 取共享默认 / 动过 ⇒ 取这一行的」补齐，
-        //   这样配方仍然是「完整合同」（回放得出一模一样的结果），
-        //   而键名一个都不写死。
+        // 对比页不逐行暴露的字段（advanced 层）回落到共享默认值，这样配方仍是「完整
+        // 合同」，回放得出一模一样的结果。名片上的键一律不写死。
         ...(() => {
           const known = (engine?.param_schema || [])
           const shared = defaultParams || {}
@@ -146,7 +129,6 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           ? Object.fromEntries(Object.entries(row.hanReadings).filter(([key]) => (row.hanForced || []).some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
           : {},
       },
-      // 配方顶层只装得下两个权重字段（历史格式），能装下的位由 weightsToRecipeFields 决定。
       ...weightsToRecipeFields(weightsToSend(slots, rm.picks)),
     })
   }
@@ -197,40 +179,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
     // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
     // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
-    // 引擎名与位名都不写死：位名取自当前引擎的 weight_slots，别的引擎给什么位名就取什么位名，
-    //   否则连文件选择器的扩展名都会被钉死，别的引擎的资产在这页里一个模型位都列不出来，
-    //   而界面上只显示「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
-    //
-    //   每个角色的候选按全部权重位取笛卡尔积：任何一个位没有候选就不造组合，
-    //   行自己退化成「用当前音色」，而不是画一个空下拉。
-    //
-    //   真正的「每行不同引擎并排」仍未实现（那要重画整行的混搭开关）。这里只是不再按引擎身份分叉。
-    let droppedTotal = 0
+    // 位名取自当前引擎的 weight_slots：别的引擎给什么位名就取什么位名。
+    // 每个角色逐位整理候选，不做组合展开；任一位没有候选就不造这个角色，
+    // 行自己退化成「用当前音色」，而不是画一个空下拉。
+    // 一行只用当前选中的这一台引擎的候选：跨引擎并排未实现。
+    const slots = slotsOf(engine)
     const buildModels = (vid, meta, out) => {
-      const slots = slotsOf(engine)
-      if (slots.length === 0) return
-      const listsBySlot = {}
-      for (const s of slots) {
-        const list = modelsFromMeta(meta, engine?.id, s.name)
-        if (list.length === 0) return
-        listsBySlot[s.name] = list
-      }
-      const { combos, dropped } = modelCombos(slots, listsBySlot, MODEL_COMBO_LIMIT)
-      droppedTotal += dropped
-      for (const c of combos) {
-        out.push({
-          voiceId: vid,
-          voiceName: meta.display_name || vid,
-          language: meta.language || '',
-          picks: c.picks,
-          items: c.items,
-          // 标出推荐的默认组合（Base 模型 → s1 + v2Pro），让音色下拉预先选中它。
-          // 微调出来的音色不带这个标记，所以它是假值。
-          default: slots.every(s => !!(c.items[s.name] && c.items[s.name].default)),
-          builtin: !!meta.builtin,
-          label: `${meta.display_name || vid} / ${slots.map(s => slotItemText(c.items[s.name])).join(' / ')}`,
-        })
-      }
+      const entry = voiceEntry(slots, engine?.id, meta, vid)
+      if (entry) out.push(entry)
     }
     Promise.all([
       api('/api/assets').catch(() => ({ ok: false })),
@@ -241,20 +197,17 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       if (rb.ok && rb.data && rb.data.ok && rb.data.meta) buildModels(BASE_VOICE_ID, rb.data.meta, models)
       if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
       setAvailableModels(models)
-      setModelComboDropped(droppedTotal)
     }).catch(() => {})
-    // 依赖里必须有 engine.id：buildModels 按当前引擎的位名取权重。
-    //   少了这一项 ⇒ 换引擎后这个下拉还是上一台引擎的权重，而且是安静地
-    //   错，界面上没有任何一处会告诉你它没跟着换。
+    // 依赖里必须有 engine.id：候选按当前引擎的位名取，少了这一项换引擎后下拉还是上一台的。
   }, [engine?.id])
 
   const addRow = (opts = {}) => {
     const rowId = nextId.current++
-    // 默认模型：选中音色的第一个可用模型，没有就取全局第一个。
+    // 默认模型：优先带推荐默认组合的选中音色，其次该音色的第一个，最后全局第一个。
     const defaultModel = availableModels.find(m => m.voiceId === selectedVoice && m.default)
       || availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
     const modelForRow = defaultModel
-      ? { voiceId: defaultModel.voiceId, picks: { ...(defaultModel.picks || {}) }, owners: {}, mix: false }
+      ? { voiceId: defaultModel.voiceId, picks: defaultPicksOf(slotsOf(engine), defaultModel), owners: {}, mix: false }
       : { voiceId: '', picks: {}, owners: {}, mix: false }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
     // 选中音色的第一条匹配切片作为默认参考（除非这一行明确要空行）。
@@ -336,11 +289,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                  touched: Array.from(new Set([...(r.touched || []), ...Object.keys(picked)])) }
       })(),
       seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:parseLangOverrides(p.lang_overrides),hanReadings:p.han_readings||{},result:null,error:null}:r))
-    // 配方顶层只装得下两个权重字段（历史格式）：按参数名翻回名片上的位。
-    const recipePicks = weightsFromParams(slotsOf(engine), {
-      gpt_model: recipePath(rec.gpt_ckpt),
-      sovits_model: recipePath(rec.sovits_pth),
-    })
+    const recipePicks = weightsFromParams(slotsOf(engine), recipeWeightParams(rec))
     setRowModels(prev => ({ ...prev, [row.id]: { voiceId: rec.role || selectedVoice, picks: recipePicks, owners: {}, mix: false } }))
   }
 
@@ -350,12 +299,11 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // （"Comparing · k/N"），单行重新生成显示普通的 "Generating"，结束后清掉。
     if (!batch) onActivity?.({ label: 'Generating' })
     const slots = slotsOf(engine)
-    const rowModel = normalizeRowModel(rowModels[row.id])
+    const rowModel = normalizeRowModel(rowModels[row.id], slots)
     // 与生成页共享的 selectedVoice 解耦：这一行的音色、参考音频与所有语种默认值
     // 都由这一行自己的模型决定。用共享音色会让中文模型被自动按中文路由：
     // 送了 prompt_lang=zh 的日文参考音频，转写会错，声音也乱。
-    // 混搭时参考音频与语种跟随名片里第一个能换的位（GSV 是 SoVITS），
-    // 另一个位可以来自别的资产而不带走参考音频。
+    // 混搭时参考音频与语种跟随第一个能换的位，另一个位可以来自别的资产而不带走参考音频。
     const rowVoiceId = referenceVoiceOf(rowModel, slots, selectedVoice)
     const rowVoiceLang = availableModels.find(m => m.voiceId === rowVoiceId)?.language
       || voices.find(v => (v.id || v.voiceId) === rowVoiceId)?.language || 'ja'
@@ -397,11 +345,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         body.batch_total = batch.total
         body.batch_label = batch.label
       }
-      // 权重位全部来自名片：有 param 的位按参数名平铺，launch 位交给平台。
-      // 位名、参数名与个数都不写死，换一台引擎不需要改这里。
-      const weightFields = weightRequestFields(slots, rowModel.picks)
-      Object.assign(body, weightFields.params)
-      if (Object.keys(weightFields.launch_weights).length > 0) body.launch_weights = weightFields.launch_weights
+      // 权重字段按当前名片的位拼：call 位平铺参数名，launch 位放进 launch_weights。
+      Object.assign(body, compareWeightBody(engine, rowModel, candidatePathsBySlot(availableModels)))
       // 每一行自己的目标语种（回落到共享默认，再回落到音色语种）；
       // prompt_lang / 参考转写来自跨音色或自定义的参考选择。
       body.text_lang = row.textLang || defaultTextLang || rowVoiceLang || 'ja'
@@ -544,13 +489,6 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
               <span className="cmp-count">{t(`${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length} ready`, `${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length} 就绪`)}</span>
             )}
           </div>
-          {modelComboDropped > 0 && (
-            <div className="field-hint" style={{ color: 'var(--warning)', fontSize: 'var(--fs-11)', marginTop: 6 }}>
-              {t(
-                `Model combinations are capped at ${MODEL_COMBO_LIMIT} per character; ${modelComboDropped} combinations were truncated.`,
-                `每个角色的模型组合最多 ${MODEL_COMBO_LIMIT} 组，已截断 ${modelComboDropped} 组。`)}
-            </div>
-          )}
         </div>
       </div>
 
