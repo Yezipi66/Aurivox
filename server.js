@@ -121,6 +121,9 @@ const _engineSupervisor = createEngineSupervisor(__dirname, process, { resolveEn
 const { createSynthesisInstance } = require("./lib/server/synthesisInstance");
 const { _GEN_MAX_QUEUE, _GEN_RETRY_AFTER, _generationMutex, _weightSwitch, segmentCache, synthesis } = createSynthesisInstance(process, PATHS, { engineSupervisor: _engineSupervisor });
 
+// 进程被 supervisor 关掉（空闲清扫、腾地方、换 launch 模型、加载失败）后，里面装过的权重随进程一起没了。
+_engineSupervisor.onStopped = (id) => _weightSwitch.forgetEngine(id);
+
 function noteEngineHealth(online) { return _weightSwitch.noteEngineHealth(online); }
 
 process.on("exit", () => {
