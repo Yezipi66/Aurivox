@@ -16,6 +16,7 @@ import { loadPersist, savePersist, loadPage, savePage,
   loadSession, saveSession, purgeOrphanKeys } from './useInstallSession'
 import { factsQueryId } from './factsQueryId'
 import { useEngineDirs } from './useEngineDirs'
+import EngineEscapeHatch from './EngineEscapeHatch'
 
 // 向导骨架照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()：
 //   只渲染 page 指向的那一步；流程条是唯一导航。
@@ -214,38 +215,6 @@ export default function App () {
         </div>
       </div>
 
-      {/* ---- 引擎选择（每一步的逃生口）----
-          五步不再互相锁：锁的判据是「第 1 步完成」，而完成状态由真实产物判，
-            它与界面上看到的不一致时人会被卡在第 1 步，且无从自救。
-          改成由这里决定「现在操作的是哪一台」：默认落在刚克隆的那台（wz.id），
-            也可以直接挑 engines/ 下的任意目录。*/}
-      <div className="section">
-        <div className="section-body">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <label className="field-label" style={{ margin: 0 }} htmlFor="wz-engine-pick">
-              {t('Engine', '当前引擎')}
-            </label>
-            <select id="wz-engine-pick" className="control" style={{ minWidth: 240 }}
-              value={wz.id || ''}
-              onChange={(e) => pickEngine(e.target.value)}>
-              <option value="">
-                {t('Pick a directory under engines/', '选择 engines/ 下的目录')}
-              </option>
-              {engineDirs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.id}
-                  {d.manifestPresent ? ` · ${t('manifest', '有名片')}` : ''}
-                </option>
-              ))}
-            </select>
-            <span className="field-hint" style={{ margin: 0 }}>
-              {t('Every step works on this directory.',
-                '每一步都在这个目录上进行。')}
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* ---- 流程条 ---- */}
       <Pipeline done={done} selected={page}
         onSelect={(k) => setPage((cur) => (cur === k ? null : k))} />
@@ -264,6 +233,8 @@ export default function App () {
             text={text} err={err} setText={setText}
             // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
             onManifest={(m) => { setManifest(m); setErr(null) }}
+            // 第 4 步的引擎下拉也驱动全局目标：换一台编辑 = 换一台设置，一台引擎贯穿全流程。
+            onPickEngineTarget={pickEngine}
             diag={vresult} loading={vloading}
             onSaved={reloadFacts}
             checkpointsPath={checkpointsPath}
@@ -287,6 +258,19 @@ export default function App () {
               </button>
             </div>
           </div>
+
+          {/* ---- 每一步的逃生口（除第 1 步）----
+              五步不再互相锁：锁的判据是「第 1 步完成」，而完成状态由真实产物判，
+                它与界面上看到的不一致时人会被卡在第 1 步，且无从自救。
+              改成每步在这里选「操作哪一台」：默认落在刚克隆的那台（wz.id），
+                也可以直接挑 engines/ 下的任意目录。切换即全局重定向。 */}
+          {page !== 'prepare' && (
+            <div className="section" style={{ marginBottom: 8 }}>
+              <div className="section-body">
+                <EngineEscapeHatch id={wz.id} dirs={engineDirs} onPick={pickEngine} />
+              </div>
+            </div>
+          )}
 
           <fieldset style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             {page === 'prepare' && (

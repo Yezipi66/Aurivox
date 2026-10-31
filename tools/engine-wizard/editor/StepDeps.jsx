@@ -220,11 +220,11 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   }
 
   const reload = async () => {
-    if (!url) return
+    if (!targetId && !url) return
     try {
       const r = await fetch('/wizard/deps', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ id: targetId || undefined, url: url || undefined }),
       })
       setPlan(await r.json())
     } catch (e) { setPlan({ ok: false, error: e.message }) }
@@ -241,8 +241,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
   }
   React.useEffect(() => {
-    if (url && !plan) reload() /* eslint-disable-line */
-  }, [url])
+    if ((url || targetId) && !plan) reload() /* eslint-disable-line */
+  }, [url, targetId])
 
   const d = plan && plan.ok ? plan.deps : null
   const hw = plan ? plan.hardware : null
@@ -362,8 +362,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   if (!plan) {
     return (
       <div className="msg msg-info" style={{ marginBottom: 0 }}>
-        {t('The repository is not available yet. Complete step 1 to continue.',
-          '仓库尚未就绪。完成第 1 步后可继续。')}
+        {t('Pick an engine above to list its dependencies and install options.',
+          '选择上方引擎后，这里会列出它的依赖与安装建议。')}
       </div>
     )
   }

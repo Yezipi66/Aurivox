@@ -25,7 +25,7 @@ import { computeAutoFill } from './scanAutofill'
 
 export default function ManifestPage ({
   manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
-  engineState,
+  engineState, onPickEngineTarget,
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
@@ -164,7 +164,8 @@ export default function ManifestPage ({
               manifest={manifest || {}} onChange={onManifest}
               facts={engineState}
               onScan={doScan} scanBusy={busy} scanned={!!scan}
-              diag={diag} onSaved={onSaved} />
+              diag={diag} onSaved={onSaved}
+              onEngineTarget={onPickEngineTarget} />
 
             <div className="ref-tabs">
               <button type="button"

@@ -32,9 +32,10 @@ const BADGE_TONE = { ok: 'ok', warn: 'warn', muted: 'neutral' }
  * @param {boolean} scanned 这台引擎扫过至少一次
  * @param {object|null} diag 校验结果（有硬错时点保存只列问题、不存）
  * @param {Function} onSaved 保存成功回调
+ * @param {Function} [onEngineTarget] 换引擎时同步全局目标（wz.id），一台引擎贯穿全流程
  */
 export default function EngineIdentity ({
-  manifest, onChange, facts, onScan, scanBusy, scanned, diag, onSaved,
+  manifest, onChange, facts, onScan, scanBusy, scanned, diag, onSaved, onEngineTarget,
 }) {
   const { t } = useT()
   const { loadOne } = useInstalled()
@@ -67,12 +68,14 @@ export default function EngineIdentity ({
   //   上一台的内容一律清掉（manifestForEngineSwitch），
   //   不能只改 id：那会把上一台的 runtime 与 call 整段带过去。
   //   有名片的引擎要用户点「读取参数」才读进来。
+  //   同时同步全局目标（onEngineTarget）：第 4 步换引擎 = 整条向导换成这台。
   const pickEngine = (id) => {
     setEngineId(id)
     setLoaded(false)
     setLocalErr(null)
     setTriedSave(false)
     if (id) onChange(manifestForEngineSwitch(manifest, id, id))
+    if (onEngineTarget) onEngineTarget(id || '')
   }
 
   const readManifest = async () => {

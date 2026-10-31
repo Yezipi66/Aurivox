@@ -363,8 +363,12 @@ function handleHardware (req, res) {
 
 
 /**
- * POST /wizard/deps  {url}
+ * POST /wizard/deps  {url} 或 {id}
  *  第 2 步的数据源：读上游的依赖清单 + uv.lock，跟本机比出绿/黄/白。不装任何东西。
+ * 数据源二选一：
+ *   ① {id} 且 engines/<id>/ 存在 ⇒ 从本地目录读（选已有引擎时走这里，不联网）；
+ *   ② 否则 {url} ⇒ 远程读（克隆前的第 2 步预检走这里）。
+ *   目录在时以目录为准：本地文件才是真的（可能与远端不同），也省一次网络。
  * 依赖清单读 pyproject.toml 与 requirements.txt：只放 requirements.txt 的仓库
  *   只靠提示语是读不到东西的，所以这里真的去读。
  * 标准清单读不出依赖但仓库可 pip 安装（pyproject 带构建段、或有 setup.py / setup.cfg）：
@@ -376,21 +380,47 @@ function handleDeps (req, res) {
   if (!req.url || !req.url.startsWith('/wizard/deps')) return false
   readBody(req, async (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
-    const parsed = parseRepoUrl(body.url)
-    if (!parsed.ok) { json(res, 400, parsed); return }
+    body = body || {}
 
-    // 分支同样走回退：分支写错整个请求全 404。
-    const probeBranch = await resolveProbeBranch(parsed.owner, parsed.repo)
-    const get = async (f) => {
-      const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
-      return t
+    const readLocal = (dir, f) => {
+      try { return fs.readFileSync(path.join(dir, f), 'utf8') } catch { return null }
     }
-    // 依赖来源：pyproject.toml 优先，其次 requirements.txt；外加 lock（只锁 torch 版本，
-    //   不当依赖列表）。setup.py / setup.cfg 只问「在不在」：在就说明仓库可 pip 安装，
-    //   平台用自己的装法 uv pip install -e .，由 pip 读包构建配置，平台不解析 setup.py。
-    const [py, reqText, lockText, setupPy, setupCfg] = await Promise.all([
-      get('pyproject.toml'), get('requirements.txt'), get('uv.lock'),
-      get('setup.py'), get('setup.cfg')])
+    let py = null
+    let reqText = null
+    let lockText = null
+    let setupPy = false
+    let setupCfg = false
+    let dir = null
+    if (body.id) {
+      const d = engineDirForRead(String(body.id))
+      if (fs.existsSync(d)) {
+        dir = d
+        py = readLocal(d, 'pyproject.toml')
+        reqText = readLocal(d, 'requirements.txt')
+        lockText = readLocal(d, 'uv.lock')
+        setupPy = readLocal(d, 'setup.py') !== null
+        setupCfg = readLocal(d, 'setup.cfg') !== null
+      }
+    }
+    if (!dir) {
+      const parsed = parseRepoUrl(body.url)
+      if (!parsed.ok) { json(res, 400, parsed); return }
+
+      // 分支同样走回退：分支写错整个请求全 404。
+      const probeBranch = await resolveProbeBranch(parsed.owner, parsed.repo)
+      const get = async (f) => {
+        const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
+        return t
+      }
+      // 依赖来源：pyproject.toml 优先，其次 requirements.txt；外加 lock（只锁 torch 版本，
+      //   不当依赖列表）。setup.py / setup.cfg 只问「在不在」：在就说明仓库可 pip 安装，
+      //   平台用自己的装法 uv pip install -e .，由 pip 读包构建配置，平台不解析 setup.py。
+      const got = await Promise.all([
+        get('pyproject.toml'), get('requirements.txt'), get('uv.lock'),
+        get('setup.py'), get('setup.cfg')])
+      py = got[0]; reqText = got[1]; lockText = got[2]
+      setupPy = got[3] !== null; setupCfg = got[4] !== null
+    }
 
     const pyHasDeps = py ? probePyproject(py).dependencies.length > 0 : false
     const pipInstallable = isPipInstallable(py, { setupPy, setupCfg })
