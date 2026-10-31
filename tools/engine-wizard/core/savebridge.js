@@ -31,7 +31,10 @@ function handleInstalled (req, res) {
 
 // 「能用」打绿勾的判据：用平台已有的两段，不发明新的。
 //   ① 平台认可：有有效 manifest.json（id 与目录名一致），registry 就靠这个认引擎；
-//   ② 权重就绪：checkpointStatus(profile).ready === true（纯 fs 检查，不 spawn、不联网）。
+//   ② 权重：checkpointStatus 是三态，折算只有一条路：「确知缺」（ready===false）
+//      才摘勾。ready===null 有两种来由：名片连 runtime.checkpoints 都没写（无从
+//      提证，不给勾），或写了目录但没给 models.required 清单（目录在且非空，
+//      平台说不出齐不齐，但没有缺文件的证据）。后者按规范自己的话「不填也能用」给勾。
 //   环境不放进判据：GSV 这类平台底座引擎按名片声明查 .venv 会判 false（它走平台基座），
 //   而它实际能用；拿 env 当门会把真实能用的引擎标成不能用。
 //   只有「有有效名片」的引擎才 resolveEngineProfile 得出来；名片坏 / 没名片的直接 false。
@@ -50,7 +53,10 @@ function withUsable (engines, deps = {}) {
     if (profileModule && checkpointsModule && e.manifestPresent && e.idMatchesDir) {
       try {
         const p = profileModule.resolveEngineProfile(e.id)
-        usable = checkpointsModule.checkpointStatus(p).ready === true
+        const st = checkpointsModule.checkpointStatus(p)
+        usable = st.ready === true
+          || (st.ready === null && !!st.declared
+            && !!st.exists && !!st.is_dir && (st.entries || 0) > 0)
       } catch (err) { /* 名片坏 / 解析失败 ⇒ 不可用 */ }
     }
     return { ...e, usable }
