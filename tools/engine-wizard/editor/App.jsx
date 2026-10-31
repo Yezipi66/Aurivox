@@ -17,6 +17,7 @@ import { loadPersist, savePersist, loadPage, savePage,
 import { factsQueryId } from './factsQueryId'
 import { useEngineDirs } from './useEngineDirs'
 import EngineEscapeHatch from './EngineEscapeHatch'
+import { manifestForEngineSwitch } from './manifestAutoFill'
 
 // 向导骨架照 web/src/components/train/TrainingTab.jsx 的 renderNodeDetail()：
 //   只渲染 page 指向的那一步；流程条是唯一导航。
@@ -92,10 +93,35 @@ export default function App () {
   // ---- 逃生口：直接指定对 engines/ 下的哪一台操作 ----
   // 流程条不再锁步骤（锁的判据是「第 1 步完成」，而完成状态由真实产物判，
   //   它与界面上看到的不一致时人会被卡在第 1 步且无从自救）。
-  //   改成让使用者自己挑目录：完成状态、权重路径、会话段都以 wz.id 为键，
-  //   所以这里只改 id，其余会自己跟着换，不各自回写一遍（免得两处漂移）。
+  //   改成让使用者自己挑目录：完成状态、权重路径、会话段都以 wz.id 为键。
   const { dirs: engineDirs, reload: reloadDirs } = useEngineDirs()
+  // 只换 id：第 4 步的 EngineIdentity 用它同步全局目标
+  //   （那一路自己管名片的清换，且要求人点「读取参数」才读盘）。
   const pickEngine = (id) => setWz((cur) => ({ ...cur, id: id || '' }))
+  // 逃生口的提交：换目标引擎，并把界面状态按新引擎重读一遍。
+  //   只改 id 不够：App 级名片（第 4 步的编辑对象）不跟 wz.id 走，而
+  //   manifestEngineId 优先取 manifest.id，换目标后第 4 步还会停在上一台，
+  //   保存也写回上一台的目录。所以名片要一起换：盘上已有就按盘上的来，
+  //   没有就用换引擎清段给一个干净的空壳。
+  //   text/err 同时归零：JSON 视图的编辑缓冲不清，旧名片会借防抖分支回来。
+  const switchEngine = async (nextId) => {
+    if (!nextId || nextId === wz.id) return
+    setWz((cur) => ({ ...cur, id: nextId }))
+    let fromDisk = null
+    try {
+      const r = await fetch(`/wizard/manifest/${encodeURIComponent(nextId)}`)
+      const j = await r.json()
+      if (r.ok && j && j.manifest) fromDisk = j.manifest
+    } catch (e) { /* 端点调不通 ⇒ 退到清干净的空壳，不阻碍切换 */ }
+    if (fromDisk) setManifest(fromDisk)
+    else setManifest((cur) => manifestForEngineSwitch(cur, nextId, nextId))
+    // JSON 编辑缓冲与解析错误一起归零：不然旧内容会借 300ms 防抖回来
+    setText(null)
+    setErr(null)
+    // 操作记录按新引擎重读：完成状态（流程条绿勾）与引擎目录清单
+    reloadFacts(nextId)
+    reloadDirs()
+  }
 
   // 换 URL / 换引擎 ⇒ 会话段键变了 ⇒ 整段丢掉，防止串号。
   const lastStamp = React.useRef(null)
@@ -267,7 +293,7 @@ export default function App () {
           {page !== 'prepare' && (
             <div className="section" style={{ marginBottom: 8 }}>
               <div className="section-body">
-                <EngineEscapeHatch id={wz.id} dirs={engineDirs} onPick={pickEngine} />
+                <EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />
               </div>
             </div>
           )}
