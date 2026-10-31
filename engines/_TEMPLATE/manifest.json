@@ -279,5 +279,20 @@
     "⚠ 转码是平台上层的事（ffmpeg），引擎只出它会的格式。",
     "⛔ 声明了但引擎不会出 ⇒ 宿主 400（这道 400 就是为了这个）。"
   ],
-  "output_formats": ["wav"]
+  "output_formats": ["wav"],
+
+  "_comment_pron": [
+    "读音预览：这台引擎能不能回答「文本 → 读音」的预览请求。",
+    "不写 pron = 没有这个能力：界面灰掉读音校对入口，平台不发注定失败的请求，也不拿 404/502 去探测。",
+    "写了就必须写 pron.preview：endpoint 是引擎侧路径（以 / 开头），request 目前只认 \"json\"。",
+    "⛔ 只有自带 HTTP 服务的引擎能声明它：平台通用宿主只答 /tts，声明 pron 在解析层就被拒。",
+    "请求体固定两个字段：{ \"text\": 待读文本, \"lang\": 平台语种码 }。lang 不经 languages 表换算",
+    "  —— 预览要的是「这台引擎会怎么念这段字」，平台把自己那套词原样交过去，由引擎自己解释。",
+    "响应体平台原样透传给界面，界面按 GPT-SoVITS 的形状读：{ lang, norm_text, langs, multilingual,",
+    "  tokens: [ { word, unit, segLang, ... } ] }（zh/yue 带 chars[{char,reading,candidates,polyphonic,source}]，",
+    "  ja 带 reading，en 带 readings）。形状不同不会报错，只会显示空白 —— 要对不上就别声明这个能力。",
+    "预览必须由当前选中的那台引擎回答，平台不拿别的引擎的 g2p 顶替。",
+    "示例：",
+    "  \"pron\": { \"preview\": { \"endpoint\": \"/pron/preview\", \"request\": \"json\" } }"
+  ]
 }

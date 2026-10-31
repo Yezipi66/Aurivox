@@ -11,6 +11,7 @@ import { RebuildProgress, RestoreModal } from '../train/TrainingTab'
 import ReferenceTranscriptProofing from './ReferenceTranscriptProofing'
 import RefineModal from './RefineModal'
 import { modelCountsByEngine, countModelsInMeta, modelsFromMeta } from '../../lib/modelPickers.pure.js'
+import { hasPronPreview } from '../../lib/engines'
 import { MigrateChoiceDialog, MigrateProgressDialog, FolderBrowser } from './AssetsDirManager'
 import { AssetsSummaryBar, AssetsToolbar } from './AssetsToolbar'
 import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
@@ -1024,6 +1025,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         <ReferenceTranscriptProofing
           voiceId={proofTarget.id}
           engineId={engine?.id}
+          pronPreview={hasPronPreview(engine)}
           asrRunning={transcribeJobs[proofTarget.id]?.status === 'running'}
           onClose={() => setProofTarget(null)}
           onSaved={() => {

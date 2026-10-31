@@ -189,6 +189,15 @@
     "streaming": "streaming_mode"
   },
 
+  "_comment_pron": [
+    "通用规则见 engines/_TEMPLATE/manifest.json 的 _comment_pron，这里只写这台引擎的两句。",
+    "预览复用合成用的同一份 g2pW（lib/inference/infer_server.py 的 /pron/preview），",
+    "所以预览读音等于实际合成读音；lang 发平台语种码，服务端 _normalize_pron_lang 自己解释。"
+  ],
+  "pron": {
+    "preview": { "endpoint": "/pron/preview", "request": "json" }
+  },
+
   "_comment_payload_keys": [
     "⭐ 允许从合成配置透传给引擎的**引擎原生**键名白名单。",
     "这张表逐字等于搬家前 server.js:709-722 的 TTS_PASS_THROUGH_KEYS ——",

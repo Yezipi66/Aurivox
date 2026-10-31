@@ -14,7 +14,7 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } fro
 import { REF_MAX_SEC, REF_MIN_SEC, refInRange, sameRefPath } from '../../lib/refAudio'
 import { TARGET_LANG_OPTIONS, langLabel, normalizeLangFamily } from '../../lib/langOptions'
 import { basename, fmtRecentTime } from '../../lib/pathText'
-import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, TIERS } from '../../lib/engines'
+import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, hasPronPreview, TIERS } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
 import { migrateRow } from '../../lib/compareRowMigrate'
 import { useT } from '../../lib/i18n'
@@ -463,6 +463,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 hanDirection={defaultHanDir} hanForced={defaultHanForced} setHanForced={setDefaultHanForced}
                 hanReadings={defaultHanReadings} setHanReadings={setDefaultHanReadings}
                 engineId={engine?.id}
+                pronPreview={hasPronPreview(engine)}
               />
             )}
             <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>

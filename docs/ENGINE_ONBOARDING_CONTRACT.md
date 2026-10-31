@@ -183,7 +183,8 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 
 ## §4 顶层键白名单
 
-`lib/engines/profile/topkeys.js` 的 `TOP_KEYS`（今天 29 个），多一个当场抛。
+`lib/engines/profile/topkeys.js` 的 `TOP_KEYS`，多一个当场抛。
+（个数不写在这里：加一个顶层键就得多写一处，写漏了它就变成一个说假话的数。）
 
 判据：`{"max_char": 1}`（少个 s）必须报错。静默忽略它 = 作者调了一个
 不存在的旋钮而毫无察觉。报错还带 Levenshtein 猜「是不是想写 `max_chars`」。
@@ -232,6 +233,30 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 | 不写 | ✅ | ⛔ 「call.seed 没写」 |
 
 ⇒ **「装得上」不等于「种子那部分对」。** 这是「装引擎」这道关卡的一个真实盲区。
+
+### 读音预览是可选能力：`pron.preview`
+
+`call` 只描述怎么出声音。「文本 → 读音」的预览是另一件事，名片用顶层的 `pron` 段声明它：
+
+```json
+"pron": { "preview": { "endpoint": "/pron/preview", "request": "json" } }
+```
+
+| 写法 | 装引擎 | 平台的读音校对入口 |
+|---|---|---|
+| 不写 `pron` | ✅ | 灰掉，一句话说明这台没声明 |
+| 写了 `pron` 没写 `pron.preview` | ⛔ 缺 `pron.preview` | 到不了这一步 |
+| `endpoint` 不以 `/` 开头 | ⛔ | 到不了这一步 |
+| `request` 不是 `"json"` | ⛔ 平台只会用 JSON 体发预览 | 到不了这一步 |
+| `runtime.entry` 是平台通用宿主 | ⛔ 宿主只答 `/tts`，声明了也发不出去 | 到不了这一步 |
+| 声明齐了 | ✅ | 可用 |
+
+平台发出去的请求体固定 `{ text, lang }`，`lang` 是**平台语种码**，不经 `languages` 换算：
+预览要回答的是「这台引擎会怎么念这段字」，平台把自己那套词原样交过去。
+响应体平台原样透传，界面按 token 列表读；对不上不报错，只显示空白 ⇒ 形状不合就别声明。
+
+不写 = 没有这个能力，平台**不拿 404/502 去探测**：探测会把「引擎离线」和「没这个能力」
+混成同一句话，而且每次切引擎都要打一次。
 
 ---
 
@@ -361,7 +386,7 @@ Owner 2026-09-04 裁决：**资源占用形态 = C（全常驻 RAM、按需换�
 ### 界面按名片长
 
 `web/src/lib/engines.js` 的判据：「**装一台谁都没见过的引擎，
-这里的代码一个字都不用改**」。82 条真函数测试守着（⛔ 不是文本守卫）。
+这里的代码一个字都不用改**」。`engines.node.test.js` 全用真函数守着（⛔ 不是文本守卫）。
 
 ⚠️ 2026-08-31 取证过一件事：`npm run build` 绿 **不证明接线对**。
 React 的 prop 传漏了不是错误，是 `undefined`，打包器一个字都不会说。

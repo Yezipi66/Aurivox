@@ -10,7 +10,9 @@ import { langName } from './PronProofing'
 // ：新增 `engineId`，一路传到两个会发 /pron/preview 的孩子。
 //   4 个渲染点都必须传，漏一个的表现是"那个页面的读音预览安静地不工作"。
 //   `pronEngineId.node.test.js` 有一条守卫逐个点名盯着它们。
-function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPronOverrides, hanDirection, hanForced, setHanForced, hanReadings, setHanReadings, engineId }) {
+// `pronPreview`：当前引擎的名片是否声明了读音预览。没声明时只收起读音校对，
+// 汉字语言指定照常可用（它不依赖引擎的 g2p）。
+function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPronOverrides, hanDirection, hanForced, setHanForced, hanReadings, setHanReadings, engineId, pronPreview }) {
   const { t } = useT()
   const dragActiveRef = useRef(false)
   const backdropPointerDownRef = useRef(false)
@@ -56,26 +58,37 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
               setReadings={setHanReadings}
               onDragState={active => { dragActiveRef.current = active }}
               engineId={engineId}
+              pronPreview={pronPreview}
             />
           </div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
             <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 6 }}>{t('Reading proofing', '读音校对')}</div>
-            {forcedInText.length > 0 && (
-              <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 8 }}>
-                {t(
-                  `${forcedInText.join(' ')} ${forcedInText.length > 1 ? 'are' : 'is'} assigned to another Han language; the ${LANG_LABEL[panelLang] || panelLang} reading below does not apply. Set the reading in the Han character language section above.`,
-                  `${forcedInText.join(' ')} 已分配给另一种汉字语言；下方的 ${langName(t, panelLang)} 读音不生效。请在上方“汉字语言”区设置读音。`,
-                )}
+            {!pronPreview && (
+              <div className="field-hint" style={{ color: 'var(--muted)' }}>
+                {t('This engine does not declare reading preview (manifest.json pron.preview), so reading proofing is unavailable. Han language assignment above still applies.',
+                  '这台引擎没有声明读音预览能力（manifest.json 的 pron.preview），不支持读音校对。上方的汉字语言指定仍然有效。')}
               </div>
             )}
-            <PronPanel
-              text={text} setText={updateText} lang={panelLang}
-              overrides={pronOverrides} setOverrides={setPronOverrides} layout="wide"
-              mutedPositions={forcedPositions.map(pos => pos.index)}
-              mutedLangByPosition={mutedLangByPosition}
-              mutedLangLabel={hanDirection ? t('another Han language', '另一种汉字语言') : null}
-              engineId={engineId}
-            />
+            {pronPreview && (
+              <>
+                {forcedInText.length > 0 && (
+                  <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 8 }}>
+                    {t(
+                      `${forcedInText.join(' ')} ${forcedInText.length > 1 ? 'are' : 'is'} assigned to another Han language; the ${LANG_LABEL[panelLang] || panelLang} reading below does not apply. Set the reading in the Han character language section above.`,
+                      `${forcedInText.join(' ')} 已分配给另一种汉字语言；下方的 ${langName(t, panelLang)} 读音不生效。请在上方“汉字语言”区设置读音。`,
+                    )}
+                  </div>
+                )}
+                <PronPanel
+                  text={text} setText={updateText} lang={panelLang}
+                  overrides={pronOverrides} setOverrides={setPronOverrides} layout="wide"
+                  mutedPositions={forcedPositions.map(pos => pos.index)}
+                  mutedLangByPosition={mutedLangByPosition}
+                  mutedLangLabel={hanDirection ? t('another Han language', '另一种汉字语言') : null}
+                  engineId={engineId}
+                />
+              </>
+            )}
           </div>
           <HanFinalPreview text={text} direction={hanDirection} forced={hanForced} />
         </div>

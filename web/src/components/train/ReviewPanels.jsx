@@ -10,6 +10,7 @@ import { Player } from '../common/Player'
 import { Select } from '../common/Select'
 import { basename } from '../../lib/pathText'
 import { usePreviewMode } from '../../lib/previewMode'
+import { pronPreviewHint } from '../../lib/engines'
 import { ReviewRowAudio, ConfBadge, WordConf, CONF_COLORS, confTierLabel } from './TrainPanels'
 
 // GIGO 门 1：人声提取试听面板。管线在分离完成后暂停时显示。加载分离产物音频，
@@ -109,22 +110,28 @@ function DenoiseReviewPanel({ taskId, onResumed, onCancel }) {
 // save persists (that's the closed loop; see PG-1a).
 // ：`engineId` 一路传到 PronPanel，/api/pron/preview
 //   现在 engine_id 必传。不传的表现是"这里的读音校对安静地不工作"。
-function AsrRowProof({ text, lang, onChange, disabled, engineId }) {
+// `pronPreview`：当前引擎的名片是否声明了读音预览；没有时收起入口，不作注定 501 的请求。
+function AsrRowProof({ text, lang, onChange, disabled, engineId, pronPreview }) {
   const [open, setOpen] = useState(false)
   const [overrides, setOverrides] = useState({})
   return (
     <div className="arr-proof">
-      <button type="button" className="btn btn-sm btn-ghost" disabled={disabled} onClick={() => setOpen(o => !o)}>
+      <button
+        type="button" className="btn btn-sm btn-ghost"
+        disabled={disabled || !pronPreview}
+        title={pronPreview ? undefined : pronPreviewHint(pronPreview)}
+        onClick={() => setOpen(o => !o)}
+      >
         {open ? 'Hide reading proofing' : 'Proof reading'}
       </button>
-      {open && (
+      {open && pronPreview && (
         <PronPanel text={text} setText={onChange} lang={lang} overrides={overrides} setOverrides={setOverrides} layout="wide" engineId={engineId} />
       )}
     </div>
   )
 }
 
-function AsrReviewPanel({ taskId, onResumed, lang, engineId }) {
+function AsrReviewPanel({ taskId, onResumed, lang, engineId, pronPreview }) {
   const { t: tr } = useT();
   const [rows, setRows] = useState(null);
   const [listName, setListName] = useState('');
@@ -214,7 +221,7 @@ function AsrReviewPanel({ taskId, onResumed, lang, engineId }) {
                           onChange={e => setText(r.index, e.target.value)} />
                 </div>
                 <WordConf words={r.words} tr={tr} />
-                <AsrRowProof text={r.text} disabled={busy} engineId={engineId}
+                <AsrRowProof text={r.text} disabled={busy} engineId={engineId} pronPreview={pronPreview}
                              lang={(r.lang || (lang === 'auto' ? '' : lang) || '').toLowerCase()}
                              onChange={val => setText(r.index, val)} />
               </div>

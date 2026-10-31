@@ -80,29 +80,31 @@ for (const [file, re] of SIGNATURES) {
   })
 }
 
-/** 渲染点：`<组件` 之后 700 字符内必须出现 engineId=。 */
+/** 渲染点：`<组件` 之后 700 字符内必须出现 engineId=。第三项可选，写它就是「这个渲染点还得传这个 prop」。 */
 const RENDERS = [
-  ['components/generate', '<TextPrepModal'],
-  ['components/compare', '<TextPrepModal'],
+  ['components/generate', '<TextPrepModal', /pronPreview=/],
+  ['components/compare', '<TextPrepModal', /pronPreview=/],
   ['components/compare', '<CompareRow'],
-  ['components/assets/AssetsTab.jsx', '<ReferenceTranscriptProofing'],
-  ['components/assets/ReferenceTranscriptProofing.jsx', '<TextPrepModal'],
-  ['components/train', '<AsrReviewPanel'],
-  ['components/train', '<AsrRowProof'],
+  ['components/assets/AssetsTab.jsx', '<ReferenceTranscriptProofing', /pronPreview=/],
+  ['components/assets/ReferenceTranscriptProofing.jsx', '<TextPrepModal', /pronPreview=/],
+  ['components/train', '<AsrReviewPanel', /pronPreview=/],
+  ['components/train', '<AsrRowProof', /pronPreview=/],
+  ['components/train', '<TrainingStatusPanel', /pronPreview=/],
   ['components/train', '<PronPanel'],
-  ['components/pron', '<HanLangPicker'],
+  ['components/pron', '<HanLangPicker', /pronPreview=/],
   ['components/pron', '<HanReadingReview'],
   ['components/pron', '<PronPanel'],
 ]
 
-for (const [file, tag] of RENDERS) {
-  test(`⛔ 渲染点漏传：${file} ${tag}`, () => {
+for (const [file, tag, required] of RENDERS) {
+  test(`⛔ 渲染点漏传：${file} ${tag}${required ? ' ' + required.source : ''}`, () => {
     const code = readDirOrFile(file)
     const idxs = [...code.matchAll(new RegExp(tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s>]', 'g'))].map(m => m.index)
     assert.ok(idxs.length > 0, `${file} 里找不到 ${tag}`)
     for (const i of idxs) {
       const block = code.slice(i, i + 700)
       assert.match(block, /engineId=/, `${file} 的 ${tag}（第 ${i} 字节）没传 engineId`)
+      if (required) assert.match(block, required, `${file} 的 ${tag}（第 ${i} 字节）没传这个必传 prop`)
     }
   })
 }

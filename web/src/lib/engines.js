@@ -61,6 +61,18 @@ export function hasMappedKey(engine, key) {
   return keys.includes(key)
 }
 
+// 读音预览是名片声明的可选能力。三态：true 有 / false 这台没有 / null 引擎还没读出来。
+// 「还在读」和「这台不支持」是两回事，不合成一句话（App.jsx 里同一约定）。
+export function hasPronPreview(engine) {
+  if (!engine) return null
+  return !!engine.pron_preview
+}
+
+export function pronPreviewHint(pronPreview) {
+  if (pronPreview === null) return 'Reading the installed engines…'
+  return 'This engine does not declare reading preview (manifest.json pron.preview), so reading proofing is unavailable.'
+}
+
 export function fieldsForTier(engine, tier) {
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
   // 未写 tier 归入 advanced，与后端 profile.js 一致；缓存数据可能未经后端规整。

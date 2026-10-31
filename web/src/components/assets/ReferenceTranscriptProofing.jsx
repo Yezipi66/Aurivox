@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
 import { LANG_LABEL, TextPrepModal, hanOverrideDirection } from '../pron/PronProofing'
+import { pronPreviewHint } from '../../lib/engines'
 
 // ASR 置信度着色：把 whisper 的词级与片段级概率折算成 [0,1] 的置信度，
 // 映射到绿（高）/ 黄（可疑）/ 红（可能识别错误）三档，辅助用户校对。
@@ -94,7 +95,9 @@ function RowAudio({ url }) {
 
 // engineId 传给 TextPrepModal，用于 /api/pron/preview。
 // 该接口的 engine_id 必传，平台不代为选择引擎。
-export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning, engineId }) {
+// pronPreview：这台引擎的名片是否声明了读音预览；没有时只关掉逐行读音校对，
+// 转写编辑与保存照常可用。
+export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved, onRerunAsr, asrRunning, engineId, pronPreview }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [buckets, setBuckets] = useState([])
@@ -235,8 +238,11 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                     <button
                       className="btn btn-sm btn-ghost"
                       style={{ flexShrink: 0 }}
+                      disabled={!pronPreview}
                       onClick={() => { setPronOverrides({}); setProofIdx(i) }}
-                      title="Open reading proofing for this line (saves pronunciations to the personal lexicon)"
+                      title={pronPreview
+                        ? 'Open reading proofing for this line (saves pronunciations to the personal lexicon)'
+                        : pronPreviewHint(pronPreview)}
                     >
                       Reading…
                     </button>
@@ -288,6 +294,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
           hanDirection={hanDir} hanForced={hanForced} setHanForced={setHanForced}
           hanReadings={hanReadings} setHanReadings={setHanReadings}
           engineId={engineId}
+          pronPreview={pronPreview}
         />
       )}
     </div>

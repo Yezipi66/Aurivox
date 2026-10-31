@@ -28,6 +28,8 @@ import {
   fieldLabel,
   fieldHelp,
   hasMappedKey,
+  hasPronPreview,
+  pronPreviewHint,
   TIERS,
 } from './engines.js'
 
@@ -952,4 +954,24 @@ test('⭐ 平台不认识任何一种业务身份', async () => {
     assert.ok(!/weight|ckpt|ref|emo|voice|model/.test(t),
       `${t} 是一个业务身份，不是一种样式，平台一旦认识它，就得替所有引擎维护它`)
   }
+})
+
+test('⭐ 名片声明了 pron.preview ⇒ 读音校对入口可用', () => {
+  assert.equal(hasPronPreview({ ...FAKE, pron_preview: { endpoint: '/p', request: 'json' } }), true)
+})
+
+test('⛔ 名片没声明 pron.preview ⇒ 入口灰掉，不给一个注定 501 的按钮', () => {
+  assert.equal(hasPronPreview(FAKE), false)
+})
+
+test('⛔ 还没读出名片（null/undefined）是「还不知道」，不是「这台不支持」', () => {
+  assert.equal(hasPronPreview(null), null)
+  assert.equal(hasPronPreview(undefined), null)
+  assert.equal(hasPronPreview({}), false)
+})
+
+test('⭐ 灰掉入口的那句话分两种：还在读引擎 / 这台没声明能力', () => {
+  assert.match(pronPreviewHint(null), /Reading the installed engines/)
+  assert.match(pronPreviewHint(false), /pron\.preview/)
+  assert.doesNotMatch(pronPreviewHint(null), /does not declare/)
 })

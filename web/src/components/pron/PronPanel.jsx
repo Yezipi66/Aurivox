@@ -1,5 +1,5 @@
 // 读音校对：文本编辑、逐字逐词读音预览与人工改读音，都在这个面板里。
-// 读音由当前选中的那台引擎给出（g2pW），面板不自己算。
+// 读音由当前选中的那台引擎给出，面板不自己算。
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Select } from '../common/Select'
 import { api } from '../../lib/api'
@@ -25,16 +25,11 @@ function tokIsPunct(tok) {
 }
 
 // 读音校对面板：勾选后展开的二级面板，兼作文本编辑器与逐字读音校对。
-// 中文（zh）与粤语（yue）走真实 g2pW 预览；其它语言是契约占位（ko 未经测试）。
 // 后端 /api/pron/preview 的 engine_id 必传（lib/routes/pron.js 的 preview 路由），
 // 不传直接 400 PRON_ENGINE_ID_MISSING。
 // 组件的 props：text / setText（被编辑的文本）、lang（语种）、overrides / setOverrides（读音覆盖，
 // 按语言分桶）、layout（wide 或默认）、mutedPositions 与 mutedLangByPosition（已交给别的语言朗读的位置），
 // 以及 engineId（读音预览要用哪台引擎）。
-// 不让后端挑一台兜底的理由：判据在 lib/inference/infer_server.py 的 pron_preview 注释，
-// 「复用引擎已加载的 g2pW，保证预览读音 == 实际合成读音」。
-// 换一台引擎去预览，读出来可能也对，但它回答的不是当前选中那台引擎的读音。
-// 给一个看起来对、与实际合成不一致、又不报错的读音，比没有这个功能更坏。
 // engineId 缺席时这个面板主动灰掉并说清原因，不发那个必定 400 的请求（发了用户只会看到一句英文报错，不知道该去哪儿改）。
 function PronPanel({ text, setText, lang, overrides, setOverrides, layout, mutedPositions, mutedLangLabel, mutedLangByPosition, engineId }) {
   const { t } = useT()
