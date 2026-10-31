@@ -265,6 +265,15 @@
     "reference_audio": "ref_audio_path"
   },
 
+  "_comment_languages": [
+    "平台语种码 → 这台引擎在 text_lang / reference_lang 上的取值。",
+    "不写这张表 = 空表：平台发给这台引擎的语种就是平台码本身（zh / ja / auto 等）。",
+    "左边只能写平台语种码，写别的当场装不上：zh / yue / ja / en / ko / auto / auto_zh_ja / auto_zh_ja_yue。",
+    "右边是这台引擎的原话，平台不认识、也不替你补前缀；表里没有的语种原样发。",
+    "⚠ 只有引擎真的另有一套写法时才写这一项。用平台码去「凑齐」这张表等于没写。",
+    "例：{ \"zh\": \"all_zh\", \"ja\": \"all_ja\", \"auto\": \"auto\" }"
+  ],
+
   "_comment_output_formats": [
     "这台引擎能出什么格式。不写 = 只出 wav（安全的默认）。",
     "⚠ 转码是平台上层的事（ffmpeg），引擎只出它会的格式。",

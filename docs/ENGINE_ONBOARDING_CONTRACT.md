@@ -64,6 +64,21 @@ Owner 2026-08-24 拍板：「我只维护 GPT-SoVITS 兼容这一套，其他一
 不发不等于丢弃：把 `text_lang` 发给一台没有语言概念的引擎，
 好一点的当场 400，差一点的静默忽略 —— 后者正是要消灭的那类失败。
 
+### 语种的取值靠 `languages`（键是平台码，值是引擎原话）
+
+`maps` 管**键名**，`languages` 管 `text_lang` / `reference_lang` 这两个位置上的**取值**。
+平台的词只有这些：`zh / yue / ja / en / ko / auto / auto_zh_ja / auto_zh_ja_yue`
+（`lib/langCodes.js` 的 `PLATFORM_LANGUAGES`，拼错一个键当场装不上）。
+
+```json
+"languages": { "zh": "all_zh", "ja": "all_ja", "auto": "auto" }
+```
+
+- **不写这张表 = 空表**：平台发给这台引擎的语种就是平台码本身。只认 `zh` / `en` 的引擎不用写。
+- 表里没有的语种**原样发**，平台不猜、不补前缀。
+- 历史写法 `all_zh / all_yue / all_ja / all_ko` 由平台在读取时归一成平台码（`LEGACY_LANG_ALIAS`），
+  双读期老配方、老客户端照旧能到引擎；这张归一表只有平台那一份，名片里不要再写一遍。
+
 ---
 
 ## §3 一份声明，全部派生
@@ -168,7 +183,7 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 
 ## §4 顶层键白名单
 
-`lib/engines/profile.js:294`，**23 个键**，多一个当场抛。
+`lib/engines/profile/topkeys.js` 的 `TOP_KEYS`（今天 29 个），多一个当场抛。
 
 判据：`{"max_char": 1}`（少个 s）必须报错。静默忽略它 = 作者调了一个
 不存在的旋钮而毫无察觉。报错还带 Levenshtein 猜「是不是想写 `max_chars`」。
