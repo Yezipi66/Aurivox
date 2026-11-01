@@ -119,10 +119,11 @@ function runChecks (id, opts = {}) {
       note: ready === true
         ? '名片说的文件一个不少'
         : ready === false
-          ? '目录不在，或名片点名的文件缺了'
-          // 状态未知的说法（checkpoints.js 的 checkpointStatus 注释）
-          : '状态未知：Manifest 未声明 runtime.checkpoints，'
-            + '或未声明 models.required（用于判断哪些文件算完整）。'
+          ? `权重缺了。${st.reason || '查不到确切原因'}`
+          // 状态未知不糊成两态：病因搬平台查明的 reason（唯一真相），
+          //   不再自己编「可能没声明 A、可能没声明 B」两头堵，
+          //   那对声明了 checkpoints 只是没声明 required 的引擎是错描述。
+          : `状态未知（平台说不出来它齐不齐）：${st.reason || '查不到确切原因'}。`
             + '既不能视为完整，也不能视为缺失',
       required: st.required || [],
       missing: st.missing || [],
