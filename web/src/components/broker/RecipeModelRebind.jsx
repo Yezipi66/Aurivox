@@ -163,10 +163,11 @@ export function RecipeModelRebind({ recipe, onSaved }) {
     return <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(true); load() }}>{t('Change models', '更换模型')}</button>
   }
 
-  // 有任何模型的角色都可以挑：判据是 models 非空，不按字段名挑。
+  // 有任何模型的角色都可以挑：判据是 engines（后端按「至少一个位有候选」算出来的），不按字段名挑。
   // 模型位名是后端按引擎给的（上方已按引擎读进 slotNames），写死成某两个固定字段，
   // 匹配不上的引擎在这个下拉里永远是空的。
-  const modelVoices = (voicesList || []).filter(v => Object.keys(v.models || {}).length > 0)
+  // 一个候选都没有、只带 note 的那一行不在这里出现：这一栏要挑的是一份真能选中的模型。
+  const modelVoices = (voicesList || []).filter(v => (v.engines || []).length > 0)
 
   return (
     <div className="rebind">

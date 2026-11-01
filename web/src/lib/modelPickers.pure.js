@@ -112,11 +112,12 @@ export function itemLabel(item) {
 }
 
 // 后端生成的模型说明，按引擎筛选。它解释的是这台引擎在这个角色里的模型标签与来源，
-// 下拉为空或有候选时都可能出现。返回该角色在该引擎下的说明数组，没有则空数组。
+// 下拉为空或有候选时都可能出现。按 voiceId 取，底模那一行（builtin）同样适用：
+// 它的下拉空了，界面同样要说出为什么。返回该角色在该引擎下的说明数组，没有则空数组。
 export function modelNotesFor(assets, engineId, voiceId) {
   if (!engineId || !voiceId) return []
   for (const a of (assets || [])) {
-    if (!a || a.builtin || a.voiceId !== voiceId) continue
+    if (!a || a.voiceId !== voiceId) continue
     return (a.model_notes || []).filter(n => n && n.engine === engineId && n.text)
   }
   return []

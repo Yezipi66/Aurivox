@@ -181,7 +181,7 @@ test('标签：候选不完整就在那一行上说，⛔ "说不出来"不许�
 // 空下拉必须解释自己为什么空
 test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () => {
   const assets = [
-    { voiceId: 'base', builtin: true, models: {}, model_notes: [{ engine: 'e1', code: 'x', text: '不该被拿到' }] },
+    { voiceId: 'base', builtin: true, models: {}, model_notes: [{ engine: 'e1', code: 'checkpoints_dir_empty', text: '底模这一栏的空法' }] },
     { voiceId: 'Alice', models: {}, model_notes: [
       { engine: 'e1', code: 'whole_dir_as_candidate', text: '第一句' },
       { engine: 'e2', code: 'loose_files', text: '别台引擎的' },
@@ -196,8 +196,11 @@ test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () =
   assert.deepEqual(modelNotesFor(assets, 'e1', 'Nobody'), [])
   assert.deepEqual(modelNotesFor(assets, '', 'Alice'), [])
   assert.deepEqual(modelNotesFor(null, 'e1', 'Alice'), [])
-  // 底模那一条不是谁的资产，它的话不许被当成当前角色的
-  assert.deepEqual(modelNotesFor(assets, 'e1', 'base'), [])
+  // 底模那一行也要能拿到它自己的话：它的下拉空了，界面同样得说为什么
+  assert.deepEqual(modelNotesFor(assets, 'e1', 'base').map(n => n.text), ['底模这一栏的空法'])
+  assert.deepEqual(modelNotesFor(assets, 'e2', 'base'), [], '按引擎筛，别台引擎的话不许挂过来')
+  // 反过来也成立：底模那一条不是当前角色的资产，它的话不许串到角色那一栏
+  assert.deepEqual(modelNotesFor(assets, 'e1', 'Alice').map(n => n.text), ['第一句'])
 })
 
 test('还有效的旧选择要留住（异步刷新不许把用户刚挑的弹回第一条）', () => {
