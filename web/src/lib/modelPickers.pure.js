@@ -90,6 +90,14 @@ export function voicesForEngine(voices, assets, engineId, slots) {
   })
 }
 
+// 「换模型」那一栏的角色清单：只列 engines 非空的角色。
+// 判据用后端算好的 engines（这个角色至少有一个位列出了候选），不在前端重数 models 的键：
+// 一个候选都没列出、只带一句模型说明的那一行（底模那一行正是这个形状）在这一栏挑不出模型，
+// 混进来只会是一个空下拉。
+export function voicesForModelRebind(voices) {
+  return (voices || []).filter(v => (v.engines || []).length > 0)
+}
+
 // 把候选分组摊平成一份候选清单。分组为空时返回空数组。
 export function flattenGroups(groups) {
   const out = []

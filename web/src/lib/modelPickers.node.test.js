@@ -15,7 +15,7 @@ import {
   enginesInMeta, modelsFromMeta, countModelsInMeta, modelCountsByEngine,
   weightsToSend, weightsFromParams, anySlotSwitchable, slotsNeedingRelaunch,
   launchWeightsToSend,
-  voicesForEngine, describeGeneration,
+  voicesForEngine, voicesForModelRebind, describeGeneration,
   paramsSummaryOf } from './modelPickers.pure.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -201,6 +201,22 @@ test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () =
   assert.deepEqual(modelNotesFor(assets, 'e2', 'base'), [], '按引擎筛，别台引擎的话不许挂过来')
   // 反过来也成立：底模那一条不是当前角色的资产，它的话不许串到角色那一栏
   assert.deepEqual(modelNotesFor(assets, 'e1', 'Alice').map(n => n.text), ['第一句'])
+})
+
+// 换模型那一栏只能挑出一份真选得中的模型
+test('⭐ 换模型的角色清单按 engines 筛，不按 models 有没有键筛', () => {
+  const voices = [
+    { voiceId: 'Alice', displayName: 'Alice', engines: ['e1'], models: { e1: { alpha: [{ path: 'a' }] } } },
+    // 目录建了、位里一个文件都没有：models 有键，engines 是空的。
+    // 按 models 的键筛就会把这一条放进来，于是下拉里多出一个永远选不出东西的角色。
+    { voiceId: 'Bob', displayName: 'Bob', engines: [], models: { e1: { alpha: [] } } },
+    // 一个候选都没列出、只带一句模型说明的那一行（底模那一行的形状）不在这儿出现。
+    { voiceId: 'base', displayName: 'Base', builtin: true, engines: [], models: {},
+      model_notes: [{ engine: 'e1', code: 'checkpoints_dir_empty', text: '底模这一栏的空法' }] },
+  ]
+  assert.deepEqual(voicesForModelRebind(voices).map(v => v.voiceId), ['Alice'])
+  assert.deepEqual(voicesForModelRebind(null), [])
+  assert.deepEqual(voicesForModelRebind(undefined), [])
 })
 
 test('还有效的旧选择要留住（异步刷新不许把用户刚挑的弹回第一条）', () => {
