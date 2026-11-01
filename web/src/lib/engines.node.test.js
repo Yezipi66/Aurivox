@@ -15,6 +15,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import {
   pickEngine,
@@ -28,6 +29,9 @@ import {
   fieldLabel,
   fieldHelp,
   hasMappedKey,
+  hasPronPreview,
+  pronPreviewHint,
+  pronPreviewMessages,
   carriedOverSummary,
   TIERS,
 } from './engines.js'
@@ -986,4 +990,39 @@ test('一排格子收成一行；什么都没接过来时不给这句话', () =>
   assert.equal(carriedOverSummary({ zeta_level: [1, 2] }, CARRY_ENGINE, 'zh'), '已沿用上次的参数：Zeta 档 = [1, 2]')
   assert.equal(carriedOverSummary({}, CARRY_ENGINE, 'zh'), '')
   assert.equal(carriedOverSummary(undefined, CARRY_ENGINE, 'zh'), '')
+})
+
+test('⭐ 名片声明了 pron.preview ⇒ 读音校对入口可用', () => {
+  assert.equal(hasPronPreview({ ...FAKE, pron_preview: { endpoint: '/p', request: 'json' } }), true)
+})
+
+test('⛔ 名片没声明 pron.preview ⇒ 入口置灰，不给一个必然 501 的按钮', () => {
+  assert.equal(hasPronPreview(FAKE), false)
+})
+
+test('⛔ 没有引擎可查名片（null/undefined）不等于「该引擎不支持」', () => {
+  assert.equal(hasPronPreview(null), null)
+  assert.equal(hasPronPreview(undefined), null)
+  assert.equal(hasPronPreview({}), false)
+})
+
+test('⭐ 入口置灰的提示分两种：当前没有可用引擎 / 该引擎未声明能力', () => {
+  assert.match(pronPreviewHint(null), /engine list is still loading/)
+  assert.match(pronPreviewHint(false), /pron\.preview/)
+  assert.doesNotMatch(pronPreviewHint(null), /does not declare/)
+})
+
+test('⛔ 两种语言的提示只有这一个出处：弹窗取整对，不得再复制一份', () => {
+  assert.equal(pronPreviewMessages(false).length, 2)
+  // null 那句要同时盖住两种来路：列表还在读取，以及列表里没有可用引擎（名片未通过校验的引擎会被拒掉）。
+  // 只写「正在读取」会把后者说成「再等一会儿就好」。
+  assert.match(pronPreviewMessages(null)[1], /列表还在读取/)
+  assert.match(pronPreviewMessages(null)[1], /名片校验/)
+  assert.doesNotMatch(pronPreviewMessages(null)[1], /正在读取已装引擎列表/)
+  assert.match(pronPreviewMessages(false)[1], /pron\.preview/)
+  const modal = fs.readFileSync(new URL('../components/pron/TextPrepModal.jsx', import.meta.url), 'utf8')
+  assert.match(modal, /pronPreviewMessages\(pronPreview\)/,
+    'TextPrepModal 没有用共用出处：它自己写了一份，两处会各自漂移')
+  assert.doesNotMatch(modal, /does not declare reading preview/,
+    'TextPrepModal 里又复制了一份「未声明」的英文原文')
 })

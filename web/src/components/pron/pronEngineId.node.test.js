@@ -80,29 +80,31 @@ for (const [file, re] of SIGNATURES) {
   })
 }
 
-/** 渲染点：`<组件` 之后 700 字符内必须出现 engineId=。 */
+/** 渲染点：`<组件` 之后 700 字符内必须出现 engineId=。第三项可选，写它就是「这个渲染点还得传这个 prop」。 */
 const RENDERS = [
-  ['components/generate', '<TextPrepModal'],
-  ['components/compare', '<TextPrepModal'],
+  ['components/generate', '<TextPrepModal', /pronPreview=/],
+  ['components/compare', '<TextPrepModal', /pronPreview=/],
   ['components/compare', '<CompareRow'],
-  ['components/assets/AssetsTab.jsx', '<ReferenceTranscriptProofing'],
-  ['components/assets/ReferenceTranscriptProofing.jsx', '<TextPrepModal'],
-  ['components/train', '<AsrReviewPanel'],
-  ['components/train', '<AsrRowProof'],
+  ['components/assets/AssetsTab.jsx', '<ReferenceTranscriptProofing', /pronPreview=/],
+  ['components/assets/ReferenceTranscriptProofing.jsx', '<TextPrepModal', /pronPreview=/],
+  ['components/train', '<AsrReviewPanel', /pronPreview=/],
+  ['components/train', '<AsrRowProof', /pronPreview=/],
+  ['components/train', '<TrainingStatusPanel', /pronPreview=/],
   ['components/train', '<PronPanel'],
-  ['components/pron', '<HanLangPicker'],
+  ['components/pron', '<HanLangPicker', /pronPreview=/],
   ['components/pron', '<HanReadingReview'],
   ['components/pron', '<PronPanel'],
 ]
 
-for (const [file, tag] of RENDERS) {
-  test(`⛔ 渲染点漏传：${file} ${tag}`, () => {
+for (const [file, tag, required] of RENDERS) {
+  test(`⛔ 渲染点漏传：${file} ${tag}${required ? ' ' + required.source : ''}`, () => {
     const code = readDirOrFile(file)
     const idxs = [...code.matchAll(new RegExp(tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s>]', 'g'))].map(m => m.index)
     assert.ok(idxs.length > 0, `${file} 里找不到 ${tag}`)
     for (const i of idxs) {
       const block = code.slice(i, i + 700)
       assert.match(block, /engineId=/, `${file} 的 ${tag}（第 ${i} 字节）没传 engineId`)
+      if (required) assert.match(block, required, `${file} 的 ${tag}（第 ${i} 字节）没传这个必传 prop`)
     }
   })
 }
@@ -113,6 +115,60 @@ test('⭐⭐⭐ App.jsx 必须把 engine 传给这两个原本拿不到它的页
   assert.match(app, /<TrainingTab\s+engine=\{engine\}/, 'App.jsx 没把 engine 传给 TrainingTab')
   assert.match(app, /<AssetsTab\s+engine=\{engine\}/, 'App.jsx 没把 engine 传给 AssetsTab')
 })
+
+// 上一段只证明 `pronPreview=` 这个 prop 传了，不证明传的是名片实读的结果，
+// 也不证明子组件真拿它做门控：渲染点写成 `pronPreview={true}`、门控写成 `{true && (` 都照样绿。
+// 少这一段的失败和漏传 engineId 是同一类：入口在一台不支持预览的引擎上照样可点，
+// 点下去是一条必然 501 的请求。
+
+// 页面级：5 处渲染点传下去的必须是 hasPronPreview(engine) 的实读结果。
+const PREVIEW_SOURCES = [
+  'components/assets/AssetsTab.jsx',
+  'components/compare/CompareRow.jsx',
+  'components/compare/ReferenceCompareTab.jsx',
+  'components/generate/GenerateTab.jsx',
+  'components/train/TrainingTab.jsx',
+]
+
+for (const file of PREVIEW_SOURCES) {
+  test(`⛔ 读音预览的开关来自名片：${file}`, () => {
+    assert.match(readDirOrFile(file), /pronPreview=\{hasPronPreview\(engine\)\}/,
+      `${file} 传给 pronPreview 的不是 hasPronPreview(engine)：界面在这里绕过了名片`)
+  })
+}
+
+// 组件级：收起、置灰和提示都必须挂在 pronPreview 上。
+// 判据是「门控表达式在，且它挡住的就是那个读音校对的渲染」：门控写成 `{true && (` 时表达式匹配不上，
+// 门控挪去挡别的东西时后面的窗口里找不到这个渲染点。
+const GATED_RENDERS = [
+  ['components/pron/TextPrepModal.jsx', /\{pronPreview && \(/, '<PronPanel', '未声明时整个读音校对区都要收起'],
+  ['components/pron/HanReview.jsx', /\{pronPreview && \(/, '<HanReadingReview', '未声明时汉字读音建议要收起'],
+  ['components/train/ReviewPanels.jsx', /\{open && pronPreview && \(/, '<PronPanel', '未声明时不展开读音校对面板'],
+]
+
+for (const [file, gate, tag, why] of GATED_RENDERS) {
+  test(`⛔ 门控缺失：${file} ${tag}`, () => {
+    const code = readDirOrFile(file)
+    const gateIdxs = [...code.matchAll(new RegExp(gate.source, 'g'))].map(m => m.index)
+    assert.ok(gateIdxs.length > 0, `${file} 里没有 ${gate.source}：${why}`)
+    for (const i of gateIdxs) {
+      assert.ok(code.slice(i, i + 900).includes(tag),
+        `${file} 的 ${gate.source}（第 ${i} 字节）挡住的不是 ${tag}`)
+    }
+  })
+}
+
+const DISABLED_GATES = [
+  ['components/train/ReviewPanels.jsx', /disabled=\{disabled \|\| !pronPreview\}/, '训练页逐行读音按钮'],
+  ['components/assets/ReferenceTranscriptProofing.jsx', /disabled=\{!pronPreview\}/, '资产页逐行读音按钮'],
+]
+
+for (const [file, gate, where] of DISABLED_GATES) {
+  test(`⛔ 按钮未置灰：${file} ${where}`, () => {
+    assert.match(readDirOrFile(file), gate,
+      `${file} 的「${where}」没有因未声明读音预览而置灰：点下去是一条必然 501 的请求`)
+  })
+}
 
 test('⛔ 全仓库不许再有裸的 /api/advanced-params 读取', () => {
   // 写入（POST）那一路是 api('/api/advanced-params', {：那个是对的，不在此列。
