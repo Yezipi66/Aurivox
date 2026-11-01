@@ -6,8 +6,6 @@
 // 判据（与 manifestAutoFill 同一套纪律）：
 //   该填：id 定了、素材拿得到（盘上文件 / call 段模块）、且那一格空着。
 //   不该填：使用者声明过（非空就不覆盖）、素材拿不到（不硬猜）。
-// 置信度（确定=绿，猜的=黄）：models.required 与 verify.imports 是确定（绿），
-//   verify.sys_path 是猜的（黄），界面按 FILL_NOTES 标。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -20,7 +18,7 @@ let requiredFromFiles, verifyModuleFromCall
 let shouldFillModelsRequired, withModelsRequired
 let shouldFillVerifySysPath, withVerifySysPath
 let shouldFillVerifyImports, withVerifyImports
-let shouldFillVerify, withAutoFilledVerify, FILL_NOTES, describeFilledNotes
+let shouldFillVerify, withAutoFilledVerify
 
 test('加载 declarationFill.js', async () => {
   const m = await import(pathToFileURL(FILL).href)
@@ -34,15 +32,12 @@ test('加载 declarationFill.js', async () => {
   withVerifyImports = m.withVerifyImports
   shouldFillVerify = m.shouldFillVerify
   withAutoFilledVerify = m.withAutoFilledVerify
-  FILL_NOTES = m.FILL_NOTES
-  describeFilledNotes = m.describeFilledNotes
   for (const f of [requiredFromFiles, verifyModuleFromCall, shouldFillModelsRequired,
     withModelsRequired, shouldFillVerifySysPath, withVerifySysPath,
     shouldFillVerifyImports, withVerifyImports, shouldFillVerify,
     withAutoFilledVerify]) {
     assert.strictEqual(typeof f, 'function')
   }
-  assert.ok(FILL_NOTES && typeof FILL_NOTES === 'object')
 })
 
 // ---- requiredFromFiles：盘上文件折成声明 ----
@@ -279,77 +274,6 @@ test('填两次不会叠（幂等）', () => {
     { id: 'e1', call: { kind: 'python', module: 'm' } })
   const twice = withAutoFilledVerify(once)
   assert.deepStrictEqual(twice.runtime.verify, once.runtime.verify)
-})
-
-// ---- 置信度标注（确定=绿，猜的=黄）----
-
-test('FILL_NOTES：该确定的确定、该猜的标成猜', () => {
-  assert.strictEqual(FILL_NOTES.models_required.level, 'certain',
-    '盘上实际下过的文件，确定')
-  assert.strictEqual(FILL_NOTES.verify_imports.level, 'certain',
-    '与 call 段同一个模块，call 定了它就跟着定')
-  assert.strictEqual(FILL_NOTES.verify_sys_path.level, 'guess',
-    '克隆根是猜的：src 布局要改，必须标成猜')
-})
-
-test('FILL_NOTES：每条都有中英两句人话', () => {
-  for (const [k, n] of Object.entries(FILL_NOTES)) {
-    assert.ok(typeof n.en === 'string' && n.en, `${k} 缺英文说明`)
-    assert.ok(typeof n.zh === 'string' && n.zh, `${k} 缺中文说明`)
-    assert.ok(['certain', 'guess'].includes(n.level), `${k} 的 level 只能是 certain/guess`)
-  }
-})
-
-// ---- describeFilledNotes：界面上该标哪几条 ----
-
-test('三格都处在自动填的形状 ⇒ 三条都标，levels 各归各位', () => {
-  const m = withModelsRequired(
-    withAutoFilledVerify(
-      { id: 'e1', call: { kind: 'python', module: 'sparktts.api' } }),
-    ['LLM/qwen.pt', 'BiCodec/bcodec.pt'])
-  const notes = describeFilledNotes(m, FILES)
-  assert.deepStrictEqual(notes.map((n) => n.key),
-    ['models_required', 'verify_imports', 'verify_sys_path'])
-  assert.deepStrictEqual(notes.map((n) => n.level),
-    ['certain', 'certain', 'guess'])
-})
-
-test('使用者把 sys_path 改走了 ⇒ 不再标这一格（已是他的判断）', () => {
-  const m = {
-    id: 'e1', call: { kind: 'python', module: 'sparktts.api' },
-    models: { required: ['LLM/qwen.pt', 'BiCodec/bcodec.pt'] },
-    runtime: { verify: { sys_path: ['engines/e1/src'], imports: [{ module: 'sparktts.api' }] } },
-  }
-  const notes = describeFilledNotes(m, FILES)
-  assert.deepStrictEqual(notes.map((n) => n.key), ['models_required', 'verify_imports'])
-})
-
-test('models.required 与盘上清单不一致（使用者增删过）⇒ 不标', () => {
-  const m = {
-    id: 'e1',
-    models: { required: ['only_this.pt'] },
-  }
-  assert.deepStrictEqual(describeFilledNotes(m, FILES), [])
-})
-
-test('verify.imports 与 call 段不同模块（使用者改过）⇒ 不标', () => {
-  const m = {
-    id: 'e1', call: { kind: 'python', module: 'sparktts.api' },
-    runtime: { verify: { imports: [{ module: 'other.module' }] } },
-  }
-  assert.deepStrictEqual(describeFilledNotes(m, FILES), [])
-})
-
-test('id 没定 / 空名片 ⇒ 没有可标的', () => {
-  assert.deepStrictEqual(describeFilledNotes({}, FILES), [])
-  assert.deepStrictEqual(describeFilledNotes(null, FILES), [])
-})
-
-test('盘上没有文件清单（第 3 步没下）⇒ models 那条标不出来', () => {
-  const m = withModelsRequired(
-    { id: 'e1', models: { required: ['a.pt'] } }, ['a.pt'])
-  describeFilledNotes(m, FILES) // 有清单时标得出
-  assert.deepStrictEqual(describeFilledNotes(m, null).map((n) => n.key), [])
 })
 
 // ---- 活代码里不许出现具体引擎名 ----

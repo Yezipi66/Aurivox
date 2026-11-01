@@ -11,7 +11,7 @@
 //   兜底的素材不靠猜：models.required 照第 3 步实际下到盘上的文件，
 //   verify.imports 照 call 段已经定下的模块。只有 sys_path 是按
 //   「克隆根」猜的（src 布局的引擎要把源码目录改进来），
-//   猜的那一格在界面上标黄（FILL_NOTES）。
+//   猜得对不对不靠界面提示：第 5 步 env_deep 会如实报「起不起来」。
 
 // 不算权重的文件：仓库说明、许可证、校验和、下载工具残留。
 // 只剔「 Provably 不是权重」的：README / LICENSE 这类文档名、
@@ -109,8 +109,9 @@ export function withModelsRequired (manifest, required) {
  *
  * sys_path 是「宿主与校验都从哪加载这台引擎的模块」：
  *   envCheck 的 shallow 会要求每个路径在盘上存在，克隆根天然存在。
- * 注意这一格是**猜的**（界面标黄）：源码在 src/ 子目录的引擎
+ * 注意这一格是**猜的**：源码在 src/ 子目录的引擎
  *   要把它改成 engines/<id>/src，平台没法替引擎决定它的源码布局。
+ *   猜得对不靠界面提示，第 5 步 env_deep 会如实报「起不起来」。
  *
  * @param {object} manifest 当前名片
  * @returns {boolean} 该填就 true
@@ -193,66 +194,4 @@ export function withAutoFilledVerify (manifest) {
   if (shouldFillVerifySysPath(next)) next = withVerifySysPath(next)
   if (shouldFillVerifyImports(next)) next = withVerifyImports(next)
   return next
-}
-
-// ---- 界面呈现：每一格自动填的置信度与说法 ----
-//
-// 平台猜可以，但猜的时候要说自己是猜的（确定=绿，猜的=黄）：
-//   certain（确定）⇒ badge-ok 绿；guess（猜的）⇒ badge-warn 黄。
-// models.required 照盘上实际文件填：下过什么填什么，确定。
-// verify.imports 与 call 同一个模块：call 是扫描/使用者定下的，确定。
-// verify.sys_path 按克隆根猜：对「包就在根目录」的引擎对，
-//   对 src 布局的引擎错，所以要人确认。
-export const FILL_NOTES = Object.freeze({
-  models_required: {
-    level: 'certain',
-    en: 'models.required: filled from the files actually downloaded in step 3',
-    zh: 'models.required：按第 3 步实际下到盘上的文件填的（下过什么填什么）',
-  },
-  verify_imports: {
-    level: 'certain',
-    en: 'runtime.verify.imports: same module as the call section',
-    zh: 'runtime.verify.imports：与 call 段同一个模块（call 定了它就跟着定）',
-  },
-  verify_sys_path: {
-    level: 'guess',
-    en: 'runtime.verify.sys_path: guessed as the engine clone root; change it if the source lives under a subdirectory (e.g. src/)',
-    zh: 'runtime.verify.sys_path：按引擎克隆根猜的；源码在子目录（如 src/）的引擎要改',
-  },
-})
-
-/**
- * 当前名片里有哪几格处在「自动填出来的形状」，各该标什么置信度。
- *
- * 只按**当前值**判，不记「是不是平台刚才填的」：值还等于填出来的那个形状，
- *   就值得标（说明这一格的来历与把握）；使用者改走了就不标，
- *   那已经是他自己的判断，平台不再替他担保。
- *
- * @param {object} manifest 当前名片
- * @param {string[]} files installState 送来的盘上文件清单
- * @returns {{key:string, level:string, en:string, zh:string}[]} 要标出来的条目
- */
-export function describeFilledNotes (manifest, files) {
-  const out = []
-  if (!manifest || !manifest.id) return out
-  // models.required 与盘上清单一致（集合相等，顺序不重要）
-  const required = (manifest.models && manifest.models.required) || []
-  const fromDisk = requiredFromFiles(files)
-  if (Array.isArray(required) && required.length > 0 && fromDisk.length > 0 &&
-      required.slice().sort().join('\n') === fromDisk.join('\n')) {
-    out.push({ key: 'models_required', ...FILL_NOTES.models_required })
-  }
-  // verify.imports 只有一条、模块与 call 段一致
-  const v = (manifest.runtime && manifest.runtime.verify) || {}
-  const module = verifyModuleFromCall(manifest)
-  if (module && Array.isArray(v.imports) && v.imports.length === 1 &&
-      v.imports[0] && v.imports[0].module === module) {
-    out.push({ key: 'verify_imports', ...FILL_NOTES.verify_imports })
-  }
-  // verify.sys_path 还是克隆根（改走了就不标：使用者已经处理过这一格）
-  if (Array.isArray(v.sys_path) && v.sys_path.length === 1 &&
-      v.sys_path[0] === `engines/${manifest.id}`) {
-    out.push({ key: 'verify_sys_path', ...FILL_NOTES.verify_sys_path })
-  }
-  return out
 }

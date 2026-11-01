@@ -12,7 +12,7 @@ import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 import {
   shouldFillModelsRequired, withModelsRequired, requiredFromFiles,
-  shouldFillVerify, withAutoFilledVerify, describeFilledNotes,
+  shouldFillVerify, withAutoFilledVerify,
 } from './declarationFill'
 
 // 反射生成的 parameters[] 草稿与映射候选只填表单，映射候选要人点选之后才写进 maps。
@@ -68,7 +68,7 @@ export default function ManifestForm ({
   // 为什么自动填：verify 是「拿这台引擎的解释器 import 哪些模块」的第二道校验，
   //   空着时 env_deep 没有 spec 可验（起不起来永远「说不出来」）。
   //   imports 照 call 段已定下的模块（module-only，env_probe 认的最小形状）；
-  //   sys_path 按克隆根猜（src 布局的引擎要改），这一格在下面标黄提醒人确认。
+  //   sys_path 按克隆根猜（src 布局的引擎要改），猜得对不对由第 5 步 env_deep 兜底。
   // 各自只填空格：使用者或扫描写过的（sys_path 或 imports 非空）不覆盖。
   React.useEffect(() => {
     if (!shouldFillVerify(manifest)) return
@@ -76,10 +76,6 @@ export default function ManifestForm ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manifest && manifest.id, manifest && manifest.call,
     manifest && manifest.runtime && manifest.runtime.verify])
-
-  // 自动填出来的那几格：按置信度标出来（确定=绿 / 猜的=黄）。
-  //   只按当前值判：使用者改走的那一格不再标（已是他的判断）。
-  const fillNotes = describeFilledNotes(manifest, modelFiles)
 
   if (!spec) {
     return <p className="field-hint" style={{ margin: 0 }}>
@@ -93,23 +89,6 @@ export default function ManifestForm ({
       {/* ① 必填字段：三个输入槽位一行，引擎目录与启动脚本一行 */}
       <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill}
         bindSlots={spec && spec.bindSlots} />
-
-      {/* ①b 平台代填的声明与置信度：models.required / runtime.verify 两格。
-          确定标绿（badge-ok）、猜的标黄（badge-warn）；
-          没有自动填出来的时候整个区块不出现。 */}
-      {fillNotes.length > 0 && (
-        <div className="field-hint" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {fillNotes.map((n) => (
-            <div key={n.key}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span className={`badge ${n.level === 'certain' ? 'badge-ok' : 'badge-warn'}`}>
-                {n.level === 'certain' ? t('certain', '确定') : t('guessed, needs review', '猜的，需确认')}
-              </span>
-              <span>{t(n.en, n.zh)}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。

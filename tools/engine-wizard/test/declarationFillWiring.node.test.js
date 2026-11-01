@@ -6,12 +6,9 @@
 //   永远是说不出来（checkpoints.js 的 ready:null、env_deep 无 spec）。
 //
 // 纯函数测试（declarationFill.node.test.js）只管判定与填值，
-//   接线的错（effect 条件挂错、onChange 拿快照写回冲掉别处、徽标没渲染）
+//   接线的错（effect 条件挂错、onChange 拿快照写回冲掉别处）
 //   纯函数抓不到。这里真渲染 ManifestForm，由宿主组件持有名片状态，
 //   与 App 一样直接把 onChange 交给 setState。
-//
-// 置信度呈现（确定=绿，猜的=黄）一并守：确定两格 = badge-ok（绿），
-//   猜的那格（sys_path）= badge-warn（黄）。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -152,32 +149,9 @@ test('填值与扫描/别处的自动填同一次提交不互冲（checkpoints �
   await act(async () => root.unmount())
 }))
 
-test('置信度标注：确定两格绿徽标、猜的那格黄徽标，且文本出现键名', { skip }, () => withDom(async () => {
-  const { el, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', FILES)
-  const text = el.textContent || ''
-  const oks = el.querySelectorAll('.badge-ok')
-  const warns = el.querySelectorAll('.badge-warn')
-  // 必填槽位区也可能有 badge（未匹配需指定），这里只守自动填这三条：
-  //   出现「models.required」说明的那个提示块里，确定的两条带 badge-ok，
-  //   猜的那条带 badge-warn。
-  // 先定位到声明那一个提示块（文本里有 models.required 与 runtime.verify.sys_path）
-  const blocks = [...el.querySelectorAll('.field-hint')]
-  const block = blocks.find((b) => b.textContent.includes('models.required')
-    && b.textContent.includes('runtime.verify.sys_path'))
-  assert.ok(block, '声明置信度的提示块没渲染出来')
-  assert.strictEqual(block.querySelectorAll('.badge-ok').length, 2, '确定的那两条该是绿徽标')
-  assert.strictEqual(block.querySelectorAll('.badge-warn').length, 1, '猜的那条该是黄徽标')
-  assert.ok(oks.length >= 2 && warns.length >= 1, '徽标计数异常（全文）')
-  assert.ok(text.includes('models.required') && text.includes('runtime.verify.sys_path'))
-  await act(async () => root.unmount())
-}))
-
-test('没有任何可填素材（空名片、没文件）⇒ 不填，也没有提示块', { skip }, () => withDom(async () => {
-  const { api, el, act, root } = await mount({}, null, null)
+test('没有任何可填素材（空名片、没文件）⇒ 不填', { skip }, () => withDom(async () => {
+  const { api, act, root } = await mount({}, null, null)
   assert.strictEqual(api.m.models, undefined)
   assert.strictEqual(api.m.runtime && api.m.runtime.verify, undefined)
-  const blocks = [...el.querySelectorAll('.field-hint')]
-  const block = blocks.find((b) => b.textContent.includes('models.required'))
-  assert.strictEqual(block, undefined, 'nothing was filled, but a confidence note appeared')
   await act(async () => root.unmount())
 }))
