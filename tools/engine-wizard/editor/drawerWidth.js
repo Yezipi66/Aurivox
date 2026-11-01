@@ -5,8 +5,14 @@
 export const PREVIEW_MIN = 280
 /** 拖宽时中栏至少要留的宽度：再窄表单就没法填。要更大就用「全屏」。 */
 export const CENTER_MIN = 320
-/** 预览抽屉的默认宽度，与 editor.css 的 --wz-drawer-w 一致。 */
-export const PREVIEW_DEFAULT = 360
+/**
+ * 预览抽屉的默认宽度，与 editor.css 的 --wz-drawer-w 一致。
+ *
+ * 392 = 生成页右栅 380 + 抽屉左右内边距 24。预览里再减 .section 边框与
+ *   .section-body 的 12×2，可用宽度正好 354，与生成页右栅一样宽；
+ *   360 时只有 310，比真界面窄 44，看出两边的换行不一样。
+ */
+export const PREVIEW_DEFAULT = 392
 
 /**
  * 把拖出来的宽度夹进可用范围。

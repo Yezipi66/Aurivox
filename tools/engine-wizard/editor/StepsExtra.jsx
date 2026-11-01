@@ -1,3 +1,4 @@
+// 第 3 步下载模型及其余步骤面板。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
@@ -128,7 +129,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
   // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-  // 三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 不完整（大小为0）。
+  // 三态：已下载（文件存在且大小 > 0）/ 未下载（文件不存在）/ 不完整（大小为 0）。
   const [fileList, setFileList] = React.useState(null)
   React.useEffect(() => {
     if (!id || !dlLive || dlLive.stage !== 'done') return
@@ -174,7 +175,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
-        setProbeError(t('Probe failed: HTTP ${resp.status}', '嗅探失败：HTTP ${resp.status}'))
+        setProbeError(t(`Probe failed: HTTP ${resp.status}`, `嗅探失败：HTTP ${resp.status}`))
         return
       }
       const contentType = resp.headers.get('content-type') || ''
@@ -422,7 +423,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 不替用户决定路径：这是平台统一落盘策略，不是用户可选的。
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="wz-stack">
       {err && <div className="msg msg-danger">{err}</div>}
       {!id && (
         <div className="msg msg-info">
@@ -623,7 +624,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 {pickable && (
                   <select className="control" value={source === 'unknown' ? '' : source}
                     title={t('The upstream code does not say which library this snapshot_download comes from.',
-                      '上游代码里看不出这个 snapshot_download 来自哪个库，请选择下载来源。')}
+                      '无法从上游代码判断 snapshot_download 所属的库，请选择下载来源。')}
                     onChange={(e) => pickSource(c, e.target.value)}
                     style={{ flexShrink: 0 }}>
                     <option value="">{t('Choose source', '选择来源')}</option>
@@ -779,7 +780,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-sm" type="button" onClick={load} disabled={busy || !id}>
-          {busy ? t('Checking…', '正在查…') : t('Check again', '再查一次')}
+          {busy ? t('Checking…', '正在检查…') : t('Check again', '重新检查')}
         </button>
         {/* 从头重装本步：只清「哪些下载算做完了」这份记录（models 段），
             不删已下载的模型文件、不删源码与依赖。*/}
@@ -828,7 +829,7 @@ function HfTokenDialog ({ info, canRetry, configured, busy, error, onSave, onCle
                 {t('Open the repository page', '打开仓库页面')}
               </a>
               {t(' to accept the license, then retry. Or download the ModelScope mirror instead.',
-                '，登录并接受许可协议后点「重试」。也可以改用魔搭（ModelScope）上的镜像。')}
+                '，登录并接受许可后点击「重试」，或改用魔搭镜像。')}
             </p>
           )}
           {reason !== 'LICENSE_NOT_ACCEPTED' && (

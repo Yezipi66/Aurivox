@@ -74,17 +74,17 @@ function parseRequirements (text) {
   for (const raw of text.split(/\r?\n/)) {
     let line = raw.trim()
 
-    // 续行：上一行以 `\` 结尾 ⇒ 这一行是它的延续，不是独立依赖
+    // 续行：上一行以 \ 结尾 ⇒ 这一行是它的延续，不是独立依赖
     if (continued) {
       if (line.endsWith('\\')) continue
       continued = false
       if (!line) continue
-      // 续行落在新行之后：只有当它自己是一整条依赖时才收（`-r` 这类选项行不算）
+      // 续行落在新行之后：只有当它自己是一整条依赖时才收（-r 这类选项行不算）
     }
 
     if (!line || line.startsWith('#')) continue
 
-    // 行尾注释要剥掉：`包名==1.0  # 说明` ⇒ `包名==1.0`
+    // 行尾注释要剥掉：包名==1.0  # 说明 ⇒ 包名==1.0
     const hash = line.indexOf('#')
     if (hash >= 0) line = line.slice(0, hash).trim()
     if (!line) continue
@@ -95,14 +95,14 @@ function parseRequirements (text) {
     // 选项行：-r / -e / -c / --index-url / --hash / --find-links
     if (line.startsWith('-')) { out.skipped++; continue }
 
-    // 环境标记 `;` 之后是条件，只取分号前的依赖声明
+    // 环境标记 ; 之后是条件，只取分号前的依赖声明
     const semi = line.indexOf(';')
     if (semi >= 0) line = line.slice(0, semi).trim()
     if (!line) { out.skipped++; continue }
 
     // 直连来源：git+https / http(s) / file / 本地路径 ⇒ 不是普通依赖
     if (/^(?:git\+|https?:|file:|\.{1,2}[\\/])/i.test(line)) { out.skipped++; continue }
-    // PEP 508 直引：`包名 @ https://…` ⇒ 同样不是普通依赖
+    // PEP 508 直引：包名 @ https://… ⇒ 同样不是普通依赖
     if (/@\s*\S/.test(line)) { out.skipped++; continue }
 
     const m = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(.*)$/)
@@ -113,9 +113,9 @@ function parseRequirements (text) {
     //   ① extras：fastapi[all]
     //   ② 紧贴的版本约束：torch>=2.5.0 / torch == 2.5.0 里第二种不合法
     //   ③ 或者什么都没有（裸包名）
-    // 关键：合法的比较算子必须是两个字符或单个 < >，单个 `=` 不是算子：它是赋值。
+    // 关键：合法的比较算子必须是两个字符或单个 < >，单个 = 不是算子：它是赋值。
     // 这条规则同时挡住了 TOML 赋值行：
-    //   name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
+    //   name = "speechkit"        ⇒ 尾随 = "speechkit"，是赋值
     //   license = "Apache-2.0"    ⇒ 同上
     //   requires-python = ">=3.10" ⇒ 同上
     if (tail && !/^(?:\[[^\]]*\])?(?:===|==|!=|<=|>=|~=|<|>)/.test(tail)) {

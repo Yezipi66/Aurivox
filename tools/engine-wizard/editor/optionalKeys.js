@@ -1,6 +1,6 @@
-// 「引擎配置」那一段的清单与纯函数（OptionalConfig.jsx 渲染；文件名不叫 optionalConfig.js，大小写不敏感的文件系统上会和组件撞名，可单独测）。
+﻿// 「引擎配置」那一段的清单与纯函数（OptionalConfig.jsx 渲染；文件名不叫 optionalConfig.js，大小写不敏感的文件系统上会和组件撞名，可单独测）。
 //
-// 每一项缺着时平台都有答案（推断或保守默认，见 lib/engines/profile.js 的 DEFAULTS）。
+// 每一项缺着时平台都有答案（两侧兜底，见 lib/engines/profile.js 的 DEFAULTS）。
 // 写了数就必须写出处（平台 checkMeasuredSources 的规矩）：添加时出处先记 estimated。
 // 第 5 步试运行不改这里：量到的两项超时只存在本机（lib/engines/localTimings.js），
 // 名片里写的值原样留着，平台在本机上按本机的值用。
@@ -60,30 +60,51 @@ export const OPTIONAL_KEYS = [
     fallbackEn: '/health with the shared host', fallbackZh: '通用宿主默认 /health' },
   { path: 'capabilities.requires_reference_audio', kind: 'bool',
     en: 'Needs reference audio', zh: '是否需要参考音频',
-    fallbackEn: 'yes if the reference audio input is bound', fallbackZh: '绑定参考音频即表示需要' },
+    fallbackEn: 'yes', fallbackZh: '是',
+    // 界面预填「是」：多数开源 TTS 是零样本。这只是通用判断，不表示平台能识别这台引擎。
+    defaultKind: 'prefill',
+    hintEn: 'Prefilled as yes. A general guess, may not match your engine; check its docs.',
+    hintZh: '平台预填的「是」是通用判断，可能与所用引擎不符，请按引擎说明核对。',
+    ctrlTitleEn: 'Written into the file. Left unset, the wizard prefills yes for a new engine.',
+    ctrlTitleZh: '这个值会写进文件。新建引擎时向导预填「是」。' },
   { path: 'capabilities.reference_clip_seconds', kind: 'range',
     en: 'Reference audio duration (s)', zh: '参考音频时长（秒）',
     fallbackEn: 'no limit', fallbackZh: '不限制',
+    hintEn: 'blank means no limit', hintZh: '留空默认无限制',
     // 这一项的提示说明「为什么值得填」：不填时平台不拦，填了才拦。
     noteEn: 'A longer reference recording means slower feature extraction, higher memory usage, and a longer wait for the first audio byte.',
     noteZh: '参考音频越长，特征提取越慢，内存占用越高，首字节延迟也越高。' },
-  // capabilities.output_sample_rate 不在这里：它只是声明，平台不读（拼接按每段 wav 头）。
-  // 引擎若能调采样率，那是它自己的入参，拖进「合成参数」当旋钮。
-  { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'],
+  // 默认是常量别名：不填这个键就是 file（hostProfile.js:272），所以 file 这条直接标「（默认）」，
+  //   不单列一条「不填」；选它即不填这个键。
+  { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'], defaultValue: 'file',
+    defaultKind: 'constant',
     en: 'How the engine returns audio', zh: '音频返回方式',
-    fallbackEn: 'writes a file', fallbackZh: '写成文件' },
+    fallbackEn: 'writes a file', fallbackZh: '写成文件',
+    ctrlTitleEn: 'Left out, the platform always writes the result to a file. Choosing this entry leaves the key out.',
+    ctrlTitleZh: '不填这个键时，平台固定按「写成文件」处理，结果写到输出文件。选这一项就是不填。',
+    optionLabels: {
+      file: { en: 'writes a file (default)', zh: '写成文件（默认）' },
+      bytes: { en: 'returns bytes', zh: '返回字节' },
+      generator: { en: 'yields chunks', zh: '逐块生成' },
+    } },
   { path: 'call.generator_sample_rate', kind: 'number', when: (m) => get(m, 'call.returns') === 'generator',
     en: 'Generator sample rate (Hz)', zh: '生成器采样率（Hz）',
     fallbackEn: 'required for generator output', fallbackZh: '生成器形态必填' },
   { path: 'runtime.args', kind: 'list',
     en: 'Extra start arguments', zh: '额外启动参数',
     fallbackEn: 'shared host: --profile-json / --host / --port', fallbackZh: '通用宿主默认 --profile-json / --host / --port' },
+  // 不填时就是平台安装目录（即项目根）。只有引擎自己的资产按它目录解路径时才需要填 engines/<id>。
+  // 证据：lib/engines/envCheck.js:59、lib/engines/spawnEngine.js:57、lib/engines/launchPlan.js:122。
   { path: 'runtime.cwd', kind: 'text',
     en: 'Working directory', zh: '工作目录',
-    fallbackEn: 'engine directory', fallbackZh: '引擎目录' },
+    fallbackEn: 'project root', fallbackZh: '项目根',
+    hintEn: 'project root; absolute paths work', hintZh: '相对项目根，可填绝对路径',
+  },
   { path: 'call.init_args', kind: 'json',
     en: 'Constructor arguments', zh: '构造参数',
-    fallbackEn: 'none', fallbackZh: '无' },
+    fallbackEn: 'none', fallbackZh: '无',
+    hintEn: 'only when the engine class needs it', hintZh: '仅当引擎类构造函数需要时填写',
+  },
 ]
 
 export const SOURCES = ['estimated', 'measured', 'upstream']
@@ -139,6 +160,12 @@ function initialValue (item) {
   return ''
 }
 
+// 参考音频这一项新建时预填「是」并真写进文件（多数零样本 TTS 需要参考音频）。
+export function prefillReferenceAudio (m) {
+  const caps = m && typeof m.capabilities === 'object' && m.capabilities ? m.capabilities : null
+  if (caps && 'requires_reference_audio' in caps) return m
+  return setPath(m, 'capabilities.requires_reference_audio', true)
+}
 export function addItem (m, item) {
   let next = setPath(m, item.path, initialValue(item))
   if (item.source && get(next, item.source) === undefined) next = setPath(next, item.source, 'estimated')
@@ -152,15 +179,15 @@ export function removeItem (m, item) {
 }
 
 // 平台替名片答了的那几项（lib/engines/profile.js 产出的 profile.defaulted），
-//   且表单里此刻也没写：界面给它们挂「平台默认」。defaulted 是盘上这张名片的读数，
-//   表单里已经写了值的以表单为准，不再算平台默认。
+//   且表单里此刻也没写：界面给它们挂「默认」。defaulted 是盘上这张名片的读数，
+//   表单里已经写了值的以表单为准，不再算平台兜底。
 export function platformDefaultedRows (m, defaulted) {
   const set = new Set(Array.isArray(defaulted) ? defaulted : [])
   return OPTIONAL_KEYS.filter((it) => set.has(it.path) && get(m, it.path) === undefined)
 }
 
 // 本机上第 5 步试运行量过的那几项（profile.value_sources 里记成 local 的）：
-//   不在名片里、不算平台默认，界面单独挂「本机测得」，并说明它在本机优先于名片。
+//   不在名片里、不算平台兜底，界面单独挂「本机测得」，并说明它在本机优先于名片。
 //   表单里写没写都列出来：名片写了也照样被本机的值盖过，要让人看见。
 export function localMeasuredRows (sources) {
   const src = sources && typeof sources === 'object' ? sources : {}

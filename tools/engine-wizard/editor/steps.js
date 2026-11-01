@@ -120,18 +120,6 @@ export function currentStep (done = {}) {
 }
 
 /**
- * 步骤在流程条上的状态：pending / running / completed / failed。
- * o 是 { done, running, failed } 三个步骤键；skipped 不由这里产生。
- */
-export function nodeStatus (stepKey, o = {}) {
-  const done = o.done || {}
-  if (o.running === stepKey) return 'running'
-  if (o.failed === stepKey) return 'failed'
-  if (done[stepKey]) return 'completed'
-  return 'pending'
-}
-
-/**
  * 危险动作要显示的那段话：说清后果而且具体，不劝阻、不施压。
  * 等级按配色语义分三档：
  *   info   陈述：客观说明这一步会发生什么，不含风险判断。

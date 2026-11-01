@@ -1,3 +1,4 @@
+// 预览抽屉与两侧边条的容器。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { clampPreviewWidth, PREVIEW_DEFAULT } from './drawerWidth'
@@ -22,7 +23,7 @@ const DRAWER_W = '360px'
 /**
  * 第 4 步的三根骨头。
  *
- * @param {React.ReactNode} left 左边条里的内容（扫到的参数）
+ * @param {React.ReactNode} left 左边条里的内容（扫描到的参数）
  * @param {React.ReactNode} center 中栏（当前名片）
  * @param {React.ReactNode} right 右边条里的内容（当前项目的前端预览）
  * @param {object} open 哪边抽屉开着 {left, right}
@@ -98,7 +99,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
         side="left"
         open={leftOpen}
         onToggle={() => onToggle('left')}
-        title={t('Scanned parameters', '扫到的参数')}
+        title={t('Scanned parameters', '扫描到的参数')}
         arrow="→"
         asideRef={leftRef}
       >

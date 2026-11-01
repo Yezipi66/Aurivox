@@ -1,3 +1,4 @@
+// 合成参数的投放区，接收拖拽与点击加入。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { applyParamDrop, paramNameOf } from './paramDrop'
@@ -80,33 +81,36 @@ export default function ParamDropZone ({
     <div className="section">
       <div className="section-hdr"><h2>{t('Optional parameters', '可选参数')}</h2></div>
       <div className="section-body">
-        <div className="wz-subhead">{t('Synthesis parameters', '合成参数')}</div>
-        <p className="field-hint" style={{ marginTop: 0 }}>
-          {t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
-            '将左侧扫描到的参数拖至此处：参数名、类型与说明会自动填入，右侧预览同步更新。标记为推测值的项请核对。')}
-        </p>
-
-        {/* 落点区：高亮表示鼠标正在上方，落下即写进 parameters[] */}
-        <div
-          className={`wz-dropzone${over ? ' wz-dropzone-over' : ''}`}
-          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOver(true) }}
-          onDragLeave={() => setOver(false)}
-          onDrop={onDrop}
-          onClick={onClick}>
-          {list.length === 0
-            ? (
-              <span className="field-hint">
-                {selectedParam
-                  ? t('Click to add the selected parameter', '点击把选中的参数加进来')
-                  : t('No parameters yet. Drag one here.', '尚无参数。请从左侧拖入一项。')}
-              </span>
-              )
-            : (
-              <span className="field-hint">
-                {t(`Drop here to add another one (${list.length} already added)`,
-                  `拖至此处可继续添加（已添加 ${list.length} 项）`)}
-              </span>
-              )}
+        {/* 标题、落点、添加按钮压成一行：原先标题、小标题、说明段、虚线框各占一行，
+            四行都在说同一件事。说明降级成落点的 title，鼠标停一下才展开。 */}
+        <div className="wz-param-head">
+          <span className="wz-subhead wz-subhead-inline">{t('Synthesis parameters', '合成参数')}</span>
+          <div
+            className={`wz-dropzone wz-dropzone-inline${over ? ' wz-dropzone-over' : ''}`}
+            title={t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
+              '将左侧扫描到的参数拖至此处：参数名、类型与说明会自动填入，右侧预览同步更新。标记为推测值的项请核对。')}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOver(true) }}
+            onDragLeave={() => setOver(false)}
+            onDrop={onDrop}
+            onClick={onClick}>
+            {list.length === 0
+              ? (
+                <span>
+                  {selectedParam
+                    ? t('Click to add the selected parameter', '点击把选中的参数加进来')
+                    : t('Drag a parameter here', '拖一个参数到这里')}
+                </span>
+                )
+              : (
+                <span>
+                  {t(`Drop here to add another one (${list.length} already added)`,
+                    `拖至此处可继续添加（已添加 ${list.length} 项）`)}
+                </span>
+                )}
+          </div>
+          <button className="btn btn-sm" type="button" onClick={addParam}>
+            + {t('Add a parameter', '添加一个参数')}
+          </button>
         </div>
 
         {/* 已声明的参数：每一项可改字段，也可删 */}
@@ -117,11 +121,6 @@ export default function ParamDropZone ({
             onChange={setParam} onDelete={delParam} />
         ))}
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-          <button className="btn btn-sm" type="button" onClick={addParam}>
-            + {t('Add a parameter', '添加一个参数')}
-          </button>
-        </div>
 
         {/* 同一个「可选参数」区里的第二段（ManifestForm 传进来的引擎配置）。 */}
         {children}

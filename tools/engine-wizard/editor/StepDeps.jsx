@@ -1,3 +1,4 @@
+// 第 2 步安装依赖：方案选择、命令、进度。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { IconPencil } from '../../../web/src/components/common/Icons'
@@ -49,8 +50,8 @@ function finalSpec (specs, name, fallback) {
  *
  * @param {string} spec 一条 spec
  * @returns {{head:string, version:string, tail:string}}
- *   head：包名与约束（`einops==` / `einops>=` / `einops`）
- *   version：版本号（`0.8.1`；上游没钉时是空串）
+ *   head：包名与约束（einops== / einops>= / einops）
+ *   version：版本号（0.8.1；上游没钉时是空串）
  *   tail：其余部分（marker、注释）
  */
 function splitSpec (spec) {
@@ -382,7 +383,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="wz-stack">
 
       {/* 本机检测结果与推荐的安装后端。 */}
       {hw && (
@@ -445,7 +446,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 role={canSkip ? 'button' : undefined}
                 tabIndex={canSkip ? 0 : undefined}
                 title={canSkip ? t('Click to toggle whether this package is installed',
-                  '点击切换是否安装此包') : undefined}
+                  '点击切换此包的安装状态') : undefined}
                 onClick={canSkip ? rowClick : undefined}
                 onKeyDown={canSkip ? rowKey : undefined}
                 style={{ cursor: canSkip ? 'pointer' : undefined, opacity: off ? 0.5 : undefined }}>
@@ -616,7 +617,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       {d && d.normal.count > 0 && (
         <div className="collapsible">
           <div className="collapsible-hdr" onClick={() => setShowNormal(!showNormal)}>
-            <span>{t('Other packages', '其它包')}</span>
+            <span>{t('Other packages', '其他包')}</span>
             <span className="field-hint" style={{ marginTop: 0 }}>
               {showNormal ? '▾' : '▸'} {d.normal.count}
               {d.normal.packages.some(isSkipped)
@@ -652,7 +653,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
       ) : (
         <p className="field-hint" style={{ marginTop: 0 }}>
           {t('The install method is declared by the Manifest, so individual packages cannot be excluded.',
-            '安装方式由 Manifest 指定，无法单独排除依赖。')}
+            '安装方式由名片指定，无法单独排除依赖。')}
         </p>
       )}
       {canSkip && skipped.length > 0 && (
@@ -934,7 +935,7 @@ function TorchUpgradeDialog ({ suggestion, backendLabel, onAccept, onDecline }) 
           ) : (
             // 没有可替换的版本：照原样装也是一个选择（由使用者承担结果）。
             <button className="btn btn-sm btn-primary" type="button" onClick={onAccept}>
-              {t('Install anyway', '照原样装')}
+              {t('Install anyway', '仍然安装')}
             </button>
           )}
         </div>

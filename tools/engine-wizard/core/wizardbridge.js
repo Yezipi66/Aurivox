@@ -53,7 +53,7 @@ function extractDownloadCommands (markdown) {
   return OUT
 }
 
-// README 里每个围栏代码块（``` 或 ~~~）的起止下标。没闭合的块延伸到文末。
+// README 里每个围栏代码块（ 或 ~~~）的起止下标。没闭合的块延伸到文末。
 function fencedBlocks (markdown) {
   const out = []
   let open = null
@@ -80,7 +80,7 @@ function contextOf (markdown, blocks, index) {
 /**
  * snapshot_download 属于哪个库：同名函数 modelscope 与 huggingface_hub 都有，
  * 只能看同一段代码里是从哪个库导入的。
- *   认得的写法：from <库>[.子模块] import ... snapshot_download（含括号换行的写法），
+ *   认得的写法： from <库>[.子模块] import ... snapshot_download（含括号换行的写法），
  *   以及 <库>.snapshot_download(...)。
  *   两个库都出现、或都没出现 ⇒ 'unknown'，交给使用者选：猜错的代价是去另一个站点下同名仓库。
  *
@@ -136,8 +136,8 @@ function parseDownloadCmd (cmd, context) {
       || ms[1].match(/--local-dir[=\s]+([^\s]+)/) || [])[1]
     return { tool: 'modelscope', source: 'modelscope', repo, dir: dir || null, raw: cmd }
   }
-  // 先排掉以 `-` 开头的 token（那是参数不是位置参数）：否则
-  // `hf download --local-dir=x` 会把参数当成模型名，等于替上游编了一个不存在的模型。
+  // 先排掉以 - 开头的 token（那是参数不是位置参数）：否则
+  // hf download --local-dir=x 会把参数当成模型名，等于替上游编了一个不存在的模型。
   const rest = cmd.replace(/^(?:hf|huggingface-cli)\s+download\s+/, '')
   const toks = rest.split(/\s+/)
   const repo = toks.find((t) => t && !t.startsWith('-'))
@@ -676,7 +676,7 @@ function handleEnv (req, res) {
     // 执行（execute:true）走 SSE 流式：装依赖要几分钟到几十分钟，普通 JSON 响应
     //   的意思是「前端等到全部装完」。流式让前端边装边看：每步开始推一个 step 事件，
     //   每行输出推一个 line。浏览器 fetch 能读 SSE（resp.body.getReader()），
-    //   axios/XMLHttpRequest 不能，所以前端必须用 fetch；格式 `data: {json}\n\n` 是标准 SSE。
+    //   axios/XMLHttpRequest 不能，所以前端必须用 fetch；格式 data: {json}\n\n 是标准 SSE。
     res.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',

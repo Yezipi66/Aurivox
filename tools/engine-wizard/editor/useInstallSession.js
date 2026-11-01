@@ -143,7 +143,3 @@ export function clearSession (id, url) {
   drop('sessionStorage', sessionKey(id, url))
 }
 
-/** 派生值：调用方放进 useEffect 的依赖里，换了地址或引擎这个值就变。 */
-export function sessionStamp (id, url) {
-  return String(id || '') + '|' + String(url || '')
-}

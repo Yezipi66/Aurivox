@@ -102,7 +102,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   // 只认「对应当前输入框」的那份 res：res 是上次解析的产物，换过链接就过期
   //   （input 是解析时的输入）。命令区、项目信息区、克隆、目录名、路径都从
   //   这一个值取，显示与克隆同源，不会出现「命令是上一个仓库、信息是当前仓库」。
-  //   对不上当前输入时（null）让界面回到未解析状态，等失焦/回车重新解析。
+  //   与当前输入不一致时（null）让界面回到未解析状态，等失焦或回车重新解析。
   const resForCur = (res && res.input === url) ? res : null
 
   // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
@@ -119,7 +119,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
    * 失败分两类，都要在这里收口，不允许让异常冒出去：
    *   ① 网络层失败（连接被拒、DNS 失败、请求超时）⇒ fetch 抛。
    *   ② 响应不是 JSON（服务端返回 HTML 错误页、网关返回纯文本）⇒ r.json() 抛。
-   * 这两类过去会让调用方的 `setBusy('')` 执行不到 ⇒ 界面停在「正在读…」，
+   * 这两类过去会让调用方的 setBusy('') 执行不到 ⇒ 界面停在「正在读…」，
    *   而且一个字的错误提示都没有 ⇒ 使用者看不出出了什么事。
    *
    * 判据放在 editor/postJson.js（可单测），这里只做转发。
@@ -147,7 +147,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
       const resolvedName = folderName({ typed: idInput, suggested: j.id })
       // 后端已把 /tree/... /blob/... 剥掉，界面必须反映截断后的仓库根：
       //   输入框与 wz.url 若还留原始链接，显示的是带尾巴的 URL，
-      //   克隆/探测却用截断后的，显示与使用不一致，心智模型对不上。
+      //   克隆/探测却用截断后的，显示与实际使用不一致。
       const resolvedUrl = j.url || url
       // 嗅探不在这里自动跑：它是「嗅探仓库」按钮的专属动作（手动、有意图）。
       //   解析只做本地 URL 规范化与目录名推断，不联网；「仓库在不在」交给按钮回答，
@@ -190,7 +190,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   }
 
   // ③ 克隆（这一步才写盘）
-  // curId 是唯一的 id 来源；写成 `id: idInput || state.id` 会在输入框空时退化到旧 id。
+  // curId 是唯一的 id 来源；写成 id: idInput || state.id 会在输入框空时退化到旧 id。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
     // 目录名为空时在这里拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
@@ -205,7 +205,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
     try {
       // cloneUrl 从顶部那份 resForCur 取（只认对应当前输入框的 res）：
       //   用过期 res 的 cloneUrl（或持久段里残留的 state.cloneUrl）去克隆，
-      //   会把上一个仓库拉进当前目录。两者都对不上当前输入时，让后端
+      //   会把上一个仓库拉进当前目录。两者都与当前输入不一致时，让后端
       //   报「请先解析链接」，不猜一个。
       const cloneUrl = (resForCur && resForCur.cloneUrl) || ''
       // 与文案、只读预览用同一个 curId：后端按它算 engines/<id>，
@@ -289,7 +289,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
        外层这行内联样式取自 TrainingTab.jsx 的 TrainingTab() 外层：
          display:flex / flexDirection:column / gap:8
        不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="wz-stack">
 
       {/* 两个输入框，一行。
           目录名留空 = 自动取仓库根最后一段（tree/main 会被剥掉）
@@ -369,7 +369,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
 
       {/* 项目信息（只读，不写盘）。只在嗅探成功后显示：没嗅探时读不到任何信息，
           摆一排「—」占位只会让人觉得仓库是空的；「嗅探到了才显示具体信息」
-          正是使用者的操作心智：先确认仓库在不在、读没读到，再往下走。
+          与实际操作顺序一致：先确认仓库在不在、能否读到，再继续下一步。
           标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。

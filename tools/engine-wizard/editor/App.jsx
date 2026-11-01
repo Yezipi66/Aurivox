@@ -298,7 +298,7 @@ export default function App () {
               改成每步在这里选「操作哪一台」：默认落在刚克隆的那台（wz.id），
                 也可以直接挑 engines/ 下的任意目录。切换即全局重定向。 */}
           {page !== 'prepare' && (
-            <div className="section" style={{ marginBottom: 8 }}>
+            <div className="section">
               <div className="section-body">
                 <EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />
               </div>
@@ -316,7 +316,7 @@ export default function App () {
                   reloadDirs()
                   // 不自动跳第 2 步：克隆完成后停在第 1 步，由第 1 步自己的「下一步」
                   // 按钮负责跳到「安装依赖」。克隆与跳转是两件事，自动跳会让使用者
-                  // 来不及看到「已克隆」的确认，心智模型也对不上。
+                  // 来不及看到「已克隆」的确认，界面会与刚发生的操作脱节。
                 }}
                 onNext={() => setPage('env')}
                 // 撤销克隆 ⇒ 目录没了 ⇒ 重新判完成状态（facts.prepare 变 false，

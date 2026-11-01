@@ -1,11 +1,12 @@
+// 扫描到的参数列表与分组筛选。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ParamPool from './ParamPool'
 
-// 左栏：扫到的参数。扫描按钮在中栏身份条上；引擎身份也跟着 Manifest 放在中栏顶部，
+// 左栏：扫描到的参数。扫描按钮在中栏身份条上；引擎身份也跟着 Manifest 放在中栏顶部，
 // 左栏只放外部输入。
 //
-// 扫描不覆盖已有内容：扫到的参数进池子，池子只是可拖的源，往中栏落点拖才会改 Manifest；
+// 扫描不覆盖已有内容：扫描到的参数进池子，池子只是可拖的源，往中栏落点拖才会改 Manifest；
 // 已有 Manifest 的引擎扫完之后，里面原有的 call.args 保持原样。
 //
 // 视觉外壳用项目的 .section（.section-hdr + .section-body），不自造栏头。
@@ -13,7 +14,7 @@ import ParamPool from './ParamPool'
 /**
  * 左栏：分组选择 + 参数池。
  *
- * @param {Array} params 扫到的参数（当前分组的）
+ * @param {Array} params 扫描到的参数（当前分组的）
  * @param {object|null} selected 当前选中的参数
  * @param {Function} onSelect 选中参数回调
  * @param {Function} onDragStart 拖拽开始回调
@@ -33,7 +34,7 @@ export default function EngineScanZone ({
   return (
     <div className="section">
       <div className="section-hdr">
-        <h2>{t('Scanned parameters', '扫到的参数')}</h2>
+        <h2>{t('Scanned parameters', '扫描到的参数')}</h2>
         {children}
       </div>
       <div className="section-body">

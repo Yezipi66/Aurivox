@@ -1,3 +1,4 @@
+// 顶端五步进度条。
 import React from 'react'
 import { STEPS, riskNotice } from './steps'
 import { useT } from '../../../web/src/lib/i18n'

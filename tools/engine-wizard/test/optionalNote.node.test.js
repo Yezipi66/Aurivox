@@ -9,9 +9,8 @@
 //
 // 判据（都在源码声明上，不渲染 JSX）：
 //   ① 时长区间那一项带 noteEn / noteZh 两份文案，且中文说清「越长越慢」这个方向。
-//   ② 提示用平台的 .field-note（11px + --muted + opacity 0.8 + 斜体），
-//      不自造类：向导 import 了 web/src/styles.css（editor/index.jsx:5），
-//      自造一套字号颜色会与平台的字号标度脱钩。
+//   ② 提示不上界面：并进标签的 title，鼠标停上去才看，不占一行可见长句。
+//      也不能自造一个没样式的类（如 wz-opt-note）。
 //   ③ 提示里不许出现内部原则与口语（守卫的判据抄 styleguard 的那份）。
 //
 // 变异检查：把 note 去掉、把类名换掉、把方向说反，上面三条各有一条会红。
@@ -57,19 +56,13 @@ test('时长区间那一项带「为什么值得填」的中英文提示', () =>
   }
 })
 
-test('提示用平台的 .field-note，不自造类', () => {
+test('长句提示不上界面：并进标签的 title，不占可见行', () => {
   const live = stripComments(optionalSrc)
-  assert.ok(/className="field-note"/.test(live),
-    '提示没用平台的 .field-note：向导 import 了 web/src/styles.css，自造类会与平台字号标度脱钩')
-  // 自造的 wz-opt-note 没有对应样式，是个空类。
+  assert.ok(!/className="field-note"/.test(live), '提示不该再占据一行可见文本')
+  assert.ok(/it\.noteZh/.test(live), 'noteZh 要真的被用到（并进 title），不是漏掉')
+  assert.ok(/title=\{`\$\{it\.path\}/.test(live),
+    '提示要挂在标签的 title 上：鼠标停上去才看')
   assert.ok(!/wz-opt-note/.test(live), '还有 wz-opt-note 这个自造类：它没有对应样式')
-  // .field-note 必须真的比正文暗一号：平台 styles.css 里它是 --fs-11 + --muted + opacity 0.8。
-  const rule = /\.field-note\s*\{([^}]*)\}/.exec(projectCss)
-  assert.ok(rule, '平台 styles.css 里没有 .field-note')
-  assert.ok(/opacity:\s*0\.8/.test(rule[1]),
-    '平台的 .field-note 没有变暗：它得比同一行的 .field-hint 更弱一层')
-  assert.ok(/font-size:\s*var\(--fs-11\)/.test(rule[1]),
-    '平台的 .field-note 不是小一号：它得比正文小一号')
 })
 
 test('提示文案里不许出现内部原则与口语', () => {
@@ -84,15 +77,15 @@ test('提示文案里不许出现内部原则与口语', () => {
   assert.ok(!clip.noteZh.includes('你'), `中文提示用了第二人称「你」：${clip.noteZh}`)
 })
 
-test('变异检查：把提示去掉、把类名换掉、把方向说反，各有一条会红', () => {
+test('变异检查：把提示去掉、把 title 摘掉、把方向说反，各有一条会红', () => {
   // ① 去掉 note ⇒ 「时长区间那一项带提示」这条会红。
   const noNote = { noteEn: undefined, noteZh: undefined }
   assert.ok(!(noNote.noteZh && noNote.noteEn), '去掉 note 后判据应当判成不合格')
 
-  // ② 换类名 ⇒ 「用平台的 .field-note」这条会红。
-  const wrongClass = 'wz-opt-note'
-  assert.ok(!/className="field-note"/.test(`className="${wrongClass}"`),
-    '换了自造类名后判据应当判成不合格')
+  // ② 把 title 里的提示摘掉 ⇒ 「提示进 title」这条会红。
+  const noTitle = stripComments(optionalSrc).replace(/title=\{`[^`]*`\}/, '')
+  assert.ok(!/title=\{`\$\{it\.path\}/.test(noTitle),
+    'title 里没挂提示后判据应当判成不合格')
 
   // ③ 方向说反 ⇒ 「越长越慢」这条会红。
   const reversed = '参考音频越短，特征提取越慢，内存占用越高，首字节延迟也越高。'

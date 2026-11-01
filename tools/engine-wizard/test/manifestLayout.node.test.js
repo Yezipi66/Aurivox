@@ -81,8 +81,8 @@ test('边条默认 32px，展开 360px：窄边 + 抽屉，不是三列 grid', (
 
   const open = ruleBody('.wz-drawer.is-open')
   assert.ok(open, 'editor.css 里没有 .wz-drawer.is-open')
-  assert.ok(/width:\s*var\(--wz-drawer-w,\s*360px\)/.test(open),
-    '抽屉展开宽度应当是 360px')
+  assert.ok(/width:\s*var\(--wz-drawer-w,\s*392px\)/.test(open),
+    '抽屉展开宽度应当是 392px（生成页右栅 380 + 抽屉左右内边距 24）')
 })
 
 test('中栏占满剩下的宽度，内容对齐平台的大容器', () => {

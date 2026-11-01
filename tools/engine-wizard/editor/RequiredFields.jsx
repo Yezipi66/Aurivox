@@ -1,3 +1,4 @@
+// 必填区：引擎目录、启动脚本、模型权重等。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { launchConventions, withRuntimePatch, withLaunchConventions } from './optionalKeys'
@@ -154,7 +155,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
                 disabled={!slotNeeded(slot.key)}
                 aria-label={t(slot.labelEn, slot.labelZh)}
                 placeholder={unset || optionalEmpty
-                  ? t('Pick from candidates or type a parameter name', '从候选选择，或输入参数名') : ''}
+                  ? t('Pick from candidates or type a parameter name', '从候选中选择，或输入参数名') : ''}
                 onChange={(e) => setSlot(slot.key, e.target.value)}
               />
             )
@@ -170,7 +171,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
                   ? t('not needed: the engine returns the audio directly', '不需要：引擎直接返回音频')
                   : (optionalEmpty
                     ? t('The platform matches this as best it can and may not recognize it. If it stays empty, drag the matching parameter here.',
-                      '平台只能尽量匹配，不一定认得出。空着的话，把对应的参数拖到这里。')
+                      '平台只做尽力匹配，未必能识别。留空时可将对应参数拖入此格。')
                     : null)}>
                 {slot.optional
                   ? (

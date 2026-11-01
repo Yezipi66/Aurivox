@@ -1,3 +1,4 @@
+// 第 4 步的名片身份条：选引擎、读参数、保存。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { useInstalled } from './useInstalled'
@@ -36,6 +37,7 @@ const BADGE_TONE = { ok: 'ok', warn: 'warn', muted: 'neutral' }
  */
 export default function EngineIdentity ({
   manifest, onChange, facts, onScan, scanBusy, scanned, diag, onSaved, onEngineTarget,
+  viewSwitch,
 }) {
   const { t } = useT()
   const { loadOne } = useInstalled()
@@ -150,6 +152,9 @@ export default function EngineIdentity ({
 
           {/* 有错时按钮照样能点：点了不存，只把挡着的问题列出来。
               灰掉的按钮不告诉人缺什么，而提前列出来又是进门就一片红。 */}
+          {/* 填表 / JSON 的切换挂在保存按钮左边：它是整栏视图的开关，
+              属于这一行的页面级动作，不该在表单上方另起一行。 */}
+          {viewSwitch}
           <button className="btn btn-sm btn-primary" type="button"
             disabled={!ready || saving}
             onClick={() => { if (hasErrors) { setTriedSave(true); return } save() }}>

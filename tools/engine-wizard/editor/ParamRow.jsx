@@ -1,4 +1,5 @@
-import React from 'react'
+// 单条参数行：名称、类型、值、高级项。
+import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
 // 名片里一条界面参数的可编辑行。
@@ -42,6 +43,10 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
     onChange(index, next)
   }
   const type = entry.type || 'text'
+  // 高级正文不放 details 里：details 是 display:contents，挂在它下面的这一项算宽度时
+  // 只看内容，行宽有富余时也不铺满，右侧会空出一条。
+  // 所以 details 只装按钮，正文另作行内一项渲染，开关状态自己拿。
+  const [moreOpen, setMoreOpen] = useState(false)
   void spec
 
   const setPlacement = (key) => {
@@ -53,135 +58,120 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
     onChange(index, next)
   }
 
+  // 一行只放主信息：参数名 / 类型 / 去向 / 建议值，后面跟「高级」与删除。
+  //   其余字段全进「高级」。原来表单一行、param-grid 一行、删除又一行，
+  //   一条参数能垒三层，五个参数就是五百多 px。
   return (
-    <div className="card">
-      <div className="form-grid">
-        <div className="field">
-          <label className="field-label">
-            {t('Parameter name', '参数名')}
-          </label>
-          <input className="control" value={entry.name || ''}
-            onChange={(e) => set('name', e.target.value)} />
-        </div>
-        <div className="field">
-          <label className="field-label">
-            type
-            {typeGuessed && (
-              <span className="badge badge-warn" style={{ marginLeft: 6 }}>
-                {t('guessed, confirm', '推测值，请核对')}
-              </span>
-            )}
-          </label>
-          <select className={`control${typeGuessed ? ' wz-field-guess' : ''}`} value={type}
-            onChange={(e) => {
-              set('type', e.target.value)
-              if (onTypeConfirmed) onTypeConfirmed(entry.name)
-            }}>
-            {['text', 'number', 'select', 'boolean', 'file'].map((x) => (
-              <option key={x} value={x}>{x}</option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label className="field-label">{t('Placement', '去向')}</label>
-          <select className="control" value={placementOf(entry)}
-            onChange={(e) => setPlacement(e.target.value)}>
-            {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.en, p.zh)}</option>)}
-          </select>
-        </div>
-      </div>
+    <div className="card wz-param-row">
+      <input className="control wz-param-name" value={entry.name || ''}
+        placeholder={t('name', '参数名')}
+        title={t('Parameter name (the flag the engine takes)', '参数名（引擎接收的那个开关）')}
+        onChange={(e) => set('name', e.target.value)} />
 
-      {/* .param-grid：项目给「一堆小字段」准备的（2 列，gap 10px，
-          而且 .param-grid label 自带 11px muted 的标签样式）*/}
-      <div className="param-grid">
-        <label><span>label</span>
-          <input className="control" value={entry.label?.zh || entry.label || ''}
-            placeholder={t('shown in the UI', '界面上显示的名字')}
-            onChange={(e) => set('label', e.target.value)} /></label>
+      <select className={`control wz-param-type${typeGuessed ? ' wz-field-guess' : ''}`} value={type}
+        title={t('type', '类型')}
+        onChange={(e) => {
+          set('type', e.target.value)
+          if (onTypeConfirmed) onTypeConfirmed(entry.name)
+        }}>
+        {['text', 'number', 'select', 'boolean', 'file'].map((x) => (
+          <option key={x} value={x}>{x}</option>
+        ))}
+      </select>
 
-        <label><span>default</span>
-          <input className="control" value={entry.suggested_value ?? ''}
-            onChange={(e) => set('suggested_value',
-              e.target.value === ''
-                ? undefined
-                : (type === 'number' || type === 'boolean')
-                  ? (type === 'boolean' ? e.target.value === 'true' : Number(e.target.value))
-                  : e.target.value)} /></label>
+      <select className="control wz-param-place" value={placementOf(entry)}
+        title={t('Placement: where this knob shows up, and whether changing it needs a restart',
+          '去向：这个参数在界面何处出现、改动是否需要重启')}
+        onChange={(e) => setPlacement(e.target.value)}>
+        {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.en, p.zh)}</option>)}
+      </select>
 
-        {type === 'number' && (
-          <label><span>min / max</span>
-            <span className="form-grid">
-              <input className="control" type="number" value={entry.min ?? ''}
-                onChange={(e) => set('min',
-                  e.target.value === '' ? undefined : Number(e.target.value))} />
-              <input className="control" type="number" value={entry.max ?? ''}
-                onChange={(e) => set('max',
-                  e.target.value === '' ? undefined : Number(e.target.value))} />
-            </span></label>
-        )}
+      <input className="control wz-param-default" value={entry.suggested_value ?? ''}
+        placeholder={t('value', '建议值')}
+        title={t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
+        onChange={(e) => set('suggested_value',
+          e.target.value === ''
+            ? undefined
+            : (type === 'number' || type === 'boolean')
+              ? (type === 'boolean' ? e.target.value === 'true' : Number(e.target.value))
+              : e.target.value)} />
 
-        {type === 'select' && (
-          <label><span>choices</span>
-            <input className="control"
-              value={Array.isArray(entry.choices) ? entry.choices.join(',') : ''}
-              placeholder="voices / weights / audio"
-              onChange={(e) => set('choices', e.target.value
-                ? e.target.value.split(',').map((s) => s.trim())
-                : undefined)} /></label>
-        )}
+      {typeGuessed && (
+        <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
+          {t('guessed', '推测')}
+        </span>
+      )}
 
-        <label><span>applies_to</span>
-          <input className="control"
-            value={Array.isArray(entry.applies_to) ? entry.applies_to.join(',') : ''}
-            placeholder={t('comma separated', '逗号分隔')}
-            onChange={(e) => set('applies_to', e.target.value
-              ? e.target.value.split(',').map((s) => s.trim())
-              : undefined)} /></label>
-      </div>
+      <button className="btn btn-sm btn-danger wz-param-del" type="button"
+        title={t('Delete this parameter', '删除该参数')}
+        onClick={() => onDelete(index)}>
+        {t('Delete', '删除')}
+      </button>
 
-      {/* 折叠用项目的 .expert-block + .expert-summary
-          （不用裸 <details>：那个没有边框和间距，跟整页其它折叠长得不一样）*/}
-      <details className="expert-block" style={{ marginTop: 8 }}>
-        <summary className="expert-summary">
-          {t('More (rarely needed)', '更多（多数场景无需配置）')}
+      <details className="wz-param-more" open={moreOpen}>
+        <summary className="wz-param-more-btn"
+          onClick={(e) => { e.preventDefault(); setMoreOpen(!moreOpen) }}>
+          {t('More', '高级')}
         </summary>
-        <div className="param-grid" style={{ marginTop: 8 }}>
-          <label><span>repeat</span>
-            <input className="control" type="number" value={entry.repeat ?? ''}
-              onChange={(e) => set('repeat',
-                e.target.value === '' ? undefined : Number(e.target.value))} /></label>
-          <label><span>group</span>
-            <input className="control" value={entry.group || ''}
-              onChange={(e) => set('group', e.target.value)} /></label>
-          <label><span>order</span>
-            <input className="control" type="number" value={entry.order ?? ''}
-              onChange={(e) => set('order',
-                e.target.value === '' ? undefined : Number(e.target.value))} /></label>
-          <label><span>source</span>
+      </details>
+      {moreOpen && (
+        <React.Fragment>
+          {/* 高级：四个格子一行，最多两行。原来是一整块 param-grid 矩阵（8 个字段排四行）
+              外加一段警示散文，展开就是把这一条变高了一倍。 */}
+          <div className="wz-param-more-grid">
+            <input className="control" value={entry.label?.zh || entry.label || ''}
+              placeholder={t('name', '名称')}
+              title={t('label: shown in the UI', 'label：界面上显示的名字')}
+              onChange={(e) => set('label', e.target.value)} />
+            {type === 'number' && (
+              <input className="control" type="number" value={entry.min ?? ''} placeholder={t('min', '最小')}
+                title={t('min: minimum', 'min：最小值')}
+                onChange={(e) => set('min', e.target.value === '' ? undefined : Number(e.target.value))} />
+            )}
+            {type === 'number' && (
+              <input className="control" type="number" value={entry.max ?? ''} placeholder={t('max', '最大')}
+                title={t('max: maximum', 'max：最大值')}
+                onChange={(e) => set('max', e.target.value === '' ? undefined : Number(e.target.value))} />
+            )}
+            {type === 'select' && (
+              <input className="control"
+                value={Array.isArray(entry.choices) ? entry.choices.join(',') : ''}
+                placeholder={t('options', '选项')}
+                title={t('choices: options shown in the UI, comma separated', 'choices：下拉里的选项，逗号分隔')}
+                onChange={(e) => set('choices', e.target.value
+                  ? e.target.value.split(',').map((s) => s.trim())
+                  : undefined)} />
+            )}
+            <input className="control"
+              value={Array.isArray(entry.applies_to) ? entry.applies_to.join(',') : ''}
+              placeholder={t('applies to', '适用')}
+              title={t('applies_to: comma separated', 'applies_to：逗号分隔')}
+              onChange={(e) => set('applies_to', e.target.value
+                ? e.target.value.split(',').map((s) => s.trim())
+                : undefined)} />
+            <input className="control" type="number" value={entry.repeat ?? ''} placeholder={t('repeat', '重复')}
+              title={t('repeat: unset or 1 means a single value (scalar); 2 or more means an array. The engine sees these as different types and neither is reported as an error.',
+                'repeat 未填或填 1 表示单个值（标量），仅当大于等于 2 时才为数组。这两种对引擎是两件事，而且都不会报错。')}
+              onChange={(e) => set('repeat', e.target.value === '' ? undefined : Number(e.target.value))} />
+            <input className="control" value={entry.group || ''} placeholder={t('group', '分组')}
+              title={t('group: which group it sits in', 'group：界面上归到哪一组')}
+              onChange={(e) => set('group', e.target.value)} />
+            <input className="control" type="number" value={entry.order ?? ''} placeholder={t('order', '排序')}
+              title={t('order: sort order in the UI', 'order：界面里的排序号')}
+              onChange={(e) => set('order', e.target.value === '' ? undefined : Number(e.target.value))} />
             <select className="control" value={entry.source || ''}
+              title={t('source: where the default comes from (voices / weights / audio)', 'source：默认值的出处（voices / weights / audio）')}
               onChange={(e) => set('source', e.target.value || undefined)}>
-              <option value="">{t('(unset)', '（不写）')}</option>
+              <option value="">{t('source', '出处')}</option>
               <option value="voices">voices</option>
               <option value="weights">weights</option>
               <option value="audio">audio</option>
-            </select></label>
-        </div>
-        {/* repeat 填错不报错：设了没效果。silent 档用黄框（msg-warn）*/}
-        <p className="msg msg-warn">
-          {t('repeat unset or 1 means a single value (scalar). Only 2 or more makes an array. '
-            + 'Those are two different things to the engine, and neither is reported '
-            + 'as an error.',
-            'repeat 未填或填 1 表示单个值（标量），仅当大于等于 2 时才为数组。'
-            + '这两种对引擎是两件事，而且都不会报错。')}
-        </p>
-      </details>
+            </select>
+          </div>
+        </React.Fragment>
+      )}
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-        <button className="btn btn-sm btn-danger" type="button"
-          onClick={() => onDelete(index)}>
-          {t('Delete this parameter', '删除该参数')}
-        </button>
-      </div>
+
     </div>
   )
 }

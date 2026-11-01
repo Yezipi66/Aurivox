@@ -1,3 +1,4 @@
+// 名片编辑页：左欄参数池、中欄表单、右侧预览。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ManifestForm from './ManifestForm'
@@ -158,27 +159,28 @@ export default function ManifestPage ({
             busy={busy} err={scanErr} />
         }
         center={
-          <div className="wz-stage-main-inner">
+          <div className="wz-stage-main-inner wz-stack">
             {/* 身份条在最上面：选引擎、扫描或读取、路径、保存，一行说完。 */}
             <EngineIdentity
               manifest={manifest || {}} onChange={onManifest}
               facts={engineState}
               onScan={doScan} scanBusy={busy} scanned={!!scan}
               diag={diag} onSaved={onSaved}
-              onEngineTarget={onPickEngineTarget} />
-
-            <div className="ref-tabs">
-              <button type="button"
-                className={`ref-tab${view === 'form' ? ' active' : ''}`}
-                onClick={() => switchTo('form')}>
-                {t('Form', '填表')}
-              </button>
-              <button type="button"
-                className={`ref-tab${view === 'json' ? ' active' : ''}`}
-                onClick={() => switchTo('json')}>
-                JSON
-              </button>
-            </div>
+              onEngineTarget={onPickEngineTarget}
+              viewSwitch={
+                <div className="wz-view-switch">
+                  <button type="button"
+                    className={`chip${view === 'form' ? ' chip-on' : ''}`}
+                    onClick={() => switchTo('form')}>
+                    {t('Form', '填表')}
+                  </button>
+                  <button type="button"
+                    className={`chip${view === 'json' ? ' chip-on' : ''}`}
+                    onClick={() => switchTo('json')}>
+                    JSON
+                  </button>
+                </div>
+              } />
 
             {view === 'form'
               ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest}
@@ -188,7 +190,7 @@ export default function ManifestPage ({
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />
               : (
-                // JSON 逃生口直接用项目的 `textarea.control`。
+                // JSON 逃生口直接用项目的 textarea.control。
                 // text 为 null（还没切进来过）时用 manifest 现算兜底，
                 //   React 的 value={null} 是非受控输入，切视图时会闪。
                 <textarea className="control" style={{ minHeight: 320 }}

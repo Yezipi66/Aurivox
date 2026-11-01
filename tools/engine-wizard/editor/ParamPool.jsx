@@ -1,3 +1,4 @@
+// 扫描到的参数池，可筛选并拖出。
 import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { paramTypeOf } from './paramType'

@@ -100,7 +100,7 @@ test('这个后端一个轮子都没有 ⇒ 说清装不了，且不给假的版
   assert.ok(!/没有适配 Python/.test(html), '不许把原因写成 Python 版本不匹配')
   // 按钮文案里不该出现「装 Torch <版本>」（正文里提到 Torch 是正常的）。
   assert.ok(!/安装 Torch \d/.test(html), '没有可替换版本时不该出现「装 Torch X」这个按钮')
-  assert.ok(html.includes('照原样装'), '要留一条「照原样装」的路，由使用者承担结果')
+  assert.ok(/照原样装|仍然安装/.test(html), '要留一条「装不了也照样装」的路，由使用者承担结果')
 })
 
 test('没有可替换版本时，弹窗仍然给两条路（取消 与 照原样装）', () => {

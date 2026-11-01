@@ -140,7 +140,7 @@
 }
 /* 左栏开没开由 Stage.jsx 写在类名上，不用 :has()（本项目没用过，也没声明最低浏览器）。 */
 .wz-stage-left-open {
-  --wz-left-w: var(--wz-drawer-w, 360px);
+  --wz-left-w: var(--wz-drawer-w, 392px);
 }
 
 /* 一根边条。收着时是一条窄边 + 一个箭头按钮，
@@ -165,7 +165,7 @@
   overflow: hidden;
 }
 .wz-drawer.is-open {
-  width: var(--wz-drawer-w, 360px);
+  width: var(--wz-drawer-w, 392px);
   align-items: stretch;
   box-shadow: var(--shadow-soft);
 }
@@ -431,3 +431,187 @@
 .wz-subhead:first-child {
   margin-top: 0;
 }
+
+/* ---- 名片页与第五步的三处布局整理（只动样式，不动数据流） ---- */
+
+/* 一、填表 / JSON 的切换挂在身份条右端（与保存按钮同排）。
+   原先它自己占一整行：上边距 0、下边距 12，而且借的是参考音频那套 .ref-tabs。
+   项目对「几档选一档」已经有 .chip / .chip-on（预览里就在用），不再自备一套。 */
+.wz-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+/* 二、合成参数：标题、落点、添加按钮压成一行。
+   落点仍是同一个元素（拖拽与点击两条路径不变），只是从铺满一行的虚线框
+   收成与 .btn-sm 同高的一枚药丸。 */
+.wz-param-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  margin-bottom: var(--sp-10);
+}
+.wz-subhead-inline {
+  margin: 0;
+}
+.wz-dropzone-inline {
+  margin: 0;
+  padding: var(--sp-4) var(--sp-10);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-dropzone-inline:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* 四、引擎配置全量列出：一项一行、两列排。
+   以前只列写了值的项，其余藏在「添加一项」下拉里。 */
+.wz-opt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-8) var(--sp-10);
+}
+.wz-opt-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+.wz-opt-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  margin: 0;
+}
+.wz-opt-control {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  min-width: 0;
+}
+.wz-opt-default {
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-opt-source {
+  width: 132px;
+  flex-shrink: 0;
+}
+/* 行宽只由列宽定，控件不按内容伸缩。
+   .control 自带 width:100%，进 flex 再给 flex:1 1 auto 时基础宽度是「整行」，
+   同行多一个子元素（出处列）就重新分一次，表现就是「一填就变宽」。 */
+.wz-opt-control > .control {
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+/* 带出处的行固定两列：控件 1fr + 出处 132px。没值时出处列用同宽空槽占着，
+   行宽不会因为「有没有值」而跳。 */
+.wz-opt-control.has-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+}
+/* 说明文字：11px 灰字，居右（标签是 flex，margin-left:auto 把它推到行尾）。
+   标签带 uppercase，这里单独关掉大小写；空间不够时截断，全文仍在 title 里。 */
+.wz-opt-hint {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-11);
+  font-weight: normal;
+  text-transform: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 时长区间：两个自适应格子，不再靠内联 width:84px */
+.wz-range {
+  display: flex;
+  gap: var(--sp-8);
+  min-width: 0;
+}
+.wz-range .control {
+  flex: 1 1 0;
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .wz-opt-grid { grid-template-columns: 1fr; }
+}
+
+/* 五、五步共用的纵向节奏：8px（.workspace-left / .wz-drawer-stack / .wz-manifest-layout 同值）。
+   第 1、2、3 步原来各写一份内联 {display:flex; flexDirection:column; gap:8}，
+   第 4 步没有（身份条贴着表单）、第 5 步也没有（几块 .section 直接叠）。
+   五步三种做法 ⇒ 收成一个类，五步都用它；以后改间距只改这一处。 */
+.wz-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 步骤外框里也是同类堆叠：详情头 → 逃生口 → 这一步的内容。
+   .node-detail 是项目类，只在向导作用域下补，平台别处不受影响。 */
+.wz-root .node-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 三、一条参数收成一行：参数名 / 类型 / 去向 / 建议值 + 「高级」 + 删除。
+   其余字段（label、min/max、choices、applies_to、repeat、group、order、source）
+   全进「高级」，展开时正文换到下一行，折叠本身不占一行。 */
+.wz-param-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-8);
+  /* .card 默认 14px 上下内边距：一行控件围着 14px 白，就不再是「一行」了。 */
+  padding: var(--sp-8) var(--sp-10);
+}
+.wz-param-name { flex: 1 1 120px; min-width: 88px; }
+.wz-param-type { flex: 0 0 92px; }
+.wz-param-place { flex: 0 0 132px; }
+.wz-param-default { flex: 0 0 104px; }
+.wz-param-del { flex: 0 0 auto; }
+/* details 用 display:contents：它不生成盒子，summary 与展开后的正文
+   直接成为这一行的 flex 项 ⇒ 收起时只有一行，展开时正文 flex-basis:100% 自己换行。 */
+.wz-param-more { display: contents; }
+.wz-param-more-btn {
+  flex: 0 0 auto;
+  list-style: none;
+  cursor: pointer;
+  padding: var(--sp-4) var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-param-more-btn::-webkit-details-marker { display: none; }
+.wz-param-more[open] .wz-param-more-btn { color: var(--text); border-color: var(--accent); }
+/* 高级：一行装完。这块是那一行的 flex 项，占满一行：收起不占行，展开也只多出这一行。 */
+/* 内部用 grid 按行宽等分：flex 里格宽由内容算，格数少（文字型参数没有 min/max）时
+   右侧会空一块；grid 的列直接按容器宽度分。 */
+.wz-param-more-grid {
+  flex: 1 1 100%;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--sp-6);
+  margin-top: var(--sp-8);
+}
+/* 每格只放一个控件，字段名靠占位提示与 title：一行装下全部字段，不排第二行。 */
+.wz-param-more-grid > * {
+  min-width: 0;
+}
+/* 数字框的上/下箭头：项目其余控件均无 spinner，为保持一致不绘制，
+   数值用键盘（上下键、滚轮）调整。 */
+.wz-root input[type='number']::-webkit-outer-spin-button,
+.wz-root input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.wz-root input[type='number'] { -moz-appearance: textfield; appearance: textfield; }

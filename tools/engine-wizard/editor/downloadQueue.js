@@ -83,25 +83,3 @@ export function createDownloadQueue (items, concurrency = DEFAULT_CONCURRENCY) {
     isDone () { return !queue.length && inFlight.size === 0 },
   }
 }
-
-/**
- * 汇总一轮下载的结果。
- *
- * @param {Array<{ok:boolean, error?:string, errorZh?:string}>} results 每个文件的结果
- * @returns {{ok:boolean, total:number, succeeded:number, failed:number,
- *            firstError?:string, firstErrorZh?:string}}
- */
-export function summarizeDownloads (results) {
-  const list = Array.isArray(results) ? results : []
-  const failed = list.filter((r) => !r || r.ok !== true)
-  const succeeded = list.length - failed.length
-  const first = failed[0]
-  return {
-    ok: failed.length === 0,
-    total: list.length,
-    succeeded,
-    failed: failed.length,
-    firstError: first ? (first.error || null) : null,
-    firstErrorZh: first ? (first.errorZh || null) : null,
-  }
-}

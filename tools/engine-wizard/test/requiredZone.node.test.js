@@ -100,7 +100,10 @@ test('引擎配置的清单覆盖平台有默认的那几项，且每项写明�
   assert.ok(!paths.includes('capabilities.output_sample_rate'),
     '输出采样率只是声明、平台不读，不该摆进引擎配置；引擎能调采样率就拖进合成参数')
   for (const k of OPTIONAL_KEYS) assert.ok(k.fallbackZh && k.fallbackEn, `「${k.path}」没写不填时平台怎么办`)
-  assert.ok(/rowVisible\(/.test(optional), '引擎配置要按「写了才显示」过滤，不能一上来全摆出来')
+  // 风向变了：原来只列写了值的项，现在全量列出（用户要求一上来就能看到全貌）。
+  //   保「不多留空项」的担子转到「清空即移除」上：清空走 removeItem，值与出处一起删。
+  assert.ok(/removeItem\(/.test(optional),
+    '清空即移除：清空的值要走 removeItem，把值与出处一起删掉')
 })
 
 test('引擎配置的增删：加一项带上出处，删一项连出处一起删，删空的段不留', () => {
@@ -138,7 +141,7 @@ test('引擎配置：平台默认答了、表单里也没写的项挂「平台�
   assert.deepStrictEqual(platformDefaultedRows({}, null), [], '读不到 profile 就不标')
   assert.ok(/platformDefaultedRows\(/.test(optional) && /\/wizard\/profile\//.test(optional),
     'OptionalConfig 要读平台的 profile.defaulted，不在界面里自己推')
-  assert.ok(optional.includes("'平台默认'"), '徽标文案是「平台默认」')
+  assert.ok(optional.includes("{t('default', '默认')}"), '行尾徽标文案是「默认」，指常量兜底，不是推导结论')
 })
 
 test('引擎配置：本机测得的项另列「本机测得」，不混进「平台默认」', () => {
@@ -177,7 +180,7 @@ test('参考文本格：可拖、可清，空着只给提示，不挂「需指�
   assert.ok(/onDrop=\{dropOn\(slot\.key\)\}/.test(live), '槽位格（含参考文本）要能拖进参数')
   assert.ok(/onClick=\{\(\) => setSlot\(slot\.key, ''\)\}/.test(live), '可选格要有清除按钮，清掉就是从 bind 里删')
   assert.ok(/&& !slot\.optional/.test(live), '可选格空着不该算「未匹配，需指定」')
-  assert.ok(live.includes('平台只能尽量匹配，不一定认得出'), '空着时给一句提示')
+  assert.ok(live.includes('平台只做尽力匹配，未必能识别'), '空着时给一句提示')
 })
 
 test('参考文本没绑不是校验错误', () => {
