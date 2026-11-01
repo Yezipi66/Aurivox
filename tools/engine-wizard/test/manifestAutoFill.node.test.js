@@ -202,6 +202,23 @@ test('换引擎：顶层的单值字段也清掉（预算 / 地址 / 模型位�
   }
 })
 
+test('换引擎：名片顶层白名单里的键必须全部清除（漏掉一个，新名片就带着上一台的这一段）', () => {
+  // 顶层白名单定义在 lib/engines/profile/topkeys.js：那是「平台支持哪些顶层键」的唯一清单，
+  // 新增顶层键时要改的是它，不是这里的清理清单，否则两边会不一致。守卫直接拿那份名单来核对。
+  const { TOP_KEYS } = require('../../../lib/engines/profile/topkeys.js')
+  assert.ok(TOP_KEYS.length > 20, `顶层名单读为空（${TOP_KEYS.length} 个），这条守卫就失效了`)
+  // 身份三键随新引擎重写，不属于「上一台的运行配置」。
+  const IDENTITY = ['id', 'label', 'contract_version']
+  const manifest = {}
+  for (const k of TOP_KEYS) manifest[k] = IDENTITY.includes(k) ? 'prev' : { from: 'prev' }
+  const next = manifestForEngineSwitch(manifest, 'next-engine')
+  const left = Object.keys(next).filter((k) => !IDENTITY.includes(k))
+  assert.deepEqual(left, [],
+    `这些顶层键在换引擎后仍然保留：${left.join(' / ')}。` +
+    '新引擎的 defaults 里没有上一台的那些键时，名片解析立即抛错，使用方从没写过这一行却被挡住。' +
+    '把它们加进 manifestAutoFill.js 的 ENGINE_SPECIFIC_KEYS。')
+})
+
 test('换引擎：id 与 label 换成新的，contract_version 留着', () => {
   const next = manifestForEngineSwitch(PREV, 'spark-tts')
   assert.strictEqual(next.id, 'spark-tts')
