@@ -16,7 +16,7 @@ const DANGER = Object.freeze({
   INFO: 'info',
 })
 
-// --- 顶层段：17 个。howto 说明这一段整体是干什么的 -------------------
+// --- 顶层段：howto 说明这一段整体是干什么的 -------------------------
 const SECTIONS = Object.freeze([
   { key: 'contract_version', group: 'basics', danger: DANGER.BLOCK,
     howto: '声明这张名片按哪一版契约解析。平台用它决定认哪些字段。' },
@@ -61,6 +61,9 @@ const SECTIONS = Object.freeze([
     warn: '⚠ 不得与旧字段（param_keys / payload_keys / params / defaults / defaults_env）并存：平台会抛错（两份会漂移的事实）。' },
   { key: 'maps', group: 'parameters', danger: DANGER.INFO,
     howto: '平台词表 → 引擎方言的翻译。没映射的词 = 这台引擎没这个概念，不发。' },
+  { key: 'languages', group: 'parameters', danger: DANGER.SILENT,
+    howto: '平台语种码 → 该引擎的写法。左边只能填平台语种码，右边由引擎自己决定。',
+    warn: '右边写成这台引擎不支持的写法不会报错，发出去的语种它认不出来，读出来的音就不对。不填这张表即为空表，平台码按原值发送。' },
   { key: 'output_formats', group: 'output', danger: DANGER.INFO,
     howto: '这引擎能输出哪些格式。' },
 ])

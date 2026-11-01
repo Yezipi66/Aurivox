@@ -18,6 +18,7 @@ const fs = require('node:fs')
 
 const { diagnose, summarize } = require('../core/validate.js')
 const { SECTIONS, PARAM_FIELDS, SECTIONS_BY_KEY } = require('../core/fieldmeta')
+const { TOP_KEYS } = require('../../../lib/engines/profile/topkeys.js')
 
 // 引擎目录指向「真名片 + 夹具」的合并目录：形状各异的引擎在盘上的存在与否随机器而变，
 // 合并目录让「真名片一份不少 + 夹具补足台数」在任何机器上都成立。
@@ -170,6 +171,22 @@ test('每个顶层段都有说明与危险等级', () => {
     assert.ok(['block', 'silent', 'info'].includes(s.danger), `${s.key} 危险等级非法`)
     assert.ok(SECTIONS_BY_KEY[s.key] === s)
   }
+})
+
+test('⭐ 语种写法表 languages 在向导里有说明：缺少说明时名片作者无法确定写法', () => {
+  // languages 是名片的顶层键，右边写错不报错：正是 fieldmeta 要提醒的那类字段。
+  const s = SECTIONS_BY_KEY.languages
+  assert.ok(s, 'languages 是平台支持的键，向导却没有它的说明')
+  assert.ok(s.howto && s.howto.length > 5, 'languages 缺说明')
+  assert.ok(s.warn && s.warn.length > 5, 'languages 写错是静默失效，却没有 warn')
+})
+
+test('⭐ 向导说明挂的段名都在名片顶层白名单里（写错的键在表单里不可见）', () => {
+  // 顶层白名单只有 lib/engines/profile/topkeys.js 那一份，向导这边读它来核对：
+  //   段名写错 ⇒ SECTIONS_BY_KEY 查不到，那段说明永远不显示，使用方会以为平台不支持这个键。
+  const strays = SECTIONS.map((s) => s.key).filter((k) => !TOP_KEYS.includes(k))
+  assert.deepEqual(strays, [],
+    `${strays.join(' / ')} 不是平台支持的顶层键，这段说明挂在哪一个键上都不确定`)
 })
 
 test('危险字段必须写了 warn（静默失效那一类要提醒）', () => {
