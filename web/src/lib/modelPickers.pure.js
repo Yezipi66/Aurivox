@@ -111,8 +111,8 @@ export function itemLabel(item) {
   return bits.length ? `${item.name} (${bits.join(' · ')})` : String(item.name || '')
 }
 
-// 后端生成的模型提示，用于解释下拉为何为空。
-// 返回该角色在该引擎下的提示数组，没有提示时返回空数组。
+// 后端生成的模型说明，按引擎筛选。它解释的是这台引擎在这个角色里的模型标签与来源，
+// 下拉为空或有候选时都可能出现。返回该角色在该引擎下的说明数组，没有则空数组。
 export function modelNotesFor(assets, engineId, voiceId) {
   if (!engineId || !voiceId) return []
   for (const a of (assets || [])) {
