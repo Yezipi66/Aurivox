@@ -106,21 +106,43 @@ function manifestPresent (dir) {
   } catch (e) { return false }
 }
 
-// engines/<id>/checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
+// engines/<id>/checkpoints 下的模型文件，递归列举（含子目录）。
+// 权重不一定摊在顶层：有的引擎一层目录套一层（LLM/、BiCodec/ 各占一个子目录），
+//   只看顶层会把这类引擎判成「目录在、文件没有」。
+// 返回相对 checkpoints 的正斜杠路径；目录不存在或读不到 ⇒ 空数组。
+// 隐藏目录（.git / .cache 这类）不进去：那是下载工具的元数据，不是权重。
+function listModelFiles (root, id) {
+  const dir = checkpointsAbsPath(root, id)
+  const out = []
+  const walk = (d, rel, depth) => {
+    let entries
+    try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch (e) { return }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (e.name.startsWith('.')) continue
+        // 深度封顶是防环（循环符号链接造出的假目录树），不是业务限制：
+        //   权重目录没有深过这个的，真到了这一层说明目录结构已经不对。
+        if (depth >= 8) continue
+        walk(path.join(d, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1)
+      } else if (e.isFile()) {
+        out.push(rel ? `${rel}/${e.name}` : e.name)
+      }
+    }
+  }
+  walk(dir, '', 0)
+  return out
+}
+
+// checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
 function weightsOnDisk (root, id) {
   const dir = checkpointsAbsPath(root, id)
-  try {
-    if (!fs.existsSync(dir)) return null          // 目录都没有 ⇒ 说不出来
-    const files = fs.readdirSync(dir).filter((f) => {
-      try { return fs.statSync(path.join(dir, f)).isFile() } catch (e) { return false }
-    })
-    if (files.length === 0) return null
-    // 大小为 0 的文件也算「查过了」：确实缺了还是文件不完整，由下载那一步自己逐文件校验，
-    // 这里不重复判一遍。
-    return files.some((f) => {
-      try { return fs.statSync(path.join(dir, f)).size > 0 } catch (e) { return false }
-    })
-  } catch (e) { return null }
+  const files = listModelFiles(root, id)
+  if (files.length === 0) return null          // 目录都没有或一个文件都没有 ⇒ 说不出来
+  // 大小为 0 的文件也算「查过了」：确实缺了还是文件不完整，由下载那一步自己逐文件校验，
+  // 这里不重复判一遍。
+  return files.some((f) => {
+    try { return fs.statSync(path.join(dir, f)).size > 0 } catch (e) { return false }
+  })
 }
 
 /**
@@ -169,12 +191,16 @@ function installState (root, id, deps = {}) {
   // 权重落盘的相对路径（相对项目根）：第 4 步的名片要填 runtime.checkpoints，
   //   填的就是这个值。第 3 步写盘、第 5 步判断、第 4 步声明，三处同源。
   const checkpointsPath = checkpointsRelPath(id)
+  // 盘上实际有哪些模型文件：第 4 步的 models.required 自动填就照这份清单
+  //   （下过什么就声明什么，不猜）。为空（没下或读不到）时前端自己会停。
+  const modelFiles = hasClone ? listModelFiles(root, id) : []
   return {
     ok: true,
     id,
     steps,
     steps_done,
     checkpoints_path: checkpointsPath,
+    model_files: modelFiles,
     artifacts: {
       engineDir: dir,
       hasClone,
@@ -196,4 +222,5 @@ module.exports = {
   dirHasContent,
   manifestPresent,
   weightsOnDisk,
+  listModelFiles,
 }

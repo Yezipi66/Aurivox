@@ -148,6 +148,10 @@ export default function App () {
   //   runtime.checkpoints 填的也是这个值：两处同源，改一处不会出现「下好了却找不到」。
   //   路径由后端算（core/checkpointsPath.js），前端不自己拼。
   const [checkpointsPath, setCheckpointsPath] = React.useState(null)
+  // 第 3 步实际下到盘上的模型文件清单（相对 checkpoints，正斜杠）。
+  //   第 4 步的 models.required 自动填就照这份清单：下过什么声明什么，
+  //   不靠猜。由后端随 install-state 一起送来，前端不自己列目录。
+  const [modelFiles, setModelFiles] = React.useState(null)
   // 第 4 步要显示的现状：第 2 步的环境与第 3 步的权重。
   //   权重是三态（齐了 / 缺了 / 说不出来），布尔装不下 ⇒ 单独存。
   //   第 2 步与第 3 步和第 4 步是并行的，所以这两个状态会自己变，
@@ -157,7 +161,7 @@ export default function App () {
   //   读闭包里的旧值会拿到空 id，一个勾都不亮。
   const reloadFacts = React.useCallback((idArg) => {
     const id = factsQueryId(idArg, wz.id)
-    if (!id) { setFacts({}); setCheckpointsPath(null); return }
+    if (!id) { setFacts({}); setCheckpointsPath(null); setModelFiles(null); return }
     let alive = true
     fetch(`/wizard/install-state?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
@@ -165,6 +169,7 @@ export default function App () {
         if (!alive) return
         if (j && j.ok && j.steps_done) setFacts(j.steps_done)
         setCheckpointsPath((j && j.checkpoints_path) || null)
+        setModelFiles(Array.isArray(j && j.model_files) ? j.model_files : null)
         const st = j && j.steps
         setEngineState({
           env: st && st.env ? st.env.done : null,
@@ -188,13 +193,14 @@ export default function App () {
   }, [manifest && manifest.id, wz.id])
 
   React.useEffect(() => {
-    if (!manifestEngineId) { setCheckpointsPath(null); return }
+    if (!manifestEngineId) { setCheckpointsPath(null); setModelFiles(null); return }
     let alive = true
     fetch(`/wizard/install-state?id=${encodeURIComponent(manifestEngineId)}`)
       .then((r) => r.json())
       .then((j) => {
         if (!alive) return
         setCheckpointsPath((j && j.checkpoints_path) || null)
+        setModelFiles(Array.isArray(j && j.model_files) ? j.model_files : null)
         // 现状也跟着换引擎换：第 4 步编辑的这台可能不是第 1 步克隆的那台。
         const st = j && j.steps
         setEngineState({
@@ -202,7 +208,7 @@ export default function App () {
           models: st && st.models ? st.models.ready : null,
         })
       })
-      .catch(() => { if (alive) setCheckpointsPath(null) })
+      .catch(() => { if (alive) { setCheckpointsPath(null); setModelFiles(null) } })
     return () => { alive = false }
   }, [manifestEngineId])
 
@@ -264,6 +270,7 @@ export default function App () {
             diag={vresult} loading={vloading}
             onSaved={reloadFacts}
             checkpointsPath={checkpointsPath}
+            modelFiles={modelFiles}
             engineState={engineState} />
         </div>
       )}

@@ -25,7 +25,7 @@ import { computeAutoFill } from './scanAutofill'
 
 export default function ManifestPage ({
   manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
-  engineState, onPickEngineTarget,
+  modelFiles, engineState, onPickEngineTarget,
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
@@ -183,6 +183,7 @@ export default function ManifestPage ({
             {view === 'form'
               ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest}
                 checkpointsPath={checkpointsPath}
+                modelFiles={modelFiles}
                 autofill={autofill} selectedParam={selected}
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />

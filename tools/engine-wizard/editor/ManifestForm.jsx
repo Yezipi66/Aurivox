@@ -10,11 +10,15 @@ import RequiredFields from './RequiredFields'
 import ParamDropZone from './ParamDropZone'
 import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
+import {
+  shouldFillModelsRequired, withModelsRequired, requiredFromFiles,
+  shouldFillVerify, withAutoFilledVerify, describeFilledNotes,
+} from './declarationFill'
 
 // 反射生成的 parameters[] 草稿与映射候选只填表单，映射候选要人点选之后才写进 maps。
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
-  guessed, onParamDropped, onTypeConfirmed,
+  guessed, onParamDropped, onTypeConfirmed, modelFiles,
 }) {
   const { t } = useT()
 
@@ -40,6 +44,43 @@ export default function ManifestForm ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkpointsPath, manifest && manifest.id, manifest && manifest.runtime && manifest.runtime.checkpoints])
 
+  // models.required 自动填成第 3 步实际下到盘上的文件清单。
+  //
+  // 为什么自动填：不声明 required，平台只能说「权重目录在不在」，
+  //   说不出「齐不齐」（checkpoints.js 的 ready:null）。齐不齐的判据
+  //   就是「声明的文件是不是一个不少」，而声明素材使用者刚下过一遍：
+  //   下过什么就声明什么（剔掉 README / 校验和这类杂质）。
+  // 只在 id 定了、盘上有可声明的文件、且这一格空着时填：
+  //   使用者声明过（哪怕只写一个文件）是他的判断，不覆盖。
+  // 判定与填值在 declarationFill.js 里，是纯函数，可以单独测。
+  React.useEffect(() => {
+    if (!shouldFillModelsRequired(manifest, modelFiles)) return
+    // 交函数，基于最新名片合并：同一次提交里别的自动填也在写名片，
+    //   拿快照整份写回会冲掉别人刚写的段。
+    onChange((cur) => (shouldFillModelsRequired(cur, modelFiles)
+      ? withModelsRequired(cur, requiredFromFiles(modelFiles)) : cur))
+    // onChange 不进依赖：它每次渲染都是新函数，进了就变成一直触发。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelFiles, manifest && manifest.id, manifest && manifest.models && manifest.models.required])
+
+  // runtime.verify 自动填：sys_path 与 imports 两格。
+  //
+  // 为什么自动填：verify 是「拿这台引擎的解释器 import 哪些模块」的第二道校验，
+  //   空着时 env_deep 没有 spec 可验（起不起来永远「说不出来」）。
+  //   imports 照 call 段已定下的模块（module-only，env_probe 认的最小形状）；
+  //   sys_path 按克隆根猜（src 布局的引擎要改），这一格在下面标黄提醒人确认。
+  // 各自只填空格：使用者或扫描写过的（sys_path 或 imports 非空）不覆盖。
+  React.useEffect(() => {
+    if (!shouldFillVerify(manifest)) return
+    onChange((cur) => (shouldFillVerify(cur) ? withAutoFilledVerify(cur) : cur))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest && manifest.id, manifest && manifest.call,
+    manifest && manifest.runtime && manifest.runtime.verify])
+
+  // 自动填出来的那几格：按置信度标出来（确定=绿 / 猜的=黄）。
+  //   只按当前值判：使用者改走的那一格不再标（已是他的判断）。
+  const fillNotes = describeFilledNotes(manifest, modelFiles)
+
   if (!spec) {
     return <p className="field-hint" style={{ margin: 0 }}>
       {t('Loading field spec…', '正在读字段规格…')}
@@ -52,6 +93,23 @@ export default function ManifestForm ({
       {/* ① 必填字段：三个输入槽位一行，引擎目录与启动脚本一行 */}
       <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill}
         bindSlots={spec && spec.bindSlots} />
+
+      {/* ①b 平台代填的声明与置信度：models.required / runtime.verify 两格。
+          确定标绿（badge-ok）、猜的标黄（badge-warn）；
+          没有自动填出来的时候整个区块不出现。 */}
+      {fillNotes.length > 0 && (
+        <div className="field-hint" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {fillNotes.map((n) => (
+            <div key={n.key}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span className={`badge ${n.level === 'certain' ? 'badge-ok' : 'badge-warn'}`}>
+                {n.level === 'certain' ? t('certain', '确定') : t('guessed, needs review', '猜的，需确认')}
+              </span>
+              <span>{t(n.en, n.zh)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。

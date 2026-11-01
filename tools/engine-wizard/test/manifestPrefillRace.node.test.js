@@ -90,6 +90,11 @@ async function mount (initial, ck) {
 }
 
 const CONV = { python: 'engines/cosyvoice2/.venv', entry: '../../lib/engines/host.py' }
+// 换到一台新引擎后，声明兜底（declarationFill，P0-1b）会给 runtime 补
+//   verify.sys_path（按克隆根猜的那一格，界面上标黄）。
+//   这些断言里的 runtime 因此比 2026-10 那版多一个 verify 键，不是串号：
+//   它是「新引擎的 runtime 该长什么样」的一部分。
+const CONV_AND_SYS = { ...CONV, verify: { sys_path: ['engines/cosyvoice2'] } }
 
 test('换引擎时权重路径还是上一台的 ⇒ 代填的引擎目录与启动脚本不被冲掉', { skip }, () => withDom(async () => {
   const prev = {
@@ -102,24 +107,29 @@ test('换引擎时权重路径还是上一台的 ⇒ 代填的引擎目录与启
   assert.strictEqual(api.m.runtime.entry, CONV.entry)
   // 新引擎的权重路径随后到达：只改 checkpoints，两格还在。
   await act(async () => api.setCk('engines/cosyvoice2/checkpoints'))
-  assert.deepStrictEqual(api.m.runtime, { ...CONV, checkpoints: 'engines/cosyvoice2/checkpoints' })
+  assert.deepStrictEqual(api.m.runtime,
+    { ...CONV_AND_SYS, checkpoints: 'engines/cosyvoice2/checkpoints' })
   await act(async () => root.unmount())
 }))
 
 test('空名片直接选这台、权重路径早已到达 ⇒ 两项都在', { skip }, () => withDom(async () => {
   const { api, act, root } = await mount({}, 'engines/cosyvoice2/checkpoints')
   await act(async () => api.switchTo('cosyvoice2'))
-  assert.deepStrictEqual(api.m.runtime, { ...CONV, checkpoints: 'engines/cosyvoice2/checkpoints' })
+  assert.deepStrictEqual(api.m.runtime,
+    { ...CONV_AND_SYS, checkpoints: 'engines/cosyvoice2/checkpoints' })
   await act(async () => root.unmount())
 }))
 
 test('两格被别处整段清掉 ⇒ 按惯例补回；写过任何一格 ⇒ 不动', { skip }, () => withDom(async () => {
   const { api, act, root } = await mount({}, null)
   await act(async () => api.switchTo('cosyvoice2'))
-  assert.deepStrictEqual(api.m.runtime, CONV)
+  assert.deepStrictEqual(api.m.runtime, CONV_AND_SYS)
   await act(async () => api.setM((cur) => ({ ...cur, runtime: undefined })))
-  assert.deepStrictEqual(api.m.runtime, CONV)
+  assert.deepStrictEqual(api.m.runtime, CONV_AND_SYS)
   await act(async () => api.setM((cur) => ({ ...cur, runtime: { entry: 'engines/cosyvoice2/server.py' } })))
-  assert.deepStrictEqual(api.m.runtime, { entry: 'engines/cosyvoice2/server.py' })
+  // 使用者自己写了 entry：那一格不动；verify.sys_path 仍空着 ⇒ 兜底照补
+  //   （它补的是「这台引擎的模块从哪加载」，与启动脚本是两格）。
+  assert.deepStrictEqual(api.m.runtime,
+    { entry: 'engines/cosyvoice2/server.py', verify: { sys_path: ['engines/cosyvoice2'] } })
   await act(async () => root.unmount())
 }))
