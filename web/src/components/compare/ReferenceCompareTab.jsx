@@ -18,18 +18,19 @@ import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, pa
 import { ParamField } from '../common/ParamField'
 import { migrateRow } from '../../lib/compareRowMigrate'
 import { useT } from '../../lib/i18n'
-import { recipePath } from '../../lib/recipes'
-import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
+import { recipePath, recipeWeightParams, weightsToRecipeFields } from '../../lib/recipes'
+import { slotsOf, weightsFromParams, weightsToSend } from '../../lib/modelPickers.pure.js'
+import {
+  compareWeightBody, defaultPicksOf, firstPicksOf, normalizeRowModel, referenceVoiceOf, rowVoiceLanguage, stalePicks, voiceEntry,
+} from './compareModelPicks.pure.js'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 import { CompareRow } from './CompareRow'
 import { CompareBatchCard } from './CompareBatchCard'
 
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()
-  // 对比页的参考配置工作区要能扛住刷新与应用重启。
-  // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：
-  // 所以只要后端还留着输出文件，持久化结果就能让播放器在刷新后照常工作。
-  // 临时状态在重新载入时重置，列表设上限，避免撑爆 localStorage 配额。
+  // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：后端仍保留输出
+  // 文件，刷新后播放器仍可正常工作。临时状态在重新载入时重置，行数上限是 localStorage 配额。
   const [rows, setRows] = usePersistentState('compare.rows', [], {
     // 旧的每行目标语种 'auto'（该选项已下线）落到「用默认」。
     rehydrate: r => Array.isArray(r)
@@ -50,8 +51,10 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const [defaultHanForced, setDefaultHanForced] = usePersistentState('compare.defaultHanForced', [])
   const [defaultHanReadings, setDefaultHanReadings] = usePersistentState('compare.defaultHanReadings', {})
   const [showDefaultTextPrep, setShowDefaultTextPrep] = useState(false)
-  const [availableModels, setAvailableModels] = useState([])  // [{ voiceId, voiceName, gptCheckpoint, sovitsModel, label }]
-  const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})  // { rowId: { voiceId, gptCheckpoint, sovitsModel } }
+  const [availableModels, setAvailableModels] = useState([])  // 每个角色一项：{ voiceId, voiceName, itemsBySlot, default, language, builtin }
+  // 每行的模型选择按位名索引：picks 存路径，owners 存跨角色选择时那一侧的角色。
+  // 旧形状在读取时按当前位迁移，localStorage 里的值保持不变。
+  const [rowModels, setRowModels] = usePersistentState('compare.rowModels', {})
   const [defaultParams, setDefaultParams] = useState(null)  // 从 /api/advanced-params 读
   // 引擎批量推理的总开关。每行自己的三态（继承 / 开 / 关）都对着它解析，
   // 「继承」就是跟着这个总开关走。
@@ -77,13 +80,12 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const [saveRecipeDefaults, setSaveRecipeDefaults] = useState(null)
   const [recipes, setRecipes] = useState([])
   const openSaveRecipe = (row) => {
-    const rm = rowModels[row.id] || {}
+    const slots = slotsOf(engine)
+    const rm = normalizeRowModel(rowModels[row.id], slots)
     const dp = defaultParams || {}
-    // 这一行自己的模型语种（与共享的 selectedVoice 无关）。
-    // 混搭时参考音频与语种跟随 SoVITS（音色）那一侧。
-    const rmVoiceId = rm.sovitsVoiceId || rm.voiceId || selectedVoice
-    const rmVoiceLang = availableModels.find(m => m.voiceId === rmVoiceId)?.language
-      || voices.find(v => (v.id || v.voiceId) === rmVoiceId)?.language || 'ja'
+    // 这一行自己的模型语种（与共享的 selectedVoice 无关）：取的是参考侧那个角色的语种。
+    const rmVoiceId = referenceVoiceOf(rm, slots, selectedVoice)
+    const rmVoiceLang = rowVoiceLanguage({ models: availableModels, voices, voiceId: rmVoiceId, fallback: 'ja' })
     // 按生成页的配方结构钉住读音校对：
     // 平铺的基础覆盖 + lang_overrides + han_readings（服务端负责合并）。
     const rEff = row.textLang || defaultTextLang || rmVoiceLang || 'ja'
@@ -102,13 +104,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         //   形状一致）。硬编码键名的话，换一台引擎存下来的就是一堆
         //   上游不认的键，存的时候不报错，回放的时候也不报错。
         ...paramsToSend(engine, row.params, row.touched),
-        // 对比页不逐行暴露的那些字段（advanced 层）回落到共享默认值，
-        // 这样配方仍能复现出同一次试听。
-        //
-        // 凡是在当前引擎名片上的参数（不论 common 还是 advanced 层），
-        //   都按「这行没动过 ⇒ 取共享默认 / 动过 ⇒ 取这一行的」补齐，
-        //   这样配方仍然是「完整合同」（回放得出一模一样的结果），
-        //   而键名一个都不写死。
+        // 对比页不逐行暴露的字段（advanced 层）回落到共享默认值，因此配方仍是「完整
+        // 合同」，回放结果与录制时一致。名片上的键一律不写死。
         ...(() => {
           const known = (engine?.param_schema || [])
           const shared = defaultParams || {}
@@ -131,8 +128,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           ? Object.fromEntries(Object.entries(row.hanReadings).filter(([key]) => (row.hanForced || []).some(x => x && typeof x === 'object' && key === `@${x.index}:${x.char}`)))
           : {},
       },
-      gpt_ckpt: rm.gptCheckpoint || '',
-      sovits_pth: rm.sovitsModel || '',
+      ...weightsToRecipeFields(weightsToSend(slots, rm.picks)),
     })
   }
 
@@ -182,46 +178,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
     // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
     // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
-    // 引擎名与位名都不写死：位名取自当前引擎的 weight_slots，别的引擎给什么位名就取什么位名，
-    //   否则连文件选择器的扩展名都会被钉死，别的引擎的资产在这页里一个模型位都列不出来，
-    //   而界面上只显示「这个音色没模型」，没有任何一句说「因为这里写死了引擎」。
-    //
-    //   按当前引擎的两个位名取权重：取不到就只有 0 个组合，行自己退化成「用当前音色」，而不是画一个空下拉。
-    //
-    //   真正的「每行不同引擎并排」仍未实现（那要重画整行的混搭开关）。这里只是不再按引擎身份分叉。
+    // 位名取自当前引擎的 weight_slots：换引擎时位名随之改变，不写死某一台的位名。
+    // 每个角色逐位整理候选，不做组合展开；任一位没有候选就不生成这个角色，
+    // 该行退化为「使用当前音色」，而不是显示一个空下拉。
+    // 每行只使用当前选中引擎的候选：跨引擎并排对比未实现。
+    const slots = slotsOf(engine)
     const buildModels = (vid, meta, out) => {
-      // 位名也来自名片，不写死 'gpt'/'sovits'
-      // （weight_slots 是 [{name,label,param,applies_at}]，这里只要 name）。
-      const slots = (engine?.weight_slots || []).map(s => s && s.name).filter(Boolean)
-      const gptSlot = slots.length > 0 ? slots[0] : null
-      const sovitsSlot = slots.length > 1 ? slots[1] : null
-      // 不足两个位 ⇒ 造不出「两份权重两两组合」这种行，一组都不造。
-      //   静默造 0 组 = 行画出来是空的、用户不知道为什么。
-      if (!gptSlot || !sovitsSlot) return
-      const gptList = modelsFromMeta(meta, engine?.id, gptSlot)
-      const sovitsList = modelsFromMeta(meta, engine?.id, sovitsSlot)
-      if (gptList.length === 0 || sovitsList.length === 0) return
-      gptList.forEach(gpt => {
-        sovitsList.forEach(sovits => {
-          out.push({
-            voiceId: vid,
-            voiceName: meta.display_name || vid,
-            language: meta.language || '',
-            gptCheckpoint: gpt.path,
-            sovitsModel: sovits.path,
-            gptName: gpt.name || gpt.path,
-            sovitsName: sovits.name || sovits.path,
-            gptSteps: gpt.steps || '',
-            sovitsSteps: sovits.steps || '',
-            sovitsVersion: sovits.version || '',
-            // 标出推荐的默认组合（Base 模型 → s1 + v2Pro），让音色下拉预先选中它。
-            // 微调出来的音色不带这个标记，所以它是假值。
-            default: !!(gpt.default && sovits.default),
-            builtin: !!meta.builtin,
-            label: `${meta.display_name || vid} / ${gpt.name}${gpt.steps ? ` (${gpt.steps})` : ''} / ${sovits.name}${sovits.version ? ` [${sovits.version}]` : ''}${sovits.steps ? ` (${sovits.steps})` : ''}`,
-          })
-        })
-      })
+      const entry = voiceEntry(slots, engine?.id, meta, vid)
+      if (entry) out.push(entry)
     }
     Promise.all([
       api('/api/assets').catch(() => ({ ok: false })),
@@ -233,19 +197,25 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
       if (r.ok) Object.entries(r.data.assets || {}).forEach(([vid, meta]) => buildModels(vid, meta, models))
       setAvailableModels(models)
     }).catch(() => {})
-    // 依赖里必须有 engine.id：buildModels 现在按当前引擎的位名取权重。
-    //   少了这一项 ⇒ 换引擎后这个下拉还是上一台引擎的权重，而且是安静地
-    //   错，界面上没有任何一处会告诉你它没跟着换。
+    // 依赖必须包含 engine.id：候选按当前引擎的位名取，缺了它换引擎后下拉仍显示上一台引擎的结果。
   }, [engine?.id])
 
   const addRow = (opts = {}) => {
     const rowId = nextId.current++
-    // 默认模型：选中音色的第一个可用模型，没有就取全局第一个。
-    const defaultModel = availableModels.find(m => m.voiceId === selectedVoice && m.default)
-      || availableModels.find(m => m.voiceId === selectedVoice) || availableModels[0]
-    const modelForRow = defaultModel
-      ? { voiceId: defaultModel.voiceId, gptCheckpoint: defaultModel.gptCheckpoint, sovitsModel: defaultModel.sovitsModel, gptVoiceId: '', sovitsVoiceId: '' }
-      : { voiceId: '', gptCheckpoint: '', sovitsModel: '', gptVoiceId: '', sovitsVoiceId: '' }
+    // 默认模型：选中音色带推荐组合就取那份组合，没有推荐组合就取该音色各位的第一项；
+    // 选中音色完全没有候选 ⇒ 改用全局第一组并取各位的第一项：推荐标记只属于用户选中的
+    // 那个音色，不适用于替代它的那一组。
+    const slots = slotsOf(engine)
+    const selectedEntry = availableModels.find(m => m.voiceId === selectedVoice)
+    const entry = selectedEntry || availableModels[0]
+    const modelForRow = entry
+      ? {
+          voiceId: entry.voiceId,
+          picks: entry === selectedEntry ? defaultPicksOf(slots, entry) : firstPicksOf(slots, entry),
+          owners: {},
+          mix: false,
+        }
+      : { voiceId: '', picks: {}, owners: {}, mix: false }
     setRowModels(prev => ({ ...prev, [rowId]: modelForRow }))
     // 选中音色的第一条匹配切片作为默认参考（除非这一行明确要空行）。
     const firstSeg = segmentsCache[selectedVoice]?.find(s => s.exists !== false && (s.audio || s.audio_path || s.audio_filename))
@@ -256,7 +226,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     })() : ''
     // 内置的 Base 模型自己没有切片：这样的行从跨音色参考选择器起步，
     // 用户立刻就能借一条参考。
-    const startSource = (defaultModel && defaultModel.voiceId === BASE_VOICE_ID) ? 'cross' : undefined
+    const startSource = (entry && entry.voiceId === BASE_VOICE_ID) ? 'cross' : undefined
     const dp = defaultParams || {}
     // 参数值与 touched 由 CompareRow 按当前引擎的 param_schema 自己起步
     //   （initialParamValues），行的诞生不再知道任何一台引擎的参数叫什么。
@@ -326,23 +296,37 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                  touched: Array.from(new Set([...(r.touched || []), ...Object.keys(picked)])) }
       })(),
       seed:p.seed??r.seed,pronOverrides:p.pron_overrides||{},hanForced:parseLangOverrides(p.lang_overrides),hanReadings:p.han_readings||{},result:null,error:null}:r))
-    setRowModels(prev=>({...prev,[row.id]:{voiceId:rec.role||selectedVoice,gptCheckpoint:recipePath(rec.gpt_ckpt),sovitsModel:recipePath(rec.sovits_pth)}}))
+    const recipePicks = weightsFromParams(slotsOf(engine), recipeWeightParams(rec))
+    setRowModels(prev => ({ ...prev, [row.id]: { voiceId: rec.role || selectedVoice, picks: recipePicks, owners: {}, mix: false } }))
   }
 
   const generateRow = async (row, batch) => {
     setRows(prev => prev.map(r => r.id === row.id ? { ...r, loading: true, result: null, error: null } : r))
+    const slots = slotsOf(engine)
+    const rowModel = normalizeRowModel(rowModels[row.id], slots)
+    // 选中的那一份已不在候选中（模型被删除、资产改名）⇒ 该行不发送。
+    // 静默跳过那一位会让引擎沿用上一行切换的权重，批量结果取决于行的执行顺序。
+    // 拦下的一行不进 try…finally，所以提示要留在它之后设置，否则这条横幅没人清。
+    const stale = stalePicks(slots, rowModel, availableModels)
+    if (stale.length > 0) {
+      setRows(prev => prev.map(r => r.id === row.id ? {
+        ...r,
+        loading: false,
+        error: stale.map(x => t(
+          `${x.slot.label} picks ${basename(x.path)}, which is not among the current candidates. Pick again.`,
+          `${x.slot.label} 选择的 ${basename(x.path)} 不在当前候选中，请重新选择。`)).join(' '),
+      } : r))
+      return
+    }
     // 状态栏的实时活动提示。批量运行由 generateAll 自己推进进度文案
     // （"Comparing · k/N"），单行重新生成显示普通的 "Generating"，结束后清掉。
     if (!batch) onActivity?.({ label: 'Generating' })
-    const rowModel = rowModels[row.id] || {}
     // 与生成页共享的 selectedVoice 解耦：这一行的音色、参考音频与所有语种默认值
     // 都由这一行自己的模型决定。用共享音色会让中文模型被自动按中文路由：
     // 送了 prompt_lang=zh 的日文参考音频，转写会错，声音也乱。
-    // 混搭时参考音频与语种跟随 SoVITS（音色）那一侧；
-    // GPT 可以来自另一个资产而不带走参考音频。
-    const rowVoiceId = rowModel.sovitsVoiceId || rowModel.voiceId || selectedVoice
-    const rowVoiceLang = availableModels.find(m => m.voiceId === rowVoiceId)?.language
-      || voices.find(v => (v.id || v.voiceId) === rowVoiceId)?.language || 'ja'
+    // 混搭时参考音频与语种取决于参考位，其余权重位可以来自其他资产而不改变参考音频。
+    const rowVoiceId = referenceVoiceOf(rowModel, slots, selectedVoice)
+    const rowVoiceLang = rowVoiceLanguage({ models: availableModels, voices, voiceId: rowVoiceId, fallback: 'ja' })
     try {
       const body = {
         voice: rowVoiceId,
@@ -381,8 +365,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
         body.batch_total = batch.total
         body.batch_label = batch.label
       }
-      if (rowModel.gptCheckpoint) body.gpt_model = rowModel.gptCheckpoint
-      if (rowModel.sovitsModel) body.sovits_model = rowModel.sovitsModel
+      // 权重字段按当前名片的位组装：call 位平铺参数名，launch 位写入 launch_weights。
+      Object.assign(body, compareWeightBody(engine, rowModel))
       // 每一行自己的目标语种（回落到共享默认，再回落到音色语种）；
       // prompt_lang / 参考转写来自跨音色或自定义的参考选择。
       body.text_lang = row.textLang || defaultTextLang || rowVoiceLang || 'ja'
@@ -549,7 +533,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           recipes={recipes}
           onLoadRecipe={loadRecipeIntoRow}
           availableModels={availableModels}
-          rowModel={rowModels[row.id] || { voiceId: '', gptCheckpoint: '', sovitsModel: '' }}
+          rowModel={rowModels[row.id] || { voiceId: '', picks: {}, owners: {} }}
           onModelChange={(model) => setRowModels(prev => ({ ...prev, [row.id]: model }))}
           defaultParams={defaultParams}
           selectedVoice={selectedVoice}
