@@ -40,8 +40,9 @@ function renderMd(text) {
 }
 
 // 把动态后端串（如 job.error / e.message）包进反引号，交给 renderMd 渲染为等宽代码，
-// 避免英文错误串在中文界面里显得突兀。
-const codeSpan = (s) => '`' + s + '`'
+// 避免英文错误串在中文界面里显得突兀。单行走行内 code，多行串（如整段 traceback）
+// 走三反引号围栏，由 renderMd 渲染为块级 pre。
+const codeSpan = (s) => s.includes('\n') ? '```\n' + s + '\n```' : '`' + s + '`'
 
 // 音色资产页
 function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
@@ -335,8 +336,8 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           setTimeout(() => setScanMsg(null), 5000)
         }
       } catch (e) {
-      delete transcribePollRef.current[id]
-      setScanMsg({ type: 'error', text: t(`Transcription error: ${codeSpan(e.message)}`, `转录错误：${codeSpan(e.message)}`) })
+        delete transcribePollRef.current[id]
+        setScanMsg({ type: 'error', text: t(`Transcription error: ${codeSpan(e.message)}`, `转录错误：${codeSpan(e.message)}`) })
       }
     }
     transcribePollRef.current[id] = setTimeout(tick, 1000)
