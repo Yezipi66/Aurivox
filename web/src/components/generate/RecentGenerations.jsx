@@ -13,7 +13,7 @@ import { IconFolder, IconPlay, IconRerun, IconTrash } from '../common/Icons'
 import { SeedBadge, SeedInline } from './GenerateBits'
 import { useT } from '../../lib/i18n'
 
-export function GenerationResult({ result }) {
+export function GenerationResult({ result, carriedNote }) {
   if (!result || !result.audio_url) return null
   return (
     <div className="section">
@@ -29,6 +29,7 @@ export function GenerationResult({ result }) {
         <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
           <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-13)' }}>Download WAV</a>
         </div>
+        {carriedNote && <div className="msg msg-warn" style={{ marginTop: 8 }}>{carriedNote}</div>}
         {result.warning && <div className="msg msg-warn" style={{ marginTop: 8 }}>{result.warning}</div>}
       </div>
     </div>

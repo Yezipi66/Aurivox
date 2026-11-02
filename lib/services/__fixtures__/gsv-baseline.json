@@ -437,99 +437,6 @@
         }
       ]
     },
-    "emptySplit": {
-      "request": {
-        "voice": "v1",
-        "text": "你好，世界。",
-        "engine_id": "gpt-sovits",
-        "ref_audio": "<REF>",
-        "seed": 42,
-        "text_split_method": ""
-      },
-      "payloads": [
-        {
-          "text": "你好，世界。",
-          "text_lang": "zh",
-          "ref_audio_path": "<REF>",
-          "prompt_text": "",
-          "prompt_lang": "zh",
-          "aux_ref_audio_paths": [],
-          "speed_factor": 1,
-          "seed": 42,
-          "top_k": 15,
-          "top_p": 1,
-          "temperature": 1,
-          "repetition_penalty": 1.35,
-          "text_split_method": "cut5",
-          "batch_size": 4,
-          "batch_threshold": 0.75,
-          "split_bucket": true,
-          "fragment_interval": 0.3,
-          "media_type": "wav",
-          "streaming_mode": false,
-          "parallel_infer": true
-        }
-      ],
-      "fingerprints": [
-        "08a307009c3b43513b0774654b8d5a7576489d09f44553dd248f5aebeeac88ee"
-      ],
-      "meta": [
-        {
-          "id": "GENID",
-          "source": "generate",
-          "voice": "v1",
-          "voiceLabel": "v1",
-          "text": "你好，世界。",
-          "lang": "zh",
-          "engine_id": "gpt-sovits",
-          "engine_label": "GPT-SoVITS",
-          "weights": [
-            {
-              "name": "gpt",
-              "label": "GPT",
-              "value": "",
-              "path": ""
-            },
-            {
-              "name": "sovits",
-              "label": "SoVITS",
-              "value": "",
-              "path": ""
-            }
-          ],
-          "ref_audio": "<REF>",
-          "ref_text": "",
-          "recipe_id": null,
-          "batch": null,
-          "seed": 42,
-          "recipe": {
-            "voice": "v1",
-            "text": "你好，世界。",
-            "engine_id": "gpt-sovits",
-            "ref_audio": "<REF>",
-            "seed": 42,
-            "text_split_method": ""
-          },
-          "status": "ok",
-          "split": false,
-          "concat": false,
-          "segments": 1,
-          "reuse": {
-            "reused_segments": 0,
-            "total_segments": 1,
-            "forced": false
-          },
-          "audio_url": "/outputs/generate/GENID/audio.wav",
-          "files": [
-            {
-              "role": "single",
-              "name": "audio.wav",
-              "url": "/outputs/generate/GENID/audio.wav"
-            }
-          ]
-        }
-      ]
-    },
     "splitTrue": {
       "request": {
         "voice": "v1",
@@ -1668,7 +1575,7 @@
           "batch_size": 4,
           "batch_threshold": 0.75,
           "split_bucket": true,
-          "speed_factor": 1,
+          "speed_factor": "",
           "fragment_interval": 0.3,
           "media_type": "wav",
           "streaming_mode": false,
@@ -1677,7 +1584,7 @@
         }
       ],
       "fingerprints": [
-        "08a307009c3b43513b0774654b8d5a7576489d09f44553dd248f5aebeeac88ee"
+        "5d80b5fcea7081b53ff2117cc61d479b862cf993fcfa203db94095bb19f84597"
       ],
       "meta": [
         {
@@ -1843,7 +1750,7 @@
           "prompt_lang": "zh",
           "aux_ref_audio_paths": [],
           "seed": 42,
-          "top_k": 15,
+          "top_k": null,
           "top_p": 1,
           "temperature": 1,
           "text_split_method": "cut5",
@@ -1859,7 +1766,7 @@
         }
       ],
       "fingerprints": [
-        "08a307009c3b43513b0774654b8d5a7576489d09f44553dd248f5aebeeac88ee"
+        "6c9e3eb2bde02e392aab823e0b5536f0d302607149eb5437730bbd3ced6d8baf"
       ],
       "meta": [
         {
@@ -2003,8 +1910,7 @@
         ]
       },
       "changed": [
-        "payload",
-        "指纹"
+        "payload"
       ]
     },
     "splitBucketString": {
@@ -2216,23 +2122,23 @@
           "prompt_lang": "zh",
           "aux_ref_audio_paths": [],
           "seed": 42,
-          "top_k": 15,
+          "top_k": "",
           "top_p": 1,
-          "temperature": 1,
-          "text_split_method": "cut5",
-          "batch_size": 4,
+          "temperature": null,
+          "text_split_method": "",
+          "batch_size": null,
           "batch_threshold": 0.75,
-          "split_bucket": true,
-          "speed_factor": 1,
+          "split_bucket": null,
+          "speed_factor": "",
           "fragment_interval": 0.3,
           "media_type": "wav",
-          "streaming_mode": false,
+          "streaming_mode": null,
           "parallel_infer": true,
           "repetition_penalty": 1.35
         }
       ],
       "fingerprints": [
-        "08a307009c3b43513b0774654b8d5a7576489d09f44553dd248f5aebeeac88ee"
+        "604cf057f4d7e5a6604d930b1208c9d940617a01f231dc730ec37244bae0bdee"
       ],
       "meta": [
         {
@@ -2555,6 +2461,188 @@
               "ref_audio": "<REF>",
               "seed": 42,
               "method": "zero_shot"
+            },
+            "status": "ok",
+            "split": false,
+            "concat": false,
+            "segments": 1,
+            "reuse": {
+              "reused_segments": 0,
+              "total_segments": 1,
+              "forced": false
+            },
+            "audio_url": "/outputs/generate/GENID/audio.wav",
+            "files": [
+              {
+                "role": "single",
+                "name": "audio.wav",
+                "url": "/outputs/generate/GENID/audio.wav"
+              }
+            ]
+          }
+        ]
+      },
+      "changed": [
+        "payload",
+        "指纹"
+      ]
+    },
+    "emptySplit": {
+      "request": {
+        "voice": "v1",
+        "text": "你好，世界。",
+        "engine_id": "gpt-sovits",
+        "ref_audio": "<REF>",
+        "seed": 42,
+        "text_split_method": ""
+      },
+      "payloads": [
+        {
+          "text": "你好，世界。",
+          "text_lang": "zh",
+          "ref_audio_path": "<REF>",
+          "prompt_text": "",
+          "prompt_lang": "zh",
+          "aux_ref_audio_paths": [],
+          "seed": 42,
+          "top_k": 15,
+          "top_p": 1,
+          "temperature": 1,
+          "text_split_method": "",
+          "batch_size": 4,
+          "batch_threshold": 0.75,
+          "split_bucket": true,
+          "speed_factor": 1,
+          "fragment_interval": 0.3,
+          "media_type": "wav",
+          "streaming_mode": false,
+          "parallel_infer": true,
+          "repetition_penalty": 1.35
+        }
+      ],
+      "fingerprints": [
+        "16fefbff2f9d9f6dedbdaa2a4fc717ff1dc68181dc8f58011250b0d654236924"
+      ],
+      "meta": [
+        {
+          "id": "GENID",
+          "source": "generate",
+          "voice": "v1",
+          "voiceLabel": "v1",
+          "text": "你好，世界。",
+          "lang": "zh",
+          "engine_id": "gpt-sovits",
+          "engine_label": "GPT-SoVITS",
+          "weights": [
+            {
+              "name": "gpt",
+              "label": "GPT",
+              "value": "",
+              "path": ""
+            },
+            {
+              "name": "sovits",
+              "label": "SoVITS",
+              "value": "",
+              "path": ""
+            }
+          ],
+          "ref_audio": "<REF>",
+          "ref_text": "",
+          "recipe_id": null,
+          "batch": null,
+          "seed": 42,
+          "recipe": {
+            "voice": "v1",
+            "text": "你好，世界。",
+            "engine_id": "gpt-sovits",
+            "ref_audio": "<REF>",
+            "seed": 42,
+            "text_split_method": ""
+          },
+          "status": "ok",
+          "split": false,
+          "concat": false,
+          "segments": 1,
+          "reuse": {
+            "reused_segments": 0,
+            "total_segments": 1,
+            "forced": false
+          },
+          "audio_url": "/outputs/generate/GENID/audio.wav",
+          "files": [
+            {
+              "role": "single",
+              "name": "audio.wav",
+              "url": "/outputs/generate/GENID/audio.wav"
+            }
+          ]
+        }
+      ],
+      "base": {
+        "payloads": [
+          {
+            "text": "你好，世界。",
+            "text_lang": "zh",
+            "ref_audio_path": "<REF>",
+            "prompt_text": "",
+            "prompt_lang": "zh",
+            "aux_ref_audio_paths": [],
+            "speed_factor": 1,
+            "seed": 42,
+            "top_k": 15,
+            "top_p": 1,
+            "temperature": 1,
+            "repetition_penalty": 1.35,
+            "text_split_method": "cut5",
+            "batch_size": 4,
+            "batch_threshold": 0.75,
+            "split_bucket": true,
+            "fragment_interval": 0.3,
+            "media_type": "wav",
+            "streaming_mode": false,
+            "parallel_infer": true
+          }
+        ],
+        "fingerprints": [
+          "08a307009c3b43513b0774654b8d5a7576489d09f44553dd248f5aebeeac88ee"
+        ],
+        "meta": [
+          {
+            "id": "GENID",
+            "source": "generate",
+            "voice": "v1",
+            "voiceLabel": "v1",
+            "text": "你好，世界。",
+            "lang": "zh",
+            "engine_id": "gpt-sovits",
+            "engine_label": "GPT-SoVITS",
+            "weights": [
+              {
+                "name": "gpt",
+                "label": "GPT",
+                "value": "",
+                "path": ""
+              },
+              {
+                "name": "sovits",
+                "label": "SoVITS",
+                "value": "",
+                "path": ""
+              }
+            ],
+            "ref_audio": "<REF>",
+            "ref_text": "",
+            "recipe_id": null,
+            "batch": null,
+            "seed": 42,
+            "recipe": {
+              "voice": "v1",
+              "text": "你好，世界。",
+              "engine_id": "gpt-sovits",
+              "ref_audio": "<REF>",
+              "seed": 42,
+              "text_split_method": ""
             },
             "status": "ok",
             "split": false,
