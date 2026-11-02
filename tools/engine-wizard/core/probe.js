@@ -262,7 +262,7 @@ function probeProject (input = {}) {
 
   // 兜底：packaging 元数据全无时，用「顶层含 __init__.py 的目录」候选
   //   （目录由调用方扫好后传进来，probe 自己不发起请求，保持纯函数）。
-  //   单候选：填进去，但来源写清是目录扫描、是猜的 —— 只有这一个目录像包，
+  //   单候选：填进去，但来源写清是目录扫描、是猜的：只有这一个目录像包，
   //     「像」不是「是」，sources 里明说猜的，使用者看到来源自会复核。
   //   多候选：不静默选。几个目录都像主包时替使用者挑一个，等于替他做决定，
   //     选错了安装与校验照着错的模块名走，全炸；候选列出来还给他。
@@ -276,7 +276,7 @@ function probeProject (input = {}) {
     : []
   if (!packageName && pkgDirs.length === 1) {
     packageName = pkgDirs[0]
-    packageNameFrom = `顶层目录扫描（${pkgDirs[0]}/__init__.py 存在）—— 唯一候选，是猜的，需复核`
+    packageNameFrom = `顶层目录扫描（${pkgDirs[0]}/__init__.py 存在）：唯一候选，是猜的，需复核`
   }
 
   if (packageName) {

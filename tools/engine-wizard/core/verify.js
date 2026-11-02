@@ -234,7 +234,7 @@ async function runAudioCheck (id, opts = {}) {
   if (!hosted.ok) {
     return { ok: false, code: 'HOST_FAILED', level, stage: hosted.stage,
       error: `临时宿主起不来（${hosted.stage}）：${hosted.error}`,
-      errorZh: `第 4 道要打这台引擎的本地宿主，但它没起来：${
+      errorZh: `第 4 道要打这台引擎的本地宿主，但它未启动：${
         hosted.error || ''}${hosted.stderr ? `（宿主输出：${hosted.stderr.slice(-600)}）` : ''}`,
       stderr: hosted.stderr || null }
   }

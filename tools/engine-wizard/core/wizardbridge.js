@@ -370,7 +370,7 @@ function handleProbe (req, res) {
       filenames: found,
     })
     // 包名读不出来时，兜底扫顶层 python 包目录（目录里有 __init__.py 的），
-    //   扫到候选再带进 probeProject 重跑一遍：只为了把候选交给它的兜底分支。
+    //   扫到候选再带进 probeProject 重新探测一次：只为了把候选交给它的兜底分支。
     //   扫不到（限流 / 网络 / 空仓库）就保持「读不出来」，不硬猜。
     if (!r.meta.packageName) {
       // eslint-disable-next-line no-await-in-loop
@@ -1724,7 +1724,7 @@ module.exports = {
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd, snapshotSourceOf,
-  // 导给守卫测试：包名兜底链的两个函数 —— packageDirsFromEntries 是纯函数可直接验，
+  // 导给守卫测试：包名兜底链的两个函数。packageDirsFromEntries 是纯函数可直接验，
   //   listPackageDirs 走网络，只验它「三个分支都失败时返回空数组、不打 refute」。
   packageDirsFromEntries, listPackageDirs,
   // 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。

@@ -8,7 +8,7 @@
 // 所以验这台临时宿主 = 验这台引擎的真实响应。
 //
 // 流程：挑空闲端口 → 引擎自己的 venv python 起 host.py → 轮询 /health
-//   → ready 了把 http://127.0.0.1:<端口> 交给调用方 → 跑完（不管成败）杀进程树。
+//   → ready 了把 http://127.0.0.1:<端口> 交给调用方 → 结束后（不管成败）杀进程树。
 // 临时文件（名片解析结果）也一并清掉：它是这次拉起才有的东西。
 
 const fs = require('node:fs')
@@ -85,7 +85,7 @@ function classifyHealth (probe) {
 }
 
 /**
- * 临时起一台本地宿主，跑完就杀。
+ * 临时起一台本地宿主，结束后即杀。
  *
  * @param {object} opts
  * @param {string} opts.id 引擎 id
@@ -209,7 +209,7 @@ async function withTempHost (opts = {}) {
     return { ok: false, stage: 'run', base_url: base,
       error: String((e && e.message) || e), stderr: stderrTail }
   } finally {
-    // 成败都杀：宿主是这次试运行才起的，留着不会有第二次连接。
+    // 成败都杀：宿主只服务本次试运行，留着不会有第二次连接。
     try { killFn(child) } catch { /* 已经退了 */ }
     try { fs.rmSync(path.dirname(specFile), { recursive: true, force: true }) }
     catch { /* 清不掉就算了 */ }
