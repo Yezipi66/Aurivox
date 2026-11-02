@@ -124,6 +124,46 @@ test('什么都没读到，全部进 unfilled，且 values 几乎是空的', () 
   }
 })
 
+// 包名兜底：元数据全无时用「顶层含 __init__.py 的目录」候选（由调用方扫好传入）
+test('单候选兜底：填进去，但来源写清是目录扫描、是猜的', () => {
+  const r = probeProject({ pyproject: '', filenames: [], packageDirs: ['mypkg'] })
+  assert.strictEqual(r.values['call.module'], 'mypkg')
+  const src = r.sources['call.module']
+  assert.ok(src.includes('目录扫描'), `来源没说是扫描来的：${src}`)
+  assert.ok(src.includes('猜'), `来源没说是猜的：${src}`)
+})
+
+test('多候选不替用户选：列出来还给他，选错安装与校验会全炸', () => {
+  const r = probeProject({ pyproject: '', filenames: [], packageDirs: ['alpha', 'beta'] })
+  assert.ok(!('call.module' in r.values), '替用户挑了一个')
+  const u = r.unfilled.find((x) => x.key === 'call.module')
+  assert.ok(u, '多候选时 call.module 必须仍在 unfilled')
+  assert.ok(u.whyZh.includes('alpha') && u.whyZh.includes('beta'),
+    `候选没列全：${u.whyZh}`)
+  assert.ok(u.whyZh.includes('无法判断'), `没说清是平台判断不了：${u.whyZh}`)
+})
+
+test('零候选维持原文案：目录扫描没有收获时，不能换个说法就显得有把握', () => {
+  const r = probeProject({ pyproject: '', filenames: [], packageDirs: [] })
+  assert.ok(!('call.module' in r.values))
+  const u = r.unfilled.find((x) => x.key === 'call.module')
+  assert.ok(u.whyZh.includes('读不出来'), `文案变了：${u.whyZh}`)
+})
+
+test('元数据读到包名时，目录扫描不插队 —— 读到的永远比猜的优先', () => {
+  const r = probeProject({ pyproject: GOOD, filenames: ['pyproject.toml'],
+    packageDirs: ['something-else'] })
+  assert.strictEqual(r.values['call.module'], 'speechkit')
+  assert.ok(r.sources['call.module'].includes('[project.name]'),
+    `来源被兜底覆盖了：${r.sources['call.module']}`)
+})
+
+test('packageDirs 里的噪声（空串、非字符串）不污染单候选判定', () => {
+  const r = probeProject({ pyproject: '', filenames: [],
+    packageDirs: ['  ', null, 42, 'onlypkg'] })
+  assert.strictEqual(r.values['call.module'], 'onlypkg')
+})
+
 // 依赖清单探测 ： 决定装法
 test('依赖清单：pyproject 优先，锁文件次之', () => {
   const r = detectDependencyFile(['README.md', 'requirements.txt', 'pyproject.toml'])

@@ -260,19 +260,53 @@ function probeProject (input = {}) {
     if (fromSetup) { packageName = fromSetup; packageNameFrom = 'setup.py name=' }
   }
 
+  // 兜底：packaging 元数据全无时，用「顶层含 __init__.py 的目录」候选
+  //   （目录由调用方扫好后传进来，probe 自己不发起请求，保持纯函数）。
+  //   单候选：填进去，但来源写清是目录扫描、是猜的 —— 只有这一个目录像包，
+  //     「像」不是「是」，sources 里明说猜的，使用者看到来源自会复核。
+  //   多候选：不静默选。几个目录都像主包时替使用者挑一个，等于替他做决定，
+  //     选错了安装与校验照着错的模块名走，全炸；候选列出来还给他。
+  //   先 trim 再判空：空格串 trim 前是真值，trim 后是空串，
+  //   要是先过滤再 trim，一个空格串就能把单候选污染成多候选。
+  const pkgDirs = Array.isArray(input.packageDirs)
+    ? input.packageDirs
+        .filter((d) => typeof d === 'string')
+        .map((d) => d.trim())
+        .filter(Boolean)
+    : []
+  if (!packageName && pkgDirs.length === 1) {
+    packageName = pkgDirs[0]
+    packageNameFrom = `顶层目录扫描（${pkgDirs[0]}/__init__.py 存在）—— 唯一候选，是猜的，需复核`
+  }
+
   if (packageName) {
     values['call.module'] = packageName
     sources['call.module'] = packageNameFrom
   } else {
-    unfilled.push({
-      key: 'call.module',
-      why: 'Neither [project.name] nor [project.scripts] in pyproject, and setup.py '
-        + 'declares no name; the python package name cannot be read from these files; '
-        + 'check the source directory.',
-      whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]，'
-        + 'setup.py 里也没写 name：python 包名读不出来，得看源码目录',
-      example: 'my_tts',
-    })
+    if (pkgDirs.length > 1) {
+      // 多候选：不选，把清单给使用者，由他指定主包
+      unfilled.push({
+        key: 'call.module',
+        why: `Neither [project.name] nor [project.scripts] in pyproject, and setup.py `
+          + `declares no name. The repository has ${pkgDirs.length} top-level python `
+          + `package directories (${pkgDirs.join(', ')}); the platform cannot tell which `
+          + `one is the engine's main package — pick one.`,
+        whyZh: `pyproject 里既没有 [project.name] 也没有 [project.scripts]，setup.py `
+          + `里也没写 name。顶层扫到 ${pkgDirs.length} 个 python 包目录`
+          + `（${pkgDirs.join('、')}），平台无法判断哪个是主包，请选一个`,
+        example: pkgDirs[0],
+      })
+    } else {
+      unfilled.push({
+        key: 'call.module',
+        why: 'Neither [project.name] nor [project.scripts] in pyproject, and setup.py '
+          + 'declares no name; the python package name cannot be read from these files; '
+          + 'check the source directory.',
+        whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]，'
+          + 'setup.py 里也没写 name：python 包名读不出来，得看源码目录',
+        example: 'my_tts',
+      })
+    }
   }
 
   // console 脚本 ⇒ runtime.entry

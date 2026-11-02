@@ -248,6 +248,61 @@ async function fetchWithBranchFallback (owner, name, file, probed) {
   return null
 }
 
+// 顶层 python 包目录：packaging 元数据（pyproject 的 name/scripts、setup.py 的 name）
+//   全无时，用「哪个顶层目录里有 __init__.py」兜底猜包名。只在包名读不出时才跑
+//   （省请求）：一次 contents API 列顶层条目，再对每个目录 raw 探一下 __init__.py。
+//   认不出（限流、网络、仓库空）返回空数组：包名维持「读不出来」，不硬猜。
+function packageDirsFromEntries (entries) {
+  if (!Array.isArray(entries)) return []
+  return entries
+    .filter((e) => e && e.type === 'dir' && typeof e.name === 'string' && e.name)
+    .map((e) => e.name)
+}
+
+function listContents (owner, name, branch) {
+  return new Promise((resolve) => {
+    const url = `https://api.github.com/repos/${owner}/${name}/contents?ref=${encodeURIComponent(branch)}`
+    const req = https.get(url, {
+      headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
+    }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); resolve(null); return }
+      let body = ''
+      res.setEncoding('utf-8')
+      res.on('data', (c) => { body += c })
+      res.on('end', () => {
+        try {
+          const arr = JSON.parse(body)
+          resolve(Array.isArray(arr) ? arr : null)
+        } catch (e) { resolve(null) }
+      })
+    })
+    req.on('error', () => resolve(null))
+    // 比 fetchRaw 短一档：这是兜底路径，不该拖住整个探测
+    req.setTimeout(8000, () => { req.destroy(); resolve(null) })
+  })
+}
+
+async function listPackageDirs (owner, name, probed) {
+  // 分支定不出时按 main、master 依次试，与 fetchWithBranchFallback 同一口径
+  const tried = []
+  if (probed) tried.push(probed)
+  if (!tried.includes('main')) tried.push('main')
+  if (!tried.includes('master')) tried.push('master')
+  for (const b of tried) {
+    // eslint-disable-next-line no-await-in-loop
+    const entries = await listContents(owner, name, b)
+    if (entries === null) continue
+    const dirs = packageDirsFromEntries(entries)
+    const out = []
+    for (const d of dirs) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await fetchRaw(owner, name, `${d}/__init__.py`, b) !== null) out.push(d)
+    }
+    return out
+  }
+  return []
+}
+
 /** POST /wizard/probe {url}：探测上游（只读文本文件） */
 function handleProbe (req, res) {
   if (req.method !== 'POST') return false
@@ -306,7 +361,7 @@ function handleProbe (req, res) {
 
     // 无论有没有 pyproject 都走 probeProject：包名来自 setup.py 的 name=、
     // 许可证来自根目录的 LICENSE / COPYING，都不是 pyproject 的字段 ⇒ 由它决定读得到哪个。
-    const r = probeProject({
+    let r = probeProject({
       pyproject: texts['pyproject.toml'],
       requirements: texts['requirements.txt'],
       setupPy: texts['setup.py'],
@@ -314,6 +369,24 @@ function handleProbe (req, res) {
       licenseText,
       filenames: found,
     })
+    // 包名读不出来时，兜底扫顶层 python 包目录（目录里有 __init__.py 的），
+    //   扫到候选再带进 probeProject 重跑一遍：只为了把候选交给它的兜底分支。
+    //   扫不到（限流 / 网络 / 空仓库）就保持「读不出来」，不硬猜。
+    if (!r.meta.packageName) {
+      // eslint-disable-next-line no-await-in-loop
+      const dirs = await listPackageDirs(parsed.owner, parsed.repo, probeBranch.branch)
+      if (dirs.length > 0) {
+        r = probeProject({
+          pyproject: texts['pyproject.toml'],
+          requirements: texts['requirements.txt'],
+          setupPy: texts['setup.py'],
+          licenseFile,
+          licenseText,
+          filenames: found,
+          packageDirs: dirs,
+        })
+      }
+    }
     // 统一返回契约：所有 /wizard/* 端点成功时都带 ok:true，前端据此判成功，少了它界面会把成功当失败。
     const noPy = !texts['pyproject.toml']
     json(res, 200, {
@@ -1644,6 +1717,9 @@ module.exports = {
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, parseDownloadCmd, snapshotSourceOf,
+  // 导给守卫测试：包名兜底链的两个函数 —— packageDirsFromEntries 是纯函数可直接验，
+  //   listPackageDirs 走网络，只验它「三个分支都失败时返回空数组、不打 refute」。
+  packageDirsFromEntries, listPackageDirs,
   // 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。
   respondSafely,
   // 导给守卫测试：分支探测的缓存命中路径要能直接验（命中与未命中必须同形状）。
