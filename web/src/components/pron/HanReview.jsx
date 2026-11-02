@@ -192,7 +192,7 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
   )
 }
 
-function HanLangPicker({ text, direction, forced, setForced, readings, setReadings, onDragState, engineId }) {
+function HanLangPicker({ text, direction, forced, setForced, readings, setReadings, onDragState, engineId, pronPreview }) {
   const { t } = useT()
   const positions = hanPositions(text)
   const map = normalizeAssignments(forced, direction, text)
@@ -313,7 +313,9 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
       <div style={{ marginTop: 8, fontSize: 'var(--fs-11)', color: overriddenCount ? 'var(--accent)' : 'var(--muted)' }}>
         {t(`${overriddenCount} position(s) manually overridden`, `${overriddenCount} 个位置已手动覆盖`)}
       </div>
-      <HanReadingReview text={text} direction={direction} assignments={map} readings={readings || {}} setReadings={setReadings} engineId={engineId} />
+      {pronPreview && (
+        <HanReadingReview text={text} direction={direction} assignments={map} readings={readings || {}} setReadings={setReadings} engineId={engineId} />
+      )}
     </div>
   )
 }

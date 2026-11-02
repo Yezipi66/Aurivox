@@ -62,6 +62,28 @@ export function hasMappedKey(engine, key) {
   return keys.includes(key)
 }
 
+// 读音预览是名片声明的可选能力。三态：true 已声明 / false 未声明 / null 没有引擎可查名片。
+// null 有两种来路：引擎列表还在读取；列表里确实没有可用引擎（没装，或名片未通过校验而被拒掉）。
+// 两种来路在界面上是同一个结论：此刻判断不了这台引擎支不支持，所以共用一句话。
+export function hasPronPreview(engine) {
+  if (!engine) return null
+  return !!engine.pron_preview
+}
+
+// 读音预览入口置灰时的提示，两种语言成对：需要双语的界面取整对，只填进 title 的用下面的 pronPreviewHint。
+export function pronPreviewMessages(pronPreview) {
+  if (pronPreview === null) {
+    return ['No usable engine right now (the engine list is still loading, or the installed engines failed their manifest checks), so reading preview is unavailable.',
+      '当前没有可用引擎（列表还在读取，或已装引擎未通过名片校验），不支持读音校对。']
+  }
+  return ['This engine does not declare reading preview (manifest.json pron.preview), so reading proofing is unavailable.',
+    '该引擎未声明读音预览能力（manifest.json 的 pron.preview），不支持读音校对。']
+}
+
+export function pronPreviewHint(pronPreview) {
+  return pronPreviewMessages(pronPreview)[0]
+}
+
 export function fieldsForTier(engine, tier) {
   const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
   // 未写 tier 归入 advanced，与后端 profile.js 一致；缓存数据可能未经后端规整。

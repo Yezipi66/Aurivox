@@ -11,7 +11,7 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } fro
 import { REF_MAX_SEC, REF_MIN_SEC, refInRange } from '../../lib/refAudio'
 import { basename } from '../../lib/pathText'
 import { langLabel, normalizeLangFamily } from '../../lib/langOptions'
-import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, carriedOverSummary, TIERS } from '../../lib/engines'
+import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, hasPronPreview, carriedOverSummary, TIERS } from '../../lib/engines'
 import { slotsOf } from '../../lib/modelPickers.pure.js'
 import {
   candidatePathsBySlot, defaultPicksOf, isPathStale, modelItem, normalizeRowModel, ownerOfModel,
@@ -501,6 +501,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                 hanDirection={rowHanDir} hanForced={rowHanForced} setHanForced={f => onUpdate(row.id, 'hanForced', f)}
                 hanReadings={row.hanReadings || {}} setHanReadings={r => onUpdate(row.id, 'hanReadings', r)}
                 engineId={engineId}
+                pronPreview={hasPronPreview(engine)}
               />
             )}
           </>

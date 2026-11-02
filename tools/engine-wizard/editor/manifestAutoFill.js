@@ -6,7 +6,7 @@
 // id / label / contract_version 是名片自身的声明，留着：清干净不等于清空。
 const ENGINE_SPECIFIC_KEYS = [
   'runtime', 'call', 'models', 'maps', 'parameters', 'output_formats',
-  'capabilities', 'install', 'upstream',
+  'capabilities', 'install', 'upstream', 'pron',
   // 下面这几个是顶层的单值字段，同样属于「这台引擎怎么跑」，漏掉与漏掉 runtime 同后果。
   'max_chars', 'max_chars_source', 'timeout_ms', 'timeout_ms_source',
   'base_url_env', 'default_base_url', 'weights', 'local_changes',

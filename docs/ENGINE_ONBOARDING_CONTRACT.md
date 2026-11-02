@@ -233,6 +233,41 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 
 ⇒ **「装得上」不等于「种子那部分对」。** 这是「装引擎」这道关卡的一个真实盲区。
 
+### 读音预览是可选能力：`pron.preview`
+
+`call` 只描述怎么出声音。「文本 → 读音」的预览是另一件事，名片用顶层的 `pron` 段声明它：
+
+```json
+"pron": { "preview": { "endpoint": "/pron/preview", "request": "json" } }
+```
+
+| 写法 | 装引擎 | 平台的读音校对入口 |
+|---|---|---|
+| 不写 `pron` | ✅ | 入口置灰，并说明该引擎未声明 |
+| 已写 `pron` 但未写 `pron.preview` | ⛔ 缺 `pron.preview` | 到不了这一步 |
+| `preview` 上有平台不认识的键 | ⛔ 只认 `endpoint` / `request` | 到不了这一步 |
+| `endpoint` 不以 `/` 开头 | ⛔ | 到不了这一步 |
+| `request` 不是 `"json"` | ⛔ 平台只用 JSON 体发送预览 | 到不了这一步 |
+| `runtime.entry` 是平台通用宿主 | ⛔ 宿主只响应 `/tts`，声明了也不会发送 | 到不了这一步 |
+| 声明完整 | ✅ | 可用 |
+
+平台发出去的请求体固定 `{ text, lang }`，`lang` 是**平台语种码**，不经 `languages` 换算：
+预览要回答的是该引擎怎么念这段文本，平台语种码按原值传过去，由引擎解释。
+
+响应体平台原样透传给界面，界面按这个形状读：
+
+```json
+{ "lang": "...", "norm_text": "...", "langs": [], "multilingual": [],
+  "tokens": [ { "word": "...", "unit": "...", "segLang": "..." } ] }
+```
+
+`zh` / `yue` 的 token 另带 `chars: [ { char, reading, candidates, polyphonic, source } ]`，
+`ja` 另带 `reading`，`en` 另带 `readings`。
+形状不一致时平台不报错，界面只显示空白 ⇒ 引擎给不出这个形状就不要声明这个能力。
+
+不写 = 没有这个能力，平台**不用 404/502 探测**：探测会把「引擎离线」和「没有这个能力」
+混成同一句话，而且每次切引擎都要打一次。
+
 ---
 
 ## §6 三道校验
@@ -361,7 +396,7 @@ Owner 2026-09-04 裁决：**资源占用形态 = C（全常驻 RAM、按需换�
 ### 界面按名片长
 
 `web/src/lib/engines.js` 的判据：「**装一台谁都没见过的引擎，
-这里的代码一个字都不用改**」。82 条真函数测试守着（⛔ 不是文本守卫）。
+这里的代码一个字都不用改**」。`engines.node.test.js` 全用真函数守着（⛔ 不是文本守卫）。
 
 ⚠️ 2026-08-31 取证过一件事：`npm run build` 绿 **不证明接线对**。
 React 的 prop 传漏了不是错误，是 `undefined`，打包器一个字都不会说。

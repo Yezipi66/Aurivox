@@ -11,6 +11,7 @@ export function TrainingStatusPanel({
   status,
   form,
   engineId,
+  pronPreview,
   isRunning,
   isAwaitingReview,
   isInterrupted,
@@ -53,7 +54,7 @@ export function TrainingStatusPanel({
         </div>
       )}
       {isAwaitingReview && status?.reviewStage === 'asr' && (
-        <AsrReviewPanel taskId={taskId} engineId={engineId} lang={status?.language || form.language} onResumed={onResumed} />
+        <AsrReviewPanel taskId={taskId} engineId={engineId} pronPreview={pronPreview} lang={status?.language || form.language} onResumed={onResumed} />
       )}
       {isInterrupted && (
         <div className="msg msg-error" style={{ marginBottom: 8 }}>
