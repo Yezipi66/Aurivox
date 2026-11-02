@@ -168,7 +168,7 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 
 ## §4 顶层键白名单
 
-`lib/engines/profile.js:294`，**23 个键**，多一个当场抛。
+`lib/engines/profile/topkeys.js` 的 `TOP_KEYS`，**28 个键**，多一个立即抛错。
 
 判据：`{"max_char": 1}`（少个 s）必须报错。静默忽略它 = 作者调了一个
 不存在的旋钮而毫无察觉。报错还带 Levenshtein 猜「是不是想写 `max_chars`」。
@@ -177,6 +177,26 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 「退休路说老名片照装」vs「A1 归零说那个词一个字都不许再出现」。
 今天按 **A1 优先**处理 —— 老名片写着退休键 ⇒ **装不上**，
 但报错会指名道姓告诉你删哪一行。代价是作者不知道那个键曾经是什么意思。
+
+### §4.1 `voice_defaults`（⚠️ 待 owner 确认这条契约加法）
+
+`defaults` 说明该引擎的旋钮默认值，`voice_defaults` 说明**其中哪些键会随
+「保存为音色」写入 `voices.json`**，名单顺序就是记录里的键序。值只写在 `defaults`
+一处，这里只挑键，所以名片里不会有两份默认值。
+
+- 没写就是不指定任何参数键：音色只带权重字段，旋钮取决于名片。`defaults` 里可能有
+  `defaults_env` 从本机环境填入的值，全部锁定就等于把本机环境写进一条可以分享的音色。
+- 名单里的键必须在 `defaults` 里，且只能挑旋钮：音色记录里由平台写的字段
+  （`display_name / language / prompt_lang / text_lang / reference_audio / reference_text`）、
+  `weights[].param`、`maps` 某个平台词的目标键都不许写。三种都在解析期立即抛错并点名是哪个键 ——
+  锁定它们等于让一条音色盖掉那次运行实际算出的值，用户起的名字和选的语种会静默换掉。
+
+需要这张名单的原因：画布上的「保存为音色」如果写死某台引擎的两个模型字段与五个旋钮，
+换一台引擎就写出一批该引擎没有的键。现在模型字段名来自 `weights[].param`，旋钮名单来自这里。
+GSV 写的是 `[text_split_method, top_k, top_p, temperature, repetition_penalty]`，
+存出来的记录与按名片写之前逐字节相同（`lib/flowgraph/__fixtures__/gsv-voice-record.json`）。
+键名与形状尚未定稿（待 owner 确认）：可能改叫 `voice_param_keys`（名单里装的是键名，不是值），
+也可能整条不收；不收就得另找一个不写死私有键名的办法做到零回归。
 
 ---
 

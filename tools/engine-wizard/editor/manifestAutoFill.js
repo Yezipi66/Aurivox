@@ -10,7 +10,7 @@ const ENGINE_SPECIFIC_KEYS = [
   // 下面这几个是顶层的单值字段，同样属于「这台引擎怎么跑」，漏掉与漏掉 runtime 同后果。
   'max_chars', 'max_chars_source', 'timeout_ms', 'timeout_ms_source',
   'base_url_env', 'default_base_url', 'weights', 'local_changes',
-  'payload_keys', 'defaults', 'defaults_env', 'param_keys', 'params', 'input',
+  'payload_keys', 'defaults', 'defaults_env', 'voice_defaults', 'param_keys', 'params', 'input',
   'dir',
 ]
 
