@@ -63,8 +63,8 @@ export const OPTIONAL_KEYS = [
     fallbackEn: 'yes', fallbackZh: '是',
     // 界面预填「是」：多数开源 TTS 是零样本。这只是通用判断，不表示平台能识别这台引擎。
     defaultKind: 'prefill',
-    hintEn: 'Prefilled as yes. A general guess, may not match your engine; check its docs.',
-    hintZh: '平台预填的「是」是通用判断，可能与所用引擎不符，请按引擎说明核对。',
+    hintEn: 'Defaults to "yes" (applies to most zero-shot TTS); confirm against the engine docs if unsure.',
+    hintZh: '此处默认填「是」（多数零样本 TTS 适用）；是否适用请按引擎说明确认。',
     ctrlTitleEn: 'Written into the file. Left unset, the wizard prefills yes for a new engine.',
     ctrlTitleZh: '这个值会写进文件。新建引擎时向导预填「是」。' },
   { path: 'capabilities.reference_clip_seconds', kind: 'range',
@@ -74,7 +74,7 @@ export const OPTIONAL_KEYS = [
     // 这一项的提示说明「为什么值得填」：不填时平台不拦，填了才拦。
     noteEn: 'A longer reference recording means slower feature extraction, higher memory usage, and a longer wait for the first audio byte.',
     noteZh: '参考音频越长，特征提取越慢，内存占用越高，首字节延迟也越高。' },
-  // 默认是常量别名：不填这个键就是 file（hostProfile.js:272），所以 file 这条直接标「（默认）」，
+  // 默认是常量别名：不填这个键就是 file（hostProfile.js 里 call.returns 缺省为 'file'），所以 file 这条直接标「（默认）」，
   //   不单列一条「不填」；选它即不填这个键。
   { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'], defaultValue: 'file',
     defaultKind: 'constant',
@@ -94,7 +94,7 @@ export const OPTIONAL_KEYS = [
     en: 'Extra start arguments', zh: '额外启动参数',
     fallbackEn: 'shared host: --profile-json / --host / --port', fallbackZh: '通用宿主默认 --profile-json / --host / --port' },
   // 不填时就是平台安装目录（即项目根）。只有引擎自己的资产按它目录解路径时才需要填 engines/<id>。
-  // 证据：lib/engines/envCheck.js:59、lib/engines/spawnEngine.js:57、lib/engines/launchPlan.js:122。
+  // 证据：envCheck.js 的 checkEngineEnvShallow()、spawnEngine.js 的 spawnFromPlan()、launchPlan.js 的 buildLaunchPlan() 均以平台安装目录（项目根）作为默认 rootDir。
   { path: 'runtime.cwd', kind: 'text',
     en: 'Working directory', zh: '工作目录',
     fallbackEn: 'project root', fallbackZh: '项目根',

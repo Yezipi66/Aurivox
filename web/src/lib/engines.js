@@ -517,8 +517,8 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
       tone: 'bad',
       label: zh ? `${name} · 上次启动失败` : `${name} · last attempt failed`,
       title: (zh
-        ? '上一次启动该引擎未成功（通常是内存不足被系统终止）。\n重新启动前，请先停止其他若干台引擎。'
-        : 'last start of this engine did not survive (likely OOM).\nstop a few others before retrying.'),
+        ? '上一次启动该引擎未成功，通常是内存不足被系统终止。'
+        : 'The last start of this engine did not succeed, usually terminated by the system due to insufficient memory.'),
     }
   }
 

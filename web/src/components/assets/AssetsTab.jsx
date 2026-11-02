@@ -302,7 +302,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           } else if (job.status === 'cancelled') {
             setScanMsg({ type: 'info', text: `Transcription cancelled for ${id}` })
           } else if (job.status === 'error') {
-            setScanMsg({ type: 'error', text: `Transcription failed: ${job.error || 'unknown error'}` })
+            setScanMsg({ type: 'error', text: `Transcription failed: ${job.error || '详情见日志'}` })
           }
           setTimeout(() => setScanMsg(null), 5000)
         }
