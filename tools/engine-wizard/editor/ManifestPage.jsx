@@ -102,12 +102,12 @@ export default function ManifestPage ({
       //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
       const latest = latestManifest.current || {}
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands)
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, j.entry || null, id)
       if (result) {
         onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, j.entry || null, id) || result
           const next = { ...base, call: merged.call }
           if (!next.label && id) next.label = id
           if (next.contract_version === undefined) next.contract_version = 2

@@ -59,6 +59,11 @@ function fromCli (a) {
     required: a.required === true,
     group: a.subcommand || '(root)',
     is_tool: a.is_tool === true,
+    // 这个 flag 来自哪个源文件。上游仓库常把推理入口和一堆辅助脚本放在同一棵树里，
+    // 扫描会把它们的 flag 混成一张表（同一个 --model_dir 可能来自三个文件）。
+    // 丢掉这一列，人和启发式都看不出「--output_dir 属于 triton 脚本、--save_dir 才是推理入口的」，
+    // 槽位就会配到辅助脚本的开关上。cli_help_extract.py 已经给出这个值，这一层不许再丢。
+    source_file: a.source_file || null,
   }
 }
 

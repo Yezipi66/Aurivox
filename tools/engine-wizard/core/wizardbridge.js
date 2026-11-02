@@ -20,6 +20,7 @@ const { probeProject, planDependencies, probePyproject, isPipInstallable } = req
 const { inspectHardware, parseUvLock } = require('./hardware')
 const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
 const { reflectAndBuild } = require('./paramsFromReflect')
+const { pickEntry } = require('./entryPick')
 const { engineDirForRead } = require('./wizardRoot')
 const https = require('node:https')
 
@@ -1529,6 +1530,9 @@ function handleDiscover (req, res) {
       //   交给前端自动填写去认 call.bind，output_path 才填得出来。
       bind_candidates: (pythonDraft && pythonDraft.ok && pythonDraft.bind_candidates) || [],
       suggested_call: cliDraft && cliDraft.ok ? cliDraft.suggested_call : null,
+      // 推理入口：参数表里哪个源文件同时收了文本、参考音频、输出落点。
+      //   入口定下来之后，argv 与 cwd 才有依据，参数池也能按它收敛。
+      entry: pickEntry(params),
       notes,
       counts: {
         cli: cliArgs.length,
