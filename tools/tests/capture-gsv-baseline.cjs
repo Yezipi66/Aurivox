@@ -37,7 +37,7 @@ function fingerprintsOf (calls, root) {
 
 async function replay (request) {
   const { ctx, calls, root, refPath } = createSynthesisHarness({
-    prefix: 'aurivox-capture-', withRef: true, engines: {}, ctx: { resolveEngineProfile },
+    prefix: 'aurivox-capture-', ctx: { resolveEngineProfile },
   })
   const { generateService } = createSynthesisService(ctx)
   await generateService({ body: { ...request, ref_audio: refPath } })
