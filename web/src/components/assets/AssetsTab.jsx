@@ -15,34 +15,60 @@ import { MigrateChoiceDialog, MigrateProgressDialog, FolderBrowser } from './Ass
 import { AssetsSummaryBar, AssetsToolbar } from './AssetsToolbar'
 import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
 
-// 状态提示支持最小化的 markdown：仅解析反引号。单反引号包裹的内容渲染为行内 code，
-// 三反引号包裹的整段渲染为块级 pre；其它文本原样输出，不含反引号的历史提示不受影响。
+// 状态提示里的「代码样式」用私有控制字符做哨兵标记，渲染时再转成 <code>/<pre>，不再用反引号做正则分隔符。
+// 原因：后端错误串、资产 id、traceback 等动态内容可能本身就含反引号（甚至三反引号），用反引号当分隔符会把它
+// 们误切开（例如 "Error: `foo`" 会被拆成两段，tracaback 里带 ``` 会撑破结构）。哨兵用普通文本中不会出现的
+// 控制字符，渲染时整体剥离、绝不进入最终 DOM，因此任何内容都不会破坏结构。行内用 SPAN 哨兵，多行串
+// （如整段 traceback）用 BLOCK 哨兵，由 renderMd 决定行内 <code> 还是块级 <pre>。
 const MSG_CODE_STYLE = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '0.92em', background: 'rgba(127,127,127,0.18)', padding: '1px 5px', borderRadius: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
 const MSG_BLOCK_STYLE = { ...MSG_CODE_STYLE, display: 'block', margin: '4px 0', padding: 8 }
 
-function renderMd(text) {
-  if (typeof text !== 'string') return text
-  const re = /```([\s\S]*?)```|`([^`\n]+?)`/g
-  const out = []
-  let last = 0
-  let m
-  let k = 0
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index))
-    const code = m[1] != null ? m[1] : m[2]
-    out.push(m[1] != null
-      ? <pre key={k++} style={MSG_BLOCK_STYLE}><code>{code}</code></pre>
-      : <code key={k++} style={MSG_CODE_STYLE}>{code}</code>)
-    last = re.lastIndex
-  }
-  if (last < text.length) out.push(text.slice(last))
-  return out
+const NUL = '\u0000' // 哨兵分隔符（仅运行时字符；源码里写成转义序列，文件内不落实际 NUL 字节）
+const SPAN_OPEN = NUL + 'S' + NUL
+const SPAN_CLOSE = NUL + 'E' + NUL
+const BLOCK_OPEN = NUL + 'B' + NUL
+const BLOCK_CLOSE = NUL + 'X' + NUL
+
+// 把动态内容标记为代码样式：行内走 SPAN 哨兵，多行走 BLOCK 哨兵。内容里的控制字符先剥离，避免与哨兵冲突；
+// 除此外原样保留，保证错误串（含反引号、换行）完整呈现、不被撕裂。
+const codeSpan = (s) => {
+  const safe = String(s == null ? '' : s).replace(/\u0000/g, '')
+  return safe.includes('\n')
+    ? BLOCK_OPEN + safe + BLOCK_CLOSE
+    : SPAN_OPEN + safe + SPAN_CLOSE
 }
 
-// 把动态后端串（如 job.error / e.message）包进反引号，交给 renderMd 渲染为等宽代码，
-// 避免英文错误串在中文界面里显得突兀。单行走行内 code，多行串（如整段 traceback）
-// 走三反引号围栏，由 renderMd 渲染为块级 pre。
-const codeSpan = (s) => s.includes('\n') ? '```\n' + s + '\n```' : '`' + s + '`'
+// 仅识别上面的哨兵串，把标记区段渲染为 <code>/<pre>，其余文本原样输出。不解析反引号，
+// 因此动态内容里的反引号、三反引号都不会被误当作分隔符。
+function renderMd(text) {
+  if (typeof text !== 'string') return text
+  const out = []
+  let i = 0
+  let k = 0
+  while (i < text.length) {
+    const next = text.indexOf(NUL, i)
+    if (next === -1) {
+      if (i < text.length) out.push(text.slice(i))
+      break
+    }
+    if (next > i) out.push(text.slice(i, next))
+    if (text.startsWith(SPAN_OPEN, next)) {
+      const close = text.indexOf(SPAN_CLOSE, next + SPAN_OPEN.length)
+      if (close === -1) { out.push(text.slice(next)); break }
+      out.push(<code key={k++} style={MSG_CODE_STYLE}>{text.slice(next + SPAN_OPEN.length, close)}</code>)
+      i = close + SPAN_CLOSE.length
+    } else if (text.startsWith(BLOCK_OPEN, next)) {
+      const close = text.indexOf(BLOCK_CLOSE, next + BLOCK_OPEN.length)
+      if (close === -1) { out.push(text.slice(next)); break }
+      out.push(<pre key={k++} style={MSG_BLOCK_STYLE}><code>{text.slice(next + BLOCK_OPEN.length, close)}</code></pre>)
+      i = close + BLOCK_CLOSE.length
+    } else {
+      out.push(text[next])
+      i = next + 1
+    }
+  }
+  return out.length === 1 ? out[0] : out
+}
 
 // 音色资产页
 function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
