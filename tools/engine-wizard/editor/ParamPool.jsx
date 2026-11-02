@@ -2,6 +2,7 @@
 import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { paramTypeOf } from './paramType'
+import { orderForPool } from './paramPoolOrder'
 
 // 左栏：扫到的参数。
 //
@@ -81,12 +82,15 @@ export default function ParamPool ({ params, selected, onSelect, onDragStart, ch
   const list = params || []
   const [q, setQ] = useState('')
   const kw = q.trim().toLowerCase()
+  // 必填置顶再过滤：过滤是临时的，置顶是列表的固定性质，
+  //   两个条件叠起来，筛完之后必填仍在顶上。
+  const ordered = orderForPool(list)
   const filtered = kw
-    ? list.filter((p) =>
+    ? ordered.filter((p) =>
         (p.target || '').toLowerCase().includes(kw) ||
         (p.name || '').toLowerCase().includes(kw) ||
         (p.help || '').toLowerCase().includes(kw))
-    : list
+    : ordered
 
   if (!list.length) {
     return (
