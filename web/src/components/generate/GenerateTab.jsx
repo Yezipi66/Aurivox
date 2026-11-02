@@ -18,7 +18,7 @@ import { pickDefaultRef, sameRefPath } from '../../lib/refAudio'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
 // fieldLabel / fieldHelp / recipePath 只在 ParamField 里用了，这里不 import。
-import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, hasPronPreview, isFieldVisible, carriedOverSummary } from '../../lib/engines'
+import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, hasPronPreview, isFieldVisible, checkpointBlock, carriedOverSummary } from '../../lib/engines'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
 import { CollapsibleSegments } from './GenerateBits'
@@ -112,6 +112,10 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   // 消费不了流。所以只对流式输出有意义的那几个参数，在这一页上长出来也是摆设。
   // 引擎名取自当前选中的引擎；还没选出来时用泛称，不说任何一台引擎的名字。
   const engineName = engine?.label || engine?.id || t('the engine', '引擎')
+  // 底模不齐时拦住这一页的合成入口。判据不在这里：服务端 lib/engines/checkpoints.js
+  // 算出的三态经 /api/engines 回来，checkpointBlock 只把「红」翻成拦截，缺什么都不在这儿重算。
+  // 说不出齐不齐（名片没写目录或没点名文件）不拦，引擎列表还没回来也不拦。
+  const ckBlock = checkpointBlock(engine, uiLang)
 
   const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
   // only_when 在这里就滤掉，不留一个空的 <div> 占着格子，否则 .form-grid 会在两列里
@@ -813,8 +817,17 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 {' '}Run: <code>python download_models.py --set {String(genBaseWarn.version).toLowerCase()}</code>
               </div>
             )}
+            {ckBlock && (
+              // 这一段整块就是 checkpointBadge 的悬停文本，一个字没另写：
+              // 底模在哪、缺几项、缺哪几个、名片给的取回命令都在里面。
+              // 拦住的时候把这句话摆到面上，而不是只藏在禁用按钮的悬停里。
+              <div className="msg msg-danger" style={{ marginBottom: 8, whiteSpace: 'pre-line' }}>
+                {ckBlock.title}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
+              <button className="btn btn-primary" onClick={handleGenerate} disabled={loading || !!ckBlock}
+                title={ckBlock ? ckBlock.label : undefined}>
                 {loading ? 'Generating...' : 'Generate'}
               </button>
               {loading && (

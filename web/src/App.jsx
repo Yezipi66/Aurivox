@@ -16,7 +16,7 @@ import { EnginesTab } from './components/engines/EnginesTab'
 import { LangProvider, LangToggle, useT } from './lib/i18n'
 import { Select } from './components/common/Select'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
-import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessState } from './lib/engines'
+import { fetchEngines, pickEngine, showsTrainingTab, engineBadge, mergeProcessState, checkpointBlock } from './lib/engines'
 
 // 把操作系统报的设备名整理成一句能给人看的话。
 // /api/health 的 device_name 是系统原样报上来的字符串，混着商标符号、用途后缀
@@ -244,9 +244,15 @@ function AppShell() {
           {engines.length > 1 && (
             <Select className="control nav-select" value={engine?.id || ''} onChange={e => setSelectedEngineId(e.target.value)}
               title="切换引擎：参数面板和页签会随该引擎的 manifest.json 变化">
-              {engines.map(en => (
-                <option key={en.id} value={en.id}>{en.label || en.id}</option>
-              ))}
+              {engines.map(en => {
+                // 底模不齐的引擎照样列在这里、照样能选：拦住合成的是各页的入口，
+                // 不是这台引擎的存在本身。选中它仍然能看参数面板、去 Engines 页起停它。
+                // 标记的文字与徽章同源，「红」的读法只写在 checkpointBlock 一处。
+                const block = checkpointBlock(en, lang)
+                return (
+                  <option key={en.id} value={en.id}>{(en.label || en.id) + (block ? ` · ${block.label}` : '')}</option>
+                )
+              })}
             </Select>
           )}
           {/* 名片坏掉的引擎不在列表里。不说的话，它就是「凭空少了一台」。 */}

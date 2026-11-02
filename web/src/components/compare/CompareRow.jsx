@@ -11,7 +11,7 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } fro
 import { REF_MAX_SEC, REF_MIN_SEC, refInRange } from '../../lib/refAudio'
 import { basename } from '../../lib/pathText'
 import { langLabel, normalizeLangFamily } from '../../lib/langOptions'
-import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, hasPronPreview, carriedOverSummary, TIERS } from '../../lib/engines'
+import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, hasPronPreview, TIERS, checkpointBlock, carriedOverSummary } from '../../lib/engines'
 import { slotsOf } from '../../lib/modelPickers.pure.js'
 import {
   candidatePathsBySlot, defaultPicksOf, isPathStale, modelItem, normalizeRowModel, ownerOfModel,
@@ -23,7 +23,7 @@ import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 
 // engineId 供行内读音校对调用 /pron/preview：该接口的 engine_id 必传，漏传时该行的读音预览不产生任何提示。
 function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId, engine }) {
-  const { t, lang } = useT()
+  const { t, lang: uiLang } = useT()
   const [showPicker, setShowPicker] = useState(false)
   const [recipeId, setRecipeId] = useState('')
   const [pickerTarget, setPickerTarget] = useState('main') // 文件选择器的目标：'main'（主参考）或 'aux'（辅助参考）。
@@ -37,6 +37,10 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // 辅助参考的来源与自定义状态在共享的 AuxReferencePicker 里，本组件不再单独跟踪。
   // 删除本行结果音频前的二次确认状态。
   const [cmpDelConfirm, setCmpDelConfirm] = useState(false)
+
+  // 底模不齐时拦这一行的生成。判据在服务端（lib/engines/checkpoints.js 的三态），
+  // 这里只把徽章的「红」读成拦截，缺什么都不在这一行重算。
+  const ckBlock = checkpointBlock(engine, uiLang)
 
   // 这一行的权重位与选择。位名、位标签与个数都来自当前引擎的名片。
   const slots = slotsOf(engine)
@@ -213,7 +217,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   }
 
   // 后端替这一行接过来上次的值时，接的是哪几格、接成了多少要在结果里说清楚：与生成页同一句话、同一个来源。
-  const carriedNote = carriedOverSummary(row.result && row.result.carried_over, engine, lang)
+  const carriedNote = carriedOverSummary(row.result && row.result.carried_over, engine, uiLang)
 
   return (
     <div className={`card cmp-row cmp-${cmpStatus}`} style={{ position: 'relative' }}>
@@ -240,7 +244,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             title={editorOpen ? 'Collapse editor (keep audio only)' : 'Expand editor'}>
             {editorOpen ? '▲ Edit' : '▼ Edit'}
           </button>
-          <button className="btn btn-sm btn-primary" onClick={() => onGenerate(row)} disabled={row.loading}>
+          <button className="btn btn-sm btn-primary" onClick={() => onGenerate(row)} disabled={row.loading || !!ckBlock}
+            title={ckBlock ? ckBlock.label : undefined}>
             {row.loading ? '…' : (cmpStatus === 'done' ? 'Regenerate' : 'Generate')}
           </button>
           <button className="btn btn-sm btn-ghost" onClick={() => onSaveRecipe && onSaveRecipe(row)}
@@ -611,8 +616,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                   onClick={async () => { const r = await api('/api/outputs/reveal', { method: 'POST', body: { id: row.result.id, source: 'comparerefs' } }); if (!r.ok) onUpdate(row.id, 'error', (r.data && r.data.error) || 'Could not open the file location') }}>
                   <IconFolder size={15} /></button>
               )}
-              <button className="icon-btn" title="Rerun with this row's current settings"
-                disabled={row.loading} onClick={() => onGenerate(row)}>
+              <button className="icon-btn" title={ckBlock ? ckBlock.label : "Rerun with this row's current settings"}
+                disabled={row.loading || !!ckBlock} onClick={() => onGenerate(row)}>
                 <IconRerun size={15} /></button>
               {row.result.id && (
                 cmpDelConfirm

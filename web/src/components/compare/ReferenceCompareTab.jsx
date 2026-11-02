@@ -14,7 +14,7 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } fro
 import { REF_MAX_SEC, REF_MIN_SEC, refInRange, sameRefPath } from '../../lib/refAudio'
 import { TARGET_LANG_OPTIONS, langLabel, normalizeLangFamily } from '../../lib/langOptions'
 import { basename, fmtRecentTime } from '../../lib/pathText'
-import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, hasPronPreview, TIERS } from '../../lib/engines'
+import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, hasPronPreview, TIERS, checkpointBlock } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
 import { migrateRow } from '../../lib/compareRowMigrate'
 import { useT } from '../../lib/i18n'
@@ -28,7 +28,10 @@ import { CompareRow } from './CompareRow'
 import { CompareBatchCard } from './CompareBatchCard'
 
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
-  const { t } = useT()
+  const { t, lang: uiLang } = useT()
+  // 底模不齐时整页拦住：这一页的每一行都用同一台引擎，所以判断只需要做一次。
+  // 判据来自服务端（lib/engines/checkpoints.js），这里只读它的三态翻成拦截与说明。
+  const ckBlock = checkpointBlock(engine, uiLang)
   // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：后端仍保留输出
   // 文件，刷新后播放器仍可正常工作。临时状态在重新载入时重置。
   const [rows, setRows] = usePersistentState('compare.rows', [], {
@@ -497,9 +500,16 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             <span>{t('Engine Batch (parallel) \u2014 all rows', '引擎批量并行：全部行（总开关）')}</span>
           </label>
 
+          {ckBlock && (
+            // 文案整块取自 checkpointBadge 的悬停文本，与生成页那一处同源，不另写一份。
+            <div className="msg msg-danger" style={{ marginBottom: 8, whiteSpace: 'pre-line' }}>
+              {ckBlock.title}
+            </div>
+          )}
           <div className="cmp-toolbar">
             <button className="btn btn-sm btn-primary" onClick={addRow}>+ Add Row</button>
-            <button className="btn btn-sm" onClick={generateAll} disabled={rows.length === 0 || rows.some(r => r.loading)}>
+            <button className="btn btn-sm" onClick={generateAll} title={ckBlock ? ckBlock.label : undefined}
+              disabled={rows.length === 0 || rows.some(r => r.loading) || !!ckBlock}>
               {rows.some(r => r.loading)
                 ? t(`Generating… (${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length})`, `生成中… (${rows.filter(r => r.result && r.result.audio_url).length}/${rows.length})`)
                 : `Generate All (${rows.length})`}
