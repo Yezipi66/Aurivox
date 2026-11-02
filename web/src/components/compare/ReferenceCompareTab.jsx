@@ -30,12 +30,10 @@ import { CompareBatchCard } from './CompareBatchCard'
 function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
   const { t } = useT()
   // 生成出来的音频按服务端 URL 引用（result.audio_url），不是 blob：后端仍保留输出
-  // 文件，刷新后播放器仍可正常工作。临时状态在重新载入时重置，行数上限是 localStorage 配额。
+  // 文件，刷新后播放器仍可正常工作。临时状态在重新载入时重置。
   const [rows, setRows] = usePersistentState('compare.rows', [], {
-    // 旧的每行目标语种 'auto'（该选项已下线）落到「用默认」。
-    rehydrate: r => Array.isArray(r)
-      ? r.map(x => migrateRow(x)).slice(0, 24)
-      : [],
+    // 旧的每行目标语种 'auto'（该选项已下线）落到「用默认」。行数不设上限（owner 答复第 3 条）。
+    rehydrate: r => Array.isArray(r) ? r.map(x => migrateRow(x)) : [],
   })  // [{ id, refAudio, auxRefPaths, text, params, touched, method, seed, loading, result, error }]
   const [allAudioFiles, setAllAudioFiles] = useState([])
   const [voiceFiles, setVoiceFiles] = useState([])
@@ -84,7 +82,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     const rm = normalizeRowModel(rowModels[row.id], slots)
     const dp = defaultParams || {}
     // 这一行自己的模型语种（与共享的 selectedVoice 无关）：取的是参考侧那个角色的语种。
-    const rmVoiceId = referenceVoiceOf(rm, slots, selectedVoice)
+    const rmVoiceId = referenceVoiceOf(rm, selectedVoice)
     const rmVoiceLang = rowVoiceLanguage({ models: availableModels, voices, voiceId: rmVoiceId, fallback: 'ja' })
     // 按生成页的配方结构钉住读音校对：
     // 平铺的基础覆盖 + lang_overrides + han_readings（服务端负责合并）。
@@ -324,8 +322,8 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
     // 与生成页共享的 selectedVoice 解耦：这一行的音色、参考音频与所有语种默认值
     // 都由这一行自己的模型决定。用共享音色会让中文模型被自动按中文路由：
     // 送了 prompt_lang=zh 的日文参考音频，转写会错，声音也乱。
-    // 混搭时参考音频与语种取决于参考位，其余权重位可以来自其他资产而不改变参考音频。
-    const rowVoiceId = referenceVoiceOf(rowModel, slots, selectedVoice)
+    // 参考音频与语种只看这一行选定的角色；其他权重位来自别的资产，不改变它。
+    const rowVoiceId = referenceVoiceOf(rowModel, selectedVoice)
     const rowVoiceLang = rowVoiceLanguage({ models: availableModels, voices, voiceId: rowVoiceId, fallback: 'ja' })
     try {
       const body = {

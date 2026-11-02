@@ -107,7 +107,7 @@ test('⛔ CMP_ENGINE 这个常量不许回来', () => {
     'compareWeightBody 收到第三份候选清单：请求体这一层不筛选择，筛了就是一条静默兜底')
 })
 
-// 参考侧的四条判据（这一行属于哪个角色、说什么语种、换位后要不要换参考来源、选中的还在不在）
+// 参考侧的三条判据（这一行属于哪个角色、说什么语种、选中的还在不在）
 // 只有纯函数那一份实现，界面各点只调用它们。下面三条按文件数调用点：整目录拼在一起时
 // 纯函数自己的定义也算一次「出现过」，调用点被删回界面里就看不见。
 const codeOf = (name) => {
@@ -132,12 +132,22 @@ test('⭐⭐ 参考侧的角色与语种在每个消费点都调用纯函数，�
   }
 })
 
-test('⭐⭐ 换位后要不要换参考来源只在行内判一次，注入的是底模常量', () => {
+test('⭐ 对比页重新载入存下的行时不截回定值（owner 答复第 3 条：取消行数上限）', () => {
+  const tab = codeOf('ReferenceCompareTab.jsx')
+  const rehydrate = (tab.split('\n').find(l => l.includes('rehydrate:')) || '')
+  assert.ok(rehydrate, '找不到 rehydrate：行数上限的守卫要看的就是这一行，改名或挪走后这条守卫就成了空转')
+  assert.ok(!/\.slice\(/.test(rehydrate),
+    'rehydrate 又把行数截回一个定值：上限取消后超出部分会被静默丢掉，用户看到的是「存下的行自己少了」')
+})
+
+test('⭐⭐ 只有把这一行的角色选成底模才自动换参考来源，换某一位不换', () => {
   const row = codeOf('CompareRow.jsx')
-  assert.ok(/shouldSwitchRefToCross\(\{[^}]*baseVoiceId:\s*BASE_VOICE_ID/.test(row),
-    '换参考位后的跨角色选择器切换没有走 shouldSwitchRefToCross，或没有把底模常量注入进去：' +
-    '判据留在界面里就会跟着组件的措辞漂，用户自己选的来源也可能被界面改掉')
-  // 非混搭下不推断归属：推断了就是把这一行悄悄变成混搭。
+  // 底模自己没有切片：把它选成这一行的角色时本音色切片不可用，这时才自动切到跨角色选择器。
+  assert.equal((row.match(/setRefSource\('cross'\)/g) || []).length, 1,
+    "自动切到跨角色参考来源的地方不止一处：换某一位时也切，就是把用户自己选的参考来源覆盖掉")
+  assert.ok(/if \(vid === BASE_VOICE_ID[\s\S]{0,120}setRefSource\('cross'\)/.test(row),
+    '仅剩的那一处不是按角色判的：参考侧只跟这一行的角色走，不跟权重位走')
+  // 非混搭下不记归属：记了就是把这一行悄悄变成混搭。
   assert.ok(/if \(!mix\)/.test(row), 'pickSlot 不再先分辨混搭与否，非混搭下的选择也会写入跨角色归属')
 })
 

@@ -15,7 +15,7 @@ import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, pa
 import { slotsOf } from '../../lib/modelPickers.pure.js'
 import {
   candidatePathsBySlot, defaultPicksOf, isPathStale, modelItem, normalizeRowModel, ownerOfModel,
-  referenceSlotOf, referenceVoiceOf, rowVoiceLanguage, shouldSwitchRefToCross,
+  referenceVoiceOf, rowVoiceLanguage,
   slotHeaderText, slotItemText, slotOptions,
 } from './compareModelPicks.pure.js'
 import { ParamField } from '../common/ParamField'
@@ -41,9 +41,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
   // 这一行的权重位与选择。位名、位标签与个数都来自当前引擎的名片。
   const slots = slotsOf(engine)
   const rm = normalizeRowModel(rowModel, slots)
-  // 参考音频、切片与语种取决于参考位，所以混搭其他权重位时，参考仍取自该位归属的角色。
-  const refSlot = referenceSlotOf(slots)
-  const voiceId = referenceVoiceOf(rm, slots, selectedVoice)
+  // 参考音频、切片与语种只看这一行选定的角色：混搭其他权重位不动参考侧。
+  const voiceId = referenceVoiceOf(rm, selectedVoice)
   // 每一位现有候选的路径集合：渲染这一行的每一位都要问一次「选中的还在不在」，算一次就够。
   const knownBySlot = useMemo(() => candidatePathsBySlot(availableModels), [availableModels])
   // 这一行自己的模型语种。读音校对面板按这一行的模型取，不取生成页共享的音色，这样汉字方向与默认读音与实际发出去的请求一致。
@@ -297,8 +296,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           // 底模自己没有切片：选它时直接切到跨角色参考选择器，用户立刻就能借一条参考。
           if (vid === BASE_VOICE_ID && (row.refSource || 'slices') === 'slices') setRefSource('cross')
         }
-        // 选某个位的权重。只有混搭模式才去推断这一位归属哪个角色：同一条路径可以出现在
-        // 两个角色的候选里（底模排在最前），非混搭下也推断就会把这一行悄悄变成混搭，参考侧跟着跳走。
+        // 选某个位的权重。只有混搭模式才记下这一位来自哪个角色：同一条路径可以出现在
+        // 两个角色的候选里（底模排在最前），非混搭下也去认归属就会把这一行悄悄变成混搭。
         const pickSlot = (slotName, path) => {
           if (!mix) {
             onModelChange({ ...rm, picks: { ...rm.picks, [slotName]: path } })
@@ -309,19 +308,13 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           if (owner && owner !== rm.voiceId) owners[slotName] = owner
           else delete owners[slotName]
           onModelChange({ ...rm, picks: { ...rm.picks, [slotName]: path }, owners })
-          // 混搭时参考位切到没有切片的角色，改用跨角色参考选择器。
-          if (shouldSwitchRefToCross({
-            mix, slotName, owner, refSlot, refSource: row.refSource || 'slices', baseVoiceId: BASE_VOICE_ID,
-          })) setRefSource('cross')
         }
         const toggleMix = (on) => {
           if (on) { onModelChange({ ...rm, mix: true }); return }
           // 退出混搭模式时，组合收回到主角色上。
           onModelChange({ ...rm, mix: false, picks: picksOf(rm.voiceId), owners: {} })
         }
-        const modelsMixed = slots.some(s => rm.owners[s.name] && rm.owners[s.name] !== rm.voiceId)
         // slotsOf 已保证每位都有 label，这里不再兜一次。
-        const refSlotLabel = refSlot ? slots.find(s => s.name === refSlot).label : ''
         // 混搭提示的位名与示例都取自名片的 label。两个位时写成「A 与 B 可分别…」，
         // 三个位以上改用「每个权重位」，因为逐位拼出的句子过长。
         const slotLabels = slots.map(s => s.label)
@@ -376,12 +369,6 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               <input type="checkbox" checked={mix} onChange={e => toggleMix(e.target.checked)} />
               <span>{t('Mix models across assets', '跨资产混搭模型')}</span>
             </label>
-            {modelsMixed && refSlotLabel && (
-              <div className="field-hint" style={{ flexBasis: '100%', color: 'var(--warning)', marginBottom: 0 }}>
-                {t(`Mixed stack across assets — reference audio & language follow the ${refSlotLabel} side.`,
-                   `跨资产混搭：参考音频与语言跟随 ${refSlotLabel} 侧。`)}
-              </div>
-            )}
           </div>
         )
       })()}

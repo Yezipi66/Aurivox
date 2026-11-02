@@ -1,5 +1,5 @@
 // 对比页模型轴的纯函数测试：逐位候选、默认选择、请求体权重字段、旧行模型按位置迁移、
-// 参考位与参考语种、换位后要不要换参考来源。
+// 参考侧那个角色与它的语种。
 // 夹具使用虚构的位名与参数名；只有校验 GSV 形状的几条使用真实位名，因为那几条要核对的正是该名片给出的位置。
 
 import test from 'node:test'
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import {
   slotItemText, slotHeaderText, voiceEntry, slotOptions, ownerOfModel, modelItem,
   defaultPicksOf, firstPicksOf, candidatePathsBySlot, isPathStale, stalePicks,
-  referenceSlotOf, referenceVoiceOf, rowVoiceLanguage, shouldSwitchRefToCross,
+  referenceVoiceOf, rowVoiceLanguage,
   compareWeightBody, normalizeRowModel,
 } from './compareModelPicks.pure.js'
 import { migrateRowModelShape } from '../../lib/compareRowMigrate.js'
@@ -31,13 +31,11 @@ const ALT_TWO = [
   slot('encoder', { param: 'encoder_weight', applies_at: 'call' }),
   slot('decoder', { param: 'decoder_weight', applies_at: 'call' }),
 ]
-// GSV 名片给出的两个位：两位都带 param，所以参考位是排在后面的那一位。
+// GSV 名片给出的两个位：位名与旧界面那两个字段名相同，用来核对旧行数据按位置迁移的结果逐键不变。
 const GSV_TWO = [
   slot('gpt', { label: 'GPT', param: 'gpt_model', applies_at: 'call' }),
   slot('sovits', { label: 'SoVITS', param: 'sovits_model', applies_at: 'call' }),
 ]
-// 内置底模在清单里的保留 id：界面向纯函数注入的就是它。
-const BASE_ID = '__base__'
 
 // meta.assets.models = { <引擎id>: { <位名>: [候选项] } }
 const meta = (bySlot, language = 'ja') => ({ display_name: '小美', language, assets: { models: { [ENGINE_ID]: bySlot } } })
@@ -219,27 +217,21 @@ test('新形状原样接收：空值丢弃，重复归一后结果不变', () =>
   })
 })
 
-//  参考位
+//  参考侧
 
-test('参考位是最后一个带 param 的位；没有带 param 的位时为空', () => {
-  assert.equal(referenceSlotOf(TWO_SLOT), 'beta')
-  assert.equal(referenceSlotOf(FAKE_THREE), 'beta')
-  const launchLast = [slot('alpha', { param: 'alpha_model' }), slot('frozen', { applies_at: 'launch' })]
-  assert.equal(referenceSlotOf(launchLast), 'alpha')
-  assert.equal(referenceSlotOf([]), '')
-})
-
-test('⭐⭐ GSV 名片的两个位都有 param：参考侧属于排在后面的那一位', () => {
-  assert.equal(referenceSlotOf(GSV_TWO), 'sovits')
-  // 混搭「A 的 GPT + B 的 SoVITS」：参考音频、语种与切片都来自 B，界面提示也使用 B 那一位的 label。
+test('⭐⭐ 参考侧只认这一行选定的角色：不看位序，也不看某一位混搭到了谁身上', () => {
+  // 名片里最后一个带 param 的位属于 B：旧规则按位序把参考侧判给 B，现在这一行的角色是谁就是谁。
   const mix = { voiceId: 'A', picks: { gpt: '/m/a.ckpt', sovits: '/m/b.pth' }, owners: { sovits: 'B' }, mix: true }
-  assert.equal(referenceVoiceOf(mix, GSV_TWO, 'sel'), 'B')
+  assert.equal(referenceVoiceOf(mix, 'sel'), 'A')
+  // 换一位带来的归属变化不移动参考侧：那一位照样来自 B，参考音频仍属于这一行的角色。
+  assert.equal(referenceVoiceOf({ ...mix, owners: { gpt: 'B', sovits: 'B' } }, 'sel'), 'A')
 })
 
-test('参考侧角色优先取该位的跨角色归属，否则用主角色或回退值', () => {
-  assert.equal(referenceVoiceOf({ voiceId: 'A', owners: {} }, TWO_SLOT, 'fallback'), 'A')
-  assert.equal(referenceVoiceOf({ voiceId: 'A', owners: { beta: 'B' } }, TWO_SLOT, 'fallback'), 'B')
-  assert.equal(referenceVoiceOf(null, TWO_SLOT, 'fallback'), 'fallback')
+test('这一行没选定角色时用调用方给的回落值，不猜一个角色', () => {
+  assert.equal(referenceVoiceOf({ voiceId: 'A' }, 'fallback'), 'A')
+  assert.equal(referenceVoiceOf({ voiceId: '' }, 'fallback'), 'fallback')
+  assert.equal(referenceVoiceOf(null, 'fallback'), 'fallback')
+  assert.equal(referenceVoiceOf(null, ''), '')
 })
 
 test('⭐ 参考角色的语种按候选表、角色清单、回落值的顺序查，界面各点共用这一份', () => {
@@ -253,27 +245,6 @@ test('⭐ 参考角色的语种按候选表、角色清单、回落值的顺序�
   assert.equal(rowVoiceLanguage({ models: [zhEntry], voices: [{ id: 'A', language: '' }], voiceId: 'B' }), 'ja')
   assert.equal(rowVoiceLanguage({ models: [], voices: [], voiceId: 'A', fallback: 'all_zh_ja_yue' }), 'all_zh_ja_yue')
   assert.equal(rowVoiceLanguage({}), 'ja')
-})
-
-test('⭐⭐ 混搭下把参考位换成底模才切跨角色选择器，其余情况不动用户选的来源', () => {
-  // 底模的 id 由调用方注入（界面传的是 compareConstants 的 BASE_VOICE_ID），纯函数不认得那个常量。
-  const base = BASE_ID
-  const args = (over = {}) => ({
-    mix: true, slotName: 'sovits', owner: base, refSlot: referenceSlotOf(GSV_TWO),
-    refSource: 'slices', baseVoiceId: base, ...over,
-  })
-  assert.equal(shouldSwitchRefToCross(args()), true)
-  // 换的是另一个位：参考侧没变，选择器留在原处。
-  assert.equal(shouldSwitchRefToCross(args({ slotName: 'gpt' })), false)
-  // 新选的那份属于别的角色：那个角色有自己的切片，本音色切片仍然可用。
-  assert.equal(shouldSwitchRefToCross(args({ owner: 'B' })), false)
-  // 用户已经主动选过跨角色或自备文件：那是他自己的决定，界面不改。
-  assert.equal(shouldSwitchRefToCross(args({ refSource: 'cross' })), false)
-  assert.equal(shouldSwitchRefToCross(args({ refSource: 'custom' })), false)
-  // 非混搭下这一行的参考角色就是主角色，不存在「借来的角色没有切片」。
-  assert.equal(shouldSwitchRefToCross(args({ mix: false })), false)
-  // 名片上没有带 param 的位时参考位为空，不猜该跟随哪一位。
-  assert.equal(shouldSwitchRefToCross(args({ refSlot: '' })), false)
 })
 
 //  文字

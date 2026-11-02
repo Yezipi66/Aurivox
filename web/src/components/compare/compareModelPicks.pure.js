@@ -117,19 +117,10 @@ export function stalePicks(slots, rowModel, models) {
     .filter(x => isPathStale(known, x.slot.name, x.path))
 }
 
-// 参考音频跟随带 param 的位里排在最后的那一位。名片没有说明哪一位是音色位，能用的判据只剩位序：
-// 调整名片 weights 的顺序，参考侧跟随的位就跟着变。
-export function referenceSlotOf(slots) {
-  const withParam = (slots || []).filter(s => s && s.name && s.param)
-  const slot = withParam[withParam.length - 1]
-  return slot ? slot.name : ''
-}
-
-// 参考侧的角色：该位跨角色选过就用它归属的角色，否则用这一行的主角色。
-export function referenceVoiceOf(rowModel, slots, fallback = '') {
-  const name = referenceSlotOf(slots)
-  const owner = name ? (rowModel && rowModel.owners && rowModel.owners[name]) : ''
-  return owner || (rowModel && rowModel.voiceId) || fallback || ''
+// 参考侧的角色就是这一行选定的角色：参考音频只有一个，不存在「跟随哪个权重位」的问题，
+// 所以这里不看位序、也不看某一位跨角色混搭到了谁身上（owner 答复第 2 条）。
+export function referenceVoiceOf(rowModel, fallback = '') {
+  return (rowModel && rowModel.voiceId) || fallback || ''
 }
 
 // 参考角色的语种：先查逐位候选表（它带 language），再查角色清单，都没有用调用方给的回落值。
@@ -140,13 +131,6 @@ export function rowVoiceLanguage({ models, voices, voiceId, fallback = 'ja' }) {
   const fromVoices = (voices || []).find(v => v && (v.id || v.voiceId) === voiceId)
   if (fromVoices && fromVoices.language) return fromVoices.language
   return fallback || 'ja'
-}
-
-// 换某一位之后要不要把参考来源切到跨角色选择器。
-// 只有混搭下、换的正是参考位、新选的那份属于底模（底模自己没有切片）、且当前还停在「本音色切片」
-// 时才切：其余情况用户的来源选择是他自己定的，界面不动它。
-export function shouldSwitchRefToCross({ mix, slotName, owner, refSlot, refSource, baseVoiceId }) {
-  return !!(mix && refSlot && slotName === refSlot && owner === baseVoiceId && refSource === 'slices')
 }
 
 // 行模型 → 要合并进请求体的权重字段：call 位按参数名平铺，launch 位写入 launch_weights。
