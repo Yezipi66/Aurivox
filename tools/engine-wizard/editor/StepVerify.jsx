@@ -229,8 +229,8 @@ export function StepVerify ({ id }) {
         <div className="section-hdr">
           <h2>
             {t('Audio: playable', '音频：可播放')}
-            <span className={`badge badge-${statusFor(checks.audio)}`}>
-              {statusFor(checks.audio) === 'ok' ? t('Done', '已完成') : statusFor(checks.audio) === 'fail' ? t('Failed', '失败') : t('Unknown', '未知')}
+            <span className={`badge badge-${statusOf('audio', checks.audio)}`}>
+              {statusOf('audio', checks.audio) === 'ok' ? t('Done', '已完成') : statusOf('audio', checks.audio) === 'fail' ? t('Failed', '失败') : t('Unknown', '未知')}
             </span>
           </h2>
         </div>
