@@ -315,7 +315,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         } else {
           delete transcribePollRef.current[id]
           if (job.status === 'done') {
-            setScanMsg({ type: 'success', text: t(`Reference text generated for ${id} (${(job.done || []).join(', ')})`, `已生成参考文本 ${id}（${(job.done || []).join(', ')}）`) })
+            setScanMsg({ type: 'success', text: t(`Reference text generated for ${codeSpan(`${id} (${(job.done || []).join(', ')})`)}`, `已生成参考文本 ${codeSpan(`${id}（${(job.done || []).join(', ')}）`)}`) })
             loadAssets()
             // 作废缓存的切片，重新展开时才会取到新文本。
             setSegments(s => { const n = { ...s }; delete n[id]; return n })
@@ -328,7 +328,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
               }
             }
           } else if (job.status === 'cancelled') {
-            setScanMsg({ type: 'info', text: t(`Transcription cancelled for ${id}`, `转录已取消：${id}`) })
+            setScanMsg({ type: 'info', text: t(`Transcription cancelled for ${codeSpan(id)}`, `转录已取消：${codeSpan(id)}`) })
           } else if (job.status === 'error') {
             setScanMsg({ type: 'error', text: t(`Transcription failed: ${job.error ? codeSpan(job.error) : 'see logs for details'}`, `转录失败：${job.error ? codeSpan(job.error) : '查看日志了解详情'}`) })
           }
@@ -348,7 +348,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
       const r = await api(`/api/assets/${id}/transcribe`, { method: 'POST', body: { source } })
       if (r.ok && r.data?.started) {
         setTranscribeJobs(prev => ({ ...prev, [id]: { status: 'running', sources: r.data.sources || [], done: [] } }))
-        setScanMsg({ type: 'info', text: t(`Transcribing ${id} (${(r.data.sources || []).join(', ')})…`, `正在转录 ${id}（${(r.data.sources || []).join(', ')}）…`) })
+        setScanMsg({ type: 'info', text: t(`Transcribing ${codeSpan(`${id} (${(r.data.sources || []).join(', ')})`)}…`, `正在转录 ${codeSpan(`${id}（${(r.data.sources || []).join(', ')}）`)}…`) })
         pollTranscribe(id)
       } else {
         setScanMsg({ type: 'error', text: t(r.data?.error ? codeSpan(r.data.error) : 'Could not start transcription', r.data?.error ? codeSpan(r.data.error) : '无法启动转录') })
