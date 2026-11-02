@@ -1,0 +1,169 @@
+{
+  "files": {
+    "models/gpt-sovits/gpt/role_ja-e10.ckpt": "00",
+    "models/gpt-sovits/sovits/a0_ja_e1_s2.pth": "00",
+    "models/gpt-sovits/sovits/a1_ja_e2_s2.pth": "01",
+    "models/gpt-sovits/sovits/a2_ja_e3_s2.pth": "02",
+    "models/gpt-sovits/sovits/a3_ja_e4_s2.pth": "03",
+    "models/gpt-sovits/sovits/a4_ja_e5_s2.pth": "04",
+    "models/gpt-sovits/sovits/a5_ja_e6_s2.pth": "05",
+    "models/gpt-sovits/sovits/a6_ja_e7_s2.pth": "06",
+    "models/gpt-sovits/sovits/hd_v2ProPlus_ja_e13_s2.pth": "04",
+    "models/gpt-sovits/sovits/mk_v2ProPlus_ja_e8_s2.pth": "PK",
+    "models/gpt-sovits/sovits/mk_lower_v2proplus_ja_e9_s2.pth": "PK",
+    "models/gpt-sovits/sovits/mk_a_v2Pro_ja_e10_s2.pth": "PK",
+    "models/gpt-sovits/sovits/mk_b_v2pro_ja_e11_s2.pth": "PK",
+    "models/gpt-sovits/sovits/mk_v2_ja_e12_s2.pth": "PK",
+    "models/gpt-sovits/sovits/plain_ja_e14_s2.pth": "ZZ"
+  },
+  "dirs": [
+    "models/gpt-sovits/sovits/a_model_dir"
+  ],
+  "meta": {
+    "id": "baselinevoice",
+    "display_name": "baselinevoice",
+    "mode": "internal",
+    "language": "ja",
+    "prompt_lang": "ja",
+    "text_lang": "ja",
+    "assets": {
+      "models": {
+        "gpt-sovits": {
+          "gpt": [
+            {
+              "name": "role_ja-e10.ckpt",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/gpt/role_ja-e10.ckpt",
+              "is_dir": false,
+              "size_mb": 0,
+              "steps": 10
+            }
+          ],
+          "sovits": [
+            {
+              "name": "a_model_dir",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a_model_dir",
+              "is_dir": true,
+              "size_mb": null
+            },
+            {
+              "name": "a0_ja_e1_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a0_ja_e1_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v1"
+            },
+            {
+              "name": "a1_ja_e2_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a1_ja_e2_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2"
+            },
+            {
+              "name": "a2_ja_e3_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a2_ja_e3_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v3"
+            },
+            {
+              "name": "a3_ja_e4_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a3_ja_e4_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v3"
+            },
+            {
+              "name": "a4_ja_e5_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a4_ja_e5_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v4"
+            },
+            {
+              "name": "a5_ja_e6_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a5_ja_e6_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2Pro"
+            },
+            {
+              "name": "a6_ja_e7_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/a6_ja_e7_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2ProPlus"
+            },
+            {
+              "name": "hd_v2ProPlus_ja_e13_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/hd_v2ProPlus_ja_e13_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v4"
+            },
+            {
+              "name": "mk_a_v2Pro_ja_e10_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/mk_a_v2Pro_ja_e10_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2Pro"
+            },
+            {
+              "name": "mk_b_v2pro_ja_e11_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/mk_b_v2pro_ja_e11_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2Pro"
+            },
+            {
+              "name": "mk_lower_v2proplus_ja_e9_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/mk_lower_v2proplus_ja_e9_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2ProPlus"
+            },
+            {
+              "name": "mk_v2_ja_e12_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/mk_v2_ja_e12_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2"
+            },
+            {
+              "name": "mk_v2ProPlus_ja_e8_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/mk_v2ProPlus_ja_e8_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v2ProPlus"
+            },
+            {
+              "name": "plain_ja_e14_s2.pth",
+              "path": "<ROOT>/baselinevoice/models/gpt-sovits/sovits/plain_ja_e14_s2.pth",
+              "is_dir": false,
+              "size_mb": 0,
+              "version": "v1"
+            }
+          ]
+        }
+      }
+    },
+    "reference_text": {
+      "state": "none",
+      "raw": {
+        "status": "none",
+        "present": false,
+        "total": 0,
+        "modern": 0,
+        "matched": 0
+      },
+      "slices": {
+        "status": "none",
+        "present": false,
+        "total": 0,
+        "modern": 0,
+        "matched": 0
+      },
+      "advisory": "No reference text — inference still works; generating one is recommended."
+    }
+  }
+}
