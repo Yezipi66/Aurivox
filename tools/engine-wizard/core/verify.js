@@ -143,8 +143,14 @@ function runChecks (id, opts = {}) {
 
 /**
  * 第 4 道「出不出声」：A 级缺 request 就不跑，并如实说明为什么。
+ *
+ * 有常驻地址的引擎（名片写了 default_base_url 或 base_url_env 指过来）
+ *   走原路：verifyAudio 直接打那个地址。
+ * 没有地址的引擎（stdio / cli 形态）：先拉一台临时宿主再验，验完就杀。
+ *   这是「试运行」的语义：拉起来、验一下、然后就没了。
+ *   所以本函数是 async：拉起要等 /health，不像前三道那样纯查盘。
  */
-function runAudioCheck (id, opts = {}) {
+async function runAudioCheck (id, opts = {}) {
   const level = opts.audio === 'A' ? 'A' : 'B'
 
   let verifyAudio
@@ -160,8 +166,10 @@ function runAudioCheck (id, opts = {}) {
   const { requireEngine } = platform('lib/engines/registry.js')
   let profile, manifest
   try {
-    profile = resolveEngineProfile(id, process.env)
-    manifest = requireEngine(id)
+    // opts.profile / opts.manifest 是测试注入：生产路径（wizardbridge）不传，
+    //   一律由平台解析，向导不自造名片语义。
+    profile = opts.profile || resolveEngineProfile(id, process.env)
+    manifest = opts.manifest || requireEngine(id)
   } catch (e) {
     return { ok: false, code: 'NO_PROFILE', error: e.message, errorZh: e.message }
   }
@@ -194,14 +202,43 @@ function runAudioCheck (id, opts = {}) {
   // 界面给的是平台的词（reference_audio / reference_text），换成宿主与引擎的词再发。
   const request = opts.request
     ? require('./measure').toEngineWords(profile, { ...opts.request }) : null
-  try {
-    const r = verifyAudio.verifyEngine({
-      profile, manifest, level, request, root: ROOT,
-    })
-    return { ok: r.ok !== false, level, ...r }
-  } catch (e) {
-    return { ok: false, code: 'AUDIO_FAILED', level,
-      error: String((e && e.message) || e) }
+
+  // 打一次验证。base_url 给了就替换成临时宿主的地址（拉起器专用），
+  //   没给（null）就用 profile 原样：有常驻地址的引擎走老路。
+  //   opts.verifyEngine 也是测试注入：默认就是平台那个，不重写。
+  const verifyEngine = typeof opts.verifyEngine === 'function'
+    ? opts.verifyEngine : (o) => verifyAudio.verifyEngine(o)
+  const verifyOnce = (baseUrl) => verifyEngine({
+    profile: baseUrl ? { ...profile, base_url: baseUrl } : profile,
+    manifest, level, request, root: ROOT,
+  })
+
+  const hasBaseUrl = typeof profile.base_url === 'string' && profile.base_url.trim()
+  if (hasBaseUrl) {
+    try {
+      const r = verifyOnce(null)
+      return { ok: r.ok !== false, level, ...r }
+    } catch (e) {
+      return { ok: false, code: 'AUDIO_FAILED', level,
+        error: String((e && e.message) || e) }
+    }
   }
+
+  // 没有常驻地址：拉一台临时宿主。verifyEngine 的参数校验失败会抛
+  //   （例如 A 级缺 text），那也是「要改名片」而不是「引擎坏了」，照常带回来。
+  const hostRunner = opts.hostRunner || require('./hostRunner')
+  const hosted = await hostRunner.withTempHost({
+    id, profile, root: ROOT,
+    run: (base) => verifyOnce(base),
+  })
+  if (!hosted.ok) {
+    return { ok: false, code: 'HOST_FAILED', level, stage: hosted.stage,
+      error: `临时宿主起不来（${hosted.stage}）：${hosted.error}`,
+      errorZh: `第 4 道要打这台引擎的本地宿主，但它没起来：${
+        hosted.error || ''}${hosted.stderr ? `（宿主输出：${hosted.stderr.slice(-600)}）` : ''}`,
+      stderr: hosted.stderr || null }
+  }
+  const r = hosted.result
+  return { ok: r.ok !== false, level, ...r }
 }
 module.exports = { checks, runChecks, runAudioCheck }

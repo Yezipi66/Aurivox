@@ -67,8 +67,8 @@ test('权重说不出来时，整轮不能报通过', () => {
 })
 
 // 第 4 道「出声」： A 级不给 request 就不许跑
-test('A 级没给 request，不跑，并说清为什么不自己编一个', () => {
-  const r = runAudioCheck(REAL, { audio: 'A' })
+test('A 级没给 request，不跑，并说清为什么不自己编一个', async () => {
+  const r = await runAudioCheck(REAL, { audio: 'A' })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_REQUEST')
   // 理由必须说清「为什么平台不替你编」
@@ -78,17 +78,82 @@ test('A 级没给 request，不跑，并说清为什么不自己编一个', () =
   assert.ok(r.expected_shape, '要告诉用户请求体该长什么样')
 })
 
-test('B 级不需要 request —— 它只要合法响应', () => {
-  const r = runAudioCheck(REAL, { audio: 'B' })
+test('B 级不需要 request —— 它只要合法响应', async () => {
+  const r = await runAudioCheck(REAL, { audio: 'B' })
   // 无论过没过，都不许崩、都要有 ok 和 level
   assert.strictEqual(typeof r.ok, 'boolean', JSON.stringify(r).slice(0, 200))
   assert.ok(r.level === 'B' || r.code, '要么有 level，要么有 code —— 不能什么都不给')
 })
 
-test('名片没 runtime，如实说「平台不负责起它」', () => {
-  const r = runAudioCheck('definitely-not-installed-xyz', { audio: 'B' })
+test('名片没 runtime，如实说「平台不负责起它」', async () => {
+  const r = await runAudioCheck('definitely-not-installed-xyz', { audio: 'B' })
   assert.strictEqual(r.ok, false)
   assert.ok(['NO_PROFILE', 'NO_RUNTIME'].includes(r.code), r.code)
+})
+
+// 没有常驻地址的引擎（stdio / cli 形态）：先拉临时宿主再验
+//   整条链用注入测：拉起器拿到的是注入的假宿主，
+//   但「verifyEngine 收到的 profile.base_url 被替换成本地地址」这条核心语义是真的。
+const NO_URL_PROFILE = {
+  id: 'stdio-engine', timeout_ms: 1000,
+  runtime: { python: '.venv' }, // 有 runtime（能起），但没有 base_url
+}
+
+test('无 base_url 的引擎：拉起临时宿主，地址注入 verifyEngine 的 profile', async () => {
+  const seen = {}
+  const r = await runAudioCheck('stdio-engine', {
+    audio: 'B',
+    profile: NO_URL_PROFILE, manifest: {},
+    verifyEngine (o) {
+      seen.baseUrl = o.profile.base_url // 注入点：这就是 P0-2 要钉的那一格
+      return { ok: true, level: 'B', steps: [] }
+    },
+    hostRunner: {
+      async withTempHost (arg) {
+        seen.id = arg.id
+        // 真 run 回调会带注入后的地址：让它跑一次，验的是同一条链
+        const result = await arg.run('http://127.0.0.1:59998')
+        return { ok: true, base_url: 'http://127.0.0.1:59998', result }
+      },
+    },
+  })
+  assert.strictEqual(r.ok, true)
+  assert.strictEqual(seen.id, 'stdio-engine')
+  assert.strictEqual(seen.baseUrl, 'http://127.0.0.1:59998',
+    'verifyEngine 收到的 base_url 必须是临时宿主的地址')
+})
+
+test('有 base_url 的引擎：走老路，不拉临时宿主', async () => {
+  let hostCalled = 0
+  const r = await runAudioCheck('resident-engine', {
+    audio: 'B',
+    profile: { ...NO_URL_PROFILE, base_url: 'http://127.0.0.1:9881' },
+    manifest: {},
+    verifyEngine: () => ({ ok: true, level: 'B', steps: [] }),
+    hostRunner: { async withTempHost () { hostCalled++; return { ok: true } } },
+  })
+  assert.strictEqual(r.ok, true)
+  assert.strictEqual(hostCalled, 0, '有常驻地址就别拉：白起一台占端口')
+})
+
+test('拉起失败：code=HOST_FAILED，stage 与宿主输出带回来', async () => {
+  const r = await runAudioCheck('stdio-engine', {
+    audio: 'B',
+    profile: NO_URL_PROFILE, manifest: {},
+    verifyEngine: () => { throw new Error('不该跑到这里') },
+    hostRunner: {
+      async withTempHost () {
+        return { ok: false, stage: 'host-exit', base_url: 'http://127.0.0.1:1',
+          error: '宿主进程提前退出（code=2）', stderr: 'No module named xx' }
+      },
+    },
+  })
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.code, 'HOST_FAILED')
+  assert.ok(r.error.includes('host-exit'), 'stage 要带回来')
+  assert.ok(r.errorZh.includes('宿主进程提前退出'),
+    `errorZh 要把原因说成人话：${r.errorZh}`)
+  assert.ok(!String(r.errorZh).includes('undefined'), 'errorZh 不能出现 undefined')
 })
 
 // 纪律

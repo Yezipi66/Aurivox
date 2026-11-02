@@ -1164,15 +1164,19 @@ function handleVerifyChecks (req, res) {
   if (!r.checks) {
     r.checks = {}
   }
-  const audio = runAudioCheck(id, { audio: audioLevel, request })
-  // A 级合成成功时 audio_path 已由 verify_audio.py 给出；B 级不合成，
-  // 磁盘上可能留着上次的 A 级产物，能找到就带上。
-  if (!audio.audio_path) {
-    const found = findVerifyAudio(id)
-    if (found) audio.audio_path = found
-  }
-  r.checks.audio = audio
-  json(res, r.ok ? 200 : 400, r)
+  // runAudioCheck 是 async：stdio 形态的引擎要先拉一台临时宿主再验。
+  //   handler 仍同步返回 true 接单（同 handleProbe 的模式），json 在异步体里回。
+  void (async () => {
+    const audio = await runAudioCheck(id, { audio: audioLevel, request })
+    // A 级合成成功时 audio_path 已由 verify_audio.py 给出；B 级不合成，
+    // 磁盘上可能留着上次的 A 级产物，能找到就带上。
+    if (!audio.audio_path) {
+      const found = findVerifyAudio(id)
+      if (found) audio.audio_path = found
+    }
+    r.checks.audio = audio
+    json(res, r.ok ? 200 : 400, r)
+  })()
   return true
 }
 
@@ -1292,8 +1296,11 @@ function handleVerify (req, res) {
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
 
     if (body.audio) {
-      const r = runAudioCheck(id, { audio: body.audio, request: body.request })
-      json(res, r.ok ? 200 : 400, r)
+      // runAudioCheck 可能要先拉临时宿主：stdio 形态没有常驻地址。
+      void (async () => {
+        const r = await runAudioCheck(id, { audio: body.audio, request: body.request })
+        json(res, r.ok ? 200 : 400, r)
+      })()
       return
     }
     const r = runChecks(id, { deep: body.deep !== false })

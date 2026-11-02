@@ -359,6 +359,20 @@ def _extract_audio(body, raw=None):
 # ---------------------------------------------------------------------------
 def verify(spec):
     level = (spec.get("level") or "B").upper()
+    # base_url 是探针唯一能下手的地址：没有它就是没有东西可打。
+    #   不猜（不回落 127.0.0.1:9881 那种「看起来对」的地址：验到的只会是
+    #   一台不存在的引擎，或者刚好在跑的别人的引擎），只说清是谁的事：
+    #   stdio / cli 形态由调用方先拉一个临时宿主再验。
+    base = spec.get("base_url")
+    if not base or not isinstance(base, str):
+        return {
+            "ok": False, "level": level, "stage": "spec",
+            "error": "spec 没有 base_url：这台引擎不是常驻 HTTP 形态",
+            "why": ("探针只会打 HTTP。stdio / cli 形态的引擎要先由调用方"
+                    "起一个临时宿主（host.py --profile-json <解析结果> "
+                    "--port <空闲端口>），再把 http://127.0.0.1:<端口> "
+                    "作为 base_url 传进来"),
+        }
     if level == "A":
         # A 级先跑 B：不是可选项：
         #   宿主还没就绪时直接发 /tts，得到的是 503「还在加载」，
