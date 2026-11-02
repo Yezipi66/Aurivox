@@ -211,6 +211,7 @@ Owner 2026-08-24 拍板：「我只维护 GPT-SoVITS 兼容这一套，其他一
 | `bind.output_path` 缺了但 `returns: "file"` | `ENGINE_MANIFEST_INCOMPLETE` |
 | 参数名同时在 `parameters` 和 `param_keys` | `ENGINE_MANIFEST_INVALID_VALUE`（两份会漂移的事实） |
 | `weights[].applies_at: "call"` 却没写 `param` | 报错（下拉能点、请求体里一个键都没有） |
+| `weights[].switch` 写在 stdio 引擎上 / 引擎没有地址 | 报错（平台发不出那个请求） |
 | **两个 launch 位** | ⛔ **第一次合成时**抛 `ENGINE_TOO_MANY_LAUNCH_SLOTS`（今天只能送一个） |
 | 参数字段里有引擎不认识的键 | 宿主 400 列出 `unknown parameter(s)` |
 

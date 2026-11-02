@@ -119,9 +119,9 @@ const { createEngineSupervisor } = require("./lib/server/engineSupervisor");
 const _engineSupervisor = createEngineSupervisor(__dirname, process, { resolveEngineProfile, console });
 
 const { createSynthesisInstance } = require("./lib/server/synthesisInstance");
-const { _GEN_MAX_QUEUE, _GEN_RETRY_AFTER, _generationMutex, _modelSwitcher, segmentCache, synthesis } = createSynthesisInstance(process, PATHS, { engineSupervisor: _engineSupervisor });
+const { _GEN_MAX_QUEUE, _GEN_RETRY_AFTER, _generationMutex, _weightSwitch, segmentCache, synthesis } = createSynthesisInstance(process, PATHS, { engineSupervisor: _engineSupervisor });
 
-function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(online); }
+function noteEngineHealth(online) { return _weightSwitch.noteEngineHealth(online); }
 
 process.on("exit", () => {
   try { _engineSupervisor.stopAll("后端退出", true); } catch { /* 退出路径上不许再抛 */ }
