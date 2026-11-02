@@ -177,7 +177,7 @@ P1-P3
 
 #### 2026-08-13 更新（草案 R0）：上面这段「事实」已被实测证明**不完整**
 
-完整暴露面见 [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md) §1。
+完整暴露面见 [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./archive/FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md) §1。
 三点修正，每点都会改变修复方案：
 
 1. **原文的源头不是 adapter**，而是 `NODE_SUCCEEDED(io.text_input)` 的

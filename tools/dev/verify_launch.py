@@ -433,7 +433,7 @@ def _seedable():
 
 
 def _default_method_cfg():
-    """这台引擎**默认**那个方法的配置（名片的 call.methods[default_method]）。
+# 这台引擎默认那个方法的配置（manifest 的 call.methods[default_method]）。
 
     为什么需要它：cosyvoice2 的 zero_shot
     方法级 call_time = ["prompt_text", "zero_shot_spk_id"]，而
@@ -562,7 +562,7 @@ def main(argv=None):
     #
     # 为什么必须固定 --seed：seed 随机的话两次音频本来就不一样，量出来的
     #    差异全是 seed 的，跟参数毫无关系（第一次实测就踩了这个：看着像字节
-    #    数差 25%，其实是随机数）。这个模式把 seed 写死在默认值里就是为了
+    #    数差 25%，那是随机数）。这个模式把 seed 写死在默认值里就是为了
     #    防这一脚。
     ap.add_argument("--engine", default=None,
                     help="要起哪台引擎（默认 indextts2；例：--engine gpt-sovits）")

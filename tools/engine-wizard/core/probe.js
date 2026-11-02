@@ -74,17 +74,17 @@ function parseRequirements (text) {
   for (const raw of text.split(/\r?\n/)) {
     let line = raw.trim()
 
-    // 续行：上一行以 `\` 结尾 ⇒ 这一行是它的延续，不是独立依赖
+    // 续行：上一行以 \ 结尾 ⇒ 这一行是它的延续，不是独立依赖
     if (continued) {
       if (line.endsWith('\\')) continue
       continued = false
       if (!line) continue
-      // 续行落在新行之后：只有当它自己是一整条依赖时才收（`-r` 这类选项行不算）
+      // 续行落在新行之后：只有当它自己是一整条依赖时才收（-r 这类选项行不算）
     }
 
     if (!line || line.startsWith('#')) continue
 
-    // 行尾注释要剥掉：`包名==1.0  # 说明` ⇒ `包名==1.0`
+    // 行尾注释要剥掉：包名==1.0  # 说明 ⇒ 包名==1.0
     const hash = line.indexOf('#')
     if (hash >= 0) line = line.slice(0, hash).trim()
     if (!line) continue
@@ -95,14 +95,14 @@ function parseRequirements (text) {
     // 选项行：-r / -e / -c / --index-url / --hash / --find-links
     if (line.startsWith('-')) { out.skipped++; continue }
 
-    // 环境标记 `;` 之后是条件，只取分号前的依赖声明
+    // 环境标记 ; 之后是条件，只取分号前的依赖声明
     const semi = line.indexOf(';')
     if (semi >= 0) line = line.slice(0, semi).trim()
     if (!line) { out.skipped++; continue }
 
     // 直连来源：git+https / http(s) / file / 本地路径 ⇒ 不是普通依赖
     if (/^(?:git\+|https?:|file:|\.{1,2}[\\/])/i.test(line)) { out.skipped++; continue }
-    // PEP 508 直引：`包名 @ https://…` ⇒ 同样不是普通依赖
+    // PEP 508 直引：包名 @ https://… ⇒ 同样不是普通依赖
     if (/@\s*\S/.test(line)) { out.skipped++; continue }
 
     const m = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(.*)$/)
@@ -113,12 +113,11 @@ function parseRequirements (text) {
     //   ① extras：fastapi[all]
     //   ② 紧贴的版本约束：torch>=2.5.0 / torch == 2.5.0 里第二种不合法
     //   ③ 或者什么都没有（裸包名）
-    // 关键：合法的比较算子必须是两个字符或单个 < >，单个 `=` 不是算子：它是赋值。
+    // 关键：合法的比较算子必须是两个字符或单个 < >，单个 = 不是算子：它是赋值。
     // 这条规则同时挡住了 TOML 赋值行：
-    //   name = "speechkit"        ⇒ 尾随 `= "speechkit"`，是赋值
+    //   name = "speechkit"        ⇒ 尾随 = "speechkit"，是赋值
     //   license = "Apache-2.0"    ⇒ 同上
     //   requires-python = ">=3.10" ⇒ 同上
-    // （这条守卫挡住的是把 TOML 赋值行读成包名：那几个 TOML 键名本来被读成了包名。）
     if (tail && !/^(?:\[[^\]]*\])?(?:===|==|!=|<=|>=|~=|<|>)/.test(tail)) {
       out.skipped++; continue
     }
@@ -261,19 +260,53 @@ function probeProject (input = {}) {
     if (fromSetup) { packageName = fromSetup; packageNameFrom = 'setup.py name=' }
   }
 
+  // 兜底：packaging 元数据全无时，用「顶层含 __init__.py 的目录」候选
+  //   （目录由调用方扫好后传进来，probe 自己不发起请求，保持纯函数）。
+  //   单候选：填进去，但来源写清是目录扫描、是猜的：只有这一个目录像包，
+  //     「像」不是「是」，sources 里明说猜的，使用者看到来源自会复核。
+  //   多候选：不静默选。几个目录都像主包时替使用者挑一个，等于替他做决定，
+  //     选错了安装与校验照着错的模块名走，全炸；候选列出来还给他。
+  //   先 trim 再判空：空格串 trim 前是真值，trim 后是空串，
+  //   要是先过滤再 trim，一个空格串就能把单候选污染成多候选。
+  const pkgDirs = Array.isArray(input.packageDirs)
+    ? input.packageDirs
+        .filter((d) => typeof d === 'string')
+        .map((d) => d.trim())
+        .filter(Boolean)
+    : []
+  if (!packageName && pkgDirs.length === 1) {
+    packageName = pkgDirs[0]
+    packageNameFrom = `顶层目录扫描（${pkgDirs[0]}/__init__.py 存在）：唯一候选，是猜的，需复核`
+  }
+
   if (packageName) {
     values['call.module'] = packageName
     sources['call.module'] = packageNameFrom
   } else {
-    unfilled.push({
-      key: 'call.module',
-      why: 'Neither [project.name] nor [project.scripts] in pyproject, and setup.py '
-        + 'declares no name; the python package name cannot be read from these files; '
-        + 'check the source directory.',
-      whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]，'
-        + 'setup.py 里也没写 name：python 包名读不出来，得看源码目录',
-      example: 'my_tts',
-    })
+    if (pkgDirs.length > 1) {
+      // 多候选：不选，把清单给使用者，由他指定主包
+      unfilled.push({
+        key: 'call.module',
+        why: `Neither [project.name] nor [project.scripts] in pyproject, and setup.py `
+          + `declares no name. The repository has ${pkgDirs.length} top-level python `
+          + `package directories (${pkgDirs.join(', ')}); the platform cannot tell which `
+          + `one is the engine's main package — pick one.`,
+        whyZh: `pyproject 里既没有 [project.name] 也没有 [project.scripts]，setup.py `
+          + `里也没写 name。顶层扫到 ${pkgDirs.length} 个 python 包目录`
+          + `（${pkgDirs.join('、')}），平台无法判断哪个是主包，请选一个`,
+        example: pkgDirs[0],
+      })
+    } else {
+      unfilled.push({
+        key: 'call.module',
+        why: 'Neither [project.name] nor [project.scripts] in pyproject, and setup.py '
+          + 'declares no name; the python package name cannot be read from these files; '
+          + 'check the source directory.',
+        whyZh: 'pyproject 里既没有 [project.name] 也没有 [project.scripts]，'
+          + 'setup.py 里也没写 name：python 包名读不出来，得看源码目录',
+        example: 'my_tts',
+      })
+    }
   }
 
   // console 脚本 ⇒ runtime.entry
@@ -354,6 +387,18 @@ function probeProject (input = {}) {
 }
 
 
+// 这个仓库能不能照「pip 安装包本体」装：有 pyproject 的构建段（build-system / project）
+// 或根目录有 setup.py / setup.cfg，pip install -e . 就能装，且 pip 自己会读
+// setup.py 的 install_requires。平台不解析 setup.py，让 pip 去读（那是它的事）。
+// 没有这些就说不清装法，交回给使用者。
+function isPipInstallable (pyprojectText, opts = {}) {
+  if (typeof pyprojectText === 'string' && pyprojectText) {
+    if (/^\s*\[build-system\]/m.test(pyprojectText)) return true
+    if (/^\s*\[project\]/m.test(pyprojectText)) return true
+  }
+  return Boolean(opts.setupPy || opts.setupCfg)
+}
+
 function planDependencies (text, opts = {}) {
   const pyDeps = probePyproject(text).dependencies || []
   const reqParsed = parseRequirements(opts.requirements)
@@ -364,6 +409,37 @@ function planDependencies (text, opts = {}) {
   const hw = opts.hardware || null        // 没检测就不判断（不推断）
 
   if (deps.length === 0) {
+    // 标准清单读不出依赖，但仓库是 pip 安装包（有构建段或 setup.py / setup.cfg）：
+    //   不硬挡。平台用自己的装法 uv pip install -e .，pip 自己读 setup.py 的
+    //   install_requires，一行都不用平台解析。依赖数标 0，界面照「装包本体」走。
+    if (isPipInstallable(text, opts)) {
+      return {
+        ok: true,
+        dep_source: 'package',
+        dep_count: 0,
+        deps: {
+          total: 0,
+          normal: { count: 0, packages: [], action: 'sync' },
+          torch: { count: 0, packages: [], action: 'choose-backend' },
+        },
+        hardware: hw ? {
+          gpus: hw.gpus || [],
+          recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
+          confidence: hw.confidence, caveat: hw.caveat, caveatZh: hw.caveatZh,
+          options: hw.options,
+        } : null,
+        verdict: 'unknown',
+        note: 'The dependency list is not readable from pyproject.toml or '
+          + 'requirements.txt, but this repository is a pip-installable package. '
+          + 'The platform installs it with `uv pip install -e .`; pip resolves '
+          + 'the dependencies from the package build configuration itself '
+          + '(setup.py / setup.cfg), which the platform does not parse.',
+        noteZh: 'pyproject.toml 或 requirements.txt 里读不出依赖列表，'
+          + '但这个仓库是可 pip 安装的包。平台用自己的装法 uv pip install -e . '
+          + '安装，依赖由 pip 从包自身的构建配置（setup.py / setup.cfg）解析，'
+          + '平台不解析 setup.py。',
+      }
+    }
     // 两份清单都没有才说「读不到」，且只说读不到，不提换仓库。
     const hadReq = typeof opts.requirements === 'string' && opts.requirements
     return {
@@ -441,5 +517,5 @@ function planDependencies (text, opts = {}) {
 
 module.exports = {
   probePyproject, probeProject, detectDependencyFile, planDependencies,
-  parseRequirements, parseSetupPyName, recognizeLicenseText,
+  parseRequirements, parseSetupPyName, recognizeLicenseText, isPipInstallable,
 }

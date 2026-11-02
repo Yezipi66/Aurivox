@@ -81,7 +81,7 @@ test('名字说「要做什么」而不是只给名词', () => {
   }
   const models = mod.STEPS.find((s) => s.key === 'models')
   // 断言钉实质：必须说清平台代为下载，不许断言某几个字。
-  assert.ok(/勾选后点「下载」即可|平台执行下载|代为下载/i.test(models.does[1]),
+  assert.ok(/勾选后点(击)?「下载」即可|平台执行下载|代为下载/i.test(models.does[1]),
     `第 3 步的说明必须说清「平台代为下载」：${models.does[1]}`)
 })
 
@@ -131,17 +131,17 @@ test('stepDone：prepare 解析成功但没克隆 ⇒ 不算做完', () => {
   assert.strictEqual(stepDone('prepare', {}), false)
   assert.strictEqual(stepDone('prepare', { id: 'x', probed: true }), false,
     '⛔ 只解析+探测就当克隆做完了 —— 那个目录还是空的')
-  assert.strictEqual(stepDone('prepare', { cloned: true }), true)
+  assert.strictEqual(stepDone('prepare', { prepare: true }), true)
 })
 
-test('stepDone：weights 的 ready:null（说不出来）⇒ 不算做完', () => {
+test('stepDone：models 的 done 来自后端三态结论', () => {
   const { stepDone } = mod
   assert.strictEqual(stepDone('models', {}), false)
-  assert.strictEqual(stepDone('models', { weightsReady: null }), false,
-    '⛔ ready=null 意味着「说不出来」⇒ 那是要人补名片的信号')
-  assert.strictEqual(stepDone('models', { weightsReady: true }), true)
-  assert.strictEqual(stepDone('models', { weightsReady: false }), true,
-    '⛔ false（确实缺了）也算查过了 —— 那是一条结论')
+  // 后端在「齐了」与「缺了」两种下都给 done=true，「说不出来」才给 false。
+  //   这里只判那个结论，不自己再判一次盘上有几个文件。
+  assert.strictEqual(stepDone('models', { models: true }), true)
+  assert.strictEqual(stepDone('models', { models: false }), false,
+    '⛔ 后端说没查出来（ready=null）时不该亮勾 —— 那是要人补名片的信号')
 })
 
 test('全做完 ⇒ currentStep 返回 null（没有下一步）', () => {
@@ -149,6 +149,24 @@ test('全做完 ⇒ currentStep 返回 null（没有下一步）', () => {
   // 全部做完时没有下一步，返回 null：流程条没有空节点可找。
   assert.strictEqual(currentStep({ prepare: true, env: true, models: true,
     manifest: true, verify: true }), null)
+})
+
+// 这一条钉住前端判据与后端产出的对应关系：installState 的 steps_done 有哪五个键，
+// stepDone 就必须认哪五个键。改一个名字，五个步骤一起失灵。
+test('stepDone 认的键与 installState 的 steps_done 逐字相同', () => {
+  const { stepDone, STEPS } = mod
+  const installStateSrc = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'installState.js'), 'utf-8')
+  const keys = STEPS.map((s) => s.key)
+  const missing = keys.filter((k) => !installStateSrc.includes(`${k}: {`))
+  assert.deepStrictEqual(missing, [],
+    `⛔ installState 的 steps 里找不到这些键：${missing.join(', ')}`)
+  for (const k of keys) {
+    assert.strictEqual(stepDone(k, { [k]: true }), true,
+      `⛔ stepDone('${k}', {${k}: true}) 该是 true —— 键名对不上后端`)
+    assert.strictEqual(stepDone(k, {}), false,
+      `⛔ stepDone('${k}', {}) 该是 false`)
+  }
 })
 
 // lanes：并发只发生在该并发的地方
@@ -170,6 +188,32 @@ test('models 完成之后 ⇒ 剩下的是各自一条线', () => {
   assert.ok(!JSON.stringify(l).includes('models+manifest'),
     '⛔ models 做完了还合成一条线')
   assert.ok(l[0].includes('manifest'), 'manifest 还该在')
+})
+
+// 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。
+// 逃生口：五步互相上锁这件事已经拆掉。
+// 锁的判据曾是「第 1 步完成」，而完成状态由真实产物判（GET /wizard/install-state），
+//   它与界面上看到的不一致时（界面显示已克隆、后端判未克隆）人会被卡在第 1 步，
+//   且无从自救。逃生口改成顶部的引擎下拉：对哪台引擎操作由使用者自己挑。
+const EDITOR_DIR = path.join(__dirname, '..', 'editor')
+
+test('流程条不许再按「第 1 步完成」上锁', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'Pipeline.jsx'), 'utf8')
+  assert.ok(!/unlockedSteps/.test(src),
+    'Pipeline 又在按 done.prepare 上锁：完成状态判错时会把人卡在第 1 步')
+  assert.ok(!/disabled-step/.test(src),
+    'Pipeline 还在渲染禁用态步骤：五步应当一律可点')
+})
+
+test('App 必须给出引擎下拉（每一步的逃生口）', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
+  const hatch = fs.readFileSync(path.join(EDITOR_DIR, 'EngineEscapeHatch.jsx'), 'utf8')
+  assert.ok(/useEngineDirs/.test(src), 'App 没接入 engines/ 目录列表')
+  // 逃生口组件才是下拉本体：App 渲染它，组件里有可切换的 <select>。
+  assert.ok(/<EngineEscapeHatch/.test(src),
+    'App 没渲染逃生口：换引擎只能靠重新克隆')
+  assert.ok(/<select[\s\S]{0,400}?onChange/.test(hatch),
+    '逃生口里没有可切换引擎的下拉：换引擎只能靠重新克隆')
 })
 
 // 这一条钉住被测文件：它不写任何具体引擎名，名字一律来自名片。

@@ -253,7 +253,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     // 名片未声明底模目录时显示「?」，不能显示成缺失。
     return {
       tone: 'unknown',
-      label: zh ? '底模 ?' : 'weights ?',
+      label: zh ? '底模？' : 'weights ?',
       title: c.reason || (zh ? '该引擎的清单未声明底模目录' : 'manifest does not declare a checkpoints dir'),
     }
   }
@@ -268,7 +268,7 @@ export function checkpointBadge(engine, lang = 'zh') {
     if (c.source.license_gate) {
       lines.push('', zh
         ? '⚠ 需先在模型主页接受许可才能下载（否则会返回 401/403，表现为网络故障）'
-        : '⚠ You must accept the license on the model page first (otherwise 401/403)')
+        : '⚠ Accept the license on the model page first (otherwise 401/403)')
     }
     if (c.source.url) lines.push((zh ? '模型主页：' : 'Model page: ') + c.source.url)
     if (Array.isArray(c.source.command)) {
@@ -284,13 +284,19 @@ export function checkpointBadge(engine, lang = 'zh') {
   }
   if (c.ready === false) {
     const n = Array.isArray(c.missing) ? c.missing.length : 0
+    // 灯面回答的是「能不能用」，所以只写「缺底模」。
+    // 缺几项、缺哪几个说的是严重程度和去哪儿补，不改变答案，也不改变动作，进悬停。
+    if (n > 0) {
+      lines.push('', (zh ? `缺 ${n} 项：` : `Missing ${n}: `)
+        + c.missing.join(zh ? '、' : ', '))
+    }
     return {
       tone: 'bad',
-      label: n > 0 ? (zh ? `底模缺 ${n} 项` : `weights: ${n} missing`) : (zh ? '底模缺失' : 'weights missing'),
+      label: zh ? '缺底模' : 'no weights',
       title: lines.join('\n'),
     }
   }
-  return { tone: 'unknown', label: zh ? '底模 ?' : 'weights ?', title: lines.join('\n') }
+  return { tone: 'unknown', label: zh ? '底模？' : 'weights ?', title: lines.join('\n') }
 }
 
 // 进程徽章。三种「未运行」分开显示：process 为 null（不管理，不显示）、
@@ -312,7 +318,7 @@ export function processBadge (engine, lang = 'zh') {
         label: zh ? '外部进程' : 'external',
         launchKey: null,
         title: zh
-          ? '该引擎正在运行，但并非由本平台启动（通常是作者在另一个窗口中手动启动）。\n' +
+          ? '该引擎正在运行，但并非由本平台启动（通常是在另一个终端中手动启动）。\n' +
             '⇒ 不会去停它，更换模型时也不会重新启动它。'
           : 'Engine is up but was not started by this app; it will not be stopped or relaunched here.',
       }
@@ -336,7 +342,7 @@ export function processBadge (engine, lang = 'zh') {
 
   if (p.phase && p.phase !== 'ready') {
     lines.push('', zh
-      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，速度更慢。'
+      ? '正在将模型载入内存，此过程可能需要数十秒至数分钟。\n不要重复点击：重复点击只会排队等待，耗时更长。'
       : 'Loading the model into memory; this can take a while. No need to click again.')
     return {
       tone: 'busy',
@@ -381,7 +387,11 @@ export function mergeProcessState (engines, fresh) {
 }
 
 // 顶栏引擎徽章，只显示最需要处理的一项：底模缺失（红，唯一的红色）> 启动中 > 合成中
-// > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停只显示底模目录和正在载入的模型。
+// > 运行中 > 待命（灰，按需启动下未运行是正常的）。悬停里放底模那一段与正在载入的模型。
+//
+// 灯面上只写状态，不写引擎名。名字在多台引擎时已经在下拉选择器里，
+// 拼成「名字 · 状态」之后这枚灯变成一句话：名字来自名片，可能长到三十几个字，
+// 一拼就把顶栏撑爆，而读起来还像两个并列的结论。名字进悬停第一行，任何状态下都查得到。
 export function engineBadge (engine, health, lang = 'zh') {
   if (!engine) return null
 
@@ -390,36 +400,32 @@ export function engineBadge (engine, health, lang = 'zh') {
   const ck = checkpointBadge(engine, lang)
   const pr = processBadge(engine, lang)
 
-  const dirLine = (() => {
-    const t = ck && ck.title ? String(ck.title) : ''
-    const m = t.match(/(?:^|\n)\s*(?:底模目录：|Checkpoints: )(.+)/)
-    if (m) return (zh ? '底模目录：' : 'Checkpoints: ') + m[1].trim()
-    return t.trim()
-  })()
+  // 底模那一段整段收进悬停，不再只挑出目录那一行：
+  // 缺几项、缺哪几个、名片写的取回命令都在里面，灯面省下的字一个都不能丢在这儿。
+  const ckText = ck && ck.title ? String(ck.title).trim() : ''
   const launching = pr && pr.launchKey
-  const title = (() => {
-    const head = dirLine || (zh ? '这台引擎的名片没写底模在哪' : 'manifest does not declare a checkpoints dir')
+  const body = (() => {
+    const head = ckText || (zh ? '该引擎的名片未声明底模目录' : 'manifest does not declare a checkpoints dir')
     return launching
       ? [head, '', (zh ? `正在装：${pr.launchKey}` : `Loading: ${pr.launchKey}`)].join('\n')
       : head
   })()
+  // 名字单独占第一行：灯面越短，这个位置越需要能一眼确认「说的是哪台」。
+  const title = `${name}\n${body}`
 
   if (ck && ck.tone === 'bad') {
-    return {
-      tone: 'bad',
-      label: `${name} · ${ck.label}`,
-      title,
-    }
+    return { tone: 'bad', label: ck.label, title }
   }
 
   if (pr) {
-    return { tone: pr.tone, label: `${name} · ${pr.label}`, title }
+    return { tone: pr.tone, label: pr.label, title }
   }
 
   // 本机不管理进程时，平台不知道引擎状态，显示中性灰色，不显示离线或红灯。
+  // 灯面上仍要有字，但只能写我们知道的那件事：这台的进程不归平台管。
   return {
     tone: 'idle',
-    label: name,
+    label: zh ? '不管理进程' : 'unmanaged',
     title,
   }
 }
@@ -458,7 +464,7 @@ export function occupancyBadge (occ, lang = 'zh') {
 
   const detail = []
   detail.push(zh
-    ? `装了 ${sum.installed} 台引擎`
+    ? `已安装 ${sum.installed} 台引擎`
     : `${sum.installed} engine(s) installed`)
   detail.push(zh
     ? (sum.running ? `${sum.running} 台运行中` : '当前无引擎在运行（按需启动）')
@@ -485,7 +491,7 @@ export function occupancyBadge (occ, lang = 'zh') {
     : `usage: ${sum.running} running`
 
   // 优先使用后端生成的 headline，避免前后端措辞不一致。
-  const title = (occ.headline || (zh ? '平台此刻占用了什么' : 'what the platform is using'))
+  const title = (occ.headline || (zh ? '平台当前占用情况' : 'what the platform is using'))
     + '\n\n' + detail.join('\n')
 
   return {

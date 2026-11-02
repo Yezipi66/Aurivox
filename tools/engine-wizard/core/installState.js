@@ -7,6 +7,9 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+// 权重落盘路径只有一处答案：core/checkpointsPath.js。
+const { checkpointsAbsPath, checkpointsRelPath } = require('./checkpointsPath')
+
 // 进度文件名。
 const INSTALL_FILE = '.wizard-install.json'
 
@@ -103,21 +106,43 @@ function manifestPresent (dir) {
   } catch (e) { return false }
 }
 
-// engines/<id>/checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
+// engines/<id>/checkpoints 下的模型文件，递归列举（含子目录）。
+// 权重不一定摊在顶层：有的引擎一层目录套一层（LLM/、BiCodec/ 各占一个子目录），
+//   只看顶层会把这类引擎判成「目录在、文件没有」。
+// 返回相对 checkpoints 的正斜杠路径；目录不存在或读不到 ⇒ 空数组。
+// 隐藏目录（.git / .cache 这类）不进去：那是下载工具的元数据，不是权重。
+function listModelFiles (root, id) {
+  const dir = checkpointsAbsPath(root, id)
+  const out = []
+  const walk = (d, rel, depth) => {
+    let entries
+    try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch (e) { return }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (e.name.startsWith('.')) continue
+        // 深度封顶是防环（循环符号链接造出的假目录树），不是业务限制：
+        //   权重目录没有深过这个的，真到了这一层说明目录结构已经不对。
+        if (depth >= 8) continue
+        walk(path.join(d, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1)
+      } else if (e.isFile()) {
+        out.push(rel ? `${rel}/${e.name}` : e.name)
+      }
+    }
+  }
+  walk(dir, '', 0)
+  return out
+}
+
+// checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
 function weightsOnDisk (root, id) {
-  const dir = path.join(root, 'engines', String(id || ''), 'checkpoints')
-  try {
-    if (!fs.existsSync(dir)) return null          // 目录都没有 ⇒ 说不出来
-    const files = fs.readdirSync(dir).filter((f) => {
-      try { return fs.statSync(path.join(dir, f)).isFile() } catch (e) { return false }
-    })
-    if (files.length === 0) return null
-    // 大小为 0 的文件也算「查过了」：确实缺了还是文件不完整，由下载那一步自己逐文件校验，
-    // 这里不重复判一遍。
-    return files.some((f) => {
-      try { return fs.statSync(path.join(dir, f)).size > 0 } catch (e) { return false }
-    })
-  } catch (e) { return null }
+  const dir = checkpointsAbsPath(root, id)
+  const files = listModelFiles(root, id)
+  if (files.length === 0) return null          // 目录都没有或一个文件都没有 ⇒ 说不出来
+  // 大小为 0 的文件也算「查过了」：确实缺了还是文件不完整，由下载那一步自己逐文件校验，
+  // 这里不重复判一遍。
+  return files.some((f) => {
+    try { return fs.statSync(path.join(dir, f)).size > 0 } catch (e) { return false }
+  })
 }
 
 /**
@@ -145,16 +170,14 @@ function installState (root, id, deps = {}) {
   const envOk = hasClone ? !!probe(id) : false
   const weights = hasClone ? weightsOnDisk(root, id) : null
   const manifestOk = hasClone ? manifestPresent(dir) : false
-  // verify 恒为 false：这一步的检测逻辑尚未实现（见 editor/StepVerify.jsx 的文件头），
-  // 而「没有实现」不能被伪装成对勾。
+  // verify 恒为 false：这一步没有对应的产物判据，未实现不能算做过。
   const verified = false
   const steps = {
     prepare: { done: hasClone, why: hasClone ? 'cloned' : 'missing' },
     env: { done: envOk, why: hasClone ? (envOk ? 'venv-spawns' : 'venv-unusable') : 'missing' },
     // models 是三态：true=齐了 · false=缺了 · null=说不出来。
-    //   done（喂给 editor/steps.js 的 stepDone）在 true 与 false 两种下都为真：
-    //   stepDone('models') 判的就是 weightsReady===true || weightsReady===false，
-    //   「确实缺了」也算查过了；null（说不出来）才不算做完。
+    //   done 在 true 与 false 两种下都为真：「确实缺了」也算查过了；
+    //   只有 null（说不出来）不算做完。
     models: {
       done: weights !== null,
       ready: weights,
@@ -165,7 +188,28 @@ function installState (root, id, deps = {}) {
   }
   const steps_done = Object.fromEntries(
     Object.entries(steps).map(([k, v]) => [k, v.done === true]))
-  return { ok: true, id, steps, steps_done, artifacts: { engineDir: dir, hasClone, envOk, weights, manifestOk } }
+  // 权重落盘的相对路径（相对项目根）：第 4 步的名片要填 runtime.checkpoints，
+  //   填的就是这个值。第 3 步写盘、第 5 步判断、第 4 步声明，三处同源。
+  const checkpointsPath = checkpointsRelPath(id)
+  // 盘上实际有哪些模型文件：第 4 步的 models.required 自动填就照这份清单
+  //   （下过什么就声明什么，不猜）。为空（没下或读不到）时前端自己会停。
+  const modelFiles = hasClone ? listModelFiles(root, id) : []
+  return {
+    ok: true,
+    id,
+    steps,
+    steps_done,
+    checkpoints_path: checkpointsPath,
+    model_files: modelFiles,
+    artifacts: {
+      engineDir: dir,
+      hasClone,
+      envOk,
+      weights,
+      manifestOk,
+      checkpointsDir: checkpointsAbsPath(root, id),
+    },
+  }
 }
 
 module.exports = {
@@ -178,4 +222,5 @@ module.exports = {
   dirHasContent,
   manifestPresent,
   weightsOnDisk,
+  listModelFiles,
 }

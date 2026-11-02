@@ -1,0 +1,288 @@
+'use strict'
+
+// 根 venv 的健康检查判据：能不能跑 且 base 是不是当前内嵌解释器。
+//
+// 背景（docs/ONBOARDING_PLAN.md A22）：平台根 venv 被外部工具换成了 CPython 3.14.7，
+// 它照样能跑，于是旧的健康检查说「already exists and works」。
+// 而 tools/wheels 里的 jieba_fast 轮子只认 cp311 ⇒ 训练线装不上。
+// 所以判据加了第二道：base 必须是内嵌解释器。
+
+const { test } = require('node:test')
+const assert = require('node:assert')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+
+const ROOT = path.resolve(__dirname, '..', '..')
+const { venvBaseMatches, inspectExistingVenv, sameInterpreterPath } = require('./bootstrap.js')
+const { canSpawnPython, askPathForAbsolute } = require(path.join(ROOT, 'lib', 'util', 'pythonResolve.js'))
+
+/**
+ * 找一个真的能按绝对路径跑起来的解释器，当这条文件的正样本。
+ *
+ * 不用固定那一个：仓库内嵌解释器是很大的二进制，不进版本库，
+ * 干净检出与 CI 上都没有它。拿它当唯一正样本，这组守卫在 CI 上恒红，
+ * 而它守的东西（base 是不是这个解释器）与「是哪一个解释器」无关。
+ * 候选顺序与 lib/util/pythonResolve.js 的 projectPythonCandidates 一致。
+ */
+function positivePython () {
+  const candidates = [
+    path.join(ROOT, 'tools', 'runtime', 'python', 'python.exe'),
+    path.join(ROOT, 'tools', 'runtime', 'python', 'bin', 'python3'),
+    path.join(ROOT, 'venv', 'Scripts', 'python.exe'),
+    path.join(ROOT, 'venv', 'bin', 'python'),
+  ]
+  for (const name of ['python3', 'python']) {
+    const abs = askPathForAbsolute(name)
+    if (abs) candidates.push(abs)
+  }
+  for (const c of candidates) {
+    if (canSpawnPython(c)) return c
+  }
+  return null
+}
+
+/** 造一个只有 pyvenv.cfg 的假 venv 目录 */
+function makeCfg (dir, executable) {
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'pyvenv.cfg'),
+    'home = ' + path.dirname(executable) + '\n'
+    + 'include-system-site-packages = false\n'
+    + 'version = 3.11.9\n'
+    + 'executable = ' + executable + '\n',
+    'utf8')
+  return dir
+}
+
+/**
+ * venv 里的解释器叫什么。
+ *
+ * 问 Python 自己，不按 platform 猜：venv 库建目录时用的是它自己的 sys.platform
+ * （CPython 的 venv 模块按 sys.platform 选 Scripts 还是 bin），
+ * 与 JS 层的 process.platform 不是一回事。
+ * 问错布局 ⇒ 找不到解释器 ⇒ 那几条测试变成在验「路径猜对没有」，
+ * 而它们要验的是「base 判据对不对」。
+ *
+ * 做法是真的建一个临时 venv，让 Python 报出里面那个可执行文件的路径
+ * （sys.executable 在 venv 里指向 venv 自己的解释器）：
+ * 布局由 Python 自己定，两边平台都对得上。
+ * sysconfig 的 scheme 名在两个平台上不统一（Windows 是 Scripts，
+ * posix 是 bin），从建出来的 venv 里读最省事，也不必猜哪个变量是准的。
+ *
+ * 问一次就够：同一个解释器建出来的 venv 布局一样 ⇒ 结果缓存起来。
+ *
+ * @param {string} python 建 venv 用的解释器
+ * @param {string} venvDir venv 目录（用来拼出该 venv 里解释器的位置）
+ * @returns {string|null} venv 里的解释器绝对路径；问不出来 ⇒ null
+ */
+const venvLayoutCache = new Map()
+function venvInterpreterPath (python, venvDir) {
+  let rel = venvLayoutCache.get(python)
+  if (rel === undefined) {
+    const { spawnSync } = require('node:child_process')
+    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-venvlayout-'))
+    const probe = path.join(probeDir, 'probe')
+    try {
+      const build = spawnSync(python, ['-m', 'venv', probe], { encoding: 'utf8', timeout: 180000 })
+      if (build.status !== 0) {
+        venvLayoutCache.set(python, null)
+        return null
+      }
+      // 在这个 venv 里跑 ⇒ sys.executable 就是这个 venv 自己的解释器
+      let got = ''
+      for (const exe of [path.join(probe, 'bin', 'python'), path.join(probe, 'Scripts', 'python.exe')]) {
+        const ask = spawnSync(exe, ['-c', 'import sys;print(sys.executable)'], {
+          encoding: 'utf8', timeout: 60000,
+        })
+        if (ask.status === 0) {
+          got = (ask.stdout || '').trim()
+          if (got) break
+        }
+      }
+      if (!got) {
+        venvLayoutCache.set(python, null)
+        return null
+      }
+      // 探针 venv 与目标 venv 同布局 ⇒ 只留相对位置
+      rel = path.relative(probe, got)
+      if (!rel || rel.startsWith('..')) rel = null
+    } finally {
+      fs.rmSync(probeDir, { recursive: true, force: true })
+    }
+    venvLayoutCache.set(python, rel)
+  }
+  if (!rel) return null
+  return path.join(venvDir, rel)
+}
+
+function tmpDir (name) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-venvchk-' + name + '-'))
+}
+
+test('正样本：找一个能按绝对路径跑起来的解释器', () => {
+  const py = positivePython()
+  assert.ok(py,
+    '一个能用的解释器都找不到：内嵌解释器、平台根 venv、PATH 上的 python 都没有')
+})
+
+test('base 就是这个解释器 ⇒ 通过', () => {
+  const py = positivePython()
+  const dir = makeCfg(tmpDir('ok'), py)
+  const r = venvBaseMatches(dir, py)
+  assert.strictEqual(r.ok, true, `应通过，实际 ${r.reason}`)
+  assert.strictEqual(r.reason, 'base-matches')
+})
+
+test('base 是别的解释器 ⇒ 不通过，并说清 base 是谁', () => {
+  const py = positivePython()
+  const dir = makeCfg(tmpDir('diff'), 'C:\\somewhere\\else\\python.exe')
+  const r = venvBaseMatches(dir, py)
+  assert.strictEqual(r.ok, false, 'base 不同就该不通过')
+  assert.strictEqual(r.reason, 'base-differs')
+  assert.ok(r.base && r.base.includes('else'), '要报出 base 是谁')
+})
+
+test('pyvenv.cfg 读不到 ⇒ 不通过（不能当成健康）', () => {
+  const py = positivePython()
+  const dir = tmpDir('nocfg')
+  const r = venvBaseMatches(dir, py)
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.reason, 'no-base-in-pyvenv-cfg')
+})
+
+test('pyvenv.cfg 里没有 executable 那一行 ⇒ 不通过', () => {
+  const py = positivePython()
+  const dir = tmpDir('noexe')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'pyvenv.cfg'), 'home = C:\\x\nversion = 3.11.9\n', 'utf8')
+  const r = venvBaseMatches(dir, py)
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.reason, 'no-base-in-pyvenv-cfg')
+})
+
+test('base 路径大小写不同：Windows 上算同一个，posix 上算不同', () => {
+  // Windows 的文件系统不区分大小写，`C:\Python\python.exe` 与
+  // `c:\python\python.exe` 是同一个文件 ⇒ 不能误判成「base 不是它」。
+  // posix 的文件系统区分大小写 ⇒ 那两条路径是两个不同的东西
+  // （而且大写那个通常压根不存在）⇒ 判否才是对的。
+  // 把 Windows 的归一规则套到 posix 上，会把「不是同一个文件」判成「是」
+  // ⇒ 坏掉的 venv 被当成好的。
+  const py = positivePython()
+  const dir = makeCfg(tmpDir('case'), py.toUpperCase())
+  const r = venvBaseMatches(dir, py)
+  if (process.platform === 'win32') {
+    assert.strictEqual(r.ok, true, 'Windows 上路径不区分大小写，不该误判')
+  } else {
+    assert.strictEqual(r.ok, false, 'posix 上路径区分大小写，大写那个是另一个东西')
+    assert.strictEqual(r.reason, 'base-differs')
+  }
+})
+
+test('解释器缺失 ⇒ 不通过', () => {
+  const py = positivePython()
+  const dir = tmpDir('nointerp')
+  const r = inspectExistingVenv(dir, path.join(dir, 'Scripts', 'python.exe'), py)
+  assert.strictEqual(r.ok, false)
+  assert.strictEqual(r.reason, 'no-interpreter')
+})
+
+test('解释器能跑但 base 不是这个解释器 ⇒ 不通过（这是 3.14 那个场景）', () => {
+  // 真的建一个能跑的 venv，但它的 base 指向别处
+  const py = positivePython()
+  const dir = path.join(tmpDir('livewrong'), '.venv')
+  const { spawnSync } = require('node:child_process')
+  const r = spawnSync(py, ['-m', 'venv', dir], { encoding: 'utf8', timeout: 180000 })
+  assert.strictEqual(r.status, 0, '造不出测试用的 venv')
+  // 把 pyvenv.cfg 的 base 改掉，模拟「外部工具换过 Python」
+  const cfgPath = path.join(dir, 'pyvenv.cfg')
+  const cfg = fs.readFileSync(cfgPath, 'utf8')
+    .replace(/^executable\s*=.*$/m, 'executable = C:\\other\\python.exe')
+  fs.writeFileSync(cfgPath, cfg, 'utf8')
+  const vpy = venvInterpreterPath(py, dir)
+  assert.ok(vpy, '问不出 venv 里的解释器叫什么')
+  const rr = inspectExistingVenv(dir, vpy, py)
+  assert.strictEqual(rr.ok, false, 'base 不对就必须重建，哪怕解释器能跑')
+  assert.strictEqual(rr.reason, 'base-differs')
+})
+
+test('解释器能跑且 base 是这个解释器 ⇒ 通过', () => {
+  const py = positivePython()
+  const dir = path.join(tmpDir('liveok'), '.venv')
+  const { spawnSync } = require('node:child_process')
+  const r = spawnSync(py, ['-m', 'venv', dir], { encoding: 'utf8', timeout: 180000 })
+  assert.strictEqual(r.status, 0, '造不出测试用的 venv')
+  const vpy = venvInterpreterPath(py, dir)
+  assert.ok(vpy, '问不出 venv 里的解释器叫什么')
+  const rr = inspectExistingVenv(dir, vpy, py)
+  assert.strictEqual(rr.ok, true, `应通过，实际 ${rr.reason}`)
+})
+
+// ------------------------------------------------------------------
+// 路径比较这一层：symlink 与真身算同一个
+// ------------------------------------------------------------------
+
+test('base 是指向同一个文件的 symlink ⇒ 算同一个解释器', () => {
+  // 这条是 posix 上的真实形状：CPython 建 venv 时往 pyvenv.cfg 里写的是
+  // `os.path.realpath(sys.executable)`（Lib/venv/__init__.py 的
+  // create_configuration），symlink 已经被解析掉了。
+  // 于是 base 记的是真身路径，与「建它时用的那个入口路径」字符串不同，
+  // 但指向同一个文件 ⇒ 不能判成「base 不是它」。
+  // 只比字符串的话，posix 上根 venv 每次都被判不健康 ⇒ bootstrap 每次重建。
+  //
+  // 夹具用「链接一个目录」而不是「链接解释器文件」：
+  // 建文件级 symlink 在 Windows 上要管理员权限（EPERM），目录级 junction 不要。
+  // 链接类型不按平台挑而是逐个试：哪种能成就用哪种
+  // （junction 只在 Windows 上有效，posix 上普通目录 symlink 免权限）。
+  const py = positivePython()
+  const d = tmpDir('link')
+  const linkDir = path.join(d, 'linked-python-dir')
+  let linked = false
+  let lastErr = null
+  for (const type of ['junction', 'dir']) {
+    try {
+      fs.symlinkSync(path.dirname(py), linkDir, type)
+      linked = true
+      break
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  if (!linked) {
+    // 建不出链接的机器上这条验不了，但不许假装通过。
+    assert.fail(`造不出目录链接：${lastErr && lastErr.message}`)
+  }
+  const linkedPy = path.join(linkDir, path.basename(py))
+  assert.strictEqual(fs.existsSync(linkedPy), true, '链接里的解释器要能访问')
+  assert.notStrictEqual(path.resolve(linkedPy), path.resolve(py),
+    '两条路径的字符串要不同（否则这条验不到 realpath 这一层）')
+  assert.strictEqual(sameInterpreterPath(linkedPy, py), true,
+    '链接路径与它的真身是同一个解释器')
+  // 走完整的判据，验的是 posix 上的真实形状：
+  //   传进来的解释器是链接路径（venv 的 bin/python 就是这种），
+  //   base 记的却是真身路径（CPython 写的是 realpath(sys.executable)）。
+  //   两个字符串不同，但指向同一个文件 ⇒ 判据要通过。
+  // 只比字符串的话这里会判否 ⇒ posix 上根 venv 每次都被判不健康。
+  const dir = makeCfg(tmpDir('linkcfg'), fs.realpathSync.native(py))
+  const r = venvBaseMatches(dir, linkedPy)
+  assert.strictEqual(r.ok, true, `应通过，实际 ${r.reason}`)
+})
+
+test('路径不存在时按绝对路径比 ⇒ 不同的路径仍判否', () => {
+  const d = tmpDir('gone')
+  const missing = path.join(d, 'no-such-python')
+  assert.strictEqual(sameInterpreterPath(missing, path.join(d, 'other')), false)
+})
+
+test('大小写不同的路径：只有 Windows 上算同一个', () => {
+  // 这条直接验路径比较这一层，不经过 pyvenv.cfg。
+  // posix 的文件系统区分大小写，大写那个路径不存在 ⇒ 判否。
+  // Windows 的文件系统不区分大小写 ⇒ 那个大写路径就是同一个文件 ⇒ 判是。
+  const py = positivePython()
+  const upper = py.toUpperCase()
+  const same = sameInterpreterPath(upper, py)
+  if (process.platform === 'win32') {
+    assert.strictEqual(same, true, 'Windows 上大小写不同的两条路径是同一个文件')
+  } else {
+    assert.strictEqual(same, false, 'posix 上大小写不同的两条路径不是同一个文件')
+  }
+})

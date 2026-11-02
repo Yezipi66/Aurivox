@@ -199,7 +199,7 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
           {cur.map((v, i) => (
             <div key={i}>
               {labels[i] !== undefined && (
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>
+                <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 2 }}>
                   {choiceLabel({ value: i, label: labels[i] }, lang)}
                 </div>
               )}

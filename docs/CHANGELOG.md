@@ -5,7 +5,7 @@
 ## v1.0.8（待重新标记）
 
 > ⚠ **为什么还挂着「待重新标记」**：1.0.8 是内部稳定化版本，按
-> [`docs/internal/INTERNAL-1.0.8-STABILIZATION.md`](./internal/INTERNAL-1.0.8-STABILIZATION.md)
+> [`docs/archive/INTERNAL-1.0.8-STABILIZATION.md`](./archive/INTERNAL-1.0.8-STABILIZATION.md)
 > 的 release gate，要等验收门槛过了才打 tag。最新正式 tag 仍是 `v1.0.7`。
 > ⛔ 未过 gate 之前不合并 `main`、不 push `main`、不 release。
 

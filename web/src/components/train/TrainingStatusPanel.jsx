@@ -29,7 +29,7 @@ export function TrainingStatusPanel({
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>
+        <span style={{ fontSize: 'var(--fs-14)', fontWeight: 600 }}>
           {status.status === 'completed' ? tr('Completed', '已完成')
            : status.status === 'failed' ? tr('Failed', '失败')
            : status.status === 'cancelled' ? tr('Cancelled', '已取消')
@@ -48,7 +48,7 @@ export function TrainingStatusPanel({
       )}
       {isAwaitingReview && status?.reviewStage !== 'denoise' && status?.reviewStage !== 'asr' && (
         <div className="msg msg-warn" style={{ margin: '8px 0' }}>
-          {tr('Paused for review. If this looks stuck, your web build is stale — rebuild the frontend (npm run build) so the audition/proofreading panel loads.',
+          {tr('Paused for review. If this looks stuck, the web build is stale — rebuild the frontend (npm run build) so the audition/proofreading panel loads.',
               '已暂停等待校对。若卡住无法继续，说明前端构建是旧的：请重新构建前端（npm run build）以加载试听/校对面板。')}
         </div>
       )}

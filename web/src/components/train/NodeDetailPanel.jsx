@@ -71,7 +71,7 @@ export function NodeDetailPanel({
           <input type="checkbox" checked={form.copyRaw} onChange={e => toggleCopyRaw(e.target.checked)} />
           {tr('Copy raw audio into the asset (keep originals as reference)', '将原始音频复制进资源（保留原始文件作为参考）')}
         </label>
-        <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: -2, marginBottom: 8 }}>
+        <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: -2, marginBottom: 8 }}>
           {tr(
             <>At least one kind of reference audio is required: slicing or copied raw.
             Turning off “Copy raw” forces slicing on, and vice versa (otherwise the asset
@@ -115,7 +115,7 @@ export function NodeDetailPanel({
         </label>
         {form.trainS1 !== false
           ? <TrainParamFields form={form} setField={setField} part="s1" />
-          : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S1 (GPT) fine-tuning is turned off — this step will be skipped.', 'S1 (GPT) 微调已关闭：此步骤将被跳过。')}</p>}
+          : <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{tr('S1 (GPT) fine-tuning is turned off — this step will be skipped.', 'S1 (GPT) 微调已关闭：此步骤将被跳过。')}</p>}
       </>
     );
   } else if (selectedNode === 'train_s2') {
@@ -127,30 +127,30 @@ export function NodeDetailPanel({
         </label>
         {form.trainS2 !== false
           ? <TrainParamFields form={form} setField={setField} part="s2" versionMode="multi" />
-          : <p style={{ fontSize: 11, color: 'var(--muted)' }}>{tr('S2 (SoVITS) fine-tuning is turned off — this step will be skipped.', 'S2 (SoVITS) 微调已关闭：此步骤将被跳过。')}</p>}
+          : <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{tr('S2 (SoVITS) fine-tuning is turned off — this step will be skipped.', 'S2 (SoVITS) 微调已关闭：此步骤将被跳过。')}</p>}
       </>
     );
   } else if (selectedNode === 'preprocess') {
     body = (
       <>
-        <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('Extracts text tokens and audio features required for training.', '提取训练所需的文本 token 与音频特征。')}</p>
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('Extracts text tokens and audio features required for training.', '提取训练所需的文本 token 与音频特征。')}</p>
         <label className="toggle-row" style={{ marginTop: 8 }}>
           <input type="checkbox" checked={form.preprocessReview !== false && form.preprocessReview}
                  onChange={e => setField('preprocessReview', e.target.checked)} />
           {tr('Pause after ASR for manual proofreading', 'ASR 之后暂停以进行人工校对')}
         </label>
         <p className="field-hint" style={{ marginTop: 4 }}>
-          {tr('When enabled the pipeline stops right after transcription so you can correct the recognised text and pronunciation before preprocessing/training continue.',
+          {tr('When enabled the pipeline stops right after transcription so the recognised text and pronunciation can be corrected before preprocessing/training continue.',
               '启用后，流程会在转写完成后立即停止，以便在继续预处理 / 训练之前修正识别出的文本和读音。')}
         </p>
       </>
     );
   } else if (selectedNode === 'finalize') {
-    body = <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.', '将训练好的 checkpoint 与参考音频打包成一个音色资源。无需配置。')}</p>;
+    body = <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('Packages the trained checkpoints and reference audio into a voice asset. No configuration needed.', '将训练好的 checkpoint 与参考音频打包成一个音色资源。无需配置。')}</p>;
   } else if (selectedNode === 'promote') {
     body = (
       <>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{tr(
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 12 }}>{tr(
           <>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page.</>,
           <>将完成的音色发布到 <code>assets/</code>，使其可在 Generate 页面中选择。</>)}</p>
         <label className="toggle-row">
@@ -162,17 +162,17 @@ export function NodeDetailPanel({
           {tr(
             <>By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
             intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
-            the voice is published, since the finished asset no longer needs it. Enable this only when you
-            want to <strong>keep</strong> those intermediates for inspection or debugging. It will
-            count against your disk space.</>,
+            the voice is published, since the finished asset no longer needs it. Enable this only to
+            <strong>keep</strong> those intermediates for inspection or debugging. It will
+            count against the available disk space.</>,
             <>默认情况下，本任务的暂存工作区（<code>.staging/&lt;taskId&gt;</code>，内含中间预处理特征与 checkpoint）
             会在音色发布后被<strong>永久删除</strong>，因为完成的资源已不再需要它。只有想<strong>保留</strong>
             这些中间产物用于检查或调试时才开启。它会占用磁盘空间。</>)}
         </p>
         <p className="field-hint">
           {tr(
-            <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so you
-            can inspect it. Delete it later from the Train page&rsquo;s cache manager when you no longer need it.</>,
+            <>The retained workspace is <strong>never</strong> reused by later tasks — it lives only so it
+            can be inspected. Delete it later from the Train page&rsquo;s cache manager when no longer needed.</>,
             <>保留的工作区<strong>绝不会</strong>被后续任务复用：仅供检查之用。不再需要时，可在 Train 页面的缓存管理器中删除。</>)}
         </p>
       </>

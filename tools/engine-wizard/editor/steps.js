@@ -27,8 +27,8 @@ export const STEPS = [
     key: 'models',
     n: 3,
     label: ['Download models', '下载模型'],
-    does: ['列出上游项目自带的下载方式与存放位置，勾选后点「下载」即可。下载在后台进行，可随时进入下一步。',
-        '列出上游项目自带的下载方式与存放位置，勾选后点「下载」即可。下载在后台进行，可随时进入下一步。'],
+    does: ['列出上游项目附带的下载方式与存放位置，勾选后点击「下载」即可。下载在后台进行，可随时进入下一步。',
+        '列出上游项目附带的下载方式与存放位置，勾选后点击「下载」即可。下载在后台进行，可随时进入下一步。'],
     parallelWith: 'manifest',
   },
   {
@@ -51,24 +51,24 @@ export const STEPS = [
 
 /**
  * 某一步做完没有。判据是真实产物，不是「用户点过下一步」。
- * facts 是各步的产物状态（见下面各 case 用到的字段），没做完返回 false。
+ * facts 的键与 core/installState.js 的 steps 逐字相同：prepare / env / models /
+ * manifest / verify。那个函数读盘上的真实产物（目录、解释器、权重、名片），
+ * 这里只按它的结论判，不自己再判一次。
  */
 export function stepDone (stepKey, facts = {}) {
   switch (stepKey) {
     case 'prepare':
-      // 只解析出 id 不算做完，得真克隆了才算。
-      // 这一步含解析 / 探测 / 确认 / 克隆，只解析出 id 时停在「可以 clone，但还没 clone」。
-      return facts.cloned === true
+      return facts.prepare === true
     case 'env':
-      return facts.envBuilt === true
+      return facts.env === true
     case 'models':
-      // ready 为 null（说不出来）时不算做完：那是需要补名片的信号，
-      // 不是一条可以放过的结论。
-      return facts.weightsReady === true || facts.weightsReady === false
+      // 后端在三态上给了 done：齐了与缺了都算「查过了」，只有说不出来不算。
+      //   「确实缺了」是需要补名片的信号，不是一条可以放过的结论。
+      return facts.models === true
     case 'manifest':
-      return facts.manifestSaved === true
+      return facts.manifest === true
     case 'verify':
-      return facts.verified === true
+      return facts.verify === true
     default:
       return false
   }
@@ -117,18 +117,6 @@ export function lanes (done = {}) {
 export function currentStep (done = {}) {
   for (const st of STEPS) if (!done[st.key]) return st.key
   return null
-}
-
-/**
- * 步骤在流程条上的状态：pending / running / completed / failed。
- * o 是 { done, running, failed } 三个步骤键；skipped 不由这里产生。
- */
-export function nodeStatus (stepKey, o = {}) {
-  const done = o.done || {}
-  if (o.running === stepKey) return 'running'
-  if (o.failed === stepKey) return 'failed'
-  if (done[stepKey]) return 'completed'
-  return 'pending'
 }
 
 /**
@@ -196,7 +184,7 @@ export function canStart (stepKey, s = {}) {
     return { ok: false,
       reason: st2.missing.length
         ? `还差：${st2.missing.join('、')}`
-        : 'Manifest 里还没写 install.env_command' }
+        : 'Manifest 中未声明 install.env_command' }
   }
   return { ok: true }
 }

@@ -1,20 +1,62 @@
+// 名片编辑页：左欄参数池、中欄表单、右侧预览。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ManifestForm from './ManifestForm'
-import SaveBar from './SaveBar'
 import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
+import Stage from './Stage'
+import EngineScanZone from './EngineScanZone'
+import EngineIdentity from './EngineIdentity'
+import { computeAutoFill } from './scanAutofill'
 
-// 名片编辑页：左表单右实时预览，SaveBar 跨两栏吸底常驻。
-// 布局用项目现成的 .workspace-grid > .workspace-left + .workspace-right，
-// 视图切换用 .ref-tabs + .ref-tab(.active)，不另造类名。
-// 窄屏下 .workspace-right 的 sticky 由项目自己降级成单列。
+// 名片编辑页：左边条、中栏、右边条，三根平级的骨头，铺满整个页面宽度。
+//
+// 左边条里是扫到的参数，中栏是当前名片内容，右边条里是当前项目的前端预览。
+// 左右两根边条默认收成 32px 的窄边，只露一个方向箭头；点一下滑出成抽屉，
+// 两根边条都 sticky 在视口里，跟着页面滚动。右边条还能放大到平台前端的宽度。
+// 中栏内容对齐平台的大容器（max-width 1400px）。
+//
+// 没有吸底的存盘栏：选引擎 / 扫描或读取 / 保存都在中栏顶部的身份条上。
+//
+// 视图切换（填表 / JSON）留在中栏里：JSON 是名片的同一份内容的另一种写法，
+// 不是第四栏。切到 JSON 时中栏的内容换掉，左栏与右栏不动。
+//
+// 扫描状态在这一层持有：左栏要显示扫到的参数，中栏要显示自动填的结果，
+// 右栏要跟着名片的每一次改动实时更新。三者共用一份名片，改一处三处同步。
 
 export default function ManifestPage ({
-  manifest, spec, text, err, setText, onManifest, diag, loading, onSaved,
+  manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
+  modelFiles, engineState, onPickEngineTarget,
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
+  // 哪边的抽屉开着。默认两边都收着：
+  //   第 4 步进来时左边还没扫过参数、右边还没选引擎，
+  //   两个空盒子摆在首屏上只是噪音。点边条上的箭头才滑出来。
+  const [drawer, setDrawer] = React.useState({ left: false, right: false })
+  const toggleDrawer = (key) => setDrawer((prev) => ({ ...prev, [key]: !prev[key] }))
+
+  // ---- 扫描状态 ----
+  const [scan, setScan] = React.useState(null)       // /wizard/discover 的完整返回
+  const [group, setGroup] = React.useState('')        // 当前分组
+  const [busy, setBusy] = React.useState(false)       // 扫描中
+  const [scanErr, setScanErr] = React.useState(null)  // 扫描错误
+  const [selected, setSelected] = React.useState(null) // 左栏选中的参数
+  const [autofill, setAutofill] = React.useState(null) // 扫描认出的槽位与候选
+  // 拖进来时类型是猜的那些参数名：中栏那一行的类型下拉标黄，提醒人确认。
+  //   只是界面状态，不写进名片。
+  const [guessed, setGuessed] = React.useState(() => new Set())
+
+  // 换引擎：上一台的扫描结果全部作废。
+  const engineKey = (manifest && manifest.id) || ''
+  React.useEffect(() => {
+    setScan(null); setGroup(''); setSelected(null); setAutofill(null); setScanErr(null)
+    setGuessed(new Set())
+  }, [engineKey])
+
+  // 扫描到的参数按当前分组过滤。没有分组时给全部。
+  const scanned = (scan && scan.params) || []
+  const params = group ? scanned.filter((p) => p.group === group) : scanned
 
   // text 是 manifest 的纯派生：只有「切进 JSON 视图」这一刻现算，
   //   之后就是用户手里的编辑缓冲。
@@ -27,74 +69,170 @@ export default function ManifestPage ({
     setView(v)
   }
 
+  // 扫描：调 /wizard/discover 自动探测形态，扫出参数表，
+  // 同时把能对应的填进名片 call 段。
+  //
+  // 已有名片的引擎：自动填只填空缺，不覆盖名片里已有的内容。
+  // 名片里原有的 call.args 原样保留，扫到的参数只是列在左栏让用户自己挑。
+  // 扫描要跨一次 await：回来时用这个读最新名片，不用闭包里点按钮那一刻的旧值。
+  const latestManifest = React.useRef(manifest)
+  latestManifest.current = manifest
+  const doScan = async () => {
+    const id = (manifest && manifest.id) || ''
+    if (!id) return
+    setBusy(true); setScanErr(null)
+    try {
+      const r = await fetch('/wizard/discover', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      const j = await r.json()
+      if (!j.ok) { setScanErr(j.error || `HTTP ${r.status}`); return }
+      setScan(j)
+      // 扫到了就把左边条打开：参数是这一步接下来要拖的东西。
+      setDrawer((prev) => ({ ...prev, left: true }))
+      const inferGroups = (j.groups || []).filter((s) => /synth|infer|tts|generate|call/i.test(s))
+      const picked = inferGroups[0] || (j.groups || [])[0] || ''
+      setGroup(picked)
+      const pickedParams = (j.params || []).filter((p) => !picked || p.group === picked)
+      // 反射器剔掉的 bind 槽位候选（text / output_path / output_dir）：不在 params 里，
+      //   但认 call.bind 的槽位靠的就是这些名字。传进去，output_path 才填得出来。
+      const bindCands = j.bind_candidates || []
+      // 扫描回来时名片可能已经变了（等结果期间的代填、使用者的编辑）：
+      //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
+      const latest = latestManifest.current || {}
+      if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands)
+      if (result) {
+        onManifest((cur) => {
+          const base = cur || {}
+          if ((base.id || '') !== id) return cur
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands) || result
+          const next = { ...base, call: merged.call }
+          if (!next.label && id) next.label = id
+          if (next.contract_version === undefined) next.contract_version = 2
+          return next
+        })
+        setAutofill({ matched: result.matched, argList: result.argList })
+      } else {
+        setAutofill({ matched: null, argList: [] })
+      }
+    } catch (e) { setScanErr(e.message) } finally { setBusy(false) }
+  }
+
+  // 拖进来一个参数：类型是猜的就记下来，中栏那一行要提醒确认。
+  const onParamDropped = (param, name) => {
+    if (!param || !name) return
+    setGuessed((prev) => {
+      const next = new Set(prev)
+      if (param.kind_certain) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+  const onTypeConfirmed = (name) => {
+    setGuessed((prev) => { const next = new Set(prev); next.delete(name); return next })
+  }
+
+  // 左栏拖拽开始：把参数放进 dataTransfer，中栏的落点读它。
+  const onDragStart = (e, param) => {
+    e.dataTransfer.setData('text/plain', JSON.stringify(param))
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
   return (
-    // SaveBar 用内联 sticky 定位，一次性布局定位是样式铁律允许的唯一 inline 场景。
-    <div className="workspace-grid">
-      <div className="workspace-left">
-        <div className="ref-tabs">
-          <button type="button"
-            className={`ref-tab${view === 'form' ? ' active' : ''}`}
-            onClick={() => switchTo('form')}>
-            {t('Form', '填表')}
-          </button>
-          <button type="button"
-            className={`ref-tab${view === 'json' ? ' active' : ''}`}
-            onClick={() => switchTo('json')}>
-            JSON
-          </button>
-        </div>
+    // 容器用 .wz-manifest-layout（editor.css），不用项目的 .workspace-grid：
+    // .workspace-grid 自己就是两列 grid（minmax(0,1fr) 380px），
+    // 三栏容器放进去会被塞进它的第一列 ⇒ 中栏只剩 958px 里的 302px，
+    // 剩下那一大片是右栏的空位。三个栏自己排版，不需要外层再来一列。
+    <div className="wz-manifest-layout">
+      <Stage
+        open={drawer}
+        onToggle={toggleDrawer}
+        left={
+          <EngineScanZone
+            params={params} selected={selected}
+            onSelect={setSelected} onDragStart={onDragStart}
+            groups={(scan && scan.groups) || []} group={group}
+            onGroupChange={setGroup}
+            busy={busy} err={scanErr} />
+        }
+        center={
+          <div className="wz-stage-main-inner wz-stack">
+            {/* 身份条在最上面：选引擎、扫描或读取、路径、保存，一行说完。 */}
+            <EngineIdentity
+              manifest={manifest || {}} onChange={onManifest}
+              facts={engineState}
+              onScan={doScan} scanBusy={busy} scanned={!!scan}
+              diag={diag} onSaved={onSaved}
+              onEngineTarget={onPickEngineTarget}
+              viewSwitch={
+                <div className="wz-view-switch">
+                  <button type="button"
+                    className={`chip${view === 'form' ? ' chip-on' : ''}`}
+                    onClick={() => switchTo('form')}>
+                    {t('Form', '填表')}
+                  </button>
+                  <button type="button"
+                    className={`chip${view === 'json' ? ' chip-on' : ''}`}
+                    onClick={() => switchTo('json')}>
+                    JSON
+                  </button>
+                </div>
+              } />
 
-        {view === 'form'
-          ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest} />
-          : (
-            // JSON 逃生口直接用项目的 `textarea.control`。
-            // text 为 null（还没切进来过）时用 manifest 现算兜底，
-            //   React 的 value={null} 是非受控输入，切视图时会闪。
-            <textarea className="control" style={{ minHeight: 320 }}
-              value={text ?? JSON.stringify(manifest || {}, null, 2)}
-              onChange={(e) => setText(e.target.value)} />
+            {view === 'form'
+              ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest}
+                checkpointsPath={checkpointsPath}
+                modelFiles={modelFiles}
+                autofill={autofill} selectedParam={selected}
+                guessed={guessed} onParamDropped={onParamDropped}
+                onTypeConfirmed={onTypeConfirmed} />
+              : (
+                // JSON 逃生口直接用项目的 textarea.control。
+                // text 为 null（还没切进来过）时用 manifest 现算兜底，
+                //   React 的 value={null} 是非受控输入，切视图时会闪。
+                <textarea className="control" style={{ minHeight: 320 }}
+                  value={text ?? JSON.stringify(manifest || {}, null, 2)}
+                  onChange={(e) => setText(e.target.value)} />
+                )}
+
+            {err && view === 'json' && (
+              <div className="msg msg-danger">{err}</div>
             )}
+          </div>
+        }
+        right={
+          <div className="wz-drawer-stack">
+            {/* 预览在前：右边条是「当前项目的前端预览」这一栏，
+                诊断是附带的说明，不该把首屏占住。 */}
+            {manifest
+              ? <PanelPreview manifest={manifest} />
+              : (
+                // 还没选引擎时右边条是空的。空的时候画一个空态就够了，
+                // 不必再套一层带栏头的 .section：
+                // 边条自己就是这栏的入口，栏头里的收起按钮是多余的。
+                <div className="section">
+                  <div className="section-body">
+                    <div className="empty-state">
+                      <div className="es-title">
+                        {t('Nothing to preview yet', '暂无可预览的内容')}
+                      </div>
+                      <div className="es-sub">
+                        {t('Pick an engine to see the preview.',
+                          '选一台引擎，这里会实时显示界面。')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                )}
+            {/* props 名必须是 result：组件签名是 ({ result, loading })，
+                 传成 diag= 的话诊断面板永远不显示 */}
+            <Diagnostics result={diag} loading={loading} />
+          </div>
+        } />
 
-        {err && view === 'json' && (
-          <div className="msg msg-danger">{err}</div>
-        )}
-      </div>
-
-      <div className="workspace-right">
-        {/* props 名必须是 result：组件签名是 ({ result, loading })，
-             传成 diag= 的话诊断面板永远不显示 */}
-        <Diagnostics result={diag} loading={loading} />
-        {manifest
-          ? <PanelPreview manifest={manifest} />
-          : (
-            <div className="empty-state">
-              <div className="es-title">
-                {t('Nothing to preview yet', '还没有可预览的内容')}
-              </div>
-              <div className="es-sub">
-                {t('Fill in the form on the left to see the preview.',
-                  '在左侧填表，右侧会实时显示界面。')}
-              </div>
-            </div>
-            )}
-      </div>
-
-      {/* SaveBar：跨左右两栏 sticky bottom，永远可见。
-          跨两栏做法：sticky 容器放在 workspace-grid 之后、独立成行，
-            position:sticky + bottom:0 ⇒ 滚动到底部时吸底常驻。
-          不放进左栏或右栏内部：那会让它只跟着那一栏滚。 */}
-      <div style={{
-        gridColumn: '1 / -1',
-        position: 'sticky',
-        bottom: 0,
-        zIndex: 5,
-        background: 'var(--panel)',
-        borderTop: '1px solid var(--border)',
-        padding: '8px 0',
-        marginTop: 4,
-      }}>
-        <SaveBar manifest={manifest || {}} diag={diag} onSaved={onSaved} />
-      </div>
     </div>
   )
 }

@@ -42,7 +42,7 @@ export function TrainingPresetPicker({ form, applyPreset, onSaveAsNew, onUpdate,
           )}
         </div>
         <p className="field-hint">{isSavedTP
-          ? tr(`Saved preset “${savedTPName}”. Edit any parameter below, then Update to save your changes back to it.`,
+          ? tr(`Saved preset “${savedTPName}”. Edit any parameter below, then Update to save the changes back to it.`,
             `已保存预设“${savedTPName}”。可在下方修改任意参数，然后点“更新预设”把改动写回该预设。`)
           : (() => {
             const p = TRAIN_PRESETS.find(p => p.key === curTP) || {}

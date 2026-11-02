@@ -9,17 +9,17 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
+const { findWithServerJs, writeRoot } = require('./wizardRoot')
 
-/** 定位项目根：用 server.js 作锚点 */
+/**
+ * 定位项目根：用 server.js 作锚点。
+ * 给了 from 就从 from 向上找（调用方自己控制起点，测试常用）；
+ * 不给时就是写根：本 checkout，设了 WIZARD_PROJECT_ROOT 才是那里（见 wizardRoot.js）。
+ * 克隆、建环境都是写操作，不许自动归位到主仓库。
+ */
 function projectRoot (from) {
-  let dir = from || __dirname
-  for (let i = 0; i < 12; i++) {
-    if (fs.existsSync(path.join(dir, 'server.js'))) return dir
-    const up = path.dirname(dir)
-    if (up === dir) break
-    dir = up
-  }
-  return null
+  if (from) return findWithServerJs(from)
+  return writeRoot()
 }
 
 function engineDir (id, root) {

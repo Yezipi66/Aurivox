@@ -123,10 +123,10 @@ def stage_license():
         pager(read_text(notice), "NOTICE")
     # MIT 是「授予你权利」的宽松许可，使用与安装无需接受任何附加义务，
     # 因此这里不设「同意」门槛，只做展示。用户随时可选择不安装（输入 q 退出）。
-    print("  本软件以 MIT 许可授权给你：使用/安装无需接受任何附加义务, 以上仅供知情。")
+    print("  本软件基于 MIT 许可授权：使用/安装无需接受任何附加义务, 以上仅供知情。")
     ans = ask("  回车继续安装 (无需接受) / 输入 q 退出: ").strip().lower()
     if ans == "q":
-        print("\n  已退出: 你选择不安装。")
+        print("\n  已退出：未选择安装。")
         return False
     return True
 
@@ -440,7 +440,7 @@ def stage_confirm(sel, by_group):
     dropped = sel.get("dropped_for_license") or []
     if dropped:
         labels = [next((l for gg, l, _ in GROUP_META if gg == g), g) for g in dropped]
-        print("  * 你选择不下载以下模型组, 已从下载清单剔除 (平台照常部署):")
+        print("  * 未选择下载以下模型组, 已从下载清单剔除 (平台照常部署):")
         for lb in labels:
             print(f"       - {lb}")
     print("  2) 下载上游模型 (最终清单):")

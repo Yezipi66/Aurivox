@@ -33,7 +33,7 @@ const SECTIONS = Object.freeze([
     howto: '怎么装这台引擎的环境。平台不代劳，只照这里打印命令。' },
   { key: 'models', group: 'models', danger: DANGER.INFO,
     howto: '底模放在哪、哪几个文件算齐、从哪取。',
-    warn: '只写 checkpoints 而不写 required，平台就没法帮你确认权重文件齐不齐（不填也能用）。' },
+    warn: '只写 checkpoints 而不写 required，平台则无法确认权重文件是否齐全（不填也能用）。' },
   { key: 'weights', group: 'models', danger: DANGER.SILENT,
     howto: '用户要选几个模型位、各叫什么。',
     warn: 'applies_at 填错 ⇒ 不报错，下拉能选、声音不变。' },
@@ -88,7 +88,7 @@ const PARAM_FIELDS = Object.freeze([
       '⚠ parameters[] 里的参数全部住在折叠容器里，主区域一个都不渲染。\n' +
       '   所以 tier 不是「常用 vs 冷门」，而是「折叠层里再分两排」。\n' +
       '   ⚠ 想让某个参数出现在主区域：名片做不到，那是平台的固定区域。',
-    warn: '⚠ 没写 tier ⇒ 落进 advanced（web/src/lib/engines.js:164）。' },
+    warn: '⚠ 没写 tier ⇒ 落进 advanced（见 web/src/lib/engines.js 的 fieldsForTier）。' },
   { key: 'applies_to', danger: DANGER.INFO,
     howto: '只在这些方法名下显示。多方法引擎的必备字段。' },
   { key: 'label', danger: DANGER.INFO,

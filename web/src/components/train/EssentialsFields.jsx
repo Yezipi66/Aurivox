@@ -37,7 +37,7 @@ export function EssentialsFields({ form, setField, proposedId, dupDisplay }) {
       <div className="field">
         <label className="field-label">{tr('Audio Folder Path', '音频文件夹路径')} *</label>
         <input className="control" value={form.inputDir} onChange={e => setField('inputDir', e.target.value)} placeholder={tr('e.g. D:\\raw_audio\\MyVoice', '例如：D:\\raw_audio\\MyVoice')} />
-        <p className="field-hint">{tr('ⓘ Folder path only — point to a folder of audio files. If you have a single audio file, put it inside a folder first, then select that folder.',
+        <p className="field-hint">{tr('ⓘ Folder path only — point to a folder of audio files. If there is a single audio file, put it inside a folder first, then select that folder.',
           'ⓘ 仅填文件夹路径：指向一个存放音频文件的文件夹。如果只有单个音频文件，请先把它放进一个文件夹，再选择该文件夹。')}</p>
       </div>
     </div>

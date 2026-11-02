@@ -1,20 +1,9 @@
 'use strict'
-// VERIFY：第 7 步：校验。
-//
-// 本文件按顺序调平台自己的四道校验，如实把结果传出去：
-//   1. 结果带 ok / problems / ready 三态
-//   2. 不把「说不出来」说成「齐了」或「缺了」
-//
-// 四道校验各自的权威实现（一个都不许在这里重写）：
-//   第 1 道 浅层「装没装」   lib/engines/envCheck.js:checkEngineEnvShallow
-//   第 2 道 深层「起不起来」 lib/engines/envCheck.js:checkEngineEnvDeep
-//   第 3 道 「齐不齐」       lib/engines/checkpoints.js:checkpointStatus
-//   第 4 道 「出不出声」     lib/engines/verifyAudio.js（verifyEngine）
-//
-// 第 4 道（A 级）要真的合成一次。tools/verify-engine.cjs 的 A 级分支写着：
-//   「A 级要真的合成。请给一份请求体」：平台要你交一份请求体，
-//   它不会自己编一个（编出来的请求验不了「声音对不对」）。
-//   所以 A 级缺 request 时，本文件如实说不给跑，不糊一个假的上去。
+// VERIFY：第 7 步：校验。按顺序调平台自己的四道校验（envCheck 的两道、checkpointStatus、
+//   verifyAudio 的 verifyEngine），本文件一道都不自己实现。
+// 结果带 ok / problems / ready 三态：不把「说不出来」说成「齐了」或「缺了」。
+// 第 4 道 A 级要真的合成一次 ⇒ 缺 request 时如实说不给跑：请求体的键名是引擎方言，
+//   平台编不出一个能验「声音对不对」的请求。
 
 const path = require('node:path')
 
@@ -87,16 +76,22 @@ function runChecks (id, opts = {}) {
 
   const out = { ok: true, id, checks: {}, problems: [] }
 
+  // 标题与说明从 checks() 的清单并入每道结果：界面直接用平台的词
+  //   （装没装 / 起不起来 / 权重齐不齐），不自己另造一套标签。
+  //   第 2 步装完依赖后界面若另造标签，使用者会把这里与"装没装"认成同一件事。
+  const meta = Object.fromEntries(checks().map((c) => [c.key, c]))
+  const withMeta = (key, r) => ({ ...meta[key], ...r })
+
   // envCheck 收的是 profile + {rootDir}（照 tools/dev/check-engine-env.cjs 的调用处），
   //   不是 (id, env)：那样传进去 node 不会报错，但读到的全是 undefined。
   // 第 1 道：浅层
   try {
     const r = checkEngineEnvShallow(profile, { rootDir: ROOT })
-    out.checks.env_shallow = { key: 'env_shallow', ...r }
+    out.checks.env_shallow = withMeta('env_shallow', { key: 'env_shallow', ...r })
     if (!r.ok) out.ok = false
   } catch (e) {
-    out.checks.env_shallow = { key: 'env_shallow', ok: false,
-      problems: [String(e.message)] }
+    out.checks.env_shallow = withMeta('env_shallow',
+      { key: 'env_shallow', ok: false, problems: [String(e.message)] })
     out.ok = false
   }
 
@@ -104,11 +99,11 @@ function runChecks (id, opts = {}) {
   if (opts.deep !== false) {
     try {
       const r = checkEngineEnvDeep(profile, { rootDir: ROOT })
-      out.checks.env_deep = { key: 'env_deep', ...r }
+      out.checks.env_deep = withMeta('env_deep', { key: 'env_deep', ...r })
       if (!r.ok) out.ok = false
     } catch (e) {
-      out.checks.env_deep = { key: 'env_deep', ok: false,
-        problems: [String(e.message)] }
+      out.checks.env_deep = withMeta('env_deep',
+        { key: 'env_deep', ok: false, problems: [String(e.message)] })
       out.ok = false
     }
   }
@@ -117,40 +112,45 @@ function runChecks (id, opts = {}) {
   try {
     const st = checkpointStatus(profile, { appDir: ROOT })
     const ready = st.ready
-    out.checks.checkpoints = {
+    out.checks.checkpoints = withMeta('checkpoints', {
       key: 'checkpoints',
       ready,
       ok: ready === true,
       note: ready === true
         ? '名片说的文件一个不少'
         : ready === false
-          ? '目录不在，或名片点名的文件缺了'
-          // 状态未知的说法（checkpoints.js 的 checkpointStatus 注释）
-          : '状态未知：Manifest 未声明 runtime.checkpoints，'
-            + '或未声明 models.required（用于判断哪些文件算完整）。'
+          ? `权重缺了。${st.reason || '查不到确切原因'}`
+          // 状态未知不糊成两态：病因搬平台查明的 reason（唯一真相），
+          //   不再自己编「可能没声明 A、可能没声明 B」两头堵，
+          //   那对声明了 checkpoints 只是没声明 required 的引擎是错描述。
+          : `状态未知（平台说不出来它齐不齐）：${st.reason || '查不到确切原因'}。`
             + '既不能视为完整，也不能视为缺失',
       required: st.required || [],
       missing: st.missing || [],
       abs_path: st.abs_path || null,
-    }
+    })
     // ready:null 不算失败，但也不许当成通过
     if (ready === null) {
       out.problems.push('权重：说不出来（名片缺 checkpoints 或 required）')
     }
   } catch (e) {
-    out.checks.checkpoints = { key: 'checkpoints', ok: false,
-      problems: [String(e.message)] }
+    out.checks.checkpoints = withMeta('checkpoints',
+      { key: 'checkpoints', ok: false, problems: [String(e.message)] })
   }
 
   return out
 }
 
 /**
- * 第 4 道「出不出声」：A 级要真的合成。不给 request 就不跑，并如实说明为什么。
- *   理由照 tools/verify-engine.cjs 的 A 级分支：请求体里的键名是引擎方言
- *   （照 manifest.json 的 maps 写）：平台编不出一个对的。
+ * 第 4 道「出不出声」：A 级缺 request 就不跑，并如实说明为什么。
+ *
+ * 有常驻地址的引擎（名片写了 default_base_url 或 base_url_env 指过来）
+ *   走原路：verifyAudio 直接打那个地址。
+ * 没有地址的引擎（stdio / cli 形态）：先拉一台临时宿主再验，验完就杀。
+ *   这是「试运行」的语义：拉起来、验一下、然后就没了。
+ *   所以本函数是 async：拉起要等 /health，不像前三道那样纯查盘。
  */
-function runAudioCheck (id, opts = {}) {
+async function runAudioCheck (id, opts = {}) {
   const level = opts.audio === 'A' ? 'A' : 'B'
 
   let verifyAudio
@@ -166,14 +166,15 @@ function runAudioCheck (id, opts = {}) {
   const { requireEngine } = platform('lib/engines/registry.js')
   let profile, manifest
   try {
-    profile = resolveEngineProfile(id, process.env)
-    manifest = requireEngine(id)
+    // opts.profile / opts.manifest 是测试注入：生产路径（wizardbridge）不传，
+    //   一律由平台解析，向导不自造名片语义。
+    profile = opts.profile || resolveEngineProfile(id, process.env)
+    manifest = opts.manifest || requireEngine(id)
   } catch (e) {
     return { ok: false, code: 'NO_PROFILE', error: e.message, errorZh: e.message }
   }
 
-  // 名片没写 runtime，平台就不负责起它，这一道无从谈起
-  //   （同 tools/verify-engine.cjs 的做法：名片没写 runtime 就退出）
+  // 名片没写 runtime，平台就不负责起它，这一道无从谈起。
   if (!profile.runtime) {
     return { ok: false, code: 'NO_RUNTIME',
       error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`, errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`
@@ -198,14 +199,46 @@ function runAudioCheck (id, opts = {}) {
     }
   }
 
-  try {
-    const r = verifyAudio.verifyEngine({
-      profile, manifest, level, request: opts.request || null, root: ROOT,
-    })
-    return { ok: r.ok !== false, level, ...r }
-  } catch (e) {
-    return { ok: false, code: 'AUDIO_FAILED', level,
-      error: String((e && e.message) || e) }
+  // 界面给的是平台的词（reference_audio / reference_text），换成宿主与引擎的词再发。
+  const request = opts.request
+    ? require('./measure').toEngineWords(profile, { ...opts.request }) : null
+
+  // 打一次验证。base_url 给了就替换成临时宿主的地址（拉起器专用），
+  //   没给（null）就用 profile 原样：有常驻地址的引擎走老路。
+  //   opts.verifyEngine 也是测试注入：默认就是平台那个，不重写。
+  const verifyEngine = typeof opts.verifyEngine === 'function'
+    ? opts.verifyEngine : (o) => verifyAudio.verifyEngine(o)
+  const verifyOnce = (baseUrl) => verifyEngine({
+    profile: baseUrl ? { ...profile, base_url: baseUrl } : profile,
+    manifest, level, request, root: ROOT,
+  })
+
+  const hasBaseUrl = typeof profile.base_url === 'string' && profile.base_url.trim()
+  if (hasBaseUrl) {
+    try {
+      const r = verifyOnce(null)
+      return { ok: r.ok !== false, level, ...r }
+    } catch (e) {
+      return { ok: false, code: 'AUDIO_FAILED', level,
+        error: String((e && e.message) || e) }
+    }
   }
+
+  // 没有常驻地址：拉一台临时宿主。verifyEngine 的参数校验失败会抛
+  //   （例如 A 级缺 text），那也是「要改名片」而不是「引擎坏了」，照常带回来。
+  const hostRunner = opts.hostRunner || require('./hostRunner')
+  const hosted = await hostRunner.withTempHost({
+    id, profile, root: ROOT,
+    run: (base) => verifyOnce(base),
+  })
+  if (!hosted.ok) {
+    return { ok: false, code: 'HOST_FAILED', level, stage: hosted.stage,
+      error: `临时宿主起不来（${hosted.stage}）：${hosted.error}`,
+      errorZh: `第 4 道要打这台引擎的本地宿主，但它未启动：${
+        hosted.error || ''}${hosted.stderr ? `（宿主输出：${hosted.stderr.slice(-600)}）` : ''}`,
+      stderr: hosted.stderr || null }
+  }
+  const r = hosted.result
+  return { ok: r.ok !== false, level, ...r }
 }
 module.exports = { checks, runChecks, runAudioCheck }

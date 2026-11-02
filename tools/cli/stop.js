@@ -53,7 +53,8 @@ function enginePorts (root) {
   try { data = JSON.parse(txt) } catch (_) { return [] }
   const out = []
   for (const e of (data.engines || [])) {
-    if (e.ok && e.launchable) out.push({ name: 'engine ' + e.id, port: Number(e.port) })
+    // port 为空 = 这台走 stdio，不监听端口，是后端的子进程，后端退出时一起带走。
+    if (e.ok && e.launchable && e.port) out.push({ name: 'engine ' + e.id, port: Number(e.port) })
   }
   return out
 }

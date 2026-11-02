@@ -66,16 +66,16 @@ function CollapsibleSegments({ segments }) {
     <div className="collapsible">
       <div className="collapsible-hdr" onClick={() => setOpen(!open)}>
         <span>Segments ({segments.length})</span>
-        <span style={{ color: 'var(--muted)', fontSize: 12 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{open ? '▲' : '▼'}</span>
       </div>
       {open && (
         <div className="collapsible-body">
           {segments.map(seg => (
             <div key={seg.index} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>Segment {seg.index}</div>
-              <div style={{ fontSize: 13, marginBottom: 6 }}>{seg.text}</div>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>Segment {seg.index}</div>
+              <div style={{ fontSize: 'var(--fs-13)', marginBottom: 6 }}>{seg.text}</div>
               <Player src={`${API_BASE}${seg.audio_url}`} size="sm" />
-              <a href={`${API_BASE}${seg.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12, display: 'inline-block', marginTop: 4 }}>Download</a>
+              <a href={`${API_BASE}${seg.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-12)', display: 'inline-block', marginTop: 4 }}>Download</a>
             </div>
           ))}
         </div>

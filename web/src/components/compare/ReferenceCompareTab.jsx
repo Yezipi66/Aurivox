@@ -176,9 +176,9 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   useEffect(() => {
     api('/api/audio-files?dir=no_slice').then(r => { if (r.ok) setAllAudioFiles(r.data.files) })
-      .catch(err => console.error('audio-files?dir=no_slice 取不到，这一组参照音频留空：', err))
+      .catch(err => console.error('audio-files?dir=no_slice 读取失败，该组参考音频留空：', err))
     api('/api/audio-files?dir=voices').then(r => { if (r.ok) setVoiceFiles(r.data.files) })
-      .catch(err => console.error('audio-files?dir=voices 取不到，这一组参照音频留空：', err))
+      .catch(err => console.error('audio-files?dir=voices 读取失败，该组参考音频留空：', err))
     // 模型从 assets/ 的 meta.json 读（那是事实来源），不从 voices.json 读。
     // 另外拉内置的 Base 模型（GET /api/assets/__base__），好让它的预训练权重
     // 也能在这里被选到，用于零样本参考对比：它不在 /api/assets 的名单里。
@@ -449,12 +449,12 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           <span>Reference Audio Comparison</span>
         </div>
         <div className="section-body">
-          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+          <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 10 }}>
             {t(
-              <>Add as many rows as you like. Each row = a different reference audio configuration.
+              <>Add as many rows as needed. Each row = a different reference audio configuration.
               Click <strong>Generate All</strong> to hear every combination side by side.
               The best one can be saved as the voice config.</>,
-              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，最满意的一个可保存为该音色的配置。</>)}
+              <>可以添加任意多行，每行 = 一种不同的参考音频配置。点击 <strong>Generate All</strong> 即可并排试听所有组合，效果最佳的一项可保存为该音色的配置。</>)}
           </p>
 
           <div className="field">
@@ -462,16 +462,16 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
             <label className="field-label">{t('Comparison Text', '对比文本')}</label>
             <div className="field-hint" style={{ marginBottom: 4 }}>
               {t(
-                <>Every row uses this text by default, so you compare references / models on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
+                <>Every row uses this text by default, so references / models are compared on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
                 <>默认所有行都使用这段文本，以便在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
             </div>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}
               placeholder="Enter the text used across all rows for comparison…" />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {t('Default target language:', '默认目标语言：')}
                 <Select
-                  className="control" style={{ height: 22, fontSize: 11, padding: '0 4px', width: 'auto', minWidth: 0 }}
+                  className="control" style={{ height: 22, fontSize: 'var(--fs-11)', padding: '0 4px', width: 'auto', minWidth: 0 }}
                   value={defaultTextLang} onChange={e => setDefaultTextLang(e.target.value)}
                 >
                   {CMP_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -484,12 +484,12 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 Proof &amp; language{'\u2026'}
               </button>
               {defaultHanDir && defaultHanForced.length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{t(`${defaultHanForced.length} forced ${LANG_LABEL[defaultHanDir.reverse]}`, `已强制 ${defaultHanForced.length} 个字为 ${LANG_LABEL[defaultHanDir.reverse]}`)}</span>
+                <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{t(`${defaultHanForced.length} forced ${LANG_LABEL[defaultHanDir.reverse]}`, `已强制 ${defaultHanForced.length} 个字为 ${LANG_LABEL[defaultHanDir.reverse]}`)}</span>
               )}
               {Object.keys(defaultPronOverrides || {}).length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{t(`${Object.keys(defaultPronOverrides).length} reading override(s)`, `${Object.keys(defaultPronOverrides).length} 处读音覆盖`)}</span>
+                <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{t(`${Object.keys(defaultPronOverrides).length} reading override(s)`, `${Object.keys(defaultPronOverrides).length} 处读音覆盖`)}</span>
               )}
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{t('applies to every row that doesn\u2019t override its own text', '对所有未使用自有文本的行生效')}</span>
+              <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{t('applies to every row that doesn\u2019t override its own text', '对所有未使用自有文本的行生效')}</span>
             </div>
             {showDefaultTextPrep && (
               <TextPrepModal
@@ -501,14 +501,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 engineId={engine?.id}
               />
             )}
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>
               {t(
-                <>You can also proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
+                <>To proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
                 <>也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
             </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, cursor: 'pointer' }}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 'var(--fs-12)', cursor: 'pointer' }}
             title={t('Master switch: send each row\u2019s whole text to the engine in ONE call so it splits and batches chunks in parallel (batch_size). Faster; single audio per row, no per-segment files. Each row can override this (Advanced Settings \u2192 Engine Batch).', '总开关：把每一行的整段文本一次性交给引擎，由引擎切分并按 batch_size 并行推理。更快；每行输出单个音频、无分段文件。各行可在「Advanced Settings → Engine Batch」单独覆盖。')}>
             <input type="checkbox" checked={cmpEngineBatch} onChange={e => setCmpEngineBatch(e.target.checked)} />
             <span>{t('Engine Batch (parallel) \u2014 all rows', '引擎批量并行：全部行（总开关）')}</span>

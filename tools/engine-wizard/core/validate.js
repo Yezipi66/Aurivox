@@ -7,9 +7,27 @@ const { deriveParameterViews } = require(
   path.resolve(__dirname, '..', '..', '..', 'lib', 'engines', 'parameterDeclaration.js')
 )
 
+// 平台的字段判据原语：required / requiredBool / positiveInt / parseClipSeconds。
+// 「这个键缺了算不算缺」不重写在这里，直接问平台自己：
+// 三个函数判「缺」的方式各不相同（空串算不算缺、null 算不算缺），
+// 抄一遍就会漂。
+const platform = require(
+  path.resolve(__dirname, '..', '..', '..', 'lib', 'engines', 'profile', 'fields.js')
+)
+
 // 平台的解析器。路径从向导自己的位置算回去：向导是独立工具，
 // 不假定自己被放在哪（可以被拷走单独用）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
+let _profile = null
+function platformProfile () {
+  if (!_profile) _profile = require(path.join(REPO_ROOT, 'lib', 'engines', 'profile.js'))
+  return _profile
+}
+let _hostProfile = null
+function hostProfile () {
+  if (!_hostProfile) _hostProfile = require(path.join(REPO_ROOT, 'lib', 'engines', 'hostProfile.js'))
+  return _hostProfile
+}
 let _registry = null
 function registry () {
   if (!_registry) {
@@ -89,9 +107,104 @@ function diagnose (manifest) {
     if (manifest[key] === undefined) {
       push('error', 'ENGINE_MANIFEST_INCOMPLETE',
         `少了顶层必填项「${key}」。`, {
-          section: key, field: key, sectionMeta: SECTIONS_BY_KEY[key] || null,
+        section: key, field: key, sectionMeta: SECTIONS_BY_KEY[key] || null,
+        danger: DANGER.BLOCK,
+      })
+    }
+  }
+
+  // ---- 3b. 必填 6 项（缺一个就接不上平台）---------------------------
+  //
+  // 平台只要求人答这 6 项（第 6 项模型权重见下面 weightsProblem 那段）（lib/engines/profile.js 的 DEFAULTS 上方）：
+  //   call.bind 的 text / ref_audio / output_path（output_path 只在 call.returns 是 file 时要）
+  //   runtime.python / runtime.entry
+  // 其余各项缺了平台推断或用保守默认，这里不报缺；写了值才校验值本身。
+  //
+  // 判据不重写：缺不缺、值成不成立，直接调平台自己的 required / positiveInt / parseClipSeconds。
+  const rt = manifest.runtime || {}
+  const callObj = (manifest.call && typeof manifest.call === 'object') ? manifest.call : {}
+  const bindObj = callObj.bind || {}
+  const returns = callObj.returns || 'file'
+  const isSharedHost = platformProfile().isSharedHost
+  // 三个输入槽位是通用宿主读的（lib/engines/hostProfile.js）。引擎自带服务脚本、
+  // 又没写 call 段的（老引擎自己起 HTTP），平台不经宿主调它，槽位无处可去，不要求。
+  const needsBind = !!manifest.call || (!!rt.entry && isSharedHost(rt.entry))
+  const REQUIRED_KEYS = [
+    { path: 'call.bind.text', v: bindObj.text, section: 'call', when: needsBind },
+    { path: 'call.bind.ref_audio', v: bindObj.ref_audio, section: 'call', when: needsBind },
+    { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call', when: needsBind && returns === 'file' },
+    { path: 'runtime.python', v: rt.python, section: 'runtime' },
+    { path: 'runtime.entry', v: rt.entry, section: 'runtime' },
+    // 启动脚本不是平台通用宿主 ⇒ 平台不知道就绪端点，照旧必填。
+    { path: 'runtime.ready_endpoint', v: rt.ready_endpoint, section: 'runtime',
+      when: !!rt.entry && !isSharedHost(rt.entry) },
+  ]
+  for (const req of REQUIRED_KEYS) {
+    if (req.when === false) continue
+    try {
+      platform.required({ id: manifest.id }, req.path, req.v, '')
+    } catch (e) {
+      push('error', e.code || 'ENGINE_MANIFEST_INCOMPLETE',
+        `少了必填项「${req.path}」。`, {
+          section: req.section, field: req.path, sectionMeta: SECTIONS_BY_KEY[req.section] || null,
           danger: DANGER.BLOCK,
         })
+    }
+  }
+
+  // 模型权重：写了权重放在哪（runtime.checkpoints），还得说引擎从哪个参数收它。
+  //   判据是平台的 weightsProblem（hostProfile.js），这里只把它翻成一条诊断。
+  //   只在要过通用宿主时查：自带服务脚本的引擎，权重由它自己的启动参数决定。
+  if (needsBind) {
+    const wp = hostProfile().weightsProblem({ ...manifest, call: callObj })
+    if (wp) {
+      push('error', 'ENGINE_MANIFEST_INCOMPLETE',
+        wp.field === 'call.weights'
+          ? `「call.weights」的值不成立：${wp.why}。`
+          : '少了必填项「模型权重」：引擎不知道从哪个参数读权重。',
+        { section: 'call', field: wp.field, sectionMeta: SECTIONS_BY_KEY.call || null,
+          danger: DANGER.BLOCK })
+    }
+  }
+
+  // 可选的数：写了才查值（正整数）。
+  const caps = manifest.capabilities || {}
+  const OPTIONAL_INTS = [
+    ['runtime.ready_timeout_ms', rt.ready_timeout_ms, 'runtime'],
+    ['timeout_ms', manifest.timeout_ms, 'timeout_ms'],
+    ['max_chars', manifest.max_chars, 'max_chars'],
+    ['capabilities.output_sample_rate', caps.output_sample_rate, 'capabilities'],
+  ]
+  for (const [keyPath, v, section] of OPTIONAL_INTS) {
+    if (v === undefined || v === null) continue
+    try {
+      platform.positiveInt({ id: manifest.id }, keyPath, v)
+    } catch (e) {
+      push('error', e.code || 'ENGINE_MANIFEST_INVALID_VALUE',
+        `「${keyPath}」的值不成立：${e.message}`, {
+          section, field: keyPath, sectionMeta: SECTIONS_BY_KEY[section] || null, danger: DANGER.BLOCK,
+        })
+    }
+  }
+  if (caps.requires_reference_audio !== undefined && typeof caps.requires_reference_audio !== 'boolean') {
+    push('error', 'ENGINE_MANIFEST_INVALID_VALUE',
+      `「capabilities.requires_reference_audio」必须是 true 或 false，现在写的是 ${JSON.stringify(caps.requires_reference_audio)}。`, {
+        section: 'capabilities', field: 'capabilities.requires_reference_audio',
+        sectionMeta: SECTIONS_BY_KEY.capabilities || null, danger: DANGER.BLOCK,
+      })
+  }
+
+  // reference_clip_seconds：缺 = 不限制（平台按 null 处理）；写了才查形状。
+  if (caps.reference_clip_seconds !== undefined && caps.reference_clip_seconds !== null) {
+    // 平台只收 null 或 [最短秒, 最长秒]（profile/fields.js 的 parseClipSeconds）。
+    try {
+      platform.parseClipSeconds({ id: manifest.id }, caps.reference_clip_seconds)
+    } catch (e) {
+      push('error', e.code || 'ENGINE_MANIFEST_INVALID_VALUE',
+        `「capabilities.reference_clip_seconds」的值不成立：${e.message}`, {
+        section: 'capabilities', field: 'capabilities.reference_clip_seconds',
+        sectionMeta: SECTIONS_BY_KEY.capabilities || null, danger: DANGER.BLOCK,
+      })
     }
   }
 

@@ -45,7 +45,8 @@ function validatePlugin () {
     handleSpec, handleRead,
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
     wb.handleClone, wb.handleCloneCancel, wb.handleCloneRemove, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
-    wb.handleVerifyChecks, wb.handleVerifyAudio, wb.handleVerify, wb.handleProfile,
+    wb.handleVerifyChecks, wb.handleVerifyAudio, wb.handleVerifyMeasureProgress, wb.handleVerifyMeasureCancel,
+    wb.handleVerifyMeasure, wb.handleVerifyRef, wb.handleVerify, wb.handleProfile,
     handleValidate, wb.handleCliArgs,
     wb.handleDiscover,
     // install-state 报这一台装到哪了，reset-progress 是重装本步的逃生口。
@@ -53,8 +54,13 @@ function validatePlugin () {
     // 认的都是整串前缀、tail 只能跟 ?，与本表其它前缀无一互为前缀，
     // 所以在表里的位置不影响路由。
     wb.handleInstallState, wb.handleResetProgress,
+    // hf-token 认的是 /wizard/hf-token 整串，后面只能跟 ?，与本表其它前缀无一互为前缀。
+    wb.handleHfToken,
     handleInstalled, handleSave,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
+    // cancel 必须排在 handleDownload 之前：handleDownload 认的是 /wizard/download 整串前缀，
+    // 会把 download/cancel 一起吃掉（它自己也会显式排除，但注册顺序不能依赖那个）。
+    wb.handleDownloadCancel,
     // handleDownload 认的是 /wizard/download 这个前缀，会把 download/file、
     // download/files、download/manifest、download/progress 全部吃掉，
     // 所以它必须排在所有 download 子端点之后（具体优先于前缀）。

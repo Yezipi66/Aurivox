@@ -17,6 +17,12 @@ const RESERVED_PREFIXES = ['_', '.']
 
 const ILLEGAL_IN_DIRNAME = /[\\/:*?"<>|]/
 
+/** 从输入里取出主机名：报错文案要指名道姓说「gitlab.com 请换成 GitHub」。 */
+function hostOf (raw) {
+  const m = String(raw || '').match(/^[a-z]+:\/\/([^/?#]+)/i)
+  return m ? m[1] : ''
+}
+
 /**
  * 解析 GitHub 链接。只接受能唯一定位一个仓库的形式。
  *
@@ -24,12 +30,6 @@ const ILLEGAL_IN_DIRNAME = /[\\/:*?"<>|]/
  * @returns {{ok:true, owner:string, repo:string, url:string}
  *          | {ok:false, code:string, params?:object, error:string, example?:string}
  */
-/** 从输入里取出主机名：报错文案要指名道姓说「gitlab.com 请换成 GitHub」。 */
-function hostOf (raw) {
-  const m = String(raw || '').match(/^[a-z]+:\/\/([^/?#]+)/i)
-  return m ? m[1] : ''
-}
-
 function parseRepoUrl (input) {
   const raw = typeof input === 'string' ? input.trim() : ''
   if (!raw) {
@@ -164,7 +164,7 @@ function validateId (id) {
   }
   if (PLATFORM_NAMES.has(s)) {
     return { ok: false, code: 'RESERVED_NAME',
-      error: `"${s}" is a name reserved by the platform; choose another.`, errorZh: `"${s}" 是平台保留的目录名，换一个。`,
+      error: `"${s}" is a name reserved by the platform; choose another.`, errorZh: `"${s}" 是平台保留的目录名，请改用其他目录名。`,
       params: { name: s } }
   }
   return { ok: true, id: s }

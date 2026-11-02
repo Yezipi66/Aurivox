@@ -12,6 +12,11 @@ const { venvPythonRelPath } = require(
 const { canSpawnPython } = require(
   path.join(__dirname, '..', '..', '..', 'lib', 'util', 'pythonResolve.js'))
 
+// 平台基座的 Python 版本。引擎没声明版本时用它。
+//   这是 AI 生态最常用的版本，也是仓库内嵌解释器（tools/runtime/python）的版本；
+//   平台自带的 wheel（tools/wheels 里的 cp311 轮子）也只认它。
+const PLATFORM_BASE_PYTHON = '3.11'
+
 /**
  * 读名片里的 install.env_command 并校验。
  * 返回 {ok:true, argv} 或 {ok:false, code, error}：code 分别是 NO_INSTALL_SECTION（名片没有
@@ -137,6 +142,22 @@ function suggestEnvCommand (dir) {
     }
   }
   if (found.length === 0) {
+    // 标准清单一个都没有，但根目录有 setup.py / setup.cfg：这是可 pip 安装的包。
+    //   平台不解析 setup.py（那是任意 Python，读不完也读不全），改用平台自己的
+    //   装法 uv pip install -e .，依赖由 pip 从包构建配置（setup.py / setup.cfg）
+    //   自己解析。判据与 pre-flight 的 isPipInstallable 同一口径。
+    const legacy = ['setup.py', 'setup.cfg'].find((f) => fs.existsSync(path.join(dir, f)))
+    if (legacy) {
+      return { argv: ['uv', 'pip', 'install', '-e', '.'], from: legacy, cwd: '.',
+        why: 'The upstream provides no pyproject.toml / requirements.txt / '
+          + `environment.yml, but ships ${legacy}. The platform installs the `
+          + 'package editable (`uv pip install -e .`); pip resolves the dependencies '
+          + 'from the package build configuration itself, which the platform does not parse.',
+        whyZh: `上游没有 pyproject.toml / requirements.txt / environment.yml，`
+          + `但有 ${legacy}。平台用自己的装法 uv pip install -e . 安装，`
+          + '依赖由 pip 从包自身的构建配置（setup.py / setup.cfg）解析，'
+          + '平台不解析 setup.py。' }
+    }
     return { argv: null, from: null,
       why: '这一层里没有找到依赖清单（pyproject.toml / uv.lock / '
         + 'requirements.txt / environment.yml，根目录和一层子目录都找过了）\n'
@@ -273,46 +294,219 @@ function canUseEngineVenv (root, id) {
 }
 
 /**
- * 平台自己的解释器路径，用来建引擎的虚拟环境。
- * 找的是项目根下的 venv/，不是引擎自己的 engines/<id>/.venv。找不到时返回 null。
+ * 从 requires-python 的区间里挑一个具体的主次版本。
+ *
+ * 规则：优先选区间内最高的版本。
+ *   >=3.10,<3.12 ⇒ 3.11（上界排他，所以取上界减一）
+ *   >=3.10,<3.13 ⇒ 3.12
+ *   >=3.10,<=3.12 ⇒ 3.12（上界包容，取上界本身）
+ *   >=3.10 ⇒ 3.10（没有上界就没有「最高」可取，取下界）
+ *   ==3.11.* / ~=3.11 / 3.11 ⇒ 3.11
+ *
+ * 为什么取最高而不是最低：区间表达的是「这一族都能跑」，而上游通常是在
+ * 较新的 Python 上测试的。取区间内最高的版本，才落在上游真正测过的那一档；
+ * 取下界反而可能撞上上游没测过的旧版本。
+ * Python 的 wheel ABI 按主次版本分，所以只需要主次版本。
+ *
+ * @param {string} spec requires-python 的原始值
+ * @returns {string|null} '3.11' 这样的主次版本；解析不出来返回 null
  */
-function platformPythonAbs (root) {
-  const rel = venvPythonRelPath(process.platform)
-  if (!rel) return null
+function pickFromRequiresPython (spec) {
+  const s = String(spec || '').trim()
+  if (!s) return null
+
+  // 单版本形态：==3.11 / ==3.11.* / ~=3.11 / 3.11
+  const eq = s.match(/^(?:==|~=)?\s*(\d+)\.(\d+)/)
+  if (eq && !s.includes('>') && !s.includes('<')) {
+    return `${eq[1]}.${eq[2]}`
+  }
+
+  // 上界：<3.12（排他）要减一；<=3.12（包容）取本值
+  const upper = s.match(/<=\s*(\d+)\.(\d+)/)
+  const upperExclusive = upper || s.match(/<\s*(\d+)\.(\d+)/)
+  if (upperExclusive) {
+    const [, maj, min] = upperExclusive
+    if (upper) return `${maj}.${min}`
+    // 排他上界：最高可选是上界的前一个次版本
+    const m = Number(min)
+    return m > 0 ? `${maj}.${m - 1}` : `${Number(maj) - 1}.0`
+  }
+
+  // 只有下界：取下界
+  const lower = s.match(/>=\s*(\d+)\.(\d+)/)
+  if (lower) return `${lower[1]}.${lower[2]}`
+
+  return null
+}
+
+/**
+ * 读这台引擎自己声明的 Python 版本。
+ *
+ * 两个来源，同一优先级：根目录的 .python-version 文件（上游钉死的那个版本），
+ * 其次是 pyproject.toml 的 requires-python（可能是区间）。
+ * 都没有时返回 null：平台不猜版本，退回平台基座。
+ *
+ * 返回 {version, source}：version 是 '3.11' 这样的主次版本；source 是
+ * 'python-version' 或 'requires-python'，供界面说清「按哪个声明建的」。
+ */
+function readEnginePythonVersion (dir) {
+  // 来源一：.python-version 文件。一行一个版本号，可能带补丁号（3.11.13）。
+  try {
+    const raw = fs.readFileSync(path.join(dir, '.python-version'), 'utf8').trim()
+    const m = raw.match(/^(\d+)\.(\d+)/)
+    if (m) return { version: `${m[1]}.${m[2]}`, source: 'python-version' }
+  } catch (e) { /* 没有这个文件就往下看 */ }
+
+  // 来源二：pyproject.toml 的 requires-python。区间取区内最高的那个版本。
+  try {
+    const raw = fs.readFileSync(path.join(dir, 'pyproject.toml'), 'utf8')
+    const m = raw.match(/^\s*requires-python\s*=\s*["']([^"']+)["']/m)
+    if (m) {
+      const picked = pickFromRequiresPython(m[1])
+      if (picked) return { version: picked, source: 'requires-python' }
+    }
+  } catch (e) { /* 没有 pyproject 就往下看 */ }
+
+  return null
+}
+
+/**
+ * 这个解释器的版本在不在受支持的区间内。
+ * want 形如 '3.11' 或 [3, 11]；匹配主次版本。
+ * 读不出版本时返回 null（调用方按「不校验」处理，不因此拒绝候选）。
+ */
+function supportsVersion (exe, want) {
+  const parts = Array.isArray(want) ? want : String(want).split('.').map(Number)
+  if (!parts.length || parts.some((n) => !Number.isInteger(n))) return null
+  let r
+  try {
+    r = spawnSync(exe, ['--version'], { encoding: 'utf8', windowsHide: true, shell: false })
+  } catch (e) { return null }
+  if (r.error || r.status !== 0) return null
+  const m = /(\d+)\.(\d+)/.exec((r.stdout || '') + (r.stderr || ''))
+  if (!m) return null
+  return Number(m[1]) === parts[0] && Number(m[2]) === parts[1]
+}
+
+/**
+ * 平台自己的解释器路径，用来跑 uv。
+ *
+ * 顺序：平台根 venv / cache/slim-venv（这两个自带 uv）先于仓库内嵌的解释器
+ * （内嵌解释器是裸解释器，没装 uv，只能当引擎环境的目标解释器）。
+ * 候选按顺序试，第一个「能起且版本受支持」的胜出。找不到时返回 null。
+ */
+function platformPythonAbs (root, opts = {}) {
   const prj = (() => { try { return projectRoot() } catch (e) { return null } })()
-  const bases = [prj, root].filter((b) => typeof b === 'string' && b)
-  for (const b of bases) {
-    const p = path.join(b, 'venv', rel)
-    try { if (fs.existsSync(p)) return p } catch (e) { /* 下一个 */ }
+  // 平台解释器是只读资产：本 checkout 没有时可以用主仓库的（worktree 场景，见 wizardRoot.js）。
+  const { readRoots } = require('./wizardRoot')
+  const bases = [prj, root, ...readRoots()].filter((b, i, a) => typeof b === 'string' && b && a.indexOf(b) === i)
+  const candidates = [
+    // 带 uv 的平台环境：跑 uv 得用它。
+    ...bases.flatMap((b) => {
+      const r = venvPythonRelPath(process.platform)
+      return r ? [
+        path.join(b, 'venv', r),
+        path.join(b, 'cache', 'slim-venv', r),
+      ] : []
+    }),
+    // 内嵌解释器：本仓库自带，可跟着仓库搬（与 bootstrap 用的同一个）。
+    ...(prj ? [path.join(prj, 'tools', 'runtime', 'python',
+      process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3'))] : []),
+  ].filter((p) => typeof p === 'string' && p)
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue
+    } catch (e) { continue }
+    if (!canSpawnPython(p)) continue
+    if (opts.requireVersion && !supportsVersion(p, opts.requireVersion)) continue
+    return p
   }
   return null
 }
 
 /**
  * 造出建虚拟环境这一步。
- * 返回 {argv, python, venvDir, skipIfExists}：argv 是建环境的命令，python 是解释器路径，
- * venvDir 是环境目录，skipIfExists 表示环境已存在时跳过这一步。
+ *
+ * 解释器的选法（规范，不猜）：
+ *   ① 引擎自己声明了 Python 版本（.python-version 或 requires-python）⇒ 用它；
+ *     requires-python 是区间时取区间内最高的那个版本（见 pickFromRequiresPython）。
+ *   ② 引擎没声明 ⇒ 用平台基座（3.11）；
+ *   ③ 连平台基座都拿不到 ⇒ 报出来，不回落去任意版本的解释器。
+ * 第③条是硬的：回落等于把「版本不匹配」这个错误推迟到装依赖那一步，
+ * 症状变成「No solution found when resolving dependencies」，看不出真因。
+ *
+ * 两个 python 各自的角色（别混）：
+ *   · argv[0] 是跑 uv 的那个解释器：它必须有 uv（平台根 venv / slim-venv 有，
+ *     仓库内嵌的解释器是裸解释器、没装 uv）。
+ *   · --python 给的是新环境该用哪个版本：引擎声明了就用声明的版本号，
+ *     没声明就用平台基座版本号。给版本号而不是路径 ⇒ 本机没有那个版本时，
+ *     uv 会自己下载一个（3.10 / 3.11.13 / 3.12 都拉得下来）。
+ *
+ * 返回 {argv, python, venvDir, skipIfExists, pythonVersion, pythonVersionSource}：
+ * argv 是建环境的命令，python 是跑 uv 的解释器路径，venvDir 是环境目录，
+ * skipIfExists 表示环境已存在时跳过这一步。
  * 找不到可用的解释器时 argv 为 null。
  */
+// PATH 上有没有能跑的 uv。只问一次版本号，跑不起来就当没有。
+function uvOnPath () {
+  try {
+    const r = spawnSync('uv', ['--version'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000, windowsHide: true, shell: false,
+    })
+    return !r.error && r.status === 0
+  } catch (e) { return false }
+}
+
 function buildVenvStep (root, id) {
   const venvDir = engineVenvDirAbs(root, id)
-  const py = platformPythonAbs(root)
-  if (!py) {
-    return { argv: null, python: null,
-      why: 'This platform has no known Python virtual environment layout, so the platform '
-        + 'cannot tell which interpreter to use.',
-      whyZh: '这个平台没有已知的 Python 虚拟环境布局，平台不知道该用哪个解释器。' }
+  const declared = readEnginePythonVersion(engineDir(id, root))
+  // 引擎声明了就用声明的，没声明就用平台基座 3.11。
+  //   两条路都拿不到 ⇒ 不用任意版本顶上：见本函数的注释第③条。
+  const wantVersion = declared ? declared.version : PLATFORM_BASE_PYTHON
+  const uvPy = platformPythonAbs(root)
+  // 平台 venv 里没有带 uv 的解释器，但 PATH 上有 uv（开发机、CI、Linux 服务器常见）：
+  //   用 PATH 上的 uv 建环境。执行期 runEnv 对 argv[0]==='uv' 的步骤本来就走 resolveUv
+  //   （平台 venv → PATH），这里与它同一口径；否则计划阶段报「找不到 uv」、执行期却找得到。
+  if (!uvPy && uvOnPath()) {
+    return {
+      argv: ['uv', 'venv', venvDir, '--python', wantVersion, '--no-project'],
+      python: null,
+      venvDir,
+      skipIfExists: true,
+      pythonVersion: wantVersion,
+      pythonVersionSource: declared ? declared.source : 'platform-base',
+      why: 'Create an isolated Python environment for this engine under engines/'
+        + `${id}/.venv with the uv found on PATH (Python ${wantVersion}).`,
+      whyZh: `用 PATH 上的 uv 为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境`
+        + `（Python ${wantVersion}）。依赖装进这个环境，不装进平台自己的环境。`,
+    }
+  }
+  if (!uvPy) {
+    return {
+      argv: null, python: null,
+      pythonVersion: wantVersion,
+      pythonVersionSource: declared ? declared.source : 'platform-base',
+      why: 'The platform cannot find a Python interpreter with uv installed, '
+        + 'so it cannot create the engine environment.',
+      whyZh: '平台上找不到装了 uv 的 Python 解释器，无法为该引擎建立环境。',
+    }
   }
   return {
-    argv: [py, '-m', 'uv', 'venv', venvDir, '--python', py, '--no-project'],
-    python: py,
+    argv: [uvPy, '-m', 'uv', 'venv', venvDir, '--python', wantVersion, '--no-project'],
+    python: uvPy,
     venvDir,
     skipIfExists: true,
+    pythonVersion: wantVersion,
+    pythonVersionSource: declared ? declared.source : 'platform-base',
     why: 'Create an isolated Python environment for this engine under engines/'
       + `${id}/.venv. Dependencies are installed into it, not into the platform's own `
-      + 'environment.',
+      + `environment. The environment uses Python ${wantVersion}`
+      + (declared ? ` (declared by the engine in ${declared.source})` : ' (the platform base version)')
+      + '.',
     whyZh: `为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境。`
-      + '依赖会装进这个环境，不装进平台自己的环境。',
+      + '依赖会装进这个环境，不装进平台自己的环境。'
+      + `环境用 Python ${wantVersion}`
+      + (declared ? `（引擎在 ${declared.source} 里声明的）` : '（平台基座版本）') + '。',
   }
 }
 
@@ -358,6 +552,10 @@ module.exports = {
   engineVenvPythonAbs,
   canUseEngineVenv,
   platformPythonAbs,
+  supportsVersion,
+  readEnginePythonVersion,
+  pickFromRequiresPython,
+  PLATFORM_BASE_PYTHON,
   buildVenvStep,
   withTargetPython,
   syncEnvFor,

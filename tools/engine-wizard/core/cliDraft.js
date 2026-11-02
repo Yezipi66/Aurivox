@@ -42,8 +42,10 @@ function buildCliDraft (cliHelp, opts = {}) {
 
   const args = []
   for (const f of picked) {
-    const flag = f.flags[f.flags.length - 1]
-    if (!flag || !flag.startsWith('--')) continue // 名片 args 段只放长开关
+    // 名片 args 段只放长开关。取第一个长开关，不取最后一个词：上游常把短别名写在后面
+    //   （`add_argument("--text", "-t")`），取最后一个词会拿到 -t，整条被当成「只有短开关」丢掉。
+    const flag = f.flags.find((w) => typeof w === 'string' && w.startsWith('--'))
+    if (!flag) continue
     const name = flag.slice(2)
     args.push({
       name,
@@ -53,6 +55,9 @@ function buildCliDraft (cliHelp, opts = {}) {
       required: f.required === true,
       default: f.default !== undefined ? f.default : null,
       choices: f.choices || null,
+      // argparse 的 type= 原样递出（int / float / str / Path…）。
+      //   没有它，value 形态的 flag 只能一律当 str，界面上的类型就是猜的。
+      type: f.type || null,
       is_tool: TOOL_FLAGS.has(name),
       subcommand: f.subcommand || null,
       source_file: f.source_file || null,

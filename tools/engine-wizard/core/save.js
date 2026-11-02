@@ -6,9 +6,20 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const wizardRoot = require('./wizardRoot')
 
-function repoRoot () {
-  return path.resolve(__dirname, '..', '..', '..')
+// 名片落盘的根：本 checkout；设了 WIZARD_PROJECT_ROOT 才写到那里（见 wizardRoot.js）。
+//   读取另走 readRoots：本 checkout 优先，主仓库兜底。
+function repoRoot (opts = {}) {
+  return wizardRoot.writeRoot(opts) || path.resolve(__dirname, '..', '..', '..')
+}
+
+// 不给 enginesDir 时，读侧依次查找的 engines/ 目录。
+function readEnginesDirs (opts = {}) {
+  if (opts.enginesDir) return [opts.enginesDir]
+  const roots = wizardRoot.readRoots(opts)
+  const dirs = roots.map((r) => path.join(r, 'engines'))
+  return dirs.length ? dirs : [path.join(repoRoot(opts), 'engines')]
 }
 
 /** 合法的引擎 id：能当目录名，且不是平台保留的那些 */
@@ -35,7 +46,7 @@ function validateId (id) {
  */
 function saveManifest (manifest, opts = {}) {
   const dryRun = opts.dryRun === true
-  const enginesDir = opts.enginesDir || path.join(repoRoot(), 'engines')
+  const enginesDir = opts.enginesDir || path.join(repoRoot(opts), 'engines')
 
   // ---- 1. 形状 ----
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
@@ -81,9 +92,7 @@ function saveManifest (manifest, opts = {}) {
       errorZh: `engines/${id}/manifest.json 已存在，且未请求覆盖` }
   }
 
-  // ---- 6. 注释键原样保留 ----
-  //  平台是在读取时剥（lib/engines/registry.js 的 stripComments），不是写入时剥。
-  //    写盘时剥 ⇒「读回来再存一次」就把文档永久删了。
+  // 写盘原样保留注释：在这里剥掉，读回来再存一次就会把说明永久删掉。
   const clean = manifest
 
   //   这里必须兜住：不然异常一路冒到 HTTP 层变成 500，
@@ -128,7 +137,20 @@ function saveManifest (manifest, opts = {}) {
  * 只读目录，不解析内容：解析是平台 registry 的事。
  */
 function listInstalled (opts = {}) {
-  const enginesDir = opts.enginesDir || path.join(repoRoot(), 'engines')
+  // 多个读根时按顺序合并：同名的以先找到的为准（本 checkout 盖住主仓库）。
+  const seen = new Set()
+  const out = []
+  for (const enginesDir of readEnginesDirs(opts)) {
+    for (const row of listInstalledIn(enginesDir, opts)) {
+      if (seen.has(row.id || row)) continue
+      seen.add(row.id || row)
+      out.push(row)
+    }
+  }
+  return out
+}
+
+function listInstalledIn (enginesDir, opts) {
   let names = []
   try {
     names = fs.readdirSync(enginesDir, { withFileTypes: true })
@@ -162,11 +184,12 @@ function listInstalled (opts = {}) {
  *   确认解析结果仍在 engines/ 之内，两条都过才读盘。
  */
 function readManifestById (id, opts = {}) {
-  const enginesDir = opts.enginesDir || path.join(repoRoot(), 'engines')
-
   const idErr = validateId(id)
   if (idErr) return { ok: false, code: 'BAD_ID', error: idErr }
 
+  // 多个读根时取第一个真有这张名片的（本 checkout 优先）；都没有就按第一个报「不存在」。
+  const dirs = readEnginesDirs(opts)
+  const enginesDir = dirs.find((d) => fs.existsSync(path.join(d, id, 'manifest.json'))) || dirs[0]
   const dir = path.join(enginesDir, id)
   const rel = path.relative(enginesDir, dir)
   if (rel.startsWith('..') || path.isAbsolute(rel)) {

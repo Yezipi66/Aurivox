@@ -452,6 +452,11 @@ test('JSX 里的注释不许变成可见文本（vite 只报 warning，测试全
         const v = n.value || ''
         if (/\*\/\}|\{\/\/|\/\/\s*\*\//.test(v) || /^\s*\*\/\s*\}$/.test(v)) {
           bad.push(`${f}:${n.loc.start.line}  ${JSON.stringify(v.trim().slice(0, 70))}`)
+        } else if (/^\s*\/\//.test(v)) {
+          // 整行以 // 开头的 JSXText：JSX 子节点里的 // 是正文，不是注释。
+          // 只查定界符残渣会漏掉这种写法，它没有 */} 也没有 {//，
+          // 但那行字会原样印在界面上，且编译与其它用例全绿。
+          bad.push(`${f}:${n.loc.start.line}  整行 // 被当正文  ${JSON.stringify(v.trim().slice(0, 70))}`)
         }
       }
       for (const k of Object.keys(n)) {
@@ -528,7 +533,6 @@ const CRITERIA_SELF_RE = /DATE_FORM_RE|ATTRIBUTION_WORDS|SCENE_WORDS|EMPHASIS_SY
 // 数字口径：本表按 @babel/parser 的 ast.comments 逐行判出来。
 // 末四个文件在旧口径下未被扫到，显式设 0 键使它们进入扫描范围。
 const DEBT_LEDGER = {
-  'test/dragBind.node.test.js': 1,
   'test/installCancel.node.test.js': 1,
   'core/env.js': 258,
   'core/wizardbridge.js': 155,
@@ -574,7 +578,6 @@ const DEBT_LEDGER = {
   'test/installState.node.test.js': 11,
   'editor/Pipeline.jsx': 10,
   'core/savebridge.js': 9,
-  'editor/CliGenPanel.jsx': 9,
   'test/bridge.node.test.js': 9,
   'test/useInstallSession.node.test.js': 9,
   'core/bridge.js': 8,
@@ -590,19 +593,16 @@ const DEBT_LEDGER = {
   'core/specbridge.js': 5,
   'editor/folderName.js': 5,
   'test/save.node.test.js': 5,
-  'editor/RequiredEight.jsx': 4,
   'editor/useInstalled.js': 4,
   'test/computeAutoFill.node.test.js': 4,
   'test/tierreview.node.test.js': 4,
   'test/validate.node.test.js': 5,
   'editor/index.jsx': 2,
   'test/downloadState.test.js': 2,
-  // 旧口径漏扫、从未进过台账的四个文件，真值逐个为 0。
+  // 旧口径漏扫、从未进过台账的文件，真值逐个为 0。
   //   仍显式设键让它们进扫描范围：不设键的文件只配报 newFiles。
   'comment_ratio.cjs': 1,
-  'editor/CoreBindings.jsx': 1,
   'editor/NestedSections.jsx': 10,
-  'editor/SaveBar.jsx': 10,
 }
 
 // 注释抽取交给 @babel/parser（项目 Vite 校验用的就是它）。

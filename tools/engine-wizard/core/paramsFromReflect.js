@@ -181,7 +181,7 @@ function checkModuleMatchesCli ({ dir, module, cls }) {
     + `（${where}）import ${cls} 用的是「${mods}」。\n`
     + '  两者不是同一个模块 ⇒ 反射出的是那个模块的参数，可能与用户会敲的 '
     + 'CLI 不是同一套（多出的参数在真实 CLI 上根本不存在，缺的参数则完全看不见）。\n'
-    + '  平台不改你的名片：哪一个模块是这台引擎该用的，取决于你的意图'
+    + '  平台不改写名片：哪一个模块是这台引擎该用的，取决于配置意图'
     + '（上游一份仓库里可以同时存在多个推理版本）。请自己核对后决定。'
 }
 
@@ -214,7 +214,7 @@ function buildDraftPackage (reflection, opts = {}) {
       _needs_review: true,
       ...(required ? { required: true } : {}),
       reason: required
-        ? `必填参数，但平台看不出它是什么类型（${e.reason}）。这个必须由你来定：`
+        ? `必填参数，但平台看不出它是什么类型（${e.reason}）。此项须手动确定：`
           + '它决定界面长出哪种控件，填错会把一个真实存在的旋钮永远藏起来。'
         : `平台看不出它是什么类型（${e.reason}）。这是可选项，确认类型后才能进界面。`,
     }
@@ -230,7 +230,7 @@ function buildDraftPackage (reflection, opts = {}) {
     if (isPlatformCanonical(p.name)) {
       p._platform_key = true
       p._why = '这个名字是平台核心词在引擎那边的写法：它通常该走 maps，'
-        + '而不是重复出现在 parameters[] 里。删不删由你定。'
+        + '而不是重复出现在 parameters[] 里。是否删除可手动决定。'
     }
   }
 
@@ -279,6 +279,9 @@ function buildDraftPackage (reflection, opts = {}) {
     parameters: allParameters,
     excluded,
     map_candidates: mapCandidates,
+    // 反射器从 parameters[] 剔掉的 bind 槽位候选（text / output_path / output_dir）。
+    //   交给自动填写去认 call.bind；不进 parameters[]（进了就是同一概念声明两次）。
+    bind_candidates: reflection.bind_candidates || [],
     warnings: draft.warnings || [],
     partial: draft.partial,
     partial_reason: draft.partialReason || null,
@@ -286,6 +289,7 @@ function buildDraftPackage (reflection, opts = {}) {
       parameters: allParameters.length,
       excluded: excluded.length,
       map_candidates: mapCandidates.length,
+      bind_candidates: (reflection.bind_candidates || []).length,
       reflected: allParams.length,
       from_bind: bindParams.length,
     },
@@ -310,13 +314,23 @@ function mergeReflections (list) {
     partial_reason: oks.map((r) => r.partial_reason).filter(Boolean).join('；') || null,
     load: [],
     call: [],
+    // bind 槽位候选：反射器从 parameters[] 里剔掉、但自动填写认槽位要靠的那些名字
+    //   （text / output_path / output_dir）。透传它，output_path 才填得出来。
+    bind_candidates: [],
     warnings: [],
     methods: oks.map((r) => r.method).filter(Boolean),
   }
   const seenLoad = new Set()
   const seenCall = new Set()
+  const seenBind = new Set()
   for (const r of oks) {
     for (const w of (r.warnings || [])) out.warnings.push(w)
+    for (const c of (r.bind_candidates || [])) {
+      const key = `${c && c.bind_slot}:${c && c.name}`
+      if (seenBind.has(key)) continue
+      seenBind.add(key)
+      out.bind_candidates.push(c)
+    }
     for (const phase of ['load', 'call']) {
       for (const entry of (r[phase] || [])) {
         const seen = phase === 'load' ? seenLoad : seenCall
@@ -356,15 +370,19 @@ function reflectAndBuild (spec, opts = {}) {
 }
 
 // 端点入参 → 反射 spec。只做搬运：从盘上读名片，把事实抄进 spec。
-const ROOT = path.join(__dirname, '..', '..', '..')
+// 根不钉死在本 checkout：按 id 找到引擎所在的那份 checkout（本 checkout 优先、主仓库兜底），
+//   解释器与相对路径都按它算。这里只读，不写（wizardRoot.js）。
+//   用绝对路径 require：变异测试会把本文件放进别的 require 上下文里编译。
+const { engineRoot } = require(path.join(__dirname, 'wizardRoot.js'))
 
-/** 把 POST /wizard/params 的 body 变成反射 spec。 */
+/** 把 POST /wizard/params 的 body 变成反射 spec。只做搬运：从盘上读 Manifest，把事实抄进 spec。 */
 function buildSpec (body, opts) {
   const b = body || {}
   const forCli = opts && opts.forCli  // cli 路线：只定位目录+python，不要 call.module/class
   if (!b.id || typeof b.id !== 'string') {
     return { ok: false, error: 'id is required（反射要知道去读哪个引擎目录）' }
   }
+  const ROOT = engineRoot(b.id)
   const dir = path.join(ROOT, 'engines', b.id)
   if (!fs.existsSync(dir)) {
     return {

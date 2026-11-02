@@ -7,7 +7,7 @@ const { test } = require('node:test')
 const assert = require('node:assert')
 
 const {
-  parseRequirements, planDependencies, probeProject, parseSetupPyName,
+  parseRequirements, planDependencies, probeProject, parseSetupPyName, isPipInstallable,
 } = require('../core/probe.js')
 
 // 夹具：按真实项目的常见形态写的 requirements.txt。
@@ -476,4 +476,38 @@ test('成功响应必须说清依赖是从哪个文件读出来的', () => {
       `dep_source 不对：${plan.dep_source}`)
     assert.strictEqual(typeof plan.dep_count, 'number')
   }
+})
+
+// 标准清单读不出依赖，但仓库可 pip 安装（pyproject 带构建段，或有 setup.py / setup.cfg）：
+//   平台不解析 setup.py，改用平台自己的装法 uv pip install -e .，不再硬报「读不到依赖」。
+test('isPipInstallable：pyproject 带 build-system / project 判可装', () => {
+  assert.strictEqual(isPipInstallable('[build-system]\nrequires=["setuptools"]\n'), true)
+  assert.strictEqual(isPipInstallable('[project]\nname="x"\n'), true)
+  assert.strictEqual(isPipInstallable('[tool.black]\nline-length=88\n'), false)
+  assert.strictEqual(isPipInstallable(null), false)
+  assert.strictEqual(isPipInstallable('[tool.x]\n', { setupPy: 'setup()' }), true)
+  assert.strictEqual(isPipInstallable('[tool.x]\n', { setupCfg: '[options]' }), true)
+})
+
+test('只有 setup.py、没有标准清单：planDependencies 出「装包本体」计划，不报 NO_DEPENDENCIES', () => {
+  const plan = planDependencies(null, { setupPy: 'setup(install_requires=["numpy"])\n' })
+  assert.strictEqual(plan.ok, true, plan.error)
+  assert.strictEqual(plan.dep_source, 'package')
+  assert.strictEqual(plan.dep_count, 0)
+  assert.strictEqual(plan.deps.total, 0)
+  assert.ok(/uv pip install -e \.|\pip install -e \./i.test(plan.note + ' ' + plan.noteZh),
+    'note 必须指向平台自己的装法：' + plan.noteZh)
+})
+
+test('setup.py 但 pyproject 里有依赖：pyproject 优先，不退回装包本体', () => {
+  const plan = planDependencies(GOOD_PYPROJECT, { setupPy: 'setup(install_requires=["numpy"])\n' })
+  assert.strictEqual(plan.ok, true)
+  assert.strictEqual(plan.dep_source, 'pyproject.toml')
+  assert.ok(plan.dep_count > 0, 'pyproject 里有依赖时不该退回装包本体')
+})
+
+test('什么都没有：仍报 NO_DEPENDENCIES（不因为可装就乱放行）', () => {
+  const plan = planDependencies(null, {})
+  assert.strictEqual(plan.ok, false)
+  assert.strictEqual(plan.code, 'NO_DEPENDENCIES')
 })

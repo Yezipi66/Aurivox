@@ -72,7 +72,7 @@ function inferType(entry) {
     case 'list':
       return { type: 'number', confidence: k.confidence, why: k.why + `（长度 ${k.len}）`, repeat: k.len || 1 }
     case 'dict':
-      return { type: 'text', confidence: 'weak', why: k.why + ' —— 界面能编辑文本，但结构要你自己核对' }
+      return { type: 'text', confidence: 'weak', why: k.why + ' —— 界面能编辑文本，但结构需自行核对' }
     case 'object':
       return { type: 'text', confidence: 'weak', why: k.why }
     default: {
@@ -89,7 +89,7 @@ function inferType(entry) {
         return {
           type: null, confidence: 'none', needs_human: true,
           why: h.kind === 'path?'
-            ? `${h.why}，它是路径：先确认该不该做成界面格子（多半归 call.init_args）`
+            ? `${h.why}，它是路径：先确认该不该做成界面格子（通常归 call.init_args）`
             : `${k.why}；名字线索「${h.kind}」没有对应类型`,
         }
       }
@@ -159,7 +159,7 @@ function reflectParams(spec, opts = {}) {
   } catch {
     return {
       ok: false, stage: 'parse',
-      error: '反射器输出不是 JSON，多半是引擎环境在 import 时往 stdout 打了东西',
+      error: '反射器输出不是 JSON，通常是引擎环境在 import 时往 stdout 打了东西',
       detail: (proc.stdout || '').slice(0, 2000),
     }
   }

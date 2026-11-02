@@ -46,7 +46,7 @@ export function BrokerTab() {
           <button className="btn btn-sm" onClick={load}>{t('Refresh', '刷新')}</button>
         </div>
         <div className="section-body">
-          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+          <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 8 }}>
             {t(
               <>Recipes are exposed through the OpenAI-compatible speech endpoint. Set the
               request's <code>voice</code> field to a recipe id (<code>role/name</code>) to synthesize with that

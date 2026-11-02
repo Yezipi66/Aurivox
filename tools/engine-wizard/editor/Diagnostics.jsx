@@ -1,3 +1,4 @@
+// 第 5 步的检查面板：列出校验项与结果计数。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 
@@ -51,8 +52,8 @@ export default function Diagnostics ({ result, loading }) {
               {result.parse_error
                 ? t('Invalid JSON — the preview on the right is the previous version',
                     'JSON 无法解析，右侧显示的是上一次的结果')
-                : t('The checker itself failed. This says nothing about your manifest.',
-                    '检查器自身出错，与 Manifest 是否正确无关。')}
+                : t('The checker itself failed. This says nothing about the manifest.',
+                    '检查器自身出错，与名片是否正确无关。')}
               <div className="field-hint">{broken}</div>
             </div>
           </div>
@@ -110,7 +111,7 @@ export default function Diagnostics ({ result, loading }) {
           {!diagnostics.length && (
             <div className="msg msg-ok">
               {t('No problems found. That is not the same as verified.',
-                '未发现问题。这与「已验证」不是一回事。')}
+                '未发现问题，但这不等于已验证。')}
             </div>
           )}
 

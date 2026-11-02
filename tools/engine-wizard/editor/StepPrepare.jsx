@@ -5,6 +5,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { folderName } from './folderName'
+import { postJson } from './postJson'
 
 /** 从链接里推断项目名：目录名留空时做灰字预览；真正的 id 来自 resolve 端点。 */
 /** 后端错误的双语文案表：键名 = 后端 code；新增错误时先放 core，再来这里加两行。 */
@@ -39,7 +40,17 @@ const ERR_TEXT = {
     '目录名含有不能放进文件夹名的字符：{chars}'],
   RESERVED_NAME: [
     '"{name}" is reserved by the platform — pick another name.',
-    '"{name}" 是平台保留的目录名，换一个。'],
+    '"{name}" 是平台保留的目录名，请改用其他目录名。'],
+  // 请求本身未走通（服务未能启动、连接被拒、响应不是 JSON）。
+  // 这两种过去会让界面停在「正在读…」且不显示任何原因。
+  REQUEST_FAILED: [
+    'Could not reach the platform service ({path}). Check that it is running, then try again.',
+    '无法连接平台服务（{path}）。请检查平台服务是否在运行，然后重试。'],
+  BAD_RESPONSE: [
+    'The platform service ({path}) returned a response that is not JSON (HTTP {status}). '
+      + 'Check that it is running normally, then try again.',
+    '平台服务（{path}）返回的不是 JSON 响应（HTTP {status}）。'
+      + '请检查平台服务是否正常，然后重试。'],
 }
 
 /** 取后端错误的文案。查不到就退回它自带的 error（兜底，不是常规路径）。 */
@@ -74,7 +85,7 @@ function licenseText (meta, t) {
   return '—'
 }
 
-export default function StepPrepare ({ state, facts, onChange, onDone, prep, onPrep }) {
+export default function StepPrepare ({ state, facts, onChange, onDone, onNext, prep, onPrep, onUndone }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
   const [idInput, setIdInput] = React.useState(state.id || '')
@@ -88,69 +99,98 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   // 上次解析成功时链接框里的值，用于判「使用者是否改了链接」；必须在 res 之后声明（TDZ）。
   const lastResolved = (res && res.input) || ''
 
+  // 只认「对应当前输入框」的那份 res：res 是上次解析的产物，换过链接就过期
+  //   （input 是解析时的输入）。命令区、项目信息区、克隆、目录名、路径都从
+  //   这一个值取，显示与克隆同源，不会出现「命令是上一个仓库、信息是当前仓库」。
+  //   与当前输入不一致时（null）让界面回到未解析状态，等失焦或回车重新解析。
+  const resForCur = (res && res.input === url) ? res : null
+
   // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
+  // setRes 不再单独列出：res 的写入都走 onPrep（resolve 里要同时清 probe，
+  //   单独 setRes 表达不了这种成组写，删掉免得误用）。
   const patch = (k, v) => onPrep((w) => ({ ...w, [k]: v }))
-  const setRes = (v) => patch('res', v)
   const setProbe = (v) => patch('probe', v)
   const setPlan = (v) => patch('plan', v)
   const setCloneRes = (v) => patch('cloneRes', v)
 
-  const post = async (path_, body) => {
-    const r = await fetch(path_, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return r.json()
-  }
+  /**
+   * 发一个 POST 请求，把失败也变成可读的结论。
+   *
+   * 失败分两类，都要在这里收口，不允许让异常冒出去：
+   *   ① 网络层失败（连接被拒、DNS 失败、请求超时）⇒ fetch 抛。
+   *   ② 响应不是 JSON（服务端返回 HTML 错误页、网关返回纯文本）⇒ r.json() 抛。
+   * 这两类过去会让调用方的 setBusy('') 执行不到 ⇒ 界面停在「正在读…」，
+   *   而且一个字的错误提示都没有 ⇒ 使用者看不出出了什么事。
+   *
+   * 判据放在 editor/postJson.js（可单测），这里只做转发。
+   */
+  const post = (path_, body) => postJson(path_, body)
 
   // 不填目录名时的默认值 = 仓库根链接的最后一段。state.id 不作来源（旧 id 会造成双 id）。
   // 这一行同时喂给克隆请求、命令文案、目标路径与风险文案。
-  const autoId = (res && res.ok && res.repo) || guessRepoFromUrl(url)
+  const autoId = (resForCur && resForCur.ok && resForCur.repo) || guessRepoFromUrl(url)
   const curId = folderName({ typed: idInput, suggested: autoId })
 
   // ① 解析（本地，不联网），紧接着做一次只读探测
   const resolve = async () => {
     setBusy('link')
-    // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
-    const j = await post('/wizard/resolve', {
-      url, id: (idInput.trim() || undefined),
-    })
-    // 必须打 /wizard/probe（返回 meta）；/wizard/deps 只返回 deps。
-    let probeJ = null
-    if (j.ok) {
-      try { probeJ = await post('/wizard/probe', { url: j.url }) }
-      catch (e) { /* 探测失败不阻断：克隆那步照样能看 */ }
+    try {
+      // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
+      const j = await post('/wizard/resolve', {
+        url, id: (idInput.trim() || undefined),
+      })
+      // 解析失败（链接不合法、服务未能启动）⇒ 如实报出来，不往下走。
+      if (!j.ok) {
+        onPrep((w) => ({ ...w, res: { ...j, input: url } }))
+        return
+      }
+      const resolvedName = folderName({ typed: idInput, suggested: j.id })
+      // 后端已把 /tree/... /blob/... 剥掉，界面必须反映截断后的仓库根：
+      //   输入框与 wz.url 若还留原始链接，显示的是带尾巴的 URL，
+      //   克隆/探测却用截断后的，显示与实际使用不一致。
+      const resolvedUrl = j.url || url
+      // 嗅探不在这里自动跑：它是「嗅探仓库」按钮的专属动作（手动、有意图）。
+      //   解析只做本地 URL 规范化与目录名推断，不联网；「仓库在不在」交给按钮回答，
+      //   解析成功就顺带探一次会让按钮形同虚设，使用者也不知道探的是哪一步。
+      onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: null }))
+      if (j.ok) {
+        if (!idInput.trim()) setIdInput(j.id)
+        if (resolvedUrl !== url) setUrl(resolvedUrl)
+        onChange({ url: resolvedUrl, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
+        // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
+        // 等使用者点了「下一步」才说就来不及了。
+        // 这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
+        try {
+          const p = await post('/wizard/clone', {
+            id: resolvedName, cloneUrl: j.cloneUrl,
+          })
+          setPlan(p)
+        } catch (e) { /* 查不到就按普通克隆走，不阻断 */ }
+      }
+    } finally {
+      // 这一行必须在 finally 里：请求失败时也要把「正在读…」撤掉，
+      //   否则界面会永远停在那个提示上，而使用者看不到任何原因。
+      setBusy('')
     }
-    const resolvedName = j.ok ? folderName({ typed: idInput, suggested: j.id }) : ''
-    onPrep((w) => ({ ...w, res: { ...j, input: url }, probe: probeJ }))
-    if (j.ok) {
-      if (!idInput.trim()) setIdInput(j.id)
-      onChange({ url, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
-      // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
-      // 等使用者点了「下一步」才说就来不及了。
-      // 这次请求只读（execute 不带 ⇒ 只出计划，不动盘、不联网）。
-      try {
-        const p = await post('/wizard/clone', {
-          id: resolvedName, cloneUrl: j.cloneUrl,
-        })
-        setPlan(p)
-      } catch (e) { /* 查不到就按普通克隆走，不阻断 */ }
-    }
-    setBusy('')
   }
 
   // ② 探测（只读，不写盘）
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
-    const j = await post('/wizard/probe',
-      { url: state.repoUrl || (res && res.url) || url })
-    setProbe(j)
-    setBusy('')
+    try {
+      // 嗅探针对「使用者此刻在输入框里看到的地址」。
+      //   url 就是输入框的值（初始 state.url，之后每次输入都 setUrl）；
+      //   不要退到 state.repoUrl：它是持久段里上一次解析的产物，换了链接
+      //   就过期，留着会让「输入 A 却嗅探 B」。
+      const j = await post('/wizard/probe', { url })
+      setProbe(j)
+    } finally {
+      setBusy('')
+    }
   }
 
   // ③ 克隆（这一步才写盘）
-  // curId 是唯一的 id 来源；写成 `id: idInput || state.id` 会在输入框空时退化到旧 id。
+  // curId 是唯一的 id 来源；写成 id: idInput || state.id 会在输入框空时退化到旧 id。
   const doClone = async (execute) => {
     setBusy('clone'); setCloneRes(null)
     // 目录名为空时在这里拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
@@ -163,17 +203,23 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
       return
     }
     try {
-      // cloneUrl 同时从 res 和 state 取，只读 props 会在解析刚完成时拿到空值。
-      const cloneUrl = (res && res.cloneUrl) || state.cloneUrl
+      // cloneUrl 从顶部那份 resForCur 取（只认对应当前输入框的 res）：
+      //   用过期 res 的 cloneUrl（或持久段里残留的 state.cloneUrl）去克隆，
+      //   会把上一个仓库拉进当前目录。两者都与当前输入不一致时，让后端
+      //   报「请先解析链接」，不猜一个。
+      const cloneUrl = (resForCur && resForCur.cloneUrl) || ''
       // 与文案、只读预览用同一个 curId：后端按它算 engines/<id>，
       // 前端不另拼一份。
       const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
       if (j.ok && j.steps) setPlan(j)
       setCloneRes(j)
       if (j.ok && execute) {
-        // 克隆成功时写回 id，否则使用者改过目录名后第 2/3 步会拿到旧 id。
-        onChange({ cloned: true, id: curId })
-        onDone && onDone()
+        // 写回 id：使用者改过目录名时，第 2/3 步要拿到刚克隆用的那个。
+        //   不写 cloned：完成状态由端点读盘判，持久段里没有它的位置。
+        // id 一并交给 onDone：App 那边要立刻重问完成状态，而 onChange 的
+        //   setState 是异步的，紧接着同步调用会读到上一个渲染的旧 id（空）。
+        onChange({ id: curId })
+        onDone && onDone(curId)
       }
     } finally { setBusy('') }
   }
@@ -198,7 +244,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
         // 目录清掉了 ⇒ 之前的失败结果作废，重新解析一遍拿到新状态。
         setCloneRes(null)
         onPrep((w) => ({ ...w, cloneRes: null }))
-        if (res && res.ok) await resolve()
+        if (resForCur && resForCur.ok) await resolve()
       } else {
         setCloneRes({ ok: false, code: j.code || 'REMOVE_FAILED', error: j.error || j.errorZh })
       }
@@ -210,22 +256,40 @@ export default function StepPrepare ({ state, facts, onChange, onDone, prep, onP
   // 目标目录由后端给（enginesDir + pathSep），前端不推断文件系统路径。
   // 拿不到 enginesDir ⇒ 不显示路径，不显示空的或假的绝对路径。
   // 命令与目标路径同源：改目录名时两者必须一起变。
-  const enginesDir = (res && res.enginesDir) || null
-  const pathSep = (res && res.pathSep) || null
-  const relEngineDir = `engines/${curId}/`
+  const enginesDir = (resForCur && resForCur.enginesDir) || null
+  const pathSep = (resForCur && resForCur.pathSep) || null
   const fullEngineDir = (enginesDir && pathSep && curId)
     ? enginesDir + pathSep + curId
     : null
 
-const done = facts && facts.cloned === true
+  // 第 1 步完成 = 后端判的「目录已克隆」，键是 steps_done.prepare。
+  //   facts 的键与 core/installState.js 的 steps 逐字相同，只有
+  //   prepare/env/models/manifest/verify 五个，没有 cloned。
+  //   用 facts.cloned 会恒为 undefined ⇒ done 恒 false ⇒ 克隆完成后
+  //   「撤销克隆 / 下一步」永远不会出现，使用者被卡在第 1 步。
+  const done = facts && facts.prepare === true
   const meta = (probe && probe.meta) || null
+
+  // 嗅探状态（给卡片底部那个手动按钮用）。
+  //   判据不能用 ok：解析是纯本地的（不联网，地址写错也返回 ok），
+  //   探测对 404 同样返回 ok:true，真正的信号在 probe.notes 里。
+  //   「够不够得到这个仓库」只看 meta 里有没有真读到东西。
+  const readSomething = !!(meta && (meta.packageName || meta.requiresPython
+    || meta.srcRoot || meta.license || (meta.dependencies && meta.dependencies.found)))
+  const sniffStatus = busy === 'probe'
+    ? t('Sniffing…', '正在嗅探…')
+    : !probe
+      ? t('Not sniffed yet', '尚未嗅探')
+      : readSomething
+        ? t('Repository information read', '已读取仓库信息')
+        : t('No repository information read', '未读取到仓库信息')
 
   return (
     /* 第一步全部铺开：一个连续区域，从上到下直接排。
        外层这行内联样式取自 TrainingTab.jsx 的 TrainingTab() 外层：
          display:flex / flexDirection:column / gap:8
        不再套 .preflight、不再套 .form-narrow、不再套任何盒子。 */
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="wz-stack">
 
       {/* 两个输入框，一行。
           目录名留空 = 自动取仓库根最后一段（tree/main 会被剥掉）
@@ -243,15 +307,19 @@ const done = facts && facts.cloned === true
               // （state 只在解析成功时才被写入，见 resolve() 里的 onChange）。
               // 写回父组件的是原始输入，不含解析产物
               // （res/probe/cloneUrl 仍只在解析成功时写）。
-              onChange({ url: e.target.value })
+              // repoUrl/cloneUrl 一起清：换了一个链接，之前解析出的上游地址就是旧的。
+              //   若留着，嗅探（doProbe 读 state.repoUrl）与克隆（doClone 读
+              //   state.cloneUrl）会用上一个仓库的值，出现「输入 A 却嗅探/克隆 B」，
+              //   而 B 恰好没有依赖清单时，就表现为「这个仓库没有声明依赖」。
+              onChange({ url: e.target.value, repoUrl: '', cloneUrl: '' })
               // 只在真的变了时才清结果；
               // 只清这四个键，别整体替换 prep（会把别的键一起抹掉）
               if (e.target.value !== lastResolved) {
                 onPrep((w) => ({ ...w, res: null, probe: null, plan: null, cloneRes: null }))
               }
             }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !res) resolve() }}
-            onBlur={() => { if (url.trim() && !res) resolve() }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !resForCur) resolve() }}
+            onBlur={() => { if (url.trim() && !resForCur) resolve() }} />
         </div>
         <div className="field">
           <label className="field-label" htmlFor="wz-engine-id">
@@ -277,34 +345,36 @@ const done = facts && facts.cloned === true
       </p>
 
       {busy === 'link' && (
-        <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读…')}</p>
+        <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读取…')}</p>
       )}
 
-            {/* 告知「我们把你的链接改了」：不是错误，是修正
+      {/* 告知「我们把你的链接改了」：不是错误，是修正
           （文案查表，不走后端的中文句子）*/}
-      {res && res.ok && res.noteCode && (
+      {resForCur && resForCur.ok && resForCur.noteCode && (
         <p className="plan-warn" style={{ margin: 0 }}>
-          {errText({ code: res.noteCode, params: res.noteParams }, t)}
+          {errText({ code: resForCur.noteCode, params: resForCur.noteParams }, t)}
         </p>
       )}
 
-{res && !res.ok && (
+      {resForCur && !resForCur.ok && (
         <div className="msg msg-danger">
-          {errText(res, t)}
-          {res.example && (
+          {errText(resForCur, t)}
+          {resForCur.example && (
             <div className="field-hint">
-              {t('Example:', '例如：')} <code>{res.example}</code>
+              {t('Example:', '例如：')} <code>{resForCur.example}</code>
             </div>
           )}
         </div>
       )}
 
-      {/* 项目信息（只读，不写盘）。
+      {/* 项目信息（只读，不写盘）。只在嗅探成功后显示：没嗅探时读不到任何信息，
+          摆一排「—」占位只会让人觉得仓库是空的；「嗅探到了才显示具体信息」
+          与实际操作顺序一致：先确认仓库在不在、能否读到，再继续下一步。
           标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。
-          不放「重读」按钮：解析跟着失焦自动跑，探测结果刷新页面就在。*/}
-      {res && res.ok && (
+          嗅探（及嗅探失败后的重试）是右下角那个按钮的专属动作。*/}
+      {resForCur && resForCur.ok && readSomething && (
         <>
           <div className="layer-label">{t('Project information', '项目信息')}</div>
           <div className="plan-kv">
@@ -325,14 +395,14 @@ const done = facts && facts.cloned === true
         </>
       )}
 
-      {/* 下一步（这一步才写盘）。
-          标题说「下一步会发生什么」，不说实现步骤（「克隆」），
-            使用者关心的是流程往前走，不是内部动作名。
+      {/* 命令区 + 克隆结果提示（只在嗅探成功、且还没克隆时显示）。
+          没嗅探时读不到仓库，摆一条 git clone 是「还没确认仓库就让人往下走」；
+          克隆完成后命令过时，交给下面的「已克隆」提示。
           这里给真正的 git clone 命令，不只显示 engines/<name>/
             这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
           不放「看计划」按钮：命令已经摆在上面，再点一次看同一份是多余的。
           判据：此区域里的命令必须与真正要执行的那条逐字相同。*/}
-      {res && res.ok && (
+      {resForCur && resForCur.ok && readSomething && !done && (
         <>
           {/* 命令区：复用时没有命令要跑。
               复用是这一次的常态（目录已经在了），摆一条不会执行的 git clone
@@ -342,7 +412,7 @@ const done = facts && facts.cloned === true
               <span className="pk">{t('Command', '命令')}</span>
               <span className="pv">
                 <code>
-                  {`git clone ${(res && res.cloneUrl) || ''} engines/${curId}`}
+                  {`git clone ${(resForCur && resForCur.cloneUrl) || ''} engines/${curId}`}
                 </code>
               </span>
             </div>
@@ -391,7 +461,7 @@ const done = facts && facts.cloned === true
               {upstream && upstream.match === 'different' && (
                 <>
                   {t('This directory came from a different upstream, so it is reused '
-                    + 'as it is. Check that this is the engine you meant to install.',
+                    + 'as it is. Check that this is the engine to be installed.',
                     '该目录来自另一个上游，仍按原样复用。'
                     + '请确认这就是要装的引擎。')}
                   <div className="field-hint">
@@ -411,12 +481,6 @@ const done = facts && facts.cloned === true
               )}
             </div>
           )}
-          {done && !reused && (
-            <div className="msg msg-info">
-              {t('Cloned into engines/' + curId + '/.',
-                '已克隆到 engines/' + curId + '/。')}
-            </div>
-          )}
 
           {/* vars：把项目名和完整路径喂给风险文案。
               只说「写进 engines/」时使用者分不清这一步要动的是哪一个，
@@ -429,24 +493,26 @@ const done = facts && facts.cloned === true
               // 复用时那句文案要跟着改：说「会克隆到哪」就与实际做的事不符了。
               reuse: reused,
             }}>
-            {/* 三个按钮同一行，flex 里先出现的排左边：
-                撤销克隆（仅克隆完成后）→ 下一步 → 取消（仅克隆进行中）。*/}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {done && (
-                <UndoClone engineId={curId} onUndone={() => {
-                  // 目录没了 ⇒ 第 1 步的完成状态作废，回到第 1 步重来。
-                  setCloneRes(null)
-                  onPrep((w) => ({ ...w, cloneRes: null }))
-                  onChange({ cloned: false })
-                }} />
-              )}
+            {/* 嗅探成功后、未克隆：一行靠右下，重新嗅探在左、克隆在右。
+                克隆是这一步才写盘的动作；嗅探成功后「嗅探仓库」才变成「重新嗅探」，
+                同一动作不再摆两处，免得使用者以为是两件事。
+                克隆中时旁边出现红色的「取消」。*/}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+              <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+              <button className="btn btn-sm" type="button"
+                disabled={busy === 'probe'}
+                onClick={doProbe}>
+                {busy === 'probe'
+                  ? t('Sniffing…', '正在嗅探…')
+                  : t('Resniff repository', '重新嗅探')}
+              </button>
               <button className="btn btn-primary btn-sm" type="button"
                 // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
                 disabled={busy === 'clone' || !curId}
                 onClick={() => doClone(true)}>
                 {busy === 'clone'
                   ? t('Cloning…', '正在克隆…')
-                  : t('Next', '下一步')}
+                  : t('Clone', '克隆')}
               </button>
               {/* 取消按钮：与「正在克隆」同一行、同一个 .btn 形状，
                   颜色改成红色（它终止的是一次已经开始的写盘操作）。 */}
@@ -463,6 +529,65 @@ const done = facts && facts.cloned === true
             </div>
           </RiskUnlock>
         </>
+      )}
+
+      {/* 克隆完成：右下角 [撤销克隆] [下一步]。
+          下一步只负责跳到第 2 步（安装依赖），不再克隆；克隆已经完成了。
+          跳转是使用者自己的决定，不自动跳（onDone 不再 setPage）。
+          撤销克隆删掉 engines/<id>/ 整棵，回到第 1 步重来。*/}
+      {resForCur && resForCur.ok && done && (
+        <>
+          <div className="msg msg-info">
+            {t('Cloned into engines/' + curId + '/.',
+              '已克隆到 engines/' + curId + '/。')}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center',
+            justifyContent: 'flex-end', marginTop: 12 }}>
+            <UndoClone engineId={curId} onUndone={() => {
+              // 目录没了 ⇒ 第 1 步的完成状态作废：清掉失败结果（cloneRes），
+              // 并让 App 重新读完成状态（facts 由端点判，撤销后 prepare 应为 false）。
+              // 不写 wz.cloned：完成状态只由端点判，持久段里没有它的位置。
+              setCloneRes(null)
+              onPrep((w) => ({ ...w, cloneRes: null }))
+              onUndone && onUndone()
+            }} />
+            <button className="btn btn-primary btn-sm" type="button"
+              onClick={onNext}>
+              {t('Next', '下一步')}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* 嗅探仓库（手动，右下角；只在还没嗅探 / 嗅探失败时显示）。
+          这是嗅探的唯一入口：解析只做本地 URL 规范化（不联网、地址写错也说 ok），
+          探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
+          以前从来没渲染过，于是仓库不存在时界面只停在一个「进行中」，
+          使用者既看不到原因，也没法自己再探一次。
+          嗅探成功后这个按钮就交给上面那行的「重新嗅探」，不再重复摆：
+          同一动作摆两处，使用者会以为是两件事。*/}
+      {resForCur && resForCur.ok && !done && !readSomething && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          gap: 8, marginTop: 12 }}>
+          <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+          <button className="btn btn-sm" type="button"
+            disabled={busy === 'probe' || !url.trim()}
+            onClick={doProbe}>
+            {busy === 'probe'
+              ? t('Sniffing…', '正在嗅探…')
+              : t('Sniff repository', '嗅探仓库')}
+          </button>
+        </div>
+      )}
+
+      {/* 探测过程的原话：读不到默认分支、HTTP_404 之类都在这。
+          这是判断「仓库在不在」唯一可见的信号，不摆出来就等于没探。*/}
+      {probe && Array.isArray(probe.notes) && probe.notes.length > 0 && (
+        <div className="msg msg-warn" style={{ marginTop: 8 }}>
+          {probe.notes.map((n, i) => (
+            <div key={i}>{typeof n === 'string' ? n : String(n)}</div>
+          ))}
+        </div>
       )}
     </div>
   )

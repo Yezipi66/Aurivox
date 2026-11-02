@@ -42,7 +42,7 @@ const AGG_DEFAULT = 10
 const VOCAL_PRESETS = [
   { id: 'bgm', label: ['Remove background music (HP2)', '去背景乐（HP2）'],
     hint: ['Most common. For material WITHOUT harmony — best main-vocal preservation.',
-           '最常用。不带和声的素材，主人声保留最好。'],
+           '最常用。不带和声的素材，主人声保留最完整。'],
     pipeline: [{ model: 'HP2', agg: AGG_DEFAULT }] },
   { id: 'main_vocal', label: ['Only main vocal (HP5)', '仅保留主人声（HP5）'],
     hint: ['For material WITH harmony; may slightly weaken the main vocal.',
@@ -50,7 +50,7 @@ const VOCAL_PRESETS = [
     pipeline: [{ model: 'HP5', agg: AGG_DEFAULT }] },
   { id: 'dereverb', label: ['De-reverb (MDX-Net)', '去混响（MDX-Net）'],
     hint: ['Best for stereo reverb; cannot remove mono reverb.',
-           '对双声道混响最佳；不能去单声道混响。'],
+           '对双声道混响效果最佳；无法去除单声道混响。'],
     pipeline: [{ model: 'MDX-Net' }] },
   { id: 'deep', label: ['Deep clean: MDX-Net → DeEcho-Aggressive  ★', '深度清洗：MDX-Net → DeEcho-Aggressive  ★'],
     hint: ['Official cleanest configuration. Two-stage chain — slower.',
@@ -61,7 +61,7 @@ const VOCAL_PRESETS = [
            '基于 Roformer 的人声分离。大模型（约 700MB），需下载。'],
     pipeline: [{ model: 'Mel-Band-Roformer' }] },
   { id: 'custom', label: ['Custom…', '自定义…'],
-    hint: ['Build your own separation chain (advanced).', '自建分离链（高级）。'],
+    hint: ['Build a custom separation chain (advanced).', '自建分离链（高级）。'],
     pipeline: null },
 ]
 const VOCAL_PRESET_BY_ID = Object.fromEntries(VOCAL_PRESETS.map(p => [p.id, p]))
@@ -90,7 +90,7 @@ const EXPERT_META = {
            'MDX-Net 极易耗尽显存（OOM）。默认值（8 秒）以 4 GB 显存为基准；显存更大的显卡可自行调高，以获得更多上下文与更快速度。'] },
   overlap: { archs: ['roformer'], type: 'int', min: 1, max: 8, default: 2,
     label: ['Chunk overlap', '分块重叠'],
-    hint: ['Higher = better quality, slower.', '越大质量越好、越慢。'] },
+    hint: ['Higher = better quality, slower.', '值越大质量越好，同时耗时越长。'] },
   batchSize: { archs: ['roformer'], type: 'int', min: 1, max: 16, default: 2,
     label: ['Batch size', '批大小'],
     hint: ['Higher = faster on big GPUs, more VRAM.', '越大在大显存上越快、显存占用更大。'] },
@@ -154,7 +154,7 @@ const TRAIN_PRESETS = [
   { key: 'lowvram',  label: 'Low VRAM Safe',         hint: 'Batch size 1 + gradient checkpoint for 8GB GPUs. Same S1 8 / S2 25 epoch split.',
     hintZh: 'batch size 1 + gradient checkpoint，适合 8GB 显存的 GPU。epoch 划分同样为 S1 8 / S2 25。',
     fields: { gptEpochs: 8, sovitsEpochs: 25, batchSize: 1,      s1SaveEvery: 4, s2SaveEvery: 5, s2GradCkpt: true,  s2Fp16: true } },
-  { key: 'custom',   label: 'Custom',               hint: 'Your own values — edit anything in the pipeline steps below.',
+  { key: 'custom',   label: 'Custom',               hint: 'Custom values — edit anything in the pipeline steps below.',
     hintZh: '使用自定义参数，可在下方各流程步骤中任意修改。',
     fields: null },
 ]

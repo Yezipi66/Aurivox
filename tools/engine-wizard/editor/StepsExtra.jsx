@@ -1,29 +1,17 @@
+// 第 3 步下载模型及其余步骤面板。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
+import { DEFAULT_CONCURRENCY } from './downloadQueue'
+import { downloadFiles } from './downloadRunner'
+import { sourceOf, buildCommand, choiceKey, repoPageUrl, SOURCES, SOURCE_LABELS } from './downloadSource'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
 // 落盘路径统一由后端决定（engines/<id>/checkpoints/），前端只传原始命令。
 
-const buildCommand = (c) => {
-  if (c.tool === 'snapshot') {
-    return {
-      display: `python -c "from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')"`,
-      argv: ['python', '-c', `from modelscope import snapshot_download; snapshot_download('${c.repo}', local_dir='checkpoints')`]
-    }
-  } else if (c.tool === 'modelscope') {
-    return {
-      display: `modelscope download --model ${c.repo} --local_dir checkpoints`,
-      argv: ['modelscope', 'download', '--model', c.repo, '--local_dir', 'checkpoints']
-    }
-  } else {
-    return {
-      display: `hf download ${c.repo} --local-dir=checkpoints`,
-      argv: ['hf', 'download', c.repo, '--local-dir=checkpoints']
-    }
-  }
-}
+// 下载来源（HF / 魔搭）的判定只有一处：downloadSource.js 的 sourceOf。
+//   显示的命令、列清单用的 tool、清单逐行回写的 tool 都从它取。
 
 export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const { t, lang } = useT()
@@ -57,10 +45,27 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 下载状态（SSE 流式）。
   // 声明必须在使用之前：下面的 useEffect 引用了 dlLive，
   // 声明在后面会触发 TDZ（Cannot access 'dlLive' before initialization）。
-  const [dlLive, setDlLive] = React.useState(null)
-  const [dlTail, setDlTail] = React.useState([])
+  //
+  // 下载活动按文件分槽记在 dlFiles 里：一个文件名对应一条。
+  //   为什么不记成一条全局的进度：同时下几个文件时，全局那条会被后到的进度盖掉，
+  //   界面上只剩最后一个文件的进度，其余几个看着像没动。
+  //   单文件下载也走这张表（只有一个条目），两处逻辑因此是同一套。
+  const [dlFiles, setDlFiles] = React.useState({})
   const [dlBusy, setDlBusy] = React.useState(false)
-  const [dlProgress, setDlProgress] = React.useState(null)
+  const [dlSummary, setDlSummary] = React.useState(null)
+
+  // 整轮下载的汇总（单文件下载时是那一个文件的结果）。
+  // dlLive 是它的旧名字，保留是为了少改调用点：内容仍是一句话的状态。
+  const dlLive = dlSummary
+
+  // 进行中的文件条目：每个文件一条进度。
+  //   同时下几个文件时，只有一条全局进度的话，界面上只剩最后一个文件的进度，
+  //   其余几个看着像没动。所以进度按文件名分槽，各占一行。
+  const dlEntries = Object.entries(dlFiles)
+
+  // 取消：前端只发取消信号，真正的中断由后端做。
+  //   前端自己 abort fetch 是不够的：SSE 断了不代表后端的请求停了。
+  const dlCancelRef = React.useRef(false)
 
   // 远端文件列表（来自 /wizard/download/manifest）
   const [manifest, setManifest] = React.useState(null)
@@ -69,6 +74,24 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
+
+  // 来源判不出的命令（snapshot_download 且同一段代码里看不出是哪个库）由使用者手选。
+  //   键见 downloadSource.js 的 choiceKey。
+  const [sourceChoices, setSourceChoices] = React.useState({})
+  const pickSource = (c, source) => {
+    setSourceChoices((prev) => ({ ...prev, [choiceKey(c)]: source }))
+  }
+
+  // HF 访问令牌：只知道配置了没有（null = 还没问过后端），令牌本身不进前端状态。
+  //   tokenDialog 不为 null 时显示弹窗：{ info: 后端的 GATED 结果或 null, retry: 保存后要重做的事 }。
+  const [hfConfigured, setHfConfigured] = React.useState(null)
+  const [tokenDialog, setTokenDialog] = React.useState(null)
+  React.useEffect(() => {
+    fetch('/wizard/hf-token')
+      .then((r) => r.json())
+      .then((j) => { if (j && j.ok) setHfConfigured(!!j.configured) })
+      .catch(() => { /* 端点不通 ⇒ 状态未知，弹窗里照样能填 */ })
+  }, [])
 
   // 持久化：从会话段恢复状态（sessionStorage，键含 id 与 url）。
   // 懒初始化读一次；换 URL / 换引擎 ⇒ 键变 ⇒ 恢复到的是另一段会话。
@@ -98,7 +121,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       .then((j) => {
         if (j.ok && Array.isArray(j.done) && j.done.length > 0) {
           // 有已完成的命令 → 标记为「已下载」
-          setDlLive({ stage: 'done', ok: true })
+          setDlSummary({ stage: 'done', ok: true })
         }
       })
       .catch(() => { /* 读不到进度文件 ⇒ 没有已下载的 */ })
@@ -106,7 +129,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
   // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-  // 三态：已下载（文件存在且大小>0）/ 未下载（文件不存在）/ 不完整（大小为0）。
+  // 三态：已下载（文件存在且大小 > 0）/ 未下载（文件不存在）/ 不完整（大小为 0）。
   const [fileList, setFileList] = React.useState(null)
   React.useEffect(() => {
     if (!id || !dlLive || dlLive.stage !== 'done') return
@@ -140,14 +163,19 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         '仓库信息缺失，请检查上游 README。'))
       return
     }
+    const tool = sourceOf(c, sourceChoices)
+    if (tool === 'unknown') {
+      setProbeError(t('Choose where this command downloads from first (Hugging Face or ModelScope).',
+        '请先选择这条命令的下载来源（Hugging Face 或魔搭）。'))
+      return
+    }
     setProbeLoading(true)
     setProbeError(null)
     try {
-      const tool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
-        setProbeError(t('Probe failed: HTTP ${resp.status}', '嗅探失败：HTTP ${resp.status}'))
+        setProbeError(t(`Probe failed: HTTP ${resp.status}`, `嗅探失败：HTTP ${resp.status}`))
         return
       }
       const contentType = resp.headers.get('content-type') || ''
@@ -160,10 +188,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         setManifest((prev) => {
           // 同仓库去重：如果已经嗅探过这个仓库，忽略
           if (prev && prev.some((f) => f.repo === c.repo)) return prev
-          // 追加：把新文件加到列表后面，带上 repo 字段
-          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool: c.tool }))
+          // 追加：把新文件加到列表后面，带上 repo 与来源。来源写判定后的 hf / modelscope，
+          //   不写命令形态（snapshot）：下载时后端只认这两个值。
+          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool }))
           return [...(prev || []), ...newFiles]
         })
+      } else if (j.code === 'GATED') {
+        // 私有仓库不带令牌连清单都列不出：弹窗填令牌，保存后重新列。
+        setTokenDialog({ info: j, retry: () => loadManifest(c) })
       } else {
         // 显示错误信息，让用户知道嗅探失败
         setProbeError(j.error || t('Probe failed', '嗅探失败'))
@@ -207,49 +239,107 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     return merged
   }
 
-  // 下载全部：遍历所有 missing/partial 文件，逐个下载。
-  // 用 ref 追踪下载状态，避免闭包读到旧的 state 值。
+  // 下载全部：把没下载完的文件一次性交给执行器，它按并发上限分批派。
+  //   用 ref 追踪下载状态，避免闭包读到旧的 state 值。
   const dlBusyRef = React.useRef(false)
-  // 暂停只停前端的逐个文件循环，不杀进程：当前文件下载中杀进程会留下不完整的文件，
-  // 而 hf 自带缓存，重跑同一条命令只补缺的部分。
+  // 暂停只停前端的派单，不终止在途的请求：当前文件下载中杀进程会留下不完整的文件，
+  // 而远端下载器自带缓存，重跑同一条命令只补缺的部分。
   // 所以界面上必须写清楚「当前文件下载中，暂停将在当前文件完成后生效」，
   // 不写清楚就是让使用者以为点了就停。
   const dlPausedRef = React.useRef(false)
   const [dlPaused, setDlPaused] = React.useState(false)
+
+  // 某个文件的进度：按文件名分槽，同时下几个文件时互不覆盖。
+  const setFileProgress = (name, ev) => {
+    setDlFiles((prev) => ({
+      ...prev,
+      [name]: { ...(prev[name] || {}), percent: ev.percent, downloaded: ev.downloaded, total: ev.total },
+    }))
+  }
+
+  // 某个文件结束：记下结果，成功就把这一行的状态改成「已下载」。
+  const setFileDone = (name, result) => {
+    setDlFiles((prev) => ({
+      ...prev,
+      [name]: { ...(prev[name] || {}), done: true, ok: result && result.ok === true, error: result && result.error },
+    }))
+    if (result && result.ok && id) {
+      // 下载完成后自动刷新清单（合并刷新，不整表覆盖）
+      fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
+        .then((r) => r.json())
+        .then((j) => { if (j.ok) setFileList(j.files) })
+        .catch(() => { /* 读不到 ⇒ 空列表 */ })
+    }
+  }
+
   const downloadAll = () => {
     if (!manifest || manifest.length === 0) return
     const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
     if (filesToDownload.length === 0) return
+    startDownloads(filesToDownload)
+  }
+
+  // 开一轮下载：清掉上一轮的状态再交给 runDownloads。下载全部、单文件、令牌保存后的重试都走这里。
+  const startDownloads = (files) => {
     dlBusyRef.current = true
     dlPausedRef.current = false
+    dlCancelRef.current = false
     setDlPaused(false)
-    setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
-    let idx = 0
-    const downloadNext = () => {
-      if (idx >= filesToDownload.length || dlPausedRef.current) {
-        dlBusyRef.current = false
-        setDlLive(dlPausedRef.current ? { stage: 'paused' } : { stage: 'done', ok: true })
-        setDlBusyBoth(false)
-        return
+    setDlBusyBoth(true)
+    setDlSummary({ stage: 'start' })
+    setDlFiles({})
+    runDownloads(files)
+  }
+
+  // 执行一批下载：单文件与「下载全部」共用这一条路，界面逻辑因此是同一套。
+  const runDownloads = (files) => {
+    downloadFiles({
+      id,
+      root: window.__PROJECT_ROOT__ || '',
+      files,
+      concurrency: DEFAULT_CONCURRENCY,
+      shouldStop: () => dlPausedRef.current || dlCancelRef.current,
+      onProgress: setFileProgress,
+      onDone: setFileDone,
+    }).then((r) => {
+      dlBusyRef.current = false
+      setDlBusyBoth(false)
+      // HF 以授权错误拒绝的文件：弹窗让使用者填令牌（或去接受许可协议），之后只重下这几个。
+      const gated = (r.results || []).filter((x) => x && x.code === 'GATED')
+      if (gated.length > 0 && !dlCancelRef.current) {
+        const names = new Set(gated.map((x) => x.name))
+        const again = files.filter((f) => names.has(f.name))
+        setTokenDialog({ info: gated[0], retry: () => startDownloads(again) })
       }
-      const f = filesToDownload[idx]
-      const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
-      idx++
-      runDownload(cmd, f)
-      // 等待当前文件下载完成后再下载下一个
-      const checkDone = setInterval(() => {
-        if (!dlBusyRef.current) {
-          clearInterval(checkDone)
-          downloadNext()
-        }
-      }, 500)
-    }
-    downloadNext()
+      if (dlCancelRef.current) {
+        setDlSummary({ stage: 'cancelled' })
+      } else if (dlPausedRef.current) {
+        setDlSummary({ stage: 'paused' })
+      } else if (r.ok) {
+        setDlSummary({ stage: 'done', ok: true })
+      } else {
+        setDlSummary({ stage: 'done', ok: false, error: r.firstError, errorZh: r.firstErrorZh })
+      }
+    })
   }
 
   const pauseDownload = () => {
     dlPausedRef.current = true
     setDlPaused(true)
+  }
+
+  // 取消：停掉整轮下载。
+  //   前端只负责不再派新任务并通知后端；真正的中断由后端做
+  //   （前端 abort fetch 只是断了 SSE，后端的请求照跑）。
+  const cancelDownload = () => {
+    dlCancelRef.current = true
+    dlPausedRef.current = true
+    setDlPaused(true)
+    fetch('/wizard/download/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }).catch(() => { /* 取消信号发不出去也不影响界面状态 */ })
   }
 
   // 删掉一个不完整的文件，让它回到「未下载」。走同一个 checkFileStatus 判据（后端），
@@ -283,117 +373,49 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 用户可以随时进入第 4 步写 manifest（此时下载还在后台跑）。
   // 不用 await：await 会阻塞 UI，用户要等下载完成才能做其他事。
   const setDlBusyBoth = (v) => { dlBusyRef.current = v; setDlBusy(v) }
+  // 单文件下载：表格里的「下载 / 续传 / 重下」按钮走这里。
+  //   与「下载全部」共用 runDownloads，因此进度分槽、取消、收口是同一套逻辑。
   const runDownload = (c, file) => {
-    setDlBusyBoth(true); setDlTail([]); setDlLive({ stage: 'start' })
-    // 如果有文件信息，使用文件级下载端点（支持断点续传）
-    if (file && file.name) {
-      fetch('/wizard/download/file', {
+    if (!file || !file.name) return
+    startDownloads([{ ...file, repo: file.repo || c.repo, tool: file.tool || c.tool }])
+  }
+
+  // 令牌弹窗的三个动作。后端只回 { ok, configured }，令牌不回传，前端也不留副本。
+  const [tokenBusy, setTokenBusy] = React.useState(false)
+  const [tokenErr, setTokenErr] = React.useState(null)
+  const closeTokenDialog = () => { setTokenDialog(null); setTokenErr(null) }
+  const retryAfterToken = () => {
+    const retry = tokenDialog && tokenDialog.retry
+    closeTokenDialog()
+    if (retry) retry()
+  }
+  const saveToken = async (token) => {
+    setTokenBusy(true); setTokenErr(null)
+    try {
+      const resp = await fetch('/wizard/hf-token', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id,
-          root: window.__PROJECT_ROOT__ || '',
-          repo: c.repo,
-          file: { name: file.name, size: file.size, sha256: file.sha256 },
-        }),
-      }).then((resp) => {
-        if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusyBoth(false); return }
-        const reader = resp.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        const pump = () => reader.read().then(({ done, value }) => {
-          if (done) { setDlBusyBoth(false); return }
-          buf += decoder.decode(value, { stream: true })
-          let sep
-          while ((sep = buf.indexOf('\n\n')) >= 0) {
-            const raw = buf.slice(0, sep); buf = buf.slice(sep + 2)
-            const dl = raw.split('\n').find((l) => l.startsWith('data: '))
-            if (!dl) continue
-            let ev
-            try { ev = JSON.parse(dl.slice(6)) } catch (e) { continue }
-            if ('text' in ev) {
-              setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
-              setDlTail((t) => [...t.slice(-39), ev.text])
-            } else if ('percent' in ev) {
-              setDlProgress({ file: ev.file || '', percent: ev.percent || 0, downloaded: ev.downloaded || '', total: ev.total || '' })
-            } else if ('ok' in ev || 'error' in ev) {
-              setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
-              setDlBusyBoth(false)
-              setDlProgress(null)
-              // 下载完成后自动刷新 manifest（合并刷新，不整表覆盖）
-              if (ev.ok && id) {
-                const refreshTool = c.tool === 'modelscope' ? 'modelscope' : 'hf'
-                fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${refreshTool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
-                  .then((r) => r.json())
-                  .then((j) => { if (j.ok) setManifest((prev) => mergeManifest(prev, j.files, c.repo, refreshTool)) })
-                  .catch(() => { /* 读不到 ⇒ 保留旧表 */ })
-              }
-            }
-          }
-          pump()
-        }).catch((e) => {
-          setDlLive({ stage: 'error', error: e.message })
-          setDlBusyBoth(false)
-        })
-        pump()
-      }).catch((e) => {
-        setDlLive({ stage: 'error', error: e.message })
-        setDlBusyBoth(false)
+        body: JSON.stringify({ token }),
       })
-      return
-    }
-    // 路径由后端 unifyDest 统一处理，前端只传原始命令。
-    // buildCommand 返回原始命令：local_dir='checkpoints' 是 Windows 上会按 cwd 解析的相对正斜杠路径，
-    //   落盘位置仍由后端按 path.join 拼，不依赖前端给的这一段。
-    // 用 buildCommand 统一构建，确保执行和展示一致。
-    const { argv } = buildCommand(c)
-    // 不 await：下载在后台跑，用户可以随时进入第 4 步
-    fetch('/wizard/download', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, root: window.__PROJECT_ROOT__ || '', argv }),
-    }).then((resp) => {
-      if (!resp.ok) { setDlLive({ stage: 'error', error: 'HTTP ' + resp.status }); setDlBusyBoth(false); return }
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      const pump = () => reader.read().then(({ done, value }) => {
-        if (done) { setDlBusyBoth(false); return }
-        buf += decoder.decode(value, { stream: true })
-        let sep
-        while ((sep = buf.indexOf('\n\n')) >= 0) {
-          const raw = buf.slice(0, sep); buf = buf.slice(sep + 2)
-          const dl = raw.split('\n').find((l) => l.startsWith('data: '))
-          if (!dl) continue
-          let ev
-          try { ev = JSON.parse(dl.slice(6)) } catch (e) { continue }
-          if ('text' in ev) {
-            setDlLive((s) => ({ ...(s || {}), stage: 'line', err: ev.err }))
-            setDlTail((t) => [...t.slice(-39), ev.text])
-          } else if ('percent' in ev) {
-            setDlProgress({ file: ev.file || '', percent: ev.percent || 0, downloaded: ev.downloaded || '', total: ev.total || '' })
-          } else if ('ok' in ev || 'error' in ev) {
-            setDlLive({ stage: 'done', ok: ev.ok, error: ev.error, errorZh: ev.errorZh })
-            setDlBusyBoth(false)
-            setDlProgress(null)
-            // 下载完成后自动调 /wizard/download/files 逐文件校验。
-            // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
-            if (ev.ok && id) {
-              fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
-                .then((r) => r.json())
-                .then((j) => { if (j.ok) setFileList(j.files) })
-                .catch(() => { /* 读不到 ⇒ 空列表 */ })
-            }
-          }
-        }
-        pump()
-      }).catch((e) => {
-        setDlLive({ stage: 'error', error: e.message })
-        setDlBusyBoth(false)
-      })
-      pump()
-    }).catch((e) => {
-      setDlLive({ stage: 'error', error: e.message })
-      setDlBusyBoth(false)
-    })
+      const j = await resp.json()
+      if (j && typeof j.configured === 'boolean') setHfConfigured(j.configured)
+      if (!j || !j.ok) {
+        setTokenErr(lang === 'zh' ? ((j && j.errorZh) || '令牌保存失败。') : ((j && j.error) || 'Could not save the token.'))
+        return
+      }
+      retryAfterToken()
+    } catch (e) {
+      setTokenErr(lang === 'zh' ? '令牌保存失败。' : 'Could not save the token.')
+    } finally { setTokenBusy(false) }
+  }
+  const clearToken = async () => {
+    setTokenBusy(true); setTokenErr(null)
+    try {
+      const resp = await fetch('/wizard/hf-token', { method: 'DELETE' })
+      const j = await resp.json()
+      if (j && typeof j.configured === 'boolean') setHfConfigured(j.configured)
+    } catch (e) {
+      setTokenErr(lang === 'zh' ? '令牌清除失败。' : 'Could not remove the token.')
+    } finally { setTokenBusy(false) }
   }
 
   // 统一落盘：所有下载命令的 local_dir 都替换成 engines/<id>/checkpoints/。
@@ -401,7 +423,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 不替用户决定路径：这是平台统一落盘策略，不是用户可选的。
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="wz-stack">
       {err && <div className="msg msg-danger">{err}</div>}
       {!id && (
         <div className="msg msg-info">
@@ -419,16 +441,32 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               <code>engines/{id}/checkpoints/</code>
             </span>
           </div>
+          {manifest.some((f) => f.tool === 'hf') && (
+            <div className="plan-kv">
+              <span className="pk">{t('HF token', 'HF 令牌')}</span>
+              <span className="pv">
+                {hfConfigured === true
+                  ? t('Configured', '已配置')
+                  : hfConfigured === false ? t('Not configured', '未配置') : t('Unknown', '未知')}
+                {' '}
+                <button className="btn btn-sm" type="button"
+                  onClick={() => setTokenDialog({ info: null, retry: null })}>
+                  {hfConfigured ? t('Change or clear', '更换或清除') : t('Set', '设置')}
+                </button>
+              </span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
             <button
               className="btn btn-sm"
               type="button"
               disabled={dlBusy}
               onClick={downloadAll}
+              style={{ flexShrink: 0 }}
             >
               {t('Download all', '下载全部')}
             </button>
-            {/* 暂停只停前端的逐个文件循环，不杀进程。文案必须写清楚
+            {/* 暂停只停前端的派单，不终止在途的请求。文案必须写清楚
                 「当前文件下载中，暂停将在当前文件完成后生效」，不写就是欺骗。 */}
             {dlBusy && (
               <button
@@ -436,24 +474,47 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 type="button"
                 disabled={dlPaused}
                 onClick={pauseDownload}
+                style={{ flexShrink: 0 }}
               >
                 {t('Pause', '暂停')}
+              </button>
+            )}
+            {/* 取消与暂停是两件事：取消会终止在途的请求，
+                已经下载完成的文件保留，未完成的文件不保留。 */}
+            {dlBusy && (
+              <button
+                className="btn btn-sm btn-danger"
+                type="button"
+                disabled={dlCancelRef.current}
+                onClick={cancelDownload}
+                style={{ flexShrink: 0 }}
+              >
+                {t('Cancel', '取消')}
               </button>
             )}
           </div>
           {dlBusy && (
             <div className="field-hint" style={{ marginBottom: 8 }}>
-              {t('A file is downloading now. Pausing takes effect after the '
-                + 'current file finishes — the download process is not killed, '
-                + 'so resuming reuses what has already been fetched.',
-                '当前文件下载中，暂停将在当前文件完成后生效。'
-                + '暂停不会杀掉下载进程，因此续跑时会复用已下载的部分。')}
+              {t(`Downloading up to ${DEFAULT_CONCURRENCY} files at a time. `
+                + 'Pausing takes effect after the current files finish — '
+                + 'the download requests are not terminated, so resuming reuses '
+                + 'what has already been fetched.',
+                `同时最多下载 ${DEFAULT_CONCURRENCY} 个文件。`
+                + '暂停将在当前这些文件下载完成后生效。'
+                + '暂停不会终止下载请求，因此续跑时会复用已下载的部分。')}
             </div>
           )}
           {dlLive && dlLive.stage === 'paused' && (
             <div className="msg msg-info">
               {t('Paused. The remaining files are still marked as not downloaded.',
                 '已暂停。剩余文件仍标记为未下载。')}
+            </div>
+          )}
+          {dlLive && dlLive.stage === 'cancelled' && (
+            <div className="msg msg-info">
+              {t('Cancelled. Files that finished downloading are kept; '
+                + 'the ones that did not are marked as not downloaded.',
+                '已取消。已下载完成的文件保留，未完成的文件标记为未下载。')}
             </div>
           )}
           <table className="table">
@@ -469,22 +530,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </thead>
             <tbody>
               {manifest.map((f, i) => {
-                const cmd = { repo: f.repo || '', tool: f.tool || 'hf' }
+                const cmd = { repo: f.repo || '', tool: f.tool || '' }
+                const page = repoPageUrl(f.tool, f.repo)
                 return (
                   <tr key={i}>
                     <td><code>{f.name || ''}</code></td>
                     <td>
-                      {f.repo ? (
-                        <a
-                          href={f.tool === 'modelscope'
-                            ? `https://modelscope.cn/models/${f.repo}`
-                            : `https://huggingface.co/${f.repo}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
+                      {page ? (
+                        <a href={page} target="_blank" rel="noreferrer">
                           {f.repo}
                         </a>
-                      ) : t('(unknown)', '（未知）')}
+                      ) : (f.repo || t('(unknown)', '（未知）'))}
                     </td>
                     <td>
                       {f.size > 0
@@ -493,7 +549,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                     </td>
                     <td>
                       {f.sha256
-                        ? <code style={{ fontSize: 11 }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
+                        ? <code style={{ fontSize: 'var(--fs-11)' }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
                         : t('(unknown)', '（未知）')}
                     </td>
                     <td>
@@ -501,7 +557,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                       {f.status === 'partial' && (
                         <span title={
                           lang === 'zh'
-                            ? (f.noteZh || '文件不完整，需要续传或重下。')
+                            ? (f.noteZh || '文件不完整，需要续传或重新下载。')
                             : (f.note || 'The file is incomplete — resume or re-download it.')
                         }>⌛</span>
                       )}
@@ -526,7 +582,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                         <button className="btn btn-sm" type="button"
                           disabled={dlBusy}
                           onClick={() => runDownload(cmd, f)}>
-                          {t('Re-download', '重下')}
+                          {t('Re-download', '重新下载')}
                         </button>
                       )}
                     </td>
@@ -543,7 +599,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       {visibleCmds.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 13 }}>
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
               {t('Download commands', '下载命令')}
             </h2>
           </div>
@@ -557,16 +613,30 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               </div>
             )}
             {visibleCmds.map((c, i) => {
-              const { display } = buildCommand(c)
+              const { display, source } = buildCommand(c, sourceChoices)
+              // 来源是从 import 判出来的就不给选；判不出（或使用者手选过）才显示选择框。
+              const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
               return (
               <div key={i} className="rc-cmd" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>
                   {display}
                 </pre>
+                {pickable && (
+                  <select className="control" value={source === 'unknown' ? '' : source}
+                    title={t('The upstream code does not say which library this snapshot_download comes from.',
+                      '无法从上游代码判断 snapshot_download 所属的库，请选择下载来源。')}
+                    onChange={(e) => pickSource(c, e.target.value)}
+                    style={{ flexShrink: 0 }}>
+                    <option value="">{t('Choose source', '选择来源')}</option>
+                    {SOURCES.map((s) => (
+                      <option key={s} value={s}>{SOURCE_LABELS[s][lang === 'zh' ? 'zh' : 'en']}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   className="btn btn-sm"
                   type="button"
-                  disabled={probeLoading}
+                  disabled={probeLoading || source === 'unknown'}
                   onClick={() => loadManifest(c)}
                   style={{ flexShrink: 0 }}
                 >
@@ -590,37 +660,37 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </label>
       )}
 
-      {/* 进度条 */}
+      {/* 进度条：每个文件一条。同时下几个文件时，一条全局进度
+          会让其余几个看着像没动，所以这里按文件名分槽。 */}
       {dlBusy && (
         <div className="preflight" style={{ marginTop: 8 }}>
           <div className="layer-label">
-            {dlProgress
-              ? t(`Downloading ${dlProgress.file} (${dlProgress.percent}%)`, `正在下载 ${dlProgress.file} (${dlProgress.percent}%)`)
-              : (dlLive && dlLive.stage === 'line'
-                ? t('Downloading…', '下载中…')
-                : t('Starting…', '启动中…'))}
+            {dlEntries.length > 0
+              ? t(`Downloading ${dlEntries.length} file(s)…`, `正在下载 ${dlEntries.length} 个文件…`)
+              : t('Starting…', '启动中…')}
           </div>
-          {dlProgress ? (
-            <>
-              <div className="wz-progress">
-                <div className="wz-progress-bar" style={{ width: `${dlProgress.percent}%` }} />
+          {dlEntries.length > 0
+            ? dlEntries.map(([name, p]) => (
+              <div key={name} style={{ marginTop: 6 }}>
+                <div className="field-hint" style={{ marginTop: 0 }}>
+                  {p.done
+                    ? (p.ok
+                      ? t(`${name} — done`, `${name}：完成`)
+                      : t(`${name} — failed: ${p.error || ''}`, `${name}：失败（${p.error || ''}）`))
+                    : t(`Downloading ${name} (${p.percent || 0}%)`, `正在下载 ${name} (${p.percent || 0}%)`)}
+                </div>
+                {!p.done && (
+                  <div className="wz-progress">
+                    <div className="wz-progress-bar" style={{ width: `${p.percent || 0}%` }} />
+                  </div>
+                )}
               </div>
-              <div className="field-hint" style={{ marginTop: 4 }}>
-                {dlProgress.downloaded}{dlProgress.total ? ` / ${dlProgress.total}` : ''}
+            ))
+            : (
+              <div className="wz-progress wz-progress-indeterminate">
+                <div className="wz-progress-bar" />
               </div>
-            </>
-          ) : (
-            <div className="wz-progress wz-progress-indeterminate">
-              <div className="wz-progress-bar" />
-            </div>
-          )}
-          {dlTail.length > 0 && (
-            <div className="rc-cmd-body" style={{ marginTop: 4, maxHeight: 120, overflowY: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                {dlTail.join('\n')}
-              </pre>
-            </div>
-          )}
+            )}
         </div>
       )}
       {dlLive && dlLive.stage === 'done' && (
@@ -674,7 +744,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       {upstreamScripts.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>
           <div className="section-hdr">
-            <h2 style={{ fontSize: 13 }}>
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
               {t('Scripts the project ships', '上游附带脚本')}
             </h2>
           </div>
@@ -691,12 +761,26 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
+      {tokenDialog && (
+        <HfTokenDialog
+          info={tokenDialog.info}
+          canRetry={!!tokenDialog.retry}
+          configured={hfConfigured}
+          busy={tokenBusy}
+          error={tokenErr}
+          onSave={saveToken}
+          onClear={clearToken}
+          onRetry={retryAfterToken}
+          onClose={closeTokenDialog}
+        />
+      )}
+
       {/* 命令：平台只填好占位符打印出来，不代下载。
           下载清单来自 probe，不依赖 manifest。*/}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-sm" type="button" onClick={load} disabled={busy || !id}>
-          {busy ? t('Checking…', '正在查…') : t('Check again', '再查一次')}
+          {busy ? t('Checking…', '正在检查…') : t('Check again', '重新检查')}
         </button>
         {/* 从头重装本步：只清「哪些下载算做完了」这份记录（models 段），
             不删已下载的模型文件、不删源码与依赖。*/}
@@ -714,6 +798,86 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </span>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// HF 访问令牌弹窗。形态复用主界面的 .modal-overlay / .modal-card。
+//   info 是后端的 GATED 结果（reason 三种，见 core/download.js 的 gatedResult），手动打开时为 null。
+//   输入框是受控的局部状态，弹窗关掉就丢；保存走父组件的 onSave，父组件不留副本。
+function HfTokenDialog ({ info, canRetry, configured, busy, error, onSave, onClear, onRetry, onClose }) {
+  const { t, lang } = useT()
+  const [token, setToken] = React.useState('')
+  const zh = lang === 'zh'
+  const reason = info && info.reason
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card confirm-card"
+        style={{ maxWidth: 560, padding: 20 }}
+        onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-hdr">
+          <span>{t('Hugging Face authorization', 'Hugging Face 授权')}</span>
+        </div>
+        <div className="confirm-body">
+          {info && (
+            <p style={{ marginTop: 0 }}>{zh ? (info.errorZh || info.error) : info.error}</p>
+          )}
+          {reason === 'LICENSE_NOT_ACCEPTED' && info.repoPage && (
+            <p>
+              <a href={info.repoPage} target="_blank" rel="noreferrer">
+                {t('Open the repository page', '打开仓库页面')}
+              </a>
+              {t(' to accept the license, then retry. Or download the ModelScope mirror instead.',
+                '，登录并接受许可后点击「重试」，或改用魔搭镜像。')}
+            </p>
+          )}
+          {reason !== 'LICENSE_NOT_ACCEPTED' && (
+            <p style={info ? undefined : { marginTop: 0 }}>
+              {t('Create a read token at ', '在 ')}
+              <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
+                huggingface.co/settings/tokens
+              </a>
+              {t('. Enter it only once; failed files are retried after it is saved.',
+                ' 创建一个只读令牌。只需填写一次，保存后会自动重试失败的文件。')}
+            </p>
+          )}
+          <div className="field-hint" style={{ marginTop: 0 }}>
+            {t('The token is stored only on this computer and is never written to the manifest.',
+              '令牌只保存在本机，不会写进名片。')}
+            {' '}
+            {configured === true
+              ? t('Status: configured.', '状态：已配置。')
+              : configured === false ? t('Status: not configured.', '状态：未配置。') : ''}
+          </div>
+          <input className="control" type="password" autoComplete="off" spellCheck={false}
+            placeholder={configured ? t('Enter a new token to replace the saved one', '填写新令牌以更换已保存的令牌')
+              : t('hf_…', 'hf_…')}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            style={{ width: '100%', marginTop: 8 }} />
+          {error && <div className="msg msg-danger" style={{ marginTop: 8 }}>{error}</div>}
+        </div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" type="button" onClick={onClose} disabled={busy}>
+            {t('Close', '关闭')}
+          </button>
+          {configured && (
+            <button className="btn btn-sm btn-danger" type="button" onClick={onClear} disabled={busy}>
+              {t('Clear token', '清除令牌')}
+            </button>
+          )}
+          {canRetry && reason === 'LICENSE_NOT_ACCEPTED' && (
+            <button className="btn btn-sm" type="button" onClick={onRetry} disabled={busy}>
+              {t('Retry', '重试')}
+            </button>
+          )}
+          <button className="btn btn-sm btn-primary" type="button"
+            disabled={busy || !token.trim()}
+            onClick={() => onSave(token.trim())}>
+            {canRetry ? t('Save and retry', '保存并重试') : t('Save', '保存')}
+          </button>
+        </div>
       </div>
     </div>
   )

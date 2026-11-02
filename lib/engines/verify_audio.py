@@ -261,14 +261,17 @@ def verify_level_a(spec):
 
     # 参考音频必须真的存在，不许造一个假路径，
     # 那会得到一个「文件不存在」的 400，而它长得像「校验失败」。
-    ref = payload.get("ref_audio_path")
-    if ref:
+    # 通用宿主收平台的词 reference_audio；旧名片照名片发 ref_audio_path，两个都认。
+    for key in ("reference_audio", "ref_audio_path"):
+        ref = payload.get(key)
+        if not ref:
+            continue
         rp = ref if os.path.isabs(ref) else os.path.join(spec.get("root") or ".", ref)
         if not os.path.isfile(rp):
             return {"ok": False, "level": "A", "stage": "spec",
                     "error": "参考音频不存在：%s" % rp,
                     "why": "平台不替你造一个假路径：那样验的是 404，不是引擎"}
-        payload["ref_audio_path"] = rp
+        payload[key] = rp
 
     status, body, err, raw, ctype = http_json(base + "/tts", payload=payload,
                                      timeout=spec.get("synth_timeout", 180))
@@ -356,6 +359,20 @@ def _extract_audio(body, raw=None):
 # ---------------------------------------------------------------------------
 def verify(spec):
     level = (spec.get("level") or "B").upper()
+    # base_url 是探针唯一能下手的地址：没有它就是没有东西可打。
+    #   不猜（不回落 127.0.0.1:9881 那种「看起来对」的地址：验到的只会是
+    #   一台不存在的引擎，或者恰好正在运行的其他引擎），只说清是谁的事：
+    #   stdio / cli 形态由调用方先拉一个临时宿主再验。
+    base = spec.get("base_url")
+    if not base or not isinstance(base, str):
+        return {
+            "ok": False, "level": level, "stage": "spec",
+            "error": "spec 没有 base_url：这台引擎不是常驻 HTTP 形态",
+            "why": ("探针只会打 HTTP。stdio / cli 形态的引擎要先由调用方"
+                    "起一个临时宿主（host.py --profile-json <解析结果> "
+                    "--port <空闲端口>），再把 http://127.0.0.1:<端口> "
+                    "作为 base_url 传进来"),
+        }
     if level == "A":
         # A 级先跑 B：不是可选项：
         #   宿主还没就绪时直接发 /tts，得到的是 503「还在加载」，

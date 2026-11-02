@@ -210,7 +210,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           {/* 参考音频的角色名。 */}
           {refVoiceName && (
             <span className="cmp-summary-voice" title={`Reference character: ${refVoiceName}`}
-              style={{ fontSize: 11, color: 'var(--muted)' }}>🎭 {refVoiceName}</span>
+              style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>🎭 {refVoiceName}</span>
           )}
           {cmpModelLabel && (
             <span className="cmp-summary-model" title={cmpModelLabel}>{cmpModelLabel}</span>
@@ -239,7 +239,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
 
       {/* 参考时长警告：引擎把参考音频限制在 3 到 10 秒，超界的片段合成时基本会失败。放在可折叠区之外，生成后折叠成只显示音频时也仍然可见。 */}
       {refOutOfRange && (
-        <div className="cmp-ref-range-warn" style={{ fontSize: 11, color: 'var(--warning)', margin: '0 0 8px' }}>
+        <div className="cmp-ref-range-warn" style={{ fontSize: 'var(--fs-11)', color: 'var(--warning)', margin: '0 0 8px' }}>
           {'\u26a0'} Reference audio is {refDur.toFixed(1)}s &mdash; outside the {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s range. This row will likely error (engine hard limit); pick a {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s clip.
         </div>
       )}
@@ -370,7 +370,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                       : sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>))}
               </Select>
             </div>
-            <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 0, cursor: 'pointer' }}
+            <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', marginBottom: 0, cursor: 'pointer' }}
               title={t('Mix models across assets — pick the GPT and SoVITS models from any voice independently (e.g. A’s GPT + B’s SoVITS).',
                        '跨资产混搭模型：GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
               <input type="checkbox" checked={mix} onChange={e => toggleMix(e.target.checked)} />
@@ -412,8 +412,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             {/* 试听列表是这一行唯一的切片选择器，默认展开，也提供原始音频。3 到 10 秒的越界提示放在始终可见的表头里（覆盖所有参考来源），每条试听项另带自己的标记。 */}
             <div className="collapsible" style={{ marginTop: 6 }}>
               <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Audition reference &mdash; Slices / Raw (click one to set it as the main reference)</span>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showSlicePreview ? '\u25b2' : '\u25bc'}</span>
+                <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>Audition reference &mdash; Slices / Raw (click one to set it as the main reference)</span>
+                <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showSlicePreview ? '\u25b2' : '\u25bc'}</span>
               </div>
               {showSlicePreview && (
                 <div className="collapsible-body">
@@ -455,11 +455,11 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         <div className="collapsible-hdr" style={{ padding: 0 }} onClick={() => setShowAux(v => !v)}>
           <label className="field-label" style={{ margin: 0, cursor: 'pointer' }}>
             Auxiliary References
-            <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+            <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
               (optional{row.auxRefPaths.length > 0 ? ` · ${row.auxRefPaths.length} selected` : ''})
             </span>
           </label>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAux ? '▲' : '▼'}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showAux ? '▲' : '▼'}</span>
         </div>
         {showAux && (
           <AuxReferencePicker
@@ -478,11 +478,11 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         <div className="collapsible-hdr" style={{ padding: 0 }} onClick={() => setShowText(v => !v)}>
           <label className="field-label" style={{ margin: 0, cursor: 'pointer' }}>
             Text
-            <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+            <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
               {row.text && row.text.trim() ? '(custom)' : '(leave empty for default)'}
             </span>
           </label>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showText ? '▲' : '▼'}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showText ? '▲' : '▼'}</span>
         </div>
         {showText && (
           <>
@@ -499,12 +499,12 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                 Proof &amp; language{'\u2026'}
               </button>
               {rowHanDir && rowHanForced.length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{rowHanForced.length} forced {LANG_LABEL[rowHanDir.reverse]}</span>
+                <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{rowHanForced.length} forced {LANG_LABEL[rowHanDir.reverse]}</span>
               )}
               {Object.keys(row.pronOverrides || {}).length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--accent)' }}>{Object.keys(row.pronOverrides).length} reading override(s)</span>
+                <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{Object.keys(row.pronOverrides).length} reading override(s)</span>
               )}
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>this row only</span>
+              <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>this row only</span>
             </div>
             {showRowTextPrep && (
               <TextPrepModal
@@ -523,8 +523,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* 高级设置。 */}
       <div className="collapsible" style={{ margin: '6px 0' }}>
         <div className="collapsible-hdr" onClick={() => setShowAdvanced(!showAdvanced)}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showAdvanced ? '▲' : '▼'}</span>
+          <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>Advanced Settings</span>
+          <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showAdvanced ? '▲' : '▼'}</span>
         </div>
         {showAdvanced && (
           <div className="collapsible-body">
@@ -590,7 +590,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-soft)',
           maxHeight: 240, overflow: 'auto', marginBottom: 4,
         }}>
-          <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
+          <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>
             Select {pickerTarget === 'main' ? 'main reference' : 'auxiliary'} audio ({allFiles.length} files)
           </div>
           {allFiles.map(f => (
@@ -598,7 +598,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               key={f.path}
               onClick={() => pickFile(f.path)}
               style={{
-                padding: '6px 10px', fontSize: 12, cursor: 'pointer',
+                padding: '6px 10px', fontSize: 'var(--fs-12)', cursor: 'pointer',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 borderBottom: '1px solid var(--border)',
               }}
@@ -606,7 +606,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               onMouseLeave={e => e.target.style.background = 'transparent'}
             >
               <span>{f.name}</span>
-              <span style={{ color: 'var(--muted)', fontSize: 11 }}>{f.duration.toFixed(1)}s</span>
+              <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-11)' }}>{f.duration.toFixed(1)}s</span>
             </div>
           ))}
         </div>
@@ -644,8 +644,8 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           </div>
           <Player src={`${API_BASE}${row.result.audio_url}`} size="sm" bounds={row.result.segment_bounds} duration={row.result.duration} />
           <div className="cmp-result-meta">
-            <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 12 }}>Download</a>
-            {row.result.segments && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{row.result.segments.length} segments</span>}
+            <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-12)' }}>Download</a>
+            {row.result.segments && <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{row.result.segments.length} segments</span>}
           </div>
         </div>
       )}

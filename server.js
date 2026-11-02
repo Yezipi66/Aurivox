@@ -113,14 +113,15 @@ setupStatic(app, { ASSETS_DIR, OUTPUT_DIR, VOICES_DIR, WEB_DIST, safeStaticRoot 
 
 const MAX_BACKUPS = 20;
 const voicesStore = new VoicesStore({ voicesJson: VOICES_JSON, backupDir: BACKUP_DIR, maxBackups: MAX_BACKUPS });
-const { createSynthesisInstance } = require("./lib/server/synthesisInstance");
-const { _GEN_MAX_QUEUE, _GEN_RETRY_AFTER, _generationMutex, _modelSwitcher, segmentCache, synthesis } = createSynthesisInstance(process, PATHS);
-
-function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(online); }
-
 // ---- Engine supervisor ----
+// 排在合成模块之前：走 stdio 的引擎，合成时要向它要管道（lib/engines/engineChannel.js）。
 const { createEngineSupervisor } = require("./lib/server/engineSupervisor");
 const _engineSupervisor = createEngineSupervisor(__dirname, process, { resolveEngineProfile, console });
+
+const { createSynthesisInstance } = require("./lib/server/synthesisInstance");
+const { _GEN_MAX_QUEUE, _GEN_RETRY_AFTER, _generationMutex, _modelSwitcher, segmentCache, synthesis } = createSynthesisInstance(process, PATHS, { engineSupervisor: _engineSupervisor });
+
+function noteEngineHealth(online) { return _modelSwitcher.noteEngineHealth(online); }
 
 process.on("exit", () => {
   try { _engineSupervisor.stopAll("后端退出", true); } catch { /* 退出路径上不许再抛 */ }
@@ -174,7 +175,9 @@ function saveAdvancedParams(params) { return advancedParamsStore.save(params); }
 const { pronLexiconPath, loadPronLexicon, savePronLexicon } = require("./lib/server/pronLexicon");
 
 //  VOICE ASSET MANAGER APIs
-const { runFullAssetScan } = require("./lib/server/assetScan");
+const { runFullAssetScan: _runFullAssetScan } = require("./lib/server/assetScan");
+// 路由与启动扫描都是无参调用：依赖在这里接好，别让调用方各自去凑四个参数。
+function runFullAssetScan() { return _runFullAssetScan(assetScanner, withVoicesLock, loadVoices, saveVoices); }
 const { runMigrationJob } = require("./lib/server/migration");
 const TRANSCRIPT_KINDS = [
   { kind: "slicer_opt", listName: "slicer_opt.list", audioSub: "slicer_opt" },

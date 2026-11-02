@@ -43,7 +43,7 @@ export class ErrorBoundary extends React.Component {
           <div className="es-sub" style={{ marginBottom: 0 }}>
             {zh
               ? '这是平台自身的缺陷，与名片内容无关。顶栏与其他页面仍可使用，可切换到别的页面继续，或刷新重试。'
-              : 'This is a platform bug, unrelated to your manifest. The nav bar and other pages still work; switch pages or reload to retry.'}
+              : 'This is a platform bug, unrelated to the manifest. The nav bar and other pages still work; switch pages or reload to retry.'}
           </div>
           <div className="field-hint" style={{ marginTop: 8, wordBreak: 'break-word' }}>
             {String(this.state.err.message || this.state.err)}

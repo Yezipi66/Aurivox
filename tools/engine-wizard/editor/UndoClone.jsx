@@ -26,7 +26,7 @@ export function UndoClone ({ engineId, onUndone, label }) {
       if (j.ok) {
         if (onUndone) onUndone(j)
       } else {
-        setErr(j.error || j.errorZh || t('Cannot remove the directory.', '删不掉该目录。'))
+        setErr(j.error || j.errorZh || t('Cannot remove the directory.', '无法删除该目录。'))
       }
     } catch (e) {
       setErr((e && e.message) || String(e))

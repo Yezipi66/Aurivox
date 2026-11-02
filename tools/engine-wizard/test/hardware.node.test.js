@@ -11,7 +11,7 @@ const path = require('node:path')
 
 const {
   BACKEND_PREFERENCE, recommendBackend, inspectHardware,
-  judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, parseUvLock,
+  judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, parseUvLock, runFirst,
 } = require('../core/hardware.js')
 
 // 偏好顺序：StabilityMatrix 给出的那一串
@@ -288,4 +288,31 @@ test('parseUvLock 对垃圾输入不炸', () => {
   for (const bad of ['', null, undefined, 'no lock here', '[[package]]\nname = "x"']) {
     assert.ok(Array.isArray(parseUvLock(bad)), String(bad))
   }
+})
+
+// runFirst：Windows 上 powershell 可能不在 PATH，先试裸名再退绝对路径。
+// 用注入的 runner 替身测兜底顺序，不依赖真实 powershell（测试跑在没 GPU 的机器上也行）。
+test('runFirst 依次试命令，返回第一条跑得出结果的输出', () => {
+  const order = []
+  const runner = (cmd) => {
+    order.push(cmd)
+    if (cmd === 'a') return null      // a 不存在（ENOENT）→ 换 b
+    if (cmd === 'b') return 'B-out'   // b 成功 → 返回
+    return null
+  }
+  const out = runFirst(['a', 'b', 'c'], ['arg'], 0, runner)
+  assert.strictEqual(out, 'B-out')
+  assert.deepStrictEqual(order, ['a', 'b'], '⛔ 失败后必须换下一条，成功即停')
+})
+
+test('runFirst 全部失败 ⇒ null（调用方据此退 CPU）', () => {
+  const runner = () => null
+  assert.strictEqual(runFirst(['a', 'b'], [], 0, runner), null)
+})
+
+test('runFirst 首条成功 ⇒ 不试后面的', () => {
+  const order = []
+  const runner = (cmd) => { order.push(cmd); return cmd === 'a' ? 'A-out' : null }
+  assert.strictEqual(runFirst(['a', 'b'], [], 0, runner), 'A-out')
+  assert.deepStrictEqual(order, ['a'])
 })

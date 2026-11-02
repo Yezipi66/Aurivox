@@ -101,13 +101,13 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
           return (
             <div key={k} style={{ marginBottom: 6 }}>
               {meta.type === 'bool' ? (
-                <label className="toggle-row" style={{ fontSize: 12 }}>
+                <label className="toggle-row" style={{ fontSize: 'var(--fs-12)' }}>
                   <input type="checkbox" checked={!!cur} onChange={e => applyPatch({ [k]: e.target.checked })} />
                   {tr(meta.label[0], meta.label[1])}
                 </label>
               ) : (
                 <>
-                  <label className="field-label" htmlFor={id} style={{ fontSize: 12 }}>{tr(meta.label[0], meta.label[1])}</label>
+                  <label className="field-label" htmlFor={id} style={{ fontSize: 'var(--fs-12)' }}>{tr(meta.label[0], meta.label[1])}</label>
                   {meta.type === 'enum' ? (
                     <Select id={id} className="control" value={cur} onChange={e => applyPatch({ [k]: e.target.value })}>
                       {meta.options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -123,7 +123,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                   )}
                 </>
               )}
-              <p style={{ fontSize: 10.5, color: 'var(--muted)', margin: '2px 0 0' }}>{tr(meta.hint[0], meta.hint[1])}</p>
+              <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', margin: '2px 0 0' }}>{tr(meta.hint[0], meta.hint[1])}</p>
             </div>
           );
         })}
@@ -309,8 +309,8 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
             {tr('Pause after vocal extraction to audition', '人声提取后暂停以试听校对')}
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
-            {tr('When enabled the pipeline stops right after separation so you can listen to the extracted vocals. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
-                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。音质清晰则继续，质量差就取消本次任务：这是决定成败的第一道 GIGO 门。')}
+            {tr('When enabled the pipeline stops right after separation so the extracted vocals can be listened to. Continue if they sound clean, or cancel the run if the quality is poor — this is the first GIGO gate.',
+                '启用后，流程会在分离完成后立即停止，供试听提取出的人声。音质清晰则继续，质量差则取消本次任务：分离质量直接影响后续训练效果。')}
           </p>
 
           {/* 提取后，分离出的人声才是真正的 raw（切片/ASR/训练都用它）。提取前的原始混音
@@ -321,7 +321,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
             {tr('Keep pre-extraction originals (raw_b4_extraction/)', '保留提取前的原始音频（raw_b4_extraction/）')}
           </label>
           <p className="field-hint" style={{ marginTop: -2, marginBottom: 8 }}>
-            {tr('After extraction the separated vocals become the asset\u2019s raw/ (they are what slicing, ASR and training use). The original pre-extraction mixdown is archived to raw_b4_extraction/ so the voice folder stays self-contained and can be reconstructed. Turn this off to save disk if you only need the final vocals.',
+            {tr('After extraction the separated vocals become the asset\u2019s raw/ (they are what slicing, ASR and training use). The original pre-extraction mixdown is archived to raw_b4_extraction/ so the voice folder stays self-contained and can be reconstructed. Turn this off to save disk if only the final vocals are needed.',
                 '提取完成后，分离出的人声会成为资产的 raw/（切片、ASR、训练都用它）。提取前的原始混音则归档到 raw_b4_extraction/，让音色目录自包含、可随时重构或换参重跑。若只需最终人声、希望节省磁盘空间，可关闭此项。')}
           </p>
 
@@ -331,7 +331,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               {presetOptions()}
             </Select>
             {curPresetDef && (
-              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{tr(curPresetDef.hint[0], curPresetDef.hint[1])}</p>
+              <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>{tr(curPresetDef.hint[0], curPresetDef.hint[1])}</p>
             )}
           </div>
 
@@ -344,7 +344,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                 const merged = { ...stage, ...presetStageOverride(i) };
                 return (
                   <div key={i} style={{ marginBottom: 6 }}>
-                    <label className="field-label" style={{ fontSize: 12 }}>
+                    <label className="field-label" style={{ fontSize: 'var(--fs-12)' }}>
                       {curPresetDef.pipeline.length > 1 ? `${i + 1}. ${modelLabel(stage.model)} — ` : ''}
                       {tr('Aggressiveness', '激进度')} ({merged.agg})
                     </label>
@@ -353,7 +353,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                   </div>
                 );
               })}
-              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 2 }}>
                 {tr('Settings are kept on this page only (not saved permanently to the recipe).',
                   '参数仅保存在本页面，不会永久写入配方。')}
               </p>
@@ -364,24 +364,24 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               模型与激进度直接列在链上，高级参数放进需要确认才可编辑的折叠区。 */}
           {chainEditable && (
             <div className="field" style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+              <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, marginBottom: 6 }}>
                 {isSaved
                   ? tr(`Editing saved preset “${savedName}”${savedDirty ? ' (unsaved changes)' : ''} — runs top to bottom (each stage feeds the next).`,
-                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}，从上到下逐级串联（上一级输出喂给下一级）。`)
+                      `正在编辑已保存预设“${savedName}”${savedDirty ? '（有未保存的改动）' : ''}，从上到下逐级串联（上一级的输出作为下一级的输入）。`)
                   : tr('Custom separation chain — runs top to bottom (each stage feeds the next).',
-                      '自定义分离链：从上到下逐级串联（上一级输出喂给下一级）。')}
+                      '自定义分离链：从上到下逐级串联（上一级的输出作为下一级的输入）。')}
               </div>
               {chain.length === 0 && (
-                <p style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '还没有分级，请在下方添加。')}</p>
+                <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('No stages yet. Add one below.', '尚未分级，请在下方添加。')}</p>
               )}
               {chain.map((stage, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{i + 1}</span>
+                  <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{i + 1}</span>
                   <Select className="control" style={{ flex: '1 1 200px' }} value={stage.model} onChange={e => updateStage(i, { model: e.target.value })}>
                     {renderModelOptions()}
                   </Select>
                   {modelAggApplicable(stage.model) && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)' }}>
                       {tr('agg', '激进度')}
                       <input type="range" min={0} max={20} step={1} value={stage.agg != null ? stage.agg : AGG_DEFAULT}
                         onChange={e => updateStage(i, { agg: parseInt(e.target.value, 10) })} />
@@ -405,10 +405,10 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                   <button className="btn btn-sm btn-danger" onClick={deleteSavedPreset}>{tr('Delete preset', '删除预设')}</button>
                 )}
               </div>
-              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+              <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
                 {isSaved
                   ? tr('Up to 3 stages. Edits are a draft — press “Update preset” to save them back, “Save as new preset” to branch a copy, or “Delete preset” to remove it.',
-                      '最多 3 级。改动仅为草稿：点“更新预设”才会写回，点“另存为新预设”另存副本，点“删除预设”移除。')
+                      '最多 3 级。改动仅为草稿：点击“更新预设”才会写回，点击“另存为新预设”另存副本，点击“删除预设”移除。')
                   : tr('Up to 3 stages. Saved presets are kept on this page only.', '最多 3 级。已保存预设仅保留在本页面。')}
               </p>
             </div>
@@ -421,11 +421,11 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
               <div className="msg msg-danger expert-warning">
                 <strong>{tr('⚠ Advanced.', '⚠ 高级参数。')}</strong>{' '}
                 {tr('These change speed/precision. fp16 makes HP models emit NaN on many GPUs; TTA roughly doubles time. Most users should leave the defaults.',
-                  '这些会影响速度/精度。fp16 会让 HP 系列在很多显卡上出 NaN；TTA 大致会让耗时翻倍。多数用户保持默认即可。')}
+                  '这些会影响速度/精度。fp16 会让 HP 系列在很多显卡上产生 NaN；TTA 约使耗时翻倍。多数用户保持默认即可。')}
               </div>
               <label className="toggle-row expert-unlock">
                 <input type="checkbox" checked={!!form.denoiseAdvUnlocked} onChange={e => setField('denoiseAdvUnlocked', e.target.checked)} />
-                {tr('I understand — let me edit advanced parameters', '我了解，允许我编辑高级参数')}
+                {tr('Understood — edit advanced parameters', '已知晓风险，允许编辑高级参数')}
               </label>
               <fieldset disabled={!form.denoiseAdvUnlocked} className="expert-fields" style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
                 {advStages.map(({ stage, apply, i }) => {
@@ -433,12 +433,12 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                   if (!body) return null;
                   return (
                     <div key={i} style={{ marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{i + 1}. {modelLabel(stage.model)}</div>
+                      <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, marginBottom: 4 }}>{i + 1}. {modelLabel(stage.model)}</div>
                       {body}
                     </div>
                   );
                 })}
-                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 2 }}>
                   {tr('Settings are kept on this page only (not saved permanently to the recipe).',
                     '参数仅保存在本页面，不会永久写入配方。')}
                 </p>
@@ -454,7 +454,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                 <strong>{vocalMissingIds.map(modelLabel).join(', ')}</strong>
               </div>
               {uvr5Download && uvr5Download.status === 'running' ? (
-                <div style={{ fontSize: 12 }}>
+                <div style={{ fontSize: 'var(--fs-12)' }}>
                   {tr('Downloading…', '下载中…')}{' '}
                   {Object.entries(dlModels).map(([id, s]) => `${id} ${s.pct || 0}%`).join(' · ')}
                 </div>
@@ -464,11 +464,11 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
                 </button>
               )}
               {uvr5Download && uvr5Download.status === 'failed' && (
-                <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>
+                <div style={{ fontSize: 'var(--fs-12)', color: 'var(--danger)', marginTop: 4 }}>
                   {tr('Download failed: ', '下载失败：')}{uvr5Download.error || ''}
                 </div>
               )}
-              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+              <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
                 {tr('Downloaded from Hugging Face (ModelScope fallback) into uvr5_weights/.',
                   '从 Hugging Face 下载（ModelScope 备用）到 uvr5_weights/。')}
               </p>

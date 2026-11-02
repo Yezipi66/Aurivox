@@ -46,6 +46,22 @@ function run (cmd, args, timeoutMs) {
   } catch (e) { return null }
 }
 
+/**
+ * 依次试几条命令，返回第一条跑得出结果的输出。
+ * 用途：powershell 不一定在 PATH 上（精简环境 / 沙箱常缺
+ * System32\WindowsPowerShell\v1.0），先试裸名，再退 Windows 标准安装路径。
+ * 裸名不存在（ENOENT）与查询失败都会让 run 返回 null，于是换下一条试。
+ * runner 可注入（默认 run），仅供测试替身。
+ */
+function runFirst (cmds, args, timeoutMs, runner) {
+  const run_ = runner || run
+  for (const c of cmds) {
+    const r = run_(c, args, timeoutMs)
+    if (r !== null) return r
+  }
+  return null
+}
+
 // 检测结果缓存：WMI 每次都要十几秒，缓存 5 分钟。
 let _cache = null
 let _cacheAt = 0
@@ -71,10 +87,13 @@ function detectGpus () {
   }
 
   if (plat === 'win32') {
-    const ps = run('powershell', [
-      '-NoProfile', '-Command',
-      'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name',
-    ])
+    // powershell 不一定在 PATH 上（精简 / 沙箱环境常缺
+    // System32\WindowsPowerShell\v1.0）。裸名跑不起来就退到标准安装路径，
+    // 那条路径本机一定在。
+    const ps = runFirst(
+      ['powershell', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+      ['-NoProfile', '-Command',
+        'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name'])
     if (ps) {
       for (const raw of ps.split('\n').map((x) => x.trim()).filter(Boolean)) {
         const name = raw.replace(/\s+/g, ' ')
@@ -243,17 +262,18 @@ function judgeTorchSpec (spec, detected, ctx = {}) {
     whyZh: '无法判断该包适用的后端，请自行确认。' }
 }
 
-/**
- * 把 torch 系包从依赖清单里摘出来，其余归普通依赖。
- * 判定用包名，不看版本、不猜。
- * @returns {{torchish:string[], rest:string[]}}
- */
+// 认作 torch 系的包名。判定只看包名，不看版本、不猜。
 const TORCH_FAMILY = new Set([
   'torch', 'torchvision', 'torchaudio', 'pytorch-triton',
   'onnxruntime', 'onnxruntime-gpu', 'onnxruntime-directml',
   'triton', 'xformers', 'nvidia-cublas-cu12', 'nvidia-cudnn-cu12',
 ])
 
+/**
+ * 把 torch 系包从依赖清单里摘出来，其余归普通依赖。
+ * 判定用包名，不看版本、不猜。
+ * @returns {{torchish:string[], rest:string[]}}
+ */
 function splitTorchPackages (deps) {
   const torchish = []
   const rest = []
@@ -301,15 +321,6 @@ function parseUvLock (text) {
 }
 
 /**
- * 从 uv.lock 读出 torch 的纯版本号（剥掉 +cu128 / +xpu 这类后缀）。
- *
- * @param {string} text uv.lock 全文
- * @param {string} [platform] process.platform，默认取当前平台
- * @returns {{version:string, plain:string, backend:string|null}|null}
- *   version = lock 里的原样版本（含后缀）· plain = 剥掉后缀
- *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
- */
-/**
  * 锁文件里挑 torch 那一行的判据（readTorchPin 与 readTorchFamilyPins 共用）。
  * 优先级：带后缀且 marker 匹配本机 > 带后缀 > 匹配本机 > 第一条
  */
@@ -332,6 +343,15 @@ function preferLockRow (cands, plat) {
     || cands[0]
 }
 
+/**
+ * 从 uv.lock 读出 torch 的纯版本号（剥掉 +cu128 / +xpu 这类后缀）。
+ *
+ * @param {string} text uv.lock 全文
+ * @param {string} [platform] process.platform，默认取当前平台
+ * @returns {{version:string, plain:string, backend:string|null}|null}
+ *   version = lock 里的原样版本（含后缀）· plain = 剥掉后缀
+ *   backend = 从后缀/source 推出的后端 key（cuda/ipex/rocm/null）
+ */
 function readTorchPin (text, platform) {
   const plat = platform || process.platform
   const rows = parseUvLock(text)
@@ -376,5 +396,5 @@ function readTorchFamilyPins (text, platform) {
 module.exports = {
   parseUvLock, readTorchPin, readTorchFamilyPins, clearHardwareCache,
   BACKEND_PREFERENCE, detectGpus, recommendBackend, inspectHardware,
-  judgeTorchSpec, splitTorchPackages, TORCH_FAMILY,
+  judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, runFirst,
 }

@@ -87,7 +87,15 @@ const interactive = process.stdin.isTTY === true && process.stdout.isTTY === tru
 //   传 'ignore' 等于亲手把 stdin 换成非 tty ⇒ 触发它那个检查。
 //   传 'inherit' 则是把本进程拿到的 stdin 原样交给子进程：
 //   本进程的 stdin 是不是 tty 由此决定，行为与直接跑 node --test 一致。
-const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...testFiles], {
+// 交给 node --test 的是**相对路径**，不是绝对路径。
+// Windows 的命令行上限是 32767 字符（CreateProcess 那条，跟 MAX_PATH 不是一回事），
+// 而这条命令是「node --test」加全部测试文件拼起来的，文件一多就顶到上限：
+// 绝对路径每个文件都要重复一遍仓库路径前缀，那个前缀随检出位置长短不一，
+// 落在深一点的目录里光前缀就能吃掉三分之二。子进程 cwd 已经是仓库根，
+// 用相对路径照样解析得到，长度只剩仓库内那一段。
+// 目录层级不是主因：测试文件最深也就五层。
+const relFiles = testFiles.map((f) => path.relative(root, f))
+const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...relFiles], {
   cwd: root,
   stdio: interactive ? 'inherit' : ['inherit', 'pipe', 'pipe'],
 })

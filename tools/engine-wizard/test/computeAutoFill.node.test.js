@@ -1,8 +1,9 @@
 'use strict'
 // computeAutoFill 的行为测试：覆盖槽位匹配、kind 判定与 args 写法三件事。
 // computeAutoFill 不抛异常，填错的名片要等平台保存时才被拒，所以只能靠测试守住。
-// 被测代码是 tools/engine-wizard/editor/CliGenPanel.jsx 里的那份实现，
+// 被测代码是 tools/engine-wizard/editor/scanAutofill.js 里的那份实现，
 // 用项目 Vite 依赖的同一个 esbuild 编译成 CJS 后取其导出，不在此处重抄。
+// 它是纯函数文件，不 import react 与任何组件。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -10,12 +11,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const EDITOR_DIR = path.join(__dirname, '..', 'editor')
-const PANEL = path.join(EDITOR_DIR, 'CliGenPanel.jsx')
-const WEB_DIR = path.join(__dirname, '..', '..', '..', 'web')
+const SOURCE = path.join(EDITOR_DIR, 'scanAutofill.js')
 
 /**
- * 加载 CliGenPanel.jsx 里的 computeAutoFill。
- * 组件 import 的 react 与 i18n 与这个纯函数无关，替换成替身即可。
+ * 加载 scanAutofill.js 里的 computeAutoFill。
  * @returns {Function|null} 拿不到编译依赖时返回 null，由守卫用例报错，不静默跳过。
  */
 function loadComputeAutoFill () {
@@ -24,24 +23,19 @@ function loadComputeAutoFill () {
     // 拿不到编译依赖就返回 null，由下面的守卫用例报错，不静默跳过。
     return null
   }
-  const src = fs.readFileSync(PANEL, 'utf8')
+  const src = fs.readFileSync(SOURCE, 'utf8')
   const code = esbuild.transformSync(src, {
-    loader: 'jsx',
+    loader: 'js',
     format: 'cjs',
     target: 'node18',
   }).code
   const mod = { exports: {} }
   const stub = (id) => {
-    if (id === 'react') return {}
-    if (/i18n/.test(id)) return { useT: () => ({ t: (en) => en }) }
-    if (/useInstalled/.test(id)) return { useInstalled: () => ({}) }
-    // DragBind 是 CliGenPanel 引入的子组件，本测试不需要它渲染。
-    if (/DragBind/.test(id)) return { default: () => null }
     throw new Error('computeAutoFill 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
   const run = new Function('exports', 'require', 'module', '__filename', '__dirname', code)
-  run(mod.exports, stub, mod, PANEL, EDITOR_DIR)
+  run(mod.exports, stub, mod, SOURCE, EDITOR_DIR)
   return mod.exports.computeAutoFill
 }
 
@@ -77,6 +71,7 @@ test('cli 参数：按 dest 名认槽位，认出来的是命令行开关', () =
   assert.deepStrictEqual(r.matched, {
     text: '--text',
     ref_audio: '--voice',
+    ref_text: null,
     output_path: '--output',
   }, '槽位没认出：候选名不带横线，填进 bind 的必须是带横线的开关')
   assert.deepStrictEqual(r.call.bind, {
@@ -91,6 +86,7 @@ test('python 参数：按参数名认槽位，填进 bind 的就是那个参数�
   assert.deepStrictEqual(r.matched, {
     text: 'tts_text',
     ref_audio: 'ref_audio',
+    ref_text: null,
     output_path: 'save_path',
   })
   assert.deepStrictEqual(r.call.bind, {
@@ -242,7 +238,7 @@ test('认不出槽位时 matched 是空值，不许瞎猜一个', () => {
   const r = computeAutoFill(
     [{ source: 'cli', name: 'speed', target: '--speed', kind: 'number', help: null, required: false, group: 'infer', is_tool: false }],
     { kind: 'cli' })
-  assert.deepStrictEqual(r.matched, { text: null, ref_audio: null, output_path: null })
+  assert.deepStrictEqual(r.matched, { text: null, ref_audio: null, ref_text: null, output_path: null })
 })
 
 test('不改传进来的名片：入参不被就地改写', () => {
@@ -250,4 +246,100 @@ test('不改传进来的名片：入参不被就地改写', () => {
   const snapshot = JSON.stringify(card)
   computeAutoFill(mixedParams, card)
   assert.equal(JSON.stringify(card), snapshot, 'computeAutoFill 就地改了入参')
+})
+test('prompt_text 是参考文本，不许被认成合成文本', () => {
+  const r = computeAutoFill([
+    { source: 'cli', name: 'prompt_text', target: '--prompt-text', kind: 'str', style: 'value', help: null, required: false, group: 'infer', is_tool: false },
+    { source: 'cli', name: 'output', target: '--output', kind: 'str', style: 'value', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'cli' })
+  assert.equal(r.matched.text, null)
+  assert.equal(r.call.bind.text, undefined)
+})
+
+// 参考文本：可选槽位，扫描尽量认，认不出就空着。
+test('参考文本：候选名认得出就填进 bind.ref_text，cli 写开关、python 写参数名', () => {
+  const cases = [
+    ['prompt_text', '--prompt_text', 'cli'],
+    ['ref_text', '--ref_text', 'cli'],
+    ['prompt-text', '--prompt-text', 'cli'],
+    ['reference_text', 'reference_text', 'python'],
+    ['ref-text', '--ref-text', 'cli'],
+  ]
+  for (const [name, target, source] of cases) {
+    const r = computeAutoFill([
+      { source, name: 'text', target: source === 'cli' ? '--text' : 'text', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+      { source, name, target, kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
+    ], {})
+    assert.equal(r.matched.ref_text, target, `${name} 没被认成参考文本`)
+    assert.equal(r.call.bind.ref_text, target)
+    assert.notEqual(r.matched.text, target, `${name} 被认成了合成文本`)
+  }
+})
+
+test('参考文本：认不出不瞎猜，bind 里也不出现 ref_text', () => {
+  const r = computeAutoFill(cliParams, { kind: 'cli' })
+  assert.equal(r.matched.ref_text, null)
+  assert.ok(!('ref_text' in r.call.bind))
+})
+
+test('参考文本：名片里已经绑了的不被扫描覆盖', () => {
+  const r = computeAutoFill([
+    { source: 'cli', name: 'prompt_text', target: '--prompt_text', kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
+  ], { kind: 'cli', bind: { ref_text: '--transcript' } })
+  assert.equal(r.call.bind.ref_text, '--transcript')
+})
+
+// ---- bind 槽位候选 ----
+// 反射器为了让「同一概念不声明两次」，按 BIND_SLOTS 把 text / output_path 这些名字
+// 从 parameters[] 里剔掉；而认槽位靠的就是名字，剔了等于把要找的名字先删了，
+// output_path 于是永远填不出来（表现为「名片里那一格始终空着，且不报错」）。
+// 候选由第三个参数单独递进来：只用于认槽位，不进 parameters[]。
+
+test('bind 候选：output_path 从候选里认出来并写进 call.bind', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'python' }, [
+    { name: 'output_path', target: 'output_path', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.equal(r.matched.output_path, 'output_path')
+  assert.equal(r.call.bind.output_path, 'output_path')
+})
+
+test('bind 候选：引擎那边叫 output_dir 也算输出槽位', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'python' }, [
+    { name: 'output_dir', target: 'output_dir', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.equal(r.call.bind.output_path, 'output_dir')
+})
+
+// 回归守卫：不给候选时必须和加这个功能之前一模一样，认不出就是认不出，不瞎猜。
+test('bind 候选：不给候选时行为不变，output_path 仍认不出', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ], { kind: 'python' })
+  assert.equal(r.matched.output_path, null)
+  assert.ok(!('output_path' in r.call.bind))
+})
+
+test('bind 候选：params 里已有的同名参数优先，不被候选覆盖', () => {
+  const r = computeAutoFill([
+    { source: 'python', name: 'output_path', target: 'real_one', kind: 'str', help: null, required: false, group: 'infer', is_tool: false },
+  ], { kind: 'python' }, [
+    { name: 'output_path', target: 'from_candidate', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.equal(r.call.bind.output_path, 'real_one')
+})
+
+// 候选只用于认槽位：它混进参数清单就等于「同一概念声明两次」。
+test('bind 候选：只用于认槽位，不进参数清单', () => {
+  const params = [
+    { source: 'python', name: 'spk_audio_prompt', target: 'spk_audio_prompt', kind: 'str', help: null, required: true, group: 'infer', is_tool: false },
+  ]
+  const before = computeAutoFill([...params], { kind: 'python' })
+  const after = computeAutoFill([...params], { kind: 'python' }, [
+    { name: 'output_path', target: 'output_path', phase: 'call', bind_slot: 'output_path' },
+  ])
+  assert.deepEqual(after.argList, before.argList)
 })

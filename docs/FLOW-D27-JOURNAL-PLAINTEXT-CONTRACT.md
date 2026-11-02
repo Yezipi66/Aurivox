@@ -1,7 +1,7 @@
 # FLOW-D27 契约 R3（冻结）— 用户原文在 Flow 持久层中的留存
 
 > **状态：R3，已冻结。** 本文件是 D27 的**唯一实现依据**。
-> [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md)（R0）
+> [`FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md`](./archive/FLOW-D27-JOURNAL-PLAINTEXT-DRAFT.md)（R0）
 > **不再是实现依据**，仅作为发现过程与实测记录保留。
 > R1 / R2 的被推翻段落在本文件内以删除线原地保留，**同样不再是实现依据**。
 >

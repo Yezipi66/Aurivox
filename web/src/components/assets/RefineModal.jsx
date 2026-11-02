@@ -141,8 +141,8 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
     // 复用路径的健康门：父音色冻结的数据集不完整时拦下。
     if (reuseBlocked) {
       setError(t(
-        `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” above.`,
-        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入我自己的新音频」。`))
+        `This Voice can’t be refined on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Use a new audio corpus” above.`,
+        `无法在该音色的现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选上方的「导入自备的新音频」。`))
       return
     }
     if (useOwnData && !inputDir.trim()) { setError(t('Please provide the source audio folder for own-data refinement.', '请填写自备数据精修的源音频文件夹。')); return }
@@ -177,7 +177,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
         </p>
 
         {/* 派生关系：抽象的代数链，Gen 0 是最初那版录音。 */}
-        <div className="asset-lineage" style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 10px' }}>
+        <div className="asset-lineage" style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', margin: '2px 0 10px' }}>
           <span className="badge" style={{ marginRight: 8 }}>Gen {lineage.generation}</span>
           {t('This derived Voice will become', '本次派生音色将成为第')}{' '}
           <strong style={{ color: 'var(--text)' }}>Gen {lineage.generation + 1}</strong>{' '}
@@ -204,15 +204,15 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <label className="toggle-row">
             <input type="checkbox" checked={useOwnData} onChange={e => setUseOwnData(e.target.checked)} />
             <span>
-              {t('Bring my own new audio (full pipeline)', '导入我自己的新音频（完整管线）')}
+              {t('Use a new audio corpus (full pipeline)', '导入自备的新音频（完整管线）')}
               <span className="hint"> {t('— off: anneal on the parent\u2019s existing dataset (slice/ASR reused). On: run slice/ASR/preprocess on a new folder; new data only, no merge.', '关：在父级现有数据集上退火（复用切片/ASR）。开：对新文件夹运行切片/ASR/预处理；仅用新数据，不做合并。')}</span>
             </span>
           </label>
           {reuseBlocked && (
             <div className="hint-warn" style={{ marginTop: 8, color: 'var(--warning)' }}>
               {t(
-                `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Bring my own new audio” to train from a fresh corpus.`,
-                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入我自己的新音频」以用全新语料训练。`)}
+                `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Use a new audio corpus” to train from a fresh corpus.`,
+                `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入自备的新音频」以用全新语料训练。`)}
             </div>
           )}
           {useOwnData && (
@@ -234,7 +234,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                 </select>
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {language === ''
-                    ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language if you want to declare one for the new corpus.',
+                    ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language to declare one for the new corpus.',
                         '未声明：本分支继承父级音色的语言。仅当需要为新语料指定语言时才需选择。')
                     : language === (parentLanguage || 'auto')
                       ? t('Same as the parent Voice — this is equivalent to inheriting; no separate language branch is created.',
@@ -285,7 +285,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           </label>
           {refineS1 && ckpts.gpt.length > 0 && (
             <div className="field-row" style={{ margin: '2px 0 6px 26px' }}>
-              <label style={{ fontSize: 12, color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S1', 'S1 起点')}</label>
+              <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S1', 'S1 起点')}</label>
               <select className="control" value={selS1} onChange={e => setSelS1(e.target.value)} style={{ flex: 1 }}>
                 {ckpts.gpt.map(c => (
                   <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}{c.default ? ' ★' : ''}</option>
@@ -302,7 +302,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           </label>
           {refineS2 && ckpts.sovits.length > 0 && (
             <div className="field-row" style={{ margin: '2px 0 6px 26px' }}>
-              <label style={{ fontSize: 12, color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S2', 'S2 起点')}</label>
+              <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S2', 'S2 起点')}</label>
               <select className="control" value={selS2} onChange={e => setSelS2(e.target.value)} style={{ flex: 1 }}>
                 {ckpts.sovits.map(c => (
                   <option key={c.path} value={c.path}>{c.name}{c.version ? ` [${c.version}]` : ''}{c.default ? ' ★' : ''}</option>
@@ -325,8 +325,8 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
 
           <div className="collapsible" style={{ marginTop: 10 }}>
             <div className="collapsible-hdr" onClick={() => setShowParams(v => !v)}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{t('Training Parameters', '训练参数')}</span>
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>{showParams ? '▲' : '▼'}</span>
+              <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{t('Training Parameters', '训练参数')}</span>
+              <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showParams ? '▲' : '▼'}</span>
             </div>
             {showParams && (
               <div className="collapsible-body" style={{ padding: 12 }}>
@@ -384,22 +384,22 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
       <ConfirmDialog
         open={gate === 'g2'}
         danger
-        icon={<span style={{ fontSize: 18 }}>⚠️</span>}
+        icon={<span style={{ fontSize: 'var(--fs-18)' }}>⚠️</span>}
         title={t('ASR is not enabled', '未启用 ASR')}
         confirmLabel={t('Continue anyway', '仍然继续')}
         onCancel={() => setGate(null)}
         onConfirm={() => { setGate(null); doStart(graceSec) }}
         message={
-          <div style={{ fontSize: 13, lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 'var(--fs-13)', lineHeight: 1.6 }} onClick={e => e.stopPropagation()}>
             <p style={{ marginTop: 0 }}>
-              {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless you supply your own.',
+              {t('The own-data pipeline is enabled but ASR is off, so no transcript will be produced. Without a transcript, preprocessing will fail — unless a transcript is supplied.',
                  '已启用自备数据管线但未勾选 ASR，本次不会生成转写。若没有转写，预处理会失败，除非自备转写。')}
             </p>
             <p>
-              {t('Before preprocessing, the system will wait for the seconds below so you can copy your file into the staging folder (its absolute path is printed in the logs).',
+              {t('Before preprocessing, the system will wait for the seconds below so the file can be copied into the staging folder (its absolute path is printed in the logs).',
                  '在预处理前，系统会等待下面设定的秒数，以便将文件复制进暂存目录（其绝对路径会打印在日志中）。')}
             </p>
-            <p style={{ color: 'var(--muted)', fontSize: 12 }}>
+            <p style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>
               {t('Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
                  '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
             </p>

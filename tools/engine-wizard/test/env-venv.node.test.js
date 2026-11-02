@@ -81,13 +81,14 @@ test('建环境走 uv（不是 python -m venv），且目标路径是该引擎�
   const p = planOf(root, 'demo2', {})
   const first = envStepsOf(p)[0]
 
-  // 建法：<某个 python> -m uv venv <绝对路径>
-  assert.ok(first.argv.includes('-m') && first.argv.includes('uv')
-    && first.argv.includes('venv'),
-    `建环境必须走「<python> -m uv venv」：${first.argv.join(' ')}`)
-  // 绝对不许 python -m venv：平台统一走 uv（resolveUv 同一条路）
-  assert.ok(!/^(?:-m\s+venv)?$/.test('') && !first.argv.every((a) => a !== 'venv')
-    || first.argv.includes('-m'),
+  // 建法：<某个 python> -m uv venv <绝对路径>；平台 venv 里没有 uv 时是 PATH 上的 uv venv
+  //   （执行期 runEnv 对 argv[0]==='uv' 一律走 resolveUv，两种来源同一条路）
+  const viaModule = first.argv.includes('-m') && first.argv.includes('uv')
+  const viaPath = first.argv[0] === 'uv'
+  assert.ok((viaModule || viaPath) && first.argv.includes('venv'),
+    `建环境必须走「<python> -m uv venv」或「uv venv」：${first.argv.join(' ')}`)
+  // 绝对不许 python -m venv：平台统一走 uv
+  assert.ok(!(first.argv.includes('-m') && first.argv[first.argv.indexOf('-m') + 1] === 'venv'),
     `不许裸 python -m venv：${first.argv.join(' ')}`)
 
   // 目标是 engines/<id>/.venv 的绝对路径
@@ -233,19 +234,107 @@ test('目录都不存在 ⇒ 判不可用（不许把「没建」说成「建好
   assert.strictEqual(envMod.canUseEngineVenv(root, 'shell2'), false)
 })
 
-// ⑧ 平台 python 的选择：有声明用声明的，没声明用平台自己的
-test('名片没有 python 版本声明 ⇒ 用平台根 venv 的 python（规范：有声明才用声明）', () => {
+// ⑧ 平台 python 的选择：有声明用声明的，没声明用平台基座
+//
+// 规范：引擎声明了 Python 版本就用声明的，没声明就用平台基座 3.11。
+//   两个 python 角色不同：
+//     · 建环境那步的 argv[0] 是「跑 uv 的那个解释器」，它必须有 uv；
+//     · --python 后面那个才是「新环境用哪个版本」，引擎声明了就用声明的版本号，
+//       没声明就用平台基座版本号。给版本号 ⇒ 本机没那个版本时 uv 自己下载。
+test('名片没有 python 版本声明 ⇒ 环境用平台基座版本（3.11）', () => {
   const { root } = mkdtempEngineWithManifest('demo10', 'requirements.txt')
   const p = planOf(root, 'demo10', {})
   const build = envStepsOf(p)[0]
+  // --python 后面必须是 3.11（平台基座），不是某个具体路径
+  assert.strictEqual(build.argv[build.argv.indexOf('--python') + 1], '3.11',
+    `建环境那步应当用平台基座版本 3.11：${build.argv.join(' ')}`)
+  // PATH 上的 uv 直接跑（平台 venv 里没有带 uv 的解释器时），没有解释器可查。
+  if (build.argv[0] === 'uv') return
+  // 跑 uv 的那个解释器：绝对路径，且不能是引擎自己的（那时它还不存在）
   const interp = build.argv[0]
   assert.ok(path.isAbsolute(interp), `建环境要用绝对路径的解释器：${interp}`)
-  // 平台根 venv 与引擎 venv 是两个东西
   assert.ok(!/engines/.test(interp.split(/[\\/]/).join('/')),
     `建环境时不该拿引擎自己的 python 当基准（那时它还不存在）：${interp}`)
-  assert.ok(/venv[\\/]Scripts[\\/]python\.exe$/.test(interp)
-    || /venv[\\/]bin[\\/]python$/.test(interp),
-    `应当是平台根 venv 的 python：${interp}`)
+  // 且它必须有 uv：内嵌解释器是裸解释器（没装 uv），跑不了 uv venv
+  const r = require('node:child_process').spawnSync(interp, ['-m', 'uv', '--version'],
+    { encoding: 'utf8', timeout: 30000, windowsHide: true, shell: false })
+  assert.strictEqual(r.status, 0,
+    `跑 uv 的那个解释器必须有 uv：${interp}\n${r.stderr || ''}`)
+})
+
+test('引擎声明了 Python 版本 ⇒ 环境用声明的那个（.python-version）', () => {
+  const { root, engineDir } = mkdtempEngineWithManifest('demo11', 'requirements.txt')
+  fs.writeFileSync(path.join(engineDir, '.python-version'), '3.12.4\n')
+  const p = planOf(root, 'demo11', {})
+  assert.strictEqual(p.ok, true, p.error)
+  assert.strictEqual(p.pythonVersion, '3.12',
+    `应当用引擎声明的 3.12：${JSON.stringify(p.pythonVersion)}`)
+  assert.strictEqual(p.pythonVersionSource, 'python-version')
+  const build = envStepsOf(p)[0]
+  // 建环境那步必须把声明的版本交给 uv（给版本号，不是路径 ⇒ uv 能自己下载）
+  assert.strictEqual(build.argv[build.argv.indexOf('--python') + 1], '3.12',
+    `建环境那步必须带上声明的版本：${build.argv.join(' ')}`)
+})
+
+test('引擎声明了 Python 版本 ⇒ 环境用声明的那个（pyproject 的 requires-python）', () => {
+  const { root, engineDir } = mkdtempEngineWithManifest('demo12', 'requirements.txt')
+  fs.writeFileSync(path.join(engineDir, 'pyproject.toml'),
+    '[project]\nname = "x"\nrequires-python = ">=3.10,<3.12"\n')
+  const p = planOf(root, 'demo12', {})
+  assert.strictEqual(p.ok, true, p.error)
+  assert.strictEqual(p.pythonVersion, '3.11',
+    `区间形态取区内最高的版本（<3.12 排他 ⇒ 3.11）：${JSON.stringify(p.pythonVersion)}`)
+  assert.strictEqual(p.pythonVersionSource, 'requires-python')
+  const build = envStepsOf(p)[0]
+  assert.strictEqual(build.argv[build.argv.indexOf('--python') + 1], '3.11',
+    `建环境那步必须带上声明的版本：${build.argv.join(' ')}`)
+})
+
+// requires-python 区间的取值规则：取区内最高的版本。
+test('requires-python 区间取区内最高的版本', () => {
+  const { pickFromRequiresPython } = require('../core/envDetect.js')
+  const cases = [
+    // 上界排他：取上界减一
+    ['>=3.10,<3.12', '3.11'],
+    ['>=3.10,<3.13', '3.12'],
+    ['>=3.9,<3.11', '3.10'],
+    // 上界包容：取上界本身
+    ['>=3.10,<=3.12', '3.12'],
+    ['>=3.10,<=3.13', '3.13'],
+    // 只有下界：没有「最高」可取，取下界
+    ['>=3.10', '3.10'],
+    ['>=3.11', '3.11'],
+    // 单版本形态
+    ['==3.11', '3.11'],
+    ['==3.11.*', '3.11'],
+    ['~=3.11', '3.11'],
+    ['3.12', '3.12'],
+    // 上界减一要跨主版本时
+    ['>=3.9,<3.10', '3.9'],
+  ]
+  for (const [spec, want] of cases) {
+    assert.strictEqual(pickFromRequiresPython(spec), want,
+      `${spec} ⇒ 应当是 ${want}`)
+  }
+})
+
+test('requires-python 解析不出来 ⇒ 返回 null（不猜版本）', () => {
+  const { pickFromRequiresPython } = require('../core/envDetect.js')
+  for (const spec of ['', '   ', '>=3.10', null, undefined, 'garbage']) {
+    const r = pickFromRequiresPython(spec)
+    assert.ok(r === null || r === '3.10',
+      `${JSON.stringify(spec)} ⇒ 要么解析不出，要么是明确的下界，实际 ${r}`)
+  }
+  assert.strictEqual(pickFromRequiresPython(''), null)
+  assert.strictEqual(pickFromRequiresPython('garbage'), null)
+})
+
+test('引擎没声明版本 ⇒ 计划里说清用的是平台基座版本', () => {
+  const { root } = mkdtempEngineWithManifest('demo13', 'requirements.txt')
+  const p = planOf(root, 'demo13', {})
+  assert.strictEqual(p.ok, true, p.error)
+  assert.strictEqual(p.pythonVersion, '3.11')
+  assert.strictEqual(p.pythonVersionSource, 'platform-base')
 })
 
 test('名片里现在没有 python 版本这个字段（不许自己加一个）', () => {

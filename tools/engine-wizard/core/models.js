@@ -5,6 +5,14 @@
 
 const path = require('node:path')
 
+// 许可门槛的说明：名片声明了 license_gate 时第 4 步显示它，
+//   第 3 步下载时远端以授权错误拒绝（已带令牌仍被拒）也显示同一段，两处说法一致。
+const LICENSE_GATE_NOTE = Object.freeze({
+  en: 'This model requires accepting its license on the release page first; '
+    + 'otherwise downloads return 401 or 403.',
+  zh: '该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。',
+})
+
 function platformCheckpoints () {
   return require(path.join(__dirname, '..', '..', '..',
     'lib', 'engines', 'checkpoints.js'))
@@ -19,13 +27,6 @@ function platformProfile (id) {
   return resolveEngineProfile(id)
 }
 
-/**
- * 一台引擎的权重现状：只查，不下。
- *
- * @param {string} id 引擎 id（走平台 registry 拿 profile）
- * @returns {{ok:true, status:object, commands:string[], notes:string[]}
- *          | {ok:false, code, error, example?}}
- */
 function t_missingHint (status) {
   if (!status.declared) {
     return 'Manifest 未声明 runtime.checkpoints，无法确定 Checkpoint 的存放位置'
@@ -33,6 +34,13 @@ function t_missingHint (status) {
   return 'Manifest 未声明具体文件（models.required 为空），无法判断是否完整'
 }
 
+/**
+ * 一台引擎的权重现状：只查，不下。
+ *
+ * @param {string} id 引擎 id（走平台 registry 拿 profile）
+ * @returns {{ok:true, status:object, commands:string[], notes:string[]}
+ *          | {ok:false, code, error, example?}}
+ */
 function describeModels (id, appDir) {
   let cp
   try {
@@ -66,13 +74,14 @@ function describeModels (id, appDir) {
   if (status.ready === true) {
     notes.push('Manifest 声明的文件全部存在')
   } else if (status.ready === false) {
-    notes.push('目录不存在，或 Manifest 声明的文件缺失')
+    notes.push(`权重缺了。${status.reason || '查不到确切原因'}`)
   } else {
     // ready 为 null 时不能压成 false 或 true：
     //   压 false 会让可用的引擎永远显示为缺失，压 true 等于替 Manifest
-    //   作者担保一件他没有声明的事。⇒ 如实说「状态未知」。
-    notes.push('状态未知：Manifest 未声明 runtime.checkpoints，'
-      + '或未声明 models.required（用于判断哪些文件算完整）')
+    //   作者担保一件他没有声明的事。⇒ 如实说「状态未知」，
+    //   病因搬平台的 reason：声明了 checkpoints 却没声明 required，
+    //   与压根没声明 checkpoints，是两件不同的事，说法不能一样。
+    notes.push(`状态未知（平台说不出来它齐不齐）：${status.reason || '查不到确切原因'}`)
     notes.push('既不能视为完整，也不能视为缺失。')
   }
 
@@ -97,7 +106,7 @@ function describeModels (id, appDir) {
   // license_gate 是布尔（profile/models.js 的 parseModelsSource 写的是 `=== true`），
   //   别把它的值当文字显示：那会是「true」两个字。
   if (src.license_gate) {
-    notes.push('该模型需先在发布页接受许可协议，否则下载将返回 401 或 403。'
+    notes.push(LICENSE_GATE_NOTE.zh
       + '（Manifest 中 models.source.license_gate = true 即表示此意）')
   }
 
@@ -158,4 +167,4 @@ function explainMissingInfo (profile) {
   return gaps
 }
 
-module.exports = { describeModels, explainMissingInfo }
+module.exports = { describeModels, explainMissingInfo, LICENSE_GATE_NOTE }

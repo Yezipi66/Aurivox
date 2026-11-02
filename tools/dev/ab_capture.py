@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""ab_capture —— 给 ab_compare 采四段音频，且**不许采错**
+# ab_capture：给 ab_compare 采四段音频，采错就是采了别的路径。
 
 ⛔⛔ 2026-08-27：`--role shim` 那一半已经没有对象了 —— engines/indextts2/shim.py
    随契约 §11 判据 8 删掉了（523 → 0）。这个脚本连同 run_ab.py 一起退休，
@@ -90,7 +90,7 @@ HOST_SHOTS = ("host",)
 
 
 class Fail(Exception):
-    """带退出码的失败。2 = 你给的东西不对，1 = 采到的东西不对。"""
+    """带退出码的失败。2 = 传入的参数不对，1 = 采到的音频不对。"""
 
     def __init__(self, msg, code=1, hint=None):
         Exception.__init__(self, msg)
@@ -173,7 +173,7 @@ def check_identity(base_url, role, timeout):
     ok_shape = (has_seed_mode == spec["has_seed_mode"])
 
     if not (ok_banner and ok_shape):
-        # 报文要把「我连到的其实是另一条路径」点出来
+        # 报文要指出「连到的是另一条路径」
         other = "host" if role == "shim" else "shim"
         looks_like_other = (
             banner.startswith(ROLE_SPEC[other]["banner_startswith"])
@@ -346,7 +346,7 @@ def main(argv=None):
 
 # 顺序是有讲究的：先问「我连到的是谁」，再管工作流。
     #   两者都会红的时候（比如端口敲错、而且还没采过 shim），身份那条才是
-#   要先说的 ： 「你在跟另一条路径说话」是最根本的错，而「先跑 shim」
+#   要先说的 ： 「连的是另一条路径」是最根本的错，而「先跑 shim」
     #   是把端口修对之后照样要做的下一步。
 #   反过来先报工作流， 会去补采 shim，然后再一次撞在同一个错端口上。
     health = check_identity(args.url, args.role, min(args.timeout, 30.0))

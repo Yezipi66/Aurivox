@@ -166,3 +166,25 @@ test('wizardbridge.js 活代码里不许出现具体引擎名', () => {
     assert.ok(!code.toLowerCase().includes(bad), `出现了「${bad}」`)
   }
 })
+
+test('packageDirsFromEntries：只挑 type=dir 的顶层目录（github contents API 的形状）', () => {
+  const { packageDirsFromEntries } = require(F)
+  const entries = [
+    { name: 'mypkg', type: 'dir' },
+    { name: 'tools', type: 'dir' },
+    { name: 'README.md', type: 'file' },
+    { name: 'pyproject.toml', type: 'file' },
+    { name: '.github', type: 'dir' },
+  ]
+  assert.deepStrictEqual(packageDirsFromEntries(entries),
+    ['mypkg', 'tools', '.github'])
+})
+
+test('packageDirsFromEntries：非数组 / 奇形怪状的条目返回空或跳过，不抛', () => {
+  const { packageDirsFromEntries } = require(F)
+  assert.deepStrictEqual(packageDirsFromEntries(null), [])
+  assert.deepStrictEqual(packageDirsFromEntries('nope'), [])
+  assert.deepStrictEqual(
+    packageDirsFromEntries([null, 42, {}, { type: 'dir' }, { name: 'x', type: 'file' }]),
+    [])
+})

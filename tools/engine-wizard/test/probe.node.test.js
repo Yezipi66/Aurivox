@@ -124,6 +124,46 @@ test('什么都没读到，全部进 unfilled，且 values 几乎是空的', () 
   }
 })
 
+// 包名兜底：元数据全无时用「顶层含 __init__.py 的目录」候选（由调用方扫好传入）
+test('单候选兜底：填进去，但来源写清是目录扫描、是猜的', () => {
+  const r = probeProject({ pyproject: '', filenames: [], packageDirs: ['mypkg'] })
+  assert.strictEqual(r.values['call.module'], 'mypkg')
+  const src = r.sources['call.module']
+  assert.ok(src.includes('目录扫描'), `来源没说是扫描来的：${src}`)
+  assert.ok(src.includes('猜'), `来源没说是猜的：${src}`)
+})
+
+test('多候选不替用户选：列出来还给他，选错安装与校验会全炸', () => {
+  const r = probeProject({ pyproject: '', filenames: [], packageDirs: ['alpha', 'beta'] })
+  assert.ok(!('call.module' in r.values), '替用户挑了一个')
+  const u = r.unfilled.find((x) => x.key === 'call.module')
+  assert.ok(u, '多候选时 call.module 必须仍在 unfilled')
+  assert.ok(u.whyZh.includes('alpha') && u.whyZh.includes('beta'),
+    `候选没列全：${u.whyZh}`)
+  assert.ok(u.whyZh.includes('无法判断'), `没说清是平台判断不了：${u.whyZh}`)
+})
+
+test('零候选维持原文案：目录扫描没有收获时，不能换个说法就显得有把握', () => {
+  const r = probeProject({ pyproject: '', filenames: [], packageDirs: [] })
+  assert.ok(!('call.module' in r.values))
+  const u = r.unfilled.find((x) => x.key === 'call.module')
+  assert.ok(u.whyZh.includes('读不出来'), `文案变了：${u.whyZh}`)
+})
+
+test('元数据读到包名时，目录扫描不插队 —— 读到的永远比猜的优先', () => {
+  const r = probeProject({ pyproject: GOOD, filenames: ['pyproject.toml'],
+    packageDirs: ['something-else'] })
+  assert.strictEqual(r.values['call.module'], 'speechkit')
+  assert.ok(r.sources['call.module'].includes('[project.name]'),
+    `来源被兜底覆盖了：${r.sources['call.module']}`)
+})
+
+test('packageDirs 里的噪声（空串、非字符串）不污染单候选判定', () => {
+  const r = probeProject({ pyproject: '', filenames: [],
+    packageDirs: ['  ', null, 42, 'onlypkg'] })
+  assert.strictEqual(r.values['call.module'], 'onlypkg')
+})
+
 // 依赖清单探测 ： 决定装法
 test('依赖清单：pyproject 优先，锁文件次之', () => {
   const r = detectDependencyFile(['README.md', 'requirements.txt', 'pyproject.toml'])
@@ -222,4 +262,42 @@ test('提取结果必须带 dir 字段（否则界面没法让用户改目录）
 test('不是下载命令的（pip install）不许被当模型下载', () => {
   assert.strictEqual(extractDownloadCommands('pip install -r requirements.txt').length, 0)
   assert.strictEqual(extractDownloadCommands('uv sync --all-extras').length, 0)
+})
+
+// snapshot_download 在 modelscope 与 huggingface_hub 里同名，来源只能看同一段代码里的 import
+test('snapshot_download：同一个代码块里的 import 决定来源', () => {
+  const fence = (body) => '```python\n' + body + '\n```\n'
+  const md = [
+    fence("from modelscope import snapshot_download\nsnapshot_download('org/ms-repo', local_dir='ckpt')"),
+    fence("from huggingface_hub import (\n    hf_hub_download,\n    snapshot_download,\n)\nsnapshot_download('org/hf-repo')"),
+    fence("import huggingface_hub\nhuggingface_hub.snapshot_download('org/hf-dotted')"),
+    fence("from modelscope.hub.snapshot_download import snapshot_download\nsnapshot_download('org/ms-sub')"),
+    fence("snapshot_download('org/no-import')"),
+    fence("from modelscope import snapshot_download\nfrom huggingface_hub import snapshot_download\nsnapshot_download('org/both')"),
+  ].join('\n')
+  const got = Object.fromEntries(extractDownloadCommands(md).map((c) => [c.repo, c]))
+  assert.strictEqual(got['org/ms-repo'].tool, 'snapshot')
+  assert.strictEqual(got['org/ms-repo'].source, 'modelscope')
+  assert.strictEqual(got['org/ms-repo'].dir, 'ckpt')
+  assert.strictEqual(got['org/hf-repo'].source, 'hf')
+  assert.strictEqual(got['org/hf-dotted'].source, 'hf')
+  assert.strictEqual(got['org/ms-sub'].source, 'modelscope')
+  assert.strictEqual(got['org/no-import'].source, 'unknown', '看不出 import 的不许猜')
+  assert.strictEqual(got['org/both'].source, 'unknown', '两个库都导入时不许挑一个')
+})
+
+test('snapshot_download：别的代码块里的 import 不算数', () => {
+  const md = '```python\nfrom modelscope import snapshot_download\n```\n\n'
+    + '```python\nsnapshot_download("org/other-block")\n```\n'
+  const [c] = extractDownloadCommands(md)
+  assert.strictEqual(c.repo, 'org/other-block')
+  assert.strictEqual(c.source, 'unknown')
+})
+
+test('CLI 形态自带来源；parseDownloadCmd 不给上下文时只看命令本身', () => {
+  assert.strictEqual(parseDownloadCmd('hf download org/a --local-dir=x').source, 'hf')
+  assert.strictEqual(parseDownloadCmd('modelscope download --model org/b --local_dir x').source, 'modelscope')
+  assert.strictEqual(parseDownloadCmd("snapshot_download('org/c')").source, 'unknown')
+  assert.strictEqual(
+    parseDownloadCmd("snapshot_download('org/d')", 'from huggingface_hub import snapshot_download').source, 'hf')
 })

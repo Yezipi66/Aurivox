@@ -32,7 +32,7 @@ test('底模齐 = 绿，且标题里必须给绝对路径', () => {
   assert.ok(b.title.includes('/r/models/x'))
 })
 
-test('底模缺 = 红，徽章上写缺几个，标题里写缺哪几个', () => {
+test('底模缺 = 红；灯面只说缺底模，缺几项与缺哪几个都在标题里', () => {
   const b = checkpointBadge({
     checkpoints: {
       declared: true, ready: false, abs_path: '/r/models/x', path_source: 'manifest',
@@ -41,7 +41,8 @@ test('底模缺 = 红，徽章上写缺几个，标题里写缺哪几个', () =>
     },
   })
   assert.equal(b.tone, 'bad')
-  assert.match(b.label, /2/)
+  assert.equal(b.label, '缺底模', '灯面只回答能不能用，数字进标题')
+  assert.match(b.title, /缺 2 项/)
   assert.ok(b.title.includes('gpt.pth'))
 })
 

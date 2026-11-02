@@ -188,7 +188,7 @@ function AsrReviewPanel({ taskId, onResumed, lang, engineId }) {
           blank — say so explicitly so a blank column doesn't read as "broken". */}
       {rows && rows.length > 0 && !rows.some(r => typeof r.confidence === 'number') && (
         <div className="asr-review-note">
-          {tr('The current ASR engine (FunASR) does not provide confidence scores, so lines are not color-coded this run. Switch to Faster Whisper if you want confidence highlighting.',
+          {tr('The current ASR engine (FunASR) does not provide confidence scores, so lines are not color-coded this run. Switch to Faster Whisper to enable confidence highlighting.',
               '当前 ASR 引擎（FunASR）不提供置信度，本次不做颜色标注。若需要置信度着色，请改用 Faster Whisper。')}
         </div>
       )}

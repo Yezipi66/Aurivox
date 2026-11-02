@@ -29,6 +29,10 @@ const {
   markPartialVenv,
 } = require('./envDetect')
 const { stepArtifactExists } = require('./envProgress')
+const {
+  uvCacheDirFor,
+} = require(
+  path.join(__dirname, '..', '..', '..', 'lib', 'paths', 'cache.js'))
 
 // uv 可执行文件相对于平台虚拟环境目录的位置。平台不认识这个布局时返回 null。
 function uvRelPath (platform) {
@@ -119,15 +123,40 @@ function buildEnvPlan (input = {}) {
   const cmd = readEnvCommand(input.manifest)
   let guess = suggestEnvCommand(dir)
   let choices = { supported: false, applied: false, reason: cmd.ok ? 'manifest' : null }
+  // 改写之后每个包的最终 spec：界面照这份显示。
+  //   界面自己拼会与真正写进清单副本的那份分叉（约束形式可能不同）。
+  let specs = null
+  // conda 路线（上游给的是 environment.yml，或 manifest 指定 conda 命令）
+  //   没有 Python 解释器这一步。
+  const cmdIsConda = cmd.ok && Array.isArray(cmd.argv) && cmd.argv[0] === 'conda'
+  const guessIsConda = !cmd.ok && Array.isArray(guess.argv) && guess.argv[0] === 'conda'
+  // 引擎环境要用的 Python 版本要先算出来：选依赖版本时要按它判断
+  //   torch 哪个版本在本机后端上可用（判据要 Python 的 ABI）。
+  //   manifest 指定了安装命令时照样要建环境：那只是装依赖的命令，
+  //   Python 环境本身仍然是引擎要用的。
+  const venv = (cmdIsConda || guessIsConda) ? null : buildVenvStep(root, id)
   if (!cmd.ok && guess.argv) {
-    const picked = applyInstallChoices(dir, guess, input)
+    const picked = applyInstallChoices(dir, guess, {
+      ...input,
+      pythonVersion: venv ? venv.pythonVersion : null,
+    })
     if (!picked.guess) return { ...picked, id }
     guess = picked.guess
     choices = picked.choices
+    if (picked.specs) specs = picked.specs
   }
   const effArgv = cmd.ok ? cmd.argv : guess.argv
   const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
-  const venv = condaRoute ? null : buildVenvStep(root, id)
+  const venvStep = condaRoute ? null : (venv || buildVenvStep(root, id))
+  // 建环境那一步拿不到解释器 ⇒ 计划不完整，如实报出来。
+  // 不静默产出一个 argv 为 null 的步骤：那会让执行期报 Node 内部错误，
+  // 使用者看不出是「这个 Python 版本本机没有」。
+  if (venvStep && !venvStep.argv) {
+    return { ok: false, code: 'NO_PYTHON_FOR_VERSION', id,
+      error: venvStep.why, whatToDo: venvStep.whyZh,
+      pythonVersion: venvStep.pythonVersion,
+      pythonVersionSource: venvStep.pythonVersionSource }
+  }
   const syncRoute = Array.isArray(effArgv) && effArgv[1] === 'sync'
   const sync = (syncRoute && !cmd.ok)
     ? syncEnvFor(engineVenvDirAbs(root, id)) : null
@@ -149,7 +178,10 @@ function buildEnvPlan (input = {}) {
       ok: true, id, from: 'probe', from_file: guess.from,
       guessed: true,
       choices,
+      specs,
       env_command: withTargetPython(guess.argv, guessTarget),
+      pythonVersion: venv ? venv.pythonVersion : null,
+      pythonVersionSource: venv ? venv.pythonVersionSource : null,
       whatToDo: guess.why,
       whatToDoZh: guess.whyZh,
       alternative: guess.alternative || null,
@@ -209,8 +241,11 @@ function buildEnvPlan (input = {}) {
     from: usingManifest ? 'manifest' : 'probe',
     from_file: usingManifest ? 'manifest.json (install.env_command)' : guess.from,
     guessed: !usingManifest,
+    pythonVersion: venv ? venv.pythonVersion : null,
+    pythonVersionSource: venv ? venv.pythonVersionSource : null,
     whatToDo: guess.why,
     choices,
+    specs,
     dependencies: deps,
     steps,
     execute: input.execute === true,
@@ -264,6 +299,7 @@ function probeImportInEngineVenv (root, id, mod, timeoutMs) {
     r = spawnSync(py, ['-c', `import ${mod}`], {
       encoding: 'utf8', timeout: timeoutMs || 120000,
       windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
+      env: childEnvFor(root, undefined),
     })
   } catch (e) {
     return { ok: false, mod, code: 'PROBE_FAILED', detail: e.message }
@@ -295,6 +331,39 @@ function parseProgress (text) {
   return results
 }
 
+// 子进程环境：继承宿主，但剥掉两样会污染 Python 子进程的变量。
+//   ① PYTHONPATH：WorkBuddy 沙箱把 sitecustomize.py 塞在这里（它劫持
+//     shutil.rmtree、把删除改走回收站 SHFileOperationW）。uv 的构建隔离子进程
+//     会加载它，setuptools 构建 wheel 时清理临时目录就 SHFileOperationW 失败
+//     (0x2) ⇒ 构建失败。剥掉它，构建子进程才恢复正常的 rmtree。
+//   ② VIRTUAL_ENV：指向平台根 venv，会与引擎自己的 .venv 冲突，uv 会报
+//     "does not match the project environment path" 的警告。
+//   sync 步骤用的 UV_PROJECT_ENVIRONMENT 是独立键，不在这里，不受影响。
+function childEnvFor (root, envOverride) {
+  const env = { ...process.env, ...envOverride, UV_CACHE_DIR: uvCacheDirFor(root) }
+  delete env.PYTHONPATH
+  delete env.VIRTUAL_ENV
+  return env
+}
+
+// 执行前清掉 uv 构建缓存里被中断构建留下的 .tmp* 目录。
+//   被中断的 uv sdist 构建（例如上次因环境问题失败的构建）会留下
+//   builds-v0/.tmp* 的半成品；下次重跑 uv 复用这些残留时，setuptools 重写
+//   egg-info 可能撞上残留的只读/锁定状态，报 [WinError 5] 拒绝访问。
+//   清掉 .tmp* 后 uv 从头构建，不再复用半成品。只删被中断的临时目录，
+//   正常完成的构建缓存（wheel/sdist）不动。
+function cleanStaleUvBuilds (root) {
+  const uvCache = uvCacheDirFor(root)
+  const buildsDir = path.join(uvCache, 'builds-v0')
+  let entries
+  try { entries = fs.readdirSync(buildsDir) } catch (e) { return }
+  for (const name of entries) {
+    if (!name.startsWith('.tmp')) continue
+    const p = path.join(buildsDir, name)
+    try { fs.rmSync(p, { recursive: true, force: true }) } catch (e) { /* 删不掉 ⇒ uv 会如实报 */ }
+  }
+}
+
 // 跑一步（异步流式）。取消通道 cancel 带 signal 与 spawn 时按它取消，否则用默认实现。
 function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cancel) {
   return new Promise((resolve) => {
@@ -310,7 +379,7 @@ function runOne (step, root, timeoutMs, argvOverride, onLine, envOverride, cance
       cwd: step.absCwd || step.cwd,
       windowsHide: true,
       shell: false,
-      env: envOverride ? { ...process.env, ...envOverride } : undefined,
+      env: childEnvFor(root, envOverride),
     })
     let stdoutTail = ''
     let stderrTail = ''
@@ -419,6 +488,9 @@ async function runEnv (input = {}) {
 
   const root = input.root || projectRoot()
   const timeoutMs = input.timeoutMs || 60 * 60 * 1000
+  // 执行前清掉被中断构建留下的 .tmp* 构建目录（见 cleanStaleUvBuilds 注释）。
+  //   只在真正执行时清：只出计划（execute:false）时不碰缓存。
+  cleanStaleUvBuilds(root)
   const steps = (plan.steps || []).filter((s) => s && s.kind === 'env' && s.argv)
   const stepsRun = []
   const probe = typeof input.probeImport === 'function' ? input.probeImport : null
@@ -675,6 +747,8 @@ module.exports = {
   verifyEngineEnvImports,
   probeImportInEngineVenv,
   parseProgress,
+  childEnvFor,
+  cleanStaleUvBuilds,
   runOne,
   runEnv,
 }
