@@ -16,7 +16,7 @@
 //     或者更坏，"按钮灰着，但实际能启动"。
 
 import { useState } from 'react'
-import { startEngine, stopEngine, processBadge, occupancyBadge, engineUsageBadge } from '../../lib/engines'
+import { startEngine, stopEngine, processBadge, occupancyBadge, engineUsageBadge, checkpointBadge } from '../../lib/engines'
 import { engineControls, actionOutcome } from '../../lib/engineActions.pure.js'
 import { ConfirmDialog } from '../common/Dialogs.jsx'
 import { useT } from '../../lib/i18n'
@@ -130,6 +130,17 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <strong>{engine.label || engine.id}</strong>
               <code style={{ opacity: 0.7 }}>{engine.id}</code>
+              {/* 底模徽章在进程徽章之前：这一页是去补文件的地方，而进程状态说不出这件事。
+                  三态各自的话（就绪 / 缺哪几个 / 说不出）由 checkpointBadge 决定，这里不判。 */}
+              {(() => {
+                const ck = checkpointBadge(engine, lang)
+                if (!ck) return null
+                return (
+                  <span className={`badge ${TONE_CLASS[ck.tone] || 'badge-muted'}`} title={ck.title}>
+                    {ck.label}
+                  </span>
+                )
+              })()}
               {badge && (
                 <span className={`badge ${TONE_CLASS[badge.tone] || 'badge-muted'}`} title={badge.title}>
                   {badge.label}

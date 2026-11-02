@@ -322,6 +322,17 @@ export function checkpointBadge(engine, lang = 'zh') {
   return { tone: 'unknown', label: zh ? '底模？' : 'weights ?', title: lines.join('\n') }
 }
 
+// 底模不齐时给合成入口用的一句拦截理由：齐 / 说不出 / 列表还没回来都返回 null（不拦）。
+// 这里不判齐不齐：tone 为 bad 只可能来自服务端 lib/engines/checkpoints.js 的 ready === false。
+// 两处各判一次，同一台引擎就会对出两种话，而界面和引擎会各按一种行动。
+// ready 为 null 不拦：名片没写目录或没点名文件时平台说不出齐不齐，而说不出不等于缺，
+// 在这里替名片作者担保一件他没说过的事，等于把一条写错的清单读成「缺」。
+// 列表还没回来也不拦：那时拦一次再放开，按钮看起来像坏了。
+export function checkpointBlock(engine, lang = 'zh') {
+  const b = checkpointBadge(engine, lang)
+  return b && b.tone === 'bad' ? { label: b.label, title: b.title } : null
+}
+
 // 进程徽章。三种「未运行」分开显示：process 为 null（不管理，不显示）、
 // running 为 false（正常待命，灰色）、online 但非本平台启动（外部进程）。
 // 启动中要明确提示，载入模型可能需要几十秒到几分钟。
