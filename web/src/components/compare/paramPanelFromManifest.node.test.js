@@ -19,7 +19,7 @@ const CODE = stripComments(SRC)
 
 // 这一页不出现任何引擎参数名，snake_case（manifest.json 里的名字）与 camelCase
 // （旧代码里的本地 state 名）两种写法都要列。守的是键出现的位置：对象字面量里的
-// `键名:`、下标里的 `[键名]`。用户可见的 tooltip 文案里提到某个名字不算。
+// `键名:`、下标里的 `[键名]`、成员赋值 `.键名 =`。用户可见的 tooltip 文案里提到某个名字不算。
 const HARDCODED = [
   'temperature', 'top_k', 'top_p', 'repetition_penalty',
   'text_split_method', 'speed_factor', 'batch_size',
@@ -28,20 +28,24 @@ const HARDCODED = [
   'topK', 'topP', 'repPenalty', 'splitMethod', 'speedFactor',
   'batchSize', 'batchThreshold', 'splitBucket',
   'fragmentInterval', 'parallelInfer', 'sampleSteps',
+  'gpt_model', 'sovits_model', 'gptCheckpoint', 'sovitsModel',
 ]
 
-// 键「被用上」的两种位置。两种都要守：少一种，那一处就能偷偷长回来。
+// 键「被使用」的三种位置。三种都要覆盖：少一种，那一处就可能重新出现。
 const USED_AS = [
   n => new RegExp(`\\b${n}\\s*:`),                    // 对象字面量里的键，如 top_p: 1.0
   n => new RegExp(`\\[\\s*['"\`]${n}['"\`]\\s*\\]`),   // 下标里的键，如 row['top_p']
+  n => new RegExp(`\\.\\s*${n}\\s*(=|\\+=)`),          // 成员赋值，如 body.top_p = 1.0
 ]
 
 test('⛔ 对比页里不许出现任何写死的引擎参数名', () => {
   const found = HARDCODED.filter(name => USED_AS.some(rx => rx(name).test(CODE)))
   assert.deepEqual(found, [],
-    '这些参数名又回到对比页的代码里了（作为对象的键或下标）。' +
-    '它们属于某一台引擎的 manifest.json，写在这里意味着换一台引擎时界面还在发这些键、' +
-    '而该长的格子长不出来。（注意：只作为**文案**提到某个名字不算。）')
+    '这些参数名重新出现在对比页的代码里（作为对象的键、下标或成员赋值）。' +
+    '它们属于某一台引擎的 manifest.json，写在这里意味着换一台引擎时界面仍在发这些键、' +
+    '按名片声明生成的参数格子则长不出来。（注意：只作为**文案**提到某个名字不算。）' +
+    '权重位名与旧界面为它们引入的字段名同样计入：请求体、配方、旧行数据都按位名读取，' +
+    '该页代码里再出现一次就是第二份写死。')
 })
 
 test('⛔ 也不许用本地 state 把某个引擎参数名再抄一遍', () => {
@@ -91,9 +95,75 @@ test('⭐ 单方法引擎不许画方法下拉（没有第二个选项的下拉�
 })
 
 test('⛔ CMP_ENGINE 这个常量不许回来', () => {
-  // 它是「这一页写死一台引擎」的全部证据。位名现在来自 weight_slots。
-  assert.ok(!/\bCMP_ENGINE\b/.test(CODE), 'CMP_ENGINE 又回来了')
-  assert.ok(CODE.includes('weight_slots'), '权重位名没有从名片读')
+  assert.ok(!/\bCMP_ENGINE\b/.test(CODE), 'CMP_ENGINE 重新出现：它是「这一页写死一台引擎」的全部证据')
+  assert.ok(CODE.includes('slotsOf('), '权重位名未从名片读取（位名应经 slotsOf 从 weight_slots 读取）')
+  assert.ok(/compareWeightBody\(/.test(CODE),
+    'generateRow 未使用 compareWeightBody 组装权重字段：请求体的权重字段由纯函数按名片组装，该页再组装一次就是第二条装配线')
+  assert.ok(/=\s*stalePicks\(/.test(CODE),
+    'generateRow 未先逐位检查所选是否仍在候选中。不在候选中的那一位要立即报错、不发送该行：' +
+    '静默跳过它，引擎会沿用上一行切换的权重，批量结果取决于行的执行顺序')
+  // 只检查「有没有调用 compareWeightBody」拦不住装配线分叉：还要检查它收到的是哪一份候选清单。
+  assert.ok(!/compareWeightBody\([^)]*,[^)]*,/.test(CODE),
+    'compareWeightBody 收到第三份候选清单：请求体这一层不筛选择，筛了就是一条静默兜底')
+})
+
+// 参考侧的三条判据（这一行属于哪个角色、说什么语种、选中的还在不在）
+// 只有纯函数那一份实现，界面各点只调用它们。下面三条按文件数调用点：整目录拼在一起时
+// 纯函数自己的定义也算一次「出现过」，调用点被删回界面里就看不见。
+const codeOf = (name) => {
+  const p = path.join(HERE, name)
+  return fs.existsSync(p) ? stripComments(fs.readFileSync(p, 'utf8')) : ''
+}
+const countCalls = (code, name) => (code.match(new RegExp(`${name}\\(`, 'g')) || []).length
+
+test('⭐⭐ 参考侧的角色与语种在每个消费点都调用纯函数，界面不留第二份', () => {
+  const row = codeOf('CompareRow.jsx')
+  const tab = codeOf('ReferenceCompareTab.jsx')
+  assert.ok(row && tab, '按文件名取源码失败：组件改名或拆出去后，这个守卫要跟着改，不能让它静默放行')
+  // 这一行的参考角色：画这一行、发这一行的请求、把这一行存成配方，三处都得问同一个问题。
+  assert.ok(countCalls(row, 'referenceVoiceOf') >= 1, 'CompareRow 没问参考角色，界面又回到按 selectedVoice 取')
+  assert.ok(countCalls(tab, 'referenceVoiceOf') >= 2,
+    'ReferenceCompareTab 里的参考角色消费点少了：发请求与另存配方都要按这一行的参考侧取角色')
+  assert.ok(countCalls(row, 'rowVoiceLanguage') >= 1 && countCalls(tab, 'rowVoiceLanguage') >= 2,
+    '语种没有三处都走 rowVoiceLanguage：查表的顺序就会长出第二份')
+  // 第二份实现长回来的样子：在界面里按角色查 language。
+  for (const [name, code] of [['CompareRow.jsx', row], ['ReferenceCompareTab.jsx', tab]]) {
+    assert.ok(!/\.find\([^)]*\)\s*\?\.language/.test(code), `${name} 里又拼了一份按角色查语种的链`)
+  }
+})
+
+test('⭐ 对比页重新载入存下的行时不截回定值（owner 答复第 3 条：取消行数上限）', () => {
+  const tab = codeOf('ReferenceCompareTab.jsx')
+  const rehydrate = (tab.split('\n').find(l => l.includes('rehydrate:')) || '')
+  assert.ok(rehydrate, '找不到 rehydrate：行数上限的守卫要看的就是这一行，改名或挪走后这条守卫就成了空转')
+  assert.ok(!/\.slice\(/.test(rehydrate),
+    'rehydrate 又把行数截回一个定值：上限取消后超出部分会被静默丢掉，用户看到的是「存下的行自己少了」')
+})
+
+test('⭐⭐ 只有把这一行的角色选成底模才自动换参考来源，换某一位不换', () => {
+  const row = codeOf('CompareRow.jsx')
+  // 底模自己没有切片：把它选成这一行的角色时本音色切片不可用，这时才自动切到跨角色选择器。
+  assert.equal((row.match(/setRefSource\('cross'\)/g) || []).length, 1,
+    "自动切到跨角色参考来源的地方不止一处：换某一位时也切，就是把用户自己选的参考来源覆盖掉")
+  assert.ok(/if \(vid === BASE_VOICE_ID[\s\S]{0,120}setRefSource\('cross'\)/.test(row),
+    '仅剩的那一处不是按角色判的：参考侧只跟这一行的角色走，不跟权重位走')
+  // 非混搭下不记归属：记了就是把这一行悄悄变成混搭。
+  assert.ok(/if \(!mix\)/.test(row), 'pickSlot 不再先分辨混搭与否，非混搭下的选择也会写入跨角色归属')
+})
+
+test('⭐ 失效判断复用算好的候选集合；被拦下的那一行不进 try…finally，提示要设在检查之后', () => {
+  const row = codeOf('CompareRow.jsx')
+  const tab = codeOf('ReferenceCompareTab.jsx')
+  assert.ok(/useMemo\(\(\) => candidatePathsBySlot\(availableModels\)/.test(row),
+    '候选集合没有 useMemo：渲染每一位都重算一遍全表')
+  assert.ok(countCalls(row, 'isPathStale') >= 1, '行内失效标记没有复用集合')
+  assert.equal(countCalls(row, 'candidatePathsBySlot'), 1,
+    '行内除了那一次 useMemo 又算了一遍全表：渲染每一位都重算，是白付的开销')
+  const atStale = tab.search(/=\s*stalePicks\(/)
+  const atBanner = tab.indexOf("label: 'Generating'")
+  assert.ok(atStale >= 0 && atStale < atBanner,
+    '「Generating」提示设在逐位检查之前：拦下的那一行不进 try…finally，负责清掉提示的代码不会跑，' +
+    '状态栏一直停在「Generating」')
 })
 
 test('换引擎必须重建权重下拉（依赖数组里少了 engine.id 就是安静地错）', () => {
