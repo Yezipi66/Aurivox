@@ -178,10 +178,10 @@ test('标签：候选不完整就在那一行上说，⛔ "说不出来"不许�
     'm (step 8 · ⚠ 缺 1 项)')
 })
 
-// 空下拉必须解释自己为什么空
+// 后端那句诊断要能到界面：底模那一行与角色那一行按同一读法取
 test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () => {
   const assets = [
-    { voiceId: 'base', builtin: true, models: {}, model_notes: [{ engine: 'e1', code: 'checkpoints_dir_empty', text: '底模这一栏的空法' }] },
+    { voiceId: 'base', builtin: true, models: {}, model_notes: [{ engine: 'e1', code: 'no_scan_file', text: '底模这一栏的空法' }] },
     { voiceId: 'Alice', models: {}, model_notes: [
       { engine: 'e1', code: 'whole_dir_as_candidate', text: '第一句' },
       { engine: 'e2', code: 'loose_files', text: '别台引擎的' },
@@ -212,7 +212,7 @@ test('⭐ 换模型的角色清单按 engines 筛，不按 models 有没有键�
     { voiceId: 'Bob', displayName: 'Bob', engines: [], models: { e1: { alpha: [] } } },
     // 一个候选都没列出、只带一句模型说明的那一行（底模那一行的形状）不在这儿出现。
     { voiceId: 'base', displayName: 'Base', builtin: true, engines: [], models: {},
-      model_notes: [{ engine: 'e1', code: 'checkpoints_dir_empty', text: '底模这一栏的空法' }] },
+      model_notes: [{ engine: 'e1', code: 'no_scan_file', text: '底模这一栏的空法' }] },
   ]
   assert.deepEqual(voicesForModelRebind(voices).map(v => v.voiceId), ['Alice'])
   assert.deepEqual(voicesForModelRebind(null), [])
