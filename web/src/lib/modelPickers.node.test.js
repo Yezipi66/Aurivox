@@ -15,7 +15,7 @@ import {
   enginesInMeta, modelsFromMeta, countModelsInMeta, modelCountsByEngine,
   weightsToSend, weightsFromParams, anySlotSwitchable, slotsNeedingRelaunch,
   launchWeightsToSend,
-  voicesForEngine, describeGeneration,
+  voicesForEngine, voicesForModelRebind, describeGeneration,
   paramsSummaryOf } from './modelPickers.pure.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -178,10 +178,10 @@ test('标签：候选不完整就在那一行上说，⛔ "说不出来"不许�
     'm (step 8 · ⚠ 缺 1 项)')
 })
 
-// 空下拉必须解释自己为什么空
+// 后端那句诊断要能到界面：底模那一行与角色那一行按同一读法取
 test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () => {
   const assets = [
-    { voiceId: 'base', builtin: true, models: {}, model_notes: [{ engine: 'e1', code: 'x', text: '不该被拿到' }] },
+    { voiceId: 'base', builtin: true, models: {}, model_notes: [{ engine: 'e1', code: 'no_scan_file', text: '底模这一栏的空法' }] },
     { voiceId: 'Alice', models: {}, model_notes: [
       { engine: 'e1', code: 'whole_dir_as_candidate', text: '第一句' },
       { engine: 'e2', code: 'loose_files', text: '别台引擎的' },
@@ -196,8 +196,27 @@ test('后端的诊断按 引擎 × 角色 取出来，⛔ 前端不拼话', () =
   assert.deepEqual(modelNotesFor(assets, 'e1', 'Nobody'), [])
   assert.deepEqual(modelNotesFor(assets, '', 'Alice'), [])
   assert.deepEqual(modelNotesFor(null, 'e1', 'Alice'), [])
-  // 底模那一条不是谁的资产，它的话不许被当成当前角色的
-  assert.deepEqual(modelNotesFor(assets, 'e1', 'base'), [])
+  // 底模那一行也要能拿到它自己的话：它的下拉空了，界面同样得说为什么
+  assert.deepEqual(modelNotesFor(assets, 'e1', 'base').map(n => n.text), ['底模这一栏的空法'])
+  assert.deepEqual(modelNotesFor(assets, 'e2', 'base'), [], '按引擎筛，别台引擎的话不许挂过来')
+  // 反过来也成立：底模那一条不是当前角色的资产，它的话不许串到角色那一栏
+  assert.deepEqual(modelNotesFor(assets, 'e1', 'Alice').map(n => n.text), ['第一句'])
+})
+
+// 换模型那一栏只能挑出一份真选得中的模型
+test('⭐ 换模型的角色清单按 engines 筛，不按 models 有没有键筛', () => {
+  const voices = [
+    { voiceId: 'Alice', displayName: 'Alice', engines: ['e1'], models: { e1: { alpha: [{ path: 'a' }] } } },
+    // 目录建了、位里一个文件都没有：models 有键，engines 是空的。
+    // 按 models 的键筛就会把这一条放进来，于是下拉里多出一个永远选不出东西的角色。
+    { voiceId: 'Bob', displayName: 'Bob', engines: [], models: { e1: { alpha: [] } } },
+    // 一个候选都没列出、只带一句模型说明的那一行（底模那一行的形状）不在这儿出现。
+    { voiceId: 'base', displayName: 'Base', builtin: true, engines: [], models: {},
+      model_notes: [{ engine: 'e1', code: 'no_scan_file', text: '底模这一栏的空法' }] },
+  ]
+  assert.deepEqual(voicesForModelRebind(voices).map(v => v.voiceId), ['Alice'])
+  assert.deepEqual(voicesForModelRebind(null), [])
+  assert.deepEqual(voicesForModelRebind(undefined), [])
 })
 
 test('还有效的旧选择要留住（异步刷新不许把用户刚挑的弹回第一条）', () => {

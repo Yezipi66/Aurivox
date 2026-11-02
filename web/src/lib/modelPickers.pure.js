@@ -90,6 +90,14 @@ export function voicesForEngine(voices, assets, engineId, slots) {
   })
 }
 
+// 「换模型」那一栏的角色清单：只列 engines 非空的角色。
+// 判据用后端算好的 engines（这个角色至少有一个位列出了候选），不在前端重数 models 的键：
+// 一个候选都没列出、只带一句模型说明的那一行（底模那一行正是这个形状）在这一栏挑不出模型，
+// 混进来只会是一个空下拉。
+export function voicesForModelRebind(voices) {
+  return (voices || []).filter(v => (v.engines || []).length > 0)
+}
+
 // 把候选分组摊平成一份候选清单。分组为空时返回空数组。
 export function flattenGroups(groups) {
   const out = []
@@ -112,11 +120,12 @@ export function itemLabel(item) {
 }
 
 // 后端生成的模型说明，按引擎筛选。它解释的是这台引擎在这个角色里的模型标签与来源，
-// 下拉为空或有候选时都可能出现。返回该角色在该引擎下的说明数组，没有则空数组。
+// 下拉为空或有候选时都可能出现。按 voiceId 取，底模那一行（builtin）同样适用：
+// 它的下拉空了，界面同样要说出为什么。返回该角色在该引擎下的说明数组，没有则空数组。
 export function modelNotesFor(assets, engineId, voiceId) {
   if (!engineId || !voiceId) return []
   for (const a of (assets || [])) {
-    if (!a || a.builtin || a.voiceId !== voiceId) continue
+    if (!a || a.voiceId !== voiceId) continue
     return (a.model_notes || []).filter(n => n && n.engine === engineId && n.text)
   }
   return []

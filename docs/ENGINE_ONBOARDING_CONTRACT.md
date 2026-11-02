@@ -454,9 +454,16 @@ note 除了进 meta 与服务端日志，还经 `model_notes` 返回给界面，
 底模目录存在、候选一条都无法列出、而 `scan.json` 又无法读取的引擎，
 下拉会带一条 `assets.scan_convention_notes`，和 `GET /api/voices/<id>/validate` 的
 `checks.scan_convention_notes` 同一份回答；note 的形状只有一个定义处（`lib/assetScanner/engineScan.js`
-的 `conventionNote` 与 `invalidScanNote`），声明无法读取的引擎额外带 `file` / `key`，
+的 `assetNote`，`conventionNote` 与 `invalidScanNote` 从它造），声明无法读取的引擎额外带 `file` / `key`，
 报错原文始终在 `text` 里。单个引擎的声明无法读取只影响它自己的输出，其他引擎照常列出。
-该诊断目前只出现在接口 JSON 与服务器日志中，界面尚未展示它。
+
+这条诊断一路到界面（不再只停在接口 JSON 与日志里）：`GET /api/assets/voices-with-models` 的底模那一行
+即使一份候选都没列出也照样端出，note 挂在它自己的引擎下；界面按当前引擎取出那一条，显示在收起的下拉旁边
+（`web/src/lib/modelPickers.pure.js` 的 `modelNotesFor`）。某台引擎一个位的候选都没有、又没有 note 可说时，
+位下拉整体收起，音色下拉照在，空着的那一格不解释一件平台不知道的事。
+
+底模目录为空、或由 `models.checkpoints_env` 声明的环境变量指到一个没有文件的目录时都不记：
+下拉空着就空着，平台不为「目录挪过位置」或「底模尚未下载」补一句提示。
 
 注释键以 `_` 开头，供阅读的说明不是内容：只有 `version.header_map` 这一层例外，
 `_`（0x5F）本身就是一个合法的版本头字节，在那里剥前缀等于把一条真实规则改成静默失效。
