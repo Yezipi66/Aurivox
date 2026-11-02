@@ -15,6 +15,34 @@ import { MigrateChoiceDialog, MigrateProgressDialog, FolderBrowser } from './Ass
 import { AssetsSummaryBar, AssetsToolbar } from './AssetsToolbar'
 import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
 
+// 状态提示支持最小化的 markdown：仅解析反引号。单反引号包裹的内容渲染为行内 code，
+// 三反引号包裹的整段渲染为块级 pre；其它文本原样输出，不含反引号的历史提示不受影响。
+const MSG_CODE_STYLE = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '0.92em', background: 'rgba(127,127,127,0.18)', padding: '1px 5px', borderRadius: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+const MSG_BLOCK_STYLE = { ...MSG_CODE_STYLE, display: 'block', margin: '4px 0', padding: 8 }
+
+function renderMd(text) {
+  if (typeof text !== 'string') return text
+  const re = /```([\s\S]*?)```|`([^`\n]+?)`/g
+  const out = []
+  let last = 0
+  let m
+  let k = 0
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const code = m[1] != null ? m[1] : m[2]
+    out.push(m[1] != null
+      ? <pre key={k++} style={MSG_BLOCK_STYLE}><code>{code}</code></pre>
+      : <code key={k++} style={MSG_CODE_STYLE}>{code}</code>)
+    last = re.lastIndex
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+// 把动态后端串（如 job.error / e.message）包进反引号，交给 renderMd 渲染为等宽代码，
+// 避免英文错误串在中文界面里显得突兀。
+const codeSpan = (s) => '`' + s + '`'
+
 // 音色资产页
 function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, loadVoices, setTrainPrefill, setActiveTaskId, rebuildTask, setRebuildTask }) {
   const { t } = useT()
@@ -287,7 +315,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         } else {
           delete transcribePollRef.current[id]
           if (job.status === 'done') {
-            setScanMsg({ type: 'success', text: `Reference text generated for ${id} (${(job.done || []).join(', ')})` })
+            setScanMsg({ type: 'success', text: t(`Reference text generated for ${id} (${(job.done || []).join(', ')})`, `已生成参考文本 ${id}（${(job.done || []).join(', ')}）`) })
             loadAssets()
             // 作废缓存的切片，重新展开时才会取到新文本。
             setSegments(s => { const n = { ...s }; delete n[id]; return n })
@@ -300,15 +328,15 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
               }
             }
           } else if (job.status === 'cancelled') {
-            setScanMsg({ type: 'info', text: `Transcription cancelled for ${id}` })
+            setScanMsg({ type: 'info', text: t(`Transcription cancelled for ${id}`, `转录已取消：${id}`) })
           } else if (job.status === 'error') {
-            setScanMsg({ type: 'error', text: `Transcription failed: ${job.error || 'see logs for details'}` })
+            setScanMsg({ type: 'error', text: t(`Transcription failed: ${job.error ? codeSpan(job.error) : 'see logs for details'}`, `转录失败：${job.error ? codeSpan(job.error) : '查看日志了解详情'}`) })
           }
           setTimeout(() => setScanMsg(null), 5000)
         }
       } catch (e) {
-        delete transcribePollRef.current[id]
-        setScanMsg({ type: 'error', text: e.message })
+      delete transcribePollRef.current[id]
+      setScanMsg({ type: 'error', text: t(`Transcription error: ${codeSpan(e.message)}`, `转录错误：${codeSpan(e.message)}`) })
       }
     }
     transcribePollRef.current[id] = setTimeout(tick, 1000)
@@ -320,14 +348,14 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
       const r = await api(`/api/assets/${id}/transcribe`, { method: 'POST', body: { source } })
       if (r.ok && r.data?.started) {
         setTranscribeJobs(prev => ({ ...prev, [id]: { status: 'running', sources: r.data.sources || [], done: [] } }))
-        setScanMsg({ type: 'info', text: `Transcribing ${id} (${(r.data.sources || []).join(', ')})…` })
+        setScanMsg({ type: 'info', text: t(`Transcribing ${id} (${(r.data.sources || []).join(', ')})…`, `正在转录 ${id}（${(r.data.sources || []).join(', ')}）…`) })
         pollTranscribe(id)
       } else {
-        setScanMsg({ type: 'error', text: r.data?.error || 'Could not start transcription' })
+        setScanMsg({ type: 'error', text: t(r.data?.error ? codeSpan(r.data.error) : 'Could not start transcription', r.data?.error ? codeSpan(r.data.error) : '无法启动转录') })
         setTimeout(() => setScanMsg(null), 5000)
       }
     } catch (e) {
-      setScanMsg({ type: 'error', text: e.message })
+      setScanMsg({ type: 'error', text: t(`Transcription error: ${codeSpan(e.message)}`, `转录错误：${codeSpan(e.message)}`) })
     }
   }
 
@@ -353,7 +381,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
       }
       if (runningIds.length) {
         const first = runningIds[0]
-        setScanMsg({ type: 'info', text: `Transcribing ${first} (${(jobs[first].sources || []).join(', ')})…` })
+        setScanMsg({ type: 'info', text: t(`Transcribing ${first} (${(jobs[first].sources || []).join(', ')})…`, `正在转录 ${first}（${(jobs[first].sources || []).join(', ')}）…`) })
       }
     }).catch(() => {})
     return () => { cancelled = true }
@@ -656,7 +684,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         </div>
       </div>
       <div className="section-body">
-        {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{scanMsg.text}</div>}
+        {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{renderMd(scanMsg.text)}</div>}
         {noteExpanded && (
           <NamingNoteCard
             acked={noteAcked}
