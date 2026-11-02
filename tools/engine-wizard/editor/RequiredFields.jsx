@@ -114,9 +114,10 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     optional: !!(SLOT_LABELS[key] || {}).optional,
   }))
 
-  // 输出槽位只在「引擎把音频写进文件」时才要（call.returns 缺省就是 file，hostProfile.js 同口径）。
+  // 输出槽位只在「引擎把音频写进文件 / 写进目录」时才要
+  // （call.returns 缺省就是 file，hostProfile.js 同口径）。
   const returns = call.returns || 'file'
-  const slotNeeded = (key) => key !== 'output_path' || returns === 'file'
+  const slotNeeded = (key) => key !== 'output_path' || ['file', 'dir'].includes(returns)
 
   // 必填优先展示：还没填上的必填槽位排到最前面。
   //   平台能自动填的（扫描已匹配 / 按惯例代填）已经填上了，剩下的那一格才是真需要人的；

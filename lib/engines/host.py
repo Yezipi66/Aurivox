@@ -39,6 +39,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -302,6 +303,54 @@ def build_cli_argv(call, profile, slots, params):
     return argv
 
 
+AUDIO_EXTS = (".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac")
+
+
+def _newest_output_in(directory, desc=""):
+    """在一个「引擎自己命名产物」的目录里找出要读回的那份音频。
+
+    有的引擎不收文件路径，只收落点目录，文件名它自己起（常见形态：
+    `--save_dir` / `--output_dir`）。这时宿主只能给一个目录，跑完再回来找。
+
+    找法：先按音频扩展名收，一个都没有时收全部普通文件；多个时取最后修改的。
+    数量与时间都并列时如实报错，不挑一个：挑错等于把别人的产物当成这次的结果。
+    """
+    try:
+        names = [n for n in os.listdir(directory)
+                 if os.path.isfile(os.path.join(directory, n))]
+    except OSError as exc:
+        raise RuntimeError("读不到输出目录 %s：%s" % (directory, exc))
+    audio = [n for n in names if os.path.splitext(n)[1].lower() in AUDIO_EXTS]
+    pool = audio or names
+    if not pool:
+        raise RuntimeError(
+            "%s 报告成功，但输出目录里没有任何文件：%s" % (desc or "命令", directory))
+    pool.sort(key=lambda n: os.path.getmtime(os.path.join(directory, n)), reverse=True)
+    if len(pool) > 1:
+        newest = os.path.getmtime(os.path.join(directory, pool[0]))
+        second = os.path.getmtime(os.path.join(directory, pool[1]))
+        if newest == second:
+            raise RuntimeError(
+                "%s 报告成功，但输出目录里有多份产物且修改时间相同，无法判断哪一份是这次的结果：%s"
+                % (desc or "命令", ", ".join(pool[:6])))
+    return os.path.join(directory, pool[0])
+
+
+def _release_output(out_path, out_dir):
+    """收掉这次合成用过的临时落点。
+
+    file 形态交的是一个文件，dir 形态交的是一整个目录。两者都可能在
+    引擎报错时残留（比如写到一半崩了），留着只是脏盘，不影响下一次。
+    """
+    try:
+        if out_dir:
+            shutil.rmtree(out_dir, ignore_errors=True)
+        elif out_path:
+            os.unlink(out_path)
+    except OSError:
+        pass
+
+
 def _resolve_cwd(profile):
     """算出调用时该待在哪个目录（名片的 `call.cwd`）。
 
@@ -546,10 +595,15 @@ class Engine(object):
             seed_info = None
 
         out_path = None
+        out_dir = None
         try:
             if returns == "file":
                 fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
                 os.close(fd)
+            elif returns == "dir":
+                # 引擎自己给产物命名：只交一个空目录，跑完再回来找那一份。
+                out_dir = tempfile.mkdtemp(prefix="host_out_")
+                out_path = out_dir
             argv = build_cli_argv(
                 self.call, self.profile,
                 {"text": text, "ref_audio": ref_audio_path,
@@ -577,6 +631,16 @@ class Engine(object):
                     raise RuntimeError(
                         "命令退出码 0，却没往 %s 写出任何字节\n"
                         "--- stderr（末尾 4000 字）---\n%s" % (out_path, tail[-4000:]))
+            elif returns == "dir":
+                # 引擎自己命名的产物：到目录里把那一份找出来再读。
+                produced = _newest_output_in(out_dir, os.path.basename(argv[0]))
+                with open(produced, "rb") as fh:
+                    data = fh.read()
+                if not data:
+                    raise RuntimeError(
+                        "命令退出码 0，但写出的 %s 是空文件\n"
+                        "--- stderr（末尾 4000 字）---\n%s"
+                        % (produced, tail[-4000:]))
             else:
                 data = proc.stdout or b""
                 if not data:
@@ -593,11 +657,7 @@ class Engine(object):
                 meta["rtf"] = round(elapsed / meta["duration"], 2)
             return data, meta
         finally:
-            if out_path:
-                try:
-                    os.unlink(out_path)
-                except OSError:
-                    pass
+            _release_output(out_path, out_dir)
 
     def _synthesize_python(self, text, ref_audio_path, call_params, seed=None, method_cfg=None,
                            ref_text=None):
@@ -668,10 +728,15 @@ class Engine(object):
                         kwargs[up] = ""
 
         out_path = None
+        out_dir = None
         if returns == "file":
             fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
             os.close(fd)
             kwargs[bind["output_path"]] = out_path
+        elif returns == "dir":
+            # 引擎自己给产物命名：只交一个空目录，跑完再回来找那一份。
+            out_dir = tempfile.mkdtemp(prefix="host_out_")
+            kwargs[bind["output_path"]] = out_dir
 
         seed_info = None
         try:
@@ -693,6 +758,13 @@ class Engine(object):
                     data = fh.read()
                 if not data:
                     raise RuntimeError("%s wrote an empty file" % self.call["class"])
+            elif returns == "dir":
+                # 引擎自己命名的产物：到目录里把那一份找出来再读。
+                produced = _newest_output_in(out_dir, method_label)
+                with open(produced, "rb") as fh:
+                    data = fh.read()
+                if not data:
+                    raise RuntimeError("%s 写出了空文件 %s" % (method_label, produced))
             elif returns == "generator":
                 # CosyVoice2 五个推理方法都返回生成器。
                 # 采样率从 call.generator_sample_rate 取（名片声明）
@@ -721,11 +793,7 @@ class Engine(object):
                 meta["rtf"] = round(elapsed / meta["duration"], 2)
             return data, meta
         finally:
-            if out_path:
-                try:
-                    os.unlink(out_path)
-                except OSError:
-                    pass
+            _release_output(out_path, out_dir)
 
 
 def _collect_generator(result, sample_rate, call_desc):

@@ -116,7 +116,7 @@ function diagnose (manifest) {
   // ---- 3b. 必填 6 项（缺一个就接不上平台）---------------------------
   //
   // 平台只要求人答这 6 项（第 6 项模型权重见下面 weightsProblem 那段）（lib/engines/profile.js 的 DEFAULTS 上方）：
-  //   call.bind 的 text / ref_audio / output_path（output_path 只在 call.returns 是 file 时要）
+  //   call.bind 的 text / ref_audio / output_path（output_path 只在 call.returns 是 file / dir 时要）
   //   runtime.python / runtime.entry
   // 其余各项缺了平台推断或用保守默认，这里不报缺；写了值才校验值本身。
   //
@@ -132,7 +132,8 @@ function diagnose (manifest) {
   const REQUIRED_KEYS = [
     { path: 'call.bind.text', v: bindObj.text, section: 'call', when: needsBind },
     { path: 'call.bind.ref_audio', v: bindObj.ref_audio, section: 'call', when: needsBind },
-    { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call', when: needsBind && returns === 'file' },
+    { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call',
+      when: needsBind && (returns === 'file' || returns === 'dir') },
     { path: 'runtime.python', v: rt.python, section: 'runtime' },
     { path: 'runtime.entry', v: rt.entry, section: 'runtime' },
     // 启动脚本不是平台通用宿主 ⇒ 平台不知道就绪端点，照旧必填。

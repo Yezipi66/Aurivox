@@ -69,9 +69,13 @@ export const OPTIONAL_KEYS = [
     noteZh: '参考音频越长，特征提取越慢，内存占用越高，首字节延迟也越高。' },
   // capabilities.output_sample_rate 不在这里：它只是声明，平台不读（拼接按每段 wav 头）。
   // 引擎若能调采样率，那是它自己的入参，拖进「合成参数」当旋钮。
-  { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator'],
+  { path: 'call.returns', kind: 'select', options: ['file', 'bytes', 'generator', 'dir'],
     en: 'How the engine returns audio', zh: '音频返回方式',
     fallbackEn: 'writes a file', fallbackZh: '写成文件' },
+  { path: 'call.output_dir', kind: 'text', when: (m) => get(m, 'call.returns') === 'dir',
+    en: 'Where the engine writes the output', zh: '引擎输出落点目录',
+    noteEn: 'The engine names the file itself; the platform reads the newest one back. If left empty, one is made on the fly.',
+    noteZh: '文件名由引擎自己起，平台找最新的那一份读回；留空则现场建。' },
   { path: 'call.generator_sample_rate', kind: 'number', when: (m) => get(m, 'call.returns') === 'generator',
     en: 'Generator sample rate (Hz)', zh: '生成器采样率（Hz）',
     fallbackEn: 'required for generator output', fallbackZh: '生成器形态必填' },
