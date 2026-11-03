@@ -18,7 +18,7 @@ import { pickDefaultRef, sameRefPath } from '../../lib/refAudio'
 import { useT } from '../../lib/i18n'
 import { recipeToGenerateParams, weightsToRecipeFields } from '../../lib/recipes'
 // fieldLabel / fieldHelp / recipePath 只在 ParamField 里用了，这里不 import。
-import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible } from '../../lib/engines'
+import { fieldsForTier, initialParamValues, coerceParamValue, paramsToSend, paramsByPhase, hasMappedKey, isFieldVisible, carriedOverSummary } from '../../lib/engines'
 import { useSelectSources } from '../../lib/useSelectSources'
 import { optionsForField } from '../../lib/selectSources.pure'
 import { CollapsibleSegments } from './GenerateBits'
@@ -875,8 +875,8 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
           </div>
         </div>
 
-        {/* 合成结果。 */}
-        <GenerationResult result={result} />
+        {/* 合成结果。接过来的是哪几格要说得出：它填的值不是用户这次填的。 */}
+        <GenerationResult result={result} carriedNote={carriedOverSummary(result?.carried_over, engine, uiLang)} />
 
         {/* 分段。 */}
         {result && result.segments && result.segments.length > 1 && (

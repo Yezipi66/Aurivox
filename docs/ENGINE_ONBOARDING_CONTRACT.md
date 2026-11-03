@@ -22,7 +22,7 @@
 
 | 部分 | 状态 | 证据 |
 |---|---|---|
-| **推理链** | ✅ 兑现 | [实测] `fakeEngine.node.test.js` 用一台参数叫 `wobble`/`flavour`/`goose_count` 的假引擎走完整条链路 |
+| **推理链** | ✅ 兑现 | [实测] `fakeEngine.node.test.js` 用一台参数叫 `wobble`/`flavour`/`goose_count` 的假引擎走完整条链路；`synthesisService.params.node.test.js` 与 `adapter.generate.node.test.js` 用参数名与 GSV 无关的假引擎分别走 `/api/generate` 与 Flow 引擎节点 |
 | **训练链** | ⛔ **没兑现** | [实测] `lib/training/pipelineIdentity.js:62` 写死 `TRAINING_ENGINE_ID='gpt-sovits'`，位名 `gpt`/`sovits` 是 GSV 方言 |
 
 ⚠️ 报「兼容全部 TTS」时这句话必须一起说：**推理侧是真的，训练侧不是。**

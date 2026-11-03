@@ -3,6 +3,7 @@
 
 // 必须带 .js 后缀：`node --test` 不能解析无后缀导入。
 import { api } from './api.js'
+import { basename } from './pathText.js'
 
 export const TIERS = ['common', 'advanced']
 
@@ -558,4 +559,33 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
       ? '该引擎的内存占用量尚未测量：该数值只能通过实际启动测得。\n（若显示为 0 会被误读为「不占用内存」，这是不准确的。）'
       : 'never measured. A 0 here would falsely mean "uses no memory".',
   }
+}
+
+// 后端替用户接过来上次的值时，界面上要说清是哪几格、接成了多少。
+// 名字一律走名片上的 label（fieldLabel 管中英文与缺字回落）：用户在格子上看到的本来就是它，
+// 引擎的私有键名摆在界面上指不清是哪一格。整句在这里拼：分隔符跟界面语言走，
+// 而 JSX 组件在这个仓库里没有单测环境，可测的部分都留在纯函数里。
+export function carriedOverSummary(carried, engine, lang) {
+  const entries = (carried && typeof carried === 'object') ? Object.entries(carried) : []
+  if (entries.length === 0) return ''
+  const schema = (engine && Array.isArray(engine.param_schema)) ? engine.param_schema : []
+  const parts = entries.map(([name, value]) => {
+    const field = schema.find(f => f && f.name === name)
+    return `${fieldLabel(field, lang) || name} = ${carriedValueShown(field, value)}`
+  })
+  return lang !== 'en'
+    ? `已沿用上次的参数：${parts.join('、')}`
+    : `Reused the values from your last successful run: ${parts.join(', ')}`
+}
+
+// 一个接过来的值怎么显示：路径只留文件名（整条本机路径印在提示里没有可读性，只有噪声），
+// 一排格子收成 [a, b]，其余按字面。
+function carriedValueShown(field, value) {
+  if (Array.isArray(value)) return `[${value.map(v => carriedValueShown(field, v)).join(', ')}]`
+  if (isPathField(field)) {
+    const p = typeof value === 'string' ? value : (value && value.path)
+    return p ? basename(p) : String(value)
+  }
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }

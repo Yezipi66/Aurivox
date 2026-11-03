@@ -28,6 +28,7 @@ import {
   fieldLabel,
   fieldHelp,
   hasMappedKey,
+  carriedOverSummary,
   TIERS,
 } from './engines.js'
 
@@ -952,4 +953,37 @@ test('⭐ 平台不认识任何一种业务身份', async () => {
     assert.ok(!/weight|ckpt|ref|emo|voice|model/.test(t),
       `${t} 是一个业务身份，不是一种样式，平台一旦认识它，就得替所有引擎维护它`)
   }
+})
+
+// 「已沿用上次的参数」那一句：格子名与形状都必须来自名片，平台不发明名字，
+// 也不把整条本机路径印到界面上。判据见 issue #26 §14 判据 4。
+const CARRY_ENGINE = {
+  param_schema: [
+    { name: 'zeta_level', label: { en: 'Zeta level', zh: 'Zeta 档' }, type: 'number' },
+    { name: 'eta_file', label: 'Eta file', type: 'file' },
+  ],
+}
+
+test('⭐ 沿用提醒：格子名取自名片的 label，按界面语言取字', () => {
+  assert.equal(carriedOverSummary({ zeta_level: 2 }, CARRY_ENGINE, 'zh'), '已沿用上次的参数：Zeta 档 = 2')
+  assert.equal(
+    carriedOverSummary({ zeta_level: 2 }, CARRY_ENGINE, 'en'),
+    'Reused the values from your last successful run: Zeta level = 2',
+  )
+})
+
+test('名片上没有这一格（上一次留下的键）⇒ 照样报出来，用引擎的键名，不把它藏起来', () => {
+  assert.match(carriedOverSummary({ ghost: 1 }, CARRY_ENGINE, 'en'), /ghost = 1$/)
+})
+
+test('路径那一格只留文件名：整条本机路径印在提示里是噪声', () => {
+  const winPath = ['D:', 'models', 'somewhere', 'eta.pth'].join('\\')
+  assert.match(carriedOverSummary({ eta_file: winPath }, CARRY_ENGINE, 'en'), /= eta\.pth$/)
+  assert.match(carriedOverSummary({ eta_file: 'D:/models/eta.pth' }, CARRY_ENGINE, 'en'), /= eta\.pth$/)
+})
+
+test('一排格子收成一行；什么都没接过来时不给这句话', () => {
+  assert.equal(carriedOverSummary({ zeta_level: [1, 2] }, CARRY_ENGINE, 'zh'), '已沿用上次的参数：Zeta 档 = [1, 2]')
+  assert.equal(carriedOverSummary({}, CARRY_ENGINE, 'zh'), '')
+  assert.equal(carriedOverSummary(undefined, CARRY_ENGINE, 'zh'), '')
 })

@@ -11,13 +11,13 @@ import { AuxReferencePicker, CrossRefPicker, CustomRefPicker, RefAudioList } fro
 import { REF_MAX_SEC, REF_MIN_SEC, refInRange } from '../../lib/refAudio'
 import { basename } from '../../lib/pathText'
 import { langLabel, normalizeLangFamily } from '../../lib/langOptions'
-import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, TIERS } from '../../lib/engines'
+import { fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, paramsToSend, carriedOverSummary, TIERS } from '../../lib/engines'
 import { ParamField } from '../common/ParamField'
 import { CMP_LANG_OPTIONS, BASE_VOICE_ID } from './compareConstants'
 
 // engineId 供行内读音校对调用 /pron/preview：该接口的 engine_id 必传，漏传时该行的读音预览不产生任何提示。
 function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux, onRemoveAux, onGenerate, onRemove, onSaveRecipe, recipes, onLoadRecipe, availableModels, rowModel, onModelChange, defaultParams, selectedVoice, voices, voiceLang, defaultTextLang, masterEngineBatch, engineId, engine }) {
-  const { t } = useT()
+  const { t, lang } = useT()
   const [showPicker, setShowPicker] = useState(false)
   const [recipeId, setRecipeId] = useState('')
   const [pickerTarget, setPickerTarget] = useState('main') // 文件选择器的目标：'main'（主参考）或 'aux'（辅助参考）。
@@ -197,6 +197,9 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
     }
     setShowPicker(false)
   }
+
+  // 后端替这一行接过来上次的值时，接的是哪几格、接成了多少要在结果里说清楚：与生成页同一句话、同一个来源。
+  const carriedNote = carriedOverSummary(row.result && row.result.carried_over, engine, lang)
 
   return (
     <div className={`card cmp-row cmp-${cmpStatus}`} style={{ position: 'relative' }}>
@@ -647,6 +650,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             <a href={`${API_BASE}${row.result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-12)' }}>Download</a>
             {row.result.segments && <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{row.result.segments.length} segments</span>}
           </div>
+          {carriedNote && <div className="msg msg-warn" style={{ marginTop: 6 }}>{carriedNote}</div>}
         </div>
       )}
 
