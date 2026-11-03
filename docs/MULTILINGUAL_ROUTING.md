@@ -40,7 +40,7 @@
 2. **每小句定一个默认读法** `cjk_default`（`:293`）：含假名 → `ja`；粤语加权分 > 1.5 → `yue`；否则 → **这台音色的基底语言**。
 3. **片段级只保留无歧义脚本**（`_resolve_auto_segment_language` `:67-78`）：检测器标 `zh` 或 `x` 的送进 `cjk_default`；标 `ja` 但片段里没有假名的也送回去（假名才是日语的强信号）；`en` / `ko` 保留检测值。
 
-[读码] 粤语是加权而非「见一个词就判」：强标记（喺嘅佢哋咩冇唔啲嚟咗噉俾畀）每个 +2，弱标记（嘢啱係既咁啦喇咪嘥攞揾餸攰瞓）每个 +1，**每个通用汉字 −0.05**，阈值 1.5（`:87-125`）。繁体字单独出现不算粤语证据（`:102-103` 写明是刻意的）。
+[读码] 粤语是加权而非「见一个词就判」：`_yue_score` 里强标记（`_YUE_STRONG_RE`：喺嘅佢哋咩冇唔啲嚟咗噉俾畀）每个 +2，弱标记（`_YUE_WEAK_RE`：嘢啱係既咁啦喇咪嘥攞揾餸攰瞓）每个 +1，**每个通用汉字 −0.05**（`_YUE_GENERAL_HAN_PENALTY`），阈值 1.5（`_YUE_THRESHOLD`，判据在 `_is_yue_clause`）。繁体字单独出现不算粤语证据：`_has_strong_yue_marker` 的注释写明是刻意的保守。
 
 ## 3. 基底语言为什么必须由平台算
 
@@ -51,7 +51,7 @@
 - 解析器：`lib/langCodes.js:21-24`，白名单是 `BASE_LANGUAGES`（`:18`，= 平台语种码里去掉 `auto*`），认不出来就 `zh`。
 - 引擎侧再收一次口：`_norm_base_lang`（`TextPreprocessor.py:56-60`）剥掉 `all_` / `auto_` 前缀，白名单 `_ML_BASE_LANGS`（`:53`），不在就 `zh`。
 
-**两份白名单目前是集合相等的**（`{zh, yue, ja, en, ko}`）[实测：`lib/langCodes.node.test.js:48` 钉住平台那份，`engines/gpt-sovits/infer/TTS_infer_pack/auto_language_test.py` 钉住引擎那份]。**但没有任何一处断言两边相等** —— 而同一个文件里的 `_HAN_RE` 有跨目录守卫（`lib/han_override_contract.node.test.js`），因为那里不一致是静默漏洞。这里的后果同型：谁改了单边白名单，另一边的 `zh` 兜底会静默接管，请求不报错、读出来的音变了。
+**两份白名单目前是集合相等的**（`{zh, yue, ja, en, ko}`）[实测：`lib/langCodes.node.test.js` 里「基底语言：词表里的具体语种，多语写法不在内」那条用例钉住平台那份，`engines/gpt-sovits/infer/TTS_infer_pack/auto_language_test.py` 钉住引擎那份]。**但没有任何一处断言两边相等** —— 而同一个文件里的 `_HAN_RE` 有跨目录守卫（`lib/han_override_contract.node.test.js`），因为那里不一致是静默漏洞。这里的后果同型：谁改了单边白名单，另一边的 `zh` 兜底会静默接管，请求不报错、读出来的音变了。
 
 ## 4. 边界：能混到多细
 
