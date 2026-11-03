@@ -3,8 +3,9 @@
 // 偏好顺序照 StabilityMatrix 的原文顺序，推荐只是建议（guidance），不是保证。
 // 本文件不识别具体引擎，只按显卡厂商与 uv.lock 里写的后端判断。
 
-const os = require('node:os')
-const { execFileSync } = require('node:child_process')
+// 显卡探测在 lib/engines/gpus.js：9886 主应用也要用同一份，反过来依赖 tools/ 是没必要的耦合。
+const gpuProbe = require('../../../lib/engines/gpus')
+const { detectGpus, sameGpuName, run, runFirst } = gpuProbe
 
 /**
  * 后端的固定偏好顺序，照 StabilityMatrix 的原文顺序。
@@ -36,109 +37,6 @@ const BACKEND_PREFERENCE = [
     pkg: 'torch (cpu wheel)' },
 ]
 
-function run (cmd, args, timeoutMs) {
-  try {
-    return execFileSync(cmd, args, {
-      encoding: 'utf-8',
-      timeout: timeoutMs || 30000, windowsHide: true,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-  } catch (e) { return null }
-}
-
-/**
- * 依次试几条命令，返回第一条跑得出结果的输出。
- * 用途：powershell 不一定在 PATH 上（精简环境 / 沙箱常缺
- * System32\WindowsPowerShell\v1.0），先试裸名，再退 Windows 标准安装路径。
- * 裸名不存在（ENOENT）与查询失败都会让 run 返回 null，于是换下一条试。
- * runner 可注入（默认 run），仅供测试替身。
- */
-function runFirst (cmds, args, timeoutMs, runner) {
-  const run_ = runner || run
-  for (const c of cmds) {
-    const r = run_(c, args, timeoutMs)
-    if (r !== null) return r
-  }
-  return null
-}
-
-// 检测结果缓存：WMI 每次都要十几秒，缓存 5 分钟。
-let _cache = null
-let _cacheAt = 0
-const CACHE_MS = 5 * 60 * 1000
-
-/**
- * 检测本机 GPU。任何一步失败都不抛，分不清就交给调用方退 CPU。
- * @returns {{vendor:string, name:string|null, via:string}[]}
- */
-function detectGpus () {
-  const now = Date.now()
-  if (_cache && now - _cacheAt < CACHE_MS) return _cache
-  const out = []
-  const plat = process.platform
-
-  // NVIDIA：nvidia-smi 是主信号（驱动自带，最可靠）
-  const smi = run('nvidia-smi', ['-L'])
-  if (smi) {
-    const names = smi.split('\n')
-      .map((l) => l.replace(/^GPU\s+\d+\s*:\s*/, '').trim())
-      .filter(Boolean)
-    for (const n of names) out.push({ vendor: 'nvidia', name: n, via: 'nvidia-smi -L' })
-  }
-
-  if (plat === 'win32') {
-    // powershell 不一定在 PATH 上（精简 / 沙箱环境常缺
-    // System32\WindowsPowerShell\v1.0）。裸名跑不起来就退到标准安装路径，
-    // 那条路径本机一定在。
-    const ps = runFirst(
-      ['powershell', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
-      ['-NoProfile', '-Command',
-        'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name'])
-    if (ps) {
-      for (const raw of ps.split('\n').map((x) => x.trim()).filter(Boolean)) {
-        const name = raw.replace(/\s+/g, ' ')
-        const lower = name.toLowerCase()
-        let vendor = 'unknown'
-        if (lower.includes('nvidia')) vendor = 'nvidia'
-        else if (lower.includes('amd') || lower.includes('radeon')) vendor = 'amd'
-        else if (lower.includes('intel') || lower.includes('arc')) vendor = 'intel'
-        if (out.some((g) => g.vendor === vendor && g.name === name)) continue
-        out.push({ vendor, name, via: 'Win32_VideoController' })
-      }
-    }
-  } else if (plat === 'darwin') {
-    // macOS：Apple Silicon（MPS）
-    if (os.cpus()[0] && /arm/i.test(os.cpus()[0].architecture)) {
-      out.push({ vendor: 'apple', name: 'Apple Silicon', via: 'process.arch=arm64' })
-    }
-  } else {
-    // Linux：/sys/class/drm
-    try {
-      const cards = fs_().readdirSync('/sys/class/drm').filter((x) => /^card\d+$/.test(x))
-      for (const c of cards) {
-        const p = `/sys/class/drm/${c}/device/vendor`
-        if (!fs_().existsSync(p)) continue
-        const v = fs_().readFileSync(p, 'utf-8').trim()
-        const vendor = v === '0x8086' ? 'intel'
-          : v === '0x1002' || v === '0x1022' ? 'amd'
-            : v === '0x10de' ? 'nvidia' : 'unknown'
-        out.push({ vendor, name: c, via: '/sys/class/drm vendor id' })
-      }
-    } catch { /* 没有就分不清，交给调用方退 CPU */ }
-  }
-  _cache = out; _cacheAt = now
-  return out
-}
-
-/** 装完驱动或换卡之后调，让下次检测重新跑。 */
-function clearHardwareCache () { _cache = null; _cacheAt = 0 }
-
-// 上面 Linux 分支要 fs，而 detectGpus 是同步的：这里单独 require 免得顶部就依赖 fs
-let _fs = null
-function fs_ () {
-  if (!_fs) _fs = require('node:fs')
-  return _fs
-}
 
 /**
  * 按 StabilityMatrix 的偏好顺序，为本机选一个推荐后端。
@@ -393,8 +291,11 @@ function readTorchFamilyPins (text, platform) {
   return out
 }
 
+/** 装完驱动或换卡之后调，让下次检测重新跑。 */
+function clearHardwareCache () { gpuProbe.clearGpuCache() }
+
 module.exports = {
   parseUvLock, readTorchPin, readTorchFamilyPins, clearHardwareCache,
   BACKEND_PREFERENCE, detectGpus, recommendBackend, inspectHardware,
-  judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, runFirst,
+  judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, runFirst, sameGpuName,
 }

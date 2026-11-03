@@ -15,6 +15,22 @@
  *   matched 是 { text, ref_audio, ref_text, output_path }，认不出时为 null。
  *   ref_text 是可选槽位：认不出不算缺，由用户自己拖进去。
  */
+/**
+ * 开关名归一化：上游把同一个参数写成 --model-dir、--model_dir、--modelDir 都常见。
+ * 匹配一律在下划线小写写法上做，落盘仍用原名，名片里保留上游的写法。
+ * 不归一化时，候选名表里全是下划线，带横线与驼峰的开关一个也匹配不上，而且不报错。
+ */
+function normName (name) {
+  return String(name || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/-/g, '_')
+    .toLowerCase()
+}
+
+// 运行设备的参数名。只认这几个：写成别的（如 --accelerator）平台不猜它是设备，
+//   猜错的代价是把一个普通参数当成设备，下发时填进一个引擎不认识的值。
+const DEVICE_NAME_RE = /^(device|devices|gpu|run_device)$/
+
 export function computeAutoFill (params, currentCall, bindCandidates = []) {
   if (!params || !params.length) return null
 
@@ -40,8 +56,12 @@ export function computeAutoFill (params, currentCall, bindCandidates = []) {
 
   // args 与 argv 是 cli 形态才有的两段，python 名片里写它，存的时候直接被拒。
   if (call.kind === 'cli') {
-    const oldArgv = call.argv || []
-    const idxModule = oldArgv.indexOf('_MODULE_')
+    const oldArgv = Array.isArray(call.argv) ? call.argv : []
+    // 模块占位符有两种写法：老骨架写 __MODULE__，这一层原先找的是 _MODULE_。两种都认，
+    //   认不出就当成还没填。占位符留在名片里能过校验，但引擎一启动就是
+    //   ModuleNotFoundError，而那个报错指向 Python，看不出是名片这一格的事。
+    const MODULE_TOKENS = ['_MODULE_', '__MODULE__']
+    const idxModule = oldArgv.findIndex((w) => MODULE_TOKENS.includes(w))
     const prefix = idxModule >= 0 ? oldArgv.slice(0, idxModule + 1) : oldArgv.slice(0, 3)
     call.argv = (prefix.length ? prefix : ['{engine_python}', '-m', '_MODULE_'])
 
@@ -51,6 +71,13 @@ export function computeAutoFill (params, currentCall, bindCandidates = []) {
       if (p.source !== 'cli' || call.args[p.name]) continue
       const entry = { flag: p.target }
       if (p.style) entry.style = p.style
+      // 运行设备的参数要打上标记：平台据此在界面上出设备下拉，
+      //   并在下发前把选中的那块卡换算成这台引擎认的写法。
+      if (DEVICE_NAME_RE.test(normName(p.name))) {
+        entry.role = 'device'
+        // 格式按参数类型推：number 说明引擎要编号，其余按 torch 设备字符串处理
+        entry.device_format = p.kind === 'number' ? 'index' : 'torch'
+      }
       call.args[p.name] = entry
     }
   }
@@ -58,11 +85,13 @@ export function computeAutoFill (params, currentCall, bindCandidates = []) {
   // 槽位：候选名对的是 name（不带横线的那个词），写进 bind 的是 target
   // （cli 路是开关，python 路是参数名）。索引必须建在 name 上：建在 target 上时，
   // cli 路的 target 是带横线的开关，而候选名不带横线，两边永远不匹配。
+  // 索引建在归一化后的名字上：候选名表里全是下划线，带横线的开关按原名查永远不中。
   const byName = {}
   const ambiguous = []
   for (const p of params) {
-    if (byName[p.name] === undefined) { byName[p.name] = p; continue }
-    if (byName[p.name].target !== p.target) ambiguous.push(p.name)
+    const k = normName(p.name)
+    if (byName[k] === undefined) { byName[k] = p; continue }
+    if (byName[k].target !== p.target) ambiguous.push(k)
   }
   // bind 槽位候选：反射器按 BIND_SLOTS 剔掉的那几个名字（text / output_path /
   //   output_dir），它们不在 parameters[] 里，而认槽位靠的就是名字。
@@ -70,12 +99,16 @@ export function computeAutoFill (params, currentCall, bindCandidates = []) {
   //   params 里已有的同名参数优先，不覆盖它自己的判断。
   for (const c of (bindCandidates || [])) {
     if (!c || !c.name) continue
-    if (byName[c.name] === undefined) {
-      byName[c.name] = { name: c.name, target: c.target || c.name }
+    const k = normName(c.name)
+    if (byName[k] === undefined) {
+      byName[k] = { name: c.name, target: c.target || c.name }
     }
   }
   const findSlot = (...names) => {
-    for (const n of names) if (byName[n]) return byName[n].target
+    for (const n of names) {
+      const hit = byName[normName(n)]
+      if (hit) return hit.target
+    }
     return null
   }
 
@@ -105,5 +138,12 @@ export function computeAutoFill (params, currentCall, bindCandidates = []) {
   if (!call.bind.ref_text && matched.ref_text) call.bind.ref_text = matched.ref_text
   if (!call.bind.output_path && matched.output_path) call.bind.output_path = matched.output_path
 
-  return { call, matched, argList: params, notes }
+  // 标了 role 的参数，值来自请求体。host 只把 params.call_time 白名单里的键交给引擎，
+  //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
+  //   把名字带回给调用方，由它写进名片的 params.call_time。
+  const callTime = Object.entries(call.args || {})
+    .filter(([, e]) => e && e.role === 'device')
+    .map(([name]) => name)
+
+  return { call, matched, argList: params, notes, callTime }
 }

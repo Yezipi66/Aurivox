@@ -110,6 +110,18 @@ export default function ManifestPage ({
           if ((base.id || '') !== id) return cur
           const merged = computeAutoFill(pickedParams, base.call || null, bindCands) || result
           const next = { ...base, call: merged.call }
+          // 运行设备这类参数的值来自请求体，host 只认 params.call_time 白名单里的键。
+          //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
+          //   写了 parameters 的新版名片，params 是平台派生的，不能自己写一份。
+          if (base.parameters === undefined && merged.callTime && merged.callTime.length) {
+            const params = { ...(base.params || {}) }
+            const cur = Array.isArray(params.call_time) ? params.call_time : []
+            const add = merged.callTime.filter((k) => !cur.includes(k))
+            if (add.length) {
+              params.call_time = [...cur, ...add]
+              next.params = params
+            }
+          }
           if (!next.label && id) next.label = id
           if (next.contract_version === undefined) next.contract_version = 2
           return next

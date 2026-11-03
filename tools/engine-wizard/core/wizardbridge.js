@@ -18,6 +18,7 @@ const hfToken = require('./hfToken')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, planDependencies, probePyproject, isPipInstallable } = require('./probe')
 const { inspectHardware, parseUvLock } = require('./hardware')
+const { deviceOptions } = require('../../../lib/engines/deviceValue')
 const { checks: verifyChecks, runChecks, runAudioCheck } = require('./verify')
 const { reflectAndBuild } = require('./paramsFromReflect')
 const { engineDirForRead } = require('./wizardRoot')
@@ -420,10 +421,15 @@ function handleHardware (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/hardware')) return false
   try {
-    json(res, 200, inspectHardware())
+    const hw = inspectHardware()
+    // device_options 是给第 5 步的下拉用的：本机有哪几块卡、能不能选。
+    //   换算成引擎认的写法不在这里做，那是下发前的事。
+    json(res, 200, { ...hw, device_options: deviceOptions(hw.gpus) })
   } catch (e) {
     json(res, 200, {
       gpus: [], recommended: 'cpu', confidence: 'unknown',
+      // 探测失败时下拉至少还有「自动」与 CPU 两项，界面不空着
+      device_options: deviceOptions([]),
       reason: `Detection failed (${e.message}) — falling back to CPU`,
     reasonZh: `检测本身出错了（${e.message}）⇒ 退 CPU 版`,
       caveat: 'Detection is best-effort, not a guarantee',

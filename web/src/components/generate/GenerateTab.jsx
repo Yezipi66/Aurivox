@@ -2,6 +2,7 @@
 // 引擎参数与模型下拉都来自当前引擎的 manifest.json，文件里不写引擎名、参数名或位名。
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Select } from '../common/Select'
+import DeviceSelect from '../common/DeviceSelect'
 import { usePersistentState } from '../../usePersistentState'
 import { api } from '../../lib/api'
 import { TextPrepModal, buildLangOverrides, buildPronPayload, hanOverrideDirection, countOverrides, parseLangOverrides, pruneForced } from '../pron/PronProofing'
@@ -386,6 +387,21 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   useEffect(() => { setRefTextOverride(null) }, [selectedVoice, selectedRefAudio])
   const effectiveRefText = refTextOverride != null ? refTextOverride : currentRefText
 
+  // 运行设备：本机有哪几块卡由后端探测，这里只把它摆成下拉。位置是先占的，
+  //   合成页排布还没定稿，之后按版面挪。选中的设备随请求以 device 键送出，
+  //   换算成这台引擎认的写法由服务端做（lib/engines/deviceValue.js）。
+  const [devices, setDevices] = useState([])
+  const [device, setDevice] = useState({ kind: 'auto' })
+  useEffect(() => {
+    let alive = true
+    api('/api/devices')
+      .then((r) => {
+        if (alive && r.ok && r.data && Array.isArray(r.data.options)) setDevices(r.data.options)
+      })
+      .catch(() => { /* 探测失败就只留「自动」一项，界面不空着 */ })
+    return () => { alive = false }
+  }, [])
+
   // 读服务端为准的 Recent Generations 列表。
   const loadRecent = async () => {
     const r = await api('/api/outputs')
@@ -464,6 +480,9 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         ? { [engine.id]: phasedEngineParams.load }
         : undefined,
       ...phasedEngineParams.call,
+      // 运行设备：只在真的选了一块卡时发。auto 表示不指定，让引擎用自己的默认值，
+      //   发一个空值过去会让服务端以为用户在指定什么。
+      device: device && device.kind && device.kind !== 'auto' ? device : undefined,
       seed,
       engine_batch: engineBatch,
       media_type: mediaType,
@@ -728,6 +747,16 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                   <span style={{ fontSize: 'var(--fs-11)', color: 'var(--accent)' }}>{countOverrides(pronOverrides)} reading override(s)</span>
                 )}
               </div>
+
+              {/* 运行设备：先占位，位置与视觉等合成页排布定稿后再调。
+                  只在引擎名片声明了运行设备参数时，服务端才会把它下发。 */}
+              <DeviceSelect
+                options={devices}
+                value={device}
+                onChange={setDevice}
+                id="generate-device"
+                disabled={loading}
+              />
               {showTextPrep && (
                 <TextPrepModal
                   onClose={() => setShowTextPrep(false)}

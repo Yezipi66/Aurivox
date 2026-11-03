@@ -200,8 +200,17 @@ async function runAudioCheck (id, opts = {}) {
   }
 
   // 界面给的是平台的词（reference_audio / reference_text），换成宿主与引擎的词再发。
-  const request = opts.request
-    ? require('./measure').toEngineWords(profile, { ...opts.request }) : null
+  //   运行设备也从这里过一手：界面送的是「选了哪块卡」，要换成这台引擎认的写法，
+  //   并且不能把设备对象本身当成引擎参数发下去。
+  const reqIn = opts.request ? { ...opts.request } : null
+  const pickedDevice = reqIn && reqIn.device ? reqIn.device : null
+  if (reqIn) delete reqIn.device
+  const request = reqIn ? require('./measure').toEngineWords(profile, reqIn) : null
+  if (request && pickedDevice) {
+    const { resolveDeviceArgs } = require('../../../lib/engines/deviceValue')
+    // 名片里没声明运行设备的引擎，这里得到空对象，等于这次不传，引擎用自己的默认值。
+    Object.assign(request, resolveDeviceArgs(profile.call || {}, pickedDevice))
+  }
 
   // 打一次验证。base_url 给了就替换成临时宿主的地址（拉起器专用），
   //   没给（null）就用 profile 原样：有常驻地址的引擎走老路。

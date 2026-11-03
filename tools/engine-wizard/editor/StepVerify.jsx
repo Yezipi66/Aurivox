@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { Player } from '../../../web/src/components/common/Player'
+import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 
 export function StepVerify ({ id }) {
@@ -21,10 +22,27 @@ export function StepVerify ({ id }) {
   const [measureError, setMeasureError] = useState(null)
   const measuring = measureRunning(job)
 
+  // 运行设备：本机有哪几块卡只有后端知道，这里只负责摆成下拉。
+  //   选中的值随请求一起送回去，换算成引擎认的写法由后端做（lib/engines/deviceValue.js）。
+  const [devices, setDevices] = useState([])
+  const [device, setDevice] = useState({ kind: 'auto' })
+  useEffect(() => {
+    let alive = true
+    fetch('/wizard/hardware')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (alive && j && Array.isArray(j.device_options)) setDevices(j.device_options)
+      })
+      .catch(() => { /* 探测失败就保持空列表，下拉退化成「自动」 */ })
+    return () => { alive = false }
+  }, [])
+
   const synthRequest = () => {
     const r = { text: synthText.trim() }
     if (refAudio.trim()) r.reference_audio = refAudio.trim()
     if (refText.trim()) r.reference_text = refText.trim()
+    // 设备按「选了什么」原样送回去，不在这里转成命令行写法
+    if (device && device.kind && device.kind !== 'auto') r.device = device
     return r
   }
 
@@ -240,6 +258,13 @@ export function StepVerify ({ id }) {
               'Fill in the text to synthesise, then run tier A.',
               '音频信息与波形都需要一份真实样本。填入要合成的文本，然后执行 A 级校验。')}
           </div>
+          <DeviceSelect
+            options={devices}
+            value={device}
+            onChange={setDevice}
+            id={`device-${id || 'engine'}`}
+            disabled={loading || measuring}
+          />
           <textarea
             className="control"
             value={synthText}

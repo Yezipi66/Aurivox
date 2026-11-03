@@ -343,3 +343,46 @@ test('bind 候选：只用于认槽位，不进参数清单', () => {
   ])
   assert.deepEqual(after.argList, before.argList)
 })
+
+// 运行设备：名片要有一个承接「跑哪块卡」的位置，平台才能出设备下拉。
+test('运行设备的参数自动打上标记，按 torch 写法', () => {
+  const params = [...cliParams, {
+    source: 'cli', name: 'device', target: '--device', kind: 'str',
+    style: 'value', help: null, required: false, group: 'infer', is_tool: true,
+  }]
+  const r = computeAutoFill(params, { kind: 'cli' })
+  assert.deepEqual(r.call.args.device, {
+    flag: '--device', style: 'value', role: 'device', device_format: 'torch',
+  })
+  // 名字要带回给调用方写进 params.call_time：不写进去，请求里带了也会被静默丢弃
+  assert.deepEqual(r.callTime, ['device'])
+})
+
+test('设备参数是整数类型时按编号写法标记', () => {
+  const params = [...cliParams, {
+    source: 'cli', name: 'device', target: '--device', kind: 'number',
+    style: 'value', help: null, required: false, group: 'infer', is_tool: true,
+  }]
+  const r = computeAutoFill(params, { kind: 'cli' })
+  assert.equal(r.call.args.device.device_format, 'index',
+    '整数类型的 device 是 CUDA 编号，不是 torch 设备字符串')
+})
+
+test('名字不像设备的参数不打标记，平台不猜', () => {
+  const params = [...cliParams, {
+    source: 'cli', name: 'accelerator', target: '--accelerator', kind: 'str',
+    style: 'value', help: null, required: false, group: 'infer', is_tool: true,
+  }]
+  const r = computeAutoFill(params, { kind: 'cli' })
+  assert.equal(r.call.args.accelerator.role, undefined)
+  assert.deepEqual(r.callTime, [])
+})
+
+test('带横线的开关也认得出槽位：归一化只用于匹配，落盘保留上游写法', () => {
+  const params = [
+    { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'infer', source_file: 'cli.py' },
+    { source: 'cli', name: 'output-dir', target: '--output-dir', kind: 'str', style: 'value', required: false, group: 'infer', source_file: 'cli.py' },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' })
+  assert.equal(r.call.bind.output_path, '--output-dir', '带横线的落点开关此前绑不上')
+})
