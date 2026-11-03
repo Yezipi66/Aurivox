@@ -516,9 +516,11 @@ export function engineUsageBadge (eng, occ, lang = 'zh') {
     return {
       tone: 'bad',
       label: zh ? `${name} · 上次启动失败` : `${name} · last attempt failed`,
+      // last_attempt_unfinished 只表示「未正常退出」，后端没有记录退出原因，
+      // 因此 title 只陈述事实并给出操作建议，不归因于内存。
       title: (zh
-        ? '上一次启动该引擎未成功（通常是内存不足被系统终止）。\n重新启动前，请先停止其他若干台引擎。'
-        : 'last start of this engine did not survive (likely OOM).\nstop a few others before retrying.'),
+        ? '上一次启动该引擎未成功。\n重新启动前，请先停止其他若干台引擎。'
+        : 'The last start of this engine did not succeed.\nStop a few other engines before retrying.'),
     }
   }
 

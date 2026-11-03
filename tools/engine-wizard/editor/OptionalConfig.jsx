@@ -9,7 +9,7 @@ import { OPTIONAL_KEYS, SOURCES, PLATFORM_DEFAULTS, get, setPath, removeItem, pr
 // 前面几步已定下的（源码、安装、权重、调用形态）不在这里出现，改它们走 JSON 视图。
 // 清单与变换在 optionalKeys.js。
 
-// 三个出处值由平台定（lib/engines/profile/topkeys.js:78-95）：measured = 本项目自己量得，
+// 三个出处值由平台定（lib/engines/profile/topkeys.js 的 MEASURED_SOURCES：measured / upstream / estimated）：measured = 本项目自己量得，
 //   upstream = 上游文档给出，estimated = 推算或经验估计。控件显示中文标签，名片里仍是原值。
 const SOURCE_LABEL = {
   estimated: { en: 'estimated', zh: '估算' },
@@ -161,7 +161,7 @@ export default function OptionalConfig ({ manifest, onChange }) {
   const defaultSet = new Set(byDefault.map((it) => it.path))
   const localSet = new Set(byLocal.map((it) => it.path))
 
-  // 写了值就必须写出处（topkeys.js:108）。跟 addItem 同一个语义，
+  // 写了值就必须写出处（topkeys.js 的 checkMeasuredSources() 会校验）。跟 addItem 同一个语义，
   //   只是入口从「添加一项」下拉换成了直接在这一行里填：
   //   填了值而还没写处，就补一个 estimated。
   //   清空 = 移除：走 removeItem，值与出处一起删，不留半条。
