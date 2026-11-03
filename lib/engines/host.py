@@ -339,8 +339,9 @@ def _newest_output_in(directory, desc=""):
 def _release_output(out_path, out_dir):
     """收掉这次合成用过的临时落点。
 
-    file 形态交的是一个文件，dir 形态交的是一整个目录。两者都可能在
-    引擎报错时残留（比如写到一半崩了），留着只是脏盘，不影响下一次。
+    两种形态现在都落在独占目录里：file 形态把文件名拼在 out_dir 内（不预占），
+    dir 形态把整个 out_dir 交给引擎。统一 rmtree 收掉，产物在读回内存之后才删。
+    两者都可能在引擎报错时残留（比如写到一半崩了），留着只是脏盘，不影响下一次。
     """
     try:
         if out_dir:
@@ -598,8 +599,12 @@ class Engine(object):
         out_dir = None
         try:
             if returns == "file":
-                fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
-                os.close(fd)
+                # 不许预先创建输出文件。有一类 CLI 把「输出文件已存在」当错误
+                # 而不是覆盖（IndexTTS2 的 synth 无 --force 时命中即退出码 1），
+                # 预占的那个空文件会把合成挡在开始之前。唯一性改由独占目录保证，
+                # 文件名在里面拼好但不落盘，产物交给引擎自己建。
+                out_dir = tempfile.mkdtemp(prefix="host_out_")
+                out_path = os.path.join(out_dir, "host_output.wav")
             elif returns == "dir":
                 # 引擎自己给产物命名：只交一个空目录，跑完再回来找那一份。
                 out_dir = tempfile.mkdtemp(prefix="host_out_")
@@ -730,8 +735,12 @@ class Engine(object):
         out_path = None
         out_dir = None
         if returns == "file":
-            fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
-            os.close(fd)
+            # 同 _synthesize_cli：不许预先创建输出文件。上游方法里把
+            # 「输出文件已存在」当错误的不止 CLI 一种（python 形态同样会命中），
+            # 预占的空文件会把合成挡在开始之前。文件名在独占目录里拼好，
+            # 产物交给上游自己建。
+            out_dir = tempfile.mkdtemp(prefix="host_out_")
+            out_path = os.path.join(out_dir, "host_output.wav")
             kwargs[bind["output_path"]] = out_path
         elif returns == "dir":
             # 引擎自己给产物命名：只交一个空目录，跑完再回来找那一份。
