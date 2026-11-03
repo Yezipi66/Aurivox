@@ -8,6 +8,7 @@
 - [`ONBOARDING_PLAN.md`](./ONBOARDING_PLAN.md)：⭐ **引擎接入进度台账（进度的唯一真相）** —— 抽象层已建成什么、还欠哪几刀、下一刀是什么。**§2.6 = `installPlan.js` 为什么整体退役**；**§3c = 开发验证平台（Arc）现状与三笔环境事实**；**§4 = 2026-10-04 重排的下一刀**
 - [`ENGINE_ADOPTION_FLOW.md`](./ENGINE_ADOPTION_FLOW.md)：⭐ **引擎接入流程 —— 当前设计**（2026-10-04 会话产出）—— 五步流程 · 第 3 步真下载 · 第 5 步三块独立显示 · 权重不再集中管理 · 权重自动发现 · 名片表单三件套 · 术语裁决。⚠️ 它只讲「该长什么样」，**进度看上一行那份**
 - [`ENGINE_ONBOARDING_CONTRACT.md`](./ENGINE_ONBOARDING_CONTRACT.md)：引擎接入契约 v3 草案 —— **已实现行为的说明书**（为什么是这样），每条标 `[实测]`/`[读码]`
+- [`MULTILINGUAL_ROUTING.md`](./MULTILINGUAL_ROUTING.md)：**多语混说的路由** —— 混说为什么成立（切片→分片 g2p→拼一条→一次推理）、歧义只出在汉字所以必须有基底语言、能混到多细，以及第 5 节登记的两处已知不齐。改语种词表/基底语言判据前先读这页
 - [`../engines/_TEMPLATE/README.md`](../engines/_TEMPLATE/README.md)：⭐ **接一个新引擎的操作手册**（五步 + 写错了会怎样）。⚠️ **顶部有 2026-10-04 banner：五步顺序已被推翻、第 3 步整步作废**（`install-engine.cjs` 已退役），现行顺序见上一行的 `ENGINE_ADOPTION_FLOW.md`
 - [`ENGINE_WIZARD_PLAN_v2.md`](./archive/ENGINE_WIZARD_PLAN_v2.md)：⛔ **已归档作废**，被 `ENGINE_ADOPTION_FLOW.md` 取代。留档是为了让「为什么改」可追，不是为了照着做
 - [`ENGINE_ONBOARDING_STATUS.md`](./ENGINE_ONBOARDING_STATUS.md)：引擎接入的**方向**（七条目标）与各自兑现情况；过程记在 `ONBOARDING_PLAN.md`
