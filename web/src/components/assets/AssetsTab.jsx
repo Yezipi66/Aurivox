@@ -17,7 +17,7 @@ import { DeleteAssetDialog, AssetsEmptyState } from './AssetsDialogs'
 
 // 状态提示里的「代码样式」用私有控制字符做哨兵标记，渲染时再转成 <code>/<pre>，不再用反引号做正则分隔符。
 // 原因：后端错误串、资产 id、traceback 等动态内容可能本身就含反引号（甚至三反引号），用反引号当分隔符会把它
-// 们误切开（例如 "Error: `foo`" 会被拆成两段，tracaback 里带 ``` 会撑破结构）。哨兵用普通文本中不会出现的
+// 们误切开（例如 "Error: `foo`" 会被拆成两段，traceback 里带 ``` 会撑破结构）。哨兵用普通文本中不会出现的
 // 控制字符，渲染时整体剥离、绝不进入最终 DOM，因此任何内容都不会破坏结构。行内用 SPAN 哨兵，多行串
 // （如整段 traceback）用 BLOCK 哨兵，由 renderMd 决定行内 <code> 还是块级 <pre>。
 const MSG_CODE_STYLE = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '0.92em', background: 'rgba(127,127,127,0.18)', padding: '1px 5px', borderRadius: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
