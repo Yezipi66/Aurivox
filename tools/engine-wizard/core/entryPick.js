@@ -1,5 +1,7 @@
 'use strict'
 
+const { moduleToFiles } = require('./readmeEntry')
+
 // 推理入口判定：从扫描出来的参数表里，认出「哪一个源文件是拿来做推理的」。
 //
 // 判据是一个文件里同时声明了三类参数：
@@ -99,7 +101,41 @@ function scoreFile (file, list) {
  *   ambiguous 为真表示第一与第二名的证据完全相同：这时不替使用者挑，
  *   界面应当把这几个摆出来让人点。confidence 是同一件事的文字形式，供不在界面上时留痕。
  */
-function pickEntry (params) {
+/**
+ * 把一份「作者点名过的模块 / 文件」清单，与扫描结果求交集。
+ * 清单里可能有扫描没见过的名字（文档里提到但没扫描到，或模块名与实际文件不一致），
+ *   这些直接丢掉，不拿它去猜一个相近的文件。
+ *
+ * @param {Array} scored scoreFile 的结果表
+ * @param {{modules?:string[], files?:string[]}|null} spec 清单
+ * @returns {Array} scored 里的元素，按清单出现先后去重
+ */
+function collectHits (scored, spec) {
+  const hits = []
+  if (!spec) return hits
+  const take = (hit) => { if (hit && !hits.includes(hit)) hits.push(hit) }
+  for (const mod of (spec.modules || [])) {
+    for (const f of moduleToFiles(mod)) take(scored.find((s) => s.file === f))
+  }
+  for (const f of (spec.files || [])) take(scored.find((s) => s.file === f))
+  return hits
+}
+
+/**
+ * 排出一张候选表。第一项是推荐入口，其后是同分候选（供界面在证据不足时让人点选）。
+ *
+ * @param {Array} params /wizard/discover 的参数表，每项带 name / source_file / required / group
+ * @param {object} [opts]
+ * @param {{modules:string[], files:string[]}} [opts.fromEntryPoints] 打包声明里的入口。
+ *   写的是「装好之后敲哪条命令」，由打包工具读取，比文档里的用法更稳。
+ * @param {{modules:string[], files:string[]}} [opts.fromReadme] README 里提取出的命令。
+ *   作者自己写的用法比任何静态推断都硬：命中就直接用，不再比分数。
+ * @returns {{file, module, subcommand, score, ambiguous, confidence, source, candidates}}
+ *   source 说明这个结论从哪来：entry-points（声明）/ readme（文档）/ score（按参数打分）。
+ *   ambiguous 为真表示证据分不出高下：这时不替使用者挑，
+ *   界面应当把这几个摆出来让人点。confidence 是同一件事的文字形式，供不在界面上时留痕。
+ */
+function pickEntry (params, opts = {}) {
   const byFile = new Map()
   for (const p of (params || [])) {
     if (!p || !p.name) continue
@@ -114,6 +150,23 @@ function pickEntry (params) {
   const scored = []
   for (const [file, list] of byFile) scored.push(scoreFile(file, list))
 
+  // 声明的入口优先。两级证据都是作者自己给的，比静态打分硬：
+  //   打包声明（pyproject 的 project.scripts / setup 的 console_scripts）写的是
+  //   「装好之后敲哪条命令」，由打包工具读取，写错了装不上；
+  //   README 里的示例命令是给人看的用法，写法随人而异。
+  //   两级都只认「点了名、扫描也确实见过这个文件」的交集：声明里同样有训练、
+  //   导出、批量工具的入口，光看名字分不出哪个是推理。
+  const declaredHits = collectHits(scored, opts.fromEntryPoints)
+  const readmeHits = collectHits(scored, opts.fromReadme)
+  // 声明里同时给了多个入口时（老版本 CLI 与新版并存），先给更完整的那个：
+  //   子命令多的说明它是项目的主命令行，只带一两个子命令的多是旧版或单项工具。
+  //   这类先后只是默认值，ambiguous 会标出来，界面应当让人确认。
+  if (declaredHits.length > 1) {
+    declaredHits.sort((a, b) =>
+      b.groups.length - a.groups.length || b.flags - a.flags ||
+      String(a.file).localeCompare(String(b.file)))
+  }
+
   // 四类齐全优先；没有满分的退到三类（有的引擎把模型或参考音频写在配置文件里，
   //   命令行上看不到），再退到两类。两类以下不给建议：证据不足时宁可不推荐，
   //   也不替使用者按文件名顺序挑一个。
@@ -123,15 +176,23 @@ function pickEntry (params) {
     Number(b.requiredText) - Number(a.requiredText) ||
     a.flags - b.flags ||
     String(a.file).localeCompare(String(b.file))
+  // 声明与 README 命中时不再比分数：作者自己给的入口就是最强证据。
+  //   都没有才回到四类打分，四类不足再退三类。
   const best = scored.filter((s) => s.score >= 3).sort(rank)
-  const pool = best.length ? best : scored.filter((s) => s.score >= 2).sort(rank)
+  const pool = declaredHits.length
+    ? declaredHits
+    : (readmeHits.length ? readmeHits
+      : (best.length ? best : scored.filter((s) => s.score >= 2).sort(rank)))
 
   // 前两名在「分数、文本同名、文本必填、参数个数」上完全一致时，证据分不出高下。
   //   此刻的先后只由上面那条字典序决定，那是排序的确定性，不是证据。
   const tie = (a, b) => !!a && !!b &&
     a.score === b.score && a.exactText === b.exactText &&
     a.requiredText === b.requiredText && a.flags === b.flags
-  const ambiguous = pool.length > 1 && tie(pool[0], pool[1])
+  // 声明里有多个入口时同样要标出来：老版本与新版本并存的项目会声明两条，
+  //   上面那条排序只是默认值，选错就是跑起另一套命令行。
+  const ambiguous = pool.length > 1 &&
+    (tie(pool[0], pool[1]) || declaredHits.length > 1)
 
   const candidates = pool.map((s) => ({
     file: s.file,
@@ -151,6 +212,8 @@ function pickEntry (params) {
     module: top ? top.module : null,
     subcommand: top ? top.subcommand : null,
     score: top ? top.score : 0,
+    // 结论从哪来：entry-points 是打包声明，readme 是文档里的用法，score 是按参数打分
+    source: declaredHits.length ? 'entry-points' : (readmeHits.length ? 'readme' : 'score'),
     confidence,
     ambiguous,
     candidates: candidates.slice(0, 3),

@@ -99,16 +99,19 @@ export default function ManifestPage ({
       // 反射器剔掉的 bind 槽位候选（text / output_path / output_dir）：不在 params 里，
       //   但认 call.bind 的槽位靠的就是这些名字。传进去，output_path 才填得出来。
       const bindCands = j.bind_candidates || []
+      // 入口嗅探结果：填进 call.argv 的模块名与子命令。为 null 时 argv 里留占位符，
+      //   由使用者自己填（扫不出入口的引擎仍然要能配）。
+      const entryPick = j.entry || null
       // 扫描回来时名片可能已经变了（等结果期间的代填、使用者的编辑）：
       //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
       const latest = latestManifest.current || {}
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands)
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id)
       if (result) {
         onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id) || result
           const next = { ...base, call: merged.call }
           // 运行设备这类参数的值来自请求体，host 只认 params.call_time 白名单里的键。
           //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
@@ -126,9 +129,9 @@ export default function ManifestPage ({
           if (next.contract_version === undefined) next.contract_version = 2
           return next
         })
-        setAutofill({ matched: result.matched, argList: result.argList })
+        setAutofill({ matched: result.matched, argList: result.argList, notes: result.notes || [] })
       } else {
-        setAutofill({ matched: null, argList: [] })
+        setAutofill({ matched: null, argList: [], notes: [] })
       }
     } catch (e) { setScanErr(e.message) } finally { setBusy(false) }
   }
@@ -193,6 +196,16 @@ export default function ManifestPage ({
                   </button>
                 </div>
               } />
+
+            {/* 扫描过程的说明：认出了哪个入口、依据是什么、有没有同名冲突。
+                这些只回传在 autofill.notes 里，不摆出来就等于没说。 */}
+            {Array.isArray(autofill && autofill.notes) && autofill.notes.length > 0 && (
+              <div className="msg msg-warn" style={{ marginTop: 8 }}>
+                {autofill.notes.map((n, i) => (
+                  <div key={i}>{typeof n === 'string' ? n : t(n.en, n.zh)}</div>
+                ))}
+              </div>
+            )}
 
             {view === 'form'
               ? <ManifestForm manifest={manifest || {}} spec={spec} onChange={onManifest}

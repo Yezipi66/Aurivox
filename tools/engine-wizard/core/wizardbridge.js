@@ -1516,6 +1516,7 @@ function handleDiscover (req, res) {
 
     let cliHelpResult = null
     let cliDraft = null
+    let entry = null
     let hasCli = false
     try {
       const { findCliFiles } = require('./cliHelp')
@@ -1529,6 +1530,35 @@ function handleDiscover (req, res) {
           const { buildCliDraft } = require('./cliDraft')
           cliDraft = buildCliDraft(cliHelpResult)
           notes.push(`CLI 扫描得到 ${cliDraft.args ? cliDraft.args.length : 0} 个 flag`)
+          // 推理入口：先看 README 里作者自己写的用法，认不出再按四类参数打分。
+          //   README 的风格千差万别，认不出是常态，那时完全靠打分的结论。
+          try {
+            const { entriesFromReadme } = require('./readmeEntry')
+            const { pickEntry } = require('./entryPick')
+            let fromReadme = null
+            try {
+              const readmeName = fs.readdirSync(dir)
+                .filter((f) => /^readme(\.md|\.txt|\.rst)?$/i.test(f))[0]
+              if (readmeName) {
+                fromReadme = entriesFromReadme(fs.readFileSync(path.join(dir, readmeName), 'utf8'))
+                if (fromReadme.modules.length || fromReadme.files.length) {
+                  notes.push(`README 提到：${[...fromReadme.modules, ...fromReadme.files].join(', ')}`)
+                }
+              }
+            } catch { /* 没有 README 就只靠打分 */ }
+            const asParams = (cliDraft.args || []).map((a) => ({
+              source: 'cli', name: a.name, target: a.flag, kind: a.type || 'str',
+              style: a.style, required: a.required === true,
+              group: a.subcommand || '(root)', is_tool: a.is_tool === true,
+              source_file: a.source_file || null,
+            }))
+            entry = pickEntry(asParams, { fromReadme })
+            if (entry.file) {
+              notes.push(`推理入口：${entry.file}（依据：${entry.source === 'readme' ? 'README' : '参数打分'}，置信度 ${entry.confidence}）`)
+            }
+          } catch (e) {
+            notes.push(`推理入口识别失败：${e.message}`)
+          }
         } else if (cliHelpResult.ok) {
           notes.push('CLI 源文件里没有 add_argument 调用')
         } else {
@@ -1614,6 +1644,9 @@ function handleDiscover (req, res) {
       // python 反射剔掉的 bind 槽位候选（text / output_path / output_dir）：
       //   交给前端自动填写去认 call.bind，output_path 才填得出来。
       bind_candidates: (pythonDraft && pythonDraft.ok && pythonDraft.bind_candidates) || [],
+      // 推理入口的判定结果：{file, module, subcommand, score, source, confidence, ambiguous, candidates}
+      //   source 是 readme 时表示命中了 README 里写的用法；ambiguous 为真表示证据并列，界面该让人点。
+      entry,
       suggested_call: cliDraft && cliDraft.ok ? cliDraft.suggested_call : null,
       notes,
       counts: {

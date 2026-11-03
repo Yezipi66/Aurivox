@@ -71,13 +71,26 @@ export default function EngineIdentity ({
   //   不能只改 id：那会把上一台的 runtime 与 call 整段带过去。
   //   有名片的引擎要用户点「读取参数」才读进来。
   //   同时同步全局目标（onEngineTarget）：第 4 步换引擎 = 整条向导换成这台。
-  const pickEngine = (id) => {
+  const pickEngine = async (id) => {
     setEngineId(id)
     setLoaded(false)
     setLocalErr(null)
     setTriedSave(false)
-    if (id) onChange(manifestForEngineSwitch(manifest, id, id))
     if (onEngineTarget) onEngineTarget(id || '')
+    if (!id) return
+    // 先读盘上的名片：切到一台已经配过的引擎，界面上那几格应当显示磁盘里已有的内容。
+    //   拿空壳顶上等于告诉使用者「这台引擎什么都没配」，与事实相反，
+    //   而且设备、参数这些依赖名片内容的格子会全部空着。
+    try {
+      const r = await loadOne(id)
+      if (r.ok) {
+        try {
+          onChange(JSON.parse(r.text))
+          return
+        } catch { /* 磁盘上不是合法 JSON，退回空壳，由读取按钮报错 */ }
+      }
+    } catch { /* 读不到就退回空壳，不阻碍切换 */ }
+    onChange(manifestForEngineSwitch(manifest, id, id))
   }
 
   const readManifest = async () => {
