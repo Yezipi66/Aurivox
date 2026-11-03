@@ -60,13 +60,14 @@
 - **[读码] 分段器会丢字符**（逗号、小句首空格实测丢过），`segment_lossless`（`:254-264`）做「拼回来必须等于原文」的对账并记状态位；补回的片段并入左邻，不重新判语言。不对账的话，屏幕上的正文和念出来的正文就是两个字符串。
 - **[读码] 读音层面另有两份**：个人读音词典与逐次覆盖（`pron_overrides`，按第 N 次出现选读法；`TextPreprocessor.py:432-456` 带出现计数快照，防止重试时错位）。
 
-## 5. 两处已知不齐（本页写下来时才确认的）
+## 5. 三处已知不齐（本页写下来时才确认的）
 
 1. **[读码] 多语请求的预览读音恒按 `zh` 打底，与实际合成读音可以不一致。**
    `lib/inference/infer_server.py:297` 的 `_normalize_pron_lang` 做的是字符串剥离：`auto_zh_ja_yue` 经 `.replace("auto_","")` 变成 `zh_ja_yue`，没有白名单兜底；`engines/gpt-sovits/gsv_code/text/pron_correction.py:631` 再 `base = lang if lang in ("zh","yue","ja") else "zh"`，于是基底语言就是 `zh`。
    而第 3 节的合成路径用的是音色登记的基底语言。**音色基底语言不是 `zh`、正文里有歧义汉字片段时，预览给的是普通话读法，合成给的是另一门语言的读法。**
    这与两处文档相反：`pron_correction.py:616` 的 docstring 写着「保证『预览读音 == 实际合成读音』」，`engines/gpt-sovits/manifest.json:195-196` 也这么声明。修哪一侧（预览按 `auto_base_lang` 打底，还是把声明改成「单语种请求下相等」）没定，已登记在 `issue #26` 的待做清单。
 2. **[读码] 引擎有 `auto_yue` 分支，平台语种码里没有它**（`PLATFORM_LANGUAGES` 见 `lib/langCodes.js:6`）。想「自动识别但歧义汉字默认粤语」目前只能靠 `all_yue`（不检测）达成，两种写法的差别暴露不出去。要不要收进平台词表也是产品决定。
+3. **[实测] 两个入口过名片 `languages` 表的范围不一样**，多语码只在 `/v1` 那侧被换算。`lib/routes/synthesis.js:284` 对请求值用 `mapLanguage`（查表），`lib/services/synthesisService.js:106` 用 `legacyLangToEngine`（只有值是 `LEGACY_LANG_ALIAS` 那四个历史写法时才查表，其余原值发出）。实测：同一份 `{auto_zh_ja: 'mix_all'}` 的表，`legacyLangToEngine` 返回 `auto_zh_ja`，`mapLanguage` 返回 `mix_all`。今天不出问题，因为 GSV 把这两个码换成 `auto_zh_ja_yue`，与平台码逐字相同；**一致来自写法同名，不是来自声明**。`lib/han_override_contract.node.test.js` 那种守卫也没有：没有一条用例把多语码映射成第三种写法。登记与两个修法在 `issue #26` §13。
 
 ## 6. 改这一族要同时过的地方
 
