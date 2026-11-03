@@ -310,7 +310,7 @@ def _newest_output_in(directory, desc=""):
     """在一个「引擎自己命名产物」的目录里找出要读回的那份音频。
 
     有的引擎不收文件路径，只收落点目录，文件名它自己起（常见形态：
-    `--save_dir` / `--output_dir`）。这时宿主只能给一个目录，跑完再回来找。
+    `--save_dir` / `--output_dir`）。这时宿主只能给一个目录，合成结束再回来找。
 
     找法：先按音频扩展名收，一个都没有时收全部普通文件；多个时取最后修改的。
     数量与时间都并列时如实报错，不挑一个：挑错等于把别人的产物当成这次的结果。
@@ -606,7 +606,7 @@ class Engine(object):
                 out_dir = tempfile.mkdtemp(prefix="host_out_")
                 out_path = os.path.join(out_dir, "host_output.wav")
             elif returns == "dir":
-                # 引擎自己给产物命名：只交一个空目录，跑完再回来找那一份。
+                # 引擎自己给产物命名：只交一个空目录，合成结束再回来找那一份。
                 out_dir = tempfile.mkdtemp(prefix="host_out_")
                 out_path = out_dir
             argv = build_cli_argv(
@@ -743,7 +743,7 @@ class Engine(object):
             out_path = os.path.join(out_dir, "host_output.wav")
             kwargs[bind["output_path"]] = out_path
         elif returns == "dir":
-            # 引擎自己给产物命名：只交一个空目录，跑完再回来找那一份。
+            # 引擎自己给产物命名：只交一个空目录，合成结束再回来找那一份。
             out_dir = tempfile.mkdtemp(prefix="host_out_")
             kwargs[bind["output_path"]] = out_dir
 
