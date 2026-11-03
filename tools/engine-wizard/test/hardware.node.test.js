@@ -12,6 +12,7 @@ const path = require('node:path')
 const {
   BACKEND_PREFERENCE, recommendBackend, inspectHardware,
   judgeTorchSpec, splitTorchPackages, TORCH_FAMILY, parseUvLock, runFirst,
+  sameGpuName,
 } = require('../core/hardware.js')
 
 // 偏好顺序：StabilityMatrix 给出的那一串
@@ -315,4 +316,14 @@ test('runFirst 首条成功 ⇒ 不试后面的', () => {
   const runner = (cmd) => { order.push(cmd); return cmd === 'a' ? 'A-out' : null }
   assert.strictEqual(runFirst(['a', 'b'], [], 0, runner), 'A-out')
   assert.deepStrictEqual(order, ['a'])
+})
+
+// nvidia-smi -L 与 WMI 对同一块显卡的写法常常不同（"RTX 4090" 与
+//   "RTX 4090 Laptop GPU"），两张表的条目要合并成一条，否则同一块卡会被
+//   列两遍，使用者以为机器上有两块。
+test('显卡名去重：写法不同但指同一块卡时判作同一块', () => {
+  assert.strictEqual(sameGpuName('NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 4090 Laptop GPU'), true)
+  assert.strictEqual(sameGpuName('Intel(R) Arc(TM) 140T GPU', 'Intel Arc 140T GPU'), true)
+  assert.strictEqual(sameGpuName('NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 3060'), false)
+  assert.strictEqual(sameGpuName('', 'NVIDIA GeForce RTX 4090'), false)
 })

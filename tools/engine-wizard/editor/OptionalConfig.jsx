@@ -128,6 +128,33 @@ function JsonInput ({ value, onValue, placeholder }) {
   )
 }
 
+// 从 argv 里读一个开关后面的值：["--device", "0"] 读 "--device" 得 "0"。
+//   同一个开关出现多次时取最后一次，argparse 也是后者胜。
+function readFlagValue (argv, flag) {
+  const list = Array.isArray(argv) ? argv : []
+  let out = ''
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i] === flag && i + 1 < list.length) out = list[i + 1]
+  }
+  return out
+}
+
+// 把一个开关的值写回 argv：先摘掉这个开关和紧跟的值，有新值就追加到末尾。
+//   其余词的顺序不动，{checkpoints} 这类占位符原样留着。
+function writeFlagValue (manifest, flag, value) {
+  const call = { ...((manifest && manifest.call) || {}) }
+  const list = Array.isArray(call.argv) ? call.argv : []
+  const kept = []
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i] === flag) { i += 1; continue }
+    kept.push(list[i])
+  }
+  const v = String(value == null ? '' : value).trim()
+  if (v) kept.push(flag, v)
+  call.argv = kept
+  return { ...manifest, call }
+}
+
 export default function OptionalConfig ({ manifest, onChange }) {
   const { t } = useT()
   const m = manifest || {}
@@ -139,6 +166,8 @@ export default function OptionalConfig ({ manifest, onChange }) {
   //   名片还没落盘时读不到，就不标（不猜）。
   //   本机测得的项（profile.value_sources 为 local）不在 defaulted 里，另列一行。
   const [profile, setProfile] = React.useState(null)
+  // 引擎配置默认收起：这一堆多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。
+  const [open, setOpen] = React.useState(false)
   React.useEffect(() => {
     if (!m.id) { setProfile(null); return undefined }
     let live = true
@@ -177,7 +206,74 @@ export default function OptionalConfig ({ manifest, onChange }) {
   return (
     <React.Fragment>
       {/* 不包一层 div：小标题要是区内的非首个子元素，才吃得到 .wz-subhead 的上边距。 */}
-      <div className="wz-subhead">{t('Engine settings', '引擎配置')}</div>
+      {/* 运行设备：夹在合成参数与引擎配置之间。它不是必填，但选错卡直接跑不起来，
+          所以既不能埋进折叠里，也不该混在合成参数里跟别的旋钮一起被忽略。
+          格子照必填区那几格的样子做（标签 + 键名徽章 + 输入框 + 说明），读名片 call.args 里 role="device" 的项。 */}
+      {(() => {
+        const devRows = Object.entries((m.call && m.call.args) || {})
+          .filter(([, entry]) => entry && entry.role === 'device')
+        // 这一格永远可填。名片里还没有这一项时，填值就等于把它声明出来：
+        //   开关默认叫 --device，格式按设备字符串处理，之后还能在 JSON 视图里改。
+        //   做成只读的灰框等于告诉人这里没他的事，而这正是名片要人填的东西。
+        const rows = devRows.length ? devRows : [['device', null]]
+        return rows.map(([name, entry]) => {
+          const flag = (entry && entry.flag) || '--device'
+          const fmt = (entry && entry.device_format) || 'torch'
+          // 填的是开关后面那个值，直接进命令行：--device 后面跟这里填的内容。
+          //   值写在 call.argv 里，和 {checkpoints} 那些固定参数同一处。
+          //   合成时若请求另给了 device，argparse 取最后一个，等于覆盖这里。
+          const value = readFlagValue(m.call && m.call.argv, flag)
+          const apply = (v) => {
+            let next = m
+            if (!entry && String(v).trim()) {
+              next = {
+                ...m,
+                call: {
+                  ...(m.call || {}),
+                  args: {
+                    ...((m.call && m.call.args) || {}),
+                    [name]: { flag, style: 'value', role: 'device', device_format: fmt },
+                  },
+                },
+              }
+            }
+            onChange(writeFlagValue(next, flag, v))
+          }
+          return (
+            <div className="field" key={'device-' + name}>
+              <label className="field-label" style={{ margin: 0 }}>{t('Runtime device', '运行设备')}</label>
+              <input className="control"
+                value={value}
+                onChange={(e) => apply(e.target.value)} />
+            </div>
+          )
+        })
+      })()}
+
+      {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。
+          运行设备不塞进折叠里：它选错卡会直接跑不起来，藏起来等于没人会看一眼。
+          它按同一套行格式排在这里，只是不跟着折叠。 */}
+      <div
+        className="wz-subhead"
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) }
+        }}
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+        title={t('Most of these are fine at their defaults.', '这些多数保持默认即可。')}
+      >
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        {t('Engine settings', '引擎配置')}
+        <span className="badge">{rows.length}</span>
+        <span className="field-hint" style={{ marginLeft: 'auto' }}>
+          {open ? t('click to collapse', '点击收起') : t('all left at defaults', '全部保持默认')}
+        </span>
+      </div>
+
+
+      {open && (
       <div className="wz-opt-grid">
         {rows.map((it) => {
           const value = get(m, it.path)
@@ -236,6 +332,7 @@ export default function OptionalConfig ({ manifest, onChange }) {
           )
         })}
       </div>
+      )}
     </React.Fragment>
   )
 }

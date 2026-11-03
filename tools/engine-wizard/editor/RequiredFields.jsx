@@ -71,6 +71,15 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     return { ...cur, call: { ...c, bind: nextBind } }
   })
 
+  // 输出是文件还是目录：有的引擎收完整文件名，有的只收目录、文件名它自己起。
+  //   扫描按落点开关的名字推（见 scanAutofill），这里让人能改。
+  //   这是逃生口：名字不可靠（叫 --output 却收目录的引擎确实存在），
+  //   推断只是默认值，最终以这里选的为准。
+  const setReturns = (value) => onChange((cur) => {
+    const c = (cur && cur.call) || {}
+    return { ...cur, call: { ...c, returns: value } }
+  })
+
   // 引擎目录与启动脚本两格都空着 ⇒ 按惯例代填。
   // 只在两格都没写时填：读进来的名片写过任何一格就不动；值可见可改。
   //   依赖里带上两格本身：只盯 id 时，代填一旦被别处冲掉就再也补不回来。
@@ -116,8 +125,10 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   }))
 
   // 输出槽位只在「引擎把音频写进文件」时才要（call.returns 缺省就是 file，hostProfile.js 同口径）。
+  // 输出槽位只在「引擎收路径」时才要：file 收完整文件名，dir 收一个由引擎自己起名的目录。
+  //   只有引擎直接返回音频（bytes / generator）时才不需要这一格。
   const returns = call.returns || 'file'
-  const slotNeeded = (key) => key !== 'output_path' || returns === 'file'
+  const slotNeeded = (key) => key !== 'output_path' || (returns !== 'bytes' && returns !== 'generator')
 
   // 必填优先展示：还没填上的必填槽位排到最前面。
   //   平台能自动填的（扫描已匹配 / 按惯例代填）已经填上了，剩下的那一格才是真需要人的；
@@ -185,7 +196,32 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
                       </button>
                     </div>
                   )
-                  : input}
+                  : slot.key === 'output_path'
+                    ? (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 6, alignItems: 'center' }}>
+                          {input}
+                          {/* 文件 / 目录：扫描按开关名推一个默认值，这里是逃生口。
+                              两列 grid 把右边钉死 120px：用 flex 时 select 会按最长选项
+                              撑开自己，左边的输入框跟着缩，切换时整块位置都在动。 */}
+                          <select className="control"
+                            value={returns}
+                            title={t('Does this engine take a file name, or a directory it names itself?',
+                              '这台引擎收的是文件名，还是由它自己起名的目录？')}
+                            onChange={(e) => setReturns(e.target.value)}>
+                            <option value="file">{t('file', '文件')}</option>
+                            <option value="dir">{t('directory', '目录')}</option>
+                          </select>
+                        </div>
+                        {/* save_dir 与 output_dir 并非同义。这条提醒常驻这里：
+                            名字是本页唯一的判据，而这个判据本身有反例。 */}
+                        <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 6 }}>
+                          {t('This project treats save_dir as where training writes the weights, and output or output_dir as inference output. Some engines differ (Spark-TTS uses save_dir for output), so the parameter name decides here.',
+                            '本项目默认 save_dir 是训练产出的权重落点，output 与 output_dir 才是推理输出。也有引擎不这样（Spark-TTS 用 save_dir 作输出目录），故此处按参数名判断。')}
+                        </div>
+                      </>
+                    )
+                    : input}
               </Cell>
             )
           })}

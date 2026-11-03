@@ -59,6 +59,9 @@ function fromCli (a) {
     required: a.required === true,
     group: a.subcommand || '(root)',
     is_tool: a.is_tool === true,
+    // 开关定义在哪个文件：同仓库常有几个脚本各带一套开关，认槽位时要知道
+    //   哪一个属于这次要跑的入口。
+    source_file: a.source_file || null,
   }
 }
 
