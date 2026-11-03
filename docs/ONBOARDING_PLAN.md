@@ -6,6 +6,10 @@
 > 开发线 `research/engine-onboarding-complexity`（origin 停在 `a602b0c3`），本份台账提交前本地领先 origin 13 个提交（HEAD `0d01e91e`）；
 > 外围契约化重构按「刀」推进：`refactor/periphery-cut1-wiring` 为底座，cut2a/2b/2c/2d / cut3a/3b / cut3c1/3c2 各自独立可回滚。
 >
+> **2026-11-03 复核（以 dev 为 base）**：dev 已推进至 `03dade47`（含 PR #39「dev 文案/注释规范化」合入）；
+> 外围契约化重构（去 GPT-SoVITS 写死、改由名片驱动）现为 OPEN PR 链 `#27–#37`（其中 #36 已 CLOSE）+ `#38`/`#40`，均未进 dev；
+> 本份台账所在分支 `docs/onboarding-ledger-a54` 正在补 #36 向导第 4/5 步的台账条目、尚未进 dev，故第 6 行 `a602b0c3`/`0d01e91e` 已滞后，当前 research tip 以 `git ls-remote` 为准。
+>
 > **本文件是进度的唯一真相。** 做完一刀，当场改下面那张表的「状态」格。
 > ⛔ 不许把状态记在别处（记忆、聊天、口头）——那些地方与仓库分叉过一次，
 > 代价是整节契约被自己推翻重推。
