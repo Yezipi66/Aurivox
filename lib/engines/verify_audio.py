@@ -182,7 +182,15 @@ def verify_level_b(spec):
       与「能不能合成」有关的东西。⇒ 用一个故意缺字段的请求体去打 /tts：
       期望得到 400 + 指出缺什么，而不是 200 或 500。
     这不发真请求去合成（那升级成 A 级了），所以不占显存。
+
+    CLI / stdio 形态的引擎不通过 HTTP 收发合成请求：B 级「契约」那一套
+    对它们不合用——先如实说，不往一个不存在的地址发无意义的请求。
     """
+    # 没有地址的 CLI/stdio 形态：HTTP 不是它的沟通方式，B 级这道省掉
+    if not spec.get("base_url"):
+        return {"ok": True, "level": "B", "steps": [],
+                "note": "引擎不通过 HTTP 与平台通信（CLI/stdio）"}
+
     base = spec["base_url"].rstrip("/")
     out = {"level": "B", "steps": []}
     ok = True
@@ -250,7 +258,14 @@ def verify_level_a(spec):
 
     这一级要模型、要显存、慢（IndexTTS2 实测 import 34s + 一次推理）。
     所以它绝不能挂在每次合成请求上：那是 envCheck 浅/深层的纪律。
+
+    CLI / stdio 形态的引擎不通过 HTTP 收发合成请求：A 级只能跳过，
+    把空格出来给平台自己的 CLI 合成路径。
     """
+    # 没有地址的 CLI/stdio 形态：HTTP 不是它的沟通方式，A 级只能跳过
+    if not spec.get("base_url"):
+        return {"ok": True, "level": "A", "steps": [],
+                "note": "引擎不通过 HTTP 与平台通信（CLI/stdio）A级合不上"}
     base = spec["base_url"].rstrip("/")
     out = {"level": "A", "steps": []}
 
