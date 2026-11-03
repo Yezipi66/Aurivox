@@ -240,7 +240,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* 参考时长警告：引擎把参考音频限制在 3 到 10 秒，超界的片段合成时基本会失败。放在可折叠区之外，生成后折叠成只显示音频时也仍然可见。 */}
       {refOutOfRange && (
         <div className="cmp-ref-range-warn" style={{ fontSize: 'var(--fs-11)', color: 'var(--warning)', margin: '0 0 8px' }}>
-          {'\u26a0'} Reference audio is {refDur.toFixed(1)}s &mdash; outside the {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s range. This row will likely error (engine hard limit); pick a {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s clip.
+          {'\u26a0'} Reference audio is {refDur.toFixed(1)}s &mdash; outside the {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s range. This row will error (engine hard limit); pick a {REF_MIN_SEC}&ndash;{REF_MAX_SEC}s clip.
         </div>
       )}
 

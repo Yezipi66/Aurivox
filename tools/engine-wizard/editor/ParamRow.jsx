@@ -116,8 +116,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
       </details>
       {moreOpen && (
         <React.Fragment>
-          {/* 高级：四个格子一行，最多两行。原来是一整块 param-grid 矩阵（8 个字段排四行）
-              外加一段警示散文，展开就是把这一条变高了一倍。 */}
+          {/* 高级：四个格子一行，最多两行，涵盖该参数可选的高级字段。 */}
           <div className="wz-param-more-grid">
             <input className="control" value={entry.label?.zh || entry.label || ''}
               placeholder={t('name', '名称')}

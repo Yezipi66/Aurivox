@@ -92,7 +92,7 @@ export default function ManifestForm ({
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。
-          以前的「高级」折叠区整段去掉：前面几步已经定下的不再在这里重复一份，
+          这里只放合成参数与引擎配置两类，前面几步已定下的不再重复一份，
           要改它们走 JSON 视图。 */}
       <ParamDropZone manifest={manifest} onChange={onChange}
         params={manifest.parameters || []} selectedParam={selectedParam}

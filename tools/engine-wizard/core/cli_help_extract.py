@@ -329,7 +329,7 @@ SKIP_DIRS = {
 MAX_DEPTH = 4
 MAX_FILES = 4000
 # 判「像不像 argparse CLI」读多少字节：与 cliHelp.js 的 SNIFF_BYTES 同值。
-# 只读 4KB 会漏掉 parser 写在文件后半段的 CLI（[实测] 有上游的 parser 从第 399 行才开始）。
+# 只读 4KB 会漏掉 parser 写在文件后半段的 CLI（[实测] 有上游的 parser 写在靠后位置）。
 SNIFF_BYTES = 256 * 1024
 
 
