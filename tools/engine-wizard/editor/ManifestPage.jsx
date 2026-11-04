@@ -36,7 +36,7 @@ export default function ManifestPage ({
   const [drawer, setDrawer] = React.useState({ left: false, right: false })
   const toggleDrawer = (key) => setDrawer((prev) => ({ ...prev, [key]: !prev[key] }))
   // 右侧预览抽屉是否全屏：提到这一层，全屏时让「检查结果」面板退出抽屉，
-  // 抽屉里只留预览本身——全屏是按平台真实尺寸看预览，不该被诊断条目挤占。
+  // 抽屉里只留预览本身：全屏是为了按平台真实尺寸查看，不应被诊断条目挤占。
   const [rightFull, setRightFull] = React.useState(false)
 
   // ---- 扫描状态 ----

@@ -110,7 +110,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
   // params.call_time（宿主白名单）、call.args（命令行形态的开关形状）。
   // 少任何一处的症状都是「下拉能选、引擎没收到」，而且三处都不报错。
   // 权重位的草稿：界面上可以有还没起名的行，而名片里不存空位（位名就是磁盘目录名）。
-  //   名片被别处改动（JSON 视图、撤销、换引擎）时把草稿拉回来；自己写出去的那一次不覆盖，
+  //   名片被别处改动（JSON 视图、撤销、换引擎）时重新取一次草稿；自己写出去的那一次不覆盖，
   //   否则刚点「＋」加出来、还没有位名的那一行会被冲掉。
   const weightSig = JSON.stringify(m.weights || null)
   const [slotRows, setSlotRows] = React.useState(() => readSlots(m))
@@ -304,7 +304,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
             编号从 2 起：第 1 位是必填字段的「模型权重」那一格，它声明权重从哪个参数进来、
             值落在第 3 步的下载落点，开进程时载入，平台只送得进一份（{checkpoints}）。
             那一格在必填区，不在这区；这里管的是合成时还能按位换的那几份，所以从第 2 位起。
-            不需要多权重位的引擎（单权重那类）一位都不声明，这一块就只剩一个「加一位」按钮：
+            不需要多权重位的引擎（单权重那类）一位都不声明，本区就只剩一个「加一位」按钮：
             不给空框，否则那框永远减不掉，等于替单权重引擎虚报了一项能力。
             位名进磁盘路径（assets/<音色>/models/<引擎 id>/<位名>/），也是合成页那个下拉的名字；
             参数名是这一份权重从哪个开关进命令行；生效时机是「换它要不要重开进程」。
@@ -323,7 +323,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
             shown.map((r, j) => (j === k ? { ...r, param: v, flag: '' } : r)))
           // 一位都没有就整块不出现（单权重引擎），也就不留分隔线。
           if (!shown.length) return null
-          // 与上面的参数隔开：这一块是另一件事（合成页长几个下拉），
+          // 与上方参数分隔：本段说明的是另一件事（合成页长几个下拉），
           // 只靠行距挤在一起会看成上一段的续行。
           return (
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
