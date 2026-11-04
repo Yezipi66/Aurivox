@@ -209,6 +209,9 @@ export default function OptionalConfig ({ manifest, onChange }) {
       {/* 运行设备：夹在合成参数与引擎配置之间。它不是必填，但选错卡直接跑不起来，
           所以既不能埋进折叠里，也不该混在合成参数里跟别的旋钮一起被忽略。
           格子照必填区那几格的样子做（标签 + 键名徽章 + 输入框 + 说明），读名片 call.args 里 role="device" 的项。 */}
+      {/* 运行参数声明行：运行设备与参考文本一行排开（一行多列，后续参数也放这里）。
+          参考文本声明的是「参考文本由哪个开关收」（call.bind.ref_text，平台四个核心槽位之一）：
+          合成时平台把请求里的参考文本（音色卡自动或手工）填进这个开关。 */}
       {(() => {
         const devRows = Object.entries((m.call && m.call.args) || {})
           .filter(([, entry]) => entry && entry.role === 'device')
@@ -216,38 +219,60 @@ export default function OptionalConfig ({ manifest, onChange }) {
         //   开关默认叫 --device，格式按设备字符串处理，之后还能在 JSON 视图里改。
         //   做成只读的灰框等于告诉人这里没他的事，而这正是名片要人填的东西。
         const rows = devRows.length ? devRows : [['device', null]]
-        return rows.map(([name, entry]) => {
-          const flag = (entry && entry.flag) || '--device'
-          const fmt = (entry && entry.device_format) || 'torch'
-          // 填的是开关后面那个值，直接进命令行：--device 后面跟这里填的内容。
-          //   值写在 call.argv 里，和 {checkpoints} 那些固定参数同一处。
-          //   合成时若请求另给了 device，argparse 取最后一个，等于覆盖这里。
-          const value = readFlagValue(m.call && m.call.argv, flag)
-          const apply = (v) => {
-            let next = m
-            if (!entry && String(v).trim()) {
-              next = {
-                ...m,
-                call: {
-                  ...(m.call || {}),
-                  args: {
-                    ...((m.call && m.call.args) || {}),
-                    [name]: { flag, style: 'value', role: 'device', device_format: fmt },
-                  },
-                },
+        return (
+          <div className="form-grid">
+            {rows.map(([name, entry]) => {
+              const flag = (entry && entry.flag) || '--device'
+              const fmt = (entry && entry.device_format) || 'torch'
+              // 填的是开关后面那个值，直接进命令行：--device 后面跟这里填的内容。
+              //   值写在 call.argv 里，和 {checkpoints} 那些固定参数同一处。
+              //   合成时若请求另给了 device，argparse 取最后一个，等于覆盖这里。
+              const value = readFlagValue(m.call && m.call.argv, flag)
+              const apply = (v) => {
+                let next = m
+                if (!entry && String(v).trim()) {
+                  next = {
+                    ...m,
+                    call: {
+                      ...(m.call || {}),
+                      args: {
+                        ...((m.call && m.call.args) || {}),
+                        [name]: { flag, style: 'value', role: 'device', device_format: fmt },
+                      },
+                    },
+                  }
+                }
+                onChange(writeFlagValue(next, flag, v))
               }
-            }
-            onChange(writeFlagValue(next, flag, v))
-          }
-          return (
-            <div className="field" key={'device-' + name}>
-              <label className="field-label" style={{ margin: 0 }}>{t('Runtime device', '运行设备')}</label>
-              <input className="control"
-                value={value}
-                onChange={(e) => apply(e.target.value)} />
-            </div>
-          )
-        })
+              return (
+                <div className="field" key={'device-' + name}>
+                  <label className="field-label" style={{ margin: 0 }}>{t('Runtime device', '运行设备')}</label>
+                  <input className="control"
+                    value={value}
+                    onChange={(e) => apply(e.target.value)} />
+                </div>
+              )
+            })}
+            {(() => {
+              const bindNow = (m.call && m.call.bind) || {}
+              return (
+                <div className="field">
+                  <label className="field-label" style={{ margin: 0 }}>{t('Reference text', '参考文本')}</label>
+                  <input className="control"
+                    value={bindNow.ref_text || ''}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      const c = m.call || {}
+                      const nextBind = { ...(c.bind || {}) }
+                      if (!String(v).trim()) delete nextBind.ref_text
+                      else nextBind.ref_text = v
+                      onChange({ ...m, call: { ...c, bind: nextBind } })
+                    }} />
+                </div>
+              )
+            })()}
+          </div>
+        )
       })()}
 
       {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。

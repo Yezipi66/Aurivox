@@ -748,30 +748,15 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 )}
               </div>
 
-              {/* 运行参数行：参考文本与运行设备一行排开（一行多列，后续参数也放这里）。
-                  参考文本默认取音色卡切片里的文本，填写即以这里为准；与右栏音色卡里的
-                  编辑区是同一份状态。只在引擎名片声明了运行设备参数时，服务端才会把它下发。 */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 240px', gap: 12 }}>
-                <div className="field">
-                  <label className="field-label" htmlFor="generate-ref-text">{t('Reference text', '参考文本')}</label>
-                  <input
-                    id="generate-ref-text"
-                    className="control"
-                    value={effectiveRefText}
-                    onChange={(e) => setRefTextOverride(e.target.value)}
-                    placeholder={t('Defaults to the voice card reference text', '默认取音色卡里的参考文本')}
-                    title={t('Defaults to the reference text on the voice card; what is typed here takes its place.',
-                      '默认取音色卡里的参考文本；在这里填写即以这里为准。')}
-                  />
-                </div>
-                <DeviceSelect
-                  options={devices}
-                  value={device}
-                  onChange={setDevice}
-                  id="generate-device"
-                  disabled={loading}
-                />
-              </div>
+              {/* 运行设备：先占位，位置与视觉等合成页排布定稿后再调。
+                  只在引擎名片声明了运行设备参数时，服务端才会把它下发。 */}
+              <DeviceSelect
+                options={devices}
+                value={device}
+                onChange={setDevice}
+                id="generate-device"
+                disabled={loading}
+              />
               {showTextPrep && (
                 <TextPrepModal
                   onClose={() => setShowTextPrep(false)}
