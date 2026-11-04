@@ -117,7 +117,11 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   const SLOT_KEYS = (bindSlots && bindSlots.length)
     ? bindSlots
     : Object.keys(SLOT_LABELS)
-  const slots = SLOT_KEYS.map((key) => ({
+  // 参考文本的声明（ref_text）不在这一区：它与运行设备同排，排在
+  //   「合成参数」与「引擎配置」之间的运行参数行（OptionalConfig）里。
+  //   同一份 bind 数据只留一个编辑口。SLOT_LABELS 仍留着它的条目：
+  //   fallback 清单要逐字等于平台的 BIND_SLOTS，少一项就成了手抄的第二份。
+  const slots = SLOT_KEYS.filter((key) => key !== 'ref_text').map((key) => ({
     key,
     labelEn: (SLOT_LABELS[key] || {}).labelEn || key,
     labelZh: (SLOT_LABELS[key] || {}).labelZh || key,
