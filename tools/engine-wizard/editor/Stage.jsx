@@ -29,24 +29,25 @@ const DRAWER_W = '360px'
  * @param {object} open 哪边抽屉开着 {left, right}
  * @param {Function} onToggle 开合某一边的抽屉
  */
-export default function Stage ({ left, center, right, open, onToggle }) {
+export default function Stage ({ left, center, right, open, onToggle, full, onFull }) {
   const { t } = useT()
   const leftOpen = !!open.left
   const rightOpen = !!open.right
 
   const stageRef = React.useRef(null)
   const leftRef = React.useRef(null)
-  // 预览宽度（px）与全屏只是界面状态，不写进名片。收起预览时退出全屏，宽度保留。
+  // 预览宽度（px）只是界面状态，不写进名片。收起预览时退出全屏，宽度保留。
   //   null = 没拖过，用 CSS 的默认宽度（窄屏降级规则才管得到它）。
+  //   full 由 ManifestPage 持有（受控）：全屏时要让「检查结果」面板退出抽屉，
+  //   状态得提到外层才能影响抽屉之外的内容。
   const [rightW, setRightW] = React.useState(null)
-  const [full, setFull] = React.useState(false)
   const [resizing, setResizing] = React.useState(false)
-  React.useEffect(() => { if (!rightOpen) setFull(false) }, [rightOpen])
+  React.useEffect(() => { if (!rightOpen) onFull(false) }, [rightOpen, onFull])
 
   // 全屏时 Esc 退出；背后的页面锁住不滚，退出后回到进入时的位置。
   React.useEffect(() => {
     if (!full) return undefined
-    const onKey = (e) => { if (e.key === 'Escape') setFull(false) }
+    const onKey = (e) => { if (e.key === 'Escape') onFull(false) }
     window.addEventListener('keydown', onKey)
     const root = document.documentElement
     const prevOverflow = root.style.overflow
@@ -111,7 +112,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
       <Drawer
         side="right"
         open={rightOpen}
-        onToggle={() => { setFull(false); onToggle('right') }}
+        onToggle={() => { onFull(false); onToggle('right') }}
         title={t('Preview', '预览')}
         arrow="←"
         full={full}
@@ -131,7 +132,7 @@ export default function Stage ({ left, center, right, open, onToggle }) {
           : null}
         extra={(
           <button className="wz-drawer-handle" type="button"
-            onClick={() => setFull((f) => !f)}
+            onClick={() => onFull(!full)}
             aria-pressed={full}
             title={fullLabel} aria-label={fullLabel}>
             {full ? '⤡' : '⤢'}

@@ -35,6 +35,9 @@ export default function ManifestPage ({
   //   两个空盒子摆在首屏上只是噪音。点边条上的箭头才滑出来。
   const [drawer, setDrawer] = React.useState({ left: false, right: false })
   const toggleDrawer = (key) => setDrawer((prev) => ({ ...prev, [key]: !prev[key] }))
+  // 右侧预览抽屉是否全屏：提到这一层，全屏时让「检查结果」面板退出抽屉，
+  // 抽屉里只留预览本身——全屏是按平台真实尺寸看预览，不该被诊断条目挤占。
+  const [rightFull, setRightFull] = React.useState(false)
 
   // ---- 扫描状态 ----
   const [scan, setScan] = React.useState(null)       // /wizard/discover 的完整返回
@@ -177,6 +180,8 @@ export default function ManifestPage ({
       <Stage
         open={drawer}
         onToggle={toggleDrawer}
+        full={rightFull}
+        onFull={setRightFull}
         left={
           <EngineScanZone
             params={params} selected={selected}
@@ -265,8 +270,10 @@ export default function ManifestPage ({
                 </div>
                 )}
             {/* props 名必须是 result：组件签名是 ({ result, loading })，
-                 传成 diag= 的话诊断面板永远不显示 */}
-            <Diagnostics result={diag} loading={loading} />
+                 传成 diag= 的话诊断面板永远不显示。
+                 全屏（rightFull）时只留预览，检查结果面板退出抽屉：
+                 全屏是按平台真实尺寸看预览，不应被诊断条目挤占。 */}
+            {!rightFull && <Diagnostics result={diag} loading={loading} />}
           </div>
         } />
 

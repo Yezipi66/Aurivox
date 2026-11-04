@@ -199,7 +199,8 @@
   background: var(--accent-soft);
   outline: none;
 }
-/* 预览全屏：铺满视口，盖在整页上面。退出靠抽屉顶上的按钮或 Esc。 */
+/* 预览全屏：盖在整页上面，但内容受平台大容器约束（max-width 1400px 居中），
+   与 9886 真实界面的渲染宽度一致，而不是贴边铺满整个视口。退出靠抽屉顶上的按钮或 Esc。 */
 .wz-drawer.is-open.is-full {
   position: fixed;
   inset: 0;
@@ -208,6 +209,31 @@
   z-index: 100;
   max-width: none;
   background: var(--bg);
+  align-items: stretch;
+  overflow-y: auto;
+}
+.wz-drawer.is-open.is-full .wz-drawer-body {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0.5rem 0.75rem;
+  box-sizing: border-box;
+}
+/* 预览内容复用 9886 的两栏骨架：左栏放表单（minmax(0,1fr)），右栏 380px 与 9886
+   的参考音频侧栏同宽；预览没有后端、未选音色，右栏留空（与 9886 未选音色时一致）。
+   窄抽屉里只有左栏有意义，单列即可；全屏才展开两栏，让表单宽度对齐 9886 真实界面，
+   而不是被拉满整屏。注意：不能复用 .workspace-grid 的视口媒体查询（它按整窗宽切单列，
+   抽屉窄但窗口宽时会把左栏压成 0），这里按抽屉全屏态单独切两栏。 */
+.wz-preview-grid { display: block; }
+.wz-drawer.is-open.is-full .wz-drawer-body .wz-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 0.5rem;
+  align-items: start;
+}
+.wz-drawer.is-open.is-full .wz-drawer-body .wz-preview-grid > .workspace-right {
+  position: sticky;
+  top: 1rem;
 }
 /* 收起 / 全屏两个按钮并排在抽屉顶上。 */
 .wz-drawer-handles {
