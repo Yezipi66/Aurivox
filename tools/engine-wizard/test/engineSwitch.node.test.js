@@ -80,11 +80,16 @@ const EngineIdentity = loadJsx('EngineIdentity.jsx', {
     useInstalled: () => ({
       installed: [],
       loadInstalled: () => {},
-      loadOne: async (id) => ({
-        ok: true,
-        text: JSON.stringify(PREV_MANIFEST, null, 2),
-        path: 'engines/' + id + '/manifest.json',
-      }),
+      // 只有上一台（cosyvoice2）盘上有名片；spark-tts 是这台要换过去的、还没有名片。
+      //   对任何 id 都回同一份名片的话，换过去会把上一台的整份读回来，
+      //   测的就不是「换到没名片的引擎」了。
+      loadOne: async (id) => (id === 'cosyvoice2'
+        ? {
+            ok: true,
+            text: JSON.stringify(PREV_MANIFEST, null, 2),
+            path: 'engines/' + id + '/manifest.json',
+          }
+        : { ok: false, error: 'no manifest' }),
     }),
   },
   'useEngineDirs': {
