@@ -81,8 +81,8 @@ export default function ParamDropZone ({
     <div className="section">
       <div className="section-hdr"><h2>{t('Optional parameters', '可选参数')}</h2></div>
       <div className="section-body">
-        {/* 标题、落点、添加按钮压成一行：原先标题、小标题、说明段、虚线框各占一行，
-            四行都在说同一件事。说明降级成落点的 title，鼠标停一下才展开。 */}
+        {/* 标题、落点、添加按钮压成一行：标题、小标题、说明段、虚线框四行本来说的是同一件事。
+            说明降级成落点的 title，鼠标停一下才展开。 */}
         <div className="wz-param-head">
           <span className="wz-subhead wz-subhead-inline">{t('Synthesis parameters', '合成参数')}</span>
           <div
