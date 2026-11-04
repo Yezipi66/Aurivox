@@ -101,7 +101,7 @@ a:hover {
 }
 
 /* 键盘焦点：全站一种，accent 一色的 2px 描边、外扩 2px。
-   原先只有 .control 有焦点态，页签 / 按钮 / 下拉 / chip 都交给浏览器默认
+   统一覆盖 .control 之外的页签 / 按钮 / 下拉 / chip 的浏览器默认 ring（
    ring，深色底上粗细与颜色不一致，用 Tab 走位时看不出停在哪。
    :where() 权重为零，组件自己的焦点写法仍然优先。 */
 :where(button, a, [role="button"]):focus-visible {

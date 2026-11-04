@@ -28,7 +28,7 @@ function defaultText (item) {
 // 时长区间：两个数字格。
 //   清空要真的回到「不限制」，所以这里存的是本地草稿（与 JsonInput 同一个做法）：
 //   两格都空就把这一项从名片里删掉，只有两格都填好才写进去。
-//   原来每敲一下就写一次：空串被折成 0，清掉第一格得到 [0, x]，再清第二格得到 [0, 0]，
+//   直接写名片会在空串上折成 0：清掉第一格得到 [0, x]，再清第二格得到 [0, 0]，
 //   那是「必须正好 0 秒」的真约束，界面上也就再回不到空。
 function RangeInput ({ value, onValue, t }) {
   const toDraft = (v) => {
@@ -158,8 +158,8 @@ function writeFlagValue (manifest, flag, value) {
 export default function OptionalConfig ({ manifest, onChange }) {
   const { t } = useT()
   const m = manifest || {}
-  // 全量列出：名片没写的项也各占一行，控件留空。以前只列写了值的，
-  //   其余藏在「添加一项」下拉里，要挨个展开才看得见全貌。
+  // 全量列出：名片没写的项也各占一行，控件留空，不再把未填项藏进「添加一项」下拉
+  //   （要挨个展开才看得见全貌）。
   //   条件式的两项（启动脚本非通用宿主、生成器形态）仍然按 when 判。
   const rows = OPTIONAL_KEYS.filter((it) => !it.when || it.when(m))
   // 平台对盘上这张名片的读数：哪些项是平台自己答的（profile.defaulted）。

@@ -5,7 +5,7 @@ import { applyParamDrop, paramNameOf } from './paramDrop'
 
 // 中栏的落点：参数区（parameters[]）。
 //
-// 原来的「parameters（界面参数）」与「常用可选」合成这一个区：
+// 本区即 parameters（界面参数），与「常用可选」合成这一个区：
 //   parameters[] 本来就涵盖这台引擎对外的全部参数，拖拽填参的核心就在这里。
 //   「常用可选」里真正属于「参数」的那部分（换值要不要重启 = phase、
 //   常用还是高级 = tier）成了每一行最上面的「去向」，拖进来就能定；
@@ -81,8 +81,8 @@ export default function ParamDropZone ({
     <div className="section">
       <div className="section-hdr"><h2>{t('Optional parameters', '可选参数')}</h2></div>
       <div className="section-body">
-        {/* 标题、落点、添加按钮压成一行：原先标题、小标题、说明段、虚线框各占一行，
-            四行都在说同一件事。说明降级成落点的 title，鼠标停一下才展开。 */}
+        {/* 标题、落点、添加按钮压成一行：标题、小标题、说明段、虚线框四行本来说的是同一件事。
+            说明降级成落点的 title，鼠标停一下才展开。 */}
         <div className="wz-param-head">
           <span className="wz-subhead wz-subhead-inline">{t('Synthesis parameters', '合成参数')}</span>
           <div

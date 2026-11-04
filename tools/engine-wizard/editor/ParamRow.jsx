@@ -21,8 +21,8 @@ import { useT } from '../../../web/src/lib/i18n'
  * @param {Function} onDelete 删这一条（传索引）
  */
 // 「去向」：把 tier 与 phase 合成一个选择。
-//   原来 tier 在行内、phase 在行内、而「常用可选」又是另一个折叠区，
-//   用户要在三个地方回答同一个问题：这个参数放在界面哪里、改了要不要重启。
+//   把 tier 与 phase 合成一个「去向」选择：若分开，用户要在三处回答同一个问题：
+//   参数放在界面哪里、改了要不要重启。
 // TODO(骨架)：再加一档「固定值」（不上界面，写进 call.args / init_args 的定值）。
 const PLACEMENTS = [
   { key: 'common', tier: 'common', phase: undefined, en: 'UI · common', zh: '界面 · 常用' },
@@ -59,8 +59,8 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
   }
 
   // 一行只放主信息：参数名 / 类型 / 去向 / 建议值，后面跟「高级」与删除。
-  //   其余字段全进「高级」。原来表单一行、param-grid 一行、删除又一行，
-  //   一条参数能垒三层，五个参数就是五百多 px。
+  //   其余字段全进「高级」。一行只放主信息（参数名 / 类型 / 去向 / 建议值）加「高级」与删除；
+  //   若表单、param-grid、删除各占一行，一条参数垒三层，五个参数就是五百多 px。
   return (
     <div className="card wz-param-row">
       <input className="control wz-param-name" value={entry.name || ''}
@@ -116,8 +116,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
       </details>
       {moreOpen && (
         <React.Fragment>
-          {/* 高级：四个格子一行，最多两行。原来是一整块 param-grid 矩阵（8 个字段排四行）
-              外加一段警示散文，展开就是把这一条变高了一倍。 */}
+          {/* 高级：四个格子一行，最多两行，涵盖该参数可选的高级字段。 */}
           <div className="wz-param-more-grid">
             <input className="control" value={entry.label?.zh || entry.label || ''}
               placeholder={t('name', '名称')}

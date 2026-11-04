@@ -60,7 +60,7 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   // args 与 argv 是 cli 形态才有的两段，python 名片里写它，存的时候直接被拒。
   if (call.kind === 'cli') {
     const oldArgv = Array.isArray(call.argv) ? call.argv : []
-    // 模块占位符有两种写法：骨架写 __MODULE__，早先这一层找的是 _MODULE_。两种都认，
+    // 模块占位符有两种写法（__MODULE__ 与 _MODULE__），两种都认，
     //   认不出就当成还没填。占位符留在名片里能过校验，但引擎一启动就是
     //   ModuleNotFoundError，而那个报错指向 Python，看不出是名片这一格的事。
     const MODULE_TOKENS = ['_MODULE_', '__MODULE__']

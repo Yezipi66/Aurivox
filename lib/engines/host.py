@@ -11,7 +11,7 @@
 ----------------------
  它不读 `manifest.json`。
 名片的语义只有一个实现：`lib/engines/profile.js`。宿主收的是已经解析好
-的 JSON。理由是（已删的）`shim.py` 第 106 行那句自白：
+的 JSON。理由是（已删的）`shim.py` 里的那段自白：
 
     #  2) 参数白名单：与 manifest.json 的 param_keys 必须一致
     LOAD_TIME_KEYS = frozenset({...})

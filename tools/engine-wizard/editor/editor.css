@@ -27,7 +27,7 @@
 
 /* ⭐ 唯一保留的向导专有类：**页面骨架 + autofill 作用域**
  * ------------------------------------------------------------
- * ① 骨架 —— 抄 TrainingTab.jsx:2355 的内联写法
+ * ① 骨架 —— 抄 TrainingTab.jsx 那段内联纵向布局（见下）
  *      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
  *    提到类里是因为下面 ② 需要一个稳定的作用域钩子。
  *
@@ -300,7 +300,7 @@
 }
 
 /* 字段的「来源确定性」：扫描认准了 = 绿边；是猜的 / 要人确认 = 黄边。
-   CoreBindings 以前写了 .matched / .unmatched，但这两个类从来没有样式。 */
+   CoreBindings 声明了 .matched / .unmatched 两个类，但向导里没有它们的样式，颜色由下面这组规则补上。 */
 /* 必填区一行：项目的 .form-grid 是写死两列，这里第 1 行要三格、第 2 行两格，
    且中栏被拖窄（最窄 320px）时要折成单列，所以改成 auto-fit。 */
 .form-grid.wz-required-row {
@@ -435,7 +435,7 @@
 /* ---- 名片页与第五步的三处布局整理（只动样式，不动数据流） ---- */
 
 /* 一、填表 / JSON 的切换挂在身份条右端（与保存按钮同排）。
-   原先它自己占一整行：上边距 0、下边距 12，而且借的是参考音频那套 .ref-tabs。
+   它现在挂在身份条右端与保存按钮同排，不再单独占一行，也不再借参考音频那套 .ref-tabs。
    项目对「几档选一档」已经有 .chip / .chip-on（预览里就在用），不再自备一套。 */
 .wz-view-switch {
   display: inline-flex;
@@ -470,7 +470,7 @@
 }
 
 /* 四、引擎配置全量列出：一项一行、两列排。
-   以前只列写了值的项，其余藏在「添加一项」下拉里。 */
+   所有项都摊开成一行，未填项不再藏进「添加一项」下拉。 */
 .wz-opt-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -544,7 +544,7 @@
 }
 
 /* 五、五步共用的纵向节奏：8px（.workspace-left / .wz-drawer-stack / .wz-manifest-layout 同值）。
-   第 1、2、3 步原来各写一份内联 {display:flex; flexDirection:column; gap:8}，
+   第 1、2、3 步各写一份内联 {display:flex; flexDirection:column; gap:8}，
    第 4 步没有（身份条贴着表单）、第 5 步也没有（几块 .section 直接叠）。
    五步三种做法 ⇒ 收成一个类，五步都用它；以后改间距只改这一处。 */
 .wz-stack {
