@@ -1,33 +1,119 @@
-import React, { useMemo } from 'react'
-// 名片参数面板的预览：用平台在用的 ParamField 渲染名片的参数，不另画一份表单。
-// 复用真组件 ⇒ 平台改了字段行为，预览跟着变；另画一份 HTML 会停在旧样子并骗人。
-// 预览只读，改不动名片：值存在本地 state 里，回写由保存按钮触发。
+import React, { useMemo, useState, useEffect } from 'react'
+// 预览复用 9886 真实的生成页组件（ModelPickRow / DeviceSelect / AdvancedParamsPanel），
+// 而不是另画一份：平台改了真界面，预览跟着变，不会停在旧样子骗人。
+// 这些组件是纯展示型，只吃 props 不碰后端；预览没有后端，控件都给空数据 / 禁用。
+// 预览只读：ParamField 的改动只进本地 values，不写回名片。
 import { useT } from '../../../web/src/lib/i18n'
-import { ParamField } from '../../../web/src/components/common/ParamField'
-import MainArea from './MainArea'
+import { Select } from '../../../web/src/components/common/Select'
+import { ModelPickRow } from '../../../web/src/components/generate/ModelPickRow'
+import { AdvancedParamsPanel } from '../../../web/src/components/generate/AdvancedParamsPanel'
+import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import {
-  fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue, TIERS,
+  fieldsForTier, isFieldVisible, initialParamValues, coerceParamValue,
 } from '../../../web/src/lib/engines'
+import { TARGET_LANG_OPTIONS } from '../../../web/src/lib/langOptions'
 
-// 名片面板预览：直接用平台在用的组件渲染，不另画一份。
-// 另画一份 HTML 的话，平台改了真组件之后预览仍停在旧样子，预览就开始骗人。
-// t 必须显式传给 ParamField：它自己不调 useT，t 是 props。
-// 漏传不报编译错，只在渲染到那一格时抛 "t is not a function"，整页白屏。
-
-export default function PanelPreview ({ manifest, children }) {
+export default function PanelPreview ({ manifest }) {
+  // 内容复用 9886 的两栏骨架：左栏表单、右栏 380px（与 9886 参考音频侧栏同宽）。
+  // 预览没有后端、未选音色，右栏留空，与 9886 未选音色时一致。窄抽屉里是单列，
+  // 全屏才展开两栏（见 editor.css 的 .wz-preview-grid），让表单宽度对齐 9886。
   return (
     <ErrorBoundary label="preview">
-      <PreviewInner manifest={manifest}>{children}</PreviewInner>
+      <div className="wz-preview-grid">
+        <div className="workspace-left">
+          <PreviewInner manifest={manifest} />
+        </div>
+        <div className="workspace-right" />
+      </div>
     </ErrorBoundary>
   )
 }
 
-/**
- * 参数面板要有自己的错误边界。
- * ParamField 是项目的组件，它内部出错会一路往上炸，把整页打白，
- * 用户看到的只是「页面坏了」，跟「是哪个引擎的名片不对」毫无关系。
- * 这里把错误关在预览区里：左边的填表、JSON 与保存仍然可用。
- */
+function PreviewInner ({ manifest }) {
+  const { t, lang } = useT()
+  const engine = useMemo(() => ({ id: manifest.id, param_schema: manifest.parameters || [] }), [manifest])
+  const [values, setValues] = useState(() => initialParamValues(engine))
+  useEffect(() => { setValues(initialParamValues(engine)) }, [engine])
+  const setParam = (name, raw) => setValues((prev) => ({ ...prev, [name]: coerceParamValue(name, raw, prev[name]) }))
+
+  const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
+  const visibleFields = (tier) => fieldsForTier(engine, tier)
+    .filter((f) => !STREAM_ONLY.includes(f.name))
+    .filter((f) => isFieldVisible(f, values))
+
+  // 模型位来自名片：候选要扫盘才有，预览没有后端，groups 留空 ⇒ 与 9886 未扫描时一致（不显示下拉）。
+  const weightSlots = Array.isArray(manifest.weights)
+    ? manifest.weights.map((w) => ({ name: w.name, label: w.label || w.name, help: w.help || '' }))
+    : []
+
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [advTier, setAdvTier] = useState('common')
+  const [seed, setSeed] = useState(-1)
+
+  return (
+    <div className="section">
+      <div className="section-hdr"><span>{t('Generate', '生成')}</span></div>
+      <div className="section-body">
+        <ModelPickRow
+          selectedVoice=""
+          onSelectVoice={() => {}}
+          voiceOptions={[]}
+          weightSlots={weightSlots}
+          groupsBySlot={{}}
+          selWeights={{}}
+          onSelectWeight={() => {}}
+          modelSummary=""
+          relaunchHint={false}
+          modelNotes={[]}
+          incompleteItems={[]}
+        />
+
+        <div className="field">
+          <label className="field-label">{t('Text', '文本')}</label>
+          <textarea className="control" rows={5} disabled
+            placeholder={t('(fixed by the platform, not from the manifest)', '（平台固定，不来自名片）')} />
+          <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
+            <span>Characters: <span style={{ color: 'var(--text)' }}>0</span></span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>Target language:</span>
+            <Select className="control" disabled style={{ height: 22, fontSize: 'var(--fs-11)', padding: '0 4px', width: 'auto', minWidth: 0 }} value="auto_zh_ja_yue" onChange={() => {}}>
+              {TARGET_LANG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+          </div>
+        </div>
+
+        <DeviceSelect options={[]} value={{ kind: 'auto' }} onChange={() => {}} disabled />
+
+        <AdvancedParamsPanel
+          showAdvanced={showAdvanced}
+          onToggle={() => setShowAdvanced((v) => !v)}
+          advTier={advTier}
+          onTier={setAdvTier}
+          engine={engine}
+          engineName={manifest.label || manifest.id || t('the engine', '引擎')}
+          visibleFields={visibleFields}
+          paramValues={values}
+          onParam={setParam}
+          uiLang={lang}
+          selectOptions={() => []}
+          seed={seed}
+          onSeed={setSeed}
+          forceResynth={false}
+          onForceResynth={() => {}}
+          engineBatch={false}
+          onEngineBatch={() => {}}
+          mediaType="wav"
+          onMediaType={() => {}}
+          hasAuxRefs={false}
+        />
+      </div>
+    </div>
+  )
+}
+
+// 参数面板要有自己的错误边界：ParamField 是项目组件，它内部出错会一路往上炸，把整页打白。
+// 这里把错误关在预览区里：左侧的填表与保存仍然可用。
 class ErrorBoundary extends React.Component {
   constructor (p) { super(p); this.state = { err: null } }
   static getDerivedStateFromError (err) { return { err } }
@@ -58,110 +144,4 @@ function t2 (en, zh) {
     const ctx = JSON.parse(localStorage.getItem('tf.v1.ui.lang') || '"en"')
     return ctx === 'zh' && zh ? zh : en
   } catch { return en }
-}
-
-function PreviewInner ({ manifest, children }) {
-  const { t, lang } = useT()
-  const engine = useMemo(() => {
-    // 只喂给 ParamField 需要的形状，不改名片本身。
-    return { id: manifest.id, param_schema: manifest.parameters || [] }
-  }, [manifest])
-
-  const [values, setValues] = React.useState(() => initialParamValues(engine))
-
-  // 名片换了（用户改了 JSON）⇒ 初始值重算
-  React.useEffect(() => {
-    setValues(initialParamValues(engine))
-  }, [engine])
-
-  const setParam = (name, raw) => {
-    setValues((prev) => ({ ...prev, [name]: coerceParamValue(name, raw, prev[name]) }))
-  }
-
-  // 平台那三个硬编码过滤（STREAM_ONLY）在这里照抄一份，
-  // 因为它们写在 GenerateTab 里，没有导出。
-  // 这是已知的一处重复：平台改了这条名单，预览就会与真界面不一致。
-  const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
-
-  const visible = (tier) =>
-    fieldsForTier(engine, tier)
-      .filter((f) => !STREAM_ONLY.includes(f.name))
-      .filter((f) => isFieldVisible(f, values))
-
-  const [tier, setTier] = React.useState('common')
-  // Advanced 默认折叠用 state 而不是 <details>：折叠要靠 onClick 切 state
-  // （项目的 .collapsible 是给 div 用的），而 <details> 自带浏览器箭头，
-  // 会和标题里的 ▼ 叠在一起。
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
-
-  const cols = visible(tier)
-  const other = visible(tier === 'common' ? 'advanced' : 'common').length
-
-  return (
-    /* 这里不写死 maxWidth:760 + margin:'0 auto'：
-       宽度由外层 .workspace-right 决定。 */
-    <div>
-      {/* 外壳用项目的 .section（.section-hdr + .section-body）。
-         预览栏也是一节内容，不自造栏头：主界面里每一块都是这么长的。 */}
-      <div className="section">
-        <div className="section-hdr">
-          <h2>{t('Preview', '预览')}</h2>
-          {children}
-        </div>
-        <div className="section-body">
-          {/* 主区域：照真界面渲染 */}
-          <MainArea manifest={manifest} />
-
-          {/* `Advanced Settings` 保持英文、不翻译：
-               主界面 GenerateTab.jsx 里就是硬编码的英文（没走 t()）。
-               这里若单独翻成中文，预览就跟真界面长得不一样。 */}
-          <div className="collapsible" style={{ marginTop: 8 }}>
-            <div className="collapsible-hdr" onClick={() => setShowAdvanced((v) => !v)}>
-              <span>Advanced Settings</span>
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                {showAdvanced ? '▲' : '▼'}
-              </span>
-            </div>
-            {showAdvanced && (
-            <div className="collapsible-body">
-          {/* 档位切换用项目的 .chip / .chip-on（就是给「几档里选一档」用的）*/}
-          <div className="filter-chips" style={{ marginBottom: 12 }}>
-            {TIERS.map((x) => {
-              const n = visible(x).length
-              return (
-                <button key={x} type="button"
-                  className={`chip${tier === x ? ' chip-on' : ''}`}
-                  onClick={() => setTier(x)}>
-                  {x}<span style={{ opacity: 0.7, marginLeft: 4 }}>{n}</span>
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="param-grid">
-            {cols.length
-              ? cols.map((f) => (
-                <ParamField key={f.name} field={f} values={values}
-                  onChange={setParam} lang={lang} options={[]} t={t} />
-              ))
-              : (
-                <div className="field-hint" style={{ gridColumn: '1 / -1' }}>
-                  {t('(no parameters in this tier)', '（该档暂无参数）')}
-                </div>
-                )}
-          </div>
-
-          {other > 0 && (
-            <p className="field-hint" style={{ marginTop: 10 }}>
-              ▸ {t(`the other tier has ${other} more — switch tabs to see them`,
-                `另一档还有 ${other} 个，切换标签即可查看`)}
-            </p>
-          )}
-            </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
 }
