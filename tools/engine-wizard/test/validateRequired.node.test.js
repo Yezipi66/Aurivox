@@ -1,8 +1,10 @@
 'use strict'
-// 校验层的必填口径：名片里只有 5 项必须人答，其余平台推断或用保守默认。
+// 校验层的必填口径：名片里只有 4 项必须人答，其余平台推断或用保守默认。
 //
-//   call.bind.text / call.bind.ref_audio / call.bind.output_path（returns 是 file 时）
+//   call.bind.ref_audio（capabilities.requires_reference_audio 显式 false 时不要）
+//   call.bind.output_path（returns 是 file 时）
 //   runtime.python / runtime.entry
+//   call.bind.text 不在此列：有的引擎不读正文（vc 这类转换已有音频的方法）。
 //   另：启动脚本不是平台通用宿主时，runtime.ready_endpoint 平台答不出，照旧必填。
 //
 // 其余各项（timeout_ms / max_chars / ready_timeout_ms / requires_reference_audio /
@@ -18,8 +20,8 @@ const { diagnose, summarize } = require('../core/validate.js')
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 
-const FIVE = [
-  'call.bind.text', 'call.bind.ref_audio', 'call.bind.output_path',
+const REQUIRED = [
+  'call.bind.ref_audio', 'call.bind.output_path',
   'runtime.python', 'runtime.entry',
 ]
 const OPTIONAL = [
@@ -85,14 +87,14 @@ function fullManifest () {
   return m
 }
 
-test('只写 5 项必填 ⇒ 0 条 error（其余平台代答）', () => {
+test('只写 4 项必填 ⇒ 0 条 error（其余平台代答）', () => {
   const diags = diagnose(minimalManifest())
   const errs = diags.filter((d) => d.level === 'error')
   assert.deepStrictEqual(errs.map((d) => d.field), [], '只写了 5 项的名片被判有错：校验层比平台更严')
 })
 
-test('5 项必填缺一个就报一条 INCOMPLETE', () => {
-  for (const keyPath of FIVE) {
+test('4 项必填缺一个就报一条 INCOMPLETE', () => {
+  for (const keyPath of REQUIRED) {
     for (const v of [undefined, '', null]) {
       const m = v === undefined ? withoutKey(minimalManifest(), keyPath) : withKey(minimalManifest(), keyPath, v)
       const hits = diagnose(m).filter((d) => d.level === 'error' && d.field === keyPath)
@@ -100,6 +102,19 @@ test('5 项必填缺一个就报一条 INCOMPLETE', () => {
       assert.strictEqual(hits[0].code, 'ENGINE_MANIFEST_INCOMPLETE')
     }
   }
+})
+
+test('不绑 call.bind.text 不报错：有的引擎不读正文（vc）', () => {
+  const m = withoutKey(minimalManifest(), 'call.bind.text')
+  const hits = diagnose(m).filter((d) => d.level === 'error' && d.field === 'call.bind.text')
+  assert.deepStrictEqual(hits, [], 'text 不是必填：引擎可以不读正文')
+})
+
+test('capabilities 说不要参考音频 ⇒ 也不算缺', () => {
+  const m = withKey(withoutKey(minimalManifest(), 'call.bind.ref_audio'),
+    'capabilities.requires_reference_audio', false)
+  const hits = diagnose(m).filter((d) => d.level === 'error' && d.field === 'call.bind.ref_audio')
+  assert.deepStrictEqual(hits, [], '明确写了不需要参考音频，就不要求接这一根线')
 })
 
 test('可选项缺了不报（平台推断或用默认）', () => {

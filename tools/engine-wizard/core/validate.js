@@ -130,8 +130,12 @@ function diagnose (manifest) {
   // 又没写 call 段的（老引擎自己起 HTTP），平台不经宿主调它，槽位无处可去，不要求。
   const needsBind = !!manifest.call || (!!rt.entry && isSharedHost(rt.entry))
   const REQUIRED_KEYS = [
-    { path: 'call.bind.text', v: bindObj.text, section: 'call', when: needsBind },
-    { path: 'call.bind.ref_audio', v: bindObj.ref_audio, section: 'call', when: needsBind },
+    // text 不在必填里：有的引擎不读正文（vc 这类转换已有音频的方法），
+    //   它也没有对应的 capability 开关能表达「不需要文本」。
+    // 参考音频默认要（多数引擎靠参考音频定音色）；引擎真的不用时写
+    //   capabilities.requires_reference_audio = false，这一项随之不再要求。
+    { path: 'call.bind.ref_audio', v: bindObj.ref_audio, section: 'call',
+      when: needsBind && (manifest.capabilities || {}).requires_reference_audio !== false },
     { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call', when: needsBind && returns === 'file' },
     { path: 'runtime.python', v: rt.python, section: 'runtime' },
     { path: 'runtime.entry', v: rt.entry, section: 'runtime' },

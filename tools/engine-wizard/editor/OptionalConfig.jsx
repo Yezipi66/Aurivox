@@ -1,10 +1,10 @@
-// 引擎配置的可选参数区。
+// 可选参数的后半段：可选能力 + 引擎配置。
 ﻿import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { OPTIONAL_KEYS, SOURCES, PLATFORM_DEFAULTS, get, setPath, removeItem, prefillReferenceAudio, platformDefaultedRows, localMeasuredRows } from './optionalKeys'
-import PlatformDeclarations from './PlatformDeclarations'
+import OptionalCapabilities from './OptionalCapabilities'
 
-// 可选参数里的「引擎配置」：除 5 项必填外、平台有兜底常量、按需再填的项。
+// 「引擎配置」：除 5 项必填外、平台有兜底常量、按需再填的项。
 //
 // 全量列出：没写的项也各占一行，控件留空；行内徽标标出平台按常量兜底的项与本机量得的项。
 // 前面几步已定下的（源码、安装、权重、调用形态）不在这里出现，改它们走 JSON 视图。
@@ -129,33 +129,6 @@ function JsonInput ({ value, onValue, placeholder }) {
   )
 }
 
-// 从 argv 里读一个开关后面的值：["--device", "0"] 读 "--device" 得 "0"。
-//   同一个开关出现多次时取最后一次，argparse 也是后者胜。
-function readFlagValue (argv, flag) {
-  const list = Array.isArray(argv) ? argv : []
-  let out = ''
-  for (let i = 0; i < list.length; i += 1) {
-    if (list[i] === flag && i + 1 < list.length) out = list[i + 1]
-  }
-  return out
-}
-
-// 把一个开关的值写回 argv：先摘掉这个开关和紧跟的值，有新值就追加到末尾。
-//   其余词的顺序不动，{checkpoints} 这类占位符原样留着。
-function writeFlagValue (manifest, flag, value) {
-  const call = { ...((manifest && manifest.call) || {}) }
-  const list = Array.isArray(call.argv) ? call.argv : []
-  const kept = []
-  for (let i = 0; i < list.length; i += 1) {
-    if (list[i] === flag) { i += 1; continue }
-    kept.push(list[i])
-  }
-  const v = String(value == null ? '' : value).trim()
-  if (v) kept.push(flag, v)
-  call.argv = kept
-  return { ...manifest, call }
-}
-
 export default function OptionalConfig ({ manifest, onChange }) {
   const { t } = useT()
   const m = manifest || {}
@@ -206,82 +179,11 @@ export default function OptionalConfig ({ manifest, onChange }) {
 
   return (
     <React.Fragment>
-      {/* 不包一层 div：小标题要是区内的非首个子元素，才吃得到 .wz-subhead 的上边距。 */}
-      {/* 运行设备：夹在合成参数与引擎配置之间。它不是必填，但选错卡直接跑不起来，
-          所以既不能埋进折叠里，也不该混在合成参数里跟别的旋钮一起被忽略。
-          格子照必填区那几格的样子做（标签 + 键名徽章 + 输入框 + 说明），读名片 call.args 里 role="device" 的项。 */}
-      {/* 运行参数声明行：运行设备与参考文本一行排开（一行多列，后续参数也放这里）。
-          参考文本声明的是「参考文本由哪个开关收」（call.bind.ref_text，平台四个核心槽位之一）：
-          合成时平台把请求里的参考文本（音色卡自动或手工）填进这个开关。 */}
-      {(() => {
-        const devRows = Object.entries((m.call && m.call.args) || {})
-          .filter(([, entry]) => entry && entry.role === 'device')
-        // 这一格永远可填。名片里还没有这一项时，填值就等于把它声明出来：
-        //   开关默认叫 --device，格式按设备字符串处理，之后还能在 JSON 视图里改。
-        //   做成只读的灰框等于告诉人这里没他的事，而这正是名片要人填的东西。
-        const rows = devRows.length ? devRows : [['device', null]]
-        return (
-          <div className="form-grid">
-            {rows.map(([name, entry]) => {
-              const flag = (entry && entry.flag) || '--device'
-              const fmt = (entry && entry.device_format) || 'torch'
-              // 填的是开关后面那个值，直接进命令行：--device 后面跟这里填的内容。
-              //   值写在 call.argv 里，和 {checkpoints} 那些固定参数同一处。
-              //   合成时若请求另给了 device，argparse 取最后一个，等于覆盖这里。
-              const value = readFlagValue(m.call && m.call.argv, flag)
-              const apply = (v) => {
-                let next = m
-                if (!entry && String(v).trim()) {
-                  next = {
-                    ...m,
-                    call: {
-                      ...(m.call || {}),
-                      args: {
-                        ...((m.call && m.call.args) || {}),
-                        [name]: { flag, style: 'value', role: 'device', device_format: fmt },
-                      },
-                    },
-                  }
-                }
-                onChange(writeFlagValue(next, flag, v))
-              }
-              return (
-                <div className="field" key={'device-' + name}>
-                  <label className="field-label" style={{ margin: 0 }}>{t('Runtime device', '运行设备')}</label>
-                  <input className="control"
-                    value={value}
-                    onChange={(e) => apply(e.target.value)} />
-                </div>
-              )
-            })}
-            {(() => {
-              const bindNow = (m.call && m.call.bind) || {}
-              return (
-                <div className="field">
-                  <label className="field-label" style={{ margin: 0 }}>{t('Reference text', '参考文本')}</label>
-                  <input className="control"
-                    value={bindNow.ref_text || ''}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      const c = m.call || {}
-                      const nextBind = { ...(c.bind || {}) }
-                      if (!String(v).trim()) delete nextBind.ref_text
-                      else nextBind.ref_text = v
-                      onChange({ ...m, call: { ...c, bind: nextBind } })
-                    }} />
-                </div>
-              )
-            })()}
-          </div>
-        )
-      })()}
+      {/* 可选能力：运行设备 / 参考文本 / 音频输入 / 多权重位 / 输出格式。
+          重要但非必填，所以默认展开，与下面默认收起的引擎配置分开。 */}
+      <OptionalCapabilities manifest={m} onChange={onChange} />
 
-      {/* 平台声明：音频类输入 / 多权重位 / 输出格式。声明了才有对应前端控件。 */}
-      <PlatformDeclarations manifest={m} onChange={onChange} />
-
-      {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。
-          运行设备不塞进折叠里：它选错卡会直接跑不起来，藏起来等于没人会看一眼。
-          它按同一套行格式排在这里，只是不跟着折叠。 */}
+      {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。 */}
       <div
         className="wz-subhead"
         role="button"

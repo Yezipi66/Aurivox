@@ -1647,7 +1647,7 @@ function handleDiscover (req, res) {
       // 推理入口的判定结果：{file, module, subcommand, score, source, confidence, ambiguous, candidates}
       //   source 是 readme 时表示命中了 README 里写的用法；ambiguous 为真表示证据并列，界面该让人点。
       entry,
-      // 平台声明的嗅探建议：音频类输入、多权重位、输出格式。只送建议，
+      // 可选能力的嗅探建议：音频类输入、多权重位、输出格式。只送建议，
       //   写不写进名片由前端按「已有声明不覆盖」决定；拿不准的不出现在这里。
       declare_hints: (() => {
         try {
@@ -1657,8 +1657,9 @@ function handleDiscover (req, res) {
             audio_params: [...new Set(args.filter((a) => h.audioRoleFor(a.name)).map((a) => h.normWord(a.name)))],
             weight_slots: h.weightSlotHintsFrom(args.map((a) => ({ ...a, source: 'cli' }))),
             output_formats: h.formatHintsFrom(args),
+            format_arg: h.formatArgNameFrom(args),
           }
-        } catch { return { audio_params: [], weight_slots: [], output_formats: [] } }
+        } catch { return { audio_params: [], weight_slots: [], output_formats: [], format_arg: null } }
       })(),
       suggested_call: cliDraft && cliDraft.ok ? cliDraft.suggested_call : null,
       notes,

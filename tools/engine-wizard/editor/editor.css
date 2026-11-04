@@ -615,3 +615,12 @@
   margin: 0;
 }
 .wz-root input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+
+/* 还没有值的一格弱化显示：这就是「这项能力还没声明」的样子。
+   它仍然可以点进去编辑，聚焦时恢复正常，不做成禁用。 */
+.wz-unset {
+  opacity: 0.55;
+}
+.wz-unset:focus-within {
+  opacity: 1;
+}

@@ -280,13 +280,19 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForcedLive, hanReadings)  // 基础读音 + 反向读音
   const [auxRefs, setAuxRefs] = useState([])   // 选中的辅助参考音频路径
   const [segments, setSegments] = useState([])   // 辅助参考选择器用的，从 API 读
-  // 平台声明的音频输入：名单来自名片，没声明就是空数组，界面不长这一格。
+  // 可选能力的音频输入：名单来自名片，没声明就是空数组，界面不长这一格。
   const audioInputs = (engine?.declared_inputs || []).filter((x) => x && x.role === 'audio_ref')
   const [audioValues, setAudioValues] = useState({})  // { 参数名: [路径] }
-  // 输出格式：名片没声明就保持 wav，也不长下拉。
-  const outputFormats = Array.isArray(engine?.output_formats) ? engine.output_formats : []
+  // 输出格式：开关没声明就保持 wav，也不长下拉。允许值只是这台引擎认哪几种容器，
+  // 由名片给；把选中的值送回哪个参数名，由声明了 output_format 角色的那一项说。
+  const formatDecl = (engine?.declared_inputs || []).find((x) => x && x.role === 'output_format') || null
+  // 声明了开关却没写允许值时按宿主的默认只给 wav，不凭空长出别的容器。
+  const outputFormats = !formatDecl ? []
+    : (Array.isArray(engine?.output_formats) && engine.output_formats.length ? engine.output_formats : ['wav'])
   const [format, setFormat] = useState('wav')
-  useEffect(() => { if (!outputFormats.includes(format)) setFormat(outputFormats[0] || 'wav') }, [engine && engine.id])
+  const formatOptions = outputFormats.join(',')
+  // 换引擎或允许值变了都要对齐，否则下拉里选中的项可能根本不在选项里。
+  useEffect(() => { if (!outputFormats.includes(format)) setFormat(outputFormats[0] || 'wav') }, [engine && engine.id, formatOptions])
 
   // 换角色 / 换引擎时，先把上次记住的选择摆上去（还有没有效，交给下面那条对齐）。
   useEffect(() => {
@@ -468,9 +474,11 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
       voice: selectedVoice, text, format,
       ref_audio: currentRefAudio || undefined,
       reference_text: effectiveRefText || undefined,
-      // 平台声明的音频输入：只发有选中的那些；没声明时整个字段不出现。
+      // 可选能力的音频输入：只发有选中的那些；没声明时整个字段不出现。
       audio_inputs: Object.keys(audioValues).some((k) => (audioValues[k] || []).length)
         ? audioValues : undefined,
+      // 输出格式：按名片声明的参数名发，没声明开关就整个字段不出现。
+      format_input: formatDecl ? { [formatDecl.name]: format } : undefined,
       split: splitEnabled, max_chars: maxChars,
       concat: concatEnabled, silence_ms: silenceMs,
       // 引擎参数：只发这台引擎名片里有的键，且只有用户动过的才发。

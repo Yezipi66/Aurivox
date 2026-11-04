@@ -5,7 +5,7 @@ const { test } = require('node:test')
 const assert = require('node:assert')
 
 const {
-  normWord, audioRoleFor, formatHintsFrom, weightSlotHintsFrom,
+  normWord, audioRoleFor, formatHintsFrom, formatArgNameFrom, weightSlotHintsFrom,
 } = require('../core/declareHints.js')
 
 test('归一化：横线、驼峰、下划线写法归到同一个词', () => {
@@ -39,13 +39,26 @@ test('输出格式忽略 choices 里的无关值', () => {
   assert.deepStrictEqual(formatHintsFrom([{ name: 'output_format', choices: ['wav', 'long', 'short'] }]), ['wav'])
 })
 
+test('格式开关与允许值落在同一个参数上，没 choices 不给建议', () => {
+  const params = [
+    { name: 'speed' },
+    { name: '--output-format', choices: ['wav', 'mp3'] },
+  ]
+  assert.strictEqual(formatArgNameFrom(params), 'output_format')
+  assert.deepStrictEqual(formatHintsFrom(params), ['wav', 'mp3'])
+  assert.strictEqual(formatArgNameFrom([{ name: 'format' }]), null,
+    '没有 choices 时不能凭参数名认定这是格式开关')
+  assert.strictEqual(formatArgNameFrom([{ name: 'format', choices: ['fast', 'slow'] }]), null,
+    '值域里没有容器名就不是格式开关')
+})
+
 test('多权重位只在两个以上模型类开关时建议', () => {
   const params = [
     { source: 'cli', name: 'gpt_model' },
-    { source: 'cli', name: 'sovits_model' },
+    { source: 'cli', name: 'vocoder_model' },
   ]
   const got = weightSlotHintsFrom(params)
-  assert.deepStrictEqual(got.map((x) => x.name), ['gpt_model', 'sovits_model'])
+  assert.deepStrictEqual(got.map((x) => x.name), ['gpt_model', 'vocoder_model'])
   assert.strictEqual(got[0].param, 'gpt_model')
   assert.strictEqual(got[0].applies_at, 'call')
 })
@@ -61,7 +74,7 @@ test('单个模型开关或 {checkpoints} 那一格不升级成多权重位', ()
 test('权重位嗅探只认 cli 来源，python 签名不参与', () => {
   assert.deepStrictEqual(weightSlotHintsFrom([
     { source: 'python', name: 'gpt_model' },
-    { source: 'python', name: 'sovits_model' },
+    { source: 'python', name: 'vocoder_model' },
   ]), [])
 })
 
@@ -75,10 +88,10 @@ test('通用权重路径不升级成多权重位（真引擎嗅探暴露的误�
 test('两个角色型开关必须出自同一个文件才算一对', () => {
   assert.deepStrictEqual(weightSlotHintsFrom([
     { source: 'cli', name: 'gpt_model', source_file: 'a.py' },
-    { source: 'cli', name: 'sovits_model', source_file: 'b.py' },
+    { source: 'cli', name: 'vocoder_model', source_file: 'b.py' },
   ]), [])
   assert.strictEqual(weightSlotHintsFrom([
     { source: 'cli', name: 'gpt_model', source_file: 'a.py' },
-    { source: 'cli', name: 'sovits_model', source_file: 'a.py' },
+    { source: 'cli', name: 'vocoder_model', source_file: 'a.py' },
   ]).length, 2)
 })

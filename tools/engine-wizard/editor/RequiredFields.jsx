@@ -23,9 +23,11 @@ import { readWeights, writeWeights, TOKEN } from './weightsField'
 // 平台固定认这几个词，格子里填的是引擎那边的参数名；第 2 行的徽标写名片键路径。
 // 排版用项目已有的类；不写具体引擎名（有守卫测试）。
 
-function Cell ({ label, code, hint, badge, children }) {
+// unset：这一格还没有值，也就是这项能力还没声明。整格弱化显示，
+//   让人一眼看出哪些还空着；仍然可编辑，点进去就恢复正常。
+function Cell ({ label, code, hint, badge, unset, children }) {
   return (
-    <div className="field">
+    <div className={`field${unset ? ' wz-unset' : ''}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <label className="field-label" style={{ margin: 0 }}>{label}</label>
         <span className="badge badge-accent">{code}</span>
@@ -63,11 +65,15 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   //   同一次提交里别的自动填（如 ManifestForm 的权重路径）也在写名片，
   //   各自拿渲染时的快照整份写回，后写的会把先写的整段冲掉。
   const setRuntime = (patch) => onChange((cur) => withRuntimePatch(cur, patch))
+  // 空格与空串同一个意思：这一格不声明。名片是「能力 + 开关名」的清单，
+  //   一个空白开关名既接不上前端控件，也会在命令行上变成一个空白词。
+  //   所以先 trim 再判空，空就删掉这个键。
   const setSlot = (key, value) => onChange((cur) => {
     const c = (cur && cur.call) || {}
     const nextBind = { ...(c.bind || {}) }
-    if (value === '') delete nextBind[key]
-    else nextBind[key] = value
+    const v = String(value == null ? '' : value).trim()
+    if (!v) delete nextBind[key]
+    else nextBind[key] = v
     return { ...cur, call: { ...c, bind: nextBind } }
   })
 
@@ -117,8 +123,8 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   const SLOT_KEYS = (bindSlots && bindSlots.length)
     ? bindSlots
     : Object.keys(SLOT_LABELS)
-  // 参考文本的声明（ref_text）不在这一区：它与运行设备同排，排在
-  //   「合成参数」与「引擎配置」之间的运行参数行（OptionalConfig）里。
+  // 参考文本的声明（ref_text）不在这一区：它与运行设备同排，收在
+  //   「可选能力」区（OptionalCapabilities）里。
   //   同一份 bind 数据只留一个编辑口。SLOT_LABELS 仍留着它的条目：
   //   fallback 清单要逐字等于平台的 BIND_SLOTS，少一项就成了手抄的第二份。
   const slots = SLOT_KEYS.filter((key) => key !== 'ref_text').map((key) => ({
@@ -147,7 +153,17 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
   return (
     <div className="section">
-      <div className="section-hdr"><h2>{t('Required fields', '必填字段')}</h2></div>
+      <div className="section-hdr">
+        <h2>{t('Required fields', '必填字段')}</h2>
+        {/* 栏头是 uppercase，这句要按正常大小写排，所以单独把 textTransform 关掉。
+            它说的是这一区真正的规矩：留空不是「还没填」，是「这台引擎没有这项能力」。 */}
+        <span className="field-hint"
+          style={{ marginLeft: 'auto', textTransform: 'none', letterSpacing: 0,
+            fontWeight: 400, textAlign: 'right' }}>
+          {t('Most zero-shot TTS engines need the inputs below. A field left blank means the engine does not have that capability: no control is created for it, and the parameter is never sent.',
+            '多数零样本 TTS 引擎都需要下列输入。某项留空即表示这台引擎不具备该能力：平台不为其生成控件，也不下发该参数。')}
+        </span>
+      </div>
       <div className="section-body">
         <div className="form-grid wz-required-row">
           {orderedSlots.map((slot) => {
@@ -176,6 +192,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
             )
             return (
               <Cell key={slot.key}
+                unset={!val}
                 label={t(slot.labelEn, slot.labelZh)} code={slot.key}
                 badge={isMatched
                   ? <span className="badge badge-ok">{t('matched by scan', '扫描已匹配')}</span>
@@ -233,12 +250,14 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
 
         <div className="form-grid wz-required-row">
           <Cell label={t('Engine directory', '引擎目录')} code="runtime.python"
+            unset={!runtime.python}
             badge={defaultedBadge(runtime.python, conv && conv.python)}>
             <input className="control" type="text" placeholder={conv ? conv.python : 'engines/<id>/.venv'}
               value={runtime.python || ''}
               onChange={(e) => setRuntime({ python: e.target.value.trim() })} />
           </Cell>
           <Cell label={t('Start script', '启动脚本')} code="runtime.entry"
+            unset={!runtime.entry}
             badge={defaultedBadge(runtime.entry, conv && conv.entry)}
             hint={t('change it only if the engine ships its own server script',
               '仅当引擎附带服务脚本时才需修改')}>

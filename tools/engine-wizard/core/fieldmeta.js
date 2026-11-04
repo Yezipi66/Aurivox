@@ -62,7 +62,7 @@ const SECTIONS = Object.freeze([
   { key: 'maps', group: 'parameters', danger: DANGER.INFO,
     howto: '平台词表 → 引擎方言的翻译。没映射的词 = 这台引擎没这个概念，不发。' },
   { key: 'output_formats', group: 'output', danger: DANGER.INFO,
-    howto: '这引擎能输出哪些格式。' },
+    howto: '这引擎能输出哪些格式（能力白名单）。把选中的格式交给引擎的开关在 call.args 里声明。' },
 ])
 
 // --- parameters[] 条目的键：平台 16 个 UI 键 + 归属键 ----------------------

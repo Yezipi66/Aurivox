@@ -102,7 +102,7 @@ export default function ManifestPage ({
       // 入口嗅探结果：填进 call.argv 的模块名与子命令。为 null 时 argv 里留占位符，
       //   由使用者自己填（扫不出入口的引擎仍然要能配）。
       const entryPick = j.entry || null
-      // 平台声明的嗅探建议（音频类输入 / 多权重位 / 输出格式）。只作建议，
+      // 可选能力的嗅探建议（音频类输入 / 多权重位 / 输出格式）。只作建议，
       //   名片里已经写了的声明一律不覆盖，见下面写回那一段。
       const declareHints = j.declare_hints || null
       // 扫描回来时名片可能已经变了（等结果期间的代填、使用者的编辑）：

@@ -124,6 +124,9 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
         //   平台不解释上游叫什么语义，只声明「这一格由音频选择器填」。
         //   label 留给使用者写，嗅探不替他起名。
         entry.role = 'audio_ref'
+      } else if (hints && hints.format_arg && hints.format_arg === normName(p.name)) {
+        // 输出格式：只认值域明确的那个开关，界面选的容器名从这里进命令行。
+        entry.role = 'output_format'
       }
       call.args[p.name] = entry
     }
@@ -214,7 +217,7 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
   //   把名字带回给调用方，由它写进名片的 params.call_time。
   const callTime = Object.entries(call.args || {})
-    .filter(([, e]) => e && (e.role === 'device' || e.role === 'audio_ref'))
+    .filter(([, e]) => e && (e.role === 'device' || e.role === 'audio_ref' || e.role === 'output_format'))
     .map(([name]) => name)
 
   // 顶层声明的建议（多权重位 / 输出格式）只是建议：调用方按「已有声明不覆盖」落盘。

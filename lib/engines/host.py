@@ -220,7 +220,10 @@ def _expand_word(raw, values, where):
 # 「其余情况看着办」的分支。看着办 = 宿主替名片作者猜，猜错不报错，
 # 只是那个开关没上命令行，声音悄悄变了。
 def _render_cli_arg(name, entry, value):
-    flag = entry["flag"]
+    flag = str(entry.get("flag") or "").strip()
+    # 空白开关名等于这张名片没声明它：塞一个空白词进命令行没人能解释。
+    if not flag:
+        return []
     style = entry.get("style") or "value"
 
     if style == "boolean":
@@ -274,13 +277,16 @@ def build_cli_argv(call, profile, slots, params):
 四种开关形状写错，是这条路上判别力最高的地方。
     """
     values = _placeholder_values(profile)
+    # 空白词不进命令行：名片里写了个空格等于没声明这一项，别让它变成一个空参数。
     argv = [_expand_word(w, values, "call.argv") for w in (call.get("argv") or [])]
+    argv = [w for w in argv if str(w).strip()]
     if not argv:
         raise ValueError('call.kind = "cli" 但 call.argv 是空的')
 
     bind = call.get("bind") or {}
     for slot in BIND_SLOTS:
-        flag = bind.get(slot)
+        # 开关名按 trim 后判空：只写了空格等于没声明这个槽位。
+        flag = str(bind.get(slot) or "").strip()
         if not flag:
             continue
         val = slots.get(slot)
@@ -1156,7 +1162,8 @@ def validate_request(body, profile, seed_plan):
     # 方法级覆盖全局：vc 不用 text（它转换已有音频），sft 不用参考音频
     # （它用内置音色）。一刀切的全局要求会误杀这些方法：给 vc 传个
     # 空 text 会被「text 不能为空」拦下，而 vc 本来就不读 text。
-    needs_text = mcfg.get("requires_text", True)
+    mbind = mcfg.get("bind") or (profile.get("call") or {}).get("bind") or {}
+    needs_text = mcfg.get("requires_text", "text" in mbind)
     if needs_text and not str(body.get("text") or "").strip():
         return 400, "'text' is required and must not be empty", {}
 
@@ -1315,16 +1322,20 @@ def validate_profile(profile):
             if not (mcfg.get("method") or mname):
                 problems.append("call.methods.%s 没写 method" % mname)
             mbind = mcfg.get("bind") or bind
-            if (mcfg.get("requires_text", True) and "text" not in mbind):
-                problems.append("call.methods.%s 读文本却没有 bind.text"
+            # 默认「读不读文本」看这张名片绑没绑 text：没绑就是这个引擎不读文本
+            #   （vc 这类转换已有音频的方法）。只有明确写了 requires_text: true
+            #   才把它当成「要文本却没接线」的矛盾。
+            if mcfg.get("requires_text") is True and "text" not in mbind:
+                problems.append("call.methods.%s 写了 requires_text: true 却没有 bind.text"
                                 "平台不知道该把正文放进哪个参数" % mname)
             if (mcfg.get("requires_ref_audio", None) is True
                     and not mbind.get("ref_audio")):
                 problems.append("call.methods.%s 要参考音频却没有 bind.ref_audio"
                                 % mname)
     else:
-        if "text" not in bind:
-            problems.append("缺 call.bind.text：平台不知道该把正文放进哪个参数")
+        # 不绑 text 是这个引擎不需要正文（vc 这类）。有能力、没能力都由名片自己说，
+        #   平台不因为「TTS 一般都要文本」就先拦一道。
+        pass
 
     # returns=file 时要 output_path：多方法也得各自有，否则某个方法
     # 合成完宿主找不到文件。多方法下顶层那个可被方法级覆盖。

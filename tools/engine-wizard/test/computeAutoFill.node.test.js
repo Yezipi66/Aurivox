@@ -500,6 +500,18 @@ test('没嗅探到就不打 role：平台不替人猜', () => {
   assert.strictEqual(r.call.args.emotion_audio.role, undefined)
 })
 
+test('格式开关按嗅探建议打 role，名字进 call_time 白名单', () => {
+  const params = [
+    { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
+    { source: 'cli', name: 'output-format', target: '--output-format', kind: 'str', style: 'value', required: false, group: 'synth', source_file: 'cli.py', choices: ['wav', 'mp3'] },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' }, [], null, null, {
+    audio_params: [], weight_slots: [], output_formats: ['wav', 'mp3'], format_arg: 'output_format',
+  })
+  assert.strictEqual(r.call.args['output-format'].role, 'output_format')
+  assert.ok(r.callTime.includes('output-format'), '格式参数也要进白名单，host 才收得到')
+})
+
 test('顶层声明建议回传，由调用方按已有声明决定是否落盘', () => {
   const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, null, {
     audio_params: [],

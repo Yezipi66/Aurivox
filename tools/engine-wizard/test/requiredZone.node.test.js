@@ -1,7 +1,7 @@
 'use strict'
 // 第 4 步的表单形状：必填区三个槽位一行 + 引擎目录与启动脚本一行，
-// 参考文本的声明（ref_text）不在这区：它与运行设备同排，排在
-// 「合成参数」与「引擎配置」之间的运行参数行（OptionalConfig）里。
+// 参考文本的声明（ref_text）不在这区：它与运行设备同排，收在
+// 「可选能力」区（OptionalCapabilities.jsx）里。
 //
 // 守的形状：
 //   ① 必填区只有 5 格：三个输入槽位一行（text / ref_audio / output_path），
@@ -9,7 +9,7 @@
 //      不许再摆进必填区让人猜。
 //   ② 两行都用 auto-fit 网格，中栏被拖窄时折成单列，不写死列数。
 //   ③ 「高级」折叠区与它的全量嵌套编辑器（NestedSections）不在了；
-//      可选项在「可选参数」区里：合成参数 + 引擎配置，引擎配置默认一行不显示。
+//      可选项在「可选参数」区里：合成参数 + 可选能力 + 引擎配置，引擎配置默认一行不显示。
 //
 // 判据落在源码声明上（不渲染 JSX）。
 
@@ -22,6 +22,7 @@ const EDITOR = path.join(__dirname, '..', 'editor')
 const src = fs.readFileSync(path.join(EDITOR, 'RequiredFields.jsx'), 'utf8')
 const form = fs.readFileSync(path.join(EDITOR, 'ManifestForm.jsx'), 'utf8')
 const optional = fs.readFileSync(path.join(EDITOR, 'OptionalConfig.jsx'), 'utf8')
+const capabilities = fs.readFileSync(path.join(EDITOR, 'OptionalCapabilities.jsx'), 'utf8')
 const css = fs.readFileSync(path.join(EDITOR, 'editor.css'), 'utf8')
 
 function stripComments (text) {
@@ -57,7 +58,7 @@ test('必填区恰好 5 格：三个槽位 + 引擎目录 + 启动脚本（参�
   assert.deepStrictEqual(slotCodes(live), ['text', 'ref_audio', 'ref_text', 'output_path'],
     '标签表要覆盖平台的四个槽位（fallback 清单逐字等于 BIND_SLOTS）')
   assert.ok(/\.filter\(\(key\) => key !== 'ref_text'\)/.test(live),
-    '参考文本的声明已挪到运行参数行，必填区渲染时滤掉')
+    '参考文本的声明已挪到可选能力区，必填区渲染时滤掉')
   assert.deepStrictEqual(badgeCodes(live).sort(), ['runtime.entry', 'runtime.python'])
 })
 
@@ -179,17 +180,28 @@ test('第 5 步进度文案：阶段四种，已用时间 mm:ss', () => {
   assert.equal(P.measureRunning(null), false)
 })
 
-test('参考文本的声明在运行参数行：与运行设备同排，编辑的是 bind.ref_text', () => {
-  const opt = stripComments(fs.readFileSync(
-    path.join(__dirname, '..', 'editor', 'OptionalConfig.jsx'), 'utf8'))
-  assert.ok(/bindNow\.ref_text/.test(opt), '运行参数行要有参考文本的声明格（读 bind.ref_text）')
-  assert.ok(/nextBind\.ref_text = v/.test(opt), '填写即写进 call.bind.ref_text')
-  assert.ok(/delete nextBind\.ref_text/.test(opt), '清空即从 bind 里删掉')
-  const grid = opt.indexOf('form-grid')
-  const refField = opt.indexOf('bindNow.ref_text')
-  const devField = opt.indexOf('Runtime device')
+test('参考文本的声明在可选能力区：与运行设备同排，编辑的是 bind.ref_text', () => {
+  const cap = stripComments(fs.readFileSync(
+    path.join(__dirname, '..', 'editor', 'OptionalCapabilities.jsx'), 'utf8'))
+  assert.ok(/bindNow\.ref_text/.test(cap), '可选能力区要有参考文本的声明格（读 bind.ref_text）')
+  // 存的是 trim 后的开关名：名片里带前后空格的开关在命令行上会变成一个怪词。
+  assert.ok(/nextBind\.ref_text = String\(v\)\.trim\(\)/.test(cap),
+    '填写即写进 call.bind.ref_text（去掉前后空白）')
+  assert.ok(/delete nextBind\.ref_text/.test(cap), '清空即从 bind 里删掉')
+  const grid = cap.indexOf('form-grid')
+  const refField = cap.indexOf('bindNow.ref_text')
+  const devField = cap.indexOf('Runtime device')
   assert.ok(grid >= 0 && refField > grid && devField > grid,
     '运行设备与参考文本要同排（同一个 form-grid 里）')
+  assert.ok(/t\('Optional capabilities', '可选能力'\)/.test(cap),
+    '两者要收在同一个可选能力区里，不散在别处')
+})
+
+test('可选能力区默认展开，引擎配置默认收起', () => {
+  const cap = stripComments(capabilities)
+  const opt = stripComments(optional)
+  assert.ok(/React\.useState\(true\)/.test(cap), '可选能力重要但非必填，默认展开')
+  assert.ok(/React\.useState\(false\)/.test(opt), '引擎配置多数保持默认，默认收起')
 })
 
 test('参考文本没绑不是校验错误', () => {
