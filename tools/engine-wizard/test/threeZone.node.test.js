@@ -109,7 +109,7 @@ test('骨架：三根骨头是平级的容器，不在一个大盒子里', async
   const { container, root } = mount()
   root.render(React.createElement(Stage, {
     open: { left: false, right: false },
-    onToggle: () => {},
+    onToggle: () => {}, full: false, onFull: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
     right: React.createElement('div', { id: 'right' }, 'R'),
@@ -132,7 +132,7 @@ test('默认两边都收着：边条只露一个箭头，内容不渲染', async
   const { container, root } = mount()
   root.render(React.createElement(Stage, {
     open: { left: false, right: false },
-    onToggle: () => {},
+    onToggle: () => {}, full: false, onFull: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
     right: React.createElement('div', { id: 'right' }, 'R'),
@@ -157,7 +157,7 @@ test('点箭头：抽屉滑出来；没有遮罩，中栏照常能点', async ()
   const render = (open) => {
     root.render(React.createElement(Stage, {
       open,
-      onToggle: (k) => toggled.push(k),
+      onToggle: (k) => toggled.push(k), full: false, onFull: () => {},
       left: React.createElement('div', { id: 'left' }, 'L'),
       center: React.createElement('div', { id: 'center' }, 'C'),
       right: React.createElement('div', { id: 'right' }, 'R'),
@@ -194,7 +194,7 @@ test('点箭头：抽屉滑出来；没有遮罩，中栏照常能点', async ()
 test('左抽屉开合写进骨架类名：预览的上限靠它跟着重算，中栏才不会被压成 0', async () => {
   const { root, container } = mount()
   const render = (open) => root.render(React.createElement(Stage, {
-    open, onToggle: () => {}, left: 'L', center: 'C', right: 'R',
+    open, onToggle: () => {}, full: false, onFull: () => {}, left: 'L', center: 'C', right: 'R',
   }))
   render({ left: false, right: true })
   await settle()
@@ -210,9 +210,14 @@ test('左抽屉开合写进骨架类名：预览的上限靠它跟着重算，�
 
 test('全屏时锁住背后的页面滚动，退出时还原', async () => {
   const { dom, root, container } = mount()
-  root.render(React.createElement(Stage, {
-    open: { left: false, right: true }, onToggle: () => {}, left: 'L', center: 'C', right: 'R',
+  // full 是受控的（ManifestPage 持有），这里用本地变量扮演父层，否则点了按钮也不会进全屏。
+  let full = false
+  const draw = () => root.render(React.createElement(Stage, {
+    open: { left: false, right: true }, onToggle: () => {},
+    full, onFull: (v) => { full = v; draw() },
+    left: 'L', center: 'C', right: 'R',
   }))
+  draw()
   await settle()
   const html = dom.window.document.documentElement
   const fullBtn = container.querySelectorAll('.wz-drawer-right .wz-drawer-handle')[1]
@@ -230,7 +235,7 @@ test('箭头按钮用的是方向箭头，不是项目的 ▸', async () => {
   const { container, root } = mount()
   root.render(React.createElement(Stage, {
     open: { left: false, right: false },
-    onToggle: () => {},
+    onToggle: () => {}, full: false, onFull: () => {},
     left: React.createElement('div', { id: 'left' }, 'L'),
     center: React.createElement('div', { id: 'center' }, 'C'),
     right: React.createElement('div', { id: 'right' }, 'R'),
