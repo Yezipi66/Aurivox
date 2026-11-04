@@ -34,7 +34,7 @@ function normName (name) {
 //   猜错的代价是把一个普通参数当成设备，下发时填进一个引擎不认识的值。
 const DEVICE_NAME_RE = /^(device|devices|gpu|run_device)$/
 
-export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null) {
+export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null) {
   if (!params || !params.length) return null
 
   const call = { ...(currentCall || {}) }
@@ -119,6 +119,11 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
         entry.role = 'device'
         // 格式按参数类型推：number 说明引擎要编号，其余按 torch 设备字符串处理
         entry.device_format = p.kind === 'number' ? 'index' : 'torch'
+      } else if (hints && Array.isArray(hints.audio_params) && hints.audio_params.includes(normName(p.name))) {
+        // 音频类输入：同一套选择器可喂 --emotion-audio 或 --aux-ref-audio，
+        //   平台不解释上游叫什么语义，只声明「这一格由音频选择器填」。
+        //   label 留给使用者写，嗅探不替他起名。
+        entry.role = 'audio_ref'
       }
       call.args[p.name] = entry
     }
@@ -209,8 +214,17 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
   //   把名字带回给调用方，由它写进名片的 params.call_time。
   const callTime = Object.entries(call.args || {})
-    .filter(([, e]) => e && e.role === 'device')
+    .filter(([, e]) => e && (e.role === 'device' || e.role === 'audio_ref'))
     .map(([name]) => name)
 
-  return { call, matched, argList: params, notes, callTime }
+  // 顶层声明的建议（多权重位 / 输出格式）只是建议：调用方按「已有声明不覆盖」落盘。
+  const manifestPatch = {}
+  if (hints && Array.isArray(hints.weight_slots) && hints.weight_slots.length) {
+    manifestPatch.weights = hints.weight_slots
+  }
+  if (hints && Array.isArray(hints.output_formats) && hints.output_formats.length) {
+    manifestPatch.output_formats = hints.output_formats
+  }
+
+  return { call, matched, argList: params, notes, callTime, manifestPatch }
 }

@@ -280,6 +280,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   const pronPayload = buildPronPayload(pronOverrides, panelLang, hanDir, hanForcedLive, hanReadings)  // 基础读音 + 反向读音
   const [auxRefs, setAuxRefs] = useState([])   // 选中的辅助参考音频路径
   const [segments, setSegments] = useState([])   // 辅助参考选择器用的，从 API 读
+  // 平台声明的音频输入：名单来自名片，没声明就是空数组，界面不长这一格。
+  const audioInputs = (engine?.declared_inputs || []).filter((x) => x && x.role === 'audio_ref')
+  const [audioValues, setAudioValues] = useState({})  // { 参数名: [路径] }
+  // 输出格式：名片没声明就保持 wav，也不长下拉。
+  const outputFormats = Array.isArray(engine?.output_formats) ? engine.output_formats : []
+  const [format, setFormat] = useState('wav')
+  useEffect(() => { if (!outputFormats.includes(format)) setFormat(outputFormats[0] || 'wav') }, [engine && engine.id])
 
   // 换角色 / 换引擎时，先把上次记住的选择摆上去（还有没有效，交给下面那条对齐）。
   useEffect(() => {
@@ -458,9 +465,12 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
     const explicitEngineParams = paramsToSend(engine, paramValues, touchedParams)
     const phasedEngineParams = paramsByPhase(engine, paramValues, touchedParams)
     const body = {
-      voice: selectedVoice, text, format: 'wav',
+      voice: selectedVoice, text, format,
       ref_audio: currentRefAudio || undefined,
       reference_text: effectiveRefText || undefined,
+      // 平台声明的音频输入：只发有选中的那些；没声明时整个字段不出现。
+      audio_inputs: Object.keys(audioValues).some((k) => (audioValues[k] || []).length)
+        ? audioValues : undefined,
       split: splitEnabled, max_chars: maxChars,
       concat: concatEnabled, silence_ms: silenceMs,
       // 引擎参数：只发这台引擎名片里有的键，且只有用户动过的才发。
@@ -832,6 +842,19 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               voices={voices}
               onAuxRefAdd={(p) => setAuxRefs(prev => prev.some(x => sameRefPath(x, p)) ? prev : [...prev, p])}
               onAuxRefRemove={(i) => setAuxRefs(prev => prev.filter((_, idx) => idx !== i))}
+              audioInputs={audioInputs}
+              audioValues={audioValues}
+              onAudioAdd={(name, p) => setAudioValues(prev => {
+                const cur = prev[name] || []
+                if (cur.some(x => sameRefPath(x, p))) return prev
+                return { ...prev, [name]: [...cur, p] }
+              })}
+              onAudioRemove={(name, i) => setAudioValues(prev => ({
+                ...prev, [name]: (prev[name] || []).filter((_, idx) => idx !== i),
+              }))}
+              outputFormats={outputFormats}
+              format={format}
+              onFormat={setFormat}
             />
 
             {genBaseWarn && (

@@ -478,3 +478,34 @@ test('扫不出入口时不设限：args 保持原有行为', () => {
   const r = computeAutoFill(params, { kind: 'cli' })
   assert.ok(r.call.args.tp_size, '没有入口线索时不过滤，维持旧行为')
 })
+
+test('音频类输入按嗅探建议打 role，名字进 call_time 白名单', () => {
+  const params = [
+    { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
+    { source: 'cli', name: 'emotion-audio', target: '--emotion-audio', kind: 'str', style: 'value', required: false, group: 'synth', source_file: 'cli.py' },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' }, [], null, null, {
+    audio_params: ['emotion_audio'], weight_slots: [], output_formats: [],
+  })
+  assert.strictEqual(r.call.args['emotion-audio'].role, 'audio_ref')
+  assert.deepStrictEqual(r.callTime, ['emotion-audio'], '音频参数也要进白名单，否则请求带了会被静默丢')
+})
+
+test('没嗅探到就不打 role：平台不替人猜', () => {
+  const params = [
+    { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
+    { source: 'cli', name: 'emotion_audio', target: '--emotion_audio', kind: 'str', style: 'value', required: false, group: 'synth', source_file: 'cli.py' },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' })
+  assert.strictEqual(r.call.args.emotion_audio.role, undefined)
+})
+
+test('顶层声明建议回传，由调用方按已有声明决定是否落盘', () => {
+  const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, null, {
+    audio_params: [],
+    weight_slots: [{ name: 'gpt', param: 'gpt_model', applies_at: 'call' }],
+    output_formats: ['wav', 'mp3'],
+  })
+  assert.deepStrictEqual(r.manifestPatch.weights[0].name, 'gpt')
+  assert.deepStrictEqual(r.manifestPatch.output_formats, ['wav', 'mp3'])
+})

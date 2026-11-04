@@ -41,6 +41,13 @@ export function AdvancedParamsPanel({
   voices,
   onAuxRefAdd,
   onAuxRefRemove,
+  audioInputs = [],
+  audioValues = {},
+  onAudioAdd,
+  onAudioRemove,
+  outputFormats = [],
+  format = 'wav',
+  onFormat,
 }) {
   const { t } = useT()
 
@@ -166,6 +173,41 @@ export function AdvancedParamsPanel({
                 onAdd={p => onAuxRefAdd(p)}
                 onRemove={i => onAuxRefRemove(i)}
               />
+            </div>
+          )}
+
+          {/* 平台声明的音频输入：名单来自名片（call.args.*.role=audio_ref）。
+              没声明就不长这一格。同一套选择器可喂 --emotion-audio 或 --aux-ref-audio，
+              平台不解释上游给它起的语义名。 */}
+          {(audioInputs || []).map((d) => {
+            const picked = audioValues[d.name] || []
+            return (
+              <div key={d.name} style={{ marginTop: 10 }}>
+                <label className="field-label">
+                  {t(d.labelEn || d.label || d.name, d.label || d.labelEn || d.name)}
+                  <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
+                    {d.multiple ? t('(optional, multi-select)', '（可选，多选）') : t('(optional, single)', '（可选，单选）')}
+                  </span>
+                </label>
+                <AuxReferencePicker
+                  voiceId={refVoiceId}
+                  voices={voices}
+                  value={picked}
+                  mainRef={currentRefAudio}
+                  onAdd={p => { if (d.multiple || picked.length === 0) onAudioAdd && onAudioAdd(d.name, p) }}
+                  onRemove={i => onAudioRemove && onAudioRemove(d.name, i)}
+                />
+              </div>
+            )
+          })}
+
+          {/* 输出格式：名片声明了 output_formats 才有这一格，没声明沿用 wav。 */}
+          {(outputFormats || []).length > 0 && (
+            <div className="field" style={{ marginTop: 10 }}>
+              <label className="field-label">{t('Output format', '输出格式')}</label>
+              <select className="control" value={format} onChange={(e) => onFormat && onFormat(e.target.value)}>
+                {outputFormats.map((f) => <option key={f} value={f}>{String(f).toUpperCase()}</option>)}
+              </select>
             </div>
           )}
         </div>

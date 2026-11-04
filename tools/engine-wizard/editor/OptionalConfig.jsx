@@ -2,6 +2,7 @@
 ﻿import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { OPTIONAL_KEYS, SOURCES, PLATFORM_DEFAULTS, get, setPath, removeItem, prefillReferenceAudio, platformDefaultedRows, localMeasuredRows } from './optionalKeys'
+import PlatformDeclarations from './PlatformDeclarations'
 
 // 可选参数里的「引擎配置」：除 5 项必填外、平台有兜底常量、按需再填的项。
 //
@@ -274,6 +275,9 @@ export default function OptionalConfig ({ manifest, onChange }) {
           </div>
         )
       })()}
+
+      {/* 平台声明：音频类输入 / 多权重位 / 输出格式。声明了才有对应前端控件。 */}
+      <PlatformDeclarations manifest={m} onChange={onChange} />
 
       {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。
           运行设备不塞进折叠里：它选错卡会直接跑不起来，藏起来等于没人会看一眼。

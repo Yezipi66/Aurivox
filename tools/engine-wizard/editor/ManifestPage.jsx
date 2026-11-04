@@ -102,16 +102,19 @@ export default function ManifestPage ({
       // 入口嗅探结果：填进 call.argv 的模块名与子命令。为 null 时 argv 里留占位符，
       //   由使用者自己填（扫不出入口的引擎仍然要能配）。
       const entryPick = j.entry || null
+      // 平台声明的嗅探建议（音频类输入 / 多权重位 / 输出格式）。只作建议，
+      //   名片里已经写了的声明一律不覆盖，见下面写回那一段。
+      const declareHints = j.declare_hints || null
       // 扫描回来时名片可能已经变了（等结果期间的代填、使用者的编辑）：
       //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
       const latest = latestManifest.current || {}
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id)
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints)
       if (result) {
         onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints) || result
           const next = { ...base, call: merged.call }
           // 运行设备这类参数的值来自请求体，host 只认 params.call_time 白名单里的键。
           //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
@@ -127,6 +130,15 @@ export default function ManifestPage ({
           }
           if (!next.label && id) next.label = id
           if (next.contract_version === undefined) next.contract_version = 2
+          // 顶层声明只补空缺：多权重位与输出格式是使用者可改的决定，
+          //   已经写过的那份不拿扫描建议覆盖。
+          const patch = merged.manifestPatch || {}
+          if (base.weights === undefined && Array.isArray(patch.weights) && patch.weights.length) {
+            next.weights = patch.weights
+          }
+          if (base.output_formats === undefined && Array.isArray(patch.output_formats) && patch.output_formats.length) {
+            next.output_formats = patch.output_formats
+          }
           return next
         })
         setAutofill({ matched: result.matched, argList: result.argList, notes: result.notes || [] })

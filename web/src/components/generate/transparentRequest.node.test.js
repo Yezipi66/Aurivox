@@ -8,7 +8,10 @@ const src = readDirSources(import.meta.url, '.')
 
 test('Generate 只拒绝真正的空字符串，发送 text 原文', () => {
   assert.match(src, /if \(text === ''\)/)
-  assert.match(src, /voice: selectedVoice, text, format: 'wav'/)
+  // 输出格式不再写死 wav：名片声明了 output_formats 才长下拉，缺省仍是 wav。
+  assert.match(src, /voice: selectedVoice, text, format,/)
+  assert.match(src, /const \[format, setFormat\] = useState\('wav'\)/)
+  assert.doesNotMatch(src, /format: 'wav'/)
   assert.doesNotMatch(src, /text:\s*text\.trim\(\)/)
   assert.doesNotMatch(src, /if \(!text\.trim\(\)\)/)
 })
