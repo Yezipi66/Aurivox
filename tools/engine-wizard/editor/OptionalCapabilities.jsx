@@ -109,7 +109,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
   //   否则刚加出来、还没有位名的那一行会被冲掉。
   const weightSig = JSON.stringify(m.weights || null)
   // 本区默认摆出第 2 权重位：多权重是合成页第二个下拉的来源，先给出这一行，
-  //   使用者不必先点一次加号才知道有这项能力。
+  //   界面直接摆出这一行，使用者无需一次加号操作即可发现这项能力。
   //   空行不写进名片（位名是磁盘目录名，没有名字就没有这一位），整行按未声明弱化，
   //   因此摆出这一行不等于替这台引擎声明了第二位。
   const withDraft = (rows) => (rows.length ? rows : [emptySlot()])
