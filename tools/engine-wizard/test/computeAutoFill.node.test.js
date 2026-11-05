@@ -534,3 +534,55 @@ test('顶层声明建议回传，由调用方按已有声明决定是否落盘',
   assert.deepStrictEqual(r.manifestPatch.weights[0].name, 'gpt')
   assert.deepStrictEqual(r.manifestPatch.output_formats, ['wav', 'mp3'])
 })
+
+// 权重落点：扫描认出的模型目录开关要自动接上 {checkpoints}。
+// 少了这一对，名片校验只报「模型权重」缺失，而开关本身已经在 args 里。
+
+const entryForWeights = {
+  file: 'demo/infer_cli.py', module: 'demo.infer_cli', srcRoot: null,
+  subcommand: null, score: 4, source: 'entry-points',
+}
+
+const withModel = [
+  { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'infer', source_file: 'demo/infer_cli.py' },
+  { source: 'cli', name: 'model_dir', target: '--model_dir', kind: 'str', style: 'value', required: false, group: 'infer', source_file: 'demo/infer_cli.py' },
+]
+
+test('扫描认出模型目录开关 ⇒ 自动接上权重落点，名片不再缺「模型权重」', () => {
+  const r = computeAutoFill(withModel, { kind: 'cli' }, [], entryForWeights, 'demo')
+  assert.deepStrictEqual(r.call.argv.slice(-2), ['--model_dir', '{checkpoints}'])
+  assert.ok(r.notes.some((n) => /权重落点/.test(n.zh)), '自动接线要在说明里留痕，便于核对')
+  assert.strictEqual(r.call.args.model_dir.flag, '--model_dir', '开关本身仍留在 args 里')
+})
+
+test('名片里已写着权重落点 ⇒ 不再追加，使用者的写法优先', () => {
+  const cur = { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_', '--ckpt', '{checkpoints}'] }
+  const r = computeAutoFill(withModel, cur, [], entryForWeights, 'demo')
+  assert.deepStrictEqual(r.call.argv.slice(-2), ['--ckpt', '{checkpoints}'])
+  assert.strictEqual(r.call.argv.length, 5, '不该出现第二对权重参数')
+})
+
+test('引擎自行定位权重 ⇒ 不补落点', () => {
+  const r = computeAutoFill(withModel, { kind: 'cli', weights: 'self' }, [], entryForWeights, 'demo')
+  assert.ok(!r.call.argv.some((w) => String(w).includes('{checkpoints}')))
+})
+
+test('没有入口线索且命中不止一个模型开关 ⇒ 不替使用者挑', () => {
+  const params = [
+    ...withModel,
+    { source: 'cli', name: 'ckpt_dir', target: '--ckpt-dir', kind: 'str', style: 'value', group: 'infer', source_file: 'other.py' },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' }, [], null, 'demo')
+  assert.ok(!r.call.argv.some((w) => String(w).includes('{checkpoints}')),
+    '多个候选且没有入口证据时，接错目录会让引擎加载错权重')
+})
+
+test('没有入口线索但只命中一个模型开关 ⇒ 仍然自动接上', () => {
+  const r = computeAutoFill(withModel, { kind: 'cli' }, [], null, 'demo')
+  assert.deepStrictEqual(r.call.argv.slice(-2), ['--model_dir', '{checkpoints}'])
+})
+
+test('python 形态不往 argv 里写权重落点', () => {
+  const r = computeAutoFill(pythonParams, { kind: 'python' }, [], null, 'demo')
+  assert.strictEqual(r.call.argv, undefined)
+})

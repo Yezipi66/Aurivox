@@ -34,6 +34,9 @@ function normName (name) {
 //   猜错的代价是把一个普通参数当成设备，下发时填进一个引擎不认识的值。
 const DEVICE_NAME_RE = /^(device|devices|gpu|run_device)$/
 
+// 权重落点的占位符：与 weightsField.js 的 TOKEN 同一个值，第 3 步下载到那里。
+const TOKEN = '{checkpoints}'
+
 export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null) {
   if (!params || !params.length) return null
 
@@ -85,6 +88,34 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
       if (mod && sub) argv.push(sub)
     }
     // 已经写着具体模块名的 argv 不改写：那是使用者的决定，扫描只是给建议。
+    // 权重落点：扫描认出的模型目录开关要接上 {checkpoints}，否则名片校验报
+    //   「模型权重」缺失，而那个开关明明已经在 args 里。只在名片里还没有
+    //   落点时补；使用者写过的那一份一律不覆盖。
+    if (call.weights !== 'self' && !argv.some((w) => String(w).includes(TOKEN))) {
+      const entryFile = entry && entry.file ? String(entry.file) : null
+      const MODEL_RANK = [
+        /^model_?dir$/, /^model_?path$/, /^model_?root$/,
+        /^(ckpt|checkpoint|checkpoints|weights)_?(dir|path)$/,
+        /^(ckpt|checkpoint|checkpoints|weights|pretrained|model)$/,
+      ]
+      const hits = params
+        .filter((p) => p.source === 'cli' && p.target &&
+          (!p.style || p.style === 'value') &&
+          (!entryFile || !p.source_file || p.source_file === entryFile))
+        .map((p) => ({ p, rank: MODEL_RANK.findIndex((re) => re.test(normName(p.name))) }))
+        .filter((x) => x.rank >= 0)
+        .sort((a, b) => a.rank - b.rank)
+      // 没有入口线索且命中不止一个时不替使用者挑：接错开关会让引擎加载错目录。
+      const usable = entryFile ? hits : (hits.length === 1 ? hits : [])
+      if (usable.length) {
+        const flag = String(usable[0].p.target)
+        argv = [...argv, flag, TOKEN]
+        notes.push({
+          en: 'Weights path: ' + flag + ' is connected to the download folder. Confirm this switch in the Model weights field.',
+          zh: '权重落点：' + flag + ' 已接到下载目录。请在「模型权重」格确认这个开关。',
+        })
+      }
+    }
     call.argv = argv
 
     // 模块名要能 import，工作目录得落在引擎目录上：示例命令默认在仓库根执行，
