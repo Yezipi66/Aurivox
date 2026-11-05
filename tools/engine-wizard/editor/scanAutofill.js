@@ -347,6 +347,14 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
     manifestPatch.output_formats = hints.output_formats
   }
 
+  // 可复现性：名片没写 seed 时补一条。这一项缺了宿主拒绝启动，
+  //   所以不能留给「以后再说」：扫到名字就是 seed 的开关就按「引擎自己收」写，
+  //   否则写 "none"（明确表示种子不受控制）。已有声明一律不动。
+  if (call.seed === undefined) {
+    const seedHit = params.find((p) => p && normName(p.name) === 'seed')
+    call.seed = seedHit ? { arg: seedHit.target } : 'none'
+  }
+
   // 入口结论分档只看上游给的证据强度：high 且出自声明或文档才算确定，
   //   打分选出来的（medium / low）与并列候选都标推测，界面让人自己点清单。
   if (entry && entry.file) {

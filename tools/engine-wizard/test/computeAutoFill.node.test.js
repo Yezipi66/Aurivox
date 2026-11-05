@@ -672,3 +672,25 @@ test('权重落点按名字排序接上 ⇒ 标成推测，并记下接的是哪
   assert.strictEqual(r.confidence.weights.level, 'guess')
   assert.strictEqual(r.confidence.weights.flag, '--model_dir')
 })
+
+// 可复现性：契约要求每张名片显式写出三态之一，缺了宿主拒绝启动。
+// 自动填只做两件事：扫到名字就是 seed 的开关就按「引擎自己收」写，否则写「不可复现」。
+const withSeedFlag = [...cliParams,
+  { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', help: null, required: false, group: 'infer', is_tool: false }]
+
+test('可复现性：扫到同名 seed 开关 ⇒ 按「引擎自己收」写这个名字', () => {
+  const r = computeAutoFill(withSeedFlag, { kind: 'cli' }, [], null, 'demo')
+  assert.deepStrictEqual(r.call.seed, { arg: '--seed' },
+    '扫到名字就是 seed 的开关：这一台自己收种子')
+})
+
+test('可复现性：扫不到种子开关 ⇒ 写「不可复现」，不留空', () => {
+  const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, 'demo')
+  assert.strictEqual(r.call.seed, 'none',
+    '缺了这一项保存与启动都会被拒；「不可复现」是唯一不需要额外信息的答案')
+})
+
+test('可复现性：名片已经写过 seed ⇒ 不覆盖', () => {
+  const r = computeAutoFill(withSeedFlag, { kind: 'cli', seed: { mode: 'global', rngs: ['torch'] } }, [], null, 'demo')
+  assert.deepStrictEqual(r.call.seed, { mode: 'global', rngs: ['torch'] })
+})

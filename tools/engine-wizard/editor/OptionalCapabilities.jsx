@@ -12,6 +12,10 @@ import { readSlots, writeSlots, emptySlot } from './weightSlots'
 
 const APPLIES = ['call', 'launch']
 
+// 可复现性要播种的随机源：与 lib/engines/host.py 的 _RNG_TABLE 同一份名单，
+//   宿主那边多一种或少一种都由它决定，这里只是把名单摆出来给人勾。
+const SEED_RNGS = ['python', 'numpy', 'torch', 'torch.cuda']
+
 // 分段用的框：输出格式、音频输入、多权重位三处同一形状。
 const BOX = { marginBottom: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6 }
 
@@ -138,6 +142,48 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
   const devRows = Object.entries(call.args || {})
     .filter(([, entry]) => entry && entry.role === 'device')
   const deviceFields = devRows.length ? devRows : [['device', null]]
+
+  // ---- 可复现性（seed）----
+  // 种子不是实参，是这台引擎「能不能复现」的声明。契约要求每张名片显式写出三态之一，
+  //   留空宿主会拒绝启动，所以这一格没有「留空」这个选项。
+  //   三态：引擎自己收（写参数名）/ 宿主播全局 RNG / 不可复现（宿主拒收 seed）。
+  const seedSpec = call.seed
+  const seedMode = seedSpec === undefined || seedSpec === 'none'
+    ? 'none'
+    : (seedSpec && seedSpec.arg !== undefined
+        ? 'arg'
+        : ((seedSpec && seedSpec.mode === 'global') ? 'global' : 'none'))
+  const seedArg = seedSpec && seedSpec.arg !== undefined ? String(seedSpec.arg) : ''
+  const seedRngs = seedSpec && Array.isArray(seedSpec.rngs) ? seedSpec.rngs : []
+  const setSeedMode = (next) => patch((cur) => {
+    const c = { ...(cur.call || {}) }
+    const prev = c.seed
+    if (next === 'arg') c.seed = { arg: (prev && prev.arg) || '--seed' }
+    else if (next === 'global') {
+      c.seed = { mode: 'global', rngs: (prev && Array.isArray(prev.rngs) && prev.rngs.length) ? prev.rngs : ['python'] }
+    } else c.seed = 'none'
+    return { ...cur, call: c }
+  })
+  const setSeedArg = (value) => patch((cur) => ({
+    ...cur, call: { ...(cur.call || {}), seed: { arg: String(value == null ? '' : value).trim() } },
+  }))
+  const toggleSeedRng = (name) => patch((cur) => {
+    const prev = (cur.call || {}).seed
+    const list = prev && Array.isArray(prev.rngs) ? prev.rngs : []
+    const next = list.includes(name) ? list.filter((x) => x !== name) : [...list, name]
+    return { ...cur, call: { ...(cur.call || {}), seed: { mode: 'global', rngs: next } } }
+  })
+  // 名片里还没有 seed 时补一条「不可复现」：缺了这一项，保存与启动都会被拒，
+  //   而「不可复现」是唯一不需要额外信息的答案：它明确表示这台引擎不受种子控制。
+  //   已声明的不覆盖，使用者在这里选什么就是什么。
+  React.useEffect(() => {
+    if (!m.call || call.seed !== undefined) return
+    onChange((cur) => {
+      const c = cur && cur.call
+      if (!c || c.seed !== undefined) return cur
+      return { ...cur, call: { ...c, seed: 'none' } }
+    })
+  }, [m.id, call.seed])
 
   const box = (key, unset, children) => (
     <div key={key} style={{ ...BOX, marginTop: 6 }} className={unset ? 'wz-unset' : undefined}>
@@ -389,6 +435,60 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
             </div>
           )
         })()}
+
+        {/* 可复现性：三态必选其一。这一格与前面的几格不同：留空不是「不声明」，
+            而是让名片缺一项必填，保存与启动都会被拒。 */}
+        <div style={{ ...BOX, marginTop: 6 }}>
+          <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
+            {t('Reproducibility (seed)', '可复现性（seed）')}
+          </div>
+          <div className="form-grid" style={{ marginBottom: 0 }}>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="field-label"
+                title={t('The synthesizer can be told how to take a seed. Which of the three ways applies is a property of the engine, not a runtime value.',
+                  '合成时用哪种方式接收种子，是这台引擎的性质，不是运行时的取值。')}>
+                {t('How the seed is taken', '种子怎么传')}
+              </label>
+              <select className="control" value={seedMode}
+                onChange={(ev) => setSeedMode(ev.target.value)}>
+                <option value="none">{t('Not controllable: the host rejects seed', '不可复现：宿主拒收 seed')}</option>
+                <option value="arg">{t('The engine takes it as a parameter', '引擎自己收')}</option>
+                <option value="global">{t('The host seeds the global RNGs', '宿主播全局随机种子')}</option>
+              </select>
+            </div>
+            {seedMode === 'arg' && (
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label className="field-label">{t('Seed parameter', '种子参数名')}</label>
+                <input className="control" value={seedArg} placeholder="--seed"
+                  onChange={(ev) => setSeedArg(ev.target.value)} />
+              </div>
+            )}
+            {seedMode === 'global' && (
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label className="field-label">{t('Random sources to seed', '要播种的随机源')}</label>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', minHeight: 32 }}>
+                  {SEED_RNGS.map((name) => (
+                    <label key={name}
+                      style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                      <input type="checkbox" checked={seedRngs.includes(name)}
+                        onChange={() => toggleSeedRng(name)} />
+                      <span>{name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {((seedMode === 'arg' && !seedArg) || (seedMode === 'global' && !seedRngs.length)) && (
+            <div className="field-hint" style={{ color: 'var(--danger)' }}>
+              {seedMode === 'arg'
+                ? t('The parameter name cannot be empty; the manifest is rejected on save.',
+                  '参数名不能为空：留空保存会被拒。')
+                : t('Pick at least one random source; a global seed with none is rejected.',
+                  '至少要勾选一项随机源：一项都不选会被拒。')}
+            </div>
+          )}
+        </div>
       </div>
       )}
     </React.Fragment>
