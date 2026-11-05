@@ -14,9 +14,11 @@
  * @param entry 入口嗅探结果（entryPick 的返回）：填模块名与子命令进 argv。
  *   为 null 时 argv 里留着占位符，由使用者自己填。
  * @param engineId 引擎目录名，用来填 call.cwd（-m 找包从当前目录算起）。
- * @returns {{call, matched, argList, notes}} 或 null（没有参数）；
+ * @returns {{call, matched, argList, notes, callTime, manifestPatch, confidence}} 或 null（没有参数）；
  *   matched 是 { text, ref_audio, ref_text, output_path }，认不出时为 null。
  *   ref_text 是可选槽位：认不出不算缺，由用户自己拖进去。
+ *   confidence 给每个自动填的值标 certain / guess 与依据，界面据此用绿 / 黄徽标；
+ *   它只描述证据，不参与填值判定。
  */
 /**
  * 开关名归一化：上游把同一个参数写成 --model-dir、--model_dir、--modelDir 都常见。
@@ -34,14 +36,64 @@ function normName (name) {
 //   猜错的代价是把一个普通参数当成设备，下发时填进一个引擎不认识的值。
 const DEVICE_NAME_RE = /^(device|devices|gpu|run_device)$/
 
+// 槽位规范名：只有这些名字与平台槽位同义，按它们匹配才算「扫描已确定」。
+//   其余名字只是相近，名字不承载上游语义：speaker 与 output_dir 在命令行上
+//   分别指说话人编号与批量输出目录。这类值照样填，但界面标成推测，
+//   不与确切同名的值共用绿色徽标。
+const EXACT_SLOT_NAMES = {
+  text: ['text', 'tts_text', 'gen_text'],
+  ref_audio: ['ref_audio', 'reference_audio', 'prompt_audio', 'prompt_wav', 'ref_wav', 'prompt_speech_path'],
+  ref_text: ['ref_text', 'prompt_text', 'reference_text'],
+  output_path: ['output_path', 'output_file', 'save_path', 'out_path'],
+}
+
 // 权重落点的占位符：与 weightsField.js 的 TOKEN 同一个值，第 3 步下载到那里。
 const TOKEN = '{checkpoints}'
+
+/**
+ * 判一个槽位自动填的值能不能标成确定。降级按顺序取第一条成立的依据，
+ * 依据写的是已知事实，不替上游猜语义。
+ */
+function judgeSlot (slot, ev, params, ambiguous, entryFile) {
+  const via = ev.via
+  const file = ev.hit.source_file || null
+  const guess = (en, zh) => ({ level: 'guess', reason: { en, zh } })
+  if (ambiguous.includes(via)) {
+    return guess('The same name resolved to different values in two sources; the first match was used.',
+      '同名参数在两种来源里指向的值不同，当前取的是先匹配到的一个。')
+  }
+  if (file && entryFile && file !== entryFile) {
+    return guess('This switch was found in ' + file + ', not in the inference entry file.',
+      '该开关出现在 ' + file + '，不在推理入口文件内。')
+  }
+  // 有更贴切的规范名也在扫描结果里时，先报它：能指出该核对哪一个，比只说「名字相近」有用。
+  const rival = params.find((p) => normName(p.name) !== via &&
+    EXACT_SLOT_NAMES[slot].includes(normName(p.name)) && p.target !== ev.hit.target)
+  if (rival) {
+    return guess('Another parameter in the scan (' + rival.target + ') also fits this slot; the first match was used.',
+      '扫描结果中另有参数（' + rival.target + '）符合这一槽位，当前取的是先匹配到的一个。')
+  }
+  if (!EXACT_SLOT_NAMES[slot].includes(via)) {
+    return guess('Matched by a similar parameter name (' + via + '), not by an exact slot name. Confirm this binding before saving.',
+      '按相近参数名（' + via + '）匹配，并非槽位同名。保存前请核对这一格。')
+  }
+  return {
+    level: 'certain',
+    reason: {
+      en: 'The parameter name matches this slot exactly' + (file ? ' and comes from the inference entry file' : '') + ': ' + via + '.',
+      zh: '参数名与平台槽位一致' + (file ? '，且出自推理入口文件' : '') + '：' + via + '。',
+    },
+  }
+}
 
 export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null) {
   if (!params || !params.length) return null
 
   const call = { ...(currentCall || {}) }
   const notes = []
+  // 每个自动填进去的值都带一档置信度：certain 用绿色徽标，guess 用黄色徽标。
+  //   只记结论与依据，不改写上面任何一段填值逻辑；界面据此标注，不据此取舍。
+  const confidence = { bind: {}, returns: null, weights: null, entry: null }
 
   // kind 由名片说了算，只在只有一条来源时才改它。
   //   探测是同时扫两条路、再把结果合并成一张表的：表里混着两种来源，
@@ -114,6 +166,13 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
           en: 'Weights path: ' + flag + ' is connected to the download folder. Confirm this switch in the Model weights field.',
           zh: '权重落点：' + flag + ' 已接到下载目录。请在「模型权重」格确认这个开关。',
         })
+        confidence.weights = {
+          level: 'guess', flag,
+          reason: {
+            en: 'The weights switch was chosen by a name ranking: ' + flag + '. Confirm that it takes the download folder.',
+            zh: '权重开关按参数名排序选出：' + flag + '。请确认该开关收的是下载目录。',
+          },
+        }
       }
     }
     call.argv = argv
@@ -203,18 +262,20 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   const findSlot = (...names) => {
     const hits = []
     for (const n of names) {
-      const hit = byName[normName(n)]
-      if (hit) hits.push(hit)
+      const via = normName(n)
+      const hit = byName[via]
+      if (hit) hits.push({ via, hit })
     }
     if (!hits.length) return null
-    const inEntry = hits.find((h) => h.source_file && inEntryFile(h))
-    return (inEntry || hits[0]).target
+    const inEntry = hits.find((h) => h.hit.source_file && inEntryFile(h.hit))
+    const picked = inEntry || hits[0]
+    return { via: picked.via, hit: picked.hit, hits }
   }
 
   // prompt_text 不进「合成文本」的候选：零样本引擎里它几乎都是参考音频里说的那句话
   //   （参考文本），认成合成文本，念出来的就是参考音频的原话，而且不报错。
   //   它在参考文本的候选里排第一。参考文本只是尽量认：认不出就空着，不当成缺项。
-  const matched = {
+  const evidence = {
     text: findSlot('text', 'tts_text', 'gen_text'),
     // prompt_speech_path 与 ref_audio 同义：零样本引擎用它指参考音频所在的文件。
     ref_audio: findSlot('voice', 'ref_audio', 'prompt_wav', 'ref_wav', 'spk', 'speaker',
@@ -223,6 +284,18 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
     // output_dir 与 output_path 指同一个槽位：引擎那边的落点参数叫哪个都认。
     //   save_dir / out_dir 是上游常见的另两种写法，追加在末尾，不改变原有候选的优先级。
     output_path: findSlot('output', 'output_path', 'out', 'save_path', 'output_dir', 'save_dir', 'out_dir'),
+  }
+  // matched 的形状不变（槽位 → 开关名或 null）：界面与既有测试都按这个读。
+  const matched = {
+    text: evidence.text ? evidence.text.hit.target : null,
+    ref_audio: evidence.ref_audio ? evidence.ref_audio.hit.target : null,
+    ref_text: evidence.ref_text ? evidence.ref_text.hit.target : null,
+    output_path: evidence.output_path ? evidence.output_path.hit.target : null,
+  }
+  for (const [slot, ev] of Object.entries(evidence)) {
+    confidence.bind[slot] = ev
+      ? judgeSlot(slot, ev, params, ambiguous, entryFile)
+      : null
   }
 
   if (ambiguous.length) {
@@ -246,7 +319,16 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   //   已经写过 returns 的不覆盖，那是使用者的决定。
   if (call.returns === undefined && matched.output_path) {
     const outName = normName(String(matched.output_path).replace(/^-+/, ''))
-    if (/(_dir|_directory)$|^dir$/.test(outName)) call.returns = 'dir'
+    if (/(_dir|_directory)$|^dir$/.test(outName)) {
+      call.returns = 'dir'
+      confidence.returns = {
+        level: 'guess', value: 'dir',
+        reason: {
+          en: 'The output form was inferred from the switch name ' + matched.output_path + '. Confirm it in the file / directory selector.',
+          zh: '输出形态按开关名 ' + matched.output_path + ' 推断。请在「文件 / 目录」处确认。',
+        },
+      }
+    }
   }
 
   // 标了 role 的参数，值来自请求体。host 只把 params.call_time 白名单里的键交给引擎，
@@ -265,5 +347,24 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
     manifestPatch.output_formats = hints.output_formats
   }
 
-  return { call, matched, argList: params, notes, callTime, manifestPatch }
+  // 入口结论分档只看上游给的证据强度：high 且出自声明或文档才算确定，
+  //   打分选出来的（medium / low）与并列候选都标推测，界面让人自己点清单。
+  if (entry && entry.file) {
+    const certain = entry.confidence === 'high' && !entry.ambiguous &&
+      (entry.source === 'entry-points' || entry.source === 'readme')
+    confidence.entry = {
+      level: certain ? 'certain' : 'guess',
+      reason: certain
+        ? {
+          en: 'The packaging declaration or README names this inference entry: ' + entry.file + '.',
+          zh: '打包声明或 README 点名了这个推理入口：' + entry.file + '。',
+        }
+        : {
+          en: 'The inference entry was picked by candidate scoring; evidence strength is ' + (entry.confidence || 'not recorded') + '. Confirm the selected entry.',
+          zh: '推理入口按候选打分选出，证据强度为 ' + (entry.confidence || '未记录') + '。请确认所选入口。',
+        },
+    }
+  }
+
+  return { call, matched, argList: params, notes, callTime, manifestPatch, confidence }
 }

@@ -94,7 +94,8 @@ export default function ManifestForm ({
       {/* 推理入口：扫描认不出时从候选清单里选，或直接输入。它决定 call.argv 里
           跑的是哪个模块或脚本，与下面的合成参数是两件事，单独占一段。 */}
       <EntryChoice manifest={manifest} onChange={onChange}
-        candidates={entryCandidates || []} />
+        candidates={entryCandidates || []}
+        confidence={autofill && autofill.confidence} />
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。

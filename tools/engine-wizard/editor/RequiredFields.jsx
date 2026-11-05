@@ -46,6 +46,7 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
   const call = (manifest && manifest.call) || {}
   const bind = call.bind || {}
   const matched = (autofill && autofill.matched) || null
+  const confidence = (autofill && autofill.confidence) || null
   const candidates = (autofill && autofill.argList) || []
   const scanned = !!autofill
   const id = manifest && manifest.id
@@ -151,6 +152,11 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
     ? <span className="badge badge-muted">{t('prefilled, editable', '平台代填，可改')}</span>
     : null
 
+  // 这两格也是扫描按名字推的。只在值仍是推断值时挂推测徽标：人改过就不该继续说它是推测。
+  const returnsInferred = !!(confidence && confidence.returns && returns === confidence.returns.value)
+  const weightsInferred = !!(confidence && confidence.weights && !weights.self &&
+    weights.name && weights.name === confidence.weights.flag)
+
   return (
     <div className="section">
       <div className="section-hdr">
@@ -169,14 +175,18 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
           {orderedSlots.map((slot) => {
             const val = bind[slot.key] || ''
             const guessed = matched && matched[slot.key] || null
-            // 可选格清空后不再挂「扫描已匹配」：格子是空的，徽标不能说它匹配上了。
+            // 自动填的值分两档：规范同名、证据落在入口文件里且没有竞争候选才算确定。
+            //   拿不到 confidence 时按推测处理：不谎称确定。
+            const ev = confidence && confidence.bind ? confidence.bind[slot.key] : null
+            const isCertain = !!guessed && !!ev && ev.level === 'certain'
+            // 可选格清空后不再挂状态徽标：格子是空的，徽标不能说它匹配上了。
             const isMatched = !!guessed && (!slot.optional || !!val)
             // 可选格空着不算缺：不挂「需指定」，只在格子下面给一句提示。
             const unset = scanned && !guessed && !val && slotNeeded(slot.key) && !slot.optional
             const optionalEmpty = slot.optional && !val
             const input = (
               <input
-                className={`control${isMatched ? ' wz-field-matched' : (unset ? ' wz-field-guess' : '')}${overSlot === slot.key ? ' wz-dropzone-over' : ''}`}
+                className={`control${isCertain ? ' wz-field-matched' : ((isMatched || unset) ? ' wz-field-guess' : '')}${overSlot === slot.key ? ' wz-dropzone-over' : ''}`}
                 style={slot.optional ? { flex: 1, minWidth: 0 } : undefined}
                 onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOverSlot(slot.key) }}
                 onDragLeave={() => setOverSlot(null)}
@@ -194,11 +204,21 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               <Cell key={slot.key}
                 unset={!val}
                 label={t(slot.labelEn, slot.labelZh)} code={slot.key}
-                badge={isMatched
-                  ? <span className="badge badge-ok">{t('matched by scan', '扫描已匹配')}</span>
-                  : (unset
-                    ? <span className="badge badge-warn">{t('not matched, specify', '未匹配，需指定')}</span>
-                    : (slot.optional ? <span className="badge badge-muted">{t('optional', '可选')}</span> : null))}
+                badge={<>
+                  {isMatched
+                    ? <span className={`badge ${isCertain ? 'badge-ok' : 'badge-warn'}`}
+                        title={ev ? t(ev.reason.en, ev.reason.zh) : undefined}>
+                        {isCertain ? t('confirmed by scan', '扫描已确定') : t('inferred, confirm', '推测，请核对')}
+                      </span>
+                    : (unset
+                      ? <span className="badge badge-warn">{t('not matched, specify', '未匹配，需指定')}</span>
+                      : (slot.optional ? <span className="badge badge-muted">{t('optional', '可选')}</span> : null))}
+                  {slot.key === 'output_path' && returnsInferred &&
+                    <span className="badge badge-warn"
+                      title={t(confidence.returns.reason.en, confidence.returns.reason.zh)}>
+                      {t('output form inferred', '输出形态为推测')}
+                    </span>}
+                </>}
                 hint={slot.key === 'output_path' && !slotNeeded(slot.key)
                   ? t('not needed: the engine returns the audio directly', '不需要：引擎直接返回音频')
                   : (optionalEmpty
@@ -266,6 +286,12 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               onChange={(e) => setRuntime({ entry: e.target.value.trim() })} />
           </Cell>
           <Cell label={t('Model weights', '模型权重')} code={isCli ? 'call.argv' : 'call.init_args'}
+            badge={weightsInferred
+              ? <span className="badge badge-warn"
+                  title={t(confidence.weights.reason.en, confidence.weights.reason.zh)}>
+                  {t('weights switch inferred', '权重开关为推测')}
+                </span>
+              : null}
             hint={weights.self
               ? null
               : t(`parameter that receives the weights; ${TOKEN} is the step 3 download folder`,

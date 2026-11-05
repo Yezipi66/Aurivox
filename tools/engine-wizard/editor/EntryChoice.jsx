@@ -7,7 +7,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { displayEntry, writeEntry } from './entryChoiceField'
 
-export default function EntryChoice ({ manifest, onChange, candidates = [] }) {
+export default function EntryChoice ({ manifest, onChange, candidates = [], confidence = null }) {
   const { t } = useT()
   const opts = Array.isArray(candidates) ? candidates : []
   const value = displayEntry(manifest, opts)
@@ -15,12 +15,22 @@ export default function EntryChoice ({ manifest, onChange, candidates = [] }) {
   const listId = 'wizard-entry-candidates'
   const recommended = opts.find((c) => c && c.recommended)
   const pickable = opts.filter((c) => c && (c.file || c.module))
+  // 推荐入口同样分档：证据来自打包声明或 README 且强度最高才算确定。
+  //   识别没给出结论（无 recommended）时不挂徽标，下面的提示已经说明要人自己选。
+  const entryEvidence = recommended && confidence && confidence.entry
 
   return (
     <div className="section">
       <div className="section-hdr">
         <h2>{t('Inference entry', '推理入口')}</h2>
         <span className="badge badge-accent">call.argv</span>
+        {entryEvidence &&
+          <span className={`badge ${entryEvidence.level === 'certain' ? 'badge-ok' : 'badge-warn'}`}
+            title={t(entryEvidence.reason.en, entryEvidence.reason.zh)}>
+            {entryEvidence.level === 'certain'
+              ? t('entry confirmed', '入口已确定')
+              : t('entry inferred', '入口为推测')}
+          </span>}
         {pickable.length > 0 && (
           <span className="field-hint"
             style={{ marginLeft: 'auto', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>

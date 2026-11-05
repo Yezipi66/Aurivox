@@ -144,9 +144,11 @@ export default function ManifestPage ({
           }
           return next
         })
-        setAutofill({ matched: result.matched, argList: result.argList, notes: result.notes || [] })
+        // confidence 与 matched 同一趟扫描算出来，界面靠它把自动填值分成确定 / 推测两档。
+        setAutofill({ matched: result.matched, argList: result.argList,
+          notes: result.notes || [], confidence: result.confidence || null })
       } else {
-        setAutofill({ matched: null, argList: [], notes: [] })
+        setAutofill({ matched: null, argList: [], notes: [], confidence: null })
       }
     } catch (e) { setScanErr(e.message) } finally { setBusy(false) }
   }

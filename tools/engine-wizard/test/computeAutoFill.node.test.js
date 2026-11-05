@@ -586,3 +586,89 @@ test('python 形态不往 argv 里写权重落点', () => {
   const r = computeAutoFill(pythonParams, { kind: 'python' }, [], null, 'demo')
   assert.strictEqual(r.call.argv, undefined)
 })
+
+// 自动填值分两档：规范同名、证据落在入口文件、且没有竞争候选才算确定，其余一律推测。
+// 界面只按这两档给徽标着色，判据留在这里。
+
+const entryFile = 'src/demo/__main__.py'
+const cliInEntry = (name, target, file = entryFile) => ({
+  source: 'cli', name, target, kind: 'str', style: 'value', group: 'infer', source_file: file,
+})
+const declaredEntry = {
+  file: entryFile, module: 'demo.__main__', srcRoot: 'src', subcommand: null,
+  score: 4, source: 'entry-points', confidence: 'high', ambiguous: false,
+}
+const exactSlots = [
+  cliInEntry('text', '--text'),
+  cliInEntry('ref_audio', '--ref_audio'),
+  cliInEntry('prompt_text', '--prompt_text'),
+  cliInEntry('output_path', '--output_path'),
+]
+
+test('规范同名且证据落在入口文件 ⇒ 四个槽位与入口都标成确定', () => {
+  const r = computeAutoFill(exactSlots, { kind: 'cli' }, [], declaredEntry, 'demo')
+  for (const key of ['text', 'ref_audio', 'ref_text', 'output_path']) {
+    assert.ok(r.matched[key], key + ' 应当认得出')
+    assert.strictEqual(r.confidence.bind[key].level, 'certain', key)
+  }
+  assert.strictEqual(r.confidence.entry.level, 'certain')
+})
+
+test('置信度与匹配结果一一对应，不凭空多出一格', () => {
+  const r = computeAutoFill(exactSlots, { kind: 'cli' }, [], declaredEntry, 'demo')
+  assert.deepStrictEqual(Object.keys(r.confidence.bind).sort(), Object.keys(r.matched).sort())
+  for (const key of Object.keys(r.matched)) {
+    assert.strictEqual(!!r.confidence.bind[key], !!r.matched[key])
+  }
+})
+
+test('按相近名匹配 ⇒ 标成推测，依据点名相近参数与更贴切的落点开关', () => {
+  const params = [
+    cliInEntry('speaker', '--speaker'),
+    cliInEntry('output_dir', '--output-dir'),
+    cliInEntry('output_file', '--output-file'),
+    cliInEntry('input_file', '--input-file'),
+  ]
+  const entry = { ...declaredEntry, confidence: 'medium' }
+  const r = computeAutoFill(params, { kind: 'cli' }, [], entry, 'demo')
+  assert.strictEqual(r.matched.text, null, '没有文本开关时不该硬填一格')
+  assert.strictEqual(r.confidence.bind.text, null)
+  assert.strictEqual(r.matched.ref_audio, '--speaker')
+  assert.strictEqual(r.confidence.bind.ref_audio.level, 'guess')
+  assert.match(r.confidence.bind.ref_audio.reason.zh, /speaker/)
+  assert.strictEqual(r.matched.output_path, '--output-dir')
+  assert.strictEqual(r.confidence.bind.output_path.level, 'guess')
+  assert.match(r.confidence.bind.output_path.reason.zh, /--output-file/)
+  assert.strictEqual(r.call.returns, 'dir')
+  assert.strictEqual(r.confidence.returns.level, 'guess')
+  assert.strictEqual(r.confidence.returns.value, 'dir')
+  assert.strictEqual(r.confidence.entry.level, 'guess')
+})
+
+test('另有更贴切的规范名也在扫描结果里 ⇒ 即使同名也降为推测', () => {
+  const params = [...exactSlots, cliInEntry('output_file', '--output-file')]
+  const r = computeAutoFill(params, { kind: 'cli' }, [], declaredEntry, 'demo')
+  assert.strictEqual(r.confidence.bind.output_path.level, 'guess')
+  assert.match(r.confidence.bind.output_path.reason.zh, /--output-file/)
+})
+
+test('同名开关不在入口文件里 ⇒ 标成推测并写出所在文件', () => {
+  const params = exactSlots.map((p) => p.name === 'text'
+    ? { ...p, source_file: 'tools/other_cli.py' } : p)
+  const r = computeAutoFill(params, { kind: 'cli' }, [], declaredEntry, 'demo')
+  assert.strictEqual(r.confidence.bind.text.level, 'guess')
+  assert.match(r.confidence.bind.text.reason.zh, /tools\/other_cli\.py/)
+})
+
+test('输出形态由名片自己声明 ⇒ 不产生推断记录', () => {
+  const params = [cliInEntry('output_dir', '--output-dir')]
+  const r = computeAutoFill(params, { kind: 'cli', returns: 'file' }, [], declaredEntry, 'demo')
+  assert.strictEqual(r.confidence.returns, null)
+  assert.strictEqual(r.call.returns, 'file')
+})
+
+test('权重落点按名字排序接上 ⇒ 标成推测，并记下接的是哪个开关', () => {
+  const r = computeAutoFill(withModel, { kind: 'cli' }, [], entryForWeights, 'demo')
+  assert.strictEqual(r.confidence.weights.level, 'guess')
+  assert.strictEqual(r.confidence.weights.flag, '--model_dir')
+})
