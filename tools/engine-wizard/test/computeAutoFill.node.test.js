@@ -678,10 +678,12 @@ test('权重落点按名字排序接上 ⇒ 标成推测，并记下接的是哪
 const withSeedFlag = [...cliParams,
   { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', help: null, required: false, group: 'infer', is_tool: false }]
 
-test('可复现性：扫到同名 seed 开关 ⇒ 按「引擎自己收」写这个名字', () => {
+test('可复现性：扫到同名 seed 开关 ⇒ 按「引擎自己收」写，并补出 call.args 那一条', () => {
   const r = computeAutoFill(withSeedFlag, { kind: 'cli' }, [], null, 'demo')
-  assert.deepStrictEqual(r.call.seed, { arg: '--seed' },
-    '扫到名字就是 seed 的开关：这一台自己收种子')
+  assert.deepStrictEqual(r.call.seed, { arg: 'seed' },
+    'cli 的种子参数名是 call.args 的键，不是开关本身')
+  assert.deepStrictEqual(r.call.args.seed, { flag: '--seed', style: 'value' },
+    '只写 call.seed 不补 args 形状，宿主编命令行时会报「没有说明该变成哪个开关」')
 })
 
 test('可复现性：扫不到种子开关 ⇒ 写「不可复现」，不留空', () => {

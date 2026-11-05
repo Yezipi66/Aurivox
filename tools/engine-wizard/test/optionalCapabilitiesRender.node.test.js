@@ -53,6 +53,7 @@ const OptionalCapabilities = loadJsx('OptionalCapabilities.jsx', {
   react: React,
   'web/src/lib/i18n': { useT: () => ({ t: (en) => en }) },
   './weightSlots': loadEsm(path.join(EDITOR_DIR, 'weightSlots.js')),
+  './seedField': loadEsm(path.join(EDITOR_DIR, 'seedField.js')),
 }).default
 
 // 整份文件只起一个页面：React 把事件与根容器绑在 document 上。
@@ -75,6 +76,18 @@ define('cancelAnimationFrame', (id) => clearTimeout(id))
 const container = dom.window.document.getElementById('root')
 const root = ReactDOMClient.createRoot(container)
 const settle = () => new Promise((r) => setTimeout(r, 30))
+
+// python 形态的名片：没有 argv，走 call.module / class / method。
+// 全局播种只在这种形态下有意义，所以用它验那一支。
+const pyManifest = () => ({
+  contract_version: 2,
+  id: '',
+  label: 'Demo',
+  call: { kind: 'python', module: 'demo', class: 'Up', method: 'infer',
+    bind: { text: 'text', output_path: 'output_path' }, returns: 'file', seed: 'none' },
+  weights: [],
+  params: { load_time: [], call_time: [], schema: {} },
+})
 
 const cliManifest = (weights) => ({
   contract_version: 2,
@@ -303,20 +316,25 @@ test('seed 选「引擎自己收」：出现参数名格，默认 --seed；清�
   const argInput = () => [...seedBox().querySelectorAll('input')]
     .find((el) => el.getAttribute('type') !== 'checkbox')
   assert.ok(argInput(), '选了「引擎自己收」就要给一个参数名输入框')
-  assert.equal(argInput().value, '--seed')
-  assert.deepStrictEqual(sink.m.call.seed, { arg: '--seed' })
+  assert.equal(argInput().value, '--seed', 'cli 里显示的是开关本身')
+  assert.deepStrictEqual(sink.m.call.seed, { arg: 'seed' },
+    '落盘的参数名是 call.args 的键，不是开关')
+  assert.deepStrictEqual(sink.m.call.args.seed, { flag: '--seed', style: 'value' },
+    '同时补出 args 形状：宿主要靠它把种子拼成 --seed 42')
 
   argInput().value = ''
   Simulate.change(argInput(), { target: argInput() })
   await settle()
   assert.deepStrictEqual(sink.m.call.seed, { arg: '' }, '写进去的是空串，不在界面里替人补回默认值')
+  assert.strictEqual(sink.m.call.args && sink.m.call.args.seed, undefined,
+    '参数名清空后，那一条 args 一起收走：留着就是没人用的开关')
   assert.ok(/不能为空|cannot be empty/.test(seedBox().textContent),
     '参数名为空会被拒，界面要说清这一条，不能等保存时才报错')
 })
 
 test('seed 选「宿主播全局 RNG」：四种随机源都在，默认勾 python；全不勾要提示', async () => {
   const sink = {}
-  seedHarness(cliManifest([]), sink)
+  seedHarness(pyManifest(), sink)
   await settle()
   await pickSeedMode('global')
 
@@ -340,4 +358,13 @@ test('已经声明过 seed 的不被界面默认值覆盖', async () => {
   await settle()
   assert.equal(seedSelect().value, 'arg')
   assert.deepStrictEqual(sink.m.call.seed, { arg: '--random-seed' }, '原样保留，不改写')
+})
+
+test('cli 形态不提供「宿主播全局 RNG」：子进程里的随机源，这个进程播不到', async () => {
+  const sink = {}
+  seedHarness(cliManifest([]), sink)
+  await settle()
+  const values = [...seedSelect().querySelectorAll('option')].map((o) => o.value)
+  assert.deepStrictEqual(values, ['none', 'arg'],
+    'cli 只有两态；给了第三项等于让人写下一个合成时必然报错的声明')
 })

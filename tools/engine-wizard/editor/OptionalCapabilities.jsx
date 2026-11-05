@@ -9,12 +9,10 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { readSlots, writeSlots, emptySlot } from './weightSlots'
+import { seedModeOf, seedArgText, seedRngsOf, seedRngNames,
+  withSeedMode, withSeedArg, withSeedRng } from './seedField'
 
 const APPLIES = ['call', 'launch']
-
-// 可复现性要播种的随机源：与 lib/engines/host.py 的 _RNG_TABLE 同一份名单，
-//   宿主那边多一种或少一种都由它决定，这里只是把名单摆出来给人勾。
-const SEED_RNGS = ['python', 'numpy', 'torch', 'torch.cuda']
 
 // 分段用的框：输出格式、音频输入、多权重位三处同一形状。
 const BOX = { marginBottom: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6 }
@@ -147,32 +145,16 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
   // 种子不是实参，是这台引擎「能不能复现」的声明。契约要求每张名片显式写出三态之一，
   //   留空宿主会拒绝启动，所以这一格没有「留空」这个选项。
   //   三态：引擎自己收（写参数名）/ 宿主播全局 RNG / 不可复现（宿主拒收 seed）。
-  const seedSpec = call.seed
-  const seedMode = seedSpec === undefined || seedSpec === 'none'
-    ? 'none'
-    : (seedSpec && seedSpec.arg !== undefined
-        ? 'arg'
-        : ((seedSpec && seedSpec.mode === 'global') ? 'global' : 'none'))
-  const seedArg = seedSpec && seedSpec.arg !== undefined ? String(seedSpec.arg) : ''
-  const seedRngs = seedSpec && Array.isArray(seedSpec.rngs) ? seedSpec.rngs : []
-  const setSeedMode = (next) => patch((cur) => {
-    const c = { ...(cur.call || {}) }
-    const prev = c.seed
-    if (next === 'arg') c.seed = { arg: (prev && prev.arg) || '--seed' }
-    else if (next === 'global') {
-      c.seed = { mode: 'global', rngs: (prev && Array.isArray(prev.rngs) && prev.rngs.length) ? prev.rngs : ['python'] }
-    } else c.seed = 'none'
-    return { ...cur, call: c }
-  })
-  const setSeedArg = (value) => patch((cur) => ({
-    ...cur, call: { ...(cur.call || {}), seed: { arg: String(value == null ? '' : value).trim() } },
+  //   两种 kind 的「参数名」不是同一种东西，折算在 seedField 里做：cli 还要补出
+  //   call.args 那一条，否则宿主拼命令行时找不到形状，合成直接失败。
+  const seedMode = seedModeOf(call)
+  const seedArg = seedArgText(call)
+  const seedRngs = seedRngsOf(call)
+  const setSeedMode = (next) => patch((cur) => ({ ...cur, call: withSeedMode(cur.call, next) }))
+  const setSeedArg = (value) => patch((cur) => ({ ...cur, call: withSeedArg(cur.call, value) }))
+  const toggleSeedRng = (name, on) => patch((cur) => ({
+    ...cur, call: withSeedRng(cur.call, name, on),
   }))
-  const toggleSeedRng = (name) => patch((cur) => {
-    const prev = (cur.call || {}).seed
-    const list = prev && Array.isArray(prev.rngs) ? prev.rngs : []
-    const next = list.includes(name) ? list.filter((x) => x !== name) : [...list, name]
-    return { ...cur, call: { ...(cur.call || {}), seed: { mode: 'global', rngs: next } } }
-  })
   // 名片里还没有 seed 时补一条「不可复现」：缺了这一项，保存与启动都会被拒，
   //   而「不可复现」是唯一不需要额外信息的答案：它明确表示这台引擎不受种子控制。
   //   已声明的不覆盖，使用者在这里选什么就是什么。
@@ -453,13 +435,25 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
                 onChange={(ev) => setSeedMode(ev.target.value)}>
                 <option value="none">{t('Not controllable: the host rejects seed', '不可复现：宿主拒收 seed')}</option>
                 <option value="arg">{t('The engine takes it as a parameter', '引擎自己收')}</option>
-                <option value="global">{t('The host seeds the global RNGs', '宿主播全局随机种子')}</option>
+                {/* 全局播种只对 python 形态有意义：种子要播的是子进程里的随机源，
+                    cli 形态跑在另一个进程里，宿主播不到，会当场报错。 */}
+                {call.kind !== 'cli' && (
+                  <option value="global">{t('The host seeds the global RNGs', '宿主播全局随机种子')}</option>
+                )}
               </select>
             </div>
             {seedMode === 'arg' && (
               <div className="field" style={{ marginBottom: 0 }}>
-                <label className="field-label">{t('Seed parameter', '种子参数名')}</label>
-                <input className="control" value={seedArg} placeholder="--seed"
+                <label className="field-label"
+                  title={call.kind === 'cli'
+                    ? t('A command-line switch. The manifest also gets a call.args entry for it, so the host can turn the seed into "--seed 42".',
+                      '命令行开关。名片里会同时补出一条 call.args，宿主才拼得出 --seed 42。')
+                    : t('The keyword argument name the engine method takes.',
+                      '引擎方法的那个关键字参数名。')}>
+                  {call.kind === 'cli' ? t('Seed switch', '种子开关') : t('Seed parameter', '种子参数名')}
+                </label>
+                <input className="control" value={seedArg}
+                  placeholder={call.kind === 'cli' ? '--seed' : 'seed'}
                   onChange={(ev) => setSeedArg(ev.target.value)} />
               </div>
             )}
@@ -467,11 +461,11 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
               <div className="field" style={{ marginBottom: 0 }}>
                 <label className="field-label">{t('Random sources to seed', '要播种的随机源')}</label>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', minHeight: 32 }}>
-                  {SEED_RNGS.map((name) => (
+                  {seedRngNames().map((name) => (
                     <label key={name}
                       style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                       <input type="checkbox" checked={seedRngs.includes(name)}
-                        onChange={() => toggleSeedRng(name)} />
+                        onChange={(ev) => toggleSeedRng(name, ev.target.checked)} />
                       <span>{name}</span>
                     </label>
                   ))}

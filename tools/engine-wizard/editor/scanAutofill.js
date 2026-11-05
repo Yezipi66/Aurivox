@@ -350,9 +350,20 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   // 可复现性：名片没写 seed 时补一条。这一项缺了宿主拒绝启动，
   //   所以不能留给「以后再说」：扫到名字就是 seed 的开关就按「引擎自己收」写，
   //   否则写 "none"（明确表示种子不受控制）。已有声明一律不动。
+  //   cli 形态要连 call.args 一起补：宿主把种子塞进 params[键]，
+  //   再由 build_cli_argv 用 call.args[键].flag 拼命令行，只写 seed 会当场报「没有形状」。
   if (call.seed === undefined) {
     const seedHit = params.find((p) => p && normName(p.name) === 'seed')
-    call.seed = seedHit ? { arg: seedHit.target } : 'none'
+    if (seedHit && (call.kind || 'python') === 'cli') {
+      const key = normName(seedHit.name).replace(/^-+/, '')
+      call.args = { ...(call.args || {}),
+        [key]: { flag: seedHit.target, style: seedHit.style || 'value' } }
+      call.seed = { arg: key }
+    } else if (seedHit) {
+      call.seed = { arg: seedHit.name }
+    } else {
+      call.seed = 'none'
+    }
   }
 
   // 入口结论分档只看上游给的证据强度：high 且出自声明或文档才算确定，
