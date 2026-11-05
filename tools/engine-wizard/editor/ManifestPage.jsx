@@ -229,6 +229,7 @@ export default function ManifestPage ({
                 checkpointsPath={checkpointsPath}
                 modelFiles={modelFiles}
                 autofill={autofill} selectedParam={selected}
+                entryCandidates={scan && scan.entry_candidates}
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />
               : (

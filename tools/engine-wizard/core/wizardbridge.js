@@ -1517,6 +1517,8 @@ function handleDiscover (req, res) {
     let cliHelpResult = null
     let cliDraft = null
     let entry = null
+    // README 与打包声明点过名的模块：即便没有对应的源文件，也要进候选清单。
+    let declaredModules = []
     let hasCli = false
     try {
       const { findCliFiles } = require('./cliHelp')
@@ -1577,6 +1579,10 @@ function handleDiscover (req, res) {
             }))
             // src/ 本身是包的工程（src/__init__.py 存在）不能把 src 当布局层剥掉。
             const srcIsPackage = fs.existsSync(path.join(dir, 'src', '__init__.py'))
+            declaredModules = [...new Set([
+              ...((fromReadme && fromReadme.modules) || []),
+              ...((fromEntryPoints && fromEntryPoints.modules) || []),
+            ])]
             entry = pickEntry(asParams, { fromReadme, fromEntryPoints, srcIsPackage })
             if (entry.file) {
               const why = entry.source === 'entry-points'
@@ -1659,6 +1665,23 @@ function handleDiscover (req, res) {
 
     const { merge } = require('./paramDigest')
     const cliArgs = cliDraft && cliDraft.ok ? cliDraft.args : []
+
+    // 入口候选：即便识别不出结论，也要把全部 Python 源文件摆出来让人选。
+    //   证据强度只用于排序，不用于删项；识别失败时使用者仍能从这里定下入口。
+    let entryCandidates = []
+    try {
+      const { buildEntryCandidates } = require('./entryCandidates')
+      const forScore = cliArgs.map((a) => ({
+        name: a.name, source_file: a.source_file,
+        group: a.subcommand || '(root)', required: a.required === true,
+      }))
+      entryCandidates = buildEntryCandidates(dir, forScore, {
+        declaredModules,
+        recommended: entry && entry.file,
+      })
+    } catch (e) {
+      notes.push(`入口候选清单生成失败：${e.message}`)
+    }
     const pythonParams = pythonDraft && pythonDraft.ok ? pythonDraft.parameters : []
     const { params, groups } = merge(cliArgs, pythonParams)
 
@@ -1675,6 +1698,9 @@ function handleDiscover (req, res) {
       // 推理入口的判定结果：{file, module, subcommand, score, source, confidence, ambiguous, candidates}
       //   source 是 readme 时表示命中了 README 里写的用法；ambiguous 为真表示证据并列，界面该让人点。
       entry,
+      // 推理入口候选：{file, module, srcRoot, score, flags, groups, source, recommended}
+      //   识别不出入口时这一份照样有值，界面据此给一个既能选又能输入的下拉。
+      entry_candidates: entryCandidates,
       // 可选能力的嗅探建议：音频类输入、多权重位、输出格式。只送建议，
       //   写不写进名片由前端按「已有声明不覆盖」决定；拿不准的不出现在这里。
       declare_hints: (() => {

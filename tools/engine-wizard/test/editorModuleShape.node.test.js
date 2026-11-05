@@ -193,3 +193,21 @@ test('变异检查：把常量误当组件的判据会被上面那条抓住', ()
   // 小写 const 不是组件（命名约定：小写 = 普通函数/工具）
   assert.strictEqual(isComponentExport(lower), false)
 })
+
+// 组件文件与它依赖的纯函数模块不许只差一个大小写。
+//
+// 撞名的后果不是「谁先被加载」，是构建直接失败或导错模块：Windows 的文件系统
+// 不分大小写，`import EntryChoice from './EntryChoice'` 会解析到 `entryChoice.js`，
+// 于是报「"default" is not exported by entryChoice.js」，而报错指向的那一行
+// 看起来完全正确。这类问题已经出现过两次，所以按目录清单查，不靠记性。
+test('editor/ 下没有只差大小写的两个文件名', () => {
+  const byLower = new Map()
+  for (const f of fs.readdirSync(EDITOR)) {
+    const key = f.toLowerCase()
+    if (!byLower.has(key)) byLower.set(key, [])
+    byLower.get(key).push(f)
+  }
+  const clash = [...byLower.values()].filter((g) => g.length > 1).map((g) => g.join(' / '))
+  assert.deepStrictEqual(clash, [],
+    `这些文件只差大小写：${clash.join('；')} —— Windows 上 import 会解析到错的那一个`)
+})

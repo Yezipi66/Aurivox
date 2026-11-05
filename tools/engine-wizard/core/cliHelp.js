@@ -9,23 +9,20 @@ const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const { spawnSync } = require('node:child_process')
+const { findPyFiles } = require('./pyFiles')
 
 const EXTRACTOR = path.join(__dirname, 'cli_help_extract.py')
 
+// 常见的入口文件名，只用于排序：这些名字排在其余文件之前。
+// 它们不再是「找到就停止扫描」的清单，别处的 .py 一并进入候选。
 const CLI_CANDIDATES = Object.freeze([
   'cli.py', 'cli_v2.py', 'cli2.py', 'main.py',
   'cli', 'infer.py', 'inference.py',
 ])
 
-const SKIP_DIRS = Object.freeze(new Set([
-  'node_modules', '__pycache__', '.venv', 'venv', 'env', '.env',
-  'build', 'dist', 'docs', 'doc', 'tests', 'test', 'testing',
-  'examples', 'notebooks', 'assets', 'static', 'wheels',
-  '.git', '.github', '.idea', '.vscode',
-]))
-
-const MAX_DEPTH = 4
-const MAX_FILES = 4000
+// 命令行框架的声明特征：argparse、click、typer、fire 都算。
+// 只用它筛「要不要交给 Python 解析」，不用它判断哪一个是推理入口。
+const CLI_MARKERS = /(?:add_argument\s*\(|ArgumentParser\s*\(|click\.|typer\.|fire\.Fire|@(?:app|cli)\.command)/
 // 判「像不像 argparse CLI」读多少字节。只读文件头 4KB 会漏掉把 parser 写在文件后半段的
 //   CLI（有的上游 CLI 把 add_argument 写在文件靠后位置），
 //   漏掉之后扫到的只剩 scripts/ 下的测试脚本，参数池里全是别的脚本的开关。
@@ -35,7 +32,7 @@ const SNIFF_BYTES = 256 * 1024
 
 // spec 走临时文件而不是命令行参数：路径里出现引号/中文时，命令行在 Windows 上
 //   解析不了。
-function runExtractor (dir, candidates, python) {
+function runExtractor (dir, candidates, python, files) {
   if (!fs.existsSync(EXTRACTOR)) {
     return { ok: false, error: `提取器不存在：${EXTRACTOR}`, sources: [], flags: [], by_dest: {} }
   }
@@ -45,6 +42,9 @@ function runExtractor (dir, candidates, python) {
     fs.writeFileSync(specFile, JSON.stringify({
       dir: path.resolve(dir),
       candidates: candidates || CLI_CANDIDATES,
+      // 文件清单由 Node 侧统一给出，Python 侧不再自己找一遍：
+      //   两处各有一份发现逻辑时，界面上的候选与实际解析的源码会悄悄分叉。
+      files: Array.isArray(files) ? files.map((f) => String(f).replace(/\\/g, '/')) : null,
     }), 'utf8')
     // python 可指定；没指定就用系统 PATH 里的 python/python3。
     const exe = python || (process.platform === 'win32' ? 'python' : 'python3')
@@ -110,63 +110,41 @@ function norm (s) {
 }
 
 /**
- * 在引擎源码目录里找 CLI 文件。
- * @param {string} dir 引擎源码根目录（或它下面的包目录）
- * @returns {string[]} 相对 dir 的路径列表（清单命中优先，再补递归兜底）
+ * 文件头里有没有命令行框架的声明。只作过滤，不作入口判断。
+ * 读文件头而不整份读：大文件里的注释与数据段没有声明，读满会拖慢扫描。
+ */
+function looksLikeCli (full) {
+  let head = ''
+  try {
+    const fd = fs.openSync(full, 'r')
+    const buf = Buffer.alloc(SNIFF_BYTES)
+    const bytes = fs.readSync(fd, buf, 0, SNIFF_BYTES, 0)
+    head = buf.slice(0, bytes).toString('utf8')
+    fs.closeSync(fd)
+  } catch { return false }
+  return CLI_MARKERS.test(head)
+}
+
+/**
+ * 在引擎源码目录里找声明了命令行参数的文件。
+ * 全目录的 .py 都过一遍，不设深度上限；只把含框架声明的那些交给解析器。
+ *
+ * @param {string} dir 引擎源码根目录
+ * @returns {string[]} 相对 dir 的路径列表，常见入口名排在前
  */
 function findCliFiles (dir, opts = {}) {
   if (!dir || !fs.existsSync(dir)) return []
   const cand = opts.candidates || CLI_CANDIDATES
-  const found = []
-  const seen = new Set()
-  const push = (rel) => {
-    const full = path.join(dir, rel)
-    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return
-    if (seen.has(full)) return
-    seen.add(full)
-    found.push(rel)
+  const priority = new Set(cand)
+  const rels = findPyFiles(dir).filter((rel) => looksLikeCli(path.join(dir, ...rel.split('/'))))
+  const rank = (rel) => {
+    const posix = rel.replace(/\\/g, '/')
+    if (priority.has(posix)) return 0
+    if (priority.has(posix.split('/').pop())) return 1
+    return 2
   }
-
-  for (const c of cand) {
-    push(c)
-    const sub = path.join(dir, c)
-    if (fs.existsSync(sub) && fs.statSync(sub).isDirectory()) {
-      for (const f of fs.readdirSync(sub)) {
-        if (f === c + '.py' || f === 'cli.py') push(path.join(c, f))
-      }
-    }
-  }
-  if (found.length === 0) {
-    let count = 0
-    const rec = (rel, depth) => {
-      if (depth > MAX_DEPTH || count > MAX_FILES) return
-      const full = path.join(dir, rel)
-      let entries
-      try { entries = fs.readdirSync(full, { withFileTypes: true }) } catch { return }
-      for (const e of entries) {
-        if (count > MAX_FILES) return
-        const childRel = rel ? path.join(rel, e.name) : e.name
-        if (e.isDirectory()) {
-          if (SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue
-          count += 1
-          rec(childRel, depth + 1)
-        } else if (e.isFile() && /\.py$/.test(e.name)) {
-          count += 1
-          let head = ''
-          try {
-            const fd = fs.openSync(path.join(dir, childRel), 'r')
-            const buf = Buffer.alloc(SNIFF_BYTES)
-            const bytes = fs.readSync(fd, buf, 0, SNIFF_BYTES, 0)
-            head = buf.slice(0, bytes).toString('utf8')
-            fs.closeSync(fd)
-          } catch { continue }
-          if (/add_argument\s*\(/.test(head)) push(childRel)
-        }
-      }
-    }
-    rec('', 0)
-  }
-  return found
+  return rels.map((rel) => path.normalize(rel))
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
 /**
@@ -194,7 +172,7 @@ function collectCliHelp (spec = {}) {
       noteZh: '没找到上游 CLI 源码。反射拿到的参数草稿没有官方原话可以对照。',
     }
   }
-  const r = runExtractor(abs, spec.candidates || CLI_CANDIDATES, spec.python)
+  const r = runExtractor(abs, spec.candidates || CLI_CANDIDATES, spec.python, rels)
   if (!r.ok) {
     return { ok: false, error: r.error, detail: r.detail || null, sources: [], flags: [], by_dest: {} }
   }
@@ -312,4 +290,5 @@ module.exports = {
   organizeDraft,
   destFor,
   CLI_CANDIDATES,
+  CLI_MARKERS,
 }

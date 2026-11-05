@@ -513,20 +513,31 @@ DEFAULT_CANDIDATES = [
 ]
 
 SKIP_DIRS = {
-    "node_modules", "__pycache__", ".venv", "venv", "env",
+    "node_modules", "__pycache__", ".venv", "venv", "env", "site-packages",
     "build", "dist", "docs", "doc", "tests", "test", "testing",
     "examples", "notebooks", "assets", "static", "wheels",
-    ".git", ".github", ".idea", ".vscode",
+    ".git", ".github", ".idea", ".vscode", ".tox", ".eggs",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache",
 }
-MAX_DEPTH = 4
-MAX_FILES = 4000
-# 判「像不像 argparse CLI」读多少字节：与 cliHelp.js 的 SNIFF_BYTES 同值。
-# 只读 4KB 会漏掉 parser 写在文件后半段的 CLI（[实测] 有上游的 parser 写在靠后位置）。
+# 判「像不像命令行声明」读多少字节：与 cliHelp.js 的 SNIFF_BYTES 同值。
+# 只读 4KB 会漏掉 parser 写在文件后半段的 CLI。
 SNIFF_BYTES = 256 * 1024
+CLI_MARKERS = (
+    "add_argument(", "ArgumentParser(", "click.", "typer.", "fire.Fire",
+    "@app.command", "@cli.command",
+)
 
 
-def _find_cli_files(root, candidates):
-    """先按固定清单找（根目录 + 一层子目录），清单没命中时浅层递归兜底。"""
+def _find_cli_files(root, candidates, files=None):
+    """文件清单由 Node 侧给出时直接采用；否则自行遍历 .py 文件，不设深度上限。"""
+    if files:
+        out = []
+        for rel in files:
+            rel = str(rel).replace("\\", "/")
+            if rel not in out and os.path.isfile(os.path.join(root, rel)):
+                out.append(rel)
+        return out
+
     found = []
     seen = set()
 
@@ -554,38 +565,30 @@ def _find_cli_files(root, candidates):
     if found:
         return found
 
-    # 兜底：只在浅层找，且只读文件头 SNIFF_BYTES 判「像不像 argparse CLI」
-    counter = [0]
-
-    def rec(rel, depth):
-        if depth > MAX_DEPTH or counter[0] > MAX_FILES:
-            return
+    # 兜底：遍历全部 .py 文件，不设深度上限；只读文件头判断有没有命令行声明。
+    def rec(rel):
         full = os.path.join(root, rel) if rel else root
         try:
             entries = sorted(os.listdir(full))
         except OSError:
             return
         for name in entries:
-            if counter[0] > MAX_FILES:
-                return
             child = os.path.join(rel, name) if rel else name
             child_full = os.path.join(root, child)
             if os.path.isdir(child_full):
                 if name in SKIP_DIRS or name.startswith("."):
                     continue
-                counter[0] += 1
-                rec(child, depth + 1)
+                rec(child)
             elif name.endswith(".py"):
-                counter[0] += 1
                 try:
                     with open(child_full, "r", encoding="utf-8", errors="replace") as fh:
                         head = fh.read(SNIFF_BYTES)
                 except OSError:
                     continue
-                if "add_argument(" in head:
+                if any(mark in head for mark in CLI_MARKERS):
                     add(child)
 
-    rec("", 0)
+    rec("")
     return found
 
 
@@ -611,7 +614,7 @@ def main(argv):
                          ensure_ascii=False))
         return
 
-    rels = _find_cli_files(root, candidates)
+    rels = _find_cli_files(root, candidates, spec.get("files"))
     if not rels:
         # 「没找到 CLI」是一个答案，不是错误：ok:true + 空 flags
         print(json.dumps({
