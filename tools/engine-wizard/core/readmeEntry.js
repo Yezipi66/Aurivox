@@ -102,7 +102,9 @@ function entriesFromPyproject (text) {
     const hdr = /^\[([^\]]+)\]$/.exec(line)
     if (hdr) { section = hdr[1].trim(); continue }
     if (!PACKAGING_SECTIONS.includes(section)) continue
-    const kv = /^([A-Za-z0-9_.-]+)\s*=\s*(.+)$/.exec(line)
+    // TOML 规定键名含连字符时必须加引号（如 "f5-tts_infer-cli" = "..."），
+    // 而 CLI 工具的 console_scripts 命令名几乎都带连字符，所以这里允许键名两端带引号。
+    const kv = /^["']?([A-Za-z0-9_.-]+)["']?\s*=\s*(.+)$/.exec(line)
     if (!kv) continue
     const mod = moduleOfEntryValue(kv[2])
     if (!mod) continue

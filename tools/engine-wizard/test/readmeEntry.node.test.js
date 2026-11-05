@@ -75,6 +75,22 @@ test('打包声明里的入口：三种常见段落都读', () => {
   assert.deepStrictEqual(got.modules, ['a.b.c', 'a.b.legacy', 'a.b.poetry'])
 })
 
+test('打包声明的命令名带连字符须加引号：引号键也能解析', () => {
+  // TOML 规定键名含连字符必须加引号；而 CLI 工具的 console_scripts 命令名几乎都带连字符，
+  // 所以这条是主流工程的高频写法（如 F5-TTS 的 "f5-tts_infer-cli"）。
+  const text = [
+    '[project]',
+    'name = "f5-tts"',
+    '',
+    '[project.scripts]',
+    '"f5-tts_infer-cli" = "f5_tts.infer.infer_cli:main"',
+    '"f5-tts_infer-gradio" = "f5_tts.infer.infer_gradio:main"',
+  ].join('\n')
+  const got = entriesFromPyproject(text)
+  assert.deepStrictEqual(got.modules, ['f5_tts.infer.infer_cli', 'f5_tts.infer.infer_gradio'])
+  assert.deepStrictEqual(got.commands, ['f5-tts_infer-cli', 'f5-tts_infer-gradio'])
+})
+
 test('别的段落里的同名写法不算入口', () => {
   const text = ['[tool.black]', 'line-length = "a.b.c:main"'].join('\n')
   assert.deepStrictEqual(entriesFromPyproject(text).modules, [])
