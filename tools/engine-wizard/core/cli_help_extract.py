@@ -289,6 +289,193 @@ def _scan_parser_vars(tree):
     return out
 
 
+# ---- 非 argparse 的命令行框架 ---------------------------------------------
+# 有的上游用 click / typer / fire 声明命令行。它们的参数不在 add_argument 里，
+# 静态扫描一条都读不到，结果是「文件找到了、参数一个没有」，入口判定拿不到证据。
+# 这里按各自的声明方式把开关读出来，产出的记录与 argparse 那条同形，
+# 下游（cliDraft / entryPick）不需要知道来源。
+
+def _tail_name(node):
+    """调用或属性表达式的尾名：click.option -> option，typer.Option -> Option。"""
+    if isinstance(node, ast.Call):
+        node = node.func
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return None
+
+
+def _str_args(call):
+    out = []
+    for a in call.args:
+        v = _literal(a)
+        if isinstance(v, str):
+            out.append(v)
+    return out
+
+
+def _flag_list(strings):
+    return [s for s in strings if s.startswith("-")]
+
+
+def _type_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _is_ellipsis(node):
+    return isinstance(node, ast.Constant) and node.value is Ellipsis
+
+
+def _record(flags, help_text=None, required=False, default=None, type_name=None, is_flag=False):
+    """与 _one 同形的一条记录；某个字段求不出来时留 None，不猜。"""
+    if not flags:
+        return None
+    is_option = flags[0].startswith("-")
+    dest = _dest_from(flags, is_option)
+    if not dest:
+        return None
+    return {
+        "dest": dest,
+        "flags": flags,
+        "is_option": is_option,
+        "help": str(help_text) if help_text is not None else None,
+        "required": bool(required),
+        "default": default,
+        "choices": None,
+        "action": "store_true" if is_flag else None,
+        "type": type_name,
+        "metavar": None,
+    }
+
+
+def _click_records(tree):
+    """@click.option("--text", "-t", required=True, help=...) 这种声明。"""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not isinstance(dec, ast.Call) or _tail_name(dec) != "option":
+                continue
+            flags = _flag_list(_str_args(dec))
+            if not flags:
+                continue
+            kw = {k.arg: k.value for k in dec.keywords if k.arg}
+            rec = _record(
+                flags,
+                help_text=_literal(kw["help"]) if "help" in kw else None,
+                required=(_literal(kw["required"]) is True) if "required" in kw else False,
+                default=_literal(kw["default"]) if "default" in kw else None,
+                type_name=_type_name(kw.get("type")),
+                is_flag=(_literal(kw["is_flag"]) is True) if "is_flag" in kw else False,
+            )
+            if rec:
+                out.append(rec)
+    return out
+
+
+def _typer_option_of(default_node):
+    """默认值是 typer.Option(...) 或 typer.Argument(...) 时取那个调用。"""
+    if isinstance(default_node, ast.Call) and _tail_name(default_node) in ("Option", "Argument"):
+        return default_node
+    return None
+
+
+def _typer_annotated_of(annotation):
+    """Annotated[str, typer.Option("--text")] 里的那个调用。"""
+    if not isinstance(annotation, ast.Subscript):
+        return None
+    sl = annotation.slice
+    items = sl.elts if isinstance(sl, ast.Tuple) else [sl]
+    for it in items:
+        if isinstance(it, ast.Call) and _tail_name(it) in ("Option", "Argument"):
+            return it
+    return None
+
+
+def _typer_records(tree):
+    """函数签名里的 typer.Option / typer.Argument（默认值形式与 Annotated 形式）。"""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        a = node.args
+        defs = list(a.defaults or [])
+        offset = len(a.args) - len(defs)
+        for i, arg in enumerate(a.args):
+            default = defs[i - offset] if i >= offset else None
+            call = _typer_option_of(default) or _typer_annotated_of(arg.annotation)
+            if call is None:
+                continue
+            flags = _flag_list(_str_args(call))
+            if not flags:
+                continue
+            # typer 用 ... 作默认值表示必填；写成别的常量就是可选。
+            required = bool(call.args) and _is_ellipsis(call.args[0])
+            kw = {k.arg: k.value for k in call.keywords if k.arg}
+            rec = _record(
+                flags,
+                help_text=_literal(kw["help"]) if "help" in kw else None,
+                required=required,
+                default=None if required else _literal(default) if default is not None else None,
+                type_name=_type_name(arg.annotation),
+                is_flag=(_type_name(arg.annotation) == "bool"),
+            )
+            if rec:
+                out.append(rec)
+    return out
+
+
+def _fire_records(tree):
+    """fire.Fire(main) 指向的函数：签名里的参数就是命令行参数。"""
+    targets = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _tail_name(node) == "Fire" and node.args:
+            first = node.args[0]
+            if isinstance(first, ast.Name):
+                targets.add(first.id)
+    if not targets:
+        return []
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name not in targets:
+            continue
+        a = node.args
+        defs = list(a.defaults or [])
+        offset = len(a.args) - len(defs)
+        for i, arg in enumerate(a.args):
+            if arg.arg in ("self", "cls"):
+                continue
+            default = defs[i - offset] if i >= offset else None
+            rec = _record(
+                ["--" + arg.arg.replace("_", "-")],
+                required=(i < offset),
+                default=None if default is None else _literal(default),
+                type_name=_type_name(arg.annotation),
+                is_flag=(_type_name(arg.annotation) == "bool"),
+            )
+            if rec:
+                out.append(rec)
+    return out
+
+
+def _framework_flags(tree):
+    """三种框架各试一遍，按 dest 去重；同名的先到先得（click 最规整，排在最前）。"""
+    seen = set()
+    out = []
+    for rec in (_click_records(tree) + _typer_records(tree) + _fire_records(tree)):
+        if rec["dest"] in seen:
+            continue
+        seen.add(rec["dest"])
+        out.append(rec)
+    return out
+
+
 def _parse_file(path):
     """
     解析一份 Python 源码。
@@ -311,7 +498,12 @@ def _parse_file(path):
         return {"flags": [], "ok": False, "error": "解析失败：%s" % exc}
     col = _Collector(_scan_parser_vars(tree))
     col.visit(tree)
-    return {"flags": col.flags, "ok": True, "error": None}
+    flags = col.flags
+    # argparse 一条都没读到：换三种声明式框架再试一遍。
+    #   只有在这份文件里确实出现那些声明时才会产出，不会把普通脚本的参数认成命令行。
+    if not flags:
+        flags = _framework_flags(tree)
+    return {"flags": flags, "ok": True, "error": None}
 
 
 # 候选 CLI 文件名（与 Node 侧 cliHelp.js 的 CLI_CANDIDATES 保持一致）
