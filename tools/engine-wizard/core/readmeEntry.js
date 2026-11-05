@@ -67,7 +67,10 @@ function entriesFromReadme (text) {
 
 /** 打包声明里的一个值是 `模块:函数` 或 `模块.子模块`，只取模块那一段。 */
 function moduleOfEntryValue (value) {
-  const s = String(value || '').trim().replace(/^['"]|['"]$/g, '')
+  const raw = String(value || '').trim()
+  // 行尾注释只可能出现在引号之外：有引号时按引号取，没有才按 # 截断。
+  const quoted = /^(['"])(.*?)\1/.exec(raw)
+  const s = quoted ? quoted[2] : raw.split('#')[0].trim()
   if (!s) return null
   const mod = s.split(':')[0].trim()
   if (!/^[A-Za-z_][\w.]*$/.test(mod)) return null
@@ -100,9 +103,13 @@ function entriesFromPyproject (text) {
     const line = raw.trim()
     if (!line || line.startsWith('#')) continue
     const hdr = /^\[([^\]]+)\]$/.exec(line)
-    if (hdr) { section = hdr[1].trim(); continue }
+    // 段名里带点的部分在 TOML 里必须加引号（entry-points 就是这种），
+    //   去掉引号再与白名单比，否则整段会被跳过。
+    if (hdr) { section = hdr[1].replace(/["']/g, '').trim(); continue }
     if (!PACKAGING_SECTIONS.includes(section)) continue
-    const kv = /^([A-Za-z0-9_.-]+)\s*=\s*(.+)$/.exec(line)
+    // 键名可以带引号：命令名里常有连字符，有的生成器会顺手加上引号，
+    //   TOML 里两种写法都合法，这里都认。
+    const kv = /^["']?([A-Za-z0-9_.-]+)["']?\s*=\s*(.+)$/.exec(line)
     if (!kv) continue
     const mod = moduleOfEntryValue(kv[2])
     if (!mod) continue

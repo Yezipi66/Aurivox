@@ -75,6 +75,38 @@ test('打包声明里的入口：三种常见段落都读', () => {
   assert.deepStrictEqual(got.modules, ['a.b.c', 'a.b.legacy', 'a.b.poetry'])
 })
 
+test('键名加了引号也能解析：命令名里带连字符时生成器常加引号', () => {
+  // 命令名里带连字符很常见，有的生成器会给键名加引号。TOML 两种写法都合法，这里都认。
+  const text = [
+    '[project]',
+    'name = "x"',
+    '',
+    '[project.scripts]',
+    '"x-infer-cli" = "a.b.c:main"',
+    '"x-infer-gradio" = "a.c.d:main"',
+  ].join('\n')
+  const got = entriesFromPyproject(text)
+  assert.deepStrictEqual(got.modules, ['a.b.c', 'a.c.d'])
+  assert.deepStrictEqual(got.commands, ['x-infer-cli', 'x-infer-gradio'])
+})
+
+test('段名带引号也认：entry-points 这类带点的段名在 TOML 里必须加引号', () => {
+  const text = [
+    '[project.entry-points."console_scripts"]',
+    'x-infer = "a.b.c:main"',
+  ].join('\n')
+  assert.deepStrictEqual(entriesFromPyproject(text).modules, ['a.b.c'])
+})
+
+test('值后面跟着行尾注释也能取到模块名', () => {
+  const text = [
+    '[project.scripts]',
+    'x-infer = "a.b.c:main"   # 推理入口',
+    'x-old = a.b.legacy:main  # 不带引号的写法',
+  ].join('\n')
+  assert.deepStrictEqual(entriesFromPyproject(text).modules, ['a.b.c', 'a.b.legacy'])
+})
+
 test('别的段落里的同名写法不算入口', () => {
   const text = ['[tool.black]', 'line-length = "a.b.c:main"'].join('\n')
   assert.deepStrictEqual(entriesFromPyproject(text).modules, [])
