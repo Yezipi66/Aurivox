@@ -1,6 +1,7 @@
 # 引擎接入流程 —— 当前设计
 
 > **2026-10-04 会话产出。取代 `archive/ENGINE_WIZARD_PLAN_v2.md`（v1 已删）。**
+> **最后核对：2026-11-05**（订正 §一「名片必然是两阶段」中与实现不符的部分）。
 > 进度与欠账看 [`ONBOARDING_PLAN.md`](./ONBOARDING_PLAN.md) —— **那才是状态的唯一真相**。
 > 本文件只回答「流程长什么样、为什么这么定」，**不记进度**。
 >
@@ -66,15 +67,30 @@
 ⚠️ **「名片必然是两阶段的」—— 这条设计事实从来没被写下来过，直到今天。**
 
 - 建环境要在名片之前（否则第 1 步就卡住）
-- 而 `install.env_command` 只能来自名片
+- 而 `install.env_command` 只能来自名片 ← ⚠️ **此条已被实现推翻，见下方订正**
 
-⇒ **`install` 段 + `upstream.url` 必须在 clone 之后立刻就有**（用户凭上游 README 填）；
+⇒ 当时的结论：**`install` 段 + `upstream.url` 必须在 clone 之后立刻就有**（用户凭上游 README 填）；
 **`call.*` / `parameters[]` / `commit` 要等源码和解释器都在了才写得出来。**
 
 [读码] `tools/engine-wizard/core/env.js:110-111` **已经隐式承认了**这件事
 （「上游仓库是第 2 步刚克隆的，manifest.json 还不存在 ⇒ 这一步的命令只能来自
 『用户填好的那张名片』，不是读盘」），**但它没出现在任何文档或计划里**。
 ⇒ 谁照着旧文档走都会撞墙。
+
+> **2026-11-05 订正（[实测]）**：上面第二条与现行代码不符，按它判断会得出
+> 「第 2 步必须人先填名片」的错误结论。
+> `envInstall.js` 的 `buildEnvPlan` 在 `readEnvCommand(manifest)` 取不到装法时，
+> 会调 `suggestEnvCommand(dir)` 从克隆下来的 `pyproject.toml` / `uv.lock` /
+> `requirements.txt` / `environment.yml` / `setup.py` 推导，计划返回
+> `from: "probe"`、`guessed: true`、`from_file: <清单名>`。空名片一样出完整计划。
+> `install.env_command` 是**优先采用**，不是必需前提。
+> 第 3 步同理：`wizardbridge.js` 的 `/wizard/probe` 用
+> `extractDownloadCommands(README)` 自动嗅探下载命令，不要求先在名片里声明。
+> 沙箱实测（临时项目根由 `WIZARD_PROJECT_ROOT` 隔离，上游用本地 git 仓库）：
+> 传 `manifest: {}` 的第 2 步计划给出「建 venv + `uv pip install -e .`」两步；
+> README 里的 `hf download …` 被自动解析成 `{tool, source, repo, dir}`。
+> ⇒ **「名片必然是两阶段」只在 `call` 段成立**（要等源码与解释器齐了才填得出），
+> 不适用于 `install` 段与下载来源。
 
 ---
 
