@@ -58,8 +58,9 @@ test('可选能力填的是开关名：名片不承载运行时的取值', () =>
     '运行设备不再把 cuda / 0 这类值写进名片 argv')
   assert.ok(/placeholder="--device"/.test(src), '运行设备格填的是开关')
   assert.ok(/placeholder="--format"/.test(src), '输出格式格填的是开关')
-  assert.ok(/role: 'output_format'/.test(src), '格式开关要带角色')
-  assert.ok(/declareArg/.test(src) && /p\.call_time = \[\.\.\.ct, name\]/.test(src),
+  assert.ok(/role: \(args\[name\] && args\[name\]\.role\) \|\| 'output_format'/.test(src),
+    '格式开关要带角色：填了开关名就补上 role，前端才长格式下拉')
+  assert.ok(/setFormatFlag/.test(src) && /p\.call_time = \[\.\.\.ct, name\]/.test(src),
     '声明开关要同时写进 call_time，host 才收得到')
 })
 
@@ -88,7 +89,7 @@ test('五类可选能力收在同一区，区标题统一且默认展开', () =>
     [/Reference text/, '参考文本'],
     [/Audio input/, '音频输入'],
     [/Slot name/, '权重位'],
-    [/Add output formats/, '输出格式'],
+    [/Output format switch/, '输出格式'],
   ]) assert.ok(re.test(src), `${what}要收进同一区`)
   assert.ok(!/Add audio input|Add weight slot/.test(src),
     '音频与权重都直接横排，不再逐行加')

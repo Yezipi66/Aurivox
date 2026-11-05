@@ -101,115 +101,115 @@ async function show (manifest) {
   await settle()
 }
 
-const slotNameInputs = () => [...container.querySelectorAll('input')]
-  .filter((el) => el.closest('div[style*="grid-template-columns"]'))
-  .filter((el) => el.value === '' || /gpt|sovits/.test(el.value))
-
-const slotBoxes = () => [...container.querySelectorAll('div')]
+// 权重位的一行：行内是四格加两个按钮，靠内联 grid 排版。
+const slotRows = () => [...container.querySelectorAll('div')]
   .filter((el) => /grid-template-columns/.test(el.getAttribute('style') || ''))
+
+// 分段框：输出格式、音频输入、多权重位各一个，标识是 BOX 那份圆角边框。
+const boxes = () => [...container.querySelectorAll('div')]
+  .filter((el) => /border-radius:\s*6px/.test(el.getAttribute('style') || ''))
 
 const buttonsOf = (root) => [...root.querySelectorAll('button')].map((b) => b.textContent.trim())
 
-test('⛔ 单权重引擎不声明位：一个框都不画，只留一个「加一位」的入口', async () => {
-  await show(cliManifest([]))
-  assert.deepStrictEqual(slotBoxes(), [],
-    '一位都没声明却画了框：单权重引擎那类会被虚报成「有多权重可换」，而且那个框减不掉')
-  assert.ok(!/第2权重位|Weight slot 2/.test(container.textContent),
-    '没声明位就不该出现第 2 权重位')
-  const add = [...container.querySelectorAll('button')]
-    .find((b) => /加一位权重位|Add a weight slot/.test(b.textContent))
-  assert.ok(add, '没有入口就再也加不出第一位：要留一个「加一位」按钮')
-})
+const clickIn = async (re, scope) => {
+  const btn = [...(scope || container).querySelectorAll('button')]
+    .find((b) => re.test(b.textContent.trim()))
+  assert.ok(btn, '找不到按钮：' + re)
+  btn.click()
+  await settle()
+}
 
-test('点加号多一位、点减号收回；只剩一位时减号变灰；空行不进名片', async () => {
-  const holder = { m: cliManifest([]) }
+const mount = async (key, manifest, holder) => {
   root.render(React.createElement(OptionalCapabilities, {
-    key: 'empty-lines',
-    manifest: holder.m,
+    key,
+    manifest,
     onChange: (arg) => { holder.m = typeof arg === 'function' ? arg(holder.m) : arg },
   }))
   await settle()
+}
 
-  const clickByText = async (re, scope) => {
-    const btn = [...(scope || container).querySelectorAll('button')]
-      .find((b) => re.test(b.textContent.trim()))
-    assert.ok(btn, '找不到按钮：' + re)
-    btn.click()
-    await settle()
-  }
-  const minusOf = (row) => row.querySelectorAll('button')[1]
-
-  await clickByText(/加一位权重位|Add a weight slot/)
-  assert.equal(slotBoxes().length, 1, '点一次只该长一位')
+test('单权重引擎也默认摆出第 2 权重位：空行不进名片，减号变灰', async () => {
+  const holder = { m: cliManifest([]) }
+  await mount('draft-only', holder.m, holder)
+  assert.equal(slotRows().length, 1, '默认就摆一位：使用者不必先点一次加号')
   assert.ok(/第2权重位|Weight slot 2/.test(container.textContent),
-    '第一位（本区）的标题是第2权重位：第 1 位在必填区')
-  assert.deepStrictEqual(buttonsOf(slotBoxes()[0]), ['+', '−'], '加在上、减在下')
-  assert.equal(minusOf(slotBoxes()[0]).disabled, true,
+    '第 1 位在必填区，本区从第 2 位起')
+  assert.deepStrictEqual(buttonsOf(slotRows()[0]), ['+', '−'], '加在上、减在下')
+  assert.equal(slotRows()[0].querySelectorAll('button')[1].disabled, true,
     '只剩这一位时减号要变灰：再减连行都没有了')
-
-  await clickByText(/^\+$/, slotBoxes()[0])
-  assert.equal(slotBoxes().length, 2, '加号要能长出新的一位')
-  for (const row of slotBoxes()) {
-    assert.equal(minusOf(row).disabled, false, '两位以上时每张都能减')
-  }
-
-  await clickByText(/^−$/, slotBoxes()[1])
-  assert.equal(slotBoxes().length, 1, '减号要能把它收回，误点加号不会越积越多')
-  assert.equal(minusOf(slotBoxes()[0]).disabled, true)
-
-  // 一行都没填位名 = 什么都没声明，名片里不该出现 weights。
-  assert.equal(holder.m.weights, undefined,
-    '位名留空的行等于没声明：它不用手动删，也不该写进名片')
+  assert.deepStrictEqual(holder.m.weights || [],
+    [], '位名留空的行等于没声明：名片里不该写下这一位')
 })
 
-test('两位就画两个框，行内四格：位名/显示名/参数名/生效时机', async () => {
+test('点加号长一位、点减号收回；空行始终不进名片', async () => {
+  const holder = { m: cliManifest([]) }
+  await mount('draft-lines', holder.m, holder)
+
+  await clickIn(/^\+$/, slotRows()[0])
+  assert.equal(slotRows().length, 2, '加号要能长出新的一位')
+  assert.ok(slotRows().every((row) => row.querySelectorAll('button')[1].disabled === false),
+    '两位以上时每一行都能减')
+
+  await clickIn(/^−$/, slotRows()[1])
+  assert.equal(slotRows().length, 1, '减号要能把它收回，误点加号不会越积越多')
+  assert.equal(holder.m.weights, undefined, '一行都没填位名，名片里不该出现 weights')
+})
+
+test('多权重位共用一个框：两位两行，行内四格', async () => {
   await show(cliManifest([
     { name: 'gpt', label: 'GPT', param: 'gpt_model', applies_at: 'call' },
     { name: 'sovits', label: 'SoVITS', param: 'sovits_model', applies_at: 'call' },
   ]))
   // i18n 桩给的是英文那一份（t(en, zh) 只回 en），所以按英文文案断言。
   assert.ok(/Weight slot 2/.test(container.textContent) && /Weight slot 3/.test(container.textContent),
-    '两位要画两个框，标题分别写第 2 / 第 3 权重位（第 1 位在必填区）')
-  const rows = slotBoxes()
-  assert.equal(rows.length, 2, '一位一个框')
+    '两位的标题分别写第 2 / 第 3 权重位（第 1 位在必填区）')
+  const rows = slotRows()
+  assert.equal(rows.length, 2, '两位两行')
+  const weightBox = boxes().find((b) => /Weight slot 2/.test(b.textContent))
+  assert.ok(weightBox, '多权重位要有自己的框')
   for (const row of rows) {
     assert.equal(row.querySelectorAll('input').length, 3, '一行三个输入框')
     assert.equal(row.querySelectorAll('select').length, 1, '一行一个生效时机下拉')
+    assert.ok(weightBox.contains(row), '两位要收在同一个框里')
   }
-  assert.equal(slotNameInputs().length > 0, true)
 })
 
-test('零位时区尾两个「添加」并排：加一位权重位 + 添加输出格式', async () => {
+test('三个框的顺序：输出格式 → 音频输入 → 多权重位，都排在运行设备之后', async () => {
   await show(cliManifest([]))
-  const all = [...container.querySelectorAll('button')]
-  const addWeight = all.find((b) => /加一位权重位|Add a weight slot/.test(b.textContent))
-  const addFormat = all.find((b) => /添加输出格式|Add output formats/.test(b.textContent))
-  assert.ok(addWeight, '零位时要有起点：没有卡可点，只能靠这个按钮')
-  assert.ok(addFormat, '输出格式没声明时要有添加按钮')
-  assert.strictEqual(addWeight.parentElement, addFormat.parentElement,
-    '两个「添加」并排在同一行：各占一行会把版面割开')
-  assert.ok((addWeight.parentElement.getAttribute('style') || '').includes('display: flex'),
-    '那一行要横排')
+  const list = boxes()
+  assert.equal(list.length, 3, '三段各占一个框')
+  assert.ok(/Output format switch|输出格式开关/.test(list[0].textContent),
+    '输出格式紧跟运行设备')
+  assert.ok(/Audio input|音频输入/.test(list[1].textContent))
+  assert.ok(/Weight slot 2|第2权重位/.test(list[2].textContent), '权重位排在最后')
+  assert.ok(/Runtime device|运行设备/.test(list[0].parentElement.textContent),
+    '三个框都在运行设备之后')
 })
 
-test('已有位时区尾不再重复「加一位权重位」：加号在卡里', async () => {
-  await show(cliManifest([{ name: 'gpt', label: 'GPT', param: 'gpt_model' }]))
-  const all = [...container.querySelectorAll('button')]
-  assert.ok(!all.some((b) => /加一位权重位|Add a weight slot/.test(b.textContent)),
-    '卡片右侧已有加号，区尾再放一个就是同一个动作两处入口')
-  assert.ok(all.some((b) => /添加输出格式|Add output formats/.test(b.textContent)),
-    '输出格式还没声明，它自己的添加按钮要留着')
-  assert.deepStrictEqual(buttonsOf(slotBoxes()[0]), ['+', '−'], '加在上、减在下')
-})
+test('没填的框整块弱化：输出格式与音频输入空着带 wz-unset，声明过就摘掉', async () => {
+  await show(cliManifest([]))
+  let list = boxes()
+  assert.ok(/wz-unset/.test(list[0].className), '输出格式开关空着＝不支持输出格式')
+  assert.ok(/wz-unset/.test(list[1].className), '音频输入空着＝不接受音频输入')
 
-test('输出格式声明过了、权重位也没有：区尾只剩「加一位权重位」', async () => {
   const m = cliManifest([])
-  m.call.args = { format: { flag: '--format', style: 'value', role: 'output_format' } }
+  m.call.args = {
+    format: { flag: '--format', role: 'output_format' },
+    audio_ref: { flag: '--emotion-audio', role: 'audio_ref' },
+  }
   await show(m)
-  const names = [...container.querySelectorAll('button')].map((b) => b.textContent.trim())
-  assert.ok(names.some((x) => /加一位权重位|Add a weight slot/.test(x)))
+  list = boxes()
+  assert.ok(!/wz-unset/.test(list[0].className), '声明过就不该再弱化')
+  assert.ok(!/wz-unset/.test(list[1].className), '声明过就不该再弱化')
+})
+
+test('输出格式与权重位都常驻显示，区尾不再有「添加」按钮', async () => {
+  await show(cliManifest([]))
+  const names = buttonsOf(container)
   assert.ok(!names.some((x) => /添加输出格式|Add output formats/.test(x)),
-    '已经声明过就不该再给一个「添加输出格式」')
+    '输出格式默认就在，不需要一个添加按钮')
+  assert.ok(!names.some((x) => /加一位权重位|Add a weight slot/.test(x)),
+    '默认已摆出一位，同一动作不再两处入口')
 })
 
 test('空格等于没填：设备与音频的开关名只敲空格，名片里不留键', async () => {

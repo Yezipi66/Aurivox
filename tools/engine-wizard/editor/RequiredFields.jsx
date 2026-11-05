@@ -166,8 +166,8 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
         <span className="field-hint"
           style={{ marginLeft: 'auto', textTransform: 'none', letterSpacing: 0,
             fontWeight: 400, textAlign: 'right' }}>
-          {t('Most zero-shot TTS engines need the inputs below. A field left blank means the engine does not have that capability: no control is created for it, and the parameter is never sent.',
-            '多数零样本 TTS 引擎都需要下列输入。某项留空即表示这台引擎不具备该能力：平台不为其生成控件，也不下发该参数。')}
+          {t('Most zero-shot TTS engines need the inputs below. A field left blank means the engine does not have that capability: no control is created for it, and the parameter is never sent. Such a field is shown in grey in this wizard.',
+            '多数零样本 TTS 引擎都需要下列输入。某项留空即表示这台引擎不具备该能力：平台不为其生成控件，也不下发该参数，该项在本向导内以灰色显示。')}
         </span>
       </div>
       <div className="section-body">
