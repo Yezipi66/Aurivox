@@ -21,7 +21,7 @@ function load () {
   return mod.exports
 }
 
-const { readEntry, displayEntry, writeEntry } = load()
+const { readEntry, displayEntry, writeEntry, entryFileOf } = load()
 
 const CANDIDATES = [
   {
@@ -105,4 +105,22 @@ test('Python 类形态写 call.module，不生成 argv', () => {
   const next = writeEntry(m, 'pkg.cls', CANDIDATES, 'demo')
   assert.strictEqual(next.call.module, 'pkg.cls')
   assert.strictEqual(next.call.argv, undefined)
+})
+
+test('入口文件：候选命中给文件，手输脚本原样给，只有模块名给空', () => {
+  const m = cliManifest()
+  // 候选里的值（模块名）能反查到文件。
+  assert.strictEqual(entryFileOf(
+    { call: { kind: 'cli', argv: ['{engine_python}', '-m', 'a.b.c.infer_cli'] } },
+    CANDIDATES), 'src/a/b/c/infer_cli.py')
+  // 候选里没有的脚本路径原样返回：收窄拿它去比 source_file。
+  assert.strictEqual(entryFileOf(
+    { call: { kind: 'cli', argv: ['{engine_python}', 'scripts/run.py'] } },
+    CANDIDATES), 'scripts/run.py')
+  // 只剩模块名、候选里又没有对应文件：给空，由调用方退回全量。
+  assert.strictEqual(entryFileOf(
+    { call: { kind: 'cli', argv: ['{engine_python}', '-m', 'unknown.pkg'] } },
+    CANDIDATES), '')
+  // 占位符等于没填。
+  assert.strictEqual(entryFileOf(m, CANDIDATES), '')
 })

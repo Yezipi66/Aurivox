@@ -41,6 +41,24 @@ export function displayEntry (manifest, candidates = []) {
 }
 
 /**
+ * 推理入口对应的文件路径，供参数池收窄使用。
+ * 候选里能按当前值反查到就用候选的 file；手输的 .py 原样返回；
+ * 只有模块名而候选里没有对应文件时返回空（收窄拿不到依据，调用方按全量处理）。
+ *
+ * @param {object} manifest
+ * @param {Array} candidates discover 回传的 entry_candidates
+ * @returns {string}
+ */
+export function entryFileOf (manifest, candidates = []) {
+  const shown = displayEntry(manifest, candidates)
+  if (!shown) return ''
+  const hit = (Array.isArray(candidates) ? candidates : [])
+    .find((c) => c && (c.file === shown || c.module === shown))
+  if (hit && hit.file) return hit.file
+  return /\.py$/i.test(shown) ? shown : ''
+}
+
+/**
  * 写回名片。原对象不动。
  * 候选命中时写它声明的模块名，并按 srcRoot 设定 cwd；
  * 手输的值按原样写，cwd 保持使用者已经填过的那一份。

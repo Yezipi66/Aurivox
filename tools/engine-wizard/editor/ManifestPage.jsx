@@ -8,6 +8,8 @@ import Stage from './Stage'
 import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
+import { entryFileOf } from './entryChoiceField'
+import { scopeParams } from './paramScope'
 
 // 名片编辑页：左边条、中栏、右边条，三根平级的骨头，铺满整个页面宽度。
 //
@@ -42,6 +44,9 @@ export default function ManifestPage ({
   // ---- 扫描状态 ----
   const [scan, setScan] = React.useState(null)       // /wizard/discover 的完整返回
   const [group, setGroup] = React.useState('')        // 当前分组
+  // 参数池是否列出推理入口之外的全部参数。默认只列入口内的，
+  //   换引擎时回到默认：那一份收窄依据属于上一台引擎。
+  const [poolAll, setPoolAll] = React.useState(false)
   const [busy, setBusy] = React.useState(false)       // 扫描中
   const [scanErr, setScanErr] = React.useState(null)  // 扫描错误
   const [selected, setSelected] = React.useState(null) // 左栏选中的参数
@@ -54,12 +59,20 @@ export default function ManifestPage ({
   const engineKey = (manifest && manifest.id) || ''
   React.useEffect(() => {
     setScan(null); setGroup(''); setSelected(null); setAutofill(null); setScanErr(null)
-    setGuessed(new Set())
+    setGuessed(new Set()); setPoolAll(false)
   }, [engineKey])
 
   // 扫描到的参数按当前分组过滤。没有分组时给全部。
+  // 认出推理入口后先收窄到入口文件：训练、微调脚本的参数混在池子里时，
+  //   真正属于推理的那十几个要在一百多个里翻。收窄的依据与数量摆在左栏，
+  //   由使用者一键切回全量（见 EngineScanZone）。
   const scanned = (scan && scan.params) || []
-  const params = group ? scanned.filter((p) => p.group === group) : scanned
+  const entryCands = (scan && scan.entry_candidates) || []
+  const entryForPool = entryFileOf(manifest || {}, entryCands) ||
+    ((scan && scan.entry && scan.entry.file) || '')
+  const scope = scopeParams(scanned, entryForPool)
+  const pool = poolAll ? scanned : scope.params
+  const params = group ? pool.filter((p) => p.group === group) : pool
 
   // text 是 manifest 的纯派生：只有「切进 JSON 视图」这一刻现算，
   //   之后就是用户手里的编辑缓冲。
@@ -190,6 +203,9 @@ export default function ManifestPage ({
             onSelect={setSelected} onDragStart={onDragStart}
             groups={(scan && scan.groups) || []} group={group}
             onGroupChange={setGroup}
+            scope={{ basis: scope.basis, outside: scope.outside,
+              shown: scope.params.length, total: scanned.length }}
+            listAll={poolAll} onListAll={setPoolAll}
             busy={busy} err={scanErr} />
         }
         center={

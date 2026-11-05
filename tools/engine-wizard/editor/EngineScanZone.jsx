@@ -14,22 +14,27 @@ import ParamPool from './ParamPool'
 /**
  * 左栏：分组选择 + 参数池。
  *
- * @param {Array} params 扫描到的参数（当前分组的）
+ * @param {Array} params 扫描到的参数（已收窄、已按分组过滤）
  * @param {object|null} selected 当前选中的参数
  * @param {Function} onSelect 选中参数回调
  * @param {Function} onDragStart 拖拽开始回调
  * @param {Array} groups 扫到的分组
  * @param {string} group 当前分组
  * @param {Function} onGroupChange 切分组回调
+ * @param {{basis:string, outside:number, shown:number, total:number}} scope
+ *   收窄依据与数量：basis 为 entry / dir / all，outside 是被收窄掉的数量
+ * @param {boolean} listAll 当前是否列出全部参数
+ * @param {Function} onListAll 切换是否列出全部参数
  * @param {boolean} busy 扫描中
  * @param {string|null} err 扫描错误
  * @param {React.ReactNode} children 额外内容（收起按钮等）
  */
 export default function EngineScanZone ({
   params, selected, onSelect, onDragStart,
-  groups, group, onGroupChange, busy, err, children,
+  groups, group, onGroupChange, scope, listAll, onListAll, busy, err, children,
 }) {
   const { t } = useT()
+  const narrowed = scope && scope.basis !== 'all' && scope.outside > 0
 
   return (
     <div className="section">
@@ -49,6 +54,22 @@ export default function EngineScanZone ({
               <option value="">{t('— all groups —', '全部分组')}</option>
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
+          </div>
+        )}
+
+        {/* 收窄的依据要写在数量旁边，不能只悄悄少列：
+            使用者看到池子里只有十几个参数时，得知道其余那些去哪了、怎么拿回来。 */}
+        {narrowed && (
+          <div className="field-hint" style={{ marginBottom: 8 }}>
+            {listAll
+              ? t(`Listing all ${scope.total} scanned parameters, ${scope.outside} of which are outside the inference entry.`,
+                `已列出全部 ${scope.total} 个扫描到的参数，其中 ${scope.outside} 个不在推理入口内。`)
+              : t(`Listing the ${scope.shown} parameters ${scope.basis === 'dir' ? 'under the inference entry directory' : 'of the inference entry file'}; ${scope.outside} others are outside it.`,
+                `只列出${scope.basis === 'dir' ? '推理入口所在的目录内' : '推理入口文件内'}的 ${scope.shown} 个参数，另有 ${scope.outside} 个不在入口内。`)}
+            <button type="button" className="btn btn-sm" style={{ marginLeft: 8 }}
+              onClick={() => onListAll && onListAll(!listAll)}>
+              {listAll ? t('List entry only', '只列入口') : t('List all', '列出全部')}
+            </button>
           </div>
         )}
 
