@@ -5,7 +5,9 @@
 const { test } = require('node:test')
 const assert = require('node:assert')
 
-const { entriesFromReadme, moduleToFiles } = require('../core/readmeEntry.js')
+const {
+  entriesFromReadme, entriesFromPyproject, entriesFromSetupPy, mergeEntries, moduleToFiles,
+} = require('../core/readmeEntry.js')
 const { pickEntry } = require('../core/entryPick.js')
 
 test('认 python -m 与 python 脚本两种写法', () => {
@@ -37,8 +39,58 @@ test('python -m 的模块名不会被当成 .py 路径重复收一遍', () => {
   assert.deepStrictEqual(got.files, [])
 })
 
-test('模块名翻成两种可能的源文件', () => {
-  assert.deepStrictEqual(moduleToFiles('a.b.c'), ['a/b/c.py', 'a/b/c/__main__.py'])
+test('模块名翻成源文件：扁平布局与 src 布局两组都试', () => {
+  assert.deepStrictEqual(moduleToFiles('a.b.c'), [
+    'a/b/c.py', 'a/b/c/__main__.py',
+    'src/a/b/c.py', 'src/a/b/c/__main__.py',
+  ])
+})
+
+test('python 带版本号也认：python3.10 / python3.12', () => {
+  const got = entriesFromReadme('python3.10 cli/inference.py --text hi')
+  assert.deepStrictEqual(got.files, ['cli/inference.py'])
+  assert.deepStrictEqual(entriesFromReadme('python3.12 -m a.b.c').modules, ['a.b.c'])
+})
+
+test('作者站在子目录里写用法：cd 前缀算进路径', () => {
+  const got = entriesFromReadme('cd cli && python inference.py --text hi')
+  assert.deepStrictEqual(got.files, ['cli/inference.py'])
+})
+
+test('打包声明里的入口：三种常见段落都读', () => {
+  const text = [
+    '[project]',
+    'name = "x"',
+    '',
+    '[project.scripts]',
+    'x-infer = "a.b.c:main"',
+    '',
+    '[project.entry-points.console_scripts]',
+    'x-old = "a.b.legacy:run"',
+    '',
+    '[tool.poetry.scripts]',
+    'x-poetry = "a.b.poetry:go"',
+  ].join('\n')
+  const got = entriesFromPyproject(text)
+  assert.deepStrictEqual(got.modules, ['a.b.c', 'a.b.legacy', 'a.b.poetry'])
+})
+
+test('别的段落里的同名写法不算入口', () => {
+  const text = ['[tool.black]', 'line-length = "a.b.c:main"'].join('\n')
+  assert.deepStrictEqual(entriesFromPyproject(text).modules, [])
+})
+
+test('setup.py 的 console_scripts 也能认', () => {
+  const text = "setup(name='x', entry_points={'console_scripts': ['x-infer=a.b.c:main']})"
+  assert.deepStrictEqual(entriesFromSetupPy(text).modules, ['a.b.c'])
+})
+
+test('几路候选合并去重，保序', () => {
+  const got = mergeEntries(
+    { modules: ['a.b'], files: ['x.py'], commands: ['x'] },
+    { modules: ['a.b', 'c.d'], files: ['x.py', 'y.py'] })
+  assert.deepStrictEqual(got.modules, ['a.b', 'c.d'])
+  assert.deepStrictEqual(got.files, ['x.py', 'y.py'])
 })
 
 // 造一份并列的扫描结果：两个文件四类齐全、参数数量也相同，打分分不出高下。
@@ -65,4 +117,60 @@ test('打分分不出高下时，README 点名的那个胜出', () => {
 test('README 点了名但扫描没见过这个文件，回到打分，不硬认', () => {
   const got = pickEntry(tiedParams(), { fromReadme: { modules: ['cli.nothere'], files: ['ghost.py'] } })
   assert.strictEqual(got.source, 'score')
+})
+
+// ---- src 布局 -------------------------------------------------------------
+
+function fourKinds (file) {
+  return [
+    { source: 'cli', name: 'text', target: '--text', required: true, group: '(root)', source_file: file },
+    { source: 'cli', name: 'ref_audio', target: '--ref-audio', required: false, group: '(root)', source_file: file },
+    { source: 'cli', name: 'output_path', target: '--output-path', required: false, group: '(root)', source_file: file },
+    { source: 'cli', name: 'model', target: '--model', required: false, group: '(root)', source_file: file },
+  ]
+}
+
+test('src 布局：声明点过名就用声明的模块名，并把 cwd 起算目录标成 src', () => {
+  const got = pickEntry(fourKinds('src/a/b/c.py'), { fromEntryPoints: { modules: ['a.b.c'], files: [] } })
+  assert.strictEqual(got.source, 'entry-points')
+  assert.strictEqual(got.file, 'src/a/b/c.py')
+  assert.strictEqual(got.module, 'a.b.c', '不能用扫描路径反推成 src.a.b.c')
+  assert.strictEqual(got.srcRoot, 'src')
+})
+
+test('src 布局：没有声明时按路径反推也要剥掉 src，并标出起算目录', () => {
+  const got = pickEntry(fourKinds('src/a/b/c.py'))
+  assert.strictEqual(got.module, 'a.b.c')
+  assert.strictEqual(got.srcRoot, 'src')
+})
+
+test('src 本身是包时不剥：src/__init__.py 存在的工程按原路径拼', () => {
+  const got = pickEntry(fourKinds('src/a/b/c.py'), { srcIsPackage: true })
+  assert.strictEqual(got.module, 'src.a.b.c')
+  assert.strictEqual(got.srcRoot, null)
+})
+
+// ---- 参数词表与路径基准 ---------------------------------------------------
+
+test('只有文本与 save_wav 也算两类：音频后缀属于输出落点', () => {
+  const params = [
+    { source: 'cli', name: 'text', target: '--text', required: true, group: '(root)', source_file: 'a.py' },
+    { source: 'cli', name: 'save_wav', target: '--save_wav', required: false, group: '(root)', source_file: 'a.py' },
+  ]
+  const got = pickEntry(params)
+  assert.strictEqual(got.file, 'a.py', '两类就该给建议，不该因为词表太窄而返回 null')
+  assert.strictEqual(got.score, 2)
+})
+
+test('README 只写了文件名（站在子目录里写）：唯一后缀能命中', () => {
+  const got = pickEntry(fourKinds('cli/inference.py'),
+    { fromReadme: { modules: [], files: ['inference.py'] } })
+  assert.strictEqual(got.source, 'readme')
+  assert.strictEqual(got.file, 'cli/inference.py')
+})
+
+test('同名文件不止一个时，后缀匹配不替使用者挑', () => {
+  const params = [...fourKinds('cli/inference.py'), ...fourKinds('web/inference.py')]
+  const got = pickEntry(params, { fromReadme: { modules: [], files: ['inference.py'] } })
+  assert.strictEqual(got.source, 'score', '两个都叫 inference.py 时只按分数，不按后缀硬认')
 })

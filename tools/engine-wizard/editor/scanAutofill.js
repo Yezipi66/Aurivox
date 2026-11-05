@@ -89,7 +89,12 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
 
     // 模块名要能 import，工作目录得落在引擎目录上：示例命令默认在仓库根执行，
     //   而 -m 找包是从当前目录算起的。
-    if (mod && engineId && !call.cwd) call.cwd = 'engines/' + engineId
+    // src 布局时模块名从 src 起算（a.b.c），包也在 src/ 下：cwd 停在引擎根会
+    //   ModuleNotFoundError，而那个报错指向 Python，看不出是这一格的事。
+    if (mod && engineId && !call.cwd) {
+      const root = entry && entry.srcRoot ? '/' + String(entry.srcRoot) : ''
+      call.cwd = 'engines/' + engineId + root
+    }
     if (mod) {
       notes.push({
         en: 'Entry point: ' + entry.file +

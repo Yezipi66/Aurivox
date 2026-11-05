@@ -1533,12 +1533,17 @@ function handleDiscover (req, res) {
           // 推理入口：先看 README 里作者自己写的用法，认不出再按四类参数打分。
           //   README 的风格千差万别，认不出是常态，那时完全靠打分的结论。
           try {
-            const { entriesFromReadme } = require('./readmeEntry')
+            const {
+              entriesFromReadme, entriesFromPyproject, entriesFromSetupPy, mergeEntries,
+            } = require('./readmeEntry')
             const { pickEntry } = require('./entryPick')
             let fromReadme = null
             try {
+              // 文档名的变体很多：README.md / readme.txt / README_zh.md / README.zh-CN.md。
+              //   短名优先，这样同一目录里有主文档与中文版时先用主文档。
               const readmeName = fs.readdirSync(dir)
-                .filter((f) => /^readme(\.md|\.txt|\.rst)?$/i.test(f))[0]
+                .filter((f) => /^readme([._-][\w-]+)?(\.(md|txt|rst))?$/i.test(f))
+                .sort((a, b) => a.length - b.length || a.localeCompare(b))[0]
               if (readmeName) {
                 fromReadme = entriesFromReadme(fs.readFileSync(path.join(dir, readmeName), 'utf8'))
                 if (fromReadme.modules.length || fromReadme.files.length) {
@@ -1546,15 +1551,38 @@ function handleDiscover (req, res) {
                 }
               }
             } catch { /* 没有 README 就只靠打分 */ }
+            // 打包声明是最硬的证据：写的是「装好之后敲哪条命令」，写错了装不上。
+            //   读不动（没有这两个文件、或格式不认识）时退回 README 与打分。
+            let fromEntryPoints = null
+            try {
+              const parts = []
+              for (const [name, read] of [
+                ['pyproject.toml', entriesFromPyproject],
+                ['setup.py', entriesFromSetupPy],
+              ]) {
+                const f = path.join(dir, name)
+                if (fs.existsSync(f)) parts.push(read(fs.readFileSync(f, 'utf8')))
+              }
+              const merged = mergeEntries(...parts)
+              if (merged.modules.length) {
+                fromEntryPoints = merged
+                notes.push(`打包声明提到入口：${merged.modules.join(', ')}`)
+              }
+            } catch { /* 声明读不动就只靠 README 与打分 */ }
             const asParams = (cliDraft.args || []).map((a) => ({
               source: 'cli', name: a.name, target: a.flag, kind: a.type || 'str',
               style: a.style, required: a.required === true,
               group: a.subcommand || '(root)', is_tool: a.is_tool === true,
               source_file: a.source_file || null,
             }))
-            entry = pickEntry(asParams, { fromReadme })
+            // src/ 本身是包的工程（src/__init__.py 存在）不能把 src 当布局层剥掉。
+            const srcIsPackage = fs.existsSync(path.join(dir, 'src', '__init__.py'))
+            entry = pickEntry(asParams, { fromReadme, fromEntryPoints, srcIsPackage })
             if (entry.file) {
-              notes.push(`推理入口：${entry.file}（依据：${entry.source === 'readme' ? 'README' : '参数打分'}，置信度 ${entry.confidence}）`)
+              const why = entry.source === 'entry-points'
+                ? '打包声明'
+                : (entry.source === 'readme' ? 'README' : '参数打分')
+              notes.push(`推理入口：${entry.file}（依据：${why}，置信度 ${entry.confidence}）`)
             }
           } catch (e) {
             notes.push(`推理入口识别失败：${e.message}`)

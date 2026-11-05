@@ -452,6 +452,19 @@ test('模块名能落定时工作目录指到引擎目录上', () => {
   assert.equal(r.call.cwd, 'engines/demo-engine')
 })
 
+test('src 布局：工作目录落到引擎目录下的 src，模块名不带 src. 前缀', () => {
+  const r = computeAutoFill(
+    cliParams,
+    { kind: 'cli', argv: ['{engine_python}', '-m', '_MODULE_'] },
+    [],
+    { file: 'src/pkg/cli.py', module: 'pkg.cli', srcRoot: 'src', score: 4 },
+    'demo-engine',
+  )
+  assert.equal(r.call.cwd, 'engines/demo-engine/src',
+    'cwd 停在引擎根时 -m pkg.cli 找不到包，起来就是 ModuleNotFoundError')
+  assert.deepEqual(r.call.argv, ['{engine_python}', '-m', 'pkg.cli'])
+})
+
 test('认出入口后，args 只从入口那个文件收，别的脚本的开关不进来', () => {
   const params = [
     { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: '(root)', source_file: 'cli/inference.py' },
