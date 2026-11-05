@@ -266,6 +266,29 @@ def _render_cli_arg(name, entry, value):
     raise ValueError("call.args.%s.style 认不出来：%r" % (name, style))
 
 
+def stdin_payload(call, text):
+    """CLI 子进程的 stdin 内容。
+
+    有的上游从标准输入读要合成的文本，命令行上没有 --text 开关。没送 stdin 时
+    子进程会一直等 EOF，表现出来是合成超时，而超时信息指向不出这一格。
+    只有名片写了 text_via="stdin" 才送；其余引擎保持原来的 stdin 继承行为。
+    """
+    via = call.get("text_via")
+    if via is None:
+        return None
+    if via != "stdin":
+        raise ValueError('call.text_via 只认 "stdin"，写的是 %r' % (via,))
+    if (call.get("bind") or {}).get("text"):
+        raise ValueError("call.text_via 与 call.bind.text 同时声明了文本入口")
+    return str(text or "").encode("utf-8")
+
+
+def declares_text(call, mcfg=None):
+    """名片有没有声明文本入口：bind.text 的开关，或 text_via 指定的通道。"""
+    bind = (mcfg or {}).get("bind") or call.get("bind") or {}
+    return ("text" in bind) or (call.get("text_via") == "stdin")
+
+
 def build_cli_argv(call, profile, slots, params):
     """拼出要执行的完整命令。
 
@@ -565,7 +588,8 @@ class Engine(object):
             t0 = time.time()
             proc = subprocess.run(
                 argv, cwd=_resolve_cwd(self.profile),
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                input=stdin_payload(self.call, text))
             elapsed = time.time() - t0
 
             tail = (proc.stderr or b"").decode("utf-8", "replace").strip()
@@ -1163,7 +1187,8 @@ def validate_request(body, profile, seed_plan):
     # （它用内置音色）。一刀切的全局要求会误杀这些方法：给 vc 传个
     # 空 text 会被「text 不能为空」拦下，而 vc 本来就不读 text。
     mbind = mcfg.get("bind") or (profile.get("call") or {}).get("bind") or {}
-    needs_text = mcfg.get("requires_text", "text" in mbind)
+    needs_text = mcfg.get("requires_text",
+                          declares_text(profile.get("call") or {}, mcfg))
     if needs_text and not str(body.get("text") or "").strip():
         return 400, "'text' is required and must not be empty", {}
 
@@ -1325,7 +1350,8 @@ def validate_profile(profile):
             # 默认「读不读文本」看这张名片绑没绑 text：没绑就是这个引擎不读文本
             #   （vc 这类转换已有音频的方法）。只有明确写了 requires_text: true
             #   才把它当成「要文本却没接线」的矛盾。
-            if mcfg.get("requires_text") is True and "text" not in mbind:
+            if (mcfg.get("requires_text") is True
+                    and not declares_text(call, mcfg)):
                 problems.append("call.methods.%s 写了 requires_text: true 却没有 bind.text"
                                 "平台不知道该把正文放进哪个参数" % mname)
             if (mcfg.get("requires_ref_audio", None) is True
