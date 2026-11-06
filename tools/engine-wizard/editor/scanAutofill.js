@@ -86,7 +86,7 @@ function judgeSlot (slot, ev, params, ambiguous, entryFile) {
   }
 }
 
-export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null) {
+export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null, files = null) {
   if (!params || !params.length) return null
 
   const call = { ...(currentCall || {}) }
@@ -148,6 +148,9 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
       const MODEL_RANK = [
         /^model_?dir$/, /^model_?path$/, /^model_?root$/,
         /^(ckpt|checkpoint|checkpoints|weights)_?(dir|path)$/,
+        // 单文件权重的引擎（Piper 那类）把开关写成 --model / --model-file / --checkpoint-file。
+        //   名字里带 file 的排在目录类之后：两者同时存在时，目录那份更容易被整套权重用上。
+        /^(model|ckpt|checkpoint|weights)_?file$/,
         /^(ckpt|checkpoint|checkpoints|weights|pretrained|model)$/,
       ]
       const hits = params
@@ -160,17 +163,46 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
       // 没有入口线索且命中不止一个时不替使用者挑：接错开关会让引擎加载错目录。
       const usable = entryFile ? hits : (hits.length === 1 ? hits : [])
       if (usable.length) {
-        const flag = String(usable[0].p.target)
-        argv = [...argv, flag, TOKEN]
+        const picked = usable[0].p
+        const flag = String(picked.target)
+        // 值是目录还是一个具体文件，由两处证据决定：
+        //   上游自己怎么说（开关名结尾是 file，或说明里写 file）
+        //   盘上到底有几个权重文件（第 3 步下载的结果）
+        // 只有两边都指向文件时才写成 {checkpoints}/<文件名>；其余一律给目录。
+        //   目录覆盖面更广，而写错文件名会让引擎加载失败且不报错。
+        const WEIGHT_RE = /\.(onnx|pth|pt|bin|safetensors|ckpt|gguf|npz)$/i
+        const weightFiles = (Array.isArray(files) ? files : [])
+          .map((f) => String(f == null ? '' : f).replace(/\\/g, '/'))
+          .filter((f) => WEIGHT_RE.test(f))
+        const help = String(picked.help || '')
+        const wantsFile = /(^|_)file$/.test(normName(picked.name)) ||
+          (/file/i.test(help) && !/director/i.test(help))
+        const singleFile = weightFiles.length === 1 ? weightFiles[0].split('/').pop() : ''
+        const value = (wantsFile && singleFile) ? TOKEN + '/' + singleFile : TOKEN
+        argv = [...argv, flag, value]
         notes.push({
-          en: 'Weights path: ' + flag + ' is connected to the download folder. Confirm this switch in the Model weights field.',
-          zh: '权重落点：' + flag + ' 已接到下载目录。请在「模型权重」格确认这个开关。',
+          en: 'Weights path: ' + flag + ' is connected to ' + (value === TOKEN
+            ? 'the download folder.'
+            : '"' + value + '", the single weight file found on disk.') +
+            ' Confirm this in the Model weights field.',
+          zh: '权重落点：' + flag + ' 已接到' + (value === TOKEN
+            ? '下载目录。'
+            : '「' + value + '」，即盘上唯一的那个权重文件。') +
+            '请在「模型权重」格确认。',
         })
+        if (wantsFile && !singleFile && weightFiles.length > 1) {
+          notes.push({
+            en: 'The switch name or its help mentions a file, but ' + weightFiles.length +
+              ' weight files were found on disk. It is connected to the folder for now: name the file by hand if the engine needs one.',
+            zh: '开关名或说明指向文件，但盘上有 ' + weightFiles.length +
+              ' 个权重文件。当前先接目录：引擎确实要某个文件时，请在这一格手写 {checkpoints}/文件名。',
+          })
+        }
         confidence.weights = {
           level: 'guess', flag,
           reason: {
-            en: 'The weights switch was chosen by a name ranking: ' + flag + '. Confirm that it takes the download folder.',
-            zh: '权重开关按参数名排序选出：' + flag + '。请确认该开关收的是下载目录。',
+            en: 'The weights switch was chosen by a name ranking: ' + flag + '. Confirm that it takes the download folder' + (value === TOKEN ? '.' : ' or the named file.'),
+            zh: '权重开关按参数名排序选出：' + flag + '。请确认该开关收的是下载目录' + (value === TOKEN ? '。' : '还是那个文件。'),
           },
         }
       }

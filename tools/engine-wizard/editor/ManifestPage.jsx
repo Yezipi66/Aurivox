@@ -125,12 +125,12 @@ export default function ManifestPage ({
       //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
       const latest = latestManifest.current || {}
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints)
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints, modelFiles)
       if (result) {
         onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, modelFiles) || result
           const next = { ...base, call: merged.call }
           // 运行设备这类参数的值来自请求体，host 只认 params.call_time 白名单里的键。
           //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。

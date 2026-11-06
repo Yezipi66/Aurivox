@@ -301,8 +301,8 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
               : null}
             hint={weights.self
               ? null
-              : t(`parameter that receives the weights; ${TOKEN} is the step 3 download folder`,
-                `引擎从哪个参数读权重；${TOKEN} 就是第 3 步的下载目录`)}>
+              : t(`parameter that receives the weights; ${TOKEN} is the step 3 download folder, write ${TOKEN}/<file name> when the engine takes a single file`,
+                `引擎从哪个参数读权重；${TOKEN} 是第 3 步的下载目录，引擎只收一个文件时写成 ${TOKEN}/文件名`)}>
             <div style={{ display: 'flex', gap: 6 }}>
               <input
                 className={`control${overSlot === '__weights' ? ' wz-dropzone-over' : ''}`}

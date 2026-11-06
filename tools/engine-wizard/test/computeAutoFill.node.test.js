@@ -724,3 +724,39 @@ test('可复现性：已经写成 {arg} 的不被扫描改写', () => {
   assert.deepStrictEqual(r.call.args.random_seed,
     { flag: '--random-seed', style: 'value' }, '原来那条 args 形状也在')
 })
+
+// 模型权重那两格：参数名来自扫描（入口文件内、按名字排序），
+//   值来自「上游怎么说 + 盘上有几个权重文件」。只有两边都指向文件才写具体文件名。
+const W_ENTRY = { file: 'cli/infer.py' }
+const wParam = (name, help) => ({
+  source: 'cli', name, target: '--' + name.replace(/_/g, '-'), kind: 'str',
+  style: 'value', help: help || null, source_file: 'cli/infer.py',
+})
+
+test('模型权重：开关名带 dir ⇒ 值给下载目录', () => {
+  const r = computeAutoFill([wParam('model_dir', 'Path to the model folder')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['a.onnx', 'b.onnx'])
+  assert.ok(r.call.argv.includes('{checkpoints}'))
+  assert.ok(!r.call.argv.some((w) => String(w).startsWith('{checkpoints}/')))
+})
+
+test('模型权重：开关名与说明都指向文件，且盘上恰好一个权重文件 ⇒ 写文件名', () => {
+  const r = computeAutoFill([wParam('model_file', 'Path to the .onnx model file')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['voices/model.onnx', 'README.md'])
+  assert.ok(r.call.argv.includes('{checkpoints}/model.onnx'),
+    '盘上唯一那个权重文件才写进去')
+  assert.ok(r.notes.some((n) => /盘上唯一/.test(n.zh)))
+})
+
+test('模型权重：只是名字像目录、盘上只有一个文件，也不改成文件名', () => {
+  const r = computeAutoFill([wParam('model', 'Model directory')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['model.onnx'])
+  assert.ok(r.call.argv.includes('{checkpoints}'), '证据不足时按目录写')
+})
+
+test('模型权重：说明指向文件但盘上两个权重 ⇒ 先接目录并说明要手写文件名', () => {
+  const r = computeAutoFill([wParam('model_file', 'Path to the model file')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['a.onnx', 'b.onnx'])
+  assert.ok(r.call.argv.includes('{checkpoints}'))
+  assert.ok(r.notes.some((n) => /手写 \{checkpoints\}\/文件名/.test(n.zh)))
+})
