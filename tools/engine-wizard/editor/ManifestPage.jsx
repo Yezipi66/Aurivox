@@ -70,9 +70,12 @@ export default function ManifestPage ({
   const entryCands = (scan && scan.entry_candidates) || []
   const entryForPool = entryFileOf(manifest || {}, entryCands) ||
     ((scan && scan.entry && scan.entry.file) || '')
-  const scope = scopeParams(scanned, entryForPool)
-  const pool = poolAll ? scanned : scope.params
-  const params = group ? pool.filter((p) => p.group === group) : pool
+  // 先按分组过滤再收窄：左栏那句「只列出 N 个」必须与下面真正列出来的条数一致。
+  //   两步都是筛选，顺序换过来结果相同，但数量与列表对得上才对得上人的理解。
+  const grouped = group ? scanned.filter((p) => p.group === group) : scanned
+  const scope = scopeParams(grouped, entryForPool)
+  const pool = poolAll ? grouped : scope.params
+  const params = pool
 
   // 左栏哪张卡已经落进名片：它的名字进了 call.args、成了某个槽位的开关（bind 的值），
   //   或已经出现在 argv 里。只用来把卡弱化，不阻止再次拖动：
@@ -220,7 +223,7 @@ export default function ManifestPage ({
             groups={(scan && scan.groups) || []} group={group}
             onGroupChange={setGroup}
             scope={{ basis: scope.basis, outside: scope.outside,
-              shown: scope.params.length, total: scanned.length }}
+              shown: scope.params.length, total: grouped.length }}
             listAll={poolAll} onListAll={setPoolAll}
             busy={busy} err={scanErr} />
         }
