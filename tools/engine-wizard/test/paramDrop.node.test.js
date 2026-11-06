@@ -56,7 +56,7 @@ function loadDrop () {
   return mod.exports
 }
 
-const { applyParamDrop, paramNameOf } = loadDrop()
+const { applyParamDrop, paramNameOf, migrateLegacyParams } = loadDrop()
 
 // 夹具：扫到的参数，形状与 /wizard/discover 返回的一致。
 const CLI_PARAM = {
@@ -71,6 +71,7 @@ const PY_PARAM = {
 test('守卫：这份测试真的拿到了活代码里的那两个纯函数', () => {
   assert.equal(typeof applyParamDrop, 'function')
   assert.equal(typeof paramNameOf, 'function')
+  assert.equal(typeof migrateLegacyParams, 'function')
 })
 
 // 参数名：命令行开关去掉横线，python 参数名原样。
@@ -148,4 +149,55 @@ test('名片里其它段不受影响', () => {
   assert.equal(m.id, 'x')
   assert.equal(m.runtime.python, 'engines/x/.venv')
   assert.equal(m.capabilities.output_sample_rate, 24000)
+})
+
+// 旧格式（params.schema + load_time/call_time）与新格式（parameters[]）只允许存在一份。
+//   盘上四台引擎的名片都是旧格式，用户一拖参数就会同时有两种，存盘被校验直接拒掉。
+//   所以落点先做迁移，再写新的一条。
+const LEGACY = () => ({
+  id: 'x', label: 'x',
+  call: { kind: 'cli', argv: ['{engine_python}', '-m', 'x'],
+    args: { text: { flag: '--text', style: 'value' },
+            device: { flag: '--device', style: 'value', role: 'device' } },
+    bind: { text: '--text' }, returns: 'file', seed: 'none' },
+  params: {
+    load_time: ['precision'],
+    call_time: ['device', 'speed'],
+    schema: {
+      precision: { type: 'select', default: 'fp16', choices: ['fp16', 'fp32'], tier: 'advanced' },
+      speed: { type: 'number', default: 1, min: 0.5, max: 2 },
+    },
+  },
+})
+
+test('旧格式名片被拖入参数时先迁移：params 消失，原有条目一条不少', () => {
+  const m = applyParamDrop(LEGACY(), CLI_PARAM)
+  assert.strictEqual(m.params, undefined, '两份事实会漂移，存盘时会被拒')
+  const by = Object.fromEntries(m.parameters.map((p) => [p.name, p]))
+  assert.deepStrictEqual(Object.keys(by).sort(), ['device', 'precision', 'speed'],
+    '原有三条都在，加上新拖进来的那条（speed 已有，不重复）')
+  assert.equal(by.precision.phase, 'load', 'load_time 里的改成 phase: load')
+  assert.deepStrictEqual(by.precision.choices, ['fp16', 'fp32'])
+  assert.equal(by.speed.suggested_value, 1, '旧格式的 default 在新格式叫 suggested_value')
+  assert.equal(by.speed.min, 0.5)
+  assert.equal(by.speed.phase, undefined, 'call_time 里的不写 phase')
+})
+
+test('只在 call_time 里、schema 里没有的名字也要补一条，否则命令行参数被判为永远不上命令行', () => {
+  const m = applyParamDrop(LEGACY(), CLI_PARAM)
+  const device = m.parameters.find((p) => p.name === 'device')
+  assert.ok(device, 'device 只在 call_time 里，迁移后必须有它')
+  assert.equal(device.type, 'text', 'schema 没给形状时按文本，不当成下拉')
+})
+
+test('已经是新格式的名片不被迁移动过', () => {
+  const already = { id: 'x', parameters: [{ name: 'speed', type: 'number', tier: 'common' }] }
+  const m = migrateLegacyParams(already)
+  assert.deepStrictEqual(m.parameters, already.parameters)
+  assert.strictEqual(m.params, undefined)
+})
+
+test('迁移保留 schema 的键序：界面按名片写的顺序排', () => {
+  const m = migrateLegacyParams(LEGACY())
+  assert.deepStrictEqual(m.parameters.map((p) => p.name), ['precision', 'speed', 'device'])
 })

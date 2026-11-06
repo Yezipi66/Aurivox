@@ -22,6 +22,57 @@ export function paramNameOf (param) {
   return String(param.name || param.target || '')
 }
 
+// 旧格式（params.schema + load_time/call_time）与新格式（parameters[]）只允许存在一份。
+// 拖参数进来写的是新格式，所以旧的那份必须先搬过去，否则两份共存会被校验直接拒掉。
+// 形状对应关系：schema 的键 → name；schema.default → suggested_value；
+// load_time 里有的 → phase: "load"，其余是 call。
+const CARRIED = [
+  'type', 'label', 'help', 'min', 'max', 'step', 'choices', 'source',
+  'allow_custom', 'multi', 'repeat', 'dim_labels', 'tier', 'group',
+  'order', 'width', 'only_when', 'int',
+]
+
+/**
+ * 把旧格式的 params 迁移成 parameters[]。已经新格式的名片原样返回。
+ *
+ * @param {object} manifest 当前名片
+ * @returns {object} 迁移后的名片（旧键已删除）
+ */
+export function migrateLegacyParams (manifest) {
+  const m = { ...(manifest || {}) }
+  if (m.parameters !== undefined || m.params === undefined) return m
+
+  const legacy = m.params || {}
+  const schema = legacy.schema || {}
+  const loadTime = Array.isArray(legacy.load_time) ? legacy.load_time : []
+  const callTime = Array.isArray(legacy.call_time) ? legacy.call_time : []
+
+  // 顺序：先按 schema 的键序，再把只在 load/call_time 里出现的补在后面。
+  //   schema 的顺序是接入者写名片时的顺序，界面按它排，不该被这次迁移打乱。
+  const names = [...Object.keys(schema)]
+  for (const name of [...loadTime, ...callTime]) {
+    if (!names.includes(name)) names.push(name)
+  }
+
+  const parameters = names.map((name) => {
+    const d = schema[name] || {}
+    const entry = { name, type: d.type || 'text' }
+    if (loadTime.includes(name)) entry.phase = 'load'
+    for (const key of CARRIED) {
+      if (d[key] !== undefined) entry[key] = d[key]
+    }
+    // 新格式里默认值叫 suggested_value，旧格式叫 default。名字不同，含义一样。
+    if (d.default !== undefined) entry.suggested_value = d.default
+    if (entry.tier === undefined) entry.tier = 'common'
+    return entry
+  })
+
+  m.parameters = parameters.length ? parameters : undefined
+  if (m.parameters === undefined) delete m.parameters
+  delete m.params
+  return m
+}
+
 /**
  * 拖一个参数落进 parameters[] 时要改哪些地方。
  *
@@ -32,9 +83,11 @@ export function paramNameOf (param) {
  * @returns {object} 新的名片
  */
 export function applyParamDrop (manifest, param) {
-  const m = { ...(manifest || {}) }
   const name = paramNameOf(param)
-  if (!name) return m
+  if (!name) return { ...(manifest || {}) }
+
+  // 先迁移：旧格式还在的名片，直接写 parameters 会变成两份事实，存盘时被拒。
+  const m = migrateLegacyParams(manifest)
 
   const list = Array.isArray(m.parameters) ? [...m.parameters] : []
   // 已经声明过同名参数就不重复加：拖两次同一个东西不该出现两条。

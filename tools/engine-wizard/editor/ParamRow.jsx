@@ -1,6 +1,7 @@
 // 单条参数行：名称、类型、值、高级项。
 import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import { repeatOf, defaultTextOf, defaultFromText } from './paramDefault'
 
 // 名片里一条界面参数的可编辑行。
 //
@@ -49,6 +50,12 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
   const [moreOpen, setMoreOpen] = useState(false)
   void spec
 
+  // repeat 大于等于 2 时默认值是一排（八维情绪向量就是八个），落盘必须是等长数组。
+  // 这一格仍是一个输入框，按逗号分隔读写；形状换算在 paramDefault 里，单独可测。
+  const repeat = repeatOf(entry)
+  const isVector = repeat > 1
+  const defaultText = defaultTextOf(entry)
+
   const setPlacement = (key) => {
     const p = PLACEMENTS.find((x) => x.key === key)
     if (!p) return
@@ -86,15 +93,13 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
         {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.en, p.zh)}</option>)}
       </select>
 
-      <input className="control wz-param-default" value={entry.suggested_value ?? ''}
-        placeholder={t('value', '建议值')}
-        title={t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
-        onChange={(e) => set('suggested_value',
-          e.target.value === ''
-            ? undefined
-            : (type === 'number' || type === 'boolean')
-              ? (type === 'boolean' ? e.target.value === 'true' : Number(e.target.value))
-              : e.target.value)} />
+      <input className="control wz-param-default" value={defaultText}
+        placeholder={isVector ? t(`${repeat} values, comma separated`, `${repeat} 个值，逗号分隔`) : t('value', '建议值')}
+        title={isVector
+          ? t('repeat is 2 or more, so the default is a list: write one value per dimension, comma separated. The count must match repeat.',
+            'repeat 大于等于 2 时默认值是一排：按维度逐个写、逗号分隔，个数必须与 repeat 相同。')
+          : t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
+        onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
 
       {typeGuessed && (
         <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
