@@ -46,8 +46,18 @@ function loadDrop () {
     target: 'node18',
   }).code
   const mod = { exports: {} }
+  // paramShape 也是零依赖的纯函数文件，一起加载：替换成替身就测不到真的判定。
+  const shapeSrc = esbuild.transformSync(
+    fs.readFileSync(path.join(EDITOR_DIR, 'paramShape.js'), 'utf8'),
+    { loader: 'js', format: 'cjs', target: 'node18' }).code
+  const shapeMod = { exports: {} }
+  // eslint-disable-next-line no-new-func
+  new Function('exports', 'require', 'module', shapeSrc)(shapeMod.exports, () => {
+    throw new Error('paramShape 不该有依赖')
+  }, shapeMod)
   const stub = (id) => {
-    if (/paramType/.test(id)) return typeMod.exports
+    if (/paramType/.test(id) && !/paramShape/.test(id)) return typeMod.exports
+    if (/paramShape/.test(id)) return shapeMod.exports
     throw new Error('拖拽落点的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -56,7 +66,7 @@ function loadDrop () {
   return mod.exports
 }
 
-const { applyParamDrop, paramNameOf, migrateLegacyParams } = loadDrop()
+const { applyParamDrop, paramNameOf, migrateLegacyParams, dragLabelOf } = loadDrop()
 
 // 夹具：扫到的参数，形状与 /wizard/discover 返回的一致。
 const CLI_PARAM = {
@@ -72,6 +82,7 @@ test('守卫：这份测试真的拿到了活代码里的那两个纯函数', ()
   assert.equal(typeof applyParamDrop, 'function')
   assert.equal(typeof paramNameOf, 'function')
   assert.equal(typeof migrateLegacyParams, 'function')
+  assert.equal(typeof dragLabelOf, 'function')
 })
 
 // 参数名：命令行开关去掉横线，python 参数名原样。
@@ -200,4 +211,42 @@ test('已经是新格式的名片不被迁移动过', () => {
 test('迁移保留 schema 的键序：界面按名片写的顺序排', () => {
   const m = migrateLegacyParams(LEGACY())
   assert.deepStrictEqual(m.parameters.map((p) => p.name), ['precision', 'speed', 'device'])
+})
+
+// 上游说明里写着「逗号分隔的 8 维」时，这一条不是一个文本框，
+//   而是八个数字格 + 命令行上一个逗号串。判错会让命令行上出现 N 个词。
+const VEC_PARAM = {
+  source: 'cli', name: 'emotion-vector', target: '--emotion-vector',
+  kind: 'str', style: 'value',
+  help: 'Comma-separated 8-dimensional emotion vector',
+}
+
+test('拖一个向量参数：八个数字格，默认值留空，命令行按一个逗号串拼', () => {
+  const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, VEC_PARAM)
+  const entry = m.parameters[0]
+  assert.equal(entry.repeat, 8, '八维就是八格')
+  assert.equal(entry.type, 'number', '每格是一个数')
+  assert.deepStrictEqual(entry.suggested_value, new Array(8).fill(null),
+    '默认值必须等长；填 null 表示这一维没填，不替人写 0')
+  assert.deepStrictEqual(m.call.args['emotion-vector'],
+    { flag: '--emotion-vector', style: 'join', join: ',' },
+    'style 取 join：写成 value 会被按 nargs 拆成八个词')
+})
+
+test('拖一个普通参数：仍然是单值，不被向量判定波及', () => {
+  const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, CLI_PARAM)
+  assert.strictEqual(m.parameters[0].repeat, undefined)
+  assert.deepStrictEqual(m.call.args.speed, { flag: '--speed', style: 'value' })
+})
+
+test('向量参数名与开关名不同：落盘用去横线的那个作键', () => {
+  const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, VEC_PARAM)
+  assert.equal(m.parameters[0].name, 'emotion-vector')
+  assert.ok(m.call.args['emotion-vector'], 'args 的键与 parameters 的 name 同名')
+})
+
+test('拖拽标签：跟着光标走的是命令行上的写法，不是 JSON', () => {
+  assert.equal(dragLabelOf(VEC_PARAM), '--emotion-vector')
+  assert.equal(dragLabelOf({ source: 'python', name: 'seed', target: 'seed' }), 'seed')
+  assert.equal(dragLabelOf(null), '')
 })

@@ -611,6 +611,20 @@
 .wz-param-type { flex: 0 0 92px; }
 .wz-param-place { flex: 0 0 132px; }
 .wz-param-default { flex: 0 0 104px; }
+/* 成排参数（repeat 大于等于 2）：一维一格，横向铺开。
+   挤在一个 104px 的框里写「0,0,0.8,…」，一眼看不出是八个不同的维度。 */
+.wz-param-vector {
+  flex: 1 1 300px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+  gap: var(--sp-4);
+}
+.wz-param-vector input {
+  min-width: 0;
+  padding: 2px 4px;
+  text-align: center;
+  font-size: var(--fs-11);
+}
 .wz-param-del { flex: 0 0 auto; }
 /* details 用 display:contents：它不生成盒子，summary 与展开后的正文
    直接成为这一行的 flex 项 ⇒ 收起时只有一行，展开时正文 flex-basis:100% 自己换行。 */

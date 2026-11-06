@@ -1,7 +1,7 @@
 // 合成参数的投放区，接收拖拽与点击加入。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { applyParamDrop, paramNameOf } from './paramDrop'
+import { applyParamDrop, paramNameOf, PARAM_MIME } from './paramDrop'
 
 // 中栏的落点：参数区（parameters[]）。
 //
@@ -62,7 +62,9 @@ export default function ParamDropZone ({
   const onDrop = (e) => {
     e.preventDefault()
     setOver(false)
-    const raw = e.dataTransfer.getData('text/plain')
+    // 机器读的那份在自定义类型里；text/plain 只有给人看的开关写法。
+    //   两种都试：外部拖进来的或旧版拖拽源可能只给 text/plain。
+    const raw = e.dataTransfer.getData(PARAM_MIME) || e.dataTransfer.getData('text/plain')
     if (!raw) return
     let param
     try { param = JSON.parse(raw) } catch { return }

@@ -1,7 +1,7 @@
 // 单条参数行：名称、类型、值、高级项。
 import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { repeatOf, defaultTextOf, defaultFromText } from './paramDefault'
+import { repeatOf, defaultTextOf, defaultFromText, vectorCellText, withVectorCell } from './paramDefault'
 
 // 名片里一条界面参数的可编辑行。
 //
@@ -55,6 +55,14 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
   const repeat = repeatOf(entry)
   const isVector = repeat > 1
   const defaultText = defaultTextOf(entry)
+  // 每格的提示：名片给了 dim_labels 就用它（八维情绪向量就靠它标出喜/怒/哀），
+  //   没给就退回序号。空着等于让人对着一排空格猜哪个是哪个。
+  const cellLabel = (item, i) => {
+    const labels = Array.isArray(item.dim_labels) ? item.dim_labels : []
+    const one = labels[i]
+    if (one && typeof one === 'object') return String(one.zh || one.en || '')
+    return one === undefined || one === null ? `#${i + 1}` : String(one)
+  }
 
   const setPlacement = (key) => {
     const p = PLACEMENTS.find((x) => x.key === key)
@@ -93,13 +101,26 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
         {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.en, p.zh)}</option>)}
       </select>
 
-      <input className="control wz-param-default" value={defaultText}
-        placeholder={isVector ? t(`${repeat} values, comma separated`, `${repeat} 个值，逗号分隔`) : t('value', '建议值')}
-        title={isVector
-          ? t('repeat is 2 or more, so the default is a list: write one value per dimension, comma separated. The count must match repeat.',
-            'repeat 大于等于 2 时默认值是一排：按维度逐个写、逗号分隔，个数必须与 repeat 相同。')
-          : t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
-        onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
+      {isVector
+        ? (
+          <div className="wz-param-vector"
+            title={t(`This parameter is one value per dimension (${repeat} in total), and the engine takes them as one comma-separated word. Leave a dimension empty rather than writing 0.`,
+              `这一项一维一个值（共 ${repeat} 维），引擎按逗号拼成一个词收。某一维不填就留空，不要拿 0 顶替。`)}>
+            {Array.from({ length: repeat }, (_, i) => (
+              <input key={i} className="control" value={vectorCellText(entry, i)}
+                aria-label={cellLabel(entry, i)}
+                placeholder={cellLabel(entry, i)}
+                title={cellLabel(entry, i)}
+                onChange={(e) => set('suggested_value', withVectorCell({ ...entry, type }, i, e.target.value))} />
+            ))}
+          </div>
+          )
+        : (
+          <input className="control wz-param-default" value={defaultText}
+            placeholder={t('value', '建议值')}
+            title={t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
+            onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
+          )}
 
       {typeGuessed && (
         <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>

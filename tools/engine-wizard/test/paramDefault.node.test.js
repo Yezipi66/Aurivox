@@ -25,7 +25,7 @@ function load () {
   return mod.exports
 }
 
-const { repeatOf, defaultTextOf, defaultFromText } = load()
+const { repeatOf, defaultTextOf, defaultFromText, vectorCellText, withVectorCell } = load()
 
 test('守卫：拿到的是活代码里的三个纯函数', () => {
   assert.equal(typeof repeatOf, 'function')
@@ -73,4 +73,26 @@ test('成排：数组里有 null 时显示成空的一段，回读仍然对得�
   const entry = { repeat: 3, type: 'number', suggested_value: [0.2, null, 0.4] }
   assert.equal(defaultTextOf(entry), '0.2,,0.4')
   assert.deepStrictEqual(defaultFromText(defaultTextOf(entry), entry), [0.2, null, 0.4])
+})
+
+// 成排参数在界面上是一格一个维度：读一格、写一格，落盘仍是等长数组。
+test('多格：一格一个维度，缺的维显示空', () => {
+  const entry = { repeat: 3, type: 'number', suggested_value: [0.2, null, 0.4] }
+  assert.equal(vectorCellText(entry, 0), '0.2')
+  assert.equal(vectorCellText(entry, 1), '')
+  assert.equal(vectorCellText(entry, 2), '0.4')
+})
+
+test('多格：写一格不动其它维，长度仍是 repeat', () => {
+  const entry = { repeat: 3, type: 'number', suggested_value: [0.2, null, 0.4] }
+  assert.deepStrictEqual(withVectorCell(entry, 1, '0.9'), [0.2, 0.9, 0.4])
+  assert.deepStrictEqual(withVectorCell(entry, 0, ''), [null, null, 0.4], '清空那一维写 null')
+})
+
+test('多格：原来没有默认值时写入会补成等长数组', () => {
+  const entry = { repeat: 8, type: 'number' }
+  const next = withVectorCell(entry, 2, '0.8')
+  assert.equal(next.length, 8)
+  assert.deepStrictEqual(next.slice(0, 3), [null, null, 0.8])
+  assert.deepStrictEqual(next.slice(3), new Array(5).fill(null))
 })

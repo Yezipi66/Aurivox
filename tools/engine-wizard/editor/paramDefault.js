@@ -55,3 +55,42 @@ export function defaultFromText (raw, entry) {
     return type === 'number' ? Number(piece) : piece
   })
 }
+
+// 成排参数的默认值在界面上是 N 个格子，一格对一个维度。
+// 落盘仍是一个长度等于 repeat 的数组；缺的维留 null，表示这一维没填。
+
+function arrayOf (entry) {
+  const value = entry && entry.suggested_value
+  return Array.isArray(value) ? value : []
+}
+
+/**
+ * 第 i 格显示什么。
+ * @param {object} entry parameters[] 里的一条
+ * @param {number} i 第几维（从 0 开始）
+ * @returns {string} 显示文本
+ */
+export function vectorCellText (entry, i) {
+  const value = arrayOf(entry)[i]
+  return value === null || value === undefined ? '' : String(value)
+}
+
+/**
+ * 改第 i 格，返回新的默认值数组。
+ * 空的一格写 null，不拿 0 顶替：0 是一种明确的强度。
+ *
+ * @param {object} entry parameters[] 里的一条
+ * @param {number} i 第几维
+ * @param {string} raw 输入框内容
+ * @returns {Array} 长度等于 repeat 的新数组
+ */
+export function withVectorCell (entry, i, raw) {
+  const type = (entry && entry.type) || 'text'
+  const next = Array.from({ length: repeatOf(entry) }, (_, k) => {
+    const cur = arrayOf(entry)[k]
+    return cur === undefined ? null : cur
+  })
+  const text = raw == null ? '' : String(raw).trim()
+  next[i] = text === '' ? null : (type === 'number' ? Number(text) : text)
+  return next
+}

@@ -2,6 +2,7 @@
 // 纯函数放自己的文件：组件模块只导出组件，导出别的会让 Fast Refresh 失效。
 
 import { paramTypeOf } from './paramType.js'
+import { vectorShapeFromHelp } from './paramShape.js'
 
 // 中栏的落点：界面参数区（parameters[]）。扫到的参数拖进来，按扫到的信息预填，接入者再改。
 //
@@ -20,6 +21,21 @@ export function paramNameOf (param) {
   if (!param) return ''
   if (param.source === 'cli') return String(param.name || param.target || '').replace(/^-+/, '')
   return String(param.name || param.target || '')
+}
+
+// 拖拽时放在 dataTransfer 里的机器可读那一份。text/plain 放给人看的写法
+//   （跟着光标走的拖影显示的就是 text/plain），自定义类型放整条参数。
+//   两者分工：前者让人一眼认出拖的是哪个开关，后者让落点不必从显示文字反推。
+export const PARAM_MIME = 'application/x-aurivox-param'
+
+/**
+ * 拖动时显示的文字：命令行上要敲的那个写法。
+ * @param {object} param 扫到的参数
+ * @returns {string} 例如 --emotion-vector，python 形态是方法参数名
+ */
+export function dragLabelOf (param) {
+  if (!param) return ''
+  return String(param.target || param.name || '')
 }
 
 // 旧格式（params.schema + load_time/call_time）与新格式（parameters[]）只允许存在一份。
@@ -94,6 +110,17 @@ export function applyParamDrop (manifest, param) {
   if (!list.some((p) => p && p.name === name)) {
     const entry = { name, type: paramTypeOf(param), tier: 'common' }
     if (param.help) entry.help = param.help
+    // 上游说明里写了「逗号分隔的 N 维」时，这一条是成排的：repeat 给出格数，
+    //   默认值跟着长成 N 格（每格 null，等于没填）。只写 repeat 不写默认值，
+    //   名片会被校验拒掉；替人填 0 则等于替他做了决定。
+    const shape = vectorShapeFromHelp(param.help)
+    if (shape && shape.repeat > 1) {
+      entry.repeat = shape.repeat
+      entry.suggested_value = new Array(shape.repeat).fill(null)
+      // 维度是数出来的格数，每格装一个数。上游把整串读成一个字符串，
+      //   但界面上这 N 格各自是一个数字，不是 N 段文字。
+      entry.type = 'number'
+    }
     list.push(entry)
   }
   m.parameters = list.length ? list : undefined
@@ -105,6 +132,13 @@ export function applyParamDrop (manifest, param) {
     if (!args[name]) {
       const entry = { flag: param.target }
       if (param.style) entry.style = param.style
+      // 上游明说「逗号分隔」时命令行上只该出现一个词，不是 N 个词：
+      //   写成 default 的 value 会被按 nargs 展开，上游只吃第一个，而且不报错。
+      const shape = vectorShapeFromHelp(param.help)
+      if (shape) {
+        entry.style = shape.style
+        entry.join = shape.join
+      }
       args[name] = entry
     }
     m.call = { ...m.call, args }

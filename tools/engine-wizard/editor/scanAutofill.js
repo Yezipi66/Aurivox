@@ -1,4 +1,6 @@
 // 扫描结果转成名片建议值的纯函数：不 import react，不必为了跑一个纯函数把组件树拉起来。
+
+import { vectorShapeFromHelp } from './paramShape.js'
 //
 // 输入是 /wizard/discover 返回的参数表，输出是名片的 call 段建议。
 
@@ -240,6 +242,13 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
       if (entryFile && p.source_file && p.source_file !== entryFile) continue
       const entry = { flag: p.target }
       if (p.style) entry.style = p.style
+      // 上游说明里写了「逗号分隔」时，命令行上只该出现一个词：扫描给的 style 是
+      //   argparse 的默认写法 value，照抄会被按 nargs 展开成 N 个词，上游只吃第一个。
+      const shape = vectorShapeFromHelp(p.help)
+      if (shape) {
+        entry.style = shape.style
+        entry.join = shape.join
+      }
       // 运行设备的参数要打上标记：平台据此在界面上出设备下拉，
       //   并在下发前把选中的那块卡换算成这台引擎认的写法。
       if (DEVICE_NAME_RE.test(normName(p.name))) {

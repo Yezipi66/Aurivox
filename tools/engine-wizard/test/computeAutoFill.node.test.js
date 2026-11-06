@@ -30,7 +30,17 @@ function loadComputeAutoFill () {
     target: 'node18',
   }).code
   const mod = { exports: {} }
+  // paramShape 是零依赖的纯函数文件，加载真的那一份：判定换掉等于测了个替身。
+  const shapeSrc = esbuild.transformSync(
+    fs.readFileSync(path.join(EDITOR_DIR, 'paramShape.js'), 'utf8'),
+    { loader: 'js', format: 'cjs', target: 'node18' }).code
+  const shapeMod = { exports: {} }
+  // eslint-disable-next-line no-new-func
+  new Function('exports', 'require', 'module', shapeSrc)(shapeMod.exports, () => {
+    throw new Error('paramShape 不该有依赖')
+  }, shapeMod)
   const stub = (id) => {
+    if (/paramShape/.test(id)) return shapeMod.exports
     throw new Error('computeAutoFill 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -759,4 +769,31 @@ test('模型权重：说明指向文件但盘上两个权重 ⇒ 先接目录并
     { kind: 'cli' }, [], W_ENTRY, 'demo', null, ['a.onnx', 'b.onnx'])
   assert.ok(r.call.argv.includes('{checkpoints}'))
   assert.ok(r.notes.some((n) => /手写 \{checkpoints\}\/文件名/.test(n.zh)))
+})
+
+// 上游说明里写着「逗号分隔的 N 维」时，命令行上只能出现一个词。
+//   扫描给的 style 是 argparse 的默认写法 value，照抄会被按 nargs 拆开，上游只吃第一个。
+const vecParam = (help) => ({
+  source: 'cli', name: 'emotion-vector', target: '--emotion-vector',
+  kind: 'str', style: 'value', help, source_file: 'cli/infer.py',
+})
+
+test('扫描回填：逗号分隔的八维向量 ⇒ call.args 写 join，不是 value', () => {
+  const r = computeAutoFill([vecParam('Comma-separated 8-dimensional emotion vector')],
+    { kind: 'cli' }, [], { file: 'cli/infer.py' }, 'demo')
+  assert.deepStrictEqual(r.call.args['emotion-vector'],
+    { flag: '--emotion-vector', style: 'join', join: ',' })
+})
+
+test('扫描回填：普通参数仍是 value，不被这条判定波及', () => {
+  const r = computeAutoFill([wParam('speaker', 'Speaker id')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo')
+  assert.equal(r.call.args.speaker.style, 'value')
+})
+
+test('扫描回填：名片里已经写过的那条不动（手填的映射比扫描准）', () => {
+  const cur = { kind: 'cli', args: { 'emotion-vector': { flag: '--emo', style: 'repeat' } } }
+  const r = computeAutoFill([vecParam('Comma-separated 8-dimensional emotion vector')],
+    cur, [], { file: 'cli/infer.py' }, 'demo')
+  assert.deepStrictEqual(r.call.args['emotion-vector'], { flag: '--emo', style: 'repeat' })
 })

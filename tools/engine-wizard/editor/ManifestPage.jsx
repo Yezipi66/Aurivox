@@ -8,6 +8,7 @@ import Stage from './Stage'
 import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
+import { PARAM_MIME, dragLabelOf } from './paramDrop'
 import { entryFileOf } from './entryChoiceField'
 import { scopeParams } from './paramScope'
 
@@ -201,7 +202,10 @@ export default function ManifestPage ({
 
   // 左栏拖拽开始：把参数放进 dataTransfer，中栏的落点读它。
   const onDragStart = (e, param) => {
-    e.dataTransfer.setData('text/plain', JSON.stringify(param))
+    // 跟着光标走的那块文字读 text/plain：放命令行上的写法（--emotion-vector），
+    //   不放 JSON。整条参数放自定义类型，落点从那里读。
+    e.dataTransfer.setData('text/plain', dragLabelOf(param))
+    e.dataTransfer.setData(PARAM_MIME, JSON.stringify(param))
     e.dataTransfer.effectAllowed = 'copy'
   }
 
