@@ -39,6 +39,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -575,14 +576,19 @@ class Engine(object):
             seed_info = None
 
         out_path = None
+        out_dir = None
         try:
             if returns == "file":
                 fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
                 os.close(fd)
+            elif returns == "dir":
+                # 引擎自己起文件名：给它一个空目录，事后再从里面取那个音频。
+                out_dir = tempfile.mkdtemp(prefix="host_out_")
             argv = build_cli_argv(
                 self.call, self.profile,
                 {"text": text, "ref_audio": ref_audio_path,
-                 "ref_text": ref_text, "output_path": out_path},
+                 "ref_text": ref_text,
+                 "output_path": out_dir if returns == "dir" else out_path},
                 params)
 
             t0 = time.time()
@@ -607,6 +613,8 @@ class Engine(object):
                     raise RuntimeError(
                         "命令退出码 0，却没往 %s 写出任何字节\n"
                         "--- stderr（末尾 4000 字）---\n%s" % (out_path, tail[-4000:]))
+            elif returns == "dir":
+                data = _pick_audio_in_dir(out_dir, os.path.basename(argv[0]))
             else:
                 data = proc.stdout or b""
                 if not data:
@@ -628,6 +636,8 @@ class Engine(object):
                     os.unlink(out_path)
                 except OSError:
                     pass
+            if out_dir:
+                shutil.rmtree(out_dir, ignore_errors=True)
 
     def _synthesize_python(self, text, ref_audio_path, call_params, seed=None, method_cfg=None,
                            ref_text=None):
@@ -698,10 +708,15 @@ class Engine(object):
                         kwargs[up] = ""
 
         out_path = None
+        out_dir = None
         if returns == "file":
             fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
             os.close(fd)
             kwargs[bind["output_path"]] = out_path
+        elif returns == "dir":
+            # 引擎自己起文件名：给它一个空目录，事后再从里面取那个音频。
+            out_dir = tempfile.mkdtemp(prefix="host_out_")
+            kwargs[bind["output_path"]] = out_dir
 
         seed_info = None
         try:
@@ -723,6 +738,8 @@ class Engine(object):
                     data = fh.read()
                 if not data:
                     raise RuntimeError("%s wrote an empty file" % self.call["class"])
+            elif returns == "dir":
+                data = _pick_audio_in_dir(out_dir, self.call["class"])
             elif returns == "generator":
                 # CosyVoice2 五个推理方法都返回生成器。
                 # 采样率从 call.generator_sample_rate 取（名片声明）
@@ -756,6 +773,41 @@ class Engine(object):
                     os.unlink(out_path)
                 except OSError:
                     pass
+            if out_dir:
+                shutil.rmtree(out_dir, ignore_errors=True)
+
+
+# 音频扩展名：returns="dir" 时要在引擎自己起名的目录里找出那一个音频。
+#   只按扩展名判，不按大小或时间挑：挑错文件得到的是别人的声音，而且不报错。
+_AUDIO_EXTS = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".opus", ".webm")
+
+
+def _pick_audio_in_dir(out_dir, label):
+    """从引擎自己起名的目录里取出唯一那个音频。
+
+    多于一个不挑：同一目录里躺着两条音频时，平台没有任何依据判断哪条是这次的输出。
+    """
+    try:
+        names = sorted(os.listdir(out_dir))
+    except OSError as exc:
+        raise RuntimeError("%s 的输出目录读不了（%s）：%s" % (label, out_dir, exc))
+    files = [n for n in names if os.path.isfile(os.path.join(out_dir, n))]
+    hits = [n for n in files if os.path.splitext(n)[1].lower() in _AUDIO_EXTS]
+    if not hits:
+        raise RuntimeError(
+            "%s 退出码 0，但传给它的目录里没有音频文件（目录内容：%s）"
+            % (label, ", ".join(names) or "空"))
+    if len(hits) > 1:
+        raise RuntimeError(
+            '%s 在那个目录里写下了 %d 个音频（%s）。call.returns = "dir" 要求恰好一个：'
+            "同一目录里躺着多条音频时，平台没有依据判断哪条是这次的输出。"
+            % (label, len(hits), ", ".join(hits)))
+    picked = os.path.join(out_dir, hits[0])
+    with open(picked, "rb") as fh:
+        data = fh.read()
+    if not data:
+        raise RuntimeError("%s 在 %s 里写了一个空文件" % (label, picked))
+    return data
 
 
 def _collect_generator(result, sample_rate, call_desc):
