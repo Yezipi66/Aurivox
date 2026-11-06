@@ -3,6 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { launchConventions, withRuntimePatch, withLaunchConventions } from './optionalKeys'
 import { readWeights, writeWeights, TOKEN } from './weightsField'
+import EntryChoice from './EntryChoice'
 
 // 必填区：名片里只有这 6 格必须人答（模型权重是 2026-10 补的第 6 格），其余平台推得出或有保守默认
 // （lib/engines/profile.js 的 DEFAULTS 与 defaulted）。
@@ -40,7 +41,8 @@ function Cell ({ label, code, hint, badge, unset, children }) {
   )
 }
 
-export default function RequiredFields ({ manifest, onChange, autofill, bindSlots }) {
+export default function RequiredFields ({ manifest, onChange, autofill, bindSlots,
+  entryCandidates, entryConfidence }) {
   const { t } = useT()
   const runtime = (manifest && manifest.runtime) || {}
   const call = (manifest && manifest.call) || {}
@@ -171,6 +173,11 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
         </span>
       </div>
       <div className="section-body">
+        {/* 推理入口排在最前：它也是必填，缺了这台引擎起不来。
+            版式跟同区其它格一样（标签 + 键名徽标 + 输入框 + 说明），不再单占一段。 */}
+        <EntryChoice manifest={manifest || {}} onChange={onChange}
+          candidates={entryCandidates || []} confidence={entryConfidence || null} />
+
         <div className="form-grid wz-required-row">
           {orderedSlots.map((slot) => {
             const val = bind[slot.key] || ''

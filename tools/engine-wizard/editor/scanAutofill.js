@@ -347,23 +347,34 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
     manifestPatch.output_formats = hints.output_formats
   }
 
-  // 可复现性：名片没写 seed 时补一条。这一项缺了宿主拒绝启动，
-  //   所以不能留给「以后再说」：扫到名字就是 seed 的开关就按「引擎自己收」写，
-  //   否则写 "none"（明确表示种子不受控制）。已有声明一律不动。
+  // 可复现性：扫到名字就是 seed 的开关，就算证据（同名，不是猜别的语义）。
+  //   这一项缺了宿主拒绝启动，所以「没扫到」时也要补一条 "none"，不能留空。
+  //   名片里已经写着 "none" 时允许升级：这个值也常常是平台给的缺省，
+  //   留着它等于把扫描发现的开关丢掉。已写成 {arg} / {mode:"global"} 的一律不动。
   //   cli 形态要连 call.args 一起补：宿主把种子塞进 params[键]，
   //   再由 build_cli_argv 用 call.args[键].flag 拼命令行，只写 seed 会当场报「没有形状」。
-  if (call.seed === undefined) {
-    const seedHit = params.find((p) => p && normName(p.name) === 'seed')
-    if (seedHit && (call.kind || 'python') === 'cli') {
+  //   入口文件里有同名开关就优先取它：训练脚本里也有 seed 的引擎不少。
+  const wasNone = call.seed === 'none'
+  const seedHits = params.filter((p) => p && normName(p.name) === 'seed')
+  const seedHit = seedHits.find((p) => inEntryFile(p)) || (seedHits.length === 1 ? seedHits[0] : null)
+  const seedUpgradable = call.seed === undefined || call.seed === 'none'
+  if (seedHit && seedUpgradable) {
+    if ((call.kind || 'python') === 'cli') {
       const key = normName(seedHit.name).replace(/^-+/, '')
       call.args = { ...(call.args || {}),
         [key]: { flag: seedHit.target, style: seedHit.style || 'value' } }
       call.seed = { arg: key }
-    } else if (seedHit) {
-      call.seed = { arg: seedHit.name }
     } else {
-      call.seed = 'none'
+      call.seed = { arg: seedHit.name }
     }
+    if (wasNone) {
+      notes.push({
+        en: `Scan found a seed switch (${seedHit.target}); reproducibility changed from "none" to "the engine takes it". Clear the seed field if that is wrong.`,
+        zh: `扫描到种子开关（${seedHit.target}），可复现性已从「不可复现」改为「引擎自己收」。若不符，清空 seed 那一格即可。`,
+      })
+    }
+  } else if (call.seed === undefined) {
+    call.seed = 'none'
   }
 
   // 入口结论分档只看上游给的证据强度：high 且出自声明或文档才算确定，

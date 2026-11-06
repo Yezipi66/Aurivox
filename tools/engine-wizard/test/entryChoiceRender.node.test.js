@@ -125,7 +125,7 @@ test('识别不出结论时下拉为空，但输入口还在，且明确说明�
   const input = container.querySelector('input')
   assert.ok(input, '没有候选时也要能直接输入模块名')
   assert.strictEqual(container.querySelectorAll('datalist option').length, 0)
-  assert.ok(/No Python source files were found/.test(container.textContent))
+  assert.ok(/Not scanned, or no Python source files were found/.test(container.textContent))
 })
 
 test('有候选但没有扫描建议：提示从清单中选，不谎称已识别', async () => {

@@ -696,3 +696,31 @@ test('可复现性：名片已经写过 seed ⇒ 不覆盖', () => {
   const r = computeAutoFill(withSeedFlag, { kind: 'cli', seed: { mode: 'global', rngs: ['torch'] } }, [], null, 'demo')
   assert.deepStrictEqual(r.call.seed, { mode: 'global', rngs: ['torch'] })
 })
+
+// 嗅探这条路上，seed 与其它参数同一套：扫到同名开关就是证据。
+//   名片里原本写着 "none" 的允许升级，但要把这次改动说出来，不能悄悄改。
+test('可复现性：名片写着 none、扫到 seed 开关 ⇒ 升级为「引擎自己收」并提示', () => {
+  const r = computeAutoFill(withSeedFlag, { kind: 'cli', seed: 'none' }, [], null, 'demo')
+  assert.deepStrictEqual(r.call.seed, { arg: 'seed' })
+  assert.ok(r.notes.some((n) => /「不可复现」/.test(n.zh)), '升级要说出来，别让人以为一直就是这样')
+})
+
+test('可复现性：入口文件里有同名 seed ⇒ 优先取入口里的那一个', () => {
+  const entry = { file: 'cli/infer.py' }
+  const params = [
+    { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', source_file: 'train/s1_train.py' },
+    { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', source_file: 'cli/infer.py' },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' }, [], entry, 'demo')
+  assert.deepStrictEqual(r.call.seed, { arg: 'seed' })
+  assert.deepStrictEqual(r.call.args.seed, { flag: '--seed', style: 'value' })
+})
+
+test('可复现性：已经写成 {arg} 的不被扫描改写', () => {
+  const cur = { kind: 'cli', seed: { arg: 'random_seed' },
+    args: { random_seed: { flag: '--random-seed', style: 'value' } } }
+  const r = computeAutoFill(withSeedFlag, cur, [], null, 'demo')
+  assert.deepStrictEqual(r.call.seed, { arg: 'random_seed' }, '已声明的参数名不被扫描改写')
+  assert.deepStrictEqual(r.call.args.random_seed,
+    { flag: '--random-seed', style: 'value' }, '原来那条 args 形状也在')
+})

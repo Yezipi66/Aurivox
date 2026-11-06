@@ -7,7 +7,6 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import OptionalConfig from './OptionalConfig'
 import RequiredFields from './RequiredFields'
-import EntryChoice from './EntryChoice'
 import ParamDropZone from './ParamDropZone'
 import ParamRow from './ParamRow'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
@@ -87,15 +86,12 @@ export default function ManifestForm ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* ① 必填字段：三个输入槽位一行，引擎目录与启动脚本一行 */}
+      {/* ① 必填字段：推理入口、三个输入槽位、引擎目录与启动脚本、模型权重。
+          推理入口也在这一区：它同样是必填，缺了引擎起不来。 */}
       <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill}
-        bindSlots={spec && spec.bindSlots} />
-
-      {/* 推理入口：扫描认不出时从候选清单里选，或直接输入。它决定 call.argv 里
-          跑的是哪个模块或脚本，与下面的合成参数是两件事，单独占一段。 */}
-      <EntryChoice manifest={manifest} onChange={onChange}
-        candidates={entryCandidates || []}
-        confidence={autofill && autofill.confidence} />
+        bindSlots={spec && spec.bindSlots}
+        entryCandidates={entryCandidates || []}
+        entryConfidence={autofill && autofill.confidence} />
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。
