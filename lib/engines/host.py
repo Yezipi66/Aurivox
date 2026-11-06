@@ -790,7 +790,7 @@ def _pick_audio_in_dir(out_dir, label):
     try:
         names = sorted(os.listdir(out_dir))
     except OSError as exc:
-        raise RuntimeError("%s 的输出目录读不了（%s）：%s" % (label, out_dir, exc))
+        raise RuntimeError("%s 的输出目录无法读取（%s）：%s" % (label, out_dir, exc))
     files = [n for n in names if os.path.isfile(os.path.join(out_dir, n))]
     hits = [n for n in files if os.path.splitext(n)[1].lower() in _AUDIO_EXTS]
     if not hits:
