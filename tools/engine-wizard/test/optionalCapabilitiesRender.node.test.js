@@ -115,8 +115,12 @@ async function show (manifest) {
 }
 
 // 权重位的一行：行内是四格加两个按钮，靠内联 grid 排版。
+// 权重位的一行：行内四格加两个按钮，靠内联 grid 排版。
+//   判据要带上「行里有一个生效时机下拉」：设备/参考文本/seed 那一行也是 grid，
+//   只按 grid-template-columns 认，会把那一行数成权重位。
 const slotRows = () => [...container.querySelectorAll('div')]
   .filter((el) => /grid-template-columns/.test(el.getAttribute('style') || ''))
+  .filter((el) => !!el.querySelector('select'))
 
 // 分段框：输出格式、音频输入、多权重位各一个，标识是 BOX 那份圆角边框。
 const boxes = () => [...container.querySelectorAll('div')]
@@ -187,17 +191,16 @@ test('多权重位共用一个框：两位两行，行内四格', async () => {
   }
 })
 
-test('四个框的顺序：输出格式 → 音频输入 → 多权重位 → 可复现性，都排在运行设备之后', async () => {
+test('三个框的顺序：输出格式 → 音频输入 → 多权重位，都排在设备那一行之后', async () => {
   await show(cliManifest([]))
   const list = boxes()
-  assert.equal(list.length, 4, '四段各占一个框')
+  assert.equal(list.length, 3, '三段各占一个框')
   assert.ok(/Output format switch|输出格式开关/.test(list[0].textContent),
     '输出格式紧跟运行设备')
   assert.ok(/Audio input|音频输入/.test(list[1].textContent))
-  assert.ok(/Weight slot 2|第2权重位/.test(list[2].textContent), '权重位排在输出与输入之后')
-  assert.ok(/seed/i.test(list[3].textContent), '可复现性排在最后')
+  assert.ok(/Weight slot 2|第2权重位/.test(list[2].textContent), '权重位排在最后')
   assert.ok(/Runtime device|运行设备/.test(list[0].parentElement.textContent),
-    '四个框都在运行设备之后')
+    '三个框都在运行设备之后')
 })
 
 test('没填的框整块弱化：输出格式与音频输入空着带 wz-unset，声明过就摘掉', async () => {
@@ -276,7 +279,9 @@ test('没声明的格弱化显示：空着的设备/参考文本带 wz-unset，�
 })
 
 // 可复现性那一格要能改：它写的是 call.seed，宿主只在三种写法里挑一种执行。
-// 与其他几格不同，它没有「留空」这个选项，所以两种填法各自的最差情况也要说清。
+// seed 那一格：与运行设备、参考文本同一行，只留一个输入框（填开关名＝引擎自己收）。
+// 留空在别的格是「不声明」，在这一格不行：名片缺 call.seed 会被存盘与启动拒掉，
+// 所以留空落盘是显式的 "none"。
 function seedHarness (initial, sink) {
   function Harness () {
     const [m, setM] = React.useState(initial)
@@ -287,84 +292,76 @@ function seedHarness (initial, sink) {
   root.render(React.createElement(Harness, { key: 'seed' + mountSeq }))
 }
 
-const seedBox = () => boxes()[boxes().length - 1]
-const seedSelect = () => seedBox().querySelector('select')
-const pickSeedMode = async (value) => {
-  const el = seedSelect()
+// seed 那一格：标签文字就是 seed，按标签找，不靠位置猜。
+const seedField = () => [...container.querySelectorAll('.field')]
+  .find((el) => {
+    const label = el.querySelector('.field-label')
+    return label && label.textContent.trim() === 'seed'
+  })
+const seedInput = () => seedField().querySelector('input')
+const typeSeed = async (value) => {
+  const el = seedInput()
   el.value = value
   Simulate.change(el, { target: el })
   await settle()
 }
 
-test('名片里没有 seed 时补「不可复现」：缺这一项保存与启动都会被拒', async () => {
-  const m = cliManifest([])
-  delete m.call.seed
-  const sink = {}
-  seedHarness(m, sink)
-  await settle()
-  assert.equal(seedSelect().value, 'none', '默认就是「不可复现」')
-  assert.strictEqual(sink.m.call.seed, 'none',
-    '名片缺 seed 时要补上：契约要求三态显式写出，留空宿主拒绝启动')
-})
-
-test('seed 选「引擎自己收」：出现参数名格，默认 --seed；清空则明说会被拒', async () => {
+test('seed 与运行设备、参考文本同一行，排在参考文本之后', async () => {
   const sink = {}
   seedHarness(cliManifest([]), sink)
   await settle()
-  await pickSeedMode('arg')
-
-  const argInput = () => [...seedBox().querySelectorAll('input')]
-    .find((el) => el.getAttribute('type') !== 'checkbox')
-  assert.ok(argInput(), '选了「引擎自己收」就要给一个参数名输入框')
-  assert.equal(argInput().value, '--seed', 'cli 里显示的是开关本身')
-  assert.deepStrictEqual(sink.m.call.seed, { arg: 'seed' },
-    '落盘的参数名是 call.args 的键，不是开关')
-  assert.deepStrictEqual(sink.m.call.args.seed, { flag: '--seed', style: 'value' },
-    '同时补出 args 形状：宿主要靠它把种子拼成 --seed 42')
-
-  argInput().value = ''
-  Simulate.change(argInput(), { target: argInput() })
-  await settle()
-  assert.deepStrictEqual(sink.m.call.seed, { arg: '' }, '写进去的是空串，不在界面里替人补回默认值')
-  assert.strictEqual(sink.m.call.args && sink.m.call.args.seed, undefined,
-    '参数名清空后，那一条 args 一起收走：留着就是没人用的开关')
-  assert.ok(/不能为空|cannot be empty/.test(seedBox().textContent),
-    '参数名为空会被拒，界面要说清这一条，不能等保存时才报错')
+  const row = seedField().parentElement
+  assert.ok(/Runtime device|运行设备/.test(row.textContent), 'seed 与运行设备同一行')
+  assert.ok(/Reference text|参考文本/.test(row.textContent), 'seed 与参考文本同一行')
+  const labels = [...row.querySelectorAll('.field-label')].map((el) => el.textContent.trim())
+  assert.deepStrictEqual(labels, ['Runtime device', 'Reference text', 'seed'],
+    '这一行的顺序：设备、参考文本、seed')
+  assert.ok(/grid/.test(row.className) || /grid/.test(row.getAttribute('style') || ''))
 })
 
-test('seed 选「宿主播全局 RNG」：四种随机源都在，默认勾 python；全不勾要提示', async () => {
+test('填开关名 ⇒ 写 {arg:键} 并补出 call.args；留空 ⇒ 显式 "none" 且那条 args 收走', async () => {
+  const sink = {}
+  seedHarness(cliManifest([]), sink)
+  await settle()
+  assert.equal(seedInput().value, '', '没声明时输入框是空的')
+
+  await typeSeed('--seed')
+  assert.deepStrictEqual(sink.m.call.seed, { arg: 'seed' },
+    'cli 的种子参数名是 call.args 的键，不是开关本身')
+  assert.deepStrictEqual(sink.m.call.args.seed, { flag: '--seed', style: 'value' },
+    '同时补出 args 形状：宿主要靠它把种子拼成 --seed 42')
+  assert.equal(seedInput().value, '--seed', '回显的是开关本身')
+
+  await typeSeed('')
+  assert.strictEqual(sink.m.call.seed, 'none',
+    '留空要落盘成显式的 none：删掉这一项会让名片缺必填')
+  assert.strictEqual(sink.m.call.args && sink.m.call.args.seed, undefined,
+    '那条只为种子补出的 args 一起收走')
+})
+
+test('名片缺 seed 时自动补「不可复现」；已声明的不被覆盖', async () => {
+  const missing = cliManifest([])
+  delete missing.call.seed
+  const a = {}
+  seedHarness(missing, a)
+  await settle()
+  assert.strictEqual(a.m.call.seed, 'none')
+
+  const declared = cliManifest([])
+  declared.call.seed = { arg: 'seed' }
+  declared.call.args = { seed: { flag: '--seed', style: 'value' } }
+  const b = {}
+  seedHarness(declared, b)
+  await settle()
+  assert.deepStrictEqual(b.m.call.seed, { arg: 'seed' }, '原样保留')
+  assert.equal(seedInput().value, '--seed', '回显已有声明')
+})
+
+test('python 形态：填参数名只写 call.seed，不建 args 表', async () => {
   const sink = {}
   seedHarness(pyManifest(), sink)
   await settle()
-  await pickSeedMode('global')
-
-  const boxes4 = [...seedBox().querySelectorAll('input[type="checkbox"]')]
-  assert.equal(boxes4.length, 4, 'python / numpy / torch / torch.cuda 四项')
-  assert.deepStrictEqual(sink.m.call.seed, { mode: 'global', rngs: ['python'] })
-
-  boxes4[0].checked = false
-  Simulate.change(boxes4[0], { target: boxes4[0] })
-  await settle()
-  assert.deepStrictEqual(sink.m.call.seed, { mode: 'global', rngs: [] })
-  assert.ok(/至少要勾选|at least one/.test(seedBox().textContent),
-    '一项随机源都不选会被拒，界面要说清')
-})
-
-test('已经声明过 seed 的不被界面默认值覆盖', async () => {
-  const m = cliManifest([])
-  m.call.seed = { arg: '--random-seed' }
-  const sink = {}
-  seedHarness(m, sink)
-  await settle()
-  assert.equal(seedSelect().value, 'arg')
-  assert.deepStrictEqual(sink.m.call.seed, { arg: '--random-seed' }, '原样保留，不改写')
-})
-
-test('cli 形态不提供「宿主播全局 RNG」：子进程里的随机源，这个进程播不到', async () => {
-  const sink = {}
-  seedHarness(cliManifest([]), sink)
-  await settle()
-  const values = [...seedSelect().querySelectorAll('option')].map((o) => o.value)
-  assert.deepStrictEqual(values, ['none', 'arg'],
-    'cli 只有两态；给了第三项等于让人写下一个合成时必然报错的声明')
+  await typeSeed('seed')
+  assert.deepStrictEqual(sink.m.call.seed, { arg: 'seed' })
+  assert.strictEqual(sink.m.call.args, undefined, 'python 形态没有命令行，也就没有 args')
 })

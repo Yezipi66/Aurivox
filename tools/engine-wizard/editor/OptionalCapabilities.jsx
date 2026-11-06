@@ -1,16 +1,15 @@
 // 第 4 步「可选能力」区：声明每个能力从 CLI 的哪个开关进去。
-//   运行设备、参考文本、输出格式、音频输入、多权重位都在这里填开关名，填了才有对应控件。
+//   运行设备、参考文本、seed、输出格式、音频输入、多权重位都在这里填开关名，填了才有对应控件。
 //   具体取值是运行时的东西（合成页选哪块卡、选哪种格式），名片不承载，平台负责把值填进这些开关。
 //   本区只编辑名字与标签，平台不解释上游语义。
 //
-// 版面：运行设备与参考文本同排；输出格式、音频输入、多权重位各占一个框，框里是这一段要填的几格。
+// 版面：运行设备、参考文本、seed 同排；输出格式、音频输入、多权重位各占一个框，框里是这一段要填的几格。
 //   三段排成框是为了让「这几格属于同一件事」由边框表达，不靠行距暗示；
-//   顺序按使用顺序：先设备，再输出与输入这两类「从哪个开关进」，最后是合成时能换的几份权重。
+//   顺序按使用顺序：先设备与 seed 这几个「从哪个开关进」的单格，再输出与输入，最后是合成时能换的几份权重。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { readSlots, writeSlots, emptySlot } from './weightSlots'
-import { seedModeOf, seedArgText, seedRngsOf, seedRngNames,
-  withSeedMode, withSeedArg, withSeedRng } from './seedField'
+import { seedArgText, withSeedSwitch } from './seedField'
 
 const APPLIES = ['call', 'launch']
 
@@ -141,23 +140,14 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
     .filter(([, entry]) => entry && entry.role === 'device')
   const deviceFields = devRows.length ? devRows : [['device', null]]
 
-  // ---- 可复现性（seed）----
+  // ---- seed ----
   // 种子不是实参，是这台引擎「能不能复现」的声明。契约要求每张名片显式写出三态之一，
-  //   留空宿主会拒绝启动，所以这一格没有「留空」这个选项。
-  //   三态：引擎自己收（写参数名）/ 宿主播全局 RNG / 不可复现（宿主拒收 seed）。
-  //   两种 kind 的「参数名」不是同一种东西，折算在 seedField 里做：cli 还要补出
-  //   call.args 那一条，否则宿主拼命令行时找不到形状，合成直接失败。
-  const seedMode = seedModeOf(call)
+  //   留空会让名片缺一项必填，保存与启动都会被拒。
+  //   这一格只有一个输入框：填开关名＝引擎自己收；留空＝不可复现（落盘仍是 "none"，
+  //   不是删掉这一项）。全局播种（mode:"global"）没有对应界面，只能到 JSON 视图里写。
   const seedArg = seedArgText(call)
-  const seedRngs = seedRngsOf(call)
-  const setSeedMode = (next) => patch((cur) => ({ ...cur, call: withSeedMode(cur.call, next) }))
-  const setSeedArg = (value) => patch((cur) => ({ ...cur, call: withSeedArg(cur.call, value) }))
-  const toggleSeedRng = (name, on) => patch((cur) => ({
-    ...cur, call: withSeedRng(cur.call, name, on),
-  }))
-  // 名片里还没有 seed 时补一条「不可复现」：缺了这一项，保存与启动都会被拒，
-  //   而「不可复现」是唯一不需要额外信息的答案：它明确表示这台引擎不受种子控制。
-  //   已声明的不覆盖，使用者在这里选什么就是什么。
+  const setSeed = (value) => patch((cur) => ({ ...cur, call: withSeedSwitch(cur.call, value) }))
+  // 名片里还没有 seed 时补一条「不可复现」，堵住那个必然的失败。已声明的不覆盖。
   React.useEffect(() => {
     if (!m.call || call.seed !== undefined) return
     onChange((cur) => {
@@ -201,9 +191,11 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
             '填了才有对应的前端控件；留空的项以灰色显示。')}
         </div>
 
-        {/* 运行设备与参考文本：一行多列。两格填的都是「参数从哪个开关进去」，
-            不是运行时的取值：选哪块卡在合成页，参考文本由音色卡或手工输入给。 */}
-        <div className="form-grid">
+        {/* 运行设备、参考文本、seed：一行多列。三格填的都是「参数从哪个开关进去」，
+            不是运行时的取值：选哪块卡在合成页，参考文本由音色卡或手工输入给。
+            列数跟设备格数走：设备位可以不止一个，三格必须挤在同一行，否则 seed 会被挤到下一行。 */}
+        <div className="form-grid"
+          style={{ gridTemplateColumns: `repeat(${deviceFields.length + 2}, minmax(0, 1fr))` }}>
           {deviceFields.map(([name, entry]) => {
             // 只在真声明过时显示开关名。空名片给的是 placeholder，不是 value：
             //   显示一个没写进名片的 --device，人会以为已经声明了。
@@ -263,6 +255,19 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
               </div>
             )
           })()}
+          {/* seed：与运行设备、参考文本同一行。填开关名＝引擎自己收，
+              留空＝不可复现（名片里仍是显式的 "none"）。 */}
+          <div className={`field${seedArg ? '' : ' wz-unset'}`}>
+            <label className="field-label" style={{ margin: 0, textTransform: 'none' }}
+              title={t('The switch that receives the seed. Leave it blank if the engine cannot be made reproducible: the manifest then declares "none", which the host accepts explicitly.',
+                '接收种子的开关。引擎无法复现时留空：名片里会写成显式的 "none"，宿主按「拒收 seed」处理。')}>
+              seed
+            </label>
+            <input className="control"
+              value={seedArg}
+              placeholder="--seed"
+              onChange={(e) => setSeed(e.target.value)} />
+          </div>
         </div>
 
         {/* 输出格式：主格填「参数从哪个开关进去」，允许值只是这台引擎认哪几种容器，
@@ -418,71 +423,6 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
           )
         })()}
 
-        {/* 可复现性：三态必选其一。这一格与前面的几格不同：留空不是「不声明」，
-            而是让名片缺一项必填，保存与启动都会被拒。 */}
-        <div style={{ ...BOX, marginTop: 6 }}>
-          <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
-            {t('Reproducibility (seed)', '可复现性（seed）')}
-          </div>
-          <div className="form-grid" style={{ marginBottom: 0 }}>
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label className="field-label"
-                title={t('The synthesizer can be told how to take a seed. Which of the three ways applies is a property of the engine, not a runtime value.',
-                  '合成时用哪种方式接收种子，是这台引擎的性质，不是运行时的取值。')}>
-                {t('How the seed is taken', '种子怎么传')}
-              </label>
-              <select className="control" value={seedMode}
-                onChange={(ev) => setSeedMode(ev.target.value)}>
-                <option value="none">{t('Not controllable: the host rejects seed', '不可复现：宿主拒收 seed')}</option>
-                <option value="arg">{t('The engine takes it as a parameter', '引擎自己收')}</option>
-                {/* 全局播种只对 python 形态有意义：种子要播的是子进程里的随机源，
-                    cli 形态跑在另一个进程里，宿主播不到，会当场报错。 */}
-                {call.kind !== 'cli' && (
-                  <option value="global">{t('The host seeds the global RNGs', '宿主播全局随机种子')}</option>
-                )}
-              </select>
-            </div>
-            {seedMode === 'arg' && (
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label className="field-label"
-                  title={call.kind === 'cli'
-                    ? t('A command-line switch. The manifest also gets a call.args entry for it, so the host can turn the seed into "--seed 42".',
-                      '命令行开关。名片里会同时补出一条 call.args，宿主才拼得出 --seed 42。')
-                    : t('The keyword argument name the engine method takes.',
-                      '引擎方法的那个关键字参数名。')}>
-                  {call.kind === 'cli' ? t('Seed switch', '种子开关') : t('Seed parameter', '种子参数名')}
-                </label>
-                <input className="control" value={seedArg}
-                  placeholder={call.kind === 'cli' ? '--seed' : 'seed'}
-                  onChange={(ev) => setSeedArg(ev.target.value)} />
-              </div>
-            )}
-            {seedMode === 'global' && (
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label className="field-label">{t('Random sources to seed', '要播种的随机源')}</label>
-                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', minHeight: 32 }}>
-                  {seedRngNames().map((name) => (
-                    <label key={name}
-                      style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                      <input type="checkbox" checked={seedRngs.includes(name)}
-                        onChange={(ev) => toggleSeedRng(name, ev.target.checked)} />
-                      <span>{name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          {((seedMode === 'arg' && !seedArg) || (seedMode === 'global' && !seedRngs.length)) && (
-            <div className="field-hint" style={{ color: 'var(--danger)' }}>
-              {seedMode === 'arg'
-                ? t('The parameter name cannot be empty; the manifest is rejected on save.',
-                  '参数名不能为空：留空保存会被拒。')
-                : t('Pick at least one random source; a global seed with none is rejected.',
-                  '至少要勾选一项随机源：一项都不选会被拒。')}
-            </div>
-          )}
-        </div>
       </div>
       )}
     </React.Fragment>

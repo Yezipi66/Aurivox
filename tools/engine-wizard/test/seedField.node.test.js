@@ -1,9 +1,9 @@
 'use strict'
-// 「可复现性（seed）」那一格的读写。两种 kind 的参数名不是同一种东西：
+// 「seed」那一格的读写。两种 kind 的参数名不是同一种东西：
 //   python 是方法的关键字参数名；
 //   cli 是 call.args 的键，宿主还要靠那一条把种子拼成 `--seed 42`。
 // 只写 call.seed 而不补 call.args 时，宿主会当场报「参数没有说明该变成哪个开关」，
-// 所以这条链必须逐段守住。
+// 所以这条链必须逐段守住。界面上只有一个输入框，留空＝不可复现（落盘是显式 "none"）。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -24,78 +24,71 @@ function load () {
   return mod.exports
 }
 
-const {
-  seedModeOf, seedArgText, seedRngsOf, seedRngNames,
-  withSeedMode, withSeedArg, withSeedRng,
-} = load()
+const { seedArgText, withSeedSwitch } = load()
 
 const cli = (extra) => ({ kind: 'cli', argv: ['{engine_python}', '-m', 'x.cli'], ...extra })
 const py = () => ({ kind: 'python', module: 'm', class: 'C', method: 'infer' })
 
-test('三态认得出：缺省与 "none" 都是不可复现', () => {
-  assert.equal(seedModeOf({}), 'none')
-  assert.equal(seedModeOf({ seed: 'none' }), 'none')
-  assert.equal(seedModeOf({ seed: { arg: 'seed' } }), 'arg')
-  assert.equal(seedModeOf({ seed: { mode: 'global', rngs: ['torch'] } }), 'global')
-})
-
-test('cli 选「引擎自己收」：参数名是 args 的键，并补出一条开关形状', () => {
-  const c = withSeedMode(cli(), 'arg')
+test('cli 填开关 ⇒ 参数名是 args 的键，并补出一条开关形状', () => {
+  const c = withSeedSwitch(cli(), '--seed')
   assert.deepStrictEqual(c.seed, { arg: 'seed' })
   assert.deepStrictEqual(c.args.seed, { flag: '--seed', style: 'value' })
-  assert.equal(seedArgText(c), '--seed', '界面上显示开关本身')
+  assert.equal(seedArgText(c), '--seed', '界面上回显的是开关本身')
 })
 
-test('python 选「引擎自己收」：写方法参数名，不碰 args', () => {
-  const c = withSeedMode(py(), 'arg')
-  assert.deepStrictEqual(c.seed, { arg: 'seed' })
-  assert.strictEqual(c.args, undefined, 'python 形态没有 args 表')
-  assert.equal(seedArgText(c), 'seed')
+test('cli 不写横线也认：seed 与 --seed 落盘一致', () => {
+  const a = withSeedSwitch(cli(), 'seed')
+  const b = withSeedSwitch(cli(), '--seed')
+  assert.deepStrictEqual(a.seed, b.seed)
+  assert.deepStrictEqual(a.args, b.args)
 })
 
-test('从「引擎自己收」切走：那条 args 一起收走', () => {
-  const had = withSeedMode(cli(), 'arg')
-  for (const mode of ['none', 'global']) {
-    const c = withSeedMode(had, mode)
-    assert.ok(!c.args || c.args.seed === undefined, mode + ' 状态不该留着只为种子存在的 args 条目')
-    assert.ok(c.seed === 'none' || c.seed.mode === 'global')
+test('cli 改名：键跟着开关走，旧键收走', () => {
+  const had = withSeedSwitch(cli(), '--seed')
+  const c = withSeedSwitch(had, '--random-seed')
+  assert.deepStrictEqual(c.seed, { arg: 'random_seed' })
+  assert.deepStrictEqual(c.args.random_seed, { flag: '--random-seed', style: 'value' })
+  assert.strictEqual(c.args.seed, undefined, '旧键留着就是一条没人用的开关')
+})
+
+test('留空 ⇒ 显式 "none"，那条 args 一起收走', () => {
+  const had = withSeedSwitch(cli(), '--seed')
+  for (const blank of ['', '   ']) {
+    const c = withSeedSwitch(had, blank)
+    assert.strictEqual(c.seed, 'none', '删掉这一项会让名片缺必填，落盘要是显式的 none')
+    assert.strictEqual(c.args && c.args.seed, undefined)
+    assert.strictEqual(seedArgText(c), '')
   }
 })
 
-test('改参数字：cli 下键跟着开关走，旧键收走', () => {
-  const had = withSeedMode(cli(), 'arg')
-  const c = withSeedArg(had, '--random-seed')
-  assert.deepStrictEqual(c.seed, { arg: 'random_seed' })
-  assert.deepStrictEqual(c.args.random_seed, { flag: '--random-seed', style: 'value' })
-  assert.strictEqual(c.args.seed, undefined, '改名字后旧键留着就是一条没人用的开关')
+test('cli 的其它 args 不受影响：删的只是为种子补出的那一条', () => {
+  const base = cli({ args: { device: { flag: '--device', style: 'value' } } })
+  const had = withSeedSwitch(base, '--seed')
+  const c = withSeedSwitch(had, '')
+  assert.deepStrictEqual(c.args, { device: { flag: '--device', style: 'value' } })
 })
 
-test('清空参数字：写空串并把 args 收走，不替人补回默认值', () => {
-  const had = withSeedMode(cli(), 'arg')
-  const c = withSeedArg(had, '   ')
-  assert.deepStrictEqual(c.seed, { arg: '' })
-  assert.strictEqual(c.args && c.args.seed, undefined)
+test('python 填参数名：只写 call.seed，不建 args 表', () => {
+  const c = withSeedSwitch(py(), 'seed')
+  assert.deepStrictEqual(c.seed, { arg: 'seed' })
+  assert.strictEqual(c.args, undefined, 'python 形态没有命令行，也就没有 args')
+  assert.equal(seedArgText(c), 'seed')
 })
 
-test('随机源：勾上、取消都写回 mode=global', () => {
-  const a = withSeedRng(py(), 'torch', true)
-  assert.deepStrictEqual(a.seed, { mode: 'global', rngs: ['torch'] })
-  const b = withSeedRng(a, 'torch', false)
-  assert.deepStrictEqual(b.seed, { mode: 'global', rngs: [] })
-  assert.deepStrictEqual(seedRngsOf(b), [])
+test('python 留空同样落成 "none"', () => {
+  const c = withSeedSwitch(withSeedSwitch(py(), 'seed'), '')
+  assert.strictEqual(c.seed, 'none')
 })
 
-test('随机源名单与宿主的 _RNG_TABLE 同一份四项', () => {
-  assert.deepStrictEqual(seedRngNames(), ['python', 'numpy', 'torch', 'torch.cuda'])
-  // 名单是副本：调用方改了它，下一次取到的仍是原样。
-  seedRngNames().push('nope')
-  assert.equal(seedRngNames().length, 4)
+test('全局播种没有对应输入框：回显为空，且不动原有声明', () => {
+  const g = py()
+  g.seed = { mode: 'global', rngs: ['torch'] }
+  assert.equal(seedArgText(g), '', '全局播种没有开关名可显示')
 })
 
 test('原对象不被就地改写', () => {
   const before = cli()
   const snapshot = JSON.stringify(before)
-  withSeedMode(before, 'arg')
-  withSeedArg(before, '--seed')
+  withSeedSwitch(before, '--seed')
   assert.equal(JSON.stringify(before), snapshot)
 })
