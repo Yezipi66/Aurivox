@@ -82,8 +82,9 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
   const cellLabel = (item, i) => {
     const labels = Array.isArray(item.dim_labels) ? item.dim_labels : []
     const one = labels[i]
-    if (one && typeof one === 'object') return String(one.zh || one.en || '')
-    return one === undefined || one === null ? `#${i + 1}` : String(one)
+    if (one && typeof one === 'object') return String(one.zh || one.en || `#${i + 1}`)
+    // 空名字也算没起名：显示序号，否则默认值那一排是八个没有任何提示的空框。
+    return one ? String(one) : `#${i + 1}`
   }
 
   const setPlacement = (key) => {
