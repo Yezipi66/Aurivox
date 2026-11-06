@@ -110,16 +110,16 @@ export function applyParamDrop (manifest, param) {
   if (!list.some((p) => p && p.name === name)) {
     const entry = { name, type: paramTypeOf(param), tier: 'common' }
     if (param.help) entry.help = param.help
-    // 上游说明里写了「逗号分隔的 N 维」时，这一条是成排的：repeat 给出格数，
-    //   默认值跟着长成 N 格（每格 null，等于没填）。只写 repeat 不写默认值，
-    //   名片会被校验拒掉；替人填 0 则等于替他做了决定。
+    // 上游说明里写了「逗号分隔的 N 维」时，这一条声明成 vector：
+    //   维度数由 dim_labels 的长度定，每维一个名字（先留空，让使用者自己填，
+    //   上游只写了几维、没写每维叫什么）。默认值跟着长成 N 格，每格 null。
+    //   替人填 0 等于替他做了决定；只写维度不写默认值，名片会被校验拒掉。
     const shape = vectorShapeFromHelp(param.help)
     if (shape && shape.repeat > 1) {
-      entry.repeat = shape.repeat
+      entry.type = 'vector'
+      entry.item = 'number'
+      entry.dim_labels = new Array(shape.repeat).fill('')
       entry.suggested_value = new Array(shape.repeat).fill(null)
-      // 维度是数出来的格数，每格装一个数。上游把整串读成一个字符串，
-      //   但界面上这 N 格各自是一个数字，不是 N 段文字。
-      entry.type = 'number'
     }
     list.push(entry)
   }

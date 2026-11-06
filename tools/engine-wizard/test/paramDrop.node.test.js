@@ -221,11 +221,15 @@ const VEC_PARAM = {
   help: 'Comma-separated 8-dimensional emotion vector',
 }
 
-test('拖一个向量参数：八个数字格，默认值留空，命令行按一个逗号串拼', () => {
+test('拖一个向量参数：声明成 vector，八维八个名字，默认值留空', () => {
   const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, VEC_PARAM)
   const entry = m.parameters[0]
-  assert.equal(entry.repeat, 8, '八维就是八格')
-  assert.equal(entry.type, 'number', '每格是一个数')
+  assert.equal(entry.type, 'vector', '多维是一种声明，不是一个数字再加 repeat')
+  assert.equal(entry.item, 'number', '每一维装的是数')
+  assert.deepStrictEqual(entry.dim_labels, new Array(8).fill(''),
+    '八维就是八个名字，先留空让使用者填：上游只写了几维，没写每维叫什么')
+  assert.equal(entry.repeat, undefined,
+    '维度数只由 dim_labels 的长度定，再写一个 repeat 就是第二份会漂移的事实')
   assert.deepStrictEqual(entry.suggested_value, new Array(8).fill(null),
     '默认值必须等长；填 null 表示这一维没填，不替人写 0')
   assert.deepStrictEqual(m.call.args['emotion-vector'],

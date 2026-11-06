@@ -625,6 +625,30 @@
   text-align: center;
   font-size: var(--fs-11);
 }
+/* 多维参数的维度名：每维一个短输入。
+   名字属于声明（一张名片只写一次），值属于每次合成，所以两者分行：
+   挤在同一行会读成「八个独立参数」。 */
+.wz-param-dims {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.wz-param-dims-label {
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-param-dim {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.wz-param-dim .control {
+  width: 74px;
+  padding: 2px 4px;
+  font-size: var(--fs-11);
+}
 .wz-param-del { flex: 0 0 auto; }
 /* details 用 display:contents：它不生成盒子，summary 与展开后的正文
    直接成为这一行的 flex 项 ⇒ 收起时只有一行，展开时正文 flex-basis:100% 自己换行。 */

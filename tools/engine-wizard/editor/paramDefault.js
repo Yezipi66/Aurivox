@@ -11,7 +11,19 @@
  * @param {object} entry parameters[] 里的一条
  * @returns {number} repeat，未声明或非法时算 1
  */
+// 每一维装的类型。多维声明里它不是 type（那是 'vector'），而是 item，没写按数字。
+//   不归一的话 0.9 会被当字符串存下去，派生后是 number 而值是字符串，长度对、类型不对。
+export function itemTypeOf (entry) {
+  if (entry && entry.type === 'vector') return entry.item || 'number'
+  return (entry && entry.type) || 'text'
+}
+
 export function repeatOf (entry) {
+  // vector 声明不写 repeat：维度数由 dim_labels 的长度定，与派生时同一条口径。
+  if (entry && entry.type === 'vector') {
+    const labels = entry.dim_labels
+    return Array.isArray(labels) ? labels.length : 0
+  }
   const n = Number(entry && entry.repeat)
   return Number.isInteger(n) && n > 1 ? n : 1
 }
@@ -23,6 +35,16 @@ export function repeatOf (entry) {
  * @param {object} entry parameters[] 里的一条
  * @returns {string} 显示文本
  */
+/**
+ * 多维声明的维度名。没写或写坏时给空数组，由调用方决定怎么显示。
+ * @param {object} entry parameters[] 里的一条
+ * @returns {Array<string>} 每维一个名字
+ */
+export function dimensionNamesOf (entry) {
+  const labels = entry && entry.dim_labels
+  return Array.isArray(labels) ? labels.map((one) => (one == null ? '' : String(one))) : []
+}
+
 export function defaultTextOf (entry) {
   const value = entry && entry.suggested_value
   if (repeatOf(entry) > 1) {
@@ -44,7 +66,7 @@ export function defaultTextOf (entry) {
 export function defaultFromText (raw, entry) {
   const text = raw == null ? '' : String(raw)
   if (text === '') return undefined
-  const type = (entry && entry.type) || 'text'
+  const type = itemTypeOf(entry)
   if (repeatOf(entry) === 1) {
     if (type === 'boolean') return text === 'true'
     return type === 'number' ? Number(text) : text
@@ -85,7 +107,7 @@ export function vectorCellText (entry, i) {
  * @returns {Array} 长度等于 repeat 的新数组
  */
 export function withVectorCell (entry, i, raw) {
-  const type = (entry && entry.type) || 'text'
+  const type = itemTypeOf(entry)
   const next = Array.from({ length: repeatOf(entry) }, (_, k) => {
     const cur = arrayOf(entry)[k]
     return cur === undefined ? null : cur

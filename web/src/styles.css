@@ -691,6 +691,31 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 }
 
 /* ===== Form grid ===== */
+/* 多维参数：一项若干同类型的值，每维一个名字（八维情绪向量就是这一种）。
+   列数自适应：宽时一排四列，窄时两列，不把八格挤成一条看不清的缝。
+   名字在上、控件在下，是因为名字属于这一维，不属于整项：放在同一行会读成两个独立参数。 */
+.field-vector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 6px;
+}
+.field-vector-dim {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.field-vector-label {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.field-vector-dim .control {
+  min-width: 0;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

@@ -3,6 +3,7 @@
 // 键名、类型与候选全部取自名片的 param_schema，这里不写任何引擎的参数名。
 
 import { Select } from './Select'
+import VectorField from './VectorField'
 import {
   canonicalType, repeatOf, isFieldVisible, selectSourceOf, fieldLabel, fieldHelp, textOf
 } from '../../lib/engines'
@@ -179,40 +180,21 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
     )
   }
 
-  // repeat：一排 N 个，格子数由名片定死。
+  // 多维：一排 N 个，格子数由名片定死。排布交给 VectorField，
+  //   这里是它的一个格子该长成什么样（仍走同一套标量控件，不另起一套）。
   if (n > 1) {
-    // 值不是数组、或者长度不匹配时，补成 N 格再画，但不改 values：
-    // 我们只是没法画一个长度不对的东西，不代表要替用户改他的值。
-    const cur = Array.isArray(value) && value.length === n
-      ? value
-      : Array.from({ length: n }, (_, i) => (Array.isArray(value) ? value[i] : undefined))
-    const labels = Array.isArray(field.dim_labels) ? field.dim_labels : []
+    const labels = (Array.isArray(field.dim_labels) ? field.dim_labels : [])
+      .map((one) => (one && typeof one === 'object' ? textOf(one, lang, '') : String(one === undefined ? '' : one)))
     const scalar = { ...field, repeat: 1 }
     return (
       <div style={{ gridColumn: '1 / -1' }} title={help || undefined}>
         <label className="field-label">{label}</label>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.min(n, 4)}, minmax(0, 1fr))`,
-          gap: 6
-        }}>
-          {cur.map((v, i) => (
-            <div key={i}>
-              {labels[i] !== undefined && (
-                <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 2 }}>
-                  {choiceLabel({ value: i, label: labels[i] }, lang)}
-                </div>
-              )}
-              <ScalarControl field={{ ...scalar, name: `${field.name}[${i}]` }}
-                value={v} lang={lang} options={options} t={t}
-                onChange={nv => {
-                  const next = cur.slice()
-                  next[i] = nv
-                  onChange(field.name, next)
-                }} />
-            </div>
-          ))}
-        </div>
+        <VectorField field={field} value={value} labels={labels} title={help || undefined}
+          onChange={(next) => onChange(field.name, next)}
+          renderCell={(i, v, setOne) => (
+            <ScalarControl field={{ ...scalar, name: `${field.name}[${i}]` }}
+              value={v} lang={lang} options={options} t={t} onChange={setOne} />
+          )} />
       </div>
     )
   }

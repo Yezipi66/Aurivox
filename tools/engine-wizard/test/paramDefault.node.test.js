@@ -96,3 +96,15 @@ test('多格：原来没有默认值时写入会补成等长数组', () => {
   assert.deepStrictEqual(next.slice(0, 3), [null, null, 0.8])
   assert.deepStrictEqual(next.slice(3), new Array(5).fill(null))
 })
+
+// 多维声明不写 repeat：维度数由 dim_labels 的长度定，这里与派生那一步同一条口径。
+test('vector 声明的格数取 dim_labels 的长度', () => {
+  assert.equal(repeatOf({ type: 'vector', dim_labels: ['a', 'b', 'c'] }), 3)
+  assert.equal(repeatOf({ type: 'vector' }), 0, '还没写维度就是零格，由界面提示先加维度')
+})
+
+test('vector 的多格读写与 repeat 那条完全一样', () => {
+  const entry = { type: 'vector', dim_labels: ['a', 'b', 'c'], suggested_value: [0.2, null, 0.4] }
+  assert.equal(vectorCellText(entry, 1), '')
+  assert.deepStrictEqual(withVectorCell(entry, 1, '0.9'), [0.2, 0.9, 0.4])
+})
