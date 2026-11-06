@@ -27,17 +27,20 @@ import { orderForPool } from './paramPoolOrder'
  * 拖拽用 HTML5 drag&drop，不引库：数据量小（几十个 flag），
  * 且平台已有的拖拽绑定区用的是同一套写法，两处行为一致。
  */
-function ParamItem ({ param, selected, onSelect, onDragStart }) {
+function ParamItem ({ param, selected, used, onSelect, onDragStart }) {
   const { t } = useT()
   const type = paramTypeOf(param)
 
   return (
     <div
-      className={`wz-param-item${selected ? ' wz-param-item-on' : ''}`}
+      className={`wz-param-item${selected ? ' wz-param-item-on' : ''}${used ? ' wz-param-item-used' : ''}`}
       draggable
       onDragStart={(e) => onDragStart(e, param)}
       onClick={() => onSelect(param)}
-      title={param.help || ''}>
+      title={used
+        ? (param.help ? param.help + '\n' : '') +
+          t('Already used by a field. Drag it again to move or reuse it.', '已拖入某一格；可以再次拖动，换格或复用。')
+        : (param.help || '')}>
       {/* 所有元信息收进同一行：类型徽标与「必填」同行，省掉独占一行的类型行，
           提高信息密度。group 仍保留（它是子命令分组，并非每个参数都有）。 */}
       <div className="wz-param-top">
@@ -73,11 +76,13 @@ function ParamItem ({ param, selected, onSelect, onDragStart }) {
  *
  * @param {Array} params 扫到的参数
  * @param {object|null} selected 当前选中的参数（点击选中，拖拽之外的主路径）
+ * @param {Function} [used] 判一个参数是否已经拖进某个格：(param) => boolean。
+ *   已用的卡弱化显示，但仍可拖动：同一个参数可以喂两个槽位，也可能拖错格要拖走。
  * @param {Function} onSelect 选中回调
  * @param {Function} onDragStart 拖拽开始回调
  * @param {React.ReactNode} children 池下方的额外内容（如分组切换、扫描按钮）
  */
-export default function ParamPool ({ params, selected, onSelect, onDragStart, children }) {
+export default function ParamPool ({ params, selected, used, onSelect, onDragStart, children }) {
   const { t } = useT()
   const list = params || []
   const [q, setQ] = useState('')
@@ -126,6 +131,7 @@ export default function ParamPool ({ params, selected, onSelect, onDragStart, ch
             <ParamItem key={`${p.source}-${p.name}-${p.target}`}
               param={p}
               selected={!!selected && selected.name === p.name && selected.source === p.source}
+              used={used ? !!used(p) : false}
               onSelect={onSelect}
               onDragStart={onDragStart} />
           ))

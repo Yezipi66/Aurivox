@@ -397,6 +397,15 @@
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+/* 已经拖进某个格的参数：整张卡弱化，但仍可再次拖动。
+   不隐藏、不置灰不可拖：一个参数可以同时喂两个槽位（文本与参考文本都可能是同一句），
+   也会被拖错格后再拖走。 */
+.wz-param-item-used {
+  opacity: 0.55;
+}
+.wz-param-item-used:hover {
+  opacity: 1;
+}
 .wz-param-top {
   display: flex;
   align-items: center;

@@ -74,6 +74,22 @@ export default function ManifestPage ({
   const pool = poolAll ? scanned : scope.params
   const params = group ? pool.filter((p) => p.group === group) : pool
 
+  // 左栏哪张卡已经落进名片：它的名字进了 call.args、成了某个槽位的开关（bind 的值），
+  //   或已经出现在 argv 里。只用来把卡弱化，不阻止再次拖动：
+  //   同一个参数可能同时喂两个槽位（正文与参考文本），也可能拖错格后要拖走。
+  const usedParam = (p) => {
+    if (!p) return false
+    const c = (manifest && manifest.call) || {}
+    if ((p.source || 'cli') === 'python') {
+      const declared = Array.isArray(manifest && manifest.parameters) ? manifest.parameters : []
+      return declared.some((x) => x && x.name === p.name)
+    }
+    if (c.args && c.args[p.name]) return true
+    const bindVals = Object.values(c.bind || {})
+    if (bindVals.some((v) => v && v === p.target)) return true
+    return Array.isArray(c.argv) && c.argv.includes(p.target)
+  }
+
   // text 是 manifest 的纯派生：只有「切进 JSON 视图」这一刻现算，
   //   之后就是用户手里的编辑缓冲。
   //   不用 useEffect 同步：那会形成 manifest→text→manifest 的回环。
@@ -199,7 +215,7 @@ export default function ManifestPage ({
         onFull={setRightFull}
         left={
           <EngineScanZone
-            params={params} selected={selected}
+            params={params} selected={selected} used={usedParam}
             onSelect={setSelected} onDragStart={onDragStart}
             groups={(scan && scan.groups) || []} group={group}
             onGroupChange={setGroup}

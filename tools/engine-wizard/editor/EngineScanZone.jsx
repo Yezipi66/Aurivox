@@ -16,6 +16,7 @@ import ParamPool from './ParamPool'
  *
  * @param {Array} params 扫描到的参数（已收窄、已按分组过滤）
  * @param {object|null} selected 当前选中的参数
+ * @param {Function} [used] 判一个参数是否已经拖进某个格
  * @param {Function} onSelect 选中参数回调
  * @param {Function} onDragStart 拖拽开始回调
  * @param {Array} groups 扫到的分组
@@ -30,7 +31,7 @@ import ParamPool from './ParamPool'
  * @param {React.ReactNode} children 额外内容（收起按钮等）
  */
 export default function EngineScanZone ({
-  params, selected, onSelect, onDragStart,
+  params, selected, used, onSelect, onDragStart,
   groups, group, onGroupChange, scope, listAll, onListAll, busy, err, children,
 }) {
   const { t } = useT()
@@ -45,15 +46,29 @@ export default function EngineScanZone ({
       <div className="section-body">
         {/* 扫描按钮在中栏身份条上（和选引擎、读取、保存是同一串动作），
             这里只留分组切换与扫描结果。 */}
+        {/* 分组就是上游的子命令名，平台不改写（`init` / `download` / `batch` 这些是代码里的词，
+            翻译过来反而与命令行上的写法不一致）。只有 '(root)' 是平台自己的占位，说成「顶层」。 */}
         {groups && groups.length > 1 && (
           <div className="field">
-            <label className="field-label">{t('Group', '分组')}</label>
+            <label className="field-label"
+              title={t('Grouping comes from the upstream sub-commands. The names are kept as they are in the code.',
+                '分组来自上游的子命令，名字按代码里的原样保留。')}>
+              {t('Group', '分组')}
+            </label>
             <select className="control" value={group}
               disabled={busy}
               onChange={(e) => onGroupChange && onGroupChange(e.target.value)}>
               <option value="">{t('— all groups —', '全部分组')}</option>
-              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g === '(root)' ? t('(root): no sub-command', '顶层（无子命令）') : g}
+                </option>
+              ))}
             </select>
+            <div className="field-hint">
+              {t('Names come from the upstream sub-commands and are not translated.',
+                '名称取自上游子命令，未做翻译。')}
+            </div>
           </div>
         )}
 
@@ -75,7 +90,7 @@ export default function EngineScanZone ({
 
         {err && <div className="msg msg-danger">{err}</div>}
 
-        <ParamPool params={params} selected={selected}
+        <ParamPool params={params} selected={selected} used={used}
           onSelect={onSelect} onDragStart={onDragStart} />
       </div>
     </div>
