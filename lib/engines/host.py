@@ -262,6 +262,12 @@ def _render_cli_arg(name, entry, value):
         return out
 
     if style == "value":
+        # 多选的音频：一个开关后面跟多个词（argparse 的 nargs="+"）。
+        #   前端的选择器本来就能选多个，路径是按数组下来的；写成 str(value) 会把
+        #   整份列表塞成 "--aux ['a', 'b']" 这样一个词，上游只会说「文件不存在」。
+        #   只收单个值的上游拿到多个会自己报错，stderr 原样带回，不在这里替它裁掉。
+        if isinstance(value, (list, tuple)):
+            return [flag] + [str(v) for v in value]
         return [flag, str(value)]
 
     raise ValueError("call.args.%s.style 认不出来：%r" % (name, style))

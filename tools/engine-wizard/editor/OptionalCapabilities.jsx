@@ -1,9 +1,9 @@
 // 第 4 步「可选能力」区：声明每个能力从 CLI 的哪个开关进去。
-//   运行设备、参考文本、seed、输出格式、音频输入、多权重位都在这里填开关名，填了才有对应控件。
+//   运行设备、参考文本、seed、输出格式、辅助参考音频、多权重位都在这里填开关名，填了才有对应控件。
 //   具体取值是运行时的东西（合成页选哪块卡、选哪种格式），名片不承载，平台负责把值填进这些开关。
 //   本区只编辑名字与标签，平台不解释上游语义。
 //
-// 版面：运行设备、参考文本、seed 同排；输出格式、音频输入、多权重位各占一个框，框里是这一段要填的几格。
+// 版面：运行设备、参考文本、seed 同排；输出格式、辅助参考音频、多权重位各占一个框，框里是这一段要填的几格。
 //   三段排成框是为了让「这几格属于同一件事」由边框表达，不靠行距暗示；
 //   顺序按使用顺序：先设备与 seed 这几个「从哪个开关进」的单格，再输出与输入，最后是合成时能换的几份权重。
 import React from 'react'
@@ -13,7 +13,7 @@ import { seedArgText, withSeedSwitch } from './seedField'
 
 const APPLIES = ['call', 'launch']
 
-// 分段用的框：输出格式、音频输入、多权重位三处同一形状。
+// 分段用的框：输出格式、辅助参考音频、多权重位三处同一形状。
 const BOX = { marginBottom: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6 }
 
 export default function OptionalCapabilities ({ manifest, onChange }) {
@@ -51,7 +51,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
     return { ...cur, call: { ...c, args } }
   })
 
-  // 音频输入：手填开关名 = 开放这项能力（与运行设备同一口径）。
+  // 辅助参考音频：手填开关名 = 开放这项能力（与运行设备同一口径）。
   //   名片里没有这类项时，这一格直接给一个空行，填上开关名就补上它的声明，
   //   并同时写进 params.call_time（host 只认白名单里的键，不写进去界面选了也不发）。
   const addAudio = (flag) => patch((cur) => {
@@ -302,10 +302,11 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
           ))
         })()}
 
-        {/* 音频类输入：每条一行，开关名与标签都可改。
+        {/* 辅助参考音频：每条一行，开关名与标签都可改。前端那个选择器本来就是多选，
             名片里没有这类项时，这一格直接给一个空行填开关名（与运行设备同一口径）。
-            不在这一行里区分单选/多选：9886 的 AuxReferencePicker 一律是选列表，
-            单选/多选的差别只在 value / repeat 两种开关样式，平台不猜。 */}
+            这里不区分单选/多选：选中的路径一律按数组下发，由名片里的开关样式决定怎么展开
+            （value 跟着一个开关、repeat 每个值一个开关）。只收单个值的上游拿到多个会自己报错，
+            stderr 原样带回，使用者据此知道该选几个。 */}
         {box('audio', !audio.length, (audio.length ? audio : [['audio_ref', null]]).map(([name, e], i) => {
           const ee = e || { flag: '' }
           return (
@@ -314,10 +315,11 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
               marginTop: i ? 8 : 0, paddingTop: i ? 8 : 0,
               borderTop: i ? '1px solid var(--border)' : 'none' }}>
             <div className="field" style={{ flex: '1 1 0', minWidth: 0, marginBottom: 0 }}>
-              <label className="field-label">{t('Audio input', '音频输入')}</label>
+              <label className="field-label">{t('Auxiliary reference audio', '辅助参考音频')}</label>
               <input className="control" value={ee.flag || ''}
                 placeholder="--emotion-audio"
-                title={t('The switch that receives the selected audio path', '接收所选音频路径的开关')}
+                title={t('The switch that receives the selected audio paths. The picker allows several; the manifest decides how they are expanded.',
+                  '接收所选音频路径的开关。选择器支持多选；怎么展开由名片里的开关样式决定。')}
                 onChange={(ev) => {
                   const v = ev.target.value
                   if (audio.length === 0) addAudio(v)

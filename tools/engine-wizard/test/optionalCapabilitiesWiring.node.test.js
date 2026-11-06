@@ -87,7 +87,7 @@ test('五类可选能力收在同一区，区标题统一且默认展开', () =>
   for (const [re, what] of [
     [/Runtime device/, '运行设备'],
     [/Reference text/, '参考文本'],
-    [/Audio input/, '音频输入'],
+    [/Auxiliary reference audio/, '辅助参考音频'],
     [/Slot name/, '权重位'],
     [/Output format switch/, '输出格式'],
   ]) assert.ok(re.test(src), `${what}要收进同一区`)

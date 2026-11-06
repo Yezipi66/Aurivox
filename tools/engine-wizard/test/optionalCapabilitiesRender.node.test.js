@@ -122,7 +122,7 @@ const slotRows = () => [...container.querySelectorAll('div')]
   .filter((el) => /grid-template-columns/.test(el.getAttribute('style') || ''))
   .filter((el) => !!el.querySelector('select'))
 
-// 分段框：输出格式、音频输入、多权重位各一个，标识是 BOX 那份圆角边框。
+// 分段框：输出格式、辅助参考音频、多权重位各一个，标识是 BOX 那份圆角边框。
 const boxes = () => [...container.querySelectorAll('div')]
   .filter((el) => /border-radius:\s*6px/.test(el.getAttribute('style') || ''))
 
@@ -191,23 +191,23 @@ test('多权重位共用一个框：两位两行，行内四格', async () => {
   }
 })
 
-test('三个框的顺序：输出格式 → 音频输入 → 多权重位，都排在设备那一行之后', async () => {
+test('三个框的顺序：输出格式 → 辅助参考音频 → 多权重位，都排在设备那一行之后', async () => {
   await show(cliManifest([]))
   const list = boxes()
   assert.equal(list.length, 3, '三段各占一个框')
   assert.ok(/Output format switch|输出格式开关/.test(list[0].textContent),
     '输出格式紧跟运行设备')
-  assert.ok(/Audio input|音频输入/.test(list[1].textContent))
+  assert.ok(/Auxiliary reference audio|辅助参考音频/.test(list[1].textContent))
   assert.ok(/Weight slot 2|第2权重位/.test(list[2].textContent), '权重位排在最后')
   assert.ok(/Runtime device|运行设备/.test(list[0].parentElement.textContent),
     '三个框都在运行设备之后')
 })
 
-test('没填的框整块弱化：输出格式与音频输入空着带 wz-unset，声明过就摘掉', async () => {
+test('没填的框整块弱化：输出格式与辅助参考音频空着带 wz-unset，声明过就摘掉', async () => {
   await show(cliManifest([]))
   let list = boxes()
   assert.ok(/wz-unset/.test(list[0].className), '输出格式开关空着＝不支持输出格式')
-  assert.ok(/wz-unset/.test(list[1].className), '音频输入空着＝不接受音频输入')
+  assert.ok(/wz-unset/.test(list[1].className), '辅助参考音频空着＝不接受辅助参考音频')
 
   const m = cliManifest([])
   m.call.args = {
@@ -249,11 +249,11 @@ test('空格等于没填：设备与音频的开关名只敲空格，名片里�
 
   const audio = [...container.querySelectorAll('input')]
     .find((i) => i.placeholder === '--emotion-audio')
-  assert.ok(audio, '音频输入那一格要在')
+  assert.ok(audio, '辅助参考音频那一格要在')
   Simulate.change(audio, { target: { value: '  ' } })
   await settle()
   assert.ok(!holder.m.call.args || !holder.m.call.args.audio_ref,
-    '只敲空格不算声明音频输入')
+    '只敲空格不算声明辅助参考音频')
 })
 
 test('没声明的格弱化显示：空着的设备/参考文本带 wz-unset，声明过就不带', async () => {

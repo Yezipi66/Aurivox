@@ -54,6 +54,7 @@ const EngineScanZone = loadJsx('EngineScanZone.jsx', {
   react: React,
   'web/src/lib/i18n': i18n,
   './ParamPool': () => React.createElement('div', { 'data-stub': 'pool' }),
+  './groupLabel': loadEsm(path.join(EDITOR_DIR, 'groupLabel.js')),
 }).default
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -125,6 +126,8 @@ test('分组下拉：(root) 说成「顶层」，其余保持上游子命令名'
   }))
   await settle()
   const opts = [...container.querySelectorAll('option')].map((o) => o.textContent.trim())
-  assert.deepStrictEqual(opts, ['全部分组', '顶层（无子命令）', 'init', 'batch'])
-  assert.match(container.textContent, /名称取自上游子命令，未做翻译/)
+  assert.deepStrictEqual(opts,
+    ['全部分组', '顶层（无子命令）', 'init（初始化配置）', 'batch（批处理）'],
+    '原名在前、中文注在括号里')
+  assert.match(container.textContent, /括号前是命令行上要敲的子命令原名/)
 })

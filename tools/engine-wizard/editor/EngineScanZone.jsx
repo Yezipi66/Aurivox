@@ -2,6 +2,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ParamPool from './ParamPool'
+import { groupLabel } from './groupLabel'
 
 // 左栏：扫描到的参数。扫描按钮在中栏身份条上；引擎身份也跟着 Manifest 放在中栏顶部，
 // 左栏只放外部输入。
@@ -46,8 +47,8 @@ export default function EngineScanZone ({
       <div className="section-body">
         {/* 扫描按钮在中栏身份条上（和选引擎、读取、保存是同一串动作），
             这里只留分组切换与扫描结果。 */}
-        {/* 分组就是上游的子命令名，平台不改写（`init` / `download` / `batch` 这些是代码里的词，
-            翻译过来反而与命令行上的写法不一致）。只有 '(root)' 是平台自己的占位，说成「顶层」。 */}
+        {/* 分组是上游子命令名：命令行上要敲的就是这几个字，所以原名不能改写，
+            只在括号里加一层中文注（`synth（合成语音）`）。表里没有的名字原样显示。 */}
         {groups && groups.length > 1 && (
           <div className="field">
             <label className="field-label"
@@ -60,14 +61,12 @@ export default function EngineScanZone ({
               onChange={(e) => onGroupChange && onGroupChange(e.target.value)}>
               <option value="">{t('— all groups —', '全部分组')}</option>
               {groups.map((g) => (
-                <option key={g} value={g}>
-                  {g === '(root)' ? t('(root): no sub-command', '顶层（无子命令）') : g}
-                </option>
+                <option key={g} value={g}>{groupLabel(g)}</option>
               ))}
             </select>
             <div className="field-hint">
-              {t('Names come from the upstream sub-commands and are not translated.',
-                '名称取自上游子命令，未做翻译。')}
+              {t('The name before the brackets is the sub-command as it is typed on the command line; the note in brackets is ours.',
+                '括号前是命令行上要敲的子命令原名，括号里是平台加的中文注。')}
             </div>
           </div>
         )}
