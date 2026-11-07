@@ -639,11 +639,12 @@
   flex-direction: column;
   gap: 4px;
 }
+/* 标签与说明各占一行：挤在同一行时说明会折行，折出来的半行挂在标签下面，
+   读起来像标签的一部分。 */
 .wz-param-dims-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--sp-8);
+  flex-direction: column;
+  gap: 2px;
 }
 .wz-param-dims-label {
   font-size: var(--fs-11);
@@ -653,6 +654,9 @@
   font-size: var(--fs-11);
   color: var(--muted);
   opacity: 0.85;
+}
+.wz-param-dim-cols span {
+  white-space: nowrap;
 }
 .wz-param-dim-cols,
 .wz-param-dim-row {
