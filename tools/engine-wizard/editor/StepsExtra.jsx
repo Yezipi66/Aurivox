@@ -272,6 +272,32 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }
   }
 
+  // 一次嗅探上游 README 给的每个仓库。README 常把权重拆在多个仓库里
+  // （主模型一个、辅助模型另一个），逐个点「嗅探仓库」时容易只点第一个，
+  // 后面的仓库与它的文件就整个漏掉。同仓库去重由 loadManifest 负责。
+  const probeAll = async () => {
+    const seen = new Set()
+    for (const c of visibleCmds) {
+      const tool = sourceOf(c, sourceChoices)
+      if (!c || !c.repo || tool === 'unknown') continue
+      const key = `${tool}:${c.repo}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      await loadManifest(c)
+    }
+  }
+
+  // 上游给了几个仓库（按来源与仓库去重）。只有一个时不显示「全部嗅探」。
+  const repoCount = (() => {
+    const seen = new Set()
+    for (const c of visibleCmds) {
+      const tool = sourceOf(c, sourceChoices)
+      if (!c || !c.repo || tool === 'unknown') continue
+      seen.add(`${tool}:${c.repo}`)
+    }
+    return seen.size
+  })()
+
   const downloadAll = () => {
     if (!manifest || manifest.length === 0) return
     const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
@@ -607,6 +633,19 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('Run these in the engine folder:', '在引擎目录内执行：')}
             </div>
+            {repoCount > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                <button className="btn btn-sm" type="button"
+                  disabled={probeLoading}
+                  onClick={probeAll}>
+                  {t(`Probe all repos (${repoCount})`, `嗅探全部仓库（${repoCount} 个）`)}
+                </button>
+                <span className="field-hint" style={{ margin: 0 }}>
+                  {t('The upstream README lists several repos. Weights may be split across them; probe all before downloading.',
+                    '上游 README 给了多个仓库，权重可能分散在其中。建议全部嗅探后再下载。')}
+                </span>
+              </div>
+            )}
             {probeError && (
               <div className="msg msg-danger" style={{ marginTop: 4 }}>
                 {probeError}
