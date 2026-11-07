@@ -112,7 +112,19 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
                 Array.isArray(entry.suggested_value) ? entry.suggested_value[i] : undefined
               )) })
           } else {
-            set('type', next)
+            // 从 vector 切走时，旧的多维字段对新类型没有意义：
+            //   留着 suggested_value 那排会把界面画成逗号串，dim_labels / item / repeat
+            //   留着则会让派生拿到与类型不符的形状。删掉，不替用户挑一个值出来。
+            if (entry.type === 'vector') {
+              const single = { ...entry, type: next }
+              delete single.suggested_value
+              delete single.dim_labels
+              delete single.item
+              delete single.repeat
+              onChange(index, single)
+            } else {
+              set('type', next)
+            }
           }
           if (onTypeConfirmed) onTypeConfirmed(entry.name)
         }}>

@@ -50,6 +50,10 @@ export function defaultTextOf (entry) {
   if (repeatOf(entry) > 1) {
     return Array.isArray(value) ? value.map((v) => (v === null || v === undefined ? '' : String(v))).join(',') : ''
   }
+  // 标量类型收到数组说明形状不匹配：切换类型后留下的旧值是常见来源。
+  //   直接 String(array) 会把八个空维画成七个逗号，看上去像用户填过东西。
+  //   这里按「没填」处理，切换类型时再由组件把旧值收走。
+  if (Array.isArray(value)) return ''
   return value === null || value === undefined ? '' : String(value)
 }
 

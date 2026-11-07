@@ -108,3 +108,9 @@ test('vector 的多格读写与 repeat 那条完全一样', () => {
   assert.equal(vectorCellText(entry, 1), '')
   assert.deepStrictEqual(withVectorCell(entry, 1, '0.9'), [0.2, 0.9, 0.4])
 })
+
+// 从 vector 切到单值类型后，值可能还留着数组。界面不能把它画成一串逗号。
+test('标量类型收到数组 ⇒ 当作没填，不显示逗号', () => {
+  assert.equal(defaultTextOf({ type: 'text', suggested_value: [null, null, null] }), '')
+  assert.equal(defaultTextOf({ type: 'number', suggested_value: [0, 0.2, 0.4] }), '')
+})
