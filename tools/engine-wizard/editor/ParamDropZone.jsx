@@ -125,6 +125,44 @@ export default function ParamDropZone ({
           </button>
         </div>
 
+        {/* 列标题与填写引导：没有参数时不显示，空区由落点自己说明。 */}
+        {list.length > 0 && (
+          <>
+            <p className="wz-param-guide">
+              {t('One row per engine switch. The two labels appear above the control on the synthesis page; the type decides which control is drawn.',
+                '每行对应引擎的一个开关。两类名字显示在合成页控件上方，类型决定控件长相。')}
+            </p>
+            <div className="wz-param-row wz-param-cols">
+              <span className="wz-param-argv"
+                title={t('The switch the engine takes, for example --speed. The parameter name drops the leading dashes.',
+                  '引擎命令行上使用的开关，例如 --speed。参数名由它去掉开头横线得到。')}>
+                {t('CLI switch', '命令行开关')}
+              </span>
+              <span className="wz-param-zh"
+                title={t('Chinese name above the control. Falls back to the parameter name when empty.',
+                  '合成页控件上方显示的中文名。留空则显示参数名。')}>
+                {t('Chinese label', '中文名')}
+              </span>
+              <span className="wz-param-en"
+                title={t('English name above the control. Falls back to the parameter name when empty.',
+                  '合成页控件上方显示的英文名。留空则显示参数名。')}>
+                {t('English label', '英文名')}
+              </span>
+              <span className="wz-param-type"
+                title={t('Which control the synthesis page draws. Select and vector need the table below.',
+                  '合成页为这一格绘制哪种控件。select 与 vector 还需在下方补一张表。')}>
+                {t('Control type', '控件类型')}
+              </span>
+              <span className="wz-param-place"
+                title={t('Which screen in Advanced Settings shows this field',
+                  '这一格出现在 Advanced Settings 的常用区还是高级区')}>
+                {t('Shown in', '显示位置')}
+              </span>
+              <span className="wz-param-ops" />
+            </div>
+          </>
+        )}
+
         {/* 已声明的参数：每一项可改字段，也可删 */}
         {list.map((p, i) => (
           <ParamRow key={i} entry={p || {}} index={i} spec={spec}

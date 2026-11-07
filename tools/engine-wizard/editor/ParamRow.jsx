@@ -1,12 +1,11 @@
-// 「合成参数」一条：主行四列 + 按类型展开的选项表。
+// 「合成参数」一条：主行五列 + 按类型展开的选项表。
 //
 // 这块只服务一件事：把某个引擎的额外旋钮翻译成 9886 Advanced Settings 里的一格。
-// 主行回答四件事：命令行上敲哪个开关、界面上中文叫什么、英文叫什么、长成哪种控件、
+// 主行回答五件事：命令行上敲哪个开关、界面上中文叫什么、英文叫什么、长成哪种控件、
 // 摆在 common 还是 advanced。text / number / boolean / file 到此为止；
 // select 与 vector 还要各自补一张表。
-import React, { useState } from 'react'
+import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { defaultTextOf, defaultFromText } from './paramDefault'
 import {
   nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell,
 } from './paramFields'
@@ -22,7 +21,6 @@ const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
  */
 export default function ParamRow ({ entry, index, spec, argv = '', onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
   const { t } = useT()
-  const [moreOpen, setMoreOpen] = useState(false)
   void spec
 
   const type = TYPES.includes(entry.type) ? entry.type : 'text'
@@ -82,9 +80,6 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
   }
   const setDim = (i, key, v) => patch({ dim_labels: withCell(dims, i, key, v) })
 
-  const defaultText = defaultTextOf(entry)
-  const isRepeatedPlain = type !== 'vector' && Number(entry.repeat) > 1
-
   return (
     <div className="card wz-param-row">
       {/* 主行：开关 / 中文名 / 英文名 / 类型 / common-advanced */}
@@ -112,16 +107,19 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
         <option value="advanced">{t('advanced', '高级')}</option>
       </select>
 
-      {typeGuessed && (
-        <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
-          {t('guessed', '推测')}
-        </span>
-      )}
-      <button className="btn btn-sm btn-danger wz-param-del" type="button"
-        title={t('Delete this parameter', '删除该参数')}
-        onClick={() => onDelete(index)}>
-        {t('Delete', '删除')}
-      </button>
+      {/* 尾部定宽：推测徽标出现与否都不改这一格宽度，表头的列才对得上。 */}
+      <div className="wz-param-tail">
+        {typeGuessed && (
+          <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
+            {t('guessed', '推测')}
+          </span>
+        )}
+        <button className="btn btn-sm btn-danger wz-param-del" type="button"
+          title={t('Delete this parameter', '删除该参数')}
+          onClick={() => onDelete(index)}>
+          {t('Delete', '删除')}
+        </button>
+      </div>
 
       {type === 'select' && (
         <div className="wz-param-table">
@@ -181,56 +179,6 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
                 onChange={(e) => setDim(i, 'en', e.target.value)} />
             </div>
           ))}
-        </div>
-      )}
-
-      <details className="wz-param-more" open={moreOpen}>
-        <summary className="wz-param-more-btn"
-          onClick={(e) => { e.preventDefault(); setMoreOpen(!moreOpen) }}>
-          {t('More', '高级')}
-        </summary>
-      </details>
-      {moreOpen && (
-        <div className="wz-param-more-grid">
-          <input className="control" value={defaultText}
-            placeholder={isRepeatedPlain || type === 'vector'
-              ? t('Defaults, comma separated', '各维默认值，逗号分隔')
-              : t('Suggested value', '建议值')}
-            title={t('Optional value prefilled on the synthesis page. Leave it empty rather than writing 0.',
-              '可选。合成页打开时预填的值；不预填就留空，不要拿 0 顶替。')}
-            onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
-          {type === 'number' && (
-            <input className="control" type="number" value={entry.min ?? ''} placeholder={t('min', '最小')}
-              onChange={(e) => set('min', e.target.value === '' ? undefined : Number(e.target.value))} />
-          )}
-          {type === 'number' && (
-            <input className="control" type="number" value={entry.max ?? ''} placeholder={t('max', '最大')}
-              onChange={(e) => set('max', e.target.value === '' ? undefined : Number(e.target.value))} />
-          )}
-          {type !== 'vector' && (
-            <input className="control" type="number" value={entry.repeat ?? ''} placeholder={t('repeat', '重复')}
-              title={t('A plain scalar control drawn N times', '把同一个标量控件画 N 遍')}
-              onChange={(e) => set('repeat', e.target.value === '' ? undefined : Number(e.target.value))} />
-          )}
-          {/* 加载时的语义暂未整理，保留原值不丢，也不在主行露出。 */}
-          <select className="control" value={entry.phase === 'load' ? 'load' : 'call'}
-            title={t('Whether changing it needs a restart', '改了是否要重启引擎')}
-            onChange={(e) => set('phase', e.target.value === 'load' ? 'load' : undefined)}>
-            <option value="call">{t('call-time', '每次合成')}</option>
-            <option value="load">{t('load-time', '加载时')}</option>
-          </select>
-          <input className="control" value={entry.group || ''} placeholder={t('group', '分组')}
-            onChange={(e) => set('group', e.target.value)} />
-          <input className="control" type="number" value={entry.order ?? ''} placeholder={t('order', '排序')}
-            onChange={(e) => set('order', e.target.value === '' ? undefined : Number(e.target.value))} />
-          <select className="control" value={entry.source || ''}
-            title={t('Options scanned from a platform library', '选项从平台哪个库里扫')}
-            onChange={(e) => set('source', e.target.value || undefined)}>
-            <option value="">{t('source', '出处')}</option>
-            <option value="voices">voices</option>
-            <option value="weights">weights</option>
-            <option value="audio">audio</option>
-          </select>
         </div>
       )}
     </div>
