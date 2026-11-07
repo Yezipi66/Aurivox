@@ -13,6 +13,25 @@ import {
 } from '../../../web/src/lib/engines'
 import { TARGET_LANG_OPTIONS } from '../../../web/src/lib/langOptions'
 
+// 名片写的是声明（parameters[]），9886 组件读的是派生后的 param_schema。
+// 预览没有后端，这里只做形状换算，不重做后端的校验：
+// 默认值的键名不同，label 与 tier 要有和后端一致的兜底。
+function previewSchema (parameters) {
+  if (!Array.isArray(parameters)) return []
+  return parameters.map((p) => {
+    const field = { ...(p || {}) }
+    if (field.suggested_value !== undefined) {
+      field.default = field.suggested_value
+      delete field.suggested_value
+    }
+    if (!field.label || typeof field.label !== 'object') {
+      field.label = { en: field.name, zh: field.name }
+    }
+    field.tier = field.tier === 'common' ? 'common' : 'advanced'
+    return field
+  })
+}
+
 export default function PanelPreview ({ manifest }) {
   // 内容复用 9886 的两栏骨架：左栏表单、右栏 380px（与 9886 参考音频侧栏同宽）。
   // 预览没有后端、未选音色，右栏留空，与 9886 未选音色时一致。窄抽屉里是单列，
@@ -31,10 +50,14 @@ export default function PanelPreview ({ manifest }) {
 
 function PreviewInner ({ manifest }) {
   const { t, lang } = useT()
-  const engine = useMemo(() => ({ id: manifest.id, param_schema: manifest.parameters || [] }), [manifest])
+  const engine = useMemo(() => ({ id: manifest.id, param_schema: previewSchema(manifest.parameters) }), [manifest])
   const [values, setValues] = useState(() => initialParamValues(engine))
   useEffect(() => { setValues(initialParamValues(engine)) }, [engine])
-  const setParam = (name, raw) => setValues((prev) => ({ ...prev, [name]: coerceParamValue(name, raw, prev[name]) }))
+  // 值转换要拿整条字段，不是参数名：类型、候选与默认值都在字段上。
+  const setParam = (name, raw) => setValues((prev) => {
+    const field = engine.param_schema.find((f) => f.name === name)
+    return { ...prev, [name]: coerceParamValue(field, raw) }
+  })
 
   const STREAM_ONLY = ['streaming_mode', 'overlap_length', 'min_chunk_length']
   const visibleFields = (tier) => fieldsForTier(engine, tier)
