@@ -597,14 +597,25 @@
 }
 
 /* 三、一条参数收成一行：开关 / 中文名 / 英文名 / 类型 / 去向 / 删除。
-   select 与 vector 在下一行补一张选项表；其余字段不在此处露出。 */
+   select 与 vector 在下一行补一张选项表；其余字段不在此处露出。
+   表头与参数行同处 .wz-param-sheet，行间只用一条下边框；选项表是这一行的
+   flex 子项，分隔线因此落在细节项下面，不会把主行与选项表切开。 */
 .wz-param-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-8);
-  /* .card 默认 14px 上下内边距：一行控件围着 14px 白，就不再是「一行」了。 */
   padding: var(--sp-8) var(--sp-10);
+  border-bottom: 1px solid var(--border);
+}
+/* 整个参数区收成一个大框：沿用 .card 的底色与边框，只去掉内边距，
+   让每行的分隔线贯通整框宽度。 */
+.wz-param-sheet {
+  padding: 0;
+  overflow: hidden;
+}
+.wz-param-sheet > .wz-param-row:last-child {
+  border-bottom: 0;
 }
 .wz-param-name { flex: 1 1 120px; min-width: 88px; }
 /* 主行四列：--argv / 中文名 / 英文名 / 类型 / common-advanced。
@@ -752,18 +763,13 @@
   gap: var(--sp-6);
 }
 .wz-param-del { flex: 0 0 64px; }
-/* 表头与下面的参数行共用 .wz-param-row 那套列宽。1px 透明边框补上 .card 的边框，
-   否则表头比参数行窄 2px，后面四列会整体左移。 */
+/* 表头与参数行共用 .wz-param-row 的 padding 与列宽，同处大框内，列起点自然一致。 */
 .wz-param-guide {
   margin: 0 0 var(--sp-6);
   font-size: var(--fs-11);
   color: var(--muted);
 }
 .wz-param-cols {
-  padding-top: 0;
-  padding-bottom: var(--sp-6);
-  border: 1px solid transparent;
-  border-bottom-color: var(--border);
   font-size: var(--fs-11);
   color: var(--muted);
 }

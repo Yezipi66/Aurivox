@@ -81,7 +81,7 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
   const setDim = (i, key, v) => patch({ dim_labels: withCell(dims, i, key, v) })
 
   return (
-    <div className="card wz-param-row">
+    <div className="wz-param-row">
       {/* 主行：开关 / 中文名 / 英文名 / 类型 / common-advanced */}
       <input className="control wz-param-argv" value={argv || ''}
         placeholder="--argv"
