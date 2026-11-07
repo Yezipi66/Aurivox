@@ -93,8 +93,8 @@ export function initialParamValues(engine) {
   return out
 }
 
-// 五种参数样式，须与后端 lib/engines/paramTypes.js 保持一致，否则后端接受的字段前端无法渲染。
-export const PARAM_TYPES = ['text', 'number', 'select', 'boolean', 'file']
+// 六种参数样式，须与后端 lib/engines/paramTypes.js 保持一致，否则后端接受的字段前端无法渲染。
+export const PARAM_TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
 
 // 旧类型名（integer、enum、path 等）归一为五种之一，兼容旧 schema 和第三方名片。
 export function canonicalType(t) {
@@ -162,6 +162,7 @@ function coerceScalarValue(field, raw) {
       return String(raw)
     }
     case 'text':
+    case 'vector':
       return raw === null || raw === undefined ? fallback : String(raw)
     default:
       return raw

@@ -14,7 +14,8 @@
 // 每一维装的类型。多维声明里它不是 type（那是 'vector'），而是 item，没写按数字。
 //   不归一的话 0.9 会被当字符串存下去，派生后是 number 而值是字符串，长度对、类型不对。
 export function itemTypeOf (entry) {
-  if (entry && entry.type === 'vector') return entry.item || 'number'
+  // vector 每一格是 text：既能填 0.8 也能填标识符，平台不替它规定数制。
+  if (entry && entry.type === 'vector') return 'text'
   return (entry && entry.type) || 'text'
 }
 

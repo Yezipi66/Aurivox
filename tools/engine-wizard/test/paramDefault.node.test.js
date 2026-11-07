@@ -106,7 +106,8 @@ test('vector 声明的格数取 dim_labels 的长度', () => {
 test('vector 的多格读写与 repeat 那条完全一样', () => {
   const entry = { type: 'vector', dim_labels: ['a', 'b', 'c'], suggested_value: [0.2, null, 0.4] }
   assert.equal(vectorCellText(entry, 1), '')
-  assert.deepStrictEqual(withVectorCell(entry, 1, '0.9'), [0.2, 0.9, 0.4])
+  assert.deepStrictEqual(withVectorCell(entry, 1, '0.9'), [0.2, '0.9', 0.4],
+    'vector 每格是 text，写进去的是字符串，平台不替它规定数制')
 })
 
 // 从 vector 切到单值类型后，值可能还留着数组。界面不能把它画成一串逗号。

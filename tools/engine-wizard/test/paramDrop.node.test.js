@@ -101,7 +101,8 @@ test('拖一个 cli 参数进去：parameters[] 多一条，名字与类型都�
   assert.equal(m.parameters.length, 1)
   assert.equal(m.parameters[0].name, 'speed')
   assert.equal(m.parameters[0].type, 'number', '类型由扫到的 kind 推出')
-  assert.equal(m.parameters[0].help, 'speaking rate', '上游原话说明带进来')
+  assert.deepStrictEqual(m.parameters[0].help, { zh: 'speaking rate', en: 'speaking rate' },
+    '上游原话说明带进来；help 是成对对象，平台只认这一种形状')
 })
 
 test('拖一个 python 参数进去：parameters[] 多一条，不写 call.args', () => {
@@ -224,10 +225,10 @@ const VEC_PARAM = {
 test('拖一个向量参数：声明成 vector，八维八个名字，默认值留空', () => {
   const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, VEC_PARAM)
   const entry = m.parameters[0]
-  assert.equal(entry.type, 'vector', '多维是一种声明，不是一个数字再加 repeat')
-  assert.equal(entry.item, 'number', '每一维装的是数')
-  assert.deepStrictEqual(entry.dim_labels, new Array(8).fill(''),
-    '八维就是八个名字，先留空让使用者填：上游只写了几维，没写每维叫什么')
+  assert.equal(entry.type, 'vector', 'vector 是独立控件，不是 number 加 repeat')
+  assert.equal(entry.item, undefined, '每格用 text，不再声明每维的类型')
+  assert.deepStrictEqual(entry.dim_labels, new Array(8).fill('').map(() => ({ zh: '', en: '' })),
+    '八维就是八个中英文名字，先留空让使用者填：上游只写了几维，没写每维叫什么')
   assert.equal(entry.repeat, undefined,
     '维度数只由 dim_labels 的长度定，再写一个 repeat 就是第二份会漂移的事实')
   assert.deepStrictEqual(entry.suggested_value, new Array(8).fill(null),

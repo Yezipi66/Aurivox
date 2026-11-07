@@ -608,6 +608,58 @@
   padding: var(--sp-8) var(--sp-10);
 }
 .wz-param-name { flex: 1 1 120px; min-width: 88px; }
+/* 主行四列：--argv / 中文名 / 英文名 / 类型 / common-advanced。
+   argv 吃满剩余宽度：开关名比标签长，长开关被挤短最不容易发现。 */
+.wz-param-argv { flex: 1 1 170px; min-width: 120px; }
+.wz-param-zh,
+.wz-param-en { flex: 0 0 120px; }
+
+/* 按类型展开的选项表：select 三列（值 / 中文 / 英文），vector 两列（中文 / 英文）。
+   一行一条，与主行同宽；text / number / boolean / file 没有这张表。 */
+.wz-param-table {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wz-param-table-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-8);
+}
+.wz-param-table-label {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wz-param-count {
+  flex: 0 0 64px;
+  font-size: var(--fs-11);
+  padding: 2px 4px;
+}
+.wz-param-table-hint {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  opacity: 0.85;
+}
+.wz-param-table-row {
+  display: grid;
+  grid-template-columns: 64px repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+.wz-param-table-row.wz-param-table-2 {
+  grid-template-columns: 64px repeat(2, minmax(0, 1fr));
+}
+.wz-param-table-cols {
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-param-table-cols span { white-space: nowrap; }
+.wz-param-table-row .control { min-width: 0; font-size: var(--fs-11); padding: 2px 6px; }
+.wz-param-no { font-size: var(--fs-11); color: var(--muted); }
+
 .wz-param-type { flex: 0 0 92px; }
 .wz-param-place { flex: 0 0 132px; }
 .wz-param-default { flex: 0 0 104px; }

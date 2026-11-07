@@ -691,12 +691,24 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 }
 
 /* ===== Form grid ===== */
-/* 多维参数：一项若干同类型的值，每维一个名字（八维情绪向量就是这一种）。
-   列数自适应：宽时一排四列，窄时两列，不把八格挤成一条看不清的缝。
-   名字在上、控件在下，是因为名字属于这一维，不属于整项：放在同一行会读成两个独立参数。 */
+/* vector：一个大框里按维度分格。大框标题是这一项的名字，
+   小框标题是那一维自己的名字；都用 text 输入，既能填 0.8 也能填标识符。 */
 .field-vector {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px 10px;
+  margin: 0;
+  min-width: 0;
+}
+.field-vector-title {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  padding: 0 6px;
+}
+.field-vector-dims {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 6px;
 }
 .field-vector-dim {
@@ -705,15 +717,37 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   gap: 2px;
   min-width: 0;
 }
-.field-vector-label {
+.field-vector-dim-label {
   font-size: var(--fs-11);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.field-vector-dim .control {
+.field-vector-dim .control { min-width: 0; }
+
+/* file：文本框右边一枚文件夹按钮，展开素材库里扫到的文件。 */
+.field-file {
+  position: relative;
+  display: flex;
+  gap: 4px;
   min-width: 0;
+}
+.field-file-input { flex: 1 1 auto; min-width: 0; }
+.field-file-pick {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+}
+.field-file-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  max-height: 180px;
 }
 
 .form-grid {

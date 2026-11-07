@@ -42,19 +42,36 @@ export default function ParamDropZone ({
     onChange(next)
   }
 
-  const setParam = (i, v) => {
+  // 开关改名时，call.args 的键要一起搬：它既是参数名，也是命令行映射的键。
+  //   只改 parameters[].name 会留下一个永远上不了命令行的旧条目，存盘直接被拒。
+  const setParam = (i, v, meta = {}) => {
     const next = { ...manifest }
     const copy = [...list]
     copy[i] = v
     next.parameters = copy
+    if (meta.argv && next.call) {
+      const args = { ...(next.call.args || {}) }
+      const { from, to, flag } = meta.argv
+      const old = (from && args[from]) || {}
+      if (from && from !== to) delete args[from]
+      if (to && flag && flag.startsWith('-')) args[to] = { ...old, flag }
+      else if (to) delete args[to]
+      next.call = { ...next.call, args }
+    }
     onChange(next)
   }
 
   const delParam = (i) => {
     const next = { ...manifest }
+    const gone = list[i] && list[i].name
     const copy = [...list]
     copy.splice(i, 1)
     next.parameters = copy.length ? copy : undefined
+    if (gone && next.call && next.call.args) {
+      const args = { ...next.call.args }
+      delete args[gone]
+      next.call = { ...next.call, args }
+    }
     onChange(next)
   }
 
@@ -118,6 +135,7 @@ export default function ParamDropZone ({
         {/* 已声明的参数：每一项可改字段，也可删 */}
         {list.map((p, i) => (
           <ParamRow key={i} entry={p || {}} index={i} spec={spec}
+            argv={((manifest.call && manifest.call.args && manifest.call.args[(p || {}).name]) || {}).flag || ''}
             typeGuessed={!!(guessed && p && guessed.has(p.name))}
             onTypeConfirmed={onTypeConfirmed}
             onChange={setParam} onDelete={delParam} />

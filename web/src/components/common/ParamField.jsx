@@ -1,7 +1,8 @@
-// 引擎参数格子的统一渲染：一个格子按五种预设样式之一画成控件。
+// 引擎参数格子的统一渲染：一个格子按六种预设样式之一画成控件。
 // 每台引擎的面板都用这一个组件，否则同一个参数在不同引擎下会长成不同的样子。
 // 键名、类型与候选全部取自名片的 param_schema，这里不写任何引擎的参数名。
 
+import { useState } from 'react'
 import { Select } from './Select'
 import VectorField from './VectorField'
 import {
@@ -52,6 +53,7 @@ function choiceValue(c) {
 // options 是这一格的候选项：`select + source` 时由调用方扫盘给进来，
 // 这个组件不去扫盘，它不知道 voices/weights/audio 是什么。
 function ScalarControl({ field, value, onChange, lang, options, t }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   const type = canonicalType(field.type)
 
   if (type === 'boolean') {
@@ -100,14 +102,34 @@ function ScalarControl({ field, value, onChange, lang, options, t }) {
   }
 
   if (type === 'file') {
-    // custom file，平台不认识这个文件是什么。这里没有候选列表：
-    // 有候选的那种是 select + source。
+    // 浏览器开不了本机文件夹对话框（只给文件名，拿不到服务端要的绝对路径）。
+    // 右边的文件夹按钮展开平台素材库里扫到的文件，选中即填入路径；文本框仍可直接输入。
+    const list = Array.isArray(options) ? options : []
     return (
-      <input type="text" className="control"
-        placeholder={t('empty = do not send this file', '留空 = 不发这个文件')}
-        /* 配方里存的可能是 {base, path} 那种形状，显示时摊成一行路径，否则用户会看到空格子而值还在。 */
-        value={typeof value === 'string' ? value : (value == null ? '' : recipePath(value))}
-        onChange={e => onChange(e.target.value)} />
+      <div className="field-file">
+        <input type="text" className="control field-file-input"
+          placeholder={t('empty = do not send this file', '留空 = 不发这个文件')}
+          /* 配方里存的可能是 {base, path} 那种形状，显示时摊成一行路径，否则用户会看到空格子而值还在。 */
+          value={typeof value === 'string' ? value : (value == null ? '' : recipePath(value))}
+          onChange={e => onChange(e.target.value)} />
+        <button type="button" className="btn btn-sm field-file-pick"
+          title={t('Pick a file from the library', '从素材库里选一个文件')}
+          onClick={() => setPickerOpen(!pickerOpen)}>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path d="M1.5 4.5A1.5 1.5 0 0 1 3 3h3l1.2 1.5H14a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1.5 1.5 0 0 1-1.5-1.5z"
+              fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {pickerOpen && (list.length
+          ? (
+            <select className="control field-file-list" size={Math.min(6, list.length)}
+              title={t('Files in the library', '素材库里的文件')}
+              onChange={(e) => { onChange(e.target.value); setPickerOpen(false) }}>
+              {list.map((c, i) => <option key={i} value={choiceValue(c)}>{choiceLabel(c, lang)}</option>)}
+            </select>
+            )
+          : <div className="field-hint">{t('No files were found in the library. A path can still be typed above.', '素材库里没有扫到文件；仍可在上方直接输入路径。')}</div>)}
+      </div>
     )
   }
 
@@ -149,6 +171,16 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
   const type = canonicalType(field.type)
   const wide = field.width === 'full' || n > 1 || field.multi === true
 
+  // vector 是独立控件：大框标题用这一项的名字，内部按维度分格。
+  if (type === 'vector') {
+    return (
+      <div style={{ gridColumn: '1 / -1' }}>
+        <VectorField field={field} value={value} lang={lang} t={t}
+          onValueChange={(next) => onChange(field.name, next)} />
+      </div>
+    )
+  }
+
   // 勾选：整格换成一行对齐的开关（见 ToggleField 的注释）。
   if (type === 'boolean' && n === 1) {
     return (
@@ -180,21 +212,30 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
     )
   }
 
-  // 多维：一排 N 个，格子数由名片定死。排布交给 VectorField，
-  //   这里是它的一个格子该长成什么样（仍走同一套标量控件，不另起一套）。
+  // 老名片只写了 repeat：同一个标量控件画 N 遍。vector 不走这里。
   if (n > 1) {
-    const labels = (Array.isArray(field.dim_labels) ? field.dim_labels : [])
-      .map((one) => (one && typeof one === 'object' ? textOf(one, lang, '') : String(one === undefined ? '' : one)))
+    const cur = Array.isArray(value) && value.length === n
+      ? value
+      : Array.from({ length: n }, (_, i) => (Array.isArray(value) ? value[i] : undefined))
+    const labels = Array.isArray(field.dim_labels) ? field.dim_labels : []
     const scalar = { ...field, repeat: 1 }
     return (
       <div style={{ gridColumn: '1 / -1' }} title={help || undefined}>
         <label className="field-label">{label}</label>
-        <VectorField field={field} value={value} labels={labels} title={help || undefined}
-          onChange={(next) => onChange(field.name, next)}
-          renderCell={(i, v, setOne) => (
-            <ScalarControl field={{ ...scalar, name: `${field.name}[${i}]` }}
-              value={v} lang={lang} options={options} t={t} onChange={setOne} />
-          )} />
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(n, 4)}, minmax(0, 1fr))`, gap: 6 }}>
+          {cur.map((v, i) => (
+            <div key={i}>
+              {labels[i] !== undefined && (
+                <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 2 }}>
+                  {choiceLabel({ value: i, label: labels[i] }, lang)}
+                </div>
+              )}
+              <ScalarControl field={{ ...scalar, name: `${field.name}[${i}]` }}
+                value={v} lang={lang} options={options} t={t}
+                onChange={(nv) => { const next = cur.slice(); next[i] = nv; onChange(field.name, next) }} />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }

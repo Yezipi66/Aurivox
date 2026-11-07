@@ -1,210 +1,186 @@
-// 单条参数行：名称、类型、值、高级项。
+// 「合成参数」一条：主行四列 + 按类型展开的选项表。
+//
+// 这块只服务一件事：把某个引擎的额外旋钮翻译成 9886 Advanced Settings 里的一格。
+// 主行回答四件事：命令行上敲哪个开关、界面上中文叫什么、英文叫什么、长成哪种控件、
+// 摆在 common 还是 advanced。text / number / boolean / file 到此为止；
+// select 与 vector 还要各自补一张表。
 import React, { useState } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { repeatOf, defaultTextOf, defaultFromText, vectorCellText, withVectorCell,
-  dimensionNamesOf } from './paramDefault'
+import { defaultTextOf, defaultFromText } from './paramDefault'
+import {
+  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell,
+} from './paramFields'
 
-// 名片里一条界面参数的可编辑行。
-//
-// 字段集与平台那份派生物一致（lib/engines/parameterDeclaration.js）：
-// name / type / tier / label / help / suggested_value / min / max，
-// 以及少数用得上的可选项（phase / choices / applies_to / repeat / group / order / source）。
-//
-// 单独一个文件：落点组件（ParamDropZone）与表单（ManifestForm）都要渲染它。
-// 留在 ManifestForm 里会形成两个组件互相 import 的环。
+const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
 
 /**
- * 一条界面参数的编辑行。
- *
  * @param {object} entry 这条参数的内容
  * @param {number} index 它在 parameters[] 里的位置
- * @param {object} spec 字段规格（当前不用，签名留着与调用方一致）
- * @param {Function} onChange 改这一条（传索引与新内容）
+ * @param {Function} onChange 改这一条：(index, next, meta) => void
+ *   meta.argv 让落点同步迁移 call.args 的键，开关改名后不留一个永远上不了命令行的条目
  * @param {Function} onDelete 删这一条（传索引）
  */
-// 「去向」：把 tier 与 phase 合成一个选择。
-//   把 tier 与 phase 合成一个「去向」选择：若分开，用户要在三处回答同一个问题：
-//   参数放在界面哪里、改了要不要重启。
-// TODO(骨架)：再加一档「固定值」（不上界面，写进 call.args / init_args 的定值）。
-const PLACEMENTS = [
-  { key: 'common', tier: 'common', phase: undefined, en: 'UI · common', zh: '界面 · 常用' },
-  { key: 'advanced', tier: 'advanced', phase: undefined, en: 'UI · advanced', zh: '界面 · 高级' },
-  { key: 'load', tier: 'advanced', phase: 'load', en: 'On load (restart to change)', zh: '加载时（改了要重启引擎）' },
-]
-function placementOf (entry) {
-  if (entry.phase === 'load') return 'load'
-  return entry.tier === 'common' ? 'common' : 'advanced'
-}
-
-export default function ParamRow ({ entry, index, spec, onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
+export default function ParamRow ({ entry, index, spec, argv = '', onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
   const { t } = useT()
+  const [moreOpen, setMoreOpen] = useState(false)
+  void spec
+
+  const type = TYPES.includes(entry.type) ? entry.type : 'text'
+  const label = readLabel(entry)
+  const patch = (partial, meta) => onChange(index, { ...entry, ...partial }, meta)
   const set = (k, v) => {
     const next = { ...entry }
     if (v === undefined || v === '') delete next[k]
     else next[k] = v
     onChange(index, next)
   }
-  const type = entry.type || 'text'
-  // 高级正文不放 details 里：details 是 display:contents，挂在它下面的这一项算宽度时
-  // 只看内容，行宽有富余时也不铺满，右侧会空出一条。
-  // 所以 details 只装按钮，正文另作行内一项渲染，开关状态自己拿。
-  const [moreOpen, setMoreOpen] = useState(false)
-  void spec
 
-  // repeat 大于等于 2 时默认值是一排（八维情绪向量就是八个），落盘必须是等长数组。
-  // 这一格仍是一个输入框，按逗号分隔读写；形状换算在 paramDefault 里，单独可测。
-  const repeat = repeatOf(entry)
-  // 多维的维度名就是 dim_labels：加一维补一个空名字，删一维连默认值那一格一起收走。
-  //   名字留空也允许：派生时按原样下发，界面上显示序号。
-  const dims = dimensionNamesOf(entry)
-  const dimValues = Array.isArray(entry.suggested_value) ? entry.suggested_value : []
-  const patch = (partial) => onChange(index, { ...entry, ...partial })
-  const setDimName = (i, name) => {
-    const next = dims.slice()
-    next[i] = name
-    patch({ dim_labels: next })
+  // 命令行开关：参数名由它派生，call.args 的键由落点一起迁移。
+  const setArgv = (raw) => {
+    const flag = String(raw == null ? '' : raw).trim()
+    const name = nameFromFlag(flag)
+    patch({ name }, { argv: { from: entry.name, to: name, flag } })
   }
-  const addDim = () => patch({
-    dim_labels: [...dims, ''],
-    suggested_value: [...dims.map((_, i) => dimValues[i]), null],
+
+  // 换类型时收走上一个类型专属的字段，避免旧值以错误形状留到下次存盘。
+  const setType = (next) => {
+    const out = { ...entry, type: next }
+    for (const k of ['suggested_value', 'dim_labels', 'choices', 'allow_custom', 'item', 'repeat']) {
+      delete out[k]
+    }
+    if (next === 'select') {
+      out.choices = [{ value: '', label: { zh: '', en: '' } }, { value: '', label: { zh: '', en: '' } }]
+      // 输入与候选并存：库里没有想要的值时，使用者仍能自己打一个。
+      out.allow_custom = true
+    }
+    if (next === 'vector') {
+      out.dim_labels = [{ zh: '', en: '' }, { zh: '', en: '' }]
+      out.suggested_value = [null, null]
+    }
+    onChange(index, out)
+    if (onTypeConfirmed) onTypeConfirmed(entry.name)
+  }
+
+  // select：一行一个选项，三列分别是传给 CLI 的值、中文显示、英文显示。
+  const choices = readChoices(entry)
+  const setChoiceCount = (n) => patch({
+    choices: resizeRows(choices, n, () => ({ value: '', zh: '', en: '' }))
+      .map((c) => ({ value: c.value, label: { zh: c.zh, en: c.en } })),
   })
-  const removeDim = (i) => {
-    if (dims.length <= 2) return
+  const setChoice = (i, key, v) => patch({
+    choices: withCell(choices, i, key, v).map((c) => ({ value: c.value, label: { zh: c.zh, en: c.en } })),
+  })
+
+  // vector：一行一维，两列是中英文名字。维度里的值在 9886 每次合成时填。
+  const dims = readDims(entry)
+  const setDimCount = (n) => {
+    const rows = resizeRows(dims, n, () => ({ zh: '', en: '' }))
     patch({
-      dim_labels: dims.filter((_, k) => k !== i),
-      suggested_value: dims.filter((_, k) => k !== i).map((_, k) => dimValues[k < i ? k : k + 1]),
+      dim_labels: rows,
+      suggested_value: rows.map((_, i) => (Array.isArray(entry.suggested_value) ? entry.suggested_value[i] : null)),
     })
   }
-  const isVector = entry.type === 'vector'
-  const isRepeatedPlain = repeat > 1 && !isVector
-  const defaultText = defaultTextOf(entry)
-  const setPlacement = (key) => {
-    const p = PLACEMENTS.find((x) => x.key === key)
-    if (!p) return
-    const next = { ...entry, tier: p.tier }
-    if (p.phase) next.phase = p.phase
-    else delete next.phase
-    onChange(index, next)
-  }
+  const setDim = (i, key, v) => patch({ dim_labels: withCell(dims, i, key, v) })
 
-  // 一行只放主信息：参数名 / 类型 / 去向 / 建议值，后面跟「高级」与删除。
-  //   其余字段全进「高级」。一行只放主信息（参数名 / 类型 / 去向 / 建议值）加「高级」与删除；
-  //   若表单、param-grid、删除各占一行，一条参数垒三层，五个参数就是五百多 px。
+  const defaultText = defaultTextOf(entry)
+  const isRepeatedPlain = type !== 'vector' && Number(entry.repeat) > 1
+
   return (
     <div className="card wz-param-row">
-      <input className="control wz-param-name" value={entry.name || ''}
-        placeholder={t('name', '参数名')}
-        title={t('Parameter name (the flag the engine takes)', '参数名（引擎接收的那个开关）')}
-        onChange={(e) => set('name', e.target.value)} />
-
+      {/* 主行：开关 / 中文名 / 英文名 / 类型 / common-advanced */}
+      <input className="control wz-param-argv" value={argv || ''}
+        placeholder="--argv"
+        title={t('The switch the engine takes. The parameter name is derived from it.',
+          '引擎接收的命令行开关。参数名由它去掉开头横线得到。')}
+        onChange={(e) => setArgv(e.target.value)} />
+      <input className="control wz-param-zh" value={label.zh}
+        placeholder={t('Chinese label', '中文名')}
+        title={t('Shown above this field on the synthesis page (Chinese)', '合成页这一格上方显示的中文名')}
+        onChange={(e) => onChange(index, withLabel(entry, 'zh', e.target.value))} />
+      <input className="control wz-param-en" value={label.en}
+        placeholder={t('English label', '英文名')}
+        title={t('Shown above this field on the synthesis page (English)', '合成页这一格上方显示的英文名')}
+        onChange={(e) => onChange(index, withLabel(entry, 'en', e.target.value))} />
       <select className={`control wz-param-type${typeGuessed ? ' wz-field-guess' : ''}`} value={type}
-        title={t('type', '类型')}
-        onChange={(e) => {
-          const next = e.target.value
-          if (next === 'vector') {
-            // 多维的维度数由 dim_labels 的长度定，所以切过来就得先有两个维度：
-            //   一个数组都还没有时，默认值那一排没有格数可画。
-            const labels = Array.isArray(entry.dim_labels) && entry.dim_labels.length >= 2
-              ? entry.dim_labels
-              : ['', '']
-            onChange(index, { ...entry, type: 'vector', repeat: undefined, dim_labels: labels,
-              suggested_value: Array.from({ length: labels.length }, (_, i) => (
-                Array.isArray(entry.suggested_value) ? entry.suggested_value[i] : undefined
-              )) })
-          } else {
-            // 从 vector 切走时，旧的多维字段对新类型没有意义：
-            //   留着 suggested_value 那排会把界面画成逗号串，dim_labels / item / repeat
-            //   留着则会让派生拿到与类型不符的形状。删掉，不替用户挑一个值出来。
-            if (entry.type === 'vector') {
-              const single = { ...entry, type: next }
-              delete single.suggested_value
-              delete single.dim_labels
-              delete single.item
-              delete single.repeat
-              onChange(index, single)
-            } else {
-              set('type', next)
-            }
-          }
-          if (onTypeConfirmed) onTypeConfirmed(entry.name)
-        }}>
-        {['text', 'number', 'select', 'boolean', 'file', 'vector'].map((x) => (
-          <option key={x} value={x}>{x}</option>
-        ))}
+        title={t('Control type', '控件类型')} onChange={(e) => setType(e.target.value)}>
+        {TYPES.map((x) => <option key={x} value={x}>{x}</option>)}
       </select>
-
-      <select className="control wz-param-place" value={placementOf(entry)}
-        title={t('Placement: where this knob shows up, and whether changing it needs a restart',
-          '去向：这个参数在界面何处出现、改动是否需要重启')}
-        onChange={(e) => setPlacement(e.target.value)}>
-        {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.en, p.zh)}</option>)}
+      <select className="control wz-param-place" value={entry.tier === 'common' ? 'common' : 'advanced'}
+        title={t('Which screen in Advanced Settings shows this field', '这一格出现在 Advanced Settings 的哪一屏')}
+        onChange={(e) => set('tier', e.target.value)}>
+        <option value="common">{t('common', '常用')}</option>
+        <option value="advanced">{t('advanced', '高级')}</option>
       </select>
-
-      {isVector
-        ? (
-          <div className="wz-param-vector-note"
-            title={t(`One value per dimension (${repeat} in total). Fill in the name and optional default for each dimension below.`,
-              `每一维一个值（共 ${repeat} 维）。名字与可选的默认值在下方按维度填写。`)}>
-            {t(`${repeat} dimensions`, `${repeat} 维`)}
-          </div>
-          )
-        : isRepeatedPlain
-          ? (
-            // 没写 vector、只写了 repeat 的旧名片：仍按一排格子画，不退化成逗号串。
-            <div className="wz-param-vector">
-              {Array.from({ length: repeat }, (_, i) => (
-                <input key={i} className="control" value={vectorCellText(entry, i)}
-                  placeholder={`#${i + 1}`} title={t(`Value ${i + 1}`, `第 ${i + 1} 个值`)}
-                  onChange={(e) => set('suggested_value', withVectorCell(entry, i, e.target.value))} />
-              ))}
-            </div>
-            )
-          : (
-            <input className="control wz-param-default" value={defaultText}
-              placeholder={t('value', '建议值')}
-              title={t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
-              onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
-            )}
 
       {typeGuessed && (
         <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
           {t('guessed', '推测')}
         </span>
       )}
-
       <button className="btn btn-sm btn-danger wz-param-del" type="button"
         title={t('Delete this parameter', '删除该参数')}
         onClick={() => onDelete(index)}>
         {t('Delete', '删除')}
       </button>
 
-      {isVector && (
-        <div className="wz-param-dims">
-          <div className="wz-param-dims-head">
-            <span className="wz-param-dims-label">{t('Dimension names', '维度名')}</span>
-            <span className="wz-param-dims-hint">
-              {t('Left to right is the order the engine reads. These are declarations for the manifest, not values for one synthesis. Names may be left empty; optional defaults are under More.',
-                '从左到右是引擎读取的顺序。这里写的是名片上的声明，不是某一次合成的值；名字可以留空，默认值在「高级」里。')}
+      {type === 'select' && (
+        <div className="wz-param-table">
+          <div className="wz-param-table-head">
+            <span className="wz-param-table-label">{t('Options', '选项')}</span>
+            <input className="control wz-param-count" type="number" min="1" max="64" value={choices.length}
+              title={t('How many options the drop-down has', '下拉里有几个选项')}
+              onChange={(e) => setChoiceCount(Number(e.target.value))} />
+            <span className="wz-param-table-hint">
+              {t('Each option is what goes after the switch. The two labels are what the drop-down shows. The field stays editable as an escape hatch.',
+                '每个选项就是开关后面要填的值，两列名字是下拉里显示的内容。合成页仍可直接输入，作为逃生口。')}
             </span>
           </div>
-          <div className="wz-param-dim-list">
-            {dims.map((name, i) => (
-              <span className="wz-param-dim" key={i}>
-                <input className="control" value={name || ''} placeholder={`#${i + 1}`}
-                  title={t('Name of this dimension, shown above its box on the synthesis page',
-                    '这一维的名字，显示在合成页那个输入框上方')}
-                  onChange={(e) => setDimName(i, e.target.value)} />
-                <button className="wz-param-dim-del" type="button" disabled={dims.length <= 2}
-                  title={dims.length <= 2
-                    ? t('A vector needs at least two dimensions', '多维至少要有两维')
-                    : t('Remove this dimension', '删掉这一维')}
-                  onClick={() => removeDim(i)}>×</button>
-              </span>
-            ))}
-            <button className="btn btn-sm" type="button" onClick={addDim}>
-              + {t('dimension', '加一维')}
-            </button>
+          <div className="wz-param-table-row wz-param-table-cols">
+            <span />
+            <span>{t('value (--argv <value>)', '值（--argv <值>）')}</span>
+            <span>{t('Chinese', '中文显示')}</span>
+            <span>{t('English', '英文显示')}</span>
           </div>
+          {choices.map((c, i) => (
+            <div className="wz-param-table-row" key={i}>
+              <span className="wz-param-no">{t(`arg${i + 1}`, `args${i + 1}`)}</span>
+              <input className="control" value={c.value} placeholder={t('value', '值')}
+                onChange={(e) => setChoice(i, 'value', e.target.value)} />
+              <input className="control" value={c.zh} placeholder={t('Chinese', '中文')}
+                onChange={(e) => setChoice(i, 'zh', e.target.value)} />
+              <input className="control" value={c.en} placeholder={t('English', '英文')}
+                onChange={(e) => setChoice(i, 'en', e.target.value)} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {type === 'vector' && (
+        <div className="wz-param-table">
+          <div className="wz-param-table-head">
+            <span className="wz-param-table-label">{t('Dimensions', '维度')}</span>
+            <input className="control wz-param-count" type="number" min="2" max="64" value={dims.length}
+              title={t('How many values this control has', '这个向量有几维')}
+              onChange={(e) => setDimCount(Math.max(2, Number(e.target.value)))} />
+            <span className="wz-param-table-hint">
+              {t('One row per dimension, left to right in the order the engine reads. The large box is titled with the Chinese / English label above; each small box is titled with its own.',
+                '一行一维，按引擎读取的顺序排列。9886 上的大框标题取上方的中英文名字，每个小输入框的标题取本行的名字。')}
+            </span>
+          </div>
+          <div className="wz-param-table-row wz-param-table-cols wz-param-table-2">
+            <span />
+            <span>{t('Chinese', '中文显示')}</span>
+            <span>{t('English', '英文显示')}</span>
+          </div>
+          {dims.map((d, i) => (
+            <div className="wz-param-table-row wz-param-table-2" key={i}>
+              <span className="wz-param-no">{t(`#${i + 1}`, `第 ${i + 1} 维`)}</span>
+              <input className="control" value={d.zh} placeholder={t('Chinese', '中文')}
+                onChange={(e) => setDim(i, 'zh', e.target.value)} />
+              <input className="control" value={d.en} placeholder={t('English', '英文')}
+                onChange={(e) => setDim(i, 'en', e.target.value)} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -215,69 +191,48 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
         </summary>
       </details>
       {moreOpen && (
-        <React.Fragment>
-          {/* 高级：四个格子一行，最多两行，涵盖该参数可选的高级字段。 */}
-          <div className="wz-param-more-grid">
-            {isVector && (
-              <input className="control" value={defaultText}
-                placeholder={t('Defaults, comma separated', '各维默认值，逗号分隔')}
-                title={t('Optional. One value per dimension, comma separated; leave blank to prefill nothing. A blank is not 0. Each value is prefilled on the synthesis page.',
-                  '可选。一维一个值、逗号分隔；不预填就整格留空。留空不是 0。这些值只用于合成页的预填。')}
-                onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
-            )}
-            <input className="control" value={entry.label?.zh || entry.label || ''}
-              placeholder={t('name', '名称')}
-              title={t('label: shown in the UI', 'label：界面上显示的名字')}
-              onChange={(e) => set('label', e.target.value)} />
-            {type === 'number' && (
-              <input className="control" type="number" value={entry.min ?? ''} placeholder={t('min', '最小')}
-                title={t('min: minimum', 'min：最小值')}
-                onChange={(e) => set('min', e.target.value === '' ? undefined : Number(e.target.value))} />
-            )}
-            {type === 'number' && (
-              <input className="control" type="number" value={entry.max ?? ''} placeholder={t('max', '最大')}
-                title={t('max: maximum', 'max：最大值')}
-                onChange={(e) => set('max', e.target.value === '' ? undefined : Number(e.target.value))} />
-            )}
-            {type === 'select' && (
-              <input className="control"
-                value={Array.isArray(entry.choices) ? entry.choices.join(',') : ''}
-                placeholder={t('options', '选项')}
-                title={t('choices: options shown in the UI, comma separated', 'choices：下拉里的选项，逗号分隔')}
-                onChange={(e) => set('choices', e.target.value
-                  ? e.target.value.split(',').map((s) => s.trim())
-                  : undefined)} />
-            )}
-            <input className="control"
-              value={Array.isArray(entry.applies_to) ? entry.applies_to.join(',') : ''}
-              placeholder={t('applies to', '适用')}
-              title={t('applies_to: comma separated', 'applies_to：逗号分隔')}
-              onChange={(e) => set('applies_to', e.target.value
-                ? e.target.value.split(',').map((s) => s.trim())
-                : undefined)} />
-            {!isVector && <input className="control" type="number" value={entry.repeat ?? ''} placeholder={t('repeat', '重复')}
-              title={t('repeat: unset or 1 means a single value (scalar); 2 or more means an array. The engine sees these as different types and neither is reported as an error.',
-                'repeat 未填或填 1 表示单个值（标量），仅当大于等于 2 时才为数组。这两种对引擎是两件事，而且都不会报错。')}
-              onChange={(e) => set('repeat', e.target.value === '' ? undefined : Number(e.target.value))} />}
-            <input className="control" value={entry.group || ''} placeholder={t('group', '分组')}
-              title={t('group: which group it sits in', 'group：界面上归到哪一组')}
-              onChange={(e) => set('group', e.target.value)} />
-            <input className="control" type="number" value={entry.order ?? ''} placeholder={t('order', '排序')}
-              title={t('order: sort order in the UI', 'order：界面里的排序号')}
-              onChange={(e) => set('order', e.target.value === '' ? undefined : Number(e.target.value))} />
-            <select className="control" value={entry.source || ''}
-              title={t('source: where the default comes from (voices / weights / audio)', 'source：默认值的出处（voices / weights / audio）')}
-              onChange={(e) => set('source', e.target.value || undefined)}>
-              <option value="">{t('source', '出处')}</option>
-              <option value="voices">voices</option>
-              <option value="weights">weights</option>
-              <option value="audio">audio</option>
-            </select>
-          </div>
-        </React.Fragment>
+        <div className="wz-param-more-grid">
+          <input className="control" value={defaultText}
+            placeholder={isRepeatedPlain || type === 'vector'
+              ? t('Defaults, comma separated', '各维默认值，逗号分隔')
+              : t('Suggested value', '建议值')}
+            title={t('Optional value prefilled on the synthesis page. Leave it empty rather than writing 0.',
+              '可选。合成页打开时预填的值；不预填就留空，不要拿 0 顶替。')}
+            onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
+          {type === 'number' && (
+            <input className="control" type="number" value={entry.min ?? ''} placeholder={t('min', '最小')}
+              onChange={(e) => set('min', e.target.value === '' ? undefined : Number(e.target.value))} />
+          )}
+          {type === 'number' && (
+            <input className="control" type="number" value={entry.max ?? ''} placeholder={t('max', '最大')}
+              onChange={(e) => set('max', e.target.value === '' ? undefined : Number(e.target.value))} />
+          )}
+          {type !== 'vector' && (
+            <input className="control" type="number" value={entry.repeat ?? ''} placeholder={t('repeat', '重复')}
+              title={t('A plain scalar control drawn N times', '把同一个标量控件画 N 遍')}
+              onChange={(e) => set('repeat', e.target.value === '' ? undefined : Number(e.target.value))} />
+          )}
+          {/* 加载时的语义暂未整理，保留原值不丢，也不在主行露出。 */}
+          <select className="control" value={entry.phase === 'load' ? 'load' : 'call'}
+            title={t('Whether changing it needs a restart', '改了是否要重启引擎')}
+            onChange={(e) => set('phase', e.target.value === 'load' ? 'load' : undefined)}>
+            <option value="call">{t('call-time', '每次合成')}</option>
+            <option value="load">{t('load-time', '加载时')}</option>
+          </select>
+          <input className="control" value={entry.group || ''} placeholder={t('group', '分组')}
+            onChange={(e) => set('group', e.target.value)} />
+          <input className="control" type="number" value={entry.order ?? ''} placeholder={t('order', '排序')}
+            onChange={(e) => set('order', e.target.value === '' ? undefined : Number(e.target.value))} />
+          <select className="control" value={entry.source || ''}
+            title={t('Options scanned from a platform library', '选项从平台哪个库里扫')}
+            onChange={(e) => set('source', e.target.value || undefined)}>
+            <option value="">{t('source', '出处')}</option>
+            <option value="voices">voices</option>
+            <option value="weights">weights</option>
+            <option value="audio">audio</option>
+          </select>
+        </div>
       )}
-
-
     </div>
   )
 }

@@ -109,7 +109,9 @@ export function applyParamDrop (manifest, param) {
   // 已经声明过同名参数就不重复加：拖两次同一个东西不该出现两条。
   if (!list.some((p) => p && p.name === name)) {
     const entry = { name, type: paramTypeOf(param), tier: 'common' }
-    if (param.help) entry.help = param.help
+    if (param.help) entry.help = { zh: param.help, en: param.help }
+    // 下拉一律留逃生口：候选里没有想要的值时，使用者仍能自己打一个。
+    if (entry.type === 'select') entry.allow_custom = true
     // 上游说明里写了「逗号分隔的 N 维」时，这一条声明成 vector：
     //   维度数由 dim_labels 的长度定，每维一个名字（先留空，让使用者自己填，
     //   上游只写了几维、没写每维叫什么）。默认值跟着长成 N 格，每格 null。
@@ -117,8 +119,7 @@ export function applyParamDrop (manifest, param) {
     const shape = vectorShapeFromHelp(param.help)
     if (shape && shape.repeat > 1) {
       entry.type = 'vector'
-      entry.item = 'number'
-      entry.dim_labels = new Array(shape.repeat).fill('')
+      entry.dim_labels = new Array(shape.repeat).fill('').map(() => ({ zh: '', en: '' }))
       entry.suggested_value = new Array(shape.repeat).fill(null)
     }
     list.push(entry)
