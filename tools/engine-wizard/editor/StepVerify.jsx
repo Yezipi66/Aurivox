@@ -217,7 +217,12 @@ export function StepVerify ({ id }) {
             <div className="field-hint">{t(check.why, check.whyZh)}</div>
           )}
           {status === 'ok' ? (
-            <div className="field-hint">{t('No problems found.', '未发现问题。')}</div>
+            <div className="field-hint">
+              {key === 'checkpoints'
+                ? t('The files this manifest names are all present. That does not mean the engine can speak; run tier A below to find out.',
+                  '名片点名的文件都在。这不代表能出声，用下面的 A 级校验真跑一次。')
+                : t('No problems found.', '未发现问题。')}
+            </div>
           ) : hasShown ? (
             shown.map((line, i) => (
               <div key={i} className="field-hint">{line}</div>

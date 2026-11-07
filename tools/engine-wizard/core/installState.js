@@ -8,7 +8,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 // 权重落盘路径只有一处答案：core/checkpointsPath.js。
-const { checkpointsAbsPath, checkpointsRelPath } = require('./checkpointsPath')
+const { checkpointsAbsPath, resolveCheckpointsRel } = require('./checkpointsPath')
 
 // 进度文件名。
 const INSTALL_FILE = '.wizard-install.json'
@@ -106,14 +106,21 @@ function manifestPresent (dir) {
   } catch (e) { return false }
 }
 
-// engines/<id>/checkpoints 下的模型文件，递归列举（含子目录）。
+// 名片原文：权重落点以它为准（runtime.checkpoints）。读不到返回 null。
+function readManifest (dir) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) } catch (e) { return null }
+}
+
+// checkpoints 下的模型文件，递归列举（含子目录）。
 // 权重不一定摊在顶层：有的引擎一层目录套一层（LLM/、BiCodec/ 各占一个子目录），
 //   只看顶层会把这类引擎判成「目录在、文件没有」。
+// rel 是名片声明的落点（相对项目根）；不传则用统一落点。
 // 返回相对 checkpoints 的正斜杠路径；目录不存在或读不到 ⇒ 空数组。
 // 隐藏目录（.git / .cache 这类）不进去：那是下载工具的元数据，不是权重。
-function listModelFiles (root, id) {
-  const dir = checkpointsAbsPath(root, id)
+function listModelFiles (root, id, rel) {
+  const dir = rel ? path.join(root, rel) : checkpointsAbsPath(root, id)
   const out = []
+  if (!dir) return out
   const walk = (d, rel, depth) => {
     let entries
     try { entries = fs.readdirSync(d, { withFileTypes: true }) } catch (e) { return }
@@ -134,9 +141,10 @@ function listModelFiles (root, id) {
 }
 
 // checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
-function weightsOnDisk (root, id) {
-  const dir = checkpointsAbsPath(root, id)
-  const files = listModelFiles(root, id)
+function weightsOnDisk (root, id, rel) {
+  const dir = rel ? path.join(root, rel) : checkpointsAbsPath(root, id)
+  if (!dir) return null
+  const files = listModelFiles(root, id, rel)
   if (files.length === 0) return null          // 目录都没有或一个文件都没有 ⇒ 说不出来
   // 大小为 0 的文件也算「查过了」：确实缺了还是文件不完整，由下载那一步自己逐文件校验，
   // 这里不重复判一遍。
@@ -167,8 +175,12 @@ function installState (root, id, deps = {}) {
       }
   const dir = path.join(root, 'engines', String(id || ''))
   const hasClone = dirHasContent(dir)
+  // 权重落点以名片为准：旧名片可能写在 models/tts/<id>，与统一落点不同。
+  //   两套口径（这一步按统一落点、第 5 步按名片）会给出相反结论。
+  const manifest = hasClone ? readManifest(dir) : null
+  const weightRel = resolveCheckpointsRel(manifest, id)
   const envOk = hasClone ? !!probe(id) : false
-  const weights = hasClone ? weightsOnDisk(root, id) : null
+  const weights = hasClone ? weightsOnDisk(root, id, weightRel) : null
   const manifestOk = hasClone ? manifestPresent(dir) : false
   // verify 恒为 false：这一步没有对应的产物判据，未实现不能算做过。
   const verified = false
@@ -190,10 +202,10 @@ function installState (root, id, deps = {}) {
     Object.entries(steps).map(([k, v]) => [k, v.done === true]))
   // 权重落盘的相对路径（相对项目根）：第 4 步的名片要填 runtime.checkpoints，
   //   填的就是这个值。第 3 步写盘、第 5 步判断、第 4 步声明，三处同源。
-  const checkpointsPath = checkpointsRelPath(id)
+  const checkpointsPath = weightRel
   // 盘上实际有哪些模型文件：第 4 步的 models.required 自动填就照这份清单
   //   （下过什么就声明什么，不猜）。为空（没下或读不到）时前端自己会停。
-  const modelFiles = hasClone ? listModelFiles(root, id) : []
+  const modelFiles = hasClone ? listModelFiles(root, id, weightRel) : []
   return {
     ok: true,
     id,
@@ -207,7 +219,7 @@ function installState (root, id, deps = {}) {
       envOk,
       weights,
       manifestOk,
-      checkpointsDir: checkpointsAbsPath(root, id),
+      checkpointsDir: weightRel ? path.join(root, weightRel) : null,
     },
   }
 }

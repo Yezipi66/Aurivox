@@ -29,4 +29,22 @@ function checkpointsAbsPath (root, engineId) {
   return path.join(root, rel)
 }
 
-module.exports = { checkpointsRelPath, checkpointsAbsPath }
+/**
+ * 权重落点的相对路径：名片写了就以名片为准，没写才用统一落点。
+ *
+ * 名片是唯一权威。旧名片可能把权重放在 models/tts/<id>，
+ * 按统一落点判得到「目录不存在」，而第 5 步按名片判得到「齐了」，
+ * 同一个事实两套结论。这里让两处都来问名片。
+ *
+ * 平台契约要求相对项目根，所以绝对路径与带 .. 的路径一律不认，回退统一落点。
+ */
+function resolveCheckpointsRel (manifest, engineId) {
+  const declared = manifest && manifest.runtime && manifest.runtime.checkpoints
+  if (typeof declared === 'string') {
+    const rel = declared.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (rel && !path.isAbsolute(rel) && !rel.split('/').includes('..')) return rel
+  }
+  return checkpointsRelPath(engineId)
+}
+
+module.exports = { checkpointsRelPath, checkpointsAbsPath, resolveCheckpointsRel }
