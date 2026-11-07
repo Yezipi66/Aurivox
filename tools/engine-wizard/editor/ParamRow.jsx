@@ -64,6 +64,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
     next[i] = name
     patch({ dim_labels: next })
   }
+  const setDimValue = (i, raw) => patch({ suggested_value: withVectorCell(entry, i, raw) })
   const addDim = () => patch({
     dim_labels: [...dims, ''],
     suggested_value: [...dims.map((_, i) => dimValues[i]), null],
@@ -75,18 +76,9 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
       suggested_value: dims.filter((_, k) => k !== i).map((_, k) => dimValues[k < i ? k : k + 1]),
     })
   }
-  const isVector = repeat > 1
+  const isVector = entry.type === 'vector'
+  const isRepeatedPlain = repeat > 1 && !isVector
   const defaultText = defaultTextOf(entry)
-  // 每格的提示：名片给了 dim_labels 就用它（八维情绪向量就靠它标出喜/怒/哀），
-  //   没给就退回序号。空着等于让人对着一排空格猜哪个是哪个。
-  const cellLabel = (item, i) => {
-    const labels = Array.isArray(item.dim_labels) ? item.dim_labels : []
-    const one = labels[i]
-    if (one && typeof one === 'object') return String(one.zh || one.en || `#${i + 1}`)
-    // 空名字也算没起名：显示序号，否则默认值那一排是八个没有任何提示的空框。
-    return one ? String(one) : `#${i + 1}`
-  }
-
   const setPlacement = (key) => {
     const p = PLACEMENTS.find((x) => x.key === key)
     if (!p) return
@@ -139,24 +131,29 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
 
       {isVector
         ? (
-          <div className="wz-param-vector"
-            title={t(`This parameter is one value per dimension (${repeat} in total), and the engine takes them as one comma-separated word. Leave a dimension empty rather than writing 0.`,
-              `这一项一维一个值（共 ${repeat} 维），引擎按逗号拼成一个词收。某一维不填就留空，不要拿 0 顶替。`)}>
-            {Array.from({ length: repeat }, (_, i) => (
-              <input key={i} className="control" value={vectorCellText(entry, i)}
-                aria-label={cellLabel(entry, i)}
-                placeholder={cellLabel(entry, i)}
-                title={cellLabel(entry, i)}
-                onChange={(e) => set('suggested_value', withVectorCell({ ...entry, type }, i, e.target.value))} />
-            ))}
+          <div className="wz-param-vector-note"
+            title={t(`One value per dimension (${repeat} in total). Fill in the name and optional default for each dimension below.`,
+              `每一维一个值（共 ${repeat} 维）。名字与可选的默认值在下方按维度填写。`)}>
+            {t(`${repeat} dimensions, filled in below`, `${repeat} 维，见下方`)}
           </div>
           )
-        : (
-          <input className="control wz-param-default" value={defaultText}
-            placeholder={t('value', '建议值')}
-            title={t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
-            onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
-          )}
+        : isRepeatedPlain
+          ? (
+            // 没写 vector、只写了 repeat 的旧名片：仍按一排格子画，不退化成逗号串。
+            <div className="wz-param-vector">
+              {Array.from({ length: repeat }, (_, i) => (
+                <input key={i} className="control" value={vectorCellText(entry, i)}
+                  placeholder={`#${i + 1}`} title={t(`Value ${i + 1}`, `第 ${i + 1} 个值`)}
+                  onChange={(e) => set('suggested_value', withVectorCell(entry, i, e.target.value))} />
+              ))}
+            </div>
+            )
+          : (
+            <input className="control wz-param-default" value={defaultText}
+              placeholder={t('value', '建议值')}
+              title={t('Suggested value, filled into the UI first', '建议值：界面上预填的值')}
+              onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
+            )}
 
       {typeGuessed && (
         <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
@@ -172,20 +169,40 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
 
       {isVector && (
         <div className="wz-param-dims">
-          <span className="wz-param-dims-label">{t('Dimensions', '维度')}</span>
+          <div className="wz-param-dims-head">
+            <span className="wz-param-dims-label">{t('Dimensions', '维度')}</span>
+            <span className="wz-param-dims-hint">
+              {t('This row describes the manifest, not one synthesis. A name is shown above its box on the synthesis page; a default is prefilled there and may be left empty.',
+                '这一行写的是名片上的声明，不是某一次合成要填的值。名字会显示在合成页对应输入框上方；默认值是那里预填的数，可以留空。')}
+            </span>
+          </div>
+          <div className="wz-param-dim-cols">
+            <span />
+            <span>{t('Name', '名字')}</span>
+            <span>{t('Default (optional)', '默认值（可选）')}</span>
+            <span />
+          </div>
           {dims.map((name, i) => (
-            <span className="wz-param-dim" key={i}>
-              <input className="control" value={name || ''} placeholder={`#${i + 1}`}
-                title={t('Name of this dimension, shown above its box', '这一维的名字，显示在它那格上方')}
+            <div className="wz-param-dim-row" key={i}>
+              <span className="wz-param-dim-no">{t(`#${i + 1}`, `第 ${i + 1} 维`)}</span>
+              <input className="control" value={name || ''}
+                placeholder={t('e.g. happy', '例如 happy')}
+                title={t('Name of this dimension, shown above its box on the synthesis page',
+                  '这一维的名字，显示在合成页那个输入框上方')}
                 onChange={(e) => setDimName(i, e.target.value)} />
+              <input className="control" value={vectorCellText(entry, i)}
+                placeholder={t('leave empty', '留空不预填')}
+                title={t('Value prefilled on the synthesis page. Leave it empty rather than writing 0.',
+                  '合成页打开时预填的值。不预填就留空，不要拿 0 顶替。')}
+                onChange={(e) => setDimValue(i, e.target.value)} />
               <button className="btn btn-sm" type="button" disabled={dims.length <= 2}
                 title={dims.length <= 2
                   ? t('A vector needs at least two dimensions', '多维至少要有两维')
                   : t('Remove this dimension', '删掉这一维')}
                 onClick={() => removeDim(i)}>×</button>
-            </span>
+            </div>
           ))}
-          <button className="btn btn-sm" type="button" onClick={addDim}>
+          <button className="btn btn-sm wz-param-dim-add" type="button" onClick={addDim}>
             + {t('Add a dimension', '加一维')}
           </button>
         </div>

@@ -625,29 +625,55 @@
   text-align: center;
   font-size: var(--fs-11);
 }
-/* 多维参数的维度名：每维一个短输入。
-   名字属于声明（一张名片只写一次），值属于每次合成，所以两者分行：
-   挤在同一行会读成「八个独立参数」。 */
+/* vector 的维度：一维一行，名字与默认值并排。
+   两处都摆 #1…#8 会变成两套看不出区别的空框：上面一排是默认值、下面一排是名字，
+   谁都分不清。合成一行之后，「这一维叫什么」与「它预填什么」是同一件事的两格。 */
+.wz-param-vector-note {
+  flex: 1 1 160px;
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
 .wz-param-dims {
   flex: 1 1 100%;
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wz-param-dims-head {
+  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-4);
+  align-items: baseline;
+  gap: var(--sp-8);
 }
 .wz-param-dims-label {
   font-size: var(--fs-11);
   color: var(--muted);
 }
-.wz-param-dim {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.wz-param-dim .control {
-  width: 74px;
-  padding: 2px 4px;
+.wz-param-dims-hint {
   font-size: var(--fs-11);
+  color: var(--muted);
+  opacity: 0.85;
+}
+.wz-param-dim-cols,
+.wz-param-dim-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.wz-param-dim-cols {
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-param-dim-no {
+  font-size: var(--fs-11);
+  color: var(--muted);
+}
+.wz-param-dim-row .control {
+  min-width: 0;
+}
+.wz-param-dim-add {
+  align-self: flex-start;
 }
 .wz-param-del { flex: 0 0 auto; }
 /* details 用 display:contents：它不生成盒子，summary 与展开后的正文
