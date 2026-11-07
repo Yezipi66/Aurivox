@@ -57,6 +57,8 @@ const ParamDropZone = loadJsx('ParamDropZone.jsx', {
   react: React,
   'web/src/lib/i18n': i18nStub,
   './paramDrop': paramDrop,
+  // 这里验的是三个分区的布局，不验开关改名的键迁移；给它一个原样返回的替身。
+  './paramFields': { withArgKey: (call) => call },
 }).default
 
 /** 起一个 jsdom 页面，返回容器与 React 根。 */
