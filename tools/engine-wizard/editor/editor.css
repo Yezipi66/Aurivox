@@ -625,9 +625,9 @@
   text-align: center;
   font-size: var(--fs-11);
 }
-/* vector 的维度：一维一行，名字与默认值并排。
-   两处都摆 #1…#8 会变成两套看不出区别的空框：上面一排是默认值、下面一排是名字，
-   谁都分不清。合成一行之后，「这一维叫什么」与「它预填什么」是同一件事的两格。 */
+/* vector 的维度：一行横排的小格，一格一个名字。
+   八维各占一行、每行再摆名字与默认值，会把一条参数撑成一整张表；而默认值大多留空。
+   名字是声明里唯一必须看全的东西，压成一行就够；默认值收进「高级」，需要时再展开。 */
 .wz-param-vector-note {
   flex: 1 1 160px;
   font-size: var(--fs-11);
@@ -639,46 +639,56 @@
   flex-direction: column;
   gap: 4px;
 }
-/* 标签与说明各占一行：挤在同一行时说明会折行，折出来的半行挂在标签下面，
-   读起来像标签的一部分。 */
 .wz-param-dims-head {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-8);
 }
 .wz-param-dims-label {
   font-size: var(--fs-11);
   color: var(--muted);
+  white-space: nowrap;
 }
 .wz-param-dims-hint {
   font-size: var(--fs-11);
   color: var(--muted);
   opacity: 0.85;
 }
-.wz-param-dim-cols span {
-  white-space: nowrap;
-}
-.wz-param-dim-cols,
-.wz-param-dim-row {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 6px;
+.wz-param-dim-list {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 6px;
 }
-.wz-param-dim-cols {
+.wz-param-dim {
+  position: relative;
+  display: inline-flex;
+}
+.wz-param-dim .control {
+  width: 88px;
+  padding: 2px 18px 2px 6px;
   font-size: var(--fs-11);
+}
+/* 删一维不另占一格：贴在这一维输入框的右端，常显但淡，悬停才实。 */
+.wz-param-dim-del {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
   color: var(--muted);
+  opacity: 0.5;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
 }
-.wz-param-dim-no {
-  font-size: var(--fs-11);
-  color: var(--muted);
-}
-.wz-param-dim-row .control {
-  min-width: 0;
-}
-.wz-param-dim-add {
-  align-self: flex-start;
-}
+.wz-param-dim-del:hover:not(:disabled) { opacity: 1; }
+.wz-param-dim-del:disabled { opacity: 0.2; cursor: default; }
+
+
 .wz-param-del { flex: 0 0 auto; }
 /* details 用 display:contents：它不生成盒子，summary 与展开后的正文
    直接成为这一行的 flex 项 ⇒ 收起时只有一行，展开时正文 flex-basis:100% 自己换行。 */

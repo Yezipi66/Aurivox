@@ -64,7 +64,6 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
     next[i] = name
     patch({ dim_labels: next })
   }
-  const setDimValue = (i, raw) => patch({ suggested_value: withVectorCell(entry, i, raw) })
   const addDim = () => patch({
     dim_labels: [...dims, ''],
     suggested_value: [...dims.map((_, i) => dimValues[i]), null],
@@ -134,7 +133,7 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
           <div className="wz-param-vector-note"
             title={t(`One value per dimension (${repeat} in total). Fill in the name and optional default for each dimension below.`,
               `每一维一个值（共 ${repeat} 维）。名字与可选的默认值在下方按维度填写。`)}>
-            {t(`${repeat} dimensions, filled in below`, `${repeat} 维，见下方`)}
+            {t(`${repeat} dimensions`, `${repeat} 维`)}
           </div>
           )
         : isRepeatedPlain
@@ -170,41 +169,30 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
       {isVector && (
         <div className="wz-param-dims">
           <div className="wz-param-dims-head">
-            <span className="wz-param-dims-label">{t('Dimensions', '维度')}</span>
+            <span className="wz-param-dims-label">{t('Dimension names', '维度名')}</span>
             <span className="wz-param-dims-hint">
-              {t('This row describes the manifest, not one synthesis. A name is shown above its box on the synthesis page; a default is prefilled there and may be left empty.',
-                '这一行写的是名片上的声明，不是某一次合成要填的值。名字会显示在合成页对应输入框上方；默认值是那里预填的数，可以留空。')}
+              {t('Left to right is the order the engine reads. These are declarations for the manifest, not values for one synthesis. Names may be left empty; optional defaults are under More.',
+                '从左到右是引擎读取的顺序。这里写的是名片上的声明，不是某一次合成的值；名字可以留空，默认值在「高级」里。')}
             </span>
           </div>
-          <div className="wz-param-dim-cols">
-            <span />
-            <span>{t('Name', '名字')}</span>
-            <span>{t('Default (optional)', '默认值（可选）')}</span>
-            <span />
+          <div className="wz-param-dim-list">
+            {dims.map((name, i) => (
+              <span className="wz-param-dim" key={i}>
+                <input className="control" value={name || ''} placeholder={`#${i + 1}`}
+                  title={t('Name of this dimension, shown above its box on the synthesis page',
+                    '这一维的名字，显示在合成页那个输入框上方')}
+                  onChange={(e) => setDimName(i, e.target.value)} />
+                <button className="wz-param-dim-del" type="button" disabled={dims.length <= 2}
+                  title={dims.length <= 2
+                    ? t('A vector needs at least two dimensions', '多维至少要有两维')
+                    : t('Remove this dimension', '删掉这一维')}
+                  onClick={() => removeDim(i)}>×</button>
+              </span>
+            ))}
+            <button className="btn btn-sm" type="button" onClick={addDim}>
+              + {t('dimension', '加一维')}
+            </button>
           </div>
-          {dims.map((name, i) => (
-            <div className="wz-param-dim-row" key={i}>
-              <span className="wz-param-dim-no">{t(`#${i + 1}`, `第 ${i + 1} 维`)}</span>
-              <input className="control" value={name || ''}
-                placeholder={t('e.g. happy', '例如 happy')}
-                title={t('Name of this dimension, shown above its box on the synthesis page',
-                  '这一维的名字，显示在合成页那个输入框上方')}
-                onChange={(e) => setDimName(i, e.target.value)} />
-              <input className="control" value={vectorCellText(entry, i)}
-                placeholder={t('leave empty', '留空不预填')}
-                title={t('Value prefilled on the synthesis page. Leave it empty rather than writing 0.',
-                  '合成页打开时预填的值。不预填就留空，不要拿 0 顶替。')}
-                onChange={(e) => setDimValue(i, e.target.value)} />
-              <button className="btn btn-sm" type="button" disabled={dims.length <= 2}
-                title={dims.length <= 2
-                  ? t('A vector needs at least two dimensions', '多维至少要有两维')
-                  : t('Remove this dimension', '删掉这一维')}
-                onClick={() => removeDim(i)}>×</button>
-            </div>
-          ))}
-          <button className="btn btn-sm wz-param-dim-add" type="button" onClick={addDim}>
-            + {t('Add a dimension', '加一维')}
-          </button>
         </div>
       )}
 
@@ -218,6 +206,13 @@ export default function ParamRow ({ entry, index, spec, onChange, onDelete, type
         <React.Fragment>
           {/* 高级：四个格子一行，最多两行，涵盖该参数可选的高级字段。 */}
           <div className="wz-param-more-grid">
+            {isVector && (
+              <input className="control" value={defaultText}
+                placeholder={t('Defaults, comma separated', '各维默认值，逗号分隔')}
+                title={t('Optional. One value per dimension, comma separated; leave blank to prefill nothing. A blank is not 0. Each value is prefilled on the synthesis page.',
+                  '可选。一维一个值、逗号分隔；不预填就整格留空。留空不是 0。这些值只用于合成页的预填。')}
+                onChange={(e) => set('suggested_value', defaultFromText(e.target.value, { ...entry, type }))} />
+            )}
             <input className="control" value={entry.label?.zh || entry.label || ''}
               placeholder={t('name', '名称')}
               title={t('label: shown in the UI', 'label：界面上显示的名字')}
