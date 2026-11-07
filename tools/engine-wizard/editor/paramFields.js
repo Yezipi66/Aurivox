@@ -67,3 +67,23 @@ export function withCell (rows, i, key, value) {
   next[i][key] = String(value == null ? '' : value)
   return next
 }
+
+/**
+ * 开关改名后，把 call.args 里的键一起搬过去。
+ * 参数名既是 parameters[].name，也是 call.args 的键；只改前者会留下一个
+ * 永远上不了命令行的旧条目，存盘直接被拒。旧条目的 style / join / role 要跟着搬。
+ *
+ * @param {object} call 名片的 call 段
+ * @param {{from: string, to: string, flag: string}} argv 开关改动
+ * @returns {object} 新的 call 段
+ */
+export function withArgKey (call, argv) {
+  if (!call || !argv) return call
+  const args = { ...(call.args || {}) }
+  const { from, to, flag } = argv
+  const old = (from && args[from]) || {}
+  if (from && from !== to) delete args[from]
+  if (to && flag && String(flag).startsWith('-')) args[to] = { ...old, flag }
+  else if (to) delete args[to]
+  return { ...call, args }
+}

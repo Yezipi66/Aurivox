@@ -24,7 +24,7 @@ function load () {
 }
 
 const {
-  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell,
+  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell, withArgKey,
 } = load()
 
 test('开关去掉开头横线就是参数名', () => {
@@ -77,4 +77,28 @@ test('改一格只动那一格', () => {
   assert.deepStrictEqual(withCell(rows, 1, 'en', 'sorrow'), [
     { zh: '快乐', en: 'happy' }, { zh: '悲伤', en: 'sorrow' },
   ])
+})
+
+test('开关改名：call.args 的键一起搬，旧条目的 style / join 不丢', () => {
+  const call = { kind: 'cli', args: {
+    'emotion-vector': { flag: '--emotion-vector', style: 'join', join: ',' },
+    device: { flag: '--device', style: 'value' },
+  } }
+  const next = withArgKey(call, { from: 'emotion-vector', to: 'emo-vec', flag: '--emo-vec' })
+  assert.strictEqual(next.args['emotion-vector'], undefined)
+  assert.deepStrictEqual(next.args['emo-vec'], { flag: '--emo-vec', style: 'join', join: ',' })
+  assert.deepStrictEqual(next.args.device, { flag: '--device', style: 'value' }, '别的参数不动')
+  assert.strictEqual(call.args['emotion-vector'].flag, '--emotion-vector', '原对象不动')
+})
+
+test('开关清空：不留下一个没有 flag 的条目', () => {
+  const call = { args: { speed: { flag: '--speed', style: 'value' } } }
+  const next = withArgKey(call, { from: 'speed', to: '', flag: '' })
+  assert.deepStrictEqual(next.args, {})
+})
+
+test('只改开关不改名字：就地更新 flag', () => {
+  const call = { args: { speed: { flag: '--speed', role: 'device' } } }
+  const next = withArgKey(call, { from: 'speed', to: 'speed', flag: '--rate' })
+  assert.deepStrictEqual(next.args.speed, { flag: '--rate', role: 'device' })
 })

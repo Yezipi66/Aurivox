@@ -2,6 +2,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { applyParamDrop, paramNameOf, PARAM_MIME } from './paramDrop'
+import { withArgKey } from './paramFields'
 
 // 中栏的落点：参数区（parameters[]）。
 //
@@ -49,15 +50,7 @@ export default function ParamDropZone ({
     const copy = [...list]
     copy[i] = v
     next.parameters = copy
-    if (meta.argv && next.call) {
-      const args = { ...(next.call.args || {}) }
-      const { from, to, flag } = meta.argv
-      const old = (from && args[from]) || {}
-      if (from && from !== to) delete args[from]
-      if (to && flag && flag.startsWith('-')) args[to] = { ...old, flag }
-      else if (to) delete args[to]
-      next.call = { ...next.call, args }
-    }
+    if (meta.argv && next.call) next.call = withArgKey(next.call, meta.argv)
     onChange(next)
   }
 
