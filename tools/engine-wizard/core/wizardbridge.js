@@ -8,6 +8,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { spawn } = require('node:child_process')
 
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
@@ -159,6 +160,9 @@ const DOWNLOAD_SCRIPTS = [
   'download_ckpt.py',
   'download_checkpoints.sh',
 ]
+
+// 跑上游下载脚本的时间上限：权重动辄几 GB，按 30 分钟给；超时就杀掉，不留半个进程。
+const RUN_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000
 
 // 安装文档的候选位置：README 只写「去 docs 看」时，命令在这类文件里。
 //   固定几个常见位置先试；都不中再列 docs/ 的一层子目录（按语言分子目录的仓库很常见）。
@@ -944,6 +948,122 @@ function handleDownloadManifest (req, res) {
     //   ⇒ 只能收连接，不能补第二次 writeHead。
     if (res.headersSent) { try { res.end() } catch { /* 已断开 */ } return }
     json(res, 200, { ok: false, error: (e && e.message) || String(e) })
+  })
+  return true
+}
+
+// POST /wizard/run-script {id, file, args}  第 3 步：跑上游自带的下载脚本
+//   上游脚本自己知道目录结构（权重放哪、叫什么），跑它最不容易错。
+//   平台只做三件事：按扩展名选解释器、在引擎目录里跑、把输出原样透传；
+//   脚本结束后由前端重新扫盘更新清单。不解析脚本、不改写它写的任何路径。
+function handleRunScript (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/run-script')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    const file = String(body.file || '')
+    const root = body.root || projectRoot() || ''
+    if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    if (!file) { json(res, 400, { ok: false, error: 'file is required' }); return }
+    // id 会拼进工作目录，和脚本路径一样不许越界。
+    if (/[\\/]/.test(id) || id === '..' || path.isAbsolute(id)) {
+      json(res, 400, { ok: false, code: 'BAD_ID', error: 'Invalid engine id', errorZh: '引擎 id 不合法。' })
+      return
+    }
+
+    // 只跑引擎目录里真实存在的 .py / .sh / .js：不许 ..、不许绝对路径。
+    //   这条口子等于让使用者在本机执行一条下载脚本，越界就等于能跑任意路径。
+    const rel = file.replace(/\\/g, '/')
+    if (rel.split('/').includes('..') || path.isAbsolute(file) || /^[A-Za-z]:/.test(file)) {
+      json(res, 400, { ok: false, code: 'BAD_PATH',
+        error: 'The script path must stay inside the engine folder.',
+        errorZh: '脚本路径必须留在引擎目录内。' })
+      return
+    }
+    const engineDir = path.join(root, 'engines', id)
+    const abs = path.join(engineDir, rel)
+    const ext = path.extname(rel).toLowerCase()
+    if (!['.py', '.sh', '.js'].includes(ext)) {
+      json(res, 400, { ok: false, code: 'BAD_SCRIPT',
+        error: `Only .py / .sh / .js scripts can be run (got ${JSON.stringify(ext || '')}).`,
+        errorZh: '只支持运行 .py / .sh / .js 脚本。' })
+      return
+    }
+    if (!fs.existsSync(abs)) {
+      json(res, 400, { ok: false, code: 'NO_SCRIPT', error: `${file} does not exist`, errorZh: `找不到 ${file}` })
+      return
+    }
+
+    // 解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
+    const venv = process.platform === 'win32'
+      ? path.join(engineDir, '.venv', 'Scripts', 'python.exe')
+      : path.join(engineDir, '.venv', 'bin', 'python')
+    // venv 还没建（第 2 步没跑）时退到平台自己的解释器，再退到 PATH 上的 python：
+    //   脚本可能只做下载，不该因为引擎环境还没装就不能跑。
+    const platformVenv = process.platform === 'win32'
+      ? path.join(root, 'venv', 'Scripts', 'python.exe')
+      : path.join(root, 'venv', 'bin', 'python')
+    const interp = ext === '.py'
+      ? (fs.existsSync(venv) ? venv : (fs.existsSync(platformVenv) ? platformVenv : (process.platform === 'win32' ? 'python' : 'python3')))
+      : (ext === '.sh' ? 'bash' : 'node')
+    const extra = Array.isArray(body.args) ? body.args.map((a) => String(a)) : []
+
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+    send('argv', { argv: [interp, rel, ...extra], cwd: path.relative(root, engineDir) || '.' })
+
+    let child
+    try {
+      child = spawn(interp, [abs, ...extra], { cwd: engineDir, windowsHide: true, shell: false })
+    } catch (e) {
+      send('done', { ok: false, code: 'SPAWN_FAILED', error: e.message })
+      res.end()
+      return
+    }
+    // error 与 close 可能都来，超时与客户端断开也会来收尾：只发一次 done。
+    let finished = false
+    const finish = (ok, payload) => {
+      if (finished) return
+      finished = true
+      clearTimeout(timer)
+      send('done', { ok, ...payload })
+      res.end()
+    }
+    const timer = setTimeout(() => {
+      try { child.kill() } catch (e) { /* 已经退出 */ }
+      send('line', { text: 'Stopped after the time limit.', err: true })
+      finish(false, { code: 'TIMEOUT', error: 'Stopped after the time limit.', errorZh: '超过时间上限，已停止。' })
+    }, RUN_SCRIPT_TIMEOUT_MS)
+    // 使用者关掉页面或点了停止，连接一断就杀掉子进程，不留后台下载。
+    if (typeof res.on === 'function') {
+      res.on('close', () => {
+        if (finished) return
+        finished = true
+        clearTimeout(timer)
+        try { child.kill() } catch (e) { /* 已经退出 */ }
+      })
+    }
+    const onData = (buf, isErr) => {
+      for (const line of buf.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) send('line', { text: line, err: !!isErr })
+      }
+    }
+    child.stdout.on('data', (b) => onData(b, false))
+    child.stderr.on('data', (b) => onData(b, true))
+    child.on('error', (e) => {
+      finish(false, { code: 'SPAWN_FAILED', error: e.message, errorZh: '脚本没能启动：' + e.message })
+    })
+    child.on('close', (code) => {
+      finish(code === 0, { status: code, code: code === 0 ? 'OK' : 'EXIT_' + code })
+    })
   })
   return true
 }
@@ -1885,7 +2005,7 @@ function handleResetProgress (req, res) {
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
-  handleDownloadManifest, handleDownloadFile, handleDownloadCancel, handleHfToken,
+  handleDownloadManifest, handleDownloadFile, handleDownloadCancel, handleRunScript, handleHfToken,
   handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,

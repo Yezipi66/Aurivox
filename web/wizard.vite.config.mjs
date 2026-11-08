@@ -57,6 +57,8 @@ function validatePlugin () {
     // hf-token 认的是 /wizard/hf-token 整串，后面只能跟 ?，与本表其它前缀无一互为前缀。
     wb.handleHfToken,
     handleInstalled, handleSave,
+    // run-script 认 /wizard/run-script 整串，与 download 一族不互为前缀，位置不影响路由。
+    wb.handleRunScript,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
     // cancel 必须排在 handleDownload 之前：handleDownload 认的是 /wizard/download 整串前缀，
     // 会把 download/cancel 一起吃掉（它自己也会显式排除，但注册顺序不能依赖那个）。

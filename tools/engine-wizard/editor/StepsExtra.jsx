@@ -3,7 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
-import { downloadFiles } from './downloadRunner'
+import { downloadFiles, readSse } from './downloadRunner'
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
@@ -131,6 +131,18 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 不依赖 manifest：直接列 engines/<id>/checkpoints/ 下的文件。
   // 三态：已下载（文件存在且大小 > 0）/ 未下载（文件不存在）/ 不完整（大小为 0）。
   const [fileList, setFileList] = React.useState(null)
+  // 跑上游脚本：同一时刻只跑一个，输出留在界面上。
+  const [scriptBusy, setScriptBusy] = React.useState(null)
+  const [scriptOut, setScriptOut] = React.useState([])
+  const [scriptArgs, setScriptArgs] = React.useState({})
+  const scriptAbort = React.useRef(null)
+  const refreshFileList = () => {
+    if (!id) return
+    fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (j.ok) setFileList(j.files) })
+      .catch(() => { /* 读不到 ⇒ 保持原样 */ })
+  }
   React.useEffect(() => {
     if (!id || !dlLive || dlLive.stage !== 'done') return
     fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
@@ -145,6 +157,66 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const M = (r && r.manifest) || null
   const upstreamScripts = (probe && probe.downloader) || []
   const upstreamCmds = (probe && probe.downloader_cmds) || []
+
+  // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
+  //   界面只显示解释器种类，绝对路径由服务端决定，不往界面上塞一长串本机路径。
+  const scriptCommand = (file) => {
+    const ext = String(file || '').toLowerCase().split('.').pop()
+    if (ext === 'sh') return 'bash'
+    if (ext === 'js') return 'node'
+    return 'python'
+  }
+
+  // 跑一个上游脚本：输出逐行透传，执行结束后重读盘上文件。
+  const runScript = async (d) => {
+    if (!id || !d || !d.file) return
+    setScriptBusy(d.file)
+    setScriptOut([])
+    const controller = new AbortController()
+    scriptAbort.current = controller
+    try {
+      const raw = String(scriptArgs[d.file] || '').trim()
+      const resp = await fetch('/wizard/run-script', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          id,
+          root: window.__PROJECT_ROOT__ || '',
+          file: d.file,
+          args: raw ? raw.split(/\s+/) : [],
+        }),
+      })
+      if (!resp.ok) {
+        let j = null
+        try { j = await resp.json() } catch (e) { /* 不是 JSON 就只报状态码 */ }
+        setScriptOut([(j && (j.errorZh || j.error)) || ('HTTP ' + resp.status)])
+        return
+      }
+      let last = null
+      await readSse(resp, (ev) => {
+        if (!ev) return
+        if (typeof ev.text === 'string') setScriptOut((prev) => [...prev, ev.text].slice(-400))
+        if ('ok' in ev || 'error' in ev) last = ev
+      })
+      if (last && last.ok === false) {
+        const why = last.errorZh || last.error || `${last.code || 'FAILED'}（退出码 ${String(last.status)}）`
+        setScriptOut((prev) => [...prev, why])
+      }
+      refreshFileList()
+    } catch (e) {
+      const stopped = e && e.name === 'AbortError'
+      const text = stopped ? t('Stopped.', '已停止。') : String((e && e.message) || e)
+      setScriptOut((prev) => [...prev, text])
+    } finally {
+      scriptAbort.current = null
+      setScriptBusy(null)
+    }
+  }
+
+  const stopScript = () => {
+    if (scriptAbort.current) scriptAbort.current.abort()
+  }
 
   const seenRepos = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
@@ -804,13 +876,40 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           </div>
           <div className="section-body">
             <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('Run it in the engine folder:', '在引擎目录内执行：')}
+              {t('The script knows where the weights go. Run it in the engine folder; the file list below is refreshed when it ends.',
+                '脚本自己知道权重放哪。在引擎目录里运行它，执行结束后下面的文件清单会重新读一次。')}
             </div>
-            {upstreamScripts.map((d) => (
-              <div key={d.file} className="rc-cmd" style={{ marginTop: 4 }}>
-                <pre className="rc-cmd-body">{`python ${d.file}`}</pre>
-              </div>
-            ))}
+            {upstreamScripts.map((d) => {
+              const cmd = scriptCommand(d.file)
+              const busy = scriptBusy === d.file
+              return (
+                <div key={d.file} style={{ marginTop: 6 }}>
+                  <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>{`${cmd} ${d.file}`}</pre>
+                    <input className="control" style={{ flex: '0 0 180px' }}
+                      value={scriptArgs[d.file] || ''}
+                      placeholder={t('extra arguments (optional)', '附加参数（可空）')}
+                      disabled={busy}
+                      onChange={(e) => setScriptArgs((prev) => ({ ...prev, [d.file]: e.target.value }))} />
+                    <button className="btn btn-sm btn-primary" type="button"
+                      disabled={!!scriptBusy || !id}
+                      onClick={() => runScript(d)}>
+                      {busy ? t('Running', '运行中') : t('Run', '运行')}
+                    </button>
+                    {busy && (
+                      <button className="btn btn-sm btn-danger" type="button" onClick={stopScript}>
+                        {t('Stop', '停止')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            {scriptOut.length > 0 && (
+              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
+                {scriptOut.join('\n')}
+              </pre>
+            )}
           </div>
         </div>
       )}
