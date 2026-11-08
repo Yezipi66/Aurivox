@@ -353,7 +353,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
         {(() => {
           const shown = slotRows
           const lineStyle = { display: 'grid', gap: 8, alignItems: 'end',
-            gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 96px auto' }
+            gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 96px 104px auto' }
           const cellLabel = { margin: 0 }
           const setCell = (k, key, v) => setWeights(
             shown.map((r, j) => (j === k ? { ...r, [key]: v } : r)))
@@ -398,6 +398,19 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
                         onChange={(ev) => setCell(i, 'applies_at', ev.target.value)}>
                         <option value="call">{t('on each call', '调用时换')}</option>
                         <option value="launch">{t('at startup', '启动时载入')}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label" style={cellLabel}
+                        title={t('Whether this slot holds a model folder or a single weights file. It only filters the candidates shown on the synthesis page.',
+                          '这一位装的是一个模型目录还是一份权重文件。只影响合成页列出的候选，不影响下发。')}>
+                        {t('Contents', '形态')}
+                      </label>
+                      <select className="control" value={row.kind || ''}
+                        onChange={(ev) => setCell(i, 'kind', ev.target.value)}>
+                        <option value="">{t('either', '不限')}</option>
+                        <option value="dir">{t('folder', '目录')}</option>
+                        <option value="file">{t('file', '文件')}</option>
                       </select>
                     </div>
                     {/* 加在上、减在下。位名留空的行本来就会被忽略（位名是磁盘目录名），

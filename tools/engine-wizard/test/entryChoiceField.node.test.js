@@ -21,7 +21,8 @@ function load () {
   return mod.exports
 }
 
-const { readEntry, displayEntry, writeEntry, entryFileOf } = load()
+const { readEntry, displayEntry, writeEntry, entryFileOf, readSubcommand, writeSubcommand,
+  writePythonEntry } = load()
 
 const CANDIDATES = [
   {
@@ -123,4 +124,52 @@ test('入口文件：候选命中给文件，手输脚本原样给，只有模�
     CANDIDATES), '')
   // 占位符等于没填。
   assert.strictEqual(entryFileOf(m, CANDIDATES), '')
+})
+
+// ---- 子命令：写进命令行的那一个词 ----
+
+test('子命令读得出来，占位符与开关不算', () => {
+  assert.strictEqual(readSubcommand(
+    { call: { kind: 'cli', argv: ['{engine_python}', '-m', 'pkg.cli', 'synth', '--text', 'x'] } }), 'synth')
+  assert.strictEqual(readSubcommand(
+    { call: { kind: 'cli', argv: ['{engine_python}', '-m', 'pkg.cli', '--text', 'x'] } }), '')
+  assert.strictEqual(readSubcommand(
+    { call: { kind: 'cli', argv: ['{engine_python}', '-m', '{_MODULE_}'] } }), '')
+  assert.strictEqual(readSubcommand(
+    { call: { kind: 'cli', argv: ['{engine_python}', 'scripts/run.py', 'infer'] } }), 'infer')
+})
+
+test('子命令能插入、替换、去掉，且不动原对象', () => {
+  const base = { call: { kind: 'cli', argv: ['{engine_python}', '-m', 'pkg.cli', '--text', 'x'] } }
+  const added = writeSubcommand(base, 'synth')
+  assert.deepStrictEqual(added.call.argv, ['{engine_python}', '-m', 'pkg.cli', 'synth', '--text', 'x'])
+  assert.deepStrictEqual(base.call.argv, ['{engine_python}', '-m', 'pkg.cli', '--text', 'x'],
+    '原名片不该被改')
+
+  const replaced = writeSubcommand(added, 'batch')
+  assert.deepStrictEqual(replaced.call.argv, ['{engine_python}', '-m', 'pkg.cli', 'batch', '--text', 'x'])
+
+  const removed = writeSubcommand(replaced, '')
+  assert.deepStrictEqual(removed.call.argv, ['{engine_python}', '-m', 'pkg.cli', '--text', 'x'])
+})
+
+test('还没有模块名时不硬塞子命令', () => {
+  const m = { call: { kind: 'cli', argv: ['{engine_python}'] } }
+  const out = writeSubcommand(m, 'synth')
+  assert.deepStrictEqual(out.call.argv, ['{engine_python}'])
+})
+
+test('选 python 入口时模块、类、方法一起写，命令行那几段摘掉', () => {
+  const m = { id: 'demo', call: { kind: 'cli', argv: ['{engine_python}', '-m', 'pkg.cli'], args: { text: { flag: '--text' } } } }
+  const out = writePythonEntry(m, {
+    module: 'pkg.tts', className: 'TTS', method: 'synthesize', srcRoot: null,
+  }, 'demo')
+  assert.strictEqual(out.call.kind, 'python')
+  assert.strictEqual(out.call.module, 'pkg.tts')
+  assert.strictEqual(out.call.class, 'TTS')
+  assert.strictEqual(out.call.method, 'synthesize')
+  assert.strictEqual(out.call.argv, undefined, 'argv 在 python 形态下不合法')
+  assert.strictEqual(out.call.args, undefined, 'args 在 python 形态下不合法')
+  assert.strictEqual(out.call.cwd, 'engines/demo')
+  assert.deepStrictEqual(m.call.argv, ['{engine_python}', '-m', 'pkg.cli'], '原名片不该被改')
 })

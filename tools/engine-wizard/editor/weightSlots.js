@@ -18,6 +18,10 @@ const trim = (v) => String(v == null ? '' : v).trim()
 
 const APPLIES = Object.freeze(['call', 'launch'])
 
+// 权重位的形态：dir = 这一位装一个模型目录，file = 装一份权重文件。
+//   留空 = 两种候选都列。只影响候选怎么列，不影响这一位怎么发给引擎。
+const KINDS = Object.freeze(['dir', 'file'])
+
 /** 界面上填的可能是开关（--weight1），名片里存的是键名（weight1）。 */
 export function slotParamName (raw) {
   return trim(raw).replace(/^-+/, '')
@@ -25,7 +29,7 @@ export function slotParamName (raw) {
 
 /** 新增一位时的初值。位名不预填：它要变成磁盘目录名，猜一个等于替人建目录。 */
 export function emptySlot () {
-  return { name: '', label: '', param: '', applies_at: 'call' }
+  return { name: '', label: '', param: '', applies_at: 'call', kind: '' }
 }
 
 /** 名片 weights[] → 界面行。launch 位没有参数名，那种位只由底模目录决定。 */
@@ -38,6 +42,7 @@ export function readSlots (manifest) {
     let label = ''
     let param = ''
     let applies = ''
+    let kind = ''
     if (typeof raw === 'string') {
       name = trim(raw)
       label = name
@@ -46,6 +51,7 @@ export function readSlots (manifest) {
       label = trim(raw.label) || name
       param = trim(raw.param)
       applies = trim(raw.applies_at)
+      kind = trim(raw.kind).toLowerCase()
     }
     if (!name) continue
     const entry = param ? args[param] : null
@@ -54,6 +60,7 @@ export function readSlots (manifest) {
       label,
       param,
       applies_at: APPLIES.includes(applies) ? applies : (param ? 'call' : 'launch'),
+      kind: KINDS.includes(kind) ? kind : '',
       flag: entry && typeof entry.flag === 'string' ? entry.flag : '',
     })
   }
@@ -99,6 +106,9 @@ export function writeSlots (manifest, rows) {
       entry.param = param
       flags[param] = trim(row && row.flag)
     }
+    // 形态只在选过时写：留空与不写这个键是同一件事，名片里不必多一行。
+    const kind = trim(row && row.kind).toLowerCase()
+    if (KINDS.includes(kind)) entry.kind = kind
     list.push(entry)
   }
 

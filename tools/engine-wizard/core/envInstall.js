@@ -233,6 +233,15 @@ function buildEnvPlan (input = {}) {
       + '（import 探针 / 真跑一次合成）。',
   })
 
+  // 名片写死了安装命令时，说明那一栏要说的是「按名片执行，平台不再推导」。
+  //   不能沿用自动探测的 why：那条文案描述的是探测分支（例如「跳过 torch、单独装」），
+  //   而这里执行的是名片原文，可能恰恰包含 torch。说错了会把人往反方向带。
+  const declaredWhy = 'The platform runs the command declared in the manifest (install.env_command): '
+    + argv.join(' ') + '. It does not re-derive the install method from the dependency manifest; '
+    + 'whether torch is included depends on this command.'
+  const declaredWhyZh = '执行的是名片声明的命令（install.env_command）：' + argv.join(' ')
+    + '。平台不再依据依赖清单推导安装方式；是否包含 torch 由这条命令本身决定。'
+
   return {
     ok: true,
     id,
@@ -243,7 +252,8 @@ function buildEnvPlan (input = {}) {
     guessed: !usingManifest,
     pythonVersion: venv ? venv.pythonVersion : null,
     pythonVersionSource: venv ? venv.pythonVersionSource : null,
-    whatToDo: guess.why,
+    whatToDo: usingManifest ? declaredWhy : guess.why,
+    whatToDoZh: usingManifest ? declaredWhyZh : guess.whyZh,
     choices,
     specs,
     dependencies: deps,

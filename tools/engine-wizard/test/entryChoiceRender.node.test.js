@@ -85,11 +85,11 @@ const CANDIDATES = [
 ]
 
 let seq = 0
-async function show (manifest, candidates) {
+async function show (manifest, candidates, extra = {}) {
   seq += 1
   let state = manifest
   const draw = () => root.render(React.createElement(EntryChoice, {
-    key: 'e' + seq, manifest: state, candidates,
+    key: 'e' + seq, manifest: state, candidates, ...extra,
     onChange: (arg) => { state = typeof arg === 'function' ? arg(state) : arg; draw() },
   }))
   draw()
@@ -140,4 +140,42 @@ test('手输模块名也写进名片：清单不是唯一入口', async () => {
   Simulate.change(container.querySelector('input'), { target: { value: 'pkg.custom' } })
   await settle()
   assert.deepStrictEqual(holder.get().call.argv, ['{engine_python}', '-m', 'pkg.custom'])
+})
+
+test('入口挂多个子命令时给出下拉，选中的词写进命令行模块名之后', async () => {
+  const withGroups = [{
+    file: 'cli/main.py', module: 'cli.main', srcRoot: null,
+    score: 4, flags: 6, groups: ['synth', 'infer', 'batch'], source: 'file', recommended: true,
+  }]
+  const holder = await show({
+    id: 'demo',
+    call: { kind: 'cli', argv: ['{engine_python}', '-m', 'cli.main', '--text', 'x'] },
+  }, withGroups)
+  const select = [...container.querySelectorAll('select')]
+    .find((s) => [...s.options].some((o) => o.value === 'synth'))
+  assert.ok(select, '多子命令入口要有下拉')
+  assert.deepStrictEqual([...select.options].slice(1).map((o) => o.value),
+    ['synth', 'infer', 'batch'])
+  Simulate.change(select, { target: { value: 'synth' } })
+  await settle()
+  assert.deepStrictEqual(holder.get().call.argv,
+    ['{engine_python}', '-m', 'cli.main', 'synth', '--text', 'x'])
+})
+
+test('python 形态列出静态扫描到的类，选中后写模块 / 类 / 方法', async () => {
+  const holder = await show({ id: 'demo', call: {} }, [], {
+    pythonEntries: [
+      { module: 'pkg.tts', className: 'TTS', method: 'synthesize', srcRoot: null, score: 3.5 },
+      { module: 'pkg.tts', className: 'TTS', method: 'infer', srcRoot: null, score: 3 },
+    ],
+  })
+  const select = [...container.querySelectorAll('select')]
+    .find((s) => [...s.options].some((o) => o.value === 'pkg.tts|TTS|synthesize'))
+  assert.ok(select, 'python 入口下拉没画出来')
+  Simulate.change(select, { target: { value: 'pkg.tts|TTS|synthesize' } })
+  await settle()
+  assert.strictEqual(holder.get().call.kind, 'python')
+  assert.strictEqual(holder.get().call.module, 'pkg.tts')
+  assert.strictEqual(holder.get().call.class, 'TTS')
+  assert.strictEqual(holder.get().call.method, 'synthesize')
 })

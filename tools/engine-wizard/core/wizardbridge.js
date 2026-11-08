@@ -195,6 +195,8 @@ function parseDownloadCmd (cmd, context) {
 
 // 上游可能提供的模型下载入口文件名。这是探测清单，不是平台支持的下载方式：
 // 平台不实现下载逻辑，只告诉用户「上游自己有个脚本可以跑」；清单之外读不到就如实说没找到。
+//   install.sh / install.ps1 同时安装环境与权重，运行时绕过平台的环境安装流程，
+//   所以探测结果里单独标记 installs_env：界面要如实说明这件事，不把它当成普通下载脚本。
 const DOWNLOAD_SCRIPTS = [
   'download_models.py',
   'download_models.sh',
@@ -203,7 +205,14 @@ const DOWNLOAD_SCRIPTS = [
   'download_weights.py',
   'download_ckpt.py',
   'download_checkpoints.sh',
+  'install.sh',
+  'install.ps1',
 ]
+
+// 名字以 install 打头的脚本通常不只下权重，还建环境。判据只看文件名，不读正文。
+function scriptInstallsEnv (file) {
+  return /^install\./i.test(String(file || '').split('/').pop())
+}
 
 // 跑上游下载脚本的时间上限：权重动辄几 GB，按 30 分钟给；超时就杀掉，不留半个进程。
 const RUN_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000
@@ -458,6 +467,7 @@ function handleProbe (req, res) {
       const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
       if (t !== null) {
         dlScripts.push({ kind: 'script', file: f,
+          installs_env: scriptInstallsEnv(f),
           head: t.split('\n').slice(0, 12).join('\n') })
       }
     }
@@ -1104,10 +1114,18 @@ function handleRunScript (req, res) {
     const engineDir = path.join(root, 'engines', id)
     const abs = path.join(engineDir, rel)
     const ext = path.extname(rel).toLowerCase()
-    if (!['.py', '.sh', '.js'].includes(ext)) {
+    if (!['.py', '.sh', '.js', '.ps1'].includes(ext)) {
       json(res, 400, { ok: false, code: 'BAD_SCRIPT',
-        error: `Only .py / .sh / .js scripts can be run (got ${JSON.stringify(ext || '')}).`,
-        errorZh: '只支持运行 .py / .sh / .js 脚本。' })
+        error: `Only .py / .sh / .js / .ps1 scripts can be run (got ${JSON.stringify(ext || '')}).`,
+        errorZh: '只支持运行 .py / .sh / .js / .ps1 脚本。' })
+      return
+    }
+    // PowerShell 脚本用 Windows 自带的解释器执行；其它平台没有这个解释器，
+    //   先如实拒绝，不让它落成一句 spawn ENOENT。
+    if (ext === '.ps1' && process.platform !== 'win32') {
+      json(res, 400, { ok: false, code: 'BAD_SCRIPT',
+        error: 'PowerShell scripts can only run on Windows.',
+        errorZh: 'PowerShell 脚本只能在 Windows 上运行。' })
       return
     }
     if (!fs.existsSync(abs)) {
@@ -1115,7 +1133,8 @@ function handleRunScript (req, res) {
       return
     }
 
-    // 解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
+    // 解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node，
+    //   .ps1 用 Windows 自带的 powershell。
     const venv = process.platform === 'win32'
       ? path.join(engineDir, '.venv', 'Scripts', 'python.exe')
       : path.join(engineDir, '.venv', 'bin', 'python')
@@ -1126,8 +1145,12 @@ function handleRunScript (req, res) {
       : path.join(root, 'venv', 'bin', 'python')
     const interp = ext === '.py'
       ? (fs.existsSync(venv) ? venv : (fs.existsSync(platformVenv) ? platformVenv : (process.platform === 'win32' ? 'python' : 'python3')))
-      : (ext === '.sh' ? 'bash' : 'node')
+      : (ext === '.sh' ? 'bash' : (ext === '.ps1' ? 'powershell.exe' : 'node'))
     const extra = Array.isArray(body.args) ? body.args.map((a) => String(a)) : []
+    // powershell 的脚本路径要经 -File 传入，执行策略按进程生效，不改本机设置。
+    const spawnArgs = ext === '.ps1'
+      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', abs, ...extra]
+      : [abs, ...extra]
 
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -1138,11 +1161,11 @@ function handleRunScript (req, res) {
       res.write(`event: ${event}\n`)
       res.write(`data: ${JSON.stringify(data)}\n\n`)
     }
-    send('argv', { argv: [interp, rel, ...extra], cwd: path.relative(root, engineDir) || '.' })
+    send('argv', { argv: [interp, ...(ext === '.ps1' ? ['-File', rel] : [rel]), ...extra], cwd: path.relative(root, engineDir) || '.' })
 
     let child
     try {
-      child = spawn(interp, [abs, ...extra], { cwd: engineDir, windowsHide: true, shell: false })
+      child = spawn(interp, spawnArgs, { cwd: engineDir, windowsHide: true, shell: false })
     } catch (e) {
       send('done', { ok: false, code: 'SPAWN_FAILED', error: e.message })
       res.end()
@@ -1865,7 +1888,8 @@ function handleCliArgs (req, res) {
 //   1. 读 engines/<id>/ 看有没有 argparse 源码 → 有则跑 cli 扫描
 //   2. 读名片看 call.kind 或看有没有 python class → 是 python 则跑反射
 //   3. 两者都有 → 都跑，结果经 paramDigest 合并
-//   4. 都没有 → 返回 {ok:false, error:'未能发现参数，请手工填写'}
+//   4. 都没有 → 再做一次 python 类的静态扫描，有候选就交出去（让人先定入口，定完再扫）
+//      连候选都没有才返回 {ok:false, error:'未能发现参数，请手工填写'}
 // 探不到如实报，不假装。python 反射失败（venv 未配好等）如实说明。
 function handleDiscover (req, res) {
   if (req.method !== 'POST') return false
@@ -2010,7 +2034,42 @@ function handleDiscover (req, res) {
       notes.push(`python 形态探测异常：${e.message}`)
     }
 
+    // Python 形态的入口候选：名片还没写 call.module / call.class 时，反射根本跑不起来，
+    //   入口那一格只能靠人背模块名。这里做一次静态扫描（只读文本，不 import），
+    //   把「哪个类、哪个方法」摆出来；选中后写进名片，之后再扫描就能反射出参数。
+    let pythonEntries = []
+    if (!hasPython) {
+      try {
+        const { scanPythonEntries } = require('./pyClassScan')
+        pythonEntries = scanPythonEntries(dir)
+        if (pythonEntries.length) {
+          notes.push(`静态扫描到 ${pythonEntries.length} 个 python 入口候选（未导入任何模块）`)
+        }
+      } catch (e) {
+        notes.push(`python 入口静态扫描失败：${e.message}`)
+      }
+    }
+
     if (!hasCli && !hasPython) {
+      // 纯库形态、名片里又还没声明类：把静态候选交出去，让人从清单里选一个。
+      //   没有候选时照旧如实报「未能发现参数」。
+      if (pythonEntries.length) {
+        json(res, 200, {
+          ok: true,
+          source: 'python-static',
+          params: [],
+          groups: [],
+          bind_candidates: [],
+          entry: null,
+          entry_candidates: [],
+          python_entries: pythonEntries,
+          declare_hints: { audio_params: [], weight_slots: [], output_formats: [], format_arg: null },
+          suggested_call: null,
+          notes,
+          counts: { cli: 0, python: 0, total: 0 },
+        })
+        return
+      }
       json(res, 200, {
         ok: false,
         error: '未能发现参数，请手工填写',
@@ -2083,6 +2142,9 @@ function handleDiscover (req, res) {
       // 推理入口候选：{file, module, srcRoot, score, flags, groups, source, recommended}
       //   识别不出入口时这一份照样有值，界面据此给一个既能选又能输入的下拉。
       entry_candidates: entryCandidates,
+      // python 形态的入口候选：{file, module, className, method, score, params}
+      //   只在名片还没声明 python 类时给（有声明时反射结果更准）。
+      python_entries: pythonEntries,
       // 可选能力的嗅探建议：音频类输入、多权重位、输出格式。只送建议，
       //   写不写进名片由前端按「已有声明不覆盖」决定；拿不准的不出现在这里。
       declare_hints: (() => {

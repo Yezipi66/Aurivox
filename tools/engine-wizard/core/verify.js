@@ -27,8 +27,8 @@ function checks () {
       titleEn: 'Environment integrity',
       titleZh: '运行环境完整性',
       cost: 'cheap',
-      why: 'Checks on disk whether the interpreter, the inference entrypoint and verify.sys_path are present. The engine is not started.',
-      whyZh: '检查解释器、推理入口与 verify.sys_path 是否存在；仅核对文件，不启动引擎。',
+      why: 'Checks on disk whether the interpreter, the inference entrypoint and verify.sys_path are present. The engine is not started, and it does not check whether the environment was built the way the manifest declares or which versions are installed.',
+      whyZh: '检查解释器、推理入口与 verify.sys_path 是否存在；仅核对文件，不启动引擎。此项也不核对环境是否按名片声明的安装方式建立，装的是哪个版本同样查不出来。',
     },
     {
       key: 'env_deep',

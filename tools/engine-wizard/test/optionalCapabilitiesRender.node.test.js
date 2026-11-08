@@ -172,7 +172,7 @@ test('点加号长一位、点减号收回；空行始终不进名片', async ()
   assert.equal(holder.m.weights, undefined, '一行都没填位名，名片里不该出现 weights')
 })
 
-test('多权重位共用一个框：两位两行，行内四格', async () => {
+test('多权重位共用一个框：两位两行，行内五格', async () => {
   await show(cliManifest([
     { name: 'gpt', label: 'GPT', param: 'gpt_model', applies_at: 'call' },
     { name: 'sovits', label: 'SoVITS', param: 'sovits_model', applies_at: 'call' },
@@ -186,7 +186,7 @@ test('多权重位共用一个框：两位两行，行内四格', async () => {
   assert.ok(weightBox, '多权重位要有自己的框')
   for (const row of rows) {
     assert.equal(row.querySelectorAll('input').length, 3, '一行三个输入框')
-    assert.equal(row.querySelectorAll('select').length, 1, '一行一个生效时机下拉')
+    assert.equal(row.querySelectorAll('select').length, 2, '一行两个下拉：生效时机与形态')
     assert.ok(weightBox.contains(row), '两位要收在同一个框里')
   }
 })

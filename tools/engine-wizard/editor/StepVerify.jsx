@@ -267,7 +267,10 @@ export function StepVerify ({ id }) {
               {key === 'checkpoints'
                 ? t('Every weights file named in the manifest is present. This is a static check only; run tier A below to verify synthesis.',
                   '名片声明的权重文件齐全。此项为静态核对，引擎能否合成语音需执行下方 A 级校验。')
-                : t('No problems found.', '未发现问题。')}
+                : key === 'env_shallow'
+                  ? t('The interpreter, the entrypoint and verify.sys_path are on disk. This does not confirm that the environment was built from the manifest declaration, nor which package versions are installed.',
+                    '解释器、推理入口与 verify.sys_path 都在盘上。此项不核对环境是否按名片声明建立，也不核对已安装的包版本。')
+                  : t('No problems found.', '未发现问题。')}
             </div>
           ) : hasShown ? (
             shown.map((line, i) => (

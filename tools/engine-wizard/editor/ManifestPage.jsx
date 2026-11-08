@@ -278,6 +278,7 @@ export default function ManifestPage ({
                 modelFiles={modelFiles}
                 autofill={autofill} selectedParam={selected}
                 entryCandidates={scan && scan.entry_candidates}
+                pythonEntries={scan && scan.python_entries}
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />
               : (

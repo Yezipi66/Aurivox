@@ -42,7 +42,7 @@ function Cell ({ label, code, hint, badge, unset, children }) {
 }
 
 export default function RequiredFields ({ manifest, onChange, autofill, bindSlots,
-  entryCandidates, entryConfidence }) {
+  entryCandidates, entryConfidence, pythonEntries }) {
   const { t } = useT()
   const runtime = (manifest && manifest.runtime) || {}
   const call = (manifest && manifest.call) || {}
@@ -176,7 +176,8 @@ export default function RequiredFields ({ manifest, onChange, autofill, bindSlot
         {/* 推理入口排在最前：它也是必填，缺了这台引擎起不来。
             版式跟同区其它格一样（标签 + 键名徽标 + 输入框 + 说明），不再单占一段。 */}
         <EntryChoice manifest={manifest || {}} onChange={onChange}
-          candidates={entryCandidates || []} confidence={entryConfidence || null} />
+          candidates={entryCandidates || []} confidence={entryConfidence || null}
+          pythonEntries={pythonEntries || []} />
 
         <div className="form-grid wz-required-row">
           {orderedSlots.map((slot) => {

@@ -7,9 +7,14 @@
 //   平台只提供选项，选中哪一个由使用者决定。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { displayEntry, writeEntry } from './entryChoiceField'
+import { displayEntry, writeEntry, readSubcommand, writeSubcommand, writePythonEntry } from './entryChoiceField'
 
-export default function EntryChoice ({ manifest, onChange, candidates = [], confidence = null }) {
+function pyEntryKey (o) {
+  if (!o || !o.module || !o.className || !o.method) return ''
+  return `${o.module}|${o.className}|${o.method}`
+}
+
+export default function EntryChoice ({ manifest, onChange, candidates = [], confidence = null, pythonEntries = [] }) {
   const { t } = useT()
   const opts = Array.isArray(candidates) ? candidates : []
   const value = displayEntry(manifest, opts)
@@ -20,7 +25,18 @@ export default function EntryChoice ({ manifest, onChange, candidates = [], conf
   // 推荐入口同样分档：证据来自打包声明或 README 且强度最高才算确定。
   //   识别没给出结论（无 recommended）时不挂徽标，下面的提示已经说明要人自己选。
   const entryEvidence = recommended && confidence && confidence.entry
-  const kind = (manifest && manifest.call && manifest.call.kind) || 'cli'
+  // 形态以名片为准；没写 kind 时按有没有 argv 判，与宿主默认（python）一致。
+  const call = (manifest && manifest.call) || {}
+  const kind = call.kind || (Array.isArray(call.argv) && call.argv.length ? 'cli' : 'python')
+  // 入口挂多个子命令时，由人挑一个。候选里带着这个入口的子命令表（扫描按 help 分组得到）；
+  //   选中的词写进命令行，位置固定在模块名或脚本路径之后。
+  const picked = opts.find((c) => c && (c.file === value || c.module === value)) || recommended || null
+  const groups = picked && Array.isArray(picked.groups) ? picked.groups.filter(Boolean) : []
+  const sub = readSubcommand(manifest)
+  const pyOpts = Array.isArray(pythonEntries) ? pythonEntries : []
+  const pyKey = pyEntryKey({
+    module: call.module, className: call.class, method: call.method,
+  })
 
   return (
     <div className={`field${value ? '' : ' wz-unset'}`} style={{ marginBottom: 10 }}>
@@ -56,6 +72,44 @@ export default function EntryChoice ({ manifest, onChange, candidates = [], conf
           </option>
         ))}
       </datalist>
+      {kind === 'python' && pyOpts.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+          <label className="field-label" style={{ margin: 0 }}
+            title={t('Classes found by a static scan of the source. Selecting one writes module, class and method into the manifest; a rescan then reflects its parameters.',
+              '静态扫描源码找到的类。选中后把模块、类、方法一起写进名片，重新扫描即可反射出它的参数。')}>
+            {t('Python entry', 'Python 入口')}
+          </label>
+          <select className="control" style={{ maxWidth: 420 }}
+            value={pyOpts.some((o) => pyEntryKey(o) === pyKey) ? pyKey : ''}
+            onChange={(e) => onChange((cur) => writePythonEntry(
+              cur, pyOpts.find((o) => pyEntryKey(o) === e.target.value), engineId))}>
+            <option value="">{t('not specified', '未指定')}</option>
+            {pyOpts.map((o) => (
+              <option key={pyEntryKey(o)} value={pyEntryKey(o)}>
+                {`${o.module}.${o.className}.${o.method}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {kind === 'cli' && groups.length > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+          <label className="field-label" style={{ margin: 0 }}
+            title={t('This entry has several subcommands. The chosen one is written into the command line right after the module name.',
+              '该入口有多个子命令。选中的那个会写进命令行，位置在模块名之后。')}>
+            {t('Subcommand', '子命令')}
+          </label>
+          <select className="control" style={{ maxWidth: 220 }}
+            value={groups.includes(sub) ? sub : ''}
+            onChange={(e) => onChange((cur) => writeSubcommand(cur, e.target.value))}>
+            <option value="">{t('not specified', '未指定')}</option>
+            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+          <span className="field-hint" style={{ margin: 0 }}>
+            {t('Found ' + groups.length + ' subcommands on this entry.', '该入口有 ' + groups.length + ' 个子命令。')}
+          </span>
+        </div>
+      )}
       <div className="field-hint">
         {recommended
           ? t('Suggested: ', '扫描建议：') + (recommended.file || recommended.module) + '。' +

@@ -19,6 +19,7 @@ import {
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
   guessed, onParamDropped, onTypeConfirmed, modelFiles, entryCandidates,
+  pythonEntries,
 }) {
   const { t } = useT()
 
@@ -91,6 +92,7 @@ export default function ManifestForm ({
       <RequiredFields manifest={manifest} onChange={onChange} autofill={autofill}
         bindSlots={spec && spec.bindSlots}
         entryCandidates={entryCandidates || []}
+        pythonEntries={pythonEntries || []}
         entryConfidence={autofill && autofill.confidence} />
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）

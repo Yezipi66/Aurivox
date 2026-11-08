@@ -262,6 +262,9 @@ function pickEntry (params, opts = {}) {
     module: top ? top.module : null,
     srcRoot: top ? top.srcRoot : null,
     subcommand: top ? top.subcommand : null,
+    // 这个入口挂了哪些子命令。多于一个时 subcommand 一定是 null（不替使用者选），
+    //   界面据此给出下拉：命令行上的子命令是名片的一部分，只能由人来定。
+    groups: top ? top.groups : [],
     score: top ? top.score : 0,
     // 结论从哪来：entry-points 是打包声明，readme 是文档里的用法，score 是按参数打分
     source: declaredHits.length ? 'entry-points' : (readmeHits.length ? 'readme' : 'score'),
