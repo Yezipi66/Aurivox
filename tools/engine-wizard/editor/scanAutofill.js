@@ -180,17 +180,31 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
         const wantsFile = /(^|_)file$/.test(normName(picked.name)) ||
           (/file/i.test(help) && !/director/i.test(help))
         const singleFile = weightFiles.length === 1 ? weightFiles[0].split('/').pop() : ''
-        const value = (wantsFile && singleFile) ? TOKEN + '/' + singleFile : TOKEN
+        // 权重全在一个子目录里（父目录下没有任何权重文件）时，落点要往下走一层：
+        //   那种引擎的开关收的是「某个模型目录」，同一父目录下并排放着可选的模型
+        //   （一个模型一套权重）。判据只读盘上事实：父目录空着、子目录只有一个。
+        //   多个子目录时保持父目录：那是同一套模型的不同部件，引擎自己分派。
+        const flatFiles = weightFiles.filter((f) => !f.includes('/'))
+        const topDirs = [...new Set(weightFiles
+          .filter((f) => f.includes('/'))
+          .map((f) => f.split('/')[0])
+          .filter(Boolean))]
+        const singleDir = flatFiles.length === 0 && topDirs.length === 1 ? topDirs[0] : ''
+        const value = (wantsFile && singleFile)
+          ? TOKEN + '/' + singleFile
+          : (singleDir ? TOKEN + '/' + singleDir : TOKEN)
         argv = [...argv, flag, value]
+        const what = value === TOKEN
+          ? { en: 'the download folder.', zh: '下载目录。' }
+          : (singleDir
+            ? { en: '"' + value + '", the only model folder on disk.',
+              zh: '「' + value + '」，即盘上唯一的那个模型子目录。' }
+            : { en: '"' + value + '", the single weight file found on disk.',
+              zh: '「' + value + '」，即盘上唯一的那个权重文件。' })
         notes.push({
-          en: 'Weights path: ' + flag + ' is connected to ' + (value === TOKEN
-            ? 'the download folder.'
-            : '"' + value + '", the single weight file found on disk.') +
+          en: 'Weights path: ' + flag + ' is connected to ' + what.en +
             ' Confirm this in the Model weights field.',
-          zh: '权重落点：' + flag + ' 已接到' + (value === TOKEN
-            ? '下载目录。'
-            : '「' + value + '」，即盘上唯一的那个权重文件。') +
-            '请在「模型权重」格确认。',
+          zh: '权重落点：' + flag + ' 已接到' + what.zh + '请在「模型权重」格确认。',
         })
         if (wantsFile && !singleFile && weightFiles.length > 1) {
           notes.push({
@@ -203,8 +217,10 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
         confidence.weights = {
           level: 'guess', flag,
           reason: {
-            en: 'The weights switch was chosen by a name ranking: ' + flag + '. Confirm that it takes the download folder' + (value === TOKEN ? '.' : ' or the named file.'),
-            zh: '权重开关按参数名排序选出：' + flag + '。请确认该开关收的是下载目录' + (value === TOKEN ? '。' : '还是那个文件。'),
+            en: 'The weights switch was chosen by a name ranking: ' + flag + '. Confirm that it takes the download folder' +
+              (value === TOKEN ? '.' : (singleDir ? ', or the model folder under it.' : ' or the named file.')),
+            zh: '权重开关按参数名排序选出：' + flag + '。请确认该开关收的是下载目录' +
+              (value === TOKEN ? '。' : (singleDir ? '，还是它下面那一层模型目录。' : '还是那个文件。')),
           },
         }
       }

@@ -797,3 +797,29 @@ test('扫描回填：名片里已经写过的那条不动（手填的映射比�
     cur, [], { file: 'cli/infer.py' }, 'demo')
   assert.deepStrictEqual(r.call.args['emotion-vector'], { flag: '--emo', style: 'repeat' })
 })
+
+// 权重全在一个子目录里：落点往下走一层。
+//   那种引擎的开关收的是「某个模型目录」，同一父目录下并排放着可选的模型。
+//   判据只读盘上事实：父目录下没有任何权重文件，子目录只有一个。
+test('模型权重：权重都在唯一子目录里 ⇒ 落点下探一层', () => {
+  const r = computeAutoFill([wParam('checkpoint_path', 'Path to the model folder')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null,
+    ['s2-pro/config.json', 's2-pro/codec.pth', 's2-pro/model.safetensors'])
+  assert.ok(r.call.argv.includes('{checkpoints}/s2-pro'), '唯一子目录要写进落点')
+  assert.ok(r.notes.some((n) => /唯一的那个模型子目录/.test(n.zh)))
+})
+
+test('模型权重：多个子目录 ⇒ 保持父目录（同一套模型的部件）', () => {
+  const r = computeAutoFill([wParam('model_dir', 'Model directory')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null,
+    ['LLM/a.pth', 'BiCodec/b.pth', 'wav2vec2/c.bin'])
+  assert.ok(r.call.argv.includes('{checkpoints}'))
+  assert.ok(!r.call.argv.some((w) => String(w).startsWith('{checkpoints}/')))
+})
+
+test('模型权重：父目录本身就有权重 ⇒ 不下探', () => {
+  const r = computeAutoFill([wParam('model_dir', 'Model directory')],
+    { kind: 'cli' }, [], W_ENTRY, 'demo', null,
+    ['gpt.pth', 's2mel.pth', 'hf_cache/x.bin'])
+  assert.ok(r.call.argv.includes('{checkpoints}'), '平铺权重时父目录就是落点')
+})
