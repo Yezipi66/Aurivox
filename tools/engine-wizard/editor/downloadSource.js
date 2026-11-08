@@ -98,6 +98,9 @@ export function repoLinkFromUrl (raw) {
   if (!['http:', 'https:'].includes(u.protocol)) return null
   const host = u.hostname.toLowerCase().replace(/^www\./, '')
   const parts = u.pathname.split('/').filter(Boolean)
+  // 文档里贴的链接可以按仓库读，输入框里贴的单文件直链却必须按文件下。
+  //   /resolve/ 与 /blob/ 之后是仓库内文件名，此时交回单文件下载口子。
+  if (parts.includes('resolve') || parts.includes('blob')) return null
   let tool = null
   let repo = null
   if (host === 'huggingface.co') {

@@ -89,8 +89,8 @@ test('模型页链接：HF 与魔搭都认，长尾路径剥掉', () => {
     { tool: 'hf', repo: 'Org/Model-A', url: 'https://huggingface.co/Org/Model-A' })
   assert.deepStrictEqual(repoLinkFromUrl('https://huggingface.co/Org/Model-A/tree/main'),
     { tool: 'hf', repo: 'Org/Model-A', url: 'https://huggingface.co/Org/Model-A' })
-  assert.deepStrictEqual(repoLinkFromUrl('https://huggingface.co/Org/Model-B/resolve/main/config.json'),
-    { tool: 'hf', repo: 'Org/Model-B', url: 'https://huggingface.co/Org/Model-B' })
+  assert.strictEqual(repoLinkFromUrl('https://huggingface.co/Org/Model-B/resolve/main/config.json'), null,
+    '输入框里的单文件直链要交回文件下载，不能当仓库引入')
   assert.deepStrictEqual(repoLinkFromUrl('https://www.modelscope.cn/models/iic/CosyVoice2-0.5B'),
     { tool: 'modelscope', repo: 'iic/CosyVoice2-0.5B',
       url: 'https://modelscope.cn/models/iic/CosyVoice2-0.5B' })
@@ -102,6 +102,8 @@ test('非模型仓库：不当成仓库，交回单文件下载', () => {
     'https://huggingface.co/datasets/Org/Data',
     'https://huggingface.co/docs/transformers/index',
     'https://github.com/org/repo/releases/download/v1/model.zip',
+    'https://huggingface.co/Org/Model-B/resolve/main/config.json',
+    'https://www.modelscope.cn/models/iic/CosyVoice2-0.5B/resolve/master/config.json',
     'https://example.com/model.safetensors',
     'ftp://example.com/model.bin',
     'not a url',
