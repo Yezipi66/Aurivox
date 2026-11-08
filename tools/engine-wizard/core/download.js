@@ -2,7 +2,8 @@
 
 // 引擎安装向导的下载层：执行下载命令、拉远端文件清单、续传与完整性核对。
 // 下载走异步流式：一次下载要几分钟到几十分钟，同步调用会阻塞到结束。
-// 统一落盘到 engines/<id>/checkpoints/；只负责下载，不管装环境。
+// 落盘路径以名片 runtime.checkpoints 为准，名片没写才用 engines/<id>/checkpoints/；
+// 只负责下载，不管装环境。
 const { spawn } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -12,8 +13,8 @@ const https = require('node:https')
 // 进度按段记：本文件只操作 models 段，别段的进度不在这里读写。
 const { progressFile, readProgress: readProgressOf, writeProgress: writeProgressOf,
   resetProgress: resetProgressOf } = require('./installState')
-// 落盘路径不在这里拼：一律走 checkpointsAbsPath。
-const { checkpointsAbsPath } = require('./checkpointsPath')
+// 落盘路径由 checkpointsPath 统一算，不在各调用点拼。
+const { resolveCheckpointsRel } = require('./checkpointsPath')
 // 授权错误时的许可门槛说明，与第 4 步同一段文案。
 const { LICENSE_GATE_NOTE } = require('./models')
 
@@ -231,7 +232,21 @@ function runDownload (input = {}) {
 }
 
 /**
- * 把一条下载命令的 local_dir 替换成统一落盘路径 engines/<id>/checkpoints/。
+ * 权重落点：名片写了 runtime.checkpoints 就用它，没写才用统一落点。
+ * 第 3 步写盘、第 4 步声明、第 5 步判定要落在同一处，否则「下好了」与
+ * 「目录不存在」会同时出现。
+ */
+function weightsDir (root, id) {
+  let manifest = null
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(root, 'engines', String(id), 'manifest.json'), 'utf8'))
+  } catch (e) { manifest = null }
+  const rel = resolveCheckpointsRel(manifest, id)
+  return rel ? path.join(root, rel) : null
+}
+
+/**
+ * 把一条下载命令的 local_dir 替换成名片声明的落点。
  * 不删原目录：hf / modelscope 的缓存在那里，删了要重下。
  *
  * @param {string[]} argv     原始命令
@@ -240,7 +255,7 @@ function runDownload (input = {}) {
  * @returns {string[]}        替换后的 argv
  */
 function unifyDest (argv, engineId, root) {
-  const dest = checkpointsAbsPath(root, engineId)
+  const dest = weightsDir(root, engineId)
   const out = argv.slice()
   for (let i = 0; i < out.length; i++) {
     if (/^--local-dir[=\s]/.test(out[i])) {
@@ -354,7 +369,7 @@ function base64ToHex (b64) {
  *   SHA-256 只在两边都有时才比对：上游没给就只报实际算出的值。
  */
 async function checkFileStatus (file, expectedSize, root, id, expectedSha) {
-  const dir = checkpointsAbsPath(root, id)
+  const dir = weightsDir(root, id)
   const finalPath = path.join(dir, file)
   const tmpPath = finalPath + '.tmp'
 
@@ -451,7 +466,7 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
  */
 function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null, auth = null) {
   return new Promise((resolve) => {
-    const dir = checkpointsAbsPath(root, id)
+    const dir = weightsDir(root, id)
     const finalPath = path.join(dir, file.name)
     const tmpPath = finalPath + '.tmp'
 
@@ -722,7 +737,7 @@ async function removePartialFiles (files, root, id) {
   const deleted = []
   const skipped = []
   let bytes = 0
-  const dir = checkpointsAbsPath(root, id)
+  const dir = weightsDir(root, id)
   for (const f of (files || [])) {
     const name = f && typeof f === 'object' ? f.name : f
     const size = f && typeof f === 'object' ? (f.size || null) : null

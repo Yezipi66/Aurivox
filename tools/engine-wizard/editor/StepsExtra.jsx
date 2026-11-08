@@ -465,6 +465,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             <span className="pk">{t('Stored at', '存放位置')}</span>
             <span className="pv">
               <code>engines/{id}/checkpoints/</code>
+              <span className="field-hint" style={{ marginLeft: 6 }}>
+                {t('or the runtime.checkpoints the manifest declares',
+                  '（名片声明了 runtime.checkpoints 时按名片）')}
+              </span>
             </span>
           </div>
           {manifest.some((f) => f.tool === 'hf') && (
