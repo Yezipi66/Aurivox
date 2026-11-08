@@ -29,7 +29,7 @@ import { scopeParams } from './paramScope'
 
 export default function ManifestPage ({
   manifest, spec, text, err, setText, onManifest, diag, loading, onSaved, checkpointsPath,
-  modelFiles, engineState, onPickEngineTarget,
+  modelFiles, onRefreshInstall, engineState, onPickEngineTarget,
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
@@ -145,12 +145,19 @@ export default function ManifestPage ({
       //   读最新名片算匹配结果，写回也基于最新值合并，不拿点按钮那一刻的快照整份写回。
       const latest = latestManifest.current || {}
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints, modelFiles)
+      // 点扫描这一刻重读盘上现状：页面加载时的快照会过时（权重刚下完、或第 3 步又下了
+      //   一个仓库），拿旧快照生成 models.required，会出现「盘上 13 个、只声明 7 个」。
+      let files = modelFiles
+      try {
+        const fresh = onRefreshInstall ? await onRefreshInstall(id) : null
+        if (Array.isArray(fresh)) files = fresh
+      } catch (e) { /* 读不到就用手上这份，不阻断扫描 */ }
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints, files)
       if (result) {
         onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, modelFiles) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, files) || result
           const next = { ...base, call: merged.call }
           // 运行设备这类参数的值来自请求体，host 只认 params.call_time 白名单里的键。
           //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。

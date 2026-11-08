@@ -212,6 +212,28 @@ export default function App () {
     return () => { alive = false }
   }, [manifestEngineId])
 
+  // 点扫描那一刻重读盘上现状：页面加载时的快照会过时（权重刚下完、或第 3 步又下了
+  //   一个仓库），拿旧快照生成 models.required 会出现「盘上 13 个、名片只声明 7 个」。
+  //   返回最新的 model_files 供调用方直接用，不等下一次渲染。
+  const refreshInstall = React.useCallback((idArg) => {
+    const id = idArg || manifestEngineId
+    if (!id) return Promise.resolve(null)
+    return fetch(`/wizard/install-state?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        setCheckpointsPath((j && j.checkpoints_path) || null)
+        const files = Array.isArray(j && j.model_files) ? j.model_files : null
+        setModelFiles(files)
+        const st = j && j.steps
+        setEngineState({
+          env: st && st.env ? st.env.done : null,
+          models: st && st.models ? st.models.ready : null,
+        })
+        return files
+      })
+      .catch(() => null)
+  }, [manifestEngineId])
+
   const done = Object.fromEntries(
     STEPS.map((st) => [st.key, stepDone(st.key, facts)]))
 
@@ -271,6 +293,7 @@ export default function App () {
             onSaved={reloadFacts}
             checkpointsPath={checkpointsPath}
             modelFiles={modelFiles}
+            onRefreshInstall={refreshInstall}
             engineState={engineState} />
         </div>
       )}
