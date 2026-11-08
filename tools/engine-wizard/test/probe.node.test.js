@@ -330,3 +330,13 @@ hf download fishaudio/s2-pro --local-dir checkpoints/s2-pro
     '目录要原样带出来，落点靠它决定')
   assert.ok(cmds.every((c) => c.tool === 'hf'))
 })
+
+// 上游把权重打包进 release 时，仓库里没有下载脚本，README 也不列文件。
+//   兜底只读最新一个 release 的资产清单，且只在两条主路径都没结果时才多打一次 API。
+test('release 资产兜底：触发条件与响应字段被钉住', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  assert.match(src, /releases\/latest/, '只读最新一个 release，不翻历史')
+  assert.match(src, /dlScripts\.length === 0 && readmeCmds\.length === 0/,
+    '有脚本或 README 命令时不再多打一次 API')
+  assert.match(src, /release_assets: releaseAssets,/, '响应要如实带出探测结果')
+})

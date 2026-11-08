@@ -13,7 +13,7 @@ const { spawn } = require('node:child_process')
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
 const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
-const { runDownload, fetchRemoteManifest, enrichManifestFiles, downloadFile,
+const { runDownload, fetchRemoteManifest, enrichManifestFiles, downloadFile, downloadFileFromUrl,
   removePartialFiles, normalizeSource, gatedResult } = require('./download')
 const hfToken = require('./hfToken')
 const { describeModels, explainMissingInfo } = require('./models')
@@ -275,6 +275,36 @@ function packageDirsFromEntries (entries) {
     .map((e) => e.name)
 }
 
+// 上游把权重打包进 GitHub release 时，仓库里既没有下载脚本，README 也不列文件。
+//   只读「最新一个 release」的资产清单，不猜 tag、不翻历史版本。
+//   认不出（没有 release、限流、断网）返回 null，界面照旧显示空态。
+function readReleaseAssets (owner, name) {
+  return new Promise((resolve) => {
+    const url = `https://api.github.com/repos/${owner}/${name}/releases/latest`
+    const req = https.get(url, {
+      headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
+    }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); resolve(null); return }
+      let body = ''
+      res.setEncoding('utf-8')
+      res.on('data', (c) => { body += c })
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(body)
+          const assets = (Array.isArray(j.assets) ? j.assets : [])
+            .filter((a) => a && typeof a.name === 'string' && a.name)
+            .map((a) => ({ name: a.name, size: Number(a.size) || 0,
+              url: typeof a.browser_download_url === 'string' ? a.browser_download_url : '' }))
+            .filter((a) => a.url)
+          resolve(assets.length ? { tag: j.tag_name || '', assets } : null)
+        } catch (e) { resolve(null) }
+      })
+    })
+    req.on('error', () => resolve(null))
+    req.setTimeout(8000, () => { req.destroy(); resolve(null) })
+  })
+}
+
 function listContents (owner, name, branch, subPath = '') {
   const tail = subPath ? `/${String(subPath).replace(/^\/+|\/+$/g, '')}` : ''
   return new Promise((resolve) => {
@@ -419,6 +449,13 @@ function handleProbe (req, res) {
       return true
     })
 
+    // 上游把权重打包进 release 时，脚本与 README 里都找不到下载入口。
+    //   只在两条主路径都没有结果时才多打这一次 API，避免拖慢常规探测。
+    let releaseAssets = null
+    if (dlScripts.length === 0 && readmeCmds.length === 0) {
+      releaseAssets = await readReleaseAssets(parsed.owner, parsed.repo)
+    }
+
     // 无论有没有 pyproject 都走 probeProject：包名来自 setup.py 的 name=、
     // 许可证来自根目录的 LICENSE / COPYING，都不是 pyproject 的字段 ⇒ 由它决定读得到哪个。
     let r = probeProject({
@@ -467,6 +504,7 @@ function handleProbe (req, res) {
       downloader: dlScripts,
       downloader_cmds: readmeCmds,
       docs_scanned: docsScanned,
+      release_assets: releaseAssets,
       notes,
     })
   })
@@ -1149,6 +1187,87 @@ function handleDownloadFile (req, res) {
         error: (e && e.message) || String(e) })
       res.end()
     })
+  })
+  return true
+}
+
+// POST /wizard/download/url {id, url, name?, subdir?, size?}  第 3 步：直链兜底
+//   上游只给了单文件链接（release 资产、自建网盘直链）时走这里。落盘、HTML
+//   误判守卫、大小核对、写 .tmp 再改名全部复用 downloadFileFromUrl，不另起一套。
+//   平台不解析 curl / aria2 的参数，只收一条 http(s) 文件地址。
+function handleDownloadUrl (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/url')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    const raw = String(body.url || '').trim()
+    const root = body.root || projectRoot() || ''
+    if (!id || /[\\/]/.test(id) || id === '..' || path.isAbsolute(id)) {
+      json(res, 400, { ok: false, code: 'BAD_ID', error: 'Invalid engine id', errorZh: '引擎 id 不合法。' })
+      return
+    }
+    let u = null
+    try { u = new URL(raw) } catch (e) { /* 下面按 BAD_URL 拒绝 */ }
+    if (!u || !['http:', 'https:'].includes(u.protocol)) {
+      json(res, 400, { ok: false, code: 'BAD_URL',
+        error: 'A direct http(s) file URL is required.', errorZh: '请填写 http(s) 文件直链。' })
+      return
+    }
+    let name = String(body.name || '').trim()
+    if (!name) {
+      try { name = decodeURIComponent(path.posix.basename(u.pathname)) } catch (e) { name = '' }
+    }
+    if (!name || /[\\/]/.test(name) || name === '.' || name === '..' || path.isAbsolute(name)) {
+      json(res, 400, { ok: false, code: 'BAD_NAME',
+        error: 'The file name cannot be read from this URL. Fill in the name.',
+        errorZh: '这个链接读不出文件名，请补一个文件名。' })
+      return
+    }
+    const subdir = typeof body.subdir === 'string' ? body.subdir : ''
+    const file = { name, size: Number(body.size) || 0, subdir }
+    const ac = new AbortController()
+    let finished = false
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+    if (typeof res.on === 'function') {
+      res.on('close', () => {
+        if (finished) return
+        finished = true
+        try { ac.abort() } catch (e) { /* 已经结束 */ }
+      })
+    }
+    const onLine = (text, isErr) => { send('line', { text, err: !!isErr }) }
+    const onProgress = (p) => {
+      send('progress', { file: name, percent: Math.min(100, Math.round((p.downloaded / p.total) * 100)),
+        downloaded: p.downloaded, total: p.total })
+    }
+    try {
+      downloadFileFromUrl(raw, file, '', root, id, onLine, onProgress, 0, true, ac.signal, null)
+        .then((r) => {
+          if (finished) return
+          finished = true
+          send('done', r)
+          res.end()
+        })
+        .catch((e) => {
+          if (finished) return
+          finished = true
+          send('done', { ok: false, code: 'BRIDGE_FAILED', error: (e && e.message) || String(e) })
+          res.end()
+        })
+    } catch (e) {
+      finished = true
+      send('done', { ok: false, code: 'BRIDGE_FAILED', error: (e && e.message) || String(e) })
+      res.end()
+    }
   })
   return true
 }
@@ -2005,7 +2124,7 @@ function handleResetProgress (req, res) {
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
-  handleDownloadManifest, handleDownloadFile, handleDownloadCancel, handleRunScript, handleHfToken,
+  handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
   handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,

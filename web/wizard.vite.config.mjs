@@ -59,6 +59,8 @@ function validatePlugin () {
     handleInstalled, handleSave,
     // run-script 认 /wizard/run-script 整串，与 download 一族不互为前缀，位置不影响路由。
     wb.handleRunScript,
+    // download/url 必须排在 handleDownload（/wizard/download 前缀）之前。
+    wb.handleDownloadUrl,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
     // cancel 必须排在 handleDownload 之前：handleDownload 认的是 /wizard/download 整串前缀，
     // 会把 download/cancel 一起吃掉（它自己也会显式排除，但注册顺序不能依赖那个）。

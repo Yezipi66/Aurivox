@@ -136,6 +136,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const [scriptOut, setScriptOut] = React.useState([])
   const [scriptArgs, setScriptArgs] = React.useState({})
   const scriptAbort = React.useRef(null)
+  // 直链兜底：上游只给单个文件地址（release 资产、自建网盘）时用。
+  const [directUrl, setDirectUrl] = React.useState('')
+  const [directName, setDirectName] = React.useState('')
+  const [directBusy, setDirectBusy] = React.useState(false)
+  const [directOut, setDirectOut] = React.useState([])
+  const directAbort = React.useRef(null)
   const refreshFileList = () => {
     if (!id) return
     fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
@@ -160,6 +166,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
   //   界面只显示解释器种类，绝对路径由服务端决定，不往界面上塞一长串本机路径。
+  const sizeLabel = (n) => {
+    const v = Number(n) || 0
+    if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
+    if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
+    return `${v} B`
+  }
+
   const scriptCommand = (file) => {
     const ext = String(file || '').toLowerCase().split('.').pop()
     if (ext === 'sh') return 'bash'
@@ -217,6 +230,55 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const stopScript = () => {
     if (scriptAbort.current) scriptAbort.current.abort()
   }
+
+  // 直链下载：一条 http(s) 文件地址，落到名片声明的权重目录（可带子目录）。
+  //   不解析 curl / aria2 的参数，也不猜压缩包怎么解，只下一个文件。
+  const downloadDirect = async (urlVal, nameVal, sizeVal) => {
+    if (!id || !urlVal) return
+    setDirectBusy(true)
+    setDirectOut([])
+    const controller = new AbortController()
+    directAbort.current = controller
+    try {
+      const resp = await fetch('/wizard/download/url', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          id,
+          root: window.__PROJECT_ROOT__ || '',
+          url: urlVal,
+          name: nameVal || undefined,
+          size: sizeVal || 0,
+        }),
+      })
+      if (!resp.ok) {
+        let j = null
+        try { j = await resp.json() } catch (e) { /* 不是 JSON 就只报状态码 */ }
+        setDirectOut([(j && (j.errorZh || j.error)) || ('HTTP ' + resp.status)])
+        return
+      }
+      let last = null
+      await readSse(resp, (ev) => {
+        if (!ev) return
+        if (typeof ev.percent === 'number') setDirectOut([`${ev.file || ''} ${ev.percent}%`])
+        else if (typeof ev.text === 'string') setDirectOut((prev) => [...prev, ev.text].slice(-40))
+        if ('ok' in ev || 'error' in ev) last = ev
+      })
+      if (last && last.ok === false) {
+        setDirectOut((prev) => [...prev, last.errorZh || last.error || `${last.code || 'FAILED'}`])
+      }
+      refreshFileList()
+    } catch (e) {
+      const stopped = e && e.name === 'AbortError'
+      setDirectOut((prev) => [...prev, stopped ? t('Stopped.', '已停止。') : String((e && e.message) || e)])
+    } finally {
+      directAbort.current = null
+      setDirectBusy(false)
+    }
+  }
+
+  const releaseAssets = (probe && probe.release_assets) || null
 
   const seenRepos = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
@@ -864,9 +926,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* 上游附带的下载脚本（如果有）。
-          平台不执行它们，只是告诉用户「上游自己给了这个脚本」，
-          执行是用户自己的事，平台只负责把命令摆出来。*/}
+      {/* 上游附带的下载脚本（如果有）：平台按扩展名选解释器，在引擎目录里运行它。 */}
       {upstreamScripts.length > 0 && (
         <div className="section" style={{ marginTop: 4 }}>
           <div className="section-hdr">
@@ -908,6 +968,77 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             {scriptOut.length > 0 && (
               <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
                 {scriptOut.join('\n')}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+
+      {releaseAssets && releaseAssets.assets.length > 0 && (
+        <div className="section" style={{ marginTop: 4 }}>
+          <div className="section-hdr">
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+              {t('Packed in the latest release', '上游打包在最新 release 里')}
+              {releaseAssets.tag ? ` · ${releaseAssets.tag}` : ''}
+            </h2>
+          </div>
+          <div className="section-body">
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('These are the files the project attached to its latest release. Download the ones you need into the weights folder.',
+                '这些是上游在最新 release 里附带的文件。按需下载到权重目录。')}
+            </div>
+            {releaseAssets.assets.map((a) => (
+              <div className="rc-cmd" key={a.url}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>{a.name}</pre>
+                <span className="field-hint" style={{ margin: 0 }}>{sizeLabel(a.size)}</span>
+                <button className="btn btn-sm btn-primary" type="button"
+                  disabled={directBusy || !id}
+                  onClick={() => downloadDirect(a.url, a.name, a.size)}>
+                  {t('Download', '下载')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {id && (
+        <div className="section" style={{ marginTop: 4 }}>
+          <div className="section-hdr">
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+              {t('A direct file link', '单文件直链')}
+            </h2>
+          </div>
+          <div className="section-body">
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('Paste one http(s) file URL. The platform downloads it into the declared weights folder and re-reads the file list afterwards.',
+                '贴一条 http(s) 文件地址。平台会把它下到名片声明的权重目录，结束后重新读一次文件清单。')}
+            </div>
+            <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input className="control" style={{ flex: 1 }} value={directUrl}
+                placeholder="https://.../model.safetensors"
+                disabled={directBusy}
+                onChange={(e) => setDirectUrl(e.target.value)} />
+              <input className="control" style={{ flex: '0 0 180px' }} value={directName}
+                placeholder={t('file name (optional)', '文件名（可空）')}
+                disabled={directBusy}
+                onChange={(e) => setDirectName(e.target.value)} />
+              <button className="btn btn-sm btn-primary" type="button"
+                disabled={directBusy || !directUrl.trim()}
+                onClick={() => downloadDirect(directUrl.trim(), directName.trim(), 0)}>
+                {directBusy ? t('Downloading', '下载中') : t('Download', '下载')}
+              </button>
+              {directBusy && (
+                <button className="btn btn-sm btn-danger" type="button"
+                  onClick={() => directAbort.current && directAbort.current.abort()}>
+                  {t('Stop', '停止')}
+                </button>
+              )}
+            </div>
+            {directOut.length > 0 && (
+              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 180, overflow: 'auto' }}>
+                {directOut.join('\n')}
               </pre>
             )}
           </div>
