@@ -79,6 +79,44 @@ export function buildCommand (c, choices) {
   return { display: (c && c.raw) || repo, source }
 }
 
+// 模型页链接有固定形状，认出来就能当一个仓库用，不必再让人补一条下载命令。
+// 与后端 extractRepoLinks 同一口径：只认 URL 形状，不判断链接里装的是不是权重。
+const REPO_LINK_SKIP = new Set(['spaces', 'datasets', 'docs', 'api', 'blog', 'models',
+  'collections', 'tasks', 'join', 'settings', 'organizations', 'login', 'pricing',
+  'inference-endpoints', 'studios', 'studies'])
+
+/**
+ * 把一条 URL 解析成模型仓库。认不出（单文件直链、其它站点、非模型页）返回 null，
+ * 由调用方按单文件下载处理。
+ *
+ * @param {string} raw
+ * @returns {{tool:string, repo:string, url:string}|null}
+ */
+export function repoLinkFromUrl (raw) {
+  let u = null
+  try { u = new URL(String(raw || '').trim()) } catch (e) { return null }
+  if (!['http:', 'https:'].includes(u.protocol)) return null
+  const host = u.hostname.toLowerCase().replace(/^www\./, '')
+  const parts = u.pathname.split('/').filter(Boolean)
+  let tool = null
+  let repo = null
+  if (host === 'huggingface.co') {
+    if (parts.length < 2 || REPO_LINK_SKIP.has(parts[0].toLowerCase())) return null
+    tool = 'hf'
+    repo = `${parts[0]}/${parts[1]}`
+  } else if (host === 'modelscope.cn') {
+    if (parts.length < 3 || parts[0].toLowerCase() !== 'models') return null
+    if (REPO_LINK_SKIP.has(parts[1].toLowerCase())) return null
+    tool = 'modelscope'
+    repo = `${parts[1]}/${parts[2]}`
+  } else return null
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return null
+  return {
+    tool, repo,
+    url: tool === 'hf' ? `https://huggingface.co/${repo}` : `https://modelscope.cn/models/${repo}`,
+  }
+}
+
 /** 仓库网页地址：表格里的仓库列与授权提示里的链接用它。来源未知时返回 null。 */
 export function repoPageUrl (source, repo) {
   if (!repo) return null

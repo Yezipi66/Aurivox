@@ -79,3 +79,41 @@ test('后端核对：同一份文件在子目录里能被认出来', async () =>
 
   fs.rmSync(root, { recursive: true, force: true })
 })
+
+// 模型页链接形状固定，识别出来就该直接进下载清单，不必再让人点一次「加入」。
+//   单文件直链与其它站点仍走原来的文件下载口子。
+const { repoLinkFromUrl } = loadSource()
+
+test('模型页链接：HF 与魔搭都认，长尾路径剥掉', () => {
+  assert.deepStrictEqual(repoLinkFromUrl('https://huggingface.co/Org/Model-A'),
+    { tool: 'hf', repo: 'Org/Model-A', url: 'https://huggingface.co/Org/Model-A' })
+  assert.deepStrictEqual(repoLinkFromUrl('https://huggingface.co/Org/Model-A/tree/main'),
+    { tool: 'hf', repo: 'Org/Model-A', url: 'https://huggingface.co/Org/Model-A' })
+  assert.deepStrictEqual(repoLinkFromUrl('https://huggingface.co/Org/Model-B/resolve/main/config.json'),
+    { tool: 'hf', repo: 'Org/Model-B', url: 'https://huggingface.co/Org/Model-B' })
+  assert.deepStrictEqual(repoLinkFromUrl('https://www.modelscope.cn/models/iic/CosyVoice2-0.5B'),
+    { tool: 'modelscope', repo: 'iic/CosyVoice2-0.5B',
+      url: 'https://modelscope.cn/models/iic/CosyVoice2-0.5B' })
+})
+
+test('非模型仓库：不当成仓库，交回单文件下载', () => {
+  for (const u of [
+    'https://huggingface.co/spaces/Org/Demo',
+    'https://huggingface.co/datasets/Org/Data',
+    'https://huggingface.co/docs/transformers/index',
+    'https://github.com/org/repo/releases/download/v1/model.zip',
+    'https://example.com/model.safetensors',
+    'ftp://example.com/model.bin',
+    'not a url',
+    '',
+  ]) assert.strictEqual(repoLinkFromUrl(u), null, u)
+})
+
+test('链接直接进下载清单：不再有一次「加入」动作', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'StepsExtra.jsx'), 'utf8')
+  assert.match(src, /\.\.\.\[\.\.\.repoLinks, \.\.\.pastedRepos\]\.filter\(keepLink\)\.map\(linkCmd\)/,
+    '探测到的链接与手贴的仓库都直接成为命令')
+  assert.ok(!src.includes('Add to download list'), '不再要求人逐个加入')
+  assert.match(src, /const asRepo = repoLinkFromUrl\(urlVal\)/,
+    '手贴模型仓库页时按仓库处理，不当单文件下载')
+})

@@ -4,7 +4,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
 import { downloadFiles, readSse } from './downloadRunner'
-import { sourceOf, buildCommand, choiceKey, repoPageUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
+import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -163,12 +163,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const M = (r && r.manifest) || null
   const upstreamScripts = (probe && probe.downloader) || []
   const repoLinks = (probe && probe.repo_links) || []
-  // 模型页链接只是候选：人点「加入」之后才成为一条下载命令。
-  //   平台不判断哪个链接是权重仓库，也不替人把全部候选都下下来。
-  const [pickedLinks, setPickedLinks] = React.useState([])
+  // 模型页链接形状固定，识别出来就直接是下载清单里的一条，不必再点一次「加入」。
+  //   平台仍不判断哪个链接装的是权重：逐条可移除，也不替人自动下载。
+  const [pastedRepos, setPastedRepos] = React.useState([])
+  const [removedLinks, setRemovedLinks] = React.useState([])
+  const linkCmd = (l) => ({ tool: l.tool, repo: l.repo, dir: null, raw: l.url, from: 'link' })
+  const keepLink = (l) => !removedLinks.includes(`${l.tool}|${l.repo}`)
   const upstreamCmds = [
     ...((probe && probe.downloader_cmds) || []),
-    ...pickedLinks.map((l) => ({ tool: l.tool, repo: l.repo, dir: null, raw: l.url, from: 'link' })),
+    ...[...repoLinks, ...pastedRepos].filter(keepLink).map(linkCmd),
   ]
 
   // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
@@ -242,6 +245,16 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   //   不解析 curl / aria2 的参数，也不猜压缩包怎么解，只下一个文件。
   const downloadDirect = async (urlVal, nameVal, sizeVal) => {
     if (!id || !urlVal) return
+    // 贴进来的是模型仓库页时按仓库处理：它不是一个文件，直接下只会拿到一个 HTML 页面。
+    const asRepo = repoLinkFromUrl(urlVal)
+    if (asRepo && !sizeVal) {
+      setPastedRepos((prev) => prev.some((p) => p.tool === asRepo.tool && p.repo === asRepo.repo)
+        ? prev : [...prev, asRepo])
+      setDirectUrl('')
+      setDirectOut([t('A model repo link was added to the download list above.',
+        '这是模型仓库链接，已加入上面的下载清单。')])
+      return
+    }
     setDirectBusy(true)
     setDirectOut([])
     const controller = new AbortController()
@@ -297,7 +310,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     return true
   })
   const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
-    repoLinks.length === 0 && !(releaseAssets && releaseAssets.assets.length > 0)
+    !(releaseAssets && releaseAssets.assets.length > 0)
+  const linkCmdCount = visibleCmds.filter((c) => c && c.from === 'link').length
+  const removeLink = (c) => {
+    const key = `${c.tool}|${c.repo}`
+    setRemovedLinks((prev) => [...prev, key])
+    setPastedRepos((prev) => prev.filter((p) => `${p.tool}|${p.repo}` !== key))
+  }
 
   // 嗅探仓库：调 /wizard/download/manifest 获取文件列表。
   // 追加不覆盖：点某个仓库的按钮显示该仓库的文件，再点另一个仓库的按钮追加到列表后面。
@@ -772,37 +791,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </>
       )}
 
-      {/* 上游文档里的模型页链接只是候选，人确认后才成为一条下载命令。 */}
-      {repoLinks.length > 0 && (
-        <div className="section" style={{ marginTop: 8 }}>
-          <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
-              {t('Model repos mentioned upstream', '上游提到的模型仓库')}
-            </h2>
-          </div>
-          <div className="section-body">
-            <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('These are links in the README or install docs, not download commands. The platform does not know which ones hold weights; add only what you need.',
-                '这些是 README 或安装文档里的链接，不是下载命令。平台不知道哪些装的是权重，请只加入需要的。')}
-            </div>
-            {repoLinks.map((l) => {
-              const key = `${l.tool}|${l.repo}`
-              const picked = pickedLinks.some((p) => `${p.tool}|${p.repo}` === key)
-              return (
-                <div className="rc-cmd" key={key}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                  <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>{l.url}</pre>
-                  <button className="btn btn-sm" type="button" disabled={picked}
-                    onClick={() => setPickedLinks((prev) => [...prev, l])}>
-                    {picked ? t('Added', '已加入') : t('Add to download list', '加入下载清单')}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* 下载命令区：展示上游命令，并可按仓库嗅探文件清单、逐文件下载。 */}
       {visibleCmds.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
@@ -821,6 +809,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                   '这些命令来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
               </div>
             )}
+            {linkCmdCount > 0 && (
+              <div className="field-hint" style={{ marginTop: 2 }}>
+                {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
+                  '部分条目来自上游文档里的模型仓库链接。平台无法判断哪些装的是权重，嗅探前请移除不需要的。')}
+              </div>
+            )}
             {repoCount > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                 <button className="btn btn-sm" type="button"
@@ -829,8 +823,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                   {t(`Probe all repos (${repoCount})`, `嗅探全部仓库（${repoCount} 个）`)}
                 </button>
                 <span className="field-hint" style={{ margin: 0 }}>
-                  {t('The upstream README lists several repos. Weights may be split across them; probe all before downloading.',
-                    '上游 README 给了多个仓库，权重可能分散在其中。建议全部嗅探后再下载。')}
+                  {t('Several repos are listed. Weights may be split across them; remove the ones you do not need before probing all.',
+                    '清单里有多个仓库，权重可能分散其中。建议先移除不需要的，再全部嗅探。')}
                 </span>
               </div>
             )}
@@ -871,6 +865,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                     ? t('Probing…', '嗅探中…')
                     : t('Probe repo', '嗅探仓库')}
                 </button>
+                {c.from === 'link' && (
+                  <button className="btn btn-sm" type="button"
+                    title={t('Remove this repo from the list', '从清单里移除这个仓库')}
+                    onClick={() => removeLink(c)} style={{ flexShrink: 0 }}>
+                    {t('Remove', '移除')}
+                  </button>
+                )}
               </div>
               )
             })}
