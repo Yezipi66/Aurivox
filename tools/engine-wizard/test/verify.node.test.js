@@ -218,8 +218,10 @@ test('四道标题为正式名称，且按静态前置与运行验证分层', ()
   }
 })
 
-test('静态前置检查单独汇总，不与真实合成混为一个结论', () => {
+test('静态前置检查单独汇总，不与真实合成混为一个结论', (t) => {
   const r = runChecks(REAL, { deep: true })
+  // 没有可用名片时 runChecks 只回 NO_PROFILE，没有可汇总的检查项。
+  if (!r.checks) return t.skip('当前环境没有可解析的引擎名片')
   assert.ok(r.summary && r.summary.preflight, '结果里要带静态前置检查的汇总')
   const s = r.summary.preflight
   assert.strictEqual(s.total, 3)

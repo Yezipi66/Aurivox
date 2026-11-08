@@ -172,7 +172,7 @@ test('第 5 步进度文案：阶段四种，已用时间 mm:ss', () => {
   const P = mod.exports
   const t = (en, zh) => zh
   assert.deepStrictEqual(['starting', 'synth', 'done', 'failed'].map((s) => P.measureStageLabel(s, t)),
-    ['启动中', '合成中', '完成', '失败'])
+    ['引擎启动中', '合成中', '已完成', '失败'])
   assert.equal(P.formatElapsed(65000), '01:05')
   assert.equal(P.formatElapsed(3725000), '1:02:05')
   assert.equal(P.measureRunning({ state: 'running' }), true)

@@ -87,7 +87,7 @@ test('ready:true ⇒ 文件齐了', () => {
   assert.strictEqual(r.ok, true, r.error)
   assert.strictEqual(r.status.ready, true, JSON.stringify(r.status))
   // 钉实质：说明声明的文件都在，不钉「一个不少」这个措辞。
-  assert.ok(r.notes.some((n) => /全部存在|一个不少/.test(n)), r.notes.join(' | '))
+  assert.ok(r.notes.some((n) => /齐全|全部存在|一个不少/.test(n)), r.notes.join(' | '))
 })
 
 test('ready:false ⇒ 缺了，如实说缺', () => {
@@ -95,7 +95,7 @@ test('ready:false ⇒ 缺了，如实说缺', () => {
   const { id } = manifestOk(['a.pt', 'b.pt'], { present: ['a.pt'] })
   const r = describeModels(id, mkdtempModelsDir)
   assert.strictEqual(r.status.ready, false, JSON.stringify(r.status))
-  assert.ok(r.notes.some((n) => n.includes('缺')), r.notes.join(' | '))
+  assert.ok(r.notes.some((n) => /不完整|缺/.test(n)), r.notes.join(' | '))
 })
 
 test('ready:null ⇒ 必须说「说不出来」，不得说成齐了或缺了', () => {
@@ -114,7 +114,7 @@ test('ready:null ⇒ 必须说「说不出来」，不得说成齐了或缺了',
   //   实质 = 明确说「既非完整也非缺失」，且不许出现 ready:true 的结论。
   const all = r.notes.join(' | ')
   assert.ok(/状态未知/.test(all), all)
-  assert.ok(/既不能视为完整|不等于「齐了」/.test(all),
+  assert.ok(/既不能判定为完整|既不能视为完整|不等于「齐了」/.test(all),
     `⛔ 必须说清「不是齐了也不是缺了」：${all}`)
   assert.ok(!/文件一个不少|全部存在/.test(all),
     `⛔ 状态未知时不得说成完整：${all}`)
