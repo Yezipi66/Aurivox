@@ -7,7 +7,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import {
-  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell,
+  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell, boolStyle,
 } from './paramFields'
 
 const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
@@ -19,11 +19,13 @@ const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
  *   meta.argv 让落点同步迁移 call.args 的键，开关改名后不留一个永远上不了命令行的条目
  * @param {Function} onDelete 删这一条（传索引）
  */
-export default function ParamRow ({ entry, index, spec, argv = '', onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
+export default function ParamRow ({ entry, index, spec, argv = '', argStyle = '', onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
   const { t } = useT()
   void spec
 
   const type = TYPES.includes(entry.type) ? entry.type : 'text'
+  // 有没有否定式开关，只由 call.args 的 style 决定（boolean_optional 才有）。
+  const negatable = argStyle === 'boolean_optional'
   const label = readLabel(entry)
   const patch = (partial, meta) => onChange(index, { ...entry, ...partial }, meta)
   const set = (k, v) => {
@@ -41,6 +43,8 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
   }
 
   // 换类型时收走上一个类型专属的字段，避免旧值以错误形状留到下次存盘。
+  // 命令行样式也要跟着换：boolean 走 boolean / boolean_optional，其余回到值型。
+  //   留在 value 上的布尔会拼成 `--x True`，上游把 True 当成多余的位置参数。
   const setType = (next) => {
     const out = { ...entry, type: next }
     for (const k of ['suggested_value', 'dim_labels', 'choices', 'allow_custom', 'item', 'repeat']) {
@@ -55,7 +59,8 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
       out.dim_labels = [{ zh: '', en: '' }, { zh: '', en: '' }]
       out.suggested_value = [null, null]
     }
-    onChange(index, out)
+    const style = next === 'boolean' ? boolStyle(negatable) : (next === 'vector' ? 'join' : 'value')
+    onChange(index, out, { argv: { from: entry.name, to: entry.name, flag: argv, style } })
     if (onTypeConfirmed) onTypeConfirmed(entry.name)
   }
 
@@ -179,6 +184,27 @@ export default function ParamRow ({ entry, index, spec, argv = '', onChange, onD
                 onChange={(e) => setDim(i, 'en', e.target.value)} />
             </div>
           ))}
+        </div>
+      )}
+
+      {/* boolean：只补一件主行说不清楚的事，取消勾选时发不发否定式开关。
+             上游写成 --x/--no-x 时勾上；只写 --x 时留空。 */}
+      {type === 'boolean' && (
+        <div className="wz-param-table">
+          <label className="wz-param-bool-row">
+            <input type="checkbox" checked={negatable}
+              onChange={(e) => patch({}, {
+                argv: { from: entry.name, to: entry.name, flag: argv, style: boolStyle(e.target.checked) },
+              })} />
+            <span>{t('Send a negative switch when unchecked', '取消勾选时发送否定式开关')}</span>
+            {negatable && argv && (
+              <code className="wz-param-bool-neg">{'--no-' + String(argv).replace(/^-+/, '')}</code>
+            )}
+          </label>
+          <span className="wz-param-table-hint">
+            {t('On: unchecked sends --no-x. Off: unchecked sends nothing and the engine keeps its own default.',
+              '勾上：取消勾选时发 --no-x。不勾：取消勾选时什么都不发，由引擎用自己的默认值。')}
+          </span>
         </div>
       )}
     </div>

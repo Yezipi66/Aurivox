@@ -624,8 +624,9 @@
 .wz-param-zh,
 .wz-param-en { flex: 0 0 120px; }
 
-/* 按类型展开的选项表：select 三列（值 / 中文 / 英文），vector 两列（中文 / 英文）。
-   一行一条，与主行同宽；text / number / boolean / file 没有这张表。 */
+/* 按类型展开的选项表：select 三列（值 / 中文 / 英文），vector 两列（中文 / 英文），
+   boolean 只有一行（取消勾选时发不发否定式开关）。一行一条，与主行同宽；
+   text / number / file 没有这张表。 */
 .wz-param-table {
   flex: 1 1 100%;
   display: flex;
@@ -669,6 +670,28 @@
 .wz-param-table-cols span { white-space: nowrap; }
 .wz-param-table-row .control { min-width: 0; font-size: var(--fs-11); padding: 2px 6px; }
 .wz-param-no { font-size: var(--fs-11); color: var(--muted); }
+
+/* boolean 的子表只有一行：勾选框 + 取消勾选时会发出的那个词。
+   右侧的词由开关名推出来（--x 对应 --no-x），只在这里显示，供人核对。 */
+.wz-param-bool-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  font-size: var(--fs-11);
+  color: var(--text);
+  white-space: nowrap;
+}
+.wz-param-bool-row input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
+/* 取消勾选时会发出的那个词：做成一小块标签，与左边的说明拉开距离，
+   免得看起来像说明文字的一部分。 */
+.wz-param-bool-neg {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  margin-left: var(--sp-4);
+  padding: 1px var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
 
 .wz-param-type { flex: 0 0 92px; }
 .wz-param-place { flex: 0 0 132px; }

@@ -69,21 +69,40 @@ export function withCell (rows, i, key, value) {
 }
 
 /**
+ * boolean 那一格要写成哪种命令行样式。
+ *
+ *   有否定式 ⇒ boolean_optional：勾了发 --x，不勾发 --no-x
+ *   没有   ⇒ boolean：勾了发 --x，不勾什么都不发（引擎用自己的默认值）
+ *
+ * 上游把否定式写在开关后面（click 的 --x/--no-x）时，这个事实由「发送否定式开关」
+ * 那一格决定；平台不替上游拼那个词。
+ */
+export function boolStyle (negatable) {
+  return negatable ? 'boolean_optional' : 'boolean'
+}
+
+/**
  * 开关改名后，把 call.args 里的键一起搬过去。
  * 参数名既是 parameters[].name，也是 call.args 的键；只改前者会留下一个
  * 永远上不了命令行的旧条目，存盘直接被拒。旧条目的 style / join / role 要跟着搬。
  *
+ * style 是可选的一项：boolean 的否定式开关要在这里改掉（boolean / boolean_optional），
+ * 不给就保留原样，避免把 join / repeat 这些与类型无关的写法冲掉。
+ *
  * @param {object} call 名片的 call 段
- * @param {{from: string, to: string, flag: string}} argv 开关改动
+ * @param {{from: string, to: string, flag: string, style?: string}} argv 开关改动
  * @returns {object} 新的 call 段
  */
 export function withArgKey (call, argv) {
   if (!call || !argv) return call
   const args = { ...(call.args || {}) }
-  const { from, to, flag } = argv
+  const { from, to, flag, style } = argv
   const old = (from && args[from]) || {}
   if (from && from !== to) delete args[from]
-  if (to && flag && String(flag).startsWith('-')) args[to] = { ...old, flag }
-  else if (to) delete args[to]
+  if (to && flag && String(flag).startsWith('-')) {
+    const next = { ...old, flag }
+    if (style) next.style = style
+    args[to] = next
+  } else if (to) delete args[to]
   return { ...call, args }
 }

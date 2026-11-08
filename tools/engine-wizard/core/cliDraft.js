@@ -58,6 +58,9 @@ function buildCliDraft (cliHelp, opts = {}) {
       // argparse 的 type= 原样递出（int / float / str / Path…）。
       //   没有它，value 形态的 flag 只能一律当 str，界面上的类型就是猜的。
       type: f.type || null,
+      // 上游自己写的否定式开关（click 的 --x/--no-x）。拖进合成参数时用它
+      //   决定「取消勾选发什么」，平台不替上游拼这个词。
+      negative: f.negative || null,
       is_tool: TOOL_FLAGS.has(name),
       subcommand: f.subcommand || null,
       source_file: f.source_file || null,

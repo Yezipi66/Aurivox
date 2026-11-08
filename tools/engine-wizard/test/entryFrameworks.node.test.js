@@ -170,3 +170,28 @@ if __name__ == "__main__":
   const { names } = scan(body)
   assert.deepStrictEqual(names, ['text', 'output_path'], 'argparse 的名字保持原样（下划线），不被改成横线')
 })
+
+// click 的 --x/--no-x：同一个开关的两种拼法。
+//   扫成一条 value 型参数时，命令行上会拼出 `--x/--no-x False`，上游直接拒。
+//   正确形状是主开关 + boolean_optional；否定式原样记下来，供界面显示。
+const CLICK_DUAL = `import click
+
+@click.command()
+@click.option("--text", required=True)
+@click.option("--half/--no-half", default=False, help="half precision")
+@click.option("--mode", type=click.Choice(["fast", "accurate"]), default="fast")
+def main(text, half, mode):
+    pass
+`
+
+test('click：--x/--no-x 落成 boolean_optional，否定式与候选值都读得到', { skip }, () => {
+  const { draft } = scan(CLICK_DUAL)
+  const byName = Object.fromEntries((draft.args || []).map((a) => [a.name, a]))
+
+  assert.strictEqual(byName.half.flag, '--half', '主开关取肯定那一半')
+  assert.strictEqual(byName.half.style, 'boolean_optional')
+  assert.strictEqual(byName.half.negative, '--no-half', '否定式是上游写的那个词')
+
+  assert.deepStrictEqual(byName.mode.choices, ['fast', 'accurate'], 'click.Choice 的候选要读出来')
+  assert.strictEqual(byName.mode.default, 'fast')
+})

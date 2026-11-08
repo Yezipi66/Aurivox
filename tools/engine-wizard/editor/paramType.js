@@ -23,6 +23,9 @@ const KIND_TO_TYPE = {
  */
 export function paramTypeOf (p) {
   if (!p) return 'text'
+  // 上游给了候选值就是下拉：argparse 的 choices= 与 click.Choice 都在这里，
+  //   按 str 落成输入框等于把候选丢掉，使用者还得回上游抄一遍。
+  if (Array.isArray(p.choices) && p.choices.length) return 'select'
   if (p.kind === 'array') return 'text'
   return KIND_TO_TYPE[String(p.kind || '').toLowerCase()] || 'text'
 }

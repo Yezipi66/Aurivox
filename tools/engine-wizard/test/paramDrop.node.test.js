@@ -55,9 +55,20 @@ function loadDrop () {
   new Function('exports', 'require', 'module', shapeSrc)(shapeMod.exports, () => {
     throw new Error('paramShape 不该有依赖')
   }, shapeMod)
+  // paramFields 同样是零依赖的纯函数文件：boolStyle 用真的那一份，
+  //   替身会让「布尔写成哪种样式」这件事测不到。
+  const fieldsSrc = esbuild.transformSync(
+    fs.readFileSync(path.join(EDITOR_DIR, 'paramFields.js'), 'utf8'),
+    { loader: 'js', format: 'cjs', target: 'node18' }).code
+  const fieldsMod = { exports: {} }
+  // eslint-disable-next-line no-new-func
+  new Function('exports', 'require', 'module', fieldsSrc)(fieldsMod.exports, () => {
+    throw new Error('paramFields 不该有依赖')
+  }, fieldsMod)
   const stub = (id) => {
     if (/paramType/.test(id) && !/paramShape/.test(id)) return typeMod.exports
     if (/paramShape/.test(id)) return shapeMod.exports
+    if (/paramFields/.test(id)) return fieldsMod.exports
     throw new Error('拖拽落点的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -254,4 +265,56 @@ test('拖拽标签：跟着光标走的是命令行上的写法，不是 JSON', 
   assert.equal(dragLabelOf(VEC_PARAM), '--emotion-vector')
   assert.equal(dragLabelOf({ source: 'python', name: 'seed', target: 'seed' }), 'seed')
   assert.equal(dragLabelOf(null), '')
+})
+
+// 布尔与候选值的预填：拖进来就该是对的，使用者只需要填名字。
+//   上游把开关写成 --x/--no-x 时，取消勾选要发否定式；只写 --x 时什么都不发。
+//   这两种在名片里是两种 style，写错的表现是命令行上多出一个 True / False。
+test('布尔参数：双写法落成 boolean_optional，单写法落成 boolean', () => {
+  const dual = applyParamDrop({ call: { kind: 'cli', args: {} } }, {
+    source: 'cli', name: 'half', target: '--half', kind: 'boolean',
+    style: 'boolean_optional', negative: '--no-half', required: false, group: '(root)',
+  })
+  assert.strictEqual(dual.parameters[0].type, 'boolean')
+  assert.deepStrictEqual(dual.call.args.half, { flag: '--half', style: 'boolean_optional' })
+
+  const single = applyParamDrop({ call: { kind: 'cli', args: {} } }, {
+    source: 'cli', name: 'verbose', target: '--verbose', kind: 'boolean',
+    style: 'boolean', required: false, group: '(root)',
+  })
+  assert.deepStrictEqual(single.call.args.verbose, { flag: '--verbose', style: 'boolean' })
+})
+
+test('布尔参数：扫描只给了 value 时也按布尔写，避免拼出 --x True', () => {
+  const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, {
+    source: 'cli', name: 'half', target: '--half', kind: 'boolean',
+    style: 'value', required: false, group: '(root)',
+  })
+  assert.strictEqual(m.call.args.half.style, 'boolean')
+})
+
+test('下拉参数：上游给的候选铺成选项表，不再是一张空表', () => {
+  const m = applyParamDrop({ call: { kind: 'cli', args: {} } }, {
+    source: 'cli', name: 'mode', target: '--mode', kind: 'str', style: 'value',
+    choices: ['fast', 'accurate'], default: 'accurate', required: false, group: '(root)',
+  })
+  const row = m.parameters[0]
+  assert.strictEqual(row.type, 'select')
+  assert.deepStrictEqual(row.choices.map((c) => c.value), ['fast', 'accurate'])
+  assert.strictEqual(row.suggested_value, 'accurate', '上游写的默认值就是界面初值')
+})
+
+test('数值参数：上游的默认值填进 suggested_value；文本默认值不抄', () => {
+  const num = applyParamDrop({ call: { kind: 'cli', args: {} } }, {
+    source: 'cli', name: 'temperature', target: '--temperature', kind: 'number',
+    style: 'value', default: 0.8, required: false, group: '(root)',
+  })
+  assert.strictEqual(num.parameters[0].suggested_value, 0.8)
+
+  const txt = applyParamDrop({ call: { kind: 'cli', args: {} } }, {
+    source: 'cli', name: 'text', target: '--text', kind: 'str',
+    style: 'value', default: 'demo sentence', required: false, group: '(root)',
+  })
+  assert.strictEqual(txt.parameters[0].suggested_value, undefined,
+    '文本默认值常是示例句子，抄进界面等于替人写了正文')
 })

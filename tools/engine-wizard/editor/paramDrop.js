@@ -3,6 +3,7 @@
 
 import { paramTypeOf } from './paramType.js'
 import { vectorShapeFromHelp } from './paramShape.js'
+import { boolStyle } from './paramFields.js'
 
 // 中栏的落点：界面参数区（parameters[]）。扫到的参数拖进来，按扫到的信息预填，接入者再改。
 //
@@ -108,10 +109,28 @@ export function applyParamDrop (manifest, param) {
   const list = Array.isArray(m.parameters) ? [...m.parameters] : []
   // 已经声明过同名参数就不重复加：拖两次同一个东西不该出现两条。
   if (!list.some((p) => p && p.name === name)) {
-    const entry = { name, type: paramTypeOf(param), tier: 'common' }
+    const type = paramTypeOf(param)
+    const entry = { name, type, tier: 'common' }
     if (param.help) entry.help = { zh: param.help, en: param.help }
-    // 下拉一律留逃生口：候选里没有想要的值时，使用者仍能自己打一个。
-    if (entry.type === 'select') entry.allow_custom = true
+
+    // 上游给了候选值就铺成选项表：使用者只需要核对一眼、补中文名。
+    //   上游没给才留两行空表让他自己填。
+    if (type === 'select') {
+      entry.allow_custom = true
+      const opts = Array.isArray(param.choices) ? param.choices : []
+      entry.choices = opts.length
+        ? opts.map((v) => ({ value: String(v), label: { zh: '', en: '' } }))
+        : [{ value: '', label: { zh: '', en: '' } }, { value: '', label: { zh: '', en: '' } }]
+    }
+
+    // 上游写下的默认值就是这一格的界面初值（suggested_value），照抄不推断。
+    //   文本不收：上游的文本默认值常常是示例句子，抄进界面等于替人写了正文。
+    if (param.default !== null && param.default !== undefined) {
+      if (type === 'number' && typeof param.default === 'number') entry.suggested_value = param.default
+      else if (type === 'boolean' && typeof param.default === 'boolean') entry.suggested_value = param.default
+      else if (type === 'select' && typeof param.default === 'string') entry.suggested_value = param.default
+    }
+
     // 上游说明里写了「逗号分隔的 N 维」时，这一条声明成 vector：
     //   维度数由 dim_labels 的长度定，每维一个名字（先留空，让使用者自己填，
     //   上游只写了几维、没写每维叫什么）。默认值跟着长成 N 格，每格 null。
@@ -132,13 +151,18 @@ export function applyParamDrop (manifest, param) {
     const args = { ...(m.call.args || {}) }
     if (!args[name]) {
       const entry = { flag: param.target }
-      if (param.style) entry.style = param.style
       // 上游明说「逗号分隔」时命令行上只该出现一个词，不是 N 个词：
       //   写成 default 的 value 会被按 nargs 展开，上游只吃第一个，而且不报错。
       const shape = vectorShapeFromHelp(param.help)
       if (shape) {
         entry.style = shape.style
         entry.join = shape.join
+      } else if (param.kind === 'boolean' || param.style === 'boolean' || param.style === 'boolean_optional') {
+        // 双写法（--x/--no-x）必须写成 boolean_optional：boolean 发不出否定式，
+        //   上游默认开着的那种开关就永远关不掉。
+        entry.style = boolStyle(param.style === 'boolean_optional' || !!param.negative)
+      } else if (param.style) {
+        entry.style = param.style
       }
       args[name] = entry
     }

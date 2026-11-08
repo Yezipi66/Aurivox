@@ -24,7 +24,7 @@ function load () {
 }
 
 const {
-  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell, withArgKey,
+  nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell, withArgKey, boolStyle,
 } = load()
 
 test('开关去掉开头横线就是参数名', () => {
@@ -101,4 +101,23 @@ test('只改开关不改名字：就地更新 flag', () => {
   const call = { args: { speed: { flag: '--speed', role: 'device' } } }
   const next = withArgKey(call, { from: 'speed', to: 'speed', flag: '--rate' })
   assert.deepStrictEqual(next.args.speed, { flag: '--rate', role: 'device' })
+})
+
+// boolean 的两种命令行样式，以及它们是怎么落到 call.args 上的。
+//   留 value 的布尔会拼成 `--x True`；boolean 发不出否定式，默认开着的开关就关不掉。
+test('布尔样式：有否定式才有 boolean_optional', () => {
+  assert.equal(boolStyle(false), 'boolean')
+  assert.equal(boolStyle(true), 'boolean_optional')
+})
+
+test('改样式：只动 style，其余字段原样保留', () => {
+  const call = { args: { half: { flag: '--half', style: 'value' } } }
+  const next = withArgKey(call, { from: 'half', to: 'half', flag: '--half', style: 'boolean_optional' })
+  assert.deepStrictEqual(next.args.half, { flag: '--half', style: 'boolean_optional' })
+})
+
+test('改样式：不给 style 时不动原有写法（join / repeat 不被冲掉）', () => {
+  const call = { args: { device: { flag: '--device', style: 'join', join: ',' } } }
+  const next = withArgKey(call, { from: 'device', to: 'device', flag: '--device' })
+  assert.deepStrictEqual(next.args.device, { flag: '--device', style: 'join', join: ',' })
 })

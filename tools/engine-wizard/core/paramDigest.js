@@ -55,6 +55,12 @@ function fromCli (a) {
     kind: typed.kind,
     kind_certain: typed.certain,
     style: a.style,
+    // 上游自己给的候选值与默认值要一起带出来：拖进合成参数时按它们预填，
+    //   少这两个字段就只能给一张空表，使用者还得回上游抄一遍。
+    choices: Array.isArray(a.choices) && a.choices.length ? a.choices : null,
+    default: a.default === undefined ? null : a.default,
+    // 否定式开关（click 的 --x/--no-x）：合成参数里 boolean 那一格要用。
+    negative: a.negative || null,
     help: a.help || null,
     required: a.required === true,
     group: a.subcommand || '(root)',

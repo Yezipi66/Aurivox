@@ -331,8 +331,15 @@ def _is_ellipsis(node):
     return isinstance(node, ast.Constant) and node.value is Ellipsis
 
 
-def _record(flags, help_text=None, required=False, default=None, type_name=None, is_flag=False):
-    """与 _one 同形的一条记录；某个字段求不出来时留 None，不猜。"""
+def _record(flags, help_text=None, required=False, default=None, type_name=None, is_flag=False,
+            action=None, negative=None, choices=None):
+    """与 _one 同形的一条记录；某个字段求不出来时留 None，不猜。
+
+    action 显式给了就用它：click 的 --x/--no-x 与 argparse 的 BooleanOptionalAction
+      是同一件事，都靠这个词让下游写成 boolean_optional。
+    negative 是上游自己写的否定式开关（--no-x）。界面把它显示出来给人核对，
+      不在这里替上游拼。
+    """
     if not flags:
         return None
     is_option = flags[0].startswith("-")
@@ -346,11 +353,41 @@ def _record(flags, help_text=None, required=False, default=None, type_name=None,
         "help": str(help_text) if help_text is not None else None,
         "required": bool(required),
         "default": default,
-        "choices": None,
-        "action": "store_true" if is_flag else None,
+        "choices": list(choices) if choices else None,
+        "action": action if action else ("store_true" if is_flag else None),
         "type": type_name,
         "metavar": None,
+        "negative": negative,
     }
+
+
+def _dual_flag(flags):
+    """--x/--no-x 是同一个开关的两种拼法，拆成 (主开关, 否定式)；其余形状返回 None。
+
+    click 的斜杠还有另一种含义（--upper/-U 那种是别名），所以只认
+      「一边是 --x、另一边是 --no-x」这一种形状。认不出就原样留着，不猜。
+    """
+    if len(flags) != 1:
+        return None
+    parts = [p for p in str(flags[0]).split("/") if p]
+    if len(parts) != 2 or not all(p.startswith("-") for p in parts):
+        return None
+    neg = [p for p in parts if p.startswith("--no-")]
+    pos = [p for p in parts if not p.startswith("--no-")]
+    if len(neg) != 1 or len(pos) != 1 or not pos[0].startswith("--"):
+        return None
+    return pos[0], neg[0]
+
+
+def _click_choices(node):
+    """click.Choice(["a", "b"]) 里的候选值。认不出返回 None。"""
+    if not isinstance(node, ast.Call) or _tail_name(node) != "Choice" or not node.args:
+        return None
+    vals = _literal(node.args[0])
+    if not isinstance(vals, (list, tuple)):
+        return None
+    out = [v for v in vals if isinstance(v, (str, int, float))]
+    return out or None
 
 
 def _click_records(tree):
@@ -366,6 +403,9 @@ def _click_records(tree):
             if not flags:
                 continue
             kw = {k.arg: k.value for k in dec.keywords if k.arg}
+            dual = _dual_flag(flags)
+            if dual:
+                flags = [dual[0]]
             rec = _record(
                 flags,
                 help_text=_literal(kw["help"]) if "help" in kw else None,
@@ -373,6 +413,9 @@ def _click_records(tree):
                 default=_literal(kw["default"]) if "default" in kw else None,
                 type_name=_type_name(kw.get("type")),
                 is_flag=(_literal(kw["is_flag"]) is True) if "is_flag" in kw else False,
+                action="BooleanOptionalAction" if dual else None,
+                negative=dual[1] if dual else None,
+                choices=_click_choices(kw.get("type")),
             )
             if rec:
                 out.append(rec)
@@ -418,6 +461,9 @@ def _typer_records(tree):
             # typer 用 ... 作默认值表示必填；写成别的常量就是可选。
             required = bool(call.args) and _is_ellipsis(call.args[0])
             kw = {k.arg: k.value for k in call.keywords if k.arg}
+            dual = _dual_flag(flags)
+            if dual:
+                flags = [dual[0]]
             rec = _record(
                 flags,
                 help_text=_literal(kw["help"]) if "help" in kw else None,
@@ -425,6 +471,9 @@ def _typer_records(tree):
                 default=None if required else _literal(default) if default is not None else None,
                 type_name=_type_name(arg.annotation),
                 is_flag=(_type_name(arg.annotation) == "bool"),
+                action="BooleanOptionalAction" if dual else None,
+                negative=dual[1] if dual else None,
+                choices=_click_choices(kw.get("type")),
             )
             if rec:
                 out.append(rec)

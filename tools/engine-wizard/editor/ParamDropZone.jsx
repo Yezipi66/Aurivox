@@ -165,13 +165,19 @@ export default function ParamDropZone ({
 
               {/* 已声明的参数：每一项可改字段，也可删。select / vector 的选项表是
                   这一行的 flex 子项，分隔线因此落在细节项下面。 */}
-              {list.map((p, i) => (
-                <ParamRow key={i} entry={p || {}} index={i} spec={spec}
-                  argv={((manifest.call && manifest.call.args && manifest.call.args[(p || {}).name]) || {}).flag || ''}
-                  typeGuessed={!!(guessed && p && guessed.has(p.name))}
-                  onTypeConfirmed={onTypeConfirmed}
-                  onChange={setParam} onDelete={delParam} />
-              ))}
+              {list.map((p, i) => {
+                // 这一行在 call.args 里的那一条：开关与样式都从它读。
+                const arg = (manifest.call && manifest.call.args
+                  && manifest.call.args[(p || {}).name]) || {}
+                return (
+                  <ParamRow key={i} entry={p || {}} index={i} spec={spec}
+                    argv={arg.flag || ''}
+                    argStyle={arg.style || ''}
+                    typeGuessed={!!(guessed && p && guessed.has(p.name))}
+                    onTypeConfirmed={onTypeConfirmed}
+                    onChange={setParam} onDelete={delParam} />
+                )
+              })}
             </div>
           </>
         )}
