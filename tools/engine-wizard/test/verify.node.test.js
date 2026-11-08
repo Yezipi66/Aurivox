@@ -1,5 +1,5 @@
 'use strict'
-// verify（第 7 步）： 核心判据：平台四道校验，一个都不许重写。
+// verify（第 5 步）：核心判据：平台四道校验，一个都不许重写。
 // envCheck 的真实签名是 (profile, {rootDir})，猜错签名 node 不会报错，只是读到一堆 undefined。
 
 const { test } = require('node:test')
@@ -14,7 +14,7 @@ const { listEngines } = require('../../../lib/engines/registry')
 const REAL = listEngines()[0]?.id || 'gpt-sovits'
 
 // 清单 ： 四道，顺序照平台
-test('四道校验都在，顺序是装→起→权重→出声', () => {
+test('四道校验都在，顺序是环境、导入、权重、合成', () => {
   const ks = checks().map((c) => c.key)
   assert.deepStrictEqual(ks,
     ['env_shallow', 'env_deep', 'checkpoints', 'audio'])
@@ -27,7 +27,7 @@ test('每道都要带 why（用户要知道这道在查什么）', () => {
   }
 })
 
-test('「出声」那道要标成重的 —— 它会真的跑合成', () => {
+test('合成校验标为耗时项：它会执行一次真实合成', () => {
   const audio = checks().find((c) => c.key === 'audio')
   assert.strictEqual(audio.cost, 'heavy',
     '必须标明这道要真跑合成，别让用户以为它跟查盘一样快')
@@ -66,26 +66,26 @@ test('权重说不出来时，整轮不能报通过', () => {
   }
 })
 
-// 第 4 道「出声」： A 级不给 request 就不许跑
-test('A 级没给 request，不跑，并说清为什么不自己编一个', async () => {
+// 第 4 道「语音合成可用性」：A 级未提供请求时不执行
+test('A 级未提供请求时不执行，并说明平台不构造合成内容', async () => {
   const r = await runAudioCheck(REAL, { audio: 'A' })
   assert.strictEqual(r.ok, false)
   assert.strictEqual(r.code, 'NO_REQUEST')
-  // 理由必须说清「为什么平台不替你编」
+  // 理由需说明平台不构造请求体
   // error 已双语化（英文为主 + errorZh 中文），断言走 errorZh，两边都要钉。
-  assert.ok(r.errorZh.includes('方言'), r.errorZh)
+  assert.ok(r.errorZh.includes('参数映射'), r.errorZh)
   assert.ok(/dialect/i.test(r.error), r.error)
   assert.ok(r.expected_shape, '要告诉用户请求体该长什么样')
 })
 
-test('B 级不需要 request —— 它只要合法响应', async () => {
+test('B 级无需请求体：仅校验响应格式', async () => {
   const r = await runAudioCheck(REAL, { audio: 'B' })
-  // 无论过没过，都不许崩、都要有 ok 和 level
+  // 无论通过与否，结果都要带 ok 与 level
   assert.strictEqual(typeof r.ok, 'boolean', JSON.stringify(r).slice(0, 200))
-  assert.ok(r.level === 'B' || r.code, '要么有 level，要么有 code —— 不能什么都不给')
+  assert.ok(r.level === 'B' || r.code, '结果需带 level 或 code')
 })
 
-test('名片没 runtime，如实说「平台不负责起它」', async () => {
+test('名片缺少 runtime 时如实说明无法确定启动方式', async () => {
   const r = await runAudioCheck('definitely-not-installed-xyz', { audio: 'B' })
   assert.strictEqual(r.ok, false)
   assert.ok(['NO_PROFILE', 'NO_RUNTIME'].includes(r.code), r.code)
@@ -180,8 +180,7 @@ test('不许自己重写四道校验的判据（那等于两份事实）', () =>
     '发现自己实现校验逻辑的痕迹')
 })
 
-// 界面直接用平台四道的词，不自己另造标签：标题与「这道查什么」必须随结果下来，
-//   不然第 5 步会把「装没装」显示成「环境：已安装」，与第 2 步「装依赖」混成一件事。
+// 标题与「这道查什么」随结果下发，界面不另造标签，避免与第 2 步「安装依赖」混淆。
 test('每道结果带着平台自己的标题与说明，前端不再另造标签', () => {
   const r = runChecks(REAL, { deep: true })
   for (const k of ['env_shallow', 'env_deep', 'checkpoints']) {
@@ -194,7 +193,7 @@ test('每道结果带着平台自己的标题与说明，前端不再另造标�
 })
 
 // 权重道不吃 problems：note / missing / abs_path 是平台查明的细节，
-//   界面读它们才不会把「目录不在、缺哪些文件」显示成一句「未知问题」。
+//   界面读它们才能把「目录不在、缺哪些文件」如实呈现。
 test('权重道结果带着 note / missing / abs_path，界面不该只会读 problems', () => {
   const r = runChecks(REAL, { deep: false })
   const c = r.checks.checkpoints
@@ -204,4 +203,38 @@ test('权重道结果带着 note / missing / abs_path，界面不该只会读 pr
   assert.ok(Array.isArray(c.missing), 'missing 得是数组')
   assert.ok(c.abs_path === null || typeof c.abs_path === 'string',
     'abs_path 形状不对')
+})
+// 第 5 步的措辞要像正式界面：四道标题用名词短语，不用口语问句。
+//   stage 把「静态前置核对」与「真实合成」分开，界面才能分两层报结论。
+test('四道标题为正式名称，且按静态前置与运行验证分层', () => {
+  const all = checks()
+  assert.deepStrictEqual(all.map((c) => c.titleZh),
+    ['运行环境完整性', '引擎模块可导入', '模型权重完整性', '语音合成可用性'])
+  assert.deepStrictEqual(all.map((c) => c.stage),
+    ['preflight', 'preflight', 'preflight', 'runtime'])
+  for (const c of all) {
+    assert.ok(!/[没不齐齐声][？?]?$/.test(c.titleZh), `${c.key} 的标题仍是口语问句`)
+    assert.ok(c.titleEn && c.whyZh && c.why, `${c.key} 缺正式说明`)
+  }
+})
+
+test('静态前置检查单独汇总，不与真实合成混为一个结论', () => {
+  const r = runChecks(REAL, { deep: true })
+  assert.ok(r.summary && r.summary.preflight, '结果里要带静态前置检查的汇总')
+  const s = r.summary.preflight
+  assert.strictEqual(s.total, 3)
+  assert.ok(Number.isInteger(s.passed) && s.passed >= 0 && s.passed <= 3)
+  assert.ok(['ok', 'fail', 'unknown'].includes(s.status))
+  assert.strictEqual(r.summary.runtime, undefined,
+    '真实合成的结论由界面按 A 级结果判定，静态接口不代报')
+})
+
+test('界面把两层结论分开呈现，B 级不计入运行验证通过', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
+  assert.match(src, /t\('Verification overview', '校验结论'\)/)
+  assert.match(src, /t\('Preflight checks', '接入前置检查'\)/)
+  assert.match(src, /t\('Runtime synthesis', '运行验证'\)/)
+  assert.match(src, /checks\.audio\.level === 'A'/, '只有 A 级才算真实合成')
+  assert.match(src, /They do not prove that the engine can synthesise speech/,
+    '静态全绿时必须说明不能证明能出声')
 })

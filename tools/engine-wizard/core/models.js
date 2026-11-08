@@ -72,17 +72,14 @@ function describeModels (id, appDir) {
 
   const notes = []
   if (status.ready === true) {
-    notes.push('Manifest 声明的文件全部存在')
+    notes.push('名片声明的权重文件齐全。')
   } else if (status.ready === false) {
-    notes.push(`权重缺了。${status.reason || '查不到确切原因'}`)
+    notes.push(`模型权重不完整。${status.reason || '未能查明原因'}`)
   } else {
-    // ready 为 null 时不能压成 false 或 true：
-    //   压 false 会让可用的引擎永远显示为缺失，压 true 等于替 Manifest
-    //   作者担保一件他没有声明的事。⇒ 如实说「状态未知」，
-    //   病因搬平台的 reason：声明了 checkpoints 却没声明 required，
-    //   与压根没声明 checkpoints，是两件不同的事，说法不能一样。
-    notes.push(`状态未知（平台说不出来它齐不齐）：${status.reason || '查不到确切原因'}`)
-    notes.push('既不能视为完整，也不能视为缺失。')
+    // ready 为 null 时不得折算为 true 或 false：折算为 false 会让可用的引擎
+    //   一直显示为缺失，折算为 true 等于替名片作者担保他没有声明的事。
+    //   原因取平台给出的 reason：未声明 required 与未声明 checkpoints 是两种情形。
+    notes.push(`模型权重状态未知：${status.reason || '未能查明原因'}。既不能判定为完整，也不能判定为缺失。`)
   }
 
   const src = (status.source) || {}

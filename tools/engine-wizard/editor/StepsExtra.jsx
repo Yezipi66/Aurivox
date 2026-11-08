@@ -812,7 +812,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             {linkCmdCount > 0 && (
               <div className="field-hint" style={{ marginTop: 2 }}>
                 {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
-                  '部分条目来自上游文档里的模型仓库链接。平台无法判断哪些装的是权重，嗅探前请移除不需要的。')}
+                  '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，读取前请移除不需要的。')}
               </div>
             )}
             {repoCount > 1 && (
@@ -977,7 +977,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           <div className="section-body">
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('The script knows where the weights go. Run it in the engine folder; the file list below is refreshed when it ends.',
-                '脚本自己知道权重放哪。在引擎目录里运行它，执行结束后下面的文件清单会重新读一次。')}
+                '脚本自身包含权重存放位置。在引擎目录内运行，执行结束后将重新读取下方文件清单。')}
             </div>
             {upstreamScripts.map((d) => {
               const cmd = scriptCommand(d.file)
@@ -1025,7 +1025,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           <div className="section-body">
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('These are the files the project attached to its latest release. Download the ones you need into the weights folder.',
-                '这些是上游在最新 release 里附带的文件。按需下载到权重目录。')}
+                '以下为上游最新 release 附带的文件，可按需下载到权重目录。')}
             </div>
             {releaseAssets.assets.map((a) => (
               <div className="rc-cmd" key={a.url}
@@ -1053,7 +1053,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           <div className="section-body">
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('Paste one http(s) file URL. The platform downloads it into the declared weights folder and re-reads the file list afterwards.',
-                '贴一条 http(s) 文件地址。平台会把它下到名片声明的权重目录，结束后重新读一次文件清单。')}
+                '填写一条 http(s) 文件地址。平台将其下载到名片声明的权重目录，结束后重新读取文件清单。')}
             </div>
             {nothingFound && (
               <div className="msg msg-warn" style={{ marginTop: 6 }}>

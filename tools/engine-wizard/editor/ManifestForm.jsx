@@ -66,7 +66,7 @@ export default function ManifestForm ({
   // runtime.verify 自动填：sys_path 与 imports 两格。
   //
   // 为什么自动填：verify 是「拿这台引擎的解释器 import 哪些模块」的第二道校验，
-  //   空着时 env_deep 没有 spec 可验（起不起来永远「说不出来」）。
+  //   留空时 env_deep 没有 spec 可验，该项结果将始终为「未知」。
   //   imports 照 call 段已定下的模块（module-only，env_probe 认的最小形状）；
   //   sys_path 按克隆根猜（src 布局的引擎要改），猜得对不对由第 5 步 env_deep 兜底。
   // 各自只填空格：使用者或扫描写过的（sys_path 或 imports 非空）不覆盖。

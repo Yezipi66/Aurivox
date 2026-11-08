@@ -1,9 +1,9 @@
 'use strict'
-// VERIFY：第 7 步：校验。按顺序调平台自己的四道校验（envCheck 的两道、checkpointStatus、
+// VERIFY：第 5 步：校验。按顺序调平台自己的四道校验（envCheck 的两道、checkpointStatus、
 //   verifyAudio 的 verifyEngine），本文件一道都不自己实现。
-// 结果带 ok / problems / ready 三态：不把「说不出来」说成「齐了」或「缺了」。
-// 第 4 道 A 级要真的合成一次 ⇒ 缺 request 时如实说不给跑：请求体的键名是引擎方言，
-//   平台编不出一个能验「声音对不对」的请求。
+// 结果带 ok / problems / ready 三态：状态未知时既不判为完整，也不判为缺失。
+// 第 4 道 A 级要执行一次真实合成 ⇒ 缺 request 时如实说明不执行：请求体的键名是引擎方言，
+//   平台无法构造一个用于验证音频的请求。
 
 const path = require('node:path')
 
@@ -13,44 +13,52 @@ function platform (rel) {
   return require(path.join(ROOT, rel))
 }
 
-/** 四道校验的清单：顺序与文案都照平台自己的说法 */
+/**
+ * 四道校验的清单。stage 把结论分成两层：
+ *   preflight 只做静态核对，runtime 才代表引擎真正合成过一次。
+ *   两者不可互相替代：静态全绿不等于能够出声。
+ */
 function checks () {
   return [
     {
       key: 'env_shallow',
       n: 1,
-      titleEn: 'Installed',
-      titleZh: '装没装',
+      stage: 'preflight',
+      titleEn: 'Environment integrity',
+      titleZh: '运行环境完整性',
       cost: 'cheap',
-      why: "Disk check only — whether the interpreter, the entrypoint and verify.sys_path exist.",
-      whyZh: '纯查盘：解释器在不在、入口在不在、verify.sys_path 在不在',
+      why: 'Checks on disk whether the interpreter, the inference entrypoint and verify.sys_path are present. The engine is not started.',
+      whyZh: '检查解释器、推理入口与 verify.sys_path 是否存在；仅核对文件，不启动引擎。',
     },
     {
       key: 'env_deep',
       n: 2,
-      titleEn: 'Starts',
-      titleZh: '起不起来',
+      stage: 'preflight',
+      titleEn: 'Engine import',
+      titleZh: '引擎模块可导入',
       cost: 'slow',
-      why: "Boots the engine's own interpreter and imports the module/class/method named in the manifest.",
-      whyZh: '起这台引擎自己的解释器去 import 名片点名的模块/类/方法',
+      why: "Uses the engine's own interpreter to import the module, class and method declared in the manifest.",
+      whyZh: '使用引擎自身的解释器，导入名片声明的模块、类与方法。',
     },
     {
       key: 'checkpoints',
       n: 3,
-      titleEn: 'Weights',
-      titleZh: '权重齐不齐',
+      stage: 'preflight',
+      titleEn: 'Model weights',
+      titleZh: '模型权重完整性',
       cost: 'cheap',
-      why: 'Whether the files the manifest names are all present (ready is three-valued: null means it cannot be determined).',
-      whyZh: '名片说的那几个文件缺不缺（ready 是三态，null = 说不出来）',
+      why: 'Checks whether every weights file named in the manifest is present. The ready field has three states; null means the platform cannot determine it.',
+      whyZh: '核对名片声明的权重文件是否齐全。ready 为三态，null 表示平台无法判定。',
     },
     {
       key: 'audio',
       n: 4,
-      titleEn: 'Speaks',
-      titleZh: '出不出声',
+      stage: 'runtime',
+      titleEn: 'Speech synthesis',
+      titleZh: '语音合成可用性',
       cost: 'heavy',
-      why: 'Tier B only needs a well-formed response; Tier A runs a real synthesis and requires a non-empty WAV.',
-      whyZh: 'B 级只要合法响应；A 级真跑一次合成拿非空 WAV',
+      why: 'Tier B checks the response format only; tier A performs a real synthesis and requires a non-empty WAV.',
+      whyZh: 'B 级仅校验响应格式；A 级执行一次真实合成，并要求返回非空 WAV。',
     },
   ]
 }
@@ -76,9 +84,8 @@ function runChecks (id, opts = {}) {
 
   const out = { ok: true, id, checks: {}, problems: [] }
 
-  // 标题与说明从 checks() 的清单并入每道结果：界面直接用平台的词
-  //   （装没装 / 起不起来 / 权重齐不齐），不自己另造一套标签。
-  //   第 2 步装完依赖后界面若另造标签，使用者会把这里与"装没装"认成同一件事。
+  // 标题、说明与 stage 从 checks() 的清单并入每道结果：界面直接用平台的词，
+  //   不另造一套标签，避免与第 2 步「安装依赖」的结论混淆。
   const meta = Object.fromEntries(checks().map((c) => [c.key, c]))
   const withMeta = (key, r) => ({ ...meta[key], ...r })
 
@@ -117,38 +124,51 @@ function runChecks (id, opts = {}) {
       ready,
       ok: ready === true,
       note: ready === true
-        ? '名片说的文件一个不少'
+        ? '名片声明的权重文件齐全。'
         : ready === false
-          ? `权重缺了。${st.reason || '查不到确切原因'}`
-          // 状态未知不糊成两态：病因搬平台查明的 reason（唯一真相），
-          //   不再自己编「可能没声明 A、可能没声明 B」两头堵，
-          //   那对声明了 checkpoints 只是没声明 required 的引擎是错描述。
-          : `状态未知（平台说不出来它齐不齐）：${st.reason || '查不到确切原因'}。`
-            + '既不能视为完整，也不能视为缺失',
+          ? `模型权重不完整。${st.reason || '未能查明原因'}`
+          // 状态未知保留三态：原因取平台查明的 reason，不自行推测，
+          //   以免把「声明了 checkpoints 但未声明 required」描述成缺文件。
+          : `模型权重状态未知：${st.reason || '未能查明原因'}。既不能判定为完整，也不能判定为缺失。`,
       required: st.required || [],
       missing: st.missing || [],
       abs_path: st.abs_path || null,
     })
-    // ready:null 不算失败，但也不许当成通过
+    // ready 为 null 时不计为失败，也不得计为通过
     if (ready === null) {
-      out.problems.push('权重：说不出来（名片缺 checkpoints 或 required）')
+      out.problems.push('模型权重：状态未知（名片未声明 checkpoints 或 required）')
     }
   } catch (e) {
     out.checks.checkpoints = withMeta('checkpoints',
       { key: 'checkpoints', ok: false, problems: [String(e.message)] })
   }
 
+  // 静态核对的结论单独汇总：它只说明声明与盘上产物一致，不代替真实合成。
+  const preflight = checks().filter((c) => c.stage === 'preflight').map((c) => c.key)
+  const states = preflight.map((k) => {
+    const c = out.checks[k]
+    if (!c) return 'unknown'
+    if (k === 'checkpoints') return c.ready === true ? 'ok' : c.ready === false ? 'fail' : 'unknown'
+    return c.ok === true ? 'ok' : c.ok === false ? 'fail' : 'unknown'
+  })
+  out.summary = {
+    preflight: {
+      total: preflight.length,
+      passed: states.filter((s) => s === 'ok').length,
+      status: states.includes('fail') ? 'fail' : states.includes('unknown') ? 'unknown' : 'ok',
+    },
+  }
+
   return out
 }
 
 /**
- * 第 4 道「出不出声」：A 级缺 request 就不跑，并如实说明为什么。
+ * 第 4 道「语音合成可用性」：A 级缺 request 就不执行，并如实说明原因。
  *
  * 有常驻地址的引擎（名片写了 default_base_url 或 base_url_env 指过来）
- *   走原路：verifyAudio 直接打那个地址。
- * 没有地址的引擎（stdio / cli 形态）：先拉一台临时宿主再验，验完就杀。
- *   这是「试运行」的语义：拉起来、验一下、然后就没了。
- *   所以本函数是 async：拉起要等 /health，不像前三道那样纯查盘。
+ *   走原路：verifyAudio 直接请求该地址。
+ * 没有地址的引擎（stdio / cli 形态）：先启动一台临时宿主，校验结束后关闭。
+ *   所以本函数是 async：启动后需等待 /health，不像前三道那样只核对文件。
  */
 async function runAudioCheck (id, opts = {}) {
   const level = opts.audio === 'A' ? 'A' : 'B'
@@ -174,26 +194,25 @@ async function runAudioCheck (id, opts = {}) {
     return { ok: false, code: 'NO_PROFILE', error: e.message, errorZh: e.message }
   }
 
-  // 名片没写 runtime，平台就不负责起它，这一道无从谈起。
+  // 名片未声明 runtime 时平台无法确定启动方式，此道无法执行。
   if (!profile.runtime) {
     return { ok: false, code: 'NO_RUNTIME',
-      error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`, errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式。`
-        + '也就无从替它验「出不出得了声」。这一道要由起它的人自己做。' }
+      error: `The manifest for ${id} has no runtime section, so the launch method cannot be determined.`,
+      errorZh: `引擎 ${id} 的名片没有 runtime 段，无法确定启动方式，因此无法执行语音合成校验。请由接入者自行验证。` }
   }
 
   if (level === 'A' && !opts.request) {
-    // A 级要真的合成，所以平台不会编一个请求体
+    // A 级必须基于使用者填写的请求执行，平台不构造合成内容。
     return {
       ok: false, code: 'NO_REQUEST', level: 'A',
-      error: 'Tier A requires a real synthesis. The request body needs these fields:\n'
-        + 'The key names are the engine\u2019s own dialect (follow the maps in this manifest),\n'
-        + 'and a request the platform makes up cannot verify whether the voice is right.\n'
-        + 'Provide the real request (text and reference audio) and retry.',
-      errorZh: 'A 级要真的合成一次。请求体需要用户填写：\n'
-        + '里面的键名是引擎方言（照这张名片的 maps 写），'
-        + '编出来的请求验不了「声音对不对」。\n'
-        + '请提供真实的请求内容（文本与参考音频）后重试。',
-      expected_shape: '照名片 call.bind 的槽位名：'
+      error: 'Tier A requires a real synthesis. The request body must be provided:\n'
+        + 'Its key names follow the dialect declared in this manifest,\n'
+        + 'and a request invented by the platform cannot verify the resulting audio.\n'
+        + 'Provide the actual text and reference audio, then retry.',
+      errorZh: 'A 级校验需要执行一次真实合成，请求体必须由使用者填写。\n'
+        + '请求键名遵循名片声明的参数映射；平台构造的请求无法用于验证音频结果。\n'
+        + '请填写合成文本与参考音频后重试。',
+      expected_shape: '名片 call.bind 的槽位名：'
         + Object.keys((profile.call && profile.call.bind) || {})
           .map((k) => `${k}: '…'`).join('  ') || '(这张名片没有 call.bind)',
     }
@@ -242,8 +261,8 @@ async function runAudioCheck (id, opts = {}) {
   })
   if (!hosted.ok) {
     return { ok: false, code: 'HOST_FAILED', level, stage: hosted.stage,
-      error: `临时宿主起不来（${hosted.stage}）：${hosted.error}`,
-      errorZh: `第 4 道要打这台引擎的本地宿主，但它未启动：${
+      error: `The local host required for the synthesis check could not be started (${hosted.stage}): ${hosted.error}`,
+      errorZh: `语音合成校验所需的本地宿主未能启动（阶段：${hosted.stage}）：${
         hosted.error || ''}${hosted.stderr ? `（宿主输出：${hosted.stderr.slice(-600)}）` : ''}`,
       stderr: hosted.stderr || null }
   }

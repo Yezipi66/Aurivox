@@ -1,5 +1,5 @@
-//  第 5 步（verify）：渲染平台四道校验的结果，互不依赖，不绑成一个必须全过的门。
-//  每项各自报 ok / fail / unknown，缺素材时如实说还没有，不用占位文案糊弄。
+// 第 5 步（verify）：渲染平台四道校验的结果，各自独立呈现，不作为单一通过条件。
+// 每项分别报 ok / fail / unknown；缺少素材时如实说明尚未检查，不用占位文案代替。
 
 import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
@@ -151,10 +151,10 @@ export function StepVerify ({ id }) {
   const checks = results.checks || {}
 
   const labelFor = {
-    env_shallow: t('Environment: installed', '环境：已安装'),
-    env_deep: t('Environment: startable', '环境：可启动'),
-    checkpoints: t('Weights: complete', '权重：完整'),
-    audio: t('Audio: playable', '音频：可播放'),
+    env_shallow: t('Environment integrity', '运行环境完整性'),
+    env_deep: t('Engine import', '引擎模块可导入'),
+    checkpoints: t('Model weights', '模型权重完整性'),
+    audio: t('Speech synthesis', '语音合成可用性'),
   }
 
   const renderProblem = (p) => {
@@ -164,9 +164,26 @@ export function StepVerify ({ id }) {
     return t('Unknown problem', '未知问题')
   }
 
-  // 每道的标题与「这道在查什么」都从后端结果里取（平台四道的原话），前端不再另造标签：
-  //   「装没装」「起不起来」若贴上自己造的「环境：已安装」「环境：可启动」，
-  //   使用者会把它们当成第 2 步「装依赖」的结论，而它们查的是名片的声明与引擎的入口。
+  // envCheck 的 info 是结构化对象，直接 String() 会显示 [object Object]。
+  //   只取能佐证「环境确实可用」的几项，不把整份路径清单摊在界面上。
+  const infoLines = (check) => {
+    const i = check && check.info
+    if (!i || typeof i !== 'object') return []
+    const lines = []
+    if (i.python && i.python.version) lines.push(t('Python version: ', 'Python 版本：') + i.python.version)
+    if (i.paths && i.paths.python) lines.push(t('Interpreter: ', '解释器：') + i.paths.python)
+    if (Array.isArray(i.checks)) {
+      for (const c of i.checks) {
+        if (!c) continue
+        lines.push(`${c.module || c.class || ''} · ${c.ok ? t('imported', '导入通过') : t('import failed', '导入失败')}`
+          + (c.detail ? ` · ${c.detail}` : ''))
+      }
+    }
+    return lines
+  }
+
+  // 每道的标题与「这道在查什么」都从后端结果里取（平台四道的原话），前端不另造标签，
+  //   避免与第 2 步「安装依赖」的结论混淆。
   const titleOf = (key, check) => (check && check.titleZh)
     ? t(check.titleEn, check.titleZh)
     : labelFor[key]
@@ -180,6 +197,35 @@ export function StepVerify ({ id }) {
     return check.ok === true ? 'ok' : check.ok === false ? 'fail' : 'unknown'
   }
 
+  // 三态只映射到项目已有的 badge 配色，不新造类。
+  const badgeClass = (status) => status === 'ok' ? 'badge-ok'
+    : status === 'fail' ? 'badge-danger' : 'badge-neutral'
+
+  // 两层结论分开报：前置检查是静态核对，运行验证要有一次真实合成才算数。
+  //   B 级只校验响应格式，不能计入「已通过」。
+  const preflightKeys = ['env_shallow', 'env_deep', 'checkpoints']
+  const preflightStates = preflightKeys.map((k) => statusOf(k, checks[k]))
+  const preflightPassed = preflightStates.filter((s) => s === 'ok').length
+  const preflightStatus = preflightStates.includes('fail') ? 'fail'
+    : preflightStates.includes('unknown') ? 'unknown' : 'ok'
+  const ranTierA = !!(checks.audio && checks.audio.level === 'A')
+  const runtimeStatus = ranTierA ? statusOf('audio', checks.audio) : 'unknown'
+  const runtimeLabel = runtimeStatus === 'ok' ? t('Passed', '通过')
+    : runtimeStatus === 'fail' ? t('Failed', '未通过') : t('Not run', '待执行')
+  const audioBadge = runtimeStatus === 'ok' ? t('Passed', '通过')
+    : runtimeStatus === 'fail' ? t('Failed', '未通过') : t('Not run', '待执行')
+  // B 级的诊断信息照实给出，但不冒充「真实合成未通过」。
+  const tierBDiagnostic = !ranTierA && checks.audio
+    ? (checks.audio.errorZh || checks.audio.error || '') : ''
+  const runtimeHint = runtimeStatus === 'ok'
+    ? t('A real synthesis produced a non-empty WAV. Audio information and waveform are shown below.',
+      '已执行一次真实合成并取得非空 WAV 样本，音频信息与波形见下方。')
+    : runtimeStatus === 'fail'
+      ? t('The synthesis check failed. See the Speech synthesis section below for details.',
+        '真实合成校验未通过，详情见下方「语音合成可用性」。')
+      : t('Tier B checks the response format only. Run tier A below to record a real synthesis result.',
+        'B 级仅校验响应格式。执行下方 A 级校验后，此处记录一次真实合成的结果。')
+
   const renderCheckBlock = (key) => {
     const check = checks[key]
     const status = statusOf(key, check)
@@ -191,7 +237,7 @@ export function StepVerify ({ id }) {
     if (key === 'checkpoints' && check) {
       if (typeof check.note === 'string' && check.note) weightLines.push(check.note)
       if (Array.isArray(check.missing) && check.missing.length) {
-        weightLines.push(t('Missing: ', '缺：') + check.missing.join(', '))
+        weightLines.push(t('Missing files: ', '缺失文件：') + check.missing.join(', '))
       }
       if (typeof check.abs_path === 'string' && check.abs_path) {
         weightLines.push(t('Weights directory: ', '权重目录：') + check.abs_path)
@@ -202,14 +248,14 @@ export function StepVerify ({ id }) {
       : []
     const hasShown = shown.length > 0
 
-    const badge = status === 'ok' ? t('Done', '已完成') : status === 'fail' ? t('Failed', '失败') : t('Unknown', '未知')
+    const badge = status === 'ok' ? t('Passed', '通过') : status === 'fail' ? t('Failed', '未通过') : t('Unknown', '未知')
 
     return (
       <div className="section" key={key}>
         <div className="section-hdr">
           <h2>
             {titleOf(key, check)}
-            <span className={`badge badge-${status}`}>{badge}</span>
+            <span className={`badge ${badgeClass(status)}`}>{badge}</span>
           </h2>
         </div>
         <div className="section-body">
@@ -219,8 +265,8 @@ export function StepVerify ({ id }) {
           {status === 'ok' ? (
             <div className="field-hint">
               {key === 'checkpoints'
-                ? t('The files this manifest names are all present. That does not mean the engine can speak; run tier A below to find out.',
-                  '名片点名的文件都在。这不代表能出声，用下面的 A 级校验真跑一次。')
+                ? t('Every weights file named in the manifest is present. This is a static check only; run tier A below to verify synthesis.',
+                  '名片声明的权重文件齐全。此项为静态核对，引擎能否合成语音需执行下方 A 级校验。')
                 : t('No problems found.', '未发现问题。')}
             </div>
           ) : hasShown ? (
@@ -232,9 +278,9 @@ export function StepVerify ({ id }) {
           ) : (
             <div className="field-hint">{t('Not checked yet.', '尚未检查。')}</div>
           )}
-          {check && check.info && (
-            <div className="field-hint">{String(check.info)}</div>
-          )}
+          {infoLines(check).map((line, i) => (
+            <div className="field-hint" key={i} style={{ wordBreak: 'break-all' }}>{line}</div>
+          ))}
         </div>
       </div>
     )
@@ -242,6 +288,28 @@ export function StepVerify ({ id }) {
 
   return (
     <div className="wz-stack">
+      <div className="section">
+        <div className="section-hdr">
+          <h2>{t('Verification overview', '校验结论')}</h2>
+        </div>
+        <div className="section-body">
+          <div className={`msg msg-${preflightStatus === 'ok' ? 'success' : preflightStatus === 'fail' ? 'danger' : 'warn'}`}>
+            <strong>{t('Preflight checks', '接入前置检查')}</strong>
+            {' · '}{preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
+            <div className="field-hint" style={{ marginTop: 4 }}>
+              {t('Static checks confirm the manifest, the environment and the files on disk. They do not prove that the engine can synthesise speech.',
+                '接入前置检查用于确认名片声明、运行环境与盘上文件一致，不能证明引擎能够合成语音。')}
+            </div>
+          </div>
+          <div className={`msg msg-${runtimeStatus === 'ok' ? 'success' : runtimeStatus === 'fail' ? 'danger' : 'info'}`}
+            style={{ marginTop: 6 }}>
+            <strong>{t('Runtime synthesis', '运行验证')}</strong>
+            {' · '}{runtimeLabel}
+            <div className="field-hint" style={{ marginTop: 4 }}>{runtimeHint}</div>
+          </div>
+        </div>
+      </div>
+
       {renderCheckBlock('env_shallow')}
 
       {renderCheckBlock('env_deep')}
@@ -251,18 +319,24 @@ export function StepVerify ({ id }) {
       <div className="section">
         <div className="section-hdr">
           <h2>
-            {t('Audio: playable', '音频：可播放')}
-            <span className={`badge badge-${statusOf('audio', checks.audio)}`}>
-              {statusOf('audio', checks.audio) === 'ok' ? t('Done', '已完成') : statusOf('audio', checks.audio) === 'fail' ? t('Failed', '失败') : t('Unknown', '未知')}
+            {t('Speech synthesis', '语音合成可用性')}
+            <span className={`badge ${badgeClass(runtimeStatus)}`}>{audioBadge}</span>
+            <span className="badge" style={{ marginLeft: 6 }}>
+              {ranTierA ? t('Tier A · real synthesis', 'A 级 · 真实合成') : t('Tier B · response format', 'B 级 · 响应格式')}
             </span>
           </h2>
         </div>
         <div className="section-body">
           <div className="field-hint">
-            {t('The audio information and the waveform both need a real sample. ' +
-              'Fill in the text to synthesise, then run tier A.',
-              '音频信息与波形都需要一份真实样本。填入要合成的文本，然后执行 A 级校验。')}
+            {t('Tier B checks the response format only; tier A performs a real synthesis and produces the sample used for audio information and waveform.',
+              'B 级仅校验响应格式；A 级执行一次真实合成，并产出用于音频信息与波形的样本。')}
           </div>
+          {tierBDiagnostic && (
+            <div className="msg msg-warn" style={{ marginTop: 6, maxHeight: 120, overflow: 'auto' }}>
+              {t('Tier B diagnostic (not a synthesis result): ', 'B 级诊断（非合成结果）：')}
+              {tierBDiagnostic}
+            </div>
+          )}
           <DeviceSelect
             options={devices}
             value={device}
@@ -292,7 +366,7 @@ export function StepVerify ({ id }) {
             type="text"
             value={refAudio}
             onChange={(e) => setRefAudio(e.target.value)}
-            placeholder={t('Reference audio path (if the engine needs one)', '参考音频路径（引擎需要时填）')}
+            placeholder={t('Reference audio path (if the engine requires one)', '参考音频路径（引擎需要时填写）')}
             style={{ marginTop: 6 }}
           />
           <input
@@ -300,7 +374,7 @@ export function StepVerify ({ id }) {
             type="text"
             value={refText}
             onChange={(e) => setRefText(e.target.value)}
-            placeholder={t('What the reference audio says (if the engine reads it)', '参考音频说的话（引擎要时填）')}
+            placeholder={t('Transcript of the reference audio (if the engine requires it)', '参考音频对应文本（引擎需要时填写）')}
             style={{ marginTop: 6 }}
           />
           <button
@@ -310,7 +384,7 @@ export function StepVerify ({ id }) {
             style={{ marginTop: 6, marginLeft: 6 }}
             onClick={runMeasure}
           >
-            {t('Trial run and set timeouts for this machine', '试运行并更新本机超时')}
+            {t('Trial run and record timing baselines for this machine', '试运行并记录本机耗时基准')}
           </button>
           {measuring && (
             <button className="btn btn-sm" type="button" style={{ marginTop: 6, marginLeft: 6 }}
@@ -329,20 +403,20 @@ export function StepVerify ({ id }) {
             <div style={{ marginTop: 6 }}>
               {measured.values && Object.keys(measured.values).map((k) => (
                 <div key={k} className="field-hint">
-                  {t('This machine', '本机')} {k} = {Math.round(measured.values[k] / 1000)}s
+                  {t('On this machine', '本机')} {k}：{Math.round(measured.values[k] / 1000)} {t('s', '秒')}
                 </div>
               ))}
               {measured.values && Object.keys(measured.values).length > 0 && (
                 <div className="field-hint">
                   {t('Kept on this machine only, not written into the manifest; it overrides the manifest value here.',
-                    '只存在本机上，不写进名片；在本机上优先于名片里写的值。')}
+                    '仅保存在本机，不写入名片；在本机上优先于名片中的取值。')}
                 </div>
               )}
               {measured.measurement && Number.isFinite(measured.measurement.readyMs) && (
                 <div className="field-hint">
-                  {t('Cold start to ready', '冷启动到就绪')} {Math.round(measured.measurement.readyMs / 1000)}s
+                  {t('Cold start to ready', '冷启动至就绪')} {Math.round(measured.measurement.readyMs / 1000)}s
                   {Number.isFinite(measured.measurement.synthMs) && measured.measurement.synthOk
-                    ? `，${t('one segment', '一段')}（${measured.measurement.chars} ${t('chars', '字')}）${Math.round(measured.measurement.synthMs / 1000)}s`
+                    ? `，${t('single segment', '单段合成')}（${measured.measurement.chars} ${t('chars', '字')}）${Math.round(measured.measurement.synthMs / 1000)}s`
                     : ''}
                   {measured.measurement.sampleRate ? `，${measured.measurement.sampleRate} Hz` : ''}
                 </div>
@@ -376,7 +450,7 @@ export function StepVerify ({ id }) {
           ) : (
             <div className="field-hint">
               {t('No sample yet. Synthesise one above to see the audio information.',
-                '暂无样本。在上方合成一段即可查看音频信息。')}
+                '暂无样本，完成一次合成后可查看音频信息。')}
             </div>
           )}
         </div>
@@ -393,7 +467,7 @@ export function StepVerify ({ id }) {
           ) : (
             <div className="field-hint">
               {t('No sample yet. The waveform appears here once one exists.',
-                '暂无样本。有样本后此处会显示波形。')}
+                '暂无样本，完成一次合成后在此显示波形。')}
             </div>
           )}
         </div>

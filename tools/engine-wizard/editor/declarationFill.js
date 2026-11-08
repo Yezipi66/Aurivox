@@ -11,7 +11,7 @@
 //   兜底的素材不靠猜：models.required 照第 3 步实际下到盘上的文件，
 //   verify.imports 照 call 段已经定下的模块。只有 sys_path 是按
 //   「克隆根」猜的（src 布局的引擎要把源码目录改进来），
-//   猜得对不对不靠界面提示：第 5 步 env_deep 会如实报「起不起来」。
+//   猜得对不对不靠界面提示：第 5 步「引擎模块可导入」会报告实际结果。
 
 // 不算权重的文件：仓库说明、许可证、校验和、下载工具残留。
 // 只剔「 Provably 不是权重」的：README / LICENSE 这类文档名、
@@ -111,7 +111,7 @@ export function withModelsRequired (manifest, required) {
  *   envCheck 的 shallow 会要求每个路径在盘上存在，克隆根天然存在。
  * 注意这一格是**猜的**：源码在 src/ 子目录的引擎
  *   要把它改成 engines/<id>/src，平台没法替引擎决定它的源码布局。
- *   猜得对不靠界面提示，第 5 步 env_deep 会如实报「起不起来」。
+ *   推测结果不由界面提示判定，第 5 步「引擎模块可导入」会报告实际结果。
  *
  * @param {object} manifest 当前名片
  * @returns {boolean} 该填就 true

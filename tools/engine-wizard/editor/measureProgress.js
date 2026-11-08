@@ -2,9 +2,9 @@
 //   单独一个文件，不依赖 React，测试直接 import。
 
 export const MEASURE_STAGES = Object.freeze({
-  starting: { en: 'Starting the engine', zh: '启动中' },
+  starting: { en: 'Starting the engine', zh: '引擎启动中' },
   synth: { en: 'Synthesizing', zh: '合成中' },
-  done: { en: 'Done', zh: '完成' },
+  done: { en: 'Completed', zh: '已完成' },
   failed: { en: 'Failed', zh: '失败' },
 })
 
