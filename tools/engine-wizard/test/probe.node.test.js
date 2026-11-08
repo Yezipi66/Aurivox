@@ -311,7 +311,7 @@ test('安装文档兜底：候选清单与触发条件都被钉住', () => {
     '按语言分目录的仓库最常见，这一项要在清单里')
   assert.match(src, /dlScripts\.length === 0 && readmeCmds\.length === 0/,
     'README 已经给出命令时不再去读安装文档')
-  assert.match(src, /downloader_cmds: readmeCmds,\s*docs_scanned: docsScanned,/,
+  assert.match(src, /downloader_cmds: readmeCmds,[\s\S]{0,120}docs_scanned: docsScanned,/,
     '要如实说出读过哪些文档，不能悄悄换取材范围')
 })
 
@@ -339,4 +339,64 @@ test('release 资产兜底：触发条件与响应字段被钉住', () => {
   assert.match(src, /dlScripts\.length === 0 && readmeCmds\.length === 0/,
     '有脚本或 README 命令时不再多打一次 API')
   assert.match(src, /release_assets: releaseAssets,/, '响应要如实带出探测结果')
+})
+
+// 上游不写下载命令、只在文档里贴模型页链接，是很常见的形态。
+//   这里只认 URL 形状，不判断链接指向的是不是权重：候选交给人选。
+test('模型页链接：HF 与魔搭都认，非模型页与重复项排除', () => {
+  const { extractRepoLinks } = require('../core/wizardbridge.js')
+  const md = `
+Weights: https://huggingface.co/Org/Model-A/tree/main and
+https://huggingface.co/Org/Model-A again.
+Mirror: https://www.modelscope.cn/models/iic/CosyVoice2-0.5B
+Demo: https://huggingface.co/spaces/Org/Demo
+Docs: https://huggingface.co/docs/transformers/index
+File: https://huggingface.co/Org/Model-B/resolve/main/config.json
+`
+  const links = extractRepoLinks(md)
+  assert.deepStrictEqual(links.map((l) => l.tool + ':' + l.repo),
+    ['hf:Org/Model-A', 'modelscope:iic/CosyVoice2-0.5B', 'hf:Org/Model-B'])
+  assert.deepStrictEqual(links.map((l) => l.url), [
+    'https://huggingface.co/Org/Model-A',
+    'https://modelscope.cn/models/iic/CosyVoice2-0.5B',
+    'https://huggingface.co/Org/Model-B',
+  ])
+})
+
+test('模型页链接：响应里带出候选，且与已有下载命令去重', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  assert.match(src, /repo_links: repoLinks,/)
+  assert.match(src, /!readmeCmds\.some\(\(c\) => c\.repo === l\.repo\)/,
+    '已经在命令里出现的仓库不再重复列为候选')
+  assert.match(src, /extractRepoLinks\(\[readmeText, \.\.\.docTexts\]/,
+    'README 与安装文档都作为取材范围')
+})
+
+// 未认证 GitHub API 只有 60 次/小时，连续探测十来个仓库就会限流。
+//   原来各端点静默返回 null，界面看起来像「上游没给」，实际是没读到。
+test('GitHub 请求头：有令牌就带上，没有令牌不编造', () => {
+  const { githubHeaders } = require('../core/wizardbridge.js').__test__
+  const before = { GITHUB_TOKEN: process.env.GITHUB_TOKEN, GH_TOKEN: process.env.GH_TOKEN }
+  try {
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GH_TOKEN
+    assert.strictEqual(githubHeaders().authorization, undefined)
+    process.env.GITHUB_TOKEN = 'unit-test-token'
+    assert.strictEqual(githubHeaders().authorization, 'Bearer unit-test-token')
+    assert.strictEqual(githubHeaders({ accept: 'x' }).accept, 'x')
+  } finally {
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+})
+
+test('限流不再静默：三处 API 端点都把限流如实报出来', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  assert.match(src, /resolve\(\{ limited: true \}\)/, '限流要返回可辨认的标记')
+  assert.match(src, /release 资产这次没读到；结果不是/, 'release 限流不能显示成「上游没有」')
+  assert.match(src, /docs 子目录这次没读全/, '安装文档限流也要如实说明')
+  assert.strictEqual((src.match(/headers: githubHeaders\(\)/g) || []).length, 3,
+    '三个 API 端点都要走同一个公共请求头')
 })

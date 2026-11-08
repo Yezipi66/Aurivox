@@ -55,6 +55,50 @@ function extractDownloadCommands (markdown) {
   return OUT
 }
 
+/**
+ * 文档正文里的模型仓库网页链接。很多上游不写下载命令，只在文字里贴一个
+ * HF / 魔搭的模型页，权重由代码在首次推理时自己拉。这里只认 URL 形状，
+ * 不判断这个仓库是不是权重：候选交给人选，平台不替他做决定。
+ *
+ * @param {string} markdown 文档原文
+ * @returns {Array<{tool:string, repo:string, url:string}>}
+ */
+function extractRepoLinks (markdown) {
+  if (!markdown || typeof markdown !== 'string') return []
+  const out = []
+  const seen = new Set()
+  // 只收两段路径；后面的 /tree/main、/resolve/…、查询串都剥掉。
+  const RE = /https?:\/\/(?:www\.)?(huggingface\.co|modelscope\.cn)\/[A-Za-z0-9_./-]+/gi
+  const SKIP = new Set(['spaces', 'datasets', 'docs', 'api', 'blog', 'models',
+    'collections', 'tasks', 'join', 'settings', 'organizations', 'login', 'pricing',
+    'inference-endpoints', 'studios', 'studies'])
+  for (const m of markdown.matchAll(RE)) {
+    const host = String(m[1] || '').toLowerCase()
+    const raw = String(m[0] || '').replace(/[)\].,;:>'"]+$/, '')
+    let parts = []
+    try { parts = new URL(raw).pathname.split('/').filter(Boolean) } catch (e) { continue }
+    let tool = null
+    let repo = null
+    if (host === 'huggingface.co') {
+      if (parts.length < 2 || SKIP.has(parts[0].toLowerCase())) continue
+      tool = 'hf'
+      repo = `${parts[0]}/${parts[1]}`
+    } else {
+      if (parts.length < 3 || parts[0].toLowerCase() !== 'models') continue
+      if (SKIP.has(parts[1].toLowerCase())) continue
+      tool = 'modelscope'
+      repo = `${parts[1]}/${parts[2]}`
+    }
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) continue
+    const key = `${tool}|${repo.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ tool, repo,
+      url: tool === 'hf' ? `https://huggingface.co/${repo}` : `https://modelscope.cn/models/${repo}` })
+  }
+  return out
+}
+
 // README 里每个围栏代码块（ 或 ~~~）的起止下标。没闭合的块延伸到文末。
 function fencedBlocks (markdown) {
   const out = []
@@ -204,6 +248,16 @@ function fetchRaw (owner, name, file, branch) {
 const BRANCH_TTL_MS = 5 * 60 * 1000
 const _branchCache = new Map()
 
+// 探测阶段对 api.github.com 的公共请求头。未认证只有 60 次/小时，连续探测
+// 十来个仓库就会触发限流；配置了 GITHUB_TOKEN 或 GH_TOKEN 时走认证额度。
+// 令牌只从进程环境读，不写进任何响应或日志。
+function githubHeaders (extra) {
+  const h = { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json', ...(extra || {}) }
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+  if (token) h.authorization = `Bearer ${token}`
+  return h
+}
+
 function readDefaultBranch (owner, name) {
   const key = `${owner}/${name}`
   const hit = _branchCache.get(key)
@@ -220,7 +274,7 @@ function readDefaultBranch (owner, name) {
       resolve({ branch: value, why: why || null })
     }
     const req = https.get(url, {
-      headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
+      headers: githubHeaders(),
     }, (res) => {
       if (res.statusCode === 403 || res.statusCode === 429) {
         res.resume()
@@ -277,13 +331,18 @@ function packageDirsFromEntries (entries) {
 
 // 上游把权重打包进 GitHub release 时，仓库里既没有下载脚本，README 也不列文件。
 //   只读「最新一个 release」的资产清单，不猜 tag、不翻历史版本。
-//   认不出（没有 release、限流、断网）返回 null，界面照旧显示空态。
+//   认不出（没有 release、断网）返回 null；限流单独回 {limited:true}，让界面如实说明。
 function readReleaseAssets (owner, name) {
   return new Promise((resolve) => {
     const url = `https://api.github.com/repos/${owner}/${name}/releases/latest`
     const req = https.get(url, {
-      headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
+      headers: githubHeaders(),
     }, (res) => {
+      if (res.statusCode === 403 || res.statusCode === 429) {
+        res.resume()
+        resolve({ limited: true })
+        return
+      }
       if (res.statusCode !== 200) { res.resume(); resolve(null); return }
       let body = ''
       res.setEncoding('utf-8')
@@ -310,8 +369,13 @@ function listContents (owner, name, branch, subPath = '') {
   return new Promise((resolve) => {
     const url = `https://api.github.com/repos/${owner}/${name}/contents${tail}?ref=${encodeURIComponent(branch)}`
     const req = https.get(url, {
-      headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
+      headers: githubHeaders(),
     }, (res) => {
+      if (res.statusCode === 403 || res.statusCode === 429) {
+        res.resume()
+        resolve({ limited: true })
+        return
+      }
       if (res.statusCode !== 200) { res.resume(); resolve(null); return }
       let body = ''
       res.setEncoding('utf-8')
@@ -398,9 +462,10 @@ function handleProbe (req, res) {
       }
     }
     let readmeCmds = []
+    let readmeText = ''
     if (dlScripts.length === 0) {
-      const rd = (await fetchWithBranchFallback(parsed.owner, parsed.repo, 'README.md', probeBranch.branch)) || ''
-      readmeCmds = extractDownloadCommands(rd).map((cmd) => ({
+      readmeText = (await fetchWithBranchFallback(parsed.owner, parsed.repo, 'README.md', probeBranch.branch)) || ''
+      readmeCmds = extractDownloadCommands(readmeText).map((cmd) => ({
         ...cmd,
         repo: cmd.repo || `${parsed.owner}/${parsed.repo}`,
       }))
@@ -410,6 +475,7 @@ function handleProbe (req, res) {
     //   这里按有界清单再找一遍：先试几个固定位置，再列 docs/ 的一层子目录找 install*。
     //   用的是同一个提取器与同一条判据，只是取材范围宽了一点。
     const docsScanned = []
+    const docTexts = []
     if (dlScripts.length === 0 && readmeCmds.length === 0) {
       const taken = new Set()
       const collect = async (path) => {
@@ -418,6 +484,7 @@ function handleProbe (req, res) {
         const text = await fetchWithBranchFallback(parsed.owner, parsed.repo, path, probeBranch.branch)
         docsScanned.push(path)
         if (!text) return 0
+        docTexts.push(text)
         const found = extractDownloadCommands(text).map((cmd) => ({
           ...cmd,
           repo: cmd.repo || `${parsed.owner}/${parsed.repo}`,
@@ -433,6 +500,9 @@ function handleProbe (req, res) {
       if (readmeCmds.length === 0) {
         // docs/ 下常按语言分子目录（en / zh_CN …），每个子目录各有一份 install.md。
         const dirs = await listContents(parsed.owner, parsed.repo, probeBranch.branch, 'docs')
+        if (dirs && dirs.limited) {
+          notes.push('GitHub API 触发限流，docs 子目录这次没读全；固定位置的安装文档仍会尝试。')
+        }
         for (const e of (Array.isArray(dirs) ? dirs : []).filter((x) => x && x.type === 'dir').slice(0, 6)) {
           // eslint-disable-next-line no-await-in-loop
           if (await collect(`docs/${e.name}/install.md`) > 0) break
@@ -449,11 +519,22 @@ function handleProbe (req, res) {
       return true
     })
 
+    // 上游只贴模型页、不给下载命令时，把链接作为候选交给人选。
+    //   已在命令里出现的仓库不再重复列；平台不判断哪个是权重仓库。
+    const repoLinks = extractRepoLinks([readmeText, ...docTexts].join('\n'))
+      .filter((l) => !readmeCmds.some((c) => c.repo === l.repo))
+
     // 上游把权重打包进 release 时，脚本与 README 里都找不到下载入口。
     //   只在两条主路径都没有结果时才多打这一次 API，避免拖慢常规探测。
     let releaseAssets = null
     if (dlScripts.length === 0 && readmeCmds.length === 0) {
-      releaseAssets = await readReleaseAssets(parsed.owner, parsed.repo)
+      const rel = await readReleaseAssets(parsed.owner, parsed.repo)
+      if (rel && rel.limited) {
+        notes.push('GitHub API 触发限流，release 资产这次没读到；结果不是「上游没有」。')
+        releaseAssets = null
+      } else {
+        releaseAssets = rel
+      }
     }
 
     // 无论有没有 pyproject 都走 probeProject：包名来自 setup.py 的 name=、
@@ -503,6 +584,7 @@ function handleProbe (req, res) {
       found_files: found,
       downloader: dlScripts,
       downloader_cmds: readmeCmds,
+      repo_links: repoLinks,
       docs_scanned: docsScanned,
       release_assets: releaseAssets,
       notes,
@@ -2130,12 +2212,12 @@ module.exports = {
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
-  extractDownloadCommands, parseDownloadCmd, snapshotSourceOf,
+  extractDownloadCommands, extractRepoLinks, parseDownloadCmd, snapshotSourceOf,
   // 导给守卫测试：包名兜底链的两个函数。packageDirsFromEntries 是纯函数可直接验，
   //   listPackageDirs 走网络，只验它「三个分支都失败时返回空数组、不打 refute」。
   packageDirsFromEntries, listPackageDirs,
   // 导给守卫测试：async handler 挂死这条回归要直接验证它回的是合法 JSON。
   respondSafely,
   // 导给守卫测试：分支探测的缓存命中路径要能直接验（命中与未命中必须同形状）。
-  __test__: { readDefaultBranch, resolveProbeBranch, _branchCache },
+  __test__: { readDefaultBranch, resolveProbeBranch, _branchCache, githubHeaders },
 }

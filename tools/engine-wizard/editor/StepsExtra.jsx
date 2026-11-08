@@ -162,7 +162,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   const M = (r && r.manifest) || null
   const upstreamScripts = (probe && probe.downloader) || []
-  const upstreamCmds = (probe && probe.downloader_cmds) || []
+  const repoLinks = (probe && probe.repo_links) || []
+  // 模型页链接只是候选：人点「加入」之后才成为一条下载命令。
+  //   平台不判断哪个链接是权重仓库，也不替人把全部候选都下下来。
+  const [pickedLinks, setPickedLinks] = React.useState([])
+  const upstreamCmds = [
+    ...((probe && probe.downloader_cmds) || []),
+    ...pickedLinks.map((l) => ({ tool: l.tool, repo: l.repo, dir: null, raw: l.url, from: 'link' })),
+  ]
 
   // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
   //   界面只显示解释器种类，绝对路径由服务端决定，不往界面上塞一长串本机路径。
@@ -282,13 +289,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   const seenRepos = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
-  const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from).filter(Boolean))]
+  const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from).filter((f) => f && f !== 'link'))]
   const visibleCmds = upstreamCmds.filter((c) => {
     if (!dedup) return true
     if (seenRepos.has(c.repo)) return false
     seenRepos.add(c.repo)
     return true
   })
+  const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
+    repoLinks.length === 0 && !(releaseAssets && releaseAssets.assets.length > 0)
 
   // 嗅探仓库：调 /wizard/download/manifest 获取文件列表。
   // 追加不覆盖：点某个仓库的按钮显示该仓库的文件，再点另一个仓库的按钮追加到列表后面。
@@ -763,8 +772,38 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </>
       )}
 
-      {/* 下载命令展示：平台只打印，不代下载。
-          用户可以看到上游 README 里的原始命令，平台不执行它们，只是展示给用户参考。*/}
+      {/* 上游文档里的模型页链接只是候选，人确认后才成为一条下载命令。 */}
+      {repoLinks.length > 0 && (
+        <div className="section" style={{ marginTop: 8 }}>
+          <div className="section-hdr">
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+              {t('Model repos mentioned upstream', '上游提到的模型仓库')}
+            </h2>
+          </div>
+          <div className="section-body">
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('These are links in the README or install docs, not download commands. The platform does not know which ones hold weights; add only what you need.',
+                '这些是 README 或安装文档里的链接，不是下载命令。平台不知道哪些装的是权重，请只加入需要的。')}
+            </div>
+            {repoLinks.map((l) => {
+              const key = `${l.tool}|${l.repo}`
+              const picked = pickedLinks.some((p) => `${p.tool}|${p.repo}` === key)
+              return (
+                <div className="rc-cmd" key={key}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>{l.url}</pre>
+                  <button className="btn btn-sm" type="button" disabled={picked}
+                    onClick={() => setPickedLinks((prev) => [...prev, l])}>
+                    {picked ? t('Added', '已加入') : t('Add to download list', '加入下载清单')}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 下载命令区：展示上游命令，并可按仓库嗅探文件清单、逐文件下载。 */}
       {visibleCmds.length > 0 && (
         <div className="section" style={{ marginTop: 8 }}>
           <div className="section-hdr">
@@ -1015,6 +1054,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               {t('Paste one http(s) file URL. The platform downloads it into the declared weights folder and re-reads the file list afterwards.',
                 '贴一条 http(s) 文件地址。平台会把它下到名片声明的权重目录，结束后重新读一次文件清单。')}
             </div>
+            {nothingFound && (
+              <div className="msg msg-warn" style={{ marginTop: 6 }}>
+                {t('No download command, script, repo link or release asset was found in the upstream docs. Many engines fetch weights on first run; use step 5 to check, or paste a file link here.',
+                  '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。很多引擎会在首次推理时自行拉取权重，请用第 5 步校验，或在这里贴文件直链。')}
+              </div>
+            )}
             <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input className="control" style={{ flex: 1 }} value={directUrl}
                 placeholder="https://.../model.safetensors"
