@@ -147,6 +147,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const upstreamCmds = (probe && probe.downloader_cmds) || []
 
   const seenRepos = new Set()
+  // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
+  const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from).filter(Boolean))]
   const visibleCmds = upstreamCmds.filter((c) => {
     if (!dedup) return true
     if (seenRepos.has(c.repo)) return false
@@ -640,6 +642,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('Run these in the engine folder:', '在引擎目录内执行：')}
             </div>
+            {cmdsFrom.length > 0 && (
+              <div className="field-hint" style={{ marginTop: 2 }}>
+                {t('These commands come from ' + cmdsFrom.join(', ') + ': the README only points there.',
+                  '这些命令来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
+              </div>
+            )}
             {repoCount > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                 <button className="btn btn-sm" type="button"

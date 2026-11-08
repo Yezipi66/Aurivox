@@ -301,3 +301,32 @@ test('CLI 形态自带来源；parseDownloadCmd 不给上下文时只看命令�
   assert.strictEqual(
     parseDownloadCmd("snapshot_download('org/d')", 'from huggingface_hub import snapshot_download').source, 'hf')
 })
+
+// 上游把权重下载写在单独的安装文档里（README 只放一句「去 docs 看」）很常见。
+//   兜底是同一个提取器加宽取材范围：有界的文档候选清单 + docs/ 一层子目录。
+//   这里锁两件事：候选清单包含常见位置；兜底只在 README 一个命令都没读到时才跑。
+test('安装文档兜底：候选清单与触发条件都被钉住', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  assert.match(src, /const DOC_CANDIDATES = \[[^\]]*'docs\/en\/install\.md'[^\]]*\]/,
+    '按语言分目录的仓库最常见，这一项要在清单里')
+  assert.match(src, /dlScripts\.length === 0 && readmeCmds\.length === 0/,
+    'README 已经给出命令时不再去读安装文档')
+  assert.match(src, /downloader_cmds: readmeCmds,\s*docs_scanned: docsScanned,/,
+    '要如实说出读过哪些文档，不能悄悄换取材范围')
+})
+
+test('安装文档里的命令：仓库与目标目录都拆得出来', () => {
+  const DOC = `## Download Weights
+
+\`\`\`bash
+hf download fishaudio/drama-3 --local-dir checkpoints/drama-3
+hf download fishaudio/s2-pro --local-dir checkpoints/s2-pro
+\`\`\`
+`
+  const cmds = extractDownloadCommands(DOC)
+  assert.equal(cmds.length, 2)
+  assert.deepStrictEqual(cmds.map((c) => c.repo), ['fishaudio/drama-3', 'fishaudio/s2-pro'])
+  assert.deepStrictEqual(cmds.map((c) => c.dir), ['checkpoints/drama-3', 'checkpoints/s2-pro'],
+    '目录要原样带出来，落点靠它决定')
+  assert.ok(cmds.every((c) => c.tool === 'hf'))
+})

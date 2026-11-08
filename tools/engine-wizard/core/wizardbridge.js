@@ -160,6 +160,17 @@ const DOWNLOAD_SCRIPTS = [
   'download_checkpoints.sh',
 ]
 
+// 安装文档的候选位置：README 只写「去 docs 看」时，命令在这类文件里。
+//   固定几个常见位置先试；都不中再列 docs/ 的一层子目录（按语言分子目录的仓库很常见）。
+const DOC_CANDIDATES = [
+  'docs/en/install.md',
+  'docs/install.md',
+  'docs/en/installation.md',
+  'INSTALL.md',
+  'INSTALLATION.md',
+  'docs/INSTALL.md',
+]
+
 // 许可证文件候选名（第 1 步候选清单），顺序即优先级。
 // 只认「根目录有没有这个文件」，不读正文、不判类型、不猜是哪一种许可证。
 const LICENSE_FILES = ['LICENSE', 'LICENSE.txt', 'LICENSE.md',
@@ -260,9 +271,10 @@ function packageDirsFromEntries (entries) {
     .map((e) => e.name)
 }
 
-function listContents (owner, name, branch) {
+function listContents (owner, name, branch, subPath = '') {
+  const tail = subPath ? `/${String(subPath).replace(/^\/+|\/+$/g, '')}` : ''
   return new Promise((resolve) => {
-    const url = `https://api.github.com/repos/${owner}/${name}/contents?ref=${encodeURIComponent(branch)}`
+    const url = `https://api.github.com/repos/${owner}/${name}/contents${tail}?ref=${encodeURIComponent(branch)}`
     const req = https.get(url, {
       headers: { 'user-agent': 'aurivox-engine-wizard', accept: 'application/vnd.github+json' },
     }, (res) => {
@@ -360,6 +372,49 @@ function handleProbe (req, res) {
       }))
     }
 
+    // 很多上游只在 README 里放一句「去 docs 看安装」，命令写在单独的安装文档里。
+    //   这里按有界清单再找一遍：先试几个固定位置，再列 docs/ 的一层子目录找 install*。
+    //   用的是同一个提取器与同一条判据，只是取材范围宽了一点。
+    const docsScanned = []
+    if (dlScripts.length === 0 && readmeCmds.length === 0) {
+      const taken = new Set()
+      const collect = async (path) => {
+        if (!path || taken.has(path)) return 0
+        taken.add(path)
+        const text = await fetchWithBranchFallback(parsed.owner, parsed.repo, path, probeBranch.branch)
+        docsScanned.push(path)
+        if (!text) return 0
+        const found = extractDownloadCommands(text).map((cmd) => ({
+          ...cmd,
+          repo: cmd.repo || `${parsed.owner}/${parsed.repo}`,
+          from: path,
+        }))
+        readmeCmds.push(...found)
+        return found.length
+      }
+      for (const p of DOC_CANDIDATES) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await collect(p) > 0) break
+      }
+      if (readmeCmds.length === 0) {
+        // docs/ 下常按语言分子目录（en / zh_CN …），每个子目录各有一份 install.md。
+        const dirs = await listContents(parsed.owner, parsed.repo, probeBranch.branch, 'docs')
+        for (const e of (Array.isArray(dirs) ? dirs : []).filter((x) => x && x.type === 'dir').slice(0, 6)) {
+          // eslint-disable-next-line no-await-in-loop
+          if (await collect(`docs/${e.name}/install.md`) > 0) break
+        }
+      }
+    }
+
+    // 同一个仓库可能同时出现在 README 与安装文档里：按「工具 + 仓库 + 目录」去重。
+    const seenCmd = new Set()
+    readmeCmds = readmeCmds.filter((c) => {
+      const k = [c.tool, c.repo, c.dir || ''].join('|')
+      if (seenCmd.has(k)) return false
+      seenCmd.add(k)
+      return true
+    })
+
     // 无论有没有 pyproject 都走 probeProject：包名来自 setup.py 的 name=、
     // 许可证来自根目录的 LICENSE / COPYING，都不是 pyproject 的字段 ⇒ 由它决定读得到哪个。
     let r = probeProject({
@@ -407,6 +462,7 @@ function handleProbe (req, res) {
       found_files: found,
       downloader: dlScripts,
       downloader_cmds: readmeCmds,
+      docs_scanned: docsScanned,
       notes,
     })
   })
