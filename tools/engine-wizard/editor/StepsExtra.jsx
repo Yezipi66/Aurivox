@@ -4,7 +4,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
 import { downloadFiles } from './downloadRunner'
-import { sourceOf, buildCommand, choiceKey, repoPageUrl, SOURCES, SOURCE_LABELS } from './downloadSource'
+import { sourceOf, buildCommand, choiceKey, repoPageUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -172,7 +172,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     setProbeLoading(true)
     setProbeError(null)
     try {
-      const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
+      // 上游把模型放在子目录里时（README 写 --local-dir checkpoints/s2-pro），
+      //   清单核对与落盘都要在同一层看：把那一层带给后端。
+      const sub = subdirOf(c)
+      const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&subdir=${encodeURIComponent(sub)}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
         setProbeError(t(`Probe failed: HTTP ${resp.status}`, `嗅探失败：HTTP ${resp.status}`))
@@ -190,7 +193,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           if (prev && prev.some((f) => f.repo === c.repo)) return prev
           // 追加：把新文件加到列表后面，带上 repo 与来源。来源写判定后的 hf / modelscope，
           //   不写命令形态（snapshot）：下载时后端只认这两个值。
-          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool }))
+          const newFiles = j.files.map((f) => ({ ...f, repo: c.repo, tool, subdir: f.subdir || sub }))
           return [...(prev || []), ...newFiles]
         })
       } else if (j.code === 'GATED') {
@@ -377,7 +380,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         method: 'DELETE', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id, name: f.name,
-          size: f.size || null, sha256: f.sha256 || null,
+          size: f.size || null, sha256: f.sha256 || null, subdir: f.subdir || '',
           root: window.__PROJECT_ROOT__ || '',
         }),
       })

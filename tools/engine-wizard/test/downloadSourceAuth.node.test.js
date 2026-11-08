@@ -219,7 +219,7 @@ test('来源一致：界面里显示、列清单、回写只走 sourceOf 一处�
   assert.doesNotMatch(src, /const buildCommand\s*=/, '界面里不许再有自己的 buildCommand')
   assert.doesNotMatch(src, /c\.tool === 'modelscope' \? 'modelscope' : 'hf'/, '列清单不许另写一套判据')
   assert.match(src, /const tool = sourceOf\(c, sourceChoices\)/)
-  assert.match(src, /\(\{ \.\.\.f, repo: c\.repo, tool \}\)/, '清单逐行回写的是判定后的来源')
+  assert.match(src, /\(\{ \.\.\.f, repo: c\.repo, tool[^}]*\}\)/, '清单逐行回写的是判定后的来源')
   assert.doesNotMatch(src, /tool: f\.tool \|\| 'hf'/, '缺来源的行不许默认成 HF')
 })
 

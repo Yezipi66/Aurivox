@@ -12,7 +12,7 @@ const path = require('node:path')
 const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
 const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
-const { runDownload, unifyDest, fetchRemoteManifest, enrichManifestFiles, downloadFile,
+const { runDownload, fetchRemoteManifest, enrichManifestFiles, downloadFile,
   removePartialFiles, normalizeSource, gatedResult } = require('./download')
 const hfToken = require('./hfToken')
 const { describeModels, explainMissingInfo } = require('./models')
@@ -867,6 +867,8 @@ function handleDownloadManifest (req, res) {
     return true
   }
   const root = url.searchParams.get('root') || projectRoot() || ''
+  // 上游把模型放在子目录里时（checkpoints/s2-pro 这类），清单核对也要在同一层看。
+  const subdir = url.searchParams.get('subdir') || ''
   const token = tool === 'hf' ? hfToken.readToken() : null
   fetchRemoteManifest(repo, tool, undefined, { token }).then(async (result) => {
     if (!result.ok) {
@@ -877,7 +879,7 @@ function handleDownloadManifest (req, res) {
       json(res, 200, { ok: false, error: result.error || 'Failed to fetch remote manifest' })
       return
     }
-    const enriched = await enrichManifestFiles(result.files, repo, tool, root, id)
+    const enriched = await enrichManifestFiles(result.files, repo, tool, root, id, subdir)
     json(res, 200, { ok: true, files: enriched })
   }).catch((e) => {
     // 若异常发生在 json() 之后（例如 enrich 里又抛了），响应头已经写出去了，
@@ -903,6 +905,8 @@ function handleDownloadFile (req, res) {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const { id, file } = body
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
+    // 落盘子目录：上游把可选模型并排放时，文件要落在对应那一层。
+    const subdir = typeof body.subdir === 'string' ? body.subdir : ''
     if (!file || !file.name) { json(res, 400, { ok: false, error: 'file.name is required' }); return }
     const root = body.root || projectRoot() || ''
     const repo = typeof body.repo === 'string' ? body.repo.trim() : ''
@@ -955,7 +959,7 @@ function handleDownloadFile (req, res) {
         downloadAbortControllers.delete(dlId)
       }
     }
-    downloadFile(file, repo, root, id, (text, isErr) => {
+    downloadFile(subdir ? { ...file, subdir } : file, repo, root, id, (text, isErr) => {
       send('line', { text, err: !!isErr })
     }, (p) => {
       send('progress', { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total })
@@ -1037,10 +1041,11 @@ function handleDeletePartialFile (req, res) {
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const { id, name, size, sha256 } = body
+    const subdir = typeof body.subdir === 'string' ? body.subdir : ''
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     if (!name) { json(res, 400, { ok: false, error: 'name is required' }); return }
     const root = body.root || projectRoot() || ''
-    removePartialFiles([{ name, size: size || null, sha256: sha256 || null }], root, id)
+    removePartialFiles([{ name, size: size || null, sha256: sha256 || null, subdir }], root, id)
       .then((r) => {
         if (r.deleted.length === 0) {
           const needsVerify = (r.skipped || []).some((s) => s.code === 'NEEDS_VERIFY')

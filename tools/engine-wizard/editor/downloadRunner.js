@@ -63,6 +63,7 @@ export async function downloadOneFile (opts) {
         id,
         root: root || '',
         repo,
+        subdir: file.subdir || '',
         file: { name: file.name, size: file.size, sha256: file.sha256, tool },
       }),
     })

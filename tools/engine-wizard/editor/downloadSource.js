@@ -37,6 +37,22 @@ export function sourceOf (c, choices) {
 }
 
 /**
+ * 上游那条命令把模型放进了 checkpoints 下的哪一层。
+ *   README 常写 `--local-dir checkpoints/s2-pro`（同一个父目录里并排放几个模型）。
+ *   返回值是 checkpoints 之后的相对路径；没有这一层就是空串。
+ *   带 .. 或盘符的一律当没有：不让下载把文件写到别处。
+ */
+export function subdirOf (c) {
+  const raw = String((c && c.dir) || '').replace(/\\/g, '/')
+  const parts = raw.split('/').filter((s) => s && s !== '.' && s !== './')
+  const at = parts.indexOf('checkpoints')
+  if (at < 0) return ''
+  const tail = parts.slice(at + 1)
+  if (tail.some((s) => s === '..' || /^[A-Za-z]:/.test(s))) return ''
+  return tail.join('/')
+}
+
+/**
  * 给使用者看的命令。按 sourceOf 判出的来源写 import，来源未知时原样显示上游那一行。
  *
  * @returns {{display: string, source: string}}
@@ -44,19 +60,21 @@ export function sourceOf (c, choices) {
 export function buildCommand (c, choices) {
   const source = sourceOf(c, choices)
   const repo = (c && c.repo) || ''
+  const sub = subdirOf(c)
+  const dest = sub ? `checkpoints/${sub}` : 'checkpoints'
   if (c && c.tool === 'snapshot') {
     if (source === 'unknown') return { display: c.raw || `snapshot_download('${repo}')`, source }
     const lib = source === 'modelscope' ? 'modelscope' : 'huggingface_hub'
     return {
-      display: `python -c "from ${lib} import snapshot_download; snapshot_download('${repo}', local_dir='checkpoints')"`,
+      display: `python -c "from ${lib} import snapshot_download; snapshot_download('${repo}', local_dir='${dest}')"`,
       source,
     }
   }
   if (source === 'modelscope') {
-    return { display: `modelscope download --model ${repo} --local_dir checkpoints`, source }
+    return { display: `modelscope download --model ${repo} --local_dir ${dest}`, source }
   }
   if (source === 'hf') {
-    return { display: `hf download ${repo} --local-dir=checkpoints`, source }
+    return { display: `hf download ${repo} --local-dir=${dest}`, source }
   }
   return { display: (c && c.raw) || repo, source }
 }

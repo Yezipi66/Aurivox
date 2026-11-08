@@ -246,33 +246,33 @@ function weightsDir (root, id) {
 }
 
 /**
- * 把一条下载命令的 local_dir 替换成名片声明的落点。
- * 不删原目录：hf / modelscope 的缓存在那里，删了要重下。
- *
- * @param {string[]} argv     原始命令
- * @param {string} engineId   引擎 id
- * @param {string} root       项目根
- * @returns {string[]}        替换后的 argv
+ * 一个仓库的文件可以落在 checkpoints 下的子目录里（上游常把可选的模型并排放）。
+ * subdir 只认相对路径：带盘符、带 .. 的一律当没有，不让下载把文件写到别处。
  */
-function unifyDest (argv, engineId, root) {
-  const dest = weightsDir(root, engineId)
-  const out = argv.slice()
-  for (let i = 0; i < out.length; i++) {
-    if (/^--local-dir[=\s]/.test(out[i])) {
-      out[i] = out[i].replace(/^--local-dir[=\s]\S+/, `--local-dir=${dest}`)
-    }
-  }
-  for (let i = 0; i < out.length; i++) {
-    if (out[i] === '--local_dir' && i + 1 < out.length) {
-      out[i + 1] = dest
-    }
-  }
-  for (let i = 0; i < out.length; i++) {
-    if (/local_dir\s*=/.test(out[i])) {
-      out[i] = out[i].replace(/local_dir\s*=\s*['"][^'"]*['"]/, `local_dir='${dest}'`)
-    }
-  }
-  return out
+function weightsSubdir (value) {
+  const parts = String(value == null ? '' : value)
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((s) => s && s !== '.')
+  if (parts.some((s) => s === '..' || /^[A-Za-z]:/.test(s))) return ''
+  return parts.join('/')
+}
+
+/**
+ * 一个远端文件该写到哪个绝对路径。
+ * 落点 = 名片声明的 checkpoints + 这个仓库的子目录 + 仓库内的文件名。
+ *
+ * @param {string} root    项目根
+ * @param {string} id      引擎 id
+ * @param {string} subdir  仓库的子目录（可为空）
+ * @param {string} name    仓库内的名字（可能自带子目录）
+ * @returns {string|null}  无法确定落点时为 null
+ */
+function destPath (root, id, subdir, name) {
+  const dir = weightsDir(root, id)
+  if (!dir) return null
+  const sub = weightsSubdir(subdir)
+  return sub ? path.join(dir, sub, String(name || '')) : path.join(dir, String(name || ''))
 }
 
 /**
@@ -368,9 +368,8 @@ function base64ToHex (b64) {
  *   大小不符、与上游 SHA-256 不符、只有 .tmp 残留，都是 'partial'（要重下）。
  *   SHA-256 只在两边都有时才比对：上游没给就只报实际算出的值。
  */
-async function checkFileStatus (file, expectedSize, root, id, expectedSha) {
-  const dir = weightsDir(root, id)
-  const finalPath = path.join(dir, file)
+async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdir = '') {
+  const finalPath = destPath(root, id, subdir, file)
   const tmpPath = finalPath + '.tmp'
 
   if (fs.existsSync(finalPath)) {
@@ -442,14 +441,14 @@ function sha256File (filePath) {
  *   必须带 repo 与 tool：前端单文件下载完成后会重新调 /wizard/download/manifest 刷新，
  *   而刷新是整表替换，不带来源就等于把每一项「属于哪个仓库」抹掉，仓库列与重下、续传按钮会一起失效。
  */
-async function enrichManifestFiles (files, repo, tool, root, id) {
+async function enrichManifestFiles (files, repo, tool, root, id, subdir = '') {
   const results = []
   for (const f of (files || [])) {
-    const st = await checkFileStatus(f.name, f.size, root, id, f.sha256 || null)
+    const st = await checkFileStatus(f.name, f.size, root, id, f.sha256 || null, subdir)
     results.push({
       name: f.name, size: f.size, sha256: st.sha256 || f.sha256 || null, status: st.status,
       shaVerified: st.shaVerified === true,
-      repo, tool,
+      repo, tool, subdir,
       note: st.note || null, noteZh: st.noteZh || null,
     })
   }
@@ -466,8 +465,7 @@ async function enrichManifestFiles (files, repo, tool, root, id) {
  */
 function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null, auth = null) {
   return new Promise((resolve) => {
-    const dir = weightsDir(root, id)
-    const finalPath = path.join(dir, file.name)
+    const finalPath = destPath(root, id, (file && file.subdir) || '', file.name)
     const tmpPath = finalPath + '.tmp'
 
     const expectedSize = Number(file && file.size ? file.size : 0)
@@ -737,12 +735,12 @@ async function removePartialFiles (files, root, id) {
   const deleted = []
   const skipped = []
   let bytes = 0
-  const dir = weightsDir(root, id)
   for (const f of (files || [])) {
     const name = f && typeof f === 'object' ? f.name : f
+    const subdir = f && typeof f === 'object' ? (f.subdir || '') : ''
     const size = f && typeof f === 'object' ? (f.size || null) : null
     const sha = f && typeof f === 'object' ? (f.sha256 || null) : null
-    const finalPath = path.join(dir, name)
+    const finalPath = destPath(root, id, subdir, name)
     const tmpPath = finalPath + '.tmp'
 
     const hasFinal = fs.existsSync(finalPath)
@@ -790,4 +788,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, unifyDest, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
