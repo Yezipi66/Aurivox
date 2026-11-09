@@ -1,6 +1,6 @@
 'use strict'
-// 第 3 步的输入口子真的能渲染：一个输入框按主域名分流，
-// 模型仓库页进入下载清单并出现嗅探按钮，单文件地址仍走下载。
+// 第 3 步的两个输入区与一张合并清单真的能渲染：
+// 模型仓库与文件直链分开填，条目同表、可逐项移除，下载全部共用一个按钮。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -47,7 +47,7 @@ const StepModels = loadJsx('StepsExtra.jsx', {
   'web/src/lib/i18n': { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) },
   './downloadState': { loadDownloadState: () => null, saveDownloadState: () => {} },
   './downloadQueue': { DEFAULT_CONCURRENCY: 2 },
-  './downloadRunner': { downloadFiles: async () => {}, readSse: async () => {} },
+  './downloadRunner': { downloadFiles: async () => ({}), readSse: async () => {} },
   './downloadSource': loadEsm(path.join(EDITOR_DIR, 'downloadSource.js')),
   './StepVerify': { StepVerify: () => null },
 }).StepModels
@@ -67,56 +67,88 @@ define('Node', dom.window.Node)
 define('getComputedStyle', dom.window.getComputedStyle)
 define('requestAnimationFrame', (cb) => setTimeout(() => cb(1), 0))
 define('cancelAnimationFrame', (id) => clearTimeout(id))
-define('fetch', async () => ({
-  ok: true,
-  json: async () => ({ ok: false }),
-  headers: { get: () => 'application/json' },
-}))
+const fetched = []
+define('fetch', async (url) => {
+  fetched.push(String(url))
+  return {
+    ok: true,
+    json: async () => ({ ok: false }),
+    headers: { get: () => 'application/json' },
+  }
+})
 
 const container = dom.window.document.getElementById('root')
 const root = ReactDOMClient.createRoot(container)
 const settle = () => new Promise((resolve) => setTimeout(resolve, 80))
 
+let seq = 0
 async function show () {
+  seq += 1
   root.render(React.createElement(StepModels, {
+    key: 'step' + seq,
     state: { id: 'demo', repoUrl: '' }, onChange: () => {},
     probe: null, prep: null, onFixId: () => {},
   }))
   await settle()
 }
 
-const mainInput = () => [...container.querySelectorAll('input')]
-  .find((i) => String(i.placeholder || '').includes('huggingface.co'))
-const actionButton = () => [...container.querySelectorAll('button')]
-  .find((b) => /下载|引入仓库/.test(b.textContent) && !/下载全部/.test(b.textContent))
-const probeButtons = () => [...container.querySelectorAll('button')]
-  .filter((b) => b.textContent.trim() === '嗅探仓库')
+const inputs = () => [...container.querySelectorAll('input')]
+const repoInput = () => inputs().find((i) => String(i.placeholder || '').includes('huggingface.co/org/model'))
+const fileInput = () => inputs().find((i) => String(i.placeholder || '').includes('model.safetensors'))
+const destInputs = () => inputs().filter((i) => String(i.placeholder || '').includes('落地位置'))
+const buttons = (text) => [...container.querySelectorAll('button')]
+  .filter((b) => b.textContent.trim() === text)
+const has = (text) => container.textContent.includes(text)
 
-test('第 1 步没有探测结果时，第 3 步仍给出统一输入框，不报整步不可用', async () => {
+test('第 1 步没有探测结果时，两个输入区仍在，清单为空不显示下载全部', async () => {
   await show()
-  assert.ok(container.textContent.includes('模型仓库或文件直链'), '标题要说明两种输入')
-  assert.ok(mainInput(), '要有一个输入框，不分叉成两个站点各一个')
-  assert.ok(!container.textContent.includes('No probe data'), '探测缺失不该挡住手填')
-  assert.strictEqual(actionButton().textContent.trim(), '下载')
-  assert.strictEqual(probeButtons().length, 0, '还没有仓库可嗅探')
+  assert.ok(has('模型仓库'), '模型仓库区要独立显示')
+  assert.ok(has('文件直链 / curl'), '直链区要独立显示')
+  assert.ok(repoInput() && fileInput(), '两区各有一个链接输入框')
+  assert.strictEqual(destInputs().length, 2, '两区各有一个落地位置输入框')
+  assert.ok(!has('No probe data'), '探测缺失不该挡住手填')
+  assert.strictEqual(buttons('下载全部').length, 0, '清单为空时没有可下载条目')
 })
 
-test('两个主域名共用同一个入口：仓库页改成加入清单，并出现嗅探按钮', async () => {
+test('模型仓库区两个主域名共用一个入口，落地位置随条目进入下载命令区', async () => {
   await show()
-  Simulate.change(mainInput(), { target: { value: 'https://huggingface.co/Org/Model-A' } })
+  Simulate.change(repoInput(), { target: { value: 'https://huggingface.co/Org/Model-A' } })
   await settle()
-  assert.strictEqual(actionButton().textContent.trim(), '引入仓库')
+  Simulate.change(destInputs()[0], { target: { value: 'sub-a' } })
+  await settle()
+  Simulate.click(buttons('引入仓库')[0])
+  await settle()
+  assert.ok(has('已识别为 Hugging Face 仓库 Org/Model-A'))
+  assert.ok(buttons('嗅探仓库').length > 0, '加入后要出现真正的嗅探按钮')
+  fetched.length = 0
+  Simulate.click(buttons('嗅探仓库')[0])
+  await settle()
+  assert.ok(fetched.some((u) => u.includes('subdir=sub-a')),
+    '手填的落地位置要真的带进列文件请求，而不是只写在界面上')
 
-  Simulate.click(actionButton())
+  Simulate.change(repoInput(), { target: { value: 'https://www.modelscope.cn/models/iic/Demo-Model' } })
   await settle()
-  assert.ok(container.textContent.includes('已识别为 Hugging Face 仓库 Org/Model-A'))
-  assert.ok(probeButtons().length > 0, '加入清单后要出现真正的嗅探按钮')
+  Simulate.click(buttons('引入仓库')[0])
+  await settle()
+  assert.ok(has('魔搭 仓库 iic/Demo-Model'), '魔搭不需要另开一个控件')
+  assert.ok(buttons('嗅探仓库').length >= 2, '两个仓库各有自己的列文件入口')
+})
 
-  Simulate.change(mainInput(), { target: { value: 'https://www.modelscope.cn/models/iic/Demo-Model' } })
+test('文件直链进同一张表，可一键下载全部，也可逐项移除', async () => {
+  await show()
+  Simulate.change(fileInput(), { target: { value: 'https://example.org/weights/model.safetensors' } })
   await settle()
-  assert.strictEqual(actionButton().textContent.trim(), '引入仓库', '魔搭不需要另开一个控件')
+  Simulate.change(destInputs()[1], { target: { value: 'sub/model.safetensors' } })
+  await settle()
+  Simulate.click(buttons('加入清单')[0])
+  await settle()
+  assert.ok(container.querySelector('table tbody').textContent.includes('文件直链'), '表格要标出这一行的来源')
+  assert.ok(has('model.safetensors') && has('sub/'), '文件名与落地位置都要看得见')
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 1)
+  assert.strictEqual(buttons('下载全部').length, 1, '只有一个下载全部按钮')
+  assert.strictEqual(buttons('移除').length, 1, '每一行都能从清单里去掉')
 
-  Simulate.change(mainInput(), { target: { value: 'https://example.org/weights/model.safetensors' } })
+  Simulate.click(buttons('移除')[0])
   await settle()
-  assert.strictEqual(actionButton().textContent.trim(), '下载', '单文件地址仍走下载')
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '移除后这一行要真的消失')
 })

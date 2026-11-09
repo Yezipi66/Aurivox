@@ -116,6 +116,8 @@ test('链接直接进下载清单：不再有一次「加入」动作', () => {
   assert.match(src, /\.\.\.\[\.\.\.repoLinks, \.\.\.pastedRepos\]\.filter\(keepLink\)\.map\(linkCmd\)/,
     '探测到的链接与手贴的仓库都直接成为命令')
   assert.ok(!src.includes('Add to download list'), '不再要求人逐个加入')
-  assert.match(src, /const asRepo = repoLinkFromUrl\(urlVal\)/,
+  assert.match(src, /const link = repoLinkFromUrl\(repoUrl\.trim\(\)\)/,
     '手贴模型仓库页时按仓库处理，不当单文件下载')
+  assert.match(src, /const sub = \(c && c\.subdir\) \|\| subdirOf\(c\)/,
+    '手填的落地位置要带进列文件请求')
 })

@@ -51,21 +51,35 @@ export async function downloadOneFile (opts) {
   //   只用 opts 上的一份会把它们全发到同一个仓库去。
   const repo = file.repo || opts.repo || ''
   const tool = file.tool || opts.tool || ''
+  const direct = file.kind === 'url' && file.url
   const finish = (result) => {
     if (onDone) onDone(file.name, result)
     return result
   }
   try {
-    const resp = await fetch('/wizard/download/file', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    // 同一张清单里既有仓库文件，也有使用者填的文件直链。两者落点、进度与结果
+    // 形状一致，只是取的端点不同；分流留在这一层，界面不需要知道。
+    const endpoint = direct ? '/wizard/download/url' : '/wizard/download/file'
+    const payload = direct
+      ? {
+        id,
+        root: root || '',
+        url: file.url,
+        name: file.name,
+        subdir: file.subdir || '',
+        size: file.size || 0,
+      }
+      : {
         id,
         root: root || '',
         repo,
         subdir: file.subdir || '',
         file: { name: file.name, size: file.size, sha256: file.sha256, tool },
-      }),
+      }
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
     })
     if (!resp.ok) {
       // 后端在开流之前拒绝（缺仓库、来源未知）时回的是 JSON，把它的原因带出来。

@@ -189,12 +189,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }
   }
   const stopEngineEntry = () => { if (entryAbort.current) entryAbort.current.abort() }
-  // 直链兜底：上游只给单个文件地址（release 资产、自建网盘）时用。
+  // 两个输入区各两栏：链接与落地位置。仓库页与文件直链都进同一张下载清单，
+  //   区别只留在条目的 kind 上，下载时由执行器分流。
+  const [repoUrl, setRepoUrl] = React.useState('')
+  const [repoDir, setRepoDir] = React.useState('')
   const [directUrl, setDirectUrl] = React.useState('')
-  const [directName, setDirectName] = React.useState('')
-  const [directBusy, setDirectBusy] = React.useState(false)
-  const [directOut, setDirectOut] = React.useState([])
-  const directAbort = React.useRef(null)
+  const [directDest, setDirectDest] = React.useState('')
+  const [inputNote, setInputNote] = React.useState('')
+  const [pastedFiles, setPastedFiles] = React.useState([])
   const refreshFileList = () => {
     if (!id) return
     fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
@@ -220,7 +222,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   //   平台仍不判断哪个链接装的是权重：逐条可移除，也不替人自动下载。
   const [pastedRepos, setPastedRepos] = React.useState([])
   const [removedLinks, setRemovedLinks] = React.useState([])
-  const linkCmd = (l) => ({ tool: l.tool, repo: l.repo, dir: null, raw: l.url, from: 'link' })
+  const linkCmd = (l) => ({ tool: l.tool, repo: l.repo, dir: null, subdir: l.subdir || '', raw: l.url, from: 'link' })
   const keepLink = (l) => !removedLinks.includes(`${l.tool}|${l.repo}`)
   const upstreamCmds = [
     ...((probe && probe.downloader_cmds) || []),
@@ -294,63 +296,90 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     if (scriptAbort.current) scriptAbort.current.abort()
   }
 
-  // 直链下载：一条 http(s) 文件地址，落到名片声明的权重目录（可带子目录）。
-  //   不解析 curl / aria2 的参数，也不猜压缩包怎么解，只下一个文件。
-  const downloadDirect = async (urlVal, nameVal, sizeVal) => {
-    if (!id || !urlVal) return
-    // 贴进来的是模型仓库页时按仓库处理：它不是一个文件，直接下只会拿到一个 HTML 页面。
-    const asRepo = repoLinkFromUrl(urlVal)
-    if (asRepo && !sizeVal) {
-      setPastedRepos((prev) => prev.some((p) => p.tool === asRepo.tool && p.repo === asRepo.repo)
-        ? prev : [...prev, asRepo])
-      setDirectUrl('')
-      const site = asRepo.tool === 'hf' ? 'Hugging Face' : 'ModelScope'
-      const siteZh = asRepo.tool === 'hf' ? 'Hugging Face' : '魔搭'
-      setDirectOut([t(`Recognised as the ${site} repo ${asRepo.repo}. It has been added to the download list above; use "Probe repo" there to read its file list.`,
-        `已识别为 ${siteZh} 仓库 ${asRepo.repo}，已加入上方下载清单；在「下载命令」中执行「嗅探仓库」即可读取文件列表。`)])
+  // 落地位置是相对权重目录的路径：末段带扩展名时当文件名，前面是子目录；
+  //   不写文件名就按网址末段命名。带 .. 或绝对路径的一律拒绝，不交给后端猜。
+  const splitDest = (raw, urlVal) => {
+    const dest = String(raw || '').trim().replace(/\\/g, '/').replace(/^\/+/, '')
+    let name = ''
+    let subdir = dest
+    if (dest) {
+      const last = dest.split('/').pop()
+      if (/\.[A-Za-z0-9]{1,8}$/.test(last)) {
+        name = last
+        subdir = dest.slice(0, dest.length - last.length).replace(/\/$/, '')
+      }
+    }
+    if (!name) {
+      try { name = decodeURIComponent(new URL(urlVal).pathname.split('/').filter(Boolean).pop() || '') }
+      catch { name = '' }
+    }
+    return { name, subdir }
+  }
+
+  const badDest = (subdir) => String(subdir || '').split('/').some((x) => x === '..')
+    || /^[A-Za-z]:/.test(String(subdir || ''))
+
+  // 模型仓库区：按主域名识别 Hugging Face 与魔搭，落地位置带进清单条目，
+  //   之后列文件时由 subdir 决定这一仓库的文件落在权重目录的哪一层。
+  const addRepo = () => {
+    const link = repoLinkFromUrl(repoUrl.trim())
+    if (!link) {
+      setInputNote(t('Fill in a Hugging Face or ModelScope repo page.',
+        '请填写 Hugging Face 或魔搭的模型仓库页。'))
       return
     }
-    setDirectBusy(true)
-    setDirectOut([])
-    const controller = new AbortController()
-    directAbort.current = controller
-    try {
-      const resp = await fetch('/wizard/download/url', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          id,
-          root: window.__PROJECT_ROOT__ || '',
-          url: urlVal,
-          name: nameVal || undefined,
-          size: sizeVal || 0,
-        }),
-      })
-      if (!resp.ok) {
-        let j = null
-        try { j = await resp.json() } catch (e) { /* 不是 JSON 就只报状态码 */ }
-        setDirectOut([(j && (j.errorZh || j.error)) || ('HTTP ' + resp.status)])
-        return
-      }
-      let last = null
-      await readSse(resp, (ev) => {
-        if (!ev) return
-        if (typeof ev.percent === 'number') setDirectOut([`${ev.file || ''} ${ev.percent}%`])
-        else if (typeof ev.text === 'string') setDirectOut((prev) => [...prev, ev.text].slice(-40))
-        if ('ok' in ev || 'error' in ev) last = ev
-      })
-      if (last && last.ok === false) {
-        setDirectOut((prev) => [...prev, last.errorZh || last.error || `${last.code || 'FAILED'}`])
-      }
-      refreshFileList()
-    } catch (e) {
-      const stopped = e && e.name === 'AbortError'
-      setDirectOut((prev) => [...prev, stopped ? t('Stopped.', '已停止。') : String((e && e.message) || e)])
-    } finally {
-      directAbort.current = null
-      setDirectBusy(false)
+    const subdir = repoDir.trim().replace(/\\/g, '/').replace(/^\/+/, '')
+    if (badDest(subdir)) {
+      setInputNote(t('The destination must stay inside the weights folder.',
+        '落地位置只能在权重目录内。'))
+      return
     }
+    setPastedRepos((prev) => prev.some((x) => x.tool === link.tool && x.repo === link.repo && x.subdir === subdir)
+      ? prev : [...prev, { ...link, subdir }])
+    setRepoUrl('')
+    setRepoDir('')
+    const site = link.tool === 'hf' ? 'Hugging Face' : '魔搭'
+    const siteEn = link.tool === 'hf' ? 'Hugging Face' : 'ModelScope'
+    setInputNote(t(`The ${siteEn} repo ${link.repo} was added to the download list. Use "Probe repo" above to read its files.`,
+      `已识别为 ${site} 仓库 ${link.repo}，已加入下载清单；在「下载命令」中执行「嗅探仓库」读取文件列表。`))
+  }
+
+  // 文件直链 / curl 区：只收网址与落点，不解析整条命令。
+  //   平台用自己的下载器执行，重定向、断点、大小核对、落点保护与仓库文件一致。
+  const addDirect = (urlVal, destVal, sizeVal) => {
+    const raw = String(urlVal || '').trim()
+    if (!raw) return
+    if (repoLinkFromUrl(raw)) {
+      setInputNote(t('This is a model repo page. Use the model repo box above.',
+        '这是模型仓库页，请在上方「模型仓库」区填写。'))
+      return
+    }
+    let u = null
+    try { u = new URL(raw) } catch { /* 下面按错误提示处理 */ }
+    if (!u || !['http:', 'https:'].includes(u.protocol)) {
+      setInputNote(t('Fill in an http(s) file URL.', '请填写 http(s) 文件地址。'))
+      return
+    }
+    const { name, subdir } = splitDest(destVal, raw)
+    if (!name || /[\\/]/.test(name) || name === '.' || name === '..') {
+      setInputNote(t('The file name cannot be read from this URL. Fill in a destination with a file name.',
+        '这个链接读不出文件名，请在落地位置补一个文件名。'))
+      return
+    }
+    if (badDest(subdir)) {
+      setInputNote(t('The destination must stay inside the weights folder.',
+        '落地位置只能在权重目录内。'))
+      return
+    }
+    setPastedFiles((prev) => prev.some((x) => x.url === raw && x.name === name && x.subdir === subdir)
+      ? prev : [...prev, {
+        kind: 'url', url: raw, name, subdir, size: Number(sizeVal) || 0,
+        repo: '', tool: 'url', status: 'missing', sha256: null,
+      }])
+    setDirectUrl('')
+    setDirectDest('')
+    setInputNote(t('Added to the download list. Use "Download all" to fetch it.',
+      '已加入下载清单，可执行「下载全部」。'))
   }
 
   const releaseAssets = (probe && probe.release_assets) || null
@@ -365,9 +394,21 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     return true
   })
   const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
-    !(releaseAssets && releaseAssets.assets.length > 0)
-  // 一个输入框按主域名分流：模型仓库页进清单，单文件地址直接下载，不给两个站点各开一个控件。
-  const directAsRepo = repoLinkFromUrl(directUrl.trim())
+    pastedFiles.length === 0 && !(releaseAssets && releaseAssets.assets.length > 0)
+  // 一张清单同时容纳仓库文件与文件直链。kind 留到执行器分流，界面只按行显示。
+  const rows = React.useMemo(() => [
+    ...(manifest || []).map((f) => ({ ...f, kind: f.kind || 'repo' })),
+    ...pastedFiles,
+  ], [manifest, pastedFiles])
+  const rowKey = (f) => `${f.kind || 'repo'}|${f.repo || ''}|${f.subdir || ''}|${f.name}|${f.url || ''}`
+  const removeRow = (f) => {
+    if (f.kind === 'url') {
+      setPastedFiles((prev) => prev.filter((x) => !(x.url === f.url && x.name === f.name && x.subdir === f.subdir)))
+      return
+    }
+    setManifest((prev) => (prev || []).filter((x) => !(x.name === f.name
+      && (x.repo || '') === (f.repo || '') && (x.subdir || '') === (f.subdir || ''))))
+  }
   const linkCmdCount = visibleCmds.filter((c) => c && c.from === 'link').length
   const removeLink = (c) => {
     const key = `${c.tool}|${c.repo}`
@@ -395,7 +436,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     try {
       // 上游把模型放在子目录里时（README 写 --local-dir checkpoints/s2-pro），
       //   清单核对与落盘都要在同一层看：把那一层带给后端。
-      const sub = subdirOf(c)
+      // 手填的落地位置直接生效；上游命令里的 --local-dir 仍按原有判据解析。
+      const sub = (c && c.subdir) || subdirOf(c)
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&subdir=${encodeURIComponent(sub)}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
@@ -487,6 +529,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       ...prev,
       [name]: { ...(prev[name] || {}), done: true, ok: result && result.ok === true, error: result && result.error },
     }))
+    if (result && result.ok) {
+      setPastedFiles((prev) => prev.map((f) => (f.name === name ? { ...f, status: 'ok' } : f)))
+    }
     if (result && result.ok && id) {
       // 下载完成后自动刷新清单（合并刷新，不整表覆盖）
       fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
@@ -523,8 +568,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   })()
 
   const downloadAll = () => {
-    if (!manifest || manifest.length === 0) return
-    const filesToDownload = manifest.filter((f) => f.status === 'missing' || f.status === 'partial')
+    if (rows.length === 0) return
+    // 仓库文件按三态挑未完成的；直链条目由前端记完成状态，同样不重复下。
+    const filesToDownload = rows.filter((f) => f.kind === 'url'
+      ? f.status !== 'ok' : (f.status === 'missing' || f.status === 'partial'))
     if (filesToDownload.length === 0) return
     startDownloads(filesToDownload)
   }
@@ -743,8 +790,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* 下载清单表格：按文件列出，每个文件一行，显示大小 / SHA-256 / 状态 */}
-      {manifest && manifest.length > 0 && (
+      {/* 下载清单表格：仓库文件与文件直链同表，逐行可移除，一次下载全部 */}
+      {rows.length > 0 && (
         <>
           <div className="plan-kv">
             <span className="pk">{t('Stored at', '存放位置')}</span>
@@ -756,7 +803,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               </span>
             </span>
           </div>
-          {manifest.some((f) => f.tool === 'hf') && (
+          {rows.some((f) => f.tool === 'hf') && (
             <div className="plan-kv">
               <span className="pk">{t('HF token', 'HF 令牌')}</span>
               <span className="pv">
@@ -844,18 +891,24 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               </tr>
             </thead>
             <tbody>
-              {manifest.map((f, i) => {
+              {rows.map((f) => {
                 const cmd = { repo: f.repo || '', tool: f.tool || '' }
-                const page = repoPageUrl(f.tool, f.repo)
+                const page = f.kind === 'url' ? null : repoPageUrl(f.tool, f.repo)
+                let host = ''
+                if (f.kind === 'url') {
+                  try { host = new URL(f.url).hostname } catch { host = '' }
+                }
                 return (
-                  <tr key={i}>
-                    <td><code>{f.name || ''}</code></td>
+                  <tr key={rowKey(f)}>
+                    <td><code>{f.name || ''}</code>{f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}</td>
                     <td>
-                      {page ? (
-                        <a href={page} target="_blank" rel="noreferrer">
-                          {f.repo}
-                        </a>
-                      ) : (f.repo || t('(unknown)', '（未知）'))}
+                      {f.kind === 'url'
+                        ? <span>{t('Direct link', '文件直链')}<span className="field-hint" style={{ marginLeft: 6 }}>{host}</span></span>
+                        : (page ? (
+                          <a href={page} target="_blank" rel="noreferrer">
+                            {f.repo}
+                          </a>
+                        ) : (f.repo || t('(unknown)', '（未知）')))}
                     </td>
                     <td>
                       {f.size > 0
@@ -900,6 +953,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                           {t('Re-download', '重新下载')}
                         </button>
                       )}
+                      <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
+                        disabled={dlBusy}
+                        title={t('Remove this row from the download list', '从下载清单中移除这一项')}
+                        onClick={() => removeRow(f)}>
+                        {t('Remove', '移除')}
+                      </button>
                     </td>
                   </tr>
                 )
@@ -1151,9 +1210,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>{a.name}</pre>
                 <span className="field-hint" style={{ margin: 0 }}>{sizeLabel(a.size)}</span>
                 <button className="btn btn-sm btn-primary" type="button"
-                  disabled={directBusy || !id}
-                  onClick={() => downloadDirect(a.url, a.name, a.size)}>
-                  {t('Download', '下载')}
+                  disabled={!id}
+                  onClick={() => addDirect(a.url, a.name, a.size)}>
+                  {t('Add to list', '加入清单')}
                 </button>
               </div>
             ))}
@@ -1162,52 +1221,69 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       )}
 
       {id && (
-        <div className="section" style={{ marginTop: 4 }}>
-          <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
-              {t('Model repo or direct file link', '模型仓库或文件直链')}
-            </h2>
-          </div>
-          <div className="section-body">
-            <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('Paste a Hugging Face or ModelScope repo page, or one http(s) file URL. The host is detected automatically: a repo page joins the download list above, where its files can be read with "Probe repo"; a file URL is downloaded into the declared weights folder.',
-                '填写 Hugging Face 或魔搭的模型仓库页，或一条 http(s) 文件地址。按网址域名自动识别：仓库页加入上方下载清单，之后可执行「嗅探仓库」读取文件列表；文件地址下载到名片声明的权重目录。')}
+        <>
+          <div className="section" style={{ marginTop: 4 }}>
+            <div className="section-hdr">
+              <h2 style={{ fontSize: 'var(--fs-13)' }}>
+                {t('Model repo', '模型仓库')}
+              </h2>
             </div>
-            {nothingFound && (
-              <div className="msg msg-warn" style={{ marginTop: 6 }}>
-                {t('No download command, script, repo link or release asset was found in the upstream docs. Fill in a model repo page below to probe its files, or a file URL to download one file. Many engines fetch weights on first run; use step 5 to check.',
-                  '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。可在下方填写模型仓库页以嗅探其文件，或填写文件地址下载单个文件；很多引擎会在首次推理时自行拉取权重，请用第 5 步校验。')}
+            <div className="section-body">
+              <div className="field-hint" style={{ marginTop: 0 }}>
+                {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. The destination is a folder inside the weights folder; added repos join the download list above, where "Probe repo" reads their files.',
+                  '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。落地位置是权重目录内的子目录；加入后进入上方下载清单，可执行「嗅探仓库」读取文件列表。')}
               </div>
-            )}
-            <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input className="control" style={{ flex: 1 }} value={directUrl}
-                placeholder="https://huggingface.co/org/model  /  https://.../model.safetensors"
-                disabled={directBusy}
-                onChange={(e) => setDirectUrl(e.target.value)} />
-              <input className="control" style={{ flex: '0 0 180px' }} value={directName}
-                placeholder={t('file name (optional)', '文件名（可空）')}
-                disabled={directBusy || !!directAsRepo}
-                onChange={(e) => setDirectName(e.target.value)} />
-              <button className="btn btn-sm btn-primary" type="button"
-                disabled={directBusy || !directUrl.trim()}
-                onClick={() => downloadDirect(directUrl.trim(), directName.trim(), 0)}>
-                {directBusy ? t('Downloading', '下载中')
-                  : (directAsRepo ? t('Import repo', '引入仓库') : t('Download', '下载'))}
-              </button>
-              {directBusy && (
-                <button className="btn btn-sm btn-danger" type="button"
-                  onClick={() => directAbort.current && directAbort.current.abort()}>
-                  {t('Stop', '停止')}
-                </button>
+              {nothingFound && (
+                <div className="msg msg-warn" style={{ marginTop: 6 }}>
+                  {t('No download command, script, repo link or release asset was found in the upstream docs. Add a model repo page or a direct file link below. Many engines fetch weights on first run; use step 5 to check.',
+                    '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。可在下方填写模型仓库页或文件直链；很多引擎会在首次推理时自行拉取权重，请用第 5 步校验。')}
+                </div>
               )}
+              <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input className="control" style={{ flex: 1 }} value={repoUrl}
+                  placeholder="https://huggingface.co/org/model"
+                  onChange={(e) => setRepoUrl(e.target.value)} />
+                <input className="control" style={{ flex: '0 0 200px' }} value={repoDir}
+                  placeholder={t('destination folder (optional)', '落地位置（可空）')}
+                  onChange={(e) => setRepoDir(e.target.value)} />
+                <button className="btn btn-sm btn-primary" type="button"
+                  disabled={!repoUrl.trim()} onClick={addRepo}>
+                  {t('Import repo', '引入仓库')}
+                </button>
+              </div>
             </div>
-            {directOut.length > 0 && (
-              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 180, overflow: 'auto' }}>
-                {directOut.join('\n')}
-              </pre>
-            )}
           </div>
-        </div>
+
+          <div className="section" style={{ marginTop: 4 }}>
+            <div className="section-hdr">
+              <h2 style={{ fontSize: 'var(--fs-13)' }}>
+                {t('Direct file link / curl', '文件直链 / curl')}
+              </h2>
+            </div>
+            <div className="section-body">
+              <div className="field-hint" style={{ marginTop: 0 }}>
+                {t('Paste one http(s) file URL. The destination may include a file name, for example sub/model.safetensors; leave it empty to use the file name from the URL and the weights folder root. No curl options are parsed: the platform runs this with the same checks as repo files.',
+                  '填写一条 http(s) 文件地址。落地位置可写到文件名，例如 sub/model.safetensors；留空则按网址末段命名并放在权重根目录。不解析 curl 参数，平台按与仓库文件相同的下载校验执行。')}
+              </div>
+              <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input className="control" style={{ flex: 1 }} value={directUrl}
+                  placeholder="https://.../model.safetensors"
+                  onChange={(e) => setDirectUrl(e.target.value)} />
+                <input className="control" style={{ flex: '0 0 200px' }} value={directDest}
+                  placeholder={t('destination (optional)', '落地位置（可空）')}
+                  onChange={(e) => setDirectDest(e.target.value)} />
+                <button className="btn btn-sm btn-primary" type="button"
+                  disabled={!directUrl.trim()}
+                  onClick={() => addDirect(directUrl.trim(), directDest.trim(), 0)}>
+                  {t('Add to list', '加入清单')}
+                </button>
+              </div>
+            </div>
+          </div>
+          {inputNote && (
+            <div className="msg msg-info" style={{ marginTop: 4 }}>{inputNote}</div>
+          )}
+        </>
       )}
 
       {tokenDialog && (
