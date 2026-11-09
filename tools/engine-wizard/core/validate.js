@@ -69,6 +69,33 @@ function diagnose (manifest) {
 
   // ---- 2. 平台不拦、但会「设了没效果」的那一类 ------------------------
 
+  // ---- 2a. 模型来源：平台读名片时会拒收的那几条，提前在这里报 --------
+  //   命令没有落点、缺的文件写了绝对路径、占位符拼错，这些都只在
+  //   resolveEngineProfile 里抛。少了这一步，界面显示「平台校验通过」，
+  //   而落盘后平台拒收这台引擎，报错指向一个刚编辑过的 JSON 键。
+  try {
+    platformProfile().parseModels(manifest)
+  } catch (e) {
+    const at = locate(e.key, manifest)
+    push('error', e.code || 'ENGINE_MANIFEST_INVALID',
+      e.message, at || { section: 'models', field: 'models', sectionMeta: null, danger: DANGER.BLOCK })
+  }
+
+  // ---- 2b. 权重位：形态与参数名同样只在平台解析时校验 ------------------
+  //   kind 写了不认识的值、applies_at 与 param 互相矛盾、param 不在 param_keys 里，
+  //   这三类平台都会当场拒收；界面提前报，别让人落盘后才发现。
+  try {
+    const { normalizeWeightSlots } = require(path.join(REPO_ROOT, 'lib', 'assets', 'modelLayout.js'))
+    const { checkSlotSwitching, checkSlotParams } = require(path.join(REPO_ROOT, 'lib', 'engines', 'profile', 'maps.js'))
+    const slots = normalizeWeightSlots(manifest.weights)
+    checkSlotSwitching(manifest, slots)
+    checkSlotParams(manifest, slots)
+  } catch (e) {
+    const at = locate(e.key, manifest)
+    push('error', e.code || 'ENGINE_MANIFEST_INVALID',
+      e.message, at || { section: 'weights', field: 'weights', sectionMeta: SECTIONS_BY_KEY.weights || null, danger: DANGER.BLOCK })
+  }
+
   const ps = Array.isArray(manifest.parameters) ? manifest.parameters : []
   ps.forEach((p, i) => {
     if (!p || typeof p !== 'object') return

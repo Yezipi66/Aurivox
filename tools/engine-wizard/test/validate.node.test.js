@@ -181,3 +181,28 @@ test('危险字段必须写了 warn（静默失效那一类要提醒）', () => 
       `${k} 是静默失效高危段，却没写 warn`)
   }
 })
+test('模型来源的命令没有落点：第 4 步就报出来，不等平台拒收', () => {
+  const first = listEngines()[0]
+  const manifest = JSON.parse(fs.readFileSync(path.join(first.dir, 'manifest.json'), 'utf-8'))
+  manifest.models = { source: { command: ['hf', 'download', 'org/repo'] } }
+  const errs = diagnose(manifest).filter((d) => d.level === 'error')
+  assert.ok(errs.some((e) => /没有指出模型下到哪里/.test(e.message)),
+    '命令没写落点时要有一条 error，而不是「平台校验通过」')
+  assert.ok(summarize(diagnose(manifest)).ok === false)
+})
+
+test('模型来源的相对落点是合法的，不该报错', () => {
+  const first = listEngines()[0]
+  const manifest = JSON.parse(fs.readFileSync(path.join(first.dir, 'manifest.json'), 'utf-8'))
+  manifest.models = { source: { command: ['hf', 'download', 'org/repo', '--local-dir', 'checkpoints/x'] } }
+  const errs = diagnose(manifest).filter((d) => d.level === 'error' && /模型|落点/.test(d.message))
+  assert.deepStrictEqual(errs, [])
+})
+
+test('权重位的形态写了不认识的值：第 4 步就报出来', () => {
+  const first = listEngines()[0]
+  const manifest = JSON.parse(fs.readFileSync(path.join(first.dir, 'manifest.json'), 'utf-8'))
+  manifest.weights = [{ name: 'model', kind: 'files', applies_at: 'launch' }]
+  const errs = diagnose(manifest).filter((d) => d.level === 'error')
+  assert.ok(errs.some((e) => /kind/.test(e.message)), 'kind 的取值要当场校验')
+})
