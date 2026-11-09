@@ -186,7 +186,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const scriptCommand = (file) => {
     const ext = String(file || '').toLowerCase().split('.').pop()
     if (ext === 'sh') return 'bash'
-    if (ext === 'ps1') return 'powershell -File'
     if (ext === 'js') return 'node'
     return 'python'
   }
@@ -1003,12 +1002,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                       </button>
                     )}
                   </div>
-                  {d.installs_env && (
-                    <div className="field-hint" style={{ marginTop: 4 }}>
-                      {t('This script also installs the environment. Once it has run, the environment is no longer built by the platform from the manifest; step 5 checks whether the interpreter and modules exist, not their versions.',
-                        '该脚本通常同时安装运行环境。执行之后，环境不再由平台按名片建立；第 5 步只核对解释器与模块是否存在，不核对版本。')}
-                    </div>
-                  )}
                 </div>
               )
             })}

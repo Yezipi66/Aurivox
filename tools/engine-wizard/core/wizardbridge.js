@@ -195,8 +195,8 @@ function parseDownloadCmd (cmd, context) {
 
 // 上游可能提供的模型下载入口文件名。这是探测清单，不是平台支持的下载方式：
 // 平台不实现下载逻辑，只告诉用户「上游自己有个脚本可以跑」；清单之外读不到就如实说没找到。
-//   install.sh / install.ps1 同时安装环境与权重，运行时绕过平台的环境安装流程，
-//   所以探测结果里单独标记 installs_env：界面要如实说明这件事，不把它当成普通下载脚本。
+//   install.sh / install.ps1 不在清单里：它们同时安装环境，会绕开平台按名片建的那一份，
+//   并且和我们的下载落点无关。环境与权重各有自己的步骤，不需要这条捷径。
 const DOWNLOAD_SCRIPTS = [
   'download_models.py',
   'download_models.sh',
@@ -205,24 +205,7 @@ const DOWNLOAD_SCRIPTS = [
   'download_weights.py',
   'download_ckpt.py',
   'download_checkpoints.sh',
-  'install.sh',
-  'install.ps1',
 ]
-
-// 名字以 install 打头的脚本通常不只下权重，还建环境。判据只看文件名，不读正文。
-function scriptInstallsEnv (file) {
-  return /^install\./i.test(String(file || '').split('/').pop())
-}
-
-// Windows 自带 PowerShell 的绝对路径。
-//   它总在 SystemRoot 下，但 PATH 未必带着：从只带 POSIX 路径的父进程启动时
-//   （例如 Git Bash），spawn 按名字找不到它，报的是 ENOENT，看起来像脚本不存在。
-function powershellPath () {
-  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows'
-  const full = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-  try { if (fs.existsSync(full)) return full } catch { /* 读不到就退回名字 */ }
-  return 'powershell.exe'
-}
 
 // 跑上游下载脚本的时间上限：权重动辄几 GB，按 30 分钟给；超时就杀掉，不留半个进程。
 const RUN_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000
@@ -477,7 +460,6 @@ function handleProbe (req, res) {
       const t = await fetchWithBranchFallback(parsed.owner, parsed.repo, f, probeBranch.branch)
       if (t !== null) {
         dlScripts.push({ kind: 'script', file: f,
-          installs_env: scriptInstallsEnv(f),
           head: t.split('\n').slice(0, 12).join('\n') })
       }
     }
@@ -1124,18 +1106,10 @@ function handleRunScript (req, res) {
     const engineDir = path.join(root, 'engines', id)
     const abs = path.join(engineDir, rel)
     const ext = path.extname(rel).toLowerCase()
-    if (!['.py', '.sh', '.js', '.ps1'].includes(ext)) {
+    if (!['.py', '.sh', '.js'].includes(ext)) {
       json(res, 400, { ok: false, code: 'BAD_SCRIPT',
-        error: `Only .py / .sh / .js / .ps1 scripts can be run (got ${JSON.stringify(ext || '')}).`,
-        errorZh: '只支持运行 .py / .sh / .js / .ps1 脚本。' })
-      return
-    }
-    // PowerShell 脚本用 Windows 自带的解释器执行；其它平台没有这个解释器，
-    //   先如实拒绝，不让它落成一句 spawn ENOENT。
-    if (ext === '.ps1' && process.platform !== 'win32') {
-      json(res, 400, { ok: false, code: 'BAD_SCRIPT',
-        error: 'PowerShell scripts can only run on Windows.',
-        errorZh: 'PowerShell 脚本只能在 Windows 上运行。' })
+        error: `Only .py / .sh / .js scripts can be run (got ${JSON.stringify(ext || '')}).`,
+        errorZh: '只支持运行 .py / .sh / .js 脚本。' })
       return
     }
     if (!fs.existsSync(abs)) {
@@ -1143,8 +1117,7 @@ function handleRunScript (req, res) {
       return
     }
 
-    // 解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node，
-    //   .ps1 用 Windows 自带的 powershell。
+    // 解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
     const venv = process.platform === 'win32'
       ? path.join(engineDir, '.venv', 'Scripts', 'python.exe')
       : path.join(engineDir, '.venv', 'bin', 'python')
@@ -1155,12 +1128,8 @@ function handleRunScript (req, res) {
       : path.join(root, 'venv', 'bin', 'python')
     const interp = ext === '.py'
       ? (fs.existsSync(venv) ? venv : (fs.existsSync(platformVenv) ? platformVenv : (process.platform === 'win32' ? 'python' : 'python3')))
-      : (ext === '.sh' ? 'bash' : (ext === '.ps1' ? powershellPath() : 'node'))
+      : (ext === '.sh' ? 'bash' : 'node')
     const extra = Array.isArray(body.args) ? body.args.map((a) => String(a)) : []
-    // powershell 的脚本路径要经 -File 传入，执行策略按进程生效，不改本机设置。
-    const spawnArgs = ext === '.ps1'
-      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', abs, ...extra]
-      : [abs, ...extra]
 
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -1171,11 +1140,11 @@ function handleRunScript (req, res) {
       res.write(`event: ${event}\n`)
       res.write(`data: ${JSON.stringify(data)}\n\n`)
     }
-    send('argv', { argv: [interp, ...(ext === '.ps1' ? ['-File', rel] : [rel]), ...extra], cwd: path.relative(root, engineDir) || '.' })
+    send('argv', { argv: [interp, rel, ...extra], cwd: path.relative(root, engineDir) || '.' })
 
     let child
     try {
-      child = spawn(interp, spawnArgs, { cwd: engineDir, windowsHide: true, shell: false })
+      child = spawn(interp, [abs, ...extra], { cwd: engineDir, windowsHide: true, shell: false })
     } catch (e) {
       send('done', { ok: false, code: 'SPAWN_FAILED', error: e.message })
       res.end()
