@@ -388,11 +388,14 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
     }
   }
 
-  // 标了 role 的参数，值来自请求体。host 只把 params.call_time 白名单里的键交给引擎，
-  //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
-  //   把名字带回给调用方，由它写进名片的 params.call_time。
+  // 所有自动收进 call.args 的参数都要进 params.call_time，否则宿主启动前会以
+  //   「以下参数未接入命令行」拒收整张名片：一个开关既不写在 argv 里、又不在
+  //   load_time / call_time 里、也没被 bind 引用，就永远不会出现在命令行上，
+  //   界面却给了它一格。合成参数本来就该按次下发，所以默认全部进 call_time。
+  //   bind 引用的那几个不进：它们由槽位单独下发，重复声明会让同一个值走两条路。
+  const boundFlags = new Set(Object.values(call.bind || {}).filter(Boolean).map(String))
   const callTime = Object.entries(call.args || {})
-    .filter(([, e]) => e && (e.role === 'device' || e.role === 'audio_ref' || e.role === 'output_format'))
+    .filter(([, e]) => e && !boundFlags.has(String(e.flag)))
     .map(([name]) => name)
 
   // 顶层声明的建议（多权重位 / 输出格式）只是建议：调用方按「已有声明不覆盖」落盘。

@@ -378,14 +378,14 @@ test('设备参数是整数类型时按编号写法标记', () => {
     '整数类型的 device 是 CUDA 编号，不是 torch 设备字符串')
 })
 
-test('名字不像设备的参数不打标记，平台不猜', () => {
+test('名字不像设备的参数不打标记，但要进 call_time（否则宿主拒收这张名片）', () => {
   const params = [...cliParams, {
     source: 'cli', name: 'accelerator', target: '--accelerator', kind: 'str',
     style: 'value', help: null, required: false, group: 'infer', is_tool: true,
   }]
   const r = computeAutoFill(params, { kind: 'cli' })
   assert.equal(r.call.args.accelerator.role, undefined)
-  assert.deepEqual(r.callTime, [])
+  assert.deepEqual(r.callTime, ['accelerator'])
 })
 
 test('带横线的开关也认得出槽位：归一化只用于匹配，落盘保留上游写法', () => {
@@ -822,4 +822,16 @@ test('模型权重：父目录本身就有权重 ⇒ 不下探', () => {
     { kind: 'cli' }, [], W_ENTRY, 'demo', null,
     ['gpt.pth', 's2mel.pth', 'hf_cache/x.bin'])
   assert.ok(r.call.argv.includes('{checkpoints}'), '平铺权重时父目录就是落点')
+})
+
+test('bind 引用的开关不进 call_time：那一条由槽位单独下发', () => {
+  const params = [
+    { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
+    { source: 'cli', name: 'voice', target: '--voice', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
+    { source: 'cli', name: 'output', target: '--output', kind: 'str', style: 'value', required: true, group: 'synth', source_file: 'cli.py' },
+    { source: 'cli', name: 'seed', target: '--seed', kind: 'number', style: 'value', required: false, group: 'synth', source_file: 'cli.py' },
+  ]
+  const r = computeAutoFill(params, { kind: 'cli' })
+  assert.equal(r.call.bind.text, '--text')
+  assert.deepEqual(r.callTime, ['seed'], '只留不归槽位管的那个')
 })

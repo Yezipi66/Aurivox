@@ -159,17 +159,16 @@ export default function ManifestPage ({
           if ((base.id || '') !== id) return cur
           const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, files) || result
           const next = { ...base, call: merged.call }
-          // 运行设备这类参数的值来自请求体，host 只认 params.call_time 白名单里的键。
-          //   不写进去，请求里带了也会被静默丢弃：命令行上看不到，也不报错。
+          // 参数白名单：host 只把 params.call_time 里的键交给引擎，两个名单缺一个
+          //   都会在启动前拒收整张名片（load_time 缺了 / 参数未接入命令行）。
           //   写了 parameters 的新版名片，params 是平台派生的，不能自己写一份。
-          if (base.parameters === undefined && merged.callTime && merged.callTime.length) {
+          if (base.parameters === undefined && merged.call) {
             const params = { ...(base.params || {}) }
             const cur = Array.isArray(params.call_time) ? params.call_time : []
-            const add = merged.callTime.filter((k) => !cur.includes(k))
-            if (add.length) {
-              params.call_time = [...cur, ...add]
-              next.params = params
-            }
+            const add = (merged.callTime || []).filter((k) => !cur.includes(k))
+            if (add.length) params.call_time = [...cur, ...add]
+            if (params.load_time === undefined) params.load_time = []
+            next.params = params
           }
           if (!next.label && id) next.label = id
           if (next.contract_version === undefined) next.contract_version = 2
