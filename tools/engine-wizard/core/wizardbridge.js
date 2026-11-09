@@ -214,6 +214,16 @@ function scriptInstallsEnv (file) {
   return /^install\./i.test(String(file || '').split('/').pop())
 }
 
+// Windows 自带 PowerShell 的绝对路径。
+//   它总在 SystemRoot 下，但 PATH 未必带着：从只带 POSIX 路径的父进程启动时
+//   （例如 Git Bash），spawn 按名字找不到它，报的是 ENOENT，看起来像脚本不存在。
+function powershellPath () {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows'
+  const full = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  try { if (fs.existsSync(full)) return full } catch { /* 读不到就退回名字 */ }
+  return 'powershell.exe'
+}
+
 // 跑上游下载脚本的时间上限：权重动辄几 GB，按 30 分钟给；超时就杀掉，不留半个进程。
 const RUN_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000
 
@@ -1145,7 +1155,7 @@ function handleRunScript (req, res) {
       : path.join(root, 'venv', 'bin', 'python')
     const interp = ext === '.py'
       ? (fs.existsSync(venv) ? venv : (fs.existsSync(platformVenv) ? platformVenv : (process.platform === 'win32' ? 'python' : 'python3')))
-      : (ext === '.sh' ? 'bash' : (ext === '.ps1' ? 'powershell.exe' : 'node'))
+      : (ext === '.sh' ? 'bash' : (ext === '.ps1' ? powershellPath() : 'node'))
     const extra = Array.isArray(body.args) ? body.args.map((a) => String(a)) : []
     // powershell 的脚本路径要经 -File 传入，执行策略按进程生效，不改本机设置。
     const spawnArgs = ext === '.ps1'
