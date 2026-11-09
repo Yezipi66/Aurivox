@@ -151,7 +151,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
               >
                 {pickText(definition.label, lang, definition.type)}
                 {definition.suspends && (
-                  <span style={{ marginLeft: 6, fontSize: 'var(--fs-11)', color: 'var(--warn, #e0b341)' }}>
+                  <span style={{ marginLeft: 6, fontSize: 'var(--fs-11)', color: 'var(--warning, #ffb74d)' }}>
                     {t('needs input', '需人工介入')}
                   </span>
                 )}
@@ -200,7 +200,7 @@ export function Toolbar({
       >{t('Properties', '属性面板')}</button>
       <div style={{ flex: 1 }} />
       {problems.length > 0 && (
-        <span style={{ fontSize: 'var(--fs-11)', color: 'var(--warn, #e0b341)' }}>
+        <span style={{ fontSize: 'var(--fs-11)', color: 'var(--warning, #ffb74d)' }}>
           {t(`${problems.length} required inputs not connected`, `${problems.length} 处必填输入未连接`)}
         </span>
       )}

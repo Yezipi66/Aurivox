@@ -18,7 +18,7 @@ export function RunPanel({ run, busy, onAnswer, problems, lang, t }) {
     return (
       <Panel title={t('Run', '运行')}>
         {problems.length > 0
-          ? <div style={{ fontSize: 'var(--fs-12)', color: 'var(--warn, #e0b341)' }}>
+          ? <div style={{ fontSize: 'var(--fs-12)', color: 'var(--warning, #ffb74d)' }}>
             {problems.slice(0, 6).map((p, i) => (
               <div key={i}>{p.message_i18n ? pickText(p.message_i18n, lang, p.message) : p.message}</div>
             ))}
@@ -33,7 +33,7 @@ export function RunPanel({ run, busy, onAnswer, problems, lang, t }) {
   return (
     <Panel title={t(`Run · ${plainStatus(run.status, 'en')}`, `运行 · ${plainStatus(run.status, 'zh')}`)}>
       {request && (
-        <div style={{ marginBottom: 10, padding: 9, borderRadius: 8, border: '1px solid var(--warn, #e0b341)' }}>
+        <div style={{ marginBottom: 10, padding: 9, borderRadius: 8, border: '1px solid var(--warning, #ffb74d)' }}>
           <div style={{ fontSize: 'var(--fs-12)', marginBottom: 7 }}>{request.prompt}</div>
           {request.kind === 'pause' && (
             <div style={{ display: 'flex', gap: 6 }}>

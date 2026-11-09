@@ -614,7 +614,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     }
     if (!hasSegs) {
       if (!hasRaw && !hasSlices) {
-        return { key: 'norefs', label: 'No Refs', cls: 'badge-danger2', sym: '■',
+        return { key: 'norefs', label: 'No Refs', cls: 'badge-norefs', sym: '■',
                  note: 'No raw / slices / segments — re-import audio to rebuild.' }
       }
       if (hasSlices) {

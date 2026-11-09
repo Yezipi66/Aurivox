@@ -95,7 +95,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
             />
             <span style={{ minWidth: 0 }}>
               <span style={{
-                color: portDef.required && !wired ? 'var(--warn, #e0b341)' : 'var(--text, #d8dbe2)',
+                color: portDef.required && !wired ? 'var(--warning, #ffb74d)' : 'var(--text, #d8dbe2)',
                 whiteSpace: 'nowrap',
               }}>
                 {label}{portDef.multiple ? ' ⋯' : ''}{portDef.required && !wired ? ' *' : ''}
@@ -187,7 +187,7 @@ export function PortList({ title, ports, lang, t, describe }) {
               {port.required ? t('　required', '　必填') : ''}
               {port.multiple ? t('　several allowed', '　支持多路') : ''}
             </span>
-            <div style={{ color: state.warn ? 'var(--warn, #e0b341)' : MUTED, marginLeft: 14 }}>
+            <div style={{ color: state.warn ? 'var(--warning, #ffb74d)' : MUTED, marginLeft: 14 }}>
               {state.text}
             </div>
             {pickText(port.help, lang) && (

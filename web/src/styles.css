@@ -876,7 +876,7 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 .badge-muted   { background: var(--panel);            color: var(--muted);  border-color: var(--border); }
 .badge-ok2     { background: rgba(38,198,218,0.16);   color: #4dd0e1;       border-color: rgba(38,198,218,0.42); }
 .badge-seg     { background: rgba(255,167,38,0.22);   color: #ffa726;       border-color: rgba(255,167,38,0.55); }
-.badge-danger2 { background: rgba(229,57,53,0.22);    color: #ff5252;       border-color: rgba(229,57,53,0.6); }
+.badge-norefs  { background: rgba(229,57,53,0.22);    color: #ff5252;       border-color: rgba(229,57,53,0.6); }
 
 /* Stat pill (badge-style stats) */
 .stat-pill {
