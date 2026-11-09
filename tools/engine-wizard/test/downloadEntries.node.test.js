@@ -10,6 +10,7 @@ const path = require('node:path')
 
 const {
   buildEngineDownloadEntries, expandEngineArgv,
+  scanEngineScriptCandidates, scanRuntimeDownloads,
 } = require('../core/wizardbridge')
 
 function plant (opts = {}) {
@@ -50,4 +51,62 @@ test('展开占位符后不留下未展开的 token，权重目录用正斜杠',
 test('引擎目录不存在时返回空清单，不抛', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-entries-empty-'))
   assert.deepStrictEqual(buildEngineDownloadEntries(root, 'missing'), [])
+})
+
+test('子目录里的下载脚本进入第一档，根目录固定名字不重复列出', () => {
+  const { root } = plant({ scripts: ['download.sh'] })
+  const dir = path.join(root, 'engines', 'demo')
+  fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'pkg', 'download.py'), '')
+  fs.mkdirSync(path.join(dir, 'examples'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'examples', 'download_ljspeech.sh'), '')
+  fs.mkdirSync(path.join(dir, 'runtime'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'runtime', 'convert_checkpoint.py'), '')
+  const entries = buildEngineDownloadEntries(root, 'demo')
+  const keys = entries.map((e) => e.key)
+  assert.ok(keys.includes('script:download.sh'))
+  assert.ok(keys.includes('script:pkg/download.py'))
+  assert.ok(!keys.some((k) => k.startsWith('script:examples/')))
+  assert.ok(!keys.some((k) => k.startsWith('script:runtime/')))
+  assert.strictEqual(keys.filter((k) => k === 'script:download.sh').length, 1)
+  const sub = entries.find((e) => e.key === 'script:pkg/download.py')
+  assert.strictEqual(sub.needs_review, true)
+  assert.strictEqual(sub.argv[1], 'pkg/download.py', '子目录脚本用相对路径，工作目录是引擎目录')
+})
+
+test('子目录扫描只读文件名，不把训练数据脚本列成候选', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-scan-'))
+  fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'pkg', 'download_weights.py'), '')
+  fs.writeFileSync(path.join(dir, 'pkg', 'download_and_untar.sh'), '')
+  fs.writeFileSync(path.join(dir, 'pkg', 'convert_checkpoint.py'), '')
+  assert.deepStrictEqual(scanEngineScriptCandidates(dir), ['pkg/download_weights.py'])
+})
+
+test('启动自动下载：只认带仓库标识的下载调用，本地路径与格式化字符串不算', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-runtime-'))
+  fs.writeFileSync(path.join(dir, 'model.py'), [
+    'from huggingface_hub import snapshot_download',
+    "snapshot_download('org/model-repo', local_dir=cache)",
+    "m = AutoModel.from_pretrained(f'{root}/LLM')",
+    "x = hf_hub_download(repo_id='org/another', filename='a.bin')",
+    "y = load('org/not-a-download')",
+  ].join('\n'))
+  const hints = scanRuntimeDownloads(dir)
+  assert.deepStrictEqual(hints.map((h) => h.repo).sort(), ['org/another', 'org/model-repo'])
+  assert.ok(hints.every((h) => h.file === 'model.py' && h.line > 0 && h.call))
+})
+
+test('启动自动下载：本地目录不算仓库，同一仓库只列一次', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-runtime-'))
+  fs.mkdirSync(path.join(dir, 'pkg'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'a.py'), [
+    "snapshot_download('org/model-repo')",
+    "snapshot_download('checkpoints/agent-0.6b-debug')",
+    "hf_hub_download(repo_id='hfl/chinese-roberta-wwm-ext-large')",
+  ].join('\n'))
+  fs.writeFileSync(path.join(dir, 'pkg', 'b.py'), "snapshot_download('org/model-repo')")
+  const hints = scanRuntimeDownloads(dir)
+  assert.deepStrictEqual(hints.map((h) => h.repo),
+    ['org/model-repo', 'hfl/chinese-roberta-wwm-ext-large'])
 })

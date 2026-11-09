@@ -195,8 +195,8 @@ function parseDownloadCmd (cmd, context) {
 
 // 上游可能提供的模型下载入口文件名。这是探测清单，不是平台支持的下载方式：
 // 平台不实现下载逻辑，只告诉用户「上游自己有个脚本可以跑」；清单之外读不到就如实说没找到。
-//   install.sh / install.ps1 不在清单里：它们同时安装环境，会绕开平台按名片建的那一份，
-//   并且和我们的下载落点无关。环境与权重各有自己的步骤，不需要这条捷径。
+// 安装脚本不在这份清单里：上游文档探测只负责找下载入口，不把同时安装环境的脚本
+// 混进下载命令。第一档的本地清单单独收录它们，并标出安装环境这一事实。
 const DOWNLOAD_SCRIPTS = [
   'download_models.py',
   'download_models.sh',
@@ -212,6 +212,24 @@ const DOWNLOAD_SCRIPTS = [
 //   平台不替他决定要不要重跑。
 const ENGINE_ENTRY_SCRIPTS = Object.freeze([...DOWNLOAD_SCRIPTS, 'install.sh', 'install.ps1'])
 const DOWNLOAD_GROUP_RE = /^(download|setup|prepare|init-models|fetch-models|models|install)$/i
+
+// 子目录脚本的扫描口径。根目录固定名字之外，上游也会把下载脚本放进自己的包目录。
+// 只认名字明确指向下载的脚本，并跳过示例、测试、第三方与运行时目录，
+// 避免把训练数据脚本或格式转换工具列成候选。
+const SCRIPT_CANDIDATE_SKIP_DIRS = Object.freeze(new Set([
+  'node_modules', '__pycache__', '.venv', 'venv', 'env', 'site-packages',
+  'tests', 'test', 'testing', 'examples', 'example', 'docs', 'doc',
+  'third_party', 'runtime', 'backends', 'docker', 'Docker', 'archive',
+  'cli_tests', 'recipes', 'assets', 'notebooks', 'build', 'dist',
+  '.git', '.github', '.idea', '.vscode',
+]))
+const SCRIPT_CANDIDATE_NAME_RE = /^(?:download|fetch)[_-]?(?:models?|weights?|ckpts?|checkpoints?)?\.(?:py|sh|ps1|js)$/i
+
+// 启动阶段自行拉取的资源：只读源码，找下载类调用以及其中的仓库标识。
+const RUNTIME_DOWNLOAD_CALL_RE = /\b(?:snapshot_download|hf_hub_download|from_pretrained)\s*\(/
+const REPO_LITERAL_RE = /['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/
+// 字面量带斜杠时也可能是本地目录，而不是模型仓库标识。
+const LOCAL_PATH_HEAD_RE = /^(?:\.{1,2}\/|\/|[A-Za-z]:[\\/]|checkpoints?|models?|pretrained_models|weights?|ckpts?|assets?|data|dataset|cache|hf_cache|outputs?|tmp|temp|src|runtime|third_party|local)/i
 
 function scriptInstallsEnv (file) {
   return /^install\./i.test(String(file || '').split('/').pop())
@@ -1111,6 +1129,66 @@ function scriptArgvFor (dir, file) {
   return [powershellPath(), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file]
 }
 
+/**
+ * 子目录里的下载脚本候选。只读目录与文件名，不读内容、不执行；
+ * 已知的根目录脚本不重复列出。返回正斜杠的相对路径。
+ */
+function scanEngineScriptCandidates (dir, known = new Set()) {
+  const out = []
+  const walk = (rel, depth) => {
+    if (depth > 3 || out.length >= 24) return
+    const full = rel ? path.join(dir, ...rel.split('/')) : dir
+    let list
+    try { list = fs.readdirSync(full, { withFileTypes: true }) } catch { return }
+    for (const e of list) {
+      const child = rel ? rel + '/' + e.name : e.name
+      if (e.isDirectory()) {
+        if (SCRIPT_CANDIDATE_SKIP_DIRS.has(e.name) || e.name.startsWith('.')) continue
+        walk(child, depth + 1)
+      } else if (e.isFile() && SCRIPT_CANDIDATE_NAME_RE.test(e.name) && !known.has(child)) {
+        out.push(child)
+      }
+    }
+  }
+  walk('', 0)
+  return out.sort()
+}
+
+/**
+ * 引擎在启动或首次推理时自行拉取的资源。只读 Python 源码，
+ * 找下载类调用与其中的仓库标识；平台不据此执行任何命令。
+ */
+function scanRuntimeDownloads (dir, limit = 12) {
+  const { findPyFiles } = require('./pyFiles')
+  const skipDir = (n) => SCRIPT_CANDIDATE_SKIP_DIRS.has(n) || n.startsWith('.')
+  const skipFile = (n) => /^(?:__init__|setup|conftest)\.py$|^test_|^.*_test\.py$/i.test(n)
+  const files = findPyFiles(dir, { skipDir, skipFile })
+  const out = []
+  const seen = new Set()
+  for (const rel of files) {
+    if (out.length >= limit) break
+    const full = path.join(dir, ...rel.split('/'))
+    let text
+    try {
+      if (fs.statSync(full).size > 256 * 1024) continue
+      text = fs.readFileSync(full, 'utf8')
+    } catch { continue }
+    const lines = text.split(/\r?\n/)
+    for (let i = 0; i < lines.length && out.length < limit; i++) {
+      const line = lines[i]
+      if (!RUNTIME_DOWNLOAD_CALL_RE.test(line)) continue
+      const m = line.match(REPO_LITERAL_RE)
+      if (!m || LOCAL_PATH_HEAD_RE.test(m[1])) continue
+      const key = m[1]
+      if (seen.has(key)) continue
+      seen.add(key)
+      const call = (line.match(RUNTIME_DOWNLOAD_CALL_RE) || [''])[0].replace(/\s*\($/, '')
+      out.push({ file: rel, line: i + 1, call, repo: m[1] })
+    }
+  }
+  return out
+}
+
 /** 按优先级列出这一台引擎自带的下载入口；GET 与 POST 用同一份构造，避免两边漂移。 */
 function buildEngineDownloadEntries (root, id) {
   const dir = path.join(root, 'engines', id)
@@ -1145,6 +1223,19 @@ function buildEngineDownloadEntries (root, id) {
         : '',
     })
   }
+  for (const rel of scanEngineScriptCandidates(dir, new Set(ENGINE_ENTRY_SCRIPTS))) {
+    const installs = scriptInstallsEnv(rel)
+    entries.push({
+      key: 'script:' + rel, kind: 'script', priority: 1,
+      labelZh: rel, labelEn: rel,
+      argv: scriptArgvFor(dir, rel),
+      installs_env: installs,
+      already_deployed: installs && envReady,
+      needs_review: true,
+      noteZh: '盘上找到的候选下载脚本，权重落点由引擎自己决定。执行前请确认它下载的是模型权重，而不是训练数据或格式转换工具。',
+      noteEn: 'A candidate download script found on disk; the engine decides where files go. Confirm it downloads model weights before running.',
+    })
+  }
   try {
     const { collectCliHelp } = require('./cliHelp')
     const { moduleWithRoot } = require('./entryPick')
@@ -1162,7 +1253,8 @@ function buildEngineDownloadEntries (root, id) {
         labelZh: `命令行子命令 ${g}`, labelEn: `CLI subcommand ${g}`,
         argv: ['{engine_python}', '-m', mod, g, '--model-dir', '{checkpoints}'],
         may_overwrite: true,
-        noteZh: '引擎自带的下载子命令可能整仓同步并覆盖已下载的主权重，执行前请确认。',
+        needs_review: true,
+        noteZh: '引擎自带的下载子命令可能整仓同步并覆盖已下载的主权重；命令由平台按子命令名拼成，参数与落点请在执行前核对。',
         noteEn: 'This subcommand may sync a whole repository and overwrite downloaded weights.',
       })
     }
@@ -1198,7 +1290,14 @@ function handleDownloadEntries (req, res) {
   const id = url.searchParams.get('id')
   const root = url.searchParams.get('root') || projectRoot() || ''
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
-  json(res, 200, { ok: true, entries: buildEngineDownloadEntries(root, id) })
+  const dir = path.join(root, 'engines', id)
+  json(res, 200, {
+    ok: true,
+    entries: buildEngineDownloadEntries(root, id),
+    // 启动阶段自行拉取的资源不在任何仓库清单里。平台只把这份事实交出去，
+    // 不替引擎执行；界面如何呈现与是否提示接入者声明，由界面决定。
+    runtime_hints: fs.existsSync(dir) ? scanRuntimeDownloads(dir) : [],
+  })
   return true
 }
 
@@ -2466,7 +2565,7 @@ module.exports = {
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, extractRepoLinks, parseDownloadCmd, snapshotSourceOf,
-  buildEngineDownloadEntries, expandEngineArgv,
+  buildEngineDownloadEntries, expandEngineArgv, scanEngineScriptCandidates, scanRuntimeDownloads,
   // 导给守卫测试：包名兜底链的两个函数。packageDirsFromEntries 是纯函数可直接验，
   //   listPackageDirs 走网络，只验它「三个分支都失败时返回空数组、不打 refute」。
   packageDirsFromEntries, listPackageDirs,
