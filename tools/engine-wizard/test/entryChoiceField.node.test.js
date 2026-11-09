@@ -173,3 +173,16 @@ test('选 python 入口时模块、类、方法一起写，命令行那几段摘
   assert.strictEqual(out.call.cwd, 'engines/demo')
   assert.deepStrictEqual(m.call.argv, ['{engine_python}', '-m', 'pkg.cli'], '原名片不该被改')
 })
+
+test('换入口时，旧的子命令不属于新入口就去掉', () => {
+  const C = [{ file: 'cli/other.py', module: 'cli.other', groups: ['infer', 'batch'], srcRoot: null }]
+  const m = { id: 'demo', call: { kind: 'cli', argv: ['{engine_python}', '-m', 'cli.main', 'synth', '--text', 'x'] } }
+  const out = writeEntry(m, 'cli/other.py', C, 'demo')
+  assert.deepStrictEqual(out.call.argv, ['{engine_python}', '-m', 'cli.other', '--text', 'x'],
+    'synth 不属于新入口，留着就是一条非法参数')
+
+  const K = [{ file: 'cli/keep.py', module: 'cli.keep', groups: ['synth', 'infer'], srcRoot: null }]
+  const kept = writeEntry(m, 'cli/keep.py', K, 'demo')
+  assert.deepStrictEqual(kept.call.argv, ['{engine_python}', '-m', 'cli.keep', 'synth', '--text', 'x'],
+    '新入口也有这个子命令时保留')
+})

@@ -247,6 +247,9 @@ function pickEntry (params, opts = {}) {
       module: module || withRoot.module,
       srcRoot: withRoot.srcRoot,
       subcommand: s.groups.length === 1 ? s.groups[0] : null,
+      // 这个入口挂了哪些子命令：界面据此出下拉。漏掉它时 entry.groups 是 undefined，
+      //   下拉永远不出现，而扫描结果里明明有六个子命令。
+      groups: s.groups,
       score: s.score,
       flags: s.flags,
       text_names: s.textNames,

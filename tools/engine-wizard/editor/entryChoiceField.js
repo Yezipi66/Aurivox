@@ -182,6 +182,19 @@ export function writeEntry (manifest, shown, candidates = [], engineId = '') {
       argv.splice(1, 0, '-m', value)
     }
     call.argv = argv
+    // 换了入口之后，上一条命令里的子命令可能不属于新入口（synth 留给 infer 系入口
+    //   就是一条非法参数，argparse 直接拒收）。只在新入口确实带着子命令表时判断：
+    //   表为空表示扫描没给出分组，不能据此删掉使用者写的词。
+    if (hit && Array.isArray(hit.groups) && hit.groups.length) {
+      const at = subcommandSlot(argv)
+      if (at > 0 && at < argv.length) {
+        const word = String(argv[at])
+        if (!word.startsWith('-') && !word.startsWith('{') && !hit.groups.includes(word)) {
+          argv.splice(at, 1)
+          call.argv = argv
+        }
+      }
+    }
   }
 
   if (hit && engineId) {
