@@ -587,6 +587,10 @@ class Engine(object):
             if returns == "file":
                 fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
                 os.close(fd)
+                # mkstemp 会把这个空文件真的建出来。有些引擎（例如较新的 CLI）拒绝覆盖
+                # 已存在的输出路径，于是还没开始合成就以「output file already exists」退出。
+                # 宿主只需要一个不冲突的路径，不需要文件先存在：删掉它再交给引擎。
+                os.unlink(out_path)
             elif returns == "dir":
                 # 引擎自己起文件名：给它一个空目录，事后再从里面取那个音频。
                 out_dir = tempfile.mkdtemp(prefix="host_out_")
@@ -718,6 +722,8 @@ class Engine(object):
         if returns == "file":
             fd, out_path = tempfile.mkstemp(prefix="host_", suffix=".wav")
             os.close(fd)
+            # 与 cli 形态同一条规矩：只借路径，不把空文件留给引擎。
+            os.unlink(out_path)
             kwargs[bind["output_path"]] = out_path
         elif returns == "dir":
             # 引擎自己起文件名：给它一个空目录，事后再从里面取那个音频。

@@ -371,6 +371,11 @@ function base64ToHex (b64) {
 async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdir = '') {
   const finalPath = destPath(root, id, subdir, file)
   const tmpPath = finalPath + '.tmp'
+  // 同名文件已经存在又没有 .tmp 续传标记时，它可能来自另一个仓库。
+  //   只在清单里说清楚，不替使用者判断哪一份才对，也不自动覆盖。
+  const otherSource = fs.existsSync(finalPath) && !fs.existsSync(tmpPath)
+  const keptEn = ' An existing file with this name was kept; it may belong to another repository. Delete it first to replace it.'
+  const keptZh = ' 已存在同名文件且没有续传标记，可能是另一个仓库下载的；平台保留未覆盖，需要替换时先删除。'
 
   if (fs.existsSync(finalPath)) {
     const stat = fs.statSync(finalPath)
@@ -380,8 +385,8 @@ async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdi
         status: 'partial',
         size: stat.size,
         sha256: await sha256File(finalPath),
-        note: 'The remote file list gives no size for this file — completeness cannot be confirmed.',
-        noteZh: '远端文件列表没有给出这个文件的大小，无法确认完整性。',
+        note: 'The remote file list gives no size for this file — completeness cannot be confirmed.' + (otherSource ? keptEn : ''),
+        noteZh: '远端文件列表没有给出这个文件的大小，无法确认完整性。' + (otherSource ? keptZh : ''),
       }
     }
     if (stat.size !== expectedSize) {
@@ -389,8 +394,8 @@ async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdi
         status: 'partial',
         size: stat.size,
         sha256: await sha256File(finalPath),
-        note: 'The file on disk does not match the size the remote file list reports.',
-        noteZh: '磁盘上的文件和远端文件列表给出的大小不一致。',
+        note: 'The file on disk does not match the size the remote file list reports.' + (otherSource ? keptEn : ''),
+        noteZh: '磁盘上的文件和远端文件列表给出的大小不一致。' + (otherSource ? keptZh : ''),
       }
     }
     const actualSha = await sha256File(finalPath)
@@ -403,8 +408,8 @@ async function checkFileStatus (file, expectedSize, root, id, expectedSha, subdi
         sha256: actualSha,
         expectedSha,
         shaVerified: false,
-        note: 'The file size matches but its SHA-256 differs from the value the remote reports.',
-        noteZh: '文件大小一致，但 SHA-256 与远端给出的不一致，内容已损坏。',
+        note: 'The file size matches but its SHA-256 differs from the value the remote reports.' + (otherSource ? keptEn : ''),
+        noteZh: '文件大小一致，但 SHA-256 与远端给出的不一致，内容已损坏。' + (otherSource ? keptZh : ''),
       }
     }
     return { status: 'ok', size: stat.size, sha256: actualSha,
@@ -702,6 +707,23 @@ function downloadFile (file, repo, root, id, onLine, onProgress, branch, signal 
   const source = normalizeSource(file && file.tool)
   if (!source) return Promise.resolve(unknownSourceResult(file && file.tool))
   if (!repo) return Promise.resolve(missingRepoResult())
+  // 多仓库下载时同名文件不许互相顶掉：README 常把权重拆在几个仓库里，
+  //   其中一份是主权重、另一份只是补充文件。先下的那份是这份引擎的基准，
+  //   后下的仓库里同名的大文件可能是另一套模型，静默覆盖会把装好的引擎换掉。
+  //   判据只看盘：正式文件在、且没有同名的 .tmp ⇒ 认为已完成，只保留不覆盖；
+  //   有 .tmp 说明是没下完的续传，照旧走下载。
+  const finalPath = file && file.name ? destPath(root, id, file.subdir || '', file.name) : null
+  const tmpPath = finalPath ? finalPath + '.tmp' : null
+  if (finalPath && fs.existsSync(finalPath) && !fs.existsSync(tmpPath)) {
+    const kept = {
+      ok: true, code: 'KEPT_EXISTING', status: null, skipped: true,
+      size: fs.statSync(finalPath).size,
+      note: 'An existing file with this name was kept. It may have come from another repository; delete it first if this one is required.',
+      noteZh: '已存在同名文件，保留未覆盖（可能来自另一个仓库）。确实要换成这一份时，请先删除该文件再下载。',
+    }
+    if (typeof onLine === 'function') onLine(kept.noteZh, false)
+    return Promise.resolve(kept)
+  }
   const token = source === 'hf' ? (opts.token || null) : null
   const auth = token ? { token, origin: new URL(ENDPOINTS.hf).origin } : null
   const branches = branch ? [branch]
