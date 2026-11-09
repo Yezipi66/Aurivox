@@ -8,6 +8,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import testDeps from '../../lib/testDeps.js'
+
+const { printFrontendNormsReminder, freshUndefinedCssVars, freshNumericSuffixBadges } = testDeps
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -90,4 +93,26 @@ test('⛔ 全项目文案语气守卫（web/src/）：口语/粗口/符号语气
 test('守卫自身有效（禁词表非空、扫描文件数 > 0）', () => {
   assert.ok(FORBIDDEN.length >= 50, `禁词表只有 ${FORBIDDEN.length} 条，应 >= 50`)
   assert.ok(files.length > 50, `只扫到 ${files.length} 个文件，应 > 50`)
+})
+
+// ---- 前端规范：失败提醒 + 自动检测 ----
+// 守卫有失败时在 stderr 末尾打印前端规范清单（见 lib/testDeps.js 的 FRONTEND_NORMS），
+// 让开发者自查，不用来回找人。绿的时候不出声。
+process.on('exit', () => { if (process.exitCode) printFrontendNormsReminder() })
+
+// 这两条自动检测跨仓库统一检查 web/src + 向导 editor.css 的样式规范，
+// 只拦「新增」违规：已知存量（BASELINE_*）留作单独清理，不在本次范围。
+test('前端规范：不引用未定义的 CSS 变量（新增）', () => {
+  const fresh = freshUndefinedCssVars(ROOT)
+  assert.deepStrictEqual(fresh, [],
+    `\n有 ${fresh.length} 个新增的未定义 CSS 变量引用：\n  ${fresh.join('\n  ')}\n`
+    + '  变量必须先在某份 .css 里定义（web/src/styles.css 或 editor.css）。\n'
+    + '  若是笔误（如 --warn 应为 --warning），改对名字即可。')
+})
+
+test('前端规范：徽标不用数字后缀类名（新增）', () => {
+  const fresh = freshNumericSuffixBadges(ROOT)
+  assert.deepStrictEqual(fresh, [],
+    `\n有 ${fresh.length} 个新增的数字后缀徽标类名：\n  ${fresh.join('\n  ')}\n`
+    + '  徽标/状态用语义类名（如 badge-norefs），不要用 badge-foo2 这种数字后缀。')
 })

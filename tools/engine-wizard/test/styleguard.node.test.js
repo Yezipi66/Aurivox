@@ -12,6 +12,8 @@ const path = require('node:path')
 const WIZ = path.join(__dirname, '..', 'editor')
 const PROJECT_CSS = path.join(__dirname, '..', '..', '..', 'web', 'src', 'styles.css')
 const WIZ_CSS = path.join(WIZ, 'editor.css')
+const ROOT = path.resolve(__dirname, '..', '..', '..')
+const { printFrontendNormsReminder, freshUndefinedCssVars, freshNumericSuffixBadges } = require('../../../lib/testDeps.js')
 
 const proj = fs.readFileSync(PROJECT_CSS, 'utf8')
 const wiz = fs.readFileSync(WIZ_CSS, 'utf8')
@@ -896,4 +898,26 @@ test('不误报：幂/指针/正则/模板串/箭头/取反/路径，守卫全�
   // 合法代码里一条注释都不该出现：上述记号全在字符串与正则里
   const nodes = commentNodes('inject-fp-code.cjs', code)
   assert.deepStrictEqual(nodes, [], '这段纯代码里不该有注释节点')
+})
+
+// ---- 前端规范：失败提醒 + 自动检测 ----
+// 守卫有失败时在 stderr 末尾打印前端规范清单（见 lib/testDeps.js 的 FRONTEND_NORMS），
+// 让开发者自查，不用来回找人。绿的时候不出声。
+process.on('exit', () => { if (process.exitCode) printFrontendNormsReminder() })
+
+// 这两条自动检测跨仓库统一检查 web/src + 向导 editor.css 的样式规范，
+// 只拦「新增」违规：已知存量（BASELINE_*）留作单独清理，不在本次范围。
+test('前端规范：不引用未定义的 CSS 变量（新增）', () => {
+  const fresh = freshUndefinedCssVars(ROOT)
+  assert.deepStrictEqual(fresh, [],
+    `\n有 ${fresh.length} 个新增的未定义 CSS 变量引用：\n  ${fresh.join('\n  ')}\n`
+    + '  变量必须先在某份 .css 里定义（web/src/styles.css 或 editor.css）。\n'
+    + '  若是笔误（如 --warn 应为 --warning），改对名字即可。')
+})
+
+test('前端规范：徽标不用数字后缀类名（新增）', () => {
+  const fresh = freshNumericSuffixBadges(ROOT)
+  assert.deepStrictEqual(fresh, [],
+    `\n有 ${fresh.length} 个新增的数字后缀徽标类名：\n  ${fresh.join('\n  ')}\n`
+    + '  徽标/状态用语义类名（如 badge-norefs），不要用 badge-foo2 这种数字后缀。')
 })
