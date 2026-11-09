@@ -6,6 +6,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { Player } from '../../../web/src/components/common/Player'
 import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
+import { readSse } from './downloadRunner'
 
 export function StepVerify ({ id }) {
   const { t } = useT()
@@ -20,6 +21,10 @@ export function StepVerify ({ id }) {
   // 试运行是后台任务：job 是服务端的任务快照（阶段、已用时间、结束后的结果），轮询刷新。
   const [job, setJob] = useState(null)
   const [measureError, setMeasureError] = useState(null)
+  // 名片声明的补齐命令：资源可能在运行期才发现缺，第 5 步给一个补齐后重跑前置的入口。
+  const [postBusy, setPostBusy] = useState(false)
+  const [postOut, setPostOut] = useState([])
+  const postAbort = React.useRef(null)
   const measuring = measureRunning(job)
 
   // 运行设备：本机有哪几块卡只有后端知道，这里只负责摆成下拉。
@@ -139,6 +144,45 @@ export function StepVerify ({ id }) {
   useEffect(() => {
     runChecks('B', null)
   }, [runChecks])
+
+  const runPostDownload = async () => {
+    if (!id || postBusy) return
+    setPostBusy(true)
+    setPostOut([])
+    const controller = new AbortController()
+    postAbort.current = controller
+    try {
+      const resp = await fetch('/wizard/engine-download', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ id, key: 'manifest', root: window.__PROJECT_ROOT__ || '' }),
+      })
+      if (!resp.ok) {
+        let j = null
+        try { j = await resp.json() } catch { /* 不是 JSON 就只报状态码 */ }
+        setPostOut([(j && (j.errorZh || j.error)) || ('HTTP ' + resp.status)])
+        return
+      }
+      let last = null
+      await readSse(resp, (ev) => {
+        if (!ev) return
+        if (typeof ev.text === 'string') setPostOut((p) => [...p, ev.text].slice(-200))
+        if ('ok' in ev || 'error' in ev) last = ev
+      })
+      if (last && last.ok === false) {
+        setPostOut((p) => [...p, last.errorZh || last.error || String(last.code || 'FAILED')])
+      }
+      runChecks('B', null)
+    } catch (e) {
+      const stopped = e && e.name === 'AbortError'
+      setPostOut((p) => [...p, stopped ? t('Stopped.', '已停止。') : String((e && e.message) || e)])
+    } finally {
+      postAbort.current = null
+      setPostBusy(false)
+    }
+  }
+  const stopPostDownload = () => { if (postAbort.current) postAbort.current.abort() }
 
   if (loading) {
     return <div className="msg msg-info">{t('Running checks…', '正在校验…')}</div>
@@ -310,6 +354,27 @@ export function StepVerify ({ id }) {
             {' · '}{runtimeLabel}
             <div className="field-hint" style={{ marginTop: 4 }}>{runtimeHint}</div>
           </div>
+          {results.post_download_available && (
+            <div style={{ marginTop: 6 }}>
+              <button className="btn btn-sm" type="button" disabled={postBusy}
+                title={t('Run the engine-declared download command, then repeat the preflight checks.',
+                  '执行名片声明的补齐命令，随后重新执行一遍前置检查。')}
+                onClick={runPostDownload}>
+                {postBusy ? t('Running', '运行中') : t('Complete engine resources and recheck', '按名片补齐并重新校验')}
+              </button>
+              {postBusy && (
+                <button className="btn btn-sm btn-danger" type="button" style={{ marginLeft: 6 }}
+                  onClick={stopPostDownload}>
+                  {t('Stop', '停止')}
+                </button>
+              )}
+              {postOut.length > 0 && (
+                <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 180, overflow: 'auto' }}>
+                  {postOut.join('\n')}
+                </pre>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

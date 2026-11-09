@@ -136,6 +136,58 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const [scriptOut, setScriptOut] = React.useState([])
   const [scriptArgs, setScriptArgs] = React.useState({})
   const scriptAbort = React.useRef(null)
+  // 第一档：引擎自带的下载 / 部署入口。平台只列出来、执行、显示进度。
+  const [engineEntries, setEngineEntries] = React.useState([])
+  const [entryBusy, setEntryBusy] = React.useState(null)
+  const [entryOut, setEntryOut] = React.useState([])
+  const entryAbort = React.useRef(null)
+  React.useEffect(() => {
+    if (!id) { setEngineEntries([]); return undefined }
+    let live = true
+    fetch(`/wizard/download-entries?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (live && j.ok) setEngineEntries(Array.isArray(j.entries) ? j.entries : []) })
+      .catch(() => { if (live) setEngineEntries([]) })
+    return () => { live = false }
+  }, [id])
+  const runEngineEntry = async (e) => {
+    if (!id || !e || entryBusy) return
+    setEntryBusy(e.key)
+    setEntryOut([])
+    const controller = new AbortController()
+    entryAbort.current = controller
+    try {
+      const resp = await fetch('/wizard/engine-download', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ id, key: e.key, root: window.__PROJECT_ROOT__ || '' }),
+      })
+      if (!resp.ok) {
+        let j = null
+        try { j = await resp.json() } catch { /* 不是 JSON 就只报状态码 */ }
+        setEntryOut([(j && (j.errorZh || j.error)) || ('HTTP ' + resp.status)])
+        return
+      }
+      let last = null
+      await readSse(resp, (ev) => {
+        if (!ev) return
+        if (typeof ev.text === 'string') setEntryOut((p) => [...p, ev.text].slice(-400))
+        if ('ok' in ev || 'error' in ev) last = ev
+      })
+      if (last && last.ok === false) {
+        setEntryOut((p) => [...p, last.errorZh || last.error || `${last.code || 'FAILED'}（退出码 ${String(last.status)}）`])
+      }
+      refreshFileList()
+    } catch (e2) {
+      const stopped = e2 && e2.name === 'AbortError'
+      setEntryOut((p) => [...p, stopped ? t('Stopped.', '已停止。') : String((e2 && e2.message) || e2)])
+    } finally {
+      entryAbort.current = null
+      setEntryBusy(null)
+    }
+  }
+  const stopEngineEntry = () => { if (entryAbort.current) entryAbort.current.abort() }
   // 直链兜底：上游只给单个文件地址（release 资产、自建网盘）时用。
   const [directUrl, setDirectUrl] = React.useState('')
   const [directName, setDirectName] = React.useState('')
@@ -622,6 +674,67 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         <div className="msg msg-info">
           {t('Fill in the link first — the model list comes from the upstream README.',
             '请先填写链接，需要下载的模型从上游 README 中提取。')}
+        </div>
+      )}
+
+      {/* 第一档：引擎自带的下载 / 部署入口。找不到才退到仓库清单，再退到手贴文件直链。 */}
+      {id && (
+        <div className="section" style={{ marginTop: 0 }}>
+          <div className="section-hdr">
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+              {t('Engine-provided download entries', '引擎自带下载入口')}
+            </h2>
+          </div>
+          <div className="section-body">
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('If the engine ships its own download or setup entry, run it here: the engine knows which extra files it needs. Without one, use the repository list below; if that is empty too, paste a file link.',
+                '引擎自带下载或部署入口时优先用它，缺哪些运行期资源由引擎自己判断。没有入口时按下方仓库清单逐文件下载，连仓库都没有时再贴文件直链。')}
+            </div>
+            {engineEntries.length === 0 && (
+              <div className="field-hint">
+                {t('No engine-provided entry was found on disk. Falling back to the repository list.',
+                  '盘上没有找到引擎自带入口，按下方仓库清单继续。')}
+              </div>
+            )}
+            {engineEntries.map((e) => {
+              const busy = entryBusy === e.key
+              return (
+                <div key={e.key} style={{ marginTop: 6 }}>
+                  <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <pre className="rc-cmd-body" style={{ flex: 1, margin: 0, minWidth: 180 }}>
+                      {(e.argv || []).map(String).join(' ')}
+                    </pre>
+                    {e.already_deployed && (
+                      <span className="badge badge-warn"
+                        title={lang === 'zh' ? e.noteZh : e.noteEn}>
+                        {t('possibly already deployed in step 2', '第 2 步可能已部署')}
+                      </span>
+                    )}
+                    <button className="btn btn-sm btn-primary" type="button"
+                      disabled={!!entryBusy || !id}
+                      onClick={() => runEngineEntry(e)}>
+                      {busy ? t('Running', '运行中') : t('Run', '运行')}
+                    </button>
+                    {busy && (
+                      <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
+                        {t('Stop', '停止')}
+                      </button>
+                    )}
+                  </div>
+                  {((lang === 'zh' ? e.noteZh : e.noteEn) || e.noteZh) && (
+                    <div className="field-hint" style={{ marginTop: 4 }}>
+                      {lang === 'zh' ? (e.noteZh || e.noteEn) : (e.noteEn || e.noteZh)}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {entryOut.length > 0 && (
+              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
+                {entryOut.join('\n')}
+              </pre>
+            )}
+          </div>
         </div>
       )}
 

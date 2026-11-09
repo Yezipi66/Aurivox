@@ -83,6 +83,11 @@ function runChecks (id, opts = {}) {
   }
 
   const out = { ok: true, id, checks: {}, problems: [] }
+  // 名片声明了补齐命令时，第 5 步也给人一个「补齐并重新校验」的入口：
+  // 资源是运行期才发现的，不必为此回到第 3 步重走一遍。
+  out.post_download_available = !!(profile && profile.models &&
+    profile.models.post_download && Array.isArray(profile.models.post_download.command) &&
+    profile.models.post_download.command.length)
 
   // 标题、说明与 stage 从 checks() 的清单并入每道结果：界面直接用平台的词，
   //   不另造一套标签，避免与第 2 步「安装依赖」的结论混淆。

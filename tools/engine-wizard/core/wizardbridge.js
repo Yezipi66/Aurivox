@@ -207,6 +207,24 @@ const DOWNLOAD_SCRIPTS = [
   'download_checkpoints.sh',
 ]
 
+// 第 3 步第一档：引擎自带的下载 / 部署入口。安装脚本也算一种，但第 2 步可能已经
+//   跑过它建环境，所以清单里要带 installs_env 与 already_deployed，让人自己判断，
+//   平台不替他决定要不要重跑。
+const ENGINE_ENTRY_SCRIPTS = Object.freeze([...DOWNLOAD_SCRIPTS, 'install.sh', 'install.ps1'])
+const DOWNLOAD_GROUP_RE = /^(download|setup|prepare|init-models|fetch-models|models|install)$/i
+
+function scriptInstallsEnv (file) {
+  return /^install\./i.test(String(file || '').split('/').pop())
+}
+
+// Windows 自带 PowerShell 的绝对路径：父进程 PATH 未必带着它。
+function powershellPath () {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows'
+  const full = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  try { if (fs.existsSync(full)) return full } catch { /* 读不到就退回名字 */ }
+  return 'powershell.exe'
+}
+
 // 跑上游下载脚本的时间上限：权重动辄几 GB，按 30 分钟给；超时就杀掉，不留半个进程。
 const RUN_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000
 
@@ -1074,6 +1092,198 @@ function handleDownloadManifest (req, res) {
   return true
 }
 
+// ---- 第 3 步第一档：引擎自带的下载 / 部署入口 ------------------------------
+// 分工：引擎知道自己缺什么、去哪里拉；平台只负责把入口找出来、执行、显示进度。
+// 平台不解释命令、不解析输出、不判断哪一份权重该保留。找不到才退到仓库清单逐文件
+// 下载，再退到手贴文件直链。
+function readLocalManifest (dir) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) } catch { return null }
+}
+
+function scriptArgvFor (dir, file) {
+  const ext = path.extname(file).toLowerCase()
+  const venvPython = process.platform === 'win32'
+    ? path.join(dir, '.venv', 'Scripts', 'python.exe')
+    : path.join(dir, '.venv', 'bin', 'python')
+  if (ext === '.py') return [fs.existsSync(venvPython) ? venvPython : 'python', file]
+  if (ext === '.sh') return ['bash', file]
+  if (ext === '.js') return ['node', file]
+  return [powershellPath(), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file]
+}
+
+/** 按优先级列出这一台引擎自带的下载入口；GET 与 POST 用同一份构造，避免两边漂移。 */
+function buildEngineDownloadEntries (root, id) {
+  const dir = path.join(root, 'engines', id)
+  if (!fs.existsSync(dir)) return []
+  const manifest = readLocalManifest(dir)
+  const entries = []
+  const post = manifest && manifest.models && manifest.models.post_download
+  if (post && Array.isArray(post.command) && post.command.length) {
+    entries.push({
+      key: 'manifest', kind: 'manifest', priority: 0,
+      labelZh: '名片声明的补齐命令', labelEn: 'Command declared in the manifest',
+      argv: post.command.slice(),
+      noteZh: '由引擎名片声明，平台只执行并显示进度。',
+      noteEn: 'Declared by the engine manifest; the platform only runs it and shows progress.',
+    })
+  }
+  const envReady = fs.existsSync(path.join(dir, '.venv'))
+  for (const f of ENGINE_ENTRY_SCRIPTS) {
+    if (!fs.existsSync(path.join(dir, ...f.split('/')))) continue
+    const installs = scriptInstallsEnv(f)
+    entries.push({
+      key: 'script:' + f, kind: 'script', priority: 1,
+      labelZh: f, labelEn: f,
+      argv: scriptArgvFor(dir, f),
+      installs_env: installs,
+      already_deployed: installs && envReady,
+      noteZh: installs && envReady
+        ? '该脚本同时安装环境，而引擎环境已存在：第 2 步可能已经部署过，重复执行会重建环境。'
+        : (installs ? '该脚本同时安装环境，执行后环境不再由平台按名片建立。' : ''),
+      noteEn: installs && envReady
+        ? 'This script also installs the environment, which already exists; step 2 may have run it.'
+        : '',
+    })
+  }
+  try {
+    const { collectCliHelp } = require('./cliHelp')
+    const { moduleWithRoot } = require('./entryPick')
+    const cli = collectCliHelp({ dir })
+    const flags = cli && cli.ok && Array.isArray(cli.flags) ? cli.flags : []
+    const groups = [...new Set(flags.map((f) => f && f.subcommand)
+      .filter((g) => g && DOWNLOAD_GROUP_RE.test(g)))]
+    for (const g of groups) {
+      const hit = flags.find((f) => f && f.subcommand === g && f.source_file)
+      if (!hit) continue
+      const mod = moduleWithRoot(hit.source_file).module
+      if (!mod) continue
+      entries.push({
+        key: 'cli:' + g, kind: 'cli', priority: 2,
+        labelZh: `命令行子命令 ${g}`, labelEn: `CLI subcommand ${g}`,
+        argv: ['{engine_python}', '-m', mod, g, '--model-dir', '{checkpoints}'],
+        may_overwrite: true,
+        noteZh: '引擎自带的下载子命令可能整仓同步并覆盖已下载的主权重，执行前请确认。',
+        noteEn: 'This subcommand may sync a whole repository and overwrite downloaded weights.',
+      })
+    }
+  } catch { /* 命令行读不出来时只给前两类，不影响退回路径 */ }
+  return entries.sort((a, b) => a.priority - b.priority || a.key.localeCompare(b.key))
+}
+
+function expandEngineArgv (argv, root, id, dir, manifest) {
+  const { resolveCheckpointsRel } = require('./checkpointsPath')
+  const rel = resolveCheckpointsRel(manifest, id) || path.join('engines', id, 'checkpoints')
+  const venvPython = process.platform === 'win32'
+    ? path.join(dir, '.venv', 'Scripts', 'python.exe')
+    : path.join(dir, '.venv', 'bin', 'python')
+  const platformVenv = process.platform === 'win32'
+    ? path.join(root, 'venv', 'Scripts', 'python.exe')
+    : path.join(root, 'venv', 'bin', 'python')
+  const map = {
+    engine_python: fs.existsSync(venvPython) ? venvPython
+      : (fs.existsSync(platformVenv) ? platformVenv : (process.platform === 'win32' ? 'python' : 'python3')),
+    checkpoints: path.resolve(root, rel).replace(/\\/g, '/'),
+    engine_dir: dir.replace(/\\/g, '/'),
+    root: path.resolve(root).replace(/\\/g, '/'),
+  }
+  return argv.map((w) => String(w).replace(/\{([a-z_]+)\}/g,
+    (m, k) => (map[k] === undefined ? m : map[k])))
+}
+
+// GET /wizard/download-entries?id=   列出第一档入口
+function handleDownloadEntries (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/download-entries')) return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  const root = url.searchParams.get('root') || projectRoot() || ''
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  json(res, 200, { ok: true, entries: buildEngineDownloadEntries(root, id) })
+  return true
+}
+
+// POST /wizard/engine-download {id, key}  执行第一档入口，SSE 逐行透传
+function handleEngineDownload (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/engine-download')) return false
+  readBody(req, (err, body) => {
+    if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
+    const id = String(body.id || '')
+    const root = body.root || projectRoot() || ''
+    if (!id || /[\\/]/.test(id) || id === '..' || path.isAbsolute(id)) {
+      json(res, 400, { ok: false, code: 'BAD_ID', error: 'Invalid engine id', errorZh: '引擎 id 不合法。' })
+      return
+    }
+    const dir = path.join(root, 'engines', id)
+    if (!fs.existsSync(dir)) {
+      json(res, 400, { ok: false, code: 'NO_ENGINE', error: `引擎目录不存在：${id}` })
+      return
+    }
+    const entry = buildEngineDownloadEntries(root, id).find((e) => e.key === String(body.key || ''))
+    if (!entry) {
+      json(res, 400, { ok: false, code: 'NO_ENTRY', error: '没有这个入口', errorZh: '没有这个入口，请重新读取入口清单。' })
+      return
+    }
+    const argv = expandEngineArgv(entry.argv, root, id, dir, readLocalManifest(dir))
+    if (argv.some((w) => /\{[a-z_]+\}/.test(w))) {
+      json(res, 400, { ok: false, code: 'BAD_PLACEHOLDER', error: '命令里有未展开的占位符' })
+      return
+    }
+    const { childEnvFor } = require('./envInstall')
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+    send('argv', { argv: argv.map(String), cwd: dir })
+    let child
+    try {
+      child = spawn(argv[0], argv.slice(1), {
+        cwd: dir, windowsHide: true, shell: false,
+        env: childEnvFor(root, undefined),
+      })
+    } catch (e) {
+      send('done', { ok: false, code: 'SPAWN_FAILED', error: e.message })
+      res.end()
+      return
+    }
+    let finished = false
+    const finish = (ok, payload) => {
+      if (finished) return
+      finished = true
+      clearTimeout(timer)
+      send('done', { ok, ...payload })
+      res.end()
+    }
+    const timer = setTimeout(() => {
+      try { child.kill() } catch { /* 已经退出 */ }
+      finish(false, { code: 'TIMEOUT', error: 'Stopped after the time limit.', errorZh: '超过时间上限，已停止。' })
+    }, RUN_SCRIPT_TIMEOUT_MS)
+    if (typeof res.on === 'function') {
+      res.on('close', () => {
+        if (finished) return
+        finished = true
+        clearTimeout(timer)
+        try { child.kill() } catch { /* 已经退出 */ }
+      })
+    }
+    const onData = (buf, isErr) => {
+      for (const line of buf.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) send('line', { text: line, err: !!isErr })
+      }
+    }
+    child.stdout.on('data', (b) => onData(b, false))
+    child.stderr.on('data', (b) => onData(b, true))
+    child.on('error', (e) => finish(false, { code: 'SPAWN_FAILED', error: e.message }))
+    child.on('close', (code) => finish(code === 0, { status: code, code: code === 0 ? 'OK' : 'EXIT_' + code }))
+  })
+  return true
+}
+
 // POST /wizard/run-script {id, file, args}  第 3 步：跑上游自带的下载脚本
 //   上游脚本自己知道目录结构（权重放哪、叫什么），跑它最不容易错。
 //   平台只做三件事：按扩展名选解释器、在引擎目录里跑、把输出原样透传；
@@ -1473,6 +1683,7 @@ function handleDownload (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/download')) return false
   if (req.url.startsWith('/wizard/download/cancel')) return false
+  if (req.url.startsWith('/wizard/download-entries')) return false
   readBody(req, (err, body) => {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const input = {
@@ -2248,12 +2459,14 @@ module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
+  handleDownloadEntries, handleEngineDownload,
   handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, extractRepoLinks, parseDownloadCmd, snapshotSourceOf,
+  buildEngineDownloadEntries, expandEngineArgv,
   // 导给守卫测试：包名兜底链的两个函数。packageDirsFromEntries 是纯函数可直接验，
   //   listPackageDirs 走网络，只验它「三个分支都失败时返回空数组、不打 refute」。
   packageDirsFromEntries, listPackageDirs,
