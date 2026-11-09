@@ -31,9 +31,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     if (!id) return
     setBusy(true); setErr(null)
     try {
-      if (!probe) { setErr('No probe data. Complete step 1 first.'); return }
-      const cmds = probe.downloader_cmds || []
-      const scripts = probe.downloader || []
+      // 第 1 步没有探测结果时仍然可以手填模型仓库页或文件直链，
+      // 因此这里只取已有数据，不把探测缺失当成整步不可用的错误。
+      const cmds = (probe && probe.downloader_cmds) || []
+      const scripts = (probe && probe.downloader) || []
       setR({ ok: true, manifest: null, status: null, commands: [], downloader_cmds: cmds, downloader: scripts })
       // 清空之前嗅探到的仓库文件
       setManifest(null)
@@ -303,8 +304,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       setPastedRepos((prev) => prev.some((p) => p.tool === asRepo.tool && p.repo === asRepo.repo)
         ? prev : [...prev, asRepo])
       setDirectUrl('')
-      setDirectOut([t('A model repo link was added to the download list above.',
-        '这是模型仓库链接，已加入上面的下载清单。')])
+      const site = asRepo.tool === 'hf' ? 'Hugging Face' : 'ModelScope'
+      const siteZh = asRepo.tool === 'hf' ? 'Hugging Face' : '魔搭'
+      setDirectOut([t(`Recognised as the ${site} repo ${asRepo.repo}. It has been added to the download list above; use "Probe repo" there to read its file list.`,
+        `已识别为 ${siteZh} 仓库 ${asRepo.repo}，已加入上方下载清单；在「下载命令」中执行「嗅探仓库」即可读取文件列表。`)])
       return
     }
     setDirectBusy(true)
@@ -363,6 +366,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   })
   const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
     !(releaseAssets && releaseAssets.assets.length > 0)
+  // 一个输入框按主域名分流：模型仓库页进清单，单文件地址直接下载，不给两个站点各开一个控件。
+  const directAsRepo = repoLinkFromUrl(directUrl.trim())
   const linkCmdCount = visibleCmds.filter((c) => c && c.from === 'link').length
   const removeLink = (c) => {
     const key = `${c.tool}|${c.repo}`
@@ -692,8 +697,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </div>
             {engineEntries.length === 0 && (
               <div className="field-hint">
-                {t('No engine-provided entry was found on disk. Falling back to the repository list.',
-                  '盘上没有找到引擎自带入口，按下方仓库清单继续。')}
+                {t('No engine-provided entry was found on disk. Use the repository list below, or fill in a model repo page in the box at the bottom.',
+                  '盘上没有找到引擎自带入口，按下方仓库清单继续；清单为空时可在底部输入框填写模型仓库页。')}
               </div>
             )}
             {engineEntries.map((e) => {
@@ -1160,33 +1165,34 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         <div className="section" style={{ marginTop: 4 }}>
           <div className="section-hdr">
             <h2 style={{ fontSize: 'var(--fs-13)' }}>
-              {t('A direct file link', '单文件直链')}
+              {t('Model repo or direct file link', '模型仓库或文件直链')}
             </h2>
           </div>
           <div className="section-body">
             <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('Paste one http(s) file URL. The platform downloads it into the declared weights folder and re-reads the file list afterwards.',
-                '填写一条 http(s) 文件地址。平台将其下载到名片声明的权重目录，结束后重新读取文件清单。')}
+              {t('Paste a Hugging Face or ModelScope repo page, or one http(s) file URL. The host is detected automatically: a repo page joins the download list above, where its files can be read with "Probe repo"; a file URL is downloaded into the declared weights folder.',
+                '填写 Hugging Face 或魔搭的模型仓库页，或一条 http(s) 文件地址。按网址域名自动识别：仓库页加入上方下载清单，之后可执行「嗅探仓库」读取文件列表；文件地址下载到名片声明的权重目录。')}
             </div>
             {nothingFound && (
               <div className="msg msg-warn" style={{ marginTop: 6 }}>
-                {t('No download command, script, repo link or release asset was found in the upstream docs. Many engines fetch weights on first run; use step 5 to check, or paste a file link here.',
-                  '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。很多引擎会在首次推理时自行拉取权重，请用第 5 步校验，或在这里贴文件直链。')}
+                {t('No download command, script, repo link or release asset was found in the upstream docs. Fill in a model repo page below to probe its files, or a file URL to download one file. Many engines fetch weights on first run; use step 5 to check.',
+                  '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。可在下方填写模型仓库页以嗅探其文件，或填写文件地址下载单个文件；很多引擎会在首次推理时自行拉取权重，请用第 5 步校验。')}
               </div>
             )}
             <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input className="control" style={{ flex: 1 }} value={directUrl}
-                placeholder="https://.../model.safetensors"
+                placeholder="https://huggingface.co/org/model  /  https://.../model.safetensors"
                 disabled={directBusy}
                 onChange={(e) => setDirectUrl(e.target.value)} />
               <input className="control" style={{ flex: '0 0 180px' }} value={directName}
                 placeholder={t('file name (optional)', '文件名（可空）')}
-                disabled={directBusy}
+                disabled={directBusy || !!directAsRepo}
                 onChange={(e) => setDirectName(e.target.value)} />
               <button className="btn btn-sm btn-primary" type="button"
                 disabled={directBusy || !directUrl.trim()}
                 onClick={() => downloadDirect(directUrl.trim(), directName.trim(), 0)}>
-                {directBusy ? t('Downloading', '下载中') : t('Download', '下载')}
+                {directBusy ? t('Downloading', '下载中')
+                  : (directAsRepo ? t('Import repo', '引入仓库') : t('Download', '下载'))}
               </button>
               {directBusy && (
                 <button className="btn btn-sm btn-danger" type="button"
