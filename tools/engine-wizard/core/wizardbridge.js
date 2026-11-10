@@ -1020,6 +1020,14 @@ function handleEnv (req, res) {
     }
     runEnv(input).then((r) => {
       forget()
+      // 安装失败时把本机后端的结论一并带出：声明的 torch 版本不可用，
+      //   界面与直接调端点的人都能看到可替换的版本与可选后端，不必从 stderr 里找。
+      if (!r.ok) {
+        try {
+          const suggestion = suggestTorchUpgrade(input)
+          if (suggestion) r.torchSuggestion = suggestion
+        } catch (e) { /* 建议取不到不影响失败结论 */ }
+      }
       recordEnvResult(r)
       send('done', r)
       res.end()

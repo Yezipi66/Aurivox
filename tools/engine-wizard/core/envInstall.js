@@ -69,6 +69,18 @@ function resolveUv (root, platform) {
     whyZh: '未找到 uv（平台 venv 里没有，PATH 上也没有）' }
 }
 
+// uv 遇到 requirements 里带 --extra-index-url 时，默认只考虑第一个含该包的源。
+//   它自己在报错里给出解法；这种失败与版本无关，按提示重试一次即可。
+const UV_INDEX_HINT_RE = /--index-strategy unsafe-best-match|not at the requested version/i
+
+function withIndexStrategy (argv) {
+  const at = argv.findIndex((w, i) => i > 0 && w === 'install' && argv[i - 1] === 'pip')
+  if (at < 0) return null
+  const out = argv.slice()
+  out.splice(at + 1, 0, '--index-strategy', 'unsafe-best-match')
+  return out
+}
+
 // 组装要执行的步骤：建环境、照上游锁文件装依赖、按需另装与本机后端匹配的 torch。
 function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython }) {
   const steps = []
@@ -558,7 +570,7 @@ async function runEnv (input = {}) {
       }
     }
 
-    const argvKey = argv.join(' ')
+    let argvKey = argv.join(' ')
     const alreadyThere = step.skipIfExists === true
       && canUseEngineVenv(root, String(input.id || ''))
     if (alreadyThere) {
@@ -609,8 +621,31 @@ async function runEnv (input = {}) {
       }
     }
 
-    const r = await runStep(step, root, timeoutMs, argv, input.onLine, step.env,
+    let r = await runStep(step, root, timeoutMs, argv, input.onLine, step.env,
       { signal })
+    // 多索引解析失败时按 uv 自己的提示重试一次。只在这种明确报错下放宽，
+    //   其它安装仍然使用 uv 的默认策略，上游声明也不改写。
+    if (!r.ok && !argv.includes('--index-strategy')
+        && UV_INDEX_HINT_RE.test(`${r.stderr || ''}\n${r.stdout || ''}`)) {
+      const retryArgv = withIndexStrategy(argv)
+      if (retryArgv) {
+        if (typeof input.onLine === 'function') {
+          try {
+            input.onLine('多索引解析未通过，按 uv 的提示改用 unsafe-best-match 重试。', false)
+          } catch (e) { /* 回调抛错不打断安装 */ }
+        }
+        const retry = await runStep(step, root, timeoutMs, retryArgv, input.onLine,
+          step.env, { signal })
+        // 无论重试成败都以它的结果为准：失败时若沿用第一次的错误，
+        // 会把「索引解析失败」报成最终原因，掩盖真正的构建错误。
+        r = retry
+        r.retriedWith = retryArgv.join(' ')
+        if (retry.ok) {
+          argv.splice(0, argv.length, ...retryArgv)
+          argvKey = retryArgv.join(' ')
+        }
+      }
+    }
     stepsRun.push({
       n: i + 1,
       of: steps.length,
