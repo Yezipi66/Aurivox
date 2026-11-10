@@ -98,6 +98,29 @@ function buildConstraintFile (root, id) {
   return f
 }
 
+// uv 把 wheel 缓存指针写到同目录的 .tmpXXXX/link，再用 rename 覆盖最终名。
+//   Windows 上覆盖已存在文件时，目标被别的句柄以不共享删除的方式打开、或目标
+//   带只读属性，MoveFileEx 都返回 ERROR_ACCESS_DENIED(5)；两种情况的错误码相同，
+//   单看错误码分不出来。缓存路径与结构本身正常，故不属于位置写错。
+//   按访问防护会在文件刚写入时短暂持有句柄（本机 Defender 实时保护开启，D: 盘
+//   无排除项），于是同一个包可能这次成功、下次失败，换一个包也会出现。清缓存
+//   残留治不了这一类：目标指针本身有效，uv 是在覆盖它。
+//   判断时同时要求出现拒绝访问与 uv 缓存内部路径，避免把引擎目录本身的权限
+//   问题也当成缓存冲突来重试。
+const UV_CACHE_BUSY_RE = /os error 5|拒绝访问|Access is denied/i
+const UV_CACHE_PATH_RE = /(?:wheels-v\d+|archive-v\d+|sdists-v\d+)[\\/]|\.tmp[A-Za-z0-9]{4,}[\\/]link/i
+
+function isUvCacheBusy (r) {
+  const text = `${r.stderr || ''}\n${r.stdout || ''}`
+  return UV_CACHE_BUSY_RE.test(text) && UV_CACHE_PATH_RE.test(text)
+}
+
+// 缓存写入冲突第二档重试用的独立缓存目录：与主缓存分开，绕开被占用的条目。
+//   保留下来供后续重试复用，不清空。
+function uvRetryCacheDir (root) {
+  return path.join(root || projectRoot() || '', 'cache', 'uv-retry')
+}
+
 // 组装要执行的步骤：建环境、照上游锁文件装依赖、按需另装与本机后端匹配的 torch。
 function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython }) {
   const steps = []
@@ -379,18 +402,20 @@ function parseProgress (text) {
 //     "does not match the project environment path" 的警告。
 //   sync 步骤用的 UV_PROJECT_ENVIRONMENT 是独立键，不在这里，不受影响。
 function childEnvFor (root, envOverride) {
-  const env = { ...process.env, ...envOverride, UV_CACHE_DIR: uvCacheDirFor(root) }
+  // UV_CACHE_DIR 先落默认值，再让 envOverride 覆盖：缓存写入冲突的重试要换目录。
+  const env = { ...process.env, UV_CACHE_DIR: uvCacheDirFor(root), ...envOverride }
   delete env.PYTHONPATH
   delete env.VIRTUAL_ENV
   return env
 }
 
 // 执行前清掉 uv 构建缓存里被中断构建留下的 .tmp* 目录。
-//   被中断的 uv sdist 构建（例如上次因环境问题失败的构建）会留下
-//   builds-v0/.tmp* 的半成品；下次重跑 uv 复用这些残留时，setuptools 重写
-//   egg-info 可能撞上残留的只读/锁定状态，报 [WinError 5] 拒绝访问。
-//   清掉 .tmp* 后 uv 从头构建，不再复用半成品。只删被中断的临时目录，
-//   正常完成的构建缓存（wheel/sdist）不动。
+//   被中断的 uv sdist 构建会留下 builds-v0/.tmp* 的半成品；下次重跑 uv 复用
+//   这些残留时，setuptools 重写 egg-info 会撞上目录里已有的半成品，报
+//   [WinError 5] 拒绝访问。清掉 .tmp* 后 uv 从头构建。
+//   这一道只处理「构建目录被复用」，不处理 wheel 缓存指针的覆盖冲突：后者由
+//   isUvCacheBusy 识别并重试，目标指针本身有效，不需要删。
+//   只删被中断的临时目录，正常完成的构建缓存（wheel/sdist）不动。
 function cleanStaleUvBuilds (root) {
   const uvCache = uvCacheDirFor(root)
   const buildsDir = path.join(uvCache, 'builds-v0')
@@ -675,6 +700,24 @@ async function runEnv (input = {}) {
         break
       }
     }
+    // 缓存写入冲突：先原样重跑（占用通常很短），仍失败再换独立缓存目录。
+    //   两条路径都不改上游声明，也不改系统设置；argv 保持不变。
+    if (!r.ok && isUvCacheBusy(r)) {
+      const attempts = [
+        { env: step.env, notice: 'Uv 缓存写入被占用，原样重试一次。' },
+        { env: { ...(step.env || {}), UV_CACHE_DIR: uvRetryCacheDir(root) },
+          notice: 'Uv 缓存仍被占用，换独立缓存目录重试。' },
+      ]
+      for (const attempt of attempts) {
+        if (r.ok) break
+        if (typeof input.onLine === 'function') {
+          try { input.onLine(attempt.notice, false) } catch (e) { /* 回调抛错不打断安装 */ }
+        }
+        r = await runStep(step, root, timeoutMs, currentArgv, input.onLine,
+          attempt.env, { signal })
+        r.retriedWith = currentArgv.join(' ')
+      }
+    }
     if (constraintFile) {
       try { fs.rmSync(constraintFile, { force: true }) } catch (e) { /* 临时约束文件删不掉不影响安装 */ }
     }
@@ -826,6 +869,8 @@ module.exports = {
   parseProgress,
   childEnvFor,
   cleanStaleUvBuilds,
+  isUvCacheBusy,
+  uvRetryCacheDir,
   runOne,
   runEnv,
 }
