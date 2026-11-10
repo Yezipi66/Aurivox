@@ -14,7 +14,7 @@ const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
 const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
 const { runDownload, fetchRemoteManifest, enrichManifestFiles, downloadFile, downloadFileFromUrl,
-  removePartialFiles, normalizeSource, gatedResult } = require('./download')
+  removePartialFiles, normalizeSource, gatedResult, destPath } = require('./download')
 const hfToken = require('./hfToken')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, planDependencies, probePyproject, isPipInstallable } = require('./probe')
@@ -1618,7 +1618,15 @@ function handleDownloadUrl (req, res) {
       return
     }
     const subdir = typeof body.subdir === 'string' ? body.subdir : ''
+    const overwrite = body.overwrite === true
     const file = { name, size: Number(body.size) || 0, subdir }
+    const finalPath = destPath(root, id, subdir, name)
+    if (!finalPath) {
+      json(res, 400, { ok: false, code: 'NO_DEST',
+        error: 'The weights folder cannot be resolved for this engine.',
+        errorZh: '无法确定这台引擎的权重目录。' })
+      return
+    }
     const ac = new AbortController()
     let finished = false
     res.writeHead(200, {
@@ -1637,13 +1645,32 @@ function handleDownloadUrl (req, res) {
         try { ac.abort() } catch (e) { /* 已经结束 */ }
       })
     }
+    // 与仓库文件同一套保留规则：已有同名文件又没有 .tmp 时不覆盖，
+    //   确实要替换时由界面上的「重新下载」带上 overwrite。
+    const tmpPath = finalPath + '.tmp'
+    if (fs.existsSync(finalPath) && !fs.existsSync(tmpPath) && !overwrite) {
+      const kept = {
+        ok: true, code: 'KEPT_EXISTING', status: null, skipped: true,
+        size: fs.statSync(finalPath).size,
+        note: 'An existing file with this name was kept. Use re-download to overwrite it.',
+        noteZh: '已存在同名文件，保留未覆盖。要替换请点「重新下载」，它会覆盖这一份。',
+      }
+      send('line', { text: kept.noteZh, err: false })
+      send('done', kept)
+      finished = true
+      res.end()
+      return
+    }
+    if (overwrite) {
+      try { fs.rmSync(finalPath, { force: true }) } catch (e) { /* 删不掉就让下载覆盖 */ }
+    }
     const onLine = (text, isErr) => { send('line', { text, err: !!isErr }) }
     const onProgress = (p) => {
       send('progress', { file: name, percent: Math.min(100, Math.round((p.downloaded / p.total) * 100)),
         downloaded: p.downloaded, total: p.total })
     }
     try {
-      downloadFileFromUrl(raw, file, '', root, id, onLine, onProgress, 0, true, ac.signal, null)
+      downloadFileFromUrl(raw, file, '', root, id, onLine, onProgress, 0, false, ac.signal, null)
         .then((r) => {
           if (finished) return
           finished = true

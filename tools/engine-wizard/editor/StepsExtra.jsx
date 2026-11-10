@@ -574,7 +574,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const setFileDone = (name, result) => {
     setDlFiles((prev) => ({
       ...prev,
-      [name]: { ...(prev[name] || {}), done: true, ok: result && result.ok === true, error: result && result.error },
+      [name]: { ...(prev[name] || {}), done: true, ok: result && result.ok === true, code: result && result.code, noteZh: result && result.noteZh, error: result && result.error },
     }))
     if (result && result.ok) {
       setPastedFiles((prev) => prev.map((f) => (f.name === name ? { ...f, status: 'ok' } : f)))
@@ -722,7 +722,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   //   与「下载全部」共用 runDownloads，因此进度分槽、取消、收口是同一套逻辑。
   const runDownload = (c, file) => {
     if (!file || !file.name) return
-    startDownloads([{ ...file, repo: file.repo || c.repo, tool: file.tool || c.tool }])
+    // 直链已经下过时，这个按钮是「重新下载」：显式覆盖；首次下载不会覆盖盘上的同名文件。
+    const overwrite = file.kind === 'url' && file.status === 'ok' ? { overwrite: true } : {}
+    startDownloads([{ ...file, ...overwrite, repo: file.repo || c.repo, tool: file.tool || c.tool }])
   }
 
   // 令牌弹窗的三个动作。后端只回 { ok, configured }，令牌不回传，前端也不留副本。
@@ -1239,9 +1241,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               <div key={name} style={{ marginTop: 6 }}>
                 <div className="field-hint" style={{ marginTop: 0 }}>
                   {p.done
-                    ? (p.ok
-                      ? t(`${name} — done`, `${name}：完成`)
-                      : t(`${name} — failed: ${p.error || ''}`, `${name}：失败（${p.error || ''}）`))
+                    ? (p.ok && p.code === 'KEPT_EXISTING'
+                      ? t(`${name} — already present, kept`, `${name}：已存在，保留未覆盖`)
+                      : (p.ok
+                        ? t(`${name} — done`, `${name}：完成`)
+                        : t(`${name} — failed: ${p.error || ''}`, `${name}：失败（${p.error || ''}）`)))
                     : t(`Downloading ${name} (${p.percent || 0}%)`, `正在下载 ${name} (${p.percent || 0}%)`)}
                 </div>
                 {!p.done && (

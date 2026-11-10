@@ -62,6 +62,16 @@ test('文件直链条目走 url 端点，下载位置拆成 subdir 与 name', as
   assert.strictEqual(calls[0].body.name, 'model.safetensors')
   assert.strictEqual(calls[0].body.subdir, 'sub')
   assert.strictEqual(calls[0].body.size, 10)
+  assert.strictEqual(calls[0].body.overwrite, false, '首次下载不覆盖')
+})
+
+test('直链重新下载时明确带上覆盖标记', async () => {
+  const calls = await run({
+    kind: 'url', url: 'https://example.org/weights/model.safetensors',
+    name: 'model.safetensors', subdir: '', size: 10, tool: 'url', overwrite: true,
+  })
+  assert.strictEqual(calls[0].url, '/wizard/download/url')
+  assert.strictEqual(calls[0].body.overwrite, true)
 })
 
 test('仓库文件仍走 file 端点，仓库与来源照旧带在请求里', async () => {

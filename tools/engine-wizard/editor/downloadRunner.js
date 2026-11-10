@@ -68,6 +68,7 @@ export async function downloadOneFile (opts) {
         name: file.name,
         subdir: file.subdir || '',
         size: file.size || 0,
+        overwrite: file.overwrite === true,
       }
       : {
         id,

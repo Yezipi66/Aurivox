@@ -810,4 +810,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, destPath, parseDownloadProgress, parseSize }
