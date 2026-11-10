@@ -119,5 +119,5 @@ test('链接直接进下载清单：不再有一次「加入」动作', () => {
   assert.match(src, /const link = repoLinkFromUrl\(repoUrl\.trim\(\)\)/,
     '手贴模型仓库页时按仓库处理，不当单文件下载')
   assert.match(src, /const sub = \(c && c\.subdir\) \|\| subdirOf\(c\)/,
-    '手填的落地位置要带进列文件请求')
+    '手填的下载位置要带进列文件请求')
 })

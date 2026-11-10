@@ -189,7 +189,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }
   }
   const stopEngineEntry = () => { if (entryAbort.current) entryAbort.current.abort() }
-  // 两个输入区各两栏：链接与落地位置。仓库页与文件直链都进同一张下载清单，
+  // 两个输入区各两栏：链接与下载位置。仓库页与文件直链都进同一张下载清单，
   //   区别只留在条目的 kind 上，下载时由执行器分流。
   const [repoUrl, setRepoUrl] = React.useState('')
   const [repoDir, setRepoDir] = React.useState('')
@@ -197,6 +197,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const [directDest, setDirectDest] = React.useState('')
   const [inputNote, setInputNote] = React.useState('')
   const [pastedFiles, setPastedFiles] = React.useState([])
+  // 三种权重来源放在一个框里切换：前两种把文件加入清单，第三种执行引擎自己的命令。
+  const [sourceTab, setSourceTab] = React.useState('engine')
   const refreshFileList = () => {
     if (!id) return
     fetch(`/wizard/download/files?id=${encodeURIComponent(id)}`)
@@ -296,7 +298,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     if (scriptAbort.current) scriptAbort.current.abort()
   }
 
-  // 落地位置是相对权重目录的路径：末段带扩展名时当文件名，前面是子目录；
+  // 下载位置是相对权重目录的路径：末段带扩展名时当文件名，前面是子目录；
   //   不写文件名就按网址末段命名。带 .. 或绝对路径的一律拒绝，不交给后端猜。
   const splitDest = (raw, urlVal) => {
     const dest = String(raw || '').trim().replace(/\\/g, '/').replace(/^\/+/, '')
@@ -319,7 +321,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const badDest = (subdir) => String(subdir || '').split('/').some((x) => x === '..')
     || /^[A-Za-z]:/.test(String(subdir || ''))
 
-  // 模型仓库区：按主域名识别 Hugging Face 与魔搭，落地位置带进清单条目，
+  // 模型仓库区：按主域名识别 Hugging Face 与魔搭，下载位置带进清单条目，
   //   之后列文件时由 subdir 决定这一仓库的文件落在权重目录的哪一层。
   const addRepo = () => {
     const link = repoLinkFromUrl(repoUrl.trim())
@@ -331,7 +333,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     const subdir = repoDir.trim().replace(/\\/g, '/').replace(/^\/+/, '')
     if (badDest(subdir)) {
       setInputNote(t('The destination must stay inside the weights folder.',
-        '落地位置只能在权重目录内。'))
+        '下载位置只能在权重目录内。'))
       return
     }
     setPastedRepos((prev) => prev.some((x) => x.tool === link.tool && x.repo === link.repo && x.subdir === subdir)
@@ -363,12 +365,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     const { name, subdir } = splitDest(destVal, raw)
     if (!name || /[\\/]/.test(name) || name === '.' || name === '..') {
       setInputNote(t('The file name cannot be read from this URL. Fill in a destination with a file name.',
-        '这个链接读不出文件名，请在落地位置补一个文件名。'))
+        '这个链接读不出文件名，请在下载位置补一个文件名。'))
       return
     }
     if (badDest(subdir)) {
       setInputNote(t('The destination must stay inside the weights folder.',
-        '落地位置只能在权重目录内。'))
+        '下载位置只能在权重目录内。'))
       return
     }
     setPastedFiles((prev) => prev.some((x) => x.url === raw && x.name === name && x.subdir === subdir)
@@ -436,7 +438,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     try {
       // 上游把模型放在子目录里时（README 写 --local-dir checkpoints/s2-pro），
       //   清单核对与落盘都要在同一层看：把那一层带给后端。
-      // 手填的落地位置直接生效；上游命令里的 --local-dir 仍按原有判据解析。
+      // 手填的下载位置直接生效；上游命令里的 --local-dir 仍按原有判据解析。
       const sub = (c && c.subdir) || subdirOf(c)
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&subdir=${encodeURIComponent(sub)}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
@@ -729,62 +731,134 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         </div>
       )}
 
-      {/* 第一档：引擎自带的下载 / 部署入口。找不到才退到仓库清单，再退到手贴文件直链。 */}
+      {/* 权重来源：三种入口同属一步动作，放在一个框里切换。
+          引擎自带入口执行外部命令、落点由引擎决定；模型仓库与文件直链都把文件加入下方清单。 */}
       {id && (
         <div className="section" style={{ marginTop: 0 }}>
           <div className="section-hdr">
             <h2 style={{ fontSize: 'var(--fs-13)' }}>
-              {t('Engine-provided download entries', '引擎自带下载入口')}
+              {t('Where the weights come from', '权重来源')}
             </h2>
           </div>
           <div className="section-body">
-            <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('If the engine ships its own download or setup entry, run it here: the engine knows which extra files it needs. Without one, use the repository list below; if that is empty too, paste a file link.',
-                '引擎自带下载或部署入口时优先用它，缺哪些运行期资源由引擎自己判断。没有入口时按下方仓库清单逐文件下载，连仓库都没有时再贴文件直链。')}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              {[
+                { key: 'engine', zh: `引擎自带入口（${engineEntries.length}）`, en: `Engine entries (${engineEntries.length})` },
+                { key: 'repo', zh: '模型仓库', en: 'Model repo' },
+                { key: 'direct', zh: '文件直链 / curl', en: 'Direct link / curl' },
+              ].map((tab) => (
+                <button key={tab.key} type="button"
+                  className={`btn btn-sm${sourceTab === tab.key ? ' btn-primary' : ''}`}
+                  onClick={() => setSourceTab(tab.key)}>
+                  {lang === 'zh' ? tab.zh : tab.en}
+                </button>
+              ))}
             </div>
-            {engineEntries.length === 0 && (
-              <div className="field-hint">
-                {t('No engine-provided entry was found on disk. Use the repository list below, or fill in a model repo page in the box at the bottom.',
-                  '盘上没有找到引擎自带入口，按下方仓库清单继续；清单为空时可在底部输入框填写模型仓库页。')}
-              </div>
-            )}
-            {engineEntries.map((e) => {
-              const busy = entryBusy === e.key
-              return (
-                <div key={e.key} style={{ marginTop: 6 }}>
-                  <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <pre className="rc-cmd-body" style={{ flex: 1, margin: 0, minWidth: 180 }}>
-                      {(e.argv || []).map(String).join(' ')}
-                    </pre>
-                    {e.already_deployed && (
-                      <span className="badge badge-warn"
-                        title={lang === 'zh' ? e.noteZh : e.noteEn}>
-                        {t('possibly already deployed in step 2', '第 2 步可能已部署')}
-                      </span>
-                    )}
-                    <button className="btn btn-sm btn-primary" type="button"
-                      disabled={!!entryBusy || !id}
-                      onClick={() => runEngineEntry(e)}>
-                      {busy ? t('Running', '运行中') : t('Run', '运行')}
-                    </button>
-                    {busy && (
-                      <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
-                        {t('Stop', '停止')}
-                      </button>
-                    )}
-                  </div>
-                  {((lang === 'zh' ? e.noteZh : e.noteEn) || e.noteZh) && (
-                    <div className="field-hint" style={{ marginTop: 4 }}>
-                      {lang === 'zh' ? (e.noteZh || e.noteEn) : (e.noteEn || e.noteZh)}
-                    </div>
-                  )}
+
+            {sourceTab === 'engine' && (
+              <>
+                <div className="field-hint" style={{ marginTop: 0 }}>
+                  {t('If the engine ships its own download or setup entry, run it here: the engine knows which extra files it needs and where they go.',
+                    '引擎自带下载或部署入口时优先用它，缺哪些运行期资源、文件放在哪里都由引擎自己判断。')}
                 </div>
-              )
-            })}
-            {entryOut.length > 0 && (
-              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
-                {entryOut.join('\n')}
-              </pre>
+                {engineEntries.length === 0 && (
+                  <div className="field-hint">
+                    {t('No engine-provided entry was found on disk. Switch to "Model repo" or "Direct link / curl" above.',
+                      '盘上没有找到引擎自带入口，可在上方切到「模型仓库」或「文件直链 / curl」。')}
+                  </div>
+                )}
+                {engineEntries.map((e) => {
+                  const busy = entryBusy === e.key
+                  return (
+                    <div key={e.key} style={{ marginTop: 6 }}>
+                      <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <pre className="rc-cmd-body" style={{ flex: 1, margin: 0, minWidth: 180 }}>
+                          {(e.argv || []).map(String).join(' ')}
+                        </pre>
+                        {e.already_deployed && (
+                          <span className="badge badge-warn"
+                            title={lang === 'zh' ? e.noteZh : e.noteEn}>
+                            {t('possibly already deployed in step 2', '第 2 步可能已部署')}
+                          </span>
+                        )}
+                        <button className="btn btn-sm btn-primary" type="button"
+                          disabled={!!entryBusy || !id}
+                          onClick={() => runEngineEntry(e)}>
+                          {busy ? t('Running', '运行中') : t('Run', '运行')}
+                        </button>
+                        {busy && (
+                          <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
+                            {t('Stop', '停止')}
+                          </button>
+                        )}
+                      </div>
+                      {((lang === 'zh' ? e.noteZh : e.noteEn) || e.noteZh) && (
+                        <div className="field-hint" style={{ marginTop: 4 }}>
+                          {lang === 'zh' ? (e.noteZh || e.noteEn) : (e.noteEn || e.noteZh)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {entryOut.length > 0 && (
+                  <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
+                    {entryOut.join('\n')}
+                  </pre>
+                )}
+              </>
+            )}
+
+            {sourceTab === 'repo' && (
+              <>
+                <div className="field-hint" style={{ marginTop: 0 }}>
+                  {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. The download location is a folder inside the weights folder; added repos join the download list below, where "Probe repo" reads their files.',
+                    '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。下载位置是权重目录内的子目录；加入后进入下方下载清单，可执行「嗅探仓库」读取文件列表。')}
+                </div>
+                {nothingFound && (
+                  <div className="msg msg-warn" style={{ marginTop: 6 }}>
+                    {t('No download command, script, repo link or release asset was found in the upstream docs. Add a model repo page or a direct file link here. Many engines fetch weights on first run; use step 5 to check.',
+                      '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。可在这里填写模型仓库页或文件直链；很多引擎会在首次推理时自行拉取权重，请用第 5 步校验。')}
+                  </div>
+                )}
+                <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input className="control" style={{ flex: 1 }} value={repoUrl}
+                    placeholder="https://huggingface.co/org/model"
+                    onChange={(e) => setRepoUrl(e.target.value)} />
+                  <input className="control" style={{ flex: '0 0 200px' }} value={repoDir}
+                    placeholder={t('download location (optional)', '下载位置（可空）')}
+                    onChange={(e) => setRepoDir(e.target.value)} />
+                  <button className="btn btn-sm btn-primary" type="button"
+                    disabled={!repoUrl.trim()} onClick={addRepo}>
+                    {t('Import repo', '引入仓库')}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {sourceTab === 'direct' && (
+              <>
+                <div className="field-hint" style={{ marginTop: 0 }}>
+                  {t('Paste one http(s) file URL. The download location may include a file name, for example sub/model.safetensors; leave it empty to use the file name from the URL and the weights folder root. No curl options are parsed: the platform runs this with the same checks as repo files.',
+                    '填写一条 http(s) 文件地址。下载位置可写到文件名，例如 sub/model.safetensors；留空则按网址末段命名并放在权重根目录。不解析 curl 参数，平台按与仓库文件相同的下载校验执行。')}
+                </div>
+                <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input className="control" style={{ flex: 1 }} value={directUrl}
+                    placeholder="https://.../model.safetensors"
+                    onChange={(e) => setDirectUrl(e.target.value)} />
+                  <input className="control" style={{ flex: '0 0 200px' }} value={directDest}
+                    placeholder={t('download location (optional)', '下载位置（可空）')}
+                    onChange={(e) => setDirectDest(e.target.value)} />
+                  <button className="btn btn-sm btn-primary" type="button"
+                    disabled={!directUrl.trim()}
+                    onClick={() => addDirect(directUrl.trim(), directDest.trim(), 0)}>
+                    {t('Add to list', '加入清单')}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {inputNote && (
+              <div className="msg msg-info" style={{ marginTop: 6 }}>{inputNote}</div>
             )}
           </div>
         </div>
@@ -1218,72 +1292,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             ))}
           </div>
         </div>
-      )}
-
-      {id && (
-        <>
-          <div className="section" style={{ marginTop: 4 }}>
-            <div className="section-hdr">
-              <h2 style={{ fontSize: 'var(--fs-13)' }}>
-                {t('Model repo', '模型仓库')}
-              </h2>
-            </div>
-            <div className="section-body">
-              <div className="field-hint" style={{ marginTop: 0 }}>
-                {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. The destination is a folder inside the weights folder; added repos join the download list above, where "Probe repo" reads their files.',
-                  '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。落地位置是权重目录内的子目录；加入后进入上方下载清单，可执行「嗅探仓库」读取文件列表。')}
-              </div>
-              {nothingFound && (
-                <div className="msg msg-warn" style={{ marginTop: 6 }}>
-                  {t('No download command, script, repo link or release asset was found in the upstream docs. Add a model repo page or a direct file link below. Many engines fetch weights on first run; use step 5 to check.',
-                    '上游文档里没有找到下载命令、脚本、模型仓库链接或 release 资产。可在下方填写模型仓库页或文件直链；很多引擎会在首次推理时自行拉取权重，请用第 5 步校验。')}
-                </div>
-              )}
-              <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input className="control" style={{ flex: 1 }} value={repoUrl}
-                  placeholder="https://huggingface.co/org/model"
-                  onChange={(e) => setRepoUrl(e.target.value)} />
-                <input className="control" style={{ flex: '0 0 200px' }} value={repoDir}
-                  placeholder={t('destination folder (optional)', '落地位置（可空）')}
-                  onChange={(e) => setRepoDir(e.target.value)} />
-                <button className="btn btn-sm btn-primary" type="button"
-                  disabled={!repoUrl.trim()} onClick={addRepo}>
-                  {t('Import repo', '引入仓库')}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="section" style={{ marginTop: 4 }}>
-            <div className="section-hdr">
-              <h2 style={{ fontSize: 'var(--fs-13)' }}>
-                {t('Direct file link / curl', '文件直链 / curl')}
-              </h2>
-            </div>
-            <div className="section-body">
-              <div className="field-hint" style={{ marginTop: 0 }}>
-                {t('Paste one http(s) file URL. The destination may include a file name, for example sub/model.safetensors; leave it empty to use the file name from the URL and the weights folder root. No curl options are parsed: the platform runs this with the same checks as repo files.',
-                  '填写一条 http(s) 文件地址。落地位置可写到文件名，例如 sub/model.safetensors；留空则按网址末段命名并放在权重根目录。不解析 curl 参数，平台按与仓库文件相同的下载校验执行。')}
-              </div>
-              <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input className="control" style={{ flex: 1 }} value={directUrl}
-                  placeholder="https://.../model.safetensors"
-                  onChange={(e) => setDirectUrl(e.target.value)} />
-                <input className="control" style={{ flex: '0 0 200px' }} value={directDest}
-                  placeholder={t('destination (optional)', '落地位置（可空）')}
-                  onChange={(e) => setDirectDest(e.target.value)} />
-                <button className="btn btn-sm btn-primary" type="button"
-                  disabled={!directUrl.trim()}
-                  onClick={() => addDirect(directUrl.trim(), directDest.trim(), 0)}>
-                  {t('Add to list', '加入清单')}
-                </button>
-              </div>
-            </div>
-          </div>
-          {inputNote && (
-            <div className="msg msg-info" style={{ marginTop: 4 }}>{inputNote}</div>
-          )}
-        </>
       )}
 
       {tokenDialog && (

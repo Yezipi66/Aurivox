@@ -51,7 +51,7 @@ async function run (file) {
   return calls
 }
 
-test('文件直链条目走 url 端点，落地位置拆成 subdir 与 name', async () => {
+test('文件直链条目走 url 端点，下载位置拆成 subdir 与 name', async () => {
   const calls = await run({
     kind: 'url', url: 'https://example.org/weights/model.safetensors',
     name: 'model.safetensors', subdir: 'sub', size: 10, tool: 'url',
