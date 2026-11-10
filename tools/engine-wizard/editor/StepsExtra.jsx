@@ -76,7 +76,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const [listErrors, setListErrors] = React.useState({})
   const [runtimeHints, setRuntimeHints] = React.useState([])
 
-  // 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
+  // 去重：默认按「来源 + 仓库 + 下载位置」去掉重复条目，勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
 
   // 来源判不出的命令（snapshot_download 且同一段代码里看不出是哪个库）由使用者手选。
@@ -105,14 +105,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     if (saved) {
       if (saved.manifest) setManifest(saved.manifest)
       if (typeof saved.dedup === 'boolean') setDedup(saved.dedup)
+      if (saved.pastedRepos) setPastedRepos(saved.pastedRepos)
+      if (saved.pastedFiles) setPastedFiles(saved.pastedFiles)
+      if (saved.removedCmds) setRemovedCmds(saved.removedCmds)
+      if (saved.removedLinks) setRemovedLinks(saved.removedLinks)
+      if (saved.sourceChoices) setSourceChoices(saved.sourceChoices)
     }
   }, [id, state.repoUrl])
-
-  // 持久化：保存状态到会话段
-  React.useEffect(() => {
-    if (!id) return
-    saveDownloadState(id, state.repoUrl || '', { manifest, dedup })
-  }, [id, state.repoUrl, manifest, dedup])
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
@@ -393,17 +392,28 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   const releaseAssets = (probe && probe.release_assets) || null
 
-  const seenRepos = new Set()
+  // 保存放在所有清单状态声明之后：依赖数组在渲染时求值，不能引用尚未初始化的 state。
+  React.useEffect(() => {
+    if (!id) return
+    saveDownloadState(id, state.repoUrl || '', {
+      manifest, dedup, pastedRepos, pastedFiles, removedCmds, removedLinks, sourceChoices,
+    })
+  }, [id, state.repoUrl, manifest, dedup, pastedRepos, pastedFiles,
+    removedCmds, removedLinks, sourceChoices])
+
+  const seenKeys = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
   const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from).filter((f) => f && f !== 'link'))]
-  // 仓库条目的身份：来源 + 仓库 + 落点。同一仓库有两个落点时算两条。
+  // 仓库条目的身份：来源 + 仓库 + 下载位置。同一仓库有两个下载位置时各占一行。
+  //   用 c.tool 而不是解析后的来源，来源选择变化不会让已移除的条目重新出现。
   const repoKeyOf = (tool, repo, subdir) => `${tool || ''}|${repo || ''}|${subdir || ''}`
   const cmdKey = (c) => repoKeyOf(c && c.tool, c && c.repo, (c && (c.subdir || subdirOf(c))) || '')
   const visibleCmds = upstreamCmds.filter((c) => {
     if (removedCmds.includes(cmdKey(c))) return false
     if (!dedup) return true
-    if (seenRepos.has(c.repo)) return false
-    seenRepos.add(c.repo)
+    const key = cmdKey(c)
+    if (seenKeys.has(key)) return false
+    seenKeys.add(key)
     return true
   })
   const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
@@ -1223,7 +1233,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
           <input type="checkbox" checked={dedup}
             onChange={(e) => setDedup(e.target.checked)} />
-          <span>{t('Deduplicate by repo', '按仓库去重')}</span>
+          <span>{t('Deduplicate by repo and destination', '按仓库与下载位置去重')}</span>
         </label>
       )}
 

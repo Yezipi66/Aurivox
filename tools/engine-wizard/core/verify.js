@@ -47,8 +47,8 @@ function checks () {
       titleEn: 'Model weights',
       titleZh: '模型权重完整性',
       cost: 'cheap',
-      why: 'Checks whether every weights file named in the manifest is present. The ready field has three states; null means the platform cannot determine it.',
-      whyZh: '核对名片声明的权重文件是否齐全。ready 为三态，null 表示平台无法判定。',
+      why: 'Checks whether every weights file named in the manifest is present. The ready field has three states; null means the platform cannot determine it. Resources the engine fetches on first run are listed separately and are not covered by this check.',
+      whyZh: '核对名片声明的权重文件是否齐全。ready 为三态，null 表示平台无法判定。引擎首次推理时自行拉取的资源不在该项内，结果中另行列出。',
     },
     {
       key: 'audio',

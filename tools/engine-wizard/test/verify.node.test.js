@@ -240,3 +240,17 @@ test('界面把两层结论分开呈现，B 级不计入运行验证通过', () 
   assert.match(src, /They do not prove that the engine can synthesise speech/,
     '静态全绿时必须说明不能证明能出声')
 })
+
+test('权重那道要写明运行期资源不在核对范围内', () => {
+  const c = checks().find((x) => x.key === 'checkpoints')
+  assert.match(c.whyZh, /不在该项内/)
+  assert.match(c.why, /not covered by this check/)
+})
+
+test('校验端点把运行期资源挂到权重那道，界面能读到同一份事实', () => {
+  const bridge = fs.readFileSync(path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  assert.match(bridge, /r\.checks\.checkpoints\.external = fs\.existsSync\(dir\) \? scanRuntimeDownloads\(dir\) : \[\]/)
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
+  assert.match(ui, /Array\.isArray\(check && check\.external\)/)
+  assert.match(ui, /不在此项核对范围内/)
+})

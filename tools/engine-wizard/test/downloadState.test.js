@@ -32,14 +32,35 @@ test('downloadState — save + load 往返', async () => {
   global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
-  // 读取错误是瞬时的，不跨会话保存；往返的只有清单与去重开关。
+  // 读取错误是瞬时的，不跨会话保存；往返的是清单、去重开关与手填的来源。
   const state = {
     manifest: [{ name: 'config.yaml', size: 2860, sha256: 'abc123', status: 'missing' }],
     dedup: false,
+    pastedRepos: [], pastedFiles: [], removedCmds: [], removedLinks: [], sourceChoices: {},
   }
   saveDownloadState('test-engine', URL_A, state)
   const loaded = loadDownloadState('test-engine', URL_A)
   assert.deepStrictEqual(loaded, state)
+})
+
+test('downloadState — 手填的仓库、直链与移除记录跟着会话往返', async () => {
+  global.localStorage = new MockStorage()
+  global.sessionStorage = new MockStorage()
+  const { saveDownloadState, loadDownloadState } = await importModule()
+
+  const state = {
+    manifest: null,
+    dedup: true,
+    pastedRepos: [{ tool: 'hf', repo: 'Org/A', subdir: 'sub', url: 'https://huggingface.co/Org/A' }],
+    pastedFiles: [{ kind: 'url', url: 'https://example.org/a.bin', name: 'a.bin', subdir: '' }],
+    removedCmds: ['hf|Org/B|'],
+    removedLinks: ['hf|Org/C'],
+    sourceChoices: { 'snapshot|1': 'hf' },
+  }
+  saveDownloadState('test-engine', URL_A, state)
+  assert.deepStrictEqual(loadDownloadState('test-engine', URL_A), state)
+  // 只有手填条目、没有文件清单时也不能当成空会话丢掉
+  assert.ok(loadDownloadState('test-engine', URL_A))
 })
 
 test('downloadState — 换 URL ⇒ 读不到旧仓库的下载清单（防串号）', async () => {

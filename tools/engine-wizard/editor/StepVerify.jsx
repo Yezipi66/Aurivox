@@ -328,6 +328,22 @@ export function StepVerify ({ id }) {
           {infoLines(check).map((line, i) => (
             <div className="field-hint" key={i} style={{ wordBreak: 'break-all' }}>{line}</div>
           ))}
+          {key === 'checkpoints' && Array.isArray(check && check.external) && check.external.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div className="field-hint">
+                {t(`${check.external.length} resource(s) are fetched by the engine on first run and are not part of this check.`,
+                  `另有 ${check.external.length} 项资源由引擎首次推理时自行拉取，不在此项核对范围内。`)}
+              </div>
+              {check.external.map((h) => (
+                <div className="plan-kv" key={`${h.repo}|${h.file}|${h.line}`}>
+                  <span className="pk"><code>{h.repo}</code></span>
+                  <span className="pv">
+                    <span className="field-hint" style={{ marginLeft: 0 }}>{h.file}:{h.line} · {h.call}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )

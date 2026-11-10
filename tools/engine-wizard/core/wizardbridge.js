@@ -14,7 +14,7 @@ const { resolveEngine, parseRepoUrl } = require('./resolve')
 const { runClone, buildClonePlan, projectRoot, removeTargetDir } = require('./clone')
 const { runEnv, buildEnvPlan, suggestTorchUpgrade } = require('./env')
 const { runDownload, fetchRemoteManifest, enrichManifestFiles, downloadFile, downloadFileFromUrl,
-  removePartialFiles, normalizeSource, gatedResult, destPath } = require('./download')
+  removePartialFiles, normalizeSource, gatedResult, destPath, subdirIsSafe } = require('./download')
 const hfToken = require('./hfToken')
 const { describeModels, explainMissingInfo } = require('./models')
 const { probeProject, planDependencies, probePyproject, isPipInstallable } = require('./probe')
@@ -778,6 +778,15 @@ function json (res, code, body) {
   res.end(JSON.stringify(body))
 }
 
+/** 下载位置非法时统一拒绝。返回 true 表示响应已发出。 */
+function rejectBadSubdir (res, subdir) {
+  if (subdirIsSafe(subdir)) return false
+  json(res, 400, { ok: false, code: 'BAD_SUBDIR',
+    error: 'The destination must be a relative path inside the weights folder.',
+    errorZh: '下载位置只能是权重目录内的相对路径。' })
+  return true
+}
+
 /**
  * 兜住 readBody 回调里的异常。必须兜：readBody 不接回调的返回值，cb 一旦是 async 箭头，
  * 它返回的 Promise 无人接管，回调里任何一次 throw 都变成 unhandledRejection，
@@ -1087,6 +1096,7 @@ function handleDownloadManifest (req, res) {
   const root = url.searchParams.get('root') || projectRoot() || ''
   // 上游把模型放在子目录里时（checkpoints/s2-pro 这类），清单核对也要在同一层看。
   const subdir = url.searchParams.get('subdir') || ''
+  if (rejectBadSubdir(res, subdir)) return true
   const token = tool === 'hf' ? hfToken.readToken() : null
   fetchRemoteManifest(repo, tool, undefined, { token }).then(async (result) => {
     if (!result.ok) {
@@ -1514,6 +1524,7 @@ function handleDownloadFile (req, res) {
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     // 落盘子目录：上游把可选模型并排放时，文件要落在对应那一层。
     const subdir = typeof body.subdir === 'string' ? body.subdir : ''
+    if (rejectBadSubdir(res, subdir)) return
     if (!file || !file.name) { json(res, 400, { ok: false, error: 'file.name is required' }); return }
     const root = body.root || projectRoot() || ''
     const repo = typeof body.repo === 'string' ? body.repo.trim() : ''
@@ -1587,8 +1598,7 @@ function handleDownloadFile (req, res) {
 // POST /wizard/download/url {id, url, name?, subdir?, size?}  第 3 步：直链兜底
 //   上游只给了单文件链接（release 资产、自建网盘直链）时走这里。落盘、HTML
 //   误判守卫、大小核对、写 .tmp 再改名全部复用 downloadFileFromUrl，不另起一套。
-//   平台只收一条 http(s) 文件地址，用自己的下载器取文件。外部客户端那类命令行
-//   的参数组合无法穷举，解析不全就会静默落到错位置，所以不做这件事。
+//   平台只收一条 http(s) 文件地址，用自己的下载器取文件。
 function handleDownloadUrl (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/download/url')) return false
@@ -1619,6 +1629,7 @@ function handleDownloadUrl (req, res) {
       return
     }
     const subdir = typeof body.subdir === 'string' ? body.subdir : ''
+    if (rejectBadSubdir(res, subdir)) return
     const overwrite = body.overwrite === true
     const file = { name, size: Number(body.size) || 0, subdir }
     const finalPath = destPath(root, id, subdir, name)
@@ -1758,6 +1769,7 @@ function handleDeletePartialFile (req, res) {
     if (err) { json(res, 400, { ok: false, code: 'BAD_JSON', error: err.message }); return }
     const { id, name, size, sha256 } = body
     const subdir = typeof body.subdir === 'string' ? body.subdir : ''
+    if (rejectBadSubdir(res, subdir)) return
     if (!id) { json(res, 400, { ok: false, error: 'id is required' }); return }
     if (!name) { json(res, 400, { ok: false, error: 'name is required' }); return }
     const root = body.root || projectRoot() || ''
@@ -1903,6 +1915,13 @@ function handleVerifyChecks (req, res) {
       if (found) audio.audio_path = found
     }
     r.checks.audio = audio
+    // 第 3 道只核对名片声明的文件。启动阶段自行拉取的资源另列一份，
+    //   不把「名片声明的文件齐全」读成「运行所需资源齐全」。
+    if (r.checks.checkpoints) {
+      const root = projectRoot() || ''
+      const dir = path.join(root, 'engines', id)
+      r.checks.checkpoints.external = fs.existsSync(dir) ? scanRuntimeDownloads(dir) : []
+    }
     json(res, r.ok ? 200 : 400, r)
   })()
   return true

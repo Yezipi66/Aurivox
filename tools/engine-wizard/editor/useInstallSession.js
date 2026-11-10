@@ -119,6 +119,13 @@ export function loadSession (id, url) {
     manifest: v.manifest || null,
     dedup: v.dedup !== false,
     probeError: v.probeError || null,
+    // 手填的来源与清单整理结果也要跟着会话走。只存 manifest 会让刷新后
+    // 文件行仍在、来源与移除记录却消失。
+    pastedRepos: v.pastedRepos || [],
+    pastedFiles: v.pastedFiles || [],
+    removedCmds: v.removedCmds || [],
+    removedLinks: v.removedLinks || [],
+    sourceChoices: v.sourceChoices || {},
   }
 }
 

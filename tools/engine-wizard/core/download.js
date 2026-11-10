@@ -259,6 +259,18 @@ function weightsSubdir (value) {
 }
 
 /**
+ * 下载位置是否可用。只接受权重目录内的相对路径。
+ * 入口先判一次，避免非法值被 weightsSubdir 清空后悄悄落到权重根。
+ */
+function subdirIsSafe (value) {
+  const raw = String(value == null ? '' : value)
+  if (!raw) return true
+  if (/^[/\\]/.test(raw)) return false
+  return raw.replace(/\\/g, '/').split('/')
+    .every((s) => s !== '..' && !/^[A-Za-z]:/.test(s))
+}
+
+/**
  * 一个远端文件该写到哪个绝对路径。
  * 落点 = 名片声明的 checkpoints + 这个仓库的子目录 + 仓库内的文件名。
  *
@@ -810,4 +822,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, destPath, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, destPath, subdirIsSafe, parseDownloadProgress, parseSize }

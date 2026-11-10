@@ -42,10 +42,11 @@ function loadJsx (file, stubMap) {
   return mod.exports
 }
 
+let restoredState = null
 const StepModels = loadJsx('StepsExtra.jsx', {
   react: React,
   'web/src/lib/i18n': { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) },
-  './downloadState': { loadDownloadState: () => null, saveDownloadState: () => {} },
+  './downloadState': { loadDownloadState: () => restoredState, saveDownloadState: () => {} },
   './downloadQueue': { DEFAULT_CONCURRENCY: 2 },
   './downloadRunner': { downloadFiles: async () => ({}), readSse: async () => {} },
   './downloadSource': loadEsm(path.join(EDITOR_DIR, 'downloadSource.js')),
@@ -237,4 +238,34 @@ test('两个仓库同时列文件时，读取状态各自归属', async () => {
   await sleep(200)
   assert.deepStrictEqual(listButtons().map((b) => b.textContent.trim()), ['列出文件', '列出文件'])
   manifestDelay = 0
+})
+
+test('同一仓库两个下载位置各占一行，不会被去重吃掉', async () => {
+  const probe = {
+    downloader_cmds: [
+      { tool: 'hf', source: 'hf', repo: 'Org/A', dir: 'checkpoints/a', raw: 'a' },
+      { tool: 'hf', source: 'hf', repo: 'Org/A', dir: 'checkpoints/b', raw: 'b' },
+    ],
+  }
+  await show(probe)
+  const rows = container.querySelectorAll('table tbody tr')
+  assert.strictEqual(rows.length, 2, '两个下载位置是两条仓库行')
+  assert.ok([...rows].every((r) => r.textContent.includes('Org/A')))
+  assert.strictEqual([...container.querySelectorAll('button')]
+    .filter((b) => b.textContent.trim() === '列出文件').length, 2)
+})
+
+test('刷新后恢复手填的仓库与直链条目', async () => {
+  restoredState = {
+    manifest: null, dedup: true,
+    pastedRepos: [{ tool: 'hf', repo: 'Org/Restored', subdir: 'sub', url: 'https://huggingface.co/Org/Restored' }],
+    pastedFiles: [{ kind: 'url', url: 'https://example.org/r.bin', name: 'r.bin', subdir: '', status: 'missing' }],
+    removedCmds: [], removedLinks: [], sourceChoices: {},
+  }
+  await show()
+  const table = container.querySelector('table tbody')
+  assert.ok(table, '恢复出来的条目要有清单表')
+  assert.ok(table.textContent.includes('Org/Restored'), '手填仓库行要回来')
+  assert.ok(table.textContent.includes('r.bin'), '文件直链行要回来')
+  restoredState = null
 })
