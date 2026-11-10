@@ -197,6 +197,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const [directDest, setDirectDest] = React.useState('')
   const [inputNote, setInputNote] = React.useState('')
   const [pastedFiles, setPastedFiles] = React.useState([])
+  const [removedCmds, setRemovedCmds] = React.useState([])
   // 三种权重来源放在一个框里切换：前两种把文件加入清单，第三种执行引擎自己的命令。
   const [sourceTab, setSourceTab] = React.useState('engine')
   const refreshFileList = () => {
@@ -389,7 +390,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const seenRepos = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
   const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from).filter((f) => f && f !== 'link'))]
+  // 仓库条目的身份：来源 + 仓库 + 落点。同一仓库有两个落点时算两条。
+  const repoKeyOf = (tool, repo, subdir) => `${tool || ''}|${repo || ''}|${subdir || ''}`
+  const cmdKey = (c) => repoKeyOf(c && c.tool, c && c.repo, (c && (c.subdir || subdirOf(c))) || '')
   const visibleCmds = upstreamCmds.filter((c) => {
+    if (removedCmds.includes(cmdKey(c))) return false
     if (!dedup) return true
     if (seenRepos.has(c.repo)) return false
     seenRepos.add(c.repo)
@@ -397,12 +402,36 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   })
   const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
     pastedFiles.length === 0 && !(releaseAssets && releaseAssets.assets.length > 0)
-  // 一张清单同时容纳仓库文件与文件直链。kind 留到执行器分流，界面只按行显示。
-  const rows = React.useMemo(() => [
-    ...(manifest || []).map((f) => ({ ...f, kind: f.kind || 'repo' })),
-    ...pastedFiles,
-  ], [manifest, pastedFiles])
-  const rowKey = (f) => `${f.kind || 'repo'}|${f.repo || ''}|${f.subdir || ''}|${f.name}|${f.url || ''}`
+  // 一张清单同时容纳三类行：待嗅探的仓库、仓库列出的文件、文件直链。
+  //   顺序按「仓库 → 它的文件」排，让先嗅探再下载在一处完成。
+  const rows = (() => {
+    const files = [
+      ...(manifest || []).map((f) => ({
+        ...f, kind: 'file', key: 'file:' + repoKeyOf(f.tool, f.repo, f.subdir || '') + '|' + f.name,
+      })),
+      ...pastedFiles.map((f) => ({
+        ...f, key: 'url:' + (f.url || '') + '|' + f.name + '|' + (f.subdir || ''),
+      })),
+    ]
+    const repoRows = visibleCmds.map((c) => {
+      const tool = sourceOf(c, sourceChoices)
+      const subdir = c.subdir || subdirOf(c) || ''
+      const key = repoKeyOf(tool, c.repo, subdir)
+      return {
+        kind: 'repo', key: 'repo:' + key, cmd: c, repo: c.repo, tool, subdir,
+        files: files.filter((f) => repoKeyOf(f.tool, f.repo, f.subdir || '') === key),
+      }
+    })
+    const claimed = new Set()
+    const out = []
+    for (const r of repoRows) {
+      out.push(r)
+      for (const f of r.files) { out.push(f); claimed.add(f.key) }
+    }
+    for (const f of files) if (!claimed.has(f.key)) out.push(f)
+    return out
+  })()
+  const rowKey = (f) => f.key
   const removeRow = (f) => {
     if (f.kind === 'url') {
       setPastedFiles((prev) => prev.filter((x) => !(x.url === f.url && x.name === f.name && x.subdir === f.subdir)))
@@ -411,12 +440,20 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     setManifest((prev) => (prev || []).filter((x) => !(x.name === f.name
       && (x.repo || '') === (f.repo || '') && (x.subdir || '') === (f.subdir || ''))))
   }
-  const linkCmdCount = visibleCmds.filter((c) => c && c.from === 'link').length
-  const removeLink = (c) => {
-    const key = `${c.tool}|${c.repo}`
-    setRemovedLinks((prev) => [...prev, key])
-    setPastedRepos((prev) => prev.filter((p) => `${p.tool}|${p.repo}` !== key))
+  // 移除一个仓库条目：它列出的文件一起下掉，避免留下没有归属的行。
+  const removeCmd = (c) => {
+    const key = cmdKey(c)
+    setRemovedCmds((prev) => (prev.includes(key) ? prev : [...prev, key]))
+    const sub = c.subdir || subdirOf(c) || ''
+    setManifest((prev) => (prev || []).filter((f) => repoKeyOf(f.tool, f.repo, f.subdir || '')
+      !== repoKeyOf(sourceOf(c, sourceChoices), c.repo, sub)))
+    if (c.from === 'link') {
+      const lk = `${c.tool}|${c.repo}`
+      setRemovedLinks((prev) => (prev.includes(lk) ? prev : [...prev, lk]))
+      setPastedRepos((prev) => prev.filter((p) => `${p.tool}|${p.repo}` !== lk))
+    }
   }
+  const linkCmdCount = visibleCmds.filter((c) => c && c.from === 'link').length
 
   // 嗅探仓库：调 /wizard/download/manifest 获取文件列表。
   // 追加不覆盖：点某个仓库的按钮显示该仓库的文件，再点另一个仓库的按钮追加到列表后面。
@@ -572,8 +609,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const downloadAll = () => {
     if (rows.length === 0) return
     // 仓库文件按三态挑未完成的；直链条目由前端记完成状态，同样不重复下。
-    const filesToDownload = rows.filter((f) => f.kind === 'url'
-      ? f.status !== 'ok' : (f.status === 'missing' || f.status === 'partial'))
+    const filesToDownload = rows.filter((f) => (f.kind === 'url'
+      ? f.status !== 'ok'
+      : (f.kind === 'file' && (f.status === 'missing' || f.status === 'partial'))))
     if (filesToDownload.length === 0) return
     startDownloads(filesToDownload)
   }
@@ -877,6 +915,21 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               </span>
             </span>
           </div>
+          {cmdsFrom.length > 0 && (
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('These repos come from ' + cmdsFrom.join(', ') + ': the README only points there.',
+                '这些仓库来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
+            </div>
+          )}
+          {linkCmdCount > 0 && (
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
+                '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，嗅探前请移除不需要的。')}
+            </div>
+          )}
+          {probeError && (
+            <div className="msg msg-danger" style={{ marginTop: 4 }}>{probeError}</div>
+          )}
           {rows.some((f) => f.tool === 'hf') && (
             <div className="plan-kv">
               <span className="pk">{t('HF token', 'HF 令牌')}</span>
@@ -893,6 +946,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
+            {repoCount > 0 && (
+              <button className="btn btn-sm" type="button"
+                disabled={probeLoading}
+                onClick={probeAll}
+                style={{ flexShrink: 0 }}>
+                {t(`Probe all (${repoCount})`, `嗅探全部（${repoCount} 个）`)}
+              </button>
+            )}
             <button
               className="btn btn-sm"
               type="button"
@@ -966,6 +1027,62 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </thead>
             <tbody>
               {rows.map((f) => {
+                if (f.kind === 'repo') {
+                  const c = f.cmd
+                  const { display, source } = buildCommand(c, sourceChoices)
+                  const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
+                  const page = repoPageUrl(f.tool, f.repo)
+                  return (
+                    <tr key={rowKey(f)}>
+                      <td title={display}>
+                        <strong>
+                          {page
+                            ? <a href={page} target="_blank" rel="noreferrer">{f.repo}</a>
+                            : (f.repo || t('(unknown)', '（未知）'))}
+                        </strong>
+                        {f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}
+                      </td>
+                      <td>
+                        {pickable ? (
+                          <select className="control" value={source === 'unknown' ? '' : source}
+                            title={t('The upstream code does not say which library this snapshot_download comes from.',
+                              '无法从上游代码判断 snapshot_download 所属的库，请选择下载来源。')}
+                            onChange={(e) => pickSource(c, e.target.value)}>
+                            <option value="">{t('Choose source', '选择来源')}</option>
+                            {SOURCES.map((x) => (
+                              <option key={x} value={x}>{SOURCE_LABELS[x][lang === 'zh' ? 'zh' : 'en']}</option>
+                            ))}
+                          </select>
+                        ) : (SOURCE_LABELS[f.tool]
+                          ? SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']
+                          : (f.tool || t('(unknown)', '（未知）')))}
+                      </td>
+                      <td>
+                        {f.files.length
+                          ? t(`${f.files.length} file(s)`, `${f.files.length} 个文件`)
+                          : t('(none yet)', '（尚无）')}
+                      </td>
+                      <td>{t('(repo)', '（仓库）')}</td>
+                      <td>
+                        {f.files.length
+                          ? <span className="badge badge-ok" title={t('Files listed', '已列出文件')} />
+                          : <span className="field-hint" style={{ marginTop: 0 }}>{t('not listed yet', '尚未列出')}</span>}
+                      </td>
+                      <td>
+                        <button className="btn btn-sm" type="button"
+                          disabled={probeLoading || source === 'unknown'}
+                          onClick={() => loadManifest(c)}>
+                          {probeLoading ? t('Probing…', '嗅探中…') : t('Probe repo', '嗅探仓库')}
+                        </button>
+                        <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
+                          title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}
+                          onClick={() => removeCmd(c)}>
+                          {t('Remove', '移除')}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                }
                 const cmd = { repo: f.repo || '', tool: f.tool || '' }
                 const page = f.kind === 'url' ? null : repoPageUrl(f.tool, f.repo)
                 let host = ''
@@ -974,7 +1091,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 }
                 return (
                   <tr key={rowKey(f)}>
-                    <td><code>{f.name || ''}</code>{f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}</td>
+                    <td style={{ paddingLeft: 28 }}>
+                      <code>{f.name || ''}</code>
+                      {f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}
+                    </td>
                     <td>
                       {f.kind === 'url'
                         ? <span>{t('Direct link', '文件直链')}<span className="field-hint" style={{ marginLeft: 6 }}>{host}</span></span>
@@ -1040,94 +1160,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </tbody>
           </table>
         </>
-      )}
-
-      {/* 下载命令区：展示上游命令，并可按仓库嗅探文件清单、逐文件下载。 */}
-      {visibleCmds.length > 0 && (
-        <div className="section" style={{ marginTop: 8 }}>
-          <div className="section-hdr">
-            <h2 style={{ fontSize: 'var(--fs-13)' }}>
-              {t('Download commands', '下载命令')}
-            </h2>
-          </div>
-          <div className="section-body">
-            <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('Run these in the engine folder:', '在引擎目录内执行：')}
-            </div>
-            {cmdsFrom.length > 0 && (
-              <div className="field-hint" style={{ marginTop: 2 }}>
-                {t('These commands come from ' + cmdsFrom.join(', ') + ': the README only points there.',
-                  '这些命令来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
-              </div>
-            )}
-            {linkCmdCount > 0 && (
-              <div className="field-hint" style={{ marginTop: 2 }}>
-                {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
-                  '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，读取前请移除不需要的。')}
-              </div>
-            )}
-            {repoCount > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                <button className="btn btn-sm" type="button"
-                  disabled={probeLoading}
-                  onClick={probeAll}>
-                  {t(`Probe all repos (${repoCount})`, `嗅探全部仓库（${repoCount} 个）`)}
-                </button>
-                <span className="field-hint" style={{ margin: 0 }}>
-                  {t('Several repos are listed. Weights may be split across them; remove the ones you do not need before probing all.',
-                    '清单里有多个仓库，权重可能分散其中。建议先移除不需要的，再全部嗅探。')}
-                </span>
-              </div>
-            )}
-            {probeError && (
-              <div className="msg msg-danger" style={{ marginTop: 4 }}>
-                {probeError}
-              </div>
-            )}
-            {visibleCmds.map((c, i) => {
-              const { display, source } = buildCommand(c, sourceChoices)
-              // 来源是从 import 判出来的就不给选；判不出（或使用者手选过）才显示选择框。
-              const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
-              return (
-              <div key={i} className="rc-cmd" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <pre className="rc-cmd-body" style={{ flex: 1, margin: 0 }}>
-                  {display}
-                </pre>
-                {pickable && (
-                  <select className="control" value={source === 'unknown' ? '' : source}
-                    title={t('The upstream code does not say which library this snapshot_download comes from.',
-                      '无法从上游代码判断 snapshot_download 所属的库，请选择下载来源。')}
-                    onChange={(e) => pickSource(c, e.target.value)}
-                    style={{ flexShrink: 0 }}>
-                    <option value="">{t('Choose source', '选择来源')}</option>
-                    {SOURCES.map((s) => (
-                      <option key={s} value={s}>{SOURCE_LABELS[s][lang === 'zh' ? 'zh' : 'en']}</option>
-                    ))}
-                  </select>
-                )}
-                <button
-                  className="btn btn-sm"
-                  type="button"
-                  disabled={probeLoading || source === 'unknown'}
-                  onClick={() => loadManifest(c)}
-                  style={{ flexShrink: 0 }}
-                >
-                  {probeLoading
-                    ? t('Probing…', '嗅探中…')
-                    : t('Probe repo', '嗅探仓库')}
-                </button>
-                {c.from === 'link' && (
-                  <button className="btn btn-sm" type="button"
-                    title={t('Remove this repo from the list', '从清单里移除这个仓库')}
-                    onClick={() => removeLink(c)} style={{ flexShrink: 0 }}>
-                    {t('Remove', '移除')}
-                  </button>
-                )}
-              </div>
-              )
-            })}
-          </div>
-        </div>
       )}
 
       {/* 去重复选框 */}

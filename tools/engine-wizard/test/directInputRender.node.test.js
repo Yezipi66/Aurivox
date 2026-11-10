@@ -70,6 +70,16 @@ define('cancelAnimationFrame', (id) => clearTimeout(id))
 const fetched = []
 define('fetch', async (url) => {
   fetched.push(String(url))
+  if (String(url).includes('/wizard/download/manifest')) {
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        files: [{ name: 'model.safetensors', size: 1000, repo: 'Org/Model-A', tool: 'hf', subdir: 'sub' }],
+      }),
+      headers: { get: () => 'application/json' },
+    }
+  }
   return {
     ok: true,
     json: async () => ({ ok: false }),
@@ -82,12 +92,12 @@ const root = ReactDOMClient.createRoot(container)
 const settle = () => new Promise((resolve) => setTimeout(resolve, 80))
 
 let seq = 0
-async function show () {
+async function show (probe = null) {
   seq += 1
   root.render(React.createElement(StepModels, {
     key: 'step' + seq,
     state: { id: 'demo', repoUrl: '' }, onChange: () => {},
-    probe: null, prep: null, onFixId: () => {},
+    probe, prep: null, onFixId: () => {},
   }))
   await settle()
 }
@@ -156,4 +166,28 @@ test('文件直链页签：条目进同一张表，可一键下载全部，也�
   Simulate.click(buttons('移除')[0])
   await settle()
   assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '移除后这一行要真的消失')
+})
+
+test('仓库与它列出的文件在同一张表里，移除仓库时文件一起下掉', async () => {
+  const probe = {
+    downloader_cmds: [{ tool: 'hf', source: 'hf', repo: 'Org/Model-A', dir: 'checkpoints/sub', raw: 'hf download Org/Model-A' }],
+  }
+  await show(probe)
+  const table = container.querySelector('table tbody')
+  assert.ok(table, '探测到仓库时就要有清单表')
+  assert.ok(table.textContent.includes('Org/Model-A'), '仓库行要先出现')
+  assert.ok(table.textContent.includes('尚未列出'), '还没嗅探时标清楚')
+  assert.strictEqual(table.querySelectorAll('tr').length, 1)
+
+  Simulate.click(buttons('嗅探仓库')[0])
+  await settle()
+  const after = container.querySelector('table tbody')
+  assert.strictEqual(after.querySelectorAll('tr').length, 2, '嗅探后文件行紧随仓库行')
+  assert.ok(after.textContent.includes('model.safetensors'), '文件与仓库在同一张表')
+  assert.ok(after.textContent.includes('1 个文件'), '仓库行要报出已列出的数量')
+  assert.ok(buttons('下载全部').length === 1)
+
+  Simulate.click(buttons('移除')[0])
+  await settle()
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '移除仓库要带走它列出的文件')
 })
