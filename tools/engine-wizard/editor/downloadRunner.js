@@ -5,6 +5,22 @@
 import { createDownloadQueue, DEFAULT_CONCURRENCY } from './downloadQueue.js'
 
 /**
+ * 一个文件在下载清单里的身份。同名文件放在不同下载位置、或来自不同仓库时，
+ * 进度与结果必须各自归属，不能只按文件名分槽。
+ */
+export function fileSlot (file) {
+  const f = file || {}
+  const kind = f.kind === 'url' ? 'url' : 'repo'
+  const source = kind === 'url' ? (f.url || '') : (f.repo || '')
+  return `${kind}|${source}|${f.subdir || ''}|${f.name || ''}`
+}
+
+export function fileLabel (file) {
+  const f = file || {}
+  return f.subdir ? `${f.subdir}/${f.name || ''}` : (f.name || '')
+}
+
+/**
  * 读一个 SSE 响应，把事件解析出来交给回调。
  *
  * @param {Response} resp fetch 的响应
@@ -52,8 +68,10 @@ export async function downloadOneFile (opts) {
   const repo = file.repo || opts.repo || ''
   const tool = file.tool || opts.tool || ''
   const direct = file.kind === 'url' && file.url
+  const slot = fileSlot(file)
+  const label = fileLabel(file)
   const finish = (result) => {
-    if (onDone) onDone(file.name, result)
+    if (onDone) onDone(file.name, result, slot, label)
     return result
   }
   try {
@@ -97,7 +115,7 @@ export async function downloadOneFile (opts) {
     let result = { ok: false, error: 'Download ended without a result.' }
     await readSse(resp, (ev) => {
       if (!ev) return
-      if (typeof ev.percent === 'number' && onProgress) onProgress(file.name, ev)
+      if (typeof ev.percent === 'number' && onProgress) onProgress(file.name, ev, slot, label)
       if ('ok' in ev || 'error' in ev) result = ev
     })
     return finish(result)
@@ -152,7 +170,7 @@ export async function downloadFiles (opts) {
     for (const item of queue.drain()) {
       const result = { ok: false, code: 'CANCELLED', error: 'Download was cancelled.' }
       results.push({ name: item.name, ...result })
-      if (onDone) onDone(item.name, result)
+      if (onDone) onDone(item.name, result, fileSlot(item), fileLabel(item))
     }
   }
 
@@ -170,9 +188,9 @@ export async function downloadFiles (opts) {
         ...opts,
         file: item,
         onProgress,
-        onDone: (name, result) => {
+        onDone: (name, result, slot, label) => {
           results.push({ name, ...result })
-          if (onDone) onDone(name, result)
+          if (onDone) onDone(name, result, slot, label)
         },
       }).catch(() => { /* 结果已在 onDone 里归并 */ })
         .then(() => {

@@ -3,7 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
-import { downloadFiles, readSse } from './downloadRunner'
+import { downloadFiles, readSse, fileSlot } from './downloadRunner'
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
@@ -572,22 +572,27 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   const dlPausedRef = React.useRef(false)
   const [dlPaused, setDlPaused] = React.useState(false)
 
-  // 某个文件的进度：按文件名分槽，同时下几个文件时互不覆盖。
-  const setFileProgress = (name, ev) => {
+  // 进度按文件的完整身份分槽：同名文件来自不同仓库或不同下载位置时互不覆盖。
+  const setFileProgress = (name, ev, slot, label) => {
+    const key = slot || name
     setDlFiles((prev) => ({
       ...prev,
-      [name]: { ...(prev[name] || {}), percent: ev.percent, downloaded: ev.downloaded, total: ev.total },
+      [key]: { ...(prev[key] || {}), label: label || name,
+        percent: ev.percent, downloaded: ev.downloaded, total: ev.total },
     }))
   }
 
   // 某个文件结束：记下结果，成功就把这一行的状态改成「已下载」。
-  const setFileDone = (name, result) => {
+  const setFileDone = (name, result, slot, label) => {
+    const key = slot || name
     setDlFiles((prev) => ({
       ...prev,
-      [name]: { ...(prev[name] || {}), done: true, ok: result && result.ok === true, code: result && result.code, noteZh: result && result.noteZh, error: result && result.error },
+      [key]: { ...(prev[key] || {}), label: label || name,
+        done: true, ok: result && result.ok === true, code: result && result.code,
+        noteZh: result && result.noteZh, error: result && result.error },
     }))
     if (result && result.ok) {
-      setPastedFiles((prev) => prev.map((f) => (f.name === name ? { ...f, status: 'ok' } : f)))
+      setPastedFiles((prev) => prev.map((f) => (fileSlot(f) === key ? { ...f, status: 'ok' } : f)))
     }
     if (result && result.ok && id) {
       // 下载完成后自动刷新清单（合并刷新，不整表覆盖）
@@ -1247,8 +1252,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               : t('Starting…', '启动中…')}
           </div>
           {dlEntries.length > 0
-            ? dlEntries.map(([name, p]) => (
-              <div key={name} style={{ marginTop: 6 }}>
+            ? dlEntries.map(([key, p]) => {
+              const name = p.label || key
+              return (
+              <div key={key} style={{ marginTop: 6 }}>
                 <div className="field-hint" style={{ marginTop: 0 }}>
                   {p.done
                     ? (p.ok && p.code === 'KEPT_EXISTING'
@@ -1264,7 +1271,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                   </div>
                 )}
               </div>
-            ))
+              )
+            })
             : (
               <div className="wz-progress wz-progress-indeterminate">
                 <div className="wz-progress-bar" />

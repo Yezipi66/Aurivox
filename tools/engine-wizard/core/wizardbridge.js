@@ -1551,42 +1551,17 @@ function handleDownloadFile (req, res) {
       res.write(`event: ${event}\n`)
       res.write(`data: ${JSON.stringify(data)}\n\n`)
     }
-    // 取消通道：同一台引擎的每一轮下载共用一个 AbortController。
-    //   挂在 id 上而不是每个请求各自一份：并发下载时「取消」要停掉整轮，
-    //   只停一个请求、其余照跑，界面上看着像没取消。
-    //
-    //   用引用计数而不是「建了就一直挂着」：一轮下载全部完成后要把 controller 摘掉，
-    //   否则下一轮下载会捡上一个已经结束那一轮的 controller，
-    //   语义上就乱了（那一轮已经结束，abort 它没有意义）。
-    const dlId = String(id)
-    let entry = downloadAbortControllers.get(dlId)
-    if (!entry) {
-      entry = { ac: new AbortController(), count: 0 }
-      downloadAbortControllers.set(dlId, entry)
-    }
-    entry.count += 1
-    const ac = entry.ac
-    // 本次请求结束（无论成功失败）就把计数减一；这一轮没有在途请求了才摘掉 controller。
-    //   被取消时 controller 已经 aborted，此时直接删掉是对的：
-    //   取消后不应该再有新的下载挂到这个 id 上（前端会重新开一轮）。
-    const forget = () => {
-      const cur = downloadAbortControllers.get(dlId)
-      if (!cur) return
-      cur.count = Math.max(0, cur.count - 1)
-      if (cur.count === 0 || cur.ac.signal.aborted) {
-        downloadAbortControllers.delete(dlId)
-      }
-    }
+    const dl = acquireDownloadAbort(id)
     downloadFile(subdir ? { ...file, subdir } : file, repo, root, id, (text, isErr) => {
       send('line', { text, err: !!isErr })
     }, (p) => {
       send('progress', { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total })
-    }, undefined, ac.signal, { token }).then((r) => {
-      forget()
+    }, undefined, dl.signal, { token }).then((r) => {
+      dl.release()
       send('done', r)
       res.end()
     }).catch((e) => {
-      forget()
+      dl.release()
       send('done', { ok: false, code: 'BRIDGE_FAILED',
         error: (e && e.message) || String(e) })
       res.end()
@@ -1639,7 +1614,7 @@ function handleDownloadUrl (req, res) {
         errorZh: '无法确定这台引擎的权重目录。' })
       return
     }
-    const ac = new AbortController()
+    const dl = acquireDownloadAbort(id)
     let finished = false
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -1654,7 +1629,7 @@ function handleDownloadUrl (req, res) {
       res.on('close', () => {
         if (finished) return
         finished = true
-        try { ac.abort() } catch (e) { /* 已经结束 */ }
+        dl.abort()
       })
     }
     // 与仓库文件同一套保留规则：已有同名文件又没有 .tmp 时不覆盖，
@@ -1670,6 +1645,7 @@ function handleDownloadUrl (req, res) {
       send('line', { text: kept.noteZh, err: false })
       send('done', kept)
       finished = true
+      dl.release()
       res.end()
       return
     }
@@ -1682,20 +1658,23 @@ function handleDownloadUrl (req, res) {
         downloaded: p.downloaded, total: p.total })
     }
     try {
-      downloadFileFromUrl(raw, file, '', root, id, onLine, onProgress, 0, false, ac.signal, null)
+      downloadFileFromUrl(raw, file, '', root, id, onLine, onProgress, 0, false, dl.signal, null)
         .then((r) => {
+          dl.release()
           if (finished) return
           finished = true
           send('done', r)
           res.end()
         })
         .catch((e) => {
+          dl.release()
           if (finished) return
           finished = true
           send('done', { ok: false, code: 'BRIDGE_FAILED', error: (e && e.message) || String(e) })
           res.end()
         })
     } catch (e) {
+      dl.release()
       finished = true
       send('done', { ok: false, code: 'BRIDGE_FAILED', error: (e && e.message) || String(e) })
       res.end()
@@ -1736,6 +1715,35 @@ function handleHfToken (req, res) {
 //   一台引擎的一轮下载（可能同时有好几个文件在途）共用一个 controller，
 //   取消一次就停掉这一轮的全部请求。
 const downloadAbortControllers = new Map()
+
+/**
+ * 登记一次下载请求，返回这一轮共用的取消信号与它自己的中断句柄。
+ * 整轮取消（/wizard/download/cancel）通过共享 controller 一次停掉全部在途请求；
+ * 单个请求的客户端断开只 abort 自己，不牵连同轮的其它文件。
+ */
+function acquireDownloadAbort (id) {
+  const key = String(id)
+  let entry = downloadAbortControllers.get(key)
+  if (!entry) {
+    entry = { ac: new AbortController(), count: 0 }
+    downloadAbortControllers.set(key, entry)
+  }
+  entry.count += 1
+  const local = new AbortController()
+  const onAbort = () => local.abort()
+  entry.ac.signal.addEventListener('abort', onAbort, { once: true })
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    const cur = downloadAbortControllers.get(key)
+    if (!cur) return
+    cur.ac.signal.removeEventListener('abort', onAbort)
+    cur.count = Math.max(0, cur.count - 1)
+    if (cur.count === 0 || cur.ac.signal.aborted) downloadAbortControllers.delete(key)
+  }
+  return { signal: local.signal, abort: () => local.abort(), release }
+}
 
 // POST /wizard/download/cancel  {id}  取消正在进行的下载
 // 与 handleEnvCancel 同构，语义不同：取消下载不删任何东西，

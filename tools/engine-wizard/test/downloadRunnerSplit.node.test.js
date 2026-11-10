@@ -91,3 +91,32 @@ test('只标了 kind 却没有网址时按仓库文件处理，不会发空请�
   assert.strictEqual(calls.length, 1)
   assert.strictEqual(calls[0].url, '/wizard/download/file')
 })
+
+test('同名文件在不同仓库或不同下载位置时身份不同', () => {
+  const { fileSlot, fileLabel } = load(queueStub)
+  const a = { name: 'config.yaml', repo: 'org/A', tool: 'hf', subdir: 'a' }
+  const b = { name: 'config.yaml', repo: 'org/B', tool: 'hf', subdir: 'b' }
+  assert.notStrictEqual(fileSlot(a), fileSlot(b))
+  assert.strictEqual(fileLabel(b), 'b/config.yaml')
+  const u = { kind: 'url', url: 'https://example.org/a.bin', name: 'a.bin', subdir: '' }
+  assert.notStrictEqual(fileSlot(u), fileSlot({ ...u, subdir: 'sub' }))
+})
+
+test('下载结束回调带出身份与显示名，界面才不会把另一行标成已下载', async () => {
+  const original = global.fetch
+  global.fetch = async () => fakeResponse()
+  try {
+    const { downloadOneFile } = load(queueStub)
+    let got = null
+    await downloadOneFile({
+      id: 'demo', root: '',
+      file: { name: 'config.yaml', repo: 'org/A', tool: 'hf', subdir: 'a' },
+      onDone: (...args) => { got = args },
+    })
+    assert.ok(got, '结束回调要被调用')
+    assert.strictEqual(got[2], 'repo|org/A|a|config.yaml')
+    assert.strictEqual(got[3], 'a/config.yaml')
+  } finally {
+    global.fetch = original
+  }
+})

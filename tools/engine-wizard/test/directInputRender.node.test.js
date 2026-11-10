@@ -48,7 +48,10 @@ const StepModels = loadJsx('StepsExtra.jsx', {
   'web/src/lib/i18n': { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) },
   './downloadState': { loadDownloadState: () => restoredState, saveDownloadState: () => {} },
   './downloadQueue': { DEFAULT_CONCURRENCY: 2 },
-  './downloadRunner': { downloadFiles: async () => ({}), readSse: async () => {} },
+  './downloadRunner': {
+    downloadFiles: async () => ({}), readSse: async () => {},
+    fileSlot: (f) => `${f.kind === 'url' ? 'url' : 'repo'}|${f.kind === 'url' ? f.url : f.repo}|${f.subdir || ''}|${f.name}`,
+  },
   './downloadSource': loadEsm(path.join(EDITOR_DIR, 'downloadSource.js')),
   './StepVerify': { StepVerify: () => null },
 }).StepModels
