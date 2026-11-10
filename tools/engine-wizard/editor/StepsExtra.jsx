@@ -36,9 +36,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       const cmds = (probe && probe.downloader_cmds) || []
       const scripts = (probe && probe.downloader) || []
       setR({ ok: true, manifest: null, status: null, commands: [], downloader_cmds: cmds, downloader: scripts })
-      // 清空之前嗅探到的仓库文件
+      // 清空之前列出的仓库文件
       setManifest(null)
-      setProbeError(null)
+      setListError(null)
       setFileList(null)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -70,8 +70,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 远端文件列表（来自 /wizard/download/manifest）
   const [manifest, setManifest] = React.useState(null)
-  const [probeLoading, setProbeLoading] = React.useState(false)
-  const [probeError, setProbeError] = React.useState(null)
+  const [listLoading, setListLoading] = React.useState(false)
+  const [listError, setListError] = React.useState(null)
 
   // 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
@@ -101,7 +101,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     const saved = loadDownloadState(id, state.repoUrl || '')
     if (saved) {
       if (saved.manifest) setManifest(saved.manifest)
-      if (saved.probeError) setProbeError(saved.probeError)
+      if (saved.listError) setListError(saved.listError)
       if (typeof saved.dedup === 'boolean') setDedup(saved.dedup)
     }
   }, [id, state.repoUrl])
@@ -109,8 +109,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 持久化：保存状态到会话段
   React.useEffect(() => {
     if (!id) return
-    saveDownloadState(id, state.repoUrl || '', { manifest, probeError, dedup })
-  }, [id, state.repoUrl, manifest, probeError, dedup])
+    saveDownloadState(id, state.repoUrl || '', { manifest, listError, dedup })
+  }, [id, state.repoUrl, manifest, listError, dedup])
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
@@ -215,7 +215,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       .catch(() => { /* 读不到 ⇒ 空列表 */ })
   }, [id, dlLive])
 
-  // 远端文件列表：用户点击「嗅探仓库」按钮后加载。
+  // 远端文件列表：用户点击「列出文件」按钮后加载。
   // 不自动加载：用户主动触发，避免不必要的网络请求。
 
   const M = (r && r.manifest) || null
@@ -344,7 +344,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     const site = link.tool === 'hf' ? 'Hugging Face' : '魔搭'
     const siteEn = link.tool === 'hf' ? 'Hugging Face' : 'ModelScope'
     setInputNote(t(`The ${siteEn} repo ${link.repo} was added to the download list. Use "Probe repo" above to read its files.`,
-      `已识别为 ${site} 仓库 ${link.repo}，已加入下载清单；在「下载命令」中执行「嗅探仓库」读取文件列表。`))
+      `已识别为 ${site} 仓库 ${link.repo}，已加入下载清单；在下方清单里点「列出文件」即可读取文件列表。`))
   }
 
   // 文件直链 / curl 区：只收网址与落点，不解析整条命令。
@@ -402,8 +402,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   })
   const nothingFound = upstreamScripts.length === 0 && visibleCmds.length === 0 &&
     pastedFiles.length === 0 && !(releaseAssets && releaseAssets.assets.length > 0)
-  // 一张清单同时容纳三类行：待嗅探的仓库、仓库列出的文件、文件直链。
-  //   顺序按「仓库 → 它的文件」排，让先嗅探再下载在一处完成。
+  // 一张清单同时容纳三类行：待列文件的仓库、仓库列出的文件、文件直链。
+  //   顺序按「仓库 → 它的文件」排，让先列出再下载在一处完成。
   const rows = (() => {
     const files = [
       ...(manifest || []).map((f) => ({
@@ -455,23 +455,23 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   }
   const linkCmdCount = visibleCmds.filter((c) => c && c.from === 'link').length
 
-  // 嗅探仓库：调 /wizard/download/manifest 获取文件列表。
+  // 列出文件：调 /wizard/download/manifest 获取文件列表。
   // 追加不覆盖：点某个仓库的按钮显示该仓库的文件，再点另一个仓库的按钮追加到列表后面。
   // 同仓库去重：同一个仓库重复点击按钮，忽略。
   const loadManifest = async (c) => {
     if (!id || !c || !c.repo) {
-      setProbeError(t('Repository information is missing. Please check the upstream README.',
+      setListError(t('Repository information is missing. Please check the upstream README.',
         '仓库信息缺失，请检查上游 README。'))
       return
     }
     const tool = sourceOf(c, sourceChoices)
     if (tool === 'unknown') {
-      setProbeError(t('Choose where this command downloads from first (Hugging Face or ModelScope).',
+      setListError(t('Choose where this command downloads from first (Hugging Face or ModelScope).',
         '请先选择这条命令的下载来源（Hugging Face 或魔搭）。'))
       return
     }
-    setProbeLoading(true)
-    setProbeError(null)
+    setListLoading(true)
+    setListError(null)
     try {
       // 上游把模型放在子目录里时（README 写 --local-dir checkpoints/s2-pro），
       //   清单核对与落盘都要在同一层看：把那一层带给后端。
@@ -480,18 +480,18 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&subdir=${encodeURIComponent(sub)}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
-        setProbeError(t(`Probe failed: HTTP ${resp.status}`, `嗅探失败：HTTP ${resp.status}`))
+        setListError(t(`Could not list files: HTTP ${resp.status}`, `读取文件列表失败：HTTP ${resp.status}`))
         return
       }
       const contentType = resp.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
-        setProbeError(t('Probe failed: invalid response', '嗅探失败：响应格式错误'))
+        setListError(t('Could not list files: invalid response', '读取文件列表失败：响应格式错误'))
         return
       }
       const j = await resp.json()
       if (j.ok) {
         setManifest((prev) => {
-          // 同仓库去重：如果已经嗅探过这个仓库，忽略
+          // 同仓库去重：如果已经列出过这个仓库，忽略
           if (prev && prev.some((f) => f.repo === c.repo)) return prev
           // 追加：把新文件加到列表后面，带上 repo 与来源。来源写判定后的 hf / modelscope，
           //   不写命令形态（snapshot）：下载时后端只认这两个值。
@@ -502,12 +502,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         // 私有仓库不带令牌连清单都列不出：弹窗填令牌，保存后重新列。
         setTokenDialog({ info: j, retry: () => loadManifest(c) })
       } else {
-        // 显示错误信息，让用户知道嗅探失败
-        setProbeError(j.error || t('Probe failed', '嗅探失败'))
+        // 显示错误信息，让用户知道读取失败
+        setListError(j.error || t('Could not list files', '读取文件列表失败'))
       }
     } catch (e) {
-      setProbeError(e.message || t('Probe failed', '嗅探失败'))
-    } finally { setProbeLoading(false) }
+      setListError(e.message || t('Could not list files', '读取文件列表失败'))
+    } finally { setListLoading(false) }
   }
 
   // manifest 刷新：把新状态合并回旧表，不整表覆盖。
@@ -580,10 +580,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }
   }
 
-  // 一次嗅探上游 README 给的每个仓库。README 常把权重拆在多个仓库里
-  // （主模型一个、辅助模型另一个），逐个点「嗅探仓库」时容易只点第一个，
+  // 一次列出上游 README 给的每个仓库。README 常把权重拆在多个仓库里
+  // （主模型一个、辅助模型另一个），逐个点「列出文件」时容易只点第一个，
   // 后面的仓库与它的文件就整个漏掉。同仓库去重由 loadManifest 负责。
-  const probeAll = async () => {
+  const listAll = async () => {
     const seen = new Set()
     for (const c of visibleCmds) {
       const tool = sourceOf(c, sourceChoices)
@@ -595,7 +595,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     }
   }
 
-  // 上游给了几个仓库（按来源与仓库去重）。只有一个时不显示「全部嗅探」。
+  // 上游给了几个仓库（按来源与仓库去重）。只有一个时不显示「列出全部」。
   const repoCount = (() => {
     const seen = new Set()
     for (const c of visibleCmds) {
@@ -849,8 +849,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             {sourceTab === 'repo' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. The download location is a folder inside the weights folder; added repos join the download list below, where "Probe repo" reads their files.',
-                    '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。下载位置是权重目录内的子目录；加入后进入下方下载清单，可执行「嗅探仓库」读取文件列表。')}
+                  {t('Paste a Hugging Face or ModelScope repo page. The host is detected automatically. The download location is a folder inside the weights folder; added repos join the download list below, where "List files" reads their files.',
+                    '填写 Hugging Face 或魔搭的模型仓库页，按网址域名自动识别。下载位置是权重目录内的子目录；加入后进入下方下载清单，点「列出文件」即可读取文件列表。')}
                 </div>
                 {nothingFound && (
                   <div className="msg msg-warn" style={{ marginTop: 6 }}>
@@ -924,11 +924,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           {linkCmdCount > 0 && (
             <div className="field-hint" style={{ marginTop: 0 }}>
               {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
-                '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，嗅探前请移除不需要的。')}
+                '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，列出前请移除不需要的。')}
             </div>
           )}
-          {probeError && (
-            <div className="msg msg-danger" style={{ marginTop: 4 }}>{probeError}</div>
+          {listError && (
+            <div className="msg msg-danger" style={{ marginTop: 4 }}>{listError}</div>
           )}
           {rows.some((f) => f.tool === 'hf') && (
             <div className="plan-kv">
@@ -948,10 +948,10 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
             {repoCount > 0 && (
               <button className="btn btn-sm" type="button"
-                disabled={probeLoading}
-                onClick={probeAll}
+                disabled={listLoading}
+                onClick={listAll}
                 style={{ flexShrink: 0 }}>
-                {t(`Probe all (${repoCount})`, `嗅探全部（${repoCount} 个）`)}
+                {t(`List all (${repoCount})`, `列出全部（${repoCount} 个）`)}
               </button>
             )}
             <button
@@ -1074,9 +1074,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                       </td>
                       <td>
                         <button className="btn btn-sm" type="button"
-                          disabled={probeLoading || source === 'unknown'}
+                          disabled={listLoading || source === 'unknown'}
                           onClick={() => loadManifest(c)}>
-                          {probeLoading ? t('Probing…', '嗅探中…') : t('Probe repo', '嗅探仓库')}
+                          {listLoading ? t('Listing…', '读取中…') : t('List files', '列出文件')}
                         </button>
                         <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
                           title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}

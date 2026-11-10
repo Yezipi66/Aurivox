@@ -133,9 +133,9 @@ test('模型仓库页签：两个主域名共用一个入口，下载位置随�
   Simulate.click(buttons('引入仓库')[0])
   await settle()
   assert.ok(has('已识别为 Hugging Face 仓库 Org/Model-A'))
-  assert.ok(buttons('嗅探仓库').length > 0, '加入后要出现真正的嗅探按钮')
+  assert.ok(buttons('列出文件').length > 0, '加入后要出现真正的读取按钮')
   fetched.length = 0
-  Simulate.click(buttons('嗅探仓库')[0])
+  Simulate.click(buttons('列出文件')[0])
   await settle()
   assert.ok(fetched.some((u) => u.includes('subdir=sub-a')),
     '手填的下载位置要真的带进列文件请求，而不是只写在界面上')
@@ -179,13 +179,13 @@ test('仓库与它列出的文件在同一张表里，移除仓库时文件一�
   assert.ok(table.textContent.includes('Org/Model-A'), '仓库行要先出现')
   assert.ok(container.querySelector('table thead').textContent.includes('来源'), '表头要写明来源')
   assert.ok(table.textContent.includes('Hugging Face'), '仓库行要标出站点来源')
-  assert.ok(table.textContent.includes('尚未列出'), '还没嗅探时标清楚')
+  assert.ok(table.textContent.includes('尚未列出'), '还没读取时标清楚')
   assert.strictEqual(table.querySelectorAll('tr').length, 1)
 
-  Simulate.click(buttons('嗅探仓库')[0])
+  Simulate.click(buttons('列出文件')[0])
   await settle()
   const after = container.querySelector('table tbody')
-  assert.strictEqual(after.querySelectorAll('tr').length, 2, '嗅探后文件行紧随仓库行')
+  assert.strictEqual(after.querySelectorAll('tr').length, 2, '读取后文件行紧随仓库行')
   assert.ok(after.textContent.includes('model.safetensors'), '文件与仓库在同一张表')
   assert.ok(after.textContent.includes('1 个文件'), '仓库行要报出已列出的数量')
   assert.ok(buttons('下载全部').length === 1)

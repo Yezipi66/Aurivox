@@ -61,11 +61,11 @@ test('导入 postJson（判据收口只有一处）', () => {
     'postJson 没被导入')
 })
 
-// 嗅探手动化：以前第 1 步的探测只跟着失焦自动跑，而探测对 404 同样返回 ok:true，
+// 读取手动化：以前第 1 步的探测只跟着失焦自动跑，而探测对 404 同样返回 ok:true，
 //   它的原话放在 notes（数组）里，界面却只渲染 note（单数）⇒ 仓库不存在时界面
 //   停在一个「进行中」，既不报原因，也没法自己再探一次。
 
-test('doProbe 必须接在按钮上（手动嗅探的入口）', () => {
+test('doProbe 必须接在按钮上（手动读取的入口）', () => {
   assert.ok(/onClick=\{doProbe\}/.test(src),
     'doProbe 没有接在任何按钮上：探测只能跟着失焦自动跑，失败时使用者无从再探一次')
 })
@@ -97,17 +97,17 @@ test('resolve 用截断后的 j.url 写回状态（不用原始输入）', () =>
     '输入框没有更新为截断后的 resolvedUrl：使用者看到的是带尾巴的原始链接')
 })
 
-// 嗅探手动化：探测只从「嗅探仓库」按钮走，不跟着解析自动跑。
+// 读取手动化：探测只从「读取仓库信息」按钮走，不跟着解析自动跑。
 //   解析是纯本地的（不联网、地址写错也说 ok），自动探一次会让按钮形同虚设，
-//   而且使用者分不清「探的是哪一步」。resolve 必须清掉 probe（界面回到「尚未嗅探」），
+//   而且使用者分不清「探的是哪一步」。resolve 必须清掉 probe（界面回到「尚未读取」），
 //   把「仓库在不在」的回答留给按钮。
-test('resolve 不再自动嗅探（探测只从按钮走）', () => {
+test('resolve 不再自动读取（探测只从按钮走）', () => {
   const body = functionBody('resolve')
   assert.ok(body, 'resolve 函数不见了')
   assert.ok(!/wizard\/probe/.test(body),
     'resolve 还在自动调 /wizard/probe：探测跟着解析跑，手动按钮形同虚设')
   assert.ok(/probe: null/.test(body),
-    'resolve 没把 probe 清掉：嗅探状态会残留上一次的，界面不回到「尚未嗅探」')
+    'resolve 没把 probe 清掉：读取状态会残留上一次的，界面不回到「尚未读取」')
   // /wizard/probe 全文件只出现一次，且只在一个函数里：就是 doProbe（按钮）。
   const probeCalls = src.match(/wizard\/probe/g) || []
   assert.strictEqual(probeCalls.length, 1,

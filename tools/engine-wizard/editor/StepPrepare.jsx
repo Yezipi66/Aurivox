@@ -149,7 +149,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
       //   输入框与 wz.url 若还留原始链接，显示的是带尾巴的 URL，
       //   克隆/探测却用截断后的，显示与实际使用不一致。
       const resolvedUrl = j.url || url
-      // 嗅探不在这里自动跑：它是「嗅探仓库」按钮的专属动作（手动、有意图）。
+      // 读取不在这里自动跑：它是「读取仓库」按钮的专属动作（手动、有意图）。
       //   解析只做本地 URL 规范化与目录名推断，不联网；「仓库在不在」交给按钮回答，
       //   解析成功就顺带探一次会让按钮形同虚设，使用者也不知道探的是哪一步。
       onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: null }))
@@ -178,10 +178,10 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   const doProbe = async () => {
     setBusy('probe'); setProbe(null)
     try {
-      // 嗅探针对「使用者此刻在输入框里看到的地址」。
+      // 读取针对「使用者此刻在输入框里看到的地址」。
       //   url 就是输入框的值（初始 state.url，之后每次输入都 setUrl）；
       //   不要退到 state.repoUrl：它是持久段里上一次解析的产物，换了链接
-      //   就过期，留着会让「输入 A 却嗅探 B」。
+      //   就过期，留着会让「输入 A 却读取 B」。
       const j = await post('/wizard/probe', { url })
       setProbe(j)
     } finally {
@@ -270,16 +270,16 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   const done = facts && facts.prepare === true
   const meta = (probe && probe.meta) || null
 
-  // 嗅探状态（给卡片底部那个手动按钮用）。
+  // 读取状态（给卡片底部那个手动按钮用）。
   //   判据不能用 ok：解析是纯本地的（不联网，地址写错也返回 ok），
   //   探测对 404 同样返回 ok:true，真正的信号在 probe.notes 里。
   //   「够不够得到这个仓库」只看 meta 里有没有真读到东西。
   const readSomething = !!(meta && (meta.packageName || meta.requiresPython
     || meta.srcRoot || meta.license || (meta.dependencies && meta.dependencies.found)))
   const sniffStatus = busy === 'probe'
-    ? t('Sniffing…', '正在嗅探…')
+    ? t('Reading…', '正在读取…')
     : !probe
-      ? t('Not sniffed yet', '尚未嗅探')
+      ? t('Not read yet', '尚未读取')
       : readSomething
         ? t('Repository information read', '已读取仓库信息')
         : t('No repository information read', '未读取到仓库信息')
@@ -308,8 +308,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
               // 写回父组件的是原始输入，不含解析产物
               // （res/probe/cloneUrl 仍只在解析成功时写）。
               // repoUrl/cloneUrl 一起清：换了一个链接，之前解析出的上游地址就是旧的。
-              //   若留着，嗅探（doProbe 读 state.repoUrl）与克隆（doClone 读
-              //   state.cloneUrl）会用上一个仓库的值，出现「输入 A 却嗅探/克隆 B」，
+              //   若留着，读取（doProbe 读 state.repoUrl）与克隆（doClone 读
+              //   state.cloneUrl）会用上一个仓库的值，出现「输入 A 却读取/克隆 B」，
               //   而 B 恰好没有依赖清单时，就表现为「这个仓库没有声明依赖」。
               onChange({ url: e.target.value, repoUrl: '', cloneUrl: '' })
               // 只在真的变了时才清结果；
@@ -367,13 +367,13 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
         </div>
       )}
 
-      {/* 项目信息（只读，不写盘）。只在嗅探成功后显示：没嗅探时读不到任何信息，
-          摆一排「—」占位只会让人觉得仓库是空的；「嗅探到了才显示具体信息」
+      {/* 项目信息（只读，不写盘）。只在读取成功后显示：没读取时读不到任何信息，
+          摆一排「—」占位只会让人觉得仓库是空的；「读取到了才显示具体信息」
           与实际操作顺序一致：先确认仓库在不在、能否读到，再继续下一步。
           标题用使用者的视角（「项目信息」），不用平台视角
             （「仓库自己声明了什么」讲的是上游，不是使用者要知道的）。
           此区域不摆命令：命令由下面的克隆步骤给出，那才是真命令。
-          嗅探（及嗅探失败后的重试）是右下角那个按钮的专属动作。*/}
+          读取（及读取失败后的重试）是右下角那个按钮的专属动作。*/}
       {resForCur && resForCur.ok && readSomething && (
         <>
           <div className="layer-label">{t('Project information', '项目信息')}</div>
@@ -395,8 +395,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
         </>
       )}
 
-      {/* 命令区 + 克隆结果提示（只在嗅探成功、且还没克隆时显示）。
-          没嗅探时读不到仓库，摆一条 git clone 是「还没确认仓库就让人往下走」；
+      {/* 命令区 + 克隆结果提示（只在读取成功、且还没克隆时显示）。
+          没读取时读不到仓库，摆一条 git clone 是「还没确认仓库就让人往下走」；
           克隆完成后命令过时，交给下面的「已克隆」提示。
           这里给真正的 git clone 命令，不只显示 engines/<name>/
             这个目录名：只给目录名看不出要跑什么、也不知道会拉多少。
@@ -493,8 +493,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
               // 复用时那句文案要跟着改：说「会克隆到哪」就与实际做的事不符了。
               reuse: reused,
             }}>
-            {/* 嗅探成功后、未克隆：一行靠右下，重新嗅探在左、克隆在右。
-                克隆是这一步才写盘的动作；嗅探成功后「嗅探仓库」才变成「重新嗅探」，
+            {/* 读取成功后、未克隆：一行靠右下，重新读取在左、克隆在右。
+                克隆是这一步才写盘的动作；读取成功后「读取仓库」才变成「重新读取」，
                 同一动作不再摆两处，免得使用者以为是两件事。
                 克隆中时旁边出现红色的「取消」。*/}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -503,8 +503,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
                 disabled={busy === 'probe'}
                 onClick={doProbe}>
                 {busy === 'probe'
-                  ? t('Sniffing…', '正在嗅探…')
-                  : t('Resniff repository', '重新嗅探')}
+                  ? t('Reading…', '正在读取…')
+                  : t('Re-read repository info', '重新读取')}
               </button>
               <button className="btn btn-primary btn-sm" type="button"
                 // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
@@ -559,12 +559,12 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
         </>
       )}
 
-      {/* 嗅探仓库（手动，右下角；只在还没嗅探 / 嗅探失败时显示）。
-          这是嗅探的唯一入口：解析只做本地 URL 规范化（不联网、地址写错也说 ok），
+      {/* 读取仓库（手动，右下角；只在还没读取 / 读取失败时显示）。
+          这是读取的唯一入口：解析只做本地 URL 规范化（不联网、地址写错也说 ok），
           探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
           没有接入渲染，于是仓库不存在时界面只停在一个「进行中」，
           使用者既看不到原因，也没法自己再探一次。
-          嗅探成功后这个按钮就交给上面那行的「重新嗅探」，不再重复摆：
+          读取成功后这个按钮就交给上面那行的「重新读取」，不再重复摆：
           同一动作摆两处，使用者会以为是两件事。*/}
       {resForCur && resForCur.ok && !done && !readSomething && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
@@ -574,8 +574,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
             disabled={busy === 'probe' || !url.trim()}
             onClick={doProbe}>
             {busy === 'probe'
-              ? t('Sniffing…', '正在嗅探…')
-              : t('Sniff repository', '嗅探仓库')}
+              ? t('Reading…', '正在读取…')
+              : t('Read repository info', '读取仓库信息')}
           </button>
         </div>
       )}

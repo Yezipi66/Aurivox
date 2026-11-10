@@ -5,15 +5,17 @@ export function loadDownloadState (id, url) {
   if (!id) return null
   const s = loadSession(id, url)
   if (!s) return null
-  if (s.manifest == null && s.probeError == null && s.dedup === true) return null
-  return { manifest: s.manifest, probeError: s.probeError, dedup: s.dedup }
+  // 旧会话里这个键叫 probeError。读取时兼容一次，写入统一用 listError。
+  const err = s.listError === undefined ? s.probeError : s.listError
+  if (s.manifest == null && err == null && s.dedup === true) return null
+  return { manifest: s.manifest, listError: err, dedup: s.dedup }
 }
 
 export function saveDownloadState (id, url, state) {
   if (!id || !state) return
   saveSession(id, url, {
     manifest: state.manifest === undefined ? undefined : state.manifest,
-    probeError: state.probeError === undefined ? undefined : state.probeError,
+    listError: state.listError === undefined ? undefined : state.listError,
     dedup: state.dedup === undefined ? undefined : state.dedup,
   })
 }
