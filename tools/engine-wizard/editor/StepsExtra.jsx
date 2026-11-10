@@ -1018,7 +1018,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             <thead>
               <tr>
                 <th>{t('File', '文件')}</th>
-                <th>{t('Repo', '仓库')}</th>
+                <th>{t('Source', '来源')}</th>
                 <th>{t('Size', '大小')}</th>
                 <th>{t('SHA-256', 'SHA-256')}</th>
                 <th>{t('Status', '状态')}</th>
@@ -1053,9 +1053,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                               <option key={x} value={x}>{SOURCE_LABELS[x][lang === 'zh' ? 'zh' : 'en']}</option>
                             ))}
                           </select>
-                        ) : (SOURCE_LABELS[f.tool]
-                          ? SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']
-                          : (f.tool || t('(unknown)', '（未知）')))}
+                        ) : (
+                          <span className="badge badge-neutral">
+                            {SOURCE_LABELS[f.tool]
+                              ? SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']
+                              : (f.tool || t('(unknown)', '（未知）'))}
+                          </span>
+                        )}
                       </td>
                       <td>
                         {f.files.length
@@ -1098,11 +1102,20 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                     <td>
                       {f.kind === 'url'
                         ? <span>{t('Direct link', '文件直链')}<span className="field-hint" style={{ marginLeft: 6 }}>{host}</span></span>
-                        : (page ? (
-                          <a href={page} target="_blank" rel="noreferrer">
-                            {f.repo}
-                          </a>
-                        ) : (f.repo || t('(unknown)', '（未知）')))}
+                        : (
+                          <span>
+                            {page ? (
+                              <a href={page} target="_blank" rel="noreferrer">
+                                {f.repo}
+                              </a>
+                            ) : (f.repo || t('(unknown)', '（未知）'))}
+                            {SOURCE_LABELS[f.tool] ? (
+                              <span className="field-hint" style={{ marginLeft: 6 }}>
+                                {SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']}
+                              </span>
+                            ) : null}
+                          </span>
+                        )}
                     </td>
                     <td>
                       {f.size > 0

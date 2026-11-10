@@ -157,6 +157,7 @@ test('文件直链页签：条目进同一张表，可一键下载全部，也�
   await settle()
   Simulate.click(buttons('加入清单')[0])
   await settle()
+  assert.ok(container.querySelector('table thead').textContent.includes('来源'), '表头要写明来源')
   assert.ok(container.querySelector('table tbody').textContent.includes('文件直链'), '表格要标出这一行的来源')
   assert.ok(has('model.safetensors') && has('sub/'), '文件名与下载位置都要看得见')
   assert.strictEqual(container.querySelectorAll('table tbody tr').length, 1)
@@ -176,6 +177,8 @@ test('仓库与它列出的文件在同一张表里，移除仓库时文件一�
   const table = container.querySelector('table tbody')
   assert.ok(table, '探测到仓库时就要有清单表')
   assert.ok(table.textContent.includes('Org/Model-A'), '仓库行要先出现')
+  assert.ok(container.querySelector('table thead').textContent.includes('来源'), '表头要写明来源')
+  assert.ok(table.textContent.includes('Hugging Face'), '仓库行要标出站点来源')
   assert.ok(table.textContent.includes('尚未列出'), '还没嗅探时标清楚')
   assert.strictEqual(table.querySelectorAll('tr').length, 1)
 
