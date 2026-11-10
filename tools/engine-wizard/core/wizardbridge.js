@@ -1587,7 +1587,8 @@ function handleDownloadFile (req, res) {
 // POST /wizard/download/url {id, url, name?, subdir?, size?}  第 3 步：直链兜底
 //   上游只给了单文件链接（release 资产、自建网盘直链）时走这里。落盘、HTML
 //   误判守卫、大小核对、写 .tmp 再改名全部复用 downloadFileFromUrl，不另起一套。
-//   平台不解析 curl / aria2 的参数，只收一条 http(s) 文件地址。
+//   平台只收一条 http(s) 文件地址，用自己的下载器取文件。外部客户端那类命令行
+//   的参数组合无法穷举，解析不全就会静默落到错位置，所以不做这件事。
 function handleDownloadUrl (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/download/url')) return false

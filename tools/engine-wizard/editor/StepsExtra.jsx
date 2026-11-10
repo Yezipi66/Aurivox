@@ -353,7 +353,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       `已识别为 ${site} 仓库 ${link.repo}，已加入下载清单；在下方清单里点「列出文件」即可读取文件列表。`))
   }
 
-  // 文件直链 / curl 区：只收网址与落点，不解析整条命令。
+  // 文件直链区：只收网址与落点，不解析整条命令。
   //   平台用自己的下载器执行，重定向、断点、大小核对、落点保护与仓库文件一致。
   const addDirect = (urlVal, destVal, sizeVal) => {
     const raw = String(urlVal || '').trim()
@@ -793,7 +793,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
               {[
                 { key: 'engine', zh: `引擎自带入口（${engineEntries.length}）`, en: `Engine entries (${engineEntries.length})` },
                 { key: 'repo', zh: '模型仓库', en: 'Model repo' },
-                { key: 'direct', zh: '文件直链 / curl', en: 'Direct link / curl' },
+                { key: 'direct', zh: '文件直链', en: 'Direct file link' },
               ].map((tab) => (
                 <button key={tab.key} type="button"
                   className={`btn btn-sm${sourceTab === tab.key ? ' btn-primary' : ''}`}
@@ -811,8 +811,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 </div>
                 {engineEntries.length === 0 && (
                   <div className="field-hint">
-                    {t('No engine-provided entry was found on disk. Switch to "Model repo" or "Direct link / curl" above.',
-                      '盘上没有找到引擎自带入口，可在上方切到「模型仓库」或「文件直链 / curl」。')}
+                    {t('No engine-provided entry was found on disk. Switch to "Model repo" or "Direct file link" above.',
+                      '盘上没有找到引擎自带入口，可在上方切到「模型仓库」或「文件直链」。')}
                   </div>
                 )}
                 {engineEntries.map((e) => {
@@ -886,8 +886,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             {sourceTab === 'direct' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('Paste one http(s) file URL. The download location may include a file name, for example sub/model.safetensors; leave it empty to use the file name from the URL and the weights folder root. No curl options are parsed: the platform runs this with the same checks as repo files.',
-                    '填写一条 http(s) 文件地址。下载位置可写到文件名，例如 sub/model.safetensors；留空则按网址末段命名并放在权重根目录。不解析 curl 参数，平台按与仓库文件相同的下载校验执行。')}
+                  {t('Paste one http(s) file URL. The download location may include a file name, for example sub/model.safetensors; leave it empty to use the file name from the URL and the weights folder root. The platform fetches the file itself, with the same resume and size checks as repo files.',
+                    '填写一条 http(s) 文件地址。下载位置可写到文件名，例如 sub/model.safetensors；留空则按网址末段命名并放在权重根目录。平台用自己的下载器取文件，断点续传与大小核对同仓库文件一致。')}
                 </div>
                 <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input className="control" style={{ flex: 1 }} value={directUrl}

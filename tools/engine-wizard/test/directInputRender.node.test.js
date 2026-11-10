@@ -129,7 +129,7 @@ test('第 1 步没有探测结果时仍显示权重来源框，默认在引擎�
   assert.ok(has('权重来源'), '三种来源要收在同一个框里')
   assert.strictEqual(buttons('引擎自带入口（0）').length, 1, '默认页签是引擎入口')
   assert.strictEqual(buttons('模型仓库').length, 1, '页签按钮要一直在')
-  assert.strictEqual(buttons('文件直链 / curl').length, 1)
+  assert.strictEqual(buttons('文件直链').length, 1)
   assert.strictEqual(repoInput(), undefined, '未切页签时不渲染其它页签的输入框')
   assert.ok(!has('No probe data'), '探测缺失不该挡住手填')
   assert.strictEqual(buttons('下载全部').length, 0, '清单为空时没有可下载条目')
@@ -163,7 +163,7 @@ test('模型仓库页签：两个主域名共用一个入口，下载位置随�
 
 test('文件直链页签：条目进同一张表，可一键下载全部，也可逐项移除', async () => {
   await show()
-  Simulate.click(buttons('文件直链 / curl')[0])
+  Simulate.click(buttons('文件直链')[0])
   await settle()
   Simulate.change(fileInput(), { target: { value: 'https://example.org/weights/model.safetensors' } })
   await settle()
