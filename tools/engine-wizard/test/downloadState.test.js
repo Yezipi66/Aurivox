@@ -32,9 +32,9 @@ test('downloadState — save + load 往返', async () => {
   global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
+  // 读取错误是瞬时的，不跨会话保存；往返的只有清单与去重开关。
   const state = {
     manifest: [{ name: 'config.yaml', size: 2860, sha256: 'abc123', status: 'missing' }],
-    probeError: null,
     dedup: false,
   }
   saveDownloadState('test-engine', URL_A, state)
@@ -47,7 +47,7 @@ test('downloadState — 换 URL ⇒ 读不到旧仓库的下载清单（防串�
   global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
-  saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], dedup: true })
   // 换了 URL 还显示旧仓库的文件清单就是串号
   assert.strictEqual(loadDownloadState('alpha', URL_B), null,
     '⛔ 换了 URL 还读到上一个仓库的下载清单')
@@ -59,7 +59,7 @@ test('downloadState — 不同引擎状态隔离', async () => {
   global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState } = await importModule()
 
-  saveDownloadState('engine-a', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  saveDownloadState('engine-a', URL_A, { manifest: [{ name: 'a.bin' }], dedup: true })
   saveDownloadState('engine-b', URL_A, { manifest: [{ name: 'b.bin' }], probeError: null, dedup: false })
 
   const a = loadDownloadState('engine-a', URL_A)
@@ -75,7 +75,7 @@ test('downloadState — clearDownloadState 只清指定引擎的那一段', asyn
   global.sessionStorage = new MockStorage()
   const { saveDownloadState, loadDownloadState, clearDownloadState } = await importModule()
 
-  saveDownloadState('engine-a', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  saveDownloadState('engine-a', URL_A, { manifest: [{ name: 'a.bin' }], dedup: true })
   saveDownloadState('engine-b', URL_A, { manifest: [{ name: 'b.bin' }], probeError: null, dedup: true })
 
   clearDownloadState('engine-a', URL_A)
@@ -88,7 +88,7 @@ test('downloadState — 一段都不落 localStorage（探测结果不是持久�
   global.sessionStorage = new MockStorage()
   const { saveDownloadState } = await importModule()
 
-  saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+  saveDownloadState('alpha', URL_A, { manifest: [{ name: 'a.bin' }], dedup: true })
   assert.strictEqual(global.localStorage.size, 0,
     '⛔ 写进 localStorage 了：' + [...global.localStorage.data.keys()].join(', '))
   assert.ok(global.sessionStorage.size > 0, '⛔ sessionStorage 里没有会话段')

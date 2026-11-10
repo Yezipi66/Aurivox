@@ -68,9 +68,22 @@ define('getComputedStyle', dom.window.getComputedStyle)
 define('requestAnimationFrame', (cb) => setTimeout(() => cb(1), 0))
 define('cancelAnimationFrame', (id) => clearTimeout(id))
 const fetched = []
+let manifestDelay = 0
 define('fetch', async (url) => {
   fetched.push(String(url))
+  if (String(url).includes('/wizard/download-entries')) {
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        entries: [],
+        runtime_hints: [{ repo: 'org/hint', file: 'm.py', line: 12, call: 'from_pretrained' }],
+      }),
+      headers: { get: () => 'application/json' },
+    }
+  }
   if (String(url).includes('/wizard/download/manifest')) {
+    if (manifestDelay) await new Promise((r) => setTimeout(r, manifestDelay))
     return {
       ok: true,
       json: async () => ({
@@ -90,6 +103,7 @@ define('fetch', async (url) => {
 const container = dom.window.document.getElementById('root')
 const root = ReactDOMClient.createRoot(container)
 const settle = () => new Promise((resolve) => setTimeout(resolve, 80))
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let seq = 0
 async function show (probe = null) {
@@ -193,4 +207,34 @@ test('仓库与它列出的文件在同一张表里，移除仓库时文件一�
   Simulate.click(buttons('移除')[0])
   await settle()
   assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '移除仓库要带走它列出的文件')
+})
+
+test('运行期资源单独列出，不混进下载清单', async () => {
+  await show()
+  assert.ok(has('运行期还会自行拉取'), '要有一块说明运行期资源')
+  assert.ok(has('org/hint') && has('m.py:12'), '仓库与出处都要看得见')
+  assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '运行期资源不进清单表')
+})
+
+test('两个仓库同时列文件时，读取状态各自归属', async () => {
+  manifestDelay = 150
+  const probe = {
+    downloader_cmds: [
+      { tool: 'hf', source: 'hf', repo: 'Org/A', dir: 'checkpoints/a', raw: 'a' },
+      { tool: 'hf', source: 'hf', repo: 'Org/B', dir: 'checkpoints/b', raw: 'b' },
+    ],
+  }
+  await show(probe)
+  const listButtons = () => [...container.querySelectorAll('button')]
+    .filter((b) => ['列出文件', '读取中…'].includes(b.textContent.trim()))
+  assert.strictEqual(listButtons().length, 2)
+
+  Simulate.click(listButtons()[0])
+  await sleep(40)
+  assert.deepStrictEqual(listButtons().map((b) => b.textContent.trim()), ['读取中…', '列出文件'],
+    '只有被点的那一行进入读取状态')
+
+  await sleep(200)
+  assert.deepStrictEqual(listButtons().map((b) => b.textContent.trim()), ['列出文件', '列出文件'])
+  manifestDelay = 0
 })

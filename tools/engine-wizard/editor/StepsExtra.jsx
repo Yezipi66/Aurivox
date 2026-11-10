@@ -70,8 +70,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
 
   // 远端文件列表（来自 /wizard/download/manifest）
   const [manifest, setManifest] = React.useState(null)
-  const [listLoading, setListLoading] = React.useState(false)
-  const [listError, setListError] = React.useState(null)
+  // 列出文件按仓库分槽：同时列多个仓库时，按钮状态与错误各自归属，
+  //   不会出现所有行一起显示「读取中」、错误只剩最后一条。
+  const [listingKeys, setListingKeys] = React.useState([])
+  const [listErrors, setListErrors] = React.useState({})
+  const [runtimeHints, setRuntimeHints] = React.useState([])
 
   // 去重：默认按 repo 去重（同一个仓库只显示一次），勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
@@ -101,7 +104,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     const saved = loadDownloadState(id, state.repoUrl || '')
     if (saved) {
       if (saved.manifest) setManifest(saved.manifest)
-      if (saved.listError) setListError(saved.listError)
       if (typeof saved.dedup === 'boolean') setDedup(saved.dedup)
     }
   }, [id, state.repoUrl])
@@ -109,8 +111,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 持久化：保存状态到会话段
   React.useEffect(() => {
     if (!id) return
-    saveDownloadState(id, state.repoUrl || '', { manifest, listError, dedup })
-  }, [id, state.repoUrl, manifest, listError, dedup])
+    saveDownloadState(id, state.repoUrl || '', { manifest, dedup })
+  }, [id, state.repoUrl, manifest, dedup])
 
   React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
 
@@ -147,8 +149,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
     let live = true
     fetch(`/wizard/download-entries?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
-      .then((j) => { if (live && j.ok) setEngineEntries(Array.isArray(j.entries) ? j.entries : []) })
-      .catch(() => { if (live) setEngineEntries([]) })
+      .then((j) => {
+        if (!live || !j.ok) return
+        setEngineEntries(Array.isArray(j.entries) ? j.entries : [])
+        setRuntimeHints(Array.isArray(j.runtime_hints) ? j.runtime_hints : [])
+      })
+      .catch(() => { if (live) { setEngineEntries([]); setRuntimeHints([]) } })
     return () => { live = false }
   }, [id])
   const runEngineEntry = async (e) => {
@@ -418,7 +424,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       const subdir = c.subdir || subdirOf(c) || ''
       const key = repoKeyOf(tool, c.repo, subdir)
       return {
-        kind: 'repo', key: 'repo:' + key, cmd: c, repo: c.repo, tool, subdir,
+        kind: 'repo', key: 'repo:' + key, cmd: c, cmdKey: cmdKey(c), repo: c.repo, tool, subdir,
         files: files.filter((f) => repoKeyOf(f.tool, f.repo, f.subdir || '') === key),
       }
     })
@@ -459,19 +465,21 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
   // 追加不覆盖：点某个仓库的按钮显示该仓库的文件，再点另一个仓库的按钮追加到列表后面。
   // 同仓库去重：同一个仓库重复点击按钮，忽略。
   const loadManifest = async (c) => {
+    const key = cmdKey(c)
+    const fail = (msg) => setListErrors((prev) => ({ ...prev, [key]: msg }))
     if (!id || !c || !c.repo) {
-      setListError(t('Repository information is missing. Please check the upstream README.',
+      fail(t('Repository information is missing. Please check the upstream README.',
         '仓库信息缺失，请检查上游 README。'))
       return
     }
     const tool = sourceOf(c, sourceChoices)
     if (tool === 'unknown') {
-      setListError(t('Choose where this command downloads from first (Hugging Face or ModelScope).',
+      fail(t('Choose where this command downloads from first (Hugging Face or ModelScope).',
         '请先选择这条命令的下载来源（Hugging Face 或魔搭）。'))
       return
     }
-    setListLoading(true)
-    setListError(null)
+    setListingKeys((prev) => (prev.includes(key) ? prev : [...prev, key]))
+    setListErrors((prev) => ({ ...prev, [key]: null }))
     try {
       // 上游把模型放在子目录里时（README 写 --local-dir checkpoints/s2-pro），
       //   清单核对与落盘都要在同一层看：把那一层带给后端。
@@ -480,12 +488,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       const resp = await fetch(`/wizard/download/manifest?id=${encodeURIComponent(id)}&repo=${encodeURIComponent(c.repo)}&tool=${tool}&subdir=${encodeURIComponent(sub)}&root=${encodeURIComponent(window.__PROJECT_ROOT__ || '')}`)
       // 守卫：检查响应是否是有效的 JSON（防止 HTML 错误页面导致 JSON 解析失败）
       if (!resp.ok) {
-        setListError(t(`Could not list files: HTTP ${resp.status}`, `读取文件列表失败：HTTP ${resp.status}`))
+        fail(t(`Could not list files: HTTP ${resp.status}`, `读取文件列表失败：HTTP ${resp.status}`))
         return
       }
       const contentType = resp.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
-        setListError(t('Could not list files: invalid response', '读取文件列表失败：响应格式错误'))
+        fail(t('Could not list files: invalid response', '读取文件列表失败：响应格式错误'))
         return
       }
       const j = await resp.json()
@@ -503,11 +511,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         setTokenDialog({ info: j, retry: () => loadManifest(c) })
       } else {
         // 显示错误信息，让用户知道读取失败
-        setListError(j.error || t('Could not list files', '读取文件列表失败'))
+        fail(j.error || t('Could not list files', '读取文件列表失败'))
       }
     } catch (e) {
-      setListError(e.message || t('Could not list files', '读取文件列表失败'))
-    } finally { setListLoading(false) }
+      fail(e.message || t('Could not list files', '读取文件列表失败'))
+    } finally { setListingKeys((prev) => prev.filter((x) => x !== key)) }
   }
 
   // manifest 刷新：把新状态合并回旧表，不整表覆盖。
@@ -927,9 +935,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                 '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，列出前请移除不需要的。')}
             </div>
           )}
-          {listError && (
-            <div className="msg msg-danger" style={{ marginTop: 4 }}>{listError}</div>
-          )}
           {rows.some((f) => f.tool === 'hf') && (
             <div className="plan-kv">
               <span className="pk">{t('HF token', 'HF 令牌')}</span>
@@ -948,7 +953,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
             {repoCount > 0 && (
               <button className="btn btn-sm" type="button"
-                disabled={listLoading}
+                disabled={listingKeys.length > 0}
                 onClick={listAll}
                 style={{ flexShrink: 0 }}>
                 {t(`List all (${repoCount})`, `列出全部（${repoCount} 个）`)}
@@ -1032,8 +1037,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                   const { display, source } = buildCommand(c, sourceChoices)
                   const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
                   const page = repoPageUrl(f.tool, f.repo)
+                  const busy = listingKeys.includes(f.cmdKey)
+                  const rowError = listErrors[f.cmdKey]
                   return (
-                    <tr key={rowKey(f)}>
+                    <React.Fragment key={rowKey(f)}>
+                    <tr>
                       <td title={display}>
                         <strong>
                           {page
@@ -1074,9 +1082,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                       </td>
                       <td>
                         <button className="btn btn-sm" type="button"
-                          disabled={listLoading || source === 'unknown'}
+                          disabled={busy || source === 'unknown'}
                           onClick={() => loadManifest(c)}>
-                          {listLoading ? t('Listing…', '读取中…') : t('List files', '列出文件')}
+                          {busy ? t('Listing…', '读取中…') : t('List files', '列出文件')}
                         </button>
                         <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
                           title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}
@@ -1085,6 +1093,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
                         </button>
                       </td>
                     </tr>
+                    {rowError && (
+                      <tr>
+                        <td colSpan={6} style={{ paddingTop: 0 }}>
+                          <div className="msg msg-danger" style={{ marginTop: 4 }}>{rowError}</div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   )
                 }
                 const cmd = { repo: f.repo || '', tool: f.tool || '' }
@@ -1173,6 +1189,31 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
             </tbody>
           </table>
         </>
+      )}
+
+      {/* 运行期资源：不在上面的清单里，引擎第一次推理时才自行拉取。 */}
+      {runtimeHints.length > 0 && (
+        <div className="section" style={{ marginTop: 8 }}>
+          <div className="section-hdr">
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+              {t('Fetched on first run', '运行期还会自行拉取')}
+            </h2>
+          </div>
+          <div className="section-body">
+            <div className="field-hint" style={{ marginTop: 0 }}>
+              {t('The engine downloads these on its first inference. They are not in the list above, and the platform does not fetch them. To follow the progress, declare models.post_download.command in the manifest.',
+                '引擎第一次推理时会自行下载以下资源。它们不在上方清单里，平台不替引擎下载；需要看到进度，就在名片里声明 models.post_download.command。')}
+            </div>
+            {runtimeHints.map((h) => (
+              <div className="plan-kv" key={`${h.repo}|${h.file}|${h.line}`}>
+                <span className="pk"><code>{h.repo}</code></span>
+                <span className="pv">
+                  <span className="field-hint" style={{ marginLeft: 0 }}>{h.file}:{h.line} · {h.call}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* 去重复选框 */}
