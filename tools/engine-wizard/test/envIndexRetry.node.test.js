@@ -112,3 +112,69 @@ test('安装失败的执行结果要带出本机后端的 torch 建议', () => {
   assert.match(body, /if \(!r\.ok\) \{[\s\S]{0,260}suggestTorchUpgrade\(input\)/)
   assert.match(body, /r\.torchSuggestion = suggestion/)
 })
+
+test('源码包缺构建期依赖时，按 uv 提示约束 setuptools 后重试', async () => {
+  const root = makeRoot()
+  try {
+    const calls = []
+    let installs = 0
+    let constraintText = null
+    let constraintPath = null
+    const runStep = async (step, r, timeout, argv) => {
+      calls.push(argv.slice())
+      if (argv.includes('venv')) return ok()
+      installs += 1
+      if (installs === 1) {
+        return { ok: false, code: 'ENV_FAILED', status: 1, stdout: '',
+          stderr: "ModuleNotFoundError: No module named 'pkg_resources'\n"
+            + "hint: This error likely indicates that openai-whisper depends on pkg_resources, "
+            + "but doesn't declare it as a build dependency." }
+      }
+      const at = argv.indexOf('--build-constraints')
+      if (at > 0) {
+        constraintPath = argv[at + 1]
+        constraintText = fs.readFileSync(constraintPath, 'utf8')
+      }
+      return ok()
+    }
+    const r = await runEnv({ id: 'demo', root, execute: true, runStep, probeImport: () => true })
+    assert.strictEqual(r.ok, true)
+    assert.strictEqual(installs, 2)
+    assert.ok(calls.some((a) => a.includes('--build-constraints')))
+    assert.match(constraintText || '', /setuptools<81/)
+    assert.ok(!fs.existsSync(constraintPath), '临时约束文件要清掉')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('同一轮先多索引、再构建依赖，两次重试按次序叠加', async () => {
+  const root = makeRoot()
+  try {
+    let installs = 0
+    const cmds = []
+    const runStep = async (step, r, timeout, argv) => {
+      if (argv.includes('venv')) return ok()
+      installs += 1
+      cmds.push(argv.slice())
+      if (installs === 1) {
+        return { ok: false, code: 'ENV_FAILED', status: 1, stdout: '',
+          stderr: 'not at the requested version, use --index-strategy unsafe-best-match' }
+      }
+      if (installs === 2) {
+        return { ok: false, code: 'ENV_FAILED', status: 1, stdout: '',
+          stderr: "No module named 'pkg_resources'" }
+      }
+      return ok()
+    }
+    const r = await runEnv({ id: 'demo', root, execute: true, runStep, probeImport: () => true })
+    assert.strictEqual(r.ok, true)
+    assert.strictEqual(installs, 3)
+    assert.ok(cmds[1].includes('--index-strategy'))
+    assert.ok(cmds[2].includes('--index-strategy'), '后一次要沿用它')
+    assert.ok(cmds[2].includes('--build-constraints'))
+    assert.ok(r.stepsRun.some((s) => s.ok && String(s.argvKey).includes('--build-constraints')))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

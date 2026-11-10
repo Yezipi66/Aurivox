@@ -69,16 +69,33 @@ function resolveUv (root, platform) {
     whyZh: '未找到 uv（平台 venv 里没有，PATH 上也没有）' }
 }
 
-// uv 遇到 requirements 里带 --extra-index-url 时，默认只考虑第一个含该包的源。
-//   它自己在报错里给出解法；这种失败与版本无关，按提示重试一次即可。
+// uv 有几类可判定的失败会在报错里给出自己的解法。按提示各重试一次，
+//   不改上游声明，也不把这些开关默认加到所有安装上。
 const UV_INDEX_HINT_RE = /--index-strategy unsafe-best-match|not at the requested version/i
+const UV_BUILD_DEP_HINT_RE = /No module named 'pkg_resources'|doesn't declare it as a build dependency|extra-build-dependencies/i
 
-function withIndexStrategy (argv) {
+function afterPipInstall (argv, words) {
   const at = argv.findIndex((w, i) => i > 0 && w === 'install' && argv[i - 1] === 'pip')
   if (at < 0) return null
   const out = argv.slice()
-  out.splice(at + 1, 0, '--index-strategy', 'unsafe-best-match')
+  out.splice(at + 1, 0, ...words)
   return out
+}
+
+function withIndexStrategy (argv) {
+  if (argv.includes('--index-strategy')) return null
+  return afterPipInstall(argv, ['--index-strategy', 'unsafe-best-match'])
+}
+
+// 老源码包在 setup.py 里用了 pkg_resources 却没声明构建依赖；新版 setuptools
+//   的构建隔离环境里没有它。约束构建期 setuptools 版本即可，不动运行时环境。
+function buildConstraintFile (root, id) {
+  const f = path.join(root, 'engines', String(id || ''), '.wizard-build-constraints.txt')
+  try {
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    fs.writeFileSync(f, 'setuptools<81\n', 'utf8')
+  } catch (e) { return null }
+  return f
 }
 
 // 组装要执行的步骤：建环境、照上游锁文件装依赖、按需另装与本机后端匹配的 torch。
@@ -621,30 +638,45 @@ async function runEnv (input = {}) {
       }
     }
 
-    let r = await runStep(step, root, timeoutMs, argv, input.onLine, step.env,
+    let currentArgv = argv.slice()
+    let r = await runStep(step, root, timeoutMs, currentArgv, input.onLine, step.env,
       { signal })
-    // 多索引解析失败时按 uv 自己的提示重试一次。只在这种明确报错下放宽，
-    //   其它安装仍然使用 uv 的默认策略，上游声明也不改写。
-    if (!r.ok && !argv.includes('--index-strategy')
-        && UV_INDEX_HINT_RE.test(`${r.stderr || ''}\n${r.stdout || ''}`)) {
-      const retryArgv = withIndexStrategy(argv)
-      if (retryArgv) {
-        if (typeof input.onLine === 'function') {
-          try {
-            input.onLine('多索引解析未通过，按 uv 的提示改用 unsafe-best-match 重试。', false)
-          } catch (e) { /* 回调抛错不打断安装 */ }
-        }
-        const retry = await runStep(step, root, timeoutMs, retryArgv, input.onLine,
-          step.env, { signal })
-        // 无论重试成败都以它的结果为准：失败时若沿用第一次的错误，
-        // 会把「索引解析失败」报成最终原因，掩盖真正的构建错误。
-        r = retry
-        r.retriedWith = retryArgv.join(' ')
-        if (retry.ok) {
-          argv.splice(0, argv.length, ...retryArgv)
-          argvKey = retryArgv.join(' ')
-        }
+    // 一次安装可能遇到两类问题：多索引解析与源码包构建。
+    //   每类按 uv 的提示各重试一次，后一次基于前一次实际执行的命令。
+    let constraintFile = null
+    const strategies = [
+      { re: UV_INDEX_HINT_RE,
+        notice: '多索引解析未通过，按 uv 的提示改用 unsafe-best-match 重试。',
+        make: (a) => withIndexStrategy(a) },
+      { re: UV_BUILD_DEP_HINT_RE,
+        notice: '源码包缺构建期依赖，按 uv 的提示约束 setuptools 版本后重试。',
+        make: (a) => {
+          if (a.includes('--build-constraints')) return null
+          if (!constraintFile) constraintFile = buildConstraintFile(root, input.id)
+          return constraintFile ? afterPipInstall(a, ['--build-constraints', constraintFile]) : null
+        } },
+    ]
+    for (const st of strategies) {
+      if (r.ok || !st.re.test(`${r.stderr || ''}\n${r.stdout || ''}`)) continue
+      const retryArgv = st.make(currentArgv)
+      if (!retryArgv) continue
+      if (typeof input.onLine === 'function') {
+        try { input.onLine(st.notice, false) } catch (e) { /* 回调抛错不打断安装 */ }
       }
+      const retry = await runStep(step, root, timeoutMs, retryArgv, input.onLine,
+        step.env, { signal })
+      // 以最后一次尝试为准：沿用更早的错误会把真正卡住的那一步藏起来。
+      r = retry
+      r.retriedWith = retryArgv.join(' ')
+      currentArgv = retryArgv
+      if (r.ok) {
+        argv.splice(0, argv.length, ...retryArgv)
+        argvKey = retryArgv.join(' ')
+        break
+      }
+    }
+    if (constraintFile) {
+      try { fs.rmSync(constraintFile, { force: true }) } catch (e) { /* 临时约束文件删不掉不影响安装 */ }
     }
     stepsRun.push({
       n: i + 1,
