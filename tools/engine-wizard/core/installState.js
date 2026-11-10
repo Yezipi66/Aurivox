@@ -17,6 +17,40 @@ function progressFile (root, id) {
   return path.join(root, 'engines', String(id || ''), INSTALL_FILE)
 }
 
+// 第 2 步的执行结果。venv 的 python 能启动不等于依赖装齐：
+//   uv 会先建好 .venv 再解析依赖，解析或构建失败时目录仍在。
+//   只靠 canUseEngineVenv 会把失败的安装报成「已完成」。
+function envFailure (root, id) {
+  const f = progressFile(root, id)
+  try {
+    if (!fs.existsSync(f)) return null
+    const d = JSON.parse(fs.readFileSync(f, 'utf8'))
+    if (d && d.engine && String(d.engine) !== String(id)) return null
+    return d && d.envFailure && d.envFailure.ok === false ? d.envFailure : null
+  } catch (e) { return null }
+}
+
+function markEnvResult (root, id, result) {
+  const f = progressFile(root, id)
+  let data = {}
+  try {
+    if (fs.existsSync(f)) data = JSON.parse(fs.readFileSync(f, 'utf8')) || {}
+  } catch (e) { data = {} }
+  if (data.engine && String(data.engine) !== String(id)) data = {}
+  data.engine = id
+  data.updatedAt = new Date().toISOString()
+  if (result && result.ok === true) delete data.envFailure
+  else data.envFailure = {
+    ok: false,
+    code: (result && result.code) || 'ENV_FAILED',
+    at: new Date().toISOString(),
+  }
+  try {
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    fs.writeFileSync(f, JSON.stringify(data, null, 2), 'utf8')
+  } catch (e) { /* 进度写不进不拦住安装 */ }
+}
+
 
 function readProgress (root, id, section) {
   const sec = section === 'models' ? 'models' : 'env'
@@ -78,6 +112,7 @@ function resetProgress (root, id, section) {
       }
     } catch (e) { /* 旧文件损坏 ⇒ 按空文件处理 */ }
     if (sec === 'all') { data.env = { done: [] }; data.models = { done: [] } } else if (sec) data[sec] = { done: [] }
+    if (sec === 'all' || sec === 'env') delete data.envFailure
     data.engine = id
     data.updatedAt = new Date().toISOString()
     return data
@@ -179,14 +214,19 @@ function installState (root, id, deps = {}) {
   //   两套口径（这一步按统一落点、第 5 步按名片）会给出相反结论。
   const manifest = hasClone ? readManifest(dir) : null
   const weightRel = resolveCheckpointsRel(manifest, id)
-  const envOk = hasClone ? !!probe(id) : false
+  const failure = hasClone ? envFailure(root, id) : null
+  const venvSpawns = hasClone ? !!probe(id) : false
+  const envOk = venvSpawns && !failure
+  const envWhy = !hasClone ? 'missing'
+    : failure ? `install-failed:${failure.code || 'ENV_FAILED'}`
+      : (venvSpawns ? 'venv-spawns' : 'venv-unusable')
   const weights = hasClone ? weightsOnDisk(root, id, weightRel) : null
   const manifestOk = hasClone ? manifestPresent(dir) : false
   // verify 恒为 false：这一步没有对应的产物判据，未实现不能算做过。
   const verified = false
   const steps = {
     prepare: { done: hasClone, why: hasClone ? 'cloned' : 'missing' },
-    env: { done: envOk, why: hasClone ? (envOk ? 'venv-spawns' : 'venv-unusable') : 'missing' },
+    env: { done: envOk, why: envWhy },
     // models 是三态：true=齐了 · false=缺了 · null=说不出来。
     //   done 在 true 与 false 两种下都为真：「确实缺了」也算查过了；
     //   只有 null（说不出来）不算做完。
@@ -217,6 +257,7 @@ function installState (root, id, deps = {}) {
       engineDir: dir,
       hasClone,
       envOk,
+      envFailure: failure,
       weights,
       manifestOk,
       checkpointsDir: weightRel ? path.join(root, weightRel) : null,
@@ -231,6 +272,7 @@ module.exports = {
   writeProgress,
   resetProgress,
   installState,
+  markEnvResult,
   dirHasContent,
   manifestPresent,
   weightsOnDisk,

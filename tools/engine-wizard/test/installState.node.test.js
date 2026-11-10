@@ -243,3 +243,39 @@ test('installState 里不出现任何具体引擎名', () => {
     assert.ok(!code.toLowerCase().includes(bad), `出现了「${bad}」`)
   }
 })
+
+test('第 2 步失败：venv 能起也不打勾，成功重跑后恢复', () => {
+  const root = mkdtempRoot()
+  try {
+    mkEngine(root, 'e1', ['README.md'])
+    IS.markEnvResult(root, 'e1', { ok: false, code: 'ENV_FAILED' })
+    const failed = IS.installState(root, 'e1', { spawnProbe: () => true })
+    assert.strictEqual(failed.steps_done.env, false, '依赖装失败时不能报完成')
+    assert.match(failed.steps.env.why, /install-failed:ENV_FAILED/)
+    assert.strictEqual(failed.artifacts.envFailure.code, 'ENV_FAILED')
+
+    IS.markEnvResult(root, 'e1', { ok: true, code: 'OK' })
+    const ok = IS.installState(root, 'e1', { spawnProbe: () => true })
+    assert.strictEqual(ok.steps_done.env, true)
+    assert.strictEqual(ok.artifacts.envFailure, null)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('重置第 2 步时一并清掉失败标记', () => {
+  const root = mkdtempRoot()
+  try {
+    mkEngine(root, 'e1', ['README.md'])
+    IS.markEnvResult(root, 'e1', { ok: false, code: 'ENV_FAILED' })
+    IS.resetProgress(root, 'e1', 'env')
+    const s = IS.installState(root, 'e1', { spawnProbe: () => true })
+    assert.strictEqual(s.steps_done.env, true)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('env 端点把执行结果记进安装状态，失败与桥接异常都算失败', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  const at = src.indexOf('function handleEnv ')
+  const body = src.slice(at, at + 6000)
+  assert.match(body, /markEnvResult\(input\.root \|\| projectRoot\(\) \|\| '', envId, r\)/)
+  assert.strictEqual((body.match(/recordEnvResult\(r\)/g) || []).length, 2)
+})

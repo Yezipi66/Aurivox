@@ -110,3 +110,29 @@ test('启动自动下载：本地目录不算仓库，同一仓库只列一次',
   assert.deepStrictEqual(hints.map((h) => h.repo),
     ['org/model-repo', 'hfl/chinese-roberta-wwm-ext-large'])
 })
+
+test('运行期资源：多行调用把 repo_id 写在下一行也要认出来', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-runtime-'))
+  fs.writeFileSync(path.join(dir, 'core.py'), [
+    'def load(self):',
+    '    download_path = snapshot_download(',
+    '        repo_id="2Noise/ChatTTS",',
+    '        allow_patterns=["*.json"],',
+    '    )',
+    '    log("https://huggingface.co/2Noise/ChatTTS")',
+  ].join('\n'))
+  const hints = scanRuntimeDownloads(dir)
+  assert.deepStrictEqual(hints.map((h) => h.repo), ['2Noise/ChatTTS'])
+  assert.strictEqual(hints[0].call, 'snapshot_download')
+})
+
+test('运行期资源：窗口里的 URL 与本地目录不顶替仓库标识', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-runtime-'))
+  fs.writeFileSync(path.join(dir, 'core.py'), [
+    'snapshot_download(',
+    '    "checkpoints/local-model",',
+    '    log("https://huggingface.co/org/LogoOnly")',
+    ')',
+  ].join('\n'))
+  assert.deepStrictEqual(scanRuntimeDownloads(dir), [])
+})

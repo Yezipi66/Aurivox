@@ -228,6 +228,9 @@ const SCRIPT_CANDIDATE_NAME_RE = /^(?:download|fetch)[_-]?(?:models?|weights?|ck
 // 启动阶段自行拉取的资源：只读源码，找下载类调用以及其中的仓库标识。
 const RUNTIME_DOWNLOAD_CALL_RE = /\b(?:snapshot_download|hf_hub_download|from_pretrained)\s*\(/
 const REPO_LITERAL_RE = /['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/
+// 多行调用把仓库标识写在下一行：snapshot_download( 换行 repo_id="org/model"。
+// 只认带名字的实参，不拿窗口里的任意字面量当仓库，避免把日志文字算进来。
+const RUNTIME_REPO_ARG_RE = /\b(?:repo_id|model_id)\s*=\s*['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/
 // 字面量带斜杠时也可能是本地目录，而不是模型仓库标识。
 const LOCAL_PATH_HEAD_RE = /^(?:\.{1,2}\/|\/|[A-Za-z]:[\\/]|checkpoints?|models?|pretrained_models|weights?|ckpts?|assets?|data|dataset|cache|hf_cache|outputs?|tmp|temp|src|runtime|third_party|local)/i
 
@@ -1009,14 +1012,22 @@ function handleEnv (req, res) {
     input.onLine = (text, isErr) => {
       send('line', { text: text.replace(/\r?\n$/, ''), err: !!isErr })
     }
+    const recordEnvResult = (r) => {
+      try {
+        const { markEnvResult } = require('./installState')
+        markEnvResult(input.root || projectRoot() || '', envId, r)
+      } catch (e) { /* 记录写不进不拦住安装 */ }
+    }
     runEnv(input).then((r) => {
       forget()
+      recordEnvResult(r)
       send('done', r)
       res.end()
     }).catch((e) => {
       forget()
-      send('done', { ok: false, code: 'BRIDGE_FAILED',
-        error: (e && e.message) || String(e) })
+      const r = { ok: false, code: 'BRIDGE_FAILED', error: (e && e.message) || String(e) }
+      recordEnvResult(r)
+      send('done', r)
       res.end()
     })
   })
@@ -1187,13 +1198,16 @@ function scanRuntimeDownloads (dir, limit = 12) {
     for (let i = 0; i < lines.length && out.length < limit; i++) {
       const line = lines[i]
       if (!RUNTIME_DOWNLOAD_CALL_RE.test(line)) continue
-      const m = line.match(REPO_LITERAL_RE)
-      if (!m || LOCAL_PATH_HEAD_RE.test(m[1])) continue
-      const key = m[1]
-      if (seen.has(key)) continue
-      seen.add(key)
+      const inline = line.match(REPO_LITERAL_RE)
+      // 当前行已有仓库标识时以它为准；只有多行调用才往后看实参名，
+      //   否则窗口会把下一行另一个调用的 repo_id 算到本行头上。
+      const named = inline ? null : lines.slice(i, i + 7).join('\n').match(RUNTIME_REPO_ARG_RE)
+      const repo = inline ? inline[1] : (named ? named[1] : null)
+      if (!repo || LOCAL_PATH_HEAD_RE.test(repo)) continue
+      if (seen.has(repo)) continue
+      seen.add(repo)
       const call = (line.match(RUNTIME_DOWNLOAD_CALL_RE) || [''])[0].replace(/\s*\($/, '')
-      out.push({ file: rel, line: i + 1, call, repo: m[1] })
+      out.push({ file: rel, line: i + 1, call, repo })
     }
   }
   return out
