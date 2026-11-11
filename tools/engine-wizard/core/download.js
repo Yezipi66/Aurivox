@@ -480,10 +480,37 @@ async function enrichManifestFiles (files, repo, tool, root, id, subdir = '') {
  *   非 2xx 一律不写盘：把 404 的 HTML 错误页当成模型文件落盘是最难查的一类坏法。
  *   下载完比对大小：远端没给大小就退一步比对 content-length，不符即删掉脏文件并判失败。
  */
-function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null, auth = null) {
+// 连接被重置、超时一类的瞬时故障：已经写入的字节仍然有效，可以从 .tmp 续传。
+//   写盘错误、HTTP 错误、主动取消不属于这一类，不重试。
+const TRANSIENT_NET_RE = /ECONNRESET|ETIMEDOUT|EPIPE|ECONNABORTED|EAI_AGAIN|socket hang up|timed out/i
+const MAX_RESUME_RETRIES = 6
+
+function isTransientNetworkError (e) {
+  return TRANSIENT_NET_RE.test(`${(e && e.code) || ''} ${(e && e.message) || ''}`)
+}
+
+function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, resumeFrom = 0, skipTmpDetect = false, signal = null, auth = null, attempt = 0) {
   return new Promise((resolve) => {
     const finalPath = destPath(root, id, (file && file.subdir) || '', file.name)
     const tmpPath = finalPath + '.tmp'
+    let out = null
+    // 网络中断时已写入的字节仍然有效。保留 .tmp，从当前大小续传，
+    //   不把数 GB 的进度丢掉；没有可续传的字节或次数用完才如实报失败。
+    const resumeAfterNetworkError = () => {
+      if (attempt >= MAX_RESUME_RETRIES || (signal && signal.aborted)) return false
+      let off = 0
+      try { off = fs.existsSync(tmpPath) ? fs.statSync(tmpPath).size : 0 } catch (e) { return false }
+      if (off <= 0) return false
+      try { if (out) out.destroy() } catch (e) { /* 已关闭 */ }
+      if (typeof onLine === 'function') {
+        try { onLine(`连接中断，从 ${off} 字节继续（第 ${attempt + 1} 次续传）。`, false) } catch (e) { /* 忽略 */ }
+      }
+      downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress,
+        off, true, signal, auth, attempt + 1).then((r) => {
+        resolve({ ...r, resumeRetries: (Number(r.resumeRetries) || 0) + 1 })
+      })
+      return true
+    }
 
     const expectedSize = Number(file && file.size ? file.size : 0)
 
@@ -520,7 +547,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
         req.destroy()
         // Location 可能是相对路径（如 /api/resolve-cache/...），必须解析为绝对 URL
         const redirectUrl = new URL(res.headers.location, url).href
-        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom, skipTmpDetect, signal, auth).then(resolve)
+        downloadFileFromUrl(redirectUrl, file, repo, root, id, onLine, onProgress, resumeFrom, skipTmpDetect, signal, auth, attempt).then(resolve)
         return
       }
 
@@ -550,7 +577,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       if (resumeFrom > 0 && status !== 206) {
         resumeFrom = 0
         req.destroy()
-        downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true, signal, auth).then(resolve)
+        downloadFileFromUrl(url, file, repo, root, id, onLine, onProgress, 0, true, signal, auth, attempt).then(resolve)
         return
       }
 
@@ -558,12 +585,12 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       const startOffset = resumeFrom
 
       const flags = resumeFrom > 0 ? 'a' : 'w'
-      const out = fs.createWriteStream(tmpPath, { flags })
+      out = fs.createWriteStream(tmpPath, { flags })
       let downloaded = resumeFrom
 
-      const fail = (code, msg) => {
-        try { out.destroy() } catch (e) { /* 已关闭 */ }
-        try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
+      const fail = (code, msg, keepTmp = false) => {
+        try { if (out) out.destroy() } catch (e) { /* 已关闭 */ }
+        if (!keepTmp) { try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ } }
         resolve({ ok: false, code, status, error: msg })
       }
 
@@ -618,14 +645,19 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
           }
         })
       })
-      res.on('error', (e) => fail('DOWNLOAD_ERROR', e.message))
+      res.on('error', (e) => {
+        if (isTransientNetworkError(e) && resumeAfterNetworkError()) return
+        fail('DOWNLOAD_ERROR', e.message, isTransientNetworkError(e))
+      })
       out.on('error', (e) => { req.destroy(); fail('WRITE_ERROR', e.message) })
     })
     req.on('error', (e) => {
+      if (isTransientNetworkError(e) && resumeAfterNetworkError()) return
       resolve({ ok: false, code: 'REQUEST_ERROR', status: null, error: e.message })
     })
     req.setTimeout(2 * 60 * 60 * 1000, () => {
       req.destroy()
+      if (resumeAfterNetworkError()) return
       resolve({ ok: false, code: 'TIMEOUT', status: null, error: 'Download timed out' })
     })
 
@@ -822,4 +854,4 @@ async function removePartialFiles (files, root, id) {
   return { deleted, skipped, bytes }
 }
 
-module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, destPath, subdirIsSafe, parseDownloadProgress, parseSize }
+module.exports = { fileUrl, normalizeSource, gatedResult, hfRepoPage, ENDPOINTS, runDownload, readProgress, writeProgress, resetProgress, fetchRemoteManifest, checkFileStatus, enrichManifestFiles, removePartialFiles, downloadFile, downloadFileFromUrl, isTransientNetworkError, destPath, subdirIsSafe, parseDownloadProgress, parseSize }
