@@ -30,6 +30,42 @@ function envFailure (root, id) {
   } catch (e) { return null }
 }
 
+// 第 2 步正在执行的标记。venv 一旦建好解释器就能启动，但依赖仍在安装；
+//   没有这个标记，安装尚未结束时状态会先报「已完成」。标记带时间戳，
+//   超过两小时视为过期，避免进程被强制结束后永久停在「进行中」。
+const ENV_RUNNING_TTL_MS = 2 * 60 * 60 * 1000
+
+function envRunning (root, id) {
+  const f = progressFile(root, id)
+  try {
+    if (!fs.existsSync(f)) return null
+    const d = JSON.parse(fs.readFileSync(f, 'utf8'))
+    if (!d || (d.engine && String(d.engine) !== String(id))) return null
+    const r = d.envRunning
+    if (!r || !r.at) return null
+    const at = Date.parse(r.at)
+    if (!Number.isFinite(at) || Date.now() - at > ENV_RUNNING_TTL_MS) return null
+    return r
+  } catch (e) { return null }
+}
+
+function markEnvRunning (root, id, on) {
+  const f = progressFile(root, id)
+  let data = {}
+  try {
+    if (fs.existsSync(f)) data = JSON.parse(fs.readFileSync(f, 'utf8')) || {}
+  } catch (e) { data = {} }
+  if (data.engine && String(data.engine) !== String(id)) data = {}
+  data.engine = id
+  data.updatedAt = new Date().toISOString()
+  if (on) data.envRunning = { at: new Date().toISOString() }
+  else delete data.envRunning
+  try {
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    fs.writeFileSync(f, JSON.stringify(data, null, 2), 'utf8')
+  } catch (e) { /* 进度写不进不拦住安装 */ }
+}
+
 function markEnvResult (root, id, result) {
   const f = progressFile(root, id)
   let data = {}
@@ -39,6 +75,7 @@ function markEnvResult (root, id, result) {
   if (data.engine && String(data.engine) !== String(id)) data = {}
   data.engine = id
   data.updatedAt = new Date().toISOString()
+  delete data.envRunning
   if (result && result.ok === true) delete data.envFailure
   else data.envFailure = {
     ok: false,
@@ -113,6 +150,7 @@ function resetProgress (root, id, section) {
     } catch (e) { /* 旧文件损坏 ⇒ 按空文件处理 */ }
     if (sec === 'all') { data.env = { done: [] }; data.models = { done: [] } } else if (sec) data[sec] = { done: [] }
     if (sec === 'all' || sec === 'env') delete data.envFailure
+    if (sec === 'all' || sec === 'env') delete data.envRunning
     data.engine = id
     data.updatedAt = new Date().toISOString()
     return data
@@ -215,11 +253,13 @@ function installState (root, id, deps = {}) {
   const manifest = hasClone ? readManifest(dir) : null
   const weightRel = resolveCheckpointsRel(manifest, id)
   const failure = hasClone ? envFailure(root, id) : null
+  const running = hasClone ? envRunning(root, id) : null
   const venvSpawns = hasClone ? !!probe(id) : false
-  const envOk = venvSpawns && !failure
+  const envOk = venvSpawns && !failure && !running
   const envWhy = !hasClone ? 'missing'
-    : failure ? `install-failed:${failure.code || 'ENV_FAILED'}`
-      : (venvSpawns ? 'venv-spawns' : 'venv-unusable')
+    : running ? 'install-running'
+      : failure ? `install-failed:${failure.code || 'ENV_FAILED'}`
+        : (venvSpawns ? 'venv-spawns' : 'venv-unusable')
   const weights = hasClone ? weightsOnDisk(root, id, weightRel) : null
   const manifestOk = hasClone ? manifestPresent(dir) : false
   // verify 恒为 false：这一步没有对应的产物判据，未实现不能算做过。
@@ -258,6 +298,7 @@ function installState (root, id, deps = {}) {
       hasClone,
       envOk,
       envFailure: failure,
+      envRunning: running,
       weights,
       manifestOk,
       checkpointsDir: weightRel ? path.join(root, weightRel) : null,
@@ -273,6 +314,8 @@ module.exports = {
   resetProgress,
   installState,
   markEnvResult,
+  markEnvRunning,
+  envRunning,
   dirHasContent,
   manifestPresent,
   weightsOnDisk,

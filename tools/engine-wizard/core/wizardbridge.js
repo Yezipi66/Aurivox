@@ -229,8 +229,12 @@ const SCRIPT_CANDIDATE_NAME_RE = /^(?:download|fetch)[_-]?(?:models?|weights?|ck
 const RUNTIME_DOWNLOAD_CALL_RE = /\b(?:snapshot_download|hf_hub_download|from_pretrained)\s*\(/
 const REPO_LITERAL_RE = /['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/
 // 多行调用把仓库标识写在下一行：snapshot_download( 换行 repo_id="org/model"。
-// 只认带名字的实参，不拿窗口里的任意字面量当仓库，避免把日志文字算进来。
-const RUNTIME_REPO_ARG_RE = /\b(?:repo_id|model_id)\s*=\s*['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/
+// 仓库标识也可能写在函数形参的默认值或模块常量里，下载调用那一行只见变量名：
+//   例如 snapshot_download(repo_id=path_or_id)，而 path_or_id 的来源是
+//   hf_model_id: str = "org/repo"。因此参数名按语义匹配、类型注解可有可无，
+//   仍然只认带名字的赋值，不拿窗口里的任意字面量当仓库。
+const RUNTIME_REPO_ARG_RE = /\b([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[^=,\n)]+)?\s*=\s*['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/g
+const RUNTIME_REPO_ARG_NAME_RE = /(?:repo|model|checkpoint|ckpt|pretrain|hf|hub)/i
 // 字面量带斜杠时也可能是本地目录，而不是模型仓库标识。
 const LOCAL_PATH_HEAD_RE = /^(?:\.{1,2}\/|\/|[A-Za-z]:[\\/]|checkpoints?|models?|pretrained_models|weights?|ckpts?|assets?|data|dataset|cache|hf_cache|outputs?|tmp|temp|src|runtime|third_party|local)/i
 
@@ -1018,7 +1022,18 @@ function handleEnv (req, res) {
         markEnvResult(input.root || projectRoot() || '', envId, r)
       } catch (e) { /* 记录写不进不拦住安装 */ }
     }
+    // 一次安装里若有多个只有源码包的依赖，并行构建会在 Windows 上触发
+    //   egg-info 临时目录的拒绝访问错误。执行期间把构建并发限制为一。
+    const builds = require('./uvBuildPolicy')
+    builds.beginSerialBuilds()
+    // 第 2 步开始执行时写入进行中标记：venv 建好后解释器已经可以启动，
+    //   若仅以解释器能否启动为判据，安装尚未完成便会被报作已完成。
+    try {
+      const { markEnvRunning } = require('./installState')
+      markEnvRunning(input.root || projectRoot() || '', envId, true)
+    } catch (e) { /* 状态写不进不拦住安装 */ }
     runEnv(input).then((r) => {
+      builds.endSerialBuilds()
       forget()
       // 安装失败时把本机后端的结论一并带出：声明的 torch 版本不可用，
       //   界面与直接调端点的人都能看到可替换的版本与可选后端，不必从 stderr 里找。
@@ -1032,6 +1047,7 @@ function handleEnv (req, res) {
       send('done', r)
       res.end()
     }).catch((e) => {
+      builds.endSerialBuilds()
       forget()
       const r = { ok: false, code: 'BRIDGE_FAILED', error: (e && e.message) || String(e) }
       recordEnvResult(r)
@@ -1203,19 +1219,46 @@ function scanRuntimeDownloads (dir, limit = 12) {
       text = fs.readFileSync(full, 'utf8')
     } catch { continue }
     const lines = text.split(/\r?\n/)
+    let hasCall = false
+    let firstCall = null
     for (let i = 0; i < lines.length && out.length < limit; i++) {
       const line = lines[i]
       if (!RUNTIME_DOWNLOAD_CALL_RE.test(line)) continue
+      hasCall = true
+      const call = (line.match(RUNTIME_DOWNLOAD_CALL_RE) || [''])[0].replace(/\s*\($/, '')
+      if (!firstCall) firstCall = call
       const inline = line.match(REPO_LITERAL_RE)
       // 当前行已有仓库标识时以它为准；只有多行调用才往后看实参名，
       //   否则窗口会把下一行另一个调用的 repo_id 算到本行头上。
-      const named = inline ? null : lines.slice(i, i + 7).join('\n').match(RUNTIME_REPO_ARG_RE)
-      const repo = inline ? inline[1] : (named ? named[1] : null)
-      if (!repo || LOCAL_PATH_HEAD_RE.test(repo)) continue
-      if (seen.has(repo)) continue
+      if (inline) {
+        const repo = inline[1]
+        if (LOCAL_PATH_HEAD_RE.test(repo) || seen.has(repo)) continue
+        seen.add(repo)
+        out.push({ file: rel, line: i + 1, call, repo })
+        continue
+      }
+      const window = lines.slice(i, i + 7).join('\n')
+      for (const m of window.matchAll(RUNTIME_REPO_ARG_RE)) {
+        if (out.length >= limit) break
+        const repo = m[2]
+        if (!RUNTIME_REPO_ARG_NAME_RE.test(m[1])) continue
+        if (LOCAL_PATH_HEAD_RE.test(repo) || seen.has(repo)) continue
+        seen.add(repo)
+        out.push({ file: rel, line: i + 1, call, repo, via: 'named-argument' })
+      }
+    }
+    if (!hasCall || out.length >= limit) continue
+    // 仓库标识写在下载调用之前的模块常量里时，上面的窗口看不到它。
+    //   仍要求同一份文件里确实有下载类调用，且参数名带模型语义。
+    const whole = lines.join('\n')
+    for (const m of whole.matchAll(RUNTIME_REPO_ARG_RE)) {
+      if (out.length >= limit) break
+      const repo = m[2]
+      if (!RUNTIME_REPO_ARG_NAME_RE.test(m[1])) continue
+      if (LOCAL_PATH_HEAD_RE.test(repo) || seen.has(repo)) continue
       seen.add(repo)
-      const call = (line.match(RUNTIME_DOWNLOAD_CALL_RE) || [''])[0].replace(/\s*\($/, '')
-      out.push({ file: rel, line: i + 1, call, repo })
+      const at = whole.slice(0, m.index).split('\n').length
+      out.push({ file: rel, line: at, call: firstCall, repo, via: 'named-argument' })
     }
   }
   return out
