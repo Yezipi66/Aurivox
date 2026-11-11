@@ -219,6 +219,8 @@
 > `a9d51cbd` / `2725c382` / `84af0608` / `13b10e2f`），
 > CI 双绿（windows + ubuntu，run `43057571551`、`43061480741`）。本批一笔见 A126。
 >
+> **2026-11-12 复核（第六十八批）**：Owner 裁决 A8 / A9 **不补**。判据是「前端能自己填、填了生效即合格」，不追求每台引擎都自动填全；名片不承担静态完备性判定，能不能出声交给第 5 步 A 级真跑。依据：`ParamDropZone.addParam` 可人工加参数行、`ManifestPage` 的 JSON 逃生口经 `App.jsx` 解析回写并走 `useSaveManifest` 存盘；`models.required` 由 `declarationFill` 按第 3 步实际下载清单兜底且人写不覆盖；`call.seed` 有专门格并自动补 `none`；`measureJob` 起 A 级真跑不读 `ready`、不看 `models.required`。历史行里所有「A8/A9 未动」「哪些文件算必需仍未定口径」按本次裁决解释为「不再补」，不回改历史行。本批不改代码，只改口径；CI 见本次提交。
+>
 > **本文件是进度的唯一真相。** 做完一刀，当场改下面那张表的「状态」格。
 > ⛔ 不许把状态记在别处（记忆、聊天、口头）——那些地方与仓库分叉过一次，
 > 代价是整节契约被自己推翻重推。
@@ -305,8 +307,8 @@
 | **A4''** | ⭐ **向导补「钉版本 + 删 `.git`」**（A4' 退役的**直接后果**）| ⬜ **待开** · 🔴 `core/pin.js`（wizard） | [读码] 2026-10-04 通读 `tools/engine-wizard/core/clone.js`：它 `git clone` 后**不删 `.git`、不 pin**；`core/env.js` 也不碰版本 | ⛔ **这是 A4' 之后唯一挡在「版本可追溯」前面的东西**。今天的状态是「版本有两个来源（`.git` 里的分支名 + 名片里可能为 null 的 `commit`），且都不权威」。⚠️ 与 §6.1「commit 必不填」是同一笔账的两面：**commit 在第 4 步才产生 ⇒ pin 必须能被推迟到第 4 步之后**，而旧 `installPlan.js:78` 的硬拦时机是「装之前」，对不上 |
 | **A6** | ⭐ **权重路径搬迁**：`models/tts/`（20G）→ `engines/<id>/checkpoints/` | ⬜ **待开** · 🟢 仅 A6①（改 3 张名片，跳过 GSV） | [实测] `models/` 各支归属：`tts/` 20G = 四台引擎专属；`asr/` 5.9G · `separation/` 1.7G · `vocoder|sr|lang/` 455M = **训练线/校验线共用，不动**。✅ `.gitignore:213-221` **已有 `engines/*/checkpoints/`**；✅ C3 不破（仍相对项目根，名片只改一个字符串）；✅ 顺带闭环 `engines/cosyvoice2/` 那个嵌套 `.git` | ⛔ **必须分两步**：先搬三台非训练线引擎（17.6G），**GSV 那 2.8G 要等 C3** —— `lib/paths.js` 有 5 处以上硬编码（`GSV_PRETRAINED_DIR:301` / `BASE_DIRS:343-351` / `S1_V2_FILE:362` / `BASE_WEIGHTS_*:376-393` 带 legacy/canonical 双读），而 `lib/training/` 读的就是它，**一次全搬 = 立刻弄坏训练**。⚠️ 过渡期三台在新路径、GSV 留旧路径 —— **不违反任何契约**（`runtime.checkpoints` 逐台声明） |
 | **A7** | ⭐ **第 3 步真下载**（断点续传 + 并发 + 进度 + 取消） | ✅ **3/3 已做**（2026-10-24 补齐并发与真取消）· 🔴 `core/download.js` · `editor/downloadQueue.js` · `editor/downloadRunner.js` | [读码] `models.source.command` **已经是名片声明的 argv**，平台已会填占位符（`{checkpoints}`→绝对路径）、已知道 `license_gate`。⇒ **执行它不违反「只验不建」** —— 规则禁的是「平台**生成**命令」，不是「平台**执行** | ✅ **三件已齐**（2026-10-24）：**断点续传**（`Range` + `.tmp` 探测）· **进度**（tqdm 解析 + 按文件分槽显示）· **并发**（默认 **6**，一文件一请求，`editor/downloadQueue.js` 调度 + `editor/downloadRunner.js` 执行）。⭐ **取消已从「后端函数级」补到「使用者能按」**：`POST /wizard/download/cancel` + 界面取消按钮（此前只有 `downloadFileFromUrl` 的 `signal` 参数，前端根本没有能按的取消，界面上也按不了）。⚠️ **订正旧记**：「已有取消」指的是上游命令那条路径的参数级取消，**不是使用者能取消**。⛔ **未做**：① 验收点 ①「拿 `cosyvoice-300m-sft` 当真实样本（2.2G）下完」未跑（2026-10-24 验的是 huggingface 上 144MB 的 `openai/whisper-tiny`，真机取消 ⇒ `CANCELLED`、无残留 `.tmp`、可重下）② 验收点 ② `license_gate: true` 的 401/403 提示未接（`core/models.js` 文案已有，尚未接上）⚠️ **规则没被写全**：「不替你下载」的准确含义是「**不替你决定从哪儿下**」，要回写进 `_TEMPLATE/README.md`。⚠️ `[待裁]` 是否加 SHA 字段（会动磁盘格式） |
-| **A8** | ⭐ **权重下完对一次名**（缺/多/后缀不符三态）| ⬜ **待开** · 🔴 `core/checkpoints-audit.js` | [实测] **这个不一致真的发生过**：`indextts2/checkpoints/config.yaml` 写 `gpt.pt` / `s2mel.pt`，盘上是 **`gpt.pth` / `s2mel.pth`**；而 config 还漏了 `bpe.model` / `pinyin.vocab` / `qwen0.6bemo4-merge/` | 零成本（只列两个目录），比 hash 可靠 —— 上游不一定给 hash，而 config 名字本身不可信。⚠️ 「多出来」的一类里有 `.cache/` 和 `hf_cache/`，那是**运行期产物不是权重**，别误报 |
-| **A9** | ⭐ **权重候选探针**（自动发现，多源交叉）| ⬜ **待开** · 🔴 `core/weight-discovery.js` | [实测] **三源都不完全可靠**：① IndexTTS2 的 `config.yaml` 点名 5 个但**后缀错 + 漏 3 项**；② **CosyVoice2 的 `cosyvoice2.yaml` 里一个权重文件名都没有** ⇒ 钩子完全失效；③ 代码里的下载调用只覆盖第三方包拉的（`models.external[]` 为它留了形状） | ⛔ **`models.required` 永远要人确认** —— 自动判定会把好引擎报成「缺文件」。⭐ 复用的形状是 A1 的 `reflect_params.py`（实测：漏 0 / 误排 0 / 类型 13/14），**维护的是探针不是清单** |
+| **A8** | ⭐ **权重下完对一次名**（缺/多/后缀不符三态）| ⛔ **不补（Owner 裁决 2026-11-12）** · 见第六十八批 | [实测] **这个不一致真的发生过**：`indextts2/checkpoints/config.yaml` 写 `gpt.pt` / `s2mel.pt`，盘上是 **`gpt.pth` / `s2mel.pth`**；而 config 还漏了 `bpe.model` / `pinyin.vocab` / `qwen0.6bemo4-merge/` | 零成本（只列两个目录），比 hash 可靠 —— 上游不一定给 hash，而 config 名字本身不可信。⚠️ 「多出来」的一类里有 `.cache/` 和 `hf_cache/`，那是**运行期产物不是权重**，别误报。⛔ **2026-11-12 裁决：不实施**：按 Owner 口径，「前端能自己填、填了生效」即合格；静态完备性判据后移到第 5 步 A 级真跑，不替使用者穷举哪些文件算必需。 |
+| **A9** | ⭐ **权重候选探针**（自动发现，多源交叉）| ⛔ **不补（Owner 裁决 2026-11-12）** · 见第六十八批 | [实测] **三源都不完全可靠**：① IndexTTS2 的 `config.yaml` 点名 5 个但**后缀错 + 漏 3 项**；② **CosyVoice2 的 `cosyvoice2.yaml` 里一个权重文件名都没有** ⇒ 钩子完全失效；③ 代码里的下载调用只覆盖第三方包拉的（`models.external[]` 为它留了形状） | ⛔ **`models.required` 永远要人确认** —— 自动判定会把好引擎报成「缺文件」。⭐ 复用的形状是 A1 的 `reflect_params.py`（实测：漏 0 / 误排 0 / 类型 13/14），**维护的是探针不是清单**。⛔ **2026-11-12 裁决：不实施**：按 Owner 口径，「前端能自己填、填了生效」即合格；静态完备性判据后移到第 5 步 A 级真跑，不替使用者穷举哪些文件算必需。 |
 | **A10** | ⭐ **名片表单三件套 + 三段分组** | ⬜ **待开** · 🔴 `editor/ManifestForm.jsx` | [读码] `fieldmeta.js` + `NestedSections.jsx` 已有中文标签，但**没说格式、也没说填错报什么** | ⭐ **第三件几乎零成本**：`profile.js` 每个键的抛错消息**本身写了「应该写什么」** ⇒ 把已有消息提到字段下面即可。三段 = 必须人填 / 能反射 / 有先例。⭐ 顺序上正好成立（第 2 步建环境 → 反射 → 第 4 步落盘） |
 | **A11** | 术语裁决：权重→**Checkpoint**、名片→**Manifest** | ⬜ **待改**（已裁）· 🟢 `web/src/` 为主 | [实测] 「权重」在中文 ML 里 = 模型内部参数，而这一步是**训练产出的文件**；`gpt-sovits` 权重目录里 `chinese-hubert-base/` 和 `chinese-roberta-wwm-ext-large/` **根本不是权重**。`i18n.jsx:4-7` 明文点名 Checkpoint 保持英文；`i18n.jsx:29` **默认语言是 `en`** | ⛔ **不改名片键**（`models.*` / `runtime.checkpoints` 是磁盘既有格式）。⛔ **不改注释** —— 全树「名片」247 处里只有 16 处是用户可见文案，其余 231 处是注释，而注释用中文是对的。⚠️ 残留不一致要显式承认：**步骤叫 Checkpoint、端点仍叫 `/wizard/models`** |
 | **A19** | ⭐⭐ **把盘上那个根 venv 换成瘦版（大清理）** | ✅ **2026-10-04 已做**（`24478ea`） | [实测] 盘上 `venv/` = **7.0 GB · 457 个包**（torch 2.2.0+cu121 占 4.4GB + librosa + soundfile + fastapi）—— 而它**已经起不来**（base 解释器在旧机）。⚠️ **A16/A17 只是改配方与构建流程，没有一刀真的清理它** —— 这一条才是那个「清理」 | ⭐ **本机低风险**：删掉的东西**本来就不可用**，而包清单在 git 里（`requirements.txt` / `requirements-platform.txt`）⇒ 可完全重建。⛔ **前置**：A14（训练不再指根 venv）+ A16（已更名）+ A17（有构建后自检）。⚠️ **必须配一条守卫测试**，否则它会慢慢长回 457 个包 —— **C12 不变式 1 至今没有任何守卫** |
@@ -914,6 +916,8 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 
 #### **A8** · 下完对一次名（缺 / 多 / 后缀不符，三态）
 
+> ⛔ **2026-11-12 Owner 裁决：本节为当时设计稿，不实施。** 判据后移到第 5 步 A 级真跑；以下保留作历史记录，不代表待办。
+
 | | |
 |---|---|
 | **scope** | 比较「盘上实际有的」vs「名片 `models.required`」，报三态：<br>**缺** —— required 里有、盘上没有<br>**多** —— 盘上有、required 里没有（⚠ 要排除运行期产物）<br>**后缀不符** —— strip 扩展名后同名但后缀不同 |
@@ -926,6 +930,8 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 ---
 
 #### **A9** · 权重候选探针（多源交叉 + 置信度）
+
+> ⛔ **2026-11-12 Owner 裁决：本节为当时设计稿，不实施。** 判据后移到第 5 步 A 级真跑；以下保留作历史记录，不代表待办。
 
 | | |
 |---|---|
@@ -1074,8 +1080,8 @@ X3 是「文件在、跑不起来」；这条是「跑得起来、但不是按�
 | **A4** | GSV 迁新版声明 | `engines/gpt-sovits/**` |
 | **A4''** | 向导补「钉版本 + 删 `.git`」 | `core/pin.js` |
 | ~~**A7**~~ | ~~第 3 步真下载~~ ✅ **2026-10-24 三件已齐**（并发 6 + 使用者能按的取消 + 按文件分槽进度）| `core/download.js` · `editor/downloadQueue.js` · `editor/downloadRunner.js` |
-| **A8** | 权重下完对一次名（缺/多/后缀不符） | `core/checkpoints-audit.js` |
-| **A9** | 权重候选探针（自动发现，多源交叉） | `core/weight-discovery.js` |
+| **A8** | 权重下完对一次名（缺/多/后缀不符） | `core/checkpoints-audit.js` ⛔ **不补（Owner 裁决 2026-11-12）** |
+| **A9** | 权重候选探针（自动发现，多源交叉） | `core/weight-discovery.js` ⛔ **不补（Owner 裁决 2026-11-12）** |
 | **A10** | 名片表单三件套 + 三段分组 | `editor/ManifestForm.jsx` |
 | **C4** | 第 5 步三块独立显示（复用 `common/Player.jsx`，**已存在**） | 向导第 5 步 |
 | ~~欠账~~ | 清用户可见文案里的 `installPlan.js:行号` | `core/env.js` · `core/clone.js` |
