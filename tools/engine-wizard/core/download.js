@@ -577,7 +577,7 @@ function downloadFileFromUrl (url, file, repo, root, id, onLine, onProgress, res
       if (resumeFrom > 0 && status !== 206) {
         res.resume()
         // 续传请求拿到 200 说明服务端不认 Range。首次探测到 .tmp 时可以回到 0
-        //   重下；重试走到这里说明续传不成立，删掉半截文件，不要反复从头下。
+        //   允许按原路径重新下载；重试走到这里说明续传不成立，删掉未完成的临时文件。
         if (attempt > 0) {
           try { fs.rmSync(tmpPath, { force: true }) } catch (e) { /* 删不掉就算了 */ }
           resolve({
