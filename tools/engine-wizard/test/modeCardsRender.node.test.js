@@ -141,3 +141,14 @@ test('读取模式后列出子命令，勾选两个模式一次生成两张派�
   assert.ok(cardCall.body.variants[1].argv.includes('clone'))
   assert.ok(container.textContent.includes('demo-design'))
 })
+
+test('单入口引擎说明不需要派生，不出现候选表', async () => {
+  global.fetch = async (url) => ({ json: async () => ({ ok: true, subcommands: ['(root)'] }) })
+  await show()
+  clickText('按模式生成名片')
+  await settle()
+  clickText('读取可用模式')
+  await settle()
+  assert.strictEqual(container.querySelectorAll('tbody tr').length, 0)
+  assert.ok(container.textContent.includes('不需要再派生'))
+})

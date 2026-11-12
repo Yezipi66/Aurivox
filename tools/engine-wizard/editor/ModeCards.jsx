@@ -120,6 +120,13 @@ export default function ModeCards ({ manifest, onDone }) {
             </span>
           </div>
 
+          {modes !== null && modes.length === 0 && (
+            <div className="msg msg-info" style={{ marginTop: 8 }}>
+              {t('This engine exposes a single entry, so one card already covers it. No extra card is needed.',
+                '这台引擎只扫到一个入口，一张名片已经覆盖，不需要再派生。')}
+            </div>
+          )}
+
           {modes !== null && modes.length > 0 && (
             <table className="table" style={{ marginTop: 8 }}>
               <thead>
@@ -161,8 +168,8 @@ export default function ModeCards ({ manifest, onDone }) {
 
           {modes !== null && modes.length > 0 && (
             <div className="field-hint">
-              {t('Batch and validation subcommands are usually not single-utterance entries. Review the command line before generating.',
-                '批量与校验类子命令通常不是单次合成入口，生成前请核对命令行。')}
+              {t('The scan may only see options a subcommand declares directly. Batch, download and validation subcommands are usually not single-utterance entries; review the command line before generating.',
+                '扫描可能只看到子命令自己直接声明的参数；批量、下载与校验类子命令通常不是单次合成入口，生成前请核对命令行。')}
             </div>
           )}
 
