@@ -199,6 +199,32 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 `python` 填上游方法参数名，`cli` 填命令行开关（`--text`）。
 不检查的话，cli 形态里写 `spk_audio_prompt` 会变成一个孤零零的位置参数。
 
+**每格填什么**：只填「开关名」或「参数名」，不填值、不填空格、不带等号。
+判据只有一条：cli 形态必须以 `-` 开头，python 形态不带横线。
+
+| 格 | cli 形态填 | python 形态填 | 什么时候不填 |
+|---|---|---|---|
+| `text` | 收文本的开关，如 `--text` | 方法形参名，如 `tts_text` | 文本走标准输入（`call.text_via: "stdin"`），或它是位置参数（`argv` 里写 `{text}`） |
+| `ref_audio` | 收参考音频的开关，如 `--reference-audio` | 如 `prompt_wav` | 引擎不用参考音频（`requires_reference_audio: false`），或位置参数（`{ref_audio}`） |
+| `ref_text` | 收参考音频原文的开关，如 `--prompt-text` | 如 `prompt_text` | 一直可选：认不出就留空，前端那一格让人拖 |
+| `output_path` | 收输出路径的开关，如 `--output`、`-f` | 如 `output_path` | `returns` 是 `bytes` / `generator` 时不需要；位置参数时改 `argv` 写 `{output_path}` |
+
+三个真实例子（都是盘上跑通过的）：
+
+```jsonc
+// 全开关：值都跟在开关后面
+"bind": { "text": "--text", "ref_audio": "--reference-audio", "ref_text": "--prompt-text", "output_path": "--output" }
+
+// 输出用短开关：短开关也是开关，写成一个词
+"bind": { "output_path": "-f" }            // 另写 "text_via": "stdin"
+
+// 一个开关都没有：bind 留空对象，去处写在 argv
+"bind": {}                                  // argv 里写 {text} 与 {output_path}
+```
+
+填错的三种表现：cli 形态里写成参数名（`spk_audio_prompt`）⇒ 平台当场拒；
+开关名拼错 ⇒ 上游报 `unrecognized arguments`；同一个槽位在 `bind` 与 `argv` 都写 ⇒ 平台当场拒。
+
 ### 位置参数：`call.argv` 里的槽位占位符
 
 上游把要合成的文本或输出路径写成位置参数时（`pkg-cli "文本" out.wav`），命令行上没有开关名，
