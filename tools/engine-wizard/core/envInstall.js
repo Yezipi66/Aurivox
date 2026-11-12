@@ -108,7 +108,10 @@ function buildConstraintFile (root, id) {
 //   判断时同时要求出现拒绝访问与 uv 缓存内部路径，避免把引擎目录本身的权限
 //   问题也当成缓存冲突来重试。
 const UV_CACHE_BUSY_RE = /os error 5|拒绝访问|Access is denied/i
-const UV_CACHE_PATH_RE = /(?:wheels-v\d+|archive-v\d+|sdists-v\d+)[\\/]|\.tmp[A-Za-z0-9]{4,}[\\/]link/i
+// builds-v<n> 是 uv 解 sdist 时的构建目录：setuptools 往 wheel 目录里写 egg-info
+//   会撞上已存在的半成品与按访问防护的句柄，报的同样是拒绝访问。
+//   它不是 wheel 缓存指针，但同属 uv 缓存内部路径，判据一并认。
+const UV_CACHE_PATH_RE = /(?:wheels-v\d+|archive-v\d+|sdists-v\d+|builds-v\d+)[\\/]|\.tmp[A-Za-z0-9]{4,}[\\/]link/i
 
 function isUvCacheBusy (r) {
   const text = `${r.stderr || ''}\n${r.stdout || ''}`
@@ -713,6 +716,8 @@ async function runEnv (input = {}) {
         if (typeof input.onLine === 'function') {
           try { input.onLine(attempt.notice, false) } catch (e) { /* 回调抛错不打断安装 */ }
         }
+        // 上一次失败的构建会留下 builds-v0/.tmp*，uv 复用它会再撞一次同样的拒绝访问。
+        cleanStaleUvBuilds(root)
         r = await runStep(step, root, timeoutMs, currentArgv, input.onLine,
           attempt.env, { signal })
         r.retriedWith = currentArgv.join(' ')

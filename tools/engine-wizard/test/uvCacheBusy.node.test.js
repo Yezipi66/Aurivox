@@ -86,3 +86,30 @@ test('runEnv 在按提示重试之后还留着缓存冲突重试', () => {
   assert.ok(src.includes('UV_CACHE_DIR: uvRetryCacheDir(root)'),
     '换独立缓存目录的那一档不见了')
 })
+
+// 解 sdist 时的失败：setuptools 往 wheel 目录里写 egg-info，撞上已存在的半成品
+// 与按访问防护的句柄，报的同样是拒绝访问，路径在 uv 的 builds-v0/.tmp* 里。
+// 判据漏掉这一类时，界面只会显示一条构建失败，而重试一次通常就能过。
+const SDIST_BUILD_FAILURE = [
+  '× Failed to build `txtsplit==1.0.0`',
+  '  ├─▶ The build backend returned an error',
+  '  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_wheel` failed (exit code: 1)',
+  '      D://Project//tts_broker_openai_compat//cache//uv//builds-v0//.tmpY5B1Bm//Lib//site-packages//setuptools//dist.py:765',
+  '      error: [WinError 5] 拒绝访问。: \'build\\bdist.win-amd64\\wheel\\.\\txtsplit-1.0.0-py3.11.egg-info\\dependency_links.txt\'',
+].join('\n')
+
+test('sdist 构建目录里的拒绝访问也算缓存被占用', () => {
+  assert.strictEqual(envInstall.isUvCacheBusy({ stderr: SDIST_BUILD_FAILURE }), true,
+    'builds-v0 里的 .tmp* 是 uv 缓存内部路径，漏掉它这一档就只报失败、不重试')
+})
+
+test('每档重试前都要清掉上一次留下的构建目录', () => {
+  const src = fs.readFileSync(
+    path.join(ROOT, 'tools', 'engine-wizard', 'core', 'envInstall.js'), 'utf8')
+  const loopAt = src.indexOf('for (const attempt of attempts)')
+  const cleanAt = src.indexOf('cleanStaleUvBuilds(root)', loopAt)
+  const runAt = src.indexOf('await runStep(', loopAt)
+  assert.ok(loopAt > 0 && cleanAt > loopAt,
+    '缓存冲突的重试循环里没清构建目录：同一个 builds-v0 会再撞一次同样的错')
+  assert.ok(cleanAt < runAt, '清理要排在重跑之前')
+})
