@@ -296,8 +296,11 @@ function pickEntry (params, opts = {}) {
     a.requiredText === b.requiredText && a.flags === b.flags
   // 声明里有多个入口时同样要标出来：老版本与新版本并存的项目会声明两条，
   //   上面那条排序只是默认值，选错就是跑起另一套命令行。
-  const ambiguous = pool.length > 1 &&
-    (tie(pool[0].entry, pool[1].entry) || declaredHits.length > 1)
+  // 并列只在「决定默认值的那一层」里判：声明或 README 命中时，后附的打分候选
+  //   不参与并列计算，否则作者已经点过名的情况会被判成并列。
+  const rankTier = primary.length ? primary : pool
+  const ambiguous = rankTier.length > 1 &&
+    (tie(rankTier[0].entry, rankTier[1].entry) || declaredHits.length > 1)
 
   const candidates = pool.map(({ entry: s, module }) => {
     const withRoot = moduleWithRoot(s.file, opts)
