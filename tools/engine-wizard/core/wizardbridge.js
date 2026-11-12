@@ -235,6 +235,9 @@ const REPO_LITERAL_RE = /['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/
 //   仍然只认带名字的赋值，不拿窗口里的任意字面量当仓库。
 const RUNTIME_REPO_ARG_RE = /\b([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[^=,\n)]+)?\s*=\s*['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/g
 const RUNTIME_REPO_ARG_NAME_RE = /(?:repo|model|checkpoint|ckpt|pretrain|hf|hub)/i
+// 「语言 → 仓库」这类映射的值：一个文件里几十个仓库，键名与仓库语义无关，
+//   上面两条判据（实参名、单值常量）都看不到它们。
+const MAPPING_REPO_RE = /['"][A-Za-z0-9_-]+['"]\s*:\s*['"]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)['"]/g
 // 字面量带斜杠时也可能是本地目录，而不是模型仓库标识。
 const LOCAL_PATH_HEAD_RE = /^(?:\.{1,2}\/|\/|[A-Za-z]:[\\/]|checkpoints?|models?|pretrained_models|weights?|ckpts?|assets?|data|dataset|cache|hf_cache|outputs?|tmp|temp|src|runtime|third_party|local)/i
 
@@ -1260,6 +1263,14 @@ function scanRuntimeDownloads (dir, limit = 12) {
       const at = whole.slice(0, m.index).split('\n').length
       out.push({ file: rel, line: at, call: firstCall, repo, via: 'named-argument' })
     }
+    for (const m of whole.matchAll(MAPPING_REPO_RE)) {
+      if (out.length >= limit) break
+      const repo = m[1]
+      if (LOCAL_PATH_HEAD_RE.test(repo) || seen.has(repo)) continue
+      seen.add(repo)
+      const at = whole.slice(0, m.index).split('\n').length
+      out.push({ file: rel, line: at, call: firstCall, repo, via: 'mapping-value' })
+    }
   }
   return out
 }
@@ -1334,6 +1345,44 @@ function buildEngineDownloadEntries (root, id) {
       })
     }
   } catch { /* 命令行读不出来时只给前两类，不影响退回路径 */ }
+
+  // 还有一类引擎：不带下载命令、也不写下载脚本，运行时用 huggingface_hub 按需拉权重。
+  //   落到哪里由 hub 决定（HF 缓存），不是引擎目录里的 checkpoints，所以
+  //   「模型仓库」那条路把它下到 checkpoints 也不会被读到。四类都为空时补一条可执行入口：
+  //   用引擎自己的解释器把仓库拉进缓存，之后运行时直接命中。
+  const declaredModels = (manifest && manifest.models && Array.isArray(manifest.models.required))
+    ? manifest.models.required : []
+  if (entries.length === 0 && declaredModels.length === 0) {
+    const engineKey = String(id).toLowerCase().replace(/[^a-z0-9]/g, '')
+    const rankOf = (repo) => {
+      const tail = String(repo).split('/').pop().toLowerCase().replace(/[^a-z0-9]/g, '')
+      return tail.includes(engineKey) ? 0 : 1
+    }
+    const pools = scanRuntimeDownloads(dir, 24).filter((h) => h && h.repo)
+    // 仓库名与引擎同名的排在前面（多语言引擎会一次列出一堆），
+    //   顺序保持扫描到的先后，也就是源码里的书写顺序，不另排一次。
+    const mine = pools.filter((h) => rankOf(h.repo) === 0)
+    const picked = (mine.length ? mine : pools).slice(0, mine.length ? 8 : 3)
+    picked.forEach((h, idx) => {
+      entries.push({
+        // priority 逐条递增：末尾统一按 priority 再按 key 排序，
+        //   同优先级会被 key 的字典序重排，列表顺序与源码里的书写顺序不一致。
+        key: 'hf:' + h.repo, kind: 'hf-runtime', priority: 3 + idx,
+        labelZh: '预下载到 HF 缓存：' + h.repo,
+        labelEn: 'Pre-download into the HF cache: ' + h.repo,
+        argv: ['{engine_python}', '-c',
+          "from huggingface_hub import snapshot_download; snapshot_download('" + h.repo + "')"],
+        needs_review: true,
+        noteZh: '这类引擎运行时自己从 Hugging Face 取权重，落点是 HF 缓存而不是引擎目录的 checkpoints，'
+          + '平台的权重落点判定对它不适用。这条命令只负责把该仓库取到本机，之后运行时直接命中缓存。'
+          + '其余仓库的 ID 见下方「运行时会拉取」清单。',
+        noteEn: 'This engine fetches weights from Hugging Face at run time, into the HF cache '
+          + 'rather than the engine checkpoints folder, so the platform weight check does not apply. '
+          + 'This command only pulls that repo so later runs hit the cache. '
+          + 'Other repo IDs are listed under runtime downloads below.',
+      })
+    })
+  }
   return entries.sort((a, b) => a.priority - b.priority || a.key.localeCompare(b.key))
 }
 

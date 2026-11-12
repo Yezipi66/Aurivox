@@ -136,3 +136,56 @@ test('运行期资源：窗口里的 URL 与本地目录不顶替仓库标识', 
   ].join('\n'))
   assert.deepStrictEqual(scanRuntimeDownloads(dir), [])
 })
+
+// 有一类引擎不带下载命令、也不写下载脚本：它在运行时用 huggingface_hub 按需取权重，
+//   落点是 HF 缓存而不是引擎目录的 checkpoints。第 3 步此前对它是空的。
+function plantRuntimeFetcher (opts = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-hf-'))
+  const dir = path.join(root, 'engines', 'demo')
+  fs.mkdirSync(dir, { recursive: true })
+  // 文件名不能带 download / fetch / install 这些词：那样会先被当成「下载脚本」，
+  //   就走不到运行时拉取那一条了。真实情况也是这样，引擎把下载写在普通模块里。
+  fs.mkdirSync(path.join(dir, 'demo'))
+  fs.writeFileSync(path.join(dir, 'demo', 'helpers.py'), [
+    'from huggingface_hub import hf_hub_download',
+    "LANGS = {'EN': 'org/demo-en', 'ZH': 'org/demo-zh'}",
+    'def ensure(lang):',
+    "    return hf_hub_download(repo_id=LANGS[lang], filename='ckpt.pth')",
+  ].join('\n'))
+  const manifest = { id: 'demo', models: { required: opts.required || [] } }
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest))
+  return root
+}
+
+test('「语言 → 仓库」映射里的仓库也算运行时拉取', () => {
+  const root = plantRuntimeFetcher()
+  try {
+    const hints = scanRuntimeDownloads(path.join(root, 'engines', 'demo'))
+    const repos = hints.map((h) => h.repo)
+    assert.deepStrictEqual(repos, ['org/demo-en', 'org/demo-zh'],
+      '映射的值没被扫到：这类文件里仓库名不写在调用的实参上')
+    assert.strictEqual(hints[0].via, 'mapping-value')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('没有任何自带入口时，给一条「预下载到 HF 缓存」的可执行条目', () => {
+  const root = plantRuntimeFetcher()
+  try {
+    const entries = buildEngineDownloadEntries(root, 'demo')
+    assert.strictEqual(entries.length, 2, '两个仓库各给一条')
+    assert.strictEqual(entries[0].kind, 'hf-runtime')
+    assert.strictEqual(entries[0].key, 'hf:org/demo-en')
+    assert.ok(entries[0].argv.includes("from huggingface_hub import snapshot_download; snapshot_download('org/demo-en')"),
+      '命令要真的能把仓库取到本机')
+    assert.match(entries[0].noteZh, /HF 缓存/,
+      '落点与平台判定不一致这件事必须写出来，否则用户会以为第 3 步没生效')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('名片已经声明了权重清单时，不补预下载条目', () => {
+  const root = plantRuntimeFetcher({ required: ['ckpt.pth'] })
+  try {
+    assert.deepStrictEqual(buildEngineDownloadEntries(root, 'demo'), [],
+      '名片说了权重要落盘，就该走模型仓库那条路，别混进来自动拉缓存')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
