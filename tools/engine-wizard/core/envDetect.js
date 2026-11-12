@@ -294,6 +294,36 @@ function canUseEngineVenv (root, id) {
 }
 
 /**
+ * 删掉这台引擎自己的虚拟环境，供「从头重装本步」使用。
+ *
+ * 只接受 engines/<id>/.venv 这一棵：id 里出现分隔符、点号或空白就拒绝，
+ *   否则 id 能拼出 engines/ 之外的路径。
+ * 目录本来就不存在不算失败：目标状态就是「没有这个环境」。
+ *
+ * @returns {{ok:boolean, removed?:boolean, dir?:string, code?:string, error?:string}}
+ */
+function removeEngineVenv (root, id) {
+  const name = String(id || '')
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+    return { ok: false, code: 'BAD_ID', error: '引擎 id 只能包含字母、数字、下划线与连字符。' }
+  }
+  const dir = engineVenvDirAbs(root, name)
+  let existed = false
+  try { existed = fs.existsSync(dir) } catch (e) { existed = false }
+  if (!existed) return { ok: true, removed: false, dir }
+  try {
+    fs.rmSync(dir, { recursive: true, force: true })
+  } catch (e) {
+    return {
+      ok: false, code: 'VENV_REMOVE_FAILED', dir,
+      error: `删不掉 ${dir}：${(e && e.message) || String(e)}。`
+        + '若安装仍在进行，先取消安装再重试。',
+    }
+  }
+  return { ok: true, removed: true, dir }
+}
+
+/**
  * 从 requires-python 的区间里挑一个具体的主次版本。
  *
  * 规则：优先选区间内最高的版本。
@@ -550,6 +580,7 @@ module.exports = {
   suggestEnvCommand,
   engineVenvDirAbs,
   engineVenvPythonAbs,
+  removeEngineVenv,
   canUseEngineVenv,
   platformPythonAbs,
   supportsVersion,

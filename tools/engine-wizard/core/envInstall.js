@@ -568,9 +568,16 @@ async function runEnv (input = {}) {
 
   const { readProgress: readEnvProgress, writeProgress: writeEnvProgress,
     resetProgress: resetEnvProgress } = require('./installState')
-  let doneKeys = readEnvProgress(root, String(input.id || ''), 'env')
   const resetProgress = input.resetProgress === true
-  if (resetProgress) resetEnvProgress(root, String(input.id || ''), 'env')
+  if (resetProgress) {
+    resetEnvProgress(root, String(input.id || ''), 'env')
+    // 从头重装不再沿用上一次的任何结论：失败标记一并清掉，
+    //   否则下面那个分支还会按「上次失败」再删一次环境。
+    markPartialVenv(root, String(input.id || ''), null)
+  }
+  // 必须在清空之后再读：这份集合就是「哪几步可以跳过」的判据，
+  //   沿用清空之前读到的那一份，等于没清。
+  let doneKeys = readEnvProgress(root, String(input.id || ''), 'env')
 
   if (!resetProgress && hasPartialVenvMark(root, String(input.id || ''))) {
     const venvDir = engineVenvDirAbs(root, String(input.id || ''))

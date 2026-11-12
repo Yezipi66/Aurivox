@@ -223,3 +223,60 @@ test('reset-progress 拒绝非法 id（路径穿越 / 保留字）', async () =>
     })
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+// 「从头重装本步」：只清记录时，下一次安装会沿用装了一半的 .venv，
+//   装坏的那个包不会被重装。因此端点支持 removeVenv，把环境一起删掉。
+//   删目录是不可逆动作，所以默认不删，必须由调用方显式要求。
+
+test('reset-progress 带 removeVenv ⇒ 记录清空且 .venv 被删，源码保留', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    const venv = path.join(d, '.venv', 'Scripts')
+    fs.mkdirSync(venv, { recursive: true })
+    fs.writeFileSync(path.join(venv, 'python.exe'), 'stub')
+    fs.writeFileSync(path.join(d, 'README.md'), 'x')
+    const IS = require('../core/installState.js')
+    IS.writeProgress(root, 'e1', 'env', new Set(['uv venv']))
+
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress',
+        { id: 'e1', root, section: 'env', removeVenv: true })
+      assert.strictEqual(r.status, 200)
+      assert.strictEqual(r.json.ok, true)
+      assert.strictEqual(r.json.venvRemoved, true, '⛔ 要求删环境却没删')
+      assert.strictEqual(fs.existsSync(path.join(d, '.venv')), false, '⛔ .venv 还在')
+      assert.strictEqual(IS.readProgress(root, 'e1', 'env').size, 0, '⛔ 记录没清')
+      assert.ok(fs.existsSync(path.join(d, 'README.md')), '⛔ 把引擎源码一起删了')
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('reset-progress 不带 removeVenv ⇒ 只清记录，.venv 原样留着', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    fs.mkdirSync(path.join(d, '.venv'), { recursive: true })
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress', { id: 'e1', root, section: 'env' })
+      assert.strictEqual(r.json.venvRemoved, false)
+      assert.ok(fs.existsSync(path.join(d, '.venv')),
+        '⛔ 没要求删环境却删了：默认行为必须是非破坏性的')
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('reset-progress 清 models 段时不动第 2 步的环境', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    fs.mkdirSync(path.join(d, '.venv'), { recursive: true })
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress',
+        { id: 'e1', root, section: 'models', removeVenv: true })
+      assert.strictEqual(r.json.ok, true)
+      assert.ok(fs.existsSync(path.join(d, '.venv')),
+        '⛔ 清第 3 步的记录把第 2 步的环境删了')
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

@@ -355,6 +355,7 @@ export default function App () {
               <StepDeps state={{ ...wz, manifest: manifest || {} }}
                 prep={prep}
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
+                onReload={() => reloadFacts()}
                 onUndone={() => {
                   // 撤销克隆 ⇒ 目录没了 ⇒ 回到第 1 步重来。
                   // 不写 wz.cloned：完成状态只由端点读盘判，持久段里没有它的位置。

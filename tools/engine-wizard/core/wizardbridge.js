@@ -2637,10 +2637,13 @@ function handleInstallState (req, res) {
   return true
 }
 
-// POST /wizard/reset-progress   {id, section}  逃生口：从头重装本步
+// POST /wizard/reset-progress   {id, section, removeVenv}  逃生口：从头重装本步
 // 只清「哪些步骤算做完了」这份记录：
-//    不删引擎目录里的源码、不删已装依赖、不删已下载的模型文件。
+//    不删引擎目录里的源码、不删已下载的模型文件。
 // section：'env'（第 2 步装依赖）/ 'models'（第 3 步下模型）/ 'all'
+// removeVenv：仅对 env / all 有效。为 true 时连 engines/<id>/.venv 一起删掉。
+//    只清记录时，下一次安装会沿用已装了一半的环境，装坏的那个包不会被重装，
+//    按钮看起来等于没生效；删 .venv 是破坏性动作，所以默认不删，由调用方显式要求。
 function handleResetProgress (req, res) {
   if (req.method !== 'POST') return false
   if (!req.url || !req.url.startsWith('/wizard/reset-progress')) return false
@@ -2663,9 +2666,27 @@ function handleResetProgress (req, res) {
           note: '引擎目录不存在，没有进度可清。' })
         return
       }
+      const section = body.section === 'models' ? 'models'
+        : body.section === 'all' ? 'all' : 'env'
       const { resetProgress } = require('./installState')
-      resetProgress(root, id, body.section)
-      json(res, 200, { ok: true, id, section: body.section || 'env' })
+      resetProgress(root, id, section)
+      // 「从头重装本步」要连上一轮装出来的环境一起清：只清记录时，下一次安装会
+      //   沿用已装了一半的 .venv，装坏的那个包不会被重装。删目录是不可逆动作，
+      //   因此默认不删，调用方显式要求时才做。
+      if (body.removeVenv === true && (section === 'env' || section === 'all')) {
+        const { removeEngineVenv } = require('./envDetect')
+        const v = removeEngineVenv(root, id)
+        if (!v.ok) {
+          json(res, 500, {
+            ok: false, code: v.code, id, section, venvPath: v.dir, error: v.error,
+            noteZh: '完成记录已清除，但环境目录没有删掉；按提示处理后重试。',
+          })
+          return
+        }
+        json(res, 200, { ok: true, id, section, venvRemoved: v.removed === true, venvPath: v.dir })
+        return
+      }
+      json(res, 200, { ok: true, id, section, venvRemoved: false })
     } catch (e) {
       json(res, 500, { ok: false, code: 'RESET_FAILED',
         error: (e && e.message) || String(e) })

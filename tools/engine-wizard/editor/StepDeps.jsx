@@ -116,7 +116,7 @@ export {
   declaredVersion, splitSpec, finalSpec,
 }
 
-export default function StepDeps ({ state, prep, onFixId, onUndone }) {
+export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) {
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
@@ -231,15 +231,38 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
     } catch (e) { setPlan({ ok: false, error: e.message }) }
   }
 
-  // 只清记录，不删源码，也不删已装依赖（那是另一回事）。
+  // 清记录是基础动作；要不要连环境一起删，由调用方显式要求（removeVenv）。
+  // 「从头重装本步」是破坏性动作：除了清完成记录，还要删掉 engines/<id>/.venv。
+  //   只清记录时，下一次安装会沿用装了一半的环境，装坏的那个包不会被重装，
+  //   按钮看起来等于没生效。因此点两下才执行：第一下进入确认态，第二下真删。
+  const [confirmReset, setConfirmReset] = React.useState(false)
+  const [resetNote, setResetNote] = React.useState(null)
   const resetThisStep = async () => {
     if (!targetId) return
+    if (!confirmReset) { setConfirmReset(true); return }
+    setConfirmReset(false)
     try {
-      await fetch('/wizard/reset-progress', {
+      const r = await fetch('/wizard/reset-progress', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: targetId, section: 'env' }),
+        body: JSON.stringify({ id: targetId, section: 'env', removeVenv: true }),
       })
-    } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
+      const j = await r.json().catch(() => null)
+      if (j && j.ok) {
+        setResetNote(j.venvRemoved
+          ? t('Cleared the record and removed engines/' + targetId + '/.venv. '
+            + 'Press Install to rebuild from a clean environment.',
+            '已清除完成记录并删除 engines/' + targetId + '/.venv，点「安装」从干净环境重装。')
+          : t('Cleared the record. There was no .venv on disk, so nothing was removed.',
+            '已清除完成记录；磁盘上没有 .venv，没有目录被删。'))
+        if (onReload) onReload()
+      } else {
+        setResetNote(t((j && j.error) || 'Reset failed; the record is unchanged.',
+          (j && (j.noteZh || j.error)) || '重置失败，记录没有被清掉。'))
+      }
+    } catch (e) {
+      setResetNote(t('Could not reach the wizard backend; the record is unchanged.',
+        '连不上向导后端，记录没有被清掉。'))
+    }
   }
   React.useEffect(() => {
     if ((url || targetId) && !plan) reload() /* eslint-disable-line */
@@ -801,9 +824,12 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
                 （.wizard-install.json 的 env 段），
                 不删引擎目录里的源码，也不删已装依赖。 */}
             {!busy && (
-              <button className="btn btn-sm" type="button"
+              <button className="btn btn-sm btn-danger" type="button"
                 onClick={() => resetThisStep()}>
-                {t('Reinstall this step from the start', '从头重装本步')}
+                {confirmReset
+                  ? t('Click again to delete the environment and reinstall',
+                    '再点一次，删除环境并重装')
+                  : t('Reinstall this step from the start', '从头重装本步')}
               </button>
             )}
 
@@ -833,11 +859,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone }) {
               marginRight: 8,
             }}>
               <div className="field-hint" style={{ maxWidth: 560 }}>
-                {t('Reinstall this step from the start: clears the record of finished '
-                  + 'steps in this step only. Source code and installed packages are kept, '
-                  + 'and cached wheels are reused.',
-                  '从头重装本步：只清除本步的已完成记录。源码与已安装的依赖保留，'
-                  + '已下载的依赖包会复用。')}
+                {t('Reinstall this step from the start: clears the record of finished steps '
+                  + 'in this step and deletes engines/<id>/.venv, so the next install builds the '
+                  + 'environment from scratch. Source code and cached wheels are kept.',
+                  '从头重装本步：清除本步的完成记录，并删除 engines/<id>/.venv，'
+                  + '下一次安装从干净的环境重装。源码与已下载的依赖包保留。')}
+                {resetNote && (
+                  <div style={{ marginTop: 4 }}>{resetNote}</div>
+                )}
               </div>
               {targetId && (
                 <div className="field-hint" style={{ maxWidth: 560, marginTop: 4 }}>
