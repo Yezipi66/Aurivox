@@ -27,7 +27,7 @@ const CORE = path.join(HERE, '..', 'tools', 'engine-wizard', 'core')
 function validatePlugin () {
   const { handleValidate } = require(path.join(CORE, 'bridge.js'))
   const { handleSpec } = require(path.join(CORE, 'specbridge.js'))
-  const { handleInstalled, handleSave, handleRead } = require(path.join(CORE, 'savebridge.js'))
+  const { handleInstalled, handleSave, handleCards, handleRead } = require(path.join(CORE, 'savebridge.js'))
   // 整体引用 wizardbridge，不逐个解构：解构在模块加载时求值，
   // 引擎侧新加的导出不会进入解构出来的函数表。整体引用 + 运行时取 .handleX，
   // 每次请求都读到最新的导出表。
@@ -56,7 +56,7 @@ function validatePlugin () {
     wb.handleInstallState, wb.handleResetProgress,
     // hf-token 认的是 /wizard/hf-token 整串，后面只能跟 ?，与本表其它前缀无一互为前缀。
     wb.handleHfToken,
-    handleInstalled, handleSave,
+    handleInstalled, handleSave, handleCards,
     // run-script 认 /wizard/run-script 整串，与 download 一族不互为前缀，位置不影响路由。
     wb.handleRunScript,
     // 第一档入口：/wizard/download-entries 同样以 /wizard/download 开头，

@@ -2,6 +2,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ManifestForm from './ManifestForm'
+import ModeCards from './ModeCards'
 import Diagnostics from './Diagnostics'
 import PanelPreview from './PanelPreview'
 import Stage from './Stage'
@@ -292,6 +293,7 @@ export default function ManifestPage ({
             {err && view === 'json' && (
               <div className="msg msg-danger">{err}</div>
             )}
+            <ModeCards manifest={manifest} onDone={onSaved} />
           </div>
         }
         right={

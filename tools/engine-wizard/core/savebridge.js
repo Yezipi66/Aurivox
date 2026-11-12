@@ -96,4 +96,58 @@ function handleRead (req, res) {
   return true
 }
 
-module.exports = { handleInstalled, handleSave, handleRead, validateId, path }
+/**
+ * POST /wizard/cards：一次写入多张由同一张基础名片派生的模式名片。
+ * 先整批构建并校验，任一候选不合法就一张都不写；随后逐张复用 saveManifest，
+ * 因此 id 校验、备份、原子写入与 dryRun 语义和单张保存完全一致。
+ */
+function handleCards (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/cards')) return false
+  const tail = req.url.slice('/wizard/cards'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+
+  let body = ''
+  let tooBig = false
+  req.on('data', (c) => {
+    body += c
+    if (body.length > 4 * 1024 * 1024) { tooBig = true; req.destroy() }
+  })
+  req.on('end', () => {
+    if (tooBig) {
+      json(res, 413, { ok: false, code: 'TOO_LARGE', error: 'The card batch exceeds 4MB.' })
+      return
+    }
+    let payload
+    try { payload = JSON.parse(body) } catch (e) {
+      json(res, 400, { ok: false, code: 'BAD_JSON', error: e.message }); return
+    }
+    const { buildVariantCards, sharedAssets } = require('./cardVariants')
+    const built = buildVariantCards(payload && payload.base, payload && payload.variants)
+    if (!built.ok) { json(res, 400, built); return }
+
+    const opts = {
+      overwrite: payload && payload.overwrite === true,
+      dryRun: payload && payload.dryRun === true,
+      allowCreateDir: !(payload && payload.allowCreateDir === false),
+    }
+    const results = []
+    try {
+      for (const card of built.cards) {
+        const r = saveManifest(card.manifest, opts)
+        results.push({ id: card.id, ...r })
+      }
+    } catch (e) {
+      json(res, 500, { ok: false, code: 'SAVE_FAILED', error: e.message, results }); return
+    }
+    json(res, 200, {
+      ok: results.every((r) => r.ok),
+      count: results.length,
+      shared: sharedAssets(payload.base),
+      results,
+    })
+  })
+  return true
+}
+
+module.exports = { handleInstalled, handleSave, handleCards, handleRead, validateId, path }
