@@ -1275,6 +1275,37 @@ function scanRuntimeDownloads (dir, limit = 12) {
   return out
 }
 
+/**
+ * 上游把「装完依赖后还要敲的命令」写在文档里（常见位置 docs/install.md），
+ * 例如 MeloTTS 的 `python -m unidic download`。这类命令不在依赖清单里，平台
+ * 不会自动执行，但对能不能出声是必需的。只认 `python -m <模块> download`
+ * 这种明确指向资源下载的形式，示例用法一概不认。
+ */
+const DOC_STEP_FILES = ['docs/install.md', 'docs/INSTALL.md', 'docs/installation.md',
+  'docs/setup.md', 'install.md', 'INSTALL.md', 'README.md']
+const DOC_DOWNLOAD_RE = /^\s*(?:python3?|py)\s+-m\s+([A-Za-z0-9_.]+)\s+(download|install)\s*$/i
+
+function scanDocDownloadCommands (dir) {
+  const out = []
+  const seen = new Set()
+  for (const rel of DOC_STEP_FILES) {
+    const f = path.join(dir, rel)
+    if (!fs.existsSync(f)) continue
+    let lines = []
+    try { lines = fs.readFileSync(f, 'utf8').split(/\r?\n/) } catch { continue }
+    lines.forEach((line, i) => {
+      const m = line.match(DOC_DOWNLOAD_RE)
+      if (!m) return
+      const key = m[1] + ' ' + m[2].toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push({ file: rel, line: i + 1, cmd: line.trim().slice(0, 120),
+        argv: ['{engine_python}', '-m', m[1], m[2].toLowerCase()] })
+    })
+  }
+  return out
+}
+
 /** 按优先级列出这一台引擎自带的下载入口；GET 与 POST 用同一份构造，避免两边漂移。 */
 function buildEngineDownloadEntries (root, id) {
   const dir = path.join(root, 'engines', id)
@@ -1346,13 +1377,30 @@ function buildEngineDownloadEntries (root, id) {
     }
   } catch { /* 命令行读不出来时只给前两类，不影响退回路径 */ }
 
+  // 文档里的补齐命令不是权重下载入口：单独列出来，但不能用它挡住下面的
+  // 「运行时从 HF 取权重」兜底，否则 MeloTTS 这类引擎又只剩一条词典命令。
+  const primaryCount = entries.length
+  for (const c of scanDocDownloadCommands(dir)) {
+    entries.push({
+      key: 'doc:' + c.file + ':' + c.line, kind: 'doc-command', priority: 2,
+      labelZh: '文档里的补齐命令：' + c.cmd,
+      labelEn: 'Setup command from the docs: ' + c.cmd,
+      argv: c.argv,
+      needs_review: true,
+      noteZh: '来自 ' + c.file + ':' + c.line + '。上游把这一步写在安装文档里，'
+        + '平台只负责把它列出来，执行前请确认它下载的是运行期资源。',
+      noteEn: 'Found in ' + c.file + ':' + c.line + '. The upstream lists this step in its '
+        + 'installation docs; confirm it fetches runtime resources before running.',
+    })
+  }
+
   // 还有一类引擎：不带下载命令、也不写下载脚本，运行时用 huggingface_hub 按需拉权重。
   //   落到哪里由 hub 决定（HF 缓存），不是引擎目录里的 checkpoints，所以
   //   「模型仓库」那条路把它下到 checkpoints 也不会被读到。四类都为空时补一条可执行入口：
   //   用引擎自己的解释器把仓库拉进缓存，之后运行时直接命中。
   const declaredModels = (manifest && manifest.models && Array.isArray(manifest.models.required))
     ? manifest.models.required : []
-  if (entries.length === 0 && declaredModels.length === 0) {
+  if (primaryCount === 0 && declaredModels.length === 0) {
     const engineKey = String(id).toLowerCase().replace(/[^a-z0-9]/g, '')
     const rankOf = (repo) => {
       const tail = String(repo).split('/').pop().toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -2792,6 +2840,7 @@ module.exports = {
   handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
   handleDownloadEntries, handleEngineDownload,
+  scanDocDownloadCommands,
   handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,

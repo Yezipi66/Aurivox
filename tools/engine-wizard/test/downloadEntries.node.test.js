@@ -10,7 +10,7 @@ const path = require('node:path')
 
 const {
   buildEngineDownloadEntries, expandEngineArgv,
-  scanEngineScriptCandidates, scanRuntimeDownloads,
+  scanEngineScriptCandidates, scanRuntimeDownloads, scanDocDownloadCommands,
 } = require('../core/wizardbridge')
 
 function plant (opts = {}) {
@@ -187,5 +187,38 @@ test('名片已经声明了权重清单时，不补预下载条目', () => {
   try {
     assert.deepStrictEqual(buildEngineDownloadEntries(root, 'demo'), [],
       '名片说了权重要落盘，就该走模型仓库那条路，别混进来自动拉缓存')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+// 上游把「装完依赖后还要敲的命令」写在 docs/install.md 里（MeloTTS 的
+// `python -m unidic download`），第 2 步只按依赖清单装，第 3 步此前也没有它。
+test('安装文档里的资源下载命令被列成可执行条目', () => {
+  const root = plantRuntimeFetcher()
+  try {
+    const dir = path.join(root, 'engines', 'demo')
+    fs.mkdirSync(path.join(dir, 'docs'))
+    fs.writeFileSync(path.join(dir, 'docs', 'install.md'),
+      '# Install\npip install -e .\npython -m unidic download\n')
+    const cmds = scanDocDownloadCommands(dir)
+    assert.strictEqual(cmds.length, 1, 'pip install 不该被当成资源下载命令')
+    assert.deepStrictEqual(cmds[0].argv, ['{engine_python}', '-m', 'unidic', 'download'])
+    const entries = buildEngineDownloadEntries(root, 'demo')
+    const doc = entries.find((e) => e.kind === 'doc-command')
+    assert.ok(doc, '文档命令没进第 3 步的可执行清单')
+    assert.match(doc.noteZh, /docs\/install\.md:3/, '没写清来源，接入者没法核对')
+    // 文档命令不能挡住运行时 HF 权重的兜底条目。
+    assert.ok(entries.some((e) => e.kind === 'hf-runtime'),
+      '⛔ 只列了词典命令，主权重的预下载入口又被挡掉了')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('文档里的示例用法不会被当成安装命令', () => {
+  const root = plantRuntimeFetcher()
+  try {
+    const dir = path.join(root, 'engines', 'demo')
+    fs.mkdirSync(path.join(dir, 'docs'))
+    fs.writeFileSync(path.join(dir, 'docs', 'install.md'),
+      'python -m demo download "some text" out.wav\n')
+    assert.deepStrictEqual(scanDocDownloadCommands(dir), [])
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
