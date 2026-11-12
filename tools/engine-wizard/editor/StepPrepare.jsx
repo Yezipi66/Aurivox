@@ -5,6 +5,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { folderName } from './folderName'
+import { cloneDone, canUndoClone } from './prepareState'
 import { postJson } from './postJson'
 
 /** 从链接里推断项目名：目录名留空时做灰字预览；真正的 id 来自 resolve 端点。 */
@@ -85,10 +86,14 @@ function licenseText (meta, t) {
   return '—'
 }
 
-export default function StepPrepare ({ state, facts, onChange, onDone, onNext, prep, onPrep, onUndone }) {
+export default function StepPrepare ({ state, facts, factsId, onChange, onDone, onNext, prep, onPrep, onUndone }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
-  const [idInput, setIdInput] = React.useState(state.id || '')
+  // 目录名不从持久段恢复：旧名字留在输入框里，换一个仓库时解析不会覆盖它，
+  //   于是「解析的是新仓库、克隆与完成状态仍是旧目录」。初值留空，由仓库名推断。
+  const [idInput, setIdInput] = React.useState('')
+  // 人手动改过目录名之后，解析不再自动覆盖。
+  const [idTouched, setIdTouched] = React.useState(false)
   const res = prep.res || null
   const probe = prep.probe || null
   const plan = prep.plan || null
@@ -154,7 +159,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
       //   解析成功就顺带探一次会让按钮形同虚设，使用者也不知道探的是哪一步。
       onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: null }))
       if (j.ok) {
-        if (!idInput.trim()) setIdInput(j.id)
+        if (!idTouched) setIdInput(j.id)
         if (resolvedUrl !== url) setUrl(resolvedUrl)
         onChange({ url: resolvedUrl, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
         // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
@@ -236,6 +241,8 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   const upstream = (planForCur && planForCur.upstream) || null
   const dirNotEmpty = !!(cloneRes && !cloneRes.ok && cloneRes.code === 'DIR_NOT_EMPTY')
   const [removing, setRemoving] = React.useState(false)
+  // 清除目录同样不可撤回：点一次只进入确认态，再点一次才删。
+  const [confirmRemove, setConfirmRemove] = React.useState(false)
   const removeDir = async () => {
     setRemoving(true)
     try {
@@ -267,7 +274,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
   //   prepare/env/models/manifest/verify 五个，没有 cloned。
   //   用 facts.cloned 会恒为 undefined ⇒ done 恒 false ⇒ 克隆完成后
   //   「撤销克隆 / 下一步」永远不会出现，使用者被卡在第 1 步。
-  const done = facts && facts.prepare === true
+  const done = cloneDone({ facts, factsId, curId })
   const meta = (probe && probe.meta) || null
 
   // 读取状态（给卡片底部那个手动按钮用）。
@@ -327,7 +334,7 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
           </label>
           <input id="wz-engine-id" className="control" type="text"
             value={idInput} placeholder={autoId || 'auto'}
-            onChange={(e) => setIdInput(e.target.value)} />
+            onChange={(e) => { setIdInput(e.target.value); setIdTouched(true) }} />
           {/* 去掉这里的 engines/<name>/ 预览。
               目录名下面已经有一行说明在讲「目录名就是名片里的 id」，
                  再挂一个路径预览是同一件事说两遍，而且
@@ -432,10 +439,16 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
                 {/* 红色：删掉该目录下的全部内容，不可撤回。 */}
                 <button className="btn btn-sm btn-danger" type="button"
                   disabled={removing || !curId}
-                  onClick={removeDir}>
+                  onClick={() => {
+                    if (!confirmRemove) { setConfirmRemove(true); return }
+                    setConfirmRemove(false)
+                    removeDir()
+                  }}>
                   {removing
                     ? t('Removing…', '正在清除…')
-                    : t('Remove directory and retry', '清除该目录并重试')}
+                    : (confirmRemove
+                        ? t('Click again to delete', '再点一次，确认清除')
+                        : t('Remove directory and retry', '清除该目录并重试'))}
                 </button>
               </div>
             </div>
@@ -538,19 +551,22 @@ export default function StepPrepare ({ state, facts, onChange, onDone, onNext, p
       {resForCur && resForCur.ok && done && (
         <>
           <div className="msg msg-info">
-            {t('Cloned into engines/' + curId + '/.',
-              '已克隆到 engines/' + curId + '/。')}
+            {reused
+              ? t('Using the existing directory engines/' + curId + '/.',
+                  'engines/' + curId + '/ 已存在，沿用现有内容。')
+              : t('Cloned into engines/' + curId + '/.',
+                  '已克隆到 engines/' + curId + '/。')}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center',
             justifyContent: 'flex-end', marginTop: 12 }}>
-            <UndoClone engineId={curId} onUndone={() => {
+            {canUndoClone(cloneRes, curId) && <UndoClone engineId={curId} target={fullEngineDir} onUndone={(removedId) => {
               // 目录没了 ⇒ 第 1 步的完成状态作废：清掉失败结果（cloneRes），
               // 并让 App 重新读完成状态（facts 由端点判，撤销后 prepare 应为 false）。
               // 不写 wz.cloned：完成状态只由端点判，持久段里没有它的位置。
               setCloneRes(null)
               onPrep((w) => ({ ...w, cloneRes: null }))
-              onUndone && onUndone()
-            }} />
+              onUndone && onUndone(removedId || curId)
+            }} />}
             <button className="btn btn-primary btn-sm" type="button"
               onClick={onNext}>
               {t('Next', '下一步')}

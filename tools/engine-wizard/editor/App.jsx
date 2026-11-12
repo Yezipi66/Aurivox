@@ -144,6 +144,9 @@ export default function App () {
 
   // ---- 完成状态只由真实产物判（GET /wizard/install-state），不读 localStorage ----
   const [facts, setFacts] = React.useState({})
+  // facts 是「按哪个 id 问来的」。第 1 步的完成状态必须与界面上的目录名同源：
+  //   只比 facts.prepare 会把一台旧引擎的状态显示在新仓库上。
+  const [factsId, setFactsId] = React.useState(null)
   // 权重落盘的相对路径（相对项目根）。第 3 步写盘到这里，第 4 步的名片
   //   runtime.checkpoints 填的也是这个值：两处同源，改一处不会出现「下好了却找不到」。
   //   路径由后端算（core/checkpointsPath.js），前端不自己拼。
@@ -161,6 +164,7 @@ export default function App () {
   //   读闭包里的旧值会拿到空 id，一个勾都不亮。
   const reloadFacts = React.useCallback((idArg) => {
     const id = factsQueryId(idArg, wz.id)
+    setFactsId(id || null)
     if (!id) { setFacts({}); setCheckpointsPath(null); setModelFiles(null); return }
     let alive = true
     fetch(`/wizard/install-state?id=${encodeURIComponent(id)}`)
@@ -330,7 +334,7 @@ export default function App () {
 
           <fieldset style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             {page === 'prepare' && (
-              <StepPrepare state={wz} facts={facts}
+              <StepPrepare state={wz} facts={facts} factsId={factsId}
                 onChange={(v) => setWz((w) => ({ ...w, ...v }))}
                 onDone={(clonedId) => {
                   reloadFacts(clonedId)
@@ -344,7 +348,7 @@ export default function App () {
                 onNext={() => setPage('env')}
                 // 撤销克隆 ⇒ 目录没了 ⇒ 重新判完成状态（facts.prepare 变 false，
                 // 「已克隆」区收起，回到命令区）。不跳页：第 1 步撤销后留在第 1 步重来。
-                onUndone={() => reloadFacts()}
+                onUndone={(id) => reloadFacts(id)}
                 prep={prep} onPrep={patchPrep} />
             )}
             {page === 'env' && (
