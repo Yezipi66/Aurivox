@@ -214,6 +214,26 @@ def _expand_word(raw, values, where):
     return out
 
 
+# 槽位占位符：命令行上没有开关名的位置参数，只能按位置给值。
+#   写法是 {text} / {ref_audio} / {ref_text} / {output_path}，与 call.bind 的槽位同一张表
+#   （BIND_SLOTS 在文件后段定义，此处按同一份清单写死，改一处要同时改另一处）。
+SLOT_PLACEHOLDER_RE = re.compile(r"\{(text|ref_audio|ref_text|output_path)\}")
+
+
+def argv_slot_names(argv):
+    """argv 里出现了哪些槽位占位符，按出现顺序去重。
+
+    与 call.bind 的槽位互斥：同一个槽位声明两次会把它发两遍，
+    上游多收一个词就报错，或者更糟，把后一个词当成另一个位置参数。
+    """
+    names = []
+    for word in argv or []:
+        for m in SLOT_PLACEHOLDER_RE.finditer(str(word)):
+            if m.group(1) not in names:
+                names.append(m.group(1))
+    return names
+
+
 # ---------------------------------------------------------------------------
 # 1.5) kind="cli"：一个参数 → 命令行上的 0..N 个词
 # ---------------------------------------------------------------------------
@@ -287,13 +307,16 @@ def stdin_payload(call, text):
         raise ValueError('call.text_via 只认 "stdin"，写的是 %r' % (via,))
     if (call.get("bind") or {}).get("text"):
         raise ValueError("call.text_via 与 call.bind.text 同时声明了文本入口")
+    if "text" in argv_slot_names(call.get("argv")):
+        raise ValueError("call.text_via 与 call.argv 里的 {text} 同时声明了文本入口")
     return str(text or "").encode("utf-8")
 
 
 def declares_text(call, mcfg=None):
-    """名片有没有声明文本入口：bind.text 的开关，或 text_via 指定的通道。"""
+    """名片有没有声明文本入口：bind.text 的开关、text_via 指定的通道，或 argv 里的 {text} 位置参数。"""
     bind = (mcfg or {}).get("bind") or call.get("bind") or {}
-    return ("text" in bind) or (call.get("text_via") == "stdin")
+    return ("text" in bind) or (call.get("text_via") == "stdin") or \
+        ("text" in argv_slot_names(call.get("argv")))
 
 
 def build_cli_argv(call, profile, slots, params):
@@ -301,20 +324,39 @@ def build_cli_argv(call, profile, slots, params):
 
     slots：bind 槽位的实参：{"text": ..., "ref_audio": ..., "ref_text": ..., "output_path": ...}
       值是 None 或空串的槽位不上命令行：没给参考文本时不该出现一个空的 --开关。
+      写进 argv 的那几个槽位（{text} 这类占位符）不适用这一条：位置参数必须占着位置，
+      请求里没有值时当场抛，宁可这次合成失败，也不让后面的词错位。
     params：引擎私有参数（call_time），键必须在 call.args 里有一条形状。
 
      抽成纯函数是有意的：不起进程、不装上游、没有 GPU 也能逐条测到
 四种开关形状写错，是这条路上判别力最高的地方。
     """
     values = _placeholder_values(profile)
+    raw_argv = call.get("argv") or []
+    bind = call.get("bind") or {}
+    in_argv = argv_slot_names(raw_argv)
+    for slot in in_argv:
+        if str(bind.get(slot) or "").strip():
+            raise ValueError(
+                "槽位 %r 被声明了两次：call.argv 里有 {%s}，call.bind.%s 又写了开关名 %r。"
+                "同一个槽位只能有一个去处，否则一次合成会把它发两遍。"
+                % (slot, slot, slot, bind.get(slot)))
+        val = slots.get(slot)
+        if val is None or (slot == "ref_text" and val == ""):
+            raise ValueError(
+                "call.argv 里有 {%s}（位置参数），这次请求没有给它值。"
+                "位置参数没有开关名可以省略，缺了它后面的词会错位。" % slot)
+        values[slot] = str(val)
     # 空白词不进命令行：名片里写了个空格等于没声明这一项，别让它变成一个空参数。
-    argv = [_expand_word(w, values, "call.argv") for w in (call.get("argv") or [])]
+    argv = [_expand_word(w, values, "call.argv") for w in raw_argv]
     argv = [w for w in argv if str(w).strip()]
     if not argv:
         raise ValueError('call.kind = "cli" 但 call.argv 是空的')
 
-    bind = call.get("bind") or {}
     for slot in BIND_SLOTS:
+        # argv 里已经用占位符给过值的槽位不再按开关发一遍。
+        if slot in in_argv:
+            continue
         # 开关名按 trim 后判空：只写了空格等于没声明这个槽位。
         flag = str(bind.get(slot) or "").strip()
         if not flag:

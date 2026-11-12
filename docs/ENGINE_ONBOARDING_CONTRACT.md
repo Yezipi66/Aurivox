@@ -192,9 +192,33 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 | `python` | `module` + `class` + `init_args` + `method` + `bind` | ✅ 进程活着模型在 |
 | `cli` | `argv` + `args` + `bind` | ⛔ 每次请求一个新进程，`/health` 诚实报 `resident: false` |
 
-`bind` 三个槽位，`text` 必填。⚠️ **两种形态里写的东西不同**：
+`bind` 四个槽位：`text` / `ref_audio` / `ref_text` / `output_path`。
+必填的是 `ref_audio`（引擎真的不用参考音频时写 `capabilities.requires_reference_audio: false`）
+与 `output_path`（只在 `call.returns` 是 `file` 时要）；`text` 可以不给，有的引擎不读正文。
+⚠️ **两种形态里写的东西不同**：
 `python` 填上游方法参数名，`cli` 填命令行开关（`--text`）。
 不检查的话，cli 形态里写 `spk_audio_prompt` 会变成一个孤零零的位置参数。
+
+### 位置参数：`call.argv` 里的槽位占位符
+
+上游把要合成的文本或输出路径写成位置参数时（`pkg-cli "文本" out.wav`），命令行上没有开关名，
+`bind` 的「槽位 → 开关」表达不了。这类引擎把槽位直接写进 `argv`：
+
+```json
+"call": { "kind": "cli", "argv": ["{engine_python}", "-m", "pkg.cli", "{text}", "{output_path}"], "bind": {} }
+```
+
+四个名字与 `bind` 的槽位同一张表：`{text}` / `{ref_audio}` / `{ref_text}` / `{output_path}`。
+两条规则，宿主都当场拒，不留半真半假的状态：
+
+- **同一个槽位只能有一个去处**：`argv` 里写了 `{text}`，`bind.text` 就必须空着，
+  否则一次合成会把文本发两遍，上游多收一个词就错位。
+- **位置参数不能缺**：请求里没有这个槽位时宿主拒绝，不让后面的词顶到前一个位置。
+  所以可缺的槽位（`ref_text`）不适合写成位置参数。
+
+⚠️ 向导第 4 步的必填区暂时还只认 `call.bind` 三格，`/wizard/validate` 会对这类名片报
+「少了必填项 call.bind.ref_audio」；校验规则在 `tools/engine-wizard/core/validate.js`，
+待补。名片本身经 JSON 逃生口可以照常落盘，运行时按上面两条规则走。
 
 ### `call.seed` 三态 [实测]
 
