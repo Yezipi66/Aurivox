@@ -34,10 +34,20 @@ test('界面发的是「清记录 + 删环境」，而不是只清记录', () =>
   const src = read('tools', 'engine-wizard', 'editor', 'StepDeps.jsx')
   assert.match(src, /removeVenv: true/,
     '⛔ 只清记录：下一次安装会沿用装了一半的环境，按钮看不出效果')
-  assert.match(src, /if \(!confirmReset\) \{ setConfirmReset\(true\); return \}/,
-    '⛔ 删环境是破坏性动作，必须先进入确认态再执行')
   assert.match(src, /onReload\(\)/,
     '⛔ 清完没刷新完成状态：界面会一直显示「已完成」')
+})
+
+test('删环境走确认弹窗，弹窗里写明要删的路径', () => {
+  const src = read('tools', 'engine-wizard', 'editor', 'StepDeps.jsx')
+  assert.match(src, /setAskReset\(true\)/,
+    '⛔ 按钮没有打开确认弹窗')
+  assert.match(src, /function ResetStepDialog/,
+    '⛔ 找不到确认弹窗组件')
+  assert.match(src, /const venvPath = 'engines\/' \+ engineId \+ '\/\.venv'/,
+    '⛔ 弹窗没写清删哪个目录：不可逆动作要让人看见确切路径')
+  assert.match(src, /<ResetStepDialog/,
+    '⛔ 组件定义了却没渲染，点了按钮不会有任何反应')
 })
 
 test('App 把刷新完成状态的回调交给第 2 步', () => {

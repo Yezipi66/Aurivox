@@ -234,13 +234,13 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
   // 清记录是基础动作；要不要连环境一起删，由调用方显式要求（removeVenv）。
   // 「从头重装本步」是破坏性动作：除了清完成记录，还要删掉 engines/<id>/.venv。
   //   只清记录时，下一次安装会沿用装了一半的环境，装坏的那个包不会被重装，
-  //   按钮看起来等于没生效。因此点两下才执行：第一下进入确认态，第二下真删。
-  const [confirmReset, setConfirmReset] = React.useState(false)
+  //   按钮看起来等于没生效。删目录不可逆，所以走确认弹窗，把要删的路径写清楚。
+  const [askReset, setAskReset] = React.useState(false)
+  const [resetBusy, setResetBusy] = React.useState(false)
   const [resetNote, setResetNote] = React.useState(null)
-  const resetThisStep = async () => {
+  const doResetStep = async () => {
     if (!targetId) return
-    if (!confirmReset) { setConfirmReset(true); return }
-    setConfirmReset(false)
+    setResetBusy(true)
     try {
       const r = await fetch('/wizard/reset-progress', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -263,6 +263,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
       setResetNote(t('Could not reach the wizard backend; the record is unchanged.',
         '连不上向导后端，记录没有被清掉。'))
     }
+    setResetBusy(false)
+    setAskReset(false)
   }
   React.useEffect(() => {
     if ((url || targetId) && !plan) reload() /* eslint-disable-line */
@@ -825,11 +827,8 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
                 不删引擎目录里的源码，也不删已装依赖。 */}
             {!busy && (
               <button className="btn btn-sm btn-danger" type="button"
-                onClick={() => resetThisStep()}>
-                {confirmReset
-                  ? t('Click again to delete the environment and reinstall',
-                    '再点一次，删除环境并重装')
-                  : t('Reinstall this step from the start', '从头重装本步')}
+                onClick={() => setAskReset(true)}>
+                {t('Reinstall this step from the start', '从头重装本步')}
               </button>
             )}
 
@@ -886,6 +885,49 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
           onDecline={() => answerUpgrade(false)}
         />
       )}
+      <ResetStepDialog
+        open={askReset}
+        engineId={targetId}
+        busy={resetBusy}
+        onCancel={() => { if (!resetBusy) setAskReset(false) }}
+        onConfirm={doResetStep}
+      />
+    </div>
+  )
+}
+
+// 「从头重装本步」的确认弹窗：要删的是 engines/<id>/.venv，不可撤回，
+//   所以把路径写在弹窗里，确认后才执行。形态同下面的 TorchUpgradeDialog。
+function ResetStepDialog ({ open, engineId, busy, onCancel, onConfirm }) {
+  const { t } = useT()
+  if (!open) return null
+  const venvPath = 'engines/' + engineId + '/.venv'
+  return (
+    <div className="modal-overlay" onClick={busy ? undefined : onCancel}>
+      <div className="modal-card confirm-card"
+        style={{ maxWidth: 520, padding: 20 }}
+        onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-hdr">
+          <span>{t('Reinstall this step from the start?', '从头重装本步？')}</span>
+        </div>
+        <div className="confirm-body">
+          <p style={{ marginTop: 0 }}>
+            {t('This clears the record of finished steps in this step and deletes '
+              + venvPath + ', so the next install builds the environment from scratch. '
+              + 'Source code and cached wheels are kept.',
+              '这会清除本步的完成记录，并删除 ' + venvPath + '，'
+              + '下一次安装从干净的环境重装。源码与已下载的依赖包保留。')}
+          </p>
+        </div>
+        <div className="confirm-actions">
+          <button className="btn btn-sm" type="button" onClick={onCancel} disabled={busy}>
+            {t('Cancel', '取消')}
+          </button>
+          <button className="btn btn-sm btn-danger" type="button" onClick={onConfirm} disabled={busy}>
+            {busy ? '…' : t('Delete and reinstall', '删除环境并重装')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
