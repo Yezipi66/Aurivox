@@ -2686,10 +2686,41 @@ function handleInstallState (req, res) {
   return true
 }
 
+/**
+ * 删掉权重落点目录里的文件，供「从头重装本步」使用。
+ *
+ * 落点以名片为准（`runtime.checkpoints`），没声明时用统一落点。
+ * 只删项目根之内的路径：名片是外部输入，`..` 与绝对路径都不能让它指到别处。
+ */
+function removeWeightsDir (root, id, dir) {
+  const { resolveCheckpointsRel } = require('./checkpointsPath')
+  const rel = resolveCheckpointsRel(readLocalManifest(dir), id)
+  const abs = path.resolve(root, rel)
+  const base = path.resolve(root)
+  if (abs !== base && !abs.startsWith(base + path.sep)) {
+    return { ok: false, code: 'BAD_PATH', rel, error: `权重落点不在项目目录内：${rel}` }
+  }
+  let existed = false
+  try { existed = fs.existsSync(abs) } catch (e) { existed = false }
+  if (!existed) return { ok: true, removed: false, rel, abs }
+  try {
+    fs.rmSync(abs, { recursive: true, force: true })
+  } catch (e) {
+    return {
+      ok: false, code: 'WEIGHTS_REMOVE_FAILED', rel, abs,
+      error: `删不掉 ${abs}：${(e && e.message) || String(e)}。若下载仍在进行，先停止再重试。`,
+    }
+  }
+  return { ok: true, removed: true, rel, abs }
+}
+
 // POST /wizard/reset-progress   {id, section, removeVenv}  逃生口：从头重装本步
 // 只清「哪些步骤算做完了」这份记录：
 //    不删引擎目录里的源码、不删已下载的模型文件。
 // section：'env'（第 2 步装依赖）/ 'models'（第 3 步下模型）/ 'all'
+// removeWeights：仅对 models / all 有效。为 true 时删掉权重落点目录里的文件。
+//    第 3 步的完成判据是「权重目录里有没有文件」，只清记录不会改变判定；
+//    删目录是不可逆动作，所以同样由调用方显式要求。
 // removeVenv：仅对 env / all 有效。为 true 时连 engines/<id>/.venv 一起删掉。
 //    只清记录时，下一次安装会沿用已装了一半的环境，装坏的那个包不会被重装，
 //    按钮看起来等于没生效；删 .venv 是破坏性动作，所以默认不删，由调用方显式要求。
@@ -2735,7 +2766,19 @@ function handleResetProgress (req, res) {
         json(res, 200, { ok: true, id, section, venvRemoved: v.removed === true, venvPath: v.dir })
         return
       }
-      json(res, 200, { ok: true, id, section, venvRemoved: false })
+      if (body.removeWeights === true && (section === 'models' || section === 'all')) {
+        const w = removeWeightsDir(root, id, dir)
+        if (!w.ok) {
+          json(res, 500, {
+            ok: false, code: w.code, id, section, weightsPath: w.rel, error: w.error,
+            noteZh: '下载记录已清除，但权重目录没有删掉；按提示处理后重试。',
+          })
+          return
+        }
+        json(res, 200, { ok: true, id, section, weightsRemoved: w.removed === true, weightsPath: w.rel })
+        return
+      }
+      json(res, 200, { ok: true, id, section, venvRemoved: false, weightsRemoved: false })
     } catch (e) {
       json(res, 500, { ok: false, code: 'RESET_FAILED',
         error: (e && e.message) || String(e) })

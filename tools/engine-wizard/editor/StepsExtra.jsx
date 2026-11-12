@@ -5,6 +5,7 @@ import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
 import { downloadFiles, readSse, fileSlot } from './downloadRunner'
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
+import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -13,11 +14,15 @@ import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdir
 // 下载来源（HF / 魔搭）的判定只有一处：downloadSource.js 的 sourceOf。
 //   显示的命令、列清单用的 tool、清单逐行回写的 tool 都从它取。
 
-export function StepModels ({ state, onChange, probe, prep, onFixId }) {
+export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath }) {
   const { t, lang } = useT()
   const [r, setR] = React.useState(null)
   const [err, setErr] = React.useState(null)
   const [busy, setBusy] = React.useState(false)
+  // 「从头重装本步」：删的是权重目录里的文件，不可撤回，所以走确认弹窗。
+  const [askReset, setAskReset] = React.useState(false)
+  const [resetBusy, setResetBusy] = React.useState(false)
+  const [resetNote, setResetNote] = React.useState(null)
   const sessionId = (prep && prep.res && prep.res.id) || ''
   React.useEffect(() => {
     if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
@@ -38,9 +43,39 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
       setR({ ok: true, manifest: null, status: null, commands: [], downloader_cmds: cmds, downloader: scripts })
       // 清空之前列出的仓库文件
       setManifest(null)
-      setListError(null)
+      setListErrors({})
       setFileList(null)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  // 从头重装：清记录 + 删权重目录。端点回报删了没有与路径，界面据此说结果。
+  const doResetStep = async () => {
+    if (!id) return
+    setResetBusy(true)
+    try {
+      const resp = await fetch('/wizard/reset-progress', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, section: 'models', removeWeights: true }),
+      })
+      const j = await resp.json().catch(() => null)
+      if (j && j.ok) {
+        setResetNote(j.weightsRemoved
+          ? t('Cleared the record and deleted ' + (j.weightsPath || weightsPath || '') + '.',
+            '已清除下载记录并删除 ' + (j.weightsPath || weightsPath || '') + '。')
+          : t('Cleared the record. There was no weights folder on disk, so nothing was deleted.',
+            '已清除下载记录；磁盘上没有权重目录，没有文件被删。'))
+        load()
+        if (onChange) onChange()
+      } else {
+        setResetNote(t((j && j.error) || 'Reset failed; the record is unchanged.',
+          (j && (j.noteZh || j.error)) || '重置失败，记录没有被清掉。'))
+      }
+    } catch (e) {
+      setResetNote(t('Could not reach the wizard backend; the record is unchanged.',
+        '连不上向导后端，记录没有被清掉。'))
+    }
+    setResetBusy(false)
+    setAskReset(false)
   }
 
   // 下载状态（SSE 流式）。
@@ -1416,28 +1451,47 @@ export function StepModels ({ state, onChange, probe, prep, onFixId }) {
         />
       )}
 
+      <ConfirmDialog
+        open={askReset}
+        danger
+        busy={resetBusy}
+        title={t('Reinstall this step from the start?', '从头重装本步？')}
+        message={t('This clears the record of finished downloads and deletes every file under '
+          + (weightsPath || ('engines/' + id + '/checkpoints')) + ', including files you put there yourself. '
+          + 'The next download fetches them again.',
+          '这会清除本步的下载记录，并删除 ' + (weightsPath || ('engines/' + id + '/checkpoints'))
+          + ' 下的全部文件（包括你手动放进去的）；下一次下载会重新取。')}
+        confirmLabel={t('Delete and reinstall', '删除文件并重装')}
+        onCancel={() => { if (!resetBusy) setAskReset(false) }}
+        onConfirm={doResetStep}
+      />
+
       {/* 命令：平台只填好占位符打印出来，不代下载。
           下载清单来自 probe，不依赖 manifest。*/}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm" type="button" onClick={load} disabled={busy || !id}>
+        <button className="btn btn-sm" type="button"
+          onClick={() => { load(); if (onChange) onChange() }}
+          disabled={busy || !id}>
           {busy ? t('Checking…', '正在检查…') : t('Check again', '重新检查')}
         </button>
-        {/* 从头重装本步：只清「哪些下载算做完了」这份记录（models 段），
-            不删已下载的模型文件、不删源码与依赖。*/}
+        {/* 从头重装本步：清下载记录并删掉权重目录里的文件，下一次下载会重新取。 */}
         {id && (
           <>
-            <button className="btn btn-sm" type="button"
+            <button className="btn btn-sm btn-danger" type="button"
               disabled={dlBusy}
-              onClick={() => resetThisStepOf(id)}>
+              onClick={() => setAskReset(true)}>
               {t('Reinstall this step from the start', '从头重装本步')}
             </button>
             <span className="field-hint">
-              {t('Clears the record of finished downloads in this step only. '
-                + 'Downloaded files are kept.',
-                '只清除本步的已完成记录，已下载的文件保留。')}
+              {t('Clears the record of finished downloads and deletes the files in the weights '
+                + 'folder, so they are fetched again.',
+                '清除本步的下载记录，并删除权重目录里的文件，下一次下载会重新取。')}
             </span>
           </>
+        )}
+        {resetNote && (
+          <div className="field-hint" style={{ flexBasis: '100%' }}>{resetNote}</div>
         )}
       </div>
     </div>
@@ -1524,15 +1578,7 @@ function HfTokenDialog ({ info, canRetry, configured, busy, error, onSave, onCle
   )
 }
 
-/** 从头重装本步：清 models 段的进度记录（不删已下载的文件） */
-async function resetThisStepOf (id) {
-  try {
-    await fetch('/wizard/reset-progress', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, section: 'models' }),
-    })
-  } catch (e) { /* 端点不通 ⇒ 记录还在，不当成已清 */ }
-}
+
 
 // StepVerify 已移出本文件：它现在自己管三项独立验证，各报各的状态。
 export { StepVerify } from './StepVerify'

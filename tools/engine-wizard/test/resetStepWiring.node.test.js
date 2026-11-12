@@ -42,12 +42,44 @@ test('删环境走确认弹窗，弹窗里写明要删的路径', () => {
   const src = read('tools', 'engine-wizard', 'editor', 'StepDeps.jsx')
   assert.match(src, /setAskReset\(true\)/,
     '⛔ 按钮没有打开确认弹窗')
-  assert.match(src, /function ResetStepDialog/,
-    '⛔ 找不到确认弹窗组件')
-  assert.match(src, /const venvPath = 'engines\/' \+ engineId \+ '\/\.venv'/,
+  // 弹窗只有一份实现（主界面的 ConfirmDialog），不在本文件里另抄一个。
+  assert.match(src, /import \{ ConfirmDialog \} from '\.\.\/\.\.\/\.\.\/web\/src\/components\/common\/Dialogs'/,
+    '⛔ 没有复用共享确认弹窗')
+  assert.match(src, /<ConfirmDialog/,
+    '⛔ 组件导入了却没渲染，点了按钮不会有任何反应')
+  assert.match(src, /engines\/' \+ targetId \+ '\/\.venv/,
     '⛔ 弹窗没写清删哪个目录：不可逆动作要让人看见确切路径')
-  assert.match(src, /<ResetStepDialog/,
-    '⛔ 组件定义了却没渲染，点了按钮不会有任何反应')
+  assert.strictEqual(/function ResetStepDialog/.test(src), false,
+    '⛔ 又抄了一个本地弹窗：同一个语义只能有一份实现')
+})
+
+test('第 3 步的重装走同一个确认弹窗，并删掉权重目录', () => {
+  const src = read('tools', 'engine-wizard', 'editor', 'StepsExtra.jsx')
+  assert.match(src, /removeWeights: true/,
+    '⛔ 只清下载记录：权重还在，重装等于没做')
+  assert.match(src, /<ConfirmDialog/,
+    '⛔ 删权重文件是破坏性动作，要先确认')
+  assert.match(src, /onChange\(\)/,
+    '⛔ 重置后没刷新完成状态')
+})
+
+test('第 3 步的「重新检查」要连带重算完成状态', () => {
+  const src = read('tools', 'engine-wizard', 'editor', 'StepsExtra.jsx')
+  assert.match(src, /onClick=\{\(\) => \{ load\(\); if \(onChange\) onChange\(\) \}\}/,
+    '⛔ 重新检查只重取清单，不重算第 3 步是否完成：勾与磁盘不一致')
+})
+
+test('第 3 步的状态名笔误（setListError 未定义）不再出现', () => {
+  const src = read('tools', 'engine-wizard', 'editor', 'StepsExtra.jsx')
+  // 状态是 listErrors；写成 setListError 会在渲染时抛 ReferenceError，整步白屏。
+  assert.strictEqual(/\bsetListError\s*\(/.test(src), false,
+    '⛔ 又出现 setListError(：状态名是 listErrors，这个 setter 不存在')
+})
+
+test('App 把权重落点交给第 3 步，弹窗才能写出要删的路径', () => {
+  const src = read('tools', 'engine-wizard', 'editor', 'App.jsx')
+  assert.match(src, /weightsPath=\{facts\.checkpoints_path\}/,
+    '⛔ 没传落点：弹窗只能写死一个默认路径，gpt-sovits 这类自定义落点会写错')
 })
 
 test('App 把刷新完成状态的回调交给第 2 步', () => {

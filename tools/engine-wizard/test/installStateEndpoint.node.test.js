@@ -280,3 +280,75 @@ test('reset-progress 清 models 段时不动第 2 步的环境', async () => {
     })
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+// 第 3 步的完成判据是「权重目录里有没有文件」，只清下载记录不会改变判定。
+//   所以「从头重装本步」要能连文件一起删，且必须由调用方显式要求。
+
+test('reset-progress 带 removeWeights ⇒ 权重目录被删，源码保留', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    fs.mkdirSync(path.join(d, 'checkpoints'), { recursive: true })
+    fs.writeFileSync(path.join(d, 'checkpoints', 'model.bin'), 'x')
+    fs.writeFileSync(path.join(d, 'README.md'), 'x')
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress',
+        { id: 'e1', root, section: 'models', removeWeights: true })
+      assert.strictEqual(r.status, 200)
+      assert.strictEqual(r.json.ok, true)
+      assert.strictEqual(r.json.weightsRemoved, true, '⛔ 要求删权重却没删')
+      assert.strictEqual(fs.existsSync(path.join(d, 'checkpoints')), false, '⛔ 权重目录还在')
+      assert.ok(fs.existsSync(path.join(d, 'README.md')), '⛔ 把引擎源码一起删了')
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('reset-progress 不带 removeWeights ⇒ 只清记录，权重文件留着', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    fs.mkdirSync(path.join(d, 'checkpoints'), { recursive: true })
+    fs.writeFileSync(path.join(d, 'checkpoints', 'model.bin'), 'x')
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress', { id: 'e1', root, section: 'models' })
+      assert.strictEqual(r.json.weightsRemoved, false)
+      assert.ok(fs.existsSync(path.join(d, 'checkpoints', 'model.bin')),
+        '⛔ 没要求删权重却删了：默认行为必须是非破坏性的')
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('reset-progress 清第 2 步时不动第 3 步的权重', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    fs.mkdirSync(path.join(d, 'checkpoints'), { recursive: true })
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress',
+        { id: 'e1', root, section: 'env', removeWeights: true })
+      assert.strictEqual(r.json.ok, true)
+      assert.ok(fs.existsSync(path.join(d, 'checkpoints')),
+        '⛔ 清第 2 步的记录把第 3 步的权重删了')
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('reset-progress 认名片声明的自定义权重落点', async () => {
+  const root = mkdtempRoot()
+  try {
+    const d = path.join(root, 'engines', 'e1')
+    fs.mkdirSync(d, { recursive: true })
+    fs.mkdirSync(path.join(root, 'models', 'tts', 'e1'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'models', 'tts', 'e1', 'm.bin'), 'x')
+    fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({
+      id: 'e1', runtime: { checkpoints: 'models/tts/e1' },
+    }))
+    await withServer(async (port) => {
+      const r = await post(port, '/wizard/reset-progress',
+        { id: 'e1', root, section: 'models', removeWeights: true })
+      assert.strictEqual(r.json.weightsPath, 'models/tts/e1',
+        '⛔ 没按名片声明的落点删：删错目录或什么都没删')
+      assert.strictEqual(fs.existsSync(path.join(root, 'models', 'tts', 'e1')), false)
+    })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

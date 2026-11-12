@@ -2,6 +2,7 @@
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { IconPencil } from '../../../web/src/components/common/Icons'
+import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { loadSession, saveSession } from './useInstallSession'
@@ -885,49 +886,20 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
           onDecline={() => answerUpgrade(false)}
         />
       )}
-      <ResetStepDialog
+      <ConfirmDialog
         open={askReset}
-        engineId={targetId}
+        danger
         busy={resetBusy}
+        title={t('Reinstall this step from the start?', '从头重装本步？')}
+        message={t('This clears the record of finished steps in this step and deletes '
+          + 'engines/' + targetId + '/.venv, so the next install builds the environment from scratch. '
+          + 'Source code and cached wheels are kept.',
+          '这会清除本步的完成记录，并删除 engines/' + targetId + '/.venv，'
+          + '下一次安装从干净的环境重装。源码与已下载的依赖包保留。')}
+        confirmLabel={t('Delete and reinstall', '删除环境并重装')}
         onCancel={() => { if (!resetBusy) setAskReset(false) }}
         onConfirm={doResetStep}
       />
-    </div>
-  )
-}
-
-// 「从头重装本步」的确认弹窗：要删的是 engines/<id>/.venv，不可撤回，
-//   所以把路径写在弹窗里，确认后才执行。形态同下面的 TorchUpgradeDialog。
-function ResetStepDialog ({ open, engineId, busy, onCancel, onConfirm }) {
-  const { t } = useT()
-  if (!open) return null
-  const venvPath = 'engines/' + engineId + '/.venv'
-  return (
-    <div className="modal-overlay" onClick={busy ? undefined : onCancel}>
-      <div className="modal-card confirm-card"
-        style={{ maxWidth: 520, padding: 20 }}
-        onClick={(e) => e.stopPropagation()}>
-        <div className="confirm-hdr">
-          <span>{t('Reinstall this step from the start?', '从头重装本步？')}</span>
-        </div>
-        <div className="confirm-body">
-          <p style={{ marginTop: 0 }}>
-            {t('This clears the record of finished steps in this step and deletes '
-              + venvPath + ', so the next install builds the environment from scratch. '
-              + 'Source code and cached wheels are kept.',
-              '这会清除本步的完成记录，并删除 ' + venvPath + '，'
-              + '下一次安装从干净的环境重装。源码与已下载的依赖包保留。')}
-          </p>
-        </div>
-        <div className="confirm-actions">
-          <button className="btn btn-sm" type="button" onClick={onCancel} disabled={busy}>
-            {t('Cancel', '取消')}
-          </button>
-          <button className="btn btn-sm btn-danger" type="button" onClick={onConfirm} disabled={busy}>
-            {busy ? '…' : t('Delete and reinstall', '删除环境并重装')}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

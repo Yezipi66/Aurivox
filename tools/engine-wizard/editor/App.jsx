@@ -367,6 +367,7 @@ export default function App () {
               <StepModels state={wz} onChange={reloadFacts}
                 prep={prep}
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
+                weightsPath={facts.checkpoints_path}
                 probe={prep.probe || null} />
             )}
             {page === 'verify' && (
