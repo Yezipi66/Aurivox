@@ -102,3 +102,19 @@ test('声明的入口之外，打分出来的实现文件也要留在候选里',
   assert.ok(got.candidates.some((c) => c.file === 'melo/infer.py'),
     '打分出来的实现文件必须留在候选里，否则下拉里没有能跑的入口')
 })
+
+// 新增四台仓库暴露的写法：演示目录、微调目录、*_demo.py、ASR 转写与音素化脚本。
+// 它们被推荐成入口时第 5 步一定失败，而报错指向 Python，看不出是入口选错。
+test('演示、微调、转写与数据准备脚本也不算入口', () => {
+  const aux = ['tts_demo.py', 'demo/realtime_model_inference_from_file.py',
+    'finetune_codes/model.py', 'finetune_codes/demo_data/prepare.py',
+    'funasr_detach/models/whisper/utils/transcribe.py',
+    'data/phonemize_encodec_encode_hf.py']
+  for (const f of aux) assert.strictEqual(isAuxEntryFile(f), true, `${f} 不是合成入口`)
+})
+
+test('入口词覆盖规则没有被上一条带偏', () => {
+  const keep = ['tts_app.py', 'train_cli.py', 'webui_cli.py', 'examples/cmd/run.py',
+    'tts_inference.py', 'infer.py']
+  for (const f of keep) assert.strictEqual(isAuxEntryFile(f), false, `${f} 仍是入口`)
+})

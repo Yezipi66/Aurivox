@@ -63,13 +63,15 @@ const AUX_TOKENS = new Set([
   'concat', 'align', 'alignment',
   'webui', 'app', 'gradio', 'gui', 'demo', 'launch', 'server', 'client',
   'api', 'fastapi', 'grpc', 'service',
-  'evaluate', 'evaluation', 'benchmark', 'metric', 'download',
+  'evaluate', 'evaluation', 'benchmark', 'metric', 'download', 'transcribe', 'phonemize',
 ])
+// 演示、微调与训练代码常整棵放在单独的目录里，文件名上不带对应的词。
+const AUX_DIR_RE = /^(?:demo|demos|finetune(?:[_-]\w+)*|train(?:ing)?(?:[_-]\w+)*)$/
 // 入口词：出现它们时，文件是「某个非入口对象的命令行」，仍然算入口。
 //   上游常见写法是 webui_cli.py、tts_app.py 这类，前面那个词单独出现时才是非入口。
 const ENTRY_TOKENS = new Set(['cli', 'main', 'run', 'infer', 'inference', 'synth', 'synthesis', 'tts'])
 // 部署树里的脚本要连服务端才能跑，不是本机单次合成的入口。
-const AUX_DIRS = new Set(['runtime', 'deploy', 'deployment', 'docker'])
+const AUX_DIRS = new Set(['runtime', 'deploy', 'deployment', 'docker', 'data'])
 
 /**
  * 这个文件是不是「不是合成入口」的那一类。
@@ -84,8 +86,10 @@ const AUX_DIRS = new Set(['runtime', 'deploy', 'deployment', 'docker'])
 function isAuxEntryFile (file) {
   const parts = String(file || '').replace(/\\/g, '/').toLowerCase().split('/').filter(Boolean)
   const base = parts.pop() || ''
-  if (parts.some((p) => AUX_DIRS.has(p))) return true
+  if (parts.some((p) => AUX_DIRS.has(p) || AUX_DIR_RE.test(p))) return true
   const tokens = base.replace(/\.py$/, '').split(/[^a-z0-9]+/).filter(Boolean)
+  // demo 结尾的脚本是演示程序，即便名字里带 tts / inference 也不是合成入口。
+  if (tokens[tokens.length - 1] === 'demo') return true
   if (tokens.some((t) => ENTRY_TOKENS.has(t))) return false
   return tokens.some((t) => AUX_TOKENS.has(t))
 }
