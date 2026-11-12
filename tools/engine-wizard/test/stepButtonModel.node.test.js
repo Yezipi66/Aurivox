@@ -27,10 +27,15 @@ test('「下一步」按钮只跳转、不再克隆（onClick 是 onNext，不�
 })
 
 test('克隆按钮只在读取成功后出现（readSomething && !done 门控）', () => {
-  // doClone(true) 的调用点必须落在「读取成功、未克隆」的块里：
+  // doClone(true) 的调用点必须落在「读取成功、未克隆」那个 JSX 块里：
   // 读取前只有「读取仓库信息」，不该有克隆入口。
-  // 门控条件在 doClone(true) 之前约 4.7k 字符处（命令区 + 结果提示夹在中间），窗口留 5k 余量。
-  assert.ok(/readSomething\s*&&\s*!done[\s\S]{0,5000}?doClone\(true\)/.test(prepSrc),
+  // 判据按块切，不按字符距离：中间的命令区与结果提示一变长，字符窗口就要跟着调，
+  //   那种数字迟早会拦下一次无害的排版改动。
+  const marker = '{resForCur && resForCur.ok && readSomething && !done && ('
+  const after = prepSrc.split(marker)[1] || ''
+  const block = after.split('{resForCur &&')[0]
+  assert.ok(block.length > 0, '找不到「读取成功、未克隆」那个块的起点：门控被改了')
+  assert.ok(/doClone\(true\)/.test(block),
     '克隆按钮没被 readSomething && !done 门控：没读取也能克隆（心智错位）')
 })
 
@@ -108,9 +113,9 @@ test('显示区全部用对应当前输入的 resForCur，不用裸 res', () => 
 // 判据失守时 done 恒 false，克隆完成后「撤销克隆 / 下一步」永远不会出现，
 // 使用者被卡在第 1 步；而流程条（steps.js 的 stepDone）用 facts.prepare 判，
 // 同一份 facts 两处判据打架，界面自相矛盾。
-test('第 1 步完成状态用 facts.prepare，不用不存在的 facts.cloned', () => {
-  assert.ok(/const done = facts && facts\.prepare === true/.test(prepSrc),
-    'done 用了 facts.cloned：steps_done 没有这个键，done 恒 false，克隆后「下一步」永不出现')
+test('第 1 步完成状态用 cloneDone（与当前目录名同源），不用不存在的 facts.cloned', () => {
+  assert.ok(/const done = cloneDone\(\{ facts, factsId, curId \}\)/.test(prepSrc),
+    'done 没走 cloneDone：只比 facts.prepare 会把旧引擎的完成状态显示在新仓库上')
   // 只查代码用法（facts.cloned ===），注释里提到这个键名是允许的。
   assert.ok(!/facts\.cloned\s*===/.test(prepSrc),
     '代码里还有 facts.cloned ===：后端只提供五个步骤键，cloned 是死键')
@@ -129,7 +134,7 @@ test('无孤儿：setRes、relEngineDir 已删，撤销克隆不写孤儿键', (
 
 // 撤销克隆（第 1 步）后必须重新判完成状态：目录删了 ⇒ facts.prepare 变 false，
 // 「已克隆」区收起、回到命令区。判据失守时界面仍停在「已克隆」，下一步还能走。
-test('撤销克隆后重新判完成状态（App 把 reloadFacts 交给 StepPrepare）', () => {
-  assert.ok(/onUndone=\{\(\) => reloadFacts\(\)\}/.test(appSrc),
-    'App 没把 reloadFacts 给 StepPrepare：撤销后 facts 不刷新，「已克隆」区不收起')
+test('撤销克隆后按被删的那个目录名重新判完成状态', () => {
+  assert.ok(/onUndone=\{\(id\) => reloadFacts\(id\)\}/.test(appSrc),
+    'App 没按被删的 id 重读：撤销后 facts 还留在上一台，界面与磁盘不一致')
 })
