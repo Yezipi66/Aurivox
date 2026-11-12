@@ -151,6 +151,12 @@ function diagnose (manifest) {
   const rt = manifest.runtime || {}
   const callObj = (manifest.call && typeof manifest.call === 'object') ? manifest.call : {}
   const bindObj = callObj.bind || {}
+  // argv 里的槽位占位符：位置参数没有开关名，去处只能写在 argv 里（{text} 这种）。
+  //   写了也算声明过这一项，必填区那两格随之不再要求 bind。
+  const argvSlots = new Set()
+  for (const word of (Array.isArray(callObj.argv) ? callObj.argv : [])) {
+    for (const m of String(word).matchAll(/\{(text|ref_audio|ref_text|output_path)\}/g)) argvSlots.add(m[1])
+  }
   const returns = callObj.returns || 'file'
   const isSharedHost = platformProfile().isSharedHost
   // 三个输入槽位是通用宿主读的（lib/engines/hostProfile.js）。引擎自带服务脚本、
@@ -162,14 +168,23 @@ function diagnose (manifest) {
     // 参考音频默认要（多数引擎靠参考音频定音色）；引擎真的不用时写
     //   capabilities.requires_reference_audio = false，这一项随之不再要求。
     { path: 'call.bind.ref_audio', v: bindObj.ref_audio, section: 'call',
-      when: needsBind && (manifest.capabilities || {}).requires_reference_audio !== false },
-    { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call', when: needsBind && returns === 'file' },
+      when: needsBind && (manifest.capabilities || {}).requires_reference_audio !== false &&
+        !argvSlots.has('ref_audio') },
+    { path: 'call.bind.output_path', v: bindObj.output_path, section: 'call',
+      when: needsBind && returns === 'file' && !argvSlots.has('output_path') },
     { path: 'runtime.python', v: rt.python, section: 'runtime' },
     { path: 'runtime.entry', v: rt.entry, section: 'runtime' },
     // 启动脚本不是平台通用宿主 ⇒ 平台不知道就绪端点，照旧必填。
     { path: 'runtime.ready_endpoint', v: rt.ready_endpoint, section: 'runtime',
       when: !!rt.entry && !isSharedHost(rt.entry) },
   ]
+  for (const slot of argvSlots) {
+    if (!String(bindObj[slot] || '').trim()) continue
+    push('error', 'CALL_SLOT_DECLARED_TWICE',
+      `「call.bind.${slot}」与「call.argv」里的 {${slot}} 同时声明了同一个槽位，宿主会拒。二者只留一个。`,
+      { section: 'call', field: `call.bind.${slot}`,
+        sectionMeta: SECTIONS_BY_KEY.call || null, danger: DANGER.BLOCK })
+  }
   for (const req of REQUIRED_KEYS) {
     if (req.when === false) continue
     try {

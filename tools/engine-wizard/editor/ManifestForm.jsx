@@ -1,14 +1,16 @@
 // Manifest 表单编辑器：按 fieldmeta 分组渲染输入，值交给调用方。只做界面层的输入与
 // 结构，不做合成逻辑、不写 manifest.json；渲染只用项目已有的类与组件，不自造 mf-* / pr-*。
 //
-// 两区：① 必填字段 6 格（RequiredFields）；② 可选参数：合成参数（ParamDropZone）+
-// 引擎配置（OptionalConfig）。扫描发生在左栏 EngineScanZone，结果由页面层传进来。
+// 三段：① 必填字段 6 格（RequiredFields）；② 命令行词序（ArgvWords，只有 cli 形态有）；
+// ③ 可选参数：合成参数（ParamDropZone）+ 引擎配置（OptionalConfig）。
+// 扫描发生在左栏 EngineScanZone，结果由页面层传进来。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import OptionalConfig from './OptionalConfig'
 import RequiredFields from './RequiredFields'
 import ParamDropZone from './ParamDropZone'
 import ParamRow from './ParamRow'
+import ArgvWords from './ArgvWords'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 import {
   shouldFillModelsRequired, withModelsRequired, requiredFromFiles,
@@ -84,6 +86,10 @@ export default function ManifestForm ({
     </p>
   }
 
+  // 有 argv 的才是 cli 形态；python 形态没有命令行词序可编辑。
+  const callObj = (manifest && manifest.call) || {}
+  const isCli = callObj.kind === 'cli' || Array.isArray(callObj.argv)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
@@ -94,6 +100,9 @@ export default function ManifestForm ({
         entryCandidates={entryCandidates || []}
         pythonEntries={pythonEntries || []}
         entryConfidence={autofill && autofill.confidence} />
+
+      {/* ①·5 命令行词序：argv 是有序词表，位置参数只能写在这里（必填区那四格只收开关名）。 */}
+      {isCli && <ArgvWords manifest={manifest} onChange={onChange} />}
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。

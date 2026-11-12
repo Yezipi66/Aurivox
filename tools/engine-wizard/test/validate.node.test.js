@@ -206,3 +206,39 @@ test('权重位的形态写了不认识的值：第 4 步就报出来', () => {
   const errs = diagnose(manifest).filter((d) => d.level === 'error')
   assert.ok(errs.some((e) => /kind/.test(e.message)), 'kind 的取值要当场校验')
 })
+
+// 位置参数：去处写在 argv 的占位符里（{text} / {output_path}），
+//   必填区的 bind 那两格随之不再要求；两处都写则是同一个槽位发两遍。
+const positionalBase = () => ({
+  id: 'wobble-pos',
+  label: { en: 'Wobble', zh: '沃博' },
+  runtime: { python: 'engines/wobble-pos/.venv' },
+  call: {
+    kind: 'cli',
+    argv: ['prog', '{text}', '{output_path}'],
+    bind: {},
+    returns: 'file',
+    seed: 'none',
+  },
+})
+
+test('位置参数写在 argv 里：不报「少了必填项 call.bind.output_path」', () => {
+  const diags = diagnose(positionalBase())
+  assert.deepStrictEqual(diags.filter((d) => d.field === 'call.bind.output_path'), [])
+})
+
+test('同一个槽位两处都写：第 4 步就报出来', () => {
+  const m = positionalBase()
+  m.call.bind = { output_path: '--output' }
+  const diags = diagnose(m)
+  assert.ok(diags.some((d) => d.code === 'CALL_SLOT_DECLARED_TWICE'),
+    '同一个槽位声明两次要有一条 error，而不是等宿主拒')
+})
+
+test('argv 里没有占位符时，output_path 仍算必填', () => {
+  const m = positionalBase()
+  m.call.argv = ['prog', '--text']
+  const diags = diagnose(m)
+  assert.ok(diags.some((d) => d.field === 'call.bind.output_path'),
+    '没声明去处就得报缺，别把必填项放空')
+})
