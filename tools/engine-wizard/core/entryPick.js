@@ -273,11 +273,21 @@ function pickEntry (params, opts = {}) {
   //   都没有才回到四类打分，四类不足再退三类。
   const best = scored.filter((s) => s.score >= 3).sort(rank)
   const byScore = best.length ? best : scored.filter((s) => s.score >= 2).sort(rank)
-  const pool = declaredHits.length
+  // 声明与 README 决定「默认选谁」，候选清单却要把打分结果一并给出来：
+  //   作者的声明里常是包装脚本或界面脚本，参数完整的实现文件只出现在打分结果里。
+  //   只给声明那几条时，下拉里只剩跑不起来的入口，看着像「找不到入口」。
+  const primary = declaredHits.length
     ? declaredHits
-    : (readmeHits.length
-      ? readmeHits
-      : byScore.map((s) => ({ entry: s, module: null })))
+    : (readmeHits.length ? readmeHits : [])
+  const scoredPool = byScore.map((s) => ({ entry: s, module: null }))
+  const pool = []
+  const seenFiles = new Set()
+  for (const c of [...primary, ...scoredPool]) {
+    const key = String(c.entry.file)
+    if (seenFiles.has(key)) continue
+    seenFiles.add(key)
+    pool.push(c)
+  }
 
   // 前两名在「分数、文本同名、文本必填、参数个数」上完全一致时，证据分不出高下。
   //   此刻的先后只由上面那条字典序决定，那是排序的确定性，不是证据。
@@ -323,7 +333,7 @@ function pickEntry (params, opts = {}) {
     source: declaredHits.length ? 'entry-points' : (readmeHits.length ? 'readme' : 'score'),
     confidence,
     ambiguous,
-    candidates: candidates.slice(0, 3),
+    candidates: candidates.slice(0, 4),
   }
 }
 

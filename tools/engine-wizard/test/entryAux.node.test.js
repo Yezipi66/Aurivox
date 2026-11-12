@@ -86,3 +86,19 @@ test('辅助脚本不进候选表，避免界面把三个位置全给它们', ()
   const got = pickEntry(params)
   assert.deepStrictEqual(got.candidates.map((c) => c.file), ['pkg/infer.py'])
 })
+
+test('声明的入口之外，打分出来的实现文件也要留在候选里', () => {
+  // 打包声明里常是包装脚本（要 -c 调用），真正的 argparse 实现在同仓库另一个文件。
+  //   候选池只留声明那几条时，界面下拉里就只剩跑不起来的入口。
+  const params = [
+    flag('melo/main.py', 'speaker'),
+    flag('melo/infer.py', 'text'),
+    flag('melo/infer.py', 'output_dir'),
+    flag('melo/infer.py', 'ckpt_path'),
+    flag('melo/infer.py', 'language'),
+  ]
+  const got = pickEntry(params, { fromEntryPoints: { modules: ['melo.main'], files: [] } })
+  assert.strictEqual(got.file, 'melo/main.py', '默认仍按作者的声明')
+  assert.ok(got.candidates.some((c) => c.file === 'melo/infer.py'),
+    '打分出来的实现文件必须留在候选里，否则下拉里没有能跑的入口')
+})
