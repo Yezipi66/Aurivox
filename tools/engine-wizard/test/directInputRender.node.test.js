@@ -52,6 +52,8 @@ const StepModels = loadJsx('StepsExtra.jsx', {
     downloadFiles: async () => ({}), readSse: async () => {},
     fileSlot: (f) => `${f.kind === 'url' ? 'url' : 'repo'}|${f.kind === 'url' ? f.url : f.repo}|${f.subdir || ''}|${f.name}`,
   },
+  // 确认弹窗是主界面的共享组件，本测试只关心下载面板，不评价它。
+  'components/common/Dialogs': { ConfirmDialog: () => null },
   './downloadSource': loadEsm(path.join(EDITOR_DIR, 'downloadSource.js')),
   './StepVerify': { StepVerify: () => null },
 }).StepModels

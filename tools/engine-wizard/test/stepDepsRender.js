@@ -63,6 +63,8 @@ function loadStepDeps () {
     if (/i18n/.test(id)) return { useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) }
     if (/components\/common\/Icons/.test(id)) return loadIcons(esbuild)
     if (/\.\/(Pipeline|UndoClone|useInstallSession)/.test(id)) return { default: () => null }
+    // 确认弹窗是主界面的共享组件，被测的是版本控件与包分组，它只要不炸就行。
+    if (/components\/common\/Dialogs/.test(id)) return { ConfirmDialog: () => null }
     throw new Error('StepDeps 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
