@@ -214,10 +214,13 @@ def _expand_word(raw, values, where):
     return out
 
 
+# call.bind 的槽位。与 lib/engines/hostProfile.js 的 BIND_SLOTS 同一张表，有测试盯着两边一致。
+#   定义在这里是因为下面那两处都要用它：按开关名发值（build_cli_argv）与按位置发值（占位符）。
+BIND_SLOTS = ("text", "ref_audio", "ref_text", "output_path")
+
 # 槽位占位符：命令行上没有开关名的位置参数，只能按位置给值。
-#   写法是 {text} / {ref_audio} / {ref_text} / {output_path}，与 call.bind 的槽位同一张表
-#   （BIND_SLOTS 在文件后段定义，此处按同一份清单写死，改一处要同时改另一处）。
-SLOT_PLACEHOLDER_RE = re.compile(r"\{(text|ref_audio|ref_text|output_path)\}")
+#   名字只有一个来源，就是上面列出的四个槽位：多写一份清单，迟早有一处改漏。
+SLOT_PLACEHOLDER_RE = re.compile(r"\{(%s)\}" % "|".join(BIND_SLOTS))
 
 
 def argv_slot_names(argv):
@@ -1167,10 +1170,6 @@ REQUEST_REF_TEXT_KEY = "reference_text"
 LEGACY_REF_AUDIO_KEY = "ref_audio_path"
 CORE_KEYS = frozenset({REQUEST_TEXT_KEY, REQUEST_REF_AUDIO_KEY, REQUEST_REF_TEXT_KEY,
                       LEGACY_REF_AUDIO_KEY, "seed", "format", "media_type", "method"})
-# call.bind 的槽位，与 lib/engines/hostProfile.js 的 BIND_SLOTS 同一张表。
-BIND_SLOTS = ("text", "ref_audio", "ref_text", "output_path")
-
-
 def request_ref_audio(body):
     """请求里的参考音频路径；没给或给了空串都是 None。"""
     ref = body.get(REQUEST_REF_AUDIO_KEY)
