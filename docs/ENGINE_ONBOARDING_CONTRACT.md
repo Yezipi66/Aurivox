@@ -216,6 +216,35 @@ numpy 覆盖了项目 venv 的，报 `ModuleNotFoundError: numpy._core._multiarr
 - **位置参数不能缺**：请求里没有这个槽位时宿主拒绝，不让后面的词顶到前一个位置。
   所以可缺的槽位（`ref_text`）不适合写成位置参数。
 
+**全部位置参数时**（一个开关都没有的 CLI）就整条 `argv` 都用占位符，`bind` 留空对象：
+
+```json
+"call": {
+  "kind": "cli",
+  "argv": ["{engine_python}", "-m", "pkg.cli", "{text}", "{output_path}"],
+  "bind": {},
+  "returns": "file",
+  "seed": "none"
+}
+```
+
+```text
+pkg-cli "要合的文本" /tmp/host_xxx.wav
+        ^^^^^^^^^^  ^^^^^^^^^^^^^^^ 一个来自 {text}，一个来自 {output_path}
+```
+
+**拼装顺序**（`host.py` 的 `build_cli_argv`，四步，没有第五种情况）：
+
+1. 逐个词展开 `call.argv`：`{engine_python}` / `{checkpoints}` / `{engine_dir}` / `{root}` 换成真实路径，
+   `{text}` 等四个槽位换成这次请求里的值；
+2. 按 `call.bind` 逐槽追加「开关 值」，值为空或空串的槽位不追加；
+3. 按 `call.args` 逐个追加合成参数，每个参数的形状由它的 `style` 决定（`value` / `boolean` /
+   `boolean_optional` / `join` / `repeat`）；
+4. 空白词丢掉；`argv` 为空、或第一个词指向的可执行文件不存在就拒绝启动。
+
+⚠️ **`call.args` 只能表达「开关 + 值」**，位置参数进不了那一张表。所以「全部位置参数」的引擎，
+它的所有输入都写在 `argv` 里，`args` 只留真正的开关类旋钮（有开关名的那种）。
+
 ⚠️ 向导第 4 步的必填区暂时还只认 `call.bind` 三格，`/wizard/validate` 会对这类名片报
 「少了必填项 call.bind.ref_audio」；校验规则在 `tools/engine-wizard/core/validate.js`，
 待补。名片本身经 JSON 逃生口可以照常落盘，运行时按上面两条规则走。
