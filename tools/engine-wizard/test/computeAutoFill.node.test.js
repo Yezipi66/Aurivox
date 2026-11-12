@@ -91,6 +91,29 @@ test('cli 参数：按 dest 名认槽位，认出来的是命令行开关', () =
   })
 })
 
+test('同义写法：输入文本、目标文本、输出文件、说话人音频都认到各自槽位', () => {
+  const p = (name, target) => ({
+    source: 'cli', name, target, kind: 'str', style: 'value',
+    help: null, required: false, group: '(root)', is_tool: false,
+  })
+  const r = computeAutoFill([
+    p('input_text', '--input_text'),
+    p('output_file', '--output_file'),
+    p('speaker_wav', '--speaker_wav'),
+  ], { kind: 'cli' })
+  assert.deepStrictEqual(r.matched, {
+    text: '--input_text',
+    ref_audio: '--speaker_wav',
+    ref_text: null,
+    output_path: '--output_file',
+  })
+  assert.strictEqual(r.confidence.bind.text.level, 'certain', '输入文本是同义名，按确定处理')
+  assert.strictEqual(r.confidence.bind.ref_audio.level, 'guess', '说话人音频只是相近名，要人核对')
+
+  const r2 = computeAutoFill([p('target_text', '--target_text')], { kind: 'cli' })
+  assert.strictEqual(r2.call.bind.text, '--target_text')
+})
+
 test('python 参数：按参数名认槽位，填进 bind 的就是那个参数名', () => {
   const r = computeAutoFill(pythonParams, { kind: 'python', module: 'm', class: 'C' })
   assert.deepStrictEqual(r.matched, {

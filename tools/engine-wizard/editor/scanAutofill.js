@@ -43,7 +43,7 @@ const DEVICE_NAME_RE = /^(device|devices|gpu|run_device)$/
 //   分别指说话人编号与批量输出目录。这类值照样填，但界面标成推测，
 //   不与确切同名的值共用绿色徽标。
 const EXACT_SLOT_NAMES = {
-  text: ['text', 'tts_text', 'gen_text'],
+  text: ['text', 'input_text', 'tts_text', 'target_text', 'gen_text'],
   ref_audio: ['ref_audio', 'reference_audio', 'prompt_audio', 'prompt_wav', 'ref_wav', 'prompt_speech_path'],
   ref_text: ['ref_text', 'prompt_text', 'reference_text'],
   output_path: ['output_path', 'output_file', 'save_path', 'out_path'],
@@ -333,14 +333,18 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
   //   （参考文本），认成合成文本，念出来的就是参考音频的原话，而且不报错。
   //   它在参考文本的候选里排第一。参考文本只是尽量认：认不出就空着，不当成缺项。
   const evidence = {
-    text: findSlot('text', 'tts_text', 'gen_text'),
+    // 要合成的文本，上游写法有 text / input_text / tts_text / target_text / gen_text 五种，
+    //   都是同义：合成的输入是文本。顺序按出现频率，排在前面的先匹配。
+    text: findSlot('text', 'input_text', 'tts_text', 'target_text', 'gen_text'),
     // prompt_speech_path 与 ref_audio 同义：零样本引擎用它指参考音频所在的文件。
+    //   speaker_wav 是同一件事的另一种写法（有人把参考音频叫说话人音频），
+    //   它不在同名表里：命中时标成相近名字，由人核对。
     ref_audio: findSlot('voice', 'ref_audio', 'prompt_wav', 'ref_wav', 'spk', 'speaker',
-      'reference_audio', 'prompt_speech_path', 'prompt_audio'),
+      'reference_audio', 'prompt_speech_path', 'prompt_audio', 'speaker_wav'),
     ref_text: findSlot('prompt_text', 'ref_text', 'prompt-text', 'reference_text', 'ref-text'),
     // output_dir 与 output_path 指同一个槽位：引擎那边的落点参数叫哪个都认。
-    //   save_dir / out_dir 是上游常见的另两种写法，追加在末尾，不改变原有候选的优先级。
-    output_path: findSlot('output', 'output_path', 'out', 'save_path', 'output_dir', 'save_dir', 'out_dir'),
+    //   save_dir / out_dir / output_file 是上游常见的另三种写法，追加在末尾，不改变原有候选的优先级。
+    output_path: findSlot('output', 'output_path', 'out', 'save_path', 'output_dir', 'save_dir', 'out_dir', 'output_file'),
   }
   // matched 的形状不变（槽位 → 开关名或 null）：界面与既有测试都按这个读。
   const matched = {
