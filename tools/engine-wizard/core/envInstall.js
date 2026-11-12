@@ -703,13 +703,20 @@ async function runEnv (input = {}) {
         break
       }
     }
-    // 缓存写入冲突：先原样重跑（占用通常很短），仍失败再换独立缓存目录。
-    //   两条路径都不改上游声明，也不改系统设置；argv 保持不变。
+    // 缓存写入冲突分两类，救法不同：
+    //   一、wheel 缓存的指针文件覆盖失败（wheels-v<n>）：换一个独立缓存目录即可绕开；
+    //   二、源码包构建时的拒绝访问（builds-v<n>）：源码包在缓存目录里解包后就地构建，
+    //       产物目录也在缓存里，换缓存目录只是换个位置再失败一次，必须让这次构建不进缓存。
+    //   第二类与批次规模相关：11 个源码包一起构建时 4 次全部失败，关掉缓存后 3 次
+    //   全部通过；单个源码包 20 次不失败。失败落在哪个包上每次不同，与包本身无关。
+    //   三档都不改上游声明，也不改系统设置；argv 保持不变。
     if (!r.ok && isUvCacheBusy(r)) {
       const attempts = [
         { env: step.env, notice: 'Uv 缓存写入被占用，原样重试一次。' },
         { env: { ...(step.env || {}), UV_CACHE_DIR: uvRetryCacheDir(root) },
           notice: 'Uv 缓存仍被占用，换独立缓存目录重试。' },
+        { env: { ...(step.env || {}), UV_NO_CACHE: '1' },
+          notice: '源码包构建目录仍被占用，改为不使用缓存重试（会重新下载，较慢）。' },
       ]
       for (const attempt of attempts) {
         if (r.ok) break

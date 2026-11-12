@@ -113,3 +113,17 @@ test('每档重试前都要清掉上一次留下的构建目录', () => {
     '缓存冲突的重试循环里没清构建目录：同一个 builds-v0 会再撞一次同样的错')
   assert.ok(cleanAt < runAt, '清理要排在重跑之前')
 })
+
+// 第二类冲突（源码包就地构建）换缓存目录救不回来：产物目录跟着源码包一起在缓存里，
+// 换到新目录是同样的失败。第三档改成这次构建不进缓存（UV_NO_CACHE）。
+test('第三档改为不使用缓存，且排在换缓存目录之后', () => {
+  const src = fs.readFileSync(
+    path.join(ROOT, 'tools', 'engine-wizard', 'core', 'envInstall.js'), 'utf8')
+  const plain = src.indexOf("notice: 'Uv 缓存写入被占用，原样重试一次。'")
+  const retryDir = src.indexOf('UV_CACHE_DIR: uvRetryCacheDir(root)')
+  const noCache = src.indexOf("UV_NO_CACHE: '1'")
+  assert.ok(plain > 0, '原样重试那一档不见了')
+  assert.ok(retryDir > plain, '换独立缓存目录应当排在原样重试之后')
+  assert.ok(noCache > retryDir,
+    '缺少不使用缓存这一档：源码包就地构建失败时，换缓存目录并不能绕开')
+})
