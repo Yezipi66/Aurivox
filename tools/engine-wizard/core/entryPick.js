@@ -14,6 +14,11 @@ const { moduleToFiles } = require('./readmeEntry')
 // 同分时的次序（都是「更像推理入口」的证据，不引入引擎名）：
 //   声明了与平台词同名的 text > 该 text 必填 > 参数少（辅助脚本的参数通常远多于推理入口）
 //
+// 打分之外还有一道按文件名的剔除：训练与微调、数据准备、模型导出与转换、语音识别与
+// 人声分离、网页界面、服务端与客户端都不算合成入口。它们同样声明命令行参数，打分
+// 可能与真入口同分甚至更高；README 里写出它们的用法也常见，于是「作者点过名」这条
+// 证据会把它们顶到第一位。判据只看命名里的词，词表与引擎无关。
+//
 // 本文件不含任何具体引擎名：判据只看参数名与它们的组合。
 
 // 文本输入的候选名。text 排在最前，它是平台词；其余是常见别名。
@@ -44,6 +49,46 @@ function isText (name) { return TEXT_RE.test(name) }
 function isRef (name) { return REF_RE.test(name) || REF_EXACT_RE.test(name) }
 function isOut (name) { return OUT_RE.test(name) || OUT_EXACT_RE.test(name) }
 function isModel (name) { return MODEL_RE.test(name) }
+
+// 不是合成入口的文件名里的词。命名习惯跨语言、跨框架都稳定，词表里不出现引擎名。
+//   训练与微调：train / finetune / pretrain
+//   数据与模型处理：preprocess / prepare / export / convert / quantize / resample
+//   音视频拆分与识别：asr / uvr / mdxnet / denoise / slice / split / concat / align
+//   界面与服务：webui / app / gradio / gui / demo / launch / server / client / api
+//   评测与配套：evaluate / benchmark / metric / download
+const AUX_TOKENS = new Set([
+  'train', 'trainer', 'training', 'finetune', 'finetuning', 'pretrain',
+  'preprocess', 'prepare', 'export', 'convert', 'quantize', 'resample',
+  'asr', 'uvr', 'uvr5', 'mdxnet', 'denoise', 'slice', 'slicer', 'split',
+  'concat', 'align', 'alignment',
+  'webui', 'app', 'gradio', 'gui', 'demo', 'launch', 'server', 'client',
+  'api', 'fastapi', 'grpc', 'service',
+  'evaluate', 'evaluation', 'benchmark', 'metric', 'download',
+])
+// 入口词：出现它们时，文件是「某个非入口对象的命令行」，仍然算入口。
+//   上游常见写法是 webui_cli.py、tts_app.py 这类，前面那个词单独出现时才是非入口。
+const ENTRY_TOKENS = new Set(['cli', 'main', 'run', 'infer', 'inference', 'synth', 'synthesis', 'tts'])
+// 部署树里的脚本要连服务端才能跑，不是本机单次合成的入口。
+const AUX_DIRS = new Set(['runtime', 'deploy', 'deployment', 'docker'])
+
+/**
+ * 这个文件是不是「不是合成入口」的那一类。
+ *
+ * 按文件名里的词判断，词与词之间用 _ . - 分隔；带入口词的一律放行，
+ * 因为上游常把非入口对象的命令行也写成一个文件。目录只认部署树那几个，
+ * 按目录名全量剔除会误伤把入口放在 tools/ 或 scripts/ 下的工程。
+ *
+ * @param {string} file 相对引擎根的路径
+ * @returns {boolean}
+ */
+function isAuxEntryFile (file) {
+  const parts = String(file || '').replace(/\\/g, '/').toLowerCase().split('/').filter(Boolean)
+  const base = parts.pop() || ''
+  if (parts.some((p) => AUX_DIRS.has(p))) return true
+  const tokens = base.replace(/\.py$/, '').split(/[^a-z0-9]+/).filter(Boolean)
+  if (tokens.some((t) => ENTRY_TOKENS.has(t))) return false
+  return tokens.some((t) => AUX_TOKENS.has(t))
+}
 
 /**
  * 源文件路径 → `python -m` 用的模块名。
@@ -192,7 +237,12 @@ function pickEntry (params, opts = {}) {
   }
 
   const scored = []
-  for (const [file, list] of byFile) scored.push(scoreFile(file, list))
+  for (const [file, list] of byFile) {
+    // 非入口文件不进候选池：声明与 README 的命中都要在这个池子里找交集，
+    //   在这里剔除一次，三条证据来源就都看不到它们了。
+    if (isAuxEntryFile(file)) continue
+    scored.push(scoreFile(file, list))
+  }
 
   // 声明的入口优先。两级证据都是作者自己给的，比静态打分硬：
   //   打包声明写的是「装好之后敲哪条命令」，由打包工具读取，写错了装不上；
@@ -278,6 +328,6 @@ function pickEntry (params, opts = {}) {
 }
 
 module.exports = {
-  pickEntry, moduleOf, moduleWithRoot, scoreFile, collectHits,
+  pickEntry, moduleOf, moduleWithRoot, scoreFile, collectHits, isAuxEntryFile,
   norm, isText, isRef, isOut, isModel,
 }
