@@ -102,15 +102,15 @@ function CrossRefPicker({ voices, currentVoiceId, onPick, activeRef }) {
           value={vq}
           onChange={e => setVq(e.target.value)}
           placeholder={t('Search voices (name, id, language)…', '搜索音色（名称、ID、语言）…')}
-          style={{ marginBottom: 6, fontSize: 'var(--fs-12)' }}
+          style={{ marginBottom: 'var(--sp-6)', fontSize: 'var(--fs-12)' }}
         />
       )}
-      <Select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 6 }}>
+      <Select className="control" value={vid} onChange={e => setVid(e.target.value)} style={{ marginBottom: 'var(--sp-6)' }}>
         {shownOthers.length === 0
           ? <option value={vid} disabled>{t('No voices match the search', '没有匹配搜索的音色')}</option>
           : shownOthers.map(o => <option key={o.id} value={o.id}>{o.display_name} ({o.language || '?'})</option>)}
       </Select>
-      <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
+      <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 'var(--sp-6)' }}>
         {t('Cross-voice reference — timbre and quality may differ from this model.',
            '跨音色参考：音色和质量可能与本模型不同。')}
       </div>
@@ -215,29 +215,29 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
   // 辅助参考只有音频（inp_refs）。
   if (multiple) {
     return (
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 'var(--sp-8)' }}>
         <input ref={fileRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
         <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick one or more audio files from this computer', '从本机选择一个或多个音频文件')}>
           {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom files\u2026', '自定义文件\u2026')}
         </button>
-        <div className="field-hint" style={{ marginTop: 4 }}>
+        <div className="field-hint" style={{ marginTop: 'var(--sp-4)' }}>
           {t("Custom files are imported into this voice's managed assets when a recipe is saved.",
              '保存配方时，自定义文件会被导入到该音色的托管资产中。')}
         </div>
-        {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}
+        {err && <div className="msg msg-error" style={{ marginTop: 'var(--sp-4)' }}>{err}</div>}
       </div>
     )
   }
 
   return (
-    <div style={{ marginTop: 8 }}>
+    <div style={{ marginTop: 'var(--sp-8)' }}>
       <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm" style={{ display: 'none' }} onChange={onFile} />
       <button className="btn btn-sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={uploading} title={t('Pick any audio file from this computer', '从本机选择任意音频文件')}>
         {'\uD83D\uDCC1'} {uploading ? t('Uploading\u2026', '上传中\u2026') : t('Custom file\u2026', '自定义文件\u2026')}
       </button>
-      {err && <div className="msg msg-error" style={{ marginTop: 4 }}>{err}</div>}
+      {err && <div className="msg msg-error" style={{ marginTop: 'var(--sp-4)' }}>{err}</div>}
       {custom && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 'var(--sp-6)' }}>
           <div className="field-hint" style={{ color: 'var(--warning)' }}>
             {t('Custom reference — no aligned transcript. Add one below (optional).',
                '自定义参考：没有对齐的文本。可在下方添加（可选）。')}
@@ -249,14 +249,14 @@ function CustomRefPicker({ custom, onPick, onClear, multiple = false }) {
           )}
           <input className="control" placeholder={t('Reference transcript (optional)', '参考文本（可选）')} value={text}
             onChange={e => { setText(e.target.value); onPick(custom.path, e.target.value, plang, custom) }}
-            style={{ marginTop: 6 }} />
-          <label className="field-hint" style={{ display: 'block', marginTop: 4 }}>{t('Reference language (prompt_lang)', '参考语言 (prompt_lang)')}</label>
+            style={{ marginTop: 'var(--sp-6)' }} />
+          <label className="field-hint" style={{ display: 'block', marginTop: 'var(--sp-4)' }}>{t('Reference language (prompt_lang)', '参考语言 (prompt_lang)')}</label>
           <Select className="control" value={plang}
             onChange={e => { setPlang(e.target.value); onPick(custom.path, text, e.target.value, custom) }}>
             <option value="">{t('Follow current voice', '跟随当前音色')}</option>
             {REF_PROMPT_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </Select>
-          <div><button className="btn btn-sm" style={{ marginTop: 6 }} onClick={onClear}>{t('Remove custom reference', '移除自定义参考')}</button></div>
+          <div><button className="btn btn-sm" style={{ marginTop: 'var(--sp-6)' }} onClick={onClear}>{t('Remove custom reference', '移除自定义参考')}</button></div>
         </div>
       )}
     </div>
@@ -315,11 +315,11 @@ function RefAudioList({ voiceId, selectMode = 'single', activeRef, selectedPaths
         title={text || name}
         style={main ? { opacity: 0.4, cursor: 'default' } : undefined}>
         <div className="ref-item-row">
-          {multi && <input type="checkbox" checked={selected} disabled={!!main} readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11, marginRight: 4 }} />}
+          {multi && <input type="checkbox" checked={selected} disabled={!!main} readOnly style={{ accentColor: 'var(--accent)', width: 11, height: 11, marginRight: 'var(--sp-4)' }} />}
           <span className="ref-item-name">
             {name}
-            {main && <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-11)', marginLeft: 4 }}>(main)</span>}
-            {oor && <span title={`Outside the ${REF_MIN_SEC}\u2013${REF_MAX_SEC}s range`} style={{ color: 'var(--warning)', marginLeft: 4 }}>{'\u26a0'}</span>}
+            {main && <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-11)', marginLeft: 'var(--sp-4)' }}>(main)</span>}
+            {oor && <span title={`Outside the ${REF_MIN_SEC}\u2013${REF_MAX_SEC}s range`} style={{ color: 'var(--warning)', marginLeft: 'var(--sp-4)' }}>{'\u26a0'}</span>}
           </span>
           {known && <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>{dur.toFixed(1)}s</span>}
           {!multi && <span className="ref-item-mark" style={{ color: selected ? 'var(--accent)' : 'var(--muted)' }}>{selected ? '\u2713' : '\u2192'}</span>}
@@ -387,8 +387,8 @@ function AuxReferencePicker({ voiceId, voices, value = [], onAdd, onRemove, main
   const add = (p) => { if (p && !has(p) && !(mainRef && sameRefPath(mainRef, p))) onAdd && onAdd(p) }
 
   return (
-    <div style={{ marginTop: 4 }}>
-      <Select className="control" value={source} onChange={e => setSource(e.target.value)} style={{ marginBottom: 6 }}>
+    <div style={{ marginTop: 'var(--sp-4)' }}>
+      <Select className="control" value={source} onChange={e => setSource(e.target.value)} style={{ marginBottom: 'var(--sp-6)' }}>
         <option value="this">{t("This voice's segments", '当前音色的片段')}</option>
         <option value="cross">{t("Another voice's segments", '其他音色的片段')}</option>
         <option value="custom">{t('Custom files…', '自定义文件…')}</option>
@@ -419,9 +419,9 @@ function AuxReferencePicker({ voiceId, voices, value = [], onAdd, onRemove, main
         <CustomRefPicker multiple onPick={(path) => add(path)} onClear={() => {}} />
       )}
       {value.length > 0 && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 'var(--sp-6)' }}>
           {value.map((p, i) => (
-            <div key={i} className="ref-item" style={{ marginBottom: 4 }}>
+            <div key={i} className="ref-item" style={{ marginBottom: 'var(--sp-4)' }}>
               <div className="ref-item-row">
                 <span style={{ color: 'var(--muted)', minWidth: 14, fontSize: 'var(--fs-11)' }}>{i + 1}.</span>
                 <span className="ref-item-name" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{basename(p)}</span>

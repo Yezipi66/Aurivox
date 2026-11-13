@@ -117,7 +117,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
                  '固定为该 recipe 的目标文本语言，决定共享汉字（中日）如何朗读。')}
             </div>
             {langIsFallback && (
-              <div className="msg msg-warn" style={{ marginTop: 6 }}>
+              <div className="msg msg-warn" style={{ marginTop: 'var(--sp-6)' }}>
                 {t('\u26a0 This asset has no definite language, so the default is \u201cAuto\u201d. Auto guesses per segment and may mis-read pure-Han text. Please pick the correct language deliberately.',
                    '\u26a0 该资产没有明确语言，已默认置为「自动」。自动模式按分段猜测，纯汉字文本可能读错，请谨慎手动选择正确的语言。')}
               </div>
@@ -133,7 +133,7 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
             <div className="msg msg-warn">
               {t(<>A recipe named <strong>{previewId}</strong> already exists. Overwrite it?</>,
                  <>已存在名为 <strong>{previewId}</strong> 的 recipe。是否覆盖？</>)}
-              <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+              <div style={{ marginTop: 'var(--sp-6)', display: 'flex', gap: 'var(--sp-8)' }}>
                 <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => doSave(true)}>{t('Overwrite', '覆盖')}</button>
                 <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmOverwrite(false)}>{t('Cancel', '取消')}</button>
               </div>
@@ -207,7 +207,7 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
       <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-hdr">{title || t('Select a file', '选择文件')}</div>
         <div className="modal-body">
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-6)', alignItems: 'center', marginBottom: 'var(--sp-8)' }}>
             <button className="btn btn-sm" disabled={busy || data?.isDriveList || data?.parent == null}
               onClick={() => go(data?.parent || '')}>↑ {t('Up', '上一级')}</button>
             <input className="control" readOnly
@@ -215,7 +215,7 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
           </div>
           {error && <div className="msg msg-error">{error}</div>}
           <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
-            {busy && <div style={{ padding: 8, color: 'var(--muted)' }}>{t('Loading…', '加载中…')}</div>}
+            {busy && <div style={{ padding: 'var(--sp-8)', color: 'var(--muted)' }}>{t('Loading…', '加载中…')}</div>}
             {!busy && data?.isDriveList && (data.drives || []).map(d => (
               <div key={d.path} style={rowStyle} onClick={() => go(d.path)}>💽 {d.name}</div>
             ))}
@@ -227,10 +227,10 @@ function FsFilePicker({ open, exts, title, startPath, onPick, onClose }) {
                 onClick={() => { onPick(f.path); onClose() }}>📄 {f.name}</div>
             ))}
             {!busy && !data?.isDriveList && (data?.dirs || []).length === 0 && (data?.files || []).length === 0 && (
-              <div style={{ padding: 8, color: 'var(--muted)' }}>{t('No sub-folders or matching files here.', '此处没有子文件夹或匹配的文件。')}</div>
+              <div style={{ padding: 'var(--sp-8)', color: 'var(--muted)' }}>{t('No sub-folders or matching files here.', '此处没有子文件夹或匹配的文件。')}</div>
             )}
           </div>
-          <div className="field-hint" style={{ marginTop: 6 }}>{t(<>Showing folders and <code>{extsParam}</code> files.</>, <>显示文件夹与 <code>{extsParam}</code> 文件。</>)}</div>
+          <div className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>{t(<>Showing folders and <code>{extsParam}</code> files.</>, <>显示文件夹与 <code>{extsParam}</code> 文件。</>)}</div>
         </div>
         <div className="modal-ftr">
           <button className="btn btn-sm" onClick={onClose}>{t('Cancel', '取消')}</button>

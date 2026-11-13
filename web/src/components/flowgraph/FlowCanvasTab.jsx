@@ -421,7 +421,7 @@ export function FlowCanvasTab() {
 
   if (!catalogue) {
     return (
-      <div style={{ padding: 24, color: MUTED }}>
+      <div style={{ padding: 'var(--sp-24)', color: MUTED }}>
         {t(
           'Loading the node catalogue… if it does not arrive, check that the canvas was enabled at startup.',
           '正在加载节点清单…（若长时间无响应，请确认启动时已启用画布）',
@@ -431,7 +431,7 @@ export function FlowCanvasTab() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, height: 'calc(100vh - 92px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-6)', height: 'calc(100vh - 92px)' }}>
       <Toolbar
         graph={graph} setGraph={setGraph} saved={saved} onOpen={open}
         onSave={save} onCheck={check} onStart={start} onCancel={() => {
@@ -523,10 +523,10 @@ export function FlowCanvasTab() {
 
         {graph.nodes.length === 0 && (
           <div style={{
-            position: 'absolute', left: 28, top: 24, maxWidth: 520,
+            position: 'absolute', left: 28, top: 'var(--sp-24)', maxWidth: 520,
             color: MUTED, fontSize: 'var(--fs-13)', lineHeight: 2, pointerEvents: 'none',
           }}>
-            <div style={{ fontSize: 'var(--fs-14)', color: 'var(--text)', marginBottom: 6 }}>
+            <div style={{ fontSize: 'var(--fs-14)', color: 'var(--text)', marginBottom: 'var(--sp-6)' }}>
               {t('Getting started', '使用方法')}
             </div>
             {t('1. Choose a node from the list on the left to place it on the sheet.', '1. 在左侧列表中选择节点，即可放入画布。')}<br />
@@ -540,7 +540,7 @@ export function FlowCanvasTab() {
 
         {note && (
           <div style={{
-            position: 'absolute', left: '50%', top: 12, transform: 'translateX(-50%)',
+            position: 'absolute', left: '50%', top: 'var(--sp-12)', transform: 'translateX(-50%)',
             maxWidth: '58%', padding: '7px 12px', borderRadius: 8, fontSize: 'var(--fs-12)', zIndex: 5,
             background: note.bad ? 'color-mix(in srgb, var(--danger) 16%, #1a1a1a)' : 'color-mix(in srgb, var(--success) 16%, #1a1a1a)',
             color: note.bad ? 'var(--danger)' : 'var(--success)',
@@ -550,8 +550,8 @@ export function FlowCanvasTab() {
         )}
 
         <div style={{
-          position: 'absolute', right: 12, bottom: 12, display: 'flex', alignItems: 'center',
-          gap: 2, padding: 3, borderRadius: 8, background: 'rgba(20,23,29,0.92)',
+          position: 'absolute', right: 'var(--sp-12)', bottom: 'var(--sp-12)', display: 'flex', alignItems: 'center',
+          gap: 'var(--sp-2)', padding: 3, borderRadius: 8, background: 'rgba(20,23,29,0.92)',
           border: `1px solid ${BORDER}`, boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
         }}>
           <button onClick={() => zoomBy(1 / 1.25)} disabled={zoom <= ZOOM_MIN} style={iconButtonStyle} title={t('Zoom out', '缩小')}>−</button>
@@ -562,7 +562,7 @@ export function FlowCanvasTab() {
         </div>
 
         <div style={{
-          position: 'absolute', left: 12, bottom: 12, fontSize: 'var(--fs-11)', color: MUTED,
+          position: 'absolute', left: 'var(--sp-12)', bottom: 'var(--sp-12)', fontSize: 'var(--fs-11)', color: MUTED,
           pointerEvents: 'none',
         }}>
           {t(

@@ -444,12 +444,12 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
   return (
     <div>
-      <div className="section" style={{ marginBottom: 12 }}>
+      <div className="section" style={{ marginBottom: 'var(--sp-12)' }}>
         <div className="section-hdr">
           <span>Reference Audio Comparison</span>
         </div>
         <div className="section-body">
-          <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 10 }}>
+          <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 'var(--sp-10)' }}>
             {t(
               <>Add as many rows as needed. Each row = a different reference audio configuration.
               Click <strong>Generate All</strong> to hear every combination side by side.
@@ -460,15 +460,15 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
           <div className="field">
             {/* 对比文本：每一行默认都用它，这样对比的是参考音频与模型；某一行可以在自己的 Text 区域里改写。 */}
             <label className="field-label">{t('Comparison Text', '对比文本')}</label>
-            <div className="field-hint" style={{ marginBottom: 4 }}>
+            <div className="field-hint" style={{ marginBottom: 'var(--sp-4)' }}>
               {t(
                 <>Every row uses this text by default, so references / models are compared on the same sentence. To give a row its own text, expand that row&apos;s <strong>Text</strong> section.</>,
                 <>默认所有行都使用这段文本，以便在同一句话上对比参考音频 / 模型。若想让某一行使用自己的文本，可展开该行的 <strong>Text</strong> 区域。</>)}
             </div>
             <textarea className="control" rows={3} value={defaultText} onChange={e => setDefaultText(e.target.value)}
               placeholder="Enter the text used across all rows for comparison…" />
-            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-4)', display: 'flex', gap: 'var(--sp-12)', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
                 {t('Default target language:', '默认目标语言：')}
                 <Select
                   className="control" style={{ height: 22, fontSize: 'var(--fs-11)', padding: '0 4px', width: 'auto', minWidth: 0 }}
@@ -479,7 +479,7 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
               </span>
             </div>
             {/* 对比文本的读音校对与逐字汉语言种，作用于所有没有自备文本的行；某一行自己的校对优先。通过共享的读音与语种弹窗设置。 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginTop: 'var(--sp-8)', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-sm" onClick={() => setShowDefaultTextPrep(true)}>
                 Proof &amp; language{'\u2026'}
               </button>
@@ -501,14 +501,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
                 engineId={engine?.id}
               />
             )}
-            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>
+            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-8)' }}>
               {t(
                 <>To proof a single row: expand that row&apos;s Text section and open its own <strong>Proof &amp; language</strong>.</>,
                 <>也可以只校对单独一行：展开该行的 Text 区域，打开它自己的 <strong>Proof &amp; language</strong>。</>)}
             </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 'var(--fs-12)', cursor: 'pointer' }}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', marginTop: 'var(--sp-10)', fontSize: 'var(--fs-12)', cursor: 'pointer' }}
             title={t('Master switch: send each row\u2019s whole text to the engine in ONE call so it splits and batches chunks in parallel (batch_size). Faster; single audio per row, no per-segment files. Each row can override this (Advanced Settings \u2192 Engine Batch).', '总开关：把每一行的整段文本一次性交给引擎，由引擎切分并按 batch_size 并行推理。更快；每行输出单个音频、无分段文件。各行可在「Advanced Settings → Engine Batch」单独覆盖。')}>
             <input type="checkbox" checked={cmpEngineBatch} onChange={e => setCmpEngineBatch(e.target.checked)} />
             <span>{t('Engine Batch (parallel) \u2014 all rows', '引擎批量并行：全部行（总开关）')}</span>
@@ -589,14 +589,14 @@ function ReferenceCompareTab({ engine, voices, selectedVoice, onActivity }) {
 
       {/* 对比结果区。 */}
       {rows.length > 0 && !rows.some(r => r.result) && (
-        <div className="empty-state" style={{ marginTop: 4, padding: 16 }}>
+        <div className="empty-state" style={{ marginTop: 'var(--sp-4)', padding: 'var(--sp-16)' }}>
           <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated comparison results will appear here.', '生成的对比结果会显示在这里。')}</div>
         </div>
       )}
 
       {/* 批量历史：每一次「全部生成」记成一个对比批次。 */}
       {batches.length > 0 && (
-        <div className="section" style={{ marginTop: 16 }}>
+        <div className="section" style={{ marginTop: 'var(--sp-16)' }}>
           <div className="section-hdr">
             <span>{t('Comparison Batches', '对比批次')}</span>
             <span className="cmp-count">{t(`${batches.length} recorded`, `已记录 ${batches.length} 次`)}</span>

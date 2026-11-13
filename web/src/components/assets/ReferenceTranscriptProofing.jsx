@@ -29,7 +29,7 @@ function ConfidenceBadge({ conf }) {
   if (!tier) return null
   const c = CONF_COLORS[tier]
   return (
-    <div style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+    <div style={{ marginTop: 'var(--sp-4)', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-4)' }}
          title={`识别置信度 ${(conf * 100).toFixed(0)}%（绿=高 / 黄=可疑 / 红=可能识别错误）`}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.fg, display: 'inline-block' }} />
       <span style={{ fontSize: 'var(--fs-11)', color: c.fg }}>{(conf * 100).toFixed(0)}%</span>
@@ -41,7 +41,7 @@ function ConfidenceBadge({ conf }) {
 function WordConfidence({ words }) {
   if (!Array.isArray(words) || words.length === 0) return null
   return (
-    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '2px 3px', lineHeight: 1.5 }}
+    <div style={{ marginTop: 'var(--sp-6)', display: 'flex', flexWrap: 'wrap', gap: '2px 3px', lineHeight: 1.5 }}
          title="逐词置信度着色（绿=高 / 黄=可疑 / 红=可能识别错误），仅供校对参考">
       {words.map((w, j) => {
         const tier = confTier(w && typeof w.p === 'number' ? w.p : null)
@@ -68,13 +68,13 @@ function RowAudio({ url }) {
     if (el.paused) { el.play().catch(() => {}) } else { el.pause() }
   }
   return (
-    <div style={{ marginTop: 4 }}>
+    <div style={{ marginTop: 'var(--sp-4)' }}>
       <button
         type="button"
         className="btn btn-sm btn-ghost"
         onClick={toggle}
         title={playing ? 'Pause' : 'Play'}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 10px', height: 26 }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-6)', padding: '2px 10px', height: 26 }}
       >
         <span style={{ fontSize: 'var(--fs-11)', lineHeight: 1 }}>{playing ? '❚❚' : '▶'}</span>
         <span style={{ fontSize: 'var(--fs-11)' }}>{playing ? 'Pause' : 'Play'}</span>
@@ -171,10 +171,10 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
         <div className="modal-hdr">Reference Transcript Proofing</div>
         <div className="modal-body">
           {/* 作用范围提示，按产品要求用英文显示。 */}
-          <div className="field-note" style={{ marginBottom: 8 }}>
+          <div className="field-note" style={{ marginBottom: 'var(--sp-8)' }}>
             This edit does not modify or retrain existing S1/S2 checkpoints.
           </div>
-          <div className="field-note" style={{ marginBottom: 10, color: 'var(--muted)' }}>
+          <div className="field-note" style={{ marginBottom: 'var(--sp-10)', color: 'var(--muted)' }}>
             The updated transcript will be used when this audio is selected as an inference reference.
             Future refinement tasks created from the current asset data may also use the updated transcript.
           </div>
@@ -185,7 +185,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
           {!loading && buckets.length === 0 && !error && (
             <div className="field-hint">
               No reference transcript is available for this asset. Run ASR to create one?
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 'var(--sp-10)' }}>
                 <button className="btn btn-sm btn-primary" disabled={asrRunning} onClick={() => setConfirmAsr(true)}>
                   Run ASR
                 </button>
@@ -195,7 +195,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
 
           {!loading && buckets.length > 0 && (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginBottom: 'var(--sp-8)', flexWrap: 'wrap' }}>
                 {buckets.length > 1 && (
                   <Select className="control control-sm" value={kind || ''} onChange={e => setKind(e.target.value)}>
                     {buckets.map(b => <option key={b.kind} value={b.kind}>{b.kind === 'raw' ? 'Raw' : 'Slices'} ({(b.rows || []).length})</option>)}
@@ -205,7 +205,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                   Source: {provLabel}{provenance && provenance.revision ? ` · rev ${provenance.revision}` : ''} · {rows.length} line(s) · {LANG_LABEL[language] || language}
                 </span>
                 {rows.some(r => typeof r.confidence === 'number') && (
-                  <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-8)' }}>
                     置信度：
                     <span style={{ color: CONF_COLORS.hi.fg }}>● 高</span>
                     <span style={{ color: CONF_COLORS.mid.fg }}>● 可疑</span>
@@ -216,7 +216,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
 
               <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
                 {rows.map((row, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+                  <div key={i} style={{ display: 'flex', gap: 'var(--sp-8)', alignItems: 'flex-start', padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ width: 150, flexShrink: 0 }}>
                       <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', wordBreak: 'break-all' }}>{row.audio_filename}</div>
                       {row.url && <RowAudio url={row.url} />}
@@ -244,10 +244,10 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                 ))}
               </div>
 
-              {savedMsg && <div className="field-hint" style={{ color: 'var(--success)', marginTop: 8 }}>{savedMsg}</div>}
+              {savedMsg && <div className="field-hint" style={{ color: 'var(--success)', marginTop: 'var(--sp-8)' }}>{savedMsg}</div>}
 
               {/* 次要操作：重新跑 ASR，先备份再替换。 */}
-              <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div style={{ marginTop: 'var(--sp-12)', borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-10)' }}>
                 {!confirmAsr ? (
                   <button className="btn btn-sm btn-ghost" disabled={asrRunning} onClick={() => setConfirmAsr(true)}>
                     Re-run ASR…
@@ -255,7 +255,7 @@ export default function ReferenceTranscriptProofing({ voiceId, onClose, onSaved,
                 ) : (
                   <div className="field-hint" style={{ color: 'var(--warning)' }}>
                     Re-running ASR will create a new machine-generated transcript. The current transcript will be backed up before replacement.
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                    <div style={{ marginTop: 'var(--sp-8)', display: 'flex', gap: 'var(--sp-8)' }}>
                       <button className="btn btn-sm btn-danger" disabled={asrRunning} onClick={startRerunAsr}>Back Up and Re-run ASR</button>
                       <button className="btn btn-sm btn-ghost" onClick={() => setConfirmAsr(false)}>Cancel</button>
                     </div>

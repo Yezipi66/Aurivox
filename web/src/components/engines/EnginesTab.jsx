@@ -90,8 +90,8 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
           判据是「字段在不在」而不是「数组空不空」，两者都长得像 []，
             但一个是「真装了 0 台」、另一个是「平台不知道」，含义相反。 */}
       {occBadge && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="card" style={{ marginTop: 'var(--sp-12)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)' }}>
             <span className={`badge ${toneClass(occBadge.tone)}`} title={occBadge.title}>
               {occBadge.label}
             </span>
@@ -126,8 +126,8 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
         const busy = pending[engine.id] || null
         const res = outcome[engine.id] || null
         return (
-          <div className="card" key={engine.id} style={{ marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="card" key={engine.id} style={{ marginBottom: 'var(--sp-12)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', flexWrap: 'wrap' }}>
               <strong>{engine.label || engine.id}</strong>
               <code style={{ opacity: 0.7 }}>{engine.id}</code>
               {badge && (
@@ -177,7 +177,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
             </div>
 
             {res && res.kind === 'error' && (
-              <div className="msg msg-error" style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>
+              <div className="msg msg-error" style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--sp-8)' }}>
                 {res.message}
               </div>
             )}
@@ -187,7 +187,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                   要多少内存"变成一句没法推进的话，而用户只需点击一次即可。
                 这个问题必须由人回答：下游那条调用路径上没有人，这个页面上有。 */}
             {res && res.kind === 'confirm' && (
-              <div className="card" style={{ marginTop: 8 }}>
+              <div className="card" style={{ marginTop: 'var(--sp-8)' }}>
                 <div style={{ whiteSpace: 'pre-wrap' }}>{res.message}</div>
                 {res.mem && res.mem.freeMb != null && (
                   <div className="msg msg-info">
@@ -195,7 +195,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
                       `当前可用内存约 ${res.mem.freeMb} MB。`)}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', gap: 'var(--sp-8)', marginTop: 'var(--sp-8)' }}>
                   <button
                     className="btn"
                     disabled={!!busy}
@@ -211,7 +211,7 @@ export function EnginesTab ({ engines = [], engineErrors = [], occupancy = null,
             )}
 
             {res && res.kind === 'ok' && (
-              <div className="msg msg-success" style={{ marginTop: 8 }}>
+              <div className="msg msg-success" style={{ marginTop: 'var(--sp-8)' }}>
                 {/* action 四种各自说人话。不压成"成功"，
                     "本来就在运行"和"刚为你启动"对用户不是一回事。 */}
                 {res.action === 'reuse' && t('This engine is already running; reusing it.', '该引擎已在运行，直接复用。')}

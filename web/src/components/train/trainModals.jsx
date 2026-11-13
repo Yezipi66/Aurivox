@@ -226,13 +226,13 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
 
             {/* Slice parameters — only when real slicing is selected */}
             {realSliceInPlan && (
-              <div className="collapsible" style={{ marginTop: 10 }}>
+              <div className="collapsible" style={{ marginTop: 'var(--sp-10)' }}>
                 <div className="collapsible-hdr" onClick={() => setShowSliceParams(v => !v)}>
                   <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{tr('Slice Parameters', '切片参数')}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showSliceParams ? '▲' : '▼'}</span>
                 </div>
                 {showSliceParams && (
-                  <div className="collapsible-body" style={{ padding: 12 }}>
+                  <div className="collapsible-body" style={{ padding: 'var(--sp-12)' }}>
                     <SliceParamFields form={form} setField={setField} />
                   </div>
                 )}
@@ -256,13 +256,13 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
 
             {/* ASR parameters — only when ASR actually runs */}
             {asrInPlan && (
-              <div className="collapsible" style={{ marginTop: 10 }}>
+              <div className="collapsible" style={{ marginTop: 'var(--sp-10)' }}>
                 <div className="collapsible-hdr" onClick={() => setShowAsrParams(v => !v)}>
                   <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{tr('ASR Parameters', 'ASR 参数')}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showAsrParams ? '▲' : '▼'}</span>
                 </div>
                 {showAsrParams && (
-                  <div className="collapsible-body" style={{ padding: 12 }}>
+                  <div className="collapsible-body" style={{ padding: 'var(--sp-12)' }}>
                     <AsrParamFields form={form} setField={setField} />
                   </div>
                 )}
@@ -297,13 +297,13 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
             </label>
 
             {trainInPlan && (
-              <div className="collapsible" style={{ marginTop: 10 }}>
+              <div className="collapsible" style={{ marginTop: 'var(--sp-10)' }}>
                 <div className="collapsible-hdr" onClick={() => setShowTrainParams(v => !v)}>
                   <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{tr('Training Parameters', '训练参数')}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showTrainParams ? '▲' : '▼'}</span>
                 </div>
                 {showTrainParams && (
-                  <div className="collapsible-body" style={{ padding: 12 }}>
+                  <div className="collapsible-body" style={{ padding: 'var(--sp-12)' }}>
                     <TrainParamFields form={form} setField={setField}
                       part={trainS1 && trainS2 ? 'both' : trainS1 ? 's1' : 's2'} />
                   </div>
@@ -322,7 +322,7 @@ function RestoreModal({ id, displayName, onClose, onStarted }) {
           ))}
         </div>
 
-        {err && <div className="msg msg-error" style={{ marginBottom: 10 }}>{err}</div>}
+        {err && <div className="msg msg-error" style={{ marginBottom: 'var(--sp-10)' }}>{err}</div>}
 
         <div className="modal-actions">
           <button className="btn btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>

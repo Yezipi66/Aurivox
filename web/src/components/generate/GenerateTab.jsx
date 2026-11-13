@@ -697,7 +697,7 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         message={memoryRisk ? (
           <>
             <div>{memoryRisk.message}</div>
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 'var(--sp-10)' }}>
               {memoryRisk.details.historical_peak_mb != null && <div>{t('Historical peak', '历史峰值')}: {memoryRisk.details.historical_peak_mb} MB</div>}
               {memoryRisk.details.required_mb != null && <div>{t('Estimated with headroom', '包含余量的估算')}: {memoryRisk.details.required_mb} MB</div>}
               {memoryRisk.details.free_mb != null && <div>{t('Currently available', '当前可用')}: {memoryRisk.details.free_mb} MB</div>}
@@ -734,12 +734,12 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 className="control" rows={5} placeholder={t('Enter text to synthesize...', '输入要合成的文本…')}
                 value={text} onChange={e => { setText(e.target.value); }}
               />
-              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-4)', display: 'flex', gap: 'var(--sp-12)', flexWrap: 'wrap' }}>
                 <span>Characters: <span style={{ color: 'var(--text)' }}>{text.length}</span></span>
                 {splitEnabled && (
                   <span>Estimated chunks: <span style={{ color: 'var(--text)' }}>{Math.max(1, Math.ceil(text.length / Math.max(1, maxChars)))}</span></span>
                 )}
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
                   Target language:
                   <Select
                     className="control" style={{ height: 22, fontSize: 'var(--fs-11)', padding: '0 4px', width: 'auto', minWidth: 0 }}
@@ -750,11 +750,11 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 </span>
               </div>
               {langMismatch && (
-                <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 4 }}>
+                <div className="field-hint" style={{ color: 'var(--warning)', marginTop: 'var(--sp-4)' }}>
                   Target language differs from the fine-tuned language ({String(lang || '').toUpperCase()}). Inference quality may be affected.
                 </div>
               )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginTop: 'var(--sp-8)', flexWrap: 'wrap' }}>
                 <button type="button" className="btn btn-sm" onClick={() => setShowTextPrep(true)}>
                   Proof &amp; language{'…'}
                 </button>
@@ -795,25 +795,25 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
               {showLongTextSplit && (
                 <div className="collapsible-body">
                   <div className="form-grid">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: 'var(--muted)', cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-12)', color: 'var(--muted)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={splitEnabled} onChange={e => setSplitEnabled(e.target.checked)} />
                       Split long text
                     </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
                       <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>Max chars:</span>
                       <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 'var(--fs-12)' }} value={maxChars} min={10} max={200} onChange={e => setMaxChars(parseInt(e.target.value) || 30)} />
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', color: 'var(--muted)', cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-12)', color: 'var(--muted)', cursor: 'pointer' }}>
                       <input type="checkbox" checked={concatEnabled} onChange={e => setConcatEnabled(e.target.checked)} disabled={!splitEnabled} />
                       Concatenate
                     </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
                       <span style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>Silence (ms):</span>
                       <input type="number" className="control" style={{ width: 60, height: 26, padding: '0 6px', fontSize: 'var(--fs-12)' }} value={silenceMs} min={0} max={2000} step={50} onChange={e => setSilenceMs(parseInt(e.target.value) || 300)} />
                     </div>
                   </div>
                   {splitEnabled && text.length > maxChars && (
-                    <div className="field-hint" style={{ marginTop: 6, color: 'var(--warning)' }}>
+                    <div className="field-hint" style={{ marginTop: 'var(--sp-6)', color: 'var(--warning)' }}>
                       {t(`Text (${text.length} chars) will be split into segments of ~${maxChars} chars each.`,
                          `文本（${text.length} 字符）将被拆分为每段约 ${maxChars} 字符的片段。`)}
                     </div>
@@ -866,13 +866,13 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
             />
 
             {genBaseWarn && (
-              <div className="msg msg-warn" style={{ marginBottom: 8 }}>
+              <div className="msg msg-warn" style={{ marginBottom: 'var(--sp-8)' }}>
                 ⚠ This voice uses a <strong>{genBaseWarn.version}</strong> model, but its base/SV models are
                 missing on disk. Synthesis may produce electrical noise or low quality.
                 {' '}Run: <code>python download_models.py --set {String(genBaseWarn.version).toLowerCase()}</code>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-8)', alignItems: 'center' }}>
               <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
                 {loading ? 'Generating...' : 'Generate'}
               </button>

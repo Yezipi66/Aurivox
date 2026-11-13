@@ -173,11 +173,11 @@ function AudioPlayer({ src, onDuration }) {
   const durStr = duration ? duration.toFixed(1) + 's' : ''
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
       <button
         onClick={toggle}
         style={{
-          background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+          background: 'none', border: 'none', cursor: 'pointer', padding: 'var(--sp-2)',
           color: playing ? 'var(--accent)' : 'var(--muted)', display: 'flex',
           flexShrink: 0,
         }}

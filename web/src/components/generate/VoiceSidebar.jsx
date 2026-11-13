@@ -91,7 +91,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
         </div>
 
         {mixedRef && (
-          <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 6 }}>
+          <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 'var(--sp-6)' }}>
             {t(`Reference audio is sourced from the SoVITS voice “${refVoice?.display_name || rvid}” (timbre side).`,
                `参考音频取自 SoVITS 音色「${refVoice?.display_name || rvid}」（音色侧）。`)}
           </div>
@@ -114,7 +114,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
               </div>
             )}
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', margin: '4px 0 6px', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-12)', margin: '4px 0 6px', cursor: 'pointer' }}>
             <input type="checkbox" checked={crossMode} onChange={e => {
               const on = e.target.checked
               setCrossMode(on)
@@ -156,7 +156,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
           {activeRef ? (
             // 可编辑的参考转写文本，只对本次生成有效：改的是发给引擎的提示文本，
             // 不会改动源文件。初始值取当前参考自带的文本，覆盖值由父组件持有（effectiveRefText）。
-            <div style={{ marginBottom: 6 }}>
+            <div style={{ marginBottom: 'var(--sp-6)' }}>
               <textarea
                 className="control"
                 rows={2}
@@ -165,7 +165,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
                 onChange={e => onRefTextOverride?.(e.target.value)}
                 placeholder={activeIsRaw ? t('No aligned transcript — type a reference text for this run (optional)…', '没有对齐的转写文本：可为本次生成输入一段参考文本（可选）…') : t('Reference text…', '参考文本…')}
               />
-              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 2 }}>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-6)', marginTop: 'var(--sp-2)' }}>
                 <span>
                   {refTextOverride != null
                     ? t('✎ Edited for this run only — the source file is unchanged.', '✎ 仅对本次生成有效，源文件不会被修改。')
@@ -256,7 +256,7 @@ function VoiceSidebar({ voice, refVoiceId, voices, validation, onVoiceUpdate, se
         </div>
 
         {validation && (
-          <div className="field" style={{ marginTop: 8 }}>
+          <div className="field" style={{ marginTop: 'var(--sp-8)' }}>
             <label className="field-label">Model Validity</label>
             {/* 显示几行、每行叫什么，由当前引擎的名片决定：
                 后端 /api/voices/:id/validate 直接给 slots[]，前端不认识任何位名。

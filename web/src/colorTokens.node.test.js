@@ -20,6 +20,13 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../..')
 const read = (p) => fs.readFileSync(path.join(repo, p), 'utf8')
 
+// 复用根 node_modules 的 @babel/parser 解析 JSX 内联 style 对象（与迁移脚本同一份依赖）。
+// 本文件是 ESM（web/package.json 含 "type":"module"），用 createRequire 才能继续用 require 解析。
+import { createRequire } from 'node:module'
+const req = createRequire(import.meta.url)
+const { resolveFromRoot } = req(path.join(repo, 'lib/testDeps.js'))
+const babelParse = req(resolveFromRoot('@babel/parser')).parse
+
 function walk (d, acc = []) {
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
     const p = path.join(d, e.name)
@@ -121,4 +128,59 @@ test('JSX 内联 style 不得含离群 hex 色（中性/暗底白名单豁免）
     }
   }
   assert.deepEqual(bad, [], `JSX 内联 style 出现离群 hex 色：\n${bad.join('\n')}`)
+})
+
+// 内联 spacing token 化守卫：padding/margin/gap/inset 等「语义上确实是间距」的属性，
+// 若写了命中 --sp-* 集的裸数字（React 里裸数字=px），必须改走 --sp-* 这类 token 引用，让间距统一从 token 取。
+// width/height/borderRadius 是尺寸/圆角，不套 --sp-*；非 token 值的裸数字（如 padding: 20）无对应 token，
+// 不强制；这两条都不在此守卫范围（与迁移脚本口径一致）。
+const SPACING_PROPS = new Set([
+  'padding', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight',
+  'paddingInline', 'paddingBlock', 'paddingInlineStart', 'paddingInlineEnd',
+  'paddingBlockStart', 'paddingBlockEnd',
+  'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight',
+  'marginInline', 'marginBlock', 'marginInlineStart', 'marginInlineEnd',
+  'marginBlockStart', 'marginBlockEnd',
+  'gap', 'rowGap', 'columnGap',
+  'top', 'bottom', 'left', 'right', 'inset',
+])
+const SPACING_TOKEN_PX = new Set([2, 4, 6, 8, 10, 12, 16, 24])
+
+test('JSX 内联 style 的安全 spacing 属性不得用命中 token 集的裸数字（应走 --sp-*）', () => {
+  const bad = []
+  for (const f of FILES) {
+    if (!/\.jsx?$/.test(f)) continue
+    const rel = path.relative(repo, f).replace(/\\/g, '/')
+    let ast
+    try {
+      ast = babelParse(fs.readFileSync(f, 'utf8'),
+        { sourceType: 'module', plugins: ['jsx', 'typescript', 'classProperties', 'decorators-legacy'], errorRecovery: true })
+    } catch { continue }
+    const visit = (node) => {
+      if (!node || typeof node.type !== 'string') return
+      if (node.type === 'JSXAttribute' && node.name && node.name.name === 'style') {
+        const val = node.value
+        if (val && val.type === 'JSXExpressionContainer' && val.expression &&
+            val.expression.type === 'ObjectExpression') {
+          for (const prop of val.expression.properties) {
+            if (prop.type !== 'ObjectProperty') continue
+            const key = prop.key
+            const name = key && (key.name || key.value)
+            if (SPACING_PROPS.has(name) && prop.value &&
+                prop.value.type === 'NumericLiteral' && SPACING_TOKEN_PX.has(prop.value.value)) {
+              const line = prop.loc && prop.loc.start && prop.loc.start.line
+              bad.push(`${rel}:${line}  ${name}: ${prop.value.value} 应写成 'var(--sp-${prop.value.value})'`)
+            }
+          }
+        }
+      }
+      for (const k in node) {
+        const c = node[k]
+        if (Array.isArray(c)) c.forEach(visit)
+        else if (c && typeof c.type === 'string') visit(c)
+      }
+    }
+    visit(ast.program || ast)
+  }
+  assert.deepEqual(bad, [], `内联 style 的 spacing 仍是裸数字（未走 --sp-* token）：\n${bad.join('\n')}`)
 })

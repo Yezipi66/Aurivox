@@ -57,7 +57,7 @@ export function PreflightSummary({
       {form.trainS2 !== false && baseModelStatus && Array.isArray(baseModelStatus.versions) &&
         baseModelStatus.versions.filter(v => !v.ok).map(v => (
           v.blocking
-            ? <div key={v.version} className="msg msg-error" style={{ marginTop: 10 }}>
+            ? <div key={v.version} className="msg msg-error" style={{ marginTop: 'var(--sp-10)' }}>
                 {tr(
                   <>⚠ Base models for <strong>{v.version}</strong> are missing ({(v.criticalMissing || []).join(' + ')}) — this
                   version is blocked (it would only produce electrical noise). Run:{' '}</>,
@@ -65,7 +65,7 @@ export function PreflightSummary({
                   （否则只会产生电流噪声）。请运行：{' '}</>)}
                 <code>python download_models.py --set {String(v.version).toLowerCase()}</code>
               </div>
-            : <div key={v.version} className="msg msg-warn" style={{ marginTop: 10 }}>
+            : <div key={v.version} className="msg msg-warn" style={{ marginTop: 'var(--sp-10)' }}>
                 ⚠ <strong>{v.version}</strong>: {(v.missing || []).includes('sv')
                   ? tr('speaker-vector (SV) model missing — training will run but without SV enhancement', 'speaker-vector（SV）模型缺失，训练仍会进行，但没有 SV 增强')
                   : tr('a preferred base model is missing; training will fall back to a lower-quality base', '缺少一个更优的底模；训练将回退到质量较低的底模')}. {tr('Run:', '请运行：')}{' '}
@@ -73,14 +73,14 @@ export function PreflightSummary({
               </div>
         ))}
       {form.trainS1 === false && form.trainS2 === false && (
-        <p className="msg msg-warn" style={{ marginTop: 10 }}>{tr('Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.',
+        <p className="msg msg-warn" style={{ marginTop: 'var(--sp-10)' }}>{tr('Neither S1 nor S2 is enabled (both pipeline steps off) — this run will only preprocess (slice / ASR) and publish reference audio.',
           'S1 和 S2 都未启用（两个流程步骤均已关闭）：本次运行只会做预处理（切片 / ASR）并发布参考音频。')}</p>
       )}
 
       {/* One-time low-VRAM (≤4GB) advisory. We never auto-shrink batch_size —
           the user decides; this only points them at the control. */}
       {showLowVram && (
-        <div className="msg msg-warn" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10, background: 'color-mix(in srgb, var(--warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 35%, transparent)' }}>
+        <div className="msg msg-warn" style={{ marginTop: 'var(--sp-8)', display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-10)', background: 'color-mix(in srgb, var(--warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 35%, transparent)' }}>
           <span style={{ fontSize: 'var(--fs-16)', lineHeight: 1.2 }}>⚠️</span>
           <div style={{ flex: 1, fontSize: 12.5 }}>
             检测到显存较小的 GPU（{cuda?.device_name || 'GPU'} · {cuda?.vram_gb}GB）。微调可能因显存不足（OOM）而失败，

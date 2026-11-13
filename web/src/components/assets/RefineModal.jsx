@@ -178,7 +178,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
 
         {/* 派生关系：抽象的代数链，Gen 0 是最初那版录音。 */}
         <div className="asset-lineage" style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', margin: '2px 0 10px' }}>
-          <span className="badge" style={{ marginRight: 8 }}>Gen {lineage.generation}</span>
+          <span className="badge" style={{ marginRight: 'var(--sp-8)' }}>Gen {lineage.generation}</span>
           {t('This derived Voice will become', '本次派生音色将成为第')}{' '}
           <strong style={{ color: 'var(--text)' }}>Gen {lineage.generation + 1}</strong>{' '}
           {t('— direct parent:', '代，直接父级为')} <strong style={{ color: 'var(--text)' }}>{parent}</strong>
@@ -209,14 +209,14 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             </span>
           </label>
           {reuseBlocked && (
-            <div className="hint-warn" style={{ marginTop: 8, color: 'var(--warning)' }}>
+            <div className="hint-warn" style={{ marginTop: 'var(--sp-8)', color: 'var(--warning)' }}>
               {t(
                 `⚠ This Voice isn’t complete enough to refine on its existing data — missing ${reuseMissing.join(', ')}. Complete the asset first (e.g. rebuild segments / re-import audio), or enable “Use a new audio corpus” to train from a fresh corpus.`,
                 `⚠ 该音色尚不足以在现有数据上精修，缺少 ${reuseMissing.join('、')}。请先补全资产（例如重建分段 / 重新导入音频），或勾选「导入自备的新音频」以用全新语料训练。`)}
             </div>
           )}
           {useOwnData && (
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 'var(--sp-8)' }}>
               <input
                 className="control"
                 value={inputDir}
@@ -224,7 +224,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                 onChange={e => setInputDir(e.target.value)}
                 style={{ width: '100%' }}
               />
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 'var(--sp-8)' }}>
                 <label className="field-label">{t('New corpus language', '新语料语言')}</label>
                 <select className="control" value={language} onChange={e => setLanguage(e.target.value)} style={{ width: '100%' }}>
                   <option value="">
@@ -232,7 +232,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                   </option>
                   {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
                 </select>
-                <div className="field-hint" style={{ marginTop: 4 }}>
+                <div className="field-hint" style={{ marginTop: 'var(--sp-4)' }}>
                   {language === ''
                     ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language to declare one for the new corpus.',
                         '未声明：本分支继承父级音色的语言。仅当需要为新语料指定语言时才需选择。')
@@ -243,7 +243,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                           '⚠ 与父级音色不同，将派生一条跨语言分支，并作为新音色自身的语言记录（例如把日语模型用中文数据退火）。')}
                 </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 'var(--sp-8)' }}>
                 <label className="toggle-row" style={{ margin: 0 }}>
                   <input type="checkbox" checked={ownSteps.denoise} onChange={e => setOwnStep('denoise', e.target.checked)} />
                   <span>{t('Denoise', '降噪')}</span>
@@ -265,7 +265,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
                   <span>{t('Pause after ASR (proofread)', 'ASR 后暂停（人工校对）')}</span>
                 </label>
               </div>
-              <div className="field-hint" style={{ marginTop: 6 }}>
+              <div className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
                 {t('New data only — the parent dataset is NOT merged. Integrate any upstream data into this folder yourself before starting.',
                    '仅使用新数据（不会与父级数据集合并）。开始前请自行把任何上游数据整合进该文件夹。')}
               </div>
@@ -311,11 +311,11 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             </div>
           )}
           {!refinementType && (
-            <div className="msg msg-warn" style={{ marginTop: 4 }}>{t('Select at least one model to refine.', '请至少选择一个要精修的模型。')}</div>
+            <div className="msg msg-warn" style={{ marginTop: 'var(--sp-4)' }}>{t('Select at least one model to refine.', '请至少选择一个要精修的模型。')}</div>
           )}
 
           {/* 热启动起点：始终告诉用户这次是从哪一份继续训的。 */}
-          <div className="field-hint" style={{ marginTop: 8 }}>
+          <div className="field-hint" style={{ marginTop: 'var(--sp-8)' }}>
             {t('Warm-start source:', '精修起点：')}{' '}
             {refineS1 && <strong>S1 = {selS1Obj ? baseName(selS1Obj.path) : '—'}</strong>}
             {refineS1 && refineS2 && ' · '}
@@ -323,14 +323,14 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             {'  '}({t('version', '版本')} {parentVersion || 'v2'})
           </div>
 
-          <div className="collapsible" style={{ marginTop: 10 }}>
+          <div className="collapsible" style={{ marginTop: 'var(--sp-10)' }}>
             <div className="collapsible-hdr" onClick={() => setShowParams(v => !v)}>
               <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>{t('Training Parameters', '训练参数')}</span>
               <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showParams ? '▲' : '▼'}</span>
             </div>
             {showParams && (
-              <div className="collapsible-body" style={{ padding: 12 }}>
-                <div className="field-hint" style={{ marginBottom: 8 }}>
+              <div className="collapsible-body" style={{ padding: 'var(--sp-12)' }}>
+                <div className="field-hint" style={{ marginBottom: 'var(--sp-8)' }}>
                   {t('Epochs here are the additional epochs to train this session (warm-started from the parent). The model version is fixed to the source Voice\u2019s for warm-start compatibility.',
                      '这里的 epoch 数是本次会话额外训练的 epoch（从父级 warm-start 继续）。模型版本固定为源音色的版本，以保证 warm-start 兼容性。')}
                 </div>
@@ -350,16 +350,16 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
             onChange={e => setDisplayName(e.target.value)}
             style={{ width: '100%' }}
           />
-          <div className="field-hint" style={{ marginTop: 6 }}>
+          <div className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
             {t(`Leave blank to auto-name as \u201c${namePlaceholder}\u201d.`, `留空则自动命名为 \u201c${namePlaceholder}\u201d。`)}
           </div>
         </div>
 
-        <div className="field-note" style={{ marginTop: 4 }}>
+        <div className="field-note" style={{ marginTop: 'var(--sp-4)' }}>
           {t('This operation creates a new derived Voice asset. The source Voice will not be modified or overwritten.',
              '此操作会创建一个新的派生音色资源。源音色不会被修改或覆盖。')}
         </div>
-        <div className="field-note" style={{ color: 'var(--warning)', marginTop: 6 }}>
+        <div className="field-note" style={{ color: 'var(--warning)', marginTop: 'var(--sp-6)' }}>
           {t('Refinement does not guarantee better results and may cause overfitting. The original Voice and checkpoints will be preserved.',
              '精修并不保证效果更好，还可能导致过拟合。原始音色及其 checkpoint 会被保留。')}
         </div>
@@ -370,7 +370,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           <div className="plan-preview-body">{planStages.join('  →  ')}</div>
         </div>
 
-        {error && <div className="msg msg-error" style={{ marginBottom: 10 }}>{error}</div>}
+        {error && <div className="msg msg-error" style={{ marginBottom: 'var(--sp-10)' }}>{error}</div>}
 
         <div className="modal-actions">
           <button className="btn btn-sm" onClick={onClose} disabled={busy}>{t('Cancel', '取消')}</button>
@@ -403,7 +403,7 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
               {t('Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
                  '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
             </p>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', marginTop: 'var(--sp-6)' }}>
               <span>{t('Grace period (seconds)', '宽限期（秒）')}</span>
               <input type="number" className="control" min={0} max={600} value={graceSec}
                      onChange={e => setGraceSec(e.target.value)} style={{ width: 90 }} />

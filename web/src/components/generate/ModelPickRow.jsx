@@ -61,7 +61,7 @@ export function ModelPickRow({
         {/* 换启动时载入的模型位会让这台引擎带着它重启一次，
             换过之后的第一次生成需要等模型载入。 */}
         {relaunchHint && (
-          <div className="field-hint" style={{ marginTop: 4 }}>
+          <div className="field-hint" style={{ marginTop: 'var(--sp-4)' }}>
             {t('Changing the model above restarts this engine with it — the first generation after a change takes longer while the model loads.',
                '在上面换模型会让这台引擎带着它重新启动一次，换过之后的第一次生成需要更长时间，等它把模型装进内存。')}
           </div>
@@ -73,13 +73,13 @@ export function ModelPickRow({
             整句由后端生成，前端不判断也不拼话。 */}
         {modelNotes.map((n, i) => (
           <div className="field-hint" key={`${n.engine}-${n.code}-${i}`}
-               style={{ marginTop: 4, color: 'var(--warning)' }}>
+               style={{ marginTop: 'var(--sp-4)', color: 'var(--warning)' }}>
             {n.text}
           </div>
         ))}
         {incompleteItems.map((it, i) => (
           <div className="msg msg-error" key={`missing-${it.path}-${i}`}
-               style={{ marginTop: 4 }}
+               style={{ marginTop: 'var(--sp-4)' }}
                title={(it.missing || []).join('\n')}>
             {it.missing_text}
           </div>

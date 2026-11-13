@@ -23,12 +23,12 @@ export function TrainingStatusPanel({
 
   if (!taskId) return null
   if (!status) {
-    return <div className="msg" style={{ marginTop: 10 }}>{tr('Restoring training state…', '正在恢复训练状态…')}</div>
+    return <div className="msg" style={{ marginTop: 'var(--sp-10)' }}>{tr('Restoring training state…', '正在恢复训练状态…')}</div>
   }
 
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+    <div style={{ marginTop: 'var(--sp-12)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-8)' }}>
         <span style={{ fontSize: 'var(--fs-14)', fontWeight: 600 }}>
           {status.status === 'completed' ? tr('Completed', '已完成')
            : status.status === 'failed' ? tr('Failed', '失败')
@@ -56,13 +56,13 @@ export function TrainingStatusPanel({
         <AsrReviewPanel taskId={taskId} engineId={engineId} lang={status?.language || form.language} onResumed={onResumed} />
       )}
       {isInterrupted && (
-        <div className="msg msg-error" style={{ marginBottom: 8 }}>
+        <div className="msg msg-error" style={{ marginBottom: 'var(--sp-8)' }}>
           {tr('Tuning was interrupted. Go Back, then use “Recover a failed run” to resume it from where it stopped.',
               '微调被中断。请点击“返回”，然后用“恢复失败的任务”从中断处继续。')}
         </div>
       )}
       {isFinished && (
-        <button className="btn btn-sm btn-primary" style={{ marginTop: 4 }} onClick={onReset}>{tr('Back', '返回')}</button>
+        <button className="btn btn-sm btn-primary" style={{ marginTop: 'var(--sp-4)' }} onClick={onReset}>{tr('Back', '返回')}</button>
       )}
     </div>
   )

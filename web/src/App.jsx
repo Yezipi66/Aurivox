@@ -347,7 +347,7 @@ function AppShell() {
                     : `${engine.label || engine.id} 这台引擎不支持微调（它的 manifest.json 里 capabilities.supports_finetune 不是 true）。请改用其他引擎，或修改该 manifest.json。`}
                 </div>
                 {engine !== null && (
-                  <div style={{ marginTop: 12 }}>
+                  <div style={{ marginTop: 'var(--sp-12)' }}>
                     <button className="btn btn-sm" onClick={() => setPage('assets')}>返回 Assets</button>
                   </div>
                 )}

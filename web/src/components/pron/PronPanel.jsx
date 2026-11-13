@@ -214,10 +214,10 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
   const tokenStarts = previewTokenStarts(text, preview?.tokens || [])
 
   return (
-    <div className={`section pron-panel${wide ? ' pron-panel-wide' : ''}`} style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+    <div className={`section pron-panel${wide ? ' pron-panel-wide' : ''}`} style={{ margin: '8px 0', border: '1px solid var(--border)', borderRadius: 8, padding: 'var(--sp-10)' }}>
       <div className="pron-grid">
       <div className="pron-edit">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', marginBottom: 'var(--sp-8)' }}>
         <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600 }}>{t('Reading proofing', '读音校对')}</span>
         <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>
           {!supported ? t(`Language "${lang}" is contract-only for now.`, `语言 “${lang}” 目前仅为占位支持。`)
@@ -232,10 +232,10 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
       <textarea
         className="control" rows={3} placeholder={t('Edit the text to synthesize here...', '在此编辑要合成的文本…')}
         value={text} onChange={e => setText(e.target.value)}
-        style={{ marginBottom: 8 }}
+        style={{ marginBottom: 'var(--sp-8)' }}
       />
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 'var(--sp-8)', flexWrap: 'wrap', alignItems: 'center' }}>
         <button className="btn btn-sm" onClick={doPreview} disabled={loading || !supported}>
           {loading ? t('Previewing...', '预览中…') : t('Preview readings', '预览读音')}
         </button>
@@ -248,18 +248,18 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
       </div>
 
       {showNorm && (
-        <div className="field-hint" style={{ marginTop: 6, fontSize: 'var(--fs-11)' }}>
+        <div className="field-hint" style={{ marginTop: 'var(--sp-6)', fontSize: 'var(--fs-11)' }}>
           {t('Normalized text (readings are derived from this):', '规范化文本（读音基于此推导）：')}
           <span style={{ color: 'var(--text)' }}> {preview.norm_text}</span>
         </div>
       )}
 
-      {error && <div className="msg msg-error" style={{ marginTop: 6 }}>{error}</div>}
+      {error && <div className="msg msg-error" style={{ marginTop: 'var(--sp-6)' }}>{error}</div>}
       </div>{/* .pron-edit */}
       <div className="pron-out">
-      {preview?.langs?.includes('ko') && <div style={{marginTop:10,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setShowAllKo(v=>!v)}>{showAllKo?t('Show suggested Korean checks','仅显示建议检查'):t('Show all Korean words','显示全部韩语词')}</button><span className="field-hint">{t('Latin text remains English/ARPABET. Han characters remain ZH/YUE/JA and never fall back to Korean.','拉丁字母继续使用英语/ARPABET；汉字保持 ZH/YUE/JA，绝不回落到韩语。')}</span></div>}
+      {preview?.langs?.includes('ko') && <div style={{marginTop:'var(--sp-10)',display:'flex',gap:'var(--sp-8)',alignItems:'center',flexWrap:'wrap'}}><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setShowAllKo(v=>!v)}>{showAllKo?t('Show suggested Korean checks','仅显示建议检查'):t('Show all Korean words','显示全部韩语词')}</button><span className="field-hint">{t('Latin text remains English/ARPABET. Han characters remain ZH/YUE/JA and never fall back to Korean.','拉丁字母继续使用英语/ARPABET；汉字保持 ZH/YUE/JA，绝不回落到韩语。')}</span></div>}
       {preview && supported && (
-        <div className={`pron-tokens${preview?.langs?.includes('ko') ? ' pron-tokens-ko' : ''}`} style={{ marginTop: 10, display: preview?.langs?.includes('ko') ? 'flex' : 'grid', flexWrap: preview?.langs?.includes('ko') ? 'wrap' : undefined, gridTemplateColumns: preview?.langs?.includes('ko') ? undefined : 'repeat(auto-fill, minmax(132px, 1fr))', gap: 8, alignItems: 'flex-start' }}>
+        <div className={`pron-tokens${preview?.langs?.includes('ko') ? ' pron-tokens-ko' : ''}`} style={{ marginTop: 'var(--sp-10)', display: preview?.langs?.includes('ko') ? 'flex' : 'grid', flexWrap: preview?.langs?.includes('ko') ? 'wrap' : undefined, gridTemplateColumns: preview?.langs?.includes('ko') ? undefined : 'repeat(auto-fill, minmax(132px, 1fr))', gap: 'var(--sp-8)', alignItems: 'flex-start' }}>
           {(preview.tokens || []).map((tok, ti) => {
             const tokenStart = tokenStarts[ti]
             const tokenText = previewTokenText(tok)
@@ -310,7 +310,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
             return (
             <div key={ti} className={`pron-tok${isKo ? ' pron-tok-ko' : ''}`} title={tokenMuted ? tokenMutedTip : koDimmed ? t('This Korean word has no detected pronunciation issue. Turn on “Show all Korean words” above to inspect or edit it.', '当前韩语词语未检测到需要复核的读音。开启上方“显示全部韩语词”后，可以查看或编辑它。') : undefined} style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${tokenMuted ? 'var(--muted)' : overridden ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, padding: '6px 8px', background: tokenMuted ? 'var(--bg)' : 'var(--surface)', minWidth: 0, ...(tokenMuted ? { opacity: 0.48, filter: 'grayscale(0.7)' } : {}), ...(koDimmed ? { opacity: 0.48, filter: 'grayscale(0.35)' } : {}) }}>
               {multiLang && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }} title={langName(t, seg)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', marginBottom: 3 }} title={langName(t, seg)}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: SEG_COLORS[seg] || 'var(--muted)', flex: '0 0 auto' }} />
                   <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', letterSpacing: 0.4 }}>{SEG_SHORT[seg] || String(seg).toUpperCase()}</span>
                 </div>
@@ -322,7 +322,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
               )}
               {isChar ? (
                 // zh / yue：逐字，多音字给候选下拉
-                <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 'var(--sp-4)', justifyContent: 'center', flexWrap: 'wrap' }}>
                   {tok.chars.map((c, ci) => {
                     const absolutePosition = tokenStart >= 0 ? tokenStart + ci : -1
                     const muted = absolutePosition >= 0 && mutePositionSet.has(absolutePosition)
@@ -355,9 +355,9 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                 // ja / en：逐词，直接改写读音（假名 / ARPABET）。en 的候选下拉与谐音改写默认收起，
                 // 由展开按钮展开，避免纵向拥挤；en 每次出现独立可改，同一词第 1/2/3 次互不影响。
                 <div className={isKo ? 'ko-reading-grid' : undefined} style={{ textAlign: isKo ? 'left' : 'center', minWidth: 0, ...(isKo ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4 } : {}) }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 15, color: (isEn ? !overridden : tok.source === 'g2p') ? 'var(--text)' : 'var(--accent)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--sp-4)', fontSize: 15, color: (isEn ? !overridden : tok.source === 'g2p') ? 'var(--text)' : 'var(--accent)' }}>
                     <span style={{ overflowWrap: 'anywhere' }}>{tok.word}
-                      {repeated && <sup style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 2 }} title={t('occurrence number', '第几次出现')}>#{occ + 1}</sup>}
+                      {repeated && <sup style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 'var(--sp-2)' }} title={t('occurrence number', '第几次出现')}>#{occ + 1}</sup>}
                     </span>
                     {isEn && (
                       <button type="button" className="btn btn-sm btn-ghost" disabled={tokenMuted}
@@ -381,7 +381,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                     spellCheck={false}
                     onChange={e => changeWordReading(seg, tok.word, occ, e.target.value)}
                   />
-                  {isKo && tok.editable && <div style={{marginTop:4}}><button type="button" className="btn btn-sm btn-ghost" disabled={tokenInactive} title={tokenMuted ? tokenMutedTip : koDimmed ? t('Turn on “Show all Korean words” above to inspect this word.', '请先开启上方“显示全部韩语词”再查看这个词。') : undefined} onClick={()=>setExpandedKo(x=>({...x,[ti]:!x[ti]}))}>{expandedKo[ti]?t('Hide syllables','收起音节'):t('Expand syllables','展开音节')}</button>{tok.unresolved&&<span style={{fontSize: 'var(--fs-11)',color:'var(--danger)',marginLeft:6}}>{t('Unresolved','未解析')}</span>}{expandedKo[ti]&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:5}}>{(tok.syllables||[]).map((sy,i)=><div key={i} style={{border:`1px solid ${sy.changed?'var(--warning)':'var(--border)'}`,borderRadius:4,padding:'3px 6px',textAlign:'center'}}><div>{sy.written||'·'}</div><div style={{fontSize: 'var(--fs-11)',color:sy.changed?'var(--warning)':'var(--muted)'}}>{sy.spoken||'?'}</div></div>)}</div>}</div>}
+                  {isKo && tok.editable && <div style={{marginTop:'var(--sp-4)'}}><button type="button" className="btn btn-sm btn-ghost" disabled={tokenInactive} title={tokenMuted ? tokenMutedTip : koDimmed ? t('Turn on “Show all Korean words” above to inspect this word.', '请先开启上方“显示全部韩语词”再查看这个词。') : undefined} onClick={()=>setExpandedKo(x=>({...x,[ti]:!x[ti]}))}>{expandedKo[ti]?t('Hide syllables','收起音节'):t('Expand syllables','展开音节')}</button>{tok.unresolved&&<span style={{fontSize: 'var(--fs-11)',color:'var(--danger)',marginLeft:'var(--sp-6)'}}>{t('Unresolved','未解析')}</span>}{expandedKo[ti]&&<div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:5}}>{(tok.syllables||[]).map((sy,i)=><div key={i} style={{border:`1px solid ${sy.changed?'var(--warning)':'var(--border)'}`,borderRadius:4,padding:'3px 6px',textAlign:'center'}}><div>{sy.written||'·'}</div><div style={{fontSize: 'var(--fs-11)',color:sy.changed?'var(--warning)':'var(--muted)'}}>{sy.spoken||'?'}</div></div>)}</div>}</div>}
                   {isEn && openDetail[ti] && (
                     <>
                       {(tok.candidates || []).length > 0 && (
@@ -417,7 +417,7 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
                 </div>
               )}
               {overridden && !tokenMuted && (
-                <button className="btn btn-sm btn-ghost" style={{ marginTop: 4, fontSize: 'var(--fs-11)' }} onClick={() => saveToLexicon(seg, tok.word, occ)}>
+                <button className="btn btn-sm btn-ghost" style={{ marginTop: 'var(--sp-4)', fontSize: 'var(--fs-11)' }} onClick={() => saveToLexicon(seg, tok.word, occ)}>
                   {t('Save to lexicon', '保存到词典')}
                 </button>
               )}
@@ -428,13 +428,13 @@ function PronPanel({ text, setText, lang, overrides, setOverrides, layout, muted
       )}
 
       {supported && Object.entries(lexicons).some(([, e]) => e && Object.keys(e).length > 0) && (
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 'var(--sp-10)' }}>
           {Object.entries(lexicons).filter(([, e]) => e && Object.keys(e).length > 0).map(([lg, entries]) => (
-            <div key={lg} style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 4 }}>{t(`Saved lexicon (${lg}):`, `已保存词典（${lg}）：`)}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <div key={lg} style={{ marginBottom: 'var(--sp-6)' }}>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 'var(--sp-4)' }}>{t(`Saved lexicon (${lg}):`, `已保存词典（${lg}）：`)}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-6)' }}>
                 {Object.entries(entries).map(([w, pys]) => (
-                  <span key={w} style={{ fontSize: 'var(--fs-11)', border: '1px solid var(--border)', borderRadius: 12, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span key={w} style={{ fontSize: 'var(--fs-11)', border: '1px solid var(--border)', borderRadius: 12, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
                     {w}: {pys.join(' ')}
                     <button className="btn btn-sm btn-ghost" style={{ padding: 0, fontSize: 'var(--fs-12)', lineHeight: 1 }} onClick={() => deleteFromLexicon(lg, w)}>x</button>
                   </span>

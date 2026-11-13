@@ -175,7 +175,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
           文件选择器的扩展名也不能写死成 .ckpt / .pth ⇒ 一台别的引擎的权重在界面上
           连标题都不匹配。标题取后端给的真实位名（slotNames），扩展名放开。
           每个模型位都留一条「自定义路径」的路（跨角色、项目目录之外都走它）。 */}
-      <div className="rebind-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div className="rebind-row" style={{ display: 'flex', gap: 'var(--sp-8)', flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div className="field" style={{ flex: '0 1 170px', minWidth: 130 }}>
           <label className="field-label">Voice ID</label>
           <Select className="control" value={voice} onChange={e => onVoiceChange(e.target.value)}>
@@ -194,7 +194,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
             <option value="__custom__">— custom path… —</option>
           </Select>
           {gptCustom && (
-            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-4)', marginTop: 'var(--sp-4)' }}>
               <input className="control" value={gpt} onChange={e => setGpt(e.target.value)}
                 placeholder="assets/<voice>/models/<engine>/<slot>/…" />
               <button className="btn btn-sm" title={t('Browse for a model file', '浏览模型文件')} onClick={() => setPickGpt(true)}>📁</button>
@@ -217,7 +217,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
             <option value="__custom__">— custom path… —</option>
           </Select>
           {sovitsCustom && (
-            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-4)', marginTop: 'var(--sp-4)' }}>
               <input className="control" value={sovits} onChange={e => setSovits(e.target.value)}
                 placeholder="assets/<voice>/models/<engine>/<slot>/…" />
               <button className="btn btn-sm" title={t('Browse for a model file', '浏览模型文件')} onClick={() => setPickSovits(true)}>📁</button>
@@ -231,7 +231,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
       {extConfirm && (
         <div className="msg msg-warn">
           <strong>⚠️ {t('This model file is outside the project (not under assets/).', '该模型文件不在项目内（不在 assets/ 目录下）。')}</strong>
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 'var(--sp-6)' }}>
             {t(<>It will be pinned as an <strong>absolute path</strong>. Consequences:</>,
                <>它将以<strong>绝对路径</strong>方式固定。这会带来以下后果：</>)}
             <ul style={{ margin: '4px 0 0 18px' }}>
@@ -243,7 +243,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
                      '若要分发，必须把这些模型文件一并拷贝到目标机器（与音色资源一样）。')}</li>
             </ul>
           </div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <div style={{ marginTop: 'var(--sp-8)', display: 'flex', gap: 'var(--sp-8)' }}>
             <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => save(true)}>
               {busy ? t('Saving…', '保存中…') : t('Understood — pin absolute path', '已了解风险：固定为绝对路径')}
             </button>
@@ -254,7 +254,7 @@ export function RecipeModelRebind({ recipe, onSaved }) {
       <p className="field-hint">{t(
         <>ⓘ Saving rebinds this recipe's model. Every future API call to voice "{recipe.id}" on this endpoint will use the new checkpoint/model; requests already in flight are unaffected.</>,
         <>ⓘ 保存后将重新绑定该 recipe 的模型。此后对该 endpoint 上音色 “{recipe.id}” 的每次 API 调用都会使用新的 checkpoint/模型；已在处理中的请求不受影响。</>)}</p>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 'var(--sp-8)' }}>
         <button className="btn btn-sm btn-primary" disabled={busy || !!extConfirm} onClick={() => save(false)}>{busy ? t('Saving…', '保存中…') : t('Save models', '保存模型')}</button>
         <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>{t('Close', '关闭')}</button>
       </div>

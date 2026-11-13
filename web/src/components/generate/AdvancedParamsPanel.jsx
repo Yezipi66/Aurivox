@@ -60,7 +60,7 @@ export function AdvancedParamsPanel({
       {showAdvanced && (
         <div className="collapsible-body">
           {/* 档位页签的标签取 TIERS（common / advanced），不在这里写死 */}
-          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-4)', marginBottom: 'var(--sp-8)' }}>
             {TIERS.map(tier => (
               <button key={tier} type="button" className="btn btn-sm" onClick={() => onTier(tier)}
                 style={{ background: advTier === tier ? 'var(--accent)' : 'var(--surface)', color: advTier === tier ? '#fff' : 'var(--muted)', textTransform: 'capitalize' }}>
@@ -145,7 +145,7 @@ export function AdvancedParamsPanel({
 
           {/* 提示里点名的引擎取自 engineName：
               换一台引擎它还是那么说，界面公然告诉用户参数发去了一台他没选的引擎。 */}
-          <div className="field-hint" style={{ marginTop: 6 }}>
+          <div className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
             {t(`These parameters are sent to ${engineName} for this generation only. They do not change the voice config.`,
                `这些参数仅用于本次生成并发送给 ${engineName}，不会更改语音配置。`)}
           </div>
@@ -157,10 +157,10 @@ export function AdvancedParamsPanel({
               无条件画的话，名片没铺这一条映射的引擎也能选出一堆辅助参考音频，
               然后它们被静默丢掉。 */}
           {hasAuxRefs && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 'var(--sp-10)' }}>
               <label className="field-label">
                 Auxiliary References
-                <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
+                <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 'var(--sp-6)' }}>
                   {t(`(optional, multi-select${auxRefs.length > 0 ? ` · ${auxRefs.length} selected` : ''})`,
                      `（可选，多选${auxRefs.length > 0 ? ` · 已选 ${auxRefs.length} 项` : ''}）`)}
                 </span>
@@ -184,10 +184,10 @@ export function AdvancedParamsPanel({
           {(audioInputs || []).map((d) => {
             const picked = audioValues[d.name] || []
             return (
-              <div key={d.name} style={{ marginTop: 10 }}>
+              <div key={d.name} style={{ marginTop: 'var(--sp-10)' }}>
                 <label className="field-label">
                   {t(d.labelEn || d.label || d.name, d.label || d.labelEn || d.name)}
-                  <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
+                  <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 'var(--sp-6)' }}>
                     {t('(optional)', '（可选）')}
                   </span>
                 </label>
@@ -205,7 +205,7 @@ export function AdvancedParamsPanel({
 
           {/* 输出格式：名片声明了 output_format 开关才有这一格，没声明沿用 wav。 */}
           {(outputFormats || []).length > 0 && (
-            <div className="field" style={{ marginTop: 10 }}>
+            <div className="field" style={{ marginTop: 'var(--sp-10)' }}>
               <label className="field-label">{t('Output format', '输出格式')}</label>
               <select className="control" value={format} onChange={(e) => onFormat && onFormat(e.target.value)}>
                 {outputFormats.map((f) => <option key={f} value={f}>{String(f).toUpperCase()}</option>)}

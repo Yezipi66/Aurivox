@@ -20,7 +20,7 @@ export function Dock({ label, width, onClose, children }) {
       }}
     >
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
+        display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', padding: '5px 8px',
         borderBottom: `1px solid ${BORDER}`, fontSize: 'var(--fs-11)', fontWeight: 600,
         letterSpacing: 0.5, color: MUTED, textTransform: 'uppercase',
       }}>
@@ -31,7 +31,7 @@ export function Dock({ label, width, onClose, children }) {
       </div>
       {/* One scroll area for the whole dock. Panels inside must not scroll on
           their own — two nested scrollbars in a 300px column is unusable. */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: 'var(--sp-8)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-8)' }}>
         {children}
       </div>
     </div>
@@ -47,7 +47,7 @@ export function Rail({ side, label, onOpen }) {
       title={label}
       style={{
         flex: '0 0 26px', width: 26, alignSelf: 'stretch', padding: '8px 0',
-        display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6,
+        display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 'var(--sp-6)',
         writingMode: 'vertical-rl', letterSpacing: 2, fontSize: 'var(--fs-11)', cursor: 'pointer',
         borderRadius: 8, border: `1px solid ${BORDER}`, background: PANEL, color: MUTED,
         marginRight: side === 'left' ? 6 : 0, marginLeft: side === 'right' ? 6 : 0,
@@ -114,11 +114,11 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
     return haystack.includes(needle)
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
       <input
         value={search} onChange={e => setSearch(e.target.value)}
         placeholder={t(`Search nodes (${catalogue.count} available)`, `搜索节点（共 ${catalogue.count} 个）`)}
-        style={{ ...fieldStyle, marginBottom: 4 }}
+        style={{ ...fieldStyle, marginBottom: 'var(--sp-4)' }}
       />
       {catalogue.categories.map(category => {
         const nodes = category.nodes.filter(matches)
@@ -128,7 +128,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
           <div key={category.id}>
             <div
               title={pickText(category.help, lang)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', color: MUTED, margin: '10px 0 5px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-11)', color: MUTED, margin: '10px 0 5px' }}
             >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: colour }} />
               {pickText(category.label, lang, category.id)}
@@ -151,7 +151,7 @@ export function Palette({ catalogue, search, setSearch, onPick, lang, t }) {
               >
                 {pickText(definition.label, lang, definition.type)}
                 {definition.suspends && (
-                  <span style={{ marginLeft: 6, fontSize: 'var(--fs-11)', color: 'var(--warning)' }}>
+                  <span style={{ marginLeft: 'var(--sp-6)', fontSize: 'var(--fs-11)', color: 'var(--warning)' }}>
                     {t('needs input', '需人工介入')}
                   </span>
                 )}
@@ -169,7 +169,7 @@ export function Toolbar({
   docks, setDocks,
 }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 'var(--sp-8)', alignItems: 'center', flexWrap: 'wrap' }}>
       <input
         value={graph.name}
         onChange={e => setGraph(g => ({ ...g, name: e.target.value }))}
@@ -207,7 +207,7 @@ export function Toolbar({
       {status && !status.can_synthesize && (
         // Worth stating plainly: a graph that runs but produces no audio is the
         // most confusing possible outcome.
-        <div className="msg msg-warn" style={{ marginTop: 8 }}>
+        <div className="msg msg-warn" style={{ marginTop: 'var(--sp-8)' }}>
           {t('Synthesis is not configured on this machine; synthesis nodes will fail.', '本机未配置合成服务，合成节点将执行失败')}
         </div>
       )}

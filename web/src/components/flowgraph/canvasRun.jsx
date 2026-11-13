@@ -33,10 +33,10 @@ export function RunPanel({ run, busy, onAnswer, problems, lang, t }) {
   return (
     <Panel title={t(`Run · ${plainStatus(run.status, 'en')}`, `运行 · ${plainStatus(run.status, 'zh')}`)}>
       {request && (
-        <div style={{ marginBottom: 10, padding: 9, borderRadius: 8, border: '1px solid var(--warning)' }}>
+        <div style={{ marginBottom: 'var(--sp-10)', padding: 9, borderRadius: 8, border: '1px solid var(--warning)' }}>
           <div style={{ fontSize: 'var(--fs-12)', marginBottom: 7 }}>{request.prompt}</div>
           {request.kind === 'pause' && (
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-6)' }}>
               <button disabled={busy} onClick={() => onAnswer(true)} style={buttonStyle}>{t('Continue', '继续执行')}</button>
               <button disabled={busy} onClick={() => onAnswer(false)} style={buttonStyle}>{t('Stop here', '终止')}</button>
             </div>
@@ -47,13 +47,13 @@ export function RunPanel({ run, busy, onAnswer, problems, lang, t }) {
                 {t(`${request.count} items — tick the ones to carry on with:`, `共 ${request.count} 项，请勾选需要继续处理的条目：`)}
               </div>
               {(request.candidates || []).map((candidate, i) => (
-                <label key={i} style={{ display: 'block', fontSize: 'var(--fs-12)', marginBottom: 4 }}>
+                <label key={i} style={{ display: 'block', fontSize: 'var(--fs-12)', marginBottom: 'var(--sp-4)' }}>
                   <input
                     type="checkbox" checked={picked.includes(i)}
                     onChange={e => setPicked(p => (e.target.checked ? [...p, i] : p.filter(x => x !== i)))}
                   />
-                  <span style={{ marginLeft: 6 }}>{describeCandidate(candidate, i, t)}</span>
-                  {candidate?.url && <audio src={candidate.url} controls style={{ height: 26, marginLeft: 8, verticalAlign: 'middle' }} />}
+                  <span style={{ marginLeft: 'var(--sp-6)' }}>{describeCandidate(candidate, i, t)}</span>
+                  {candidate?.url && <audio src={candidate.url} controls style={{ height: 26, marginLeft: 'var(--sp-8)', verticalAlign: 'middle' }} />}
                 </label>
               ))}
               <button disabled={busy} onClick={() => onAnswer(picked.slice().sort((a, b) => a - b))} style={buttonStyle}>
@@ -81,8 +81,8 @@ export function RunPanel({ run, busy, onAnswer, problems, lang, t }) {
 export function EventView({ event, t }) {
   if (event.type === 'table') {
     return (
-      <div style={{ marginBottom: 10, overflowX: 'auto' }}>
-        <div style={{ fontSize: 'var(--fs-11)', color: MUTED, marginBottom: 4 }}>
+      <div style={{ marginBottom: 'var(--sp-10)', overflowX: 'auto' }}>
+        <div style={{ fontSize: 'var(--fs-11)', color: MUTED, marginBottom: 'var(--sp-4)' }}>
           {t(`Score table (pass mark ${event.table.pass_score})`, `评分表（及格线 ${event.table.pass_score}）`)}
         </div>
         <table style={{ fontSize: 'var(--fs-11)', borderCollapse: 'collapse' }}>
@@ -103,21 +103,21 @@ export function EventView({ event, t }) {
   if (event.type === 'saved') {
     const names = event.files.map(f => f.split(/[\\/]/).pop())
     return (
-      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 6 }}>
+      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)' }}>
         {t(`Wrote ${event.files.length} files: ${names.join(', ')}`, `已写入 ${event.files.length} 个文件：${names.join('、')}`)}
       </div>
     )
   }
   if (event.type === 'released') {
     return (
-      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 6, color: MUTED }}>
+      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)', color: MUTED }}>
         {t(`Released ${event.freed} intermediate results`, `已释放 ${event.freed} 个中间结果`)}
       </div>
     )
   }
   if (event.type === 'recipe') {
     return (
-      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 6 }}>
+      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)' }}>
         <div style={{ color: MUTED }}>{t('Generation record (recipe)', '生成记录（配方）')}</div>
         <pre style={preStyle}>{JSON.stringify(event.recipe, null, 1)}</pre>
         <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 3, lineHeight: 1.6 }}>
@@ -131,16 +131,16 @@ export function EventView({ event, t }) {
   }
   if (event.type === 'voice_saved') {
     return (
-      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 6 }}>
+      <div style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)' }}>
         {t(`Saved as voice ${event.voice_id}`, `已保存为音色 ${event.voice_id}`)}
       </div>
     )
   }
   if (event.type === 'note') {
-    return <div style={{ fontSize: 'var(--fs-11)', marginBottom: 6, color: MUTED }}>{event.message}</div>
+    return <div style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)', color: MUTED }}>{event.message}</div>
   }
   return (
-    <div style={{ fontSize: 'var(--fs-11)', marginBottom: 6 }}>
+    <div style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)' }}>
       <div style={{ color: MUTED }}>{event.label || event.node_id}</div>
       {event.value?.url
         ? <audio src={event.value.url} controls style={{ width: '100%', height: 30 }} />

@@ -28,7 +28,7 @@ export function TrainingPresetPicker({ form, applyPreset, onSaveAsNew, onUpdate,
             </optgroup>
           )}
         </Select>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-8)', marginTop: 'var(--sp-8)', flexWrap: 'wrap' }}>
           {canSnapshot && (
             <button type="button" className="btn btn-sm" onClick={onSaveAsNew}>
               {isSavedTP ? tr('Save as new preset', '另存为新预设') : tr('Save as preset', '保存为预设')}

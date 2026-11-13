@@ -24,20 +24,20 @@ export function MigrateChoiceDialog({
     }} onClick={() => { if (!configBusy) onCancel() }}>
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-md)', padding: 24, minWidth: 380, maxWidth: 520,
+        borderRadius: 'var(--radius-md)', padding: 'var(--sp-24)', minWidth: 380, maxWidth: 520,
         boxShadow: 'var(--shadow-soft)',
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginBottom: 'var(--sp-12)' }}>
           <IconFolder size={20} color="var(--accent)" />
           <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>Change Assets Directory</span>
         </div>
-        <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
+        <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 'var(--sp-8)' }}>
           New directory:
         </p>
         <div style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', background: 'var(--bg)', padding: '6px 8px', borderRadius: 4, wordBreak: 'break-all', marginBottom: 14 }}>
           {migrateTarget}
         </div>
-        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 12 }}>
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 'var(--sp-12)' }}>
           The current assets directory contains <strong>{assetCount}</strong> voice{assetCount === 1 ? '' : 's'}.
           What should happen to that data? Changes take effect after a server restart.
         </p>
@@ -47,7 +47,7 @@ export function MigrateChoiceDialog({
           in use (a loaded model, an open Explorer/audio window), and such locks are hard to
           recover from. Use Copy/Move only when nothing here is open.
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-8)' }}>
           <button className="btn btn-primary" disabled={configBusy} onClick={() => onApply(migrateTarget, 'switch')}
             style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
             ➡️ Switch only (recommended) — point at the new directory, migrate the data yourself
@@ -65,7 +65,7 @@ export function MigrateChoiceDialog({
             ✕ Cancel
           </button>
         </div>
-        {configBusy && <div style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginTop: 12 }}>Starting…</div>}
+        {configBusy && <div style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginTop: 'var(--sp-12)' }}>Starting…</div>}
       </div>
     </div>
   )
@@ -80,10 +80,10 @@ export function MigrateProgressDialog({ migrateJob, onClose }) {
     }} onClick={() => { if (migrateJob.done) onClose() }}>
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-md)', padding: 24, minWidth: 420, maxWidth: 560,
+        borderRadius: 'var(--radius-md)', padding: 'var(--sp-24)', minWidth: 420, maxWidth: 560,
         boxShadow: 'var(--shadow-soft)',
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginBottom: 14 }}>
           <IconFolder size={20} color="var(--accent)" />
           <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>
             {migrateJob.migration === 'move' ? 'Moving' : 'Copying'} assets
@@ -111,18 +111,18 @@ export function MigrateProgressDialog({ migrateJob, onClose }) {
           </div>
         )}
         {migrateJob.done && migrateJob.error && (
-          <div className="msg msg-error" style={{ marginTop: 12 }}>
+          <div className="msg msg-error" style={{ marginTop: 'var(--sp-12)' }}>
             {migrateJob.error}
-            <div style={{ marginTop: 6, fontSize: 'var(--fs-12)' }}>
+            <div style={{ marginTop: 'var(--sp-6)', fontSize: 'var(--fs-12)' }}>
               Nothing was deleted from the current directory. Close anything using these files
               (loaded models, open Explorer/audio windows) and retry, or use Switch only and copy manually.
             </div>
           </div>
         )}
         {migrateJob.done && !migrateJob.error && (
-          <div className="msg msg-success" style={{ marginTop: 12 }}>{migrateJob.note || 'Done. Restart to apply.'}</div>
+          <div className="msg msg-success" style={{ marginTop: 'var(--sp-12)' }}>{migrateJob.note || 'Done. Restart to apply.'}</div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-16)' }}>
           <button className="btn btn-sm" disabled={!migrateJob.done} onClick={onClose}>
             {migrateJob.done ? 'Close' : 'Working…'}
           </button>
@@ -178,7 +178,7 @@ export function FolderBrowser({
             <div className="fs-browser-error">
               <div>{browseError}</div>
               {browseData?.path && !browseData?.isDriveList && (
-                <button className="btn btn-sm" style={{ marginTop: 8 }}
+                <button className="btn btn-sm" style={{ marginTop: 'var(--sp-8)' }}
                   onClick={() => onMkdirThenOpen(browseData.path)}>
                   Create “{browseData.path}”
                 </button>
@@ -202,7 +202,7 @@ export function FolderBrowser({
           <span className="fs-browser-current" title={browseData?.path || ''}>
             {browseData?.isDriveList ? 'Pick a drive to open' : (browseData?.path || '')}
           </span>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-6)' }}>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>Cancel</button>
             <button className="btn btn-primary btn-sm"
               disabled={browseBusy || browseData?.isDriveList || !browseData?.path}

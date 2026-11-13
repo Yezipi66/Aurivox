@@ -46,7 +46,7 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
         <div className="modal-hdr">{t('Text preparation', '文本预处理')}</div>
         <div className="modal-body">
           <div>
-            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 6 }}>{t('Han character language', '汉字语言')}</div>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 'var(--sp-6)' }}>{t('Han character language', '汉字语言')}</div>
             <HanLangPicker
               text={text}
               direction={hanDirection}
@@ -58,10 +58,10 @@ function TextPrepModal({ onClose, text, setText, panelLang, pronOverrides, setPr
               engineId={engineId}
             />
           </div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 6 }}>{t('Reading proofing', '读音校对')}</div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-12)' }}>
+            <div style={{ fontSize: 'var(--fs-13)', fontWeight: 600, marginBottom: 'var(--sp-6)' }}>{t('Reading proofing', '读音校对')}</div>
             {forcedInText.length > 0 && (
-              <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 8 }}>
+              <div className="field-hint" style={{ color: 'var(--warning)', marginBottom: 'var(--sp-8)' }}>
                 {t(
                   `${forcedInText.join(' ')} ${forcedInText.length > 1 ? 'are' : 'is'} assigned to another Han language; the ${LANG_LABEL[panelLang] || panelLang} reading below does not apply. Set the reading in the Han character language section above.`,
                   `${forcedInText.join(' ')} 已分配给另一种汉字语言；下方的 ${langName(t, panelLang)} 读音不生效。请在上方“汉字语言”区设置读音。`,

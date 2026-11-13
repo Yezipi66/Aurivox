@@ -670,7 +670,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
     <div className="section">
       <div className="section-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Voice Assets</h2>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-6)', alignItems: 'center' }}>
           {assetsConfig && (
             <div className="assets-dir" title={`Assets directory (${assetsConfig.assetsRootSource})${assetsConfig.envOverride ? ' — set by ASSETS_ROOT env var' : ''}`}>
               <input
@@ -711,7 +711,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
         </div>
       </div>
       <div className="section-body">
-        {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 10 }}>{renderMd(scanMsg.text)}</div>}
+        {scanMsg && <div className={`msg msg-${scanMsg.type}`} style={{ marginBottom: 'var(--sp-10)' }}>{renderMd(scanMsg.text)}</div>}
         {noteExpanded && (
           <NamingNoteCard
             acked={noteAcked}
@@ -743,9 +743,9 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           />
         )}
         {assetEntries.length > 0 && filteredEntries.length === 0 && (
-          <div className="msg" style={{ marginBottom: 10 }}>
+          <div className="msg" style={{ marginBottom: 'var(--sp-10)' }}>
             No voices match {q ? `“${search.trim()}”` : 'this filter'}.
-            <button className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => { setSearch(''); setFilter('All') }}>Clear</button>
+            <button className="btn btn-sm" style={{ marginLeft: 'var(--sp-8)' }} onClick={() => { setSearch(''); setFilter('All') }}>Clear</button>
           </div>
         )}
         {assetEntries.length === 0 && (
@@ -784,12 +784,12 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
           const isLoadingSegs = segmentsLoading[id]
 
           return (
-            <div key={id} className="card asset-card" style={{ marginBottom: 10 }}>
+            <div key={id} className="card asset-card" style={{ marginBottom: 'var(--sp-10)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 'var(--fs-14)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--fs-14)', display: 'flex', alignItems: 'center', gap: 'var(--sp-8)' }}>
                     {renamingId === id ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
                         <input
                           className="control"
                           style={{ fontSize: 'var(--fs-13)', padding: '3px 8px', width: 200 }}
@@ -832,7 +832,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                       </>
                     )}
                   </div>
-                  <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-2)' }}>
                     Mode: {asset.mode || 'N/A'} &middot; ID: {id} &middot; Language: {String(asset.language || asset.text_lang || asset.lang || 'unknown').replace(/^all_/, '')}
                   </div>
                 </div>
@@ -1014,7 +1014,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
               />
 
               {isExpanded && (
-                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                <div style={{ marginTop: 'var(--sp-10)', borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-8)' }}>
                   {isLoadingSegs && <div className="msg">Loading segments...</div>}
                   {segData && segData.error && <div className="msg msg-error">{segData.error}</div>}
                   {segData && segData.segments && segData.segments.length === 0 && <div className="msg msg-info">No segments found.</div>}
@@ -1044,7 +1044,7 @@ function AssetsTab({ engine, voices, selectedVoice, setSelectedVoice, setPage, l
                           ))}
                         </tbody>
                       </table>
-                      <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
+                      <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-4)' }}>
                         Showing {segData.matched || segData.segments.length} of {segData.total} segments
                       </div>
                     </div>

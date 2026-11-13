@@ -671,7 +671,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-8)' }}>
       <div className="section">
         <div className="section-hdr"><h2>Train New Voice</h2></div>
         <div className="section-body">
@@ -724,7 +724,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
           />
 
           {/* 管线图：点某一步可配置它（运行中可查看该步状态） */}
-          <div className="field" style={{ marginTop: 10 }}>
+          <div className="field" style={{ marginTop: 'var(--sp-10)' }}>
             <label className="field-label">{tr('Pipeline — click any step to configure', '流程：点击任意步骤进行配置')}</label>
             <PipelineMap
               statusSteps={status?.steps || (recovery ? recovery.steps : null)}
@@ -749,10 +749,10 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             onDismissLowVram={dismissLowVram}
           />
 
-          {error && <div className="msg msg-error" style={{ marginTop: 8 }}>{error}</div>}
+          {error && <div className="msg msg-error" style={{ marginTop: 'var(--sp-8)' }}>{error}</div>}
 
           {!taskId && (
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ marginTop: 'var(--sp-12)', display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', flexWrap: 'wrap' }}>
               {form.denoise && vocalMissingIds.length > 0 ? (
                 // 启用的人声管线还缺没装的权重。主按钮在这期间变成「下载模型」。
                 <button className="btn btn-primary"
