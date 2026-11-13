@@ -154,6 +154,18 @@ test('拉起失败：code=HOST_FAILED，stage 与宿主输出带回来', async (
   assert.ok(r.errorZh.includes('宿主进程提前退出'),
     `errorZh 要把原因说成人话：${r.errorZh}`)
   assert.ok(!String(r.errorZh).includes('undefined'), 'errorZh 不能出现 undefined')
+  // 宿主的输出单独给一份全文：挤进一句话里会被截断，也读不清是哪一段
+  assert.strictEqual(r.host_stderr, 'No module named xx',
+    '宿主输出必须原样带回来，而不是只留一句「去看日志文件」')
+  assert.ok(r.cause && r.hint, '失败要说清为什么、接下来做什么')
+})
+
+test('失败结论都带「为什么」与「怎么办」，只给一句 error 不算说清', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
+  assert.match(src, /checks\.audio\.cause/, 'A 级与 B 级的根因要显示出来')
+  assert.match(src, /checks\.audio\.hint/, '建议要显示出来')
+  assert.match(src, /引擎与宿主的原始输出/, '原始输出要能展开看，不能只给一句概括')
+  assert.match(src, /host_stderr/, '宿主输出要参与展示')
 })
 
 // 纪律

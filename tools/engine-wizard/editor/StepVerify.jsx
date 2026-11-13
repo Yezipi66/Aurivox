@@ -261,6 +261,15 @@ export function StepVerify ({ id }) {
   // B 级的诊断信息照实给出，但不冒充「真实合成未通过」。
   const tierBDiagnostic = !ranTierA && checks.audio
     ? (checks.audio.errorZh || checks.audio.error || '') : ''
+  // 失败的合成要回答两个问题：为什么、接下来做什么。原文另给一份，
+  //   它是唯一能让人自己判断的证据（缺模块名、权重路径、traceback 最后一行都在里面）。
+  const audioFailed = !!(checks.audio && checks.audio.ok === false)
+  const audioCause = audioFailed
+    ? (checks.audio.cause || checks.audio.errorZh || checks.audio.error || '') : ''
+  const audioHint = audioFailed ? (checks.audio.hint || '') : ''
+  const audioRaw = audioFailed
+    ? [checks.audio.detail, checks.audio.host_stderr].filter((s) => typeof s === 'string' && s.trim()).join('\n\n')
+    : ''
   const runtimeHint = runtimeStatus === 'ok'
     ? t('A real synthesis produced a non-empty WAV. Audio information and waveform are shown below.',
       '已执行一次真实合成并取得非空 WAV 样本，音频信息与波形见下方。')
@@ -421,6 +430,32 @@ export function StepVerify ({ id }) {
               {tierBDiagnostic}
             </div>
           )}
+          {audioFailed && (
+            <div className="msg msg-danger" style={{ marginTop: 6 }}>
+              <div>{checks.audio.error}</div>
+              <div style={{ marginTop: 6 }}>
+                <strong>{t('Why it failed', '失败原因')}</strong>
+              </div>
+              <div style={{ marginTop: 4 }}>{audioCause}</div>
+              {audioHint && (
+                <div className="field-hint" style={{ marginTop: 4 }}>
+                  {t('Suggested next step: ', '建议：')}
+                  {audioHint}
+                </div>
+              )}
+            </div>
+          )}
+          {audioRaw && (
+            <details style={{ marginTop: 6 }}>
+              <summary className="field-hint" style={{ cursor: 'pointer' }}>
+                {t('Raw output from the engine and the host', '引擎与宿主的原始输出')}
+              </summary>
+              <pre className="rc-cmd-body"
+                style={{ marginTop: 6, maxHeight: 240, overflow: 'auto' }}>
+                {audioRaw}
+              </pre>
+            </details>
+          )}
           <DeviceSelect
             options={devices}
             value={device}
@@ -505,8 +540,23 @@ export function StepVerify ({ id }) {
                   {measured.measurement.sampleRate ? `，${measured.measurement.sampleRate} Hz` : ''}
                 </div>
               )}
-              {measured.ok === false && measured.error && (
-                <div className="msg msg-danger">{String(measured.error)}</div>
+              {measured.ok === false && (
+                <div className="msg msg-danger" style={{ marginTop: 6 }}>
+                  <strong>{String(measured.error)}</strong>
+                  {measured.measurement && measured.measurement.cause && (
+                    <div style={{ marginTop: 4 }}>{measured.measurement.cause}</div>
+                  )}
+                  {measured.measurement && measured.measurement.hint && (
+                    <div className="field-hint" style={{ marginTop: 4 }}>
+                      {t('Suggested next step: ', '建议：')}{measured.measurement.hint}
+                    </div>
+                  )}
+                  {(measured.measurement && (measured.measurement.detail || measured.measurement.log_tail)) && (
+                    <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 240, overflow: 'auto' }}>
+                      {measured.measurement.detail || measured.measurement.log_tail}
+                    </pre>
+                  )}
+                </div>
               )}
             </div>
           )}

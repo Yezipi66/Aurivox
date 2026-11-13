@@ -174,6 +174,149 @@ def http_json(url, payload=None, timeout=30, method=None):
         return None, None, "%s: %s" % (type(exc).__name__, exc), None, ""
 
 
+# ---------------------------------------------------------------------------
+#  失败原文与根因判断
+# ---------------------------------------------------------------------------
+# 宿主把子进程 stderr 的末尾几千字塞进 body.detail，探针再包一层 JSON 交给上层。
+#   上限要有（一次 traceback 可以几千行），但不能小到把最后那行异常切掉：
+#   切掉之后界面上只剩「宿主返回 400」，读的人无从下手。
+DETAIL_LIMIT = 12000
+
+# body 里可能是「原文」的字段，按可读性排序。
+DETAIL_KEYS = ("detail", "error", "message", "traceback", "stderr", "stdout")
+
+
+def _clip(text, limit=DETAIL_LIMIT):
+    """超长时保留开头与结尾：开头常有引擎的第一句抱怨，结尾是异常类型。"""
+    if len(text) <= limit:
+        return text
+    head = limit // 3
+    tail = limit - head
+    return (text[:head] + "\n……（中间省略 %d 字）……\n" % (len(text) - limit)
+            + text[-tail:])
+
+
+def _readable_detail(body, raw=None, limit=DETAIL_LIMIT):
+    """把失败响应整理成可直接阅读的原文。
+
+    宿主的失败 body 是 JSON，真正的报错在 detail（或 error / message）里。
+    直接 json.dumps 出来会把换行转义成 \\n，读的人要自己还原；
+    只取前若干字又会把最后一行异常切掉。所以结构化字段原样取出。
+    """
+    if isinstance(body, dict):
+        parts = []
+        for key in DETAIL_KEYS:
+            v = body.get(key)
+            if isinstance(v, str) and v.strip():
+                parts.append(v.strip())
+        rest = {k: v for k, v in body.items() if k not in DETAIL_KEYS}
+        if parts:
+            text = "\n".join(parts)
+            if rest:
+                text += "\n--- 响应的其余字段 ---\n" + json.dumps(rest, ensure_ascii=False)
+        else:
+            text = json.dumps(body, ensure_ascii=False)
+    elif isinstance(body, str):
+        text = body
+    elif raw:
+        text = raw.decode("utf-8", "replace")
+    else:
+        text = ""
+    return _clip(text.strip(), limit)
+
+
+def _diagnose(detail_text, status=None):
+    """从原文里认出常见根因，给一句「为什么」和一句「怎么办」。
+
+    只认能在原文里看见证据的那几类。认不出来就明说认不出来，
+    并指出去看最后一行，不替引擎编一个原因。
+    """
+    low = (detail_text or "").lower()
+
+    def has(*needles):
+        return any(n in low for n in needles)
+
+    if has("out of memory", "outofmemoryerror", "cuda error", "内存不足",
+           "not enough memory", "memoryerror"):
+        return {
+            "cause": "显存或内存不足，模型没有加载到推理设备上",
+            "hint": "改用更小的权重或更短的文本；确认同一张设备上没有其他任务占用；"
+                    "在本页上方把运行设备改为 CPU 可以绕过显存限制，代价是速度下降。",
+        }
+    if has("modulenotfounderror", "no module named", "importerror",
+           "cannot import name", "dll load failed"):
+        return {
+            "cause": "引擎的运行环境缺少依赖，或者依赖版本不匹配",
+            "hint": "回到第 2 步重装本步依赖；原文里 No module named 之后的那个名字就是缺的包。",
+        }
+    if has("error(s) in loading state_dict", "size mismatch", "missing key(s)",
+           "unexpected key(s)", "checkpoint", "state_dict"):
+        return {
+            "cause": "权重与这一版代码不匹配，加载时键名或形状不一致",
+            "hint": "按名片声明的仓库重新下载权重；确认权重目录里是这一版代码要求的文件。",
+        }
+    if has("filenotfounderror", "no such file or directory", "file not found",
+           "cannot find the file", "does not exist", "找不到文件"):
+        return {
+            "cause": "原文点名的文件或目录在盘上不存在",
+            "hint": "按原文里的路径核对权重目录、参考音频与配置文件的位置；"
+                    "相对路径以引擎目录为准。",
+        }
+    if has("unexpected keyword argument", "unknown parameter", "unrecognized arguments",
+           "invalid choice", "unexpected argument", "got an unexpected", "no such option"):
+        return {
+            "cause": "引擎不接受请求里的某个参数名",
+            "hint": "到合成参数里核对这一项的键名；名片 call.bind 的槽位名与引擎签名"
+                    "不一致时也会出现这一条。",
+        }
+    if has("is required", "requires ", "missing required", "required argument",
+           "required positional", "missing 1 required", "必须", "缺少"):
+        return {
+            "cause": "请求缺少引擎要求的输入",
+            "hint": "原文点名的那个输入补上再重试；需要参考音频的引擎还要填参考音频路径，"
+                    "需要参考文本的引擎两者都要。",
+        }
+    if has("timed out", "timeout", "time out", "超时"):
+        return {
+            "cause": "合成耗时超过名片声明的超时上限",
+            "hint": "在本机跑过一次之后把实测耗时填进名片的 timeout_ms，或者缩短合成文本。",
+        }
+    if has("exit code 137", "killed", "terminated by signal", "被终止"):
+        return {
+            "cause": "子进程被系统终止，常见原因是内存耗尽",
+            "hint": "缩短文本或换更小的权重；确认可用内存之后再重试。",
+        }
+    if has("401", "403", "unauthorized", "forbidden", "api key", "invalid token",
+           "authentication"):
+        return {
+            "cause": "引擎或上游服务拒绝了这次请求的凭据",
+            "hint": "核对访问令牌与相关环境变量是否已经配置；需要授权才能下载的仓库与模型"
+                    "要先完成授权。",
+        }
+    if has("connection refused", "actively refused", "econnrefused", "connect timeout"):
+        return {
+            "cause": "请求的端口没有服务在监听",
+            "hint": "确认这台引擎的宿主进程是否还在运行；本步的校验会为它临时起一台宿主，"
+                    "宿主本身起不来的话原文里有原因。",
+        }
+    if status == 400:
+        return {
+            "cause": "宿主在请求层拒绝了这次合成，参数或输入不合法",
+            "hint": "先看原文第一行：它通常点名了是哪个参数或哪个文件；"
+                    "再对照名片 call.bind 与合成参数里的取值。",
+        }
+    if status is not None:
+        return {
+            "cause": "引擎在推理过程中抛出异常",
+            "hint": "先看原文最后一行，那里通常是真正的异常类型与消息；"
+                    "据它判断是缺依赖、缺权重还是参数问题。",
+        }
+    return {
+        "cause": "这次合成没有成功",
+        "hint": "原文见下方输出；先看最后一行异常，再往上找第一处与这台引擎相关的报错。",
+    }
+
+
 def verify_level_b(spec):
     """B 级：/health + /tts 的契约对不对（不要求真出声）。
 
@@ -192,16 +335,25 @@ def verify_level_b(spec):
                  timeout=spec.get("ready_timeout", 30))
     if err:
         return {"ok": False, "level": "B", "stage": "health",
-                "error": "打不通 /health", "detail": err, "steps": out["steps"]}
+                "error": "打不通 /health", "detail": err, "steps": out["steps"],
+                "cause": "宿主没有在这个地址上监听",
+                "hint": "确认宿主进程仍在运行；它若已经退出，退出原因在下方原文里"}
     if status != 200:
         # 503 = 还在加载 / 加载失败。failed=true 时要单独说，
         # 那不是「再等等」，是「等下去也不会好」（host.py 自己就这么讲）。
         if status == 503 and isinstance(body, dict) and body.get("failed"):
+            detail = _readable_detail(body)
+            diag = _diagnose(detail, status)
             return {"ok": False, "level": "B", "stage": "health",
                     "error": "宿主报加载失败，等下去也不会好",
-                    "detail": (body or {}).get("error"), "steps": out["steps"]}
+                    "detail": detail, "cause": diag["cause"], "hint": diag["hint"],
+                    "steps": out["steps"]}
+        detail = _readable_detail(body)
         return {"ok": False, "level": "B", "stage": "health",
                 "error": "/health 返回 %d" % status, "body": body,
+                "detail": detail,
+                "cause": "宿主的健康检查没有通过",
+                "hint": "看原文里宿主自己写的失败原因；模型加载失败通常带 traceback。",
                 "steps": out["steps"]}
     if not isinstance(body, dict) or not body.get("ready"):
         return {"ok": False, "level": "B", "stage": "health",
@@ -226,16 +378,26 @@ def verify_level_b(spec):
     status, body, err, raw, ctype = http_json(base + "/tts", payload=empty, timeout=30)
     if err:
         return {"ok": False, "level": "B", "stage": "contract",
-                "error": "打不通 /tts", "detail": err, "steps": out["steps"]}
+                "error": "打不通 /tts", "detail": err, "steps": out["steps"],
+                "cause": "请求没有到达宿主",
+                "hint": "确认宿主还在运行；只有 /health 通而 /tts 不通时，通常是路由或端口被别的进程占了"}
     if status != 400:
+        detail = _readable_detail(body, raw)
         return {"ok": False, "level": "B", "stage": "contract",
                 "error": "缺 text 的请求应得 400，实得 %d" % status,
                 "why": "400 是宿主在验你；200/500 都说明这道闸没生效",
-                "body": body, "steps": out["steps"]}
+                "body": body, "detail": detail,
+                "cause": "宿主没有拦住一个缺 text 的请求",
+                "hint": "收到 200 说明请求校验没生效，缺参数会被静默接受；"
+                        "收到 500 说明宿主在拼请求时就抛了异常，看下方原文。",
+                "steps": out["steps"]}
     msg = json.dumps(body, ensure_ascii=False) if body is not None else ""
     if "text" not in msg.lower():
         return {"ok": False, "level": "B", "stage": "contract",
                 "error": "缺 text 的 400 没有点名 text", "body": body,
+                "detail": _readable_detail(body, raw),
+                "cause": "宿主拒绝了请求，但没说缺的是 text",
+                "hint": "核对名片的请求校验与 call.bind：两者不一致时，提示的内容与真正缺的输入不是同一个。",
                 "steps": out["steps"]}
     out["steps"].append({"step": "contract", "ok": True,
                          "message": (body or {}).get("error") or msg[:120]})
@@ -270,21 +432,29 @@ def verify_level_a(spec):
         if not os.path.isfile(rp):
             return {"ok": False, "level": "A", "stage": "spec",
                     "error": "参考音频不存在：%s" % rp,
-                    "why": "平台不替你造一个假路径：那样验的是 404，不是引擎"}
+                    "why": "平台不替你造一个假路径：那样验的是 404，不是引擎",
+                    "cause": "填写的参考音频路径在盘上找不到",
+                    "hint": "把参考音频换成一个确实存在的 wav 文件；相对路径以项目根为准。"}
         payload[key] = rp
 
     status, body, err, raw, ctype = http_json(base + "/tts", payload=payload,
                                      timeout=spec.get("synth_timeout", 180))
     if err:
         return {"ok": False, "level": "A", "stage": "synth",
-                "error": "合成请求失败", "detail": err, "steps": out["steps"]}
+                "error": "合成请求失败", "detail": err, "steps": out["steps"],
+                "cause": "请求没有到达宿主",
+                "hint": "确认临时宿主还在运行；端口与地址来自本次校验自己挑的空闲端口，"
+                        "连不上通常意味着宿主进程已经退出。"}
     if status != 200:
-        # 把宿主给的原文带出来：它通常已经点名了根因
+        # 把宿主给的原文完整带出来：它已经点名了根因
         #   （unknown parameter / requires ref_audio / load_time only …）。
+        #   截断到此为止：下面这层只加一句「为什么、怎么办」，不改原文。
+        detail = _readable_detail(body, raw)
+        diag = _diagnose(detail, status)
         return {"ok": False, "level": "A", "stage": "synth",
                 "error": "宿主返回 %d" % status,
-                "detail": json.dumps(body, ensure_ascii=False)[:1500]
-                          if body is not None else None,
+                "detail": detail,
+                "cause": diag["cause"], "hint": diag["hint"],
                 "steps": out["steps"]}
 
     # 宿主可能直接回 audio/wav，也可能回 JSON 带 base64。两种都认，
@@ -292,12 +462,15 @@ def verify_level_a(spec):
     # 那样猜错会表现为「验证通过但实际未验证」。
     audio, shape = _extract_audio(body, raw)
     if audio is None:
+        detail = _readable_detail(body, raw)
+        diag = _diagnose(detail, status)
         return {"ok": False, "level": "A", "stage": "decode",
-                "error": "响应里没有音频，而我不知道它是什么形状",
-                "content_type": (body or {}).get("__content_type__")
-                                if isinstance(body, dict) else None,
-                "body_head": json.dumps(body, ensure_ascii=False)[:600]
-                             if body is not None else None,
+                "error": "响应里没有音频",
+                "shape": shape,
+                "detail": detail,
+                "cause": "宿主回了 200，但响应体不是音频，也不是带音频字段的 JSON",
+                "hint": "原文若为空说明宿主写了空响应：核对名片 call.returns 与引擎实际产出"
+                        "是否一致（file / dir / bytes）。",
                 "steps": out["steps"]}
     out["steps"].append({"step": "synth", "ok": True, "shape": shape})
 
@@ -305,7 +478,10 @@ def verify_level_a(spec):
     out["wav"] = wav
     if not wav.get("ok"):
         return {"ok": False, "level": "A", "stage": "wav",
-                "error": "拿到了字节，但**不是能播的音频**", "wav": wav,
+                "error": "拿到了字节，但不是能播的音频", "wav": wav,
+                "cause": "响应能被读成 WAV 头，但内容不成立（%s）" % (wav.get("why") or "原因见 wav 字段"),
+                "hint": "核对名片 call.returns：产出是文件、目录还是直接写 stdout；"
+                        "写错时拿到的往往是一段日志或路径字符串，而不是音频。",
                 "steps": out["steps"]}
     # 把音频写成文件带出来：Player.jsx 画波形需要 src 指向可 fetch 的音频，
     #   只回报字节数的话前端拿不到音频本体，波形无数据可画。
@@ -399,8 +575,9 @@ def main(argv):
     try:
         out = verify(spec)
     except Exception as exc:
+        # 探针自己崩了：它的 traceback 是唯一线索，同样不许截到看不清原因。
         out = {"ok": False, "stage": "verify", "level": spec.get("level", "?"),
-               "error": str(exc), "detail": traceback.format_exc()[-1500:]}
+               "error": str(exc), "detail": _clip(traceback.format_exc())}
     print(json.dumps(out, ensure_ascii=False))
     return 0   # 永远是 0
 

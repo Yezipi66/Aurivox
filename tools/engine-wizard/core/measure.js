@@ -25,6 +25,7 @@
 const path = require('node:path')
 const http = require('node:http')
 const net = require('node:net')
+const fs = require('node:fs')
 const wizardRoot = require('./wizardRoot')
 
 // 平台代码从本 checkout 加载：向导跑的是哪份代码，就用哪份平台库。
@@ -153,6 +154,39 @@ function sampleRateOf (body, readFormat) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * 引擎日志的末尾。起不来、合成失败时，原因都在这份日志的最后几行。
+ * 只给一句「看 logs\<id>.err.log」等于把翻文件的事推给用户。
+ * 读不到（还没落盘、被占用）就返回空串，不因此改变失败结论。
+ */
+function tailOfLog (file, limit = 3000) {
+  try {
+    const size = fs.statSync(file).size
+    if (!size) return ''
+    const len = Math.min(limit, size)
+    const buf = Buffer.alloc(len)
+    const fd = fs.openSync(file, 'r')
+    try { fs.readSync(fd, buf, 0, len, size - len) } finally { fs.closeSync(fd) }
+    return buf.toString('utf8').trim()
+  } catch { return '' }
+}
+
+/** 失败响应的原文：宿主的 detail 常带着子进程 stderr，别用 JSON 序列化把它转义掉。 */
+function readableBody (body) {
+  if (!body) return ''
+  const text = Buffer.isBuffer(body) ? body.toString('utf8') : String(body)
+  try {
+    const j = JSON.parse(text)
+    if (j && typeof j === 'object') {
+      const parts = ['detail', 'error', 'message', 'traceback', 'stderr']
+        .map((k) => (typeof j[k] === 'string' ? j[k].trim() : ''))
+        .filter(Boolean)
+      if (parts.length) return parts.join('\n')
+    }
+  } catch { /* 不是 JSON 就照原文给 */ }
+  return text.trim()
+}
+
+/**
  * 这次试运行用哪几个根。
  *   engine：引擎所在 checkout 的根（读，wizardRoot.engineRoot）
  *   write：写根（本机记录、profile_json、日志）
@@ -246,6 +280,7 @@ async function measureEngine (id, opts = {}) {
     if (child && typeof child.on === 'function') child.on('exit', (code) => { exited = code })
 
     // ---- 1. 冷启动到就绪 ----
+    const errLog = path.join(logDir, `${id}.err.log`)
     let ready = false
     while (now() - t0 < readyBudgetMs) {
       if (aborted()) return cancelled('ready')
@@ -253,18 +288,34 @@ async function measureEngine (id, opts = {}) {
         ? await probeStdio(child && child.stdioTransport, plan.ready_endpoint, 2000)
         : await probeOnce(plan.ready_url, 2000)
       if (r instanceof Error && r.engineFailed) {
-        return { ...out, stage: 'ready', error: '宿主报加载失败', detail: r.detail }
+        const tail = tailOfLog(errLog)
+        return { ...out, stage: 'ready', error: '宿主报加载失败', detail: r.detail,
+          log_tail: tail || null,
+          cause: '引擎自己说加载已经失败，继续等下去不会变好',
+          hint: '看下方日志末尾：缺模块回到第 2 步重装，权重路径或形状不匹配回第 3 步核对。' }
       }
       if (r === true) { ready = true; break }
       if (exited !== null) {
+        const tail = tailOfLog(errLog)
         return { ...out, stage: 'ready',
-          error: `引擎进程启动后退出了（code=${exited}），看 ${path.join(logDir, `${id}.err.log`)}` }
+          error: `引擎进程启动后退出了（code=${exited}）`,
+          detail: tail || null, log_tail: tail || null,
+          cause: '引擎进程起来后立即退出，模型或环境在启动阶段就出错了',
+          hint: '看下方日志末尾：No module named 是缺依赖（第 2 步），'
+            + '权重相关报错核对第 3 步的目录，torch 或设备相关报错核对运行设备。' }
       }
       await sleep(opts.pollMs === undefined ? 1000 : opts.pollMs)
     }
     if (aborted()) return cancelled('ready')
     out.readyMs = now() - t0
-    if (!ready) return { ...out, stage: 'ready', error: `等了 ${readyBudgetMs}ms 仍未就绪` }
+    if (!ready) {
+      const tail = tailOfLog(errLog)
+      return { ...out, stage: 'ready', error: `等了 ${readyBudgetMs}ms 仍未就绪`,
+        detail: tail || null, log_tail: tail || null,
+        cause: '引擎在预算时间内没有回应健康检查',
+        hint: '日志末尾有进展就说明它还在加载，可以先在本机记录里放宽就绪超时；'
+          + '日志停在某一行不动，通常是那一行在等网络或卡在设备初始化。' }
+    }
 
     // ---- 2. 合成一段 max_chars 那么长的 ----
     onStage('synth')
@@ -275,8 +326,13 @@ async function measureEngine (id, opts = {}) {
     if (aborted()) return cancelled('synth')
     out.synthMs = now() - t1
     if (r.status !== 200) {
-      const msg = r.body ? r.body.toString('utf8').slice(0, 1500) : (r.error || '')
-      return { ...out, stage: 'synth', error: `合成返回 ${r.status}`, detail: msg }
+      // 宿主把子进程的 stderr 放在 detail 里：原文照给，只补一句为什么、怎么办。
+      const msg = readableBody(r.body) || r.error || ''
+      return { ...out, stage: 'synth', error: `合成返回 ${r.status}`, detail: msg || null,
+        cause: r.status === 400
+          ? '宿主在请求层拒绝了这次合成，参数或输入不合法'
+          : '引擎在推理过程中出错',
+        hint: '看下方原文：第一行常点名是哪个参数或哪个文件，最后一行是真正的异常。' }
     }
     out.synthOk = true
     out.wavBytes = r.body ? r.body.length : 0

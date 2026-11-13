@@ -252,8 +252,10 @@ async function runAudioCheck (id, opts = {}) {
       const r = verifyOnce(null)
       return { ok: r.ok !== false, level, ...r }
     } catch (e) {
-      return { ok: false, code: 'AUDIO_FAILED', level,
-        error: String((e && e.message) || e) }
+      const msg = String((e && e.message) || e)
+      return { ok: false, code: 'AUDIO_FAILED', level, error: msg, errorZh: msg,
+        cause: '校验没有跑起来，宿主或探针在这一步之前就出错了',
+        hint: '看下方原文；名片写错（入口、解释器、槽位名）时错误通常出在最前面几行。' }
     }
   }
 
@@ -265,11 +267,18 @@ async function runAudioCheck (id, opts = {}) {
     run: (base) => verifyOnce(base),
   })
   if (!hosted.ok) {
+    // 宿主的 stderr 单独给一份全文：它常含真正的根因（缺模块、权重路径、
+    //   torch 版本），挤进一句话里会被截断，也读不清是哪一段。
+    const stderr = hosted.stderr || ''
     return { ok: false, code: 'HOST_FAILED', level, stage: hosted.stage,
       error: `The local host required for the synthesis check could not be started (${hosted.stage}): ${hosted.error}`,
-      errorZh: `语音合成校验所需的本地宿主未能启动（阶段：${hosted.stage}）：${
-        hosted.error || ''}${hosted.stderr ? `（宿主输出：${hosted.stderr.slice(-600)}）` : ''}`,
-      stderr: hosted.stderr || null }
+      errorZh: `语音合成校验所需的本地宿主未能启动（阶段：${hosted.stage}）。`
+        + `${hosted.error ? `宿主报告的原文：${hosted.error}` : ''}`
+        + `${stderr ? ' 宿主进程的输出见下方。' : ''}`,
+      cause: '宿主的进程没有起来，或者起来后立即退出',
+      hint: '看下方宿主输出：No module named 是缺依赖（回到第 2 步），'
+        + '权重路径报错就核对第 3 步的权重目录，torch 相关报错通常是设备或版本不对。',
+      host_stderr: stderr || null }
   }
   const r = hosted.result
   return { ok: r.ok !== false, level, ...r }
