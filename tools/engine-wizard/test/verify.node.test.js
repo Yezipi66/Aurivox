@@ -136,6 +136,32 @@ test('有 base_url 的引擎：走老路，不拉临时宿主', async () => {
   assert.strictEqual(hostCalled, 0, '有常驻地址就别拉：白起一台占端口')
 })
 
+test('失败结论补上原因与建议，且不覆盖探针自己给的那一份', async () => {
+  // 口径只有一份（lib/engines/diagnose.js）：探针只回原文，这里补判断。
+  //   前端读的是 cause / hint 两个字段，缺了它们界面只剩一句「宿主返回 500」。
+  const r = await runAudioCheck('resident-engine', {
+    audio: 'B',
+    profile: { ...NO_URL_PROFILE, base_url: 'http://127.0.0.1:9881' },
+    manifest: {},
+    verifyEngine: () => ({ ok: false, level: 'B', stage: 'synth', status: 500,
+      error: '宿主返回 500',
+      detail: 'Traceback (most recent call last):\nRuntimeError: CUDA out of memory' }),
+  })
+  assert.match(r.cause, /显存|内存不足/, `没认出显存不足：${r.cause}`)
+  assert.ok(r.hint && r.hint.length > 10, '要告诉使用者接下来做什么')
+
+  // 探针自己就知道的事实（不是从原文推的）不许被覆盖
+  const kept = await runAudioCheck('resident-engine', {
+    audio: 'B',
+    profile: { ...NO_URL_PROFILE, base_url: 'http://127.0.0.1:9881' },
+    manifest: {},
+    verifyEngine: () => ({ ok: false, level: 'B', stage: 'health', status: 503,
+      error: '宿主没有在这个地址上监听', detail: '', cause: '探针的原话', hint: '探针的建议' }),
+  })
+  assert.strictEqual(kept.cause, '探针的原话')
+  assert.strictEqual(kept.hint, '探针的建议')
+})
+
 test('拉起失败：code=HOST_FAILED，stage 与宿主输出带回来', async () => {
   const r = await runAudioCheck('stdio-engine', {
     audio: 'B',

@@ -14,6 +14,28 @@ function platform (rel) {
 }
 
 /**
+ * 给失败结论补上「为什么」与「怎么办」。
+ * 口径只有一份（lib/engines/diagnose.js），9886 那条合成口用的是同一份：
+ * 同一段 stderr 从两个入口出去，各判一次迟早给出两种说法。
+ * 结果里已有 cause 的（探针自己就知道的事实）原样保留，不覆盖。
+ */
+function withDiagnosis (r) {
+  if (!r || r.ok !== false || (r.cause && r.hint)) return r
+  // 没有原文就无从判断：让界面显示 error 那句（它本身已经是人话）。
+  const text = r.detail || r.host_stderr || ''
+  if (!text) return r
+  let diagnose
+  try {
+    diagnose = platform('lib/engines/diagnose.js').diagnose
+  } catch {
+    return r
+  }
+  const status = Number.isFinite(r.status) ? r.status : null
+  const d = diagnose(text, status)
+  return { ...r, cause: r.cause || d.cause, hint: r.hint || d.hint }
+}
+
+/**
  * 四道校验的清单。stage 把结论分成两层：
  *   preflight 只做静态核对，runtime 才代表引擎真正合成过一次。
  *   两者不可互相替代：静态全绿不等于能够出声。
@@ -176,6 +198,10 @@ function runChecks (id, opts = {}) {
  *   所以本函数是 async：启动后需等待 /health，不像前三道那样只核对文件。
  */
 async function runAudioCheck (id, opts = {}) {
+  return withDiagnosis(await runAudioCheckRaw(id, opts))
+}
+
+async function runAudioCheckRaw (id, opts = {}) {
   const level = opts.audio === 'A' ? 'A' : 'B'
 
   let verifyAudio
@@ -283,4 +309,4 @@ async function runAudioCheck (id, opts = {}) {
   const r = hosted.result
   return { ok: r.ok !== false, level, ...r }
 }
-module.exports = { checks, runChecks, runAudioCheck }
+module.exports = { checks, runChecks, runAudioCheck, withDiagnosis }

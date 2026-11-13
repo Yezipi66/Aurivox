@@ -100,8 +100,8 @@ def run_case(name, expect_ok, **kw):
     return good
 
 
-def run_a_case(name, text_response, want_cause_keyword, want_tail, min_len=0):
-    """A 级失败：原文不许被截断，且要带出一句「为什么」与「怎么办」。"""
+def run_a_case(name, text_response, want_tail, min_len=0):
+    """A 级失败：原文不许被截断，且根因判断不在探针里（口径在 diagnose.js）。"""
     _case_no[0] += 1
     port = PORT_BASE + 40 + _case_no[0]
     srv = socketserver.TCPServer(
@@ -126,21 +126,20 @@ def run_a_case(name, text_response, want_cause_keyword, want_tail, min_len=0):
         print("  %-40s 💥 探针输出不是 JSON: %r" % (name, r.stdout[:120]))
         return False
     detail = out.get("detail") or ""
-    cause = out.get("cause") or ""
-    hint = out.get("hint") or ""
     checks = [
         ("ok=False", out.get("ok") is False),
         ("原文长度 >= %d" % min_len, len(detail) >= min_len),
         ("原文最后一行还在", want_tail in detail),
-        ("cause 点明根因", want_cause_keyword in cause),
-        ("hint 非空", len(hint) > 10),
+        ("带了状态码", isinstance(out.get("status"), int)),
+        # 判断只有一份，在 lib/engines/diagnose.js：探针越界就会与那边分叉
+        ("探针不自己判根因", "cause" not in out and "hint" not in out),
     ]
     good = all(v for _, v in checks)
     print("  %-40s %s  %s" % (name, "✅" if good else "⛔",
                               "；".join("%s=%s" % (k, v) for k, v in checks)))
     if not good:
         print("    detail 长度 %d，尾部：%r" % (len(detail), detail[-80:]))
-        print("    cause=%r hint=%r" % (cause, hint))
+        print("    字段：%s" % ", ".join(sorted(out)))
     return good
 
 
@@ -199,17 +198,16 @@ def main():
                  + "".join('  File "infer.py", line %d, in forward\n    x = step(x)\n' % i
                            for i in range(200))
                  + "RuntimeError: CUDA out of memory. Tried to allocate 2.00 GiB")
-    ok &= run_a_case("OOM：原文完整 + 指向显存",
-                     (400, {"detail": long_tail}), "显存",
-                     "CUDA out of memory", min_len=3000)
-    ok &= run_a_case("缺模块：原文完整 + 指回第 2 步",
+    ok &= run_a_case("OOM：3000 字原文一段不丢",
+                     (400, {"detail": long_tail}), "CUDA out of memory", min_len=3000)
+    ok &= run_a_case("缺模块：原文点名缺哪个包",
                      (400, {"detail": "ModuleNotFoundError: No module named 'pynini'"}),
-                     "依赖", "pynini")
-    ok &= run_a_case("参数名不认识：指向合成参数与 call.bind",
+                     "pynini")
+    ok &= run_a_case("参数名不认识：原文保留 TypeError 那一行",
                      (400, {"detail": "TypeError: infer() got an unexpected keyword argument 'spk'"}),
-                     "参数名", "spk")
-    ok &= run_a_case("认不出来：如实说认不出来，不编原因",
-                     (500, {"detail": "something odd happened"}), "异常",
+                     "spk")
+    ok &= run_a_case("认不出来的原文也照原样给",
+                     (500, {"detail": "something odd happened"}),
                      "something odd happened")
 
     print("\n结论:", "全部符合预期" if ok else "有判别力问题")

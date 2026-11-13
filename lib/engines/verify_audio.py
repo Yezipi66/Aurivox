@@ -225,96 +225,6 @@ def _readable_detail(body, raw=None, limit=DETAIL_LIMIT):
     return _clip(text.strip(), limit)
 
 
-def _diagnose(detail_text, status=None):
-    """从原文里认出常见根因，给一句「为什么」和一句「怎么办」。
-
-    只认能在原文里看见证据的那几类。认不出来就明说认不出来，
-    并指出去看最后一行，不替引擎编一个原因。
-    """
-    low = (detail_text or "").lower()
-
-    def has(*needles):
-        return any(n in low for n in needles)
-
-    if has("out of memory", "outofmemoryerror", "cuda error", "内存不足",
-           "not enough memory", "memoryerror"):
-        return {
-            "cause": "显存或内存不足，模型没有加载到推理设备上",
-            "hint": "改用更小的权重或更短的文本；确认同一张设备上没有其他任务占用；"
-                    "在本页上方把运行设备改为 CPU 可以绕过显存限制，代价是速度下降。",
-        }
-    if has("modulenotfounderror", "no module named", "importerror",
-           "cannot import name", "dll load failed"):
-        return {
-            "cause": "引擎的运行环境缺少依赖，或者依赖版本不匹配",
-            "hint": "回到第 2 步重装本步依赖；原文里 No module named 之后的那个名字就是缺的包。",
-        }
-    if has("error(s) in loading state_dict", "size mismatch", "missing key(s)",
-           "unexpected key(s)", "checkpoint", "state_dict"):
-        return {
-            "cause": "权重与这一版代码不匹配，加载时键名或形状不一致",
-            "hint": "按名片声明的仓库重新下载权重；确认权重目录里是这一版代码要求的文件。",
-        }
-    if has("filenotfounderror", "no such file or directory", "file not found",
-           "cannot find the file", "does not exist", "找不到文件"):
-        return {
-            "cause": "原文点名的文件或目录在盘上不存在",
-            "hint": "按原文里的路径核对权重目录、参考音频与配置文件的位置；"
-                    "相对路径以引擎目录为准。",
-        }
-    if has("unexpected keyword argument", "unknown parameter", "unrecognized arguments",
-           "invalid choice", "unexpected argument", "got an unexpected", "no such option"):
-        return {
-            "cause": "引擎不接受请求里的某个参数名",
-            "hint": "到合成参数里核对这一项的键名；名片 call.bind 的槽位名与引擎签名"
-                    "不一致时也会出现这一条。",
-        }
-    if has("is required", "requires ", "missing required", "required argument",
-           "required positional", "missing 1 required", "必须", "缺少"):
-        return {
-            "cause": "请求缺少引擎要求的输入",
-            "hint": "原文点名的那个输入补上再重试；需要参考音频的引擎还要填参考音频路径，"
-                    "需要参考文本的引擎两者都要。",
-        }
-    if has("timed out", "timeout", "time out", "超时"):
-        return {
-            "cause": "合成耗时超过名片声明的超时上限",
-            "hint": "在本机跑过一次之后把实测耗时填进名片的 timeout_ms，或者缩短合成文本。",
-        }
-    if has("exit code 137", "killed", "terminated by signal", "被终止"):
-        return {
-            "cause": "子进程被系统终止，常见原因是内存耗尽",
-            "hint": "缩短文本或换更小的权重；确认可用内存之后再重试。",
-        }
-    if has("401", "403", "unauthorized", "forbidden", "api key", "invalid token",
-           "authentication"):
-        return {
-            "cause": "引擎或上游服务拒绝了这次请求的凭据",
-            "hint": "核对访问令牌与相关环境变量是否已经配置；需要授权才能下载的仓库与模型"
-                    "要先完成授权。",
-        }
-    if has("connection refused", "actively refused", "econnrefused", "connect timeout"):
-        return {
-            "cause": "请求的端口没有服务在监听",
-            "hint": "确认这台引擎的宿主进程是否还在运行；本步的校验会为它临时起一台宿主，"
-                    "宿主本身起不来的话原文里有原因。",
-        }
-    if status == 400:
-        return {
-            "cause": "宿主在请求层拒绝了这次合成，参数或输入不合法",
-            "hint": "先看原文第一行：它通常点名了是哪个参数或哪个文件；"
-                    "再对照名片 call.bind 与合成参数里的取值。",
-        }
-    if status is not None:
-        return {
-            "cause": "引擎在推理过程中抛出异常",
-            "hint": "先看原文最后一行，那里通常是真正的异常类型与消息；"
-                    "据它判断是缺依赖、缺权重还是参数问题。",
-        }
-    return {
-        "cause": "这次合成没有成功",
-        "hint": "原文见下方输出；先看最后一行异常，再往上找第一处与这台引擎相关的报错。",
-    }
 
 
 def verify_level_b(spec):
@@ -342,18 +252,15 @@ def verify_level_b(spec):
         # 503 = 还在加载 / 加载失败。failed=true 时要单独说，
         # 那不是「再等等」，是「等下去也不会好」（host.py 自己就这么讲）。
         if status == 503 and isinstance(body, dict) and body.get("failed"):
-            detail = _readable_detail(body)
-            diag = _diagnose(detail, status)
-            return {"ok": False, "level": "B", "stage": "health",
+            # 根因交给上层按原文判（lib/engines/diagnose.js 是唯一一份口径）：
+            #   探针只管把宿主说的话原样取出来。
+            return {"ok": False, "level": "B", "stage": "health", "status": status,
                     "error": "宿主报加载失败，等下去也不会好",
-                    "detail": detail, "cause": diag["cause"], "hint": diag["hint"],
+                    "detail": _readable_detail(body),
                     "steps": out["steps"]}
-        detail = _readable_detail(body)
-        return {"ok": False, "level": "B", "stage": "health",
+        return {"ok": False, "level": "B", "stage": "health", "status": status,
                 "error": "/health 返回 %d" % status, "body": body,
-                "detail": detail,
-                "cause": "宿主的健康检查没有通过",
-                "hint": "看原文里宿主自己写的失败原因；模型加载失败通常带 traceback。",
+                "detail": _readable_detail(body),
                 "steps": out["steps"]}
     if not isinstance(body, dict) or not body.get("ready"):
         return {"ok": False, "level": "B", "stage": "health",
@@ -448,13 +355,10 @@ def verify_level_a(spec):
     if status != 200:
         # 把宿主给的原文完整带出来：它已经点名了根因
         #   （unknown parameter / requires ref_audio / load_time only …）。
-        #   截断到此为止：下面这层只加一句「为什么、怎么办」，不改原文。
-        detail = _readable_detail(body, raw)
-        diag = _diagnose(detail, status)
-        return {"ok": False, "level": "A", "stage": "synth",
+        #   根因判断不在这里做：那一份口径在 lib/engines/diagnose.js。
+        return {"ok": False, "level": "A", "stage": "synth", "status": status,
                 "error": "宿主返回 %d" % status,
-                "detail": detail,
-                "cause": diag["cause"], "hint": diag["hint"],
+                "detail": _readable_detail(body, raw),
                 "steps": out["steps"]}
 
     # 宿主可能直接回 audio/wav，也可能回 JSON 带 base64。两种都认，
@@ -462,15 +366,10 @@ def verify_level_a(spec):
     # 那样猜错会表现为「验证通过但实际未验证」。
     audio, shape = _extract_audio(body, raw)
     if audio is None:
-        detail = _readable_detail(body, raw)
-        diag = _diagnose(detail, status)
-        return {"ok": False, "level": "A", "stage": "decode",
+        return {"ok": False, "level": "A", "stage": "decode", "status": status,
                 "error": "响应里没有音频",
                 "shape": shape,
-                "detail": detail,
-                "cause": "宿主回了 200，但响应体不是音频，也不是带音频字段的 JSON",
-                "hint": "原文若为空说明宿主写了空响应：核对名片 call.returns 与引擎实际产出"
-                        "是否一致（file / dir / bytes）。",
+                "detail": _readable_detail(body, raw),
                 "steps": out["steps"]}
     out["steps"].append({"step": "synth", "ok": True, "shape": shape})
 
