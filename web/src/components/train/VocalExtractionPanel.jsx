@@ -448,7 +448,7 @@ function VocalExtractionPanel({ form, setForm, setField, askConfirm, closeConfir
 
           {/* 模型可用性与按需下载。 */}
           {vocalMissingIds.length > 0 && (
-            <div className="msg" style={{ background: 'rgba(255,180,0,0.12)', padding: 10, borderRadius: 6, marginBottom: 8 }}>
+            <div className="msg" style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', padding: 10, borderRadius: 6, marginBottom: 8 }}>
               <div style={{ fontSize: 12.5, marginBottom: 6 }}>
                 {tr('These models are not installed: ', '以下模型未安装：')}
                 <strong>{vocalMissingIds.map(modelLabel).join(', ')}</strong>

@@ -27,10 +27,10 @@ export function clampDock(width, fallback) {
   return Math.min(DOCK_MAX, Math.max(DOCK_MIN, Math.round(value)))
 }
 
-export const BORDER = 'var(--border, #2a2f3a)'
-export const PANEL = 'var(--panel, #14171d)'
-export const MUTED = 'var(--muted, #8b93a3)'
-export const ACCENT = 'var(--accent, #4c8dff)'
+export const BORDER = 'var(--border)'
+export const PANEL = 'var(--panel)'
+export const MUTED = 'var(--muted)'
+export const ACCENT = 'var(--accent)'
 
 // One colour per category, used as a thin band on the node and as a dot in the
 // node list, so the kind of a node is readable before its name is.
@@ -38,7 +38,7 @@ export const CATEGORY_COLOUR = {
   load: '#4c8dff',
   process: '#43b5a0',
   logic: '#a97bff',
-  loop: '#e0b341',
+  loop: 'var(--warning)',
   quality: '#ef8f5a',
   sink: '#7e879b',
   other: '#7e879b',
@@ -80,14 +80,15 @@ export const fieldStyle = {
   border: `1px solid ${BORDER}`, background: 'rgba(17,20,26,0.9)', color: 'inherit',
 }
 
+// 运行状态底色：从全局语义色派生（color-mix 做半透明叠层），跟随主题。
 export const RUN_COLOURS = {
-  pending: 'rgba(150,150,150,0.55)',
-  done: 'rgba(76,175,80,0.5)',
-  running: 'rgba(76,141,255,0.6)',
-  accumulating: 'rgba(76,141,255,0.6)',
-  suspended: 'rgba(224,179,65,0.7)',
-  skipped: 'rgba(120,120,120,0.5)',
-  failed: 'rgba(207,102,121,0.8)',
+  pending: 'color-mix(in srgb, var(--muted) 55%, transparent)',
+  done: 'color-mix(in srgb, var(--success) 50%, transparent)',
+  running: 'color-mix(in srgb, var(--info) 60%, transparent)',
+  accumulating: 'color-mix(in srgb, var(--info) 60%, transparent)',
+  suspended: 'color-mix(in srgb, var(--warning) 70%, transparent)',
+  skipped: 'color-mix(in srgb, var(--muted) 50%, transparent)',
+  failed: 'color-mix(in srgb, var(--danger) 80%, transparent)',
 }
 
 // A 1px border is not a status. Every state the engine can put a node in gets a
@@ -104,14 +105,15 @@ export const RUN_LABELS = {
   failed: { en: 'failed', zh: '执行失败' },
 }
 
+// 运行状态文字色：直接引用全局语义色，跟随主题。
 export const RUN_TEXT = {
-  pending: '#9aa0a6',
-  done: '#7bc47f',
-  running: '#7aa7ff',
-  accumulating: '#7aa7ff',
-  suspended: '#e0b341',
-  skipped: '#9aa0a6',
-  failed: '#e08a95',
+  pending: 'var(--muted)',
+  done: 'var(--success)',
+  running: 'var(--info)',
+  accumulating: 'var(--info)',
+  suspended: 'var(--warning)',
+  skipped: 'var(--muted)',
+  failed: 'var(--danger)',
 }
 
 // What an input is currently connected to.

@@ -80,7 +80,7 @@ export function PreflightSummary({
       {/* One-time low-VRAM (≤4GB) advisory. We never auto-shrink batch_size —
           the user decides; this only points them at the control. */}
       {showLowVram && (
-        <div className="msg msg-warn" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.35)' }}>
+        <div className="msg msg-warn" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10, background: 'color-mix(in srgb, var(--warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 35%, transparent)' }}>
           <span style={{ fontSize: 'var(--fs-16)', lineHeight: 1.2 }}>⚠️</span>
           <div style={{ flex: 1, fontSize: 12.5 }}>
             检测到显存较小的 GPU（{cuda?.device_name || 'GPU'} · {cuda?.vram_gb}GB）。微调可能因显存不足（OOM）而失败，

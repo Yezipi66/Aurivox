@@ -838,7 +838,7 @@ function TrainingTab({ engine, voices, loadVoices, activeTaskId, setActiveTaskId
             <div className="modal-card confirm-card" onClick={e => e.stopPropagation()}>
               <div className="confirm-hdr"><span>{tr('ASR engine / language mismatch', 'ASR 引擎与语言不匹配')}</span></div>
               <div className="confirm-body">
-                <p style={{ fontSize: 'var(--fs-13)', margin: 0, color: 'var(--warning, #e0b341)', fontWeight: 500 }}>
+                <p style={{ fontSize: 'var(--fs-13)', margin: 0, color: 'var(--warning)', fontWeight: 500 }}>
                   {tr(`FunASR only supports Chinese / Cantonese. The current language is ${langName}; continuing may produce errors.`,
                       `FunASR 仅支持中文/粤语，当前语言是${langName}，继续运行可能出错。`)}
                 </p>

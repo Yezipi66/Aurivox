@@ -14,7 +14,7 @@ import { Panel } from './canvasChrome'
 export function NodeBox({ node, definition, selected, runStatus, lang, t, onDragStart, onStartWire, onFinishWire, onDisconnect }) {
   if (!definition) {
     return (
-      <div style={{ position: 'absolute', left: node.position.x, top: node.position.y, width: NODE_WIDTH, padding: 8, borderRadius: 8, border: '1px dashed var(--danger, #cf6679)', color: 'var(--danger, #cf6679)', fontSize: 'var(--fs-12)' }}>
+      <div style={{ position: 'absolute', left: node.position.x, top: node.position.y, width: NODE_WIDTH, padding: 8, borderRadius: 8, border: '1px dashed var(--danger)', color: 'var(--danger)', fontSize: 'var(--fs-12)' }}>
         {t(`Unrecognised node type: ${node.type}`, `未识别的节点类型：${node.type}`)}
       </div>
     )
@@ -33,9 +33,9 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         background: 'linear-gradient(180deg, rgba(31,36,45,0.98) 0%, rgba(24,28,36,0.98) 100%)',
         border: `1px solid ${selected ? ACCENT : (RUN_COLOURS[runStatus] || BORDER)}`,
         boxShadow: selected
-          ? `0 0 0 2px rgba(76,141,255,0.25), 0 10px 26px rgba(0,0,0,0.45)`
+          ? `0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent), 0 10px 26px rgba(0,0,0,0.45)`
           : '0 6px 18px rgba(0,0,0,0.35)',
-        outline: runStatus === 'suspended' ? '2px solid rgba(224,179,65,0.35)' : 'none',
+        outline: runStatus === 'suspended' ? '2px solid color-mix(in srgb, var(--warning) 35%, transparent)' : 'none',
       }}
     >
       <div style={{
@@ -95,7 +95,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
             />
             <span style={{ minWidth: 0 }}>
               <span style={{
-                color: portDef.required && !wired ? 'var(--warning, #ffb74d)' : 'var(--text, #d8dbe2)',
+                color: portDef.required && !wired ? 'var(--warning)' : 'var(--text)',
                 whiteSpace: 'nowrap',
               }}>
                 {label}{portDef.multiple ? ' ⋯' : ''}{portDef.required && !wired ? ' *' : ''}
@@ -114,7 +114,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         return (
           <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 12 }}>
             <span style={{ minWidth: 0, textAlign: 'right' }}>
-              <span style={{ color: 'var(--text, #d8dbe2)', whiteSpace: 'nowrap' }}>{label}</span>
+              <span style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>{label}</span>
               <span style={{ display: 'block', color: MUTED, fontSize: 'var(--fs-11)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {typeHelp}
               </span>
@@ -155,7 +155,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
                 </span>
                 <span style={{
                   marginLeft: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  color: 'var(--text, #d8dbe2)', fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--text)', fontVariantNumeric: 'tabular-nums',
                 }}>
                   {choiceLabel(param, shown, lang)}
                 </span>
@@ -187,7 +187,7 @@ export function PortList({ title, ports, lang, t, describe }) {
               {port.required ? t('　required', '　必填') : ''}
               {port.multiple ? t('　several allowed', '　支持多路') : ''}
             </span>
-            <div style={{ color: state.warn ? 'var(--warning, #ffb74d)' : MUTED, marginLeft: 14 }}>
+            <div style={{ color: state.warn ? 'var(--warning)' : MUTED, marginLeft: 14 }}>
               {state.text}
             </div>
             {pickText(port.help, lang) && (
@@ -320,7 +320,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
           </label>
         )
       })}
-      <button onClick={onDelete} style={{ ...buttonStyle, borderColor: 'var(--danger, #cf6679)', color: 'var(--danger, #cf6679)' }}>
+      <button onClick={onDelete} style={{ ...buttonStyle, borderColor: 'var(--danger)', color: 'var(--danger)' }}>
         {t('Delete this node (Del)', '删除该节点（Del）')}
       </button>
     </Panel>

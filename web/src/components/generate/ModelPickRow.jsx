@@ -73,7 +73,7 @@ export function ModelPickRow({
             整句由后端生成，前端不判断也不拼话。 */}
         {modelNotes.map((n, i) => (
           <div className="field-hint" key={`${n.engine}-${n.code}-${i}`}
-               style={{ marginTop: 4, color: 'var(--warning, #ffb74d)' }}>
+               style={{ marginTop: 4, color: 'var(--warning)' }}>
             {n.text}
           </div>
         ))}
