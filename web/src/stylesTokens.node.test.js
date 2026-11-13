@@ -44,3 +44,27 @@ test('styles.css：语义色不得写死 rgba 元组（应改用 color-mix(var(-
   }
   assert.deepEqual(bad, [], `styles.css 仍存在写死的语义色 rgba：\n${bad.join('\n')}`)
 })
+
+test('styles.css：z-index 层级不得写死裸魔法数（应改用 --z-* 标度）', () => {
+  // 仅查 z-index: 声明（跳过 --z-* 定义行）；层级魔法数（>=10）必须用 --z-* token。
+  // 0/1/5 这类基础层也应收口，但此处只锁会引入回归风险的裸大数。
+  const re = /(^|;|\{)\s*z-index:\s*(\d+)/g
+  const bad = []
+  let m
+  while ((m = re.exec(css)) !== null) {
+    const v = parseInt(m[2], 10)
+    if (v >= 10) bad.push(`z-index: ${v}（应改用 --z-*)`)
+  }
+  assert.deepEqual(bad, [], `styles.css 仍存在裸 z-index 层级魔法数：\n${bad.join('\n')}`)
+})
+
+test('styles.css：等宽字体栈不得散落裸写（应改用 --font-mono）', () => {
+  const bad = []
+  for (const line of css.split('\n')) {
+    if (!/^\s*font-family:/.test(line)) continue
+    if (/monospace/.test(line) && !/var\(--font-mono\)/.test(line)) {
+      bad.push(line.trim())
+    }
+  }
+  assert.deepEqual(bad, [], `styles.css 仍散落裸等宽字体栈：\n${bad.join('\n')}`)
+})

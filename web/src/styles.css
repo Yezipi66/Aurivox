@@ -27,6 +27,16 @@
      page DOM — i.e. always below browser chrome. Change here to retune all
      dropdowns at once. */
   --z-dropdown: 1200;
+  /* 层级标度（与 --z-dropdown 同源，统一收口；值等于此前裸数字，零堆叠回归）。
+     改这里即可整体重排层级。 */
+  --z-base: 0;
+  --z-raised: 1;
+  --z-sticky: 5;
+  --z-overlay: 1000;
+  --z-modal: 1100;
+  /* 等宽字体栈。各处 ui-monospace / SFMono-Regular / Menlo / Consolas 变体统一收口到这一条，
+     避免散落多套；改这里即可整体切换等宽字体。 */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   /* 字号标度。档名就是值，不假装它是语义档（xs/sm 那套在这份 CSS 里没人对得上号）。
      11px 是下限：更小的中文在暗色底上要靠猜。离群值（11.5 / 12.5 / 15 / 17 / 20）
      还没收编，收编时就近归档，不许再写新的 px 字面量（fontScale 守卫管着下限）。 */
@@ -224,7 +234,7 @@ button.ui-select[aria-expanded="true"] {
 button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180deg); }
 
 .ui-select-menu {
-  z-index: var(--z-dropdown, 1200);
+  z-index: var(--z-dropdown);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -745,7 +755,7 @@ padding: 0 var(--sp-6);
 }
 .field-file-list {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-sticky);
   top: calc(100% + 2px);
   left: 0;
   right: 0;
@@ -1069,7 +1079,7 @@ padding: var(--sp-8);
   max-height: 260px;
   overflow-y: auto;
   font-size: var(--fs-12);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   line-height: 1.5;
 }
 .log-line.warn  { color: var(--warning); }
@@ -1246,12 +1256,12 @@ padding: var(--sp-8) var(--sp-10);
   left: -50%;
   height: 2px;
   background: var(--border);
-  z-index: 0;
+  z-index: var(--z-base);
 }
 .pipe-seg.done { background: var(--success); }
 .pipe-step .pipe-dot {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raised);
 }
 .pipe-step .pipe-label {
   text-align: center;
@@ -1303,7 +1313,7 @@ padding: 11px 13px;
 .pf-status-ok   { color: var(--success); }
 .pf-status-fail { color: var(--warning); }
 .pf-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   color: var(--accent);
 }
 .pf-warn {
@@ -1395,7 +1405,7 @@ padding: 0;
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(2px);
   display: flex;
@@ -1529,7 +1539,7 @@ margin-bottom: var(--sp-6);
   font-size: var(--fs-13);
   font-weight: 600;
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   line-height: 1.5;
 }
 .plan-preview-body.muted { color: var(--muted); font-weight: 400; }
@@ -1811,7 +1821,7 @@ margin: var(--sp-2) 0 var(--sp-6);
   border-radius: 3px;
 padding: 0 var(--sp-4);
   font-size: var(--fs-11);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
 }
 /* Multi-line command blocks inside the notice (Broker API note). */
 .naming-note-body pre.nn-pre {
@@ -1966,7 +1976,7 @@ margin-left: -1px;
 
 /* In-app folder browser modal */
 .fs-browser-overlay {
-  position: fixed; inset: 0; z-index: 1100;
+  position: fixed; inset: 0; z-index: var(--z-modal);
   background: rgba(0,0,0,0.7);
   display: flex; align-items: center; justify-content: center;
 }
@@ -2170,7 +2180,7 @@ margin-top: var(--sp-6);
 
 /* Save-as-recipe modal (shared by Generate + Compare). */
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 1000;
+  position: fixed; inset: 0; z-index: var(--z-overlay);
   background: rgba(0,0,0,0.55);
   display: flex; align-items: center; justify-content: center;
 padding: 20px;
@@ -2191,13 +2201,13 @@ padding: var(--sp-10) var(--sp-12); display: flex; flex-direction: column;gap: v
 .recipe-preview > div { display: flex;gap: var(--sp-10); align-items: baseline; }
 .rp-k { color: var(--muted); min-width: 92px; flex: 0 0 auto; }
 .rp-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rp-code { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.rp-code { color: var(--accent); font-family: var(--font-mono); }
 
 /* Broker page. */
 .broker-endpoint { display: flex; align-items: center;gap: var(--sp-10); }
 .be-k { color: var(--muted); font-size: var(--fs-12); }
 .be-url {
-  color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--accent); font-family: var(--font-mono);
   font-size: var(--fs-12); background: var(--bg); border: 1px solid var(--border);
   border-radius: 6px;padding: var(--sp-4) var(--sp-8);
 }
@@ -2206,7 +2216,7 @@ padding: var(--sp-10) var(--sp-12); display: flex; flex-direction: column;gap: v
 .rc-hdr { display: flex; justify-content: space-between; align-items: center;padding: var(--sp-10) var(--sp-12); border-bottom: 1px solid var(--border); }
 .rc-title { display: flex; align-items: baseline;gap: var(--sp-10); min-width: 0; }
 .rc-display { font-weight: 600; font-size: var(--fs-13); }
-.rc-id { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); }
+.rc-id { color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-12); }
 .rc-body {padding: var(--sp-12); display: flex; flex-direction: column;gap: var(--sp-12); }
 .rc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));gap: var(--sp-6) var(--sp-16); font-size: var(--fs-12); }
 .rc-grid > div { display: flex;gap: var(--sp-8); align-items: baseline; min-width: 0; }
@@ -2214,7 +2224,7 @@ padding: var(--sp-10) var(--sp-12); display: flex; flex-direction: column;gap: v
 .rc-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-cmd { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .rc-cmd-hdr { display: flex; justify-content: space-between; align-items: center;padding: var(--sp-6) var(--sp-10); background: var(--panel); font-size: var(--fs-11); color: var(--muted); }
-.rc-cmd-body {margin: 0;padding: var(--sp-10); font-size: var(--fs-11); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text); white-space: pre-wrap; word-break: break-all; }
+.rc-cmd-body {margin: 0;padding: var(--sp-10); font-size: var(--fs-11); font-family: var(--font-mono); color: var(--text); white-space: pre-wrap; word-break: break-all; }
 .rebind { border: 1px dashed var(--border); border-radius: 8px;padding: var(--sp-10); display: flex; flex-direction: column;gap: var(--sp-10); }
 .rebind .muted { color: var(--muted); font-weight: 400; font-size: var(--fs-11); }
 
@@ -2242,7 +2252,7 @@ padding: var(--sp-10) var(--sp-12); display: flex; flex-direction: column;gap: v
 .arr-w-lo { text-decoration: underline wavy; text-decoration-thickness: 1.5px; }
 .arr-w-mid { text-decoration: underline dashed; }
 .arr-w-hi { text-decoration: none; }
-.arr-path { font-size: var(--fs-11); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arr-path { font-size: var(--fs-11); color: var(--muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arr-text { width: 100%; resize: vertical; min-height: 30px; font-size: var(--fs-12);padding: var(--sp-6) var(--sp-8); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .asr-review-ftr { display: flex; justify-content: flex-end;gap: var(--sp-8);padding: var(--sp-8) var(--sp-12); border-top: 1px solid var(--border); }
 
@@ -2263,7 +2273,7 @@ padding: var(--sp-10) var(--sp-12); display: flex; flex-direction: column;gap: v
 .denoise-review-hint { font-size: var(--fs-11); color: var(--muted);padding: var(--sp-6) var(--sp-12) 0;margin: 0; }
 .denoise-review-list { max-height: 360px; overflow: auto; display: flex; flex-direction: column; }
 .denoise-review-row { display: flex; flex-direction: column;gap: var(--sp-4);padding: var(--sp-8) var(--sp-12); border-top: 1px solid var(--border); }
-.denoise-review-row .arr-path { font-size: var(--fs-11); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.denoise-review-row .arr-path { font-size: var(--fs-11); color: var(--muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .denoise-review-row .aplayer { width: 100%; }
 .denoise-review-ftr { display: flex; justify-content: space-between;gap: var(--sp-8);padding: var(--sp-8) var(--sp-12); border-top: 1px solid var(--border); }
 
@@ -2342,7 +2352,7 @@ margin-bottom: var(--sp-4);
 margin-top: var(--sp-6);
   font-size: var(--fs-11);
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2353,7 +2363,7 @@ margin-top: var(--sp-6);
 .seed-badge { display: inline-flex; align-items: center;gap: var(--sp-4); font-size: var(--fs-11); }
 .seed-badge-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: var(--fs-11); }
 .seed-badge-val {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   background: var(--accent-soft); color: var(--accent);
   border: 1px solid transparent; border-radius: 4px;
 padding: 1px var(--sp-6); cursor: pointer; font-size: var(--fs-11); line-height: 1.4;
@@ -2368,7 +2378,7 @@ padding: 1px var(--sp-6); cursor: pointer; font-size: var(--fs-11); line-height:
   border-radius: 3px; transition: color 0.12s ease, background 0.12s ease;
 }
 .seed-inline strong {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-weight: 700; color: var(--text);
 }
 .seed-inline:hover { color: var(--accent); }
@@ -2398,11 +2408,11 @@ padding: 1px var(--sp-6); cursor: pointer; font-size: var(--fs-11); line-height:
 .cmp-batch-member-main { display: flex; align-items: center;gap: var(--sp-8); }
 .cmp-batch-idx { font-size: var(--fs-11); color: var(--muted); font-weight: 600; min-width: 26px; }
 .cmp-batch-ref {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-11); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
 }
 .cmp-batch-seed {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-11); color: var(--accent); background: var(--accent-soft);
   border-radius: 4px;padding: 0 5px; white-space: nowrap;
 }
