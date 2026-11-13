@@ -511,3 +511,15 @@ test('resolveUv 不认识的平台 ⇒ ok:false + why（不猜）', () => {
   assert.strictEqual(env2.uvRelPath('freebsd'), null,
     '不认识的平台必须给 null')
 })
+
+test('pyproject 在子目录：装那个目录本身，不把 pyproject.toml 当包路径', () => {
+  const { engineDir: dir } = mkdtempRootWithEngine('e-subproj')
+  fs.mkdirSync(path.join(dir, 'pkg'))
+  fs.writeFileSync(path.join(dir, 'pkg', 'pyproject.toml'),
+    '[project]\nname = "demo"\nversion = "0.1.0"\n')
+  const g = suggestEnvCommand(dir)
+  assert.strictEqual(g.cwd, 'pkg', 'cwd 要切到 pyproject 所在目录')
+  assert.deepStrictEqual(g.argv.slice(-2), ['-e', '.'],
+    'uv 收到 -e pyproject.toml 会按要安装的包解析，报 Expected path to end in .whl')
+  assert.ok(!g.argv.includes('pyproject.toml'), g.argv.join(' '))
+})

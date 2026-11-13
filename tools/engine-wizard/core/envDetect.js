@@ -193,11 +193,13 @@ function suggestEnvCommand (dir) {
   }
   if (pyproj) {
     const cwd = pyproj.includes('/') ? pyproj.slice(0, pyproj.indexOf('/')) : '.'
-    const rel = pyproj.includes('/') ? pyproj.slice(pyproj.indexOf('/') + 1) : '.'
-    return { argv: ['uv', 'pip', 'install', '-e', rel], from: pyproj, cwd,
-      why: `The upstream provides only ${pyproj} — install it with uv pip install -e ${rel}.`
+    // pyproject.toml 是构建配置，不是可分发的包路径。uv 收到 -e pyproject.toml 会按
+    //   「要安装的包」解析，报 Expected path to end in .whl/.tar.gz/.zip；要装的是
+    //   这个目录本身，所以是 -e .（cwd 已经切到 pyproject 所在目录）。
+    return { argv: ['uv', 'pip', 'install', '-e', '.'], from: pyproj, cwd,
+      why: `The upstream provides only ${pyproj} — install the package at ${cwd} with uv pip install -e .`
         + '\nThe upstream ships no lock file, so installed versions are decided by upstream and are not reproducible.',
-      whyZh: `上游只有 ${pyproj} ⇒ 用 uv pip install -e ${rel} 装它声明的依赖。\n`
+      whyZh: `上游只有 ${pyproj} ⇒ 用 uv pip install -e . 在 ${cwd} 装它声明的依赖。\n`
         + '上游未提供锁文件，安装版本由上游决定，无法复现。' }
   }
   return { argv: ['uv', 'pip', 'install', '-r', req], from: req,
