@@ -155,8 +155,10 @@ function check(name, cond, detail) {
   const longText = "z".repeat(60); // 超过 softLimit（引擎名片的 max_chars 是 30）⇒ 走分段分支
   reset(); state.genThrows = true;
   r = await run({ voice: "v", text: longText });
+  // 上游失败的错误体是结构化对象：message 给人看，detail 是引擎原文。
   check("segment fail -> 502", r.status === 502 && r.body.ok === false
-    && r.body.error === "Segment 0 failed: boom" && Array.isArray(r.body.segments) && r.body.segments.length === 0, JSON.stringify(r));
+    && r.body.error && r.body.error.message === "Segment 0 failed: boom"
+    && Array.isArray(r.body.segments) && r.body.segments.length === 0, JSON.stringify(r));
 
   reset();
   r = await run({ voice: "v", text: longText, concat: false }); // 分段但不拼接

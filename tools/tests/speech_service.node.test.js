@@ -195,7 +195,8 @@ function check(name, cond, detail) {
   reset(); state.voices = { spk: {} }; state.gsv = { statusCode: 500, body: Buffer.from("nope") };
   r = await run({ voice: "spk", input: "hi" });
   // 报错文案点名的是这次真的在用的那台引擎（它的 label），不是写死的名字。
-  check("engine /tts fail -> 502", r.status === 502 && /Test Engine \/tts failed \(500\)/.test(r.body.error), JSON.stringify(r));
+  check("engine /tts fail -> 502", r.status === 502 && r.body.error
+    && /Test Engine \/tts failed \(500\)/.test(r.body.error.message), JSON.stringify(r));
 
   // 引擎返回空音频
   reset(); state.voices = { spk: {} }; state.gsv = { statusCode: 200, body: Buffer.alloc(0) };
