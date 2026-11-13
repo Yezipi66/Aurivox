@@ -16,6 +16,7 @@ const SEMANTIC_RGB = {
   '76,175,80': '--success',
   '255,183,77': '--warning',
   '207,102,121': '--danger（旧粉，已改 --danger 红）',
+  '229,72,77': '--danger（新红 #e5484d）',
 }
 const SP_SET = new Set([2, 4, 6, 8, 10, 12, 16, 24])
 

@@ -4,7 +4,7 @@
 // f0a05a/f6b877/ffa726/e0b03c（强警示橙）、4dd0e1（青）、2fbf71（成功绿）、
 // e0b341（jsx 里的离群琥珀）、9aa0a6/7bc47f/7aa7ff/e08a95（画布状态色原硬编码值）里。
 // 收敛方案：不再为它们开 danger-strong / warning-strong / info-teal / success-strong
-// 这类「强语义变体 token」——直接归并回基础 token（红→--danger、橙→--warning、
+// 这类「强语义变体 token」，直接归并回基础 token（红→--danger、橙→--warning、
 // 绿→--success、青→--info），高注意力态用 color-mix 从基础 token 派生深浅。
 // --danger 已重定义为正红 #e5484d。此守卫禁止离群色以字面量回流，并防止被删的
 // 变体 token 悄悄复活。
