@@ -109,7 +109,8 @@ test('演示、微调、转写与数据准备脚本也不算入口', () => {
   const aux = ['tts_demo.py', 'demo/realtime_model_inference_from_file.py',
     'finetune_codes/model.py', 'finetune_codes/demo_data/prepare.py',
     'funasr_detach/models/whisper/utils/transcribe.py',
-    'data/phonemize_encodec_encode_hf.py']
+    'data/phonemize_encodec_encode_hf.py',
+    'finetuning-asr/inference_lora.py']
   for (const f of aux) assert.strictEqual(isAuxEntryFile(f), true, `${f} 不是合成入口`)
 })
 

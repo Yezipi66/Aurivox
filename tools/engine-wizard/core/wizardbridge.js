@@ -2560,6 +2560,15 @@ function handleDiscover (req, res) {
       // 纯库形态、名片里又还没声明类：把静态候选交出去，让人从清单里选一个。
       //   没有候选时照旧如实报「未能发现参数」。
       if (pythonEntries.length) {
+        // 纯库形态同样给入口文件清单：没有命令行不等于没有可选文件，
+        //   下拉框不能在这一支变成空的，否则只能靠人背模块名。
+        let libraryCandidates = []
+        try {
+          const { buildEntryCandidates } = require('./entryCandidates')
+          libraryCandidates = buildEntryCandidates(dir, [], { declaredModules })
+        } catch (e) {
+          notes.push(`入口候选清单生成失败：${e.message}`)
+        }
         json(res, 200, {
           ok: true,
           source: 'python-static',
@@ -2567,7 +2576,7 @@ function handleDiscover (req, res) {
           groups: [],
           bind_candidates: [],
           entry: null,
-          entry_candidates: [],
+          entry_candidates: libraryCandidates,
           python_entries: pythonEntries,
           declare_hints: { audio_params: [], weight_slots: [], output_formats: [], format_arg: null },
           suggested_call: null,

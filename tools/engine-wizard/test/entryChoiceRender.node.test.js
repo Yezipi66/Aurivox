@@ -84,6 +84,18 @@ const CANDIDATES = [
   },
 ]
 
+const TIERED = [
+  { file: 'pkg/infer_cli.py', module: 'pkg.infer_cli', srcRoot: null, score: 4, flags: 4,
+    groups: [], source: 'file', recommended: true, tier: 'recommended', aux: false },
+  { file: 'pkg/utils.py', module: 'pkg.utils', srcRoot: null, score: 0, flags: 0,
+    groups: [], source: 'file', recommended: false, tier: 'source', aux: false },
+  { file: 'demo/tts_demo.py', module: 'demo.tts_demo', srcRoot: null, score: 0, flags: 0,
+    groups: [], source: 'file', recommended: false, tier: 'aux', aux: true },
+]
+
+const listSelect = () => [...container.querySelectorAll('select')]
+  .find((s) => s.getAttribute('aria-label') === 'Pick from scanned files')
+
 let seq = 0
 async function show (manifest, candidates, extra = {}) {
   seq += 1
@@ -178,4 +190,54 @@ test('python 形态列出静态扫描到的类，选中后写模块 / 类 / 方�
   assert.strictEqual(holder.get().call.module, 'pkg.tts')
   assert.strictEqual(holder.get().call.class, 'TTS')
   assert.strictEqual(holder.get().call.method, 'synthesize')
+})
+
+// 识别结论错了或没有结论时，datalist 的清单要点击输入框才展开，界面上容易被当成
+// 一个普通输入框。下面守着一个常显的下拉框，以及它与输入框写同一个字段。
+test('不给结论时仍有一个常显下拉，按分档列出全部候选', async () => {
+  await show(cliManifest(), TIERED.map((c) => ({ ...c, recommended: false,
+    tier: c.tier === 'recommended' ? 'cli' : c.tier })))
+  const sel = listSelect()
+  assert.ok(sel, '⛔ 只有 datalist：它要点击输入框才展开，看不出这里有清单')
+  assert.deepStrictEqual([...sel.querySelectorAll('optgroup')].map((g) => g.label),
+    ['Command line switches found', 'Other Python source files',
+      'Auxiliary scripts (demo / training / data)'])
+  assert.strictEqual(sel.querySelectorAll('option').length, 4, '占位项加三个候选')
+  assert.ok(/Recognition gave no conclusion/.test(container.textContent))
+})
+
+test('从常显下拉另选一个文件，写的就是那个文件的模块名', async () => {
+  const holder = await show(cliManifest(), TIERED)
+  const sel = listSelect()
+  Simulate.change(sel, { target: { value: 'pkg/utils.py' } })
+  await settle()
+  assert.deepStrictEqual(holder.get().call.argv,
+    ['{engine_python}', '-m', 'pkg.utils'])
+  assert.strictEqual(container.querySelector('input').value, 'pkg/utils.py',
+    '输入框与下拉显示同一个值，不各说各话')
+})
+
+test('有扫描建议时写清它可能不适用，且其它分档照样可选', async () => {
+  await show(cliManifest(), TIERED)
+  assert.ok(/The suggestion may not apply/.test(container.textContent),
+    '⛔ 没告诉使用者推荐可以改：结论错了会一路带到第 5 步')
+  const sel = listSelect()
+  assert.ok(sel, '有推荐时也要能另选')
+  assert.strictEqual(sel.querySelectorAll('optgroup').length, 3)
+})
+
+test('手填的值不在清单里时，下拉落回未指定，不假装选中了某一项', async () => {
+  await show({
+    id: 'demo',
+    call: { kind: 'cli', argv: ['{engine_python}', '-m', 'pkg.custom'], bind: {} },
+  }, TIERED)
+  const sel = listSelect()
+  assert.strictEqual(sel.value, '')
+  assert.ok(/Current value is typed in/.test(sel.options[0].textContent))
+})
+
+test('候选为空时不画一个空下拉，手填入口照旧可用', async () => {
+  await show(cliManifest(), [])
+  assert.strictEqual(listSelect(), undefined)
+  assert.ok(container.querySelector('input'), '手填的输入框不能被收走')
 })

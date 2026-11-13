@@ -110,3 +110,66 @@ test('没有扫描参数时清单仍有内容：识别不出也要有得选', ()
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+// 识别结论可能不适用：清单要覆盖全部源码文件，按证据分档，而不是只给结论那一条。
+// 辅助脚本不删项，排到最后并标出类别，人仍能从清单里挑到它。
+test('结论为空时清单照样列全，且按证据分档', () => {
+  const { root, write } = makeTree()
+  try {
+    write('pkg/infer_cli.py', '')
+    write('pkg/utils.py', '')
+    write('demo/tts_demo.py', '')
+    write('train_net.py', '')
+    const got = buildEntryCandidates(root, four('pkg/infer_cli.py'), {})
+    const tiers = got.map((r) => r.tier)
+    assert.strictEqual(tiers[0], 'cli', '扫到命令行开关的文件应排在最前')
+    assert.deepStrictEqual([...new Set(tiers)], ['cli', 'source', 'aux'],
+      '分档顺序应是命令行、其它源码、辅助脚本')
+    assert.strictEqual(got.length, 4, '辅助脚本不能从清单里消失')
+    const aux = got.filter((r) => r.aux)
+    assert.strictEqual(aux.length, 2, '演示目录与训练脚本都该标成辅助')
+    assert.ok(aux.every((r) => r.tier === 'aux'))
+    assert.strictEqual(got.some((r) => r.recommended), false,
+      '没有结论时不能自己造一条扫描建议')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('打包声明点过名的模块单列一档，缺源文件也保留', () => {
+  const { root, write } = makeTree()
+  try {
+    write('pkg/infer.py', '')
+    const got = buildEntryCandidates(root, [], { declaredModules: ['pkg.cli'] })
+    const declared = got.find((r) => r.module === 'pkg.cli')
+    assert.strictEqual(declared.tier, 'declared')
+    assert.strictEqual(declared.file, null)
+    assert.strictEqual(got[0], declared, '声明那一档要排在普通源码之前')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('推荐项排第一，同时其它分档照样留在清单里', () => {
+  const { root, write } = makeTree()
+  try {
+    write('pkg/infer_cli.py', '')
+    write('pkg/other.py', '')
+    write('demo/tts_demo.py', '')
+    const got = buildEntryCandidates(root, four('pkg/infer_cli.py'),
+      { recommended: 'pkg/infer_cli.py', declaredModules: ['pkg.cli'] })
+    assert.strictEqual(got[0].tier, 'recommended')
+    assert.strictEqual(got[0].file, 'pkg/infer_cli.py')
+    assert.deepStrictEqual([...new Set(got.map((r) => r.tier))],
+      ['recommended', 'declared', 'source', 'aux'])
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('纯库形态那一支也把文件清单交出去，不返回空数组', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  const at = src.indexOf("source: 'python-static'")
+  assert.ok(at > 0, '找不到纯库形态的返回分支')
+  const block = src.slice(at, src.indexOf('declare_hints', at))
+  assert.match(block, /entry_candidates: libraryCandidates/,
+    '⛔ 纯库形态返回空清单：下拉框里一个可选项都没有')
+  const before = src.slice(Math.max(0, at - 900), at)
+  assert.match(before, /libraryCandidates = buildEntryCandidates\(dir/,
+    '⛔ 没有按引擎目录生成候选清单')
+})

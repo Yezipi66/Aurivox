@@ -66,7 +66,7 @@ const AUX_TOKENS = new Set([
   'evaluate', 'evaluation', 'benchmark', 'metric', 'download', 'transcribe', 'phonemize',
 ])
 // 演示、微调与训练代码常整棵放在单独的目录里，文件名上不带对应的词。
-const AUX_DIR_RE = /^(?:demo|demos|finetune(?:[_-]\w+)*|train(?:ing)?(?:[_-]\w+)*)$/
+const AUX_DIR_RE = /^(?:demo|demos|finetun(?:e|ing)(?:[_-]\w+)*|train(?:ing)?(?:[_-]\w+)*)$/
 // 入口词：出现它们时，文件是「某个非入口对象的命令行」，仍然算入口。
 //   上游常见写法是 webui_cli.py、tts_app.py 这类，前面那个词单独出现时才是非入口。
 const ENTRY_TOKENS = new Set(['cli', 'main', 'run', 'infer', 'inference', 'synth', 'synthesis', 'tts'])
