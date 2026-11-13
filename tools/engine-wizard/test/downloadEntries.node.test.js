@@ -222,3 +222,27 @@ test('文档里的示例用法不会被当成安装命令', () => {
     assert.deepStrictEqual(scanDocDownloadCommands(dir), [])
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+// 配套仓库（特征提取、语音识别、分词器、声码器）不是主权重。下载清单只列前几条，
+// 它们排在最前面时，真正要下的大仓库根本进不了清单。
+test('预下载优先主权重，配套仓库排在后面但仍列出', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-hf-aux-'))
+  try {
+    const dir = path.join(root, 'engines', 'demo')
+    fs.mkdirSync(path.join(dir, 'demo'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'demo', 'helpers.py'), [
+      'from huggingface_hub import snapshot_download',
+      "ASR_MODEL = 'facebook/hubert-base-ls960'",
+      "TTS_MODEL = 'org/demo-tts-v1'",
+      'def ensure():',
+      '    return snapshot_download(TTS_MODEL)',
+    ].join('\n'))
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ id: 'demo', models: { required: [] } }))
+    const entries = buildEngineDownloadEntries(root, 'demo')
+    assert.strictEqual(entries[0].key, 'hf:org/demo-tts-v1',
+      '主权重没排在第一位：配套仓库会把清单名额占掉')
+    // 有同名仓库时清单只列同名那批（多语言引擎一个语言一条），配套仓库不占名额。
+    assert.strictEqual(entries.length, 1,
+      '配套仓库不该占下载清单的名额')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

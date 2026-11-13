@@ -173,3 +173,15 @@ test('纯库形态那一支也把文件清单交出去，不返回空数组', ()
   assert.match(before, /libraryCandidates = buildEntryCandidates\(dir/,
     '⛔ 没有按引擎目录生成候选清单')
 })
+
+test('纯库形态没有任何类候选时，入口清单也不返回空数组', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'wizardbridge.js'), 'utf8')
+  assert.strictEqual(src.includes('entry_candidates: []'), false,
+    '⛔ 还有一支返回空清单：那一支的第 4 步下拉会是空的')
+  const at = src.indexOf("source: 'python-static'")
+  const block = src.slice(Math.max(0, at - 1200), at + 600)
+  assert.match(block, /entry_candidates: libraryCandidates/)
+  assert.match(block, /ok: pythonEntries\.length > 0/,
+    'ok 只表示有没有扫出参数，不能拿它决定清单给不给')
+})

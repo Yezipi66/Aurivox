@@ -1406,7 +1406,13 @@ function buildEngineDownloadEntries (root, id) {
       const tail = String(repo).split('/').pop().toLowerCase().replace(/[^a-z0-9]/g, '')
       return tail.includes(engineKey) ? 0 : 1
     }
-    const pools = scanRuntimeDownloads(dir, 24).filter((h) => h && h.repo)
+    // 配套仓库（特征提取、语音识别、分词器、声码器）不是这台引擎的主权重，
+    //   排在最前面会把真正要下的大仓库挤掉（下载清单只列前几条）。
+    //   全部都是配套时照原样列，不把清单清空。
+    const AUX_REPO_RE = /(?:^|[-_/])(?:bert|hubert|wav2vec|whisper|asr|vocoder|hifigan|bigvgan|tokenizer|punctuation|sentencepiece)(?:$|[-_/])/i
+    const allRepos = scanRuntimeDownloads(dir, 24).filter((h) => h && h.repo)
+    const usableRepos = allRepos.filter((h) => !AUX_REPO_RE.test(String(h.repo)))
+    const pools = usableRepos.length ? usableRepos : allRepos
     // 仓库名与引擎同名的排在前面（多语言引擎会一次列出一堆），
     //   顺序保持扫描到的先后，也就是源码里的书写顺序，不另排一次。
     const mine = pools.filter((h) => rankOf(h.repo) === 0)
@@ -2557,38 +2563,31 @@ function handleDiscover (req, res) {
     }
 
     if (!hasCli && !hasPython) {
-      // 纯库形态、名片里又还没声明类：把静态候选交出去，让人从清单里选一个。
-      //   没有候选时照旧如实报「未能发现参数」。
-      if (pythonEntries.length) {
-        // 纯库形态同样给入口文件清单：没有命令行不等于没有可选文件，
-        //   下拉框不能在这一支变成空的，否则只能靠人背模块名。
-        let libraryCandidates = []
-        try {
-          const { buildEntryCandidates } = require('./entryCandidates')
-          libraryCandidates = buildEntryCandidates(dir, [], { declaredModules })
-        } catch (e) {
-          notes.push(`入口候选清单生成失败：${e.message}`)
-        }
-        json(res, 200, {
-          ok: true,
-          source: 'python-static',
-          params: [],
-          groups: [],
-          bind_candidates: [],
-          entry: null,
-          entry_candidates: libraryCandidates,
-          python_entries: pythonEntries,
-          declare_hints: { audio_params: [], weight_slots: [], output_formats: [], format_arg: null },
-          suggested_call: null,
-          notes,
-          counts: { cli: 0, python: 0, total: 0 },
-        })
-        return
+      // 纯库形态：把静态候选交出去，让人从清单里选一个。
+      //   类候选可能为空（静态扫描没认出方法），文件清单仍要给：
+      //   第 4 步的下拉不能因为「没认出参数」就变成空的，那样连手选都没有落点。
+      let libraryCandidates = []
+      try {
+        const { buildEntryCandidates } = require('./entryCandidates')
+        libraryCandidates = buildEntryCandidates(dir, [], { declaredModules })
+      } catch (e) {
+        notes.push(`入口候选清单生成失败：${e.message}`)
       }
       json(res, 200, {
-        ok: false,
-        error: '未能发现参数，请手工填写',
+        // ok 只表示「有没有扫出参数」；清单有没有内容与此无关，两者分开。
+        ok: pythonEntries.length > 0,
+        source: 'python-static',
+        params: [],
+        groups: [],
+        bind_candidates: [],
+        entry: null,
+        entry_candidates: libraryCandidates,
+        python_entries: pythonEntries,
+        declare_hints: { audio_params: [], weight_slots: [], output_formats: [], format_arg: null },
+        suggested_call: null,
         notes,
+        counts: { cli: 0, python: 0, total: 0 },
+        ...(pythonEntries.length ? {} : { error: '未能发现参数，请手工填写' }),
       })
       return
     }
