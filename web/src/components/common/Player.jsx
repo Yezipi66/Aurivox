@@ -51,9 +51,9 @@ function themeColors() {
   const cs = getComputedStyle(document.documentElement)
   const get = (k, fb) => (cs.getPropertyValue(k) || '').trim() || fb
   return {
-    accent: get('--accent', '#a970ff'),
-    muted: get('--muted', '#8a8a99'),
-    border: get('--border', '#3a3a44'),
+    accent: get('--accent', '#bb86fc'),
+    muted: get('--muted', '#9a9a9a'),
+    border: get('--border', '#333'),
   }
 }
 
