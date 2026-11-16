@@ -34,6 +34,8 @@ function loadJsx (file, stubMap) {
     for (const [k, v] of Object.entries(stubMap)) {
       if (id === k || id.endsWith(k)) return v
     }
+    // 下拉换成了页面内的组件，这里只要能选值就够，交互细节由真组件那条测试守。
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error(file + ' 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -133,7 +135,7 @@ const has = (text) => container.textContent.includes(text)
 test('第 1 步没有探测结果时仍显示权重来源框，默认在引擎入口页签', async () => {
   await show()
   assert.ok(has('权重来源'), '三种来源要收在同一个框里')
-  assert.strictEqual(buttons('引擎自带入口（0）').length, 1, '默认页签是引擎入口')
+  assert.strictEqual(buttons('引擎自带（0）').length, 1, '页签上写着引擎自带项的数量')
   assert.strictEqual(buttons('模型仓库').length, 1, '页签按钮要一直在')
   assert.strictEqual(buttons('文件直链').length, 1)
   assert.strictEqual(repoInput(), undefined, '未切页签时不渲染其它页签的输入框')

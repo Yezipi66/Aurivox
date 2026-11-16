@@ -1,6 +1,7 @@
 // 每一步的引擎目标选择器，切换即全局重定向。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import Select from '../../../web/src/components/common/Select'
 
 // 全局逃生口：选择向导作用在哪台引擎目录上。
 //
@@ -35,10 +36,11 @@ export default function EngineEscapeHatch ({ id, dirs, onSwitch }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <label className="field-label" style={{ margin: 0 }} htmlFor="wz-escape-pick">
+        <label className="field-label" style={{ margin: 0 }} id="wz-escape-pick-label">
           {t('Engine target', '操作引擎')}
         </label>
-        <select id="wz-escape-pick" className="control" style={{ minWidth: 240 }}
+        <Select id="wz-escape-pick" className="control" style={{ minWidth: 240 }}
+          aria-labelledby="wz-escape-pick-label"
           value={pending}
           onChange={(e) => setPending(e.target.value)}>
           <option value="">
@@ -47,7 +49,7 @@ export default function EngineEscapeHatch ({ id, dirs, onSwitch }) {
           {(dirs || []).map((d) => (
             <option key={d.id} value={d.id}>{d.id}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {/* 选了与当前不同的引擎，才出现提交按钮（右对齐） */}

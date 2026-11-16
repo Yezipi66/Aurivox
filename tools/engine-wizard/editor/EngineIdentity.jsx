@@ -5,6 +5,7 @@ import { useInstalled } from './useInstalled'
 import { useEngineDirs } from './useEngineDirs'
 import { useSaveManifest } from './useSaveManifest'
 import { manifestForEngineSwitch } from './manifestAutoFill'
+import Select from '../../../web/src/components/common/Select'
 
 // 名片身份条：中栏最上面一行，第 4 步的全部动作都在这一行。
 //
@@ -59,7 +60,7 @@ export default function EngineIdentity ({
   const selectedDir = dirs.find((d) => d.id === engineId)
   const hasManifest = !!selectedDir && selectedDir.manifestPresent === true
 
-  const { save, busy: saving, result } = useSaveManifest(manifest, hasManifest, (j) => {
+  const { save, busy: saving, result } = useSaveManifest(manifest, (j) => {
     // 新建的名片存下去之后，这台引擎就「有名片」了：下拉与覆盖语义都要跟上。
     reloadDirs()
     setLoaded(true)
@@ -128,7 +129,7 @@ export default function EngineIdentity ({
     <div className="section">
       <div className="section-body">
         <div className="wz-identity-bar">
-          <select className="control wz-identity-engine" value={engineId}
+          <Select className="control wz-identity-engine" value={engineId}
             aria-label={t('Engine', '引擎')}
             disabled={reading || saving}
             onChange={(e) => pickEngine(e.target.value)}>
@@ -138,7 +139,7 @@ export default function EngineIdentity ({
                 {d.id}{d.manifestPresent ? '' : `（${t('no manifest yet', '尚无名片')}）`}
               </option>
             ))}
-          </select>
+          </Select>
 
           {needsRead
             ? (
@@ -196,7 +197,15 @@ export default function EngineIdentity ({
         {result && (
           <div className={`msg ${result.ok ? 'msg-info' : 'msg-danger'}`}>
             {result.ok
-              ? <>{t('Saved', '已保存')} · <code>{result.path}</code></>
+              ? <>
+                  {result.replaced ? t('Overwrote', '已覆盖') : t('Saved', '已保存')}
+                  {' · '}<code>{result.path}</code>
+                  {/* 覆盖是允许的，但要说清旧版还在哪：出问题时人得知道去哪儿捞。 */}
+                  {result.backup && (
+                    <> · {t('previous version kept as ', '旧版另存为 ')}
+                      <code>{String(result.backup).split(/[\\/]/).pop()}</code></>
+                  )}
+                </>
               : <><b>{t('Not saved', '未保存')}</b> · {result.error}</>}
           </div>
         )}

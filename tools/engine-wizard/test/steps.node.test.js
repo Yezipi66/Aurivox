@@ -209,10 +209,14 @@ test('App 必须给出引擎下拉（每一步的逃生口）', () => {
   const src = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
   const hatch = fs.readFileSync(path.join(EDITOR_DIR, 'EngineEscapeHatch.jsx'), 'utf8')
   assert.ok(/useEngineDirs/.test(src), 'App 没接入 engines/ 目录列表')
-  // 逃生口组件才是下拉本体：App 渲染它，组件里有可切换的 <select>。
+  // 逃生口组件才是下拉本体：App 渲染它，组件里有可切换引擎的下拉。
+  //   下拉一律走项目统一的那一套（components/common/Select），不用原生 <select>：
+  //   原生选项列表是系统级弹窗，样式与层级都不归页面管。
   assert.ok(/<EngineEscapeHatch/.test(src),
     'App 没渲染逃生口：换引擎只能靠重新克隆')
-  assert.ok(/<select[\s\S]{0,400}?onChange/.test(hatch),
+  assert.ok(/components\/common\/Select/.test(hatch),
+    '逃生口的下拉没用统一组件：又冒出一个原生 <select> 或自造控件')
+  assert.ok(/<Select[\s\S]{0,400}?onChange/.test(hatch),
     '逃生口里没有可切换引擎的下拉：换引擎只能靠重新克隆')
 })
 

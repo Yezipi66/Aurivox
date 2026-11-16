@@ -3,6 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import ParamPool from './ParamPool'
 import { groupLabel } from './groupLabel'
+import Select from '../../../web/src/components/common/Select'
 
 // 左栏：扫描到的参数。扫描按钮在中栏身份条上；引擎身份也跟着 Manifest 放在中栏顶部，
 // 左栏只放外部输入。
@@ -56,14 +57,14 @@ export default function EngineScanZone ({
                 '分组来自上游的子命令，名字按代码里的原样保留。')}>
               {t('Group', '分组')}
             </label>
-            <select className="control" value={group}
+            <Select className="control" value={group}
               disabled={busy}
               onChange={(e) => onGroupChange && onGroupChange(e.target.value)}>
               <option value="">{t('— all groups —', '全部分组')}</option>
               {groups.map((g) => (
                 <option key={g} value={g}>{groupLabel(g)}</option>
               ))}
-            </select>
+            </Select>
             <div className="field-hint">
               {t('The name before the brackets is the sub-command as it is typed on the command line; the note in brackets is ours.',
                 '括号前是命令行上要敲的子命令原名，括号里是平台加的中文注。')}

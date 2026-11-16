@@ -32,6 +32,8 @@ function loadJsx (file, stubMap) {
     for (const [k, v] of Object.entries(stubMap)) {
       if (id === k || id.endsWith(k)) return v
     }
+    // 下拉换成了页面内的组件，这里只要能选值就够，交互细节由真组件那条测试守。
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error(file + ' 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -325,4 +327,14 @@ test('python 形态：参数进 parameters[]，不写 call.args', async () => {
   assert.equal(manifest.parameters.length, 1)
   assert.equal(manifest.parameters[0].name, 'speed')
   assert.equal(manifest.call.args, undefined, 'python 形态的名片里写 args 段，存的时候会被拒')
+})
+
+// 第 4 步一进来左右两栏都要张开：收着时只有一条窄边，人看不出那里还有东西。
+// 这是 ManifestPage 的初始 state，源码级钉住，免得后来又被改成「首屏别摆空盒子」。
+test('⭐⭐ 第 4 步进来时左右两栏默认张开', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'ManifestPage.jsx'), 'utf8')
+  const m = src.match(/useState\(\{\s*left:\s*(true|false),\s*right:\s*(true|false)\s*\}\)/)
+  assert.ok(m, '两栏开合的初始 state 找不到了')
+  assert.deepStrictEqual([m[1], m[2]], ['true', 'true'],
+    '左栏是参数池、右栏是实时预览，收着的时候只有一条窄边')
 })

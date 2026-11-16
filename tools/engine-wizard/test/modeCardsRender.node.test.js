@@ -29,6 +29,8 @@ function loadJsx (file, stubs) {
     for (const [k, v] of Object.entries(stubs)) {
       if (id === k || id.endsWith(k)) return v
     }
+    // 下拉换成了页面内的组件，这里只要能选值就够，交互细节由真组件那条测试守。
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error(file + ' 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
