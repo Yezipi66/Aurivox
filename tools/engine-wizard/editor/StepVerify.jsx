@@ -635,9 +635,12 @@ export function StepVerify ({ id }) {
           />
           {/* 参考音频与文本放在按钮上面：它们留空时宿主当场 400，
               而按钮排在它们上面时，人点完才知道是下面这两格没填。 */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+          {/* 路径框 + 右侧文件夹按钮，与 9886 参数面板的 file 类参数同一套：框是 .field-file-input，
+              按钮是 .field-file-pick。差别只在按钮做什么。那边展开素材库清单，这边开系统对话框，
+              因为宿主要的是本机绝对路径，而浏览器不给脚本绝对路径（见 ref-upload）。 */}
+          <div className="field-file" style={{ marginTop: 6 }}>
             <input
-              className="control"
+              className="control field-file-input"
               type="text"
               value={refAudio}
               onChange={(e) => setRefAudio(e.target.value)}
@@ -645,15 +648,19 @@ export function StepVerify ({ id }) {
               //   当相对路径拼到项目根后面，报出的路径与填进去的完全不像。
               onBlur={() => setRefAudio((cur) => cleanPathInput(cur))}
               placeholder={t('Reference audio path (if the engine requires one)', '参考音频路径（引擎需要时填写）')}
-              style={{ flex: 1 }}
             />
             <button
-              className="btn btn-sm"
+              className="btn btn-sm field-file-pick"
               type="button"
               disabled={refBusy || !id}
+              aria-label={t('Choose the reference audio file', '选择参考音频文件')}
+              title={refBusy ? t('Reading the file…', '正在读取文件…') : t('Choose the reference audio file', '选择参考音频文件')}
               onClick={() => { if (refFileInput.current) refFileInput.current.click() }}
             >
-              {refBusy ? t('Reading…', '读取中…') : t('Choose file…', '选择文件…')}
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                <path d="M1.5 4.5A1.5 1.5 0 0 1 3 3h3l1.2 1.5H14a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1.5 1.5 0 0 1-1.5-1.5z"
+                  fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              </svg>
             </button>
             <input
               ref={refFileInput}
@@ -663,7 +670,7 @@ export function StepVerify ({ id }) {
               onChange={pickRefAudio}
             />
           </div>
-          <div className="field-hint" style={{ marginTop: 4, marginLeft: 0 }}>
+          <div className="field-hint" style={{ marginTop: 'var(--sp-4)', marginLeft: 0 }}>
             {t('Pick a 3–10 second clip of the voice to clone, then fill in its transcript below. Absolute paths are used as-is; relative paths resolve against the project root.',
               '选一段 3~10 秒的真人语音用于克隆音色，并在下面填上这段录音的文字；绝对路径原样使用，相对路径以项目根为准。')}
           </div>

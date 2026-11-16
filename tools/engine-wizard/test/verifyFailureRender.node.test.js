@@ -180,9 +180,15 @@ test('参考音频是文件选择控件，不是只能手打路径', async () =>
   holdTierB = true
   root.render(React.createElement(StepVerify, { key: 'pick', id: 'demo' }))
   await settle()
-  const pick = [...container.querySelectorAll('button')]
-    .find((b) => b.textContent.trim() === '选择文件…')
-  assert.ok(pick, '要有「选择文件…」按钮')
+  // 与 9886 参数面板的 file 类参数同一形状：.field-file 里一个路径框加一个文件夹图标按钮。
+  //   两处按钮里都是文件夹图标而不是「选择文件…」这类文字，同一件事在两张页面上长得一样。
+  const row = container.querySelector('.field-file')
+  assert.ok(row, '路径框与按钮要包在 .field-file 里，与 9886 同一套容器')
+  assert.ok(row.querySelector('.field-file-input'), '路径框要用 .field-file-input')
+  const pick = row.querySelector('button.field-file-pick')
+  assert.ok(pick, '按钮要用 .field-file-pick（图标按钮，不是宽文字按钮）')
+  assert.ok(pick.querySelector('svg'), '按钮里是文件夹图标')
+  assert.ok(pick.getAttribute('aria-label'), '图标按钮没有可见文字，必须有 aria-label')
   const input = container.querySelector('input[type=file]')
   assert.ok(input, '按钮背后要有一个真实的 file 输入')
   assert.ok(/audio/.test(input.getAttribute('accept') || ''), 'accept 要限定音频')
