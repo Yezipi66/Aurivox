@@ -652,7 +652,20 @@ function handleHardware (req, res) {
     const hw = inspectHardware()
     // device_options 是给第 5 步的下拉用的：本机有哪几块卡、能不能选。
     //   换算成引擎认的写法不在这里做，那是下发前的事。
-    json(res, 200, { ...hw, device_options: deviceOptions(hw.gpus) })
+    // 带 engine 时顺带答「这台引擎声明了运行设备没有」：没声明就不该画入口，
+    //   与 9886 的 /api/devices?engine= 同一个口径。
+    let decl = null
+    let declared = null
+    const q = new URL(req.url, 'http://localhost').searchParams.get('engine')
+    if (q) {
+      try {
+        const m = JSON.parse(fs.readFileSync(path.join(engineDirForRead(q), 'manifest.json'), 'utf8'))
+        const { declaredInputs } = require('../../../lib/engines/declaredInputs')
+        decl = declaredInputs(m.call || {}).find((x) => x.role === 'device') || null
+        declared = !!decl
+      } catch { declared = false }
+    }
+    json(res, 200, { ...hw, device_options: deviceOptions(hw.gpus, decl || {}), device_declared: declared })
   } catch (e) {
     json(res, 200, {
       gpus: [], recommended: 'cpu', confidence: 'unknown',
@@ -975,6 +988,11 @@ function handleEnv (req, res) {
       //   改版本要改清单本身，所以这一步不能靠排除实现。
       versionOverrides: (body.versionOverrides && typeof body.versionOverrides === 'object')
         ? body.versionOverrides : {},
+      // 使用者选的 Python 版本（第 2 步「安装命令」旁那格）。
+      //   不传就按引擎声明（requires-python / .python-version），再退平台基座。
+      //   声明只说明「这一族能跑」，不保证依赖有对应 wheel，所以这一格要能改。
+      pythonVersion: (typeof body.pythonVersion === 'string' && body.pythonVersion.trim())
+        ? body.pythonVersion.trim() : undefined,
       // root 与其他端点同一口径：给了就用，没给走 projectRoot()。
       //   测试与夹具需要它（测试不许写真仓库的 engines/）。
       root: body.root,
@@ -1086,8 +1104,11 @@ function handleEnvCancel (req, res) {
 }
 
 // GET /wizard/download/files?id=  第 3 步：逐文件校验（不依赖 manifest）
-//   直接列 engines/<id>/checkpoints/ 下的文件，返回文件名 + 大小。下载就是下载，
+//   直接列 engines/<id>/checkpoints/ 下的文件，返回相对路径 + 大小。下载就是下载，
 //   和名片没有关系。前端据此显示三态：已下载 / 未下载 / 不完整（大小为 0 或很小）
+//
+//   必须递归：上游常把权重放在仓库内的子目录里（zipvoice/model.pt、
+//   s2-pro/config.json），只读顶层时这些文件明明下好了，界面上却一个都看不见。
 function handleDownloadFiles (req, res) {
   if (req.method !== 'GET') return false
   if (!req.url || !req.url.startsWith('/wizard/download/files')) return false
@@ -1096,14 +1117,21 @@ function handleDownloadFiles (req, res) {
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   const root = url.searchParams.get('root') || projectRoot() || ''
   const dir = path.join(root, 'engines', id, 'checkpoints')
-  let files = []
-  try {
-    if (fs.existsSync(dir)) {
-      files = fs.readdirSync(dir).map((name) => {
-        const stat = fs.statSync(path.join(dir, name))
-        return { name, size: stat.size, isDir: stat.isDirectory() }
-      }).filter((f) => !f.isDir)
+  const files = []
+  const walk = (abs, rel, depth) => {
+    if (depth > 3 || files.length >= 2000) return
+    let list
+    try { list = fs.readdirSync(abs, { withFileTypes: true }) } catch { return }
+    for (const e of list) {
+      const childRel = rel ? rel + '/' + e.name : e.name
+      if (e.isDirectory()) { walk(path.join(abs, e.name), childRel, depth + 1); continue }
+      let size = 0
+      try { size = fs.statSync(path.join(abs, e.name)).size } catch { size = 0 }
+      files.push({ name: childRel, size, isDir: false })
     }
+  }
+  try {
+    if (fs.existsSync(dir)) walk(dir, '', 0)
   } catch (e) { /* 读不到 ⇒ 空列表 */ }
   json(res, 200, { ok: true, files })
   return true
@@ -1275,6 +1303,41 @@ function scanRuntimeDownloads (dir, limit = 12) {
   return out
 }
 
+// 评测、示例、训练配方目录里也会写下载调用，但它们不是推理要用的权重。
+//   把这些仓库放进第 3 步的下载清单，只会让人多下一份用不上的东西。
+const RUNTIME_AUX_FILE_RE = /(?:^|\/)(?:eval|evals|evaluate|test|tests|benchmarks?|examples?|egs|recipes|docs?)\//i
+// 仓库标识的末段带这些扩展名时，扫到的是一个文件路径（例如
+//   speaker_similarity/wavlm_large_finetune.pth），不是可以列文件的仓库。
+const RUNTIME_REPO_NOT_A_REPO_RE = /\.(?:pth|pt|bin|ckpt|onnx|safetensors|json|ya?ml|txt|npz|npy|wav|flac|md|py)$/i
+
+/**
+ * 引擎运行时自行拉取的仓库，整理成第 3 步「模型仓库」能直接列文件的形式。
+ *
+ * 与 scanRuntimeDownloads 的分工：后者回答「源码里哪里有下载调用」，给界面做说明；
+ * 这里只回答「哪些仓库可以像上游命令那样列文件、按文件下载」，因此要滤掉评测目录
+ * 与文件路径这两类看着像仓库、下了也用不上的条目。
+ */
+function runtimeRepoRows (dir, id = '', limit = 8) {
+  const out = []
+  const seen = new Set()
+  for (const h of scanRuntimeDownloads(dir, 24)) {
+    if (!h || !h.repo) continue
+    if (RUNTIME_AUX_FILE_RE.test(String(h.file))) continue
+    if (RUNTIME_REPO_NOT_A_REPO_RE.test(String(h.repo).split('/').pop())) continue
+    if (seen.has(h.repo)) continue
+    seen.add(h.repo)
+    out.push({ tool: 'hf', repo: h.repo, file: h.file, line: h.line })
+  }
+  // 仓库名与引擎同名的那批排在前面（多语言引擎一个语言一个仓库，后头还跟着
+  //   声码器、分词器这类配套）。清单只显示前几条时，先出现的应该是主权重。
+  //   顺序只在同名与否这一维上分组，组内保持源码里的书写顺序。
+  const key = String(id).toLowerCase().replace(/[^a-z0-9]/g, '')
+  const named = key
+    ? (r) => String(r.repo).split('/').pop().toLowerCase().replace(/[^a-z0-9]/g, '').includes(key)
+    : () => false
+  return [...out.filter(named), ...out.filter((r) => !named(r))].slice(0, limit)
+}
+
 /**
  * 上游把「装完依赖后还要敲的命令」写在文档里（常见位置 docs/install.md），
  * 例如 MeloTTS 的 `python -m unidic download`。这类命令不在依赖清单里，平台
@@ -1377,9 +1440,8 @@ function buildEngineDownloadEntries (root, id) {
     }
   } catch { /* 命令行读不出来时只给前两类，不影响退回路径 */ }
 
-  // 文档里的补齐命令不是权重下载入口：单独列出来，但不能用它挡住下面的
-  // 「运行时从 HF 取权重」兜底，否则 MeloTTS 这类引擎又只剩一条词典命令。
-  const primaryCount = entries.length
+  // 文档里的补齐命令不是权重下载入口：单独列出来，但不能用它挡住
+  // 「运行时从 HF 取权重」的仓库清单，否则 MeloTTS 这类引擎又只剩一条词典命令。
   for (const c of scanDocDownloadCommands(dir)) {
     entries.push({
       key: 'doc:' + c.file + ':' + c.line, kind: 'doc-command', priority: 2,
@@ -1395,48 +1457,10 @@ function buildEngineDownloadEntries (root, id) {
   }
 
   // 还有一类引擎：不带下载命令、也不写下载脚本，运行时用 huggingface_hub 按需拉权重。
-  //   落到哪里由 hub 决定（HF 缓存），不是引擎目录里的 checkpoints，所以
-  //   「模型仓库」那条路把它下到 checkpoints 也不会被读到。四类都为空时补一条可执行入口：
-  //   用引擎自己的解释器把仓库拉进缓存，之后运行时直接命中。
-  const declaredModels = (manifest && manifest.models && Array.isArray(manifest.models.required))
-    ? manifest.models.required : []
-  if (primaryCount === 0 && declaredModels.length === 0) {
-    const engineKey = String(id).toLowerCase().replace(/[^a-z0-9]/g, '')
-    const rankOf = (repo) => {
-      const tail = String(repo).split('/').pop().toLowerCase().replace(/[^a-z0-9]/g, '')
-      return tail.includes(engineKey) ? 0 : 1
-    }
-    // 配套仓库（特征提取、语音识别、分词器、声码器）不是这台引擎的主权重，
-    //   排在最前面会把真正要下的大仓库挤掉（下载清单只列前几条）。
-    //   全部都是配套时照原样列，不把清单清空。
-    const AUX_REPO_RE = /(?:^|[-_/])(?:bert|hubert|wav2vec|whisper|asr|vocoder|hifigan|bigvgan|tokenizer|punctuation|sentencepiece)(?:$|[-_/])/i
-    const allRepos = scanRuntimeDownloads(dir, 24).filter((h) => h && h.repo)
-    const usableRepos = allRepos.filter((h) => !AUX_REPO_RE.test(String(h.repo)))
-    const pools = usableRepos.length ? usableRepos : allRepos
-    // 仓库名与引擎同名的排在前面（多语言引擎会一次列出一堆），
-    //   顺序保持扫描到的先后，也就是源码里的书写顺序，不另排一次。
-    const mine = pools.filter((h) => rankOf(h.repo) === 0)
-    const picked = (mine.length ? mine : pools).slice(0, mine.length ? 8 : 3)
-    picked.forEach((h, idx) => {
-      entries.push({
-        // priority 逐条递增：末尾统一按 priority 再按 key 排序，
-        //   同优先级会被 key 的字典序重排，列表顺序与源码里的书写顺序不一致。
-        key: 'hf:' + h.repo, kind: 'hf-runtime', priority: 3 + idx,
-        labelZh: '预下载到 HF 缓存：' + h.repo,
-        labelEn: 'Pre-download into the HF cache: ' + h.repo,
-        argv: ['{engine_python}', '-c',
-          "from huggingface_hub import snapshot_download; snapshot_download('" + h.repo + "')"],
-        needs_review: true,
-        noteZh: '这类引擎运行时自己从 Hugging Face 取权重，落点是 HF 缓存而不是引擎目录的 checkpoints，'
-          + '平台的权重落点判定对它不适用。这条命令只负责把该仓库取到本机，之后运行时直接命中缓存。'
-          + '其余仓库的 ID 见下方「运行时会拉取」清单。',
-        noteEn: 'This engine fetches weights from Hugging Face at run time, into the HF cache '
-          + 'rather than the engine checkpoints folder, so the platform weight check does not apply. '
-          + 'This command only pulls that repo so later runs hit the cache. '
-          + 'Other repo IDs are listed under runtime downloads below.',
-      })
-    })
-  }
+  //   这类仓库以前在这里补一条 `snapshot_download(repo)` 让人盲跑：命令一发出去就
+  //   没有进度、没有落盘清单，几十亿字节进了 HF 缓存，界面上还是一片空白。
+  //   现在改由 runtimeRepoRows 把它们交给「模型仓库」那一栏：列文件、按文件下到权重
+  //   目录、进度条与断点续传都是现成的一套，界面也就能先说清仓库里有什么。
   return entries.sort((a, b) => a.priority - b.priority || a.key.localeCompare(b.key))
 }
 
@@ -1469,12 +1493,21 @@ function handleDownloadEntries (req, res) {
   const root = url.searchParams.get('root') || projectRoot() || ''
   if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
   const dir = path.join(root, 'engines', id)
+  const repos = fs.existsSync(dir) ? runtimeRepoRows(dir, id) : []
+  const inList = new Set(repos.map((r) => r.repo))
   json(res, 200, {
     ok: true,
     entries: buildEngineDownloadEntries(root, id),
-    // 启动阶段自行拉取的资源不在任何仓库清单里。平台只把这份事实交出去，
-    // 不替引擎执行；界面如何呈现与是否提示接入者声明，由界面决定。
-    runtime_hints: fs.existsSync(dir) ? scanRuntimeDownloads(dir) : [],
+    // 引擎运行时自行拉取的仓库。它们不是「入口」（没有现成命令可跑），但和上游命令里的
+    // 仓库是同一件事：可以列文件、可以按文件下到权重目录，因此交给第 3 步的仓库清单。
+    repos,
+    // 剩下那些不在清单里的运行期资源（单个文件、评测脚本用的权重）。平台只把这份事实
+    // 交出去，不替引擎执行；已经进了仓库清单的不再重复列一遍。
+    runtime_hints: fs.existsSync(dir)
+      ? scanRuntimeDownloads(dir).filter((h) => h && !inList.has(h.repo)
+        && !RUNTIME_AUX_FILE_RE.test(String(h.file))
+        && !RUNTIME_REPO_NOT_A_REPO_RE.test(String(h.repo || '').split('/').pop()))
+      : [],
   })
   return true
 }
@@ -2203,6 +2236,69 @@ function handleVerifyRef (req, res) {
   return true
 }
 
+// 参考音频的上传上限。一段 3~10 秒的克隆素材不会超过它，超了基本是选错了文件。
+const REF_UPLOAD_MAX = 64 * 1024 * 1024
+// 认得的音频扩展名。不认的一律拒绝：宿主把路径原样交给引擎，
+//   写进去一个 .txt 只会在几分钟之后以「解码失败」的形式回来。
+const REF_AUDIO_EXT = new Set(['.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac', '.opus', '.wma'])
+
+// POST /wizard/ref-upload?id=<id>&name=<文件名>   请求体是这个文件的原始字节。
+//   页面脚本拿不到本机绝对路径（浏览器不给），所以由后端落一份、回传路径：
+//   宿主需要的是能出现在命令行上的绝对路径，只有一个文件名没有用。
+//   落在 <root>/state/ref-audio/<id>/ 下，与量测记录同属本机数据，不进引擎目录。
+function handleRefUpload (req, res) {
+  if (req.method !== 'POST') return false
+  if (!req.url || !req.url.startsWith('/wizard/ref-upload')) return false
+  const tail = req.url.slice('/wizard/ref-upload'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  const { validateId } = require('./save')
+  const idErr = validateId(id)
+  if (idErr) { json(res, 400, { ok: false, error: idErr }); return true }
+  // 只取最后一段：`../../x.wav` 这类名字不许跳出落点目录。
+  const name = path.basename(String(url.searchParams.get('name') || '').replace(/\\/g, '/'))
+  if (!name || name === '.' || name === '..') {
+    json(res, 400, { ok: false, error: '?name= is required' })
+    return true
+  }
+  const ext = path.extname(name).toLowerCase()
+  if (!REF_AUDIO_EXT.has(ext)) {
+    json(res, 400, {
+      ok: false,
+      error: `unsupported audio extension: ${ext || '(none)'}`,
+      errorZh: `不认得的音频格式：${ext || '没有扩展名'}。请选 wav / mp3 / flac / ogg / m4a 之一。`,
+    })
+    return true
+  }
+
+  const chunks = []
+  let size = 0
+  let tooBig = false
+  req.on('data', (c) => {
+    size += c.length
+    if (size > REF_UPLOAD_MAX) { tooBig = true; req.destroy(); return }
+    chunks.push(c)
+  })
+  req.on('error', () => { /* 客户端中断：不落盘，下面也不会有 end */ })
+  req.on('end', () => {
+    if (tooBig) return
+    if (size === 0) { json(res, 400, { ok: false, error: 'empty body' }); return }
+    const root = projectRoot()
+    if (!root) { json(res, 500, { ok: false, error: 'project root not found' }); return }
+    const dir = path.join(root, 'state', 'ref-audio', id)
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      const dest = path.join(dir, name)
+      fs.writeFileSync(dest, Buffer.concat(chunks))
+      json(res, 200, { ok: true, path: dest, bytes: size })
+    } catch (e) {
+      json(res, 500, { ok: false, error: e.message })
+    }
+  })
+  return true
+}
+
 /**
  * POST /wizard/verify  {id, deep?, audio?, request?}
  *  调平台的四道校验，本文件不自己做判断
@@ -2579,6 +2675,7 @@ function handleDiscover (req, res) {
         source: 'python-static',
         params: [],
         groups: [],
+        positionals: [],
         bind_candidates: [],
         entry: null,
         entry_candidates: libraryCandidates,
@@ -2620,6 +2717,15 @@ function handleDiscover (req, res) {
 
     const { merge } = require('./paramDigest')
     const cliArgs = cliDraft && cliDraft.ok ? cliDraft.args : []
+    // 位置参数（命令行上没有开关名）。它们不进 params：params 每条都要一个开关，
+    //   位置参数只能写进 argv 的占位符，所以单列一份交给前端决定「词序区要不要摊开」。
+    const positionals = (cliDraft && cliDraft.ok && Array.isArray(cliDraft.positionals))
+      ? cliDraft.positionals.map((x) => ({ ...x, group: x.subcommand || '(root)' }))
+      : []
+    if (positionals.length) {
+      notes.push(`命令行上有 ${positionals.length} 个位置参数（没有开关名）：`
+        + positionals.map((x) => x.name).join(', '))
+    }
 
     // 入口候选：即便识别不出结论，也要把全部 Python 源文件摆出来让人选。
     //   证据强度只用于排序，不用于删项；识别失败时使用者仍能从这里定下入口。
@@ -2647,6 +2753,9 @@ function handleDiscover (req, res) {
       source,
       params,
       groups,
+      // 位置参数：{name, nargs, type, required, help, subcommand, source_file}
+      //   nargs 说明它收几个词；求不出时为 null，不猜。
+      positionals,
       // python 反射剔掉的 bind 槽位候选（text / output_path / output_dir）：
       //   交给前端自动填写去认 call.bind，output_path 才填得出来。
       bind_candidates: (pythonDraft && pythonDraft.ok && pythonDraft.bind_candidates) || [],
@@ -2849,13 +2958,14 @@ module.exports = {
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
   handleDownloadEntries, handleEngineDownload,
   scanDocDownloadCommands,
-  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，
   //   让守卫测试能直接验证「拆成三段 + 不猜」。
   extractDownloadCommands, extractRepoLinks, parseDownloadCmd, snapshotSourceOf,
   buildEngineDownloadEntries, expandEngineArgv, scanEngineScriptCandidates, scanRuntimeDownloads,
+  runtimeRepoRows,
   // 导给守卫测试：包名兜底链的两个函数。packageDirsFromEntries 是纯函数可直接验，
   //   listPackageDirs 走网络，只验它「三个分支都失败时返回空数组、不打 refute」。
   packageDirsFromEntries, listPackageDirs,

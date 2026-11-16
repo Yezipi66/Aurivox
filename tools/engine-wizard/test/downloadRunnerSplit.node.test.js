@@ -17,6 +17,7 @@ function load (stubQueue) {
   // eslint-disable-next-line no-new-func
   new Function('exports', 'require', 'module', code)(mod.exports, (id) => {
     if (id.endsWith('downloadQueue.js')) return stubQueue
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error('downloadRunner 的依赖不该被求值：' + id)
   }, mod)
   return mod.exports

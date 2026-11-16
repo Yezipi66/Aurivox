@@ -9,7 +9,7 @@ const os = require('node:os')
 const path = require('node:path')
 
 const {
-  buildEngineDownloadEntries, expandEngineArgv,
+  buildEngineDownloadEntries, expandEngineArgv, runtimeRepoRows,
   scanEngineScriptCandidates, scanRuntimeDownloads, scanDocDownloadCommands,
 } = require('../core/wizardbridge')
 
@@ -168,25 +168,50 @@ test('「语言 → 仓库」映射里的仓库也算运行时拉取', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('没有任何自带入口时，给一条「预下载到 HF 缓存」的可执行条目', () => {
+test('没有自带入口时，运行时拉取的仓库进仓库清单，不再给一条盲跑命令', () => {
   const root = plantRuntimeFetcher()
   try {
-    const entries = buildEngineDownloadEntries(root, 'demo')
-    assert.strictEqual(entries.length, 2, '两个仓库各给一条')
-    assert.strictEqual(entries[0].kind, 'hf-runtime')
-    assert.strictEqual(entries[0].key, 'hf:org/demo-en')
-    assert.ok(entries[0].argv.includes("from huggingface_hub import snapshot_download; snapshot_download('org/demo-en')"),
-      '命令要真的能把仓库取到本机')
-    assert.match(entries[0].noteZh, /HF 缓存/,
-      '落点与平台判定不一致这件事必须写出来，否则用户会以为第 3 步没生效')
+    const dir = path.join(root, 'engines', 'demo')
+    // 可执行入口为空是对的：这类引擎确实没有现成的下载命令，
+    //   以前在这里拼一条 snapshot_download 让人跑，跑完没有进度也没有落盘清单。
+    assert.deepStrictEqual(buildEngineDownloadEntries(root, 'demo'), [])
+    const repos = runtimeRepoRows(dir)
+    assert.deepStrictEqual(repos.map((r) => r.repo), ['org/demo-en', 'org/demo-zh'],
+      '两个仓库都要能进下载清单')
+    assert.deepStrictEqual(repos[0], { tool: 'hf', repo: 'org/demo-en', file: 'demo/helpers.py', line: 2 },
+      '要带来源位置，界面才能说清这些仓库是从哪读到的')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
-test('名片已经声明了权重清单时，不补预下载条目', () => {
+test('运行时拉取的仓库清单：评测目录与文件路径不算仓库', () => {
+  const root = plantRuntimeFetcher()
+  try {
+    const dir = path.join(root, 'engines', 'demo')
+    fs.mkdirSync(path.join(dir, 'demo', 'eval'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'demo', 'eval', 'metric.py'),
+      "m = AutoModel.from_pretrained('microsoft/wavlm-large')\n")
+    // 真实形态：评测脚本拿一个权重文件名当仓库标识传进 from_pretrained，
+    //   它列不出文件，也不是推理要用的权重。
+    fs.writeFileSync(path.join(dir, 'demo', 'loader.py'), [
+      "import huggingface_hub",
+      "w = huggingface_hub.hf_hub_download('speaker_similarity/wavlm_large_finetune.pth')",
+      "v = AutoModel.from_pretrained('charactr/vocos-mel-24khz')",
+    ].join('\n'))
+    const repos = runtimeRepoRows(dir).map((r) => r.repo)
+    assert.ok(!repos.includes('microsoft/wavlm-large'),
+      '⛔ 评测目录里的模型不是推理要用的，放进清单等于让人多下一份')
+    assert.ok(repos.includes('charactr/vocos-mel-24khz'), '推理要用的声码器仓库不能漏')
+    assert.ok(!repos.some((r) => /\.pth$/.test(r)), '文件路径不是仓库，列不出文件')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('名片声明了权重清单时，运行时仓库仍然列出：清单只负责摆事实', () => {
   const root = plantRuntimeFetcher({ required: ['ckpt.pth'] })
   try {
-    assert.deepStrictEqual(buildEngineDownloadEntries(root, 'demo'), [],
-      '名片说了权重要落盘，就该走模型仓库那条路，别混进来自动拉缓存')
+    const dir = path.join(root, 'engines', 'demo')
+    assert.deepStrictEqual(buildEngineDownloadEntries(root, 'demo'), [])
+    assert.strictEqual(runtimeRepoRows(dir).length, 2,
+      '名片写了权重位，不代表第 3 步就不该让人看见仓库里有什么')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -206,9 +231,9 @@ test('安装文档里的资源下载命令被列成可执行条目', () => {
     const doc = entries.find((e) => e.kind === 'doc-command')
     assert.ok(doc, '文档命令没进第 3 步的可执行清单')
     assert.match(doc.noteZh, /docs\/install\.md:3/, '没写清来源，接入者没法核对')
-    // 文档命令不能挡住运行时 HF 权重的兜底条目。
-    assert.ok(entries.some((e) => e.kind === 'hf-runtime'),
-      '⛔ 只列了词典命令，主权重的预下载入口又被挡掉了')
+    // 文档命令不能挡住运行时 HF 权重：那条路现在落在仓库清单里，不受这里影响。
+    assert.strictEqual(runtimeRepoRows(dir).length, 2,
+      '⛔ 只列了词典命令，主权重的仓库又被挡掉了')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -225,7 +250,7 @@ test('文档里的示例用法不会被当成安装命令', () => {
 
 // 配套仓库（特征提取、语音识别、分词器、声码器）不是主权重。下载清单只列前几条，
 // 它们排在最前面时，真正要下的大仓库根本进不了清单。
-test('预下载优先主权重，配套仓库排在后面但仍列出', () => {
+test('主权重排在配套仓库前面，配套仓库仍然列出', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-hf-aux-'))
   try {
     const dir = path.join(root, 'engines', 'demo')
@@ -238,11 +263,10 @@ test('预下载优先主权重，配套仓库排在后面但仍列出', () => {
       '    return snapshot_download(TTS_MODEL)',
     ].join('\n'))
     fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ id: 'demo', models: { required: [] } }))
-    const entries = buildEngineDownloadEntries(root, 'demo')
-    assert.strictEqual(entries[0].key, 'hf:org/demo-tts-v1',
-      '主权重没排在第一位：配套仓库会把清单名额占掉')
-    // 有同名仓库时清单只列同名那批（多语言引擎一个语言一条），配套仓库不占名额。
-    assert.strictEqual(entries.length, 1,
-      '配套仓库不该占下载清单的名额')
+    const repos = runtimeRepoRows(dir, 'demo').map((r) => r.repo)
+    assert.strictEqual(repos[0], 'org/demo-tts-v1',
+      '主权重没排在第一位：配套仓库会占掉清单前排，接入时要多翻一屏才找得到')
+    assert.ok(repos.includes('facebook/hubert-base-ls960'),
+      '配套仓库不是主权重，但有些引擎缺了它就出不了声，不能直接丢掉')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })

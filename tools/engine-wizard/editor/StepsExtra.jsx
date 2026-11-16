@@ -6,6 +6,7 @@ import { DEFAULT_CONCURRENCY } from './downloadQueue'
 import { downloadFiles, readSse, fileSlot } from './downloadRunner'
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
+import Select from '../../../web/src/components/common/Select'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -110,6 +111,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const [listingKeys, setListingKeys] = React.useState([])
   const [listErrors, setListErrors] = React.useState({})
   const [runtimeHints, setRuntimeHints] = React.useState([])
+  // 引擎源码里扫到的仓库：与「引擎自带入口」不同，它们没有现成命令可跑，
+  //   但和上游命令里的仓库是同一件事，进同一张下载清单。
+  const [runtimeRepos, setRuntimeRepos] = React.useState([])
 
   // 去重：默认按「来源 + 仓库 + 下载位置」去掉重复条目，勾选后显示全部
   const [dedup, setDedup] = React.useState(true)
@@ -179,7 +183,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const [entryOut, setEntryOut] = React.useState([])
   const entryAbort = React.useRef(null)
   React.useEffect(() => {
-    if (!id) { setEngineEntries([]); return undefined }
+    if (!id) { setEngineEntries([]); setRuntimeHints([]); setRuntimeRepos([]); return undefined }
     let live = true
     fetch(`/wizard/download-entries?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
@@ -187,8 +191,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         if (!live || !j.ok) return
         setEngineEntries(Array.isArray(j.entries) ? j.entries : [])
         setRuntimeHints(Array.isArray(j.runtime_hints) ? j.runtime_hints : [])
+        setRuntimeRepos(Array.isArray(j.repos) ? j.repos : [])
       })
-      .catch(() => { if (live) { setEngineEntries([]); setRuntimeHints([]) } })
+      .catch(() => {
+        if (live) { setEngineEntries([]); setRuntimeHints([]); setRuntimeRepos([]) }
+      })
     return () => { live = false }
   }, [id])
   const runEngineEntry = async (e) => {
@@ -270,7 +277,17 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const upstreamCmds = [
     ...((probe && probe.downloader_cmds) || []),
     ...[...repoLinks, ...pastedRepos].filter(keepLink).map(linkCmd),
+    // 引擎源码里扫到的仓库走同一条路：它不是「入口」，没有现成命令，
+    //   但可以列文件、可以按文件下载，因此进这一栏而不是待在说明文字里。
+    ...runtimeRepos.map((r) => ({
+      tool: r.tool || 'hf', repo: r.repo, dir: null, subdir: '', raw: '', from: 'runtime',
+    })),
   ]
+
+  // 引擎自带的东西有两类：可执行的下载命令，以及源码里写明的权重仓库。
+  //   两者都是「引擎告诉我们要装什么」，页签上的数字要把仓库算进去：
+  //   只数命令的话，扫到两个仓库、页签仍写 0，看着像什么都没找到。
+  const engineProvided = engineEntries.length + runtimeRepos.length
 
   // 上游脚本按扩展名选解释器：.py 用引擎自己的 venv（依赖装在那里），.sh 用 bash，.js 用 node。
   //   界面只显示解释器种类，绝对路径由服务端决定，不往界面上塞一长串本机路径。
@@ -438,7 +455,9 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
 
   const seenKeys = new Set()
   // 命令是从哪份文档里读到的：README 只写「去 docs 看」时，实际命令来自安装文档。
-  const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from).filter((f) => f && f !== 'link'))]
+  //   来自引擎源码的仓库由下方单独一句说明，不混进「文档指路」这句话里。
+  const cmdsFrom = [...new Set(upstreamCmds.map((c) => c && c.from)
+    .filter((f) => f && f !== 'link' && f !== 'runtime'))]
   // 仓库条目的身份：来源 + 仓库 + 下载位置。同一仓库有两个下载位置时各占一行。
   //   用 c.tool 而不是解析后的来源，来源选择变化不会让已移除的条目重新出现。
   const repoKeyOf = (tool, repo, subdir) => `${tool || ''}|${repo || ''}|${subdir || ''}`
@@ -841,7 +860,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
           <div className="section-body">
             <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
               {[
-                { key: 'engine', zh: `引擎自带入口（${engineEntries.length}）`, en: `Engine entries (${engineEntries.length})` },
+                { key: 'engine', zh: `引擎自带（${engineProvided}）`, en: `From the engine (${engineProvided})` },
                 { key: 'repo', zh: '模型仓库', en: 'Model repo' },
                 { key: 'direct', zh: '文件直链', en: 'Direct file link' },
               ].map((tab) => (
@@ -856,13 +875,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             {sourceTab === 'engine' && (
               <>
                 <div className="field-hint" style={{ marginTop: 0 }}>
-                  {t('If the engine ships its own download or setup entry, run it here: the engine knows which extra files it needs and where they go.',
-                    '引擎自带下载或部署入口时优先用它，缺哪些运行期资源、文件放在哪里都由引擎自己判断。')}
+                  {t('What the engine itself declares: a download command it ships can be run here; the repos its source names are listed below and already in the download list.',
+                    '引擎自己声明的权重来源：自带下载命令可以直接运行；源码里写明的仓库列在下面，并已加入下载清单。')}
                 </div>
-                {engineEntries.length === 0 && (
-                  <div className="field-hint">
-                    {t('No engine-provided entry was found on disk. Switch to "Model repo" or "Direct file link" above.',
-                      '盘上没有找到引擎自带入口，可在上方切到「模型仓库」或「文件直链」。')}
+                {engineProvided === 0 && (
+                  <div className="msg msg-info" style={{ marginTop: 6 }}>
+                    {t('Nothing on disk: no download command, and no weight repo in the source. Add a model repo page or a direct file link above.',
+                      '盘上没有自带下载命令，源码里也没找到权重仓库。可在上方切到「模型仓库」或「文件直链」手动添加。')}
                   </div>
                 )}
                 {engineEntries.map((e) => {
@@ -898,6 +917,23 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     </div>
                   )
                 })}
+                {runtimeRepos.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div className="field-hint" style={{ marginTop: 0, marginBottom: 2 }}>
+                      {t('Repos named in the source', '源码里写明的仓库')}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 12px' }}>
+                      {runtimeRepos.map((r) => (
+                        <React.Fragment key={`${r.tool || 'hf'}|${r.repo}`}>
+                          <code>{r.repo}</code>
+                          <span className="field-hint" style={{ margin: 0, alignSelf: 'center' }}>
+                            {r.file}:{r.line}
+                          </span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {entryOut.length > 0 && (
                   <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
                     {entryOut.join('\n')}
@@ -962,285 +998,304 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         </div>
       )}
 
-      {/* 下载清单表格：仓库文件与文件直链同表，逐行可移除，一次下载全部 */}
+      {/* 下载清单：仓库文件与文件直链同表。整表动作放在框头，与该表同框；
+          行内只留逐条操作。落点与令牌是这个框的属性，一起收进来，
+          不单独浮在两个框之间。 */}
       {rows.length > 0 && (
-        <>
-          <div className="plan-kv">
-            <span className="pk">{t('Stored at', '存放位置')}</span>
-            <span className="pv">
-              <code>engines/{id}/checkpoints/</code>
-              <span className="field-hint" style={{ marginLeft: 6 }}>
-                {t('or the runtime.checkpoints the manifest declares',
-                  '（名片声明了 runtime.checkpoints 时按名片）')}
-              </span>
-            </span>
-          </div>
-          {cmdsFrom.length > 0 && (
-            <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('These repos come from ' + cmdsFrom.join(', ') + ': the README only points there.',
-                '这些仓库来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
-            </div>
-          )}
-          {linkCmdCount > 0 && (
-            <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
-                '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，列出前请移除不需要的。')}
-            </div>
-          )}
-          {rows.some((f) => f.tool === 'hf') && (
-            <div className="plan-kv">
-              <span className="pk">{t('HF token', 'HF 令牌')}</span>
-              <span className="pv">
-                {hfConfigured === true
-                  ? t('Configured', '已配置')
-                  : hfConfigured === false ? t('Not configured', '未配置') : t('Unknown', '未知')}
-                {' '}
+        <div className="section">
+          <div className="section-hdr">
+            <h2 style={{ fontSize: 'var(--fs-13)' }}>
+              {t(`Download list (${rows.length})`, `下载清单（${rows.length}）`)}
+            </h2>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {repoCount > 0 && (
                 <button className="btn btn-sm" type="button"
-                  onClick={() => setTokenDialog({ info: null, retry: null })}>
-                  {hfConfigured ? t('Change or clear', '更换或清除') : t('Set', '设置')}
+                  disabled={listingKeys.length > 0}
+                  onClick={listAll}>
+                  {t(`List all (${repoCount})`, `列出全部（${repoCount} 个）`)}
                 </button>
-              </span>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 8 }}>
-            {repoCount > 0 && (
-              <button className="btn btn-sm" type="button"
-                disabled={listingKeys.length > 0}
-                onClick={listAll}
-                style={{ flexShrink: 0 }}>
-                {t(`List all (${repoCount})`, `列出全部（${repoCount} 个）`)}
-              </button>
-            )}
-            <button
-              className="btn btn-sm"
-              type="button"
-              disabled={dlBusy}
-              onClick={downloadAll}
-              style={{ flexShrink: 0 }}
-            >
-              {t('Download all', '下载全部')}
-            </button>
-            {/* 暂停只停前端的派单，不终止在途的请求。文案必须写清楚
-                「当前文件下载中，暂停将在当前文件完成后生效」，不写就是欺骗。 */}
-            {dlBusy && (
+              )}
               <button
                 className="btn btn-sm"
                 type="button"
-                disabled={dlPaused}
-                onClick={pauseDownload}
-                style={{ flexShrink: 0 }}
+                disabled={dlBusy}
+                onClick={downloadAll}
               >
-                {t('Pause', '暂停')}
+                {t('Download all', '下载全部')}
               </button>
-            )}
-            {/* 取消与暂停是两件事：取消会终止在途的请求，
-                已经下载完成的文件保留，未完成的文件不保留。 */}
-            {dlBusy && (
-              <button
-                className="btn btn-sm btn-danger"
-                type="button"
-                disabled={dlCancelRef.current}
-                onClick={cancelDownload}
-                style={{ flexShrink: 0 }}
-              >
-                {t('Cancel', '取消')}
-              </button>
-            )}
+              {/* 暂停只停前端的派单，不终止在途的请求。文案必须写清楚
+                  「当前文件下载中，暂停将在当前文件完成后生效」，不写就是欺骗。 */}
+              {dlBusy && (
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  disabled={dlPaused}
+                  onClick={pauseDownload}
+                >
+                  {t('Pause', '暂停')}
+                </button>
+              )}
+              {/* 取消与暂停是两件事：取消会终止在途的请求，
+                  已经下载完成的文件保留，未完成的文件不保留。 */}
+              {dlBusy && (
+                <button
+                  className="btn btn-sm btn-danger"
+                  type="button"
+                  disabled={dlCancelRef.current}
+                  onClick={cancelDownload}
+                >
+                  {t('Cancel', '取消')}
+                </button>
+              )}
+            </div>
           </div>
-          {dlBusy && (
-            <div className="field-hint" style={{ marginBottom: 8 }}>
-              {t(`Downloading up to ${DEFAULT_CONCURRENCY} files at a time. `
-                + 'Pausing takes effect after the current files finish — '
-                + 'the download requests are not terminated, so resuming reuses '
-                + 'what has already been fetched.',
-                `同时最多下载 ${DEFAULT_CONCURRENCY} 个文件。`
-                + '暂停将在当前这些文件下载完成后生效。'
-                + '暂停不会终止下载请求，因此续跑时会复用已下载的部分。')}
+          <div className="section-body">
+            <div className="plan-kv">
+              <span className="pk">{t('Stored at', '存放位置')}</span>
+              <span className="pv">
+                <code>engines/{id}/checkpoints/</code>
+                <span className="field-hint" style={{ marginLeft: 6 }}>
+                  {t('or the runtime.checkpoints the manifest declares',
+                    '（名片声明了 runtime.checkpoints 时按名片）')}
+                </span>
+              </span>
             </div>
-          )}
-          {dlLive && dlLive.stage === 'paused' && (
-            <div className="msg msg-info">
-              {t('Paused. The remaining files are still marked as not downloaded.',
-                '已暂停。剩余文件仍标记为未下载。')}
-            </div>
-          )}
-          {dlLive && dlLive.stage === 'cancelled' && (
-            <div className="msg msg-info">
-              {t('Cancelled. Files that finished downloading are kept; '
-                + 'the ones that did not are marked as not downloaded.',
-                '已取消。已下载完成的文件保留，未完成的文件标记为未下载。')}
-            </div>
-          )}
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t('File', '文件')}</th>
-                <th>{t('Source', '来源')}</th>
-                <th>{t('Size', '大小')}</th>
-                <th>{t('SHA-256', 'SHA-256')}</th>
-                <th>{t('Status', '状态')}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((f) => {
-                if (f.kind === 'repo') {
-                  const c = f.cmd
-                  const { display, source } = buildCommand(c, sourceChoices)
-                  const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
-                  const page = repoPageUrl(f.tool, f.repo)
-                  const busy = listingKeys.includes(f.cmdKey)
-                  const rowError = listErrors[f.cmdKey]
+            {cmdsFrom.length > 0 && (
+              <div className="field-hint" style={{ marginTop: 0 }}>
+                {t('These repos come from ' + cmdsFrom.join(', ') + ': the README only points there.',
+                  '这些仓库来自 ' + cmdsFrom.join('、') + '：README 只给了指路。')}
+              </div>
+            )}
+            {linkCmdCount > 0 && (
+              <div className="field-hint" style={{ marginTop: 0 }}>
+                {t('Some entries come from model repo links in the upstream docs. The platform cannot tell which ones hold weights; remove the ones you do not need before probing.',
+                  '部分条目来自上游文档中的模型仓库链接。平台无法判断哪些指向权重仓库，列出前请移除不需要的。')}
+              </div>
+            )}
+            {rows.some((f) => f.tool === 'hf') && (
+              <div className="plan-kv">
+                <span className="pk">{t('HF token', 'HF 令牌')}</span>
+                <span className="pv">
+                  {hfConfigured === true
+                    ? t('Configured', '已配置')
+                    : hfConfigured === false ? t('Not configured', '未配置') : t('Unknown', '未知')}
+                  {' '}
+                  <button className="btn btn-sm" type="button"
+                    onClick={() => setTokenDialog({ info: null, retry: null })}>
+                    {hfConfigured ? t('Change or clear', '更换或清除') : t('Set', '设置')}
+                  </button>
+                </span>
+              </div>
+            )}
+            {upstreamCmds.length > 1 && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                <input type="checkbox" checked={dedup}
+                  onChange={(e) => setDedup(e.target.checked)} />
+                <span>{t('Deduplicate by repo and destination', '按仓库与下载位置去重')}</span>
+              </label>
+            )}
+            {dlBusy && (
+              <div className="field-hint" style={{ marginBottom: 8 }}>
+                {t(`Downloading up to ${DEFAULT_CONCURRENCY} files at a time. `
+                  + 'Pausing takes effect after the current files finish — '
+                  + 'the download requests are not terminated, so resuming reuses '
+                  + 'what has already been fetched.',
+                  `同时最多下载 ${DEFAULT_CONCURRENCY} 个文件。`
+                  + '暂停将在当前这些文件下载完成后生效。'
+                  + '暂停不会终止下载请求，因此续跑时会复用已下载的部分。')}
+              </div>
+            )}
+            {dlLive && dlLive.stage === 'paused' && (
+              <div className="msg msg-info">
+                {t('Paused. The remaining files are still marked as not downloaded.',
+                  '已暂停。剩余文件仍标记为未下载。')}
+              </div>
+            )}
+            {dlLive && dlLive.stage === 'cancelled' && (
+              <div className="msg msg-info">
+                {t('Cancelled. Files that finished downloading are kept; '
+                  + 'the ones that did not are marked as not downloaded.',
+                  '已取消。已下载完成的文件保留，未完成的文件标记为未下载。')}
+              </div>
+            )}
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('File', '文件')}</th>
+                  <th>{t('Source', '来源')}</th>
+                  <th>{t('Size', '大小')}</th>
+                  <th>{t('SHA-256', 'SHA-256')}</th>
+                  <th>{t('Status', '状态')}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((f) => {
+                  if (f.kind === 'repo') {
+                    const c = f.cmd
+                    const { display, source } = buildCommand(c, sourceChoices)
+                    const pickable = c.tool === 'snapshot' && !SOURCES.includes(c.source)
+                    const page = repoPageUrl(f.tool, f.repo)
+                    const busy = listingKeys.includes(f.cmdKey)
+                    const rowError = listErrors[f.cmdKey]
+                    return (
+                      <React.Fragment key={rowKey(f)}>
+                      <tr>
+                        <td title={display}>
+                          <strong>
+                            {page
+                              ? <a href={page} target="_blank" rel="noreferrer">{f.repo}</a>
+                              : (f.repo || t('(unknown)', '（未知）'))}
+                          </strong>
+                          {f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}
+                        </td>
+                        <td>
+                          {pickable ? (
+                            <Select className="control" value={source === 'unknown' ? '' : source}
+                              title={t('The upstream code does not say which library this snapshot_download comes from.',
+                                '无法从上游代码判断 snapshot_download 所属的库，请选择下载来源。')}
+                              onChange={(e) => pickSource(c, e.target.value)}>
+                              <option value="">{t('Choose source', '选择来源')}</option>
+                              {SOURCES.map((x) => (
+                                <option key={x} value={x}>{SOURCE_LABELS[x][lang === 'zh' ? 'zh' : 'en']}</option>
+                              ))}
+                            </Select>
+                          ) : (
+                            <span className="badge badge-neutral">
+                              {SOURCE_LABELS[f.tool]
+                                ? SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']
+                                : (f.tool || t('(unknown)', '（未知）'))}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {(() => {
+                            // 仓库行的大小是它已列出文件的总和；一个文件都没列时留空，
+                            //   不写「（尚无）」这类看着像取值的占位。
+                            const total = f.files.reduce((s, x) => s + (Number(x.size) || 0), 0)
+                            return total > 0 ? `${(total / 1024 / 1024).toFixed(1)} MB` : '—'
+                          })()}
+                        </td>
+                        <td>—</td>
+                      <td>
+                        {f.files.length
+                          ? (
+                            <span className="badge badge-ok" title={t('Files listed', '已列出文件')}>
+                              {t(`${f.files.length} file(s)`, `${f.files.length} 个文件`)}
+                            </span>
+                          )
+                          : <span className="field-hint" style={{ marginTop: 0 }}>{t('not listed yet', '尚未列出')}</span>}
+                      </td>
+                        <td>
+                          <button className="btn btn-sm" type="button"
+                            disabled={busy || source === 'unknown'}
+                            onClick={() => loadManifest(c)}>
+                            {busy ? t('Listing…', '读取中…') : t('List files', '列出文件')}
+                          </button>
+                          <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
+                            title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}
+                            onClick={() => removeCmd(c)}>
+                            {t('Remove', '移除')}
+                          </button>
+                        </td>
+                      </tr>
+                      {rowError && (
+                        <tr>
+                          <td colSpan={6} style={{ paddingTop: 0 }}>
+                            <div className="msg msg-danger" style={{ marginTop: 4 }}>{rowError}</div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
+                    )
+                  }
+                  const cmd = { repo: f.repo || '', tool: f.tool || '' }
+                  const page = f.kind === 'url' ? null : repoPageUrl(f.tool, f.repo)
+                  let host = ''
+                  if (f.kind === 'url') {
+                    try { host = new URL(f.url).hostname } catch { host = '' }
+                  }
                   return (
-                    <React.Fragment key={rowKey(f)}>
-                    <tr>
-                      <td title={display}>
-                        <strong>
-                          {page
-                            ? <a href={page} target="_blank" rel="noreferrer">{f.repo}</a>
-                            : (f.repo || t('(unknown)', '（未知）'))}
-                        </strong>
+                    <tr key={rowKey(f)}>
+                      <td style={{ paddingLeft: 28 }}>
+                        <code>{f.name || ''}</code>
                         {f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}
                       </td>
                       <td>
-                        {pickable ? (
-                          <select className="control" value={source === 'unknown' ? '' : source}
-                            title={t('The upstream code does not say which library this snapshot_download comes from.',
-                              '无法从上游代码判断 snapshot_download 所属的库，请选择下载来源。')}
-                            onChange={(e) => pickSource(c, e.target.value)}>
-                            <option value="">{t('Choose source', '选择来源')}</option>
-                            {SOURCES.map((x) => (
-                              <option key={x} value={x}>{SOURCE_LABELS[x][lang === 'zh' ? 'zh' : 'en']}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="badge badge-neutral">
-                            {SOURCE_LABELS[f.tool]
-                              ? SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']
-                              : (f.tool || t('(unknown)', '（未知）'))}
-                          </span>
+                        {f.kind === 'url'
+                          ? <span>{t('Direct link', '文件直链')}<span className="field-hint" style={{ marginLeft: 6 }}>{host}</span></span>
+                          : (
+                            <span>
+                              {page ? (
+                                <a href={page} target="_blank" rel="noreferrer">
+                                  {f.repo}
+                                </a>
+                              ) : (f.repo || t('(unknown)', '（未知）'))}
+                              {SOURCE_LABELS[f.tool] ? (
+                                <span className="field-hint" style={{ marginLeft: 6 }}>
+                                  {SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']}
+                                </span>
+                              ) : null}
+                            </span>
+                          )}
+                      </td>
+                      <td>
+                        {f.size > 0
+                          ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+                          : t('(unknown)', '（未知）')}
+                      </td>
+                      <td>
+                        {f.sha256
+                          ? <code style={{ fontSize: 'var(--fs-11)' }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
+                          : t('(unknown)', '（未知）')}
+                      </td>
+                      <td>
+                        {f.status === 'ok' && <span className="badge badge-ok" title={t('Done', '已完成')} />}
+                        {f.status === 'partial' && (
+                          <span title={
+                            lang === 'zh'
+                              ? (f.noteZh || '文件不完整，需要续传或重新下载。')
+                              : (f.note || 'The file is incomplete — resume or re-download it.')
+                          }>⌛</span>
                         )}
+                        {f.status === 'missing' && <span className="badge badge-danger" title={t('Missing', '未下载')} />}
                       </td>
                       <td>
-                        {f.files.length
-                          ? t(`${f.files.length} file(s)`, `${f.files.length} 个文件`)
-                          : t('(none yet)', '（尚无）')}
-                      </td>
-                      <td>{t('(repo)', '（仓库）')}</td>
-                      <td>
-                        {f.files.length
-                          ? <span className="badge badge-ok" title={t('Files listed', '已列出文件')} />
-                          : <span className="field-hint" style={{ marginTop: 0 }}>{t('not listed yet', '尚未列出')}</span>}
-                      </td>
-                      <td>
-                        <button className="btn btn-sm" type="button"
-                          disabled={busy || source === 'unknown'}
-                          onClick={() => loadManifest(c)}>
-                          {busy ? t('Listing…', '读取中…') : t('List files', '列出文件')}
-                        </button>
+                        {f.status === 'partial' && (
+                          <button className="btn btn-sm" type="button"
+                            disabled={dlBusy}
+                            onClick={() => runDownload(cmd, f)}>
+                            {t('Resume', '续传')}
+                          </button>
+                        )}
+                        {f.status === 'missing' && (
+                          <button className="btn btn-sm" type="button"
+                            disabled={dlBusy}
+                            onClick={() => runDownload(cmd, f)}>
+                            {t('Download', '下载')}
+                          </button>
+                        )}
+                        {f.status === 'ok' && (
+                          <button className="btn btn-sm" type="button"
+                            disabled={dlBusy}
+                            onClick={() => runDownload(cmd, f)}>
+                            {t('Re-download', '重新下载')}
+                          </button>
+                        )}
                         <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
-                          title={t('Remove this repo and the files it listed', '移除这个仓库及它列出的文件')}
-                          onClick={() => removeCmd(c)}>
+                          disabled={dlBusy}
+                          title={t('Remove this row from the download list', '从下载清单中移除这一项')}
+                          onClick={() => removeRow(f)}>
                           {t('Remove', '移除')}
                         </button>
                       </td>
                     </tr>
-                    {rowError && (
-                      <tr>
-                        <td colSpan={6} style={{ paddingTop: 0 }}>
-                          <div className="msg msg-danger" style={{ marginTop: 4 }}>{rowError}</div>
-                        </td>
-                      </tr>
-                    )}
-                    </React.Fragment>
                   )
-                }
-                const cmd = { repo: f.repo || '', tool: f.tool || '' }
-                const page = f.kind === 'url' ? null : repoPageUrl(f.tool, f.repo)
-                let host = ''
-                if (f.kind === 'url') {
-                  try { host = new URL(f.url).hostname } catch { host = '' }
-                }
-                return (
-                  <tr key={rowKey(f)}>
-                    <td style={{ paddingLeft: 28 }}>
-                      <code>{f.name || ''}</code>
-                      {f.subdir ? <span className="field-hint" style={{ marginLeft: 6 }}>{f.subdir}/</span> : null}
-                    </td>
-                    <td>
-                      {f.kind === 'url'
-                        ? <span>{t('Direct link', '文件直链')}<span className="field-hint" style={{ marginLeft: 6 }}>{host}</span></span>
-                        : (
-                          <span>
-                            {page ? (
-                              <a href={page} target="_blank" rel="noreferrer">
-                                {f.repo}
-                              </a>
-                            ) : (f.repo || t('(unknown)', '（未知）'))}
-                            {SOURCE_LABELS[f.tool] ? (
-                              <span className="field-hint" style={{ marginLeft: 6 }}>
-                                {SOURCE_LABELS[f.tool][lang === 'zh' ? 'zh' : 'en']}
-                              </span>
-                            ) : null}
-                          </span>
-                        )}
-                    </td>
-                    <td>
-                      {f.size > 0
-                        ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
-                        : t('(unknown)', '（未知）')}
-                    </td>
-                    <td>
-                      {f.sha256
-                        ? <code style={{ fontSize: 'var(--fs-11)' }} title={f.sha256}>{f.sha256.slice(0, 16)}...</code>
-                        : t('(unknown)', '（未知）')}
-                    </td>
-                    <td>
-                      {f.status === 'ok' && <span className="badge badge-ok" title={t('Done', '已完成')} />}
-                      {f.status === 'partial' && (
-                        <span title={
-                          lang === 'zh'
-                            ? (f.noteZh || '文件不完整，需要续传或重新下载。')
-                            : (f.note || 'The file is incomplete — resume or re-download it.')
-                        }>⌛</span>
-                      )}
-                      {f.status === 'missing' && <span className="badge badge-danger" title={t('Missing', '未下载')} />}
-                    </td>
-                    <td>
-                      {f.status === 'partial' && (
-                        <button className="btn btn-sm" type="button"
-                          disabled={dlBusy}
-                          onClick={() => runDownload(cmd, f)}>
-                          {t('Resume', '续传')}
-                        </button>
-                      )}
-                      {f.status === 'missing' && (
-                        <button className="btn btn-sm" type="button"
-                          disabled={dlBusy}
-                          onClick={() => runDownload(cmd, f)}>
-                          {t('Download', '下载')}
-                        </button>
-                      )}
-                      {f.status === 'ok' && (
-                        <button className="btn btn-sm" type="button"
-                          disabled={dlBusy}
-                          onClick={() => runDownload(cmd, f)}>
-                          {t('Re-download', '重新下载')}
-                        </button>
-                      )}
-                      <button className="btn btn-sm" type="button" style={{ marginLeft: 6 }}
-                        disabled={dlBusy}
-                        title={t('Remove this row from the download list', '从下载清单中移除这一项')}
-                        onClick={() => removeRow(f)}>
-                        {t('Remove', '移除')}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </>
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* 运行期资源：不在上面的清单里，引擎第一次推理时才自行拉取。 */}
@@ -1253,8 +1308,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
           </div>
           <div className="section-body">
             <div className="field-hint" style={{ marginTop: 0 }}>
-              {t('The engine downloads these on its first inference. They are not in the list above, and the platform does not fetch them. To follow the progress, declare models.post_download.command in the manifest.',
-                '引擎第一次推理时会自行下载以下资源。它们不在上方清单里，平台不替引擎下载；需要看到进度，就在名片里声明 models.post_download.command。')}
+              {t('The engine downloads these itself on its first inference, and it decides where they land. The repos among them are in the list above, so they can be downloaded into the weights folder first; the platform does not fetch the rest.',
+                '以下资源由引擎在第一次推理时自行下载，落点由它的下载调用决定。其中的仓库已放进上方清单，可以先下到权重目录；其余条目平台不代为下载。')}
             </div>
             {runtimeHints.map((h) => (
               <div className="plan-kv" key={`${h.repo}|${h.file}|${h.line}`}>
@@ -1266,15 +1321,6 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
             ))}
           </div>
         </div>
-      )}
-
-      {/* 去重复选框 */}
-      {upstreamCmds.length > 1 && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-          <input type="checkbox" checked={dedup}
-            onChange={(e) => setDedup(e.target.checked)} />
-          <span>{t('Deduplicate by repo and destination', '按仓库与下载位置去重')}</span>
-        </label>
       )}
 
       {/* 进度条：每个文件一条。同时下几个文件时，一条全局进度
@@ -1469,6 +1515,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
       {/* 命令：平台只填好占位符打印出来，不代下载。
           下载清单来自 probe，不依赖 manifest。*/}
 
+      {/* 底部动作：重新检查不改动任何文件，从头重装会删权重目录。
+          两者分到两端，删除按钮不挨着日常按钮；说明单独占一行。 */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-sm" type="button"
           onClick={() => { load(); if (onChange) onChange() }}
@@ -1477,21 +1525,19 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
         </button>
         {/* 从头重装本步：清下载记录并删掉权重目录里的文件，下一次下载会重新取。 */}
         {id && (
-          <>
-            <button className="btn btn-sm btn-danger" type="button"
-              disabled={dlBusy}
-              onClick={() => setAskReset(true)}>
-              {t('Reinstall this step from the start', '从头重装本步')}
-            </button>
-            <span className="field-hint">
-              {t('Clears the record of finished downloads and deletes the files in the weights '
-                + 'folder, so they are fetched again.',
-                '清除本步的下载记录，并删除权重目录里的文件，下一次下载会重新取。')}
-            </span>
-          </>
+          <button className="btn btn-sm btn-danger" type="button"
+            style={{ marginLeft: 'auto' }}
+            disabled={dlBusy}
+            onClick={() => setAskReset(true)}>
+            {t('Reinstall this step from the start', '从头重装本步')}
+          </button>
         )}
-        {resetNote && (
-          <div className="field-hint" style={{ flexBasis: '100%' }}>{resetNote}</div>
+        {id && (
+          <div className="field-hint" style={{ flexBasis: '100%', margin: 0 }}>
+            {resetNote || t('Clears the record of finished downloads and deletes the files in the weights '
+              + 'folder, so they are fetched again.',
+              '清除本步的下载记录，并删除权重目录里的文件，下一次下载会重新取。')}
+          </div>
         )}
       </div>
     </div>

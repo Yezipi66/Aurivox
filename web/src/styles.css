@@ -782,11 +782,15 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
 }
 .field-file-list {
   position: absolute;
-  z-index: 5;
+  /* 浮层要盖住它下面的格子，卡里自己的层叠上下文不够用。 */
+  z-index: 30;
   top: calc(100% + 2px);
   left: 0;
   right: 0;
-  max-height: 180px;
+  /* .control 把高度钉在 --control-height，带着它加 size 只剩一行，展开也看不见；
+     列表的高度由 size 决定，这里交回去。 */
+  height: auto;
+  max-height: 300px;
 }
 
 .form-grid {
