@@ -163,9 +163,15 @@ test('handleVerifyRefFile：POST 与带尾巴的路径不接管', () => {
     handleVerifyRefFile({ url: '/wizard/verify/ref-file/xx', method: 'GET' }, noop), false)
 })
 
-test('StepVerify：点选资产一次写两个 state，清单从端点来', () => {
+test('StepVerify：资产一次写两个 state，清单来自 9886 同源端点', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
-  assert.match(src, /onClick=\{\(\) => \{ setRefAudio\(r\.reference_audio\); setRefText\(r\.reference_text\) \}\}/,
-    '一次点选必须同时写两个 state，不能只填路径让使用者再粘一次文本')
-  assert.match(src, /fetch\(`\/wizard\/verify\/refs\?id=/, '清单从端点来，不在前端另读一份盘')
+  assert.ok(src.includes('setRefAudio(path)') && src.includes("setRefText(text || '')"),
+    '点选与拖拽都走 applyRef，一次写两个 state，不能只填路径让使用者再粘一次文本')
+  assert.ok(src.includes("onDragStart={(e) => refDragStart(e, p, s.text || '')}"),
+    '每条切片必须可拖，拖拽载荷带对齐文本')
+  assert.ok(src.includes('onDrop={onRefDrop}'), '左侧参考音频框必须是落点')
+  assert.ok(src.includes('/api/assets/${encodeURIComponent(assetVoice)}/segments'),
+    '清单来自 /api/assets/*，5199 已代理到 9886，与 9886 侧栏同源')
+  assert.ok(!src.includes('/wizard/verify/refs'),
+    '不再读引擎 id 名下那份清单（ZipVoice 没有同名资产目录）')
 })

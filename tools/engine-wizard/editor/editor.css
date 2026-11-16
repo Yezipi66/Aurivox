@@ -235,6 +235,13 @@
   position: sticky;
   top: 1rem;
 }
+/* 第 5 步的右侧参考音频栏：尺寸照搬上面第 4 步预览的两栏骨架（左 minmax(0,1fr)、
+   右 380px 与 9886 的 .workspace-right 同宽），不另立一套 token。窄窗退回单列。 */
+.wz-verify-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0.5rem; align-items: start; }
+@media (max-width: 1100px) {
+  .wz-verify-grid { display: block; }
+  .wz-verify-grid > .workspace-right { margin-top: 1rem; }
+}
 /* 收起 / 全屏两个按钮并排在抽屉顶上。 */
 .wz-drawer-handles {
   display: flex;

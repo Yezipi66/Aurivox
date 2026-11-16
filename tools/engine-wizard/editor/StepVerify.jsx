@@ -6,6 +6,7 @@ import { useT } from '../../../web/src/lib/i18n'
 import { Player, AudioPlayer } from '../../../web/src/components/common/Player'
 import { getPreviewMode, setPreviewMode } from '../../../web/src/lib/previewMode'
 import { cleanPathInput, refInRange } from '../../../web/src/lib/refAudio'
+import { api } from '../../../web/src/lib/api'
 import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 import { readSse } from './downloadRunner'
@@ -34,10 +35,16 @@ export function StepVerify ({ id }) {
   //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
   const [refAudio, setRefAudio] = useState('')
   const [refText, setRefText] = useState('')
-  // 资产里的可用切片清单（/wizard/verify/refs，与预填同一份读盘判定）：
-  // 点选一条就把参考音频与参考文本一起填进上面两个输入框，文本由平台代给。
-  // 清单只负责代填，输入框始终由使用者持有，点选之后照旧可以手改。
-  const [refs, setRefs] = useState([])
+  // 右侧参考音频侧栏：直接复用 9886 的资产数据源——5199 的 /api 已代理到 9886，
+  //   这里调的 /api/assets/* 与 9886 右侧栏读的是同一份数据（切片自带对齐文本）。
+  //   每条可拖到左侧参考音频框，路径与文本一次写回，不必手填逐字稿。
+  const [voices, setVoices] = useState([])
+  const [assetVoice, setAssetVoice] = useState('')
+  const [assetSegs, setAssetSegs] = useState([])
+  const [assetRaw, setAssetRaw] = useState([])
+  const [assetTab, setAssetTab] = useState('slices')
+  const [assetSearch, setAssetSearch] = useState('')
+  const [assetLoading, setAssetLoading] = useState(false)
   // 参考音频用真文件选：宿主只认绝对路径，而浏览器不给脚本绝对路径，
   //   所以选中的字节交给后端落一份、由后端回传路径（见 core/wizardbridge.js 的 ref-upload）。
   const [refBusy, setRefBusy] = useState(false)
@@ -113,6 +120,24 @@ export function StepVerify ({ id }) {
       .finally(() => setRefBusy(false))
   }
 
+  // 右侧栏拖过来的一条参考音频：path 是平台词（assets/<音色>/<目录>/<文件>），
+  //   text 来自资产转写。一次写两个 state，与 9886 点选同一语义。
+  const applyRef = (path, text) => {
+    if (!path) return
+    setRefAudio(path)
+    setRefText(text || '')
+  }
+  const onRefDrop = (e) => {
+    e.preventDefault()
+    let payload = null
+    try { payload = JSON.parse(e.dataTransfer.getData('application/x-wz-ref') || '{}') } catch { /* 不是本侧栏拖来的，忽略 */ }
+    if (payload && payload.path) applyRef(payload.path, payload.text)
+  }
+  const refDragStart = (e, path, text) => {
+    e.dataTransfer.setData('application/x-wz-ref', JSON.stringify({ path, text: text || '' }))
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
   // 试运行：真起一次引擎，量冷启动与合成一段的耗时，按余量定本机上的超时。  //   存在本机（state/ 下），不写名片：名片要能分享，「本机多快」不该跟着走。
   //   POST 只起任务，进度靠 GET /wizard/verify/measure/progress 轮询。
   const runMeasure = () => {
@@ -165,7 +190,6 @@ export function StepVerify ({ id }) {
     setSynthText(t('Hello! This is a sample line.', '你好，这是一段示例文本。'))
     setRefAudio('')
     setRefText('')
-    setRefs([])
     fetch(`/wizard/verify/ref?id=${encodeURIComponent(id)}`)
       .then(r => r.json())
       .then((j) => {
@@ -173,12 +197,45 @@ export function StepVerify ({ id }) {
         if (j && j.ok && j.reference_text) setRefText(j.reference_text)
       })
       .catch(() => {})
-    fetch(`/wizard/verify/refs?id=${encodeURIComponent(id)}`)
-      .then(r => r.json())
-      .then((j) => { if (j && j.ok && Array.isArray(j.refs)) setRefs(j.refs) })
-      .catch(() => {})
     return undefined
   }, [id])
+
+  // 侧栏的音色列表：与 9886 的 /api/voices 同源。builtin 的 Base model 没有资产目录，
+  //   默认落到第一个有资产目录的音色，进这一步右侧就有东西可拖，不必先选一次。
+  useEffect(() => {
+    let live = true
+    api('/api/voices')
+      .then((j) => {
+        if (!live || !j || !j.ok || !Array.isArray(j.data.voices)) return
+        const usable = j.data.voices.filter((v) => !v.builtin)
+        setVoices(usable)
+        setAssetVoice((cur) => cur || (usable[0] && usable[0].id) || '')
+      })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+
+  // 选中音色后拉它的切片与原始音频：正是 9886 右侧栏用的那两份端点。
+  useEffect(() => {
+    if (!assetVoice) { setAssetSegs([]); setAssetRaw([]); return undefined }
+    let live = true
+    setAssetLoading(true)
+    Promise.all([
+      api(`/api/assets/${encodeURIComponent(assetVoice)}/segments`)
+        .then((j) => (j && j.ok && j.data.segments && Array.isArray(j.data.segments.segments))
+          ? j.data.segments.segments : [])
+        .catch(() => []),
+      api(`/api/assets/${encodeURIComponent(assetVoice)}/raw-list`)
+        .then((j) => (j && j.ok && Array.isArray(j.data.raw)) ? j.data.raw : [])
+        .catch(() => []),
+    ]).then(([segs, raw]) => {
+      if (!live) return
+      setAssetSegs(segs.filter((s) => s && s.exists !== false
+        && (s.audio || s.audio_path || s.audio_filename)))
+      setAssetRaw(raw)
+    }).finally(() => { if (live) setAssetLoading(false) })
+    return () => { live = false }
+  }, [assetVoice])
 
   // 任务进行中就按固定间隔轮询；结束（done / failed）即停。
   useEffect(() => {
@@ -504,7 +561,148 @@ export function StepVerify ({ id }) {
     )
   }
 
+  // 右侧栏：9886 参考音频选择器的向导版。数据源与它相同（/api/assets/*，5199 已代理），
+  //   差别只在交付方式——9886 点选，这里额外支持拖到左侧输入框。
+  const renderRefSidebar = () => {
+    const q = assetSearch.trim().toLowerCase()
+    const shownSegs = q
+      ? assetSegs.filter((s) => `${s.scene || ''} #${s.index || 0} ${s.text || ''}`.toLowerCase().includes(q))
+      : assetSegs
+    const shownRaw = q
+      ? assetRaw.filter((r) => `${r.filename || ''} ${r.text || ''}`.toLowerCase().includes(q))
+      : assetRaw
+    const activeName = refAudio.trim() ? refAudio.trim().replace(/\\/g, '/').split('/').pop() : ''
+    const segPath = (s) => {
+      const fn = String(s.audio || s.audio_path || s.audio_filename || '').replace(/\\/g, '/').split('/').pop()
+      return fn ? `assets/${assetVoice}/slicer_opt/${fn}` : ''
+    }
+    const rawPath = (r) => (r && r.filename) ? `assets/${assetVoice}/raw/${r.filename}` : ''
+    return (
+      <div className="workspace-right">
+        <div className="section">
+          <div className="section-hdr">
+            <span>{t('Reference audio assets', '参考音频资产')}</span>
+            <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>
+              {t('from platform assets', '取自平台资产')}
+            </span>
+          </div>
+          <div className="section-body">
+            <div className="field">
+              <label className="field-label">{t('Voice', '音色')}</label>
+              <select className="control" value={assetVoice}
+                onChange={(e) => setAssetVoice(e.target.value)}
+                disabled={assetLoading || voices.length === 0}>
+                {voices.length === 0 && <option value="">{t('No voice assets', '没有音色资产')}</option>}
+                {voices.map((v) => (
+                  <option key={v.id} value={v.id}>{v.display_name || v.id}</option>
+                ))}
+              </select>
+            </div>
+            {assetVoice && (
+              <>
+                <div className="field">
+                  <div className="ref-hdr">
+                    <label className="field-label" style={{ margin: 0 }}>{t('Reference', '参考音频')}</label>
+                    <div className="ref-tabs">
+                      <button className={`ref-tab ${assetTab === 'slices' ? 'active' : ''}`}
+                        type="button" onClick={() => setAssetTab('slices')}>
+                        {t('Slices', '切片')} <span className="ref-tab-count">{assetSegs.length}</span>
+                      </button>
+                      <button className={`ref-tab ${assetTab === 'raw' ? 'active' : ''}`}
+                        type="button" onClick={() => setAssetTab('raw')}>
+                        {t('Raw', '原始')} <span className="ref-tab-count">{assetRaw.length}</span>
+                      </button>
+                    </div>
+                  </div>
+                  <input className="control" value={assetSearch}
+                    onChange={(e) => setAssetSearch(e.target.value)}
+                    placeholder={t('Search name or transcript…', '搜索文件名或转写文本…')}
+                    style={{ margin: '4px 0 6px', fontSize: 'var(--fs-12)' }} />
+                </div>
+                {assetLoading && (
+                  <div className="field-hint">{t('Loading reference audio…', '正在加载参考音频…')}</div>
+                )}
+                {!assetLoading && assetTab === 'slices' && (
+                  <div className="ref-list">
+                    {shownSegs.length === 0 && <div className="ref-col-empty">{t('No slices', '没有切片')}</div>}
+                    {shownSegs.map((s, i) => {
+                      const p = segPath(s)
+                      const fn = p.split('/').pop()
+                      const oor = typeof s.duration === 'number' && !refInRange(s.duration)
+                      const active = !!activeName && activeName === fn
+                      return (
+                        <div key={`${p}-${i}`} className={`ref-item ${active ? 'active' : ''}`}
+                          draggable
+                          title={oor ? `${s.text || fn}\n⚠ ${s.duration.toFixed(1)}s` : (s.text || fn)}
+                          onDragStart={(e) => refDragStart(e, p, s.text || '')}
+                          onClick={() => applyRef(p, s.text || '')}
+                          style={{ cursor: 'grab' }}>
+                          <div className="ref-item-row">
+                            <span className="ref-item-name">{s.scene} #{s.index}</span>
+                            {typeof s.duration === 'number' && (
+                              <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>
+                                {s.duration.toFixed(1)}s{oor ? ' ⚠' : ''}
+                              </span>
+                            )}
+                            <span className="ref-item-mark" style={{ color: active ? 'var(--accent)' : 'var(--muted)' }}>
+                              {active ? '✓' : '↗'}
+                            </span>
+                          </div>
+                          {s.text && (
+                            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.text}
+                            </div>
+                          )}
+                          <AudioPlayer src={`/assets/${assetVoice}/slicer_opt/${fn}`} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {!assetLoading && assetTab === 'raw' && (
+                  <div className="ref-list">
+                    {shownRaw.length === 0 && <div className="ref-col-empty">{t('No raw audio', '没有原始音频')}</div>}
+                    {shownRaw.map((r, i) => {
+                      const p = rawPath(r)
+                      const active = !!activeName && activeName === r.filename
+                      return (
+                        <div key={`${p}-${i}`} className={`ref-item ${active ? 'active' : ''}`}
+                          draggable
+                          title={r.text || r.filename || ''}
+                          onDragStart={(e) => refDragStart(e, p, r.text || '')}
+                          onClick={() => applyRef(p, r.text || '')}
+                          style={{ cursor: 'grab' }}>
+                          <div className="ref-item-row">
+                            <span className="ref-item-name">{r.filename}</span>
+                            <span className="ref-item-mark" style={{ color: active ? 'var(--accent)' : 'var(--muted)' }}>
+                              {active ? '✓' : '↗'}
+                            </span>
+                          </div>
+                          {r.text && (
+                            <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {r.text}
+                            </div>
+                          )}
+                          <AudioPlayer src={r.url} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="field-hint" style={{ marginTop: 6, marginLeft: 0 }}>
+                  {t('Drag an item onto the reference audio field on the left; its transcript is filled in with it.',
+                    '把条目拖到左侧的参考音频输入框，转写文本会一并带上。')}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
+    <div className="wz-verify-grid">
     <div className="wz-stack">
       <div className="section">
         <div className="section-hdr">
@@ -647,7 +845,10 @@ export function StepVerify ({ id }) {
           {/* 路径框 + 右侧文件夹按钮，与 9886 参数面板的 file 类参数同一套：框是 .field-file-input，
               按钮是 .field-file-pick。差别只在按钮做什么。那边展开素材库清单，这边开系统对话框，
               因为宿主要的是本机绝对路径，而浏览器不给脚本绝对路径（见 ref-upload）。 */}
-          <div className="field-file" style={{ marginTop: 6 }}>
+          <div className="field-file" style={{ marginTop: 6 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+            onDrop={onRefDrop}
+            title={t('Drop a reference from the right sidebar, or choose a file.', '可从右侧栏拖入参考音频，或选择文件。')}>
             <input
               className="control field-file-input"
               type="text"
@@ -680,8 +881,8 @@ export function StepVerify ({ id }) {
             />
           </div>
           <div className="field-hint" style={{ marginTop: 'var(--sp-4)', marginLeft: 0 }}>
-            {t('Pick a 3–10 second clip of the voice to clone, then fill in its transcript below. Absolute paths are used as-is; relative paths resolve against the project root.',
-              '选一段 3~10 秒的真人语音用于克隆音色，并在下面填上这段录音的文字；绝对路径原样使用，相对路径以项目根为准。')}
+            {t('Pick a 3–10 second clip of the voice to clone, then fill in its transcript below. Absolute paths are used as-is; relative paths resolve against the project root. You can also drag a reference from the right sidebar; its transcript is filled in for you.',
+              '选一段 3~10 秒的真人语音用于克隆音色，并在下面填上这段录音的文字；绝对路径原样使用，相对路径以项目根为准。也可从右侧栏拖入参考音频，转写文本会一并带上。')}
           </div>
           {refError && (
             <div className="msg msg-danger" style={{ marginTop: 6 }}>{refError}</div>
@@ -694,43 +895,6 @@ export function StepVerify ({ id }) {
             placeholder={t('Transcript of the reference audio (if the engine requires it)', '参考音频对应文本（引擎需要时填写）')}
             style={{ marginTop: 6 }}
           />
-          {refs.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <div className="field-hint">
-                {t('Or pick one from platform assets; its transcript is filled in too.',
-                   '或从平台资产里点选一条，参考文本会一并代填。')}
-              </div>
-              <div className="ref-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
-                {refs.map((r, i) => {
-                  const active = refAudio.trim() !== '' && r.reference_audio === refAudio.trim()
-                  const oor = r.duration != null && !refInRange(r.duration)
-                  return (
-                    <div key={`${r.reference_audio}-${i}`}
-                      className={`ref-item ${active ? 'active' : ''}`}
-                      style={{ cursor: 'pointer' }}
-                      title={r.reference_text || r.name}
-                      onClick={() => { setRefAudio(r.reference_audio); setRefText(r.reference_text) }}>
-                      <div className="ref-item-row">
-                        <span className="ref-item-name">{r.name}</span>
-                        {r.duration != null && (
-                          <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>
-                            {r.duration.toFixed(1)}s{oor ? ' \u26a0' : ''}
-                          </span>
-                        )}
-                        <span className="ref-item-mark" style={{ color: active ? 'var(--accent)' : 'var(--muted)' }}>{active ? '\u2713' : '\u2192'}</span>
-                      </div>
-                      {r.reference_text && (
-                        <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.reference_text}
-                        </div>
-                      )}
-                      <AudioPlayer src={`/wizard/verify/ref-file?id=${encodeURIComponent(id || '')}&idx=${i}`} />
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
           <button
             className="btn btn-sm btn-primary"
             type="button"
@@ -851,6 +1015,8 @@ export function StepVerify ({ id }) {
           )}
         </div>
       </div>
+    </div>
+    {renderRefSidebar()}
     </div>
   )
 }
