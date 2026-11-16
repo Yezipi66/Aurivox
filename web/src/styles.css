@@ -221,6 +221,45 @@ button.ui-select[aria-expanded="true"] {
 }
 button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180deg); }
 
+/* Editable variant: same box and arrow as the select above, with the button
+   replaced by a text field so the value can also be typed. The menu is shared. */
+.ui-select-editable {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  cursor: text;
+}
+.ui-select-editable.is-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.ui-select-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.ui-select-input::placeholder { color: var(--muted); }
+.ui-select-input:disabled { cursor: not-allowed; }
+.ui-select-pick {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.ui-select-pick:disabled { cursor: not-allowed; }
+.ui-select-editable.is-open .ui-select-arrow { transform: rotate(180deg); }
+
 .ui-select-menu {
   z-index: var(--z-dropdown, 1200);
   background: var(--surface);

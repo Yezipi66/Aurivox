@@ -6,6 +6,10 @@
 // className、style、disabled、title，以及 <option> 子元素（映射、条件或内联写法都认）；
 // 另加一个 placeholder，在没有选项匹配上时显示它。
 // 调用点的业务逻辑不需要改。
+//
+// editable：值不限于选项，可以直接打字。外观与原下拉同一套（同样的框、同样的箭头、
+//   同样的展开菜单），只是把按钮换成输入框，选项回到「候选清单」的角色。
+//   菜单、定位、键盘与点外关闭与下拉共用一份实现，不另造一个控件。
 
 import {
   useState, useRef, useEffect, useCallback, useLayoutEffect,
@@ -48,6 +52,7 @@ function collectOptions(children, out) {
 export function Select({
   value, defaultValue, onChange,
   className = '', style, disabled = false, title, id, placeholder,
+  editable = false, inputProps,
   children, ...rest
 }) {
   const options = []
@@ -69,8 +74,15 @@ export function Select({
   const [pos, setPos] = useState(null)
 
   const triggerRef = useRef(null)
+  const inputRef = useRef(null)
   const menuRef = useRef(null)
   const typeahead = useRef({ str: '', t: 0 })
+
+  // 收起菜单后焦点回到这个值上：下拉回到按钮，可编辑时回到输入框。
+  const focusTrigger = () => {
+    const el = inputRef.current || triggerRef.current
+    if (el && typeof el.focus === 'function') el.focus()
+  }
 
   const computePos = useCallback(() => {
     const el = triggerRef.current
@@ -124,13 +136,19 @@ export function Select({
     setOpen(true)
   }, [disabled, computePos, selectedIdx]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 值往外走只有一个口：受控时由调用方持有，非受控时自己记一份。
+  const emit = useCallback((next) => {
+    const v = norm(next)
+    if (!isControlled) setInternal(v)
+    onChange && onChange({ target: { value: v } })
+  }, [isControlled, onChange])
+
   const commit = useCallback((opt) => {
     if (!opt || opt.disabled) return
-    if (!isControlled) setInternal(opt.value)
-    onChange && onChange({ target: { value: norm(opt.value) } })
+    emit(opt.value)
     setOpen(false)
-    triggerRef.current && triggerRef.current.focus()
-  }, [isControlled, onChange])
+    focusTrigger()
+  }, [emit]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 绘制前先算好位置，菜单展开时也不会错位。
   useLayoutEffect(() => { if (open) computePos() }, [open, computePos])
@@ -188,11 +206,38 @@ export function Select({
       case 'End': e.preventDefault(); setHi(lastEnabled()); break
       case 'Enter':
       case ' ': e.preventDefault(); commit(options[hi]); break
-      case 'Escape': e.preventDefault(); setOpen(false); triggerRef.current && triggerRef.current.focus(); break
+      case 'Escape': e.preventDefault(); setOpen(false); focusTrigger(); break
       case 'Tab': setOpen(false); break
       default:
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); runTypeahead(e.key) }
     }
+  }
+
+  // 可编辑时的按键：字符键留给输入框自己，这里只接管清单的展开与选中。
+  const onKeyDownEditable = (e) => {
+    if (disabled) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (open) setHi((h) => nextEnabled(h, 1))
+      else openMenu()
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      if (!open) return
+      e.preventDefault(); setHi((h) => nextEnabled(h, -1))
+      return
+    }
+    if (e.key === 'Enter') {
+      if (!open) return
+      e.preventDefault(); commit(options[hi])
+      return
+    }
+    if (e.key === 'Escape') {
+      if (!open) return
+      e.preventDefault(); setOpen(false)
+      return
+    }
+    if (e.key === 'Tab') setOpen(false)
   }
 
   const menu = (open && pos) ? createPortal(
@@ -235,6 +280,46 @@ export function Select({
     </div>,
     document.body
   ) : null
+
+  // 可打字的下拉：框与箭头照抄下拉那一套，只是把按钮换成输入框。
+  //   两侧仍是同一个值：输入框里打什么就是什么，清单是它的候选，选中后回填。
+  if (editable) {
+    return (
+      <>
+        <div
+          {...rest}
+          ref={triggerRef}
+          id={id}
+          title={title}
+          className={`control ui-select ui-select-editable${open ? ' is-open' : ''} ${className}`.trim()}
+          style={style}
+        >
+          <input
+            {...(inputProps || {})}
+            ref={inputRef}
+            className="ui-select-input"
+            value={curNorm}
+            placeholder={placeholder}
+            disabled={disabled}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            onChange={(e) => emit(e.target.value)}
+            onKeyDown={onKeyDownEditable}
+          />
+          <button type="button" tabIndex={-1} disabled={disabled}
+            className="ui-select-pick"
+            aria-label={title || undefined}
+            aria-expanded={open}
+            onClick={() => (open ? setOpen(false) : openMenu())}>
+            <span className="ui-select-arrow" aria-hidden="true">▾</span>
+          </button>
+        </div>
+        {menu}
+      </>
+    )
+  }
 
   return (
     <>

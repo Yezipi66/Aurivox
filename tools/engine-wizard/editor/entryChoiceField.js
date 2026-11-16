@@ -31,13 +31,20 @@ export function readEntry (manifest) {
   return { target: 'argv', kind: 'module', value: '' }
 }
 
-/** 输入框里显示的值：能对应到候选文件就显示文件，便于核对选的是哪一个。 */
-export function displayEntry (manifest, candidates = []) {
+/** 输入框里显示的值：名片里写的那个入口，占位符不算填过。 */
+export function entryText (manifest) {
   const cur = readEntry(manifest)
   if (!cur.value || MODULE_TOKENS.includes(cur.value)) return ''
+  return cur.value
+}
+
+/** 输入框里显示的值：能对应到候选文件就显示文件，便于核对选的是哪一个。 */
+export function displayEntry (manifest, candidates = []) {
+  const cur = entryText(manifest)
+  if (!cur) return ''
   const hit = (Array.isArray(candidates) ? candidates : [])
-    .find((c) => c && (c.file === cur.value || c.module === cur.value))
-  return hit && hit.file ? hit.file : cur.value
+    .find((c) => c && (c.file === cur || c.module === cur))
+  return hit && hit.file ? hit.file : cur
 }
 
 /**
