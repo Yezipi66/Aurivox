@@ -272,7 +272,11 @@ export default function App () {
     //   套在 1400px 的居中容器里，边条就只能贴着主容器两边，
     //   左栏参数被挤窄、右栏预览放不到平台前端的尺寸。
     //   顶栏、流程条与其余四步照旧在容器里；第 4 步自己全宽，中栏内容再对齐容器。
-    <div className="wz-root" style={{ paddingBottom: 'calc(var(--sp-24) * 2)' }}>
+    // 底部留白只在普通步骤外挂；第 4、5 步交给 .wz-stage-main 内边距，
+    // 否则 sticky 抽屉的可吸附范围被 stage 底部截断，滚到底会被顶出视口。
+    <div className="wz-root" style={(page === 'manifest' || page === 'verify')
+      ? undefined
+      : { paddingBottom: 'calc(var(--sp-24) * 2)' }}>
       <div className="workspace-container wz-root">
 
       {/* ---- 顶栏：项目的 section 三件套（照 TrainingTab 的骨架）---- */}

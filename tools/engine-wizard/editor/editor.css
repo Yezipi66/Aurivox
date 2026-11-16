@@ -292,7 +292,9 @@
 .wz-stage-main {
   flex: 1;
   min-width: 0;
-  padding: var(--sp-16) 0;
+  /* 底部留白放在中栏里面，不放到 .wz-root 外面：sticky 抽屉的可吸附范围
+     被 stage 底部卡住，外挂内边距会让抽屉在滚到底时被顶出视口。 */
+  padding: var(--sp-16) 0 calc(var(--sp-24) * 2);
 }
 /* 内容对齐平台的大容器（.workspace-container 的 max-width 与左右内边距）。 */
 .wz-stage-main-inner {
