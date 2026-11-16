@@ -574,14 +574,17 @@
 .wz-device-format {
   flex: 0 0 auto;
   width: auto;
+  /* 两个宽度是这一格的排版下限与上限，不是间距：够放「设备名」三个字加箭头
+     （92px），再窄就只剩一个没有说明的下拉（52px 由标签那侧让出）。 */
   max-width: 92px;
-  padding: 1px 4px;
+  padding: 0 var(--sp-4);
   height: auto;
   font-size: var(--fs-11);
   text-transform: none;
 }
 .wz-device-format:disabled {
-  opacity: 0.5;
+  /* 与 .control:disabled 的禁用观感一致，不另立一档。 */
+  opacity: 0.4;
 }
 /* 说明文字：11px 灰字，居右（标签是 flex，margin-left:auto 把它推到行尾）。
    标签带 uppercase，这里单独关掉大小写；空间不够时截断，全文仍在 title 里。 */
