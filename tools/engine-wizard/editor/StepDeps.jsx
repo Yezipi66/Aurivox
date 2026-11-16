@@ -122,13 +122,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
   const { t, lang } = useT()
   const engineId = state.id
   const url = state.repoUrl || ''
-  // 会话段里的解析结果比持久段更贴近「用户此刻在装哪台」：换 URL 后持久段还有旧值，
-  // 会话段已经失效。两者不一致时以会话段为准，并把持久段一起纠正过来。
   const sessionId = (prep && prep.res && prep.res.id) || ''
+  // 已提交的全局目标是权威：会话 id 只在目标还没写下来时兜底（克隆那一帧）。
+  //   与第 3 步同一条规则。切到另一台后 prep 还是上一帧的会话，
+  //   拿它当目标并反向写回，会把这次切换静默回滚，界面其余部分却停在新目标。
   React.useEffect(() => {
-    if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
+    if (!state.id && sessionId && onFixId) onFixId(sessionId)
   }, [sessionId, state.id])
-  const targetId = sessionId || engineId
+  const targetId = engineId || sessionId
 
   // 从会话段恢复状态（sessionStorage，刷新不丢、关 tab 丢、换 URL 失效）。
   //   懒初始化而不是 useEffect：首帧就要用恢复值，否则第 1 帧会把旧值覆盖回默认值再写盘，
