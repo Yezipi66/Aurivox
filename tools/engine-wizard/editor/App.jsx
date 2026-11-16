@@ -312,7 +312,14 @@ export default function App () {
         </div>
       )}
 
-      {page !== 'manifest' && (
+      {/* 第 5 步像第 4 步一样走独立全宽骨架：Stage 的抽屉是 100vh 的 sticky 边条，
+          塞进 .node-detail 小卡片会撑破。逃生口移到中栏顶部，五步都能切引擎。 */}
+      {page === 'verify' && (
+        <StepVerify id={wz.id}
+          escape={<EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />} />
+      )}
+
+      {page && page !== 'manifest' && page !== 'verify' && (
       <div className="workspace-container wz-root">
       {/* ---- 展开的那一步：.node-detail 详情框，外壳照 NodeDetailPanel.jsx 的 NodeDetailPanel() ---- */}
       {page && page !== 'manifest' && (
@@ -378,9 +385,6 @@ export default function App () {
                 onFixId={(id) => setWz((w) => (w.id === id ? w : { ...w, id }))}
                 weightsPath={facts.checkpoints_path}
                 probe={prep.probe || null} />
-            )}
-            {page === 'verify' && (
-              <StepVerify id={wz.id} />
             )}
                 </fieldset>
         </div>

@@ -31,7 +31,9 @@ const DRAWER_W = '360px'
  */
 export default function Stage ({ left, center, right, open, onToggle, full, onFull }) {
   const { t } = useT()
-  const leftOpen = !!open.left
+  // 第 5 步只有中栏 + 右抽屉：left 不传时不渲染左边条，右抽屉的宽度上限按左栏 0 算。
+  const hasLeft = left != null
+  const leftOpen = hasLeft && !!open.left
   const rightOpen = !!open.right
 
   const stageRef = React.useRef(null)
@@ -95,17 +97,19 @@ export default function Stage ({ left, center, right, open, onToggle, full, onFu
   const fullLabel = full ? t('Exit full screen', '退出全屏') : t('Full screen', '全屏')
 
   return (
-    <div className={`wz-stage${leftOpen ? ' wz-stage-left-open' : ''}`} ref={stageRef}>
-      <Drawer
-        side="left"
-        open={leftOpen}
-        onToggle={() => onToggle('left')}
-        title={t('Scanned parameters', '扫描到的参数')}
-        arrow="→"
-        asideRef={leftRef}
-      >
-        {left}
-      </Drawer>
+    <div className={`wz-stage${hasLeft ? '' : ' wz-stage-no-left'}${leftOpen ? ' wz-stage-left-open' : ''}`} ref={stageRef}>
+      {hasLeft && (
+        <Drawer
+          side="left"
+          open={leftOpen}
+          onToggle={() => onToggle('left')}
+          title={t('Scanned parameters', '扫描到的参数')}
+          arrow="→"
+          asideRef={leftRef}
+        >
+          {left}
+        </Drawer>
+      )}
 
       <main className="wz-stage-main">{center}</main>
 

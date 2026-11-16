@@ -71,7 +71,11 @@ define('fetch', async (url) => {
 const { StepVerify } = loadJsx('StepVerify.jsx', {
   react: React,
   'web/src/lib/i18n': { __esModule: true, useT: () => ({ t: (en, zh) => zh || en, lang: 'zh' }) },
-  'components/common/Player': { __esModule: true, Player: () => null },
+  'components/common/Player': {
+    __esModule: true,
+    Player: () => null,
+    AudioPlayer: () => null,
+  },
   'components/common/DeviceSelect': { __esModule: true, default: () => null },
   'web/src/lib/previewMode': {
     __esModule: true,
@@ -81,7 +85,16 @@ const { StepVerify } = loadJsx('StepVerify.jsx', {
   'web/src/lib/refAudio': {
     __esModule: true,
     cleanPathInput: (s) => String(s == null ? '' : s).trim(),
+    refInRange: () => true,
   },
+  // 右侧资产栏复用 9886 数据源（/api，5199 已代理）：测试里只让它取不到数据。
+  'web/src/lib/api': { __esModule: true, api: async () => ({ ok: false, data: {} }) },
+  // Stage 抽屉在此只透传内容，真实交互由浏览器那条验证守。
+  './Stage': {
+    __esModule: true,
+    default: ({ center, right }) => React.createElement('div', null, center, right),
+  },
+  './paramDrop': { __esModule: true, REF_MIME: 'application/x-aurivox-ref' },
   './downloadRunner': { __esModule: true, readSse: async () => {} },
   './measureProgress': {
     __esModule: true,

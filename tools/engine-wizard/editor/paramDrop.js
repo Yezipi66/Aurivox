@@ -28,6 +28,9 @@ export function paramNameOf (param) {
 //   （跟着光标走的拖影显示的就是 text/plain），自定义类型放整条参数。
 //   两者分工：前者让人一眼认出拖的是哪个开关，后者让落点不必从显示文字反推。
 export const PARAM_MIME = 'application/x-aurivox-param'
+// 第 5 步参考音频抽屉的拖拽载荷类型，与 PARAM_MIME 一并集中在这里：
+//   两者都是「自定义类型放机器可读的整条数据」，落点各读各的类型。
+export const REF_MIME = 'application/x-aurivox-ref'
 
 /**
  * 拖动时显示的文字：命令行上要敲的那个写法。
