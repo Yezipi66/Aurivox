@@ -2,7 +2,7 @@
 // 全局逃生口（EngineEscapeHatch）的行为守卫：
 //   ① 只渲染一个引擎下拉（一列），值绑暂存的选择（初始 = 当前目标）；
 //   ② 换选只暂存：提交要走「切换引擎」按钮 + 二次确认，确认才回调 onSwitch；
-//   ③ 只在第 2-5 步渲染（第 1 步是克隆，不选已有引擎）；
+//   ③ 每一步都渲染，按钮常驻、可提交性用 disabled 表达；提交后给出明确反馈；
 //   ④ 第 4 步的 EngineIdentity 下拉换引擎时也同步全局目标（onEngineTarget）；
 //   ⑤ App 的 switchEngine 换目标时连同名片与操作记录一起重读。
 //
@@ -122,30 +122,31 @@ test('换选只暂存不提交：onSwitch 不被调用', async () => {
   assert.deepStrictEqual(switched, [], '换选不该直接提交：静默半切换是旧病')
 })
 
-// ---- 按钮出现条件：暂存与当前不同（且非空）才有；相同或空都没有 ----
-test('暂存与当前不同时出现「切换引擎」按钮，相同时不出现', async () => {
+// ---- 按钮常驻：动作始终可见；可提交性由 disabled 表达 ----
+test('「切换引擎」按钮常驻；没换成另一台时禁用，换选后可用', async () => {
   const { dom, container, root } = mount()
   root.render(React.createElement(EngineEscapeHatch, {
     id: 'piper', dirs: DIRS, onSwitch: () => {},
   }))
   await settle()
-  assert.ok(!container.querySelector('.confirm-actions button'),
-    '暂存 = 当前时不应出现提交按钮')
+  const btn = () => container.querySelector('[data-wz-switch="engine"]')
+  assert.ok(btn(), '按钮必须常驻：隐藏会让使用者不知道这个动作存在')
+  assert.strictEqual(btn().disabled, true, '暂存 = 当前时按钮禁用，而不是消失')
   await pickInSelect(dom, container, 'spark-tts')
-  const btn = container.querySelector('.confirm-actions button')
-  assert.ok(btn, '暂存与当前不同时应出现提交按钮（右下角）')
-  assert.strictEqual(btn.textContent, 'Switch engine', '按钮文案应是「切换引擎」')
+  assert.strictEqual(btn().disabled, false, '换成另一台后按钮应可用')
+  assert.strictEqual(btn().textContent, 'Switch engine', '按钮文案应是「切换引擎」')
 })
 
-test('暂存回占位项（空目标）时不出现提交按钮', async () => {
+test('暂存回占位项（空目标）时按钮禁用', async () => {
   const { dom, container, root } = mount()
   root.render(React.createElement(EngineEscapeHatch, {
     id: 'piper', dirs: DIRS, onSwitch: () => {},
   }))
   await settle()
   await pickInSelect(dom, container, '')
-  assert.ok(!container.querySelector('.confirm-actions button'),
-    '空目标不该能提交：占位项不是一次有效的切换')
+  const btn = container.querySelector('[data-wz-switch="engine"]')
+  assert.ok(btn && btn.disabled,
+    '空目标不该能提交：占位项不是一次有效的切换，但仍要能看到按钮')
 })
 
 // ---- 二次确认：取消不提交，确认才提交 ----
@@ -157,7 +158,7 @@ test('点「切换引擎」弹确认框；取消不提交，确认才提交', as
   }))
   await settle()
   await pickInSelect(dom, container, 'spark-tts')
-  await clickBtn(dom, container.querySelector('.confirm-actions button'))
+  await clickBtn(dom, container.querySelector('[data-wz-switch="engine"]'))
   const overlay = container.querySelector('.modal-overlay')
   assert.ok(overlay, '点「切换引擎」应弹出二次确认')
   const buttons = [...overlay.querySelectorAll('button')]
@@ -169,22 +170,22 @@ test('点「切换引擎」弹确认框；取消不提交，确认才提交', as
   assert.ok(!container.querySelector('.modal-overlay'), '取消应关闭确认框')
   assert.deepStrictEqual(switched, [], '取消不应提交')
 
-  await clickBtn(dom, container.querySelector('.confirm-actions button'))
+  await clickBtn(dom, container.querySelector('[data-wz-switch="engine"]'))
   const overlay2 = container.querySelector('.modal-overlay')
   await clickBtn(dom, [...overlay2.querySelectorAll('button')]
     .find((b) => /Confirm switch/.test(b.textContent)))
   assert.deepStrictEqual(switched, ['spark-tts'], '确认才提交 onSwitch，并带上目标 id')
 })
 
-// ---- 提交成功后：外层目标更新，暂存同步、按钮收掉 ----
-test('外部目标变化后暂存同步，提交按钮收掉', async () => {
+// ---- 提交成功后：外层目标更新，暂存同步、按钮回到禁用态 ----
+test('外部目标变化后暂存同步，按钮回到禁用态', async () => {
   const { dom, container, root } = mount()
   root.render(React.createElement(EngineEscapeHatch, {
     id: 'piper', dirs: DIRS, onSwitch: () => {},
   }))
   await settle()
   await pickInSelect(dom, container, 'spark-tts')
-  assert.ok(container.querySelector('.confirm-actions button'))
+  assert.strictEqual(container.querySelector('[data-wz-switch="engine"]').disabled, false)
   // 提交成功：外层把已提交目标换成 spark-tts
   root.render(React.createElement(EngineEscapeHatch, {
     id: 'spark-tts', dirs: DIRS, onSwitch: () => {},
@@ -192,8 +193,52 @@ test('外部目标变化后暂存同步，提交按钮收掉', async () => {
   await settle()
   assert.strictEqual(container.querySelector('select').value, 'spark-tts',
     '外部目标更新后暂存应同步')
-  assert.ok(!container.querySelector('.confirm-actions button'),
-    '暂存与已提交目标一致时按钮应收掉')
+  assert.strictEqual(container.querySelector('[data-wz-switch="engine"]').disabled, true,
+    '暂存与已提交目标一致时按钮应回到禁用态，但仍可见')
+})
+
+// ---- 提交反馈：切换不再静默 ----
+test('确认切换后给出「已切换到 X」的状态反馈', async () => {
+  const { dom, container, root } = mount()
+  const render = (id) => root.render(React.createElement(EngineEscapeHatch, {
+    id, dirs: DIRS, onSwitch: async (next) => render(next),
+  }))
+  render('piper')
+  await settle()
+  await pickInSelect(dom, container, 'spark-tts')
+  await clickBtn(dom, container.querySelector('[data-wz-switch="engine"]'))
+  await clickBtn(dom, [...container.querySelectorAll('.modal-overlay button')]
+    .find((b) => /Confirm switch/.test(b.textContent)))
+  const msg = [...container.querySelectorAll('.msg-info')]
+    .find((m) => /Switched to/.test(m.textContent))
+  assert.ok(msg, '确认切换后必须给出明确反馈，不能只剩下拉值变了')
+  assert.ok(/spark-tts/.test(msg.textContent), '反馈要说清切到了哪台')
+})
+
+test('反馈文案只说切到了哪台，不对本步内容声称时态', () => {
+  const src = fs.readFileSync(path.join(EDITOR_DIR, 'EngineEscapeHatch.jsx'), 'utf8')
+  assert.match(src, /\{t\('Switched to', '已切换到'\)\} <code>\{id\}<\/code>/,
+    '反馈只陈述确证的事实：目标已切、名片已读回')
+  assert.doesNotMatch(src, /本步内容(正在|已按)/,
+    '逃生口不知道当前是哪一步、那一步的请求何时回来，「正在/已重读」两句都没证据')
+})
+
+test('切换被回滚时反馈说实际生效的引擎，不重复提交瞬间的选择', async () => {
+  const { dom, container, root } = mount()
+  // 模拟反向覆盖：外层把目标又改回了 piper（真实场景见 StepsExtra 的 sessionId）。
+  const render = (id) => root.render(React.createElement(EngineEscapeHatch, {
+    id, dirs: DIRS, onSwitch: async () => render('piper'),
+  }))
+  render('piper')
+  await settle()
+  await pickInSelect(dom, container, 'spark-tts')
+  await clickBtn(dom, container.querySelector('[data-wz-switch="engine"]'))
+  await clickBtn(dom, [...container.querySelectorAll('.modal-overlay button')]
+    .find((b) => /Confirm switch/.test(b.textContent)))
+  const msg = [...container.querySelectorAll('.msg-info')]
+    .find((m) => /Switched to/.test(m.textContent))
+  assert.ok(msg && /piper/.test(msg.textContent) && !/spark-tts/.test(msg.textContent),
+    '反馈必须报实际生效的 id：说「已切换到 spark-tts」而界面在 piper 是假消息')
 })
 
 test('没有目标时显示占位项，不崩', async () => {
@@ -214,11 +259,22 @@ test('App.jsx 不再有顶部「当前引擎」下拉', () => {
     '顶部「当前引擎」下拉还在（wz-engine-pick）：应已移除，改由每步的逃生口承担')
 })
 
-test('App.jsx 渲染逃生口，且门控排除第 1 步', () => {
+test('App.jsx 每一步都渲染逃生口（含第 1 步）', () => {
   const app = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
   assert.ok(/EngineEscapeHatch/.test(app), 'App.jsx 没有渲染逃生口')
-  assert.ok(/page !== 'prepare'/.test(app),
-    '逃生口没排除第 1 步：第 1 步是克隆，不该出现「选已有引擎」')
+  assert.ok(!/page !== 'prepare'/.test(app),
+    '逃生口不该排除第 1 步：每一步都要能看到「操作引擎」这个动作')
+})
+
+// ---- 右下角状态条：五步共用一份事实，切引擎后不用猜当前状态 ----
+test('App.jsx 有右下角常驻状态条，并带切换逃生口', () => {
+  const app = fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8')
+  assert.ok(/role="status" aria-live="polite"/.test(app),
+    '右下角状态条要有 status 语义，状态变化才播报给读屏器')
+  assert.ok(/position: 'fixed'/.test(app), '状态条应常驻右下角，不随步骤内容滚动')
+  assert.ok(/wz\.id/.test(app), '状态条要显示当前操作引擎')
+  assert.ok(/document\.getElementById\('wz-escape-pick'\)/.test(app),
+    '状态条里的「切换」要能跳到本步的引擎下拉，作为逃生口')
 })
 
 // ---- App.jsx 的提交语义：换引擎要连同名片与操作记录一起换 ----

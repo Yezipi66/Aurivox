@@ -272,7 +272,7 @@ export default function App () {
     //   套在 1400px 的居中容器里，边条就只能贴着主容器两边，
     //   左栏参数被挤窄、右栏预览放不到平台前端的尺寸。
     //   顶栏、流程条与其余四步照旧在容器里；第 4 步自己全宽，中栏内容再对齐容器。
-    <div className="wz-root">
+    <div className="wz-root" style={{ paddingBottom: 'calc(var(--sp-24) * 2)' }}>
       <div className="workspace-container wz-root">
 
       {/* ---- 顶栏：项目的 section 三件套（照 TrainingTab 的骨架）---- */}
@@ -329,18 +329,17 @@ export default function App () {
             </div>
           </div>
 
-          {/* ---- 每一步的逃生口（除第 1 步）----
+          {/* ---- 每一步的逃生口 ----
               五步不再互相锁：锁的判据是「第 1 步完成」，而完成状态由真实产物判，
                 它与界面上看到的不一致时人会被卡在第 1 步，且无从自救。
               改成每步在这里选「操作哪一台」：默认落在刚克隆的那台（wz.id），
-                也可以直接挑 engines/ 下的任意目录。切换即全局重定向。 */}
-          {page !== 'prepare' && (
-            <div className="section">
-              <div className="section-body">
-                <EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />
-              </div>
+                也可以直接挑 engines/ 下的任意目录。切换即全局重定向。
+              第 1 步同样放一个：这一步也能复用 engines/ 下已有的目录。 */}
+          <div className="section">
+            <div className="section-body">
+              <EngineEscapeHatch id={wz.id} dirs={engineDirs} onSwitch={switchEngine} />
             </div>
-          )}
+          </div>
 
           <fieldset style={{ border: 0, padding: 0, margin: 0, minInlineSize: 'auto' }}>
             {page === 'prepare' && (
@@ -384,6 +383,40 @@ export default function App () {
               <StepVerify id={wz.id} />
             )}
                 </fieldset>
+        </div>
+      )}
+
+      {/* ---- 右下角：当前操作的常驻状态 ----
+          五步共用同一份事实（wz.id / page / done），切引擎之后不必猜
+          「现在操作哪台、走到哪步、这一步做完了没有」。
+          这里的「切换」是逃生口：焦点跳到本步顶部的引擎下拉。 */}
+      {page && (
+        <div role="status" aria-live="polite"
+          style={{
+            position: 'fixed', right: 'var(--sp-16)', bottom: 'var(--sp-12)',
+            zIndex: 'var(--z-overlay)',
+            display: 'flex', alignItems: 'center', gap: 'var(--sp-8)',
+            flexWrap: 'wrap', maxWidth: 620,
+            padding: 'var(--sp-6) var(--sp-10)',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            fontSize: 'var(--fs-12)', color: 'var(--text)',
+          }}>
+          <span className="field-hint" style={{ margin: 0 }}>
+            {t('Working on', '正在操作')}
+          </span>
+          <code>{wz.id || t('no engine', '未选定')}</code>
+          <span className="field-hint" style={{ margin: 0 }}>·</span>
+          <span>{title}</span>
+          <span className="field-hint" style={{ margin: 0 }}>·</span>
+          <span>{isDone ? t('Done', '已完成') : t('In progress', '进行中')}</span>
+          <button className="btn btn-sm" type="button"
+            onClick={() => {
+              const el = document.getElementById('wz-escape-pick')
+              if (el) { el.focus(); el.scrollIntoView({ block: 'center' }) }
+            }}>
+            {t('Switch', '切换')}
+          </button>
         </div>
       )}
 

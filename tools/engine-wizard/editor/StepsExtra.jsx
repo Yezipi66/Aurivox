@@ -25,10 +25,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   const [resetBusy, setResetBusy] = React.useState(false)
   const [resetNote, setResetNote] = React.useState(null)
   const sessionId = (prep && prep.res && prep.res.id) || ''
+  // 已提交的全局目标是权威：会话 id 只在目标还没写下来时兜底。
+  //   原来写的是 sessionId || state.id，切换引擎后 prep 那一帧还是上一台的
+  //   会话，于是这里认了旧 id，下面的 effect 又把它写回全局目标 —— 一次切换
+  //   被静默回滚，而界面其它地方（含切换反馈）还停在用户选的那台。
+  //   克隆完成时 StepPrepare 自己 onChange({id}) 把目标写好了，不需要这里补。
+  const id = state.id || sessionId
   React.useEffect(() => {
-    if (sessionId && sessionId !== state.id && onFixId) onFixId(sessionId)
+    if (!state.id && sessionId && onFixId) onFixId(sessionId)
   }, [sessionId, state.id])
-  const id = sessionId || state.id
 
   // 下载清单来自 probe（第 1 步），不依赖 manifest。
   // /wizard/models 内部要调 describeModels → resolveEngineProfile，而它需要 manifest，

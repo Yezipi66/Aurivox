@@ -77,3 +77,20 @@ test('变异检查：去掉执行器的 import 后第一条断言会变红', () 
     /import\s*\{[^}]*downloadFiles[^}]*\}\s*from\s*'\.\/downloadRunner'/,
     '去掉 import 后这一条应当报红')
 })
+
+// 切换引擎不能被第 1 步会话里的旧 id 反向覆盖。
+//   原写法 id = sessionId || state.id + onFixId(sessionId)：切到新目标后，
+//   prep 还是上一帧的旧会话，把全局目标写回旧引擎，探测也打旧引擎。
+//   界面别处（含切换反馈）停在用户选的那台，就成了反馈说已切到新引擎、
+//   而下拉和仓库全是旧引擎的假状态。
+test('第 3 步认全局目标，不被会话 id 反向覆盖', () => {
+  assert.match(SRC, /const id = state\.id \|\| sessionId/,
+    '已提交的全局目标必须优先；会话 id 只在目标为空时兜底')
+  assert.doesNotMatch(SRC, /const id = sessionId \|\| state\.id/,
+    '会话 id 优先会让一次切换被上一帧的旧会话静默回滚')
+  const fix = (SRC.match(
+    /React\.useEffect\(\(\) => \{\s*if \(!state\.id && sessionId && onFixId\)[\s\S]*?\}, \[sessionId, state\.id\]\)/)
+    || [''])[0]
+  assert.ok(fix,
+    'onFixId 只能在全局目标尚未写下来时补一次（克隆那一帧），不能反过来改已提交目标')
+})
