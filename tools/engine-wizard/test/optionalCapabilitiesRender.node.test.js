@@ -41,6 +41,8 @@ function loadJsx (file, stubMap) {
     for (const [k, v] of Object.entries(stubMap)) {
       if (id === k || id.endsWith(k)) return v
     }
+    // 下拉换成了页面内的组件，这里只要能选值就够，交互细节由真组件那条测试守。
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error(file + ' 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -54,6 +56,8 @@ const OptionalCapabilities = loadJsx('OptionalCapabilities.jsx', {
   'web/src/lib/i18n': { useT: () => ({ t: (en) => en }) },
   './weightSlots': loadEsm(path.join(EDITOR_DIR, 'weightSlots.js')),
   './seedField': loadEsm(path.join(EDITOR_DIR, 'seedField.js')),
+  // 白名单那段也是纯函数，用真的：这组用例关心的正是它写出的名片长什么样。
+  './callWhitelist': loadEsm(path.join(EDITOR_DIR, 'callWhitelist.js')),
 }).default
 
 // 整份文件只起一个页面：React 把事件与根容器绑在 document 上。
@@ -114,13 +118,9 @@ async function show (manifest) {
   await settle()
 }
 
-// 权重位的一行：行内是四格加两个按钮，靠内联 grid 排版。
-// 权重位的一行：行内四格加两个按钮，靠内联 grid 排版。
-//   判据要带上「行里有一个生效时机下拉」：设备/参考文本/seed 那一行也是 grid，
-//   只按 grid-template-columns 认，会把那一行数成权重位。
-const slotRows = () => [...container.querySelectorAll('div')]
-  .filter((el) => /grid-template-columns/.test(el.getAttribute('style') || ''))
-  .filter((el) => !!el.querySelector('select'))
+// 权重位的一行：行首是「第N权重位」标题，行内四格加两个按钮，靠内联 grid 排版。
+//   判据用类名，不按「行里有 select」认：规格与出处那一类下拉也会满足这个形状。
+const slotRows = () => [...container.querySelectorAll('.wz-weight-row')]
 
 // 分段框：输出格式、辅助参考音频、多权重位各一个，标识是 BOX 那份圆角边框。
 const boxes = () => [...container.querySelectorAll('div')]
@@ -191,16 +191,30 @@ test('多权重位共用一个框：两位两行，行内五格', async () => {
   }
 })
 
-test('三个框的顺序：输出格式 → 辅助参考音频 → 多权重位，都排在设备那一行之后', async () => {
+test('三个框的顺序：输出格式 → 辅助参考音频 → 多权重位，都排在第一行之后', async () => {
   await show(cliManifest([]))
   const list = boxes()
   assert.equal(list.length, 3, '三段各占一个框')
   assert.ok(/Output format switch|输出格式开关/.test(list[0].textContent),
-    '输出格式紧跟运行设备')
+    '输出格式紧跟第一行')
   assert.ok(/Auxiliary reference audio|辅助参考音频/.test(list[1].textContent))
   assert.ok(/Weight slot 2|第2权重位/.test(list[2].textContent), '权重位排在最后')
-  assert.ok(/Runtime device|运行设备/.test(list[0].parentElement.textContent),
-    '三个框都在运行设备之后')
+  assert.ok(/Reference text|参考文本/.test(list[0].parentElement.textContent),
+    '三个框都在参考文本与 seed 那一行之后')
+})
+
+test('第一行只剩参考文本与 seed，两格各占一半，运行设备不在本区', async () => {
+  await show(cliManifest([]))
+  const row = container.querySelector('.form-grid')
+  assert.ok(row, '第一行要用 form-grid')
+  assert.match(row.getAttribute('style'), /repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+    '两列等宽：参考文本与 seed 一人一半')
+  const cells = [...row.children].filter((el) => /(^|\s)field(\s|$)/.test(el.className || ''))
+  assert.equal(cells.length, 2, '第一行只有两格')
+  assert.ok(/Reference text|参考文本/.test(cells[0].textContent))
+  assert.ok(/seed/.test(cells[1].textContent))
+  assert.ok(!container.querySelector('input[placeholder="--device"]'),
+    '运行设备已挪到引擎配置区，不在可选能力区')
 })
 
 test('没填的框整块弱化：输出格式与辅助参考音频空着带 wz-unset，声明过就摘掉', async () => {
@@ -229,7 +243,7 @@ test('输出格式与权重位都常驻显示，区尾不再有「添加」按�
     '默认已摆出一位，同一动作不再两处入口')
 })
 
-test('空格等于没填：设备与音频的开关名只敲空格，名片里不留键', async () => {
+test('空格等于没填：辅助音频的开关名只敲空格，名片里不留键', async () => {
   const holder = { m: cliManifest([]) }
   root.render(React.createElement(OptionalCapabilities, {
     key: 'blank-flag',
@@ -237,15 +251,6 @@ test('空格等于没填：设备与音频的开关名只敲空格，名片里�
     onChange: (arg) => { holder.m = typeof arg === 'function' ? arg(holder.m) : arg },
   }))
   await settle()
-
-  const dev = [...container.querySelectorAll('input')]
-    .find((i) => i.placeholder === '--device')
-  assert.ok(dev, '运行设备那一格要在')
-  assert.equal(dev.value, '', '空名片时显示为空：--device 只是提示，不算已声明')
-  Simulate.change(dev, { target: { value: '   ' } })
-  await settle()
-  assert.ok(!holder.m.call.args || !holder.m.call.args.device,
-    '只敲空格不算声明运行设备：名片里不该留下这个键')
 
   const audio = [...container.querySelectorAll('input')]
     .find((i) => i.placeholder === '--emotion-audio')
@@ -256,30 +261,15 @@ test('空格等于没填：设备与音频的开关名只敲空格，名片里�
     '只敲空格不算声明辅助参考音频')
 })
 
-test('没声明的格弱化显示：空着的设备/参考文本带 wz-unset，声明过就不带', async () => {
+test('没声明的格弱化显示：空着的参考文本带 wz-unset', async () => {
   await show(cliManifest([]))
-  const cellOf = (placeholder) => [...container.querySelectorAll('div')]
-    .find((d) => /(^|\s)field(\s|$)/.test(d.className || '') &&
-      d.querySelector(`input[placeholder="${placeholder}"]`))
-  const dev = cellOf('--device')
-  assert.ok(dev, '找不到运行设备那一格')
-  assert.ok(/wz-unset/.test(dev.className), '空着的一格要弱化：这是「还没声明」的样子')
   const ref = [...container.querySelectorAll('div')]
     .find((d) => /wz-unset/.test(d.className || '') && /参考文本|Reference text/.test(d.textContent || ''))
   assert.ok(ref, '参考文本空着时也要弱化')
-
-  const m = cliManifest([])
-  m.call.args = { device: { flag: '--device', style: 'value', role: 'device' } }
-  await show(m)
-  const filled = [...container.querySelectorAll('div')]
-    .find((d) => /(^|\s)field(\s|$)/.test(d.className || '') &&
-      d.querySelector('input[placeholder="--device"]'))
-  assert.ok(filled && !/wz-unset/.test(filled.className),
-    '声明过就不该再弱化：灰着表示这一项还不存在')
 })
 
 // 可复现性那一格要能改：它写的是 call.seed，宿主只在三种写法里挑一种执行。
-// seed 那一格：与运行设备、参考文本同一行，只留一个输入框（填开关名＝引擎自己收）。
+// seed 那一格：与参考文本平分第一行，只留一个输入框（填开关名＝引擎自己收）。
 // 留空在别的格是「不声明」，在这一格不行：名片缺 call.seed 会被存盘与启动拒掉，
 // 所以留空落盘是显式的 "none"。
 function seedHarness (initial, sink) {
@@ -306,16 +296,16 @@ const typeSeed = async (value) => {
   await settle()
 }
 
-test('seed 与运行设备、参考文本同一行，排在参考文本之后', async () => {
+test('seed 与参考文本平分第一行，排在参考文本之后', async () => {
   const sink = {}
   seedHarness(cliManifest([]), sink)
   await settle()
   const row = seedField().parentElement
-  assert.ok(/Runtime device|运行设备/.test(row.textContent), 'seed 与运行设备同一行')
   assert.ok(/Reference text|参考文本/.test(row.textContent), 'seed 与参考文本同一行')
+  assert.ok(!/Runtime device|运行设备/.test(row.textContent), '运行设备已挪到引擎配置区')
   const labels = [...row.querySelectorAll('.field-label')].map((el) => el.textContent.trim())
-  assert.deepStrictEqual(labels, ['Runtime device', 'Reference text', 'seed'],
-    '这一行的顺序：设备、参考文本、seed')
+  assert.deepStrictEqual(labels, ['Reference text', 'seed'],
+    '这一行只有两格：参考文本、seed')
   assert.ok(/grid/.test(row.className) || /grid/.test(row.getAttribute('style') || ''))
 })
 

@@ -23,13 +23,13 @@ function styleOf (f) {
 /**
  * 把上游 CLI 的官方说明整理成一份名片草稿。
  * cliHelp 是 collectCliHelp(dir) 的返回值，flags 为上游 argparse 的 flag 列表。
- * 返回 {ok, subcommands, args, suggested_call}：subcommands 是上游有哪些子命令（认不出的归到
+ * 返回 {ok, subcommands, args, positionals, suggested_call}：subcommands 是上游有哪些子命令（认不出的归到
  * "(root)"）；args 每条一项，字段为 name / flag / style / help / required / default / choices /
  * is_tool / subcommand / source_file，help 是上游原话；suggested_call 是 cli 形态 call 段骨架。
  */
 function buildCliDraft (cliHelp, opts = {}) {
   if (!cliHelp || !cliHelp.ok || !Array.isArray(cliHelp.flags)) {
-    return { ok: false, error: (cliHelp && cliHelp.error) || 'CLI 扫描失败', args: [], suggested_call: null }
+    return { ok: false, error: (cliHelp && cliHelp.error) || 'CLI 扫描失败', args: [], positionals: [], suggested_call: null }
   }
   const flags = cliHelp.flags
 
@@ -41,7 +41,26 @@ function buildCliDraft (cliHelp, opts = {}) {
   const picked = wantSub ? flags.filter((f) => (f.subcommand || '(root)') === wantSub) : flags
 
   const args = []
+  // 位置参数：命令行上没有开关名，值直接占「第几个词」。它们进不了 call.args
+  //   （args 每条都要一个开关），只能写进 argv 的占位符，所以单列一份交出去。
+  //   以前这里 `continue` 掉，界面上表现为「这台引擎扫不出任何参数」，
+  //   而真因是 argparse 里本来就只有位置参数。
+  const positionals = []
   for (const f of picked) {
+    if (f.is_option === false) {
+      const name = f.flags && f.flags.length ? String(f.flags[0]) : ''
+      if (!name) continue
+      positionals.push({
+        name: name.replace(/^-+/, ''),
+        nargs: f.nargs === undefined ? null : f.nargs,
+        type: f.type || null,
+        required: f.required === true,
+        help: f.help || null,
+        subcommand: f.subcommand || null,
+        source_file: f.source_file || null,
+      })
+      continue
+    }
     // 名片 args 段只放长开关。取第一个长开关，不取最后一个词：上游常把短别名写在后面
     //   （`add_argument("--text", "-t")`），取最后一个词会拿到 -t，整条被当成「只有短开关」丢掉。
     const flag = f.flags.find((w) => typeof w === 'string' && w.startsWith('--'))
@@ -78,7 +97,7 @@ function buildCliDraft (cliHelp, opts = {}) {
       }
     : null
 
-  return { ok: true, subcommands, args, suggested_call }
+  return { ok: true, subcommands, args, positionals, suggested_call }
 }
 
 module.exports = { buildCliDraft, styleOf, TOOL_FLAGS }

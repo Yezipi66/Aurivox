@@ -65,15 +65,22 @@ test('导入 postJson（判据收口只有一处）', () => {
 //   它的原话放在 notes（数组）里，界面却只渲染 note（单数）⇒ 仓库不存在时界面
 //   停在一个「进行中」，既不报原因，也没法自己再探一次。
 
-test('doProbe 必须接在按钮上（手动读取的入口）', () => {
-  assert.ok(/onClick=\{doProbe\}/.test(src),
-    'doProbe 没有接在任何按钮上：探测只能跟着失焦自动跑，失败时使用者无从再探一次')
+test('探测必须接在按钮上（手动读取的唯一入口 readRepo）', () => {
+  // 入口只有一个：按钮与回车都走 readRepo，readRepo 内部依次解析与探测。
+  //   探测如果只跟着失焦跑，失败时使用者无从自己再探一次。
+  assert.ok(/onClick=\{readRepo\}/.test(src),
+    '读取按钮没有接在 readRepo 上：探测只剩失焦自动跑，失败时使用者无从再探一次')
+  const body = functionBody('readRepo')
+  assert.ok(body, 'readRepo 函数不见了')
+  assert.ok(/await doProbe\(/.test(body),
+    'readRepo 没有调 doProbe：按钮点下去只做本地解析，界面看起来却像已经探过')
 })
 
 test('探测的 notes（数组）必须渲染出来（404 只出现在那里）', () => {
   // 判据不是「存在 notes 这个字段」，是它真的进了渲染：
   //   读不到默认分支、HTTP_404 这些信号只在 notes 里，不摆出来等于没探。
-  const m = src.match(/probe\.notes[\s\S]{0,240}?\.map\(/)
+  // 渲染用 probeCur（与当前输入同源的那份）：裸 probe 是上一次读的残留。
+  const m = src.match(/probeCur\.notes[\s\S]{0,240}?\.map\(/)
   assert.ok(m, 'notes（数组）没被渲染成列表：仓库不存在这类信号会静默消失')
 })
 
@@ -97,11 +104,11 @@ test('resolve 用截断后的 j.url 写回状态（不用原始输入）', () =>
     '输入框没有更新为截断后的 resolvedUrl：使用者看到的是带尾巴的原始链接')
 })
 
-// 读取手动化：探测只从「读取仓库信息」按钮走，不跟着解析自动跑。
-//   解析是纯本地的（不联网、地址写错也说 ok），自动探一次会让按钮形同虚设，
-//   而且使用者分不清「探的是哪一步」。resolve 必须清掉 probe（界面回到「尚未读取」），
-//   把「仓库在不在」的回答留给按钮。
-test('resolve 不再自动读取（探测只从按钮走）', () => {
+// 读取有两个入口（失焦自动一次、按钮显式），但都走 readRepo，探测实现只有一处。
+//   解析是纯本地的（不联网、地址写错也说 ok），在解析里顺手探一次会让
+//   「读取仓库信息」这个动作说不清是哪一次。resolve 必须清掉 probe（界面回到
+//   「尚未读取」），把「仓库在不在」的回答留给探测那一步。
+test('resolve 不自己探测（探测实现只有一处）', () => {
   const body = functionBody('resolve')
   assert.ok(body, 'resolve 函数不见了')
   assert.ok(!/wizard\/probe/.test(body),

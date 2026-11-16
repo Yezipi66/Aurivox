@@ -1,9 +1,12 @@
 // 接入流程第 1 步：解析链接 → 只读探测 → 克隆到 engines/<id>/。
-// 目录名的唯一来源：输入框 + 仓库名（folderName.js）。state.id 不作来源。
+// 目录名的唯一来源：链接推出来的名字（folderName.js），可被手写或从已有目录里选中覆盖。
+//   state.id 不作来源：旧 id 会让「解析新仓库、克隆与完成状态仍在旧目录」。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
+import Select from '../../../web/src/components/common/Select'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
+import { useEngineDirs } from './useEngineDirs'
 import { folderName } from './folderName'
 import { cloneDone, canUndoClone } from './prepareState'
 import { postJson } from './postJson'
@@ -73,6 +76,16 @@ function guessRepoFromUrl (raw) {
 }
 
 /**
+ * 链接框失焦时，焦点落到这些控件上就不代劳读取。
+ *
+ * 它们是这一步里的操作入口（读取、克隆、目录名下拉、清除目录、撤销、下一步），
+ *   每一个自己都有动作。失焦再补一次读取，会和那个动作抢同一条请求：
+ *   点了克隆却先跑起一次读取、点了下一步却在跳转的同一瞬间发请求。
+ * 换句话说，这里是「自动读取」的第一个出口：只对真正的空白点击生效。
+ */
+const AUTO_READ_SKIP = 'button, a, input, select, textarea, [role="button"]'
+
+/**
  * 许可证那一格：meta.license 是值字段（SPDX id 或 null）。
  * 读不出标识时用 licenseEvidence 事实字段说清楚，中文侧不许出现英文句子。
  */
@@ -89,17 +102,30 @@ function licenseText (meta, t) {
 export default function StepPrepare ({ state, facts, factsId, onChange, onDone, onNext, prep, onPrep, onUndone }) {
   const { t } = useT()
   const [url, setUrl] = React.useState(state.url || '')
-  // 目录名不从持久段恢复：旧名字留在输入框里，换一个仓库时解析不会覆盖它，
-  //   于是「解析的是新仓库、克隆与完成状态仍是旧目录」。初值留空，由仓库名推断。
+  // 目录名留空 = 跟随链接：框里显示的是链接推出来的灰字，换链接名字就跟着换。
+  //   手写、或在下拉里选一台已有引擎，才把这个值固定下来（固定是可见的：框里有字）。
+  //   不从持久段恢复：旧名字留在框里时，解析新仓库不会覆盖它，
+  //   于是「解析的是新仓库、克隆与完成状态仍是旧目录」。
   const [idInput, setIdInput] = React.useState('')
-  // 人手动改过目录名之后，解析不再自动覆盖。
-  const [idTouched, setIdTouched] = React.useState(false)
+  // 候选清单 = engines/ 下已有的目录，供「复用已有引擎」；新名字不在此列，直接手写。
+  const { dirs: engineDirs } = useEngineDirs()
   const res = prep.res || null
   const probe = prep.probe || null
   const plan = prep.plan || null
   const cloneRes = prep.cloneRes || null
   const [busy, setBusy] = React.useState('')
   const [unlocked, setUnlocked] = React.useState(false)
+
+  // 输入框里此刻的值（同步副本）。异步请求返回时要判「期间链接有没有被改」：
+  //   自动读取让这种迟到变成常态，迟到的那次结果不许回写。
+  const urlRef = React.useRef(url)
+  // busy 的同步副本：state 要到下一帧才更新，失焦与点击落在同一瞬间时判不出来。
+  const busyRef = React.useRef('')
+  // 读取序号：中止或重新发起之后，旧那一次的响应一律丢弃。
+  const probeSeq = React.useRef(0)
+  const abortRef = React.useRef(null)
+  // 「已停止读取」：读取被主动中止后，状态行要说明发生过什么，而不只是回到未读取。
+  const [readStopped, setReadStopped] = React.useState(false)
 
   // 上次解析成功时链接框里的值，用于判「使用者是否改了链接」；必须在 res 之后声明（TDZ）。
   const lastResolved = (res && res.input) || ''
@@ -113,10 +139,12 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
   // 只写一个 patch：函数式更新拿到最新值，分开写同一帧会互相覆盖。
   // setRes 不再单独列出：res 的写入都走 onPrep（resolve 里要同时清 probe，
   //   单独 setRes 表达不了这种成组写，删掉免得误用）。
-  const patch = (k, v) => onPrep((w) => ({ ...w, [k]: v }))
-  const setProbe = (v) => patch('probe', v)
-  const setPlan = (v) => patch('plan', v)
-  const setCloneRes = (v) => patch('cloneRes', v)
+  // key 是会话段的键（目录名 + 地址）：解析途中目录名会从空变成真名，
+  //   不指定键时结果会写进一个随即被丢弃的键，界面表现为「读到了又变回没读」。
+  const patch = (k, v, key) => onPrep((w) => ({ ...w, [k]: v }), key)
+  const setProbe = (v, key) => patch('probe', v, key)
+  const setPlan = (v, key) => patch('plan', v, key)
+  const setCloneRes = (v, key) => patch('cloneRes', v, key)
 
   /**
    * 发一个 POST 请求，把失败也变成可读的结论。
@@ -129,7 +157,7 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
    *
    * 判据放在 editor/postJson.js（可单测），这里只做转发。
    */
-  const post = (path_, body) => postJson(path_, body)
+  const post = (path_, body, opts) => postJson(path_, body, undefined, opts)
 
   // 不填目录名时的默认值 = 仓库根链接的最后一段。state.id 不作来源（旧 id 会造成双 id）。
   // 这一行同时喂给克隆请求、命令文案、目标路径与风险文案。
@@ -138,28 +166,36 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
 
   // ① 解析（本地，不联网），紧接着做一次只读探测
   const resolve = async () => {
+    busyRef.current = 'link'
     setBusy('link')
     try {
-      // 留空时后端的 id 参数故意不给，避免旧 id 顶上来找回上次引擎的目录名。
-      const j = await post('/wizard/resolve', {
-        url, id: (idInput.trim() || undefined),
-      })
+      // 不带 id：目录名只由链接与输入框决定。把输入框的值回传，后端会把它原样还回来，
+      //   改名之后克隆的目标就停在上一个仓库。
+      const j = await post('/wizard/resolve', { url })
+      // 期间链接被改过（失焦自动读取让这种迟到很常见）⇒ 这次解析作废。
+      //   不作废就会把输入框改回旧链接、并把旧仓库的 id 写回父组件。
+      if (urlRef.current !== url) return null
       // 解析失败（链接不合法、服务未能启动）⇒ 如实报出来，不往下走。
       if (!j.ok) {
-        onPrep((w) => ({ ...w, res: { ...j, input: url } }))
-        return
+        onPrep((w) => ({ ...w, res: { ...j, input: url } }), { url })
+        return null
       }
       const resolvedName = folderName({ typed: idInput, suggested: j.id })
       // 后端已把 /tree/... /blob/... 剥掉，界面必须反映截断后的仓库根：
       //   输入框与 wz.url 若还留原始链接，显示的是带尾巴的 URL，
       //   克隆/探测却用截断后的，显示与实际使用不一致。
       const resolvedUrl = j.url || url
-      // 读取不在这里自动跑：它是「读取仓库」按钮的专属动作（手动、有意图）。
-      //   解析只做本地 URL 规范化与目录名推断，不联网；「仓库在不在」交给按钮回答，
-      //   解析成功就顺带探一次会让按钮形同虚设，使用者也不知道探的是哪一步。
-      onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: null }))
+      // 这份结果的归属键：目录名就用这次解析出来的名字。
+      //   不指定键时写入方会用「当前渲染里的目录名」，而它此刻还是空的或上一台的。
+      const key = { id: resolvedName, url: resolvedUrl }
+      // 读取不在这里自动跑：它是 readRepo 的动作（失焦自动一次，或按钮显式一次）。
+      //   解析只做本地 URL 规范化与目录名推断，不联网；「仓库在不在」交给后面那步回答，
+      //   解析成功就顺带探一次会让「读取仓库信息」这个动作说不清是哪一次。
+      onPrep((w) => ({ ...w, res: { ...j, input: resolvedUrl }, probe: null }), key)
       if (j.ok) {
-        if (!idTouched) setIdInput(j.id)
+        // 推导值只出现在 placeholder 里，不写进输入框：一旦写进去，它就和「人写的」
+        //   分不开了，换链接时再也不会跟着变（克隆落到旧目录的那条路径）。
+        urlRef.current = resolvedUrl
         if (resolvedUrl !== url) setUrl(resolvedUrl)
         onChange({ url: resolvedUrl, id: resolvedName, repoUrl: j.url, cloneUrl: j.cloneUrl })
         // 目录已存在时这一步会变成「复用」，要提前告诉使用者，
@@ -169,34 +205,111 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
           const p = await post('/wizard/clone', {
             id: resolvedName, cloneUrl: j.cloneUrl,
           })
-          setPlan(p)
+          // 同上：期间换了链接就不再写这份计划（它属于上一个仓库）。
+          if (urlRef.current === resolvedUrl) setPlan(p, key)
         } catch (e) { /* 查不到就按普通克隆走，不阻断 */ }
       }
+      // 返回这次的归属（地址 + 目录名）：紧接着的探测要用它写同一份会话段。
+      return key
     } finally {
       // 这一行必须在 finally 里：请求失败时也要把「正在读…」撤掉，
       //   否则界面会永远停在那个提示上，而使用者看不到任何原因。
+      busyRef.current = ''
       setBusy('')
     }
   }
 
   // ② 探测（只读，不写盘）
-  const doProbe = async () => {
-    setBusy('probe'); setProbe(null)
+  //   中止与迟到都收在这里：abortRef 让「停止读取」能立刻拿回界面，
+  //   probeSeq 让已经作废的那一次不许回写状态。
+  //   key = { url, id }：这次读的地址与它归属的目录名，由 readRepo 交进来
+  //   （解析会顺手把 /tree/... 剥掉，读旧串会白跑一趟）。
+  const doProbe = async (key) => {
+    const at = key.url
+    const mySeq = ++probeSeq.current
+    const ctl = new AbortController()
+    abortRef.current = ctl
+    busyRef.current = 'probe'
+    setBusy('probe'); setProbe(null); setReadStopped(false)
     try {
       // 读取针对「使用者此刻在输入框里看到的地址」。
-      //   url 就是输入框的值（初始 state.url，之后每次输入都 setUrl）；
       //   不要退到 state.repoUrl：它是持久段里上一次解析的产物，换了链接
       //   就过期，留着会让「输入 A 却读取 B」。
-      const j = await post('/wizard/probe', { url })
-      setProbe(j)
+      const j = await post('/wizard/probe', { url: at }, { signal: ctl.signal })
+      // 换过链接 / 被中止 / 又发了一次 ⇒ 这次结果已经无对象，不写进界面。
+      if (mySeq !== probeSeq.current || urlRef.current !== at) return
+      if (j && j.code === 'ABORTED') return
+      // 带上这次读的地址：界面只认与当前输入同源的那份（见 probeCur）。
+      setProbe({ ...j, at }, key)
     } finally {
-      setBusy('')
+      // 这一行必须在 finally 里：请求失败时也要把「正在读…」撤掉，
+      //   否则界面会永远停在那个提示上，而使用者看不到任何原因。
+      // 只有仍是「最新那次」才有权撤掉状态：被中止或被顶替的那次不许动 busy。
+      if (mySeq === probeSeq.current) {
+        abortRef.current = null
+        busyRef.current = ''
+        setBusy('')
+      }
     }
+  }
+
+  // 停止读取：自动读取与手动读取都要能中止。
+  //   一次读取要等一个远端往返，网络半通时会一直转；没有出口时使用者只能刷新页面，
+  //   而刷新会把已经填好的链接与目录名一起丢掉。
+  const stopRead = () => {
+    // 先让序号前进：在途那一次的响应回来时序号已不匹配，不会回写状态。
+    probeSeq.current += 1
+    const c = abortRef.current
+    abortRef.current = null
+    if (c) c.abort()
+    busyRef.current = ''
+    setBusy('')
+    setReadStopped(true)
+  }
+
+  // ② 读取仓库：贴完链接就能点，不需要先让输入框失焦。
+  //   解析是本地规范化（不联网），探测才读远端；解析不合法就停在错误提示上，
+  //   不拿一个不合法的地址去探测（那只会多一条 404 的噪音）。
+  //   这一步合并了原来「失焦解析 → 再点读取」两下，按钮在输入框一有内容时就出现：
+  //   新用户贴完链接能直接看到该点哪儿。
+  const readRepo = async () => {
+    // 一次只跑一条读取：失焦自动读与按钮点击可能落在同一瞬间（state 还没更新）。
+    if (busyRef.current) return
+    // 这是一次新的读取：上一次的「已停止读取」到这里作废，否则解析那一段
+    //   状态行还挂着「已停止读取」，看起来像这次点击没有生效。
+    setReadStopped(false)
+    // 当前输入已经解析过 ⇒ 直接读它；否则先解析，用解析出来的地址与目录名去读。
+    let key = (resForCur && resForCur.ok)
+      ? { id: curId, url: urlRef.current }
+      : null
+    if (!key) {
+      let got = null
+      try { got = await resolve() } catch { got = null }
+      if (!got) return
+      key = got
+    }
+    await doProbe(key)
+  }
+
+  // 离开链接框 = 点一次「读取仓库信息」。
+  //   自动动作必须留好出口，否则它从帮手变成绊脚石。三个出口：
+  //   ① 焦点落到本步里的控件上就不代劳（见 AUTO_READ_SKIP）：那些控件自己有动作；
+  //   ② 同一条链接只自动读一次（已解析过就交给按钮）：否则失败之后每次点空白
+  //      都重试一遍，红色错误会一直挂在屏幕上；
+  //   ③ 读取期间按钮变成「停止读取」，随时可以中止（见 stopRead）。
+  const onUrlBlur = (e) => {
+    const rt = e.relatedTarget
+    if (rt && typeof rt.closest === 'function' && rt.closest(AUTO_READ_SKIP)) return
+    if (done || busyRef.current || !url.trim() || resForCur) return
+    readRepo()
   }
 
   // ③ 克隆（这一步才写盘）
   // curId 是唯一的 id 来源；写成 id: idInput || state.id 会在输入框空时退化到旧 id。
   const doClone = async (execute) => {
+    // 克隆结果的归属键：目录名可能在这一步才真正定下来（解析前它是空的）。
+    const key = { id: curId, url: urlRef.current }
+    busyRef.current = 'clone'
     setBusy('clone'); setCloneRes(null)
     // 目录名为空时在这里拦下，否则只会看到 Node 内核报错而非「请填写目录名」。
     if (!curId) {
@@ -204,6 +317,7 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
         error: t('Fill in the directory name first.',
           '请先填写目录名。'),
         errorZh: '请先填写目录名：它会成为 engines/ 下的文件夹名。' })
+      busyRef.current = ''
       setBusy('')
       return
     }
@@ -216,8 +330,8 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
       // 与文案、只读预览用同一个 curId：后端按它算 engines/<id>，
       // 前端不另拼一份。
       const j = await post('/wizard/clone', { id: curId, cloneUrl, execute })
-      if (j.ok && j.steps) setPlan(j)
-      setCloneRes(j)
+      if (j.ok && j.steps) setPlan(j, key)
+      setCloneRes(j, key)
       if (j.ok && execute) {
         // 写回 id：使用者改过目录名时，第 2/3 步要拿到刚克隆用的那个。
         //   不写 cloned：完成状态由端点读盘判，持久段里没有它的位置。
@@ -226,7 +340,7 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
         onChange({ id: curId })
         onDone && onDone(curId)
       }
-    } finally { setBusy('') }
+    } finally { busyRef.current = ''; setBusy('') }
   }
 
   // ④ 目标目录已有内容 ⇒ 复用，不重新克隆
@@ -275,7 +389,11 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
   //   用 facts.cloned 会恒为 undefined ⇒ done 恒 false ⇒ 克隆完成后
   //   「撤销克隆 / 下一步」永远不会出现，使用者被卡在第 1 步。
   const done = cloneDone({ facts, factsId, curId })
-  const meta = (probe && probe.meta) || null
+  // 只认「读的就是当前这个地址」的那份探测结果。
+  //   prep 里的 probe 会随持久段恢复（旧记录没有 at 字段，按当前地址算），
+  //   而换链接时 onChange 已把它清掉；这里再对一次地址，迟到的结果就没有位置了。
+  const probeCur = (probe && (probe.at == null || probe.at === url)) ? probe : null
+  const meta = (probeCur && probeCur.meta) || null
 
   // 读取状态（给卡片底部那个手动按钮用）。
   //   判据不能用 ok：解析是纯本地的（不联网，地址写错也返回 ok），
@@ -283,13 +401,22 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
   //   「够不够得到这个仓库」只看 meta 里有没有真读到东西。
   const readSomething = !!(meta && (meta.packageName || meta.requiresPython
     || meta.srcRoot || meta.license || (meta.dependencies && meta.dependencies.found)))
-  const sniffStatus = busy === 'probe'
+  // 解析与探测都算「正在读取」：解析是本地的一次往返，界面在这段时间里
+  //   也要说同一句话，否则点完按钮到探测开始之间会出现一段没有反馈的空档。
+  const sniffStatus = (busy === 'probe' || busy === 'link')
     ? t('Reading…', '正在读取…')
-    : !probe
-      ? t('Not read yet', '尚未读取')
-      : readSomething
-        ? t('Repository information read', '已读取仓库信息')
-        : t('No repository information read', '未读取到仓库信息')
+    : readStopped
+      ? t('Reading stopped', '已停止读取')
+      : !probeCur
+        // 还没读：把「离开链接框会自动读一次」写在状态里。自动动作不告知时，
+        //   使用者无法判断它有没有跑、跑的是哪一次的地址。
+        ? (resForCur
+            ? t('Not read yet', '尚未读取')
+            : t('Not read yet (reads once when you leave the link box)',
+              '尚未读取（离开链接框时会自动读取一次）'))
+        : readSomething
+          ? t('Repository information read', '已读取仓库信息')
+          : t('No repository information read', '未读取到仓库信息')
 
   return (
     /* 第一步全部铺开：一个连续区域，从上到下直接排。
@@ -299,8 +426,10 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
     <div className="wz-stack">
 
       {/* 两个输入框，一行。
-          目录名留空 = 自动取仓库根最后一段（tree/main 会被剥掉）
-          解析跟着失焦 / 回车自动跑，不需要「下一步」*/}
+          目录名留空 = 取仓库根最后一段（tree/main 会被剥掉），框里以灰字显示。
+          读取由三处触发，走的是同一条 readRepo：失焦离开链接框（等价于点一次读取）、
+          回车、右侧按钮。焦点落到本步的控件上时失焦不代劳（AUTO_READ_SKIP），
+          读取期间随时可以「停止读取」。*/}
       <div className="form-grid">
         <div className="field">
           <label className="field-label" htmlFor="wz-repo-url">
@@ -310,6 +439,11 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
             placeholder="https://github.com/owner/name"
             onChange={(e) => {
               setUrl(e.target.value)
+              // 同步副本：在途的读取回来时要判「期间有没有换过链接」。
+              urlRef.current = e.target.value
+              // 换链接 ⇒ 目录名回到「跟随」：旧名字属于上一个仓库，
+              //   留着它，克隆会落进那台引擎的目录（同名目录已有内容时变成复用）。
+              setIdInput('')
               // 每次输入都写回父组件：否则收起、展开这一步时链接就没了
               // （state 只在解析成功时才被写入，见 resolve() 里的 onChange）。
               // 写回父组件的是原始输入，不含解析产物
@@ -325,16 +459,31 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
                 onPrep((w) => ({ ...w, res: null, probe: null, plan: null, cloneRes: null }))
               }
             }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !resForCur) resolve() }}
-            onBlur={() => { if (url.trim() && !resForCur) resolve() }} />
+            // 回车与按钮走同一条路（解析 + 探测）：两处行为不一致时，
+            //   回车会被当成「已经探过了」，而实际只做了本地解析。
+            onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !busy) readRepo() }}
+            // 点到空白（焦点离开到页面本体）= 点一次「读取仓库信息」。
+            //   焦点落到本步的控件上时不代劳：那些控件自己有动作，
+            //   在这里再补一次读取只会和它抢同一条请求。
+            onBlur={onUrlBlur} />
         </div>
         <div className="field">
           <label className="field-label" htmlFor="wz-engine-id">
             {t('Folder name', '目录名')}
           </label>
-          <input id="wz-engine-id" className="control" type="text"
-            value={idInput} placeholder={autoId || 'auto'}
-            onChange={(e) => { setIdInput(e.target.value); setIdTouched(true) }} />
+          {/* 下拉 + 文本框同一套外观：框里能直接写新名字，也能从清单里选一台已有引擎。
+              留空 = 跟随链接（灰字就是接下来会用的那个名字）。 */}
+          <Select className="control" editable value={idInput}
+            placeholder={autoId || 'auto'}
+            inputProps={{ id: 'wz-engine-id' }}
+            onChange={(e) => setIdInput(e.target.value)}>
+            <option value="">{t('— follow the link —', '跟随链接')}</option>
+            {engineDirs.filter((d) => d.id && !d.id.startsWith('_')).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.id}{d.manifestPresent ? '' : `（${t('no manifest yet', '尚无名片')}）`}
+              </option>
+            ))}
+          </Select>
           {/* 去掉这里的 engines/<name>/ 预览。
               目录名下面已经有一行说明在讲「目录名就是名片里的 id」，
                  再挂一个路径预览是同一件事说两遍，而且
@@ -346,14 +495,18 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
       <p className="field-hint" style={{ margin: 0 }}>
         {t('Paste the repository root link — a link to a file or folder inside it '
           + 'is rejected. The directory name becomes the folder under engines/ and '
-          + 'is used as the id when the manifest is written in step 4.',
+          + 'is used as the id when the manifest is written in step 4. '
+          + 'Leave it empty to follow the link; pick one from the list to reuse an '
+          + 'existing engine.',
           '请粘贴仓库根地址，指向仓库内文件或目录的地址无效。'
-          + '该目录名将作为 engines/ 下的文件夹名，并在第 4 步写入 Manifest 时用作 id。')}
+          + '该目录名将作为 engines/ 下的文件夹名，并在第 4 步写入 Manifest 时用作 id。'
+          + '留空即跟随链接中的仓库名；从下拉里选一台已有引擎，表示复用它的目录。'
+          + '离开链接框时会自动读取一次仓库信息，也可以随时点右侧按钮重读。')}
       </p>
 
-      {busy === 'link' && (
-        <p className="field-hint" style={{ margin: 0 }}>{t('Reading…', '正在读取…')}</p>
-      )}
+      {/* 解析进行中的提示不在这里另开一行：下面那行状态已经把「正在读取…」
+          说了一遍（sniffStatus 同时覆盖解析与探测），同一件事说两遍会让人
+          以为是两件事。 */}
 
       {/* 告知「我们把你的链接改了」：不是错误，是修正
           （文案查表，不走后端的中文句子）*/}
@@ -370,6 +523,32 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
             <div className="field-hint">
               {t('Example:', '例如：')} <code>{resForCur.example}</code>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* 读取状态与读取按钮常驻一行，不再等到「读到东西」才出现。
+          状态先回答「读没读」，按钮文字再说明下一次点它会做什么。
+          读取期间这个按钮换成「停止读取」：读取要等远端往返，没有出口时
+          使用者只能刷新页面，而刷新会把填好的链接与目录名一起丢掉。 */}
+      {!done && !!url.trim() && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
+          <span style={{ flex: 1 }} />
+          {busy === 'probe' ? (
+            <button className="btn btn-sm" type="button" onClick={stopRead}>
+              {t('Stop reading', '停止读取')}
+            </button>
+          ) : (
+            <button className="btn btn-sm" type="button"
+              disabled={busy === 'link'}
+              onClick={readRepo}>
+              {busy === 'link'
+                ? t('Reading…', '正在读取…')
+                : readSomething
+                  ? t('Re-read repository info', '重新读取')
+                  : t('Read repository info', '读取仓库信息')}
+            </button>
           )}
         </div>
       )}
@@ -396,8 +575,8 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
             <span className="pk">{t('License', '许可证')}</span>
             <span className="pv">{licenseText(meta, t)}</span>
           </div>
-          {probe && probe.note && (
-            <p className="plan-warn" style={{ margin: 0 }}>{t(probe.note, probe.noteZh)}</p>
+          {probeCur && probeCur.note && (
+            <p className="plan-warn" style={{ margin: 0 }}>{t(probeCur.note, probeCur.noteZh)}</p>
           )}
         </>
       )}
@@ -506,19 +685,11 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
               // 复用时那句文案要跟着改：说「会克隆到哪」就与实际做的事不符了。
               reuse: reused,
             }}>
-            {/* 读取成功后、未克隆：一行靠右下，重新读取在左、克隆在右。
-                克隆是这一步才写盘的动作；读取成功后「读取仓库」才变成「重新读取」，
-                同一动作不再摆两处，免得使用者以为是两件事。
+            {/* 读取成功后、未克隆：克隆靠右下。
+                读取与重新读取在上方那一行常驻，这里不再摆第二处：
+                同一动作摆两处时，使用者会以为是两件事。
                 克隆中时旁边出现红色的「取消」。*/}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-              <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
-              <button className="btn btn-sm" type="button"
-                disabled={busy === 'probe'}
-                onClick={doProbe}>
-                {busy === 'probe'
-                  ? t('Reading…', '正在读取…')
-                  : t('Re-read repository info', '重新读取')}
-              </button>
               <button className="btn btn-primary btn-sm" type="button"
                 // 目录名为空时按钮禁用：不许拿旧 id 顶，也不许发空请求
                 disabled={busy === 'clone' || !curId}
@@ -575,32 +746,11 @@ export default function StepPrepare ({ state, facts, factsId, onChange, onDone, 
         </>
       )}
 
-      {/* 读取仓库（手动，右下角；只在还没读取 / 读取失败时显示）。
-          这是读取的唯一入口：解析只做本地 URL 规范化（不联网、地址写错也说 ok），
-          探测对 404 也返回 ok:true，真正的信号在 probe.notes 里，而 notes
-          没有接入渲染，于是仓库不存在时界面只停在一个「进行中」，
-          使用者既看不到原因，也没法自己再探一次。
-          读取成功后这个按钮就交给上面那行的「重新读取」，不再重复摆：
-          同一动作摆两处，使用者会以为是两件事。*/}
-      {resForCur && resForCur.ok && !done && !readSomething && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-          gap: 8, marginTop: 12 }}>
-          <span className="field-hint" style={{ margin: 0 }}>{sniffStatus}</span>
-          <button className="btn btn-sm" type="button"
-            disabled={busy === 'probe' || !url.trim()}
-            onClick={doProbe}>
-            {busy === 'probe'
-              ? t('Reading…', '正在读取…')
-              : t('Read repository info', '读取仓库信息')}
-          </button>
-        </div>
-      )}
-
       {/* 探测过程的原话：读不到默认分支、HTTP_404 之类都在这。
           这是判断「仓库在不在」唯一可见的信号，不摆出来就等于没探。*/}
-      {probe && Array.isArray(probe.notes) && probe.notes.length > 0 && (
+      {probeCur && Array.isArray(probeCur.notes) && probeCur.notes.length > 0 && (
         <div className="msg msg-warn" style={{ marginTop: 8 }}>
-          {probe.notes.map((n, i) => (
+          {probeCur.notes.map((n, i) => (
             <div key={i}>{typeof n === 'string' ? n : String(n)}</div>
           ))}
         </div>

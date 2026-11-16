@@ -423,6 +423,8 @@ function planDependencies (text, opts = {}) {
           torch: { count: 0, packages: [], action: 'choose-backend' },
         },
         hardware: hw ? {
+          cpu: hw.cpu || null,
+          memory: hw.memory || null,
           gpus: hw.gpus || [],
           recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
           confidence: hw.confidence, caveat: hw.caveat, caveatZh: hw.caveatZh,
@@ -470,6 +472,10 @@ function planDependencies (text, opts = {}) {
   const torchGroup = torchish.map((spec) => {
     const name = spec.split(/[<>=!~\[]/)[0].trim().toLowerCase()
     const isMain = name === 'torch'
+    // 上游没有写版本，也没有写 +cuXXX 这类后缀：这一行的问题不是「后端不明」，
+    //   而是「uv 会装成什么」。写清后者才有用，让人自己确认等于没说。
+    //   这也是这一格该给的答案：requirements 路线没有 lock，说「lock 里没写」是假话。
+    const unpinned = !/[<>=!~]/.test(spec) && !/\+\w/.test(spec)
     // 只对 torch 本体做后端判断；torchvision/torchaudio 是跟着 torch 走的
     const j = isMain && hw
       ? require('./hardware').judgeTorchSpec(spec, hw.recommended)
@@ -477,15 +483,25 @@ function planDependencies (text, opts = {}) {
     return {
       spec, name,
       isMain,
-      verdict: j ? j.verdict : (hw ? 'unknown' : 'unknown'),
-      why: j ? j.why
-        : isMain ? 'This machine was not detected — cannot tell whether this package will work.'
-        // 没锁定 torch 后端时无法判断，但不给理由（那是判据）。
-        //   后端由 torch 的版本决定，lock 里没写就说不出是哪个。
-          : 'The backend is decided by the Torch version, which is not declared in the lock.'
-      , whyZh: j ? j.whyZh
-        : isMain ? '未检测本机，无法判断该包能否使用'
-          : '后端由 torch 的版本决定，lock 中未声明'
+      verdict: j ? j.verdict : 'unknown',
+      why: unpinned
+        ? (isMain
+            ? 'The upstream pins no version, so uv installs what PyPI publishes: '
+              + 'a CPU build on Windows and macOS, a CUDA build on Linux. '
+              + 'Pick a backend above to install a GPU build instead.'
+            : 'It follows torch, and the upstream pins neither — uv decides both.')
+        : (j ? j.why
+          : (isMain ? 'This machine was not detected — cannot tell whether this package will work.'
+            : 'The backend is decided by the Torch version, which the upstream does not declare.')),
+      whyZh: unpinned
+        ? (isMain
+            ? '上游没有写版本，uv 会装 PyPI 上的默认发行版：'
+              + 'Windows 与 macOS 上是 CPU 版，Linux 上是 CUDA 版。'
+              + '要装 GPU 版，请在上方选择后端。'
+            : '它跟随 torch，而上游两个都没有写版本，由 uv 一并解析。')
+        : (j ? j.whyZh
+          : (isMain ? '未检测本机，无法判断该包能否使用'
+            : '后端由 torch 的版本决定，上游没有声明。')),
     }
   })
 
@@ -506,6 +522,8 @@ function planDependencies (text, opts = {}) {
       torch: { count: torchGroup.length, packages: torchGroup, action: 'choose-backend' },
     },
     hardware: hw ? {
+      cpu: hw.cpu || null,
+      memory: hw.memory || null,
       gpus: hw.gpus || [],
       recommended: hw.recommended, reason: hw.reason, reasonZh: hw.reasonZh,
       confidence: hw.confidence, caveat: hw.caveat, caveatZh: hw.caveatZh,

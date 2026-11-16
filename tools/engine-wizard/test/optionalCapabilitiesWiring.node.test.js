@@ -40,11 +40,14 @@ test('合成页只在名片写过长控件与发字段', () => {
 
 test('向导可选能力区：音频空行可直接填开关名，不再区分单选/多选', () => {
   const src = read('tools/engine-wizard/editor/OptionalCapabilities.jsx')
-  // 名片没有音频项时本区直接给一个空行填开关（与运行设备同一口径），
-  //   填了就写 role=audio_ref 并进 params.call_time，host 才收得到。
+  // 名片没有音频项时本区直接给一个空行填开关（与引擎配置区的运行设备格同一口径），
+  //   填了就写 role=audio_ref 并进白名单，host 才收得到。
+  //   写白名单那一步在 callWhitelist.js（新老名片两种写法不同），这里只验它被调用了。
   assert.ok(/addAudio/.test(src), '音频空行填开关要直接开能力')
   assert.ok(/role: 'audio_ref'/.test(src), '新声明的音频项要带角色')
-  assert.ok(/p\.call_time = \[\.\.\.ct, name\]/.test(src),
+  const addFn = /const addAudio = \([\s\S]*?\n  \}\)/.exec(src)
+  assert.ok(addFn, '找不到 addAudio 的函数体')
+  assert.ok(/withCallKey\([\s\S]*?name, true, 'file'\)/.test(addFn[0]),
     '否则 host 会静默丢掉请求里带的值')
   // Picker 一律是多选列表，不再区分单选/多选：9886 那边整段按多选数组处理。
   assert.ok(!/t\('Multiple', '多选'\)/.test(src), '音频区不再有单选/多选下拉')
@@ -54,14 +57,17 @@ test('向导可选能力区：音频空行可直接填开关名，不再区分�
 
 test('可选能力填的是开关名：名片不承载运行时的取值', () => {
   const src = read('tools/engine-wizard/editor/OptionalCapabilities.jsx')
+  const dev = read('tools/engine-wizard/editor/DeviceField.jsx')
   assert.ok(!/readFlagValue|writeFlagValue|call\.argv/.test(src),
-    '运行设备不再把 cuda / 0 这类值写进名片 argv')
-  assert.ok(/placeholder="--device"/.test(src), '运行设备格填的是开关')
+    '可选能力不把运行时的值写进名片 argv')
+  assert.ok(/placeholder="--device"/.test(dev), '运行设备格填的是开关，放在引擎配置区')
   assert.ok(/placeholder="--format"/.test(src), '输出格式格填的是开关')
   assert.ok(/role: \(args\[name\] && args\[name\]\.role\) \|\| 'output_format'/.test(src),
     '格式开关要带角色：填了开关名就补上 role，前端才长格式下拉')
-  assert.ok(/setFormatFlag/.test(src) && /p\.call_time = \[\.\.\.ct, name\]/.test(src),
-    '声明开关要同时写进 call_time，host 才收得到')
+  const fmtFn = /const setFormatFlag = \([\s\S]*?\n  \}\)/.exec(src)
+  assert.ok(fmtFn, '找不到 setFormatFlag 的函数体')
+  assert.ok(/withCallKey\([\s\S]*?name, true, 'text'\)/.test(fmtFn[0]),
+    '声明开关要同时进白名单（callWhitelist），host 才收得到')
 })
 
 test('输出格式透传：前端按声明发值，服务端并进引擎参数，宿主按白名单展开', () => {
@@ -78,14 +84,14 @@ test('输出格式透传：前端按声明发值，服务端并进引擎参数�
   assert.ok(/format_arg/.test(scan), '嗅探要带出格式开关，并把名字写进 call_time')
 })
 
-test('五类可选能力收在同一区，区标题统一且默认展开', () => {
+test('可选能力收在同一区，区标题统一且默认展开；运行设备在引擎配置区', () => {
   const src = read('tools/engine-wizard/editor/OptionalCapabilities.jsx')
   const opt = read('tools/engine-wizard/editor/OptionalConfig.jsx')
+  const dev = read('tools/engine-wizard/editor/DeviceField.jsx')
   assert.ok(/t\('Optional capabilities', '可选能力'\)/.test(src), '区标题用统一名字')
   assert.ok(!/平台声明|Platform declarations/.test(src), '区里不再出现旧名字')
   assert.ok(/React\.useState\(true\)/.test(src), '重要但非必填，默认展开')
   for (const [re, what] of [
-    [/Runtime device/, '运行设备'],
     [/Reference text/, '参考文本'],
     [/Auxiliary reference audio/, '辅助参考音频'],
     [/Slot name/, '权重位'],
@@ -96,5 +102,7 @@ test('五类可选能力收在同一区，区标题统一且默认展开', () =>
   assert.ok(!/t\('Multiple', '多选'\)/.test(src),
     '音频区不再有单选/多选下拉，picker 一律是选列表')
   assert.ok(/<OptionalCapabilities\b/.test(opt), '可选能力挂在可选参数区')
-  assert.ok(!/Runtime device|PlatformDeclarations/.test(opt), '运行设备不再散落在引擎配置文件里')
+  assert.ok(/<DeviceField\b/.test(opt), '运行设备挂在引擎配置区，不散落在可选能力里')
+  assert.ok(!/t\('Runtime device'/.test(src), '可选能力区不再摆运行设备那一格')
+  assert.ok(/Runtime device/.test(dev), '运行设备那一格在 DeviceField.jsx')
 })
