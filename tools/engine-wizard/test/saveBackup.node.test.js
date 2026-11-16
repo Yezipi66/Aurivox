@@ -54,16 +54,28 @@ test('覆盖保存：备份内容等于覆盖前', () => {
   fs.rmSync(root, { recursive: true, force: true })
 })
 
-test('二次覆盖：备份只留一份，内容是上一次的', () => {
+test('二次覆盖：每次一份带时间戳的备份，内容是上一次的', () => {
   const root = tmpRoot()
   writeFn({ id: 'eng1', manifest: M1, root })
   writeFn({ id: 'eng1', manifest: M2, root, overwrite: true })
   const r = writeFn({ id: 'eng1', manifest: { ...M2, label: 'third' }, root, overwrite: true })
   const bak = JSON.parse(fs.readFileSync(r.backup, 'utf8'))
   assert.strictEqual(bak.label, 'second', '备份应是上一次的内容')
-  // 目录下只有一个 .bak
+  assert.match(path.basename(r.backup), /^manifest\.\d{8}-\d{6}-\d{3}\.bak$/,
+    '备份名带时间戳：只留一份会把上一次的改动一起冲掉')
   const baks = fs.readdirSync(path.join(root, 'engines', 'eng1')).filter((f) => f.endsWith('.bak'))
-  assert.strictEqual(baks.length, 1, '备份只留一份，不攒')
+  assert.strictEqual(baks.length, 2, '两次覆盖各留一份')
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('⭐ 反复覆盖只留最近 5 份，不攒出一屋子备份', () => {
+  const root = tmpRoot()
+  writeFn({ id: 'eng1', manifest: M1, root })
+  for (let i = 0; i < 9; i += 1) {
+    writeFn({ id: 'eng1', manifest: { ...M1, label: 'v' + i }, root, overwrite: true })
+  }
+  const baks = fs.readdirSync(path.join(root, 'engines', 'eng1')).filter((f) => f.endsWith('.bak'))
+  assert.ok(baks.length <= 5 && baks.length > 0, '备份数量要给个上限，实际 ' + baks.length)
   fs.rmSync(root, { recursive: true, force: true })
 })
 

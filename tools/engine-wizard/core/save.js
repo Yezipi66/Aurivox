@@ -111,9 +111,10 @@ function saveManifest (manifest, opts = {}) {
   }
 
   // ---- 7. 覆盖前先备份，再写临时文件改名 ⇒ 不会写出半个 JSON ----
-  //   备份只留一份：反复保存不该攒出一堆 .bak。
+  //   备份带时间戳：同一张名片可能被反复改，只留一份 .bak 会把上一次的改动一起冲掉，
+  //   而「我改错了想回到两版之前」正是备份存在的理由。旧的那批按时间只留最近几份。
   //   备份失败不阻断保存（备份是保险，不是前置条件）。
-  const bak = file + '.bak'
+  const bak = exists ? backupPathFor(file) : null
   if (exists) {
     try { fs.copyFileSync(file, bak) } catch (e) { /* 备份不了照样存，只是少了回滚点 */ }
   }
@@ -127,9 +128,33 @@ function saveManifest (manifest, opts = {}) {
     // 写入失败时原文件未被改动（改名前失败），备份还在，如实报错。
     return { ok: false, code: 'WRITE_FAILED', error: e.message, backup: exists ? bak : null }
   }
+  if (exists) pruneBackups(path.dirname(file))
 
   return { ok: true, path: file, bytes: text.length, createdDir, replaced: exists,
     backup: exists ? bak : null }
+}
+
+// 备份名里的时间戳：本地时间、定宽，字典序即时间序（清理时按名字排就够）。
+function stamp (d = new Date()) {
+  const p = (n, w = 2) => String(n).padStart(w, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`
+    + `-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${p(d.getMilliseconds(), 3)}`
+}
+
+function backupPathFor (file) {
+  return path.join(path.dirname(file), `manifest.${stamp()}.bak`)
+}
+
+// 反复保存不该攒出一屋子备份：只留最近 KEEP_BACKUPS 份。
+const KEEP_BACKUPS = 5
+
+function pruneBackups (dir) {
+  let names = []
+  try { names = fs.readdirSync(dir).filter((n) => /^manifest\..+\.bak$/.test(n)) } catch { return }
+  names.sort()
+  for (const n of names.slice(0, Math.max(0, names.length - KEEP_BACKUPS))) {
+    try { fs.unlinkSync(path.join(dir, n)) } catch { /* 删不掉不影响这次保存 */ }
+  }
 }
 
 /**

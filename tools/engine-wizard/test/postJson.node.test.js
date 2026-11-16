@@ -63,6 +63,31 @@ test('后端自己报失败时，原样返回后端的结论', async () => {
   assert.strictEqual(j.code, 'NOT_GITHUB', '后端的 code 不能被请求层的 code 覆盖')
 })
 
+// 主动中止不是故障：code 单独成一种，调用方据此丢掉这次结果，而不是弹一条错误。
+// 同时判「signal 真的传给了 fetch」：只改返回值不改传参，停止按钮就只是个摆设。
+test('主动中止：signal 传给请求，返回 code=ABORTED 而不是故障', async () => {
+  const ctl = new AbortController()
+  let gotSignal = null
+  const p = postJson('/wizard/probe', { url: 'x' }, (u, o) => {
+    gotSignal = o && o.signal
+    return new Promise((resolve, reject) => {
+      const sig = o && o.signal
+      if (sig) {
+        sig.addEventListener('abort', () => {
+          const e = new Error('The operation was aborted.')
+          e.name = 'AbortError'
+          reject(e)
+        })
+      }
+    })
+  }, { signal: ctl.signal })
+  ctl.abort()
+  const j = await p
+  assert.strictEqual(gotSignal, ctl.signal, 'signal 没传给请求：中止信号到不了这一层')
+  assert.strictEqual(j.ok, false)
+  assert.strictEqual(j.code, 'ABORTED', '中止被当成了故障：界面会弹一条并没有发生的错误')
+})
+
 // 没有 fetch 的环境（极旧浏览器、测试环境未注入）：也要给出结论，不能抛
 test('没有可用的请求接口时：返回失败结论，不抛异常', async () => {
   const saved = globalThis.fetch
