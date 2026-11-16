@@ -157,7 +157,14 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
     }
   }, [id, state.repoUrl])
 
-  React.useEffect(() => { if (id && !r && !busy) load() /* eslint-disable-line */ }, [id])
+  // 初次进来才从 probe 组装下载命令。切页回来时会话段里已有恢复的清单，
+  //   再 load() 会把 setManifest(saved.manifest) 的结果用 setManifest(null) 冲掉。
+  //   所以这里要先看会话段：有存档就不组装，让上面那条恢复 effect 的数据留住。
+  React.useEffect(() => {
+    if (!id || r || busy) return
+    if (loadDownloadState(id, state.repoUrl || '')) return
+    load() /* eslint-disable-line */
+  }, [id, state.repoUrl])
 
   // 断点续传：页面加载时读进度文件，恢复「已下载」状态。不依赖 manifest。
   React.useEffect(() => {
