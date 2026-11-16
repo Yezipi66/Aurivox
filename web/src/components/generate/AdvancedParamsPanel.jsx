@@ -207,9 +207,9 @@ export function AdvancedParamsPanel({
           {(outputFormats || []).length > 0 && (
             <div className="field" style={{ marginTop: 10 }}>
               <label className="field-label">{t('Output format', '输出格式')}</label>
-              <select className="control" value={format} onChange={(e) => onFormat && onFormat(e.target.value)}>
+              <Select className="control" value={format} onChange={(e) => onFormat && onFormat(e.target.value)}>
                 {outputFormats.map((f) => <option key={f} value={f}>{String(f).toUpperCase()}</option>)}
-              </select>
+              </Select>
             </div>
           )}
         </div>

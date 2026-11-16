@@ -8,6 +8,7 @@ import { basename } from '../../lib/pathText'
 import { recipeNameError } from '../../lib/recipeName'
 import { TARGET_LANG_OPTIONS, defaultTargetLang } from '../../lib/langOptions'
 import { useT } from '../../lib/i18n'
+import { Select } from './Select'
 import { recipeWeightPreview } from '../../lib/recipes'
 
 // A recipe's pinned language must be an explicit, conscious choice: the reading
@@ -109,9 +110,9 @@ function SaveRecipeModal({ open, onClose, source, role, defaults, onSaved }) {
           </div>
           <div className="field">
             <label className="field-label">{t('Language (required)', '语言（必选）')}</label>
-            <select className="control" value={language} onChange={e => setLanguage(e.target.value)}>
+            <Select className="control" value={language} onChange={e => setLanguage(e.target.value)}>
               {TARGET_LANG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            </Select>
             <div className="field-hint">
               {t('Pinned as the recipe\u2019s target-text language. It decides how shared Han characters (\u4e2d\u65e5) are read.',
                  '固定为该 recipe 的目标文本语言，决定共享汉字（中日）如何朗读。')}

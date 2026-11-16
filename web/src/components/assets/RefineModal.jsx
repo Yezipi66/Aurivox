@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { TrainParamFields, buildTrainingParams, REBUILD_PARAM_DEFAULTS, LANGUAGES } from '../train/TrainingTab'
 import { ConfirmDialog } from '../common/Dialogs'
+import { Select } from '../common/Select'
 import { useT } from '../../lib/i18n'
 import { modelsFromMeta } from '../../lib/modelPickers.pure.js'
 
@@ -226,12 +227,12 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
               />
               <div style={{ marginTop: 8 }}>
                 <label className="field-label">{t('New corpus language', '新语料语言')}</label>
-                <select className="control" value={language} onChange={e => setLanguage(e.target.value)} style={{ width: '100%' }}>
+                <Select className="control" value={language} onChange={e => setLanguage(e.target.value)} style={{ width: '100%' }}>
                   <option value="">
                     {t(`Inherit from parent (${parentLanguage || 'auto'})`, `继承父级（${parentLanguage || 'auto'}）`)}
                   </option>
                   {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-                </select>
+                </Select>
                 <div className="field-hint" style={{ marginTop: 4 }}>
                   {language === ''
                     ? t('Not declared — this branch inherits the parent Voice\u2019s language. Only pick a language to declare one for the new corpus.',
@@ -286,11 +287,11 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           {refineS1 && ckpts.gpt.length > 0 && (
             <div className="field-row" style={{ margin: '2px 0 6px 26px' }}>
               <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S1', 'S1 起点')}</label>
-              <select className="control" value={selS1} onChange={e => setSelS1(e.target.value)} style={{ flex: 1 }}>
+              <Select className="control" value={selS1} onChange={e => setSelS1(e.target.value)} style={{ flex: 1 }}>
                 {ckpts.gpt.map(c => (
                   <option key={c.path} value={c.path}>{c.name}{c.steps != null ? ` (step ${c.steps})` : ''}{c.default ? ' ★' : ''}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           <label className="toggle-row">
@@ -303,11 +304,11 @@ export default function RefineModal({ voiceId, parentDisplayName, parentVersion,
           {refineS2 && ckpts.sovits.length > 0 && (
             <div className="field-row" style={{ margin: '2px 0 6px 26px' }}>
               <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', minWidth: 96 }}>{t('Warm-start S2', 'S2 起点')}</label>
-              <select className="control" value={selS2} onChange={e => setSelS2(e.target.value)} style={{ flex: 1 }}>
+              <Select className="control" value={selS2} onChange={e => setSelS2(e.target.value)} style={{ flex: 1 }}>
                 {ckpts.sovits.map(c => (
                   <option key={c.path} value={c.path}>{c.name}{c.version ? ` [${c.version}]` : ''}{c.default ? ' ★' : ''}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           {!refinementType && (
