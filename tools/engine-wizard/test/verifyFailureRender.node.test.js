@@ -151,7 +151,7 @@ test('⭐⭐⭐ A 级在跑：面板留在原地，按钮就地变成运行中',
   //   跑完回来结论与上一次一模一样 ⇒ 使用者判定为「点了没反应」。
   //   正确表现是：已有结论时不动面板，只有按钮与计时变化。
   await show({ ok: true, level: 'B' })
-  assert.ok(container.textContent.includes('模型权重完整性'), '前置条件：结论区已经渲染')
+  assert.ok(container.textContent.includes('详细校验项'), '前置条件：结论区已经渲染')
 
   slowTierA = true
   const btn = [...container.querySelectorAll('button')]
@@ -163,7 +163,7 @@ test('⭐⭐⭐ A 级在跑：面板留在原地，按钮就地变成运行中',
   const text = container.textContent
   assert.ok(text.includes('正在运行…'), '按钮上的文案要变成运行中')
   assert.ok(text.includes('已用时间'), '运行中要给已用时间，否则长时间校验看不出还在跑')
-  assert.ok(text.includes('模型权重完整性'),
+  assert.ok(text.includes('详细校验项'),
     '⛔ 已有结论时整块被换成了占位行：面板必须留在原地')
 
   // 等这次请求走完，组件清掉计时器；否则测试进程被 setInterval 挂住。
@@ -180,13 +180,29 @@ test('⭐⭐⭐ 首屏还没有结论：面板照常渲染，不是一行占位�
   root.render(React.createElement(StepVerify, { key: 'boot', id: 'demo' }))
   await settle()
   const text = container.textContent
-  assert.ok(text.includes('模型权重完整性'), '⛔ 首屏不许整块换成占位行：四大块要从一开始就在')
+  assert.ok(text.includes('详细校验项'), '⛔ 首屏不许整块换成占位行：结论面板要从一开始就在')
   assert.ok(text.includes('语音合成可用性'), '合成块也要在')
   assert.ok(text.includes('正在校验…'), '要给一条加载提示，不能静默')
   assert.ok([...container.querySelectorAll('button')]
     .some((b) => b.textContent.trim() === '执行 A 级校验'),
   '按钮要在：首屏跑 B 级时，A 级按钮不能跟着显示「正在运行…」')
   holdTierB = false
+})
+
+test('三块静态校验收在一个可折叠面板里，默认收起', async () => {
+  await show({ ok: true, level: 'B' })
+  const hdr = container.querySelector('.collapsible-hdr')
+  assert.ok(hdr, '三块静态校验要有可折叠的标题行')
+  assert.ok(hdr.textContent.includes('详细校验项'), '标题要说明里面是什么')
+  assert.ok(hdr.textContent.includes('项通过'), '通过数留在标题上，收起也看得见')
+  assert.ok(!container.textContent.includes('模型权重完整性'), '默认收起：证据不占首屏')
+  hdr.click()
+  await settle()
+  const text = container.textContent
+  assert.ok(text.includes('运行环境完整性'), '展开后要看到环境完整性')
+  assert.ok(text.includes('引擎模块可导入'), '展开后要看到模块导入')
+  assert.ok(text.includes('模型权重完整性'), '展开后要看到权重核对')
+  assert.equal(container.querySelector('.collapsible-hdr').getAttribute('aria-expanded'), 'true')
 })
 
 test('参考音频是文件选择控件，不是只能手打路径', async () => {

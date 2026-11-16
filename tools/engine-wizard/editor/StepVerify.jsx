@@ -47,6 +47,8 @@ export function StepVerify ({ id, escape }) {
   const [assetTab, setAssetTab] = useState('slices')
   const [assetSearch, setAssetSearch] = useState('')
   const [assetLoading, setAssetLoading] = useState(false)
+  // 三块静态校验默认折叠：结论已经在上方「校验结论」里，展开只为看证据。
+  const [checksOpen, setChecksOpen] = useState(false)
   // 右侧参考音频抽屉：与第 4 步同一套 Stage Drawer（可收起 / 拖宽 / 全屏）。
   const [rightOpen, setRightOpen] = useState(true)
   const [rightFull, setRightFull] = useState(false)
@@ -782,11 +784,32 @@ export function StepVerify ({ id, escape }) {
             </div>
           </div>
 
-          {renderCheckBlock('env_shallow')}
-
-          {renderCheckBlock('env_deep')}
-
-          {renderCheckBlock('checkpoints')}
+          {/* 三块静态校验收进一个可折叠面板，默认收起：上面的「校验结论」已经给出
+              通过数与合成状态，展开只看证据。有未通过项时标题上的徽标照常显示。 */}
+          <div className="collapsible">
+            <div className="collapsible-hdr"
+              onClick={() => setChecksOpen(!checksOpen)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChecksOpen(!checksOpen) }
+              }}
+              aria-expanded={checksOpen}>
+              <span>{t('Detailed checks', '详细校验项')}</span>
+              <span className={`badge ${preflightStatus === 'ok' ? 'badge-ok'
+                : preflightStatus === 'fail' ? 'badge-danger' : 'badge-warn'}`}>
+                {preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
+              </span>
+              <span className="field-hint" style={{ marginTop: 0 }}>{checksOpen ? '▲' : '▼'}</span>
+            </div>
+            {checksOpen && (
+              <div className="collapsible-body">
+                {renderCheckBlock('env_shallow')}
+                {renderCheckBlock('env_deep')}
+                {renderCheckBlock('checkpoints')}
+              </div>
+            )}
+          </div>
 
           <div className="section">
             <div className="section-hdr">
