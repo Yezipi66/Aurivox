@@ -95,27 +95,17 @@ export default function App () {
   //   它与界面上看到的不一致时人会被卡在第 1 步且无从自救）。
   //   改成让使用者自己挑目录：完成状态、权重路径、会话段都以 wz.id 为键。
   const { dirs: engineDirs, reload: reloadDirs } = useEngineDirs()
-  // 只换 id：第 4 步的 EngineIdentity 用它同步全局目标
-  //   （那一路自己管名片的清换，且要求人点「读取参数」才读盘）。
-  const pickEngine = (id) => setWz((cur) => ({ ...cur, id: id || '' }))
-  // 逃生口的提交：换目标引擎，并把界面状态按新引擎重读一遍。
+  // 切换目标引擎的唯一入口：2、3、4、5 步都走这一条，语义一致。
   //   只改 id 不够：App 级名片（第 4 步的编辑对象）不跟 wz.id 走，而
   //   manifestEngineId 优先取 manifest.id，换目标后第 4 步还会停在上一台，
-  //   保存也写回上一台的目录。所以名片要一起换：盘上已有就按盘上的来，
-  //   没有就用换引擎清段给一个干净的空壳。
+  //   保存也写回上一台的目录。所以名片要一起换成新引擎的空壳。
+  //   不在这里读盘上的名片：一台引擎只有一张名片，读它是使用者的动作，
+  //   替他读掉等于把「读取 / 创建名片」这一步藏起来。
   //   text/err 同时归零：JSON 视图的编辑缓冲不清，旧名片会借防抖分支回来。
-  const switchEngine = async (nextId) => {
+  const switchEngine = (nextId) => {
     if (!nextId || nextId === wz.id) return
     setWz((cur) => ({ ...cur, id: nextId }))
-    let fromDisk = null
-    try {
-      const r = await fetch(`/wizard/manifest/${encodeURIComponent(nextId)}`)
-      const j = await r.json()
-      if (r.ok && j && j.manifest) fromDisk = j.manifest
-    } catch (e) { /* 端点调不通 ⇒ 退到清干净的空壳，不阻碍切换 */ }
-    if (fromDisk) setManifest(fromDisk)
-    else setManifest((cur) => manifestForEngineSwitch(cur, nextId, nextId))
-    // JSON 编辑缓冲与解析错误一起归零：不然旧内容会借 300ms 防抖回来
+    setManifest((cur) => manifestForEngineSwitch(cur, nextId, nextId))
     setText(null)
     setErr(null)
     // 操作记录按新引擎重读：完成状态（流程条绿勾）与引擎目录清单
@@ -305,10 +295,12 @@ export default function App () {
             text={text} err={err} setText={setText}
             // 只 setManifest，绝不 setText：manifest 是唯一真相，text 由它派生；两边互相回写会出竞态。
             onManifest={(m) => { setManifest(m); setErr(null) }}
-            // 第 4 步的引擎下拉也驱动全局目标：换一台编辑 = 换一台设置，一台引擎贯穿全流程。
-            onPickEngineTarget={pickEngine}
+            // 第 4 步的引擎下拉与逃生口走同一条切换：2 到 5 步语义一致。
+            onPickEngineTarget={switchEngine}
             diag={vresult} loading={vloading}
-            onSaved={reloadFacts}
+            // 保存回调传的是保存结果对象，不是引擎 id。这里忽略它，按刚保存的那台重读；
+            //   直接把对象交给 reloadFacts 会拿去查 install-state?id=%5Bobject%20Object%5D。
+            onSaved={() => reloadFacts(manifestEngineId || wz.id)}
             checkpointsPath={checkpointsPath}
             modelFiles={modelFiles}
             onRefreshInstall={refreshInstall}

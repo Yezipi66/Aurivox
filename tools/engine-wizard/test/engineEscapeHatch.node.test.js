@@ -289,14 +289,14 @@ function switchEngineBody (app) {
   return app.slice(start, end + '\n  }'.length)
 }
 
-test('App.jsx 有 switchEngine：换引擎时名片、缓冲、完成状态一起重读', () => {
+test('App.jsx 有 switchEngine：换引擎时名片、缓冲、完成状态一起换', () => {
   const body = switchEngineBody(fs.readFileSync(path.join(EDITOR_DIR, 'App.jsx'), 'utf8'))
   assert.ok(/setWz\(\(cur\) => \(\{ \.\.\.cur, id: nextId \}\)\)/.test(body),
     'switchEngine 没换 wz.id')
-  assert.ok(/\/wizard\/manifest\//.test(body),
-    'switchEngine 没按新引擎读盘上的名片：第 4 步还会停在上一台')
   assert.ok(/manifestForEngineSwitch/.test(body),
-    'switchEngine 没有新引擎无名片时的回落（清段空壳）')
+    'switchEngine 没把名片清成新引擎的空壳：第 4 步还会停在上一台')
+  assert.doesNotMatch(body, /\/wizard\/manifest\//,
+    'switchEngine 替使用者读了盘上的名片：读取 / 创建名片应当由人点「读取参数」')
   assert.ok(/setText\(null\)/.test(body) && /setErr\(null\)/.test(body),
     'switchEngine 没重置 JSON 编辑缓冲与解析错误：旧名片会借防抖分支回来')
   assert.ok(/reloadFacts\(nextId\)/.test(body),

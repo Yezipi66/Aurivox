@@ -223,6 +223,11 @@ test('换到磁盘上有名片的引擎：先显示「读取参数」，点了�
   await settle()
 
   // 选中不读盘：有名片的引擎要用户点「读取参数」。
+  //   按钮状态只是表象，这里再验一次表单内容没被灌入：自动读盘会让
+  //   runtime 一栏悄悄变成磁盘上那台的值，界面却说「还没读」。
+  assert.strictEqual(manifest.id, 'cosyvoice2', '选中后目标引擎应当换成新的一台')
+  assert.strictEqual(manifest.runtime, undefined,
+    '选中就把盘上名片灌进来了：读取 / 创建名片应当由人点「读取参数」')
   assert.ok(!buttonByText(container, 'Scan parameters'), '有名片的引擎没读进来之前不该显示「扫描参数」')
   const read = buttonByText(container, 'Read parameters')
   assert.ok(read, '有名片的引擎应当显示「读取参数」')
