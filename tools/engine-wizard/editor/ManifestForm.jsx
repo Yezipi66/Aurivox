@@ -1,7 +1,8 @@
 // Manifest 表单编辑器：按 fieldmeta 分组渲染输入，值交给调用方。只做界面层的输入与
 // 结构，不做合成逻辑、不写 manifest.json；渲染只用项目已有的类与组件，不自造 mf-* / pr-*。
 //
-// 三段：① 必填字段 6 格（RequiredFields）；② 命令行词序（ArgvWords，只有 cli 形态有）；
+// 三段：① 必填字段 6 格（RequiredFields）；② 命令行词序（ArgvWords，只有 cli 形态有，
+//   没有位置参数时收成一行）；
 // ③ 可选参数：合成参数（ParamDropZone）+ 引擎配置（OptionalConfig）。
 // 扫描发生在左栏 EngineScanZone，结果由页面层传进来。
 import React from 'react'
@@ -13,7 +14,7 @@ import ParamRow from './ParamRow'
 import ArgvWords from './ArgvWords'
 import { shouldAutoFillCheckpoints, withAutoFilledCheckpoints } from './manifestAutoFill'
 import {
-  shouldFillModelsRequired, withModelsRequired, requiredFromFiles,
+  shouldFillModelsRequired, withModelsRequired, requiredFromFiles, modelFilesOf,
   shouldFillVerify, withAutoFilledVerify,
 } from './declarationFill'
 
@@ -21,7 +22,7 @@ import {
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
   guessed, onParamDropped, onTypeConfirmed, modelFiles, entryCandidates,
-  pythonEntries,
+  pythonEntries, positionals, scanned,
 }) {
   const { t } = useT()
 
@@ -53,15 +54,17 @@ export default function ManifestForm ({
   //   说不出「齐不齐」（checkpoints.js 的 ready:null）。齐不齐的判据
   //   就是「声明的文件是不是一个不少」，而声明素材使用者刚下过一遍：
   //   下过什么就声明什么（剔掉 README / 校验和这类杂质）。
-  // 只在 id 定了、盘上有可声明的文件、且这一格空着时填：
-  //   使用者声明过（哪怕只写一个文件）是他的判断，不覆盖。
+  // 只在 id 定了、快照属于这台引擎、盘上有可声明的文件、且这一格空着时填：
+  //   使用者声明过（哪怕只写一个文件）是他的判断，不覆盖；
+  //   快照带着它自己的 id，换引擎时清掉 models 的那一个渲染会拿到上一台的清单，
+  //   那种清单不能用来写这一台（否则出现「ZipVoice 声明了 66 个 Kokoro 文件」）。
   // 判定与填值在 declarationFill.js 里，是纯函数，可以单独测。
   React.useEffect(() => {
     if (!shouldFillModelsRequired(manifest, modelFiles)) return
     // 交函数，基于最新名片合并：同一次提交里别的自动填也在写名片，
     //   拿快照整份写回会冲掉别人刚写的段。
     onChange((cur) => (shouldFillModelsRequired(cur, modelFiles)
-      ? withModelsRequired(cur, requiredFromFiles(modelFiles)) : cur))
+      ? withModelsRequired(cur, requiredFromFiles(modelFilesOf(modelFiles))) : cur))
     // onChange 不进依赖：它每次渲染都是新函数，进了就变成一直触发。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelFiles, manifest && manifest.id, manifest && manifest.models && manifest.models.required])
@@ -102,7 +105,7 @@ export default function ManifestForm ({
         entryConfidence={autofill && autofill.confidence} />
 
       {/* ①·5 命令行词序：argv 是有序词表，位置参数只能写在这里（必填区那四格只收开关名）。 */}
-      {isCli && <ArgvWords manifest={manifest} onChange={onChange} />}
+      {isCli && <ArgvWords manifest={manifest} onChange={onChange} positionals={positionals || null} />}
 
       {/* ② 可选参数：合成参数（左栏扫到的参数拖进来，生成页上给用户调的旋钮）
           + 引擎配置（平台有默认、要改才添加的那几项，用户在生成页看不到）。
@@ -110,7 +113,7 @@ export default function ManifestForm ({
           要改它们走 JSON 视图。 */}
       <ParamDropZone manifest={manifest} onChange={onChange}
         params={manifest.parameters || []} selectedParam={selectedParam}
-        spec={spec} ParamRow={ParamRow}
+        spec={spec} ParamRow={ParamRow} scanned={scanned}
         guessed={guessed} onParamDropped={onParamDropped}
         onTypeConfirmed={onTypeConfirmed}>
         <OptionalConfig manifest={manifest} onChange={onChange} />

@@ -91,6 +91,10 @@ async function mount (initial, ck, files) {
 
 // spark-tts 形状的素材：权重嵌套在子目录、混着杂质文件
 const FILES = ['BiCodec/bcodec.pt', 'LLM/qwen.pt', 'README.md', 'm.bin.lock']
+// install-state 回报的清单与「按哪个 id 问来的」一起存：换引擎时清掉 models 的
+//   那个渲染会拿着上一台的清单，带 id 才能被挡在外（真实事故：ZipVoice 的名片
+//   写进了 66 个 Kokoro 文件名）。
+const SNAP = { id: 'spark-tts', files: FILES }
 const SPARK = { id: 'spark-tts', label: 'Spark TTS', contract_version: 2,
   runtime: { python: 'engines/spark-tts/.venv', entry: '../../lib/engines/host.py',
     checkpoints: 'engines/spark-tts/checkpoints' },
@@ -98,7 +102,7 @@ const SPARK = { id: 'spark-tts', label: 'Spark TTS', contract_version: 2,
     method: 'infer', bind: { text: 'text' }, returns: 'file', seed: 'none' } }
 
 test('名片缺声明 + 盘上有文件 + call 有模块 ⇒ required 与 verify 都填上', { skip }, () => withDom(async () => {
-  const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', FILES)
+  const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', SNAP)
   // 杂质（README / .lock）剔掉，只剩两个权重文件
   assert.deepStrictEqual(api.m.models.required, ['BiCodec/bcodec.pt', 'LLM/qwen.pt'])
   // sys_path 猜克隆根；imports 照 call 段的模块，module-only
@@ -110,7 +114,7 @@ test('名片缺声明 + 盘上有文件 + call 有模块 ⇒ required 与 verify
 test('使用者声明过 required（哪怕一个文件）⇒ 不覆盖他的判断', { skip }, () => withDom(async () => {
   const { api, act, root } = await mount(
     { ...SPARK, models: { required: ['only_this.pt'] } },
-    'engines/spark-tts/checkpoints', FILES)
+    'engines/spark-tts/checkpoints', SNAP)
   assert.deepStrictEqual(api.m.models.required, ['only_this.pt'])
   // verify 两格照填（那是另一件事，互不干扰）
   assert.deepStrictEqual(api.m.runtime.verify.sys_path, ['engines/spark-tts'])
@@ -121,15 +125,15 @@ test('使用者声明过 required（哪怕一个文件）⇒ 不覆盖他的判�
 test('盘上清单后到（第 3 步下完了）⇒ 到了就填', { skip }, () => withDom(async () => {
   const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', null)
   assert.strictEqual(api.m.models && api.m.models.required, undefined, '没文件就别填')
-  await act(async () => api.setMf(FILES))
+  await act(async () => api.setMf(SNAP))
   assert.deepStrictEqual(api.m.models.required, ['BiCodec/bcodec.pt', 'LLM/qwen.pt'])
   await act(async () => root.unmount())
 }))
 
 test('填过之后模型文件清单再变 ⇒ 不再覆盖（已是使用者的声明）', { skip }, () => withDom(async () => {
-  const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', FILES)
+  const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', SNAP)
   assert.deepStrictEqual(api.m.models.required, ['BiCodec/bcodec.pt', 'LLM/qwen.pt'])
-  await act(async () => api.setMf(['BiCodec/bcodec.pt', 'LLM/qwen.pt', 'extra.pt']))
+  await act(async () => api.setMf({ id: 'spark-tts', files: ['BiCodec/bcodec.pt', 'LLM/qwen.pt', 'extra.pt'] }))
   assert.deepStrictEqual(api.m.models.required, ['BiCodec/bcodec.pt', 'LLM/qwen.pt'],
     '⛔ 填过之后又按新清单覆盖了：使用者（或上一次填）的声明被冲掉了')
   await act(async () => root.unmount())
@@ -138,7 +142,7 @@ test('填过之后模型文件清单再变 ⇒ 不再覆盖（已是使用者的
 test('填值与扫描/别处的自动填同一次提交不互冲（checkpoints 与 required 都在）', { skip }, () => withDom(async () => {
   // checkpoints 路径晚到：与 required 的 effect 在不同时机写名片，不许互相冲掉
   const { api, act, root } = await mount(
-    { ...SPARK, runtime: { python: 'engines/spark-tts/.venv' } }, null, FILES)
+    { ...SPARK, runtime: { python: 'engines/spark-tts/.venv' } }, null, SNAP)
   await act(async () => api.setCk('engines/spark-tts/checkpoints'))
   assert.strictEqual(api.m.runtime.checkpoints, 'engines/spark-tts/checkpoints',
     'checkpoints 填没上')
@@ -153,5 +157,26 @@ test('没有任何可填素材（空名片、没文件）⇒ 不填', { skip }, 
   const { api, act, root } = await mount({}, null, null)
   assert.strictEqual(api.m.models, undefined)
   assert.strictEqual(api.m.runtime && api.m.runtime.verify, undefined)
+  await act(async () => root.unmount())
+}))
+
+test('⭐⭐⭐ 换引擎时上一台的清单还在 ⇒ 不许写进新名片', { skip }, () => withDom(async () => {
+  const { api, act, root } = await mount(SPARK, 'engines/spark-tts/checkpoints', null)
+  // 上一台的文件清单后到
+  await act(async () => api.setMf(SNAP))
+  assert.deepStrictEqual(api.m.models.required, ['BiCodec/bcodec.pt', 'LLM/qwen.pt'])
+  // 切到另一台：models 被清空，而手上这份清单仍是上一台的。
+  //   照它填 ⇒ 新引擎的名片里写着上一台的文件名。
+  await act(async () => api.switchTo('other-engine'))
+  assert.strictEqual(api.m.models, undefined,
+    '⛔ 上一台的文件名写进了新引擎的名片（ZipVoice 顶着 66 个 Kokoro 文件名就是这样来的）')
+  await act(async () => root.unmount())
+}))
+
+test('换引擎后清单也换成本引擎的 ⇒ 这才填', { skip }, () => withDom(async () => {
+  const { api, act, root } = await mount(SPARK, null, null)
+  await act(async () => api.switchTo('other-engine'))
+  await act(async () => api.setMf({ id: 'other-engine', files: ['other.bin'] }))
+  assert.deepStrictEqual(api.m.models.required, ['other.bin'])
   await act(async () => root.unmount())
 }))

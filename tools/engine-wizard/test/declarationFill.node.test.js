@@ -15,7 +15,7 @@ const path = require('node:path')
 const FILL = path.join(__dirname, '..', 'editor', 'declarationFill.js')
 
 let requiredFromFiles, verifyModuleFromCall
-let shouldFillModelsRequired, withModelsRequired
+let shouldFillModelsRequired, withModelsRequired, modelFilesOf
 let shouldFillVerifySysPath, withVerifySysPath
 let shouldFillVerifyImports, withVerifyImports
 let shouldFillVerify, withAutoFilledVerify
@@ -26,6 +26,7 @@ test('加载 declarationFill.js', async () => {
   verifyModuleFromCall = m.verifyModuleFromCall
   shouldFillModelsRequired = m.shouldFillModelsRequired
   withModelsRequired = m.withModelsRequired
+  modelFilesOf = m.modelFilesOf
   shouldFillVerifySysPath = m.shouldFillVerifySysPath
   withVerifySysPath = m.withVerifySysPath
   shouldFillVerifyImports = m.shouldFillVerifyImports
@@ -33,7 +34,7 @@ test('加载 declarationFill.js', async () => {
   shouldFillVerify = m.shouldFillVerify
   withAutoFilledVerify = m.withAutoFilledVerify
   for (const f of [requiredFromFiles, verifyModuleFromCall, shouldFillModelsRequired,
-    withModelsRequired, shouldFillVerifySysPath, withVerifySysPath,
+    withModelsRequired, modelFilesOf, shouldFillVerifySysPath, withVerifySysPath,
     shouldFillVerifyImports, withVerifyImports, shouldFillVerify,
     withAutoFilledVerify]) {
     assert.strictEqual(typeof f, 'function')
@@ -115,34 +116,63 @@ test('call 段没有 / 模块空着 ⇒ 推不出来（不硬猜）', () => {
 // ---- models.required：该不该填 ----
 
 const FILES = ['LLM/qwen.pt', 'BiCodec/bcodec.pt', 'README.md']
+// 盘上文件快照带着「按哪个 id 问来的」：换引擎时清掉 models 的下一个渲染
+//   会拿着上一台的清单，不带 id 就挡不住（ZipVoice 曾写进 66 个 Kokoro 文件名）。
+const SNAP = { id: 'e1', files: FILES }
 
-test('id 定了、盘上有文件、这一格空着 ⇒ 该填', () => {
-  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, FILES), true)
+test('id 定了、快照属于这台、盘上有文件、这一格空着 ⇒ 该填', () => {
+  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, SNAP), true)
   assert.strictEqual(
-    shouldFillModelsRequired({ id: 'e1', models: { hint: 'x' } }, FILES), true)
+    shouldFillModelsRequired({ id: 'e1', models: { hint: 'x' } }, SNAP), true)
 })
 
 test('盘上只有杂质（没有可声明的文件）⇒ 不填（没法声明）', () => {
-  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, ['README.md']), false)
-  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, []), false)
+  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, { id: 'e1', files: ['README.md'] }), false)
+  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, { id: 'e1', files: [] }), false)
+  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, { id: 'e1', files: null }), false)
   assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, null), false)
 })
 
 test('引擎 id 还没定 ⇒ 不填', () => {
-  assert.strictEqual(shouldFillModelsRequired({}, FILES), false)
-  assert.strictEqual(shouldFillModelsRequired(null, FILES), false)
+  assert.strictEqual(shouldFillModelsRequired({}, SNAP), false)
+  assert.strictEqual(shouldFillModelsRequired(null, SNAP), false)
+})
+
+test('⭐⭐⭐ 快照是另一台引擎的 ⇒ 不填（换引擎的瞬间就会撞上）', () => {
+  // 从 A 切到 B：models 已被换引擎清空，而盘上文件清单还是 A 的。
+  //   照它填 ⇒ B 的名片里写着 A 的文件名。
+  assert.strictEqual(
+    shouldFillModelsRequired({ id: 'B' }, { id: 'A', files: ['a_model.pt'] }), false)
+  // 反过来也一样，且与文件多少无关：这份清单确实非空，只是不属于 B。
+  assert.strictEqual(
+    shouldFillModelsRequired({ id: 'ZipVoice' },
+      { id: 'kokoro', files: ['kokoro-v1_0.pth', 'voices/af_heart.pt'] }), false)
+})
+
+test('⭐⭐ 裸数组（没有身份）⇒ 不填：证明不了这份清单属于谁', () => {
+  assert.strictEqual(shouldFillModelsRequired({ id: 'e1' }, FILES), false)
 })
 
 test('使用者声明过（非空 required）⇒ 不覆盖他的判断', () => {
   assert.strictEqual(
     shouldFillModelsRequired(
-      { id: 'e1', models: { required: ['only_this.pt'] } }, FILES),
+      { id: 'e1', models: { required: ['only_this.pt'] } }, SNAP),
     false)
 })
 
 test('声明成空数组（= 没声明任何文件）⇒ 该填', () => {
   assert.strictEqual(
-    shouldFillModelsRequired({ id: 'e1', models: { required: [] } }, FILES), true)
+    shouldFillModelsRequired({ id: 'e1', models: { required: [] } }, SNAP), true)
+})
+
+// ---- modelFilesOf：从快照里取文件 ----
+
+test('快照取文件：对象取 files，裸数组原样，其它给空数组', () => {
+  assert.deepStrictEqual(modelFilesOf(SNAP), FILES)
+  assert.deepStrictEqual(modelFilesOf(FILES), FILES)
+  assert.deepStrictEqual(modelFilesOf(null), [])
+  assert.deepStrictEqual(modelFilesOf({ id: 'e1' }), [])
+  assert.deepStrictEqual(modelFilesOf({ id: 'e1', files: null }), [])
 })
 
 // ---- models.required：填出来的样子 ----

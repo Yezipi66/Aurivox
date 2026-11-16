@@ -134,9 +134,13 @@ export default function App () {
     setPrep(loadSession(wz.id, persistedUrl) || {})
   }, [wz.id, persistedUrl])
 
-  const patchPrep = (updater) => setPrep((cur) => {
+  // 写会话段。会话键是「目录名 + 地址」，而第 1 步在解析途中会把目录名从空变成真名：
+  //   解析刚读出来的结果如果只按当前这一对写，就会写进一个随即被丢弃的键
+  //   （现象是「读到了，紧接着又变回没读」，再点一次才正常）。
+  //   所以写入方可以指定键；不指定时才用当前这一对。
+  const patchPrep = (updater, key) => setPrep((cur) => {
     const next = typeof updater === 'function' ? updater(cur) : updater
-    saveSession(wz.id, persistedUrl, {
+    saveSession((key && key.id) || wz.id, (key && key.url) || persistedUrl, {
       res: next.res, probe: next.probe, plan: next.plan, cloneRes: next.cloneRes,
     })
     return next
@@ -173,7 +177,9 @@ export default function App () {
         if (!alive) return
         if (j && j.ok && j.steps_done) setFacts(j.steps_done)
         setCheckpointsPath((j && j.checkpoints_path) || null)
-        setModelFiles(Array.isArray(j && j.model_files) ? j.model_files : null)
+        // 清单与「按哪个 id 问来的」一起存：换引擎时清掉 models 的那一个渲染
+        //   会拿着上一台的清单，带着 id 才能被 shouldFillModelsRequired 挡住。
+        setModelFiles({ id, files: Array.isArray(j && j.model_files) ? j.model_files : [] })
         const st = j && j.steps
         setEngineState({
           env: st && st.env ? st.env.done : null,
@@ -204,7 +210,10 @@ export default function App () {
       .then((j) => {
         if (!alive) return
         setCheckpointsPath((j && j.checkpoints_path) || null)
-        setModelFiles(Array.isArray(j && j.model_files) ? j.model_files : null)
+        setModelFiles({
+          id: manifestEngineId,
+          files: Array.isArray(j && j.model_files) ? j.model_files : [],
+        })
         // 现状也跟着换引擎换：第 4 步编辑的这台可能不是第 1 步克隆的那台。
         const st = j && j.steps
         setEngineState({
@@ -226,8 +235,9 @@ export default function App () {
       .then((r) => r.json())
       .then((j) => {
         setCheckpointsPath((j && j.checkpoints_path) || null)
-        const files = Array.isArray(j && j.model_files) ? j.model_files : null
-        setModelFiles(files)
+        const files = Array.isArray(j && j.model_files) ? j.model_files : []
+        // 与 reloadFacts 同形状：清单带 id，调用方仍拿数组本身。
+        setModelFiles({ id, files })
         const st = j && j.steps
         setEngineState({
           env: st && st.env ? st.env.done : null,

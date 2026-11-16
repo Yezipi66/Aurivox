@@ -73,19 +73,43 @@ export function verifyModuleFromCall (manifest) {
 // ---- models.required ----
 
 /**
+ * 从盘上文件快照里取文件清单。
+ *
+ * 快照的形状是 `{ id, files }`：install-state 回报的文件清单必须与
+ *   它是按哪个引擎问来的一起存。换引擎的那一瞬，清单还是上一台的，
+ *   光看一个数组分不出归属（ZipVoice 的名片因此写进过 66 个 Kokoro 文件名）。
+ * 数组形状只认作「没有身份的清单」，供只取文件的界面调用；
+ *   要不要据此写名片由 shouldFillModelsRequired 判。
+ *
+ * @param {{id?: string, files?: string[]}|string[]|null} snapshot
+ * @returns {string[]} 文件清单（形状不对给空数组）
+ */
+export function modelFilesOf (snapshot) {
+  if (Array.isArray(snapshot)) return snapshot
+  if (snapshot && Array.isArray(snapshot.files)) return snapshot.files
+  return []
+}
+
+/**
  * 该不该把 models.required 填成盘上文件的清单。
  *
- * 该填：引擎 id 定了（否则 required 与这台引擎无关）、盘上有可声明的文件、
- *   且这一格空着（没声明过）。
- * 不该填：使用者声明过（哪怕只写了一个文件，那也是他的判断，不许覆盖）。
+ * 该填：引擎 id 定了（否则 required 与这台引擎无关）、快照确实属于这台引擎、
+ *   盘上有可声明的文件、且这一格空着（没声明过）。
+ * 不该填：使用者声明过（哪怕只写了一个文件，那也是他的判断，不许覆盖）；
+ *   快照是另一台的（换引擎时清完 models 的下一个渲染就会撞上这个），
+ *   拿它填等于把上一台的文件名写进这一台的名片。
  *
  * @param {object} manifest 当前名片
- * @param {string[]} files installState 送来的盘上文件清单
+ * @param {{id?: string, files?: string[]}|null} snapshot installState 送来的盘上文件快照
  * @returns {boolean} 该填就 true
  */
-export function shouldFillModelsRequired (manifest, files) {
+export function shouldFillModelsRequired (manifest, snapshot) {
   if (!manifest || !manifest.id) return false
-  if (requiredFromFiles(files).length === 0) return false
+  // 没有身份的清单不许用来写名片：唯一能证明「这份文件属于这台引擎」的
+  //   是 install-state 回报里的 id，一个裸数组证明不了。
+  if (!snapshot || Array.isArray(snapshot)) return false
+  if (!snapshot.id || snapshot.id !== manifest.id) return false
+  if (requiredFromFiles(snapshot.files).length === 0) return false
   const cur = (manifest.models && manifest.models.required) || []
   return !Array.isArray(cur) || cur.length === 0
 }

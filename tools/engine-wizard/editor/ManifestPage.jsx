@@ -9,6 +9,7 @@ import Stage from './Stage'
 import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
+import { modelFilesOf } from './declarationFill'
 import { PARAM_MIME, dragLabelOf } from './paramDrop'
 import { entryFileOf } from './entryChoiceField'
 import { scopeParams } from './paramScope'
@@ -34,10 +35,10 @@ export default function ManifestPage ({
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
-  // 哪边的抽屉开着。默认两边都收着：
-  //   第 4 步进来时左边还没扫过参数、右边还没选引擎，
-  //   两个空盒子摆在首屏上只是噪音。点边条上的箭头才滑出来。
-  const [drawer, setDrawer] = React.useState({ left: false, right: false })
+  // 哪边的抽屉开着。进来时两边都张开：左栏是接下来要拖的参数、右栏是实时预览，
+  //   收着的时候只有一条窄边，人看不出这里还有东西，也就不会点开。
+  //   宽度由 CSS 按「左栏 + 中栏最小宽」夹住右栏，两栏同开不会把中栏挤没。
+  const [drawer, setDrawer] = React.useState({ left: true, right: true })
   const toggleDrawer = (key) => setDrawer((prev) => ({ ...prev, [key]: !prev[key] }))
   // 右侧预览抽屉是否全屏：提到这一层，全屏时让「检查结果」面板退出抽屉，
   // 抽屉里只留预览本身：全屏是为了按平台真实尺寸查看，不应被诊断条目挤占。
@@ -79,6 +80,14 @@ export default function ManifestPage ({
   const pool = poolAll ? grouped : scope.params
   const params = pool
 
+  // 「按扫描结果定类型」用的那份清单：入口文件的参数排前面。
+  //   同一个开关在多个脚本里各有一份，内容还可能不同：--model-name 在推理入口是
+  //   zipvoice / zipvoice_distill，在 runtime/nvidia_triton 的客户端脚本里是另一组模型名。
+  //   只按扫描顺序取第一条，会把工具脚本上的那份铺成选项表。
+  const shapeSource = scope.params.length
+    ? [...scope.params, ...grouped.filter((p) => !scope.params.includes(p))]
+    : grouped
+
   // 左栏哪张卡已经落进名片：它的名字进了 call.args、成了某个槽位的开关（bind 的值），
   //   或已经出现在 argv 里。只用来把卡弱化，不阻止再次拖动：
   //   同一个参数可能同时喂两个槽位（正文与参考文本），也可能拖错格后要拖走。
@@ -114,10 +123,16 @@ export default function ManifestPage ({
   // 扫描要跨一次 await：回来时用这个读最新名片，不用闭包里点按钮那一刻的旧值。
   const latestManifest = React.useRef(manifest)
   latestManifest.current = manifest
-  const doScan = async () => {
+  // writeBack=false：只把扫描结果摆到界面上（参数池、入口候选、位置参数），
+  //   不往名片里写。进页面时自动跑的那一次用它，打开就替人改名片不是这里的职责。
+  // quiet=true：这是背景里跑的一次，失败不弹错误。人没点扫描，目录还没克隆、
+  //   Python 还没装好这类情形都会失败，把红字甩给他只是噪音；他点按钮时同样会看到。
+  const doScan = async (opts) => {
+    const writeBack = !(opts && opts.writeBack === false)
+    const quiet = !!(opts && opts.quiet)
     const id = (manifest && manifest.id) || ''
     if (!id) return
-    setBusy(true); setScanErr(null)
+    if (!quiet) { setBusy(true); setScanErr(null) }
     try {
       const r = await fetch('/wizard/discover', {
         method: 'POST',
@@ -125,7 +140,7 @@ export default function ManifestPage ({
         body: JSON.stringify({ id }),
       })
       const j = await r.json()
-      if (!j.ok) { setScanErr(j.error || `HTTP ${r.status}`); return }
+      if (!j.ok) { if (!quiet) setScanErr(j.error || `HTTP ${r.status}`); return }
       setScan(j)
       // 扫到了就把左边条打开：参数是这一步接下来要拖的东西。
       setDrawer((prev) => ({ ...prev, left: true }))
@@ -133,6 +148,8 @@ export default function ManifestPage ({
       const picked = inferGroups[0] || (j.groups || [])[0] || ''
       setGroup(picked)
       const pickedParams = (j.params || []).filter((p) => !picked || p.group === picked)
+      // 位置参数（命令行上没有开关名）：同一套筛法，选中的子命令之外的不接。
+      const pickedPositionals = (j.positionals || []).filter((x) => !picked || x.group === picked)
       // 反射器剔掉的 bind 槽位候选（text / output_path / output_dir）：不在 params 里，
       //   但认 call.bind 的槽位靠的就是这些名字。传进去，output_path 才填得出来。
       const bindCands = j.bind_candidates || []
@@ -148,17 +165,18 @@ export default function ManifestPage ({
       if ((latest.id || '') !== id) return          // 等结果期间换了引擎：这次扫描作废
       // 点扫描这一刻重读盘上现状：页面加载时的快照会过时（权重刚下完、或第 3 步又下了
       //   一个仓库），拿旧快照生成 models.required，会出现「盘上 13 个、只声明 7 个」。
-      let files = modelFiles
+      //   快照带着它是按哪个引擎问来的，换引擎期间留下来的那一份不能当这一台的现状。
+      let files = modelFilesOf(modelFiles)
       try {
         const fresh = onRefreshInstall ? await onRefreshInstall(id) : null
         if (Array.isArray(fresh)) files = fresh
       } catch (e) { /* 读不到就用手上这份，不阻断扫描 */ }
-      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints, files)
+      const result = computeAutoFill(pickedParams, latest.call || null, bindCands, entryPick, id, declareHints, files, pickedPositionals)
       if (result) {
-        onManifest((cur) => {
+        if (writeBack) onManifest((cur) => {
           const base = cur || {}
           if ((base.id || '') !== id) return cur
-          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, files) || result
+          const merged = computeAutoFill(pickedParams, base.call || null, bindCands, entryPick, id, declareHints, files, pickedPositionals) || result
           const next = { ...base, call: merged.call }
           // 参数白名单：host 只把 params.call_time 里的键交给引擎，两个名单缺一个
           //   都会在启动前拒收整张名片（load_time 缺了 / 参数未接入命令行）。
@@ -190,8 +208,20 @@ export default function ManifestPage ({
       } else {
         setAutofill({ matched: null, argList: [], notes: [], confidence: null })
       }
-    } catch (e) { setScanErr(e.message) } finally { setBusy(false) }
+    } catch (e) { if (!quiet) setScanErr(e.message) } finally { if (!quiet) setBusy(false) }
   }
+
+  // 进这一步就该看清这台引擎有什么：参数池、入口候选、位置参数都出自同一次扫描，
+  //   而这些状态只活在本次会话里，刷新回来一律是空的，界面于是对着一条能跑的命令
+  //   说「还没扫描」。已有 id 的引擎进来就静默扫一次，只摆结果、不写名片：
+  //   之后换引擎、或人点「扫描」，才按点击的意思写回。
+  const autoScanned = React.useRef('')
+  React.useEffect(() => {
+    const id = engineKey
+    if (!id || autoScanned.current === id) return
+    autoScanned.current = id
+    doScan({ writeBack: false, quiet: true })
+  }, [engineKey])
 
   // 拖进来一个参数：类型是猜的就记下来，中栏那一行要提醒确认。
   const onParamDropped = (param, name) => {
@@ -279,6 +309,8 @@ export default function ManifestPage ({
                 autofill={autofill} selectedParam={selected}
                 entryCandidates={scan && scan.entry_candidates}
                 pythonEntries={scan && scan.python_entries}
+                positionals={scan && scan.positionals}
+                scanned={shapeSource}
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />
               : (
