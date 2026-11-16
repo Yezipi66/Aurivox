@@ -1,15 +1,17 @@
-// 第 4 步「可选能力」区：声明每个能力从 CLI 的哪个开关进去。
-//   运行设备、参考文本、seed、输出格式、辅助参考音频、多权重位都在这里填开关名，填了才有对应控件。
-//   具体取值是运行时的东西（合成页选哪块卡、选哪种格式），名片不承载，平台负责把值填进这些开关。
+// 第 4 步「可选能力」区：声明合成时的能力从 CLI 的哪个开关进去。
+//   参考文本、seed、输出格式、辅助参考音频、多权重位都在这里填开关名，填了才有对应控件。
+//   具体取值是运行时的东西（选哪种格式、选哪份权重），名片不承载，平台负责把值填进这些开关。
 //   本区只编辑名字与标签，平台不解释上游语义。
 //
-// 版面：运行设备、参考文本、seed 同排；输出格式、辅助参考音频、多权重位各占一个框，框里是这一段要填的几格。
-//   三段排成框是为了让「这几格属于同一件事」由边框表达，不靠行距暗示；
-//   顺序按使用顺序：先设备与 seed 这几个「从哪个开关进」的单格，再输出与输入，最后是合成时能换的几份权重。
+// 版面：参考文本与 seed 各占第一行一半；输出格式、辅助参考音频、多权重位各占一个框。
+//   运行设备是启动期设置，已挪到「引擎配置」区（DeviceField.jsx），不在本区。
+//   三段排成框是为了让「这几格属于同一件事」由边框表达，不靠行距暗示。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { readSlots, writeSlots, emptySlot } from './weightSlots'
 import { seedArgText, withSeedSwitch } from './seedField'
+import { withCallKey } from './callWhitelist'
+import Select from '../../../web/src/components/common/Select'
 
 const APPLIES = ['call', 'launch']
 
@@ -32,16 +34,12 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
   const setAudio = (name, key, value) => patch((cur) => {
     const c = cur.call || {}
     const args = { ...(c.args || {}) }
-    const p = { ...(cur.params || {}) }
-    const ct = Array.isArray(p.call_time) ? p.call_time : []
     const v = String(value == null ? '' : value).trim()
     // 开关名清空（含只敲了空格）＝这一项不声明：参数、白名单一起收走，
     //   前端那一格随之消失，命令上也不会多一个空白词。
     if (key === 'flag' && !v) {
       delete args[name]
-      p.call_time = ct.filter((k) => k !== name)
-      if (!p.call_time.length) delete p.call_time
-      return { ...cur, call: { ...c, args }, params: p }
+      return withCallKey({ ...cur, call: { ...c, args } }, name, false)
     }
     const old = args[name] || {}
     const next = { ...old, [key]: key === 'flag' ? v : value }
@@ -51,9 +49,9 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
     return { ...cur, call: { ...c, args } }
   })
 
-  // 辅助参考音频：手填开关名 = 开放这项能力（与运行设备同一口径）。
+  // 辅助参考音频：手填开关名 = 开放这项能力（与引擎配置区的运行设备格同一口径：填开关名即声明）。
   //   名片里没有这类项时，这一格直接给一个空行，填上开关名就补上它的声明，
-  //   并同时写进 params.call_time（host 只认白名单里的键，不写进去界面选了也不发）。
+  //   并同时进白名单（host 只认白名单里的键，不写进去界面选了也不发）。
   const addAudio = (flag) => patch((cur) => {
     const name = 'audio_ref'
     const given = String(flag == null ? '' : flag).trim()
@@ -63,19 +61,14 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
     const next = { ...(args[name] || {}), flag: given,
       style: (args[name] && args[name].style) || 'value', role: 'audio_ref' }
     args[name] = next
-    const p = { ...(cur.params || {}) }
-    const ct = Array.isArray(p.call_time) ? p.call_time : []
-    if (!ct.includes(name)) p.call_time = [...ct, name]
-    return { ...cur, call: { ...c, args }, params: p }
+    return withCallKey({ ...cur, call: { ...c, args } }, name, true, 'file')
   })
 
   const dropAudio = (name) => patch((cur) => {
     const c = cur.call || {}
     const args = { ...(c.args || {}) }
     delete args[name]
-    const p = { ...(cur.params || {}) }
-    if (Array.isArray(p.call_time)) p.call_time = p.call_time.filter((k) => k !== name)
-    return { ...cur, call: { ...c, args }, params: p }
+    return withCallKey({ ...cur, call: { ...c, args } }, name, false)
   })
 
   const setFormats = (list) => patch((cur) => ({ ...cur, output_formats: list.length ? list : undefined }))
@@ -84,22 +77,17 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
   const setFormatFlag = (name, value) => patch((cur) => {
     const c = cur.call || {}
     const args = { ...(c.args || {}) }
-    const p = { ...(cur.params || {}) }
-    const ct = Array.isArray(p.call_time) ? p.call_time : []
     const v = String(value == null ? '' : value).trim()
     if (!v) {
       delete args[name]
-      p.call_time = ct.filter((k) => k !== name)
-      if (!p.call_time.length) delete p.call_time
-      const out = { ...cur, call: { ...c, args }, params: p }
+      const out = withCallKey({ ...cur, call: { ...c, args } }, name, false)
       delete out.output_formats
       return out
     }
     args[name] = { ...(args[name] || {}), flag: v,
       style: (args[name] && args[name].style) || 'value',
       role: (args[name] && args[name].role) || 'output_format' }
-    if (!ct.includes(name)) p.call_time = [...ct, name]
-    return { ...cur, call: { ...c, args }, params: p }
+    return withCallKey({ ...cur, call: { ...c, args } }, name, true, 'text')
   })
   // 权重位只有一个写入口：weights 与它需要的接线一起写。
   // 接线包括 param_keys（词汇表，不在表上的键名片装不上）、payload_keys（请求体透传）、
@@ -133,12 +121,6 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
       return out
     })
   }
-
-  // 运行设备：读名片 call.args 里 role="device" 的项。这一格永远可填，
-  //   名片里还没有这一项时填开关名就等于把它补上（默认 --device）。
-  const devRows = Object.entries(call.args || {})
-    .filter(([, entry]) => entry && entry.role === 'device')
-  const deviceFields = devRows.length ? devRows : [['device', null]]
 
   // ---- seed ----
   // 种子不是实参，是这台引擎「能不能复现」的声明。契约要求每张名片显式写出三态之一，
@@ -191,49 +173,10 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
             '填了才有对应的前端控件；留空的项以灰色显示。')}
         </div>
 
-        {/* 运行设备、参考文本、seed：一行多列。三格填的都是「参数从哪个开关进去」，
-            不是运行时的取值：选哪块卡在合成页，参考文本由音色卡或手工输入给。
-            列数跟设备格数走：设备位可以不止一个，三格必须挤在同一行，否则 seed 会被挤到下一行。 */}
+        {/* 第一行只剩参考文本与 seed：两格各占一半，不写死列数以外的宽度。
+            运行设备是启动期设置，已挪到下面的「引擎配置」区。 */}
         <div className="form-grid"
-          style={{ gridTemplateColumns: `repeat(${deviceFields.length + 2}, minmax(0, 1fr))` }}>
-          {deviceFields.map(([name, entry]) => {
-            // 只在真声明过时显示开关名。空名片给的是 placeholder，不是 value：
-            //   显示一个没写进名片的 --device，人会以为已经声明了。
-            const flag = (entry && entry.flag) || ''
-            const apply = (v) => patch((cur) => {
-              const c = cur.call || {}
-              const args = { ...(c.args || {}) }
-              const p = { ...(cur.params || {}) }
-              const ct = Array.isArray(p.call_time) ? p.call_time : []
-              const nextFlag = String(v == null ? '' : v).trim()
-              // 清空（含只敲了空格）＝这台引擎不声明运行设备：参数与白名单一起收走。
-              if (!nextFlag) {
-                delete args[name]
-                p.call_time = ct.filter((k) => k !== name)
-                if (!p.call_time.length) delete p.call_time
-                return { ...cur, call: { ...c, args }, params: p }
-              }
-              const next = { ...(args[name] || {}), flag: nextFlag }
-              if (!next.style) next.style = 'value'
-              if (!next.role) next.role = 'device'
-              args[name] = next
-              if (!ct.includes(name)) p.call_time = [...ct, name]
-              return { ...cur, call: { ...c, args }, params: p }
-            })
-            return (
-              <div className={`field${flag ? '' : ' wz-unset'}`} key={'device-' + name}>
-                <label className="field-label" style={{ margin: 0 }}
-                  title={t('The switch that receives the selected device. The device itself is chosen on the synthesis page.',
-                    '接收所选设备的开关；具体选哪块卡在合成页完成。')}>
-                  {t('Runtime device', '运行设备')}
-                </label>
-                <input className="control"
-                  value={flag}
-                  placeholder="--device"
-                  onChange={(e) => apply(e.target.value)} />
-              </div>
-            )
-          })}
+          style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
           {(() => {
             const bindNow = (m.call && m.call.bind) || {}
             return (
@@ -255,7 +198,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
               </div>
             )
           })()}
-          {/* seed：与运行设备、参考文本同一行。填开关名＝引擎自己收，
+          {/* seed：与参考文本平分第一行。填开关名＝引擎自己收，
               留空＝不可复现（名片里仍是显式的 "none"）。 */}
           <div className={`field${seedArg ? '' : ' wz-unset'}`}>
             <label className="field-label" style={{ margin: 0, textTransform: 'none' }}
@@ -303,7 +246,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
         })()}
 
         {/* 辅助参考音频：每条一行，开关名与标签都可改。前端那个选择器本来就是多选，
-            名片里没有这类项时，这一格直接给一个空行填开关名（与运行设备同一口径）。
+            名片里没有这类项时，这一格直接给一个空行填开关名（与引擎配置区的运行设备格同一口径：填开关名即声明）。
             这里不区分单选/多选：选中的路径一律按数组下发，由名片里的开关样式决定怎么展开
             （value 跟着一个开关、repeat 每个值一个开关）。只收单个值的上游拿到多个会自己报错，
             stderr 原样带回，使用者据此知道该选几个。 */}
@@ -364,7 +307,7 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
             <div style={{ ...BOX, marginTop: 6 }}>
               {shown.map((row, i) => (
                 <div key={'slot-' + i}
-                  className={row.name ? undefined : 'wz-unset'}
+                  className={'wz-weight-row' + (row.name ? '' : ' wz-unset')}
                   style={{ marginTop: i ? 8 : 0, paddingTop: i ? 8 : 0,
                     borderTop: i ? '1px solid var(--border)' : 'none' }}>
                   <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>
@@ -394,11 +337,11 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
                     </div>
                     <div>
                       <label className="field-label" style={cellLabel}>{t('Applies at', '生效时机')}</label>
-                      <select className="control" value={row.applies_at || 'call'}
+                      <Select className="control" value={row.applies_at || 'call'}
                         onChange={(ev) => setCell(i, 'applies_at', ev.target.value)}>
                         <option value="call">{t('on each call', '调用时换')}</option>
                         <option value="launch">{t('at startup', '启动时载入')}</option>
-                      </select>
+                      </Select>
                     </div>
                     <div>
                       <label className="field-label" style={cellLabel}
@@ -406,12 +349,12 @@ export default function OptionalCapabilities ({ manifest, onChange }) {
                           '这一位装的是一个模型目录还是一份权重文件。只影响合成页列出的候选，不影响下发。')}>
                         {t('Contents', '形态')}
                       </label>
-                      <select className="control" value={row.kind || ''}
+                      <Select className="control" value={row.kind || ''}
                         onChange={(ev) => setCell(i, 'kind', ev.target.value)}>
                         <option value="">{t('either', '不限')}</option>
                         <option value="dir">{t('folder', '目录')}</option>
                         <option value="file">{t('file', '文件')}</option>
-                      </select>
+                      </Select>
                     </div>
                     {/* 加在上、减在下。位名留空的行本来就会被忽略（位名是磁盘目录名），
                         但加号误点一次就多一行，所以减号得留着收回来。

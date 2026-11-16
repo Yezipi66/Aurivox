@@ -400,20 +400,43 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
   useEffect(() => { setRefTextOverride(null) }, [selectedVoice, selectedRefAudio])
   const effectiveRefText = refTextOverride != null ? refTextOverride : currentRefText
 
-  // 运行设备：本机有哪几块卡由后端探测，这里只把它摆成下拉。位置是先占的，
-  //   合成页排布还没定稿，之后按版面挪。选中的设备随请求以 device 键送出，
-  //   换算成这台引擎认的写法由服务端做（lib/engines/deviceValue.js）。
+  // 运行设备是启动期设置：本机有哪几块卡由后端探测，选中的卡由平台在起进程时写进
+  //   profile。名片没声明 role="device" 的引擎 declared=false，这一格根本不出现。
+  // 带 engine 参数是因为选项形状按引擎声明走：编号写法的引擎收不了 CPU，
+  //   列了自己候选值的引擎只认它那些词。
   const [devices, setDevices] = useState([])
   const [device, setDevice] = useState({ kind: 'auto' })
+  const [deviceDeclared, setDeviceDeclared] = useState(null)
+  const [deviceNotice, setDeviceNotice] = useState('')
   useEffect(() => {
     let alive = true
-    api('/api/devices')
+    const q = engine?.id ? `?engine=${encodeURIComponent(engine.id)}` : ''
+    api('/api/devices' + q)
       .then((r) => {
-        if (alive && r.ok && r.data && Array.isArray(r.data.options)) setDevices(r.data.options)
+        if (!alive || !r.ok || !r.data) return
+        if (Array.isArray(r.data.options)) setDevices(r.data.options)
+        setDeviceDeclared(r.data.declared === undefined ? null : r.data.declared)
+        if (r.data.choice) setDevice(r.data.choice)
       })
       .catch(() => { /* 探测失败就只留「自动」一项，界面不空着 */ })
     return () => { alive = false }
-  }, [])
+  }, [engine?.id])
+
+  // 选卡只改启动设置，不随合成请求下发：值存平台这一层，下一次起引擎时生效。
+  const onDeviceChange = async (pick) => {
+    setDevice(pick)
+    setDeviceNotice('')
+    if (!engine?.id) return
+    try {
+      await api('/api/devices/choice', {
+        method: 'POST', body: { engine: engine.id, value: pick },
+      })
+      setDeviceNotice(t('Startup setting saved; restart the engine for it to take effect',
+        '启动设置已保存，重启引擎后生效'))
+    } catch {
+      setDeviceNotice(t('Could not save the startup setting', '启动设置保存失败'))
+    }
+  }
 
   // 读服务端为准的 Recent Generations 列表。
   const loadRecent = async () => {
@@ -498,9 +521,6 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
         ? { [engine.id]: phasedEngineParams.load }
         : undefined,
       ...phasedEngineParams.call,
-      // 运行设备：只在真的选了一块卡时发。auto 表示不指定，让引擎用自己的默认值，
-      //   发一个空值过去会让服务端以为用户在指定什么。
-      device: device && device.kind && device.kind !== 'auto' ? device : undefined,
       seed,
       engine_batch: engineBatch,
       media_type: mediaType,
@@ -766,15 +786,20 @@ function GenerateTab({ engine, voices, selectedVoice, setSelectedVoice, onEditVo
                 )}
               </div>
 
-              {/* 运行设备：先占位，位置与视觉等合成页排布定稿后再调。
-                  只在引擎名片声明了运行设备参数时，服务端才会把它下发。 */}
-              <DeviceSelect
-                options={devices}
-                value={device}
-                onChange={setDevice}
-                id="generate-device"
-                disabled={loading}
-              />
+              {/* 运行设备：引擎启动期的设置。只有名片声明了 role="device" 才画这一格，
+                  没声明、还没问出来、探测失败都不画。 */}
+              {deviceDeclared === true && (
+                <>
+                  <DeviceSelect
+                    options={devices}
+                    value={device}
+                    onChange={onDeviceChange}
+                    id="generate-device"
+                    disabled={loading}
+                  />
+                  {deviceNotice && <div className="field-hint">{deviceNotice}</div>}
+                </>
+              )}
               {showTextPrep && (
                 <TextPrepModal
                   onClose={() => setShowTextPrep(false)}

@@ -4,8 +4,10 @@
 // 本文件不识别具体引擎，只按显卡厂商与 uv.lock 里写的后端判断。
 
 // 显卡探测在 lib/engines/gpus.js：9886 主应用也要用同一份，反过来依赖 tools/ 是没必要的耦合。
+// CPU 与内存在 lib/system/hardware.js：与显卡同出一处，界面才能把整机情况一次说完。
 const gpuProbe = require('../../../lib/engines/gpus')
 const { detectGpus, sameGpuName, run, runFirst } = gpuProbe
+const { detectHardware } = require('../../../lib/system/hardware')
 
 /**
  * 后端的固定偏好顺序，照 StabilityMatrix 的原文顺序。
@@ -13,8 +15,10 @@ const { detectGpus, sameGpuName, run, runFirst } = gpuProbe
  */
 const BACKEND_PREFERENCE = [
   { key: 'cuda',   label: 'CUDA',   for: 'NVIDIA（Windows/Linux）',
-    index: 'https://download.pytorch.org/whl/cu121',
-    pkg: 'torch (cu121 wheel)' },
+    // 这里只是给界面与探测的兜底值。真要装时把全部 CUDA 候选索引交给 uv，
+    //   由它按锁定的 torch 版本解析出能装的那一档，平台不挑档位。
+    index: 'https://download.pytorch.org/whl/cu126',
+    pkg: 'torch (CUDA wheel)' },
   { key: 'zluda',  label: 'ZLUDA',  for: 'AMD (Windows)',
   forZh: 'AMD（Windows）',
     index: null,
@@ -78,9 +82,13 @@ function recommendBackend (gpus) {
  *   用户可以选任何一条，包括「我自己装」。
  */
 function inspectHardware () {
-  const gpus = detectGpus()
+  // 一次汇总取全：CPU、内存、显卡。后端推荐只看显卡，界面要一起显示。
+  const hw = detectHardware()
+  const gpus = hw.gpus
   const rec = recommendBackend(gpus)
   return {
+    cpu: hw.cpu,
+    memory: hw.memory,
     gpus,
     recommended: rec.recommended,
     reason: rec.reason,

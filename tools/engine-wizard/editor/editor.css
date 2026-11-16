@@ -551,6 +551,38 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 132px;
 }
+/* 运行设备那一格：标签行右侧挂一个「取值写法」小下拉。
+   它说的是这一格怎么换算（设备名 / 编号 / 候选值），属于这一格的元信息，
+   所以跟标签同级、不占输入框那一行，也就不改变这一行的高度。
+   中栏能被拖到 320px，那时这一格只有一百来像素：允许下拉换到第二行，
+   标签下一个下限，宁可多一行也不让「运行设备」被挤成空白（剩下一个没有说明的下拉）。 */
+.wz-device-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  min-width: 0;
+}
+.wz-device-label > .field-label {
+  flex: 0 1 auto;
+  min-width: 52px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wz-device-format {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 92px;
+  padding: 1px 4px;
+  height: auto;
+  font-size: var(--fs-11);
+  text-transform: none;
+}
+.wz-device-format:disabled {
+  opacity: 0.5;
+}
 /* 说明文字：11px 灰字，居右（标签是 flex，margin-left:auto 把它推到行尾）。
    标签带 uppercase，这里单独关掉大小写；空间不够时截断，全文仍在 title 里。 */
 .wz-opt-hint {

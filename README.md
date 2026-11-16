@@ -400,6 +400,11 @@ SoVITS 权重。
    `uvr5_weights\`；缺配置时 loader 退回默认配置，会因结构不符报「missing params」而加载失败。见 [FAQ · Q11](./docs/GUIDANCE.md#faq)。
 7. **FunASR 无置信度**: FunASR/Paraformer 为非自回归结构，默认不输出逐词后验，校对页置信度**如实留空、不着色**
    （非错误）；需置信度高亮请用 Faster Whisper。见 [FAQ · Q8](./docs/GUIDANCE.md#faq)。
+8. **ONNX 系引擎的设备不由平台选择**: ONNX 的设备开关是运行时（Execution Provider）而非命令行参数，
+   平台启动期的设备注入只覆盖 torch 引擎。本机对照三种走法：`onnxruntime` 的 DirectML 后端能在 Intel 卡上跑，
+   但比 CPU 慢 1.8 到 5.7 倍（短序列的搬运与调度开销大于计算收益）；它的 OpenVINO 后端在依赖不全时
+   **不报错、静默退回 CPU**，只有 `get_providers()` 能看出；OpenVINO 原生 API 才真正快（同一模型 33 ms 对 395 ms），
+   但需要平台自带 ONNX 宿主并接管会话创建，不属于名片声明设备的范畴。
 
 ## FAQ
 详情请查看[`GUIDANCE.md`](./docs/GUIDANCE.md)。

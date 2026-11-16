@@ -380,6 +380,19 @@ def build_cli_argv(call, profile, slots, params):
                 "宿主不替名片猜（认得的有：%s）"
                 % (name, ", ".join(sorted(args_table)) or "（一个都没写）"))
         argv.extend(_render_cli_arg(name, entry, params[name]))
+
+    # 启动期参数：平台起进程时把它们写进 call.init_args，运行设备就走这一条。
+    #   每次请求都带同一份值；请求里若也带了同名键，上面那段已经发过，这里不重复。
+    #   只认 role="device" 的项：init_args 里其余的是构造参数或带 {checkpoints} 的路径，
+    #   cli 形态不该把它们当命令行开关。
+    init_args = call.get("init_args") or {}
+    for name in sorted(init_args):
+        if name in params:
+            continue
+        entry = args_table.get(name)
+        if not entry or entry.get("role") != "device":
+            continue
+        argv.extend(_render_cli_arg(name, entry, init_args[name]))
     return argv
 
 
@@ -528,7 +541,8 @@ class Engine(object):
         self.kind = self.call.get("kind") or "python"
         self.seed_plan = SeedPlan(self.call.get("seed"))
         self.obj = None
-        self.device = None
+        # 设备的唯一来源是平台下发的名片，宿主不自己去探。
+        self.device = _declared_device(self.call)
         self.ready = False
         self.error = None
         self.load_seconds = None
@@ -559,9 +573,9 @@ class Engine(object):
                 raise RuntimeError("call.argv 第一个词指向的可执行文件不存在：%s" % exe)
             sys.stderr.write("%s cli: %s\n" % (BANNER, " ".join(argv)))
             self.load_seconds = round(time.time() - t0, 2)
-            self.device = _guess_device()
             self.ready = True
-            sys.stderr.write("%s ready (cli, per-request process)\n" % BANNER)
+            sys.stderr.write("%s ready (cli, per-request process, device=%s)\n"
+                             % (BANNER, self.device))
         except Exception:
             self.error = traceback.format_exc()
             self.load_seconds = round(time.time() - t0, 2)
@@ -586,7 +600,6 @@ class Engine(object):
                 BANNER, class_name, ", ".join(sorted(init_args))))
             self.obj = klass(**init_args)
             self.load_seconds = round(time.time() - t0, 2)
-            self.device = _guess_device()
             self.ready = True
             sys.stderr.write("%s ready in %ss on %s\n"
                              % (BANNER, self.load_seconds, self.device))
@@ -975,13 +988,19 @@ def _collect_generator(result, sample_rate, call_desc):
     return buf.getvalue()
 
 
-def _guess_device():
-    """尽力而为，拿不到就 unknown，这只是 /health 上的一行信息。"""
-    try:
-        import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except Exception:
-        return "unknown"
+def _declared_device(call):
+    """平台为这台引擎指定的运行设备，没有指定就写 auto。
+
+      只从名片来：平台起进程时把设备写进 call.init_args，宿主照抄这一份。
+      宿主不 import torch 去问本机有什么卡：那读的是引擎 venv 里的 torch，
+      同一个字段在不同引擎上会变成三种含义（型号 / cpu / unknown），
+      而「本机有哪些设备」该由平台从系统层读一次，全机一份。
+    """
+    init = call.get("init_args") or {}
+    value = init.get("device")
+    if value is None or str(value).strip() == "":
+        return "auto"
+    return str(value)
 
 
 def _wav_meta(data):

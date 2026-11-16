@@ -3,8 +3,11 @@
 import { useT } from '../../../web/src/lib/i18n'
 import { OPTIONAL_KEYS, SOURCES, PLATFORM_DEFAULTS, get, setPath, removeItem, prefillReferenceAudio, platformDefaultedRows, localMeasuredRows } from './optionalKeys'
 import OptionalCapabilities from './OptionalCapabilities'
+import DeviceField from './DeviceField'
+import { deviceSlots } from './deviceSlots'
+import Select from '../../../web/src/components/common/Select'
 
-// 「引擎配置」：除 5 项必填外、平台有兜底常量、按需再填的项。
+// 「引擎配置」：除 5 项必填外、平台有兜底常量、按需再填的项，以及运行设备这类启动期设置。
 //
 // 全量列出：没写的项也各占一行，控件留空；行内徽标标出平台按常量兜底的项与本机量得的项。
 // 前面几步已定下的（源码、安装、权重、调用形态）不在这里出现，改它们走 JSON 视图。
@@ -76,23 +79,23 @@ function Control ({ item, value, onValue, t, placeholder }) {
   }
   if (item.kind === 'bool') {
     return (
-      <select className="control" value={shown}
+      <Select className="control" value={shown}
         title={item.ctrlTitleZh ? t(item.ctrlTitleEn, item.ctrlTitleZh) : undefined}
         onChange={(e) => onValue(e.target.value === '' ? undefined : e.target.value === 'true')}>
         <option value="true">{item.optionLabels && item.optionLabels.true ? t(item.optionLabels.true.en, item.optionLabels.true.zh) : t('yes', '是')}</option>
         <option value="false">{item.optionLabels && item.optionLabels.false ? t(item.optionLabels.false.en, item.optionLabels.false.zh) : t('no', '否')}</option>
-      </select>
+      </Select>
     )
   }
   if (item.kind === 'select') {
     return (
-      <select className="control" value={shown}
+      <Select className="control" value={shown}
         title={item.ctrlTitleZh ? t(item.ctrlTitleEn, item.ctrlTitleZh) : undefined}
         onChange={(e) => onValue(e.target.value || undefined)}>
         {item.options.map((o) => (
           <option key={o} value={o}>{item.optionLabels && item.optionLabels[o] ? t(item.optionLabels[o].en, item.optionLabels[o].zh) : o}</option>
         ))}
-      </select>
+      </Select>
     )
   }
   if (item.kind === 'range') {
@@ -136,6 +139,9 @@ export default function OptionalConfig ({ manifest, onChange }) {
   //   （要挨个展开才看得见全貌）。
   //   条件式的两项（启动脚本非通用宿主、生成器形态）仍然按 when 判。
   const rows = OPTIONAL_KEYS.filter((it) => !it.when || it.when(m))
+  // 区标题的数的是「这一区有几格」：运行设备格不在 OPTIONAL_KEYS 里，
+  //   但它确实摆在这一区，得跟实际格子数一起算。两份都从 deviceSlots 取，不各写一遍。
+  const configCount = rows.length + deviceSlots(m).length
   // 平台对盘上这张名片的读数：哪些项是平台自己答的（profile.defaulted）。
   //   名片还没落盘时读不到，就不标（不猜）。
   //   本机测得的项（profile.value_sources 为 local）不在 defaulted 里，另列一行。
@@ -179,8 +185,8 @@ export default function OptionalConfig ({ manifest, onChange }) {
 
   return (
     <React.Fragment>
-      {/* 可选能力：运行设备 / 参考文本 / 音频输入 / 多权重位 / 输出格式。
-          重要但非必填，所以默认展开，与下面默认收起的引擎配置分开。 */}
+      {/* 可选能力：参考文本 / seed / 音频输入 / 多权重位 / 输出格式。
+          重要但非必填，所以默认展开；运行设备是启动期设置，放在下面的引擎配置里。 */}
       <OptionalCapabilities manifest={m} onChange={onChange} />
 
       {/* 引擎配置默认收起：多数保持默认就够，全展开会把真正要人答的格子挤到屏幕外。 */}
@@ -197,7 +203,7 @@ export default function OptionalConfig ({ manifest, onChange }) {
       >
         <span aria-hidden="true">{open ? '▾' : '▸'}</span>
         {t('Engine settings', '引擎配置')}
-        <span className="badge">{rows.length}</span>
+        <span className="badge">{configCount}</span>
         <span className="field-hint" style={{ marginLeft: 'auto' }}>
           {open ? t('click to collapse', '点击收起') : t('all left at defaults', '全部保持默认')}
         </span>
@@ -205,7 +211,11 @@ export default function OptionalConfig ({ manifest, onChange }) {
 
 
       {open && (
-      <div className="wz-opt-grid">
+      <React.Fragment>
+        {/* 运行设备跟启动参数同类：填的是接收设备值的开关名与取值写法，
+            具体选哪块卡在 9886 的引擎设置里完成，改了要重启引擎。 */}
+        <DeviceField manifest={m} onChange={onChange} />
+        <div className="wz-opt-grid">
         {rows.map((it) => {
           const value = get(m, it.path)
           // 「不填时平台取值」不再单独占行：一进标签 title，二进标签后的灰色说明。
@@ -243,7 +253,7 @@ export default function OptionalConfig ({ manifest, onChange }) {
                 {/* 出处控件常驻同一格：未填时禁用（沿用 .control:disabled 的 0.4 透明度），
                     有值时可改。行宽不随状态变化。 */}
                 {it.source && (
-                  <select className="control wz-opt-source"
+                  <Select className="control wz-opt-source"
                     value={value === undefined ? '' : (get(m, it.source) || 'estimated')}
                     disabled={value === undefined}
                     title={t('Where this number came from: measured = we measured it here, upstream = from the upstream docs, estimated = a guess. A value must carry one of the three (lib/engines/profile/topkeys.js).',
@@ -256,13 +266,14 @@ export default function OptionalConfig ({ manifest, onChange }) {
                     {SOURCES.map((s) => (
                       <option key={s} value={s}>{t(SOURCE_LABEL[s].en, SOURCE_LABEL[s].zh)}</option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </div>
             </div>
           )
         })}
-      </div>
+        </div>
+      </React.Fragment>
       )}
     </React.Fragment>
   )
