@@ -41,12 +41,12 @@ export function BrokerTab() {
 
   return (
     <div>
-      <div className="section" style={{ marginBottom: 12 }}>
+      <div className="section" style={{ marginBottom: 'var(--sp-12)' }}>
         <div className="section-hdr"><span>Broker — Distribution</span>
           <button className="btn btn-sm" onClick={load}>{t('Refresh', '刷新')}</button>
         </div>
         <div className="section-body">
-          <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 8 }}>
+          <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 'var(--sp-8)' }}>
             {t(
               <>Recipes are exposed through the OpenAI-compatible speech endpoint. Set the
               request's <code>voice</code> field to a recipe id (<code>role/name</code>) to synthesize with that
@@ -59,7 +59,7 @@ export function BrokerTab() {
             {!apiNoteExpanded && <BrokerApiNotePill className="nn-in-bar" onOpen={() => setApiNoteOpen(true)} />}
           </div>
           {apiNoteExpanded && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 'var(--sp-10)' }}>
               <BrokerApiNoteCard
                 endpoint={endpoint}
                 acked={apiNoteAcked}
@@ -71,7 +71,7 @@ export function BrokerTab() {
         </div>
       </div>
 
-      {loading && <div className="empty-state" style={{ padding: 16 }}><div className="es-sub">{t('Loading recipes…', '正在加载 recipe…')}</div></div>}
+      {loading && <div className="empty-state" style={{ padding: 'var(--sp-16)' }}><div className="es-sub">{t('Loading recipes…', '正在加载 recipe…')}</div></div>}
       {error && <div className="msg msg-error">{error}</div>}
 
       {!loading && !error && recipes.length === 0 && (
@@ -83,7 +83,7 @@ export function BrokerTab() {
       )}
 
       {roleKeys.map(role => (
-        <div className="section" key={role} style={{ marginBottom: 12 }}>
+        <div className="section" key={role} style={{ marginBottom: 'var(--sp-12)' }}>
           <div className="section-hdr"><span>{role.toUpperCase()}</span>
             <span className="cmp-count">{groups[role].length} recipe{lang === 'zh' ? '' : (groups[role].length > 1 ? 's' : '')}</span>
           </div>

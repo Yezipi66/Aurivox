@@ -63,15 +63,15 @@ export function NodeDetailPanel({
     };
     body = (
       <>
-        <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <label className="toggle-row" style={{ marginBottom: 'var(--sp-8)' }}>
           <input type="checkbox" checked={form.slice} onChange={e => toggleSlice(e.target.checked)} />
           {tr('Enable slicing', '启用切片')}
         </label>
-        <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <label className="toggle-row" style={{ marginBottom: 'var(--sp-8)' }}>
           <input type="checkbox" checked={form.copyRaw} onChange={e => toggleCopyRaw(e.target.checked)} />
           {tr('Copy raw audio into the asset (keep originals as reference)', '将原始音频复制进资源（保留原始文件作为参考）')}
         </label>
-        <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: -2, marginBottom: 8 }}>
+        <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: -2, marginBottom: 'var(--sp-8)' }}>
           {tr(
             <>At least one kind of reference audio is required: slicing or copied raw.
             Turning off “Copy raw” forces slicing on, and vice versa (otherwise the asset
@@ -90,7 +90,7 @@ export function NodeDetailPanel({
           </Select>
         </div>
         {form.slice && (
-          <div style={{ marginTop: 4 }}>
+          <div style={{ marginTop: 'var(--sp-4)' }}>
             <SliceParamFields form={form} setField={setField} />
           </div>
         )}
@@ -99,7 +99,7 @@ export function NodeDetailPanel({
   } else if (selectedNode === 'asr') {
     body = (
       <>
-        <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <label className="toggle-row" style={{ marginBottom: 'var(--sp-8)' }}>
           <input type="checkbox" checked={form.asr} onChange={e => setField('asr', e.target.checked)} />
           {tr('Enable transcription (ASR)', '启用转写 (ASR)')}
         </label>
@@ -109,7 +109,7 @@ export function NodeDetailPanel({
   } else if (selectedNode === 'train_s1') {
     body = (
       <>
-        <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <label className="toggle-row" style={{ marginBottom: 'var(--sp-8)' }}>
           <input type="checkbox" checked={form.trainS1 !== false} onChange={e => setField('trainS1', e.target.checked)} />
           {tr('Enable S1 (GPT) fine-tuning', '启用 S1 (GPT) 微调')}
         </label>
@@ -121,7 +121,7 @@ export function NodeDetailPanel({
   } else if (selectedNode === 'train_s2') {
     body = (
       <>
-        <label className="toggle-row" style={{ marginBottom: 8 }}>
+        <label className="toggle-row" style={{ marginBottom: 'var(--sp-8)' }}>
           <input type="checkbox" checked={form.trainS2 !== false} onChange={e => setField('trainS2', e.target.checked)} />
           {tr('Enable S2 (SoVITS) fine-tuning', '启用 S2 (SoVITS) 微调')}
         </label>
@@ -134,12 +134,12 @@ export function NodeDetailPanel({
     body = (
       <>
         <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{tr('Extracts text tokens and audio features required for training.', '提取训练所需的文本 token 与音频特征。')}</p>
-        <label className="toggle-row" style={{ marginTop: 8 }}>
+        <label className="toggle-row" style={{ marginTop: 'var(--sp-8)' }}>
           <input type="checkbox" checked={form.preprocessReview !== false && form.preprocessReview}
                  onChange={e => setField('preprocessReview', e.target.checked)} />
           {tr('Pause after ASR for manual proofreading', 'ASR 之后暂停以进行人工校对')}
         </label>
-        <p className="field-hint" style={{ marginTop: 4 }}>
+        <p className="field-hint" style={{ marginTop: 'var(--sp-4)' }}>
           {tr('When enabled the pipeline stops right after transcription so the recognised text and pronunciation can be corrected before preprocessing/training continue.',
               '启用后，流程会在转写完成后立即停止，以便在继续预处理 / 训练之前修正识别出的文本和读音。')}
         </p>
@@ -150,7 +150,7 @@ export function NodeDetailPanel({
   } else if (selectedNode === 'promote') {
     body = (
       <>
-        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 12 }}>{tr(
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 'var(--sp-12)' }}>{tr(
           <>Publishes the finished voice into <code>assets/</code> so it becomes selectable on the Generate page.</>,
           <>将完成的音色发布到 <code>assets/</code>，使其可在 Generate 页面中选择。</>)}</p>
         <label className="toggle-row">
@@ -158,7 +158,7 @@ export function NodeDetailPanel({
                  onChange={e => setField('keepStaging', e.target.checked)} />
           {tr('Keep task workspace after publish', '发布后保留任务工作区')}
         </label>
-        <p className="msg msg-warn" style={{ marginTop: 4, color: 'var(--warning)' }}>
+        <p className="msg msg-warn" style={{ marginTop: 'var(--sp-4)', color: 'var(--warning)' }}>
           {tr(
             <>By default this task&rsquo;s staging workspace (<code>.staging/&lt;taskId&gt;</code> — the
             intermediate preprocessing features and checkpoints) is <strong>permanently deleted</strong> once
@@ -183,7 +183,7 @@ export function NodeDetailPanel({
     <div className="node-detail">
       <div className="node-detail-hdr">
         <span className="node-detail-title">{NODE_LABELS[selectedNode]}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)' }}>
           {stBadge}
           <button className="btn btn-sm" onClick={onClose}>{tr('Close', '关闭')}</button>
         </div>

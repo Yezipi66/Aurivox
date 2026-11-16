@@ -87,14 +87,14 @@ function LiveLogs({ logs }) {
     <div className="section">
       <div className="section-hdr">
         <span>Live Logs</span>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-6)' }}>
           <button className="btn btn-sm" onClick={() => setAutoScroll(v => !v)}>{autoScroll ? 'Pause auto-scroll' : 'Resume auto-scroll'}</button>
           <button className="btn btn-sm" onClick={copy} disabled={!logs || logs.length === 0}>Copy</button>
         </div>
       </div>
       <div className="section-body">
         {(!logs || logs.length === 0) ? (
-          <div className="empty-state" style={{ padding: 16 }}>
+          <div className="empty-state" style={{ padding: 'var(--sp-16)' }}>
             <div className="es-sub" style={{ marginBottom: 0 }}>Logs will appear here after training starts.</div>
           </div>
         ) : (

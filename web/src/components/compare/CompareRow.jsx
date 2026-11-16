@@ -247,7 +247,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       {/* 编辑区：语种、模型、参考音频与高级设置，生成后默认折叠。 */}
       {editorOpen && (<>
       {/* 目标语种放在条目顶部，用窄下拉单行显示。 */}
-      <div className="field cmp-target-lang" style={{ maxWidth: 240, marginBottom: 8 }}>
+      <div className="field cmp-target-lang" style={{ maxWidth: 240, marginBottom: 'var(--sp-8)' }}>
         <label className="field-label">Target Language</label>
         <Select
           className="control"
@@ -329,7 +329,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           onModelChange({ ...rowModel, mix: false, gptVoiceId: '', sovitsVoiceId: '', gptCheckpoint: firstGptOf(rowModel.voiceId), sovitsModel: firstSovOf(rowModel.voiceId) })
         }
         return (
-          <div className="cmp-model-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="cmp-model-row" style={{ display: 'flex', gap: 'var(--sp-8)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="field" style={{ flex: '0 1 170px', minWidth: 130, marginBottom: 0 }}>
               <label className="field-label">Voice ID</label>
               <Select className="control" value={rowModel.voiceId || ''} onChange={e => pickVoice(e.target.value)}
@@ -370,7 +370,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
                       : sovOpts.map(s => <option key={s.path} value={s.path}>{s.name}{s.version ? ` [${s.version}]` : ''}{s.steps ? ` (${s.steps})` : ''}</option>))}
               </Select>
             </div>
-            <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-12)', marginBottom: 0, cursor: 'pointer' }}
+            <label className="cmp-mix-toggle" style={{ flexBasis: '100%', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-12)', marginBottom: 0, cursor: 'pointer' }}
               title={t('Mix models across assets — pick the GPT and SoVITS models from any voice independently (e.g. A’s GPT + B’s SoVITS).',
                        '跨资产混搭模型：GPT 与 SoVITS 可分别从任意音色中独立选择（例如 A 的 GPT + B 的 SoVITS）。')}>
               <input type="checkbox" checked={mix} onChange={e => toggleMix(e.target.checked)} />
@@ -401,7 +401,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
             onUpdate(row.id, 'promptLang', '')
             if (v !== 'custom') onUpdate(row.id, 'customRef', null)
           }}
-          style={{ marginBottom: 6 }}
+          style={{ marginBottom: 'var(--sp-6)' }}
         >
           <option value="slices">This voice's slices</option>
           <option value="cross">Another voice's reference</option>
@@ -410,7 +410,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         {refSource === 'slices' && (
           <>
             {/* 试听列表是这一行唯一的切片选择器，默认展开，也提供原始音频。3 到 10 秒的越界提示放在始终可见的表头里（覆盖所有参考来源），每条试听项另带自己的标记。 */}
-            <div className="collapsible" style={{ marginTop: 6 }}>
+            <div className="collapsible" style={{ marginTop: 'var(--sp-6)' }}>
               <div className="collapsible-hdr" onClick={() => setShowSlicePreview(v => !v)}>
                 <span style={{ fontSize: 'var(--fs-12)', fontWeight: 600, color: 'var(--muted)' }}>Audition reference &mdash; Slices / Raw (click one to set it as the main reference)</span>
                 <span style={{ color: 'var(--muted)', fontSize: 'var(--fs-12)' }}>{showSlicePreview ? '\u25b2' : '\u25bc'}</span>
@@ -455,7 +455,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         <div className="collapsible-hdr" style={{ padding: 0 }} onClick={() => setShowAux(v => !v)}>
           <label className="field-label" style={{ margin: 0, cursor: 'pointer' }}>
             Auxiliary References
-            <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
+            <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 'var(--sp-6)' }}>
               (optional{row.auxRefPaths.length > 0 ? ` · ${row.auxRefPaths.length} selected` : ''})
             </span>
           </label>
@@ -478,7 +478,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         <div className="collapsible-hdr" style={{ padding: 0 }} onClick={() => setShowText(v => !v)}>
           <label className="field-label" style={{ margin: 0, cursor: 'pointer' }}>
             Text
-            <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 6 }}>
+            <span style={{ fontWeight: 400, fontSize: 'var(--fs-11)', color: 'var(--muted)', marginLeft: 'var(--sp-6)' }}>
               {row.text && row.text.trim() ? '(custom)' : '(leave empty for default)'}
             </span>
           </label>
@@ -488,13 +488,13 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           <>
             <input
               className="control"
-              style={{ marginTop: 4 }}
+              style={{ marginTop: 'var(--sp-4)' }}
               value={row.text}
               onChange={e => onUpdate(row.id, 'text', e.target.value)}
               placeholder="Enter test text (empty = this voice's default)…"
             />
             {/* 这一行的读音校对与逐字汉语言种：覆盖只作用于本行，存为配方时一并钉住。在共享的文本准备弹窗里设置。 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginTop: 'var(--sp-8)', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-sm" onClick={() => setShowRowTextPrep(true)}>
                 Proof &amp; language{'\u2026'}
               </button>
@@ -532,7 +532,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
               {/* 按 engine.param_schema 循环，与生成页共用同一个 ParamField，这里不再分叉出按类型写死的输入框：那样换一台引擎会让格子照样显示、填了发出去上游不认且不报错。两档都画（跟着 TIERS），因为有些引擎的 common 层是空的，只画 common 时选它们一个格子都没有。不传 options：ParamField 只在 select 加 source 时用它（候选项要扫盘），写死 choices 的格子自取 field.choices。这一页不扫权重、音色与音频，那是生成页的职责。 */}
               {/* 档位按钮取自 TIERS。写死两档就是第二份「有几档」的事实。 */}
               {tiersWithFields.length > 1 && (
-                <div style={{ display: 'flex', gap: 6, gridColumn: '1 / -1' }}>
+                <div style={{ display: 'flex', gap: 'var(--sp-6)', gridColumn: '1 / -1' }}>
                   {tiersWithFields.map(tier => (
                     <button key={tier} type="button" className="btn btn-sm"
                       onClick={() => setAdvTier(tier)}
@@ -588,7 +588,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-soft)',
-          maxHeight: 240, overflow: 'auto', marginBottom: 4,
+          maxHeight: 240, overflow: 'auto', marginBottom: 'var(--sp-4)',
         }}>
           <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>
             Select {pickerTarget === 'main' ? 'main reference' : 'auxiliary'} audio ({allFiles.length} files)
@@ -617,7 +617,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
         <div className="cmp-result">
           <div className="cmp-result-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Result{refVoiceName ? ` · 🎭 ${refVoiceName}` : ''}</span>
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-4)' }}>
               {row.result.id && (
                 <button className="icon-btn" title="Show in file explorer"
                   onClick={async () => { const r = await api('/api/outputs/reveal', { method: 'POST', body: { id: row.result.id, source: 'comparerefs' } }); if (!r.ok) onUpdate(row.id, 'error', (r.data && r.data.error) || 'Could not open the file location') }}>
@@ -651,7 +651,7 @@ function CompareRow({ row, index, allAudioFiles, voiceFiles, onUpdate, onAddAux,
       )}
 
       {row.error && (
-        <div className="msg msg-error" style={{ marginTop: 6 }}>{row.error}</div>
+        <div className="msg msg-error" style={{ marginTop: 'var(--sp-6)' }}>{row.error}</div>
       )}
     </div>
   )

@@ -70,7 +70,7 @@ export function TrainingGates({
                 'Rule: a .list overrides segments.json; or drop segments.json directly. Provide only one.',
                 '规则：放 .list 会覆写 segments.json；或直接放 segments.json。二者只放其一。')}
             </p>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', marginTop: 'var(--sp-6)' }}>
               <span>{tr('Grace period (seconds)', '宽限期（秒）')}</span>
               <input type="number" className="control" min={0} max={600} value={gateGraceSec}
                      onChange={e => setGateGraceSec(e.target.value)}
@@ -88,23 +88,23 @@ export function TrainingGates({
         }} onClick={onCancelOverwrite}>
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 360, maxWidth: 460,
+            borderRadius: 'var(--radius-md)', padding: 'var(--sp-24)', minWidth: 360, maxWidth: 460,
             boxShadow: 'var(--shadow-soft)',
           }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginBottom: 'var(--sp-12)' }}>
               <span style={{ fontSize: 20 }}>⚠️</span>
               <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>Overwrite Existing Voice?</span>
             </div>
-            <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
+            <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 'var(--sp-8)' }}>
               The id <strong>{overwriteConfirm.existingId}</strong> already belongs to{' '}
               <strong>&ldquo;{overwriteConfirm.existingDisplay}&rdquo;</strong>.
             </p>
-            <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 16 }}>
+            <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 'var(--sp-16)' }}>
               Training will publish into <code>assets/{overwriteConfirm.existingId}/</code> and
               permanently replace the models and references of that voice. This cannot be undone.
               To keep both, cancel and give this one a different name.
             </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-8)', justifyContent: 'flex-end' }}>
               <button className="btn btn-sm" onClick={onCancelOverwrite}>Cancel</button>
               <button className="btn btn-sm btn-danger" onClick={onConfirmOverwrite}>Overwrite &amp; Train</button>
             </div>
@@ -119,25 +119,25 @@ export function TrainingGates({
         }} onClick={onCancelNoGpu}>
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', padding: 24, minWidth: 380, maxWidth: 480,
+            borderRadius: 'var(--radius-md)', padding: 'var(--sp-24)', minWidth: 380, maxWidth: 480,
             boxShadow: 'var(--shadow-soft)',
           }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginBottom: 'var(--sp-12)' }}>
               <span style={{ fontSize: 20 }}>🐢</span>
               <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>未检测到 NVIDIA GPU</span>
             </div>
-            <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
+            <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 'var(--sp-8)' }}>
               当前设备没有可用的 CUDA GPU。微调将在 <strong>CPU</strong> 上运行，
               可能<strong>耗时数小时甚至数十倍</strong>，且<strong>人声分离（UVR5）不可用</strong>。
             </p>
             <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 14 }}>
               推理不受影响，可正常在 CPU 上使用。若只是想生成语音，无需在此训练。
             </p>
-            <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-13)', marginBottom: 16 }}>
+            <label className="toggle-row" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', fontSize: 'var(--fs-13)', marginBottom: 'var(--sp-16)' }}>
               <input type="checkbox" checked={noGpuAck} onChange={e => setNoGpuAck(e.target.checked)} />
               已知 CPU 微调会非常慢，仍要继续
             </label>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 'var(--sp-8)', justifyContent: 'flex-end' }}>
               <button className="btn btn-sm" onClick={onCancelNoGpu}>取消</button>
               <button className="btn btn-sm btn-primary" disabled={!noGpuAck} onClick={onProceedWithoutGpu}>仍要开始</button>
             </div>

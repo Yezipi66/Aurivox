@@ -123,18 +123,18 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
 
   if (!groups.length) {
     return (
-      <div className="field-hint" style={{ marginTop: 10, padding: 8, border: '1px dashed var(--border)', borderRadius: 6 }}>
+      <div className="field-hint" style={{ marginTop: 'var(--sp-10)', padding: 'var(--sp-8)', border: '1px dashed var(--border)', borderRadius: 6 }}>
         {t('No Han character positions selected. Select and drag characters above to review their readings here.', '尚未选择汉字位置。请先在上方选择并拖拽汉字，然后在这里校对这些位置的读音。')}
       </div>
     )
   }
 
   return (
-    <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-      <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, marginBottom: 6 }}>
+    <div style={{ marginTop: 'var(--sp-10)', borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-10)' }}>
+      <div style={{ fontSize: 'var(--fs-12)', fontWeight: 600, marginBottom: 'var(--sp-6)' }}>
         {t('Selected Han readings', '已选汉字读音校对')}
       </div>
-      <div className="field-hint" style={{ marginBottom: 8 }}>
+      <div className="field-hint" style={{ marginBottom: 'var(--sp-8)' }}>
         {t('Only explicitly selected positions appear here. Characters left on automatic inference stay unlit and are reviewed below.', '这里只显示用户明确框选的位置。保持自动判定的汉字不会高亮显示，继续在下方“读音校对”中处理。')}
       </div>
       {groups.map(group => {
@@ -144,14 +144,14 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
             <legend style={{ padding: '0 6px', color: HAN_VISUAL[group.lang]?.borderColor || 'var(--text)', fontSize: 'var(--fs-11)' }}>
               {langName(t, group.lang)} · {group.items.length}
             </legend>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 'var(--sp-6)' }}>
               {group.items.map(item => {
                 const key = readingKey(item)
                 const suggestion = suggestions[key] || {}
                 const manual = Object.prototype.hasOwnProperty.call(readings || {}, key)
                 const value = manual ? readings[key] : (suggestion.reading || '')
                 return (
-                  <div key={key} style={{ display: 'grid', gridTemplateColumns: '32px 1fr', gap: 6, alignItems: 'center', padding: '4px 6px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}>
+                  <div key={key} style={{ display: 'grid', gridTemplateColumns: '32px 1fr', gap: 'var(--sp-6)', alignItems: 'center', padding: '4px 6px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 17 }}>{item.char}</div>
                       <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>@{item.index}</div>
@@ -178,8 +178,8 @@ function HanReadingReview({ text, direction, assignments, readings, setReadings,
                         style={{ height: 24, fontSize: 'var(--fs-11)', padding: '0 6px', width: '100%', boxSizing: 'border-box', color: manual ? 'var(--accent)' : 'var(--text)' }}
                         title={suggestion.error || `${unit?.label || 'reading'} · ${item.char}`}
                       />
-                      {suggestion.loading && <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 2 }}>{t('Previewing…', '预览中…')}</div>}
-                      {suggestion.error && <div style={{ fontSize: 'var(--fs-11)', color: 'var(--warning)', marginTop: 2 }}>{t('Preview unavailable; enter it manually.', '预览不可用；请手动输入。')}</div>}
+                      {suggestion.loading && <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-2)' }}>{t('Previewing…', '预览中…')}</div>}
+                      {suggestion.error && <div style={{ fontSize: 'var(--fs-11)', color: 'var(--warning)', marginTop: 'var(--sp-2)' }}>{t('Preview unavailable; enter it manually.', '预览不可用；请手动输入。')}</div>}
                     </div>
                   </div>
                 )
@@ -270,7 +270,7 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
   const overriddenCount = Object.keys(map).filter(k => /^\d+$/.test(k)).length
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 'var(--sp-8)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--sp-8)' }}>
         <span className="field-hint">
           {t('Choose Mandarin, Cantonese, or Japanese, then drag across Han characters. A range with mixed/unselected states is added to that language; a range already fully in that language is cleared back to automatic fallback.', '选择普通话、粤语或日语后拖拽框选汉字：包含未选中或其他语言的范围会增量设为当前语言；已经全部是当前语言的范围会清除覆盖并回退自动判定。')}
         </span>
@@ -278,7 +278,7 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
           {direction.choices.map(x => <option key={x} value={x}>{langName(t, x)}</option>)}
         </Select>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, userSelect: 'none' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-6)', userSelect: 'none' }}>
         {positions.map(pos => {
           const explicit = assignmentAt(map, pos)
           const pending = drag.some(x => x.index === pos.index)
@@ -310,7 +310,7 @@ function HanLangPicker({ text, direction, forced, setForced, readings, setReadin
           )
         })}
       </div>
-      <div style={{ marginTop: 8, fontSize: 'var(--fs-11)', color: overriddenCount ? 'var(--accent)' : 'var(--muted)' }}>
+      <div style={{ marginTop: 'var(--sp-8)', fontSize: 'var(--fs-11)', color: overriddenCount ? 'var(--accent)' : 'var(--muted)' }}>
         {t(`${overriddenCount} position(s) manually overridden`, `${overriddenCount} 个位置已手动覆盖`)}
       </div>
       <HanReadingReview text={text} direction={direction} assignments={map} readings={readings || {}} setReadings={setReadings} engineId={engineId} />
@@ -338,7 +338,7 @@ function HanFinalPreview({ text, direction, forced }) {
   const inferredHan=direction?.autoMode?inferAutoHanLanguages(text,direction.base,assignments):{}
   let previous='zh'
   Array.from(String(text||'')).forEach((ch,index)=>{const detected=charLang(ch,direction,assignments,index,inferredHan);const lang=detected||previous;previous=lang;const last=groups[groups.length-1];if(last&&last.lang===lang)last.text+=ch;else groups.push({lang,text:ch})})
-  return <div style={{borderTop:'1px solid var(--border)',paddingTop:12}}><div style={{fontSize: 'var(--fs-13)',fontWeight:600,marginBottom:10}}>{t('Final preview','最终预览')}</div><div style={{display:'flex',flexWrap:'wrap',gap:12}}>{groups.map((g,i)=><fieldset key={i} style={{margin:0,padding:'8px 12px',border:`2px solid ${SEG_COLORS[g.lang]||'var(--border)'}`,borderRadius:10}}><legend>{g.lang.toUpperCase()}</legend><span style={{whiteSpace:'pre-wrap'}}>{g.text}</span></fieldset>)}</div></div>
+  return <div style={{borderTop:'1px solid var(--border)',paddingTop:'var(--sp-12)'}}><div style={{fontSize: 'var(--fs-13)',fontWeight:600,marginBottom:'var(--sp-10)'}}>{t('Final preview','最终预览')}</div><div style={{display:'flex',flexWrap:'wrap',gap:'var(--sp-12)'}}>{groups.map((g,i)=><fieldset key={i} style={{margin:0,padding:'8px 12px',border:`2px solid ${SEG_COLORS[g.lang]||'var(--border)'}`,borderRadius:10}}><legend>{g.lang.toUpperCase()}</legend><span style={{whiteSpace:'pre-wrap'}}>{g.text}</span></fieldset>)}</div></div>
 }
 
 export { HanReadingReview, HanLangPicker, HanFinalPreview }

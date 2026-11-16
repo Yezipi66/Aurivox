@@ -80,7 +80,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
       <div className="rc-hdr">
         <div className="rc-title" onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
           title={open ? t('Collapse', '收起') : t('Expand', '展开')}>
-          <span style={{ marginRight: 6, fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{open ? '▼' : '▶'}</span>
+          <span style={{ marginRight: 'var(--sp-6)', fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{open ? '▼' : '▶'}</span>
           <span className="rc-display">{recipe.display_name}</span>
           <code className="rc-id">{recipe.id}</code>
         </div>
@@ -95,7 +95,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
           <div><span className="rc-k">{t('Reference', '参考音频')}</span><span className="rc-v" title={recipe.reference_audio}>{basename(recipe.reference_audio)}</span></div>
           <div>
             <span className="rc-k">{t('Language', '语言')}</span>
-            <span className="rc-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span className="rc-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-6)' }}>
               <Select className="control" style={{ height: 30, fontSize: 'var(--fs-12)', minWidth: 220 }}
                 value={recipe.language || ''} disabled={langBusy}
                 onChange={e => saveLang(e.target.value)}>
@@ -123,7 +123,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
           <div className="rc-cmd-hdr">
             <span onClick={() => setCmdOpen(o => !o)} style={{ cursor: 'pointer', userSelect: 'none' }}
               title={cmdOpen ? t('Collapse', '收起') : t('Expand full multi-line command', '展开完整的多行命令')}>
-              <span style={{ marginRight: 6, fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{cmdOpen ? '▼' : '▶'}</span>
+              <span style={{ marginRight: 'var(--sp-6)', fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>{cmdOpen ? '▼' : '▶'}</span>
               {t('Example call (OpenAI-compatible)', '调用示例（兼容 OpenAI）')}
             </span>
             <button className="btn btn-sm btn-ghost" onClick={copy}>{copied ? t('Copied', '已复制') : t('Copy command', '复制命令')}</button>
@@ -138,7 +138,7 @@ export function RecipeCard({ recipe, endpoint, onChanged }) {
           <div className="msg msg-danger">
             {t(<>Delete recipe <strong>{recipe.id}</strong>? This cannot be undone.</>,
                <>确定删除 recipe <strong>{recipe.id}</strong>？此操作无法撤销。</>)}
-            <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+            <div style={{ marginTop: 'var(--sp-6)', display: 'flex', gap: 'var(--sp-8)' }}>
               <button className="btn btn-sm btn-danger" disabled={busy} onClick={del}>{t('Delete', '删除')}</button>
               <button className="btn btn-sm" disabled={busy} onClick={() => setConfirmDel(false)}>{t('Cancel', '取消')}</button>
             </div>

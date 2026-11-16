@@ -222,11 +222,11 @@ export function ParamField({ field, values, onChange, lang, options, t }) {
     return (
       <div style={{ gridColumn: '1 / -1' }} title={help || undefined}>
         <label className="field-label">{label}</label>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(n, 4)}, minmax(0, 1fr))`, gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(n, 4)}, minmax(0, 1fr))`, gap: 'var(--sp-6)' }}>
           {cur.map((v, i) => (
             <div key={i}>
               {labels[i] !== undefined && (
-                <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 2 }}>
+                <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginBottom: 'var(--sp-2)' }}>
                   {choiceLabel({ value: i, label: labels[i] }, lang)}
                 </div>
               )}

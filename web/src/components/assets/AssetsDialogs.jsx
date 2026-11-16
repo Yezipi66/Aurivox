@@ -12,21 +12,21 @@ export function DeleteAssetDialog({ target, deleting, onConfirm, onCancel }) {
     }} onClick={onCancel}>
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-md)', padding: 24, minWidth: 320, maxWidth: 420,
+        borderRadius: 'var(--radius-md)', padding: 'var(--sp-24)', minWidth: 320, maxWidth: 420,
         boxShadow: 'var(--shadow-soft)',
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-10)', marginBottom: 'var(--sp-12)' }}>
           <IconTrash size={20} color="var(--danger)" />
           <span style={{ fontWeight: 600, fontSize: 'var(--fs-14)' }}>Delete Asset</span>
         </div>
-        <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 8 }}>
+        <p style={{ fontSize: 'var(--fs-13)', color: 'var(--text)', marginBottom: 'var(--sp-8)' }}>
           Confirm deletion of <strong>{target.displayName}</strong>?
         </p>
-        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 16 }}>
+        <p style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)', marginBottom: 'var(--sp-16)' }}>
           This will permanently delete the asset folder and its voice configuration.
           This action cannot be undone.
         </p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-8)', justifyContent: 'flex-end' }}>
           <button className="btn btn-sm" onClick={onCancel} disabled={deleting}>Cancel</button>
           <button className="btn btn-sm btn-danger" onClick={onConfirm} disabled={deleting}>
             {deleting ? 'Deleting...' : 'Delete'}

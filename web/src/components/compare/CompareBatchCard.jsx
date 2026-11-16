@@ -43,7 +43,7 @@ function CompareBatchCard({ batch, onDeleted, onReveal }) {
                 <button className="icon-btn" title={t('Show in file explorer', '在文件资源管理器中显示')}
                   onClick={() => onReveal?.(m.id)}><IconFolder size={13} /></button>
               </div>
-              {m.audio_url && <div style={{ marginTop: 4 }}><Player src={`${API_BASE}${m.audio_url}`} size="sm" bounds={m.segment_bounds} duration={m.duration} /></div>}
+              {m.audio_url && <div style={{ marginTop: 'var(--sp-4)' }}><Player src={`${API_BASE}${m.audio_url}`} size="sm" bounds={m.segment_bounds} duration={m.duration} /></div>}
             </div>
           ))}
         </div>

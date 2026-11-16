@@ -19,17 +19,17 @@ export function GenerationResult({ result }) {
     <div className="section">
       <div className="section-hdr">
         <span>{result.split ? (result.concat ? `Combined (${result.segments?.length} segments)` : `Segments (${result.segments?.length})`) : 'Result'}</span>
-        <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <span style={{ display: 'flex', gap: 'var(--sp-10)', alignItems: 'center' }}>
           {result.silence_ms !== undefined && <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)' }}>silence: {result.silence_ms}ms | {result.concat_method || ''}</span>}
           <SeedBadge seed={result.seed} />
         </span>
       </div>
       <div className="section-body">
         <Player src={`${API_BASE}${result.audio_url}`} bounds={result.segment_bounds} duration={result.duration} />
-        <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ marginTop: 'var(--sp-8)', display: 'flex', gap: 'var(--sp-12)', alignItems: 'center' }}>
           <a href={`${API_BASE}${result.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-13)' }}>Download WAV</a>
         </div>
-        {result.warning && <div className="msg msg-warn" style={{ marginTop: 8 }}>{result.warning}</div>}
+        {result.warning && <div className="msg msg-warn" style={{ marginTop: 'var(--sp-8)' }}>{result.warning}</div>}
       </div>
     </div>
   )
@@ -54,7 +54,7 @@ export function RecentGenerations({
       <div className="section-hdr">
         <span>Recent Generations</span>
         {recent.length > 0 && (
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-6)' }}>
             {/* 两个按钮的差别是「只清列表」和「连文件一起删」，而 Clean All
                 听起来和 Clear History 是一档的。按确认框里已经在用的词命名。 */}
             <button className="btn btn-sm btn-ghost" onClick={onClearHistory}>Clear history</button>
@@ -64,7 +64,7 @@ export function RecentGenerations({
       </div>
       <div className="section-body">
         {recent.length === 0 ? (
-          <div className="empty-state" style={{ padding: 16 }}>
+          <div className="empty-state" style={{ padding: 'var(--sp-16)' }}>
             <div className="es-sub" style={{ marginBottom: 0 }}>{t('Generated audio will appear here.', '生成的音频将显示在这里。')}</div>
           </div>
         ) : (
@@ -81,7 +81,7 @@ export function RecentGenerations({
                     <> · <SeedInline seed={item.seed ?? item.params?.seed} /></>
                   )}
                 </div>
-                <div style={{ marginTop: 6 }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" bounds={item.segment_bounds} duration={item.duration} /></div>
+                <div style={{ marginTop: 'var(--sp-6)' }}><Player src={`${API_BASE}${item.audio_url}`} size="sm" bounds={item.segment_bounds} duration={item.duration} /></div>
               </div>
               <div className="rr-actions">
                 <button className="icon-btn" title={t('Show in file explorer', '在文件资源管理器中显示')} onClick={() => onReveal(item)}><IconFolder size={15} /></button>

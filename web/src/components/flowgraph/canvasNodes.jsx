@@ -14,7 +14,7 @@ import { Panel } from './canvasChrome'
 export function NodeBox({ node, definition, selected, runStatus, lang, t, onDragStart, onStartWire, onFinishWire, onDisconnect }) {
   if (!definition) {
     return (
-      <div style={{ position: 'absolute', left: node.position.x, top: node.position.y, width: NODE_WIDTH, padding: 8, borderRadius: 8, border: '1px dashed var(--danger, #cf6679)', color: 'var(--danger, #cf6679)', fontSize: 'var(--fs-12)' }}>
+      <div style={{ position: 'absolute', left: node.position.x, top: node.position.y, width: NODE_WIDTH, padding: 'var(--sp-8)', borderRadius: 8, border: '1px dashed var(--danger)', color: 'var(--danger)', fontSize: 'var(--fs-12)' }}>
         {t(`Unrecognised node type: ${node.type}`, `未识别的节点类型：${node.type}`)}
       </div>
     )
@@ -33,9 +33,9 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         background: 'linear-gradient(180deg, rgba(31,36,45,0.98) 0%, rgba(24,28,36,0.98) 100%)',
         border: `1px solid ${selected ? ACCENT : (RUN_COLOURS[runStatus] || BORDER)}`,
         boxShadow: selected
-          ? `0 0 0 2px rgba(76,141,255,0.25), 0 10px 26px rgba(0,0,0,0.45)`
+          ? `0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent), 0 10px 26px rgba(0,0,0,0.45)`
           : '0 6px 18px rgba(0,0,0,0.35)',
-        outline: runStatus === 'suspended' ? '2px solid rgba(224,179,65,0.35)' : 'none',
+        outline: runStatus === 'suspended' ? '2px solid color-mix(in srgb, var(--warning) 35%, transparent)' : 'none',
       }}
     >
       <div style={{
@@ -72,7 +72,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         const help = pickText(portDef.help, lang)
         const typeHelp = pickText(portDef.type_help, lang, portDef.type)
         return (
-          <div key={portDef.name} style={{ position: 'absolute', left: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 26 }}>
+          <div key={portDef.name} style={{ position: 'absolute', left: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 26 }}>
             <span
               // Pressing a port must never start dragging the node behind it.
               // That was the whole cause of the stuck-node bug.
@@ -95,7 +95,7 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
             />
             <span style={{ minWidth: 0 }}>
               <span style={{
-                color: portDef.required && !wired ? 'var(--warning, #ffb74d)' : 'var(--text, #d8dbe2)',
+                color: portDef.required && !wired ? 'var(--warning)' : 'var(--text)',
                 whiteSpace: 'nowrap',
               }}>
                 {label}{portDef.multiple ? ' ⋯' : ''}{portDef.required && !wired ? ' *' : ''}
@@ -112,9 +112,9 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
         const label = pickText(portDef.label, lang, portDef.name)
         const typeHelp = pickText(portDef.type_help, lang, portDef.type)
         return (
-          <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 12 }}>
+          <div key={portDef.name} style={{ position: 'absolute', right: 0, top: portY(i) - 9, display: 'flex', alignItems: 'center', gap: 'var(--sp-6)', fontSize: 'var(--fs-11)', maxWidth: NODE_WIDTH / 2 + 12 }}>
             <span style={{ minWidth: 0, textAlign: 'right' }}>
-              <span style={{ color: 'var(--text, #d8dbe2)', whiteSpace: 'nowrap' }}>{label}</span>
+              <span style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>{label}</span>
               <span style={{ display: 'block', color: MUTED, fontSize: 'var(--fs-11)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {typeHelp}
               </span>
@@ -143,19 +143,19 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
       {definition.params.length > 0 && (
         <div style={{
           position: 'absolute', left: 9, right: 9, top: paramsTop,
-          borderTop: `1px dashed ${BORDER}`, paddingTop: 6,
+          borderTop: `1px dashed ${BORDER}`, paddingTop: 'var(--sp-6)',
         }}>
           {definition.params.map(param => {
             const value = node.params?.[param.name]
             const shown = value === undefined ? param.default : value
             return (
-              <div key={param.name} style={{ display: 'flex', gap: 6, fontSize: 'var(--fs-11)', height: PARAM_ROW, alignItems: 'center' }}>
+              <div key={param.name} style={{ display: 'flex', gap: 'var(--sp-6)', fontSize: 'var(--fs-11)', height: PARAM_ROW, alignItems: 'center' }}>
                 <span style={{ color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '52%' }}>
                   {pickText(param.label, lang, param.name)}
                 </span>
                 <span style={{
                   marginLeft: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  color: 'var(--text, #d8dbe2)', fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--text)', fontVariantNumeric: 'tabular-nums',
                 }}>
                   {choiceLabel(param, shown, lang)}
                 </span>
@@ -171,14 +171,14 @@ export function NodeBox({ node, definition, selected, runStatus, lang, t, onDrag
 export function PortList({ title, ports, lang, t, describe }) {
   if (!ports.length) return null
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 'var(--fs-11)', color: MUTED, marginBottom: 4 }}>{title}</div>
+    <div style={{ marginBottom: 'var(--sp-10)' }}>
+      <div style={{ fontSize: 'var(--fs-11)', color: MUTED, marginBottom: 'var(--sp-4)' }}>{title}</div>
       {ports.map(port => {
         const state = describe(port)
         return (
-          <div key={port.name} style={{ fontSize: 'var(--fs-11)', marginBottom: 6, lineHeight: 1.6 }}>
+          <div key={port.name} style={{ fontSize: 'var(--fs-11)', marginBottom: 'var(--sp-6)', lineHeight: 1.6 }}>
             <span style={{
-              display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6,
+              display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 'var(--sp-6)',
               background: colourFor(port.type),
             }} />
             <span>{pickText(port.label, lang, port.name)}</span>
@@ -187,7 +187,7 @@ export function PortList({ title, ports, lang, t, describe }) {
               {port.required ? t('　required', '　必填') : ''}
               {port.multiple ? t('　several allowed', '　支持多路') : ''}
             </span>
-            <div style={{ color: state.warn ? 'var(--warning, #ffb74d)' : MUTED, marginLeft: 14 }}>
+            <div style={{ color: state.warn ? 'var(--warning)' : MUTED, marginLeft: 14 }}>
               {state.text}
             </div>
             {pickText(port.help, lang) && (
@@ -212,9 +212,9 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
   }
   return (
     <Panel title={`${pickText(definition.label, lang, definition.type)}　${node.id}`}>
-      <div style={{ fontSize: 'var(--fs-12)', color: MUTED, marginBottom: 10, lineHeight: 1.7 }}>
+      <div style={{ fontSize: 'var(--fs-12)', color: MUTED, marginBottom: 'var(--sp-10)', lineHeight: 1.7 }}>
         {pickText(definition.help, lang)}
-        <div style={{ fontSize: 'var(--fs-11)', marginTop: 4, opacity: 0.8 }}>{definition.type}</div>
+        <div style={{ fontSize: 'var(--fs-11)', marginTop: 'var(--sp-4)', opacity: 0.8 }}>{definition.type}</div>
       </div>
 
       <PortList
@@ -261,7 +261,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
         // the broker is unreachable; either way a text box is still usable.
         const asDropdown = choices.length > 0
         return (
-          <label key={param.name} style={{ display: 'block', marginBottom: 12, fontSize: 'var(--fs-12)' }}>
+          <label key={param.name} style={{ display: 'block', marginBottom: 'var(--sp-12)', fontSize: 'var(--fs-12)' }}>
             <div style={{ marginBottom: 3 }}>{pickText(param.label, lang, param.name)}</div>
             {pickText(param.help, lang) && (
               <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginBottom: 5, lineHeight: 1.6 }}>
@@ -296,7 +296,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
                 style={fieldStyle}
               />
             )}
-            <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 4 }}>
+            <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 'var(--sp-4)' }}>
               {t(`default: ${describeValue(param.default, 'en')}`, `默认值：${describeValue(param.default, 'zh')}`)}
             </div>
             {param.source === 'voices' && (
@@ -305,11 +305,11 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
                   type="button"
                   disabled={!value}
                   onClick={() => onImportVoice(value)}
-                  style={{ ...buttonStyle, marginTop: 6, width: '100%', opacity: value ? 1 : 0.5 }}
+                  style={{ ...buttonStyle, marginTop: 'var(--sp-6)', width: '100%', opacity: value ? 1 : 0.5 }}
                 >
                   {t('Fill engine parameters from this voice', '按该音色填充引擎参数')}
                 </button>
-                <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 4, lineHeight: 1.6 }}>
+                <div style={{ color: MUTED, fontSize: 'var(--fs-11)', marginTop: 'var(--sp-4)', lineHeight: 1.6 }}>
                   {t(
                     'A voice is a preset: its values are copied into the engine-parameters node once and stay editable. Nothing is written back to the voice.',
                     '音色是一份预设：其参数值会一次性复制到引擎参数节点，之后仍可手动修改；修改不会写回音色。',
@@ -320,7 +320,7 @@ export function Inspector({ node, definition, graph, catalogue, lang, t, voices,
           </label>
         )
       })}
-      <button onClick={onDelete} style={{ ...buttonStyle, borderColor: 'var(--danger, #cf6679)', color: 'var(--danger, #cf6679)' }}>
+      <button onClick={onDelete} style={{ ...buttonStyle, borderColor: 'var(--danger)', color: 'var(--danger)' }}>
         {t('Delete this node (Del)', '删除该节点（Del）')}
       </button>
     </Panel>

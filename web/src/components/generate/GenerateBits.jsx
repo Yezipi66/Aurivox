@@ -71,11 +71,11 @@ function CollapsibleSegments({ segments }) {
       {open && (
         <div className="collapsible-body">
           {segments.map(seg => (
-            <div key={seg.index} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>Segment {seg.index}</div>
-              <div style={{ fontSize: 'var(--fs-13)', marginBottom: 6 }}>{seg.text}</div>
+            <div key={seg.index} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 'var(--sp-10)', marginBottom: 'var(--sp-8)' }}>
+              <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', fontWeight: 600, marginBottom: 'var(--sp-4)' }}>Segment {seg.index}</div>
+              <div style={{ fontSize: 'var(--fs-13)', marginBottom: 'var(--sp-6)' }}>{seg.text}</div>
               <Player src={`${API_BASE}${seg.audio_url}`} size="sm" />
-              <a href={`${API_BASE}${seg.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-12)', display: 'inline-block', marginTop: 4 }}>Download</a>
+              <a href={`${API_BASE}${seg.audio_url}`} download style={{ color: 'var(--accent)', fontSize: 'var(--fs-12)', display: 'inline-block', marginTop: 'var(--sp-4)' }}>Download</a>
             </div>
           ))}
         </div>

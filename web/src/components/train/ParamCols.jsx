@@ -36,14 +36,14 @@ function AsrParamFields({ form, setField }) {
           <option value="funasr">{t('FunASR (zh/yue — better Chinese)', 'FunASR (中文/粤语，中文更准)')}</option>
         </Select>
         {form.asrEngine === 'funasr' && (
-          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 6 }}>
+          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-6)' }}>
             {t('FunASR (Paraformer + VAD + punctuation) matches the official pipeline for Chinese and adds punctuation. It only applies to zh/yue — other languages use Faster Whisper. If FunASR fails, it automatically falls back to Faster Whisper.',
               'FunASR（Paraformer + VAD + 标点）与官方一致，中文更准且自动添加标点。仅对中文/粤语生效，其他语言仍用 Faster Whisper。FunASR 若失败会自动回退到 Faster Whisper。')}
           </p>
         )}
       </div>
       {form.asrEngine !== 'funasr' && (
-        <div className="param-grid" style={{ marginTop: 8 }}>
+        <div className="param-grid" style={{ marginTop: 'var(--sp-8)' }}>
           <div className="field">
             <label className="field-label">{t('Model Size', '模型大小')}</label>
             <Select className="control" value={form.asrModelSize || 'large-v3-turbo'} onChange={e => setField('asrModelSize', e.target.value)}>
@@ -130,7 +130,7 @@ function S2ExpertCol({ form, setField }) {
         <NumField label="Seed" value={form.s2Seed ?? 1234} onChange={v => setField('s2Seed', v)} min={0} max={999999} />
         <NumField label="Log Interval" value={form.s2LogInterval ?? 100} onChange={v => setField('s2LogInterval', v)} min={1} max={10000} />
         <NumField label="Segment Size" value={form.s2SegmentSize ?? 20480} onChange={v => setField('s2SegmentSize', v)} min={1024} max={65536} />
-        <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+        <label className="toggle-row" style={{ alignSelf: 'end', paddingBottom: 'var(--sp-6)' }}>
           <input type="checkbox" checked={!!form.s2GradCkpt} onChange={e => setField('s2GradCkpt', e.target.checked)} /> Gradient Checkpoint (save VRAM)
         </label>
       </div>
@@ -170,9 +170,9 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
           versionMode='multi' (S2 pipeline node) → checkbox group → form.modelVersions[] (read B:
           one SoVITS trained per checked version). Otherwise a single select (asset rebuild). */}
       {showS2 && (versionMode === 'multi' ? (
-        <div className="train-version-row" style={{ marginBottom: 12 }}>
+        <div className="train-version-row" style={{ marginBottom: 'var(--sp-12)' }}>
           <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{t('SoVITS Version(s) — one model trained per checked version', 'SoVITS 版本：每勾选一个版本训练一个模型')}</label>
-          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 'var(--sp-8)', marginTop: 'var(--sp-6)' }}>
             {[
               { v: 'v2', label: 'v2' },
               { v: 'v2Pro', label: 'v2Pro' },
@@ -196,20 +196,20 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
               );
             })}
           </div>
-          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
+          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-4)' }}>
             {t('Each checked version trains its own SoVITS model in a single run. v2Pro / v2ProPlus need their own base + SV models (download_models.py); missing ones are reported below the pipeline before starting.',
                '每个勾选的版本会在一次运行中训练各自的 SoVITS 模型。v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)；缺失的模型会在开始前于流程下方列出。')}
           </p>
         </div>
       ) : (
-        <div className="train-version-row" style={{ marginBottom: 12 }}>
+        <div className="train-version-row" style={{ marginBottom: 'var(--sp-12)' }}>
           <label style={{ fontSize: 'var(--fs-12)', color: 'var(--muted)' }}>{t('Base Model Version', 'Base 模型版本')}</label>
           <Select className="control" value={form.modelVersion || 'v2'} onChange={e => setField('modelVersion', e.target.value)}>
             <option value="v2">{t('v2 — general base (s2G2333k)', 'v2：通用 base (s2G2333k)')}</option>
             <option value="v2Pro">{t('v2Pro — needs v2Pro base + SV model', 'v2Pro：需要 v2Pro base + SV 模型')}</option>
             <option value="v2ProPlus">{t('v2ProPlus — needs v2ProPlus base + SV model', 'v2ProPlus：需要 v2ProPlus base + SV 模型')}</option>
           </Select>
-          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 4 }}>
+          <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-4)' }}>
             {t('v2Pro / v2ProPlus need their own base + SV models (download_models.py). Missing base models are reported below the pipeline before starting.',
                'v2Pro / v2ProPlus 需要各自的 base + SV 模型 (download_models.py)。缺失的 base 模型会在开始前于流程下方列出。')}
           </p>
@@ -219,7 +219,7 @@ function TrainParamFields({ form, setField, part = 'both', versionMode = 'single
         {showS1 && <S1BasicCol form={form} setField={setField} />}
         {showS2 && <S2BasicCol form={form} setField={setField} />}
       </div>
-      {hint && <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 8 }}>{hint}</p>}
+      {hint && <p style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', marginTop: 'var(--sp-8)' }}>{hint}</p>}
 
       <details className="expert-block" style={{ marginTop: 14 }}>
         <summary className="expert-summary">{t('Advanced Parameters — training pipeline internals', '高级参数：训练管线内部设置')}</summary>

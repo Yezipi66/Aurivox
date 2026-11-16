@@ -60,7 +60,7 @@ export function RecoverableTasksPanel({
               </tbody>
             </table>
           )}
-          <p className="field-hint" style={{ marginTop: 6 }}>
+          <p className="field-hint" style={{ marginTop: 'var(--sp-6)' }}>
             {tr('Only failed / interrupted tasks appear here. Successful runs are cleaned up automatically after publishing.',
                 '这里只显示失败 / 中断的任务。成功的运行在发布后会被自动清理。')}
           </p>
