@@ -9,7 +9,8 @@
 //
 // editable：值不限于选项，可以直接打字。外观与原下拉同一套（同样的框、同样的箭头、
 //   同样的展开菜单），只是把按钮换成输入框，选项回到「候选清单」的角色。
-//   菜单、定位、键盘与点外关闭与下拉共用一份实现，不另造一个控件。
+//   菜单、定位与点外关闭与下拉共用；键盘也是同一份处理，按 editable 分叉。
+//   分叉只涉及「输入框要自己留着」的键：字符、空格、Home/End。
 
 import {
   useState, useRef, useEffect, useCallback, useLayoutEffect,
@@ -191,10 +192,14 @@ export function Select({
     }
   }
 
+  // 一份键盘处理，两种触发形态共用。分叉只有三类，都是「输入框要自己留着」的键：
+  //   字符、空格、Home/End。按钮形态拿它们走 typeahead 与首尾跳转，
+  //   输入框形态要让它们落到正文与光标上，否则带空格的候选值根本选不出来。
   const onKeyDown = (e) => {
     if (disabled) return
     if (!open) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+      if (e.key === 'ArrowDown'
+        || (!editable && (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' '))) {
         e.preventDefault(); openMenu()
       }
       return
@@ -202,42 +207,23 @@ export function Select({
     switch (e.key) {
       case 'ArrowDown': e.preventDefault(); setHi((h) => nextEnabled(h, 1)); break
       case 'ArrowUp': e.preventDefault(); setHi((h) => nextEnabled(h, -1)); break
-      case 'Home': e.preventDefault(); setHi(firstEnabled()); break
-      case 'End': e.preventDefault(); setHi(lastEnabled()); break
-      case 'Enter':
-      case ' ': e.preventDefault(); commit(options[hi]); break
+      case 'Home':
+        if (!editable) { e.preventDefault(); setHi(firstEnabled()) }
+        break
+      case 'End':
+        if (!editable) { e.preventDefault(); setHi(lastEnabled()) }
+        break
+      case 'Enter': e.preventDefault(); commit(options[hi]); break
+      case ' ':
+        if (editable) break
+        e.preventDefault(); commit(options[hi]); break
       case 'Escape': e.preventDefault(); setOpen(false); focusTrigger(); break
       case 'Tab': setOpen(false); break
       default:
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); runTypeahead(e.key) }
+        if (!editable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault(); runTypeahead(e.key)
+        }
     }
-  }
-
-  // 可编辑时的按键：字符键留给输入框自己，这里只接管清单的展开与选中。
-  const onKeyDownEditable = (e) => {
-    if (disabled) return
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      if (open) setHi((h) => nextEnabled(h, 1))
-      else openMenu()
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      if (!open) return
-      e.preventDefault(); setHi((h) => nextEnabled(h, -1))
-      return
-    }
-    if (e.key === 'Enter') {
-      if (!open) return
-      e.preventDefault(); commit(options[hi])
-      return
-    }
-    if (e.key === 'Escape') {
-      if (!open) return
-      e.preventDefault(); setOpen(false)
-      return
-    }
-    if (e.key === 'Tab') setOpen(false)
   }
 
   const menu = (open && pos) ? createPortal(
@@ -283,8 +269,7 @@ export function Select({
 
   // 可打字的下拉：框与箭头照抄下拉那一套，只是把按钮换成输入框。
   //   两侧仍是同一个值：输入框里打什么就是什么，清单是它的候选，选中后回填。
-  if (editable) {
-    return (
+  if (editable) {    return (
       <>
         <div
           {...rest}
@@ -306,7 +291,7 @@ export function Select({
             aria-expanded={open}
             aria-haspopup="listbox"
             onChange={(e) => emit(e.target.value)}
-            onKeyDown={onKeyDownEditable}
+            onKeyDown={onKeyDown}
           />
           <button type="button" tabIndex={-1} disabled={disabled}
             className="ui-select-pick"

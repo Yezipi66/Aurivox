@@ -202,52 +202,54 @@ select.control {
    (c) it correctly renders BELOW browser chrome (e.g. Edge vertical-tab
    flyout). The trigger reuses `.control` so it looks identical to before.
    =========================================================================== */
-button.ui-select {
+/* 框与箭头两套共用：下拉是按钮，可编辑变体是「div 当框 + 里面一个输入框」。 */
+button.ui-select,
+.ui-select-editable {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-8);
+}
+button.ui-select {
+  justify-content: space-between;
   text-align: left;
   font: inherit;
   cursor: pointer;
   white-space: nowrap;
 }
-button.ui-select:disabled { cursor: not-allowed; }
-button.ui-select[aria-expanded="true"] {
+button.ui-select[aria-expanded="true"],
+.ui-select-editable.is-open {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
-.ui-select-value {
+.ui-select-value,
+.ui-select-input {
   flex: 1 1 auto;
   min-width: 0;
+}
+.ui-select-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ui-select-arrow {
+.ui-select-arrow,
+.ui-select-pick {
   flex: 0 0 auto;
+}
+.ui-select-arrow {
   color: var(--muted);
   font-size: var(--fs-11);
   line-height: 1;
   transition: transform 0.15s;
 }
-button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180deg); }
+button.ui-select[aria-expanded="true"] .ui-select-arrow,
+.ui-select-editable.is-open .ui-select-arrow { transform: rotate(180deg); }
 
-/* Editable variant: same box and arrow as the select above, with the button
-   replaced by a text field so the value can also be typed. The menu is shared. */
-.ui-select-editable {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-8);
-  cursor: text;
-}
-.ui-select-editable.is-open {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
+/* 可编辑变体：值不限于选项，可以直接打字；清单退成候选。
+   输入框自己不是 `.control`——框由外层那个 div 提供，这里只把浏览器默认的
+   边框与内边距去掉。placeholder 色因此要单独给：`.control::placeholder`
+   选不到它。 */
+.ui-select-editable { cursor: text; }
 .ui-select-input {
-  flex: 1 1 auto;
-  min-width: 0;
   height: 100%;
   padding: 0;
   border: 0;
@@ -257,9 +259,7 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   outline: none;
 }
 .ui-select-input::placeholder { color: var(--muted); }
-.ui-select-input:disabled { cursor: not-allowed; }
 .ui-select-pick {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   padding: 0;
@@ -269,8 +269,9 @@ button.ui-select[aria-expanded="true"] .ui-select-arrow { transform: rotate(180d
   line-height: 1;
   cursor: pointer;
 }
-.ui-select-pick:disabled { cursor: not-allowed; }
-.ui-select-editable.is-open .ui-select-arrow { transform: rotate(180deg); }
+button.ui-select:disabled,
+.ui-select-editable .ui-select-input:disabled,
+.ui-select-editable .ui-select-pick:disabled { cursor: not-allowed; }
 
 .ui-select-menu {
   z-index: var(--z-dropdown);
