@@ -3,9 +3,9 @@
 
 import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { Player } from '../../../web/src/components/common/Player'
+import { Player, AudioPlayer } from '../../../web/src/components/common/Player'
 import { getPreviewMode, setPreviewMode } from '../../../web/src/lib/previewMode'
-import { cleanPathInput } from '../../../web/src/lib/refAudio'
+import { cleanPathInput, refInRange } from '../../../web/src/lib/refAudio'
 import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 import { readSse } from './downloadRunner'
@@ -34,6 +34,10 @@ export function StepVerify ({ id }) {
   //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
   const [refAudio, setRefAudio] = useState('')
   const [refText, setRefText] = useState('')
+  // 资产里的可用切片清单（/wizard/verify/refs，与预填同一份读盘判定）：
+  // 点选一条就把参考音频与参考文本一起填进上面两个输入框，文本由平台代给。
+  // 清单只负责代填，输入框始终由使用者持有，点选之后照旧可以手改。
+  const [refs, setRefs] = useState([])
   // 参考音频用真文件选：宿主只认绝对路径，而浏览器不给脚本绝对路径，
   //   所以选中的字节交给后端落一份、由后端回传路径（见 core/wizardbridge.js 的 ref-upload）。
   const [refBusy, setRefBusy] = useState(false)
@@ -161,12 +165,17 @@ export function StepVerify ({ id }) {
     setSynthText(t('Hello! This is a sample line.', '你好，这是一段示例文本。'))
     setRefAudio('')
     setRefText('')
+    setRefs([])
     fetch(`/wizard/verify/ref?id=${encodeURIComponent(id)}`)
       .then(r => r.json())
       .then((j) => {
         if (j && j.ok && j.reference_audio) setRefAudio(j.reference_audio)
         if (j && j.ok && j.reference_text) setRefText(j.reference_text)
       })
+      .catch(() => {})
+    fetch(`/wizard/verify/refs?id=${encodeURIComponent(id)}`)
+      .then(r => r.json())
+      .then((j) => { if (j && j.ok && Array.isArray(j.refs)) setRefs(j.refs) })
       .catch(() => {})
     return undefined
   }, [id])
@@ -685,6 +694,43 @@ export function StepVerify ({ id }) {
             placeholder={t('Transcript of the reference audio (if the engine requires it)', '参考音频对应文本（引擎需要时填写）')}
             style={{ marginTop: 6 }}
           />
+          {refs.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div className="field-hint">
+                {t('Or pick one from platform assets; its transcript is filled in too.',
+                   '或从平台资产里点选一条，参考文本会一并代填。')}
+              </div>
+              <div className="ref-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                {refs.map((r, i) => {
+                  const active = refAudio.trim() !== '' && r.reference_audio === refAudio.trim()
+                  const oor = r.duration != null && !refInRange(r.duration)
+                  return (
+                    <div key={`${r.reference_audio}-${i}`}
+                      className={`ref-item ${active ? 'active' : ''}`}
+                      style={{ cursor: 'pointer' }}
+                      title={r.reference_text || r.name}
+                      onClick={() => { setRefAudio(r.reference_audio); setRefText(r.reference_text) }}>
+                      <div className="ref-item-row">
+                        <span className="ref-item-name">{r.name}</span>
+                        {r.duration != null && (
+                          <span className={`ref-item-dur ${oor ? 'ref-dur-warn' : ''}`}>
+                            {r.duration.toFixed(1)}s{oor ? ' \u26a0' : ''}
+                          </span>
+                        )}
+                        <span className="ref-item-mark" style={{ color: active ? 'var(--accent)' : 'var(--muted)' }}>{active ? '\u2713' : '\u2192'}</span>
+                      </div>
+                      {r.reference_text && (
+                        <div style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.reference_text}
+                        </div>
+                      )}
+                      <AudioPlayer src={`/wizard/verify/ref-file?id=${encodeURIComponent(id || '')}&idx=${i}`} />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <button
             className="btn btn-sm btn-primary"
             type="button"

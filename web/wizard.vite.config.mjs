@@ -46,7 +46,8 @@ function validatePlugin () {
     wb.handleState, wb.handleResolve, wb.handleProbe, wb.handleDeps, wb.handleHardware,
     wb.handleClone, wb.handleCloneCancel, wb.handleCloneRemove, wb.handleEnvCancel, wb.handleEnv, wb.handleModels,
     wb.handleVerifyChecks, wb.handleVerifyAudio, wb.handleVerifyMeasureProgress, wb.handleVerifyMeasureCancel,
-    wb.handleVerifyMeasure, wb.handleVerifyRef, wb.handleRefUpload, wb.handleVerify, wb.handleProfile,
+    wb.handleVerifyMeasure, wb.handleVerifyRef, wb.handleVerifyRefs, wb.handleVerifyRefFile,
+    wb.handleRefUpload, wb.handleVerify, wb.handleProfile,
     handleValidate, wb.handleCliArgs,
     wb.handleDiscover,
     // install-state 报这一台装到哪了，reset-progress 是重装本步的逃生口。

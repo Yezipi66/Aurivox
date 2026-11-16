@@ -2236,6 +2236,64 @@ function handleVerifyRef (req, res) {
   return true
 }
 
+// GET /wizard/verify/refs?id=<id>  第 5 步：列出资产里的全部可用切片，供点选。
+//   与预填端点共用 listRefAudios：判定、路径换算都从同一份读盘逻辑来，
+//   免得点选出来的参考音频和预填的那份不是一套取法。
+function handleVerifyRefs (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/refs')) return false
+  const tail = req.url.slice('/wizard/verify/refs'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const { validateId } = require('./save')
+  const idErr = validateId(id)
+  if (idErr) { json(res, 400, { ok: false, error: idErr }); return true }
+  const { listRefAudios } = require(
+    path.join(__dirname, '..', '..', '..', 'lib', 'server', 'refAudio.js'))
+  json(res, 200, { ok: true, refs: listRefAudios(id) })
+  return true
+}
+
+// GET /wizard/verify/ref-file?id=<id>&idx=<n>  第 5 步：试听清单里的一条切片。
+//   按索引从同一份清单取件，不收路径参数：前端只认得索引，越界的索引取不到东西。
+function handleVerifyRefFile (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/verify/ref-file')) return false
+  const tail = req.url.slice('/wizard/verify/ref-file'.length)
+  if (tail !== '' && tail[0] !== '?') return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  const { validateId } = require('./save')
+  const idErr = validateId(id)
+  if (idErr) { json(res, 400, { ok: false, error: idErr }); return true }
+  const idx = Number.parseInt(url.searchParams.get('idx'), 10)
+  if (!Number.isInteger(idx) || idx < 0) {
+    json(res, 400, { ok: false, error: '?idx= must be a non-negative integer' }); return true
+  }
+  const { listRefAudios } = require(
+    path.join(__dirname, '..', '..', '..', 'lib', 'server', 'refAudio.js'))
+  const ref = listRefAudios(id)[idx]
+  if (!ref) { json(res, 404, { ok: false, error: 'no such reference clip' }); return true }
+  const ext = path.extname(ref.reference_audio).toLowerCase()
+  if (!REF_AUDIO_EXT.has(ext)) {
+    json(res, 400, { ok: false, error: 'unsupported audio extension' }); return true
+  }
+  try {
+    if (!fs.existsSync(ref.reference_audio)) {
+      json(res, 404, { ok: false, error: 'reference clip not found' }); return true
+    }
+    const data = fs.readFileSync(ref.reference_audio)
+    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length })
+    res.end(data)
+  } catch (e) {
+    json(res, 500, { ok: false, error: e.message })
+  }
+  return true
+}
+
 // 参考音频的上传上限。一段 3~10 秒的克隆素材不会超过它，超了基本是选错了文件。
 const REF_UPLOAD_MAX = 64 * 1024 * 1024
 // 认得的音频扩展名。不认的一律拒绝：宿主把路径原样交给引擎，
@@ -2958,7 +3016,7 @@ module.exports = {
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
   handleDownloadEntries, handleEngineDownload,
   scanDocDownloadCommands,
-  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
+  handleVerifyChecks, handleVerifyMeasure, handleVerifyMeasureProgress, handleVerifyMeasureCancel, handleVerifyRef, handleVerifyRefs, handleVerifyRefFile, handleRefUpload, handleVerify, handleVerifyAudio, handleProfile, handleParams, handleCliArgs,
   handleDiscover,
   handleInstallState, handleResetProgress, handleCloneCancel, handleCloneRemove, handleEnvCancel,
   // 这两个导出给测试：第 3 步「上游自己的下载方式」全靠它们，

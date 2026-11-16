@@ -9,7 +9,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { firstRefAudio } = require('../../../lib/server/refAudio')
+const { firstRefAudio, listRefAudios } = require('../../../lib/server/refAudio')
 
 function mkAssets (segments) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-refaudio-'))
@@ -79,4 +79,93 @@ test('handleVerifyRef：POST 与带尾巴的路径不接管', () => {
     handleVerifyRef({ url: '/wizard/verify/ref', method: 'POST' }, noop), false)
   assert.strictEqual(
     handleVerifyRef({ url: '/wizard/verify/ref/xx', method: 'GET' }, noop), false)
+})
+
+test('listRefAudios：全部 matched 切片都列出，文本与名字一起带', () => {
+  const root = mkAssets([
+    { matched: true, audio: 'a.wav', text: '第一句', duration: 3, scene: '场景', index: 0 },
+    { matched: true, audio: 'b.wav', text: '第二句', duration: 4, scene: '场景', index: 1 },
+    { matched: false, audio: 'c.wav', text: '不算' },
+  ])
+  const list = listRefAudios('some-engine', { assetsRoot: root })
+  assert.strictEqual(list.length, 2, 'matched=false 的切片不该进清单')
+  assert.strictEqual(list[0].reference_text, '第一句')
+  assert.strictEqual(list[0].name, '场景 #0')
+  assert.strictEqual(list[0].duration, 3)
+  assert.ok(list[0].reference_audio.includes('a.wav'))
+  assert.strictEqual(list[1].reference_text, '第二句')
+})
+
+test('listRefAudios：三种路径键名都认，缺场景时退回文件名', () => {
+  for (const key of ['audio', 'audio_path', 'audio_filename']) {
+    const root = mkAssets([{ matched: true, [key]: 'x.wav', text: 'x' }])
+    const [r] = listRefAudios('some-engine', { assetsRoot: root })
+    assert.ok(r && r.reference_audio.includes('x.wav'), `${key} 键名取不出来`)
+    assert.strictEqual(r.name, 'x.wav')
+    assert.strictEqual(r.duration, null)
+  }
+})
+
+test('listRefAudios：没有素材返回空数组，不抛', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aurivox-refaudio-'))
+  assert.deepStrictEqual(listRefAudios('no-such-voice', { assetsRoot: root }), [])
+  assert.deepStrictEqual(listRefAudios('', { assetsRoot: root }), [])
+})
+
+test('handleVerifyRefs：挡掉缺 id 与脏 id，合法 id 回 refs 数组', async () => {
+  const { handleVerifyRefs } = require('../core/wizardbridge')
+  const call = (url, method = 'GET') => new Promise((resolve) => {
+    const res = {
+      code: null,
+      writeHead (c) { this.code = c },
+      end (b) { resolve({ code: this.code, json: JSON.parse(b) }) },
+    }
+    handleVerifyRefs({ url, method }, res)
+  })
+  assert.strictEqual((await call('/wizard/verify/refs')).code, 400)
+  assert.strictEqual((await call('/wizard/verify/refs?id=' + encodeURIComponent('../etc'))).code, 400)
+  const ok = await call('/wizard/verify/refs?id=some-engine')
+  assert.strictEqual(ok.code, 200)
+  assert.ok(Array.isArray(ok.json.refs))
+})
+
+test('handleVerifyRefs：POST 与带尾巴的路径不接管', () => {
+  const { handleVerifyRefs } = require('../core/wizardbridge')
+  const noop = { writeHead () {}, end () {} }
+  assert.strictEqual(
+    handleVerifyRefs({ url: '/wizard/verify/refs', method: 'POST' }, noop), false)
+  assert.strictEqual(
+    handleVerifyRefs({ url: '/wizard/verify/refs/xx', method: 'GET' }, noop), false)
+})
+
+test('handleVerifyRefFile：缺 id、脏 id、非法索引都挡掉', async () => {
+  const { handleVerifyRefFile } = require('../core/wizardbridge')
+  const call = (url) => new Promise((resolve) => {
+    const res = {
+      code: null,
+      writeHead (c) { this.code = c },
+      end (b) { resolve({ code: this.code, json: JSON.parse(b) }) },
+    }
+    handleVerifyRefFile({ url, method: 'GET' }, res)
+  })
+  assert.strictEqual((await call('/wizard/verify/ref-file?id=some-engine')).code, 400)
+  assert.strictEqual((await call('/wizard/verify/ref-file?id=some-engine&idx=-1')).code, 400)
+  assert.strictEqual((await call('/wizard/verify/ref-file?id=some-engine&idx=x')).code, 400)
+  assert.strictEqual((await call('/wizard/verify/ref-file?id=' + encodeURIComponent('../etc') + '&idx=0')).code, 400)
+})
+
+test('handleVerifyRefFile：POST 与带尾巴的路径不接管', () => {
+  const { handleVerifyRefFile } = require('../core/wizardbridge')
+  const noop = { writeHead () {}, end () {} }
+  assert.strictEqual(
+    handleVerifyRefFile({ url: '/wizard/verify/ref-file', method: 'POST' }, noop), false)
+  assert.strictEqual(
+    handleVerifyRefFile({ url: '/wizard/verify/ref-file/xx', method: 'GET' }, noop), false)
+})
+
+test('StepVerify：点选资产一次写两个 state，清单从端点来', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'editor', 'StepVerify.jsx'), 'utf8')
+  assert.match(src, /onClick=\{\(\) => \{ setRefAudio\(r\.reference_audio\); setRefText\(r\.reference_text\) \}\}/,
+    '一次点选必须同时写两个 state，不能只填路径让使用者再粘一次文本')
+  assert.match(src, /fetch\(`\/wizard\/verify\/refs\?id=/, '清单从端点来，不在前端另读一份盘')
 })
