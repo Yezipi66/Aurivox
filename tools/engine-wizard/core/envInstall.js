@@ -22,6 +22,8 @@ const {
   engineVenvPythonAbs,
   canUseEngineVenv,
   buildVenvStep,
+  readEnginePythonVersion,
+  PYTHON_VERSION_POOL,
   withTargetPython,
   syncEnvFor,
   isVenvCreateStep,
@@ -73,12 +75,37 @@ function resolveUv (root, platform) {
 //   不改上游声明，也不把这些开关默认加到所有安装上。
 const UV_INDEX_HINT_RE = /--index-strategy unsafe-best-match|not at the requested version/i
 const UV_BUILD_DEP_HINT_RE = /No module named 'pkg_resources'|doesn't declare it as a build dependency|extra-build-dependencies/i
+// `-e .` 撞上「上游这个 pyproject 根本不是给安装用的」的三种报错。判据取 setuptools /
+//   pip 自己的原话：缺构建后端、flat-layout 里多个顶层包、legacy 构建后端失败。
+//   三者都说明上游没有声明一个可安装的项目，与包本身能不能编出来无关。
+const UV_NOT_INSTALLABLE_RE = /Multiple top-level packages discovered|does not include a [`"']?\[build-system\][`"']?|build_meta:__legacy__\.build_editable[\s\S]{0,40}failed/i
 
 function afterPipInstall (argv, words) {
   const at = argv.findIndex((w, i) => i > 0 && w === 'install' && argv[i - 1] === 'pip')
   if (at < 0) return null
   const out = argv.slice()
   out.splice(at + 1, 0, ...words)
+  return out
+}
+
+/**
+ * 把 `-e <path>` 换成 `-r requirements.txt`（同目录）。
+ * 只在同目录确有 requirements.txt 时换，否则返回 null 让这次失败如实上报：
+ *   没有可换的清单时把错误换成另一条命令，只会把真正的原因埋掉。
+ * 其余参数（解释器、索引、--no-deps）原样保留，依赖版本全部交给 uv 解析。
+ */
+function switchToRequirements (argv, step, root, id) {
+  if (!Array.isArray(argv) || argv.includes('-r')) return null
+  const dir = step && (step.absCwd || step.cwd)
+    ? (step.absCwd || path.join(root, 'engines', id, step.cwd))
+    : path.join(root, 'engines', id)
+  try {
+    if (!fs.existsSync(path.join(dir, 'requirements.txt'))) return null
+  } catch (e) { return null }
+  const out = argv.slice()
+  const i = out.indexOf('-e')
+  if (i >= 0) out.splice(i, 2, '-r', 'requirements.txt')
+  else out.push('-r', 'requirements.txt')
   return out
 }
 
@@ -125,6 +152,23 @@ function uvRetryCacheDir (root) {
 }
 
 // 组装要执行的步骤：建环境、照上游锁文件装依赖、按需另装与本机后端匹配的 torch。
+/**
+ * `uv sync` 也要点名 Python 版本。
+ *
+ * sync 管的是「项目环境」：它按 pyproject 的 requires-python 自己挑解释器，
+ *   UV_PROJECT_ENVIRONMENT 只告诉它环境放在哪，不告诉它用哪个版本。
+ *   于是出现这种局面：引擎声明 >=3.10,<3.14，人在下拉里选了 3.12、平台也照着
+ *   建了 3.12 的环境，sync 却仍按 3.13 去解析依赖，报错里写的是 cp313，
+ *   而盘上的环境明明是 3.12。选版本这一步等于失效。
+ */
+function withSyncPython (argv, version) {
+  if (!Array.isArray(argv) || !version) return argv
+  const isSync = /^uv$/i.test(argv[0]) && /^sync$/i.test(argv[1])
+  if (!isSync) return argv
+  if (argv.some((a) => a === '-p' || a === '--python' || a.startsWith('--python='))) return argv
+  return [...argv, '--python', String(version)]
+}
+
 function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython }) {
   const steps = []
   if (venv && Array.isArray(venv.argv)) {
@@ -140,7 +184,8 @@ function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython })
   }
   steps.push({
     kind: 'env',
-    argv,
+    // sync 路线必须把版本点名，否则它按 requires-python 自己挑，选的版本等于白选。
+    argv: withSyncPython(argv, venv && venv.pythonVersion),
     cwd: cwdRel,
     needs_network: true,
     env: sync || undefined,
@@ -160,6 +205,120 @@ function buildSteps ({ argv, cwdRel, alt, venv, sync, targetPython, altPython })
     })
   }
   return steps
+}
+
+/**
+ * 下拉里能选的 Python 版本。
+ *   失败时解析出的「这个依赖支持哪几档」要并进来：否则文案让人选 3.9、下拉里却没有 3.9，
+ *   说得对但做不到。
+ */
+function mergeVersionOptions (pool, extra) {
+  const base = (Array.isArray(pool) && pool.length) ? pool : PYTHON_VERSION_POOL.slice()
+  const more = Array.isArray(extra) ? extra : []
+  const all = [...new Set([...base, ...more])]
+  return all.sort((a, b) => {
+    const [a1, a2] = String(a).split('.').map(Number)
+    const [b1, b2] = String(b).split('.').map(Number)
+    return (a1 - b1) || (a2 - b2)
+  })
+}
+
+/**
+ * 界面上要显示的 Python 版本信息。
+ *   python_version          这次要建的版本（人选的优先，其次引擎声明的，最后平台基座）
+ *   python_version_source   依据：python-version / requires-python / chosen / platform-base
+ *   python_version_declared 引擎声明的原文（可能是区间），给人对照着选
+ *   python_version_options  可选档位
+ */
+function pythonMeta (root, id, venv) {
+  const declared = readEnginePythonVersion(engineDir(id, root))
+  const current = venv ? venv.pythonVersion : null
+  const options = PYTHON_VERSION_POOL.slice()
+  // 当前生效的版本必须在选项里：不在的话 <select> 会把第一项当成选中项显示出来，
+  //   看上去像「平台要用 3.8 建环境」，而实际用的是声明里那一档。
+  //   引擎声明的版本也一并保住，同理。
+  for (const v of [current, declared ? declared.version : null]) {
+    if (v && !options.includes(v)) options.push(v)
+  }
+  options.sort((a, b) => {
+    const [a1, a2] = String(a).split('.').map(Number)
+    const [b1, b2] = String(b).split('.').map(Number)
+    return (a1 - b1) || (a2 - b2)
+  })
+  return {
+    python_version: current,
+    python_version_source: venv ? venv.pythonVersionSource : null,
+    python_version_declared: declared ? (declared.spec || declared.version) : null,
+    python_version_options: options,
+  }
+}
+
+/**
+ * 把 uv 的「这个包没有当前 Python 版本的 wheel」翻译成人话。
+ *
+ * uv 的原话（真实格式，注意版本号外面有反引号）：
+ *   error: Distribution `spacy==3.8.4 @ registry+https://pypi.org/simple` can't be
+ *   installed because it doesn't have a source distribution or wheel for the current platform
+ *   hint: You're using CPython 3.13 (`cp313`), but `spacy` (v3.8.4) only has wheels
+ *   with the following Python ABI tags: `cp310`, `cp311`, `cp312`
+ *
+ * 对使用者有用的只有三件：缺的是哪个包、当前是哪一版、该换成哪一版。
+ * 换成哪一版是人的决定，所以文案指向「从头重装本步」+ 改 Python 版本，不自动降级。
+ * wheel 是 PyPI 上的预编译安装包，这个术语照用、不译成别的词。
+ *
+ * 不是这一类就返回 null，调用方照原样给出 uv 的原文。
+ */
+function explainInstallFailure (text) {
+  const s = String(text || '')
+  if (!/doesn't have a source distribution or wheel for the current platform/i.test(s)) {
+    return null
+  }
+  const current = (s.match(/You're using CPython (\d+\.\d+)/i) || [])[1] || null
+  // 版本号两侧的反引号、空白、逗号都要吃掉：`cp310`, `cp311`, `cp312`
+  const abiRaw = (s.match(/ABI tags:\s*([`\s\w,]+)/i) || [])[1] || ''
+  const available = abiRaw.split(',')
+    .map((x) => x.replace(/[`\s]/g, ''))
+    .map((tag) => { const m = /^cp(\d)(\d+)$/.exec(tag); return m ? `${m[1]}.${m[2]}` : null })
+    .filter(Boolean)
+  const dist = (s.match(/Distribution `([^`]+)`/) || [])[1] || ''
+  const pkg = dist.split(/[=@\s]/)[0] || ''
+
+  const cur = current || '当前'
+  // 「A、B 或 C」的写法：中文里用顿号分列、最后一个用「或」，读起来不像清单。
+  const oneOf = (arr, fmt) => {
+    const xs = arr.map((v) => fmt(v))
+    if (xs.length <= 1) return xs[0] || ''
+    return `${xs.slice(0, -1).join('、')} 或 ${xs[xs.length - 1]}`
+  }
+  const listZh = available.length ? oneOf(available, (v) => `Python ${v}`) : null
+  const listEn = available.length ? oneOf(available, (v) => `Python ${v}`) : null
+  const named = pkg || null
+
+  // 有可用版本就点名；解析不出来时不硬凑一句「只提供 的」，改说「不支持这个版本」。
+  const errorZh = listZh
+    ? `当前用的是 Python ${cur}，但 ${named || '这个依赖'} 还不支持这个版本，它只支持 ${listZh}。`
+    : `当前用的是 Python ${cur}，但 ${named || '这个依赖'} 还不支持这个版本。`
+  const errorEn = listEn
+    ? `This environment uses Python ${cur}, but ${named || 'a dependency'} does not support it yet; it supports ${listEn} only.`
+    : `This environment uses Python ${cur}, but ${named || 'a dependency'} does not support it yet.`
+
+  return {
+    code: 'NO_WHEEL_FOR_PYTHON',
+    python_version: current,
+    available,
+    error: errorEn,
+    errorZh,
+    // 不再单独给一句「为什么」：上面那行已经说清缺什么、哪一版、换哪一档，
+    //   再来一句只是把同一件事讲两遍。
+    hint: listEn
+      ? 'Click "Reinstall this step from the start" at the bottom right, clear the current '
+        + `environment, then choose ${listEn} and try again.`
+      : 'Click "Reinstall this step from the start" at the bottom right, clear the current '
+        + 'environment, then choose an older Python version and try again.',
+    hintZh: listZh
+      ? `请点击右下角「从头重装本步」，清空当前环境后，重新选择 ${listZh} 再试一次。`
+      : '请点击右下角「从头重装本步」，清空当前环境后，重新选择一个更低的 Python 版本再试一次。',
+  }
 }
 
 function buildEnvPlan (input = {}) {
@@ -189,7 +348,7 @@ function buildEnvPlan (input = {}) {
   //   torch 哪个版本在本机后端上可用（判据要 Python 的 ABI）。
   //   manifest 指定了安装命令时照样要建环境：那只是装依赖的命令，
   //   Python 环境本身仍然是引擎要用的。
-  const venv = (cmdIsConda || guessIsConda) ? null : buildVenvStep(root, id)
+  const venv = (cmdIsConda || guessIsConda) ? null : buildVenvStep(root, id, input.pythonVersion)
   if (!cmd.ok && guess.argv) {
     const picked = applyInstallChoices(dir, guess, {
       ...input,
@@ -202,7 +361,7 @@ function buildEnvPlan (input = {}) {
   }
   const effArgv = cmd.ok ? cmd.argv : guess.argv
   const condaRoute = Array.isArray(effArgv) && effArgv[0] === 'conda'
-  const venvStep = condaRoute ? null : (venv || buildVenvStep(root, id))
+  const venvStep = condaRoute ? null : (venv || buildVenvStep(root, id, input.pythonVersion))
   // 建环境那一步拿不到解释器 ⇒ 计划不完整，如实报出来。
   // 不静默产出一个 argv 为 null 的步骤：那会让执行期报 Node 内部错误，
   // 使用者看不出是「这个 Python 版本本机没有」。
@@ -237,6 +396,7 @@ function buildEnvPlan (input = {}) {
       env_command: withTargetPython(guess.argv, guessTarget),
       pythonVersion: venv ? venv.pythonVersion : null,
       pythonVersionSource: venv ? venv.pythonVersionSource : null,
+      ...pythonMeta(root, id, venv),
       whatToDo: guess.why,
       whatToDoZh: guess.whyZh,
       alternative: guess.alternative || null,
@@ -307,6 +467,7 @@ function buildEnvPlan (input = {}) {
     guessed: !usingManifest,
     pythonVersion: venv ? venv.pythonVersion : null,
     pythonVersionSource: venv ? venv.pythonVersionSource : null,
+    ...pythonMeta(root, id, venv),
     whatToDo: usingManifest ? declaredWhy : guess.why,
     whatToDoZh: usingManifest ? declaredWhyZh : guess.whyZh,
     choices,
@@ -317,13 +478,29 @@ function buildEnvPlan (input = {}) {
   }
 }
 
+// 只验 torch 系：这三个的 import 名与包名一一对应。其余包名与 import 名
+//   不见得一致（Pillow 是 PIL，piper-phonemize 是 piper_phonemize），
+//   拿不准的不许猜，猜错会报出一条假失败。
+const TORCH_FAMILY = ['torch', 'torchaudio', 'torchvision']
+
+// 从一条依赖声明里取包名：`setuptools<81` => setuptools。
+function specName (spec) {
+  return String(spec || '').split(/[<>=!~;\s\[]/)[0].trim().toLowerCase()
+}
+
 // 装完自检：这个引擎自己的环境能不能 import 核心依赖。
+// 验谁有两个来源，缺一不可：
+//   ① 命令行里出现的包名（如 uv sync --no-install-package torch 这类写法）；
+//   ② 依赖清单里的声明（opts.specs）。`-r requirements.txt` 路线下包名不在
+//      argv 上，只看 ① 会把「已经装了 torch」判成「没有可验证的依赖」，
+//      界面于是显示未验证，读的人自然会以为它没装。
 function verifyEngineEnvImports (root, id, steps, alt, opts = {}) {
   const builtHere = steps.some(isVenvCreateStep)
   if (!builtHere) {
     return { checked: false, reason: 'this-install-method-manages-its-own-environment',
       mods: [] }
   }
+  const skipped = new Set(Array.isArray(opts.excluded) ? opts.excluded : [])
   const mods = new Set()
   for (const s of steps) {
     const line = (s.argv || []).join(' ')
@@ -332,9 +509,17 @@ function verifyEngineEnvImports (root, id, steps, alt, opts = {}) {
   if (alt && Array.isArray(alt.needs)) {
     for (const n of alt.needs) if (typeof n === 'string' && n) mods.add(n)
   }
-  const list = [...mods]
+  const declared = Array.isArray(opts.specs) ? opts.specs : []
+  const family = declared.map(specName).filter((n) => TORCH_FAMILY.includes(n))
+  for (const n of family) mods.add(n)
+  // 被显式跳过的包不验：那不是「没装成」，是这次不装。
+  const list = [...mods].filter((n) => !skipped.has(n))
   if (list.length === 0) {
-    return { checked: false, reason: 'no-core-dependency-declared', mods: [] }
+    // 声明过却一个都不剩，说明是被跳过了；这与「上游没说」是两件事，
+    //   用同一句话讲，读的人会以为上游没声明 torch。
+    return { checked: false,
+      reason: family.length > 0 ? 'declared-torch-was-skipped' : 'no-core-dependency-declared',
+      mods: [] }
   }
 
   const probe = typeof opts.probe === 'function' ? opts.probe : probeImportInEngineVenv
@@ -375,6 +560,86 @@ function probeImportInEngineVenv (root, id, mod, timeoutMs) {
       detail: (r.stderr || r.stdout || '').trim().slice(0, 600) }
   }
   return { ok: true, mod, code: 'OK', detail: '' }
+}
+
+// 装完的 torch 到底是哪一档。自检只证明「能 import」，证明不了「装的是你选的那一档」：
+//   CPU 版同样能 import，选了 XPU 却装成 CPU 时，前面每一步都是绿的。
+// 判据取 torch 自己报的事实（版本后缀 + 运行时探测），不读目录名，也不看我们的命令。
+const TORCH_BACKEND_PROBE = [
+  'import json, torch',
+  'o = {"version": torch.__version__, "cuda": bool(torch.version.cuda)}',
+  'try:',
+  '    o["xpu"] = bool(torch.xpu.is_available())',
+  'except Exception:',
+  '    o["xpu"] = False',
+  'print(json.dumps(o))',
+].join('\n')
+
+function torchBackendOf (info) {
+  const v = String((info && info.version) || '')
+  if (v.includes('+xpu') || (info && info.xpu)) return 'ipex'
+  if (v.includes('+rocm')) return 'rocm'
+  if (v.includes('+cu') || (info && info.cuda)) return 'cuda'
+  return 'cpu'
+}
+
+// 在该引擎自己的环境里问一次 torch 属于哪个后端。
+//   起不来、读不出结论时返回 null：这只是补充判据，不许把已经装好的环境判成坏的。
+function probeTorchBackend (root, id, timeoutMs) {
+  const py = engineVenvPythonAbs(root, id)
+  if (!py) return null
+  let r
+  try {
+    r = spawnSync(py, ['-c', TORCH_BACKEND_PROBE], {
+      encoding: 'utf8', timeout: timeoutMs || 120000,
+      windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
+      env: childEnvFor(root, undefined),
+    })
+  } catch (e) { return null }
+  if (!r || r.error || r.status !== 0) return null
+  const lines = String(r.stdout || '').trim().split(/\r?\n/)
+  const last = lines[lines.length - 1] || ''
+  let info = null
+  try { info = JSON.parse(last) } catch (e) { return null }
+  if (!info || !info.version) return null
+  return { ...info, backend: torchBackendOf(info) }
+}
+
+// 后端键的显示名：界面与结论里都按这个说法。
+const BACKEND_LABEL = { cpu: 'CPU', cuda: 'CUDA', ipex: 'XPU', rocm: 'ROCm', zluda: 'ZLUDA', directml: 'DirectML' }
+
+function backendLabel (key) {
+  return BACKEND_LABEL[key] || key
+}
+
+// 只有「选了后端」才比对：没选时推荐值只是建议，装成 CPU 不算做错。
+function probeBackendAfterInstall (root, id, plan, v, probe) {
+  const expected = (plan.choices && plan.choices.backend) || null
+  if (!v || !v.checked) return null
+  if (!Array.isArray(v.mods) || !v.mods.includes('torch')) return null
+  if (Array.isArray(v.missing) && v.missing.length > 0) return null
+  const info = (typeof probe === 'function' ? probe : probeTorchBackend)(root, id)
+  if (!info) return null
+  return {
+    expected,
+    actual: info.backend,
+    version: info.version,
+    ok: expected ? info.backend === expected : true,
+  }
+}
+
+function backendNoteEn (b) {
+  if (!b) return ''
+  const got = backendLabel(b.actual)
+  if (b.ok) return `The torch build is ${got} (${b.version}). `
+  return `You chose ${backendLabel(b.expected)}, but the torch build is ${got} (${b.version}). `
+}
+
+function backendNoteZh (b) {
+  if (!b) return ''
+  const got = backendLabel(b.actual)
+  if (b.ok) return `torch 是 ${got} 版（${b.version}）。`
+  return `但选的是 ${backendLabel(b.expected)}，实际装到的是 ${got} 版（${b.version}）。`
 }
 
 // 解析 uv/pip 的下载进度行，返回 { file, size, status } 数组。
@@ -690,6 +955,12 @@ async function runEnv (input = {}) {
           if (!constraintFile) constraintFile = buildConstraintFile(root, input.id)
           return constraintFile ? afterPipInstall(a, ['--build-constraints', constraintFile]) : null
         } },
+      // 上游的 pyproject.toml 只是一份工具配置（没有项目表、没有构建后端），
+      //   装它等于把 lint 配置当成包。改走同目录的 requirements.txt，
+      //   依赖版本交给 uv 解析，平台不猜版本、也不改上游声明。
+      { re: UV_NOT_INSTALLABLE_RE,
+        notice: '上游的 pyproject.toml 不构成可安装的项目，改用同目录的 requirements.txt 装依赖。',
+        make: (a) => switchToRequirements(a, step, root, input.id) },
     ]
     for (const st of strategies) {
       if (r.ok || !st.re.test(`${r.stderr || ''}\n${r.stdout || ''}`)) continue
@@ -754,6 +1025,12 @@ async function runEnv (input = {}) {
     persist()
 
     if (!r.ok) {
+      // 「这个包没有当前 Python 版本的 wheel」是最常见的一类：uv 的原话有两段，
+      //   而使用者只需要知道「缺哪个包、现在哪一版、该换成哪一版」。
+      //   换成哪一版是人的决定，这里只翻译，不自动降级。
+      const rawOut = String(r.stderr || r.stdout || '')
+      const explained = (r.code === 'INSTALL_CANCELLED' || r.code === 'INSTALL_CANCEL_FAILED')
+        ? null : explainInstallFailure(rawOut)
       if (r.code === 'INSTALL_CANCELLED' || r.code === 'INSTALL_CANCEL_FAILED') {
         markBroken('install cancelled by user')
       } else if (r.code === 'ENV_TIMEOUT') {
@@ -772,21 +1049,33 @@ async function runEnv (input = {}) {
         failedAt: isCancelled ? i + 1 : i + 1,
         failedArgv: step.argv,
         cancelled: isCancelled ? true : undefined,
-        error: isCancelled
-          ? 'Install cancelled by user. The process tree was killed.\n'
+        error: explained
+          ? explained.error
+          : (isCancelled
+            ? 'Install cancelled by user. The process tree was killed.\n'
             + 'The engine environment under engines/<id>/.venv is partial; '
             + 're-running this step rebuilds it.'
           : (r.code === 'SPAWN_FAILED'
             ? `Cannot launch ${step.argv[0]}: ${r.error}\n`
               + 'The platform cannot confirm whether the install succeeded — check the engines/<id>/ directory.'
-            : (r.stderr || r.stdout || '(no output)')),
-        errorZh: isCancelled
-          ? '安装已取消，进程树已终止。\n'
+            : (r.stderr || r.stdout || '(no output)'))),
+        errorZh: explained
+          ? explained.errorZh
+          : (isCancelled
+            ? '安装已取消，进程树已终止。\n'
             + 'engines/<id>/.venv 下的环境是不完整的；重新执行本步骤会先重建它。'
           : (r.code === 'SPAWN_FAILED'
             ? `起不动「${step.argv[0]}」：${r.error}\n`
               + '平台无法确认是否安装成功，请检查 engines/<id>/ 目录。'
-            : (r.stderr || r.stdout || '（没有输出）')),
+            : (r.stderr || r.stdout || '（没有输出）'))),
+        detail: explained ? rawOut : undefined,
+        cause: explained ? explained.cause : undefined,
+        causeZh: explained ? explained.causeZh : undefined,
+        hint: explained ? explained.hint : undefined,
+        hintZh: explained ? explained.hintZh : undefined,
+        python_version: explained ? explained.python_version : (plan.python_version || null),
+        python_version_options: mergeVersionOptions(
+          plan.python_version_options, explained ? explained.available : null),
         note: isCancelled
           ? `The install stopped before step ${i + 1}/${steps.length}. `
             + `${stepsRun.filter((s) => s.ok).length} step(s) had already finished.\n`
@@ -818,7 +1107,9 @@ async function runEnv (input = {}) {
   }
 
   const v = verifyEngineEnvImports(root, String(input.id || ''),
-    steps, plan.alternative, { probe: probe || undefined })
+    steps, plan.alternative, { probe: probe || undefined,
+      specs: plan.specs,
+      excluded: (plan.choices && plan.choices.excluded) || [] })
   if (v.checked && v.missing.length > 0) {
     return {
       ...plan,
@@ -856,6 +1147,38 @@ async function runEnv (input = {}) {
 
   markPartialVenv(root, String(input.id || ''), null)
 
+  // 没有可验证对象的那两支：命令都过了，但平台什么都没证明。
+  //   不判失败（安装方式可能是它自己管环境，这不算错），但必须如实说清
+  //   「这一步只证明命令已结束」，并指出真正的判据在第 5 步。
+  //   编译型引擎（自己带 CMake / C 扩展）正好落在这里：本机没有工具链时
+  //   退出码照样是 0，平台也无从替人装上编译器。
+  const why = v.checked ? null : (v.reason === 'this-install-method-manages-its-own-environment'
+    ? {
+        note: 'This install method manages its own environment, so the platform has nothing it '
+          + 'can import inside this engine\'s own .venv to confirm the result.',
+        noteZh: '这个安装方式自己管环境，平台在该引擎自己的 .venv 里没有可 import 的对象来确认结果。',
+      }
+    : v.reason === 'declared-torch-was-skipped'
+      ? {
+          note: 'The upstream declares torch, but this install skipped it, so the platform has '
+            + 'nothing to import and confirm here. Installing it yourself is allowed; the '
+            + 'verdict still comes in step 5.',
+          noteZh: '上游声明了 torch，但这次安装把它跳过了，平台没有可 import 的对象来确认结果。'
+            + '自己装也可以，能否出声的判据仍在第 5 步。',
+        }
+      : {
+        note: 'This install has no core dependency the platform can check: the command runs the '
+          + 'engine\'s own build, and an exit code of 0 says nothing about whether it built. '
+          + 'If the upstream publishes a prebuilt package for this platform, the install command '
+          + 'in the manifest can point at that package instead.',
+        noteZh: '这次安装没有平台可验证的核心依赖：命令包含该引擎自己的构建步骤，'
+          + '而退出码 0 不代表它真的构建出来了。'
+          + '上游若发布了本平台的预编译包，可以把名片的安装命令改成直接用那个包。',
+      })
+
+  const backendCheck = probeBackendAfterInstall(root, String(input.id || ''), plan, v,
+    typeof input.probeBackend === 'function' ? input.probeBackend : null)
+
   return {
     ...plan,
     ok: true,
@@ -863,18 +1186,27 @@ async function runEnv (input = {}) {
     stepsRun,
     failedAt: null,
     envCheck: v,
+    // 装完的 torch 属于哪一档，与选的是否一致。没选后端时为 null。
+    backendCheck,
+    // 与 envUnverified 分开：这一步验过了，只是结果不是所选的那一档。
+    backendMismatch: Boolean(backendCheck && !backendCheck.ok),
+    // 给界面一个机器可读的标记：这一步「已结束但没验过」，结论条要按警告上色。
+    envUnverified: !v.checked,
+    envUnverifiedReason: v.checked ? null : v.reason,
     note: v.checked
       ? `Completed ${steps.length} step(s). Every command exited 0, and `
         + `${v.mods.join(', ')} imports in this engine's own environment. `
+        + backendNoteEn(backendCheck)
         + 'Whether the engine can actually start still needs the checks that come next.'
-      : `Completed ${steps.length} step(s). An exit code of 0 only means the command finished —`
-        + ' whether the engine can actually be imported still needs the checks that come next.',
+      : `Completed ${steps.length} step(s), but this step is not verified. ${why.note} `
+        + 'The verdict comes in step 5: whether it can synthesize audio.',
     noteZh: v.checked
       ? `已完成 ${steps.length} 个步骤。所有命令退出码均为 0，`
         + `且 ${v.mods.join('、')} 在该引擎自己的环境里可以 import。`
+        + backendNoteZh(backendCheck)
         + '该引擎能否真正启动仍需后续校验。'
-      : `已完成 ${steps.length} 个步骤。退出码 0 仅表示命令执行完毕，`
-        + '该引擎能否正常导入仍需后续校验。',
+      : `已完成 ${steps.length} 个步骤，但这一步没有验证过。${why.noteZh}`
+        + '真正的判据在第 5 步：能不能合成出音频。',
   }
 }
 
@@ -883,8 +1215,12 @@ module.exports = {
   uvRelPath,
   resolveUv,
   buildEnvPlan,
+  explainInstallFailure,
+  mergeVersionOptions,
   verifyEngineEnvImports,
   probeImportInEngineVenv,
+  probeTorchBackend,
+  torchBackendOf,
   parseProgress,
   childEnvFor,
   cleanStaleUvBuilds,

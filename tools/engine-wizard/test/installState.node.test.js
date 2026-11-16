@@ -213,6 +213,28 @@ test('verify 恒 false（这一步的检测逻辑尚未实现，不许伪装成�
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+test('⭐⭐⭐ 名片点了名就按名字判，不按「目录里有几个文件」判', () => {
+  // 两把尺的代价：第 3 步按「目录里有没有文件」打勾，第 5 步按声明的文件逐个核对。
+  //   声明是一份旧快照时（盘上早换了内容），第 3 步给绿勾、第 5 步说缺几十个，
+  //   使用者按前者的勾判断「已经下好了」。
+  const root = mkdtempRoot()
+  try {
+    const d = mkEngine(root, 'e1', ['manifest.json'])
+    fs.writeFileSync(path.join(d, 'manifest.json'),
+      JSON.stringify({ id: 'e1', models: { required: ['a.pt', 'b.pt'] } }))
+    fs.mkdirSync(path.join(d, 'checkpoints'), { recursive: true })
+    fs.writeFileSync(path.join(d, 'checkpoints', 'c.pt'), 'xx')
+    let s = IS.installState(root, 'e1', { spawnProbe: () => false })
+    assert.strictEqual(s.steps.models.ready, false,
+      '⛔ 目录里有别的文件就算齐了：第 5 步会按声明说缺，两处对不上')
+
+    fs.writeFileSync(path.join(d, 'checkpoints', 'a.pt'), 'xx')
+    fs.writeFileSync(path.join(d, 'checkpoints', 'b.pt'), 'xx')
+    s = IS.installState(root, 'e1', { spawnProbe: () => false })
+    assert.strictEqual(s.steps.models.ready, true, '声明的文件齐了就该打勾')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('权重目录都没有 ⇒ 三态的 null（说不出来），不糊成 false', () => {
   const root = mkdtempRoot()
   try {

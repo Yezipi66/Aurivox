@@ -83,10 +83,10 @@ test('事实表：XPU 的下界是 2.6.0（这就是「2.5.1 在 XPU 上装不�
 })
 
 test('事实表：同一个后端，不同 ABI 的下界可能不同', () => {
-  // cu121+cp312 从 2.2.0 起，不是 2.1.0。
-  assert.strictEqual(support.minTorchFor('cuda', 'cp311', 'win'), '2.1.0')
-  assert.strictEqual(support.minTorchFor('cuda', 'cp312', 'win'), '2.2.0')
-  // cpu+cp313 从 2.6.0 起，不是 2.5.0。
+  // CUDA 没有静态下界：索引由 uv 在安装时按锁定版本解析，平台不预判。
+  assert.strictEqual(support.minTorchFor('cuda', 'cp311', 'win'), null)
+  assert.strictEqual(support.minTorchFor('cuda', 'cp313', 'win'), null)
+  // 固定索引的后端照旧查表：cpu+cp313 从 2.6.0 起，不是 2.5.0。
   assert.strictEqual(support.minTorchFor('cpu', 'cp312', 'win'), '2.2.0')
   assert.strictEqual(support.minTorchFor('cpu', 'cp313', 'win'), '2.6.0')
 })
@@ -329,7 +329,7 @@ test('Python 版本 ⇒ wheel 的 ABI tag', () => {
 
 test('只有这些后端有官方 index', () => {
   assert.deepStrictEqual(probeMod.BACKENDS_WITH_INDEX, {
-    cuda: 'cu121',
+    cuda: 'cu126',
     ipex: 'xpu',
     rocm: 'rocm6.4',
     cpu: 'cpu',

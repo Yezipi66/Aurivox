@@ -168,6 +168,12 @@ function judgeTorchVersion (opts = {}) {
   //   不由文件名后缀决定。
   const declaredPlain = declared.version.replace(/\+.*$/, '')
 
+  // ---- CUDA 不在这里判 ----
+  //   索引由 uv 在安装时按锁定版本 + 目标 ABI + 依赖链解析，平台既没有
+  //   本地映射表，也不该据一张会过期的表弹「升级 torch」的建议。
+  //   装不上时 uv 的原文会由失败诊断带回界面。
+  if (backend === 'cuda') return null
+
   // ---- 离线判据 ----
   const minVersion = minTorchFor(backend, abi, family)
   if (!minVersion) {
@@ -227,7 +233,8 @@ function judgeTorchVersion (opts = {}) {
 async function probeTorchVersion (opts = {}) {
   const result = judgeTorchVersion(opts)
   if (!result || result.ok) return result
-  if (opts.offline) return result
+  // 没有可抓的索引页面时直接把结论交回去。
+  if (opts.offline || !result.index) return result
   const plat = wheelPlatformTag(opts.platform || process.platform, opts.arch || process.arch)
   if (!plat) return result
   try {

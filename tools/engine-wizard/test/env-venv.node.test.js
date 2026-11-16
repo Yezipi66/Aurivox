@@ -201,10 +201,11 @@ test('锁文件那条路：sync 的目标环境必须是该引擎的 .venv（不
   assert.strictEqual(projEnv, path.join(root, 'engines', 'demo8', '.venv'),
     `sync 目标环境错：${projEnv}`)
 
-  // 且不用 -p 指向一个已存在的 venv（会装进它自己新建的 .venv）
-  assert.strictEqual(targetPythonOf(sync.argv), null,
-    'uv sync 的 -p/--python 是「用哪个解释器当基准」，'
-    + '不是「装进哪个环境」，指过去会装错地方')
+  // 不许用 -p 指向一个已存在的 venv（会装进它自己新建的 .venv）；
+  //   但可以点名版本号，否则 uv 按 requires-python 自己挑版本。
+  const syncPy = targetPythonOf(sync.argv)
+  assert.ok(syncPy === null || /^\d+\.\d+$/.test(String(syncPy)),
+    `uv sync 只许用 --python 点名版本号，不许指向已有环境：${sync.argv.join(' ')}`)
 })
 
 test('sync 那步不得再靠 VIRTUAL_ENV（环境变量压不住 uv）', () => {
@@ -390,10 +391,11 @@ function assertTargetsEngineVenv (argv, envVar, wantPy, wantVenv, label) {
   const isSync = /(^|\s)sync(\s|$)/.test(line)
   const got = targetPythonOf(argv)
   if (isSync) {
-    // sync 不认 -p，必须靠环境变量，且不许用 -p 指向已存在的 venv
-    assert.strictEqual(got, null,
-      `${label}：uv sync 的 -p/--python 是「用哪个解释器当基准建项目环境」，`
-      + '会装进它自己新建的 .venv（退出码 0，静默装错）：' + line)
+    // sync 的目标环境靠环境变量，不许用 -p 指向一个已存在的 venv（会装进它自己新建的 .venv）。
+    //   但允许用 --python 点名版本号：不点名的话 uv 按 requires-python 自己挑，
+    //   第 2 步选的那个版本等于白选（盘上会是另一个版本）。
+    assert.ok(got === null || /^\d+\.\d+$/.test(String(got)),
+      `${label}：sync 只许用 --python 点名版本号，不许指向一个已有的环境：${line}`)
     assert.ok(envVar && envVar.UV_PROJECT_ENVIRONMENT,
       `${label}：sync 必须用 UV_PROJECT_ENVIRONMENT 选目标环境：${line}`)
     assert.strictEqual(envVar.UV_PROJECT_ENVIRONMENT, wantVenv,
@@ -892,4 +894,143 @@ test('env.js 活代码里不许出现任何具体引擎名', () => {
   for (const bad of FORBIDDEN) {
     assert.ok(!code.toLowerCase().includes(bad), `出现了「${bad}」`)
   }
+})
+// 编译型引擎会走到这里：命令全绿，但平台没有可 import 的对象可以验
+//   （它自己带构建步骤）。这时结论不能说「装好了」：退出码 0 只说明命令跑完了，
+//   本机缺编译工具链时它照样是 0。判成失败也不对，因为这不是命令的错。
+//   所以给它一个机器可读的标记，界面据此上黄色，并把人指向第 5 步。
+test('没有可验证对象时：结论标成未验证，而不是装好了', async () => {
+  const { root, engineDir } = mkdtempEngineWithManifest('bare', 'pyproject.toml')
+  fs.writeFileSync(path.join(engineDir, 'pyproject.toml'),
+    '[project]\nname = "bare"\nversion = "0.0.1"\n')
+
+  const r = await envMod.runEnv({
+    id: 'bare', root, execute: true, manifest: {},
+    runStep: async () => ({ ok: true, code: 'OK', status: 0, stdout: '', stderr: '' }),
+    probeImport: () => ({ ok: true, mod: 'x', code: 'OK', detail: '' }),
+  })
+
+  assert.strictEqual(r.ok, true, r.error)
+  assert.strictEqual(r.envCheck.checked, false)
+  assert.strictEqual(r.envUnverified, true, '没验过就必须标出来，不能只报成功')
+  assert.strictEqual(r.envUnverifiedReason, r.envCheck.reason)
+  assert.match(r.noteZh, /没有验证过/)
+  assert.match(r.noteZh, /第 5 步/, '结论要把人指向真正的判据')
+})
+
+// ② Python 版本：默认按声明，人能改
+
+test('Python 版本可按人选：默认取声明，传了就按传的', () => {
+  const mkdtempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-venv-'))
+  const mkdtempEngines = path.join(mkdtempRoot, 'engines')
+  const mkdtempEngineDir = path.join(mkdtempEngines, 'pyver')
+  fs.mkdirSync(mkdtempEngineDir, { recursive: true })
+  fs.writeFileSync(path.join(mkdtempRoot, 'server.js'), '// anchor\n')
+  fs.writeFileSync(path.join(mkdtempEngineDir, 'pyproject.toml'),
+    '[project]\nname = "x"\nrequires-python = ">=3.10,<3.14"\n')
+
+  const auto = envMod.buildEnvPlan({ id: 'pyver', root: mkdtempRoot, manifest: {} })
+  assert.strictEqual(auto.ok, true, auto.error)
+  assert.strictEqual(auto.python_version, '3.13',
+    `声明区间取最高，实际 ${auto.python_version}`)
+  assert.strictEqual(auto.python_version_source, 'requires-python')
+  assert.strictEqual(auto.python_version_declared, '>=3.10,<3.14',
+    '声明的原文要给出来，界面才有据可对照')
+  assert.ok(Array.isArray(auto.python_version_options)
+    && auto.python_version_options.includes('3.12'), '可选档位没给')
+
+  const chosen = envMod.buildEnvPlan({
+    id: 'pyver', root: mkdtempRoot, manifest: {}, pythonVersion: '3.12',
+  })
+  assert.strictEqual(chosen.python_version, '3.12', '人选没压过声明')
+  assert.strictEqual(chosen.python_version_source, 'chosen')
+  assert.strictEqual(targetPythonOf(envStepsOf(chosen)[0].argv), '3.12',
+    '建环境那一步没按选的版本：声明压不过需求时这就白选了')
+})
+
+// ③ 失败原文翻成人话：缺 wheel 那一类
+
+test('⭐⭐⭐ 「没有当前 Python 版本的 wheel」翻成人话，并指出该改哪一档', () => {
+  const { explainInstallFailure } = require('../core/envInstall.js')
+  // 真实格式：uv 会把版本号包在反引号里（`cp310`, `cp311`）。
+  //   按不含反引号的样例写正则，线上就解析成空列表，文案变成「只提供 的 wheel」。
+  const raw = 'error: Distribution `spacy==3.8.4 @ registry+https://pypi.org/simple` '
+    + "can't be installed because it doesn't have a source distribution or wheel "
+    + 'for the current platform\n'
+    + "hint: You're using CPython 3.13 (`cp313`), but `spacy` (v3.8.4) only has "
+    + 'wheels with the following Python ABI tags: `cp310`, `cp311`, `cp312`'
+  const r = explainInstallFailure(raw)
+  assert.ok(r, '这一类没认出来，使用者看到的还是 uv 原文')
+  assert.strictEqual(r.code, 'NO_WHEEL_FOR_PYTHON')
+  assert.strictEqual(r.python_version, '3.13')
+  assert.deepStrictEqual(r.available, ['3.10', '3.11', '3.12'],
+    '反引号没吃掉：可用版本成了空列表，文案会出现「只提供 的 wheel」')
+  assert.match(r.errorZh, /当前用的是 Python 3\.13，但 spacy 还不支持这个版本/,
+    `要说清是谁不支持谁：${r.errorZh}`)
+  assert.match(r.errorZh, /只支持 Python 3\.10、Python 3\.11 或 Python 3\.12/,
+    `要写明白是哪几档：${r.errorZh}`)
+  assert.match(r.hintZh, /从头重装本步/, '要给一条能走下去的路')
+  assert.match(r.hintZh, /清空当前环境后，重新选择 Python 3\.10、Python 3\.11 或 Python 3\.12 再试一次/,
+    `建议里要把动作与版本都写全：${r.hintZh}`)
+  assert.doesNotMatch([r.errorZh, r.hintZh].join(''), /轮子/,
+    'wheel 是术语，不要译成「轮子」')
+})
+
+test('⭐ 解析不出可用版本时不硬凑一句「只提供 的 wheel」', () => {
+  const { explainInstallFailure } = require('../core/envInstall.js')
+  const raw = "Distribution `x==1` can't be installed because it doesn't have "
+    + 'a source distribution or wheel for the current platform\n'
+    + "hint: You're using CPython 3.14"
+  const r = explainInstallFailure(raw)
+  assert.ok(r)
+  assert.deepStrictEqual(r.available, [])
+  assert.doesNotMatch(r.errorZh, /只提供\s*的/, `空列表漏进文案了：${r.errorZh}`)
+  assert.match(r.errorZh, /还不支持这个版本/)
+  assert.match(r.hintZh, /更低的 Python 版本/)
+})
+
+test('⭐ 不是缺 wheel 那一类就返回 null，⛔ 不硬套模板', () => {
+  const { explainInstallFailure } = require('../core/envInstall.js')
+  assert.strictEqual(explainInstallFailure('No solution found when resolving dependencies'), null)
+  assert.strictEqual(explainInstallFailure(''), null)
+})
+
+test('⭐⭐⭐ 只支持 cp39 / cp310 的依赖：建议里的 3.9 必须能选到', () => {
+  const { explainInstallFailure, mergeVersionOptions } = require('../core/envInstall.js')
+  const raw = 'Distribution `x==0.1` '
+    + "can't be installed because it doesn't have a source distribution or wheel "
+    + 'for the current platform\n'
+    + "hint: You're using CPython 3.13 (`cp313`), but `x` (v0.1) only has wheels "
+    + 'with the following Python ABI tags: `cp39`, `cp310`'
+  const r = explainInstallFailure(raw)
+  assert.deepStrictEqual(r.available, ['3.9', '3.10'])
+  assert.match(r.errorZh, /只支持 Python 3\.9 或 Python 3\.10/,
+    `要写明白只剩哪两档：${r.errorZh}`)
+  // 下拉原本从 3.10 起，建议却说 3.9 ⇒ 说得对但做不到。
+  const opts = mergeVersionOptions(['3.10', '3.11', '3.12', '3.13'], r.available)
+  assert.ok(opts.includes('3.9'), `建议让人选 3.9，下拉里却没有：${opts.join(',')}`)
+  assert.deepStrictEqual(opts, ['3.9', '3.10', '3.11', '3.12', '3.13'], '选项要按版本号排序')
+})
+
+test('⭐⭐ 声明了列表外的版本时，下拉里必须有它，否则 select 会显示成第一项', () => {
+  const mkdtempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-venv-'))
+  const mkdtempEngines = path.join(mkdtempRoot, 'engines')
+  const mkdtempEngineDir = path.join(mkdtempEngines, 'offpool')
+  fs.mkdirSync(mkdtempEngineDir, { recursive: true })
+  fs.writeFileSync(path.join(mkdtempRoot, 'server.js'), '// anchor\n')
+  fs.writeFileSync(path.join(mkdtempEngineDir, 'requirements.txt'), '# fixture\n')
+  // 上游钉了一个池子里没有的版本（比如发布当天就要求 3.15）
+  fs.writeFileSync(path.join(mkdtempEngineDir, '.python-version'), '3.15\n')
+
+  const p = envMod.buildEnvPlan({ id: 'offpool', root: mkdtempRoot, manifest: {} })
+  assert.strictEqual(p.ok, true, p.error)
+  assert.strictEqual(p.python_version, '3.15')
+  assert.ok(p.python_version_options.includes('3.15'),
+    `当前值不在选项里，<select> 会把第一项当选中项显示：${p.python_version_options.join(',')}`)
+  assert.ok(p.python_version_options.includes('3.14'), '正式版都该在列表里')
+  const sorted = p.python_version_options.slice().sort((a, b) => {
+    const [a1, a2] = a.split('.').map(Number); const [b1, b2] = b.split('.').map(Number)
+    return (a1 - b1) || (a2 - b2)
+  })
+  assert.deepStrictEqual(p.python_version_options, sorted, '选项要按版本号排序')
 })

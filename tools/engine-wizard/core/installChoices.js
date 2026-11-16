@@ -42,7 +42,11 @@ function readChoices (input) {
   }
   // platform：测试注入点（默认 process.platform），判「PyPI 的 torch 是不是 CUDA 版」用。
   const platform = typeof input.platform === 'string' && input.platform ? input.platform : null
-  return { exclude, backend, upgradeTorch, torchSuggestion, versionOverrides, platform }
+  // pythonVersion：这次真正要建的 Python 版本（人在第 2 步下拉里选的，或按声明推出来的）。
+  //   判 torch 版本的 ABI 要用它，不能用目录里的声明：两者可能不一致。
+  const pythonVersion = typeof input.pythonVersion === 'string' && input.pythonVersion
+    ? input.pythonVersion : null
+  return { exclude, backend, upgradeTorch, torchSuggestion, versionOverrides, platform, pythonVersion }
 }
 
 function backendOption (key) {
@@ -70,14 +74,65 @@ function noIndexError (key) {
   }
 }
 
-function torchAlt (specs, names, key) {
+/**
+ * 这个后端在本机平台 + 这个 Python 上没有任何 torch 轮子。
+ *   与「后端没有 index」不同：这时有索引，但索引里这一档一个轮子都没发过。
+ *   拼命令前就拦住，别让 uv 抛一句「no version of torch==X」。
+ */
+function noTorchWheelError (key, pyVersion, family) {
+  const opt = backendOption(key)
+  const label = opt ? opt.label : key
+  const where = family === 'win' ? 'Windows' : (family === 'linux' ? 'Linux' : 'macOS')
+  return {
+    ok: false, code: 'BACKEND_NO_TORCH_WHEEL',
+    error: `The ${label} backend has no torch wheel for Python ${pyVersion} on ${where}. `
+      + 'Changing the torch version will not help: choose another backend, or use an older Python.',
+    errorZh: `${label} 后端在 Python ${pyVersion}（${where}）上没有 torch 轮子，`
+      + '换哪个 torch 版本都装不上。请改选其他后端，或把 Python 版本降下来。',
+  }
+}
+
+/** 锁文件明写的 +cu121 / +cu128 ⇒ 那一档；没有就返回 null。 */
+function pinnedCudaFrom (pin) {
+  const m = String((pin && pin.version) || '').match(/\+cu(\d+)/i)
+  return m ? `cu${m[1]}` : null
+}
+
+/** 这条命令要装的是上游锁定的版本时才带后缀；改过版本（升级 / 覆盖）时不带。 */
+function torchOpts (opts, pin, pinned = true) {
+  return { ...opts, pinned: pinned ? pinnedCudaFrom(pin) : null }
+}
+
+/**
+ * 后端 → 拼进 uv pip install 的索引参数。
+ *   非 CUDA 后端索引固定，一条 --index-url。
+ *   CUDA 把全部官方候选索引交给 uv，按锁定的 torch 版本自行解析；
+ *   锁文件明写 +cuXXX 时只给那一个索引，照抄上游，不让解析器换档。
+ */
+function torchIndexArgs (key, opts = {}) {
   const opt = backendOption(key)
   if (!opt || !opt.index) return { error: noIndexError(key) }
+  if (key !== 'cuda') return { args: ['--index-url', opt.index] }
+  const { cudaIndexArgs } = require('./backendTorchSupport')
+  return { args: cudaIndexArgs(opts.pinned) }
+}
+
+function torchAlt (specs, names, key, opts = {}) {
+  const opt = backendOption(key)
+  const resolved = torchIndexArgs(key, opts)
+  if (resolved.error) return { error: resolved.error }
+  const whyZh = key === 'cuda' && !opts.pinned
+    ? `锁死上游的 torch 版本，把 CUDA 官方候选索引一起交给 uv，由它挑能装的那一档。`
+    : `按所选后端，从 ${opt.label} 官方 index 安装 ${names.join('、')}。`
+  // 必须强制重装：PyPI 装上来的同名同版本包（CPU 版）在 uv 眼里已经满足
+  //   「torch」这个不带版本的要求，它只会回一句 Checked 就结束，索引里的
+  //   GPU 轮子一个都不会落到盘上。后端选择因此变成空转，而退出码仍是 0。
+  const rein = names.flatMap((n) => ['--reinstall-package', n])
   return {
     alt: {
-      then: ['uv', 'pip', 'install', ...specs, '--index-url', opt.index],
-      why: `Install ${names.join(', ')} from the official ${opt.label} index, as selected.`,
-      whyZh: `按所选后端，从 ${opt.label} 官方 index 安装 ${names.join('、')}。`,
+      then: ['uv', 'pip', 'install', ...rein, ...specs, ...resolved.args],
+      why: `Reinstall ${names.join(', ')} from the official ${opt.label} index, as selected.`,
+      whyZh,
       needs: names,
     },
   }
@@ -94,10 +149,27 @@ function lockRoute (dir, guess, ch, recommended) {
   let skipTorch = []
   let alt = null
   const target = ch.backend || recommended
-  if (ch.backend && pin && ch.backend !== recommended) {
+  if (ch.backend && pin && reroutesTorch(ch)) {
     if (pin.backend !== ch.backend && wanted.length) {
+      // 其余后端是固定索引，用下界表判「这一档有没有发过轮子」。
+      //   CUDA 的索引由 uv 在安装时解析，平台不预判，也编不出下界。
+      if (ch.backend !== 'cuda') {
+        const { minTorchFor, platformFamily } = require('./backendTorchSupport')
+        const { readEnginePythonVersion, PLATFORM_BASE_PYTHON } = require('./envDetect')
+        const { abiTag } = require('./torchVersionProbe')
+        // 判 ABI 要用「这次真正要建的版本」：人在下拉里选的版本压过目录里的声明。
+        const declaredPy = readEnginePythonVersion(dir)
+        const pyForAbi = ch.pythonVersion
+          || (declaredPy ? declaredPy.version : PLATFORM_BASE_PYTHON)
+        const abi = abiTag(pyForAbi)
+        const family = platformFamily(process.platform)
+        if (!abi || !family || !minTorchFor(ch.backend, abi, family)) {
+          return noTorchWheelError(ch.backend, pyForAbi, family)
+        }
+      }
+      const common = { dir, pythonVersion: ch.pythonVersion }
       const r = torchAlt(wanted.map((p) => `${p.name}==${p.plain}`),
-        wanted.map((p) => p.name), ch.backend)
+        wanted.map((p) => p.name), ch.backend, torchOpts(common, pin))
       if (r.error) return r.error
       alt = r.alt
       skipTorch = wanted.map((p) => p.name)
@@ -107,7 +179,8 @@ function lockRoute (dir, guess, ch, recommended) {
     skipTorch = keep
     if (keep.length) {
       const pins = (guess.alternative.familyPins || []).filter((p) => keep.includes(p.name))
-      const r = torchAlt(pins.map((p) => `${p.name}==${p.plain}`), keep, target)
+      const r = torchAlt(pins.map((p) => `${p.name}==${p.plain}`), keep, target,
+        { dir, pythonVersion: ch.pythonVersion })
       if (r.error) return r.error
       alt = { ...guess.alternative, then: r.alt.then, needs: keep }
     }
@@ -122,17 +195,19 @@ function lockRoute (dir, guess, ch, recommended) {
   }
 }
 
-function reroutesTorch (ch, recommended) {
-  return Boolean(ch.backend && recommended && ch.backend !== recommended)
+// PyPI 上的 torch 在哪个平台属于哪个后端：
+//   Windows / macOS 只有 CPU 轮子，CUDA / XPU / ROCm 都在各自的官方索引；
+//   Linux x86_64 的 PyPI torch 是 CUDA 版。
+// 判据只能是「所选后端 == PyPI 会给的那个」，不能是「所选后端 == 本机推荐」：
+//   后者在 Intel 机器上会走进一条死路，选中推荐档（ipex）反而不改路，
+//   torch 从 PyPI 装成 CPU 版，界面上的选择等于没生效。
+function pypiTorchBackend (platform) {
+  return (platform || process.platform) === 'linux' ? 'cuda' : 'cpu'
 }
 
-// 目标后端是 CPU、而上游的 torch 会从 PyPI 装：Linux 上 PyPI 的 torch 是 CUDA 版
-//   （x86_64 与 aarch64 都是），会连带几个 GB 的 nvidia-* 包，没有显卡的机器用不上，
-//   磁盘小的机器直接装不下。所以哪怕「选的就是推荐的」也得改走 CPU 官方 index。
-//   Windows / macOS 上 PyPI 的 torch 本来就是 CPU 版，不用改。
-function pypiTorchIsWrongFor (ch, recommended, platform) {
-  const target = ch.backend || recommended
-  return target === 'cpu' && (platform || process.platform) === 'linux'
+function reroutesTorch (ch) {
+  if (!ch.backend) return false
+  return ch.backend !== pypiTorchBackend(ch.platform)
 }
 
 /**
@@ -191,7 +266,8 @@ function upgradeTorchRoute (dir, guess, ch, recommended, route, write) {
     : [`torch==${version}`]
   const names = family.length ? family.map((p) => p.name) : ['torch']
 
-  const r = torchAlt(specs, names, target)
+  const r = torchAlt(specs, names, target,
+    torchOpts({ dir, pythonVersion: ch.pythonVersion }, null, false))
   if (r.error) return r.error
   const alt = {
     ...r.alt,
@@ -255,7 +331,7 @@ function declaredSpecs (dir, guess, route) {
 function pipRoute (dir, guess, ch, recommended, route, write) {
   const torch = []
   const target = ch.backend || recommended
-  if (reroutesTorch(ch, recommended) || pypiTorchIsWrongFor(ch, recommended, ch.platform)) {
+  if (reroutesTorch(ch)) {
     for (const s of declaredSpecs(dir, guess, route)) {
       const n = specName(s)
       if (TORCH_TRIO.includes(n) && !ch.exclude.has(n)) torch.push(s.replace(/\+[\w.]+/, ''))
@@ -263,11 +339,16 @@ function pipRoute (dir, guess, ch, recommended, route, write) {
   }
   let alt = null
   if (torch.length) {
-    const r = torchAlt(torch, torch.map(specName), target)
+    const r = torchAlt(torch, torch.map(specName), target,
+      { dir, pythonVersion: ch.pythonVersion })
     if (r.error) return r.error
     alt = r.alt
   }
   const names = [...new Set([...ch.exclude, ...torch.map(specName)])]
+  // 没有要挪走的包，也没有要跳过的包：装法保持上游原样。
+  //   这里返回原样的 guess，不要给命令挂一个空的 --excludes 文件：
+  //   上游没声明 torch 的引擎选后端时，那条命令本来就不该变。
+  if (names.length === 0) return { guess }
   if (write) fs.writeFileSync(path.join(dir, guess.cwd || '.', EXCLUDES_FILE), names.join('\n') + '\n')
   return {
     guess: { ...guess, argv: [...guess.argv, '--excludes', EXCLUDES_FILE], alternative: alt },
@@ -447,7 +528,8 @@ function versionOverrideRoute (dir, guess, ch, recommended, route, write, python
     // 追加一步：按所选版本从该后端的官方 index 装。
     const specs = torchChanged.map((n) => `${normName(n)}==${torchVersions[normName(n)]}`)
     const names2 = torchChanged.map(normName)
-    const ta = torchAlt(specs, names2, target)
+    const ta = torchAlt(specs, names2, target,
+      torchOpts({ dir, pythonVersion }, null, false))
     if (ta.error) return ta.error
     alt = ta.alt
   }
@@ -534,8 +616,11 @@ function applyInstallChoices (dir, guess, input = {}) {
     if (!r.guess) return r
     return { guess: r.guess, choices: { ...summary, applied: true }, specs: r.specs }
   }
-  const changed = ch.exclude.size > 0 || reroutesTorch(ch, recommended)
-    || (route !== 'lock' && pypiTorchIsWrongFor(ch, recommended, ch.platform))
+  // 选了后端也算改动。默认那条替代命令的索引是按「本机推荐的后端」算的，
+  //   使用者选了别的后端时必须按所选后端重算，否则命令里装的是另一档的轮子
+  //   （选 CPU、装进来的是 XPU 版），而界面上显示的选择等于没生效。
+  const backendChosen = !!(ch.backend && ch.backend !== recommended)
+  const changed = ch.exclude.size > 0 || reroutesTorch(ch) || backendChosen
   if (!summary.supported || !changed) {
     // 没有要改的版本时，界面照样要显示「最终要装的那条 spec」。
     //   这一份就是上游原文（没改过就是它），但仍由后端给，

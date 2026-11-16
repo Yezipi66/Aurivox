@@ -213,10 +213,22 @@ function listModelFiles (root, id, rel) {
   return out
 }
 
-// checkpoints 下有没有非空文件。返回 null 表示无法判定（目录不存在或无法读取）。
-function weightsOnDisk (root, id, rel) {
+// checkpoints 齐不齐。三态：true 齐了 · false 缺了 · null 说不出来。
+//
+// 名片点了名（models.required）就按名字逐个核对：这是第 5 步第 3 道用的同一把尺
+//   （lib/engines/checkpoints.js），两处口径不一致时，第 3 步会打勾而第 5 步说缺一堆，
+//   使用者按前者的勾判断「已经下好了」。
+// 名片没点名时才退到「目录里有没有非空文件」：那种情况平台说不出齐不齐，
+//   但至少能回答「有没有下过东西」，所以这里给 true/false，不给 null。
+function weightsOnDisk (root, id, rel, required) {
   const dir = rel ? path.join(root, rel) : checkpointsAbsPath(root, id)
   if (!dir) return null
+  const declared = Array.isArray(required) ? required.filter((f) => typeof f === 'string' && f) : []
+  if (declared.length > 0) {
+    return declared.every((f) => {
+      try { return fs.statSync(path.resolve(dir, f)).isFile() } catch (e) { return false }
+    })
+  }
   const files = listModelFiles(root, id, rel)
   if (files.length === 0) return null          // 目录都没有或一个文件都没有 ⇒ 说不出来
   // 大小为 0 的文件也算「查过了」：确实缺了还是文件不完整，由下载那一步自己逐文件校验，
@@ -260,7 +272,9 @@ function installState (root, id, deps = {}) {
     : running ? 'install-running'
       : failure ? `install-failed:${failure.code || 'ENV_FAILED'}`
         : (venvSpawns ? 'venv-spawns' : 'venv-unusable')
-  const weights = hasClone ? weightsOnDisk(root, id, weightRel) : null
+  const weights = hasClone
+    ? weightsOnDisk(root, id, weightRel, manifest && manifest.models && manifest.models.required)
+    : null
   const manifestOk = hasClone ? manifestPresent(dir) : false
   // verify 恒为 false：这一步没有对应的产物判据，未实现不能算做过。
   const verified = false

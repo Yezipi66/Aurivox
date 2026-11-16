@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 import { RiskUnlock } from './Pipeline'
 import { UndoClone } from './UndoClone'
 import { loadSession, saveSession } from './useInstallSession'
+import Select from '../../../web/src/components/common/Select'
 
 // 向导第 2 步：给这台引擎装 Python 依赖。
 // 本机检测、装法与将要执行的命令都来自 /wizard/env 的计划（execute:false）；
@@ -138,7 +139,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
   const [plan, setPlan] = React.useState(saved?.depsPlan || null)
   const [showNormal, setShowNormal] = React.useState(saved?.showNormal || false)
   const [backend, setBackend] = React.useState(saved?.backend || null)
-  const [result, setResult] = React.useState(saved?.depsResult || null)
+  // 只恢复成功的结果：旧的失败文案已经在会话段里存过一次，读的时候也要挡掉，
+  //   否则刷新之后看到的还是上一次执行给出的结论。
+  const [result, setResult] = React.useState(
+    saved?.depsResult && saved.depsResult.ok ? saved.depsResult : null)
   const [preview, setPreview] = React.useState(saved?.depsPreview || null)
   const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
   const [skipped, setSkipped] = React.useState(saved?.skipped || [])
@@ -154,6 +158,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
   // 后端探测出的建议（上游钉的版本在本机后端上不可用时给出）。
   //   单独存：计划请求要用它，但计划结果本身也会带它 ⇒ 放在一起会绕成循环依赖。
   const [suggestion, setSuggestion] = React.useState(saved?.torchSuggestion || null)
+  // Python 版本：空 = 按引擎声明（requires-python / .python-version），有值 = 人选的。
+  //   声明只说明「这一族能跑」，不保证依赖在每一档都有 wheel：spacy 这类钉死版本的包
+  //   就没有 3.13 的轮子，声明却写着 <3.14。所以这一格必须能改。
+  const [pythonVersion, setPythonVersion] = React.useState(saved?.pythonVersion || '')
   // 取消函数（run() 里挂上，finally 里摘掉）。用 ref 不用 state：
   //   它是「这一次执行」的动作，不是界面状态，进了 state 会触发多余渲染。
   const cancelRef = React.useRef(null)
@@ -164,10 +172,13 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
     if (!targetId) return
     saveSession(targetId, url, {
       depsPlan: plan, showNormal, backend, unlocked,
-      depsResult: result, depsPreview: preview, depsProgress: progress, skipped,
-      upgradeTorch, torchSuggestion: suggestion, versionOverrides,
+      // 只保留成功的结果。失败结论依赖当时的代码与环境（错误文案会被改写、
+      //   人已经换了 Python 版本），刷新后再原样摆出来会与现实不符：
+      //   改了文案之后页面上还是旧的错，看不出到底改没改。
+      depsResult: result && result.ok ? result : null, depsPreview: preview, depsProgress: progress, skipped,
+      upgradeTorch, torchSuggestion: suggestion, versionOverrides, pythonVersion,
     })
-  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped, upgradeTorch, suggestion, versionOverrides])
+  }, [targetId, url, plan, showNormal, backend, unlocked, result, preview, progress, skipped, upgradeTorch, suggestion, versionOverrides, pythonVersion])
 
   const isSkipped = (spec) => skipped.includes(pkgName(spec))
   const toggleSkip = (spec) => {
@@ -297,6 +308,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
         // 已经接受升级时不再回传：建议已经在本地存着（suggestionRef）。
         torchSuggestion: useUpgrade ? null : suggestionRef.current,
         versionOverrides,
+        pythonVersion: pythonVersion || undefined,
       }),
     }).then((r) => r.json())
       .then((j) => {
@@ -309,8 +321,27 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
       })
       .catch(() => { if (alive) setPreview(null) })
     return () => { alive = false }
-  }, [targetId, backend, skipped.join('\n'), upgradeTorch, JSON.stringify(versionOverrides)])
+  }, [targetId, backend, skipped.join('\n'), upgradeTorch, JSON.stringify(versionOverrides), pythonVersion])
   const canSkip = !(preview && preview.choices && preview.choices.supported === false)
+
+  // 下拉里能选的版本 = 预览给的池子 + 失败时解析出的「这个依赖支持哪几档」。
+  //   只按池子摆会出这种事：报错让人选 3.9，下拉里却没有 3.9，说得对但做不到。
+  const pyOptions = React.useMemo(() => {
+    const a = (preview && preview.python_version_options) || []
+    const b = (result && result.python_version_options) || []
+    // 当前生效的版本一定要在列表里：不在的话 <select> 会把第一项当选中项显示，
+    //   看上去像「平台要用最低那一档建环境」。
+    const cur = (preview && preview.python_version) || ''
+    const all = [...a, ...b]
+    if (pythonVersion) all.push(pythonVersion)
+    if (cur) all.push(cur)
+    return [...new Set(all)].sort((x, y) => {
+      const [x1, x2] = String(x).split('.').map(Number)
+      const [y1, y2] = String(y).split('.').map(Number)
+      return (x1 - y1) || (x2 - y2)
+    })
+  }, [preview && preview.python_version_options, preview && preview.python_version,
+    result && result.python_version_options, pythonVersion])
 
   React.useEffect(() => {
     if (hw && backend === null) setBackend(hw.recommended)
@@ -331,6 +362,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
           upgradeTorch: opts.upgradeTorch === true,
           torchSuggestion: opts.torchSuggestion || null,
           versionOverrides,
+          pythonVersion: pythonVersion || undefined,
         }),
       })
       if (!resp.ok) { setResult({ ok: false, error: 'HTTP ' + resp.status }); return }
@@ -415,9 +447,20 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
       {hw && (
         <div className="msg msg-info">
           <b>{t('This machine', '本机')}：</b>
-          {hw.gpus && hw.gpus.length
-            ? hw.gpus.map((g) => g.name).join('；')
-            : t('no recognisable GPU', '没有可识别的 GPU')}
+          {[
+            // CPU、内存、显卡同出一处（lib/system/hardware.js），
+            // 缺哪一项就跳过哪一项，某项取不到不等于整机信息不可用。
+            hw.cpu && hw.cpu.model
+              ? hw.cpu.model + (hw.cpu.threads
+                ? ` · ${hw.cpu.threads}${t(' threads', ' 线程')}` : '')
+              : null,
+            hw.memory && hw.memory.total_gb
+              ? `${t('Memory', '内存')} ${hw.memory.total_gb} GB`
+              : null,
+            hw.gpus && hw.gpus.length
+              ? hw.gpus.map((g) => g.name).join('；')
+              : t('no recognisable GPU', '没有可识别的 GPU'),
+          ].filter(Boolean).join(' ｜ ')}
           {' → '}{t('recommended', '推荐')}{' '}
           <b>{backendOf(hw.options, hw.recommended)}</b>
           {hw.reason && <div className="field-hint">{t(hw.reason, hw.reasonZh)}</div>}
@@ -501,10 +544,10 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
       {/* 安装后端：全部选项都列出来，推荐值只是默认值。 */}
       {hw && hw.options && (
         <div className="field">
-          <label className="field-label" htmlFor="wz-backend">
+          <label className="field-label" id="wz-backend-label">
             {t('Install with', '安装命令')}
           </label>
-          <select id="wz-backend" className="control"
+          <Select id="wz-backend" className="control" aria-labelledby="wz-backend-label"
             value={backend || ''} onChange={(e) => setBackend(e.target.value)}>
             {hw.options.map((o) => (
               <option key={o.key} value={o.key}>
@@ -514,7 +557,7 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
                 {' — '}{t(o.for, o.forZh)}
               </option>
             ))}
-          </select>
+          </Select>
           <p className="field-hint">
             {t('This is a recommendation. Every option is listed below; if the '
               + 'wheel pinned upstream cannot use this GPU, pick another one, '
@@ -527,6 +570,34 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
 
       {preview && preview.ok === false && preview.code === 'BACKEND_NO_INDEX' && (
         <div className="msg msg-danger">{t(preview.error, preview.errorZh)}</div>
+      )}
+
+      {/* Python 版本：默认按引擎声明，人能改。
+          声明只说明「这一族能跑」，不保证依赖在每一档都有 wheel：
+          spacy 这类钉死版本的包就没有 3.13 的轮子，而声明可能写着 <3.14。 */}
+      {preview && preview.ok && (
+        <div className="field">
+          <label className="field-label" id="wz-pyver-label">
+            {t('Python version', 'Python 版本')}
+          </label>
+          <Select id="wz-pyver" className="control" aria-labelledby="wz-pyver-label"
+            value={pythonVersion || preview.python_version || ''}
+            onChange={(e) => setPythonVersion(e.target.value)}>
+            {(pyOptions).map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </Select>
+          <p className="field-hint" style={{ marginTop: 0 }}>
+            {preview.python_version_declared
+              ? t(`The engine declares ${preview.python_version_declared}. A declaration `
+                + 'means upstream tested that range, not that every dependency ships a wheel '
+                + 'for each version.',
+              `引擎声明的是 ${preview.python_version_declared}。声明只说明上游在这一族里测过，`
+                + '不保证每个依赖在每一档都有 wheel。')
+              : t('The engine does not declare a Python version; the platform base version is used.',
+                '引擎没有声明 Python 版本，按平台基座版本。')}
+          </p>
+        </div>
       )}
 
       {/* 将要执行的命令来自 preview（execute:false 的计划），不是 plan。 */}
@@ -774,6 +845,15 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
       {result && !result.ok && result.code !== 'INSTALL_CANCELLED' && (
         <div className="msg msg-danger">
           {t(result.error, result.errorZh)}
+          {result.causeZh && (
+            <div style={{ marginTop: 6 }}>{t(result.cause, result.causeZh)}</div>
+          )}
+          {result.hintZh && (
+            <div className="field-hint" style={{ marginTop: 4 }}>
+              {t('Suggested next step: ', '建议：')}
+              {t(result.hint, result.hintZh)}
+            </div>
+          )}
           {result.note && <div className="field-hint">{t(result.note, result.noteZh)}</div>}
         </div>
       )}
@@ -799,8 +879,14 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
           ))}
         </div>
       )}
+      {/* 已结束但没有可验证对象的那一步用黄色：绿勾只能代表命令退出 0，
+          不能让结论条看起来像「装好了」。
+          装了不是所选后端的 torch 时同样用黄色：步骤都跑通了，
+          但结果与选择不一致，不能按成功的样子显示。 */}
       {result && result.ok && result.note && (
-        <div className="msg msg-info">{t(result.note, result.noteZh)}</div>
+        <div className={`msg ${result.envUnverified || result.backendMismatch ? 'msg-warning' : 'msg-info'}`}>
+          {t(result.note, result.noteZh)}
+        </div>
       )}
 
       {/* 三个按钮一行，从左到右：从头重装本步、撤销克隆、安装（主操作靠最右）。

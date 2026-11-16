@@ -9,7 +9,8 @@
 
 // 后端 key → 官方 index 目录名。
 const BACKEND_INDEX = {
-  cuda: 'cu121',
+  // CUDA 的索引由 uv 在安装时解析，平台不挑档位；这个值只用于展示与探测兜底。
+  cuda: 'cu126',
   ipex: 'xpu',
   rocm: 'rocm6.4',
   cpu: 'cpu',
@@ -27,6 +28,37 @@ const PLATFORM_FAMILY = {
   mac: ['macosx_11_0_arm64', 'macosx_10_9_x86_64'],
 }
 
+// CUDA 只给候选清单，不记「哪个 torch 版本对应哪个 cuXXX」。
+//   原因是那份对应关系已经在各索引页上，且会随发版变化；抄一份到本地
+//   只会过期、抄错、还要人维护。锁死 torch 版本后把候选索引一起交给 uv，
+//   用 --index-strategy unsafe-best-match 让它自己解析出能装的那一档。
+//   这些索引同属 PyTorch 官方域，跨索引挑版本不会引入第三方来源。
+const CUDA_INDEX_CANDIDATES = ['cu118', 'cu121', 'cu124', 'cu126', 'cu128', 'cu130']
+const PYTORCH_INDEX_ROOT = 'https://download.pytorch.org/whl/'
+
+/**
+ * CUDA 装 torch 时的索引参数。
+ *   pinned 锁文件明写的 +cuXXX：只给那一个索引，照抄上游，不让 uv 换档。
+ *   没有明写：把候选索引全给 uv，由它按锁定的版本、ABI、平台和依赖链解析。
+ * @returns {string[]} 直接拼进 uv pip install 的参数
+ */
+function cudaIndexArgs (pinned) {
+  const one = (index) => `${PYTORCH_INDEX_ROOT}${index}`
+  if (pinned) return ['--index-url', one(pinned)]
+  const [first, ...rest] = CUDA_INDEX_CANDIDATES
+  return [
+    '--index-strategy', 'unsafe-best-match',
+    '--index-url', one(first),
+    ...rest.flatMap((index) => ['--extra-index-url', one(index)]),
+  ]
+}
+
+/** 从一段文本里取纯版本号，剥掉 +cu121 / +xpu 这类后缀；取不到返回 null。 */
+function torchVersionOf (text) {
+  const m = String(text || '').match(/(\d+)\.(\d+)(?:\.(\d+))?/)
+  return m ? `${m[1]}.${m[2]}${m[3] ? `.${m[3]}` : ''}` : null
+}
+
 // 官方 index → 平台族 → Python ABI → 该组合下可用的最低 torch 版本。
 //   值是「这个组合的第一个有轮子的 torch 版本」。
 //   某个组合没列 ⇒ 这个组合一个轮子都没有（换 torch 版本也解决不了）。
@@ -42,17 +74,7 @@ const INDEX_MIN_TORCH = {
     },
     mac: {},
   },
-  cu121: {
-    win: {
-      cp38: '2.1.0', cp39: '2.1.0', cp310: '2.1.0', cp311: '2.1.0',
-      cp312: '2.2.0',
-    },
-    linux: {
-      cp38: '2.1.0', cp39: '2.1.0', cp310: '2.1.0', cp311: '2.1.0',
-      cp312: '2.2.0', cp313: '2.5.0',
-    },
-    mac: {},
-  },
+  // 这里只放固定索引的后端；CUDA 的索引由 uv 在安装时解析，没有静态下界。
   rocm5_7: {
     win: {},
     linux: {
@@ -157,6 +179,9 @@ function platformFamily (platform) {
  * @returns {string|null} 最低可用版本；这个组合一个轮子都没有 ⇒ null
  */
 function minTorchFor (backend, abi, family) {
+  // CUDA 的索引由 uv 解析，没有固定下界可查；这一路的判据在安装时给，
+  //   不在这里猜。其余后端的索引是固定的，照旧查静态表。
+  if (backend === 'cuda') return null
   const index = BACKEND_INDEX[backend]
   if (!index) return null
   const tableKey = INDEX_KEY_ALIAS[index] || index
@@ -171,6 +196,10 @@ module.exports = {
   BACKEND_INDEX,
   PLATFORM_FAMILY,
   INDEX_MIN_TORCH,
+  CUDA_INDEX_CANDIDATES,
+  PYTORCH_INDEX_ROOT,
+  cudaIndexArgs,
+  torchVersionOf,
   minTorchFor,
   cmpVersion,
   platformFamily,

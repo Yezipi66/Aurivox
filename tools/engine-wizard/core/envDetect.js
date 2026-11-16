@@ -11,11 +11,25 @@ const { venvPythonRelPath } = require(
   path.join(__dirname, '..', '..', '..', 'lib', 'engines', 'platformPaths.js'))
 const { canSpawnPython } = require(
   path.join(__dirname, '..', '..', '..', 'lib', 'util', 'pythonResolve.js'))
+// 「这个 pyproject.toml 是不是一个可安装的项目」只有一份判据，第 2 步界面上那份与这里
+//   用的是同一个函数：两处各写一套时，界面说「依赖来自 requirements.txt」、
+//   实际命令却去装 pyproject，使用者无法从界面上看出哪一句是真的。
+const { isPipInstallable } = require('./probe.js')
 
 // 平台基座的 Python 版本。引擎没声明版本时用它。
 //   这是 AI 生态最常用的版本，也是仓库内嵌解释器（tools/runtime/python）的版本；
 //   平台自带的 wheel（tools/wheels 里的 cp311 轮子）也只认它。
 const PLATFORM_BASE_PYTHON = '3.11'
+
+// 界面上可选的 Python 档位。uv 能自己下载这几档，平台基座也在其中。
+//   这是候选池，不是「这台引擎允许的版本」：允许范围由 requires-python 声明，
+//   而声明只说明上游测得过的范围，不保证依赖在每一档都有 wheel
+//   （spacy 这类钉死版本的包就没有 3.13 的轮子）。所以版本最终由人确认。
+// 下拉里摆出来的档位。列出来不等于会下载：只有真的选了那一档，uv 才去拉解释器。
+//   所以「生态有没有 wheel」不是不列的理由：列着，让人自己试，失败时由报错指回来。
+//   少了某一档才是问题：报错让人选 3.9、下拉里却没有 3.9，说得对但做不到。
+//   范围取 uv 当前能下载的正式版 CPython（3.15 目前只有 beta，等出正式版再加）。
+const PYTHON_VERSION_POOL = ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
 
 /**
  * 读名片里的 install.env_command 并校验。
@@ -98,8 +112,17 @@ function suggestBackendAlternative (dir, lockRel) {
   const specs = family.map((p) => `${p.name}==${p.plain}`)
   const names = family.map((p) => p.name)
 
+  // 推荐后端是 CUDA 时把候选索引交给 uv，由它按锁定版本解析；
+  //   锁文件明写 +cuXXX 时只给那一个索引，照抄上游。
+  let indexArgs = ['--index-url', opt.index]
+  if (rec.recommended === 'cuda') {
+    const { cudaIndexArgs } = require('./backendTorchSupport')
+    const pinned = String(pin.version || '').match(/\+cu(\d+)/i)
+    indexArgs = cudaIndexArgs(pinned ? `cu${pinned[1]}` : null)
+  }
+
   return {
-    then: ['uv', 'pip', 'install', ...specs, '--index-url', opt.index],
+    then: ['uv', 'pip', 'install', ...specs, ...indexArgs],
     why: `The lock pins Torch as a CUDA build (${pin.version}), which differs from the backend `
       + `recommended for this machine (${opt.label}) — run this step `
       + `next to install the Torch family (${names.join(', ')}) at version ${pin.plain} `
@@ -141,7 +164,35 @@ function suggestEnvCommand (dir) {
       }
     }
   }
-  if (found.length === 0) {
+  // pyproject.toml 有两种，判据是文件里写了什么，不是文件在不在：
+  //   声明了 [project] / [build-system] 的是一个可安装的项目；
+  //   只含 [tool.*] 的（isort / black / ruff 这类配置）只是工具配置。
+  //   后者不能当安装入口：uv 会去 build 一个上游根本没打算被安装的目录，
+  //   上游是 flat-layout 多顶层包时 setuptools 直接拒绝
+  //   （Multiple top-level packages discovered），一份几十字节的 linter 配置
+  //   就能让整步安装失败，而真正的依赖清单 requirements.txt 一次都没被读。
+  const readPyproject = (rel) => {
+    try { return fs.readFileSync(path.join(dir, rel), 'utf8') } catch (e) { return '' }
+  }
+  const declaresProject = (rel) => isPipInstallable(readPyproject(rel), {
+    setupPy: fs.existsSync(path.join(dir, path.dirname(rel), 'setup.py')),
+    setupCfg: fs.existsSync(path.join(dir, path.dirname(rel), 'setup.cfg')),
+  })
+  const toolOnly = []
+  const usable = found.filter((f) => {
+    const isPyproject = f === 'pyproject.toml' || f.endsWith('/pyproject.toml')
+    if (!isPyproject) return true
+    if (declaresProject(f)) return true
+    toolOnly.push(f)
+    return false
+  })
+  // 跳过空壳 pyproject 这件事要说出来：否则使用者只看到「改用 requirements.txt」，
+  //   不知道那个文件被跳过、更不知道为什么（这是这一步最容易反复踩的地方）。
+  const toolOnlyNote = toolOnly.length === 0 ? '' : (
+    `上游的 ${toolOnly.join('、')} 里没有 [project] / [build-system]，只含工具配置，`
+    + '不作为安装入口（装它会让 uv 去 build 上游没打算被安装的目录）。')
+
+  if (usable.length === 0) {
     // 标准清单一个都没有，但根目录有 setup.py / setup.cfg：这是可 pip 安装的包。
     //   平台不解析 setup.py（那是任意 Python，读不完也读不全），改用平台自己的
     //   装法 uv pip install -e .，依赖由 pip 从包构建配置（setup.py / setup.cfg）
@@ -158,18 +209,31 @@ function suggestEnvCommand (dir) {
           + '依赖由 pip 从包自身的构建配置（setup.py / setup.cfg）解析，'
           + '平台不解析 setup.py。' }
     }
+    // 目录里只有空壳 pyproject（以及可能没有别的清单）：说清是「它不声明依赖」，
+    //   而不是「这里没有清单」，后者会让使用者去找一个就在眼前的文件。
+    if (toolOnly.length > 0) {
+      return { argv: null, from: null,
+        why: `The upstream ${toolOnly.join(', ')} declares no [project] / [build-system] `
+          + '(tool configuration only), and no uv.lock / requirements.txt / '
+          + 'environment.yml was found at this level.\n'
+          + 'Set install.env_command in the Manifest, or install per the upstream instructions.',
+        whyZh: toolOnlyNote + '这一层也没有 uv.lock / requirements.txt / environment.yml，'
+          + '推导不出装法。请在名片里声明 install.env_command，或按上游说明自己装。' }
+    }
     return { argv: null, from: null,
       why: '这一层里没有找到依赖清单（pyproject.toml / uv.lock / '
         + 'requirements.txt / environment.yml，根目录和一层子目录都找过了）\n'
         + '请在 Manifest 中声明 install.env_command，平台将按该声明安装；'
         + '或者按上游说明自己装。' }
   }
-  const pick = (n) => found.find((f) => f === n || f.endsWith('/' + n))
+  const pick = (n) => usable.find((f) => f === n || f.endsWith('/' + n))
   const lock = pick('uv.lock')
   const conda = pick('environment.yml')
   const pyproj = pick('pyproject.toml')
   const req = pick('requirements.txt')
-  if (lock) {
+  // 空壳 pyproject 在场时锁文件也不可信：uv sync 读的正是那份 pyproject 的项目表，
+  //   它没有项目表，同步一样会失败。有这种 pyproject 就退到 requirements.txt。
+  if (lock && toolOnly.length === 0) {
     const alt = suggestBackendAlternative(dir, lock)
     return { argv: ['uv', 'sync'], from: lock, cwd: '.',
       why: (alt
@@ -204,8 +268,11 @@ function suggestEnvCommand (dir) {
   }
   return { argv: ['uv', 'pip', 'install', '-r', req], from: req,
     cwd: req.includes('/') ? req.slice(0, req.indexOf('/')) : '.',
-    why: `The upstream uses ${req} (legacy) — uv pip install -r ${req}.`,
-    whyZh: `上游是 ${req}（老项目）⇒ uv pip install -r ${req}。` }
+    why: `The upstream uses ${req}${toolOnly.length > 0
+      ? ` (its ${toolOnly.join(', ')} declares no project, so it is not an install target)`
+      : ' (legacy)'} — uv pip install -r ${req}.`,
+    whyZh: `${toolOnlyNote}上游是 ${req}${toolOnly.length > 0 ? '' : '（老项目）'}`
+      + ` ⇒ uv pip install -r ${req}。` }
 }
 
 /**
@@ -395,7 +462,7 @@ function readEnginePythonVersion (dir) {
     const m = raw.match(/^\s*requires-python\s*=\s*["']([^"']+)["']/m)
     if (m) {
       const picked = pickFromRequiresPython(m[1])
-      if (picked) return { version: picked, source: 'requires-python' }
+      if (picked) return { version: picked, source: 'requires-python', spec: m[1] }
     }
   } catch (e) { /* 没有 pyproject 就往下看 */ }
 
@@ -489,12 +556,16 @@ function uvOnPath () {
   } catch (e) { return false }
 }
 
-function buildVenvStep (root, id) {
+function buildVenvStep (root, id, override) {
   const venvDir = engineVenvDirAbs(root, id)
   const declared = readEnginePythonVersion(engineDir(id, root))
   // 引擎声明了就用声明的，没声明就用平台基座 3.11。
   //   两条路都拿不到 ⇒ 不用任意版本顶上：见本函数的注释第③条。
-  const wantVersion = declared ? declared.version : PLATFORM_BASE_PYTHON
+  // override 是人在界面上选的版本：它压过声明，因为声明只说明「这一族能跑」，
+  //   不保证依赖在某些版本上有 wheel（spacy 这类钉死版本的包就会在 3.13 上没有轮子）。
+  const chosen = String(override || '').trim()
+  const wantVersion = chosen || (declared ? declared.version : PLATFORM_BASE_PYTHON)
+  const source = chosen ? 'chosen' : (declared ? declared.source : 'platform-base')
   const uvPy = platformPythonAbs(root)
   // 平台 venv 里没有带 uv 的解释器，但 PATH 上有 uv（开发机、CI、Linux 服务器常见）：
   //   用 PATH 上的 uv 建环境。执行期 runEnv 对 argv[0]==='uv' 的步骤本来就走 resolveUv
@@ -506,7 +577,7 @@ function buildVenvStep (root, id) {
       venvDir,
       skipIfExists: true,
       pythonVersion: wantVersion,
-      pythonVersionSource: declared ? declared.source : 'platform-base',
+      pythonVersionSource: source,
       why: 'Create an isolated Python environment for this engine under engines/'
         + `${id}/.venv with the uv found on PATH (Python ${wantVersion}).`,
       whyZh: `用 PATH 上的 uv 为该引擎在 engines/${id}/.venv 下建一个独立的 Python 环境`
@@ -517,7 +588,7 @@ function buildVenvStep (root, id) {
     return {
       argv: null, python: null,
       pythonVersion: wantVersion,
-      pythonVersionSource: declared ? declared.source : 'platform-base',
+      pythonVersionSource: source,
       why: 'The platform cannot find a Python interpreter with uv installed, '
         + 'so it cannot create the engine environment.',
       whyZh: '平台上找不到装了 uv 的 Python 解释器，无法为该引擎建立环境。',
@@ -529,7 +600,7 @@ function buildVenvStep (root, id) {
     venvDir,
     skipIfExists: true,
     pythonVersion: wantVersion,
-    pythonVersionSource: declared ? declared.source : 'platform-base',
+    pythonVersionSource: source,
     why: 'Create an isolated Python environment for this engine under engines/'
       + `${id}/.venv. Dependencies are installed into it, not into the platform's own `
       + `environment. The environment uses Python ${wantVersion}`
@@ -590,6 +661,7 @@ module.exports = {
   pickFromRequiresPython,
   PLATFORM_BASE_PYTHON,
   buildVenvStep,
+  PYTHON_VERSION_POOL,
   withTargetPython,
   syncEnvFor,
   isVenvCreateStep,

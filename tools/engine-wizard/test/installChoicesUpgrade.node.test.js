@@ -80,20 +80,25 @@ test('接受升级 ⇒ 排除清单文件里含 torch 整族（执行期才写�
   assert.ok(/^torchaudio$/m.test(text), `排除清单要含 torchaudio：${text}`)
 })
 
-test('不接受升级 ⇒ 装法原样返回（不闷头改版本）', () => {
+test('不接受升级、所选后端等于本机推荐 ⇒ 只换 index，版本不变', () => {
+  // 判据不能是「所选 == 本机推荐就不改写」：Intel 机器上推荐值就是 ipex，
+  //   那样选中推荐档会从 PyPI 装成 CPU 版，界面上的选择等于没生效。
   const { engineDir } = mkdtempEngine('u3',
     'einops==0.8.1\ntorch==2.5.1\ntorchaudio==2.5.1\n')
   const g = guessOf()
   const r = applyInstallChoices(engineDir, g, {
     backend: 'ipex', upgradeTorch: false, torchSuggestion: SUGGESTION,
-    // 本机推荐后端显式给成 ipex（与所选后端一致）⇒ 不该改写装法。
-    //   不显式给的话，这一条会去探本机 GPU：探出来的后端与所选的不一致时，
-    //   判据会把 torch 换到所选后端的 index ⇒ 装法被改写。
-    //   那样这条测试的结果就取决于跑它的机器有没有 Intel 显卡（CI 上没有）。
     recommendedBackend: 'ipex',
   })
-  assert.deepStrictEqual(r.guess, g, '装法必须原样返回')
-  assert.strictEqual(r.choices.applied, false)
+  assert.ok(r.guess, JSON.stringify(r))
+  assert.strictEqual(r.choices.applied, true)
+  const alt = r.guess.alternative
+  assert.ok(alt && Array.isArray(alt.then), 'torch 应当被挪到追加步')
+  const idx = alt.then.indexOf('--index-url')
+  assert.ok(idx > 0 && /\/whl\/xpu$/.test(alt.then[idx + 1]),
+    `必须从所选后端的官方 index 装：${alt.then.join(' ')}`)
+  assert.strictEqual(alt.then.find((x) => String(x).startsWith('torch==')), 'torch==2.5.1',
+    '没接受升级就不许改版本号')
 })
 
 test('不接受升级且所选后端与本机推荐不同 ⇒ 版本号不许变（只换 index）', () => {
