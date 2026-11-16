@@ -314,6 +314,24 @@ def verify_level_b(spec):
 # ---------------------------------------------------------------------------
 #  A 级：真跑一次合成
 # ---------------------------------------------------------------------------
+def _normalize_ref_path(raw):
+    """把界面上粘来的参考音频路径整理成盘上能查的形状。
+
+    粘贴带来的是「路径的写法」，不是路径本身：资源管理器的「复制为路径」会加一对
+    双引号，也有人手打单引号，或者从聊天窗口复制时带上首尾空格。这些字符会让
+    os.path.isabs 判成相对路径，于是路径被拼到项目根后面，报出一串
+    「项目根 + 原路径」的怪字符串，看着完全不像自己填的那个路径。
+    """
+    s = str(raw if raw is not None else "").strip()
+    # 成对引号可能套两层（'"D:\\a.wav"'），逐层剥。
+    for _ in range(3):
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+            s = s[1:-1].strip()
+        else:
+            break
+    return os.path.expanduser(s.strip("\"'"))
+
+
 def verify_level_a(spec):
     """A 级：真发一次合成，拿到非空 WAV。
 
@@ -335,13 +353,19 @@ def verify_level_a(spec):
         ref = payload.get(key)
         if not ref:
             continue
-        rp = ref if os.path.isabs(ref) else os.path.join(spec.get("root") or ".", ref)
+        raw = _normalize_ref_path(ref)
+        if not raw:
+            continue
+        rp = raw if os.path.isabs(raw) else os.path.join(spec.get("root") or ".", raw)
         if not os.path.isfile(rp):
+            # 规范化动过原文时把原样输入一并给出：常见原因就是那对引号让判定走了相对路径。
+            shown = raw if raw == str(ref).strip() else "%s（原样输入：%s）" % (rp, ref)
             return {"ok": False, "level": "A", "stage": "spec",
-                    "error": "参考音频不存在：%s" % rp,
+                    "error": "参考音频不存在：%s" % shown,
                     "why": "平台不替你造一个假路径：那样验的是 404，不是引擎",
                     "cause": "填写的参考音频路径在盘上找不到",
-                    "hint": "把参考音频换成一个确实存在的 wav 文件；相对路径以项目根为准。"}
+                    "hint": "绝对路径原样使用，相对路径以项目根为准；"
+                            "找不到就核对文件名与所在目录是否与填写的一致。"}
         payload[key] = rp
 
     status, body, err, raw, ctype = http_json(base + "/tts", payload=payload,

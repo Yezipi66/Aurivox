@@ -42,12 +42,29 @@ function sameRefPath(a, b) {
   return na === nb
 }
 
+// 把「粘贴来的路径写法」整理成路径本身。
+// 资源管理器「复制为路径」会加一对双引号，从聊天窗口复制常带首尾空格，也有人手打单引号。
+// 这些字符会让后端的绝对路径判定失效：路径被判成相对路径、拼到项目根后面，
+// 报出一串「项目根 + 原路径」，与填进去的那个路径看着完全不像。
+// 只处理首尾，路径中间的字符一个都不动（文件名里可以合法地有引号以外的符号）。
+function cleanPathInput(p) {
+  let s = String(p == null ? '' : p).trim()
+  for (let i = 0; i < 3; i++) {
+    const q = s[0]
+    if (s.length >= 2 && q === s[s.length - 1] && (q === '"' || q === "'")) {
+      s = s.slice(1, -1).trim()
+    } else break
+  }
+  return s.replace(/^["']+|["']+$/g, '')
+}
+
 export {
   REF_MIN_SEC,
   REF_MAX_SEC,
   refInRange,
   pickDefaultRef,
   refBasename,
+  cleanPathInput,
   normRefPath,
   sameRefPath,
 }

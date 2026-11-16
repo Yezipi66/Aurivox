@@ -4,20 +4,41 @@
 import React, { useState, useEffect } from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { Player } from '../../../web/src/components/common/Player'
+import { getPreviewMode, setPreviewMode } from '../../../web/src/lib/previewMode'
+import { cleanPathInput } from '../../../web/src/lib/refAudio'
 import DeviceSelect from '../../../web/src/components/common/DeviceSelect'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 import { readSse } from './downloadRunner'
+
+// 一份校验结果里，语音那道跑的是哪一级（'A' | 'B'）。取不到就当空串：
+//   没有 audio 段的结果按「没有档位」处理，不比大小。
+const levelOf = (r) => (r && r.checks && r.checks.audio && r.checks.audio.level) || ''
 
 export function StepVerify ({ id }) {
   const { t } = useT()
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
+  // 正在执行的是哪一级。首屏会自动执行 B 级，那期间 A 级按钮不能跟着显示「正在运行…」：
+  //   人没点它，它却在转，是这页最容易误导的一处。
+  const [runningLevel, setRunningLevel] = useState(null)
+  // 这一次校验什么时候起的、上一次的结论是什么。
+  //   A 级要真起一次宿主（本机 8 秒起步，冷启动更久），不给计时的话，
+  //   两次一模一样的失败看起来就是「点了没反应」：界面闪一下，结论一字未变。
+  const [startedAt, setStartedAt] = useState(0)
+  const [lastRun, setLastRun] = useState(null)
+  // 只用来每秒重算一次「已用时间」，不参与任何判断。
+  const [, setPulse] = useState(0)
   const [audioLevel, setAudioLevel] = useState('B')
   const [synthText, setSynthText] = useState('')
   // 参考音频与参考文本：要参考音频的引擎，A 级与试运行都得带上，否则宿主当场 400。
   //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
   const [refAudio, setRefAudio] = useState('')
   const [refText, setRefText] = useState('')
+  // 参考音频用真文件选：宿主只认绝对路径，而浏览器不给脚本绝对路径，
+  //   所以选中的字节交给后端落一份、由后端回传路径（见 core/wizardbridge.js 的 ref-upload）。
+  const [refBusy, setRefBusy] = useState(false)
+  const [refError, setRefError] = useState(null)
+  const refFileInput = React.useRef(null)
   // 试运行是后台任务：job 是服务端的任务快照（阶段、已用时间、结束后的结果），轮询刷新。
   const [job, setJob] = useState(null)
   const [measureError, setMeasureError] = useState(null)
@@ -28,31 +49,67 @@ export function StepVerify ({ id }) {
   const measuring = measureRunning(job)
 
   // 运行设备：本机有哪几块卡只有后端知道，这里只负责摆成下拉。
-  //   选中的值随请求一起送回去，换算成引擎认的写法由后端做（lib/engines/deviceValue.js）。
+  //   名片没声明 role="device" 的引擎 device_declared=false，这一格不出现。
   const [devices, setDevices] = useState([])
   const [device, setDevice] = useState({ kind: 'auto' })
+  const [deviceDeclared, setDeviceDeclared] = useState(null)
   useEffect(() => {
     let alive = true
-    fetch('/wizard/hardware')
+    fetch('/wizard/hardware' + (id ? `?engine=${encodeURIComponent(id)}` : ''))
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (alive && j && Array.isArray(j.device_options)) setDevices(j.device_options)
+        if (!alive || !j) return
+        if (Array.isArray(j.device_options)) setDevices(j.device_options)
+        setDeviceDeclared(j.device_declared === undefined ? null : j.device_declared)
       })
       .catch(() => { /* 探测失败就保持空列表，下拉退化成「自动」 */ })
     return () => { alive = false }
-  }, [])
+  }, [id])
 
   const synthRequest = () => {
     const r = { text: synthText.trim() }
-    if (refAudio.trim()) r.reference_audio = refAudio.trim()
+    // 路径在提交前再清洗一次：输入框可能还留着没触发 onBlur 的引号与空格。
+    const ref = cleanPathInput(refAudio)
+    if (ref) r.reference_audio = ref
     if (refText.trim()) r.reference_text = refText.trim()
     // 设备按「选了什么」原样送回去，不在这里转成命令行写法
     if (device && device.kind && device.kind !== 'auto') r.device = device
     return r
   }
 
-  // 试运行：真起一次引擎，量冷启动与合成一段的耗时，按余量定本机上的超时。
-  //   存在本机（state/ 下），不写名片：名片要能分享，「本机多快」不该跟着走。
+  // 试听区要给出波形本身。平台的预览模式开关在状态条上，向导没有那一栏，
+  //   默认的进度条形态在这里与用途不符，所以进这一步直接切到波形。
+  //   向导与平台不同源（端口不同），这里的取值不会改到平台那边。
+  useEffect(() => {
+    if (getPreviewMode() !== 'waveform') setPreviewMode('waveform')
+  }, [])
+
+  // 选中一个参考音频就上传到后端，拿回它的绝对路径填进这一格。
+  //   不把 File 对象留在前端：宿主要的是路径，能在命令行上出现的那个。
+  const pickRefAudio = (e) => {
+    const file = e.target.files && e.target.files[0]
+    // 同一个文件连选两次也要触发：清掉 input 的值，下一次 change 才会来。
+    try { e.target.value = '' } catch { /* 只读输入框，忽略 */ }
+    if (!file || !id) return
+    setRefError(null)
+    setRefBusy(true)
+    const q = new URLSearchParams({ id, name: file.name })
+    file.arrayBuffer()
+      .then((buf) => fetch(`/wizard/ref-upload?${q.toString()}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: buf,
+      }))
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.ok && j.path) { setRefAudio(j.path); return }
+        setRefError((j && (j.errorZh || j.error)) || t('Could not read that file', '这个文件读不进来'))
+      })
+      .catch((err) => setRefError(String((err && err.message) || err)))
+      .finally(() => setRefBusy(false))
+  }
+
+  // 试运行：真起一次引擎，量冷启动与合成一段的耗时，按余量定本机上的超时。  //   存在本机（state/ 下），不写名片：名片要能分享，「本机多快」不该跟着走。
   //   POST 只起任务，进度靠 GET /wizard/verify/measure/progress 轮询。
   const runMeasure = () => {
     if (!id || !synthText.trim()) return
@@ -129,17 +186,50 @@ export function StepVerify ({ id }) {
 
   const measured = job && !measuring ? job.result : null
 
-  const runChecks = React.useCallback((level, request) => {
+  // 已经渲染的那份结果。B 级是首屏自动跑的，它同样要起一次临时宿主（stdio / cli 形态
+  //   尤其慢），响应可能比使用者点的 A 级更晚回来。晚到的 B 级不许把 A 级结论盖回去：
+  //   盖回去之后页面回到「没有样本」的样子，看起来就是 A 级点了没反应。
+  // 判据只读 ref，不读 state：runChecks 的依赖必须保持 [id]，否则首屏那条 effect
+  //   会跟着重跑，又发一次 B 级。
+  const resultsRef = React.useRef(null)
+
+  const runChecks = React.useCallback((level, request, force = false) => {
     if (!id) return
+    const t0 = Date.now()
     setLoading(true)
+    setRunningLevel(level)
+    setStartedAt(t0)
     const q = new URLSearchParams({ id, audio: level })
     if (request) q.set('request', JSON.stringify(request))
     fetch(`/wizard/verify/checks?${q.toString()}`)
       .then(r => r.json())
-      .then(setResults)
-      .catch(() => setResults(null))
-      .finally(() => setLoading(false))
+      .then((j) => {
+        // 晚到的 B 级不许覆盖已经拿到的 A 级结论。补齐权重之后重跑前置要例外：
+        //   那时 A 级的结论已经过期，调用方会显式要求覆盖。
+        if (!force && levelOf(resultsRef.current) === 'A' && levelOf(j) === 'B') return
+        resultsRef.current = j
+        setResults(j)
+        setLastRun({
+          level,
+          at: t0,
+          ms: Date.now() - t0,
+          ok: !!(j && j.checks && j.checks.audio && j.checks.audio.ok),
+        })
+      })
+      .catch(() => {
+        setResults(null)
+        resultsRef.current = null
+        setLastRun({ level, at: t0, ms: Date.now() - t0, ok: false })
+      })
+      .finally(() => { setLoading(false); setRunningLevel(null) })
   }, [id])
+
+  // 运行中就按半秒一支表：A 级跑几分钟时，界面必须能看出它仍在运行。
+  useEffect(() => {
+    if (!loading) return undefined
+    const timer = setInterval(() => setPulse((n) => n + 1), 500)
+    return () => clearInterval(timer)
+  }, [loading])
 
   useEffect(() => {
     runChecks('B', null)
@@ -173,7 +263,7 @@ export function StepVerify ({ id }) {
       if (last && last.ok === false) {
         setPostOut((p) => [...p, last.errorZh || last.error || String(last.code || 'FAILED')])
       }
-      runChecks('B', null)
+      runChecks('B', null, true)
     } catch (e) {
       const stopped = e && e.name === 'AbortError'
       setPostOut((p) => [...p, stopped ? t('Stopped.', '已停止。') : String((e && e.message) || e)])
@@ -184,15 +274,30 @@ export function StepVerify ({ id }) {
   }
   const stopPostDownload = () => { if (postAbort.current) postAbort.current.abort() }
 
-  if (loading) {
-    return <div className="msg msg-info">{t('Running checks…', '正在校验…')}</div>
-  }
+  // 面板常驻，任何时刻都不整块替换。
+  //   首屏的 B 级要跑十几秒（env_deep 得真起一次解释器），这段时间里整步
+  //   只剩一行字、按钮也不在；换一次引擎再进来又重来一遍，看起来就像页面
+  //   被重新加载了。没有结论就按「尚未检查」渲染，加载进度写在结论区顶上。
+  const checks = (results && results.checks) || {}
 
-  if (!results) {
-    return <div className="msg msg-danger">{t('Checks failed to load.', '校验加载失败。')}</div>
-  }
-
-  const checks = results.checks || {}
+  // 试听区的元信息取自后端解出的 WAV 头，不由前端算：浏览器解码出的时长
+  //   与引擎写盘时的采样率不是同一件事，两边各算一次会得到两个不一致的值。
+  const wav = (checks.audio && checks.audio.wav) || null
+  // 只认 A 级：B 级不合成，但磁盘上可能留着上一轮的产物（端点在找不到 audio_path
+  //   时会补一份），照它显示试听等于把旧样本当成这次的结果。
+  const hasSample = !!(checks.audio && checks.audio.level === 'A' && checks.audio.ok
+    && (wav || checks.audio.audio_path))
+  const wavInfo = wav
+    ? [
+        `${wav.duration_sec}s`,
+        `${wav.sample_rate} Hz`,
+        wav.channels === 1
+          ? t('mono', '单声道')
+          : wav.channels === 2
+            ? t('stereo', '立体声')
+            : `${wav.channels} ${t('channels', '声道')}`,
+      ].join(' · ')
+    : ''
 
   const labelFor = {
     env_shallow: t('Environment integrity', '运行环境完整性'),
@@ -271,13 +376,21 @@ export function StepVerify ({ id }) {
     ? [checks.audio.detail, checks.audio.host_stderr].filter((s) => typeof s === 'string' && s.trim()).join('\n\n')
     : ''
   const runtimeHint = runtimeStatus === 'ok'
-    ? t('A real synthesis produced a non-empty WAV. Audio information and waveform are shown below.',
-      '已执行一次真实合成并取得非空 WAV 样本，音频信息与波形见下方。')
+    ? t('A real synthesis produced a non-empty WAV. It is available for playback below.',
+      '已执行一次真实合成并取得非空 WAV 样本，可在下方试听。')
     : runtimeStatus === 'fail'
       ? t('The synthesis check failed. See the Speech synthesis section below for details.',
         '真实合成校验未通过，详情见下方「语音合成可用性」。')
       : t('Tier B checks the response format only. Run tier A below to record a real synthesis result.',
         'B 级仅校验响应格式。执行下方 A 级校验后，此处记录一次真实合成的结果。')
+
+  // 这一次已经跑了多久；不在运行中就为 0。
+  const elapsedMs = loading && startedAt ? Date.now() - startedAt : 0
+  const clockOf = (ms) => {
+    const d = new Date(ms)
+    const p = (n) => String(n).padStart(2, '0')
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  }
 
   const renderCheckBlock = (key) => {
     const check = checks[key]
@@ -286,11 +399,25 @@ export function StepVerify ({ id }) {
     // 权重道不吃 problems：平台给它的是 note / missing / abs_path。
     //   目录不在、缺哪些文件、目录在哪，平台都查明了，读出来给使用者看，
     //   不让这些落成一句「未知问题」。
+    //   缺失清单可能有几十条：数量和来源摊成一句话，名字收进可展开的块，
+    //   否则一条 66 个文件名的长句谁也读不下去。
     const weightLines = []
+    let weightMissing = []
     if (key === 'checkpoints' && check) {
-      if (typeof check.note === 'string' && check.note) weightLines.push(check.note)
-      if (Array.isArray(check.missing) && check.missing.length) {
-        weightLines.push(t('Missing files: ', '缺失文件：') + check.missing.join(', '))
+      weightMissing = Array.isArray(check.missing) ? check.missing : []
+      const declared = Array.isArray(check.required) ? check.required.length : 0
+      if (weightMissing.length > 0) {
+        weightLines.push(t(
+          `The manifest declares ${declared} file(s); ${weightMissing.length} of them are not on disk.`,
+          `名片声明了 ${declared} 个文件，其中 ${weightMissing.length} 个不在盘上。`))
+        // 这份清单的来源必须说清：它是第 4 步按「当时盘上有什么」自动填的快照，
+        //   目录内容变了不会自己跟着改，于是第 5 步会一直缺同一批早已不存在的文件名。
+        weightLines.push(t(
+          'That list is a snapshot auto-filled in step 4 from what was on disk then. If the folder has changed since, edit models.required in step 4 (JSON view) and run the checks again.',
+          '这份清单是第 4 步按当时的盘上文件自动填的快照，目录内容变了它不会跟着改。'
+            + '若目录已经变过，回第 4 步切到 JSON 视图把 models.required 改成盘上实际的文件，再回来重算。'))
+      } else if (typeof check.note === 'string' && check.note) {
+        weightLines.push(check.note)
       }
       if (typeof check.abs_path === 'string' && check.abs_path) {
         weightLines.push(t('Weights directory: ', '权重目录：') + check.abs_path)
@@ -337,6 +464,16 @@ export function StepVerify ({ id }) {
           {infoLines(check).map((line, i) => (
             <div className="field-hint" key={i} style={{ wordBreak: 'break-all' }}>{line}</div>
           ))}
+          {weightMissing.length > 0 && (
+            <details style={{ marginTop: 6 }}>
+              <summary className="field-hint" style={{ cursor: 'pointer' }}>
+                {t('Declared but missing on disk', '名片声明了、盘上没有的文件')}（{weightMissing.length}）
+              </summary>
+              <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 200, overflow: 'auto' }}>
+                {weightMissing.join('\n')}
+              </pre>
+            </details>
+          )}
           {key === 'checkpoints' && Array.isArray(check && check.external) && check.external.length > 0 && (
             <div style={{ marginTop: 6 }}>
               <div className="field-hint">
@@ -344,11 +481,11 @@ export function StepVerify ({ id }) {
                   `另有 ${check.external.length} 项资源由引擎首次推理时自行拉取，不在此项核对范围内。`)}
               </div>
               {check.external.map((h) => (
-                <div className="plan-kv" key={`${h.repo}|${h.file}|${h.line}`}>
-                  <span className="pk"><code>{h.repo}</code></span>
-                  <span className="pv">
-                    <span className="field-hint" style={{ marginLeft: 0 }}>{h.file}:{h.line} · {h.call}</span>
-                  </span>
+                // 一行一条：仓库名长短差很多（charactr/vocos-mel-24khz 比 k2-fsa/ZipVoice 长一倍），
+                //   两列布局（.plan-kv 的 120px 定宽左列）会让长仓库名压到右边的时间行上。
+                <div className="field-hint" key={`${h.repo}|${h.file}|${h.line}`}
+                  style={{ marginLeft: 0, wordBreak: 'break-all' }}>
+                  <code>{h.repo}</code> · {h.file}:{h.line} · {h.call}
                 </div>
               ))}
             </div>
@@ -365,6 +502,20 @@ export function StepVerify ({ id }) {
           <h2>{t('Verification overview', '校验结论')}</h2>
         </div>
         <div className="section-body">
+          {loading && !results && (
+            <div className="msg msg-info" style={{ marginBottom: 6 }}>
+              {t('Running checks…', '正在校验…')}{' '}
+              <span className="field-hint" style={{ marginLeft: 0 }}>
+                {formatElapsed(elapsedMs)}
+              </span>
+            </div>
+          )}
+          {!loading && !results && (
+            <div className="msg msg-warn" style={{ marginBottom: 6 }}>
+              {t('Checks failed to load. Reload the page, or run the checks again with the button below.',
+                '校验结果没有取回来。可以重新加载页面，或用下方按钮再跑一次。')}
+            </div>
+          )}
           <div className={`msg msg-${preflightStatus === 'ok' ? 'success' : preflightStatus === 'fail' ? 'danger' : 'warn'}`}>
             <strong>{t('Preflight checks', '接入前置检查')}</strong>
             {' · '}{preflightPassed}/{preflightKeys.length} {t('passed', '项通过')}
@@ -378,8 +529,17 @@ export function StepVerify ({ id }) {
             <strong>{t('Runtime synthesis', '运行验证')}</strong>
             {' · '}{runtimeLabel}
             <div className="field-hint" style={{ marginTop: 4 }}>{runtimeHint}</div>
+            {/* 同一份失败连跑两次，结论一字不变 ⇒ 必须留一条「刚刚跑过」的痕迹，
+                否则使用者无法判断点击是否生效。 */}
+            {lastRun && lastRun.level === 'A' && !loading && (
+              <div className="field-hint" style={{ marginTop: 4 }}>
+                {t('Last tier A run at ', 'A 级最近一次运行：')}{clockOf(lastRun.at)}
+                {' · '}{t('took ', '用时 ')}{formatElapsed(lastRun.ms)}
+                {' · '}{lastRun.ok ? t('passed', '通过') : t('failed', '未通过')}
+              </div>
+            )}
           </div>
-          {results.post_download_available && (
+          {results && results.post_download_available && (
             <div style={{ marginTop: 6 }}>
               <button className="btn btn-sm" type="button" disabled={postBusy}
                 title={t('Run the engine-declared download command, then repeat the preflight checks.',
@@ -421,8 +581,8 @@ export function StepVerify ({ id }) {
         </div>
         <div className="section-body">
           <div className="field-hint">
-            {t('Tier B checks the response format only; tier A performs a real synthesis and produces the sample used for audio information and waveform.',
-              'B 级仅校验响应格式；A 级执行一次真实合成，并产出用于音频信息与波形的样本。')}
+            {t('Tier B checks the response format only; tier A performs a real synthesis and produces the sample shown in the preview below.',
+              'B 级仅校验响应格式；A 级执行一次真实合成，并产出下方试听区所用的样本。')}
           </div>
           {tierBDiagnostic && (
             <div className="msg msg-warn" style={{ marginTop: 6, maxHeight: 120, overflow: 'auto' }}>
@@ -456,13 +616,15 @@ export function StepVerify ({ id }) {
               </pre>
             </details>
           )}
-          <DeviceSelect
-            options={devices}
-            value={device}
-            onChange={setDevice}
-            id={`device-${id || 'engine'}`}
-            disabled={loading || measuring}
-          />
+          {deviceDeclared === true && (
+            <DeviceSelect
+              options={devices}
+              value={device}
+              onChange={setDevice}
+              id={`device-${id || 'engine'}`}
+              disabled={loading || measuring}
+            />
+          )}
           <textarea
             className="control"
             value={synthText}
@@ -471,23 +633,43 @@ export function StepVerify ({ id }) {
             rows={3}
             style={{ marginTop: 6 }}
           />
-          <button
-            className="btn btn-sm btn-primary"
-            type="button"
-            disabled={loading || !synthText.trim()}
-            style={{ marginTop: 6 }}
-            onClick={() => runChecks('A', synthRequest())}
-          >
-            {loading ? t('Running…', '正在运行…') : t('Run tier A', '执行 A 级校验')}
-          </button>
-          <input
-            className="control"
-            type="text"
-            value={refAudio}
-            onChange={(e) => setRefAudio(e.target.value)}
-            placeholder={t('Reference audio path (if the engine requires one)', '参考音频路径（引擎需要时填写）')}
-            style={{ marginTop: 6 }}
-          />
+          {/* 参考音频与文本放在按钮上面：它们留空时宿主当场 400，
+              而按钮排在它们上面时，人点完才知道是下面这两格没填。 */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+            <input
+              className="control"
+              type="text"
+              value={refAudio}
+              onChange={(e) => setRefAudio(e.target.value)}
+              // 离开输入框时把粘贴带上来的引号与首尾空格去掉：留着会让后端把它
+              //   当相对路径拼到项目根后面，报出的路径与填进去的完全不像。
+              onBlur={() => setRefAudio((cur) => cleanPathInput(cur))}
+              placeholder={t('Reference audio path (if the engine requires one)', '参考音频路径（引擎需要时填写）')}
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn btn-sm"
+              type="button"
+              disabled={refBusy || !id}
+              onClick={() => { if (refFileInput.current) refFileInput.current.click() }}
+            >
+              {refBusy ? t('Reading…', '读取中…') : t('Choose file…', '选择文件…')}
+            </button>
+            <input
+              ref={refFileInput}
+              type="file"
+              accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a"
+              style={{ display: 'none' }}
+              onChange={pickRefAudio}
+            />
+          </div>
+          <div className="field-hint" style={{ marginTop: 4, marginLeft: 0 }}>
+            {t('Pick a 3–10 second clip of the voice to clone, then fill in its transcript below. Absolute paths are used as-is; relative paths resolve against the project root.',
+              '选一段 3~10 秒的真人语音用于克隆音色，并在下面填上这段录音的文字；绝对路径原样使用，相对路径以项目根为准。')}
+          </div>
+          {refError && (
+            <div className="msg msg-danger" style={{ marginTop: 6 }}>{refError}</div>
+          )}
           <input
             className="control"
             type="text"
@@ -497,9 +679,23 @@ export function StepVerify ({ id }) {
             style={{ marginTop: 6 }}
           />
           <button
+            className="btn btn-sm btn-primary"
+            type="button"
+            disabled={loading || !synthText.trim()}
+            style={{ marginTop: 6 }}
+            onClick={() => runChecks('A', synthRequest())}
+          >
+            {runningLevel === 'A' ? t('Running…', '正在运行…') : t('Run tier A', '执行 A 级校验')}
+          </button>
+          {runningLevel === 'A' && (
+            <span className="field-hint" style={{ marginLeft: 6 }}>
+              {t('elapsed', '已用时间')} {formatElapsed(elapsedMs)}
+            </span>
+          )}
+          <button
             className="btn btn-sm"
             type="button"
-            disabled={measuring || !synthText.trim()}
+            disabled={loading || measuring || !synthText.trim()}
             style={{ marginTop: 6, marginLeft: 6 }}
             onClick={runMeasure}
           >
@@ -563,45 +759,41 @@ export function StepVerify ({ id }) {
         </div>
       </div>
 
-      {/* 时长/采样率/声道由后端解 WAV 头给出，这里不引 ffmpeg。 */}
+      {/* 试听：与平台的生成结果用同一套呈现。一个 section，播放器在上（波形由
+          Player 按预览模式画），时长与采样率在框头右侧，下载链接在播放器下方。
+          不另立「音频信息」与「波形」两块：平台没有那种分法，两块拼起来也还是这一件事。 */}
       <div className="section">
         <div className="section-hdr">
-          <h2>{t('Audio information', '音频信息')}</h2>
-        </div>
-        <div className="section-body">
-          {checks.audio && checks.audio.wav ? (
-            <div>
-              <div>
-                {t('Duration', '时长')}: {checks.audio.wav.duration_sec}s
-              </div>
-              <div>
-                {t('Sample rate', '采样率')}: {checks.audio.wav.sample_rate} Hz
-              </div>
-              <div>
-                {t('Channels', '声道')}: {checks.audio.wav.channels}
-              </div>
-            </div>
-          ) : (
-            <div className="field-hint">
-              {t('No sample yet. Synthesise one above to see the audio information.',
-                '暂无样本，完成一次合成后可查看音频信息。')}
-            </div>
+          <span>{t('Preview', '试听')}</span>
+          {wavInfo && (
+            // 框头带 text-transform: uppercase，数字与单位跟着变成 1.127S / 24000 HZ。
+            //   这一行是数值而不是标签，单独关掉大小写转换。
+            <span style={{ fontSize: 'var(--fs-11)', color: 'var(--muted)', textTransform: 'none' }}>
+              {wavInfo}
+            </span>
           )}
         </div>
-      </div>
-
-      {/* 复用主界面那个 Player，不另画播放器。 */}
-      <div className="section">
-        <div className="section-hdr">
-          <h2>{t('Waveform', '波形')}</h2>
-        </div>
         <div className="section-body">
-          {checks.audio && checks.audio.audio_path ? (
-            <Player src={`/wizard/verify/audio?id=${encodeURIComponent(id)}`} />
+          {hasSample ? (
+            <div>
+              <Player
+                src={`/wizard/verify/audio?id=${encodeURIComponent(id)}`}
+                duration={checks.audio.wav && checks.audio.wav.duration_sec}
+              />
+              <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
+                <a
+                  href={`/wizard/verify/audio?id=${encodeURIComponent(id)}`}
+                  download
+                  style={{ color: 'var(--accent)', fontSize: 'var(--fs-13)' }}
+                >
+                  {t('Download WAV', '下载 WAV')}
+                </a>
+              </div>
+            </div>
           ) : (
             <div className="field-hint">
-              {t('No sample yet. The waveform appears here once one exists.',
-                '暂无样本，完成一次合成后在此显示波形。')}
+              {t('No sample yet. Run tier A above to produce one.',
+                '暂无样本，先执行上方的 A 级校验。')}
             </div>
           )}
         </div>
