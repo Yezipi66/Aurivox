@@ -1,7 +1,7 @@
 'use strict'
 // 第 4 步的表单形状：必填区三个槽位一行 + 引擎目录与启动脚本一行，
-// 参考文本的声明（ref_text）不在这区：它与运行设备同排，收在
-// 「可选能力」区（OptionalCapabilities.jsx）里。
+// 参考文本的声明（ref_text）不在这区：它与 seed 平分第一行，收在
+// 「可选能力」区（OptionalCapabilities.jsx）里；运行设备在「引擎配置」区。
 //
 // 守的形状：
 //   ① 必填区只有 5 格：三个输入槽位一行（text / ref_audio / output_path），
@@ -77,6 +77,17 @@ test('必填区两行，都用 auto-fit 网格', () => {
   const rule = /\.form-grid\.wz-required-row\s*\{([^}]*)\}/.exec(css)
   assert.ok(rule, 'editor.css 里没有 .form-grid.wz-required-row')
   assert.ok(/repeat\(auto-fit,\s*minmax\(/.test(rule[1]), '必填行要用 auto-fit，中栏拖窄时才折得成单列')
+})
+
+test('填参数名的格子统一走可打字的下拉，不再有第二套「输入框 + 候选」', () => {
+  const live = stripComments(src)
+  assert.ok(!/datalist/.test(live),
+    '必填区又出现了原生 datalist：候选输入要统一交给 components/common/Select 的 editable 一档')
+  assert.ok(!/<input[\s\S]{0,300}?\blist=/.test(live),
+    '还有 <input list=…>：候选要由下拉的菜单给出，不另起一种写法')
+  const editable = (live.match(/<Select\s+editable/g) || []).length
+  assert.ok(editable >= 2,
+    `槽位与权重参数名两处都该是「可打字的下拉」，现在只有 ${editable} 处`)
 })
 
 test('每格是「中文人话 + 键名徽标」', () => {
@@ -180,9 +191,11 @@ test('第 5 步进度文案：阶段四种，已用时间 mm:ss', () => {
   assert.equal(P.measureRunning(null), false)
 })
 
-test('参考文本的声明在可选能力区：与运行设备同排，编辑的是 bind.ref_text', () => {
+test('参考文本在可选能力区第一行，与 seed 各占一半；运行设备在引擎配置区', () => {
   const cap = stripComments(fs.readFileSync(
     path.join(__dirname, '..', 'editor', 'OptionalCapabilities.jsx'), 'utf8'))
+  const opt = stripComments(fs.readFileSync(
+    path.join(__dirname, '..', 'editor', 'OptionalConfig.jsx'), 'utf8'))
   assert.ok(/bindNow\.ref_text/.test(cap), '可选能力区要有参考文本的声明格（读 bind.ref_text）')
   // 存的是 trim 后的开关名：名片里带前后空格的开关在命令行上会变成一个怪词。
   assert.ok(/nextBind\.ref_text = String\(v\)\.trim\(\)/.test(cap),
@@ -190,11 +203,13 @@ test('参考文本的声明在可选能力区：与运行设备同排，编辑�
   assert.ok(/delete nextBind\.ref_text/.test(cap), '清空即从 bind 里删掉')
   const grid = cap.indexOf('form-grid')
   const refField = cap.indexOf('bindNow.ref_text')
-  const devField = cap.indexOf('Runtime device')
-  assert.ok(grid >= 0 && refField > grid && devField > grid,
-    '运行设备与参考文本要同排（同一个 form-grid 里）')
+  assert.ok(grid >= 0 && refField > grid, '参考文本要在第一行那个 form-grid 里')
+  assert.ok(/repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(cap),
+    '第一行两列等宽：参考文本与 seed 一人一半')
+  assert.ok(/<DeviceField\b/.test(opt), '运行设备挂在引擎配置区')
+  assert.ok(!/t\('Runtime device'/.test(cap), '运行设备不在可选能力区')
   assert.ok(/t\('Optional capabilities', '可选能力'\)/.test(cap),
-    '两者要收在同一个可选能力区里，不散在别处')
+    '参考文本与 seed 收在可选能力区，不散在别处')
 })
 
 test('可选能力区默认展开，引擎配置默认收起', () => {

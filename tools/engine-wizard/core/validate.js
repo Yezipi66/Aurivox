@@ -213,6 +213,22 @@ function diagnose (manifest) {
     }
   }
 
+  // 文本入口两种写法，且只能写一种：call.bind.text 是命令行开关，
+  //   call.text_via="stdin" 是正文走子进程的标准输入。
+  //   宿主见到两个都写、或 text_via 写了别的值，会在每次请求时抛错。
+  //   那要跑到第 5 步才发现，这里提前拦。
+  if (callObj.text_via !== undefined) {
+    const where = { section: 'call', field: 'call.text_via',
+      sectionMeta: SECTIONS_BY_KEY.call || null, danger: DANGER.BLOCK }
+    if (callObj.text_via !== 'stdin') {
+      push('error', 'CALL_TEXT_VIA_INVALID',
+        `「call.text_via」只认 "stdin"，现在写的是 ${JSON.stringify(callObj.text_via)}。`, where)
+    } else if (bindObj.text) {
+      push('error', 'CALL_TEXT_VIA_CONFLICT',
+        '「call.text_via」与「call.bind.text」同时声明了文本入口，宿主会拒。二者只留一个。', where)
+    }
+  }
+
   // 可选的数：写了才查值（正整数）。
   const caps = manifest.capabilities || {}
   const OPTIONAL_INTS = [

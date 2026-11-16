@@ -207,6 +207,39 @@ test('权重位的形态写了不认识的值：第 4 步就报出来', () => {
   assert.ok(errs.some((e) => /kind/.test(e.message)), 'kind 的取值要当场校验')
 })
 
+// 文本入口：call.bind.text（命令行开关）与 call.text_via="stdin"（正文走标准输入）
+//   只能留一个。宿主两个都见到就每次请求都抛，而那时人已经在第 5 步试听了。
+const textEntryBase = () => ({
+  id: 'wobble-text', label: { en: 'Wobble', zh: '沃博' },
+  runtime: { python: 'engines/wobble-text/.venv' },
+  call: { kind: 'cli', argv: ['prog'] },
+})
+
+test('文本入口两种写法并存：第 4 步就报出来', () => {
+  const m = textEntryBase()
+  m.call.bind = { text: '--text' }
+  m.call.text_via = 'stdin'
+  const diags = diagnose(m)
+  assert.ok(diags.some((d) => d.code === 'CALL_TEXT_VIA_CONFLICT'),
+    '两种文本入口并存要有一条 error，而不是等宿主拒')
+  assert.strictEqual(summarize(diags).ok, false)
+})
+
+test('text_via 写了不认识的值：第 4 步就报出来', () => {
+  const m = textEntryBase()
+  m.call.text_via = 'file'
+  const diags = diagnose(m)
+  assert.ok(diags.some((d) => d.code === 'CALL_TEXT_VIA_INVALID'),
+    'text_via 只认 stdin，别的取值要当场拦')
+})
+
+test('只写 text_via="stdin"：不算缺文本入口', () => {
+  const m = textEntryBase()
+  m.call.text_via = 'stdin'
+  const errs = diagnose(m).filter((d) => /text/.test(d.message) && d.level === 'error')
+  assert.deepStrictEqual(errs, [])
+})
+
 // 位置参数：去处写在 argv 的占位符里（{text} / {output_path}），
 //   必填区的 bind 那两格随之不再要求；两处都写则是同一个槽位发两遍。
 const positionalBase = () => ({
