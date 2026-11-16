@@ -69,6 +69,7 @@ function loadDrop () {
     if (/paramType/.test(id) && !/paramShape/.test(id)) return typeMod.exports
     if (/paramShape/.test(id)) return shapeMod.exports
     if (/paramFields/.test(id)) return fieldsMod.exports
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error('拖拽落点的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -77,7 +78,11 @@ function loadDrop () {
   return mod.exports
 }
 
-const { applyParamDrop, paramNameOf, migrateLegacyParams, dragLabelOf } = loadDrop()
+const {
+  applyParamDrop, paramNameOf, migrateLegacyParams, dragLabelOf,
+  applyScanShape, argsEntryFor, scanParamFor, typeUndecided, typeDerivedFrom,
+  countUnshapedParams, fillTypesFromScan,
+} = loadDrop()
 
 // 夹具：扫到的参数，形状与 /wizard/discover 返回的一致。
 const CLI_PARAM = {
@@ -317,4 +322,161 @@ test('数值参数：上游的默认值填进 suggested_value；文本默认值�
   })
   assert.strictEqual(txt.parameters[0].suggested_value, undefined,
     '文本默认值常是示例句子，抄进界面等于替人写了正文')
+})
+
+test('⭐⭐⭐ 参数拖进来时英文名自动填、中文名留空', () => {
+  const { applyParamDrop } = loadDrop()
+  const m = applyParamDrop({ id: 'x', call: { kind: 'cli', argv: [], args: {} } },
+    { source: 'cli', name: 'input-file', target: '--input-file', kind: 'str',
+      help: 'Path to input text file (default: stdin)' })
+  const e = m.parameters[0]
+  assert.strictEqual(e.name, 'input-file')
+  assert.deepStrictEqual(e.label, { en: 'input-file', zh: '' },
+    '英文名由开关派生，中文名留空让人一眼看出还没填')
+  assert.strictEqual(m.call.args['input-file'].flag, '--input-file')
+})
+
+test('⭐⭐ 用户写过的 label 不被自动填覆盖', () => {
+  const { applyParamDrop } = loadDrop()
+  const m = applyParamDrop({
+    id: 'x',
+    parameters: [{ name: 'speed', type: 'number', label: { en: 'Rate', zh: '语速' } }],
+    call: { kind: 'cli', argv: [], args: {} },
+  }, { source: 'cli', name: 'speed', target: '--speed', kind: 'number', help: 'Speech speed' })
+  assert.deepStrictEqual(m.parameters[0].label, { en: 'Rate', zh: '语速' })
+  assert.strictEqual(m.parameters.length, 1, '同名参数不该重复加')
+})
+
+// ---- 按扫描结果定类型：手敲开关加进来的行，类型不该永远停在 text ----
+//
+// 两条来路：拖/点左栏进来的参数自带类型；在表格里敲开关只有名字。
+//   照上游 README 抄命令是常见路径，抄完整张表都是 text，合成页上每个旋钮
+//   长成文本框。这一组测的就是「补类型」这件事，以及它不越界。
+
+// 夹具：一台引擎扫出来的四条，类型确定度不同。
+const SCANNED = [
+  { source: 'cli', name: 'guidance-scale', target: '--guidance-scale', kind: 'number',
+    kind_certain: true, style: 'value', default: 1.5, help: 'scale of CFG', group: 'infer' },
+  { source: 'cli', name: 'seed', target: '--seed', kind: 'number',
+    kind_certain: true, style: 'value', default: 0, help: 'random seed', group: 'infer' },
+  { source: 'cli', name: 'verbose', target: '--verbose', kind: 'boolean',
+    kind_certain: true, style: 'boolean', help: 'print more', group: 'infer' },
+  { source: 'cli', name: 'tokenizer', target: '--tokenizer', kind: 'str',
+    kind_certain: true, style: 'value', choices: ['espeak', 'pinyin'], default: 'espeak',
+    help: 'tokenizer type', group: 'infer' },
+]
+
+test('手敲出来的行：按参数名对上扫描结果就能定类型', () => {
+  const card = {
+    id: 'x',
+    call: { kind: 'cli', argv: ['{engine_python}'], args: { 'guidance-scale': { flag: '--guidance-scale' } } },
+    parameters: [
+      { name: 'guidance-scale', type: 'text', tier: 'common' },
+      { name: 'tokenizer', type: 'text', tier: 'common' },
+      { name: 'not-scanned', type: 'text', tier: 'common' },
+    ],
+  }
+  const r = fillTypesFromScan(card, SCANNED)
+  assert.strictEqual(r.filled, 2, '扫到的两行补齐，扫不到的那行不动')
+  assert.deepStrictEqual(r.names, ['guidance-scale', 'tokenizer'])
+  assert.strictEqual(r.manifest.parameters[0].type, 'number')
+  assert.strictEqual(r.manifest.parameters[0].suggested_value, 1.5, '上游写的默认值成为界面初值')
+  assert.deepStrictEqual(r.manifest.parameters[0].help, { zh: 'scale of CFG', en: 'scale of CFG' },
+    '上游原话一并补上，合成页才知道这一格是干什么的')
+  assert.strictEqual(r.manifest.parameters[1].type, 'select', '有候选值就是下拉')
+  assert.strictEqual(r.manifest.parameters[2].type, 'text', '扫不到的行保持原样，不瞎猜')
+})
+
+test('已经定过类型的行不被补齐改掉', () => {
+  const card = {
+    parameters: [
+      { name: 'seed', type: 'select', tier: 'common', choices: [{ value: '1' }] },
+      { name: 'verbose', type: 'boolean', tier: 'common' },
+    ],
+  }
+  assert.strictEqual(countUnshapedParams(card, SCANNED), 0)
+  const r = fillTypesFromScan(card, SCANNED)
+  assert.strictEqual(r.filled, 0)
+  assert.strictEqual(r.manifest.parameters[0].type, 'select', '人挑过的类型不能被扫描结果盖掉')
+})
+
+test('布尔开关补齐时命令行样式跟着改：留空会发成 --x True', () => {
+  const card = {
+    call: { kind: 'cli', argv: ['{engine_python}'], args: { verbose: { flag: '--verbose' } } },
+    parameters: [{ name: 'verbose', type: 'text', tier: 'common' }],
+  }
+  const r = fillTypesFromScan(card, SCANNED)
+  assert.strictEqual(r.manifest.parameters[0].type, 'boolean')
+  assert.strictEqual(r.manifest.call.args.verbose.style, 'boolean',
+    '不收值的开关必须写成 boolean，缺省写法会把 True 当位置参数发给上游')
+})
+
+test('值型开关不写 style：本来就不需要，写了反而可能盖掉 join / repeat', () => {
+  const card = {
+    call: { kind: 'cli', argv: [], args: { speed: { flag: '--speed', join: ',' } } },
+    parameters: [{ name: 'speed', type: 'text', tier: 'common' }],
+  }
+  const r = fillTypesFromScan(card, [
+    { source: 'cli', name: 'speed', target: '--speed', kind: 'number', style: 'value' },
+  ])
+  assert.strictEqual(r.manifest.parameters[0].type, 'number')
+  assert.deepStrictEqual(r.manifest.call.args.speed, { flag: '--speed', join: ',' },
+    '改类型不该顺手重写命令行映射')
+})
+
+test('不改传进来的名片：补齐返回新对象', () => {
+  const card = { parameters: [{ name: 'seed', type: 'text', tier: 'common' }] }
+  const before = JSON.stringify(card)
+  fillTypesFromScan(card, SCANNED)
+  assert.strictEqual(JSON.stringify(card), before)
+})
+
+test('名字对不上就不算可补：宁可留空让人自己选，也不按名字猜类型', () => {
+  const card = { parameters: [{ name: 'speed', type: 'text', tier: 'common' }] }
+  assert.strictEqual(countUnshapedParams(card, SCANNED), 0)
+  assert.strictEqual(scanParamFor('speed', SCANNED), null)
+})
+
+test('typeUndecided：只有默认 text 且没有选项表 / 维度表时才算没定', () => {
+  assert.strictEqual(typeUndecided({ name: 'a', type: 'text' }), true)
+  assert.strictEqual(typeUndecided({ name: 'a' }), true, '没写 type 就是默认 text')
+  assert.strictEqual(typeUndecided({ name: 'a', type: 'number' }), false)
+  assert.strictEqual(typeUndecided({ name: 'a', type: 'text', choices: [] }), true,
+    '空数组等于没有选项表')
+  assert.strictEqual(typeUndecided({ name: 'a', type: 'text', choices: [{ value: 'x' }] }), false)
+})
+
+test('换开关时，脚本推出来的类型可以重新推；人挑过的不能', () => {
+  const derived = { name: 'speed', type: 'number' }
+  assert.strictEqual(typeDerivedFrom(derived, 'speed', SCANNED), false,
+    'speed 不在扫描结果里，推不出来源 ⇒ 当成人的决定')
+  const num = { name: 'guidance-scale', type: 'number' }
+  assert.strictEqual(typeDerivedFrom(num, 'guidance-scale', SCANNED), true,
+    '与扫描结果一致 ⇒ 仍是我们推的')
+  const picked = { name: 'guidance-scale', type: 'text' }
+  assert.strictEqual(typeDerivedFrom(picked, 'guidance-scale', SCANNED), true,
+    '停在 text 等于还没定，重新推一遍合理')
+  const fixed = { name: 'guidance-scale', type: 'select', choices: [{ value: 'a' }] }
+  assert.strictEqual(typeDerivedFrom(fixed, 'guidance-scale', SCANNED), false,
+    '有选项表就是人配过的')
+})
+
+test('argsEntryFor：布尔 / 否定式 / 值型三种写法分开', () => {
+  assert.deepStrictEqual(argsEntryFor(SCANNED[2]), { flag: '--verbose', style: 'boolean' })
+  assert.deepStrictEqual(
+    argsEntryFor({ source: 'cli', name: 'x', target: '--x', kind: 'boolean', style: 'boolean_optional' }),
+    { flag: '--x', style: 'boolean_optional' })
+  assert.deepStrictEqual(
+    argsEntryFor({ source: 'cli', name: 'y', target: '--y', kind: 'number', style: 'value' }),
+    { flag: '--y', style: 'value' })
+})
+
+test('applyScanShape 只补空着的字段：人写过的不动', () => {
+  const row = { name: 'tokenizer', type: 'text', label: { zh: '分词器', en: 'Tokenizer' },
+    help: { zh: '我写的', en: 'mine' }, suggested_value: 'pinyin' }
+  const out = applyScanShape(row, SCANNED[3])
+  assert.deepStrictEqual(out.help, { zh: '我写的', en: 'mine' })
+  assert.strictEqual(out.suggested_value, 'pinyin')
+  assert.deepStrictEqual(out.label, { zh: '分词器', en: 'Tokenizer' })
+  assert.strictEqual(out.type, 'select', '类型是唯一会被改成扫描结果的字段')
 })

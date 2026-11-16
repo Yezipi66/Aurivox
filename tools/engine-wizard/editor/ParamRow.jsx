@@ -9,6 +9,10 @@ import { useT } from '../../../web/src/lib/i18n'
 import {
   nameFromFlag, readLabel, withLabel, readChoices, readDims, resizeRows, withCell, boolStyle,
 } from './paramFields'
+import {
+  applyScanShape, argsEntryFor, scanParamFor, typeDerivedFrom,
+} from './paramDrop'
+import Select from '../../../web/src/components/common/Select'
 
 const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
 
@@ -19,7 +23,7 @@ const TYPES = ['text', 'number', 'select', 'boolean', 'file', 'vector']
  *   meta.argv 让落点同步迁移 call.args 的键，开关改名后不留一个永远上不了命令行的条目
  * @param {Function} onDelete 删这一条（传索引）
  */
-export default function ParamRow ({ entry, index, spec, argv = '', argStyle = '', onChange, onDelete, typeGuessed = false, onTypeConfirmed }) {
+export default function ParamRow ({ entry, index, spec, argv = '', argStyle = '', scanned, onChange, onDelete, typeGuessed = false, onTypeConfirmed, onTypeGuessed }) {
   const { t } = useT()
   void spec
 
@@ -36,9 +40,23 @@ export default function ParamRow ({ entry, index, spec, argv = '', argStyle = ''
   }
 
   // 命令行开关：参数名由它派生，call.args 的键由落点一起迁移。
+  // 敲进来的开关如果在扫描结果里，类型、说明、候选值一并补上：
+  //   照上游 README 抄命令是常见路径，抄完还要回左栏逐条拖一遍才定类型，
+  //   等于同一件事做了两遍；而停在 text 的后果是合成页上每个旋钮都长成文本框。
+  //   只在这一行的类型还没由人定下时补（typeDerivedFrom），自己挑过的类型不动。
   const setArgv = (raw) => {
     const flag = String(raw == null ? '' : raw).trim()
     const name = nameFromFlag(flag)
+    const param = typeDerivedFrom(entry, entry.name, scanned) ? scanParamFor(name, scanned) : null
+    if (param) {
+      const out = applyScanShape(entry, param)
+      // 布尔型的命令行样式要跟着改：留空时宿主按 `--x True` 发，不收值的开关当场报错。
+      const want = argsEntryFor(param)
+      const style = out.type === 'boolean' || out.type === 'vector' ? want.style : undefined
+      onChange(index, { ...out, name }, { argv: { from: entry.name, to: name, flag, style } })
+      if (onTypeGuessed) onTypeGuessed(param, name)
+      return
+    }
     patch({ name }, { argv: { from: entry.name, to: name, flag } })
   }
 
@@ -101,16 +119,16 @@ export default function ParamRow ({ entry, index, spec, argv = '', argStyle = ''
         placeholder={t('English label', '英文名')}
         title={t('Shown above this field on the synthesis page (English)', '合成页这一格上方显示的英文名')}
         onChange={(e) => onChange(index, withLabel(entry, 'en', e.target.value))} />
-      <select className={`control wz-param-type${typeGuessed ? ' wz-field-guess' : ''}`} value={type}
+      <Select className={`control wz-param-type${typeGuessed ? ' wz-field-guess' : ''}`} value={type}
         title={t('Control type', '控件类型')} onChange={(e) => setType(e.target.value)}>
         {TYPES.map((x) => <option key={x} value={x}>{x}</option>)}
-      </select>
-      <select className="control wz-param-place" value={entry.tier === 'common' ? 'common' : 'advanced'}
+      </Select>
+      <Select className="control wz-param-place" value={entry.tier === 'common' ? 'common' : 'advanced'}
         title={t('Which screen in Advanced Settings shows this field', '这一格出现在 Advanced Settings 的哪一屏')}
         onChange={(e) => set('tier', e.target.value)}>
         <option value="common">{t('common', '常用')}</option>
         <option value="advanced">{t('advanced', '高级')}</option>
-      </select>
+      </Select>
 
       {/* 尾部定宽：推测徽标出现与否都不改这一格宽度，表头的列才对得上。 */}
       <div className="wz-param-tail">

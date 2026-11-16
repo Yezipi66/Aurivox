@@ -16,6 +16,9 @@ import { vectorShapeFromHelp } from './paramShape.js'
  * @param entry 入口嗅探结果（entryPick 的返回）：填模块名与子命令进 argv。
  *   为 null 时 argv 里留着占位符，由使用者自己填。
  * @param engineId 引擎目录名，用来填 call.cwd（-m 找包从当前目录算起）。
+ * @param positionals 扫描到的位置参数 [{name, nargs, type, required, help}]。
+ *   它们没有开关名，值直接占「第几个词」，所以只能写成 argv 里的占位符；
+ *   认得出是哪个槽位的会接在入口骨架后面，认不出的只报一条说明。
  * @returns {{call, matched, argList, notes, callTime, manifestPatch, confidence}} 或 null（没有参数）；
  *   matched 是 { text, ref_audio, ref_text, output_path }，认不出时为 null。
  *   ref_text 是可选槽位：认不出不算缺，由用户自己拖进去。
@@ -27,7 +30,7 @@ import { vectorShapeFromHelp } from './paramShape.js'
  * 匹配一律在下划线小写写法上做，落盘仍用原名，名片里保留上游的写法。
  * 不归一化时，候选名表里全是下划线，带横线与驼峰的开关一个也匹配不上，而且不报错。
  */
-function normName (name) {
+export function normName (name) {
   return String(name || '')
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/-/g, '_')
@@ -47,6 +50,37 @@ const EXACT_SLOT_NAMES = {
   ref_audio: ['ref_audio', 'reference_audio', 'prompt_audio', 'prompt_wav', 'ref_wav', 'prompt_speech_path'],
   ref_text: ['ref_text', 'prompt_text', 'reference_text'],
   output_path: ['output_path', 'output_file', 'save_path', 'out_path'],
+}
+
+// 位置参数名 → 平台槽位。只收语义不含糊的名字：
+//   output / out 在 argparse 里几乎都是落点（文件或目录），与 --output 同义；
+//   input / prompt / voice 这类不进来：它们在不同引擎里指文本、指文件、指声线，
+//   认错的表现是念参考音频原话或用错声线，而且不报错。
+export const POSITIONAL_SLOT = {
+  text: 'text', texts: 'text', input_text: 'text', tts_text: 'text', target_text: 'text', gen_text: 'text',
+  ref_audio: 'ref_audio', reference_audio: 'ref_audio', prompt_audio: 'ref_audio',
+  prompt_wav: 'ref_audio', ref_wav: 'ref_audio', speaker_wav: 'ref_audio',
+  prompt_speech_path: 'ref_audio',
+  ref_text: 'ref_text', prompt_text: 'ref_text', reference_text: 'ref_text',
+  output: 'output_path', out: 'output_path', output_path: 'output_path',
+  output_file: 'output_path', save_path: 'output_path', out_path: 'output_path',
+}
+
+// nargs 说明位置参数收几个词："?" 与 "*" 可以不出现，其余（"+"、2、"3"…）都要。
+//   占位符在命令行上永远只占一个词，所以这两类之外的都要提醒。
+// nargs 为 "?" 或 "*" 的位置参数可以不出现。占位符没有「这次不给」这种写法：
+//   接上去就意味着每次请求都必须有值，缺一次整条命令就失败（宿主按位置替换，
+//   空着会让后面的词错位，所以它宁可整次报错）。这类参数宁可留在扫描说明里，
+//   也不默认接进命令。
+export function isOptionalNargs (nargs) {
+  return nargs === '?' || nargs === '*'
+}
+
+export function isMultiValue (nargs) {
+  if (nargs === undefined || nargs === null) return false
+  if (nargs === '?' || nargs === '*') return false
+  if (nargs === 1) return false
+  return true
 }
 
 // 权重落点的占位符：与 weightsField.js 的 TOKEN 同一个值，第 3 步下载到那里。
@@ -88,11 +122,17 @@ function judgeSlot (slot, ev, params, ambiguous, entryFile) {
   }
 }
 
-export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null, files = null) {
-  if (!params || !params.length) return null
+export function computeAutoFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null, files = null, positionals = null) {
+  // 只有位置参数的引擎（命令行上一个开关都没有）以前在这里被整段丢掉：
+  //   扫到的是空参数表，界面只报「没有发现参数」，而真因是它把值写在词序上。
+  const posList = Array.isArray(positionals) ? positionals : []
+  if ((!params || !params.length) && !posList.length) return null
 
   const call = { ...(currentCall || {}) }
   const notes = []
+  // 由位置参数供值的槽位。bind 填值那一节要跳过它们：同一个槽位只能写一处。
+  const positionalSlots = new Set()
+  const positionalBySlot = {}
   // 每个自动填进去的值都带一档置信度：certain 用绿色徽标，guess 用黄色徽标。
   //   只记结论与依据，不改写上面任何一段填值逻辑；界面据此标注，不据此取舍。
   const confidence = { bind: {}, returns: null, weights: null, entry: null }
@@ -112,6 +152,9 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
     call.kind = 'cli'
   } else if (hasPy) {
     call.kind = 'python'
+  } else if (posList.length) {
+    // 位置参数只存在于命令行形态：这一条本身就是 cli 的证据。
+    call.kind = 'cli'
   }
 
   // args 与 argv 是 cli 形态才有的两段，python 名片里写它，存的时候直接被拒。
@@ -164,7 +207,19 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
         .sort((a, b) => a.rank - b.rank)
       // 没有入口线索且命中不止一个时不替使用者挑：接错开关会让引擎加载错目录。
       const usable = entryFile ? hits : (hits.length === 1 ? hits : [])
-      if (usable.length) {
+      if (hits.length === 0) {
+        // 上游命令行里连一个权重开关都没有：引擎自己定位权重（从缓存或默认路径拉）。
+        //   这一格留空时校验会报「没有一个词带 {checkpoints}」，而平台也传不进去。
+        //   写成 self 并在扫描说明里点明依据，使用者一眼就能取消勾选改回手写。
+        call.weights = 'self'
+        notes.push({
+          en: 'No weights switch was found in the scanned command line. Treated as '
+            + '"the engine locates its own weights". Uncheck it and name a switch '
+            + 'if this engine does take a weights path.',
+          zh: '扫描到的命令行里没有权重开关，已按「引擎自行定位权重」处理。'
+            + '若这台引擎要传权重路径，请取消勾选并手写开关。',
+        })
+      } else if (usable.length) {
         const picked = usable[0].p
         const flag = String(picked.target)
         // 值是目录还是一个具体文件，由两处证据决定：
@@ -225,6 +280,80 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
         }
       }
     }
+    // 位置参数：按扫描顺序接在入口骨架之后，写成 {slot} 占位符。
+    //   上游把值放在「第几个词」上，命令行上没有开关名可以挂，除了占位符没有别的写法。
+    //   positionalSlots 后面要用：这些槽位由位置参数供值，call.bind 里就不能再绑一次
+    //   （同一个槽位两处都写，宿主启动前会拒收整张名片）。
+    const unmappedPos = []
+    // 可以省略的位置参数：接上去会让「这次不给值」的请求整条失败，所以不默认接。
+    const optionalPos = []
+    for (const pos of posList) {
+      const nm = normName(pos && pos.name)
+      const slot = POSITIONAL_SLOT[nm]
+      if (!slot) { unmappedPos.push(pos); continue }
+      if (isOptionalNargs(pos.nargs)) { optionalPos.push(pos); continue }
+      const bound = call.bind && call.bind[slot]
+      if (bound) {
+        // 使用者已经在必填区把这个槽位绑成开关了：那是他的决定，位置参数让位。
+        notes.push({
+          en: 'The command line also has a positional argument "' + pos.name + '", but this slot is already bound to '
+            + bound + '. The switch was kept; clear that field first if this engine takes the value positionally.',
+          zh: '命令行上还有一个位置参数「' + pos.name + '」，而这一槽位在必填区已绑到开关 '
+            + bound + '。当前保留了开关；若这台引擎是按位置收这个值，请先清掉那一格。',
+        })
+        continue
+      }
+      if (argv.some((w) => String(w).includes('{' + slot + '}'))) { positionalSlots.add(slot); continue }
+      positionalSlots.add(slot)
+      positionalBySlot[slot] = pos
+      argv = [...argv, '{' + slot + '}']
+    }
+    if (positionalSlots.size) {
+      notes.push({
+        en: 'Positional arguments were found and written as placeholders at the end of the command: '
+          + [...positionalSlots].map((x) => '{' + x + '}').join(', ')
+          + '. Reorder them in Command words if the engine expects a different order.',
+        zh: '扫描到位置参数，已写成占位符接在命令行末尾：'
+          + [...positionalSlots].map((x) => '{' + x + '}').join('、')
+          + '。引擎要求的次序不同的话，在「命令行词序」里调整前后。',
+      })
+      const multi = [...positionalSlots]
+        .map((x) => positionalBySlot[x])
+        .filter((p) => p && isMultiValue(p.nargs))
+      if (multi.length) {
+        notes.push({
+          en: 'These positional arguments take more than one word (nargs): '
+            + multi.map((p) => p.name + '=' + String(p.nargs)).join(', ')
+            + '. A placeholder fills one value only; confirm whether this engine needs the rest.',
+          zh: '这几个位置参数要收多个词（nargs）：'
+            + multi.map((p) => p.name + '=' + String(p.nargs)).join('、')
+            + '。占位符只会填一个值，请确认这台引擎是否还需要其余的值。',
+        })
+      }
+    }
+    if (optionalPos.length) {
+      notes.push({
+        en: 'These positional arguments may be omitted (nargs ? or *): '
+          + optionalPos.map((p) => p.name).join(', ')
+          + '. A placeholder always needs a value, so adding one would make every request '
+          + 'without it fail. Add it in Command words only if this engine really needs it every time.',
+        zh: '这几个位置参数可以不给（nargs 为 ? 或 *）：'
+          + optionalPos.map((p) => p.name).join('、')
+          + '。占位符每次都要有值，接上去会让不带这个值的请求整条失败。'
+          + '这台引擎确实每次都要它时，再到「命令行词序」里自己接。',
+      })
+    }
+    if (unmappedPos.length) {
+      notes.push({
+        en: 'Positional arguments with no matching slot were left alone: '
+          + unmappedPos.map((p) => p.name).join(', ')
+          + '. The platform has no value to put there; handle them in Command words by hand.',
+        zh: '这些位置参数在平台没有对应的值可填，未做处理：'
+          + unmappedPos.map((p) => p.name).join('、')
+          + '。需要的话在「命令行词序」里手工处理。',
+      })
+    }
+
     call.argv = argv
 
     // 模块名要能 import，工作目录得落在引擎目录上：示例命令默认在仓库根执行，
@@ -368,25 +497,30 @@ export function computeAutoFill (params, currentCall, bindCandidates = [], entry
 
   // 复制一份再填：浅拷贝出来的 call 里 bind 还是同一个对象，就地写会把名片原稿也改了。
   call.bind = { ...(call.bind || {}) }
-  if (!call.bind.text && matched.text) call.bind.text = matched.text
-  if (!call.bind.ref_audio && matched.ref_audio) call.bind.ref_audio = matched.ref_audio
-  if (!call.bind.ref_text && matched.ref_text) call.bind.ref_text = matched.ref_text
-  if (!call.bind.output_path && matched.output_path) call.bind.output_path = matched.output_path
+  // 位置参数已经供值的槽位不再绑开关：同一个槽位两处都写，宿主会拒收整张名片。
+  if (!call.bind.text && matched.text && !positionalSlots.has('text')) call.bind.text = matched.text
+  if (!call.bind.ref_audio && matched.ref_audio && !positionalSlots.has('ref_audio')) call.bind.ref_audio = matched.ref_audio
+  if (!call.bind.ref_text && matched.ref_text && !positionalSlots.has('ref_text')) call.bind.ref_text = matched.ref_text
+  if (!call.bind.output_path && matched.output_path && !positionalSlots.has('output_path')) call.bind.output_path = matched.output_path
 
   // 输出是文件还是目录：落点开关以 _dir / _directory 结尾时，引擎收的是目录、
   //   文件名它自己起。其余按文件处理。
   //   这只按名字推，而名字并不可靠（叫 --output 却收目录的引擎确实存在），
   //   所以它只是第四步那格的默认值，使用者随时能改。
   //   已经写过 returns 的不覆盖，那是使用者的决定。
-  if (call.returns === undefined && matched.output_path) {
-    const outName = normName(String(matched.output_path).replace(/^-+/, ''))
+  const outRef = matched.output_path ||
+    (positionalSlots.has('output_path') && positionalBySlot.output_path
+      ? positionalBySlot.output_path.name
+      : null)
+  if (call.returns === undefined && outRef) {
+    const outName = normName(String(outRef).replace(/^-+/, ''))
     if (/(_dir|_directory)$|^dir$/.test(outName)) {
       call.returns = 'dir'
       confidence.returns = {
         level: 'guess', value: 'dir',
         reason: {
-          en: 'The output form was inferred from the switch name ' + matched.output_path + '. Confirm it in the file / directory selector.',
-          zh: '输出形态按开关名 ' + matched.output_path + ' 推断。请在「文件 / 目录」处确认。',
+          en: 'The output form was inferred from the parameter name ' + outRef + '. Confirm it in the file / directory selector.',
+          zh: '输出形态按参数名 ' + outRef + ' 推断。请在「文件 / 目录」处确认。',
         },
       }
     }

@@ -1,7 +1,9 @@
 // 合成参数的投放区，接收拖拽与点击加入。
 import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
-import { applyParamDrop, paramNameOf, PARAM_MIME } from './paramDrop'
+import {
+  applyParamDrop, paramNameOf, PARAM_MIME, countUnshapedParams, fillTypesFromScan, scanParamFor,
+} from './paramDrop'
 import { withArgKey } from './paramFields'
 
 // 中栏的落点：参数区（parameters[]）。
@@ -30,12 +32,29 @@ import { withArgKey } from './paramFields'
  */
 export default function ParamDropZone ({
   manifest, onChange, params, selectedParam, spec, ParamRow,
-  guessed, onParamDropped, onTypeConfirmed, children,
+  guessed, onParamDropped, onTypeConfirmed, scanned, children,
 }) {
   const { t } = useT()
   const [over, setOver] = React.useState(false)
 
   const list = params || []
+  // 手敲开关加进来的行类型停在 text：这里算一下有多少行能按扫描结果补齐。
+  //   数量为 0 时不显示按钮，界面上不留一个点了没反应的入口。
+  const unshaped = countUnshapedParams(manifest, scanned)
+
+  const fillTypes = () => {
+    const r = fillTypesFromScan(manifest, scanned)
+    if (!r.filled) return
+    onChange(r.manifest)
+    // 补过的行按扫描的确定度标「推测」：上游没写明类型的，仍要人核对一眼。
+    //   与拖拽那条路同一套判定，徽标含义不因来路不同而变化。
+    if (onParamDropped) {
+      for (const name of r.names) {
+        const param = scanParamFor(name, scanned)
+        if (param) onParamDropped(param, name)
+      }
+    }
+  }
 
   const addParam = () => {
     const next = { ...manifest }
@@ -123,6 +142,14 @@ export default function ParamDropZone ({
           <button className="btn btn-sm" type="button" onClick={addParam}>
             + {t('Add a parameter', '添加一个参数')}
           </button>
+          {/* 手敲开关的行没有类型可依，扫描结果里有：一次补齐，不必回去逐行挑一遍。 */}
+          {unshaped > 0 && (
+            <button className="btn btn-sm" type="button" onClick={fillTypes}
+              title={t('Match these rows against the scanned parameters by name and set the control type the upstream declares. Description and choices are filled in on the way.',
+                '按参数名对上扫描结果，把这些行的控件类型改成上游声明的类型，说明与候选值一并补上。')}>
+              {t(`Set types from the scan (${unshaped})`, `按扫描结果定类型（${unshaped}）`)}
+            </button>
+          )}
         </div>
 
         {/* 填写引导留在框外；表头与参数行同处一个大框，行间只用分隔线。
@@ -174,6 +201,8 @@ export default function ParamDropZone ({
                     argv={arg.flag || ''}
                     argStyle={arg.style || ''}
                     typeGuessed={!!(guessed && p && guessed.has(p.name))}
+                    scanned={scanned}
+                    onTypeGuessed={onParamDropped}
                     onTypeConfirmed={onTypeConfirmed}
                     onChange={setParam} onDelete={delParam} />
                 )

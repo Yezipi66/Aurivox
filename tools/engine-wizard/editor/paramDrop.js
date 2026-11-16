@@ -90,6 +90,213 @@ export function migrateLegacyParams (manifest) {
   return m
 }
 
+/** 上游候选值 → 选项表；上游没给时留两行空表让人自己填。 */
+function choicesFrom (param) {
+  const opts = Array.isArray(param.choices) ? param.choices : []
+  return opts.length
+    ? opts.map((v) => ({ value: String(v), label: { zh: '', en: '' } }))
+    : [{ value: '', label: { zh: '', en: '' } }, { value: '', label: { zh: '', en: '' } }]
+}
+
+/**
+ * 扫到的默认值 → 界面初值。只收与类型对得上的标量：
+ *   上游的文本默认值常常是示例句子，抄进界面等于替人写了正文。
+ */
+function suggestedFrom (param, type) {
+  const d = param.default
+  if (d === null || d === undefined) return undefined
+  if (type === 'number' && typeof d === 'number') return d
+  if (type === 'boolean' && typeof d === 'boolean') return d
+  if (type === 'select' && typeof d === 'string') return d
+  return undefined
+}
+
+/**
+ * 扫到的参数 → call.args 里那一条：开关写法与样式词。
+ * 样式词是宿主认的那几个（value / boolean / boolean_optional / join / repeat），
+ * 写错词宿主展开命令行时当场抛错。
+ */
+export function argsEntryFor (param) {
+  const entry = { flag: param.target }
+  // 上游明说「逗号分隔」时命令行上只该出现一个词，不是 N 个词：
+  //   写成 default 的 value 会被按 nargs 展开，上游只吃第一个，而且不报错。
+  const shape = vectorShapeFromHelp(param.help)
+  if (shape) {
+    entry.style = shape.style
+    entry.join = shape.join
+  } else if (param.kind === 'boolean' || param.style === 'boolean' || param.style === 'boolean_optional') {
+    // 双写法（--x/--no-x）必须写成 boolean_optional：boolean 发不出否定式，
+    //   上游默认开着的那种开关就永远关不掉。
+    entry.style = boolStyle(param.style === 'boolean_optional' || !!param.negative)
+  } else if (param.style) {
+    entry.style = param.style
+  }
+  return entry
+}
+
+/**
+ * 把扫描结果里的形状补进一条参数行：控件类型、上游原话、候选值、默认值。
+ *
+ * 只补空着的字段（help / choices / suggested_value），名字与中英文名不动：
+ * 那两项是人写的部分，扫描结果里没有。返回副本，不改入参。
+ *
+ * @param {object} row 参数行
+ * @param {object} param 扫到的参数
+ * @returns {object} 补过的参数行
+ */
+export function applyScanShape (row, param) {
+  const type = paramTypeOf(param)
+  const out = { ...(row || {}), type }
+  if (!out.help && param.help) out.help = { zh: param.help, en: param.help }
+  // 空数组等于没有选项表：切过一次 select 又清空的行仍算没配好。
+  if (type === 'select' && !(Array.isArray(out.choices) && out.choices.length)) {
+    out.allow_custom = true
+    out.choices = choicesFrom(param)
+  }
+  const suggested = suggestedFrom(param, type)
+  if (suggested !== undefined && out.suggested_value === undefined) out.suggested_value = suggested
+
+  // 上游说明里写了「逗号分隔的 N 维」时，这一条声明成 vector：
+  //   维度数由 dim_labels 的长度定，每维一个名字（先留空，让使用者自己填，
+  //   上游只写了几维、没写每维叫什么）。默认值跟着长成 N 格，每格 null。
+  //   替人填 0 等于替他做了决定；只写维度不写默认值，名片会被校验拒掉。
+  const shape = vectorShapeFromHelp(param.help)
+  if (shape && shape.repeat > 1) {
+    out.type = 'vector'
+    if (!Array.isArray(out.dim_labels)) {
+      out.dim_labels = new Array(shape.repeat).fill('').map(() => ({ zh: '', en: '' }))
+      out.suggested_value = new Array(shape.repeat).fill(null)
+    }
+  }
+  return out
+}
+
+// 参数行与扫描结果按参数名对齐：命令行开关去掉横线就是参数名，两边是同一个词。
+//   同名参数在多个子命令里各有一份时取扫描顺序里的第一条。
+export function scanParamFor (name, scanned) {
+  const key = String(name == null ? '' : name).trim()
+  if (!key) return null
+  for (const p of scanned || []) {
+    if (p && paramNameOf(p) === key) return p
+  }
+  return null
+}
+
+/**
+ * 扫描结果给出的控件类型。上游说明里写了「逗号分隔的 N 维」时是 vector，
+ * 其余按 paramType 的映射走。
+ */
+export function scannedTypeOf (param) {
+  const shape = vectorShapeFromHelp(param && param.help)
+  if (shape && shape.repeat > 1) return 'vector'
+  return paramTypeOf(param)
+}
+
+/**
+ * 这一行的控件类型是不是还没定过：只有默认的 text，也没有选项表与维度表。
+ *
+ * 手敲开关加进来的行、「添加一个参数」加的行都落在这里；拖进来的行与手动改过
+ * 类型的行不落在这里，不该被补一遍。
+ */
+export function typeUndecided (row) {
+  if (!row) return false
+  const type = row.type
+  if (type && type !== 'text') return false
+  const hasChoices = Array.isArray(row.choices) ? row.choices.length > 0 : !!row.choices
+  const hasDims = Array.isArray(row.dim_labels) ? row.dim_labels.length > 0 : !!row.dim_labels
+  return !hasChoices && !hasDims
+}
+
+/** 这一行按扫描结果补完之后，类型会不会真的变。文本参数本来就是文本，不算可补。 */
+export function typeWouldChange (row, param) {
+  if (!param) return false
+  return scannedTypeOf(param) !== ((row && row.type) || 'text')
+}
+
+/**
+ * 这一行的控件类型是不是仍然只是「从扫描结果推出来的」，可以跟着新开关一起换。
+ *
+ * 换开关时用：由扫描结果推出来的类型随开关换掉，人在下拉里挑过的类型保持不变。
+ * 判据是「当前类型等于旧开关在扫描结果里的类型，且没有选项表与维度表」，
+ * 不另存标记：多一个字段，就多一处可能与真实配置不一致的地方。
+ */
+export function typeDerivedFrom (row, oldName, scanned) {
+  if (typeUndecided(row)) return true
+  const prev = scanParamFor(oldName, scanned)
+  if (!prev) return false
+  return (row && row.type) === scannedTypeOf(prev) && !row.choices && !row.dim_labels
+}
+
+/**
+ * 有多少行能按扫描结果改掉类型。界面用它在按钮上写数量，数量为 0 时不出按钮。
+ *
+ * 只数类型真会变的行：文本参数按扫描结果还是文本，把它算进来，
+ * 按钮上的数字点完也降不到 0，读起来像没生效。
+ *
+ * @param {object} manifest 当前名片
+ * @param {Array} scanned /wizard/discover 的 params
+ * @returns {number} 可补的行数
+ */
+export function countUnshapedParams (manifest, scanned) {
+  const list = Array.isArray(manifest && manifest.parameters) ? manifest.parameters : []
+  let n = 0
+  for (const row of list) {
+    if (!row || !row.name || !typeUndecided(row)) continue
+    const param = scanParamFor(row.name, scanned)
+    if (param && typeWouldChange(row, param)) n++
+  }
+  return n
+}
+
+/**
+ * 按扫描结果把还没定类型的参数行补齐：类型、说明、候选值、默认值，命令行样式一并改对。
+ *
+ * 为什么需要它：参数行有两条来路。拖/点左栏进来的自带类型；在表格里手敲开关的
+ * 只有名字，类型停在默认的 text。手敲是常见路径（照上游 README 抄命令），
+ * 于是整张表都是 text，合成页上每个旋钮长成一个文本框。
+ *
+ * 只改「还没定过类型、且扫描结果会改掉它的类型」的行，其余原样返回
+ * （文本参数按扫描结果仍是文本，列进来只会让按钮上的数字永远降不到 0）。
+ * 返回新名片，不改入参。
+ *
+ * @param {object} manifest 当前名片
+ * @param {Array} scanned /wizard/discover 的 params
+ * @returns {{manifest: object, filled: number, names: string[]}} 新名片、补齐的行数与行名
+ */
+export function fillTypesFromScan (manifest, scanned) {
+  const m = migrateLegacyParams(manifest)
+  const list = Array.isArray(m.parameters) ? m.parameters : []
+  const names = []
+  const next = list.map((row) => {
+    if (!row || !row.name || !typeUndecided(row)) return row
+    const param = scanParamFor(row.name, scanned)
+    if (!param || !typeWouldChange(row, param)) return row
+    names.push(row.name)
+    return applyScanShape(row, param)
+  })
+  if (!names.length) return { manifest: m, filled: 0, names: [] }
+
+  const out = { ...m, parameters: next }
+  // cli 形态：布尔型开关的命令行样式要跟着改。
+  //   留空时宿主按 `--x True` 发，而 `--x` 是不收值的开关，上游当场报错；
+  //   值型开关本来就不写 style，写不写一个样，不必动。
+  const call = m.call
+  if (call && call.kind === 'cli' && call.args) {
+    const args = { ...call.args }
+    next.forEach((row, i) => {
+      if (row === list[i] || !row || row.type !== 'boolean') return
+      const param = scanParamFor(row.name, scanned)
+      const want = param ? argsEntryFor(param) : null
+      const cur = args[row.name]
+      if (want && cur && cur.flag && cur.style !== want.style) {
+        args[row.name] = { ...cur, style: want.style }
+      }
+    })
+    out.call = { ...call, args }
+  }
+  return { manifest: out, filled: names.length, names }
+}
+
 /**
  * 拖一个参数落进 parameters[] 时要改哪些地方。
  *
@@ -109,38 +316,12 @@ export function applyParamDrop (manifest, param) {
   const list = Array.isArray(m.parameters) ? [...m.parameters] : []
   // 已经声明过同名参数就不重复加：拖两次同一个东西不该出现两条。
   if (!list.some((p) => p && p.name === name)) {
-    const type = paramTypeOf(param)
-    const entry = { name, type, tier: 'common' }
-    if (param.help) entry.help = { zh: param.help, en: param.help }
-
-    // 上游给了候选值就铺成选项表：使用者只需要核对一眼、补中文名。
-    //   上游没给才留两行空表让他自己填。
-    if (type === 'select') {
-      entry.allow_custom = true
-      const opts = Array.isArray(param.choices) ? param.choices : []
-      entry.choices = opts.length
-        ? opts.map((v) => ({ value: String(v), label: { zh: '', en: '' } }))
-        : [{ value: '', label: { zh: '', en: '' } }, { value: '', label: { zh: '', en: '' } }]
-    }
-
-    // 上游写下的默认值就是这一格的界面初值（suggested_value），照抄不推断。
-    //   文本不收：上游的文本默认值常常是示例句子，抄进界面等于替人写了正文。
-    if (param.default !== null && param.default !== undefined) {
-      if (type === 'number' && typeof param.default === 'number') entry.suggested_value = param.default
-      else if (type === 'boolean' && typeof param.default === 'boolean') entry.suggested_value = param.default
-      else if (type === 'select' && typeof param.default === 'string') entry.suggested_value = param.default
-    }
-
-    // 上游说明里写了「逗号分隔的 N 维」时，这一条声明成 vector：
-    //   维度数由 dim_labels 的长度定，每维一个名字（先留空，让使用者自己填，
-    //   上游只写了几维、没写每维叫什么）。默认值跟着长成 N 格，每格 null。
-    //   替人填 0 等于替他做了决定；只写维度不写默认值，名片会被校验拒掉。
-    const shape = vectorShapeFromHelp(param.help)
-    if (shape && shape.repeat > 1) {
-      entry.type = 'vector'
-      entry.dim_labels = new Array(shape.repeat).fill('').map(() => ({ zh: '', en: '' }))
-      entry.suggested_value = new Array(shape.repeat).fill(null)
-    }
+    // 类型、上游原话、候选值、默认值都来自扫描结果，与「按扫描结果定类型」共用一份判定。
+    const entry = applyScanShape({ name, tier: 'common' }, param)
+    // 英文名由参数名派生：上游已经写明了这个开关叫什么，平台不需要再问一遍。
+    //   中文名留空：那是唯一需要人写的一项，空着也一眼看得出来还没填。
+    //   两种名字都不写时界面上只剩灰色占位字，读起来像「已经填好了」。
+    if (name) entry.label = { en: name, zh: '' }
     list.push(entry)
   }
   m.parameters = list.length ? list : undefined
@@ -149,23 +330,7 @@ export function applyParamDrop (manifest, param) {
   // 名片里已有的条目不动：用户手填过的映射比扫描猜的准。
   if (param.source === 'cli' && m.call && m.call.kind === 'cli') {
     const args = { ...(m.call.args || {}) }
-    if (!args[name]) {
-      const entry = { flag: param.target }
-      // 上游明说「逗号分隔」时命令行上只该出现一个词，不是 N 个词：
-      //   写成 default 的 value 会被按 nargs 展开，上游只吃第一个，而且不报错。
-      const shape = vectorShapeFromHelp(param.help)
-      if (shape) {
-        entry.style = shape.style
-        entry.join = shape.join
-      } else if (param.kind === 'boolean' || param.style === 'boolean' || param.style === 'boolean_optional') {
-        // 双写法（--x/--no-x）必须写成 boolean_optional：boolean 发不出否定式，
-        //   上游默认开着的那种开关就永远关不掉。
-        entry.style = boolStyle(param.style === 'boolean_optional' || !!param.negative)
-      } else if (param.style) {
-        entry.style = param.style
-      }
-      args[name] = entry
-    }
+    if (!args[name]) args[name] = argsEntryFor(param)
     m.call = { ...m.call, args }
   }
   return m

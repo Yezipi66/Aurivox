@@ -181,10 +181,15 @@ def _one(call):
 
     metavar = _kw_str(call, "metavar")
 
+    # nargs 决定这个参数在命令行上占几个词。"?" 与 "*" 是可省略的，2 与 "+" 不是一个词。
+    #   位置参数没有开关名，能说明它收几个值的只剩这一项；求不出就留 None，不猜。
+    nargs = _literal(_kw(call, "nargs")) if _kw(call, "nargs") is not None else None
+
     return {
         "dest": dest,
         "flags": flags,
         "is_option": is_option,
+        "nargs": nargs,
         # 官方原话：逐字递出，不改写不翻译
         "help": help_text,
         "required": required is True,
@@ -350,6 +355,7 @@ def _record(flags, help_text=None, required=False, default=None, type_name=None,
         "dest": dest,
         "flags": flags,
         "is_option": is_option,
+        "nargs": None,
         "help": str(help_text) if help_text is not None else None,
         "required": bool(required),
         "default": default,

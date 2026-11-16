@@ -41,6 +41,7 @@ function loadComputeAutoFill () {
   }, shapeMod)
   const stub = (id) => {
     if (/paramShape/.test(id)) return shapeMod.exports
+    if (id.endsWith('components/common/Select')) return require('./_selectStub.js')
     throw new Error('computeAutoFill 的依赖不该被求值：' + id)
   }
   // eslint-disable-next-line no-new-func
@@ -174,9 +175,23 @@ test('两种来源都在时，如实报出需要人工确认', () => {
     '这条说明要让用户知道是来源混在一起了')
 })
 
-test('只有一种来源时不报这条说明', () => {
-  assert.deepStrictEqual(computeAutoFill(cliParams, { kind: 'cli' }).notes, [])
+test('只有一种来源时不报「来源混在一起」这条说明', () => {
+  // cli 那份会另外报一条「没有权重开关，按引擎自行定位处理」，那是另一件事。
+  for (const r of [computeAutoFill(cliParams, { kind: 'cli' }),
+    computeAutoFill(pythonParams, { kind: 'python' })]) {
+    assert.ok(!r.notes.some((n) => /同时发现/.test(n.zh)),
+      '来源只有一种时不该说两种来源混在一起')
+  }
   assert.deepStrictEqual(computeAutoFill(pythonParams, { kind: 'python' }).notes, [])
+})
+
+test('⭐⭐⭐ 命令行里没有权重开关 ⇒ 自动写 weights=self，别留一个必然报错的空格', () => {
+  const r = computeAutoFill(cliParams, { kind: 'cli' }, [], null, 'demo', null, [])
+  assert.strictEqual(r.call.weights, 'self')
+  assert.ok(r.notes.some((n) => /没有权重开关/.test(n.zh)),
+    '要写明依据，并告诉使用者怎么改回去')
+  assert.ok(!r.call.argv.some((w) => String(w).includes('{checkpoints}')),
+    '没有开关就不该凭空接一个 {checkpoints} 上去')
 })
 
 test('同名参数在两种来源里指向不同值时，如实报出来而不是挑一个', () => {
@@ -857,4 +872,85 @@ test('bind 引用的开关不进 call_time：那一条由槽位单独下发', ()
   const r = computeAutoFill(params, { kind: 'cli' })
   assert.equal(r.call.bind.text, '--text')
   assert.deepEqual(r.callTime, ['seed'], '只留不归槽位管的那个')
+})
+
+// 位置参数：没有开关名，值只能写成 argv 里的占位符。它与 bind 互斥，
+//   同一个槽位两处都写，宿主启动前会拒收整张名片。
+const POS_PARAMS = [
+  { source: 'cli', name: 'speed', target: '--speed', kind: 'number', style: 'value', required: false, group: '(root)', source_file: 'tts.py' },
+  { source: 'cli', name: 'ref-audio', target: '--ref-audio', kind: 'str', style: 'value', required: false, group: '(root)', source_file: 'tts.py' },
+]
+const POSITIONALS = [
+  { name: 'text', nargs: null, help: 'text to speak', group: '(root)' },
+  { name: 'output', nargs: null, help: 'output wav', group: '(root)' },
+]
+const POS_ENTRY = { module: 'tts', file: 'tts.py', confidence: 'high', source: 'readme' }
+
+test('⭐⭐⭐ 位置参数写成占位符接在命令行末尾，且不再绑同一个槽位的开关', () => {
+  const r = computeAutoFill(POS_PARAMS,
+    { kind: 'cli', argv: ['{engine_python}', '-m', '__MODULE__'], bind: {}, args: {} },
+    [], POS_ENTRY, 'demo', null, null, POSITIONALS)
+  assert.deepStrictEqual(r.call.argv,
+    ['{engine_python}', '-m', 'tts', '{text}', '{output_path}'],
+    '按扫描顺序接在入口骨架之后')
+  assert.strictEqual(r.call.bind.text, undefined,
+    '位置参数已经供值，再绑一次开关就是同一个槽位写了两处')
+  assert.strictEqual(r.call.bind.output_path, undefined)
+  assert.strictEqual(r.call.bind.ref_audio, '--ref-audio', '带开关的槽位照旧绑')
+  assert.ok(r.notes.some((n) => /位置参数/.test(n.zh)), '要说明这批词是扫描出来的')
+})
+
+test('只有位置参数的引擎不再被整段丢掉', () => {
+  const r = computeAutoFill([], { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
+    [], POS_ENTRY, 'demo', null, null, POSITIONALS)
+  assert.ok(r, '参数表是空的，但位置参数就是它的参数')
+  assert.strictEqual(r.call.kind, 'cli')
+  assert.deepStrictEqual(r.call.argv, ['{engine_python}', '-m', 'tts', '{text}', '{output_path}'])
+})
+
+test('使用者已经把槽位绑成开关时，位置参数让位并说明怎么改回来', () => {
+  const r = computeAutoFill(POS_PARAMS,
+    { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: { text: '--text' }, args: {} },
+    [], POS_ENTRY, 'demo', null, null, POSITIONALS)
+  assert.strictEqual(r.call.bind.text, '--text')
+  assert.ok(!r.call.argv.includes('{text}'), '同一槽位不能两处都写')
+  assert.ok(r.notes.some((n) => /位置参数「text」/.test(n.zh)), '要说清为什么没接')
+})
+
+test('对不上槽位的位置参数只报一条说明，不硬塞进命令行', () => {
+  const r = computeAutoFill(POS_PARAMS,
+    { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
+    [], POS_ENTRY, 'demo', null, null, [{ name: 'speaker', nargs: null, group: '(root)' }])
+  assert.ok(!r.call.argv.some((w) => w.includes('{speaker}')), '平台没有这个槽位')
+  assert.ok(r.notes.some((n) => /没有对应的值可填/.test(n.zh) && /speaker/.test(n.zh)))
+})
+
+test('收多个值的位置参数要提醒占位符只填一个词', () => {
+  const r = computeAutoFill(POS_PARAMS,
+    { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
+    [], POS_ENTRY, 'demo', null, null, [{ name: 'text', nargs: '+', group: '(root)' }])
+  assert.ok(r.notes.some((n) => /nargs/.test(n.zh) && /多个词/.test(n.zh)))
+})
+
+// 可选位置参数（nargs ? 或 *）不能默认接：占位符每次都要有值，
+//   接上去等于把「可以不出现」变成「每次必须有」，不带它值的那次请求整条失败。
+test('⭐⭐⭐ 可以省略的位置参数不接进命令行，只报一条说明', () => {
+  const r = computeAutoFill(POS_PARAMS,
+    { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
+    [], POS_ENTRY, 'demo', null, null,
+    [{ name: 'ref_audio', nargs: '?', group: '(root)' }])
+  assert.ok(!r.call.argv.some((w) => String(w).includes('{ref_audio}')),
+    '接上去会让每个不带参考音频的请求都失败')
+  assert.ok(r.notes.some((n) => /可以不给/.test(n.zh) && /ref_audio/.test(n.zh)),
+    '要说明为什么不接，以及在什么情况下自己接')
+})
+
+test('⭐⭐ 必填的位置参数照旧接上，不因为上面那条连坐', () => {
+  const r = computeAutoFill(POS_PARAMS,
+    { kind: 'cli', argv: ['{engine_python}', '-m', 'tts'], bind: {}, args: {} },
+    [], POS_ENTRY, 'demo', null, null,
+    [{ name: 'text', nargs: null, group: '(root)' },
+      { name: 'ref_audio', nargs: '?', group: '(root)' }])
+  assert.ok(r.call.argv.includes('{text}'), '不带 nargs 的位置参数是必填的')
+  assert.ok(!r.call.argv.includes('{ref_audio}'))
 })
