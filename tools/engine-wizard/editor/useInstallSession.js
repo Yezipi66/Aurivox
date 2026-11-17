@@ -121,6 +121,16 @@ export function loadSession (id, url) {
     removedCmds: v.removedCmds || [],
     removedLinks: v.removedLinks || [],
     sourceChoices: v.sourceChoices || {},
+    // ---- 第 5 步 ----
+    // 只存使用者填的与视图开合：这几项切页重挂会丢，预填的默认会把手填盖回去。
+    // 校验结果、进度、资产列表是派生数据，不存，靠重取。
+    synthText: v.synthText || '',
+    refAudio: v.refAudio || '',
+    refText: v.refText || '',
+    device: v.device || null,
+    checksOpen: v.checksOpen === true,
+    rightOpen: v.rightOpen !== false,
+    rightFull: v.rightFull === true,
   }
 }
 

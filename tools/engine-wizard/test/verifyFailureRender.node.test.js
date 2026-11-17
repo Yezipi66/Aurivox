@@ -95,6 +95,12 @@ const { StepVerify } = loadJsx('StepVerify.jsx', {
     default: ({ center, right }) => React.createElement('div', null, center, right),
   },
   './paramDrop': { __esModule: true, REF_MIME: 'application/x-aurivox-ref' },
+  // 第 5 步按引擎存用户输入与视图开合；此测试只验渲染，存档读写都为空操作。
+  './useInstallSession': {
+    __esModule: true,
+    loadSession: () => null,
+    saveSession: () => {},
+  },
   './downloadRunner': { __esModule: true, readSse: async () => {} },
   './measureProgress': {
     __esModule: true,

@@ -12,6 +12,7 @@ import Stage from './Stage'
 import { REF_MIME } from './paramDrop'
 import { MEASURE_POLL_MS, measureStageLabel, formatElapsed, measureRunning } from './measureProgress'
 import { readSse } from './downloadRunner'
+import { loadSession, saveSession } from './useInstallSession'
 
 // 一份校验结果里，语音那道跑的是哪一级（'A' | 'B'）。取不到就当空串：
 //   没有 audio 段的结果按「没有档位」处理，不比大小。
@@ -19,6 +20,9 @@ const levelOf = (r) => (r && r.checks && r.checks.audio && r.checks.audio.level)
 
 export function StepVerify ({ id, escape }) {
   const { t } = useT()
+  // 第 5 步的会话段：使用者填的文本与视图开合按引擎存，切页重挂后接回来。
+  //   只在挂载时读一次；校验结果与进度是派生数据，不存、靠重取。
+  const saved = loadSession(id) || {}
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
   // 正在执行的是哪一级。首屏会自动执行 B 级，那期间 A 级按钮不能跟着显示「正在运行…」：
@@ -32,11 +36,11 @@ export function StepVerify ({ id, escape }) {
   // 只用来每秒重算一次「已用时间」，不参与任何判断。
   const [, setPulse] = useState(0)
   const [audioLevel, setAudioLevel] = useState('B')
-  const [synthText, setSynthText] = useState('')
+  const [synthText, setSynthText] = useState(saved.synthText || '')
   // 参考音频与参考文本：要参考音频的引擎，A 级与试运行都得带上，否则宿主当场 400。
   //   这里填的是平台的词，后端照名片 maps 换成引擎的参数名（core/measure.js 的 toEngineWords）。
-  const [refAudio, setRefAudio] = useState('')
-  const [refText, setRefText] = useState('')
+  const [refAudio, setRefAudio] = useState(saved.refAudio || '')
+  const [refText, setRefText] = useState(saved.refText || '')
   // 右侧参考音频侧栏：直接复用 9886 的资产数据源——5199 的 /api 已代理到 9886，
   //   这里调的 /api/assets/* 与 9886 右侧栏读的是同一份数据（切片自带对齐文本）。
   //   每条可拖到左侧参考音频框，路径与文本一次写回，不必手填逐字稿。
@@ -48,10 +52,10 @@ export function StepVerify ({ id, escape }) {
   const [assetSearch, setAssetSearch] = useState('')
   const [assetLoading, setAssetLoading] = useState(false)
   // 三块静态校验默认折叠：结论已经在上方「校验结论」里，展开只为看证据。
-  const [checksOpen, setChecksOpen] = useState(false)
+  const [checksOpen, setChecksOpen] = useState(saved.checksOpen === true)
   // 右侧参考音频抽屉：与第 4 步同一套 Stage Drawer（可收起 / 拖宽 / 全屏）。
-  const [rightOpen, setRightOpen] = useState(true)
-  const [rightFull, setRightFull] = useState(false)
+  const [rightOpen, setRightOpen] = useState(saved.rightOpen !== false)
+  const [rightFull, setRightFull] = useState(saved.rightFull === true)
   // 参考音频用真文件选：宿主只认绝对路径，而浏览器不给脚本绝对路径，
   //   所以选中的字节交给后端落一份、由后端回传路径（见 core/wizardbridge.js 的 ref-upload）。
   const [refBusy, setRefBusy] = useState(false)
@@ -69,7 +73,7 @@ export function StepVerify ({ id, escape }) {
   // 运行设备：本机有哪几块卡只有后端知道，这里只负责摆成下拉。
   //   名片没声明 role="device" 的引擎 device_declared=false，这一格不出现。
   const [devices, setDevices] = useState([])
-  const [device, setDevice] = useState({ kind: 'auto' })
+  const [device, setDevice] = useState(saved.device || { kind: 'auto' })
   const [deviceDeclared, setDeviceDeclared] = useState(null)
   useEffect(() => {
     let alive = true
@@ -191,21 +195,33 @@ export function StepVerify ({ id, escape }) {
   // 预填：平台能代填的就不让使用者从零开始。
   //   默认试音文本与 web/src/components/common/Fields.jsx 的示例文本同句（平台已有，不另造）。
   //   参考音频与文本问后端要（资产的第一个可用切片，与合成主链路同一个取法），有才填，没有留空。
-  //   只在进这一步与换引擎时填一次：填过之后这三个输入框由使用者持有，不会被覆盖。
+  //   只填空的那几格：切页重挂时会话段里已有使用者填的值，不能被默认盖回去。
+  //   换引擎时 id 变、重挂读到的是新引擎的会话段，该空就空，预填照常。
   useEffect(() => {
     if (!id) return undefined
-    setSynthText(t('Hello! This is a sample line.', '你好，这是一段示例文本。'))
-    setRefAudio('')
-    setRefText('')
-    fetch(`/wizard/verify/ref?id=${encodeURIComponent(id)}`)
-      .then(r => r.json())
-      .then((j) => {
-        if (j && j.ok && j.reference_audio) setRefAudio(j.reference_audio)
-        if (j && j.ok && j.reference_text) setRefText(j.reference_text)
-      })
-      .catch(() => {})
+    const had = loadSession(id) || {}
+    if (!had.synthText) setSynthText(t('Hello! This is a sample line.', '你好，这是一段示例文本。'))
+    if (!had.refAudio && !had.refText) {
+      fetch(`/wizard/verify/ref?id=${encodeURIComponent(id)}`)
+        .then(r => r.json())
+        .then((j) => {
+          if (j && j.ok && j.reference_audio) setRefAudio(j.reference_audio)
+          if (j && j.ok && j.reference_text) setRefText(j.reference_text)
+        })
+        .catch(() => {})
+    }
     return undefined
   }, [id])
+
+  // 写回会话段：使用者填的与视图开合按引擎存，切页重挂接回来。
+  //   id 由空变真（刚克隆完）时首帧还没有可归属的引擎，等下一帧再写。
+  useEffect(() => {
+    if (!id) return
+    saveSession(id, '', {
+      synthText, refAudio, refText, device,
+      checksOpen, rightOpen, rightFull,
+    })
+  }, [id, synthText, refAudio, refText, device, checksOpen, rightOpen, rightFull])
 
   // 侧栏的音色列表：与 9886 的 /api/voices 同源。builtin 的 Base model 没有资产目录，
   //   默认落到第一个有资产目录的音色，进这一步右侧就有东西可拖，不必先选一次。
