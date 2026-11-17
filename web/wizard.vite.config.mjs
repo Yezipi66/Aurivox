@@ -14,6 +14,19 @@ import { createRequire } from 'node:module'
 // 于是向导端点与平台的校验层是同一份实现，不重写一遍。
 const require = createRequire(import.meta.url)
 
+// 一个 handler 里的异步回调抛出异常，默认会把整个 dev server 带走：
+// 进程一退，页面上所有请求都变成 Failed to fetch，而浏览器只给这一句，
+// 看不出是服务没了。这里把两类兜底接住并打印，服务继续跑：
+//   unhandledRejection 只是没人接的 promise，不影响已有请求；
+//   uncaughtException 记下完整栈，让下一次出现时能从终端直接定位。
+// 两者都带 [wizard] 前缀，便于在 vite 的输出里一眼找到。
+process.on('unhandledRejection', (err) => {
+  console.error('[wizard] 未处理的 promise 拒绝（服务继续运行）：', err && (err.stack || err))
+})
+process.on('uncaughtException', (err) => {
+  console.error('[wizard] 未捕获异常（服务继续运行，但这一次请求可能没有响应）：', err && (err.stack || err))
+})
+
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 // 预览页 import 平台的真组件（tools/engine-wizard/editor 与 web/src/...），

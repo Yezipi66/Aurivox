@@ -51,6 +51,9 @@ export function StepVerify ({ id, escape }) {
   const [assetTab, setAssetTab] = useState('slices')
   const [assetSearch, setAssetSearch] = useState('')
   const [assetLoading, setAssetLoading] = useState(false)
+  // 取不到资产列表：多数是平台后端（9886）未启动。这一格拿不到东西时要说清原因，
+  //   否则界面只剩一个空列表，看起来像「这个资产没有切片」。
+  const [assetDown, setAssetDown] = useState(false)
   // 三块静态校验默认折叠：结论已经在上方「校验结论」里，展开只为看证据。
   const [checksOpen, setChecksOpen] = useState(saved.checksOpen === true)
   // 右侧参考音频抽屉：与第 4 步同一套 Stage Drawer（可收起 / 拖宽 / 全屏）。
@@ -229,12 +232,15 @@ export function StepVerify ({ id, escape }) {
     let live = true
     api('/api/voices')
       .then((j) => {
-        if (!live || !j || !j.ok || !Array.isArray(j.data.voices)) return
+        if (!live || !j) return
+        if (!j.ok) { setAssetDown(true); return }
+        setAssetDown(false)
+        if (!Array.isArray(j.data.voices)) return
         const usable = j.data.voices.filter((v) => !v.builtin)
         setVoices(usable)
         setAssetVoice((cur) => cur || (usable[0] && usable[0].id) || '')
       })
-      .catch(() => {})
+      .catch(() => { if (live) setAssetDown(true) })
     return () => { live = false }
   }, [])
 
@@ -610,6 +616,14 @@ export function StepVerify ({ id, escape }) {
             </span>
           </div>
           <div className="section-body">
+            {assetDown && (
+              // 说清是「取不到」而不是「没有」：这一栏的数来自 9886，后端未启动时
+              //   只会拿到一个空列表，看起来像这个资产真的没有切片。
+              <div className="msg msg-warning" style={{ marginTop: 0, marginBottom: 8 }}>
+                {t('Could not read the asset list from the platform backend (9886). Start the platform and reopen this step; the reference audio path can also be filled in directly.',
+                  '读不到平台后端（9886）的资产列表。启动平台后重进这一步即可；参考音频路径也可以直接填。')}
+              </div>
+            )}
             <div className="field">
               <label className="field-label">{t('Voice', '音色')}</label>
               <select className="control" value={assetVoice}
