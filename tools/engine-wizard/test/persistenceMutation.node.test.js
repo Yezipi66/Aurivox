@@ -118,18 +118,18 @@ function mkdtempRoot () {
   return mkdtempRootDir
 }
 
-test('变异①：会话键不含 url ⇒ 防串号守卫必须报', async () => {
+test('变异①：会话键加回 url ⇒ 切引擎读不到进度，守卫必须报', async () => {
   await mutateAndProbe(SESS, (s) => s.replace(
-    /return NS \+ 'sess:' \+ String\(id \|\| ''\) \+ ':' \+ hashUrl\(url\)/,
-    "return NS + 'sess:' + String(id || '') // 变异：只按 id 分键，回到串号那个写法"
+    /  return NS \+ 'sess:' \+ String\(id \|\| ''\)/,
+    "  return NS + 'sess:' + String(id || '') + ':' + String(url || '').length"
   ), async (m) => {
     global.localStorage = new MockStorage()
     global.sessionStorage = new MockStorage()
     m.saveSession('alpha', URL_A, { probe: 1 })
     await assertGuardFires(() => {
-      assert.strictEqual(m.loadSession('alpha', URL_B), null,
-        '换了 URL 还读到旧仓库的探测结果')
-    }, '会话键去掉 url')
+      assert.ok(m.loadSession('alpha', URL_B),
+        '换了 URL 就读不到这台引擎的会话 —— 切引擎进度会丢')
+    }, '会话键加回 url')
   })
 })
 
@@ -201,22 +201,19 @@ test('变异⑤：reset 改删整个文件 ⇒ 只清自己那段守卫必须报
   })
 })
 
-test('变异⑥：downloadState 不把 url 传进会话模块 ⇒ 防串号守卫必须报', async () => {
+test('变异⑥：downloadState 读写用不同 id ⇒ 切引擎读不到清单，守卫必须报', async () => {
   await mutateAndProbe(DLSTATE, (s) => s
     .replace(/const s = loadSession\(id, url\)/,
-      "const s = loadSession(id, '') // 变异：拿到 url 却不往下传")
-    .replace(/saveSession\(id, url, \{/,
-      "saveSession(id, '', { // 变异：写也不带 url")
+      "const s = loadSession(id + '-read', url) // 变异：读用了别的 id")
   , async (m) => {
     global.localStorage = new MockStorage()
     global.sessionStorage = new MockStorage()
-    // 用变了异的门面自己存一份（写的是不带 url 的键）
     m.saveDownloadState('alpha', URL_A,
-      { manifest: [{ name: 'a.bin' }], probeError: null, dedup: true })
+      { manifest: [{ name: 'a.bin' }], dedup: true })
     await assertGuardFires(() => {
-      assert.strictEqual(m.loadDownloadState('alpha', URL_B), null,
-        '换了 URL 还读到上一个仓库的下载清单 —— 这就是真机踩过的串号')
-    }, 'downloadState 不传 url')
+      assert.ok(m.loadDownloadState('alpha', URL_A),
+        '同一台引擎的下载清单读不回来 —— 读写 id 不一致')
+    }, 'downloadState 读写 id 不一致')
   })
 })
 
@@ -263,8 +260,8 @@ test('反证：未变异时同类守卫全部安静（上面的红不是假象�
   global.localStorage = new MockStorage()
   global.sessionStorage = new MockStorage()
   m.saveSession('alpha', URL_A, { probe: 1 })
-  assert.strictEqual(m.loadSession('alpha', URL_B), null, '换 URL 应失效')
-  assert.ok(m.loadSession('alpha', URL_A), '同 id + url 应恢复')
+  assert.equal(m.loadSession('alpha', URL_B).probe, 1, '换 URL 仍是同一台，应恢复')
+  assert.ok(m.loadSession('alpha', URL_A), '同 id 应恢复')
   assert.strictEqual(global.localStorage.size, 0, '探测结果不落 localStorage')
 
   const IS = require(ISTATE)

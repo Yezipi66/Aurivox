@@ -1,7 +1,7 @@
 'use strict'
 // useInstallSession 的持久化语义守卫：会话段与持久段各自存什么、什么时候失效。
-// 要盯住的两点：探测结果只进 sessionStorage；会话键含 id 与 url，
-// 换 URL 或换引擎即换键、旧会话自动失效，同一 id 加同一 url（刷新）则恢复。
+// 要盯住的两点：探测结果只进 sessionStorage；会话键只含引擎 id，
+// 换 URL 仍是同一台、会话保留（切引擎才换键），同一 id 刷新则恢复。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -39,20 +39,20 @@ test('刷新（同一 id + url）⇒ 会话段恢复', async () => {
   assert.deepStrictEqual(back.depsPlan, { ok: true })
 })
 
-test('换 URL（同 id）⇒ 旧会话段失效（防串号）', async () => {
+test('换 URL（同 id）⇒ 仍是同一台引擎的会话（不失效）', async () => {
   freshStores()
   const m = await mod()
   m.saveSession('alpha', URL_A, { probe: { meta: { packageName: 'alpha' } } })
-  // 换了一个完全不同的仓库 ⇒ 读回来的必须是「没有会话」，不许是 alpha 的探测结果
-  const back = m.loadSession('alpha', URL_B)
-  assert.strictEqual(back, null,
-    '⛔ 换了 URL 还读到旧仓库的探测结果 —— 这就是串号，用户会看到别的项目的依赖')
-  // 并且写进去也不会污染旧的那一段
+  // 一台引擎一份会话，url 是它的固有属性而非每次可变的输入：
+  //   切引擎只换 id，url 留在当前向导那一份，若按 id+url 找键就读不到自己的进度。
+  assert.deepStrictEqual(m.loadSession('alpha', URL_B).probe,
+    { meta: { packageName: 'alpha' } },
+    '⛔ 换了 URL 就读不到这台引擎的会话 —— 切引擎后进度会像丢了一样')
+  // 同一台写进去就更新同一份，不按 URL 分成两段
   m.saveSession('alpha', URL_B, { probe: { meta: { packageName: 'beta' } } })
   assert.deepStrictEqual(m.loadSession('alpha', URL_A).probe,
-    { meta: { packageName: 'alpha' } }, '⛔ 写新 URL 把旧 URL 的会话改掉了')
-  assert.deepStrictEqual(m.loadSession('alpha', URL_B).probe,
-    { meta: { packageName: 'beta' } })
+    { meta: { packageName: 'beta' } },
+    '⛔ 同一台引擎按不同 URL 存成了两份会话')
 })
 
 test('换引擎（同 URL）⇒ 旧会话段同样失效', async () => {
@@ -142,18 +142,18 @@ test('损坏的会话 JSON 被忽略（不抛，按没有会话处理）', async
   const m = await mod()
   // 直接往 sessionStorage 塞一段坏 JSON
   const k = Object.keys(global.sessionStorage.data).length
-  global.sessionStorage.setItem('tf.v1.wizard.sess:alpha:' + String(URL_A.length), 'not json{{{')
+  global.sessionStorage.setItem('tf.v1.wizard.sess:alpha', 'not json{{{')
   const m2 = await mod()
   assert.strictEqual(m2.loadSession('alpha', URL_A), null)
   assert.ok(global.sessionStorage.data.size >= 1)
 })
 
-test('clearSession 只清自己那一段', async () => {
+test('clearSession 只清自己那一台，不动别的引擎', async () => {
   freshStores()
   const m = await mod()
   m.saveSession('alpha', URL_A, { probe: 1 })
-  m.saveSession('alpha', URL_B, { probe: 2 })
+  m.saveSession('beta', URL_B, { probe: 2 })
   m.clearSession('alpha', URL_A)
   assert.strictEqual(m.loadSession('alpha', URL_A), null)
-  assert.ok(m.loadSession('alpha', URL_B), '⛔ 清 A 把 B 也清了')
+  assert.ok(m.loadSession('beta', URL_B), '⛔ 清 alpha 把 beta 也清了')
 })

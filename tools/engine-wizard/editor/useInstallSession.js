@@ -1,7 +1,10 @@
 // 引擎接入向导的持久化：两段存储，两种生命周期。
 // 持久段（localStorage）放用户的输入与选择：仓库地址、目录名、当前展开哪一步。
 // 会话段（sessionStorage）放各步的探测结果与瞬态状态。
-// 会话键含目录名与仓库地址的摘要，换一个地址或换一台引擎，旧会话自动失效。
+// 会话键只用引擎目录名：一台引擎一份会话，切引擎即读它的那一份。
+//   原来的键还含仓库地址摘要，但「操作引擎」切换只换目录名，地址留在当前向导那一份，
+//   于是切回来时按 id+新地址 找不到这台引擎自己的会话，进度像丢了一样。
+//   仓库地址参数仍在函数签名里（调用点大多还需要它做别的用），但不参与键。
 // 存储不可用时静默失败：向导不能因为浏览器不给 storage 就崩掉。
 
 const NS = 'tf.v1.wizard.'
@@ -20,17 +23,9 @@ function pick (store) {
 const local = () => pick('localStorage')
 const session = () => pick('sessionStorage')
 
-/** 仓库地址的摘要，用作会话键的一段；只存摘要不存原文。 */
-function hashUrl (url) {
-  const s = String(url || '')
-  let h = 5381
-  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0
-  return h.toString(36)
-}
-
-/** 会话键：含目录名与仓库地址摘要。 */
-function sessionKey (id, url) {
-  return NS + 'sess:' + String(id || '') + ':' + hashUrl(url)
+/** 会话键：只用引擎目录名。url 保留在签名里但不参与键，见文件头说明。 */
+function sessionKey (id, url) { // eslint-disable-line no-unused-vars
+  return NS + 'sess:' + String(id || '')
 }
 
 function read (store, key) {
