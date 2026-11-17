@@ -1353,11 +1353,12 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                 '以下资源由引擎在第一次推理时自行下载，落点由它的下载调用决定。其中的仓库已放进上方清单，可以先下到权重目录；其余条目平台不代为下载。')}
             </div>
             {runtimeHints.map((h) => (
-              <div className="plan-kv" key={`${h.repo}|${h.file}|${h.line}`}>
-                <span className="pk"><code>{h.repo}</code></span>
-                <span className="pv">
-                  <span className="field-hint" style={{ marginLeft: 0 }}>{h.file}:{h.line} · {h.call}</span>
-                </span>
+              // 一行一条：仓库名长短差很多（nvidia/bigvgan_v2_22khz_80band_256x 比
+              //   k2-fsa/ZipVoice 长三倍），两列布局（.plan-kv 的 120px 定宽左列）会让
+              //   长仓库名横向压到右边出处那一串字上。第 5 步同一份数据也是这么摆的。
+              <div className="field-hint" key={`${h.repo}|${h.file}|${h.line}`}
+                style={{ marginLeft: 0, wordBreak: 'break-all' }}>
+                <code>{h.repo}</code> · {h.file}:{h.line} · {h.call}
               </div>
             ))}
           </div>

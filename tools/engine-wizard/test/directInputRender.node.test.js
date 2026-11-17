@@ -221,6 +221,9 @@ test('运行期资源单独列出，不混进下载清单', async () => {
   await show()
   assert.ok(has('运行期还会自行拉取'), '要有一块说明运行期资源')
   assert.ok(has('org/hint') && has('m.py:12'), '仓库与出处都要看得见')
+  // 一行一条：仓库名与出处同处一行，中间有分隔符。分成两列时（定宽左列）
+  //   长仓库名会横向压到右边那一串上，界面上叠成一团。
+  assert.ok(has('org/hint · m.py:12'), '仓库与出处要在同一行里，不摆成两列')
   assert.strictEqual(container.querySelectorAll('table tbody tr').length, 0, '运行期资源不进清单表')
 })
 
