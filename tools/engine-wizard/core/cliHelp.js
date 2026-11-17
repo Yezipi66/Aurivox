@@ -49,9 +49,9 @@ function runExtractor (dir, candidates, python, files) {
       //   两处各有一份发现逻辑时，界面上的候选与实际解析的源码会悄悄分叉。
       files: Array.isArray(files) ? files.map((f) => String(f).replace(/\\/g, '/')) : null,
     }), 'utf8')
-    // python 可指定；没指定就用平台自带的解释器（venv / 内嵌 runtime）。
+    // python 可指定；没指定就用平台自带的解释器：内嵌 runtime 优先，venv 备选。
     //   不向用户机器借裸名：扫描结果必须与「哪台机器跑向导」无关。
-    //   提取器与 B 级探针同纪律，都只要 stdlib，平台 venv 必然能跑。
+    //   提取器与 B 级探针同纪律，都只要 stdlib，内嵌解释器必然能跑。
     const wanted = process.env.AURIVOX_PYTHON
     const exe = python
       || (wanted && canSpawnPython(wanted) ? wanted : null)
