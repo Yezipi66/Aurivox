@@ -13,6 +13,7 @@ import { modelFilesOf } from './declarationFill'
 import { PARAM_MIME, dragLabelOf } from './paramDrop'
 import { entryFileOf } from './entryChoiceField'
 import { scopeParams } from './paramScope'
+import { loadSession, saveSession } from './useInstallSession'
 
 // 名片编辑页：左边条、中栏、右边条，三根平级的骨头，铺满整个页面宽度。
 //
@@ -44,26 +45,53 @@ export default function ManifestPage ({
   // 抽屉里只留预览本身：全屏是为了按平台真实尺寸查看，不应被诊断条目挤占。
   const [rightFull, setRightFull] = React.useState(false)
 
+  // 当前引擎 id：名片定了用它，没定就是空（还没选引擎）。
+  const engineKey = (manifest && manifest.id) || ''
+
   // ---- 扫描状态 ----
-  const [scan, setScan] = React.useState(null)       // /wizard/discover 的完整返回
-  const [group, setGroup] = React.useState('')        // 当前分组
-  // 参数池是否列出推理入口之外的全部参数。默认只列入口内的，
-  //   换引擎时回到默认：那一份收窄依据属于上一台引擎。
-  const [poolAll, setPoolAll] = React.useState(false)
+  // 按引擎存会话段：参数池走一次 /wizard/discover 要往返，切页回来不该再等。
+  //   guessed 是 Set，会话段里存数组，读回来包成 Set。
+  const saved = engineKey ? (loadSession(engineKey) || {}) : {}
+  const [scan, setScan] = React.useState(saved.scan || null)
+  const [group, setGroup] = React.useState(saved.group || '')
+  const [poolAll, setPoolAll] = React.useState(saved.poolAll === true)
   const [busy, setBusy] = React.useState(false)       // 扫描中
-  const [scanErr, setScanErr] = React.useState(null)  // 扫描错误
-  const [selected, setSelected] = React.useState(null) // 左栏选中的参数
-  const [autofill, setAutofill] = React.useState(null) // 扫描认出的槽位与候选
+  const [scanErr, setScanErr] = React.useState(saved.scanErr || null)
+  const [selected, setSelected] = React.useState(saved.selected || null)
+  const [autofill, setAutofill] = React.useState(saved.autofill || null)
   // 拖进来时类型是猜的那些参数名：中栏那一行的类型下拉标黄，提醒人确认。
   //   只是界面状态，不写进名片。
-  const [guessed, setGuessed] = React.useState(() => new Set())
+  const [guessed, setGuessed] = React.useState(() => new Set(saved.guessed || []))
 
-  // 换引擎：上一台的扫描结果全部作废。
-  const engineKey = (manifest && manifest.id) || ''
+  // 换引擎：读那台自己的扫描状态，没有存档就清空。
+  //   恢复态与写回 effect 同批执行时写回会拿到上一台的 state，
+  //   用这个 ref 记下「这一帧在恢复」，写回跳过一次。
+  const restoringFor = React.useRef(null)
   React.useEffect(() => {
-    setScan(null); setGroup(''); setSelected(null); setAutofill(null); setScanErr(null)
-    setGuessed(new Set()); setPoolAll(false)
+    if (!engineKey) return
+    const s = loadSession(engineKey) || {}
+    restoringFor.current = engineKey
+    setScan(s.scan || null)
+    setGroup(s.group || '')
+    setSelected(s.selected || null)
+    setAutofill(s.autofill || null)
+    setScanErr(s.scanErr || null)
+    setGuessed(new Set(s.guessed || []))
+    setPoolAll(s.poolAll === true)
   }, [engineKey])
+
+  // 写回会话段：只存扫描派生出来的界面状态，名片本体仍以盘上的为准。
+  React.useEffect(() => {
+    if (!engineKey) return
+    if (restoringFor.current === engineKey) {
+      restoringFor.current = null
+      return
+    }
+    saveSession(engineKey, '', {
+      scan, group, poolAll, scanErr, selected, autofill,
+      guessed: [...guessed],
+    })
+  }, [engineKey, scan, group, poolAll, scanErr, selected, autofill, guessed])
 
   // 扫描到的参数按当前分组过滤。没有分组时给全部。
   // 认出推理入口后先收窄到入口文件：训练、微调脚本的参数混在池子里时，
@@ -211,15 +239,16 @@ export default function ManifestPage ({
     } catch (e) { if (!quiet) setScanErr(e.message) } finally { if (!quiet) setBusy(false) }
   }
 
-  // 进这一步就该看清这台引擎有什么：参数池、入口候选、位置参数都出自同一次扫描，
-  //   而这些状态只活在本次会话里，刷新回来一律是空的，界面于是对着一条能跑的命令
-  //   说「还没扫描」。已有 id 的引擎进来就静默扫一次，只摆结果、不写名片：
-  //   之后换引擎、或人点「扫描」，才按点击的意思写回。
+  // 进这一步就该看清这台引擎有什么：参数池、入口候选、位置参数都出自同一次扫描。
+  //   有会话存档就直接读，不再跑 /wizard/discover；只有这台从没扫过才静默扫一次，
+  //   只摆结果、不写名片。人点「扫描」时才按点击的意思写回。
   const autoScanned = React.useRef('')
   React.useEffect(() => {
     const id = engineKey
     if (!id || autoScanned.current === id) return
     autoScanned.current = id
+    const s = loadSession(id)
+    if (s && s.scan) return
     doScan({ writeBack: false, quiet: true })
   }, [engineKey])
 

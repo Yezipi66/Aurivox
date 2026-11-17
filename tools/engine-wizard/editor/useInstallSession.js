@@ -131,6 +131,16 @@ export function loadSession (id, url) {
     checksOpen: v.checksOpen === true,
     rightOpen: v.rightOpen !== false,
     rightFull: v.rightFull === true,
+    // ---- 第 4 步 ----
+    // 参数池扫描结果：走一次 /wizard/discover 要往返，切页回来不该再等。
+    //   guessed 是 Set，存成数组，读回来再包成 Set。
+    scan: v.scan || null,
+    group: v.group || '',
+    poolAll: v.poolAll === true,
+    scanErr: v.scanErr || null,
+    selected: v.selected || null,
+    autofill: v.autofill || null,
+    guessed: Array.isArray(v.guessed) ? v.guessed : [],
   }
 }
 
