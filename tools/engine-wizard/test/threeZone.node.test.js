@@ -331,10 +331,12 @@ test('python 形态：参数进 parameters[]，不写 call.args', async () => {
 
 // 第 4 步一进来左右两栏都要张开：收着时只有一条窄边，人看不出那里还有东西。
 // 这是 ManifestPage 的初始 state，源码级钉住，免得后来又被改成「首屏别摆空盒子」。
-test('⭐⭐ 第 4 步进来时左右两栏默认张开', () => {
+test('⭐⭐ 第 4 步进来时左栏张开、右栏收着', () => {
+  // 右栏（预览）是浮层：张开就盖住表单右边那一列，而预览是「想看才看」的东西，
+  //   不该一进门就挡着正在填的格子。左栏是参数池，是这一步接下来要拖的东西，照旧张开。
   const src = fs.readFileSync(path.join(EDITOR_DIR, 'ManifestPage.jsx'), 'utf8')
   const m = src.match(/useState\(\{\s*left:\s*(true|false),\s*right:\s*(true|false)\s*\}\)/)
   assert.ok(m, '两栏开合的初始 state 找不到了')
-  assert.deepStrictEqual([m[1], m[2]], ['true', 'true'],
-    '左栏是参数池、右栏是实时预览，收着的时候只有一条窄边')
+  assert.deepStrictEqual([m[1], m[2]], ['true', 'false'],
+    '左栏（参数池）张开，右栏（预览）收起，点箭头再滑出来')
 })

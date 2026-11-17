@@ -36,10 +36,11 @@ export default function ManifestPage ({
 }) {
   const { t } = useT()
   const [view, setView] = React.useState('form')
-  // 哪边的抽屉开着。进来时两边都张开：左栏是接下来要拖的参数、右栏是实时预览，
-  //   收着的时候只有一条窄边，人看不出这里还有东西，也就不会点开。
-  //   宽度由 CSS 按「左栏 + 中栏最小宽」夹住右栏，两栏同开不会把中栏挤没。
-  const [drawer, setDrawer] = React.useState({ left: true, right: true })
+  // 哪边的抽屉开着。左栏进来就张开：参数池是这一步接下来要拖的东西。
+  //   右栏（预览）默认收着：它现在是浮在中栏之上的，张开就盖住表单右边那一列，
+  //   而预览是「想看才看」的东西，不该一进门就挡住正在填的格子。
+  //   收着的时候是一条约 32px 的窄边，点箭头就滑出来。
+  const [drawer, setDrawer] = React.useState({ left: true, right: false })
   const toggleDrawer = (key) => setDrawer((prev) => ({ ...prev, [key]: !prev[key] }))
   // 右侧预览抽屉是否全屏：提到这一层，全屏时让「检查结果」面板退出抽屉，
   // 抽屉里只留预览本身：全屏是为了按平台真实尺寸查看，不应被诊断条目挤占。
