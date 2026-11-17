@@ -272,6 +272,8 @@ export default function App () {
     <div className="wz-root" style={(page === 'manifest' || page === 'verify')
       ? undefined
       : { paddingBottom: 'calc(var(--sp-24) * 2)' }}>
+      {/* 断线提示的落点：占文档流，出现在页面最顶部；内容随它整体下移，互不遮盖。 */}
+      <div id="wz-conn-slot" />
       <div className="workspace-container wz-root">
 
       {/* ---- 顶栏：项目的 section 三件套（照 TrainingTab 的骨架）---- */}

@@ -23,23 +23,28 @@ window.fetch = guard.fetch
 function ConnBanner () {
   const { t } = useT()
   const [down, setDown] = React.useState(null)
+  // 提示条占文档流：插进 App 顶部的 #wz-conn-slot，内容整体下移一格。
+  //   浮层两条路都走不通：要么盖住中栏正在编辑的表单，要么被祖先的包含块裁掉。
+  const [slot, setSlot] = React.useState(null)
   React.useEffect(() => guard.subscribe(setDown), [])
-  if (!down) return null
-  // 挂到 body，不留在 #root 里：只要某个祖先建了新的包含块（transform / contain）
-  //   并带 overflow，浮层就会被那个祖先的边界裁掉，宽度与文字一起被切。
-  //   挂到 body 之后它只认视口。
+  React.useEffect(() => { setSlot(document.getElementById('wz-conn-slot')) }, [])
+  if (!down || !slot) return null
   return createPortal(
     <div className="msg msg-error wz-conn-banner" role="alert">
-      <strong>{t('Disconnected from the wizard service.', '与向导服务断开。')}</strong>{' '}
-      {t('Every request fails until it is back. The banner clears by itself once the service answers again; if it stays, check the terminal that runs vite.',
-        '服务回来之前，页面上的请求都会失败。它会每三秒探一次，恢复后这条提示自动消失；一直不消失就看一眼跑 vite 的那个终端。')}
+      <div className="wz-conn-title">
+        {t('Disconnected from the wizard service', '与向导服务断开')}
+      </div>
+      <div className="wz-conn-body">
+        {t('Requests keep failing. Retrying every 3 seconds; this notice clears once the service answers.',
+          '请求会持续失败，系统每 3 秒自动重连；服务恢复后提示自动消失。')}
+      </div>
       {down.url && (
-        <div className="field-hint" style={{ marginTop: 6 }}>
-          {t('Last failed request: ', '最后失败的地址：')}<code>{down.url}</code>
+        <div className="wz-conn-url" title={down.url}>
+          {t('Last failed: ', '最后失败：')}<code>{down.url}</code>
         </div>
       )}
     </div>,
-    document.body
+    slot
   )
 }
 
