@@ -10,6 +10,9 @@ const path = require('node:path')
 const os = require('node:os')
 const { spawnSync } = require('node:child_process')
 const { findPyFiles } = require('./pyFiles')
+const {
+  canSpawnPython, firstWorkingPython, projectPythonCandidates,
+} = require('../../../lib/util/pythonResolve')
 
 const EXTRACTOR = path.join(__dirname, 'cli_help_extract.py')
 
@@ -46,8 +49,24 @@ function runExtractor (dir, candidates, python, files) {
       //   两处各有一份发现逻辑时，界面上的候选与实际解析的源码会悄悄分叉。
       files: Array.isArray(files) ? files.map((f) => String(f).replace(/\\/g, '/')) : null,
     }), 'utf8')
-    // python 可指定；没指定就用系统 PATH 里的 python/python3。
-    const exe = python || (process.platform === 'win32' ? 'python' : 'python3')
+    // python 可指定；没指定就用平台自带的解释器（venv / 内嵌 runtime）。
+    //   不向用户机器借裸名：扫描结果必须与「哪台机器跑向导」无关。
+    //   提取器与 B 级探针同纪律，都只要 stdlib，平台 venv 必然能跑。
+    const wanted = process.env.AURIVOX_PYTHON
+    const exe = python
+      || (wanted && canSpawnPython(wanted) ? wanted : null)
+      || firstWorkingPython(
+        projectPythonCandidates(path.join(__dirname, '..', '..', '..')),
+        { pathNames: [] },
+      )
+    if (!exe) {
+      return {
+        ok: false,
+        error: '平台自带的解释器不可用：venv/ 与 tools/runtime/python 都没解析成功。'
+          + '请按安装步骤重建平台 venv，或设置 AURIVOX_PYTHON 指向一个绝对路径的解释器',
+        sources: [], flags: [], by_dest: {},
+      }
+    }
     const proc = spawnSync(exe, [EXTRACTOR, '--spec-file', specFile], {
       encoding: 'utf8',
       timeout: 30000,

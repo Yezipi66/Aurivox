@@ -136,7 +136,10 @@ test('验收4（全表）：反射出来的参数名，只有直接同名的才�
     'emo_vector', 'emo_alpha', 'spk_audio_prompt', 'emo_audio_prompt',
     'emo_text', 'use_emo_text', 'use_random', 'interval_silence',
     'max_text_tokens_per_segment', 'stream_return', 'more_segment_before',
-    'duration_factor', 'text_normalization',
+    'duration_factor',
+    // text_normalization 曾在此列：旧上游没有这个 dest。当前克隆的
+    //   index-tts（d9e41aa）真的有 --text-normalization（store_true，默认 true），
+    //   直接同名属于合法匹配，移入下面的「允许」侧。
     'use_qwen_emo', 'use_cuda_kernel', 'use_deepspeed', 'use_accel',
     'use_torch_compile', 'use_bf16',
   ]
