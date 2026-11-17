@@ -167,23 +167,31 @@ export default function EntryChoice ({ manifest, onChange, candidates = [], conf
         </div>
       )}
       {kind === 'cli' && groups.length > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-          <label className="field-label" style={{ margin: 0 }}
-            title={t('This entry has several subcommands. The chosen one is written into the command line right after the module name.',
-              '该入口有多个子命令。选中的那个会写进命令行，位置在模块名之后。')}>
-            {t('Subcommand', '子命令')}
-          </label>
-          <Select className="control" style={{ maxWidth: 220 }}
-            aria-label={t('Subcommand', '子命令')}
-            value={groups.includes(sub) ? sub : ''}
-            onChange={(e) => onChange((cur) => writeSubcommand(cur, e.target.value))}>
-            <option value="">{t('not specified', '未指定')}</option>
-            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-          </Select>
-          <span className="field-hint" style={{ margin: 0 }}>
-            {t('Found ' + groups.length + ' subcommands on this entry.', '该入口有 ' + groups.length + ' 个子命令。')}
-          </span>
-        </div>
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <label className="field-label" style={{ margin: 0 }}
+              title={t('The word this entry takes right after the module name, for example synth in "python -m pkg.cli synth --text ...". Leave it empty when the entry has no subcommands.',
+                '这个入口在模块名之后要接的那个词，例如 `python -m pkg.cli synth --text ...` 里的 synth。入口没有子命令时留空。')}>
+              {t('Subcommand', '子命令')}
+            </label>
+            <Select className="control" style={{ maxWidth: 220 }}
+              aria-label={t('Subcommand', '子命令')}
+              value={groups.includes(sub) ? sub : ''}
+              onChange={(e) => onChange((cur) => writeSubcommand(cur, e.target.value))}>
+              <option value="">{t('not specified', '未指定')}</option>
+              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+            </Select>
+            <span className="field-hint" style={{ margin: 0 }}>
+              {t('Found ' + groups.length + ' subcommands on this entry.', '该入口有 ' + groups.length + ' 个子命令。')}
+            </span>
+          </div>
+          {/* 这一格问的是「命令行上那个词」，不是备注：把它的位置、候选从哪来、
+              该填哪一个、留空是什么意思说清楚，界面之外没有别处可查。 */}
+          <div className="field-hint">
+            {t(`The subcommand is the word right after the module name: in "${value || '<module>'} ${sub || '<subcommand>'} --text ..." it sits between the module and the first switch. The choices come from the command groups of this entry (synthesis, training, download …), which is why the left column groups parameters under the same names. Fill in the one this engine uses to synthesise; leave it empty when the entry takes none.`,
+              `子命令是模块名后面那个词：「${value || '<模块名>'} ${sub || '<子命令>'} --text ...」里夹在模块名与第一个开关之间的那一个。候选取自这个入口自己的命令分组（合成、训练、下载……），左栏参数池按同一套名字分组就是因为它。这里填用来合成的那一个；入口确实没有子命令时留空。`)}
+          </div>
+        </>
       )}
       <div className="field-hint">
         {recommended

@@ -264,8 +264,23 @@ test('入口挂多个子命令时给出下拉，选中的词写进命令行模�
     ['{engine_python}', '-m', 'cli.main', 'synth', '--text', 'x'])
 })
 
-test('python 形态列出静态扫描到的类，选中后写模块 / 类 / 方法', async () => {
-  const holder = await show({ id: 'demo', call: {} }, [], {
+test('子命令这一格把位置、候选来源与留空的含义写在界面上', async () => {
+  const withGroups = [{
+    file: 'cli/main.py', module: 'cli.main', srcRoot: null,
+    score: 4, flags: 6, groups: ['synth', 'infer', 'batch'], source: 'file', recommended: true,
+  }]
+  await show({
+    id: 'demo',
+    call: { kind: 'cli', argv: ['{engine_python}', '-m', 'cli.main', '--text', 'x'] },
+  }, withGroups)
+  const txt = container.textContent
+  assert.ok(/right after the module name/.test(txt), '要说清它落在命令行哪个位置')
+  assert.ok(/cli\.main <subcommand> --text/.test(txt), '要用当前模块名举一个能照抄的例子')
+  assert.ok(/command groups/.test(txt), '要说清候选取自入口自己的命令分组')
+  assert.ok(/leave it empty/.test(txt), '要说清什么时候该留空')
+})
+
+test('python 形态列出静态扫描到的类，选中后写模块 / 类 / 方法', async () => {  const holder = await show({ id: 'demo', call: {} }, [], {
     pythonEntries: [
       { module: 'pkg.tts', className: 'TTS', method: 'synthesize', srcRoot: null, score: 3.5 },
       { module: 'pkg.tts', className: 'TTS', method: 'infer', srcRoot: null, score: 3 },
