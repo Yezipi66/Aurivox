@@ -149,10 +149,20 @@ export function argsEntryFor (param) {
  */
 export function applyScanShape (row, param) {
   const type = paramTypeOf(param)
-  const out = { ...(row || {}), type }
+  const out = { ...(row || {}) }
+  // 类型只在还没定过时按扫描写：人挑过的 select / boolean 不能被盖掉。
+  //   英文名等其它字段仍照补，两者互不牵连。
+  if (typeUndecided(row)) out.type = type
+  // 英文名默认取参数名：--model-dir 去掉横线就是 model-dir。
+  //   合成页在英文名空时会回退到 name，但那是隐含回退，界面上这一格仍看着空；
+  //   这里是「按扫描结果写进去」，让人一眼看见它填了什么，也允许改。
+  const en = row && row.label && row.label.en
+  if (!en && param && param.name) {
+    out.label = { ...(row && row.label ? row.label : {}), en: String(param.name).replace(/^-+/, '') }
+  }
   if (!out.help && param.help) out.help = { zh: param.help, en: param.help }
   // 空数组等于没有选项表：切过一次 select 又清空的行仍算没配好。
-  if (type === 'select' && !(Array.isArray(out.choices) && out.choices.length)) {
+  if (out.type === 'select' && !(Array.isArray(out.choices) && out.choices.length)) {
     out.allow_custom = true
     out.choices = choicesFrom(param)
   }
@@ -164,7 +174,7 @@ export function applyScanShape (row, param) {
   //   上游只写了几维、没写每维叫什么）。默认值跟着长成 N 格，每格 null。
   //   替人填 0 等于替他做了决定；只写维度不写默认值，名片会被校验拒掉。
   const shape = vectorShapeFromHelp(param.help)
-  if (shape && shape.repeat > 1) {
+  if (shape && shape.repeat > 1 && typeUndecided(row)) {
     out.type = 'vector'
     if (!Array.isArray(out.dim_labels)) {
       out.dim_labels = new Array(shape.repeat).fill('').map(() => ({ zh: '', en: '' }))
@@ -244,11 +254,19 @@ export function countUnshapedParams (manifest, scanned) {
   const list = Array.isArray(manifest && manifest.parameters) ? manifest.parameters : []
   let n = 0
   for (const row of list) {
-    if (!row || !row.name || !typeUndecided(row)) continue
+    if (!row || !row.name) continue
     const param = scanParamFor(row.name, scanned)
-    if (param && typeWouldChange(row, param)) n++
+    if (!typeUndecided(row) && !labelWouldFill(row, param)) continue
+    if (!param) continue
+    if (typeWouldChange(row, param) || labelWouldFill(row, param)) n++
   }
   return n
+}
+
+/** 这一行的英文名是不是空得能按扫描结果补上（参数名去掉横线）。 */
+function labelWouldFill (row, param) {
+  const en = row && row.label && row.label.en
+  return !en && !!(param && param.name)
 }
 
 /**
@@ -271,9 +289,12 @@ export function fillTypesFromScan (manifest, scanned) {
   const list = Array.isArray(m.parameters) ? m.parameters : []
   const names = []
   const next = list.map((row) => {
-    if (!row || !row.name || !typeUndecided(row)) return row
+    if (!row || !row.name) return row
+    // 类型只在「还没定过」时按扫描改：手动挑过的类型要尊重。
+    //   英文名不受这条限制，空就补，即使类型是人手挑的。
+    if (!typeUndecided(row) && !labelWouldFill(row, scanParamFor(row.name, scanned))) return row
     const param = scanParamFor(row.name, scanned)
-    if (!param || !typeWouldChange(row, param)) return row
+    if (!param || (!typeWouldChange(row, param) && !labelWouldFill(row, param))) return row
     names.push(row.name)
     return applyScanShape(row, param)
   })

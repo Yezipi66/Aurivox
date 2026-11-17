@@ -387,17 +387,32 @@ test('手敲出来的行：按参数名对上扫描结果就能定类型', () =>
   assert.strictEqual(r.manifest.parameters[2].type, 'text', '扫不到的行保持原样，不瞎猜')
 })
 
-test('已经定过类型的行不被补齐改掉', () => {
+test('已经定过类型的行不被补齐改掉类型，英文名空仍会补', () => {
   const card = {
     parameters: [
       { name: 'seed', type: 'select', tier: 'common', choices: [{ value: '1' }] },
       { name: 'verbose', type: 'boolean', tier: 'common' },
     ],
   }
+  // 英文名空 ⇒ 按扫描补上，所以这两行算可补；但类型是人挑的，不能被盖掉。
+  assert.strictEqual(countUnshapedParams(card, SCANNED), 2)
+  const r = fillTypesFromScan(card, SCANNED)
+  assert.strictEqual(r.filled, 2)
+  assert.strictEqual(r.manifest.parameters[0].type, 'select', '人挑过的类型不能被扫描结果盖掉')
+  assert.strictEqual(r.manifest.parameters[1].type, 'boolean')
+  assert.strictEqual(r.manifest.parameters[0].label.en, 'seed')
+})
+
+test('已定类型且英文名也填过的行，完全不补', () => {
+  const card = {
+    parameters: [
+      { name: 'seed', type: 'select', tier: 'common', choices: [{ value: '1' }], label: { en: 'Random seed' } },
+      { name: 'verbose', type: 'boolean', tier: 'common', label: { en: 'Verbose' } },
+    ],
+  }
   assert.strictEqual(countUnshapedParams(card, SCANNED), 0)
   const r = fillTypesFromScan(card, SCANNED)
   assert.strictEqual(r.filled, 0)
-  assert.strictEqual(r.manifest.parameters[0].type, 'select', '人挑过的类型不能被扫描结果盖掉')
 })
 
 test('布尔开关补齐时命令行样式跟着改：留空会发成 --x True', () => {

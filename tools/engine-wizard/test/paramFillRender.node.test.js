@@ -103,7 +103,8 @@ const ROWS = [
   't-shift', 'target-rms', 'feat-scale', 'max-duration', 'num-thread', 'model-name',
   'model-dir', 'checkpoint-name', 'vocoder-path', 'lang', 'test-list', 'res-dir',
   'res-wav-path', 'remove-long-sil', 'trt-engine-path',
-].map((name) => ({ name, type: 'text', tier: 'common' }))
+// 英文名都填上：这几条只测类型补齐，英文名那条路由另有测试守。
+].map((name) => ({ name, type: 'text', tier: 'common', label: { en: name } }))
 
 let changed = null
 function Host ({ rows = ROWS }) {
@@ -169,8 +170,8 @@ test('补齐之后按钮消失：没有可补的行就不留一个点了没反�
 
 test('人挑过类型的行不参与补齐，也不出现在数量里', async () => {
   const rows = [
-    { name: 'guidance-scale', type: 'select', tier: 'common', choices: [{ value: '0.7' }] },
-    { name: 'seed', type: 'number', tier: 'common' },
+    { name: 'guidance-scale', type: 'select', tier: 'common', choices: [{ value: '0.7' }], label: { en: 'guidance-scale' } },
+    { name: 'seed', type: 'number', tier: 'common', label: { en: 'seed' } },
   ]
   await show(rows)
   assert.strictEqual(buttons('按扫描结果定类型（2）').length, 0,
