@@ -11,7 +11,7 @@ const os = require('node:os')
 const { spawnSync } = require('node:child_process')
 const { findPyFiles } = require('./pyFiles')
 const {
-  canSpawnPython, firstWorkingPython, projectPythonCandidates,
+  platformPython,
 } = require('../../../lib/util/pythonResolve')
 
 const EXTRACTOR = path.join(__dirname, 'cli_help_extract.py')
@@ -49,21 +49,14 @@ function runExtractor (dir, candidates, python, files) {
       //   两处各有一份发现逻辑时，界面上的候选与实际解析的源码会悄悄分叉。
       files: Array.isArray(files) ? files.map((f) => String(f).replace(/\\/g, '/')) : null,
     }), 'utf8')
-    // python 可指定；没指定就用平台自带的解释器：内嵌 runtime 优先，venv 备选。
-    //   不向用户机器借裸名：扫描结果必须与「哪台机器跑向导」无关。
-    //   提取器与 B 级探针同纪律，都只要 stdlib，内嵌解释器必然能跑。
-    const wanted = process.env.AURIVOX_PYTHON
-    const exe = python
-      || (wanted && canSpawnPython(wanted) ? wanted : null)
-      || firstWorkingPython(
-        projectPythonCandidates(path.join(__dirname, '..', '..', '..')),
-        { pathNames: [] },
-      )
+    // 平台脚本用部署时确定的那一个解释器：python 参数可显式指定（测试用），
+    //   其余一律 platformPython，没有候选链、没有 PATH、没有环境变量出口。
+    const exe = python || platformPython(path.join(__dirname, '..', '..', '..'))
     if (!exe) {
       return {
         ok: false,
-        error: '平台自带的解释器不可用：venv/ 与 tools/runtime/python 都没解析成功。'
-          + '请按安装步骤重建平台 venv，或设置 AURIVOX_PYTHON 指向一个绝对路径的解释器',
+        error: '平台解释器不可用：tools/runtime/python 起不来。请重跑平台安装步骤'
+          + '（它会用这个解释器重建 venv）',
         sources: [], flags: [], by_dest: {},
       }
     }
