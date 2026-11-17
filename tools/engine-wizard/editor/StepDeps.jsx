@@ -410,9 +410,15 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
         }
       }
       // 流结束了：最后的 done 事件是完整结果
-      setResult(finalResult || { ok: false, error: '连接中断，未收到完成事件' })
+      const done = finalResult || { ok: false, error: '连接中断，未收到完成事件' }
+      setResult(done)
+      // 安装结束后重读完成状态：后端已把结果写进 .wizard-install.json，
+      //   不重拉 install-state 的话流程条第 2 步的绿勾要等别的操作才亮。
+      //   失败也要重拉：envFailure 写进去了，界面得如实显示未就绪。
+      if (onReload) onReload()
     } catch (e) {
       setResult({ ok: false, error: e.message })
+      if (onReload) onReload()
     } finally {
       cancelRef.current = null
       setBusy(false)
