@@ -243,10 +243,31 @@ def argv_slot_names(argv):
 # 这一段是 `call.args` 那份表的唯一解释处，而且它必须穷举：没有
 # 「其余情况看着办」的分支。看着办 = 宿主替名片作者猜，猜错不报错，
 # 只是那个开关没上命令行，声音悄悄变了。
+def _is_absent(value):
+    """这一项算不算「没给值」。
+
+    空值一律不上命令行：null、空串、空数组。false 与 0 是有意义的取值，照发。
+    判据只留这一份：bind 槽位、call_time 参数、python 形态的 kwargs 都走它。
+    分开判会出现「同一个空值，从参考文本进来就不发，从参数格进来就发一个空词」，
+    而上游对空词的反应各不相同（有的当路径不存在，有的当合法空串继续跑）。
+    """
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (list, tuple)):
+        return len(value) == 0
+    return False
+
+
 def _render_cli_arg(name, entry, value):
     flag = str(entry.get("flag") or "").strip()
     # 空白开关名等于这张名片没声明它：塞一个空白词进命令行没人能解释。
     if not flag:
+        return []
+    # 没给值就不出词，也不替使用者决定「否」：boolean_optional 的 false 是明确的否，
+    #   而 null 只表示这一项没填，二者不能混成一个 --no-x。
+    if _is_absent(value):
         return []
     style = entry.get("style") or "value"
 
@@ -262,9 +283,6 @@ def _render_cli_arg(name, entry, value):
         raise ValueError(
             'call.args.%s.style = "boolean_optional" 需要长开关（--），现在是 %r'
             % (name, flag))
-
-    if value is None:
-        return []
 
     if style == "join":
         if not isinstance(value, (list, tuple)):
@@ -365,7 +383,9 @@ def build_cli_argv(call, profile, slots, params):
         if not flag:
             continue
         val = slots.get(slot)
-        if val is None or (slot == "ref_text" and val == ""):
+        # 空值不上命令行：没给参考文本时不该出现一个空的 --开关。四个槽位同一条判据，
+        #   不再只对 ref_text 特判（文字、参考音频、输出落点空着时同样是「没这项」）。
+        if _is_absent(val):
             continue
         argv.extend([flag, str(val)])
 
@@ -722,7 +742,9 @@ class Engine(object):
         method_label = '%s.%s' % (self.call["class"],
                                    (method_cfg or {}).get("method") or self.call["method"])
 
-        kwargs = dict(call_params)
+        # 空值不往下游传：与 cli 形态同一条判据（见 _is_absent）。空串作为 kwargs
+        #   到了上游常常是「有一个空路径」或「有一段空文本」，比不传更容易出错。
+        kwargs = {k: v for k, v in call_params.items() if not _is_absent(v)}
         kwargs[bind["text"]] = text
         # 方法级 requires_ref_audio=False（用内置音色，不要参考音频），而顶层 bind
         # 有 ref_audio ⇒ merge 之后 merged 仍带它 ⇒ 宿主把参考音频塞进
