@@ -185,6 +185,14 @@ export default function EntryChoice ({ manifest, onChange, candidates = [], conf
               {t('Found ' + groups.length + ' subcommands on this entry.', '该入口有 ' + groups.length + ' 个子命令。')}
             </span>
           </div>
+          {/* 空着不等于中性：argparse 会把模块名后面第一个不是开关的词当成子命令名，
+              紧随其后的路径就此变成子命令，整条命令在解析阶段被拒。 */}
+          {!sub && (
+            <div className="msg msg-warning" style={{ marginTop: 6 }}>
+              {t('This entry takes several subcommands, and the first word on the command line must be one of them. With nothing selected, the first word after the module name that is not a switch is taken as the subcommand name, and the engine reports invalid choice. Pick the one this entry uses to synthesise.',
+                '这个入口有多个子命令，命令行第一个词必须是其中之一。空着时，模块名后面第一个不是开关的词会被当成子命令名，引擎报 invalid choice。这里选用来合成的那一个。')}
+            </div>
+          )}
           {/* 这一格问的是「命令行上那个词」，不是备注：把它的位置、候选从哪来、
               该填哪一个、留空是什么意思说清楚，界面之外没有别处可查。 */}
           <div className="field-hint">

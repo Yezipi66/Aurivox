@@ -269,7 +269,7 @@ test('子命令这一格把位置、候选来源与留空的含义写在界面�
     file: 'cli/main.py', module: 'cli.main', srcRoot: null,
     score: 4, flags: 6, groups: ['synth', 'infer', 'batch'], source: 'file', recommended: true,
   }]
-  await show({
+  const holder = await show({
     id: 'demo',
     call: { kind: 'cli', argv: ['{engine_python}', '-m', 'cli.main', '--text', 'x'] },
   }, withGroups)
@@ -278,6 +278,15 @@ test('子命令这一格把位置、候选来源与留空的含义写在界面�
   assert.ok(/cli\.main <subcommand> --text/.test(txt), '要用当前模块名举一个能照抄的例子')
   assert.ok(/command groups/.test(txt), '要说清候选取自入口自己的命令分组')
   assert.ok(/leave it empty/.test(txt), '要说清什么时候该留空')
+  // 空着不是中性选项：argparse 会把模块名后面第一个不是开关的词当成子命令名。
+  assert.ok(/invalid choice/.test(txt), '有多个子命令却没选时，要说明它会怎么失败')
+  const sub = container.querySelector('.ui-select[aria-label="Subcommand"]')
+  sub.click()
+  await settle()
+  await pickOption(1)
+  assert.ok(!/invalid choice/.test(container.textContent), '选过子命令之后这条警示要撤掉')
+  assert.deepStrictEqual(holder.get().call.argv,
+    ['{engine_python}', '-m', 'cli.main', 'synth', '--text', 'x'])
 })
 
 test('python 形态列出静态扫描到的类，选中后写模块 / 类 / 方法', async () => {  const holder = await show({ id: 'demo', call: {} }, [], {
