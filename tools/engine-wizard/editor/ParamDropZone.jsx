@@ -3,7 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import {
   applyParamDrop, paramNameOf, PARAM_MIME, countUnshapedParams, fillTypesFromScan, scanParamFor,
-  addParamsFromScan, isSlotClaimed,
+  addParamsFromScan, isParamTaken,
 } from './paramDrop'
 import { withArgKey } from './paramFields'
 
@@ -49,15 +49,15 @@ export default function ParamDropZone ({
   // 扫描列出、名片里还没有的那些参数：一次全部加进来，不必逐条拖。
   //   名单就是左栏此刻列出的那一份（已按入口与分组筛过），点一次与拖一次的
   //   结果完全一致；已有的行保持原样。
-  //   已经由平台槽位接管的开关（辅助参考音频、运行设备、四个 bind 槽位）不算在内：
-  //   它们各自在可选能力 / 必填区里有格子，再做一格就是同一个开关摆两处。
-  const declared = new Set(list.map((p) => p && p.name).filter(Boolean))
+  //   已经有归属的开关不算在内（isParamTaken）：必填参数区的 bind 槽位、
+  //   可选能力 / 引擎配置的 role 槽位、以及已经进了 parameters 的行。
+  //   这三处用的是同一条判据，左栏把卡片弱化用的也是它。
   const addable = []
   const seen = new Set()
   for (const p of (Array.isArray(poolParams) ? poolParams : [])) {
     const name = paramNameOf(p)
-    if (!name || declared.has(name) || seen.has(name)) continue
-    if (isSlotClaimed(manifest, p)) continue
+    if (!name || seen.has(name)) continue
+    if (isParamTaken(manifest, p)) continue
     seen.add(name)
     addable.push(p)
   }

@@ -144,3 +144,16 @@ test('一次加入：槽位判定认 name 也认开关名', () => {
   const r = addParamsFromScan(m, pool)
   assert.deepStrictEqual(r.added, ['force'])
 })
+
+test('一次加入：只进了 call.args 当命令行映射的开关仍可做成旋钮', () => {
+  // 扫描会把入口文件的开关全写进 call.args（flag + style），那只是命令行映射，
+  //   不代表已经有格子。拿「args 里有没有」当判据会把所有可调参数一起排除掉。
+  const m = {
+    id: 'x',
+    call: { kind: 'cli', args: { speed: { flag: '--speed', style: 'value' } }, bind: { text: '--text' } },
+  }
+  const pool = [{ source: 'cli', name: 'speed', target: '--speed', kind: 'float', style: 'value' }]
+  const r = addParamsFromScan(m, pool)
+  assert.deepStrictEqual(r.added, ['speed'])
+  assert.strictEqual(r.manifest.parameters[0].name, 'speed')
+})

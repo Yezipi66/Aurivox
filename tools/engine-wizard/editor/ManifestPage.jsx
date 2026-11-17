@@ -10,7 +10,7 @@ import EngineScanZone from './EngineScanZone'
 import EngineIdentity from './EngineIdentity'
 import { computeAutoFill } from './scanAutofill'
 import { modelFilesOf } from './declarationFill'
-import { PARAM_MIME, dragLabelOf } from './paramDrop'
+import { PARAM_MIME, dragLabelOf, isParamTaken } from './paramDrop'
 import { entryFileOf } from './entryChoiceField'
 import { scopeParams } from './paramScope'
 import { loadSession, saveSession } from './useInstallSession'
@@ -116,21 +116,14 @@ export default function ManifestPage ({
     ? [...scope.params, ...grouped.filter((p) => !scope.params.includes(p))]
     : grouped
 
-  // 左栏哪张卡已经落进名片：它的名字进了 call.args、成了某个槽位的开关（bind 的值），
-  //   或已经出现在 argv 里。只用来把卡弱化，不阻止再次拖动：
-  //   同一个参数可能同时喂两个槽位（正文与参考文本），也可能拖错格后要拖走。
-  const usedParam = (p) => {
-    if (!p) return false
-    const c = (manifest && manifest.call) || {}
-    if ((p.source || 'cli') === 'python') {
-      const declared = Array.isArray(manifest && manifest.parameters) ? manifest.parameters : []
-      return declared.some((x) => x && x.name === p.name)
-    }
-    if (c.args && c.args[p.name]) return true
-    const bindVals = Object.values(c.bind || {})
-    if (bindVals.some((v) => v && v === p.target)) return true
-    return Array.isArray(c.argv) && c.argv.includes(p.target)
-  }
+  // 左栏哪张卡已经有归属：必填参数区的 bind 槽位、可选能力 / 引擎配置的 role 槽位、
+  //   合成参数区已经有的那一行。三处与「把列出的参数一起加入」共用同一条判据
+  //   （paramDrop.js 的 isParamTaken），不各写一份。
+  //   判据不看「call.args 里有没有这条」：扫描会把入口文件的开关全写进 call.args
+  //   当命令行映射，那只是映射，不等于已经有了格子。
+  //   弱化卡片只为提示，不阻止再次拖动：同一个参数可能同时喂两个槽位（正文与参考文本），
+  //   也可能拖错格后要拖走。
+  const usedParam = (p) => isParamTaken(manifest, p)
 
   // text 是 manifest 的纯派生：只有「切进 JSON 视图」这一刻现算，
   //   之后就是用户手里的编辑缓冲。

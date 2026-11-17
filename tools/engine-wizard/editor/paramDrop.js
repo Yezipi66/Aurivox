@@ -361,32 +361,38 @@ export function applyParamDrop (manifest, param) {
 }
 
 /**
- * 这个开关是不是已经由平台的某个槽位接管了。
+ * 这个开关是不是已经有归属了。
  *
- * 两类都不该再做成合成页上的旋钮，否则同一个开关在界面上出现两次、
- * 命令行上也可能被发两遍：
- *   ① call.args 里带 role 的条目（辅助参考音频 audio_ref、运行设备 device），
- *      它们各有自己的格子（可选能力 / 引擎配置），填的是开关名本身；
- *   ② call.bind 的取值（正文、参考音频、参考文本、输出路径），
- *      这四个槽位由必填区与第 5 步填入，值由平台按请求拼。
+ * 与「必填参数」用的是同一条规矩：谁把它填了，它就归谁，别人不再拿它做第二格。
+ * 三个归属方各自把开关名写在名片的不同位置：
+ *   ① 必填参数区：call.bind 的取值（正文、参考音频、参考文本、输出路径）；
+ *   ② 可选能力与引擎配置：call.args 里带 role 的条目（audio_ref、device、output_format）；
+ *   ③ 合成参数区：parameters[] 里已经有一行。
+ * 另外进了 argv 的位置参数也算有归属：它本来就不是开关。
+ *
+ * 只看「call.args 里有没有这条」不够：扫描会把入口文件的开关全写进 call.args
+ * 当作命令行映射，那只是映射，不等于已经有了格子，所以这里按 role 判，不按有无判。
  *
  * @param {object} manifest 当前名片
  * @param {object} param 扫到的参数
  * @returns {boolean}
  */
-export function isSlotClaimed (manifest, param) {
+export function isParamTaken (manifest, param) {
+  if (!param) return false
   const name = paramNameOf(param)
-  if (!name) return false
-  const call = (manifest && manifest.call) || {}
-  const args = call.args || {}
-  // 键名对得上、且那一条带 role：同一个开关，已经由那个格子在编辑。
-  if (args[name] && args[name].role) return true
-  const flag = String((param && param.target) || '')
+  const m = manifest || {}
+  const call = m.call || {}
+  const declared = Array.isArray(m.parameters) ? m.parameters : []
+  if (name && declared.some((x) => x && x.name === name)) return true
+  const flag = String(param.target || '')
   if (!flag) return false
-  // 键名与扫描到的参数名不一致时，按开关名再认一遍：名片里的键可以自己起名
+  if (Object.values(call.bind || {}).some((v) => typeof v === 'string' && v === flag)) return true
+  const args = call.args || {}
+  if (name && args[name] && args[name].role) return true
+  // 键名与扫描到的参数名不一致时按开关名再认一遍：名片里的键可以自己起名
   //   （ref-audio → --voice），扫描到的参数名则从开关名派生，两边不保证同名。
   if (Object.values(args).some((e) => e && e.role && String(e.flag || '') === flag)) return true
-  return Object.values(call.bind || {}).some((v) => typeof v === 'string' && v === flag)
+  return Array.isArray(call.argv) && call.argv.includes(flag)
 }
 
 /**
@@ -394,7 +400,7 @@ export function isSlotClaimed (manifest, param) {
  *
  * 与逐个拖进来走同一条路（applyParamDrop），所以类型、英文名、call.args 的
  * 结果完全一致；区别只是入口从「拖一个」变成「一次加一组」。
- * 已经声明过的名字跳过；已经由平台槽位接管的开关也跳过（见 isSlotClaimed），
+ * 已经有归属的开关跳过（见 isParamTaken）：它已经在别的格子里，加进来就是两份事实；
  * 已有的行一律不动。
  *
  * @param {object} manifest 当前名片
@@ -418,8 +424,8 @@ export function addParamsFromScan (manifest, scannedParams) {
   for (const param of xs) {
     const name = paramNameOf(param)
     if (!name || declared.has(name)) continue
-    // 槽位已经接管的开关不做成旋钮：它与那个槽位是同一个开关，加进来等于两份事实。
-    if (isSlotClaimed(m, param)) continue
+    // 已经有归属的开关不再做成旋钮：与它那一格是同一个开关，加进来等于两份事实。
+    if (isParamTaken(m, param)) continue
     m = applyParamDrop(m, param)
     declared.add(name)
     added.push(name)
