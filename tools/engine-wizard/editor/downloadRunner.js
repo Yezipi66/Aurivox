@@ -49,6 +49,27 @@ export async function readSse (resp, onEvent) {
 }
 
 /**
+ * 接上进行中的下载进度流：切页重挂后只订阅，不重新发起下载。
+ *   onSnapshot 收到 { files: { 文件名: 进度 } }，onFinish 在整轮结束时调用。
+ *   返回取消函数，组件卸载时断开这一条订阅。
+ */
+export function attachDownloadProgress (id, onSnapshot, onFinish) {
+  let stopped = false
+  const ac = new AbortController()
+  fetch(`/wizard/download/attach?id=${encodeURIComponent(id)}`, { signal: ac.signal })
+    .then((resp) => {
+      if (!resp.ok || stopped) return
+      return readSse(resp, (ev) => {
+        if (stopped || !ev) return
+        if (ev.files && onSnapshot) onSnapshot(ev.files)
+        if (ev.attached === false && onFinish) onFinish()
+      })
+    })
+    .catch(() => { /* 接不上就保持最后一次快照，不报错 */ })
+  return () => { stopped = true; ac.abort() }
+}
+
+/**
  * 下载一个文件，读它的 SSE 流，把进度与结果报出来。
  *
  * @param {object} opts

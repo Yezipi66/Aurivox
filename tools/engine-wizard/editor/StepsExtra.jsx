@@ -3,7 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import { loadDownloadState, saveDownloadState } from './downloadState'
 import { DEFAULT_CONCURRENCY } from './downloadQueue'
-import { downloadFiles, readSse, fileSlot } from './downloadRunner'
+import { downloadFiles, readSse, fileSlot, attachDownloadProgress } from './downloadRunner'
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 import Select from '../../../web/src/components/common/Select'
@@ -167,17 +167,46 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
   }, [id, state.repoUrl])
 
   // 断点续传：页面加载时读进度文件，恢复「已下载」状态。不依赖 manifest。
+  //   同时看 active：后端Registry里还有这一轮在途文件，就把进度条接回来，
+  //   再订阅 attach 流接收后续快照。切出去时下载并未停止，回来只换一条订阅。
   React.useEffect(() => {
-    if (!id) return
+    if (!id) return undefined
+    let detach = null
+    let alive = true
     fetch(`/wizard/download/progress?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
       .then((j) => {
-        if (j.ok && Array.isArray(j.done) && j.done.length > 0) {
-          // 有已完成的命令 → 标记为「已下载」
+        if (!alive || !j || !j.ok) return
+        if (Array.isArray(j.done) && j.done.length > 0) {
           setDlSummary({ stage: 'done', ok: true })
         }
+        const active = j.active || {}
+        const names = Object.keys(active)
+        if (!names.length) return
+        // 后端按文件名记快照，前端进度表按文件名作键即可：渲染只读 label 与 percent，
+        //   不依赖键的内部结构。切回来先摆出快照，attach 流再持续更新同一批键。
+        const restore = (files) => {
+          if (!alive || !files) return
+          setDlFiles((prev) => {
+            const next = { ...prev }
+            for (const [name, snap] of Object.entries(files)) {
+              next[name] = { ...(next[name] || {}), label: name,
+                percent: snap.percent, downloaded: snap.downloaded, total: snap.total }
+            }
+            return next
+          })
+        }
+        restore(active)
+        setDlBusyBoth(true)
+        setDlSummary({ stage: 'running' })
+        detach = attachDownloadProgress(id, restore, () => {
+          if (!alive) return
+          setDlBusyBoth(false)
+          setDlSummary({ stage: 'done', ok: true })
+        })
       })
       .catch(() => { /* 读不到进度文件 ⇒ 没有已下载的 */ })
+    return () => { alive = false; if (detach) detach() }
   }, [id])
 
   // 逐文件校验：下载完成后自动调 /wizard/download/files 读文件列表。
