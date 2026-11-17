@@ -137,10 +137,13 @@ export default function App () {
   })
 
   // ---- 完成状态只由真实产物判（GET /wizard/install-state），不读 localStorage ----
-  const [facts, setFacts] = React.useState({})
-  // facts 是「按哪个 id 问来的」。第 1 步的完成状态必须与界面上的目录名同源：
-  //   只比 facts.prepare 会把一台旧引擎的状态显示在新仓库上。
-  const [factsId, setFactsId] = React.useState(null)
+  // 按引擎分开存：234 是三个独立的接入子，每台都有自己的完成状态。
+  //   切回一台时立刻显示它自己那份，不拿上一台的快照顶上，也不等新请求回来。
+  const [factsById, setFactsById] = React.useState({})
+  const facts = factsById[wz.id] || {}
+  // factsId 仍要传给第 1 步的 cloneDone 守卫：那份判据要求「问来的 id」与目录名同源。
+  //   现在 map 的键就是来源 id，取当前引擎的键即是。
+  const factsId = wz.id || null
   // 权重落盘的相对路径（相对项目根）。第 3 步写盘到这里，第 4 步的名片
   //   runtime.checkpoints 填的也是这个值：两处同源，改一处不会出现「下好了却找不到」。
   //   路径由后端算（core/checkpointsPath.js），前端不自己拼。
@@ -158,14 +161,16 @@ export default function App () {
   //   读闭包里的旧值会拿到空 id，一个勾都不亮。
   const reloadFacts = React.useCallback((idArg) => {
     const id = factsQueryId(idArg, wz.id)
-    setFactsId(id || null)
-    if (!id) { setFacts({}); setCheckpointsPath(null); setModelFiles(null); return }
+    if (!id) { setCheckpointsPath(null); setModelFiles(null); return }
     let alive = true
     fetch(`/wizard/install-state?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
       .then((j) => {
         if (!alive) return
-        if (j && j.ok && j.steps_done) setFacts(j.steps_done)
+        // 只写这一台的槽：另一台的完成状态不受影响，切回去时还在。
+        if (j && j.ok && j.steps_done) {
+          setFactsById((cur) => ({ ...cur, [id]: j.steps_done }))
+        }
         setCheckpointsPath((j && j.checkpoints_path) || null)
         // 清单与「按哪个 id 问来的」一起存：换引擎时清掉 models 的那一个渲染
         //   会拿着上一台的清单，带着 id 才能被 shouldFillModelsRequired 挡住。
