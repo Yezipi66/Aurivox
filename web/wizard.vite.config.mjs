@@ -66,6 +66,8 @@ function validatePlugin () {
     // download/url 必须排在 handleDownload（/wizard/download 前缀）之前。
     wb.handleDownloadUrl,
     wb.handleDownloadFile, wb.handleDownloadFiles, wb.handleDownloadProgress,
+    // attach 是 /wizard/download 的子端点，必须排在 handleDownload（前缀匹配）之前。
+    wb.handleDownloadAttach,
     // cancel 必须排在 handleDownload 之前：handleDownload 认的是 /wizard/download 整串前缀，
     // 会把 download/cancel 一起吃掉（它自己也会显式排除，但注册顺序不能依赖那个）。
     wb.handleDownloadCancel,

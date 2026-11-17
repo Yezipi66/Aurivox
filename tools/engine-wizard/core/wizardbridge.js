@@ -1756,7 +1756,9 @@ function handleDownloadFile (req, res) {
     downloadFile(subdir ? { ...file, subdir } : file, repo, root, id, (text, isErr) => {
       send('line', { text, err: !!isErr })
     }, (p) => {
-      send('progress', { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total })
+      const snap = { file: file.name, percent: Math.round((p.downloaded / p.total) * 100), downloaded: p.downloaded, total: p.total }
+      dl.noteProgress(file.name, snap)
+      send('progress', snap)
     }, undefined, dl.signal, { token }).then((r) => {
       dl.release()
       send('done', r)
@@ -1855,8 +1857,10 @@ function handleDownloadUrl (req, res) {
     }
     const onLine = (text, isErr) => { send('line', { text, err: !!isErr }) }
     const onProgress = (p) => {
-      send('progress', { file: name, percent: Math.min(100, Math.round((p.downloaded / p.total) * 100)),
-        downloaded: p.downloaded, total: p.total })
+      const snap = { file: name, percent: Math.min(100, Math.round((p.downloaded / p.total) * 100)),
+        downloaded: p.downloaded, total: p.total }
+      dl.noteProgress(name, snap)
+      send('progress', snap)
     }
     try {
       downloadFileFromUrl(raw, file, '', root, id, onLine, onProgress, 0, false, dl.signal, null)
@@ -1926,7 +1930,9 @@ function acquireDownloadAbort (id) {
   const key = String(id)
   let entry = downloadAbortControllers.get(key)
   if (!entry) {
-    entry = { ac: new AbortController(), count: 0 }
+    // progress 是这一轮在途文件的进度快照：切页重挂后新页面据此恢复进度条。
+    //   生命周期与取消信号一致：整轮结束（count 归零）就随 entry 一起删。
+    entry = { ac: new AbortController(), count: 0, progress: {} }
     downloadAbortControllers.set(key, entry)
   }
   entry.count += 1
@@ -1943,7 +1949,11 @@ function acquireDownloadAbort (id) {
     cur.count = Math.max(0, cur.count - 1)
     if (cur.count === 0 || cur.ac.signal.aborted) downloadAbortControllers.delete(key)
   }
-  return { signal: local.signal, abort: () => local.abort(), release }
+  const noteProgress = (name, p) => {
+    const cur = downloadAbortControllers.get(key)
+    if (cur) cur.progress[String(name)] = { ...p, at: Date.now() }
+  }
+  return { signal: local.signal, abort: () => local.abort(), release, noteProgress }
 }
 
 // POST /wizard/download/cancel  {id}  取消正在进行的下载
@@ -2020,7 +2030,49 @@ function handleDownloadProgress (req, res) {
   const { readProgress } = require('./download')
   const root = url.searchParams.get('root') || projectRoot() || ''
   const done = [...readProgress(root, id)]
-  json(res, 200, { ok: true, done })
+  // active 是当前在途那一轮的进度快照：切页重挂后前端据此恢复进度条，
+  //   再连 attach 流接后续事件。没有在途任务时是空对象。
+  const entry = downloadAbortControllers.get(String(id))
+  const active = entry ? { ...entry.progress } : {}
+  json(res, 200, { ok: true, done, active })
+  return true
+}
+
+// GET /wizard/download/attach?id=  切页回来接上进行中的下载进度流。
+//   只订阅注册表里的进度快照，不再发起任何下载：下载进程留在服务端，
+//   这一条只给新页面一条进度事件流。每 500ms 推一次当前快照，
+//   快照消失（整轮结束）就推 done 并关闭。
+function handleDownloadAttach (req, res) {
+  if (req.method !== 'GET') return false
+  if (!req.url || !req.url.startsWith('/wizard/download/attach')) return false
+  const url = new URL(req.url, 'http://x')
+  const id = url.searchParams.get('id')
+  if (!id) { json(res, 400, { ok: false, error: '?id= is required' }); return true }
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  })
+  const send = (event, data) => {
+    res.write(`event: ${event}\n`)
+    res.write(`data: ${JSON.stringify(data)}\n\n`)
+  }
+  const key = String(id)
+  let closed = false
+  const timer = setInterval(() => {
+    if (closed) return
+    const entry = downloadAbortControllers.get(key)
+    if (!entry) {
+      closed = true
+      clearInterval(timer)
+      send('done', { ok: true, attached: false })
+      res.end()
+      return
+    }
+    send('progress', { files: { ...entry.progress } })
+  }, 500)
+  const close = () => { if (!closed) { closed = true; clearInterval(timer) } }
+  if (typeof res.on === 'function') res.on('close', close)
   return true
 }
 
@@ -3012,7 +3064,7 @@ function handleResetProgress (req, res) {
 
 module.exports = {
   handleState, handleResolve, handleProbe, handleDeps, handleHardware,
-  handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadFiles, handleModels,
+  handleClone, handleEnv, handleDownload, handleDownloadProgress, handleDownloadAttach, handleDownloadFiles, handleModels,
   handleDownloadManifest, handleDownloadFile, handleDownloadUrl, handleDownloadCancel, handleRunScript, handleHfToken,
   handleDownloadEntries, handleEngineDownload,
   scanDocDownloadCommands,
