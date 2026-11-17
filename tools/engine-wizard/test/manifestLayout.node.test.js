@@ -223,26 +223,39 @@ test('预览的实际宽度由 CSS 按当前几何封顶：左抽屉后开也给
   assert.ok(/max-width:\s*none/.test(full), '全屏不受预览上限约束')
 })
 
-test('两根边条 sticky 跟着页面滚动', () => {
+test('两根边条固定在视口里，滚动时始终在眼前', () => {
   const body = ruleBody('.wz-drawer')
-  assert.ok(/position:\s*sticky/.test(body), '边条要 sticky')
+  assert.ok(/position:\s*fixed/.test(body), '边条要固定在视口里')
   assert.ok(/top:\s*0/.test(body), '边条要贴视口顶')
-  assert.ok(/align-self:\s*flex-start/.test(body), 'flex 行里 sticky 要 align-self:flex-start 才生效')
+  assert.ok(/height:\s*100vh/.test(body), '边条要占满视口高')
+  const left = ruleBody('.wz-drawer-left')
+  assert.ok(left && /left:\s*0/.test(left), '左抽屉贴左边')
+  const right = ruleBody('.wz-drawer-right')
+  assert.ok(right && /right:\s*0/.test(right), '右抽屉贴右边')
 })
 
-test('窄屏降级：960px 以下抽屉仍推开中栏，宽度收到 280px', () => {
-  // 窄屏的降级是「收窄」，不是「盖住」。
-  // 盖住（position:absolute）会让中栏被盖掉一半、点不到，
-  // 上面那条守卫已经明确不许这件事。
-  // 这条守卫原来写的是「覆盖式」，判据却只查 `.wz-drawer.is-open` 这个子串，
-  // 而推开式的那条规则里也有这个子串 ⇒ 判据碰巧绿，等于没守。
-  // 现在钉住真正的行为：窄屏把抽屉宽度收到 280px。
+test('左栏是浮层：展开时不再占中栏的宽度', () => {
+  // 只在收起状态留一条内边距给边条；展开时盖上来，中栏宽度与开合无关。
+  const stage = ruleBody('.wz-stage')
+  assert.ok(/padding-left:\s*var\(--wz-rail-w/.test(stage),
+    '.wz-stage 只给收起的边条留一条内边距，展开的抽屉不该再挤中栏')
+  const open = ruleBody('.wz-drawer-left.is-open')
+  assert.ok(open && /background:/.test(open),
+    '左抽屉展开要自带底色：下面压着的是中栏的表单，透上来就读不下去了')
+  const noLeft = ruleBody('.wz-stage-no-left')
+  assert.ok(noLeft && /padding-left:\s*0/.test(noLeft),
+    '第 5 步没有左边条，那一条内边距要归零')
+})
+
+test('窄屏降级：960px 以下抽屉收窄到 280px', () => {
+  // 两侧都是浮层，中栏宽度不随开合变化；窄屏只把抽屉收窄，
+  //   免得一块 392px 的抽屉在 960px 的屏上吃掉一半。
   const media = css.match(/@media\s*\(max-width:\s*960px\)\s*\{([\s\S]*?)\n\}/)
   assert.ok(media, 'editor.css 里没有 960px 的降级规则')
-  assert.ok(!/position:\s*absolute/.test(media[1]),
-    '960px 以下抽屉不该盖住中栏：那会让中栏点不到')
   assert.match(media[1], /\.wz-drawer\.is-open\s*\{[^}]*width:\s*var\(--wz-drawer-w-narrow/,
-    '960px 以下抽屉应当收窄到 var(--wz-drawer-w-narrow)（默认 280px），而不是盖住中栏')
+    '960px 以下抽屉应当收窄到 var(--wz-drawer-w-narrow)（默认 280px）')
+  assert.match(media[1], /--wz-left-w:\s*var\(--wz-drawer-w-narrow/,
+    '窄屏下预览的宽度上限也要按窄档算')
 })
 
 test('骨架那一层不画自己的栏头与外壳', () => {

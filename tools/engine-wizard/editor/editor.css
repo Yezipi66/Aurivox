@@ -137,6 +137,9 @@
   --wz-left-w: var(--wz-rail-w, 32px);
   /* 中栏最少留多宽，与 drawerWidth.js 的 CENTER_MIN 一致。 */
   --wz-center-min: 320px;
+  /* 左边条是浮层：这一条内边距让给它，收起时不会盖住中栏第一列。
+     展开时它盖上来，内边距不变 ⇒ 中栏宽度与开合无关。 */
+  padding-left: var(--wz-rail-w, 32px);
 }
 /* 左栏开没开由 Stage.jsx 写在类名上，不用 :has()（本项目没用过，也没声明最低浏览器）。 */
 .wz-stage-left-open {
@@ -145,19 +148,18 @@
 /* 第 5 步没有左边条：右抽屉的宽度上限里左栏按 0 算，不白白留 32px。 */
 .wz-stage-no-left {
   --wz-left-w: 0px;
+  padding-left: 0;
 }
 
 /* 一根边条。收着时是一条窄边 + 一个箭头按钮，
    展开时变宽成抽屉，内容从箭头下方流下来。
 
-   sticky + 视口高度：页面往下滚，边条跟着走（左边是拖拽的源，
+   固定在视口里：页面往下滚，边条跟着走（左边是拖拽的源，
    右边是预览，两样都得一直在眼前）。抽屉自己内部滚动。
-   align-self:flex-start 是 sticky 在 flex 行里生效的前提：
-   默认 stretch 会把边条拉成整页高，sticky 就没有可移动的余地。 */
+   两侧都不参与 flex 行的宽度分配，中栏因此始终按整行排版。 */
 .wz-drawer {
-  position: sticky;
+  position: fixed;
   top: 0;
-  align-self: flex-start;
   height: 100vh;
   z-index: 10;
   flex-shrink: 0;
@@ -174,15 +176,23 @@
   box-shadow: var(--shadow-soft);
 }
 /* 拖宽时关掉宽度动画：160ms 的过渡会让抽屉落后于鼠标，看着像拖不动。 */
+/* 左边条同样是浮层：它装的是拖拽用的参数池，展开时也不该把正在填的表单挤窄。
+   位置固定 ⇒ 中栏按「整行宽 − 边条那一条」排版，开不开抽屉都一样宽。
+   收起时只占 --wz-rail-w 那一条，由 .wz-stage 的左内边距让出来，不盖住内容。 */
+.wz-drawer-left {
+  left: 0;
+}
+.wz-drawer-left.is-open {
+  /* 展开后盖在中栏之上，要自带底色，否则下面的表单透上来读不下去。 */
+  background: var(--bg);
+}
+
 /* 右边条不参与中栏的宽度分配：它从右边滑出，浮在中栏之上。
    抽屉是「临时看一眼」的东西（预览、参考音频）。推开时把正在填的表单挤窄，
    那一行会当场重排、光标位置也跟着跳；浮上来之后中栏宽度不变，只是右边缘被盖住一条。
    位置固定 ⇒ 中栏按整行宽排版；宽度上限仍按「视口宽 − 左栏此刻宽 − 中栏最小宽」夹。 */
 .wz-drawer-right {
-  position: fixed;
-  top: 0;
   right: 0;
-  height: 100vh;
 }
 .wz-drawer-right.is-open {
   /* 浮层要自带底色：下面压着的是中栏的表单，透出来就读不下去了。 */
@@ -312,9 +322,8 @@
   padding: 0 0.75rem;
 }
 
-/* 窄屏降级：抽屉窄一点，但还是推开中栏，不浮在上面。
-   浮在上面（position:absolute）会把中栏盖掉一半，
-   盖住的那部分点不到 ⇒ 表单又废了。 */
+/* 窄屏降级：抽屉窄一点。两侧都是浮层，中栏宽度不随开合变化；
+   窄档抽屉不会把中栏整个盖住。 */
 @media (max-width: 960px) {
   .wz-drawer.is-open {
     width: var(--wz-drawer-w-narrow, 280px);
