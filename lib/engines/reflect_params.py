@@ -432,7 +432,7 @@ def reflect(spec):
 def main(argv):
     if "--spec-file" in argv:
         path = argv[argv.index("--spec-file") + 1]
-        with open(path, "r") as fh:
+        with open(path, "r", encoding="utf-8") as fh:
             spec = json.load(fh)
     elif "--spec" in argv:
         spec = json.loads(argv[argv.index("--spec") + 1])

@@ -13,6 +13,7 @@ const { findPyFiles } = require('./pyFiles')
 const {
   platformPython,
 } = require('../../../lib/util/pythonResolve')
+const { cleanPythonEnv } = require('../../../lib/engines/verifyAudio')
 
 const EXTRACTOR = path.join(__dirname, 'cli_help_extract.py')
 
@@ -64,7 +65,7 @@ function runExtractor (dir, candidates, python, files) {
       encoding: 'utf8',
       timeout: 30000,
       maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      env: cleanPythonEnv(),
     })
     if (proc.error) {
       return {

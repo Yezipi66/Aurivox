@@ -489,7 +489,9 @@ def verify(spec):
 
 def main(argv):
     if "--spec-file" in argv:
-        with open(argv[argv.index("--spec-file") + 1], "r") as fh:
+        # Node 侧按 UTF-8 写这份 JSON；不指定编码时中文 Windows 会用 GBK 打开，
+        # 规格里的中文文本直接 UnicodeDecodeError，探针还没发请求就已经退出。
+        with open(argv[argv.index("--spec-file") + 1], "r", encoding="utf-8") as fh:
             spec = json.load(fh)
     elif "--spec" in argv:
         spec = json.loads(argv[argv.index("--spec") + 1])
