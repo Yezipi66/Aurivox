@@ -340,6 +340,7 @@ export default function ManifestPage ({
                 pythonEntries={scan && scan.python_entries}
                 positionals={scan && scan.positionals}
                 scanned={shapeSource}
+                poolParams={params}
                 guessed={guessed} onParamDropped={onParamDropped}
                 onTypeConfirmed={onTypeConfirmed} />
               : (

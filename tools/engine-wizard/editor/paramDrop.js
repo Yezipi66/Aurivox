@@ -359,3 +359,38 @@ export function applyParamDrop (manifest, param) {
   }
   return m
 }
+
+/**
+ * 一次把一组扫描到的参数写进 parameters[]。
+ *
+ * 与逐个拖进来走同一条路（applyParamDrop），所以类型、英文名、call.args 的
+ * 结果完全一致；区别只是入口从「拖一个」变成「一次加一组」。
+ * 已经声明过的名字跳过，已有的行一律不动。
+ *
+ * @param {object} manifest 当前名片
+ * @param {Array} scannedParams 扫描到的参数（调用方已按入口与分组筛过）
+ * @returns {{manifest: object, added: string[]}} added 是这次新加进来的参数名
+ */
+export function addParamsFromScan (manifest, scannedParams) {
+  const xs = Array.isArray(scannedParams) ? scannedParams : []
+  const added = []
+  if (!xs.length) return { manifest: manifest || {}, added }
+  const declared = new Set(
+    (Array.isArray(manifest && manifest.parameters) ? manifest.parameters : [])
+      .map((p) => p && p.name).filter(Boolean))
+  let m = manifest || {}
+  // 换引擎后名片是空壳，没有 call 段。cli 参数的开关名就写在 call.args 里，
+  //   没有这一段，加进来的行只剩一个空白的开关格，等于把「上游叫什么」丢掉。
+  //   只在整组都是 cli 来源时立这个骨架：python 形态的参数不走命令行。
+  if (!m.call && xs.some((p) => p && p.source === 'cli')) {
+    m = { ...m, call: { kind: 'cli', args: {} } }
+  }
+  for (const param of xs) {
+    const name = paramNameOf(param)
+    if (!name || declared.has(name)) continue
+    m = applyParamDrop(m, param)
+    declared.add(name)
+    added.push(name)
+  }
+  return { manifest: m, added }
+}

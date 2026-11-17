@@ -22,7 +22,7 @@ import {
 export default function ManifestForm ({
   manifest, onChange, spec, checkpointsPath, autofill, selectedParam,
   guessed, onParamDropped, onTypeConfirmed, modelFiles, entryCandidates,
-  pythonEntries, positionals, scanned,
+  pythonEntries, positionals, scanned, poolParams,
 }) {
   const { t } = useT()
 
@@ -114,6 +114,7 @@ export default function ManifestForm ({
       <ParamDropZone manifest={manifest} onChange={onChange}
         params={manifest.parameters || []} selectedParam={selectedParam}
         spec={spec} ParamRow={ParamRow} scanned={scanned}
+        poolParams={poolParams || []}
         guessed={guessed} onParamDropped={onParamDropped}
         onTypeConfirmed={onTypeConfirmed}>
         <OptionalConfig manifest={manifest} onChange={onChange} />

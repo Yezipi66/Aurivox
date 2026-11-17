@@ -3,6 +3,7 @@ import React from 'react'
 import { useT } from '../../../web/src/lib/i18n'
 import {
   applyParamDrop, paramNameOf, PARAM_MIME, countUnshapedParams, fillTypesFromScan, scanParamFor,
+  addParamsFromScan,
 } from './paramDrop'
 import { withArgKey } from './paramFields'
 
@@ -32,15 +33,44 @@ import { withArgKey } from './paramFields'
  */
 export default function ParamDropZone ({
   manifest, onChange, params, selectedParam, spec, ParamRow,
-  guessed, onParamDropped, onTypeConfirmed, scanned, children,
+  guessed, onParamDropped, onTypeConfirmed, scanned, poolParams, children,
 }) {
   const { t } = useT()
   const [over, setOver] = React.useState(false)
+  // 整个「合成参数」区和下方的「引擎配置」一样可收起：一次扫描进来十几二十行，
+  //   占满整屏，往下的「可选能力」「引擎配置」全被挤到看不见的地方。
+  const [open, setOpen] = React.useState(true)
 
   const list = params || []
   // 手敲开关加进来的行类型停在 text：这里算一下有多少行能按扫描结果补齐。
   //   数量为 0 时不显示按钮，界面上不留一个点了没反应的入口。
   const unshaped = countUnshapedParams(manifest, scanned)
+
+  // 扫描列出、名片里还没有的那些参数：一次全部加进来，不必逐条拖。
+  //   名单就是左栏此刻列出的那一份（已按入口与分组筛过），点一次与拖一次的
+  //   结果完全一致；已有的行保持原样。
+  const declared = new Set(list.map((p) => p && p.name).filter(Boolean))
+  const addable = []
+  const seen = new Set()
+  for (const p of (Array.isArray(poolParams) ? poolParams : [])) {
+    const name = paramNameOf(p)
+    if (!name || declared.has(name) || seen.has(name)) continue
+    seen.add(name)
+    addable.push(p)
+  }
+
+  const addAll = () => {
+    const r = addParamsFromScan(manifest, addable)
+    if (!r.added.length) return
+    onChange(r.manifest)
+    // 与拖入同一条路：类型来自推测的，中栏那一行要标出来请人核对。
+    if (onParamDropped) {
+      for (const name of r.added) {
+        const param = scanParamFor(name, scanned)
+        if (param) onParamDropped(param, name)
+      }
+    }
+  }
 
   const fillTypes = () => {
     const r = fillTypesFromScan(manifest, scanned)
@@ -112,49 +142,76 @@ export default function ParamDropZone ({
     <div className="section">
       <div className="section-hdr"><h2>{t('Optional parameters', '可选参数')}</h2></div>
       <div className="section-body">
-        {/* 标题、落点、添加按钮压成一行：标题、小标题、说明段、虚线框四行本来说的是同一件事。
-            说明降级成落点的 title，鼠标停一下才展开。 */}
+        {/* 标题即折叠开关：整段收起后只剩这一行，往下的可选能力与引擎配置才露得出来。 */}
         <div className="wz-param-head">
-          <span className="wz-subhead wz-subhead-inline">{t('Synthesis parameters', '合成参数')}</span>
-          <div
-            className={`wz-dropzone wz-dropzone-inline${over ? ' wz-dropzone-over' : ''}`}
-            title={t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
-              '将左侧扫描到的参数拖至此处：参数名、类型与说明会自动填入，右侧预览同步更新。标记为推测值的项请核对。')}
-            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOver(true) }}
-            onDragLeave={() => setOver(false)}
-            onDrop={onDrop}
-            onClick={onClick}>
-            {list.length === 0
-              ? (
-                <span>
-                  {selectedParam
-                    ? t('Click to add the selected parameter', '点击把选中的参数加进来')
-                    : t('Drag a parameter here', '拖一个参数到这里')}
-                </span>
-                )
-              : (
-                <span>
-                  {t(`Drop here to add another one (${list.length} already added)`,
-                    `拖至此处可继续添加（已添加 ${list.length} 项）`)}
-                </span>
-                )}
-          </div>
-          <button className="btn btn-sm" type="button" onClick={addParam}>
-            + {t('Add a parameter', '添加一个参数')}
-          </button>
-          {/* 手敲开关的行没有类型可依，扫描结果里有：一次补齐，不必回去逐行挑一遍。 */}
-          {unshaped > 0 && (
-            <button className="btn btn-sm" type="button" onClick={fillTypes}
-              title={t('Match these rows against the scanned parameters by name and set the control type the upstream declares. Description and choices are filled in on the way.',
-                '按参数名对上扫描结果，把这些行的控件类型改成上游声明的类型，说明与候选值一并补上。')}>
-              {t(`Set types from the scan (${unshaped})`, `按扫描结果定类型（${unshaped}）`)}
-            </button>
+          <span className="wz-subhead wz-subhead-inline" role="button" tabIndex={0}
+            aria-expanded={open}
+            style={{ cursor: 'pointer' }}
+            title={open
+              ? t('Click to collapse this section', '点击收起这一段')
+              : t('Click to expand this section', '点击展开这一段')}
+            onClick={() => setOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) }
+            }}>
+            <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+            {' '}{t('Synthesis parameters', '合成参数')}
+            <span className="badge" style={{ marginLeft: 6 }}>{list.length}</span>
+          </span>
+          {open && (
+            <>
+              {/* 标题、落点、添加按钮压成一行：标题、小标题、说明段、虚线框四行本来说的是同一件事。
+                  说明降级成落点的 title，鼠标停一下才展开。 */}
+              <div
+                className={`wz-dropzone wz-dropzone-inline${over ? ' wz-dropzone-over' : ''}`}
+                title={t('Drag a scanned parameter here: its name, type and help are filled in, and the preview updates. Confirm anything marked yellow.',
+                  '将左侧扫描到的参数拖至此处：参数名、类型与说明会自动填入，右侧预览同步更新。标记为推测值的项请核对。')}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOver(true) }}
+                onDragLeave={() => setOver(false)}
+                onDrop={onDrop}
+                onClick={onClick}>
+                {list.length === 0
+                  ? (
+                    <span>
+                      {selectedParam
+                        ? t('Click to add the selected parameter', '点击把选中的参数加进来')
+                        : t('Drag a parameter here', '拖一个参数到这里')}
+                    </span>
+                    )
+                  : (
+                    <span>
+                      {t(`Drop here to add another one (${list.length} already added)`,
+                        `拖至此处可继续添加（已添加 ${list.length} 项）`)}
+                    </span>
+                    )}
+              </div>
+              <button className="btn btn-sm" type="button" onClick={addParam}>
+                + {t('Add a parameter', '添加一个参数')}
+              </button>
+              {/* 扫描已经把这个入口的开关列全了：一次加进来，不必一个一个人工拖。
+                  加的结果与逐个拖入完全一致；名片里已有的行不动。 */}
+              {addable.length > 0 && (
+                <button className="btn btn-sm" type="button" onClick={addAll}
+                  title={t('Add every parameter the left column lists for this entry in one go. Types, English names and switches are filled in exactly as a single drop does; rows you already have stay as they are.',
+                    '把左栏为这个入口列出的参数一次全部加进来。类型、英文名与命令行开关的填法和单个拖入完全一致；已有的行保持原样。')}>
+                  {t(`Add all listed (${addable.length})`, `把列出的 ${addable.length} 个一起加入`)}
+                </button>
+              )}
+              {/* 手敲开关的行没有类型可依，扫描结果里有：一次补齐，不必回去逐行挑一遍。 */}
+              {unshaped > 0 && (
+                <button className="btn btn-sm" type="button" onClick={fillTypes}
+                  title={t('Match these rows against the scanned parameters by name and set the control type the upstream declares. Description and choices are filled in on the way.',
+                    '按参数名对上扫描结果，把这些行的控件类型改成上游声明的类型，说明与候选值一并补上。')}>
+                  {t(`Set types from the scan (${unshaped})`, `按扫描结果定类型（${unshaped}）`)}
+                </button>
+              )}
+            </>
           )}
         </div>
 
         {/* 填写引导留在框外；表头与参数行同处一个大框，行间只用分隔线。
             没有参数时不显示大框，空区由落点自己说明。 */}
-        {list.length > 0 && (
+        {open && list.length > 0 && (
           <>
             <p className="wz-param-guide">
               {t('One row per engine switch. The two labels appear above the control on the synthesis page; the type decides which control is drawn.',

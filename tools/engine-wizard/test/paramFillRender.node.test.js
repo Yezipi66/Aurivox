@@ -107,7 +107,7 @@ const ROWS = [
 ].map((name) => ({ name, type: 'text', tier: 'common', label: { en: name } }))
 
 let changed = null
-function Host ({ rows = ROWS }) {
+function Host ({ rows = ROWS, pool = [] }) {
   const [mf, setMf] = React.useState({
     id: 'demo',
     call: { kind: 'cli', argv: ['{engine_python}'], args: {} },
@@ -121,6 +121,7 @@ function Host ({ rows = ROWS }) {
     spec: {},
     ParamRow: RowStub,
     scanned: SCANNED,
+    poolParams: pool,
     guessed: new Set(),
     onParamDropped: () => {},
     onTypeConfirmed: () => {},
@@ -129,11 +130,11 @@ function Host ({ rows = ROWS }) {
 
 let root = null
 let seq = 0
-async function show (rows) {
+async function show (rows, pool) {
   seq += 1
   changed = null
   if (!root) root = ReactDOMClient.createRoot(container)
-  root.render(React.createElement(Host, { key: 'h' + seq, rows }))
+  root.render(React.createElement(Host, { key: 'h' + seq, rows, pool }))
   await settle()
 }
 
@@ -176,4 +177,39 @@ test('人挑过类型的行不参与补齐，也不出现在数量里', async ()
   await show(rows)
   assert.strictEqual(buttons('按扫描结果定类型（2）').length, 0,
     '两行都已定过类型，按钮不该出现')
+})
+
+test('左栏列出的参数可以一次全部加入，不必逐条拖', async () => {
+  await show([], SCANNED)
+  const btn = buttons(`把列出的 ${SCANNED.length} 个一起加入`)
+  assert.strictEqual(btn.length, 1, '空名片 + 左栏有参数时该给出一次性入口')
+  Simulate.click(btn[0])
+  await settle()
+  assert.deepStrictEqual(changed.parameters.map((p) => p.name), SCANNED.map((p) => p.name))
+  const types = Object.fromEntries(changed.parameters.map((p) => [p.name, p.type]))
+  assert.strictEqual(types['guidance-scale'], 'number', '与单条拖入走同一条路，类型一样算出来')
+  assert.strictEqual(types.tokenizer, 'select')
+  assert.strictEqual(changed.parameters[0].suggested_value, 1.5, '上游默认值一并带进来')
+})
+
+test('已经在名片里的参数不再出现在「一起加入」的数量里', async () => {
+  await show([{ name: 'guidance-scale', type: 'number', tier: 'common', label: { en: 'guidance-scale' } }], SCANNED)
+  assert.strictEqual(buttons(`把列出的 ${SCANNED.length} 个一起加入`).length, 0,
+    '四条里已有一条在名片里，按钮不该还写着 4')
+  assert.strictEqual(buttons(`把列出的 ${SCANNED.length - 1} 个一起加入`).length, 1)
+})
+
+test('整段「合成参数」可以收起：收起后落点与参数行都不在', async () => {
+  await show()
+  assert.ok(rowTexts().length > 0, '前提：默认是展开的')
+  const hdr = [...container.querySelectorAll('.wz-subhead')]
+    .find((e) => e.textContent.includes('合成参数'))
+  assert.ok(hdr, '没找到合成参数的标题')
+  Simulate.click(hdr)
+  await settle()
+  assert.strictEqual(rowTexts().length, 0, '收起后参数行不该还占着屏幕')
+  assert.strictEqual(container.querySelectorAll('.wz-dropzone').length, 0, '收起后落点也一起收')
+  Simulate.click(hdr)
+  await settle()
+  assert.ok(rowTexts().length > 0, '再点一下要能展开回来')
 })
