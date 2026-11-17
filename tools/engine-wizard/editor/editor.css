@@ -818,15 +818,22 @@
 .wz-param-dim-del:disabled { opacity: 0.2; cursor: default; }
 
 
-/* 尾部定宽：推测徽标出现与否都不改这一格宽度，表头末尾留同宽的一格。 */
+/* 尾部定宽：推测徽标、明细开合按钮出现与否都不改这一格宽度，表头末尾留同宽的一格。 */
 .wz-param-tail {
-  flex: 0 0 136px;
+  flex: 0 0 164px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--sp-6);
 }
 .wz-param-del { flex: 0 0 64px; }
+/* 明细表的开合：只有 select / vector / boolean 有，摆在行尾删除按钮之前。
+   收起时整行就是主行那一行，不再单独占第二行。 */
+.wz-param-more {
+  flex: 0 0 26px;
+  padding-left: 0;
+  padding-right: 0;
+}
 /* 表头与参数行共用 .wz-param-row 的 padding 与列宽，同处大框内，列起点自然一致。 */
 .wz-param-guide {
   margin: 0 0 var(--sp-6);
@@ -842,7 +849,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wz-param-ops { flex: 0 0 136px; }
+.wz-param-ops { flex: 0 0 164px; }
 /* 数字框的上/下箭头：项目其余控件均无 spinner，为保持一致不绘制，
    数值用键盘（上下键、滚轮）调整。 */
 .wz-root input[type='number']::-webkit-outer-spin-button,

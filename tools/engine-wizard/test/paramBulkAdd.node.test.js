@@ -104,3 +104,43 @@ test('一次加入：python 形态的参数不凭空立一个 cli 命令行段',
   assert.deepStrictEqual(r.added, ['speed'])
   assert.strictEqual(r.manifest.call, undefined, 'python 形态没有命令行可写')
 })
+
+test('一次加入：已经由槽位接管的开关不再做成旋钮', () => {
+  // 辅助参考音频走 call.args 的 role，正文 / 参考音频等走 call.bind：
+  //   两者各有自己的格子，再做一格就是同一个开关在界面上出现两次。
+  const m = {
+    id: 'x',
+    call: {
+      kind: 'cli',
+      args: { 'emotion-audio': { flag: '--emotion-audio', style: 'value', role: 'audio_ref' } },
+      bind: { text: '--text', output_path: '--output' },
+    },
+  }
+  const pool = [
+    { source: 'cli', name: 'emotion-audio', target: '--emotion-audio', kind: 'str', style: 'value' },
+    { source: 'cli', name: 'text', target: '--text', kind: 'str', style: 'value' },
+    { source: 'cli', name: 'output', target: '--output', kind: 'str', style: 'value' },
+    { source: 'cli', name: 'speed', target: '--speed', kind: 'float', style: 'value' },
+  ]
+  const r = addParamsFromScan(m, pool)
+  assert.deepStrictEqual(r.added, ['speed'], '只该加真正是旋钮的那一个')
+  assert.deepStrictEqual(r.manifest.parameters.map((p) => p.name), ['speed'])
+  assert.strictEqual(r.manifest.call.args['emotion-audio'].role, 'audio_ref',
+    '槽位那条原样保留，不能被改写成参数')
+})
+
+test('一次加入：槽位判定认 name 也认开关名', () => {
+  const m = {
+    id: 'x',
+    call: { kind: 'cli', args: { 'ref-audio': { flag: '--voice', role: 'audio_ref' } }, bind: { ref_text: '--emotion-text' } },
+  }
+  const pool = [
+    // 名片里键叫 ref-audio，扫描到的开关是 --voice：按 role 那条的 flag 认
+    { source: 'cli', name: 'voice', target: '--voice', kind: 'str', style: 'value' },
+    // bind 里只写了开关名，扫描到的参数名是 emotion-text
+    { source: 'cli', name: 'emotion-text', target: '--emotion-text', kind: 'str', style: 'value' },
+    { source: 'cli', name: 'force', target: '--force', kind: 'bool', style: 'boolean' },
+  ]
+  const r = addParamsFromScan(m, pool)
+  assert.deepStrictEqual(r.added, ['force'])
+})

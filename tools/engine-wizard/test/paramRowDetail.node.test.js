@@ -1,7 +1,6 @@
 'use strict'
-// 参数行的明细表默认收起：select 的候选、vector 的维度、boolean 的否定式开关
-// 各占一大块，一次扫描进来十几二十行时，主行那五列会被挤得看不见。
-// 这里渲染真的 ParamRow，只把下拉换成原生替身。
+// 参数行收起来时必须只剩一行：明细表的开合按钮在行尾，和删除按钮同一排，
+// 收起时不渲染任何第二行的内容。这里渲染真的 ParamRow，只把下拉换成原生替身。
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -87,39 +86,49 @@ async function show (entry, extra = {}) {
   await settle()
 }
 
-const buttons = () => [...container.querySelectorAll('button')]
-const buttonWith = (text) => buttons().find((b) => b.textContent.includes(text))
+// 行尾的开合按钮：唯一带 aria-expanded 的那一个。
+const toggle = () => container.querySelector('.wz-param-tail button[aria-expanded]')
+const inTail = (el) => !!(el && el.closest('.wz-param-tail'))
 
-test('select 行的候选表默认收起，点一下才摊开', async () => {
+test('select 行收起时只有主行一行：开合按钮在行尾，明细表不渲染', async () => {
   await show({ name: 'lang', type: 'select', tier: 'common', choices: [{ value: 'zh' }, { value: 'en' }] })
-  const btn = buttonWith('选项（2）')
-  assert.ok(btn, '没找到选项的折叠开关')
+  const btn = toggle()
+  assert.ok(btn, 'select 行要有开合按钮')
+  assert.ok(inTail(btn), '开合按钮要摆在行尾，不能独占第二行')
   assert.strictEqual(btn.getAttribute('aria-expanded'), 'false', '默认应当是收起的')
-  assert.strictEqual(container.querySelectorAll('.wz-param-table-row').length, 0,
-    '收起时不该渲染候选行')
+  assert.strictEqual(container.querySelectorAll('.wz-param-table').length, 0,
+    '收起时不该渲染明细表（它会把这一行撑成两行）')
   Simulate.click(btn)
   await settle()
-  assert.strictEqual(buttonWith('选项（2）').getAttribute('aria-expanded'), 'true')
+  assert.strictEqual(toggle().getAttribute('aria-expanded'), 'true')
   assert.ok(container.querySelectorAll('.wz-param-table-row').length >= 2, '展开后要看到候选行')
 })
 
-test('vector 行的维度表默认收起，点一下才摊开', async () => {
+test('vector 行收起时只有主行一行，展开才铺维度表', async () => {
   await show({ name: 'emotion', type: 'vector', tier: 'common',
     dim_labels: [{ zh: '喜' }, { zh: '怒' }], suggested_value: [null, null] })
-  const btn = buttonWith('维度（2）')
-  assert.ok(btn, '没找到维度的折叠开关')
+  const btn = toggle()
+  assert.ok(btn && inTail(btn), 'vector 行也要有摆在行尾的开合按钮')
   assert.strictEqual(container.querySelectorAll('.wz-param-table-row').length, 0)
   Simulate.click(btn)
   await settle()
   assert.ok(container.querySelectorAll('.wz-param-table-row').length >= 2)
 })
 
-test('boolean 行只说一句现状，点开才给否定式开关', async () => {
+test('boolean 行收起时只有主行一行，展开才给否定式开关', async () => {
   await show({ name: 'normalize', type: 'boolean', tier: 'common' })
-  const btn = buttonWith('否定式开关：未启用')
-  assert.ok(btn, '没找到否定式开关的折叠入口')
+  const btn = toggle()
+  assert.ok(btn && inTail(btn), 'boolean 行也要有摆在行尾的开合按钮')
   assert.strictEqual(container.querySelectorAll('.wz-param-bool-row').length, 0)
   Simulate.click(btn)
   await settle()
   assert.strictEqual(container.querySelectorAll('.wz-param-bool-row').length, 1)
+})
+
+test('没有明细表的类型不摆开合按钮：text / number / file 就是一行', async () => {
+  for (const type of ['text', 'number', 'file']) {
+    await show({ name: 'x-' + type, type, tier: 'common' })
+    assert.strictEqual(toggle(), null, type + ' 没有明细表，不该有开合按钮')
+    assert.strictEqual(container.querySelectorAll('.wz-param-table').length, 0)
+  }
 })

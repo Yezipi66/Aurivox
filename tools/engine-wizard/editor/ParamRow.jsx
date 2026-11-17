@@ -28,11 +28,12 @@ export default function ParamRow ({ entry, index, spec, argv = '', argStyle = ''
   void spec
 
   const type = TYPES.includes(entry.type) ? entry.type : 'text'
-  // 明细表（select 的候选、vector 的维度、boolean 的否定式开关）默认收起：
-  //   一次扫描进来十几二十行，每行的表都摊开，主行那五列反而被挤得看不见。
-  //   收起时表头那枚按钮上写着条数，要点开才编辑。
+  // 明细表（select 的候选、vector 的维度、boolean 的否定式开关）默认收起。
+  //   收起时整行只有主行那一行：开合按钮摆在行尾，和删除按钮同一排，
+  //   不再单独占第二行。
   const [detail, setDetail] = React.useState(false)
   React.useEffect(() => { setDetail(false) }, [type])
+  const hasDetail = type === 'select' || type === 'vector' || type === 'boolean'
   // 有没有否定式开关，只由 call.args 的 style 决定（boolean_optional 才有）。
   const negatable = argStyle === 'boolean_optional'
   const label = readLabel(entry)
@@ -135,12 +136,21 @@ export default function ParamRow ({ entry, index, spec, argv = '', argStyle = ''
         <option value="advanced">{t('advanced', '高级')}</option>
       </Select>
 
-      {/* 尾部定宽：推测徽标出现与否都不改这一格宽度，表头的列才对得上。 */}
+      {/* 尾部定宽：推测徽标与开合按钮出现与否都不改这一格宽度，表头的列才对得上。 */}
       <div className="wz-param-tail">
         {typeGuessed && (
           <span className="badge badge-warn" title={t('guessed, confirm', '推测值，请核对')}>
             {t('guessed', '推测')}
           </span>
+        )}
+        {hasDetail && (
+          <button className="btn btn-sm wz-param-more" type="button" aria-expanded={detail}
+            title={detail
+              ? t('Collapse this table', '收起这张表')
+              : t('Expand this table', '展开这张表')}
+            onClick={() => setDetail((v) => !v)}>
+            <span aria-hidden="true">{detail ? '▾' : '▸'}</span>
+          </button>
         )}
         <button className="btn btn-sm btn-danger wz-param-del" type="button"
           title={t('Delete this parameter', '删除该参数')}
@@ -149,122 +159,85 @@ export default function ParamRow ({ entry, index, spec, argv = '', argStyle = ''
         </button>
       </div>
 
-      {type === 'select' && (
+      {type === 'select' && detail && (
         <div className="wz-param-table">
           <div className="wz-param-table-head">
-            <button className="btn btn-sm" type="button" aria-expanded={detail}
-              title={t('Expand to edit the choices this drop-down offers',
-                '展开可编辑这个下拉提供的选项')}
-              onClick={() => setDetail((v) => !v)}>
-              <span aria-hidden="true">{detail ? '▾' : '▸'}</span>
-              {t(`Options (${choices.length})`, `选项（${choices.length}）`)}
-            </button>
-            {detail && (
-              <input className="control wz-param-count" type="number" min="1" max="64" value={choices.length}
-                title={t('How many options the drop-down has', '下拉里有几个选项')}
-                onChange={(e) => setChoiceCount(Number(e.target.value))} />
-            )}
+            <span className="wz-param-table-label">{t('Options', '选项')}</span>
+            <input className="control wz-param-count" type="number" min="1" max="64" value={choices.length}
+              title={t('How many options the drop-down has', '下拉里有几个选项')}
+              onChange={(e) => setChoiceCount(Number(e.target.value))} />
             <span className="wz-param-table-hint">
               {t('Each option is what goes after the switch. The two labels are what the drop-down shows. The field stays editable as an escape hatch.',
                 '每个选项就是开关后面要填的值，两列名字是下拉里显示的内容。合成页仍可直接输入，作为逃生口。')}
             </span>
           </div>
-          {detail && (
-            <>
-              <div className="wz-param-table-row wz-param-table-cols">
-                <span />
-                <span>{t('value (--argv <value>)', '值（--argv <值>）')}</span>
-                <span>{t('Chinese', '中文显示')}</span>
-                <span>{t('English', '英文显示')}</span>
-              </div>
-              {choices.map((c, i) => (
-                <div className="wz-param-table-row" key={i}>
-                  <span className="wz-param-no">{t(`arg${i + 1}`, `args${i + 1}`)}</span>
-                  <input className="control" value={c.value} placeholder={t('value', '值')}
-                    onChange={(e) => setChoice(i, 'value', e.target.value)} />
-                  <input className="control" value={c.zh} placeholder={t('Chinese', '中文')}
-                    onChange={(e) => setChoice(i, 'zh', e.target.value)} />
-                  <input className="control" value={c.en} placeholder={t('English', '英文')}
-                    onChange={(e) => setChoice(i, 'en', e.target.value)} />
-                </div>
-              ))}
-            </>
-          )}
+          <div className="wz-param-table-row wz-param-table-cols">
+            <span />
+            <span>{t('value (--argv <value>)', '值（--argv <值>）')}</span>
+            <span>{t('Chinese', '中文显示')}</span>
+            <span>{t('English', '英文显示')}</span>
+          </div>
+          {choices.map((c, i) => (
+            <div className="wz-param-table-row" key={i}>
+              <span className="wz-param-no">{t(`arg${i + 1}`, `args${i + 1}`)}</span>
+              <input className="control" value={c.value} placeholder={t('value', '值')}
+                onChange={(e) => setChoice(i, 'value', e.target.value)} />
+              <input className="control" value={c.zh} placeholder={t('Chinese', '中文')}
+                onChange={(e) => setChoice(i, 'zh', e.target.value)} />
+              <input className="control" value={c.en} placeholder={t('English', '英文')}
+                onChange={(e) => setChoice(i, 'en', e.target.value)} />
+            </div>
+          ))}
         </div>
       )}
 
-      {type === 'vector' && (
+      {type === 'vector' && detail && (
         <div className="wz-param-table">
           <div className="wz-param-table-head">
-            <button className="btn btn-sm" type="button" aria-expanded={detail}
-              title={t('Expand to name each dimension of this vector',
-                '展开可给这个向量的每一维起名字')}
-              onClick={() => setDetail((v) => !v)}>
-              <span aria-hidden="true">{detail ? '▾' : '▸'}</span>
-              {t(`Dimensions (${dims.length})`, `维度（${dims.length}）`)}
-            </button>
-            {detail && (
-              <input className="control wz-param-count" type="number" min="2" max="64" value={dims.length}
-                title={t('How many values this control has', '这个向量有几维')}
-                onChange={(e) => setDimCount(Math.max(2, Number(e.target.value)))} />
-            )}
+            <span className="wz-param-table-label">{t('Dimensions', '维度')}</span>
+            <input className="control wz-param-count" type="number" min="2" max="64" value={dims.length}
+              title={t('How many values this control has', '这个向量有几维')}
+              onChange={(e) => setDimCount(Math.max(2, Number(e.target.value)))} />
             <span className="wz-param-table-hint">
               {t('One row per dimension, left to right in the order the engine reads. The large box is titled with the Chinese / English label above; each small box is titled with its own.',
                 '一行一维，按引擎读取的顺序排列。9886 上的大框标题取上方的中英文名字，每个小输入框的标题取本行的名字。')}
             </span>
           </div>
-          {detail && (
-            <>
-              <div className="wz-param-table-row wz-param-table-cols wz-param-table-2">
-                <span />
-                <span>{t('Chinese', '中文显示')}</span>
-                <span>{t('English', '英文显示')}</span>
-              </div>
-              {dims.map((d, i) => (
-                <div className="wz-param-table-row wz-param-table-2" key={i}>
-                  <span className="wz-param-no">{t(`#${i + 1}`, `第 ${i + 1} 维`)}</span>
-                  <input className="control" value={d.zh} placeholder={t('Chinese', '中文')}
-                    onChange={(e) => setDim(i, 'zh', e.target.value)} />
-                  <input className="control" value={d.en} placeholder={t('English', '英文')}
-                    onChange={(e) => setDim(i, 'en', e.target.value)} />
-                </div>
-              ))}
-            </>
-          )}
+          <div className="wz-param-table-row wz-param-table-cols wz-param-table-2">
+            <span />
+            <span>{t('Chinese', '中文显示')}</span>
+            <span>{t('English', '英文显示')}</span>
+          </div>
+          {dims.map((d, i) => (
+            <div className="wz-param-table-row wz-param-table-2" key={i}>
+              <span className="wz-param-no">{t(`#${i + 1}`, `第 ${i + 1} 维`)}</span>
+              <input className="control" value={d.zh} placeholder={t('Chinese', '中文')}
+                onChange={(e) => setDim(i, 'zh', e.target.value)} />
+              <input className="control" value={d.en} placeholder={t('English', '英文')}
+                onChange={(e) => setDim(i, 'en', e.target.value)} />
+            </div>
+          ))}
         </div>
       )}
 
       {/* boolean：只补一件主行说不清楚的事，取消勾选时发不发否定式开关。
              上游写成 --x/--no-x 时勾上；只写 --x 时留空。 */}
-      {type === 'boolean' && (
+      {type === 'boolean' && detail && (
         <div className="wz-param-table">
-          <div className="wz-param-table-head">
-            <button className="btn btn-sm" type="button" aria-expanded={detail}
-              title={t('Expand to set what an unchecked box sends',
-                '展开可设置取消勾选时发什么')}
-              onClick={() => setDetail((v) => !v)}>
-              <span aria-hidden="true">{detail ? '▾' : '▸'}</span>
-              {negatable
-                ? t('Negative switch: on', '否定式开关：已启用')
-                : t('Negative switch: off', '否定式开关：未启用')}
-            </button>
-            <span className="wz-param-table-hint">
-              {t('On: unchecked sends --no-x. Off: unchecked sends nothing and the engine keeps its own default.',
-                '勾上：取消勾选时发 --no-x。不勾：取消勾选时什么都不发，由引擎用自己的默认值。')}
-            </span>
-          </div>
-          {detail && (
-            <label className="wz-param-bool-row">
-              <input type="checkbox" checked={negatable}
-                onChange={(e) => patch({}, {
-                  argv: { from: entry.name, to: entry.name, flag: argv, style: boolStyle(e.target.checked) },
-                })} />
-              <span>{t('Send a negative switch when unchecked', '取消勾选时发送否定式开关')}</span>
-              {negatable && argv && (
-                <code className="wz-param-bool-neg">{'--no-' + String(argv).replace(/^-+/, '')}</code>
-              )}
-            </label>
-          )}
+          <label className="wz-param-bool-row">
+            <input type="checkbox" checked={negatable}
+              onChange={(e) => patch({}, {
+                argv: { from: entry.name, to: entry.name, flag: argv, style: boolStyle(e.target.checked) },
+              })} />
+            <span>{t('Send a negative switch when unchecked', '取消勾选时发送否定式开关')}</span>
+            {negatable && argv && (
+              <code className="wz-param-bool-neg">{'--no-' + String(argv).replace(/^-+/, '')}</code>
+            )}
+          </label>
+          <span className="wz-param-table-hint">
+            {t('On: unchecked sends --no-x. Off: unchecked sends nothing and the engine keeps its own default.',
+              '勾上：取消勾选时发 --no-x。不勾：取消勾选时什么都不发，由引擎用自己的默认值。')}
+          </span>
         </div>
       )}
     </div>
