@@ -1,5 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { createPortal } from 'react-dom'
 import { LangProvider, useT } from '../../../web/src/lib/i18n'
 import App from './App'
 import { createConnGuard } from './connGuard'
@@ -24,12 +25,11 @@ function ConnBanner () {
   const [down, setDown] = React.useState(null)
   React.useEffect(() => guard.subscribe(setDown), [])
   if (!down) return null
-  return (
-    <div className="msg msg-error" role="alert"
-      style={{
-        position: 'fixed', left: 16, bottom: 16, zIndex: 9999,
-        maxWidth: 560, margin: 0, boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
-      }}>
+  // 挂到 body，不留在 #root 里：只要某个祖先建了新的包含块（transform / contain）
+  //   并带 overflow，浮层就会被那个祖先的边界裁掉，宽度与文字一起被切。
+  //   挂到 body 之后它只认视口。
+  return createPortal(
+    <div className="msg msg-error wz-conn-banner" role="alert">
       <strong>{t('Disconnected from the wizard service.', '与向导服务断开。')}</strong>{' '}
       {t('Every request fails until it is back. The banner clears by itself once the service answers again; if it stays, check the terminal that runs vite.',
         '服务回来之前，页面上的请求都会失败。它会每三秒探一次，恢复后这条提示自动消失；一直不消失就看一眼跑 vite 的那个终端。')}
@@ -38,7 +38,8 @@ function ConnBanner () {
           {t('Last failed request: ', '最后失败的地址：')}<code>{down.url}</code>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   )
 }
 

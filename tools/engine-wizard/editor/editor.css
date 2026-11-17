@@ -885,3 +885,23 @@
 .wz-unset:focus-within {
   opacity: 1;
 }
+
+/* 与向导服务断开的提示：浮在左下角。
+   .msg-error 的底色是 10% 的危险色 + 90% 透明 —— 放在页面流里没问题，
+   浮在参数池上方时下面的文字会透上来，读起来像两段字叠在一起。
+   这里给一个不透明的合成底（危险色与页面底色混合），并沿用项目自己的阴影档。 */
+.wz-conn-banner {
+  position: fixed;
+  left: var(--sp-16);
+  bottom: var(--sp-16);
+  z-index: 9999;
+  /* 宽度写死，不留 width:auto 的收缩空间：浮层的可用宽度取决于包含块，
+     一旦祖先建了新的包含块（transform / contain），收缩结果会远小于读者需要的宽度，
+     文字就在框里被切掉。这里按视口算，与祖先多宽无关。 */
+  width: min(560px, calc(100vw - var(--sp-16) * 2));
+  max-width: none;
+  margin: 0;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg));
+  box-shadow: var(--shadow-soft);
+}

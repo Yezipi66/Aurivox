@@ -94,3 +94,25 @@ test('判据本身：网络层失败才认', () => {
   const ab = new Error('aborted'); ab.name = 'AbortError'
   assert.strictEqual(isNetworkError(ab), false)
 })
+
+test('提示条挂到 body、宽度按视口写死：不被祖先裁掉，也不透出下层文字', () => {
+  // 两个坑：
+  //   ① 留在 #root 里，一旦某个祖先建了新的包含块（transform / contain）又带 overflow，
+  //      浮层就被那个祖先的边界裁掉，文字跟着被切；挂到 body 只认视口。
+  //   ② width:auto 的收缩宽度取决于包含块，祖先一窄，框就窄到读不全；
+  //      按视口写死宽度，与祖先多宽无关。
+  //   底色同理：.msg-error 是 10% 危险色 + 90% 透明，浮在参数池上方时下层文字会透上来。
+  const jsx = fs.readFileSync(path.join(EDITOR, 'index.jsx'), 'utf8')
+  assert.ok(/msg-error wz-conn-banner/.test(jsx), 'index.jsx 要用这个类名')
+  assert.ok(/createPortal\(/.test(jsx), '提示条要 portal 出去')
+  assert.ok(/document\.body/.test(jsx), 'portal 的目标是 body')
+
+  const css = fs.readFileSync(path.join(EDITOR, 'editor.css'), 'utf8')
+  const rule = /\.wz-conn-banner\s*\{([\s\S]*?)\}/.exec(css)
+  assert.ok(rule, 'editor.css 里没有 .wz-conn-banner')
+  assert.ok(/position:\s*fixed/.test(rule[1]), '提示条要浮在页面上，不参与流向')
+  assert.ok(/width:\s*min\(560px/.test(rule[1]), '宽度要按视口写死，不能靠 width:auto 收缩')
+  assert.ok(/background:[^;]*var\(--bg\)/.test(rule[1]),
+    '提示条的底色要混入页面底色，不能是透明底')
+  assert.ok(!/background:[^;]*transparent/.test(rule[1]), '提示条不能留透明底')
+})
