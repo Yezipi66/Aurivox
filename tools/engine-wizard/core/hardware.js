@@ -5,6 +5,7 @@
 
 // 显卡探测在 lib/engines/gpus.js：9886 主应用也要用同一份，反过来依赖 tools/ 是没必要的耦合。
 // CPU 与内存在 lib/system/hardware.js：与显卡同出一处，界面才能把整机情况一次说完。
+const os = require('node:os')
 const gpuProbe = require('../../../lib/engines/gpus')
 const { detectGpus, sameGpuName, run, runFirst } = gpuProbe
 const { detectHardware } = require('../../../lib/system/hardware')
@@ -75,11 +76,19 @@ function recommendBackend (gpus) {
   }
 }
 
+/** 平台基座 Python 版本：引擎没声明时按它装（与 envDetect 同口径）。 */
+function platformBasePython () {
+  try { return require('./envDetect').PLATFORM_BASE_PYTHON || null } catch { return null }
+}
+
 /**
  * 完整入口：检测 + 推荐 + 全部可选项。
  *
  * 返回里一定带 options（所有可选项）：推荐只是 highlight，
  *   用户可以选任何一条，包括「我自己装」。
+ *
+ * os / arch / python 是本机运行环境快照：依赖标注要判「上游声明用于哪个平台」
+ *   时从这里取，不再各自去问 process.platform。
  */
 function inspectHardware () {
   // 一次汇总取全：CPU、内存、显卡。后端推荐只看显卡，界面要一起显示。
@@ -87,6 +96,9 @@ function inspectHardware () {
   const gpus = hw.gpus
   const rec = recommendBackend(gpus)
   return {
+    os: process.platform,
+    arch: os.arch(),
+    python: platformBasePython(),
     cpu: hw.cpu,
     memory: hw.memory,
     gpus,

@@ -344,14 +344,22 @@ function declaredSpecs (dir, guess, route) {
  * 其余标记（python_version 之类）不评估，保守按「要装」：
  *   宁可多要求一次重装，也不要误判为可跳过而漏包。
  */
-function markerAllowsPlatform (marker) {
+function markerAllowsPlatform (marker, osName) {
+  const plat = osName || process.platform
   const m = String(marker || '').trim()
   if (!m) return true
+  // `A or B` 是上游常见写法（`sys_platform == 'darwin' or sys_platform == 'win32'`）：
+  //   任一成立即允许。只认由 or 连接的整段，不把 `and` 混进来。
+  if (/\bor\b/i.test(m)) {
+    return m.split(/\bor\b/i).some((part) => markerAllowsPlatform(part.trim(), plat))
+  }
+  // 含 and 的复合条件（`... and python_version >= '3.8'`）不评估，保守按「要装」。
+  if (/\band\b/i.test(m)) return true
   const sp = m.match(/sys_platform\s*==\s*['"]([^'"]+)['"]/)
-  if (sp) return sp[1].toLowerCase() === String(process.platform).toLowerCase()
+  if (sp) return sp[1].toLowerCase() === String(plat).toLowerCase()
   const ps = m.match(/platform_system\s*==\s*['"]([^'"]+)['"]/)
   if (ps) {
-    const name = { win32: 'windows', linux: 'linux', darwin: 'darwin' }[process.platform] || ''
+    const name = { win32: 'windows', linux: 'linux', darwin: 'darwin' }[plat] || ''
     return ps[1].toLowerCase() === name
   }
   return true
@@ -730,4 +738,5 @@ module.exports = {
   specsFromManifestText,
   declaredSpecs,
   declaredDeps,
+  markerAllowsPlatform,
 }

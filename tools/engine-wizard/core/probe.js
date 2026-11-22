@@ -66,7 +66,7 @@ function probePyproject (text) {
 }
 
 function parseRequirements (text) {
-  const out = { found: false, dependencies: [], specs: [], skipped: 0 }
+  const out = { found: false, dependencies: [], specs: [], markers: [], skipped: 0 }
   if (typeof text !== 'string' || !text) return out
   out.found = true
 
@@ -97,8 +97,10 @@ function parseRequirements (text) {
     // 选项行：-r / -e / -c / --index-url / --hash / --find-links
     if (line.startsWith('-')) { out.skipped++; continue }
 
-    // 环境标记 ; 之后是条件，只取分号前的依赖声明
+    // 环境标记 ; 之后是条件，只取分号前的依赖声明；
+    //   条件本身留下来（markers 与 specs 对齐）：依赖标注要判「上游声明用于哪个平台」时用它。
     const semi = line.indexOf(';')
+    const marker = semi >= 0 ? line.slice(semi + 1).trim() : ''
     if (semi >= 0) line = line.slice(0, semi).trim()
     if (!line) { out.skipped++; continue }
 
@@ -129,6 +131,7 @@ function parseRequirements (text) {
     seen.add(key)
     out.dependencies.push(name)
     out.specs.push(name + tail.replace(/\s+/g, ''))
+    out.markers.push(marker)
   }
   return out
 }
@@ -470,10 +473,83 @@ function planDependencies (text, opts = {}) {
   const { splitTorchPackages } = require('./hardware')
   const { torchish, rest } = splitTorchPackages(deps)
 
+  // 环境标记：requirements 路线在 parseRequirements 里与 specs 对齐存进 markers；
+  //   pyproject 路线的 marker 仍在 spec 文本里。两处都归一到「包名 → marker」。
+  const markerByName = new Map()
+  if (!fromPyproject && Array.isArray(reqParsed.markers)) {
+    reqParsed.specs.forEach((s, i) => {
+      const n = String(s).split(/[<>=!~\[]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
+      if (n) markerByName.set(n, reqParsed.markers[i] || '')
+    })
+  }
+
   // torch 系：每一个都判一次绿/黄/白（不只判一个就代表全部）
+  const { markerAllowsPlatform } = require('./installChoices')
+  // 平台名句式固定：一个直接写；两个「A或B」；三个「A，B或C」。
+  //   中英文各自同一规则，blocked / allowed 共用这一句，只差结尾那半句。
+  const joinPlatforms = (list) => {
+    if (list.length <= 1) return list.join('')
+    if (list.length === 2) return `${list[0]}或${list[1]}`
+    return `${list.slice(0, -1).join('，')}或${list[list.length - 1]}`
+  }
+  const joinPlatformsEn = (list) => {
+    if (list.length <= 1) return list.join('')
+    if (list.length === 2) return `${list[0]} or ${list[1]}`
+    return `${list.slice(0, -1).join(', ')} or ${list[list.length - 1]}`
+  }
+  // 平台名按上游声明的顺序取（不去重重排）：声明多少个都能依次表达清楚。
+  //   current 标记本机那个，界面要突出时用加粗，不改顺序。
+  const platformNamesOf = (marker) => {
+    const out = []
+    const grab = (re) => {
+      let m
+      while ((m = re.exec(String(marker || '')))) out.push(m[1])
+    }
+    grab(/sys_platform\s*==\s*['"]([^'"]+)['"]/g)
+    grab(/platform_system\s*==\s*['"]([^'"]+)['"]/g)
+    const seen = new Set()
+    const names = []
+    for (const n of out) {
+      const k = String(n).toLowerCase()
+      if (seen.has(k)) continue
+      seen.add(k)
+      names.push({ name: n, current: (hw && hw.os) ? k === String(hw.os).toLowerCase() : false })
+    }
+    return names
+  }
+  const platformSentence = (marker) => {
+    const names = platformNamesOf(marker)
+    const text = names.map((x) => x.name)
+    return {
+      zh: `上游声明适用于${joinPlatforms(text)}平台`,
+      en: `Declared for ${joinPlatformsEn(text)}`,
+      names,
+    }
+  }
   const torchGroup = torchish.map((spec) => {
     const name = spec.split(/[<>=!~\[]/)[0].trim().toLowerCase()
     const isMain = name === 'torch'
+    // 平台适用性：上游用 sys_platform / platform_system 声明「只在某平台装」时，
+    //   本机能不能装是快照里取 os 就能算出的事实，不该回「无法判断」。
+    const semi = spec.indexOf(';')
+    const marker = semi >= 0
+      ? spec.slice(semi + 1).trim()
+      : (markerByName.get(name.replace(/[-_.]+/g, '-')) || '')
+    const platformAllowed = markerAllowsPlatform(marker, hw && hw.os)
+    const sentence = marker ? platformSentence(marker) : null
+    const platform = marker
+      ? (platformAllowed
+        ? {
+            allowed: true, marker, names: sentence.names,
+            why: `${sentence.en}.`,
+            whyZh: `${sentence.zh}。`,
+          }
+        : {
+            allowed: false, marker, names: sentence.names,
+            why: `${sentence.en}; not recommended on this machine.`,
+            whyZh: `${sentence.zh}，不推荐安装。`,
+          })
+      : null
     // 上游没有写版本，也没有写 +cuXXX 这类后缀：这一行的问题不是「后端不明」，
     //   而是「uv 会装成什么」。写清后者才有用，让人自己确认等于没说。
     //   这也是这一格该给的答案：requirements 路线没有 lock，说「lock 里没写」是假话。
@@ -482,28 +558,38 @@ function planDependencies (text, opts = {}) {
     const j = isMain && hw
       ? require('./hardware').judgeTorchSpec(spec, hw.recommended)
       : null
+    const platformBlocked = platform && !platform.allowed
+    // 平台适用、但没有后端结论（onnxruntime 这类不跟随 torch 的包）：
+    //   说出平台事实，不拿「后端」去问一个没有后端概念的包。
+    const platformOkNoBackend = platform && platform.allowed && !j
     return {
       spec, name,
       isMain,
-      verdict: j ? j.verdict : 'unknown',
-      why: unpinned
-        ? (isMain
-            ? 'The upstream pins no version, so uv installs what PyPI publishes: '
-              + 'a CPU build on Windows and macOS, a CUDA build on Linux. '
-              + 'Pick a backend above to install a GPU build instead.'
-            : 'It follows torch, and the upstream pins neither — uv decides both.')
-        : (j ? j.why
-          : (isMain ? 'This machine was not detected — cannot tell whether this package will work.'
-            : 'The backend is decided by the Torch version, which the upstream does not declare.')),
-      whyZh: unpinned
-        ? (isMain
-            ? '上游没有写版本，uv 会装 PyPI 上的默认发行版：'
-              + 'Windows 与 macOS 上是 CPU 版，Linux 上是 CUDA 版。'
-              + '要装 GPU 版，请在上方选择后端。'
-            : '它跟随 torch，而上游两个都没有写版本，由 uv 一并解析。')
-        : (j ? j.whyZh
-          : (isMain ? '未检测本机，无法判断该包能否使用'
-            : '后端由 torch 的版本决定，上游没有声明。')),
+      verdict: platformBlocked ? 'mismatch' : (j ? j.verdict : 'unknown'),
+      platform,
+      platformBlocked,
+      why: platformBlocked ? platform.why
+        : (platformOkNoBackend ? platform.why
+          : (unpinned
+            ? (isMain
+                ? 'The upstream pins no version, so uv installs what PyPI publishes: '
+                  + 'a CPU build on Windows and macOS, a CUDA build on Linux. '
+                  + 'Pick a backend above to install a GPU build instead.'
+                : 'It follows torch, and the upstream pins neither — uv decides both.')
+            : (j ? j.why
+              : (isMain ? 'This machine was not detected — cannot tell whether this package will work.'
+                : 'Upstream declares no backend for this package — the platform does not guess.')))),
+      whyZh: platformBlocked ? platform.whyZh
+        : (platformOkNoBackend ? platform.whyZh
+          : (unpinned
+            ? (isMain
+                ? '上游没有写版本，uv 会装 PyPI 上的默认发行版：'
+                  + 'Windows 与 macOS 上是 CPU 版，Linux 上是 CUDA 版。'
+                  + '要装 GPU 版，请在上方选择后端。'
+                : '它跟随 torch，而上游两个都没有写版本，由 uv 一并解析。')
+            : (j ? j.whyZh
+              : (isMain ? '未检测本机，无法判断该包能否使用'
+                : '上游没有声明这个包的后端，平台不猜。')))),
     }
   })
 
@@ -511,8 +597,23 @@ function planDependencies (text, opts = {}) {
   const mainRow = torchGroup.find((r) => r.isMain) || null
   const overall = mainRow ? mainRow.verdict : (hw ? 'unknown' : 'unknown')
 
+  // 本机不装的包：平台条件不成立（sys_platform / platform_system 与快照不符）。
+  //   uv 按 marker 本来也不会装它们，这里点名是为了让界面直接把它们放进「不安装」，
+  //   使用者看得见，不用自己去读那行条件。
+  const skippedKey = (s) => String(s).split(/[<>=!~\[]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
+  const platformSkipped = []
+  for (const p of torchGroup) {
+    if (p.platformBlocked) platformSkipped.push(skippedKey(p.spec))
+  }
+  for (const s of rest) {
+    const semi = String(s).indexOf(';')
+    const marker = semi >= 0 ? String(s).slice(semi + 1).trim() : (markerByName.get(skippedKey(s)) || '')
+    if (!markerAllowsPlatform(marker, hw && hw.os)) platformSkipped.push(skippedKey(s))
+  }
+
   return {
     ok: true,
+    platformSkipped: [...new Set(platformSkipped)],
     // 这次依赖是从哪个文件读出来的：界面与维护者都要知道，
     //   不然「怎么读到的」这件事就只能靠推断。
     dep_source: source,
@@ -524,6 +625,9 @@ function planDependencies (text, opts = {}) {
       torch: { count: torchGroup.length, packages: torchGroup, action: 'choose-backend' },
     },
     hardware: hw ? {
+      os: hw.os || null,
+      arch: hw.arch || null,
+      python: hw.python || null,
       cpu: hw.cpu || null,
       memory: hw.memory || null,
       gpus: hw.gpus || [],

@@ -25,6 +25,31 @@ function pkgName (spec) {
   return String(spec || '').split(/[<>=!~\[;@\s]/)[0].trim().toLowerCase().replace(/[-_.]+/g, '-')
 }
 
+// 平台声明那一句：平台名按上游声明的顺序，本机那个加粗（只突出，不挪位置）。
+function PlatformNote ({ platform, lang }) {
+  const names = (platform && platform.names) || []
+  if (!names.length) return null
+  const zh = lang === 'zh'
+  return (
+    <span className="pf-warn">
+      {zh ? '上游声明适用于' : 'Declared for '}
+      {names.map((n, i) => {
+        const last = i === names.length - 1
+        const sep = i === 0 ? '' : (last ? (zh ? '或' : ' or ') : (zh ? '，' : ', '))
+        return (
+          <React.Fragment key={n.name}>
+            {sep}
+            {n.current ? <strong>{n.name}</strong> : n.name}
+          </React.Fragment>
+        )
+      })}
+      {zh
+        ? (platform.allowed ? '平台。' : '平台，不推荐安装。')
+        : (platform.allowed ? '.' : '; not recommended on this machine.')}
+    </span>
+  )
+}
+
 /**
  * 按包名找出后端算好的那条最终 spec。
  *
@@ -149,7 +174,23 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
     saved?.depsResult && saved.depsResult.ok ? saved.depsResult : null)
   const [preview, setPreview] = React.useState(saved?.depsPreview || null)
   const [unlocked, setUnlocked] = React.useState(saved?.unlocked || false)
-  const [skipped, setSkipped] = React.useState(saved?.skipped || [])
+  // 平台条件不成立的包（plan.platformSkipped）默认放进「不安装」：
+  //   用现成的不安装机制，使用者点一下就能装回来（逃生口），平台不替他做死决定。
+  const platformSkipped = (plan && Array.isArray(plan.platformSkipped)) ? plan.platformSkipped : []
+  const [skipped, setSkipped] = React.useState(() => ([...new Set([
+    ...(Array.isArray(saved?.skipped) ? saved.skipped : []),
+    ...platformSkipped,
+  ])]))
+  // 计划是异步拉回来的：初始化那一刻 plan 可能还没到（或来自旧缓存）。
+  //   计划到手后再把「本机不装」并进来一次；此后使用者点掉就点掉了，不反复加回。
+  const platformSkippedKey = (plan && Array.isArray(plan.platformSkipped)) ? plan.platformSkipped.join('\n') : ''
+  React.useEffect(() => {
+    if (!platformSkippedKey) return
+    setSkipped((prev) => {
+      const merged = [...new Set([...prev, ...plan.platformSkipped])]
+      return merged.length === prev.length ? prev : merged
+    })
+  }, [platformSkippedKey])
   // 使用者为某些包选定的版本（包名⇒版本号）。空对象表示「都按上游声明的装」。
   const [versionOverrides, setVersionOverrides] = React.useState(saved?.versionOverrides || {})
   const [busy, setBusy] = React.useState(false)
@@ -575,7 +616,11 @@ export default function StepDeps ({ state, prep, onFixId, onUndone, onReload }) 
                             <span className="field-hint" style={{ marginTop: 0 }}>
                               {off ? t('Not installed', '不安装') : (lang === 'zh' ? V.zh : V.en)}
                             </span>
-                            {!off && r.why && <span className="pf-warn">{t(r.why, r.whyZh)}</span>}
+                            {!off && r.why && (
+                              r.platform && r.platform.names && r.platform.names.length
+                                ? <PlatformNote platform={r.platform} lang={lang} />
+                                : <span className="pf-warn">{t(r.why, r.whyZh)}</span>
+                            )}
                           </div>
                         )
                       })}
