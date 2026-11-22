@@ -30,6 +30,8 @@ function collect(dir) {
 }
 
 collect(path.join(root, 'lib'))
+// 根 test/ 里是跨模块的验收测试（如 test/acceptance.node.test.js），也要收。
+collect(path.join(root, 'test'))
 // 第三方引擎树与 pipeline/ 里也有我们自己的包装器测试。
 // vendor/ 只放预编译二进制，本来没有我们的测试，但仍在名单里：落在那里的包装器
 // 不该悄悄没人测。
