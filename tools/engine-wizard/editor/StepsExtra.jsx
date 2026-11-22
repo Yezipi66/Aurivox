@@ -904,7 +904,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   }
                   return groups.map(([where, list]) => (
                     <div key={where || 'other'} style={{ marginTop: 8 }}>
-                      {where && <div className="rc-cmd-hdr">{t('Source', '来源')}：{where}</div>}
+                      {where && <div className="section-hdr">{t('Source', '来源')}：{where}</div>}
                       {list.map((e) => {
                         const busy = entryBusy === e.key
                         const expanded = expandedCmds.has(e.key)
@@ -963,7 +963,7 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   </div>
                 )}
                 {entryOut.length > 0 && (
-                  <div className="rc-cmd" style={{ marginTop: 6 }}>
+                  <div className="plan-preview" style={{ marginTop: 6, marginBottom: 0 }}>
                     <pre className="rc-cmd-body" style={{ maxHeight: 220, overflow: 'auto' }}>
                       {entryOut.join('\n')}
                     </pre>
