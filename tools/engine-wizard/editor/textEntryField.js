@@ -27,7 +27,7 @@ export function withTextVia (call, on) {
   } else {
     delete next.text_via
   }
-  // bind 原本就有时保留（哪怕是空的）：名片形状跟着人改，不自己长键也不自己删键。
+  // bind 在传入时已有时保留（哪怕是空的）：名片形状跟着人改，不自己长键也不自己删键。
   if (hadBind) next.bind = bind
   return next
 }

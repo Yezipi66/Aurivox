@@ -33,9 +33,9 @@ export function readWeights (call) {
 
 /**
  * 写回 call 段。原对象不动。
- * - self=true：写 call.weights="self"，并去掉原来那一项权重参数（两种说法不能同时在）。
- * - name 为空：只去掉原来那一项（这一格清空了）。
- * - 其余：原来那一项换成 name = value（value 空就用 {checkpoints}）。
+ * - self=true：写 call.weights="self"，并去掉已有的一项权重参数（两种说法不能同时在）。
+ * - name 为空：只去掉已有的一项（这一格清空了）。
+ * - 其余：已有的一项换成 name = value（value 空就用 {checkpoints}）。
  *
  * @param {object} call
  * @param {{ self?: boolean, name?: string, value?: string }} next

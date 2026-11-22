@@ -127,7 +127,7 @@ function judgeSlot (slot, ev, params, ambiguous, entryFile) {
  * python 形态下，从扫描到的类方法候选里挑一条写进名片。
  *
  * 为什么要有这一步：扫描回的「入口」只有 cli 那份（module + subcommand，写进 argv），
- *   python 形态的 module / class / method 原来没有任何写入路径。使用者把调用方式切到
+ *   python 形态的 module / class / method 没有写入路径。使用者把调用方式切到
  *   python 之后，argv 已被切形态那一步删掉，扫描又只认 argv，于是名片里一个入口都没有，
  *   保存下来无法启动。
  *
@@ -301,7 +301,7 @@ export function computePythonFill (params, currentCall, pythonEntries, suggested
 }
 
 export function computeCliFill (params, currentCall, bindCandidates = [], entry = null, engineId = null, hints = null, files = null, positionals = null) {
-  // 只有位置参数的引擎（命令行上一个开关都没有）以前在这里被整段丢掉：
+  // 只有位置参数的引擎（命令行上一个开关都没有）会被整段丢掉：
   //   扫到的是空参数表，界面只报「没有发现参数」，而真因是它把值写在词序上。
   const posList = Array.isArray(positionals) ? positionals : []
   if ((!params || !params.length) && !posList.length) return null

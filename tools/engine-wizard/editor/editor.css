@@ -3,9 +3,9 @@
  *  ⛔⛔ 三条纪律：
  *
  *  1. ⛔ **不重定义** styles.css 里已有的类。
- *     本文件曾经重复定义 .pipe-map / .pipe-step / .pipe-dot / .pipe-seg /
+ *     .pipe-map / .pipe-step / .pipe-dot / .pipe-seg /
  *     .expert-block / .expert-summary / .expert-warning / .expert-unlock /
- *     .expert-fields 共 9 个 —— 而 editor 又 import 了 styles.css，
+ *     .expert-fields 这 9 个若在本文件重定义，而 editor 又 import 了 styles.css，
  *     ⛔ 同名不同义 + 同时加载 ⇒ 谁生效取决于 import 顺序。
  *
  *  2. ⛔ **不重画**已有容器。项目的规范形状是：
@@ -973,7 +973,7 @@ html {
 /* 与向导服务断开的提示：占文档流，插在页面顶部的 #wz-conn-slot（App.jsx）。
    浮层两条路都走不通 —— 盖住中栏正在编辑的表单，或被某个祖先的包含块裁掉；
    占流的内容整体下移一格，两个问题都不存在。
-   底色混入页面底色：.msg-error 原本只有 10% 危险色 + 90% 透明。 */
+   底色混入页面底色：.msg-error 自身只有 10% 危险色 + 90% 透明。 */
 .wz-conn-banner {
   margin: 0;
   border-radius: 0;
