@@ -893,50 +893,58 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                       '盘上没有自带下载命令，源码里也没找到权重仓库。可在上方切到「模型仓库」或「文件直链」手动添加。')}
                   </div>
                 )}
-                {engineEntries.map((e) => {
-                  const busy = entryBusy === e.key
-                  const expanded = expandedCmds.has(e.key)
-                  return (
-                    <div key={e.key} style={{ marginTop: 6 }}>
-                      <div className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <pre className="rc-cmd-body" style={{
-                          flex: 1, margin: 0, minWidth: 180,
-                          whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
-                          overflow: expanded ? 'visible' : 'hidden',
-                          textOverflow: expanded ? 'clip' : 'ellipsis',
-                          wordBreak: 'break-all',
-                        }}>
-                          {(e.argv || []).map(String).join(' ')}
-                        </pre>
-                        <button className="btn btn-sm" type="button"
-                          onClick={() => toggleCmdExpand(e.key)}>
-                          {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
-                        </button>
-                        {e.already_deployed && (
-                          <span className="badge badge-warn"
-                            title={lang === 'zh' ? e.noteZh : e.noteEn}>
-                            {t('possibly already deployed in step 2', '第 2 步可能已部署')}
-                          </span>
-                        )}
-                        <button className="btn btn-sm btn-primary" type="button"
-                          disabled={!!entryBusy || !id}
-                          onClick={() => runEngineEntry(e)}>
-                          {busy ? t('Running', '运行中') : t('Run', '运行')}
-                        </button>
-                        {busy && (
-                          <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
-                            {t('Stop', '停止')}
-                          </button>
-                        )}
-                      </div>
-                      {((lang === 'zh' ? e.noteZh : e.noteEn) || e.noteZh) && (
-                        <div className="field-hint" style={{ marginTop: 4 }}>
-                          {lang === 'zh' ? (e.noteZh || e.noteEn) : (e.noteEn || e.noteZh)}
-                        </div>
-                      )}
+                {(() => {
+                  // 按来源文件分组：同一个文件里提出来的命令放一起，不逐条重复「来自 X」。
+                  const groups = []
+                  const byWhere = new Map()
+                  for (const e of engineEntries) {
+                    const k = e.where || ''
+                    if (!byWhere.has(k)) { byWhere.set(k, []); groups.push([k, byWhere.get(k)]) }
+                    byWhere.get(k).push(e)
+                  }
+                  return groups.map(([where, list]) => (
+                    <div key={where || 'other'} style={{ marginTop: 8 }}>
+                      {where && <div className="rc-cmd-hdr">{t('Source', '来源')}：{where}</div>}
+                      {list.map((e) => {
+                        const busy = entryBusy === e.key
+                        const expanded = expandedCmds.has(e.key)
+                        return (
+                          <div key={e.key} className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: where ? 4 : 0 }}>
+                            <pre className="rc-cmd-body" style={{
+                              flex: 1, margin: 0, minWidth: 180,
+                              whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+                              overflow: expanded ? 'visible' : 'hidden',
+                              textOverflow: expanded ? 'clip' : 'ellipsis',
+                              wordBreak: 'break-all',
+                            }}>
+                              {(e.argv || []).map(String).join(' ')}
+                            </pre>
+                            <button className="btn btn-sm" type="button"
+                              onClick={() => toggleCmdExpand(e.key)}>
+                              {expanded ? t('Collapse', '收起') : t('Expand', '展开')}
+                            </button>
+                            {e.already_deployed && (
+                              <span className="badge badge-warn"
+                                title={lang === 'zh' ? e.noteZh : e.noteEn}>
+                                {t('possibly already deployed in step 2', '第 2 步可能已部署')}
+                              </span>
+                            )}
+                            <button className="btn btn-sm btn-primary" type="button"
+                              disabled={!!entryBusy || !id}
+                              onClick={() => runEngineEntry(e)}>
+                              {busy ? t('Running', '运行中') : t('Run', '运行')}
+                            </button>
+                            {busy && (
+                              <button className="btn btn-sm btn-danger" type="button" onClick={stopEngineEntry}>
+                                {t('Stop', '停止')}
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
-                  )
-                })}
+                  ))
+                })()}
                 {runtimeRepos.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div className="field-hint" style={{ marginTop: 0, marginBottom: 2 }}>
@@ -955,9 +963,11 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   </div>
                 )}
                 {entryOut.length > 0 && (
-                  <pre className="rc-cmd-body" style={{ marginTop: 6, maxHeight: 220, overflow: 'auto' }}>
-                    {entryOut.join('\n')}
-                  </pre>
+                  <div className="rc-cmd" style={{ marginTop: 6 }}>
+                    <pre className="rc-cmd-body" style={{ maxHeight: 220, overflow: 'auto' }}>
+                      {entryOut.join('\n')}
+                    </pre>
+                  </div>
                 )}
               </>
             )}
