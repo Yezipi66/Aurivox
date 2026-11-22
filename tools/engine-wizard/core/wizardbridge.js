@@ -1712,6 +1712,14 @@ function handleEngineDownload (req, res) {
       for (const k of ['MODELSCOPE_CACHE', 'HF_HOME']) {
         try { fs.mkdirSync(dlEnv[k], { recursive: true }) } catch { /* 建不了就用默认位置 */ }
       }
+      // modelscope 在 Windows 上会给含「.」的仓库建一个 masked 链接，名字里带 org
+      //   （get_model_masked_directory：rsplit('/') 的产物），父目录 hub/<org>/<org>
+      //   不存在时它只报一条 warning。这里预先建出来。
+      const _repo = String((entry && entry.repo) || '')
+      const _org = _repo.split('/')[0]
+      if (_org) {
+        try { fs.mkdirSync(path.join(dlEnv.MODELSCOPE_CACHE, 'hub', _org, _org), { recursive: true }) } catch { /* 同上 */ }
+      }
       child = spawn(argv[0], argv.slice(1), {
         cwd: dir, windowsHide: true, shell: false,
         env: dlEnv,
