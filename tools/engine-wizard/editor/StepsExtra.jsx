@@ -11,6 +11,7 @@ import {
 import { sourceOf, buildCommand, choiceKey, repoPageUrl, repoLinkFromUrl, subdirOf, SOURCES, SOURCE_LABELS } from './downloadSource'
 import { ConfirmDialog } from '../../../web/src/components/common/Dialogs'
 import Select from '../../../web/src/components/common/Select'
+import { BOX } from './boxStyle.js'
 
 // 第 3 步（下载模型）：列出远端仓库的文件清单，逐个下载，并显示每个文件在盘上的状态。
 // 清单来自上游仓库 API 与第 1 步探测到的仓库地址，不依赖 manifest。
@@ -903,13 +904,15 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     byWhere.get(k).push(e)
                   }
                   return groups.map(([where, list]) => (
-                    <div key={where || 'other'} style={{ marginTop: 'var(--sp-8)' }}>
-                      {where && <div className="section-hdr">{t('Source', '来源')}：{where}</div>}
-                      {list.map((e) => {
+                    <div key={where || 'other'} style={{ ...BOX, marginTop: 'var(--sp-8)' }}>
+                      {where && <div className="field-label" style={{ margin: '0 0 6px', fontWeight: 600 }}>{t('Source', '来源')}：{where}</div>}
+                      {list.map((e, i) => {
                         const busy = entryBusy === e.key
                         const expanded = expandedCmds.has(e.key)
                         return (
-                          <div key={e.key} className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap', marginTop: where ? 'var(--sp-4)' : 0 }}>
+                          <div key={e.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap',
+                            marginTop: i ? 'var(--sp-8)' : 0, paddingTop: i ? 'var(--sp-8)' : 0,
+                            borderTop: i ? '1px solid var(--border)' : 'none' }}>
                             <pre className="rc-cmd-body" style={{
                               flex: 1, margin: 0, minWidth: 180,
                               whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
