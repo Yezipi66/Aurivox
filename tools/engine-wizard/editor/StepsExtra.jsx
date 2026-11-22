@@ -963,10 +963,8 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                   </div>
                 )}
                 {entryOut.length > 0 && (
-                  <div className="plan-preview" style={{ marginTop: 6, marginBottom: 0 }}>
-                    <pre className="rc-cmd-body" style={{ maxHeight: 220, overflow: 'auto' }}>
-                      {entryOut.join('\n')}
-                    </pre>
+                  <div className="log-view" style={{ marginTop: 6 }}>
+                    {entryOut.map((l, i) => <div key={i} className="log-line">{l}</div>)}
                   </div>
                 )}
               </>
