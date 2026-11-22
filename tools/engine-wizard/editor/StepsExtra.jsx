@@ -903,13 +903,13 @@ export function StepModels ({ state, onChange, probe, prep, onFixId, weightsPath
                     byWhere.get(k).push(e)
                   }
                   return groups.map(([where, list]) => (
-                    <div key={where || 'other'} style={{ marginTop: 8 }}>
+                    <div key={where || 'other'} style={{ marginTop: 'var(--sp-8)' }}>
                       {where && <div className="section-hdr">{t('Source', '来源')}：{where}</div>}
                       {list.map((e) => {
                         const busy = entryBusy === e.key
                         const expanded = expandedCmds.has(e.key)
                         return (
-                          <div key={e.key} className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: where ? 4 : 0 }}>
+                          <div key={e.key} className="rc-cmd" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-8)', flexWrap: 'wrap', marginTop: where ? 'var(--sp-4)' : 0 }}>
                             <pre className="rc-cmd-body" style={{
                               flex: 1, margin: 0, minWidth: 180,
                               whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
