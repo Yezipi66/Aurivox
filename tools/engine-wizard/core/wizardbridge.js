@@ -1477,8 +1477,9 @@ function downloadCmdArgv (entry, root, id) {
     }
     return null
   }
+  // local_dir 用平台分隔符：混斜杠在 Windows 上会被下载库拼出坏路径。
   const fallbackDir = path.join('pretrained_models', String(entry.repo).split('/').pop())
-  const localDir = entry.dir || fallbackDir
+  const localDir = entry.dir ? path.join(entry.dir) : fallbackDir
   if (entry.tool === 'modelscope') {
     const bin = pick(['modelscope.exe', 'modelscope']) || py
     return [bin, 'download', '--model', entry.repo, '--local_dir', localDir]
@@ -1702,9 +1703,18 @@ function handleEngineDownload (req, res) {
     send('argv', { argv: argv.map(String), cwd: dir })
     let child
     try {
+      // 缓存落在引擎目录内：modelscope / huggingface 默认往用户目录建缓存与符号链接，
+      //   那是引擎资产之外的地方。指到 engines/<id>/.cache 下，删引擎时一起清。
+      const dlEnv = Object.assign({}, childEnvFor(root, undefined), {
+        MODELSCOPE_CACHE: path.join(dir, '.cache', 'modelscope'),
+        HF_HOME: path.join(dir, '.cache', 'hf'),
+      })
+      for (const k of ['MODELSCOPE_CACHE', 'HF_HOME']) {
+        try { fs.mkdirSync(dlEnv[k], { recursive: true }) } catch { /* 建不了就用默认位置 */ }
+      }
       child = spawn(argv[0], argv.slice(1), {
         cwd: dir, windowsHide: true, shell: false,
-        env: childEnvFor(root, undefined),
+        env: dlEnv,
       })
     } catch (e) {
       send('done', { ok: false, code: 'SPAWN_FAILED', error: e.message })
